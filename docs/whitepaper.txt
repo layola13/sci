@@ -1,0 +1,46 @@
+SA-ASM Whitepaper v1.0
+
+SA-ASM is a symbolic affine intermediate language for machine-generated code and machine-checked ownership.
+
+Design goals:
+- keep syntax flat and token-dense
+- make ownership transitions explicit
+- make verification linear, deterministic, and structure-free
+- lower valid programs to Zig and then to WASM64
+
+Core symbols:
+= bind / allocate
+& borrow
+^ move / consume
+! release / drop
+$...$ native escape block
+
+ISA summary:
+SA-ASM programs are line-oriented. Each line is one of: definition, macro, function signature, label, instruction, or native block.
+
+Capability masks:
+0x00 Uninitialized
+0x01 Active
+0x02 Locked_Read
+0x04 Locked_Mut
+0x08 Consumed
+0x10 BorrowView
+
+Macro and REP rules:
+- [MACRO] ... [END_MACRO] registers a pure text template.
+- EXPAND pastes the template at the call site.
+- [REP N] ... [END_REP] duplicates the block N times and injects %i.
+- Expansion depth is capped at 256.
+
+Native escape blocks:
+Text inside $...$ is passed through verbatim to the Zig backend. The referee treats referenced registers conservatively.
+
+Rust -> SA-ASM -> Zig examples:
+- let mut x = alloc(16); -> x = alloc 16 -> const x = try allocator.alloc(u8, 16);
+- x = x + y; -> z = add x, y -> const z = x + y;
+- drop(x); -> !x -> allocator.free(x);
+- return x; -> return x -> return x;
+- ptr = &x; -> r = &x -> const r = x;
+
+Trap codes:
+ForbiddenSyntax, DuplicateDef, DuplicateLabel, UnsupportedType, MacroRecursionLimit, RegisterRedefinition, UnknownRegister, BorrowConflict, UseAfterMove, DoubleMutableBorrow, ReadWriteConflict, MemoryLeak, CapabilityMismatch, FallthroughForbidden, PhiStateConflict, GasExceeded, ArenaOOM, SnapshotVersionMismatch

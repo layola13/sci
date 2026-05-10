@@ -1,0 +1,14 @@
+.{
+    .name = .sa_asm,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.14.1",
+    .fingerprint = 0x754c090244874e68,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "docs",
+        "src",
+        "tests",
+    },
+}
