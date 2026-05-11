@@ -4,6 +4,7 @@ pub const common = struct {
     pub const instruction = @import("common/instruction.zig");
     pub const capability = @import("common/capability.zig");
     pub const trap = @import("common/trap.zig");
+    pub const upstream_loc = @import("common/upstream_loc.zig");
     pub const gas = @import("common/gas.zig");
     pub const signature = @import("common/signature.zig");
 };
@@ -16,6 +17,7 @@ test "root module imports common types" {
     const inst = @import("common/instruction.zig");
     const cap = @import("common/capability.zig");
     const trap = @import("common/trap.zig");
+    const upstream_loc = @import("common/upstream_loc.zig");
     const gas = @import("common/gas.zig");
     const sig = @import("common/signature.zig");
     const flatten = @import("flattener.zig");
@@ -24,6 +26,7 @@ test "root module imports common types" {
     _ = inst.InstKind.alloc;
     _ = cap.CapabilityMask.active;
     _ = trap.Trap.forbidden_syntax;
+    _ = upstream_loc.UpstreamLoc;
     _ = gas.GasReport;
     _ = sig.FunctionSig;
 

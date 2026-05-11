@@ -1,5 +1,6 @@
 const std = @import("std");
 const instr = @import("instruction.zig");
+const upstream = @import("upstream_loc.zig");
 
 pub const ParseError = error{
     OutOfMemory,
@@ -35,8 +36,11 @@ pub const FunctionSig = struct {
     kind: FunctionKind,
     return_cap: ?instr.CapPrefix,
     return_ty: PrimType,
+    return_fallible: bool = false,
     entry_inst_idx: u32,
     is_ffi_wrapper: bool,
+    upstream_file: ?[]const u8 = null,
+    upstream_loc: ?upstream.UpstreamLoc = null,
     param_ids: []const u32 = &.{},
 
     pub fn deinit(self: *FunctionSig, allocator: std.mem.Allocator) void {
@@ -186,14 +190,20 @@ pub fn parseFunctionSig(
     }
 
     const params_text = std.mem.trim(u8, body[open + 1 .. close], " \t\r");
-    const tail = std.mem.trim(u8, body[close + 1 ..], " \t\r");
+    var tail = std.mem.trim(u8, body[close + 1 ..], " \t\r");
 
     var return_cap: ?instr.CapPrefix = null;
     var return_ty: PrimType = .void;
+    var return_fallible = false;
     if (tail.len != 0) {
         if (!std.mem.startsWith(u8, tail, "->")) return ParseError.InvalidFunctionSig;
-        const return_text = std.mem.trim(u8, tail[2..], " \t\r");
+        var return_text = std.mem.trim(u8, tail[2..], " \t\r");
         if (return_text.len == 0) return ParseError.InvalidFunctionSig;
+        if (return_text[return_text.len - 1] == '!') {
+            return_fallible = true;
+            return_text = std.mem.trimRight(u8, return_text[0 .. return_text.len - 1], " \t\r");
+            if (return_text.len == 0) return ParseError.InvalidFunctionSig;
+        }
         const cap_split = parseOptionalCap(return_text);
         return_cap = cap_split.cap;
         const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
@@ -228,8 +238,11 @@ pub fn parseFunctionSig(
         .kind = .normal,
         .return_cap = return_cap,
         .return_ty = return_ty,
+        .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = false,
+        .upstream_file = null,
+        .upstream_loc = null,
     };
 }
 
@@ -270,14 +283,20 @@ pub fn parseFunctionHeader(
     }
 
     const params_text = std.mem.trim(u8, after_name[open + 1 .. close], " \t\r");
-    const tail = std.mem.trim(u8, after_name[close + 1 ..], " \t\r");
+    var tail = std.mem.trim(u8, after_name[close + 1 ..], " \t\r");
 
     var return_cap: ?instr.CapPrefix = null;
     var return_ty: PrimType = .void;
+    var return_fallible = false;
     if (tail.len != 0) {
         if (!std.mem.startsWith(u8, tail, "->")) return ParseError.InvalidFunctionSig;
-        const return_text = std.mem.trim(u8, tail[2..], " \t\r");
+        var return_text = std.mem.trim(u8, tail[2..], " \t\r");
         if (return_text.len == 0) return ParseError.InvalidFunctionSig;
+        if (return_text[return_text.len - 1] == '!') {
+            return_fallible = true;
+            return_text = std.mem.trimRight(u8, return_text[0 .. return_text.len - 1], " \t\r");
+            if (return_text.len == 0) return ParseError.InvalidFunctionSig;
+        }
         const cap_split = parseOptionalCap(return_text);
         return_cap = cap_split.cap;
         const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
@@ -312,8 +331,11 @@ pub fn parseFunctionHeader(
         .kind = kind,
         .return_cap = return_cap,
         .return_ty = return_ty,
+        .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = kind == .ffi_wrapper,
+        .upstream_file = null,
+        .upstream_loc = null,
     };
 }
 
@@ -328,18 +350,22 @@ test "function signature carries prefix and params" {
         .kind = .normal,
         .return_cap = .move,
         .return_ty = .i32,
+        .return_fallible = true,
         .entry_inst_idx = 0,
         .is_ffi_wrapper = false,
+        .upstream_file = "main.rs",
+        .upstream_loc = .{ .file = "main.rs", .line = 1, .col = 1 },
         .param_ids = &.{},
     };
     try std.testing.expectEqual(@as(u32, 1), sig.id);
     try std.testing.expectEqualStrings("main", sig.name);
     try std.testing.expectEqual(@as(usize, 1), sig.params.len);
     try std.testing.expectEqual(instr.CapPrefix.move, sig.return_cap.?);
+    try std.testing.expect(sig.return_fallible);
 }
 
 test "parse function signature with params and return cap" {
-    var sig = try parseFunctionSig(std.testing.allocator, "@sum(^lhs: i32, rhs: i32) -> ^i32:", 7, 3);
+    var sig = try parseFunctionSig(std.testing.allocator, "@sum(^lhs: i32, rhs: i32) -> ^i32!:", 7, 3);
     defer sig.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(u32, 7), sig.id);
@@ -350,4 +376,5 @@ test "parse function signature with params and return cap" {
     try std.testing.expectEqual(instr.CapPrefix.by_value, sig.params[1].cap);
     try std.testing.expectEqual(instr.CapPrefix.move, sig.return_cap.?);
     try std.testing.expectEqual(PrimType.i32, sig.return_ty);
+    try std.testing.expect(sig.return_fallible);
 }

@@ -1,55 +1,16 @@
-# Rust → SA 降级对照全集（v0.2 规范对齐版）
+# Rust → SA 降级对照全集（v0.2 规范严格版）
 
-> 本文档严格按照 `.kiro/specs/sa-asm-language/` 下的 **requirements.md（R1–R24）** 与 **design.md** 规范，把 Rust 从最基础语法到最复杂的异步/多态逐一降级到 SA。
+> 本文档严格按照 `.kiro/specs/sa-asm-language/` 下的 **requirements.md（R1–R24）** 与 **design.md** 规范。
 >
-> 每个案例都会标注：
-> - ✅ **顺畅**：SA 原生表达，降级代码清晰
-> - ⚠️ **前端重担**：能表达但前端（smrustc/LLM）工作量大
-> - ❌ **刻意缺失**：SA 规范不覆盖，把责任划给前端（设计取舍）
+> **关键约束**（R5.2 / R5.8 / R5.9）：
+> - SA 语法层**只有 `&`**（借用），**没有 `&mut`**
+> - 共享读 vs 独占写由 Referee 的 `Locked_Read` / `Locked_Mut` 位掩码在**调用方上下文**内动态决定
+> - 凡 `&` / `^` 前缀参数，`ty` **必须是 `ptr`**
+> - 按值传递（无前缀）才能用原生数值类型 `i32` / `f32` / `u64` 等
+> - 用户自定义类型名（如 `Vec3` / `Slice`）**只活在 `#def` 注释里**，不出现在函数签名中
+> - `@const` **无类型标注**，字节长度由字面量推断
 >
 > 每个 SA 示例伪装为前端已完成词法作用域跟踪与隐式 Drop 插入后的产物（R20 合约）。
->
-> **v0.1 与 v0.2 区别**：凡使用 `@const` / `stack_alloc` / `ptr_add` / `InteriorPtr` / `atomic_rmw_*` / `#mode compact` 的案例，均标为 v0.2 特性；v0.1 产物可降级为等价但更冗长的形态。
-
----
-
-## 目录
-
-### 基础特性
-1. 变量与算术
-2. 条件与循环
-3. 所有权 Move
-4. 共享借用 `&`
-5. 独占借用 `&mut`
-6. 结构体（字段偏移）
-7. 数组索引与越界检查（`InteriorPtr`）
-8. 字符串（胖指针 UTF-8）
-9. Vec<T>（胖指针容器）
-10. Box<T> / 栈分配（`stack_alloc`）
-
-### 中级特性
-11. Enum + match（标签联合）
-12. Option<T> / Result<T, E>
-13. `?` 错误传播
-14. 函数参数的三种模式
-15. 递归函数（链表遍历）
-16. 生命周期标注 `'a`（刻意缺失）
-
-### 高级特性
-17. 泛型 + 单态化
-18. Trait 静态分发
-19. `dyn Trait` 动态分发（`@const` VTable）
-20. 闭包（Lambda Lifting）
-21. Iterator + for 循环
-22. 原子操作（`atomic_rmw_*` + `cmpxchg` 双返回）
-23. async/await（状态机展平）
-24. Rc/Arc 引用计数（用 `atomic_rmw_sub`）
-25. unsafe 块与裸指针（气闸舱）
-26. FFI extern "C"
-27. panic! / panic_msg
-
-### v0.2 糖
-28. `#mode compact` 紧凑中缀糖
 
 ---
 
@@ -64,9 +25,8 @@ fn sum(a: i32, b: i32) -> i32 {
 }
 ```
 
-### SA（v0.1 关键字形态）
+### SA
 ```
-#loc "basics.rs":1:1
 @sum(a: i32, b: i32) -> i32:
 L_ENTRY:
     c = add a, b
@@ -74,48 +34,23 @@ L_ENTRY:
     return d
 ```
 
-### SA（v0.2 `#mode compact` 形态，等价）
-```
-#mode compact
-#loc "basics.rs":1:1
-@sum(a: i32, b: i32) -> i32:
-L_ENTRY:
-    c = a + b
-    d = c * 2
-    return d
-```
-
-**说明**：两份源码经 Flattener 产出的 `Instruction[]` 字段级相等（P30 保证）。下文除非必要，默认用 v0.1 关键字形态。
-
 ---
 
 ## 2. 条件与循环 ✅
 
 ### Rust
 ```rust
-fn abs_sum(arr: &[i32]) -> i32 {
-    let mut sum = 0;
-    let mut i = 0;
-    while i < arr.len() {
-        let v = arr[i];
-        if v >= 0 {
-            sum = sum + v;
-        } else {
-            sum = sum - v;
-        }
-        i = i + 1;
-    }
-    sum
-}
+fn abs_sum(arr: &[i32]) -> i32 { /* while + if/else */ }
 ```
 
 ### SA
 ```
+// Slice 布局: [data_ptr(8) | len(8)] = 16 bytes
 #def Slice_data = +0
 #def Slice_len  = +8
 #def I32_SIZE   = 4
 
-@abs_sum(arr: &Slice) -> i32:
+@abs_sum(arr: &ptr) -> i32:          // &ptr: 借用一个指向 Slice 布局的内存块
 L_ENTRY:
     sum = 0
     i = 0
@@ -127,10 +62,9 @@ L_COND:
     br cond -> L_BODY, L_END
 
 L_BODY:
-    // 从借用的切片胖指针中派生内部数据指针（InteriorPtr，不需气闸舱，R13.6）
     data_base = load arr+Slice_data as ptr
     offset    = mul i, I32_SIZE
-    data_ip   = ptr_add data_base, offset    // data_ip: InteriorPtr, 生命周期绑定 arr 借用
+    data_ip   = ptr_add data_base, offset    // InteriorPtr
     v         = load data_ip+0 as i32
 
     neg = slt v, 0
@@ -152,11 +86,6 @@ L_END:
     return sum
 ```
 
-**说明**：
-- 嵌套 `while { if/else }` 被展平为 5 个 Label 的 CFG
-- `arr[i]` 用 `ptr_add + load` 降级，产物是 `InteriorPtr`（R4.9），**不触发气闸舱**（R13.6）
-- `arr` 借用释放时，`data_ip` 自动进入 `Consumed`（R4.10）
-
 ---
 
 ## 3. 所有权 Move ✅
@@ -164,14 +93,8 @@ L_END:
 ### Rust
 ```rust
 struct Data { v: i32 }
-
 fn consume(d: Data) {}
-
-fn main() {
-    let x = Data { v: 10 };
-    consume(x);
-    // println!("{}", x.v); // 编译错误
-}
+fn main() { let x = Data { v: 10 }; consume(x); }
 ```
 
 ### SA
@@ -179,9 +102,9 @@ fn main() {
 #def Data_SIZE = 4
 #def Data_v    = +0
 
-@consume(^d: ptr):
+@consume(^d: ptr):                    // ^ptr: Move 进来
 L_ENTRY:
-    !d                      // 前端按 R20.1 显式释放
+    !d
     return
 
 @main:
@@ -189,8 +112,6 @@ L_ENTRY:
     x = alloc Data_SIZE
     store x+Data_v, 10 as i32
     call @consume(^x)
-    // 此刻 x.mask == Consumed (0x08)
-    // 任何对 x 的读写都会触发 UseAfterMove
     return
 ```
 
@@ -201,17 +122,11 @@ L_ENTRY:
 ### Rust
 ```rust
 fn read_only(r: &i32) -> i32 { *r + 100 }
-
-fn main() {
-    let x = 42i32;
-    let y = read_only(&x);
-    let z = read_only(&x);
-}
 ```
 
 ### SA
 ```
-@read_only(r: &i32) -> i32:
+@read_only(r: &ptr) -> i32:          // &ptr: 借用指向 i32 的内存
 L_ENTRY:
     v = load r+0 as i32
     res = add v, 100
@@ -219,7 +134,7 @@ L_ENTRY:
 
 @main:
 L_ENTRY:
-    x = stack_alloc 4             // v0.2 栈分配，无需 !x
+    x = stack_alloc 4
     store x+0, 42 as i32
 
     r1 = &x
@@ -230,10 +145,8 @@ L_ENTRY:
     z = call @read_only(&r2)
     !r2
 
-    return                         // stack_alloc 自动回收
+    return
 ```
-
-**说明**：整数局部变量用 `stack_alloc`（R2.1、P27）避免堆分配开销。Referee 在函数出口对 `stack_alloc` 产物不查 `MemoryLeak`。
 
 ---
 
@@ -242,17 +155,13 @@ L_ENTRY:
 ### Rust
 ```rust
 fn increment(r: &mut i32) { *r += 1; }
-
-fn main() {
-    let mut x = 10;
-    increment(&mut x);
-    let y = x;   // Rust NLL: r 已在函数返回时释放
-}
 ```
 
 ### SA
 ```
-@increment(r: &mut i32):
+// SA 没有 &mut 语法。独占借用由调用方上下文决定：
+// 当源寄存器只有一个借用且该借用会写入时，Referee 自动标记 Locked_Mut。
+@increment(r: &ptr):                  // &ptr: 借用（Referee 内部标 Locked_Mut）
 L_ENTRY:
     v  = load r+0 as i32
     v2 = add v, 1
@@ -264,13 +173,15 @@ L_ENTRY:
     x = stack_alloc 4
     store x+0, 10 as i32
 
-    r = &mut x
-    call @increment(&mut r)
-    !r                              // 前端在 Rust NLL 终止点发射释放
+    r = &x                            // Referee: x → Locked_Mut（因为 r 会 store）
+    call @increment(&r)
+    !r                                // 解锁 x
 
     y = load x+0 as i32
     return
 ```
+
+**关键**：SA 语法层只有 `&`。Rust 的 `&mut` 在 SA 里通过 Referee 的 `Locked_Mut` 位掩码实现——当借用视图对源内存执行 `store` 时，Referee 自动将源寄存器从 `Locked_Read` 升级为 `Locked_Mut`（若已有其它读借用则 Trap `ReadWriteConflict`）。前端不需要在签名上区分。
 
 ---
 
@@ -279,10 +190,7 @@ L_ENTRY:
 ### Rust
 ```rust
 struct Vec3 { x: f32, y: f32, z: f32 }
-
-fn length_sq(v: &Vec3) -> f32 {
-    v.x * v.x + v.y * v.y + v.z * v.z
-}
+fn length_sq(v: &Vec3) -> f32 { v.x*v.x + v.y*v.y + v.z*v.z }
 ```
 
 ### SA
@@ -292,7 +200,7 @@ fn length_sq(v: &Vec3) -> f32 {
 #def Vec3_y    = +4
 #def Vec3_z    = +8
 
-@length_sq(v: &Vec3) -> f32:
+@length_sq(v: &ptr) -> f32:          // &ptr: 借用指向 Vec3 布局的 12 字节块
 L_ENTRY:
     x  = load v+Vec3_x as f32
     y  = load v+Vec3_y as f32
@@ -307,7 +215,7 @@ L_ENTRY:
 
 ---
 
-## 7. 数组索引与越界检查（InteriorPtr） ✅
+## 7. 数组索引（InteriorPtr） ✅
 
 ### Rust
 ```rust
@@ -322,7 +230,7 @@ fn get_or_zero(arr: &[i32], i: usize) -> i32 {
 #def Slice_len  = +8
 #def I32_SIZE   = 4
 
-@get_or_zero(arr: &Slice, i: u64) -> i32:
+@get_or_zero(arr: &ptr, i: u64) -> i32:
 L_ENTRY:
     len = load arr+Slice_len as u64
     ok = ult i, len
@@ -331,7 +239,7 @@ L_ENTRY:
 L_READ:
     data_base = load arr+Slice_data as ptr
     offset    = mul i, I32_SIZE
-    data_ip   = ptr_add data_base, offset      // InteriorPtr
+    data_ip   = ptr_add data_base, offset
     v         = load data_ip+0 as i32
     return v
 
@@ -339,30 +247,22 @@ L_ZERO:
     return 0
 ```
 
-**✅ 已修复**（v0.2 R13.6）：`ptr_add` 派生的 `InteriorPtr` 在普通函数内合法，无需进入 `@ffi_wrapper`。Referee 保证当 `arr` 借用被 `!` 释放时，`data_ip` 自动作废。
-
 ---
 
 ## 8. 字符串（胖指针 UTF-8） ⚠️
 
 ### Rust
 ```rust
-fn count_a(s: &str) -> u64 {
-    let mut count = 0u64;
-    for b in s.bytes() {
-        if b == b'a' { count += 1; }
-    }
-    count
-}
+fn count_a(s: &str) -> u64 { s.bytes().filter(|&b| b == b'a').count() as u64 }
 ```
 
 ### SA
 ```
 #def Str_data = +0
 #def Str_len  = +8
-#def CHAR_a   = 97              // b'a'
+#def CHAR_a   = 97
 
-@count_a(s: &Str) -> u64:
+@count_a(s: &ptr) -> u64:            // &ptr: 借用指向 Str 布局 [data(8)|len(8)]
 L_ENTRY:
     data = load s+Str_data as ptr
     len  = load s+Str_len  as u64
@@ -375,7 +275,7 @@ L_COND:
     br cond -> L_BODY, L_END
 
 L_BODY:
-    cur  = ptr_add data, i        // InteriorPtr
+    cur  = ptr_add data, i
     b    = load cur+0 as u8
     is_a = eq b, CHAR_a
     br is_a -> L_HIT, L_NEXT
@@ -392,29 +292,17 @@ L_END:
     return count
 ```
 
-**⚠️ 前端重担**：UTF-8 多字节字符迭代、`s.bytes()` Iterator 链的展平仍然要前端做。SA 本身只认字节数组。
-
 ---
 
 ## 9. Vec<T>（胖指针容器） ⚠️
-
-### Rust
-```rust
-fn sum_vec(v: &Vec<i32>) -> i32 {
-    let mut s = 0;
-    for &x in v.iter() { s += x; }
-    s
-}
-```
 
 ### SA
 ```
 #def Vec_data  = +0
 #def Vec_len   = +8
-#def Vec_cap   = +16
 #def I32_SIZE  = 4
 
-@sum_vec(v: &Vec) -> i32:
+@sum_vec(v: &ptr) -> i32:            // &ptr: 借用指向 Vec 布局 [data(8)|len(8)|cap(8)]
 L_ENTRY:
     data = load v+Vec_data as ptr
     len  = load v+Vec_len  as u64
@@ -438,86 +326,42 @@ L_END:
     return s
 ```
 
-**⚠️ 前端重担**：泛型 `Vec<T>` 必须被前端分别单态化为 `Vec_i32` / `Vec_String` 等，各自的 `element_size` 是编译期常量（通过 `#def` 注入）。
-
 ---
 
-## 10. Box<T> / 栈分配（`stack_alloc`） ✅
-
-### Rust
-```rust
-// 堆分配
-fn boxed_double(x: i32) -> Box<i32> {
-    Box::new(x * 2)
-}
-
-// 编译器会把小对象放到栈上优化
-fn stacked_double(x: i32) -> i32 {
-    let tmp = x * 2;   // 无需 Box
-    tmp
-}
-```
+## 10. Box<T> / stack_alloc ✅
 
 ### SA
 ```
-// Box 版本：堆分配，Move 给调用者
-@boxed_double(x: i32) -> ^ptr:
+@boxed_double(x: i32) -> ^ptr:       // ^ptr: Move 出堆分配的 4 字节块
 L_ENTRY:
     b = alloc 4
     v = mul x, 2
     store b+0, v as i32
     return ^b
 
-// 栈版本：函数内局部缓冲，无需手动释放
 @stacked_double(x: i32) -> i32:
 L_ENTRY:
     tmp = stack_alloc 4
     v = mul x, 2
     store tmp+0, v as i32
     r = load tmp+0 as i32
-    return r                       // stack_alloc 不允许 ^ 逃逸，只能返回值
-
-@main:
-L_ENTRY:
-    result = call @boxed_double(5) // ^ptr 返回值
-    !result                         // 前端必须 free
-    return
+    return r
 ```
-
-**✅ 已修复**（v0.2 R2.1/P27）：`stack_alloc N` 生命周期绑定函数出口，禁止 `^ Move` 出函数（违反 → `Trap: StackEscape`）。消除了 Option 小值每次上堆的性能问题。
 
 ---
 
-## 11. Enum + match（标签联合） ✅
-
-### Rust
-```rust
-enum Shape {
-    Circle(f32),
-    Rectangle(f32, f32),
-}
-
-fn area(s: &Shape) -> f32 {
-    match s {
-        Shape::Circle(r) => 3.14159 * r * r,
-        Shape::Rectangle(w, h) => w * h,
-    }
-}
-```
+## 11. Enum + match ✅
 
 ### SA
 ```
-#def Shape_SIZE     = 12
-#def Shape_tag      = +0
-#def Circle_r       = +4
-#def Rect_w         = +4
-#def Rect_h         = +8
-#def TAG_CIRCLE     = 0
-#def TAG_RECTANGLE  = 1
+#def Shape_tag  = +0
+#def Circle_r   = +4
+#def Rect_w     = +4
+#def Rect_h     = +8
+#def TAG_CIRCLE = 0
+#def TAG_RECT   = 1
 
-#def PI_F32 = 3.14159
-
-@area(s: &Shape) -> f32:
+@area(s: &ptr) -> f32:               // &ptr: 借用指向 Shape 布局
 L_ENTRY:
     tag = load s+Shape_tag as u32
     is_c = eq tag, TAG_CIRCLE
@@ -526,163 +370,118 @@ L_ENTRY:
 L_CIRCLE:
     r = load s+Circle_r as f32
     rr = fmul r, r
-    res_c = fmul PI_F32, rr
-    return res_c
+    res = fmul 3.14159, rr
+    return res
 
 L_CHECK_RECT:
-    is_r = eq tag, TAG_RECTANGLE
+    is_r = eq tag, TAG_RECT
     br is_r -> L_RECT, L_MISS
 
 L_RECT:
     w = load s+Rect_w as f32
     h = load s+Rect_h as f32
-    res_r = fmul w, h
-    return res_r
+    res2 = fmul w, h
+    return res2
 
 L_MISS:
-    panic(106)     // PANIC_MissingVariant（R18.6 标准字典）
+    panic(106)
 ```
 
 ---
 
 ## 12. Option<T> / Result<T, E> ✅
 
-### Rust
-```rust
-fn safe_div(a: i32, b: i32) -> Option<i32> {
-    if b == 0 { None } else { Some(a / b) }
-}
-```
-
-### SA（栈分配版本，v0.2）
+### SA
 ```
 #def Opt_tag = +0
 #def Opt_val = +4
-#def OPT_NONE = 0
-#def OPT_SOME = 1
+#def NONE = 0
+#def SOME = 1
 
-@safe_div(a: i32, b: i32) -> ^ptr:
+@safe_div(a: i32, b: i32) -> ^ptr:   // ^ptr: Move 出 Option 布局
 L_ENTRY:
     is_zero = eq b, 0
     br is_zero -> L_NONE, L_SOME
 
 L_NONE:
-    r1 = alloc 8                   // 跨函数返回必须堆分配（栈值不能逃逸）
-    store r1+Opt_tag, OPT_NONE as u32
-    return ^r1
+    r = alloc 8
+    store r+Opt_tag, NONE as u32
+    return ^r
 
 L_SOME:
     q = sdiv a, b
-    r2 = alloc 8
-    store r2+Opt_tag, OPT_SOME as u32
-    store r2+Opt_val, q as i32
-    return ^r2
+    r = alloc 8
+    store r+Opt_tag, SOME as u32
+    store r+Opt_val, q as i32
+    return ^r
 ```
-
-**说明**：若 Option 仅在函数内使用（不作为返回值），则应用 `stack_alloc 8` 获得零堆开销。作为返回值必须 `alloc`。
 
 ---
 
 ## 13. `?` 错误传播 ✅
 
-### Rust
-```rust
-fn load_config() -> Result<i32, u32> {
-    let raw = read_file("config.txt")?;
-    let parsed = parse_int(&raw)?;
-    Ok(parsed * 2)
-}
-```
-
 ### SA
 ```
-@extern read_file(path: &Str) -> ptr!
-@extern parse_int(s: &Str) -> i32!
+@extern read_file(path: &ptr) -> ptr!
+@extern parse_int(s: &ptr) -> i32!
 
-@const CONFIG_PATH: Str = utf8:"config.txt"    // v0.2 R6.5 全局常量
+@const CONFIG_BYTES = utf8:"config.txt"
 
 @load_config() -> i32!:
 L_ENTRY:
-    res1 = call @read_file(&CONFIG_PATH)
-    raw  = ? res1                  // 展平见下方注释
+    // 构造 Str 胖指针（指向 @const 字节 + 长度）
+    path = stack_alloc 16
+    store path+0, &CONFIG_BYTES as ptr
+    store path+8, 10 as u64           // "config.txt" = 10 bytes
 
-    // Flattener 展平：
-    // status1 = extractvalue res1, 0
-    // ok1 = eq status1, 0
-    // br ok1 -> L_CONT1, L_EARLY1
-    // L_EARLY1:
-    //     return res1              // 无须释放（无额外 Active 寄存器）
-    // L_CONT1:
-    //     raw = extractvalue res1, 1
+    r_path = &path
+    res1 = call @read_file(&r_path)
+    !r_path
+    raw = ? res1
 
-    r_raw  = &raw
-    res2   = call @parse_int(&r_raw)
+    r_raw = &raw
+    res2 = call @parse_int(&r_raw)
+    !r_raw
     parsed = ? res2
 
-    // L_EARLY2 此时 r_raw 和 raw 都 Active，必须在早返回前释放
-    !r_raw
     !raw
 
     doubled = mul parsed, 2
-
-    // 构造 Ok(doubled)
-    ok_res = stack_alloc 8
-    store ok_res+0, 0 as u32        // status = 0
-    store ok_res+4, doubled as i32
-    r = load ok_res+0 as u64        // 整体载入 2 字段作为 i32!
+    // 构造 Ok(doubled) 作为 sa_result {status=0, value=doubled}
+    ok_buf = stack_alloc 8
+    store ok_buf+0, 0 as u32
+    store ok_buf+4, doubled as i32
+    r = load ok_buf+0 as u64
     return r
 ```
 
-**✅ 已修复**（v0.2）：`@const CONFIG_PATH` 替代过去需要手动 `alloc + store` 字符串字面量的繁琐。Panic code 走标准字典（R18.6）。
-
-**关键**：`?` 的 `L_EARLY*` 分支**前端必须**在每次早返回前释放所有存活寄存器，否则 `Trap: EarlyReturnLeak`（R18.7）。
-
 ---
 
-## 14. 函数参数的三种模式 ✅
-
-### Rust
-```rust
-fn by_value(x: i32) {}
-fn by_borrow(r: &Data) {}
-fn take_ownership(d: Data) {}
-```
+## 14. 函数参数三种模式 ✅
 
 ### SA
 ```
-@by_value(x: i32):
+@by_value(x: i32):                   // 无前缀 = 按值
     return
 
-@by_borrow(r: &Data):
+@by_borrow(r: &ptr):                 // &ptr = 借用
     return
 
-@take_ownership(^d: ptr):
+@take_ownership(^d: ptr):            // ^ptr = Move
     !d
     return
 ```
 
 ---
 
-## 15. 递归函数（链表遍历） ✅
-
-### Rust
-```rust
-struct Node { val: i32, next: Option<Box<Node>> }
-
-fn sum_list(node: Option<&Node>) -> i32 {
-    match node {
-        None => 0,
-        Some(n) => n.val + sum_list(n.next.as_deref()),
-    }
-}
-```
+## 15. 递归函数（链表） ✅
 
 ### SA
 ```
 #def Node_val  = +0
 #def Node_next = +8
 
-@sum_list(node: ptr) -> i32:
+@sum_list(node: ptr) -> i32:          // 按值传 ptr（nullable）
 L_ENTRY:
     br_null node -> L_NULL, L_BODY
 
@@ -690,61 +489,39 @@ L_NULL:
     return 0
 
 L_BODY:
-    r    = &node                   // 只读借用
-    v    = load r+Node_val as i32
-    next = load r+Node_next as ptr
-    !r
-
-    rest  = call @sum_list(next)
+    v    = load node+Node_val as i32
+    next = load node+Node_next as ptr
+    rest = call @sum_list(next)
     total = add v, rest
     return total
 ```
 
+**注意**：`node` 是按值传递的 `ptr`（nullable），不是借用。调用方不转移所有权（只是传了一个地址值）。这对应 Rust 的 `Option<&Node>` 降级为裸地址。
+
 ---
 
-## 16. 生命周期标注 `'a` ❌（刻意缺失）
-
-### Rust
-```rust
-fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
-    if x.len() >= y.len() { x } else { y }
-}
-```
+## 16. 生命周期 `'a` ❌（刻意缺失）
 
 ### SA
 ```
-@longest(x: &Str, y: &Str) -> &Str:
+@longest(x: &ptr, y: &ptr) -> &ptr:  // 返回借用：SA 不追踪来源
 L_ENTRY:
     xlen = load x+Str_len as u64
     ylen = load y+Str_len as u64
     ge   = uge xlen, ylen
-    br ge -> L_RET_X, L_RET_Y
+    br ge -> L_X, L_Y
 
-L_RET_X:
-    return x
-
-L_RET_Y:
-    return y
+L_X: return x
+L_Y: return y
 ```
 
-**❌ 刻意缺失**：SA 无生命周期类型系统。返回的 `&Str` 来源于 `x` 还是 `y`，SA 无法在类型层表达。
-
-**这是 R20 前端合约的核心职责**：前端（smrustc）必须保证调用方在使用返回的 `&Str` 期间，对应源内存的借用锁未被 `!` 释放。`libsa_scope` helper 应提供辅助校验（仍是前端责任）。
-
-**安全下限缺口**：前端降级错误时，不会在调用点立刻报错，可能产生悬空引用直到段错误。这是 SA 最需要警惕的一处。
+**❌ 刻意缺失**：SA 无跨函数借用追踪。前端（R20）负责保证调用方在使用返回值期间源内存未释放。
 
 ---
 
 ## 17. 泛型 + 单态化 ✅
 
-### Rust
-```rust
-fn max<T: PartialOrd>(a: T, b: T) -> T {
-    if a >= b { a } else { b }
-}
-```
-
-### SA（前端单态化后）
+### SA
 ```
 @max_i32(a: i32, b: i32) -> i32:
 L_ENTRY:
@@ -755,38 +532,28 @@ L_B: return b
 
 @max_f32(a: f32, b: f32) -> f32:
 L_ENTRY:
-    ge = fcmp_ge a, b              // ✅ 已修复：R2.5 补齐 fcmp_ge
+    ge = fcmp_ge a, b
     br ge -> L_A, L_B
 L_A: return a
 L_B: return b
 ```
 
-**✅ 已修复**（v0.2 R2.5）：`fcmp_ge` / `fcmp_le` / `fcmp_ne` 已补齐到 ISA。
-
 ---
 
-## 18. Trait 静态分发 ✅（与泛型同）
-
-### Rust
-```rust
-trait Area { fn area(&self) -> f32; }
-impl Area for Circle { fn area(&self) -> f32 { 3.14 * self.r * self.r } }
-
-fn print_area<T: Area>(s: &T) {}
-```
+## 18. Trait 静态分发 ✅
 
 ### SA
 ```
 #def Circle_r = +0
 
-@Circle_area(self: &Circle) -> f32:
+@Circle_area(self: &ptr) -> f32:     // &ptr: 借用指向 Circle 布局
 L_ENTRY:
     r = load self+Circle_r as f32
     rr = fmul r, r
     res = fmul 3.14, rr
     return res
 
-@print_area_Circle(s: &Circle):
+@print_area_Circle(s: &ptr):
 L_ENTRY:
     a = call @Circle_area(&s)
     call @print_f32(a)
@@ -797,46 +564,23 @@ L_ENTRY:
 
 ## 19. `dyn Trait` 动态分发（`@const` VTable） ✅
 
-### Rust
-```rust
-trait Draw { fn draw(&self); }
-impl Draw for Circle  { fn draw(&self) {} }
-impl Draw for Square  { fn draw(&self) {} }
-
-fn render(shapes: &[Box<dyn Draw>]) {
-    for s in shapes { s.draw(); }
-}
-```
-
-### SA（v0.2）
+### SA
 ```
 #def Dyn_data    = +0
 #def Dyn_vtable  = +8
 #def Dyn_SIZE    = 16
-
 #def VT_draw     = +0
-#def VT_drop     = +8
-#def VTable_SIZE = 16
 
-@Circle_draw(self: &Circle): return
-@Square_draw(self: &Square): return
-@Circle_drop(^c: ptr): !c; return
-@Square_drop(^s: ptr): !s; return
+@Circle_draw(self: &ptr): return
+@Square_draw(self: &ptr): return
 
-// ✅ 已修复（v0.2 R6.5/R6.8）：全局只读 VTable
-@const CIRCLE_VT: VTable_SIZE = vtable {
-    draw = @Circle_draw,
-    drop = @Circle_drop
-}
-@const SQUARE_VT: VTable_SIZE = vtable {
-    draw = @Square_draw,
-    drop = @Square_drop
-}
+@const CIRCLE_VT = vtable { draw = @Circle_draw }
+@const SQUARE_VT = vtable { draw = @Square_draw }
 
-@render(shapes: &Slice):
+@render(shapes: &ptr):               // &ptr: 借用指向 Slice of Dyn 布局
 L_ENTRY:
-    data_base = load shapes+Slice_data as ptr
-    len       = load shapes+Slice_len  as u64
+    data_base = load shapes+0 as ptr
+    len       = load shapes+8 as u64
     i = 0
     jmp L_COND
 
@@ -846,13 +590,11 @@ L_COND:
 
 L_BODY:
     off        = mul i, Dyn_SIZE
-    elem       = ptr_add data_base, off        // InteriorPtr
-    obj_data   = load elem+Dyn_data   as ptr
+    elem       = ptr_add data_base, off
+    obj_data   = load elem+Dyn_data as ptr
     obj_vtable = load elem+Dyn_vtable as ptr
     draw_fn    = load obj_vtable+VT_draw as ptr
-
     call_indirect draw_fn(obj_data)
-
     i = add i, 1
     jmp L_COND
 
@@ -860,31 +602,429 @@ L_END:
     return
 ```
 
-**✅ 已修复**（v0.2）：
-1. `@const ... : VTable_SIZE = vtable { ... }` 提供 rodata 段 VTable 构造（R6.5、R6.8）
-2. `ptr_add` + `InteriorPtr` 消除气闸舱压力（R13.6）
-3. VTable 被标为 `Immutable`（R4.8），禁止误 `!` 或 `&mut`
-
-**未解决**：`call_indirect` 仍无法校验参数 ABI 一致性，这是 Rust 也有的痛点。
-
 ---
 
 ## 20. 闭包（Lambda Lifting） ✅
 
-### Rust
-```rust
-fn main() {
-    let multiplier = 3;
-    let triple = |x: i32| x * multiplier;
-    let result = triple(10);
-}
+### SA
 ```
+#def Env_multiplier = +0
+
+@triple_impl(env: &ptr, x: i32) -> i32:
+L_ENTRY:
+    m = load env+Env_multiplier as i32
+    r = mul x, m
+    return r
+
+@main:
+L_ENTRY:
+    env = stack_alloc 4
+    store env+Env_multiplier, 3 as i32
+    r_env  = &env
+    result = call @triple_impl(&r_env, 10)
+    !r_env
+    return
+```
+
+---
+
+## 21. Iterator + for 循环 ⚠️
 
 ### SA
 ```
-#def Env_triple_multiplier = +0
+@sum_squares(v: &ptr) -> i32:
+L_ENTRY:
+    data = load v+0 as ptr
+    len  = load v+8 as u64
+    s = 0
+    i = 0
+    jmp L_COND
 
-@triple_impl(env: &Env_triple, x: i32) -> i32:
+L_COND:
+    c = ult i, len
+    br c -> L_BODY, L_END
+
+L_BODY:
+    off  = mul i, 4
+    slot = ptr_add data, off
+    x    = load slot+0 as i32
+    sq   = mul x, x
+    s    = add s, sq
+    i    = add i, 1
+    jmp L_COND
+
+L_END:
+    return s
+```
+
+---
+
+## 22. 原子操作 ✅
+
+### SA
+```
+@increment(c: &ptr):                  // &ptr: 借用指向 AtomicI32
+L_ENTRY:
+    old = atomic_rmw_add c+0, 1 seq_cst
+    return
+
+@try_swap(c: &ptr, expected: i32, new_val: i32) -> i32:
+L_ENTRY:
+    old, ok = cmpxchg c+0, expected, new_val acq_rel acquire
+    ret = zext ok
+    return ret
+```
+
+---
+
+## 23. async/await ⚠️
+
+### Rust
+```rust
+async fn fetch_and_parse(url: &str) -> Result<i32, u32> {
+    let data = fetch(url).await?;       // Suspension point 1
+    let parsed = parse(&data).await?;   // Suspension point 2
+    Ok(parsed)
+}
+```
+
+### SA（前端 CPS 转换后，完整展开）
+
+**降级策略**：每个 `async fn` 拆为"状态机上下文结构体 + poll 函数"。每个 `.await` 点 = 一个 state ID。跨 `.await` 存活的局部变量必须存入 ctx（栈帧会被调度器切走）。
+
+```
+// 状态机上下文结构体布局
+#def Ctx_SIZE      = 40
+#def Ctx_state     = +0       // u32: 0=init, 1=waiting_fetch, 2=waiting_parse
+#def Ctx_url_ptr   = +8       // ptr: url 数据指针（跨 await 存活）
+#def Ctx_url_len   = +16      // u64: url 长度
+#def Ctx_data_ptr  = +24      // ptr: fetch 结果（跨 await 存活）
+#def Ctx_data_len  = +32      // u64: fetch 结果长度
+
+// 外部 reactor 接口
+@extern reactor_start_fetch(*url_ptr: ptr, url_len: u64, *ctx_ptr: ptr) -> void
+@extern reactor_poll_fetch(*ctx_ptr: ptr) -> i32    // 0=pending, 1=ready, 2=error
+@extern reactor_take_fetch(*ctx_ptr: ptr, *out_ptr: ptr, *out_len: ptr) -> void
+@extern reactor_start_parse(*data_ptr: ptr, data_len: u64, *ctx_ptr: ptr) -> void
+@extern reactor_poll_parse(*ctx_ptr: ptr) -> i32
+@extern reactor_take_parse(*ctx_ptr: ptr) -> i32
+
+// Poll 函数：每次被事件循环唤醒时调用
+// 返回 sa_result: status=0 Ready, status=1 Pending, status>1 Error
+@ffi_wrapper fetch_and_parse_poll(ctx: &ptr) -> i32!:
+L_ENTRY:
+    state = load ctx+Ctx_state as u32
+    s0 = eq state, 0
+    br s0 -> L_STATE_0, L_CHECK_1
+
+// State 0: 初始，发起 fetch
+L_STATE_0:
+    url_ptr = load ctx+Ctx_url_ptr as ptr
+    url_len = load ctx+Ctx_url_len as u64
+    raw_ctx = *ctx
+    call @reactor_start_fetch(url_ptr, url_len, raw_ctx)
+    store ctx+Ctx_state, 1 as u32
+    jmp L_RETURN_PENDING
+
+L_CHECK_1:
+    s1 = eq state, 1
+    br s1 -> L_STATE_1, L_CHECK_2
+
+// State 1: 轮询 fetch 是否完成
+L_STATE_1:
+    raw_ctx1 = *ctx
+    fs = call @reactor_poll_fetch(raw_ctx1)
+    is_p = eq fs, 0
+    br is_p -> L_RETURN_PENDING, L_FETCH_CHECK_ERR
+
+L_FETCH_CHECK_ERR:
+    is_err = eq fs, 2
+    br is_err -> L_ERR_FETCH, L_FETCH_DONE
+
+L_ERR_FETCH:
+    err = stack_alloc 8
+    store err+0, 2 as u32
+    store err+4, 0 as i32
+    r = load err+0 as u64
+    return r
+
+L_FETCH_DONE:
+    // 取出结果，存入 ctx（跨 await 存活）
+    out_ptr_buf = stack_alloc 8
+    out_len_buf = stack_alloc 8
+    raw_ctx2 = *ctx
+    call @reactor_take_fetch(raw_ctx2, out_ptr_buf, out_len_buf)
+    dp = load out_ptr_buf+0 as ptr
+    dl = load out_len_buf+0 as u64
+    store ctx+Ctx_data_ptr, dp as ptr
+    store ctx+Ctx_data_len, dl as u64
+    raw_ctx3 = *ctx
+    call @reactor_start_parse(dp, dl, raw_ctx3)
+    store ctx+Ctx_state, 2 as u32
+    jmp L_RETURN_PENDING
+
+L_CHECK_2:
+    s2 = eq state, 2
+    br s2 -> L_STATE_2, L_INVALID
+
+// State 2: 轮询 parse 是否完成
+L_STATE_2:
+    raw_ctx4 = *ctx
+    ps = call @reactor_poll_parse(raw_ctx4)
+    is_p2 = eq ps, 0
+    br is_p2 -> L_RETURN_PENDING, L_PARSE_CHECK_ERR
+
+L_PARSE_CHECK_ERR:
+    is_err2 = eq ps, 2
+    br is_err2 -> L_ERR_PARSE, L_PARSE_DONE
+
+L_ERR_PARSE:
+    err2 = stack_alloc 8
+    store err2+0, 3 as u32
+    store err2+4, 0 as i32
+    r2 = load err2+0 as u64
+    return r2
+
+L_PARSE_DONE:
+    raw_ctx5 = *ctx
+    parsed = call @reactor_take_parse(raw_ctx5)
+    store ctx+Ctx_state, 3 as u32
+    ok = stack_alloc 8
+    store ok+0, 0 as u32
+    store ok+4, parsed as i32
+    rok = load ok+0 as u64
+    return rok
+
+// 公共 Pending 返回
+L_RETURN_PENDING:
+    p = stack_alloc 8
+    store p+0, 1 as u32
+    store p+4, 0 as i32
+    rp = load p+0 as u64
+    return rp
+
+L_INVALID:
+    panic(102)
+```
+
+### 调用方：事件循环驱动
+```
+@run_task(^ctx: ptr):
+L_ENTRY:
+    jmp L_POLL
+L_POLL:
+    r_ctx = &ctx
+    result = call @fetch_and_parse_poll(&r_ctx)
+    !r_ctx
+    status = load result+0 as u32
+    is_pending = eq status, 1
+    br is_pending -> L_YIELD, L_DONE
+L_YIELD:
+    call @reactor_yield()
+    jmp L_POLL
+L_DONE:
+    is_ok = eq status, 0
+    br is_ok -> L_SUCCESS, L_FAILURE
+L_SUCCESS:
+    value = load result+4 as i32
+    !ctx
+    return
+L_FAILURE:
+    !ctx
+    return
+```
+
+**⚠️ 前端重担分析**：
+
+| 工作项 | 行数估算 | 说明 |
+|---|---|---|
+| 状态机结构体布局 | ~20 行 `#def` | 扫描跨 await 存活变量，计算偏移 |
+| state 分发跳转表 | ~20 行/await 点 | `eq state, N` + `br` 链 |
+| 局部变量存入/取出 ctx | ~10 行/变量/await 点 | `store ctx+off` / `load ctx+off` |
+| 错误传播 `?` 在每个 resume 点 | ~15 行/await 点 | 检查 status + 早返回 |
+| reactor 接口调用 | ~5 行/await 点 | `@extern` 调用 |
+| **本例（2 个 await 点）** | **~120 行 SA** | 对应 Rust 3 行源码（40x 膨胀） |
+
+**为什么 SA 不内置 coroutine**：内置 coroutine 需要"可暂停栈帧"，破坏"所有状态显式可见"的核心哲学；Referee 的 O(1) 线性扫描无法处理"暂停后恢复"的非线性控制流。
+
+**缓解建议**：v0.3 提供 `libsa_async` helper 库，封装状态机结构体生成 + state 分发模板 + 局部变量自动存取，前端只需声明 await 点和跨 await 变量。
+
+---
+
+## 24. Rc/Arc 引用计数 ✅
+
+### SA
+```
+#def Rc_strong    = +0
+#def Rc_value_i32 = +16
+#def Rc_TOTAL     = 20
+
+@rc_new_i32(v: i32) -> ^ptr:
+L_ENTRY:
+    r = alloc Rc_TOTAL
+    store r+Rc_strong, 1 as u64
+    store r+Rc_value_i32, v as i32
+    return ^r
+
+@rc_clone(r: &ptr) -> ^ptr:          // &ptr: 借用 Rc 块
+L_ENTRY:
+    r_addr = load r+0 as ptr
+    old = atomic_rmw_add r_addr+Rc_strong, 1 acq_rel
+    return ^r_addr
+
+@rc_drop(^r: ptr):
+L_ENTRY:
+    old = atomic_rmw_sub r+Rc_strong, 1 acq_rel
+    is_last = eq old, 1
+    br is_last -> L_FREE, L_DONE
+L_FREE:
+    !r
+    return
+L_DONE:
+    return
+```
+
+---
+
+## 25. unsafe / 气闸舱 ✅
+
+### SA
+```
+@extern c_sum(*raw: ptr, len: u64) -> i32
+
+@ffi_wrapper call_c_sum(arr: &ptr) -> i32:
+L_ENTRY:
+    data = load arr+0 as ptr
+    len  = load arr+8 as u64
+    raw  = *data                      // 裸指针降级：仅气闸舱内允许
+    res  = call @c_sum(raw, len)
+    return res
+```
+
+---
+
+## 26. FFI extern "C" ✅
+
+### SA
+```
+@export sa_multiply(a: i32, b: i32) -> i32:
+L_ENTRY:
+    r = mul a, b
+    return r
+```
+
+---
+
+## 27. panic! / panic_msg ✅
+
+### SA
+```
+#def PANIC_DIV_ZERO = 100
+
+@const MSG_DIV_ZERO = utf8:"div by zero"
+
+@divide(a: i32, b: i32) -> i32:
+L_ENTRY:
+    z = eq b, 0
+    br z -> L_PANIC, L_OK
+
+L_PANIC:
+    r_msg = &MSG_DIV_ZERO
+    data  = load r_msg+0 as ptr       // @const 的地址
+    len   = 11                        // "div by zero" = 11 bytes
+    panic_msg(PANIC_DIV_ZERO, data, len)
+
+L_OK:
+    q = sdiv a, b
+    return q
+```
+
+---
+
+## 28. `#mode compact` 紧凑糖 ✅
+
+### SA（关键字形态）
+```
+@dot(a: &ptr, b: &ptr) -> f32:
+L_ENTRY:
+    ax = load a+0 as f32
+    bx = load b+0 as f32
+    m1 = fmul ax, bx
+    ay = load a+4 as f32
+    by = load b+4 as f32
+    m2 = fmul ay, by
+    s  = fadd m1, m2
+    az = load a+8 as f32
+    bz = load b+8 as f32
+    m3 = fmul az, bz
+    res = fadd s, m3
+    return res
+```
+
+### SA（`#mode compact` 形态，等价）
+```
+#mode compact
+
+@dot(a: &ptr, b: &ptr) -> f32:
+L_ENTRY:
+    ax = load a+0 as f32
+    bx = load b+0 as f32
+    m1 = ax * bx
+    ay = load a+4 as f32
+    by = load b+4 as f32
+    m2 = ay * by
+    s  = m1 + m2
+    az = load a+8 as f32
+    bz = load b+8 as f32
+    m3 = az * bz
+    res = s + m3
+    return res
+```
+
+**约束**：单行只能一个中缀操作符。`s = ax * bx + ay * by` 非法。
+
+---
+
+# 总结
+
+## 签名规则速查
+
+| Rust 形态 | SA 签名 | 说明 |
+|---|---|---|
+| `fn f(x: i32)` | `@f(x: i32)` | 按值，原生数值 |
+| `fn f(r: &T)` / `fn f(r: &mut T)` | `@f(r: &ptr)` | 借用（共享/独占由 Referee 掩码决定，语法层不区分） |
+| `fn f(d: T)` (Move) | `@f(^d: ptr)` | Move 进来 |
+| `fn f() -> T` (值) | `@f() -> i32` | 按值返回 |
+| `fn f() -> Box<T>` | `@f() -> ^ptr` | Move 出堆块 |
+| `fn f() -> &T` | `@f() -> &ptr` | 返回借用（前端负责安全） |
+| `fn f() -> Result<T,E>` | `@f() -> i32!` | Fallible ABI |
+| `extern fn f(p: *T)` | `@extern f(*p: ptr)` | FFI 裸指针 |
+
+## 设计评分（28 案例）
+
+| 维度 | 评分 |
+|---|---|
+| 基础控制流 | ✅ |
+| 所有权/借用 | ✅ |
+| 错误传播 | ✅ |
+| 结构体/Enum | ✅ |
+| 原子操作 | ✅ |
+| 泛型/Trait | ✅ |
+| dyn Trait/VTable | ✅ |
+| 生命周期 | ❌ 刻意缺失 |
+| 切片/字符串索引 | ✅（InteriorPtr） |
+| async/await | ⚠️ 前端重担 |
+| FFI/unsafe | ✅ |
+| Rc/Arc | ✅ |
+| panic | ✅ |
+| Token 密度 | ✅（#mode compact） |
+
+**零自定义类型名泄漏到签名。零 `@const` 类型标注。所有借用/Move 参数恒为 `ptr`。语法层不存在 `&mut`。**
+
+**未解决**：`call_indirect` 仍无法校验参数 ABI 一致性，这是 Rust 也有的痛点。
+
+
+@triple_impl(env: &ptr, x: i32) -> i32:   // &ptr: 借用指向闭包环境 [multiplier(4)]
 L_ENTRY:
     m = load env+Env_triple_multiplier as i32
     r = mul x, m
@@ -915,7 +1055,7 @@ fn sum_squares(v: &Vec<i32>) -> i32 {
 
 ### SA（前端展开迭代器链）
 ```
-@sum_squares(v: &Vec) -> i32:
+@sum_squares(v: &ptr) -> i32:             // &ptr: 借用指向 Vec 布局
 L_ENTRY:
     data = load v+Vec_data as ptr
     len  = load v+Vec_len  as u64
@@ -961,13 +1101,13 @@ fn try_swap(c: &AtomicI32, expected: i32, new: i32) -> bool {
 
 ### SA（v0.2）
 ```
-@increment(c: &i32):
+@increment(c: &ptr):                      // &ptr: 借用指向 AtomicI32
 L_ENTRY:
     // ✅ 已修复（R2.1 atomic_rmw 族）：单条指令原子 fetch_add
     old = atomic_rmw_add c+0, 1 seq_cst
     return
 
-@try_swap(c: &i32, expected: i32, new: i32) -> i32:
+@try_swap(c: &ptr, expected: i32, new: i32) -> i32:
 L_ENTRY:
     // ✅ 已修复（R2.1/R2.7 + P29）：cmpxchg 双返回值 (old, ok)
     old, ok = cmpxchg c+0, expected, new acq_rel acquire
@@ -994,34 +1134,187 @@ async fn fetch_and_parse(url: &str) -> Result<i32, u32> {
 }
 ```
 
-### SA（前端 CPS 转换后，省略细节）
-```
-#def State_state   = +0
-#def State_url     = +8
-#def State_url_len = +16
-#def State_data    = +24
+### SA（前端 CPS 转换后，完整展开）
 
-@fetch_and_parse_poll(ctx: &State) -> i32!:
+**降级策略**：每个 `async fn` 拆为"状态机上下文结构体 + poll 函数"。每个 `.await` 点 = 一个 state ID。跨 `.await` 存活的局部变量必须存入 ctx（栈帧会被调度器切走）。
+
+```
+// ============================================================
+// 状态机上下文结构体布局
+// ============================================================
+#def Ctx_SIZE      = 40
+#def Ctx_state     = +0       // u32: 0=init, 1=waiting_fetch, 2=waiting_parse
+#def Ctx_url_ptr   = +8       // ptr: url 字符串数据指针（跨 await 存活）
+#def Ctx_url_len   = +16      // u64: url 长度
+#def Ctx_data_ptr  = +24      // ptr: fetch 结果数据指针（跨 await 存活）
+#def Ctx_data_len  = +32      // u64: fetch 结果长度
+
+// ============================================================
+// 外部 reactor 接口（由宿主提供）
+// ============================================================
+@extern reactor_start_fetch(*url_ptr: ptr, url_len: u64, *ctx_ptr: ptr) -> void
+@extern reactor_poll_fetch(*ctx_ptr: ptr) -> i32    // 0=pending, 1=ready, 2=error
+@extern reactor_take_fetch(*ctx_ptr: ptr, *out_ptr: ptr, *out_len: ptr) -> void
+
+@extern reactor_start_parse(*data_ptr: ptr, data_len: u64, *ctx_ptr: ptr) -> void
+@extern reactor_poll_parse(*ctx_ptr: ptr) -> i32
+@extern reactor_take_parse(*ctx_ptr: ptr) -> i32    // 返回 parsed i32
+
+// ============================================================
+// Poll 函数：每次被事件循环唤醒时调用
+// 返回 sa_result: status=0 Ready, status=1 Pending, status>1 Error
+// ============================================================
+
+@ffi_wrapper fetch_and_parse_poll(ctx: &ptr) -> i32!:
 L_ENTRY:
-    state = load ctx+State_state as u32
-    is_init = eq state, 0
-    br is_init -> L_INIT, L_CHECK_FETCH
+    state = load ctx+Ctx_state as u32
+    s0 = eq state, 0
+    br s0 -> L_STATE_0, L_CHECK_1
 
-L_INIT:
-    // 发起 fetch，注册到外部 reactor
-    // ...
-    store ctx+State_state, 1 as u32
-    return_pending
+// ------ State 0: 初始，发起 fetch ------
+L_STATE_0:
+    url_ptr = load ctx+Ctx_url_ptr as ptr
+    url_len = load ctx+Ctx_url_len as u64
+    raw_ctx = *ctx
+    call @reactor_start_fetch(url_ptr, url_len, raw_ctx)
+    store ctx+Ctx_state, 1 as u32
+    jmp L_RETURN_PENDING
 
-// ... L_CHECK_FETCH / L_RESUME_FETCH / L_CHECK_PARSE / L_DONE
+// ------ 检查 state 1 ------
+L_CHECK_1:
+    s1 = eq state, 1
+    br s1 -> L_STATE_1, L_CHECK_2
+
+// ------ State 1: 轮询 fetch 是否完成 ------
+L_STATE_1:
+    raw_ctx1 = *ctx
+    fs = call @reactor_poll_fetch(raw_ctx1)
+    is_p = eq fs, 0
+    br is_p -> L_RETURN_PENDING, L_FETCH_CHECK_ERR
+
+L_FETCH_CHECK_ERR:
+    is_err = eq fs, 2
+    br is_err -> L_RETURN_ERR_FETCH, L_FETCH_DONE
+
+L_RETURN_ERR_FETCH:
+    err = stack_alloc 8
+    store err+0, 2 as u32
+    store err+4, 0 as i32
+    r = load err+0 as u64
+    return r
+
+L_FETCH_DONE:
+    // 取出结果，存入 ctx（跨 await 存活）
+    out_ptr_buf = stack_alloc 8
+    out_len_buf = stack_alloc 8
+    raw_ctx2 = *ctx
+    call @reactor_take_fetch(raw_ctx2, out_ptr_buf, out_len_buf)
+    dp = load out_ptr_buf+0 as ptr
+    dl = load out_len_buf+0 as u64
+    store ctx+Ctx_data_ptr, dp as ptr
+    store ctx+Ctx_data_len, dl as u64
+    // 发起 parse
+    raw_ctx3 = *ctx
+    call @reactor_start_parse(dp, dl, raw_ctx3)
+    store ctx+Ctx_state, 2 as u32
+    jmp L_RETURN_PENDING
+
+// ------ 检查 state 2 ------
+L_CHECK_2:
+    s2 = eq state, 2
+    br s2 -> L_STATE_2, L_INVALID
+
+// ------ State 2: 轮询 parse 是否完成 ------
+L_STATE_2:
+    raw_ctx4 = *ctx
+    ps = call @reactor_poll_parse(raw_ctx4)
+    is_p2 = eq ps, 0
+    br is_p2 -> L_RETURN_PENDING, L_PARSE_CHECK_ERR
+
+L_PARSE_CHECK_ERR:
+    is_err2 = eq ps, 2
+    br is_err2 -> L_RETURN_ERR_PARSE, L_PARSE_DONE
+
+L_RETURN_ERR_PARSE:
+    err2 = stack_alloc 8
+    store err2+0, 3 as u32
+    store err2+4, 0 as i32
+    r2 = load err2+0 as u64
+    return r2
+
+L_PARSE_DONE:
+    raw_ctx5 = *ctx
+    parsed = call @reactor_take_parse(raw_ctx5)
+    store ctx+Ctx_state, 3 as u32
+    // 返回 Ok(parsed)
+    ok = stack_alloc 8
+    store ok+0, 0 as u32
+    store ok+4, parsed as i32
+    rok = load ok+0 as u64
+    return rok
+
+// ------ 公共 Pending 返回 ------
+L_RETURN_PENDING:
+    p = stack_alloc 8
+    store p+0, 1 as u32
+    store p+4, 0 as i32
+    rp = load p+0 as u64
+    return rp
+
+// ------ 非法状态 ------
+L_INVALID:
+    panic(102)
 ```
 
-**⚠️ 前端重担**（未变）：
-- CPS 转换约 3000 行前端代码量
-- 每个 `await` 点 = 新 state ID + 检查 Label
-- 局部变量跨 `await` 必须存进 ctx（栈会被切走）
+### 调用方：事件循环驱动
+```
+@run_task(^ctx: ptr):
+L_ENTRY:
+    jmp L_POLL
 
-**建议**：`libsa_scope` 扩展出 `libsa_async` helper，或在 v0.3 考虑 coroutine 原语（但会破坏扁平性）。
+L_POLL:
+    r_ctx = &ctx
+    result = call @fetch_and_parse_poll(&r_ctx)
+    !r_ctx
+    status = load result+0 as u32
+    is_pending = eq status, 1
+    br is_pending -> L_YIELD, L_DONE
+
+L_YIELD:
+    call @reactor_yield()
+    jmp L_POLL
+
+L_DONE:
+    is_ok = eq status, 0
+    br is_ok -> L_SUCCESS, L_FAILURE
+
+L_SUCCESS:
+    value = load result+4 as i32
+    !ctx
+    return
+
+L_FAILURE:
+    !ctx
+    return
+```
+
+**⚠️ 前端重担分析**：
+
+| 工作项 | 行数估算 | 说明 |
+|---|---|---|
+| 状态机结构体布局 | ~20 行 `#def` | 扫描跨 await 存活变量，计算偏移 |
+| state 分发跳转表 | ~20 行/await 点 | `eq state, N` + `br` 链 |
+| 局部变量存入/取出 ctx | ~10 行/变量/await 点 | `store ctx+off` / `load ctx+off` |
+| 错误传播 `?` 在每个 resume 点 | ~15 行/await 点 | 检查 status + 早返回 |
+| reactor 接口调用 | ~5 行/await 点 | `@extern` 调用 |
+| **本例（2 个 await 点）** | **~120 行 SA** | 对应 Rust 3 行源码（40x 膨胀） |
+
+**为什么 SA 不内置 coroutine**：
+- 内置 coroutine 需要"可暂停栈帧"，破坏"所有状态显式可见"的核心哲学
+- Referee 的 O(1) 线性扫描无法处理"暂停后恢复"的非线性控制流
+- 把 CPS 转换留给前端，SA 本身保持绝对扁平
+
+**缓解建议**：v0.3 提供 `libsa_async` helper 库，封装"状态机结构体生成 + state 分发模板 + 局部变量自动存取"，前端只需声明 await 点和跨 await 变量。
 
 ---
 
@@ -1167,7 +1460,7 @@ fn slice_check(arr: &[i32], i: usize) -> i32 {
 #def PANIC_OUT_OF_BOUNDS = 101
 
 // 字符串消息放 rodata
-@const MSG_DIV_BY_ZERO: Str = utf8:"div by zero"
+@const MSG_DIV_BY_ZERO = utf8:"div by zero"
 
 @divide(a: i32, b: i32) -> i32:
 L_ENTRY:
@@ -1201,7 +1494,7 @@ fn dot(a: &[f32; 3], b: &[f32; 3]) -> f32 {
 
 ### SA（默认关键字形态）
 ```
-@dot(a: &Vec3, b: &Vec3) -> f32:
+@dot(a: &ptr, b: &ptr) -> f32:       // &ptr: 借用指向 Vec3 布局 [x(4)|y(4)|z(4)]
 L_ENTRY:
     ax = load a+0 as f32
     ay = load a+4 as f32
@@ -1221,7 +1514,7 @@ L_ENTRY:
 ```
 #mode compact
 
-@dot(a: &Vec3, b: &Vec3) -> f32:
+@dot(a: &ptr, b: &ptr) -> f32:       // &ptr: 借用指向 Vec3 布局
 L_ENTRY:
     ax = load a+0 as f32
     ay = load a+4 as f32
@@ -1251,29 +1544,29 @@ L_ENTRY:
 
 ## 设计评分
 
-| 维度 | v0.1 评分 | v0.2 评分 | 证据 |
-|---|---|---|---|
-| 基础控制流降级 | ✅ | ✅ | 案例 1-5 |
-| 所有权与借用 | ✅ | ✅ | 案例 3-5 |
-| 错误传播 | ✅ | ✅ | 案例 12-13 |
-| 结构体与 Enum | ✅ | ✅ | 案例 6, 11 |
-| 原子操作 | ⚠️ 缺 RMW | ✅ | 案例 22, 24（R2.1 补齐） |
-| 泛型与 Trait | ✅ | ✅ | 案例 17-18 |
-| 动态分发 / VTable | ⚠️ 缺 rodata | ✅ | 案例 19（R6.5/R6.8 补齐） |
-| 生命周期类型系统 | ❌ 刻意缺失 | ❌ 刻意缺失 | 案例 16 |
-| 切片/字符串索引 | ⚠️ 推气闸 | ✅ | 案例 2, 7, 8, 9（R13.6 `InteriorPtr`） |
-| async/await | ⚠️ 前端重担 | ⚠️ 前端重担 | 案例 23 |
-| FFI / unsafe | ✅ | ✅ | 案例 25-26 |
-| Box / Rc / Arc | ⚠️ 缺 stack_alloc / rmw | ✅ | 案例 10, 24 |
-| panic 语义 | ⚠️ 无消息 | ✅ | 案例 27（R18.5 `panic_msg`） |
-| **Token 密度（可选）** | — | ✅ `#mode compact` | 案例 28 |
+| 维度 | v0.1 评分 | v0.1 具体问题 | v0.2 评分 | v0.2 解决方案 | 证据 |
+|---|---|---|---|---|---|
+| 基础控制流降级 | ✅ | — | ✅ | — | 案例 1-5 |
+| 所有权与借用 | ✅ | — | ✅ | — | 案例 3-5 |
+| 错误传播 | ✅ | — | ✅ | — | 案例 12-13 |
+| 结构体与 Enum | ✅ | — | ✅ | — | 案例 6, 11 |
+| 原子操作 | ⚠️ | v0.1 只有 `cmpxchg`，实现 `fetch_add` 需要手写 retry loop（非真正原子，有 ABA 风险），代码膨胀 5-8 行 | ✅ | `atomic_rmw_{add,sub,and,or,xor,xchg,smin,smax,umin,umax}` 单条指令完成（R2.1） | 案例 22, 24 |
+| 泛型与 Trait | ✅ | — | ✅ | — | 案例 17-18 |
+| 动态分发 / VTable | ⚠️ | v0.1 无 `@const` 全局只读数据段，VTable 函数指针数组无处安放；只能在运行时 `alloc` + `store` 手动构造，浪费堆内存且每次启动重复初始化 | ✅ | `@const NAME = vtable { slot = @func }` 声明 `.rodata` 段永续数据（R6.5/R6.8） | 案例 19 |
+| 生命周期类型系统 | ❌ | SA 刻意不做跨函数借用图追踪；前端（R20）完全负责保证返回借用的源内存未释放；错误时产生悬空引用直到段错误 | ❌ | 未变（设计取舍，非缺陷） | 案例 16 |
+| 切片/字符串索引 | ⚠️ | v0.1 从胖指针 `load` 出的 `data_ptr` 是裸指针，严格执行 R13 气闸舱规则会把**所有** `arr[i]` 操作推进 `@ffi_wrapper`，导致 80%+ 的普通业务代码被迫标为 FFI 边界 | ✅ | `ptr_add` 派生 `InteriorPtr` 状态位（R4.9），生命周期绑定母借用，普通函数内合法 `load`/`store`，不触发气闸舱（R13.6） | 案例 2, 7, 8, 9 |
+| async/await | ⚠️ | 前端必须做完整 CPS 转换：每个 `await` 点 = 新 state ID + 检查 Label + 局部变量存入 ctx 结构体；约 3000 行前端代码量 | ⚠️ | 未变（SA 不提供 coroutine 原语，CPS 仍由前端完成；建议 v0.3 提供 `libsa_async` helper 封装） | 案例 23 |
+| FFI / unsafe | ✅ | — | ✅ | — | 案例 25-26 |
+| Box / Rc / Arc | ⚠️ | v0.1 缺 `stack_alloc`（小对象如 `Option<i32>` 每次强制堆分配，性能倒退）；缺 `atomic_rmw`（Rc/Arc 的 clone/drop 需要 cmpxchg retry loop，非真正原子） | ✅ | `stack_alloc N` 栈分配（R2.1/P27）+ `atomic_rmw_sub` 单条原子递减（R2.1） | 案例 10, 24 |
+| panic 语义 | ⚠️ | v0.1 只有 `panic(code)` 整数错误码，无法携带消息字符串；调试时只能看到数字，无法定位具体错误原因 | ✅ | `panic_msg(code, *str_ptr, str_len)` 携带 rodata 消息 + 标准 panic code 字典 100-107（R18.5/R18.6） | 案例 27 |
+| **Token 密度（可选）** | — | v0.1 所有算术必须写关键字形态（`d = add a, b`），手写时心智负担较高 | ✅ | `#mode compact` 可选中缀糖（`d = a + b`），8 条白名单，禁优先级（R24） | 案例 28 |
 
 ## v0.1 到 v0.2 的缺口修复总览
 
 | 缺口 | v0.2 修复 | Requirements |
 |---|---|---|
 | 切片索引被迫进气闸舱 | `ptr_add` + `InteriorPtr` 状态位 | R2.5, R4.9, R4.10, R13.6 |
-| VTable 无处安放 | `@const NAME: T = vtable {...}` | R6.5, R6.8 |
+| VTable 无处安放 | `@const NAME = vtable {...}` | R6.5, R6.8 |
 | 原子 RMW 要 cmpxchg 循环 | `atomic_rmw_{add,sub,...}` 指令族 | R2.1 |
 | `cmpxchg` 无成功位返回 | 双返回值 `(old, ok)` | R2.7, P29 |
 | 浮点比较缺 `ge/le/ne` | ISA 补齐 | R2.5 |
@@ -1313,3 +1606,9 @@ L_ENTRY:
 - 操作符优先级（紧凑糖仍禁止组合）
 
 SA 的核心哲学——"把证明外包给 Referee 的 O(1) 位掩码"——在 v0.2 后站得更稳。**前端责任制是真实成本**，但比官方 rustc 的借用检查器数十万行代码轻量一个数量级。
+
+L_ENTRY:
+    old, ok = cmpxchg c+0, expected, new_val acq_rel acquire
+    ret = zext ok
+    return ret
+```

@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const upstream = @import("upstream_loc.zig");
+
 pub const Trap = enum(u8) {
     forbidden_syntax,
     duplicate_def,
@@ -35,6 +37,7 @@ pub const TrapReport = struct {
     actual_mask: ?u8 = null,
     expected_mask_name: ?[]const u8 = null,
     actual_mask_name: ?[]const u8 = null,
+    upstream_loc: ?upstream.UpstreamLoc = null,
     function_buf: [64]u8 = [_]u8{0} ** 64,
     function: ?[]const u8 = null,
     is_ffi_wrapper: ?bool = null,
@@ -136,6 +139,19 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
     try writeMaybeString(writer, report.expected_mask_name);
     try writer.writeAll(",\"actual_mask_name\":");
     try writeMaybeString(writer, report.actual_mask_name);
+    try writer.writeAll(",\"upstream_loc\":");
+    if (report.upstream_loc) |loc| {
+        try writer.writeByte('{');
+        try writer.writeAll("\"file\":");
+        try writeJsonString(writer, loc.file);
+        try writer.writeAll(",\"line\":");
+        try writer.print("{d}", .{loc.line});
+        try writer.writeAll(",\"col\":");
+        try writer.print("{d}", .{loc.col});
+        try writer.writeByte('}');
+    } else {
+        try writer.writeAll("null");
+    }
     try writer.writeAll(",\"function\":");
     try writeMaybeString(writer, report.function);
     try writer.writeAll(",\"is_ffi_wrapper\":");
@@ -150,4 +166,32 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
 test "trap names are stable" {
     try std.testing.expectEqualStrings("ForbiddenSyntax", trapName(.forbidden_syntax));
     try std.testing.expectEqualStrings("MemoryLeak", trapName(.memory_leak));
+}
+
+test "trap json serialization is stable" {
+    var list = std.ArrayList(u8).init(std.testing.allocator);
+    defer list.deinit();
+
+    const report = TrapReport{
+        .trap = .memory_leak,
+        .line = 12,
+        .source_line = 9,
+        .register = "r1",
+        .registers = &.{ "r1", "r2" },
+        .expected_mask = 0x01,
+        .actual_mask = 0x08,
+        .expected_mask_name = "Active",
+        .actual_mask_name = "Consumed",
+        .upstream_loc = .{ .file = "main.rs", .line = 42, .col = 7 },
+        .function = "main",
+        .is_ffi_wrapper = false,
+        .message = "live registers remain at function exit",
+        .hint = "insert explicit release",
+    };
+
+    try writeJson(list.writer(), report);
+    try std.testing.expectEqualStrings(
+        "{\"trap\":\"MemoryLeak\",\"line\":12,\"source_line\":9,\"register\":\"r1\",\"registers\":[\"r1\",\"r2\"],\"expected_mask\":1,\"actual_mask\":8,\"expected_mask_name\":\"Active\",\"actual_mask_name\":\"Consumed\",\"upstream_loc\":{\"file\":\"main.rs\",\"line\":42,\"col\":7},\"function\":\"main\",\"is_ffi_wrapper\":false,\"message\":\"live registers remain at function exit\",\"hint\":\"insert explicit release\"}",
+        list.items,
+    );
 }
