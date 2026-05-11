@@ -186,6 +186,29 @@
 3. WHEN 替换发生 THEN 它 SHALL 不建立任何作用域树或符号表，仅执行一维字符串替换
 4. IF 同一 `#def` 名被重复定义 THEN 预处理器 SHALL 返回 `Trap: DuplicateDef`
 5. WHEN 常量数学表达式出现（如 `+ (%i * 4)`) THEN 预处理器 SHALL 在替换后进行常量折叠，生成纯数字字面量
+6. WHEN CLI 提供 `saasm layout` 子命令 THEN 其 SHALL 接受结构体字段描述（名称 + 类型），自动计算对齐与偏移量，输出标准 `#def` 字典文本（见 R7b）
+
+### Requirement 7b: `saasm layout` 布局生成工具（v0.1 辅助工具）
+
+**User Story**  
+作为 LLM 或人类开发者，手算复杂结构体的字节偏移量（尤其是混合 `i32` / `f64` 时的对齐填充）极易出错。我需要一个 CLI 工具，输入字段描述，自动输出正确的 `#def` 字典。
+
+**Acceptance Criteria**
+1. WHEN 用户执行 `saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"` THEN CLI SHALL 输出：
+   ```
+   #def Entity_SIZE  = 32
+   #def Entity_id    = +0
+   #def Entity_pos_x = +8
+   #def Entity_pos_y = +16
+   #def Entity_hp    = +24
+   ```
+2. WHEN 字段类型为 `i8/u8` THEN 对齐为 1；`i16/u16` 对齐为 2；`i32/u32/f32` 对齐为 4；`i64/u64/f64/ptr` 对齐为 8
+3. WHEN 前一个字段结束位置未对齐到下一个字段的对齐要求 THEN 工具 SHALL 自动插入填充字节（padding），并在输出中以注释标注
+4. WHEN 结构体总大小未对齐到最大字段对齐 THEN 工具 SHALL 在末尾补齐（尾部 padding），使 `SIZE` 为最大对齐的整数倍
+5. WHEN 输出格式被指定为 `--format json` THEN 工具 SHALL 输出 JSON 格式：`{"name":"Entity","size":32,"fields":[{"name":"id","offset":0,"size":4,"ty":"u32"},...]}`
+6. WHEN LLM 调用此工具 THEN 其 SHALL 可以直接把输出粘贴到 `.saasm` 文件顶部使用，无需任何修改
+7. WHEN 字段类型不在 `{i8,u8,i16,u16,i32,u32,i64,u64,f32,f64,ptr}` 集合内 THEN 工具 SHALL 报错
+8. WHEN `--target 32` 被指定 THEN `ptr` 对齐为 4 字节（而非默认的 8 字节），`SIZE` 相应调整
 
 ### Requirement 8: 扁平化宏系统（Assembly-Style Macros）
 

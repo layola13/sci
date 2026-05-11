@@ -1333,3 +1333,269 @@ zig cc main.c sa_math.o -o app -lm
 > **在军工/航空/医疗场景下，SA 不是替代 Ada 或 C 让人类手写的语言。它是一个"IR 防火墙"——无论上游用什么语言写代码，只要经过 SA 的 Referee，就能获得数学可证明的内存安全保证 + WCET 约束 + 类型不混淆（`--strict-tags`）。**
 >
 > 军方可以把那 2500 行 Referee 审查得底朝天，甚至烧进 FPGA 做硬件级验证。这是 Rust 永远做不到的。
+
+---
+
+# SA vs Ada/SPARK：合作关系，不是竞争关系
+
+> Ada/SPARK 是军工/航空领域 40 年的黄金标准。SA 不是来替代它的——SA 是来**与它组成双层防线**的。
+
+---
+
+## 两种完全不同的安全哲学
+
+| 维度 | Ada/SPARK | SA |
+|---|---|---|
+| **守护什么** | 业务逻辑正确性（范围不越界、合约满足、信息流安全） | 内存物理安全（无 UAF / Double-Free / 泄漏 / 类型混淆）+ WCET 有界 |
+| **怎么证明** | 合约 + SMT 求解器（GNATprove） | 仿射掩码 O(1) 位运算 + Coq 定理证明（v0.6） |
+| **验证器复杂度** | GNAT 编译器 ~数百万行 | Referee ≤ 2500 行 |
+| **可审计性** | 困难（编译器太大） | 极易（2500 行可逐行审计 / 可烧 FPGA） |
+| **人类友好度** | 高（为人类设计） | 低（为机器设计） |
+| **LLM 友好度** | 低（语法冗长、上下文依赖重） | 极高（扁平、无嵌套、自包含） |
+
+**核心区别**：Ada/SPARK 在**源码层**证明"程序做了正确的事"。SA 在 **IR 层**证明"程序不会做危险的事"。两者守护的是不同层次的安全。
+
+---
+
+## 全维度对比
+
+| 维度 | Ada/SPARK | SA | 说明 |
+|---|---|---|---|
+| 类型系统 | 极强（范围类型 + 子类型 + 判别式） | 无（ptr + 原生数值 + 可选 tag） | Ada 在业务逻辑层碾压 |
+| 内存安全 | 受限指针模型（无指针算术） | 仿射掩码 + InteriorPtr | SA 更底层更可证明 |
+| WCET 分析 | 需外部工具（AbsInt aiT） | 内建 Gas Metering（R11） | SA 内建 |
+| 形式化验证 | SPARK 合约 + GNATprove | Referee Coq 证明（R33） | 不同方法论，互补 |
+| 并发安全 | Ravenscar Profile | 仿射掩码防竞态 | Ada 更成熟 |
+| 运行时性能 | 中（范围检查有开销） | 最快（LLVM O3，零运行时检查） | SA 更快 |
+| 二进制体积 | 中（~500KB+ 含 runtime） | 小（≤ 48KB wasm） | SA 更小 |
+| 遗留 C 对接 | 需要 binding 层 | 气闸舱 `@ffi_wrapper` | SA 更干净 |
+| 硬件化 | 不可能（编译器太复杂） | Referee 可烧 FPGA（R33.6） | SA 独有 |
+| 认证成本 | 高（需审计 GNAT） | 低（只审计 2500 行） | SA 更低 |
+| 生态成熟度 | 40 年积累 | 零（2026 新生） | Ada 碾压 |
+
+---
+
+## 最强组合：Ada/SPARK → SA → 机器码
+
+SA 与 Ada/SPARK 不是竞争关系，是**合作关系**。两者组合形成双层防线：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Ada/SPARK 源码                                          │
+│  - 人类写，带合约（Pre/Post）+ 范围类型                  │
+│  - GNATprove 证明：业务逻辑正确                          │
+│  - 保证：高度不越界、速度不溢出、状态机转移合法          │
+└─────────────────────┬───────────────────────────────────┘
+                      │ 确定性前端降级（Ada → SA）
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│  SA 指令流（--strict-tags）                              │
+│  - Referee 证明：内存物理安全                            │
+│  - 保证：无 UAF、无 Double-Free、无泄漏、无类型混淆     │
+│  - Gas Metering 保证：WCET 有界                          │
+│  - 气闸舱保证：遗留 C 代码隔离                           │
+└─────────────────────┬───────────────────────────────────┘
+                      │ LLVM IR Emitter
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│  原生机器码 / FPGA bitstream                             │
+│  - LLVM O3 优化：零运行时开销                            │
+│  - 或：Referee 硬件化为 FPGA 电路                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**双层防线的安全保证**：
+
+| 层 | 谁负责 | 证明什么 | 证明方法 |
+|---|---|---|---|
+| Ada/SPARK 层 | GNATprove | 业务逻辑正确（范围、合约、信息流） | SMT 求解器 |
+| SA 层 | Referee | 内存物理安全 + WCET 有界 | O(1) 位掩码 + Coq 定理 |
+| 双层组合 | 两者互补 | **即使 Ada 前端有 bug，SA 仍守住物理安全底线** | — |
+
+---
+
+## 为什么军方应该同时用两者？
+
+### 单独用 Ada/SPARK 的风险
+- GNAT 编译器本身有 bug 怎么办？（编译器是数百万行的复杂软件）
+- 如果编译器错误地生成了 UAF 的机器码，Ada 的合约证明**救不了你**
+- 军方无法完整审计 GNAT 编译器
+
+### 单独用 SA 的风险
+- SA 不证明业务逻辑（高度不越界、导弹不偏航）
+- 内存安全 ≠ 程序正确
+
+### 组合使用的优势
+- Ada/SPARK 保证"程序做了正确的事"
+- SA 保证"即使前端有 bug，物理层也不会崩溃"
+- 军方只需审计 2500 行 Referee（而非整个 GNAT）
+- Referee 可以烧进 FPGA 做**硬件级**内存安全守护
+
+---
+
+## 代码对比：同一个飞控函数
+
+### Ada/SPARK 层（人类写）
+```ada
+type Altitude is range 0 .. 50_000;
+type Velocity is digits 6 range -500.0 .. 500.0;
+
+procedure Update_Altitude (
+   Alt : in out Altitude;
+   Vel : in Velocity;
+   Dt  : in Duration)
+with
+   Pre  => Alt + Altitude(Vel * Float(Dt)) in Altitude'Range,
+   Post => (if Vel >= 0.0 then Alt >= Alt'Old else Alt <= Alt'Old)
+is
+begin
+   Alt := Alt + Altitude(Vel * Float(Dt));
+end Update_Altitude;
+-- GNATprove 证明：Alt 永远在 0..50_000 范围内
+```
+
+### SA 层（前端自动降级产出）
+```
+#tag FlightState
+#def FS_alt = +0
+#def FS_vel = +8
+
+@update_altitude(state: &ptr tag FlightState, vel: f64, dt: f64):
+L_ENTRY:
+    alt = load state+FS_alt as f64
+    delta = fmul vel, dt
+    new_alt = fadd alt, delta
+    store state+FS_alt, new_alt as f64
+    return
+// Referee 证明：state 不会 UAF / Double-Free / 泄漏
+// Referee 证明：state 标签是 FlightState（不会被误当其它结构体）
+// Gas 证明：此函数 WCET 有界（无循环）
+```
+
+**两层各守各的**：
+- Ada 保证 `new_alt` 在 `0..50_000` 范围内
+- SA 保证 `state` 指针在物理层安全
+
+---
+
+## SA 能为 Ada 生态带来什么？
+
+| Ada 的痛点 | SA 的解法 |
+|---|---|
+| GNAT 编译器太大无法审计 | SA Referee 2500 行可完整审计 |
+| 无法证明编译器产出的机器码正确 | SA 在 IR 层做第二道验证 |
+| 对接遗留 C 代码困难 | SA 气闸舱物理隔离 |
+| 无内建 WCET 分析 | SA Gas Metering 内建 |
+| 无法硬件化验证器 | SA Referee 可烧 FPGA |
+| 编译器认证成本极高 | SA 认证只需审计 2500 行 |
+
+---
+
+## 一句话定位
+
+> **Ada/SPARK 是飞行员的安全带（防止操作错误）。SA 是飞机的结构强度（防止物理解体）。两者缺一不可。**
+>
+> SA 与 Ada 的关系是**合作**，不是竞争。Ada 守住业务逻辑的天空，SA 守住内存物理的大地。组合使用时，安全保证是乘法关系，不是加法。
+
+---
+
+# LLM 写 SA 时的两个痛点与工具链缓解
+
+> 基于 LLM 自回归 Token 预测的底层机制，SA 对 LLM 来说是"母语级"的语言。但有两个真实痛点需要工具链补齐。
+
+---
+
+## 痛点 1：偏移量算术（LLM 不是计算器）
+
+**问题**：LLM 在计算复杂结构体的字节偏移量时极易出错，尤其是混合类型对齐（如 `i32` 后跟 `f64` 需要 4 字节 padding）。
+
+**示例**：
+```
+// LLM 容易算错的场景
+#def Entity_id    = +0     // u32, 4 bytes
+#def Entity_pos_x = +4     // ❌ 错！f64 需要 8 字节对齐，应该是 +8
+```
+
+**解法**：`saasm layout` 工具（R7b）
+
+```bash
+saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
+```
+
+输出：
+```
+#def Entity_SIZE  = 32
+#def Entity_id    = +0     // u32, 4 bytes
+                           // 4 bytes padding
+#def Entity_pos_x = +8    // f64, 8 bytes
+#def Entity_pos_y = +16   // f64, 8 bytes
+#def Entity_hp    = +24   // i32, 4 bytes
+                           // 4 bytes tail padding
+```
+
+**LLM 工作流**：
+1. LLM 决定需要一个结构体
+2. 调用 `saasm layout` 获取正确的 `#def` 字典
+3. 把字典粘贴到源码顶部
+4. 用常量名写代码（`load ptr+Entity_pos_x as f64`）
+5. **永远不需要手算偏移量**
+
+---
+
+## 痛点 2：复杂分支路径漏释放 `!reg`
+
+**问题**：当函数有 5+ 个分支路径和 3+ 个临时分配时，LLM 容易在某条罕见路径（如错误处理分支）忘记 `!reg`。
+
+**示例**：
+```
+@process(data: &ptr) -> i32!:
+L_ENTRY:
+    buf1 = alloc 64
+    buf2 = alloc 128
+    res = call @step1(&buf1)
+    ok = ? res
+    br ok -> L_STEP2, L_ERR
+
+L_ERR:
+    !buf1
+    // ❌ LLM 忘了 !buf2 → Trap: MemoryLeak
+    return 1
+
+L_STEP2:
+    // ...
+```
+
+**解法**：SA 的设计精髓——**Referee 毫秒级抓住错误，LLM 根据 Trap 自修复**。
+
+```json
+{"trap":"MemoryLeak","line":8,"register":"buf2","message":"live registers remain at function exit"}
+```
+
+LLM 看到这个 JSON，瞬间知道在 `L_ERR` 分支补上 `!buf2`。
+
+**额外缓解**：`libsa_scope` helper（R20.8）可以帮助前端/LLM 自动追踪当前作用域的活跃寄存器，在每个退出点自动生成释放指令。
+
+---
+
+## 为什么 SA 是 LLM 的"母语"？
+
+| LLM 的弱点 | 传统语言的痛苦 | SA 的解法 |
+|---|---|---|
+| 注意力衰减（长距离括号匹配） | 深层 `{}` 嵌套 → 闭合错误 | 零嵌套（Label + jmp） |
+| 不擅长全局推理 | 类型推导 + 生命周期图论 | 无类型系统，万物 `ptr` |
+| 不是计算器 | 手算偏移量 | `saasm layout` 工具 |
+| 容易遗漏边缘路径 | 隐式 Drop 掩盖问题 | Referee 显式 Trap + JSON 反馈 |
+| 自回归本质（逐 token 生成） | 需要回看上下文才能决定当前行 | 每行自包含，只需看前一行状态 |
+
+**SA + LLM 的闭环**：
+```
+LLM 生成 SA 代码
+    → 偏移量用 saasm layout 保证正确
+    → 忘记 !reg？Referee 毫秒级 Trap
+    → JSON 错误精确到行号
+    → LLM 补一行 !reg
+    → 编译通过
+    → 整个循环 < 1 秒
+```
+
+这比传统语言的"LLM 写代码 → 编译器报一堆人类都看不懂的错误 → LLM 彻底迷路"强一万倍。

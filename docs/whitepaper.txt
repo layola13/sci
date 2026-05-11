@@ -1,57 +1,176 @@
-SA-ASM Whitepaper v0.1
+SA Whitepaper v0.2
 
-SA-ASM (Symbolic Affine) is a line-oriented affine IR and compiler pipeline for machine-generated code.
-The first version stays small and real: it prioritizes a working closed loop over speculative backend work.
+SA (Symbolic Affine) is a fully independent, line-oriented affine ownership language
+designed for the LLM era. It produces native executables, WebAssembly modules, and
+linkable object files without depending on any host language runtime.
 
-What v0.1 ships:
-- saasm run: in-process interpreter for verified instruction streams
-- saasm build-exe: flattener -> referee -> LLVM IR -> zig cc
-- saasm build-wasm: same LLVM IR path, still linked through Zig in v0.1
-- saasm build-obj: object-file emission through zig cc
+Identity:
+- Not an IR: SA is a standalone language with its own CLI, interpreter, and system primitives.
+- Not host-dependent: saasm run hello.saasm executes directly. No Go/Rust/Zig/Python needed.
+- Full-platform: Native (x86_64/ARM64/Win/Linux/macOS) + WASM (wasm32/wasm64) + .o for any C-ABI project.
 
-The first version does not handwrite a WASM binary emitter, does not generate Zig source, and does not rely on an AST.
+What ships today (v0.1 baseline):
+- saasm run <file>       : Flattener -> Referee -> Interpreter -> stdout + exit code
+- saasm build-exe <file> : Flattener -> Referee -> LLVM IR -> zig cc -> standalone .exe
+- saasm build-wasm <file>: Flattener -> Referee -> LLVM IR -> zig cc -target wasm32-wasi -> .wasm
+- saasm build-obj <file> : Flattener -> Referee -> LLVM IR -> zig cc -c -> .o (C-ABI linkable)
 
-Core symbols:
-= allocate / bind
-& borrow
-^ move / consume
-! release / drop
-* raw escape
-$...$ native escape block
+No Zig source generation. No AST construction. No hidden round-trips.
 
-Syntax surface:
-- comments and blank lines
-- #def value definitions
-- macro blocks: [MACRO], [END_MACRO], EXPAND
-- repeat blocks: [REP N], [END_REP]
-- function headers: @name(params) -> type:
-- special headers: @ffi_wrapper, @extern, @export
-- labels: L_NAME:
-- instructions: alloc, load, store, borrow, move, release, op, jmp, br, br_null, call, call_indirect, return, take, raw_cast, assume_safe, assume_borrow
-- native escape lines: $...$
+Core Symbols (5 ownership operators + 1 escape):
+=       allocate / bind                    target -> Active
+&       borrow (read/write by Referee)     source -> Locked, borrow -> Active(BorrowView)
+^       move / consume                     source -> Consumed
+!       release (borrow->unlock; own->free) target -> Consumed
+*       raw pointer escape (ffi_wrapper)   produces Untracked register
+$...$   native code escape block           conservatively consumes referenced registers
 
-Toolchain model:
-1. src/flattener.zig scans lines, expands #def, macros, and repetition blocks, and rejects forbidden syntax.
-2. src/referee/verifier.zig performs linear ownership validation with capability masks and trap reports.
-3. src/emit_llvm.zig emits LLVM IR text.
-4. src/interp.zig executes saasm run.
-5. src/cli.zig routes run, build-exe, build-wasm, and build-obj.
-6. build.zig wires the normal tests and smoke checks.
+No &mut in syntax. Shared vs exclusive decided by Referee bitmask dynamically.
 
-Safety rules:
-- No placeholder code.
-- No fake compilation paths.
-- No empty shells.
-- No hidden AST round-trips.
+Instruction Set (ISA):
 
-Deferred features:
-- handwritten WASM binary emission
-- @const
-- stack_alloc
-- ptr_add / InteriorPtr
-- atomics and cmpxchg
-- #mode compact
-- AutoBevy stretch goals
-- LLM pilot scale-out
+Memory:
+  reg = alloc N
+  reg = stack_alloc N                (lifetime bound to function, no ^ escape)
+  dst = load src+offset [as T]
+  store dst+offset, val [as T]
+  dst = take src+offset
+  dst = ptr_add base, offset         (derives InteriorPtr)
 
-This file is intentionally short so it can serve as the machine-readable whitepaper baseline for the current repository state.
+Arithmetic & Logic:
+  Integer: add sub mul sdiv udiv srem urem neg
+  Bitwise: and or xor shl lshr ashr not
+  Compare: eq ne slt sle sgt sge ult ule ugt uge
+  Float:   fadd fsub fmul fdiv fneg
+  Float cmp: fcmp_eq fcmp_ne fcmp_lt fcmp_le fcmp_gt fcmp_ge
+  Convert: trunc zext sext fptosi sitofp uitofp fptrunc fpext bitcast
+  SIMD:    add.v128 sub.v128 mul.v128 shuffle.v128 extract_lane insert_lane
+
+Atomics:
+  dst = atomic_load src+offset [ordering]
+  atomic_store dst+offset, val [ordering]
+  dst, ok = cmpxchg target+offset, expected, new [success_ord] [failure_ord]
+  dst = atomic_rmw_<OP> target+offset, val [ordering]
+    OP: add sub and or xor xchg smin smax umin umax
+  fence [ordering]
+  Ordering: relaxed acquire release acq_rel seq_cst
+
+Control Flow:
+  jmp L_NAME
+  br cond -> L_TRUE, L_FALSE
+  br_null reg -> L_NULL, L_NOT_NULL
+  call @func(args) / call_indirect func_ptr(args)
+  return [reg]
+
+Error Propagation:
+  v = ? res              (early return if status != 0)
+  panic(code)            (unrecoverable termination)
+  panic_msg(code, *s, len)
+  Function suffix !      (@f() -> i32! = fallible ABI {u32 status, i32 value})
+
+FFI Airlock (only inside @ffi_wrapper):
+  raw = *safe
+  safe = assume_safe raw
+  view = assume_borrow raw [, mut]
+
+Capability Mask (10-bit, u16):
+  0x0001 Active
+  0x0002 Locked_Read
+  0x0004 Locked_Mut
+  0x0008 Consumed
+  0x0010 BorrowView
+  0x0020 FfiBorrow
+  0x0040 Untracked
+  0x0080 Fallible
+  0x0100 Immutable
+  0x0200 InteriorPtr
+
+Function Signature Rules:
+  by-value:  @f(x: i32)         native numeric types only
+  borrow:    @f(r: &ptr)        ty must be ptr
+  move:      @f(^d: ptr)        ty must be ptr
+  fallible:  @f() -> i32!       returns {status, value}
+  ffi raw:   @extern f(*p: ptr) only in @extern/@ffi_wrapper
+  No user-defined type names in signatures.
+
+Preprocessor:
+  #def NAME = VALUE              text substitution + constant folding
+  #loc "file":line:col           upstream source mapping
+  [MACRO] NAME %p1 ... [END_MACRO]
+  [REP N] ... [END_REP]          compile-time unrolling with %i
+  EXPAND NAME arg1, arg2
+  @const NAME = <literal>        global rodata, no type annotation
+
+System Primitives (@sys_*):
+  @sys_print(*msg, len)                    Native: write(1,...) / WASM: fd_write
+  @sys_read_file(*path, plen, *out_len)    Native: open+read+close / WASM: path_open+fd_read
+  @sys_write_file(*path, plen, *data, dlen) Native: open+write+close / WASM: path_open+fd_write
+  @sys_exit(code)                          Native: _exit / WASM: proc_exit
+  @sys_argv(i) / @sys_argc()               Native: process args / WASM: args_get
+
+FFI Airlock Rules:
+  - @ffi_wrapper is the ONLY place for * / assume_safe / assume_borrow
+  - Ordinary @func using these -> Trap: IllegalUnsafeContext
+  - FFI memory enters via assume_borrow only (no ownership transfer in)
+  - Handle/ID pattern for long-lived host objects
+  - @extern declares C-ABI symbols; @export exposes without name mangling
+
+Panic Code Dictionary:
+  100 DivByZero
+  101 OutOfBounds
+  102 Unreachable
+  103 AssertionFailed
+  104 IntegerOverflow
+  105 NullDeref
+  106 MissingVariant
+  107 AllocFailed
+  108-127 Reserved
+  128-255 User-defined
+
+Referee Trap Codes:
+  ForbiddenSyntax, DuplicateDef, DuplicateLabel, UnsupportedType,
+  MacroRecursionLimit, RegisterRedefinition, UnknownRegister,
+  BorrowConflict, UseAfterMove, DoubleMutableBorrow, ReadWriteConflict,
+  MemoryLeak, CapabilityMismatch, FallthroughForbidden, PhiStateConflict,
+  IllegalUnsafeContext, FfiOwnershipViolation, InteriorPtrEscape,
+  StackEscape, ConstMutation, EarlyReturnLeak, InvalidParamType,
+  InvalidAtomicOrdering, TagMismatch (v0.5), MissingTag (v0.5),
+  VTableSignatureMismatch (v0.3)
+
+Version Roadmap:
+  v0.1  Closed loop: Flattener + Referee + LLVM IR + CLI (14 weeks)
+  v0.2  Self-authored WASM emitter + #mode compact infix sugar
+  v0.3  Performance: VTable check + libsa_async + --debug-san
+  v0.4  Parallel dev: .saasm-iface + .saasm-layout + incremental compilation
+  v0.5  Ecosystem: sa.pkg package manager + #tag layout tagging + sa_std
+  v0.6  Certification: Referee formal proof (Coq/Lean4) + FPGA hardware Referee
+  v1.0+ Self-hosting (SA compiler written in SA)
+
+Design Principles:
+  1. Zero AST: flat arrays + u32 indices
+  2. Linear scan: single-pass forward, no backtracking
+  3. O(1) bitmask: ownership = AND/OR on u16
+  4. Five-symbol contract: = & ^ ! *
+  5. Frontend responsibility: Drop/Phi/monomorphization are upstream's job
+  6. Upstream traceable: #loc -> DWARF -> gdb/lldb
+  7. Explicit over implicit: no GC, no hidden Drop, no exceptions
+  8. Airlock isolation: unsafe confined to @ffi_wrapper
+  9. Full independence: SA runs standalone, interop is optional
+
+Interoperability:
+  - @export: unmangled C-ABI symbols callable from C/C++/Rust/Go/Zig
+  - @extern: external C-ABI symbols from any library
+  - saasm build-obj: .o linkable with zig cc / gcc / clang / cargo
+  - FFI safety: external pointers enter via assume_borrow only
+
+Testing Model:
+  - saasm run test.saasm + exit code for pass/fail
+  - ASSERT_EQ / ASSERT_TRUE macros in sa_core.saasm
+  - Must-trap tests for Referee validation
+  - @export + external test frameworks
+  - 32 property-based tests x 100+ iterations
+
+Status:
+  This document reflects v0.2 specification (R1-R33).
+  Implementation is at v0.1 with Flattener, Referee, LLVM IR Emitter,
+  Interpreter, and CLI operational.

@@ -171,13 +171,13 @@ sa/
     - Referee 无需新增指令类型
     - _Requirements: R18.2, R18.3_
 
-  - [ ] 4.23 `panic(code)` 解析为特殊 Call
+  - [x] 4.23 `panic(code)` 解析为特殊 Call
     - _Requirements: R18.4_
 
-  - [ ] 4.24 Flattener 公开 API `flatten(allocator, source) !FlattenResult`
+  - [x] 4.24 Flattener 公开 API `flatten(allocator, source) !FlattenResult`
     - _Requirements: R7.1, R8.1, R19.1_
 
-  - [ ]* 4.25 Flattener 端到端单测
+  - [x]* 4.25 Flattener 端到端单测
     - _Requirements: R3.1, R7.1, R8.1, R13.1, R18.2, R19.1_
 
 - [ ] 5. 检查点 — Flattener 完成
@@ -252,6 +252,11 @@ sa/
     - `?` 作用于非 Fallible 寄存器 → `Trap: FallibleContractMismatch`
     - _Requirements: R18.5_
 
+  - [x] 6.20a **stack_alloc 退出规则**
+    - `stack_alloc` 允许函数出口自动回收，不计入 `MemoryLeak`
+    - `stack_alloc` 作为 `^` / `return` / `move` / `call` 实参时必须 `Trap: StackEscape`
+    - _Requirements: R2.1, R2.8, R9.1_
+
   - [ ]* 6.21 早返回泄漏 PBT — **P24**
     - _Requirements: R18.5_
 
@@ -319,7 +324,7 @@ sa/
     - Flattener 已展平为 br + EarlyReturn，Emitter 直接翻译
     - _Requirements: R18.3_
 
-  - [ ] 8.12 `panic(code)` 映射 M29
+  - [x] 8.12 `panic(code)` 映射 M29
     - Native: `call void @__sa_panic(i32) noreturn`
     - **v0.1 WASM 路径**：由 `zig cc -target wasm32-wasi` 自动把 `@__sa_panic` 降为 `unreachable` 或 WASI exit
     - _Requirements: R18.4_
@@ -327,7 +332,7 @@ sa/
   - [ ] 8.13 Fallible ABI 映射 M30（返回 `{i32 status, T value}`）
     - _Requirements: R18.1_
 
-  - [ ] 8.14 `#loc` 上游映射 M31（DWARF `!DILocation` 元数据）
+  - [x] 8.14 `#loc` 上游映射 M31（DWARF `!DILocation` 元数据）
     - 顶部生成 `!DICompileUnit` / `!DIFile` / `!DISubprogram`
     - 每条指令附 `!dbg !N`
     - `--no-debug` 关闭
@@ -340,18 +345,18 @@ sa/
   - [ ]* 8.16 Zig 依赖受限 PBT — **P17**（v0.1 版本：断言产物 `@import` 集合为空，因为我们不生成 Zig 源码）
     - _Requirements: R14.11_
 
-  - [ ] 8.17 LLVM IR Emitter 公开 API `emitLlvm(allocator, annotated, loc_table) ![]const u8`
+  - [x] 8.17 LLVM IR Emitter 公开 API `emitLlvm(allocator, annotated, loc_table) ![]const u8`
     - 附 source map `inst_idx → ir_line`
     - _Requirements: R14.1_
 
-  - [ ] 8.18 `zig cc` 子进程封装 `driver/zigcc.zig`
+  - [x] 8.18 `zig cc` 子进程封装 `driver/zigcc.zig`
     - 把 `.ll` 写临时文件
     - `saasm build-exe` → `zig cc <ll> -o <exe> -O ReleaseSmall`（默认 O1 档，`--release-fast` 切 O3）
     - **`saasm build-wasm` → `zig cc <ll> -target wasm32-wasi -o <wasm> -O ReleaseSmall`（v0.1 全委托 Zig，不用手写 Emitter）**
     - `saasm build-obj` → `zig cc <ll> -c -o <o>`
     - _Requirements: R14.1, R14.11, R15.1, R15.2, R16.2, R16.3, R16.4_
 
-  - [ ] 8.19 CLI `saasm run` / `build-exe` / `build-wasm` / `build-obj` 四模路由
+  - [x] 8.19 CLI `saasm run` / `build-exe` / `build-wasm` / `build-obj` 四模路由
     - Trap 返回非零退出码 + JSON 到 stderr
     - _Requirements: R16.1, R16.5_
 
@@ -359,7 +364,7 @@ sa/
     - `zig build -Drelease-small` 产物 ≤ 15 MB（MVP），libc 外无依赖
     - _Requirements: R16.6_
 
-  - [ ] 8.21 `-g` / `--no-debug` 调试开关接入
+  - [x] 8.21 `-g` / `--no-debug` 调试开关接入
     - `-g` 默认关，`build-exe -g` 启用 DWARF 生成
     - _Requirements: R19.4, R19.5_
 
@@ -376,10 +381,10 @@ sa/
     - `assume_*` 只更新 mask，不做实际指针操作
     - _Requirements: R13.2, R13.3_
 
-  - [ ] 9.4 `panic(code)` 打印 + 退出 128+code
+  - [x] 9.4 `panic(code)` 打印 + 退出 128+code
     - _Requirements: R18.4_
 
-  - [ ] 9.5 Interpreter API `run(allocator, annotated, argv) !u8`
+  - [x] 9.5 Interpreter API `run(allocator, annotated, argv) !u8`
     - _Requirements: R16.1_
 
 - [ ] 10. W12 `@sys_*` 原语 + FFI 气闸舱 + panic runtime
@@ -397,7 +402,7 @@ sa/
     - 同一 `.saasm` 分别走 `build-exe` + `build-wasm`，对比输出/退出码
     - _Requirements: R15.5, R17.1–R17.5_
 
-  - [ ] 10.4 `__sa_panic` 运行时符号（Native）
+  - [x] 10.4 `__sa_panic` 运行时符号（Native）
     - ≤ 30 行 Zig，写 stderr + `_exit(128+code)`
     - _Requirements: R18.4_
 
@@ -427,6 +432,25 @@ sa/
   - 跑过 P2、P15、P16、P21、P22、P23、P24、P25
   - Hello-Compute 端到端：`build-exe` → `.exe` 跑通；`build-wasm` → `.wasm` 在 Wasmtime 跑通
   - v0.1 WASM 体积目标 ≤ 48 KB（由 `zig cc -O ReleaseSmall` 产出，允许较大；v0.2 手写 Emitter 再压到 32 KB）
+
+- [x] 12b. `saasm layout` 布局生成工具（R7b）
+
+  - [x] 12b.1 实现 `saasm layout --name NAME --fields "field:type, ..."` 子命令
+    - 解析字段列表，按对齐规则计算偏移量
+    - 输出 `#def` 字典文本到 stdout
+    - _Requirements: R7b.1, R7b.2, R7b.3, R7b.4_
+
+  - [x] 12b.2 JSON 输出格式
+    - `--format json` 输出结构化 JSON
+    - _Requirements: R7b.5_
+
+  - [x] 12b.3 32 位目标支持
+    - `--target 32` 时 ptr 对齐为 4
+    - _Requirements: R7b.8_
+
+  - [x]* 12b.4 布局工具单元测试
+    - 覆盖：纯 i32 结构、混合 i32+f64（需 padding）、全 ptr、空结构
+    - _Requirements: R7b.1, R7b.2, R7b.3, R7b.4_
 
 - [ ] 13. W13-14 AutoBevy 1K + LLM Pilot + Hello-Compute 端到端
 

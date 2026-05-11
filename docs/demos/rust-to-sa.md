@@ -1811,3 +1811,94 @@ L_ENTRY:
 | async/await 膨胀 | ⚠️ 40x 膨胀 | ✅ ~13x（宏模板缓解） | 案例 30（R26） |
 | 运行期安全诊断 | ❌ 无 | ✅ `--debug-san` UAF 检测 | 案例 31（R27） |
 | Gas 防御 | ⚠️ 仅编译期报告 | ✅ `--debug-gas` 运行期熔断 | 案例 31（R27） |
+
+---
+
+## 32. `saasm layout` 布局生成工具（R7b） ✅
+
+### 问题场景：LLM 手算偏移量出错
+
+```
+// LLM 容易犯的错误：i32 后跟 f64，忘了对齐 padding
+#def Entity_id    = +0     // u32, 4 bytes
+#def Entity_pos_x = +4     // ❌ 错！f64 需要 8 字节对齐，应该是 +8
+```
+
+### 解法：`saasm layout` 工具自动生成正确的 `#def` 字典
+
+```bash
+$ saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
+
+#def Entity_SIZE  = 32
+#def Entity_id    = +0     // u32, 4 bytes
+                           // 4 bytes padding (align f64 to 8)
+#def Entity_pos_x = +8    // f64, 8 bytes
+#def Entity_pos_y = +16   // f64, 8 bytes
+#def Entity_hp    = +24   // i32, 4 bytes
+                           // 4 bytes tail padding (align struct to 8)
+```
+
+### SA 中使用生成的字典
+
+```
+// 直接粘贴 saasm layout 的输出
+#def Entity_SIZE  = 32
+#def Entity_id    = +0
+#def Entity_pos_x = +8
+#def Entity_pos_y = +16
+#def Entity_hp    = +24
+
+@update_entity(e: &ptr, dx: f64, dy: f64):
+L_ENTRY:
+    // 用常量名访问字段，永远不需要手算偏移量
+    px = load e+Entity_pos_x as f64
+    py = load e+Entity_pos_y as f64
+    new_px = fadd px, dx
+    new_py = fadd py, dy
+    store e+Entity_pos_x, new_px as f64
+    store e+Entity_pos_y, new_py as f64
+    return
+```
+
+### JSON 输出格式（供 LLM 程序化消费）
+
+```bash
+$ saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32" --format json
+```
+
+```json
+{
+  "name": "Entity",
+  "size": 32,
+  "max_align": 8,
+  "fields": [
+    {"name": "id", "offset": 0, "size": 4, "align": 4, "ty": "u32"},
+    {"name": "pos_x", "offset": 8, "size": 8, "align": 8, "ty": "f64"},
+    {"name": "pos_y", "offset": 16, "size": 8, "align": 8, "ty": "f64"},
+    {"name": "hp", "offset": 24, "size": 4, "align": 4, "ty": "i32"}
+  ]
+}
+```
+
+### 对齐规则
+
+| 类型 | 大小 | 对齐 |
+|---|---|---|
+| `i8` / `u8` | 1 | 1 |
+| `i16` / `u16` | 2 | 2 |
+| `i32` / `u32` / `f32` | 4 | 4 |
+| `i64` / `u64` / `f64` / `ptr` | 8 | 8（`--target 32` 时 ptr 对齐为 4） |
+
+### LLM 工作流
+
+```
+1. LLM 决定需要一个结构体
+2. LLM 调用: saasm layout --name X --fields "a:i32, b:f64, c:ptr"
+3. 工具输出正确的 #def 字典
+4. LLM 把字典粘贴到 .saasm 文件顶部
+5. LLM 用常量名写代码: load ptr+X_b as f64
+6. 永远不需要手算偏移量
+7. 永远不会因为对齐错误导致内存踩踏
+```
+
+**为什么这个工具是 v0.1 必需的**：LLM 生成 SA 代码时的**头号错误来源**就是偏移量算错。这个 ~100 行 Zig 的小工具，对 LLM 生成正确代码的成功率提升是**决定性的**。
