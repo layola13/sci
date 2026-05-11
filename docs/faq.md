@@ -1333,3 +1333,166 @@ zig cc main.c sa_math.o -o app -lm
 > **在军工/航空/医疗场景下，SA 不是替代 Ada 或 C 让人类手写的语言。它是一个"IR 防火墙"——无论上游用什么语言写代码，只要经过 SA 的 Referee，就能获得数学可证明的内存安全保证 + WCET 约束 + 类型不混淆（`--strict-tags`）。**
 >
 > 军方可以把那 2500 行 Referee 审查得底朝天，甚至烧进 FPGA 做硬件级验证。这是 Rust 永远做不到的。
+
+---
+
+# SA vs Ada/SPARK：合作关系，不是竞争关系
+
+> Ada/SPARK 是军工/航空领域 40 年的黄金标准。SA 不是来替代它的——SA 是来**与它组成双层防线**的。
+
+---
+
+## 两种完全不同的安全哲学
+
+| 维度 | Ada/SPARK | SA |
+|---|---|---|
+| **守护什么** | 业务逻辑正确性（范围不越界、合约满足、信息流安全） | 内存物理安全（无 UAF / Double-Free / 泄漏 / 类型混淆）+ WCET 有界 |
+| **怎么证明** | 合约 + SMT 求解器（GNATprove） | 仿射掩码 O(1) 位运算 + Coq 定理证明（v0.6） |
+| **验证器复杂度** | GNAT 编译器 ~数百万行 | Referee ≤ 2500 行 |
+| **可审计性** | 困难（编译器太大） | 极易（2500 行可逐行审计 / 可烧 FPGA） |
+| **人类友好度** | 高（为人类设计） | 低（为机器设计） |
+| **LLM 友好度** | 低（语法冗长、上下文依赖重） | 极高（扁平、无嵌套、自包含） |
+
+**核心区别**：Ada/SPARK 在**源码层**证明"程序做了正确的事"。SA 在 **IR 层**证明"程序不会做危险的事"。两者守护的是不同层次的安全。
+
+---
+
+## 全维度对比
+
+| 维度 | Ada/SPARK | SA | 说明 |
+|---|---|---|---|
+| 类型系统 | 极强（范围类型 + 子类型 + 判别式） | 无（ptr + 原生数值 + 可选 tag） | Ada 在业务逻辑层碾压 |
+| 内存安全 | 受限指针模型（无指针算术） | 仿射掩码 + InteriorPtr | SA 更底层更可证明 |
+| WCET 分析 | 需外部工具（AbsInt aiT） | 内建 Gas Metering（R11） | SA 内建 |
+| 形式化验证 | SPARK 合约 + GNATprove | Referee Coq 证明（R33） | 不同方法论，互补 |
+| 并发安全 | Ravenscar Profile | 仿射掩码防竞态 | Ada 更成熟 |
+| 运行时性能 | 中（范围检查有开销） | 最快（LLVM O3，零运行时检查） | SA 更快 |
+| 二进制体积 | 中（~500KB+ 含 runtime） | 小（≤ 48KB wasm） | SA 更小 |
+| 遗留 C 对接 | 需要 binding 层 | 气闸舱 `@ffi_wrapper` | SA 更干净 |
+| 硬件化 | 不可能（编译器太复杂） | Referee 可烧 FPGA（R33.6） | SA 独有 |
+| 认证成本 | 高（需审计 GNAT） | 低（只审计 2500 行） | SA 更低 |
+| 生态成熟度 | 40 年积累 | 零（2026 新生） | Ada 碾压 |
+
+---
+
+## 最强组合：Ada/SPARK → SA → 机器码
+
+SA 与 Ada/SPARK 不是竞争关系，是**合作关系**。两者组合形成双层防线：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Ada/SPARK 源码                                          │
+│  - 人类写，带合约（Pre/Post）+ 范围类型                  │
+│  - GNATprove 证明：业务逻辑正确                          │
+│  - 保证：高度不越界、速度不溢出、状态机转移合法          │
+└─────────────────────┬───────────────────────────────────┘
+                      │ 确定性前端降级（Ada → SA）
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│  SA 指令流（--strict-tags）                              │
+│  - Referee 证明：内存物理安全                            │
+│  - 保证：无 UAF、无 Double-Free、无泄漏、无类型混淆     │
+│  - Gas Metering 保证：WCET 有界                          │
+│  - 气闸舱保证：遗留 C 代码隔离                           │
+└─────────────────────┬───────────────────────────────────┘
+                      │ LLVM IR Emitter
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│  原生机器码 / FPGA bitstream                             │
+│  - LLVM O3 优化：零运行时开销                            │
+│  - 或：Referee 硬件化为 FPGA 电路                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**双层防线的安全保证**：
+
+| 层 | 谁负责 | 证明什么 | 证明方法 |
+|---|---|---|---|
+| Ada/SPARK 层 | GNATprove | 业务逻辑正确（范围、合约、信息流） | SMT 求解器 |
+| SA 层 | Referee | 内存物理安全 + WCET 有界 | O(1) 位掩码 + Coq 定理 |
+| 双层组合 | 两者互补 | **即使 Ada 前端有 bug，SA 仍守住物理安全底线** | — |
+
+---
+
+## 为什么军方应该同时用两者？
+
+### 单独用 Ada/SPARK 的风险
+- GNAT 编译器本身有 bug 怎么办？（编译器是数百万行的复杂软件）
+- 如果编译器错误地生成了 UAF 的机器码，Ada 的合约证明**救不了你**
+- 军方无法完整审计 GNAT 编译器
+
+### 单独用 SA 的风险
+- SA 不证明业务逻辑（高度不越界、导弹不偏航）
+- 内存安全 ≠ 程序正确
+
+### 组合使用的优势
+- Ada/SPARK 保证"程序做了正确的事"
+- SA 保证"即使前端有 bug，物理层也不会崩溃"
+- 军方只需审计 2500 行 Referee（而非整个 GNAT）
+- Referee 可以烧进 FPGA 做**硬件级**内存安全守护
+
+---
+
+## 代码对比：同一个飞控函数
+
+### Ada/SPARK 层（人类写）
+```ada
+type Altitude is range 0 .. 50_000;
+type Velocity is digits 6 range -500.0 .. 500.0;
+
+procedure Update_Altitude (
+   Alt : in out Altitude;
+   Vel : in Velocity;
+   Dt  : in Duration)
+with
+   Pre  => Alt + Altitude(Vel * Float(Dt)) in Altitude'Range,
+   Post => (if Vel >= 0.0 then Alt >= Alt'Old else Alt <= Alt'Old)
+is
+begin
+   Alt := Alt + Altitude(Vel * Float(Dt));
+end Update_Altitude;
+-- GNATprove 证明：Alt 永远在 0..50_000 范围内
+```
+
+### SA 层（前端自动降级产出）
+```
+#tag FlightState
+#def FS_alt = +0
+#def FS_vel = +8
+
+@update_altitude(state: &ptr tag FlightState, vel: f64, dt: f64):
+L_ENTRY:
+    alt = load state+FS_alt as f64
+    delta = fmul vel, dt
+    new_alt = fadd alt, delta
+    store state+FS_alt, new_alt as f64
+    return
+// Referee 证明：state 不会 UAF / Double-Free / 泄漏
+// Referee 证明：state 标签是 FlightState（不会被误当其它结构体）
+// Gas 证明：此函数 WCET 有界（无循环）
+```
+
+**两层各守各的**：
+- Ada 保证 `new_alt` 在 `0..50_000` 范围内
+- SA 保证 `state` 指针在物理层安全
+
+---
+
+## SA 能为 Ada 生态带来什么？
+
+| Ada 的痛点 | SA 的解法 |
+|---|---|
+| GNAT 编译器太大无法审计 | SA Referee 2500 行可完整审计 |
+| 无法证明编译器产出的机器码正确 | SA 在 IR 层做第二道验证 |
+| 对接遗留 C 代码困难 | SA 气闸舱物理隔离 |
+| 无内建 WCET 分析 | SA Gas Metering 内建 |
+| 无法硬件化验证器 | SA Referee 可烧 FPGA |
+| 编译器认证成本极高 | SA 认证只需审计 2500 行 |
+
+---
+
+## 一句话定位
+
+> **Ada/SPARK 是飞行员的安全带（防止操作错误）。SA 是飞机的结构强度（防止物理解体）。两者缺一不可。**
+>
+> SA 与 Ada 的关系是**合作**，不是竞争。Ada 守住业务逻辑的天空，SA 守住内存物理的大地。组合使用时，安全保证是乘法关系，不是加法。
