@@ -15,14 +15,20 @@ test "whitepaper files exist and stay under line limit" {
     defer md_file.close();
     const txt_file = try cwd.openFile("docs/whitepaper.txt", .{});
     defer txt_file.close();
+    const ebnf_file = try cwd.openFile("docs/ebnf.md", .{});
+    defer ebnf_file.close();
 
     const md = try md_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(md);
     const txt = try txt_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(txt);
+    const ebnf = try ebnf_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(ebnf);
 
     try std.testing.expect(lineCount(md) <= 2000);
     try std.testing.expect(lineCount(txt) <= 2000);
+    try std.testing.expect(lineCount(ebnf) <= 2000);
     try std.testing.expect(std.mem.containsAtLeast(u8, md, 1, "SA-ASM"));
     try std.testing.expect(std.mem.containsAtLeast(u8, txt, 1, "SA-ASM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ebnf, 1, "SA-ASM"));
 }

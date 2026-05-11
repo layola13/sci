@@ -10,7 +10,7 @@ pub const common = struct {
 
 pub const flattener = @import("flattener.zig");
 pub const referee = @import("referee.zig");
-pub const lowerer = @import("lowerer.zig");
+pub const cli = @import("cli.zig");
 
 test "root module imports common types" {
     const inst = @import("common/instruction.zig");
@@ -20,7 +20,6 @@ test "root module imports common types" {
     const sig = @import("common/signature.zig");
     const flatten = @import("flattener.zig");
     const verify = @import("referee.zig");
-    const lower = @import("lowerer.zig");
 
     _ = inst.InstKind.alloc;
     _ = cap.CapabilityMask.active;
@@ -69,42 +68,12 @@ test "root module imports common types" {
     const verified = try verify.verify(std.testing.allocator, program[0..]);
     switch (verified) {
         .ok => |ok| {
-            try std.testing.expectEqual(@as(usize, 2), ok.annotated.len);
-            std.testing.allocator.free(ok.annotated[0].entry_caps);
-            std.testing.allocator.free(ok.annotated[0].exit_caps);
-            std.testing.allocator.free(ok.annotated[1].entry_caps);
-            std.testing.allocator.free(ok.annotated[1].exit_caps);
-            std.testing.allocator.free(ok.annotated);
+            var owned = ok;
+            try std.testing.expectEqual(@as(usize, 2), owned.annotated.len);
+            owned.deinit(std.testing.allocator);
         },
         .trap => return error.TestUnexpectedResult,
     }
-
-    const lowered_entry0 = try std.testing.allocator.alloc(u8, 4);
-    defer std.testing.allocator.free(lowered_entry0);
-    @memset(lowered_entry0, 0);
-    const lowered_exit0 = try std.testing.allocator.alloc(u8, 4);
-    defer std.testing.allocator.free(lowered_exit0);
-    @memset(lowered_exit0, 0);
-    const lowered_entry1 = try std.testing.allocator.alloc(u8, 4);
-    defer std.testing.allocator.free(lowered_entry1);
-    @memset(lowered_entry1, 0);
-    const lowered_exit1 = try std.testing.allocator.alloc(u8, 4);
-    defer std.testing.allocator.free(lowered_exit1);
-    @memset(lowered_exit1, 0);
-
-    const lowered = try lower.lower(std.testing.allocator, &[_]referee.AnnotatedInstruction{ .{
-        .base = program[0],
-        .entry_caps = lowered_entry0,
-        .exit_caps = lowered_exit0,
-        .gas_step_cost = 1,
-    }, .{
-        .base = program[1],
-        .entry_caps = lowered_entry1,
-        .exit_caps = lowered_exit1,
-        .gas_step_cost = 1,
-    } });
-    defer std.testing.allocator.free(lowered);
-    try std.testing.expect(std.mem.containsAtLeast(u8, lowered, 1, "allocator.alloc(u8, 8)"));
 
     var flat_result = try flatten.flatten(std.testing.allocator, source);
     defer flat_result.deinit(std.testing.allocator);

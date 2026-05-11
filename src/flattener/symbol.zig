@@ -33,6 +33,14 @@ pub const SymbolTable = struct {
         return id;
     }
 
+    pub fn findId(self: *const SymbolTable, raw_name: []const u8) ?u32 {
+        return self.map.get(raw_name);
+    }
+
+    pub fn contains(self: *const SymbolTable, raw_name: []const u8) bool {
+        return self.map.contains(raw_name);
+    }
+
     pub fn lookupName(self: *const SymbolTable, id: u32) ?[]const u8 {
         const index: usize = @intCast(id);
         if (index >= self.names.items.len) return null;

@@ -1,46 +1,57 @@
-SA-ASM Whitepaper v1.0
+SA-ASM Whitepaper v0.1
 
-SA-ASM is a symbolic affine intermediate language for machine-generated code and machine-checked ownership.
+SA-ASM (Symbolic Affine) is a line-oriented affine IR and compiler pipeline for machine-generated code.
+The first version stays small and real: it prioritizes a working closed loop over speculative backend work.
 
-Design goals:
-- keep syntax flat and token-dense
-- make ownership transitions explicit
-- make verification linear, deterministic, and structure-free
-- lower valid programs to Zig and then to WASM64
+What v0.1 ships:
+- saasm run: in-process interpreter for verified instruction streams
+- saasm build-exe: flattener -> referee -> LLVM IR -> zig cc
+- saasm build-wasm: same LLVM IR path, still linked through Zig in v0.1
+- saasm build-obj: object-file emission through zig cc
+
+The first version does not handwrite a WASM binary emitter, does not generate Zig source, and does not rely on an AST.
 
 Core symbols:
-= bind / allocate
+= allocate / bind
 & borrow
 ^ move / consume
 ! release / drop
+* raw escape
 $...$ native escape block
 
-ISA summary:
-SA-ASM programs are line-oriented. Each line is one of: definition, macro, function signature, label, instruction, or native block.
+Syntax surface:
+- comments and blank lines
+- #def value definitions
+- macro blocks: [MACRO], [END_MACRO], EXPAND
+- repeat blocks: [REP N], [END_REP]
+- function headers: @name(params) -> type:
+- special headers: @ffi_wrapper, @extern, @export
+- labels: L_NAME:
+- instructions: alloc, load, store, borrow, move, release, op, jmp, br, br_null, call, call_indirect, return, take, raw_cast, assume_safe, assume_borrow
+- native escape lines: $...$
 
-Capability masks:
-0x00 Uninitialized
-0x01 Active
-0x02 Locked_Read
-0x04 Locked_Mut
-0x08 Consumed
-0x10 BorrowView
+Toolchain model:
+1. src/flattener.zig scans lines, expands #def, macros, and repetition blocks, and rejects forbidden syntax.
+2. src/referee/verifier.zig performs linear ownership validation with capability masks and trap reports.
+3. src/emit_llvm.zig emits LLVM IR text.
+4. src/interp.zig executes saasm run.
+5. src/cli.zig routes run, build-exe, build-wasm, and build-obj.
+6. build.zig wires the normal tests and smoke checks.
 
-Macro and REP rules:
-- [MACRO] ... [END_MACRO] registers a pure text template.
-- EXPAND pastes the template at the call site.
-- [REP N] ... [END_REP] duplicates the block N times and injects %i.
-- Expansion depth is capped at 256.
+Safety rules:
+- No placeholder code.
+- No fake compilation paths.
+- No empty shells.
+- No hidden AST round-trips.
 
-Native escape blocks:
-Text inside $...$ is passed through verbatim to the Zig backend. The referee treats referenced registers conservatively.
+Deferred features:
+- handwritten WASM binary emission
+- @const
+- stack_alloc
+- ptr_add / InteriorPtr
+- atomics and cmpxchg
+- #mode compact
+- AutoBevy stretch goals
+- LLM pilot scale-out
 
-Rust -> SA-ASM -> Zig examples:
-- let mut x = alloc(16); -> x = alloc 16 -> const x = try allocator.alloc(u8, 16);
-- x = x + y; -> z = add x, y -> const z = x + y;
-- drop(x); -> !x -> allocator.free(x);
-- return x; -> return x -> return x;
-- ptr = &x; -> r = &x -> const r = x;
-
-Trap codes:
-ForbiddenSyntax, DuplicateDef, DuplicateLabel, UnsupportedType, MacroRecursionLimit, RegisterRedefinition, UnknownRegister, BorrowConflict, UseAfterMove, DoubleMutableBorrow, ReadWriteConflict, MemoryLeak, CapabilityMismatch, FallthroughForbidden, PhiStateConflict, GasExceeded, ArenaOOM, SnapshotVersionMismatch
+This file is intentionally short so it can serve as the machine-readable whitepaper baseline for the current repository state.

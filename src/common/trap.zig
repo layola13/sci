@@ -68,6 +68,85 @@ pub fn trapName(trap: Trap) []const u8 {
     };
 }
 
+fn writeJsonString(writer: anytype, text: []const u8) !void {
+    try writer.writeByte('"');
+    for (text) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 0x20) {
+                    try writer.print("\\u{X:0>4}", .{c});
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
+    try writer.writeByte('"');
+}
+
+fn writeMaybeString(writer: anytype, value: ?[]const u8) !void {
+    if (value) |text| {
+        try writeJsonString(writer, text);
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+fn writeMaybeBool(writer: anytype, value: ?bool) !void {
+    if (value) |v| {
+        try writer.writeAll(if (v) "true" else "false");
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+fn writeMaybeU8(writer: anytype, value: ?u8) !void {
+    if (value) |v| {
+        try writer.print("{d}", .{v});
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+pub fn writeJson(writer: anytype, report: TrapReport) !void {
+    try writer.writeAll("{");
+    try writer.writeAll("\"trap\":");
+    try writeJsonString(writer, trapName(report.trap));
+    try writer.writeAll(",\"line\":");
+    try writer.print("{d}", .{report.line});
+    try writer.writeAll(",\"source_line\":");
+    try writer.print("{d}", .{report.source_line});
+    try writer.writeAll(",\"register\":");
+    try writeMaybeString(writer, report.register);
+    try writer.writeAll(",\"registers\":[");
+    for (report.registers, 0..) |item, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writeJsonString(writer, item);
+    }
+    try writer.writeAll("],\"expected_mask\":");
+    try writeMaybeU8(writer, report.expected_mask);
+    try writer.writeAll(",\"actual_mask\":");
+    try writeMaybeU8(writer, report.actual_mask);
+    try writer.writeAll(",\"expected_mask_name\":");
+    try writeMaybeString(writer, report.expected_mask_name);
+    try writer.writeAll(",\"actual_mask_name\":");
+    try writeMaybeString(writer, report.actual_mask_name);
+    try writer.writeAll(",\"function\":");
+    try writeMaybeString(writer, report.function);
+    try writer.writeAll(",\"is_ffi_wrapper\":");
+    try writeMaybeBool(writer, report.is_ffi_wrapper);
+    try writer.writeAll(",\"message\":");
+    try writeJsonString(writer, report.message);
+    try writer.writeAll(",\"hint\":");
+    try writeMaybeString(writer, report.hint);
+    try writer.writeAll("}");
+}
+
 test "trap names are stable" {
     try std.testing.expectEqualStrings("ForbiddenSyntax", trapName(.forbidden_syntax));
     try std.testing.expectEqualStrings("MemoryLeak", trapName(.memory_leak));

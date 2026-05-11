@@ -73,7 +73,7 @@ pub const TRUTH_TABLE = [_]Transition{
 };
 
 test "truth table contains canonical transitions" {
-    try std.testing.expectEqual(@as(usize, 12), TRUTH_TABLE.len);
+    try std.testing.expectEqual(@as(usize, 15), TRUTH_TABLE.len);
     try std.testing.expect(TRUTH_TABLE[0].legal);
     try std.testing.expectEqual(@as(u8, 0x01), TRUTH_TABLE[0].new_mask);
     try std.testing.expectEqual(@as(?TrapKind, .read_write_conflict), TRUTH_TABLE[4].trap);

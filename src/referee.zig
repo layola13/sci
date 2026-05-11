@@ -7,6 +7,7 @@ pub const verifier = @import("referee/verifier.zig");
 pub const CapabilityTable = table.CapabilityTable;
 pub const TableError = table.TableError;
 pub const AnnotatedInstruction = verifier.AnnotatedInstruction;
+pub const VerifyOk = verifier.VerifyOk;
 pub const VerifyResult = verifier.VerifyResult;
 pub const verify = verifier.verify;
 

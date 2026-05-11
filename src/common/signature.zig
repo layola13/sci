@@ -91,6 +91,45 @@ pub fn parsePrimType(text: []const u8) ParseError!PrimType {
     return ParseError.UnsupportedType;
 }
 
+pub fn primTypeName(ty: PrimType) []const u8 {
+    return switch (ty) {
+        .void => "void",
+        .i8 => "i8",
+        .i16 => "i16",
+        .i32 => "i32",
+        .i64 => "i64",
+        .u8 => "u8",
+        .u16 => "u16",
+        .u32 => "u32",
+        .u64 => "u64",
+        .f32 => "f32",
+        .f64 => "f64",
+        .ptr => "ptr",
+    };
+}
+
+pub fn primTypeBits(ty: PrimType) u32 {
+    return switch (ty) {
+        .void => 0,
+        .i8, .u8 => 8,
+        .i16, .u16 => 16,
+        .i32, .u32, .f32 => 32,
+        .i64, .u64, .f64, .ptr => 64,
+    };
+}
+
+pub fn primTypeBytes(ty: PrimType) u32 {
+    return switch (ty) {
+        .void => 0,
+        else => @max(@as(u32, 1), primTypeBits(ty) / 8),
+    };
+}
+
+pub fn primTypeFromTag(tag: u32) ?PrimType {
+    if (tag > @intFromEnum(PrimType.ptr)) return null;
+    return @enumFromInt(tag);
+}
+
 fn parseOptionalCap(text: []const u8) struct { cap: ?instr.CapPrefix, rest: []const u8 } {
     const trimmed = std.mem.trim(u8, text, " \t\r");
     if (trimmed.len == 0) return .{ .cap = null, .rest = trimmed };

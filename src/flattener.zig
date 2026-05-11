@@ -266,6 +266,10 @@ fn emitParsedLine(
                     const offset_text = try dict.foldText(allocator, classified.parts[2]);
                     try owned_text.append(offset_text);
                     inst.operands[2] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    if (classified.part_count > 3) {
+                        const ty = try common_signature.parsePrimType(classified.parts[3]);
+                        inst.operands[3] = .{ .ty = @intFromEnum(ty) };
+                    }
                 },
                 .borrow => {
                     const dst = try symbols.intern(classified.parts[0]);
@@ -292,6 +296,10 @@ fn emitParsedLine(
                     const value_text = try dict.foldText(allocator, classified.parts[2]);
                     try owned_text.append(value_text);
                     inst.operands[2] = .{ .text = value_text };
+                    if (classified.part_count > 3) {
+                        const ty = try common_signature.parsePrimType(classified.parts[3]);
+                        inst.operands[3] = .{ .ty = @intFromEnum(ty) };
+                    }
                 },
                 .op => {
                     const dst = try symbols.intern(classified.parts[0]);
@@ -339,10 +347,26 @@ fn emitParsedLine(
                     inst.operands[3] = .{ .symbol = try symbols.intern(not_null_text) };
                 },
                 .call, .call_indirect, .return_ => {
-                    for (classified.parts[0..classified.part_count], 0..) |part, idx| {
-                        const folded = try dict.foldText(allocator, part);
+                    if (classified.inst_form == .return_ and classified.part_count == 1) {
+                        const folded = try dict.foldText(allocator, classified.parts[0]);
                         try owned_text.append(folded);
-                        inst.operands[idx] = .{ .text = folded };
+                        if (symbols.findId(folded)) |id| {
+                            inst.operands[0] = .{ .reg = id };
+                        } else {
+                            inst.operands[0] = .{ .text = folded };
+                        }
+                    } else if (classified.part_count == 2) {
+                        const dst = try symbols.intern(classified.parts[0]);
+                        inst.operands[0] = .{ .reg = dst };
+                        const folded = try dict.foldText(allocator, classified.parts[1]);
+                        try owned_text.append(folded);
+                        inst.operands[1] = .{ .text = folded };
+                    } else {
+                        for (classified.parts[0..classified.part_count], 0..) |part, idx| {
+                            const folded = try dict.foldText(allocator, part);
+                            try owned_text.append(folded);
+                            inst.operands[idx] = .{ .text = folded };
+                        }
                     }
                 },
                 .raw_cast => {

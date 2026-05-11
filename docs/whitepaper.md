@@ -1,87 +1,73 @@
-# SA-ASM Whitepaper v1.0
+# SA-ASM Whitepaper v0.1
 
-SA-ASM is a symbolic affine intermediate language for machine-generated code and machine-checked ownership.
+SA-ASM (Symbolic Affine) is a line-oriented affine IR and compiler pipeline for machine-generated code.
+The current first version is deliberately small: it prioritizes a real closed loop over speculative backend work.
 
-## Design Goals
+## What v0.1 ships
 
-- Keep syntax flat and token-dense.
-- Make ownership transitions explicit.
-- Make verification linear, deterministic, and structure-free.
-- Lower valid programs to Zig and then to WASM64.
+- `saasm run`: in-process interpreter for verified instruction streams.
+- `saasm build-exe`: flattener -> referee -> LLVM IR -> `zig cc`.
+- `saasm build-wasm`: same LLVM IR path, still linked through Zig in v0.1.
+- `saasm build-obj`: object-file emission through `zig cc`.
+
+The first version does not handwrite a WASM binary emitter, does not generate Zig source, and does not rely on an AST.
 
 ## Core Symbols
 
 | Symbol | Meaning |
-|---|---|
-| `=` | bind / allocate |
+| --- | --- |
+| `=` | allocate / bind |
 | `&` | borrow |
 | `^` | move / consume |
 | `!` | release / drop |
+| `*` | raw escape |
 | `$...$` | native escape block |
 
-## ISA Summary
+## Syntax Surface
 
-SA-ASM programs are line-oriented. Each line is one of: definition, macro, function signature, label, instruction, or native block.
+The language is intentionally flat. A source file is a sequence of line-oriented forms:
 
-## Capability Masks
+- comments and blank lines
+- `#def` value definitions
+- macro blocks: `[MACRO]`, `[END_MACRO]`, `EXPAND`
+- repeat blocks: `[REP N]`, `[END_REP]`
+- function headers: `@name(params) -> type:`
+- special headers: `@ffi_wrapper`, `@extern`, `@export`
+- labels: `L_NAME:`
+- instructions: `alloc`, `load`, `store`, `borrow`, `move`, `release`, `op`, `jmp`, `br`, `br_null`, `call`, `call_indirect`, `return`, `take`, `raw_cast`, `assume_safe`, `assume_borrow`
+- native escape lines: `$...$`
 
-| Mask | Name |
-|---|---|
-| `0x00` | Uninitialized |
-| `0x01` | Active |
-| `0x02` | Locked_Read |
-| `0x04` | Locked_Mut |
-| `0x08` | Consumed |
-| `0x10` | BorrowView |
+## Toolchain Model
 
-## Truth Table
+The current implementation keeps the pipeline simple:
 
-The referee applies table-driven state updates. Illegal transitions emit structured traps rather than recovery heuristics.
+1. `src/flattener.zig` scans lines, expands `#def`, macros, and repetition blocks, and rejects forbidden syntax.
+2. `src/referee/verifier.zig` performs linear ownership validation with capability masks and trap reports.
+3. `src/emit_llvm.zig` emits LLVM IR text.
+4. `src/interp.zig` executes `saasm run`.
+5. `src/cli.zig` routes `run`, `build-exe`, `build-wasm`, and `build-obj`.
+6. `build.zig` wires the normal tests and smoke checks.
 
-## Macro and REP Rules
+## Safety Rules
 
-- `[MACRO] ... [END_MACRO]` registers a pure text template.
-- `EXPAND` pastes the template at the call site.
-- `[REP N] ... [END_REP]` duplicates the block `N` times and injects `%i`.
-- Expansion depth is capped at 256.
+- No placeholder code.
+- No fake compilation paths.
+- No empty shells.
+- No hidden AST round-trips.
 
-## Native Escape Blocks
+## Deferred Features
 
-Text inside `$...$` is passed through verbatim to the Zig backend. The referee treats referenced registers conservatively.
+These are intentionally not part of the v0.1 shipping surface:
 
-## Rust -> SA-ASM -> Zig Examples
-
-| Rust | SA-ASM | Zig |
-|---|---|---|
-| `let mut x = alloc(16);` | `x = alloc 16` | `const x = try allocator.alloc(u8, 16);` |
-| `x = x + y;` | `z = add x, y` | `const z = x + y;` |
-| `drop(x);` | `!x` | `allocator.free(x);` |
-| `return x;` | `return x` | `return x;` |
-| `ptr = &x;` | `r = &x` | `const r = x;` |
-
-## Trap Codes
-
-| Trap | When |
-|---|---|
-| `ForbiddenSyntax` | banned syntax found |
-| `DuplicateDef` | repeated `#def` |
-| `DuplicateLabel` | repeated label |
-| `UnsupportedType` | illegal type annotation |
-| `MacroRecursionLimit` | expansion depth too high |
-| `RegisterRedefinition` | macro expansion collides |
-| `UnknownRegister` | undeclared register used |
-| `BorrowConflict` | invalid borrow access |
-| `UseAfterMove` | consumed register reused |
-| `DoubleMutableBorrow` | second mutable borrow |
-| `ReadWriteConflict` | read borrow upgraded to mut borrow |
-| `MemoryLeak` | live state at function exit |
-| `CapabilityMismatch` | signature mismatch |
-| `FallthroughForbidden` | non-terminating block end |
-| `PhiStateConflict` | merged control-flow state diverges |
-| `GasExceeded` | runtime gas exceeded |
-| `ArenaOOM` | runtime allocation overflow |
-| `SnapshotVersionMismatch` | incompatible snapshot |
+- handwritten WASM binary emission
+- `@const`
+- `stack_alloc`
+- `ptr_add` / `InteriorPtr`
+- atomics and `cmpxchg`
+- `#mode compact`
+- AutoBevy stretch goals
+- LLM pilot scale-out
 
 ## Status
 
-This document is intended to be machine-readable and line-limited. It complements the grammar and implementation, not a substitute for them.
+This document is kept short on purpose so it can act as the machine-readable whitepaper baseline for the current repository state.

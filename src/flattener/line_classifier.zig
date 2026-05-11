@@ -111,6 +111,15 @@ fn parseCommaPair(text: []const u8) ?struct { left: []const u8, right: []const u
     return .{ .left = left, .right = right };
 }
 
+fn splitTrailingType(text: []const u8) ?struct { body: []const u8, ty: []const u8 } {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    const idx = std.mem.lastIndexOf(u8, trimmed, " as ") orelse return null;
+    const body = std.mem.trimRight(u8, trimmed[0..idx], " \t");
+    const ty = std.mem.trim(u8, trimmed[idx + 4 ..], " \t");
+    if (body.len == 0 or ty.len == 0) return null;
+    return .{ .body = body, .ty = ty };
+}
+
 fn parseFunctionHeader(
     raw: []const u8,
     trimmed: []const u8,
@@ -247,24 +256,36 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, rhs, "load ")) {
-        const address = std.mem.trim(u8, rhs["load ".len..], " \t");
+        var address = std.mem.trim(u8, rhs["load ".len..], " \t");
+        var ty_text: []const u8 = "";
+        if (splitTrailingType(address)) |suffix| {
+            address = suffix.body;
+            ty_text = suffix.ty;
+        }
         const parsed = parseAddress(address) orelse return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .load;
         addPart(line, 0, lhs);
         addPart(line, 1, parsed.base);
         addPart(line, 2, parsed.offset);
+        if (ty_text.len != 0) addPart(line, 3, ty_text);
         return true;
     }
 
     if (std.mem.startsWith(u8, rhs, "take ")) {
-        const address = std.mem.trim(u8, rhs["take ".len..], " \t");
+        var address = std.mem.trim(u8, rhs["take ".len..], " \t");
+        var ty_text: []const u8 = "";
+        if (splitTrailingType(address)) |suffix| {
+            address = suffix.body;
+            ty_text = suffix.ty;
+        }
         const parsed = parseAddress(address) orelse return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .take;
         addPart(line, 0, lhs);
         addPart(line, 1, parsed.base);
         addPart(line, 2, parsed.offset);
+        if (ty_text.len != 0) addPart(line, 3, ty_text);
         return true;
     }
 
@@ -310,11 +331,18 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         const rest = std.mem.trimLeft(u8, trimmed["store".len..], " \t");
         const pair = parseCommaPair(rest) orelse return false;
         const addr = parseAddress(pair.left) orelse return false;
+        var value = pair.right;
+        var ty_text: []const u8 = "";
+        if (splitTrailingType(value)) |suffix| {
+            value = suffix.body;
+            ty_text = suffix.ty;
+        }
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .store;
         addPart(line, 0, addr.base);
         addPart(line, 1, addr.offset);
-        addPart(line, 2, pair.right);
+        addPart(line, 2, value);
+        if (ty_text.len != 0) addPart(line, 3, ty_text);
         return true;
     }
 
@@ -527,6 +555,10 @@ test "classify representative line families" {
     try std.testing.expectEqualStrings("node", store.parts[0]);
     try std.testing.expectEqualStrings("4", store.parts[1]);
     try std.testing.expectEqualStrings("0", store.parts[2]);
+
+    const typed_load = classifyLine("value = load node+8 as i64");
+    try std.testing.expectEqual(InstructionForm.load, typed_load.inst_form.?);
+    try std.testing.expectEqualStrings("i64", typed_load.parts[3]);
 
     const native = classifyLine("$const x = 1;$");
     try std.testing.expectEqual(LineKind.native, native.kind);
