@@ -896,11 +896,52 @@ sa/
 
 ---
 
+# Version 0.6 — 高可靠性认证（post-v0.5，8-12 周）
+
+目标：让 SA 的 Referee 获得数学可证明的正确性保证，满足 DO-178C Level A / MISRA / 军工审计要求。
+
+## v0.6 任务
+
+- [ ] 38. Referee 形式化规范（R33）
+
+  - [ ] 38.1 提取 Referee 核心状态机为独立的纯函数规范
+    - 从 `src/referee/` 中提取 CapabilityMask 转移逻辑为无副作用的纯函数
+    - 产出 `formal/referee_spec.lean` 或 `formal/referee_spec.v`（Coq）
+    - _Requirements: R33.1_
+
+  - [ ] 38.2 证明健全性（Soundness）
+    - 定理：若 Referee 放行指令流 I，则 I 在任何执行路径上不发生 UAF / Double-Free / Memory Leak
+    - _Requirements: R33.2_
+
+  - [ ] 38.3 证明完备性（Completeness）
+    - 定理：若指令流 I 在所有路径上内存安全，则 Referee 不误报 Trap
+    - _Requirements: R33.2_
+
+  - [ ] 38.4 证明终止性（Termination）
+    - 定理：对任意有限长度指令流，Referee 在有限步内产出结果
+    - _Requirements: R33.2_
+
+  - [ ] 38.5 CI 集成：形式化规范与 Zig 实现同步
+    - Referee 代码修改时 CI 要求重新验证 Lean4/Coq 证明
+    - _Requirements: R33.4_
+
+- [ ] 39. Referee 硬件化探索（R33.6）
+
+  - [ ] 39.1 将 Referee 位掩码逻辑翻译为 Verilog/VHDL
+    - 目标：FPGA 上的硬件所有权检查器原型
+    - _Requirements: R33.6_
+
+  - [ ] 39.2 硬件 Referee 与软件 Referee 等价性验证
+    - 对同一指令流，硬件与软件产出相同的 Pass/Trap 判决
+    - _Requirements: R33.6_
+
+---
+
 ## 说明
 
 - 带 `*` 的任务为可选 PBT；核心实现任务必做。
 - 每条 PBT 显式标注 Property 编号（P1–P25）与验证的需求号。
-- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"。**不要把这五件事压在 14 周 MVP 里**。
+- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"，v0.6 才谈"军工/航空级形式化认证"。**不要把这六件事压在 14 周 MVP 里**。
 - **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
   - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
   - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作

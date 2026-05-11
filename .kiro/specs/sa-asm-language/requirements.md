@@ -631,7 +631,24 @@
 5. WHEN 标签未声明（`alloc` 不带 `tag`）THEN 该寄存器 SHALL 被视为"无标签"（untagged），可以传给任何函数（向后兼容）
 6. WHEN 标签校验被启用 THEN 其 SHALL 为**纯编译期**行为，零运行时开销（标签信息不进入产物）
 7. WHEN 标签校验被禁用（`--no-tag-check`）THEN Referee SHALL 跳过所有标签比对（用于性能敏感的场景或向后兼容）
-8. **Non-Goal**：标签不是类型系统。不支持继承、不支持泛型标签、不支持标签上的方法。它只是一个"这块内存的布局是什么"的编译期断言
+8. WHEN 用户指定 `--strict-tags` THEN 所有 `alloc` 指令 SHALL 必须携带 `tag NAME`，未标记的 `alloc` 直接 `Trap: MissingTag`；此模式用于高可靠性/军工场景，确保零类型混淆
+9. **Non-Goal**：标签不是类型系统。不支持继承、不支持泛型标签、不支持标签上的方法。它只是一个"这块内存的布局是什么"的编译期断言
+
+### Requirement 33: Referee 形式化验证（v0.6 — 高可靠性认证）
+
+**User Story**  
+作为军工/航空/医疗等高可靠性领域的采用者，我需要数学证明 SA 的 Referee 算法本身没有 Bug——不是靠测试覆盖率，而是靠定理证明器（如 Coq / Lean4 / Isabelle）产出的机器可检查证明。
+
+**Acceptance Criteria**
+1. WHEN Referee 的核心状态机逻辑被提取 THEN 其 SHALL 被翻译为 Coq 或 Lean4 的等价规范（Spec），行数 ≤ 1000 行定理证明代码
+2. WHEN 形式化规范被建立 THEN 以下性质 SHALL 被证明：
+   - **健全性（Soundness）**：若 Referee 放行一段指令流，则该流在任何执行路径上都不会发生 Use-After-Free、Double-Free 或 Memory Leak
+   - **完备性（Completeness）**：若一段指令流在所有执行路径上都是内存安全的，则 Referee 不会误报 Trap（无假阳性）
+   - **终止性（Termination）**：Referee 对任意有限长度的指令流都会在有限步内产出结果
+3. WHEN 证明完成 THEN 其 SHALL 可被 Coq/Lean4 的类型检查器机器验证（不依赖人工审查）
+4. WHEN Referee 的 Zig 实现被修改 THEN CI SHALL 要求同步更新形式化规范并重新验证证明（否则阻断合入）
+5. WHEN 高可靠性认证（如 DO-178C Level A）被申请 THEN 形式化证明 SHALL 作为"设计保证等级"（Design Assurance Level）的核心证据提交
+6. WHEN Referee 被硬件化（FPGA 实现）THEN 形式化规范 SHALL 作为硬件设计的黄金参考（Golden Reference）
 
 ---
 
@@ -756,4 +773,4 @@
 
 ---
 
-**文档终态：以上 32 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
+**文档终态：以上 33 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
