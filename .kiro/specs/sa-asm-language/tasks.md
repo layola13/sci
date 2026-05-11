@@ -327,7 +327,7 @@ sa/
   - [ ] 8.13 Fallible ABI 映射 M30（返回 `{i32 status, T value}`）
     - _Requirements: R18.1_
 
-  - [ ] 8.14 `#loc` 上游映射 M31（DWARF `!DILocation` 元数据）
+  - [x] 8.14 `#loc` 上游映射 M31（DWARF `!DILocation` 元数据）
     - 顶部生成 `!DICompileUnit` / `!DIFile` / `!DISubprogram`
     - 每条指令附 `!dbg !N`
     - `--no-debug` 关闭

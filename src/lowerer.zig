@@ -183,6 +183,12 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
             .call_indirect => {
                 return LowerError.UnsupportedInstruction;
             },
+            .panic => {
+                return LowerError.UnsupportedInstruction;
+            },
+            .panic_msg => {
+                return LowerError.UnsupportedInstruction;
+            },
             .return_ => {
                 try out.writer().print("    // {s}\n", .{inst.raw_text});
                 if (inst.operands[0] == .reg) {

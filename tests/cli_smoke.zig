@@ -67,6 +67,8 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!llvm.dbg.cu"));
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!DILocation(line: 10, column: 4"));
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!DISubprogram(name: \"main\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "store i32 %argc, ptr @saasm_argc, align 4, !dbg"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "ret i32 %res, !dbg"));
 
     const obj_path = "sample.o";
     const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "sample.saasm", "-o", obj_path };

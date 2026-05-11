@@ -89,9 +89,63 @@ fn parseCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bo
     };
 }
 
+fn parseBareCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bool) !ParsedCall {
+    const trimmed = std.mem.trim(u8, body, " \t");
+    if (trimmed.len == 0) return CallError.InvalidCallSyntax;
+
+    const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse return CallError.InvalidCallSyntax;
+    const close = std.mem.lastIndexOfScalar(u8, trimmed, ')') orelse return CallError.InvalidCallSyntax;
+    if (close < open) return CallError.InvalidCallSyntax;
+
+    const prefix = std.mem.trim(u8, trimmed[0..open], " \t");
+    if (prefix.len == 0) return CallError.InvalidCallSyntax;
+
+    var dest: ?[]const u8 = null;
+    var callee_text = prefix;
+    if (std.mem.indexOfScalar(u8, prefix, '=')) |eq| {
+        const name = std.mem.trim(u8, prefix[0..eq], " \t");
+        const tail = std.mem.trim(u8, prefix[eq + 1 ..], " \t");
+        if (name.len == 0 or tail.len != 0) return CallError.InvalidCallSyntax;
+        dest = try allocator.dupe(u8, name);
+        callee_text = std.mem.trim(u8, trimmed[eq + 1 .. open], " \t");
+        if (callee_text.len == 0) return CallError.InvalidCallSyntax;
+    }
+
+    const callee_name = if (callee_text[0] == '@') callee_text[1..] else callee_text;
+    if (callee_name.len == 0) return CallError.InvalidCallSyntax;
+
+    var args_list = std.ArrayList(ParsedArg).init(allocator);
+    errdefer {
+        for (args_list.items) |arg| allocator.free(arg.text);
+        args_list.deinit();
+    }
+
+    const args_text = std.mem.trim(u8, trimmed[open + 1 .. close], " \t");
+    if (args_text.len != 0) {
+        var it = std.mem.splitScalar(u8, args_text, ',');
+        while (it.next()) |fragment| {
+            try args_list.append(try parseArg(allocator, fragment));
+        }
+    }
+
+    return .{
+        .dest = dest,
+        .callee = try allocator.dupe(u8, callee_name),
+        .args = try args_list.toOwnedSlice(),
+        .is_indirect = is_indirect,
+    };
+}
+
 pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall {
     const trimmed = std.mem.trim(u8, raw_text, " \t\r");
     if (trimmed.len == 0) return CallError.InvalidCallSyntax;
+
+    if (std.mem.startsWith(u8, trimmed, "panic_msg")) {
+        return parseBareCallBody(allocator, trimmed, false);
+    }
+    if (std.mem.startsWith(u8, trimmed, "panic")) {
+        return parseBareCallBody(allocator, trimmed, false);
+    }
 
     const call_start = if (std.mem.indexOf(u8, trimmed, "call_indirect")) |idx| idx else if (std.mem.indexOf(u8, trimmed, "call")) |idx| idx else return CallError.InvalidCallSyntax;
     const prefix = std.mem.trim(u8, trimmed[0..call_start], " \t");
@@ -135,6 +189,17 @@ pub fn validateCall(
     errdefer call.deinit(allocator);
 
     if (call.is_indirect) {
+        return call;
+    }
+
+    if (std.mem.eql(u8, call.callee, "panic")) {
+        if (call.args.len != 1 or call.args[0].prefix != .by_value) return CallError.CapabilityMismatch;
+        return call;
+    }
+    if (std.mem.eql(u8, call.callee, "panic_msg")) {
+        if (call.args.len != 3 or call.args[0].prefix != .by_value or call.args[1].prefix != .raw or call.args[2].prefix != .by_value) {
+            return CallError.CapabilityMismatch;
+        }
         return call;
     }
 

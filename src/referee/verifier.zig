@@ -63,14 +63,14 @@ fn isDecl(kind: inst.InstKind) bool {
 
 fn isTerminator(kind: inst.InstKind) bool {
     return switch (kind) {
-        .jmp, .br, .br_null, .return_ => true,
+        .jmp, .br, .br_null, .return_, .panic, .panic_msg => true,
         else => false,
     };
 }
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .load, .store, .borrow, .move_, .release, .op, .jmp, .br, .br_null, .call, .call_indirect, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
+        .alloc, .load, .store, .borrow, .move_, .release, .op, .jmp, .br, .br_null, .call, .call_indirect, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
         else => false,
     };
 }
@@ -137,6 +137,8 @@ fn trapReport(
 }
 
 fn builtinArgSpec(name: []const u8) ?[]const inst.CapPrefix {
+    if (std.mem.eql(u8, name, "panic")) return &.{ .by_value };
+    if (std.mem.eql(u8, name, "panic_msg")) return &.{ .by_value, .raw, .by_value };
     if (std.mem.eql(u8, name, "sys_print")) return &.{ .raw, .by_value };
     if (std.mem.eql(u8, name, "sys_read_file")) return &.{ .raw, .by_value, .raw };
     if (std.mem.eql(u8, name, "sys_write_file")) return &.{ .raw, .by_value, .raw, .by_value };
@@ -147,6 +149,8 @@ fn builtinArgSpec(name: []const u8) ?[]const inst.CapPrefix {
 }
 
 fn builtinReturnCap(name: []const u8) ?inst.CapPrefix {
+    if (std.mem.eql(u8, name, "panic")) return null;
+    if (std.mem.eql(u8, name, "panic_msg")) return null;
     if (std.mem.eql(u8, name, "sys_read_file")) return .raw;
     if (std.mem.eql(u8, name, "sys_argv")) return .raw;
     if (std.mem.eql(u8, name, "sys_argc")) return .by_value;
@@ -237,7 +241,7 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
                 if (isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
                 if (isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
             },
-            .call, .call_indirect, .return_, .native => {
+            .call, .call_indirect, .panic, .panic_msg, .return_, .native => {
                 if (call.parseCall(allocator, item.raw_text)) |parsed0| {
                     var parsed = parsed0;
                     defer parsed.deinit(allocator);
@@ -493,6 +497,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
     var sig_index: usize = 0;
     var body_seen = false;
     var terminated = false;
+    var fatal_terminated = false;
     var gas_alloc_bytes: u64 = 0;
     var gas_steps: u64 = 0;
     const call_depth: u16 = 0;
@@ -551,7 +556,9 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             if (!isDecl(item.kind) and item.kind != .label) {
                 return trapReport(.fallthrough_forbidden, item, current_function_text, current_is_ffi_wrapper, null, null, null, "basic blocks must end with jmp, br, br_null, or return", "insert an explicit terminator before the next declaration");
             }
-            terminated = false;
+            if (!(fatal_terminated and item.kind == .label)) {
+                terminated = false;
+            }
         }
 
         if (item.kind == .label) {
@@ -699,7 +706,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 }
                 terminated = true;
             },
-            .call, .call_indirect => {
+            .call, .call_indirect, .panic, .panic_msg => {
                 var parsed = call.parseCall(allocator, item.raw_text) catch {
                     return trapReport(.forbidden_syntax, item, current_function_text, current_is_ffi_wrapper, null, null, null, "invalid call syntax", null);
                 };
@@ -780,6 +787,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                         }
                     }
                 }
+
+                if (item.kind == .panic or item.kind == .panic_msg) {
+                    terminated = true;
+                    fatal_terminated = true;
+                }
             },
             .return_ => {
                 if (item.operands[0] == .reg) {
@@ -826,9 +838,13 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
         return trapReport(.fallthrough_forbidden, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, null, "function body ended without a terminator", "end the last block with jmp, br, br_null, or return");
     }
 
-    for (state) |mask| {
-        if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
-        return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, mask, "live registers remain at function exit", null);
+    if (!fatal_terminated) {
+        for (state) |mask| {
+            if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
+            return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, mask, "live registers remain at function exit", null);
+        }
+    } else if (body_seen and !terminated) {
+        return trapReport(.fallthrough_forbidden, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, null, "function body ended without a terminator", "end the last block with jmp, br, br_null, return, or panic");
     }
 
     const annotated_slice = annotated.toOwnedSlice() catch {

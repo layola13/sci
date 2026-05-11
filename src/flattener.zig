@@ -219,6 +219,8 @@ fn mapInstKind(form: InstructionForm) InstKind {
         .br_null => .br_null,
         .call => .call,
         .call_indirect => .call_indirect,
+        .panic => .panic,
+        .panic_msg => .panic_msg,
         .return_ => .return_,
         .take => .take,
         .raw_cast => .raw_cast,
@@ -427,7 +429,7 @@ fn emitParsedLine(
                     try owned_text.append(not_null_text);
                     inst.operands[3] = .{ .symbol = try symbols.intern(not_null_text) };
                 },
-                .call, .call_indirect, .return_ => {
+                .call, .call_indirect, .panic, .panic_msg, .return_ => {
                     if (classified.inst_form == .return_ and classified.part_count == 1) {
                         const folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[0]);
                         if (symbols.findId(folded)) |id| {

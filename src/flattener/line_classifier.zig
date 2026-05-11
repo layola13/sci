@@ -32,6 +32,8 @@ pub const InstructionForm = enum {
     br_null,
     call,
     call_indirect,
+    panic,
+    panic_msg,
     return_,
     take,
     raw_cast,
@@ -427,6 +429,24 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         return true;
     }
 
+    if (startsWithWord(trimmed, "panic_msg")) {
+        const rest = std.mem.trimLeft(u8, trimmed["panic_msg".len..], " \t");
+        if (rest.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .panic_msg;
+        addPart(line, 0, rest);
+        return true;
+    }
+
+    if (startsWithWord(trimmed, "panic")) {
+        const rest = std.mem.trimLeft(u8, trimmed["panic".len..], " \t");
+        if (rest.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .panic;
+        addPart(line, 0, rest);
+        return true;
+    }
+
     if (startsWithWord(trimmed, "return")) {
         const rest = std.mem.trimLeft(u8, trimmed["return".len..], " \t");
         line.* = makeLine(.instruction, line.raw, line.trimmed);
@@ -581,6 +601,14 @@ test "classify representative line families" {
 
     const borrow = classifyLine("view = assume_borrow raw, mut");
     try std.testing.expectEqual(InstructionForm.assume_borrow, borrow.inst_form.?);
+
+    const panic = classifyLine("panic(7)");
+    try std.testing.expectEqual(LineKind.instruction, panic.kind);
+    try std.testing.expectEqual(InstructionForm.panic, panic.inst_form.?);
+
+    const panic_msg = classifyLine("panic_msg(7, *msg, len)");
+    try std.testing.expectEqual(LineKind.instruction, panic_msg.kind);
+    try std.testing.expectEqual(InstructionForm.panic_msg, panic_msg.inst_form.?);
 
     const store = classifyLine("store node+4, 0");
     try std.testing.expectEqual(LineKind.instruction, store.kind);

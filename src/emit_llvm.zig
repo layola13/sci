@@ -18,6 +18,7 @@ pub const EmitError = error{
 
 pub const EmitOptions = struct {
     debug: bool = false,
+    emit_wasm: bool = false,
 };
 
 const Value = struct {
@@ -447,6 +448,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
     try emitLine(out, "declare i32 @fclose(ptr)");
     try out.writer().print("declare {s} @write(i32, ptr, {s})\n", .{ size_ty_name, size_ty_name });
     try emitLine(out, "declare void @exit(i32)");
+    try emitLine(out, "declare void @__sa_panic(i32, ptr, i64)");
     try emitLine(out, "");
 
     try out.writer().print("define ptr @saasm_strdupz(ptr %src, {s} %len) {{\n", .{size_ty_name});
@@ -624,9 +626,44 @@ fn emitBuiltinCall(
     out: *std.ArrayList(u8),
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
+    options: EmitOptions,
     parsed: call.ParsedCall,
 ) !?Value {
     const name = parsed.callee;
+    if (std.mem.eql(u8, name, "panic")) {
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "code", .ty = .i32, .cap = .by_value }});
+        try out.appendSlice(prelude.items);
+        if (options.emit_wasm) {
+            try out.writer().print("  unreachable ; panic({s})\n", .{args_buf.items});
+        } else {
+            try out.writer().print("  call void @__sa_panic(i32 {s}, ptr null, i64 0)\n", .{args_buf.items});
+            try emitLine(out, "  unreachable");
+        }
+        return null;
+    }
+    if (std.mem.eql(u8, name, "panic_msg")) {
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{
+            .{ .name = "code", .ty = .i32, .cap = .by_value },
+            .{ .name = "msg", .ty = .ptr, .cap = .raw },
+            .{ .name = "len", .ty = .i64, .cap = .by_value },
+        });
+        try out.appendSlice(prelude.items);
+        if (options.emit_wasm) {
+            try out.writer().print("  unreachable ; panic_msg({s})\n", .{args_buf.items});
+        } else {
+            try out.writer().print("  call void @__sa_panic(i32 {s})\n", .{args_buf.items});
+            try emitLine(out, "  unreachable");
+        }
+        return null;
+    }
     if (std.mem.eql(u8, name, "sys_argc")) {
         const tmp = try state.tempName(allocator);
         try out.writer().print("  {s} = call i32 @sys_argc()\n", .{tmp});
@@ -694,8 +731,10 @@ fn emitDirectCall(
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
+    options: EmitOptions,
     parsed: call.ParsedCall,
 ) !?Value {
+    _ = options;
     const resolved = findFunctionSig(sigs, parsed.callee) orelse return null;
     const ret_ty = returnTypeForSig(resolved.return_cap, resolved.return_ty);
     if (parsed.args.len != resolved.params.len) return EmitError.InvalidOperand;
@@ -728,6 +767,7 @@ fn emitCall(
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
+    options: EmitOptions,
     parsed: call.ParsedCall,
 ) !?Value {
     if (parsed.is_indirect) {
@@ -751,10 +791,10 @@ fn emitCall(
         return .{ .expr = tmp, .ty = .i64 };
     }
 
-    if (try emitBuiltinCall(allocator, out, state, symbols, parsed)) |value| {
+    if (try emitBuiltinCall(allocator, out, state, symbols, options, parsed)) |value| {
         return value;
     }
-    if (try emitDirectCall(allocator, out, state, symbols, sigs, parsed)) |value| {
+    if (try emitDirectCall(allocator, out, state, symbols, sigs, options, parsed)) |value| {
         return value;
     }
     return EmitError.UnknownFunction;
@@ -766,6 +806,7 @@ fn emitInstruction(
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
+    options: EmitOptions,
     size_bits: u16,
     item: referee.AnnotatedInstruction,
 ) !void {
@@ -917,10 +958,10 @@ fn emitInstruction(
             const nnname = symbols.lookupName(base.operands[2].label) orelse return EmitError.InvalidOperand;
             try out.writer().print("  br i1 {s}, label %{s}, label %{s}\n", .{ tmp, nname, nnname });
         },
-        .call, .call_indirect => {
+        .call, .call_indirect, .panic, .panic_msg => {
             var parsed = call.parseCall(allocator, base.raw_text) catch return EmitError.InvalidOperand;
             defer parsed.deinit(allocator);
-            if (try emitCall(allocator, out, state, symbols, sigs, parsed)) |ret| {
+            if (try emitCall(allocator, out, state, symbols, sigs, options, parsed)) |ret| {
                 if (parsed.dest) |dest| {
                     if (symbols.findId(dest)) |id| try state.setReg(id, ret);
                 }
@@ -1022,7 +1063,7 @@ fn emitUserFunctions(
         }
 
         if (current) |*state| {
-            try emitInstruction(allocator, out, state, &verified.symbols, verified.function_sigs, size_bits, item);
+            try emitInstruction(allocator, out, state, &verified.symbols, verified.function_sigs, options, size_bits, item);
             if (debug_info) |*info| {
                 if (current_debug) |ctx| {
                     if (loc_table[idx]) |loc| {

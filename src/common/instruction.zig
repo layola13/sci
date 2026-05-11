@@ -54,6 +54,8 @@ pub const InstKind = enum(u8) {
     br_null,
     call,
     call_indirect,
+    panic,
+    panic_msg,
     return_,
     take,
     func_decl,
