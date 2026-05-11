@@ -738,4 +738,4 @@ assume_borrow  = IDENT "=" "assume_borrow" IDENT [ "," "mut" ] ;
 
 ---
 
-**文档终态**：本设计覆盖需求文档 27 条 Requirements（R1–R24 MVP + R25–R27 v0.3）的全部契约，含 **32 条形式化 Property**、5 层测试策略、完整的 LLVM IR / WASM 映射表（含原子 RMW 族、错误传播、DWARF、`@const` rodata、`stack_alloc`、`ptr_add`/InteriorPtr）、气闸舱隔离、前端降级合约、`libsa_scope` helper、v0.2 可选 `#mode compact` 紧凑糖、v0.3 VTable 签名校验 + `libsa_async` 宏模板 + 诊断级别。
+**文档终态**：本设计覆盖需求文档 30 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4）的全部契约，含 **32 条形式化 Property**、5 层测试策略、完整的 LLVM IR / WASM 映射表（含原子 RMW 族、错误传播、DWARF、`@const` rodata、`stack_alloc`、`ptr_add`/InteriorPtr）、气闸舱隔离、前端降级合约、`libsa_scope` helper、v0.2 可选 `#mode compact` 紧凑糖、v0.3 VTable 签名校验 + `libsa_async` 宏模板 + 诊断级别、v0.4 并行开发基建（`.saasm-iface` 接口契约 + `.saasm-layout` 版本化布局 + 函数粒度增量编译）。

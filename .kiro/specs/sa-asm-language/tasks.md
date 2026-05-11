@@ -327,7 +327,7 @@ sa/
   - [ ] 8.13 Fallible ABI 映射 M30（返回 `{i32 status, T value}`）
     - _Requirements: R18.1_
 
-  - [x] 8.14 `#loc` 上游映射 M31（DWARF `!DILocation` 元数据）
+  - [ ] 8.14 `#loc` 上游映射 M31（DWARF `!DILocation` 元数据）
     - 顶部生成 `!DICompileUnit` / `!DIFile` / `!DISubprogram`
     - 每条指令附 `!dbg !N`
     - `--no-debug` 关闭
@@ -340,18 +340,18 @@ sa/
   - [ ]* 8.16 Zig 依赖受限 PBT — **P17**（v0.1 版本：断言产物 `@import` 集合为空，因为我们不生成 Zig 源码）
     - _Requirements: R14.11_
 
-  - [x] 8.17 LLVM IR Emitter 公开 API `emitLlvm(allocator, verified, loc_table, source_path, size_bits, options) ![]const u8`
-    - 已接入 source map / debug metadata 入口，支持 `loc_table` 与 `-g`
+  - [ ] 8.17 LLVM IR Emitter 公开 API `emitLlvm(allocator, annotated, loc_table) ![]const u8`
+    - 附 source map `inst_idx → ir_line`
     - _Requirements: R14.1_
 
-  - [x] 8.18 `zig cc` 子进程封装 `driver/zigcc.zig`
+  - [ ] 8.18 `zig cc` 子进程封装 `driver/zigcc.zig`
     - 把 `.ll` 写临时文件
     - `saasm build-exe` → `zig cc <ll> -o <exe> -O ReleaseSmall`（默认 O1 档，`--release-fast` 切 O3）
     - **`saasm build-wasm` → `zig cc <ll> -target wasm32-wasi -o <wasm> -O ReleaseSmall`（v0.1 全委托 Zig，不用手写 Emitter）**
     - `saasm build-obj` → `zig cc <ll> -c -o <o>`
     - _Requirements: R14.1, R14.11, R15.1, R15.2, R16.2, R16.3, R16.4_
 
-  - [x] 8.19 CLI `saasm run` / `build-exe` / `build-wasm` / `build-obj` 四模路由
+  - [ ] 8.19 CLI `saasm run` / `build-exe` / `build-wasm` / `build-obj` 四模路由
     - Trap 返回非零退出码 + JSON 到 stderr
     - _Requirements: R16.1, R16.5_
 
@@ -359,7 +359,7 @@ sa/
     - `zig build -Drelease-small` 产物 ≤ 15 MB（MVP），libc 外无依赖
     - _Requirements: R16.6_
 
-  - [x] 8.21 `-g` / `--no-debug` 调试开关接入
+  - [ ] 8.21 `-g` / `--no-debug` 调试开关接入
     - `-g` 默认关，`build-exe -g` 启用 DWARF 生成
     - _Requirements: R19.4, R19.5_
 
@@ -707,11 +707,107 @@ sa/
 
 ---
 
+# Version 0.4 — 并行开发基建（post-v0.3，4-6 周）
+
+目标：让 SA 从"单人极客工具"进化为"多人/多 LLM 并行协作的工业级基建"。核心能力：接口契约、版本化布局、函数粒度增量编译。
+
+## v0.4 任务
+
+- [ ] 31. 接口契约文件 `.saasm-iface`（R28）
+
+  - [ ] 31.1 定义 `.saasm-iface` 文件格式
+    - 仅包含 `@extern` 签名声明（含 cap_prefix + ty + 返回类型 + `!` 后缀）
+    - 不包含函数体、不包含 `#def`、不包含 `@const`
+    - _Requirements: R28.1_
+
+  - [ ] 31.2 Flattener 支持 `#include "module.saasm-iface"`
+    - 将接口文件中的 `@extern` 声明注入当前编译单元
+    - 支持相对路径与绝对路径
+    - _Requirements: R28.2_
+
+  - [ ] 31.3 Referee 基于接口签名做调用点校验
+    - 无需实际函数体存在即可校验 `CapabilityMismatch`
+    - _Requirements: R28.3_
+
+  - [ ] 31.4 链接期签名一致性检查
+    - 接口声明与实现的签名不一致时 `zig cc` 报 symbol type mismatch
+    - _Requirements: R28.4_
+
+  - [ ] 31.5 并行编译验证
+    - 多个 `.saasm` 文件引用同一 `.saasm-iface`，各自独立编译，最后链接
+    - 验证结果与串行编译等价
+    - _Requirements: R28.5_
+
+  - [ ] 31.6 CI 依赖检测
+    - 接口文件修改时自动标记依赖方需重新验证（文件哈希比对）
+    - _Requirements: R28.6_
+
+- [ ] 32. 版本化布局文件 `.saasm-layout`（R29）
+
+  - [ ] 32.1 定义 `.saasm-layout` 文件格式
+    - `#version N` 元数据行 + `#def` 常量声明
+    - _Requirements: R29.1, R29.6_
+
+  - [ ] 32.2 Flattener 支持 `#include "entity.saasm-layout"`
+    - 记录引用的 `#version` 值
+    - _Requirements: R29.2_
+
+  - [ ] 32.3 版本冲突检测
+    - 两个 `.saasm` 引用同一布局文件的不同版本 → 链接期 `Trap: LayoutVersionConflict`
+    - 通过在 `.o` 文件中嵌入版本元数据实现
+    - _Requirements: R29.4_
+
+  - [ ] 32.4 CI 版本递增检查
+    - 布局文件内容变更但 `#version` 未递增 → 警告阻断 merge
+    - _Requirements: R29.5_
+
+  - [ ] 32.5 版本变更影响扫描
+    - `#version` 递增时自动列出所有引用方
+    - _Requirements: R29.3_
+
+- [ ] 33. 函数粒度增量编译（R30）
+
+  - [ ] 33.1 `--incremental` 模式骨架
+    - 按函数粒度产出独立 `.o`（每个函数一个）
+    - _Requirements: R30.1_
+
+  - [ ] 33.2 函数体哈希比对与缓存复用
+    - 未修改的函数跳过 Emitter + zig cc，复用 `.sa-cache/` 中的 `.o`
+    - _Requirements: R30.2_
+
+  - [ ] 33.3 增量链接
+    - 所有函数 `.o` 合并为单一产物
+    - 验证与非增量模式产物行为等价
+    - _Requirements: R30.3_
+
+  - [ ] 33.4 缓存目录结构
+    - `.sa-cache/<func_name_hash>.o` + `.sa-cache/manifest.json`
+    - _Requirements: R30.5_
+
+  - [ ] 33.5 增量 + sanitizer 兼容
+    - `--incremental --debug-san` 时每个函数 `.o` 独立包含 sanitizer 入口
+    - _Requirements: R30.6_
+
+- [ ] 34. 多 LLM 并行生成验证
+
+  - [ ] 34.1 设计"N 个 LLM 实例并行生成 N 个函数"的测试协议
+    - 每个 LLM 实例只看到 `.saasm-iface` + `.saasm-layout`，独立生成一个函数
+    - 最后链接，验证 Referee 通过 + 运行正确
+    - _Requirements: R28.5, R30.4_
+
+  - [ ] 34.2 冲突检测集成测试
+    - 两个 LLM 生成同名函数 → 链接器报 duplicate symbol
+    - 签名不匹配 → Referee 报 `CapabilityMismatch`
+    - 布局版本不一致 → `LayoutVersionConflict`
+    - _Requirements: R28.4, R29.4_
+
+---
+
 ## 说明
 
 - 带 `*` 的任务为可选 PBT；核心实现任务必做。
 - 每条 PBT 显式标注 Property 编号（P1–P25）与验证的需求号。
-- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"。**不要把这三件事压在 14 周 MVP 里**。
+- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"。**不要把这四件事压在 14 周 MVP 里**。
 - **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
   - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
   - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作

@@ -461,11 +461,35 @@ const Interpreter = struct {
         return .{ .ty = .i64, .bits = @as(u64, @bitCast(value)) };
     }
 
+    fn recordPanic(self: *Interpreter, code: u8, message: ?[]const u8) void {
+        self.exit_code = code;
+        const stderr = std.io.getStdErr().writer();
+        if (message) |msg| {
+            stderr.print("panic {d}: {s}\n", .{ code, msg }) catch {};
+        } else {
+            stderr.print("panic {d}\n", .{ code }) catch {};
+        }
+    }
+
     fn handleSysCall(
         self: *Interpreter,
         name: []const u8,
         args: []const RegValue,
     ) !SysCallOutcome {
+        if (std.mem.eql(u8, name, "panic")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            self.recordPanic(@as(u8, @truncate(args[0].bits)), null);
+            return RunError.UserExit;
+        }
+        if (std.mem.eql(u8, name, "panic_msg")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const code = @as(u8, @truncate(args[0].bits));
+            const msg_ptr = args[1].bits;
+            const msg_len = @as(usize, @intCast(args[2].bits));
+            const message = if (msg_ptr != 0 and msg_len != 0) Memory.sliceAt(msg_ptr, msg_len) else null;
+            self.recordPanic(code, message);
+            return RunError.UserExit;
+        }
         if (!std.mem.startsWith(u8, name, "sys_")) return .not_syscall;
 
         if (std.mem.eql(u8, name, "sys_print")) {
@@ -670,7 +694,10 @@ const Interpreter = struct {
                         continue;
                     }
 
-                    switch (try self.handleSysCall(parsed.callee, try self.collectCallValues(parsed, &regs))) {
+                    const call_values = try self.collectCallValues(parsed, &regs);
+                    defer self.allocator.free(call_values);
+
+                    switch (try self.handleSysCall(parsed.callee, call_values)) {
                         .handled => |ret_or_null| {
                             if (ret_or_null) |ret| {
                                 if (parsed.dest) |dest| {

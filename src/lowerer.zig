@@ -1,5 +1,6 @@
 const std = @import("std");
 const common_instruction = @import("common/instruction.zig");
+const call = @import("referee/call.zig");
 const referee = @import("referee.zig");
 
 pub const LowerError = error{
@@ -65,6 +66,24 @@ fn operandReg(inst: common_instruction.Instruction, index: usize) !u32 {
 fn appendLine(list: *std.ArrayList(u8), text: []const u8) !void {
     try list.appendSlice(text);
     try list.append('\n');
+}
+
+fn emitPanicExit(out: *std.ArrayList(u8), code_expr: []const u8) !void {
+    try out.writer().print("    const __panic_code: i32 = @as(i32, @intCast({s}));\n", .{code_expr});
+    try appendLine(out, "    std.debug.print(\"PANIC: code={d}\\n\", .{__panic_code});");
+    try appendLine(out, "    const __panic_exit: u8 = @as(u8, @truncate((@as(u32, @bitCast(__panic_code)) & 0x7f) + 128));");
+    try appendLine(out, "    std.process.exit(__panic_exit);");
+    try appendLine(out, "    unreachable;");
+}
+
+fn emitPanicMsgExit(out: *std.ArrayList(u8), code_expr: []const u8, msg_expr: []const u8, len_expr: []const u8) !void {
+    try out.writer().print("    const __panic_code: i32 = @as(i32, @intCast({s}));\n", .{code_expr});
+    try out.writer().print("    const __panic_msg_ptr: [*]const u8 = @ptrCast({s});\n", .{msg_expr});
+    try out.writer().print("    const __panic_msg = __panic_msg_ptr[0..@as(usize, @intCast({s}))];\n", .{len_expr});
+    try appendLine(out, "    std.debug.print(\"PANIC[{d}]: {s}\\n\", .{__panic_code, __panic_msg});");
+    try appendLine(out, "    const __panic_exit: u8 = @as(u8, @truncate((@as(u32, @bitCast(__panic_code)) & 0x7f) + 128));");
+    try appendLine(out, "    std.process.exit(__panic_exit);");
+    try appendLine(out, "    unreachable;");
 }
 
 fn hasReturnValue(annotated: []const referee.AnnotatedInstruction) bool {
@@ -184,10 +203,18 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                 return LowerError.UnsupportedInstruction;
             },
             .panic => {
-                return LowerError.UnsupportedInstruction;
+                var parsed = call.parseCall(allocator, inst.raw_text) catch return LowerError.InvalidOperand;
+                defer parsed.deinit(allocator);
+                if (parsed.args.len != 1) return LowerError.InvalidOperand;
+                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try emitPanicExit(&out, parsed.args[0].text);
             },
             .panic_msg => {
-                return LowerError.UnsupportedInstruction;
+                var parsed = call.parseCall(allocator, inst.raw_text) catch return LowerError.InvalidOperand;
+                defer parsed.deinit(allocator);
+                if (parsed.args.len != 3) return LowerError.InvalidOperand;
+                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try emitPanicMsgExit(&out, parsed.args[0].text, parsed.args[1].text, parsed.args[2].text);
             },
             .return_ => {
                 try out.writer().print("    // {s}\n", .{inst.raw_text});
@@ -201,7 +228,25 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
             .func_decl => {
                 return LowerError.UnsupportedInstruction;
             },
+            .ffi_wrapper_decl => {
+                return LowerError.UnsupportedInstruction;
+            },
+            .extern_decl => {
+                return LowerError.UnsupportedInstruction;
+            },
+            .export_decl => {
+                return LowerError.UnsupportedInstruction;
+            },
             .label => {
+                return LowerError.UnsupportedInstruction;
+            },
+            .raw_cast => {
+                return LowerError.UnsupportedInstruction;
+            },
+            .assume_safe => {
+                return LowerError.UnsupportedInstruction;
+            },
+            .assume_borrow => {
                 return LowerError.UnsupportedInstruction;
             },
             .native => {
@@ -270,6 +315,64 @@ test "lowerer emits concrete zig text" {
     defer std.testing.allocator.free(text);
     try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "allocator.alloc(u8, 16)"));
     try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "return r0;"));
+}
+
+test "lowerer lowers panic builtins explicitly" {
+    const entry0 = try std.testing.allocator.alloc(u8, 4);
+    defer std.testing.allocator.free(entry0);
+    @memset(entry0, 0);
+    const exit0 = try std.testing.allocator.alloc(u8, 4);
+    defer std.testing.allocator.free(exit0);
+    @memset(exit0, 0);
+    const entry1 = try std.testing.allocator.alloc(u8, 4);
+    defer std.testing.allocator.free(entry1);
+    @memset(entry1, 0);
+    const exit1 = try std.testing.allocator.alloc(u8, 4);
+    defer std.testing.allocator.free(exit1);
+    @memset(exit1, 0);
+
+    const annotated = [_]referee.AnnotatedInstruction{
+        .{
+            .base = .{
+                .kind = .panic,
+                .source_line = 1,
+                .expanded_line = 0,
+                .operands = .{
+                    .{ .none = {} },
+                    .{ .none = {} },
+                    .{ .none = {} },
+                    .{ .none = {} },
+                },
+                .raw_text = "panic(7)",
+            },
+            .entry_caps = entry0,
+            .exit_caps = exit0,
+            .gas_step_cost = 1,
+        },
+        .{
+            .base = .{
+                .kind = .panic_msg,
+                .source_line = 2,
+                .expanded_line = 1,
+                .operands = .{
+                    .{ .none = {} },
+                    .{ .none = {} },
+                    .{ .none = {} },
+                    .{ .none = {} },
+                },
+                .raw_text = "panic_msg(7, msg, len)",
+            },
+            .entry_caps = entry1,
+            .exit_caps = exit1,
+            .gas_step_cost = 1,
+        },
+    };
+
+    const text = try lower(std.testing.allocator, annotated[0..]);
+    defer std.testing.allocator.free(text);
+    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.debug.print(\"PANIC: code={d}\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.debug.print(\"PANIC[{d}]: {s}\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.process.exit(128 + @as(u8, @intCast(@as(u32, @bitCast(__panic_code)) & 0x7f)));"));
 }
 
 test "lowerer output survives zig fmt" {

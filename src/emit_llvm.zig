@@ -448,7 +448,33 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
     try emitLine(out, "declare i32 @fclose(ptr)");
     try out.writer().print("declare {s} @write(i32, ptr, {s})\n", .{ size_ty_name, size_ty_name });
     try emitLine(out, "declare void @exit(i32)");
-    try emitLine(out, "declare void @__sa_panic(i32, ptr, i64)");
+    try emitLine(out, "declare i32 @fprintf(ptr, ptr, ...)");
+    try emitLine(out, "@stderr = external global ptr");
+    try out.writer().print("@.panic_code_fmt = private unnamed_addr constant [{d} x i8] c\"panic %d\\0A\\00\"\n", .{"panic %d\n".len + 1});
+    try out.writer().print("@.panic_msg_fmt = private unnamed_addr constant [{d} x i8] c\"panic %d: %.*s\\0A\\00\"\n", .{"panic %d: %.*s\n".len + 1});
+    try emitLine(out, "");
+
+    const stderr_align: u32 = if (size_bits == 32) 4 else 8;
+    try out.writer().print("define void @__sa_panic(i32 %code, ptr %msg, i64 %len) {{\n", .{});
+    try emitLine(out, "entry:");
+    try out.writer().print("  %stderr = load ptr, ptr @stderr, align {d}\n", .{stderr_align});
+    try emitLine(out, "  %has_msg_ptr = icmp ne ptr %msg, null");
+    try emitLine(out, "  %has_msg_len = icmp ne i64 %len, 0");
+    try emitLine(out, "  %has_msg = and i1 %has_msg_ptr, %has_msg_len");
+    try emitLine(out, "  br i1 %has_msg, label %with_msg, label %no_msg");
+    try emitLine(out, "with_msg:");
+    try emitLine(out, "  %msg_fmt_ptr = getelementptr [16 x i8], ptr @.panic_msg_fmt, i32 0, i32 0");
+    try emitLine(out, "  %msg_len32 = trunc i64 %len to i32");
+    try emitLine(out, "  %_msg = call i32 (ptr, ptr, ...) @fprintf(ptr %stderr, ptr %msg_fmt_ptr, i32 %code, i32 %msg_len32, ptr %msg)");
+    try emitLine(out, "  br label %done");
+    try emitLine(out, "no_msg:");
+    try emitLine(out, "  %code_fmt_ptr = getelementptr [10 x i8], ptr @.panic_code_fmt, i32 0, i32 0");
+    try emitLine(out, "  %_code = call i32 (ptr, ptr, ...) @fprintf(ptr %stderr, ptr %code_fmt_ptr, i32 %code)");
+    try emitLine(out, "  br label %done");
+    try emitLine(out, "done:");
+    try emitLine(out, "  call void @exit(i32 %code)");
+    try emitLine(out, "  unreachable");
+    try emitLine(out, "}");
     try emitLine(out, "");
 
     try out.writer().print("define ptr @saasm_strdupz(ptr %src, {s} %len) {{\n", .{size_ty_name});
@@ -629,6 +655,7 @@ fn emitBuiltinCall(
     options: EmitOptions,
     parsed: call.ParsedCall,
 ) !?Value {
+    _ = options;
     const name = parsed.callee;
     if (std.mem.eql(u8, name, "panic")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -637,12 +664,8 @@ fn emitBuiltinCall(
         defer args_buf.deinit();
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "code", .ty = .i32, .cap = .by_value }});
         try out.appendSlice(prelude.items);
-        if (options.emit_wasm) {
-            try out.writer().print("  unreachable ; panic({s})\n", .{args_buf.items});
-        } else {
-            try out.writer().print("  call void @__sa_panic(i32 {s}, ptr null, i64 0)\n", .{args_buf.items});
-            try emitLine(out, "  unreachable");
-        }
+        try out.writer().print("  call void @__sa_panic({s}, ptr null, i64 0)\n", .{args_buf.items});
+        try emitLine(out, "  unreachable");
         return null;
     }
     if (std.mem.eql(u8, name, "panic_msg")) {
@@ -656,12 +679,8 @@ fn emitBuiltinCall(
             .{ .name = "len", .ty = .i64, .cap = .by_value },
         });
         try out.appendSlice(prelude.items);
-        if (options.emit_wasm) {
-            try out.writer().print("  unreachable ; panic_msg({s})\n", .{args_buf.items});
-        } else {
-            try out.writer().print("  call void @__sa_panic(i32 {s})\n", .{args_buf.items});
-            try emitLine(out, "  unreachable");
-        }
+        try out.writer().print("  call void @__sa_panic({s})\n", .{args_buf.items});
+        try emitLine(out, "  unreachable");
         return null;
     }
     if (std.mem.eql(u8, name, "sys_argc")) {

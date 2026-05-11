@@ -1,13 +1,13 @@
 const std = @import("std");
 
 const call = @import("call.zig");
-const cap = @import("../common/capability.zig");
-const gas = @import("../common/gas.zig");
-const inst = @import("../common/instruction.zig");
-const sig = @import("../common/signature.zig");
-const trap = @import("../common/trap.zig");
-const classifier = @import("../flattener/line_classifier.zig");
-const symbol = @import("../flattener/symbol.zig");
+const cap = @import("common/capability.zig");
+const gas = @import("common/gas.zig");
+const inst = @import("common/instruction.zig");
+const sig = @import("common/signature.zig");
+const trap = @import("common/trap.zig");
+const classifier = @import("flattener/line_classifier.zig");
+const symbol = @import("flattener/symbol.zig");
 
 pub const AnnotatedInstruction = struct {
     base: inst.Instruction,
@@ -157,6 +157,32 @@ fn builtinReturnCap(name: []const u8) ?inst.CapPrefix {
     if (std.mem.eql(u8, name, "sys_exit")) return .by_value;
     if (std.mem.eql(u8, name, "sys_write_file")) return .by_value;
     if (std.mem.eql(u8, name, "sys_print")) return null;
+    return null;
+}
+
+fn panicMsgAllowsRawArg(callee: []const u8, args_len: usize, idx: usize) bool {
+    return std.mem.eql(u8, callee, "panic_msg") and args_len == 3 and idx == 1;
+}
+
+fn readCheckAllowRaw(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    id: u32,
+    state: []u8,
+    flags: []u8,
+) ?VerifyResult {
+    const idx: usize = @intCast(id);
+    const current = state[idx];
+    if (current == 0) return trapReport(.unknown_register, item, function_text, is_ffi_wrapper, name, null, null, "register is not declared in the current scope", null);
+    if ((current & maskOf(.consumed)) != 0) return trapReport(.use_after_move, item, function_text, is_ffi_wrapper, name, maskOf(.consumed), current, "moved value is no longer usable", null);
+    if ((current & maskOf(.locked_mut)) != 0 and (current & maskOf(.borrow_view)) == 0) {
+        return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), current, "borrow rules reject this access", null);
+    }
+    if ((flags[idx] & 0x01) != 0 and !is_ffi_wrapper) {
+        return trapReport(.illegal_unsafe_context, item, function_text, is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
+    }
     return null;
 }
 
@@ -746,24 +772,29 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                     }
                 }
 
-                for (parsed.args) |arg| {
-                    if (arg.prefix == .raw and !current_is_ffi_wrapper) {
+                for (parsed.args, 0..) |arg, arg_idx| {
+                    if (arg.prefix == .raw and !current_is_ffi_wrapper and !panicMsgAllowsRawArg(parsed.callee, parsed.args.len, arg_idx)) {
                         return trapReport(.illegal_unsafe_context, item, current_function_text, current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
                     }
                     if (isIdentLike(arg.text)) {
                         if (metadata.symbols.findId(arg.text)) |arg_id| {
                             switch (arg.prefix) {
-                                .borrow, .by_value, .raw => if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr,
+                                .borrow, .by_value => if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr,
+                                .raw => if (panicMsgAllowsRawArg(parsed.callee, parsed.args.len, arg_idx)) {
+                                    if (readCheckAllowRaw(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
+                                } else {
+                                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
+                                },
                                 .move => {
                                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
-                                    const idx: usize = @intCast(arg_id);
-                                    if ((flags[idx] & 0x01) != 0) {
-                                        return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
+                                    const arg_reg_idx: usize = @intCast(arg_id);
+                                    if ((flags[arg_reg_idx] & 0x01) != 0) {
+                                        return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[arg_reg_idx], "FFI borrow views cannot be consumed", null);
                                     }
-                                    if ((state[idx] & maskOf(.borrow_view)) != 0) {
+                                    if ((state[arg_reg_idx] & maskOf(.borrow_view)) != 0) {
                                         clearBorrow(state, flags, origins, locks, arg_id);
                                     } else {
-                                        state[idx] = maskOf(.consumed);
+                                        state[arg_reg_idx] = maskOf(.consumed);
                                     }
                                 },
                             }
@@ -891,4 +922,94 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             .has_unbounded_loop = has_unbounded_loop,
         },
     } };
+}
+
+test "panic terminates without forcing a leak trap" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .alloc,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .reg = 0 },
+                .{ .imm_u64 = 8 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "x = alloc 8",
+        },
+        .{
+            .kind = .panic,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .text = "7" },
+                .{ .none = {} },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "panic(7)",
+        },
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..]);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "panic_msg accepts a raw message pointer outside ffi wrapper" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .panic_msg,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .text = "7" },
+                .{ .text = "msg" },
+                .{ .text = "len" },
+                .{ .none = {} },
+            },
+            .raw_text = "panic_msg(7, *msg, len)",
+        },
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..]);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 2), owned.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
 }

@@ -1,6 +1,6 @@
 const std = @import("std");
-const common_instruction = @import("../common/instruction.zig");
-const common_signature = @import("../common/signature.zig");
+const common_instruction = @import("common/instruction.zig");
+const common_signature = @import("common/signature.zig");
 
 pub const CallError = error{
     InvalidCallSyntax,
@@ -62,6 +62,7 @@ fn parseCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bo
     const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse return CallError.InvalidCallSyntax;
     const close = std.mem.lastIndexOfScalar(u8, trimmed, ')') orelse return CallError.InvalidCallSyntax;
     if (close < open) return CallError.InvalidCallSyntax;
+    if (std.mem.trim(u8, trimmed[close + 1 ..], " \t").len != 0) return CallError.InvalidCallSyntax;
 
     const callee_text = std.mem.trim(u8, trimmed[0..open], " \t");
     if (callee_text.len == 0) return CallError.InvalidCallSyntax;
@@ -89,30 +90,17 @@ fn parseCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bo
     };
 }
 
-fn parseBareCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bool) !ParsedCall {
+fn parseSpecialCallBody(allocator: std.mem.Allocator, body: []const u8, callee_name: []const u8) !ParsedCall {
     const trimmed = std.mem.trim(u8, body, " \t");
     if (trimmed.len == 0) return CallError.InvalidCallSyntax;
 
     const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse return CallError.InvalidCallSyntax;
     const close = std.mem.lastIndexOfScalar(u8, trimmed, ')') orelse return CallError.InvalidCallSyntax;
     if (close < open) return CallError.InvalidCallSyntax;
+    if (std.mem.trim(u8, trimmed[close + 1 ..], " \t").len != 0) return CallError.InvalidCallSyntax;
 
     const prefix = std.mem.trim(u8, trimmed[0..open], " \t");
-    if (prefix.len == 0) return CallError.InvalidCallSyntax;
-
-    var dest: ?[]const u8 = null;
-    var callee_text = prefix;
-    if (std.mem.indexOfScalar(u8, prefix, '=')) |eq| {
-        const name = std.mem.trim(u8, prefix[0..eq], " \t");
-        const tail = std.mem.trim(u8, prefix[eq + 1 ..], " \t");
-        if (name.len == 0 or tail.len != 0) return CallError.InvalidCallSyntax;
-        dest = try allocator.dupe(u8, name);
-        callee_text = std.mem.trim(u8, trimmed[eq + 1 .. open], " \t");
-        if (callee_text.len == 0) return CallError.InvalidCallSyntax;
-    }
-
-    const callee_name = if (callee_text[0] == '@') callee_text[1..] else callee_text;
-    if (callee_name.len == 0) return CallError.InvalidCallSyntax;
+    if (!std.mem.eql(u8, prefix, callee_name)) return CallError.InvalidCallSyntax;
 
     var args_list = std.ArrayList(ParsedArg).init(allocator);
     errdefer {
@@ -129,22 +117,29 @@ fn parseBareCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect
     }
 
     return .{
-        .dest = dest,
+        .dest = null,
         .callee = try allocator.dupe(u8, callee_name),
         .args = try args_list.toOwnedSlice(),
-        .is_indirect = is_indirect,
+        .is_indirect = false,
     };
+}
+
+fn startsWithWord(s: []const u8, word: []const u8) bool {
+    if (!std.mem.startsWith(u8, s, word)) return false;
+    if (s.len == word.len) return true;
+    const next = s[word.len];
+    return std.ascii.isWhitespace(next) or next == '(' or next == '[' or next == ':' or next == '=' or next == '@' or next == '-';
 }
 
 pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall {
     const trimmed = std.mem.trim(u8, raw_text, " \t\r");
     if (trimmed.len == 0) return CallError.InvalidCallSyntax;
 
-    if (std.mem.startsWith(u8, trimmed, "panic_msg")) {
-        return parseBareCallBody(allocator, trimmed, false);
+    if (startsWithWord(trimmed, "panic_msg")) {
+        return parseSpecialCallBody(allocator, trimmed, "panic_msg");
     }
-    if (std.mem.startsWith(u8, trimmed, "panic")) {
-        return parseBareCallBody(allocator, trimmed, false);
+    if (startsWithWord(trimmed, "panic")) {
+        return parseSpecialCallBody(allocator, trimmed, "panic");
     }
 
     const call_start = if (std.mem.indexOf(u8, trimmed, "call_indirect")) |idx| idx else if (std.mem.indexOf(u8, trimmed, "call")) |idx| idx else return CallError.InvalidCallSyntax;
@@ -237,4 +232,25 @@ test "parse and validate a direct call signature" {
     try std.testing.expectEqualStrings("consume", call.callee);
     try std.testing.expectEqual(@as(usize, 1), call.args.len);
     try std.testing.expectEqual(common_instruction.CapPrefix.move, call.args[0].prefix);
+}
+
+test "parse and validate panic builtins" {
+    var panic_call = try validateCall(std.testing.allocator, &.{}, "panic(7)");
+    defer panic_call.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("panic", panic_call.callee);
+    try std.testing.expectEqual(@as(usize, 1), panic_call.args.len);
+    try std.testing.expectEqual(common_instruction.CapPrefix.by_value, panic_call.args[0].prefix);
+
+    var msg_call = try validateCall(std.testing.allocator, &.{}, "panic_msg(7, *msg, len)");
+    defer msg_call.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("panic_msg", msg_call.callee);
+    try std.testing.expectEqual(@as(usize, 3), msg_call.args.len);
+    try std.testing.expectEqual(common_instruction.CapPrefix.by_value, msg_call.args[0].prefix);
+    try std.testing.expectEqual(common_instruction.CapPrefix.raw, msg_call.args[1].prefix);
+    try std.testing.expectEqual(common_instruction.CapPrefix.by_value, msg_call.args[2].prefix);
+}
+
+test "parseCall rejects trailing garbage on special calls" {
+    try std.testing.expectError(CallError.InvalidCallSyntax, parseCall(std.testing.allocator, "panic(7) extra"));
+    try std.testing.expectError(CallError.InvalidCallSyntax, parseCall(std.testing.allocator, "panic_msg(7, *msg, len) trailing"));
 }

@@ -537,6 +537,56 @@
 
 ---
 
+### Requirement 28: 接口契约文件 `.saasm-iface`（v0.4 — 并行开发基建）
+
+**User Story**  
+作为多人/多 LLM 并行开发同一 APP 的协作者，我需要一种轻量级的接口契约文件，使得 A 和 B 可以同时开发不同模块，互不阻塞，只要接口文件先冻结即可。
+
+**Acceptance Criteria**
+1. WHEN 开发者创建 `module.saasm-iface` 文件 THEN 其 SHALL 仅包含 `@extern` 函数签名声明（含 `cap_prefix` + `ty` + 返回类型 + `!` 后缀），不包含函数体
+2. WHEN 另一个 `.saasm` 文件通过 `#include "module.saasm-iface"` 引入接口 THEN Flattener SHALL 将其中的 `@extern` 声明注入当前编译单元
+3. WHEN Referee 校验调用点 THEN 其 SHALL 使用 `.saasm-iface` 中声明的签名 tuple 做 `CapabilityMismatch` 校验，**无需**实际函数体存在
+4. WHEN 接口文件与实现文件的签名不一致 THEN 链接期（`zig cc`）SHALL 报 symbol type mismatch 错误；Referee 层面在各自编译单元内独立通过
+5. WHEN 多个 `.saasm` 文件引用同一 `.saasm-iface` THEN 它们 SHALL 可以被**完全并行**编译（各自独立跑 Flattener + Referee + Emitter），最后一步链接合并
+6. WHEN `.saasm-iface` 文件被修改 THEN CI SHALL 自动检测哪些依赖方需要重新验证（通过文件哈希比对）
+7. WHEN 接口文件包含所有权语义注释 THEN 其 SHALL 支持可选的 `// @contract: consumes data` 风格注释（纯文档性质，Referee 不解析，但 `libsa_scope` helper 可读取）
+
+### Requirement 29: 版本化布局文件 `.saasm-layout`（v0.4 — 并行开发基建）
+
+**User Story**  
+作为多人协作团队，共享数据结构的内存布局（如 Entity / Component / Message）是最常见的冲突源。我需要一种版本化的布局声明文件，使布局变更可追踪、可检测。
+
+**Acceptance Criteria**
+1. WHEN 团队创建 `entity.saasm-layout` 文件 THEN 其 SHALL 仅包含 `#def` 常量声明 + 一个 `#version N` 元数据行
+2. WHEN `.saasm` 文件通过 `#include "entity.saasm-layout"` 引入布局 THEN Flattener SHALL 记录该文件引用的 `#version` 值
+3. WHEN 布局文件的 `#version` 递增 THEN CI SHALL 自动扫描所有引用方，标记为"需要重新验证"
+4. WHEN 两个 `.saasm` 文件引用了同一布局文件的**不同版本** THEN 链接期 SHALL 报 `Trap: LayoutVersionConflict`（通过在 `.o` 文件中嵌入版本元数据实现）
+5. WHEN 布局文件被修改但 `#version` 未递增 THEN CI SHALL 发出警告（非致命，但阻断 merge）
+6. WHEN 布局文件格式 THEN 其 SHALL 为：
+   ```
+   #version 3
+   #def Entity_SIZE = 32
+   #def Entity_id   = +0
+   #def Entity_pos  = +8
+   #def Entity_vel  = +16
+   #def Entity_hp   = +24
+   ```
+
+### Requirement 30: 函数粒度增量编译（v0.4 — 并行开发基建）
+
+**User Story**  
+作为大型项目的开发者，当我只修改了一个函数时，不应该重新编译整个文件的所有函数。SA 的 Referee 已经是逐函数验证的，发射器也应该支持逐函数产出。
+
+**Acceptance Criteria**
+1. WHEN `saasm build-obj` 被调用 THEN 其 SHALL 支持 `--incremental` 模式：按函数粒度产出独立的 `.o` 文件（每个函数一个 `.o`）
+2. WHEN 源文件中某个函数未修改（通过函数体哈希比对）THEN 增量模式 SHALL 跳过该函数的 Emitter + zig cc 阶段，直接复用上次的 `.o`
+3. WHEN 增量模式被启用 THEN 最终链接 SHALL 把所有函数的 `.o` 合并为单一产物
+4. WHEN 函数之间无跨函数分析依赖（SA 的设计保证）THEN 增量编译的正确性 SHALL 不依赖编译顺序
+5. WHEN 增量缓存目录 THEN 其 SHALL 位于 `.sa-cache/` 下，按函数名哈希组织
+6. WHEN `--incremental` 与 `--debug-san` 同时启用 THEN 每个函数的 `.o` SHALL 独立包含 sanitizer 簿记入口（不依赖全局状态）
+
+---
+
 ## 3. MVP 范围与阶段性里程碑
 
 ### 阶段一（Week 1-2）：协议定型
@@ -658,4 +708,4 @@
 
 ---
 
-**文档终态：以上 27 条 Requirements（R1–R24 MVP + R25–R27 v0.3）为 SA 实现的强约束契约。R1–R24 为 MVP v0.1/v0.2 硬约束，R25–R27 为 v0.3 post-MVP 特性。任何后续 Design 阶段不得弱化或绕过已有特性。MVP 基线与 Stretch Goals 在 §4 明确分离。**
+**文档终态：以上 30 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4）为 SA 实现的强约束契约。R1–R24 为 MVP v0.1/v0.2 硬约束，R25–R27 为 v0.3 post-MVP 特性，R28–R30 为 v0.4 并行开发基建。任何后续 Design 阶段不得弱化或绕过已有特性。**
