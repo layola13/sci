@@ -1,73 +1,235 @@
-# SA-ASM Whitepaper v0.1
+# SA Whitepaper v0.2
 
-SA-ASM (Symbolic Affine) is a line-oriented affine IR and compiler pipeline for machine-generated code.
-The current first version is deliberately small: it prioritizes a real closed loop over speculative backend work.
+SA (Symbolic Affine) is a fully independent, line-oriented affine ownership language designed for the LLM era. It produces native executables, WebAssembly modules, and linkable object files — without depending on any host language runtime.
 
-## What v0.1 ships
+## Identity
 
-- `saasm run`: in-process interpreter for verified instruction streams.
-- `saasm build-exe`: flattener -> referee -> LLVM IR -> `zig cc`.
-- `saasm build-wasm`: same LLVM IR path, still linked through Zig in v0.1.
-- `saasm build-obj`: object-file emission through `zig cc`.
+- **Not an IR**: SA is a standalone language with its own CLI, interpreter, and system primitives.
+- **Not a host-dependent plugin**: `saasm run hello.saasm` executes directly. No Go, Rust, Zig, or Python runtime required.
+- **Full-platform**: Native (x86_64 / ARM64 / Windows / Linux / macOS) + WASM (wasm32-wasi / wasm64) + embeddable `.o` for any C-ABI project.
 
-The first version does not handwrite a WASM binary emitter, does not generate Zig source, and does not rely on an AST.
+## What ships today (v0.1 baseline)
 
-## Core Symbols
+| Command | Pipeline | Output |
+|---|---|---|
+| `saasm run <file>` | Flattener → Referee → Interpreter | stdout + exit code |
+| `saasm build-exe <file>` | Flattener → Referee → LLVM IR → `zig cc` | standalone `.exe` |
+| `saasm build-wasm <file>` | Flattener → Referee → LLVM IR → `zig cc -target wasm32-wasi` | `.wasm` module |
+| `saasm build-obj <file>` | Flattener → Referee → LLVM IR → `zig cc -c` | `.o` (C-ABI linkable) |
 
-| Symbol | Meaning |
-| --- | --- |
-| `=` | allocate / bind |
-| `&` | borrow |
-| `^` | move / consume |
-| `!` | release / drop |
-| `*` | raw escape |
-| `$...$` | native escape block |
+No Zig source generation. No AST construction. No hidden round-trips.
 
-## Syntax Surface
+## Core Symbols (5 ownership operators + 1 escape)
 
-The language is intentionally flat. A source file is a sequence of line-oriented forms:
+| Symbol | Semantics | State Effect |
+|---|---|---|
+| `=` | allocate / bind | target → Active |
+| `&` | borrow (read or write determined by Referee dynamically) | source → Locked, borrow → Active(BorrowView) |
+| `^` | move / consume | source → Consumed |
+| `!` | release (borrow → unlock source; ownership → physical free) | target → Consumed |
+| `*` | raw pointer escape (only inside `@ffi_wrapper`) | produces Untracked register |
+| `$...$` | native code escape block | conservatively consumes referenced registers |
 
-- comments and blank lines
-- `#def` value definitions
-- macro blocks: `[MACRO]`, `[END_MACRO]`, `EXPAND`
-- repeat blocks: `[REP N]`, `[END_REP]`
-- function headers: `@name(params) -> type:`
-- special headers: `@ffi_wrapper`, `@extern`, `@export`
-- labels: `L_NAME:`
-- instructions: `alloc`, `load`, `store`, `borrow`, `move`, `release`, `op`, `jmp`, `br`, `br_null`, `call`, `call_indirect`, `return`, `take`, `raw_cast`, `assume_safe`, `assume_borrow`
-- native escape lines: `$...$`
+**No `&mut` in syntax.** Shared vs exclusive is decided by Referee's `Locked_Read` / `Locked_Mut` bitmask at verification time.
 
-## Toolchain Model
+## Instruction Set (ISA)
 
-The current implementation keeps the pipeline simple:
+### Memory
+- `reg = alloc N` — heap allocation
+- `reg = stack_alloc N` — stack allocation (lifetime bound to function, no `^` escape)
+- `dst = load src+offset [as T]` — read at byte offset
+- `store dst+offset, val [as T]` — write at byte offset
+- `dst = take src+offset` — extract interior pointer ownership
+- `dst = ptr_add base, offset` — derive InteriorPtr (lifetime bound to source borrow)
 
-1. `src/flattener.zig` scans lines, expands `#def`, macros, and repetition blocks, and rejects forbidden syntax.
-2. `src/referee/verifier.zig` performs linear ownership validation with capability masks and trap reports.
-3. `src/emit_llvm.zig` emits LLVM IR text.
-4. `src/interp.zig` executes `saasm run`.
-5. `src/cli.zig` routes `run`, `build-exe`, `build-wasm`, and `build-obj`.
-6. `build.zig` wires the normal tests and smoke checks.
+### Arithmetic & Logic
+- Integer: `add / sub / mul / sdiv / udiv / srem / urem / neg`
+- Bitwise: `and / or / xor / shl / lshr / ashr / not`
+- Integer comparison: `eq / ne / slt / sle / sgt / sge / ult / ule / ugt / uge`
+- Float: `fadd / fsub / fmul / fdiv / fneg`
+- Float comparison: `fcmp_eq / fcmp_ne / fcmp_lt / fcmp_le / fcmp_gt / fcmp_ge`
+- Type conversion: `trunc / zext / sext / fptosi / sitofp / uitofp / fptrunc / fpext / bitcast`
+- SIMD (minimal): `add.v128 / sub.v128 / mul.v128 / shuffle.v128 / extract_lane / insert_lane`
 
-## Safety Rules
+### Atomics
+- `dst = atomic_load src+offset [ordering]`
+- `atomic_store dst+offset, val [ordering]`
+- `dst, ok = cmpxchg target+offset, expected, new [success_ord] [failure_ord]`
+- `dst = atomic_rmw_<OP> target+offset, val [ordering]` — OP ∈ {add, sub, and, or, xor, xchg, smin, smax, umin, umax}
+- `fence [ordering]`
+- Ordering: `relaxed / acquire / release / acq_rel / seq_cst`
 
-- No placeholder code.
-- No fake compilation paths.
-- No empty shells.
-- No hidden AST round-trips.
+### Control Flow
+- `jmp L_NAME` — unconditional jump
+- `br cond -> L_TRUE, L_FALSE` — conditional branch
+- `br_null reg -> L_NULL, L_NOT_NULL` — null check branch
+- `call @func(args)` / `call_indirect func_ptr(args)`
+- `return [reg]`
 
-## Deferred Features
+### Error Propagation
+- `v = ? res` — early return if `res.status != 0` (Flattener expands to `br + return`)
+- `panic(code)` — unrecoverable termination
+- `panic_msg(code, *str_ptr, str_len)` — termination with message
+- Function suffix `!` marks fallible return: `@f() -> i32!` → ABI `{u32 status, i32 value}`
 
-These are intentionally not part of the v0.1 shipping surface:
+### FFI Airlock (only inside `@ffi_wrapper`)
+- `raw = *safe` — strip capability mask
+- `safe = assume_safe raw` — grant Active mask to raw pointer
+- `view = assume_borrow raw [, mut]` — grant FfiBorrow view (no physical free on `!`)
 
-- handwritten WASM binary emission
-- `@const`
-- `stack_alloc`
-- `ptr_add` / `InteriorPtr`
-- atomics and `cmpxchg`
-- `#mode compact`
-- AutoBevy stretch goals
-- LLM pilot scale-out
+## Capability Mask (10-bit, stored as u16)
+
+```
+bit 0  (0x0001)  Active
+bit 1  (0x0002)  Locked_Read
+bit 2  (0x0004)  Locked_Mut
+bit 3  (0x0008)  Consumed
+bit 4  (0x0010)  BorrowView
+bit 5  (0x0020)  FfiBorrow
+bit 6  (0x0040)  Untracked
+bit 7  (0x0080)  Fallible
+bit 8  (0x0100)  Immutable
+bit 9  (0x0200)  InteriorPtr
+```
+
+Referee validates ownership by linear scan + bitwise AND/OR. No graph theory. No backtracking.
+
+## Function Signatures
+
+| Rust form | SA signature | Rule |
+|---|---|---|
+| `fn f(x: i32)` | `@f(x: i32)` | by-value, native numeric only |
+| `fn f(r: &T)` / `fn f(r: &mut T)` | `@f(r: &ptr)` | borrow, ty must be `ptr` |
+| `fn f(d: T)` (move) | `@f(^d: ptr)` | move, ty must be `ptr` |
+| `fn f() -> Box<T>` | `@f() -> ^ptr` | move out |
+| `fn f() -> Result<T,E>` | `@f() -> i32!` | fallible ABI |
+| `extern fn f(p: *T)` | `@extern f(*p: ptr)` | FFI raw pointer |
+
+**No user-defined type names in signatures.** Layouts live in `#def` dictionaries only.
+
+## Preprocessor
+
+- `#def NAME = VALUE` — text substitution + constant folding (`+/-/*`)
+- `#loc "file":line:col` — upstream source mapping (→ DWARF `!DILocation`)
+- `[MACRO] NAME %p1, %p2 ... [END_MACRO]` — parameterized text template
+- `[REP N] ... [END_REP]` — compile-time unrolling with `%i` cursor
+- `EXPAND NAME arg1, arg2` — macro invocation
+- `@const NAME = <literal>` — global read-only data (.rodata), no type annotation
+
+## Global Constants (`@const`)
+
+```
+@const HELLO_BYTES = utf8:"hello world"
+@const ZEROS_256 = repeat:256 of 0x00
+@const CIRCLE_VT = vtable { draw = @Circle_draw, drop = @Circle_drop }
+```
+
+No type annotation. Byte length inferred from literal. Immutable mask — cannot `^`, `!`, or exclusive-borrow.
+
+## System Primitives (`@sys_*`)
+
+| Primitive | Native mapping | WASM (WASI) mapping |
+|---|---|---|
+| `@sys_print(*msg, len)` | `write(1, ...)` | `fd_write` |
+| `@sys_read_file(*path, plen, *out_len) -> *buf` | `open+read+close` | `path_open+fd_read` |
+| `@sys_write_file(*path, plen, *data, dlen) -> i32` | `open+write+close` | `path_open+fd_write` |
+| `@sys_exit(code)` | `_exit` | `proc_exit` |
+| `@sys_argv(i) -> *str` / `@sys_argc() -> i32` | process args | `args_get` |
+
+## FFI Airlock
+
+- `@ffi_wrapper` functions are the **only** place where `*` / `assume_safe` / `assume_borrow` are legal.
+- Ordinary `@func` using these → `Trap: IllegalUnsafeContext`.
+- FFI memory enters sandbox via `assume_borrow` only (no ownership transfer into sandbox).
+- Handle/ID pattern for long-lived host objects.
+- `@extern` declares C-ABI symbols; `@export` exposes C-ABI symbols without name mangling.
+
+## Referee Trap Codes
+
+| Trap | Trigger |
+|---|---|
+| ForbiddenSyntax | `{}` / `if` / `while` / `for` / `a.b.c` in source |
+| DuplicateDef | `#def` name repeated |
+| DuplicateLabel | same `L_NAME:` twice in one function |
+| UnsupportedType | type annotation not in {i8..u64, f32, f64, ptr, v128} |
+| MacroRecursionLimit | expansion depth > 256 |
+| RegisterRedefinition | macro expansion produces duplicate Active register |
+| UnknownRegister | reference to never-assigned register |
+| BorrowConflict | read/write/move on Locked_Mut register |
+| UseAfterMove | access on Consumed register |
+| DoubleMutableBorrow | second exclusive borrow on same source |
+| ReadWriteConflict | upgrade Locked_Read to Locked_Mut |
+| MemoryLeak | Active/Locked registers remain at function exit |
+| CapabilityMismatch | call-site prefix doesn't match signature |
+| FallthroughForbidden | basic block doesn't end with jmp/br/return |
+| PhiStateConflict | label incoming edges have incompatible masks |
+| IllegalUnsafeContext | `*`/`assume_*` outside `@ffi_wrapper` |
+| FfiOwnershipViolation | `^`/`!` on FfiBorrow register |
+| InteriorPtrEscape | InteriorPtr passed to `@extern` |
+| StackEscape | `stack_alloc` product `^` moved or returned |
+| ConstMutation | `^`/`!`/exclusive-borrow on `@const` register |
+| EarlyReturnLeak | `?` early-return path has unreleased Active registers |
+| InvalidParamType | `&`/`^` param ty is not `ptr` |
+| InvalidAtomicOrdering | `cmpxchg` failure_ord stronger than success_ord |
+| TagMismatch | call-site tag doesn't match signature tag (v0.5) |
+| MissingTag | `--strict-tags` mode: `alloc` without `tag` (v0.5) |
+| VTableSignatureMismatch | `call_indirect` args don't match vtable slot signature (v0.3) |
+
+## Panic Code Dictionary (R18.6)
+
+| Code | Meaning |
+|---|---|
+| 100 | DivByZero |
+| 101 | OutOfBounds |
+| 102 | Unreachable |
+| 103 | AssertionFailed |
+| 104 | IntegerOverflow |
+| 105 | NullDeref |
+| 106 | MissingVariant |
+| 107 | AllocFailed |
+| 108–127 | Reserved |
+| 128–255 | User-defined |
+
+## Version Roadmap
+
+| Version | Focus |
+|---|---|
+| v0.1 | Closed loop: Flattener + Referee + LLVM IR + CLI (14 weeks) |
+| v0.2 | Self-authored WASM emitter + `#mode compact` infix sugar |
+| v0.3 | Performance: VTable signature check + `libsa_async` macros + `--debug-san` |
+| v0.4 | Parallel dev: `.saasm-iface` + `.saasm-layout` + incremental compilation |
+| v0.5 | Ecosystem: `sa.pkg` package manager + `#tag` layout tagging + `sa_std` |
+| v0.6 | Certification: Referee formal proof (Coq/Lean4) + FPGA hardware Referee |
+| v1.0+ | Self-hosting (SA compiler written in SA) |
+
+## Design Principles
+
+1. **Zero AST** — flat arrays + u32 indices. No trees, no graphs.
+2. **Linear scan** — all stages are single-pass forward. No backtracking.
+3. **O(1) bitmask** — ownership transitions are AND/OR on u16. No constraint solvers.
+4. **Five-symbol contract** — `= & ^ ! *` cover all ownership semantics.
+5. **Frontend responsibility** — Drop insertion, Phi consistency, monomorphization are upstream's job.
+6. **Upstream traceable** — `#loc` → DWARF `!DILocation` → gdb/lldb breakpoints on original source.
+7. **Explicit over implicit** — no GC, no hidden Drop, no exception unwinding, no async magic.
+8. **Airlock isolation** — all unsafe pointer operations physically confined to `@ffi_wrapper` functions.
+9. **Full independence** — SA runs standalone. Interop with Rust/Go/Zig/C++ is optional, via C-ABI.
+
+## Interoperability
+
+SA interoperates with any language through standard C-ABI:
+- `@export` produces unmangled symbols callable from C/C++/Rust/Go/Zig.
+- `@extern` declares external symbols provided by any C-ABI library.
+- `saasm build-obj` produces `.o` files linkable with `zig cc`, `gcc`, `clang`, or `cargo`.
+- FFI memory safety enforced by airlock: external pointers enter via `assume_borrow` only.
+
+## Testing Model
+
+- `saasm run test.saasm` + exit code 0/non-zero for pass/fail.
+- `ASSERT_EQ` / `ASSERT_TRUE` macros in `sa_core.saasm`.
+- Must-trap tests: verify Referee correctly rejects invalid code.
+- `@export` + external test frameworks (Zig test / Rust #[test] / Google Test).
+- Property-based testing: 32 properties × 100+ random iterations.
 
 ## Status
 
-This document is kept short on purpose so it can act as the machine-readable whitepaper baseline for the current repository state.
+This document reflects the v0.2 specification state (R1–R33). The implementation is at v0.1 stage with Flattener, Referee, LLVM IR Emitter, Interpreter, and CLI operational.
