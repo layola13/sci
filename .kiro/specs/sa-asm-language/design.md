@@ -234,6 +234,44 @@ pub fn verify(
 
 大 `switch` 分派所有 `InstKind`。`@sys_*` 走 Zig `std.fs` / `std.process`。
 
+### 3.6b `saasm layout` 布局生成工具（R7b）
+
+**职责**：接受结构体字段描述，自动计算对齐与偏移量，输出 `#def` 字典。
+
+**为什么需要**：LLM 本质上是语言模型，不是计算器。手算复杂结构体的偏移量（尤其是混合 `i32` + `f64` 时的对齐填充）是 LLM 生成 SA 代码时的**头号错误来源**。此工具将偏移量计算从"LLM 必须正确"降级为"工具保证正确"。
+
+**使用方式**：
+```bash
+saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
+```
+
+**输出**：
+```
+#def Entity_SIZE  = 32
+#def Entity_id    = +0     // u32, 4 bytes
+                           // 4 bytes padding
+#def Entity_pos_x = +8    // f64, 8 bytes
+#def Entity_pos_y = +16   // f64, 8 bytes
+#def Entity_hp    = +24   // i32, 4 bytes
+                           // 4 bytes tail padding
+```
+
+**对齐规则**：
+- `i8/u8` → align 1
+- `i16/u16` → align 2
+- `i32/u32/f32` → align 4
+- `i64/u64/f64/ptr` → align 8（`--target 32` 时 ptr align 4）
+- 结构体总大小对齐到最大字段对齐
+
+**实现**：~100 行 Zig，作为 `src/cli.zig` 的一个子命令。不影响核心管线。
+
+**LLM 工作流**：
+1. LLM 决定需要一个结构体
+2. LLM 调用 `saasm layout --name X --fields "..."` 获取 `#def` 字典
+3. LLM 把字典粘贴到 `.saasm` 文件顶部
+4. LLM 用 `#def` 常量名写代码（如 `load ptr+Entity_pos_x as f64`）
+5. 永远不需要手算偏移量
+
 ### 3.7 `@sys_*` 原语 + FFI 气闸舱 + 错误传播 runtime
 
 | 原语 | Native | WASM (WASI) |

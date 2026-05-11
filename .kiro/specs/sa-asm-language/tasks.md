@@ -428,6 +428,25 @@ sa/
   - Hello-Compute 端到端：`build-exe` → `.exe` 跑通；`build-wasm` → `.wasm` 在 Wasmtime 跑通
   - v0.1 WASM 体积目标 ≤ 48 KB（由 `zig cc -O ReleaseSmall` 产出，允许较大；v0.2 手写 Emitter 再压到 32 KB）
 
+- [ ] 12b. `saasm layout` 布局生成工具（R7b）
+
+  - [ ] 12b.1 实现 `saasm layout --name NAME --fields "field:type, ..."` 子命令
+    - 解析字段列表，按对齐规则计算偏移量
+    - 输出 `#def` 字典文本到 stdout
+    - _Requirements: R7b.1, R7b.2, R7b.3, R7b.4_
+
+  - [ ] 12b.2 JSON 输出格式
+    - `--format json` 输出结构化 JSON
+    - _Requirements: R7b.5_
+
+  - [ ] 12b.3 32 位目标支持
+    - `--target 32` 时 ptr 对齐为 4
+    - _Requirements: R7b.8_
+
+  - [ ]* 12b.4 布局工具单元测试
+    - 覆盖：纯 i32 结构、混合 i32+f64（需 padding）、全 ptr、空结构
+    - _Requirements: R7b.1, R7b.2, R7b.3, R7b.4_
+
 - [ ] 13. W13-14 AutoBevy 1K + LLM Pilot + Hello-Compute 端到端
 
   - [ ] 13.1 AutoBevy Component Buffer + Entity + System 注册（1K 规模）

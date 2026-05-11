@@ -1496,3 +1496,106 @@ L_ENTRY:
 > **Ada/SPARK 是飞行员的安全带（防止操作错误）。SA 是飞机的结构强度（防止物理解体）。两者缺一不可。**
 >
 > SA 与 Ada 的关系是**合作**，不是竞争。Ada 守住业务逻辑的天空，SA 守住内存物理的大地。组合使用时，安全保证是乘法关系，不是加法。
+
+---
+
+# LLM 写 SA 时的两个痛点与工具链缓解
+
+> 基于 LLM 自回归 Token 预测的底层机制，SA 对 LLM 来说是"母语级"的语言。但有两个真实痛点需要工具链补齐。
+
+---
+
+## 痛点 1：偏移量算术（LLM 不是计算器）
+
+**问题**：LLM 在计算复杂结构体的字节偏移量时极易出错，尤其是混合类型对齐（如 `i32` 后跟 `f64` 需要 4 字节 padding）。
+
+**示例**：
+```
+// LLM 容易算错的场景
+#def Entity_id    = +0     // u32, 4 bytes
+#def Entity_pos_x = +4     // ❌ 错！f64 需要 8 字节对齐，应该是 +8
+```
+
+**解法**：`saasm layout` 工具（R7b）
+
+```bash
+saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
+```
+
+输出：
+```
+#def Entity_SIZE  = 32
+#def Entity_id    = +0     // u32, 4 bytes
+                           // 4 bytes padding
+#def Entity_pos_x = +8    // f64, 8 bytes
+#def Entity_pos_y = +16   // f64, 8 bytes
+#def Entity_hp    = +24   // i32, 4 bytes
+                           // 4 bytes tail padding
+```
+
+**LLM 工作流**：
+1. LLM 决定需要一个结构体
+2. 调用 `saasm layout` 获取正确的 `#def` 字典
+3. 把字典粘贴到源码顶部
+4. 用常量名写代码（`load ptr+Entity_pos_x as f64`）
+5. **永远不需要手算偏移量**
+
+---
+
+## 痛点 2：复杂分支路径漏释放 `!reg`
+
+**问题**：当函数有 5+ 个分支路径和 3+ 个临时分配时，LLM 容易在某条罕见路径（如错误处理分支）忘记 `!reg`。
+
+**示例**：
+```
+@process(data: &ptr) -> i32!:
+L_ENTRY:
+    buf1 = alloc 64
+    buf2 = alloc 128
+    res = call @step1(&buf1)
+    ok = ? res
+    br ok -> L_STEP2, L_ERR
+
+L_ERR:
+    !buf1
+    // ❌ LLM 忘了 !buf2 → Trap: MemoryLeak
+    return 1
+
+L_STEP2:
+    // ...
+```
+
+**解法**：SA 的设计精髓——**Referee 毫秒级抓住错误，LLM 根据 Trap 自修复**。
+
+```json
+{"trap":"MemoryLeak","line":8,"register":"buf2","message":"live registers remain at function exit"}
+```
+
+LLM 看到这个 JSON，瞬间知道在 `L_ERR` 分支补上 `!buf2`。
+
+**额外缓解**：`libsa_scope` helper（R20.8）可以帮助前端/LLM 自动追踪当前作用域的活跃寄存器，在每个退出点自动生成释放指令。
+
+---
+
+## 为什么 SA 是 LLM 的"母语"？
+
+| LLM 的弱点 | 传统语言的痛苦 | SA 的解法 |
+|---|---|---|
+| 注意力衰减（长距离括号匹配） | 深层 `{}` 嵌套 → 闭合错误 | 零嵌套（Label + jmp） |
+| 不擅长全局推理 | 类型推导 + 生命周期图论 | 无类型系统，万物 `ptr` |
+| 不是计算器 | 手算偏移量 | `saasm layout` 工具 |
+| 容易遗漏边缘路径 | 隐式 Drop 掩盖问题 | Referee 显式 Trap + JSON 反馈 |
+| 自回归本质（逐 token 生成） | 需要回看上下文才能决定当前行 | 每行自包含，只需看前一行状态 |
+
+**SA + LLM 的闭环**：
+```
+LLM 生成 SA 代码
+    → 偏移量用 saasm layout 保证正确
+    → 忘记 !reg？Referee 毫秒级 Trap
+    → JSON 错误精确到行号
+    → LLM 补一行 !reg
+    → 编译通过
+    → 整个循环 < 1 秒
+```
+
+这比传统语言的"LLM 写代码 → 编译器报一堆人类都看不懂的错误 → LLM 彻底迷路"强一万倍。
