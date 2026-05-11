@@ -1,13 +1,13 @@
 const std = @import("std");
 
 const call = @import("call.zig");
-const cap = @import("common/capability.zig");
-const gas = @import("common/gas.zig");
-const inst = @import("common/instruction.zig");
-const sig = @import("common/signature.zig");
-const trap = @import("common/trap.zig");
-const classifier = @import("flattener/line_classifier.zig");
-const symbol = @import("flattener/symbol.zig");
+const cap = @import("../common/capability.zig");
+const gas = @import("../common/gas.zig");
+const inst = @import("../common/instruction.zig");
+const sig = @import("../common/signature.zig");
+const trap = @import("../common/trap.zig");
+const classifier = @import("../flattener/line_classifier.zig");
+const symbol = @import("../flattener/symbol.zig");
 
 pub const AnnotatedInstruction = struct {
     base: inst.Instruction,
@@ -50,6 +50,9 @@ fn maskOf(tag: cap.CapabilityMask) u8 {
     return @intFromEnum(tag);
 }
 
+const regFlagRawPointer: u8 = 0x01;
+const regFlagStackAlloc: u8 = 0x02;
+
 fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
 }
@@ -70,7 +73,7 @@ fn isTerminator(kind: inst.InstKind) bool {
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .load, .store, .borrow, .move_, .release, .op, .jmp, .br, .br_null, .call, .call_indirect, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
+        .alloc, .stack_alloc, .load, .store, .borrow, .move_, .release, .op, .jmp, .br, .br_null, .call, .call_indirect, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
         else => false,
     };
 }
@@ -232,7 +235,7 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
             .label => {
                 _ = try symbols.intern(classified.parts[0]);
             },
-            .alloc, .move_, .release, .raw_cast, .assume_safe, .assume_borrow => {
+            .alloc, .stack_alloc, .move_, .release, .raw_cast, .assume_safe, .assume_borrow => {
                 _ = try symbols.intern(classified.parts[0]);
                 if (classified.part_count > 1 and isIdentLike(classified.parts[1])) {
                     _ = try symbols.intern(classified.parts[1]);
@@ -292,7 +295,7 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
 fn clearBorrow(state: []u8, flags: []u8, origins: []?u32, locks: []u16, id: u32) void {
     const idx: usize = @intCast(id);
     if ((state[idx] & maskOf(.borrow_view)) == 0) return;
-    if ((flags[idx] & 0x01) != 0) {
+    if ((flags[idx] & regFlagRawPointer) != 0) {
         state[idx] = 0;
         flags[idx] = 0;
         origins[idx] = null;
@@ -313,6 +316,18 @@ fn clearBorrow(state: []u8, flags: []u8, origins: []?u32, locks: []u16, id: u32)
     state[idx] = 0;
     flags[idx] = 0;
     origins[idx] = null;
+}
+
+fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u8, id: u32) bool {
+    const idx: usize = @intCast(id);
+    if ((flags[idx] & regFlagStackAlloc) != 0) return true;
+    if ((state[idx] & maskOf(.borrow_view)) != 0) {
+        if (origins[idx]) |origin| {
+            const origin_idx: usize = @intCast(origin);
+            return (flags[origin_idx] & regFlagStackAlloc) != 0;
+        }
+    }
+    return false;
 }
 
 fn readCheck(
@@ -564,6 +579,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                         .borrow => maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_read),
                         .raw => maskOf(.untracked),
                     };
+                    flags[reg_idx] = if (param.cap == .raw) regFlagRawPointer else 0;
                 }
             }
 
@@ -620,6 +636,17 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
         switch (item.kind) {
             .alloc => {
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = 0;
+                gas_alloc_bytes += switch (item.operands[1]) {
+                    .imm_u64 => |v| v,
+                    .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                    .text => |t| std.fmt.parseInt(u64, t, 10) catch 0,
+                    else => 0,
+                };
+            },
+            .stack_alloc => {
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = regFlagStackAlloc;
                 gas_alloc_bytes += switch (item.operands[1]) {
                     .imm_u64 => |v| v,
                     .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
@@ -630,6 +657,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             .load, .take => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = 0;
             },
             .store => {
                 if (writeCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
@@ -643,6 +671,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], item.operands[2].reg, state, flags)) |tr| return tr;
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[3], item.operands[3].reg, state, flags)) |tr| return tr;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = 0;
             },
             .borrow => {
                 const is_mut = item.operands[1] == .text and std.mem.eql(u8, item.operands[1].text, "mut");
@@ -653,7 +682,10 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             .move_ => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 const idx: usize = @intCast(item.operands[0].reg);
-                if ((flags[idx] & 0x01) != 0) {
+                if (isStackAllocated(flags, origins, state, item.operands[0].reg)) {
+                    return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), state[idx], "stack allocation cannot be moved out of its function", null);
+                }
+                if ((flags[idx] & regFlagRawPointer) != 0) {
                     return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
                 }
                 if ((state[idx] & maskOf(.borrow_view)) != 0) {
@@ -667,6 +699,9 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 if ((state[idx] & maskOf(.borrow_view)) != 0) {
                     clearBorrow(state, flags, origins, locks, item.operands[0].reg);
                 } else {
+                    if (isStackAllocated(flags, origins, state, item.operands[0].reg)) {
+                        return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), state[idx], "stack allocation cannot be released explicitly", null);
+                    }
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                     state[idx] = maskOf(.consumed);
                 }
@@ -787,6 +822,9 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                                 },
                                 .move => {
                                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
+                                    if (isStackAllocated(flags, origins, state, arg_id)) {
+                                        return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.active), state[@intCast(arg_id)], "stack allocation cannot be passed by move", null);
+                                    }
                                     const arg_reg_idx: usize = @intCast(arg_id);
                                     if ((flags[arg_reg_idx] & 0x01) != 0) {
                                         return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[arg_reg_idx], "FFI borrow views cannot be consumed", null);
@@ -815,6 +853,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                                 .borrow => maskOf(.active) | maskOf(.borrow_view),
                                 .move, .by_value => maskOf(.active),
                             };
+                            flags[idx] = 0;
                         }
                     }
                 }
@@ -829,7 +868,10 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                     const ret_id = item.operands[0].reg;
                     const ret_name = metadata.symbols.lookupName(ret_id);
                     const idx: usize = @intCast(ret_id);
-                    if ((flags[idx] & 0x01) != 0) {
+                    if (isStackAllocated(flags, origins, state, ret_id)) {
+                        return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
+                    }
+                    if ((flags[idx] & regFlagRawPointer) != 0) {
                         return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
                     }
                     if ((state[idx] & maskOf(.borrow_view)) != 0) {
@@ -840,7 +882,10 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 } else if (item.operands[0] == .text and isIdentLike(item.operands[0].text)) {
                     if (metadata.symbols.findId(item.operands[0].text)) |ret_id| {
                         const idx: usize = @intCast(ret_id);
-                        if ((flags[idx] & 0x01) != 0) {
+                        if (isStackAllocated(flags, origins, state, ret_id)) {
+                            return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
+                        }
+                        if ((flags[idx] & regFlagRawPointer) != 0) {
                             return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
                         }
                         if ((state[idx] & maskOf(.borrow_view)) != 0) {
@@ -870,8 +915,9 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
     }
 
     if (!fatal_terminated) {
-        for (state) |mask| {
+        for (state, 0..) |mask, idx| {
             if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
+            if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
             return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, mask, "live registers remain at function exit", null);
         }
     } else if (body_seen and !terminated) {
@@ -975,7 +1021,7 @@ test "panic terminates without forcing a leak trap" {
     }
 }
 
-test "panic_msg accepts a raw message pointer outside ffi wrapper" {
+test "panic_msg is treated as a terminator" {
     const program = [_]inst.Instruction{
         .{
             .kind = .func_decl,
@@ -990,16 +1036,28 @@ test "panic_msg accepts a raw message pointer outside ffi wrapper" {
             .raw_text = "@main() -> i32:",
         },
         .{
-            .kind = .panic_msg,
+            .kind = .alloc,
             .source_line = 2,
             .expanded_line = 1,
             .operands = .{
-                .{ .text = "7" },
-                .{ .text = "msg" },
-                .{ .text = "len" },
+                .{ .reg = 1 },
+                .{ .imm_u64 = 3 },
+                .{ .none = {} },
                 .{ .none = {} },
             },
-            .raw_text = "panic_msg(7, *msg, len)",
+            .raw_text = "buf = alloc 3",
+        },
+        .{
+            .kind = .panic_msg,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .text = "7" },
+                .{ .text = "buf" },
+                .{ .text = "2" },
+                .{ .none = {} },
+            },
+            .raw_text = "panic_msg(7, *buf, 2)",
         },
     };
 
@@ -1008,7 +1066,58 @@ test "panic_msg accepts a raw message pointer outside ffi wrapper" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 2), owned.annotated.len);
+            try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "stack_alloc is exempt from memory leak and rejects escape" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .stack_alloc,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .reg = 1 },
+                .{ .imm_u64 = 8 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "tmp = stack_alloc 8",
+        },
+        .{
+            .kind = .return_,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .reg = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "return 0",
+        },
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..]);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
     }

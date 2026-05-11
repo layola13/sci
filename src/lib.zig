@@ -10,6 +10,7 @@ pub const common = struct {
 };
 
 pub const flattener = @import("flattener.zig");
+pub const layout = @import("layout.zig");
 pub const referee = @import("referee.zig");
 pub const cli = @import("cli.zig");
 
@@ -21,6 +22,7 @@ test "root module imports common types" {
     const gas = @import("common/gas.zig");
     const sig = @import("common/signature.zig");
     const flatten = @import("flattener.zig");
+    const layout_mod = @import("layout.zig");
     const verify = @import("referee.zig");
 
     _ = inst.InstKind.alloc;
@@ -81,4 +83,9 @@ test "root module imports common types" {
     var flat_result = try flatten.flatten(std.testing.allocator, source);
     defer flat_result.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 2), flat_result.instructions.len);
+
+    var layout_result = try layout_mod.compute(std.testing.allocator, "Entity", "id:u32, pos:f64", 64);
+    defer layout_result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u32, 16), layout_result.size);
+    try std.testing.expectEqual(@as(u32, 8), layout_result.fields[1].offset);
 }

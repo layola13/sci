@@ -1,6 +1,6 @@
 const std = @import("std");
-const common_instruction = @import("common/instruction.zig");
-const common_signature = @import("common/signature.zig");
+const common_instruction = @import("../common/instruction.zig");
+const common_signature = @import("../common/signature.zig");
 
 pub const CallError = error{
     InvalidCallSyntax,

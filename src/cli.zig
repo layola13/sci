@@ -4,6 +4,7 @@ const flattener = @import("flattener.zig");
 const interp = @import("interp.zig");
 const driver = @import("driver/zigcc.zig");
 const emit_llvm = @import("emit_llvm.zig");
+const layout = @import("layout.zig");
 const referee = @import("referee.zig");
 const trap = @import("common/trap.zig");
 
@@ -28,6 +29,7 @@ const Command = enum {
     build_exe,
     build_wasm,
     build_obj,
+    layout,
 };
 
 const WasmTarget = struct {
@@ -46,13 +48,17 @@ fn commandName(cmd: Command) []const u8 {
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
+        .layout => "layout",
     };
 }
 
-fn printTrapReport(report: trap.TrapReport) !void {
-    const stderr = std.io.getStdErr().writer();
-    try trap.writeJson(stderr, report);
-    try stderr.writeByte('\n');
+fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
+    try trap.writeJson(writer, report);
+    try writer.writeByte('\n');
+}
+
+fn printUsage(writer: anytype) !void {
+    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|layout> ...\n");
 }
 
 fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
@@ -193,7 +199,7 @@ fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []con
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(report);
+            try printTrapReport(std.io.getStdErr().writer(), report);
             return 1;
         },
         .ok => |ok| {
@@ -215,7 +221,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(report);
+            try printTrapReport(std.io.getStdErr().writer(), report);
             return 1;
         },
         .ok => |ok| {
@@ -238,7 +244,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(report);
+            try printTrapReport(std.io.getStdErr().writer(), report);
             return 1;
         },
         .ok => |ok| {
@@ -261,7 +267,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(report);
+            try printTrapReport(std.io.getStdErr().writer(), report);
             return 1;
         },
         .ok => |ok| {
@@ -280,6 +286,70 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     }
 }
 
+fn executeLayout(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+) !u8 {
+    var name: ?[]const u8 = null;
+    var fields: ?[]const u8 = null;
+    var format: layout.LayoutFormat = .text;
+    var target_bits: u16 = 64;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--name")) {
+            if (i + 1 >= args.len) return error.MissingLayoutName;
+            name = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--fields")) {
+            if (i + 1 >= args.len) return error.MissingLayoutFields;
+            fields = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--format")) {
+            if (i + 1 >= args.len) return error.MissingLayoutFormat;
+            const value = args[i + 1];
+            if (std.mem.eql(u8, value, "json")) {
+                format = .json;
+            } else if (std.mem.eql(u8, value, "text")) {
+                format = .text;
+            } else {
+                return error.InvalidLayoutFormat;
+            }
+            i += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--target")) {
+            if (i + 1 >= args.len) return error.MissingTarget;
+            target_bits = try layout.parseTargetBits(args[i + 1]);
+            i += 1;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+
+    const layout_name = name orelse return error.MissingLayoutName;
+    const layout_fields = fields orelse return error.MissingLayoutFields;
+    var computed = try layout.compute(allocator, layout_name, layout_fields, target_bits);
+    defer computed.deinit(allocator);
+
+    switch (format) {
+        .text => try layout.writeText(stdout, computed),
+        .json => {
+            try layout.writeJson(stdout, computed);
+            try stdout.writeByte('\n');
+        },
+    }
+    _ = stderr;
+    return 0;
+}
+
 fn parseTarget(text: []const u8) !WasmTarget {
     if (std.mem.eql(u8, text, "wasm32")) return .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
     if (std.mem.eql(u8, text, "wasm64")) return .{ .triple = "wasm64-freestanding", .no_entry = true, .size_bits = 64 };
@@ -292,10 +362,9 @@ fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
     return null;
 }
 
-pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
+pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     if (argv.len < 2) {
-        const stderr = std.io.getStdErr().writer();
-        try stderr.print("usage: saasm <run|build-exe|build-wasm|build-obj> <file.saasm> [options]\n", .{});
+        try printUsage(stderr);
         return 1;
     }
 
@@ -304,17 +373,22 @@ pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
         if (std.mem.eql(u8, argv[1], commandName(.build_exe))) break :blk .build_exe;
         if (std.mem.eql(u8, argv[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, argv[1], commandName(.build_obj))) break :blk .build_obj;
+        if (std.mem.eql(u8, argv[1], commandName(.layout))) break :blk .layout;
         return error.UnknownCommand;
     };
 
-    if (argv.len < 3) return error.MissingSourcePath;
-    const source_path = argv[2];
-
     switch (cmd) {
+        .layout => {
+            return try executeLayout(allocator, argv[2..], stdout, stderr);
+        },
         .run => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const source_path = argv[2];
             return try executeRun(allocator, source_path, argv[3..]);
         },
         .build_exe => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const source_path = argv[2];
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
@@ -345,6 +419,8 @@ pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
             return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization);
         },
         .build_obj => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const source_path = argv[2];
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
@@ -375,6 +451,8 @@ pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
             return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization);
         },
         .build_wasm => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const source_path = argv[2];
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
             var debug = false;
@@ -412,4 +490,8 @@ pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
             return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization);
         },
     }
+}
+
+pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
+    return executeWithWriters(allocator, argv, std.io.getStdOut().writer(), std.io.getStdErr().writer());
 }

@@ -28,7 +28,7 @@ test "whitepaper files exist and stay under line limit" {
     try std.testing.expect(lineCount(md) <= 2000);
     try std.testing.expect(lineCount(txt) <= 2000);
     try std.testing.expect(lineCount(ebnf) <= 2000);
-    try std.testing.expect(std.mem.containsAtLeast(u8, md, 1, "SA-ASM"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, txt, 1, "SA-ASM"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ebnf, 1, "SA-ASM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, md, 1, "Symbolic Affine"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, txt, 1, "Symbolic Affine"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ebnf, 1, "SA-ASM EBNF"));
 }

@@ -9,6 +9,7 @@ pub const CapabilityMask = enum(u8) {
     borrow_view = 0x10,
     ffi_borrow = 0x20,
     untracked = 0x40,
+    fallible = 0x80,
 };
 
 pub const Transition = struct {
@@ -27,6 +28,9 @@ pub fn maskName(mask: u8) []const u8 {
         0x04 => "Locked_Mut",
         0x08 => "Consumed",
         0x10 => "BorrowView",
+        0x20 => "FfiBorrow",
+        0x40 => "Untracked",
+        0x80 => "Fallible",
         else => "Composite",
     };
 }
@@ -52,6 +56,7 @@ pub const TrapKind = enum(u8) {
     memory_leak,
     illegal_unsafe_context,
     ffi_ownership_violation,
+    stack_escape,
 };
 
 pub const TRUTH_TABLE = [_]Transition{
@@ -82,4 +87,6 @@ test "truth table contains canonical transitions" {
 test "mask names cover canonical states" {
     try std.testing.expectEqualStrings("Active", maskName(0x01));
     try std.testing.expectEqualStrings("BorrowView", maskName(0x10));
+    try std.testing.expectEqualStrings("FfiBorrow", maskName(0x20));
+    try std.testing.expectEqualStrings("Fallible", maskName(0x80));
 }

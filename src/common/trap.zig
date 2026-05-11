@@ -24,6 +24,9 @@ pub const Trap = enum(u8) {
     illegal_unsafe_context,
     ffi_ownership_violation,
     unsupported_sys_intrinsic,
+    stack_escape,
+    early_return_leak,
+    fallible_contract_mismatch,
 };
 
 pub const TrapReport = struct {
@@ -71,6 +74,9 @@ pub fn trapName(trap: Trap) []const u8 {
         .illegal_unsafe_context => "IllegalUnsafeContext",
         .ffi_ownership_violation => "FfiOwnershipViolation",
         .unsupported_sys_intrinsic => "UnsupportedSysIntrinsic",
+        .stack_escape => "StackEscape",
+        .early_return_leak => "EarlyReturnLeak",
+        .fallible_contract_mismatch => "FallibleContractMismatch",
     };
 }
 

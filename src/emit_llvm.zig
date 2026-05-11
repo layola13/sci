@@ -18,12 +18,17 @@ pub const EmitError = error{
 
 pub const EmitOptions = struct {
     debug: bool = false,
-    emit_wasm: bool = false,
 };
 
 const Value = struct {
     expr: []const u8,
     ty: sig.PrimType,
+};
+
+const BuiltinCallResult = union(enum) {
+    not_builtin,
+    handled_void,
+    handled_value: Value,
 };
 
 const FunctionState = struct {
@@ -450,29 +455,35 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
     try emitLine(out, "declare void @exit(i32)");
     try emitLine(out, "declare i32 @fprintf(ptr, ptr, ...)");
     try emitLine(out, "@stderr = external global ptr");
-    try out.writer().print("@.panic_code_fmt = private unnamed_addr constant [{d} x i8] c\"panic %d\\0A\\00\"\n", .{"panic %d\n".len + 1});
-    try out.writer().print("@.panic_msg_fmt = private unnamed_addr constant [{d} x i8] c\"panic %d: %.*s\\0A\\00\"\n", .{"panic %d: %.*s\n".len + 1});
+    try out.writer().print("@.panic_code_fmt = private unnamed_addr constant [{d} x i8] c\"PANIC: code=%d\\0A\\00\"\n", .{"PANIC: code=%d\n".len + 1});
+    try out.writer().print("@.panic_msg_fmt = private unnamed_addr constant [{d} x i8] c\"PANIC[%d]: %.*s\\0A\\00\"\n", .{"PANIC[%d]: %.*s\n".len + 1});
     try emitLine(out, "");
 
     const stderr_align: u32 = if (size_bits == 32) 4 else 8;
-    try out.writer().print("define void @__sa_panic(i32 %code, ptr %msg, i64 %len) {{\n", .{});
+    try out.writer().print("define void @__sa_panic(i32 %code, ptr %msg, {s} %len) {{\n", .{size_ty_name});
     try emitLine(out, "entry:");
     try out.writer().print("  %stderr = load ptr, ptr @stderr, align {d}\n", .{stderr_align});
     try emitLine(out, "  %has_msg_ptr = icmp ne ptr %msg, null");
-    try emitLine(out, "  %has_msg_len = icmp ne i64 %len, 0");
+    try out.writer().print("  %has_msg_len = icmp ne {s} %len, 0\n", .{size_ty_name});
     try emitLine(out, "  %has_msg = and i1 %has_msg_ptr, %has_msg_len");
     try emitLine(out, "  br i1 %has_msg, label %with_msg, label %no_msg");
     try emitLine(out, "with_msg:");
-    try emitLine(out, "  %msg_fmt_ptr = getelementptr [16 x i8], ptr @.panic_msg_fmt, i32 0, i32 0");
-    try emitLine(out, "  %msg_len32 = trunc i64 %len to i32");
-    try emitLine(out, "  %_msg = call i32 (ptr, ptr, ...) @fprintf(ptr %stderr, ptr %msg_fmt_ptr, i32 %code, i32 %msg_len32, ptr %msg)");
+    try emitLine(out, "  %msg_fmt_ptr = getelementptr [17 x i8], ptr @.panic_msg_fmt, i32 0, i32 0");
+    if (size_bits == 32) {
+        try emitLine(out, "  %_msg = call i32 (ptr, ptr, ...) @fprintf(ptr %stderr, ptr %msg_fmt_ptr, i32 %code, i32 %len, ptr %msg)");
+    } else {
+        try emitLine(out, "  %msg_len32 = trunc i64 %len to i32");
+        try emitLine(out, "  %_msg = call i32 (ptr, ptr, ...) @fprintf(ptr %stderr, ptr %msg_fmt_ptr, i32 %code, i32 %msg_len32, ptr %msg)");
+    }
     try emitLine(out, "  br label %done");
     try emitLine(out, "no_msg:");
-    try emitLine(out, "  %code_fmt_ptr = getelementptr [10 x i8], ptr @.panic_code_fmt, i32 0, i32 0");
+    try emitLine(out, "  %code_fmt_ptr = getelementptr [16 x i8], ptr @.panic_code_fmt, i32 0, i32 0");
     try emitLine(out, "  %_code = call i32 (ptr, ptr, ...) @fprintf(ptr %stderr, ptr %code_fmt_ptr, i32 %code)");
     try emitLine(out, "  br label %done");
     try emitLine(out, "done:");
-    try emitLine(out, "  call void @exit(i32 %code)");
+    try emitLine(out, "  %code_masked = and i32 %code, 127");
+    try emitLine(out, "  %exit_code = add i32 %code_masked, 128");
+    try emitLine(out, "  call void @exit(i32 %exit_code)");
     try emitLine(out, "  unreachable");
     try emitLine(out, "}");
     try emitLine(out, "");
@@ -632,19 +643,24 @@ fn emitArgList(
     for (args, params, 0..) |arg, param, idx| {
         if (idx != 0) try stmt.appendSlice(", ");
         const expected = valueTypeForPrefix(param.cap, param.ty);
-        var value: Value = undefined;
-        if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
-            if (symbols.findId(arg.text)) |id| {
-                value = state.getReg(id) orelse return EmitError.InvalidOperand;
-            } else {
-                value = try parseImmediateValue(allocator, state, arg.text);
-            }
-        } else {
-            value = try parseImmediateValue(allocator, state, arg.text);
-        }
+        const value = try valueFromArgText(allocator, state, symbols, arg.text);
         const coerced = try castValue(allocator, prelude, state, value, expected);
         try stmt.writer().print("{s} {s}", .{ llvmTypeName(expected), coerced.expr });
     }
+}
+
+fn valueFromArgText(
+    allocator: std.mem.Allocator,
+    state: *FunctionState,
+    symbols: *const symbol.SymbolTable,
+    text: []const u8,
+) !Value {
+    if (text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_')) {
+        if (symbols.findId(text)) |id| {
+            return state.getReg(id) orelse EmitError.InvalidOperand;
+        }
+    }
+    return try parseImmediateValue(allocator, state, text);
 }
 
 fn emitBuiltinCall(
@@ -653,40 +669,40 @@ fn emitBuiltinCall(
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
     options: EmitOptions,
+    size_bits: u16,
     parsed: call.ParsedCall,
-) !?Value {
+) !BuiltinCallResult {
     _ = options;
+    const size_ty_name = sizeTypeName(size_bits);
     const name = parsed.callee;
     if (std.mem.eql(u8, name, "panic")) {
         var prelude = std.ArrayList(u8).init(allocator);
         defer prelude.deinit();
-        var args_buf = std.ArrayList(u8).init(allocator);
-        defer args_buf.deinit();
-        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "code", .ty = .i32, .cap = .by_value }});
+        if (parsed.args.len != 1) return EmitError.InvalidOperand;
+        const code = try valueFromArgText(allocator, state, symbols, parsed.args[0].text);
+        const code_i32 = try castValue(allocator, &prelude, state, code, .i32);
         try out.appendSlice(prelude.items);
-        try out.writer().print("  call void @__sa_panic({s}, ptr null, i64 0)\n", .{args_buf.items});
+        try out.writer().print("  call void @__sa_panic(i32 {s}, ptr null, {s} 0)\n", .{ code_i32.expr, size_ty_name });
         try emitLine(out, "  unreachable");
-        return null;
+        return .handled_void;
     }
     if (std.mem.eql(u8, name, "panic_msg")) {
         var prelude = std.ArrayList(u8).init(allocator);
         defer prelude.deinit();
-        var args_buf = std.ArrayList(u8).init(allocator);
-        defer args_buf.deinit();
-        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{
-            .{ .name = "code", .ty = .i32, .cap = .by_value },
-            .{ .name = "msg", .ty = .ptr, .cap = .raw },
-            .{ .name = "len", .ty = .i64, .cap = .by_value },
-        });
+        if (parsed.args.len != 3) return EmitError.InvalidOperand;
+        const code = try castValue(allocator, &prelude, state, try valueFromArgText(allocator, state, symbols, parsed.args[0].text), .i32);
+        const msg = try castValue(allocator, &prelude, state, try valueFromArgText(allocator, state, symbols, parsed.args[1].text), .ptr);
+        const len_ty: sig.PrimType = sizePrimType(size_bits);
+        const len = try castValue(allocator, &prelude, state, try valueFromArgText(allocator, state, symbols, parsed.args[2].text), len_ty);
         try out.appendSlice(prelude.items);
-        try out.writer().print("  call void @__sa_panic({s})\n", .{args_buf.items});
+        try out.writer().print("  call void @__sa_panic(i32 {s}, ptr {s}, {s} {s})\n", .{ code.expr, msg.expr, size_ty_name, len.expr });
         try emitLine(out, "  unreachable");
-        return null;
+        return .handled_void;
     }
     if (std.mem.eql(u8, name, "sys_argc")) {
         const tmp = try state.tempName(allocator);
         try out.writer().print("  {s} = call i32 @sys_argc()\n", .{tmp});
-        return .{ .expr = tmp, .ty = .i32 };
+        return .{ .handled_value = .{ .expr = tmp, .ty = .i32 } };
     }
     if (std.mem.eql(u8, name, "sys_argv")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -697,7 +713,7 @@ fn emitBuiltinCall(
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "index", .ty = .i64, .cap = .by_value }});
         try out.appendSlice(prelude.items);
         try out.writer().print("  {s} = call ptr @sys_argv({s})\n", .{ tmp, args_buf.items });
-        return .{ .expr = tmp, .ty = .ptr };
+        return .{ .handled_value = .{ .expr = tmp, .ty = .ptr } };
     }
     if (std.mem.eql(u8, name, "sys_print")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -707,7 +723,7 @@ fn emitBuiltinCall(
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "msg", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }});
         try out.appendSlice(prelude.items);
         try out.writer().print("  call void @sys_print({s})\n", .{args_buf.items});
-        return null;
+        return .handled_void;
     }
     if (std.mem.eql(u8, name, "sys_exit")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -717,7 +733,7 @@ fn emitBuiltinCall(
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "code", .ty = .i32, .cap = .by_value }});
         try out.appendSlice(prelude.items);
         try out.writer().print("  call void @sys_exit({s})\n", .{args_buf.items});
-        return null;
+        return .handled_void;
     }
     if (std.mem.eql(u8, name, "sys_read_file")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -728,7 +744,7 @@ fn emitBuiltinCall(
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "out_len", .ty = .ptr, .cap = .raw }});
         try out.appendSlice(prelude.items);
         try out.writer().print("  {s} = call ptr @sys_read_file({s})\n", .{ tmp, args_buf.items });
-        return .{ .expr = tmp, .ty = .ptr };
+        return .{ .handled_value = .{ .expr = tmp, .ty = .ptr } };
     }
     if (std.mem.eql(u8, name, "sys_write_file")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -739,9 +755,9 @@ fn emitBuiltinCall(
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "data", .ty = .ptr, .cap = .raw }, .{ .name = "dlen", .ty = .i64, .cap = .by_value }});
         try out.appendSlice(prelude.items);
         try out.writer().print("  {s} = call i32 @sys_write_file({s})\n", .{ tmp, args_buf.items });
-        return .{ .expr = tmp, .ty = .i32 };
+        return .{ .handled_value = .{ .expr = tmp, .ty = .i32 } };
     }
-    return null;
+    return .not_builtin;
 }
 
 fn emitDirectCall(
@@ -787,6 +803,7 @@ fn emitCall(
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
     options: EmitOptions,
+    size_bits: u16,
     parsed: call.ParsedCall,
 ) !?Value {
     if (parsed.is_indirect) {
@@ -810,8 +827,10 @@ fn emitCall(
         return .{ .expr = tmp, .ty = .i64 };
     }
 
-    if (try emitBuiltinCall(allocator, out, state, symbols, options, parsed)) |value| {
-        return value;
+    switch (try emitBuiltinCall(allocator, out, state, symbols, options, size_bits, parsed)) {
+        .handled_void => return null,
+        .handled_value => |value| return value,
+        .not_builtin => {},
     }
     if (try emitDirectCall(allocator, out, state, symbols, sigs, options, parsed)) |value| {
         return value;
@@ -848,6 +867,19 @@ fn emitInstruction(
             };
             const tmp = try state.tempName(allocator);
             try out.writer().print("  {s} = call ptr @malloc({s} {d})\n", .{ tmp, size_ty_name, size });
+            try state.setReg(dst, .{ .expr = tmp, .ty = .ptr });
+        },
+        .stack_alloc => {
+            const dst = base.operands[0].reg;
+            const size = switch (base.operands[1]) {
+                .imm_u64 => |v| v,
+                .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .text => |t| std.fmt.parseInt(u64, t, 10) catch return EmitError.InvalidOperand,
+                else => return EmitError.InvalidOperand,
+            };
+            const tmp = try state.tempName(allocator);
+            try out.writer().print("  {s} = alloca i8, i64 {d}, align 1\n", .{ tmp, size });
             try state.setReg(dst, .{ .expr = tmp, .ty = .ptr });
         },
         .load, .take => {
@@ -980,7 +1012,7 @@ fn emitInstruction(
         .call, .call_indirect, .panic, .panic_msg => {
             var parsed = call.parseCall(allocator, base.raw_text) catch return EmitError.InvalidOperand;
             defer parsed.deinit(allocator);
-            if (try emitCall(allocator, out, state, symbols, sigs, options, parsed)) |ret| {
+            if (try emitCall(allocator, out, state, symbols, sigs, options, size_bits, parsed)) |ret| {
                 if (parsed.dest) |dest| {
                     if (symbols.findId(dest)) |id| try state.setReg(id, ret);
                 }

@@ -462,12 +462,12 @@ const Interpreter = struct {
     }
 
     fn recordPanic(self: *Interpreter, code: u8, message: ?[]const u8) void {
-        self.exit_code = code;
+        self.exit_code = @as(u8, @intCast(128 + (@as(u32, code) & 0x7f)));
         const stderr = std.io.getStdErr().writer();
         if (message) |msg| {
-            stderr.print("panic {d}: {s}\n", .{ code, msg }) catch {};
+            stderr.print("PANIC[{d}]: {s}\n", .{ code, msg }) catch {};
         } else {
-            stderr.print("panic {d}\n", .{ code }) catch {};
+            stderr.print("PANIC: code={d}\n", .{ code }) catch {};
         }
     }
 
@@ -556,6 +556,13 @@ const Interpreter = struct {
         defer regs.deinit();
         var labels = try self.buildLabelMap(body);
         defer labels.deinit();
+        var stack_allocs = std.ArrayList(u64).init(self.allocator);
+        defer {
+            for (stack_allocs.items) |addr| {
+                self.memory.free(addr) catch {};
+            }
+            stack_allocs.deinit();
+        }
 
         for (fsig.params, 0..) |param, idx| {
             if (idx >= arg_values.len) return RunError.InvalidOperand;
@@ -582,6 +589,19 @@ const Interpreter = struct {
                     };
                     const addr = try self.memory.alloc(@intCast(size));
                     try regs.put(dst, .{ .ty = .ptr, .bits = addr });
+                },
+                .stack_alloc => {
+                    const dst = base.operands[0].reg;
+                    const size = switch (base.operands[1]) {
+                        .imm_u64 => |v| v,
+                        .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
+                        else => return RunError.InvalidOperand,
+                    };
+                    const addr = try self.memory.alloc(@intCast(size));
+                    try regs.put(dst, .{ .ty = .ptr, .bits = addr });
+                    try stack_allocs.append(addr);
                 },
                 .load, .take => {
                     const dst = base.operands[0].reg;
@@ -650,7 +670,14 @@ const Interpreter = struct {
                     if ((mask & @intFromEnum(cap.CapabilityMask.borrow_view)) != 0 or (mask & @intFromEnum(cap.CapabilityMask.ffi_borrow)) != 0) {
                         // Borrow views do not physically free.
                     } else if (regs.get(reg_id)) |value| {
-                        if (value.ty == .ptr and value.bits != 0) {
+                        var is_stack_alloc = false;
+                        for (stack_allocs.items) |addr| {
+                            if (addr == value.bits) {
+                                is_stack_alloc = true;
+                                break;
+                            }
+                        }
+                        if (!is_stack_alloc and value.ty == .ptr and value.bits != 0) {
                             self.memory.free(value.bits) catch {};
                         }
                     }
@@ -674,7 +701,7 @@ const Interpreter = struct {
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
-                .call, .call_indirect => {
+                .call, .call_indirect, .panic, .panic_msg => {
                     var parsed = call.parseCall(self.allocator, base.raw_text) catch return RunError.InvalidOperand;
                     defer parsed.deinit(self.allocator);
 

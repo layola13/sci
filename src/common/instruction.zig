@@ -43,6 +43,7 @@ pub const Operand = union(enum) {
 
 pub const InstKind = enum(u8) {
     alloc,
+    stack_alloc,
     load,
     store,
     borrow,
@@ -54,6 +55,7 @@ pub const InstKind = enum(u8) {
     br_null,
     call,
     call_indirect,
+    try_,
     panic,
     panic_msg,
     return_,

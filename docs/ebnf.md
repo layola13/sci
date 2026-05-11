@@ -1,6 +1,6 @@
 # SA-ASM EBNF
 
-This grammar reflects the current v0.1 repository surface. Features such as `#mode compact`, `@const`, `stack_alloc`, `ptr_add`, and atomics are deferred.
+This grammar reflects the current repository surface. Features such as `#mode compact`, `@const`, `ptr_add`, and atomics remain deferred, while `stack_alloc` is now supported.
 
 ```ebnf
 program        = { line } ;
@@ -63,4 +63,4 @@ Notes:
 
 - The parser is intentionally line-oriented and does not build an AST.
 - `build-exe` and `build-wasm` reuse the Zig-backed LLVM path in v0.1.
-- Structured `#loc`, `@const`, `stack_alloc`, atomics, and `#mode compact` remain post-v0.1 work.
+- Structured `#loc`, `@const`, atomics, and `#mode compact` remain post-v0.1 work. `stack_alloc` is supported.

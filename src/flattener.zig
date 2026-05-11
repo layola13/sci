@@ -208,6 +208,7 @@ fn findNestedRepEnd(lines: []const SourceLine, start: usize) ?usize {
 fn mapInstKind(form: InstructionForm) InstKind {
     return switch (form) {
         .alloc => .alloc,
+        .stack_alloc => .stack_alloc,
         .load => .load,
         .store => .store,
         .borrow => .borrow,
@@ -339,6 +340,12 @@ fn emitParsedLine(
             var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
             switch (classified.inst_form.?) {
                 .alloc => {
+                    const dst = try symbols.intern(classified.parts[0]);
+                    inst.operands[0] = .{ .reg = dst };
+                    const size_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
+                    inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, size_text, 10) };
+                },
+                .stack_alloc => {
                     const dst = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = dst };
                     const size_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);

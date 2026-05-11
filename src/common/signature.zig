@@ -23,6 +23,11 @@ pub const PrimType = enum(u8) {
     ptr,
 };
 
+pub const FallibleInfo = struct {
+    return_cap: ?instr.CapPrefix,
+    return_ty: PrimType,
+};
+
 pub const ParamSpec = struct {
     name: []const u8,
     ty: PrimType,
@@ -120,6 +125,14 @@ pub fn primTypeBits(ty: PrimType) u32 {
         .i16, .u16 => 16,
         .i32, .u32, .f32 => 32,
         .i64, .u64, .f64, .ptr => 64,
+    };
+}
+
+pub fn returnValueType(return_cap: ?instr.CapPrefix, return_ty: PrimType) PrimType {
+    if (return_ty == .void) return .void;
+    return switch (return_cap orelse .by_value) {
+        .raw, .borrow => .ptr,
+        .move, .by_value => return_ty,
     };
 }
 

@@ -21,6 +21,7 @@ pub const LineKind = enum {
 
 pub const InstructionForm = enum {
     alloc,
+    stack_alloc,
     load,
     store,
     borrow,
@@ -32,6 +33,7 @@ pub const InstructionForm = enum {
     br_null,
     call,
     call_indirect,
+    try_,
     panic,
     panic_msg,
     return_,
@@ -250,6 +252,16 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
+    if (std.mem.startsWith(u8, rhs, "?")) {
+        const rest = std.mem.trim(u8, rhs["?".len..], " \t");
+        if (rest.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .try_;
+        addPart(line, 0, lhs);
+        addPart(line, 1, rest);
+        return true;
+    }
+
     if (std.mem.startsWith(u8, rhs, "&mut ")) {
         const source = std.mem.trim(u8, rhs["&mut ".len..], " \t");
         if (source.len == 0) return false;
@@ -277,6 +289,16 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         if (size.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .alloc;
+        addPart(line, 0, lhs);
+        addPart(line, 1, size);
+        return true;
+    }
+
+    if (std.mem.startsWith(u8, rhs, "stack_alloc ")) {
+        const size = std.mem.trim(u8, rhs["stack_alloc ".len..], " \t");
+        if (size.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .stack_alloc;
         addPart(line, 0, lhs);
         addPart(line, 1, size);
         return true;
@@ -438,6 +460,15 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         return true;
     }
 
+    if (startsWithWord(trimmed, "?")) {
+        const rest = std.mem.trim(u8, trimmed["?".len..], " \t");
+        if (rest.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .try_;
+        addPart(line, 0, rest);
+        return true;
+    }
+
     if (startsWithWord(trimmed, "panic")) {
         const rest = std.mem.trimLeft(u8, trimmed["panic".len..], " \t");
         if (rest.len == 0) return false;
@@ -480,6 +511,10 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
         addPart(&out, 0, name);
         addPart(&out, 1, value);
         return out;
+    }
+
+    if (std.mem.startsWith(u8, trimmed, "@const")) {
+        return makeLine(.unknown, line, trimmed);
     }
 
     if (parseLocHint(line, trimmed)) |out| return out;
