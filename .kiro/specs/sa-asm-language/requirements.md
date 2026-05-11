@@ -587,6 +587,54 @@
 
 ---
 
+### Requirement 31: 包管理与依赖解析 `sa.pkg`（v0.5 — 生态基建）
+
+**User Story**  
+作为 LLM 或人类开发者，当项目规模增长到多文件/多模块时，我需要一种声明式的依赖管理机制，使得"引入别人写的 SA 库"像 `cargo add` / `go get` 一样简单，而不是手动拷贝 `.saasm` 文件。
+
+**Acceptance Criteria**
+1. WHEN 项目根目录存在 `sa.pkg` 文件 THEN CLI SHALL 识别其为包描述文件，格式为：
+   ```
+   #pkg name = "my_app"
+   #pkg version = "0.1.0"
+   #pkg deps = [
+       { name = "sa_std", version = "0.5.0", source = "https://registry.sa-lang.org/sa_std" },
+       { name = "sa_http", version = "0.1.0", source = "./local_libs/sa_http" }
+   ]
+   ```
+2. WHEN `saasm build-exe` / `build-wasm` / `build-obj` 被调用 THEN CLI SHALL 自动解析 `sa.pkg` 中的依赖，按拓扑序编译所有依赖包
+3. WHEN 依赖包被引入 THEN 其 `.saasm-iface` 接口文件 SHALL 被自动注入当前编译单元（等价于 `#include`）
+4. WHEN 依赖包的 `.saasm-layout` 布局文件存在 THEN 其 `#def` 常量 SHALL 被自动注入（带命名空间前缀避免冲突：`pkg_name.FIELD_NAME`）
+5. WHEN 两个依赖包声明了同名 `@export` 函数 THEN 链接期 SHALL 报 `Trap: DuplicateExportSymbol`
+6. WHEN 依赖源为远程 URL THEN CLI SHALL 支持 `saasm pkg fetch` 命令下载到本地 `.sa-cache/deps/` 目录
+7. WHEN 依赖源为本地路径 THEN CLI SHALL 直接引用，不做拷贝
+8. WHEN 版本冲突（同一包的两个不同版本被间接依赖）THEN CLI SHALL 报错并要求用户显式选择版本（不做自动 semver 解析——保持确定性）
+9. WHEN LLM 生成代码 THEN 其 SHALL 可以在 `sa.pkg` 中声明依赖，然后在源码中直接使用依赖包的 `@extern` 函数（无需手写 `#include`）
+
+### Requirement 32: 布局标签校验（v0.5 — 可选类型安全增强）
+
+**User Story**  
+作为防御性编程的实践者，虽然 SA 刻意不做类型系统，但我希望有一种**可选的**轻量级机制来防止"把 Dog 指针传给期望 Cat 的函数"这种逻辑错误——在不引入完整类型系统的前提下。
+
+**Acceptance Criteria**
+1. WHEN 源码中出现 `#tag NAME = UNIQUE_ID` 声明 THEN Flattener SHALL 记录该标签为一个编译期常量（类似 `#def`，但语义不同）
+2. WHEN `alloc` 指令附带可选的 `tag NAME` 后缀 THEN Referee SHALL 在该寄存器的元数据中记录其布局标签：
+   ```
+   dog = alloc 24 tag Dog       // dog 被标记为 Dog 布局
+   cat = alloc 16 tag Cat       // cat 被标记为 Cat 布局
+   ```
+3. WHEN 函数签名中参数附带可选的 `tag NAME` 注解 THEN Referee SHALL 在调用点校验实参的标签是否匹配：
+   ```
+   @feed_dog(^d: ptr tag Dog):   // 只接受 Dog 标签的指针
+   ```
+4. IF 调用点传入的寄存器标签与签名声明不匹配 THEN Referee SHALL 返回 `Trap: TagMismatch`
+5. WHEN 标签未声明（`alloc` 不带 `tag`）THEN 该寄存器 SHALL 被视为"无标签"（untagged），可以传给任何函数（向后兼容）
+6. WHEN 标签校验被启用 THEN 其 SHALL 为**纯编译期**行为，零运行时开销（标签信息不进入产物）
+7. WHEN 标签校验被禁用（`--no-tag-check`）THEN Referee SHALL 跳过所有标签比对（用于性能敏感的场景或向后兼容）
+8. **Non-Goal**：标签不是类型系统。不支持继承、不支持泛型标签、不支持标签上的方法。它只是一个"这块内存的布局是什么"的编译期断言
+
+---
+
 ## 3. MVP 范围与阶段性里程碑
 
 ### 阶段一（Week 1-2）：协议定型
@@ -708,4 +756,4 @@
 
 ---
 
-**文档终态：以上 30 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4）为 SA 实现的强约束契约。R1–R24 为 MVP v0.1/v0.2 硬约束，R25–R27 为 v0.3 post-MVP 特性，R28–R30 为 v0.4 并行开发基建。任何后续 Design 阶段不得弱化或绕过已有特性。**
+**文档终态：以上 32 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**

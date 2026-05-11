@@ -803,11 +803,104 @@ sa/
 
 ---
 
+# Version 0.5 — 生态基建 + 标准库（post-v0.4，6-8 周）
+
+目标：让 SA 从"能跑通"进化为"LLM 能独立完成完整应用"。核心能力：包管理、标准库、布局标签校验。
+
+## v0.5 任务
+
+- [ ] 35. 包管理 `sa.pkg`（R31）
+
+  - [ ] 35.1 定义 `sa.pkg` 文件格式
+    - `#pkg name/version/deps` 声明
+    - deps 支持远程 URL 与本地路径
+    - _Requirements: R31.1_
+
+  - [ ] 35.2 CLI `saasm pkg fetch` 命令
+    - 下载远程依赖到 `.sa-cache/deps/`
+    - _Requirements: R31.6_
+
+  - [ ] 35.3 依赖拓扑排序与自动编译
+    - `saasm build-exe` 时自动解析 `sa.pkg`，按拓扑序编译依赖
+    - _Requirements: R31.2_
+
+  - [ ] 35.4 依赖接口自动注入
+    - 依赖包的 `.saasm-iface` 自动 `#include` 到当前编译单元
+    - _Requirements: R31.3_
+
+  - [ ] 35.5 依赖布局自动注入（带命名空间前缀）
+    - `pkg_name.FIELD_NAME` 避免 `#def` 冲突
+    - _Requirements: R31.4_
+
+  - [ ] 35.6 重复导出符号检测
+    - 两个依赖包同名 `@export` → `Trap: DuplicateExportSymbol`
+    - _Requirements: R31.5_
+
+  - [ ] 35.7 版本冲突报错
+    - 同一包两个版本被间接依赖 → 报错要求用户选择
+    - _Requirements: R31.8_
+
+- [ ] 36. 布局标签校验（R32）
+
+  - [ ] 36.1 `#tag NAME = UNIQUE_ID` 声明
+    - Flattener 记录标签为编译期常量
+    - _Requirements: R32.1_
+
+  - [ ] 36.2 `alloc N tag NAME` 语法
+    - Referee 在寄存器元数据中记录布局标签
+    - _Requirements: R32.2_
+
+  - [ ] 36.3 函数签名 `tag NAME` 注解
+    - `@func(^d: ptr tag Dog)` 声明期望标签
+    - _Requirements: R32.3_
+
+  - [ ] 36.4 调用点标签比对
+    - 实参标签与形参标签不匹配 → `Trap: TagMismatch`
+    - 无标签寄存器可传给任何函数（向后兼容）
+    - _Requirements: R32.4, R32.5_
+
+  - [ ] 36.5 `--no-tag-check` 开关
+    - 禁用标签校验（性能敏感场景）
+    - _Requirements: R32.7_
+
+  - [ ]* 36.6 标签校验 Property 测试 — **P33 (NEW)**
+    - 合法生成器：匹配标签调用，断言通过
+    - 注入式：不匹配标签，断言 `TagMismatch`
+    - 无标签寄存器传给有标签参数，断言通过
+    - 最少 100 次
+    - _Requirements: R32.4, R32.5_
+
+- [ ] 37. `sa_std` 标准库 v0.1
+
+  - [ ] 37.1 `sa_std/string.saasm`：字符串操作宏
+    - `STR_LEN` / `STR_CONCAT` / `STR_EQ` / `STR_SLICE`
+    - 基于胖指针 `[data_ptr | len]` 布局
+
+  - [ ] 37.2 `sa_std/vec.saasm`：动态数组宏
+    - `VEC_NEW` / `VEC_PUSH` / `VEC_GET` / `VEC_LEN` / `VEC_FREE`
+    - 基于 `[data_ptr | len | cap]` 布局 + `alloc` 扩容
+
+  - [ ] 37.3 `sa_std/hashmap.saasm`：哈希表宏
+    - 开放寻址法 + FNV-1a 哈希
+    - `MAP_NEW` / `MAP_PUT` / `MAP_GET` / `MAP_DEL` / `MAP_FREE`
+
+  - [ ] 37.4 `sa_std/sort.saasm`：排序宏
+    - 快速排序（`[MACRO] QSORT %arr, %len, %elem_size, %cmp_fn`）
+
+  - [ ] 37.5 `sa_std/io.saasm`：IO 便利宏
+    - `PRINTLN` / `READ_LINE` / `FORMAT_INT`（基于 `@sys_print` + `@sys_read_file`）
+
+  - [ ] 37.6 打包为 `sa_std` 包
+    - 创建 `sa_std/sa.pkg` + `sa_std/*.saasm-iface`
+    - 发布到本地 registry
+
+---
+
 ## 说明
 
 - 带 `*` 的任务为可选 PBT；核心实现任务必做。
 - 每条 PBT 显式标注 Property 编号（P1–P25）与验证的需求号。
-- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"。**不要把这四件事压在 14 周 MVP 里**。
+- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"。**不要把这五件事压在 14 周 MVP 里**。
 - **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
   - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
   - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作
