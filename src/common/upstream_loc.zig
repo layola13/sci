@@ -6,6 +6,8 @@ pub const UpstreamLoc = struct {
     col: u32,
 };
 
+pub const LocTable = []?UpstreamLoc;
+
 test "upstream loc is a plain data carrier" {
     const loc = UpstreamLoc{
         .file = "main.rs",

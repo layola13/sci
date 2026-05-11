@@ -30,7 +30,7 @@ pub const TrapReport = struct {
     trap: Trap,
     line: u32,
     source_line: u32,
-    register_buf: [20]u8 = [_]u8{0} ** 20,
+    register_buf: [64]u8 = [_]u8{0} ** 64,
     register: ?[]const u8 = null,
     registers: []const []const u8 = &.{},
     expected_mask: ?u8 = null,
@@ -38,6 +38,9 @@ pub const TrapReport = struct {
     expected_mask_name: ?[]const u8 = null,
     actual_mask_name: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
+    upstream_file_buf: [128]u8 = [_]u8{0} ** 128,
+    upstream_line: u32 = 0,
+    upstream_col: u32 = 0,
     function_buf: [64]u8 = [_]u8{0} ** 64,
     function: ?[]const u8 = null,
     is_ffi_wrapper: ?bool = null,
@@ -100,6 +103,18 @@ fn writeMaybeString(writer: anytype, value: ?[]const u8) !void {
     }
 }
 
+fn bufText(buf: []const u8) []const u8 {
+    return buf[0..(std.mem.indexOfScalar(u8, buf, 0) orelse buf.len)];
+}
+
+fn writeStringOrBuf(writer: anytype, value: ?[]const u8, buf: []const u8) !void {
+    if (value) |text| {
+        try writeJsonString(writer, text);
+    } else {
+        try writeJsonString(writer, bufText(buf));
+    }
+}
+
 fn writeMaybeBool(writer: anytype, value: ?bool) !void {
     if (value) |v| {
         try writer.writeAll(if (v) "true" else "false");
@@ -125,7 +140,7 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
     try writer.writeAll(",\"source_line\":");
     try writer.print("{d}", .{report.source_line});
     try writer.writeAll(",\"register\":");
-    try writeMaybeString(writer, report.register);
+    try writeStringOrBuf(writer, report.register, &report.register_buf);
     try writer.writeAll(",\"registers\":[");
     for (report.registers, 0..) |item, idx| {
         if (idx != 0) try writer.writeByte(',');
@@ -149,11 +164,20 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
         try writer.writeAll(",\"col\":");
         try writer.print("{d}", .{loc.col});
         try writer.writeByte('}');
+    } else if (report.upstream_file_buf[0] != 0) {
+        try writer.writeByte('{');
+        try writer.writeAll("\"file\":");
+        try writeJsonString(writer, bufText(&report.upstream_file_buf));
+        try writer.writeAll(",\"line\":");
+        try writer.print("{d}", .{report.upstream_line});
+        try writer.writeAll(",\"col\":");
+        try writer.print("{d}", .{report.upstream_col});
+        try writer.writeByte('}');
     } else {
         try writer.writeAll("null");
     }
     try writer.writeAll(",\"function\":");
-    try writeMaybeString(writer, report.function);
+    try writeStringOrBuf(writer, report.function, &report.function_buf);
     try writer.writeAll(",\"is_ffi_wrapper\":");
     try writeMaybeBool(writer, report.is_ffi_wrapper);
     try writer.writeAll(",\"message\":");

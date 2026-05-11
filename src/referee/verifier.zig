@@ -81,6 +81,12 @@ fn zeroed(allocator: std.mem.Allocator, len: usize) ![]u8 {
     return out;
 }
 
+fn copyToBuf(buf: []u8, text: []const u8) []const u8 {
+    const len = @min(buf.len, text.len);
+    std.mem.copyForwards(u8, buf[0..len], text[0..len]);
+    return buf[0..len];
+}
+
 fn trapReport(
     kind: trap.Trap,
     item: inst.Instruction,
@@ -92,21 +98,42 @@ fn trapReport(
     message: []const u8,
     hint: ?[]const u8,
 ) VerifyResult {
-    return .{ .trap = .{
+    var report: trap.TrapReport = .{
         .trap = kind,
         .line = item.expanded_line + 1,
         .source_line = item.source_line,
-        .register = register,
+        .register = null,
         .registers = &.{},
         .expected_mask = expected_mask,
         .actual_mask = actual_mask,
         .expected_mask_name = if (expected_mask) |v| cap.maskName(v) else null,
         .actual_mask_name = if (actual_mask) |v| cap.maskName(v) else null,
-        .function = function_text,
+        .upstream_loc = item.upstream_loc,
+        .upstream_file_buf = [_]u8{0} ** 128,
+        .upstream_line = if (item.upstream_loc) |loc| loc.line else 0,
+        .upstream_col = if (item.upstream_loc) |loc| loc.col else 0,
+        .function = null,
         .is_ffi_wrapper = function_text != null and is_ffi_wrapper,
         .message = message,
         .hint = hint,
-    } };
+    };
+
+    if (register) |value| {
+        report.register = copyToBuf(&report.register_buf, value);
+    }
+    if (function_text) |value| {
+        report.function = copyToBuf(&report.function_buf, value);
+    }
+    if (report.upstream_loc) |loc| {
+        const file = copyToBuf(&report.upstream_file_buf, loc.file);
+        report.upstream_loc = .{
+            .file = file,
+            .line = loc.line,
+            .col = loc.col,
+        };
+    }
+
+    return .{ .trap = report };
 }
 
 fn builtinArgSpec(name: []const u8) ?[]const inst.CapPrefix {
@@ -375,6 +402,12 @@ fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(Annotat
     annotated.deinit();
 }
 
+fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, []u8)) void {
+    var it = labels.iterator();
+    while (it.next()) |entry| allocator.free(entry.value_ptr.*);
+    labels.clearRetainingCapacity();
+}
+
 pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instruction) !VerifyResult {
     if (instructions.len == 0) {
         const symbols = symbol.SymbolTable.init(allocator);
@@ -477,7 +510,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             current_is_ffi_wrapper = item.kind == .ffi_wrapper_decl;
             terminated = false;
             body_seen = false;
-            labels.clearRetainingCapacity();
+            resetLabels(allocator, &labels);
 
             if (sig_index < metadata.sigs.items.len) {
                 current_sig = metadata.sigs.items[sig_index];

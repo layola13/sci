@@ -1612,3 +1612,202 @@ L_ENTRY:
     ret = zext ok
     return ret
 ```
+
+---
+
+# v0.3 新特性案例（R25/R26/R27）
+
+---
+
+## 29. VTable 签名静态校验（R25） ✅
+
+### 问题场景（v0.2 未解决）
+```rust
+trait Animal {
+    fn speak(&self) -> i32;
+    fn legs(&self) -> i32;
+}
+
+// 如果前端错误地把 speak(self, extra_arg) 的签名塞进了 VTable，
+// v0.2 的 call_indirect 不会报错，运行时段错误。
+```
+
+### SA（v0.3：编译期 Trap）
+```
+// 正确的 VTable 声明：speak 签名为 (&ptr) -> i32
+@Dog_speak(self: &ptr) -> i32:
+L_ENTRY:
+    return 1
+
+@Dog_legs(self: &ptr) -> i32:
+L_ENTRY:
+    return 4
+
+#def VT_speak = +0
+#def VT_legs  = +8
+
+@const DOG_VT = vtable { speak = @Dog_speak, legs = @Dog_legs }
+
+// 正确调用：参数 tuple 匹配
+@call_speak(obj: &ptr, vt: &ptr) -> i32:
+L_ENTRY:
+    speak_fn = load vt+VT_speak as ptr
+    result = call_indirect speak_fn(&obj)    // ✅ Referee 校验：(&ptr)->i32 匹配
+    return result
+
+// 错误调用：参数 tuple 不匹配
+@call_speak_wrong(obj: &ptr, vt: &ptr, extra: i32) -> i32:
+L_ENTRY:
+    speak_fn = load vt+VT_speak as ptr
+    result = call_indirect speak_fn(&obj, extra)  // ❌ Trap: VTableSignatureMismatch
+    //                                               期望 (&ptr)->i32，实际传了 (&ptr, i32)->i32
+    return result
+```
+
+**v0.3 保证（R25.2/R25.3）**：
+- Referee 在编译期记录 `DOG_VT.speak` 的签名 tuple = `[(&ptr)] -> i32`
+- `call_indirect speak_fn(&obj)` 的调用点参数 tuple = `[(&ptr)]` → 匹配 → 通过
+- `call_indirect speak_fn(&obj, extra)` 的调用点参数 tuple = `[(&ptr), (i32)]` → 不匹配 → `Trap: VTableSignatureMismatch`
+- **零运行时开销**：纯编译期静态分析
+
+**FFI 豁免（R25.4）**：若 VTable 来自外部 `@ffi_wrapper` 传入的裸指针，Referee 无法获知签名，不做校验。
+
+---
+
+## 30. `libsa_async` 宏模板（R26） ✅
+
+### 问题场景（v0.2 的 40x 膨胀）
+案例 23 展示了 Rust 3 行 async 代码降级为 ~120 行 SA。v0.3 用 `[MACRO]` 宏模板缓解。
+
+### SA（v0.3：使用 libsa_async 宏）
+```
+// 引入标准异步宏库
+#include "libsa_async.saasm"
+
+// 状态机上下文布局（仍需手写，因为跨 await 变量是业务特定的）
+#def Ctx_SIZE      = 40
+#def Ctx_state     = +0
+#def Ctx_url_ptr   = +8
+#def Ctx_url_len   = +16
+#def Ctx_data_ptr  = +24
+#def Ctx_data_len  = +32
+
+// 外部 reactor 接口
+@extern reactor_start_fetch(*url_ptr: ptr, url_len: u64, *ctx_ptr: ptr) -> void
+@extern reactor_poll_fetch(*ctx_ptr: ptr) -> i32
+@extern reactor_take_fetch(*ctx_ptr: ptr, *out_ptr: ptr, *out_len: ptr) -> void
+@extern reactor_start_parse(*data_ptr: ptr, data_len: u64, *ctx_ptr: ptr) -> void
+@extern reactor_poll_parse(*ctx_ptr: ptr) -> i32
+@extern reactor_take_parse(*ctx_ptr: ptr) -> i32
+
+// Poll 函数：用宏模板生成骨架
+@ffi_wrapper fetch_and_parse_poll(ctx: &ptr) -> i32!:
+
+// 宏展开：state 分发入口
+EXPAND ASYNC_POLL_PROLOGUE ctx, Ctx_state
+
+// State 0: 发起 fetch
+EXPAND ASYNC_STATE_BEGIN 0
+    url_ptr = load ctx+Ctx_url_ptr as ptr
+    url_len = load ctx+Ctx_url_len as u64
+    raw_ctx = *ctx
+    call @reactor_start_fetch(url_ptr, url_len, raw_ctx)
+EXPAND ASYNC_STATE_END ctx, Ctx_state, 1
+
+// State 1: 轮询 fetch
+EXPAND ASYNC_AWAIT_POINT ctx, Ctx_state, 1, @reactor_poll_fetch, @reactor_take_fetch, Ctx_data_ptr, Ctx_data_len
+
+// State 1 完成后：发起 parse
+EXPAND ASYNC_STATE_BEGIN 1_DONE
+    dp = load ctx+Ctx_data_ptr as ptr
+    dl = load ctx+Ctx_data_len as u64
+    raw_ctx3 = *ctx
+    call @reactor_start_parse(dp, dl, raw_ctx3)
+EXPAND ASYNC_STATE_END ctx, Ctx_state, 2
+
+// State 2: 轮询 parse
+EXPAND ASYNC_AWAIT_POINT_FINAL ctx, Ctx_state, 2, @reactor_poll_parse, @reactor_take_parse
+
+// 宏展开：公共 Pending 返回
+EXPAND ASYNC_RETURN_PENDING
+
+// 宏展开：非法状态 panic
+EXPAND ASYNC_INVALID_STATE
+```
+
+**对比 v0.2 手写**：
+- v0.2 手写：~120 行 SA
+- v0.3 用宏：~40 行 SA（业务逻辑 + `EXPAND` 调用）
+- **膨胀比从 40x 降到 ~13x**
+
+**关键约束（R26.3/R26.6）**：
+- 宏展开后的指令流与手写**完全等价**（P32 保证）
+- SA 语法层**不引入** `@async` / `await_state` 等新关键字
+- 宏只是文本模板，不引入隐式展开或跨 await 变量自动存取
+- 前端仍需手写 `#def Ctx_*` 布局（因为跨 await 变量是业务特定的）
+
+---
+
+## 31. 发射产物诊断级别（R27） ✅
+
+### 三种构建模式对比
+
+```
+// 同一段 SA 代码
+@process(data: &ptr) -> i32:
+L_ENTRY:
+    buf = alloc 64
+    r = &buf
+    v = load r+0 as i32
+    !r
+    !buf
+    return v
+```
+
+#### `saasm build-exe process.saasm -o out`（默认 `--release`）
+```
+// 产物中零 Referee 运行时代码
+// 所有所有权校验已在编译期完成
+// 性能 = LLVM O1 原生速度
+```
+
+#### `saasm build-exe process.saasm -o out --debug-gas`
+```
+// 产物在每个函数入口插入 gas 计数器
+// 伪代码等价：
+//   __sa_gas_counter += 1;
+//   if (__sa_gas_counter > __sa_gas_limit) trap("GasExceeded");
+// 用于防御失控的 LLM 产物（无限循环等）
+```
+
+#### `saasm build-exe process.saasm -o out --debug-san`
+```
+// 产物在 alloc/free 点插入簿记
+// 伪代码等价：
+//   alloc: __sa_san_register(ptr, size);
+//   free:  __sa_san_check_and_unregister(ptr);  // UAF/Double-Free 检测
+// 性能损耗 2-5x，仅用于调试前端降级错误
+// 检测到 UAF 时输出：
+// {"trap":"UseAfterFree","address":"0x...","alloc_site":{"file":"main.rs","line":42},"free_site":{"file":"main.rs","line":50}}
+```
+
+### 使用场景
+
+| 模式 | 何时用 | 性能代价 | 安全保障 |
+|---|---|---|---|
+| `--release`（默认） | 生产部署 | 零 | 编译期 Referee 已通过 = 内存安全（前端合约正确的前提下） |
+| `--debug-gas` | LLM 沙盒 / 不信任的代码 | ~5% | 防无限循环/递归 |
+| `--debug-san` | 调试前端降级错误 | 2-5x | 运行期侦测 UAF / Double-Free / 悬空引用 |
+
+**关键（R27.5）**：`--release` 模式下发生段错误 = **前端降级合约（R20）被违反**，或 FFI 气闸舱外的宿主代码有 bug。这不是 SA 的责任。
+
+---
+
+# v0.3 设计评分追加
+
+| 维度 | v0.2 评分 | v0.3 评分 | 证据 |
+|---|---|---|---|
+| VTable ABI 安全 | ⚠️ `call_indirect` 无校验 | ✅ 编译期签名 tuple 比对 | 案例 29（R25） |
+| async/await 膨胀 | ⚠️ 40x 膨胀 | ✅ ~13x（宏模板缓解） | 案例 30（R26） |
+| 运行期安全诊断 | ❌ 无 | ✅ `--debug-san` UAF 检测 | 案例 31（R27） |
+| Gas 防御 | ⚠️ 仅编译期报告 | ✅ `--debug-gas` 运行期熔断 | 案例 31（R27） |

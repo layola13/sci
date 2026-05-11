@@ -5,6 +5,7 @@ const referee = @import("referee.zig");
 const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
+const upstream = @import("common/upstream_loc.zig");
 const symbol = @import("flattener/symbol.zig");
 
 pub const EmitError = error{
@@ -13,6 +14,10 @@ pub const EmitError = error{
     UnsupportedInstruction,
     UnsupportedType,
     UnknownFunction,
+};
+
+pub const EmitOptions = struct {
+    debug: bool = false,
 };
 
 const Value = struct {
@@ -71,6 +76,169 @@ const FunctionState = struct {
 
     fn getReg(self: *FunctionState, id: u32) ?Value {
         return self.regs.get(id);
+    }
+};
+
+const DebugFile = struct {
+    id: u32,
+    filename: []const u8,
+    directory: []const u8,
+};
+
+const DebugFunction = struct {
+    id: u32,
+    name: []const u8,
+    linkage_name: []const u8,
+    file_id: u32,
+    line: u32,
+};
+
+const DebugLocation = struct {
+    id: u32,
+    scope_id: u32,
+    line: u32,
+    col: u32,
+};
+
+const DebugFunctionContext = struct {
+    subprogram_id: u32,
+    file_id: u32,
+};
+
+const DebugInfo = struct {
+    source_path: []const u8,
+    source_file_id: u32 = 3,
+    subroutine_type_id: u32 = 4,
+    next_id: u32 = 5,
+    files: std.StringHashMap(u32),
+    file_nodes: std.ArrayList(DebugFile),
+    functions: std.ArrayList(DebugFunction),
+    locations: std.ArrayList(DebugLocation),
+    location_ids: std.AutoHashMap(u128, u32),
+
+    fn init(allocator: std.mem.Allocator, source_path: []const u8) !DebugInfo {
+        var files = std.StringHashMap(u32).init(allocator);
+        errdefer files.deinit();
+        var file_nodes = std.ArrayList(DebugFile).init(allocator);
+        errdefer file_nodes.deinit();
+        var functions = std.ArrayList(DebugFunction).init(allocator);
+        errdefer functions.deinit();
+        var locations = std.ArrayList(DebugLocation).init(allocator);
+        errdefer locations.deinit();
+        var location_ids = std.AutoHashMap(u128, u32).init(allocator);
+        errdefer location_ids.deinit();
+
+        const source_dir = std.fs.path.dirname(source_path) orelse ".";
+        const source_name = std.fs.path.basename(source_path);
+        try files.put(source_path, 3);
+        try file_nodes.append(.{
+            .id = 3,
+            .filename = source_name,
+            .directory = source_dir,
+        });
+
+        return .{
+            .source_path = source_path,
+            .files = files,
+            .file_nodes = file_nodes,
+            .functions = functions,
+            .locations = locations,
+            .location_ids = location_ids,
+        };
+    }
+
+    fn deinit(self: *DebugInfo) void {
+        self.files.deinit();
+        self.file_nodes.deinit();
+        self.functions.deinit();
+        self.locations.deinit();
+        self.location_ids.deinit();
+        self.* = undefined;
+    }
+
+    fn splitPath(path: []const u8) struct { filename: []const u8, directory: []const u8 } {
+        return .{
+            .filename = std.fs.path.basename(path),
+            .directory = std.fs.path.dirname(path) orelse ".",
+        };
+    }
+
+    fn ensureFile(self: *DebugInfo, path: []const u8) !u32 {
+        if (self.files.get(path)) |id| return id;
+        const id: u32 = self.next_id;
+        self.next_id += 1;
+        try self.files.put(path, id);
+        const parts = splitPath(path);
+        try self.file_nodes.append(.{
+            .id = id,
+            .filename = parts.filename,
+            .directory = parts.directory,
+        });
+        return id;
+    }
+
+    fn ensureFunction(self: *DebugInfo, name: []const u8, linkage_name: []const u8, file_path: []const u8, line: u32) !DebugFunctionContext {
+        const file_id = try self.ensureFile(file_path);
+        const id: u32 = self.next_id;
+        self.next_id += 1;
+        try self.functions.append(.{
+            .id = id,
+            .name = name,
+            .linkage_name = linkage_name,
+            .file_id = file_id,
+            .line = line,
+        });
+        return .{
+            .subprogram_id = id,
+            .file_id = file_id,
+        };
+    }
+
+    fn ensureLocation(self: *DebugInfo, ctx: DebugFunctionContext, file_path: []const u8, line: u32, col: u32) !u32 {
+        const file_id = try self.ensureFile(file_path);
+        const key: u128 =
+            (@as(u128, ctx.subprogram_id) << 96) |
+            (@as(u128, file_id) << 64) |
+            (@as(u128, line) << 32) |
+            @as(u128, col);
+        if (self.location_ids.get(key)) |id| return id;
+        const id: u32 = self.next_id;
+        self.next_id += 1;
+        try self.location_ids.put(key, id);
+        try self.locations.append(.{
+            .id = id,
+            .scope_id = ctx.subprogram_id,
+            .line = line,
+            .col = col,
+        });
+        return id;
+    }
+
+    fn emit(self: *DebugInfo, out: *std.ArrayList(u8)) !void {
+        try emitLine(out, "");
+        try emitLine(out, "!llvm.module.flags = !{!0, !1}");
+        try emitLine(out, "!0 = !{i32 2, !\"Dwarf Version\", i32 4}");
+        try emitLine(out, "!1 = !{i32 2, !\"Debug Info Version\", i32 3}");
+        try out.writer().print("!llvm.dbg.cu = !{{!{d}}}\n", .{self.compileUnitId()});
+        try out.writer().print("!{d} = distinct !DICompileUnit(language: DW_LANG_C99, file: !{d}, producer: \"saasm\", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)\n", .{ self.compileUnitId(), self.source_file_id });
+        try out.writer().print("!{d} = !DISubroutineType(types: !{{}})\n", .{self.subroutine_type_id});
+
+        for (self.file_nodes.items) |file| {
+            try out.writer().print("!{d} = !DIFile(filename: \"{s}\", directory: \"{s}\")\n", .{ file.id, file.filename, file.directory });
+        }
+
+        for (self.functions.items) |func| {
+            try out.writer().print("!{d} = distinct !DISubprogram(name: \"{s}\", linkageName: \"{s}\", scope: !{d}, file: !{d}, line: {d}, type: !{d}, unit: !{d}, scopeLine: {d}, spFlags: DISPFlagDefinition | DISPFlagOptimized)\n", .{ func.id, func.name, func.linkage_name, func.file_id, func.file_id, func.line, self.subroutine_type_id, self.compileUnitId(), func.line });
+        }
+
+        for (self.locations.items) |location| {
+            try out.writer().print("!{d} = !DILocation(line: {d}, column: {d}, scope: !{d})\n", .{ location.id, location.line, location.col, location.scope_id });
+        }
+    }
+
+    fn compileUnitId(self: *const DebugInfo) u32 {
+        _ = self;
+        return 2;
     }
 };
 
@@ -426,14 +594,15 @@ fn emitFunctionFooter(out: *std.ArrayList(u8)) !void {
 
 fn emitArgList(
     allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
+    prelude: *std.ArrayList(u8),
+    stmt: *std.ArrayList(u8),
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
     args: []const call.ParsedArg,
     params: []const sig.ParamSpec,
 ) !void {
     for (args, params, 0..) |arg, param, idx| {
-        if (idx != 0) try out.appendSlice(", ");
+        if (idx != 0) try stmt.appendSlice(", ");
         const expected = valueTypeForPrefix(param.cap, param.ty);
         var value: Value = undefined;
         if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
@@ -445,8 +614,8 @@ fn emitArgList(
         } else {
             value = try parseImmediateValue(allocator, state, arg.text);
         }
-        const coerced = try castValue(allocator, out, state, value, expected);
-        try out.writer().print("{s} {s}", .{ llvmTypeName(expected), coerced.expr });
+        const coerced = try castValue(allocator, prelude, state, value, expected);
+        try stmt.writer().print("{s} {s}", .{ llvmTypeName(expected), coerced.expr });
     }
 }
 
@@ -459,42 +628,61 @@ fn emitBuiltinCall(
 ) !?Value {
     const name = parsed.callee;
     if (std.mem.eql(u8, name, "sys_argc")) {
-        try emitIndented(out, "call i32 @sys_argc()");
         const tmp = try state.tempName(allocator);
         try out.writer().print("  {s} = call i32 @sys_argc()\n", .{tmp});
         return .{ .expr = tmp, .ty = .i32 };
     }
     if (std.mem.eql(u8, name, "sys_argv")) {
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
         const tmp = try state.tempName(allocator);
-        try out.writer().print("  {s} = call ptr @sys_argv(", .{tmp});
-        try emitArgList(allocator, out, state, symbols, parsed.args, &.{.{ .name = "index", .ty = .i64, .cap = .by_value }});
-        try emitLine(out, ")");
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "index", .ty = .i64, .cap = .by_value }});
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  {s} = call ptr @sys_argv({s})\n", .{ tmp, args_buf.items });
         return .{ .expr = tmp, .ty = .ptr };
     }
     if (std.mem.eql(u8, name, "sys_print")) {
-        try out.writer().print("  call void @sys_print(", .{});
-        try emitArgList(allocator, out, state, symbols, parsed.args, &.{.{ .name = "msg", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }});
-        try emitLine(out, ")");
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "msg", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }});
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  call void @sys_print({s})\n", .{args_buf.items});
         return null;
     }
     if (std.mem.eql(u8, name, "sys_exit")) {
-        try out.writer().print("  call void @sys_exit(", .{});
-        try emitArgList(allocator, out, state, symbols, parsed.args, &.{.{ .name = "code", .ty = .i32, .cap = .by_value }});
-        try emitLine(out, ")");
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "code", .ty = .i32, .cap = .by_value }});
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  call void @sys_exit({s})\n", .{args_buf.items});
         return null;
     }
     if (std.mem.eql(u8, name, "sys_read_file")) {
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
         const tmp = try state.tempName(allocator);
-        try out.writer().print("  {s} = call ptr @sys_read_file(", .{tmp});
-        try emitArgList(allocator, out, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "out_len", .ty = .ptr, .cap = .raw }});
-        try emitLine(out, ")");
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "out_len", .ty = .ptr, .cap = .raw }});
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  {s} = call ptr @sys_read_file({s})\n", .{ tmp, args_buf.items });
         return .{ .expr = tmp, .ty = .ptr };
     }
     if (std.mem.eql(u8, name, "sys_write_file")) {
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
         const tmp = try state.tempName(allocator);
-        try out.writer().print("  {s} = call i32 @sys_write_file(", .{tmp});
-        try emitArgList(allocator, out, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "data", .ty = .ptr, .cap = .raw }, .{ .name = "dlen", .ty = .i64, .cap = .by_value }});
-        try emitLine(out, ")");
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "data", .ty = .ptr, .cap = .raw }, .{ .name = "dlen", .ty = .i64, .cap = .by_value }});
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  {s} = call i32 @sys_write_file({s})\n", .{ tmp, args_buf.items });
         return .{ .expr = tmp, .ty = .i32 };
     }
     return null;
@@ -513,15 +701,23 @@ fn emitDirectCall(
     if (parsed.args.len != resolved.params.len) return EmitError.InvalidOperand;
 
     if (ret_ty != .void) {
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
         const tmp = try state.tempName(allocator);
-        try out.writer().print("  {s} = call {s} @{s}(", .{ tmp, llvmTypeName(ret_ty), emittedFunctionName(resolved) });
-        try emitArgList(allocator, out, state, symbols, parsed.args, resolved.params);
-        try emitLine(out, ")");
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, resolved.params);
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  {s} = call {s} @{s}({s})\n", .{ tmp, llvmTypeName(ret_ty), emittedFunctionName(resolved), args_buf.items });
         return .{ .expr = tmp, .ty = ret_ty };
     } else {
-        try out.writer().print("  call void @{s}(", .{emittedFunctionName(resolved)});
-        try emitArgList(allocator, out, state, symbols, parsed.args, resolved.params);
-        try emitLine(out, ")");
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, resolved.params);
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  call void @{s}({s})\n", .{ emittedFunctionName(resolved), args_buf.items });
         return null;
     }
 }
@@ -537,24 +733,28 @@ fn emitCall(
     if (parsed.is_indirect) {
         const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
         const callee = state.getReg(callee_id) orelse return EmitError.InvalidOperand;
+        var prelude = std.ArrayList(u8).init(allocator);
+        defer prelude.deinit();
+        var args_buf = std.ArrayList(u8).init(allocator);
+        defer args_buf.deinit();
         const tmp = try state.tempName(allocator);
-        try out.writer().print("  {s} = call i64 {s}(", .{ tmp, callee.expr });
         if (parsed.args.len != 0) {
             for (parsed.args, 0..) |arg, idx| {
-                if (idx != 0) try out.appendSlice(", ");
+                if (idx != 0) try args_buf.appendSlice(", ");
                 const value = if (symbols.findId(arg.text)) |id| state.getReg(id) orelse return EmitError.InvalidOperand else try parseImmediateValue(allocator, state, arg.text);
-                const coerced = try castValue(allocator, out, state, value, .i64);
-                try out.writer().print("i64 {s}", .{coerced.expr});
+                const coerced = try castValue(allocator, &prelude, state, value, .i64);
+                try args_buf.writer().print("i64 {s}", .{coerced.expr});
             }
         }
-        try emitLine(out, ")");
+        try out.appendSlice(prelude.items);
+        try out.writer().print("  {s} = call i64 {s}({s})\n", .{ tmp, callee.expr, args_buf.items });
         return .{ .expr = tmp, .ty = .i64 };
     }
 
-    if (emitBuiltinCall(allocator, out, state, symbols, parsed)) |value| {
+    if (try emitBuiltinCall(allocator, out, state, symbols, parsed)) |value| {
         return value;
     }
-    if (emitDirectCall(allocator, out, state, symbols, sigs, parsed)) |value| {
+    if (try emitDirectCall(allocator, out, state, symbols, sigs, parsed)) |value| {
         return value;
     }
     return EmitError.UnknownFunction;
@@ -720,40 +920,11 @@ fn emitInstruction(
         .call, .call_indirect => {
             var parsed = call.parseCall(allocator, base.raw_text) catch return EmitError.InvalidOperand;
             defer parsed.deinit(allocator);
-
-            if (parsed.is_indirect) {
-                const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
-                const callee = state.getReg(callee_id) orelse return EmitError.InvalidOperand;
-                const tmp = try state.tempName(allocator);
-                try out.writer().print("  {s} = call i64 {s}(", .{ tmp, callee.expr });
-                for (parsed.args, 0..) |arg, idx| {
-                    if (idx != 0) try out.appendSlice(", ");
-                    const value = if (symbols.findId(arg.text)) |id| state.getReg(id) orelse return EmitError.InvalidOperand else try parseImmediateValue(allocator, state, arg.text);
-                    const coerced = try castValue(allocator, out, state, value, .i64);
-                    try out.writer().print("i64 {s}", .{coerced.expr});
-                }
-                try emitLine(out, ")");
-                if (parsed.dest) |dest| {
-                    if (symbols.findId(dest)) |id| try state.setReg(id, .{ .expr = tmp, .ty = .i64 });
-                }
-                return;
-            }
-
-            if (try emitBuiltinCall(allocator, out, state, symbols, parsed)) |ret| {
+            if (try emitCall(allocator, out, state, symbols, sigs, parsed)) |ret| {
                 if (parsed.dest) |dest| {
                     if (symbols.findId(dest)) |id| try state.setReg(id, ret);
                 }
-                return;
             }
-
-            if (try emitDirectCall(allocator, out, state, symbols, sigs, parsed)) |ret| {
-                if (parsed.dest) |dest| {
-                    if (symbols.findId(dest)) |id| try state.setReg(id, ret);
-                }
-                return;
-            }
-
-            return EmitError.UnknownFunction;
         },
         .return_ => {
             const ret_ty = returnTypeForSig(state.sig.return_cap, state.sig.return_ty);
@@ -776,13 +947,26 @@ fn emitUserFunctions(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
     verified: referee.VerifyOk,
+    loc_table: upstream.LocTable,
+    source_path: []const u8,
+    options: EmitOptions,
     size_bits: u16,
 ) !void {
+    if (options.debug and loc_table.len != verified.annotated.len) return EmitError.InvalidOperand;
+
+    var debug_info: ?DebugInfo = null;
+    if (options.debug) {
+        debug_info = try DebugInfo.init(allocator, source_path);
+    }
+    defer if (debug_info) |*info| info.deinit();
+
     var sig_index: usize = 0;
     var current: ?FunctionState = null;
+    var current_debug: ?DebugFunctionContext = null;
+    var main_wrapper_dbg: ?u32 = null;
     defer if (current) |*state| state.deinit(allocator);
 
-    for (verified.annotated) |item| {
+    for (verified.annotated, 0..) |item, idx| {
         switch (item.base.kind) {
             .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
                 if (current) |*state| {
@@ -798,20 +982,34 @@ fn emitUserFunctions(
                 if (item.base.kind == .extern_decl) {
                     const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
                     try out.writer().print("declare {s} @{s}(", .{ llvmTypeName(ret_ty), fsig.name });
-                    for (fsig.params, 0..) |param, idx| {
-                        if (idx != 0) try out.appendSlice(", ");
+                    for (fsig.params, 0..) |param, pidx| {
+                        if (pidx != 0) try out.appendSlice(", ");
                         const ty = valueTypeForPrefix(param.cap, param.ty);
                         try out.writer().print("{s}", .{llvmTypeName(ty)});
                     }
                     try emitLine(out, ")");
                     try emitLine(out, "");
+                    current_debug = null;
                     continue;
                 }
 
                 current = FunctionState.init(allocator, fsig);
+                if (debug_info) |*info| {
+                    const upstream_loc: upstream.UpstreamLoc = if (fsig.upstream_loc) |loc| loc else .{
+                        .file = source_path,
+                        .line = fsig.entry_inst_idx + 1,
+                        .col = 1,
+                    };
+                    current_debug = try info.ensureFunction(fsig.name, emittedFunctionName(fsig), upstream_loc.file, upstream_loc.line);
+                    if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
+                        main_wrapper_dbg = try info.ensureLocation(current_debug.?, upstream_loc.file, upstream_loc.line, upstream_loc.col);
+                    }
+                } else {
+                    current_debug = null;
+                }
                 try emitFunctionHeader(out, &current.?);
-                for (fsig.params, 0..) |param, idx| {
-                    const reg_id = fsig.param_ids[idx];
+                for (fsig.params, 0..) |param, pidx| {
+                    const reg_id = fsig.param_ids[pidx];
                     const value = Value{
                         .expr = try current.?.ownFmt(allocator, "%{s}", .{param.name}),
                         .ty = valueTypeForPrefix(param.cap, param.ty),
@@ -825,6 +1023,13 @@ fn emitUserFunctions(
 
         if (current) |*state| {
             try emitInstruction(allocator, out, state, &verified.symbols, verified.function_sigs, size_bits, item);
+            if (debug_info) |*info| {
+                if (current_debug) |ctx| {
+                    if (loc_table[idx]) |loc| {
+                        _ = try info.ensureLocation(ctx, loc.file, loc.line, loc.col);
+                    }
+                }
+            }
         }
     }
 
@@ -838,33 +1043,65 @@ fn emitUserFunctions(
     for (verified.function_sigs) |fsig| {
         if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
             const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
+            const wrapper_dbg = main_wrapper_dbg;
             try out.writer().print("define i32 @main(i32 %argc, ptr %argv) {{\n", .{});
             try emitLine(out, "entry:");
-            try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
-            try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
-            if (ret_ty == .void) {
-                try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
-                try emitLine(out, "  ret i32 0");
-            } else if (ret_ty == .i32 or ret_ty == .u32) {
-                try out.writer().print("  %res = call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
-                try out.writer().print("  ret i32 %res\n", .{});
+            if (wrapper_dbg) |dbg_id| {
+                try out.writer().print("  store i32 %argc, ptr @saasm_argc, align 4, !dbg !{d}\n", .{dbg_id});
+                try out.writer().print("  store ptr %argv, ptr @saasm_argv, align 8, !dbg !{d}\n", .{dbg_id});
             } else {
-                try out.writer().print("  call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
-                try emitLine(out, "  ret i32 0");
+                try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
+                try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
+            }
+            if (ret_ty == .void) {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.writer().print("  call void @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
+                    try emitLine(out, "  ret i32 0");
+                }
+            } else if (ret_ty == .i32 or ret_ty == .u32) {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.writer().print("  %res = call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                    try out.writer().print("  ret i32 %res, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.writer().print("  %res = call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                    try out.writer().print("  ret i32 %res\n", .{});
+                }
+            } else {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.writer().print("  call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.writer().print("  call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                    try emitLine(out, "  ret i32 0");
+                }
             }
             try emitLine(out, "}");
             try emitLine(out, "");
             break;
         }
     }
+
+    if (debug_info) |*info| {
+        try info.emit(out);
+    }
 }
 
-pub fn emitLlvm(allocator: std.mem.Allocator, verified: referee.VerifyOk, size_bits: u16) ![]const u8 {
+pub fn emitLlvm(
+    allocator: std.mem.Allocator,
+    verified: referee.VerifyOk,
+    loc_table: upstream.LocTable,
+    source_path: []const u8,
+    size_bits: u16,
+    options: EmitOptions,
+) ![]const u8 {
     var out = std.ArrayList(u8).init(allocator);
     errdefer out.deinit();
 
     try emitHelpers(&out, size_bits);
-    try emitUserFunctions(allocator, &out, verified, size_bits);
+    try emitUserFunctions(allocator, &out, verified, loc_table, source_path, options, size_bits);
 
     return try out.toOwnedSlice();
 }
@@ -884,7 +1121,8 @@ test "llvm emitter produces a module with builtin helpers" {
             .has_unbounded_loop = false,
         },
     };
-    const text = try emitLlvm(std.testing.allocator, ok, @as(u16, @bitSizeOf(usize)));
+    const empty_loc: upstream.LocTable = &.{};
+    const text = try emitLlvm(std.testing.allocator, ok, empty_loc, "test.saasm", @as(u16, @bitSizeOf(usize)), .{});
     defer std.testing.allocator.free(text);
     try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "define void @sys_print"));
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const upstream = @import("upstream_loc.zig");
 
 pub const CapPrefix = enum(u8) {
     by_value = 0,
@@ -70,15 +71,17 @@ pub const Instruction = struct {
     kind: InstKind,
     source_line: u32,
     expanded_line: u32,
+    upstream_loc: ?upstream.UpstreamLoc = null,
     operands: [4]Operand,
     raw_text: []const u8,
 };
 
-pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, raw_text: []const u8) Instruction {
+pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, upstream_loc: ?upstream.UpstreamLoc, raw_text: []const u8) Instruction {
     return .{
         .kind = kind,
         .source_line = source_line,
         .expanded_line = expanded_line,
+        .upstream_loc = upstream_loc,
         .operands = .{ operandNone(), operandNone(), operandNone(), operandNone() },
         .raw_text = raw_text,
     };
@@ -89,9 +92,10 @@ pub fn operandNone() Operand {
 }
 
 test "instruction layout keeps four operands and tags" {
-    const inst = makeInstruction(.alloc, 7, 11, "x = alloc 8");
+    const inst = makeInstruction(.alloc, 7, 11, null, "x = alloc 8");
     try std.testing.expectEqual(@as(u32, 7), inst.source_line);
     try std.testing.expectEqual(@as(u32, 11), inst.expanded_line);
+    try std.testing.expect(inst.upstream_loc == null);
     try std.testing.expectEqual(@as(usize, 4), inst.operands.len);
     try std.testing.expectEqual(InstKind.alloc, inst.kind);
     try std.testing.expect(std.mem.eql(u8, inst.raw_text, "x = alloc 8"));

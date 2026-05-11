@@ -2,6 +2,7 @@ const std = @import("std");
 
 const flattener = @import("flattener.zig");
 const interp = @import("interp.zig");
+const driver = @import("driver/zigcc.zig");
 const emit_llvm = @import("emit_llvm.zig");
 const referee = @import("referee.zig");
 const trap = @import("common/trap.zig");
@@ -188,46 +189,6 @@ fn writeAllFile(path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
-fn runZigCc(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv,
-    });
-    defer allocator.free(result.stdout);
-    if (result.stderr.len != 0) {
-        try std.io.getStdErr().writeAll(result.stderr);
-    }
-    if (result.term != .Exited or result.term.Exited != 0) {
-        return error.ChildProcessFailed;
-    }
-    return try allocator.dupe(u8, "");
-}
-
-fn zigCcCompile(allocator: std.mem.Allocator, ll_path: []const u8, out_path: []const u8, is_object: bool) !void {
-    const argv: []const []const u8 = if (is_object)
-        &[_][]const u8{ "zig", "cc", "-O3", "-c", ll_path, "-o", out_path }
-    else
-        &[_][]const u8{ "zig", "cc", "-O3", ll_path, "-o", out_path };
-
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv,
-    });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-
-    if (result.stderr.len != 0) {
-        try std.io.getStdErr().writeAll(result.stderr);
-    }
-
-    switch (result.term) {
-        .Exited => |code| {
-            if (code != 0) return error.ChildProcessFailed;
-        },
-        else => return error.ChildProcessFailed,
-    }
-}
-
 fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []const []const u8) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
@@ -250,7 +211,7 @@ fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []con
     }
 }
 
-fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8) !u8 {
+fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
@@ -260,20 +221,20 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, nativeSizeBits());
+            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug });
             defer allocator.free(ll);
 
             const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try zigCcCompile(allocator, ll_path, out_path, false);
+            try driver.compileExe(allocator, ll_path, out_path, optimization);
             return 0;
         },
     }
 }
 
-fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8) !u8 {
+fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
@@ -283,20 +244,20 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, nativeSizeBits());
+            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug });
             defer allocator.free(ll);
 
             const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try zigCcCompile(allocator, ll_path, out_path, true);
+            try driver.compileObj(allocator, ll_path, out_path, optimization);
             return 0;
         },
     }
 }
 
-fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget) !u8 {
+fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
@@ -306,46 +267,16 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, target.size_bits);
+            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug });
             defer allocator.free(ll);
 
             const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try zigCcCompileTarget(allocator, ll_path, out_path, false, target);
+            try driver.compileWasm(allocator, ll_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization);
             return 0;
         },
-    }
-}
-
-fn zigCcCompileTarget(allocator: std.mem.Allocator, ll_path: []const u8, out_path: []const u8, is_object: bool, target: WasmTarget) !void {
-    const argv = if (is_object)
-        if (target.no_entry)
-            &[_][]const u8{ "zig", "cc", "-target", target.triple, "-Wl,--no-entry", "-O3", "-c", ll_path, "-o", out_path }
-        else
-            &[_][]const u8{ "zig", "cc", "-target", target.triple, "-O3", "-c", ll_path, "-o", out_path }
-    else if (target.no_entry)
-        &[_][]const u8{ "zig", "cc", "-target", target.triple, "-Wl,--no-entry", "-O3", ll_path, "-o", out_path }
-    else
-        &[_][]const u8{ "zig", "cc", "-target", target.triple, "-O3", ll_path, "-o", out_path };
-
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv,
-    });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-
-    if (result.stderr.len != 0) {
-        try std.io.getStdErr().writeAll(result.stderr);
-    }
-
-    switch (result.term) {
-        .Exited => |code| {
-            if (code != 0) return error.ChildProcessFailed;
-        },
-        else => return error.ChildProcessFailed,
     }
 }
 
@@ -353,6 +284,12 @@ fn parseTarget(text: []const u8) !WasmTarget {
     if (std.mem.eql(u8, text, "wasm32")) return .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
     if (std.mem.eql(u8, text, "wasm64")) return .{ .triple = "wasm64-freestanding", .no_entry = true, .size_bits = 64 };
     return error.InvalidTarget;
+}
+
+fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
+    if (std.mem.eql(u8, arg, "--release-fast")) return .release_fast;
+    if (std.mem.eql(u8, arg, "--release-small")) return .release_small;
+    return null;
 }
 
 pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
@@ -379,22 +316,38 @@ pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
         },
         .build_exe => {
             var out_path: ?[]const u8 = null;
+            var debug = false;
+            var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
             while (i < argv.len) : (i += 1) {
                 if (std.mem.eql(u8, argv[i], "-o")) {
                     if (i + 1 >= argv.len) return error.MissingOutputPath;
                     out_path = argv[i + 1];
                     i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                if (parseOptimizationFlag(argv[i])) |mode| {
+                    optimization = mode;
                     continue;
                 }
                 return error.UnexpectedArgument;
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out);
+            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization);
         },
         .build_obj => {
             var out_path: ?[]const u8 = null;
+            var debug = false;
+            var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
             while (i < argv.len) : (i += 1) {
                 if (std.mem.eql(u8, argv[i], "-o")) {
@@ -403,21 +356,47 @@ pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
                     i += 1;
                     continue;
                 }
+                if (std.mem.eql(u8, argv[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                if (parseOptimizationFlag(argv[i])) |mode| {
+                    optimization = mode;
+                    continue;
+                }
                 return error.UnexpectedArgument;
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out);
+            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization);
         },
         .build_wasm => {
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
+            var debug = false;
+            var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
             while (i < argv.len) : (i += 1) {
                 if (std.mem.eql(u8, argv[i], "-o")) {
                     if (i + 1 >= argv.len) return error.MissingOutputPath;
                     out_path = argv[i + 1];
                     i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                if (parseOptimizationFlag(argv[i])) |mode| {
+                    optimization = mode;
                     continue;
                 }
                 if (std.mem.eql(u8, argv[i], "--target")) {
@@ -430,7 +409,7 @@ pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target);
+            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization);
         },
     }
 }

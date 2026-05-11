@@ -7,18 +7,40 @@ fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     try file.writeAll(source);
 }
 
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+    });
+    errdefer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) return error.TestUnexpectedResult;
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    return result.stdout;
+}
+
 test "cli run/build-exe/build-wasm produce real artifacts" {
     const source =
+        \\#loc "hello.rs":10:4
         \\@main() -> i32:
         \\node = alloc 8
         \\!node
         \\return 7
     ;
 
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
     try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "sample.saasm", source);
 
@@ -27,7 +49,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqual(@as(u8, 7), run_code);
 
     const exe_path = "sample.out";
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "sample.saasm", "-o", exe_path };
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "sample.saasm", "-o", exe_path, "-g" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
@@ -36,6 +58,15 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     const exe_bytes = try exe.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(exe_bytes);
     try std.testing.expect(exe_bytes.len > 0);
+
+    const ll_path = "sample.out.saasm.ll";
+    const ll = try tmp.dir.openFile(ll_path, .{});
+    defer ll.close();
+    const ll_bytes = try ll.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(ll_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!llvm.dbg.cu"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!DILocation(line: 10, column: 4"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!DISubprogram(name: \"main\""));
 
     const obj_path = "sample.o";
     const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "sample.saasm", "-o", obj_path };
@@ -60,4 +91,73 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+}
+
+test "raw pointer escape is rejected outside ffi wrapper" {
+    const source =
+        \\@main() -> i32:
+        \\node = alloc 8
+        \\raw = *node
+        \\return 0
+    ;
+
+    var flat = try saasm.flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .ok => return error.TestUnexpectedResult,
+        .trap => |report| {
+            try std.testing.expectEqual(saasm.common.trap.Trap.illegal_unsafe_context, report.trap);
+            try std.testing.expectEqual(@as(?bool, false), report.is_ffi_wrapper);
+        },
+    }
+}
+
+test "extern export ffi wrapper map to real declarations and symbols" {
+    const source =
+        \\@extern ext_add(lhs: i32, rhs: i32) -> i32
+        \\@ffi_wrapper wrap(*raw: ptr) -> ptr:
+        \\safe = assume_safe raw
+        \\return safe
+        \\@export exported() -> i32:
+        \\jmp L_ENTRY
+        \\L_ENTRY:
+        \\value = call @ext_add(1, 2)
+        \\return value
+        \\@main() -> i32:
+        \\return 7
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "contracts.saasm", source);
+
+    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "contracts.saasm", "-o", "contracts.o" };
+    const code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), code);
+
+    const ll_file = try tmp.dir.openFile("contracts.o.saasm.ll", .{});
+    defer ll_file.close();
+    const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(ll_bytes);
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "declare i32 @ext_add(i32, i32)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define ptr @wrap(ptr %raw)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define i32 @exported()"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "L_ENTRY:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define i32 @main(i32 %argc, ptr %argv)"));
+
+    const nm_output = try runCommand(std.testing.allocator, &[_][]const u8{ "nm", "-g", "--defined-only", "contracts.o" });
+    defer std.testing.allocator.free(nm_output);
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, nm_output, 1, " exported"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, nm_output, 1, " wrap"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, nm_output, 1, " saasm_main"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, nm_output, 1, " main"));
 }

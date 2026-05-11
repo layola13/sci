@@ -3,6 +3,7 @@ const std = @import("std");
 pub const LineKind = enum {
     blank_or_comment,
     def,
+    loc_hint,
     func_decl,
     ffi_wrapper_decl,
     extern_decl,
@@ -158,6 +159,30 @@ fn parseFunctionHeader(
         if (!std.mem.startsWith(u8, tail, "->")) return null;
         addPart(&out, 2, std.mem.trim(u8, tail[2..], " \t"));
     }
+    return out;
+}
+
+fn parseLocHint(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
+    if (!std.mem.startsWith(u8, trimmed, "#loc")) return null;
+
+    const after = std.mem.trimLeft(u8, trimmed["#loc".len..], " \t");
+    if (after.len < 6 or after[0] != '"') return null;
+
+    const end_quote = std.mem.indexOfScalarPos(u8, after, 1, '"') orelse return null;
+    const file = after[1..end_quote];
+    const rest = std.mem.trimLeft(u8, after[end_quote + 1 ..], " \t");
+    if (rest.len < 2 or rest[0] != ':') return null;
+
+    const after_file = rest[1..];
+    const line_sep = std.mem.indexOfScalar(u8, after_file, ':') orelse return null;
+    const line_text = std.mem.trim(u8, after_file[0..line_sep], " \t");
+    const col_text = std.mem.trim(u8, after_file[line_sep + 1 ..], " \t");
+    if (line_text.len == 0 or col_text.len == 0) return null;
+
+    var out = makeLine(.loc_hint, raw, trimmed);
+    addPart(&out, 0, file);
+    addPart(&out, 1, line_text);
+    addPart(&out, 2, col_text);
     return out;
 }
 
@@ -437,6 +462,8 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
         return out;
     }
 
+    if (parseLocHint(line, trimmed)) |out| return out;
+
     if (parseFunctionHeader(line, trimmed, "@ffi_wrapper", .ffi_wrapper_decl, true)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@extern", .extern_decl, false)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@export", .export_decl, true)) |out| return out;
@@ -539,6 +566,12 @@ test "classify representative line families" {
     try std.testing.expectEqual(InstructionForm.alloc, alloc.inst_form.?);
     try std.testing.expectEqualStrings("node", alloc.parts[0]);
     try std.testing.expectEqualStrings("8", alloc.parts[1]);
+
+    const loc = classifyLine("#loc \"main.rs\":42:7");
+    try std.testing.expectEqual(LineKind.loc_hint, loc.kind);
+    try std.testing.expectEqualStrings("main.rs", loc.parts[0]);
+    try std.testing.expectEqualStrings("42", loc.parts[1]);
+    try std.testing.expectEqualStrings("7", loc.parts[2]);
 
     const raw = classifyLine("raw = *safe");
     try std.testing.expectEqual(InstructionForm.raw_cast, raw.inst_form.?);

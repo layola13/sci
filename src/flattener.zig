@@ -7,6 +7,7 @@ const symbol = @import("flattener/symbol.zig");
 const common_instruction = @import("common/instruction.zig");
 const common_signature = @import("common/signature.zig");
 const common_trap = @import("common/trap.zig");
+const common_upstream = @import("common/upstream_loc.zig");
 
 pub const LineKind = classifier.LineKind;
 pub const InstructionForm = classifier.InstructionForm;
@@ -21,6 +22,7 @@ pub const Operand = common_instruction.Operand;
 pub const FunctionSig = common_signature.FunctionSig;
 pub const FunctionKind = common_signature.FunctionKind;
 pub const Trap = common_trap.Trap;
+pub const LocTable = common_upstream.LocTable;
 
 const MacroDef = struct {
     params: []const []const u8,
@@ -49,10 +51,15 @@ pub const FlattenResult = struct {
     function_sigs: []FunctionSig,
     def_dict: DefDict,
     symbols: SymbolTable,
+    loc_table: LocTable,
     owned_text: [][]const u8,
     trap: ?Trap = null,
 
     pub fn deinit(self: *FlattenResult, allocator: std.mem.Allocator) void {
+        for (self.loc_table) |entry| {
+            if (entry) |loc| allocator.free(loc.file);
+        }
+        allocator.free(self.loc_table);
         for (self.owned_text) |text| allocator.free(text);
         allocator.free(self.owned_text);
         for (self.function_sigs) |*sig| sig.deinit(allocator);
@@ -116,6 +123,62 @@ fn renderWithReplacements(
     }
 
     return current;
+}
+
+fn ownText(
+    allocator: std.mem.Allocator,
+    owned_text: *std.ArrayList([]const u8),
+    text: []const u8,
+) ![]const u8 {
+    const dup = try allocator.dupe(u8, text);
+    errdefer allocator.free(dup);
+    try owned_text.append(dup);
+    return dup;
+}
+
+fn ownFoldedText(
+    allocator: std.mem.Allocator,
+    dict: *DefDict,
+    owned_text: *std.ArrayList([]const u8),
+    text: []const u8,
+) ![]const u8 {
+    const folded = try dict.foldText(allocator, text);
+    errdefer allocator.free(folded);
+    try owned_text.append(folded);
+    return folded;
+}
+
+fn consumePendingLoc(
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
+) !?common_upstream.UpstreamLoc {
+    const loc = pending_loc.*;
+    try loc_table.append(loc);
+    pending_loc.* = null;
+    return loc;
+}
+
+fn appendNullLoc(loc_table: *std.ArrayList(?common_upstream.UpstreamLoc)) !void {
+    try loc_table.append(null);
+}
+
+fn setPendingLoc(
+    allocator: std.mem.Allocator,
+    pending_loc: *?common_upstream.UpstreamLoc,
+    file: []const u8,
+    line: u32,
+    col: u32,
+) !void {
+    if (pending_loc.*) |current| {
+        allocator.free(current.file);
+        pending_loc.* = null;
+    }
+    const file_copy = try allocator.dupe(u8, file);
+    pending_loc.* = .{
+        .file = file_copy,
+        .line = line,
+        .col = col,
+    };
 }
 
 fn findBlockEnd(lines: []const SourceLine, start: usize, close_kind: LineKind) ?usize {
@@ -192,6 +255,8 @@ fn emitParsedLine(
     allocator: std.mem.Allocator,
     dict: *DefDict,
     symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
     raw_line: []const u8,
     source_line: u32,
     instructions: *std.ArrayList(Instruction),
@@ -201,17 +266,25 @@ fn emitParsedLine(
     const classified = classifier.classifyLine(raw_line);
     switch (classified.kind) {
         .blank_or_comment => {},
+        .loc_hint => {
+            const line_no = try std.fmt.parseInt(u32, classified.parts[1], 10);
+            const col_no = try std.fmt.parseInt(u32, classified.parts[2], 10);
+            try setPendingLoc(allocator, pending_loc, classified.parts[0], line_no, col_no);
+        },
         .def => try dict.putExpression(classified.parts[0], classified.parts[1]),
         .native => {
-            var inst = common_instruction.makeInstruction(.native, source_line, @intCast(instructions.items.len), raw_line);
+            const inst_loc = try consumePendingLoc(loc_table, pending_loc);
+            const raw_copy = try ownText(allocator, owned_text, raw_line);
+            var inst = common_instruction.makeInstruction(.native, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
             inst.operands[0] = .{ .native_text = classified.parts[0] };
             try instructions.append(inst);
         },
         .label => {
-            const label_name = try dict.foldText(allocator, classified.parts[0]);
-            try owned_text.append(label_name);
+            const label_name = try ownFoldedText(allocator, dict, owned_text, classified.parts[0]);
+            try appendNullLoc(loc_table);
             const label_id = try symbols.intern(label_name);
-            var inst = common_instruction.makeInstruction(.label, source_line, @intCast(instructions.items.len), raw_line);
+            const raw_copy = try ownText(allocator, owned_text, raw_line);
+            var inst = common_instruction.makeInstruction(.label, source_line, @intCast(instructions.items.len), null, raw_copy);
             inst.operands[0] = .{ .symbol = label_id };
             inst.operands[1] = .{ .label = label_id };
             try instructions.append(inst);
@@ -233,15 +306,25 @@ fn emitParsedLine(
                 symbols,
             );
             errdefer sig.deinit(allocator);
+            if (pending_loc.*) |loc| {
+                const file_copy = try allocator.dupe(u8, loc.file);
+                sig.upstream_file = file_copy;
+                sig.upstream_loc = .{
+                    .file = file_copy,
+                    .line = loc.line,
+                    .col = loc.col,
+                };
+            }
             const name_id = try symbols.intern(sig.name);
-            try owned_text.append(try allocator.dupe(u8, raw_line));
             const inst_kind: InstKind = switch (kind) {
                 .normal => .func_decl,
                 .ffi_wrapper => .ffi_wrapper_decl,
                 .external => .extern_decl,
                 .exported => .export_decl,
             };
-            var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), raw_line);
+            try appendNullLoc(loc_table);
+            const raw_copy = try ownText(allocator, owned_text, raw_line);
+            var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), null, raw_copy);
             inst.operands[0] = .{ .symbol = name_id };
             inst.operands[1] = .{ .func = name_id };
             try instructions.append(inst);
@@ -249,13 +332,14 @@ fn emitParsedLine(
         },
         .instruction => {
             const inst_kind = mapInstKind(classified.inst_form.?);
-            var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), raw_line);
+            const inst_loc = try consumePendingLoc(loc_table, pending_loc);
+            const raw_copy = try ownText(allocator, owned_text, raw_line);
+            var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
             switch (classified.inst_form.?) {
                 .alloc => {
                     const dst = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = dst };
-                    const size_text = try dict.foldText(allocator, classified.parts[1]);
-                    try owned_text.append(size_text);
+                    const size_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
                     inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, size_text, 10) };
                 },
                 .load, .take => {
@@ -263,8 +347,7 @@ fn emitParsedLine(
                     const base = try symbols.intern(classified.parts[1]);
                     inst.operands[0] = .{ .reg = dst };
                     inst.operands[1] = .{ .reg = base };
-                    const offset_text = try dict.foldText(allocator, classified.parts[2]);
-                    try owned_text.append(offset_text);
+                    const offset_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[2]);
                     inst.operands[2] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
                     if (classified.part_count > 3) {
                         const ty = try common_signature.parsePrimType(classified.parts[3]);
@@ -290,11 +373,9 @@ fn emitParsedLine(
                 .store => {
                     const base = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = base };
-                    const offset_text = try dict.foldText(allocator, classified.parts[1]);
-                    try owned_text.append(offset_text);
+                    const offset_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
                     inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
-                    const value_text = try dict.foldText(allocator, classified.parts[2]);
-                    try owned_text.append(value_text);
+                    const value_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[2]);
                     inst.operands[2] = .{ .text = value_text };
                     if (classified.part_count > 3) {
                         const ty = try common_signature.parsePrimType(classified.parts[3]);
@@ -348,8 +429,7 @@ fn emitParsedLine(
                 },
                 .call, .call_indirect, .return_ => {
                     if (classified.inst_form == .return_ and classified.part_count == 1) {
-                        const folded = try dict.foldText(allocator, classified.parts[0]);
-                        try owned_text.append(folded);
+                        const folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[0]);
                         if (symbols.findId(folded)) |id| {
                             inst.operands[0] = .{ .reg = id };
                         } else {
@@ -358,13 +438,11 @@ fn emitParsedLine(
                     } else if (classified.part_count == 2) {
                         const dst = try symbols.intern(classified.parts[0]);
                         inst.operands[0] = .{ .reg = dst };
-                        const folded = try dict.foldText(allocator, classified.parts[1]);
-                        try owned_text.append(folded);
+                        const folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
                         inst.operands[1] = .{ .text = folded };
                     } else {
                         for (classified.parts[0..classified.part_count], 0..) |part, idx| {
-                            const folded = try dict.foldText(allocator, part);
-                            try owned_text.append(folded);
+                            const folded = try ownFoldedText(allocator, dict, owned_text, part);
                             inst.operands[idx] = .{ .text = folded };
                         }
                     }
@@ -387,7 +465,8 @@ fn emitParsedLine(
                     inst.operands[0] = .{ .reg = dst };
                     inst.operands[1] = .{ .reg = source };
                     if (classified.part_count > 2) {
-                        inst.operands[2] = .{ .text = classified.parts[2] };
+                        const mode = try ownText(allocator, owned_text, classified.parts[2]);
+                        inst.operands[2] = .{ .text = mode };
                     }
                 },
                 .unknown => return error.InvalidSyntax,
@@ -408,7 +487,7 @@ fn collectMacroDefinitions(
     while (idx < lines.len) : (idx += 1) {
         const line = lines[idx];
         switch (line.classified.kind) {
-            .blank_or_comment, .def, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
+            .blank_or_comment, .def, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
             .macro_start => {
                 const end = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
                 const name = line.classified.parts[0];
@@ -438,6 +517,8 @@ fn emitRange(
     macros: *std.StringHashMap(MacroDef),
     dict: *DefDict,
     symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
     instructions: *std.ArrayList(Instruction),
     function_sigs: *std.ArrayList(FunctionSig),
     owned_text: *std.ArrayList([]const u8),
@@ -451,14 +532,19 @@ fn emitRange(
 
         switch (line.classified.kind) {
             .blank_or_comment => {},
+            .loc_hint => {
+                const line_no = try std.fmt.parseInt(u32, line.classified.parts[1], 10);
+                const col_no = try std.fmt.parseInt(u32, line.classified.parts[2], 10);
+                try setPendingLoc(allocator, pending_loc, line.classified.parts[0], line_no, col_no);
+            },
             .def, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .native, .unknown => {
                 const should_render = source_line_override != null or replacements.len != 0;
                 if (should_render) {
                     const rendered = try renderWithReplacements(allocator, line.text, replacements);
                     try owned_text.append(rendered);
-                    try emitParsedLine(allocator, dict, symbols, rendered, source_line, instructions, function_sigs, owned_text);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, function_sigs, owned_text);
                 } else {
-                    try emitParsedLine(allocator, dict, symbols, line.text, source_line, instructions, function_sigs, owned_text);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, function_sigs, owned_text);
                 }
             },
             .macro_start => {
@@ -504,6 +590,8 @@ fn emitRange(
                         macros,
                         dict,
                         symbols,
+                        loc_table,
+                        pending_loc,
                         instructions,
                         function_sigs,
                         owned_text,
@@ -538,6 +626,8 @@ fn emitRange(
                     macros,
                     dict,
                     symbols,
+                    loc_table,
+                    pending_loc,
                     instructions,
                     function_sigs,
                     owned_text,
@@ -545,6 +635,20 @@ fn emitRange(
             },
         }
     }
+}
+
+fn collectLocTableEntries(
+    allocator: std.mem.Allocator,
+    instructions: []const Instruction,
+) !LocTable {
+    var table = std.ArrayList(?common_upstream.UpstreamLoc).init(allocator);
+    errdefer table.deinit();
+
+    for (instructions) |item| {
+        try table.append(item.upstream_loc);
+    }
+
+    return try table.toOwnedSlice();
 }
 
 pub fn scanSource(allocator: std.mem.Allocator, source: []const u8) ![]SourceLine {
@@ -589,9 +693,24 @@ pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult 
     var instructions = std.ArrayList(Instruction).init(allocator);
     errdefer instructions.deinit();
     var function_sigs = std.ArrayList(FunctionSig).init(allocator);
-    errdefer function_sigs.deinit();
+    errdefer {
+        for (function_sigs.items) |*sig_item| sig_item.deinit(allocator);
+        function_sigs.deinit();
+    }
     var owned_text = std.ArrayList([]const u8).init(allocator);
-    errdefer owned_text.deinit();
+    errdefer {
+        for (owned_text.items) |text| allocator.free(text);
+        owned_text.deinit();
+    }
+    var loc_table = std.ArrayList(?common_upstream.UpstreamLoc).init(allocator);
+    errdefer {
+        for (loc_table.items) |entry| {
+            if (entry) |loc| allocator.free(loc.file);
+        }
+        loc_table.deinit();
+    }
+    var pending_loc: ?common_upstream.UpstreamLoc = null;
+    errdefer if (pending_loc) |loc| allocator.free(loc.file);
 
     var macros = std.StringHashMap(MacroDef).init(allocator);
     defer deinitMacroMap(allocator, &macros);
@@ -613,16 +732,23 @@ pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult 
         &macros,
         &dict,
         &symbols,
+        &loc_table,
+        &pending_loc,
         &instructions,
         &function_sigs,
         &owned_text,
     );
+    if (pending_loc) |loc| {
+        allocator.free(loc.file);
+        pending_loc = null;
+    }
 
     return .{
         .instructions = try instructions.toOwnedSlice(),
         .function_sigs = try function_sigs.toOwnedSlice(),
         .def_dict = dict,
         .symbols = symbols,
+        .loc_table = try loc_table.toOwnedSlice(),
         .owned_text = try owned_text.toOwnedSlice(),
         .trap = null,
     };
@@ -677,4 +803,37 @@ test "flatten builds instruction stream with symbol and def tables" {
     try std.testing.expectEqualStrings("entry", result.symbols.lookupName(0).?);
     try std.testing.expectEqualStrings("L_ENTRY", result.symbols.lookupName(1).?);
     try std.testing.expectEqualStrings("entry", result.function_sigs[0].name);
+    try std.testing.expectEqual(@as(usize, result.instructions.len), result.loc_table.len);
+}
+
+test "flatten attaches loc hint to the next real instruction only" {
+    const source =
+        \\#loc "up.rs":12:3
+        \\@entry() -> i32:
+        \\#loc "up.rs":13:5
+        \\L_ENTRY:
+        \\#loc "up.rs":14:7
+        \\node = alloc 8
+        \\return node
+    ;
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), result.instructions.len);
+    try std.testing.expect(result.instructions[0].upstream_loc == null);
+    try std.testing.expect(result.instructions[1].upstream_loc == null);
+    try std.testing.expect(result.instructions[2].upstream_loc != null);
+    try std.testing.expectEqualStrings("up.rs", result.instructions[2].upstream_loc.?.file);
+    try std.testing.expectEqual(@as(u32, 14), result.instructions[2].upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 7), result.instructions[2].upstream_loc.?.col);
+    try std.testing.expect(result.instructions[3].upstream_loc == null);
+    try std.testing.expectEqual(@as(usize, result.instructions.len), result.loc_table.len);
+    try std.testing.expect(result.loc_table[0] == null);
+    try std.testing.expect(result.loc_table[1] == null);
+    try std.testing.expect(result.loc_table[2] != null);
+    try std.testing.expectEqualStrings("up.rs", result.loc_table[2].?.file);
+    try std.testing.expect(result.loc_table[3] == null);
+    try std.testing.expectEqualStrings("up.rs", result.function_sigs[0].upstream_loc.?.file);
+    try std.testing.expectEqual(@as(u32, 12), result.function_sigs[0].upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 3), result.function_sigs[0].upstream_loc.?.col);
 }
