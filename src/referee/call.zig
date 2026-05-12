@@ -175,6 +175,15 @@ fn validatePrefix(expected: common_instruction.CapPrefix, actual: common_instruc
     return expected == actual;
 }
 
+fn prefixText(prefix: common_instruction.CapPrefix) []const u8 {
+    return switch (prefix) {
+        .by_value => "",
+        .borrow => "&",
+        .move => "^",
+        .raw => "*",
+    };
+}
+
 pub fn validateCall(
     allocator: std.mem.Allocator,
     sigs: []const common_signature.FunctionSig,
@@ -253,4 +262,65 @@ test "parse and validate panic builtins" {
 test "parseCall rejects trailing garbage on special calls" {
     try std.testing.expectError(CallError.InvalidCallSyntax, parseCall(std.testing.allocator, "panic(7) extra"));
     try std.testing.expectError(CallError.InvalidCallSyntax, parseCall(std.testing.allocator, "panic_msg(7, *msg, len) trailing"));
+}
+
+test "validateCall rejects capability mismatches" {
+    var sigs = std.ArrayList(common_signature.FunctionSig).init(std.testing.allocator);
+    defer {
+        for (sigs.items) |*sig| sig.deinit(std.testing.allocator);
+        sigs.deinit();
+    }
+
+    try sigs.append(try common_signature.parseFunctionSig(std.testing.allocator, "@sink(&p: ptr, ^q: ptr) -> i32:", 0, 0));
+    try std.testing.expectError(CallError.CapabilityMismatch, validateCall(std.testing.allocator, sigs.items, "call @sink(^p, ^q)"));
+    try std.testing.expectError(CallError.CapabilityMismatch, validateCall(std.testing.allocator, sigs.items, "call @sink(&p)"));
+}
+
+test "call contract PBT matches random capability signatures" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6120);
+    const random = prng.random();
+    const caps = [_]common_instruction.CapPrefix{ .by_value, .borrow, .move, .raw };
+
+    for (0..96) |iter| {
+        const param_count = random.intRangeAtMost(usize, 1, 3);
+        var sig_text = std.ArrayList(u8).init(std.testing.allocator);
+        defer sig_text.deinit();
+        var call_text = std.ArrayList(u8).init(std.testing.allocator);
+        defer call_text.deinit();
+
+        try sig_text.writer().writeAll("@sink(");
+        try call_text.writer().writeAll("call @sink(");
+
+        var expect_ok = true;
+        for (0..param_count) |idx| {
+            if (idx != 0) {
+                try sig_text.writer().writeAll(", ");
+                try call_text.writer().writeAll(", ");
+            }
+
+            const param_cap = caps[random.intRangeLessThan(usize, 0, caps.len)];
+            const arg_cap = caps[random.intRangeLessThan(usize, 0, caps.len)];
+            if (param_cap != arg_cap) expect_ok = false;
+
+            try sig_text.writer().print("{s}p{d}: ptr", .{ prefixText(param_cap), idx });
+            try call_text.writer().print("{s}p{d}", .{ prefixText(arg_cap), idx });
+        }
+        try sig_text.writer().writeAll(") -> i32:");
+        try call_text.writer().writeByte(')');
+
+        var sigs = std.ArrayList(common_signature.FunctionSig).init(std.testing.allocator);
+        defer {
+            for (sigs.items) |*sig| sig.deinit(std.testing.allocator);
+            sigs.deinit();
+        }
+        try sigs.append(try common_signature.parseFunctionSig(std.testing.allocator, sig_text.items, @intCast(iter), 0));
+
+        if (expect_ok) {
+            var parsed = try validateCall(std.testing.allocator, sigs.items, call_text.items);
+            defer parsed.deinit(std.testing.allocator);
+            try std.testing.expectEqual(param_count, parsed.args.len);
+        } else {
+            try std.testing.expectError(CallError.CapabilityMismatch, validateCall(std.testing.allocator, sigs.items, call_text.items));
+        }
+    }
 }

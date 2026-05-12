@@ -1,0 +1,26 @@
+// SA-facing contracts for the Zig-backed sa_std.fs module.
+// File handles are opaque owned ptr values and must be closed explicitly.
+@extern sa_fs_file_open(&path: ptr, path_len: u64, flags: u32) -> ^ptr!
+@extern sa_fs_file_create(&path: ptr, path_len: u64) -> ^ptr!
+@extern sa_fs_file_close(^file: ptr) -> i32!
+
+@extern sa_fs_file_read(file: ptr, &buf: ptr, cap: u64) -> u64!
+@extern sa_fs_file_read_exact(file: ptr, &buf: ptr, len: u64) -> u64!
+@extern sa_fs_file_write(file: ptr, &buf: ptr, len: u64) -> u64!
+@extern sa_fs_file_write_all(file: ptr, &buf: ptr, len: u64) -> i32!
+@extern sa_fs_file_flush(file: ptr) -> i32!
+@extern sa_fs_file_seek(file: ptr, whence: u32, offset: i64) -> u64!
+
+// Whole-file reads return an owned SaFsReadBuffer. Free it with sa_fs_read_buffer_free.
+@extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> ^ptr!
+@extern sa_fs_write_file(&path: ptr, path_len: u64, &buf: ptr, len: u64) -> i32!
+@extern sa_fs_read_buffer_data(&buffer: ptr) -> ptr
+@extern sa_fs_read_buffer_len(&buffer: ptr) -> u64
+@extern sa_fs_read_buffer_free(^buffer: ptr) -> i32!
+
+@extern sa_fs_metadata(&path: ptr, path_len: u64) -> ^ptr!
+@extern sa_fs_metadata_free(^metadata: ptr) -> i32!
+@extern sa_fs_remove_file(&path: ptr, path_len: u64) -> i32!
+@extern sa_fs_rename(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32!
+@extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32!
+@extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32!

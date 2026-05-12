@@ -1,0 +1,38 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"10\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Box_SIZE = 4
+#def Box_value = +0
+
+@bump(box: &ptr) -> void:
+L_ENTRY:
+    value = load box+Box_value as i32
+    next = add value, 1
+    store box+Box_value, next as i32
+    !value
+    !next
+    !box
+    return
+
+@main() -> i32:
+L_ENTRY:
+    box = alloc Box_SIZE
+    store box+Box_value, 9 as i32
+    call @bump(&box)
+    value = load box+Box_value as i32
+    ok = eq value, 10
+    !value
+    !box
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

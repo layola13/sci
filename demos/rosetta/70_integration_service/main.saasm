@@ -1,0 +1,33 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"6\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@service_users() -> i32:
+L_ENTRY:
+    return 2
+
+@service_orders() -> i32:
+L_ENTRY:
+    return 4
+
+@main() -> i32:
+L_ENTRY:
+    users = call @service_users()
+    orders = call @service_orders()
+    total = add users, orders
+    ok = eq total, 6
+    !users
+    !orders
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

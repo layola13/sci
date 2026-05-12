@@ -1,0 +1,28 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"4\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@collect(hits: i32, misses: i32) -> i32:
+L_ENTRY:
+    total = add hits, misses
+    !hits
+    !misses
+    return total
+
+@main() -> i32:
+L_ENTRY:
+    total = call @collect(3, 1)
+    ok = eq total, 4
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

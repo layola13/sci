@@ -1,0 +1,35 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Counter_SIZE = 4
+#def Counter_value = +0
+
+@counter_new(seed: i32) -> ^ptr:
+L_ENTRY:
+    counter = alloc Counter_SIZE
+    value = add seed, 2
+    store counter+Counter_value, value as i32
+    !seed
+    !value
+    return counter
+
+@main() -> i32:
+L_ENTRY:
+    counter = call @counter_new(40)
+    value = load counter+Counter_value as i32
+    ok = eq value, 42
+    !value
+    !counter
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

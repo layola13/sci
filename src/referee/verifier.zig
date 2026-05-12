@@ -83,7 +83,7 @@ fn isTerminator(kind: inst.InstKind) bool {
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
+        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native => true,
         else => false,
     };
 }
@@ -439,11 +439,29 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
                 if (isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
                 if (isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
             },
-            .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw => {
-                if (isIdentLike(classified.parts[0])) _ = try symbols.intern(classified.parts[0]);
-                if (classified.part_count > 1 and isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
-                if (classified.part_count > 2 and isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
-                if (classified.part_count > 3 and isIdentLike(classified.parts[3])) _ = try symbols.intern(classified.parts[3]);
+            .atomic_load => {
+                const parsed = try atomic.parseLoad(item.raw_text);
+                _ = try symbols.intern(parsed.dst);
+                if (isIdentLike(parsed.base)) _ = try symbols.intern(parsed.base);
+            },
+            .atomic_store => {
+                const parsed = try atomic.parseStore(item.raw_text);
+                if (isIdentLike(parsed.base)) _ = try symbols.intern(parsed.base);
+                if (isIdentLike(parsed.value)) _ = try symbols.intern(parsed.value);
+            },
+            .cmpxchg => {
+                const parsed = try atomic.parseCmpxchg(item.raw_text);
+                _ = try symbols.intern(parsed.dst);
+                _ = try symbols.intern(parsed.ok);
+                if (isIdentLike(parsed.base)) _ = try symbols.intern(parsed.base);
+                if (isIdentLike(parsed.expected)) _ = try symbols.intern(parsed.expected);
+                if (isIdentLike(parsed.new_value)) _ = try symbols.intern(parsed.new_value);
+            },
+            .atomic_rmw => {
+                const parsed = try atomic.parseRmw(item.raw_text);
+                _ = try symbols.intern(parsed.dst);
+                if (isIdentLike(parsed.base)) _ = try symbols.intern(parsed.base);
+                if (isIdentLike(parsed.value)) _ = try symbols.intern(parsed.value);
             },
             .fence => {},
             .borrow => {
@@ -580,7 +598,7 @@ fn assignValue(
 fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst: u32, src: u32, is_mut: bool, is_ffi: bool) void {
     const dst_idx: usize = @intCast(dst);
     const src_idx: usize = @intCast(src);
-    state[dst_idx] = maskOf(.active) | maskOf(.borrow_view) | if (is_mut) maskOf(.locked_mut) else maskOf(.locked_read);
+    state[dst_idx] = maskOf(.active) | maskOf(.borrow_view) | (if (is_mut) maskOf(.locked_mut) else maskOf(.locked_read)) | (if (is_ffi) maskOf(.ffi_borrow) else 0);
     flags[dst_idx] = if (is_ffi) 0x01 else 0x00;
     origins[dst_idx] = src;
     locks[src_idx] += 1;
@@ -630,6 +648,37 @@ fn clearBorrow(
     state[idx] = 0;
     flags[idx] = 0;
     origins[idx] = null;
+}
+
+fn consumeAtContractBoundary(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    id: u32,
+    state: []u16,
+    flags: []u8,
+    origins: []?u32,
+    locks: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+) ?VerifyResult {
+    if (readCheck(item, function_text, is_ffi_wrapper, name, id, state, flags)) |tr| return tr;
+
+    const idx: usize = @intCast(id);
+    if (isStackAllocated(flags, origins, state, id)) {
+        return trapReport(.stack_escape, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "stack allocation cannot cross a native escape boundary", null);
+    }
+
+    if ((state[idx] & maskOf(.borrow_view)) != 0) {
+        clearBorrow(state, flags, origins, locks, id);
+    } else if (hasInteriorTree(state, interior_first_child, id)) {
+        consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, id);
+    } else {
+        state[idx] = maskOf(.consumed);
+    }
+    return null;
 }
 
 fn updateLabel(
@@ -884,6 +933,9 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
 
         body_seen = true;
         gas_steps += 1;
+        const snapshot_entry = try allocator.dupe(u16, state);
+        var snapshot_entry_owned = true;
+        defer if (snapshot_entry_owned) allocator.free(snapshot_entry);
 
         switch (item.kind) {
             .alloc => {
@@ -1056,6 +1108,14 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 const is_mut = item.operands[2] == .text and std.mem.eql(u8, item.operands[2].text, "mut");
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active) | maskOf(.borrow_view))) |tr| return tr;
                 setBorrowState(state, flags, origins, locks, item.operands[0].reg, item.operands[1].reg, is_mut, true);
+            },
+            .native => {
+                for (item.native_reg_names) |name| {
+                    if (!isIdentLike(name)) continue;
+                    if (metadata.symbols.findId(name)) |id| {
+                        if (consumeAtContractBoundary(item, current_function_text, current_is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling)) |tr| return tr;
+                    }
+                }
             },
             .jmp => {
                 const target = item.operands[1].label;
@@ -1312,14 +1372,17 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             else => {},
         }
 
-        const snapshot_entry = try allocator.dupe(u16, state);
         const snapshot_exit = try allocator.dupe(u16, state);
+        var snapshot_exit_owned = true;
+        defer if (snapshot_exit_owned) allocator.free(snapshot_exit);
         try annotated.append(.{
             .base = item,
             .entry_caps = snapshot_entry,
             .exit_caps = snapshot_exit,
             .gas_step_cost = if (isExecKind(item.kind)) 1 else 0,
         });
+        snapshot_entry_owned = false;
+        snapshot_exit_owned = false;
     }
 
     if (body_seen and !terminated) {
@@ -1641,6 +1704,246 @@ test "interior pointers trap when passed to extern calls" {
             try std.testing.expectEqual(trap.Trap.interior_ptr_escape, report.trap);
         },
         .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "assume_borrow marks ffi borrow state and release clears it without freeing" {
+    const source =
+        \\@ffi_wrapper wrap(*raw: ptr) -> i32:
+        \\view = assume_borrow raw
+        \\!view
+        \\return 0
+    ;
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            var saw_assume = false;
+            var saw_release = false;
+            for (owned.annotated) |item| {
+                if (item.base.kind == .assume_borrow) {
+                    saw_assume = true;
+                    const mask = item.exit_caps[item.base.operands[0].reg];
+                    try std.testing.expect((mask & maskOf(.ffi_borrow)) != 0);
+                    try std.testing.expect((mask & maskOf(.borrow_view)) != 0);
+                } else if (item.base.kind == .release) {
+                    saw_release = true;
+                    try std.testing.expectEqual(@as(u16, 0), item.exit_caps[item.base.operands[0].reg]);
+                }
+            }
+            try std.testing.expect(saw_assume);
+            try std.testing.expect(saw_release);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "ffi borrow views cannot be moved or returned" {
+    const move_source =
+        \\@ffi_wrapper wrap(*raw: ptr) -> i32:
+        \\view = assume_borrow raw
+        \\^view
+        \\return 0
+    ;
+    var move_flat = try @import("../flattener.zig").flatten(std.testing.allocator, move_source);
+    defer move_flat.deinit(std.testing.allocator);
+
+    const moved = try verify(std.testing.allocator, move_flat.instructions);
+    switch (moved) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.ffi_ownership_violation, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+
+    const return_source =
+        \\@ffi_wrapper wrap(*raw: ptr) -> &ptr:
+        \\view = assume_borrow raw
+        \\return view
+    ;
+    var return_flat = try @import("../flattener.zig").flatten(std.testing.allocator, return_source);
+    defer return_flat.deinit(std.testing.allocator);
+
+    const returned = try verify(std.testing.allocator, return_flat.instructions);
+    switch (returned) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.ffi_ownership_violation, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "verifier rejects call-site capability prefix mismatches" {
+    const source =
+        \\@extern sink(&p: ptr, ^q: ptr) -> i32
+        \\@main() -> i32:
+        \\left = alloc 8
+        \\right = alloc 8
+        \\value = call @sink(^left, ^right)
+        \\!left
+        \\return value
+    ;
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.capability_mismatch, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "verifier call contract PBT traps on random prefix mismatches" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6121);
+    const random = prng.random();
+    const caps = [_]struct { text: []const u8, prefix: inst.CapPrefix }{
+        .{ .text = "", .prefix = .by_value },
+        .{ .text = "&", .prefix = .borrow },
+        .{ .text = "^", .prefix = .move },
+    };
+
+    for (0..48) |iter| {
+        const expected = caps[random.intRangeLessThan(usize, 0, caps.len)];
+        var actual = caps[random.intRangeLessThan(usize, 0, caps.len)];
+        if (actual.prefix == expected.prefix) {
+            actual = caps[(random.intRangeLessThan(usize, 1, caps.len) + @intFromEnum(expected.prefix)) % caps.len];
+            if (actual.prefix == expected.prefix) actual = caps[(@intFromEnum(expected.prefix) + 1) % caps.len];
+        }
+
+        const source = try std.fmt.allocPrint(
+            std.testing.allocator,
+            \\@extern sink({s}p: ptr) -> i32
+            \\@main() -> i32:
+            \\value = alloc 8
+            \\ret = call @sink({s}value)
+            \\!value
+            \\return ret
+        , .{ expected.text, actual.text });
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions);
+        switch (verified) {
+            .trap => |report| try std.testing.expectEqual(trap.Trap.capability_mismatch, report.trap),
+            .ok => {
+                _ = iter;
+                return error.TestUnexpectedResult;
+            },
+        }
+    }
+}
+
+test "native escape conservatively consumes referenced registers" {
+    const source =
+        \\@main() -> i32:
+        \\value = alloc 8
+        \\$touch value$
+        \\probe = load value+0 as i8
+        \\return 0
+    ;
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.use_after_move, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "native escape rejects stack allocations crossing the boundary" {
+    const source =
+        \\@main() -> i32:
+        \\tmp = stack_alloc 8
+        \\$touch tmp$
+        \\return 0
+    ;
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.stack_escape, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "native escape PBT conservatively consumes random referenced registers" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6300);
+    const random = prng.random();
+
+    for (0..32) |_| {
+        const size = random.intRangeAtMost(u64, 1, 64);
+        const source = try std.fmt.allocPrint(
+            std.testing.allocator,
+            \\@main() -> i32:
+            \\value = alloc {d}
+            \\$touch value$
+            \\probe = load value+0 as i8
+            \\return 0
+        , .{size});
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions);
+        switch (verified) {
+            .trap => |report| try std.testing.expectEqual(trap.Trap.use_after_move, report.trap),
+            .ok => |ok| {
+                var owned = ok;
+                owned.deinit(std.testing.allocator);
+                return error.TestUnexpectedResult;
+            },
+        }
+    }
+}
+
+test "early return leak PBT traps when random live allocations survive the fail edge" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6244);
+    const random = prng.random();
+
+    for (0..32) |_| {
+        const extra_count = random.intRangeAtMost(usize, 1, 4);
+        var source = std.ArrayList(u8).init(std.testing.allocator);
+        defer source.deinit();
+
+        try source.appendSlice(
+            \\@fail() -> i32!:
+            \\return 1
+            \\@main() -> i32!:
+            \\res = call @fail()
+        );
+        try source.append('\n');
+
+        for (0..extra_count) |idx| {
+            try source.writer().print("leak_{d} = alloc {d}\n", .{ idx, random.intRangeAtMost(u64, 1, 64) });
+        }
+
+        try source.appendSlice(
+            \\ok = ? res
+            \\return ok
+        );
+        try source.append('\n');
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source.items);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions);
+        switch (verified) {
+            .trap => |report| try std.testing.expectEqual(trap.Trap.early_return_leak, report.trap),
+            .ok => return error.TestUnexpectedResult,
+        }
     }
 }
 
@@ -1985,5 +2288,133 @@ test "referee determinism PBT stays stable across repeated verify runs" {
         defer fixture.deinit(std.testing.allocator);
 
         try verifyTwiceAndExpectEqual(std.testing.allocator, fixture.instructions);
+    }
+}
+
+test "interior ptr PBT traps on use after releasing parent borrow" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6260);
+    const random = prng.random();
+
+    for (0..32) |_| {
+        const offset: u64 = random.intRangeAtMost(u64, 0, 32);
+        const source = try std.fmt.allocPrint(
+            std.testing.allocator,
+            \\@main() -> i32:
+            \\base = alloc 64
+            \\view = & base
+            \\ip = take view+{d}
+            \\!view
+            \\value = load ip+0 as u8
+            \\return value
+        , .{offset});
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions);
+        switch (verified) {
+            .trap => |report| try std.testing.expectEqual(trap.Trap.use_after_move, report.trap),
+            .ok => return error.TestUnexpectedResult,
+        }
+    }
+}
+
+test "interior ptr PBT traps on ffi escape" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6261);
+    const random = prng.random();
+
+    for (0..32) |_| {
+        const offset: u64 = random.intRangeAtMost(u64, 0, 32);
+        const source = try std.fmt.allocPrint(
+            std.testing.allocator,
+            \\@extern sink(*p: ptr) -> i32
+            \\@ffi_wrapper wrap(*raw: ptr) -> i32:
+            \\safe = assume_safe raw
+            \\view = & safe
+            \\ip = take view+{d}
+            \\value = call @sink(*ip)
+            \\return value
+            \\@main() -> i32:
+            \\base = alloc 64
+            \\return 0
+        , .{offset});
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions);
+        switch (verified) {
+            .trap => |report| try std.testing.expectEqual(trap.Trap.interior_ptr_escape, report.trap),
+            .ok => return error.TestUnexpectedResult,
+        }
+    }
+}
+
+test "ffi airlock isolation PBT rejects unsafe ops outside ffi wrapper" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6262);
+    const random = prng.random();
+
+    for (0..48) |_| {
+        const case_id = random.intRangeLessThan(u8, 0, 3);
+        const source = switch (case_id) {
+            0 => try std.fmt.allocPrint(
+                std.testing.allocator,
+                \\@main() -> i32:
+                \\node = alloc 8
+                \\raw = *node
+                \\return 0
+            , .{}),
+            1 => try std.fmt.allocPrint(
+                std.testing.allocator,
+                \\@extern grab() -> *ptr
+                \\@main() -> i32:
+                \\raw = call @grab()
+                \\safe = assume_safe raw
+                \\return 0
+            , .{}),
+            else => try std.fmt.allocPrint(
+                std.testing.allocator,
+                \\@extern grab() -> *ptr
+                \\@main() -> i32:
+                \\raw = call @grab()
+                \\view = assume_borrow raw
+                \\return 0
+            , .{}),
+        };
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions);
+        switch (verified) {
+            .trap => |report| try std.testing.expectEqual(trap.Trap.illegal_unsafe_context, report.trap),
+            .ok => return error.TestUnexpectedResult,
+        }
+    }
+}
+
+test "ffi wrapper allows raw params in branch control flow" {
+    const source =
+        \\@ffi_wrapper branch(*flag: i32) -> i32:
+        \\br flag -> L_TRUE, L_FALSE
+        \\L_TRUE:
+        \\return 1
+        \\L_FALSE:
+        \\return 0
+    ;
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
     }
 }

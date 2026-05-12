@@ -12,6 +12,9 @@ pub const common = struct {
 pub const flattener = @import("flattener.zig");
 pub const layout = @import("layout.zig");
 pub const libsa_scope = @import("libsa_scope.zig");
+pub const runtime = struct {
+    pub const sa_std = @import("runtime/sa_std.zig");
+};
 pub const referee = @import("referee.zig");
 pub const cli = @import("cli.zig");
 

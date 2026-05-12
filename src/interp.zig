@@ -260,23 +260,24 @@ const Interpreter = struct {
         return if (width >= 64) ~@as(u64, 0) else (@as(u64, 1) << @intCast(width)) - 1;
     }
 
-    fn valueFromInt(ty: sig.PrimType, value: i128) RegValue {
+    fn valueFromInt(ty: sig.PrimType, value: i128) !RegValue {
         const bits = switch (ty) {
             .i1 => @as(u64, if (value != 0) 1 else 0),
             .i8, .i16, .i32, .i64 => @as(u64, @bitCast(@as(i64, @intCast(value)))),
             .u8, .u16, .u32, .u64, .ptr => @as(u64, @intCast(@as(u128, @intCast(value)))),
-            else => 0,
+            .void, .f32, .f64, .v128 => return RunError.UnsupportedInstruction,
         };
         return .{ .ty = ty, .bits = bits };
     }
 
-    fn valueFromFloat(ty: sig.PrimType, value: f64) RegValue {
+    fn valueFromFloat(ty: sig.PrimType, value: f64) !RegValue {
         return switch (ty) {
             .f32 => blk: {
                 const bits: u32 = @bitCast(@as(f32, @floatCast(value)));
                 break :blk .{ .ty = .f32, .bits = @as(u64, bits) };
             },
-            else => .{ .ty = .f64, .bits = @bitCast(value) },
+            .f64 => .{ .ty = .f64, .bits = @bitCast(value) },
+            else => RunError.UnsupportedInstruction,
         };
     }
 
@@ -309,11 +310,12 @@ const Interpreter = struct {
         _ = self;
         if (value.fallible) return RunError.InvalidOperand;
         if (value.ty == target) return value;
+        if (value.ty == .v128 or target == .v128) return RunError.UnsupportedInstruction;
         if (target == .ptr) {
             return .{ .ty = .ptr, .bits = value.bits, .interior_ptr = value.interior_ptr };
         }
         if (isFloatLike(target)) {
-            return valueFromFloat(target, floatValue(value));
+            return try valueFromFloat(target, floatValue(value));
         }
         if (isIntLike(target)) {
             const signed = isSignedInt(target);
@@ -388,6 +390,7 @@ const Interpreter = struct {
                 const buf: *const [8]u8 = @ptrCast(base.ptr);
                 break :blk .{ .ty = .ptr, .bits = std.mem.readInt(u64, buf, .little) };
             },
+            .v128 => return RunError.UnsupportedInstruction,
         };
     }
 
@@ -419,6 +422,7 @@ const Interpreter = struct {
                 const buf: *[8]u8 = @ptrCast(base.ptr);
                 std.mem.writeInt(u64, buf, @bitCast(floatValue(value)), .little);
             },
+            .v128 => return RunError.UnsupportedInstruction,
         }
     }
 
@@ -481,24 +485,24 @@ const Interpreter = struct {
                     .div => lhs / rhs,
                     .gt, .lt, .eq, .ne, .@"and", .@"or", .shl, .shr => lhs,
                 };
-                return valueFromFloat(.f64, result);
+                return try valueFromFloat(.f64, result);
             },
             .signed => {
                 const lhs = @as(i64, @intCast(intValue(a, true)));
                 const rhs = @as(i64, @intCast(intValue(b, true)));
                 return switch (op) {
-                    .add => valueFromInt(.i64, lhs + rhs),
-                    .sub => valueFromInt(.i64, lhs - rhs),
-                    .mul => valueFromInt(.i64, lhs * rhs),
-                    .div => valueFromInt(.i64, @divTrunc(lhs, rhs)),
-                    .@"and" => valueFromInt(.i64, lhs & rhs),
-                    .@"or" => valueFromInt(.i64, lhs | rhs),
-                    .shl => valueFromInt(.i64, lhs << @as(u6, @intCast(rhs & 0x3f))),
-                    .shr => valueFromInt(.i64, lhs >> @as(u6, @intCast(rhs & 0x3f))),
-                    .gt => valueFromInt(.i64, @intFromBool(lhs > rhs)),
-                    .lt => valueFromInt(.i64, @intFromBool(lhs < rhs)),
-                    .eq => valueFromInt(.i64, @intFromBool(lhs == rhs)),
-                    .ne => valueFromInt(.i64, @intFromBool(lhs != rhs)),
+                    .add => try valueFromInt(.i64, lhs + rhs),
+                    .sub => try valueFromInt(.i64, lhs - rhs),
+                    .mul => try valueFromInt(.i64, lhs * rhs),
+                    .div => try valueFromInt(.i64, @divTrunc(lhs, rhs)),
+                    .@"and" => try valueFromInt(.i64, lhs & rhs),
+                    .@"or" => try valueFromInt(.i64, lhs | rhs),
+                    .shl => try valueFromInt(.i64, lhs << @as(u6, @intCast(rhs & 0x3f))),
+                    .shr => try valueFromInt(.i64, lhs >> @as(u6, @intCast(rhs & 0x3f))),
+                    .gt => try valueFromInt(.i64, @intFromBool(lhs > rhs)),
+                    .lt => try valueFromInt(.i64, @intFromBool(lhs < rhs)),
+                    .eq => try valueFromInt(.i64, @intFromBool(lhs == rhs)),
+                    .ne => try valueFromInt(.i64, @intFromBool(lhs != rhs)),
                 };
             },
             .unsigned => {
@@ -513,10 +517,10 @@ const Interpreter = struct {
                     .@"or" => .{ .ty = .u64, .bits = lhs | rhs },
                     .shl => .{ .ty = .u64, .bits = lhs << @as(u6, @intCast(rhs & 0x3f)) },
                     .shr => .{ .ty = .u64, .bits = lhs >> @as(u6, @intCast(rhs & 0x3f)) },
-                    .gt => valueFromInt(.i64, @intFromBool(lhs > rhs)),
-                    .lt => valueFromInt(.i64, @intFromBool(lhs < rhs)),
-                    .eq => valueFromInt(.i64, @intFromBool(lhs == rhs)),
-                    .ne => valueFromInt(.i64, @intFromBool(lhs != rhs)),
+                    .gt => try valueFromInt(.i64, @intFromBool(lhs > rhs)),
+                    .lt => try valueFromInt(.i64, @intFromBool(lhs < rhs)),
+                    .eq => try valueFromInt(.i64, @intFromBool(lhs == rhs)),
+                    .ne => try valueFromInt(.i64, @intFromBool(lhs != rhs)),
                 };
             },
         }

@@ -47,6 +47,17 @@ pub const SourceLine = struct {
     classified: ClassifiedLine,
 };
 
+const ImportExpansion = struct {
+    source: []u8,
+    active_paths: std.StringHashMap(void),
+
+    fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
+        self.active_paths.deinit();
+        allocator.free(self.source);
+        self.* = undefined;
+    }
+};
+
 pub const FlattenResult = struct {
     instructions: []Instruction,
     function_sigs: []FunctionSig,
@@ -61,6 +72,9 @@ pub const FlattenResult = struct {
             if (entry) |loc| allocator.free(loc.file);
         }
         allocator.free(self.loc_table);
+        for (self.instructions) |item| {
+            if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
+        }
         for (self.owned_text) |text| allocator.free(text);
         allocator.free(self.owned_text);
         for (self.function_sigs) |*sig| sig.deinit(allocator);
@@ -277,6 +291,7 @@ fn emitParsedLine(
     const classified = classifier.classifyLine(raw_line);
     switch (classified.kind) {
         .blank_or_comment => {},
+        .import_decl => {},
         .loc_hint => {
             const line_no = try std.fmt.parseInt(u32, classified.parts[1], 10);
             const col_no = try std.fmt.parseInt(u32, classified.parts[2], 10);
@@ -286,8 +301,11 @@ fn emitParsedLine(
         .native => {
             const inst_loc = try consumePendingLoc(loc_table, pending_loc);
             const raw_copy = try ownText(allocator, owned_text, raw_line);
+            const native_copy = try ownText(allocator, owned_text, classified.parts[0]);
+            const native_reg_names = try classifier.collectNativeRegisterNames(allocator, native_copy);
             var inst = common_instruction.makeInstruction(.native, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
-            inst.operands[0] = .{ .native_text = classified.parts[0] };
+            inst.operands[0] = .{ .native_text = native_copy };
+            inst.native_reg_names = native_reg_names;
             try instructions.append(inst);
         },
         .label => {
@@ -604,7 +622,7 @@ fn collectMacroDefinitions(
     while (idx < lines.len) : (idx += 1) {
         const line = lines[idx];
         switch (line.classified.kind) {
-            .blank_or_comment, .def, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
+            .blank_or_comment, .def, .import_decl, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
             .macro_start => {
                 const end = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
                 const name = line.classified.parts[0];
@@ -648,7 +666,7 @@ fn emitRange(
         const source_line = source_line_override orelse line.line_no;
 
         switch (line.classified.kind) {
-            .blank_or_comment => {},
+            .blank_or_comment, .import_decl => {},
             .loc_hint => {
                 const line_no = try std.fmt.parseInt(u32, line.classified.parts[1], 10);
                 const col_no = try std.fmt.parseInt(u32, line.classified.parts[2], 10);
@@ -785,12 +803,98 @@ pub fn scanSource(allocator: std.mem.Allocator, source: []const u8) ![]SourceLin
     return try lines.toOwnedSlice();
 }
 
+fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
+    if (source.len == 0) return;
+    try out.appendSlice(source);
+    if (source[source.len - 1] != '\n') try out.append('\n');
+}
+
+fn parseImportPath(line: []const u8) ?[]const u8 {
+    const classified = classifier.classifyLine(line);
+    if (classified.kind != .import_decl) return null;
+    return classified.parts[0];
+}
+
+fn readImportFile(
+    allocator: std.mem.Allocator,
+    base_dir: []const u8,
+    import_path: []const u8,
+) !struct { full_path: []u8, source: []u8 } {
+    const full_path = if (std.fs.path.isAbsolute(import_path))
+        try allocator.dupe(u8, import_path)
+    else
+        try std.fs.path.join(allocator, &.{ base_dir, import_path });
+    errdefer allocator.free(full_path);
+
+    const source = try std.fs.cwd().readFileAlloc(allocator, full_path, 16 * 1024 * 1024);
+    errdefer allocator.free(source);
+
+    return .{ .full_path = full_path, .source = source };
+}
+
+fn expandImportsInto(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    source: []const u8,
+    base_dir: []const u8,
+    active_paths: *std.StringHashMap(void),
+) !void {
+    var iterator = std.mem.splitScalar(u8, source, '\n');
+    while (iterator.next()) |raw_line| {
+        if (parseImportPath(raw_line)) |import_path| {
+            const imported = try readImportFile(allocator, base_dir, import_path);
+            defer allocator.free(imported.full_path);
+            defer allocator.free(imported.source);
+
+            if (active_paths.contains(imported.full_path)) return error.ImportCycle;
+            try active_paths.put(imported.full_path, {});
+            defer _ = active_paths.remove(imported.full_path);
+
+            const import_dir = std.fs.path.dirname(imported.full_path) orelse ".";
+            try expandImportsInto(allocator, out, imported.source, import_dir, active_paths);
+            continue;
+        }
+
+        try out.appendSlice(raw_line);
+        try out.append('\n');
+    }
+}
+
+fn expandImports(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    source_path: ?[]const u8,
+) !ImportExpansion {
+    var active_paths = std.StringHashMap(void).init(allocator);
+    errdefer active_paths.deinit();
+
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    const base_dir = if (source_path) |path| std.fs.path.dirname(path) orelse "." else ".";
+    if (source_path) |path| {
+        const source_full = if (std.fs.path.isAbsolute(path))
+            try allocator.dupe(u8, path)
+        else
+            try std.fs.cwd().realpathAlloc(allocator, path);
+        defer allocator.free(source_full);
+        try active_paths.put(source_full, {});
+    }
+
+    try expandImportsInto(allocator, &out, source, base_dir, &active_paths);
+
+    return .{
+        .source = try out.toOwnedSlice(),
+        .active_paths = active_paths,
+    };
+}
+
 pub fn findFirstForbiddenLine(source: []const u8) ?ForbiddenLine {
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
     while (iterator.next()) |raw_line| : (line_no += 1) {
         const classified = classifier.classifyLine(raw_line);
-        if (classified.kind == .native) continue;
+        if (classified.kind == .native or classified.kind == .import_decl) continue;
         if (forbidden.findForbiddenSyntax(raw_line)) |hit| {
             return .{ .line_no = line_no, .hit = hit };
         }
@@ -798,8 +902,11 @@ pub fn findFirstForbiddenLine(source: []const u8) ?ForbiddenLine {
     return null;
 }
 
-pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult {
-    if (findFirstForbiddenLine(source)) |_| {
+fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path: ?[]const u8) !FlattenResult {
+    var expanded = try expandImports(allocator, source, source_path);
+    defer expanded.deinit(allocator);
+
+    if (findFirstForbiddenLine(expanded.source)) |_| {
         return error.ForbiddenSyntax;
     }
 
@@ -832,7 +939,7 @@ pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult 
     var macros = std.StringHashMap(MacroDef).init(allocator);
     defer deinitMacroMap(allocator, &macros);
 
-    const lines = try scanSource(allocator, source);
+    const lines = try scanSource(allocator, expanded.source);
     defer allocator.free(lines);
 
     try collectMacroDefinitions(allocator, lines, &macros);
@@ -869,6 +976,14 @@ pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult 
         .owned_text = try owned_text.toOwnedSlice(),
         .trap = null,
     };
+}
+
+pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult {
+    return flattenInternal(allocator, source, null);
+}
+
+pub fn flattenFile(allocator: std.mem.Allocator, source_path: []const u8, source: []const u8) !FlattenResult {
+    return flattenInternal(allocator, source, source_path);
 }
 
 test "scanSource preserves line order and classification" {
@@ -923,6 +1038,27 @@ test "flatten builds instruction stream with symbol and def tables" {
     try std.testing.expectEqual(@as(usize, result.instructions.len), result.loc_table.len);
 }
 
+test "flatten keeps native escape text and extracted register names" {
+    const source =
+        \\@main() -> i32:
+        \\value = alloc 8
+        \\$call side(ptr value, i32 7, @glob, %tmp)$
+        \\return 0
+    ;
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), result.instructions.len);
+    try std.testing.expectEqual(InstKind.native, result.instructions[2].kind);
+    try std.testing.expectEqualStrings("call side(ptr value, i32 7, @glob, %tmp)", result.instructions[2].operands[0].native_text);
+    try std.testing.expectEqual(@as(usize, 5), result.instructions[2].native_reg_names.len);
+    try std.testing.expectEqualStrings("call", result.instructions[2].native_reg_names[0]);
+    try std.testing.expectEqualStrings("side", result.instructions[2].native_reg_names[1]);
+    try std.testing.expectEqualStrings("ptr", result.instructions[2].native_reg_names[2]);
+    try std.testing.expectEqualStrings("value", result.instructions[2].native_reg_names[3]);
+    try std.testing.expectEqualStrings("i32", result.instructions[2].native_reg_names[4]);
+}
+
 test "flatten attaches loc hint to the next real instruction only" {
     const source =
         \\#loc "up.rs":12:3
@@ -953,4 +1089,59 @@ test "flatten attaches loc hint to the next real instruction only" {
     try std.testing.expectEqualStrings("up.rs", result.function_sigs[0].upstream_loc.?.file);
     try std.testing.expectEqual(@as(u32, 12), result.function_sigs[0].upstream_loc.?.line);
     try std.testing.expectEqual(@as(u32, 3), result.function_sigs[0].upstream_loc.?.col);
+}
+
+test "flattenFile expands relative @import files" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_std/io");
+    var iface = try tmp.dir.createFile("sa_std/io/print.saasm-iface", .{ .truncate = true });
+    try iface.writeAll("@extern sa_print_bytes(msg: &ptr, len: u64) -> void\n");
+    iface.close();
+
+    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "sa_std/io/print.saasm-iface"
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var result = try flattenFile(std.testing.allocator, source_path, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), result.function_sigs.len);
+    try std.testing.expectEqual(FunctionKind.external, result.function_sigs[0].kind);
+    try std.testing.expectEqualStrings("sa_print_bytes", result.function_sigs[0].name);
+    try std.testing.expectEqual(FunctionKind.normal, result.function_sigs[1].kind);
+    try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
+}
+
+test "flattenFile rejects import cycles" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var a_file = try tmp.dir.createFile("a.saasm", .{ .truncate = true });
+    try a_file.writeAll("@import \"b.saasm\"\n");
+    a_file.close();
+
+    var b_file = try tmp.dir.createFile("b.saasm", .{ .truncate = true });
+    try b_file.writeAll("@import \"a.saasm\"\n");
+    b_file.close();
+
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "a.saasm", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "a.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    try std.testing.expectError(error.ImportCycle, flattenFile(std.testing.allocator, source_path, source));
 }

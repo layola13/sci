@@ -134,10 +134,10 @@ pub const CapabilityTable = struct {
     pub fn noteMoveView(self: *CapabilityTable, id: u32) TableError!void {
         const index = try self.ensureIndex(id);
         const current = self.masks[index];
+        if ((current & maskOf(.ffi_borrow)) != 0) return TableError.FfiOwnershipViolation;
         switch (current) {
             0x00 => return TableError.UnknownRegister,
             0x08 => return TableError.UseAfterMove,
-            0x20 => return TableError.FfiOwnershipViolation,
             0x02, 0x04 => return TableError.BorrowConflict,
             0x40 => return,
             else => self.masks[index] = maskOf(.consumed),
@@ -147,10 +147,10 @@ pub const CapabilityTable = struct {
     pub fn noteMove(self: *CapabilityTable, id: u32) TableError!void {
         const index = try self.ensureIndex(id);
         const current = self.masks[index];
+        if ((current & maskOf(.ffi_borrow)) != 0) return TableError.FfiOwnershipViolation;
         switch (current) {
             0x00 => return TableError.UnknownRegister,
             0x08 => return TableError.UseAfterMove,
-            0x20 => return TableError.FfiOwnershipViolation,
             0x02, 0x04 => return TableError.BorrowConflict,
             0x40 => return,
             else => self.masks[index] = maskOf(.consumed),
@@ -159,10 +159,10 @@ pub const CapabilityTable = struct {
 
     pub fn noteReleaseOwn(self: *CapabilityTable, id: u32) TableError!void {
         const index = try self.ensureIndex(id);
+        if ((self.masks[index] & maskOf(.ffi_borrow)) != 0) return TableError.FfiOwnershipViolation;
         switch (self.masks[index]) {
             0x00 => return TableError.UnknownRegister,
             0x08 => return TableError.UseAfterMove,
-            0x20 => return TableError.FfiOwnershipViolation,
             0x02, 0x04 => return TableError.BorrowConflict,
             0x40 => return,
             else => self.masks[index] = maskOf(.consumed),
@@ -177,7 +177,7 @@ pub const CapabilityTable = struct {
             0x08 => return TableError.UseAfterMove,
             0x04 => return TableError.BorrowConflict,
             0x40 => {
-                self.masks[view] = maskOf(.active) | maskOf(.borrow_view) | maskOf(.ffi_borrow);
+                self.masks[view] = maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.ffi_borrow);
                 self.origins[view] = source_id;
                 self.lock_refs[source] += 1;
             },
@@ -201,7 +201,7 @@ pub const CapabilityTable = struct {
             0x04 => return TableError.DoubleMutableBorrow,
             0x02 => return TableError.ReadWriteConflict,
             0x40 => {
-                self.masks[view] = maskOf(.active) | maskOf(.borrow_view) | maskOf(.ffi_borrow);
+                self.masks[view] = maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_mut) | maskOf(.ffi_borrow);
                 self.origins[view] = source_id;
                 self.lock_refs[source] += 1;
             },
@@ -266,4 +266,17 @@ test "capability table tracks alloc, move, and borrow transitions" {
     try std.testing.expectEqual(@as(u16, 0x11), table.masks[2]);
     try table.releaseBorrow(2);
     try std.testing.expectEqual(@as(u16, 0x01), table.masks[1]);
+}
+
+test "capability table marks ffi borrow views and blocks consumption" {
+    var table = try CapabilityTable.init(std.testing.allocator, 3);
+    defer table.deinit();
+
+    try table.bindRaw(0);
+    try table.startReadBorrow(0, 1);
+    try std.testing.expectEqual(@as(u16, 0x33), table.masks[1]);
+    try std.testing.expectError(TableError.FfiOwnershipViolation, table.noteMove(1));
+    try std.testing.expectError(TableError.FfiOwnershipViolation, table.noteReleaseOwn(1));
+    try table.releaseBorrow(1);
+    try std.testing.expectEqual(@as(u16, 0), table.masks[1]);
 }

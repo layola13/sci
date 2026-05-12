@@ -1,0 +1,27 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@double(x: i32) -> i32:
+L_ENTRY:
+    result = add x, x
+    !x
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    value = call @double(21)
+    ok = eq value, 42
+    !value
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

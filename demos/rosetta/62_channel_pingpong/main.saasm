@@ -1,0 +1,33 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"8\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@send_value() -> i32:
+L_ENTRY:
+    return 8
+
+@recv_value(value: i32) -> i32:
+L_ENTRY:
+    next = add value, 0
+    !value
+    return next
+
+@main() -> i32:
+L_ENTRY:
+    sent = call @send_value()
+    recv = call @recv_value(sent)
+    ok = eq recv, 8
+    !sent
+    !recv
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

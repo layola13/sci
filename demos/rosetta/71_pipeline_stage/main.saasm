@@ -1,0 +1,33 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"6\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@stage_one() -> i32:
+L_ENTRY:
+    return 2
+
+@stage_two(input: i32) -> i32:
+L_ENTRY:
+    output = mul input, 3
+    !input
+    return output
+
+@main() -> i32:
+L_ENTRY:
+    input = call @stage_one()
+    output = call @stage_two(input)
+    ok = eq output, 6
+    !input
+    !output
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

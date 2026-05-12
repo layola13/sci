@@ -1,0 +1,49 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"8\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Option_SIZE = 8
+#def Option_some = +0
+#def Option_value = +4
+
+@map_add_five(opt: ^ptr) -> i32:
+L_ENTRY:
+    is_some = load opt+Option_some as i32
+    ready = eq is_some, 1
+    br ready -> L_SOME, L_NONE
+
+L_SOME:
+    value = load opt+Option_value as i32
+    mapped = add value, 5
+    !value
+    !ready
+    !is_some
+    !opt
+    return mapped
+
+L_NONE:
+    !ready
+    !is_some
+    !opt
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    opt = alloc Option_SIZE
+    store opt+Option_some, 1 as i32
+    store opt+Option_value, 3 as i32
+    result = call @map_add_five(^opt)
+    ok = eq result, 8
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

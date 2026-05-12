@@ -1,0 +1,21 @@
+// SA-facing contracts for the Zig-backed sa_std.io module.
+// Handles returned by stdio accessors are borrowed process handles; do not close them.
+@extern sa_io_stdin() -> ptr
+@extern sa_io_stdout() -> ptr
+@extern sa_io_stderr() -> ptr
+
+// Owned handles returned by Zig-backed modules are closed explicitly.
+@extern sa_io_read(handle: ptr, &buf: ptr, cap: u64) -> u64!
+@extern sa_io_read_exact(handle: ptr, &buf: ptr, len: u64) -> u64!
+@extern sa_io_write(handle: ptr, &buf: ptr, len: u64) -> u64!
+@extern sa_io_write_all(handle: ptr, &buf: ptr, len: u64) -> i32!
+@extern sa_io_flush(handle: ptr) -> i32!
+@extern sa_io_close(^handle: ptr) -> i32!
+
+// Owned byte buffers use SaIoBuffer layout and must be freed explicitly.
+@extern sa_io_buffer_data(&buffer: ptr) -> ptr
+@extern sa_io_buffer_len(&buffer: ptr) -> u64
+@extern sa_io_buffer_free(^buffer: ptr) -> i32!
+
+// Legacy demo compatibility: equivalent to stdout().write_all(bytes).
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void

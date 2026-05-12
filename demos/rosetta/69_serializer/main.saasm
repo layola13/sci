@@ -1,0 +1,25 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"{\"id\":7}\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@build_id() -> i32:
+L_ENTRY:
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    id = call @build_id()
+    ok = eq id, 7
+    !id
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 9)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

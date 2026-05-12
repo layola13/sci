@@ -1,0 +1,27 @@
+// SA-facing contracts for the Zig-backed sa_std.net module.
+// TcpStream, TcpListener, and UdpSocket handles are opaque owned ptr values.
+@extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u16) -> ^ptr!
+@extern sa_net_tcp_stream_read(stream: ptr, &buf: ptr, cap: u64) -> u64!
+@extern sa_net_tcp_stream_write(stream: ptr, &buf: ptr, len: u64) -> u64!
+@extern sa_net_tcp_stream_write_all(stream: ptr, &buf: ptr, len: u64) -> i32!
+@extern sa_net_tcp_stream_flush(stream: ptr) -> i32!
+@extern sa_net_tcp_stream_peer_addr(stream: ptr) -> ^ptr!
+@extern sa_net_tcp_stream_shutdown(stream: ptr, how: u32) -> i32!
+@extern sa_net_tcp_stream_close(^stream: ptr) -> i32!
+
+@extern sa_net_tcp_listener_bind(&host: ptr, host_len: u64, port: u16) -> ^ptr!
+@extern sa_net_tcp_listener_accept(listener: ptr) -> ^ptr!
+@extern sa_net_tcp_listener_local_addr(listener: ptr) -> ^ptr!
+@extern sa_net_tcp_listener_close(^listener: ptr) -> i32!
+
+@extern sa_net_udp_bind(&host: ptr, host_len: u64, port: u16) -> ^ptr!
+@extern sa_net_udp_send_to(socket: ptr, &buf: ptr, len: u64, &host: ptr, host_len: u64, port: u16) -> u64!
+@extern sa_net_udp_recv_from(socket: ptr, &buf: ptr, cap: u64, &out_addr: ptr) -> u64!
+@extern sa_net_udp_close(^socket: ptr) -> i32!
+
+// Owned SaNetAddr values are returned by address query APIs and must be freed.
+@extern sa_net_addr_host(&addr: ptr) -> ptr
+@extern sa_net_addr_host_len(&addr: ptr) -> u64
+@extern sa_net_addr_port(&addr: ptr) -> u16
+@extern sa_net_addr_family(&addr: ptr) -> u32
+@extern sa_net_addr_free(^addr: ptr) -> i32!

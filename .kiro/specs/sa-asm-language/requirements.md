@@ -541,7 +541,7 @@
    - `[MACRO] ASYNC_RETURN_PENDING`：生成公共 Pending 返回块
 2. WHEN 前端使用这些宏 THEN 其 SHALL 通过 `EXPAND` 调用，展开后的指令流与手写等价（P30 精神的延伸）
 3. WHEN 展开后的代码被 Referee 扫描 THEN 其 SHALL 与手写 SA 完全等价——宏不引入任何新语义，仅是文本模板
-4. WHEN `libsa_async` 被分发 THEN 其 SHALL 以 `.saasm` 文本文件形式提供（可被 `#include` 或 Flattener 的文件拼接机制引入），不依赖任何 C-ABI 库
+4. WHEN `libsa_async` 被分发 THEN 其 SHALL 以 `.saasm` 文本文件形式提供（可被 `@import` 或 Flattener 的文件拼接机制引入），不依赖任何 C-ABI 库
 5. WHEN 前端不使用 `libsa_async` THEN 其 SHALL 仍可手写等价的 SA 代码（宏是便利，不是强制）
 6. **Non-Goal**：SA 语法层不引入 `@async` / `await_state` 等新关键字；不引入隐式展开；不引入跨 await 变量的自动存取推导
 
@@ -567,7 +567,7 @@
 
 **Acceptance Criteria**
 1. WHEN 开发者创建 `module.saasm-iface` 文件 THEN 其 SHALL 仅包含 `@extern` 函数签名声明（含 `cap_prefix` + `ty` + 返回类型 + `!` 后缀），不包含函数体
-2. WHEN 另一个 `.saasm` 文件通过 `#include "module.saasm-iface"` 引入接口 THEN Flattener SHALL 将其中的 `@extern` 声明注入当前编译单元
+2. WHEN 另一个 `.saasm` 文件通过 `@import "module.saasm-iface"` 引入接口 THEN Flattener SHALL 将其中的 `@extern` 声明注入当前编译单元
 3. WHEN Referee 校验调用点 THEN 其 SHALL 使用 `.saasm-iface` 中声明的签名 tuple 做 `CapabilityMismatch` 校验，**无需**实际函数体存在
 4. WHEN 接口文件与实现文件的签名不一致 THEN 链接期（`zig cc`）SHALL 报 symbol type mismatch 错误；Referee 层面在各自编译单元内独立通过
 5. WHEN 多个 `.saasm` 文件引用同一 `.saasm-iface` THEN 它们 SHALL 可以被**完全并行**编译（各自独立跑 Flattener + Referee + Emitter），最后一步链接合并
@@ -581,7 +581,7 @@
 
 **Acceptance Criteria**
 1. WHEN 团队创建 `entity.saasm-layout` 文件 THEN 其 SHALL 仅包含 `#def` 常量声明 + 一个 `#version N` 元数据行
-2. WHEN `.saasm` 文件通过 `#include "entity.saasm-layout"` 引入布局 THEN Flattener SHALL 记录该文件引用的 `#version` 值
+2. WHEN `.saasm` 文件通过 `@import "entity.saasm-layout"` 引入布局 THEN Flattener SHALL 记录该文件引用的 `#version` 值
 3. WHEN 布局文件的 `#version` 递增 THEN CI SHALL 自动扫描所有引用方，标记为"需要重新验证"
 4. WHEN 两个 `.saasm` 文件引用了同一布局文件的**不同版本** THEN 链接期 SHALL 报 `Trap: LayoutVersionConflict`（通过在 `.o` 文件中嵌入版本元数据实现）
 5. WHEN 布局文件被修改但 `#version` 未递增 THEN CI SHALL 发出警告（非致命，但阻断 merge）
@@ -626,13 +626,13 @@
    ]
    ```
 2. WHEN `saasm build-exe` / `build-wasm` / `build-obj` 被调用 THEN CLI SHALL 自动解析 `sa.pkg` 中的依赖，按拓扑序编译所有依赖包
-3. WHEN 依赖包被引入 THEN 其 `.saasm-iface` 接口文件 SHALL 被自动注入当前编译单元（等价于 `#include`）
+3. WHEN 依赖包被引入 THEN 其 `.saasm-iface` 接口文件 SHALL 被自动注入当前编译单元（等价于 `@import`）
 4. WHEN 依赖包的 `.saasm-layout` 布局文件存在 THEN 其 `#def` 常量 SHALL 被自动注入（带命名空间前缀避免冲突：`pkg_name.FIELD_NAME`）
 5. WHEN 两个依赖包声明了同名 `@export` 函数 THEN 链接期 SHALL 报 `Trap: DuplicateExportSymbol`
 6. WHEN 依赖源为远程 URL THEN CLI SHALL 支持 `saasm pkg fetch` 命令下载到本地 `.sa-cache/deps/` 目录
 7. WHEN 依赖源为本地路径 THEN CLI SHALL 直接引用，不做拷贝
 8. WHEN 版本冲突（同一包的两个不同版本被间接依赖）THEN CLI SHALL 报错并要求用户显式选择版本（不做自动 semver 解析——保持确定性）
-9. WHEN LLM 生成代码 THEN 其 SHALL 可以在 `sa.pkg` 中声明依赖，然后在源码中直接使用依赖包的 `@extern` 函数（无需手写 `#include`）
+9. WHEN LLM 生成代码 THEN 其 SHALL 可以在 `sa.pkg` 中声明依赖，然后在源码中直接使用依赖包的 `@extern` 函数（无需手写 `@import`）
 
 ### Requirement 32: 布局标签校验（v0.5 — 可选类型安全增强）
 

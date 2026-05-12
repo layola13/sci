@@ -6,6 +6,16 @@
 
 在 SA 中，标准库是一套 **“内存布局契约 (Memory Layout Contracts)”** 和 **“宏与函数原语 (Macros & Functions)”** 的集合。它的构建必须从最底层的内存切片开始，利用 `#def` 和 `[MACRO]` 一层层向上搭建，最终为 LLM 和前端编译器提供开箱即用的业务积木。
 
+### 1.1 当前实现模型：Zig-backed Facade
+
+`sa_std/io`、`sa_std/fs`、`sa_std/net`、`sa_std/fmt` 当前采用真实外部标准库模型：SA 侧只提供 facade contract，具体 I/O、文件系统、网络和格式化逻辑由 Zig-backed `libsa_std` 实现并在链接期提供符号。
+
+*   **`.saasm`**：只包含 `@import`，作为模块入口。
+*   **`.saasm-iface`**：只包含 `@extern` 签名，声明 Zig-backed C-ABI 符号。
+*   **`.saasm-layout`**：包含 `#def` 布局/常量，供 SA 代码显式读取；`#version` 元数据等待 R29 落地后再启用。
+
+公共 API 保持 Rust-like 命名与行为，但遵守 SA 约束：没有 trait/generic，句柄都是显式 `ptr`，拥有的句柄或缓冲区必须显式 `close` / `free`，写入端必须显式 `flush`。已有 demo 使用的 `sa_print_bytes(&msg, len)` 继续保留，语义等价于 `stdout().write_all(bytes)` 的兼容入口。
+
 本 RFC 规划了 `sa_std` 的四个演进阶段。
 
 ---

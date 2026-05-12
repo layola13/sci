@@ -78,7 +78,7 @@ pub const TRUTH_TABLE = [_]Transition{
     .{ .prev_mask = 0x01, .op = .release_own, .legal = true, .new_mask = 0x08, .trap = null },
     .{ .prev_mask = 0x40, .op = .ffi_raw_cast, .legal = true, .new_mask = 0x40, .trap = null },
     .{ .prev_mask = 0x40, .op = .ffi_assume_safe, .legal = true, .new_mask = 0x01, .trap = null },
-    .{ .prev_mask = 0x40, .op = .ffi_assume_borrow, .legal = true, .new_mask = 0x32, .trap = null },
+    .{ .prev_mask = 0x40, .op = .ffi_assume_borrow, .legal = true, .new_mask = 0x33, .trap = null },
     .{ .prev_mask = 0x100, .op = .alloc, .legal = true, .new_mask = 0x100, .trap = null },
     .{ .prev_mask = 0x200, .op = .move_, .legal = true, .new_mask = 0x200, .trap = null },
 };

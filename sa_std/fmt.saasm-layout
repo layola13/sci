@@ -1,0 +1,23 @@
+#def SA_FMT_OK = 0
+#def SA_FMT_ERR_UNKNOWN = 1
+#def SA_FMT_ERR_INVALID_BASE = 2
+#def SA_FMT_ERR_OVERFLOW = 3
+#def SA_FMT_ERR_IO = 4
+
+#def SA_FMT_BASE_BINARY = 2
+#def SA_FMT_BASE_OCTAL = 8
+#def SA_FMT_BASE_DECIMAL = 10
+#def SA_FMT_BASE_HEX_LOWER = 16
+#def SA_FMT_BASE_HEX_UPPER = 17
+
+#def SaFmtBuffer_SIZE = 24
+#def SaFmtBuffer_ptr = +0
+#def SaFmtBuffer_len = +8
+#def SaFmtBuffer_cap = +16
+
+#def SaFmtOptions_SIZE = 24
+#def SaFmtOptions_base = +0
+#def SaFmtOptions_min_width = +4
+#def SaFmtOptions_precision = +8
+#def SaFmtOptions_flags = +12
+#def SaFmtOptions_fill_byte = +16

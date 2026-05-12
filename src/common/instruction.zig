@@ -95,6 +95,7 @@ pub const Instruction = struct {
     atomic_rmw_op: ?AtomicRmwOp = null,
     atomic_expected_text: ?[]const u8 = null,
     atomic_new_text: ?[]const u8 = null,
+    native_reg_names: []const []const u8 = &.{},
 };
 
 pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, upstream_loc: ?upstream.UpstreamLoc, raw_text: []const u8) Instruction {
@@ -111,6 +112,7 @@ pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, ups
         .atomic_rmw_op = null,
         .atomic_expected_text = null,
         .atomic_new_text = null,
+        .native_reg_names = &.{},
     };
 }
 

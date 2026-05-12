@@ -22,6 +22,7 @@ pub const PrimType = enum(u8) {
     f32,
     f64,
     ptr,
+    v128,
 };
 
 pub const FallibleInfo = struct {
@@ -97,6 +98,7 @@ pub fn parsePrimType(text: []const u8) ParseError!PrimType {
         .{ .name = "f32", .ty = .f32 },
         .{ .name = "f64", .ty = .f64 },
         .{ .name = "ptr", .ty = .ptr },
+        .{ .name = "v128", .ty = .v128 },
     }) |item| {
         if (std.mem.eql(u8, trimmed, item.name)) return item.ty;
     }
@@ -118,6 +120,7 @@ pub fn primTypeName(ty: PrimType) []const u8 {
         .f32 => "f32",
         .f64 => "f64",
         .ptr => "ptr",
+        .v128 => "v128",
     };
 }
 
@@ -129,6 +132,7 @@ pub fn primTypeBits(ty: PrimType) u32 {
         .i16, .u16 => 16,
         .i32, .u32, .f32 => 32,
         .i64, .u64, .f64, .ptr => 64,
+        .v128 => 128,
     };
 }
 
@@ -148,7 +152,7 @@ pub fn primTypeBytes(ty: PrimType) u32 {
 }
 
 pub fn primTypeFromTag(tag: u32) ?PrimType {
-    if (tag > @intFromEnum(PrimType.ptr)) return null;
+    if (tag > @intFromEnum(PrimType.v128)) return null;
     return @enumFromInt(tag);
 }
 
@@ -225,7 +229,7 @@ pub fn parseFunctionSig(
         const cap_split = parseOptionalCap(return_text);
         return_cap = cap_split.cap;
         const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
-        if (return_fallible and ty_text.len == 0) return ParseError.InvalidFunctionSig;
+        if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
         if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
             return_ty = .ptr;
         } else {
@@ -319,6 +323,7 @@ pub fn parseFunctionHeader(
         const cap_split = parseOptionalCap(return_text);
         return_cap = cap_split.cap;
         const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
+        if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
         if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
             return_ty = .ptr;
         } else {
@@ -396,4 +401,239 @@ test "parse function signature with params and return cap" {
     try std.testing.expectEqual(instr.CapPrefix.move, sig.return_cap.?);
     try std.testing.expectEqual(PrimType.i32, sig.return_ty);
     try std.testing.expect(sig.return_fallible);
+}
+
+test "parse function headers cover all declaration kinds" {
+    const cases = [_]struct {
+        kind: FunctionKind,
+        text: []const u8,
+        name: []const u8,
+        is_ffi_wrapper: bool,
+        return_cap: ?instr.CapPrefix,
+        return_ty: PrimType,
+        return_fallible: bool,
+        param_count: usize,
+    }{
+        .{
+            .kind = .normal,
+            .text = "@main() -> i32:",
+            .name = "main",
+            .is_ffi_wrapper = false,
+            .return_cap = null,
+            .return_ty = .i32,
+            .return_fallible = false,
+            .param_count = 0,
+        },
+        .{
+            .kind = .ffi_wrapper,
+            .text = "@ffi_wrapper bridge(*raw: ptr) -> ^ptr!:",
+            .name = "bridge",
+            .is_ffi_wrapper = true,
+            .return_cap = .move,
+            .return_ty = .ptr,
+            .return_fallible = true,
+            .param_count = 1,
+        },
+        .{
+            .kind = .external,
+            .text = "@extern memcpy(*dst: ptr, *src: ptr, len: u64) -> i32",
+            .name = "memcpy",
+            .is_ffi_wrapper = false,
+            .return_cap = null,
+            .return_ty = .i32,
+            .return_fallible = false,
+            .param_count = 3,
+        },
+        .{
+            .kind = .exported,
+            .text = "@export simd(v: v128) -> v128:",
+            .name = "simd",
+            .is_ffi_wrapper = false,
+            .return_cap = null,
+            .return_ty = .v128,
+            .return_fallible = false,
+            .param_count = 1,
+        },
+    };
+
+    for (cases, 0..) |case, idx| {
+        var parsed = try parseFunctionHeader(std.testing.allocator, case.text, @intCast(idx), @intCast(idx * 10), case.kind);
+        defer parsed.deinit(std.testing.allocator);
+
+        try std.testing.expectEqual(@as(u32, @intCast(idx)), parsed.id);
+        try std.testing.expectEqual(case.kind, parsed.kind);
+        try std.testing.expectEqual(case.is_ffi_wrapper, parsed.is_ffi_wrapper);
+        try std.testing.expectEqual(case.return_cap, parsed.return_cap);
+        try std.testing.expectEqual(case.return_ty, parsed.return_ty);
+        try std.testing.expectEqual(case.return_fallible, parsed.return_fallible);
+        try std.testing.expectEqual(case.param_count, parsed.params.len);
+        try std.testing.expectEqualStrings(case.name, parsed.name);
+    }
+}
+
+test "prim types accept all supported literals including v128" {
+    const cases = [_]struct {
+        text: []const u8,
+        ty: PrimType,
+    }{
+        .{ .text = "void", .ty = .void },
+        .{ .text = "i1", .ty = .i1 },
+        .{ .text = "i8", .ty = .i8 },
+        .{ .text = "i16", .ty = .i16 },
+        .{ .text = "i32", .ty = .i32 },
+        .{ .text = "i64", .ty = .i64 },
+        .{ .text = "u8", .ty = .u8 },
+        .{ .text = "u16", .ty = .u16 },
+        .{ .text = "u32", .ty = .u32 },
+        .{ .text = "u64", .ty = .u64 },
+        .{ .text = "f32", .ty = .f32 },
+        .{ .text = "f64", .ty = .f64 },
+        .{ .text = "ptr", .ty = .ptr },
+        .{ .text = "v128", .ty = .v128 },
+    };
+
+    for (cases) |case| {
+        try std.testing.expectEqual(case.ty, try parsePrimType(case.text));
+        try std.testing.expectEqualStrings(case.text, primTypeName(case.ty));
+    }
+}
+
+const TypeCase = struct {
+    name: []const u8,
+    ty: PrimType,
+};
+
+const all_type_cases = [_]TypeCase{
+    .{ .name = "void", .ty = .void },
+    .{ .name = "i1", .ty = .i1 },
+    .{ .name = "i8", .ty = .i8 },
+    .{ .name = "i16", .ty = .i16 },
+    .{ .name = "i32", .ty = .i32 },
+    .{ .name = "i64", .ty = .i64 },
+    .{ .name = "u8", .ty = .u8 },
+    .{ .name = "u16", .ty = .u16 },
+    .{ .name = "u32", .ty = .u32 },
+    .{ .name = "u64", .ty = .u64 },
+    .{ .name = "f32", .ty = .f32 },
+    .{ .name = "f64", .ty = .f64 },
+    .{ .name = "ptr", .ty = .ptr },
+    .{ .name = "v128", .ty = .v128 },
+};
+
+const nonvoid_type_cases = [_]TypeCase{
+    .{ .name = "i1", .ty = .i1 },
+    .{ .name = "i8", .ty = .i8 },
+    .{ .name = "i16", .ty = .i16 },
+    .{ .name = "i32", .ty = .i32 },
+    .{ .name = "i64", .ty = .i64 },
+    .{ .name = "u8", .ty = .u8 },
+    .{ .name = "u16", .ty = .u16 },
+    .{ .name = "u32", .ty = .u32 },
+    .{ .name = "u64", .ty = .u64 },
+    .{ .name = "f32", .ty = .f32 },
+    .{ .name = "f64", .ty = .f64 },
+    .{ .name = "ptr", .ty = .ptr },
+    .{ .name = "v128", .ty = .v128 },
+};
+
+fn capText(prefix: instr.CapPrefix) []const u8 {
+    return switch (prefix) {
+        .by_value => "",
+        .borrow => "&",
+        .move => "^",
+        .raw => "*",
+    };
+}
+
+fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
+    try std.testing.expectEqual(expected.id, actual.id);
+    try std.testing.expectEqual(expected.kind, actual.kind);
+    try std.testing.expectEqual(expected.return_cap, actual.return_cap);
+    try std.testing.expectEqual(expected.return_ty, actual.return_ty);
+    try std.testing.expectEqual(expected.return_fallible, actual.return_fallible);
+    try std.testing.expectEqual(expected.entry_inst_idx, actual.entry_inst_idx);
+    try std.testing.expectEqual(expected.is_ffi_wrapper, actual.is_ffi_wrapper);
+    try std.testing.expectEqualStrings(expected.name, actual.name);
+    try std.testing.expectEqual(expected.params.len, actual.params.len);
+    for (expected.params, actual.params) |lhs, rhs| {
+        try std.testing.expectEqual(lhs.ty, rhs.ty);
+        try std.testing.expectEqual(lhs.cap, rhs.cap);
+        try std.testing.expectEqualStrings(lhs.name, rhs.name);
+    }
+}
+
+test "function signature parsing is deterministic across random headers" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_4111);
+    const random = prng.random();
+    const kinds = [_]FunctionKind{ .normal, .ffi_wrapper, .external, .exported };
+    const caps = [_]instr.CapPrefix{ .by_value, .borrow, .move, .raw };
+
+    for (0..64) |idx| {
+        const kind = kinds[random.intRangeLessThan(usize, 0, kinds.len)];
+        const param_count = random.intRangeAtMost(usize, 0, 3);
+        const include_return = random.boolean();
+        const return_fallible = include_return and random.boolean();
+        var return_case = all_type_cases[random.intRangeLessThan(usize, 0, all_type_cases.len)];
+        if (return_fallible and return_case.ty == .void) {
+            return_case = nonvoid_type_cases[random.intRangeLessThan(usize, 0, nonvoid_type_cases.len)];
+        }
+        const return_cap = if (include_return and return_case.ty != .void and random.boolean())
+            caps[random.intRangeLessThan(usize, 0, caps.len)]
+        else
+            instr.CapPrefix.by_value;
+
+        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer buf.deinit();
+        const writer = buf.writer();
+
+        switch (kind) {
+            .normal => try writer.writeAll("@"),
+            .ffi_wrapper => try writer.writeAll("@ffi_wrapper "),
+            .external => try writer.writeAll("@extern "),
+            .exported => try writer.writeAll("@export "),
+        }
+        try writer.print("f_{d}(", .{idx});
+        for (0..param_count) |pidx| {
+            if (pidx != 0) try writer.writeAll(", ");
+            const param_cap = caps[random.intRangeLessThan(usize, 0, caps.len)];
+            const param_ty = nonvoid_type_cases[random.intRangeLessThan(usize, 0, nonvoid_type_cases.len)];
+            try writer.print("{s}p{d}: {s}", .{ capText(param_cap), pidx, param_ty.name });
+        }
+        try writer.writeByte(')');
+
+        if (include_return) {
+            try writer.writeAll(" -> ");
+            if (return_case.ty != .void) try writer.writeAll(capText(return_cap));
+            try writer.writeAll(return_case.name);
+            if (return_fallible) try writer.writeByte('!');
+        }
+        if (kind != .external) try writer.writeByte(':');
+
+        var first = try parseFunctionHeader(std.testing.allocator, buf.items, @intCast(idx), @intCast(idx * 10), kind);
+        defer first.deinit(std.testing.allocator);
+        var second = try parseFunctionHeader(std.testing.allocator, buf.items, @intCast(idx), @intCast(idx * 10), kind);
+        defer second.deinit(std.testing.allocator);
+
+        try expectSigEqual(first, second);
+    }
+}
+
+test "type literal PBT accepts supported names and rejects near misses" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_4112);
+    const random = prng.random();
+
+    for (0..96) |idx| {
+        const chosen = all_type_cases[random.intRangeLessThan(usize, 0, all_type_cases.len)];
+        const padded = try std.fmt.allocPrint(std.testing.allocator, " \t{s}\r ", .{chosen.name});
+        defer std.testing.allocator.free(padded);
+        try std.testing.expectEqual(chosen.ty, try parsePrimType(padded));
+
+        const invalid = switch (idx % 3) {
+            0 => try std.fmt.allocPrint(std.testing.allocator, "{s}_x", .{chosen.name}),
+            1 => try std.fmt.allocPrint(std.testing.allocator, "{s}{d}", .{ chosen.name, idx }),
+            else => try std.fmt.allocPrint(std.testing.allocator, "x_{s}", .{chosen.name}),
+        };
+        defer std.testing.allocator.free(invalid);
+        try std.testing.expectError(ParseError.UnsupportedType, parsePrimType(invalid));
+    }
 }

@@ -1,0 +1,65 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def State_SIZE = 16
+#def State_TAG = +0
+#def State_VALUE = +8
+
+#def TAG_INIT = 0
+#def TAG_DONE = 1
+#def POLL_READY = 1
+
+@poll_run(state: &ptr) -> i32:
+L_ENTRY:
+    tag = load state+State_TAG as u64
+    is_init = eq tag, TAG_INIT
+    br is_init -> L_INIT, L_DONE
+
+L_INIT:
+    step = 1
+    result = add step, 1
+    store state+State_VALUE, result as i32
+    store state+State_TAG, TAG_DONE as u64
+    !step
+    !result
+    !is_init
+    !tag
+    !state
+    return POLL_READY
+
+L_DONE:
+    !is_init
+    !tag
+    !state
+    return POLL_READY
+
+@main() -> i32:
+L_ENTRY:
+    state = alloc State_SIZE
+    store state+State_TAG, TAG_INIT as u64
+
+    status = call @poll_run(&state)
+    value = load state+State_VALUE as i32
+    ok_status = eq status, POLL_READY
+    ok_value = eq value, 2
+    ok = and ok_status, ok_value
+
+    !status
+    !value
+    !ok_status
+    !ok_value
+    !state
+
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,37 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"15\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Env_SIZE = 4
+#def Env_offset = +0
+
+@closure_add_offset(env: &ptr, x: i32) -> i32:
+L_ENTRY:
+    offset = load env+Env_offset as i32
+    result = add x, offset
+    !offset
+    !env
+    !x
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    env = alloc Env_SIZE
+    store env+Env_offset, 5 as i32
+
+    result = call @closure_add_offset(&env, 10)
+    ok = eq result, 15
+    !result
+    !env
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

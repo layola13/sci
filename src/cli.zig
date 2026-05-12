@@ -167,7 +167,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8) !Compile
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
 
-    var flat = flattener.flatten(allocator, source) catch |err| {
+    var flat = flattener.flattenFile(allocator, source_path, source) catch |err| {
         return .{ .trap = trapFromFlattenError(source, err) };
     };
     errdefer flat.deinit(allocator);

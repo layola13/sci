@@ -1,9 +1,8 @@
 .zig-cache/
 
 zig-out/
-
-# code-index generated artifacts
 .code_index
+# code-index generated artifacts
 .claude/skills/code-index
 .codex/skills/code-index
 .opencode/skills/code-index

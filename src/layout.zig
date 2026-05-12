@@ -67,6 +67,7 @@ fn fieldInfo(ty: sig.PrimType, target_bits: u16) LayoutError!FieldInfo {
         .i16, .u16 => .{ .size = 2, .alignment = 2 },
         .i32, .u32, .f32 => .{ .size = 4, .alignment = 4 },
         .i64, .u64, .f64 => .{ .size = 8, .alignment = 8 },
+        .v128 => .{ .size = 16, .alignment = 16 },
         .ptr => switch (target_bits) {
             32 => .{ .size = 4, .alignment = 4 },
             64 => .{ .size = 8, .alignment = 8 },
@@ -260,12 +261,20 @@ test "layout json output and 32-bit ptr alignment" {
     );
 }
 
-test "layout rejects invalid field types and empty structs" {
+test "layout handles empty structs, v128 alignment, and invalid names" {
     var empty = try compute(std.testing.allocator, "Empty", "   ", 64);
     defer empty.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(u32, 0), empty.size);
     try std.testing.expectEqual(@as(usize, 0), empty.fields.len);
 
-    try std.testing.expectError(LayoutError.UnsupportedType, compute(std.testing.allocator, "Bad", "x:v128", 64));
+    var packet = try compute(std.testing.allocator, "Packet", "tag:u32, lanes:v128, tail:u8", 64);
+    defer packet.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u32, 48), packet.size);
+    try std.testing.expectEqual(@as(u32, 16), packet.max_align);
+    try std.testing.expectEqual(@as(u32, 16), packet.fields[1].offset);
+    try std.testing.expectEqual(@as(u32, 16), packet.fields[1].size);
+    try std.testing.expectEqual(@as(u32, 16), packet.fields[1].alignment);
+    try std.testing.expectEqual(sig.PrimType.v128, packet.fields[1].ty);
+
     try std.testing.expectError(LayoutError.InvalidFieldName, compute(std.testing.allocator, "123Bad", "", 64));
 }

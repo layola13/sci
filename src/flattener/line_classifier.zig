@@ -3,6 +3,7 @@ const std = @import("std");
 pub const LineKind = enum {
     blank_or_comment,
     def,
+    import_decl,
     loc_hint,
     func_decl,
     ffi_wrapper_decl,
@@ -65,6 +66,13 @@ fn isIdentStart(c: u8) bool {
 
 fn isIdentChar(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+fn containsToken(tokens: []const []const u8, needle: []const u8) bool {
+    for (tokens) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
 }
 
 fn startsWithWord(s: []const u8, word: []const u8) bool {
@@ -131,6 +139,47 @@ fn splitTrailingType(text: []const u8) ?struct { body: []const u8, ty: []const u
     return .{ .body = body, .ty = ty };
 }
 
+pub fn collectNativeRegisterNames(allocator: std.mem.Allocator, text: []const u8) ![]const []const u8 {
+    var names = std.ArrayList([]const u8).init(allocator);
+    errdefer names.deinit();
+
+    var idx: usize = 0;
+    while (idx < text.len) {
+        if (text[idx] == '"') {
+            idx += 1;
+            while (idx < text.len) : (idx += 1) {
+                if (text[idx] == '\\' and idx + 1 < text.len) {
+                    idx += 1;
+                    continue;
+                }
+                if (text[idx] == '"') {
+                    idx += 1;
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if (!isIdentStart(text[idx])) {
+            idx += 1;
+            continue;
+        }
+
+        const prev = if (idx == 0) 0 else text[idx - 1];
+        const start = idx;
+        idx += 1;
+        while (idx < text.len and isIdentChar(text[idx])) : (idx += 1) {}
+        const token = text[start..idx];
+
+        if (prev == '@' or prev == '%') continue;
+        if (!containsToken(names.items, token)) {
+            try names.append(token);
+        }
+    }
+
+    return try names.toOwnedSlice();
+}
+
 fn parseFunctionHeader(
     raw: []const u8,
     trimmed: []const u8,
@@ -193,6 +242,21 @@ fn parseLocHint(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
     addPart(&out, 0, file);
     addPart(&out, 1, line_text);
     addPart(&out, 2, col_text);
+    return out;
+}
+
+fn parseImport(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
+    if (!std.mem.startsWith(u8, trimmed, "@import")) return null;
+
+    const after = std.mem.trimLeft(u8, trimmed["@import".len..], " \t");
+    if (after.len < 2 or after[0] != '"') return null;
+    const end_quote = std.mem.indexOfScalarPos(u8, after, 1, '"') orelse return null;
+    const path = after[1..end_quote];
+    const rest = std.mem.trim(u8, after[end_quote + 1 ..], " \t\r");
+    if (path.len == 0 or rest.len != 0) return null;
+
+    var out = makeLine(.import_decl, raw, trimmed);
+    addPart(&out, 0, path);
     return out;
 }
 
@@ -576,6 +640,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
     }
 
     if (parseLocHint(line, trimmed)) |out| return out;
+    if (parseImport(line, trimmed)) |out| return out;
 
     if (parseFunctionHeader(line, trimmed, "@ffi_wrapper", .ffi_wrapper_decl, true)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@extern", .extern_decl, false)) |out| return out;
@@ -686,6 +751,10 @@ test "classify representative line families" {
     try std.testing.expectEqualStrings("42", loc.parts[1]);
     try std.testing.expectEqualStrings("7", loc.parts[2]);
 
+    const import = classifyLine("@import \"sa_std/io/print.saasm-iface\"");
+    try std.testing.expectEqual(LineKind.import_decl, import.kind);
+    try std.testing.expectEqualStrings("sa_std/io/print.saasm-iface", import.parts[0]);
+
     const raw = classifyLine("raw = *safe");
     try std.testing.expectEqual(InstructionForm.raw_cast, raw.inst_form.?);
 
@@ -732,4 +801,17 @@ test "classify representative line families" {
     const native = classifyLine("$const x = 1;$");
     try std.testing.expectEqual(LineKind.native, native.kind);
     try std.testing.expectEqualStrings("const x = 1;", native.parts[0]);
+}
+
+test "native register extraction keeps bare identifiers and skips llvm sigils" {
+    const names = try collectNativeRegisterNames(std.testing.allocator, "call side(ptr foo, i32 bar) ; @glob %tmp \"skip me\" foo");
+    defer std.testing.allocator.free(names);
+
+    try std.testing.expectEqual(@as(usize, 6), names.len);
+    try std.testing.expectEqualStrings("call", names[0]);
+    try std.testing.expectEqualStrings("side", names[1]);
+    try std.testing.expectEqualStrings("ptr", names[2]);
+    try std.testing.expectEqualStrings("foo", names[3]);
+    try std.testing.expectEqualStrings("i32", names[4]);
+    try std.testing.expectEqualStrings("bar", names[5]);
 }

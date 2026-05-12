@@ -18,6 +18,43 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
+    const sa_std_static_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_std.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const sa_std_static = b.addLibrary(.{
+        .name = "sa_std",
+        .root_module = sa_std_static_module,
+        .linkage = .static,
+    });
+    const install_sa_std_static = b.addInstallArtifact(sa_std_static, .{});
+    b.getInstallStep().dependOn(&install_sa_std_static.step);
+
+    const sa_std_shared_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_std.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const sa_std_shared = b.addLibrary(.{
+        .name = "sa_std",
+        .root_module = sa_std_shared_module,
+        .linkage = .dynamic,
+    });
+    const install_sa_std_shared = b.addInstallArtifact(sa_std_shared, .{});
+    b.getInstallStep().dependOn(&install_sa_std_shared.step);
+
+    const install_sa_std_header = b.addInstallHeaderFile(b.path("src/runtime/sa_std.h"), "sa_std.h");
+    b.getInstallStep().dependOn(&install_sa_std_header.step);
+
+    const sa_std_static_step = b.step("sa-std-static", "Build and install the static SA standard runtime library");
+    sa_std_static_step.dependOn(&install_sa_std_static.step);
+    sa_std_static_step.dependOn(&install_sa_std_header.step);
+
+    const sa_std_shared_step = b.step("sa-std-shared", "Build and install the shared SA standard runtime library");
+    sa_std_shared_step.dependOn(&install_sa_std_shared.step);
+    sa_std_shared_step.dependOn(&install_sa_std_header.step);
+
     const tests = b.addTest(.{
         .root_module = lib_module,
     });
@@ -62,6 +99,30 @@ pub fn build(b: *std.Build) void {
     const run_std_smoke = b.addRunArtifact(std_smoke);
     run_std_smoke.setCwd(repo_root);
     test_step.dependOn(&run_std_smoke.step);
+
+    const sa_std_unit_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_std.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const sa_std_unit = b.addTest(.{
+        .root_module = sa_std_unit_module,
+    });
+    const run_sa_std_unit = b.addRunArtifact(sa_std_unit);
+    run_sa_std_unit.setCwd(repo_root);
+    test_step.dependOn(&run_sa_std_unit.step);
+
+    const sa_std_runtime_module = b.createModule(.{
+        .root_source_file = b.path("tests/sa_std_runtime.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const sa_std_runtime = b.addTest(.{
+        .root_module = sa_std_runtime_module,
+    });
+    const run_sa_std_runtime = b.addRunArtifact(sa_std_runtime);
+    run_sa_std_runtime.setCwd(repo_root);
+    test_step.dependOn(&run_sa_std_runtime.step);
 
     const smoke = b.addTest(.{
         .root_source_file = b.path("tests/smoke/whitepaper_lint.zig"),

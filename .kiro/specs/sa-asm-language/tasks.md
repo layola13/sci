@@ -143,24 +143,31 @@ sa/
   - [ ] 4.14 寄存器名规范化为 `u32` ID（保留 SymbolTable）
     - _Requirements: R2.1_
 
-  - [ ] 4.15 函数签名解析
-    - 识别 `@func` / `@ffi_wrapper` / `@extern` / `@export` 四类
-    - 识别 `-> T!` 可失败标记，设置 `return_fallible`
+  - [x] 4.15 函数签名解析
+    - `src/common/signature.zig` 已覆盖 `@func` / `@ffi_wrapper` / `@extern` / `@export` 四类
+    - 已解析 `-> T!` 可失败返回并保留 `return_fallible`
     - _Requirements: R3.1, R5.1, R5.3, R13.4, R13.9, R14.9, R14.10, R18.1_
 
-  - [ ]* 4.16 签名解析确定性 PBT — **P11**
+  - [x]* 4.16 签名解析确定性 PBT — **P11**
+    - `src/common/signature.zig` 已加入随机函数头生成与双次解析结构等价断言
     - _Requirements: R2.2, R5.1, R5.3_
 
-  - [ ] 4.17 原生类型字面量合法性（11 种 + `v128`）
+  - [x] 4.17 原生类型字面量合法性（11 种 + `v128`）
+    - `PrimType` / `parsePrimType` / layout / LLVM type mapping 已接入 `v128`
+    - `saasm run` 遇 `v128` 明确返回 `UnsupportedInstruction`，不伪造语义
     - _Requirements: R2.4_
 
-  - [ ]* 4.18 类型字面量 PBT — **P14**
+  - [x]* 4.18 类型字面量 PBT — **P14**
+    - `src/common/signature.zig` 已加入合法字面量随机采样与近似非法字面量拒绝测试
     - _Requirements: R2.4_
 
-  - [ ] 4.19 原生逃逸块 `$...$` 识别 + 涉及寄存器名列表
+  - [x] 4.19 原生逃逸块 `$...$` 识别 + 涉及寄存器名列表
+    - `src/flattener/line_classifier.zig` 已识别 `$...$` 为 `native`
+    - `src/flattener.zig` 已把块内容保存到 `Instruction.native_text`，并提取裸标识符列表到 `Instruction.native_reg_names`
     - _Requirements: R1.5_
 
-  - [ ] 4.20 气闸舱指令解析（`*` / `assume_safe` / `assume_borrow`）
+  - [x] 4.20 气闸舱指令解析（`*` / `assume_safe` / `assume_borrow`）
+    - Flattener / line classifier 已解析 `RawCast` / `AssumeSafe` / `AssumeBorrow` 三类指令
     - _Requirements: R13.1, R13.2, R13.3_
 
   - [x] 4.20a `ptr_add` 解析（`dst = ptr_add base, off`）
@@ -225,28 +232,36 @@ sa/
   - [ ]* 6.11 Phi PBT — **P9**
     - _Requirements: R10.1, R10.3_
 
-  - [ ] 6.12 调用点契约前缀校验
+  - [x] 6.12 调用点契约前缀校验
+    - `src/referee/verifier.zig` 已在直接调用路径校验 call-site capability prefix 与声明签名一致
+    - `src/referee/call.zig` 同步提供纯解析/校验 helper
     - _Requirements: R5.2_
 
-  - [ ]* 6.13 调用契约 PBT — **P12**
+  - [x]* 6.13 调用契约 PBT — **P12**
+    - `src/referee/call.zig` 已加入随机 capability 合约 PBT
+    - `src/referee/verifier.zig` 已加入真实程序路径的前缀失配随机回归
     - _Requirements: R5.2_
 
-  - [ ] 6.14 原生逃逸保守消费
+  - [x] 6.14 原生逃逸保守消费
+    - `src/referee/verifier.zig` 已将 `$...$` 视为 contract boundary：引用的已知寄存器按保守消费处理
+    - 借用视图按现有消费语义清借用；`stack_alloc` 穿越原生边界直接 `Trap: StackEscape`
     - _Requirements: R5.4_
 
-  - [ ]* 6.15 原生逃逸保守消费 PBT — **P3**
+  - [x]* 6.15 原生逃逸保守消费 PBT — **P3**
+    - 已加入确定性负例与随机化回归：`native` 后再访问被引用寄存器触发 `UseAfterMove`
     - _Requirements: R5.4_
 
-  - [ ] 6.16 **气闸舱强制隔离**
+  - [x] 6.16 **气闸舱强制隔离**
     - `RawCast` / `AssumeSafe` / `AssumeBorrow` 仅当 `is_ffi_wrapper == true` 通过
     - 否则 `Trap: IllegalUnsafeContext`
     - _Requirements: R13.1, R13.4, R13.5_
 
-  - [ ]* 6.17 气闸舱隔离 PBT — **P21**
+  - [x]* 6.17 气闸舱隔离 PBT — **P21**
+    - 已加入随机化测试覆盖 `*` / `assume_safe` / `assume_borrow` 在普通函数中的非法使用
     - _Requirements: R13.1–R13.5_
 
-  - [ ] 6.18 **FFI 借用不可销毁**
-    - `FfiBorrow` 位寄存器遇 `^` → `Trap: FfiOwnershipViolation`；遇 `!` 仅清记录不发射 free
+  - [x] 6.18 **FFI 借用不可销毁**
+    - Verifier / CapabilityTable 已对 `FfiBorrow` 位寄存器落地：遇 `^` → `Trap: FfiOwnershipViolation`；遇 `!` 仅清记录不发射 free
     - _Requirements: R13.3, R13.7_
 
   - [x] 6.18a 母借用 / 子指针追踪
@@ -258,12 +273,13 @@ sa/
     - Verifier 已在 `@extern` / `@ffi_wrapper` 调用边界拦截 `InteriorPtr`
     - _Requirements: R13.6, R13.7_
 
-  - [ ]* 6.18c 内部指针生命周期 PBT — **P26**
-    - 生成 `ptr_add` 派生内部指针后释放母借用，断言后续访问触发 `UseAfterMove`
-    - 生成 `InteriorPtr` 作为 `@extern` / `@ffi_wrapper` 实参，断言触发 `InteriorPtrEscape`
+  - [x]* 6.18c 内部指针生命周期 PBT — **P26**
+    - 已加入随机化测试：释放母借用后访问派生 `InteriorPtr` 触发 `UseAfterMove`
+    - 已加入随机化测试：`InteriorPtr` 作为 `@extern` / `@ffi_wrapper` 实参触发 `InteriorPtrEscape`
     - _Requirements: R4.9, R4.10, R13.6, R13.7_
 
-  - [ ]* 6.19 FFI 借用不可销毁 PBT — **P22**
+  - [x]* 6.19 FFI 借用不可销毁 PBT — **P22**
+    - 已加入 `assume_borrow` 状态位断言、`^`/`return` 违规断言与 CapabilityTable 对应单测
     - _Requirements: R13.3, R13.7_
 
   - [x] 6.20 **错误传播早返回泄漏校验**
@@ -276,7 +292,8 @@ sa/
     - `stack_alloc` 作为 `^` / `return` / `move` / `call` 实参时必须 `Trap: StackEscape`
     - _Requirements: R2.1, R2.8, R9.1_
 
-  - [ ]* 6.21 早返回泄漏 PBT — **P24**
+  - [x]* 6.21 早返回泄漏 PBT — **P24**
+    - `src/referee/verifier.zig` 已加入随机 live allocation 泄漏用例，断言 `?` 的 fail edge 触发 `Trap: EarlyReturnLeak`
     - _Requirements: R18.5_
 
   - [x] 6.22 原子 ordering 一致性校验
@@ -312,24 +329,40 @@ sa/
 
 - [ ] 8. W10-11 LLVM IR Emitter + CLI + `zig cc` 全权代劳的 exe/wasm
 
-  - [ ] 8.1 基础映射 M01–M07（alloc/free/load/store/运算）
-    - 按 design 附录 A 精确输出
+  - [x] 8.1 基础映射 M01–M07（alloc/free/load/store/运算）
+    - `src/emit_llvm.zig` 已直接覆盖：
+      - `alloc -> call ptr @malloc(...)`
+      - owned `!r -> call void @free(ptr ...)`
+      - borrowed `!r -> no-op`
+      - typed `load/store -> getelementptr + load/store`
+      - 算术/比较按整数/无符号/浮点类型分别发射；`gt` 已修正为整数路径 `icmp sgt`
+    - 已补 emitter 级直接测试：`llvm emitter maps M01-M07 with typed integer ops and owned release`、`llvm emitter maps M03 borrow release to no-op`
+    - `src/referee/verifier.zig` 已修正 `AnnotatedInstruction.entry_caps/exit_caps` 快照时机，保证 emitter 基于真实 entry state 判断 release 是否物理 free
     - _Requirements: R14.3–R14.6_
 
   - [ ] 8.2 控制流映射 M08–M13（LLVM 原生 `br` + labels）
+    - `jmp` / `br` / `br_null` / direct call / `return` 已有 emitter 级直接测试
+    - **仍未完成**：`call_indirect` 当前仍是固定 `i64 (...) -> i64` 降级，未按签名保真发射，不能诚实勾选整项
     - _Requirements: R14.8_
 
-  - [ ] 8.3 `take` 映射 M14
+  - [x] 8.3 `take` 映射 M14
+    - `src/emit_llvm.zig` 已将 `take src+off` 发射为 `getelementptr i8, ptr %src, i64 off` + `load ptr`
+    - 已补 emitter 级直接测试，断言 LLVM 产物包含 `load ptr, ptr`
     - _Requirements: R14.5_
 
-  - [ ] 8.4 原生逃逸块 M15 字节级透传
+  - [x] 8.4 原生逃逸块 M15 字节级透传
+    - `src/emit_llvm.zig` 已原样输出 `Instruction.native_text` 为独立 LLVM IR 行
     - _Requirements: R14.7_
 
-  - [ ]* 8.5 原生逃逸字节透传 PBT — **P2**
+  - [x]* 8.5 原生逃逸字节透传 PBT — **P2**
+    - `src/emit_llvm.zig` 已加入确定性与随机片段透传测试，断言发射结果包含原始 native bytes
     - _Requirements: R14.7_
 
-  - [ ] 8.6 函数/Label/`@extern`/`@export` 映射 M16-M17, M21-M22
-    - 无名称修饰；标准 C-ABI 布局
+  - [x] 8.6 函数/Label/`@extern`/`@export` 映射 M16-M17, M21-M22
+    - `src/emit_llvm.zig` 已对普通函数/label 产出 `define` / `L_X:`
+    - `@extern` 已产出 LLVM `declare`
+    - `@export` 已产出无名称修饰的 `define`
+    - `tests/cli_smoke.zig` 与 emitter 单测已覆盖 IR 与目标文件符号证据
     - _Requirements: R14.9, R14.10_
 
   - [ ] 8.7 索引访问物理降维（`mul + GEP + load`）
@@ -338,11 +371,16 @@ sa/
   - [ ]* 8.8 索引访问 PBT — **P15**
     - _Requirements: R6.5_
 
-  - [ ] 8.9 气闸舱指令映射 M18-M20（`ptrtoint` / `inttoptr`）
+  - [x] 8.9 气闸舱指令映射 M18-M20（`ptrtoint` / `inttoptr`）
+    - `src/emit_llvm.zig` 已将 `raw = *safe` 发射为 `ptrtoint ptr ... to i64`
+    - `assume_safe` / `assume_borrow` 已发射为 `inttoptr i64 ... to ptr`
+    - 已补 emitter 级直接测试：`llvm emitter maps M18-M20 airlock casts`
     - _Requirements: R13.1, R13.2, R13.3_
 
-  - [ ] 8.10 原子指令映射 M24-M27
-    - 对接 LLVM `atomic` 关键字 + ordering 语法
+  - [x] 8.10 原子指令映射 M24-M27
+    - `src/emit_llvm.zig` 已发射 `load atomic` / `store atomic` / `atomicrmw` / `cmpxchg` / `fence`
+    - `tests/cli_smoke.zig` 已覆盖端到端 exe/wasm/obj 产物与运行结果
+    - 已补 emitter 级直接测试：`llvm emitter maps M24-M27 atomic instructions directly`
     - _Requirements: R2.6, R14.4, R14.5_
 
   - [x] 8.10a `ptr_add` 映射 M35
@@ -729,7 +767,7 @@ sa/
     - 包含 `ASYNC_CTX_DEF` / `ASYNC_POLL_PROLOGUE` / `ASYNC_AWAIT_POINT` / `ASYNC_RETURN_PENDING` 四个标准宏
     - _Requirements: R26.1, R26.3_
 
-  - [ ] 29.2 Flattener 文件拼接机制（`#include "libsa_async.saasm"`）
+  - [ ] 29.2 Flattener 文件拼接机制（`@import "libsa_async.saasm"`）
     - 在预处理阶段把外部 `.saasm` 文件内容原样插入当前源码
     - _Requirements: R26.4_
 
@@ -779,7 +817,7 @@ sa/
     - 不包含函数体、不包含 `#def`、不包含 `@const`
     - _Requirements: R28.1_
 
-  - [ ] 31.2 Flattener 支持 `#include "module.saasm-iface"`
+  - [ ] 31.2 Flattener 支持 `@import "module.saasm-iface"`
     - 将接口文件中的 `@extern` 声明注入当前编译单元
     - 支持相对路径与绝对路径
     - _Requirements: R28.2_
@@ -807,7 +845,7 @@ sa/
     - `#version N` 元数据行 + `#def` 常量声明
     - _Requirements: R29.1, R29.6_
 
-  - [ ] 32.2 Flattener 支持 `#include "entity.saasm-layout"`
+  - [ ] 32.2 Flattener 支持 `@import "entity.saasm-layout"`
     - 记录引用的 `#version` 值
     - _Requirements: R29.2_
 
@@ -884,7 +922,7 @@ sa/
     - _Requirements: R31.2_
 
   - [ ] 35.4 依赖接口自动注入
-    - 依赖包的 `.saasm-iface` 自动 `#include` 到当前编译单元
+    - 依赖包的 `.saasm-iface` 自动 `@import` 到当前编译单元
     - _Requirements: R31.3_
 
   - [ ] 35.5 依赖布局自动注入（带命名空间前缀）
@@ -930,6 +968,13 @@ sa/
     - _Requirements: R32.4, R32.5_
 
 - [ ] 37. `sa_std` 标准库 v0.1
+
+  - [x] 37.0 SA-facing Zig-backed std facade
+    - `sa_std/{io,fs,net,fmt}.saasm` 作为只含 `@import` 的模块入口
+    - `sa_std/{io,fs,net,fmt}.saasm-iface` 声明 Zig-backed `@extern` API
+    - `sa_std/{io,fs,net,fmt}.saasm-layout` 声明显式布局、错误码和 flag 常量
+    - 句柄/缓冲区全部显式传递，并要求调用方显式 `close` / `free` / `flush`
+    - 保留 `sa_print_bytes` demo 兼容入口
 
   - [ ] 37.1 `sa_std/string.saasm`：字符串操作宏
     - `STR_LEN` / `STR_CONCAT` / `STR_EQ` / `STR_SLICE`

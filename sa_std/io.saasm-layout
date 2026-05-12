@@ -1,0 +1,19 @@
+#def SA_IO_OK = 0
+#def SA_IO_ERR_UNKNOWN = 1
+#def SA_IO_ERR_EOF = 2
+#def SA_IO_ERR_WOULD_BLOCK = 3
+#def SA_IO_ERR_INTERRUPTED = 4
+#def SA_IO_ERR_INVALID_HANDLE = 5
+
+#def SA_IO_STDIN = 0
+#def SA_IO_STDOUT = 1
+#def SA_IO_STDERR = 2
+
+#def SA_IO_SEEK_START = 0
+#def SA_IO_SEEK_CURRENT = 1
+#def SA_IO_SEEK_END = 2
+
+#def SaIoBuffer_SIZE = 24
+#def SaIoBuffer_ptr = +0
+#def SaIoBuffer_len = +8
+#def SaIoBuffer_cap = +16

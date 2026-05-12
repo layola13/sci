@@ -271,15 +271,26 @@ store v+Vec3_x, 1.0 as f32
 
 ## 模块与组织类
 
-### Q: 为什么没有 `mod` / `use` / `import`？
+### Q: 为什么没有 `mod` / `use` 风格模块树？
 
-**A**: SA 用 `@extern` 声明外部符号 + `#include` 引入接口文件（v0.4）。
+**A**: SA 用 `@extern` 声明外部符号 + `@import` 引入接口文件（v0.4）。
 
 原因：
 - `mod` 树是 Rust 的编译单元组织方式，需要全局模块解析
 - SA 的每个 `.saasm` 文件是独立的编译单元，通过 `@extern` 声明依赖
 - 最后由 `zig cc` 链接器合并所有 `.o` 文件
 - v0.4 的 `.saasm-iface` 接口文件提供更结构化的模块契约（R28）
+
+### Q: `sa_std` 是手写 SA 标准库，还是外部标准库？
+
+**A**: `io` / `fs` / `net` / `fmt` 是 SA-facing facade，真实实现由 Zig-backed `libsa_std` 提供。
+
+原因：
+- SA 侧的 `.saasm` 模块入口只用 `@import` 组合 layout 与 iface
+- `.saasm-iface` 只声明 `@extern` 签名，Referee 仍能检查调用点的所有权前缀
+- `.saasm-layout` 只声明显式内存布局和常量，不隐藏句柄或缓冲区
+- API 不使用 trait/generic；文件、socket、格式化缓冲区都用显式 `ptr` 句柄，并要求显式 `close` / `free` / `flush`
+- 旧 demo 的 `sa_print_bytes(&msg, len)` 保留为兼容符号，等价于 Zig-backed stdout 写入
 
 ### Q: 为什么没有 `pub` / `private` 可见性？
 
@@ -799,7 +810,7 @@ zig test test_lib.zig --object lib.o
 
 使用：
 ```
-#include "sa_core.saasm"
+@import "sa_core.saasm"
 
 @main:
 L_ENTRY:
@@ -1159,6 +1170,8 @@ zig build-exe main.zig --object sa_fast.o
 ---
 
 ## SA + C/C++
+
+以下 `#include` 仅出现在宿主 C/C++ 示例中；SA 自身统一使用 `@import`。
 
 ### SA 调用 C/C++
 

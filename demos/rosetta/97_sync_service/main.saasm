@@ -1,0 +1,25 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@sync_once() -> i32:
+L_ENTRY:
+    return 1
+
+@main() -> i32:
+L_ENTRY:
+    sync = call @sync_once()
+    ok = eq sync, 1
+    !sync
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,33 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"7\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Pair_SIZE = 8
+#def Pair_x = +0
+#def Pair_y = +4
+
+@main() -> i32:
+L_ENTRY:
+    pair = alloc Pair_SIZE
+    store pair+Pair_x, 2 as i32
+    store pair+Pair_y, 5 as i32
+    x = load pair+Pair_x as i32
+    y = load pair+Pair_y as i32
+    sum = add x, y
+    ok = eq sum, 7
+    !x
+    !y
+    !sum
+    !pair
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

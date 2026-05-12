@@ -1,0 +1,27 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"31\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Wrapper_i32_SIZE = 4
+#def Wrapper_i32_value = +0
+
+@main() -> i32:
+L_ENTRY:
+    wrapped = alloc Wrapper_i32_SIZE
+    store wrapped+Wrapper_i32_value, 31 as i32
+    value = load wrapped+Wrapper_i32_value as i32
+    ok = eq value, 31
+    !value
+    !wrapped
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

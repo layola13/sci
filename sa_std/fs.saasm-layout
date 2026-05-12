@@ -1,0 +1,31 @@
+#def SA_FS_OK = 0
+#def SA_FS_ERR_UNKNOWN = 1
+#def SA_FS_ERR_NOT_FOUND = 2
+#def SA_FS_ERR_PERMISSION_DENIED = 3
+#def SA_FS_ERR_ALREADY_EXISTS = 4
+#def SA_FS_ERR_INVALID_PATH = 5
+#def SA_FS_ERR_IS_DIR = 6
+#def SA_FS_ERR_NOT_DIR = 7
+
+#def SA_FS_OPEN_READ = 1
+#def SA_FS_OPEN_WRITE = 2
+#def SA_FS_OPEN_CREATE = 4
+#def SA_FS_OPEN_TRUNCATE = 8
+#def SA_FS_OPEN_APPEND = 16
+
+#def SA_FS_FILE_REGULAR = 1
+#def SA_FS_FILE_DIR = 2
+#def SA_FS_FILE_SYMLINK = 3
+#def SA_FS_FILE_OTHER = 255
+
+#def SaFsReadBuffer_SIZE = 24
+#def SaFsReadBuffer_ptr = +0
+#def SaFsReadBuffer_len = +8
+#def SaFsReadBuffer_cap = +16
+
+#def SaFsMetadata_SIZE = 32
+#def SaFsMetadata_kind = +0
+#def SaFsMetadata_permissions = +4
+#def SaFsMetadata_len = +8
+#def SaFsMetadata_modified_unix_sec = +16
+#def SaFsMetadata_created_unix_sec = +24

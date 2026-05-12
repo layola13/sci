@@ -1,0 +1,24 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"POST /api\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Req_SIZE = 16
+#def Req_method = +0
+#def Req_path = +8
+
+@make_request(method: &ptr, path: &ptr) -> i32:
+L_ENTRY:
+    !method
+    !path
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    req = alloc Req_SIZE
+    store req+Req_method, &RESULT_OK as ptr
+    store req+Req_path, &RESULT_OK as ptr
+    call @make_request(&req, &req)
+    call @sa_print_bytes(&RESULT_OK, 10)
+    !req
+    return 0

@@ -6,7 +6,9 @@ const referee = @import("referee.zig");
 const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
+const trap = @import("common/trap.zig");
 const upstream = @import("common/upstream_loc.zig");
+const flattener = @import("flattener.zig");
 const symbol = @import("flattener/symbol.zig");
 
 pub const EmitError = error{
@@ -281,13 +283,46 @@ fn isSignedInt(ty: sig.PrimType) bool {
 
 fn isIntLike(ty: sig.PrimType) bool {
     return switch (ty) {
-        .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
+        .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr => true,
         else => false,
     };
 }
 
 fn isFloatLike(ty: sig.PrimType) bool {
     return ty == .f32 or ty == .f64;
+}
+
+const NumericKind = enum {
+    signed,
+    unsigned,
+    float,
+};
+
+fn numericKind(lhs: sig.PrimType, rhs: sig.PrimType) NumericKind {
+    if (isFloatLike(lhs) or isFloatLike(rhs)) return .float;
+    if (isSignedInt(lhs) or isSignedInt(rhs)) return .signed;
+    return .unsigned;
+}
+
+fn intTypeForBits(bits: u32, signed: bool) sig.PrimType {
+    if (bits <= 1) return .i1;
+    if (bits <= 8) return if (signed) .i8 else .u8;
+    if (bits <= 16) return if (signed) .i16 else .u16;
+    if (bits <= 32) return if (signed) .i32 else .u32;
+    return if (signed) .i64 else .u64;
+}
+
+fn commonFloatType(lhs: sig.PrimType, rhs: sig.PrimType) sig.PrimType {
+    if (lhs == .f64 or rhs == .f64) return .f64;
+    return .f32;
+}
+
+fn commonNumericType(lhs: sig.PrimType, rhs: sig.PrimType) sig.PrimType {
+    return switch (numericKind(lhs, rhs)) {
+        .float => commonFloatType(lhs, rhs),
+        .signed => intTypeForBits(@max(sig.primTypeBits(lhs), sig.primTypeBits(rhs)), true),
+        .unsigned => intTypeForBits(@max(sig.primTypeBits(lhs), sig.primTypeBits(rhs)), false),
+    };
 }
 
 fn llvmTypeName(ty: sig.PrimType) []const u8 {
@@ -301,6 +336,7 @@ fn llvmTypeName(ty: sig.PrimType) []const u8 {
         .f32 => "float",
         .f64 => "double",
         .ptr => "ptr",
+        .v128 => "<16 x i8>",
     };
 }
 
@@ -312,6 +348,7 @@ fn llvmAlign(ty: sig.PrimType) u32 {
         .i16, .u16 => 2,
         .i32, .u32, .f32 => 4,
         .i64, .u64, .f64, .ptr => 8,
+        .v128 => 16,
     };
 }
 
@@ -1122,28 +1159,59 @@ fn emitInstruction(
                     return;
                 }
             }
-            const target_ty: sig.PrimType = if (isFloatLike(lhs.ty) or isFloatLike(rhs.ty)) .f64 else .i64;
+            const kind = numericKind(lhs.ty, rhs.ty);
+            const target_ty = commonNumericType(lhs.ty, rhs.ty);
+            if (kind == .float) {
+                switch (opcode) {
+                    .add, .sub, .mul, .div, .gt, .lt, .eq, .ne => {},
+                    .@"and", .@"or", .shl, .shr => return EmitError.UnsupportedType,
+                }
+            }
             const l = try castValue(allocator, out, state, lhs, target_ty);
             const r = try castValue(allocator, out, state, rhs, target_ty);
             const tmp = try state.tempName(allocator);
             switch (opcode) {
-                .add => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (target_ty == .f64) "fadd" else "add", llvmTypeName(target_ty), l.expr, r.expr }),
-                .sub => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (target_ty == .f64) "fsub" else "sub", llvmTypeName(target_ty), l.expr, r.expr }),
-                .mul => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (target_ty == .f64) "fmul" else "mul", llvmTypeName(target_ty), l.expr, r.expr }),
-                .div => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (target_ty == .f64) "fdiv" else "sdiv", llvmTypeName(target_ty), l.expr, r.expr }),
-                .@"and" => try out.writer().print("  {s} = and i64 {s}, {s}\n", .{ tmp, l.expr, r.expr }),
-                .@"or" => try out.writer().print("  {s} = or i64 {s}, {s}\n", .{ tmp, l.expr, r.expr }),
-                .shl => try out.writer().print("  {s} = shl i64 {s}, {s}\n", .{ tmp, l.expr, r.expr }),
-                .shr => try out.writer().print("  {s} = ashr i64 {s}, {s}\n", .{ tmp, l.expr, r.expr }),
+                .add => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (kind == .float) "fadd" else "add", llvmTypeName(target_ty), l.expr, r.expr }),
+                .sub => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (kind == .float) "fsub" else "sub", llvmTypeName(target_ty), l.expr, r.expr }),
+                .mul => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (kind == .float) "fmul" else "mul", llvmTypeName(target_ty), l.expr, r.expr }),
+                .div => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, switch (kind) {
+                    .float => "fdiv",
+                    .signed => "sdiv",
+                    .unsigned => "udiv",
+                }, llvmTypeName(target_ty), l.expr, r.expr }),
+                .@"and" => try out.writer().print("  {s} = and {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
+                .@"or" => try out.writer().print("  {s} = or {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
+                .shl => try out.writer().print("  {s} = shl {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
+                .shr => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (kind == .signed) "ashr" else "lshr", llvmTypeName(target_ty), l.expr, r.expr }),
                 .gt, .lt, .eq, .ne => {
-                    const cmp = switch (opcode) {
-                        .gt => if (target_ty == .f64) "ogt" else "sgt",
-                        .lt => if (target_ty == .f64) "olt" else "slt",
-                        .eq => if (target_ty == .f64) "oeq" else "eq",
-                        .ne => if (target_ty == .f64) "one" else "ne",
-                        else => unreachable,
+                    const cmp = switch (kind) {
+                        .float => switch (opcode) {
+                            .gt => "ogt",
+                            .lt => "olt",
+                            .eq => "oeq",
+                            .ne => "one",
+                            else => unreachable,
+                        },
+                        .signed => switch (opcode) {
+                            .gt => "sgt",
+                            .lt => "slt",
+                            .eq => "eq",
+                            .ne => "ne",
+                            else => unreachable,
+                        },
+                        .unsigned => switch (opcode) {
+                            .gt => "ugt",
+                            .lt => "ult",
+                            .eq => "eq",
+                            .ne => "ne",
+                            else => unreachable,
+                        },
                     };
-                    try out.writer().print("  {s} = fcmp {s} double {s}, {s}\n", .{ tmp, cmp, l.expr, r.expr });
+                    const cmp_inst = switch (kind) {
+                        .float => "fcmp",
+                        .signed, .unsigned => "icmp",
+                    };
+                    try out.writer().print("  {s} = {s} {s} {s} {s}, {s}\n", .{ tmp, cmp_inst, cmp, llvmTypeName(target_ty), l.expr, r.expr });
                     const zext = try state.tempName(allocator);
                     try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
                     try state.setReg(dst, .{ .expr = zext, .ty = .i64 });
@@ -1486,6 +1554,113 @@ pub fn emitLlvm(
     return try out.toOwnedSlice();
 }
 
+fn emitTestSource(source: []const u8) ![]const u8 {
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    return switch (verified) {
+        .trap => |report| {
+            std.debug.print(
+                "emitTestSource verifier trap: {s} line={d} register={?s} message={s}\nsource:\n{s}\n",
+                .{ trap.trapName(report.trap), report.line, report.register, report.message, source },
+            );
+            return error.TestUnexpectedResult;
+        },
+        .ok => |ok| blk: {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            break :blk try emitLlvm(std.testing.allocator, owned, flat.loc_table, "emit_test.saasm", @as(u16, @bitSizeOf(usize)), .{});
+        },
+    };
+}
+
+fn functionBody(text: []const u8, header_fragment: []const u8) ![]const u8 {
+    const header_start = std.mem.indexOf(u8, text, header_fragment) orelse return error.TestUnexpectedResult;
+    const body_start = std.mem.indexOfPos(u8, text, header_start, "{\n") orelse return error.TestUnexpectedResult;
+    const body_end = std.mem.indexOfPos(u8, text, body_start + 2, "\n}\n") orelse return error.TestUnexpectedResult;
+    return text[body_start + 2 .. body_end];
+}
+
+fn findExecutableForTest(allocator: std.mem.Allocator, names: []const []const u8) !?[]u8 {
+    const path_env = std.process.getEnvVarOwned(allocator, "PATH") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(path_env);
+
+    for (names) |name| {
+        if (std.fs.path.isAbsolute(name)) {
+            std.fs.accessAbsolute(name, .{}) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => continue,
+            };
+            return try allocator.dupe(u8, name);
+        }
+
+        var it = std.mem.tokenizeScalar(u8, path_env, std.fs.path.delimiter);
+        while (it.next()) |dir_path| {
+            const full_path = try std.fs.path.join(allocator, &.{ dir_path, name });
+            defer allocator.free(full_path);
+            std.fs.cwd().access(full_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => continue,
+            };
+            return try allocator.dupe(u8, full_path);
+        }
+    }
+
+    return null;
+}
+
+fn verifyWithOptIfAvailable(allocator: std.mem.Allocator, llvm_ir: []const u8) !bool {
+    const opt_path = (try findExecutableForTest(allocator, &.{
+        "opt",
+        "opt-18",
+        "opt-17",
+        "opt-16",
+        "opt-15",
+        "opt-14",
+        "llvm-opt",
+        "/usr/lib/llvm-18/bin/opt",
+        "/usr/lib/llvm-17/bin/opt",
+        "/usr/lib/llvm-16/bin/opt",
+        "/usr/lib/llvm-15/bin/opt",
+        "/usr/lib/llvm-14/bin/opt",
+    })) orelse return false;
+    defer allocator.free(opt_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const file = try tmp.dir.createFile("module.ll", .{ .truncate = true });
+    defer file.close();
+    try file.writeAll(llvm_ir);
+
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ opt_path, "-verify", "module.ll", "-disable-output" },
+        .cwd_dir = tmp.dir,
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("opt -verify stdout:\n{s}\nstderr:\n{s}\nmodule:\n{s}\n", .{ result.stdout, result.stderr, llvm_ir });
+                return error.TestUnexpectedResult;
+            }
+        },
+        else => {
+            std.debug.print("opt -verify terminated unexpectedly\nstdout:\n{s}\nstderr:\n{s}\nmodule:\n{s}\n", .{ result.stdout, result.stderr, llvm_ir });
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    return true;
+}
+
 test "llvm emitter produces a module with builtin helpers" {
     var symbols = symbol.SymbolTable.init(std.testing.allocator);
     defer symbols.deinit();
@@ -1505,4 +1680,359 @@ test "llvm emitter produces a module with builtin helpers" {
     const text = try emitLlvm(std.testing.allocator, ok, empty_loc, "test.saasm", @as(u16, @bitSizeOf(usize)), .{});
     defer std.testing.allocator.free(text);
     try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "define void @sys_print"));
+}
+
+test "llvm emitter preserves native escape bytes verbatim" {
+    const source =
+        \\@main() -> i32:
+        \\value = alloc 8
+        \\$call void @side_effect()$
+        \\!value
+        \\return 0
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+
+            const text = try emitLlvm(std.testing.allocator, owned, flat.loc_table, "native.saasm", @as(u16, @bitSizeOf(usize)), .{});
+            defer std.testing.allocator.free(text);
+            try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "call void @side_effect()"));
+        },
+    }
+}
+
+test "llvm emitter native escape PBT preserves random verbatim snippets" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_8200);
+    const random = prng.random();
+
+    for (0..32) |iter| {
+        const tag = random.intRangeAtMost(u32, 0, 10_000);
+        const snippet = switch (iter % 3) {
+            0 => try std.fmt.allocPrint(std.testing.allocator, "call void @native_{d}()", .{tag}),
+            1 => try std.fmt.allocPrint(std.testing.allocator, "%tmp{d} = add i64 1, 2", .{tag}),
+            else => try std.fmt.allocPrint(std.testing.allocator, "store i8 7, ptr %tmp{d}, align 1", .{tag}),
+        };
+        defer std.testing.allocator.free(snippet);
+
+        const source = try std.fmt.allocPrint(
+            std.testing.allocator,
+            \\@main() -> i32:
+            \\value = alloc 8
+            \\${s}$
+            \\!value
+            \\return 0
+        , .{snippet});
+        defer std.testing.allocator.free(source);
+
+        var flat = try flattener.flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try referee.verify(std.testing.allocator, flat.instructions);
+        switch (verified) {
+            .trap => return error.TestUnexpectedResult,
+            .ok => |ok| {
+                var owned = ok;
+                defer owned.deinit(std.testing.allocator);
+
+                const text = try emitLlvm(std.testing.allocator, owned, flat.loc_table, "native_pbt.saasm", @as(u16, @bitSizeOf(usize)), .{});
+                defer std.testing.allocator.free(text);
+                try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, snippet));
+            },
+        }
+    }
+}
+
+test "llvm emitter maps M01-M07 with typed integer ops and owned release" {
+    const source =
+        \\@math() -> i64:
+        \\base = alloc 8
+        \\store base+0, 7 as i32
+        \\store base+4, 3 as i32
+        \\lhs = load base+0 as i32
+        \\rhs = load base+4 as i32
+        \\sum = add lhs, rhs
+        \\cmp = gt lhs, rhs
+        \\!lhs
+        \\!rhs
+        \\!sum
+        \\!base
+        \\return cmp
+    ;
+    const text = try emitTestSource(source);
+    defer std.testing.allocator.free(text);
+
+    const body = try functionBody(text, "define i64 @math()");
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "call ptr @malloc("));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 2, "getelementptr i8, ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 2, "store i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 2, "load i32, ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "add i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "icmp sgt i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "zext i1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "call void @free(ptr "));
+}
+
+test "llvm emitter maps M03 borrow release to no-op" {
+    const source =
+        \\@skip_free(&view: ptr) -> i32:
+        \\!view
+        \\return 0
+    ;
+    const text = try emitTestSource(source);
+    defer std.testing.allocator.free(text);
+
+    const body = try functionBody(text, "define i32 @skip_free(ptr %view)");
+    try std.testing.expect(!std.mem.containsAtLeast(u8, body, 1, "call void @free(ptr "));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "ret i32"));
+}
+
+test "llvm emitter maps M08-M11 and M13 control flow and direct calls" {
+    const source =
+        \\@ffi_wrapper callee(*x: i32) -> i32:
+        \\return 7
+        \\
+        \\@noop() -> void:
+        \\return
+        \\
+        \\@jmp_only() -> i32:
+        \\jmp L_DONE
+        \\L_DONE:
+        \\return 7
+        \\
+        \\@ffi_wrapper branch(*flag: i32) -> i32:
+        \\br flag -> L_TRUE, L_FALSE
+        \\L_TRUE:
+        \\return 1
+        \\L_FALSE:
+        \\return 0
+        \\
+        \\@ffi_wrapper branch_null(*p: ptr) -> i32:
+        \\br_null p -> L_NULL, L_NONNULL
+        \\L_NULL:
+        \\return 1
+        \\L_NONNULL:
+        \\return 0
+        \\
+        \\@ffi_wrapper call_only(*x: i32) -> i32:
+        \\value = call @callee(*x)
+        \\return value
+    ;
+    const text = try emitTestSource(source);
+    defer std.testing.allocator.free(text);
+
+    const jmp_body = try functionBody(text, "define i32 @jmp_only()");
+    try std.testing.expect(std.mem.containsAtLeast(u8, jmp_body, 1, "br label %L_DONE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, jmp_body, 1, "L_DONE:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, jmp_body, 1, "ret i32"));
+
+    const branch_body = try functionBody(text, "define i32 @branch(ptr %flag)");
+    try std.testing.expect(std.mem.containsAtLeast(u8, branch_body, 1, "icmp ne i64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, branch_body, 1, "br i1 "));
+    try std.testing.expect(std.mem.containsAtLeast(u8, branch_body, 2, "ret i32"));
+
+    const branch_null_body = try functionBody(text, "define i32 @branch_null(ptr %p)");
+    try std.testing.expect(std.mem.containsAtLeast(u8, branch_null_body, 1, "icmp eq ptr %p, null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, branch_null_body, 1, "br i1 "));
+    try std.testing.expect(std.mem.containsAtLeast(u8, branch_null_body, 2, "ret i32"));
+
+    const call_body = try functionBody(text, "define i32 @call_only(ptr %x)");
+    try std.testing.expect(std.mem.containsAtLeast(u8, call_body, 1, "call i32 @callee(ptr %x)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, call_body, 1, "ret i32"));
+
+    const noop_body = try functionBody(text, "define void @noop()");
+    try std.testing.expect(std.mem.containsAtLeast(u8, noop_body, 1, "ret void"));
+}
+
+test "llvm emitter maps M18-M20 airlock casts" {
+    const source =
+        \\@ffi_wrapper airlock(*raw: ptr) -> ptr:
+        \\safe = assume_safe raw
+        \\raw2 = *safe
+        \\^safe
+        \\safe = assume_safe raw2
+        \\view = assume_borrow raw2
+        \\!view
+        \\return safe
+    ;
+    const text = try emitTestSource(source);
+    defer std.testing.allocator.free(text);
+
+    const body = try functionBody(text, "define ptr @airlock(ptr %raw)");
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "ptrtoint ptr %"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 2, "inttoptr i64 %"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "ret ptr %"));
+}
+
+test "llvm emitter maps M24-M27 atomic instructions directly" {
+    const source =
+        \\@main() -> i32:
+        \\node = alloc 8
+        \\atomic_store node+0, 5 seq_cst
+        \\fence release
+        \\x = atomic_load node+0 seq_cst
+        \\old = atomic_rmw_add node+0, 3 seq_cst
+        \\cmp_old, ok = cmpxchg node+0, 8, 11 acq_rel acquire
+        \\y = atomic_load node+0 seq_cst
+        \\^x
+        \\^old
+        \\^cmp_old
+        \\^ok
+        \\!node
+        \\return y
+    ;
+    const text = try emitTestSource(source);
+    defer std.testing.allocator.free(text);
+
+    const body = try functionBody(text, "define i32 @saasm_main()");
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "store atomic i64 5, ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 2, "load atomic i64, ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "atomicrmw add ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "cmpxchg ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "fence release"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, body, 2, "extractvalue {i64, i1}"));
+}
+
+test "llvm emitter maps take to gep plus ptr load" {
+    const source =
+        \\@main() -> i32:
+        \\base = alloc 16
+        \\slot = take base+8
+        \\!slot
+        \\!base
+        \\return 0
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+
+            const text = try emitLlvm(std.testing.allocator, owned, flat.loc_table, "take.saasm", @as(u16, @bitSizeOf(usize)), .{});
+            defer std.testing.allocator.free(text);
+            try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "getelementptr i8, ptr"));
+            try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "load ptr, ptr"));
+        },
+    }
+}
+
+test "llvm emitter declares externs and preserves exported names" {
+    const source =
+        \\@extern ext_add(lhs: i32, rhs: i32) -> i32
+        \\@export exported() -> i32:
+        \\value = call @ext_add(1, 2)
+        \\return value
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+
+            const text = try emitLlvm(std.testing.allocator, owned, flat.loc_table, "exports.saasm", @as(u16, @bitSizeOf(usize)), .{});
+            defer std.testing.allocator.free(text);
+            try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "declare i32 @ext_add(i32, i32)"));
+            try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "define i32 @exported()"));
+            try std.testing.expect(std.mem.indexOf(u8, text, "define i32 @_exported()") == null);
+        },
+    }
+}
+
+test "llvm emitter PBT produces modules without Zig imports" {
+    var prng = std.Random.DefaultPrng.init(0xA16A_0016);
+    const random = prng.random();
+
+    for (0..24) |iter| {
+        const lhs: i32 = @intCast(random.intRangeAtMost(u16, 0, 5000));
+        const rhs: i32 = @intCast(random.intRangeAtMost(u16, 1, 5000));
+        const byte_value: u8 = @intCast(random.intRangeAtMost(u16, 0, 255));
+        const source = try std.fmt.allocPrint(
+            std.testing.allocator,
+            \\@helper_{d}(lhs: i32, rhs: i32) -> i32:
+            \\sum = add lhs, rhs
+            \\cmp = gt lhs, rhs
+            \\^sum
+            \\return cmp
+            \\
+            \\@main() -> i32:
+            \\node = alloc 8
+            \\store node+0, {d} as i32
+            \\store node+4, {d} as i32
+            \\left = load node+0 as i32
+            \\right = load node+4 as i32
+            \\value = call @helper_{d}(left, right)
+            \\!left
+            \\!right
+            \\!value
+            \\store node+0, {d} as i8
+            \\!node
+            \\return 0
+        , .{ iter, lhs, rhs, iter, byte_value });
+        defer std.testing.allocator.free(source);
+
+        const text = try emitTestSource(source);
+        defer std.testing.allocator.free(text);
+
+        try std.testing.expect(std.mem.indexOf(u8, text, "@import(") == null);
+        try std.testing.expect(std.mem.indexOf(u8, text, "const std =") == null);
+        try std.testing.expect(std.mem.indexOf(u8, text, "const builtin =") == null);
+    }
+}
+
+test "llvm emitter PBT passes opt -verify when LLVM opt is available" {
+    var prng = std.Random.DefaultPrng.init(0x0815_0A10);
+    const random = prng.random();
+    var saw_opt = false;
+
+    for (0..12) |iter| {
+        const addend: i32 = @intCast(random.intRangeAtMost(u16, 1, 99));
+        const count: u8 = @intCast(random.intRangeAtMost(u16, 1, 7));
+        const source = try std.fmt.allocPrint(
+            std.testing.allocator,
+            \\@callee_{d}(lhs: i32, rhs: i32) -> i32:
+            \\sum = add lhs, rhs
+            \\^lhs
+            \\^rhs
+            \\^sum
+            \\return {d}
+            \\
+            \\@main() -> i32:
+            \\node = alloc 8
+            \\atomic_store node+0, {d} seq_cst
+            \\fence release
+            \\value = atomic_load node+0 seq_cst
+            \\sum = add value, value
+            \\ok = call @callee_{d}(sum, {d})
+            \\cmp = gt sum, ok
+            \\^value
+            \\^sum
+            \\^ok
+            \\^cmp
+            \\!node
+            \\return 0
+        , .{ iter, addend, count, iter, addend });
+        defer std.testing.allocator.free(source);
+
+        const text = try emitTestSource(source);
+        defer std.testing.allocator.free(text);
+
+        if (try verifyWithOptIfAvailable(std.testing.allocator, text)) {
+            saw_opt = true;
+        }
+    }
+
+    if (!saw_opt) return error.SkipZigTest;
 }

@@ -1,0 +1,27 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def UserId_SIZE = 4
+#def UserId_value = +0
+
+@main() -> i32:
+L_ENTRY:
+    user = alloc UserId_SIZE
+    store user+UserId_value, 42 as u32
+    value = load user+UserId_value as u32
+    ok = eq value, 42
+    !value
+    !user
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,35 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Route_SIZE = 8
+#def Route_path = +0
+#def Route_id = +4
+
+@lookup_route(route: &ptr) -> i32:
+L_ENTRY:
+    id = load route+Route_id as i32
+    !route
+    return id
+
+@main() -> i32:
+L_ENTRY:
+    route = alloc Route_SIZE
+    store route+Route_path, 0 as i32
+    store route+Route_id, 2 as i32
+    id = call @lookup_route(&route)
+    ok = eq id, 2
+    !id
+    !route
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

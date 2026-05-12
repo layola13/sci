@@ -1,0 +1,35 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Entry_SIZE = 8
+#def Entry_key = +0
+#def Entry_value = +4
+
+@lookup(entry: &ptr) -> i32:
+L_ENTRY:
+    value = load entry+Entry_value as i32
+    !entry
+    return value
+
+@main() -> i32:
+L_ENTRY:
+    entry = alloc Entry_SIZE
+    store entry+Entry_key, 0 as i32
+    store entry+Entry_value, 3 as i32
+    value = call @lookup(&entry)
+    ok = eq value, 3
+    !value
+    !entry
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

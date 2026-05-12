@@ -1,0 +1,4 @@
+fn main() {
+    let ready = true;
+    println!("{ready}");
+}
