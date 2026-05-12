@@ -25,6 +25,7 @@ const RegValue = struct {
     bits: u64,
     fallible: bool = false,
     status: u32 = 0,
+    interior_ptr: bool = false,
 };
 
 const SysCallOutcome = union(enum) {
@@ -55,11 +56,11 @@ fn atomicValueType(item: inst.Instruction, fallback: sig.PrimType) sig.PrimType 
 }
 
 fn packFallible(status: u32, value: RegValue) RegValue {
-    return .{ .ty = value.ty, .bits = value.bits, .fallible = true, .status = status };
+    return .{ .ty = value.ty, .bits = value.bits, .fallible = true, .status = status, .interior_ptr = value.interior_ptr };
 }
 
 fn unpackSuccess(value: RegValue) RegValue {
-    return .{ .ty = value.ty, .bits = value.bits };
+    return .{ .ty = value.ty, .bits = value.bits, .interior_ptr = value.interior_ptr };
 }
 
 fn requireNonFallible(value: RegValue) !RegValue {
@@ -247,6 +248,14 @@ const Interpreter = struct {
         return ty == .f32 or ty == .f64;
     }
 
+    fn intValueAsOffset(value: RegValue) i64 {
+        if (isSignedInt(value.ty)) {
+            return @as(i64, @intCast(intValue(value, true)));
+        }
+        const raw = @as(u64, @intCast(intValue(value, false)));
+        return @as(i64, @bitCast(raw));
+    }
+
     fn maskForWidth(width: u32) u64 {
         return if (width >= 64) ~@as(u64, 0) else (@as(u64, 1) << @intCast(width)) - 1;
     }
@@ -301,7 +310,7 @@ const Interpreter = struct {
         if (value.fallible) return RunError.InvalidOperand;
         if (value.ty == target) return value;
         if (target == .ptr) {
-            return .{ .ty = .ptr, .bits = value.bits };
+            return .{ .ty = .ptr, .bits = value.bits, .interior_ptr = value.interior_ptr };
         }
         if (isFloatLike(target)) {
             return valueFromFloat(target, floatValue(value));
@@ -341,7 +350,7 @@ const Interpreter = struct {
         return switch (ty) {
             .void => RunError.InvalidOperand,
             .i1 => .{ .ty = .i1, .bits = @as(u64, base[0] & 1) },
-            .i8 => .{ .ty = .i8, .bits = @as(u64, @bitCast(@as(i64, @as(i8, @intCast(base[0]))))) },
+            .i8 => .{ .ty = .i8, .bits = @as(u64, base[0]) },
             .u8 => .{ .ty = .u8, .bits = base[0] },
             .i16 => blk: {
                 const buf: *const [2]u8 = @ptrCast(base.ptr);
@@ -446,6 +455,21 @@ const Interpreter = struct {
     fn opBinary(self: *Interpreter, op: inst.OpCode, a: RegValue, b: RegValue) !RegValue {
         _ = self;
         if (a.fallible or b.fallible) return RunError.InvalidOperand;
+        if (op == .add or op == .sub) {
+            if (a.ty == .ptr or b.ty == .ptr) {
+                if (a.ty == .ptr and b.ty == .ptr) return RunError.InvalidOperand;
+                if (op == .sub and b.ty == .ptr) return RunError.InvalidOperand;
+                const ptr = if (a.ty == .ptr) a else b;
+                const offset = if (a.ty == .ptr) b else a;
+                if (!isIntLike(offset.ty)) return RunError.InvalidOperand;
+                const delta = @as(u64, @bitCast(intValueAsOffset(offset)));
+                return switch (op) {
+                    .add => .{ .ty = .ptr, .bits = ptr.bits +% delta, .interior_ptr = true },
+                    .sub => .{ .ty = .ptr, .bits = ptr.bits -% delta, .interior_ptr = true },
+                    else => unreachable,
+                };
+            }
+        }
         switch (numKind(a, b)) {
             .float => {
                 const lhs = floatValue(a);
@@ -811,6 +835,15 @@ const Interpreter = struct {
                     const result = try self.opBinary(op, lhs, rhs);
                     try regs.put(dst, result);
                 },
+                .ptr_add => {
+                    const dst = base.operands[0].reg;
+                    const src = base.operands[1].reg;
+                    const basev = try readReg(&regs, src);
+                    const ptrv = try self.coerce(basev, .ptr);
+                    const offset = try resolveOperandValue(self, &regs, base.operands[2]);
+                    const delta = @as(u64, @bitCast(intValueAsOffset(offset)));
+                    try regs.put(dst, .{ .ty = .ptr, .bits = ptrv.bits +% delta, .interior_ptr = true });
+                },
                 .raw_cast => {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
@@ -821,7 +854,7 @@ const Interpreter = struct {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
                     const value = try readReg(&regs, src);
-                    try regs.put(dst, .{ .ty = .ptr, .bits = value.bits });
+                    try regs.put(dst, .{ .ty = .ptr, .bits = value.bits, .interior_ptr = value.interior_ptr });
                 },
                 .move_ => {
                     // Referee already enforced ownership semantics.
@@ -832,15 +865,19 @@ const Interpreter = struct {
                     if ((mask & @intFromEnum(cap.CapabilityMask.borrow_view)) != 0 or (mask & @intFromEnum(cap.CapabilityMask.ffi_borrow)) != 0) {
                         // Borrow views do not physically free.
                     } else if (regs.get(reg_id)) |value| {
-                        var is_stack_alloc = false;
-                        for (stack_allocs.items) |addr| {
-                            if (addr == value.bits) {
-                                is_stack_alloc = true;
-                                break;
+                        if (value.interior_ptr) {
+                            // Interior pointers are derived views into an allocation.
+                        } else {
+                            var is_stack_alloc = false;
+                            for (stack_allocs.items) |addr| {
+                                if (addr == value.bits) {
+                                    is_stack_alloc = true;
+                                    break;
+                                }
                             }
-                        }
-                        if (!is_stack_alloc and value.ty == .ptr and value.bits != 0) {
-                            self.memory.free(value.bits) catch {};
+                            if (!is_stack_alloc and value.ty == .ptr and value.bits != 0) {
+                                self.memory.free(value.bits) catch {};
+                            }
                         }
                     }
                 },
@@ -852,14 +889,14 @@ const Interpreter = struct {
                 .br => {
                     const cond = try readReg(&regs, base.operands[0].reg);
                     const jump = cond.bits != 0;
-                    const label_id = if (jump) base.operands[1].label else base.operands[2].label;
+                    const label_id = if (jump) base.operands[1].label else base.operands[3].label;
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
                 .br_null => {
                     const cond = try readReg(&regs, base.operands[0].reg);
                     const jump = cond.bits == 0;
-                    const label_id = if (jump) base.operands[1].label else base.operands[2].label;
+                    const label_id = if (jump) base.operands[1].label else base.operands[3].label;
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },

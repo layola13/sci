@@ -33,6 +33,7 @@ pub const InstructionForm = enum {
     move_,
     release,
     op,
+    ptr_add,
     jmp,
     br,
     br_null,
@@ -244,6 +245,18 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         line.inst_form = .call_indirect;
         addPart(line, 0, lhs);
         addPart(line, 1, rest);
+        return true;
+    }
+
+    if (std.mem.startsWith(u8, rhs, "ptr_add")) {
+        const rest = std.mem.trimLeft(u8, rhs["ptr_add".len..], " \t");
+        const pair = parseCommaPair(rest) orelse return false;
+        if (pair.left.len == 0 or pair.right.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .ptr_add;
+        addPart(line, 0, lhs);
+        addPart(line, 1, pair.left);
+        addPart(line, 2, pair.right);
         return true;
     }
 

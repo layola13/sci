@@ -1,0 +1,99 @@
+@export sa_mem_copy(&dst: ptr, &src: ptr, count: u64) -> void:
+L_ENTRY:
+    zero_slot = stack_alloc 8
+    one_slot = stack_alloc 8
+    store zero_slot+0, 0 as i64
+    zero = load zero_slot+0 as i64
+    store one_slot+0, 1 as i64
+    one = load one_slot+0 as i64
+    remaining = add count, zero
+    offset = add zero, zero
+    done = add zero, zero
+    src_ip = ptr_add src, zero
+    dst_ip = ptr_add dst, zero
+    byte = load zero_slot+0 as u8
+    next_offset = add zero, zero
+    next_remaining = add remaining, zero
+    !src_ip
+    !dst_ip
+    !byte
+    !next_offset
+    !next_remaining
+    jmp L_LOOP
+L_LOOP:
+    !done
+    done = eq remaining, zero
+    br done -> L_END, L_BODY
+L_BODY:
+    src_ip = ptr_add src, offset
+    dst_ip = ptr_add dst, offset
+    byte = load src_ip+0 as u8
+    store dst_ip+0, byte as u8
+    next_offset = add offset, one
+    next_remaining = sub remaining, one
+    !src_ip
+    !dst_ip
+    !byte
+    !offset
+    !remaining
+    offset = add next_offset, zero
+    remaining = add next_remaining, zero
+    !next_offset
+    !next_remaining
+    jmp L_LOOP
+L_END:
+    !done
+    !offset
+    !remaining
+    !one
+    !zero
+    !count
+    !src
+    !dst
+    return
+
+@export sa_mem_set(&dst: ptr, val: u8, count: u64) -> void:
+L_ENTRY:
+    zero_slot = stack_alloc 8
+    one_slot = stack_alloc 8
+    store zero_slot+0, 0 as i64
+    zero = load zero_slot+0 as i64
+    store one_slot+0, 1 as i64
+    one = load one_slot+0 as i64
+    remaining = add count, zero
+    offset = add zero, zero
+    done = add zero, zero
+    dst_ip = ptr_add dst, zero
+    next_offset = add zero, zero
+    next_remaining = add remaining, zero
+    !dst_ip
+    !next_offset
+    !next_remaining
+    jmp L_LOOP
+L_LOOP:
+    !done
+    done = eq remaining, zero
+    br done -> L_END, L_BODY
+L_BODY:
+    dst_ip = ptr_add dst, offset
+    store dst_ip+0, val as u8
+    next_offset = add offset, one
+    next_remaining = sub remaining, one
+    !dst_ip
+    !offset
+    !remaining
+    offset = add next_offset, zero
+    remaining = add next_remaining, zero
+    !next_offset
+    !next_remaining
+    jmp L_LOOP
+L_END:
+    !done
+    !offset
+    !remaining
+    !one
+    !zero
+    !count
+    !val
+    !dst
+    return

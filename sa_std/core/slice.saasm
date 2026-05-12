@@ -1,0 +1,13 @@
+// 在栈上或预分配寄存器中初始化 Slice
+[MACRO] SLICE_NEW %slice_reg, %data_ptr, %length
+    store %slice_reg+Slice_ptr, %data_ptr as ptr
+    store %slice_reg+Slice_len, %length as u64
+[END_MACRO]
+
+[MACRO] SLICE_GET_PTR %out_ptr, %slice_reg
+    %out_ptr = load %slice_reg+Slice_ptr as ptr
+[END_MACRO]
+
+[MACRO] SLICE_GET_LEN %out_len, %slice_reg
+    %out_len = load %slice_reg+Slice_len as u64
+[END_MACRO]

@@ -163,6 +163,10 @@ sa/
   - [ ] 4.20 气闸舱指令解析（`*` / `assume_safe` / `assume_borrow`）
     - _Requirements: R13.1, R13.2, R13.3_
 
+  - [x] 4.20a `ptr_add` 解析（`dst = ptr_add base, off`）
+    - Flattener 已解析并保留 base / off 槽位，支持立即数与寄存器偏移
+    - _Requirements: R2.5, R4.9, R4.10_
+
   - [x] 4.21 原子指令解析（`atomic_load` / `atomic_store` / `cmpxchg` / `fence` + ordering）
     - 已接入 Flattener / Referee / LLVM / Interpreter，并补原子冒烟测试
     - _Requirements: R2.1, R2.6_
@@ -244,6 +248,20 @@ sa/
   - [ ] 6.18 **FFI 借用不可销毁**
     - `FfiBorrow` 位寄存器遇 `^` → `Trap: FfiOwnershipViolation`；遇 `!` 仅清记录不发射 free
     - _Requirements: R13.3, R13.7_
+
+  - [x] 6.18a 母借用 / 子指针追踪
+    - Verifier 已对 `ptr_add` 与借用相关 `load`/`take` 建立 parent borrow reg -> interior children 映射
+    - 母借用 `!` / 解锁时同步将所有派生 `InteriorPtr` 置为 `Consumed`
+    - _Requirements: R4.9, R4.10_
+
+  - [x] 6.18b `InteriorPtrEscape` 逃逸拦截
+    - Verifier 已在 `@extern` / `@ffi_wrapper` 调用边界拦截 `InteriorPtr`
+    - _Requirements: R13.6, R13.7_
+
+  - [ ]* 6.18c 内部指针生命周期 PBT — **P26**
+    - 生成 `ptr_add` 派生内部指针后释放母借用，断言后续访问触发 `UseAfterMove`
+    - 生成 `InteriorPtr` 作为 `@extern` / `@ffi_wrapper` 实参，断言触发 `InteriorPtrEscape`
+    - _Requirements: R4.9, R4.10, R13.6, R13.7_
 
   - [ ]* 6.19 FFI 借用不可销毁 PBT — **P22**
     - _Requirements: R13.3, R13.7_
@@ -327,8 +345,8 @@ sa/
     - 对接 LLVM `atomic` 关键字 + ordering 语法
     - _Requirements: R2.6, R14.4, R14.5_
 
-  - [ ] 8.10a `ptr_add` 映射 M35
-    - 生成对应的 `%dst = getelementptr i8, ptr %base, i64 %off`。
+  - [x] 8.10a `ptr_add` 映射 M35
+    - LLVM Emitter 已生成 `%dst = getelementptr i8, ptr %base, i64 %off`
     - _Requirements: R2.5_
 
   - [x] 8.11 错误传播展平产物 M28（`extractvalue + icmp + br`）
@@ -981,16 +999,8 @@ sa/
 ## 说明
 
 - 带 `*` 的任务为可选 PBT；核心实现任务必做。
-- 每条 PBT 显式标注 Property 编号（P1–P25）与验证的需求号。
+- 每条 PBT 显式标注 Property 编号（P1–P32）与验证的需求号。
 - **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"，v0.6 才谈"军工/航空级形式化认证"。**不要把这六件事压在 14 周 MVP 里**。
-- **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
-  - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
-  - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作
-  - v0.1 的 WASI 映射由 Zig 自动完成，不手写（v0.2 手写后可精简）
-  - 这一刀砍下去节省约 3-4 周时间
-- 实现阶段打开 tasks.md 点击 "Start task" 按钮开始执行。
-钮开始执行。
-6 才谈"军工/航空级形式化认证"。**不要把这六件事压在 14 周 MVP 里**。
 - **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
   - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
   - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作

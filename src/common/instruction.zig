@@ -59,6 +59,7 @@ pub const InstKind = enum(u8) {
     move_,
     release,
     op,
+    ptr_add,
     jmp,
     br,
     br_null,

@@ -1,0 +1,3 @@
+#def Slice_SIZE = 16
+#def Slice_ptr  = +0
+#def Slice_len  = +8

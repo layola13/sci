@@ -24,6 +24,7 @@ pub const Trap = enum(u8) {
     illegal_unsafe_context,
     ffi_ownership_violation,
     unsupported_sys_intrinsic,
+    interior_ptr_escape,
     stack_escape,
     early_return_leak,
     fallible_contract_mismatch,
@@ -76,6 +77,7 @@ pub fn trapName(trap: Trap) []const u8 {
         .illegal_unsafe_context => "IllegalUnsafeContext",
         .ffi_ownership_violation => "FfiOwnershipViolation",
         .unsupported_sys_intrinsic => "UnsupportedSysIntrinsic",
+        .interior_ptr_escape => "InteriorPtrEscape",
         .stack_escape => "StackEscape",
         .early_return_leak => "EarlyReturnLeak",
         .fallible_contract_mismatch => "FallibleContractMismatch",
@@ -200,6 +202,7 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
 test "trap names are stable" {
     try std.testing.expectEqualStrings("ForbiddenSyntax", trapName(.forbidden_syntax));
     try std.testing.expectEqualStrings("MemoryLeak", trapName(.memory_leak));
+    try std.testing.expectEqualStrings("InteriorPtrEscape", trapName(.interior_ptr_escape));
 }
 
 test "trap json serialization is stable" {

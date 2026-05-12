@@ -25,6 +25,7 @@ const Value = struct {
     expr: []const u8,
     ty: sig.PrimType,
     fallible: bool = false,
+    interior_ptr: bool = false,
 };
 
 const BuiltinCallResult = union(enum) {
@@ -428,7 +429,7 @@ fn castValue(
         if (!isIntLike(value.ty)) return EmitError.UnsupportedType;
         const tmp = try state.tempName(allocator);
         try out.writer().print("  {s} = inttoptr {s} {s} to ptr\n", .{ tmp, llvmTypeName(value.ty), value.expr });
-        return .{ .expr = tmp, .ty = .ptr };
+        return .{ .expr = tmp, .ty = .ptr, .interior_ptr = value.interior_ptr };
     }
 
     if (value.ty == .ptr) {
@@ -479,6 +480,30 @@ fn castValue(
     }
 
     return EmitError.UnsupportedType;
+}
+
+fn emitPointerArithmetic(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    state: *FunctionState,
+    opcode: inst.OpCode,
+    lhs: Value,
+    rhs: Value,
+) !Value {
+    const ptr_value = if (lhs.ty == .ptr) lhs else rhs;
+    const offset_value = if (lhs.ty == .ptr) rhs else lhs;
+    const ptr_expr = try castValue(allocator, out, state, ptr_value, .ptr);
+    var offset_expr = try castValue(allocator, out, state, offset_value, .i64);
+
+    if (opcode == .sub) {
+        const neg = try state.tempName(allocator);
+        try out.writer().print("  {s} = sub i64 0, {s}\n", .{ neg, offset_expr.expr });
+        offset_expr = .{ .expr = neg, .ty = .i64 };
+    }
+
+    const gep = try state.tempName(allocator);
+    try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {s}\n", .{ gep, ptr_expr.expr, offset_expr.expr });
+    return .{ .expr = gep, .ty = .ptr, .interior_ptr = true };
 }
 
 fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
@@ -1088,6 +1113,15 @@ fn emitInstruction(
             const opcode = base.operands[1].op_code;
             const lhs = try valueFromOperand(allocator, state, symbols, base.operands[2]);
             const rhs = try valueFromOperand(allocator, state, symbols, base.operands[3]);
+            if (opcode == .add or opcode == .sub) {
+                if (lhs.ty == .ptr or rhs.ty == .ptr) {
+                    if (lhs.ty == .ptr and rhs.ty == .ptr) return EmitError.UnsupportedType;
+                    if (opcode == .sub and rhs.ty == .ptr) return EmitError.UnsupportedType;
+                    const result = try emitPointerArithmetic(allocator, out, state, opcode, lhs, rhs);
+                    try state.setReg(dst, result);
+                    return;
+                }
+            }
             const target_ty: sig.PrimType = if (isFloatLike(lhs.ty) or isFloatLike(rhs.ty)) .f64 else .i64;
             const l = try castValue(allocator, out, state, lhs, target_ty);
             const r = try castValue(allocator, out, state, rhs, target_ty);
@@ -1118,6 +1152,16 @@ fn emitInstruction(
             }
             try state.setReg(dst, .{ .expr = tmp, .ty = target_ty });
         },
+        .ptr_add => {
+            const dst = base.operands[0].reg;
+            const src = base.operands[1].reg;
+            const srcv = state.getReg(src) orelse return EmitError.InvalidOperand;
+            const ptrv = try castValue(allocator, out, state, srcv, .ptr);
+            const offset = try valueFromOperand(allocator, state, symbols, base.operands[2]);
+            const off = try castValue(allocator, out, state, offset, .i64);
+            const result = try emitPointerArithmetic(allocator, out, state, .add, ptrv, off);
+            try state.setReg(dst, result);
+        },
         .raw_cast => {
             const dst = base.operands[0].reg;
             const src = base.operands[1].reg;
@@ -1140,6 +1184,9 @@ fn emitInstruction(
                 return;
             }
             const value = state.getReg(reg_id) orelse return EmitError.InvalidOperand;
+            if (value.ty != .ptr or value.interior_ptr) {
+                return;
+            }
             const ptrv = try castValue(allocator, out, state, value, .ptr);
             try out.writer().print("  call void @free(ptr {s})\n", .{ptrv.expr});
         },
@@ -1154,7 +1201,7 @@ fn emitInstruction(
             const tmp = try state.tempName(allocator);
             try out.writer().print("  {s} = icmp ne i64 {s}, 0\n", .{ tmp, condv.expr });
             const tname = symbols.lookupName(base.operands[1].label) orelse return EmitError.InvalidOperand;
-            const fname = symbols.lookupName(base.operands[2].label) orelse return EmitError.InvalidOperand;
+            const fname = symbols.lookupName(base.operands[3].label) orelse return EmitError.InvalidOperand;
             try out.writer().print("  br i1 {s}, label %{s}, label %{s}\n", .{ tmp, tname, fname });
             state.block_open = false;
         },
@@ -1164,7 +1211,7 @@ fn emitInstruction(
             const tmp = try state.tempName(allocator);
             try out.writer().print("  {s} = icmp eq ptr {s}, null\n", .{ tmp, ptrv.expr });
             const nname = symbols.lookupName(base.operands[1].label) orelse return EmitError.InvalidOperand;
-            const nnname = symbols.lookupName(base.operands[2].label) orelse return EmitError.InvalidOperand;
+            const nnname = symbols.lookupName(base.operands[3].label) orelse return EmitError.InvalidOperand;
             try out.writer().print("  br i1 {s}, label %{s}, label %{s}\n", .{ tmp, nname, nnname });
             state.block_open = false;
         },

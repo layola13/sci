@@ -259,6 +259,57 @@ test "atomic instructions work end to end and emit real LLVM" {
     try std.testing.expect(obj_bytes.len > 0);
 }
 
+test "ptr arithmetic lowers to gep and runs through the interpreter" {
+    const source =
+        \\@main() -> i32:
+        \\node = alloc 8
+        \\one_buf = alloc 8
+        \\store one_buf+0, 1 as i64
+        \\one = load one_buf+0 as i64
+        \\p = ptr_add node, one
+        \\store p+0, 65 as i32
+        \\value = load p+0 as i32
+        \\!p
+        \\!one
+        \\!one_buf
+        \\!node
+        \\return value
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "ptr_add.saasm", source);
+
+    const run_argv = [_][]const u8{ "saasm", "run", "ptr_add.saasm" };
+    const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 65), run_code);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "ptr_add.saasm", "-o", "ptr_add.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const ll_file = try tmp.dir.openFile("ptr_add.out.saasm.ll", .{});
+    defer ll_file.close();
+    const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(ll_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define i32 @saasm_main()"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "getelementptr i8, ptr"));
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./ptr_add.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 65), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
 test "invalid cmpxchg ordering is rejected by the flattener" {
     const source =
         \\@main() -> i32:

@@ -1,0 +1,21 @@
+@main() -> i32:
+    buf = alloc 4
+    one_buf = alloc 8
+    store one_buf+0, 1 as i64
+    off = load one_buf+0 as i64
+    p = ptr_add buf, off
+    store p+0, 209 as i8
+    value = load p+0 as i8
+    !p
+    !off
+    !one_buf
+    store buf+0, 104 as i8
+    store buf+1, 105 as i8
+    x = load buf+0 as i8
+    y = load buf+1 as i8
+    sum = add x, y
+    !x
+    !y
+    !sum
+    !buf
+    return value

@@ -54,6 +54,15 @@ fn maskOf(tag: cap.CapabilityMask) u16 {
 const regFlagRawPointer: u8 = 0x01;
 const regFlagStackAlloc: u8 = 0x02;
 
+const InteriorContext = struct {
+    state: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+};
+
+var interior_ctx: ?InteriorContext = null;
+
 fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
 }
@@ -74,7 +83,7 @@ fn isTerminator(kind: inst.InstKind) bool {
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .op, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
+        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
         else => false,
     };
 }
@@ -137,6 +146,115 @@ fn copyToBuf(buf: []u8, text: []const u8) []const u8 {
     const len = @min(buf.len, text.len);
     std.mem.copyForwards(u8, buf[0..len], text[0..len]);
     return buf[0..len];
+}
+
+fn hasInteriorPtr(mask: u16) bool {
+    return (mask & maskOf(.interior_ptr)) != 0;
+}
+
+fn hasInteriorTree(state: []const u16, interior_first_child: []const ?u32, id: u32) bool {
+    const idx: usize = @intCast(id);
+    return hasInteriorPtr(state[idx]) or interior_first_child[idx] != null;
+}
+
+fn detachInteriorChild(
+    state: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    child_id: u32,
+) void {
+    const child_idx: usize = @intCast(child_id);
+    if (interior_parent[child_idx]) |parent_id| {
+        const parent_idx: usize = @intCast(parent_id);
+        var prev: ?u32 = null;
+        var current = interior_first_child[parent_idx];
+        while (current) |current_id| {
+            if (current_id == child_id) {
+                const next = interior_next_sibling[child_idx];
+                if (prev) |prev_id| {
+                    interior_next_sibling[@intCast(prev_id)] = next;
+                } else {
+                    interior_first_child[parent_idx] = next;
+                }
+                break;
+            }
+            prev = current_id;
+            current = interior_next_sibling[@intCast(current_id)];
+        }
+    }
+    interior_parent[child_idx] = null;
+    interior_next_sibling[child_idx] = null;
+    _ = state;
+}
+
+fn attachInteriorChild(
+    state: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    parent_id: u32,
+    child_id: u32,
+) void {
+    detachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, child_id);
+    const parent_idx: usize = @intCast(parent_id);
+    const child_idx: usize = @intCast(child_id);
+    interior_parent[child_idx] = parent_id;
+    interior_next_sibling[child_idx] = interior_first_child[parent_idx];
+    interior_first_child[parent_idx] = child_id;
+}
+
+fn clearInteriorNode(
+    state: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    id: u32,
+) void {
+    const idx: usize = @intCast(id);
+    var current = interior_first_child[idx];
+    interior_first_child[idx] = null;
+    while (current) |child_id| {
+        const next = interior_next_sibling[@intCast(child_id)];
+        detachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, child_id);
+        current = next;
+    }
+}
+
+fn consumeInteriorChildren(
+    state: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    id: u32,
+) void {
+    const idx: usize = @intCast(id);
+    var current = interior_first_child[idx];
+    interior_first_child[idx] = null;
+    while (current) |child_id| {
+        const child_idx: usize = @intCast(child_id);
+        const next = interior_next_sibling[child_idx];
+        detachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, child_id);
+        if (hasInteriorPtr(state[child_idx]) or interior_first_child[child_idx] != null) {
+            consumeInteriorChildren(state, interior_parent, interior_first_child, interior_next_sibling, child_id);
+        }
+        state[child_idx] = maskOf(.consumed);
+        current = next;
+    }
+}
+
+fn consumeInteriorValue(
+    state: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    id: u32,
+) void {
+    const idx: usize = @intCast(id);
+    if ((state[idx] & maskOf(.interior_ptr)) == 0 and interior_first_child[idx] == null) return;
+    detachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, id);
+    consumeInteriorChildren(state, interior_parent, interior_first_child, interior_next_sibling, id);
+    state[idx] = maskOf(.consumed);
 }
 
 fn trapReport(
@@ -316,6 +434,11 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
                 if (isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
                 if (isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
             },
+            .ptr_add => {
+                _ = try symbols.intern(classified.parts[0]);
+                if (isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
+                if (isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
+            },
             .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw => {
                 if (isIdentLike(classified.parts[0])) _ = try symbols.intern(classified.parts[0]);
                 if (classified.part_count > 1 and isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
@@ -368,32 +491,6 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
         .sigs = sigs,
         .reg_count = symbols.names.items.len,
     };
-}
-
-fn clearBorrow(state: []u16, flags: []u8, origins: []?u32, locks: []u16, id: u32) void {
-    const idx: usize = @intCast(id);
-    if ((state[idx] & maskOf(.borrow_view)) == 0) return;
-    if ((flags[idx] & regFlagRawPointer) != 0) {
-        state[idx] = 0;
-        flags[idx] = 0;
-        origins[idx] = null;
-        return;
-    }
-    const origin = origins[idx] orelse {
-        state[idx] = 0;
-        flags[idx] = 0;
-        return;
-    };
-    const origin_idx: usize = @intCast(origin);
-    if (locks[origin_idx] > 0) {
-        locks[origin_idx] -= 1;
-        if (locks[origin_idx] == 0) {
-            state[origin_idx] = maskOf(.active);
-        }
-    }
-    state[idx] = 0;
-    flags[idx] = 0;
-    origins[idx] = null;
 }
 
 fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u16, id: u32) bool {
@@ -469,6 +566,13 @@ fn assignValue(
     if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0) {
         return trapReport(.register_redefinition, item, function_text, is_ffi_wrapper, name, null, null, "register is already live", null);
     }
+    if (interior_ctx) |ctx| {
+        if (hasInteriorPtr(current) or ctx.interior_first_child[idx] != null) {
+            consumeInteriorValue(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
+        } else {
+            clearInteriorNode(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
+        }
+    }
     state[idx] = mask;
     return null;
 }
@@ -485,6 +589,47 @@ fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst:
     } else {
         if (state[src_idx] == maskOf(.active)) state[src_idx] = maskOf(.locked_read);
     }
+}
+
+fn clearBorrow(
+    state: []u16,
+    flags: []u8,
+    origins: []?u32,
+    locks: []u16,
+    id: u32,
+) void {
+    const idx: usize = @intCast(id);
+    if ((state[idx] & maskOf(.borrow_view)) == 0) return;
+
+    if (interior_ctx) |ctx| {
+        if (hasInteriorPtr(state[idx])) {
+            consumeInteriorValue(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
+        } else {
+            consumeInteriorChildren(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
+        }
+    }
+
+    if ((flags[idx] & regFlagRawPointer) != 0) {
+        state[idx] = 0;
+        flags[idx] = 0;
+        origins[idx] = null;
+        return;
+    }
+    const origin = origins[idx] orelse {
+        state[idx] = 0;
+        flags[idx] = 0;
+        return;
+    };
+    const origin_idx: usize = @intCast(origin);
+    if (locks[origin_idx] > 0) {
+        locks[origin_idx] -= 1;
+        if (locks[origin_idx] == 0) {
+            state[origin_idx] = maskOf(.active);
+        }
+    }
+    state[idx] = 0;
+    flags[idx] = 0;
+    origins[idx] = null;
 }
 
 fn updateLabel(
@@ -594,6 +739,23 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
     const locks = try allocator.alloc(u16, reg_count);
     defer allocator.free(locks);
     @memset(locks, 0);
+    const interior_parent = try allocator.alloc(?u32, reg_count);
+    defer allocator.free(interior_parent);
+    @memset(interior_parent, null);
+    const interior_first_child = try allocator.alloc(?u32, reg_count);
+    defer allocator.free(interior_first_child);
+    @memset(interior_first_child, null);
+    const interior_next_sibling = try allocator.alloc(?u32, reg_count);
+    defer allocator.free(interior_next_sibling);
+    @memset(interior_next_sibling, null);
+    const previous_interior_ctx = interior_ctx;
+    interior_ctx = .{
+        .state = state,
+        .interior_parent = interior_parent,
+        .interior_first_child = interior_first_child,
+        .interior_next_sibling = interior_next_sibling,
+    };
+    defer interior_ctx = previous_interior_ctx;
     var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
     defer atomic_history.deinit();
 
@@ -651,6 +813,9 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             @memset(flags, 0);
             @memset(origins, null);
             @memset(locks, 0);
+            @memset(interior_parent, null);
+            @memset(interior_first_child, null);
+            @memset(interior_next_sibling, null);
             atomic_history.clearRetainingCapacity();
             defined_labels.clearRetainingCapacity();
 
@@ -743,7 +908,17 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             },
             .load, .take => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                const src_idx: usize = @intCast(item.operands[1].reg);
+                const src_mask = state[src_idx];
+                const loaded_ty: sig.PrimType = if (item.operands[3] == .ty) blk: {
+                    break :blk sig.primTypeFromTag(item.operands[3].ty) orelse if (item.kind == .take) .ptr else .i64;
+                } else if (item.kind == .take) .ptr else .i64;
+                const source_is_tracked = (src_mask & (maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
+                const new_mask = maskOf(.active) | if (item.kind == .take or (loaded_ty == .ptr and source_is_tracked)) maskOf(.interior_ptr) else 0;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, new_mask)) |tr| return tr;
+                if (item.kind == .take or (loaded_ty == .ptr and source_is_tracked)) {
+                    attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
+                }
                 flags[@intCast(item.operands[0].reg)] = 0;
             },
             .store => {
@@ -796,11 +971,39 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = 0;
             },
+            .ptr_add => {
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
+                if (item.operands[2] == .reg) {
+                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], item.operands[2].reg, state, flags)) |tr| return tr;
+                } else if (item.operands[2] == .text and isIdentLike(item.operands[2].text)) {
+                    if (metadata.symbols.findId(item.operands[2].text)) |value_id| {
+                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                    }
+                }
+                const src_idx: usize = @intCast(item.operands[1].reg);
+                const tracked = (state[src_idx] & (maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
+                const dst_mask: u16 = if (tracked) maskOf(.active) | maskOf(.interior_ptr) else maskOf(.active);
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, dst_mask)) |tr| return tr;
+                if (tracked) {
+                    attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
+                }
+                flags[@intCast(item.operands[0].reg)] = 0;
+            },
             .borrow => {
-                const is_mut = item.operands[1] == .text and std.mem.eql(u8, item.operands[1].text, "mut");
-                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], item.operands[2].reg, state, flags)) |tr| return tr;
+                const source_reg: u32 = blk: {
+                    if (item.operands[1] == .reg) break :blk item.operands[1].reg;
+                    if (item.operands[2] == .reg) break :blk item.operands[2].reg;
+                    return trapReport(.forbidden_syntax, item, current_function_text, current_is_ffi_wrapper, null, null, null, "invalid borrow syntax", null);
+                };
+                const mode_text: []const u8 = blk: {
+                    if (item.operands[1] == .text) break :blk item.operands[1].text;
+                    if (item.operands[2] == .text) break :blk item.operands[2].text;
+                    return trapReport(.forbidden_syntax, item, current_function_text, current_is_ffi_wrapper, null, null, null, "invalid borrow syntax", null);
+                };
+                const is_mut = std.mem.eql(u8, mode_text, "mut");
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], source_reg, state, flags)) |tr| return tr;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active) | maskOf(.borrow_view))) |tr| return tr;
-                setBorrowState(state, flags, origins, locks, item.operands[0].reg, item.operands[2].reg, is_mut, false);
+                setBorrowState(state, flags, origins, locks, item.operands[0].reg, source_reg, is_mut, false);
             },
             .move_ => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
@@ -814,7 +1017,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 if ((state[idx] & maskOf(.borrow_view)) != 0) {
                     clearBorrow(state, flags, origins, locks, item.operands[0].reg);
                 } else {
-                    state[idx] = maskOf(.consumed);
+                    if (hasInteriorTree(state, interior_first_child, item.operands[0].reg)) {
+                        consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[0].reg);
+                    } else {
+                        state[idx] = maskOf(.consumed);
+                    }
                 }
             },
             .release => {
@@ -826,7 +1033,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                         return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), state[idx], "stack allocation cannot be released explicitly", null);
                     }
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
-                    state[idx] = maskOf(.consumed);
+                    if (hasInteriorTree(state, interior_first_child, item.operands[0].reg)) {
+                        consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[0].reg);
+                    } else {
+                        state[idx] = maskOf(.consumed);
+                    }
                 }
             },
             .raw_cast => {
@@ -862,7 +1073,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             },
             .br => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
-                for ([_]u32{ item.operands[1].label, item.operands[2].label }) |target| {
+                for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
                         if (!std.mem.eql(u16, entry.*, state)) {
                             return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
@@ -878,7 +1089,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             },
             .br_null => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
-                for ([_]u32{ item.operands[1].label, item.operands[2].label }) |target| {
+                for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
                         if (!std.mem.eql(u16, entry.*, state)) {
                             return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
@@ -942,6 +1153,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                     }
                     if (isIdentLike(arg.text)) {
                         if (metadata.symbols.findId(arg.text)) |arg_id| {
+                            if (sig_match) |resolved| {
+                                if ((resolved.kind == .external or resolved.kind == .ffi_wrapper) and hasInteriorPtr(state[@intCast(arg_id)])) {
+                                    return trapReport(.interior_ptr_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.interior_ptr), state[@intCast(arg_id)], "interior pointers cannot cross FFI boundaries", null);
+                                }
+                            }
                             switch (arg.prefix) {
                                 .borrow, .by_value => if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr,
                                 .raw => if (panicMsgAllowsRawArg(parsed.callee, parsed.args.len, arg_idx)) {
@@ -955,13 +1171,17 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                                         return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.active), state[@intCast(arg_id)], "stack allocation cannot be passed by move", null);
                                     }
                                     const arg_reg_idx: usize = @intCast(arg_id);
-                                    if ((flags[arg_reg_idx] & 0x01) != 0) {
+                                if ((flags[arg_reg_idx] & 0x01) != 0) {
                                         return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[arg_reg_idx], "FFI borrow views cannot be consumed", null);
                                     }
                                     if ((state[arg_reg_idx] & maskOf(.borrow_view)) != 0) {
                                         clearBorrow(state, flags, origins, locks, arg_id);
                                     } else {
-                                        state[arg_reg_idx] = maskOf(.consumed);
+                                        if (hasInteriorTree(state, interior_first_child, arg_id)) {
+                                            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, arg_id);
+                                        } else {
+                                            state[arg_reg_idx] = maskOf(.consumed);
+                                        }
                                     }
                                 },
                             }
@@ -1023,7 +1243,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
 
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, maskOf(.active))) |tr| return tr;
                 flags[@intCast(dst_id)] = 0;
-                state[src_idx] = maskOf(.consumed);
+                if (hasInteriorTree(state, interior_first_child, src_id)) {
+                    consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, src_id);
+                } else {
+                    state[src_idx] = maskOf(.consumed);
+                }
             },
             .return_ => {
                 if (item.operands[0] == .reg) {
@@ -1034,7 +1258,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                         if (current_sig == null or current_sig.?.return_fallible == false) {
                             return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
                         }
-                        state[idx] = maskOf(.consumed);
+                        if (hasInteriorTree(state, interior_first_child, ret_id)) {
+                            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
+                        } else {
+                            state[idx] = maskOf(.consumed);
+                        }
                     } else {
                         if (isStackAllocated(flags, origins, state, ret_id)) {
                             return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
@@ -1044,6 +1272,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                         }
                         if ((state[idx] & maskOf(.borrow_view)) != 0) {
                             clearBorrow(state, flags, origins, locks, ret_id);
+                        } else if (hasInteriorTree(state, interior_first_child, ret_id)) {
+                            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
                         } else if ((state[idx] & maskOf(.untracked)) == 0) {
                             state[idx] = maskOf(.consumed);
                         }
@@ -1055,7 +1285,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                             if (current_sig == null or current_sig.?.return_fallible == false) {
                                 return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
                             }
-                            state[idx] = maskOf(.consumed);
+                            if (hasInteriorTree(state, interior_first_child, ret_id)) {
+                                consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
+                            } else {
+                                state[idx] = maskOf(.consumed);
+                            }
                         } else {
                             if (isStackAllocated(flags, origins, state, ret_id)) {
                                 return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
@@ -1065,6 +1299,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                             }
                             if ((state[idx] & maskOf(.borrow_view)) != 0) {
                                 clearBorrow(state, flags, origins, locks, ret_id);
+                            } else if (hasInteriorTree(state, interior_first_child, ret_id)) {
+                                consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
                             } else if ((state[idx] & maskOf(.untracked)) == 0) {
                                 state[idx] = maskOf(.consumed);
                             }
@@ -1296,6 +1532,115 @@ test "stack_alloc is exempt from memory leak and rejects escape" {
             try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "interior pointers are consumed when their parent borrow is released" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .alloc,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .reg = 1 },
+                .{ .imm_u64 = 8 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "base = alloc 8",
+        },
+        .{
+            .kind = .borrow,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .reg = 2 },
+                .{ .text = "read" },
+                .{ .reg = 1 },
+                .{ .none = {} },
+            },
+            .raw_text = "view = & base",
+        },
+        .{
+            .kind = .take,
+            .source_line = 4,
+            .expanded_line = 3,
+            .operands = .{
+                .{ .reg = 3 },
+                .{ .reg = 2 },
+                .{ .imm_u64 = 4 },
+                .{ .none = {} },
+            },
+            .raw_text = "ip = take view+4",
+        },
+        .{
+            .kind = .release,
+            .source_line = 5,
+            .expanded_line = 4,
+            .operands = .{
+                .{ .reg = 2 },
+                .{ .none = {} },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "!view",
+        },
+        .{
+            .kind = .return_,
+            .source_line = 6,
+            .expanded_line = 5,
+            .operands = .{
+                .{ .reg = 1 },
+                .{ .none = {} },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "return base",
+        },
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..]);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "interior pointers trap when passed to extern calls" {
+    const source =
+        \\@ffi_wrapper sink(*p: ptr) -> i32:
+        \\return 0
+        \\@ffi_wrapper wrap() -> i32:
+        \\base = alloc 8
+        \\view = & base
+        \\ip = take view+4
+        \\call @sink(*ip)
+    ;
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .trap => |report| {
+            try std.testing.expectEqual(trap.Trap.interior_ptr_escape, report.trap);
+        },
+        .ok => return error.TestUnexpectedResult,
     }
 }
 

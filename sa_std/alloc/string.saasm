@@ -1,0 +1,8 @@
+// String 也是复用 Vec 的布局
+// string.saasm 主要提供基于常量的快捷构造宏
+
+[MACRO] STR_FROM_CONST %out_slice, %const_label, %const_len
+    // 此宏展示如何将底层的 rodata (@const) 包装为 Slice (胖指针)
+    // 实际使用时需要引入 slice.saasm 里的宏
+    EXPAND SLICE_NEW %out_slice, &%const_label, %const_len
+[END_MACRO]

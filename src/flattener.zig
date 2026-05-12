@@ -221,6 +221,7 @@ fn mapInstKind(form: InstructionForm) InstKind {
         .move_ => .move_,
         .release => .release,
         .op => .op,
+        .ptr_add => .ptr_add,
         .jmp => .jmp,
         .br => .br,
         .br_null => .br_null,
@@ -485,6 +486,25 @@ fn emitParsedLine(
                     inst.operands[2] = .{ .reg = lhs };
                     inst.operands[3] = .{ .reg = rhs };
                 },
+                .ptr_add => {
+                    const dst = try symbols.intern(classified.parts[0]);
+                    const base = try symbols.intern(classified.parts[1]);
+                    inst.operands[0] = .{ .reg = dst };
+                    inst.operands[1] = .{ .reg = base };
+                    const offset_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[2]);
+                    if (std.fmt.parseInt(i64, offset_text, 10)) |offset| {
+                        inst.operands[2] = .{ .imm_i64 = offset };
+                    } else |err| switch (err) {
+                        error.Overflow => return error.InvalidSyntax,
+                        else => {
+                            if (symbols.findId(offset_text)) |off_reg| {
+                                inst.operands[2] = .{ .reg = off_reg };
+                            } else {
+                                inst.operands[2] = .{ .text = offset_text };
+                            }
+                        },
+                    }
+                },
                 .jmp => {
                     const target_text = try dict.foldText(allocator, classified.parts[0]);
                     try owned_text.append(target_text);
@@ -498,12 +518,12 @@ fn emitParsedLine(
 
                     const true_text = try dict.foldText(allocator, classified.parts[1]);
                     try owned_text.append(true_text);
-                    inst.operands[1] = .{ .symbol = try symbols.intern(true_text) };
+                    inst.operands[1] = .{ .label = try symbols.intern(true_text) };
                     inst.operands[2] = .{ .label = try symbols.intern(true_text) };
 
                     const false_text = try dict.foldText(allocator, classified.parts[2]);
                     try owned_text.append(false_text);
-                    inst.operands[3] = .{ .symbol = try symbols.intern(false_text) };
+                    inst.operands[3] = .{ .label = try symbols.intern(false_text) };
                 },
                 .br_null => {
                     const reg_text = try dict.foldText(allocator, classified.parts[0]);
@@ -512,12 +532,12 @@ fn emitParsedLine(
 
                     const null_text = try dict.foldText(allocator, classified.parts[1]);
                     try owned_text.append(null_text);
-                    inst.operands[1] = .{ .symbol = try symbols.intern(null_text) };
+                    inst.operands[1] = .{ .label = try symbols.intern(null_text) };
                     inst.operands[2] = .{ .label = try symbols.intern(null_text) };
 
                     const not_null_text = try dict.foldText(allocator, classified.parts[2]);
                     try owned_text.append(not_null_text);
-                    inst.operands[3] = .{ .symbol = try symbols.intern(not_null_text) };
+                    inst.operands[3] = .{ .label = try symbols.intern(not_null_text) };
                 },
                 .call, .call_indirect, .try_, .panic, .panic_msg, .return_ => {
                     if (classified.inst_form == .return_ and classified.part_count == 1) {
