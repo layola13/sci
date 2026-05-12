@@ -210,11 +210,11 @@ fn writeAllFile(path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
-fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []const []const u8) !u8 {
+fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []const []const u8, stderr: anytype) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(std.io.getStdErr().writer(), report);
+            try printTrapReport(stderr, report);
             return 1;
         },
         .ok => |ok| {
@@ -223,7 +223,6 @@ fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []con
             return interp.run(allocator, &owned.verified, argv) catch |err| switch (err) {
                 error.UserExit => 0,
                 else => {
-                    const stderr = std.io.getStdErr().writer();
                     try stderr.print("error: {s}\n", .{@errorName(err)});
                     return 1;
                 },
@@ -232,11 +231,11 @@ fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []con
     }
 }
 
-fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization) !u8 {
+fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, stderr: anytype) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(std.io.getStdErr().writer(), report);
+            try printTrapReport(stderr, report);
             return 1;
         },
         .ok => |ok| {
@@ -255,11 +254,11 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     }
 }
 
-fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization) !u8 {
+fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, stderr: anytype) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(std.io.getStdErr().writer(), report);
+            try printTrapReport(stderr, report);
             return 1;
         },
         .ok => |ok| {
@@ -278,11 +277,11 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     }
 }
 
-fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization) !u8 {
+fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization, stderr: anytype) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(std.io.getStdErr().writer(), report);
+            try printTrapReport(stderr, report);
             return 1;
         },
         .ok => |ok| {
@@ -367,7 +366,6 @@ fn executeLayout(
 
 fn parseTarget(text: []const u8) !WasmTarget {
     if (std.mem.eql(u8, text, "wasm32")) return .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
-    if (std.mem.eql(u8, text, "wasm64")) return .{ .triple = "wasm64-freestanding", .no_entry = true, .size_bits = 64 };
     return error.InvalidTarget;
 }
 
@@ -399,7 +397,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .run => {
             if (argv.len < 3) return error.MissingSourcePath;
             const source_path = argv[2];
-            return try executeRun(allocator, source_path, argv[3..]);
+            return try executeRun(allocator, source_path, argv[3..], stderr);
         },
         .build_exe => {
             if (argv.len < 3) return error.MissingSourcePath;
@@ -431,7 +429,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization);
+            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, stderr);
         },
         .build_obj => {
             if (argv.len < 3) return error.MissingSourcePath;
@@ -463,7 +461,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization);
+            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, stderr);
         },
         .build_wasm => {
             if (argv.len < 3) return error.MissingSourcePath;
@@ -502,7 +500,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization);
+            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, stderr);
         },
     }
 }

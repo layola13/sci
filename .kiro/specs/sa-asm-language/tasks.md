@@ -327,6 +327,10 @@ sa/
     - 对接 LLVM `atomic` 关键字 + ordering 语法
     - _Requirements: R2.6, R14.4, R14.5_
 
+  - [ ] 8.10a `ptr_add` 映射 M35
+    - 生成对应的 `%dst = getelementptr i8, ptr %base, i64 %off`。
+    - _Requirements: R2.5_
+
   - [x] 8.11 错误传播展平产物 M28（`extractvalue + icmp + br`）
     - Flattener 已展平为 br + EarlyReturn，Emitter 直接翻译
     - _Requirements: R18.3_
@@ -413,16 +417,20 @@ sa/
     - ≤ 30 行 Zig，写 stderr + `_exit(128+code)`
     - _Requirements: R18.4_
 
-  - [ ] 10.5 句柄模式 FFI 集成样例
+  - [x] 10.5 句柄模式 FFI 集成样例
     - `tests/integration/ffi_handle.saasm`：`@extern` 分配返回 ID → 后续查表借用
+    - 已补 `tests/integration/ffi_handle_demo.zig` / `tests/integration/ffi_handle/handle.saasm` / `tests/integration/ffi_handle/handle_host.c`，并纳入 `zig build test`
     - _Requirements: R13.8_
 
-  - [ ] 10.6 `@export` 对外符号样例
+  - [x] 10.6 `@export` 对外符号样例
     - 不做名称修饰
+    - `tests/cli_smoke.zig` 已覆盖 `@export exported() -> i32` 的 LLVM / nm 证据
     - _Requirements: R13.6, R13.9_
 
-  - [ ] 10.7 `UnsupportedSysIntrinsic` 错误路径
+  - [x] 10.7 `UnsupportedSysIntrinsic` 错误路径
     - 目标不支持某 `@sys_*` 时在 Emitter 前报错
+    - `src/referee/verifier.zig` 现于 verifier 阶段对未知 `sys_*` 直接返回 `UnsupportedSysIntrinsic`
+    - `tests/cli_smoke.zig` 已补未知 sys intrinsic 的 CLI 负例
     - _Requirements: R17.7_
 
 - [x] 11. W12 `libsa_scope` helper 库
@@ -975,6 +983,14 @@ sa/
 - 带 `*` 的任务为可选 PBT；核心实现任务必做。
 - 每条 PBT 显式标注 Property 编号（P1–P25）与验证的需求号。
 - **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"，v0.6 才谈"军工/航空级形式化认证"。**不要把这六件事压在 14 周 MVP 里**。
+- **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
+  - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
+  - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作
+  - v0.1 的 WASI 映射由 Zig 自动完成，不手写（v0.2 手写后可精简）
+  - 这一刀砍下去节省约 3-4 周时间
+- 实现阶段打开 tasks.md 点击 "Start task" 按钮开始执行。
+钮开始执行。
+6 才谈"军工/航空级形式化认证"。**不要把这六件事压在 14 周 MVP 里**。
 - **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
   - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
   - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作

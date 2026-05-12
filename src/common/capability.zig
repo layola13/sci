@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const CapabilityMask = enum(u8) {
+pub const CapabilityMask = enum(u16) {
     uninitialized = 0x00,
     active = 0x01,
     locked_read = 0x02,
@@ -10,17 +10,19 @@ pub const CapabilityMask = enum(u8) {
     ffi_borrow = 0x20,
     untracked = 0x40,
     fallible = 0x80,
+    immutable = 0x0100,
+    interior_ptr = 0x0200,
 };
 
 pub const Transition = struct {
-    prev_mask: u8,
+    prev_mask: u16,
     op: Op,
     legal: bool,
-    new_mask: u8,
+    new_mask: u16,
     trap: ?TrapKind,
 };
 
-pub fn maskName(mask: u8) []const u8 {
+pub fn maskName(mask: u16) []const u8 {
     return switch (mask) {
         0x00 => "Uninitialized",
         0x01 => "Active",
@@ -31,6 +33,8 @@ pub fn maskName(mask: u8) []const u8 {
         0x20 => "FfiBorrow",
         0x40 => "Untracked",
         0x80 => "Fallible",
+        0x0100 => "Immutable",
+        0x0200 => "InteriorPtr",
         else => "Composite",
     };
 }
@@ -75,12 +79,14 @@ pub const TRUTH_TABLE = [_]Transition{
     .{ .prev_mask = 0x40, .op = .ffi_raw_cast, .legal = true, .new_mask = 0x40, .trap = null },
     .{ .prev_mask = 0x40, .op = .ffi_assume_safe, .legal = true, .new_mask = 0x01, .trap = null },
     .{ .prev_mask = 0x40, .op = .ffi_assume_borrow, .legal = true, .new_mask = 0x32, .trap = null },
+    .{ .prev_mask = 0x100, .op = .alloc, .legal = true, .new_mask = 0x100, .trap = null },
+    .{ .prev_mask = 0x200, .op = .move_, .legal = true, .new_mask = 0x200, .trap = null },
 };
 
 test "truth table contains canonical transitions" {
-    try std.testing.expectEqual(@as(usize, 15), TRUTH_TABLE.len);
+    try std.testing.expectEqual(@as(usize, 17), TRUTH_TABLE.len);
     try std.testing.expect(TRUTH_TABLE[0].legal);
-    try std.testing.expectEqual(@as(u8, 0x01), TRUTH_TABLE[0].new_mask);
+    try std.testing.expectEqual(@as(u16, 0x01), TRUTH_TABLE[0].new_mask);
     try std.testing.expectEqual(@as(?TrapKind, .read_write_conflict), TRUTH_TABLE[4].trap);
 }
 
@@ -89,4 +95,6 @@ test "mask names cover canonical states" {
     try std.testing.expectEqualStrings("BorrowView", maskName(0x10));
     try std.testing.expectEqualStrings("FfiBorrow", maskName(0x20));
     try std.testing.expectEqualStrings("Fallible", maskName(0x80));
+    try std.testing.expectEqualStrings("Immutable", maskName(0x0100));
+    try std.testing.expectEqualStrings("InteriorPtr", maskName(0x0200));
 }

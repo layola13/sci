@@ -38,8 +38,8 @@ pub const TrapReport = struct {
     register_buf: [64]u8 = [_]u8{0} ** 64,
     register: ?[]const u8 = null,
     registers: []const []const u8 = &.{},
-    expected_mask: ?u8 = null,
-    actual_mask: ?u8 = null,
+    expected_mask: ?u16 = null,
+    actual_mask: ?u16 = null,
     expected_mask_name: ?[]const u8 = null,
     actual_mask_name: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
@@ -133,7 +133,7 @@ fn writeMaybeBool(writer: anytype, value: ?bool) !void {
     }
 }
 
-fn writeMaybeU8(writer: anytype, value: ?u8) !void {
+fn writeMaybeU16(writer: anytype, value: ?u16) !void {
     if (value) |v| {
         try writer.print("{d}", .{v});
     } else {
@@ -157,9 +157,9 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
         try writeJsonString(writer, item);
     }
     try writer.writeAll("],\"expected_mask\":");
-    try writeMaybeU8(writer, report.expected_mask);
+    try writeMaybeU16(writer, report.expected_mask);
     try writer.writeAll(",\"actual_mask\":");
-    try writeMaybeU8(writer, report.actual_mask);
+    try writeMaybeU16(writer, report.actual_mask);
     try writer.writeAll(",\"expected_mask_name\":");
     try writeMaybeString(writer, report.expected_mask_name);
     try writer.writeAll(",\"actual_mask_name\":");

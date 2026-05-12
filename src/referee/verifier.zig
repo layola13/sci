@@ -12,8 +12,8 @@ const symbol = @import("../flattener/symbol.zig");
 
 pub const AnnotatedInstruction = struct {
     base: inst.Instruction,
-    entry_caps: []u8,
-    exit_caps: []u8,
+    entry_caps: []u16,
+    exit_caps: []u16,
     gas_step_cost: u32,
 };
 
@@ -47,7 +47,7 @@ const CollectResult = struct {
     reg_count: usize,
 };
 
-fn maskOf(tag: cap.CapabilityMask) u8 {
+fn maskOf(tag: cap.CapabilityMask) u16 {
     return @intFromEnum(tag);
 }
 
@@ -127,8 +127,8 @@ fn checkAtomicOrdering(
     return null;
 }
 
-fn zeroed(allocator: std.mem.Allocator, len: usize) ![]u8 {
-    const out = try allocator.alloc(u8, len);
+fn zeroed(comptime T: type, allocator: std.mem.Allocator, len: usize) ![]T {
+    const out = try allocator.alloc(T, len);
     @memset(out, 0);
     return out;
 }
@@ -145,8 +145,8 @@ fn trapReport(
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
     register: ?[]const u8,
-    expected_mask: ?u8,
-    actual_mask: ?u8,
+    expected_mask: ?u16,
+    actual_mask: ?u16,
     message: []const u8,
     hint: ?[]const u8,
 ) VerifyResult {
@@ -226,7 +226,7 @@ fn fallibleValueType(return_cap: ?inst.CapPrefix, return_ty: sig.PrimType) sig.P
     return sig.returnValueType(return_cap, return_ty);
 }
 
-fn fallibleResultMask() u8 {
+fn fallibleResultMask() u16 {
     return maskOf(.fallible);
 }
 
@@ -240,7 +240,7 @@ fn readCheckAllowRaw(
     is_ffi_wrapper: bool,
     name: []const u8,
     id: u32,
-    state: []u8,
+    state: []u16,
     flags: []u8,
 ) ?VerifyResult {
     const idx: usize = @intCast(id);
@@ -370,7 +370,7 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
     };
 }
 
-fn clearBorrow(state: []u8, flags: []u8, origins: []?u32, locks: []u16, id: u32) void {
+fn clearBorrow(state: []u16, flags: []u8, origins: []?u32, locks: []u16, id: u32) void {
     const idx: usize = @intCast(id);
     if ((state[idx] & maskOf(.borrow_view)) == 0) return;
     if ((flags[idx] & regFlagRawPointer) != 0) {
@@ -396,7 +396,7 @@ fn clearBorrow(state: []u8, flags: []u8, origins: []?u32, locks: []u16, id: u32)
     origins[idx] = null;
 }
 
-fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u8, id: u32) bool {
+fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u16, id: u32) bool {
     const idx: usize = @intCast(id);
     if ((flags[idx] & regFlagStackAlloc) != 0) return true;
     if ((state[idx] & maskOf(.borrow_view)) != 0) {
@@ -414,7 +414,7 @@ fn readCheck(
     is_ffi_wrapper: bool,
     name: []const u8,
     id: u32,
-    state: []u8,
+    state: []u16,
     flags: []u8,
 ) ?VerifyResult {
     const idx: usize = @intCast(id);
@@ -436,7 +436,7 @@ fn writeCheck(
     is_ffi_wrapper: bool,
     name: []const u8,
     id: u32,
-    state: []u8,
+    state: []u16,
     flags: []u8,
 ) ?VerifyResult {
     const idx: usize = @intCast(id);
@@ -461,8 +461,8 @@ fn assignValue(
     is_ffi_wrapper: bool,
     name: []const u8,
     id: u32,
-    state: []u8,
-    mask: u8,
+    state: []u16,
+    mask: u16,
 ) ?VerifyResult {
     const idx: usize = @intCast(id);
     const current = state[idx];
@@ -473,7 +473,7 @@ fn assignValue(
     return null;
 }
 
-fn setBorrowState(state: []u8, flags: []u8, origins: []?u32, locks: []u16, dst: u32, src: u32, is_mut: bool, is_ffi: bool) void {
+fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst: u32, src: u32, is_mut: bool, is_ffi: bool) void {
     const dst_idx: usize = @intCast(dst);
     const src_idx: usize = @intCast(src);
     state[dst_idx] = maskOf(.active) | maskOf(.borrow_view) | if (is_mut) maskOf(.locked_mut) else maskOf(.locked_read);
@@ -489,20 +489,20 @@ fn setBorrowState(state: []u8, flags: []u8, origins: []?u32, locks: []u16, dst: 
 
 fn updateLabel(
     item: inst.Instruction,
-    labels: *std.AutoHashMap(u32, []u8),
-    state: []u8,
+    labels: *std.AutoHashMap(u32, []u16),
+    state: []u16,
     allocator: std.mem.Allocator,
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
 ) ?VerifyResult {
     const label_id = item.operands[1].label;
     if (labels.getPtr(label_id)) |entry| {
-        if (!std.mem.eql(u8, entry.*, state)) {
+        if (!std.mem.eql(u16, entry.*, state)) {
             return trapReport(.phi_state_conflict, item, function_text, is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
         }
         return null;
     }
-    const dup = allocator.dupe(u8, state) catch {
+    const dup = allocator.dupe(u16, state) catch {
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     labels.put(label_id, dup) catch {
@@ -525,7 +525,7 @@ fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(Annotat
     annotated.deinit();
 }
 
-fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, []u8)) void {
+fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, []u16)) void {
     var it = labels.iterator();
     while (it.next()) |entry| allocator.free(entry.value_ptr.*);
     labels.clearRetainingCapacity();
@@ -570,7 +570,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
     defer if (!symbols_moved) metadata.symbols.deinit();
 
     const reg_count = metadata.reg_count;
-    var state = zeroed(allocator, reg_count) catch {
+    var state = zeroed(u16, allocator, reg_count) catch {
         return .{ .trap = .{
             .trap = .arena_oom,
             .line = 1,
@@ -586,7 +586,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
         } };
     };
     defer allocator.free(state);
-    const flags = try zeroed(allocator, reg_count);
+    const flags = try zeroed(u8, allocator, reg_count);
     defer allocator.free(flags);
     const origins = try allocator.alloc(?u32, reg_count);
     defer allocator.free(origins);
@@ -597,7 +597,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
     var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
     defer atomic_history.deinit();
 
-    var labels = std.AutoHashMap(u32, []u8).init(allocator);
+    var labels = std.AutoHashMap(u32, []u16).init(allocator);
     defer {
         var it = labels.iterator();
         while (it.next()) |entry| allocator.free(entry.value_ptr.*);
@@ -667,8 +667,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 }
             }
 
-            const snapshot = try allocator.dupe(u8, state);
-            const snapshot2 = try allocator.dupe(u8, state);
+            const snapshot = try allocator.dupe(u16, state);
+            const snapshot2 = try allocator.dupe(u16, state);
             try annotated.append(.{
                 .base = item,
                 .entry_caps = snapshot,
@@ -694,8 +694,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             defined_labels.put(item.operands[1].label, {}) catch {
                 return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label definition", null);
             };
-            const snapshot = try allocator.dupe(u8, state);
-            const snapshot2 = try allocator.dupe(u8, state);
+            const snapshot = try allocator.dupe(u16, state);
+            const snapshot2 = try allocator.dupe(u16, state);
             try annotated.append(.{
                 .base = item,
                 .entry_caps = snapshot,
@@ -706,8 +706,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
         }
 
         if (!isExecKind(item.kind)) {
-            const snapshot = try allocator.dupe(u8, state);
-            const snapshot2 = try allocator.dupe(u8, state);
+            const snapshot = try allocator.dupe(u16, state);
+            const snapshot2 = try allocator.dupe(u16, state);
             try annotated.append(.{
                 .base = item,
                 .entry_caps = snapshot,
@@ -850,11 +850,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 const target = item.operands[1].label;
                 if (defined_labels.contains(target)) has_unbounded_loop = true;
                 if (labels.getPtr(target)) |entry| {
-                    if (!std.mem.eql(u8, entry.*, state)) {
+                    if (!std.mem.eql(u16, entry.*, state)) {
                         return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
                     }
                 } else {
-                    labels.put(target, try allocator.dupe(u8, state)) catch {
+                    labels.put(target, try allocator.dupe(u16, state)) catch {
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                 }
@@ -864,11 +864,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 for ([_]u32{ item.operands[1].label, item.operands[2].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
-                        if (!std.mem.eql(u8, entry.*, state)) {
+                        if (!std.mem.eql(u16, entry.*, state)) {
                             return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
                         }
                     } else {
-                        labels.put(target, try allocator.dupe(u8, state)) catch {
+                        labels.put(target, try allocator.dupe(u16, state)) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                     }
@@ -880,11 +880,11 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 for ([_]u32{ item.operands[1].label, item.operands[2].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
-                        if (!std.mem.eql(u8, entry.*, state)) {
+                        if (!std.mem.eql(u16, entry.*, state)) {
                             return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
                         }
                     } else {
-                        labels.put(target, try allocator.dupe(u8, state)) catch {
+                        labels.put(target, try allocator.dupe(u16, state)) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                     }
@@ -908,6 +908,10 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
 
                 if (!parsed.is_indirect and sig_match == null and builtin == null and !std.mem.startsWith(u8, parsed.callee, "sys_")) {
                     return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "callee is not declared", null);
+                }
+
+                if (!parsed.is_indirect and builtin == null and std.mem.startsWith(u8, parsed.callee, "sys_")) {
+                    return trapReport(.unsupported_sys_intrinsic, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "target runtime does not support this @sys_* intrinsic", null);
                 }
 
                 if (!parsed.is_indirect) {
@@ -1072,8 +1076,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             else => {},
         }
 
-        const snapshot_entry = try allocator.dupe(u8, state);
-        const snapshot_exit = try allocator.dupe(u8, state);
+        const snapshot_entry = try allocator.dupe(u16, state);
+        const snapshot_exit = try allocator.dupe(u16, state);
         try annotated.append(.{
             .base = item,
             .entry_caps = snapshot_entry,

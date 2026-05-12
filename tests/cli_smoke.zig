@@ -418,6 +418,58 @@ test "extern export ffi wrapper map to real declarations and symbols" {
     try std.testing.expect(std.mem.containsAtLeast(u8, nm_output, 1, " main"));
 }
 
+test "unknown sys intrinsic is rejected before emission" {
+    const source =
+        \\@main() -> i32:
+        \\value = call @sys_not_supported()
+        \\return value
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "unsupported_sys.saasm", source);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "unsupported_sys.saasm", "-o", "unsupported_sys.out" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out.saasm.ll", .{}));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnsupportedSysIntrinsic\""));
+}
+
+test "v0.1 build-wasm rejects wasm64 target" {
+    const source =
+        \\@main() -> i32:
+        \\return 0
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "wasm64.saasm", source);
+
+    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "wasm64.saasm", "-o", "wasm64.wasm", "--target", "wasm64" };
+    try std.testing.expectError(error.InvalidTarget, saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]));
+}
+
 test "layout cli prints text and json outputs" {
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();

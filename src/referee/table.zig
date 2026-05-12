@@ -13,13 +13,13 @@ pub const TableError = error{
     FfiOwnershipViolation,
 };
 
-fn maskOf(tag: cap.CapabilityMask) u8 {
+fn maskOf(tag: cap.CapabilityMask) u16 {
     return @intFromEnum(tag);
 }
 
 pub const CapabilityTable = struct {
     allocator: std.mem.Allocator,
-    masks: []u8,
+    masks: []u16,
     origins: []?u32,
     lock_refs: []u16,
     flags: []u8,
@@ -27,7 +27,7 @@ pub const CapabilityTable = struct {
     pub fn init(allocator: std.mem.Allocator, count: usize) !CapabilityTable {
         const table = CapabilityTable{
             .allocator = allocator,
-            .masks = try allocator.alloc(u8, count),
+            .masks = try allocator.alloc(u16, count),
             .origins = try allocator.alloc(?u32, count),
             .lock_refs = try allocator.alloc(u16, count),
             .flags = try allocator.alloc(u8, count),
@@ -59,13 +59,13 @@ pub const CapabilityTable = struct {
         return index;
     }
 
-    fn currentMask(self: *CapabilityTable, id: u32) TableError!u8 {
+    fn currentMask(self: *CapabilityTable, id: u32) TableError!u16 {
         const index = try self.ensureIndex(id);
         return self.masks[index];
     }
 
-    pub fn snapshotMasks(self: *CapabilityTable, allocator: std.mem.Allocator) ![]u8 {
-        return try allocator.dupe(u8, self.masks);
+    pub fn snapshotMasks(self: *CapabilityTable, allocator: std.mem.Allocator) ![]u16 {
+        return try allocator.dupe(u16, self.masks);
     }
 
     pub fn bindActive(self: *CapabilityTable, id: u32) TableError!void {
@@ -256,14 +256,14 @@ test "capability table tracks alloc, move, and borrow transitions" {
     defer table.deinit();
 
     try table.noteAlloc(0);
-    try std.testing.expectEqual(@as(u8, 0x01), table.masks[0]);
+    try std.testing.expectEqual(@as(u16, 0x01), table.masks[0]);
     try table.noteMove(0);
-    try std.testing.expectEqual(@as(u8, 0x08), table.masks[0]);
+    try std.testing.expectEqual(@as(u16, 0x08), table.masks[0]);
 
     try table.noteAlloc(1);
     try table.startReadBorrow(1, 2);
-    try std.testing.expectEqual(@as(u8, 0x02), table.masks[1]);
-    try std.testing.expectEqual(@as(u8, 0x11), table.masks[2]);
+    try std.testing.expectEqual(@as(u16, 0x02), table.masks[1]);
+    try std.testing.expectEqual(@as(u16, 0x11), table.masks[2]);
     try table.releaseBorrow(2);
-    try std.testing.expectEqual(@as(u8, 0x01), table.masks[1]);
+    try std.testing.expectEqual(@as(u16, 0x01), table.masks[1]);
 }
