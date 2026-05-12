@@ -3,6 +3,7 @@ const std = @import("std");
 const call = @import("referee/call.zig");
 const referee = @import("referee.zig");
 const symbol = @import("flattener/symbol.zig");
+const atomic = @import("common/atomic.zig");
 const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
@@ -22,6 +23,8 @@ pub const RunError = error{
 const RegValue = struct {
     ty: sig.PrimType,
     bits: u64,
+    fallible: bool = false,
+    status: u32 = 0,
 };
 
 const SysCallOutcome = union(enum) {
@@ -41,6 +44,59 @@ fn returnTypeForSig(return_cap: ?inst.CapPrefix, return_ty: sig.PrimType) sig.Pr
     return switch (return_cap orelse .by_value) {
         .raw, .borrow => .ptr,
         .move, .by_value => return_ty,
+    };
+}
+
+fn atomicValueType(item: inst.Instruction, fallback: sig.PrimType) sig.PrimType {
+    if (item.atomic_value_ty) |tag| {
+        if (sig.primTypeFromTag(tag)) |ty| return ty;
+    }
+    return fallback;
+}
+
+fn packFallible(status: u32, value: RegValue) RegValue {
+    return .{ .ty = value.ty, .bits = value.bits, .fallible = true, .status = status };
+}
+
+fn unpackSuccess(value: RegValue) RegValue {
+    return .{ .ty = value.ty, .bits = value.bits };
+}
+
+fn requireNonFallible(value: RegValue) !RegValue {
+    if (value.fallible) return RunError.InvalidOperand;
+    return value;
+}
+
+fn readReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+    return try requireNonFallible(regs.get(id) orelse return RunError.InvalidOperand);
+}
+
+fn readRawReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+    return regs.get(id) orelse return RunError.InvalidOperand;
+}
+
+fn isIdentLike(text: []const u8) bool {
+    return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
+}
+
+fn resolveOperandValue(
+    self: *Interpreter,
+    regs: *std.AutoHashMap(u32, RegValue),
+    operand: inst.Operand,
+) !RegValue {
+    return switch (operand) {
+        .reg => |id| try readReg(regs, id),
+        .text => |text| blk: {
+            if (isIdentLike(text)) {
+                if (self.program.symbols.findId(text)) |id| break :blk try readReg(regs, id);
+            }
+            break :blk try Interpreter.parseImmediateValue(self.allocator, &self.memory, text);
+        },
+        .imm_u64 => |v| .{ .ty = .u64, .bits = v },
+        .imm_i64 => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
+        .imm_int => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
+        .imm_float => |v| .{ .ty = .f64, .bits = @bitCast(v) },
+        else => RunError.InvalidOperand,
     };
 }
 
@@ -182,7 +238,7 @@ const Interpreter = struct {
 
     fn isIntLike(ty: sig.PrimType) bool {
         return switch (ty) {
-            .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr => true,
+            .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr => true,
             else => false,
         };
     }
@@ -197,6 +253,7 @@ const Interpreter = struct {
 
     fn valueFromInt(ty: sig.PrimType, value: i128) RegValue {
         const bits = switch (ty) {
+            .i1 => @as(u64, if (value != 0) 1 else 0),
             .i8, .i16, .i32, .i64 => @as(u64, @bitCast(@as(i64, @intCast(value)))),
             .u8, .u16, .u32, .u64, .ptr => @as(u64, @intCast(@as(u128, @intCast(value)))),
             else => 0,
@@ -239,8 +296,9 @@ const Interpreter = struct {
         };
     }
 
-    fn coerce(self: *Interpreter, value: RegValue, target: sig.PrimType) RegValue {
+    fn coerce(self: *Interpreter, value: RegValue, target: sig.PrimType) !RegValue {
         _ = self;
+        if (value.fallible) return RunError.InvalidOperand;
         if (value.ty == target) return value;
         if (target == .ptr) {
             return .{ .ty = .ptr, .bits = value.bits };
@@ -282,6 +340,7 @@ const Interpreter = struct {
         const base = Memory.sliceAt(addr, @intCast(sig.primTypeBytes(ty)));
         return switch (ty) {
             .void => RunError.InvalidOperand,
+            .i1 => .{ .ty = .i1, .bits = @as(u64, base[0] & 1) },
             .i8 => .{ .ty = .i8, .bits = @as(u64, @bitCast(@as(i64, @as(i8, @intCast(base[0]))))) },
             .u8 => .{ .ty = .u8, .bits = base[0] },
             .i16 => blk: {
@@ -328,6 +387,7 @@ const Interpreter = struct {
         const base = Memory.sliceAt(addr, @intCast(sig.primTypeBytes(ty)));
         switch (ty) {
             .void => return RunError.InvalidOperand,
+            .i1 => base[0] = @as(u8, @intCast(value.bits & 1)),
             .i8, .u8 => base[0] = @as(u8, @intCast(value.bits & 0xff)),
             .i16, .u16 => {
                 const buf: *[2]u8 = @ptrCast(base.ptr);
@@ -353,14 +413,39 @@ const Interpreter = struct {
         }
     }
 
+    fn atomicRmwApply(op: atomic.AtomicRmwOp, target: RegValue, value: RegValue) !RegValue {
+        if (target.fallible or value.fallible) return RunError.InvalidOperand;
+        if (target.ty == .void) return RunError.InvalidOperand;
+        const rhs = value;
+        const ty = target.ty;
+        const width = primWidth(ty);
+        const mask = maskForWidth(width);
+        const lhs_bits = target.bits & mask;
+        const rhs_bits = rhs.bits & mask;
+        const result_bits: u64 = switch (op) {
+            .add => lhs_bits + rhs_bits,
+            .sub => lhs_bits - rhs_bits,
+            .@"and" => lhs_bits & rhs_bits,
+            .@"or" => lhs_bits | rhs_bits,
+            .xor => lhs_bits ^ rhs_bits,
+            .xchg => rhs_bits,
+            .min => if (intValue(target, true) <= intValue(rhs, true)) lhs_bits else rhs_bits,
+            .max => if (intValue(target, true) >= intValue(rhs, true)) lhs_bits else rhs_bits,
+            .umin => if (lhs_bits <= rhs_bits) lhs_bits else rhs_bits,
+            .umax => if (lhs_bits >= rhs_bits) lhs_bits else rhs_bits,
+        };
+        return .{ .ty = ty, .bits = result_bits & mask };
+    }
+
     fn numKind(a: RegValue, b: RegValue) enum { signed, unsigned, float } {
         if (isFloatLike(a.ty) or isFloatLike(b.ty)) return .float;
         if (isSignedInt(a.ty) or isSignedInt(b.ty)) return .signed;
         return .unsigned;
     }
 
-    fn opBinary(self: *Interpreter, op: inst.OpCode, a: RegValue, b: RegValue) RegValue {
+    fn opBinary(self: *Interpreter, op: inst.OpCode, a: RegValue, b: RegValue) !RegValue {
         _ = self;
+        if (a.fallible or b.fallible) return RunError.InvalidOperand;
         switch (numKind(a, b)) {
             .float => {
                 const lhs = floatValue(a);
@@ -467,7 +552,7 @@ const Interpreter = struct {
         if (message) |msg| {
             stderr.print("PANIC[{d}]: {s}\n", .{ code, msg }) catch {};
         } else {
-            stderr.print("PANIC: code={d}\n", .{ code }) catch {};
+            stderr.print("PANIC: code={d}\n", .{code}) catch {};
         }
     }
 
@@ -568,7 +653,7 @@ const Interpreter = struct {
             if (idx >= arg_values.len) return RunError.InvalidOperand;
             const id = fsig.param_ids[idx];
             const target_ty = valueTypeForPrefix(param.cap, param.ty);
-            const value = self.coerce(arg_values[idx], target_ty);
+            const value = try self.coerce(arg_values[idx], target_ty);
             try regs.put(id, value);
         }
 
@@ -619,7 +704,7 @@ const Interpreter = struct {
                             break :blk .i64;
                         };
                     } else if (base.kind == .take) .ptr else .i64;
-                    const srcv = regs.get(src) orelse return RunError.InvalidOperand;
+                    const srcv = try readReg(&regs, src);
                     const addr = srcv.bits + off;
                     const loaded = try self.loadFromMemory(addr, ty);
                     try regs.put(dst, loaded);
@@ -633,32 +718,109 @@ const Interpreter = struct {
                         .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
                         else => return RunError.InvalidOperand,
                     };
-                    const basev = regs.get(base_reg) orelse return RunError.InvalidOperand;
+                    const basev = try readReg(&regs, base_reg);
                     const ty: sig.PrimType = if (base.operands[3] == .ty) blk: {
                         break :blk sig.primTypeFromTag(base.operands[3].ty) orelse .i64;
-                    } else if (base.operands[2] == .reg) (regs.get(base.operands[2].reg) orelse return RunError.InvalidOperand).ty else .i64;
-                    const value = if (base.operands[2] == .reg) regs.get(base.operands[2].reg).? else try parseImmediateValue(self.allocator, &self.memory, if (base.operands[2] == .text) base.operands[2].text else "0");
-                    const coerced = self.coerce(value, ty);
+                    } else if (base.operands[2] == .reg) (try readReg(&regs, base.operands[2].reg)).ty else .i64;
+                    const value = if (base.operands[2] == .reg) try readReg(&regs, base.operands[2].reg) else try parseImmediateValue(self.allocator, &self.memory, if (base.operands[2] == .text) base.operands[2].text else "0");
+                    const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
                 },
+                .atomic_load => {
+                    const dst = base.operands[0].reg;
+                    const src = base.operands[1].reg;
+                    const off = switch (base.operands[2]) {
+                        .imm_u64 => |v| v,
+                        .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
+                        else => return RunError.InvalidOperand,
+                    };
+                    const srcv = try readReg(&regs, src);
+                    const ty = atomicValueType(base, .i64);
+                    const loaded = try self.loadFromMemory(srcv.bits + off, ty);
+                    try regs.put(dst, loaded);
+                },
+                .atomic_store => {
+                    const base_reg = base.operands[0].reg;
+                    const off = switch (base.operands[1]) {
+                        .imm_u64 => |v| v,
+                        .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
+                        else => return RunError.InvalidOperand,
+                    };
+                    const basev = try readReg(&regs, base_reg);
+                    const ty = atomicValueType(base, .i64);
+                    const value = try resolveOperandValue(self, &regs, base.operands[2]);
+                    const coerced = try self.coerce(value, ty);
+                    try self.storeToMemory(basev.bits + off, coerced, ty);
+                },
+                .cmpxchg => {
+                    const dst = base.operands[0].reg;
+                    const ok = base.operands[1].reg;
+                    const src = base.operands[2].reg;
+                    const off = switch (base.operands[3]) {
+                        .imm_u64 => |v| v,
+                        .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
+                        else => return RunError.InvalidOperand,
+                    };
+                    const basev = try readReg(&regs, src);
+                    const ty = atomicValueType(base, .i64);
+                    const expected_text = base.atomic_expected_text orelse return RunError.InvalidOperand;
+                    const new_text = base.atomic_new_text orelse return RunError.InvalidOperand;
+                    const expected_value = try resolveOperandValue(self, &regs, .{ .text = expected_text });
+                    const new_value = try resolveOperandValue(self, &regs, .{ .text = new_text });
+                    const expected = try self.coerce(expected_value, ty);
+                    const new_coerced = try self.coerce(new_value, ty);
+                    const current = try self.loadFromMemory(basev.bits + off, ty);
+                    const success = current.bits == expected.bits;
+                    if (success) {
+                        try self.storeToMemory(basev.bits + off, new_coerced, ty);
+                    }
+                    try regs.put(dst, current);
+                    try regs.put(ok, .{ .ty = .i1, .bits = if (success) 1 else 0 });
+                },
+                .atomic_rmw => {
+                    const dst = base.operands[0].reg;
+                    const src = base.operands[1].reg;
+                    const off = switch (base.operands[2]) {
+                        .imm_u64 => |v| v,
+                        .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                        .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
+                        else => return RunError.InvalidOperand,
+                    };
+                    const basev = try readReg(&regs, src);
+                    const ty = atomicValueType(base, .i64);
+                    const value = try resolveOperandValue(self, &regs, base.operands[3]);
+                    const coerced = try self.coerce(value, ty);
+                    const current = try self.loadFromMemory(basev.bits + off, ty);
+                    const updated = try atomicRmwApply(base.atomic_rmw_op orelse return RunError.InvalidOperand, current, coerced);
+                    try self.storeToMemory(basev.bits + off, updated, ty);
+                    try regs.put(dst, current);
+                },
+                .fence => {},
                 .op => {
                     const dst = base.operands[0].reg;
                     const op = base.operands[1].op_code;
-                    const lhs = regs.get(base.operands[2].reg) orelse return RunError.InvalidOperand;
-                    const rhs = regs.get(base.operands[3].reg) orelse return RunError.InvalidOperand;
-                    const result = self.opBinary(op, lhs, rhs);
+                    const lhs = try readReg(&regs, base.operands[2].reg);
+                    const rhs = try readReg(&regs, base.operands[3].reg);
+                    const result = try self.opBinary(op, lhs, rhs);
                     try regs.put(dst, result);
                 },
                 .raw_cast => {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
-                    const value = regs.get(src) orelse return RunError.InvalidOperand;
+                    const value = try readReg(&regs, src);
                     try regs.put(dst, .{ .ty = .u64, .bits = value.bits });
                 },
                 .assume_safe, .assume_borrow => {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
-                    const value = regs.get(src) orelse return RunError.InvalidOperand;
+                    const value = try readReg(&regs, src);
                     try regs.put(dst, .{ .ty = .ptr, .bits = value.bits });
                 },
                 .move_ => {
@@ -688,14 +850,14 @@ const Interpreter = struct {
                     continue;
                 },
                 .br => {
-                    const cond = regs.get(base.operands[0].reg) orelse return RunError.InvalidOperand;
+                    const cond = try readReg(&regs, base.operands[0].reg);
                     const jump = cond.bits != 0;
                     const label_id = if (jump) base.operands[1].label else base.operands[2].label;
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
                 .br_null => {
-                    const cond = regs.get(base.operands[0].reg) orelse return RunError.InvalidOperand;
+                    const cond = try readReg(&regs, base.operands[0].reg);
                     const jump = cond.bits == 0;
                     const label_id = if (jump) base.operands[1].label else base.operands[2].label;
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
@@ -706,7 +868,7 @@ const Interpreter = struct {
                     defer parsed.deinit(self.allocator);
 
                     if (parsed.is_indirect) {
-                        const callee = if (self.program.symbols.findId(parsed.callee)) |id| regs.get(id) orelse return RunError.InvalidOperand else return RunError.UnknownFunction;
+                        const callee = if (self.program.symbols.findId(parsed.callee)) |id| try readReg(&regs, id) else return RunError.UnknownFunction;
                         const callee_index = @as(usize, @intCast(callee.bits));
                         if (callee_index >= self.program.function_sigs.len) return RunError.UnknownFunction;
                         const target_sig = self.program.function_sigs[callee_index];
@@ -745,16 +907,35 @@ const Interpreter = struct {
                         },
                     }
                 },
+                .try_, .early_return => {
+                    const dst = base.operands[0].reg;
+                    const src = base.operands[1].reg;
+                    const value = try readRawReg(&regs, src);
+                    if (!value.fallible) return RunError.InvalidOperand;
+                    if (value.status != 0) {
+                        return value;
+                    }
+                    try regs.put(dst, unpackSuccess(value));
+                },
                 .return_ => {
                     if (base.operands[0] == .none) {
+                        if (fsig.return_fallible) return RunError.InvalidOperand;
                         return .{ .ty = .void, .bits = 0 };
+                    }
+                    if (fsig.return_fallible) {
+                        const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
+                        if (ret_ty == .void) return RunError.InvalidOperand;
+                        const value = if (base.operands[0] == .reg) try readRawReg(&regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
+                        if (value.fallible) return value;
+                        const coerced = try self.coerce(value, ret_ty);
+                        return packFallible(0, coerced);
                     }
                     const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
                     if (ret_ty == .void) {
                         return .{ .ty = .void, .bits = 0 };
                     }
-                    const value = if (base.operands[0] == .reg) regs.get(base.operands[0].reg).? else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
-                    return self.coerce(value, ret_ty);
+                    const value = if (base.operands[0] == .reg) try readReg(&regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
+                    return try self.coerce(value, ret_ty);
                 },
                 .native => {
                     // Native escape is not supported by the interpreter.
@@ -775,7 +956,7 @@ const Interpreter = struct {
         for (parsed.args, 0..) |arg, idx| {
             if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
                 if (self.program.symbols.findId(arg.text)) |id| {
-                    out[idx] = regs.get(id) orelse return RunError.InvalidOperand;
+                    out[idx] = try readReg(regs, id);
                     continue;
                 }
             }
@@ -791,12 +972,12 @@ const Interpreter = struct {
             const raw = blk: {
                 if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
                     if (self.program.symbols.findId(arg.text)) |id| {
-                        break :blk regs.get(id) orelse return RunError.InvalidOperand;
+                        break :blk try readReg(regs, id);
                     }
                 }
                 break :blk try parseImmediateValue(self.allocator, &self.memory, arg.text);
             };
-            out[idx] = self.coerce(raw, valueTypeForPrefix(param.cap, param.ty));
+            out[idx] = try self.coerce(raw, valueTypeForPrefix(param.cap, param.ty));
         }
         return out;
     }
@@ -827,6 +1008,7 @@ pub fn run(
     };
 
     if (interp.exit_code) |code| return code;
+    if (result.fallible) return @as(u8, @truncate(result.status));
     return @as(u8, @truncate(result.bits));
 }
 

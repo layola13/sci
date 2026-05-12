@@ -5,6 +5,7 @@ const classifier = @import("flattener/line_classifier.zig");
 const forbidden = @import("flattener/forbidden.zig");
 const symbol = @import("flattener/symbol.zig");
 const common_instruction = @import("common/instruction.zig");
+const atomic = @import("common/atomic.zig");
 const common_signature = @import("common/signature.zig");
 const common_trap = @import("common/trap.zig");
 const common_upstream = @import("common/upstream_loc.zig");
@@ -211,6 +212,11 @@ fn mapInstKind(form: InstructionForm) InstKind {
         .stack_alloc => .stack_alloc,
         .load => .load,
         .store => .store,
+        .atomic_load => .atomic_load,
+        .atomic_store => .atomic_store,
+        .cmpxchg => .cmpxchg,
+        .atomic_rmw => .atomic_rmw,
+        .fence => .fence,
         .borrow => .borrow,
         .move_ => .move_,
         .release => .release,
@@ -220,6 +226,7 @@ fn mapInstKind(form: InstructionForm) InstKind {
         .br_null => .br_null,
         .call => .call,
         .call_indirect => .call_indirect,
+        .try_ => .early_return,
         .panic => .panic,
         .panic_msg => .panic_msg,
         .return_ => .return_,
@@ -345,6 +352,82 @@ fn emitParsedLine(
                     const size_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
                     inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, size_text, 10) };
                 },
+                .atomic_load => {
+                    const parsed = atomic.parseLoad(raw_line) catch |err| switch (err) {
+                        error.InvalidAtomicOrdering => return error.InvalidAtomicOrdering,
+                        error.UnsupportedType => return error.UnsupportedType,
+                        else => return error.InvalidSyntax,
+                    };
+                    const dst = try symbols.intern(parsed.dst);
+                    const base = try symbols.intern(parsed.base);
+                    inst.operands[0] = .{ .reg = dst };
+                    inst.operands[1] = .{ .reg = base };
+                    const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
+                    inst.operands[2] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
+                    inst.atomic_ordering = parsed.ordering;
+                },
+                .atomic_store => {
+                    const parsed = atomic.parseStore(raw_line) catch |err| switch (err) {
+                        error.InvalidAtomicOrdering => return error.InvalidAtomicOrdering,
+                        error.UnsupportedType => return error.UnsupportedType,
+                        else => return error.InvalidSyntax,
+                    };
+                    const base = try symbols.intern(parsed.base);
+                    inst.operands[0] = .{ .reg = base };
+                    const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
+                    inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    const value_text = try ownFoldedText(allocator, dict, owned_text, parsed.value);
+                    inst.operands[2] = .{ .text = value_text };
+                    inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
+                    inst.atomic_ordering = parsed.ordering;
+                },
+                .cmpxchg => {
+                    const parsed = atomic.parseCmpxchg(raw_line) catch |err| switch (err) {
+                        error.InvalidAtomicOrdering => return error.InvalidAtomicOrdering,
+                        error.UnsupportedType => return error.UnsupportedType,
+                        else => return error.InvalidSyntax,
+                    };
+                    const dst = try symbols.intern(parsed.dst);
+                    const ok = try symbols.intern(parsed.ok);
+                    const base = try symbols.intern(parsed.base);
+                    inst.operands[0] = .{ .reg = dst };
+                    inst.operands[1] = .{ .reg = ok };
+                    inst.operands[2] = .{ .reg = base };
+                    const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
+                    inst.operands[3] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.atomic_expected_text = try ownFoldedText(allocator, dict, owned_text, parsed.expected);
+                    inst.atomic_new_text = try ownFoldedText(allocator, dict, owned_text, parsed.new_value);
+                    inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
+                    inst.atomic_ordering = parsed.success_ordering;
+                    inst.atomic_second_ordering = parsed.failure_ordering;
+                },
+                .atomic_rmw => {
+                    const parsed = atomic.parseRmw(raw_line) catch |err| switch (err) {
+                        error.InvalidAtomicOrdering => return error.InvalidAtomicOrdering,
+                        error.UnsupportedType => return error.UnsupportedType,
+                        else => return error.InvalidSyntax,
+                    };
+                    const dst = try symbols.intern(parsed.dst);
+                    const base = try symbols.intern(parsed.base);
+                    inst.operands[0] = .{ .reg = dst };
+                    inst.operands[1] = .{ .reg = base };
+                    const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
+                    inst.operands[2] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    const value_text = try ownFoldedText(allocator, dict, owned_text, parsed.value);
+                    inst.operands[3] = .{ .text = value_text };
+                    inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
+                    inst.atomic_ordering = parsed.ordering;
+                    inst.atomic_rmw_op = parsed.op;
+                },
+                .fence => {
+                    const parsed = atomic.parseFence(raw_line) catch |err| switch (err) {
+                        error.InvalidAtomicOrdering => return error.InvalidAtomicOrdering,
+                        error.UnsupportedType => return error.UnsupportedType,
+                        else => return error.InvalidSyntax,
+                    };
+                    inst.atomic_ordering = parsed.ordering;
+                },
                 .stack_alloc => {
                     const dst = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = dst };
@@ -436,7 +519,7 @@ fn emitParsedLine(
                     try owned_text.append(not_null_text);
                     inst.operands[3] = .{ .symbol = try symbols.intern(not_null_text) };
                 },
-                .call, .call_indirect, .panic, .panic_msg, .return_ => {
+                .call, .call_indirect, .try_, .panic, .panic_msg, .return_ => {
                     if (classified.inst_form == .return_ and classified.part_count == 1) {
                         const folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[0]);
                         if (symbols.findId(folded)) |id| {
@@ -444,6 +527,11 @@ fn emitParsedLine(
                         } else {
                             inst.operands[0] = .{ .text = folded };
                         }
+                    } else if (classified.inst_form == .try_) {
+                        const dst = try symbols.intern(classified.parts[0]);
+                        const source = try symbols.intern(classified.parts[1]);
+                        inst.operands[0] = .{ .reg = dst };
+                        inst.operands[1] = .{ .reg = source };
                     } else if (classified.part_count == 2) {
                         const dst = try symbols.intern(classified.parts[0]);
                         inst.operands[0] = .{ .reg = dst };

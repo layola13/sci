@@ -62,6 +62,7 @@ const FieldInfo = struct {
 fn fieldInfo(ty: sig.PrimType, target_bits: u16) LayoutError!FieldInfo {
     return switch (ty) {
         .void => LayoutError.UnsupportedType,
+        .i1 => .{ .size = 1, .alignment = 1 },
         .i8, .u8 => .{ .size = 1, .alignment = 1 },
         .i16, .u16 => .{ .size = 2, .alignment = 2 },
         .i32, .u32, .f32 => .{ .size = 4, .alignment = 4 },

@@ -1,0 +1,10 @@
+@extern handle_new() -> i32
+@extern handle_get(handle: i32) -> i32
+@extern handle_drop(handle: i32) -> void
+@export ffi_handle_roundtrip() -> i32:
+L_ENTRY:
+    handle = call @handle_new()
+    value = call @handle_get(handle)
+    call @handle_drop(handle)
+    ^handle
+    return value

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const call = @import("referee/call.zig");
+const atomic = @import("common/atomic.zig");
 const referee = @import("referee.zig");
 const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
@@ -23,10 +24,17 @@ pub const EmitOptions = struct {
 const Value = struct {
     expr: []const u8,
     ty: sig.PrimType,
+    fallible: bool = false,
 };
 
 const BuiltinCallResult = union(enum) {
     not_builtin,
+    handled_void,
+    handled_value: Value,
+};
+
+const DirectCallResult = union(enum) {
+    not_direct,
     handled_void,
     handled_value: Value,
 };
@@ -37,6 +45,7 @@ const FunctionState = struct {
     regs: std.AutoHashMap(u32, Value),
     owned: std.ArrayList([]const u8),
     temp_index: usize = 0,
+    block_open: bool = true,
 
     fn init(allocator: std.mem.Allocator, sig_: sig.FunctionSig) FunctionState {
         return .{
@@ -283,6 +292,7 @@ fn isFloatLike(ty: sig.PrimType) bool {
 fn llvmTypeName(ty: sig.PrimType) []const u8 {
     return switch (ty) {
         .void => "void",
+        .i1 => "i1",
         .i8, .u8 => "i8",
         .i16, .u16 => "i16",
         .i32, .u32 => "i32",
@@ -296,6 +306,7 @@ fn llvmTypeName(ty: sig.PrimType) []const u8 {
 fn llvmAlign(ty: sig.PrimType) u32 {
     return switch (ty) {
         .void => 1,
+        .i1 => 1,
         .i8, .u8 => 1,
         .i16, .u16 => 2,
         .i32, .u32, .f32 => 4,
@@ -324,6 +335,43 @@ fn returnTypeForSig(return_cap: ?inst.CapPrefix, return_ty: sig.PrimType) sig.Pr
         .raw, .borrow => .ptr,
         .move, .by_value => return_ty,
     };
+}
+
+fn atomicValueType(item: inst.Instruction, fallback: sig.PrimType) sig.PrimType {
+    if (item.atomic_value_ty) |tag| {
+        if (sig.primTypeFromTag(tag)) |ty| return ty;
+    }
+    return fallback;
+}
+
+fn atomicOrderingName(item: inst.Instruction) []const u8 {
+    return atomic.llvmOrderingName(item.atomic_ordering orelse .seq_cst);
+}
+
+fn atomicSecondOrderingName(item: inst.Instruction) []const u8 {
+    return atomic.llvmOrderingName(item.atomic_second_ordering orelse .acquire);
+}
+
+fn writeCmpxchgResultType(writer: anytype, value_ty: sig.PrimType) !void {
+    try writer.writeByte('{');
+    try writer.writeAll(llvmTypeName(value_ty));
+    try writer.writeAll(", i1}");
+}
+
+fn writeReturnAbiType(
+    writer: anytype,
+    return_cap: ?inst.CapPrefix,
+    return_ty: sig.PrimType,
+    return_fallible: bool,
+) !void {
+    const value_ty = returnTypeForSig(return_cap, return_ty);
+    if (return_fallible) {
+        try writer.writeAll("{i32, ");
+        try writer.writeAll(llvmTypeName(value_ty));
+        try writer.writeByte('}');
+        return;
+    }
+    try writer.writeAll(llvmTypeName(value_ty));
 }
 
 fn emitLine(out: *std.ArrayList(u8), text: []const u8) !void {
@@ -372,6 +420,7 @@ fn castValue(
     value: Value,
     target: sig.PrimType,
 ) !Value {
+    if (value.fallible) return EmitError.InvalidOperand;
     if (value.ty == target) return value;
 
     if (target == .ptr) {
@@ -615,8 +664,9 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
 }
 
 fn emitFunctionHeader(out: *std.ArrayList(u8), state: *FunctionState) !void {
-    const ret_ty = returnTypeForSig(state.sig.return_cap, state.sig.return_ty);
-    try out.writer().print("define {s} @{s}(", .{ llvmTypeName(ret_ty), state.emitted_name });
+    try out.appendSlice("define ");
+    try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, state.sig.return_fallible);
+    try out.writer().print(" @{s}(", .{state.emitted_name});
     for (state.sig.params, 0..) |param, idx| {
         if (idx != 0) try out.appendSlice(", ");
         const ty = valueTypeForPrefix(param.cap, param.ty);
@@ -720,7 +770,7 @@ fn emitBuiltinCall(
         defer prelude.deinit();
         var args_buf = std.ArrayList(u8).init(allocator);
         defer args_buf.deinit();
-        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "msg", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }});
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{ .{ .name = "msg", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value } });
         try out.appendSlice(prelude.items);
         try out.writer().print("  call void @sys_print({s})\n", .{args_buf.items});
         return .handled_void;
@@ -741,7 +791,7 @@ fn emitBuiltinCall(
         var args_buf = std.ArrayList(u8).init(allocator);
         defer args_buf.deinit();
         const tmp = try state.tempName(allocator);
-        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "out_len", .ty = .ptr, .cap = .raw }});
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{ .{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "out_len", .ty = .ptr, .cap = .raw } });
         try out.appendSlice(prelude.items);
         try out.writer().print("  {s} = call ptr @sys_read_file({s})\n", .{ tmp, args_buf.items });
         return .{ .handled_value = .{ .expr = tmp, .ty = .ptr } };
@@ -752,7 +802,7 @@ fn emitBuiltinCall(
         var args_buf = std.ArrayList(u8).init(allocator);
         defer args_buf.deinit();
         const tmp = try state.tempName(allocator);
-        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "data", .ty = .ptr, .cap = .raw }, .{ .name = "dlen", .ty = .i64, .cap = .by_value }});
+        try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{ .{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "data", .ty = .ptr, .cap = .raw }, .{ .name = "dlen", .ty = .i64, .cap = .by_value } });
         try out.appendSlice(prelude.items);
         try out.writer().print("  {s} = call i32 @sys_write_file({s})\n", .{ tmp, args_buf.items });
         return .{ .handled_value = .{ .expr = tmp, .ty = .i32 } };
@@ -768,13 +818,14 @@ fn emitDirectCall(
     sigs: []const sig.FunctionSig,
     options: EmitOptions,
     parsed: call.ParsedCall,
-) !?Value {
+) !DirectCallResult {
     _ = options;
-    const resolved = findFunctionSig(sigs, parsed.callee) orelse return null;
+    const resolved = findFunctionSig(sigs, parsed.callee) orelse return .not_direct;
     const ret_ty = returnTypeForSig(resolved.return_cap, resolved.return_ty);
     if (parsed.args.len != resolved.params.len) return EmitError.InvalidOperand;
 
     if (ret_ty != .void) {
+        if (resolved.return_fallible and ret_ty == .void) return EmitError.UnsupportedType;
         var prelude = std.ArrayList(u8).init(allocator);
         defer prelude.deinit();
         var args_buf = std.ArrayList(u8).init(allocator);
@@ -782,8 +833,10 @@ fn emitDirectCall(
         const tmp = try state.tempName(allocator);
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, resolved.params);
         try out.appendSlice(prelude.items);
-        try out.writer().print("  {s} = call {s} @{s}({s})\n", .{ tmp, llvmTypeName(ret_ty), emittedFunctionName(resolved), args_buf.items });
-        return .{ .expr = tmp, .ty = ret_ty };
+        try out.writer().print("  {s} = call ", .{tmp});
+        try writeReturnAbiType(out.writer(), resolved.return_cap, resolved.return_ty, resolved.return_fallible);
+        try out.writer().print(" @{s}({s})\n", .{ emittedFunctionName(resolved), args_buf.items });
+        return .{ .handled_value = .{ .expr = tmp, .ty = ret_ty, .fallible = resolved.return_fallible } };
     } else {
         var prelude = std.ArrayList(u8).init(allocator);
         defer prelude.deinit();
@@ -792,7 +845,7 @@ fn emitDirectCall(
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, resolved.params);
         try out.appendSlice(prelude.items);
         try out.writer().print("  call void @{s}({s})\n", .{ emittedFunctionName(resolved), args_buf.items });
-        return null;
+        return .handled_void;
     }
 }
 
@@ -832,8 +885,10 @@ fn emitCall(
         .handled_value => |value| return value,
         .not_builtin => {},
     }
-    if (try emitDirectCall(allocator, out, state, symbols, sigs, options, parsed)) |value| {
-        return value;
+    switch (try emitDirectCall(allocator, out, state, symbols, sigs, options, parsed)) {
+        .not_direct => {},
+        .handled_void => return null,
+        .handled_value => |value| return value,
     }
     return EmitError.UnknownFunction;
 }
@@ -854,7 +909,11 @@ fn emitInstruction(
         .label => {
             const label_id = base.operands[1].label;
             const label_name = symbols.lookupName(label_id) orelse return EmitError.InvalidOperand;
+            if (state.block_open) {
+                try out.writer().print("  br label %{s}\n", .{label_name});
+            }
             try out.writer().print("{s}:\n", .{label_name});
+            state.block_open = true;
         },
         .alloc => {
             const dst = base.operands[0].reg;
@@ -905,6 +964,103 @@ fn emitInstruction(
             const tmp = try state.tempName(allocator);
             try out.writer().print("  {s} = load {s}, ptr {s}, align {d}\n", .{ tmp, llvmTypeName(ty), gep, llvmAlign(ty) });
             try state.setReg(dst, .{ .expr = tmp, .ty = ty });
+        },
+        .atomic_load => {
+            const dst = base.operands[0].reg;
+            const src = base.operands[1].reg;
+            const off = switch (base.operands[2]) {
+                .imm_u64 => |v| v,
+                .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .text => |t| std.fmt.parseInt(u64, t, 10) catch return EmitError.InvalidOperand,
+                else => return EmitError.InvalidOperand,
+            };
+            const srcv = state.getReg(src) orelse return EmitError.InvalidOperand;
+            const ptrv = try castValue(allocator, out, state, srcv, .ptr);
+            const gep = try state.tempName(allocator);
+            try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {d}\n", .{ gep, ptrv.expr, off });
+            const ty = atomicValueType(base, .i64);
+            const tmp = try state.tempName(allocator);
+            try out.writer().print("  {s} = load atomic {s}, ptr {s} {s}, align {d}\n", .{ tmp, llvmTypeName(ty), gep, atomicOrderingName(base), llvmAlign(ty) });
+            try state.setReg(dst, .{ .expr = tmp, .ty = ty });
+        },
+        .atomic_store => {
+            const base_reg = base.operands[0].reg;
+            const off = switch (base.operands[1]) {
+                .imm_u64 => |v| v,
+                .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .text => |t| std.fmt.parseInt(u64, t, 10) catch return EmitError.InvalidOperand,
+                else => return EmitError.InvalidOperand,
+            };
+            const basev = state.getReg(base_reg) orelse return EmitError.InvalidOperand;
+            const ptrv = try castValue(allocator, out, state, basev, .ptr);
+            const gep = try state.tempName(allocator);
+            try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {d}\n", .{ gep, ptrv.expr, off });
+            const ty = atomicValueType(base, .i64);
+            const value = try valueFromOperand(allocator, state, symbols, base.operands[2]);
+            const coerced = try castValue(allocator, out, state, value, ty);
+            try out.writer().print("  store atomic {s} {s}, ptr {s} {s}, align {d}\n", .{ llvmTypeName(ty), coerced.expr, gep, atomicOrderingName(base), llvmAlign(ty) });
+        },
+        .cmpxchg => {
+            const dst = base.operands[0].reg;
+            const ok = base.operands[1].reg;
+            const src = base.operands[2].reg;
+            const off = switch (base.operands[3]) {
+                .imm_u64 => |v| v,
+                .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .text => |t| std.fmt.parseInt(u64, t, 10) catch return EmitError.InvalidOperand,
+                else => return EmitError.InvalidOperand,
+            };
+            const srcv = state.getReg(src) orelse return EmitError.InvalidOperand;
+            const ptrv = try castValue(allocator, out, state, srcv, .ptr);
+            const gep = try state.tempName(allocator);
+            try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {d}\n", .{ gep, ptrv.expr, off });
+            const ty = atomicValueType(base, .i64);
+            const expected_text = base.atomic_expected_text orelse return EmitError.InvalidOperand;
+            const new_text = base.atomic_new_text orelse return EmitError.InvalidOperand;
+            const expected_value = try valueFromOperand(allocator, state, symbols, .{ .text = expected_text });
+            const new_value = try valueFromOperand(allocator, state, symbols, .{ .text = new_text });
+            const expected_coerced = try castValue(allocator, out, state, expected_value, ty);
+            const new_coerced = try castValue(allocator, out, state, new_value, ty);
+            const pair = try state.tempName(allocator);
+            try out.writer().print("  {s} = cmpxchg ptr {s}, {s} {s}, {s} {s} {s} {s}\n", .{ pair, gep, llvmTypeName(ty), expected_coerced.expr, llvmTypeName(ty), new_coerced.expr, atomicOrderingName(base), atomicSecondOrderingName(base) });
+            const old_tmp = try state.tempName(allocator);
+            try out.writer().print("  {s} = extractvalue ", .{old_tmp});
+            try writeCmpxchgResultType(out.writer(), ty);
+            try out.writer().print(" {s}, 0\n", .{pair});
+            const ok_tmp = try state.tempName(allocator);
+            try out.writer().print("  {s} = extractvalue ", .{ok_tmp});
+            try writeCmpxchgResultType(out.writer(), ty);
+            try out.writer().print(" {s}, 1\n", .{pair});
+            try state.setReg(dst, .{ .expr = old_tmp, .ty = ty });
+            try state.setReg(ok, .{ .expr = ok_tmp, .ty = .i1 });
+        },
+        .atomic_rmw => {
+            const dst = base.operands[0].reg;
+            const src = base.operands[1].reg;
+            const off = switch (base.operands[2]) {
+                .imm_u64 => |v| v,
+                .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+                .text => |t| std.fmt.parseInt(u64, t, 10) catch return EmitError.InvalidOperand,
+                else => return EmitError.InvalidOperand,
+            };
+            const srcv = state.getReg(src) orelse return EmitError.InvalidOperand;
+            const ptrv = try castValue(allocator, out, state, srcv, .ptr);
+            const gep = try state.tempName(allocator);
+            try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {d}\n", .{ gep, ptrv.expr, off });
+            const ty = atomicValueType(base, .i64);
+            const value = try valueFromOperand(allocator, state, symbols, base.operands[3]);
+            const coerced = try castValue(allocator, out, state, value, ty);
+            const tmp = try state.tempName(allocator);
+            const op_name = atomic.rmwOpName(base.atomic_rmw_op orelse return EmitError.InvalidOperand);
+            try out.writer().print("  {s} = atomicrmw {s} ptr {s}, {s} {s} {s}\n", .{ tmp, op_name, gep, llvmTypeName(ty), coerced.expr, atomicOrderingName(base) });
+            try state.setReg(dst, .{ .expr = tmp, .ty = ty });
+        },
+        .fence => {
+            try out.writer().print("  fence {s}\n", .{atomicOrderingName(base)});
         },
         .store => {
             const base_reg = base.operands[0].reg;
@@ -990,6 +1146,7 @@ fn emitInstruction(
         .jmp => {
             const label_name = symbols.lookupName(base.operands[1].label) orelse return EmitError.InvalidOperand;
             try out.writer().print("  br label %{s}\n", .{label_name});
+            state.block_open = false;
         },
         .br => {
             const cond = try valueFromOperand(allocator, state, symbols, base.operands[0]);
@@ -999,6 +1156,7 @@ fn emitInstruction(
             const tname = symbols.lookupName(base.operands[1].label) orelse return EmitError.InvalidOperand;
             const fname = symbols.lookupName(base.operands[2].label) orelse return EmitError.InvalidOperand;
             try out.writer().print("  br i1 {s}, label %{s}, label %{s}\n", .{ tmp, tname, fname });
+            state.block_open = false;
         },
         .br_null => {
             const value = try valueFromOperand(allocator, state, symbols, base.operands[0]);
@@ -1008,6 +1166,7 @@ fn emitInstruction(
             const nname = symbols.lookupName(base.operands[1].label) orelse return EmitError.InvalidOperand;
             const nnname = symbols.lookupName(base.operands[2].label) orelse return EmitError.InvalidOperand;
             try out.writer().print("  br i1 {s}, label %{s}, label %{s}\n", .{ tmp, nname, nnname });
+            state.block_open = false;
         },
         .call, .call_indirect, .panic, .panic_msg => {
             var parsed = call.parseCall(allocator, base.raw_text) catch return EmitError.InvalidOperand;
@@ -1017,16 +1176,78 @@ fn emitInstruction(
                     if (symbols.findId(dest)) |id| try state.setReg(id, ret);
                 }
             }
+            state.block_open = base.kind != .panic and base.kind != .panic_msg;
+        },
+        .try_, .early_return => {
+            const dst = base.operands[0].reg;
+            const src = base.operands[1].reg;
+            const value = state.getReg(src) orelse return EmitError.InvalidOperand;
+            if (!value.fallible) return EmitError.InvalidOperand;
+            if (!state.sig.return_fallible) return EmitError.InvalidOperand;
+
+            const branch_id = state.temp_index;
+            state.temp_index += 1;
+            const status_tmp = try state.tempName(allocator);
+            const ok_tmp = try state.tempName(allocator);
+            const cont_label = try state.ownFmt(allocator, "try_ok_{d}", .{branch_id});
+            const early_label = try state.ownFmt(allocator, "try_early_{d}", .{branch_id});
+
+            try out.writer().print("  {s} = extractvalue ", .{status_tmp});
+            try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
+            try out.writer().print(" {s}, 0\n", .{value.expr});
+            try out.writer().print("  {s} = icmp eq i32 {s}, 0\n", .{ ok_tmp, status_tmp });
+            try out.writer().print("  br i1 {s}, label %{s}, label %{s}\n", .{ ok_tmp, cont_label, early_label });
+            try out.writer().print("{s}:\n", .{early_label});
+            try out.appendSlice("  ret ");
+            try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
+            try out.writer().print(" {s}\n", .{value.expr});
+            try out.writer().print("{s}:\n", .{cont_label});
+
+            const payload_tmp = try state.tempName(allocator);
+            try out.writer().print("  {s} = extractvalue ", .{payload_tmp});
+            try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
+            try out.writer().print(" {s}, 1\n", .{value.expr});
+            try state.setReg(dst, .{ .expr = payload_tmp, .ty = value.ty });
+            state.block_open = true;
         },
         .return_ => {
             const ret_ty = returnTypeForSig(state.sig.return_cap, state.sig.return_ty);
+            if (state.sig.return_fallible) {
+                if (ret_ty == .void) return EmitError.UnsupportedType;
+                if (base.operands[0] == .none) return EmitError.InvalidOperand;
+                const value = try valueFromOperand(allocator, state, symbols, base.operands[0]);
+                if (value.fallible) {
+                    try out.appendSlice("  ret ");
+                    try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
+                    try out.writer().print(" {s}\n", .{value.expr});
+                    state.block_open = false;
+                    return;
+                }
+                const coerced = try castValue(allocator, out, state, value, ret_ty);
+                const zero_agg = try state.tempName(allocator);
+                try out.writer().print("  {s} = insertvalue ", .{zero_agg});
+                try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
+                try out.appendSlice(" poison, i32 0, 0\n");
+                const packed_value = try state.tempName(allocator);
+                try out.writer().print("  {s} = insertvalue ", .{packed_value});
+                try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
+                try out.writer().print(" {s}, {s} {s}, 1\n", .{ zero_agg, llvmTypeName(ret_ty), coerced.expr });
+                try out.appendSlice("  ret ");
+                try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
+                try out.writer().print(" {s}\n", .{packed_value});
+                state.block_open = false;
+                return;
+            }
+
             if (base.operands[0] == .none or ret_ty == .void) {
                 try emitIndented(out, "ret void");
+                state.block_open = false;
                 return;
             }
             const value = try valueFromOperand(allocator, state, symbols, base.operands[0]);
             const coerced = try castValue(allocator, out, state, value, ret_ty);
             try out.writer().print("  ret {s} {s}\n", .{ llvmTypeName(ret_ty), coerced.expr });
+            state.block_open = false;
         },
         .native => {
             try out.writer().print("  {s}\n", .{base.operands[0].native_text});
@@ -1072,8 +1293,9 @@ fn emitUserFunctions(
                 sig_index += 1;
 
                 if (item.base.kind == .extern_decl) {
-                    const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
-                    try out.writer().print("declare {s} @{s}(", .{ llvmTypeName(ret_ty), fsig.name });
+                    try out.appendSlice("declare ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, fsig.return_fallible);
+                    try out.writer().print(" @{s}(", .{fsig.name});
                     for (fsig.params, 0..) |param, pidx| {
                         if (pidx != 0) try out.appendSlice(", ");
                         const ty = valueTypeForPrefix(param.cap, param.ty);
@@ -1145,7 +1367,26 @@ fn emitUserFunctions(
                 try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
                 try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
             }
-            if (ret_ty == .void) {
+
+            if (fsig.return_fallible) {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.appendSlice("  %res = call ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.writer().print(" @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                    try out.appendSlice("  %status = extractvalue ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.writer().print(" %res, 0, !dbg !{d}\n", .{dbg_id});
+                    try out.writer().print("  ret i32 %status, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.appendSlice("  %res = call ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.writer().print(" @{s}()\n", .{emittedFunctionName(fsig)});
+                    try out.appendSlice("  %status = extractvalue ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.appendSlice(" %res, 0\n");
+                    try emitLine(out, "  ret i32 %status");
+                }
+            } else if (ret_ty == .void) {
                 if (wrapper_dbg) |dbg_id| {
                     try out.writer().print("  call void @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
                     try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});

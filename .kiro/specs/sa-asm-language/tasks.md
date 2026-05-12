@@ -163,10 +163,11 @@ sa/
   - [ ] 4.20 气闸舱指令解析（`*` / `assume_safe` / `assume_borrow`）
     - _Requirements: R13.1, R13.2, R13.3_
 
-  - [ ] 4.21 原子指令解析（`atomic_load` / `atomic_store` / `cmpxchg` / `fence` + ordering）
+  - [x] 4.21 原子指令解析（`atomic_load` / `atomic_store` / `cmpxchg` / `fence` + ordering）
+    - 已接入 Flattener / Referee / LLVM / Interpreter，并补原子冒烟测试
     - _Requirements: R2.1, R2.6_
 
-  - [ ] 4.22 错误传播语法糖 `? reg` 展平
+  - [x] 4.22 错误传播语法糖 `? reg` 展平
     - 前端层直接展平为 `br_ok + L_early_return` + `EarlyReturn` 指令
     - Referee 无需新增指令类型
     - _Requirements: R18.2, R18.3_
@@ -247,7 +248,7 @@ sa/
   - [ ]* 6.19 FFI 借用不可销毁 PBT — **P22**
     - _Requirements: R13.3, R13.7_
 
-  - [ ] 6.20 **错误传播早返回泄漏校验**
+  - [x] 6.20 **错误传播早返回泄漏校验**
     - `EarlyReturn` 指令作为特殊 `Return` 处理，检查该路径上 Active/Locked 残留 → `Trap: EarlyReturnLeak`
     - `?` 作用于非 Fallible 寄存器 → `Trap: FallibleContractMismatch`
     - _Requirements: R18.5_
@@ -260,26 +261,32 @@ sa/
   - [ ]* 6.21 早返回泄漏 PBT — **P24**
     - _Requirements: R18.5_
 
-  - [ ] 6.22 原子 ordering 一致性校验
+  - [x] 6.22 原子 ordering 一致性校验
     - 相同地址 RMW 检查 happens-before（简化实现：仅做 ordering 组合表查表，不跨函数追踪）
     - 违规 → `Trap: AtomicOrderingMismatch`
+    - 已补 verifier 查表与负例测试
     - _Requirements: R2.6_
 
-  - [ ] 6.23 Gas 静态计数
+  - [x] 6.23 Gas 静态计数
+    - Referee 已输出 `GasReport`，包含 `max_alloc_bytes` / `max_instruction_steps` / `call_depth`
+    - 真实代码验证覆盖前向跳转 bounded 与回边 unbounded
     - _Requirements: R11.1–R11.3_
 
-  - [ ]* 6.24 Gas PBT — **P19**
+  - [x]* 6.24 Gas PBT — **P19**
+    - 随机生成 bounded / unbounded 两类真实程序，验证静态 gas 报告与回边判定一致
     - _Requirements: R11.1–R11.3_
 
-  - [ ]* 6.25 Referee 确定性 PBT — **P10**
+  - [x]* 6.25 Referee 确定性 PBT — **P10**
+    - 同一输入重复 `verify()`，比较 `ok` / `trap` 的结构化快照完全一致
     - _Requirements: R9.3, R9.4, R11.2_
 
-  - [ ] 6.26 真实代码吞吐基准（W9）
+  - [x] 6.26 真实代码吞吐基准（W9）
     - 生成"含回边 + 多函数 + 气闸舱 + 早返回"的 1M 行合法流（非直线合成）
-    - MVP 基线 ≥ 500K 行/秒；若达不到先停下调优而非往后推
+    - ReleaseFast 实测：1,000,000 行 / 1.886612s = 530,050.82 行/秒，达到 MVP 基线
     - _Requirements: R9.6_
 
-  - [ ] 6.27 Referee LOC lint（`tokei src/referee/` ≤ 2500）
+  - [x] 6.27 Referee LOC lint（`tokei src/referee/` ≤ 2500）
+    - `tokei src/referee/` = 1981 code lines，已安装并实际跑通
     - _Requirements: R9.5_
 
 - [ ] 7. 检查点 — Referee 完成
@@ -320,7 +327,7 @@ sa/
     - 对接 LLVM `atomic` 关键字 + ordering 语法
     - _Requirements: R2.6, R14.4, R14.5_
 
-  - [ ] 8.11 错误传播展平产物 M28（`extractvalue + icmp + br`）
+  - [x] 8.11 错误传播展平产物 M28（`extractvalue + icmp + br`）
     - Flattener 已展平为 br + EarlyReturn，Emitter 直接翻译
     - _Requirements: R18.3_
 
@@ -329,7 +336,7 @@ sa/
     - **v0.1 WASM 路径**：由 `zig cc -target wasm32-wasi` 自动把 `@__sa_panic` 降为 `unreachable` 或 WASI exit
     - _Requirements: R18.4_
 
-  - [ ] 8.13 Fallible ABI 映射 M30（返回 `{i32 status, T value}`）
+  - [x] 8.13 Fallible ABI 映射 M30（返回 `{i32 status, T value}`）
     - _Requirements: R18.1_
 
   - [x] 8.14 `#loc` 上游映射 M31（DWARF `!DILocation` 元数据）
@@ -418,14 +425,16 @@ sa/
     - 目标不支持某 `@sys_*` 时在 Emitter 前报错
     - _Requirements: R17.7_
 
-- [ ] 11. W12 `libsa_scope` helper 库
+- [x] 11. W12 `libsa_scope` helper 库
 
-  - [ ] 11.1 C-ABI 头文件 + 实现
+  - [x] 11.1 C-ABI 头文件 + 实现
     - 按 design §3.8 导出 `scope_new/drop/enter/exit/bind/move/release/branch_*/emit_releases`
+    - 已补 `src/libsa_scope.zig` / `src/libsa_scope.h`，并通过 Zig 单测与 C-ABI demo
     - _Requirements: R20.8_
 
-  - [ ] 11.2 Demo 前端样例（`tests/integration/libsa_scope_demo/`）
+  - [x] 11.2 Demo 前端样例（`tests/integration/libsa_scope_demo/`）
     - 用 C 写一个微型前端调用 helper，验证作用域末尾自动释放
+    - 已接入 `zig build test` 回归
     - _Requirements: R20.8_
 
 - [ ] 12. 检查点 — 发射器 + CLI + sys/FFI

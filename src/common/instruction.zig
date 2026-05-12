@@ -1,4 +1,5 @@
 const std = @import("std");
+const atomic = @import("atomic.zig");
 const upstream = @import("upstream_loc.zig");
 
 pub const CapPrefix = enum(u8) {
@@ -23,6 +24,9 @@ pub const OpCode = enum(u8) {
     shr,
 };
 
+pub const AtomicOrdering = atomic.AtomicOrdering;
+pub const AtomicRmwOp = atomic.AtomicRmwOp;
+
 pub const Operand = union(enum) {
     none: void,
     reg: u32,
@@ -46,6 +50,11 @@ pub const InstKind = enum(u8) {
     stack_alloc,
     load,
     store,
+    atomic_load,
+    atomic_store,
+    cmpxchg,
+    atomic_rmw,
+    fence,
     borrow,
     move_,
     release,
@@ -56,6 +65,7 @@ pub const InstKind = enum(u8) {
     call,
     call_indirect,
     try_,
+    early_return,
     panic,
     panic_msg,
     return_,
@@ -78,6 +88,12 @@ pub const Instruction = struct {
     upstream_loc: ?upstream.UpstreamLoc = null,
     operands: [4]Operand,
     raw_text: []const u8,
+    atomic_value_ty: ?u32 = null,
+    atomic_ordering: ?AtomicOrdering = null,
+    atomic_second_ordering: ?AtomicOrdering = null,
+    atomic_rmw_op: ?AtomicRmwOp = null,
+    atomic_expected_text: ?[]const u8 = null,
+    atomic_new_text: ?[]const u8 = null,
 };
 
 pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, upstream_loc: ?upstream.UpstreamLoc, raw_text: []const u8) Instruction {
@@ -88,6 +104,12 @@ pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, ups
         .upstream_loc = upstream_loc,
         .operands = .{ operandNone(), operandNone(), operandNone(), operandNone() },
         .raw_text = raw_text,
+        .atomic_value_ty = null,
+        .atomic_ordering = null,
+        .atomic_second_ordering = null,
+        .atomic_rmw_op = null,
+        .atomic_expected_text = null,
+        .atomic_new_text = null,
     };
 }
 

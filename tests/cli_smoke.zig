@@ -138,6 +138,160 @@ test "panic builtins terminate through the interpreter" {
     try std.testing.expectEqual(@as(u8, 151), msg_code);
 }
 
+test "fallible ABI and ? propagation work end to end" {
+    const source =
+        \\@helper() -> i32!:
+        \\return 7
+        \\@main() -> i32!:
+        \\tmp = call @helper()
+        \\value = ? tmp
+        \\return value
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "fallible.saasm", source);
+
+    const run_argv = [_][]const u8{ "saasm", "run", "fallible.saasm" };
+    const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), run_code);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "fallible.saasm", "-o", "fallible.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const ll_file = try tmp.dir.openFile("fallible.out.saasm.ll", .{});
+    defer ll_file.close();
+    const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(ll_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define {i32, i32} @helper()"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "call {i32, i32} @helper()"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "extractvalue {i32, i32}"));
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./fallible.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "atomic instructions work end to end and emit real LLVM" {
+    const source =
+        \\@main() -> i32:
+        \\node = alloc 8
+        \\atomic_store node+0, 5 seq_cst
+        \\fence release
+        \\x = atomic_load node+0 seq_cst
+        \\old = atomic_rmw_add node+0, 3 seq_cst
+        \\cmp_old, ok = cmpxchg node+0, 8, 11 acq_rel acquire
+        \\y = atomic_load node+0 seq_cst
+        \\^x
+        \\^old
+        \\^cmp_old
+        \\^ok
+        \\!node
+        \\return y
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "atomic.saasm", source);
+
+    const run_argv = [_][]const u8{ "saasm", "run", "atomic.saasm" };
+    const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 11), run_code);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "atomic.saasm", "-o", "atomic.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const ll_file = try tmp.dir.openFile("atomic.out.saasm.ll", .{});
+    defer ll_file.close();
+    const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(ll_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "load atomic i64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "store atomic i64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "atomicrmw add"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "cmpxchg ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "fence release"));
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./atomic.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 11), code),
+        else => return error.TestUnexpectedResult,
+    }
+
+    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "atomic.saasm", "-o", "atomic.wasm", "--target", "wasm32" };
+    const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), wasm_code);
+
+    const wasm_file = try tmp.dir.openFile("atomic.wasm", .{});
+    defer wasm_file.close();
+    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(wasm_bytes);
+    try std.testing.expect(wasm_bytes.len > 8);
+    try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
+    try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+
+    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "atomic.saasm", "-o", "atomic.o" };
+    const obj_code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), obj_code);
+
+    const obj_file = try tmp.dir.openFile("atomic.o", .{});
+    defer obj_file.close();
+    const obj_bytes = try obj_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(obj_bytes);
+    try std.testing.expect(obj_bytes.len > 0);
+}
+
+test "invalid cmpxchg ordering is rejected by the flattener" {
+    const source =
+        \\@main() -> i32:
+        \\node = alloc 8
+        \\old, ok = cmpxchg node+0, 0, 1 acquire seq_cst
+        \\return 0
+    ;
+
+    try std.testing.expectError(error.InvalidAtomicOrdering, saasm.flattener.flatten(std.testing.allocator, source));
+}
+
+test "atomic ordering mismatch is rejected by the verifier" {
+    const source =
+        \\@main() -> i32:
+        \\node = alloc 8
+        \\old = atomic_rmw_add node+0, 1 acquire
+        \\old2 = atomic_rmw_sub node+0, 1 release
+        \\return 0
+    ;
+
+    var flat = try saasm.flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions);
+    switch (verified) {
+        .ok => return error.TestUnexpectedResult,
+        .trap => |report| {
+            try std.testing.expectEqual(saasm.common.trap.Trap.atomic_ordering_mismatch, report.trap);
+            try std.testing.expect(std.mem.containsAtLeast(u8, report.message, 1, "same-address RMW ordering combination"));
+        },
+    }
+}
+
 test "panic lowers to a real runtime call in emitted LLVM and native executables exit with that code" {
     const source =
         \\@helper() -> i32:
@@ -173,7 +327,7 @@ test "panic lowers to a real runtime call in emitted LLVM and native executables
     try std.testing.expect(!std.mem.containsAtLeast(u8, ll_bytes, 1, "unreachable ; panic("));
     try std.testing.expect(!std.mem.containsAtLeast(u8, ll_bytes, 1, "unreachable ; panic_msg("));
 
-    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./panic_native.out" });
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./panic_native.out"});
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {

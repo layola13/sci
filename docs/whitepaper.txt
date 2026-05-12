@@ -1,4 +1,4 @@
-SA Whitepaper v0.2
+SA Whitepaper v0.1
 
 SA (Symbolic Affine) is a fully independent, line-oriented affine ownership language
 designed for the LLM era. It produces native executables, WebAssembly modules, and
@@ -19,7 +19,7 @@ No Zig source generation. No AST construction. No hidden round-trips.
 
 Core Symbols (5 ownership operators + 1 escape):
 =       allocate / bind                    target -> Active
-&       borrow (read/write by Referee)     source -> Locked, borrow -> Active(BorrowView)
+&       borrow (read/write by Referee)     source -> Locked_Read/Locked_Mut, borrow -> Active(BorrowView)
 ^       move / consume                     source -> Consumed
 !       release (borrow->unlock; own->free) target -> Consumed
 *       raw pointer escape (ffi_wrapper)   produces Untracked register
@@ -171,6 +171,7 @@ Testing Model:
   - 32 property-based tests x 100+ iterations
 
 Status:
-  This document reflects v0.2 specification (R1-R33).
-  Implementation is at v0.1 with Flattener, Referee, LLVM IR Emitter,
-  Interpreter, and CLI operational.
+  This document reflects the current v0.1 implementation state.
+  Flattener, Referee, LLVM IR Emitter, Interpreter, CLI, and saasm layout
+  are operational. Remaining roadmap items are tracked in
+  .kiro/specs/sa-asm-language/tasks.md.

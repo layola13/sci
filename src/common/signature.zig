@@ -10,6 +10,7 @@ pub const ParseError = error{
 
 pub const PrimType = enum(u8) {
     void,
+    i1,
     i8,
     i16,
     i32,
@@ -84,6 +85,7 @@ pub fn parsePrimType(text: []const u8) ParseError!PrimType {
     const trimmed = std.mem.trim(u8, text, " \t\r");
     inline for ([_]struct { name: []const u8, ty: PrimType }{
         .{ .name = "void", .ty = .void },
+        .{ .name = "i1", .ty = .i1 },
         .{ .name = "i8", .ty = .i8 },
         .{ .name = "i16", .ty = .i16 },
         .{ .name = "i32", .ty = .i32 },
@@ -104,6 +106,7 @@ pub fn parsePrimType(text: []const u8) ParseError!PrimType {
 pub fn primTypeName(ty: PrimType) []const u8 {
     return switch (ty) {
         .void => "void",
+        .i1 => "i1",
         .i8 => "i8",
         .i16 => "i16",
         .i32 => "i32",
@@ -121,6 +124,7 @@ pub fn primTypeName(ty: PrimType) []const u8 {
 pub fn primTypeBits(ty: PrimType) u32 {
     return switch (ty) {
         .void => 0,
+        .i1 => 1,
         .i8, .u8 => 8,
         .i16, .u16 => 16,
         .i32, .u32, .f32 => 32,
@@ -221,6 +225,7 @@ pub fn parseFunctionSig(
         const cap_split = parseOptionalCap(return_text);
         return_cap = cap_split.cap;
         const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
+        if (return_fallible and ty_text.len == 0) return ParseError.InvalidFunctionSig;
         if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
             return_ty = .ptr;
         } else {

@@ -56,4 +56,24 @@ pub fn build(b: *std.Build) void {
     const smoke_step = b.step("smoke", "Run smoke tests");
     smoke_step.dependOn(&run_smoke.step);
     test_step.dependOn(&run_smoke.step);
+
+    const scope_demo = b.addTest(.{
+        .root_source_file = b.path("tests/libsa_scope_demo.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const run_scope_demo = b.addRunArtifact(scope_demo);
+    test_step.dependOn(&run_scope_demo.step);
+
+    const ffi_handle_demo_module = b.createModule(.{
+        .root_source_file = b.path("tests/integration/ffi_handle_demo.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ffi_handle_demo_module.addImport("saasm", lib_module);
+    const ffi_handle_demo = b.addTest(.{
+        .root_module = ffi_handle_demo_module,
+    });
+    const run_ffi_handle_demo = b.addRunArtifact(ffi_handle_demo);
+    test_step.dependOn(&run_ffi_handle_demo.step);
 }

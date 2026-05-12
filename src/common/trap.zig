@@ -27,6 +27,8 @@ pub const Trap = enum(u8) {
     stack_escape,
     early_return_leak,
     fallible_contract_mismatch,
+    invalid_atomic_ordering,
+    atomic_ordering_mismatch,
 };
 
 pub const TrapReport = struct {
@@ -77,6 +79,8 @@ pub fn trapName(trap: Trap) []const u8 {
         .stack_escape => "StackEscape",
         .early_return_leak => "EarlyReturnLeak",
         .fallible_contract_mismatch => "FallibleContractMismatch",
+        .invalid_atomic_ordering => "InvalidAtomicOrdering",
+        .atomic_ordering_mismatch => "AtomicOrderingMismatch",
     };
 }
 

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const call = @import("call.zig");
 const cap = @import("../common/capability.zig");
+const atomic = @import("../common/atomic.zig");
 const gas = @import("../common/gas.zig");
 const inst = @import("../common/instruction.zig");
 const sig = @import("../common/signature.zig");
@@ -66,16 +67,64 @@ fn isDecl(kind: inst.InstKind) bool {
 
 fn isTerminator(kind: inst.InstKind) bool {
     return switch (kind) {
-        .jmp, .br, .br_null, .return_, .panic, .panic_msg => true,
+        .jmp, .br, .br_null, .early_return, .return_, .panic, .panic_msg => true,
         else => false,
     };
 }
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .stack_alloc, .load, .store, .borrow, .move_, .release, .op, .jmp, .br, .br_null, .call, .call_indirect, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
+        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .op, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow => true,
         else => false,
     };
+}
+
+fn atomicKey(inst_: inst.Instruction) ?u64 {
+    return switch (inst_.kind) {
+        .cmpxchg => (@as(u64, inst_.operands[2].reg) << 32) | @as(u64, inst_.operands[3].imm_u64),
+        .atomic_rmw => (@as(u64, inst_.operands[1].reg) << 32) | @as(u64, inst_.operands[2].imm_u64),
+        else => null,
+    };
+}
+
+fn atomicOrderingOf(inst_: inst.Instruction) atomic.AtomicOrdering {
+    return switch (inst_.kind) {
+        .cmpxchg => inst_.atomic_ordering orelse .seq_cst,
+        .atomic_rmw => inst_.atomic_ordering orelse .seq_cst,
+        else => .seq_cst,
+    };
+}
+
+fn atomicSeenBit(ordering: atomic.AtomicOrdering) u8 {
+    return switch (ordering) {
+        .relaxed => 0x01,
+        .acquire => 0x02,
+        .release => 0x04,
+        .acq_rel => 0x08,
+        .seq_cst => 0x10,
+    };
+}
+
+fn checkAtomicOrdering(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    seen: *std.AutoHashMap(u64, u8),
+) ?VerifyResult {
+    const key = atomicKey(item) orelse return null;
+    const ordering = atomicOrderingOf(item);
+    const current = seen.get(key) orelse 0;
+    for ([_]atomic.AtomicOrdering{ .relaxed, .acquire, .release, .acq_rel, .seq_cst }) |prev| {
+        const bit = atomicSeenBit(prev);
+        if ((current & bit) == 0) continue;
+        if (!atomic.sameAddressRmwCompatible(prev, ordering)) {
+            return trapReport(.atomic_ordering_mismatch, item, function_text, is_ffi_wrapper, null, null, null, "same-address RMW ordering combination is not allowed", null);
+        }
+    }
+    seen.put(key, current | atomicSeenBit(ordering)) catch {
+        return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record atomic ordering history", null);
+    };
+    return null;
 }
 
 fn zeroed(allocator: std.mem.Allocator, len: usize) ![]u8 {
@@ -140,13 +189,13 @@ fn trapReport(
 }
 
 fn builtinArgSpec(name: []const u8) ?[]const inst.CapPrefix {
-    if (std.mem.eql(u8, name, "panic")) return &.{ .by_value };
+    if (std.mem.eql(u8, name, "panic")) return &.{.by_value};
     if (std.mem.eql(u8, name, "panic_msg")) return &.{ .by_value, .raw, .by_value };
     if (std.mem.eql(u8, name, "sys_print")) return &.{ .raw, .by_value };
     if (std.mem.eql(u8, name, "sys_read_file")) return &.{ .raw, .by_value, .raw };
     if (std.mem.eql(u8, name, "sys_write_file")) return &.{ .raw, .by_value, .raw, .by_value };
-    if (std.mem.eql(u8, name, "sys_exit")) return &.{ .by_value };
-    if (std.mem.eql(u8, name, "sys_argv")) return &.{ .by_value };
+    if (std.mem.eql(u8, name, "sys_exit")) return &.{.by_value};
+    if (std.mem.eql(u8, name, "sys_argv")) return &.{.by_value};
     if (std.mem.eql(u8, name, "sys_argc")) return &.{};
     return null;
 }
@@ -161,6 +210,24 @@ fn builtinReturnCap(name: []const u8) ?inst.CapPrefix {
     if (std.mem.eql(u8, name, "sys_write_file")) return .by_value;
     if (std.mem.eql(u8, name, "sys_print")) return null;
     return null;
+}
+
+fn isFallibleCall(
+    sig_match: ?sig.FunctionSig,
+    callee: []const u8,
+) bool {
+    if (sig_match) |resolved| {
+        return resolved.return_fallible;
+    }
+    return std.mem.eql(u8, callee, "sys_read_file") or std.mem.eql(u8, callee, "sys_argv");
+}
+
+fn fallibleValueType(return_cap: ?inst.CapPrefix, return_ty: sig.PrimType) sig.PrimType {
+    return sig.returnValueType(return_cap, return_ty);
+}
+
+fn fallibleResultMask() u8 {
+    return maskOf(.fallible);
 }
 
 fn panicMsgAllowsRawArg(callee: []const u8, args_len: usize, idx: usize) bool {
@@ -249,6 +316,13 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
                 if (isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
                 if (isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
             },
+            .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw => {
+                if (isIdentLike(classified.parts[0])) _ = try symbols.intern(classified.parts[0]);
+                if (classified.part_count > 1 and isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
+                if (classified.part_count > 2 and isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
+                if (classified.part_count > 3 and isIdentLike(classified.parts[3])) _ = try symbols.intern(classified.parts[3]);
+            },
+            .fence => {},
             .borrow => {
                 _ = try symbols.intern(classified.parts[0]);
                 if (isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
@@ -269,6 +343,10 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
                 if (isIdentLike(classified.parts[0])) _ = try symbols.intern(classified.parts[0]);
                 if (isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
                 if (isIdentLike(classified.parts[2])) _ = try symbols.intern(classified.parts[2]);
+            },
+            .try_, .early_return => {
+                if (classified.part_count > 0 and isIdentLike(classified.parts[0])) _ = try symbols.intern(classified.parts[0]);
+                if (classified.part_count > 1 and isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
             },
             .call, .call_indirect, .panic, .panic_msg, .return_, .native => {
                 if (call.parseCall(allocator, item.raw_text)) |parsed0| {
@@ -516,6 +594,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
     const locks = try allocator.alloc(u16, reg_count);
     defer allocator.free(locks);
     @memset(locks, 0);
+    var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
+    defer atomic_history.deinit();
 
     var labels = std.AutoHashMap(u32, []u8).init(allocator);
     defer {
@@ -523,6 +603,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
         while (it.next()) |entry| allocator.free(entry.value_ptr.*);
         labels.deinit();
     }
+    var defined_labels = std.AutoHashMap(u32, void).init(allocator);
+    defer defined_labels.deinit();
 
     var annotated = std.ArrayList(AnnotatedInstruction).init(allocator);
     var completed = false;
@@ -569,6 +651,8 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             @memset(flags, 0);
             @memset(origins, null);
             @memset(locks, 0);
+            atomic_history.clearRetainingCapacity();
+            defined_labels.clearRetainingCapacity();
 
             if (current_sig) |decl_sig| {
                 for (decl_sig.params, 0..) |param, pidx| {
@@ -607,6 +691,9 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             if (updateLabel(item, &labels, state, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
                 return tr;
             }
+            defined_labels.put(item.operands[1].label, {}) catch {
+                return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label definition", null);
+            };
             const snapshot = try allocator.dupe(u8, state);
             const snapshot2 = try allocator.dupe(u8, state);
             try annotated.append(.{
@@ -667,6 +754,42 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                     }
                 }
             },
+            .atomic_load => {
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = 0;
+            },
+            .atomic_store => {
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[0].reg, state, flags)) |tr| return tr;
+                if (item.operands[2] == .text and isIdentLike(item.operands[2].text)) {
+                    if (metadata.symbols.findId(item.operands[2].text)) |value_id| {
+                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                    }
+                }
+            },
+            .cmpxchg => {
+                if (checkAtomicOrdering(item, current_function_text, current_is_ffi_wrapper, &atomic_history)) |tr| return tr;
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[2].reg, state, flags)) |tr| return tr;
+                if (item.operands[3] == .imm_u64) {
+                    _ = item.operands[3].imm_u64;
+                }
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = 0;
+                flags[@intCast(item.operands[1].reg)] = 0;
+            },
+            .atomic_rmw => {
+                if (checkAtomicOrdering(item, current_function_text, current_is_ffi_wrapper, &atomic_history)) |tr| return tr;
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
+                if (item.operands[3] == .text and isIdentLike(item.operands[3].text)) {
+                    if (metadata.symbols.findId(item.operands[3].text)) |value_id| {
+                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[3].text, value_id, state, flags)) |tr| return tr;
+                    }
+                }
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = 0;
+            },
+            .fence => {},
             .op => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], item.operands[2].reg, state, flags)) |tr| return tr;
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[3], item.operands[3].reg, state, flags)) |tr| return tr;
@@ -725,6 +848,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
             },
             .jmp => {
                 const target = item.operands[1].label;
+                if (defined_labels.contains(target)) has_unbounded_loop = true;
                 if (labels.getPtr(target)) |entry| {
                     if (!std.mem.eql(u8, entry.*, state)) {
                         return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
@@ -734,7 +858,6 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                 }
-                if (target <= item.operands[1].label) has_unbounded_loop = true;
                 terminated = true;
             },
             .br => {
@@ -749,6 +872,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                     }
+                    if (defined_labels.contains(target)) has_unbounded_loop = true;
                 }
                 terminated = true;
             },
@@ -764,6 +888,7 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                     }
+                    if (defined_labels.contains(target)) has_unbounded_loop = true;
                 }
                 terminated = true;
             },
@@ -848,11 +973,23 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                                 return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
                             }
                             const ret_cap = if (parsed.is_indirect) null else if (sig_match) |resolved| resolved.return_cap else builtinReturnCap(parsed.callee);
-                            state[idx] = switch (ret_cap orelse .move) {
-                                .raw => maskOf(.untracked),
-                                .borrow => maskOf(.active) | maskOf(.borrow_view),
-                                .move, .by_value => maskOf(.active),
+                            const ret_state = if (!parsed.is_indirect) blk: {
+                                if (sig_match) |resolved| {
+                                    if (resolved.return_fallible) break :blk maskOf(.fallible);
+                                }
+                                break :blk switch (ret_cap orelse .move) {
+                                    .raw => maskOf(.untracked),
+                                    .borrow => maskOf(.active) | maskOf(.borrow_view),
+                                    .move, .by_value => maskOf(.active),
+                                };
+                            } else blk: {
+                                break :blk switch (ret_cap orelse .move) {
+                                    .raw => maskOf(.untracked),
+                                    .borrow => maskOf(.active) | maskOf(.borrow_view),
+                                    .move, .by_value => maskOf(.active),
+                                };
                             };
+                            state[idx] = ret_state;
                             flags[idx] = 0;
                         }
                     }
@@ -863,35 +1000,70 @@ pub fn verify(allocator: std.mem.Allocator, instructions: []const inst.Instructi
                     fatal_terminated = true;
                 }
             },
+            .try_, .early_return => {
+                const src_id = item.operands[1].reg;
+                const dst_id = item.operands[0].reg;
+                const src_idx: usize = @intCast(src_id);
+                const src_mask = state[src_idx];
+                if ((src_mask & maskOf(.fallible)) == 0) {
+                    return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(src_id), maskOf(.fallible), src_mask, "? can only be applied to fallible return values", null);
+                }
+
+                for (state, 0..) |mask, idx| {
+                    if (idx == src_idx) continue;
+                    if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
+                    if ((mask & maskOf(.active)) == 0 and (mask & maskOf(.locked_read)) == 0 and (mask & maskOf(.locked_mut)) == 0) continue;
+                    if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
+                    return trapReport(.early_return_leak, item, current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(src_id), maskOf(.fallible), src_mask, "early return would leak live registers", null);
+                }
+
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, maskOf(.active))) |tr| return tr;
+                flags[@intCast(dst_id)] = 0;
+                state[src_idx] = maskOf(.consumed);
+            },
             .return_ => {
                 if (item.operands[0] == .reg) {
                     const ret_id = item.operands[0].reg;
                     const ret_name = metadata.symbols.lookupName(ret_id);
                     const idx: usize = @intCast(ret_id);
-                    if (isStackAllocated(flags, origins, state, ret_id)) {
-                        return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
-                    }
-                    if ((flags[idx] & regFlagRawPointer) != 0) {
-                        return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
-                    }
-                    if ((state[idx] & maskOf(.borrow_view)) != 0) {
-                        clearBorrow(state, flags, origins, locks, ret_id);
-                    } else if ((state[idx] & maskOf(.untracked)) == 0) {
+                    if ((state[idx] & maskOf(.fallible)) != 0) {
+                        if (current_sig == null or current_sig.?.return_fallible == false) {
+                            return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
+                        }
                         state[idx] = maskOf(.consumed);
-                    }
-                } else if (item.operands[0] == .text and isIdentLike(item.operands[0].text)) {
-                    if (metadata.symbols.findId(item.operands[0].text)) |ret_id| {
-                        const idx: usize = @intCast(ret_id);
+                    } else {
                         if (isStackAllocated(flags, origins, state, ret_id)) {
-                            return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
+                            return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
                         }
                         if ((flags[idx] & regFlagRawPointer) != 0) {
-                            return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
+                            return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
                         }
                         if ((state[idx] & maskOf(.borrow_view)) != 0) {
                             clearBorrow(state, flags, origins, locks, ret_id);
                         } else if ((state[idx] & maskOf(.untracked)) == 0) {
                             state[idx] = maskOf(.consumed);
+                        }
+                    }
+                } else if (item.operands[0] == .text and isIdentLike(item.operands[0].text)) {
+                    if (metadata.symbols.findId(item.operands[0].text)) |ret_id| {
+                        const idx: usize = @intCast(ret_id);
+                        if ((state[idx] & maskOf(.fallible)) != 0) {
+                            if (current_sig == null or current_sig.?.return_fallible == false) {
+                                return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
+                            }
+                            state[idx] = maskOf(.consumed);
+                        } else {
+                            if (isStackAllocated(flags, origins, state, ret_id)) {
+                                return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
+                            }
+                            if ((flags[idx] & regFlagRawPointer) != 0) {
+                                return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
+                            }
+                            if ((state[idx] & maskOf(.borrow_view)) != 0) {
+                                clearBorrow(state, flags, origins, locks, ret_id);
+                            } else if ((state[idx] & maskOf(.untracked)) == 0) {
+                                state[idx] = maskOf(.consumed);
+                            }
                         }
                     }
                 }
@@ -1120,5 +1292,349 @@ test "stack_alloc is exempt from memory leak and rejects escape" {
             try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "gas report stays bounded for forward jumps" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .jmp,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .symbol = 1 },
+                .{ .label = 1 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "jmp L_END",
+        },
+        .{
+            .kind = .label,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .symbol = 1 },
+                .{ .label = 1 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "L_END:",
+        },
+        .{
+            .kind = .return_,
+            .source_line = 4,
+            .expanded_line = 3,
+            .operands = .{
+                .{ .text = "0" },
+                .{ .none = {} },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "return 0",
+        },
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..]);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(u64, 0), owned.gas.max_alloc_bytes);
+            try std.testing.expectEqual(false, owned.gas.has_unbounded_loop);
+            switch (owned.gas.max_instruction_steps) {
+                .bounded => |steps| try std.testing.expectEqual(@as(u64, 2), steps),
+                .unbounded => return error.TestUnexpectedResult,
+            }
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "gas report marks backward jumps as unbounded" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .label,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .symbol = 1 },
+                .{ .label = 1 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "L_LOOP:",
+        },
+        .{
+            .kind = .jmp,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .symbol = 1 },
+                .{ .label = 1 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "jmp L_LOOP",
+        },
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..]);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(true, owned.gas.has_unbounded_loop);
+            switch (owned.gas.max_instruction_steps) {
+                .unbounded => |info| try std.testing.expectEqual(@as(u64, 1), info.bounded_prefix),
+                .bounded => return error.TestUnexpectedResult,
+            }
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+const VerifyOkSnapshot = struct {
+    annotated: []const AnnotatedInstruction,
+    function_sigs: []const sig.FunctionSig,
+    symbol_names: []const []const u8,
+    gas: gas.GasReport,
+};
+
+const VerifySnapshot = union(enum) {
+    ok: VerifyOkSnapshot,
+    trap: trap.TrapReport,
+};
+
+const GasFixture = struct {
+    instructions: []inst.Instruction,
+    owned_texts: [][]u8,
+    expected_alloc_bytes: u64,
+    expected_steps: u64,
+    has_unbounded_loop: bool,
+
+    fn deinit(self: *GasFixture, allocator: std.mem.Allocator) void {
+        for (self.owned_texts) |text| allocator.free(text);
+        allocator.free(self.owned_texts);
+        allocator.free(self.instructions);
+        self.* = undefined;
+    }
+};
+
+fn snapshotResult(result: VerifyResult) VerifySnapshot {
+    return switch (result) {
+        .ok => |ok| .{
+            .ok = .{
+                .annotated = ok.annotated,
+                .function_sigs = ok.function_sigs,
+                .symbol_names = ok.symbols.names.items,
+                .gas = ok.gas,
+            },
+        },
+        .trap => |report| .{ .trap = report },
+    };
+}
+
+fn appendOwnedText(
+    texts: *std.ArrayList([]u8),
+    allocator: std.mem.Allocator,
+    comptime fmt: []const u8,
+    args: anytype,
+) ![]const u8 {
+    const text = try std.fmt.allocPrint(allocator, fmt, args);
+    errdefer allocator.free(text);
+    try texts.append(text);
+    return text;
+}
+
+fn buildGasFixture(
+    allocator: std.mem.Allocator,
+    random: std.Random,
+    bounded: bool,
+) !GasFixture {
+    var instructions = std.ArrayList(inst.Instruction).init(allocator);
+    var instructions_moved = false;
+    defer if (!instructions_moved) instructions.deinit();
+
+    var owned_texts = std.ArrayList([]u8).init(allocator);
+    var owned_texts_moved = false;
+    defer if (!owned_texts_moved) {
+        for (owned_texts.items) |text| allocator.free(text);
+        owned_texts.deinit();
+    };
+
+    const size_choices = [_]u64{ 0, 1, 2, 8, 13, 21, 34, 55, 89, 144 };
+    const size = size_choices[random.intRangeLessThan(usize, 0, size_choices.len)];
+    const fence_count = random.intRangeAtMost(usize, 0, 4);
+    const stack_text = try appendOwnedText(&owned_texts, allocator, "tmp = stack_alloc {d}", .{size});
+
+    var item = inst.makeInstruction(.func_decl, 1, 0, null, "@main() -> i32:");
+    item.operands[0] = .{ .symbol = 0 };
+    item.operands[1] = .{ .func = 0 };
+    try instructions.append(item);
+
+    item = inst.makeInstruction(.stack_alloc, 2, 1, null, stack_text);
+    item.operands[0] = .{ .reg = 1 };
+    item.operands[1] = .{ .imm_u64 = size };
+    try instructions.append(item);
+
+    for (0..fence_count) |idx| {
+        item = inst.makeInstruction(.fence, @intCast(3 + idx), @intCast(2 + idx), null, "fence seq_cst");
+        try instructions.append(item);
+    }
+
+    const next_source_line: u32 = @intCast(3 + fence_count);
+    const next_expanded_line: u32 = @intCast(2 + fence_count);
+
+    if (bounded) {
+        item = inst.makeInstruction(.jmp, next_source_line, next_expanded_line, null, "jmp L_END");
+        item.operands[0] = .{ .symbol = 2 };
+        item.operands[1] = .{ .label = 2 };
+        try instructions.append(item);
+
+        item = inst.makeInstruction(.label, next_source_line + 1, next_expanded_line + 1, null, "L_END:");
+        item.operands[0] = .{ .symbol = 2 };
+        item.operands[1] = .{ .label = 2 };
+        try instructions.append(item);
+
+        item = inst.makeInstruction(.return_, next_source_line + 2, next_expanded_line + 2, null, "return 0");
+        item.operands[0] = .{ .text = "0" };
+        try instructions.append(item);
+    } else {
+        item = inst.makeInstruction(.label, next_source_line, next_expanded_line, null, "L_LOOP:");
+        item.operands[0] = .{ .symbol = 2 };
+        item.operands[1] = .{ .label = 2 };
+        try instructions.append(item);
+
+        item = inst.makeInstruction(.jmp, next_source_line + 1, next_expanded_line + 1, null, "jmp L_LOOP");
+        item.operands[0] = .{ .symbol = 2 };
+        item.operands[1] = .{ .label = 2 };
+        try instructions.append(item);
+    }
+
+    const owned_instructions = try instructions.toOwnedSlice();
+    instructions_moved = true;
+    const owned_text_slice = try owned_texts.toOwnedSlice();
+    owned_texts_moved = true;
+
+    var step_count: usize = fence_count + 2;
+    if (bounded) step_count += 1;
+
+    return .{
+        .instructions = owned_instructions,
+        .owned_texts = owned_text_slice,
+        .expected_alloc_bytes = size,
+        .expected_steps = @intCast(step_count),
+        .has_unbounded_loop = !bounded,
+    };
+}
+
+fn verifyTwiceAndExpectEqual(allocator: std.mem.Allocator, program: []const inst.Instruction) !void {
+    const first = try verify(allocator, program);
+    defer switch (first) {
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(allocator);
+        },
+        .trap => {},
+    };
+
+    const second = try verify(allocator, program);
+    defer switch (second) {
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(allocator);
+        },
+        .trap => {},
+    };
+
+    try std.testing.expectEqualDeep(snapshotResult(first), snapshotResult(second));
+}
+
+test "gas PBT stays bounded for random forward-jump programs" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6244);
+    const random = prng.random();
+
+    for (0..32) |_| {
+        var fixture = try buildGasFixture(std.testing.allocator, random, true);
+        defer fixture.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, fixture.instructions);
+        switch (verified) {
+            .ok => |ok| {
+                var owned = ok;
+                defer owned.deinit(std.testing.allocator);
+
+                try std.testing.expectEqual(fixture.expected_alloc_bytes, owned.gas.max_alloc_bytes);
+                try std.testing.expectEqual(false, owned.gas.has_unbounded_loop);
+                switch (owned.gas.max_instruction_steps) {
+                    .bounded => |steps| try std.testing.expectEqual(fixture.expected_steps, steps),
+                    .unbounded => return error.TestUnexpectedResult,
+                }
+            },
+            .trap => return error.TestUnexpectedResult,
+        }
+    }
+}
+
+test "gas PBT marks random back-edge programs as unbounded" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6245);
+    const random = prng.random();
+
+    for (0..32) |_| {
+        var fixture = try buildGasFixture(std.testing.allocator, random, false);
+        defer fixture.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, fixture.instructions);
+        switch (verified) {
+            .ok => |ok| {
+                var owned = ok;
+                defer owned.deinit(std.testing.allocator);
+
+                try std.testing.expectEqual(fixture.expected_alloc_bytes, owned.gas.max_alloc_bytes);
+                try std.testing.expectEqual(true, owned.gas.has_unbounded_loop);
+                switch (owned.gas.max_instruction_steps) {
+                    .unbounded => |info| try std.testing.expectEqual(fixture.expected_steps, info.bounded_prefix),
+                    .bounded => return error.TestUnexpectedResult,
+                }
+            },
+            .trap => return error.TestUnexpectedResult,
+        }
+    }
+}
+
+test "referee determinism PBT stays stable across repeated verify runs" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6250);
+    const random = prng.random();
+
+    for (0..32) |idx| {
+        var fixture = try buildGasFixture(std.testing.allocator, random, (idx & 1) == 0);
+        defer fixture.deinit(std.testing.allocator);
+
+        try verifyTwiceAndExpectEqual(std.testing.allocator, fixture.instructions);
     }
 }

@@ -1,4 +1,4 @@
-# SA Whitepaper v0.2
+# SA Whitepaper v0.1
 
 SA (Symbolic Affine) is a fully independent, line-oriented affine ownership language designed for the LLM era. It produces native executables, WebAssembly modules, and linkable object files — without depending on any host language runtime.
 
@@ -24,7 +24,7 @@ No Zig source generation. No AST construction. No hidden round-trips.
 | Symbol | Semantics | State Effect |
 |---|---|---|
 | `=` | allocate / bind | target → Active |
-| `&` | borrow (read or write determined by Referee dynamically) | source → Locked, borrow → Active(BorrowView) |
+| `&` | borrow (read or write determined by Referee dynamically) | source → Locked_Read/Locked_Mut, borrow → Active(BorrowView) |
 | `^` | move / consume | source → Consumed |
 | `!` | release (borrow → unlock source; ownership → physical free) | target → Consumed |
 | `*` | raw pointer escape (only inside `@ffi_wrapper`) | produces Untracked register |
@@ -40,7 +40,7 @@ No Zig source generation. No AST construction. No hidden round-trips.
 - `dst = load src+offset [as T]` — read at byte offset
 - `store dst+offset, val [as T]` — write at byte offset
 - `dst = take src+offset` — extract interior pointer ownership
-- `dst = ptr_add base, offset` — derive InteriorPtr (lifetime bound to source borrow)
+- `dst = ptr_add base, offset` — reserved for InteriorPtr derivation in the roadmap
 
 ### Arithmetic & Logic
 - Integer: `add / sub / mul / sdiv / udiv / srem / urem / neg`
@@ -114,7 +114,7 @@ Referee validates ownership by linear scan + bitwise AND/OR. No graph theory. No
 - `[MACRO] NAME %p1, %p2 ... [END_MACRO]` — parameterized text template
 - `[REP N] ... [END_REP]` — compile-time unrolling with `%i` cursor
 - `EXPAND NAME arg1, arg2` — macro invocation
-- `@const NAME = <literal>` — global read-only data (.rodata), no type annotation
+- `@const NAME = <literal>` — global read-only data (.rodata), no type annotation; roadmap feature
 
 ## Global Constants (`@const`)
 
@@ -124,7 +124,7 @@ Referee validates ownership by linear scan + bitwise AND/OR. No graph theory. No
 @const CIRCLE_VT = vtable { draw = @Circle_draw, drop = @Circle_drop }
 ```
 
-No type annotation. Byte length inferred from literal. Immutable mask — cannot `^`, `!`, or exclusive-borrow.
+No type annotation. Byte length inferred from literal. Roadmap feature: immutable mask cannot `^`, `!`, or exclusive-borrow.
 
 ## System Primitives (`@sys_*`)
 
@@ -232,4 +232,6 @@ SA interoperates with any language through standard C-ABI:
 
 ## Status
 
-This document reflects the v0.2 specification state (R1–R33). The implementation is at v0.1 stage with Flattener, Referee, LLVM IR Emitter, Interpreter, and CLI operational.
+This document reflects the current v0.1 implementation state. Flattener, Referee,
+LLVM IR Emitter, Interpreter, CLI, and `saasm layout` are operational. Remaining
+roadmap items are tracked in `.kiro/specs/sa-asm-language/tasks.md`.

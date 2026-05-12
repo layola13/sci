@@ -24,6 +24,11 @@ pub const InstructionForm = enum {
     stack_alloc,
     load,
     store,
+    atomic_load,
+    atomic_store,
+    cmpxchg,
+    atomic_rmw,
+    fence,
     borrow,
     move_,
     release,
@@ -252,6 +257,32 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
+    if (std.mem.startsWith(u8, rhs, "atomic_load")) {
+        const rest = std.mem.trimLeft(u8, rhs["atomic_load".len..], " \t");
+        if (rest.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .atomic_load;
+        addPart(line, 0, lhs);
+        addPart(line, 1, rest);
+        return true;
+    }
+
+    if (std.mem.startsWith(u8, rhs, "cmpxchg")) {
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .cmpxchg;
+        addPart(line, 0, lhs);
+        addPart(line, 1, rhs);
+        return true;
+    }
+
+    if (std.mem.startsWith(u8, rhs, "atomic_rmw_")) {
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .atomic_rmw;
+        addPart(line, 0, lhs);
+        addPart(line, 1, rhs);
+        return true;
+    }
+
     if (std.mem.startsWith(u8, rhs, "?")) {
         const rest = std.mem.trim(u8, rhs["?".len..], " \t");
         if (rest.len == 0) return false;
@@ -395,6 +426,13 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         return true;
     }
 
+    if (startsWithWord(trimmed, "atomic_store")) {
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .atomic_store;
+        addPart(line, 0, trimmed);
+        return true;
+    }
+
     if (startsWithWord(trimmed, "br_null")) {
         const rest = std.mem.trimLeft(u8, trimmed["br_null".len..], " \t");
         const pair = parseCommaPair(std.mem.trimLeft(u8, rest, " \t")) orelse return false;
@@ -475,6 +513,13 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .panic;
         addPart(line, 0, rest);
+        return true;
+    }
+
+    if (std.mem.startsWith(u8, trimmed, "fence")) {
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .fence;
+        addPart(line, 0, trimmed);
         return true;
     }
 
@@ -644,6 +689,21 @@ test "classify representative line families" {
     const panic_msg = classifyLine("panic_msg(7, *msg, len)");
     try std.testing.expectEqual(LineKind.instruction, panic_msg.kind);
     try std.testing.expectEqual(InstructionForm.panic_msg, panic_msg.inst_form.?);
+
+    const atomic_load = classifyLine("value = atomic_load ptr+0 acquire");
+    try std.testing.expectEqual(InstructionForm.atomic_load, atomic_load.inst_form.?);
+
+    const atomic_store = classifyLine("atomic_store ptr+0, value release");
+    try std.testing.expectEqual(InstructionForm.atomic_store, atomic_store.inst_form.?);
+
+    const cmpxchg = classifyLine("old, ok = cmpxchg ptr+0, expected, new acq_rel acquire");
+    try std.testing.expectEqual(InstructionForm.cmpxchg, cmpxchg.inst_form.?);
+
+    const rmw = classifyLine("old = atomic_rmw_add ptr+0, value seq_cst");
+    try std.testing.expectEqual(InstructionForm.atomic_rmw, rmw.inst_form.?);
+
+    const fence = classifyLine("fence seq_cst");
+    try std.testing.expectEqual(InstructionForm.fence, fence.inst_form.?);
 
     const store = classifyLine("store node+4, 0");
     try std.testing.expectEqual(LineKind.instruction, store.kind);
