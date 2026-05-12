@@ -405,11 +405,12 @@ sa/
     - `--no-debug` 关闭
     - _Requirements: R19.3, R19.5_
 
-  - [ ]* 8.15 LLVM IR 语法合法性 PBT — **P16**
-    - 用 `opt -verify` 解析产物
+  - [x]* 8.15 LLVM IR 语法合法性 PBT — **P16**
+    - `src/emit_llvm.zig` 已加入 `opt -verify` 语法校验回归；本机用 LLVM 14 `-opaque-pointers` 实际通过
     - _Requirements: R14.1, R14.3–R14.10_
 
-  - [ ]* 8.16 Zig 依赖受限 PBT — **P17**（v0.1 版本：断言产物 `@import` 集合为空，因为我们不生成 Zig 源码）
+  - [x]* 8.16 Zig 依赖受限 PBT — **P17**（v0.1 版本：断言产物 `@import` 集合为空，因为我们不生成 Zig 源码）
+    - `src/emit_llvm.zig` 已加入随机生成模块的 `@import` 为空断言
     - _Requirements: R14.11_
 
   - [x] 8.17 LLVM IR Emitter 公开 API `emitLlvm(allocator, annotated, loc_table) ![]const u8`

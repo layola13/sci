@@ -1,5 +1,6 @@
 const std = @import("std");
 const atomic = @import("atomic.zig");
+const const_decl = @import("const_decl.zig");
 const upstream = @import("upstream_loc.zig");
 
 pub const CapPrefix = enum(u8) {
@@ -26,6 +27,11 @@ pub const OpCode = enum(u8) {
 
 pub const AtomicOrdering = atomic.AtomicOrdering;
 pub const AtomicRmwOp = atomic.AtomicRmwOp;
+pub const ConstDecl = const_decl.ConstDecl;
+pub const ConstValue = const_decl.ConstValue;
+pub const BytesLiteral = const_decl.BytesLiteral;
+pub const VTableLiteral = const_decl.VTableLiteral;
+pub const VTableSlot = const_decl.VTableSlot;
 
 pub const Operand = union(enum) {
     none: void,

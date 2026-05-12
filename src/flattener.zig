@@ -5,6 +5,7 @@ const classifier = @import("flattener/line_classifier.zig");
 const forbidden = @import("flattener/forbidden.zig");
 const symbol = @import("flattener/symbol.zig");
 const common_instruction = @import("common/instruction.zig");
+const common_const_decl = @import("common/const_decl.zig");
 const atomic = @import("common/atomic.zig");
 const common_signature = @import("common/signature.zig");
 const common_trap = @import("common/trap.zig");
@@ -20,6 +21,7 @@ pub const SymbolTable = symbol.SymbolTable;
 pub const Instruction = common_instruction.Instruction;
 pub const InstKind = common_instruction.InstKind;
 pub const Operand = common_instruction.Operand;
+pub const ConstDecl = common_const_decl.ConstDecl;
 pub const FunctionSig = common_signature.FunctionSig;
 pub const FunctionKind = common_signature.FunctionKind;
 pub const Trap = common_trap.Trap;
@@ -60,6 +62,7 @@ const ImportExpansion = struct {
 
 pub const FlattenResult = struct {
     instructions: []Instruction,
+    const_decls: []ConstDecl,
     function_sigs: []FunctionSig,
     def_dict: DefDict,
     symbols: SymbolTable,
@@ -75,6 +78,8 @@ pub const FlattenResult = struct {
         for (self.instructions) |item| {
             if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
         }
+        for (self.const_decls) |*decl| decl.deinit(allocator);
+        allocator.free(self.const_decls);
         for (self.owned_text) |text| allocator.free(text);
         allocator.free(self.owned_text);
         for (self.function_sigs) |*sig| sig.deinit(allocator);
@@ -169,6 +174,14 @@ fn consumePendingLoc(
 ) !?common_upstream.UpstreamLoc {
     const loc = pending_loc.*;
     try loc_table.append(loc);
+    pending_loc.* = null;
+    return loc;
+}
+
+fn takePendingLoc(
+    pending_loc: *?common_upstream.UpstreamLoc,
+) ?common_upstream.UpstreamLoc {
+    const loc = pending_loc.*;
     pending_loc.* = null;
     return loc;
 }
@@ -285,6 +298,7 @@ fn emitParsedLine(
     raw_line: []const u8,
     source_line: u32,
     instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
     function_sigs: *std.ArrayList(FunctionSig),
     owned_text: *std.ArrayList([]const u8),
 ) !void {
@@ -292,6 +306,19 @@ fn emitParsedLine(
     switch (classified.kind) {
         .blank_or_comment => {},
         .import_decl => {},
+        .const_decl => {
+            const upstream_loc = takePendingLoc(pending_loc);
+            errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+            var decl = try common_const_decl.parseConstDecl(
+                allocator,
+                raw_line,
+                source_line,
+                @intCast(instructions.items.len),
+                upstream_loc,
+            );
+            errdefer decl.deinit(allocator);
+            try const_decls.append(decl);
+        },
         .loc_hint => {
             const line_no = try std.fmt.parseInt(u32, classified.parts[1], 10);
             const col_no = try std.fmt.parseInt(u32, classified.parts[2], 10);
@@ -622,7 +649,7 @@ fn collectMacroDefinitions(
     while (idx < lines.len) : (idx += 1) {
         const line = lines[idx];
         switch (line.classified.kind) {
-            .blank_or_comment, .def, .import_decl, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
+            .blank_or_comment, .def, .const_decl, .import_decl, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
             .macro_start => {
                 const end = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
                 const name = line.classified.parts[0];
@@ -655,6 +682,7 @@ fn emitRange(
     loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
     instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
     function_sigs: *std.ArrayList(FunctionSig),
     owned_text: *std.ArrayList([]const u8),
 ) !void {
@@ -667,6 +695,20 @@ fn emitRange(
 
         switch (line.classified.kind) {
             .blank_or_comment, .import_decl => {},
+            .const_decl => {
+                if (!top_level) return error.InvalidMacroDefinitionContext;
+                const upstream_loc = takePendingLoc(pending_loc);
+                errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+                var decl = try common_const_decl.parseConstDecl(
+                    allocator,
+                    line.text,
+                    source_line,
+                    @intCast(instructions.items.len),
+                    upstream_loc,
+                );
+                errdefer decl.deinit(allocator);
+                try const_decls.append(decl);
+            },
             .loc_hint => {
                 const line_no = try std.fmt.parseInt(u32, line.classified.parts[1], 10);
                 const col_no = try std.fmt.parseInt(u32, line.classified.parts[2], 10);
@@ -677,9 +719,9 @@ fn emitRange(
                 if (should_render) {
                     const rendered = try renderWithReplacements(allocator, line.text, replacements);
                     try owned_text.append(rendered);
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, function_sigs, owned_text);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text);
                 } else {
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, function_sigs, owned_text);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, const_decls, function_sigs, owned_text);
                 }
             },
             .macro_start => {
@@ -728,6 +770,7 @@ fn emitRange(
                         loc_table,
                         pending_loc,
                         instructions,
+                        const_decls,
                         function_sigs,
                         owned_text,
                     );
@@ -764,6 +807,7 @@ fn emitRange(
                     loc_table,
                     pending_loc,
                     instructions,
+                    const_decls,
                     function_sigs,
                     owned_text,
                 );
@@ -894,7 +938,7 @@ pub fn findFirstForbiddenLine(source: []const u8) ?ForbiddenLine {
     var line_no: u32 = 1;
     while (iterator.next()) |raw_line| : (line_no += 1) {
         const classified = classifier.classifyLine(raw_line);
-        if (classified.kind == .native or classified.kind == .import_decl) continue;
+        if (classified.kind == .native or classified.kind == .import_decl or classified.kind == .const_decl) continue;
         if (forbidden.findForbiddenSyntax(raw_line)) |hit| {
             return .{ .line_no = line_no, .hit = hit };
         }
@@ -916,6 +960,11 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
     errdefer symbols.deinit();
     var instructions = std.ArrayList(Instruction).init(allocator);
     errdefer instructions.deinit();
+    var const_decls = std.ArrayList(ConstDecl).init(allocator);
+    errdefer {
+        for (const_decls.items) |*decl| decl.deinit(allocator);
+        const_decls.deinit();
+    }
     var function_sigs = std.ArrayList(FunctionSig).init(allocator);
     errdefer {
         for (function_sigs.items) |*sig_item| sig_item.deinit(allocator);
@@ -959,6 +1008,7 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
         &loc_table,
         &pending_loc,
         &instructions,
+        &const_decls,
         &function_sigs,
         &owned_text,
     );
@@ -969,6 +1019,7 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
 
     return .{
         .instructions = try instructions.toOwnedSlice(),
+        .const_decls = try const_decls.toOwnedSlice(),
         .function_sigs = try function_sigs.toOwnedSlice(),
         .def_dict = dict,
         .symbols = symbols,
@@ -1038,6 +1089,31 @@ test "flatten builds instruction stream with symbol and def tables" {
     try std.testing.expectEqual(@as(usize, result.instructions.len), result.loc_table.len);
 }
 
+test "flatten preserves structured const declarations separately from instructions" {
+    const source =
+        \\#loc "main.rs":7:3
+        \\@const HELLO = utf8:"hello"
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\return 0
+    ;
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), result.instructions.len);
+    try std.testing.expectEqual(@as(usize, 1), result.const_decls.len);
+    try std.testing.expectEqualStrings("HELLO", result.const_decls[0].name);
+    try std.testing.expectEqualStrings("utf8:\"hello\"", result.const_decls[0].literal_text);
+    try std.testing.expect(result.const_decls[0].upstream_loc != null);
+    try std.testing.expectEqualStrings("main.rs", result.const_decls[0].upstream_loc.?.file);
+    try std.testing.expectEqual(@as(u32, 7), result.const_decls[0].upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 3), result.const_decls[0].upstream_loc.?.col);
+    switch (result.const_decls[0].value) {
+        .utf8 => |literal| try std.testing.expectEqualStrings("hello", literal.bytes),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
 test "flatten keeps native escape text and extracted register names" {
     const source =
         \\@main() -> i32:
@@ -1097,7 +1173,7 @@ test "flattenFile expands relative @import files" {
 
     try tmp.dir.makePath("sa_std/io");
     var iface = try tmp.dir.createFile("sa_std/io/print.saasm-iface", .{ .truncate = true });
-    try iface.writeAll("@extern sa_print_bytes(msg: &ptr, len: u64) -> void\n");
+    try iface.writeAll("@extern sa_print_bytes(&msg: ptr, len: u64) -> void\n");
     iface.close();
 
     var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });

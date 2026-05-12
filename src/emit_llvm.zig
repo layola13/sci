@@ -1,14 +1,15 @@
 const std = @import("std");
 
 const call = @import("referee/call.zig");
+const trap = @import("common/trap.zig");
 const atomic = @import("common/atomic.zig");
-const referee = @import("referee.zig");
+const common_const_decl = @import("common/const_decl.zig");
 const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
-const trap = @import("common/trap.zig");
 const upstream = @import("common/upstream_loc.zig");
 const flattener = @import("flattener.zig");
+const referee = @import("referee.zig");
 const symbol = @import("flattener/symbol.zig");
 
 pub const EmitError = error{
@@ -17,6 +18,7 @@ pub const EmitError = error{
     UnsupportedInstruction,
     UnsupportedType,
     UnknownFunction,
+    MissingIndirectCallProvenance,
 };
 
 pub const EmitOptions = struct {
@@ -28,12 +30,22 @@ const Value = struct {
     ty: sig.PrimType,
     fallible: bool = false,
     interior_ptr: bool = false,
+    borrow_view: bool = false,
+    ffi_borrow: bool = false,
+    const_ref: ?[]const u8 = null,
+    origin: PointerOrigin = .{},
 };
 
 const BuiltinCallResult = union(enum) {
     not_builtin,
     handled_void,
     handled_value: Value,
+};
+
+const PointerOrigin = struct {
+    const_name: ?[]const u8 = null,
+    const_offset: u64 = 0,
+    indirect_sig_index: ?usize = null,
 };
 
 const DirectCallResult = union(enum) {
@@ -49,6 +61,7 @@ const FunctionState = struct {
     owned: std.ArrayList([]const u8),
     temp_index: usize = 0,
     block_open: bool = true,
+    const_ref_names: std.StringHashMap(void),
 
     fn init(allocator: std.mem.Allocator, sig_: sig.FunctionSig) FunctionState {
         return .{
@@ -56,11 +69,13 @@ const FunctionState = struct {
             .emitted_name = emittedFunctionName(sig_),
             .regs = std.AutoHashMap(u32, Value).init(allocator),
             .owned = std.ArrayList([]const u8).init(allocator),
+            .const_ref_names = std.StringHashMap(void).init(allocator),
         };
     }
 
     fn deinit(self: *FunctionState, allocator: std.mem.Allocator) void {
         self.regs.deinit();
+        self.const_ref_names.deinit();
         for (self.owned.items) |item| allocator.free(item);
         self.owned.deinit();
         self.* = undefined;
@@ -94,6 +109,14 @@ const FunctionState = struct {
 
     fn getReg(self: *FunctionState, id: u32) ?Value {
         return self.regs.get(id);
+    }
+
+    fn setConstRef(self: *FunctionState, name: []const u8) !void {
+        try self.const_ref_names.put(name, {});
+    }
+
+    fn hasConstRef(self: *FunctionState, name: []const u8) bool {
+        return self.const_ref_names.contains(name);
     }
 };
 
@@ -540,7 +563,24 @@ fn emitPointerArithmetic(
 
     const gep = try state.tempName(allocator);
     try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {s}\n", .{ gep, ptr_expr.expr, offset_expr.expr });
-    return .{ .expr = gep, .ty = .ptr, .interior_ptr = true };
+    var origin = ptr_expr.origin;
+    if (origin.const_name != null) {
+        if (std.fmt.parseInt(i64, offset_expr.expr, 10)) |delta| {
+            const base_off: i128 = @intCast(origin.const_offset);
+            const signed_delta: i128 = if (opcode == .sub) -@as(i128, delta) else @as(i128, delta);
+            const next = base_off + signed_delta;
+            if (next >= 0 and next <= std.math.maxInt(u64)) {
+                origin.const_offset = @as(u64, @intCast(next));
+            }
+        } else |_| {}
+    }
+    return .{
+        .expr = gep,
+        .ty = .ptr,
+        .interior_ptr = true,
+        .const_ref = ptr_expr.const_ref,
+        .origin = origin,
+    };
 }
 
 fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
@@ -767,12 +807,160 @@ fn valueFromArgText(
     symbols: *const symbol.SymbolTable,
     text: []const u8,
 ) !Value {
+    if (text.len >= 2 and text[0] == '&' and (std.ascii.isAlphabetic(text[1]) or text[1] == '_')) {
+        const name = text[1..];
+        if (state.hasConstRef(name)) {
+            return .{ .expr = try state.ownFmt(allocator, "@{s}", .{name}), .ty = .ptr, .const_ref = name, .origin = .{ .const_name = name } };
+        }
+    }
     if (text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_')) {
         if (symbols.findId(text)) |id| {
             return state.getReg(id) orelse EmitError.InvalidOperand;
         }
     }
     return try parseImmediateValue(allocator, state, text);
+}
+
+fn emitByteEscape(out: *std.ArrayList(u8), byte: u8) !void {
+    switch (byte) {
+        '\\' => try out.appendSlice("\\5C"),
+        '"' => try out.appendSlice("\\22"),
+        '\n' => try out.appendSlice("\\0A"),
+        '\r' => try out.appendSlice("\\0D"),
+        '\t' => try out.appendSlice("\\09"),
+        else => {
+            const hex = "0123456789ABCDEF";
+            try out.append('\\');
+            try out.append(hex[(byte >> 4) & 0x0f]);
+            try out.append(hex[byte & 0x0f]);
+        },
+    }
+}
+
+fn findConstDeclByName(const_decls: []const common_const_decl.ConstDecl, name: []const u8) ?common_const_decl.ConstDecl {
+    for (const_decls) |decl| {
+        if (std.mem.eql(u8, decl.name, name)) return decl;
+    }
+    return null;
+}
+
+fn findFunctionSigIndex(sigs: []const sig.FunctionSig, name: []const u8) ?usize {
+    for (sigs, 0..) |item, idx| {
+        if (std.mem.eql(u8, item.name, name)) return idx;
+    }
+    return null;
+}
+
+fn constByteLen(value: common_const_decl.ConstValue) !u64 {
+    return switch (value) {
+        .hex => |literal| @as(u64, @intCast(literal.bytes.len)),
+        .utf8 => |literal| @as(u64, @intCast(literal.bytes.len)),
+        .repeat => |literal| @as(u64, @intCast(literal.bytes.len)),
+        .struct_ => |literal| blk: {
+            var total: u64 = 0;
+            for (literal.fields) |field| {
+                const len = try constByteLen(field.value);
+                if (len != field.size) return EmitError.InvalidOperand;
+                total = std.math.add(u64, total, len) catch return EmitError.InvalidOperand;
+            }
+            break :blk total;
+        },
+        .vtable => return EmitError.UnsupportedType,
+    };
+}
+
+fn appendConstBytes(out: *std.ArrayList(u8), value: common_const_decl.ConstValue) !void {
+    switch (value) {
+        .hex => |literal| try out.appendSlice(literal.bytes),
+        .utf8 => |literal| try out.appendSlice(literal.bytes),
+        .repeat => |literal| try out.appendSlice(literal.bytes),
+        .struct_ => |literal| {
+            for (literal.fields) |field| {
+                try appendConstBytes(out, field.value);
+            }
+        },
+        .vtable => return EmitError.UnsupportedType,
+    }
+}
+
+fn emitConstDecls(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    const_decls: []const common_const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+) !void {
+    for (const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                if (literal.slots.len == 0) return EmitError.InvalidOperand;
+                try out.writer().print("@{s} = private unnamed_addr constant [{d} x ptr] [", .{ decl.name, literal.slots.len });
+                for (literal.slots, 0..) |slot, idx| {
+                    if (idx != 0) try out.appendSlice(", ");
+                    const fn_sig = findFunctionSigIndex(sigs, slot.func_name) orelse return EmitError.UnknownFunction;
+                    _ = fn_sig;
+                    try out.writer().print("ptr @{s}", .{ emittedFunctionName(sigs[findFunctionSigIndex(sigs, slot.func_name).?]) });
+                }
+                try emitLine(out, "]");
+            },
+            else => {
+                const len = try constByteLen(decl.value);
+                var bytes = std.ArrayList(u8).init(allocator);
+                defer bytes.deinit();
+                try appendConstBytes(&bytes, decl.value);
+                if (bytes.items.len != len) return EmitError.InvalidOperand;
+                try out.writer().print("@{s} = private unnamed_addr constant [{d} x i8] c\"", .{ decl.name, len });
+                for (bytes.items) |byte| {
+                    try emitByteEscape(out, byte);
+                }
+                try out.appendSlice("\"\n");
+            },
+        }
+    }
+    if (const_decls.len != 0) try emitLine(out, "");
+}
+
+fn resolveConstValueOrigin(
+    value: common_const_decl.ConstValue,
+    const_name: []const u8,
+    offset: u64,
+    loaded_ty: sig.PrimType,
+    sigs: []const sig.FunctionSig,
+) PointerOrigin {
+    const base: PointerOrigin = .{ .const_name = const_name, .const_offset = offset };
+    return switch (value) {
+        .vtable => |literal| blk: {
+            if (loaded_ty != .ptr or offset % 8 != 0) break :blk base;
+            const slot_index: usize = @intCast(offset / 8);
+            if (slot_index >= literal.slots.len) break :blk base;
+            const sig_index = findFunctionSigIndex(sigs, literal.slots[slot_index].func_name) orelse break :blk base;
+            break :blk .{ .const_name = const_name, .const_offset = offset, .indirect_sig_index = sig_index };
+        },
+        .struct_ => |literal| blk: {
+            var cursor: u64 = 0;
+            for (literal.fields) |field| {
+                const next = std.math.add(u64, cursor, field.size) catch break :blk base;
+                if (offset < next) {
+                    const nested = resolveConstValueOrigin(field.value, const_name, offset - cursor, loaded_ty, sigs);
+                    break :blk nested;
+                }
+                cursor = next;
+            }
+            break :blk base;
+        },
+        else => base,
+    };
+}
+
+fn resolveLoadOrigin(
+    const_decls: []const common_const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+    src: Value,
+    offset: u64,
+    loaded_ty: sig.PrimType,
+) PointerOrigin {
+    const const_name = src.origin.const_name orelse src.const_ref orelse return .{};
+    const decl = findConstDeclByName(const_decls, const_name) orelse return .{ .const_name = const_name };
+    return resolveConstValueOrigin(decl.value, const_name, offset, loaded_ty, sigs);
 }
 
 fn emitBuiltinCall(
@@ -911,6 +1099,40 @@ fn emitDirectCall(
     }
 }
 
+fn emitIndirectCall(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    state: *FunctionState,
+    symbols: *const symbol.SymbolTable,
+    sigs: []const sig.FunctionSig,
+    parsed: call.ParsedCall,
+) !?Value {
+    const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
+    const callee = state.getReg(callee_id) orelse return EmitError.InvalidOperand;
+    if (callee.origin.indirect_sig_index == null) return EmitError.MissingIndirectCallProvenance;
+    const sig_index = callee.origin.indirect_sig_index.?;
+    if (sig_index >= sigs.len) return EmitError.MissingIndirectCallProvenance;
+
+    const resolved = sigs[sig_index];
+    if (parsed.args.len != resolved.params.len) return EmitError.InvalidOperand;
+
+    var prelude = std.ArrayList(u8).init(allocator);
+    defer prelude.deinit();
+    var args_buf = std.ArrayList(u8).init(allocator);
+    defer args_buf.deinit();
+    try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, resolved.params);
+    try out.appendSlice(prelude.items);
+
+    const call_ty = returnTypeForSig(resolved.return_cap, resolved.return_ty);
+    const tmp = if (call_ty == .void) null else try state.tempName(allocator);
+    if (tmp) |tmp_name| {
+        try out.writer().print("  {s} = call {s} {s}({s})\n", .{ tmp_name, llvmTypeName(call_ty), callee.expr, args_buf.items });
+        return .{ .expr = tmp_name, .ty = call_ty, .fallible = resolved.return_fallible };
+    }
+    try out.writer().print("  call void {s}({s})\n", .{ callee.expr, args_buf.items });
+    return null;
+}
+
 fn emitCall(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
@@ -922,24 +1144,7 @@ fn emitCall(
     parsed: call.ParsedCall,
 ) !?Value {
     if (parsed.is_indirect) {
-        const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
-        const callee = state.getReg(callee_id) orelse return EmitError.InvalidOperand;
-        var prelude = std.ArrayList(u8).init(allocator);
-        defer prelude.deinit();
-        var args_buf = std.ArrayList(u8).init(allocator);
-        defer args_buf.deinit();
-        const tmp = try state.tempName(allocator);
-        if (parsed.args.len != 0) {
-            for (parsed.args, 0..) |arg, idx| {
-                if (idx != 0) try args_buf.appendSlice(", ");
-                const value = if (symbols.findId(arg.text)) |id| state.getReg(id) orelse return EmitError.InvalidOperand else try parseImmediateValue(allocator, state, arg.text);
-                const coerced = try castValue(allocator, &prelude, state, value, .i64);
-                try args_buf.writer().print("i64 {s}", .{coerced.expr});
-            }
-        }
-        try out.appendSlice(prelude.items);
-        try out.writer().print("  {s} = call i64 {s}({s})\n", .{ tmp, callee.expr, args_buf.items });
-        return .{ .expr = tmp, .ty = .i64 };
+        return try emitIndirectCall(allocator, out, state, symbols, sigs, parsed);
     }
 
     switch (try emitBuiltinCall(allocator, out, state, symbols, options, size_bits, parsed)) {
@@ -963,7 +1168,7 @@ fn emitInstruction(
     sigs: []const sig.FunctionSig,
     options: EmitOptions,
     size_bits: u16,
-    item: referee.AnnotatedInstruction,
+    item: anytype,
 ) !void {
     const size_ty_name = sizeTypeName(size_bits);
     const base = item.base;
@@ -1374,13 +1579,15 @@ fn emitInstruction(
 fn emitUserFunctions(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
-    verified: referee.VerifyOk,
+    verified: anytype,
     loc_table: upstream.LocTable,
     source_path: []const u8,
     options: EmitOptions,
     size_bits: u16,
 ) !void {
     if (options.debug and loc_table.len != verified.annotated.len) return EmitError.InvalidOperand;
+
+    try emitConstDecls(allocator, out, verified.const_decls, verified.function_sigs);
 
     var debug_info: ?DebugInfo = null;
     if (options.debug) {
@@ -1423,6 +1630,9 @@ fn emitUserFunctions(
                 }
 
                 current = FunctionState.init(allocator, fsig);
+                for (verified.const_decls) |item_const| {
+                    try current.?.setConstRef(item_const.name);
+                }
                 if (debug_info) |*info| {
                     const upstream_loc: upstream.UpstreamLoc = if (fsig.upstream_loc) |loc| loc else .{
                         .file = source_path,
@@ -1539,7 +1749,7 @@ fn emitUserFunctions(
 
 pub fn emitLlvm(
     allocator: std.mem.Allocator,
-    verified: referee.VerifyOk,
+    verified: anytype,
     loc_table: upstream.LocTable,
     source_path: []const u8,
     size_bits: u16,
@@ -1558,7 +1768,7 @@ fn emitTestSource(source: []const u8) ![]const u8 {
     var flat = try flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
 
-    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    const verified = try referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
     return switch (verified) {
         .trap => |report| {
             std.debug.print(
@@ -1639,7 +1849,7 @@ fn verifyWithOptIfAvailable(allocator: std.mem.Allocator, llvm_ir: []const u8) !
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ opt_path, "-verify", "module.ll", "-disable-output" },
+        .argv = &.{ opt_path, "-opaque-pointers", "-verify", "module.ll", "-disable-output" },
         .cwd_dir = tmp.dir,
     });
     defer allocator.free(result.stdout);
@@ -1693,7 +1903,7 @@ test "llvm emitter preserves native escape bytes verbatim" {
     var flat = try flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
 
-    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    const verified = try referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
@@ -1733,7 +1943,7 @@ test "llvm emitter native escape PBT preserves random verbatim snippets" {
         var flat = try flattener.flatten(std.testing.allocator, source);
         defer flat.deinit(std.testing.allocator);
 
-        const verified = try referee.verify(std.testing.allocator, flat.instructions);
+        const verified = try referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
         switch (verified) {
             .trap => return error.TestUnexpectedResult,
             .ok => |ok| {
@@ -1910,7 +2120,7 @@ test "llvm emitter maps take to gep plus ptr load" {
     var flat = try flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
 
-    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    const verified = try referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
@@ -1935,7 +2145,7 @@ test "llvm emitter declares externs and preserves exported names" {
     var flat = try flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
 
-    const verified = try referee.verify(std.testing.allocator, flat.instructions);
+    const verified = try referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {

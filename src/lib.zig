@@ -74,7 +74,7 @@ test "root module imports common types" {
             .raw_text = "return node",
         },
     };
-    const verified = try verify.verify(std.testing.allocator, program[0..]);
+    const verified = try verify.verify(std.testing.allocator, program[0..], &.{});
     switch (verified) {
         .ok => |ok| {
             var owned = ok;

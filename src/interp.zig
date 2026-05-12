@@ -2,6 +2,7 @@ const std = @import("std");
 
 const call = @import("referee/call.zig");
 const referee = @import("referee.zig");
+const const_decl = @import("common/const_decl.zig");
 const symbol = @import("flattener/symbol.zig");
 const atomic = @import("common/atomic.zig");
 const cap = @import("common/capability.zig");
@@ -15,6 +16,7 @@ pub const RunError = error{
     InvalidInstruction,
     InvalidFunction,
     UnknownFunction,
+    MissingIndirectCallProvenance,
     UnsupportedInstruction,
     UnsupportedSysIntrinsic,
     UserExit,
@@ -26,11 +28,21 @@ const RegValue = struct {
     fallible: bool = false,
     status: u32 = 0,
     interior_ptr: bool = false,
+    const_name: ?[]const u8 = null,
+    vtable_slot_name: ?[]const u8 = null,
+    call_target_name: ?[]const u8 = null,
 };
 
 const SysCallOutcome = union(enum) {
     not_syscall,
     handled: ?RegValue,
+};
+
+const PtrMeta = struct {
+    const_name: ?[]const u8 = null,
+    vtable_slot_name: ?[]const u8 = null,
+    call_target_name: ?[]const u8 = null,
+    interior_ptr: bool = false,
 };
 
 fn valueTypeForPrefix(prefix: inst.CapPrefix, declared: sig.PrimType) sig.PrimType {
@@ -56,11 +68,27 @@ fn atomicValueType(item: inst.Instruction, fallback: sig.PrimType) sig.PrimType 
 }
 
 fn packFallible(status: u32, value: RegValue) RegValue {
-    return .{ .ty = value.ty, .bits = value.bits, .fallible = true, .status = status, .interior_ptr = value.interior_ptr };
+    return .{
+        .ty = value.ty,
+        .bits = value.bits,
+        .fallible = true,
+        .status = status,
+        .interior_ptr = value.interior_ptr,
+        .const_name = value.const_name,
+        .vtable_slot_name = value.vtable_slot_name,
+        .call_target_name = value.call_target_name,
+    };
 }
 
 fn unpackSuccess(value: RegValue) RegValue {
-    return .{ .ty = value.ty, .bits = value.bits, .interior_ptr = value.interior_ptr };
+    return .{
+        .ty = value.ty,
+        .bits = value.bits,
+        .interior_ptr = value.interior_ptr,
+        .const_name = value.const_name,
+        .vtable_slot_name = value.vtable_slot_name,
+        .call_target_name = value.call_target_name,
+    };
 }
 
 fn requireNonFallible(value: RegValue) !RegValue {
@@ -76,6 +104,75 @@ fn readRawReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
     return regs.get(id) orelse return RunError.InvalidOperand;
 }
 
+fn constPointerValue(self: *Interpreter, id: u32) ?RegValue {
+    const name = self.program.symbols.lookupName(id) orelse return null;
+    const addr = self.const_addrs.get(name) orelse return null;
+    return .{
+        .ty = .ptr,
+        .bits = addr,
+        .const_name = name,
+    };
+}
+
+fn readValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+    if (regs.get(id)) |value| return try requireNonFallible(value);
+    return self.constPointerValue(id) orelse RunError.InvalidOperand;
+}
+
+fn readRawValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+    if (regs.get(id)) |value| return value;
+    return self.constPointerValue(id) orelse RunError.InvalidOperand;
+}
+
+fn ptrMetaFromValue(value: RegValue) ?PtrMeta {
+    if (value.const_name == null and value.vtable_slot_name == null and value.call_target_name == null and !value.interior_ptr) return null;
+    return .{
+        .const_name = value.const_name,
+        .vtable_slot_name = value.vtable_slot_name,
+        .call_target_name = value.call_target_name,
+        .interior_ptr = value.interior_ptr,
+    };
+}
+
+fn withPtrMeta(value: RegValue, meta: ?PtrMeta) RegValue {
+    if (meta) |m| {
+        return .{
+            .ty = value.ty,
+            .bits = value.bits,
+            .fallible = value.fallible,
+            .status = value.status,
+            .interior_ptr = value.interior_ptr or m.interior_ptr,
+            .const_name = m.const_name orelse value.const_name,
+            .vtable_slot_name = m.vtable_slot_name orelse value.vtable_slot_name,
+            .call_target_name = m.call_target_name orelse value.call_target_name,
+        };
+    }
+    return value;
+}
+
+fn appendConstBytes(out: *std.ArrayList(u8), value: const_decl.ConstValue) !void {
+    switch (value) {
+        .hex => |literal| try out.appendSlice(literal.bytes),
+        .utf8 => |literal| try out.appendSlice(literal.bytes),
+        .repeat => |literal| try out.appendSlice(literal.bytes),
+        .struct_ => |literal| {
+            for (literal.fields) |field| {
+                try appendConstBytes(out, field.value);
+            }
+        },
+        .vtable => |literal| {
+            try out.appendNTimes(0, literal.slots.len * @sizeOf(u64));
+        },
+    }
+}
+
+fn materializeConstValue(allocator: std.mem.Allocator, value: const_decl.ConstValue) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    try appendConstBytes(&out, value);
+    return try out.toOwnedSlice();
+}
+
 fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
 }
@@ -86,10 +183,10 @@ fn resolveOperandValue(
     operand: inst.Operand,
 ) !RegValue {
     return switch (operand) {
-        .reg => |id| try readReg(regs, id),
+        .reg => |id| try readValue(self, regs, id),
         .text => |text| blk: {
             if (isIdentLike(text)) {
-                if (self.program.symbols.findId(text)) |id| break :blk try readReg(regs, id);
+                if (self.program.symbols.findId(text)) |id| break :blk try readValue(self, regs, id);
             }
             break :blk try Interpreter.parseImmediateValue(self.allocator, &self.memory, text);
         },
@@ -104,6 +201,9 @@ fn resolveOperandValue(
 const Block = struct {
     addr: u64,
     data: []u8,
+    ptr_meta: []?PtrMeta = &.{},
+    const_name: ?[]const u8 = null,
+    vtable_slot_names: []?[]const u8 = &.{},
 };
 
 const Memory = struct {
@@ -119,6 +219,8 @@ const Memory = struct {
 
     fn deinit(self: *Memory) void {
         for (self.blocks.items) |blk| {
+            if (blk.ptr_meta.len != 0) self.allocator.free(blk.ptr_meta);
+            if (blk.vtable_slot_names.len != 0) self.allocator.free(blk.vtable_slot_names);
             self.allocator.free(blk.data);
         }
         self.blocks.deinit();
@@ -127,14 +229,29 @@ const Memory = struct {
     fn alloc(self: *Memory, size: usize) !u64 {
         const actual = if (size == 0) @as(usize, 1) else size;
         const data = try self.allocator.alloc(u8, actual);
+        const ptr_meta = try self.allocator.alloc(?PtrMeta, actual);
+        @memset(ptr_meta, null);
         const addr = @as(u64, @intFromPtr(data.ptr));
-        try self.blocks.append(.{ .addr = addr, .data = data });
+        try self.blocks.append(.{ .addr = addr, .data = data, .ptr_meta = ptr_meta });
+        return addr;
+    }
+
+    fn allocConst(self: *Memory, size: usize, const_name: ?[]const u8, vtable_slot_names: []?[]const u8) !u64 {
+        const actual = if (size == 0) @as(usize, 1) else size;
+        const data = try self.allocator.alloc(u8, actual);
+        const ptr_meta = try self.allocator.alloc(?PtrMeta, actual);
+        @memset(ptr_meta, null);
+        const slot_copy = if (vtable_slot_names.len != 0) try self.allocator.dupe(?[]const u8, vtable_slot_names) else &.{};
+        const addr = @as(u64, @intFromPtr(data.ptr));
+        try self.blocks.append(.{ .addr = addr, .data = data, .ptr_meta = ptr_meta, .const_name = const_name, .vtable_slot_names = slot_copy });
         return addr;
     }
 
     fn free(self: *Memory, addr: u64) !void {
         for (self.blocks.items, 0..) |blk, idx| {
             if (blk.addr == addr) {
+                if (blk.ptr_meta.len != 0) self.allocator.free(blk.ptr_meta);
+                if (blk.vtable_slot_names.len != 0) self.allocator.free(blk.vtable_slot_names);
                 self.allocator.free(blk.data);
                 _ = self.blocks.swapRemove(idx);
                 return;
@@ -142,9 +259,80 @@ const Memory = struct {
         }
     }
 
-    fn sliceAt(addr: u64, len: usize) []u8 {
-        const ptr: [*]u8 = @ptrFromInt(addr);
-        return ptr[0..len];
+    fn blockIndexAt(self: *const Memory, addr: u64) ?usize {
+        for (self.blocks.items, 0..) |blk, idx| {
+            const start = blk.addr;
+            const end = start + blk.data.len;
+            if (addr >= start and addr <= end) return idx;
+        }
+        return null;
+    }
+
+    fn sliceAt(self: *Memory, addr: u64, len: usize) ![]u8 {
+        const idx = self.blockIndexAt(addr) orelse return RunError.InvalidAddress;
+        const blk = self.blocks.items[idx];
+        const offset = @as(usize, @intCast(addr - blk.addr));
+        if (offset > blk.data.len or blk.data.len - offset < len) return RunError.InvalidAddress;
+        return blk.data[offset .. offset + len];
+    }
+
+    fn writePtrMeta(self: *Memory, addr: u64, len: usize, meta: ?PtrMeta) !void {
+        const idx = self.blockIndexAt(addr) orelse return RunError.InvalidAddress;
+        const blk = &self.blocks.items[idx];
+        const offset = @as(usize, @intCast(addr - blk.addr));
+        if (offset > blk.ptr_meta.len or blk.ptr_meta.len - offset < len) return RunError.InvalidAddress;
+        for (blk.ptr_meta[offset .. offset + len]) |*slot| {
+            slot.* = meta;
+        }
+    }
+
+    fn ptrMetaAt(self: *const Memory, addr: u64, len: usize) ?PtrMeta {
+        const idx = self.blockIndexAt(addr) orelse return null;
+        const blk = self.blocks.items[idx];
+        const offset = @as(usize, @intCast(addr - blk.addr));
+        if (offset > blk.ptr_meta.len or blk.ptr_meta.len - offset < len) return null;
+        const first = blk.ptr_meta[offset] orelse return self.blockMeta(addr);
+        for (blk.ptr_meta[offset + 1 .. offset + len]) |entry| {
+            if (entry == null) return self.blockMeta(addr);
+            const meta = entry.?;
+            if (!std.meta.eql(meta, first)) return self.blockMeta(addr);
+        }
+        return first;
+    }
+
+    fn blockConstName(self: *const Memory, addr: u64) ?[]const u8 {
+        const idx = self.blockIndexAt(addr) orelse return null;
+        return self.blocks.items[idx].const_name;
+    }
+
+    fn blockVtableSlotName(self: *const Memory, addr: u64) ?[]const u8 {
+        const idx = self.blockIndexAt(addr) orelse return null;
+        const blk = self.blocks.items[idx];
+        if (blk.vtable_slot_names.len == 0) return null;
+        const offset = @as(usize, @intCast(addr - blk.addr));
+        const slot_idx = offset / @sizeOf(u64);
+        if (slot_idx >= blk.vtable_slot_names.len) return null;
+        return blk.vtable_slot_names[slot_idx];
+    }
+
+    fn blockMeta(self: *const Memory, addr: u64) ?PtrMeta {
+        const idx = self.blockIndexAt(addr) orelse return null;
+        const blk = self.blocks.items[idx];
+        var meta = PtrMeta{
+            .const_name = blk.const_name,
+            .vtable_slot_name = null,
+            .call_target_name = null,
+            .interior_ptr = false,
+        };
+        if (blk.vtable_slot_names.len != 0) {
+            const offset = @as(usize, @intCast(addr - blk.addr));
+            const slot_idx = offset / @sizeOf(u64);
+            if (slot_idx < blk.vtable_slot_names.len) {
+                meta.vtable_slot_name = blk.vtable_slot_names[slot_idx];
+                meta.call_target_name = blk.vtable_slot_names[slot_idx];
+            }
+        }
+        return meta;
     }
 };
 
@@ -159,6 +347,7 @@ const Interpreter = struct {
     ranges: []FunctionRange,
     argv: [][]const u8,
     argv_storage: [][]u8,
+    const_addrs: std.StringHashMap(u64),
     memory: Memory,
     exit_code: ?u8 = null,
 
@@ -206,18 +395,23 @@ const Interpreter = struct {
             argv_view[i] = arg;
         }
 
-        return .{
+        var interp = Interpreter{
             .allocator = allocator,
             .program = program,
             .ranges = ranges,
             .argv = argv_view,
             .argv_storage = argv_storage,
+            .const_addrs = std.StringHashMap(u64).init(allocator),
             .memory = Memory.init(allocator),
             .exit_code = null,
         };
+        errdefer interp.deinit();
+        try interp.materializeConsts();
+        return interp;
     }
 
     fn deinit(self: *Interpreter) void {
+        self.const_addrs.deinit();
         self.memory.deinit();
         for (self.argv_storage) |arg| self.allocator.free(arg);
         self.allocator.free(self.argv_storage);
@@ -306,8 +500,7 @@ const Interpreter = struct {
         };
     }
 
-    fn coerce(self: *Interpreter, value: RegValue, target: sig.PrimType) !RegValue {
-        _ = self;
+    fn coerce(_: *Interpreter, value: RegValue, target: sig.PrimType) !RegValue {
         if (value.fallible) return RunError.InvalidOperand;
         if (value.ty == target) return value;
         if (value.ty == .v128 or target == .v128) return RunError.UnsupportedInstruction;
@@ -347,8 +540,7 @@ const Interpreter = struct {
     }
 
     fn loadFromMemory(self: *Interpreter, addr: u64, ty: sig.PrimType) !RegValue {
-        _ = self;
-        const base = Memory.sliceAt(addr, @intCast(sig.primTypeBytes(ty)));
+        const base = try self.memory.sliceAt(addr, @intCast(sig.primTypeBytes(ty)));
         return switch (ty) {
             .void => RunError.InvalidOperand,
             .i1 => .{ .ty = .i1, .bits = @as(u64, base[0] & 1) },
@@ -395,8 +587,7 @@ const Interpreter = struct {
     }
 
     fn storeToMemory(self: *Interpreter, addr: u64, value: RegValue, ty: sig.PrimType) !void {
-        _ = self;
-        const base = Memory.sliceAt(addr, @intCast(sig.primTypeBytes(ty)));
+        const base = try self.memory.sliceAt(addr, @intCast(sig.primTypeBytes(ty)));
         switch (ty) {
             .void => return RunError.InvalidOperand,
             .i1 => base[0] = @as(u8, @intCast(value.bits & 1)),
@@ -423,6 +614,12 @@ const Interpreter = struct {
                 std.mem.writeInt(u64, buf, @bitCast(floatValue(value)), .little);
             },
             .v128 => return RunError.UnsupportedInstruction,
+        }
+        const width = sig.primTypeBytes(ty);
+        if (width == @sizeOf(u64)) {
+            try self.memory.writePtrMeta(addr, @intCast(width), ptrMetaFromValue(value));
+        } else {
+            try self.memory.writePtrMeta(addr, @intCast(width), null);
         }
     }
 
@@ -548,6 +745,39 @@ const Interpreter = struct {
         return null;
     }
 
+    fn materializeConsts(self: *Interpreter) !void {
+        for (self.program.const_decls) |decl| {
+            const bytes = try materializeConstValue(self.allocator, decl.value);
+            defer self.allocator.free(bytes);
+            var slot_names: []?[]const u8 = &.{};
+            if (decl.value == .vtable) {
+                const slots = decl.value.vtable.slots;
+                slot_names = try self.allocator.alloc(?[]const u8, slots.len);
+                errdefer self.allocator.free(slot_names);
+                for (slots, 0..) |slot, idx| {
+                    slot_names[idx] = slot.func_name;
+                }
+            }
+            const addr = try self.memory.allocConst(bytes.len, decl.name, slot_names);
+            if (slot_names.len != 0) self.allocator.free(slot_names);
+            const dst = try self.memory.sliceAt(addr, bytes.len);
+            @memcpy(dst, bytes);
+            if (decl.value == .vtable) {
+                const slots = decl.value.vtable.slots;
+                for (slots, 0..) |slot, idx| {
+                    const slot_addr = addr + @as(u64, @intCast(idx * @sizeOf(u64)));
+                    try self.memory.writePtrMeta(slot_addr, @sizeOf(u64), .{
+                        .const_name = decl.name,
+                        .vtable_slot_name = slot.name,
+                        .call_target_name = slot.func_name,
+                        .interior_ptr = false,
+                    });
+                }
+            }
+            try self.const_addrs.put(decl.name, addr);
+        }
+    }
+
     fn decodeArg(
         self: *Interpreter,
         frame_regs: *std.AutoHashMap(u32, RegValue),
@@ -599,7 +829,7 @@ const Interpreter = struct {
             const code = @as(u8, @truncate(args[0].bits));
             const msg_ptr = args[1].bits;
             const msg_len = @as(usize, @intCast(args[2].bits));
-            const message = if (msg_ptr != 0 and msg_len != 0) Memory.sliceAt(msg_ptr, msg_len) else null;
+            const message = if (msg_ptr != 0 and msg_len != 0) try self.memory.sliceAt(msg_ptr, msg_len) else null;
             self.recordPanic(code, message);
             return RunError.UserExit;
         }
@@ -609,7 +839,7 @@ const Interpreter = struct {
             if (args.len != 2) return RunError.InvalidOperand;
             const ptr = args[0].bits;
             const len = @as(usize, @intCast(args[1].bits));
-            const slice = Memory.sliceAt(ptr, len);
+            const slice = try self.memory.sliceAt(ptr, len);
             try std.io.getStdOut().writer().writeAll(slice);
             return .{ .handled = null };
         }
@@ -628,20 +858,20 @@ const Interpreter = struct {
             if (idx >= self.argv.len) return .{ .handled = .{ .ty = .ptr, .bits = 0 } };
             const text = self.argv[idx];
             const addr = try self.memory.alloc(text.len + 1);
-            const slice = Memory.sliceAt(addr, text.len + 1);
+            const slice = try self.memory.sliceAt(addr, text.len + 1);
             @memcpy(slice[0..text.len], text);
             slice[text.len] = 0;
             return .{ .handled = .{ .ty = .ptr, .bits = addr } };
         }
         if (std.mem.eql(u8, name, "sys_read_file")) {
             if (args.len != 3) return RunError.InvalidOperand;
-            const path = Memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
+            const path = try self.memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
             var file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
             const data = try file.readToEndAlloc(self.allocator, 1 << 30);
             errdefer self.allocator.free(data);
             const addr = try self.memory.alloc(data.len);
-            const buf = Memory.sliceAt(addr, data.len);
+            const buf = try self.memory.sliceAt(addr, data.len);
             @memcpy(buf, data);
             const out_len_addr = args[2].bits;
             try self.storeToMemory(out_len_addr, .{ .ty = .u64, .bits = data.len }, .u64);
@@ -650,8 +880,8 @@ const Interpreter = struct {
         }
         if (std.mem.eql(u8, name, "sys_write_file")) {
             if (args.len != 4) return RunError.InvalidOperand;
-            const path = Memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
-            const data = Memory.sliceAt(args[2].bits, @as(usize, @intCast(args[3].bits)));
+            const path = try self.memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
+            const data = try self.memory.sliceAt(args[2].bits, @as(usize, @intCast(args[3].bits)));
             var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
             defer file.close();
             try file.writeAll(data);
@@ -732,10 +962,22 @@ const Interpreter = struct {
                             break :blk .i64;
                         };
                     } else if (base.kind == .take) .ptr else .i64;
-                    const srcv = try readReg(&regs, src);
+                    const srcv = try readValue(self, &regs, src);
                     const addr = srcv.bits + off;
                     const loaded = try self.loadFromMemory(addr, ty);
-                    try regs.put(dst, loaded);
+                    const source_meta = self.memory.ptrMetaAt(addr, @intCast(sig.primTypeBytes(ty)));
+                    const block_meta = self.memory.blockMeta(addr);
+                    const selected_meta = source_meta orelse block_meta;
+                    try regs.put(dst, .{
+                        .ty = loaded.ty,
+                        .bits = loaded.bits,
+                        .fallible = loaded.fallible,
+                        .status = loaded.status,
+                        .interior_ptr = loaded.interior_ptr or (selected_meta != null and selected_meta.?.interior_ptr),
+                        .const_name = if (selected_meta) |m| m.const_name else null,
+                        .vtable_slot_name = if (selected_meta) |m| m.vtable_slot_name else null,
+                        .call_target_name = if (selected_meta) |m| m.call_target_name else null,
+                    });
                 },
                 .store => {
                     const base_reg = base.operands[0].reg;
@@ -746,11 +988,11 @@ const Interpreter = struct {
                         .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
                         else => return RunError.InvalidOperand,
                     };
-                    const basev = try readReg(&regs, base_reg);
+                    const basev = try readValue(self, &regs, base_reg);
                     const ty: sig.PrimType = if (base.operands[3] == .ty) blk: {
                         break :blk sig.primTypeFromTag(base.operands[3].ty) orelse .i64;
-                    } else if (base.operands[2] == .reg) (try readReg(&regs, base.operands[2].reg)).ty else .i64;
-                    const value = if (base.operands[2] == .reg) try readReg(&regs, base.operands[2].reg) else try parseImmediateValue(self.allocator, &self.memory, if (base.operands[2] == .text) base.operands[2].text else "0");
+                    } else if (base.operands[2] == .reg) (try readValue(self, &regs, base.operands[2].reg)).ty else .i64;
+                    const value = if (base.operands[2] == .reg) try readValue(self, &regs, base.operands[2].reg) else try parseImmediateValue(self.allocator, &self.memory, if (base.operands[2] == .text) base.operands[2].text else "0");
                     const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
                 },
@@ -764,7 +1006,7 @@ const Interpreter = struct {
                         .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
                         else => return RunError.InvalidOperand,
                     };
-                    const srcv = try readReg(&regs, src);
+                    const srcv = try readValue(self, &regs, src);
                     const ty = atomicValueType(base, .i64);
                     const loaded = try self.loadFromMemory(srcv.bits + off, ty);
                     try regs.put(dst, loaded);
@@ -778,7 +1020,7 @@ const Interpreter = struct {
                         .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
                         else => return RunError.InvalidOperand,
                     };
-                    const basev = try readReg(&regs, base_reg);
+                    const basev = try readValue(self, &regs, base_reg);
                     const ty = atomicValueType(base, .i64);
                     const value = try resolveOperandValue(self, &regs, base.operands[2]);
                     const coerced = try self.coerce(value, ty);
@@ -795,7 +1037,7 @@ const Interpreter = struct {
                         .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
                         else => return RunError.InvalidOperand,
                     };
-                    const basev = try readReg(&regs, src);
+                    const basev = try readValue(self, &regs, src);
                     const ty = atomicValueType(base, .i64);
                     const expected_text = base.atomic_expected_text orelse return RunError.InvalidOperand;
                     const new_text = base.atomic_new_text orelse return RunError.InvalidOperand;
@@ -821,7 +1063,7 @@ const Interpreter = struct {
                         .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
                         else => return RunError.InvalidOperand,
                     };
-                    const basev = try readReg(&regs, src);
+                    const basev = try readValue(self, &regs, src);
                     const ty = atomicValueType(base, .i64);
                     const value = try resolveOperandValue(self, &regs, base.operands[3]);
                     const coerced = try self.coerce(value, ty);
@@ -834,31 +1076,46 @@ const Interpreter = struct {
                 .op => {
                     const dst = base.operands[0].reg;
                     const op = base.operands[1].op_code;
-                    const lhs = try readReg(&regs, base.operands[2].reg);
-                    const rhs = try readReg(&regs, base.operands[3].reg);
+                    const lhs = try readValue(self, &regs, base.operands[2].reg);
+                    const rhs = try readValue(self, &regs, base.operands[3].reg);
                     const result = try self.opBinary(op, lhs, rhs);
                     try regs.put(dst, result);
                 },
                 .ptr_add => {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
-                    const basev = try readReg(&regs, src);
+                    const basev = try readValue(self, &regs, src);
                     const ptrv = try self.coerce(basev, .ptr);
                     const offset = try resolveOperandValue(self, &regs, base.operands[2]);
                     const delta = @as(u64, @bitCast(intValueAsOffset(offset)));
-                    try regs.put(dst, .{ .ty = .ptr, .bits = ptrv.bits +% delta, .interior_ptr = true });
+                    try regs.put(dst, .{
+                        .ty = .ptr,
+                        .bits = ptrv.bits +% delta,
+                        .interior_ptr = true,
+                        .const_name = ptrv.const_name,
+                    });
                 },
                 .raw_cast => {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
-                    const value = try readReg(&regs, src);
-                    try regs.put(dst, .{ .ty = .u64, .bits = value.bits });
+                    const value = try readValue(self, &regs, src);
+                    try regs.put(dst, .{
+                        .ty = .u64,
+                        .bits = value.bits,
+                        .const_name = value.const_name,
+                        .interior_ptr = value.interior_ptr,
+                    });
                 },
                 .assume_safe, .assume_borrow => {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
-                    const value = try readReg(&regs, src);
-                    try regs.put(dst, .{ .ty = .ptr, .bits = value.bits, .interior_ptr = value.interior_ptr });
+                    const value = try readValue(self, &regs, src);
+                    try regs.put(dst, .{
+                        .ty = .ptr,
+                        .bits = value.bits,
+                        .interior_ptr = value.interior_ptr,
+                        .const_name = value.const_name,
+                    });
                 },
                 .move_ => {
                     // Referee already enforced ownership semantics.
@@ -891,14 +1148,14 @@ const Interpreter = struct {
                     continue;
                 },
                 .br => {
-                    const cond = try readReg(&regs, base.operands[0].reg);
+                    const cond = try readValue(self, &regs, base.operands[0].reg);
                     const jump = cond.bits != 0;
                     const label_id = if (jump) base.operands[1].label else base.operands[3].label;
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
                 .br_null => {
-                    const cond = try readReg(&regs, base.operands[0].reg);
+                    const cond = try readValue(self, &regs, base.operands[0].reg);
                     const jump = cond.bits == 0;
                     const label_id = if (jump) base.operands[1].label else base.operands[3].label;
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
@@ -909,10 +1166,20 @@ const Interpreter = struct {
                     defer parsed.deinit(self.allocator);
 
                     if (parsed.is_indirect) {
-                        const callee = if (self.program.symbols.findId(parsed.callee)) |id| try readReg(&regs, id) else return RunError.UnknownFunction;
-                        const callee_index = @as(usize, @intCast(callee.bits));
-                        if (callee_index >= self.program.function_sigs.len) return RunError.UnknownFunction;
+                        const callee_id = self.program.symbols.findId(parsed.callee) orelse return RunError.UnknownFunction;
+                        const callee = try readRawValue(self, &regs, callee_id);
+                        if (callee.ty != .ptr) return RunError.MissingIndirectCallProvenance;
+                        const callee_meta = self.memory.ptrMetaAt(callee.bits, @sizeOf(u64)) orelse self.memory.blockMeta(callee.bits);
+                        const target_name = blk: {
+                            if (callee_meta) |meta| {
+                                if (meta.call_target_name) |name| break :blk name;
+                                if (meta.vtable_slot_name) |name| break :blk name;
+                            }
+                            break :blk null;
+                        } orelse return RunError.MissingIndirectCallProvenance;
+                        const callee_index = self.findFunctionIndex(target_name) orelse return RunError.UnknownFunction;
                         const target_sig = self.program.function_sigs[callee_index];
+                        if (parsed.args.len != target_sig.params.len) return RunError.InvalidOperand;
                         const args = try self.collectArgs(parsed, &regs, target_sig.params);
                         defer self.allocator.free(args);
                         const ret = try self.execFunction(callee_index, args);
@@ -951,7 +1218,7 @@ const Interpreter = struct {
                 .try_, .early_return => {
                     const dst = base.operands[0].reg;
                     const src = base.operands[1].reg;
-                    const value = try readRawReg(&regs, src);
+                    const value = try readRawValue(self, &regs, src);
                     if (!value.fallible) return RunError.InvalidOperand;
                     if (value.status != 0) {
                         return value;
@@ -966,7 +1233,7 @@ const Interpreter = struct {
                     if (fsig.return_fallible) {
                         const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
                         if (ret_ty == .void) return RunError.InvalidOperand;
-                        const value = if (base.operands[0] == .reg) try readRawReg(&regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
+                        const value = if (base.operands[0] == .reg) try readRawValue(self, &regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
                         if (value.fallible) return value;
                         const coerced = try self.coerce(value, ret_ty);
                         return packFallible(0, coerced);
@@ -975,7 +1242,7 @@ const Interpreter = struct {
                     if (ret_ty == .void) {
                         return .{ .ty = .void, .bits = 0 };
                     }
-                    const value = if (base.operands[0] == .reg) try readReg(&regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
+                    const value = if (base.operands[0] == .reg) try readValue(self, &regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
                     return try self.coerce(value, ret_ty);
                 },
                 .native => {
@@ -997,7 +1264,7 @@ const Interpreter = struct {
         for (parsed.args, 0..) |arg, idx| {
             if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
                 if (self.program.symbols.findId(arg.text)) |id| {
-                    out[idx] = try readReg(regs, id);
+                    out[idx] = try readValue(self, regs, id);
                     continue;
                 }
             }
@@ -1007,13 +1274,14 @@ const Interpreter = struct {
     }
 
     fn collectArgs(self: *Interpreter, parsed: call.ParsedCall, regs: *std.AutoHashMap(u32, RegValue), params: []const sig.ParamSpec) ![]RegValue {
+        if (parsed.args.len != params.len) return RunError.InvalidOperand;
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, params, 0..) |arg, param, idx| {
             const raw = blk: {
                 if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
                     if (self.program.symbols.findId(arg.text)) |id| {
-                        break :blk try readReg(regs, id);
+                        break :blk try readValue(self, regs, id);
                     }
                 }
                 break :blk try parseImmediateValue(self.allocator, &self.memory, arg.text);

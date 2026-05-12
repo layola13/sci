@@ -4,6 +4,7 @@ const call = @import("call.zig");
 const cap = @import("../common/capability.zig");
 const atomic = @import("../common/atomic.zig");
 const gas = @import("../common/gas.zig");
+const const_decl = @import("../common/const_decl.zig");
 const inst = @import("../common/instruction.zig");
 const sig = @import("../common/signature.zig");
 const trap = @import("../common/trap.zig");
@@ -21,6 +22,7 @@ pub const VerifyOk = struct {
     annotated: []AnnotatedInstruction,
     function_sigs: []sig.FunctionSig,
     symbols: symbol.SymbolTable,
+    const_decls: []const const_decl.ConstDecl = &.{},
     gas: gas.GasReport,
 
     pub fn deinit(self: *VerifyOk, allocator: std.mem.Allocator) void {
@@ -29,6 +31,8 @@ pub const VerifyOk = struct {
             allocator.free(item.exit_caps);
         }
         allocator.free(self.annotated);
+        for (self.const_decls) |*item| item.deinit(allocator);
+        allocator.free(self.const_decls);
         for (self.function_sigs) |*item| item.deinit(allocator);
         allocator.free(self.function_sigs);
         self.symbols.deinit();
@@ -44,7 +48,43 @@ pub const VerifyResult = union(enum) {
 const CollectResult = struct {
     symbols: symbol.SymbolTable,
     sigs: std.ArrayList(sig.FunctionSig),
+    const_vtables: std.ArrayList(ConstVTable),
     reg_count: usize,
+};
+
+const ConstVTableSlot = struct {
+    slot_name: []const u8,
+    function_name: []const u8,
+    signature: sig.FunctionSig,
+};
+
+const ConstVTable = struct {
+    name: []const u8,
+    slots: []ConstVTableSlot,
+
+    fn deinit(self: *ConstVTable, allocator: std.mem.Allocator) void {
+        for (self.slots) |*slot| {
+            slot.signature.deinit(allocator);
+        }
+        allocator.free(self.slots);
+        allocator.free(self.name);
+        self.* = undefined;
+    }
+};
+
+const CallProvenance = struct {
+    callee_name: []const u8,
+    is_vtable_slot: bool = false,
+    vtable_name: ?[]const u8 = null,
+    slot_name: ?[]const u8 = null,
+    slot_signature: ?sig.FunctionSig = null,
+    const_name: ?[]const u8 = null,
+};
+
+const ValueProvenance = struct {
+    const_decl_idx: ?u32 = null,
+    const_offset: u64 = 0,
+    indirect_sig_index: ?usize = null,
 };
 
 fn maskOf(tag: cap.CapabilityMask) u16 {
@@ -53,6 +93,7 @@ fn maskOf(tag: cap.CapabilityMask) u16 {
 
 const regFlagRawPointer: u8 = 0x01;
 const regFlagStackAlloc: u8 = 0x02;
+const regFlagImmutable: u8 = 0x04;
 
 const InteriorContext = struct {
     state: []u16,
@@ -65,6 +106,15 @@ var interior_ctx: ?InteriorContext = null;
 
 fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
+}
+
+fn isImmutable(mask: u16) bool {
+    return (mask & maskOf(.immutable)) != 0;
+}
+
+fn isImmutableConst(state: []const u16, flags: []const u8, id: u32) bool {
+    const idx: usize = @intCast(id);
+    return isImmutable(state[idx]) or (flags[idx] & regFlagImmutable) != 0;
 }
 
 fn isDecl(kind: inst.InstKind) bool {
@@ -85,6 +135,142 @@ fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
         .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native => true,
         else => false,
+    };
+}
+
+fn isConstDeclText(text: []const u8) bool {
+    const trimmed = std.mem.trim(u8, text, " \t\r");
+    return std.mem.startsWith(u8, trimmed, "@const ");
+}
+
+fn parseConstDeclName(text: []const u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, text, " \t\r");
+    if (!std.mem.startsWith(u8, trimmed, "@const ")) return null;
+    const after = std.mem.trimLeft(u8, trimmed["@const ".len..], " \t\r");
+    const eq = std.mem.indexOfScalar(u8, after, '=') orelse return null;
+    const name = std.mem.trim(u8, after[0..eq], " \t\r");
+    if (name.len == 0) return null;
+    return name;
+}
+
+fn parseVtableSlotName(text: []const u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, text, " \t\r");
+    if (!std.mem.startsWith(u8, trimmed, "vtable {")) return null;
+    const open = std.mem.indexOfScalar(u8, trimmed, '{') orelse return null;
+    const close = std.mem.lastIndexOfScalar(u8, trimmed, '}') orelse return null;
+    if (close <= open) return null;
+    const body = std.mem.trim(u8, trimmed[open + 1 .. close], " \t\r");
+    const eq = std.mem.indexOfScalar(u8, body, '=') orelse return null;
+    const slot = std.mem.trim(u8, body[0..eq], " \t\r");
+    if (slot.len == 0) return null;
+    return slot;
+}
+
+fn parseVtableSlots(allocator: std.mem.Allocator, literal: const_decl.VTableLiteral, sigs: []const sig.FunctionSig) ![]ConstVTableSlot {
+    var slots = std.ArrayList(ConstVTableSlot).init(allocator);
+    errdefer slots.deinit();
+    for (literal.slots) |slot| {
+        var sig_match: ?sig.FunctionSig = null;
+        for (sigs) |item| {
+            if (std.mem.eql(u8, item.name, slot.func_name)) {
+                sig_match = item;
+                break;
+            }
+        }
+        const resolved = sig_match orelse return error.UnknownRegister;
+        try slots.append(.{
+            .slot_name = slot.name,
+            .function_name = slot.func_name,
+            .signature = resolved,
+        });
+    }
+    return try slots.toOwnedSlice();
+}
+
+fn collectConstVtables(
+    allocator: std.mem.Allocator,
+    const_decls: []const const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+) !std.ArrayList(ConstVTable) {
+    var out = std.ArrayList(ConstVTable).init(allocator);
+    errdefer {
+        for (out.items) |*item| item.deinit(allocator);
+        out.deinit();
+    }
+
+    for (const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                const name_copy = try allocator.dupe(u8, decl.name);
+                errdefer allocator.free(name_copy);
+                const slots = try parseVtableSlots(allocator, literal, sigs);
+                errdefer {
+                    for (slots) |*slot| slot.signature.deinit(allocator);
+                    allocator.free(slots);
+                }
+                try out.append(.{
+                    .name = name_copy,
+                    .slots = slots,
+                });
+            },
+            else => {},
+        }
+    }
+    return out;
+}
+
+fn findConstVtableByName(const_vtables: []const ConstVTable, name: []const u8) ?ConstVTable {
+    for (const_vtables) |item| {
+        if (std.mem.eql(u8, item.name, name)) return item;
+    }
+    return null;
+}
+
+fn parseCallProvenance(
+    item: inst.Instruction,
+    parsed: call.ParsedCall,
+    symbols: *const symbol.SymbolTable,
+    state: []const u16,
+    const_vtables: []const ConstVTable,
+    origins: []const ?u32,
+    const_reg_names: []const ?[]const u8,
+) ?CallProvenance {
+    _ = item;
+    if (!parsed.is_indirect) return null;
+    const callee_id = symbols.findId(parsed.callee) orelse return null;
+    const callee_idx: usize = @intCast(callee_id);
+    const callee_mask = state[callee_idx];
+    if ((callee_mask & maskOf(.untracked)) != 0) return null;
+
+    const candidate_const_name = if (const_reg_names[callee_idx]) |name| name else blk: {
+        if (origins[callee_idx]) |origin_id| {
+            const origin_idx: usize = @intCast(origin_id);
+            break :blk const_reg_names[origin_idx] orelse return null;
+        }
+        break :blk null;
+    } orelse return null;
+
+    const vt = findConstVtableByName(const_vtables, candidate_const_name) orelse return null;
+    const slot_name = parsed.callee;
+    for (vt.slots) |slot| {
+        if (std.mem.eql(u8, slot.function_name, slot_name) or std.mem.eql(u8, slot.slot_name, slot_name)) {
+            return .{
+                .callee_name = parsed.callee,
+                .is_vtable_slot = true,
+                .vtable_name = vt.name,
+                .slot_name = slot.slot_name,
+                .slot_signature = slot.signature,
+                .const_name = candidate_const_name,
+            };
+        }
+    }
+    return .{
+        .callee_name = parsed.callee,
+        .is_vtable_slot = true,
+        .vtable_name = vt.name,
+        .slot_name = parsed.callee,
+        .slot_signature = null,
+        .const_name = candidate_const_name,
     };
 }
 
@@ -384,7 +570,11 @@ fn parseDeclKind(kind: inst.InstKind) ?sig.FunctionKind {
     };
 }
 
-fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Instruction) !CollectResult {
+fn collectMetadata(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+) !CollectResult {
     var symbols = symbol.SymbolTable.init(allocator);
     errdefer symbols.deinit();
 
@@ -394,9 +584,18 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
         sigs.deinit();
     }
 
+    for (const_decls) |decl| {
+        if (decl.name.len != 0) {
+            _ = try symbols.intern(decl.name);
+        }
+    }
+
     for (instructions) |item| {
         const classified = classifier.classifyLine(item.raw_text);
         switch (item.kind) {
+            .label => {
+                _ = try symbols.intern(classified.parts[0]);
+            },
             .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
                 const kind = parseDeclKind(item.kind).?;
                 var parsed = sig.parseFunctionHeader(allocator, item.raw_text, @intCast(sigs.items.len), item.expanded_line, kind) catch |err| {
@@ -417,9 +616,14 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
                 _ = try symbols.intern(parsed.name);
                 try sigs.append(parsed);
             },
-            .label => {
-                _ = try symbols.intern(classified.parts[0]);
-            },
+            else => {},
+        }
+    }
+
+    for (instructions) |item| {
+        const classified = classifier.classifyLine(item.raw_text);
+        if (item.kind == .label or item.kind == .func_decl or item.kind == .ffi_wrapper_decl or item.kind == .extern_decl or item.kind == .export_decl) continue;
+        switch (item.kind) {
             .alloc, .stack_alloc, .move_, .release, .raw_cast, .assume_safe, .assume_borrow => {
                 _ = try symbols.intern(classified.parts[0]);
                 if (classified.part_count > 1 and isIdentLike(classified.parts[1])) {
@@ -507,6 +711,7 @@ fn collectMetadata(allocator: std.mem.Allocator, instructions: []const inst.Inst
     return .{
         .symbols = symbols,
         .sigs = sigs,
+        .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
         .reg_count = symbols.names.items.len,
     };
 }
@@ -2235,7 +2440,7 @@ test "gas PBT stays bounded for random forward-jump programs" {
         var fixture = try buildGasFixture(std.testing.allocator, random, true);
         defer fixture.deinit(std.testing.allocator);
 
-        const verified = try verify(std.testing.allocator, fixture.instructions);
+        const verified = try verify(std.testing.allocator, fixture.instructions, &.{});
         switch (verified) {
             .ok => |ok| {
                 var owned = ok;
@@ -2261,7 +2466,7 @@ test "gas PBT marks random back-edge programs as unbounded" {
         var fixture = try buildGasFixture(std.testing.allocator, random, false);
         defer fixture.deinit(std.testing.allocator);
 
-        const verified = try verify(std.testing.allocator, fixture.instructions);
+        const verified = try verify(std.testing.allocator, fixture.instructions, &.{});
         switch (verified) {
             .ok => |ok| {
                 var owned = ok;
@@ -2418,3 +2623,5 @@ test "ffi wrapper allows raw params in branch control flow" {
         .trap => return error.TestUnexpectedResult,
     }
 }
+ult,
+    }

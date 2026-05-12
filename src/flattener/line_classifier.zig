@@ -3,6 +3,7 @@ const std = @import("std");
 pub const LineKind = enum {
     blank_or_comment,
     def,
+    const_decl,
     import_decl,
     loc_hint,
     func_decl,
@@ -112,6 +113,25 @@ fn splitAssignment(text: []const u8) ?struct { lhs: []const u8, rhs: []const u8 
         .lhs = text[0..eq],
         .rhs = text[eq + 1 ..],
     };
+}
+
+fn parseConstDecl(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
+    if (!startsWithWord(trimmed, "@const")) return null;
+
+    const after = std.mem.trimLeft(u8, trimmed["@const".len..], " \t");
+    const eq = std.mem.indexOfScalar(u8, after, '=') orelse return null;
+    const name = std.mem.trim(u8, after[0..eq], " \t");
+    const literal = std.mem.trim(u8, after[eq + 1 ..], " \t");
+    if (name.len == 0 or literal.len == 0) return null;
+    if (!isIdentStart(name[0])) return null;
+    for (name[1..]) |c| {
+        if (!isIdentChar(c)) return null;
+    }
+
+    var out = makeLine(.const_decl, raw, trimmed);
+    addPart(&out, 0, name);
+    addPart(&out, 1, literal);
+    return out;
 }
 
 fn parseAddress(text: []const u8) ?struct { base: []const u8, offset: []const u8 } {
@@ -635,9 +655,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
         return out;
     }
 
-    if (std.mem.startsWith(u8, trimmed, "@const")) {
-        return makeLine(.unknown, line, trimmed);
-    }
+    if (parseConstDecl(line, trimmed)) |out| return out;
 
     if (parseLocHint(line, trimmed)) |out| return out;
     if (parseImport(line, trimmed)) |out| return out;
@@ -720,6 +738,11 @@ test "classify representative line families" {
     try std.testing.expectEqual(LineKind.def, def.kind);
     try std.testing.expectEqualStrings("SIZE", def.parts[0]);
     try std.testing.expectEqualStrings("16", def.parts[1]);
+
+    const const_decl = classifyLine("@const HELLO = utf8:\"hello\"");
+    try std.testing.expectEqual(LineKind.const_decl, const_decl.kind);
+    try std.testing.expectEqualStrings("HELLO", const_decl.parts[0]);
+    try std.testing.expectEqualStrings("utf8:\"hello\"", const_decl.parts[1]);
 
     const func = classifyLine("@sum(^list, t) -> i32:");
     try std.testing.expectEqual(LineKind.func_decl, func.kind);
