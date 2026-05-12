@@ -17,7 +17,7 @@ pub const CompileError = error{
 };
 
 pub const Argv = struct {
-    items: [10][]const u8 = undefined,
+    items: [16][]const u8 = undefined,
     len: usize = 0,
 
     pub fn slice(self: *const Argv) []const []const u8 {
@@ -29,6 +29,7 @@ pub fn argvForExe(
     ll_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
+    sa_std_archive_path: []const u8,
 ) Argv {
     var argv: Argv = .{};
     argv.items[0] = "zig";
@@ -38,9 +39,10 @@ pub fn argvForExe(
         .release_fast => "-O3",
     };
     argv.items[3] = ll_path;
-    argv.items[4] = "-o";
-    argv.items[5] = out_path;
-    argv.len = 6;
+    argv.items[4] = sa_std_archive_path;
+    argv.items[5] = "-o";
+    argv.items[6] = out_path;
+    argv.len = 7;
     return argv;
 }
 
@@ -122,8 +124,9 @@ pub fn compileExe(
     ll_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
+    sa_std_archive_path: []const u8,
 ) !void {
-    const argv = argvForExe(ll_path, out_path, optimization);
+    const argv = argvForExe(ll_path, out_path, optimization, sa_std_archive_path);
     try runProcess(allocator, argv.slice());
 }
 
@@ -149,9 +152,10 @@ pub fn compileWasm(
 }
 
 test "argv helpers choose the requested optimization" {
-    const exe_small = argvForExe("input.ll", "out.exe", .release_small);
+    const exe_small = argvForExe("input.ll", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a");
     try std.testing.expectEqualStrings("-O1", exe_small.slice()[2]);
-    const exe_fast = argvForExe("input.ll", "out.exe", .release_fast);
+    try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[4]);
+    const exe_fast = argvForExe("input.ll", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a");
     try std.testing.expectEqualStrings("-O3", exe_fast.slice()[2]);
 
     const wasm_small = argvForWasm("input.ll", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small);

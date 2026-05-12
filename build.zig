@@ -4,12 +4,15 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const repo_root = b.path(".");
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "sa_std_archive_path", b.pathFromRoot("artifacts/sa_std/libsa_std.a"));
 
     const lib_module = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
+    lib_module.addOptions("build_options", build_options);
 
     const lib = b.addLibrary(.{
         .name = "sa_asm",
@@ -68,6 +71,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_module.addOptions("build_options", build_options);
     const exe = b.addExecutable(.{
         .name = "saasm",
         .root_module = cli_module,

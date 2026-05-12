@@ -1,5 +1,5 @@
 // SA-facing contracts for the Zig-backed sa_std.fmt module.
-// Formatting returns owned SaFmtBuffer values; free them explicitly.
+// Formatting helpers return owned buffer handles; free them explicitly.
 @extern sa_fmt_i64(value: i64, base: u32) -> ^ptr!
 @extern sa_fmt_u64(value: u64, base: u32) -> ^ptr!
 @extern sa_fmt_f64(value: f64, precision: u32) -> ^ptr!
@@ -8,5 +8,5 @@
 
 @extern sa_fmt_buffer_data(&buffer: ptr) -> ptr
 @extern sa_fmt_buffer_len(&buffer: ptr) -> u64
-@extern sa_fmt_buffer_write_to(&buffer: ptr, writer: ptr) -> u64!
+@extern sa_fmt_buffer_write_to(&buffer: ptr, writer: ptr) -> i32!
 @extern sa_fmt_buffer_free(^buffer: ptr) -> i32!

@@ -19,6 +19,12 @@ SA (Symbolic Affine) is a fully independent, line-oriented affine ownership lang
 
 No Zig source generation. No AST construction. No hidden round-trips.
 
+## Checked-in `sa_std` Archive
+
+SA-facing std modules (`io`, `fs`, `net`, `fmt`, `process`) are assembled with `@import` on the SA side and `@extern` declarations in their `.saasm-iface` files. C/C++ host examples still use `#include`, but only in host code.
+
+The repository checks in `artifacts/sa_std/libsa_std.a`. Rebuild it with `zig build sa-std-static -Doptimize=Debug`. The implementation source is `src/runtime/sa_std.zig`; the public C header is `src/runtime/sa_std.h`.
+
 ## Core Symbols (5 ownership operators + 1 escape)
 
 | Symbol | Semantics | State Effect |

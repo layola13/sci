@@ -1,0 +1,11 @@
+#def SA_PROCESS_OK = 0
+#def SA_PROCESS_ERR_INVALID_ARGUMENT = 1
+#def SA_PROCESS_ERR_INVALID_HANDLE = 2
+#def SA_PROCESS_ERR_NO_MEMORY = 5
+#def SA_PROCESS_ERR_IO = 6
+#def SA_PROCESS_ERR_UNSUPPORTED = 8
+#def SA_PROCESS_ERR_UNKNOWN = 127
+
+#def SaProcessArgv_SIZE = 16
+#def SaProcessArgv_data = +0
+#def SaProcessArgv_len = +8

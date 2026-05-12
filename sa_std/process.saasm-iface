@@ -1,0 +1,7 @@
+// SA-facing contracts for the Zig-backed sa_std.process module.
+// Process handles are opaque owned ptr values and must be closed explicitly.
+// `argv` is a borrowed pointer to an array of SaProcessArgv records.
+@extern sa_std_process_run(&argv: ptr, argv_len: u64, &out_handle: ptr) -> i32!
+@extern sa_std_process_spawn(&argv: ptr, argv_len: u64, &out_handle: ptr) -> i32!
+@extern sa_std_process_wait(handle: ptr, &out_code: ptr) -> i32!
+@extern sa_std_process_close(^handle: ptr) -> i32!

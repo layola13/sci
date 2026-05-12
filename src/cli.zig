@@ -2,6 +2,7 @@ const std = @import("std");
 
 const flattener = @import("flattener.zig");
 const interp = @import("interp.zig");
+const build_options = @import("build_options");
 const driver = @import("driver/zigcc.zig");
 const emit_llvm = @import("emit_llvm.zig");
 const layout = @import("layout.zig");
@@ -172,7 +173,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8) !Compile
     };
     errdefer flat.deinit(allocator);
 
-    const verified = try referee.verify(allocator, flat.instructions);
+    const verified = try referee.verify(allocator, flat.instructions, flat.const_decls);
     return switch (verified) {
         .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok } },
         .trap => |report| {
@@ -248,7 +249,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try driver.compileExe(allocator, ll_path, out_path, optimization);
+            try driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path);
             return 0;
         },
     }
