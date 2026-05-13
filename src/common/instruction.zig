@@ -15,8 +15,21 @@ pub const OpCode = enum(u8) {
     sub,
     mul,
     div,
+    sdiv,
+    udiv,
+    rem,
+    srem,
+    urem,
     gt,
     lt,
+    sgt,
+    slt,
+    sge,
+    sle,
+    ugt,
+    ult,
+    uge,
+    ule,
     eq,
     ne,
     @"and",
@@ -24,6 +37,10 @@ pub const OpCode = enum(u8) {
     shl,
     shr,
 };
+
+pub fn parseOpCode(text: []const u8) ?OpCode {
+    return if (std.mem.eql(u8, text, "add")) .add else if (std.mem.eql(u8, text, "sub")) .sub else if (std.mem.eql(u8, text, "mul")) .mul else if (std.mem.eql(u8, text, "div")) .div else if (std.mem.eql(u8, text, "sdiv")) .sdiv else if (std.mem.eql(u8, text, "udiv")) .udiv else if (std.mem.eql(u8, text, "rem")) .rem else if (std.mem.eql(u8, text, "srem")) .srem else if (std.mem.eql(u8, text, "urem")) .urem else if (std.mem.eql(u8, text, "gt")) .gt else if (std.mem.eql(u8, text, "lt")) .lt else if (std.mem.eql(u8, text, "sgt")) .sgt else if (std.mem.eql(u8, text, "slt")) .slt else if (std.mem.eql(u8, text, "sge")) .sge else if (std.mem.eql(u8, text, "sle")) .sle else if (std.mem.eql(u8, text, "ugt")) .ugt else if (std.mem.eql(u8, text, "ult")) .ult else if (std.mem.eql(u8, text, "uge")) .uge else if (std.mem.eql(u8, text, "ule")) .ule else if (std.mem.eql(u8, text, "eq")) .eq else if (std.mem.eql(u8, text, "ne")) .ne else if (std.mem.eql(u8, text, "and")) .@"and" else if (std.mem.eql(u8, text, "or")) .@"or" else if (std.mem.eql(u8, text, "shl")) .shl else if (std.mem.eql(u8, text, "shr")) .shr else null;
+}
 
 pub const AtomicOrdering = atomic.AtomicOrdering;
 pub const AtomicRmwOp = atomic.AtomicRmwOp;
@@ -64,6 +81,7 @@ pub const InstKind = enum(u8) {
     borrow,
     move_,
     release,
+    assign,
     op,
     ptr_add,
     jmp,
@@ -134,4 +152,13 @@ test "instruction layout keeps four operands and tags" {
     try std.testing.expectEqual(@as(usize, 4), inst.operands.len);
     try std.testing.expectEqual(InstKind.alloc, inst.kind);
     try std.testing.expect(std.mem.eql(u8, inst.raw_text, "x = alloc 8"));
+}
+
+test "op code parsing covers signed and unsigned aliases" {
+    try std.testing.expectEqual(OpCode.sgt, parseOpCode("sgt").?);
+    try std.testing.expectEqual(OpCode.sle, parseOpCode("sle").?);
+    try std.testing.expectEqual(OpCode.ult, parseOpCode("ult").?);
+    try std.testing.expectEqual(OpCode.srem, parseOpCode("srem").?);
+    try std.testing.expectEqual(OpCode.udiv, parseOpCode("udiv").?);
+    try std.testing.expect(parseOpCode("nonsense") == null);
 }

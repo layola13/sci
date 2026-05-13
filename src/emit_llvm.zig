@@ -398,6 +398,69 @@ fn numericKind(lhs: sig.PrimType, rhs: sig.PrimType) NumericKind {
     return .unsigned;
 }
 
+fn opNumericKind(op: inst.OpCode, lhs: sig.PrimType, rhs: sig.PrimType) NumericKind {
+    return switch (op) {
+        .sdiv, .srem, .sgt, .slt, .sge, .sle => .signed,
+        .udiv, .urem, .ugt, .ult, .uge, .ule => .unsigned,
+        else => numericKind(lhs, rhs),
+    };
+}
+
+fn opTargetType(op: inst.OpCode, lhs: sig.PrimType, rhs: sig.PrimType) sig.PrimType {
+    const bits = @max(sig.primTypeBits(lhs), sig.primTypeBits(rhs));
+    return switch (op) {
+        .sdiv, .srem, .sgt, .slt, .sge, .sle => intTypeForBits(bits, true),
+        .udiv, .urem, .ugt, .ult, .uge, .ule => intTypeForBits(bits, false),
+        else => commonNumericType(lhs, rhs),
+    };
+}
+
+fn legacyCompareMnemonic(op: inst.OpCode, kind: NumericKind) []const u8 {
+    return switch (kind) {
+        .float => switch (op) {
+            .gt => "ogt",
+            .lt => "olt",
+            .eq => "oeq",
+            .ne => "one",
+            else => unreachable,
+        },
+        .signed => switch (op) {
+            .gt => "sgt",
+            .lt => "slt",
+            .eq => "eq",
+            .ne => "ne",
+            else => unreachable,
+        },
+        .unsigned => switch (op) {
+            .gt => "ugt",
+            .lt => "ult",
+            .eq => "eq",
+            .ne => "ne",
+            else => unreachable,
+        },
+    };
+}
+
+fn signedCompareMnemonic(op: inst.OpCode) []const u8 {
+    return switch (op) {
+        .sgt => "sgt",
+        .slt => "slt",
+        .sge => "sge",
+        .sle => "sle",
+        else => unreachable,
+    };
+}
+
+fn unsignedCompareMnemonic(op: inst.OpCode) []const u8 {
+    return switch (op) {
+        .ugt => "ugt",
+        .ult => "ult",
+        .uge => "uge",
+        .ule => "ule",
+        else => unreachable,
+    };
+}
+
 fn intTypeForBits(bits: u32, signed: bool) sig.PrimType {
     if (bits <= 1) return .i1;
     if (bits <= 8) return if (signed) .i8 else .u8;
@@ -1007,7 +1070,7 @@ fn emitConstDecls(
                     if (idx != 0) try out.appendSlice(", ");
                     const fn_sig = findFunctionSigIndex(sigs, slot.func_name) orelse return EmitError.UnknownFunction;
                     _ = fn_sig;
-                    try out.writer().print("ptr @{s}", .{ emittedFunctionName(sigs[findFunctionSigIndex(sigs, slot.func_name).?]) });
+                    try out.writer().print("ptr @{s}", .{emittedFunctionName(sigs[findFunctionSigIndex(sigs, slot.func_name).?])});
                 }
                 try emitLine(out, "]");
             },
@@ -1609,14 +1672,15 @@ fn emitInstruction(
                     return;
                 }
             }
-            const kind = numericKind(lhs.ty, rhs.ty);
-            const target_ty = commonNumericType(lhs.ty, rhs.ty);
-            if (kind == .float) {
+            const base_kind = numericKind(lhs.ty, rhs.ty);
+            const kind = opNumericKind(opcode, lhs.ty, rhs.ty);
+            if (base_kind == .float) {
                 switch (opcode) {
                     .add, .sub, .mul, .div, .gt, .lt, .eq, .ne => {},
-                    .@"and", .@"or", .shl, .shr => return EmitError.UnsupportedType,
+                    .@"and", .@"or", .shl, .shr, .rem, .sdiv, .udiv, .srem, .urem, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule => return EmitError.UnsupportedType,
                 }
             }
+            const target_ty = opTargetType(opcode, lhs.ty, rhs.ty);
             const l = try castValue(allocator, out, state, lhs, target_ty);
             const r = try castValue(allocator, out, state, rhs, target_ty);
             const tmp = try state.tempName(allocator);
@@ -1629,39 +1693,56 @@ fn emitInstruction(
                     .signed => "sdiv",
                     .unsigned => "udiv",
                 }, llvmTypeName(target_ty), l.expr, r.expr }),
+                .sdiv => {
+                    if (base_kind == .float) return EmitError.UnsupportedType;
+                    try out.writer().print("  {s} = sdiv {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr });
+                },
+                .udiv => {
+                    if (base_kind == .float) return EmitError.UnsupportedType;
+                    try out.writer().print("  {s} = udiv {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr });
+                },
+                .rem => {
+                    if (base_kind == .float) return EmitError.UnsupportedType;
+                    try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, switch (kind) {
+                        .signed => "srem",
+                        .unsigned => "urem",
+                        else => unreachable,
+                    }, llvmTypeName(target_ty), l.expr, r.expr });
+                },
+                .srem => {
+                    if (base_kind == .float) return EmitError.UnsupportedType;
+                    try out.writer().print("  {s} = srem {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr });
+                },
+                .urem => {
+                    if (base_kind == .float) return EmitError.UnsupportedType;
+                    try out.writer().print("  {s} = urem {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr });
+                },
                 .@"and" => try out.writer().print("  {s} = and {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
                 .@"or" => try out.writer().print("  {s} = or {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
                 .shl => try out.writer().print("  {s} = shl {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
                 .shr => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (kind == .signed) "ashr" else "lshr", llvmTypeName(target_ty), l.expr, r.expr }),
                 .gt, .lt, .eq, .ne => {
-                    const cmp = switch (kind) {
-                        .float => switch (opcode) {
-                            .gt => "ogt",
-                            .lt => "olt",
-                            .eq => "oeq",
-                            .ne => "one",
-                            else => unreachable,
-                        },
-                        .signed => switch (opcode) {
-                            .gt => "sgt",
-                            .lt => "slt",
-                            .eq => "eq",
-                            .ne => "ne",
-                            else => unreachable,
-                        },
-                        .unsigned => switch (opcode) {
-                            .gt => "ugt",
-                            .lt => "ult",
-                            .eq => "eq",
-                            .ne => "ne",
-                            else => unreachable,
-                        },
-                    };
-                    const cmp_inst = switch (kind) {
-                        .float => "fcmp",
-                        .signed, .unsigned => "icmp",
-                    };
+                    const cmp = legacyCompareMnemonic(opcode, kind);
+                    const cmp_inst = if (kind == .float) "fcmp" else "icmp";
                     try out.writer().print("  {s} = {s} {s} {s} {s}, {s}\n", .{ tmp, cmp_inst, cmp, llvmTypeName(target_ty), l.expr, r.expr });
+                    const zext = try state.tempName(allocator);
+                    try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
+                    try state.setReg(dst, .{ .expr = zext, .ty = .i64 });
+                    return;
+                },
+                .sgt, .slt, .sge, .sle => {
+                    if (base_kind == .float) return EmitError.UnsupportedType;
+                    const cmp = signedCompareMnemonic(opcode);
+                    try out.writer().print("  {s} = icmp {s} {s} {s}, {s}\n", .{ tmp, cmp, llvmTypeName(target_ty), l.expr, r.expr });
+                    const zext = try state.tempName(allocator);
+                    try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
+                    try state.setReg(dst, .{ .expr = zext, .ty = .i64 });
+                    return;
+                },
+                .ugt, .ult, .uge, .ule => {
+                    if (base_kind == .float) return EmitError.UnsupportedType;
+                    const cmp = unsignedCompareMnemonic(opcode);
+                    try out.writer().print("  {s} = icmp {s} {s} {s}, {s}\n", .{ tmp, cmp, llvmTypeName(target_ty), l.expr, r.expr });
                     const zext = try state.tempName(allocator);
                     try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
                     try state.setReg(dst, .{ .expr = zext, .ty = .i64 });
@@ -1693,6 +1774,11 @@ fn emitInstruction(
             const value = state.getReg(src) orelse return EmitError.InvalidOperand;
             const ptrv = try castValue(allocator, out, state, value, .ptr);
             try state.setReg(dst, ptrv);
+        },
+        .assign => {
+            const dst = base.operands[0].reg;
+            const value = try valueFromOperand(allocator, state, symbols, base.operands[1]);
+            try state.setReg(dst, value);
         },
         .move_ => {},
         .release => {
@@ -2180,8 +2266,7 @@ test "llvm emitter native escape PBT preserves random verbatim snippets" {
         };
         defer std.testing.allocator.free(snippet);
 
-        const source = try std.fmt.allocPrint(
-            std.testing.allocator,
+        const source = try std.fmt.allocPrint(std.testing.allocator,
             \\@main() -> i32:
             \\value = alloc 8
             \\${s}$
@@ -2419,8 +2504,7 @@ test "llvm emitter PBT produces modules without Zig imports" {
         const lhs: i32 = @intCast(random.intRangeAtMost(u16, 0, 5000));
         const rhs: i32 = @intCast(random.intRangeAtMost(u16, 1, 5000));
         const byte_value: u8 = @intCast(random.intRangeAtMost(u16, 0, 255));
-        const source = try std.fmt.allocPrint(
-            std.testing.allocator,
+        const source = try std.fmt.allocPrint(std.testing.allocator,
             \\@helper_{d}(lhs: i32, rhs: i32) -> i32:
             \\sum = add lhs, rhs
             \\cmp = gt lhs, rhs
@@ -2460,8 +2544,7 @@ test "llvm emitter PBT passes opt -verify when LLVM opt is available" {
     for (0..12) |iter| {
         const addend: i32 = @intCast(random.intRangeAtMost(u16, 1, 99));
         const count: u8 = @intCast(random.intRangeAtMost(u16, 1, 7));
-        const source = try std.fmt.allocPrint(
-            std.testing.allocator,
+        const source = try std.fmt.allocPrint(std.testing.allocator,
             \\@callee_{d}(lhs: i32, rhs: i32) -> i32:
             \\sum = add lhs, rhs
             \\^lhs

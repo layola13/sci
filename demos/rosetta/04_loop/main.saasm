@@ -28,7 +28,6 @@ L_BODY:
 L_END:
     !i
     !more
-    !i_slot
     !arr
     return
 

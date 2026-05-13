@@ -26,7 +26,7 @@ Use it together with:
 |---|---|---|
 | `ForbiddenSyntax` | Flattener / Referee | emitted |
 | `DuplicateDef` | Flattener | emitted |
-| `DuplicateLabel` | Referee | reserved |
+| `DuplicateLabel` | Referee | emitted |
 | `UnsupportedType` | Signature / Layout / Referee / CLI flatten wrapper | emitted |
 | `MacroRecursionLimit` | Flattener | emitted |
 | `RegisterRedefinition` | Referee / CapabilityTable | emitted |
@@ -55,7 +55,6 @@ Use it together with:
 | `AtomicOrderingMismatch` | Referee | emitted |
 
 Notes:
-- `DuplicateLabel` is part of the public namespace and required by the spec, but the current verifier path does not yet visibly emit it.
 - `GasExceeded`, `SnapshotVersionMismatch`, and `VTableSignatureMismatch` are namespace-reserved, but not fully wired through the current pipeline.
 
 ### 2.2 Stage-Local Error Sets
@@ -148,7 +147,7 @@ Notes:
 |---|---|---|---|---|---|
 | `ForbiddenSyntax` | Trap | Flattener / Referee | `{}` / `if` / `else` / `while` / `for` / `a.b.c` / invalid borrow or call syntax | primary message, optional hint | emitted |
 | `DuplicateDef` | Trap | Flattener | repeated `#def` name | primary message, no hint today | emitted |
-| `DuplicateLabel` | Trap | Referee | same `L_NAME:` twice in one function | should carry label name and source line when wired | reserved |
+| `DuplicateLabel` | Trap | Referee | same `L_NAME:` twice in one function | primary message, optional hint | emitted |
 | `UnsupportedType` | Trap | Signature / Layout / Referee / CLI flatten wrapper | unsupported primitive type annotation | primary message, no hint today | emitted |
 | `MacroRecursionLimit` | Trap | Flattener | macro expansion depth > 256 | primary message, no hint today | emitted |
 | `RegisterRedefinition` | Trap | Referee | macro expansion or instruction rebinds an already live register | primary message, `register` | emitted |

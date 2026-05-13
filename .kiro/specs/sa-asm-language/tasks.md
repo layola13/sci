@@ -77,7 +77,7 @@ sa/
     - 29 种 Trap 枚举在 `src/common/trap.zig` 中已列出；其中一部分仅在路线图中保留，尚未全量接入发射路径
     - _Requirements: R9.3, R13.5, R13.7, R17.7, R18.5, R19.2_
 
-  - [ ] 2.5a 错误码与诊断规划
+  - [x] 2.5a 错误码与诊断规划
     - 以 `docs/errorcode.md` 作为统一查阅入口；`design.md` §4.4 固定 `TrapReport` schema，`docs/faq.md` 解释为什么公共诊断是 JSON-first
     - 统一字段约定：`trap` / `line` / `source_line` / `register` / `registers` / `expected_mask` / `actual_mask` / `expected_mask_name` / `actual_mask_name` / `upstream_loc` / `function` / `is_ffi_wrapper` / `message` / `hint`
     - 明确 `Trap` enum ordinals 不是公开数值代码，后续如需 `trap_code` 必须显式新增
@@ -217,26 +217,26 @@ sa/
   - [x]* 6.4 所有权状态机 PBT — **P1**
     - _Requirements: R1.1–R1.4, R4.1–R4.7_
 
-  - [ ] 6.5 未声明寄存器检测
+  - [x] 6.5 未声明寄存器检测
     - _Requirements: R2.3_
 
-  - [ ]* 6.6 `UnknownRegister` PBT — **P13**
+  - [x]* 6.6 `UnknownRegister` PBT — **P13**
     - _Requirements: R2.3_
 
-  - [ ] 6.7 函数出口泄漏检测
+  - [x] 6.7 函数出口泄漏检测
     - _Requirements: R4.5_
 
-  - [ ] 6.8 基本块结束指令 + 重名 Label
+  - [x] 6.8 基本块结束指令 + 重名 Label
     - _Requirements: R3.4, R3.5_
 
-  - [ ]* 6.9 CFG 结构完整性 PBT — **P5**
+  - [x]* 6.9 CFG 结构完整性 PBT — **P5**
     - _Requirements: R3.4, R3.5, R10.2_
 
-  - [ ] 6.10 Phi 汇聚点按位 AND
+  - [x] 6.10 Phi 汇聚点按位 AND
     - 合法交集 `{0x01, 0x02, 0x04, 0x08, 0x11, 0x12}`
     - _Requirements: R10.1–R10.4_
 
-  - [ ]* 6.11 Phi PBT — **P9**
+  - [x]* 6.11 Phi PBT — **P9**
     - _Requirements: R10.1, R10.3_
 
   - [x] 6.12 调用点契约前缀校验
@@ -331,7 +331,7 @@ sa/
     - `tokei src/referee/` = 1981 code lines，已安装并实际跑通
     - _Requirements: R9.5_
 
-- [ ] 7. 检查点 — Referee 完成
+- [x] 7. 检查点 — Referee 完成
   - 跑过 P1、P3、P5、P9、P10、P12、P13、P19、P21、P22、P24
 
 - [ ] 8. W10-11 LLVM IR Emitter + CLI + `zig cc` 全权代劳的 exe/wasm
@@ -446,10 +446,12 @@ sa/
 - [ ] 9. W10-11 内存解释器（`saasm run`）
 
   - [ ] 9.1 大 switch 分派全部 `InstKind`
+    - `call_indirect` 现在优先使用寄存器里携带的 vtable provenance；`demos/rosetta/07_trait_vtable/main.saasm` 已可在 `saasm run` 下打印 `77`
     - _Requirements: R16.1_
 
   - [ ] 9.2 `@sys_*` 原语原生实现
     - `@sys_print` / `@sys_read_file` / `@sys_write_file` / `@sys_exit` / `@sys_argv` / `@sys_argc`
+    - 兼容 legacy `@sa_print_bytes`，`demos/rosetta/01_hello_world/main.saasm` 已可在 `saasm run` 下真实打印
     - _Requirements: R16.1, R17.1–R17.5_
 
   - [ ] 9.3 气闸舱语义（Interp 模式）

@@ -32,6 +32,22 @@ fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !st
     });
 }
 
+fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const run_argv = [_][]const u8{ "saasm", "run", path };
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    if (run_code != 0 or stderr_buf.items.len != 0 or !std.mem.eql(u8, stdout_buf.items, expected_stdout)) {
+        std.debug.print("demo run failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, stdout_buf.items, stderr_buf.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), run_code);
+    try std.testing.expectEqualStrings(expected_stdout, stdout_buf.items);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+}
+
 test "cli run/build-exe/build-wasm produce real artifacts" {
     const source =
         \\#loc "hello.rs":10:4
@@ -100,6 +116,46 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+}
+
+test "hello world demo prints through saasm run" {
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const run_argv = [_][]const u8{ "saasm", "run", "demos/rosetta/01_hello_world/main.saasm" };
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), run_code);
+    try std.testing.expectEqualStrings("hello, saasm\n", stdout_buf.items);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+}
+
+test "trait vtable demo runs through saasm run" {
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const run_argv = [_][]const u8{ "saasm", "run", "demos/rosetta/07_trait_vtable/main.saasm" };
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), run_code);
+    try std.testing.expectEqualStrings("77\n", stdout_buf.items);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+}
+
+test "comparison alias demos run through saasm run" {
+    try assertRunStdout("demos/rosetta/03_if_else/main.saasm", "20\n");
+    try assertRunStdout("demos/rosetta/04_loop/main.saasm", "[0,0,0,0]\n");
+    try assertRunStdout("demos/rosetta/21_while_loop/main.saasm", "15\n");
+    try assertRunStdout("demos/rosetta/22_break_continue/main.saasm", "9\n");
+    try assertRunStdout("demos/rosetta/23_nested_loops/main.saasm", "18\n");
+    try assertRunStdout("demos/rosetta/24_factorial/main.saasm", "120\n");
+    try assertRunStdout("demos/rosetta/25_fibonacci/main.saasm", "21\n");
+}
+
+test "struct demo runs through saasm run" {
+    try assertRunStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
 }
 
 test "panic builtins terminate through the interpreter" {
@@ -628,6 +684,201 @@ test "unknown sys intrinsic is rejected before emission" {
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out", .{}));
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out.saasm.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnsupportedSysIntrinsic\""));
+}
+
+test "unknown register demo is rejected with structured trap output" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/unknown_register.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "unknown_register.out" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unknown_register.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unknown_register.out.saasm.ll", .{}));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnknownRegister\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1007"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"register\":\"ghost\""));
+}
+
+test "memory leak demo is rejected with structured trap output" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/memory_leak.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "memory_leak.out" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("memory_leak.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("memory_leak.out.saasm.ll", .{}));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"MemoryLeak\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1012"));
+}
+
+test "fallthrough demo is rejected without a terminator" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/fallthrough.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "fallthrough.out" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("fallthrough.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("fallthrough.out.saasm.ll", .{}));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"FallthroughForbidden\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1014"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "function body ended without a terminator"));
+}
+
+test "duplicate label demo is rejected with structured trap output" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/duplicate_label.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "duplicate_label.out" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("duplicate_label.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("duplicate_label.out.saasm.ll", .{}));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"DuplicateLabel\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1003"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "label is already defined"));
+}
+
+test "phi conflict demo is rejected on mismatched join states" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_conflict.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "phi_conflict.out" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("phi_conflict.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("phi_conflict.out.saasm.ll", .{}));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"PhiStateConflict\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1015"));
+}
+
+test "phi join AND demo runs through the join point" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_join_and.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "phi_join_and.out" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    const run_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./phi_join_and.out"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |exit_code| try std.testing.expectEqual(@as(u8, 0), exit_code),
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "v0.1 build-wasm rejects wasm64 target" {

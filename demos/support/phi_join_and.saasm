@@ -1,0 +1,14 @@
+@const MSG = utf8:"ok\n"
+@main() -> i32:
+cond = eq 1, 1
+br cond -> L_LEFT, L_RIGHT
+L_LEFT:
+    view = alloc 8
+    jmp L_JOIN
+L_RIGHT:
+    view = & MSG
+    jmp L_JOIN
+L_JOIN:
+    !view
+    !cond
+    return 0

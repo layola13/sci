@@ -28,6 +28,7 @@ L_INNER_BODY:
     !prod
     !sum
     !x
+    !inner_more
     sum = sum1
     x = x1
     jmp L_INNER_COND
@@ -37,6 +38,7 @@ L_NEXT_ROW:
     !x
     !inner_more
     !y
+    !outer_more
     y = y1
     jmp L_OUTER_COND
 

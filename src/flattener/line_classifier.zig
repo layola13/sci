@@ -1,4 +1,5 @@
 const std = @import("std");
+const common_instruction = @import("../common/instruction.zig");
 
 pub const LineKind = enum {
     blank_or_comment,
@@ -34,6 +35,7 @@ pub const InstructionForm = enum {
     borrow,
     move_,
     release,
+    assign,
     op,
     ptr_add,
     jmp,
@@ -457,18 +459,25 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
 
     const op = splitFirstWord(rhs);
     if (op.word.len != 0) {
-        inline for (.{ "add", "sub", "mul", "div", "gt", "lt", "eq", "ne", "and", "or", "shl", "shr" }) |candidate| {
-            if (std.mem.eql(u8, op.word, candidate)) {
-                const pair = parseCommaPair(op.rest) orelse return false;
-                line.* = makeLine(.instruction, line.raw, line.trimmed);
-                line.inst_form = .op;
-                addPart(line, 0, lhs);
-                addPart(line, 1, op.word);
-                addPart(line, 2, pair.left);
-                addPart(line, 3, pair.right);
-                return true;
-            }
+        if (common_instruction.parseOpCode(op.word)) |opcode| {
+            const pair = parseCommaPair(op.rest) orelse return false;
+            line.* = makeLine(.instruction, line.raw, line.trimmed);
+            line.inst_form = .op;
+            addPart(line, 0, lhs);
+            addPart(line, 1, op.word);
+            _ = opcode;
+            addPart(line, 2, pair.left);
+            addPart(line, 3, pair.right);
+            return true;
         }
+    }
+
+    if (op.word.len != 0 and std.mem.trim(u8, op.rest, " \t").len == 0) {
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .assign;
+        addPart(line, 0, lhs);
+        addPart(line, 1, op.word);
+        return true;
     }
 
     return false;
@@ -790,11 +799,37 @@ test "classify representative line families" {
     const atomic_store = classifyLine("atomic_store ptr+0, value release");
     try std.testing.expectEqual(InstructionForm.atomic_store, atomic_store.inst_form.?);
 
+    const sgt = classifyLine("cmp = sgt lhs, rhs");
+    try std.testing.expectEqual(InstructionForm.op, sgt.inst_form.?);
+    try std.testing.expectEqualStrings("sgt", sgt.parts[1]);
+
+    const sle = classifyLine("cmp = sle lhs, rhs");
+    try std.testing.expectEqual(InstructionForm.op, sle.inst_form.?);
+    try std.testing.expectEqualStrings("sle", sle.parts[1]);
+
+    const ult = classifyLine("cmp = ult lhs, rhs");
+    try std.testing.expectEqual(InstructionForm.op, ult.inst_form.?);
+    try std.testing.expectEqualStrings("ult", ult.parts[1]);
+
+    const srem = classifyLine("rem = srem lhs, rhs");
+    try std.testing.expectEqual(InstructionForm.op, srem.inst_form.?);
+    try std.testing.expectEqualStrings("srem", srem.parts[1]);
+
     const cmpxchg = classifyLine("old, ok = cmpxchg ptr+0, expected, new acq_rel acquire");
     try std.testing.expectEqual(InstructionForm.cmpxchg, cmpxchg.inst_form.?);
 
     const rmw = classifyLine("old = atomic_rmw_add ptr+0, value seq_cst");
     try std.testing.expectEqual(InstructionForm.atomic_rmw, rmw.inst_form.?);
+
+    const literal = classifyLine("i = 1");
+    try std.testing.expectEqual(InstructionForm.assign, literal.inst_form.?);
+    try std.testing.expectEqualStrings("i", literal.parts[0]);
+    try std.testing.expectEqualStrings("1", literal.parts[1]);
+
+    const rebinding = classifyLine("next = sum_next");
+    try std.testing.expectEqual(InstructionForm.assign, rebinding.inst_form.?);
+    try std.testing.expectEqualStrings("next", rebinding.parts[0]);
+    try std.testing.expectEqualStrings("sum_next", rebinding.parts[1]);
 
     const fence = classifyLine("fence seq_cst");
     try std.testing.expectEqual(InstructionForm.fence, fence.inst_form.?);

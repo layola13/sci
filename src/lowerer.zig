@@ -14,15 +14,21 @@ fn opName(op: common_instruction.OpCode) []const u8 {
         .add => "add",
         .sub => "sub",
         .mul => "mul",
-        .div => "div",
-        .gt => "gt",
-        .lt => "lt",
-        .eq => "eq",
-        .ne => "ne",
-        .@"and" => "and",
-        .@"or" => "or",
-        .shl => "shl",
-        .shr => "shr",
+        .div, .sdiv, .udiv => "/",
+        .rem, .srem, .urem => "%",
+        .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule => switch (op) {
+            .gt, .sgt, .ugt => ">",
+            .lt, .slt, .ult => "<",
+            .sge, .uge => ">=",
+            .sle, .ule => "<=",
+            else => unreachable,
+        },
+        .eq => "==",
+        .ne => "!=",
+        .@"and" => "&",
+        .@"or" => "|",
+        .shl => "<<",
+        .shr => ">>",
     };
 }
 
@@ -142,6 +148,21 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                 const reg = try operandReg(inst, 0);
                 try out.writer().print("    // {s}\n", .{inst.raw_text});
                 try out.writer().print("    _ = {s};\n", .{regName(reg)});
+            },
+            .assign => {
+                const dst = try operandReg(inst, 0);
+                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try out.writer().print("    const {s} = ", .{regName(dst)});
+                switch (inst.operands[1]) {
+                    .reg => |id| try out.writer().print("{s}", .{regName(id)}),
+                    .imm_i64 => |v| try out.writer().print("{d}", .{v}),
+                    .imm_u64 => |v| try out.writer().print("{d}", .{v}),
+                    .imm_int => |v| try out.writer().print("{d}", .{v}),
+                    .imm_float => |v| try out.writer().print("{d}", .{v}),
+                    .text => |t| try out.writer().print("{s}", .{t}),
+                    else => return LowerError.InvalidOperand,
+                }
+                try out.appendSlice(";\n");
             },
             .load => {
                 const dst = try operandReg(inst, 0);

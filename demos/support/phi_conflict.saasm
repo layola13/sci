@@ -1,0 +1,12 @@
+@main() -> i32:
+victim = alloc 8
+cond = eq 1, 1
+br cond -> L_LEFT, L_RIGHT
+L_LEFT:
+    !victim
+    jmp L_JOIN
+L_RIGHT:
+    jmp L_JOIN
+L_JOIN:
+    !cond
+    return 0

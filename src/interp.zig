@@ -167,6 +167,15 @@ fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
 }
 
+fn stripTextOperandPrefix(text: []const u8) []const u8 {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    if (trimmed.len == 0) return trimmed;
+    return switch (trimmed[0]) {
+        '&', '^', '*', '@' => std.mem.trim(u8, trimmed[1..], " \t"),
+        else => trimmed,
+    };
+}
+
 fn resolveOperandValue(
     self: *Interpreter,
     regs: *std.AutoHashMap(u32, RegValue),
@@ -174,12 +183,7 @@ fn resolveOperandValue(
 ) !RegValue {
     return switch (operand) {
         .reg => |id| try readValue(self, regs, id),
-        .text => |text| blk: {
-            if (isIdentLike(text)) {
-                if (self.program.symbols.findId(text)) |id| break :blk try readValue(self, regs, id);
-            }
-            break :blk try Interpreter.parseImmediateValue(self.allocator, &self.memory, text);
-        },
+        .text => |text| try self.resolveTextOperand(regs, text),
         .imm_u64 => |v| .{ .ty = .u64, .bits = v },
         .imm_i64 => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
         .imm_int => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
@@ -340,6 +344,8 @@ const Interpreter = struct {
     ranges: []FunctionRange,
     argv: [][]const u8,
     argv_storage: [][]u8,
+    stdout: std.io.AnyWriter,
+    stderr: std.io.AnyWriter,
     const_addrs: std.StringHashMap(u64),
     memory: Memory,
     exit_code: ?u8 = null,
@@ -348,6 +354,8 @@ const Interpreter = struct {
         allocator: std.mem.Allocator,
         program: *const referee.VerifyOk,
         argv: []const []const u8,
+        stdout: std.io.AnyWriter,
+        stderr: std.io.AnyWriter,
     ) !Interpreter {
         var ranges = try allocator.alloc(FunctionRange, program.function_sigs.len);
         errdefer allocator.free(ranges);
@@ -394,6 +402,8 @@ const Interpreter = struct {
             .ranges = ranges,
             .argv = argv_view,
             .argv_storage = argv_storage,
+            .stdout = stdout,
+            .stderr = stderr,
             .const_addrs = std.StringHashMap(u64).init(allocator),
             .memory = Memory.init(allocator),
             .exit_code = null,
@@ -659,6 +669,7 @@ const Interpreter = struct {
     fn opBinary(self: *Interpreter, op: inst.OpCode, a: RegValue, b: RegValue) !RegValue {
         _ = self;
         if (a.fallible or b.fallible) return RunError.InvalidOperand;
+
         if (op == .add or op == .sub) {
             if (a.ty == .ptr or b.ty == .ptr) {
                 if (a.ty == .ptr and b.ty == .ptr) return RunError.InvalidOperand;
@@ -674,54 +685,132 @@ const Interpreter = struct {
                 };
             }
         }
-        switch (numKind(a, b)) {
-            .float => {
-                const lhs = floatValue(a);
-                const rhs = floatValue(b);
+
+        const kind = numKind(a, b);
+        const lhs_signed = intValue(a, true);
+        const rhs_signed = intValue(b, true);
+        const lhs_unsigned: u128 = @as(u128, @intCast(intValue(a, false)));
+        const rhs_unsigned: u128 = @as(u128, @intCast(intValue(b, false)));
+
+        switch (op) {
+            .add => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a) + floatValue(b)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed + rhs_signed))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned + rhs_unsigned)) },
+            },
+            .sub => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a) - floatValue(b)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed - rhs_signed))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned - rhs_unsigned)) },
+            },
+            .mul => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a) * floatValue(b)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed * rhs_signed))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned * rhs_unsigned)) },
+            },
+            .div => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a) / floatValue(b)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(@divTrunc(lhs_signed, rhs_signed)))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned / rhs_unsigned)) },
+            },
+            .rem => return switch (kind) {
+                .float => RunError.InvalidOperand,
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(@rem(lhs_signed, rhs_signed)))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned % rhs_unsigned)) },
+            },
+            .sdiv => {
+                if (kind == .float) return RunError.InvalidOperand;
+                return try valueFromInt(.i64, @as(i64, @intCast(@divTrunc(lhs_signed, rhs_signed))));
+            },
+            .udiv => {
+                if (kind == .float) return RunError.InvalidOperand;
+                return .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned / rhs_unsigned)) };
+            },
+            .srem => {
+                if (kind == .float) return RunError.InvalidOperand;
+                return try valueFromInt(.i64, @as(i64, @intCast(@rem(lhs_signed, rhs_signed))));
+            },
+            .urem => {
+                if (kind == .float) return RunError.InvalidOperand;
+                return .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned % rhs_unsigned)) };
+            },
+            .gt, .lt, .eq, .ne => {
+                return switch (kind) {
+                    .float => blk: {
+                        const lhs = floatValue(a);
+                        const rhs = floatValue(b);
+                        const result = switch (op) {
+                            .gt => lhs > rhs,
+                            .lt => lhs < rhs,
+                            .eq => lhs == rhs,
+                            .ne => lhs != rhs,
+                            else => unreachable,
+                        };
+                        break :blk try valueFromInt(.i64, @intFromBool(result));
+                    },
+                    .signed => blk: {
+                        const result = switch (op) {
+                            .gt => lhs_signed > rhs_signed,
+                            .lt => lhs_signed < rhs_signed,
+                            .eq => lhs_signed == rhs_signed,
+                            .ne => lhs_signed != rhs_signed,
+                            else => unreachable,
+                        };
+                        break :blk try valueFromInt(.i64, @intFromBool(result));
+                    },
+                    .unsigned => blk: {
+                        const result = switch (op) {
+                            .gt => lhs_unsigned > rhs_unsigned,
+                            .lt => lhs_unsigned < rhs_unsigned,
+                            .eq => lhs_unsigned == rhs_unsigned,
+                            .ne => lhs_unsigned != rhs_unsigned,
+                            else => unreachable,
+                        };
+                        break :blk try valueFromInt(.i64, @intFromBool(result));
+                    },
+                };
+            },
+            .sgt, .slt, .sge, .sle => {
+                if (kind == .float) return RunError.InvalidOperand;
                 const result = switch (op) {
-                    .add => lhs + rhs,
-                    .sub => lhs - rhs,
-                    .mul => lhs * rhs,
-                    .div => lhs / rhs,
-                    .gt, .lt, .eq, .ne, .@"and", .@"or", .shl, .shr => lhs,
+                    .sgt => lhs_signed > rhs_signed,
+                    .slt => lhs_signed < rhs_signed,
+                    .sge => lhs_signed >= rhs_signed,
+                    .sle => lhs_signed <= rhs_signed,
+                    else => unreachable,
                 };
-                return try valueFromFloat(.f64, result);
+                return try valueFromInt(.i64, @intFromBool(result));
             },
-            .signed => {
-                const lhs = @as(i64, @intCast(intValue(a, true)));
-                const rhs = @as(i64, @intCast(intValue(b, true)));
-                return switch (op) {
-                    .add => try valueFromInt(.i64, lhs + rhs),
-                    .sub => try valueFromInt(.i64, lhs - rhs),
-                    .mul => try valueFromInt(.i64, lhs * rhs),
-                    .div => try valueFromInt(.i64, @divTrunc(lhs, rhs)),
-                    .@"and" => try valueFromInt(.i64, lhs & rhs),
-                    .@"or" => try valueFromInt(.i64, lhs | rhs),
-                    .shl => try valueFromInt(.i64, lhs << @as(u6, @intCast(rhs & 0x3f))),
-                    .shr => try valueFromInt(.i64, lhs >> @as(u6, @intCast(rhs & 0x3f))),
-                    .gt => try valueFromInt(.i64, @intFromBool(lhs > rhs)),
-                    .lt => try valueFromInt(.i64, @intFromBool(lhs < rhs)),
-                    .eq => try valueFromInt(.i64, @intFromBool(lhs == rhs)),
-                    .ne => try valueFromInt(.i64, @intFromBool(lhs != rhs)),
+            .ugt, .ult, .uge, .ule => {
+                if (kind == .float) return RunError.InvalidOperand;
+                const result = switch (op) {
+                    .ugt => lhs_unsigned > rhs_unsigned,
+                    .ult => lhs_unsigned < rhs_unsigned,
+                    .uge => lhs_unsigned >= rhs_unsigned,
+                    .ule => lhs_unsigned <= rhs_unsigned,
+                    else => unreachable,
                 };
+                return try valueFromInt(.i64, @intFromBool(result));
             },
-            .unsigned => {
-                const lhs = @as(u64, @intCast(intValue(a, false)));
-                const rhs = @as(u64, @intCast(intValue(b, false)));
-                return switch (op) {
-                    .add => .{ .ty = .u64, .bits = lhs + rhs },
-                    .sub => .{ .ty = .u64, .bits = lhs - rhs },
-                    .mul => .{ .ty = .u64, .bits = lhs * rhs },
-                    .div => .{ .ty = .u64, .bits = lhs / rhs },
-                    .@"and" => .{ .ty = .u64, .bits = lhs & rhs },
-                    .@"or" => .{ .ty = .u64, .bits = lhs | rhs },
-                    .shl => .{ .ty = .u64, .bits = lhs << @as(u6, @intCast(rhs & 0x3f)) },
-                    .shr => .{ .ty = .u64, .bits = lhs >> @as(u6, @intCast(rhs & 0x3f)) },
-                    .gt => try valueFromInt(.i64, @intFromBool(lhs > rhs)),
-                    .lt => try valueFromInt(.i64, @intFromBool(lhs < rhs)),
-                    .eq => try valueFromInt(.i64, @intFromBool(lhs == rhs)),
-                    .ne => try valueFromInt(.i64, @intFromBool(lhs != rhs)),
-                };
+            .@"and" => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed & rhs_signed))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned & rhs_unsigned)) },
+            },
+            .@"or" => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed | rhs_signed))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned | rhs_unsigned)) },
+            },
+            .shl => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed << @as(u6, @intCast(rhs_unsigned & 0x3f))))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned << @as(u6, @intCast(rhs_unsigned & 0x3f)))) },
+            },
+            .shr => return switch (kind) {
+                .float => try valueFromFloat(.f64, floatValue(a)),
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed >> @as(u6, @intCast(rhs_unsigned & 0x3f))))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned >> @as(u6, @intCast(rhs_unsigned & 0x3f)))) },
             },
         }
     }
@@ -746,6 +835,17 @@ const Interpreter = struct {
             if (std.mem.eql(u8, fsig.name, name)) return idx;
         }
         return null;
+    }
+
+    fn resolveTextOperand(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), text: []const u8) !RegValue {
+        const candidate = stripTextOperandPrefix(text);
+        if (candidate.len == 0) return RunError.InvalidOperand;
+        if (isIdentLike(candidate)) {
+            if (self.program.symbols.findId(candidate)) |id| {
+                return try readValue(self, regs, id);
+            }
+        }
+        return try Interpreter.parseImmediateValue(self.allocator, &self.memory, candidate);
     }
 
     fn materializeConsts(self: *Interpreter) !void {
@@ -786,12 +886,7 @@ const Interpreter = struct {
         frame_regs: *std.AutoHashMap(u32, RegValue),
         arg: call.ParsedArg,
     ) !RegValue {
-        if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
-            if (self.program.symbols.findId(arg.text)) |id| {
-                return frame_regs.get(id) orelse RunError.InvalidOperand;
-            }
-        }
-        return try parseImmediateValue(self.allocator, &self.memory, arg.text);
+        return try self.resolveTextOperand(frame_regs, arg.text);
     }
 
     fn parseImmediateValue(allocator: std.mem.Allocator, mem: *Memory, text: []const u8) !RegValue {
@@ -809,12 +904,16 @@ const Interpreter = struct {
 
     fn recordPanic(self: *Interpreter, code: u8, message: ?[]const u8) void {
         self.exit_code = @as(u8, @intCast(128 + (@as(u32, code) & 0x7f)));
-        const stderr = std.io.getStdErr().writer();
         if (message) |msg| {
-            stderr.print("PANIC[{d}]: {s}\n", .{ code, msg }) catch {};
+            self.stderr.print("PANIC[{d}]: {s}\n", .{ code, msg }) catch {};
         } else {
-            stderr.print("PANIC: code={d}\n", .{code}) catch {};
+            self.stderr.print("PANIC: code={d}\n", .{code}) catch {};
         }
+    }
+
+    fn printBytes(self: *Interpreter, ptr: u64, len: usize) !void {
+        const slice = try self.memory.sliceAt(ptr, len);
+        try self.stdout.writeAll(slice);
     }
 
     fn handleSysCall(
@@ -836,14 +935,16 @@ const Interpreter = struct {
             self.recordPanic(code, message);
             return RunError.UserExit;
         }
+        if (std.mem.eql(u8, name, "sa_print_bytes")) {
+            if (args.len != 2) return RunError.InvalidOperand;
+            try self.printBytes(args[0].bits, @as(usize, @intCast(args[1].bits)));
+            return .{ .handled = null };
+        }
         if (!std.mem.startsWith(u8, name, "sys_")) return .not_syscall;
 
         if (std.mem.eql(u8, name, "sys_print")) {
             if (args.len != 2) return RunError.InvalidOperand;
-            const ptr = args[0].bits;
-            const len = @as(usize, @intCast(args[1].bits));
-            const slice = try self.memory.sliceAt(ptr, len);
-            try std.io.getStdOut().writer().writeAll(slice);
+            try self.printBytes(args[0].bits, @as(usize, @intCast(args[1].bits)));
             return .{ .handled = null };
         }
         if (std.mem.eql(u8, name, "sys_exit")) {
@@ -1011,7 +1112,7 @@ const Interpreter = struct {
                     const ty: sig.PrimType = if (base.operands[3] == .ty) blk: {
                         break :blk sig.primTypeFromTag(base.operands[3].ty) orelse .i64;
                     } else if (base.operands[2] == .reg) (try readValue(self, &regs, base.operands[2].reg)).ty else .i64;
-                    const value = if (base.operands[2] == .reg) try readValue(self, &regs, base.operands[2].reg) else try parseImmediateValue(self.allocator, &self.memory, if (base.operands[2] == .text) base.operands[2].text else "0");
+                    const value = try resolveOperandValue(self, &regs, base.operands[2]);
                     const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
                 },
@@ -1136,6 +1237,11 @@ const Interpreter = struct {
                         .const_name = value.const_name,
                     });
                 },
+                .assign => {
+                    const dst = base.operands[0].reg;
+                    const value = try resolveOperandValue(self, &regs, base.operands[1]);
+                    try regs.put(dst, value);
+                },
                 .move_ => {
                     // Referee already enforced ownership semantics.
                 },
@@ -1180,7 +1286,7 @@ const Interpreter = struct {
                     pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
-                .call, .call_indirect, .panic, .panic_msg => {
+                .call, .call_indirect, .panic, .panic_msg => call_case: {
                     var parsed = call.parseCall(self.allocator, base.raw_text) catch return RunError.InvalidOperand;
                     defer parsed.deinit(self.allocator);
 
@@ -1188,8 +1294,10 @@ const Interpreter = struct {
                         const callee_id = self.program.symbols.findId(parsed.callee) orelse return RunError.UnknownFunction;
                         const callee = try readRawValue(self, &regs, callee_id);
                         if (callee.ty != .ptr) return RunError.MissingIndirectCallProvenance;
-                        const callee_meta = self.memory.ptrMetaAt(callee.bits, @sizeOf(u64)) orelse self.memory.blockMeta(callee.bits);
                         const target_name = blk: {
+                            if (callee.call_target_name) |name| break :blk name;
+                            if (callee.vtable_slot_name) |name| break :blk name;
+                            const callee_meta = self.memory.ptrMetaAt(callee.bits, @sizeOf(u64)) orelse self.memory.blockMeta(callee.bits);
                             if (callee_meta) |meta| {
                                 if (meta.call_target_name) |name| break :blk name;
                                 if (meta.vtable_slot_name) |name| break :blk name;
@@ -1207,7 +1315,7 @@ const Interpreter = struct {
                                 try regs.put(id, ret);
                             }
                         }
-                        continue;
+                        break :call_case;
                     }
 
                     const call_values = try self.collectCallValues(parsed, &regs);
@@ -1220,7 +1328,6 @@ const Interpreter = struct {
                                     if (self.program.symbols.findId(dest)) |id| try regs.put(id, ret);
                                 }
                             }
-                            continue;
                         },
                         .not_syscall => {
                             const callee_sig_index = self.findFunctionIndex(parsed.callee) orelse return RunError.UnknownFunction;
@@ -1252,7 +1359,7 @@ const Interpreter = struct {
                     if (fsig.return_fallible) {
                         const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
                         if (ret_ty == .void) return RunError.InvalidOperand;
-                        const value = if (base.operands[0] == .reg) try readRawValue(self, &regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
+                        const value = try resolveOperandValue(self, &regs, base.operands[0]);
                         if (value.fallible) return value;
                         const coerced = try self.coerce(value, ret_ty);
                         return packFallible(0, coerced);
@@ -1261,7 +1368,7 @@ const Interpreter = struct {
                     if (ret_ty == .void) {
                         return .{ .ty = .void, .bits = 0 };
                     }
-                    const value = if (base.operands[0] == .reg) try readValue(self, &regs, base.operands[0].reg) else try parseImmediateValue(self.allocator, &self.memory, base.operands[0].text);
+                    const value = try resolveOperandValue(self, &regs, base.operands[0]);
                     return try self.coerce(value, ret_ty);
                 },
                 .native => {
@@ -1281,13 +1388,10 @@ const Interpreter = struct {
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, 0..) |arg, idx| {
-            if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
-                if (self.program.symbols.findId(arg.text)) |id| {
-                    out[idx] = try readValue(self, regs, id);
-                    continue;
-                }
-            }
-            out[idx] = try parseImmediateValue(self.allocator, &self.memory, arg.text);
+            out[idx] = self.resolveTextOperand(regs, arg.text) catch |err| {
+                self.stderr.print("interp call arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
+                return err;
+            };
         }
         return out;
     }
@@ -1297,13 +1401,9 @@ const Interpreter = struct {
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, params, 0..) |arg, param, idx| {
-            const raw = blk: {
-                if (arg.text.len != 0 and (std.ascii.isAlphabetic(arg.text[0]) or arg.text[0] == '_')) {
-                    if (self.program.symbols.findId(arg.text)) |id| {
-                        break :blk try readValue(self, regs, id);
-                    }
-                }
-                break :blk try parseImmediateValue(self.allocator, &self.memory, arg.text);
+            const raw = self.resolveTextOperand(regs, arg.text) catch |err| {
+                self.stderr.print("interp indirect arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
+                return err;
             };
             out[idx] = try self.coerce(raw, valueTypeForPrefix(param.cap, param.ty));
         }
@@ -1311,12 +1411,14 @@ const Interpreter = struct {
     }
 };
 
-pub fn run(
+pub fn runWithWriters(
     allocator: std.mem.Allocator,
     program: *const referee.VerifyOk,
     argv: []const []const u8,
+    stdout: std.io.AnyWriter,
+    stderr: std.io.AnyWriter,
 ) !u8 {
-    var interp = try Interpreter.init(allocator, program, argv);
+    var interp = try Interpreter.init(allocator, program, argv, stdout, stderr);
     defer interp.deinit();
 
     const main_index = blk: {
@@ -1338,6 +1440,20 @@ pub fn run(
     if (interp.exit_code) |code| return code;
     if (result.fallible) return @as(u8, @truncate(result.status));
     return @as(u8, @truncate(result.bits));
+}
+
+pub fn run(
+    allocator: std.mem.Allocator,
+    program: *const referee.VerifyOk,
+    argv: []const []const u8,
+) !u8 {
+    return runWithWriters(
+        allocator,
+        program,
+        argv,
+        std.io.getStdOut().writer().any(),
+        std.io.getStdErr().writer().any(),
+    );
 }
 
 test "interpreter exports" {

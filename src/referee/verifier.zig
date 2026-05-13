@@ -167,7 +167,7 @@ fn isTerminator(kind: inst.InstKind) bool {
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native => true,
+        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .assign, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native => true,
         else => false,
     };
 }
@@ -262,7 +262,7 @@ fn parseCallProvenance(
     symbols: *const symbol.SymbolTable,
     state: []const u16,
     const_vtables: []const ConstVTable,
-    origins: []const ?u32,
+    origins: []?u32,
     const_reg_names: []const ?[]const u8,
 ) ?CallProvenance {
     _ = item;
@@ -379,6 +379,26 @@ fn statesCompatibleForJoin(lhs: []const u16, rhs: []const u16) bool {
         if (left == right) continue;
         if ((left == 0 and right == maskOf(.consumed)) or (right == 0 and left == maskOf(.consumed))) continue;
         return false;
+    }
+    return true;
+}
+
+fn mergeJoinMask(left: u16, right: u16) ?u16 {
+    if (left == right) return left;
+    if ((left == 0 and right == maskOf(.consumed)) or (right == 0 and left == maskOf(.consumed))) {
+        return maskOf(.consumed);
+    }
+
+    const merged = left & right;
+    const core_mask = maskOf(.active) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.consumed) | maskOf(.untracked) | maskOf(.fallible) | maskOf(.immutable) | maskOf(.interior_ptr);
+    if ((merged & core_mask) == 0) return null;
+    return merged;
+}
+
+fn mergeJoinStates(dst: []u16, src: []const u16) bool {
+    if (dst.len != src.len) return false;
+    for (dst, src) |*left, right| {
+        left.* = mergeJoinMask(left.*, right) orelse return false;
     }
     return true;
 }
@@ -717,6 +737,12 @@ fn collectMetadata(
                     _ = try symbols.intern(classified.parts[2]);
                 }
             },
+            .assign => {
+                _ = try symbols.intern(classified.parts[0]);
+                if (item.operands[1] == .reg) {
+                    _ = try symbols.intern(classified.parts[1]);
+                }
+            },
             .load, .take => {
                 _ = try symbols.intern(classified.parts[0]);
                 if (item.operands[1] == .reg) {
@@ -876,7 +902,7 @@ fn writeCheck(
     id: u32,
     state: []u16,
     flags: []u8,
-    origins: []const ?u32,
+    origins: []?u32,
     locks: []u16,
 ) ?VerifyResult {
     const idx: usize = @intCast(id);
@@ -929,10 +955,48 @@ fn assignValue(
     return null;
 }
 
+fn consumeSourceValue(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    id: u32,
+    state: []u16,
+    flags: []u8,
+    origins: []?u32,
+    locks: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    allow_const_copy: bool,
+) ?VerifyResult {
+    const idx: usize = @intCast(id);
+    if (allow_const_copy and isImmutableConst(state, flags, id)) return null;
+    if (isImmutableConst(state, flags, id)) {
+        return constTrap(item, function_text, is_ffi_wrapper, name, state[idx], "immutable registers cannot be moved");
+    }
+    if (isStackAllocated(flags, origins, state, id)) {
+        return trapReport(.stack_escape, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "stack allocation cannot be moved out of its function", null);
+    }
+    if ((flags[idx] & 0x01) != 0) {
+        return trapReport(.ffi_ownership_violation, item, function_text, is_ffi_wrapper, name, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
+    }
+    if ((state[idx] & maskOf(.borrow_view)) != 0) {
+        clearBorrow(state, flags, origins, locks, id);
+    } else {
+        if (hasInteriorTree(state, interior_first_child, id)) {
+            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, id);
+        } else {
+            state[idx] = maskOf(.consumed);
+        }
+    }
+    return null;
+}
+
 fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst: u32, src: u32, is_mut: bool, is_ffi: bool) void {
     const dst_idx: usize = @intCast(dst);
     const src_idx: usize = @intCast(src);
-    state[dst_idx] = maskOf(.active) | maskOf(.borrow_view) | (if (is_mut) maskOf(.locked_mut) else maskOf(.locked_read)) | (if (is_ffi) maskOf(.ffi_borrow) else 0);
+    state[dst_idx] = maskOf(.active) | maskOf(.borrow_view) | (if (is_ffi) (if (is_mut) maskOf(.locked_mut) else maskOf(.locked_read)) | maskOf(.ffi_borrow) else 0);
     flags[dst_idx] = if (is_ffi) 0x01 else 0x00;
     origins[dst_idx] = src;
     locks[src_idx] += 1;
@@ -1239,6 +1303,9 @@ pub fn verify(
         }
 
         if (item.kind == .label) {
+            if (defined_labels.contains(item.operands[1].label)) {
+                return trapReport(.duplicate_label, item, current_function_text, current_is_ffi_wrapper, null, null, null, "label is already defined", "rename the label or merge the blocks");
+            }
             if (updateLabel(item, &labels, state, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
                 return tr;
             }
@@ -1436,27 +1503,16 @@ pub fn verify(
             },
             .move_ => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
-                const idx: usize = @intCast(item.operands[0].reg);
-                if (isImmutableConst(state, flags, item.operands[0].reg)) {
-                    return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], state[idx], "immutable registers cannot be moved");
+                if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, false)) |tr| return tr;
+            },
+            .assign => {
+                const dst_id = item.operands[0].reg;
+                if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {
+                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 }
-                if ((state[idx] & maskOf(.borrow_view)) == 0 and hasActiveBorrowRefs(locks, item.operands[0].reg)) {
-                    return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), state[idx], "borrow rules reject this access", null);
-                }
-                if (isStackAllocated(flags, origins, state, item.operands[0].reg)) {
-                    return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), state[idx], "stack allocation cannot be moved out of its function", null);
-                }
-                if ((flags[idx] & regFlagRawPointer) != 0) {
-                    return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
-                }
-                if ((state[idx] & maskOf(.borrow_view)) != 0) {
-                    clearBorrow(state, flags, origins, locks, item.operands[0].reg);
-                } else {
-                    if (hasInteriorTree(state, interior_first_child, item.operands[0].reg)) {
-                        consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[0].reg);
-                    } else {
-                        state[idx] = maskOf(.consumed);
-                    }
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, maskOf(.active))) |tr| return tr;
+                if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {
+                    if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, true)) |tr| return tr;
                 }
             },
             .release => {
@@ -1513,8 +1569,14 @@ pub fn verify(
                 const target = item.operands[1].label;
                 if (defined_labels.contains(target)) has_unbounded_loop = true;
                 if (labels.getPtr(target)) |entry| {
-                    if (!statesCompatibleForJoin(entry.*, state)) {
-                        return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                    if (defined_labels.contains(target)) {
+                        if (!statesCompatibleForJoin(entry.*, state)) {
+                            return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                        }
+                    } else {
+                        if (!mergeJoinStates(entry.*, state)) {
+                            return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                        }
                     }
                 } else {
                     labels.put(target, try allocator.dupe(u16, state)) catch {
@@ -1527,8 +1589,14 @@ pub fn verify(
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
-                        if (!statesCompatibleForJoin(entry.*, state)) {
-                            return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                        if (defined_labels.contains(target)) {
+                            if (!statesCompatibleForJoin(entry.*, state)) {
+                                return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                            }
+                        } else {
+                            if (!mergeJoinStates(entry.*, state)) {
+                                return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                            }
                         }
                     } else {
                         labels.put(target, try allocator.dupe(u16, state)) catch {
@@ -1543,8 +1611,14 @@ pub fn verify(
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
-                        if (!statesCompatibleForJoin(entry.*, state)) {
-                            return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                        if (defined_labels.contains(target)) {
+                            if (!statesCompatibleForJoin(entry.*, state)) {
+                                return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                            }
+                        } else {
+                            if (!mergeJoinStates(entry.*, state)) {
+                                return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                            }
                         }
                     } else {
                         labels.put(target, try allocator.dupe(u16, state)) catch {
@@ -2850,6 +2924,154 @@ test "referee determinism PBT stays stable across repeated verify runs" {
         defer fixture.deinit(std.testing.allocator);
 
         try verifyTwiceAndExpectEqual(std.testing.allocator, fixture.instructions);
+    }
+}
+
+test "cfg integrity PBT keeps matching branch states and traps on mismatched joins" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6252);
+    const random = prng.random();
+
+    for (0..48) |_| {
+        const left_consume = random.boolean();
+        const right_consume = random.boolean();
+        const expect_conflict = left_consume != right_consume;
+        const left_text = if (left_consume) "    !victim\n" else "";
+        const right_text = if (right_consume) "    !victim\n" else "";
+        const join_text = if (!left_consume and !right_consume) "    !victim\n" else "";
+        const source = try std.fmt.allocPrint(std.testing.allocator,
+            \\@main() -> i32:
+            \\victim = alloc 8
+            \\cond = eq 1, 1
+            \\br cond -> L_LEFT, L_RIGHT
+            \\L_LEFT:
+            \\{s}    jmp L_JOIN
+            \\L_RIGHT:
+            \\{s}    jmp L_JOIN
+            \\L_JOIN:
+            \\{s}    !cond
+            \\    return 0
+        , .{ left_text, right_text, join_text });
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+        if (expect_conflict) {
+            switch (verified) {
+                .trap => |report| {
+                    try std.testing.expectEqual(trap.Trap.phi_state_conflict, report.trap);
+                    try std.testing.expect(std.mem.containsAtLeast(u8, report.message, 1, "incoming control-flow states do not agree"));
+                },
+                .ok => return error.TestUnexpectedResult,
+            }
+        } else {
+            switch (verified) {
+                .ok => |ok| {
+                    var owned = ok;
+                    defer owned.deinit(std.testing.allocator);
+                    try std.testing.expect(owned.annotated.len > 0);
+                },
+                .trap => |report| {
+                    std.debug.print("unexpected trap {s}: {s}\n", .{ @tagName(report.trap), report.message });
+                    return error.TestUnexpectedResult;
+                },
+            }
+        }
+    }
+}
+
+test "phi join AND PBT keeps borrow-view branches compatible and traps consumed mismatches" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6253);
+    const random = prng.random();
+
+    for (0..48) |_| {
+        const case_id = random.intRangeLessThan(u8, 0, 3);
+        const right_text = switch (case_id) {
+            0 => "    view = alloc 8\n",
+            1 => "    view = & MSG\n",
+            else => "    view = alloc 8\n    !view\n",
+        };
+        const expect_conflict = case_id == 2;
+        const source = try std.fmt.allocPrint(std.testing.allocator,
+            \\@const MSG = utf8:"ok\n"
+            \\@main() -> i32:
+            \\cond = eq 1, 1
+            \\br cond -> L_LEFT, L_RIGHT
+            \\L_LEFT:
+            \\    view = alloc 8
+            \\    jmp L_JOIN
+            \\L_RIGHT:
+            \\{s}    jmp L_JOIN
+            \\L_JOIN:
+            \\    !view
+            \\    !cond
+            \\    return 0
+        , .{right_text});
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+        if (expect_conflict) {
+            switch (verified) {
+                .trap => |report| try std.testing.expectEqual(trap.Trap.phi_state_conflict, report.trap),
+                .ok => return error.TestUnexpectedResult,
+            }
+        } else {
+            switch (verified) {
+                .ok => |ok| {
+                    var owned = ok;
+                    defer owned.deinit(std.testing.allocator);
+                    try std.testing.expect(owned.annotated.len > 0);
+                },
+                .trap => |report| {
+                    std.debug.print("unexpected trap {s}: {s}\n", .{ @tagName(report.trap), report.message });
+                    return error.TestUnexpectedResult;
+                },
+            }
+        }
+    }
+}
+
+test "unknown register PBT traps on random undeclared op operands" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6251);
+    const random = prng.random();
+
+    for (0..48) |iter| {
+        var name_buf: [32]u8 = undefined;
+        const ghost_name = try std.fmt.bufPrint(&name_buf, "ghost_{d}", .{random.int(u32)});
+        const unknown_first = (iter & 1) == 0;
+
+        const source = if (unknown_first) blk: {
+            break :blk try std.fmt.allocPrint(std.testing.allocator,
+                \\@main() -> i32:
+                \\value = add {s}, 1
+                \\return value
+            , .{ghost_name});
+        } else blk: {
+            break :blk try std.fmt.allocPrint(std.testing.allocator,
+                \\@main() -> i32:
+                \\value = add 1, {s}
+                \\return value
+            , .{ghost_name});
+        };
+        defer std.testing.allocator.free(source);
+
+        var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+        defer flat.deinit(std.testing.allocator);
+
+        const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+        switch (verified) {
+            .trap => |report| {
+                try std.testing.expectEqual(trap.Trap.unknown_register, report.trap);
+                try std.testing.expectEqual(trap.trapCode(.unknown_register), report.trap_code orelse return error.TestUnexpectedResult);
+                try std.testing.expect(report.register == null);
+                try std.testing.expect(std.mem.startsWith(u8, report.register_buf[0..], ghost_name));
+            },
+            .ok => return error.TestUnexpectedResult,
+        }
     }
 }
 

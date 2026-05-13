@@ -300,6 +300,7 @@ fn mapInstKind(form: InstructionForm) InstKind {
         .borrow => .borrow,
         .move_ => .move_,
         .release => .release,
+        .assign => .assign,
         .op => .op,
         .ptr_add => .ptr_add,
         .jmp => .jmp,
@@ -562,6 +563,11 @@ fn emitParsedLine(
                     const reg = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = reg };
                 },
+                .assign => {
+                    const dst = try symbols.intern(classified.parts[0]);
+                    inst.operands[0] = .{ .reg = dst };
+                    inst.operands[1] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[1]);
+                },
                 .store => {
                     const base = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = base };
@@ -578,7 +584,7 @@ fn emitParsedLine(
                     const dst = try symbols.intern(classified.parts[0]);
                     const op_name = classified.parts[1];
                     inst.operands[0] = .{ .reg = dst };
-                    const opcode: common_instruction.OpCode = if (std.mem.eql(u8, op_name, "add")) .add else if (std.mem.eql(u8, op_name, "sub")) .sub else if (std.mem.eql(u8, op_name, "mul")) .mul else if (std.mem.eql(u8, op_name, "div")) .div else if (std.mem.eql(u8, op_name, "gt")) .gt else if (std.mem.eql(u8, op_name, "lt")) .lt else if (std.mem.eql(u8, op_name, "eq")) .eq else if (std.mem.eql(u8, op_name, "ne")) .ne else if (std.mem.eql(u8, op_name, "and")) .@"and" else if (std.mem.eql(u8, op_name, "or")) .@"or" else if (std.mem.eql(u8, op_name, "shl")) .shl else .shr;
+                    const opcode = common_instruction.parseOpCode(op_name) orelse return error.InvalidSyntax;
                     inst.operands[1] = .{ .op_code = opcode };
                     inst.operands[2] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[2]);
                     inst.operands[3] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[3]);

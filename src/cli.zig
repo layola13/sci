@@ -346,7 +346,13 @@ fn writeAllFile(path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
-fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []const []const u8, stderr: anytype) !u8 {
+fn executeRun(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    argv: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+) !u8 {
     const compiled = try compileSource(allocator, source_path);
     switch (compiled) {
         .trap => |report| {
@@ -356,7 +362,7 @@ fn executeRun(allocator: std.mem.Allocator, source_path: []const u8, argv: []con
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            return interp.run(allocator, &owned.verified, argv) catch |err| switch (err) {
+            return interp.runWithWriters(allocator, &owned.verified, argv, stdout.any(), stderr.any()) catch |err| switch (err) {
                 error.UserExit => 0,
                 else => {
                     try stderr.print("error: {s}\n", .{@errorName(err)});
@@ -533,7 +539,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .run => {
             if (argv.len < 3) return error.MissingSourcePath;
             const source_path = argv[2];
-            return try executeRun(allocator, source_path, argv[3..], stderr);
+            return try executeRun(allocator, source_path, argv[3..], stdout, stderr);
         },
         .build_exe => {
             if (argv.len < 3) return error.MissingSourcePath;
