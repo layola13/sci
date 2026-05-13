@@ -1,0 +1,7 @@
+@sink(&p: ptr, ^q: ptr) -> i32:
+return 0
+
+@main() -> i32:
+value = alloc 8
+result = call @sink(^value, ^value)
+return result

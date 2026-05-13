@@ -682,6 +682,10 @@ test "unknown register return demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/unknown_register_return.saasm", "unknown_register_return.out", "UnknownRegister", 1007, "register is not declared in the current scope");
 }
 
+test "capability mismatch demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/capability_mismatch.saasm", "capability_mismatch.out", "CapabilityMismatch", 1013, "call-site capability prefix does not match the callee contract");
+}
+
 test "struct demo runs through saasm run" {
     try assertRunStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
 }
