@@ -7,7 +7,7 @@
 #def Req_method = +0
 #def Req_path = +8
 
-@make_request(method: &ptr, path: &ptr) -> i32:
+@make_request(&method: ptr, &path: ptr) -> i32:
 L_ENTRY:
     !method
     !path

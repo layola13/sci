@@ -53,7 +53,7 @@ test "sa_std core primitives are concrete and verifiable" {
 
     var mem_flat = try saasm.flattener.flatten(std.testing.allocator, mem_src);
     defer mem_flat.deinit(std.testing.allocator);
-    const verified = try saasm.referee.verify(std.testing.allocator, mem_flat.instructions);
+    const verified = try saasm.referee.verify(std.testing.allocator, mem_flat.instructions, mem_flat.const_decls);
     switch (verified) {
         .ok => |ok| {
             var owned = ok;

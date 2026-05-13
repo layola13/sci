@@ -104,16 +104,6 @@ fn readRawReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
     return regs.get(id) orelse return RunError.InvalidOperand;
 }
 
-fn constPointerValue(self: *Interpreter, id: u32) ?RegValue {
-    const name = self.program.symbols.lookupName(id) orelse return null;
-    const addr = self.const_addrs.get(name) orelse return null;
-    return .{
-        .ty = .ptr,
-        .bits = addr,
-        .const_name = name,
-    };
-}
-
 fn readValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
     if (regs.get(id)) |value| return try requireNonFallible(value);
     return self.constPointerValue(id) orelse RunError.InvalidOperand;
@@ -241,7 +231,10 @@ const Memory = struct {
         const data = try self.allocator.alloc(u8, actual);
         const ptr_meta = try self.allocator.alloc(?PtrMeta, actual);
         @memset(ptr_meta, null);
-        const slot_copy = if (vtable_slot_names.len != 0) try self.allocator.dupe(?[]const u8, vtable_slot_names) else &.{};
+        const slot_copy = if (vtable_slot_names.len != 0)
+            try self.allocator.dupe(?[]const u8, vtable_slot_names)
+        else
+            try self.allocator.alloc(?[]const u8, 0);
         const addr = @as(u64, @intFromPtr(data.ptr));
         try self.blocks.append(.{ .addr = addr, .data = data, .ptr_meta = ptr_meta, .const_name = const_name, .vtable_slot_names = slot_copy });
         return addr;
@@ -262,8 +255,8 @@ const Memory = struct {
     fn blockIndexAt(self: *const Memory, addr: u64) ?usize {
         for (self.blocks.items, 0..) |blk, idx| {
             const start = blk.addr;
-            const end = start + blk.data.len;
-            if (addr >= start and addr <= end) return idx;
+            const end = start + @as(u64, @intCast(blk.data.len));
+            if (addr >= start and addr < end) return idx;
         }
         return null;
     }
@@ -418,6 +411,16 @@ const Interpreter = struct {
         self.allocator.free(self.argv);
         self.allocator.free(self.ranges);
         self.* = undefined;
+    }
+
+    fn constPointerValue(self: *Interpreter, id: u32) ?RegValue {
+        const name = self.program.symbols.lookupName(id) orelse return null;
+        const addr = self.const_addrs.get(name) orelse return null;
+        return .{
+            .ty = .ptr,
+            .bits = addr,
+            .const_name = name,
+        };
     }
 
     fn primWidth(ty: sig.PrimType) u32 {
@@ -933,6 +936,22 @@ const Interpreter = struct {
                     const addr = try self.memory.alloc(@intCast(size));
                     try regs.put(dst, .{ .ty = .ptr, .bits = addr });
                 },
+                .borrow => {
+                    const dst = base.operands[0].reg;
+                    const src = base.operands[1].reg;
+                    const mode = if (base.operands[2] == .text) base.operands[2].text else "";
+                    _ = mode;
+                    const basev = try readValue(self, &regs, src);
+                    const ptrv = try self.coerce(basev, .ptr);
+                    try regs.put(dst, .{
+                        .ty = .ptr,
+                        .bits = ptrv.bits,
+                        .interior_ptr = ptrv.interior_ptr,
+                        .const_name = ptrv.const_name,
+                        .vtable_slot_name = ptrv.vtable_slot_name,
+                        .call_target_name = ptrv.call_target_name,
+                    });
+                },
                 .stack_alloc => {
                     const dst = base.operands[0].reg;
                     const size = switch (base.operands[1]) {
@@ -1076,8 +1095,8 @@ const Interpreter = struct {
                 .op => {
                     const dst = base.operands[0].reg;
                     const op = base.operands[1].op_code;
-                    const lhs = try readValue(self, &regs, base.operands[2].reg);
-                    const rhs = try readValue(self, &regs, base.operands[3].reg);
+                    const lhs = try resolveOperandValue(self, &regs, base.operands[2]);
+                    const rhs = try resolveOperandValue(self, &regs, base.operands[3]);
                     const result = try self.opBinary(op, lhs, rhs);
                     try regs.put(dst, result);
                 },
@@ -1126,7 +1145,7 @@ const Interpreter = struct {
                     if ((mask & @intFromEnum(cap.CapabilityMask.borrow_view)) != 0 or (mask & @intFromEnum(cap.CapabilityMask.ffi_borrow)) != 0) {
                         // Borrow views do not physically free.
                     } else if (regs.get(reg_id)) |value| {
-                        if (value.interior_ptr) {
+                        if (value.interior_ptr or value.const_name != null) {
                             // Interior pointers are derived views into an allocation.
                         } else {
                             var is_stack_alloc = false;

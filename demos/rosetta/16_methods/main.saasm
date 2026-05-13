@@ -7,7 +7,7 @@
 #def Vec2_x = +0
 #def Vec2_y = +4
 
-@square_len(v: &ptr) -> i32:
+@square_len(&v: ptr) -> i32:
 L_ENTRY:
     x = load v+Vec2_x as i32
     y = load v+Vec2_y as i32

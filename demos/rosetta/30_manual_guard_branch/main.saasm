@@ -7,7 +7,7 @@
 #def Option_some = +0
 #def Option_value = +4
 
-@eval_guard(opt: &ptr) -> i32:
+@eval_guard(&opt: ptr) -> i32:
 L_ENTRY:
     is_some = load opt+Option_some as i32
     some = eq is_some, 1
@@ -15,7 +15,7 @@ L_ENTRY:
 
 L_SOME:
     value = load opt+Option_value as i32
-    pass = sgt value, 3
+    pass = gt value, 3
     br pass -> L_HIT, L_MISS
 
 L_HIT:

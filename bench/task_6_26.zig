@@ -92,7 +92,7 @@ fn runOnce(allocator: std.mem.Allocator, source: []const u8) !struct {
     defer flat.deinit(bench_allocator);
 
     const flattened_lines = flat.instructions.len;
-    const verified = try saasm.referee.verify(bench_allocator, flat.instructions);
+    const verified = try saasm.referee.verify(bench_allocator, flat.instructions, flat.const_decls);
     const verify_ns = timer.lap();
 
     switch (verified) {

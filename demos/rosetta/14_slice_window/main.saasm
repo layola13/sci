@@ -5,17 +5,17 @@
 @const RESULT_OK = utf8:"5\n"
 @const RESULT_ERR = utf8:"error\n"
 
-@sum_two(slice: &ptr) -> i32:
+@sum_two(&slice: ptr) -> i32:
 L_ENTRY:
     EXPAND SLICE_GET_PTR data, slice
     first = load data+0 as i32
     second_ptr = ptr_add data, 4
     second = load second_ptr+0 as i32
     sum = add first, second
-    !data
     !first
     !second_ptr
     !second
+    !data
     !slice
     return sum
 

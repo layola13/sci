@@ -74,8 +74,15 @@ sa/
 
   - [ ] 2.5 `TrapReport` JSON schema
     - 按 design §4.4 含 `upstream_loc` / `function` / `is_ffi_wrapper` 字段
-    - 24 种 Trap 枚举（原 21 + `EarlyReturnLeak` + `AtomicOrderingMismatch` + `FallibleContractMismatch`）
+    - 29 种 Trap 枚举在 `src/common/trap.zig` 中已列出；其中一部分仅在路线图中保留，尚未全量接入发射路径
     - _Requirements: R9.3, R13.5, R13.7, R17.7, R18.5, R19.2_
+
+  - [ ] 2.5a 错误码与诊断规划
+    - 以 `docs/errorcode.md` 作为统一查阅入口；`design.md` §4.4 固定 `TrapReport` schema，`docs/faq.md` 解释为什么公共诊断是 JSON-first
+    - 统一字段约定：`trap` / `line` / `source_line` / `register` / `registers` / `expected_mask` / `actual_mask` / `expected_mask_name` / `actual_mask_name` / `upstream_loc` / `function` / `is_ffi_wrapper` / `message` / `hint`
+    - 明确 `Trap` enum ordinals 不是公开数值代码，后续如需 `trap_code` 必须显式新增
+    - 参考 Zig 编译器的 `ErrorMsg` / `ErrorBundle` 组织方式，保留主消息 + note/hint 的结构化诊断能力
+    - _Requirements: R9.3, R16.5, R18.5, R19.2_
 
   - [ ] 2.6 `GasReport` / `FunctionSig` / `ParamSpec` / `UpstreamLoc`
     - `FunctionSig` 含 `kind` / `is_ffi_wrapper` / `return_fallible` / `upstream_file`
@@ -790,13 +797,13 @@ sa/
 
   - [ ] 30.2 `--debug-gas` 模式实现
     - 在每个函数入口/基本块头部插入 gas 计数器自增
-    - 超限触发 `Trap: GasExceeded`
+    - 超限触发 `Trap: GasExceeded`，命名与层级以 `docs/errorcode.md` 为准
     - _Requirements: R27.2_
 
   - [ ] 30.3 `--debug-san` 模式实现
     - 在 `alloc` / `!free` 点插入红黑树/哈希表簿记
     - 运行期侦测 UAF / Double-Free
-    - 输出结构化 JSON 报告（含 `upstream_loc`）
+    - 输出结构化 JSON 报告（字段口径见 `docs/errorcode.md`，含 `upstream_loc`）
     - _Requirements: R27.3, R27.4_
 
   - [ ] 30.4 白皮书"构建模式"章节

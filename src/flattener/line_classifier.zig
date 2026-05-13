@@ -390,17 +390,6 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "&mut ")) {
-        const source = std.mem.trim(u8, rhs["&mut ".len..], " \t");
-        if (source.len == 0) return false;
-        line.* = makeLine(.instruction, line.raw, line.trimmed);
-        line.inst_form = .borrow;
-        addPart(line, 0, lhs);
-        addPart(line, 1, "mut");
-        addPart(line, 2, source);
-        return true;
-    }
-
     if (std.mem.startsWith(u8, rhs, "&")) {
         const source = std.mem.trim(u8, rhs["&".len..], " \t");
         if (source.len == 0) return false;

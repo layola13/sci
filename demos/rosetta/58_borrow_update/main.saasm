@@ -6,7 +6,7 @@
 #def Box_SIZE = 4
 #def Box_value = +0
 
-@bump(box: &ptr) -> void:
+@bump(&box: ptr) -> void:
 L_ENTRY:
     value = load box+Box_value as i32
     next = add value, 1

@@ -11,7 +11,7 @@
 #def TAG_DONE = 1
 #def POLL_READY = 1
 
-@poll_run(state: &ptr) -> i32:
+@poll_run(&state: ptr) -> i32:
 L_ENTRY:
     tag = load state+State_TAG as u64
     is_init = eq tag, TAG_INIT

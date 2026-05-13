@@ -6,7 +6,7 @@
 #def Square_SIZE = 4
 #def Square_side = +0
 
-@square_area(square: &ptr) -> i32:
+@square_area(&square: ptr) -> i32:
 L_ENTRY:
     side = load square+Square_side as i32
     area = mul side, side

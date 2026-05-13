@@ -7,7 +7,7 @@
 #def Shape_tag = +0
 #def Shape_payload = +4
 
-@area(shape: &ptr) -> i32:
+@area(&shape: ptr) -> i32:
 L_ENTRY:
     tag = load shape+Shape_tag as u32
     is_circle = eq tag, 0

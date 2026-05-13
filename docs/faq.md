@@ -127,6 +127,17 @@ L_OK:
 - SA 的错误模型是显式的：可恢复错误走 `{status, value}` 返回值；不可恢复错误走 `panic` 直接终止
 - 没有隐式的异常传播路径，Referee 能精确校验每条路径的所有权状态
 
+### Q: 为什么不直接用整数错误码？
+
+**A**: SA 对外发布的是结构化 `TrapReport`，不是裸整数。公开识别名是 `trap`，不是 enum ordinal。
+
+原因：
+- `Trap` 名称是稳定公开标识；枚举顺序不是公开数值代码，也不允许从顺序反推语义
+- 裸整数无法携带 `line` / `source_line` / `register` / `expected_mask` / `actual_mask` / `upstream_loc` / `message` / `hint`
+- stage-local Zig `error{}` 只服务于实现细节；进入 CLI / Referee 边界后要收敛为 JSON-first 诊断
+- `ErrorMsg` / `ErrorBundle` 那种主消息 + note/hint 的组织方式，只有结构化输出才保得住
+- 总目录见 [`docs/errorcode.md`](./errorcode.md)
+
 ---
 
 ## 类型系统类

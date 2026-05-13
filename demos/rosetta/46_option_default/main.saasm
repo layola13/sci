@@ -7,7 +7,7 @@
 #def Option_tag = +0
 #def Option_value = +4
 
-@choose(opt: &ptr, fallback: i32) -> i32:
+@choose(&opt: ptr, fallback: i32) -> i32:
 L_ENTRY:
     tag = load opt+Option_tag as u32
     has_value = eq tag, 1

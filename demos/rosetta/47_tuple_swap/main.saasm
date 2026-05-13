@@ -7,7 +7,7 @@
 #def Pair_first = +0
 #def Pair_second = +4
 
-@swap(pair: &ptr) -> i32:
+@swap(&pair: ptr) -> i32:
 L_ENTRY:
     first = load pair+Pair_first as i32
     second = load pair+Pair_second as i32

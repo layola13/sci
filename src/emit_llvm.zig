@@ -48,6 +48,13 @@ const PointerOrigin = struct {
     indirect_sig_index: ?usize = null,
 };
 
+const MemoryPtrMeta = struct {
+    base_expr: []const u8,
+    offset: u64,
+    origin: PointerOrigin = .{},
+    interior_ptr: bool = false,
+};
+
 const DirectCallResult = union(enum) {
     not_direct,
     handled_void,
@@ -59,6 +66,7 @@ const FunctionState = struct {
     emitted_name: []const u8,
     regs: std.AutoHashMap(u32, Value),
     owned: std.ArrayList([]const u8),
+    memory_ptrs: std.ArrayList(MemoryPtrMeta),
     temp_index: usize = 0,
     block_open: bool = true,
     const_ref_names: std.StringHashMap(void),
@@ -69,6 +77,7 @@ const FunctionState = struct {
             .emitted_name = emittedFunctionName(sig_),
             .regs = std.AutoHashMap(u32, Value).init(allocator),
             .owned = std.ArrayList([]const u8).init(allocator),
+            .memory_ptrs = std.ArrayList(MemoryPtrMeta).init(allocator),
             .const_ref_names = std.StringHashMap(void).init(allocator),
         };
     }
@@ -76,6 +85,7 @@ const FunctionState = struct {
     fn deinit(self: *FunctionState, allocator: std.mem.Allocator) void {
         self.regs.deinit();
         self.const_ref_names.deinit();
+        self.memory_ptrs.deinit();
         for (self.owned.items) |item| allocator.free(item);
         self.owned.deinit();
         self.* = undefined;
@@ -117,6 +127,63 @@ const FunctionState = struct {
 
     fn hasConstRef(self: *FunctionState, name: []const u8) bool {
         return self.const_ref_names.contains(name);
+    }
+
+    fn normalizePointerOrigin(value: Value) PointerOrigin {
+        var origin = value.origin;
+        if (origin.const_name == null) {
+            origin.const_name = value.const_ref;
+        }
+        return origin;
+    }
+
+    fn clearMemoryPtrMeta(self: *FunctionState, base_expr: []const u8, offset: u64) void {
+        var idx: usize = self.memory_ptrs.items.len;
+        while (idx > 0) {
+            idx -= 1;
+            const item = self.memory_ptrs.items[idx];
+            if (item.offset == offset and std.mem.eql(u8, item.base_expr, base_expr)) {
+                _ = self.memory_ptrs.swapRemove(idx);
+                return;
+            }
+        }
+    }
+
+    fn recordMemoryPtrMeta(self: *FunctionState, base_expr: []const u8, offset: u64, value: Value) !void {
+        const origin = normalizePointerOrigin(value);
+        const has_meta = value.ty == .ptr and (value.interior_ptr or origin.const_name != null or origin.indirect_sig_index != null);
+        if (!has_meta) {
+            self.clearMemoryPtrMeta(base_expr, offset);
+            return;
+        }
+
+        const entry = MemoryPtrMeta{
+            .base_expr = base_expr,
+            .offset = offset,
+            .origin = origin,
+            .interior_ptr = value.interior_ptr,
+        };
+
+        for (self.memory_ptrs.items, 0..) |*item, idx| {
+            if (item.offset == offset and std.mem.eql(u8, item.base_expr, base_expr)) {
+                item.* = entry;
+                return;
+            }
+            _ = idx;
+        }
+        try self.memory_ptrs.append(entry);
+    }
+
+    fn lookupMemoryPtrMeta(self: *const FunctionState, base_expr: []const u8, offset: u64) ?MemoryPtrMeta {
+        var idx: usize = self.memory_ptrs.items.len;
+        while (idx > 0) {
+            idx -= 1;
+            const item = self.memory_ptrs.items[idx];
+            if (item.offset == offset and std.mem.eql(u8, item.base_expr, base_expr)) {
+                return item;
+            }
+        }
+        return null;
     }
 };
 
@@ -462,10 +529,28 @@ fn valueFromOperand(
     symbols: *const symbol.SymbolTable,
     op: inst.Operand,
 ) !Value {
-    _ = symbols;
     return switch (op) {
         .reg => |id| state.getReg(id) orelse EmitError.InvalidOperand,
-        .text => |t| try parseImmediateValue(allocator, state, t),
+        .text => |t| blk: {
+            if (t.len >= 2 and t[0] == '&' and (std.ascii.isAlphabetic(t[1]) or t[1] == '_')) {
+                const name = t[1..];
+                if (state.hasConstRef(name)) {
+                    break :blk .{ .expr = try state.ownFmt(allocator, "@{s}", .{name}), .ty = .ptr, .const_ref = name, .origin = .{ .const_name = name } };
+                }
+                if (symbols.findId(name)) |id| {
+                    break :blk state.getReg(id) orelse EmitError.InvalidOperand;
+                }
+            }
+            if (t.len != 0 and (std.ascii.isAlphabetic(t[0]) or t[0] == '_')) {
+                if (state.hasConstRef(t)) {
+                    break :blk .{ .expr = try state.ownFmt(allocator, "@{s}", .{t}), .ty = .ptr, .const_ref = t, .origin = .{ .const_name = t } };
+                }
+                if (symbols.findId(t)) |id| {
+                    break :blk state.getReg(id) orelse EmitError.InvalidOperand;
+                }
+            }
+            break :blk try parseImmediateValue(allocator, state, t);
+        },
         .imm_i64 => |v| .{ .expr = try state.ownFmt(allocator, "{d}", .{v}), .ty = .i64 },
         .imm_u64 => |v| .{ .expr = try state.ownFmt(allocator, "{d}", .{v}), .ty = .u64 },
         .imm_int => |v| .{ .expr = try state.ownFmt(allocator, "{d}", .{v}), .ty = .i64 },
@@ -814,11 +899,31 @@ fn valueFromArgText(
         }
     }
     if (text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_')) {
+        if (state.hasConstRef(text)) {
+            return .{ .expr = try state.ownFmt(allocator, "@{s}", .{text}), .ty = .ptr, .const_ref = text, .origin = .{ .const_name = text } };
+        }
         if (symbols.findId(text)) |id| {
             return state.getReg(id) orelse EmitError.InvalidOperand;
         }
     }
     return try parseImmediateValue(allocator, state, text);
+}
+
+fn valueFromRegOrConst(
+    allocator: std.mem.Allocator,
+    state: *FunctionState,
+    symbols: *const symbol.SymbolTable,
+    reg_id: u32,
+) !Value {
+    if (state.getReg(reg_id)) |value| return value;
+    const name = symbols.lookupName(reg_id) orelse return EmitError.InvalidOperand;
+    if (!state.hasConstRef(name)) return EmitError.InvalidOperand;
+    return .{
+        .expr = try state.ownFmt(allocator, "@{s}", .{name}),
+        .ty = .ptr,
+        .const_ref = name,
+        .origin = .{ .const_name = name },
+    };
 }
 
 fn emitByteEscape(out: *std.ArrayList(u8), byte: u8) !void {
@@ -1166,6 +1271,7 @@ fn emitInstruction(
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
+    const_decls: []const common_const_decl.ConstDecl,
     options: EmitOptions,
     size_bits: u16,
     item: anytype,
@@ -1208,6 +1314,22 @@ fn emitInstruction(
             try out.writer().print("  {s} = alloca i8, i64 {d}, align 1\n", .{ tmp, size });
             try state.setReg(dst, .{ .expr = tmp, .ty = .ptr });
         },
+        .borrow => {
+            const dst = base.operands[0].reg;
+            const src = base.operands[1].reg;
+            const srcv = try valueFromRegOrConst(allocator, state, symbols, src);
+            const ptrv = try castValue(allocator, out, state, srcv, .ptr);
+            const mode = if (base.operands[2] == .text) base.operands[2].text else "";
+            try state.setReg(dst, .{
+                .expr = ptrv.expr,
+                .ty = .ptr,
+                .interior_ptr = ptrv.interior_ptr,
+                .borrow_view = true,
+                .ffi_borrow = srcv.ffi_borrow or std.mem.eql(u8, mode, "raw"),
+                .const_ref = ptrv.const_ref,
+                .origin = ptrv.origin,
+            });
+        },
         .load, .take => {
             const dst = base.operands[0].reg;
             const src = base.operands[1].reg;
@@ -1230,7 +1352,23 @@ fn emitInstruction(
             try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {d}\n", .{ gep, ptrv.expr, off });
             const tmp = try state.tempName(allocator);
             try out.writer().print("  {s} = load {s}, ptr {s}, align {d}\n", .{ tmp, llvmTypeName(ty), gep, llvmAlign(ty) });
-            try state.setReg(dst, .{ .expr = tmp, .ty = ty });
+            var loaded_origin: PointerOrigin = .{};
+            var loaded_interior_ptr = false;
+            if (ty == .ptr) {
+                if (state.lookupMemoryPtrMeta(ptrv.expr, off)) |meta| {
+                    loaded_origin = meta.origin;
+                    loaded_interior_ptr = meta.interior_ptr;
+                } else {
+                    loaded_origin = resolveLoadOrigin(const_decls, sigs, ptrv, off, ty);
+                }
+            }
+            try state.setReg(dst, .{
+                .expr = tmp,
+                .ty = ty,
+                .interior_ptr = loaded_interior_ptr,
+                .const_ref = loaded_origin.const_name,
+                .origin = loaded_origin,
+            });
         },
         .atomic_load => {
             const dst = base.operands[0].reg;
@@ -1349,6 +1487,11 @@ fn emitInstruction(
             const value = try valueFromOperand(allocator, state, symbols, base.operands[2]);
             const coerced = try castValue(allocator, out, state, value, target_ty);
             try out.writer().print("  store {s} {s}, ptr {s}, align {d}\n", .{ llvmTypeName(target_ty), coerced.expr, gep, llvmAlign(target_ty) });
+            if (target_ty == .ptr) {
+                try state.recordMemoryPtrMeta(ptrv.expr, off, coerced);
+            } else {
+                state.clearMemoryPtrMeta(ptrv.expr, off);
+            }
         },
         .op => {
             const dst = base.operands[0].reg;
@@ -1457,7 +1600,7 @@ fn emitInstruction(
                 return;
             }
             const value = state.getReg(reg_id) orelse return EmitError.InvalidOperand;
-            if (value.ty != .ptr or value.interior_ptr) {
+            if (value.ty != .ptr or value.interior_ptr or value.const_ref != null or value.origin.const_name != null) {
                 return;
             }
             const ptrv = try castValue(allocator, out, state, value, .ptr);
@@ -1661,7 +1804,7 @@ fn emitUserFunctions(
         }
 
         if (current) |*state| {
-            try emitInstruction(allocator, out, state, &verified.symbols, verified.function_sigs, options, size_bits, item);
+            try emitInstruction(allocator, out, state, &verified.symbols, verified.function_sigs, verified.const_decls, options, size_bits, item);
             if (debug_info) |*info| {
                 if (current_debug) |ctx| {
                     if (loc_table[idx]) |loc| {

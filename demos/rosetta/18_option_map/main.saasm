@@ -7,7 +7,7 @@
 #def Option_some = +0
 #def Option_value = +4
 
-@map_add_five(opt: ^ptr) -> i32:
+@map_add_five(^opt: ptr) -> i32:
 L_ENTRY:
     is_some = load opt+Option_some as i32
     ready = eq is_some, 1

@@ -49,6 +49,18 @@ pub const SourceLine = struct {
     classified: ClassifiedLine,
 };
 
+var last_error_source_line: ?u32 = null;
+
+fn recordErrorSourceLine(line_no: u32) void {
+    last_error_source_line = line_no;
+}
+
+pub fn takeLastErrorSourceLine() ?u32 {
+    const line_no = last_error_source_line;
+    last_error_source_line = null;
+    return line_no;
+}
+
 const ImportExpansion = struct {
     source: []u8,
     active_paths: std.StringHashMap(void),
@@ -166,6 +178,42 @@ fn ownFoldedText(
     errdefer allocator.free(folded);
     try owned_text.append(folded);
     return folded;
+}
+
+fn parseNumericOperand(text: []const u8) ?common_instruction.Operand {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    if (trimmed.len == 0) return null;
+
+    if (std.fmt.parseInt(i64, trimmed, 10)) |value| {
+        return .{ .imm_i64 = value };
+    } else |err| switch (err) {
+        error.Overflow => {
+            if (std.fmt.parseInt(u64, trimmed, 10)) |value| {
+                return .{ .imm_u64 = value };
+            } else |_| {}
+        },
+        else => {},
+    }
+
+    if (std.mem.indexOfAny(u8, trimmed, ".eE")) |_| {
+        if (std.fmt.parseFloat(f64, trimmed)) |value| {
+            return .{ .imm_float = value };
+        } else |_| {}
+    }
+
+    return null;
+}
+
+fn resolveOperandText(
+    allocator: std.mem.Allocator,
+    dict: *DefDict,
+    owned_text: *std.ArrayList([]const u8),
+    symbols: *SymbolTable,
+    text: []const u8,
+) !common_instruction.Operand {
+    const folded = try ownFoldedText(allocator, dict, owned_text, text);
+    if (parseNumericOperand(folded)) |operand| return operand;
+    return .{ .reg = try symbols.intern(folded) };
 }
 
 fn consumePendingLoc(
@@ -317,6 +365,7 @@ fn emitParsedLine(
                 upstream_loc,
             );
             errdefer decl.deinit(allocator);
+            _ = try symbols.intern(decl.name);
             try const_decls.append(decl);
         },
         .loc_hint => {
@@ -523,13 +572,11 @@ fn emitParsedLine(
                 .op => {
                     const dst = try symbols.intern(classified.parts[0]);
                     const op_name = classified.parts[1];
-                    const lhs = try symbols.intern(classified.parts[2]);
-                    const rhs = try symbols.intern(classified.parts[3]);
                     inst.operands[0] = .{ .reg = dst };
                     const opcode: common_instruction.OpCode = if (std.mem.eql(u8, op_name, "add")) .add else if (std.mem.eql(u8, op_name, "sub")) .sub else if (std.mem.eql(u8, op_name, "mul")) .mul else if (std.mem.eql(u8, op_name, "div")) .div else if (std.mem.eql(u8, op_name, "gt")) .gt else if (std.mem.eql(u8, op_name, "lt")) .lt else if (std.mem.eql(u8, op_name, "eq")) .eq else if (std.mem.eql(u8, op_name, "ne")) .ne else if (std.mem.eql(u8, op_name, "and")) .@"and" else if (std.mem.eql(u8, op_name, "or")) .@"or" else if (std.mem.eql(u8, op_name, "shl")) .shl else .shr;
                     inst.operands[1] = .{ .op_code = opcode };
-                    inst.operands[2] = .{ .reg = lhs };
-                    inst.operands[3] = .{ .reg = rhs };
+                    inst.operands[2] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[2]);
+                    inst.operands[3] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[3]);
                 },
                 .ptr_add => {
                     const dst = try symbols.intern(classified.parts[0]);
@@ -648,6 +695,7 @@ fn collectMacroDefinitions(
     var idx: usize = 0;
     while (idx < lines.len) : (idx += 1) {
         const line = lines[idx];
+        recordErrorSourceLine(line.line_no);
         switch (line.classified.kind) {
             .blank_or_comment, .def, .const_decl, .import_decl, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
             .macro_start => {
@@ -692,6 +740,7 @@ fn emitRange(
     while (idx < end) : (idx += 1) {
         const line = lines[idx];
         const source_line = source_line_override orelse line.line_no;
+        recordErrorSourceLine(source_line);
 
         switch (line.classified.kind) {
             .blank_or_comment, .import_decl => {},
@@ -707,6 +756,7 @@ fn emitRange(
                     upstream_loc,
                 );
                 errdefer decl.deinit(allocator);
+                _ = try symbols.intern(decl.name);
                 try const_decls.append(decl);
             },
             .loc_hint => {
@@ -780,8 +830,15 @@ fn emitRange(
             },
             .rep_end => return error.UnbalancedRep,
             .expand => {
-                const def = macros.get(line.classified.parts[0]) orelse return error.InvalidMacroInvocation;
-                const args = try parseTokenList(allocator, line.classified.parts[1]);
+                const rendered_line = if (replacements.len == 0) line.text else blk: {
+                    const rendered = try renderWithReplacements(allocator, line.text, replacements);
+                    try owned_text.append(rendered);
+                    break :blk rendered;
+                };
+                const rendered_classified = classifier.classifyLine(rendered_line);
+                if (rendered_classified.kind != .expand) return error.InvalidSyntax;
+                const def = macros.get(rendered_classified.parts[0]) orelse return error.InvalidMacroInvocation;
+                const args = try parseTokenList(allocator, rendered_classified.parts[1]);
                 defer allocator.free(args);
                 if (args.len != def.params.len) return error.InvalidMacroInvocation;
 
@@ -884,7 +941,9 @@ fn expandImportsInto(
     active_paths: *std.StringHashMap(void),
 ) !void {
     var iterator = std.mem.splitScalar(u8, source, '\n');
-    while (iterator.next()) |raw_line| {
+    var line_no: u32 = 1;
+    while (iterator.next()) |raw_line| : (line_no += 1) {
+        recordErrorSourceLine(line_no);
         if (parseImportPath(raw_line)) |import_path| {
             const imported = try readImportFile(allocator, base_dir, import_path);
             defer allocator.free(imported.full_path);
@@ -947,6 +1006,7 @@ pub fn findFirstForbiddenLine(source: []const u8) ?ForbiddenLine {
 }
 
 fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path: ?[]const u8) !FlattenResult {
+    last_error_source_line = null;
     var expanded = try expandImports(allocator, source, source_path);
     defer expanded.deinit(allocator);
 
@@ -1017,6 +1077,7 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
         pending_loc = null;
     }
 
+    last_error_source_line = null;
     return .{
         .instructions = try instructions.toOwnedSlice(),
         .const_decls = try const_decls.toOwnedSlice(),

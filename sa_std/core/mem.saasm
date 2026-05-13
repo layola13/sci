@@ -8,7 +8,6 @@ L_ENTRY:
     one = load one_slot+0 as i64
     remaining = add count, zero
     offset = add zero, zero
-    done = add zero, zero
     src_ip = ptr_add src, zero
     dst_ip = ptr_add dst, zero
     byte = load zero_slot+0 as u8
@@ -21,7 +20,6 @@ L_ENTRY:
     !next_remaining
     jmp L_LOOP
 L_LOOP:
-    !done
     done = eq remaining, zero
     br done -> L_END, L_BODY
 L_BODY:
@@ -36,6 +34,7 @@ L_BODY:
     !byte
     !offset
     !remaining
+    !done
     offset = add next_offset, zero
     remaining = add next_remaining, zero
     !next_offset
@@ -62,7 +61,6 @@ L_ENTRY:
     one = load one_slot+0 as i64
     remaining = add count, zero
     offset = add zero, zero
-    done = add zero, zero
     dst_ip = ptr_add dst, zero
     next_offset = add zero, zero
     next_remaining = add remaining, zero
@@ -71,7 +69,6 @@ L_ENTRY:
     !next_remaining
     jmp L_LOOP
 L_LOOP:
-    !done
     done = eq remaining, zero
     br done -> L_END, L_BODY
 L_BODY:
@@ -82,6 +79,7 @@ L_BODY:
     !dst_ip
     !offset
     !remaining
+    !done
     offset = add next_offset, zero
     remaining = add next_remaining, zero
     !next_offset

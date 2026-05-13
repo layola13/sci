@@ -182,6 +182,45 @@ test "fallible ABI and ? propagation work end to end" {
     }
 }
 
+test "const pointer stores survive load and print end to end" {
+    const source =
+        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\@const RESULT_OK = utf8:"OK\n"
+        \\#def Box_SIZE = 8
+        \\#def Box_ptr = +0
+        \\@main() -> i32:
+        \\box = alloc Box_SIZE
+        \\store box+Box_ptr, &RESULT_OK as ptr
+        \\loaded = load box+Box_ptr as ptr
+        \\call @sa_print_bytes(&loaded, 3)
+        \\!loaded
+        \\!box
+        \\return 0
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "const_ptr_store.saasm", source);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "const_ptr_store.saasm", "-o", "const_ptr_store.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./const_ptr_store.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("OK\n", exe_result.stdout);
+}
+
 test "atomic instructions work end to end and emit real LLVM" {
     const source =
         \\@main() -> i32:
@@ -333,7 +372,7 @@ test "atomic ordering mismatch is rejected by the verifier" {
     var flat = try saasm.flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
 
-    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions);
+    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .ok => return error.TestUnexpectedResult,
         .trap => |report| {
@@ -411,7 +450,7 @@ test "raw pointer escape is rejected outside ffi wrapper" {
     var flat = try saasm.flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
 
-    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions);
+    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .ok => return error.TestUnexpectedResult,
         .trap => |report| {

@@ -3,7 +3,15 @@
 zig-out/
 .code_index
 # code-index generated artifacts
+.code_index
 .claude/skills/code-index
 .codex/skills/code-index
 .opencode/skills/code-index
 # end code-index generated artifacts
+bin/
+tmp_*
+*.ll
+bin
+tmp/
+.claude/
+repro_*.zig

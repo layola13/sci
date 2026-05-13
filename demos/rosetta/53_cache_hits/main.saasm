@@ -7,7 +7,7 @@
 #def Entry_key = +0
 #def Entry_value = +4
 
-@lookup(entry: &ptr) -> i32:
+@lookup(&entry: ptr) -> i32:
 L_ENTRY:
     value = load entry+Entry_value as i32
     !entry

@@ -15,7 +15,7 @@
 #def Box_SIZE = 4
 #def Box_value = +0
 
-@add_one_score(self: &ptr) -> i32:
+@add_one_score(&self: ptr) -> i32:
 L_ENTRY:
     value = load self+Box_value as i32
     result = add value, 1
@@ -23,7 +23,7 @@ L_ENTRY:
     !self
     return result
 
-@add_two_score(self: &ptr) -> i32:
+@add_two_score(&self: ptr) -> i32:
 L_ENTRY:
     value = load self+Box_value as i32
     result = add value, 2
@@ -31,7 +31,7 @@ L_ENTRY:
     !self
     return result
 
-@sum_scores(items: &ptr) -> i32:
+@sum_scores(&items: ptr) -> i32:
 L_ENTRY:
     EXPAND SLICE_GET_PTR data, items
     first = load data+Dyn_data as ptr
@@ -46,15 +46,15 @@ L_ENTRY:
     second_score = call_indirect second_fn(&second)
 
     total = add first_score, second_score
-    !first
-    !first_vt
     !first_fn
+    !first_vt
+    !first
     !first_score
-    !second_slot
-    !second
-    !second_vt
     !second_fn
+    !second_vt
+    !second
     !second_score
+    !second_slot
     !data
     !items
     return total

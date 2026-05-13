@@ -3,7 +3,7 @@
 @const RESULT_OK = utf8:"[0,0,0,0]\n"
 @const RESULT_ERR = utf8:"error\n"
 
-@fill_zero(arr: &ptr) -> void:
+@fill_zero(&arr: ptr) -> void:
 L_ENTRY:
     i_slot = stack_alloc 8
     store i_slot+0, 0 as u64

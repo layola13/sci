@@ -62,13 +62,50 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|layout> ...\n");
 }
 
+fn forbiddenHint(hit: flattener.ForbiddenHit) []const u8 {
+    return switch (hit.token) {
+        .brace_open, .brace_close => "remove brace syntax and flatten the control flow into labels and jumps",
+        .keyword_if, .keyword_else, .keyword_while, .keyword_for => "replace control-flow keywords with labels and jmp/br instructions",
+        .property_chain => "replace dotted property access with explicit SSA registers or constant expansion",
+    };
+}
+
+fn lineAt(source: []const u8, target_line: u32) ?[]const u8 {
+    if (target_line == 0) return null;
+    var iter = std.mem.splitScalar(u8, source, '\n');
+    var line_no: u32 = 1;
+    while (iter.next()) |line| : (line_no += 1) {
+        if (line_no == target_line) return line;
+    }
+    return null;
+}
+
+fn sourceExcerpt(line: []const u8) []const u8 {
+    return std.mem.trimRight(u8, line, "\r");
+}
+
+fn copyTextBuf(dest: []u8, text: []const u8) void {
+    const len = @min(dest.len, text.len);
+    std.mem.copyForwards(u8, dest[0..len], text[0..len]);
+}
+
 fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
     const forbidden = flattener.findFirstForbiddenLine(source);
-    return switch (err) {
+    const last_line = flattener.takeLastErrorSourceLine();
+    const line_no = if (forbidden) |hit| hit.line_no else last_line orelse 1;
+    const line_text = lineAt(source, line_no);
+    const source_text_buf: [256]u8 = [_]u8{0} ** 256;
+    const original_text_buf: [256]u8 = [_]u8{0} ** 256;
+    var report: trap.TrapReport = switch (err) {
         error.ForbiddenSyntax => .{
             .trap = .forbidden_syntax,
-            .line = if (forbidden) |hit| hit.line_no else 1,
-            .source_line = if (forbidden) |hit| hit.line_no else 1,
+            .trap_code = trap.trapCode(.forbidden_syntax),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -78,12 +115,77 @@ fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
             .function = null,
             .is_ffi_wrapper = null,
             .message = "forbidden syntax detected during flattening",
+            .hint = if (forbidden) |hit| forbiddenHint(hit.hit) else null,
+        },
+        error.UnsupportedType => .{
+            .trap = .unsupported_type,
+            .trap_code = trap.trapCode(.unsupported_type),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
+            .register = null,
+            .registers = &.{},
+            .expected_mask = null,
+            .actual_mask = null,
+            .expected_mask_name = null,
+            .actual_mask_name = null,
+            .function = null,
+            .is_ffi_wrapper = null,
+            .message = "unsupported type annotation during flattening",
+            .hint = "check primitive type names in signatures and atomic suffixes",
+        },
+        error.OutOfMemory => .{
+            .trap = .arena_oom,
+            .trap_code = trap.trapCode(.arena_oom),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
+            .register = null,
+            .registers = &.{},
+            .expected_mask = null,
+            .actual_mask = null,
+            .expected_mask_name = null,
+            .actual_mask_name = null,
+            .function = null,
+            .is_ffi_wrapper = null,
+            .message = "out of memory while flattening",
             .hint = null,
+        },
+        error.ImportCycle => .{
+            .trap = .forbidden_syntax,
+            .trap_code = trap.trapCode(.forbidden_syntax),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
+            .register = null,
+            .registers = &.{},
+            .expected_mask = null,
+            .actual_mask = null,
+            .expected_mask_name = null,
+            .actual_mask_name = null,
+            .function = null,
+            .is_ffi_wrapper = null,
+            .message = "import cycle detected during flattening",
+            .hint = "break the cycle in imported files or inline the shared definitions",
         },
         error.DuplicateDef => .{
             .trap = .duplicate_def,
-            .line = 1,
-            .source_line = 1,
+            .trap_code = trap.trapCode(.duplicate_def),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -97,8 +199,13 @@ fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
         },
         error.MacroRecursionLimit => .{
             .trap = .macro_recursion_limit,
-            .line = 1,
-            .source_line = 1,
+            .trap_code = trap.trapCode(.macro_recursion_limit),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -112,8 +219,13 @@ fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
         },
         error.InvalidAtomicOrdering => .{
             .trap = .invalid_atomic_ordering,
-            .line = 1,
-            .source_line = 1,
+            .trap_code = trap.trapCode(.invalid_atomic_ordering),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -127,8 +239,13 @@ fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
         },
         error.InvalidMacroInvocation, error.InvalidMacroDefinitionContext, error.UnbalancedMacro, error.UnbalancedRep, error.InvalidSyntax => .{
             .trap = .forbidden_syntax,
-            .line = 1,
-            .source_line = 1,
+            .trap_code = trap.trapCode(.forbidden_syntax),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -138,12 +255,24 @@ fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
             .function = null,
             .is_ffi_wrapper = null,
             .message = @errorName(err),
-            .hint = null,
+            .hint = switch (err) {
+                error.InvalidMacroInvocation => "check the macro name, argument count, and comma-separated expansion syntax",
+                error.InvalidMacroDefinitionContext => "macro definitions are only allowed at top level",
+                error.UnbalancedMacro => "make sure [MACRO] has a matching [END_MACRO]",
+                error.UnbalancedRep => "make sure [REP] has a matching [END_REP]",
+                error.InvalidSyntax => "check the flattened line syntax and operand ordering",
+                else => null,
+            },
         },
         else => .{
             .trap = .forbidden_syntax,
-            .line = 1,
-            .source_line = 1,
+            .trap_code = trap.trapCode(.forbidden_syntax),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -153,9 +282,15 @@ fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
             .function = null,
             .is_ffi_wrapper = null,
             .message = @errorName(err),
-            .hint = null,
+            .hint = "flattening failed before a public trap mapping was available",
         },
     };
+    if (line_text) |line| {
+        const excerpt = sourceExcerpt(line);
+        copyTextBuf(&report.source_text_buf, excerpt);
+        copyTextBuf(&report.original_text_buf, excerpt);
+    }
+    return report;
 }
 
 fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {

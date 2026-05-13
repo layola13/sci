@@ -6,7 +6,7 @@
 #def Env_SIZE = 4
 #def Env_offset = +0
 
-@closure_add_offset(env: &ptr, x: i32) -> i32:
+@closure_add_offset(&env: ptr, x: i32) -> i32:
 L_ENTRY:
     offset = load env+Env_offset as i32
     result = add x, offset

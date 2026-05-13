@@ -7,7 +7,7 @@
 #def Route_path = +0
 #def Route_id = +4
 
-@lookup_route(route: &ptr) -> i32:
+@lookup_route(&route: ptr) -> i32:
 L_ENTRY:
     id = load route+Route_id as i32
     !route

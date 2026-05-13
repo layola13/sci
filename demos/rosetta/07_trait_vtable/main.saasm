@@ -13,13 +13,13 @@
 #def Button_SIZE = 4
 #def Button_id = +0
 
-@button_draw(self: &ptr) -> i32:
+@button_draw(&self: ptr) -> i32:
 L_ENTRY:
     id = load self+Button_id as i32
     !self
     return id
 
-@render(item: &ptr) -> i32:
+@render(&item: ptr) -> i32:
 L_ENTRY:
     data_ptr = load item+DynDraw_DATA as ptr
     vtable_ptr = load item+DynDraw_VTABLE as ptr

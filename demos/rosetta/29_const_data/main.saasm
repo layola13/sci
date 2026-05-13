@@ -1,6 +1,6 @@
 @import "../../../sa_std/io/print.saasm-iface"
 
-@const VALUES = struct { a: 4 = 1, b: 4 = 2, c: 4 = 3 }
+@const VALUES = struct { a: 4 = hex:\x01\x00\x00\x00, b: 4 = hex:\x02\x00\x00\x00, c: 4 = hex:\x03\x00\x00\x00 }
 @const RESULT_OK = utf8:"6\n"
 @const RESULT_ERR = utf8:"error\n"
 

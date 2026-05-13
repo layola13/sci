@@ -6,7 +6,7 @@
 #def Account_SIZE = 4
 #def Account_balance = +0
 
-@deposit(account: &ptr, amount: i32) -> void:
+@deposit(&account: ptr, amount: i32) -> void:
 L_ENTRY:
     balance = load account+Account_balance as i32
     next = add balance, amount

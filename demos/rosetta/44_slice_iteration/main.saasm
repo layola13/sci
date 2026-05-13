@@ -5,7 +5,7 @@
 @const RESULT_OK = utf8:"10\n"
 @const RESULT_ERR = utf8:"error\n"
 
-@sum_slice(slice: &ptr) -> i32:
+@sum_slice(&slice: ptr) -> i32:
 L_ENTRY:
     EXPAND SLICE_GET_PTR data, slice
     len = load slice+Slice_len as u64

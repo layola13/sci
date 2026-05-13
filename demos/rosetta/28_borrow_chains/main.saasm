@@ -3,7 +3,7 @@
 @const RESULT_OK = utf8:"12\n"
 @const RESULT_ERR = utf8:"error\n"
 
-@read_twice(value: &ptr) -> i32:
+@read_twice(&value: ptr) -> i32:
 L_ENTRY:
     a = load value+0 as i32
     b = load value+0 as i32

@@ -441,6 +441,8 @@ pub const FunctionSig = struct {
 
 ### 4.4 TrapReport（扩展版）
 
+The canonical trap catalog, stage-local error split, and runtime ABI exit-code taxonomy live in [`docs/errorcode.md`](../../../docs/errorcode.md). This section only fixes the `TrapReport` schema and emission shape.
+
 ```jsonc
 {
   "trap": "BorrowConflict",

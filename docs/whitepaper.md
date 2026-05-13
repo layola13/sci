@@ -152,6 +152,9 @@ No type annotation. Byte length inferred from literal. Roadmap feature: immutabl
 
 ## Referee Trap Codes
 
+Authoritative trap catalog: [`docs/errorcode.md`](/home/vscode/projects/sci/docs/errorcode.md).
+This section is a compact summary for readers; it may lag the live namespace.
+
 | Trap | Trigger |
 |---|---|
 | ForbiddenSyntax | `{}` / `if` / `while` / `for` / `a.b.c` in source |

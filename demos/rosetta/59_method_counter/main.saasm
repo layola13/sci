@@ -6,7 +6,7 @@
 #def Counter_SIZE = 4
 #def Counter_value = +0
 
-@inc(counter: &ptr) -> void:
+@inc(&counter: ptr) -> void:
 L_ENTRY:
     value = load counter+Counter_value as i32
     next = add value, 1

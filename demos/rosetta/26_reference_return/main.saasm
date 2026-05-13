@@ -3,7 +3,7 @@
 @const RESULT_OK = utf8:"9\n"
 @const RESULT_ERR = utf8:"error\n"
 
-@choose_left(left: &ptr, right: &ptr) -> &ptr:
+@choose_left(&left: ptr, &right: ptr) -> &ptr:
 L_ENTRY:
     !right
     return left

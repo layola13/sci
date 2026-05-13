@@ -6,7 +6,7 @@
 #def Node_SIZE = 8
 #def Node_count = +0
 
-@clone_count(node: &ptr) -> i32:
+@clone_count(&node: ptr) -> i32:
 L_ENTRY:
     count = load node+Node_count as i32
     next = add count, 1
