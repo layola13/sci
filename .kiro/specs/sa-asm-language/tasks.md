@@ -579,6 +579,8 @@ sa/
 
   - [ ] 14.1 13 类黄金用例集
     - 每类 ≥ 10 例：正常 / `DoubleMutableBorrow` / `UseAfterMove` / 借用期 Move / `MemoryLeak` / Phi 冲突 / 宏合法 / 宏递归 / 禁用语法 / 气闸舱违规 / FFI 借用销毁违规 / 早返回泄漏 / 原子 ordering
+    - 第一批已完成 10 个最小可跑 `build-exe` 回归：`02_mutability` / `20_boxed_value` / `26_reference_return` / `27_move_semantics` / `28_borrow_chains` / `51_refcount` / `58_borrow_update` / `61_thread_pool` / `67_resource_pool` / `52_queue_rotate`
+    - `tests/cli_smoke.zig` 新增 `assertBuildExeStdout`，固定验证以上 demo 均能编译并打印预期 stdout
     - _Requirements: R22.1, R22.2_
 
   - [ ] 14.2 CI 流水线

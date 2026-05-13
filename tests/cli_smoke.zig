@@ -83,6 +83,50 @@ fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
 }
 
+fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    try tmp.dir.makePath("bin");
+
+    const demo_dir = std.fs.path.basename(std.fs.path.dirname(path).?);
+    const out_path = try std.fmt.allocPrint(std.testing.allocator, "bin/{s}.out", .{demo_dir});
+    defer std.testing.allocator.free(out_path);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", out_path };
+    const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    if (build_exe_code != 0) {
+        std.debug.print("build-exe failed: {s}\n", .{path});
+    }
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+
+    const exe_path = try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{out_path});
+    defer std.testing.allocator.free(exe_path);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{exe_path});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
+                std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings(expected_stdout, exe_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
+}
+
 fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []const u8) !void {
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
@@ -495,6 +539,19 @@ test "comparison alias demos run through saasm run" {
     try assertRunStdout("demos/rosetta/23_nested_loops/main.saasm", "18\n");
     try assertRunStdout("demos/rosetta/24_factorial/main.saasm", "120\n");
     try assertRunStdout("demos/rosetta/25_fibonacci/main.saasm", "21\n");
+}
+
+test "ownership and borrow demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/02_mutability/main.saasm", "20\n");
+    try assertBuildExeStdout("demos/rosetta/20_boxed_value/main.saasm", "9\n");
+    try assertBuildExeStdout("demos/rosetta/26_reference_return/main.saasm", "9\n");
+    try assertBuildExeStdout("demos/rosetta/27_move_semantics/main.saasm", "11\n");
+    try assertBuildExeStdout("demos/rosetta/28_borrow_chains/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/51_refcount/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/58_borrow_update/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/61_thread_pool/main.saasm", "5\n");
+    try assertBuildExeStdout("demos/rosetta/67_resource_pool/main.saasm", "20\n");
+    try assertBuildExeStdout("demos/rosetta/52_queue_rotate/main.saasm", "2,3,1\n");
 }
 
 test "struct demo runs through saasm run" {
