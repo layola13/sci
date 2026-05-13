@@ -591,6 +591,7 @@ sa/
     - 新增 1 个原子前端最小反例：`invalid_atomic_ordering`，验证 `cmpxchg` 失败 ordering 强于成功 ordering 触发 `InvalidAtomicOrdering`
     - `DoubleMutableBorrow` 先在 `src/referee/table.zig` 通过能力表单测覆盖；当前前端没有稳定的最小 `demos/` 文本形态，不为补 demo 放宽语法
     - 新增 1 个 `UnknownRegister` 变体：`unknown_register_return`，验证 `return ghost` 也能输出结构化 trap
+    - 新增 5 个 `ForbiddenSyntax` 变体：`forbidden_if` / `forbidden_while` / `forbidden_for` / `forbidden_brace` / `forbidden_property_chain`
     - _Requirements: R22.1, R22.2_
 
   - [ ] 14.2 CI 流水线

@@ -642,6 +642,26 @@ test "forbidden syntax demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/forbidden_syntax.saasm", "forbidden_syntax.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
 }
 
+test "forbidden if demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/forbidden_if.saasm", "forbidden_if.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+}
+
+test "forbidden while demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/forbidden_while.saasm", "forbidden_while.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+}
+
+test "forbidden for demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/forbidden_for.saasm", "forbidden_for.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+}
+
+test "forbidden brace demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/forbidden_brace.saasm", "forbidden_brace.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+}
+
+test "forbidden property chain demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/forbidden_property_chain.saasm", "forbidden_property_chain.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+}
+
 test "memory leak after borrow demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/memory_leak_after_borrow.saasm", "memory_leak_after_borrow.out", "MemoryLeak", 1012, "live registers remain at function exit");
 }
