@@ -61,6 +61,10 @@ const DirectCallResult = union(enum) {
     handled_value: Value,
 };
 
+fn isIdentLike(text: []const u8) bool {
+    return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
+}
+
 const FunctionState = struct {
     sig: sig.FunctionSig,
     emitted_name: []const u8,
@@ -1068,6 +1072,73 @@ fn resolveLoadOrigin(
     return resolveConstValueOrigin(decl.value, const_name, offset, loaded_ty, sigs);
 }
 
+fn findVtableSlotSigIndexByName(
+    const_decls: []const common_const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+    slot_name: []const u8,
+) ?usize {
+    var resolved: ?usize = null;
+    for (const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                for (literal.slots) |slot| {
+                    if (!std.mem.eql(u8, slot.name, slot_name)) continue;
+                    const sig_index = findFunctionSigIndex(sigs, slot.func_name) orelse return null;
+                    if (resolved) |existing| {
+                        const existing_sig = sigs[existing];
+                        const candidate_sig = sigs[sig_index];
+                        if (!functionSigsCompatible(existing_sig, candidate_sig)) return null;
+                    } else {
+                        resolved = sig_index;
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+    return resolved;
+}
+
+fn functionSigsCompatible(a: sig.FunctionSig, b: sig.FunctionSig) bool {
+    if (a.return_cap != b.return_cap) return false;
+    if (a.return_ty != b.return_ty) return false;
+    if (a.return_fallible != b.return_fallible) return false;
+    if (a.params.len != b.params.len) return false;
+    for (a.params, b.params) |ap, bp| {
+        if (ap.cap != bp.cap) return false;
+        if (ap.ty != bp.ty) return false;
+    }
+    return true;
+}
+
+fn inferIndirectSigIndexFromLoadText(
+    const_decls: []const common_const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+    raw_text: []const u8,
+) ?usize {
+    const load_idx = std.mem.indexOf(u8, raw_text, "load") orelse return null;
+    const after_load = std.mem.trimLeft(u8, raw_text[load_idx + "load".len ..], " \t");
+    const as_idx = std.mem.indexOf(u8, after_load, " as") orelse after_load.len;
+    const address = std.mem.trim(u8, after_load[0..as_idx], " \t");
+    const plus = std.mem.lastIndexOfScalar(u8, address, '+') orelse return null;
+    const offset_token = std.mem.trim(u8, address[plus + 1 ..], " \t");
+    if (offset_token.len == 0) return null;
+
+    if (findVtableSlotSigIndexByName(const_decls, sigs, offset_token)) |sig_index| {
+        return sig_index;
+    }
+
+    var search_start: usize = 0;
+    while (std.mem.indexOfScalarPos(u8, offset_token, search_start, '_')) |underscore| : (search_start = underscore + 1) {
+        const candidate = std.mem.trim(u8, offset_token[underscore + 1 ..], " \t");
+        if (candidate.len == 0 or !isIdentLike(candidate)) continue;
+        if (findVtableSlotSigIndexByName(const_decls, sigs, candidate)) |sig_index| {
+            return sig_index;
+        }
+    }
+    return null;
+}
+
 fn emitBuiltinCall(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
@@ -1210,13 +1281,30 @@ fn emitIndirectCall(
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
+    options: EmitOptions,
     parsed: call.ParsedCall,
 ) !?Value {
     const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
     const callee = state.getReg(callee_id) orelse return EmitError.InvalidOperand;
-    if (callee.origin.indirect_sig_index == null) return EmitError.MissingIndirectCallProvenance;
+    if (callee.origin.indirect_sig_index == null) {
+        if (options.debug) {
+            std.debug.print(
+                "emit indirect missing provenance for {s}: expr={s} const={?s}\n",
+                .{ parsed.callee, callee.expr, callee.origin.const_name },
+            );
+        }
+        return EmitError.MissingIndirectCallProvenance;
+    }
     const sig_index = callee.origin.indirect_sig_index.?;
-    if (sig_index >= sigs.len) return EmitError.MissingIndirectCallProvenance;
+    if (sig_index >= sigs.len) {
+        if (options.debug) {
+            std.debug.print(
+                "emit indirect provenance out of range for {s}: expr={s} sig_index={d} sigs_len={d}\n",
+                .{ parsed.callee, callee.expr, sig_index, sigs.len },
+            );
+        }
+        return EmitError.MissingIndirectCallProvenance;
+    }
 
     const resolved = sigs[sig_index];
     if (parsed.args.len != resolved.params.len) return EmitError.InvalidOperand;
@@ -1249,7 +1337,7 @@ fn emitCall(
     parsed: call.ParsedCall,
 ) !?Value {
     if (parsed.is_indirect) {
-        return try emitIndirectCall(allocator, out, state, symbols, sigs, parsed);
+        return try emitIndirectCall(allocator, out, state, symbols, sigs, options, parsed);
     }
 
     switch (try emitBuiltinCall(allocator, out, state, symbols, options, size_bits, parsed)) {
@@ -1360,6 +1448,20 @@ fn emitInstruction(
                     loaded_interior_ptr = meta.interior_ptr;
                 } else {
                     loaded_origin = resolveLoadOrigin(const_decls, sigs, ptrv, off, ty);
+                    if (loaded_origin.indirect_sig_index == null) {
+                        if (inferIndirectSigIndexFromLoadText(const_decls, sigs, base.raw_text)) |sig_index| {
+                            loaded_origin.indirect_sig_index = sig_index;
+                            if (options.debug) {
+                                std.debug.print(
+                                    "emit load inferred indirect sig {d} from {s}\n",
+                                    .{ sig_index, base.raw_text },
+                                );
+                            }
+                        }
+                    }
+                }
+                if (ptrv.borrow_view or ptrv.ffi_borrow or ptrv.interior_ptr) {
+                    loaded_interior_ptr = true;
                 }
             }
             try state.setReg(dst, .{
@@ -1600,6 +1702,9 @@ fn emitInstruction(
                 return;
             }
             const value = state.getReg(reg_id) orelse return EmitError.InvalidOperand;
+            if (value.borrow_view or value.ffi_borrow) {
+                return;
+            }
             if (value.ty != .ptr or value.interior_ptr or value.const_ref != null or value.origin.const_name != null) {
                 return;
             }
@@ -1795,6 +1900,8 @@ fn emitUserFunctions(
                     const value = Value{
                         .expr = try current.?.ownFmt(allocator, "%{s}", .{param.name}),
                         .ty = valueTypeForPrefix(param.cap, param.ty),
+                        .borrow_view = param.cap == .borrow,
+                        .ffi_borrow = param.cap == .raw,
                     };
                     try current.?.setReg(reg_id, value);
                 }

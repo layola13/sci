@@ -221,6 +221,95 @@ test "const pointer stores survive load and print end to end" {
     try std.testing.expectEqualStrings("OK\n", exe_result.stdout);
 }
 
+test "vtable loads preserve indirect call provenance end to end" {
+    const source =
+        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\@const RESULT_OK = utf8:"OK\n"
+        \\@const VTABLE = vtable { run = @slot_run }
+        \\#def Obj_SIZE = 16
+        \\#def Obj_DATA = +0
+        \\#def Obj_VTABLE = +8
+        \\#def VTable_run = +0
+        \\@slot_run(&self: ptr) -> i32:
+        \\L_ENTRY:
+        \\    value = load self+Obj_DATA as i32
+        \\    return value
+        \\@invoke(&obj: ptr) -> i32:
+        \\L_ENTRY:
+        \\    vt = load obj+Obj_VTABLE as ptr
+        \\    fn = load vt+VTable_run as ptr
+        \\    value = call_indirect fn(&obj)
+        \\    !fn
+        \\    !vt
+        \\    return value
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    obj = alloc Obj_SIZE
+        \\    store obj+Obj_DATA, 77 as i32
+        \\    store obj+Obj_VTABLE, &VTABLE as ptr
+        \\    result = call @invoke(&obj)
+        \\    ok = eq result, 77
+        \\    !result
+        \\    !obj
+        \\    br ok -> L_OK, L_ERR
+        \\L_OK:
+        \\    !ok
+        \\    call @sa_print_bytes(&RESULT_OK, 3)
+        \\    return 0
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "vtable_indirect.saasm", source);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "vtable_indirect.saasm", "-o", "vtable_indirect.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./vtable_indirect.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("OK\n", exe_result.stdout);
+}
+
+test "import expansion keeps source paths alive end to end" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/40_impl_block_state/main.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "impl_block_state.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./impl_block_state.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("15\n", exe_result.stdout);
+}
+
 test "atomic instructions work end to end and emit real LLVM" {
     const source =
         \\@main() -> i32:

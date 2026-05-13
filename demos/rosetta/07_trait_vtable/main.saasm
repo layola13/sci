@@ -43,8 +43,8 @@ L_ENTRY:
     result = call @render(&fat)
     ok = eq result, 77
     !result
-    !fat
     !button
+    !fat
     br ok -> L_OK, L_ERR
 
 L_OK:

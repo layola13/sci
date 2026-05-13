@@ -77,10 +77,10 @@ L_ENTRY:
     total = call @sum_scores(&slice)
     ok = eq total, 12
     !total
-    !slice
-    !dyns
     !left
     !right
+    !dyns
+    !slice
     br ok -> L_OK, L_ERR
 
 L_OK:

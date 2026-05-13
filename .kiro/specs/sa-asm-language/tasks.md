@@ -211,10 +211,10 @@ sa/
     - MVP 基线 ≤ 2500 行 Zig；stretch 目标 1500 行
     - _Requirements: R9.1, R9.2, R9.5_
 
-  - [ ] 6.3 四仿射规则（alloc / borrow / move / release）
+  - [x] 6.3 四仿射规则（alloc / borrow / move / release）
     - _Requirements: R1.1–R1.4, R4.3–R4.4, R4.6–R4.7_
 
-  - [ ]* 6.4 所有权状态机 PBT — **P1**
+  - [x]* 6.4 所有权状态机 PBT — **P1**
     - _Requirements: R1.1–R1.4, R4.1–R4.7_
 
   - [ ] 6.5 未声明寄存器检测

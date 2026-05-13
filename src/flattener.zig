@@ -64,8 +64,13 @@ pub fn takeLastErrorSourceLine() ?u32 {
 const ImportExpansion = struct {
     source: []u8,
     active_paths: std.StringHashMap(void),
+    owned_paths: std.ArrayList([]u8),
 
     fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
+        for (self.owned_paths.items) |path| {
+            allocator.free(path);
+        }
+        self.owned_paths.deinit();
         self.active_paths.deinit();
         allocator.free(self.source);
         self.* = undefined;
@@ -939,6 +944,7 @@ fn expandImportsInto(
     source: []const u8,
     base_dir: []const u8,
     active_paths: *std.StringHashMap(void),
+    owned_paths: *std.ArrayList([]u8),
 ) !void {
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
@@ -946,15 +952,21 @@ fn expandImportsInto(
         recordErrorSourceLine(line_no);
         if (parseImportPath(raw_line)) |import_path| {
             const imported = try readImportFile(allocator, base_dir, import_path);
-            defer allocator.free(imported.full_path);
             defer allocator.free(imported.source);
 
-            if (active_paths.contains(imported.full_path)) return error.ImportCycle;
+            if (active_paths.contains(imported.full_path)) {
+                allocator.free(imported.full_path);
+                return error.ImportCycle;
+            }
+            owned_paths.append(imported.full_path) catch |err| {
+                allocator.free(imported.full_path);
+                return err;
+            };
             try active_paths.put(imported.full_path, {});
             defer _ = active_paths.remove(imported.full_path);
 
             const import_dir = std.fs.path.dirname(imported.full_path) orelse ".";
-            try expandImportsInto(allocator, out, imported.source, import_dir, active_paths);
+            try expandImportsInto(allocator, out, imported.source, import_dir, active_paths, owned_paths);
             continue;
         }
 
@@ -971,6 +983,12 @@ fn expandImports(
     var active_paths = std.StringHashMap(void).init(allocator);
     errdefer active_paths.deinit();
 
+    var owned_paths = std.ArrayList([]u8).init(allocator);
+    errdefer {
+        for (owned_paths.items) |path| allocator.free(path);
+        owned_paths.deinit();
+    }
+
     var out = std.ArrayList(u8).init(allocator);
     errdefer out.deinit();
 
@@ -980,15 +998,19 @@ fn expandImports(
             try allocator.dupe(u8, path)
         else
             try std.fs.cwd().realpathAlloc(allocator, path);
-        defer allocator.free(source_full);
+        owned_paths.append(source_full) catch |err| {
+            allocator.free(source_full);
+            return err;
+        };
         try active_paths.put(source_full, {});
     }
 
-    try expandImportsInto(allocator, &out, source, base_dir, &active_paths);
+    try expandImportsInto(allocator, &out, source, base_dir, &active_paths, &owned_paths);
 
     return .{
         .source = try out.toOwnedSlice(),
         .active_paths = active_paths,
+        .owned_paths = owned_paths,
     };
 }
 
