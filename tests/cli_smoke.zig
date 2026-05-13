@@ -638,6 +638,18 @@ test "macro recursion demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/macro_recursion.saasm", "macro_recursion.out", "MacroRecursionLimit", 1005, "macro recursion limit exceeded");
 }
 
+test "forbidden syntax demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/forbidden_syntax.saasm", "forbidden_syntax.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+}
+
+test "memory leak after borrow demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/memory_leak_after_borrow.saasm", "memory_leak_after_borrow.out", "MemoryLeak", 1012, "live registers remain at function exit");
+}
+
+test "memory leak partial release demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/memory_leak_partial_release.saasm", "memory_leak_partial_release.out", "MemoryLeak", 1012, "live registers remain at function exit");
+}
+
 test "struct demo runs through saasm run" {
     try assertRunStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
 }

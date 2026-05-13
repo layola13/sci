@@ -1,0 +1,5 @@
+@main() -> i32:
+a = alloc 8
+b = alloc 8
+!a
+return 0

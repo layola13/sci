@@ -1,0 +1,5 @@
+@main() -> i32:
+base = alloc 8
+view = & base
+!view
+return 0
