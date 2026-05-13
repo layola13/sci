@@ -1,0 +1,4 @@
+@main() -> i32:
+tmp = stack_alloc 8
+^tmp
+return 0

@@ -1,0 +1,9 @@
+@main() -> i32:
+base = alloc 8
+view_a = & base
+view_b = & base
+store view_a+0, 7 as i8
+!view_a
+!view_b
+!base
+return 0

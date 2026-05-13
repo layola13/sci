@@ -127,6 +127,46 @@ fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
 }
 
+fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []const u8, expected_trap_code: u32, expected_message: []const u8) !void {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", out_name };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(out_name, .{}));
+    const ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.saasm.ll", .{out_name});
+    defer std.testing.allocator.free(ll_name);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(ll_name, .{}));
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+
+    var trap_buf: [64]u8 = undefined;
+    const trap_text = try std.fmt.bufPrint(&trap_buf, "\"trap\":\"{s}\"", .{expected_trap});
+    var code_buf: [32]u8 = undefined;
+    const code_text = try std.fmt.bufPrint(&code_buf, "\"trap_code\":{d}", .{expected_trap_code});
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, trap_text));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, code_text));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, expected_message));
+}
+
 fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []const u8) !void {
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
@@ -552,6 +592,42 @@ test "ownership and borrow demos compile and print through build-exe" {
     try assertBuildExeStdout("demos/rosetta/61_thread_pool/main.saasm", "5\n");
     try assertBuildExeStdout("demos/rosetta/67_resource_pool/main.saasm", "20\n");
     try assertBuildExeStdout("demos/rosetta/52_queue_rotate/main.saasm", "2,3,1\n");
+}
+
+test "use after move demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/use_after_move.saasm", "use_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
+}
+
+test "return after move demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/return_after_move.saasm", "return_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
+}
+
+test "borrow conflict demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/borrow_conflict.saasm", "borrow_conflict.out", "BorrowConflict", 1008, "borrow rules reject this access");
+}
+
+test "read write conflict demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/read_write_conflict.saasm", "read_write_conflict.out", "ReadWriteConflict", 1011, "cannot write through a shared borrow");
+}
+
+test "illegal unsafe context demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/illegal_unsafe_context.saasm", "illegal_unsafe_context.out", "IllegalUnsafeContext", 1019, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper");
+}
+
+test "stack escape demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/stack_escape.saasm", "stack_escape.out", "StackEscape", 1025, "stack allocation cannot be moved out of its function");
+}
+
+test "const mutation demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/const_mutation.saasm", "const_mutation.out", "ConstMutation", 1023, "immutable registers cannot be released");
+}
+
+test "early return leak demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/early_return_leak.saasm", "early_return_leak.out", "EarlyReturnLeak", 1026, "early return would leak live registers");
+}
+
+test "ffi ownership violation demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/ffi_ownership_violation.saasm", "ffi_ownership_violation.out", "FfiOwnershipViolation", 1020, "FFI borrow views cannot be consumed");
 }
 
 test "struct demo runs through saasm run" {

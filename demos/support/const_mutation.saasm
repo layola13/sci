@@ -1,0 +1,5 @@
+@const MSG = utf8:"ok\n"
+
+@main() -> i32:
+!MSG
+return 0

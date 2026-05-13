@@ -1,0 +1,4 @@
+@main() -> i32:
+node = alloc 8
+raw = *node
+return 0

@@ -1,0 +1,10 @@
+@ffi_wrapper wrap(*raw: ptr) -> i32:
+view = assume_borrow raw
+^view
+return 0
+
+@main() -> i32:
+base = alloc 8
+code = call @wrap(*base)
+!base
+return code

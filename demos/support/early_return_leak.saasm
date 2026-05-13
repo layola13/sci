@@ -1,0 +1,8 @@
+@helper() -> i32!:
+return 7
+
+@main() -> i32!:
+tmp = call @helper()
+leak = alloc 8
+value = ? tmp
+return value

@@ -1,0 +1,6 @@
+@main() -> i32:
+base = alloc 8
+view = & base
+store view+0, 7 as i8
+probe = load base+0 as i8
+return 0

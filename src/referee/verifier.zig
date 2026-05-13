@@ -1795,8 +1795,11 @@ pub fn verify(
             .return_ => {
                 if (item.operands[0] == .reg) {
                     const ret_id = item.operands[0].reg;
-                    const ret_name = metadata.symbols.lookupName(ret_id);
+                    const ret_name = metadata.symbols.lookupName(ret_id) orelse item.operands[0].text;
                     const idx: usize = @intCast(ret_id);
+                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, ret_name, ret_id, state, flags)) |tr| {
+                        return tr;
+                    }
                     if ((state[idx] & maskOf(.fallible)) != 0) {
                         if (current_sig == null or current_sig.?.return_fallible == false) {
                             return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
@@ -1827,12 +1830,16 @@ pub fn verify(
                 } else if (item.operands[0] == .text and isIdentLike(item.operands[0].text)) {
                     if (metadata.symbols.findId(item.operands[0].text)) |ret_id| {
                         const idx: usize = @intCast(ret_id);
+                        const ret_name = metadata.symbols.lookupName(ret_id) orelse item.operands[0].text;
+                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, ret_id, state, flags)) |tr| {
+                            return tr;
+                        }
                         if (isImmutableConst(state, flags, ret_id)) {
-                            return constTrap(item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, state[idx], "immutable registers cannot be returned by move");
+                            return constTrap(item, current_function_text, current_is_ffi_wrapper, ret_name, state[idx], "immutable registers cannot be returned by move");
                         }
                         if ((state[idx] & maskOf(.fallible)) != 0) {
                             if (current_sig == null or current_sig.?.return_fallible == false) {
-                                return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
+                                return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
                             }
                             if (hasInteriorTree(state, interior_first_child, ret_id)) {
                                 consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
@@ -1841,13 +1848,13 @@ pub fn verify(
                             }
                         } else {
                             if ((state[idx] & maskOf(.borrow_view)) == 0 and hasActiveBorrowRefs(locks, ret_id)) {
-                                return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.active), state[idx], "borrow rules reject this access", null);
+                                return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "borrow rules reject this access", null);
                             }
                             if (isStackAllocated(flags, origins, state, ret_id)) {
-                                return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
+                                return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
                             }
                             if ((flags[idx] & regFlagRawPointer) != 0) {
-                                return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
+                                return trapReport(.ffi_ownership_violation, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.borrow_view) | maskOf(.ffi_borrow), state[idx], "FFI borrow views cannot be consumed", null);
                             }
                             if ((state[idx] & maskOf(.borrow_view)) != 0) {
                                 clearBorrow(state, flags, origins, locks, ret_id);
@@ -2048,7 +2055,7 @@ test "stack_alloc is exempt from memory leak and rejects escape" {
             .source_line = 3,
             .expanded_line = 2,
             .operands = .{
-                .{ .reg = 0 },
+                .{ .text = "0" },
                 .{ .none = {} },
                 .{ .none = {} },
                 .{ .none = {} },
@@ -2259,6 +2266,65 @@ test "borrowed views trap on write when shared" {
     }
 }
 
+test "mutable borrow of the same source after shared borrow traps borrow conflict" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .alloc,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .reg = 1 },
+                .{ .imm_u64 = 8 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "base = alloc 8",
+        },
+        .{
+            .kind = .borrow,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .reg = 2 },
+                .{ .text = "read" },
+                .{ .reg = 1 },
+                .{ .none = {} },
+            },
+            .raw_text = "view_a = & base",
+        },
+        .{
+            .kind = .borrow,
+            .source_line = 4,
+            .expanded_line = 3,
+            .operands = .{
+                .{ .reg = 3 },
+                .{ .text = "mut" },
+                .{ .reg = 1 },
+                .{ .none = {} },
+            },
+            .raw_text = "view_b = borrow mut base",
+        },
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.read_write_conflict, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
 test "assume_borrow marks ffi borrow state and release clears it without freeing" {
     const source =
         \\@ffi_wrapper wrap(*raw: ptr) -> i32:
@@ -2401,7 +2467,7 @@ test "immutable const data can be read and printed without leak traps" {
             .source_line = 5,
             .expanded_line = 4,
             .operands = .{
-                .{ .reg = 0 },
+                .{ .text = "0" },
                 .{ .none = {} },
                 .{ .none = {} },
                 .{ .none = {} },

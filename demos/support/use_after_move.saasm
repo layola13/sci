@@ -1,0 +1,5 @@
+@main() -> i32:
+value = alloc 8
+^value
+probe = load value+0 as i8
+return 0
