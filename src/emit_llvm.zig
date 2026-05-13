@@ -23,6 +23,7 @@ pub const EmitError = error{
 
 pub const EmitOptions = struct {
     debug: bool = false,
+    wasm_compat: bool = false,
 };
 
 const Value = struct {
@@ -735,7 +736,7 @@ fn emitPointerArithmetic(
     };
 }
 
-fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
+fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !void {
     const size_ty_name = sizeTypeName(size_bits);
     try emitLine(out, "; SA-ASM LLVM IR");
     try emitLine(out, "");
@@ -808,6 +809,20 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
     try emitLine(out, "  ret void");
     try emitLine(out, "}");
     try emitLine(out, "");
+
+    if (options.wasm_compat) {
+        try emitLine(out, "define void @sa_print_bytes(ptr %msg, i64 %len) {");
+        try emitLine(out, "entry:");
+        if (size_bits == 32) {
+            try emitLine(out, "  %len32 = trunc i64 %len to i32");
+            try emitLine(out, "  %_ = call i32 @write(i32 1, ptr %msg, i32 %len32)");
+        } else {
+            try emitLine(out, "  %_ = call i64 @write(i32 1, ptr %msg, i64 %len)");
+        }
+        try emitLine(out, "  ret void");
+        try emitLine(out, "}");
+        try emitLine(out, "");
+    }
 
     try emitLine(out, "define void @sys_exit(i32 %code) {");
     try emitLine(out, "entry:");
@@ -917,7 +932,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16) !void {
     }
 }
 
-fn emitFunctionHeader(out: *std.ArrayList(u8), state: *FunctionState) !void {
+fn emitFunctionHeader(out: *std.ArrayList(u8), state: *FunctionState, dbg_id: ?u32) !void {
     try out.appendSlice("define ");
     try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, state.sig.return_fallible);
     try out.writer().print(" @{s}(", .{state.emitted_name});
@@ -926,7 +941,11 @@ fn emitFunctionHeader(out: *std.ArrayList(u8), state: *FunctionState) !void {
         const ty = valueTypeForPrefix(param.cap, param.ty);
         try out.writer().print("{s} %{s}", .{ llvmTypeName(ty), param.name });
     }
-    try emitLine(out, ") {");
+    try out.appendSlice(")");
+    if (dbg_id) |id| {
+        try out.writer().print(" !dbg !{d}", .{id});
+    }
+    try emitLine(out, " {");
     try emitLine(out, "entry:");
 }
 
@@ -1425,6 +1444,7 @@ fn emitInstruction(
     const_decls: []const common_const_decl.ConstDecl,
     options: EmitOptions,
     size_bits: u16,
+    dbg_id: ?u32,
     item: anytype,
 ) !void {
     const size_ty_name = sizeTypeName(size_bits);
@@ -1435,6 +1455,9 @@ fn emitInstruction(
             const label_name = symbols.lookupName(label_id) orelse return EmitError.InvalidOperand;
             if (state.block_open) {
                 try out.writer().print("  br label %{s}\n", .{label_name});
+            }
+            if (dbg_id) |id| {
+                try out.writer().print("  ; label dbg !{d}\n", .{id});
             }
             try out.writer().print("{s}:\n", .{label_name});
             state.block_open = true;
@@ -1449,7 +1472,11 @@ fn emitInstruction(
                 else => return EmitError.InvalidOperand,
             };
             const tmp = try state.tempName(allocator);
-            try out.writer().print("  {s} = call ptr @malloc({s} {d})\n", .{ tmp, size_ty_name, size });
+            try out.writer().print("  {s} = call ptr @malloc({s} {d})", .{ tmp, size_ty_name, size });
+            if (dbg_id) |id| {
+                try out.writer().print(", !dbg !{d}", .{id});
+            }
+            try out.appendSlice("\n");
             try state.setReg(dst, .{ .expr = tmp, .ty = .ptr });
         },
         .stack_alloc => {
@@ -1462,7 +1489,11 @@ fn emitInstruction(
                 else => return EmitError.InvalidOperand,
             };
             const tmp = try state.tempName(allocator);
-            try out.writer().print("  {s} = alloca i8, i64 {d}, align 1\n", .{ tmp, size });
+            try out.writer().print("  {s} = alloca i8, i64 {d}, align 1", .{ tmp, size });
+            if (dbg_id) |id| {
+                try out.writer().print(", !dbg !{d}", .{id});
+            }
+            try out.appendSlice("\n");
             try state.setReg(dst, .{ .expr = tmp, .ty = .ptr });
         },
         .borrow => {
@@ -1949,6 +1980,10 @@ fn emitUserFunctions(
                 sig_index += 1;
 
                 if (item.base.kind == .extern_decl) {
+                    if (options.wasm_compat and std.mem.eql(u8, fsig.name, "sa_print_bytes")) {
+                        current_debug = null;
+                        continue;
+                    }
                     try out.appendSlice("declare ");
                     try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, fsig.return_fallible);
                     try out.writer().print(" @{s}(", .{fsig.name});
@@ -1980,7 +2015,7 @@ fn emitUserFunctions(
                 } else {
                     current_debug = null;
                 }
-                try emitFunctionHeader(out, &current.?);
+                try emitFunctionHeader(out, &current.?, if (current_debug) |ctx| ctx.subprogram_id else null);
                 for (fsig.params, 0..) |param, pidx| {
                     const reg_id = fsig.param_ids[pidx];
                     const value = Value{
@@ -1997,14 +2032,15 @@ fn emitUserFunctions(
         }
 
         if (current) |*state| {
-            try emitInstruction(allocator, out, state, &verified.symbols, verified.function_sigs, verified.const_decls, options, size_bits, item);
-            if (debug_info) |*info| {
+            const inst_dbg_id = if (debug_info) |*info| blk: {
                 if (current_debug) |ctx| {
                     if (loc_table[idx]) |loc| {
-                        _ = try info.ensureLocation(ctx, loc.file, loc.line, loc.col);
+                        break :blk try info.ensureLocation(ctx, loc.file, loc.line, loc.col);
                     }
                 }
-            }
+                break :blk null;
+            } else null;
+            try emitInstruction(allocator, out, state, &verified.symbols, verified.function_sigs, verified.const_decls, options, size_bits, inst_dbg_id, item);
         }
     }
 
@@ -2094,7 +2130,7 @@ pub fn emitLlvm(
     var out = std.ArrayList(u8).init(allocator);
     errdefer out.deinit();
 
-    try emitHelpers(&out, size_bits);
+    try emitHelpers(&out, size_bits, options);
     try emitUserFunctions(allocator, &out, verified, loc_table, source_path, options, size_bits);
 
     return try out.toOwnedSlice();

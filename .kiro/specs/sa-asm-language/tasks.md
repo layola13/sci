@@ -480,8 +480,8 @@ sa/
     - 不需要手写 WASI 绑定（这部分移到 v0.2）
     - _Requirements: R15.2, R15.5, R17.1–R17.5_
 
-  - [ ]* 10.3 `@sys_*` 双轨等价 PBT — **P23**
-    - 同一 `.saasm` 分别走 `build-exe` + `build-wasm`，对比输出/退出码
+  - [x]* 10.3 `@sys_*` 双轨等价 PBT — **P23**
+    - `tests/cli_smoke.zig` 已覆盖 `demos/rosetta/01_hello_world/main.saasm` 的 `build-exe` + `build-wasm` 双轨运行，并对比 stdout / 退出码
     - _Requirements: R15.5, R17.1–R17.5_
 
   - [x] 10.4 `__sa_panic` 运行时符号（Native）
@@ -566,12 +566,13 @@ sa/
     - 结论写入 post-MVP 路线图
     - _Requirements: R23.4_
 
-  - [ ] 13.7 Hello-Compute `.exe` + `.wasm` 端到端测试
+  - [x] 13.7 Hello-Compute `.exe` + `.wasm` 端到端测试
+    - `tests/cli_smoke.zig` 已覆盖 `demos/rosetta/98_build_pipeline/main.saasm` 的 native `build-exe` 与 wasm `build-wasm` 端到端输出/退出码
     - _Requirements: R15.1, R15.3, R16.2, R16.3_
 
-  - [ ] 13.8 GDB/LLDB 上游行号断点验证
-    - 编 `saasm build-exe -g hello.saasm`（含 `#loc` 指向 `hello.rs`）
-    - gdb 能按 `hello.rs:N` 下断点并命中
+  - [x] 13.8 GDB/LLDB 上游行号断点验证
+    - `tests/cli_smoke.zig` 以 `-g` 编译最小 `hello.saasm`，并用 `gdb` 在 `hello.rs:10` 下断点实际命中
+    - `_debug` 路径保留 `.debug_line`，`build-exe -g` 可在 `gdb` 中回溯到上游源文件
     - _Requirements: R19.5, R19.6_
 
 - [ ] 14. 测试基线与 CI 门禁（v0.1）

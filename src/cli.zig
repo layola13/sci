@@ -390,7 +390,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path);
+            try driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path, debug);
             return 0;
         },
     }
@@ -413,7 +413,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try driver.compileObj(allocator, ll_path, out_path, optimization);
+            try driver.compileObj(allocator, ll_path, out_path, optimization, debug);
             return 0;
         },
     }
@@ -429,14 +429,14 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug });
+            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true });
             defer allocator.free(ll);
 
             const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try driver.compileWasm(allocator, ll_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization);
+            try driver.compileWasm(allocator, ll_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug);
             return 0;
         },
     }

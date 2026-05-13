@@ -714,6 +714,16 @@ fn collectMetadata(
                     };
                 };
                 errdefer parsed.deinit(allocator);
+                if (item.upstream_loc) |loc| {
+                    const file_copy = try allocator.dupe(u8, loc.file);
+                    errdefer allocator.free(file_copy);
+                    parsed.upstream_file = file_copy;
+                    parsed.upstream_loc = .{
+                        .file = file_copy,
+                        .line = loc.line,
+                        .col = loc.col,
+                    };
+                }
                 if (parsed.params.len != 0) {
                     const ids = try allocator.alloc(u32, parsed.params.len);
                     errdefer allocator.free(ids);

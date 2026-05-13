@@ -1,5 +1,6 @@
 const std = @import("std");
 const saasm = @import("saasm");
+const builtin = @import("builtin");
 
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
@@ -29,6 +30,40 @@ fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !st
     return try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
+    });
+}
+
+fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !std.process.Child.RunResult {
+    const args_json = try std.json.stringifyAlloc(allocator, args, .{});
+    defer allocator.free(args_json);
+    const wasm_json = try std.json.stringifyAlloc(allocator, wasm_path, .{});
+    defer allocator.free(wasm_json);
+
+    const script = try std.fmt.allocPrint(allocator,
+        \\const fs = require('node:fs');
+        \\const {{ WASI }} = require('node:wasi');
+        \\const wasi = new WASI({{
+        \\  version: 'preview1',
+        \\  args: {s},
+        \\  env: {{}},
+        \\  preopens: {{ '/': '.' }},
+        \\}});
+        \\const wasm = fs.readFileSync({s});
+        \\WebAssembly.instantiate(wasm, wasi.getImportObject()).then(({{ instance }}) => {{
+        \\  process.exitCode = wasi.start(instance);
+        \\}}).catch((err) => {{
+        \\  console.error(err);
+        \\  process.exit(1);
+        \\}});
+    , .{ args_json, wasm_json });
+    defer allocator.free(script);
+
+    const script_path = try std.fs.path.join(allocator, &.{ std.fs.path.dirname(wasm_path) orelse ".", "run_wasm.js" });
+    defer allocator.free(script_path);
+    try writeSource(std.fs.cwd(), script_path, script);
+    return try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "node", "--no-warnings", script_path },
     });
 }
 
@@ -221,6 +256,222 @@ test "hello world demo prints through saasm run" {
     try std.testing.expectEqual(@as(u8, 0), run_code);
     try std.testing.expectEqualStrings("hello, saasm\n", stdout_buf.items);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+}
+
+test "hello world demo prints through build-wasm and node wasi" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const node_probe = std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "node", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(node_probe.stdout);
+    defer std.testing.allocator.free(node_probe.stderr);
+    switch (node_probe.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", source_path, "-o", "hello.wasm", "--target", "wasm32" };
+    const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "hello.out" };
+    const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+
+    const native_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./hello.out" });
+    defer std.testing.allocator.free(native_result.stdout);
+    defer std.testing.allocator.free(native_result.stderr);
+    switch (native_result.term) {
+        .Exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, native_result.stdout, "hello, saasm\n") or native_result.stderr.len != 0) {
+                std.debug.print("native hello demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ native_result.stdout, native_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("hello, saasm\n", native_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), native_result.stderr.len);
+
+    const node_result = try runWasmWithNode(std.testing.allocator, "hello.wasm", &.{ "saasm", "hello.wasm" });
+    defer std.testing.allocator.free(node_result.stdout);
+    defer std.testing.allocator.free(node_result.stderr);
+    switch (node_result.term) {
+        .Exited => |code| {
+            if (code != 0 or !std.mem.containsAtLeast(u8, node_result.stdout, 1, "hello, saasm\n")) {
+                std.debug.print("wasm hello demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ node_result.stdout, node_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("hello, saasm\n", node_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), node_result.stderr.len);
+}
+
+test "hello world upstream line can break in gdb" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const gdb_probe = std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "gdb", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(gdb_probe.stdout);
+    defer std.testing.allocator.free(gdb_probe.stderr);
+    switch (gdb_probe.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source =
+        \\#loc "hello.rs":10:4
+        \\@main() -> i32:
+        \\node = alloc 8
+        \\!node
+        \\return 7
+    ;
+    const upstream_source =
+        \\// 1
+        \\// 2
+        \\// 3
+        \\// 4
+        \\// 5
+        \\// 6
+        \\// 7
+        \\// 8
+        \\// 9
+        \\// 10
+    ;
+    try writeSource(tmp.dir, "hello.saasm", source);
+    try writeSource(tmp.dir, "hello.rs", upstream_source);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "hello.saasm", "-o", "hello.out", "-g" };
+    const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+
+    const gdb_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(gdb_dir);
+    const directory_cmd = try std.fmt.allocPrint(std.testing.allocator, "directory {s}", .{gdb_dir});
+    defer std.testing.allocator.free(directory_cmd);
+
+    const gdb_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{
+        "gdb",
+        "-q",
+        "--nh",
+        "--nx",
+        "--batch",
+        "-ex",
+        "file ./hello.out",
+        "-ex",
+        directory_cmd,
+        "-ex",
+        "set pagination off",
+        "-ex",
+        "break hello.rs:10",
+        "-ex",
+        "run",
+        "-ex",
+        "frame",
+    });
+    defer std.testing.allocator.free(gdb_result.stdout);
+    defer std.testing.allocator.free(gdb_result.stderr);
+    switch (gdb_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("gdb returned nonzero exit code {d}\nstdout:\n{s}\nstderr:\n{s}\n", .{ code, gdb_result.stdout, gdb_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    const hit_in_stdout = std.mem.containsAtLeast(u8, gdb_result.stdout, 1, "Breakpoint 1,") and std.mem.containsAtLeast(u8, gdb_result.stdout, 1, "at hello.rs:10");
+    const hit_in_stderr = std.mem.containsAtLeast(u8, gdb_result.stderr, 1, "Breakpoint 1,") and std.mem.containsAtLeast(u8, gdb_result.stderr, 1, "at hello.rs:10");
+    if (!hit_in_stdout and !hit_in_stderr) {
+        std.debug.print("gdb breakpoint was not hit:\nstdout:\n{s}\nstderr:\n{s}\n", .{ gdb_result.stdout, gdb_result.stderr });
+    }
+    try std.testing.expect(hit_in_stdout or hit_in_stderr);
+}
+
+test "hello compute demo prints through build-exe and build-wasm" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const node_probe = std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "node", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(node_probe.stdout);
+    defer std.testing.allocator.free(node_probe.stderr);
+    switch (node_probe.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/98_build_pipeline/main.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "hello_compute.out" };
+    const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+
+    const native_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./hello_compute.out" });
+    defer std.testing.allocator.free(native_result.stdout);
+    defer std.testing.allocator.free(native_result.stderr);
+    switch (native_result.term) {
+        .Exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, native_result.stdout, "6\n") or native_result.stderr.len != 0) {
+                std.debug.print("native hello-compute failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ native_result.stdout, native_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("6\n", native_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), native_result.stderr.len);
+
+    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", source_path, "-o", "hello_compute.wasm", "--target", "wasm32" };
+    const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+
+    const node_result = try runWasmWithNode(std.testing.allocator, "hello_compute.wasm", &.{ "saasm", "hello_compute.wasm" });
+    defer std.testing.allocator.free(node_result.stdout);
+    defer std.testing.allocator.free(node_result.stderr);
+    switch (node_result.term) {
+        .Exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, node_result.stdout, "6\n") or node_result.stderr.len != 0) {
+                std.debug.print("wasm hello-compute failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ node_result.stdout, node_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("6\n", node_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), node_result.stderr.len);
 }
 
 test "trait vtable demo runs through saasm run" {

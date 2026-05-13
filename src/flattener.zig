@@ -93,6 +93,7 @@ pub const FlattenResult = struct {
         }
         allocator.free(self.loc_table);
         for (self.instructions) |item| {
+            if (item.upstream_loc) |loc| allocator.free(loc.file);
             if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
         }
         for (self.const_decls) |*decl| decl.deinit(allocator);
@@ -417,11 +418,20 @@ fn emitParsedLine(
                 symbols,
             );
             errdefer sig.deinit(allocator);
+            var inst_loc: ?common_upstream.UpstreamLoc = null;
             if (pending_loc.*) |loc| {
-                const file_copy = try allocator.dupe(u8, loc.file);
-                sig.upstream_file = file_copy;
+                const sig_file_copy = try allocator.dupe(u8, loc.file);
+                errdefer allocator.free(sig_file_copy);
+                const inst_file_copy = try allocator.dupe(u8, loc.file);
+                errdefer allocator.free(inst_file_copy);
+                sig.upstream_file = sig_file_copy;
                 sig.upstream_loc = .{
-                    .file = file_copy,
+                    .file = sig_file_copy,
+                    .line = loc.line,
+                    .col = loc.col,
+                };
+                inst_loc = .{
+                    .file = inst_file_copy,
                     .line = loc.line,
                     .col = loc.col,
                 };
@@ -435,7 +445,7 @@ fn emitParsedLine(
             };
             try appendNullLoc(loc_table);
             const raw_copy = try ownText(allocator, owned_text, raw_line);
-            var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), null, raw_copy);
+            var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
             inst.operands[0] = .{ .symbol = name_id };
             inst.operands[1] = .{ .func = name_id };
             try instructions.append(inst);
@@ -892,7 +902,25 @@ fn collectLocTableEntries(
     errdefer table.deinit();
 
     for (instructions) |item| {
-        try table.append(item.upstream_loc);
+        const keep_loc = switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .label => false,
+            else => true,
+        };
+        if (keep_loc) {
+            if (item.upstream_loc) |loc| {
+                const file_copy = try allocator.dupe(u8, loc.file);
+                errdefer allocator.free(file_copy);
+                try table.append(.{
+                    .file = file_copy,
+                    .line = loc.line,
+                    .col = loc.col,
+                });
+            } else {
+                try table.append(null);
+            }
+        } else {
+            try table.append(null);
+        }
     }
 
     return try table.toOwnedSlice();
@@ -1106,13 +1134,16 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
     }
 
     last_error_source_line = null;
+    const loc_table_slice = try collectLocTableEntries(allocator, instructions.items);
+    loc_table.deinit();
+
     return .{
         .instructions = try instructions.toOwnedSlice(),
         .const_decls = try const_decls.toOwnedSlice(),
         .function_sigs = try function_sigs.toOwnedSlice(),
         .def_dict = dict,
         .symbols = symbols,
-        .loc_table = try loc_table.toOwnedSlice(),
+        .loc_table = loc_table_slice,
         .owned_text = try owned_text.toOwnedSlice(),
         .trap = null,
     };
@@ -1238,7 +1269,10 @@ test "flatten attaches loc hint to the next real instruction only" {
     defer result.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(usize, 4), result.instructions.len);
-    try std.testing.expect(result.instructions[0].upstream_loc == null);
+    try std.testing.expect(result.instructions[0].upstream_loc != null);
+    try std.testing.expectEqualStrings("up.rs", result.instructions[0].upstream_loc.?.file);
+    try std.testing.expectEqual(@as(u32, 12), result.instructions[0].upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 3), result.instructions[0].upstream_loc.?.col);
     try std.testing.expect(result.instructions[1].upstream_loc == null);
     try std.testing.expect(result.instructions[2].upstream_loc != null);
     try std.testing.expectEqualStrings("up.rs", result.instructions[2].upstream_loc.?.file);

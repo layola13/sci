@@ -30,19 +30,30 @@ pub fn argvForExe(
     out_path: []const u8,
     optimization: Optimization,
     sa_std_archive_path: []const u8,
+    debug: bool,
 ) Argv {
     var argv: Argv = .{};
     argv.items[0] = "zig";
     argv.items[1] = "cc";
-    argv.items[2] = switch (optimization) {
+    var index: usize = 2;
+    if (debug) {
+        argv.items[index] = "-g";
+        index += 1;
+    }
+    argv.items[index] = if (debug) "-O0" else switch (optimization) {
         .release_small => "-O1",
         .release_fast => "-O3",
     };
-    argv.items[3] = ll_path;
-    argv.items[4] = sa_std_archive_path;
-    argv.items[5] = "-o";
-    argv.items[6] = out_path;
-    argv.len = 7;
+    index += 1;
+    argv.items[index] = ll_path;
+    index += 1;
+    argv.items[index] = sa_std_archive_path;
+    index += 1;
+    argv.items[index] = "-o";
+    index += 1;
+    argv.items[index] = out_path;
+    index += 1;
+    argv.len = index;
     return argv;
 }
 
@@ -50,19 +61,30 @@ pub fn argvForObj(
     ll_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
+    debug: bool,
 ) Argv {
     var argv: Argv = .{};
     argv.items[0] = "zig";
     argv.items[1] = "cc";
-    argv.items[2] = switch (optimization) {
+    var index: usize = 2;
+    if (debug) {
+        argv.items[index] = "-g";
+        index += 1;
+    }
+    argv.items[index] = if (debug) "-O0" else switch (optimization) {
         .release_small => "-O1",
         .release_fast => "-O3",
     };
-    argv.items[3] = "-c";
-    argv.items[4] = ll_path;
-    argv.items[5] = "-o";
-    argv.items[6] = out_path;
-    argv.len = 7;
+    index += 1;
+    argv.items[index] = "-c";
+    index += 1;
+    argv.items[index] = ll_path;
+    index += 1;
+    argv.items[index] = "-o";
+    index += 1;
+    argv.items[index] = out_path;
+    index += 1;
+    argv.len = index;
     return argv;
 }
 
@@ -71,20 +93,27 @@ pub fn argvForWasm(
     out_path: []const u8,
     target: Target,
     optimization: Optimization,
+    debug: bool,
 ) Argv {
     var argv: Argv = .{};
     argv.items[0] = "zig";
     argv.items[1] = "cc";
-    argv.items[2] = "-target";
-    argv.items[3] = target.triple;
+    var index: usize = 2;
+    if (debug) {
+        argv.items[index] = "-g";
+        index += 1;
+    }
+    argv.items[index] = "-target";
+    index += 1;
+    argv.items[index] = target.triple;
+    index += 1;
 
-    var index: usize = 4;
     if (target.no_entry) {
         argv.items[index] = "-Wl,--no-entry";
         index += 1;
     }
 
-    argv.items[index] = switch (optimization) {
+    argv.items[index] = if (debug) "-O0" else switch (optimization) {
         .release_small => "-O1",
         .release_fast => "-O3",
     };
@@ -125,8 +154,9 @@ pub fn compileExe(
     out_path: []const u8,
     optimization: Optimization,
     sa_std_archive_path: []const u8,
+    debug: bool,
 ) !void {
-    const argv = argvForExe(ll_path, out_path, optimization, sa_std_archive_path);
+    const argv = argvForExe(ll_path, out_path, optimization, sa_std_archive_path, debug);
     try runProcess(allocator, argv.slice());
 }
 
@@ -135,8 +165,9 @@ pub fn compileObj(
     ll_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
+    debug: bool,
 ) !void {
-    const argv = argvForObj(ll_path, out_path, optimization);
+    const argv = argvForObj(ll_path, out_path, optimization, debug);
     try runProcess(allocator, argv.slice());
 }
 
@@ -146,8 +177,9 @@ pub fn compileWasm(
     out_path: []const u8,
     target: Target,
     optimization: Optimization,
+    debug: bool,
 ) !void {
-    const argv = argvForWasm(ll_path, out_path, target, optimization);
+    const argv = argvForWasm(ll_path, out_path, target, optimization, debug);
     try runProcess(allocator, argv.slice());
 }
 
