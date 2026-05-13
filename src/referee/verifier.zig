@@ -1864,6 +1864,8 @@ pub fn verify(
                                 state[idx] = maskOf(.consumed);
                             }
                         }
+                    } else {
+                        return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, null, null, "register is not declared in the current scope", null);
                     }
                 }
                 terminated = true;

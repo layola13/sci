@@ -1,0 +1,5 @@
+@main() -> i32:
+node = alloc 8
+old = atomic_rmw_add node+0, 1 acquire
+old2 = atomic_rmw_sub node+0, 1 release
+return 0

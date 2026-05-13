@@ -650,6 +650,18 @@ test "memory leak partial release demo is rejected with structured trap output" 
     try assertBuildExeTrap("demos/support/memory_leak_partial_release.saasm", "memory_leak_partial_release.out", "MemoryLeak", 1012, "live registers remain at function exit");
 }
 
+test "atomic ordering mismatch demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/atomic_ordering_mismatch.saasm", "atomic_ordering_mismatch.out", "AtomicOrderingMismatch", 1029, "same-address RMW ordering combination is not allowed");
+}
+
+test "invalid atomic ordering demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/invalid_atomic_ordering.saasm", "invalid_atomic_ordering.out", "InvalidAtomicOrdering", 1028, "invalid atomic ordering");
+}
+
+test "unknown register return demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/unknown_register_return.saasm", "unknown_register_return.out", "UnknownRegister", 1007, "register is not declared in the current scope");
+}
+
 test "struct demo runs through saasm run" {
     try assertRunStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
 }

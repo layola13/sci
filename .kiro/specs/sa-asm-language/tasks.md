@@ -587,6 +587,10 @@ sa/
     - 新增 1 个宏递归最小反例：`macro_recursion`，验证 `MacroRecursionLimit` 与 `trap_code:1005`
     - 新增 1 个禁用语法最小反例：`forbidden_syntax`，验证属性链 `a.b.c` 触发 `ForbiddenSyntax`
     - 新增 2 个 `MemoryLeak` 最小反例：`memory_leak_after_borrow` / `memory_leak_partial_release`，分别覆盖借用释放后泄漏与部分释放泄漏
+    - 新增 1 个原子 ordering 最小反例：`atomic_ordering_mismatch`，验证同地址 RMW ordering 组合冲突触发 `AtomicOrderingMismatch`
+    - 新增 1 个原子前端最小反例：`invalid_atomic_ordering`，验证 `cmpxchg` 失败 ordering 强于成功 ordering 触发 `InvalidAtomicOrdering`
+    - `DoubleMutableBorrow` 先在 `src/referee/table.zig` 通过能力表单测覆盖；当前前端没有稳定的最小 `demos/` 文本形态，不为补 demo 放宽语法
+    - 新增 1 个 `UnknownRegister` 变体：`unknown_register_return`，验证 `return ghost` 也能输出结构化 trap
     - _Requirements: R22.1, R22.2_
 
   - [ ] 14.2 CI 流水线

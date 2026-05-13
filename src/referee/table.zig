@@ -268,6 +268,17 @@ test "capability table tracks alloc, move, and borrow transitions" {
     try std.testing.expectEqual(@as(u16, 0x01), table.masks[1]);
 }
 
+test "capability table rejects a second exclusive borrow on the same source" {
+    var table = try CapabilityTable.init(std.testing.allocator, 4);
+    defer table.deinit();
+
+    try table.noteAlloc(0);
+    try table.startMutBorrow(0, 1);
+    try std.testing.expectEqual(@as(u16, 0x04), table.masks[0]);
+    try std.testing.expectEqual(@as(u16, 0x11), table.masks[1]);
+    try std.testing.expectError(TableError.DoubleMutableBorrow, table.startMutBorrow(0, 2));
+}
+
 test "capability table marks ffi borrow views and blocks consumption" {
     var table = try CapabilityTable.init(std.testing.allocator, 3);
     defer table.deinit();
