@@ -594,6 +594,10 @@ test "ownership and borrow demos compile and print through build-exe" {
     try assertBuildExeStdout("demos/rosetta/52_queue_rotate/main.saasm", "2,3,1\n");
 }
 
+test "macro demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/macro_print.saasm", "macro ok\n");
+}
+
 test "use after move demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/use_after_move.saasm", "use_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
 }
@@ -628,6 +632,10 @@ test "early return leak demo is rejected with structured trap output" {
 
 test "ffi ownership violation demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/ffi_ownership_violation.saasm", "ffi_ownership_violation.out", "FfiOwnershipViolation", 1020, "FFI borrow views cannot be consumed");
+}
+
+test "macro recursion demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/macro_recursion.saasm", "macro_recursion.out", "MacroRecursionLimit", 1005, "macro recursion limit exceeded");
 }
 
 test "struct demo runs through saasm run" {

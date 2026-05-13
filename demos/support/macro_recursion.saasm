@@ -1,0 +1,7 @@
+[MACRO] LOOP %value
+    EXPAND LOOP %value
+[END_MACRO]
+
+@main() -> i32:
+EXPAND LOOP 1
+return 0
