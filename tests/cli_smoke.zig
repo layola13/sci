@@ -64,6 +64,82 @@ fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
 }
 
+fn containsImportName(import_names: []const []const u8, expected: []const u8) bool {
+    for (import_names) |name| {
+        if (std.mem.eql(u8, name, expected)) return true;
+    }
+    return false;
+}
+
+fn skipLimits(reader: anytype) !void {
+    const flags = try std.leb.readUleb128(u32, reader);
+    _ = try std.leb.readUleb128(u32, reader);
+    if ((flags & 1) != 0) {
+        _ = try std.leb.readUleb128(u32, reader);
+    }
+}
+
+fn wasmImportNames(bytes: []const u8, allocator: std.mem.Allocator) ![]const []const u8 {
+    if (bytes.len < 8) return error.InvalidWasm;
+    if (!std.mem.eql(u8, bytes[0..4], &std.wasm.magic)) return error.InvalidWasm;
+    if (!std.mem.eql(u8, bytes[4..8], &std.wasm.version)) return error.InvalidWasm;
+
+    var names = std.ArrayList([]const u8).init(allocator);
+    errdefer names.deinit();
+
+    var fbs = std.io.fixedBufferStream(bytes[8..]);
+    const reader = fbs.reader();
+    while (fbs.pos < bytes.len - 8) {
+        const section_id = reader.readByte() catch break;
+        const section = std.meta.intToEnum(std.wasm.Section, section_id) catch return error.InvalidWasm;
+        const section_len = try std.leb.readUleb128(u32, reader);
+        const section_end = fbs.pos + @as(usize, @intCast(section_len));
+        if (section_end > fbs.buffer.len) return error.InvalidWasm;
+        const section_bytes = fbs.buffer[fbs.pos..section_end];
+        if (section == .import) {
+            var import_fbs = std.io.fixedBufferStream(section_bytes);
+            const import_reader = import_fbs.reader();
+            const import_count = try std.leb.readUleb128(u32, import_reader);
+            var i: u32 = 0;
+            while (i < import_count) : (i += 1) {
+                const module_len = try std.leb.readUleb128(u32, import_reader);
+                const module_end = import_fbs.pos + @as(usize, @intCast(module_len));
+                if (module_end > section_bytes.len) return error.InvalidWasm;
+                const module_name = section_bytes[import_fbs.pos..module_end];
+                import_fbs.pos = module_end;
+                const name_len = try std.leb.readUleb128(u32, import_reader);
+                const name_end = import_fbs.pos + @as(usize, @intCast(name_len));
+                if (name_end > section_bytes.len) return error.InvalidWasm;
+                const import_name = section_bytes[import_fbs.pos..name_end];
+                import_fbs.pos = name_end;
+                _ = module_name;
+
+                const kind_byte = try import_reader.readByte();
+                const kind = std.meta.intToEnum(std.wasm.ExternalKind, kind_byte) catch return error.InvalidWasm;
+                switch (kind) {
+                    .function => {
+                        _ = try std.leb.readUleb128(u32, import_reader);
+                    },
+                    .table => {
+                        _ = try import_reader.readByte();
+                        try skipLimits(import_reader);
+                    },
+                    .memory => {
+                        try skipLimits(import_reader);
+                    },
+                    .global => {
+                        _ = try import_reader.readByte();
+                        _ = try std.leb.readUleb128(u1, import_reader);
+                    },
+                }
+                try names.append(import_name);
+            }
+        }
+        fbs.pos += section_len;
+    }
+    return try names.toOwnedSlice();
+}
+
 test "cli run/build-exe/build-wasm produce real artifacts" {
     const source =
         \\#loc "hello.rs":10:4
@@ -216,12 +292,52 @@ test "sys runtime demo prints and round-trips file contents" {
     const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+    const import_names = try wasmImportNames(wasm_bytes, std.testing.allocator);
+    defer std.testing.allocator.free(import_names);
+    try std.testing.expect(containsImportName(import_names, "fd_write"));
+    try std.testing.expect(containsImportName(import_names, "proc_exit"));
+    try std.testing.expect(containsImportName(import_names, "args_get"));
+    try std.testing.expect(containsImportName(import_names, "args_sizes_get"));
 
     const file = try tmp.dir.openFile("sys_io.txt", .{}); 
     defer file.close();
     const contents = try file.readToEndAlloc(std.testing.allocator, 1024);
     defer std.testing.allocator.free(contents);
     try std.testing.expectEqualStrings("saasm", contents);
+}
+
+test "ffi airlock demo preserves pointer values through assume_* in saasm run" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/airlock_probe.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try assertRunStdout(source_path, "ok\n");
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "airlock_probe.out" };
+    const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_code);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./airlock_probe.out" });
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, exe_result.stdout, "ok\n") or exe_result.stderr.len != 0) {
+                std.debug.print("airlock demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("ok\n", exe_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
 }
 
 test "panic builtins terminate through the interpreter" {

@@ -1,0 +1,32 @@
+@const DATA = utf8:"AZ"
+@const RESULT_OK = utf8:"ok\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@ffi_wrapper airlock() -> i32:
+L_ENTRY:
+    box = alloc 1
+    raw = *box
+    safe = assume_safe raw
+    view = assume_borrow raw
+    ok0 = eq raw, safe
+    ok1 = eq raw, view
+    ok = and ok0, ok1
+    !view
+    !safe
+    !box
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sys_print(*RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sys_print(*RESULT_ERR, 6)
+    return 1
+
+@main() -> i32:
+L_ENTRY:
+    code = call @airlock()
+    return code

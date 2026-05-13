@@ -64,6 +64,20 @@ test "sa_term raw mode and winsize are usable from C" {
         \\    return 0;
         \\}
         \\
+        \\static int termios_matches(const struct termios *before, const struct termios *after) {
+        \\    if (before->c_iflag != after->c_iflag) return 0;
+        \\    if (before->c_oflag != after->c_oflag) return 0;
+        \\    if (before->c_cflag != after->c_cflag) return 0;
+        \\    if (before->c_lflag != after->c_lflag) return 0;
+        \\    if (before->c_line != after->c_line) return 0;
+        \\    if (before->c_ispeed != after->c_ispeed) return 0;
+        \\    if (before->c_ospeed != after->c_ospeed) return 0;
+        \\    for (size_t i = 0; i < NCCS; ++i) {
+        \\        if (before->c_cc[i] != after->c_cc[i]) return 0;
+        \\    }
+        \\    return 1;
+        \\}
+        \\
         \\int main(void) {
         \\    int master = -1;
         \\    int slave = -1;
@@ -92,7 +106,7 @@ test "sa_term raw mode and winsize are usable from C" {
         \\    if (queried.xpixel != 320 || queried.ypixel != 200) return 13;
         \\    if (sa_term_raw_leave(session) != SA_STD_OK) return 14;
         \\    if (tcgetattr(STDIN_FILENO, &after) != 0) return 15;
-        \\    if (memcmp(&before, &after, sizeof(before)) != 0) return 16;
+        \\    if (!termios_matches(&before, &after)) return 16;
         \\    close(master);
         \\    puts("term raw mode ok");
         \\    return 0;

@@ -456,7 +456,8 @@ sa/
     - 新增 `demos/support/sys_runtime_probe.saasm`，覆盖 `saasm run` 下的 argv、文件读写、打印与退出路径
     - _Requirements: R16.1, R17.1–R17.5_
 
-  - [ ] 9.3 气闸舱语义（Interp 模式）
+  - [x] 9.3 气闸舱语义（Interp 模式）
+    - `demos/support/airlock_probe.saasm` 在 `saasm run` 下验证 `assume_safe` / `assume_borrow` 保持指针值不变，并由 `tests/cli_smoke.zig` 覆盖 native `build-exe` 真实运行
     - `assume_*` 只更新 mask，不做实际指针操作
     - _Requirements: R13.2, R13.3_
 
@@ -468,11 +469,13 @@ sa/
 
 - [ ] 10. W12 `@sys_*` 原语 + FFI 气闸舱 + panic runtime
 
-  - [ ] 10.1 Native `@sys_*` 原生 stub（`src/runtime/native_sys.zig`）
-    - 用 `std.fs` / `std.process` 实现，编译为静态 `.o` 被 `zig cc` 链接
+  - [x] 10.1 Native `@sys_*` 原生 stub（`src/runtime/native_sys.zig`）
+    - `src/runtime/native_sys.zig` 已实现 `sys_print` / `sys_exit` / `sys_argc` / `sys_argv` / `sys_read_file` / `sys_write_file`
+    - `tests/native_sys_runtime.zig` 已覆盖静态 `.o` 构建、`zig cc` 链接、`sys_read_file` / `sys_write_file` / `sys_exit` 行为
     - _Requirements: R17.1–R17.5_
 
-  - [ ] 10.2 **v0.1 WASM 路径**：`@sys_*` 映射到 WASI import
+  - [x] 10.2 **v0.1 WASM 路径**：`@sys_*` 映射到 WASI import
+    - `tests/cli_smoke.zig` 已验证 `saasm build-wasm` 产物包含 `fd_write` / `proc_exit` / `args_get` / `args_sizes_get`
     - 通过 `zig cc -target wasm32-wasi` 自动链接 Zig 的 WASI stub
     - 不需要手写 WASI 绑定（这部分移到 v0.2）
     - _Requirements: R15.2, R15.5, R17.1–R17.5_
