@@ -294,7 +294,7 @@ store v+Vec3_x, 1.0 as f32
 
 ### Q: `sa_std` 是手写 SA 标准库，还是外部标准库？
 
-**A**: `io` / `fs` / `net` / `fmt` / `process` 是 SA-facing facade，真实实现由 Zig-backed `libsa_std` 提供。仓库内已附带静态归档 `artifacts/sa_std/libsa_std.a`，它由 `zig build sa-std-static -Doptimize=Debug` 生成，源码位于 `src/runtime/sa_std.zig`，ABI 头文件位于 `src/runtime/sa_std.h`。
+**A**: `io` / `fs` / `net` / `fmt` / `process` / `term` 是 SA-facing facade，真实实现由 Zig-backed `libsa_std` 提供。仓库内已附带静态归档 `artifacts/sa_std/libsa_std.a`，它由 `zig build sa-std-static -Doptimize=Debug` 生成，源码位于 `src/runtime/sa_std.zig`，ABI 头文件位于 `src/runtime/sa_std.h`。
 
 原因：
 - SA 侧的 `.saasm` 模块入口只用 `@import` 组合 layout 与 iface
@@ -302,7 +302,19 @@ store v+Vec3_x, 1.0 as f32
 - `.saasm-layout` 只声明显式内存布局和常量，不隐藏句柄或缓冲区
 - API 不使用 trait/generic；文件、socket、进程和格式化缓冲区都用显式 `ptr` 句柄，并要求显式 `close` / `free` / `flush`
 - `sa_std_process_run` / `sa_std_process_spawn` 接收 `SaProcessArgv` 记录数组；SA 侧先用 `#def SaProcessArgv_*` 声明布局，再通过 `@import "process.saasm-layout"` / `@import "process.saasm-iface"` 组合调用
+- `sa_std_process_spawn_stream` 会返回 live stdout/stderr 句柄，适合直接接 `epoll` 或流式消费
+- `sa_term_raw_enter` / `sa_term_raw_leave` 管理 raw mode session，`sa_term_winsize` 读取窗口大小，`sa_term_epoll_*` 则提供 Linux-first 的事件循环面
 - 旧 demo 的 `sa_print_bytes(&msg, len)` 保留为兼容符号，等价于 Zig-backed stdout 写入
+
+### Q: 如果我要写实时 TUI 或事件循环，应该优先用哪些接口？
+
+**A**: 先把终端切进 raw mode，再把 stdin、子进程 stdout/stderr 和网络 fd 全部扔进 `epoll`。最小组合是 `sa_term_raw_enter` / `sa_term_raw_leave`、`sa_term_winsize`、`sa_term_epoll_create` / `sa_term_epoll_ctl` / `sa_term_epoll_wait`，以及 `sa_std_process_spawn_stream`。
+
+原因：
+- raw mode 让按键成为单字符事件，而不是等回车才交给程序
+- `SaTermWinsize` 让你在窗口 resize 时重绘布局
+- `epoll` 让键盘、pipe 和 socket 共用同一个事件循环，不需要轮询多个来源
+- `sa_std_process_spawn_stream` 返回的 stdout/stderr 句柄可以直接注册进 `epoll`，非常适合 Claude Code 这类流式 UI
 
 ### Q: 为什么没有 `pub` / `private` 可见性？
 

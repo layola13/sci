@@ -65,13 +65,44 @@ const FmtHandle = struct {
     }
 };
 
+const OwnedFdHandle = struct {
+    fd: std.posix.fd_t,
+
+    fn deinit(self: *OwnedFdHandle) void {
+        std.posix.close(self.fd);
+        self.fd = -1;
+    }
+};
+
+const TerminalSession = struct {
+    fd: std.posix.fd_t,
+    saved: std.posix.termios,
+
+    fn deinit(self: *TerminalSession) !void {
+        try std.posix.tcsetattr(self.fd, .FLUSH, self.saved);
+    }
+};
+
 const SaProcessArgv = extern struct {
     data: [*]const u8,
     len: u64,
 };
 
+const SaTermWinsize = extern struct {
+    row: u16,
+    col: u16,
+    xpixel: u16,
+    ypixel: u16,
+};
+
+const SaTermEpollEvent = extern struct {
+    events: u32,
+    data: u64,
+};
+
 const ProcessHandle = struct {
     pid: std.posix.pid_t,
+    capture_output: bool = false,
     stdout_fd: ?std.posix.fd_t = null,
     stderr_fd: ?std.posix.fd_t = null,
     stdout_buf: []u8 = &.{},
@@ -107,9 +138,11 @@ const Resource = union(enum) {
     metadata: MetadataHandle,
     net_addr: NetAddrHandle,
     fmt: FmtHandle,
+    owned_fd: OwnedFdHandle,
+    terminal_session: TerminalSession,
     process: ProcessHandle,
 
-    fn close(self: *Resource) void {
+    fn close(self: *Resource) !void {
         switch (self.*) {
             .file => |file| file.close(),
             .tcp_stream => |stream| stream.close(),
@@ -118,6 +151,8 @@ const Resource = union(enum) {
             .metadata => |*metadata| metadata.deinit(),
             .net_addr => |*addr| addr.deinit(),
             .fmt => |*fmt| fmt.deinit(),
+            .owned_fd => |*fd| fd.deinit(),
+            .terminal_session => |*session| try session.deinit(),
             .process => |*proc| proc.deinit(),
         }
         self.* = undefined;
@@ -141,6 +176,10 @@ fn mapError(err: anyerror) i32 {
         error.FileNotFound => SA_STD_ERR_NOT_FOUND,
         error.AccessDenied, error.PermissionDenied => SA_STD_ERR_ACCESS,
         error.WouldBlock => SA_STD_ERR_IO,
+        error.NotATerminal, error.ProcessOrphaned => SA_STD_ERR_UNSUPPORTED,
+        error.FileDescriptorAlreadyPresentInSet, error.OperationCausesCircularLoop => SA_STD_ERR_INVALID_ARGUMENT,
+        error.FileDescriptorNotRegistered => SA_STD_ERR_INVALID_HANDLE,
+        error.FileDescriptorIncompatibleWithEpoll => SA_STD_ERR_UNSUPPORTED,
         error.Unsupported, error.SystemResources, error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded => SA_STD_ERR_UNSUPPORTED,
         error.ProcessNotFound, error.AlreadyTerminated => SA_STD_ERR_INVALID_HANDLE,
         error.NameTooLong,
@@ -248,6 +287,52 @@ fn takeResourceLocked(handle: u64) ?Resource {
     return resource;
 }
 
+fn handleToFd(handle: u64) !std.posix.fd_t {
+    return switch (handle) {
+        SA_STD_STDIN => std.posix.STDIN_FILENO,
+        SA_STD_STDOUT => std.posix.STDOUT_FILENO,
+        SA_STD_STDERR => std.posix.STDERR_FILENO,
+        else => {
+            const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
+            return switch (resource.*) {
+                .file => |file| file.handle,
+                .tcp_stream => |stream| stream.handle,
+                .tcp_listener => |server| server.stream.handle,
+                .owned_fd => |fd| fd.fd,
+                .terminal_session => |session| session.fd,
+                else => error.InvalidHandle,
+            };
+        },
+    };
+}
+
+fn applyRawMode(term: *std.posix.termios) void {
+    term.iflag.IGNBRK = false;
+    term.iflag.BRKINT = false;
+    term.iflag.PARMRK = false;
+    term.iflag.ISTRIP = false;
+    term.iflag.INLCR = false;
+    term.iflag.IGNCR = false;
+    term.iflag.ICRNL = false;
+    term.iflag.IXON = false;
+    term.iflag.IXOFF = false;
+    term.oflag.OPOST = false;
+    term.cflag.CSIZE = .CS8;
+    term.cflag.PARENB = false;
+    term.cflag.CREAD = true;
+    term.lflag.ISIG = false;
+    term.lflag.ICANON = false;
+    term.lflag.ECHO = false;
+    term.lflag.IEXTEN = false;
+    term.cc[@intFromEnum(std.posix.V.MIN)] = 1;
+    term.cc[@intFromEnum(std.posix.V.TIME)] = 0;
+}
+
+fn killAndWaitChild(pid: std.posix.pid_t) void {
+    std.posix.kill(pid, std.posix.SIG.KILL) catch {};
+    _ = std.posix.waitpid(pid, 0);
+}
+
 fn writeHandleLocked(handle: u64, data: []const u8) !usize {
     return switch (handle) {
         SA_STD_STDOUT => try std.io.getStdOut().write(data),
@@ -258,6 +343,8 @@ fn writeHandleLocked(handle: u64, data: []const u8) !usize {
             return switch (resource.*) {
                 .file => |file| try file.write(data),
                 .tcp_stream => |stream| try stream.write(data),
+                .owned_fd => |fd| try std.posix.write(fd.fd, data),
+                .terminal_session => |session| try std.posix.write(session.fd, data),
                 else => error.InvalidHandle,
             };
         },
@@ -273,12 +360,15 @@ fn readHandleLocked(handle: u64, buffer: []u8) !usize {
             return switch (resource.*) {
                 .file => |file| try file.read(buffer),
                 .tcp_stream => |stream| try stream.read(buffer),
+                .owned_fd => |fd| try std.posix.read(fd.fd, buffer),
+                .terminal_session => |session| try std.posix.read(session.fd, buffer),
                 .buffer => |*buf| blk: {
                     const copy_len = @min(buffer.len, buf.bytes.len);
                     @memcpy(buffer[0..copy_len], buf.bytes[0..copy_len]);
                     break :blk copy_len;
                 },
                 .process => |*proc| {
+                    if (!proc.capture_output) return error.InvalidHandle;
                     if (!proc.exited) return error.InvalidHandle;
                     if (proc.stdout_pos < proc.stdout_buf.len) {
                         const remaining = proc.stdout_buf.len - proc.stdout_pos;
@@ -392,6 +482,18 @@ fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]u8 {
     return try list.toOwnedSlice();
 }
 
+const ProcessSpawnMode = enum {
+    inherit,
+    capture,
+    stream,
+};
+
+const SpawnResult = struct {
+    process: u64 = 0,
+    stdout: ?u64 = null,
+    stderr: ?u64 = null,
+};
+
 fn statusFromWaitStatus(status: u32) u32 {
     if (std.posix.W.IFEXITED(status)) return @as(u32, @intCast(std.posix.W.EXITSTATUS(status)));
     if (std.posix.W.IFSIGNALED(status)) return 128 + @as(u32, @intCast(std.posix.W.TERMSIG(status)));
@@ -399,19 +501,22 @@ fn statusFromWaitStatus(status: u32) u32 {
     return 127;
 }
 
-fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, capture_output: bool) !u64 {
+fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode) !SpawnResult {
     if (argv.len == 0) return error.InvalidArgument;
 
-    const stdout_pipe = if (capture_output) try std.posix.pipe2(.{ .CLOEXEC = true }) else .{ @as(std.posix.fd_t, -1), @as(std.posix.fd_t, -1) };
-    errdefer if (capture_output) {
-        std.posix.close(stdout_pipe[0]);
-        std.posix.close(stdout_pipe[1]);
-    };
-    const stderr_pipe = if (capture_output) try std.posix.pipe2(.{ .CLOEXEC = true }) else .{ @as(std.posix.fd_t, -1), @as(std.posix.fd_t, -1) };
-    errdefer if (capture_output) {
-        std.posix.close(stderr_pipe[0]);
-        std.posix.close(stderr_pipe[1]);
-    };
+    const use_pipes = mode != .inherit;
+    var stdout_pipe: [2]std.posix.fd_t = .{ -1, -1 };
+    var stderr_pipe: [2]std.posix.fd_t = .{ -1, -1 };
+    defer {
+        if (stdout_pipe[0] != -1) std.posix.close(stdout_pipe[0]);
+        if (stdout_pipe[1] != -1) std.posix.close(stdout_pipe[1]);
+        if (stderr_pipe[0] != -1) std.posix.close(stderr_pipe[0]);
+        if (stderr_pipe[1] != -1) std.posix.close(stderr_pipe[1]);
+    }
+    if (use_pipes) {
+        stdout_pipe = try std.posix.pipe2(.{ .CLOEXEC = true });
+        stderr_pipe = try std.posix.pipe2(.{ .CLOEXEC = true });
+    }
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
@@ -424,13 +529,13 @@ fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, capture_
 
     const pid = try std.posix.fork();
     if (pid == 0) {
-        if (capture_output) {
+        if (use_pipes) {
             std.posix.close(stdout_pipe[0]);
             std.posix.close(stderr_pipe[0]);
             try std.posix.dup2(stdout_pipe[1], std.posix.STDOUT_FILENO);
             try std.posix.dup2(stderr_pipe[1], std.posix.STDERR_FILENO);
         }
-        if (capture_output) {
+        if (use_pipes) {
             std.posix.close(stdout_pipe[1]);
             std.posix.close(stderr_pipe[1]);
         }
@@ -456,16 +561,60 @@ fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, capture_
         unreachable;
     }
 
-    if (capture_output) {
+    if (use_pipes) {
         std.posix.close(stdout_pipe[1]);
         std.posix.close(stderr_pipe[1]);
+        stdout_pipe[1] = -1;
+        stderr_pipe[1] = -1;
     }
 
-    return registerResource(.{ .process = .{
-        .pid = pid,
-        .stdout_fd = if (capture_output) stdout_pipe[0] else null,
-        .stderr_fd = if (capture_output) stderr_pipe[0] else null,
-    } });
+    var result: SpawnResult = .{};
+    switch (mode) {
+        .inherit => {
+            result.process = try registerResource(.{ .process = .{
+                .pid = pid,
+                .capture_output = false,
+            } });
+            return result;
+        },
+        .capture => {
+            result.process = registerResource(.{ .process = .{
+                .pid = pid,
+                .capture_output = true,
+                .stdout_fd = stdout_pipe[0],
+                .stderr_fd = stderr_pipe[0],
+            } }) catch |err| {
+                killAndWaitChild(pid);
+                return err;
+            };
+            stdout_pipe[0] = -1;
+            stderr_pipe[0] = -1;
+            return result;
+        },
+        .stream => {
+            result.stdout = registerResource(.{ .owned_fd = .{ .fd = stdout_pipe[0] } }) catch |err| {
+                killAndWaitChild(pid);
+                return err;
+            };
+            stdout_pipe[0] = -1;
+            result.stderr = registerResource(.{ .owned_fd = .{ .fd = stderr_pipe[0] } }) catch |err| {
+                if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
+                killAndWaitChild(pid);
+                return err;
+            };
+            stderr_pipe[0] = -1;
+            result.process = registerResource(.{ .process = .{
+                .pid = pid,
+                .capture_output = false,
+            } }) catch |err| {
+                if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
+                if (result.stderr) |stderr_handle| _ = sa_std_close(stderr_handle);
+                killAndWaitChild(pid);
+                return err;
+            };
+            return result;
+        },
+    }
 }
 
 fn formatInteger(value: anytype, base: u32) ![]u8 {
@@ -571,7 +720,7 @@ pub export fn sa_std_close(handle: u64) i32 {
         return finish(SA_STD_ERR_INVALID_HANDLE);
     };
     registry_mutex.unlock();
-    resource.close();
+    resource.close() catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -623,8 +772,8 @@ pub export fn sa_std_process_run(argv_ptr: ?[*]const SaProcessArgv, argv_len: u6
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
-    const handle = spawnProcess(std.heap.page_allocator, argv, true) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
+    const result = spawnProcess(std.heap.page_allocator, argv, .capture) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
     return finish(SA_STD_OK);
 }
 
@@ -633,8 +782,24 @@ pub export fn sa_std_process_spawn(argv_ptr: ?[*]const SaProcessArgv, argv_len: 
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
-    const handle = spawnProcess(std.heap.page_allocator, argv, false) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
+    const result = spawnProcess(std.heap.page_allocator, argv, .inherit) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_stream(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const result = spawnProcess(std.heap.page_allocator, argv, .stream) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
     return finish(SA_STD_OK);
 }
 
@@ -649,21 +814,23 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
             if (!proc.exited) {
                 const waited = std.posix.waitpid(proc.pid, 0);
                 proc.code = statusFromWaitStatus(waited.status);
-                if (proc.stdout_fd) |fd| {
-                    const captured = capture_fd_to_owned(std.heap.page_allocator, fd) catch |err| return finishErr(err);
-                    proc.stdout_buf = captured;
-                    std.posix.close(fd);
-                    proc.stdout_fd = null;
-                }
-                if (proc.stderr_fd) |fd| {
-                    const captured = capture_fd_to_owned(std.heap.page_allocator, fd) catch |err| return finishErr(err);
-                    proc.stderr_buf = captured;
-                    std.posix.close(fd);
-                    proc.stderr_fd = null;
+                proc.exited = true;
+                if (proc.capture_output) {
+                    if (proc.stdout_fd) |fd| {
+                        const captured = capture_fd_to_owned(std.heap.page_allocator, fd) catch |err| return finishErr(err);
+                        proc.stdout_buf = captured;
+                        std.posix.close(fd);
+                        proc.stdout_fd = null;
+                    }
+                    if (proc.stderr_fd) |fd| {
+                        const captured = capture_fd_to_owned(std.heap.page_allocator, fd) catch |err| return finishErr(err);
+                        proc.stderr_buf = captured;
+                        std.posix.close(fd);
+                        proc.stderr_fd = null;
+                    }
                 }
                 proc.stdout_pos = 0;
                 proc.stderr_pos = 0;
-                proc.exited = true;
             }
             code_ptr.* = proc.code;
             return finish(SA_STD_OK);
@@ -673,6 +840,123 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
 }
 
 pub export fn sa_std_process_close(handle: u64) i32 {
+    return sa_std_close(handle);
+}
+
+pub export fn sa_term_raw_enter(handle: u64, out_session: ?*u64) i32 {
+    const session_ptr = out_session orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    session_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const fd = handleToFd(handle) catch |err| return finishErr(err);
+    const original = std.posix.tcgetattr(fd) catch |err| return finishErr(err);
+    var raw = original;
+    applyRawMode(&raw);
+    std.posix.tcsetattr(fd, .FLUSH, raw) catch |err| return finishErr(err);
+
+    const session = registerResourceLocked(.{ .terminal_session = .{ .fd = fd, .saved = original } }) catch |err| {
+        std.posix.tcsetattr(fd, .FLUSH, original) catch |restore_err| return finishErr(restore_err);
+        return finishErr(err);
+    };
+    session_ptr.* = session;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_term_raw_leave(session_handle: u64) i32 {
+    return sa_std_close(session_handle);
+}
+
+pub export fn sa_term_winsize(handle: u64, out_size: ?*SaTermWinsize) i32 {
+    const size_ptr = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    size_ptr.* = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const fd = handleToFd(handle) catch |err| return finishErr(err);
+    var wsz: std.posix.winsize = undefined;
+    while (true) {
+        const rc = std.os.linux.ioctl(fd, std.os.linux.T.IOCGWINSZ, @intFromPtr(&wsz));
+        switch (std.os.linux.E.init(rc)) {
+            .SUCCESS => {
+                size_ptr.* = .{
+                    .row = wsz.row,
+                    .col = wsz.col,
+                    .xpixel = wsz.xpixel,
+                    .ypixel = wsz.ypixel,
+                };
+                return finish(SA_STD_OK);
+            },
+            .INTR => continue,
+            .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
+            .NOTTY => return finish(SA_STD_ERR_UNSUPPORTED),
+            else => return finish(SA_STD_ERR_IO),
+        }
+    }
+}
+
+pub export fn sa_term_epoll_create(flags: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const cloexec_flag: u32 = @as(u32, @intCast(std.os.linux.EPOLL.CLOEXEC));
+    if ((flags & ~cloexec_flag) != 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const fd = std.posix.epoll_create1(flags) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const handle = registerResourceLocked(.{ .owned_fd = .{ .fd = fd } }) catch |err| {
+        std.posix.close(fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_term_epoll_ctl(epoll_handle: u64, op: u32, target_handle: u64, events: u32, data: u64) i32 {
+    if (op != std.os.linux.EPOLL.CTL_ADD and op != std.os.linux.EPOLL.CTL_MOD and op != std.os.linux.EPOLL.CTL_DEL) {
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    }
+    if (op != std.os.linux.EPOLL.CTL_DEL and events == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const epoll_fd = handleToFd(epoll_handle) catch |err| return finishErr(err);
+    const target_fd = handleToFd(target_handle) catch |err| return finishErr(err);
+    var event: std.os.linux.epoll_event = .{
+        .events = events,
+        .data = .{ .u64 = data },
+    };
+    const event_ptr = if (op == std.os.linux.EPOLL.CTL_DEL) null else &event;
+    std.posix.epoll_ctl(epoll_fd, op, target_fd, event_ptr) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollEvent, max_events: u64, timeout_ms: i32, out_count: ?*u64) i32 {
+    const events_ptr = out_events orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    count_ptr.* = 0;
+    const event_count = lenAsUsize(max_events) catch |err| return finishErr(err);
+    if (event_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const epoll_fd = handleToFd(epoll_handle) catch |err| return finishErr(err);
+    const kernel_events = std.heap.page_allocator.alloc(std.os.linux.epoll_event, event_count) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(kernel_events);
+
+    const ready = std.posix.epoll_wait(epoll_fd, kernel_events, timeout_ms);
+    for (kernel_events[0..ready], 0..) |event, i| {
+        events_ptr[i] = .{
+            .events = event.events,
+            .data = event.data.u64,
+        };
+    }
+    count_ptr.* = @as(u64, @intCast(ready));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_term_epoll_close(handle: u64) i32 {
     return sa_std_close(handle);
 }
 

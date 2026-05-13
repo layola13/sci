@@ -445,13 +445,15 @@ sa/
 
 - [ ] 9. W10-11 内存解释器（`saasm run`）
 
-  - [ ] 9.1 大 switch 分派全部 `InstKind`
+  - [x] 9.1 大 switch 分派全部 `InstKind`
     - `call_indirect` 现在优先使用寄存器里携带的 vtable provenance；`demos/rosetta/07_trait_vtable/main.saasm` 已可在 `saasm run` 下打印 `77`
+    - 解释器分派和 `call_indirect` 路径已被 `tests/cli_smoke.zig` 的 `trait vtable demo runs through saasm run` 覆盖
     - _Requirements: R16.1_
 
-  - [ ] 9.2 `@sys_*` 原语原生实现
+  - [x] 9.2 `@sys_*` 原语原生实现
     - `@sys_print` / `@sys_read_file` / `@sys_write_file` / `@sys_exit` / `@sys_argv` / `@sys_argc`
     - 兼容 legacy `@sa_print_bytes`，`demos/rosetta/01_hello_world/main.saasm` 已可在 `saasm run` 下真实打印
+    - 新增 `demos/support/sys_runtime_probe.saasm`，覆盖 `saasm run` 下的 argv、文件读写、打印与退出路径
     - _Requirements: R16.1, R17.1–R17.5_
 
   - [ ] 9.3 气闸舱语义（Interp 模式）

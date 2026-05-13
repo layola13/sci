@@ -48,6 +48,22 @@ fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
 }
 
+fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []const u8) !void {
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const run_argv = [_][]const u8{ "saasm", "run", path, arg };
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    if (run_code != 0 or stderr_buf.items.len != 0 or !std.mem.eql(u8, stdout_buf.items, expected_stdout)) {
+        std.debug.print("demo run failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, stdout_buf.items, stderr_buf.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), run_code);
+    try std.testing.expectEqualStrings(expected_stdout, stdout_buf.items);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+}
+
 test "cli run/build-exe/build-wasm produce real artifacts" {
     const source =
         \\#loc "hello.rs":10:4
@@ -156,6 +172,56 @@ test "comparison alias demos run through saasm run" {
 
 test "struct demo runs through saasm run" {
     try assertRunStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
+}
+
+test "sys runtime demo prints and round-trips file contents" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/sys_runtime_probe.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try assertRunStdoutWithArg(source_path, "marker", "ok\n");
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "sys_runtime_probe.out" };
+    const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_code);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./sys_runtime_probe.out", "marker" });
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, exe_result.stdout, "ok\n") or exe_result.stderr.len != 0) {
+                std.debug.print("native demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("ok\n", exe_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
+
+    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", source_path, "-o", "sys_runtime_probe.wasm", "--target", "wasm32" };
+    const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+
+    const wasm_file = try tmp.dir.openFile("sys_runtime_probe.wasm", .{});
+    defer wasm_file.close();
+    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(wasm_bytes);
+    try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+
+    const file = try tmp.dir.openFile("sys_io.txt", .{}); 
+    defer file.close();
+    const contents = try file.readToEndAlloc(std.testing.allocator, 1024);
+    defer std.testing.allocator.free(contents);
+    try std.testing.expectEqualStrings("saasm", contents);
 }
 
 test "panic builtins terminate through the interpreter" {

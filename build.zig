@@ -128,6 +128,18 @@ pub fn build(b: *std.Build) void {
     run_sa_std_runtime.setCwd(repo_root);
     test_step.dependOn(&run_sa_std_runtime.step);
 
+    const sa_term_runtime_module = b.createModule(.{
+        .root_source_file = b.path("tests/sa_term_runtime.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const sa_term_runtime = b.addTest(.{
+        .root_module = sa_term_runtime_module,
+    });
+    const run_sa_term_runtime = b.addRunArtifact(sa_term_runtime);
+    run_sa_term_runtime.setCwd(repo_root);
+    test_step.dependOn(&run_sa_term_runtime.step);
+
     const smoke = b.addTest(.{
         .root_source_file = b.path("tests/smoke/whitepaper_lint.zig"),
         .target = target,

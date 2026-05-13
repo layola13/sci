@@ -1,0 +1,84 @@
+@const PATH = utf8:"sys_io.txt"
+@const PAYLOAD = utf8:"saasm"
+@const OK_MSG = utf8:"ok\n"
+@const FAIL_MSG = utf8:"fail\n"
+
+@ffi_wrapper probe() -> i32:
+L_ENTRY:
+    argc = call @sys_argc()
+    argc_ok = gt argc, 0
+    index = sub argc, 1
+    !argc
+    br argc_ok -> L_IO, L_FAIL
+
+L_FAIL:
+    !index
+    call @sys_print(*FAIL_MSG, 5)
+    call @sys_exit(1)
+    return 1
+
+L_IO:
+    arg0 = call @sys_argv(index)
+    ch = load arg0+0 as u8
+    marker_ok = eq ch, 109
+    !index
+    !ch
+    len_slot = stack_alloc 8
+    written = call @sys_write_file(*PATH, 10, *PAYLOAD, 5)
+    write_ok = eq written, 5
+    !written
+    read_buf = call @sys_read_file(*PATH, 10, *len_slot)
+    read_len = load len_slot+0 as u64
+    len_ok = eq read_len, 5
+    b0 = load read_buf+0 as u8
+    b1 = load read_buf+1 as u8
+    b2 = load read_buf+2 as u8
+    b3 = load read_buf+3 as u8
+    b4 = load read_buf+4 as u8
+    m0 = eq b0, 115
+    m1 = eq b1, 97
+    m2 = eq b2, 97
+    m3 = eq b3, 115
+    m4 = eq b4, 109
+    ok_a = and write_ok, len_ok
+    ok_b = and m0, m1
+    ok_c = and m2, m3
+    ok_d = and ok_b, ok_c
+    ok_e = and ok_d, m4
+    ok_io = and ok_a, ok_e
+    ok = and marker_ok, ok_io
+    !marker_ok
+    !read_len
+    !len_ok
+    !write_ok
+    !b0
+    !b1
+    !b2
+    !b3
+    !b4
+    !m0
+    !m1
+    !m2
+    !m3
+    !m4
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    !ok_e
+    !ok_io
+    br ok -> L_PASS, L_IO_FAIL
+
+L_PASS:
+    call @sys_print(*OK_MSG, 3)
+    call @sys_exit(0)
+    return 0
+
+L_IO_FAIL:
+    call @sys_print(*FAIL_MSG, 5)
+    call @sys_exit(1)
+    return 1
+
+@main() -> i32:
+    probe_result = call @probe()
+    return probe_result

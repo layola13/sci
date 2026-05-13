@@ -1,0 +1,10 @@
+// SA-facing contracts for terminal control and epoll-backed event loops.
+// Raw-mode sessions and epoll instances are opaque owned ptr values and must be closed explicitly.
+@extern sa_term_raw_enter(handle: ptr) -> ^ptr!
+@extern sa_term_raw_leave(^session: ptr) -> i32!
+@extern sa_term_winsize(handle: ptr, &out_size: ptr) -> i32!
+
+@extern sa_term_epoll_create(flags: u32) -> ^ptr!
+@extern sa_term_epoll_ctl(epoll: ptr, op: u32, target: ptr, events: u32, data: u64) -> i32!
+@extern sa_term_epoll_wait(epoll: ptr, &events: ptr, max_events: u64, timeout_ms: i32, &out_count: ptr) -> i32!
+@extern sa_term_epoll_close(^epoll: ptr) -> i32!
