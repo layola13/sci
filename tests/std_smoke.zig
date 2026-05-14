@@ -46,7 +46,8 @@ test "sa_std core primitives are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "ptr_add"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "br done -> L_END, L_BODY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "stack_alloc 8"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "remaining = add count, zero"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "store offset_slot+0, 0 as u64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "store remaining_slot+0, count as u64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "next_remaining = sub remaining, one"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, mem_src, 1, "inttoptr"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, mem_src, 1, "i = 0"));

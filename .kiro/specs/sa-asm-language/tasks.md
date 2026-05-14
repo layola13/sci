@@ -84,7 +84,7 @@ sa/
     - 参考 Zig 编译器的 `ErrorMsg` / `ErrorBundle` 组织方式，保留主消息 + note/hint 的结构化诊断能力
     - _Requirements: R9.3, R16.5, R18.5, R19.2_
 
-  - [ ] 2.6 `GasReport` / `FunctionSig` / `ParamSpec` / `UpstreamLoc`
+  - [x] 2.6 `GasReport` / `FunctionSig` / `ParamSpec` / `UpstreamLoc`
     - `FunctionSig` 含 `kind` / `is_ffi_wrapper` / `return_fallible` / `upstream_file`
     - _Requirements: R5.1, R5.3, R11.1, R13.4, R18.1_
 
@@ -581,6 +581,42 @@ sa/
     - 每类 ≥ 10 例：正常 / `DoubleMutableBorrow` / `UseAfterMove` / 借用期 Move / `MemoryLeak` / Phi 冲突 / 宏合法 / 宏递归 / 禁用语法 / 气闸舱违规 / FFI 借用销毁违规 / 早返回泄漏 / 原子 ordering
     - 第一批已完成 10 个最小可跑 `build-exe` 回归：`02_mutability` / `20_boxed_value` / `26_reference_return` / `27_move_semantics` / `28_borrow_chains` / `51_refcount` / `58_borrow_update` / `61_thread_pool` / `67_resource_pool` / `52_queue_rotate`
     - `tests/cli_smoke.zig` 新增 `assertBuildExeStdout`，固定验证以上 demo 均能编译并打印预期 stdout
+    - 第二批已补 11 个最小可跑 `build-exe` 回归：`03_if_else` / `05_struct` / `11_tuples` / `13_array_sum` / `15_string_bytes` / `16_methods` / `18_option_map` / `24_factorial` / `25_fibonacci` / `29_const_data` / `31_trait_static_dispatch`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述核心控制流与数据类 demo 均能真实编译、运行并打印 stdout
+    - 第三批已补 11 个已实测可跑 `build-exe` 回归：`12_destructuring` / `34_iterator_filter` / `35_iterator_fold` / `36_tuple_struct` / `40_impl_block_state` / `41_module_imports` / `42_export_visibility` / `45_config_merge` / `46_option_default` / `48_generic_pair` / `63_router_table`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述更多结构、导入、泛型与路由表 demo 均能真实编译、运行并打印 stdout
+    - 第四批已补 10 个已实测可跑 `build-exe` 回归：`08_closures` / `10_generics_monomorph` / `17_associated_fn` / `30_manual_guard_branch` / `33_iterator_map` / `37_newtype` / `38_generic_struct_i32` / `39_generic_enum_i32` / `59_method_counter` / `60_enum_branch`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述更多闭包、泛型、关联函数、手动守卫分支、迭代器、newtype 与枚举 demo 均能真实编译、运行并打印 stdout
+    - 第五批已补 10 个已实测可跑 `build-exe` 回归：`64_file_manifest` / `68_parser_tokens` / `69_serializer` / `70_integration_service` / `71_pipeline_stage` / `72_graph_walk` / `73_scene_nodes` / `74_component_store` / `77_http_route` / `78_cli_args`
+    - 第六批已补 9 个已实测可跑 `build-exe` 回归：`79_metrics` / `80_workflow` / `81_kv_store` / `82_sql_scan` / `83_blob_chunk` / `84_sync_gate` / `85_scheduler_tree` / `87_protocol_frame` / `88_text_index`
+    - `86_cache_eviction` 已实测可跑并纳入 `tests/cli_smoke.zig`；后续若再变更语义，以 smoke 为准重新验证
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述更多应用型、路由、序列化与工作流 demo 均能真实编译、运行并打印 stdout
+    - 第七批已补 18 个已实测可跑 `build-exe` 回归：`79_metrics` / `80_workflow` / `81_kv_store` / `82_sql_scan` / `83_blob_chunk` / `84_sync_gate` / `85_scheduler_tree` / `87_protocol_frame` / `88_text_index` / `89_job_queue` / `90_app_shell` / `91_db_session` / `92_query_plan` / `93_log_aggregator` / `96_task_orchestrator` / `97_sync_service` / `98_build_pipeline` / `99_release_bundle`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述更多任务队列、应用壳、数据库会话、查询计划、日志聚合、编排、同步、构建与发布 demo 均能真实编译、运行并打印 stdout
+    - 第八批已补 3 个已实测可跑 `build-exe` 回归：`94_graphql_router` / `95_repl_shell` / `100_full_app`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述查询路由、REPL 壳与完整应用 demo 均能真实编译、运行并打印 stdout
+    - 第九批已补 8 个已实测可跑 `build-exe` 回归：`55_builder_pattern` / `56_state_machine` / `57_event_loop` / `62_channel_pingpong` / `65_job_scheduler` / `66_actor_mailbox` / `75_async_bridge` / `76_lockfree_counter`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述构建器、状态机、事件循环、通道、调度器、actor、异步桥与无锁计数器 demo 均能真实编译、运行并打印 stdout
+    - 第十批已补 7 个已实测可跑 `build-exe` 回归：`14_slice_window` / `32_trait_object_vector` / `09_async_await` / `47_tuple_swap` / `94_graphql_router` / `95_repl_shell` / `100_full_app`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述切片窗口、trait 对象向量、异步、tuple 交换、查询路由、REPL 壳与完整应用 demo 均能真实编译、运行并打印 stdout
+    - 第十一批已补 1 个已修正并实测可跑的 `build-exe` 回归：`53_cache_hits`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证缓存命中 demo 也能真实编译、运行并打印 stdout
+    - 第十二批已补 3 个已修正并实测可跑的 `build-exe` 回归：`43_tagged_union` / `49_pipeline_map` / `86_cache_eviction`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述标签联合、流水线映射与缓存驱逐 demo 也能真实编译、运行并打印 stdout
+    - 第十三批已补 1 个已修正并实测可跑的 `build-exe` 回归：`06_enum_and_match`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证枚举与匹配 demo 也能真实编译、运行并打印 stdout
+    - 第十四批已补 2 个已修正并实测可跑的 `build-exe` 回归：`19_result_question` / `50_error_chain`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证 fallible / `?` demo 也能真实编译、运行并打印 stdout
+    - 第十五批已补 1 个已实测可跑的 `build-exe` 回归：`44_slice_iteration`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证 slice iteration demo 也能真实编译、运行并打印 stdout
+    - 第十六批已补 1 个已实测可跑的 `build-exe` 回归：`54_mem_fill`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证内存填充 demo 也能真实编译、运行并打印 stdout
+    - 第十七批已补 4 个已实测可跑的 `build-exe` 回归：`01_hello_world` / `04_loop` / `07_trait_vtable` / `21_while_loop`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述基础 hello / loop / trait vtable demo 也能真实编译、运行并打印 stdout
+    - 第十九批已补 2 个已实测可跑的 `build-exe` 回归：`22_break_continue` / `23_nested_loops`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述 break / nested loop demo 也能真实编译、运行并打印 stdout
+    - 第十八批已补 6 个已实测可跑的 `build-exe` 回归：`29_const_data` / `31_trait_static_dispatch` / `37_newtype` / `38_generic_struct_i32` / `39_generic_enum_i32` / `40_impl_block_state`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证上述基础数据、trait、newtype 与泛型 demo 也能真实编译、运行并打印 stdout
     - 第二批已补 9 个最小反例 `build-exe` 回归：`use_after_move` / `return_after_move` / `borrow_conflict` / `read_write_conflict` / `illegal_unsafe_context` / `stack_escape` / `const_mutation` / `early_return_leak` / `ffi_ownership_violation`
     - `tests/cli_smoke.zig` 新增 `assertBuildExeTrap`，固定验证上述反例均输出结构化 JSON trap
     - 新增 1 个宏合法最小回归：`macro_print`，用 `EXPAND PRINT_MSG RESULT, 9` 验证参数替换与 `@sys_print` 打印

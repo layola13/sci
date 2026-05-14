@@ -19,7 +19,6 @@ L_CIRCLE:
     area = mul radius_sq, 3
     !radius
     !radius_sq
-    !area
     !is_circle
     !tag
     !shape
@@ -29,7 +28,6 @@ L_SQUARE:
     side = load shape+Shape_payload as i32
     area = mul side, side
     !side
-    !area
     !is_circle
     !tag
     !shape

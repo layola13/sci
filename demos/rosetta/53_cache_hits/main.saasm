@@ -7,21 +7,21 @@
 #def Entry_key = +0
 #def Entry_value = +4
 
-@lookup(&entry: ptr) -> i32:
+@lookup(&cache_entry: ptr) -> i32:
 L_ENTRY:
-    value = load entry+Entry_value as i32
-    !entry
+    value = load cache_entry+Entry_value as i32
+    !cache_entry
     return value
 
 @main() -> i32:
 L_ENTRY:
-    entry = alloc Entry_SIZE
-    store entry+Entry_key, 0 as i32
-    store entry+Entry_value, 3 as i32
-    value = call @lookup(&entry)
+    cache_entry = alloc Entry_SIZE
+    store cache_entry+Entry_key, 0 as i32
+    store cache_entry+Entry_value, 3 as i32
+    value = call @lookup(&cache_entry)
     ok = eq value, 3
     !value
-    !entry
+    !cache_entry
     br ok -> L_OK, L_ERR
 
 L_OK:

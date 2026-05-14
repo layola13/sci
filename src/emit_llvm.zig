@@ -49,6 +49,9 @@ const PointerOrigin = struct {
     indirect_sig_index: ?usize = null,
 };
 
+const register_slot_bytes: u64 = 64;
+const register_slot_align: u32 = 16;
+
 const MemoryPtrMeta = struct {
     base_expr: []const u8,
     offset: u64,
@@ -70,17 +73,21 @@ const FunctionState = struct {
     sig: sig.FunctionSig,
     emitted_name: []const u8,
     regs: std.AutoHashMap(u32, Value),
+    reg_slots: []?[]const u8,
     owned: std.ArrayList([]const u8),
     memory_ptrs: std.ArrayList(MemoryPtrMeta),
     temp_index: usize = 0,
     block_open: bool = true,
     const_ref_names: std.StringHashMap(void),
 
-    fn init(allocator: std.mem.Allocator, sig_: sig.FunctionSig) FunctionState {
+    fn init(allocator: std.mem.Allocator, sig_: sig.FunctionSig, reg_count: usize) !FunctionState {
+        const reg_slots = try allocator.alloc(?[]const u8, reg_count);
+        @memset(reg_slots, null);
         return .{
             .sig = sig_,
             .emitted_name = emittedFunctionName(sig_),
             .regs = std.AutoHashMap(u32, Value).init(allocator),
+            .reg_slots = reg_slots,
             .owned = std.ArrayList([]const u8).init(allocator),
             .memory_ptrs = std.ArrayList(MemoryPtrMeta).init(allocator),
             .const_ref_names = std.StringHashMap(void).init(allocator),
@@ -91,6 +98,7 @@ const FunctionState = struct {
         self.regs.deinit();
         self.const_ref_names.deinit();
         self.memory_ptrs.deinit();
+        allocator.free(self.reg_slots);
         for (self.owned.items) |item| allocator.free(item);
         self.owned.deinit();
         self.* = undefined;
@@ -114,12 +122,29 @@ const FunctionState = struct {
         return name;
     }
 
-    fn setReg(self: *FunctionState, id: u32, value: Value) !void {
+    fn setReg(self: *FunctionState, allocator: std.mem.Allocator, out: ?*std.ArrayList(u8), id: u32, value: Value) !void {
         if (self.regs.getPtr(id)) |slot| {
             slot.* = value;
-            return;
+        } else {
+            try self.regs.put(id, value);
         }
-        try self.regs.put(id, value);
+        if (out) |stmt| {
+            const slot_name = try self.ensureSlot(allocator, stmt, id);
+            try stmt.writer().writeAll("  store ");
+            try writeValueType(stmt.writer(), value);
+            try stmt.writer().print(" {s}, ptr {s}, align {d}\n", .{ value.expr, slot_name, register_slot_align });
+        }
+    }
+
+    fn ensureSlot(self: *FunctionState, allocator: std.mem.Allocator, out: ?*std.ArrayList(u8), id: u32) ![]const u8 {
+        const idx: usize = @intCast(id);
+        if (self.reg_slots[idx]) |slot| return slot;
+        const slot = try self.ownFmt(allocator, "%slot_{d}", .{id});
+        self.reg_slots[idx] = slot;
+        if (out) |stmt| {
+            try stmt.writer().print("  {s} = alloca i8, i64 {d}, align {d}\n", .{ slot, register_slot_bytes, register_slot_align });
+        }
+        return slot;
     }
 
     fn getReg(self: *FunctionState, id: u32) ?Value {
@@ -189,6 +214,22 @@ const FunctionState = struct {
             }
         }
         return null;
+    }
+
+    fn reloadLiveRegs(self: *FunctionState, allocator: std.mem.Allocator, out: *std.ArrayList(u8), live_caps: []const u16) !void {
+        for (live_caps, 0..) |mask, idx| {
+            if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
+            const reg_id: u32 = @intCast(idx);
+            const value = self.getReg(reg_id) orelse continue;
+            const slot = self.reg_slots[idx] orelse return EmitError.InvalidOperand;
+            const tmp = try self.tempName(allocator);
+            try out.writer().print("  {s} = load ", .{tmp});
+            try writeValueType(out.writer(), value);
+            try out.writer().print(", ptr {s}, align {d}\n", .{ slot, register_slot_align });
+            var loaded = value;
+            loaded.expr = tmp;
+            try self.setReg(allocator, null, reg_id, loaded);
+        }
     }
 };
 
@@ -387,6 +428,10 @@ fn isFloatLike(ty: sig.PrimType) bool {
     return ty == .f32 or ty == .f64;
 }
 
+fn maskOf(tag: cap.CapabilityMask) u16 {
+    return @intFromEnum(tag);
+}
+
 const NumericKind = enum {
     signed,
     unsigned,
@@ -508,6 +553,16 @@ fn llvmAlign(ty: sig.PrimType) u32 {
         .i64, .u64, .f64, .ptr => 8,
         .v128 => 16,
     };
+}
+
+fn writeValueType(writer: anytype, value: Value) !void {
+    if (value.fallible) {
+        try writer.writeAll("{i32, ");
+        try writer.writeAll(llvmTypeName(value.ty));
+        try writer.writeAll("}");
+        return;
+    }
+    try writer.writeAll(llvmTypeName(value.ty));
 }
 
 fn sizePrimType(size_bits: u16) sig.PrimType {
@@ -1460,6 +1515,7 @@ fn emitInstruction(
                 try out.writer().print("  ; label dbg !{d}\n", .{id});
             }
             try out.writer().print("{s}:\n", .{label_name});
+            try state.reloadLiveRegs(allocator, out, item.entry_caps);
             state.block_open = true;
         },
         .alloc => {
@@ -1477,7 +1533,7 @@ fn emitInstruction(
                 try out.writer().print(", !dbg !{d}", .{id});
             }
             try out.appendSlice("\n");
-            try state.setReg(dst, .{ .expr = tmp, .ty = .ptr });
+            try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = .ptr });
         },
         .stack_alloc => {
             const dst = base.operands[0].reg;
@@ -1494,7 +1550,7 @@ fn emitInstruction(
                 try out.writer().print(", !dbg !{d}", .{id});
             }
             try out.appendSlice("\n");
-            try state.setReg(dst, .{ .expr = tmp, .ty = .ptr });
+            try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = .ptr });
         },
         .borrow => {
             const dst = base.operands[0].reg;
@@ -1502,7 +1558,7 @@ fn emitInstruction(
             const srcv = try valueFromRegOrConst(allocator, state, symbols, src);
             const ptrv = try castValue(allocator, out, state, srcv, .ptr);
             const mode = if (base.operands[2] == .text) base.operands[2].text else "";
-            try state.setReg(dst, .{
+            try state.setReg(allocator, out, dst, .{
                 .expr = ptrv.expr,
                 .ty = .ptr,
                 .interior_ptr = ptrv.interior_ptr,
@@ -1558,7 +1614,7 @@ fn emitInstruction(
                     loaded_interior_ptr = true;
                 }
             }
-            try state.setReg(dst, .{
+            try state.setReg(allocator, out, dst, .{
                 .expr = tmp,
                 .ty = ty,
                 .interior_ptr = loaded_interior_ptr,
@@ -1583,7 +1639,7 @@ fn emitInstruction(
             const ty = atomicValueType(base, .i64);
             const tmp = try state.tempName(allocator);
             try out.writer().print("  {s} = load atomic {s}, ptr {s} {s}, align {d}\n", .{ tmp, llvmTypeName(ty), gep, atomicOrderingName(base), llvmAlign(ty) });
-            try state.setReg(dst, .{ .expr = tmp, .ty = ty });
+            try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = ty });
         },
         .atomic_store => {
             const base_reg = base.operands[0].reg;
@@ -1635,8 +1691,8 @@ fn emitInstruction(
             try out.writer().print("  {s} = extractvalue ", .{ok_tmp});
             try writeCmpxchgResultType(out.writer(), ty);
             try out.writer().print(" {s}, 1\n", .{pair});
-            try state.setReg(dst, .{ .expr = old_tmp, .ty = ty });
-            try state.setReg(ok, .{ .expr = ok_tmp, .ty = .i1 });
+            try state.setReg(allocator, out, dst, .{ .expr = old_tmp, .ty = ty });
+            try state.setReg(allocator, out, ok, .{ .expr = ok_tmp, .ty = .i1 });
         },
         .atomic_rmw => {
             const dst = base.operands[0].reg;
@@ -1658,7 +1714,7 @@ fn emitInstruction(
             const tmp = try state.tempName(allocator);
             const op_name = atomic.rmwOpName(base.atomic_rmw_op orelse return EmitError.InvalidOperand);
             try out.writer().print("  {s} = atomicrmw {s} ptr {s}, {s} {s} {s}\n", .{ tmp, op_name, gep, llvmTypeName(ty), coerced.expr, atomicOrderingName(base) });
-            try state.setReg(dst, .{ .expr = tmp, .ty = ty });
+            try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = ty });
         },
         .fence => {
             try out.writer().print("  fence {s}\n", .{atomicOrderingName(base)});
@@ -1699,7 +1755,7 @@ fn emitInstruction(
                     if (lhs.ty == .ptr and rhs.ty == .ptr) return EmitError.UnsupportedType;
                     if (opcode == .sub and rhs.ty == .ptr) return EmitError.UnsupportedType;
                     const result = try emitPointerArithmetic(allocator, out, state, opcode, lhs, rhs);
-                    try state.setReg(dst, result);
+                    try state.setReg(allocator, out, dst, result);
                     return;
                 }
             }
@@ -1758,7 +1814,7 @@ fn emitInstruction(
                     try out.writer().print("  {s} = {s} {s} {s} {s}, {s}\n", .{ tmp, cmp_inst, cmp, llvmTypeName(target_ty), l.expr, r.expr });
                     const zext = try state.tempName(allocator);
                     try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
-                    try state.setReg(dst, .{ .expr = zext, .ty = .i64 });
+                    try state.setReg(allocator, out, dst, .{ .expr = zext, .ty = .i64 });
                     return;
                 },
                 .sgt, .slt, .sge, .sle => {
@@ -1767,7 +1823,7 @@ fn emitInstruction(
                     try out.writer().print("  {s} = icmp {s} {s} {s}, {s}\n", .{ tmp, cmp, llvmTypeName(target_ty), l.expr, r.expr });
                     const zext = try state.tempName(allocator);
                     try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
-                    try state.setReg(dst, .{ .expr = zext, .ty = .i64 });
+                    try state.setReg(allocator, out, dst, .{ .expr = zext, .ty = .i64 });
                     return;
                 },
                 .ugt, .ult, .uge, .ule => {
@@ -1776,11 +1832,11 @@ fn emitInstruction(
                     try out.writer().print("  {s} = icmp {s} {s} {s}, {s}\n", .{ tmp, cmp, llvmTypeName(target_ty), l.expr, r.expr });
                     const zext = try state.tempName(allocator);
                     try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
-                    try state.setReg(dst, .{ .expr = zext, .ty = .i64 });
+                    try state.setReg(allocator, out, dst, .{ .expr = zext, .ty = .i64 });
                     return;
                 },
             }
-            try state.setReg(dst, .{ .expr = tmp, .ty = target_ty });
+            try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = target_ty });
         },
         .ptr_add => {
             const dst = base.operands[0].reg;
@@ -1790,26 +1846,26 @@ fn emitInstruction(
             const offset = try valueFromOperand(allocator, state, symbols, base.operands[2]);
             const off = try castValue(allocator, out, state, offset, .i64);
             const result = try emitPointerArithmetic(allocator, out, state, .add, ptrv, off);
-            try state.setReg(dst, result);
+            try state.setReg(allocator, out, dst, result);
         },
         .raw_cast => {
             const dst = base.operands[0].reg;
             const src = base.operands[1].reg;
             const value = state.getReg(src) orelse return EmitError.InvalidOperand;
             const raw = try castValue(allocator, out, state, value, .i64);
-            try state.setReg(dst, raw);
+            try state.setReg(allocator, out, dst, raw);
         },
         .assume_safe, .assume_borrow => {
             const dst = base.operands[0].reg;
             const src = base.operands[1].reg;
             const value = state.getReg(src) orelse return EmitError.InvalidOperand;
             const ptrv = try castValue(allocator, out, state, value, .ptr);
-            try state.setReg(dst, ptrv);
+            try state.setReg(allocator, out, dst, ptrv);
         },
         .assign => {
             const dst = base.operands[0].reg;
             const value = try valueFromOperand(allocator, state, symbols, base.operands[1]);
-            try state.setReg(dst, value);
+            try state.setReg(allocator, out, dst, value);
         },
         .move_ => {},
         .release => {
@@ -1858,7 +1914,7 @@ fn emitInstruction(
             defer parsed.deinit(allocator);
             if (try emitCall(allocator, out, state, symbols, sigs, options, size_bits, parsed)) |ret| {
                 if (parsed.dest) |dest| {
-                    if (symbols.findId(dest)) |id| try state.setReg(id, ret);
+                    if (symbols.findId(dest)) |id| try state.setReg(allocator, out, id, ret);
                 }
             }
             state.block_open = base.kind != .panic and base.kind != .panic_msg;
@@ -1892,7 +1948,7 @@ fn emitInstruction(
             try out.writer().print("  {s} = extractvalue ", .{payload_tmp});
             try writeReturnAbiType(out.writer(), state.sig.return_cap, state.sig.return_ty, true);
             try out.writer().print(" {s}, 1\n", .{value.expr});
-            try state.setReg(dst, .{ .expr = payload_tmp, .ty = value.ty });
+            try state.setReg(allocator, out, dst, .{ .expr = payload_tmp, .ty = value.ty });
             state.block_open = true;
         },
         .return_ => {
@@ -1998,7 +2054,7 @@ fn emitUserFunctions(
                     continue;
                 }
 
-                current = FunctionState.init(allocator, fsig);
+                current = try FunctionState.init(allocator, fsig, verified.symbols.names.items.len);
                 for (verified.const_decls) |item_const| {
                     try current.?.setConstRef(item_const.name);
                 }
@@ -2024,7 +2080,7 @@ fn emitUserFunctions(
                         .borrow_view = param.cap == .borrow,
                         .ffi_borrow = param.cap == .raw,
                     };
-                    try current.?.setReg(reg_id, value);
+                    try current.?.setReg(allocator, out, reg_id, value);
                 }
                 continue;
             },

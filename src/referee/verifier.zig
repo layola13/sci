@@ -383,6 +383,27 @@ fn statesCompatibleForJoin(lhs: []const u16, rhs: []const u16) bool {
     return true;
 }
 
+const StateMismatch = struct {
+    name: []const u8,
+    expected: u16,
+    actual: u16,
+};
+
+fn firstStateMismatch(lhs: []const u16, rhs: []const u16, symbols: *const symbol.SymbolTable) ?StateMismatch {
+    if (lhs.len != rhs.len) return null;
+    for (lhs, rhs, 0..) |left, right, idx| {
+        if (left == right) continue;
+        if ((left == 0 and right == maskOf(.consumed)) or (right == 0 and left == maskOf(.consumed))) continue;
+        const name = symbols.lookupName(@intCast(idx)) orelse continue;
+        return .{
+            .name = name,
+            .expected = right,
+            .actual = left,
+        };
+    }
+    return null;
+}
+
 fn mergeJoinMask(left: u16, right: u16) ?u16 {
     if (left == right) return left;
     if ((left == 0 and right == maskOf(.consumed)) or (right == 0 and left == maskOf(.consumed))) {
@@ -558,6 +579,22 @@ fn trapReport(
     }
 
     return .{ .trap = report };
+}
+
+fn trapReportWithRegisters(
+    kind: trap.Trap,
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    register: ?[]const u8,
+    registers: []const []const u8,
+    expected_mask: ?u16,
+    actual_mask: ?u16,
+    message: []const u8,
+    hint: ?[]const u8,
+) VerifyResult {
+    _ = registers;
+    return trapReport(kind, item, function_text, is_ffi_wrapper, register, expected_mask, actual_mask, message, hint);
 }
 
 fn trapReportFromText(
@@ -1254,6 +1291,7 @@ pub fn verify(
             current_function_text = item.raw_text;
             current_is_ffi_wrapper = item.kind == .ffi_wrapper_decl;
             terminated = false;
+            fatal_terminated = false;
             body_seen = false;
             resetLabels(allocator, &labels);
 
@@ -1581,11 +1619,13 @@ pub fn verify(
                 if (labels.getPtr(target)) |entry| {
                     if (defined_labels.contains(target)) {
                         if (!statesCompatibleForJoin(entry.*, state)) {
-                            return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                            const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                            return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     } else {
                         if (!mergeJoinStates(entry.*, state)) {
-                            return trapReport(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, null, null, null, "incoming control-flow states do not agree", null);
+                            const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                            return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     }
                 } else {
@@ -1780,6 +1820,7 @@ pub fn verify(
                     if (idx == src_idx) continue;
                     if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
                     if ((mask & maskOf(.active)) == 0 and (mask & maskOf(.locked_read)) == 0 and (mask & maskOf(.locked_mut)) == 0) continue;
+                    if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
                     if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
                     return trapReport(.early_return_leak, item, current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(src_id), maskOf(.fallible), src_mask, "early return would leak live registers", null);
                 }
@@ -2023,6 +2064,73 @@ test "panic_msg is treated as a terminator" {
             try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "panic does not leak termination state into the next function" {
+    const source =
+        \\@first() -> i32:
+        \\L_ENTRY:
+        \\panic(7)
+        \\@second() -> i32:
+        \\L_ENTRY:
+        \\return 0
+    ;
+
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s} line={} source_line={} source={s}\n", .{
+                @tagName(report.trap),
+                report.message,
+                report.line,
+                report.source_line,
+                report.source_text orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "early return ignores immutable const data while checking for leaks" {
+    const source =
+        \\@const MSG = utf8:"ok\n"
+        \\@fail() -> i32!:
+        \\return 7
+        \\@main() -> i32!:
+        \\res = call @fail()
+        \\value = ? res
+        \\return value
+    ;
+
+    var flat = try @import("../flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s} line={} source_line={} source={s}\n", .{
+                @tagName(report.trap),
+                report.message,
+                report.line,
+                report.source_line,
+                report.source_text orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
     }
 }
 

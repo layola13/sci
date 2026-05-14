@@ -2,24 +2,18 @@
 L_ENTRY:
     zero_slot = stack_alloc 8
     one_slot = stack_alloc 8
+    offset_slot = stack_alloc 8
+    remaining_slot = stack_alloc 8
     store zero_slot+0, 0 as i64
     zero = load zero_slot+0 as i64
     store one_slot+0, 1 as i64
     one = load one_slot+0 as i64
-    remaining = add count, zero
-    offset = add zero, zero
-    src_ip = ptr_add src, zero
-    dst_ip = ptr_add dst, zero
-    byte = load zero_slot+0 as u8
-    next_offset = add zero, zero
-    next_remaining = add remaining, zero
-    !src_ip
-    !dst_ip
-    !byte
-    !next_offset
-    !next_remaining
+    store offset_slot+0, 0 as u64
+    store remaining_slot+0, count as u64
     jmp L_LOOP
 L_LOOP:
+    offset = load offset_slot+0 as u64
+    remaining = load remaining_slot+0 as u64
     done = eq remaining, zero
     br done -> L_END, L_BODY
 L_BODY:
@@ -35,8 +29,8 @@ L_BODY:
     !offset
     !remaining
     !done
-    offset = add next_offset, zero
-    remaining = add next_remaining, zero
+    store offset_slot+0, next_offset as u64
+    store remaining_slot+0, next_remaining as u64
     !next_offset
     !next_remaining
     jmp L_LOOP
@@ -55,20 +49,18 @@ L_END:
 L_ENTRY:
     zero_slot = stack_alloc 8
     one_slot = stack_alloc 8
+    offset_slot = stack_alloc 8
+    remaining_slot = stack_alloc 8
     store zero_slot+0, 0 as i64
     zero = load zero_slot+0 as i64
     store one_slot+0, 1 as i64
     one = load one_slot+0 as i64
-    remaining = add count, zero
-    offset = add zero, zero
-    dst_ip = ptr_add dst, zero
-    next_offset = add zero, zero
-    next_remaining = add remaining, zero
-    !dst_ip
-    !next_offset
-    !next_remaining
+    store offset_slot+0, 0 as u64
+    store remaining_slot+0, count as u64
     jmp L_LOOP
 L_LOOP:
+    offset = load offset_slot+0 as u64
+    remaining = load remaining_slot+0 as u64
     done = eq remaining, zero
     br done -> L_END, L_BODY
 L_BODY:
@@ -80,8 +72,8 @@ L_BODY:
     !offset
     !remaining
     !done
-    offset = add next_offset, zero
-    remaining = add next_remaining, zero
+    store offset_slot+0, next_offset as u64
+    store remaining_slot+0, next_remaining as u64
     !next_offset
     !next_remaining
     jmp L_LOOP

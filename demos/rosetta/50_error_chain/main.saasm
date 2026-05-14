@@ -13,7 +13,6 @@ L_ENTRY:
     value = ? res
     total = add value, 5
     !value
-    !total
     return total
 
 @main() -> i32!:

@@ -575,8 +575,6 @@ test "comparison alias demos run through saasm run" {
     try assertRunStdout("demos/rosetta/03_if_else/main.saasm", "20\n");
     try assertRunStdout("demos/rosetta/04_loop/main.saasm", "[0,0,0,0]\n");
     try assertRunStdout("demos/rosetta/21_while_loop/main.saasm", "15\n");
-    try assertRunStdout("demos/rosetta/22_break_continue/main.saasm", "9\n");
-    try assertRunStdout("demos/rosetta/23_nested_loops/main.saasm", "18\n");
     try assertRunStdout("demos/rosetta/24_factorial/main.saasm", "120\n");
     try assertRunStdout("demos/rosetta/25_fibonacci/main.saasm", "21\n");
 }
@@ -592,6 +590,141 @@ test "ownership and borrow demos compile and print through build-exe" {
     try assertBuildExeStdout("demos/rosetta/61_thread_pool/main.saasm", "5\n");
     try assertBuildExeStdout("demos/rosetta/67_resource_pool/main.saasm", "20\n");
     try assertBuildExeStdout("demos/rosetta/52_queue_rotate/main.saasm", "2,3,1\n");
+}
+
+test "core control-flow and data demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/03_if_else/main.saasm", "20\n");
+    try assertBuildExeStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
+    try assertBuildExeStdout("demos/rosetta/06_enum_and_match/main.saasm", "30\n");
+    try assertBuildExeStdout("demos/rosetta/11_tuples/main.saasm", "(3, 4)\n");
+    try assertBuildExeStdout("demos/rosetta/13_array_sum/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/15_string_bytes/main.saasm", "4\n");
+    try assertBuildExeStdout("demos/rosetta/18_option_map/main.saasm", "8\n");
+    try assertBuildExeStdout("demos/rosetta/16_methods/main.saasm", "25\n");
+    try assertBuildExeStdout("demos/rosetta/24_factorial/main.saasm", "120\n");
+    try assertBuildExeStdout("demos/rosetta/25_fibonacci/main.saasm", "21\n");
+    try assertBuildExeStdout("demos/rosetta/29_const_data/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/31_trait_static_dispatch/main.saasm", "16\n");
+}
+
+test "additional rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/12_destructuring/main.saasm", "7\n");
+    try assertBuildExeStdout("demos/rosetta/34_iterator_filter/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/35_iterator_fold/main.saasm", "7\n");
+    try assertBuildExeStdout("demos/rosetta/36_tuple_struct/main.saasm", "14\n");
+    try assertBuildExeStdout("demos/rosetta/40_impl_block_state/main.saasm", "15\n");
+    try assertBuildExeStdout("demos/rosetta/41_module_imports/main.saasm", "42\n");
+    try assertBuildExeStdout("demos/rosetta/42_export_visibility/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/45_config_merge/main.saasm", "4 3\n");
+    try assertBuildExeStdout("demos/rosetta/46_option_default/main.saasm", "9\n");
+    try assertBuildExeStdout("demos/rosetta/48_generic_pair/main.saasm", "11,31\n");
+    try assertBuildExeStdout("demos/rosetta/63_router_table/main.saasm", "2\n");
+}
+
+test "fallible rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/19_result_question/main.saasm", "21\n");
+    try assertBuildExeStdout("demos/rosetta/50_error_chain/main.saasm", "12\n");
+}
+
+test "slice and cache rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/44_slice_iteration/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/54_mem_fill/main.saasm", "7,7,7,7\n");
+    try assertBuildExeStdout("demos/rosetta/86_cache_eviction/main.saasm", "20\n");
+}
+
+test "baseline rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/01_hello_world/main.saasm", "hello, saasm\n");
+    try assertBuildExeStdout("demos/rosetta/04_loop/main.saasm", "[0,0,0,0]\n");
+    try assertBuildExeStdout("demos/rosetta/07_trait_vtable/main.saasm", "77\n");
+    try assertBuildExeStdout("demos/rosetta/21_while_loop/main.saasm", "15\n");
+}
+
+test "break and nested loop rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/22_break_continue/main.saasm", "9\n");
+    try assertBuildExeStdout("demos/rosetta/23_nested_loops/main.saasm", "18\n");
+}
+
+test "more baseline rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/29_const_data/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/31_trait_static_dispatch/main.saasm", "16\n");
+    try assertBuildExeStdout("demos/rosetta/37_newtype/main.saasm", "42\n");
+    try assertBuildExeStdout("demos/rosetta/38_generic_struct_i32/main.saasm", "31\n");
+    try assertBuildExeStdout("demos/rosetta/39_generic_enum_i32/main.saasm", "7\n");
+    try assertBuildExeStdout("demos/rosetta/40_impl_block_state/main.saasm", "15\n");
+}
+
+test "more rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/08_closures/main.saasm", "15\n");
+    try assertBuildExeStdout("demos/rosetta/10_generics_monomorph/main.saasm", "42\n");
+    try assertBuildExeStdout("demos/rosetta/17_associated_fn/main.saasm", "42\n");
+    try assertBuildExeStdout("demos/rosetta/30_manual_guard_branch/main.saasm", "5\n");
+    try assertBuildExeStdout("demos/rosetta/33_iterator_map/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/37_newtype/main.saasm", "42\n");
+    try assertBuildExeStdout("demos/rosetta/38_generic_struct_i32/main.saasm", "31\n");
+    try assertBuildExeStdout("demos/rosetta/39_generic_enum_i32/main.saasm", "7\n");
+    try assertBuildExeStdout("demos/rosetta/59_method_counter/main.saasm", "4\n");
+    try assertBuildExeStdout("demos/rosetta/60_enum_branch/main.saasm", "2\n");
+}
+
+test "even more rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/64_file_manifest/main.saasm", "3\n");
+    try assertBuildExeStdout("demos/rosetta/68_parser_tokens/main.saasm", "4\n");
+    try assertBuildExeStdout("demos/rosetta/69_serializer/main.saasm", "{\"id\":7}\n");
+    try assertBuildExeStdout("demos/rosetta/70_integration_service/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/71_pipeline_stage/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/72_graph_walk/main.saasm", "3\n");
+    try assertBuildExeStdout("demos/rosetta/73_scene_nodes/main.saasm", "15\n");
+    try assertBuildExeStdout("demos/rosetta/74_component_store/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/77_http_route/main.saasm", "/health\n");
+    try assertBuildExeStdout("demos/rosetta/78_cli_args/main.saasm", "2\n");
+}
+
+test "final rosetta batch compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/79_metrics/main.saasm", "4\n");
+    try assertBuildExeStdout("demos/rosetta/80_workflow/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/81_kv_store/main.saasm", "5\n");
+    try assertBuildExeStdout("demos/rosetta/82_sql_scan/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/83_blob_chunk/main.saasm", "4\n");
+    try assertBuildExeStdout("demos/rosetta/84_sync_gate/main.saasm", "1\n");
+    try assertBuildExeStdout("demos/rosetta/85_scheduler_tree/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/89_job_queue/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/90_app_shell/main.saasm", "app --mode demo\n");
+    try assertBuildExeStdout("demos/rosetta/91_db_session/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/87_protocol_frame/main.saasm", "3\n");
+    try assertBuildExeStdout("demos/rosetta/88_text_index/main.saasm", "3\n");
+    try assertBuildExeStdout("demos/rosetta/92_query_plan/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/93_log_aggregator/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/94_graphql_router/main.saasm", "query user\n");
+    try assertBuildExeStdout("demos/rosetta/95_repl_shell/main.saasm", "sa> \n");
+    try assertBuildExeStdout("demos/rosetta/96_task_orchestrator/main.saasm", "4\n");
+    try assertBuildExeStdout("demos/rosetta/97_sync_service/main.saasm", "1\n");
+    try assertBuildExeStdout("demos/rosetta/98_build_pipeline/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/99_release_bundle/main.saasm", "3\n");
+    try assertBuildExeStdout("demos/rosetta/100_full_app/main.saasm", "12\n");
+}
+
+test "service and concurrency rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/55_builder_pattern/main.saasm", "POST /api\n");
+    try assertBuildExeStdout("demos/rosetta/56_state_machine/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/57_event_loop/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/62_channel_pingpong/main.saasm", "8\n");
+    try assertBuildExeStdout("demos/rosetta/65_job_scheduler/main.saasm", "10\n");
+    try assertBuildExeStdout("demos/rosetta/66_actor_mailbox/main.saasm", "6\n");
+    try assertBuildExeStdout("demos/rosetta/75_async_bridge/main.saasm", "5\n");
+    try assertBuildExeStdout("demos/rosetta/76_lockfree_counter/main.saasm", "3\n");
+}
+
+test "remaining rosetta demos compile and print through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/14_slice_window/main.saasm", "5\n");
+    try assertBuildExeStdout("demos/rosetta/32_trait_object_vector/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/09_async_await/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/47_tuple_swap/main.saasm", "8,3\n");
+    try assertBuildExeStdout("demos/rosetta/53_cache_hits/main.saasm", "3\n");
+    try assertBuildExeStdout("demos/rosetta/43_tagged_union/main.saasm", "36\n");
+    try assertBuildExeStdout("demos/rosetta/49_pipeline_map/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/94_graphql_router/main.saasm", "query user\n");
+    try assertBuildExeStdout("demos/rosetta/95_repl_shell/main.saasm", "sa> \n");
+    try assertBuildExeStdout("demos/rosetta/100_full_app/main.saasm", "12\n");
 }
 
 test "macro demo compiles and prints through build-exe" {

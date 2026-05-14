@@ -20,7 +20,6 @@ L_ENTRY:
     !second
     !third
     !total
-    !total2
     return total2
 
 @main() -> i32:

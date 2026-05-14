@@ -9,7 +9,6 @@ L_ENTRY:
     !first
     !second
     !third
-    !next
     return next
 
 @main() -> i32:

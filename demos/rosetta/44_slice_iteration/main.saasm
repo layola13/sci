@@ -9,36 +9,43 @@
 L_ENTRY:
     EXPAND SLICE_GET_PTR data, slice
     len = load slice+Slice_len as u64
-    zero = add 0, 0
-    idx = add zero, zero
-    total = add zero, zero
-    !data
+    idx_slot = stack_alloc 8
+    total_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    store total_slot+0, 0 as i64
     jmp L_LOOP
 
 L_LOOP:
+    idx = load idx_slot+0 as u64
+    total = load total_slot+0 as i64
     done = eq idx, len
     br done -> L_END, L_BODY
 
 L_BODY:
-    ip = ptr_add data, idx
+    offset = mul idx, 4
+    ip = ptr_add data, offset
     value = load ip+0 as i32
-    total = add total, value
+    total_next = add total, value
     next_idx = add idx, 1
     !ip
     !value
     !idx
-    idx = add next_idx, zero
+    !offset
+    !total
+    !done
+    store idx_slot+0, next_idx as u64
+    store total_slot+0, total_next as i64
     !next_idx
+    !total_next
     jmp L_LOOP
 
 L_END:
     !done
     !len
-    !idx
-    !total
-    !zero
+    !data
     !slice
-    return total
+    result = load total_slot+0 as i64
+    return result
 
 @main() -> i32:
 L_ENTRY:

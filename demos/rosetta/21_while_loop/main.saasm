@@ -5,12 +5,18 @@
 
 @main() -> i32:
 L_ENTRY:
-    i = 1
-    sum = 0
+    i_slot = stack_alloc 8
+    sum_slot = stack_alloc 8
+    more_slot = stack_alloc 8
+    store i_slot+0, 1 as i64
+    store sum_slot+0, 0 as i64
     jmp L_COND
 
 L_COND:
+    i = load i_slot+0 as i64
+    sum = load sum_slot+0 as i64
     more = sle i, 5
+    store more_slot+0, more as i64
     br more -> L_BODY, L_END
 
 L_BODY:
@@ -19,8 +25,10 @@ L_BODY:
     !sum
     !i
     !more
-    sum = sum_next
-    i = i_next
+    store sum_slot+0, sum_next as i64
+    store i_slot+0, i_next as i64
+    !sum_next
+    !i_next
     jmp L_COND
 
 L_END:
