@@ -2562,6 +2562,46 @@ test "llvm emitter maps take to gep plus ptr load" {
     }
 }
 
+test "llvm emitter PBT lowers index access through mul gep and load" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_8808);
+    const random = prng.random();
+    const scale_choices = [_]u64{ 1, 2, 4, 8 };
+
+    for (0..24) |iter| {
+        _ = iter;
+        const index = random.intRangeAtMost(u64, 0, 7);
+        const scale = scale_choices[random.intRangeLessThan(usize, 0, scale_choices.len)];
+        const value: i32 = @intCast(random.intRangeAtMost(u16, 0, 1024));
+
+        const source = try std.fmt.allocPrint(std.testing.allocator,
+            \\@main() -> i32:
+            \\base = alloc 128
+            \\idx_slot = stack_alloc 8
+            \\store idx_slot+0, {d} as u64
+            \\idx = load idx_slot+0 as u64
+            \\offset = mul idx, {d}
+            \\ip = ptr_add base, offset
+            \\store ip+0, {d} as i32
+            \\result = load ip+0 as i32
+            \\!ip
+            \\!offset
+            \\!idx
+            \\!base
+            \\return result
+        , .{ index, scale, value });
+        defer std.testing.allocator.free(source);
+
+        const text = try emitTestSource(source);
+        defer std.testing.allocator.free(text);
+
+        const body = try functionBody(text, "define i32 @saasm_main()");
+        try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "mul i64"));
+        try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "getelementptr i8, ptr"));
+        try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "load i64, ptr"));
+        try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "load i32, ptr"));
+    }
+}
+
 test "llvm emitter declares externs and preserves exported names" {
     const source =
         \\@extern ext_add(lhs: i32, rhs: i32) -> i32

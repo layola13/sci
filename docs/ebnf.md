@@ -1,85 +1,65 @@
 # SA-ASM EBNF
 
-This grammar reflects the current repository surface. The v0.1 implementation is
-line-oriented, does not build an AST, and now includes `stack_alloc`, `?` early
-return, `panic_msg`, and atomic forms. `@const` and `ptr_add` remain outside the
-current parser surface.
+This document mirrors design appendix C and acts as the canonical syntax
+reference for the current SA-ASM contract.
 
 ```ebnf
-program        = { line } ;
-line           = blank | comment | def | macro_start | macro_end | rep_start | rep_end | expand | func_decl | ffi_decl | extern_decl | export_decl | label | inst | native ;
-
-blank          = "" ;
-comment        = "//" { any } ;
-def            = "#def" ident "=" expr ;
-
-macro_start    = "[MACRO]" ident [ param_list ] ;
-macro_end      = "[END_MACRO]" ;
-rep_start      = "[REP" integer "]" ;
-rep_end        = "[END_REP]" ;
-expand         = "EXPAND" ident [ arg_list ] ;
-
-func_decl      = "@" ident "(" [ params ] ")" [ "->" type ] ":" ;
-ffi_decl       = "@ffi_wrapper" ident "(" [ params ] ")" [ "->" type ] ":" ;
-extern_decl    = "@extern" ident "(" [ params ] ")" [ "->" type ] ;
-export_decl    = "@export" ident "(" [ params ] ")" [ "->" type ] ":" ;
-
-label          = ident ":" ;
-native         = "$" { any } "$" ;
-
-inst           =
-    alloc | stack_alloc | load | store | take | borrow | move | release |
-    op | jmp | br | br_null | call | call_indirect | try_ | early_return |
-    panic | panic_msg | atomic_load | atomic_store | cmpxchg | atomic_rmw |
-    fence | raw_cast | assume_safe | assume_borrow ;
-
-alloc          = ident "=" "alloc" expr ;
-stack_alloc    = ident "=" "stack_alloc" expr ;
-load           = ident "=" "load" ident "+" expr [ "as" type ] ;
-store          = "store" ident "+" expr "," operand [ "as" type ] ;
-take           = ident "=" "take" ident "+" expr [ "as" type ] ;
-borrow         = ident "=" "&" [ "mut" ] ident ;
-move           = "^" ident ;
-release        = "!" ident ;
-op             = ident "=" opcode operand "," operand ;
-jmp            = "jmp" ident ;
-br             = "br" operand "->" ident "," ident ;
-br_null        = "br_null" ident "->" ident "," ident ;
-call           = [ ident "=" ] "call" [ "@" ] ident "(" [ arg_list ] ")" ;
-call_indirect  = [ ident "=" ] "call_indirect" ident "(" [ arg_list ] ")" ;
-try_           = ident "=" "?" ident ;
-early_return   = ident "=" "?" ident ;
-panic          = "panic" "(" operand ")" ;
-panic_msg      = "panic_msg" "(" operand "," operand "," operand ")" ;
-atomic_load    = ident "=" "atomic_load" ident "+" expr [ "as" type ] [ ordering ] ;
-atomic_store   = "atomic_store" ident "+" expr "," operand [ "as" type ] [ ordering ] ;
-cmpxchg        = ident "," ident "=" "cmpxchg" ident "+" expr "," operand "," operand [ "as" type ] [ ordering ] [ ordering ] ;
-atomic_rmw     = ident "=" "atomic_rmw_" rmw_op ident "+" expr "," operand [ "as" type ] [ ordering ] ;
-fence          = "fence" [ ordering ] ;
-raw_cast       = ident "=" "*" ident ;
-assume_safe    = ident "=" "assume_safe" ident ;
-assume_borrow  = ident "=" "assume_borrow" ident [ "," "mut" ] ;
-
-param_list     = param { "," param } ;
-params         = param { "," param } ;
-param          = [ "&" | "^" | "*" ] ident ":" type ;
-arg_list       = arg { "," arg } ;
-arg            = [ "&" | "^" | "*" ] operand ;
-operand        = ident | literal ;
-
-type           = "void" | "i1" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "f32" | "f64" | "ptr" ;
-opcode         = "add" | "sub" | "mul" | "div" | "gt" | "lt" | "eq" | "ne" | "and" | "or" | "shl" | "shr" ;
-rmw_op         = "add" | "sub" | "and" | "or" | "xor" | "xchg" | "min" | "max" | "smin" | "smax" | "umin" | "umax" ;
-ordering       = "relaxed" | "acquire" | "release" | "acq_rel" | "seq_cst" ;
-expr           = { any } ;
-literal        = { any-but-whitespace } ;
-ident          = letter { letter | digit | "_" } ;
-integer        = digit { digit } ;
+program        = { toplevel } ;
+toplevel       = def | loc | macro_def | func_def | ffi_wrapper_def | extern_decl | export_def ;
+def            = "#def" IDENT "=" LITERAL ;
+loc            = "#loc" STRING ":" NUMBER ":" NUMBER ;
+func_def       = "@" IDENT "(" [ param_list ] ")" [ "->" [ "^" ] type [ "!" ] ] ":" { line } ;
+ffi_wrapper_def= "@ffi_wrapper" IDENT "(" [ param_list ] ")" [ "->" type [ "!" ] ] ":" { line } ;
+extern_decl    = "@extern" IDENT "(" [ param_list ] ")" [ "->" type ] ;
+export_def     = "@export" IDENT "(" [ param_list ] ")" [ "->" type [ "!" ] ] ":" { line } ;
+param          = [ "&" | "^" | "*" ] IDENT [ ":" type ] ;
+type           = "i8"|...|"u64"|"f32"|"f64"|"ptr"|"v128" ;
+line           = label | inst | native ;
+inst           = alloc | load | store | op | jmp | br | call | return | take
+               | release | move | borrow | rawcast | assume_safe | assume_borrow
+               | atomic_load | atomic_store | cmpxchg | fence | try_op | panic_op ;
+try_op         = IDENT "=" "?" IDENT ;
+panic_op       = "panic" "(" LITERAL ")" ;
+atomic_load    = IDENT "=" "atomic_load" IDENT "+" LITERAL [ AtomicOrd ] ;
+atomic_store   = "atomic_store" IDENT "+" LITERAL "," operand [ AtomicOrd ] ;
+cmpxchg        = IDENT "=" "cmpxchg" IDENT "+" LITERAL "," operand "," operand [ AtomicOrd ] ;
+fence          = "fence" [ AtomicOrd ] ;
+AtomicOrd      = "relaxed" | "acquire" | "release" | "acq_rel" | "seq_cst" ;
+rawcast        = IDENT "=" "*" IDENT ;
+assume_safe    = IDENT "=" "assume_safe" IDENT ;
+assume_borrow  = IDENT "=" "assume_borrow" IDENT [ "," "mut" ] ;
 ```
 
-Notes:
+---
 
-- The parser is intentionally line-oriented and does not build an AST.
-- `build-exe` and `build-wasm` reuse the Zig-backed LLVM path in v0.1.
-- `@const`, `ptr_add`, `#mode compact`, and the post-v0.1 WASM emitter remain
-  deferred.
+## 12. 附录 D：Capability Mask 真值表（扩展版）
+
+旧版真值表全部保留，新增气闸舱行（见前版）与 Fallible 行：
+
+| 当前 mask | 操作 | 合法? | 新 mask | Trap |
+|---|---|---|---|---|
+| `0x80` (Fallible) | `?` 展平后 | ✅ | 提取后的 value → `0x01`；status 路径走 early return | — |
+| `0x01`（非 Fallible） | `?` | ❌ | — | `FallibleContractMismatch` |
+| 原子指令同地址冲突 ordering | RMW | ❌ | — | `AtomicOrderingMismatch` |
+| 其余见旧版 | — | — | — | — |
+
+---
+
+## 13. 附录 E：关键设计决策（校准版）
+
+| 决策 | 旧版 | 本版 | 理由 |
+|---|---|---|---|
+| 后端中继 | Zig 源码 | LLVM IR + WASM 直出 | 跳过 Zig 前端，白嫖 O3 |
+| 编译速度叙事 | "物理极限" | MVP 默认 O1；O3 只是选项 | LLVM O3 仍是秒级瓶颈，诚实 |
+| Referee LOC | ≤ 1500 | ≤ 2500 MVP / 1500 stretch | 加入气闸舱 + Phi + 原子 + 错误传播后 1500 不现实 |
+| AutoBevy 1M ±30% | MVP 硬指标 | post-MVP stretch | 依赖 SIMD + 并行调度，12 周难达成 |
+| LLM 零训练 80% | KPI | Pilot 实测 baseline | 无证据时不预设数字 |
+| 调试信息 | 未提 | `#loc` + DWARF + `-g` | 生产语言硬需求 |
+| 错误传播 | 未提 | `!` 后缀 + `?` + `panic` | 避免每个前端各造一套返回协议 |
+| SIMD/浮点/原子 ISA | 未定义 | 首轮就定义 | AutoBevy 等场景必备 |
+| 前端合约 | 隐含 | R20 显式合约 + `libsa_scope` helper | 避免"机械映射"误导，划清责任 |
+| 名称 | SA-ASM | SA | 命名简化 |
+
+---
+
+**文档终态**：本设计覆盖需求文档 33 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6）的全部契约，含 **32+ 条形式化 Property**、5 层测试策略、完整的 LLVM IR / WASM 映射表、气闸舱隔离、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 包管理 + 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化。

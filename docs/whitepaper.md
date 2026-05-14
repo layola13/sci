@@ -72,6 +72,12 @@ The repository checks in `artifacts/sa_std/libsa_std.a`. Rebuild it with `zig bu
 - `call @func(args)` / `call_indirect func_ptr(args)`
 - `return [reg]`
 
+## Control Flow and Phi
+
+- SA keeps control flow flat: every block ends with `jmp`, `br`, `br_null`, or `return`.
+- Phi consistency is a frontend responsibility. If two incoming edges disagree on a register's capability mask, the frontend must repair the flow before emitting the join label.
+- `libsa_scope` is the optional helper for generating the explicit `!reg` cleanup text needed at scope exits and join points.
+
 ### Error Propagation
 - `v = ? res` — early return if `res.status != 0` (Flattener expands to `br + return`)
 - `panic(code)` — unrecoverable termination
@@ -149,6 +155,21 @@ No type annotation. Byte length inferred from literal. Roadmap feature: immutabl
 - FFI memory enters sandbox via `assume_borrow` only (no ownership transfer into sandbox).
 - Handle/ID pattern for long-lived host objects.
 - `@extern` declares C-ABI symbols; `@export` exposes C-ABI symbols without name mangling.
+
+## Build Modes
+
+- `saasm build-exe` and `saasm build-wasm` default to `--release`; all ownership checks are complete at compile time, so release artifacts carry no Referee runtime.
+- `-g` enables DWARF and upstream source mapping.
+- `--no-debug` strips debug metadata.
+- `--debug-gas` inserts gas counters and may trap with `GasExceeded`.
+- `--debug-san` inserts runtime alloc/free bookkeeping for UAF / Double-Free and is intentionally slower.
+
+## Frontend Contract (R20)
+
+- Frontends own scope exit: emit explicit `!reg` for every still-live register when a scope ends.
+- Frontends own Phi consistency: every incoming edge to a label must agree on the capability mask, or the frontend must repair the flow before emission.
+- Frontends own lowering: `match`, `async`, and hidden Drop insertion are upstream responsibilities, not SA semantics.
+- `libsa_scope` is the optional helper for these repairs; SA itself does not infer lifetimes.
 
 ## Referee Trap Codes
 
@@ -238,6 +259,23 @@ SA interoperates with any language through standard C-ABI:
 - Must-trap tests: verify Referee correctly rejects invalid code.
 - `@export` + external test frameworks (Zig test / Rust #[test] / Google Test).
 - Property-based testing: 32 properties × 100+ random iterations.
+
+## Rust -> SA -> LLVM IR Examples
+
+| Case | Rust | SA | LLVM IR sketch |
+|---|---|---|---|
+| Struct field access | `v.x + v.y` | `#def Vec3_x = +0`, `#def Vec3_y = +4`, `x = load v+Vec3_x as f32` | `getelementptr` + `load` |
+| Option + `?` | `let x = read()?;` | `res = call @read(...); x = ? res` | `extractvalue` + `icmp` + `br` |
+| dyn Trait + VTable | `obj.draw()` | `@const VT = vtable { draw = @draw }; call_indirect draw_fn(obj_data)` | `load ptr` + indirect call |
+| async single poll | `fetch().await?;` | `ctx state labels + poll fn + pending path` | label dispatch + branches |
+| Rc clone + drop | `a.clone(); drop(b)` | `atomic_rmw_add` / `atomic_rmw_sub` on `Rc_strong` | `atomicrmw add/sub` |
+
+## Pilot Protocol
+
+- Generate 30 zero-shot prompts: 10 base use cases × 3 variants each.
+- Run the prompts against GPT-4o, Claude Opus, and DeepSeek-Coder.
+- Record the first-pass Referee pass rate as the observed baseline; do not predeclare a KPI.
+- If the baseline drops below 50%, revisit whether the project should add a text-level pseudo-nested frontend before MVP freeze, and carry that decision into the post-MVP roadmap.
 
 ## Status
 

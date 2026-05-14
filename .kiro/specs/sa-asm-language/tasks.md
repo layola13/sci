@@ -88,11 +88,11 @@ sa/
     - `FunctionSig` 含 `kind` / `is_ffi_wrapper` / `return_fallible` / `upstream_file`
     - _Requirements: R5.1, R5.3, R11.1, R13.4, R18.1_
 
-  - [ ] 2.7 产出 EBNF 文档
+  - [x] 2.7 产出 EBNF 文档
     - `docs/ebnf.md` 按 design 附录 C，含 `loc` / `ffi_wrapper_def` / `try_op` / `panic_op` / `atomic_*` / `rawcast` / `assume_*`
     - _Requirements: R1.6, R3.1, R13.1, R13.9_
 
-  - [ ] 2.8 产出 LLM 白皮书 v0.1
+  - [x] 2.8 产出 LLM 白皮书 v0.1
     - `docs/whitepaper.md` + `.txt`，≤ 2000 行
     - 覆盖 R23.2 全部章节（五符号 + ISA + CFG + 掩码 + 宏 + 气闸舱 + `@sys_*` + 错误传播 + `#loc` + 降级合约摘要 + 5 组对比 + Trap 代号表）
     - _Requirements: R1.1–R1.5, R20.1–R20.2, R23.1, R23.2, R23.5_
@@ -372,10 +372,14 @@ sa/
     - `tests/cli_smoke.zig` 与 emitter 单测已覆盖 IR 与目标文件符号证据
     - _Requirements: R14.9, R14.10_
 
-  - [ ] 8.7 索引访问物理降维（`mul + GEP + load`）
+  - [x] 8.7 索引访问物理降维（`mul + GEP + load`）
+    - `demos/rosetta/44_slice_iteration/main.saasm` 已实测走通 `offset = mul idx, 4` -> `ip = ptr_add data, offset` -> `value = load ip+0 as i32`
+    - `tests/cli_smoke.zig` 已固定验证该 demo `build-exe` 后真实运行并打印 `10\n`
     - _Requirements: R6.5_
 
-  - [ ]* 8.8 索引访问 PBT — **P15**
+  - [x]* 8.8 索引访问 PBT — **P15**
+    - `src/emit_llvm.zig` 已加入随机索引访问回归，断言 `mul -> getelementptr -> load` 链路稳定生成
+    - `tests/cli_smoke.zig` 已有 `44_slice_iteration` 端到端 `build-exe` 回归，固定验证索引访问 demo 可真实运行并打印 `10\n`
     - _Requirements: R6.5_
 
   - [x] 8.9 气闸舱指令映射 M18-M20（`ptrtoint` / `inttoptr`）

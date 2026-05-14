@@ -122,6 +122,24 @@ FFI Airlock Rules:
   - Handle/ID pattern for long-lived host objects
   - @extern declares C-ABI symbols; @export exposes without name mangling
 
+Control Flow and Phi:
+  - All blocks end with jmp/br/br_null/return.
+  - Phi consistency is a frontend responsibility.
+  - libsa_scope is the optional helper for explicit !reg cleanup text.
+
+Build Modes:
+  - saasm build-exe and build-wasm default to --release; no Referee runtime ships in release artifacts.
+  - -g enables DWARF and upstream source mapping.
+  - --no-debug strips debug metadata.
+  - --debug-gas inserts gas counters and may trap with GasExceeded.
+  - --debug-san inserts runtime alloc/free bookkeeping for UAF / Double-Free and is slower.
+
+Frontend Contract (R20):
+  - Frontends own scope exit: emit explicit !reg for every still-live register.
+  - Frontends own Phi consistency: repair mask disagreements before emission.
+  - Frontends own lowering: match, async, and hidden Drop insertion are upstream responsibilities.
+  - libsa_scope is the optional helper for these repairs.
+
 Panic Code Dictionary:
   100 DivByZero
   101 OutOfBounds
@@ -176,6 +194,19 @@ Testing Model:
   - Must-trap tests for Referee validation
   - @export + external test frameworks
   - 32 property-based tests x 100+ iterations
+
+Rust -> SA -> LLVM IR Examples:
+  - Struct field access: v.x + v.y -> #def Vec3_x/+0, Vec3_y/+4, load v+Vec3_x -> gep + load
+  - Option + ?: let x = read()?; -> res = call @read(...); x = ? res -> extractvalue + icmp + br
+  - dyn Trait + VTable: obj.draw() -> @const VT = vtable { draw = @draw }; call_indirect -> load ptr + indirect call
+  - async single poll: fetch().await? -> ctx state labels + poll fn + pending path -> label dispatch + branches
+  - Rc clone + drop: a.clone(); drop(b) -> atomic_rmw_add / atomic_rmw_sub on Rc_strong -> atomicrmw add/sub
+
+Pilot Protocol:
+  - Generate 30 zero-shot prompts: 10 base use cases x 3 variants each.
+  - Run against GPT-4o, Claude Opus, and DeepSeek-Coder.
+  - Record the first-pass Referee pass rate as the observed baseline.
+  - If the baseline drops below 50%, revisit whether to add a text-level pseudo-nested frontend before MVP freeze.
 
 Status:
   This document reflects the current v0.1 implementation state.
