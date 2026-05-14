@@ -69,6 +69,93 @@ test "sa_std core primitives are concrete and verifiable" {
     }
 }
 
+test "sa_std alloc helpers are concrete and verifiable" {
+    const vec_layout = try readFileAlloc(std.testing.allocator, "sa_std/alloc/vec.saasm-layout");
+    defer std.testing.allocator.free(vec_layout);
+    try std.testing.expectEqualStrings(
+        "#def Vec_SIZE = 24\n#def Vec_ptr  = +0\n#def Vec_cap  = +8\n#def Vec_len  = +16",
+        vec_layout,
+    );
+
+    const vec_src = try readFileAlloc(std.testing.allocator, "sa_std/alloc/vec.saasm");
+    defer std.testing.allocator.free(vec_src);
+    try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "inttoptr"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "add 0, 0"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "假定"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "示例"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "@export sa_vec_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "@export sa_vec_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "store vec+Vec_ptr, 0 as ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "store vec+Vec_cap, 0 as u64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "store vec+Vec_len, 0 as u64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "load vec+Vec_ptr as ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "!inner_ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "!vec"));
+
+    var vec_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/alloc/vec.saasm", vec_src);
+    defer vec_flat.deinit(std.testing.allocator);
+    const vec_verified = try saasm.referee.verify(std.testing.allocator, vec_flat.instructions, vec_flat.const_decls);
+    switch (vec_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 2), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("vec smoke verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const string_src = try readFileAlloc(std.testing.allocator, "sa_std/alloc/string.saasm");
+    defer std.testing.allocator.free(string_src);
+    try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "inttoptr"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "假定"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "示例"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "[MACRO] STR_FROM_CONST"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "EXPAND SLICE_NEW"));
+
+    const string_fixture =
+        \\@import "../../../sa_std/core/slice.saasm-layout"
+        \\@import "../../../sa_std/core/slice.saasm"
+        \\@import "../../../sa_std/alloc/string.saasm"
+        \\
+        \\@const WORD = utf8:"rust"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    word = alloc Slice_SIZE
+        \\    EXPAND STR_FROM_CONST word, WORD, 4
+        \\    EXPAND SLICE_GET_LEN len, word
+        \\    ok = eq len, 4
+        \\    !len
+        \\    !word
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var string_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/15_string_bytes/main.saasm", string_fixture);
+    defer string_flat.deinit(std.testing.allocator);
+    const string_verified = try saasm.referee.verify(std.testing.allocator, string_flat.instructions, string_flat.const_decls);
+    switch (string_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 1), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("string smoke verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
 test "std smoke fixture runs through the current compiler surface" {
     const fixture = try readFileAlloc(std.testing.allocator, "tests/std_smoke.saasm");
     defer std.testing.allocator.free(fixture);

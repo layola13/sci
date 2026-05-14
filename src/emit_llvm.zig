@@ -444,24 +444,24 @@ fn numericKind(lhs: sig.PrimType, rhs: sig.PrimType) NumericKind {
     return .unsigned;
 }
 
-fn opNumericKind(op: inst.OpCode, lhs: sig.PrimType, rhs: sig.PrimType) NumericKind {
+fn opNumericKind(op: inst.OpKind, lhs: sig.PrimType, rhs: sig.PrimType) NumericKind {
     return switch (op) {
-        .sdiv, .srem, .sgt, .slt, .sge, .sle => .signed,
-        .udiv, .urem, .ugt, .ult, .uge, .ule => .unsigned,
+        .sdiv, .srem, .sgt, .slt, .sge, .sle, .ashr => .signed,
+        .udiv, .urem, .ugt, .ult, .uge, .ule, .lshr => .unsigned,
         else => numericKind(lhs, rhs),
     };
 }
 
-fn opTargetType(op: inst.OpCode, lhs: sig.PrimType, rhs: sig.PrimType) sig.PrimType {
+fn opTargetType(op: inst.OpKind, lhs: sig.PrimType, rhs: sig.PrimType) sig.PrimType {
     const bits = @max(sig.primTypeBits(lhs), sig.primTypeBits(rhs));
     return switch (op) {
-        .sdiv, .srem, .sgt, .slt, .sge, .sle => intTypeForBits(bits, true),
-        .udiv, .urem, .ugt, .ult, .uge, .ule => intTypeForBits(bits, false),
+        .sdiv, .srem, .sgt, .slt, .sge, .sle, .ashr => intTypeForBits(bits, true),
+        .udiv, .urem, .ugt, .ult, .uge, .ule, .lshr => intTypeForBits(bits, false),
         else => commonNumericType(lhs, rhs),
     };
 }
 
-fn legacyCompareMnemonic(op: inst.OpCode, kind: NumericKind) []const u8 {
+fn legacyCompareMnemonic(op: inst.OpKind, kind: NumericKind) []const u8 {
     return switch (kind) {
         .float => switch (op) {
             .gt => "ogt",
@@ -487,7 +487,7 @@ fn legacyCompareMnemonic(op: inst.OpCode, kind: NumericKind) []const u8 {
     };
 }
 
-fn signedCompareMnemonic(op: inst.OpCode) []const u8 {
+fn signedCompareMnemonic(op: inst.OpKind) []const u8 {
     return switch (op) {
         .sgt => "sgt",
         .slt => "slt",
@@ -497,7 +497,19 @@ fn signedCompareMnemonic(op: inst.OpCode) []const u8 {
     };
 }
 
-fn unsignedCompareMnemonic(op: inst.OpCode) []const u8 {
+fn floatCompareMnemonic(op: inst.OpKind) []const u8 {
+    return switch (op) {
+        .fcmp_eq => "oeq",
+        .fcmp_ne => "one",
+        .fcmp_lt => "olt",
+        .fcmp_le => "ole",
+        .fcmp_gt => "ogt",
+        .fcmp_ge => "oge",
+        else => unreachable,
+    };
+}
+
+fn unsignedCompareMnemonic(op: inst.OpKind) []const u8 {
     return switch (op) {
         .ugt => "ugt",
         .ult => "ult",
@@ -754,7 +766,7 @@ fn emitPointerArithmetic(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
     state: *FunctionState,
-    opcode: inst.OpCode,
+    opcode: inst.OpKind,
     lhs: Value,
     rhs: Value,
 ) !Value {
@@ -1747,9 +1759,47 @@ fn emitInstruction(
         },
         .op => {
             const dst = base.operands[0].reg;
-            const opcode = base.operands[1].op_code;
-            const lhs = try valueFromOperand(allocator, state, symbols, base.operands[2]);
-            const rhs = try valueFromOperand(allocator, state, symbols, base.operands[3]);
+            const opcode = base.op_kind orelse return EmitError.InvalidOperand;
+            if (opcode == .neg or opcode == .not or opcode == .fneg or opcode == .trunc or opcode == .zext or opcode == .sext or opcode == .fptosi or opcode == .sitofp or opcode == .uitofp or opcode == .fptrunc or opcode == .fpext or opcode == .bitcast) {
+                const value = try valueFromOperand(allocator, state, symbols, base.operands[1]);
+                const target_ty: ?sig.PrimType = if (base.operands[2] == .ty) sig.primTypeFromTag(base.operands[2].ty) else null;
+                const tmp = try state.tempName(allocator);
+                switch (opcode) {
+                    .neg => {
+                        if (value.ty == .ptr) return EmitError.UnsupportedType;
+                        if (isFloatLike(value.ty)) {
+                            try out.writer().print("  {s} = fneg {s} {s}\n", .{ tmp, llvmTypeName(value.ty), value.expr });
+                        } else {
+                            try out.writer().print("  {s} = sub {s} 0, {s}\n", .{ tmp, llvmTypeName(value.ty), value.expr });
+                        }
+                        try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = value.ty });
+                    },
+                    .not => {
+                        if (!isIntLike(value.ty)) return EmitError.UnsupportedType;
+                        try out.writer().print("  {s} = xor {s} {s}, -1\n", .{ tmp, llvmTypeName(value.ty), value.expr });
+                        try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = value.ty });
+                    },
+                    .fneg => {
+                        if (!isFloatLike(value.ty)) return EmitError.UnsupportedType;
+                        try out.writer().print("  {s} = fneg {s} {s}\n", .{ tmp, llvmTypeName(value.ty), value.expr });
+                        try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = value.ty });
+                    },
+                    .bitcast => {
+                        const target = target_ty orelse return EmitError.InvalidOperand;
+                        const casted = try castValue(allocator, out, state, value, target);
+                        try state.setReg(allocator, out, dst, casted);
+                    },
+                    .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext => {
+                        const target = target_ty orelse return EmitError.InvalidOperand;
+                        const casted = try castValue(allocator, out, state, value, target);
+                        try state.setReg(allocator, out, dst, casted);
+                    },
+                    else => unreachable,
+                }
+                return;
+            }
+            const lhs = try valueFromOperand(allocator, state, symbols, base.operands[1]);
+            const rhs = try valueFromOperand(allocator, state, symbols, base.operands[2]);
             if (opcode == .add or opcode == .sub) {
                 if (lhs.ty == .ptr or rhs.ty == .ptr) {
                     if (lhs.ty == .ptr and rhs.ty == .ptr) return EmitError.UnsupportedType;
@@ -1763,8 +1813,9 @@ fn emitInstruction(
             const kind = opNumericKind(opcode, lhs.ty, rhs.ty);
             if (base_kind == .float) {
                 switch (opcode) {
-                    .add, .sub, .mul, .div, .gt, .lt, .eq, .ne => {},
+                    .add, .sub, .mul, .div, .gt, .lt, .eq, .ne, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => {},
                     .@"and", .@"or", .shl, .shr, .rem, .sdiv, .udiv, .srem, .urem, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule => return EmitError.UnsupportedType,
+                    else => return EmitError.UnsupportedType,
                 }
             }
             const target_ty = opTargetType(opcode, lhs.ty, rhs.ty);
@@ -1817,6 +1868,15 @@ fn emitInstruction(
                     try state.setReg(allocator, out, dst, .{ .expr = zext, .ty = .i64 });
                     return;
                 },
+                .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => {
+                    if (!isFloatLike(lhs.ty) or !isFloatLike(rhs.ty)) return EmitError.UnsupportedType;
+                    const cmp = floatCompareMnemonic(opcode);
+                    try out.writer().print("  {s} = fcmp {s} {s} {s}, {s}\n", .{ tmp, cmp, llvmTypeName(target_ty), l.expr, r.expr });
+                    const zext = try state.tempName(allocator);
+                    try out.writer().print("  {s} = zext i1 {s} to i64\n", .{ zext, tmp });
+                    try state.setReg(allocator, out, dst, .{ .expr = zext, .ty = .i64 });
+                    return;
+                },
                 .sgt, .slt, .sge, .sle => {
                     if (base_kind == .float) return EmitError.UnsupportedType;
                     const cmp = signedCompareMnemonic(opcode);
@@ -1835,6 +1895,7 @@ fn emitInstruction(
                     try state.setReg(allocator, out, dst, .{ .expr = zext, .ty = .i64 });
                     return;
                 },
+                else => return EmitError.UnsupportedType,
             }
             try state.setReg(allocator, out, dst, .{ .expr = tmp, .ty = target_ty });
         },

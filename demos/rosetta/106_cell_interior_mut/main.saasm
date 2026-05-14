@@ -1,0 +1,32 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"30\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Cell_SIZE = 4
+#def Cell_value = +0
+
+@main() -> i32:
+L_ENTRY:
+    cell = alloc Cell_SIZE
+    store cell+Cell_value, 10 as i32
+    first = load cell+Cell_value as i32
+    store cell+Cell_value, 20 as i32
+    second = load cell+Cell_value as i32
+    total = add first, second
+    ok = eq total, 30
+    !first
+    !second
+    !total
+    !cell
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

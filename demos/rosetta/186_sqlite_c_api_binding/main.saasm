@@ -1,0 +1,91 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"8\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@extern sqlite3_prepare(sqlite: ptr, sql: ptr, len: i32, stmt_out: ptr) -> i32
+@extern sqlite3_step(stmt: ptr) -> i32
+@extern sqlite3_finalize(stmt: ptr) -> i32
+
+#def Row_SIZE = 12
+#def Row_id = +0
+#def Row_count = +4
+#def Row_total = +8
+
+#def Stmt_SIZE = 16
+#def Stmt_db = +0
+#def Stmt_sql = +4
+#def Stmt_stmt = +8
+#def Stmt_code = +12
+
+@ffi_wrapper sqlite_insert(*row: ptr, *stmt_slot: ptr) -> i32:
+L_ENTRY:
+    id = load row+Row_id as i32
+    count = load row+Row_count as i32
+    total = add id, count
+    store row+Row_total, total as i32
+    sql_len = 32
+    sql_ptr = stmt_slot
+    prepare = call @sqlite3_prepare(stmt_slot, sql_ptr, sql_len, stmt_slot)
+    step = call @sqlite3_step(stmt_slot)
+    finalize = call @sqlite3_finalize(stmt_slot)
+    ok_prepare = eq prepare, 0
+    ok_step = ne step, 0
+    ok_finalize = eq finalize, 0
+    ok_total = eq total, 8
+    ok0 = and ok_prepare, ok_step
+    ok1 = and ok_finalize, ok_total
+    ok = and ok0, ok1
+    !id
+    !count
+    !total
+    !prepare
+    !step
+    !finalize
+    !ok_prepare
+    !ok_step
+    !ok_finalize
+    !ok_total
+    !ok0
+    !ok1
+    !row
+    !stmt_slot
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    return 8
+
+L_ERR:
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    row = alloc Row_SIZE
+    stmt = alloc Stmt_SIZE
+    store row+Row_id, 7 as i32
+    store row+Row_count, 1 as i32
+    store row+Row_total, 0 as i32
+    store stmt+Stmt_db, 0 as ptr
+    store stmt+Stmt_sql, 0 as ptr
+    store stmt+Stmt_stmt, 0 as ptr
+    store stmt+Stmt_code, 0 as i32
+    code = call @sqlite_insert(*row, *stmt)
+    total = load row+Row_total as i32
+    ok_code = eq code, 8
+    ok_total = eq total, 8
+    ok = and ok_code, ok_total
+    !code
+    !total
+    !ok_code
+    !ok_total
+    !stmt
+    !row
+    br ok -> L_OK_MAIN, L_ERR_MAIN
+
+L_OK_MAIN:
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR_MAIN:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -4,6 +4,6 @@
 展示 C 语言的不透明指针如何在 SA-ASM 中被当作 Untracked ptr 处理。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **纯粹的前端责任**：SA-ASM 是一个无 AST、无全局类型推导的物理执行验证机。像 Opaque Pointers 这样的高级语义或外部抽象，100% 由前端（如 Rustc, TypeScript Compiler 或大语言模型）在降级期间展开。
-2. **物理映射**：无论是复杂的并发原语、不安全的 FFI 边界、还是宏展平，进入 SA-ASM 后全部化为裸内存的 `alloc`、O(1) 验证的所有权锁（`Active`, `Locked_*`, `BorrowView` 等）、扁平的标签跳转（`jmp` / `br`）以及气闸舱隔离的系统调用。
-3. **架构纪律**：如果逻辑中存在内存泄漏或悬挂指针，SA-ASM 编译器在验证期通过 O(1) 线性扫描便能无情截断，拒绝发射恶意或残缺的 LLVM IR。
+1. **虚表与向上转型**：`dyn Trait`、super trait 和 upcasting 在 SA 侧都落实为 `@const` 里的函数指针数组，再配合 `call_indirect` 取槽调用；如果虚表排布变了，前端必须同步调整偏移。
+2. **ABI 边界**：`extern "C"`、回调、`*const T`、`va_list`、union FFI 类型都要通过 `@extern` / `@export` / `@ffi_wrapper` 展开成显式 `ptr` 传递；跨气闸边界的裸指针必须按 `IllegalUnsafeContext` / `InteriorPtrEscape` 规则处理。
+3. **布局外显**：不透明指针、原始指针运算和变参访问都依赖 `#def` 偏移字典，前端负责把高层类型压成固定内存形状，SA 不替它推导。

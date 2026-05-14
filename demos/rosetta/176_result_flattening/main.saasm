@@ -1,0 +1,89 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Outer_SIZE = 8
+#def Outer_tag = +0
+#def Outer_value = +4
+
+#def Inner_SIZE = 8
+#def Inner_tag = +0
+#def Inner_value = +4
+
+@make_inner(&slot: ptr) -> i32!:
+L_ENTRY:
+    store slot+Inner_tag, 0 as i32
+    store slot+Inner_value, 2 as i32
+    !slot
+    return 0
+
+@make_outer(&slot: ptr) -> i32!:
+L_ENTRY:
+    inner = alloc Inner_SIZE
+    inner_res = call @make_inner(&inner)
+    inner_code = ? inner_res
+    store slot+Outer_tag, 0 as i32
+    store slot+Outer_value, inner as ptr
+    !inner_code
+    !inner_res
+    !inner
+    !slot
+    return 0
+
+@flatten_result(&outer: ptr) -> i32!:
+L_ENTRY:
+    outer_tag = load outer+Outer_tag as i32
+    ok_outer = eq outer_tag, 0
+    br ok_outer -> L_OUTER_OK, L_OUTER_ERR
+
+L_OUTER_OK:
+    inner = load outer+Outer_value as ptr
+    inner_tag = load inner+Inner_tag as i32
+    ok_inner = eq inner_tag, 0
+    br ok_inner -> L_INNER_OK, L_INNER_ERR
+
+L_INNER_OK:
+    value = load inner+Inner_value as i32
+    !outer_tag
+    !inner_tag
+    !inner
+    !outer
+    return value
+
+L_OUTER_ERR:
+    !outer_tag
+    !outer
+    panic_msg(17, *RESULT_ERR, 6)
+    return 0
+
+L_INNER_ERR:
+    !outer_tag
+    !inner_tag
+    !inner
+    !outer
+    panic_msg(17, *RESULT_ERR, 6)
+    return 0
+
+@main() -> i32!:
+L_ENTRY:
+    outer = alloc Outer_SIZE
+    outer_res = call @make_outer(&outer)
+    outer_code = ? outer_res
+    flat_res = call @flatten_result(&outer)
+    value = ? flat_res
+    ok = eq value, 2
+    !value
+    !outer_code
+    !flat_res
+    !outer_res
+    !outer
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,76 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"6\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Buf_SIZE = 8
+#def Buf_b0 = +0
+#def Buf_b1 = +1
+#def Buf_b2 = +2
+
+@decode_varint(&buf: ptr) -> i32:
+L_ENTRY:
+    idx = 0
+    shift = 0
+    acc = 0
+    jmp L_LOOP
+
+L_LOOP:
+    byte_ptr = ptr_add buf, idx
+    byte = load byte_ptr+0 as u8
+    low = and byte, 127
+    part = shl low, shift
+    acc1 = add acc, part
+    cont = and byte, 128
+    more = ne cont, 0
+    next_idx = add idx, 1
+    next_shift = add shift, 7
+    done = eq more, 0
+    !byte_ptr
+    !byte
+    !low
+    !part
+    !acc
+    !cont
+    br done -> L_DONE, L_CONT
+
+L_CONT:
+    acc = acc1
+    idx = next_idx
+    shift = next_shift
+    done_idx = eq idx, 3
+    br done_idx -> L_DONE, L_LOOP
+
+L_DONE:
+    !idx
+    !shift
+    !acc1
+    !next_idx
+    !next_shift
+    !more
+    !done
+    !done_idx
+    !buf
+    return acc1
+
+@main() -> i32:
+L_ENTRY:
+    buf = alloc Buf_SIZE
+    store buf+Buf_b0, 6 as u8
+    store buf+Buf_b1, 0 as u8
+    store buf+Buf_b2, 0 as u8
+    value = call @decode_varint(&buf)
+    ok = eq value, 6
+    !value
+    !buf
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

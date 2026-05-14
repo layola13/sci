@@ -10,6 +10,115 @@ pub const CapPrefix = enum(u8) {
     raw = 3,
 };
 
+pub const OpKind = enum(u8) {
+    // Integer arithmetic
+    add,
+    sub,
+    mul,
+    sdiv,
+    udiv,
+    srem,
+    urem,
+    neg,
+
+    // Bitwise
+    @"and",
+    @"or",
+    xor,
+    shl,
+    lshr,
+    ashr,
+    not,
+
+    // Integer comparison
+    eq,
+    ne,
+    slt,
+    sle,
+    sgt,
+    sge,
+    ult,
+    ule,
+    ugt,
+    uge,
+
+    // Compatibility aliases kept for existing demos and tests.
+    div,
+    rem,
+    gt,
+    lt,
+    shr,
+
+    // Floating-point arithmetic
+    fadd,
+    fsub,
+    fmul,
+    fdiv,
+    fneg,
+
+    // Floating-point comparison
+    fcmp_eq,
+    fcmp_ne,
+    fcmp_lt,
+    fcmp_le,
+    fcmp_gt,
+    fcmp_ge,
+
+    // Type conversion
+    trunc,
+    zext,
+    sext,
+    fptosi,
+    sitofp,
+    uitofp,
+    fptrunc,
+    fpext,
+    bitcast,
+
+    // SIMD minimum set
+    add_v128,
+    sub_v128,
+    mul_v128,
+    shuffle_v128,
+    extract_lane,
+    insert_lane,
+};
+
+pub fn parseOpKind(text: []const u8) ?OpKind {
+    return if (std.mem.eql(u8, text, "add")) .add else if (std.mem.eql(u8, text, "sub")) .sub else if (std.mem.eql(u8, text, "mul")) .mul else if (std.mem.eql(u8, text, "sdiv")) .sdiv else if (std.mem.eql(u8, text, "udiv")) .udiv else if (std.mem.eql(u8, text, "srem")) .srem else if (std.mem.eql(u8, text, "urem")) .urem else if (std.mem.eql(u8, text, "neg")) .neg else if (std.mem.eql(u8, text, "and")) .@"and" else if (std.mem.eql(u8, text, "or")) .@"or" else if (std.mem.eql(u8, text, "xor")) .xor else if (std.mem.eql(u8, text, "shl")) .shl else if (std.mem.eql(u8, text, "lshr")) .lshr else if (std.mem.eql(u8, text, "ashr")) .ashr else if (std.mem.eql(u8, text, "not")) .not else if (std.mem.eql(u8, text, "eq")) .eq else if (std.mem.eql(u8, text, "ne")) .ne else if (std.mem.eql(u8, text, "slt")) .slt else if (std.mem.eql(u8, text, "sle")) .sle else if (std.mem.eql(u8, text, "sgt")) .sgt else if (std.mem.eql(u8, text, "sge")) .sge else if (std.mem.eql(u8, text, "ult")) .ult else if (std.mem.eql(u8, text, "ule")) .ule else if (std.mem.eql(u8, text, "ugt")) .ugt else if (std.mem.eql(u8, text, "uge")) .uge else if (std.mem.eql(u8, text, "div")) .div else if (std.mem.eql(u8, text, "rem")) .rem else if (std.mem.eql(u8, text, "gt")) .gt else if (std.mem.eql(u8, text, "lt")) .lt else if (std.mem.eql(u8, text, "shr")) .shr else if (std.mem.eql(u8, text, "fadd")) .fadd else if (std.mem.eql(u8, text, "fsub")) .fsub else if (std.mem.eql(u8, text, "fmul")) .fmul else if (std.mem.eql(u8, text, "fdiv")) .fdiv else if (std.mem.eql(u8, text, "fneg")) .fneg else if (std.mem.eql(u8, text, "fcmp_eq")) .fcmp_eq else if (std.mem.eql(u8, text, "fcmp_ne")) .fcmp_ne else if (std.mem.eql(u8, text, "fcmp_lt")) .fcmp_lt else if (std.mem.eql(u8, text, "fcmp_le")) .fcmp_le else if (std.mem.eql(u8, text, "fcmp_gt")) .fcmp_gt else if (std.mem.eql(u8, text, "fcmp_ge")) .fcmp_ge else if (std.mem.eql(u8, text, "trunc")) .trunc else if (std.mem.eql(u8, text, "zext")) .zext else if (std.mem.eql(u8, text, "sext")) .sext else if (std.mem.eql(u8, text, "fptosi")) .fptosi else if (std.mem.eql(u8, text, "sitofp")) .sitofp else if (std.mem.eql(u8, text, "uitofp")) .uitofp else if (std.mem.eql(u8, text, "fptrunc")) .fptrunc else if (std.mem.eql(u8, text, "fpext")) .fpext else if (std.mem.eql(u8, text, "bitcast")) .bitcast else if (std.mem.eql(u8, text, "add_v128")) .add_v128 else if (std.mem.eql(u8, text, "sub_v128")) .sub_v128 else if (std.mem.eql(u8, text, "mul_v128")) .mul_v128 else if (std.mem.eql(u8, text, "shuffle_v128")) .shuffle_v128 else if (std.mem.eql(u8, text, "extract_lane")) .extract_lane else if (std.mem.eql(u8, text, "insert_lane")) .insert_lane else null;
+}
+
+pub fn isTypeConversionOpKind(kind: OpKind) bool {
+    return switch (kind) {
+        .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => true,
+        else => false,
+    };
+}
+
+pub fn isUnaryOpKind(kind: OpKind) bool {
+    return switch (kind) {
+        .neg, .not, .fneg, .zext, .sext, .trunc, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => true,
+        else => false,
+    };
+}
+
+pub fn isBinaryOpKind(kind: OpKind) bool {
+    return switch (kind) {
+        .add, .sub, .mul, .sdiv, .udiv, .srem, .urem, .div, .rem, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule,
+        .@"and", .@"or", .xor, .shl, .lshr, .ashr, .eq, .ne, .fadd, .fsub, .fmul, .fdiv, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge,
+        .extract_lane,
+        .add_v128, .sub_v128, .mul_v128 => true,
+        else => false,
+    };
+}
+
+pub fn isTernaryOpKind(kind: OpKind) bool {
+    return switch (kind) {
+        .shuffle_v128, .insert_lane => true,
+        else => false,
+    };
+}
+
 pub const OpCode = enum(u8) {
     add,
     sub,
@@ -111,6 +220,7 @@ pub const Instruction = struct {
     source_line: u32,
     expanded_line: u32,
     upstream_loc: ?upstream.UpstreamLoc = null,
+    op_kind: ?OpKind = null,
     operands: [4]Operand,
     raw_text: []const u8,
     atomic_value_ty: ?u32 = null,
@@ -128,6 +238,7 @@ pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, ups
         .source_line = source_line,
         .expanded_line = expanded_line,
         .upstream_loc = upstream_loc,
+        .op_kind = null,
         .operands = .{ operandNone(), operandNone(), operandNone(), operandNone() },
         .raw_text = raw_text,
         .atomic_value_ty = null,
@@ -149,6 +260,7 @@ test "instruction layout keeps four operands and tags" {
     try std.testing.expectEqual(@as(u32, 7), inst.source_line);
     try std.testing.expectEqual(@as(u32, 11), inst.expanded_line);
     try std.testing.expect(inst.upstream_loc == null);
+    try std.testing.expect(inst.op_kind == null);
     try std.testing.expectEqual(@as(usize, 4), inst.operands.len);
     try std.testing.expectEqual(InstKind.alloc, inst.kind);
     try std.testing.expect(std.mem.eql(u8, inst.raw_text, "x = alloc 8"));
@@ -161,4 +273,14 @@ test "op code parsing covers signed and unsigned aliases" {
     try std.testing.expectEqual(OpCode.srem, parseOpCode("srem").?);
     try std.testing.expectEqual(OpCode.udiv, parseOpCode("udiv").?);
     try std.testing.expect(parseOpCode("nonsense") == null);
+}
+
+test "op kind parsing covers new and compatibility names" {
+    try std.testing.expectEqual(OpKind.zext, parseOpKind("zext").?);
+    try std.testing.expectEqual(OpKind.fcmp_ge, parseOpKind("fcmp_ge").?);
+    try std.testing.expectEqual(OpKind.insert_lane, parseOpKind("insert_lane").?);
+    try std.testing.expectEqual(OpKind.gt, parseOpKind("gt").?);
+    try std.testing.expectEqual(OpKind.div, parseOpKind("div").?);
+    try std.testing.expectEqual(OpKind.shr, parseOpKind("shr").?);
+    try std.testing.expect(parseOpKind("nonsense") == null);
 }

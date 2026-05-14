@@ -4,6 +4,6 @@
 展示 Rust 的 RAII 模式（如 `MutexGuard` 或 `RefMut`）如何通过生命周期约束和借用视图在 SA-ASM 中实现。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **胖指针包装**：RAII Guard 本质上是一个结构体，内部包含了一个原始资源的借用视图（`BorrowView`）或者原生指针。
-2. **生命周期锁定**：当 Guard 存活时，它持有着母借用。如果母体试图发生改变，SA-ASM 的 O(1) 验证器会通过 `Locked_Mut` 等状态抛出 `BorrowConflict`。
-3. **安全释放**：离开作用域时，必须先释放 Guard（这会触发对内部借用指针的 `!reg` 操作），从而恢复母体数据的可用性。不能跳步销毁。
+1. **显式控制流**：前端把 `Drop`、`break 'outer`、`if let` 链和 `let else` 全部展开成显式的 `call`、`br`、`jmp` 与失败块，不允许把隐式语义留给 SA。
+2. **逐层清理**：任何提前退出、匹配失败或外层跳转前，都必须先释放当前作用域里仍然活跃的寄存器；否则按 `EarlyReturnLeak` / `MemoryLeak` / `PhiStateConflict` 处理。
+3. **作用域对齐**：嵌套块的退出顺序必须和资源生命周期一致，先清理内层临时值，再把控制流送到外层出口。

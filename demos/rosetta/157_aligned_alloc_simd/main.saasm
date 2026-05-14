@@ -1,0 +1,39 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"4\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    vec = alloc 16
+    store vec+0, 1 as i32
+    store vec+4, 1 as i32
+    store vec+8, 1 as i32
+    store vec+12, 1 as i32
+    l0 = load vec+0 as i32
+    l1 = load vec+4 as i32
+    l2 = load vec+8 as i32
+    l3 = load vec+12 as i32
+    total = add l0, l1
+    total1 = add l2, l3
+    lanes = add total, total1
+    ok = eq lanes, 4
+    !l0
+    !l1
+    !l2
+    !l3
+    !total
+    !total1
+    !lanes
+    !vec
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

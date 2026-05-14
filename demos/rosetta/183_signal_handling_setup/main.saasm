@@ -1,0 +1,40 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@extern signal(sig: i32, handler: ptr) -> i32
+
+#def Signal_SIZE = 8
+#def Signal_num = +0
+#def Signal_handler = +4
+
+@handle_signal(sig: i32) -> i32:
+L_ENTRY:
+    result = add sig, 0
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    sig = alloc Signal_SIZE
+    store sig+Signal_num, 2 as i32
+    store sig+Signal_handler, &handle_signal as ptr
+    registered = call @signal(2, &handle_signal)
+    value = load sig+Signal_num as i32
+    ok_reg = eq registered, 2
+    ok_val = eq value, 2
+    ok = and ok_reg, ok_val
+    !registered
+    !value
+    !ok_reg
+    !ok_val
+    !sig
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,84 @@
+@import "alloc/vec.saasm-layout"
+@import "core/slice.saasm-layout"
+@import "core/slice.saasm"
+
+[MACRO] VEC_NEW %out_vec
+    %out_vec = alloc Vec_SIZE
+    store %out_vec+Vec_ptr, 0 as ptr
+    store %out_vec+Vec_cap, 0 as u64
+    store %out_vec+Vec_len, 0 as u64
+[END_MACRO]
+
+[MACRO] VEC_LEN %out_len, %vec_reg
+    EXPAND SLICE_GET_LEN %out_len, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_GET %out_ptr, %vec_reg, %index
+    vec_ptr = load %vec_reg+Vec_ptr as ptr
+    elem_ptr = ptr_add vec_ptr, %index
+    %out_ptr = load elem_ptr+0 as ptr
+    !vec_ptr
+    !elem_ptr
+[END_MACRO]
+
+[MACRO] VEC_PUSH %vec_reg, %value, %elem_size
+    vec_ptr = load %vec_reg+Vec_ptr as ptr
+    vec_len = load %vec_reg+Vec_len as u64
+    vec_cap = load %vec_reg+Vec_cap as u64
+    needs_grow = eq vec_len, vec_cap
+    br needs_grow -> L_VEC_PUSH_GROW_%i, L_VEC_PUSH_WRITE_%i
+L_VEC_PUSH_GROW_%i:
+    next_cap = add vec_cap, 1
+    next_cap_bytes = mul next_cap, %elem_size
+    next_ptr = alloc next_cap_bytes
+    old_idx_slot = stack_alloc 8
+    store old_idx_slot+0, 0 as u64
+    jmp L_VEC_PUSH_COPY_%i
+L_VEC_PUSH_COPY_%i:
+    old_idx = load old_idx_slot+0 as u64
+    copied = eq old_idx, vec_len
+    br copied -> L_VEC_PUSH_COPY_DONE_%i, L_VEC_PUSH_COPY_BODY_%i
+L_VEC_PUSH_COPY_BODY_%i:
+    old_src = ptr_add vec_ptr, mul old_idx, %elem_size
+    old_dst = ptr_add next_ptr, mul old_idx, %elem_size
+    old_value = load old_src+0 as ptr
+    store old_dst+0, old_value as ptr
+    next_old_idx = add old_idx, 1
+    store old_idx_slot+0, next_old_idx as u64
+    !old_src
+    !old_dst
+    !old_value
+    !old_idx
+    !copied
+    !next_old_idx
+    jmp L_VEC_PUSH_COPY_%i
+L_VEC_PUSH_COPY_DONE_%i:
+    !old_idx_slot
+    store %vec_reg+Vec_ptr, next_ptr as ptr
+    store %vec_reg+Vec_cap, next_cap as u64
+    !vec_ptr
+    !vec_len
+    !vec_cap
+    !needs_grow
+    !next_cap
+    !next_cap_bytes
+    !next_ptr
+    jmp L_VEC_PUSH_WRITE_%i
+L_VEC_PUSH_WRITE_%i:
+    write_ptr = ptr_add vec_ptr, mul vec_len, %elem_size
+    store write_ptr+0, %value as ptr
+    next_len = add vec_len, 1
+    store %vec_reg+Vec_len, next_len as u64
+    !vec_ptr
+    !vec_len
+    !vec_cap
+    !needs_grow
+    !write_ptr
+    !next_len
+[END_MACRO]
+
+[MACRO] VEC_FREE %vec_reg
+    vec_ptr = load %vec_reg+Vec_ptr as ptr
+    !vec_ptr
+    !vec_reg
+[END_MACRO]

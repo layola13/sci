@@ -1,0 +1,11 @@
+@import "first/index.saasm"
+@import "second/index.saasm"
+
+@export path_value() -> i32:
+L_ENTRY:
+    first = call @first_path_value()
+    second = call @second_path_value()
+    value = add first, second
+    !first
+    !second
+    return value

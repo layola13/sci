@@ -1,0 +1,43 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"4\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Cond_SIZE = 8
+#def Cond_ready = +0
+#def Cond_value = +4
+
+@main() -> i32:
+L_ENTRY:
+    cond = alloc Cond_SIZE
+    store cond+Cond_ready, 1 as i32
+    store cond+Cond_value, 4 as i32
+    ready = load cond+Cond_ready as i32
+    br ready -> L_WAKE, L_WAIT
+
+L_WAKE:
+    value = load cond+Cond_value as i32
+    ok = eq value, 4
+    !ready
+    !value
+    !cond
+    br ok -> L_OK, L_ERR
+
+L_WAIT:
+    store cond+Cond_value, 0 as i32
+    value = load cond+Cond_value as i32
+    ok = eq value, 4
+    !ready
+    !value
+    !cond
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

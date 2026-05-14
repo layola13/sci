@@ -1,0 +1,50 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"5\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@extern pthread_spawn(entry: ptr, arg: ptr) -> i32
+@extern pthread_join(handle: i32, out: ptr) -> i32
+@extern pthread_drop(handle: i32) -> void
+
+#def Thread_SIZE = 8
+#def Thread_handle = +0
+#def Thread_value = +4
+
+@worker(&slot: ptr) -> i32:
+L_ENTRY:
+    value = load slot+Thread_value as i32
+    result = add value, 4
+    store slot+Thread_value, result as i32
+    !value
+    !slot
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    thread = alloc Thread_SIZE
+    store thread+Thread_handle, 0 as i32
+    store thread+Thread_value, 1 as i32
+    handle = call @pthread_spawn(&worker, &thread)
+    store thread+Thread_handle, handle as i32
+    joined = call @pthread_join(handle, &thread)
+    call @pthread_drop(handle)
+    value = load thread+Thread_value as i32
+    ok_join = eq joined, 0
+    ok_value = eq value, 5
+    ok = and ok_join, ok_value
+    !joined
+    !value
+    !handle
+    !thread
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

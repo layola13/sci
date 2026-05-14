@@ -4,6 +4,6 @@
 展示底层创建 OS 线程。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **纯粹的前端责任**：SA-ASM 是一个无 AST、无全局类型推导的物理执行验证机。像 Pthread Spawn / Join 这样的高级语义或外部抽象，100% 由前端（如 Rustc, TypeScript Compiler 或大语言模型）在降级期间展开。
-2. **物理映射**：无论是复杂的并发原语、不安全的 FFI 边界、还是宏展平，进入 SA-ASM 后全部化为裸内存的 `alloc`、O(1) 验证的所有权锁（`Active`, `Locked_*`, `BorrowView` 等）、扁平的标签跳转（`jmp` / `br`）以及气闸舱隔离的系统调用。
-3. **架构纪律**：如果逻辑中存在内存泄漏或悬挂指针，SA-ASM 编译器在验证期通过 O(1) 线性扫描便能无情截断，拒绝发射恶意或残缺的 LLVM IR。
+1. **资源句柄化**：文件描述符、线程句柄、动态库句柄、mmap 区域和数据库连接都应被看成显式 owned handle，生命周期由 `close` / `join` / `unmap` / `free` 控制。
+2. **宿主边界**：`signal`、`pthread`、`dlopen`、SQLite、OpenGL 这类系统或 FFI 入口必须通过 `@extern` / `@ffi_wrapper` 写清楚参数、返回值和所有权，SA 不替宿主猜 ABI。
+3. **解析与编码**：WebSocket、Protobuf 和 Base64 这类缓冲区算法，本质上是循环、位运算和表驱动；如果要用 `v128` 加速，也必须先把数据路径和尾处理写明白。

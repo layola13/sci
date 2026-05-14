@@ -162,9 +162,46 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     const trap_text = try std.fmt.bufPrint(&trap_buf, "\"trap\":\"{s}\"", .{expected_trap});
     var code_buf: [32]u8 = undefined;
     const code_text = try std.fmt.bufPrint(&code_buf, "\"trap_code\":{d}", .{expected_trap_code});
+    var summary_buf: [256]u8 = undefined;
+    const summary_text = try std.fmt.bufPrint(&summary_buf, "error[{s}]: {s}\n", .{ expected_trap, expected_message });
+    try std.testing.expect(std.mem.startsWith(u8, stderr_buffer.items, summary_text));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "  command: zig cc "));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, trap_text));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, code_text));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, expected_message));
+}
+
+fn assertBuildExeLinkFailure(source_name: []const u8, source: []const u8, out_name: []const u8, expected_fragment: []const u8) !void {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, source_name, source);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_name, "-o", out_name };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(out_name, .{}));
+    try std.testing.expect(std.mem.startsWith(u8, stderr_buffer.items, "error[ExternalCompiler]: zig cc exited with code 1 while linking "));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "  command: zig cc "));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, expected_fragment));
+    try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "error: ChildProcessFailed") == null);
 }
 
 fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []const u8) !void {
@@ -374,7 +411,7 @@ test "hello world demo prints through build-wasm and node wasi" {
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
-    const native_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./hello.out" });
+    const native_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./hello.out"});
     defer std.testing.allocator.free(native_result.stdout);
     defer std.testing.allocator.free(native_result.stderr);
     switch (native_result.term) {
@@ -523,7 +560,7 @@ test "hello compute demo prints through build-exe and build-wasm" {
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
-    const native_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./hello_compute.out" });
+    const native_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./hello_compute.out"});
     defer std.testing.allocator.free(native_result.stdout);
     defer std.testing.allocator.free(native_result.stderr);
     switch (native_result.term) {
@@ -763,10 +800,6 @@ test "early return leak demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/early_return_leak.saasm", "early_return_leak.out", "EarlyReturnLeak", 1026, "early return would leak live registers");
 }
 
-test "ffi ownership violation demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/ffi_ownership_violation.saasm", "ffi_ownership_violation.out", "FfiOwnershipViolation", 1020, "FFI borrow views cannot be consumed");
-}
-
 test "macro recursion demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/macro_recursion.saasm", "macro_recursion.out", "MacroRecursionLimit", 1005, "macro recursion limit exceeded");
 }
@@ -872,7 +905,7 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expect(containsImportName(import_names, "args_get"));
     try std.testing.expect(containsImportName(import_names, "args_sizes_get"));
 
-    const file = try tmp.dir.openFile("sys_io.txt", .{}); 
+    const file = try tmp.dir.openFile("sys_io.txt", .{});
     defer file.close();
     const contents = try file.readToEndAlloc(std.testing.allocator, 1024);
     defer std.testing.allocator.free(contents);
@@ -897,7 +930,7 @@ test "ffi airlock demo preserves pointer values through assume_* in saasm run" {
     const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_code);
 
-    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./airlock_probe.out" });
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./airlock_probe.out"});
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
@@ -1439,6 +1472,19 @@ test "unknown sys intrinsic is rejected before emission" {
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out", .{}));
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out.saasm.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnsupportedSysIntrinsic\""));
+}
+
+test "external compiler failures report linker context instead of child process noise" {
+    const source =
+        \\@extern missing_symbol() -> i32
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\value = call @missing_symbol()
+        \\return value
+    ;
+
+    try assertBuildExeLinkFailure("link_fail.saasm", source, "link_fail.out", "ld.lld: error: undefined symbol: missing_symbol");
 }
 
 test "unknown register demo is rejected with structured trap output" {

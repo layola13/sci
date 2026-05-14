@@ -1,30 +1,14 @@
-// sa_vec_new 构造一个空的 Vector 容器
+@import "vec.saasm-layout"
+
 @export sa_vec_new() -> ^ptr:
-    vec = alloc 24
-    
-    // 初始化外壳 (这里假定底层编译器允许把常量转为寄存器，或者使用 add 0, 0)
-    zero_ptr = inttoptr 0
-    zero_u64 = add 0, 0
-    
-    store vec+0, zero_ptr as ptr
-    store vec+8, zero_u64 as u64
-    store vec+16, zero_u64 as u64
-    
-    !zero_ptr
-    !zero_u64
-    
+    vec = alloc Vec_SIZE
+    store vec+Vec_ptr, 0 as ptr
+    store vec+Vec_cap, 0 as u64
+    store vec+Vec_len, 0 as u64
     return vec
 
-// sa_vec_free 销毁 Vector 及其内部缓冲
 @export sa_vec_free(^vec: ptr) -> void:
-    // 取出内部缓冲指针
-    inner_ptr = load vec+0 as ptr
-    
-    // 检查是否为空指针 (如果为空，不能 free。这需要分支)
-    // 为保持示例简单，假定有一个 @sys_free 或者编译器内置指令 ! 对 0 地址免疫
+    inner_ptr = load vec+Vec_ptr as ptr
     !inner_ptr
-    
-    // 销毁外壳
     !vec
-    
     return

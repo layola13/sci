@@ -9,7 +9,7 @@ pub const LowerError = error{
     OutOfMemory,
 };
 
-fn opName(op: common_instruction.OpCode) []const u8 {
+fn opName(op: common_instruction.OpKind) []const u8 {
     return switch (op) {
         .add => "add",
         .sub => "sub",
@@ -24,11 +24,29 @@ fn opName(op: common_instruction.OpCode) []const u8 {
             else => unreachable,
         },
         .eq => "==",
-        .ne => "!=",
         .@"and" => "&",
         .@"or" => "|",
+        .xor => "^",
         .shl => "<<",
-        .shr => ">>",
+        .lshr, .ashr, .shr => ">>",
+        .neg => "-",
+        .not => "~",
+        .fadd => "+",
+        .fsub => "-",
+        .fmul => "*",
+        .fdiv => "/",
+        .fneg => "-",
+        .fcmp_eq => "==",
+        .fcmp_ne => "!=",
+        .fcmp_lt => "<",
+        .fcmp_le => "<=",
+        .fcmp_gt => ">",
+        .fcmp_ge => ">=",
+        .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => "cast",
+        .add_v128, .sub_v128, .mul_v128 => "v128",
+        .shuffle_v128 => "shuffle",
+        .extract_lane => "extract",
+        .insert_lane => "insert",
     };
 }
 
@@ -188,14 +206,37 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
             },
             .op => {
                 const dst = try operandReg(inst, 0);
-                const lhs = try operandReg(inst, 2);
-                const rhs = try operandReg(inst, 3);
-                const op = switch (inst.operands[1]) {
-                    .op_code => |code| opName(code),
-                    else => return LowerError.InvalidOperand,
-                };
                 try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    const {s} = {s} {s} {s};\n", .{ regName(dst), regName(lhs), op, regName(rhs) });
+                if (inst.op_kind) |op_kind| {
+                    switch (op_kind) {
+                        .neg, .not, .fneg => {
+                            const src = try operandReg(inst, 1);
+                            try out.writer().print("    const {s} = {s}{s};\n", .{ regName(dst), opName(op_kind), regName(src) });
+                        },
+                        .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => {
+                            const src = try operandReg(inst, 1);
+                            try out.writer().print("    const {s} = {s}({s});\n", .{ regName(dst), opName(op_kind), regName(src) });
+                        },
+                        .extract_lane => {
+                            const vec = try operandReg(inst, 1);
+                            const lane = try operandReg(inst, 2);
+                            try out.writer().print("    const {s} = {s}({s}, {s});\n", .{ regName(dst), opName(op_kind), regName(vec), regName(lane) });
+                        },
+                        .insert_lane, .shuffle_v128 => {
+                            const a = try operandReg(inst, 1);
+                            const b = try operandReg(inst, 2);
+                            const c = try operandReg(inst, 3);
+                            try out.writer().print("    const {s} = {s}({s}, {s}, {s});\n", .{ regName(dst), opName(op_kind), regName(a), regName(b), regName(c) });
+                        },
+                        else => {
+                            const lhs = try operandReg(inst, 1);
+                            const rhs = try operandReg(inst, 2);
+                            try out.writer().print("    const {s} = {s} {s} {s};\n", .{ regName(dst), regName(lhs), opName(op_kind), regName(rhs) });
+                        },
+                    }
+                } else {
+                    return LowerError.InvalidOperand;
+                }
             },
             .take => {
                 const dst = try operandReg(inst, 0);

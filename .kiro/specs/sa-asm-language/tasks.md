@@ -6,12 +6,12 @@
 
 1. **v0.1 MVP（Week 1-14）** — "跑通闭环"。SA 源码 → Flattener → Referee → LLVM IR → **全程走 `zig cc`** 产出 `.exe` 和 `.wasm`。不自研任何后端。
 2. **v0.2（post-MVP，4-6 周）** — "后端自研"。替换 WASM 产线为手写二进制 Emitter，获得更小体积、wasm64、DWARF-in-WASM 精细控制。
-3. **v0.3（post-MVP，6-8 周）** — "性能兑现"。SIMD/并行调度/AutoBevy 1M ±30% / LLM 微调路线。
+3. **v0.3（post-MVP，6-8 周）** — "性能兑现"。SIMD/并行调度/LLM 微调 / AutoBevy 1M ±30%（最低优先级）路线。
 
 **v0.1 不做的事**（这是刻意的风险削减）：
 - ❌ 不手写 WASM 二进制 Emitter（走 `zig cc -target wasm32-wasi -O ReleaseSmall`）
 - ❌ 不自研 DWARF-in-WASM（zig cc 自带）
-- ❌ 不承诺 AutoBevy 1M ±30%（只跑 1K 冒烟）
+- ❌ AutoBevy 仅作为最低优先级，1M ±30% 不承诺（只跑 1K 冒烟）
 - ❌ 不承诺 LLM 零训练 80% 成功率（只跑 pilot 归档 baseline）
 - ❌ Referee 不强求 1500 行（2500 行 MVP 基线）
 - ❌ 不做 SIMD opcode 降级（ISA 里有占位，但 Emitter 层先 `unreachable`）
@@ -347,9 +347,9 @@ sa/
     - `src/referee/verifier.zig` 已修正 `AnnotatedInstruction.entry_caps/exit_caps` 快照时机，保证 emitter 基于真实 entry state 判断 release 是否物理 free
     - _Requirements: R14.3–R14.6_
 
-  - [ ] 8.2 控制流映射 M08–M13（LLVM 原生 `br` + labels）
+  - [x] 8.2 控制流映射 M08–M13（LLVM 原生 `br` + labels）
     - `jmp` / `br` / `br_null` / direct call / `return` 已有 emitter 级直接测试
-    - **仍未完成**：`call_indirect` 当前仍是固定 `i64 (...) -> i64` 降级，未按签名保真发射，不能诚实勾选整项
+    - `call_indirect` 已按签名与 provenance 发射 / 分派，`tests/cli_smoke.zig` 的 `vtable loads preserve indirect call provenance end to end` 覆盖了端到端路径
     - _Requirements: R14.8_
 
   - [x] 8.3 `take` 映射 M14
@@ -439,8 +439,8 @@ sa/
     - Trap 返回非零退出码 + JSON 到 stderr
     - _Requirements: R16.1, R16.5_
 
-  - [ ] 8.20 CLI 二进制分发约束
-    - `zig build -Drelease-small` 产物 ≤ 15 MB（MVP），libc 外无依赖
+  - [x] 8.20 CLI 二进制分发约束
+    - `zig build -Drelease-small` 产物 ≤ 15 MB（MVP），`zig-out/bin/saasm` 为静态、剥离后的 ELF，可直接满足分发约束
     - _Requirements: R16.6_
 
   - [x] 8.21 `-g` / `--no-debug` 调试开关接入
@@ -544,18 +544,18 @@ sa/
     - 覆盖：纯 i32 结构、混合 i32+f64（需 padding）、全 ptr、空结构
     - _Requirements: R7b.1, R7b.2, R7b.3, R7b.4_
 
-- [ ] 13. W13-14 AutoBevy 1K + LLM Pilot + Hello-Compute 端到端
+- [ ] 13. W13-14 LLM Pilot + Hello-Compute + AutoBevy（最低优先级）端到端
 
-  - [ ] 13.1 AutoBevy Component Buffer + Entity + System 注册（1K 规模）
+  - [ ] 13.1 AutoBevy Component Buffer + Entity + System 注册（1K 规模，最低优先级）
     - _Requirements: R21.1, R21.4_
 
-  - [ ] 13.2 System 并行分析器（复用 CapabilityMask AND）
+  - [ ] 13.2 System 并行分析器（复用 CapabilityMask AND，最低优先级）
     - _Requirements: R21.2_
 
-  - [ ]* 13.3 System 并行分析 PBT — **P20**
+  - [ ]* 13.3 System 并行分析 PBT — **P20**（最低优先级）
     - _Requirements: R21.2_
 
-  - [ ] 13.4 AutoBevy 1K 冒烟集成测试
+  - [ ] 13.4 AutoBevy 1K 冒烟集成测试（最低优先级）
     - 1K 实体 1 帧跑通 Wasmtime
     - _Requirements: R21.3, R21.4_
 
@@ -644,7 +644,7 @@ sa/
 
 - [ ] 15. v0.1 最终验收
   - 运行全部测试
-  - 硬约束：Referee ≤ 2500 行 / 真实代码 ≥ 500K 行每秒 / 白皮书 ≤ 2000 行 / `.wasm` ≤ 48 KB / `.exe` ≤ 800 KB / CLI ≤ 15 MB / AutoBevy 1K 通过 / LLM pilot baseline 归档
+  - 硬约束：Referee ≤ 2500 行 / 真实代码 ≥ 500K 行每秒 / 白皮书 ≤ 2000 行 / `.wasm` ≤ 48 KB / `.exe` ≤ 800 KB / CLI ≤ 15 MB / LLM pilot baseline 归档 / AutoBevy 1K 通过（最低优先级）
   - Stretch 全部不强求
   - 任何未通关项向用户确认
 
@@ -780,7 +780,7 @@ sa/
   - LLVM IR Emitter 完整映射
   - _Requirements: R2.4, R2.5_
 
-- [ ] 23. AutoBevy 1M 性能追 Bevy ±30%
+- [ ] 23. AutoBevy 1M 性能追 Bevy ±30%（最低优先级）
   - 并行调度器接真实线程池
   - 缓存布局调优
   - SIMD 批量更新

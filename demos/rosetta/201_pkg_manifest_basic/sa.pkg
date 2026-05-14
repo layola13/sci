@@ -1,0 +1,13 @@
+[package]
+name = "demo-201"
+version = "0.1.0"
+edition = "saasm-0.6"
+
+[targets]
+entry = "main.saasm"
+entry_module = "src/entry.saasm"
+manifest_module = "pkg/manifest.saasm"
+meta_module = "src/meta.saasm"
+
+[notes]
+compiler_input = false

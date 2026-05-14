@@ -1,0 +1,49 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"7\n9\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def RefCell_SIZE = 8
+#def RefCell_value = +0
+#def RefCell_borrows = +4
+
+@main() -> i32:
+L_ENTRY:
+    cell = alloc RefCell_SIZE
+    store cell+RefCell_value, 7 as i32
+    store cell+RefCell_borrows, 0 as i32
+
+    count = load cell+RefCell_borrows as i32
+    no_conflict = eq count, 0
+    br no_conflict -> L_BORROW, L_ERR_ENTRY
+
+L_ERR_ENTRY:
+    !count
+    !no_conflict
+    !cell
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+L_BORROW:
+    store cell+RefCell_borrows, 1 as i32
+    first = load cell+RefCell_value as i32
+    store cell+RefCell_borrows, 0 as i32
+    store cell+RefCell_value, 9 as i32
+    second = load cell+RefCell_value as i32
+    ok = eq second, 9
+    !first
+    !second
+    !count
+    !no_conflict
+    !cell
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 4)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

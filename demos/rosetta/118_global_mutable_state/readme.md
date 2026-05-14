@@ -4,6 +4,6 @@
 展示 Rust static mut 如何被 SA-ASM 拒绝，并迫使用户改用堆分配+指针传递。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **纯粹的前端责任**：SA-ASM 是一个无 AST、无全局类型推导的物理执行验证机。像 Global Mutable State 这样的高级语义或外部抽象，100% 由前端（如 Rustc, TypeScript Compiler 或大语言模型）在降级期间展开。
-2. **物理映射**：无论是复杂的并发原语、不安全的 FFI 边界、还是宏展平，进入 SA-ASM 后全部化为裸内存的 `alloc`、O(1) 验证的所有权锁（`Active`, `Locked_*`, `BorrowView` 等）、扁平的标签跳转（`jmp` / `br`）以及气闸舱隔离的系统调用。
-3. **架构纪律**：如果逻辑中存在内存泄漏或悬挂指针，SA-ASM 编译器在验证期通过 O(1) 线性扫描便能无情截断，拒绝发射恶意或残缺的 LLVM IR。
+1. **原生逃逸点**：`asm!` 必须落到 native escape block，SA 只记录显式读写的寄存器名和副作用，不允许把隐藏行为混进普通指令流。
+2. **全局状态约束**：`static mut` 这类共享写入口不能伪装成普通寄存器，前端要么把它改写为显式状态对象，要么让 Referee 按 `ConstMutation` / 共享写冲突拒绝。
+3. **向量与 volatile**：SIMD 用 `v128` / lane 操作表达，volatile 则必须保留“可观察读写”的语义，不能被普通优化折叠成无副作用的 load/store。

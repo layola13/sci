@@ -1,0 +1,55 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"5\n"
+@const RESULT_ERR = utf8:"error\n"
+@const VT_A = vtable { a = @item_a }
+@const VT_B = vtable { a = @item_a, b = @item_b }
+
+#def Dyn_SIZE = 16
+#def Dyn_data = +0
+#def Dyn_vtable = +8
+#def VT_a = +0
+#def VT_b = +8
+
+@item_a(&self: ptr) -> i32:
+L_ENTRY:
+    !self
+    return 2
+
+@item_b(&self: ptr) -> i32:
+L_ENTRY:
+    !self
+    return 3
+
+@main() -> i32:
+L_ENTRY:
+    item = alloc 1
+    obj = alloc Dyn_SIZE
+    store obj+Dyn_data, item as ptr
+    store obj+Dyn_vtable, &VT_B as ptr
+    vt = load obj+Dyn_vtable as ptr
+    a_fn = load vt+VT_a as ptr
+    b_fn = load vt+VT_b as ptr
+    a_val = call_indirect a_fn(&item)
+    b_val = call_indirect b_fn(&item)
+    total = add a_val, b_val
+    ok = eq total, 5
+    !a_val
+    !b_val
+    !total
+    !a_fn
+    !b_fn
+    !vt
+    !item
+    !obj
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

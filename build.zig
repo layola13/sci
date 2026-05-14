@@ -2,7 +2,9 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const release_small = b.option(bool, "release-small", "Build all artifacts with ReleaseSmall optimization.") orelse false;
+    var optimize = b.standardOptimizeOption(.{});
+    if (release_small) optimize = .ReleaseSmall;
     const repo_root = b.path(".");
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "sa_std_archive_path", b.pathFromRoot("artifacts/sa_std/libsa_std.a"));
@@ -90,6 +92,19 @@ pub fn build(b: *std.Build) void {
     const run_cli_tests = b.addRunArtifact(cli_tests);
     run_cli_tests.setCwd(repo_root);
     test_step.dependOn(&run_cli_tests.step);
+
+    const trap_baseline_module = b.createModule(.{
+        .root_source_file = b.path("tests/golden/trap_baseline.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    trap_baseline_module.addImport("saasm", lib_module);
+    const trap_baseline = b.addTest(.{
+        .root_module = trap_baseline_module,
+    });
+    const run_trap_baseline = b.addRunArtifact(trap_baseline);
+    run_trap_baseline.setCwd(repo_root);
+    test_step.dependOn(&run_trap_baseline.step);
 
     const std_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/std_smoke.zig"),
@@ -185,4 +200,24 @@ pub fn build(b: *std.Build) void {
     const run_ffi_handle_demo = b.addRunArtifact(ffi_handle_demo);
     run_ffi_handle_demo.setCwd(repo_root);
     test_step.dependOn(&run_ffi_handle_demo.step);
+
+    const referee_loc_lint = b.addSystemCommand(&.{ "zig", "run", "tools/referee_loc_lint.zig" });
+    referee_loc_lint.setCwd(repo_root);
+    const ci_step = b.step("ci", "Run the v0.1 CI gate");
+    ci_step.dependOn(&run_tests.step);
+    ci_step.dependOn(&run_cli_tests.step);
+    ci_step.dependOn(&run_trap_baseline.step);
+    ci_step.dependOn(&run_std_smoke.step);
+    ci_step.dependOn(&run_sa_std_unit.step);
+    ci_step.dependOn(&run_sa_std_runtime.step);
+    ci_step.dependOn(&run_sa_term_runtime.step);
+    ci_step.dependOn(&run_native_sys_runtime.step);
+    ci_step.dependOn(&run_smoke.step);
+    ci_step.dependOn(&run_scope_demo.step);
+    ci_step.dependOn(&run_ffi_handle_demo.step);
+    ci_step.dependOn(&referee_loc_lint.step);
+
+    const bench_step = b.addSystemCommand(&.{ "zig", "run", "bench/task_6_26.zig", "--", "--lines", "64" });
+    bench_step.setCwd(repo_root);
+    ci_step.dependOn(&bench_step.step);
 }

@@ -1,0 +1,102 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"build output\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    out = alloc 16
+    store out+0, 98 as u8
+    store out+1, 117 as u8
+    store out+2, 105 as u8
+    store out+3, 108 as u8
+    store out+4, 100 as u8
+    store out+5, 32 as u8
+    store out+6, 111 as u8
+    store out+7, 117 as u8
+    store out+8, 116 as u8
+    store out+9, 112 as u8
+    store out+10, 117 as u8
+    store out+11, 116 as u8
+    store out+12, 0 as u8
+    b0 = load out+0 as u8
+    b1 = load out+1 as u8
+    b2 = load out+2 as u8
+    b3 = load out+3 as u8
+    b4 = load out+4 as u8
+    b5 = load out+5 as u8
+    b6 = load out+6 as u8
+    b7 = load out+7 as u8
+    b8 = load out+8 as u8
+    b9 = load out+9 as u8
+    b10 = load out+10 as u8
+    b11 = load out+11 as u8
+    ok0 = eq b0, 98
+    ok1 = eq b1, 117
+    ok2 = eq b2, 105
+    ok3 = eq b3, 108
+    ok4 = eq b4, 100
+    ok5 = eq b5, 32
+    ok6 = eq b6, 111
+    ok7 = eq b7, 117
+    ok8 = eq b8, 116
+    ok9 = eq b9, 112
+    ok10 = eq b10, 117
+    ok11 = eq b11, 116
+    pair0 = and ok0, ok1
+    pair1 = and ok2, ok3
+    pair2 = and ok4, ok5
+    pair3 = and ok6, ok7
+    pair4 = and ok8, ok9
+    pair5 = and ok10, ok11
+    pair6 = and pair0, pair1
+    pair7 = and pair2, pair3
+    pair8 = and pair4, pair5
+    pair9 = and pair6, pair7
+    ok = and pair9, pair8
+    !b0
+    !b1
+    !b2
+    !b3
+    !b4
+    !b5
+    !b6
+    !b7
+    !b8
+    !b9
+    !b10
+    !b11
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    !ok7
+    !ok8
+    !ok9
+    !ok10
+    !ok11
+    !pair0
+    !pair1
+    !pair2
+    !pair3
+    !pair4
+    !pair5
+    !pair6
+    !pair7
+    !pair8
+    !pair9
+    !out
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 13)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,37 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"9\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Node_SIZE = 8
+#def Node_value = +0
+#def Node_retired = +4
+
+@main() -> i32:
+L_ENTRY:
+    node = alloc Node_SIZE
+    store node+Node_value, 9 as i32
+    store node+Node_retired, 0 as i32
+    hazard = load node+Node_retired as i32
+    ready = eq hazard, 0
+    !hazard
+    !ready
+    jmp L_USE
+
+L_USE:
+    value = load node+Node_value as i32
+    store node+Node_retired, 1 as i32
+    ok = eq value, 9
+    !value
+    !node
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

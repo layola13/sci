@@ -1,0 +1,33 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"12\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Layout_SIZE = 8
+#def Layout_align = +0
+#def Layout_size = +4
+
+@main() -> i32:
+L_ENTRY:
+    layout = alloc Layout_SIZE
+    store layout+Layout_align, 4 as i32
+    store layout+Layout_size, 8 as i32
+    align = load layout+Layout_align as i32
+    size = load layout+Layout_size as i32
+    total = add align, size
+    ok = eq total, 12
+    !align
+    !size
+    !total
+    !layout
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

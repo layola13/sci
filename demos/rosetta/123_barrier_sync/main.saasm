@@ -1,0 +1,48 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Barrier_SIZE = 8
+#def Barrier_total = +0
+#def Barrier_arrived = +4
+
+@main() -> i32:
+L_ENTRY:
+    bar = alloc Barrier_SIZE
+    store bar+Barrier_total, 3 as i32
+    store bar+Barrier_arrived, 0 as i32
+    jmp L_WAIT
+
+L_WAIT:
+    arrived = load bar+Barrier_arrived as i32
+    next = add arrived, 1
+    store bar+Barrier_arrived, next as i32
+    complete = eq next, 3
+    br complete -> L_DONE, L_WAIT_AGAIN
+
+L_WAIT_AGAIN:
+    !arrived
+    !next
+    !complete
+    jmp L_WAIT
+
+L_DONE:
+    total = load bar+Barrier_total as i32
+    ok = eq total, 3
+    !arrived
+    !next
+    !complete
+    !total
+    !bar
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

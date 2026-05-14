@@ -1,0 +1,7 @@
+@import "native/index.saasm"
+@import "portable/index.saasm"
+
+@export selected_value() -> i32:
+L_ENTRY:
+    value = call @native_value()
+    return value

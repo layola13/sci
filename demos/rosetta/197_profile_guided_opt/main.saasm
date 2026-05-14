@@ -1,0 +1,71 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"10\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@hot() -> i32:
+L_ENTRY:
+    return 3
+
+@cold() -> i32:
+L_ENTRY:
+    return 1
+
+@profiled(seed: i32) -> i32:
+L_ENTRY:
+    step0 = add seed, 0
+    step1 = add step0, 1
+    step2 = add step1, 2
+    !step0
+    !step1
+    !seed
+    return step2
+
+@main() -> i32:
+L_ENTRY:
+    total_slot = stack_alloc 8
+    idx_slot = stack_alloc 8
+    store total_slot+0, 0 as i32
+    store idx_slot+0, 0 as i32
+    jmp L_LOOP
+
+L_LOOP:
+    total = load total_slot+0 as i32
+    idx = load idx_slot+0 as i32
+    done = eq idx, 3
+    br done -> L_AFTER_LOOP, L_HOT
+
+L_HOT:
+    value = call @hot()
+    total_next = add total, value
+    idx_next = add idx, 1
+    store total_slot+0, total_next as i32
+    store idx_slot+0, idx_next as i32
+    !value
+    !total
+    !idx
+    !done
+    !total_next
+    !idx_next
+    jmp L_LOOP
+
+L_AFTER_LOOP:
+    cold = call @cold()
+    total2 = add total, cold
+    ok = eq total2, 10
+    !cold
+    !total
+    !idx
+    !done
+    !total2
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

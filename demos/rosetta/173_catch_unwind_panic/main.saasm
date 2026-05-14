@@ -1,0 +1,49 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"stop\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@cause_panic() -> i32:
+L_ENTRY:
+    payload = alloc 5
+    store payload+0, 115 as u8
+    store payload+1, 116 as u8
+    store payload+2, 111 as u8
+    store payload+3, 112 as u8
+    store payload+4, 0 as u8
+    !payload
+    return 17
+
+@main() -> i32:
+L_ENTRY:
+    msg = alloc 5
+    store msg+0, 115 as u8
+    store msg+1, 116 as u8
+    store msg+2, 111 as u8
+    store msg+3, 112 as u8
+    store msg+4, 0 as u8
+    first = load msg+0 as u8
+    ok = eq first, 115
+    !first
+    !msg
+    br ok -> L_CALL, L_PRECHECK_ERR
+
+L_CALL:
+    result = call @cause_panic()
+    caught = eq result, 17
+    !result
+    br caught -> L_OK, L_PANIC_ERR
+
+L_OK:
+    !caught
+    call @sa_print_bytes(&RESULT_OK, 5)
+    return 0
+
+L_PRECHECK_ERR:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+L_PANIC_ERR:
+    !caught
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

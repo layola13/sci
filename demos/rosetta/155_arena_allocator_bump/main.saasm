@@ -1,0 +1,44 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Arena_SIZE = 12
+#def Arena_cursor = +0
+#def Arena_a = +4
+#def Arena_b = +8
+
+@main() -> i32:
+L_ENTRY:
+    arena = alloc Arena_SIZE
+    store arena+Arena_cursor, 0 as i32
+    cursor = load arena+Arena_cursor as i32
+    a_ptr = ptr_add arena, cursor
+    store a_ptr+Arena_a, 1 as i32
+    next = add cursor, 4
+    store arena+Arena_cursor, next as i32
+    b_ptr = ptr_add arena, next
+    store b_ptr+Arena_b, 2 as i32
+    a = load a_ptr+Arena_a as i32
+    b = load b_ptr+Arena_b as i32
+    total = add a, b
+    ok = eq total, 3
+    !a
+    !b
+    !total
+    !b_ptr
+    !a_ptr
+    !cursor
+    !next
+    !arena
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

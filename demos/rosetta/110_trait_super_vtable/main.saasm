@@ -1,0 +1,74 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"15\n"
+@const RESULT_ERR = utf8:"error\n"
+@const VT_A = vtable { a = @item_a }
+@const VT_B = vtable { a = @item_a, b = @item_b }
+
+#def Dyn_SIZE = 16
+#def Dyn_data = +0
+#def Dyn_vtable = +8
+
+#def VTableA_a = +0
+
+#def VTableB_a = +0
+#def VTableB_b = +8
+
+#def Item_SIZE = 4
+#def Item_value = +0
+
+@item_a(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+Item_value as i32
+    !self
+    return value
+
+@item_b(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+Item_value as i32
+    result = add value, 1
+    !value
+    !self
+    return result
+
+@dispatch(&obj: ptr) -> i32:
+L_ENTRY:
+    data = load obj+Dyn_data as ptr
+    vt = load obj+Dyn_vtable as ptr
+    a_fn = load vt+VTableA_a as ptr
+    a_val = call_indirect a_fn(&data)
+    b_fn = load vt+VTableB_b as ptr
+    b_val = call_indirect b_fn(&data)
+    sum = add a_val, b_val
+    !a_fn
+    !b_fn
+    !a_val
+    !b_val
+    !vt
+    !data
+    !obj
+    return sum
+
+@main() -> i32:
+L_ENTRY:
+    item = alloc Item_SIZE
+    store item+Item_value, 7 as i32
+    obj = alloc Dyn_SIZE
+    store obj+Dyn_data, item as ptr
+    store obj+Dyn_vtable, &VT_B as ptr
+    result = call @dispatch(&obj)
+    ok = eq result, 15
+    !result
+    !obj
+    !item
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

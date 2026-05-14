@@ -4,6 +4,6 @@
 展示前端通过动态库注入生成额外代码。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **纯粹的前端责任**：SA-ASM 是一个无 AST、无全局类型推导的物理执行验证机。像 Proc Macro Derive 这样的高级语义或外部抽象，100% 由前端（如 Rustc, TypeScript Compiler 或大语言模型）在降级期间展开。
-2. **物理映射**：无论是复杂的并发原语、不安全的 FFI 边界、还是宏展平，进入 SA-ASM 后全部化为裸内存的 `alloc`、O(1) 验证的所有权锁（`Active`, `Locked_*`, `BorrowView` 等）、扁平的标签跳转（`jmp` / `br`）以及气闸舱隔离的系统调用。
-3. **架构纪律**：如果逻辑中存在内存泄漏或悬挂指针，SA-ASM 编译器在验证期通过 O(1) 线性扫描便能无情截断，拒绝发射恶意或残缺的 LLVM IR。
+1. **前端先展开**：macro rules、proc macro、attribute rewrite 和 cfg selection 都发生在 SA 之前；SA 看到的应该是已经材料化的代码，而不是宏语言本身。
+2. **构建链外移**：build script、LTO、PGO、CFI 和 ASAN 属于宿主编译链或运行时防护层，文档应描述它们如何影响最终 SA 形态，而不是伪造新的 SA 语法。
+3. **自举但不自嗨**：quine 只能在“前端已把源码展开成自描述 SA 程序”之后成立；若展开后仍有泄漏、悬挂指针或未收敛的宏递归，就必须在发射前截断。

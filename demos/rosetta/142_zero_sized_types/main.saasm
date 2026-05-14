@@ -1,0 +1,28 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+// ZST 零尺寸类型，在降级时参数被完全抹除。
+@process_unit() -> i32:
+L_ENTRY:
+    res = add 42, 0
+    return res
+
+@main() -> i32:
+L_ENTRY:
+    // 没有 alloc 指令。直接调用。
+    result = call @process_unit()
+    ok = eq result, 42
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -593,11 +593,32 @@ fn emitParsedLine(
                 .op => {
                     const dst = try symbols.intern(classified.parts[0]);
                     const op_name = classified.parts[1];
+                    const op_kind = common_instruction.parseOpKind(op_name) orelse return error.InvalidSyntax;
                     inst.operands[0] = .{ .reg = dst };
-                    const opcode = common_instruction.parseOpCode(op_name) orelse return error.InvalidSyntax;
-                    inst.operands[1] = .{ .op_code = opcode };
-                    inst.operands[2] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[2]);
-                    inst.operands[3] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[3]);
+                    inst.op_kind = op_kind;
+
+                    if (common_instruction.isTernaryOpKind(op_kind)) {
+                        inst.operands[1] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[2]);
+                        inst.operands[2] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[3]);
+                        inst.operands[3] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[4]);
+                    } else if (common_instruction.isUnaryOpKind(op_kind)) {
+                        inst.operands[1] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[2]);
+                        if (common_instruction.isTypeConversionOpKind(op_kind)) {
+                            const target_ty: common_signature.PrimType = if (classified.part_count > 3 and classified.parts[3].len != 0)
+                                try common_signature.parsePrimType(classified.parts[3])
+                            else
+                                .i32;
+                            inst.operands[2] = .{ .ty = @intFromEnum(target_ty) };
+                        }
+                    } else if (common_instruction.isBinaryOpKind(op_kind)) {
+                        inst.operands[1] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[2]);
+                        inst.operands[2] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[3]);
+                        if (op_kind == .extract_lane and classified.part_count > 4) {
+                            inst.operands[3] = try resolveOperandText(allocator, dict, owned_text, symbols, classified.parts[4]);
+                        }
+                    } else {
+                        return error.InvalidSyntax;
+                    }
                 },
                 .ptr_add => {
                     const dst = try symbols.intern(classified.parts[0]);
@@ -1157,6 +1178,91 @@ pub fn flattenFile(allocator: std.mem.Allocator, source_path: []const u8, source
     return flattenInternal(allocator, source, source_path);
 }
 
+const MacroPbtProgram = struct {
+    source: []u8,
+    base_name: []u8,
+    acc_name: []u8,
+    alloc_size: u64,
+    count: u8,
+
+    fn deinit(self: *MacroPbtProgram, allocator: std.mem.Allocator) void {
+        allocator.free(self.source);
+        allocator.free(self.base_name);
+        allocator.free(self.acc_name);
+        self.* = undefined;
+    }
+};
+
+fn buildMacroPbtProgram(allocator: std.mem.Allocator, random: std.Random, iter: usize) !MacroPbtProgram {
+    const count = random.intRangeAtMost(u8, 0, 4);
+    const alloc_size = random.intRangeAtMost(u64, 1, 64);
+    const salt = random.intRangeAtMost(u32, 0, 9999);
+
+    const base_name = try std.fmt.allocPrint(allocator, "base_{d}_{d}", .{ iter, salt });
+    errdefer allocator.free(base_name);
+    const acc_name = try std.fmt.allocPrint(allocator, "acc_{d}_{d}", .{ iter, salt });
+    errdefer allocator.free(acc_name);
+
+    var source = std.ArrayList(u8).init(allocator);
+    errdefer source.deinit();
+    const writer = source.writer();
+    try writer.writeAll(
+        \\#def REP_COUNT = 
+    );
+    try writer.print("{d}\n", .{count});
+    try writer.writeAll(
+        \\[MACRO] INIT %acc, %base
+        \\    %acc = add %base, 0
+        \\[END_MACRO]
+        \\
+        \\[MACRO] CHAIN %acc, %base
+        \\    EXPAND INIT %acc, %base
+        \\    [REP REP_COUNT]
+        \\        tmp_%i = add %acc, %i
+        \\    [END_REP]
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\
+    );
+    try writer.print("    {s} = alloc {d}\n", .{ base_name, alloc_size });
+    try writer.print("    EXPAND CHAIN {s}, {s}\n", .{ acc_name, base_name });
+    try writer.print("    return {s}\n", .{acc_name});
+
+    return .{
+        .source = try source.toOwnedSlice(),
+        .base_name = base_name,
+        .acc_name = acc_name,
+        .alloc_size = alloc_size,
+        .count = count,
+    };
+}
+
+fn expectOperandReg(inst: Instruction, index: usize, expected: u32) !void {
+    switch (inst.operands[index]) {
+        .reg => |actual| try std.testing.expectEqual(expected, actual),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+fn expectOperandImmU64(inst: Instruction, index: usize, expected: u64) !void {
+    switch (inst.operands[index]) {
+        .imm_u64 => |actual| try std.testing.expectEqual(expected, actual),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+fn expectOperandImmI64(inst: Instruction, index: usize, expected: i64) !void {
+    switch (inst.operands[index]) {
+        .imm_i64 => |actual| try std.testing.expectEqual(expected, actual),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+fn expectRawText(inst: Instruction, expected: []const u8) !void {
+    try std.testing.expectEqualStrings(expected, inst.raw_text);
+}
+
 test "scanSource preserves line order and classification" {
     const source =
         \\#def SIZE = 16
@@ -1343,4 +1449,136 @@ test "flattenFile rejects import cycles" {
     defer std.testing.allocator.free(source_path);
 
     try std.testing.expectError(error.ImportCycle, flattenFile(std.testing.allocator, source_path, source));
+}
+
+test "macro PBT expands nested macros and repeat bodies deterministically" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6A10);
+    const random = prng.random();
+
+    for (0..48) |iter| {
+        var program = try buildMacroPbtProgram(std.testing.allocator, random, iter);
+        defer program.deinit(std.testing.allocator);
+
+        var result = try flatten(std.testing.allocator, program.source);
+        defer result.deinit(std.testing.allocator);
+
+        try std.testing.expectEqual(@as(usize, 1), result.function_sigs.len);
+        try std.testing.expectEqual(@as(usize, 0), result.const_decls.len);
+        try std.testing.expectEqual(@as(usize, 4) + program.count, result.instructions.len);
+
+        const base_id = result.symbols.findId(program.base_name) orelse return error.TestUnexpectedResult;
+        const acc_id = result.symbols.findId(program.acc_name) orelse return error.TestUnexpectedResult;
+        try std.testing.expectEqualStrings(program.base_name, result.symbols.lookupName(base_id).?);
+        try std.testing.expectEqualStrings(program.acc_name, result.symbols.lookupName(acc_id).?);
+
+        try std.testing.expectEqual(InstKind.func_decl, result.instructions[0].kind);
+        try std.testing.expectEqual(InstKind.alloc, result.instructions[1].kind);
+        try std.testing.expectEqual(InstKind.op, result.instructions[2].kind);
+        try std.testing.expectEqual(common_instruction.OpKind.add, result.instructions[2].op_kind.?);
+        try std.testing.expectEqual(InstKind.return_, result.instructions[result.instructions.len - 1].kind);
+
+        var line_buf: [128]u8 = undefined;
+        var tmp_buf: [32]u8 = undefined;
+
+        const alloc_line = try std.fmt.bufPrint(&line_buf, "    {s} = alloc {d}", .{ program.base_name, program.alloc_size });
+        try expectRawText(result.instructions[1], alloc_line);
+        try expectOperandReg(result.instructions[1], 0, base_id);
+        try expectOperandImmU64(result.instructions[1], 1, program.alloc_size);
+
+        const seed_line = try std.fmt.bufPrint(&line_buf, "    {s} = add {s}, 0", .{ program.acc_name, program.base_name });
+        try expectRawText(result.instructions[2], seed_line);
+        try expectOperandReg(result.instructions[2], 0, acc_id);
+        try expectOperandReg(result.instructions[2], 1, base_id);
+        try expectOperandImmI64(result.instructions[2], 2, 0);
+
+        for (0..program.count) |idx| {
+            const tmp_name = try std.fmt.bufPrint(&tmp_buf, "tmp_{d}", .{idx});
+            const tmp_id = result.symbols.findId(tmp_name) orelse return error.TestUnexpectedResult;
+            const inst = result.instructions[3 + idx];
+            const expected_text = try std.fmt.bufPrint(&line_buf, "        {s} = add {s}, {d}", .{ tmp_name, program.acc_name, idx });
+            try expectRawText(inst, expected_text);
+            try std.testing.expectEqual(InstKind.op, inst.kind);
+            try std.testing.expectEqual(common_instruction.OpKind.add, inst.op_kind.?);
+            try expectOperandReg(inst, 0, tmp_id);
+            try expectOperandReg(inst, 1, acc_id);
+            try expectOperandImmI64(inst, 2, @intCast(idx));
+        }
+
+        const return_line = try std.fmt.bufPrint(&line_buf, "    return {s}", .{program.acc_name});
+        try expectRawText(result.instructions[result.instructions.len - 1], return_line);
+        try expectOperandReg(result.instructions[result.instructions.len - 1], 0, acc_id);
+    }
+}
+
+test "macro PBT rejects invalid definitions and invocations" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6A11);
+    const random = prng.random();
+
+    for (0..36) |iter| {
+        const case_id = random.intRangeLessThan(u8, 0, 6);
+        const ghost_name = try std.fmt.allocPrint(std.testing.allocator, "ghost_{d}_{d}", .{ iter, random.intRangeAtMost(u16, 0, 9999) });
+        defer std.testing.allocator.free(ghost_name);
+
+        const source = switch (case_id) {
+            0 => try std.fmt.allocPrint(std.testing.allocator,
+                \\@main() -> i32:
+                \\EXPAND {s} value
+                \\return 0
+            , .{ghost_name}),
+            1 => try std.fmt.allocPrint(std.testing.allocator,
+                \\[MACRO] SINGLE %x
+                \\    %x = add 1, 0
+                \\[END_MACRO]
+                \\
+                \\@main() -> i32:
+                \\    EXPAND SINGLE value, extra
+                \\    return 0
+            , .{}),
+            2 => try std.fmt.allocPrint(std.testing.allocator,
+                \\[MACRO] DUP %x
+                \\    %x = add 1, 0
+                \\[END_MACRO]
+                \\[MACRO] DUP %x
+                \\    %x = add 2, 0
+                \\[END_MACRO]
+                \\
+                \\@main() -> i32:
+                \\    return 0
+            , .{}),
+            3 => try std.fmt.allocPrint(std.testing.allocator,
+                \\[MACRO] OPEN %x
+                \\    %x = add 1, 0
+                \\
+                \\@main() -> i32:
+                \\    return 0
+            , .{}),
+            4 => try std.fmt.allocPrint(std.testing.allocator,
+                \\@main() -> i32:
+                \\[REP 2]
+                \\    return 0
+                \\return 0
+            , .{}),
+            5 => try std.fmt.allocPrint(std.testing.allocator,
+                \\[MACRO] LOOP %x
+                \\    EXPAND LOOP %x
+                \\[END_MACRO]
+                \\
+                \\@main() -> i32:
+                \\    EXPAND LOOP value
+                \\    return 0
+            , .{}),
+            else => unreachable,
+        };
+        defer std.testing.allocator.free(source);
+
+        const expected_error = switch (case_id) {
+            0, 1 => error.InvalidMacroInvocation,
+            2 => error.DuplicateDef,
+            3 => error.UnbalancedMacro,
+            4 => error.UnbalancedRep,
+            5 => error.MacroRecursionLimit,
+            else => unreachable,
+        };
+        try std.testing.expectError(expected_error, flatten(std.testing.allocator, source));
+    }
 }

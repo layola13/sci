@@ -1,0 +1,36 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def IntProvider_SIZE = 4
+#def IntProvider_val = +0
+
+// GATs 被前端完全单态化，生命周期 'a 被抹除。
+@IntProvider_get(&self: ptr) -> i32:
+L_ENTRY:
+    val = load self+IntProvider_val as i32
+    return val
+
+@main() -> i32:
+L_ENTRY:
+    p = alloc IntProvider_SIZE
+    store p+IntProvider_val, 42 as i32
+    
+    // 借用调用
+    val = call @IntProvider_get(&p)
+    !p
+    
+    ok = eq val, 42
+    !val
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

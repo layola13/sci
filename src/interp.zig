@@ -666,9 +666,105 @@ const Interpreter = struct {
         return .unsigned;
     }
 
-    fn opBinary(self: *Interpreter, op: inst.OpCode, a: RegValue, b: RegValue) !RegValue {
+    fn opUnary(self: *Interpreter, op: inst.OpKind, value: RegValue, target: ?sig.PrimType) !RegValue {
+        _ = self;
+        if (value.fallible) return RunError.InvalidOperand;
+        if (value.ty == .v128) return RunError.UnsupportedInstruction;
+
+        switch (op) {
+            .neg => {
+                if (isFloatLike(value.ty)) {
+                    return try valueFromFloat(value.ty, -floatValue(value));
+                }
+                const width = primWidth(value.ty);
+                const mask = maskForWidth(width);
+                const bits = (0 -% (value.bits & mask)) & mask;
+                return .{ .ty = value.ty, .bits = bits, .interior_ptr = value.interior_ptr, .const_name = value.const_name, .vtable_slot_name = value.vtable_slot_name, .call_target_name = value.call_target_name };
+            },
+            .not => {
+                if (!isIntLike(value.ty)) return RunError.InvalidOperand;
+                const width = primWidth(value.ty);
+                const mask = maskForWidth(width);
+                return .{ .ty = value.ty, .bits = (~value.bits) & mask, .interior_ptr = value.interior_ptr, .const_name = value.const_name, .vtable_slot_name = value.vtable_slot_name, .call_target_name = value.call_target_name };
+            },
+            .fneg => {
+                if (!isFloatLike(value.ty)) return RunError.InvalidOperand;
+                return try valueFromFloat(value.ty, -floatValue(value));
+            },
+            .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext => {
+                const target_ty = target orelse return RunError.InvalidOperand;
+                if (target_ty == .v128) return RunError.UnsupportedInstruction;
+                if (value.ty == .v128) return RunError.UnsupportedInstruction;
+                if (op == .trunc or op == .zext or op == .sext) {
+                    if (!isIntLike(value.ty) or !isIntLike(target_ty)) return RunError.InvalidOperand;
+                    const src_bits = primWidth(value.ty);
+                    const dst_bits = primWidth(target_ty);
+                    const raw_bits = value.bits & maskForWidth(src_bits);
+                    if (op == .trunc or dst_bits < src_bits) {
+                        return try valueFromInt(target_ty, @as(i128, @intCast(raw_bits)));
+                    }
+                    if (op == .zext) {
+                        return .{ .ty = target_ty, .bits = raw_bits & maskForWidth(dst_bits), .interior_ptr = value.interior_ptr, .const_name = value.const_name, .vtable_slot_name = value.vtable_slot_name, .call_target_name = value.call_target_name };
+                    }
+                    if (op == .sext) {
+                        const signed_raw = intValue(value, true);
+                        return try valueFromInt(target_ty, signed_raw);
+                    }
+                    return RunError.InvalidInstruction;
+                }
+                if (op == .fptrunc or op == .fpext) {
+                    if (!isFloatLike(value.ty) or !isFloatLike(target_ty)) return RunError.InvalidOperand;
+                    if (op == .fptrunc and primWidth(target_ty) >= primWidth(value.ty)) {
+                        return .{ .ty = target_ty, .bits = value.bits, .interior_ptr = value.interior_ptr, .const_name = value.const_name, .vtable_slot_name = value.vtable_slot_name, .call_target_name = value.call_target_name };
+                    }
+                    if (op == .fpext and primWidth(target_ty) <= primWidth(value.ty)) {
+                        return .{ .ty = target_ty, .bits = value.bits, .interior_ptr = value.interior_ptr, .const_name = value.const_name, .vtable_slot_name = value.vtable_slot_name, .call_target_name = value.call_target_name };
+                    }
+                    return switch (target_ty) {
+                        .f32 => .{ .ty = .f32, .bits = @as(u64, @as(u32, @bitCast(@as(f32, @floatCast(floatValue(value)))))), .interior_ptr = value.interior_ptr, .const_name = value.const_name, .vtable_slot_name = value.vtable_slot_name, .call_target_name = value.call_target_name },
+                        .f64 => .{ .ty = .f64, .bits = @bitCast(@as(f64, @floatCast(floatValue(value)))), .interior_ptr = value.interior_ptr, .const_name = value.const_name, .vtable_slot_name = value.vtable_slot_name, .call_target_name = value.call_target_name },
+                        else => RunError.InvalidOperand,
+                    };
+                }
+                if (op == .sitofp or op == .uitofp or op == .fptosi) {
+                    if (op == .fptosi) {
+                        if (!isFloatLike(value.ty) or !isIntLike(target_ty)) return RunError.InvalidOperand;
+                        return try valueFromInt(target_ty, @as(i128, @intFromFloat(floatValue(value))));
+                    }
+                    if (!isIntLike(value.ty) or !isFloatLike(target_ty)) return RunError.InvalidOperand;
+                    if (op == .sitofp) {
+                        return try valueFromFloat(target_ty, @as(f64, @floatFromInt(intValue(value, true))));
+                    }
+                    return try valueFromFloat(target_ty, @as(f64, @floatFromInt(intValue(value, false))));
+                }
+                return RunError.InvalidInstruction;
+            },
+            .bitcast => {
+                const target_ty = target orelse return RunError.InvalidOperand;
+                return try bitcastValue(value, target_ty);
+            },
+            else => return RunError.InvalidInstruction,
+        }
+    }
+
+    fn bitcastValue(value: RegValue, target: sig.PrimType) !RegValue {
+        if (sig.primTypeBits(value.ty) != sig.primTypeBits(target)) return RunError.UnsupportedInstruction;
+        return .{
+            .ty = target,
+            .bits = value.bits,
+            .fallible = value.fallible,
+            .status = value.status,
+            .interior_ptr = value.interior_ptr,
+            .const_name = value.const_name,
+            .vtable_slot_name = value.vtable_slot_name,
+            .call_target_name = value.call_target_name,
+        };
+    }
+
+    fn opBinary(self: *Interpreter, op: inst.OpKind, a: RegValue, b: RegValue) !RegValue {
         _ = self;
         if (a.fallible or b.fallible) return RunError.InvalidOperand;
+        if (a.ty == .v128 or b.ty == .v128) return RunError.UnsupportedInstruction;
 
         if (op == .add or op == .sub) {
             if (a.ty == .ptr or b.ty == .ptr) {
@@ -681,34 +777,41 @@ const Interpreter = struct {
                 return switch (op) {
                     .add => .{ .ty = .ptr, .bits = ptr.bits +% delta, .interior_ptr = true },
                     .sub => .{ .ty = .ptr, .bits = ptr.bits -% delta, .interior_ptr = true },
-                    else => unreachable,
+                    else => RunError.InvalidOperand,
                 };
             }
         }
 
-        const kind = numKind(a, b);
+        const kind = switch (op) {
+            .fadd, .fsub, .fmul, .fdiv => .float,
+            .lshr => .unsigned,
+            .ashr => .signed,
+            .sdiv, .srem, .sgt, .slt, .sge, .sle => .signed,
+            .udiv, .urem, .ugt, .ult, .uge, .ule => .unsigned,
+            else => numKind(a, b),
+        };
         const lhs_signed = intValue(a, true);
         const rhs_signed = intValue(b, true);
         const lhs_unsigned: u128 = @as(u128, @intCast(intValue(a, false)));
         const rhs_unsigned: u128 = @as(u128, @intCast(intValue(b, false)));
 
         switch (op) {
-            .add => return switch (kind) {
+            .add, .fadd => return switch (kind) {
                 .float => try valueFromFloat(.f64, floatValue(a) + floatValue(b)),
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed + rhs_signed))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned + rhs_unsigned)) },
             },
-            .sub => return switch (kind) {
+            .sub, .fsub => return switch (kind) {
                 .float => try valueFromFloat(.f64, floatValue(a) - floatValue(b)),
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed - rhs_signed))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned - rhs_unsigned)) },
             },
-            .mul => return switch (kind) {
+            .mul, .fmul => return switch (kind) {
                 .float => try valueFromFloat(.f64, floatValue(a) * floatValue(b)),
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed * rhs_signed))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned * rhs_unsigned)) },
             },
-            .div => return switch (kind) {
+            .div, .fdiv => return switch (kind) {
                 .float => try valueFromFloat(.f64, floatValue(a) / floatValue(b)),
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(@divTrunc(lhs_signed, rhs_signed)))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned / rhs_unsigned)) },
@@ -734,7 +837,7 @@ const Interpreter = struct {
                 if (kind == .float) return RunError.InvalidOperand;
                 return .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned % rhs_unsigned)) };
             },
-            .gt, .lt, .eq, .ne => {
+            .eq, .ne, .gt, .lt => {
                 return switch (kind) {
                     .float => blk: {
                         const lhs = floatValue(a);
@@ -746,7 +849,7 @@ const Interpreter = struct {
                             .ne => lhs != rhs,
                             else => unreachable,
                         };
-                        break :blk try valueFromInt(.i64, @intFromBool(result));
+                        break :blk try valueFromInt(.i1, @intFromBool(result));
                     },
                     .signed => blk: {
                         const result = switch (op) {
@@ -756,7 +859,7 @@ const Interpreter = struct {
                             .ne => lhs_signed != rhs_signed,
                             else => unreachable,
                         };
-                        break :blk try valueFromInt(.i64, @intFromBool(result));
+                        break :blk try valueFromInt(.i1, @intFromBool(result));
                     },
                     .unsigned => blk: {
                         const result = switch (op) {
@@ -766,9 +869,24 @@ const Interpreter = struct {
                             .ne => lhs_unsigned != rhs_unsigned,
                             else => unreachable,
                         };
-                        break :blk try valueFromInt(.i64, @intFromBool(result));
+                        break :blk try valueFromInt(.i1, @intFromBool(result));
                     },
                 };
+            },
+            .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => {
+                if (!isFloatLike(a.ty) and !isFloatLike(b.ty)) return RunError.InvalidOperand;
+                const lhs = floatValue(a);
+                const rhs = floatValue(b);
+                const result = switch (op) {
+                    .fcmp_eq => lhs == rhs,
+                    .fcmp_ne => lhs != rhs,
+                    .fcmp_lt => lhs < rhs,
+                    .fcmp_le => lhs <= rhs,
+                    .fcmp_gt => lhs > rhs,
+                    .fcmp_ge => lhs >= rhs,
+                    else => unreachable,
+                };
+                return try valueFromInt(.i1, @intFromBool(result));
             },
             .sgt, .slt, .sge, .sle => {
                 if (kind == .float) return RunError.InvalidOperand;
@@ -779,7 +897,7 @@ const Interpreter = struct {
                     .sle => lhs_signed <= rhs_signed,
                     else => unreachable,
                 };
-                return try valueFromInt(.i64, @intFromBool(result));
+                return try valueFromInt(.i1, @intFromBool(result));
             },
             .ugt, .ult, .uge, .ule => {
                 if (kind == .float) return RunError.InvalidOperand;
@@ -790,28 +908,42 @@ const Interpreter = struct {
                     .ule => lhs_unsigned <= rhs_unsigned,
                     else => unreachable,
                 };
-                return try valueFromInt(.i64, @intFromBool(result));
+                return try valueFromInt(.i1, @intFromBool(result));
             },
             .@"and" => return switch (kind) {
-                .float => try valueFromFloat(.f64, floatValue(a)),
+                .float => RunError.InvalidOperand,
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed & rhs_signed))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned & rhs_unsigned)) },
             },
             .@"or" => return switch (kind) {
-                .float => try valueFromFloat(.f64, floatValue(a)),
+                .float => RunError.InvalidOperand,
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed | rhs_signed))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned | rhs_unsigned)) },
             },
+            .xor => return switch (kind) {
+                .float => RunError.InvalidOperand,
+                .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed ^ rhs_signed))),
+                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned ^ rhs_unsigned)) },
+            },
             .shl => return switch (kind) {
-                .float => try valueFromFloat(.f64, floatValue(a)),
+                .float => RunError.InvalidOperand,
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed << @as(u6, @intCast(rhs_unsigned & 0x3f))))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned << @as(u6, @intCast(rhs_unsigned & 0x3f)))) },
             },
+            .lshr => {
+                if (kind == .float) return RunError.InvalidOperand;
+                return .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned >> @as(u6, @intCast(rhs_unsigned & 0x3f)))) };
+            },
+            .ashr => {
+                if (kind == .float) return RunError.InvalidOperand;
+                return try valueFromInt(.i64, @as(i64, @intCast(lhs_signed >> @as(u6, @intCast(rhs_unsigned & 0x3f)))));
+            },
             .shr => return switch (kind) {
-                .float => try valueFromFloat(.f64, floatValue(a)),
+                .float => RunError.InvalidOperand,
                 .signed => try valueFromInt(.i64, @as(i64, @intCast(lhs_signed >> @as(u6, @intCast(rhs_unsigned & 0x3f))))),
                 .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned >> @as(u6, @intCast(rhs_unsigned & 0x3f)))) },
             },
+            .fptosi, .sitofp, .uitofp, .trunc, .zext, .sext, .fptrunc, .fpext, .bitcast, .neg, .not, .fneg, .add_v128, .sub_v128, .mul_v128, .shuffle_v128, .extract_lane, .insert_lane => return RunError.UnsupportedInstruction,
         }
     }
 
@@ -1195,10 +1327,31 @@ const Interpreter = struct {
                 .fence => {},
                 .op => {
                     const dst = base.operands[0].reg;
-                    const op = base.operands[1].op_code;
-                    const lhs = try resolveOperandValue(self, &regs, base.operands[2]);
-                    const rhs = try resolveOperandValue(self, &regs, base.operands[3]);
-                    const result = try self.opBinary(op, lhs, rhs);
+                    const op = base.op_kind orelse return RunError.InvalidInstruction;
+                    const result = try switch (op) {
+                        .neg, .not, .fneg => blk: {
+                            const value = try resolveOperandValue(self, &regs, base.operands[1]);
+                            break :blk self.opUnary(op, value, null);
+                        },
+                        .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => blk: {
+                            const value = try resolveOperandValue(self, &regs, base.operands[1]);
+                            const target = if (base.operands[2] == .ty) sig.primTypeFromTag(base.operands[2].ty) else null;
+                            break :blk self.opUnary(op, value, target);
+                        },
+                        .extract_lane => blk: {
+                            const value = try resolveOperandValue(self, &regs, base.operands[1]);
+                            const lane = try resolveOperandValue(self, &regs, base.operands[2]);
+                            _ = value;
+                            _ = lane;
+                            break :blk RunError.UnsupportedInstruction;
+                        },
+                        .shuffle_v128, .insert_lane, .add_v128, .sub_v128, .mul_v128 => RunError.UnsupportedInstruction,
+                        else => blk: {
+                            const lhs = try resolveOperandValue(self, &regs, base.operands[1]);
+                            const rhs = try resolveOperandValue(self, &regs, base.operands[2]);
+                            break :blk self.opBinary(op, lhs, rhs);
+                        },
+                    };
                     try regs.put(dst, result);
                 },
                 .ptr_add => {

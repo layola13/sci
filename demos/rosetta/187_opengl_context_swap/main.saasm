@@ -1,0 +1,96 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Ctx_SIZE = 20
+#def Ctx_ready = +0
+#def Ctx_swapped = +4
+#def Ctx_phase = +8
+#def Ctx_surface = +12
+#def Ctx_swap_count = +16
+
+@gl_make_current(ctx: ptr) -> i32:
+L_ENTRY:
+    phase = load ctx+Ctx_phase as i32
+    ok_phase = eq phase, 0
+    br ok_phase -> L_OK, L_ERR
+
+L_OK:
+    store ctx+Ctx_ready, 1 as i32
+    store ctx+Ctx_phase, 1 as i32
+    !phase
+    !ok_phase
+    return 1
+
+L_ERR:
+    !phase
+    !ok_phase
+    return 0
+
+@gl_swap_buffers(ctx: ptr) -> i32:
+L_ENTRY:
+    phase = load ctx+Ctx_phase as i32
+    ok_phase = eq phase, 1
+    br ok_phase -> L_OK, L_ERR
+
+L_OK:
+    store ctx+Ctx_swapped, 1 as i32
+    store ctx+Ctx_phase, 2 as i32
+    !phase
+    !ok_phase
+    return 1
+
+L_ERR:
+    !phase
+    !ok_phase
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    ctx = alloc Ctx_SIZE
+    store ctx+Ctx_ready, 0 as i32
+    store ctx+Ctx_swapped, 0 as i32
+    store ctx+Ctx_phase, 0 as i32
+    store ctx+Ctx_surface, 0 as i32
+    store ctx+Ctx_swap_count, 0 as i32
+    current = call @gl_make_current(ctx)
+    store ctx+Ctx_ready, current as i32
+    store ctx+Ctx_phase, 1 as i32
+    surface = load ctx+Ctx_surface as i32
+    swapped = call @gl_swap_buffers(ctx)
+    store ctx+Ctx_swapped, swapped as i32
+    swap_count = load ctx+Ctx_swap_count as i32
+    next_swap_count = add swap_count, 1
+    store ctx+Ctx_swap_count, next_swap_count as i32
+    store ctx+Ctx_phase, 2 as i32
+    ok_ready = eq current, 1
+    ok_swapped = eq swapped, 1
+    ok_phase = eq next_swap_count, 1
+    ok_surface = eq surface, 0
+    ok0 = and ok_ready, ok_swapped
+    ok1 = and ok_phase, ok_surface
+    ok = and ok0, ok1
+    !current
+    !swapped
+    !surface
+    !swap_count
+    !next_swap_count
+    !ok_ready
+    !ok_swapped
+    !ok_phase
+    !ok_surface
+    !ok0
+    !ok1
+    !ctx
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

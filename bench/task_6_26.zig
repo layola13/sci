@@ -161,3 +161,14 @@ pub fn main() !void {
         },
     );
 }
+
+test "task 6.26 benchmark program stays verifiable at a small size" {
+    var program = try buildProgram(std.testing.allocator, 64);
+    defer program.deinit(std.testing.allocator);
+
+    const result = try runOnce(std.testing.allocator, program.source);
+    try std.testing.expectEqual(@as(usize, 64), result.source_lines);
+    try std.testing.expect(result.flattened_lines > 0);
+    try std.testing.expect(result.flatten_ns > 0);
+    try std.testing.expect(result.verify_ns > 0);
+}

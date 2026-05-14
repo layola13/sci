@@ -1,0 +1,68 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"oops\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Error_SIZE = 16
+#def Error_tag = +0
+#def Error_msg = +4
+#def Error_len = +8
+#def Error_display = +12
+
+@format_error(&err: ptr) -> i32:
+L_ENTRY:
+    tag = load err+Error_tag as i32
+    msg = load err+Error_msg as i32
+    len = load err+Error_len as i32
+    display = load err+Error_display as i32
+    ok_tag = eq tag, 1
+    ok_msg = eq msg, 111
+    ok = and ok_tag, ok_msg
+    !tag
+    !msg
+    !display
+    !ok_tag
+    !ok_msg
+    !err
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    total = add len, 4
+    !len
+    !ok
+    return total
+
+L_ERR:
+    total = add len, 0
+    !len
+    !ok
+    return total
+
+@main() -> i32:
+L_ENTRY:
+    err = alloc Error_SIZE
+    store err+Error_tag, 1 as i32
+    store err+Error_msg, 111 as i32
+    store err+Error_len, 4 as i32
+    store err+Error_display, 0 as i32
+    total = call @format_error(&err)
+    display = load err+Error_display as i32
+    ok_total = eq total, 8
+    ok_display = eq display, 0
+    ok = and ok_total, ok_display
+    !total
+    !display
+    !ok_total
+    !ok_display
+    !err
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 5)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

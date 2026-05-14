@@ -1,0 +1,81 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"5\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Result_SIZE = 8
+#def Result_tag = +0
+#def Result_value = +4
+
+@make_some(&slot: ptr) -> i32:
+L_ENTRY:
+    store slot+Result_tag, 0 as i32
+    store slot+Result_value, 5 as i32
+    !slot
+    return 0
+
+@make_err(&slot: ptr) -> i32:
+L_ENTRY:
+    store slot+Result_tag, 1 as i32
+    store slot+Result_value, 13 as i32
+    !slot
+    return 1
+
+@unwrap_value(&res: ptr) -> i32:
+L_ENTRY:
+    tag = load res+Result_tag as i32
+    ok = eq tag, 0
+    br ok -> L_VALUE, L_PANIC
+
+L_VALUE:
+    value = load res+Result_value as i32
+    !tag
+    !res
+    return value
+
+L_PANIC:
+    panic_msg(17, *RESULT_ERR, 6)
+    return 0
+
+@unwrap_err_value(&res: ptr) -> i32:
+L_ENTRY:
+    tag = load res+Result_tag as i32
+    is_err = eq tag, 1
+    br is_err -> L_ERR, L_PANIC
+
+L_ERR:
+    value = load res+Result_value as i32
+    !tag
+    !res
+    return value
+
+L_PANIC:
+    panic_msg(17, *RESULT_ERR, 6)
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    some_res = alloc Result_SIZE
+    err_res = alloc Result_SIZE
+    call @make_some(&some_res)
+    call @make_err(&err_res)
+    value = call @unwrap_value(&some_res)
+    err_value = call @unwrap_err_value(&err_res)
+    ok_value = eq value, 5
+    ok_err = eq err_value, 13
+    ok = and ok_value, ok_err
+    !value
+    !err_value
+    !ok_value
+    !ok_err
+    !some_res
+    !err_res
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -4,6 +4,6 @@
 展示 assert 降级为 eq + br + panic_msg。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **纯粹的前端责任**：SA-ASM 是一个无 AST、无全局类型推导的物理执行验证机。像 Assert Macro Expansion 这样的高级语义或外部抽象，100% 由前端（如 Rustc, TypeScript Compiler 或大语言模型）在降级期间展开。
-2. **物理映射**：无论是复杂的并发原语、不安全的 FFI 边界、还是宏展平，进入 SA-ASM 后全部化为裸内存的 `alloc`、O(1) 验证的所有权锁（`Active`, `Locked_*`, `BorrowView` 等）、扁平的标签跳转（`jmp` / `br`）以及气闸舱隔离的系统调用。
-3. **架构纪律**：如果逻辑中存在内存泄漏或悬挂指针，SA-ASM 编译器在验证期通过 O(1) 线性扫描便能无情截断，拒绝发射恶意或残缺的 LLVM IR。
+1. **错误载荷外显**：`anyhow` / `eyre` / `thiserror` 这类错误包装都要展开成显式 payload、消息和可选 backtrace，SA 只负责把这些数据装进普通内存。
+2. **显式失败路径**：`catch_unwind`、`panic_hook`、`assert!`、`unwrap` / `unwrap_err` 和 `Try Trait V2` 都应该降级成分支跳转、`panic_msg` 和 cleanup block，不能把失败藏在隐式控制流里。
+3. **结果扁平化**：`Result` flattening 的意义是把多层 fallible 状态展开成可见 CFG；一旦前端没把每个错误出口画清楚，Referee 就没法保证资源回收。

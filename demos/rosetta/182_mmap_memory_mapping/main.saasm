@@ -1,0 +1,57 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+@const ZERO_PATH = utf8:"/dev/zero\0"
+
+@extern fd_open(*path: ptr) -> i32
+@extern fd_close(fd: i32) -> i32
+@extern mmap(fd: i32, len: i32) -> ptr
+@extern munmap(map: ptr, len: i32) -> i32
+
+#def Map_SIZE = 16
+#def Map_fd = +0
+#def Map_ptr = +4
+#def Map_len = +12
+
+@main() -> i32:
+L_ENTRY:
+    map = alloc Map_SIZE
+    store map+Map_fd, 0 as i32
+    store map+Map_ptr, 0 as ptr
+    store map+Map_len, 4 as i32
+    fd = call @fd_open(*ZERO_PATH)
+    ptr = call @mmap(fd, 4)
+    store map+Map_fd, fd as i32
+    store map+Map_ptr, ptr as ptr
+    byte = load ptr+0 as u8
+    unmapped = call @munmap(ptr, 4)
+    closed = call @fd_close(fd)
+    ok_byte = eq byte, 0
+    ok_unmap = eq unmapped, 0
+    ok_close = eq closed, 0
+    ok_fd = ne fd, 0
+    ok0 = and ok_byte, ok_unmap
+    ok1 = and ok0, ok_close
+    ok = and ok1, ok_fd
+    !byte
+    !unmapped
+    !closed
+    !fd
+    !ok_byte
+    !ok_unmap
+    !ok_close
+    !ok_fd
+    !ok0
+    !ok1
+    !ptr
+    !map
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

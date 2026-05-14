@@ -1,0 +1,26 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"23\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@export add_pair(a: i32, b: i32) -> i32:
+L_ENTRY:
+    sum = add a, b
+    return sum
+
+@main() -> i32:
+L_ENTRY:
+    result = call @add_pair(11, 12)
+    ok = eq result, 23
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

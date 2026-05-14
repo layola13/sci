@@ -4,6 +4,6 @@
 展示特化导致的分发歧义在前端解决的过程。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **纯粹的前端责任**：SA-ASM 是一个无 AST、无全局类型推导的物理执行验证机。像 Specialization Fallback 这样的高级语义或外部抽象，100% 由前端（如 Rustc, TypeScript Compiler 或大语言模型）在降级期间展开。
-2. **物理映射**：无论是复杂的并发原语、不安全的 FFI 边界、还是宏展平，进入 SA-ASM 后全部化为裸内存的 `alloc`、O(1) 验证的所有权锁（`Active`, `Locked_*`, `BorrowView` 等）、扁平的标签跳转（`jmp` / `br`）以及气闸舱隔离的系统调用。
-3. **架构纪律**：如果逻辑中存在内存泄漏或悬挂指针，SA-ASM 编译器在验证期通过 O(1) 线性扫描便能无情截断，拒绝发射恶意或残缺的 LLVM IR。
+1. **先单态化，再落地**：GAT、const generics、TAIT、blanket impl、specialization、negative impl 和 marker trait 都应在前端解决，SA 里只留下具体实例化后的函数和布局。
+2. **对象安全与上转型**：trait object、object safety 和 upcasting 最终还是函数指针表和 `call_indirect`；任何不能被明确排成槽位的接口，就不该伪装成运行时能力。
+3. **约束即合同**：`Send` / `Sync` / marker trait 这类约束更多是编译期合同，决定代码能否发射、走哪条实现路径，而不是 SA 运行时再去猜类型。

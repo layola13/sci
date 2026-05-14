@@ -1,0 +1,5 @@
+@import "zig_export.saasm-layout"
+
+@export zig_entry() -> i32:
+L_ENTRY:
+    return ZigExport_VALUE

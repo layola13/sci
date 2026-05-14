@@ -1,0 +1,81 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Lock_SIZE = 8
+#def Lock_value = +0
+#def Lock_held = +4
+
+#def Guard_SIZE = 8
+#def Guard_lock = +0
+
+@inspect(^lock: ptr, skip: i32) -> i32:
+L_ENTRY:
+    guard = alloc Guard_SIZE
+    store guard+Guard_lock, lock as ptr
+
+    held = load lock+Lock_held as i32
+    unlocked = eq held, 0
+    br unlocked -> L_ENTER, L_FAIL
+
+L_ENTER:
+    store lock+Lock_held, 1 as i32
+    skip_now = ne skip, 0
+    br skip_now -> L_SKIP, L_UPDATE
+
+L_SKIP:
+    current = load lock+Lock_value as i32
+    store lock+Lock_held, 0 as i32
+    !skip_now
+    !held
+    !guard
+    !lock
+    return current
+
+L_UPDATE:
+    current = load lock+Lock_value as i32
+    next = add current, 3
+    store lock+Lock_value, next as i32
+    store lock+Lock_held, 0 as i32
+    !skip_now
+    !held
+    !guard
+    !lock
+    return next
+
+L_FAIL:
+    !held
+    !guard
+    !lock
+    panic(102)
+
+@main() -> i32:
+L_ENTRY:
+    counter_first = alloc Lock_SIZE
+    store counter_first+Lock_value, 0 as i32
+    store counter_first+Lock_held, 0 as i32
+
+    first = call @inspect(^counter_first, 1)
+
+    counter_second = alloc Lock_SIZE
+    store counter_second+Lock_value, 0 as i32
+    store counter_second+Lock_held, 0 as i32
+
+    second = call @inspect(^counter_second, 0)
+    total = add first, second
+    ok = eq total, 3
+    !first
+    !second
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

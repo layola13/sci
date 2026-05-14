@@ -54,6 +54,40 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
+    const function_text = textOrBuf(report.function, report.function_buf[0..]);
+    const register_text = textOrBuf(report.register, report.register_buf[0..]);
+    var source_text_buf: [256]u8 = [_]u8{0} ** 256;
+    copyTextBuf(&source_text_buf, reportText(report));
+    const source_text = bufText(source_text_buf[0..]);
+    try writer.print("error[{s}]: {s}\n", .{ trap.trapName(report.trap), report.message });
+    if (function_text.len != 0) {
+        try writer.print("  in function {s}\n", .{function_text});
+    }
+    try printUpstreamLocation(writer, report);
+    if (source_text.len != 0) {
+        if (report.source_line != 0) {
+            if (report.line != 0 and report.line != report.source_line) {
+                try writer.print("  line {d} (expanded {d}): {s}\n", .{ report.source_line, report.line, source_text });
+            } else {
+                try writer.print("  line {d}: {s}\n", .{ report.source_line, source_text });
+            }
+        } else {
+            try writer.print("  source: {s}\n", .{source_text});
+        }
+    }
+    if (register_text.len != 0) {
+        try writer.print("  register: {s}\n", .{register_text});
+    } else if (report.registers.len != 0) {
+        try writer.writeAll("  registers:");
+        for (report.registers) |name| {
+            try writer.print(" {s}", .{name});
+        }
+        try writer.writeByte('\n');
+    }
+    try printMaskState(writer, report);
+    if (report.hint) |hint| {
+        try writer.print("  help: {s}\n", .{hint});
+    }
     try trap.writeJson(writer, report);
     try writer.writeByte('\n');
 }
@@ -87,6 +121,70 @@ fn sourceExcerpt(line: []const u8) []const u8 {
 fn copyTextBuf(dest: []u8, text: []const u8) void {
     const len = @min(dest.len, text.len);
     std.mem.copyForwards(u8, dest[0..len], text[0..len]);
+}
+
+fn bufText(buf: []const u8) []const u8 {
+    return buf[0..(std.mem.indexOfScalar(u8, buf, 0) orelse buf.len)];
+}
+
+fn textOrBuf(value: ?[]const u8, buf: []const u8) []const u8 {
+    if (value) |text| return text;
+    return bufText(buf);
+}
+
+fn reportText(report: trap.TrapReport) []const u8 {
+    if (report.source_text) |text| return text;
+    const source_fallback = bufText(report.source_text_buf[0..]);
+    if (source_fallback.len != 0) return source_fallback;
+    if (report.original_text) |text| return text;
+    return bufText(report.original_text_buf[0..]);
+}
+
+fn printUpstreamLocation(writer: anytype, report: trap.TrapReport) !void {
+    if (report.upstream_loc) |loc| {
+        try writer.print("  upstream {s}:{d}:{d}\n", .{ loc.file, loc.line, loc.col });
+        return;
+    }
+
+    const file = bufText(report.upstream_file_buf[0..]);
+    if (file.len == 0) return;
+
+    if (report.upstream_line != 0 and report.upstream_col != 0) {
+        try writer.print("  upstream {s}:{d}:{d}\n", .{ file, report.upstream_line, report.upstream_col });
+    } else if (report.upstream_line != 0) {
+        try writer.print("  upstream {s}:{d}\n", .{ file, report.upstream_line });
+    } else {
+        try writer.print("  upstream {s}\n", .{file});
+    }
+}
+
+fn printMaskState(writer: anytype, report: trap.TrapReport) !void {
+    if (report.expected_mask_name) |expected| {
+        if (report.actual_mask_name) |actual| {
+            try writer.print("  state: expected {s}, actual {s}\n", .{ expected, actual });
+            return;
+        }
+        try writer.print("  state: expected {s}\n", .{expected});
+        return;
+    }
+
+    if (report.actual_mask_name) |actual| {
+        try writer.print("  state: {s}\n", .{actual});
+        return;
+    }
+
+    if (report.expected_mask) |expected| {
+        if (report.actual_mask) |actual| {
+            try writer.print("  state: expected {d}, actual {d}\n", .{ expected, actual });
+            return;
+        }
+        try writer.print("  state: expected {d}\n", .{expected});
+        return;
+    }
+
+    if (report.actual_mask) |actual| {
+        try writer.print("  state: {d}\n", .{actual});
+    }
 }
 
 fn trapFromFlattenError(source: []const u8, err: anyerror) trap.TrapReport {
@@ -390,7 +488,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path, debug);
+            driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path, debug, stderr) catch |err| switch (err) {
+                error.ChildProcessFailed => return 1,
+                else => return err,
+            };
             return 0;
         },
     }
@@ -413,7 +514,10 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try driver.compileObj(allocator, ll_path, out_path, optimization, debug);
+            driver.compileObj(allocator, ll_path, out_path, optimization, debug, stderr) catch |err| switch (err) {
+                error.ChildProcessFailed => return 1,
+                else => return err,
+            };
             return 0;
         },
     }
@@ -436,7 +540,10 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            try driver.compileWasm(allocator, ll_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug);
+            driver.compileWasm(allocator, ll_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
+                error.ChildProcessFailed => return 1,
+                else => return err,
+            };
             return 0;
         },
     }
@@ -649,4 +756,59 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
 
 pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
     return executeWithWriters(allocator, argv, std.io.getStdOut().writer(), std.io.getStdErr().writer());
+}
+
+test "trap reports print a human summary and preserve json payload" {
+    var list = std.ArrayList(u8).init(std.testing.allocator);
+    defer list.deinit();
+
+    var report = trap.TrapReport{
+        .trap = .memory_leak,
+        .trap_code = trap.trapCode(.memory_leak),
+        .line = 12,
+        .source_line = 9,
+        .source_text_buf = [_]u8{0} ** 256,
+        .original_text_buf = [_]u8{0} ** 256,
+        .source_text = null,
+        .original_text = null,
+        .register_buf = [_]u8{0} ** 64,
+        .register = null,
+        .registers = &.{},
+        .expected_mask = null,
+        .actual_mask = 1,
+        .expected_mask_name = null,
+        .actual_mask_name = "Active",
+        .upstream_loc = null,
+        .upstream_file_buf = [_]u8{0} ** 128,
+        .upstream_line = 42,
+        .upstream_col = 7,
+        .function_buf = [_]u8{0} ** 64,
+        .function = null,
+        .is_ffi_wrapper = false,
+        .message = "live registers remain at function exit",
+        .hint = "insert explicit release",
+    };
+    const source = "result = load node+0 as i32";
+    std.mem.copyForwards(u8, report.source_text_buf[0..source.len], source);
+    const register = "r1";
+    std.mem.copyForwards(u8, report.register_buf[0..register.len], register);
+    const upstream_file = "main.rs";
+    std.mem.copyForwards(u8, report.upstream_file_buf[0..upstream_file.len], upstream_file);
+    const function = "@main() -> i32:";
+    std.mem.copyForwards(u8, report.function_buf[0..function.len], function);
+
+    try printTrapReport(list.writer(), report);
+    const output = list.items;
+
+    try std.testing.expect(std.mem.indexOf(u8, output, "error[MemoryLeak]: live registers remain at function exit") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  in function @main() -> i32:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  upstream main.rs:42:7") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  line 9 (expanded 12): result = load node+0 as i32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  register: r1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  state: Active") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  help: insert explicit release") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"trap\":\"MemoryLeak\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"function\":\"@main() -> i32:\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"register\":\"r1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"hint\":\"insert explicit release\"") != null);
 }

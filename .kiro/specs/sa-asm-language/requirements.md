@@ -409,17 +409,17 @@
 8. WHEN 前端希望复用 Phi 一致性分析 THEN SA 工具链 SHALL 提供一个 helper 库 `libsa_scope.{a,zig}`（非必需依赖），可被前端调用完成作用域跟踪与自动释放插入
 9. WHEN 前端违反本合约 THEN 其产出的 SA 代码 SHALL 在 Referee 上必然失败（这是设计意图，不是缺陷）；前端开发者 SHALL 在测试期通过 Referee 反馈调试自己的降级逻辑
 
-### Requirement 21: AutoBevy ECS — Stretch Demo（非 MVP 验收必选项）
+### Requirement 21: AutoBevy ECS — 最低优先级 Stretch Demo（非 MVP 验收必选项）
 
 **User Story**  
-作为语言架构的可行性展示，我希望用 SA 重构一个极简 ECS 运行时，但这**不是 MVP 验收的硬指标**；MVP 只要求 1K 实体冒烟通过，1M 实体 + Bevy 性能对标是 post-MVP 阶段的 stretch goal。
+作为语言架构的可行性展示，我希望用 SA 重构一个极简 ECS 运行时，但这**不是 MVP 验收的硬指标**，而是全项目**最低优先级**的 post-MVP stretch goal；MVP 只要求 1K 实体冒烟通过，1M 实体 + Bevy 性能对标留到 post-MVP。
 
 **Acceptance Criteria**
-1. WHEN AutoBevy MVP Demo 被实现 THEN 其 SHALL 至少包含：Component 注册、Entity 生成、System 注册、并行调度器（复用 Referee CapabilityMask）
+1. WHEN AutoBevy 最低优先级 Demo 被实现 THEN 其 SHALL 至少包含：Component 注册、Entity 生成、System 注册、并行调度器（复用 Referee CapabilityMask）
 2. WHEN 多个 System 被注册 THEN SA 静态并行分析器 SHALL 在运行前扫描其对 Component Buffer 的独占/共享借用请求（`Locked_Mut` vs `Locked_Read`），输出互斥正确的可并行组
-3. WHEN MVP Demo 运行 1K 实体 1 帧 THEN 其 SHALL 在 Wasmtime 中跑通并输出预期结果
-4. WHEN MVP Demo 编译到 WASM64 THEN 其产物 SHALL 可在 Wasmtime 中执行
-5. _[Stretch goal, post-MVP]_: 1M 实体 1 帧 的耗时对标 Bevy ±30% 窗口。此指标依赖 SIMD ISA（R2.5）、并行线程池、细粒度缓存布局优化，在 MVP 阶段不强制达成
+3. WHEN 最低优先级 Demo 运行 1K 实体 1 帧 THEN 其 SHALL 在 Wasmtime 中跑通并输出预期结果
+4. WHEN 最低优先级 Demo 编译到 WASM64 THEN 其产物 SHALL 可在 Wasmtime 中执行
+5. _[最低优先级, post-MVP stretch]_: 1M 实体 1 帧 的耗时对标 Bevy ±30% 窗口。此指标依赖 SIMD ISA（R2.5）、并行线程池、细粒度缓存布局优化，在 MVP 阶段不强制达成
 
 ### Requirement 22: 测试集（Referee 行为基线）
 
@@ -708,10 +708,10 @@
   - `__sa_panic` 运行时符号（Native stderr + exit，WASM `unreachable`）
   - Rust std 桥接（防波堤）示例工程
 
-### 阶段六（Week 13-14）：LLM Pilot + AutoBevy MVP + Hello-Compute
+### 阶段六（Week 13-14）：LLM Pilot + Hello-Compute + AutoBevy（最低优先级）
 - 产出：
   - LLM Pilot 30 题 × 3 模型 baseline 报告（R23.3）
-  - AutoBevy 1K 实体冒烟（MVP 验收）；1M 实体 + Bevy ±30% 留 post-MVP
+  - AutoBevy 1K 实体冒烟（最低优先级验证）；1M 实体 + Bevy ±30% 留 post-MVP
   - Hello-Compute 样例（`.exe` + `.wasm32` + `.wasm64`）
   - 端到端 CI 流水线
   - GDB / LLDB 上游行号断点验证
@@ -732,8 +732,8 @@
 | Hello-Compute `.exe` 体积 | ≤ 800 KB (MVP) / ≤ 500 KB (stretch) |
 | 测试通过率 | ≥ 99.9% |
 | LLM 零训练生成成功率 | **实测 baseline**（R23.3 Pilot 输出，不预设数字） |
-| AutoBevy 1K 实体冒烟 | 必须通过（MVP 硬约束） |
-| AutoBevy 1M 实体 + Bevy ±30% | post-MVP stretch goal |
+| AutoBevy 1K 实体冒烟 | 必须通过（最低优先级验证） |
+| AutoBevy 1M 实体 + Bevy ±30% | 最低优先级 post-MVP stretch goal |
 | CLI 二进制 | 单文件静态可执行，≤ 15 MB (MVP) / ≤ 10 MB (stretch) |
 
 ---
@@ -744,7 +744,7 @@
 - **R1**：LLM 在长序列扁平指令流中仍可能产生偏移量幻觉。缓解：R7 `#def` + R8 宏展平
 - **R2**：LLM 对扁平 CFG（`L_` + `jmp/br`）的原生亲和度可能低于嵌套结构。缓解：R23.3 Pilot 实测；R23.4 预留伪嵌套前端讨论位
 - **R3**：WASM64 (memory64) runtime 生态仍在演进。缓解：默认 wasm32，`--wasm64` 可选
-- **R4**：AutoBevy 1M 性能对标 Bevy 依赖 SIMD + 并行调度 + 缓存布局，12 周难达成。缓解：降级为 stretch goal，MVP 只要求 1K 冒烟
+- **R4**：AutoBevy 1M 性能对标 Bevy 依赖 SIMD + 并行调度 + 缓存布局，12 周难达成。缓解：降级为最低优先级 stretch goal，MVP 只要求 1K 冒烟
 - **R5**：直接发射 LLVM IR 需跟随 LLVM 版本升级。缓解：锁定 Zig 内置 LLVM 版本入 CI 矩阵
 - **R6**：FFI 气闸舱的 `assume_*` 设计不严谨会变成全局 unsafe 漏洞。缓解：R13.5 Referee O(1) 强制校验
 - **R7**：LLVM O3 在中等规模代码库下仍为秒级到十秒级瓶颈；"毫秒级编译"宣传仅对 Debug 成立。缓解：MVP 默认 `saasm build-exe` 走 O1，O3 显式开启

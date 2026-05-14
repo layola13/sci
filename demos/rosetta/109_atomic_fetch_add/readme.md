@@ -4,5 +4,6 @@
 展示 Rust 的 `AtomicI32::fetch_add` 如何完美映射到底层。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **原子 RMW**：无需通过循环 CAS，直接映射为 SA-ASM 提供的 `atomic_rmw_add` 指令。
-2. **安全隔离**：如果被操作的寄存器带有 `Immutable` (`@const`) 掩码，SA 编译器会在静态阶段直接抛出 `ConstMutation` 拦截写入操作。原子数据必须是动态分配或受控的堆/栈内存。
+1. **内部可变性**：`Cell<T>` / `RefCell<T>` 都只能在前端展开成显式状态字段、借用计数器或掩码；SA 侧只看见普通内存读写和分支。
+2. **受控越权**：`Cell::set` 这类写入若要穿过只读视图，必须被限制在 `@ffi_wrapper` 或等价气闸边界内，再通过 `raw_cast` / `store` 完成；否则应按 `IllegalUnsafeContext` 或 `ReadWriteConflict` 拦截。
+3. **原子语义**：自旋锁与 fetch-add 这类原语应分别降级成 `cmpxchg` 循环或 `atomic_rmw_*`，并显式携带 ordering，不能靠普通算术伪装成并发同步。

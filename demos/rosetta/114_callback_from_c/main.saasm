@@ -1,0 +1,46 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+@const CALLBACK_VT = vtable { invoke = @add_one }
+
+#def Fn_SIZE = 16
+#def Fn_data = +0
+#def Fn_vtable = +8
+#def Fn_invoke = +0
+
+@add_one(x: i32) -> i32:
+L_ENTRY:
+    result = add x, 1
+    return result
+
+@apply(&cb: ptr, value: i32) -> i32:
+L_ENTRY:
+    vt = load cb+Fn_vtable as ptr
+    invoke = load vt+Fn_invoke as ptr
+    result = call_indirect invoke(value)
+    !invoke
+    !vt
+    !cb
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    cb = alloc Fn_SIZE
+    store cb+Fn_data, 0 as ptr
+    store cb+Fn_vtable, &CALLBACK_VT as ptr
+    result = call @apply(&cb, 41)
+    ok = eq result, 42
+    !result
+    !cb
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

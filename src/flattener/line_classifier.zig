@@ -59,7 +59,7 @@ pub const ClassifiedLine = struct {
     inst_form: ?InstructionForm = null,
     raw: []const u8,
     trimmed: []const u8,
-    parts: [4][]const u8 = .{ "", "", "", "" },
+    parts: [6][]const u8 = .{ "", "", "", "", "", "" },
     part_count: u8 = 0,
 };
 
@@ -150,6 +150,17 @@ fn parseCommaPair(text: []const u8) ?struct { left: []const u8, right: []const u
     const right = std.mem.trim(u8, text[comma + 1 ..], " \t");
     if (left.len == 0 or right.len == 0) return null;
     return .{ .left = left, .right = right };
+}
+
+fn parseCommaTriple(text: []const u8) ?struct { first: []const u8, second: []const u8, third: []const u8 } {
+    const first_comma = std.mem.indexOfScalar(u8, text, ',') orelse return null;
+    const first = std.mem.trim(u8, text[0..first_comma], " \t");
+    const rest = std.mem.trimLeft(u8, text[first_comma + 1 ..], " \t");
+    const second_comma = std.mem.indexOfScalar(u8, rest, ',') orelse return null;
+    const second = std.mem.trim(u8, rest[0..second_comma], " \t");
+    const third = std.mem.trim(u8, rest[second_comma + 1 ..], " \t");
+    if (first.len == 0 or second.len == 0 or third.len == 0) return null;
+    return .{ .first = first, .second = second, .third = third };
 }
 
 fn splitTrailingType(text: []const u8) ?struct { body: []const u8, ty: []const u8 } {
@@ -459,16 +470,48 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
 
     const op = splitFirstWord(rhs);
     if (op.word.len != 0) {
-        if (common_instruction.parseOpCode(op.word)) |opcode| {
-            const pair = parseCommaPair(op.rest) orelse return false;
+        if (common_instruction.parseOpKind(op.word)) |op_kind| {
             line.* = makeLine(.instruction, line.raw, line.trimmed);
             line.inst_form = .op;
             addPart(line, 0, lhs);
             addPart(line, 1, op.word);
-            _ = opcode;
-            addPart(line, 2, pair.left);
-            addPart(line, 3, pair.right);
-            return true;
+
+            const rest_trimmed = std.mem.trim(u8, op.rest, " \t");
+            const typed = if (std.mem.lastIndexOf(u8, rest_trimmed, " as ")) |idx| blk: {
+                const body = std.mem.trimRight(u8, rest_trimmed[0..idx], " \t");
+                const ty = std.mem.trim(u8, rest_trimmed[idx + 4 ..], " \t");
+                if (ty.len == 0) break :blk null;
+                break :blk .{ .body = body, .ty = ty };
+            } else null;
+
+            switch (op_kind) {
+                .neg, .not, .fneg, .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => {
+                    const body = if (typed) |suffix| suffix.body else rest_trimmed;
+                    if (body.len == 0) return false;
+                    addPart(line, 2, body);
+                    if (typed) |suffix| addPart(line, 3, suffix.ty);
+                    return true;
+                },
+                .extract_lane => {
+                    const pair = parseCommaPair(rest_trimmed) orelse return false;
+                    addPart(line, 2, pair.left);
+                    addPart(line, 3, pair.right);
+                    return true;
+                },
+                .insert_lane, .shuffle_v128 => {
+                    const triple = parseCommaTriple(rest_trimmed) orelse return false;
+                    addPart(line, 2, triple.first);
+                    addPart(line, 3, triple.second);
+                    addPart(line, 4, triple.third);
+                    return true;
+                },
+                else => {
+                    const pair = parseCommaPair(rest_trimmed) orelse return false;
+                    addPart(line, 2, pair.left);
+                    addPart(line, 3, pair.right);
+                    return true;
+                },
+            }
         }
     }
 
@@ -814,6 +857,16 @@ test "classify representative line families" {
     const srem = classifyLine("rem = srem lhs, rhs");
     try std.testing.expectEqual(InstructionForm.op, srem.inst_form.?);
     try std.testing.expectEqualStrings("srem", srem.parts[1]);
+
+    const zext = classifyLine("ret = zext ok");
+    try std.testing.expectEqual(InstructionForm.op, zext.inst_form.?);
+    try std.testing.expectEqualStrings("zext", zext.parts[1]);
+    try std.testing.expectEqualStrings("ok", zext.parts[2]);
+
+    const shuffle = classifyLine("out = shuffle_v128 a, b, mask");
+    try std.testing.expectEqual(InstructionForm.op, shuffle.inst_form.?);
+    try std.testing.expectEqualStrings("shuffle_v128", shuffle.parts[1]);
+    try std.testing.expectEqualStrings("mask", shuffle.parts[4]);
 
     const cmpxchg = classifyLine("old, ok = cmpxchg ptr+0, expected, new acq_rel acquire");
     try std.testing.expectEqual(InstructionForm.cmpxchg, cmpxchg.inst_form.?);

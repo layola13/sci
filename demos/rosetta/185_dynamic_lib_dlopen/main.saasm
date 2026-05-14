@@ -1,0 +1,49 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+@const LIB_PATH = utf8:"libdemo.so\0"
+@const DEMO_SYM = utf8:"demo_entry\0"
+
+@extern dlopen(*path: ptr, flags: i32) -> ptr
+@extern dlsym(handle: ptr, *symbol: ptr) -> ptr
+@extern dlclose(handle: ptr) -> i32
+
+#def Lib_SIZE = 16
+#def Lib_handle = +0
+#def Lib_symbol = +8
+
+@main() -> i32:
+L_ENTRY:
+    lib = alloc Lib_SIZE
+    store lib+Lib_handle, 0 as ptr
+    store lib+Lib_symbol, 0 as ptr
+    handle = call @dlopen(*LIB_PATH, 2)
+    store lib+Lib_handle, handle as ptr
+    symbol = call @dlsym(handle, *DEMO_SYM)
+    store lib+Lib_symbol, symbol as ptr
+    closed = call @dlclose(handle)
+    ok_handle = ne handle, 0
+    ok_symbol = ne symbol, 0
+    ok_close = eq closed, 0
+    ok0 = and ok_handle, ok_symbol
+    ok = and ok0, ok_close
+    !closed
+    !symbol
+    !handle
+    !ok0
+    !ok_handle
+    !ok_symbol
+    !ok_close
+    !lib
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

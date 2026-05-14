@@ -128,24 +128,41 @@ pub fn argvForWasm(
     return argv;
 }
 
-fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !void {
-    const result = try std.process.Child.run(.{
+fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
+    return try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
+}
 
-    if (result.stderr.len != 0) {
-        try std.io.getStdErr().writeAll(result.stderr);
+fn printCommandLine(writer: anytype, argv: []const []const u8) !void {
+    try writer.writeAll("  command:");
+    for (argv) |arg| {
+        try writer.print(" {s}", .{arg});
     }
+    try writer.writeByte('\n');
+}
 
+fn printOutputSection(writer: anytype, label: []const u8, bytes: []const u8) !void {
+    if (bytes.len == 0) return;
+    try writer.print("  {s}:\n", .{label});
+    try writer.writeAll(bytes);
+    if (bytes[bytes.len - 1] != '\n') try writer.writeByte('\n');
+}
+
+fn printCompilerLaunchFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, err: anyerror) !void {
+    try writer.print("error[ExternalCompiler]: failed to launch zig cc while {s} {s} -> {s}: {s}\n", .{ action, input_path, out_path, @errorName(err) });
+    try printCommandLine(writer, argv);
+}
+
+fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, result: std.process.Child.RunResult) !void {
     switch (result.term) {
-        .Exited => |code| {
-            if (code != 0) return CompileError.ChildProcessFailed;
-        },
-        else => return CompileError.ChildProcessFailed,
+        .Exited => |code| try writer.print("error[ExternalCompiler]: zig cc exited with code {d} while {s} {s} -> {s}\n", .{ code, action, input_path, out_path }),
+        else => try writer.print("error[ExternalCompiler]: zig cc terminated unexpectedly while {s} {s} -> {s}\n", .{ action, input_path, out_path }),
     }
+    try printCommandLine(writer, argv);
+    try printOutputSection(writer, "stdout", result.stdout);
+    try printOutputSection(writer, "stderr", result.stderr);
 }
 
 pub fn compileExe(
@@ -155,9 +172,25 @@ pub fn compileExe(
     optimization: Optimization,
     sa_std_archive_path: []const u8,
     debug: bool,
+    stderr: anytype,
 ) !void {
     const argv = argvForExe(ll_path, out_path, optimization, sa_std_archive_path, debug);
-    try runProcess(allocator, argv.slice());
+    const argv_slice = argv.slice();
+    const result = runProcess(allocator, argv_slice) catch |err| {
+        try printCompilerLaunchFailure(stderr, argv_slice, "linking", ll_path, out_path, err);
+        return CompileError.ChildProcessFailed;
+    };
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    const failed = switch (result.term) {
+        .Exited => |code| code != 0,
+        else => true,
+    };
+    if (failed) {
+        try printCompilerFailure(stderr, argv_slice, "linking", ll_path, out_path, result);
+        return CompileError.ChildProcessFailed;
+    }
 }
 
 pub fn compileObj(
@@ -166,9 +199,25 @@ pub fn compileObj(
     out_path: []const u8,
     optimization: Optimization,
     debug: bool,
+    stderr: anytype,
 ) !void {
     const argv = argvForObj(ll_path, out_path, optimization, debug);
-    try runProcess(allocator, argv.slice());
+    const argv_slice = argv.slice();
+    const result = runProcess(allocator, argv_slice) catch |err| {
+        try printCompilerLaunchFailure(stderr, argv_slice, "compiling object", ll_path, out_path, err);
+        return CompileError.ChildProcessFailed;
+    };
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    const failed = switch (result.term) {
+        .Exited => |code| code != 0,
+        else => true,
+    };
+    if (failed) {
+        try printCompilerFailure(stderr, argv_slice, "compiling object", ll_path, out_path, result);
+        return CompileError.ChildProcessFailed;
+    }
 }
 
 pub fn compileWasm(
@@ -178,9 +227,25 @@ pub fn compileWasm(
     target: Target,
     optimization: Optimization,
     debug: bool,
+    stderr: anytype,
 ) !void {
     const argv = argvForWasm(ll_path, out_path, target, optimization, debug);
-    try runProcess(allocator, argv.slice());
+    const argv_slice = argv.slice();
+    const result = runProcess(allocator, argv_slice) catch |err| {
+        try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", ll_path, out_path, err);
+        return CompileError.ChildProcessFailed;
+    };
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    const failed = switch (result.term) {
+        .Exited => |code| code != 0,
+        else => true,
+    };
+    if (failed) {
+        try printCompilerFailure(stderr, argv_slice, "linking wasm", ll_path, out_path, result);
+        return CompileError.ChildProcessFailed;
+    }
 }
 
 test "argv helpers choose the requested optimization" {

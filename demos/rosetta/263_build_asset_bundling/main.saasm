@@ -1,0 +1,25 @@
+@import "../../../sa_std/io/print.saasm-iface"
+@import "generated/asset_bundle.saasm"
+
+@const RESULT_OK = utf8:"263\n"
+@const RESULT_ERR = utf8:"error\n"
+
+// 263 - Build Asset Bundling
+// Assets live under assets/ and are bundled into generated/asset_bundle.saasm.
+
+@main() -> i32:
+L_ENTRY:
+    value = call @asset_bundle_value()
+    ok = eq value, 263
+    !value
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 4)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

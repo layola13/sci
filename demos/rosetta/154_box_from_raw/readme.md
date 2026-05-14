@@ -4,6 +4,6 @@
 展示将 Untracked 裸指针重新升格为受 SA-ASM 追踪的 Active 所有权。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
-1. **纯粹的前端责任**：SA-ASM 是一个无 AST、无全局类型推导的物理执行验证机。像 Box::from_raw 这样的高级语义或外部抽象，100% 由前端（如 Rustc, TypeScript Compiler 或大语言模型）在降级期间展开。
-2. **物理映射**：无论是复杂的并发原语、不安全的 FFI 边界、还是宏展平，进入 SA-ASM 后全部化为裸内存的 `alloc`、O(1) 验证的所有权锁（`Active`, `Locked_*`, `BorrowView` 等）、扁平的标签跳转（`jmp` / `br`）以及气闸舱隔离的系统调用。
-3. **架构纪律**：如果逻辑中存在内存泄漏或悬挂指针，SA-ASM 编译器在验证期通过 O(1) 线性扫描便能无情截断，拒绝发射恶意或残缺的 LLVM IR。
+1. **显式所有权**：`Box`、arena、slab、aligned alloc 和手动布局结构都必须回到 `alloc` / `stack_alloc` / `!` / `^` 这些原语，不能靠 GC 或隐式析构补位。
+2. **裸指针转移**：`Box::into_raw` / `Box::from_raw` 只是在改变所有权归属，前端必须把“谁负责释放”写清楚；错误地丢掉 release 路径就是泄漏。
+3. **受控遗留**：`mem::forget` / `ManuallyDrop` 允许故意不释放，但这应当是被设计出来的例外，不是默认控制流；一旦跨到不该活着的路径上，Referee 仍然按活跃资源检查。

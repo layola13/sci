@@ -1,0 +1,50 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"10\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Seq_SIZE = 8
+#def Seq_version = +0
+#def Seq_value = +4
+
+@main() -> i32:
+L_ENTRY:
+    seq = alloc Seq_SIZE
+    store seq+Seq_version, 0 as i32
+    store seq+Seq_value, 10 as i32
+    v1 = load seq+Seq_version as i32
+    odd = eq v1, 1
+    br odd -> L_RETRY, L_READ_PRE
+
+L_RETRY:
+    store seq+Seq_version, 0 as i32
+    !odd
+    !v1
+    jmp L_READ
+
+L_READ_PRE:
+    !odd
+    !v1
+    jmp L_READ
+
+L_READ:
+    value = load seq+Seq_value as i32
+    v2 = load seq+Seq_version as i32
+    stable = eq v2, 0
+    ok = and stable, 1
+    !value
+    !v2
+    !seq
+    br stable -> L_OK, L_ERR
+
+L_OK:
+    !stable
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !stable
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

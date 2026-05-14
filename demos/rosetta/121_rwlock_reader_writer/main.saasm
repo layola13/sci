@@ -1,0 +1,33 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def RwLock_SIZE = 8
+#def RwLock_readers = +0
+#def RwLock_writing = +4
+
+@main() -> i32:
+L_ENTRY:
+    lock = alloc RwLock_SIZE
+    store lock+RwLock_readers, 2 as i32
+    store lock+RwLock_writing, 1 as i32
+    readers = load lock+RwLock_readers as i32
+    writer = load lock+RwLock_writing as i32
+    total = add readers, writer
+    ok = eq total, 3
+    !readers
+    !writer
+    !total
+    !lock
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,6 @@
+# Future metadata only. Not compiler input.
+[package]
+name = "demo-208"
+version = "0.1.0"
+dev-dependencies = ["dev/helpers"]
+

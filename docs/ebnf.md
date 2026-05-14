@@ -52,11 +52,11 @@ assume_borrow  = IDENT "=" "assume_borrow" IDENT [ "," "mut" ] ;
 | 后端中继 | Zig 源码 | LLVM IR + WASM 直出 | 跳过 Zig 前端，白嫖 O3 |
 | 编译速度叙事 | "物理极限" | MVP 默认 O1；O3 只是选项 | LLVM O3 仍是秒级瓶颈，诚实 |
 | Referee LOC | ≤ 1500 | ≤ 2500 MVP / 1500 stretch | 加入气闸舱 + Phi + 原子 + 错误传播后 1500 不现实 |
-| AutoBevy 1M ±30% | MVP 硬指标 | post-MVP stretch | 依赖 SIMD + 并行调度，12 周难达成 |
+| AutoBevy 1M ±30% | 最低优先级 | post-MVP stretch | 依赖 SIMD + 并行调度，12 周难达成 |
 | LLM 零训练 80% | KPI | Pilot 实测 baseline | 无证据时不预设数字 |
 | 调试信息 | 未提 | `#loc` + DWARF + `-g` | 生产语言硬需求 |
 | 错误传播 | 未提 | `!` 后缀 + `?` + `panic` | 避免每个前端各造一套返回协议 |
-| SIMD/浮点/原子 ISA | 未定义 | 首轮就定义 | AutoBevy 等场景必备 |
+| SIMD/浮点/原子 ISA | 未定义 | 首轮就定义 | AutoBevy 这类后续场景必备 |
 | 前端合约 | 隐含 | R20 显式合约 + `libsa_scope` helper | 避免"机械映射"误导，划清责任 |
 | 名称 | SA-ASM | SA | 命名简化 |
 

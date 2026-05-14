@@ -1,0 +1,37 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Data_SIZE = 4
+#def Data_val = +0
+
+// 标记 Trait 完全在词法分析阶段终结。
+// SA-ASM 函数只是赤裸裸地接收物理指针。
+@process_Data(&item: ptr) -> i32:
+L_ENTRY:
+    res = add 42, 0
+    return res
+
+@main() -> i32:
+L_ENTRY:
+    d = alloc Data_SIZE
+    store d+Data_val, 42 as i32
+    
+    // 正确使用 & 借用前缀调用
+    res = call @process_Data(&d)
+    !d
+    
+    ok = eq res, 42
+    !res
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,57 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"0\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Err_SIZE = 12
+#def Err_tag = +0
+#def Err_len = +4
+#def Err_msg = +8
+
+@fail(&err: ptr) -> i32:
+L_ENTRY:
+    store err+Err_tag, 1 as i32
+    store err+Err_len, 6 as i32
+    store err+Err_msg, 97 as u8
+    len = load err+Err_len as i32
+    !err
+    return len
+
+@unwrap_or_default(&err: ptr) -> i32:
+L_ENTRY:
+    tag = load err+Err_tag as i32
+    ok = eq tag, 0
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !tag
+    !err
+    return 0
+
+L_ERR:
+    !tag
+    !err
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    err = alloc Err_SIZE
+    len = call @fail(&err)
+    mapped = call @unwrap_or_default(&err)
+    ok_len = eq len, 6
+    ok_mapped = eq mapped, 0
+    ok = and ok_len, ok_mapped
+    !len
+    !mapped
+    !ok_len
+    !ok_mapped
+    !err
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,46 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Once_SIZE = 8
+#def Once_state = +0
+#def Once_value = +4
+
+@main() -> i32:
+L_ENTRY:
+    once = alloc Once_SIZE
+    store once+Once_state, 0 as i32
+    state = load once+Once_state as i32
+    init = eq state, 0
+    br init -> L_INIT, L_READY
+
+L_INIT:
+    store once+Once_value, 42 as i32
+    store once+Once_state, 1 as i32
+    value = load once+Once_value as i32
+    ok = eq value, 42
+    !state
+    !init
+    !value
+    !once
+    br ok -> L_OK, L_ERR
+
+L_READY:
+    value = load once+Once_value as i32
+    ok = eq value, 42
+    !state
+    !init
+    !value
+    !once
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

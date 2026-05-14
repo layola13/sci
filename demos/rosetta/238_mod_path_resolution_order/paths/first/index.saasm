@@ -1,0 +1,8 @@
+@import "deep/seed.saasm"
+
+@export first_path_value() -> i32:
+L_ENTRY:
+    seed = call @first_seed()
+    value = add seed, 0
+    !seed
+    return value

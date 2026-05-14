@@ -1,0 +1,31 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@trace_depth(&frame: ptr) -> i32:
+L_ENTRY:
+    depth = load frame+0 as i32
+    next = add depth, 1
+    store frame+0, next as i32
+    !depth
+    !frame
+    return next
+
+@main() -> i32:
+L_ENTRY:
+    frame = alloc 4
+    store frame+0, 1 as i32
+    depth = call @trace_depth(&frame)
+    ok = eq depth, 2
+    !depth
+    !frame
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

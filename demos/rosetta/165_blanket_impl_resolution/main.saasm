@@ -1,0 +1,32 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Arr_SIZE = 8
+
+@len_arr(&arr: ptr) -> i32:
+L_ENTRY:
+    !arr
+    return 2
+
+@main() -> i32:
+L_ENTRY:
+    arr = alloc Arr_SIZE
+    store arr+0, 1 as i32
+    store arr+4, 2 as i32
+    result = call @len_arr(&arr)
+    ok = eq result, 2
+    !result
+    !arr
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

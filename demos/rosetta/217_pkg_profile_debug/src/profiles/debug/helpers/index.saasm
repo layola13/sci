@@ -1,0 +1,8 @@
+@import "profile.saasm-layout"
+
+@debug_helper_value() -> i32:
+L_ENTRY:
+    value = add PROFILE_OFFSET, 0
+    !value
+    return PROFILE_OFFSET
+
