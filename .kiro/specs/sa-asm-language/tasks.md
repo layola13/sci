@@ -635,6 +635,11 @@ sa/
     - 新增 1 个 `UnknownRegister` 变体：`unknown_register_return`，验证 `return ghost` 也能输出结构化 trap
     - 新增 5 个 `ForbiddenSyntax` 变体：`forbidden_if` / `forbidden_while` / `forbidden_for` / `forbidden_brace` / `forbidden_property_chain`
     - 新增 1 个 `CapabilityMismatch` 最小反例：`capability_mismatch`，验证调用前缀与被调契约不一致触发结构化 trap
+    - 第二十一批已补 2 个已实测可跑的 `build-exe` / 链接回归：`220_pkg_lib_dynamic` / `253_contract_callback_registration`
+    - `tests/cli_smoke.zig` 已固定验证 `220_pkg_lib_dynamic` 的 `build-obj` + `ar rcs` + `zig cc` 对象归档链路，以及 `253_contract_callback_registration` 的 `build-exe` 真实运行并打印 stdout
+    - 第二十二批已补 5 个已实测可跑的结构化 trap 回归：`205_pkg_cyclic_dependency_reject` / `207_pkg_multiple_versions_conflict` / `226_mod_cyclic_import_detect` / `227_mod_shadowing_prevention` / `243_contract_sig_mismatch_link`
+    - `tests/cli_smoke.zig` 已固定验证上述 package / module / contract 约束拒绝路径均输出结构化 JSON trap
+    - 新增 `test_all_300.sh`：覆盖 1~300 demo 的 native `build-exe` 回归，并对 wasm32 目标执行 `build-wasm` + Node/WASI 运行；`220_pkg_lib_dynamic` 保留对象归档 native 特例，同时显式验证其 wasm 边界
     - _Requirements: R22.1, R22.2_
 
   - [ ] 14.2 CI 流水线
@@ -1118,9 +1123,9 @@ sa/
 - 带 `*` 的任务为可选 PBT；核心实现任务必做。
 - 每条 PBT 显式标注 Property 编号（P1–P32）与验证的需求号。
 - **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"，v0.6 才谈"军工/航空级形式化认证"。**不要把这六件事压在 14 周 MVP 里**。
-- **v0.1 特别说明**：WASM 产线全程委托 `zig cc -target wasm32-wasi`，这意味着：
+- **v0.1 特别说明**：WASM 产线默认仍委托 `zig cc -target wasm32-wasi`，这意味着：
   - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
-  - v0.1 不支持 wasm64（Zig wasm64 freestanding 尚不成熟），这是 v0.2 的工作
+  - `wasm64` 先开放为 freestanding / no-entry 的纯计算路径，不承诺 WASI / I/O 支持；完整 memory64 产线仍归 v0.2
   - v0.1 的 WASI 映射由 Zig 自动完成，不手写（v0.2 手写后可精简）
   - 这一刀砍下去节省约 3-4 周时间
 - 实现阶段打开 tasks.md 点击 "Start task" 按钮开始执行。

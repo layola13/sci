@@ -15,3 +15,5 @@ bin
 tmp/
 .claude/
 repro_*.zig
+*tmp.o
+*.wasm

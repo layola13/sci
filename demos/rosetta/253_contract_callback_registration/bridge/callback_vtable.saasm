@@ -11,7 +11,7 @@ L_ENTRY:
     !x
     return result
 
-@register(slot: ptr) -> i32:
+@register(&slot: ptr) -> i32:
 L_ENTRY:
     vt = load slot+Slot_VTABLE as ptr
     fn = load vt+VTable_call as ptr

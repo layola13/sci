@@ -635,6 +635,7 @@ fn executeLayout(
 
 fn parseTarget(text: []const u8) !WasmTarget {
     if (std.mem.eql(u8, text, "wasm32")) return .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
+    if (std.mem.eql(u8, text, "wasm64")) return .{ .triple = "wasm64-freestanding", .no_entry = true, .size_bits = 64 };
     return error.InvalidTarget;
 }
 

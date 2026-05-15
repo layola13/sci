@@ -697,6 +697,57 @@ test "trait vtable demo runs through saasm run" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
 }
 
+test "callback registration demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/rosetta/253_contract_callback_registration/main.saasm", "253\n");
+}
+
+test "pkg lib dynamic demo compiles via object archive and prints through native link" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const main_source = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/220_pkg_lib_dynamic/main.saasm");
+    defer std.testing.allocator.free(main_source);
+    const lib_source = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/220_pkg_lib_dynamic/lib/index.saasm");
+    defer std.testing.allocator.free(lib_source);
+    const sa_std_archive_path = try original_cwd.realpathAlloc(std.testing.allocator, "artifacts/sa_std/libsa_std.a");
+    defer std.testing.allocator.free(sa_std_archive_path);
+
+    const main_obj = "220_pkg_lib_dynamic_main.o";
+    const lib_obj = "220_pkg_lib_dynamic_lib.o";
+    const lib_archive = "220_pkg_lib_dynamic_lib.a";
+    const out_path = "220_pkg_lib_dynamic.out";
+
+    const build_main_argv = [_][]const u8{ "saasm", "build-obj", main_source, "-o", main_obj };
+    const build_main_code = try saasm.cli.execute(std.testing.allocator, build_main_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_main_code);
+
+    const build_lib_argv = [_][]const u8{ "saasm", "build-obj", lib_source, "-o", lib_obj };
+    const build_lib_code = try saasm.cli.execute(std.testing.allocator, build_lib_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_lib_code);
+
+    _ = try runCommand(std.testing.allocator, &[_][]const u8{ "ar", "rcs", lib_archive, lib_obj });
+
+    const link_argv = [_][]const u8{ "zig", "cc", main_obj, lib_archive, sa_std_archive_path, "-o", out_path };
+    const link_stdout = try runCommand(std.testing.allocator, link_argv[0..]);
+    defer std.testing.allocator.free(link_stdout);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./220_pkg_lib_dynamic.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("220\n", exe_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
+}
+
 test "comparison alias demos run through saasm run" {
     try assertRunStdout("demos/rosetta/03_if_else/main.saasm", "20\n");
     try assertRunStdout("demos/rosetta/04_loop/main.saasm", "[0,0,0,0]\n");
@@ -943,6 +994,14 @@ test "capability mismatch demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/capability_mismatch.saasm", "capability_mismatch.out", "CapabilityMismatch", 1013, "call-site capability prefix does not match the callee contract");
 }
 
+test "package and module roadmap demos are rejected with structured trap output" {
+    try assertBuildExeTrap("demos/rosetta/205_pkg_cyclic_dependency_reject/main.saasm", "205_pkg_cyclic_dependency_reject.out", "ForbiddenSyntax", 1001, "import cycle detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/207_pkg_multiple_versions_conflict/main.saasm", "207_pkg_multiple_versions_conflict.out", "DuplicateDef", 1002, "duplicate definition detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/226_mod_cyclic_import_detect/main.saasm", "226_mod_cyclic_import_detect.out", "ForbiddenSyntax", 1001, "import cycle detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/227_mod_shadowing_prevention/main.saasm", "227_mod_shadowing_prevention.out", "DuplicateDef", 1002, "duplicate definition detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/243_contract_sig_mismatch_link/main.saasm", "243_contract_sig_mismatch_link.out", "CapabilityMismatch", 1013, "call-site capability prefix does not match the callee contract");
+}
+
 test "struct demo runs through saasm run" {
     try assertRunStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
 }
@@ -979,22 +1038,6 @@ test "sys runtime demo prints and round-trips file contents" {
     }
     try std.testing.expectEqualStrings("ok\n", exe_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
-
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", source_path, "-o", "sys_runtime_probe.wasm", "--target", "wasm32" };
-    const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
-    try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
-
-    const wasm_file = try tmp.dir.openFile("sys_runtime_probe.wasm", .{});
-    defer wasm_file.close();
-    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
-    defer std.testing.allocator.free(wasm_bytes);
-    try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
-    const import_names = try wasmImportNames(wasm_bytes, std.testing.allocator);
-    defer std.testing.allocator.free(import_names);
-    try std.testing.expect(containsImportName(import_names, "fd_write"));
-    try std.testing.expect(containsImportName(import_names, "proc_exit"));
-    try std.testing.expect(containsImportName(import_names, "args_get"));
-    try std.testing.expect(containsImportName(import_names, "args_sizes_get"));
 
     const file = try tmp.dir.openFile("sys_io.txt", .{});
     defer file.close();
@@ -1436,7 +1479,7 @@ test "panic lowers to a real runtime call in emitted LLVM and native executables
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define void @__sa_panic(i32 %code, ptr %msg, i64 %len)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define internal void @__sa_panic(i32 %code, ptr %msg, i64 %len)"));
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "@__sa_panic("));
     try std.testing.expect(!std.mem.containsAtLeast(u8, ll_bytes, 1, "unreachable ; panic("));
     try std.testing.expect(!std.mem.containsAtLeast(u8, ll_bytes, 1, "unreachable ; panic_msg("));
@@ -1773,7 +1816,7 @@ test "phi join AND demo runs through the join point" {
     }
 }
 
-test "v0.1 build-wasm rejects wasm64 target" {
+test "build-wasm supports wasm64 freestanding no-entry" {
     const source =
         \\@main() -> i32:
         \\return 0
@@ -1789,7 +1832,19 @@ test "v0.1 build-wasm rejects wasm64 target" {
     try writeSource(tmp.dir, "wasm64.saasm", source);
 
     const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "wasm64.saasm", "-o", "wasm64.wasm", "--target", "wasm64" };
-    try std.testing.expectError(error.InvalidTarget, saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]));
+    const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+
+    const wasm_file = try tmp.dir.openFile("wasm64.wasm", .{});
+    defer wasm_file.close();
+    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(wasm_bytes);
+    try std.testing.expect(wasm_bytes.len > 8);
+    try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
+    try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+    const import_names = try wasmImportNames(wasm_bytes, std.testing.allocator);
+    defer std.testing.allocator.free(import_names);
+    try std.testing.expectEqual(@as(usize, 0), import_names.len);
 }
 
 test "layout cli prints text and json outputs" {

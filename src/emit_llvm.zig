@@ -832,7 +832,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try emitLine(out, "");
 
     const stderr_align: u32 = if (size_bits == 32) 4 else 8;
-    try out.writer().print("define void @__sa_panic(i32 %code, ptr %msg, {s} %len) {{\n", .{size_ty_name});
+    try out.writer().print("define internal void @__sa_panic(i32 %code, ptr %msg, {s} %len) {{\n", .{size_ty_name});
     try emitLine(out, "entry:");
     try out.writer().print("  %stderr = load ptr, ptr @stderr, align {d}\n", .{stderr_align});
     try emitLine(out, "  %has_msg_ptr = icmp ne ptr %msg, null");
@@ -860,7 +860,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try emitLine(out, "}");
     try emitLine(out, "");
 
-    try out.writer().print("define ptr @saasm_strdupz(ptr %src, {s} %len) {{\n", .{size_ty_name});
+    try out.writer().print("define internal ptr @saasm_strdupz(ptr %src, {s} %len) {{\n", .{size_ty_name});
     try emitLine(out, "entry:");
     try out.writer().print("  %size = add {s} %len, 1\n", .{size_ty_name});
     try out.writer().print("  %buf = call ptr @malloc({s} %size)\n", .{size_ty_name});
@@ -871,7 +871,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try emitLine(out, "}");
     try emitLine(out, "");
 
-    try out.writer().print("define void @sys_print(ptr %msg, {s} %len) {{\n", .{size_ty_name});
+    try out.writer().print("define internal void @sys_print(ptr %msg, {s} %len) {{\n", .{size_ty_name});
     try emitLine(out, "entry:");
     try out.writer().print("  %_ = call {s} @write(i32 1, ptr %msg, {s} %len)\n", .{ size_ty_name, size_ty_name });
     try emitLine(out, "  ret void");
@@ -879,7 +879,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try emitLine(out, "");
 
     if (options.wasm_compat) {
-        try emitLine(out, "define void @sa_print_bytes(ptr %msg, i64 %len) {");
+        try emitLine(out, "define internal void @sa_print_bytes(ptr %msg, i64 %len) {");
         try emitLine(out, "entry:");
         if (size_bits == 32) {
             try emitLine(out, "  %len32 = trunc i64 %len to i32");
@@ -892,21 +892,21 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
         try emitLine(out, "");
     }
 
-    try emitLine(out, "define void @sys_exit(i32 %code) {");
+    try emitLine(out, "define internal void @sys_exit(i32 %code) {");
     try emitLine(out, "entry:");
     try emitLine(out, "  call void @exit(i32 %code)");
     try emitLine(out, "  unreachable");
     try emitLine(out, "}");
     try emitLine(out, "");
 
-    try emitLine(out, "define i32 @sys_argc() {");
+    try emitLine(out, "define internal i32 @sys_argc() {");
     try emitLine(out, "entry:");
     try emitLine(out, "  %argc = load i32, ptr @saasm_argc, align 4");
     try emitLine(out, "  ret i32 %argc");
     try emitLine(out, "}");
     try emitLine(out, "");
 
-    try out.writer().print("define ptr @sys_argv({s} %index) {{\n", .{size_ty_name});
+    try out.writer().print("define internal ptr @sys_argv({s} %index) {{\n", .{size_ty_name});
     try emitLine(out, "entry:");
     try emitLine(out, "  %argv = load ptr, ptr @saasm_argv, align 8");
     try out.writer().print("  %slot = getelementptr ptr, ptr %argv, {s} %index\n", .{size_ty_name});
@@ -916,7 +916,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try emitLine(out, "");
 
     if (size_bits == 32) {
-        try emitLine(out, "define ptr @sys_read_file(ptr %path, i32 %path_len, ptr %out_len) {");
+        try emitLine(out, "define internal ptr @sys_read_file(ptr %path, i32 %path_len, ptr %out_len) {");
         try emitLine(out, "entry:");
         try emitLine(out, "  %path_c = call ptr @saasm_strdupz(ptr %path, i32 %path_len)");
         try emitLine(out, "  %mode_ptr = getelementptr [3 x i8], ptr @.mode_rb, i32 0, i32 0");
@@ -940,7 +940,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
         try emitLine(out, "}");
         try emitLine(out, "");
 
-        try emitLine(out, "define i32 @sys_write_file(ptr %path, i32 %path_len, ptr %data, i32 %data_len) {");
+        try emitLine(out, "define internal i32 @sys_write_file(ptr %path, i32 %path_len, ptr %data, i32 %data_len) {");
         try emitLine(out, "entry:");
         try emitLine(out, "  %path_c = call ptr @saasm_strdupz(ptr %path, i32 %path_len)");
         try emitLine(out, "  %mode_ptr = getelementptr [3 x i8], ptr @.mode_wb, i32 0, i32 0");
@@ -957,7 +957,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
         try emitLine(out, "}");
         try emitLine(out, "");
     } else {
-        try emitLine(out, "define ptr @sys_read_file(ptr %path, i64 %path_len, ptr %out_len) {");
+        try emitLine(out, "define internal ptr @sys_read_file(ptr %path, i64 %path_len, ptr %out_len) {");
         try emitLine(out, "entry:");
         try emitLine(out, "  %path_c = call ptr @saasm_strdupz(ptr %path, i64 %path_len)");
         try emitLine(out, "  %mode_ptr = getelementptr [3 x i8], ptr @.mode_rb, i32 0, i32 0");
@@ -980,7 +980,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
         try emitLine(out, "}");
         try emitLine(out, "");
 
-        try emitLine(out, "define i32 @sys_write_file(ptr %path, i64 %path_len, ptr %data, i64 %data_len) {");
+        try emitLine(out, "define internal i32 @sys_write_file(ptr %path, i64 %path_len, ptr %data, i64 %data_len) {");
         try emitLine(out, "entry:");
         try emitLine(out, "  %path_c = call ptr @saasm_strdupz(ptr %path, i64 %path_len)");
         try emitLine(out, "  %mode_ptr = getelementptr [3 x i8], ptr @.mode_wb, i32 0, i32 0");

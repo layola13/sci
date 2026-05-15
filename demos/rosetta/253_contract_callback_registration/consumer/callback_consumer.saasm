@@ -5,7 +5,7 @@ L_ENTRY:
     slot = alloc Slot_SIZE
     store slot+Slot_DATA, 0 as ptr
     store slot+Slot_VTABLE, &CALLBACK_VT as ptr
-    result = call @register(slot)
+    result = call @register(&slot)
     ok = eq result, 0
     !result
     !slot

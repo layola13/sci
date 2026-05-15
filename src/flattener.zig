@@ -989,10 +989,16 @@ fn readImportFile(
     base_dir: []const u8,
     import_path: []const u8,
 ) !struct { full_path: []u8, source: []u8 } {
-    const full_path = if (std.fs.path.isAbsolute(import_path))
+    const joined_path = if (std.fs.path.isAbsolute(import_path))
         try allocator.dupe(u8, import_path)
     else
         try std.fs.path.join(allocator, &.{ base_dir, import_path });
+    errdefer allocator.free(joined_path);
+
+    // Normalize the import path before we store it in the active path set.
+    // This keeps cycles visible even when intermediate imports contain `..`.
+    const full_path = try std.fs.cwd().realpathAlloc(allocator, joined_path);
+    allocator.free(joined_path);
     errdefer allocator.free(full_path);
 
     const source = try std.fs.cwd().readFileAlloc(allocator, full_path, 16 * 1024 * 1024);
