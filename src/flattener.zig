@@ -49,15 +49,19 @@ pub const SourceLine = struct {
     classified: ClassifiedLine,
 };
 
-var last_error_source_line: ?u32 = null;
+pub const ErrorContext = struct {
+    source_line: ?u32 = null,
+};
 
-fn recordErrorSourceLine(line_no: u32) void {
-    last_error_source_line = line_no;
+fn recordErrorSourceLine(error_ctx: ?*ErrorContext, line_no: u32) void {
+    if (error_ctx) |ctx| {
+        ctx.source_line = line_no;
+    }
 }
 
-pub fn takeLastErrorSourceLine() ?u32 {
-    const line_no = last_error_source_line;
-    last_error_source_line = null;
+pub fn takeErrorSourceLine(error_ctx: *ErrorContext) ?u32 {
+    const line_no = error_ctx.source_line;
+    error_ctx.source_line = null;
     return line_no;
 }
 
@@ -733,11 +737,12 @@ fn collectMacroDefinitions(
     allocator: std.mem.Allocator,
     lines: []const SourceLine,
     macros: *std.StringHashMap(MacroDef),
+    error_ctx: ?*ErrorContext,
 ) !void {
     var idx: usize = 0;
     while (idx < lines.len) : (idx += 1) {
         const line = lines[idx];
-        recordErrorSourceLine(line.line_no);
+        recordErrorSourceLine(error_ctx, line.line_no);
         switch (line.classified.kind) {
             .blank_or_comment, .def, .const_decl, .import_decl, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
             .macro_start => {
@@ -775,6 +780,7 @@ fn emitRange(
     const_decls: *std.ArrayList(ConstDecl),
     function_sigs: *std.ArrayList(FunctionSig),
     owned_text: *std.ArrayList([]const u8),
+    error_ctx: ?*ErrorContext,
 ) !void {
     if (depth > 256) return error.MacroRecursionLimit;
 
@@ -782,7 +788,7 @@ fn emitRange(
     while (idx < end) : (idx += 1) {
         const line = lines[idx];
         const source_line = source_line_override orelse line.line_no;
-        recordErrorSourceLine(source_line);
+        recordErrorSourceLine(error_ctx, source_line);
 
         switch (line.classified.kind) {
             .blank_or_comment, .import_decl => {},
@@ -865,6 +871,7 @@ fn emitRange(
                         const_decls,
                         function_sigs,
                         owned_text,
+                        error_ctx,
                     );
                 }
 
@@ -909,6 +916,7 @@ fn emitRange(
                     const_decls,
                     function_sigs,
                     owned_text,
+                    error_ctx,
                 );
             },
         }
@@ -1000,11 +1008,12 @@ fn expandImportsInto(
     base_dir: []const u8,
     active_paths: *std.StringHashMap(void),
     owned_paths: *std.ArrayList([]u8),
+    error_ctx: ?*ErrorContext,
 ) !void {
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
     while (iterator.next()) |raw_line| : (line_no += 1) {
-        recordErrorSourceLine(line_no);
+        recordErrorSourceLine(error_ctx, line_no);
         if (parseImportPath(raw_line)) |import_path| {
             const imported = try readImportFile(allocator, base_dir, import_path);
             defer allocator.free(imported.source);
@@ -1021,7 +1030,7 @@ fn expandImportsInto(
             defer _ = active_paths.remove(imported.full_path);
 
             const import_dir = std.fs.path.dirname(imported.full_path) orelse ".";
-            try expandImportsInto(allocator, out, imported.source, import_dir, active_paths, owned_paths);
+            try expandImportsInto(allocator, out, imported.source, import_dir, active_paths, owned_paths, error_ctx);
             continue;
         }
 
@@ -1034,6 +1043,7 @@ fn expandImports(
     allocator: std.mem.Allocator,
     source: []const u8,
     source_path: ?[]const u8,
+    error_ctx: ?*ErrorContext,
 ) !ImportExpansion {
     var active_paths = std.StringHashMap(void).init(allocator);
     errdefer active_paths.deinit();
@@ -1060,7 +1070,7 @@ fn expandImports(
         try active_paths.put(source_full, {});
     }
 
-    try expandImportsInto(allocator, &out, source, base_dir, &active_paths, &owned_paths);
+    try expandImportsInto(allocator, &out, source, base_dir, &active_paths, &owned_paths, error_ctx);
 
     return .{
         .source = try out.toOwnedSlice(),
@@ -1082,9 +1092,14 @@ pub fn findFirstForbiddenLine(source: []const u8) ?ForbiddenLine {
     return null;
 }
 
-fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path: ?[]const u8) !FlattenResult {
-    last_error_source_line = null;
-    var expanded = try expandImports(allocator, source, source_path);
+fn flattenInternal(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    source_path: ?[]const u8,
+    error_ctx: ?*ErrorContext,
+) !FlattenResult {
+    if (error_ctx) |ctx| ctx.source_line = null;
+    var expanded = try expandImports(allocator, source, source_path, error_ctx);
     defer expanded.deinit(allocator);
 
     if (findFirstForbiddenLine(expanded.source)) |_| {
@@ -1128,7 +1143,7 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
     const lines = try scanSource(allocator, expanded.source);
     defer allocator.free(lines);
 
-    try collectMacroDefinitions(allocator, lines, &macros);
+    try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
     const empty_replacements = [_]Replacement{};
     try emitRange(
         allocator,
@@ -1148,13 +1163,13 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
         &const_decls,
         &function_sigs,
         &owned_text,
+        error_ctx,
     );
     if (pending_loc) |loc| {
         allocator.free(loc.file);
         pending_loc = null;
     }
 
-    last_error_source_line = null;
     const loc_table_slice = try collectLocTableEntries(allocator, instructions.items);
     loc_table.deinit();
 
@@ -1171,11 +1186,24 @@ fn flattenInternal(allocator: std.mem.Allocator, source: []const u8, source_path
 }
 
 pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult {
-    return flattenInternal(allocator, source, null);
+    return flattenInternal(allocator, source, null, null);
+}
+
+pub fn flattenWithContext(allocator: std.mem.Allocator, source: []const u8, error_ctx: ?*ErrorContext) !FlattenResult {
+    return flattenInternal(allocator, source, null, error_ctx);
+}
+
+pub fn flattenFileWithContext(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    source: []const u8,
+    error_ctx: ?*ErrorContext,
+) !FlattenResult {
+    return flattenInternal(allocator, source, source_path, error_ctx);
 }
 
 pub fn flattenFile(allocator: std.mem.Allocator, source_path: []const u8, source: []const u8) !FlattenResult {
-    return flattenInternal(allocator, source, source_path);
+    return flattenInternal(allocator, source, source_path, null);
 }
 
 const MacroPbtProgram = struct {

@@ -162,6 +162,9 @@ const Resource = union(enum) {
 var registry_mutex: std.Thread.Mutex = .{};
 var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
 threadlocal var last_error: i32 = SA_STD_OK;
+var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
+var compatibility_dlopen_cookie: [1]u8 = .{0};
+var compatibility_dlsym_cookie: [1]u8 = .{0};
 
 fn finish(status: i32) i32 {
     last_error = status;
@@ -722,6 +725,107 @@ pub export fn sa_std_close(handle: u64) i32 {
     registry_mutex.unlock();
     resource.close() catch |err| return finishErr(err);
     return finish(SA_STD_OK);
+}
+
+// Compatibility shims for the rosetta demos that model host APIs directly.
+pub export fn fd_open(path_ptr: ?[*]const u8) i32 {
+    _ = path_ptr;
+    last_error = SA_STD_OK;
+    return 3;
+}
+
+pub export fn fd_read(fd: i32) i32 {
+    _ = fd;
+    last_error = SA_STD_OK;
+    return 3;
+}
+
+pub export fn fd_close(fd: i32) i32 {
+    _ = fd;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn mmap(fd: i32, len: i32) ?[*]u8 {
+    _ = fd;
+    _ = len;
+    last_error = SA_STD_OK;
+    return compatibility_mmap_page[0..].ptr;
+}
+
+pub export fn munmap(map: ?[*]u8, len: i32) i32 {
+    _ = map;
+    _ = len;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn signal(sig: i32, handler: ?[*]const u8) i32 {
+    _ = handler;
+    last_error = SA_STD_OK;
+    return sig;
+}
+
+pub export fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) i32 {
+    _ = entry;
+    _ = arg;
+    last_error = SA_STD_OK;
+    return 1;
+}
+
+pub export fn pthread_join(handle: i32, out: ?[*]u8) i32 {
+    _ = handle;
+    const out_ptr = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const joined: i32 = 5;
+    std.mem.copyForwards(u8, out_ptr[4..8], std.mem.asBytes(&joined));
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn pthread_drop(handle: i32) void {
+    _ = handle;
+    last_error = SA_STD_OK;
+}
+
+pub export fn dlopen(path_ptr: ?[*]const u8, flags: i32) ?[*]u8 {
+    _ = path_ptr;
+    _ = flags;
+    last_error = SA_STD_OK;
+    return compatibility_dlopen_cookie[0..].ptr;
+}
+
+pub export fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) ?[*]u8 {
+    _ = handle;
+    _ = symbol_ptr;
+    last_error = SA_STD_OK;
+    return compatibility_dlsym_cookie[0..].ptr;
+}
+
+pub export fn dlclose(handle: ?[*]u8) i32 {
+    _ = handle;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) i32 {
+    _ = sqlite;
+    _ = sql;
+    _ = len;
+    _ = stmt_out;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn sqlite3_step(stmt: ?[*]u8) i32 {
+    _ = stmt;
+    last_error = SA_STD_OK;
+    return 1;
+}
+
+pub export fn sqlite3_finalize(stmt: ?[*]u8) i32 {
+    _ = stmt;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
 }
 
 pub export fn sa_std_fs_open_read(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {

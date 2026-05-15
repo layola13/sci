@@ -3,9 +3,9 @@
 @const RESULT_OK = utf8:"8\n"
 @const RESULT_ERR = utf8:"error\n"
 
-@extern sqlite3_prepare(sqlite: ptr, sql: ptr, len: i32, stmt_out: ptr) -> i32
-@extern sqlite3_step(stmt: ptr) -> i32
-@extern sqlite3_finalize(stmt: ptr) -> i32
+@extern sqlite3_prepare(*sqlite: ptr, *sql: ptr, len: i32, *stmt_out: ptr) -> i32
+@extern sqlite3_step(*stmt: ptr) -> i32
+@extern sqlite3_finalize(*stmt: ptr) -> i32
 
 #def Row_SIZE = 12
 #def Row_id = +0
@@ -26,9 +26,9 @@ L_ENTRY:
     store row+Row_total, total as i32
     sql_len = 32
     sql_ptr = stmt_slot
-    prepare = call @sqlite3_prepare(stmt_slot, sql_ptr, sql_len, stmt_slot)
-    step = call @sqlite3_step(stmt_slot)
-    finalize = call @sqlite3_finalize(stmt_slot)
+    prepare = call @sqlite3_prepare(*stmt_slot, *sql_ptr, sql_len, *stmt_slot)
+    step = call @sqlite3_step(*stmt_slot)
+    finalize = call @sqlite3_finalize(*stmt_slot)
     ok_prepare = eq prepare, 0
     ok_step = ne step, 0
     ok_finalize = eq finalize, 0

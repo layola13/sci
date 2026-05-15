@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const call = @import("referee/call.zig");
 const cap = @import("common/capability.zig");
@@ -41,6 +42,49 @@ pub const VerifyOk = struct {
 pub const VerifyResult = union(enum) {
     ok: VerifyOk,
     trap: trap.TrapReport,
+};
+
+const ParallelFunctionChunk = struct {
+    start: usize,
+    end: usize,
+    sig_index: usize,
+};
+
+pub const VerifyOptions = struct {
+    jobs: ?usize = null,
+};
+
+const VerifyBodyOk = struct {
+    annotated: []AnnotatedInstruction,
+    gas: gas.GasReport,
+    has_unbounded_loop: bool,
+};
+
+const VerifyBodyResult = union(enum) {
+    ok: VerifyBodyOk,
+    trap: trap.TrapReport,
+};
+
+const ParallelVerifyJob = struct {
+    arena: std.heap.ArenaAllocator,
+    result: ?VerifyBodyResult = null,
+    err: ?anyerror = null,
+
+    fn deinit(self: *ParallelVerifyJob) void {
+        self.arena.deinit();
+        self.* = undefined;
+    }
+};
+
+const ParallelVerifyContext = struct {
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    metadata: *const CollectResult,
+    chunks: []const ParallelFunctionChunk,
+    jobs: []ParallelVerifyJob,
+    requested_jobs: ?usize,
+    next_chunk: std.atomic.Value(usize),
 };
 
 const CollectResult = struct {
@@ -112,7 +156,7 @@ const InteriorContext = struct {
     interior_next_sibling: []?u32,
 };
 
-var interior_ctx: ?InteriorContext = null;
+threadlocal var interior_ctx: ?InteriorContext = null;
 
 fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
@@ -134,7 +178,7 @@ fn constTrap(
     register: []const u8,
     actual_mask: u16,
     message: []const u8,
-) VerifyResult {
+) VerifyBodyResult {
     return trapReport(.const_mutation, item, function_text, is_ffi_wrapper, register, maskOf(.immutable), actual_mask, message, null);
 }
 
@@ -337,7 +381,7 @@ fn checkAtomicOrdering(
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
     seen: *std.AutoHashMap(u64, u8),
-) ?VerifyResult {
+) ?VerifyBodyResult {
     const key = atomicKey(item) orelse return null;
     const ordering = atomicOrderingOf(item);
     const current = seen.get(key) orelse 0;
@@ -579,7 +623,7 @@ fn trapReport(
     actual_mask: ?u16,
     message: []const u8,
     hint: ?[]const u8,
-) VerifyResult {
+) VerifyBodyResult {
     const source_text = trimTrailingCr(item.raw_text);
     var report: trap.TrapReport = .{
         .trap = kind,
@@ -637,7 +681,7 @@ fn trapReportWithRegisters(
     actual_mask: ?u16,
     message: []const u8,
     hint: ?[]const u8,
-) VerifyResult {
+) VerifyBodyResult {
     const result = trapReport(kind, item, function_text, is_ffi_wrapper, register, expected_mask, actual_mask, message, hint);
     _ = registers;
     return result;
@@ -744,7 +788,7 @@ fn readCheckAllowRaw(
     id: u32,
     state: []u16,
     flags: []u8,
-) ?VerifyResult {
+) ?VerifyBodyResult {
     _ = flags;
     const idx: usize = @intCast(id);
     const current = state[idx];
@@ -974,7 +1018,7 @@ fn readCheck(
     id: u32,
     state: []u16,
     flags: []u8,
-) ?VerifyResult {
+) ?VerifyBodyResult {
     _ = flags;
     const idx: usize = @intCast(id);
     const current = state[idx];
@@ -996,7 +1040,7 @@ fn writeCheck(
     flags: []u8,
     origins: []?u32,
     locks: []u16,
-) ?VerifyResult {
+) ?VerifyBodyResult {
     const idx: usize = @intCast(id);
     const current = state[idx];
     if (current == 0) return trapReport(.unknown_register, item, function_text, is_ffi_wrapper, name, null, null, "register is not declared in the current scope", null);
@@ -1019,6 +1063,32 @@ fn writeCheck(
     return null;
 }
 
+fn assignValueCtx(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    id: u32,
+    state: []u16,
+    flags: []u8,
+    mask: u16,
+    interior: *InteriorContext,
+) ?VerifyBodyResult {
+    const idx: usize = @intCast(id);
+    const current = state[idx];
+    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0) {
+        return trapReport(.register_redefinition, item, function_text, is_ffi_wrapper, name, null, null, "register is already live", null);
+    }
+    if (hasInteriorPtr(current) or interior.interior_first_child[idx] != null) {
+        consumeInteriorValue(interior.state, interior.interior_parent, interior.interior_first_child, interior.interior_next_sibling, id);
+    } else {
+        clearInteriorNode(interior.state, interior.interior_parent, interior.interior_first_child, interior.interior_next_sibling, id);
+    }
+    state[idx] = mask;
+    flags[idx] &= ~(regFlagBranchCondition | regFlagEphemeralScalar);
+    return null;
+}
+
 fn assignValue(
     item: inst.Instruction,
     function_text: ?[]const u8,
@@ -1028,21 +1098,45 @@ fn assignValue(
     state: []u16,
     flags: []u8,
     mask: u16,
-) ?VerifyResult {
+) ?VerifyBodyResult {
+    var ctx = interior_ctx orelse return null;
+    return assignValueCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, mask, &ctx);
+}
+
+fn consumeSourceValueCtx(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    id: u32,
+    state: []u16,
+    flags: []u8,
+    origins: []?u32,
+    locks: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    allow_const_copy: bool,
+    interior: *InteriorContext,
+) ?VerifyBodyResult {
     const idx: usize = @intCast(id);
-    const current = state[idx];
-    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0) {
-        return trapReport(.register_redefinition, item, function_text, is_ffi_wrapper, name, null, null, "register is already live", null);
+    if (allow_const_copy and isImmutableConst(state, flags, id)) return null;
+    if (isImmutableConst(state, flags, id)) {
+        return constTrap(item, function_text, is_ffi_wrapper, name, state[idx], "immutable registers cannot be moved");
     }
-    if (interior_ctx) |ctx| {
-        if (hasInteriorPtr(current) or ctx.interior_first_child[idx] != null) {
-            consumeInteriorValue(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
+    if (isStackAllocated(flags, origins, state, id)) {
+        return trapReport(.stack_escape, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "stack allocation cannot be moved out of its function", null);
+    }
+    if ((flags[idx] & regFlagRawPointer) != 0) return null;
+    if ((state[idx] & maskOf(.borrow_view)) != 0) {
+        clearBorrowCtx(state, flags, origins, locks, id, interior);
+    } else {
+        if (hasInteriorTree(state, interior_first_child, id)) {
+            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, id);
         } else {
-            clearInteriorNode(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
+            state[idx] = maskOf(.consumed);
         }
     }
-    state[idx] = mask;
-    flags[idx] &= ~(regFlagBranchCondition | regFlagEphemeralScalar);
     return null;
 }
 
@@ -1060,26 +1154,9 @@ fn consumeSourceValue(
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
     allow_const_copy: bool,
-) ?VerifyResult {
-    const idx: usize = @intCast(id);
-    if (allow_const_copy and isImmutableConst(state, flags, id)) return null;
-    if (isImmutableConst(state, flags, id)) {
-        return constTrap(item, function_text, is_ffi_wrapper, name, state[idx], "immutable registers cannot be moved");
-    }
-    if (isStackAllocated(flags, origins, state, id)) {
-        return trapReport(.stack_escape, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "stack allocation cannot be moved out of its function", null);
-    }
-    if ((flags[idx] & regFlagRawPointer) != 0) return null;
-    if ((state[idx] & maskOf(.borrow_view)) != 0) {
-        clearBorrow(state, flags, origins, locks, id);
-    } else {
-        if (hasInteriorTree(state, interior_first_child, id)) {
-            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, id);
-        } else {
-            state[idx] = maskOf(.consumed);
-        }
-    }
-    return null;
+) ?VerifyBodyResult {
+    var ctx = interior_ctx orelse return null;
+    return consumeSourceValueCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, allow_const_copy, &ctx);
 }
 
 fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst: u32, src: u32, is_mut: bool, is_ffi: bool) void {
@@ -1096,22 +1173,21 @@ fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst:
     }
 }
 
-fn clearBorrow(
+fn clearBorrowCtx(
     state: []u16,
     flags: []u8,
     origins: []?u32,
     locks: []u16,
     id: u32,
+    interior: *InteriorContext,
 ) void {
     const idx: usize = @intCast(id);
     if ((state[idx] & maskOf(.borrow_view)) == 0) return;
 
-    if (interior_ctx) |ctx| {
-        if (hasInteriorPtr(state[idx])) {
-            consumeInteriorValue(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
-        } else {
-            consumeInteriorChildren(ctx.state, ctx.interior_parent, ctx.interior_first_child, ctx.interior_next_sibling, id);
-        }
+    if (hasInteriorPtr(state[idx])) {
+        consumeInteriorValue(interior.state, interior.interior_parent, interior.interior_first_child, interior.interior_next_sibling, id);
+    } else {
+        consumeInteriorChildren(interior.state, interior.interior_parent, interior.interior_first_child, interior.interior_next_sibling, id);
     }
 
     if ((flags[idx] & regFlagRawPointer) != 0) {
@@ -1137,6 +1213,52 @@ fn clearBorrow(
     origins[idx] = null;
 }
 
+fn clearBorrow(
+    state: []u16,
+    flags: []u8,
+    origins: []?u32,
+    locks: []u16,
+    id: u32,
+) void {
+    var ctx = interior_ctx orelse return;
+    clearBorrowCtx(state, flags, origins, locks, id, &ctx);
+}
+
+fn consumeAtContractBoundaryCtx(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    id: u32,
+    state: []u16,
+    flags: []u8,
+    origins: []?u32,
+    locks: []u16,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+    interior: *InteriorContext,
+) ?VerifyBodyResult {
+    if (readCheck(item, function_text, is_ffi_wrapper, name, id, state, flags)) |tr| return tr;
+
+    const idx: usize = @intCast(id);
+    if (hasActiveBorrowRefs(locks, id)) {
+        return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "borrow rules reject this access", null);
+    }
+    if (isStackAllocated(flags, origins, state, id)) {
+        return trapReport(.stack_escape, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "stack allocation cannot cross a native escape boundary", null);
+    }
+
+    if ((state[idx] & maskOf(.borrow_view)) != 0) {
+        clearBorrowCtx(state, flags, origins, locks, id, interior);
+    } else if (hasInteriorTree(state, interior_first_child, id)) {
+        consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, id);
+    } else {
+        state[idx] = maskOf(.consumed);
+    }
+    return null;
+}
+
 fn consumeAtContractBoundary(
     item: inst.Instruction,
     function_text: ?[]const u8,
@@ -1150,25 +1272,9 @@ fn consumeAtContractBoundary(
     interior_parent: []?u32,
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
-) ?VerifyResult {
-    if (readCheck(item, function_text, is_ffi_wrapper, name, id, state, flags)) |tr| return tr;
-
-    const idx: usize = @intCast(id);
-    if (hasActiveBorrowRefs(locks, id)) {
-        return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "borrow rules reject this access", null);
-    }
-    if (isStackAllocated(flags, origins, state, id)) {
-        return trapReport(.stack_escape, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "stack allocation cannot cross a native escape boundary", null);
-    }
-
-    if ((state[idx] & maskOf(.borrow_view)) != 0) {
-        clearBorrow(state, flags, origins, locks, id);
-    } else if (hasInteriorTree(state, interior_first_child, id)) {
-        consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, id);
-    } else {
-        state[idx] = maskOf(.consumed);
-    }
-    return null;
+) ?VerifyBodyResult {
+    var ctx = interior_ctx orelse return null;
+    return consumeAtContractBoundaryCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, &ctx);
 }
 
 fn markBranchCondition(flags: []u8, id: u32) void {
@@ -1182,7 +1288,7 @@ fn updateLabel(
     allocator: std.mem.Allocator,
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
-) ?VerifyResult {
+) ?VerifyBodyResult {
     const label_id = item.operands[1].label;
     if (labels.getPtr(label_id)) |entry| {
         @memcpy(state, entry.*);
@@ -1222,47 +1328,15 @@ fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, []u16
     labels.clearRetainingCapacity();
 }
 
-pub fn verify(
+fn verifyBody(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
     const_decls: []const const_decl.ConstDecl,
-) !VerifyResult {
-    if (instructions.len == 0) {
-        const symbols = symbol.SymbolTable.init(allocator);
-        return .{ .ok = .{
-            .annotated = &.{},
-            .function_sigs = &.{},
-            .symbols = symbols,
-            .const_decls = const_decls,
-            .gas = .{
-                .max_alloc_bytes = 0,
-                .max_instruction_steps = .{ .bounded = 0 },
-                .call_depth = 0,
-                .has_unbounded_loop = false,
-            },
-        } };
-    }
-
-    var metadata = collectMetadata(allocator, instructions, const_decls) catch |err| {
-        const kind: trap.Trap = switch (err) {
-            error.UnsupportedType => .unsupported_type,
-            error.OutOfMemory => .arena_oom,
-            else => .forbidden_syntax,
-        };
-        return .{ .trap = trapReportFromText(kind, 1, 1, instructions[0].raw_text, switch (err) {
-            error.UnsupportedType => "unsupported type annotation while rebuilding metadata",
-            error.OutOfMemory => "out of memory while rebuilding metadata",
-            else => "failed to rebuild metadata",
-        }, switch (err) {
-            error.UnsupportedType => "check primitive type names in signatures and atomic suffixes",
-            error.OutOfMemory => null,
-            else => null,
-        }) };
-    };
-    defer freeSigs(allocator, &metadata.sigs);
-    defer freeConstVtables(allocator, &metadata.const_vtables);
-    var symbols_moved = false;
-    defer if (!symbols_moved) metadata.symbols.deinit();
+    metadata: *const CollectResult,
+    sig_index_start: usize,
+    check_exit_leaks: bool,
+) !VerifyBodyResult {
+    var sig_index = sig_index_start;
 
     const reg_count = metadata.reg_count;
     var state = zeroed(u16, allocator, reg_count) catch {
@@ -1317,7 +1391,6 @@ pub fn verify(
     var current_function_text: ?[]const u8 = null;
     var current_is_ffi_wrapper = false;
     var current_sig: ?sig.FunctionSig = null;
-    var sig_index: usize = 0;
     var body_seen = false;
     var terminated = false;
     var fatal_terminated = false;
@@ -1742,13 +1815,13 @@ pub fn verify(
                     }
                     break :blk null;
                 };
-                const builtin = builtinArgSpec(parsed.callee);
+                const builtin_spec = builtinArgSpec(parsed.callee);
 
-                if (!parsed.is_indirect and sig_match == null and builtin == null and !std.mem.startsWith(u8, parsed.callee, "sys_")) {
+                if (!parsed.is_indirect and sig_match == null and builtin_spec == null and !std.mem.startsWith(u8, parsed.callee, "sys_")) {
                     return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "callee is not declared", null);
                 }
 
-                if (!parsed.is_indirect and builtin == null and std.mem.startsWith(u8, parsed.callee, "sys_")) {
+                if (!parsed.is_indirect and builtin_spec == null and std.mem.startsWith(u8, parsed.callee, "sys_")) {
                     return trapReport(.unsupported_sys_intrinsic, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "target runtime does not support this @sys_* intrinsic", null);
                 }
 
@@ -1762,7 +1835,7 @@ pub fn verify(
                                 return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                             }
                         }
-                    } else if (builtin) |spec| {
+                    } else if (builtin_spec) |spec| {
                         if (spec.len != parsed.args.len) {
                             return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                         }
@@ -1996,7 +2069,7 @@ pub fn verify(
         return trapReport(.fallthrough_forbidden, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, null, "function body ended without a terminator", "end the last block with jmp, br, br_null, or return");
     }
 
-    if (!fatal_terminated) {
+    if (check_exit_leaks and !fatal_terminated) {
         for (state, 0..) |mask, idx| {
             if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
             if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
@@ -2006,31 +2079,314 @@ pub fn verify(
             if (regConsumedLater(instructions, current_function_start_idx, @intCast(idx))) continue;
             return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, mask, "live registers remain at function exit", null);
         }
-    } else if (body_seen and !terminated) {
-        return trapReport(.fallthrough_forbidden, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, null, "function body ended without a terminator", "end the last block with jmp, br, br_null, return, or panic");
     }
 
     const annotated_slice = annotated.toOwnedSlice() catch {
         return .{ .trap = trapReportFromText(.arena_oom, 1, 1, instructions[instructions.len - 1].raw_text, "unable to finalize annotations", null) };
     };
-    const sigs_slice = metadata.sigs.toOwnedSlice() catch {
-        return .{ .trap = trapReportFromText(.arena_oom, 1, 1, instructions[instructions.len - 1].raw_text, "unable to finalize function signatures", null) };
-    };
     completed = true;
-    symbols_moved = true;
 
     return .{ .ok = .{
         .annotated = annotated_slice,
-        .function_sigs = sigs_slice,
-        .symbols = metadata.symbols,
-        .const_decls = const_decls,
         .gas = .{
             .max_alloc_bytes = gas_alloc_bytes,
             .max_instruction_steps = if (has_unbounded_loop) .{ .unbounded = .{ .bounded_prefix = gas_steps } } else .{ .bounded = gas_steps },
             .call_depth = call_depth,
             .has_unbounded_loop = has_unbounded_loop,
         },
+        .has_unbounded_loop = has_unbounded_loop,
     } };
+}
+
+fn freeAnnotatedSlice(allocator: std.mem.Allocator, annotated: []AnnotatedInstruction) void {
+    for (annotated) |item| {
+        allocator.free(item.entry_caps);
+        allocator.free(item.exit_caps);
+    }
+    allocator.free(annotated);
+}
+
+fn buildVerifyChunks(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+) ![]ParallelFunctionChunk {
+    if (instructions.len == 0) {
+        return try allocator.alloc(ParallelFunctionChunk, 0);
+    }
+
+    var chunks = std.ArrayList(ParallelFunctionChunk).init(allocator);
+    errdefer chunks.deinit();
+
+    var current_start: ?usize = null;
+    var current_sig_index: usize = 0;
+    var next_sig_index: usize = 0;
+    var saw_decl = false;
+
+    for (instructions, 0..) |item, idx| {
+        if (isDecl(item.kind)) {
+            saw_decl = true;
+            if (current_start) |start| {
+                try chunks.append(.{
+                    .start = start,
+                    .end = idx,
+                    .sig_index = current_sig_index,
+                });
+            }
+            current_start = idx;
+            current_sig_index = next_sig_index;
+            next_sig_index += 1;
+            continue;
+        }
+
+        if (!saw_decl) {
+            return try allocator.alloc(ParallelFunctionChunk, 0);
+        }
+    }
+
+    if (current_start) |start| {
+        try chunks.append(.{
+            .start = start,
+            .end = instructions.len,
+            .sig_index = current_sig_index,
+        });
+    }
+
+    return try chunks.toOwnedSlice();
+}
+
+fn chooseVerifyWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
+    if (chunk_count < 2) return 1;
+    if (requested_jobs) |jobs| {
+        return if (jobs <= 1) 1 else @min(jobs, chunk_count);
+    }
+    const cpu_count = std.Thread.getCpuCount() catch 1;
+    if (cpu_count < 2) return 1;
+    return @min(cpu_count, chunk_count);
+}
+
+fn verifyWorker(context: *ParallelVerifyContext) void {
+    while (true) {
+        const chunk_index = context.next_chunk.fetchAdd(1, .monotonic);
+        if (chunk_index >= context.chunks.len) return;
+
+        const chunk = context.chunks[chunk_index];
+        const job = &context.jobs[chunk_index];
+        const result = verifyBody(
+            job.arena.allocator(),
+            context.instructions[chunk.start..chunk.end],
+            context.const_decls,
+            context.metadata,
+            chunk.sig_index,
+            chunk_index + 1 == context.chunks.len,
+        ) catch |err| {
+            job.err = err;
+            return;
+        };
+        job.result = result;
+    }
+}
+
+fn verifyParallel(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    metadata: *const CollectResult,
+    chunks: []const ParallelFunctionChunk,
+    requested_jobs: ?usize,
+) !VerifyBodyResult {
+    const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
+    if (worker_count <= 1) {
+        return verifyBody(allocator, instructions, const_decls, metadata, 0, true);
+    }
+
+    const jobs = try allocator.alloc(ParallelVerifyJob, chunks.len);
+    for (jobs) |*job| {
+        job.* = .{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    }
+    defer {
+        for (jobs) |*job| job.deinit();
+        allocator.free(jobs);
+    }
+
+    var context = ParallelVerifyContext{
+        .allocator = allocator,
+        .instructions = instructions,
+        .const_decls = const_decls,
+        .metadata = metadata,
+        .chunks = chunks,
+        .jobs = jobs,
+        .requested_jobs = requested_jobs,
+        .next_chunk = std.atomic.Value(usize).init(0),
+    };
+    _ = context.allocator;
+    _ = context.requested_jobs;
+
+    const spawned_count = worker_count - 1;
+    var threads = try allocator.alloc(std.Thread, spawned_count);
+    defer allocator.free(threads);
+    var started_threads: usize = 0;
+    errdefer {
+        while (started_threads > 0) {
+            started_threads -= 1;
+            threads[started_threads].join();
+        }
+    }
+
+    while (started_threads < spawned_count) : (started_threads += 1) {
+        threads[started_threads] = try std.Thread.spawn(.{}, verifyWorker, .{&context});
+    }
+
+    verifyWorker(&context);
+
+    while (started_threads > 0) {
+        started_threads -= 1;
+        threads[started_threads].join();
+    }
+
+    var annotated = std.ArrayList(AnnotatedInstruction).init(allocator);
+    errdefer freeAnnotated(allocator, &annotated);
+    var gas_alloc_bytes: u64 = 0;
+    var gas_steps: u64 = 0;
+    var has_unbounded_loop = false;
+
+    for (jobs) |*job| {
+        if (job.err) |err| return err;
+        const result = job.result orelse return error.UnexpectedResult;
+        switch (result) {
+            .trap => |report| {
+                freeAnnotated(allocator, &annotated);
+                return .{ .trap = report };
+            },
+            .ok => |ok| {
+                for (ok.annotated) |item| {
+                    const entry_caps = try allocator.dupe(u16, item.entry_caps);
+                    var entry_owned = false;
+                    defer if (!entry_owned) allocator.free(entry_caps);
+                    const exit_caps = try allocator.dupe(u16, item.exit_caps);
+                    var exit_owned = false;
+                    defer if (!exit_owned) allocator.free(exit_caps);
+                    try annotated.append(.{
+                        .base = item.base,
+                        .entry_caps = entry_caps,
+                        .exit_caps = exit_caps,
+                        .gas_step_cost = item.gas_step_cost,
+                    });
+                    entry_owned = true;
+                    exit_owned = true;
+                }
+                gas_alloc_bytes += ok.gas.max_alloc_bytes;
+                switch (ok.gas.max_instruction_steps) {
+                    .bounded => |steps| gas_steps += steps,
+                    .unbounded => |unbounded| {
+                        gas_steps += unbounded.bounded_prefix;
+                        has_unbounded_loop = true;
+                    },
+                }
+                if (ok.has_unbounded_loop) {
+                    has_unbounded_loop = true;
+                }
+            },
+        }
+    }
+
+    const annotated_slice = try annotated.toOwnedSlice();
+    return .{ .ok = .{
+        .annotated = annotated_slice,
+        .gas = .{
+            .max_alloc_bytes = gas_alloc_bytes,
+            .max_instruction_steps = if (has_unbounded_loop) .{ .unbounded = .{ .bounded_prefix = gas_steps } } else .{ .bounded = gas_steps },
+            .call_depth = 0,
+            .has_unbounded_loop = has_unbounded_loop,
+        },
+        .has_unbounded_loop = has_unbounded_loop,
+    } };
+}
+
+pub fn verifyWithOptions(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    options: VerifyOptions,
+) !VerifyResult {
+    if (instructions.len == 0) {
+        const symbols = symbol.SymbolTable.init(allocator);
+        return .{ .ok = .{
+            .annotated = &.{},
+            .function_sigs = &.{},
+            .symbols = symbols,
+            .const_decls = const_decls,
+            .gas = .{
+                .max_alloc_bytes = 0,
+                .max_instruction_steps = .{ .bounded = 0 },
+                .call_depth = 0,
+                .has_unbounded_loop = false,
+            },
+        } };
+    }
+
+    var metadata = collectMetadata(allocator, instructions, const_decls) catch |err| {
+        const kind: trap.Trap = switch (err) {
+            error.UnsupportedType => .unsupported_type,
+            error.OutOfMemory => .arena_oom,
+            else => .forbidden_syntax,
+        };
+        return .{ .trap = trapReportFromText(kind, 1, 1, instructions[0].raw_text, switch (err) {
+            error.UnsupportedType => "unsupported type annotation while rebuilding metadata",
+            error.OutOfMemory => "out of memory while rebuilding metadata",
+            else => "failed to rebuild metadata",
+        }, switch (err) {
+            error.UnsupportedType => "check primitive type names in signatures and atomic suffixes",
+            error.OutOfMemory => null,
+            else => null,
+        }) };
+    };
+    defer freeSigs(allocator, &metadata.sigs);
+    defer freeConstVtables(allocator, &metadata.const_vtables);
+    var symbols_moved = false;
+    defer if (!symbols_moved) metadata.symbols.deinit();
+
+    const chunks = try buildVerifyChunks(allocator, instructions);
+    defer allocator.free(chunks);
+    const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
+
+    const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
+        const parallel = try verifyParallel(allocator, instructions, const_decls, &metadata, chunks, options.jobs);
+        break :blk parallel;
+    } else blk: {
+        break :blk try verifyBody(allocator, instructions, const_decls, &metadata, 0, true);
+    };
+
+    switch (body_result) {
+        .trap => |report| return .{ .trap = report },
+        .ok => |body| {
+            const owned_body = body;
+            var finalized = false;
+            defer if (!finalized) freeAnnotatedSlice(allocator, owned_body.annotated);
+            const sigs_slice = try metadata.sigs.toOwnedSlice();
+            errdefer {
+                for (sigs_slice) |*item| item.deinit(allocator);
+                allocator.free(sigs_slice);
+            }
+
+            symbols_moved = true;
+            finalized = true;
+            return .{ .ok = .{
+                .annotated = owned_body.annotated,
+                .function_sigs = sigs_slice,
+                .symbols = metadata.symbols,
+                .const_decls = const_decls,
+                .gas = body.gas,
+            } };
+        },
+    }
+}
+
+pub fn verify(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+) !VerifyResult {
+    return verifyWithOptions(allocator, instructions, const_decls, .{});
 }
 
 test "panic terminates without forcing a leak trap" {

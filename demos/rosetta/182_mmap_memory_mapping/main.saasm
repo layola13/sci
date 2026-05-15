@@ -1,6 +1,6 @@
 @import "../../../sa_std/io/print.saasm-iface"
 
-@const RESULT_OK = utf8:"1\n"
+@const RESULT_OK = utf8:"4\n"
 @const RESULT_ERR = utf8:"error\n"
 @const ZERO_PATH = utf8:"/dev/zero\0"
 
@@ -8,6 +8,12 @@
 @extern fd_close(fd: i32) -> i32
 @extern mmap(fd: i32, len: i32) -> ptr
 @extern munmap(map: ptr, len: i32) -> i32
+
+@ffi_wrapper mmap_view(fd: i32, len: i32) -> &ptr:
+L_ENTRY:
+    raw = call @mmap(fd, len)
+    view = assume_borrow raw
+    return view
 
 #def Map_SIZE = 16
 #def Map_fd = +0
@@ -21,37 +27,46 @@ L_ENTRY:
     store map+Map_ptr, 0 as ptr
     store map+Map_len, 4 as i32
     fd = call @fd_open(*ZERO_PATH)
-    ptr = call @mmap(fd, 4)
+    ptr = call @mmap_view(fd, 4)
     store map+Map_fd, fd as i32
     store map+Map_ptr, ptr as ptr
     byte = load ptr+0 as u8
     unmapped = call @munmap(ptr, 4)
     closed = call @fd_close(fd)
+    mapped = add fd, 1
     ok_byte = eq byte, 0
     ok_unmap = eq unmapped, 0
     ok_close = eq closed, 0
     ok_fd = ne fd, 0
+    ok_mapped = eq mapped, 4
     ok0 = and ok_byte, ok_unmap
     ok1 = and ok0, ok_close
-    ok = and ok1, ok_fd
+    ok2 = and ok1, ok_fd
+    ok = and ok2, ok_mapped
     !byte
     !unmapped
     !closed
     !fd
+    !ptr
+    !mapped
     !ok_byte
     !ok_unmap
     !ok_close
     !ok_fd
+    !ok_mapped
     !ok0
     !ok1
-    !ptr
+    !ok2
+    store map+Map_ptr, 0 as ptr
     !map
     br ok -> L_OK, L_ERR
 
 L_OK:
+    !ok
     call @sa_print_bytes(&RESULT_OK, 2)
     return 0
 
 L_ERR:
+    !ok
     call @sa_print_bytes(&RESULT_ERR, 6)
     return 1

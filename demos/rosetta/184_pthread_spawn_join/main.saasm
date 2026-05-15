@@ -2,9 +2,10 @@
 
 @const RESULT_OK = utf8:"5\n"
 @const RESULT_ERR = utf8:"error\n"
+@const WORKER_VT = vtable { call = @worker }
 
-@extern pthread_spawn(entry: ptr, arg: ptr) -> i32
-@extern pthread_join(handle: i32, out: ptr) -> i32
+@extern pthread_spawn(*entry: ptr, *arg: ptr) -> i32
+@extern pthread_join(handle: i32, *out: ptr) -> i32
 @extern pthread_drop(handle: i32) -> void
 
 #def Thread_SIZE = 8
@@ -20,14 +21,31 @@ L_ENTRY:
     !slot
     return result
 
+@ffi_wrapper spawn_worker(*slot: ptr) -> i32:
+L_ENTRY:
+    worker_vt = &WORKER_VT
+    worker_fn = load worker_vt+0 as ptr
+    worker_raw = *worker_fn
+    worker_safe = assume_safe worker_raw
+    handle = call @pthread_spawn(*worker_safe, *slot)
+    !slot
+    return handle
+
+@ffi_wrapper join_worker(handle: i32, *slot: ptr) -> i32:
+L_ENTRY:
+    joined = call @pthread_join(handle, *slot)
+    !slot
+    !handle
+    return joined
+
 @main() -> i32:
 L_ENTRY:
     thread = alloc Thread_SIZE
     store thread+Thread_handle, 0 as i32
     store thread+Thread_value, 1 as i32
-    handle = call @pthread_spawn(&worker, &thread)
+    handle = call @spawn_worker(*thread)
     store thread+Thread_handle, handle as i32
-    joined = call @pthread_join(handle, &thread)
+    joined = call @join_worker(handle, *thread)
     call @pthread_drop(handle)
     value = load thread+Thread_value as i32
     ok_join = eq joined, 0
@@ -37,6 +55,8 @@ L_ENTRY:
     !value
     !handle
     !thread
+    !ok_join
+    !ok_value
     br ok -> L_OK, L_ERR
 
 L_OK:

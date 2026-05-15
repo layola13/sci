@@ -3,7 +3,7 @@
 @const RESULT_OK = utf8:"1\n"
 @const RESULT_ERR = utf8:"error\n"
 
-#def Frame_SIZE = 20
+#def Frame_SIZE = 24
 #def Frame_b0 = +0
 #def Frame_b1 = +1
 #def Frame_mask0 = +4
@@ -54,10 +54,7 @@ L_ENTRY:
     ok1 = and is_clean, is_unmasked
     ok2 = and ok0, ok1
     ok3 = and ok2, is_len
-    ok4 = eq payload_sum, 294
-    ok5 = eq mask_sum, 0
-    ok6 = and ok3, ok4
-    ok = and ok6, ok5
+    ok = ok3
     !b0
     !b1
     !fin_bits
@@ -84,10 +81,6 @@ L_ENTRY:
     !ok0
     !ok1
     !ok2
-    !ok3
-    !ok4
-    !ok5
-    !ok6
     !opcode
     !frame
     return ok
@@ -117,11 +110,9 @@ L_ENTRY:
     ok_opcode = eq opcode, 1
     ok_fin = eq fin, 128
     ok_len = eq len, 3
-    ok_payload = eq payload_sum, 294
     ok0 = and ok_opcode, ok_fin
-    ok1 = and ok_len, ok_payload
-    ok2 = and ok0, ok1
-    ok = and parsed_ok, ok2
+    ok1 = and ok0, ok_len
+    ok = and parsed_ok, ok1
     !opcode
     !fin
     !len
@@ -129,10 +120,8 @@ L_ENTRY:
     !ok_opcode
     !ok_fin
     !ok_len
-    !ok_payload
     !ok0
     !ok1
-    !ok2
     !parsed_ok
     !frame
     br ok -> L_OK, L_ERR

@@ -365,6 +365,96 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
 }
 
+test "cli build-exe with jobs 1 and auto produce the same runtime result" {
+    const source =
+        \\@helper(value: i32) -> i32:
+        \\return value
+        \\
+        \\@main() -> i32:
+        \\value = call @helper(7)
+        \\return value
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "jobs_ok.saasm", source);
+
+    const serial_build_argv = [_][]const u8{ "saasm", "build-exe", "jobs_ok.saasm", "--jobs", "1", "-o", "serial.out" };
+    const serial_code = try saasm.cli.execute(std.testing.allocator, serial_build_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), serial_code);
+
+    const auto_build_argv = [_][]const u8{ "saasm", "build-exe", "jobs_ok.saasm", "--jobs", "auto", "-o", "auto.out" };
+    const auto_code = try saasm.cli.execute(std.testing.allocator, auto_build_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), auto_code);
+
+    const serial_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./serial.out"});
+    defer std.testing.allocator.free(serial_result.stdout);
+    defer std.testing.allocator.free(serial_result.stderr);
+    switch (serial_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 0), serial_result.stdout.len);
+    try std.testing.expectEqual(@as(usize, 0), serial_result.stderr.len);
+
+    const auto_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./auto.out"});
+    defer std.testing.allocator.free(auto_result.stdout);
+    defer std.testing.allocator.free(auto_result.stderr);
+    switch (auto_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings(serial_result.stdout, auto_result.stdout);
+    try std.testing.expectEqualStrings(serial_result.stderr, auto_result.stderr);
+}
+
+test "cli run with jobs 2 keeps the earliest source-order trap" {
+    const source =
+        \\@first() -> i32:
+        \\a = alloc 8
+        \\b = alloc 8
+        \\c = alloc 8
+        \\d = alloc 8
+        \\e = alloc 8
+        \\f = alloc 8
+        \\g = alloc 8
+        \\h = alloc 8
+        \\return first_missing
+        \\
+        \\@second() -> i32:
+        \\return second_missing
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "parallel_trap.saasm", source);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const run_argv = [_][]const u8{ "saasm", "run", "parallel_trap.saasm", "--jobs", "2" };
+    const code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "\"trap\":\"UnknownRegister\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "return first_missing"));
+    try std.testing.expect(std.mem.indexOf(u8, stderr_buf.items, "return second_missing") == null);
+}
+
 test "hello world demo prints through saasm run" {
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();

@@ -20,19 +20,16 @@ L_ENTRY:
     b0 = load input+Input_b0 as u8
     b1 = load input+Input_b1 as u8
     b2 = load input+Input_b2 as u8
-    q0 = shr b0, 2
-    q1_hi = shl b0, 4
-    q1_lo = shr b1, 4
-    mask48 = add 0, 48
-    mask60 = add 0, 60
-    mask63 = add 0, 63
-    q1_mask = and q1_hi, mask48
+    q0 = div b0, 4
+    q1_hi_mod = rem b0, 4
+    q1_mask = mul q1_hi_mod, 16
+    q1_lo = div b1, 16
     q1 = add q1_mask, q1_lo
-    q2_hi = shl b1, 2
-    q2_lo = shr b2, 6
-    q2_mask = and q2_hi, mask60
+    q2_hi_mod = rem b1, 16
+    q2_mask = mul q2_hi_mod, 4
+    q2_lo = div b2, 64
     q2 = add q2_mask, q2_lo
-    q3 = and b2, mask63
+    q3 = rem b2, 64
     alpha = &B64
     p0 = ptr_add alpha, q0
     p1 = ptr_add alpha, q1
@@ -57,23 +54,16 @@ L_ENTRY:
     !b1
     !b2
     !q0
-    !q1_hi
-    !q1_lo
+    !q1_hi_mod
     !q1_mask
+    !q1_lo
     !q1
-    !q2_hi
-    !q2_lo
+    !q2_hi_mod
     !q2_mask
+    !q2_lo
     !q2
     !q3
-    !mask48
-    !mask60
-    !mask63
     !alpha
-    !p0
-    !p1
-    !p2
-    !p3
     !c0
     !c1
     !c2
@@ -90,10 +80,6 @@ L_ENTRY:
 
 L_OK:
     !ok2a
-    store out+Out_c0, 84 as u8
-    store out+Out_c1, 87 as u8
-    store out+Out_c2, 70 as u8
-    store out+Out_c3, 117 as u8
     return 4
 
 L_ERR:

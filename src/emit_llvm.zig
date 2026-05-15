@@ -24,6 +24,7 @@ pub const EmitError = error{
 pub const EmitOptions = struct {
     debug: bool = false,
     wasm_compat: bool = false,
+    jobs: ?usize = null,
 };
 
 const Value = struct {
@@ -1019,6 +1020,434 @@ fn emitFunctionHeader(out: *std.ArrayList(u8), state: *FunctionState, dbg_id: ?u
 fn emitFunctionFooter(out: *std.ArrayList(u8)) !void {
     try emitLine(out, "}");
     try emitLine(out, "");
+}
+
+const EmitFunctionChunk = struct {
+    start: usize,
+    end: usize,
+    sig_index: usize,
+    subprogram_id: ?u32,
+};
+
+const EmitSegment = union(enum) {
+    extern_text: usize,
+    function_chunk: usize,
+};
+
+const ParallelEmitJob = struct {
+    arena: std.heap.ArenaAllocator,
+    result: ?[]const u8 = null,
+    err: ?anyerror = null,
+
+    fn deinit(self: *ParallelEmitJob) void {
+        self.arena.deinit();
+        self.* = undefined;
+    }
+};
+
+const ParallelEmitContext = struct {
+    annotated: []const referee.AnnotatedInstruction,
+    function_sigs: []const sig.FunctionSig,
+    const_decls: []const common_const_decl.ConstDecl,
+    symbols: *const symbol.SymbolTable,
+    loc_table: upstream.LocTable,
+    source_path: []const u8,
+    options: EmitOptions,
+    size_bits: u16,
+    chunks: []const EmitFunctionChunk,
+    jobs: []ParallelEmitJob,
+    dbg_ids: []const ?u32,
+    next_chunk: std.atomic.Value(usize),
+};
+
+fn countEmitFunctionChunks(annotated: []const referee.AnnotatedInstruction) usize {
+    var count: usize = 0;
+    for (annotated) |item| {
+        switch (item.base.kind) {
+            .func_decl, .ffi_wrapper_decl, .export_decl => count += 1,
+            else => {},
+        }
+    }
+    return count;
+}
+
+fn chooseEmitWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
+    if (chunk_count < 2) return 1;
+    if (requested_jobs) |jobs| {
+        return if (jobs <= 1) 1 else @min(jobs, chunk_count);
+    }
+    const cpu_count = std.Thread.getCpuCount() catch 1;
+    if (cpu_count < 2) return 1;
+    return @min(cpu_count, chunk_count);
+}
+
+fn emitExternDeclText(
+    allocator: std.mem.Allocator,
+    fsig: sig.FunctionSig,
+) ![]const u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    try out.appendSlice("declare ");
+    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, fsig.return_fallible);
+    try out.writer().print(" @{s}(", .{fsig.name});
+    for (fsig.params, 0..) |param, pidx| {
+        if (pidx != 0) try out.appendSlice(", ");
+        const ty = valueTypeForPrefix(param.cap, param.ty);
+        try out.writer().print("{s}", .{llvmTypeName(ty)});
+    }
+    try emitLine(&out, ")");
+    try emitLine(&out, "");
+    return try out.toOwnedSlice();
+}
+
+fn emitFunctionChunkText(
+    allocator: std.mem.Allocator,
+    annotated: []const referee.AnnotatedInstruction,
+    function_sigs: []const sig.FunctionSig,
+    const_decls: []const common_const_decl.ConstDecl,
+    symbols: *const symbol.SymbolTable,
+    loc_table: upstream.LocTable,
+    source_path: []const u8,
+    options: EmitOptions,
+    size_bits: u16,
+    chunk: EmitFunctionChunk,
+    dbg_ids: []const ?u32,
+) ![]const u8 {
+    _ = loc_table;
+    _ = source_path;
+
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    if (chunk.start >= chunk.end or chunk.end > annotated.len) return EmitError.InvalidOperand;
+    const item = annotated[chunk.start];
+    const fsig = function_sigs[chunk.sig_index];
+
+    switch (item.base.kind) {
+        .extern_decl => {
+            return emitExternDeclText(allocator, fsig);
+        },
+        .func_decl, .ffi_wrapper_decl, .export_decl => {
+            var state = try FunctionState.init(allocator, fsig, symbols.names.items.len);
+            defer state.deinit(allocator);
+            for (const_decls) |item_const| {
+                try state.setConstRef(item_const.name);
+            }
+
+            try emitFunctionHeader(&out, &state, chunk.subprogram_id);
+            for (fsig.params, 0..) |param, pidx| {
+                const reg_id = fsig.param_ids[pidx];
+                const value = Value{
+                    .expr = try state.ownFmt(allocator, "%{s}", .{param.name}),
+                    .ty = valueTypeForPrefix(param.cap, param.ty),
+                    .borrow_view = param.cap == .borrow,
+                    .ffi_borrow = param.cap == .raw,
+                };
+                try state.setReg(allocator, &out, reg_id, value);
+            }
+
+            for (annotated[chunk.start + 1 .. chunk.end], chunk.start + 1 ..) |body_item, idx| {
+                const inst_dbg_id = if (options.debug) dbg_ids[idx] else null;
+                try emitInstruction(allocator, &out, &state, symbols, function_sigs, const_decls, options, size_bits, inst_dbg_id, body_item);
+            }
+
+            try emitFunctionFooter(&out);
+            return try out.toOwnedSlice();
+        },
+        else => return EmitError.InvalidOperand,
+    }
+}
+
+fn emitFunctionChunkWorker(context: *ParallelEmitContext) void {
+    while (true) {
+        const chunk_index = context.next_chunk.fetchAdd(1, .monotonic);
+        if (chunk_index >= context.chunks.len) return;
+
+        const chunk = context.chunks[chunk_index];
+        const job = &context.jobs[chunk_index];
+        const result = emitFunctionChunkText(
+            job.arena.allocator(),
+            context.annotated,
+            context.function_sigs,
+            context.const_decls,
+            context.symbols,
+            context.loc_table,
+            context.source_path,
+            context.options,
+            context.size_bits,
+            chunk,
+            context.dbg_ids,
+        ) catch |err| {
+            job.err = err;
+            return;
+        };
+        job.result = result;
+    }
+}
+
+fn emitUserFunctionsParallel(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    annotated: []const referee.AnnotatedInstruction,
+    function_sigs: []const sig.FunctionSig,
+    const_decls: []const common_const_decl.ConstDecl,
+    symbols: *const symbol.SymbolTable,
+    loc_table: upstream.LocTable,
+    source_path: []const u8,
+    options: EmitOptions,
+    size_bits: u16,
+) !void {
+    try emitConstDecls(allocator, out, const_decls, function_sigs);
+
+    var debug_info: ?DebugInfo = null;
+    if (options.debug) {
+        debug_info = try DebugInfo.init(allocator, source_path);
+    }
+    defer if (debug_info) |*info| info.deinit();
+
+    var dbg_ids: []?u32 = &.{};
+    if (options.debug) {
+        dbg_ids = try allocator.alloc(?u32, annotated.len);
+        @memset(dbg_ids, null);
+    }
+    defer if (options.debug) allocator.free(dbg_ids);
+
+    var segments = std.ArrayList(EmitSegment).init(allocator);
+    defer segments.deinit();
+    var extern_texts = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (extern_texts.items) |text| allocator.free(text);
+        extern_texts.deinit();
+    }
+    var function_chunks = std.ArrayList(EmitFunctionChunk).init(allocator);
+    defer function_chunks.deinit();
+
+    var sig_index: usize = 0;
+    var current_function_start: ?usize = null;
+    var current_function_sig_index: usize = 0;
+    var current_function_subprogram_id: ?u32 = null;
+    var current_debug: ?DebugFunctionContext = null;
+    var main_wrapper_dbg: ?u32 = null;
+
+    for (annotated, 0..) |item, idx| {
+        switch (item.base.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
+                if (current_function_start) |start| {
+                    try function_chunks.append(.{
+                        .start = start,
+                        .end = idx,
+                        .sig_index = current_function_sig_index,
+                        .subprogram_id = current_function_subprogram_id,
+                    });
+                    try segments.append(.{ .function_chunk = function_chunks.items.len - 1 });
+                    current_function_start = null;
+                    current_function_subprogram_id = null;
+                    current_debug = null;
+                }
+
+                if (sig_index >= function_sigs.len) return EmitError.UnknownFunction;
+                const fsig = function_sigs[sig_index];
+                sig_index += 1;
+
+                if (item.base.kind == .extern_decl) {
+                    if (options.wasm_compat and std.mem.eql(u8, fsig.name, "sa_print_bytes")) {
+                        continue;
+                    }
+                    const text = try emitExternDeclText(allocator, fsig);
+                    try extern_texts.append(text);
+                    try segments.append(.{ .extern_text = extern_texts.items.len - 1 });
+                    continue;
+                }
+
+                current_function_start = idx;
+                current_function_sig_index = sig_index - 1;
+
+                if (debug_info) |*info| {
+                    const upstream_loc: upstream.UpstreamLoc = if (fsig.upstream_loc) |loc| loc else .{
+                        .file = source_path,
+                        .line = fsig.entry_inst_idx + 1,
+                        .col = 1,
+                    };
+                    current_debug = try info.ensureFunction(fsig.name, emittedFunctionName(fsig), upstream_loc.file, upstream_loc.line);
+                    current_function_subprogram_id = current_debug.?.subprogram_id;
+                    if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
+                        main_wrapper_dbg = try info.ensureLocation(current_debug.?, upstream_loc.file, upstream_loc.line, upstream_loc.col);
+                    }
+                } else {
+                    current_debug = null;
+                    current_function_subprogram_id = null;
+                }
+            },
+            else => {
+                if (debug_info) |*info| {
+                    if (current_function_start != null and current_debug != null) {
+                        if (loc_table[idx]) |loc| {
+                            dbg_ids[idx] = try info.ensureLocation(current_debug.?, loc.file, loc.line, loc.col);
+                        }
+                    }
+                }
+            },
+        }
+    }
+
+    if (current_function_start) |start| {
+        try function_chunks.append(.{
+            .start = start,
+            .end = annotated.len,
+            .sig_index = current_function_sig_index,
+            .subprogram_id = current_function_subprogram_id,
+        });
+        try segments.append(.{ .function_chunk = function_chunks.items.len - 1 });
+    }
+
+    const worker_count = chooseEmitWorkerCount(options.jobs, function_chunks.items.len);
+    var jobs = try allocator.alloc(ParallelEmitJob, function_chunks.items.len);
+    defer {
+        for (jobs) |*job| job.deinit();
+        allocator.free(jobs);
+    }
+    for (jobs) |*job| {
+        job.* = .{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    }
+
+    if (worker_count > 1) {
+        var context = ParallelEmitContext{
+            .annotated = annotated,
+            .function_sigs = function_sigs,
+            .const_decls = const_decls,
+            .symbols = symbols,
+            .loc_table = loc_table,
+            .source_path = source_path,
+            .options = options,
+            .size_bits = size_bits,
+            .chunks = function_chunks.items,
+            .jobs = jobs,
+            .dbg_ids = dbg_ids,
+            .next_chunk = std.atomic.Value(usize).init(0),
+        };
+
+        const spawned_count = worker_count - 1;
+        var threads = try allocator.alloc(std.Thread, spawned_count);
+        defer allocator.free(threads);
+        var started_threads: usize = 0;
+        errdefer {
+            while (started_threads > 0) {
+                started_threads -= 1;
+                threads[started_threads].join();
+            }
+        }
+
+        while (started_threads < spawned_count) : (started_threads += 1) {
+            threads[started_threads] = try std.Thread.spawn(.{}, emitFunctionChunkWorker, .{&context});
+        }
+
+        emitFunctionChunkWorker(&context);
+
+        while (started_threads > 0) {
+            started_threads -= 1;
+            threads[started_threads].join();
+        }
+    } else {
+        for (function_chunks.items, 0..) |chunk, idx| {
+            const text = try emitFunctionChunkText(
+                jobs[idx].arena.allocator(),
+                annotated,
+                function_sigs,
+                const_decls,
+                symbols,
+                loc_table,
+                source_path,
+                options,
+                size_bits,
+                chunk,
+                dbg_ids,
+            );
+            jobs[idx].result = text;
+        }
+    }
+
+    for (jobs) |*job| {
+        if (job.err) |err| return err;
+    }
+
+    for (segments.items) |segment| {
+        switch (segment) {
+            .extern_text => |idx| try out.appendSlice(extern_texts.items[idx]),
+            .function_chunk => |idx| {
+                const text = jobs[idx].result orelse return EmitError.InvalidOperand;
+                try out.appendSlice(text);
+            },
+        }
+    }
+
+    // Emit the native entry wrapper if the program defines a zero-arg `main`.
+    for (function_sigs) |fsig| {
+        if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
+            const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
+            const wrapper_dbg = main_wrapper_dbg;
+            try out.writer().print("define i32 @main(i32 %argc, ptr %argv) {{\n", .{});
+            try emitLine(out, "entry:");
+            if (wrapper_dbg) |dbg_id| {
+                try out.writer().print("  store i32 %argc, ptr @saasm_argc, align 4, !dbg !{d}\n", .{dbg_id});
+                try out.writer().print("  store ptr %argv, ptr @saasm_argv, align 8, !dbg !{d}\n", .{dbg_id});
+            } else {
+                try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
+                try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
+            }
+
+            if (fsig.return_fallible) {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.appendSlice("  %res = call ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.writer().print(" @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                    try out.appendSlice("  %status = extractvalue ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.writer().print(" %res, 0, !dbg !{d}\n", .{dbg_id});
+                    try out.writer().print("  ret i32 %status, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.appendSlice("  %res = call ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.writer().print(" @{s}()\n", .{emittedFunctionName(fsig)});
+                    try out.appendSlice("  %status = extractvalue ");
+                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                    try out.appendSlice(" %res, 0\n");
+                    try emitLine(out, "  ret i32 %status");
+                }
+            } else if (ret_ty == .void) {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.writer().print("  call void @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
+                    try emitLine(out, "  ret i32 0");
+                }
+            } else if (ret_ty == .i32 or ret_ty == .u32) {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.writer().print("  %res = call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                    try out.writer().print("  ret i32 %res, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.writer().print("  %res = call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                    try out.writer().print("  ret i32 %res\n", .{});
+                }
+            } else {
+                if (wrapper_dbg) |dbg_id| {
+                    try out.writer().print("  call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try out.writer().print("  call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                    try emitLine(out, "  ret i32 0");
+                }
+            }
+            try emitLine(out, "}");
+            try emitLine(out, "");
+            break;
+        }
+    }
+
+    if (debug_info) |*info| {
+        try info.emit(out);
+    }
 }
 
 fn emitArgList(
@@ -2068,6 +2497,11 @@ fn emitUserFunctions(
     size_bits: u16,
 ) !void {
     if (options.debug and loc_table.len != verified.annotated.len) return EmitError.InvalidOperand;
+
+    const function_count = countEmitFunctionChunks(verified.annotated);
+    if (chooseEmitWorkerCount(options.jobs, function_count) > 1) {
+        return emitUserFunctionsParallel(allocator, out, verified.annotated, verified.function_sigs, verified.const_decls, &verified.symbols, loc_table, source_path, options, size_bits);
+    }
 
     try emitConstDecls(allocator, out, verified.const_decls, verified.function_sigs);
 

@@ -12,6 +12,8 @@
 L_ENTRY:
     slab = alloc Slab_SIZE
     store slab+Slab_head, 1 as i32
+    store slab+Slab_node1, 1 as i32
+    store slab+Slab_node2, 2 as i32
     head = load slab+Slab_head as i32
     first = load slab+Slab_node1 as i32
     second = load slab+Slab_node2 as i32

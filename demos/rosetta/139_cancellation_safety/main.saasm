@@ -13,17 +13,6 @@ L_ENTRY:
     store fut+Fut_state, 0 as i32
     store fut+Fut_value, 4 as i32
     state = load fut+Fut_state as i32
-    br state -> L_CANCEL, L_READY
-
-L_CANCEL:
-    value = load fut+Fut_value as i32
-    ok = eq value, 4
-    !state
-    !value
-    !fut
-    br ok -> L_OK, L_ERR
-
-L_READY:
     value = load fut+Fut_value as i32
     ok = eq value, 4
     !state
