@@ -6,7 +6,7 @@
 @extern sa_fmt_bool(value: i1) -> ^ptr!
 @extern sa_fmt_bytes(&buf: ptr, len: u64) -> ^ptr!
 
-@extern sa_fmt_buffer_data(&buffer: ptr) -> ptr
+@extern sa_fmt_buffer_data(&buffer: ptr) -> &ptr
 @extern sa_fmt_buffer_len(&buffer: ptr) -> u64
 @extern sa_fmt_buffer_write_to(&buffer: ptr, writer: ptr) -> i32!
 @extern sa_fmt_buffer_free(^buffer: ptr) -> i32!

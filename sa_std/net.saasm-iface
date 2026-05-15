@@ -20,7 +20,7 @@
 @extern sa_net_udp_close(^socket: ptr) -> i32!
 
 // Owned SaNetAddr values are returned by address query APIs and must be freed.
-@extern sa_net_addr_host(&addr: ptr) -> ptr
+@extern sa_net_addr_host(&addr: ptr) -> &ptr
 @extern sa_net_addr_host_len(&addr: ptr) -> u64
 @extern sa_net_addr_port(&addr: ptr) -> u16
 @extern sa_net_addr_family(&addr: ptr) -> u32

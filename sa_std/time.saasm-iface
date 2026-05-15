@@ -1,0 +1,9 @@
+// SA-facing contracts for monotonic, system, and UTC time helpers.
+// Time values are exposed as raw integers; the UTC calendar helper writes into SaTimeDate.
+@extern sa_time_instant_ns() -> u64
+@extern sa_time_unix_s() -> i64
+@extern sa_time_unix_ms() -> i64
+@extern sa_time_unix_ns() -> i64
+@extern sa_time_utc_now(&out: ptr) -> i32!
+@extern sa_time_sleep_ns(ns: u64) -> i32!
+@extern sa_time_sleep_ms(ms: u64) -> i32!

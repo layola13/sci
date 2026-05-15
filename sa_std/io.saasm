@@ -1,2 +1,22 @@
 @import "io.saasm-layout"
+@import "fmt.saasm-iface"
 @import "io.saasm-iface"
+
+[MACRO] PRINTLN %msg, %len
+    __println_status = call @sa_std_println(&%msg, %len)
+    __println_ok = ? __println_status
+    !__println_status
+    !__println_ok
+[END_MACRO]
+
+[MACRO] READ_LINE %out_buf, %handle, %max_bytes
+    __read_line = call @sa_io_read_line(%handle, %max_bytes)
+    %out_buf = ? __read_line
+    !__read_line
+[END_MACRO]
+
+[MACRO] FORMAT_INT %out_buf, %value, %base
+    __format_int = call @sa_fmt_i64(%value, %base)
+    %out_buf = ? __format_int
+    !__format_int
+[END_MACRO]

@@ -62,6 +62,18 @@ typedef struct SaTermEpollEvent {
     uint64_t data;
 } SaTermEpollEvent;
 
+typedef struct SaTimeDate {
+    int64_t unix_ms;
+    int64_t unix_ns;
+    uint16_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+    uint16_t millisecond;
+} SaTimeDate;
+
 uint32_t sa_std_version(void);
 int32_t sa_std_last_error(void);
 int32_t sa_std_error_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
@@ -78,6 +90,7 @@ int32_t sa_std_println(const uint8_t *data, uint64_t len);
 int32_t sa_std_write(uint64_t handle, const uint8_t *data, uint64_t len, uint64_t *out_written);
 int32_t sa_std_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_std_close(uint64_t handle);
+int32_t sa_io_read_line(uint64_t handle, uint64_t max_bytes, uint64_t *out_handle);
 int32_t sa_io_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_io_read_exact(uint64_t handle, uint8_t *out, uint64_t len);
 int32_t sa_io_write(uint64_t handle, const uint8_t *data, uint64_t len, uint64_t *out_written);
@@ -122,6 +135,14 @@ int32_t sa_term_epoll_create(uint32_t flags, uint64_t *out_handle);
 int32_t sa_term_epoll_ctl(uint64_t epoll_handle, uint32_t op, uint64_t target_handle, uint32_t events, uint64_t data);
 int32_t sa_term_epoll_wait(uint64_t epoll_handle, SaTermEpollEvent *out_events, uint64_t max_events, int32_t timeout_ms, uint64_t *out_count);
 int32_t sa_term_epoll_close(uint64_t handle);
+
+uint64_t sa_time_instant_ns(void);
+int64_t sa_time_unix_s(void);
+int64_t sa_time_unix_ms(void);
+int64_t sa_time_unix_ns(void);
+int32_t sa_time_utc_now(SaTimeDate *out_date);
+int32_t sa_time_sleep_ns(uint64_t ns);
+int32_t sa_time_sleep_ms(uint64_t ms);
 
 uint8_t *sa_fmt_buffer_data(uint64_t buffer);
 uint64_t sa_fmt_buffer_len(uint64_t buffer);

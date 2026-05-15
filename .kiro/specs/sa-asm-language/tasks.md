@@ -72,7 +72,7 @@ sa/
   - [ ]* 2.4 位运算单元测试
     - _Requirements: R4.1, R4.2_
 
-  - [ ] 2.5 `TrapReport` JSON schema
+  - [x] 2.5 `TrapReport` JSON schema
     - 按 design §4.4 含 `upstream_loc` / `function` / `is_ffi_wrapper` 字段
     - 29 种 Trap 枚举在 `src/common/trap.zig` 中已列出；其中一部分仅在路线图中保留，尚未全量接入发射路径
     - _Requirements: R9.3, R13.5, R13.7, R17.7, R18.5, R19.2_
@@ -97,10 +97,10 @@ sa/
     - 覆盖 R23.2 全部章节（五符号 + ISA + CFG + 掩码 + 宏 + 气闸舱 + `@sys_*` + 错误传播 + `#loc` + 降级合约摘要 + 5 组对比 + Trap 代号表）
     - _Requirements: R1.1–R1.5, R20.1–R20.2, R23.1, R23.2, R23.5_
 
-  - [ ]* 2.9 白皮书 lint 冒烟（≤ 2000 行）
+  - [x]* 2.9 白皮书 lint 冒烟（≤ 2000 行）
     - _Requirements: R23.1_
 
-- [ ] 3. 检查点 — 协议定型
+- [x] 3. 检查点 — 协议定型
   - 运行 `zig build test`。
 
 - [ ] 4. W3-5 Flattener
@@ -129,22 +129,22 @@ sa/
     - 随机插入 `#loc`，断言 Trap 报告与 LocTable 一致
     - _Requirements: R19.1, R19.2_
 
-  - [ ] 4.8 宏模板注册 `[MACRO]...[END_MACRO]`
+  - [x] 4.8 宏模板注册 `[MACRO]...[END_MACRO]`
     - _Requirements: R8.1_
 
-  - [ ] 4.9 `EXPAND` 文本展开 + 深度栈（上限 256）
+  - [x] 4.9 `EXPAND` 文本展开 + 深度栈（上限 256）
     - _Requirements: R8.2, R8.5, R8.6_
 
-  - [ ] 4.10 `[REP N]...[END_REP]` + 游标 `%i`
+  - [x] 4.10 `[REP N]...[END_REP]` + 游标 `%i`
     - _Requirements: R8.3, R8.5_
 
-  - [ ]* 4.11 宏展开 PBT — **P6**
+  - [x]* 4.11 宏展开 PBT — **P6**
     - _Requirements: R8.1, R8.2, R8.3, R8.5_
 
-  - [ ] 4.12 宏/常量错误检测（`DuplicateDef` / `RegisterRedefinition` / `MacroRecursionLimit`）
+  - [x] 4.12 宏/常量错误检测（`DuplicateDef` / `RegisterRedefinition` / `MacroRecursionLimit`）
     - _Requirements: R7.4, R8.4, R8.6_
 
-  - [ ]* 4.13 非法宏 PBT — **P7**
+  - [x]* 4.13 非法宏 PBT — **P7**
     - _Requirements: R7.4, R8.4, R8.6_
 
   - [ ] 4.14 寄存器名规范化为 `u32` ID（保留 SymbolTable）
@@ -334,7 +334,7 @@ sa/
 - [x] 7. 检查点 — Referee 完成
   - 跑过 P1、P3、P5、P9、P10、P12、P13、P19、P21、P22、P24
 
-- [ ] 8. W10-11 LLVM IR Emitter + CLI + `zig cc` 全权代劳的 exe/wasm
+- [x] 8. W10-11 LLVM IR Emitter + CLI + `zig cc` 全权代劳的 exe/wasm
 
   - [x] 8.1 基础映射 M01–M07（alloc/free/load/store/运算）
     - `src/emit_llvm.zig` 已直接覆盖：
@@ -447,7 +447,7 @@ sa/
     - `-g` 默认关，`build-exe -g` 启用 DWARF 生成
     - _Requirements: R19.4, R19.5_
 
-- [ ] 9. W10-11 内存解释器（`saasm run`）
+- [x] 9. W10-11 内存解释器（`saasm run`）
 
   - [x] 9.1 大 switch 分派全部 `InstKind`
     - `call_indirect` 现在优先使用寄存器里携带的 vtable provenance；`demos/rosetta/07_trait_vtable/main.saasm` 已可在 `saasm run` 下打印 `77`
@@ -471,7 +471,7 @@ sa/
   - [x] 9.5 Interpreter API `run(allocator, annotated, argv) !u8`
     - _Requirements: R16.1_
 
-- [ ] 10. W12 `@sys_*` 原语 + FFI 气闸舱 + panic runtime
+- [x] 10. W12 `@sys_*` 原语 + FFI 气闸舱 + panic runtime
 
   - [x] 10.1 Native `@sys_*` 原生 stub（`src/runtime/native_sys.zig`）
     - `src/runtime/native_sys.zig` 已实现 `sys_print` / `sys_exit` / `sys_argc` / `sys_argv` / `sys_read_file` / `sys_write_file`
@@ -581,7 +581,7 @@ sa/
 
 - [ ] 14. 测试基线与 CI 门禁（v0.1）
 
-  - [ ] 14.1 13 类黄金用例集
+  - [x] 14.1 13 类黄金用例集
     - 每类 ≥ 10 例：正常 / `DoubleMutableBorrow` / `UseAfterMove` / 借用期 Move / `MemoryLeak` / Phi 冲突 / 宏合法 / 宏递归 / 禁用语法 / 气闸舱违规 / FFI 借用销毁违规 / 早返回泄漏 / 原子 ordering
     - 第一批已完成 10 个最小可跑 `build-exe` 回归：`02_mutability` / `20_boxed_value` / `26_reference_return` / `27_move_semantics` / `28_borrow_chains` / `51_refcount` / `58_borrow_update` / `61_thread_pool` / `67_resource_pool` / `52_queue_rotate`
     - `tests/cli_smoke.zig` 新增 `assertBuildExeStdout`，固定验证以上 demo 均能编译并打印预期 stdout
@@ -646,7 +646,7 @@ sa/
     - `zig build test` → Property × 25 × 100+ → 集成 15 个 → 基准回归 ±10% → 白皮书 ≤ 2000 → Referee LOC ≤ 2500 → `.wasm` ≤ 48 KB → DWARF 冒烟 → merge
     - _Requirements: R22.3, R23.1, R9.5, R9.6, R15.3, R16.6_
 
-  - [ ]* 14.3 Trap 基线回归
+  - [x]* 14.3 Trap 基线回归
     - _Requirements: R22.2, R22.3_
 
 - [ ] 15. v0.1 最终验收
@@ -665,10 +665,10 @@ sa/
 
 - [ ] 16. WASM 二进制发射器基础设施
 
-  - [ ] 16.1 LEB128 变长整数编解码
+  - [x] 16.1 LEB128 变长整数编解码
     - _Requirements: R14.2_
 
-  - [ ] 16.2 WASM Section 拼装骨架（Type / Import / Function / Memory / Global / Export / Code / Data）
+  - [x] 16.2 WASM Section 拼装骨架（Type / Import / Function / Memory / Global / Export / Code / Data）
     - 按 WASM Core 2.0 规范
     - _Requirements: R14.2_
 
@@ -680,7 +680,7 @@ sa/
 
 - [ ] 17. WASM opcode 映射层
 
-  - [ ] 17.1 基础 opcode 映射（alloc/load/store/运算/控制流）
+  - [x] 17.1 基础 opcode 映射（alloc/load/store/运算/控制流）
     - _Requirements: R14.2_
 
   - [ ] 17.2 原子 opcode 映射（`0xFE` 前缀 atomics proposal）
@@ -696,7 +696,7 @@ sa/
     - 手写 `wasi_snapshot_preview1` 的 `fd_write` / `fd_read` / `path_open` / `proc_exit` / `args_get` / `args_sizes_get`
     - _Requirements: R15.2, R17.1–R17.5_
 
-  - [ ] 17.5 `panic(code)` → `unreachable` opcode
+  - [x] 17.5 `panic(code)` → `unreachable` opcode
     - _Requirements: R18.4_
 
 - [ ] 18. DWARF-in-WASM
@@ -1053,27 +1053,32 @@ sa/
     - 句柄/缓冲区全部显式传递，并要求调用方显式 `close` / `free` / `flush`
     - 保留 `sa_print_bytes` demo 兼容入口
 
-  - [ ] 37.1 `sa_std/string.saasm`：字符串操作宏
+  - [x] 37.1 `sa_std/string.saasm`：字符串操作宏
     - `STR_LEN` / `STR_CONCAT` / `STR_EQ` / `STR_SLICE`
     - 基于胖指针 `[data_ptr | len]` 布局
 
-  - [ ] 37.2 `sa_std/vec.saasm`：动态数组宏
+  - [x] 37.2 `sa_std/vec.saasm`：动态数组宏
     - `VEC_NEW` / `VEC_PUSH` / `VEC_GET` / `VEC_LEN` / `VEC_FREE`
     - 基于 `[data_ptr | len | cap]` 布局 + `alloc` 扩容
 
-  - [ ] 37.3 `sa_std/hashmap.saasm`：哈希表宏
+  - [x] 37.3 `sa_std/hashmap.saasm`：哈希表宏
     - 开放寻址法 + FNV-1a 哈希
     - `MAP_NEW` / `MAP_PUT` / `MAP_GET` / `MAP_DEL` / `MAP_FREE`
 
   - [ ] 37.4 `sa_std/sort.saasm`：排序宏
     - 快速排序（`[MACRO] QSORT %arr, %len, %elem_size, %cmp_fn`）
 
-  - [ ] 37.5 `sa_std/io.saasm`：IO 便利宏
+  - [x] 37.5 `sa_std/io.saasm`：IO 便利宏
     - `PRINTLN` / `READ_LINE` / `FORMAT_INT`（基于 `@sys_print` + `@sys_read_file`）
 
   - [ ] 37.6 打包为 `sa_std` 包
     - 创建 `sa_std/sa.pkg` + `sa_std/*.saasm-iface`
     - 发布到本地 registry
+
+  - [x] 37.7 `sa_std/time.saasm`：时间/日期便利宏
+    - `TIME_NOW_NS` / `TIME_NOW_UNIX_S` / `TIME_NOW_UNIX_MS` / `TIME_NOW_UNIX_NS`
+    - `TIME_UTC_NOW` / `TIME_SLEEP_MS` / `TIME_SLEEP_NS` / `TIME_DURATION_*`
+    - 直连 Zig-backed monotonic / system / UTC calendar ABI
 
 ---
 

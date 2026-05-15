@@ -1,0 +1,17 @@
+// Standard assertion macros for smoke tests and examples.
+// Callers supply explicit temporary condition registers so repeated
+// macro expansions remain hygienic.
+
+[MACRO] ASSERT_EQ %cond, %actual, %expected, %ok_label, %fail_label
+    %cond = eq %actual, %expected
+    br %cond -> %ok_label, %fail_label
+[END_MACRO]
+
+[MACRO] ASSERT_TRUE %cond, %ok_label, %fail_label
+    br %cond -> %ok_label, %fail_label
+[END_MACRO]
+
+[MACRO] ASSERT_NE %cond, %actual, %unexpected, %ok_label, %fail_label
+    %cond = ne %actual, %unexpected
+    br %cond -> %ok_label, %fail_label
+[END_MACRO]

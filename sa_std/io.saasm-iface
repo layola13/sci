@@ -4,7 +4,11 @@
 @extern sa_io_stdout() -> ptr
 @extern sa_io_stderr() -> ptr
 
+// Convenience printing uses the same Zig-backed stdout writer as the runtime facade.
+@extern sa_std_println(&msg: ptr, len: u64) -> i32!
+
 // Owned handles returned by Zig-backed modules are closed explicitly.
+@extern sa_io_read_line(handle: ptr, max_bytes: u64) -> ^ptr!
 @extern sa_io_read(handle: ptr, &buf: ptr, cap: u64) -> u64!
 @extern sa_io_read_exact(handle: ptr, &buf: ptr, len: u64) -> u64!
 @extern sa_io_write(handle: ptr, &buf: ptr, len: u64) -> u64!
@@ -13,7 +17,7 @@
 @extern sa_io_close(^handle: ptr) -> i32!
 
 // Owned byte buffers use SaIoBuffer layout and must be freed explicitly.
-@extern sa_io_buffer_data(&buffer: ptr) -> ptr
+@extern sa_io_buffer_data(&buffer: ptr) -> &ptr
 @extern sa_io_buffer_len(&buffer: ptr) -> u64
 @extern sa_io_buffer_free(^buffer: ptr) -> i32!
 

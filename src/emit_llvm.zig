@@ -1961,15 +1961,10 @@ fn emitInstruction(
         },
         .alloc => {
             const dst = base.operands[0].reg;
-            const size = switch (base.operands[1]) {
-                .imm_u64 => |v| v,
-                .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                .text => |t| std.fmt.parseInt(u64, t, 10) catch return EmitError.InvalidOperand,
-                else => return EmitError.InvalidOperand,
-            };
+            const size_value = try valueFromOperand(allocator, state, symbols, base.operands[1]);
+            const size_cast = try castValue(allocator, out, state, size_value, sizePrimType(size_bits));
             const tmp = try state.tempName(allocator);
-            try out.writer().print("  {s} = call ptr @malloc({s} {d})", .{ tmp, size_ty_name, size });
+            try out.writer().print("  {s} = call ptr @malloc({s} {s})", .{ tmp, size_ty_name, size_cast.expr });
             if (dbg_id) |id| {
                 try out.writer().print(", !dbg !{d}", .{id});
             }
@@ -1978,15 +1973,10 @@ fn emitInstruction(
         },
         .stack_alloc => {
             const dst = base.operands[0].reg;
-            const size = switch (base.operands[1]) {
-                .imm_u64 => |v| v,
-                .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                .text => |t| std.fmt.parseInt(u64, t, 10) catch return EmitError.InvalidOperand,
-                else => return EmitError.InvalidOperand,
-            };
+            const size_value = try valueFromOperand(allocator, state, symbols, base.operands[1]);
+            const size_cast = try castValue(allocator, out, state, size_value, sizePrimType(size_bits));
             const tmp = try state.tempName(allocator);
-            try out.writer().print("  {s} = alloca i8, i64 {d}, align 1", .{ tmp, size });
+            try out.writer().print("  {s} = alloca i8, {s} {s}, align 1", .{ tmp, size_ty_name, size_cast.expr });
             if (dbg_id) |id| {
                 try out.writer().print(", !dbg !{d}", .{id});
             }

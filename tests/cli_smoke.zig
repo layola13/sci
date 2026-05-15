@@ -910,6 +910,22 @@ test "macro demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/macro_print.saasm", "macro ok\n");
 }
 
+test "sa_core macros compile and print through imported standard library macros" {
+    try assertBuildExeStdout("demos/support/macro_core.saasm", "macro core ok\n");
+}
+
+test "time demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/time_probe.saasm", "time ok\n");
+}
+
+test "io demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/io_probe.saasm", "alpha\n5\n");
+}
+
+test "hashmap demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/hashmap_probe.saasm", "alpha\nbravo\nmap ok\n");
+}
+
 test "use after move demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/use_after_move.saasm", "use_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
 }

@@ -156,6 +156,116 @@ test "sa_std alloc helpers are concrete and verifiable" {
     }
 }
 
+test "sa_std time helpers are concrete and verifiable" {
+    const time_layout = try readFileAlloc(std.testing.allocator, "sa_std/time.saasm-layout");
+    defer std.testing.allocator.free(time_layout);
+    try std.testing.expectEqualStrings(
+        "#def Time_NS_PER_US = 1000\n#def Time_NS_PER_MS = 1000000\n#def Time_NS_PER_S  = 1000000000\n#def Time_MS_PER_S  = 1000\n#def TimeDate_SIZE = 32\n#def TimeDate_unix_ms = +0\n#def TimeDate_unix_ns = +8\n#def TimeDate_year = +16\n#def TimeDate_month = +18\n#def TimeDate_day = +19\n#def TimeDate_hour = +20\n#def TimeDate_minute = +21\n#def TimeDate_second = +22\n#def TimeDate_millisecond = +24\n",
+        time_layout,
+    );
+
+    const time_iface = try readFileAlloc(std.testing.allocator, "sa_std/time.saasm-iface");
+    defer std.testing.allocator.free(time_iface);
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_instant_ns"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_unix_ms"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_utc_now"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_sleep_ms"));
+
+    const time_src = try readFileAlloc(std.testing.allocator, "sa_std/time.saasm");
+    defer std.testing.allocator.free(time_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_NOW_NS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_NOW_UNIX_MS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_UTC_NOW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_SLEEP_MS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_DURATION_FROM_MS"));
+
+    var time_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/time.saasm", time_src);
+    defer time_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 7), time_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 7), time_flat.function_sigs.len);
+}
+
+test "sa_std io helpers are concrete and verifiable" {
+    const io_iface = try readFileAlloc(std.testing.allocator, "sa_std/io.saasm-iface");
+    defer std.testing.allocator.free(io_iface);
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_std_println"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_io_read_line"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_io_buffer_data"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_io_buffer_free"));
+
+    const io_src = try readFileAlloc(std.testing.allocator, "sa_std/io.saasm");
+    defer std.testing.allocator.free(io_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "@import \"fmt.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] PRINTLN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] READ_LINE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] FORMAT_INT"));
+
+    var io_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/io.saasm", io_src);
+    defer io_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 24), io_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 24), io_flat.function_sigs.len);
+}
+
+test "sa_std hashmap helpers are concrete and verifiable" {
+    const hashmap_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.saasm-layout");
+    defer std.testing.allocator.free(hashmap_layout);
+    try std.testing.expectEqualStrings(
+        "#def HashMap_SIZE = 32\n#def HashMap_slots = +0\n#def HashMap_cap = +8\n#def HashMap_len = +16\n#def HashMap_tombs = +24\n\n#def HashMapSlot_SIZE = 32\n#def HashMapSlot_hash = +0\n#def HashMapSlot_key = +8\n#def HashMapSlot_value = +16\n#def HashMapSlot_state = +24\n\n#def HashMap_INITIAL_CAP = 8\n#def HashMap_STATE_EMPTY = 0\n#def HashMap_STATE_FILLED = 1\n#def HashMap_STATE_TOMB = 2\n\n#def HashMap_FNV_OFFSET = -3750763034362895579\n#def HashMap_FNV_PRIME = 1099511628211\n",
+        hashmap_layout,
+    );
+
+    const collections_hashmap = try readFileAlloc(std.testing.allocator, "sa_std/collections/hashmap.saasm");
+    defer std.testing.allocator.free(collections_hashmap);
+    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashmap, 1, "@import \"../hashmap.saasm\""));
+
+    const hashmap_src = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.saasm");
+    defer std.testing.allocator.free(hashmap_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"hashmap.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_put"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_del"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_PUT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_DEL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_FREE"));
+
+    var hashmap_error_ctx = saasm.flattener.ErrorContext{};
+    var hashmap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/hashmap.saasm", hashmap_src, &hashmap_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&hashmap_error_ctx) orelse 0;
+        std.debug.print("hashmap flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer hashmap_flat.deinit(std.testing.allocator);
+    try std.testing.expect(hashmap_flat.instructions.len > 0);
+    try std.testing.expect(hashmap_flat.function_sigs.len >= 9);
+
+    const hashmap_verified = try saasm.referee.verify(std.testing.allocator, hashmap_flat.instructions, hashmap_flat.const_decls);
+    switch (hashmap_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 9);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print(
+                "hashmap smoke verifier trap: {s} (line={d}, source_line={d}, register={s})\n",
+                .{
+                    report.message,
+                    report.line,
+                    report.source_line,
+                    if (report.register) |r| r else "",
+                },
+            );
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
 test "std smoke fixture runs through the current compiler surface" {
     const fixture = try readFileAlloc(std.testing.allocator, "tests/std_smoke.saasm");
     defer std.testing.allocator.free(fixture);

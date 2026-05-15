@@ -1,0 +1,19 @@
+#def HashMap_SIZE = 32
+#def HashMap_slots = +0
+#def HashMap_cap = +8
+#def HashMap_len = +16
+#def HashMap_tombs = +24
+
+#def HashMapSlot_SIZE = 32
+#def HashMapSlot_hash = +0
+#def HashMapSlot_key = +8
+#def HashMapSlot_value = +16
+#def HashMapSlot_state = +24
+
+#def HashMap_INITIAL_CAP = 8
+#def HashMap_STATE_EMPTY = 0
+#def HashMap_STATE_FILLED = 1
+#def HashMap_STATE_TOMB = 2
+
+#def HashMap_FNV_OFFSET = -3750763034362895579
+#def HashMap_FNV_PRIME = 1099511628211

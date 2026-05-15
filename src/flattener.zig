@@ -214,6 +214,27 @@ fn parseNumericOperand(text: []const u8) ?common_instruction.Operand {
     return null;
 }
 
+fn parseSizeOperand(text: []const u8) ?common_instruction.Operand {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    if (trimmed.len == 0) return null;
+
+    if (std.fmt.parseInt(i64, trimmed, 10)) |value| {
+        if (value >= 0) {
+            return .{ .imm_u64 = @as(u64, @intCast(value)) };
+        }
+        return .{ .imm_i64 = value };
+    } else |err| switch (err) {
+        error.Overflow => {
+            if (std.fmt.parseInt(u64, trimmed, 10)) |value| {
+                return .{ .imm_u64 = value };
+            } else |_| {}
+        },
+        else => {},
+    }
+
+    return null;
+}
+
 fn resolveOperandText(
     allocator: std.mem.Allocator,
     dict: *DefDict,
@@ -223,6 +244,21 @@ fn resolveOperandText(
 ) !common_instruction.Operand {
     const folded = try ownFoldedText(allocator, dict, owned_text, text);
     if (parseNumericOperand(folded)) |operand| return operand;
+    return .{ .reg = try symbols.intern(folded) };
+}
+
+fn resolveSizeOperandText(
+    allocator: std.mem.Allocator,
+    dict: *DefDict,
+    owned_text: *std.ArrayList([]const u8),
+    symbols: *SymbolTable,
+    text: []const u8,
+) !common_instruction.Operand {
+    const folded = try ownFoldedText(allocator, dict, owned_text, text);
+    if (parseSizeOperand(folded)) |operand| return operand;
+    if (symbols.findId(folded)) |id| {
+        return .{ .reg = id };
+    }
     return .{ .reg = try symbols.intern(folded) };
 }
 
@@ -464,8 +500,7 @@ fn emitParsedLine(
                 .alloc => {
                     const dst = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = dst };
-                    const size_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
-                    inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, size_text, 10) };
+                    inst.operands[1] = try resolveSizeOperandText(allocator, dict, owned_text, symbols, classified.parts[1]);
                 },
                 .atomic_load => {
                     const parsed = atomic.parseLoad(raw_line) catch |err| switch (err) {
@@ -546,8 +581,7 @@ fn emitParsedLine(
                 .stack_alloc => {
                     const dst = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = dst };
-                    const size_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
-                    inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, size_text, 10) };
+                    inst.operands[1] = try resolveSizeOperandText(allocator, dict, owned_text, symbols, classified.parts[1]);
                 },
                 .load, .take => {
                     const dst = try symbols.intern(classified.parts[0]);

@@ -1,138 +1,195 @@
-# SA-ASM Rosetta Demos - Remaining To-Do List (49/200)
+评估目前 sa_std 与 Rust std 的对比情况，sa_std 已经建立了一个功能性骨架，但在高级抽象和集合类上仍有显著差距。
 
-经过全量自动化测试，前 100 个核心 Demo 已经实现 100% 编译与运行双重通过。
-这里列出了后 100 个 Demo 中尚未通过的 49 个，并按照**修复难度和架构优先级**进行了分类。
+  1. 已支持的核心模块 (Facade 模式)
+  sa_std 目前采用的是 Zig-backed Facade 架构，即底层由 Zig 实现，上游通过 .saasm-iface 暴露 C-ABI 契约。
 
-这些失败绝大多数是 SA-ASM 编译器（Referee）**正确合法的拦截**，你需要修改对应的 `main.saasm` 脚本以符合底层的物理所有权契约。
+   * fs (文件系统): 支持基本的 Open/Read/Write/Close/Seek/Metadata。对比 Rust std::fs 基本功能对齐，但缺乏 BufReader/BufWriter 等缓冲层。
+   * net (网络): 已有 TcpListener 和 TcpStream 的接口声明，支持基本的 Socket 操作。
+   * process (进程): 支持 spawn, run, argv 处理，功能接近 Rust std::process。
+   * term (终端): 这是一个特色模块，提供了 Rust std 并不直接提供（通常需第三方库）的 Raw Mode, Winsize 和 epoll 事件循环集成，这使得 SA-ASM
+     编写高性能 TUI 更有优势。
+   * fmt (格式化): 提供了 i64, u64, f64, bool 的基础格式化，以及 sa_fmt_buffer 这种手动缓冲区管理。
+   * vec / string: 已经通过宏实现了基础的动态数组（Push/Get/Len/Free）和 UTF-8 字节序列管理。
 
----
+  2. 对比 Rust std 显著缺失的部分
 
-## 🔴 优先级 1：核心控制流与生命周期对齐 (Hard)
-*这是最核心的编译器边界。修复这些问题需要对 SA-ASM 的 O(1) 掩码理论有深刻理解，确保每个分支和返回路径的寄存器账目绝对平衡。*
+  ┌───────────┬───────────────────────────────┬───────────────────────────┬──────────────────────────────────────────────────────────────────┐
+  │ 缺失领域  │ Rust 对应特性                 │ SA-ASM 现状               │ 影响评估                                                         │
+  ├───────────┼───────────────────────────────┼───────────────────────────┼──────────────────────────────────────────────────────────────────┤
+  │ 高级集合  │ HashMap, HashSet, BTreeMap    │ 完全缺失 (Task 37.3 待办) │ 最高优先级缺口。目前只能靠数组线性查找，无法处理大规模 KV 索引。 │
+  │ 同步原语  │ Mutex, RwLock, Condvar        │ 只有 atomic_* 原子原语    │ 无法方便地在 SA 层手搓复杂的线程同步逻辑。                       │
+  │ 智能指针  │ Arc, Rc, Box, RefCell         │ 仅有手动 alloc/!reg       │ 缺乏引用计数和运行时借用检查，复杂图结构的内存管理成本极高。     │
+  │ 时间/日期 │ Duration, Instant, SystemTime │ 完全缺失                  │ 无法进行超时控制、性能分析或获取当前时间。                       │
+  │ 路径处理  │ Path, PathBuf                 │ 仅有裸字符串指针          │ 缺乏跨平台的路径拼接、父目录查询等语义操作。                     │
+  │ 迭代器    │ Iterator (map/filter/fold)    │ 只有基础循环宏            │ 导致集合处理代码冗长，LLM 生成时的逻辑复杂度较高。               │
+  │ 缓冲 IO   │ BufReader, BufWriter          │ 直接系统调用              │ 在小碎步读写场景下性能较差。                                     │
+  └───────────┴───────────────────────────────┴───────────────────────────┴──────────────────────────────────────────────────────────────────┘
 
-### PhiStateConflict (分支汇聚掩码不一致)
-最常见的错误。不同的控制流到达同一个 Label（如循环末尾或 `if-else` 出口）时，携带的存活寄存器不一致。
-- [ ] `103_labeled_break`
-- [ ] `104_if_let_chains`
-- [ ] `105_let_else`
-- [ ] `107_refcell_dynamic_borrow`
-- [ ] `108_atomic_spin_lock`
-- [ ] `121_rwlock_reader_writer`
-- [ ] `127_hazard_pointers`
-- [ ] `129_seqlock_optimistic`
-- [ ] `133_select_macro_race`
-- [ ] `134_join_all_futures`
-- [ ] `197_profile_guided_opt`
+  3. 真实评估与下一步建议
 
-### UseAfterMove (悬挂指针/释放后访问)
-寄存器被 `!` 清理或被 `^` 消费后，代码再次尝试去读取或衍生指针。
-- [ ] `101_custom_drop`
-- [ ] `132_pinning_and_unpin`
-- [ ] `153_box_into_raw`
-- [ ] `154_box_from_raw`
-- [ ] `159_mem_forget_leak`
-- [ ] `175_thiserror_macro_derive`
-- [ ] `188_websocket_frame_parse`
-- [ ] `190_base64_encode_simd`
+  目前的 sa_std 已经能支撑“系统级”开发（如写编译器、写 CLI 工具、写基础网络服务），因为它已经打通了 OS 边界（FS, Net, Process, Epoll）。
 
-### MemoryLeak & EarlyReturnLeak (寄存器泄漏)
-在 `return` (或 `?` 提早返回) 之前，有局部的 `Active` 寄存器或结构体没有被 `!` 物理销毁。
-- [ ] `135_async_streams`
-- [ ] `140_yield_now_suspend`
-- [ ] `166_specialization_fallback`
-- [ ] `171_anyhow_dynamic_error`
-- [ ] `172_eyre_color_eyre`
-- [ ] `174_backtrace_capture`
-- [x] `176_result_flattening`
-- [ ] `180_try_trait_v2`
-- [ ] `194_cfg_conditional_compilation`
-- [ ] `195_build_script_codegen`
-- [ ] `199_address_sanitizer_asan`
+  下一步该补什么？
+   1. HashMap (优先级 🔴 最高): 这是从“工具级”语言向“应用级”语言跨越的标志，也是 tasks.md 中 v0.5 的核心。
+   2. sa_std/time (优先级 🟡 高): 现代应用不可或缺的计时能力。
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+ > 不够详细，好像还有很多                                                                                                                            
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+✦ 深入对比 Rust std 库，sa_std 目前的完成度大约只有 15% -
+  20%。它目前仅仅解决了“让程序能动起来”的最低限度需求，在工业级开发的便利性和鲁棒性上缺失了大量关键组件。
 
-### BorrowConflict (违反读写互斥锁)
-在母体已经被借用（且为 `Locked_Mut` 等状态）时，试图越权读写母体内存。
-- [ ] `102_raii_guard`
-- [ ] `193_attribute_macro_rewrite`
+  以下是极其详细的对比清单，标注了 SA-ASM 缺失的“大板块”：
 
-### FallthroughForbidden (非法穿透块)
-SA-ASM 强制所有块必须显式结尾，不能自然滑落到下一个块。
-- [ ] `146_never_type_fallback`
-- [ ] `173_catch_unwind_panic`
-- [ ] `177_unwrap_unwrap_err`
-- [x] `178_panic_hook_override`
-- [ ] `179_assert_macro_expansion`
+  1. 集合与数据结构 (Rust std::collections) —— 重灾区
+  Rust 拥有丰富的内存布局优化的集合，而 SA-ASM 几乎全是空白。
 
----
+   * 缺失 HashMap/HashSet：目前没有哈希表实现，这意味着所有的 KV 查询、去重逻辑在 SA-ASM 里只能靠 O(N) 的数组遍历，或者你自己手搓红黑树。
+   * 缺失 VecDeque：没有双端队列，无法高效实现 O(1) 的首尾收缩（FIFO 队列）。
+   * 缺失 BTreeMap/BTreeSet：没有有序映射，无法进行范围查询。
+   * 缺失 BinaryHeap：没有优先队列，无法实现高效的任务调度或 Dijkstra 等算法。
+   * 缺失 LinkedList：虽然 SA 指针能做，但标准库没提供任何宏封装。
 
-## 🟡 优先级 2：气闸舱与 FFI 契约边界 (Medium)
-*这些失败证明了 `@ffi_wrapper` 的强隔离性，你需要修改调用姿势以通过安检。*
+  2. 并发与同步 (Rust std::sync / std::thread)
+  SA-ASM 虽然在 ISA 层面有原子指令，但标准库没有提供任何“易用性”封装。
 
-### IllegalUnsafeContext (非法不安全上下文)
-试图在非 `@ffi_wrapper` 函数中使用裸指针前缀 `*` 传参或调用原生指令。
-- [ ] `181_file_descriptor_raii`
-- [ ] `182_mmap_memory_mapping`
-- [ ] `185_dynamic_lib_dlopen`
+   * 缺失 Thread 抽象：Rust 有 std::thread::spawn，SA 目前只能通过 @extern 直接调 pthread（见 Demo 184），标准库内没有跨平台的线程句柄管理。
+   * 缺失 Mutex/RwLock 宏：没有标准的锁协议。开发者必须自己用 cmpxchg 手搓自旋锁，极易出错且不具备可组合性。
+   * 缺失 Channel (mpsc/mpmc)：没有标准信道，线程间通信完全靠手动内存共享，极易发生所有权冲突（Referee 会拦截，但你写起来很痛苦）。
+   * 缺失 Once / OnceCell：没有单次初始化保证，全局静态变量的初始化非常危险。
 
-### CapabilityMismatch (调用签名掩码不符)
-`call` 指令传入的参数前缀（`&`, `^`, `*`）与函数的 `@func(&ptr, ^ptr)` 定义签名不匹配。
-- [ ] `183_signal_handling_setup`
-- [ ] `184_pthread_spawn_join`
+  3. 时间与日期 (Rust std::time) —— 完全缺失
+   * 缺失 Instant / SystemTime：你无法获取当前系统时间，无法计算函数执行时长，无法实现 sleep(ms)。
+   * 缺失 Duration：没有时间段的算术运算（如 5秒 + 500毫秒）。
 
-### FfiOwnershipViolation (FFI 越权)
-试图让 C 语言环境 `!` 销毁或 `^` 霸占属于 SA-ASM 追踪状态的借用视图。
-- [ ] `186_sqlite_c_api_binding`
+  4. 高级 IO 与路径 (Rust std::io / std::fs / std::path)
+   * 缺失 BufReader / BufWriter：目前 sa_std/fs 是裸的系统调用。如果你一行一行读 1GB 的文件，会因为系统调用太频繁而慢得离谱。
+   * 缺失 Path / PathBuf：没有路径拼接（如 dir + file）、没有获取扩展名、没有跨平台路径分隔符处理（/ vs \）。
+   * 缺失 Cursor：无法将一段内存内存块当作 Read/Write 流来处理。
 
----
+  5. 错误处理与诊断 (Rust std::error / std::panic)
+   * 缺失 Error Trait 体系：Rust 有 dyn Error 可以向下转型（downcast），SA 只有硬编码的 u32 错误码或简单的结构体，缺乏错误上下文（Backtrace）追踪。
+   * 缺失 Panic Hook：无法自定义崩溃时的行为（例如在崩溃前保存日志或清理终端状态）。
 
-## 🟢 优先级 3：语法细则与环境配置 (Easy)
-*拼写错误或由于测试沙盒缺少对应模拟符号导致的失败。*
+  6. 数学与数值处理 (Rust std::num / std::f64)
+   * 缺失 Libm 库集成：ISA 只有加减乘除。标准库目前没有 sqrt, sin, cos, log, pow, abs, ceil, floor 等函数。你需要通过 FFI 链接 C 语言的 math.h。
+   * 缺失 128 位整数支持：虽然底层支持 v128，但标准库没提供 i128 的算术宏。
 
-### RegisterRedefinition (寄存器重复定义)
-SA-ASM 使用 SSA 单赋值模式，寄存器一旦定义不允许二次赋值（需分配新名字）。
-- [ ] `189_protobuf_varint_decode`
-- [ ] `191_macro_rules_ast_emit`
+  7. 环境变量与网络高级特性 (Rust std::env / std::net)
+   * 缺失 Environment Variables：无法获取或设置环境变量（如 PATH, USER）。
+   * 缺失 UDP 支持：目前 sa_std/net 只有 TCP，没有 UdpSocket。
+   * 缺失 DNS 解析：没有 ToSocketAddrs，你只能通过硬编码的 IP 地址连接，无法通过域名（如 google.com）连接。
 
-### UnknownRegister / Undefined Symbol (找不到符号)
-拼写错误或 `sa_std` 尚未暴露出对应的方法桩。
-- [ ] `115_opaque_pointers`
-- [ ] `187_opengl_context_swap`
-- [ ] `196_lto_link_time_opt`
-- [ ] `198_control_flow_guard_cfi`
+  8. FFI 辅助 (Rust std::ffi)
+   * 缺失 CString / CStr 转换：SA 的字符串是 [ptr | len]，而 C 语言是 \0 结尾。目前没有标准宏来安全地在两者间转换（特别是处理内存分配和 \0 注入）。
 
-### 杂项
-- [ ] `117_inline_assembly` (ForbiddenSyntax: 必须使用扁平宏，不能在块内带花括号 `{}`)
-- [ ] `136_executor_task_queue` (RunFailed: 能够编译通过，但执行业务逻辑报错退出)
+  ---
 
----
+  总结评估
 
-## 🟦 下一阶段：200~300 已手写完成 Demo 的能力路标
+  ┌───────────┬─────────────────┬─────────────────────────────┐
+  │ 维度      │ Rust std 覆盖率 │ 评价                        │
+  ├───────────┼─────────────────┼─────────────────────────────┤
+  │ 内存/基础 │ 70%             │ alloc, mem, slice 算够用    │
+  │ 基础 IO   │ 40%             │ 只有裸读写，没有缓冲        │
+  │ 集合类    │ 5%              │ 只有 Vec，没有 Map/Set/Heap │
+  │ 并发      │ 2%              │ 只有原子指令，没有同步原语  │
+  │ 时间/数学 │ 0%              │ 完全空白                    │
+  │ 网络      │ 20%             │ 只有基础 TCP，没有 UDP/DNS  │
+  └───────────┴─────────────────┴─────────────────────────────┘
 
-> 这部分不计入上面的 51/200 backlog。这里把 200~300 目录对应的能力簇整理成后续支持清单，方便按模块、契约、构建链和平台门禁推进。
+  为什么感觉缺失很多？
+  因为 SA-ASM 的哲学是“剥离人类语法糖”。很多 Rust 里一行代码解决的事（比如 path.join("file").metadata()?），在 SA-ASM 里目前需要你手动：
+   1. alloc 路径缓冲区。
+   2. 循环拷贝字符串。
+   3. 手动注入 /。
+   4. 调用 @sa_fs_metadata。
+   5. 手动 !release 缓冲区。
 
-### Bootstrap 与前端材料化
-- [ ] `200_sa_asm_quine`：quine / bootstrapping、宏与属性重写、cfg 选择、构建链外移。
+  下一步的补齐建议：
+  如果你想让这个语言从“原型”变成“生产力工具”，你需要优先补齐 BufReader (性能)、HashMap (逻辑能力) 和 Time (基础功能)。
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+ > 还要列出rust常用宏，我们也要支持                                                                                                                  
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+✦ 为了让 LLM 在生成 SA-ASM 代码时能够像写 Rust 一样高效，我们需要在 sa_std 中提供等价的宏封装。
 
-### 包系统与工作区
-- [ ] `201~204`：package manifest、local/git/registry 依赖解析。
-- [ ] `205~209`：循环依赖拒绝、版本决议、多个版本冲突、dev/build dependencies。
-- [ ] `210~220`：workspace root / inheritance、feature flags、default features、target-specific deps、patch override、profile、metadata、multiple bins、dynamic lib package。
+  以下是 Rust 常用宏的对比及其在 SA-ASM 中的实现建议：
 
-### 模块系统与导入解析
-- [ ] `221~240`：relative/absolute import、visibility/private、reexport、namespace prefix、cyclic import detect、shadowing prevention、iface/layout separation、layout injection、stdlib prelude、directory module、conditional import、alias import、unused import lint、transitive dependency、extern grouping、inline submodule、path resolution order、version suffix isolation、entry point override。
+  1. 打印与格式化 (Output & Formatting)
+  这是最常用的功能。SA-ASM 需要解决所有权和自动换行的问题。
 
-### Contract 与 ABI
-- [ ] `241~260`：layout stability、opaque struct、signature mismatch、vtable export、generic monomorph share、semver minor/major、FFI boundary trust、macro export、const export、resource ownership、error code mapping、callback registration、plugin system、allocator swap、panic handler propagate、log facade、TLS isolation、static init order、deprecated warning。
+  ┌──────────┬───────────────┬──────────────────────────────────────────────────────────────┐
+  │ Rust 宏  │ SA-ASM 宏建议 │ 实现细节                                                     │
+  ├──────────┼───────────────┼──────────────────────────────────────────────────────────────┤
+  │ print!   │ PRINT         │ 调用 @sys_print。                                            │
+  │ println! │ PRINTLN       │ 调用 @sys_print 并自动追加 \n。                              │
+  │ format!  │ FORMAT        │ 调用 sa_fmt_* 族函数，返回一个 Owned (^ptr) 的格式化缓冲区。 │
+  │ dbg!     │ DBG           │ 自动打印 #loc 信息 + 寄存器当前值的十六进制表示。            │
+  └──────────┴───────────────┴──────────────────────────────────────────────────────────────┘
 
-### Build 链与工具化
-- [ ] `261~280`：build.rs codegen、bindgen header、asset bundling、env injection、custom linker script、pre/post compile hook、cross compile wasm/windows、custom sysroot、optimization passes、sanitizer flags、test harness、benchmark runner、doc generator、incremental caching、parallel compilation、reproducible builds、remote artifact caching、CI/CD integration。
+  2. 断言与测试 (Assertions & Safety)
+  SA-ASM 的验证器（Referee）在编译期工作，但运行时逻辑仍需断言。
 
-### FFI 与外部链接
-- [ ] `281~290`：system libc、static/dynamic C library、pkg-config、Objective-C framework、Rust staticlib integration、Zig export integration、C++ name mangling、opaque handle passing、callback thunk。
+  ┌───────────────┬───────────────┬───────────────────────────────────────────────────┐
+  │ Rust 宏       │ SA-ASM 宏建议 │ 实现细节                                          │
+  ├───────────────┼───────────────┼───────────────────────────────────────────────────┤
+  │ assert!       │ ASSERT        │ br cond -> L_OK, L_PANIC。                        │
+  │ assert_eq!    │ ASSERT_EQ     │ eq a, b + br。如果不等则触发 panic(code)。        │
+  │ debug_assert! │ D_ASSERT      │ 仅在非 --release 模式下展开，用于性能敏感的检查。 │
+  │ panic!        │ PANIC         │ 直接调用 panic(code) 指令。                       │
+  └───────────────┴───────────────┴───────────────────────────────────────────────────┘
 
-### 生态与目标平台
-- [ ] `291~300`：WASM host imports / memory export、embedded no-OS、kernel module、eBPF bytecode、GPU PTX shader、game engine ECS、cryptography SIMD、LSP、registry publish。
+  3. 开发占位符 (Development Placeholders)
+  这些宏能防止 LLM 在没写完代码时“胡编乱造”。
 
-### 平台门禁备注
-- `285` 依赖 macOS 链路能力。
-- `293~296` 属于平台/后端门禁项，优先级应低于通用包、模块、contract、build、FFI 基础能力。
-- `297~300` 依赖前面几层打稳后再做生态级集成。
+  ┌────────────────┬───────────────┬────────────────────────────────────────────────────┐
+  │ Rust 宏        │ SA-ASM 宏建议 │ 实现细节                                           │
+  ├────────────────┼───────────────┼────────────────────────────────────────────────────┤
+  │ todo!          │ TODO          │ 编译期发出警告，运行时触发 panic(999)。            │
+  │ unimplemented! │ UNIMPLEMENTED │ 触发特定的错误码，标记此功能尚未实现。             │
+  │ unreachable!   │ UNREACHABLE   │ 提示优化器（LLVM）此路径不可达，若到达则立即崩溃。 │
+  └────────────────┴───────────────┴────────────────────────────────────────────────────┘
+
+  4. 集合字面量 (Collection Literals)
+  SA-ASM 必须手动处理动态分配。
+
+  ┌────────────┬───────────────┬────────────────────────────────────────────────────┐
+  │ Rust 宏    │ SA-ASM 宏建议 │ 实现细节                                           │
+  ├────────────┼───────────────┼────────────────────────────────────────────────────┤
+  │ vec![1, 2] │ VEC_LITERAL   │ 自动计算总大小 -> alloc -> 展开成多条 store 指令。 │
+  │ hashmap!{} │ MAP_LITERAL   │ 待实现。需要先完成 sa_std/hashmap.saasm。          │
+  └────────────┴───────────────┴────────────────────────────────────────────────────┘
+
+  5. 资源与环境 (Resources & Env)
+  这些宏通常在编译期处理文件。
+
+  ┌────────────────┬────────────────────┬────────────────────────────────────────────────┐
+  │ Rust 宏        │ SA-ASM 宏建议      │ 实现细节                                       │
+  ├────────────────┼────────────────────┼────────────────────────────────────────────────┤
+  │ include_bytes! │ @const ... = embed │ 已经在 SA 规范中：@const NAME = embed:"path"。 │
+  │ include_str!   │ @const ... = utf8  │ 已经在 SA 规范中。                             │
+  │ env!           │ GET_ENV            │ 编译期读取环境变量并转为静态字符串常量。       │
+  └────────────────┴────────────────────┴────────────────────────────────────────────────┘
+  ---
+
+  重点：如何实现这些宏？
+
+  在 SA-ASM 中，宏使用 [MACRO] 块定义。例如，实现一个简单的 ASSERT_EQ：
+
+   1 [MACRO] ASSERT_EQ %val1, %val2
+   2     __is_eq = eq %val1, %val2
+   3     br __is_eq -> L_ASSERT_OK_%i, L_ASSERT_FAIL_%i
+   4 L_ASSERT_FAIL_%i:
+   5     !__is_eq
+   6     panic(103)  // 103: AssertEqFailed
+   7 L_ASSERT_OK_%i:
+   8     !__is_eq
+   9 [END_MACRO]
+
+  还需要补齐的“大头”：
+   1. matches! 宏：SA-ASM 没有 match 关键字，我们需要一个宏来简化 load tag -> eq -> br 的繁琐过程。
+   2. try! (或 ?)：虽然 SA 支持 ? 语法糖，但在跨语言 FFI 边界时，需要一个宏来自动将 C 错误码转换为 SA 的 Fallible 状态。
+   3. concat! 宏：在编译期拼接多个静态字符串常量。
+
+  评估建议：
+  如果你现在要补齐这些，第一优先级是 PRINTLN 和 ASSERT_EQ。它们能让 Demo 的可读性和稳定性瞬间提升一个档次，也能让 test_all_300.sh
+  的验证逻辑变得极简。

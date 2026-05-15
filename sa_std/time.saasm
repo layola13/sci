@@ -1,0 +1,55 @@
+@import "time.saasm-layout"
+@import "time.saasm-iface"
+
+[MACRO] TIME_NOW_NS %out_ns
+    %out_ns = call @sa_time_instant_ns()
+[END_MACRO]
+
+[MACRO] TIME_NOW_UNIX_S %out_secs
+    %out_secs = call @sa_time_unix_s()
+[END_MACRO]
+
+[MACRO] TIME_NOW_UNIX_MS %out_ms
+    %out_ms = call @sa_time_unix_ms()
+[END_MACRO]
+
+[MACRO] TIME_NOW_UNIX_NS %out_ns
+    %out_ns = call @sa_time_unix_ns()
+[END_MACRO]
+
+[MACRO] TIME_UTC_NOW %out_date
+    __time_utc_status = call @sa_time_utc_now(&%out_date)
+    __time_utc_ok = ? __time_utc_status
+    !__time_utc_status
+    !__time_utc_ok
+[END_MACRO]
+
+[MACRO] TIME_SLEEP_NS %ns
+    __time_sleep_status = call @sa_time_sleep_ns(%ns)
+    __time_sleep_ok = ? __time_sleep_status
+    !__time_sleep_status
+    !__time_sleep_ok
+[END_MACRO]
+
+[MACRO] TIME_SLEEP_MS %ms
+    __time_sleep_ms_status = call @sa_time_sleep_ms(%ms)
+    __time_sleep_ms_ok = ? __time_sleep_ms_status
+    !__time_sleep_ms_status
+    !__time_sleep_ms_ok
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_MS %out_ns, %ms
+    %out_ns = mul %ms, Time_NS_PER_MS
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_S %out_ns, %secs
+    %out_ns = mul %secs, Time_NS_PER_S
+[END_MACRO]
+
+[MACRO] TIME_DURATION_AS_MS %out_ms, %ns
+    %out_ms = udiv %ns, Time_NS_PER_MS
+[END_MACRO]
+
+[MACRO] TIME_DURATION_AS_S %out_secs, %ns
+    %out_secs = udiv %ns, Time_NS_PER_S
+[END_MACRO]

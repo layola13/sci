@@ -208,3 +208,107 @@ test "sa_std fmt and process exports are usable from C" {
     try expectSuccess(run_result);
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std fmt/process ok"));
 }
+
+test "sa_std time exports are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\#include <time.h>
+        \\
+        \\static int check_utc(const SaTimeDate *dt, int64_t unix_s) {
+        \\    struct tm tm_utc;
+        \\    time_t secs = (time_t)unix_s;
+        \\
+        \\    memset(&tm_utc, 0, sizeof(tm_utc));
+        \\    if (gmtime_r(&secs, &tm_utc) == NULL) return 0;
+        \\    if (dt->year != (uint16_t)(tm_utc.tm_year + 1900)) return 0;
+        \\    if (dt->month != (uint8_t)(tm_utc.tm_mon + 1)) return 0;
+        \\    if (dt->day != (uint8_t)tm_utc.tm_mday) return 0;
+        \\    if (dt->hour != (uint8_t)tm_utc.tm_hour) return 0;
+        \\    if (dt->minute != (uint8_t)tm_utc.tm_min) return 0;
+        \\    if (dt->second != (uint8_t)tm_utc.tm_sec) return 0;
+        \\    return 1;
+        \\}
+        \\
+        \\int main(void) {
+        \\    uint64_t mono_ns_0 = 0;
+        \\    uint64_t mono_ns_1 = 0;
+        \\    int64_t unix_s = 0;
+        \\    int64_t unix_ms = 0;
+        \\    int64_t unix_ns = 0;
+        \\    SaTimeDate dt = {0};
+        \\
+        \\    mono_ns_0 = sa_time_instant_ns();
+        \\    if (sa_time_sleep_ms(1) != SA_STD_OK) return 3;
+        \\    mono_ns_1 = sa_time_instant_ns();
+        \\    if (mono_ns_1 <= mono_ns_0) return 5;
+        \\    unix_s = sa_time_unix_s();
+        \\    unix_ms = sa_time_unix_ms();
+        \\    unix_ns = sa_time_unix_ns();
+        \\    if (unix_s == 0 && unix_ms == 0 && unix_ns == 0) return 6;
+        \\    if (sa_time_utc_now(&dt) != SA_STD_OK) return 9;
+        \\    if (sa_time_sleep_ns(0) != SA_STD_OK) return 10;
+        \\    if (unix_s < 0 || unix_ms < 0 || unix_ns < 0) return 11;
+        \\    if (unix_ms / 1000 != unix_s) return 12;
+        \\    if (unix_ns / 1000000 != unix_ms) return 13;
+        \\    if (dt.unix_ms != unix_ms) return 14;
+        \\    if (dt.unix_ns / 1000000 != unix_ms) return 15;
+        \\    if (dt.millisecond != (uint16_t)(unix_ms % 1000)) return 16;
+        \\    if (!check_utc(&dt, unix_s)) return 17;
+        \\    puts("sa_std time ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "time.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "time.c",
+        "libsa_std.a",
+        "-o",
+        "sa_std_time_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_time_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expectEqualStrings("sa_std time ok\n", run_result.stdout);
+}

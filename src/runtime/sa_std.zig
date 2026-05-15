@@ -65,6 +65,18 @@ const FmtHandle = struct {
     }
 };
 
+const TimeDate = extern struct {
+    unix_ms: i64,
+    unix_ns: i64,
+    year: u16,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+    millisecond: u16,
+};
+
 const OwnedFdHandle = struct {
     fd: std.posix.fd_t,
 
@@ -160,7 +172,9 @@ const Resource = union(enum) {
 };
 
 var registry_mutex: std.Thread.Mutex = .{};
+var time_mutex: std.Thread.Mutex = .{};
 var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
+var monotonic_origin: ?std.time.Instant = null;
 threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
 var compatibility_dlopen_cookie: [1]u8 = .{0};
@@ -217,6 +231,44 @@ fn mapError(err: anyerror) i32 {
 
 fn finishErr(err: anyerror) i32 {
     return finish(mapError(err));
+}
+
+fn fillUtcNow(out: *TimeDate) !void {
+    const unix_ms = std.time.milliTimestamp();
+    const unix_s = @divFloor(unix_ms, std.time.ms_per_s);
+    if (unix_s < 0) return error.Unsupported;
+
+    const unix_ns_raw = std.time.nanoTimestamp();
+    const unix_ns = std.math.cast(i64, unix_ns_raw) orelse return error.Overflow;
+    const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @as(u64, @intCast(unix_s)) };
+    const epoch_day = epoch_seconds.getEpochDay();
+    const year_day = epoch_day.calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+    const day_seconds = epoch_seconds.getDaySeconds();
+
+    out.* = .{
+        .unix_ms = unix_ms,
+        .unix_ns = unix_ns,
+        .year = year_day.year,
+        .month = @intFromEnum(month_day.month),
+        .day = @as(u8, @intCast(month_day.day_index + 1)),
+        .hour = day_seconds.getHoursIntoDay(),
+        .minute = day_seconds.getMinutesIntoHour(),
+        .second = day_seconds.getSecondsIntoMinute(),
+        .millisecond = @as(u16, @intCast(@mod(unix_ms, std.time.ms_per_s))),
+    };
+}
+
+fn monotonicNowNs() !u64 {
+    time_mutex.lock();
+    defer time_mutex.unlock();
+
+    const current = try std.time.Instant.now();
+    if (monotonic_origin) |origin| {
+        return current.since(origin);
+    }
+    monotonic_origin = current;
+    return 0;
 }
 
 fn lenAsUsize(len: u64) !usize {
@@ -695,6 +747,39 @@ pub export fn sa_std_println(data: ?[*]const u8, len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_time_instant_ns() u64 {
+    return monotonicNowNs() catch return 0;
+}
+
+pub export fn sa_time_unix_s() i64 {
+    return std.time.timestamp();
+}
+
+pub export fn sa_time_unix_ms() i64 {
+    return std.time.milliTimestamp();
+}
+
+pub export fn sa_time_unix_ns() i64 {
+    const ts = std.time.nanoTimestamp();
+    return @as(i64, @intCast(ts));
+}
+
+pub export fn sa_time_utc_now(out_date: ?*TimeDate) i32 {
+    const ptr = out_date orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    fillUtcNow(ptr) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_time_sleep_ns(ns: u64) i32 {
+    std.Thread.sleep(ns);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_time_sleep_ms(ms: u64) i32 {
+    const ns = std.math.mul(u64, ms, std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return sa_time_sleep_ns(ns);
+}
+
 pub export fn sa_std_write(handle: u64, data: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
     if (out_written) |ptr| ptr.* = 0;
     const bytes = constBytes(data, len) catch |err| return finishErr(err);
@@ -724,6 +809,39 @@ pub export fn sa_std_close(handle: u64) i32 {
     };
     registry_mutex.unlock();
     resource.close() catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const limit = lenAsUsize(max_bytes) catch |err| return finishErr(err);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    var list = std.ArrayList(u8).init(std.heap.page_allocator);
+    defer list.deinit();
+
+    var count: usize = 0;
+    while (count < limit) {
+        var ch: [1]u8 = undefined;
+        const read = readHandleLocked(handle, ch[0..]) catch |err| return finishErr(err);
+        if (read == 0) break;
+        if (ch[0] == '\n') break;
+        if (ch[0] == '\r') continue;
+        list.append(ch[0]) catch |err| return finishErr(err);
+        count += 1;
+    }
+
+    const bytes = list.toOwnedSlice() catch |err| return finishErr(err);
+    errdefer std.heap.page_allocator.free(bytes);
+    const resource = Resource{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } };
+    const buf_handle = registerResourceLocked(resource) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return finishErr(err);
+    };
+    handle_ptr.* = buf_handle;
     return finish(SA_STD_OK);
 }
 

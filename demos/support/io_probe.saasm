@@ -1,0 +1,131 @@
+@const PATH = utf8:"io_probe.txt"
+@const CONTENT = utf8:"alpha\nbeta\n"
+@const NL = utf8:"\n"
+
+@extern sa_std_fs_open_write(&path: ptr, path_len: u64, truncate: u32, &out_handle: ptr) -> i32!
+@extern sa_std_fs_open_read(&path: ptr, path_len: u64, &out_handle: ptr) -> i32!
+@extern sa_std_read(handle: ptr, &out: ptr, out_cap: u64, &out_read: ptr) -> i32!
+@extern sa_fs_file_write_all(file: ptr, &buf: ptr, len: u64) -> i32!
+@extern sa_fs_file_flush(file: ptr) -> i32!
+@extern sa_fs_file_close(^file: ptr) -> i32!
+
+@extern sa_fmt_u64(value: u64, base: u32) -> ptr
+@extern sa_fmt_buffer_data(&buffer: ptr) -> &ptr
+@extern sa_fmt_buffer_len(&buffer: ptr) -> u64
+@extern sa_fmt_buffer_free(^buffer: ptr) -> i32!
+
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@main() -> i32!:
+L_ENTRY:
+    write_slot = stack_alloc 8
+    write_open_res = call @sa_std_fs_open_write(&PATH, 12, 1, &write_slot)
+    write_open_status = ? write_open_res
+    !write_open_res
+    !write_open_status
+    file = load write_slot+0 as ptr
+
+    write_res = call @sa_fs_file_write_all(file, &CONTENT, 11)
+    flush_res = call @sa_fs_file_flush(file)
+    close_res = call @sa_fs_file_close(^file)
+
+    write_status = ? write_res
+    flush_status = ? flush_res
+    close_status = ? close_res
+    !write_res
+    !flush_res
+    !write_status
+    !flush_status
+    !close_res
+    !close_status
+
+    read_slot = stack_alloc 8
+    read_open_res = call @sa_std_fs_open_read(&PATH, 12, &read_slot)
+    read_open_status = ? read_open_res
+    !read_open_res
+    !read_open_status
+    reader = load read_slot+0 as ptr
+
+    read_buf = stack_alloc 6
+    read_count_slot = stack_alloc 8
+    read_res = call @sa_std_read(reader, &read_buf, 6, &read_count_slot)
+    close_read_res = call @sa_fs_file_close(^reader)
+
+    read_status = ? read_res
+    close_read_status = ? close_read_res
+    !read_res
+    !read_status
+    !close_read_res
+    !close_read_status
+
+    read_count = load read_count_slot+0 as u64
+    b0 = load read_buf+0 as u8
+    b1 = load read_buf+1 as u8
+    b2 = load read_buf+2 as u8
+    b3 = load read_buf+3 as u8
+    b4 = load read_buf+4 as u8
+    b5 = load read_buf+5 as u8
+    c0 = eq b0, 97
+    c1 = eq b1, 108
+    c2 = eq b2, 112
+    c3 = eq b3, 104
+    c4 = eq b4, 97
+    c5 = eq b5, 10
+    c6 = eq read_count, 6
+    ok0 = and c0, c1
+    ok1 = and c2, c3
+    ok2 = and c4, c5
+    ok3 = and ok0, ok1
+    ok4 = and ok2, c6
+    ok = and ok3, ok4
+    !b0
+    !b1
+    !b2
+    !b3
+    !b4
+    !b5
+    !c0
+    !c1
+    !c2
+    !c3
+    !c4
+    !c5
+    !c6
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    br ok -> L_SCAN_OK, L_SCAN_FAIL
+
+L_SCAN_FAIL:
+    !ok
+    return 1
+
+L_SCAN_OK:
+    !ok
+    call @sa_print_bytes(&read_buf, 5)
+    call @sa_print_bytes(&NL, 1)
+
+    fmt_buf = call @sa_fmt_u64(5, 10)
+    fmt_ok = ne fmt_buf, 0
+    br fmt_ok -> L_FMT_OK, L_FMT_FAIL
+
+L_FMT_FAIL:
+    !fmt_ok
+    return 1
+
+L_FMT_OK:
+    fmt_ptr = call @sa_fmt_buffer_data(&fmt_buf)
+    fmt_len = call @sa_fmt_buffer_len(&fmt_buf)
+    call @sa_print_bytes(&fmt_ptr, fmt_len)
+    call @sa_print_bytes(&NL, 1)
+    !fmt_ptr
+    !fmt_len
+
+    fmt_free_res = call @sa_fmt_buffer_free(^fmt_buf)
+    fmt_free_status = ? fmt_free_res
+    !fmt_free_res
+    !fmt_free_status
+    !fmt_ok
+    return 0

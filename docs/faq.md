@@ -294,7 +294,7 @@ store v+Vec3_x, 1.0 as f32
 
 ### Q: `sa_std` 是手写 SA 标准库，还是外部标准库？
 
-**A**: `io` / `fs` / `net` / `fmt` / `process` / `term` 是 SA-facing facade，真实实现由 Zig-backed `libsa_std` 提供。仓库内已附带静态归档 `artifacts/sa_std/libsa_std.a`，它由 `zig build sa-std-static -Doptimize=Debug` 生成，源码位于 `src/runtime/sa_std.zig`，ABI 头文件位于 `src/runtime/sa_std.h`。
+**A**: `io` / `fs` / `net` / `fmt` / `process` / `term` / `time` 是 SA-facing facade，真实实现由 Zig-backed `libsa_std` 提供。仓库内已附带静态归档 `artifacts/sa_std/libsa_std.a`，它由 `zig build sa-std-static -Doptimize=Debug` 生成，源码位于 `src/runtime/sa_std.zig`，ABI 头文件位于 `src/runtime/sa_std.h`。
 
 原因：
 - SA 侧的 `.saasm` 模块入口只用 `@import` 组合 layout 与 iface
@@ -804,31 +804,18 @@ zig test test_lib.zig --object lib.o
 ```
 // sa_core.saasm（标准测试宏）
 
-#def PANIC_ASSERT_EQ  = 103
-#def PANIC_ASSERT_NE  = 104
-#def PANIC_ASSERT_TRUE = 105
-
-[MACRO] ASSERT_EQ %actual, %expected
-    __assert_cond = eq %actual, %expected
-    br __assert_cond -> __assert_ok_%i, __assert_fail_%i
-    __assert_fail_%i:
-        panic(PANIC_ASSERT_EQ)
-    __assert_ok_%i:
+[MACRO] ASSERT_EQ %cond, %actual, %expected, %ok_label, %fail_label
+    %cond = eq %actual, %expected
+    br %cond -> %ok_label, %fail_label
 [END_MACRO]
 
-[MACRO] ASSERT_TRUE %cond
-    br %cond -> __assert_ok_%i, __assert_fail_%i
-    __assert_fail_%i:
-        panic(PANIC_ASSERT_TRUE)
-    __assert_ok_%i:
+[MACRO] ASSERT_TRUE %cond, %ok_label, %fail_label
+    br %cond -> %ok_label, %fail_label
 [END_MACRO]
 
-[MACRO] ASSERT_NE %actual, %unexpected
-    __assert_cond = ne %actual, %unexpected
-    br __assert_cond -> __assert_ok_%i, __assert_fail_%i
-    __assert_fail_%i:
-        panic(PANIC_ASSERT_NE)
-    __assert_ok_%i:
+[MACRO] ASSERT_NE %cond, %actual, %unexpected, %ok_label, %fail_label
+    %cond = ne %actual, %unexpected
+    br %cond -> %ok_label, %fail_label
 [END_MACRO]
 ```
 
@@ -839,10 +826,16 @@ zig test test_lib.zig --object lib.o
 @main:
 L_ENTRY:
     r = add 3, 4
-    EXPAND ASSERT_EQ r, 7
+    EXPAND ASSERT_EQ assert_eq_cond_0, r, 7, L_ASSERT_EQ_0_OK, L_ASSERT_EQ_0_FAIL
+L_ASSERT_EQ_0_FAIL:
+    panic(103)
+L_ASSERT_EQ_0_OK:
 
     s = mul 6, 7
-    EXPAND ASSERT_EQ s, 42
+    EXPAND ASSERT_EQ assert_eq_cond_1, s, 42, L_ASSERT_EQ_1_OK, L_ASSERT_EQ_1_FAIL
+L_ASSERT_EQ_1_FAIL:
+    panic(103)
+L_ASSERT_EQ_1_OK:
 
     call @sys_exit(0)
 ```

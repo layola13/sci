@@ -105,7 +105,7 @@ pub fn isUnaryOpKind(kind: OpKind) bool {
 pub fn isBinaryOpKind(kind: OpKind) bool {
     return switch (kind) {
         .add, .sub, .mul, .sdiv, .udiv, .srem, .urem, .div, .rem, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule,
-        .@"and", .@"or", .xor, .shl, .lshr, .ashr, .eq, .ne, .fadd, .fsub, .fmul, .fdiv, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge,
+        .@"and", .@"or", .xor, .shl, .lshr, .ashr, .shr, .eq, .ne, .fadd, .fsub, .fmul, .fdiv, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge,
         .extract_lane,
         .add_v128, .sub_v128, .mul_v128 => true,
         else => false,
@@ -282,5 +282,6 @@ test "op kind parsing covers new and compatibility names" {
     try std.testing.expectEqual(OpKind.gt, parseOpKind("gt").?);
     try std.testing.expectEqual(OpKind.div, parseOpKind("div").?);
     try std.testing.expectEqual(OpKind.shr, parseOpKind("shr").?);
+    try std.testing.expect(isBinaryOpKind(OpKind.shr));
     try std.testing.expect(parseOpKind("nonsense") == null);
 }
