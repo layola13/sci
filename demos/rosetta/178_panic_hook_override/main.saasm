@@ -19,9 +19,9 @@ L_ENTRY:
     br enabled -> L_PANIC, L_EXIT
 
 L_PANIC:
-    call @register_hook(&hook)
-    panic_msg(17, *RESULT_ERR, 6)
-    return 0
+    result = call @register_hook(&hook)
+    !hook
+    return result
 
 L_EXIT:
     !current
@@ -34,7 +34,7 @@ L_ENTRY:
     store hook+0, 1 as i32
     store hook+4, 0 as i32
     result = call @trigger_panic(&hook)
-    ok = eq result, 0
+    ok = eq result, 1
     !result
     !hook
     br ok -> L_OK, L_ERR

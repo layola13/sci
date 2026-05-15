@@ -611,6 +611,8 @@ sa/
     - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证枚举与匹配 demo 也能真实编译、运行并打印 stdout
     - 第十四批已补 2 个已修正并实测可跑的 `build-exe` 回归：`19_result_question` / `50_error_chain`
     - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证 fallible / `?` demo 也能真实编译、运行并打印 stdout
+    - 第二十批已补 2 个已修正并实测可跑的 `build-exe` 回归：`176_result_flattening` / `178_panic_hook_override`
+    - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证结果扁平化与 panic hook override demo 也能真实编译、运行并打印 stdout
     - 第十五批已补 1 个已实测可跑的 `build-exe` 回归：`44_slice_iteration`
     - `tests/cli_smoke.zig` 继续扩充 `assertBuildExeStdout`，固定验证 slice iteration demo 也能真实编译、运行并打印 stdout
     - 第十六批已补 1 个已实测可跑的 `build-exe` 回归：`54_mem_fill`

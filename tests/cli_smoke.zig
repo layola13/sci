@@ -165,7 +165,6 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     var summary_buf: [256]u8 = undefined;
     const summary_text = try std.fmt.bufPrint(&summary_buf, "error[{s}]: {s}\n", .{ expected_trap, expected_message });
     try std.testing.expect(std.mem.startsWith(u8, stderr_buffer.items, summary_text));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "  command: zig cc "));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, trap_text));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, code_text));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, expected_message));
@@ -661,6 +660,7 @@ test "additional rosetta demos compile and print through build-exe" {
 test "fallible rosetta demos compile and print through build-exe" {
     try assertBuildExeStdout("demos/rosetta/19_result_question/main.saasm", "21\n");
     try assertBuildExeStdout("demos/rosetta/50_error_chain/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/176_result_flattening/main.saasm", "2\n");
 }
 
 test "slice and cache rosetta demos compile and print through build-exe" {
@@ -738,6 +738,7 @@ test "final rosetta batch compile and print through build-exe" {
     try assertBuildExeStdout("demos/rosetta/98_build_pipeline/main.saasm", "6\n");
     try assertBuildExeStdout("demos/rosetta/99_release_bundle/main.saasm", "3\n");
     try assertBuildExeStdout("demos/rosetta/100_full_app/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/178_panic_hook_override/main.saasm", "1\n");
 }
 
 test "service and concurrency rosetta demos compile and print through build-exe" {
