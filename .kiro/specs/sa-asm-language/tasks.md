@@ -841,7 +841,8 @@ sa/
 - [x] 29. `libsa_async` 异步状态机宏模板（R26）
 
   - [x] 29.1 编写 `libsa_async.saasm` 宏文件
-    - 包含 `ASYNC_CTX_DEF` / `ASYNC_POLL_PROLOGUE` / `ASYNC_AWAIT_POINT` / `ASYNC_RETURN_PENDING` 四个标准宏
+    - 包含 `ASYNC_CTX_DEF` / `ASYNC_STATE_BEGIN` / `ASYNC_STATE_END` / `ASYNC_POLL_PROLOGUE` / `ASYNC_AWAIT_POINT` / `ASYNC_AWAIT_POINT_FINAL` / `ASYNC_RETURN_PENDING` / `ASYNC_READY` / `ASYNC_INVALID_STATE` 等标准宏
+    - 其中前者覆盖状态机骨架与恢复入口，后者覆盖最终收尾与非法状态处理
     - _Requirements: R26.1, R26.3_
 
   - [x] 29.2 Flattener 文件拼接机制（`@import "libsa_async.saasm"`）
@@ -853,7 +854,7 @@ sa/
     - _Requirements: R26.2, R26.5_
 
   - [x] 29.4 宏展开等价性 Property 测试 — **P32 (NEW)**
-    - 对比手写 120 行 SA 与 `EXPAND ASYNC_AWAIT_POINT ...` 展开后的 `Instruction[]`
+    - 对比手写 120 行 SA 与 `EXPAND ASYNC_AWAIT_POINT ...` / `EXPAND ASYNC_AWAIT_POINT_FINAL ...` 展开后的 `Instruction[]`
     - 断言字段级相等
     - 最少 100 次
     - _Requirements: R26.2_
