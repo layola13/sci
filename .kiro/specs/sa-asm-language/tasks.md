@@ -105,27 +105,27 @@ sa/
 
 - [ ] 4. W3-5 Flattener
 
-  - [ ] 4.1 行分类器（16 种形态）
+  - [x] 4.1 行分类器（16 种形态）
     - _Requirements: R3.1_
 
-  - [ ] 4.2 `#def` 字典 + 常量折叠（`+/-/*`）
+  - [x] 4.2 `#def` 字典 + 常量折叠（`+/-/*`）
     - _Requirements: R7.1–R7.5_
 
-  - [ ]* 4.3 常量折叠 PBT — **P8**
+  - [x]* 4.3 常量折叠 PBT — **P8**
     - _Requirements: R7.1, R7.2, R7.5_
 
-  - [ ] 4.4 禁用语法扫描（`{` `}` `if` `else` `while` `for` `a.b.c`）
+  - [x] 4.4 禁用语法扫描（`{` `}` `if` `else` `while` `for` `a.b.c`）
     - _Requirements: R3.3, R6.6_
 
-  - [ ]* 4.5 禁用语法 PBT — **P4**
+  - [x]* 4.5 禁用语法 PBT — **P4**
     - _Requirements: R3.2, R3.3, R6.6_
 
-  - [ ] 4.6 `#loc` 伪指令收集器
+  - [x] 4.6 `#loc` 伪指令收集器
     - 维护 `LocTable: Map<expanded_line, UpstreamLoc>`
     - 下一条真实指令继承最近一次 `#loc` 值
     - _Requirements: R19.1_
 
-  - [ ]* 4.7 `#loc` 单调映射 PBT — **P25**
+  - [x]* 4.7 `#loc` 单调映射 PBT — **P25**
     - 随机插入 `#loc`，断言 Trap 报告与 LocTable 一致
     - _Requirements: R19.1, R19.2_
 
@@ -147,7 +147,7 @@ sa/
   - [x]* 4.13 非法宏 PBT — **P7**
     - _Requirements: R7.4, R8.4, R8.6_
 
-  - [ ] 4.14 寄存器名规范化为 `u32` ID（保留 SymbolTable）
+  - [x] 4.14 寄存器名规范化为 `u32` ID（保留 SymbolTable）
     - _Requirements: R2.1_
 
   - [x] 4.15 函数签名解析
@@ -199,7 +199,7 @@ sa/
   - [x]* 4.25 Flattener 端到端单测
     - _Requirements: R3.1, R7.1, R8.1, R13.1, R18.2, R19.1_
 
-- [ ] 5. 检查点 — Flattener 完成
+- [x] 5. 检查点 — Flattener 完成
   - 跑过 P4、P6、P7、P8、P11、P14、P25
 
 - [ ] 6. W6-9 Referee（含一周性能调优）
@@ -1065,7 +1065,7 @@ sa/
     - 开放寻址法 + FNV-1a 哈希
     - `MAP_NEW` / `MAP_PUT` / `MAP_GET` / `MAP_DEL` / `MAP_FREE`
 
-  - [ ] 37.4 `sa_std/sort.saasm`：排序宏
+  - [x] 37.4 `sa_std/sort.saasm`：排序宏
     - 快速排序（`[MACRO] QSORT %arr, %len, %elem_size, %cmp_fn`）
 
   - [x] 37.5 `sa_std/io.saasm`：IO 便利宏

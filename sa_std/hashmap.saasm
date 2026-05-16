@@ -1,7 +1,7 @@
 @import "core/mem.saasm"
 @import "hashmap.saasm-layout"
 
-@map_hash_ptr(key: ptr) -> u64:
+@map_hash_ptr(&key: ptr) -> u64:
 L_ENTRY:
     hash0 = HashMap_FNV_OFFSET
     bits0 = bitcast key as u64
@@ -80,16 +80,16 @@ L_ENTRY:
     !key
     return hash8
 
-@map_table_probe(slots: ptr, cap: u64, hash: u64, &key: ptr, &out_index: ptr, &out_found: ptr) -> void:
+@map_table_probe(&slots: ptr, cap: u64, hash: u64, &key: ptr, &out_index: ptr, &out_found: ptr) -> void:
 L_ENTRY:
+    index_slot = stack_alloc 8
+    remaining_slot = stack_alloc 8
     store out_found+0, 0 as u64
     store out_index+0, 0 as u64
     cap_is_zero = eq cap, 0
     br cap_is_zero -> L_PROBE_END, L_PROBE_INIT
 
 L_PROBE_INIT:
-    index_slot = stack_alloc 8
-    remaining_slot = stack_alloc 8
     cap_minus_one = sub cap, 1
     start_index = and hash, cap_minus_one
     store index_slot+0, start_index as u64
@@ -198,11 +198,11 @@ L_PROBE_END:
     !out_found
     return
 
-@map_table_insert(slots: ptr, cap: u64, hash: u64, &key: ptr, &value: ptr) -> void:
+@map_table_insert(&slots: ptr, cap: u64, hash: u64, &key: ptr, &value: ptr) -> void:
 L_ENTRY:
     probe_index_slot = stack_alloc 8
     probe_found_slot = stack_alloc 8
-    call @map_table_probe(slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
     probe_index = load probe_index_slot+0 as u64
     slot_off = mul probe_index, HashMapSlot_SIZE
     slot = ptr_add slots, slot_off
@@ -220,13 +220,13 @@ L_ENTRY:
     !value
     return
 
-@map_rehash(map: ptr, new_cap: u64) -> void:
+@map_rehash(&map: ptr, new_cap: u64) -> void:
 L_ENTRY:
-    old_slots = load map+HashMap_slots as ptr
+    old_slots = take map+HashMap_slots as ptr
     old_cap = load map+HashMap_cap as u64
     new_bytes = mul new_cap, HashMapSlot_SIZE
     new_slots = alloc new_bytes
-    call @sa_mem_set(new_slots, 0, new_bytes)
+    call @sa_mem_set(&new_slots, 0, new_bytes)
     store map+HashMap_slots, new_slots as ptr
     store map+HashMap_cap, new_cap as u64
     store map+HashMap_len, 0 as u64
@@ -237,12 +237,12 @@ L_ENTRY:
     probe_idx_slot = stack_alloc 8
     probe_found_slot = stack_alloc 8
     old_cap_is_zero = eq old_cap, 0
-    br old_cap_is_zero -> L_REHASH_END, L_REHASH_LOOP
+    br old_cap_is_zero -> L_REHASH_END_ZERO, L_REHASH_LOOP
 
 L_REHASH_LOOP:
     old_idx = load old_idx_slot+0 as u64
-    done = eq old_idx, old_cap
-    br done -> L_REHASH_END, L_REHASH_BODY
+    loop_done = eq old_idx, old_cap
+    br loop_done -> L_REHASH_END_LOOP, L_REHASH_BODY
 
 L_REHASH_BODY:
     old_slot_off = mul old_idx, HashMapSlot_SIZE
@@ -255,7 +255,7 @@ L_REHASH_INSERT:
     old_hash = load old_slot+HashMapSlot_hash as u64
     old_key = load old_slot+HashMapSlot_key as ptr
     old_value = load old_slot+HashMapSlot_value as ptr
-    call @map_table_insert(new_slots, new_cap, old_hash, &old_key, &old_value)
+    call @map_table_insert(&new_slots, new_cap, old_hash, &old_key, &old_value)
     cur_len = load map+HashMap_len as u64
     next_len = add cur_len, 1
     store map+HashMap_len, next_len as u64
@@ -269,6 +269,7 @@ L_REHASH_INSERT:
 L_REHASH_NEXT:
     next_old_idx = add old_idx, 1
     store old_idx_slot+0, next_old_idx as u64
+    !loop_done
     !old_idx
     !old_slot_off
     !old_slot
@@ -277,7 +278,15 @@ L_REHASH_NEXT:
     !next_old_idx
     jmp L_REHASH_LOOP
 
-L_REHASH_END:
+L_REHASH_END_ZERO:
+    !old_slots
+    !old_cap
+    !new_bytes
+    !old_cap_is_zero
+    return
+
+L_REHASH_END_LOOP:
+    !loop_done
     !old_slots
     !old_cap
     !new_bytes
@@ -307,12 +316,13 @@ L_FREE_MAP:
     !map
     return
 
-@export sa_map_put(map: ptr, &key: ptr, &value: ptr) -> void:
+@export sa_map_put(&map: ptr, &key: ptr, &value: ptr) -> void:
 L_ENTRY:
     slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
+    next_cap_slot = stack_alloc 8
     used = add len, tombs
     used_twice = shl used, 1
     cap_is_zero = eq cap, 0
@@ -321,19 +331,29 @@ L_ENTRY:
     br grow -> L_PUT_GROW, L_PUT_PROBE
 
 L_PUT_GROW:
-    cap_is_zero_branch = cap_is_zero
-    br cap_is_zero_branch -> L_PUT_GROW_INIT, L_PUT_GROW_DOUBLE
+    br cap_is_zero -> L_PUT_GROW_INIT, L_PUT_GROW_DOUBLE
 
 L_PUT_GROW_INIT:
-    next_cap = HashMap_INITIAL_CAP
+    next_cap = add HashMap_INITIAL_CAP, 0
+    store next_cap_slot+0, next_cap as u64
+    !tombs
+    !len
+    !cap
+    !slots
     jmp L_PUT_GROW_REHASH
 
 L_PUT_GROW_DOUBLE:
     next_cap = add cap, cap
+    store next_cap_slot+0, next_cap as u64
+    !tombs
+    !len
+    !cap
+    !slots
     jmp L_PUT_GROW_REHASH
 
 L_PUT_GROW_REHASH:
-    call @map_rehash(map, next_cap)
+    next_cap = load next_cap_slot+0 as u64
+    call @map_rehash(&map, next_cap)
     slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
@@ -342,10 +362,10 @@ L_PUT_GROW_REHASH:
     jmp L_PUT_PROBE
 
 L_PUT_PROBE:
-    hash = call @map_hash_ptr(key)
+    hash = call @map_hash_ptr(&key)
     probe_index_slot = stack_alloc 8
     probe_found_slot = stack_alloc 8
-    call @map_table_probe(slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
     probe_index = load probe_index_slot+0 as u64
     probe_found = load probe_found_slot+0 as u64
     slot_off = mul probe_index, HashMapSlot_SIZE
@@ -391,9 +411,9 @@ L_PUT_INSERT_EMPTY:
     !tombs
     !used
     !used_twice
-    !cap_is_zero
     !pressure
     !grow
+    !map
     return
 
 L_PUT_END:
@@ -410,26 +430,26 @@ L_PUT_END:
     !tombs
     !used
     !used_twice
-    !cap_is_zero
     !pressure
     !grow
+    !map
     return
 
-@export sa_map_get(map: ptr, &key: ptr) -> &ptr:
+@export sa_map_get(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
     slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     cap_is_zero = eq cap, 0
-    br cap_is_zero -> L_GET_MISS, L_GET_PROBE
+    br cap_is_zero -> L_GET_MISS_ZERO, L_GET_PROBE
 
 L_GET_PROBE:
-    hash = call @map_hash_ptr(key)
+    hash = call @map_hash_ptr(&key)
     probe_index_slot = stack_alloc 8
     probe_found_slot = stack_alloc 8
-    call @map_table_probe(slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
     probe_found = load probe_found_slot+0 as u64
     found = ne probe_found, 0
-    br found -> L_GET_HIT, L_GET_MISS
+    br found -> L_GET_HIT, L_GET_MISS_PROBE
 
 L_GET_HIT:
     probe_index = load probe_index_slot+0 as u64
@@ -443,32 +463,43 @@ L_GET_HIT:
     !hash
     !slots
     !cap
-    !cap_is_zero
+    !key
+    !map
     return value
 
-L_GET_MISS:
+L_GET_MISS_PROBE:
+    !probe_found
+    !hash
     !slots
     !cap
-    !cap_is_zero
+    !key
+    !map
     return 0
 
-@export sa_map_del(map: ptr, &key: ptr) -> &ptr:
+L_GET_MISS_ZERO:
+    !slots
+    !cap
+    !key
+    !map
+    return 0
+
+@export sa_map_del(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
     slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
     cap_is_zero = eq cap, 0
-    br cap_is_zero -> L_DEL_MISS, L_DEL_PROBE
+    br cap_is_zero -> L_DEL_MISS_ZERO, L_DEL_PROBE
 
 L_DEL_PROBE:
-    hash = call @map_hash_ptr(key)
+    hash = call @map_hash_ptr(&key)
     probe_index_slot = stack_alloc 8
     probe_found_slot = stack_alloc 8
-    call @map_table_probe(slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
     probe_found = load probe_found_slot+0 as u64
     found = ne probe_found, 0
-    br found -> L_DEL_HIT, L_DEL_MISS
+    br found -> L_DEL_HIT, L_DEL_MISS_PROBE
 
 L_DEL_HIT:
     probe_index = load probe_index_slot+0 as u64
@@ -494,15 +525,28 @@ L_DEL_HIT:
     !tombs
     !next_len
     !next_tombs
-    !cap_is_zero
+    !key
+    !map
     return value
 
-L_DEL_MISS:
+L_DEL_MISS_PROBE:
+    !probe_found
+    !hash
     !slots
     !cap
     !len
     !tombs
-    !cap_is_zero
+    !key
+    !map
+    return 0
+
+L_DEL_MISS_ZERO:
+    !slots
+    !cap
+    !len
+    !tombs
+    !key
+    !map
     return 0
 
 [MACRO] MAP_NEW %out_map
@@ -510,15 +554,15 @@ L_DEL_MISS:
 [END_MACRO]
 
 [MACRO] MAP_PUT %map_reg, %key, %value
-    call @sa_map_put(%map_reg, &%key, &%value)
+    call @sa_map_put(&%map_reg, &%key, &%value)
 [END_MACRO]
 
 [MACRO] MAP_GET %out_value, %map_reg, %key
-    %out_value = call @sa_map_get(%map_reg, &%key)
+    %out_value = call @sa_map_get(&%map_reg, &%key)
 [END_MACRO]
 
 [MACRO] MAP_DEL %out_value, %map_reg, %key
-    %out_value = call @sa_map_del(%map_reg, &%key)
+    %out_value = call @sa_map_del(&%map_reg, &%key)
 [END_MACRO]
 
 [MACRO] MAP_FREE %map_reg

@@ -9,6 +9,18 @@ const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
 
+const SA_STD_OK: i32 = 0;
+const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
+const SA_STD_ERR_INVALID_HANDLE: i32 = 2;
+const SA_STD_ERR_NOT_FOUND: i32 = 3;
+const SA_STD_ERR_ACCESS: i32 = 4;
+const SA_STD_ERR_NO_MEMORY: i32 = 5;
+const SA_STD_ERR_IO: i32 = 6;
+const SA_STD_ERR_NET: i32 = 7;
+const SA_STD_ERR_UNSUPPORTED: i32 = 8;
+const SA_STD_ERR_TRUNCATED: i32 = 9;
+const SA_STD_ERR_UNKNOWN: i32 = 127;
+
 pub const RunError = error{
     OutOfMemory,
     InvalidOperand,
@@ -31,6 +43,18 @@ const RegValue = struct {
     const_name: ?[]const u8 = null,
     vtable_slot_name: ?[]const u8 = null,
     call_target_name: ?[]const u8 = null,
+};
+
+const TimeDate = extern struct {
+    unix_ms: i64,
+    unix_ns: i64,
+    year: u16,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+    millisecond: u16,
 };
 
 const SysCallOutcome = union(enum) {
@@ -89,6 +113,11 @@ fn unpackSuccess(value: RegValue) RegValue {
         .vtable_slot_name = value.vtable_slot_name,
         .call_target_name = value.call_target_name,
     };
+}
+
+fn makeFallibleI32(status: i32) RegValue {
+    const status_bits = @as(u64, @intCast(status));
+    return packFallible(@as(u32, @intCast(status)), .{ .ty = .i32, .bits = status_bits });
 }
 
 fn requireNonFallible(value: RegValue) !RegValue {
@@ -348,6 +377,8 @@ const Interpreter = struct {
     stderr: std.io.AnyWriter,
     const_addrs: std.StringHashMap(u64),
     memory: Memory,
+    monotonic_origin: ?std.time.Instant = null,
+    trace_runtime: bool = false,
     exit_code: ?u8 = null,
 
     fn init(
@@ -406,6 +437,8 @@ const Interpreter = struct {
             .stderr = stderr,
             .const_addrs = std.StringHashMap(u64).init(allocator),
             .memory = Memory.init(allocator),
+            .monotonic_origin = null,
+            .trace_runtime = traceRuntime(allocator) catch false,
             .exit_code = null,
         };
         errdefer interp.deinit();
@@ -421,6 +454,15 @@ const Interpreter = struct {
         self.allocator.free(self.argv);
         self.allocator.free(self.ranges);
         self.* = undefined;
+    }
+
+    fn traceRuntime(allocator: std.mem.Allocator) !bool {
+        const value = std.process.getEnvVarOwned(allocator, "SAASM_TRACE_RUNTIME") catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => return false,
+            else => return err,
+        };
+        defer allocator.free(value);
+        return value.len != 0 and !std.mem.eql(u8, value, "0");
     }
 
     fn constPointerValue(self: *Interpreter, id: u32) ?RegValue {
@@ -980,6 +1022,25 @@ const Interpreter = struct {
         return try Interpreter.parseImmediateValue(self.allocator, &self.memory, candidate);
     }
 
+    fn resolveSizeOperand(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), operand: inst.Operand) !u64 {
+        return switch (operand) {
+            .imm_u64 => |v| v,
+            .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+            .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
+            .text => |text| std.fmt.parseInt(u64, std.mem.trim(u8, text, " \t"), 10) catch return RunError.InvalidOperand,
+            .reg => |id| blk: {
+                const value = try readValue(self, regs, id);
+                if (!isIntLike(value.ty)) return RunError.InvalidOperand;
+                if (isSignedInt(value.ty)) {
+                    const signed = intValue(value, true);
+                    break :blk if (signed > 0) @as(u64, @intCast(signed)) else 0;
+                }
+                break :blk @as(u64, @intCast(intValue(value, false)));
+            },
+            else => RunError.InvalidOperand,
+        };
+    }
+
     fn materializeConsts(self: *Interpreter) !void {
         for (self.program.const_decls) |decl| {
             const bytes = try materializeConstValue(self.allocator, decl.value);
@@ -1044,8 +1105,55 @@ const Interpreter = struct {
     }
 
     fn printBytes(self: *Interpreter, ptr: u64, len: usize) !void {
+        if (len == 0) return;
         const slice = try self.memory.sliceAt(ptr, len);
         try self.stdout.writeAll(slice);
+    }
+
+    fn monotonicNowNs(self: *Interpreter) !u64 {
+        const current = try std.time.Instant.now();
+        if (self.monotonic_origin) |origin| {
+            return current.since(origin);
+        }
+        self.monotonic_origin = current;
+        return 0;
+    }
+
+    fn writeUtcNow(self: *Interpreter, ptr: u64) !void {
+        const out = try self.memory.sliceAt(ptr, @sizeOf(TimeDate));
+        @memset(out, 0);
+
+        const unix_ms = std.time.milliTimestamp();
+        const unix_s = @divFloor(unix_ms, std.time.ms_per_s);
+        if (unix_s < 0) return error.Unsupported;
+
+        const unix_ns_raw = std.time.nanoTimestamp();
+        const unix_ns = std.math.cast(i64, unix_ns_raw) orelse return error.Overflow;
+        const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @as(u64, @intCast(unix_s)) };
+        const epoch_day = epoch_seconds.getEpochDay();
+        const year_day = epoch_day.calculateYearDay();
+        const month_day = year_day.calculateMonthDay();
+        const day_seconds = epoch_seconds.getDaySeconds();
+
+        const off_unix_ms = @offsetOf(TimeDate, "unix_ms");
+        const off_unix_ns = @offsetOf(TimeDate, "unix_ns");
+        const off_year = @offsetOf(TimeDate, "year");
+        const off_month = @offsetOf(TimeDate, "month");
+        const off_day = @offsetOf(TimeDate, "day");
+        const off_hour = @offsetOf(TimeDate, "hour");
+        const off_minute = @offsetOf(TimeDate, "minute");
+        const off_second = @offsetOf(TimeDate, "second");
+        const off_millisecond = @offsetOf(TimeDate, "millisecond");
+
+        std.mem.writeInt(u64, @as(*[8]u8, @ptrCast(out[off_unix_ms..].ptr)), @as(u64, @bitCast(unix_ms)), .little);
+        std.mem.writeInt(u64, @as(*[8]u8, @ptrCast(out[off_unix_ns..].ptr)), @as(u64, @bitCast(unix_ns)), .little);
+        std.mem.writeInt(u16, @as(*[2]u8, @ptrCast(out[off_year..].ptr)), year_day.year, .little);
+        out[off_month] = @as(u8, @intFromEnum(month_day.month));
+        out[off_day] = @as(u8, @intCast(month_day.day_index + 1));
+        out[off_hour] = day_seconds.getHoursIntoDay();
+        out[off_minute] = day_seconds.getMinutesIntoHour();
+        out[off_second] = day_seconds.getSecondsIntoMinute();
+        std.mem.writeInt(u16, @as(*[2]u8, @ptrCast(out[off_millisecond..].ptr)), @as(u16, @intCast(@mod(unix_ms, std.time.ms_per_s))), .little);
     }
 
     fn handleSysCall(
@@ -1071,6 +1179,61 @@ const Interpreter = struct {
             if (args.len != 2) return RunError.InvalidOperand;
             try self.printBytes(args[0].bits, @as(usize, @intCast(args[1].bits)));
             return .{ .handled = null };
+        }
+        if (std.mem.eql(u8, name, "sa_std_println")) {
+            if (args.len != 2) return RunError.InvalidOperand;
+            const len = @as(usize, @intCast(args[1].bits));
+            if (len != 0) {
+                const bytes = self.memory.sliceAt(args[0].bits, len) catch |err| switch (err) {
+                    error.InvalidAddress => return .{ .handled = makeFallibleI32(SA_STD_ERR_INVALID_ARGUMENT) },
+                    else => return err,
+                };
+                self.stdout.writeAll(bytes) catch return .{ .handled = makeFallibleI32(SA_STD_ERR_IO) };
+            }
+            self.stdout.writeByte('\n') catch return .{ .handled = makeFallibleI32(SA_STD_ERR_IO) };
+            return .{ .handled = makeFallibleI32(SA_STD_OK) };
+        }
+        if (std.mem.eql(u8, name, "sa_time_instant_ns")) {
+            if (args.len != 0) return RunError.InvalidOperand;
+            return .{ .handled = .{ .ty = .u64, .bits = self.monotonicNowNs() catch 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_time_unix_s")) {
+            if (args.len != 0) return RunError.InvalidOperand;
+            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(std.time.timestamp())) } };
+        }
+        if (std.mem.eql(u8, name, "sa_time_unix_ms")) {
+            if (args.len != 0) return RunError.InvalidOperand;
+            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(std.time.milliTimestamp())) } };
+        }
+        if (std.mem.eql(u8, name, "sa_time_unix_ns")) {
+            if (args.len != 0) return RunError.InvalidOperand;
+            const ts = std.time.nanoTimestamp();
+            const unix_ns = @as(i64, @intCast(ts));
+            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(unix_ns)) } };
+        }
+        if (std.mem.eql(u8, name, "sa_time_utc_now")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            self.writeUtcNow(args[0].bits) catch |err| {
+                const status = switch (err) {
+                    error.InvalidAddress => SA_STD_ERR_INVALID_ARGUMENT,
+                    error.Unsupported => SA_STD_ERR_UNSUPPORTED,
+                    error.Overflow => SA_STD_ERR_INVALID_ARGUMENT,
+                    else => SA_STD_ERR_UNKNOWN,
+                };
+                return .{ .handled = makeFallibleI32(status) };
+            };
+            return .{ .handled = makeFallibleI32(SA_STD_OK) };
+        }
+        if (std.mem.eql(u8, name, "sa_time_sleep_ns")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            std.Thread.sleep(args[0].bits);
+            return .{ .handled = makeFallibleI32(SA_STD_OK) };
+        }
+        if (std.mem.eql(u8, name, "sa_time_sleep_ms")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const ns = std.math.mul(u64, args[0].bits, std.time.ns_per_ms) catch return .{ .handled = makeFallibleI32(SA_STD_ERR_INVALID_ARGUMENT) };
+            std.Thread.sleep(ns);
+            return .{ .handled = makeFallibleI32(SA_STD_OK) };
         }
         if (!std.mem.startsWith(u8, name, "sys_")) return .not_syscall;
 
@@ -1155,17 +1318,14 @@ const Interpreter = struct {
         while (pc < body.len) {
             const item = body[pc];
             const base = item.base;
+            if (self.trace_runtime) {
+                self.stderr.print("trace {s}:{d} {s}: {s}\n", .{ fsig.name, base.source_line, @tagName(base.kind), base.raw_text }) catch {};
+            }
             switch (base.kind) {
                 .label => {},
                 .alloc => {
                     const dst = base.operands[0].reg;
-                    const size = switch (base.operands[1]) {
-                        .imm_u64 => |v| v,
-                        .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                        .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                        .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
-                        else => return RunError.InvalidOperand,
-                    };
+                    const size = try self.resolveSizeOperand(&regs, base.operands[1]);
                     const addr = try self.memory.alloc(@intCast(size));
                     try regs.put(dst, .{ .ty = .ptr, .bits = addr });
                 },
@@ -1187,13 +1347,7 @@ const Interpreter = struct {
                 },
                 .stack_alloc => {
                     const dst = base.operands[0].reg;
-                    const size = switch (base.operands[1]) {
-                        .imm_u64 => |v| v,
-                        .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                        .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-                        .text => |t| std.fmt.parseInt(u64, t, 10) catch return RunError.InvalidOperand,
-                        else => return RunError.InvalidOperand,
-                    };
+                    const size = try self.resolveSizeOperand(&regs, base.operands[1]);
                     const addr = try self.memory.alloc(@intCast(size));
                     try regs.put(dst, .{ .ty = .ptr, .bits = addr });
                     try stack_allocs.append(addr);

@@ -253,17 +253,37 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         },
         .trap => |report| {
             std.debug.print(
-                "hashmap smoke verifier trap: {s} (line={d}, source_line={d}, register={s})\n",
+                "hashmap smoke verifier trap: {s} (line={d}, source_line={d}, function={s}, text={s}, register={s}, expected={s}, actual={s})\n",
                 .{
                     report.message,
                     report.line,
                     report.source_line,
-                    if (report.register) |r| r else "",
+                    std.mem.sliceTo(&report.function_buf, 0),
+                    std.mem.sliceTo(&report.source_text_buf, 0),
+                    if (report.register) |r| r else std.mem.sliceTo(&report.register_buf, 0),
+                    if (report.expected_mask_name) |r| r else "",
+                    if (report.actual_mask_name) |r| r else "",
                 },
             );
             return error.TestUnexpectedResult;
         },
     }
+}
+
+test "sa_std sort helpers are concrete and verifiable" {
+    const sort_src = try readFileAlloc(std.testing.allocator, "sa_std/sort.saasm");
+    defer std.testing.allocator.free(sort_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "[MACRO] QSORT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_swap_bytes"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_partition_bounds"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_qsort_bounds"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_qsort_len"));
+
+    var sort_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sort.saasm", sort_src);
+    defer sort_flat.deinit(std.testing.allocator);
+    try std.testing.expect(sort_flat.instructions.len > 0);
+    try std.testing.expect(sort_flat.function_sigs.len >= 4);
 }
 
 test "std smoke fixture runs through the current compiler surface" {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const common_instruction = @import("../common/instruction.zig");
+const common_signature = @import("../common/signature.zig");
 
 pub const LineKind = enum {
     blank_or_comment,
@@ -163,13 +164,24 @@ fn parseCommaTriple(text: []const u8) ?struct { first: []const u8, second: []con
     return .{ .first = first, .second = second, .third = third };
 }
 
-fn splitTrailingType(text: []const u8) ?struct { body: []const u8, ty: []const u8 } {
+const TypedSuffix = struct { body: []const u8, ty: []const u8 };
+
+fn splitTrailingType(text: []const u8) ?TypedSuffix {
     const trimmed = std.mem.trim(u8, text, " \t");
     const idx = std.mem.lastIndexOf(u8, trimmed, " as ") orelse return null;
     const body = std.mem.trimRight(u8, trimmed[0..idx], " \t");
     const ty = std.mem.trim(u8, trimmed[idx + 4 ..], " \t");
     if (body.len == 0 or ty.len == 0) return null;
     return .{ .body = body, .ty = ty };
+}
+
+fn splitPrimitiveTypedValue(text: []const u8) ?TypedSuffix {
+    const suffix = splitTrailingType(text) orelse return null;
+    if (common_signature.parsePrimType(suffix.ty)) |_| {
+        const body = splitFirstWord(suffix.body);
+        if (body.word.len != 0 and std.mem.trim(u8, body.rest, " \t").len == 0) return suffix;
+    } else |_| {}
+    return null;
 }
 
 pub fn collectNativeRegisterNames(allocator: std.mem.Allocator, text: []const u8) ![]const []const u8 {
@@ -298,8 +310,11 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     const rhs = std.mem.trim(u8, rhs_text, " \t");
     if (lhs.len == 0 or rhs.len == 0) return false;
 
-    if (std.mem.startsWith(u8, rhs, "*")) {
-        const source = std.mem.trim(u8, rhs[1..], " \t");
+    const typed_rhs = splitPrimitiveTypedValue(rhs);
+    const simple_rhs = if (typed_rhs) |typed| typed.body else rhs;
+
+    if (std.mem.startsWith(u8, simple_rhs, "*")) {
+        const source = std.mem.trim(u8, simple_rhs[1..], " \t");
         if (source.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .raw_cast;
@@ -308,8 +323,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "assume_safe")) {
-        const rest = std.mem.trimLeft(u8, rhs["assume_safe".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "assume_safe")) {
+        const rest = std.mem.trimLeft(u8, simple_rhs["assume_safe".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .assume_safe;
@@ -318,8 +333,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "assume_borrow")) {
-        const rest = std.mem.trimLeft(u8, rhs["assume_borrow".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "assume_borrow")) {
+        const rest = std.mem.trimLeft(u8, simple_rhs["assume_borrow".len..], " \t");
         if (rest.len == 0) return false;
         const pair = parseCommaPair(rest);
         line.* = makeLine(.instruction, line.raw, line.trimmed);
@@ -335,8 +350,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "call_indirect")) {
-        const rest = std.mem.trimLeft(u8, rhs["call_indirect".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "call_indirect")) {
+        const rest = std.mem.trimLeft(u8, simple_rhs["call_indirect".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call_indirect;
@@ -345,8 +360,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "ptr_add")) {
-        const rest = std.mem.trimLeft(u8, rhs["ptr_add".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "ptr_add")) {
+        const rest = std.mem.trimLeft(u8, simple_rhs["ptr_add".len..], " \t");
         const pair = parseCommaPair(rest) orelse return false;
         if (pair.left.len == 0 or pair.right.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
@@ -357,8 +372,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "call")) {
-        const rest = std.mem.trimLeft(u8, rhs["call".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "call")) {
+        const rest = std.mem.trimLeft(u8, simple_rhs["call".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call;
@@ -367,8 +382,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "atomic_load")) {
-        const rest = std.mem.trimLeft(u8, rhs["atomic_load".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "atomic_load")) {
+        const rest = std.mem.trimLeft(u8, simple_rhs["atomic_load".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .atomic_load;
@@ -377,24 +392,24 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "cmpxchg")) {
+    if (std.mem.startsWith(u8, simple_rhs, "cmpxchg")) {
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .cmpxchg;
         addPart(line, 0, lhs);
-        addPart(line, 1, rhs);
+        addPart(line, 1, simple_rhs);
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "atomic_rmw_")) {
+    if (std.mem.startsWith(u8, simple_rhs, "atomic_rmw_")) {
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .atomic_rmw;
         addPart(line, 0, lhs);
-        addPart(line, 1, rhs);
+        addPart(line, 1, simple_rhs);
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "?")) {
-        const rest = std.mem.trim(u8, rhs["?".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "?")) {
+        const rest = std.mem.trim(u8, simple_rhs["?".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .try_;
@@ -403,8 +418,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "&")) {
-        const source = std.mem.trim(u8, rhs["&".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "&")) {
+        const source = std.mem.trim(u8, simple_rhs["&".len..], " \t");
         if (source.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .borrow;
@@ -414,8 +429,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "alloc ")) {
-        const size = std.mem.trim(u8, rhs["alloc ".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "alloc ")) {
+        const size = std.mem.trim(u8, simple_rhs["alloc ".len..], " \t");
         if (size.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .alloc;
@@ -424,8 +439,8 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
-    if (std.mem.startsWith(u8, rhs, "stack_alloc ")) {
-        const size = std.mem.trim(u8, rhs["stack_alloc ".len..], " \t");
+    if (std.mem.startsWith(u8, simple_rhs, "stack_alloc ")) {
+        const size = std.mem.trim(u8, simple_rhs["stack_alloc ".len..], " \t");
         if (size.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .stack_alloc;
@@ -520,6 +535,14 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         line.inst_form = .assign;
         addPart(line, 0, lhs);
         addPart(line, 1, op.word);
+        return true;
+    }
+
+    if (typed_rhs) |typed| {
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .assign;
+        addPart(line, 0, lhs);
+        addPart(line, 1, typed.body);
         return true;
     }
 
@@ -824,6 +847,10 @@ test "classify representative line families" {
 
     const assume = classifyLine("safe = assume_safe raw");
     try std.testing.expectEqual(InstructionForm.assume_safe, assume.inst_form.?);
+
+    const typed_assign = classifyLine("map = 0 as ptr");
+    try std.testing.expectEqual(InstructionForm.assign, typed_assign.inst_form.?);
+    try std.testing.expectEqualStrings("0", typed_assign.parts[1]);
 
     const borrow = classifyLine("view = assume_borrow raw, mut");
     try std.testing.expectEqual(InstructionForm.assume_borrow, borrow.inst_form.?);

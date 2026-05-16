@@ -14,12 +14,10 @@ L_ENTRY:
     key_b = 0 as ptr
     value_a = 0 as ptr
     value_b = 0 as ptr
-    got_a_slot = 0 as ptr
-    got_b_slot = 0 as ptr
-    removed_slot = 0 as ptr
-    missing_slot = 0 as ptr
     got_a = 0 as ptr
     got_b = 0 as ptr
+    removed_value = 0 as ptr
+    missing_value = 0 as ptr
     got_a_found = 0 as u64
     got_b_found = 0 as u64
     removed_found = 0 as u64
@@ -34,30 +32,28 @@ L_ENTRY:
     EXPAND MAP_PUT map, key_a, value_a
     EXPAND MAP_PUT map, key_b, value_b
 
-    EXPAND MAP_GET got_a_slot, map, key_a
-    got_a_found = ne got_a_slot, 0
-    br got_a_found -> L_GET_A_OK, L_FAIL
+    EXPAND MAP_GET got_a, map, key_a
+    got_a_found = ne got_a, 0
+    br got_a_found -> L_GET_A_OK, L_FAIL_A
 
 L_GET_A_OK:
-    got_a = load got_a_slot+0 as ptr
     call @sa_print_bytes(&got_a, 6)
 
-    EXPAND MAP_GET got_b_slot, map, key_b
-    got_b_found = ne got_b_slot, 0
-    br got_b_found -> L_GET_B_OK, L_FAIL
+    EXPAND MAP_GET got_b, map, key_b
+    got_b_found = ne got_b, 0
+    br got_b_found -> L_GET_B_OK, L_FAIL_B
 
 L_GET_B_OK:
-    got_b = load got_b_slot+0 as ptr
     call @sa_print_bytes(&got_b, 6)
 
-    EXPAND MAP_DEL removed_slot, map, key_a
-    removed_found = ne removed_slot, 0
-    br removed_found -> L_DEL_OK, L_FAIL
+    EXPAND MAP_DEL removed_value, map, key_a
+    removed_found = ne removed_value, 0
+    br removed_found -> L_DEL_OK, L_FAIL_DEL
 
 L_DEL_OK:
-    EXPAND MAP_GET missing_slot, map, key_a
-    missing_is_null = eq missing_slot, 0
-    br missing_is_null -> L_OK, L_FAIL
+    EXPAND MAP_GET missing_value, map, key_a
+    missing_is_null = eq missing_value, 0
+    br missing_is_null -> L_OK, L_FAIL_MISS
 
 L_OK:
     call @sa_print_bytes(&RESULT_OK, 7)
@@ -68,18 +64,15 @@ L_OK:
     !got_a_found
     !got_b
     !got_a
-    !missing_slot
-    !removed_slot
-    !got_b_slot
-    !got_a_slot
+    !missing_value
+    !removed_value
     !value_b
     !value_a
     !key_b
     !key_a
-    !map
     return 0
 
-L_FAIL:
+L_FAIL_A:
     EXPAND MAP_FREE map
     !missing_is_null
     !removed_found
@@ -87,13 +80,58 @@ L_FAIL:
     !got_a_found
     !got_b
     !got_a
-    !missing_slot
-    !removed_slot
-    !got_b_slot
-    !got_a_slot
+    !missing_value
+    !removed_value
     !value_b
     !value_a
     !key_b
     !key_a
-    !map
+    return 1
+
+L_FAIL_B:
+    EXPAND MAP_FREE map
+    !missing_is_null
+    !removed_found
+    !got_b_found
+    !got_a_found
+    !got_b
+    !got_a
+    !missing_value
+    !removed_value
+    !value_b
+    !value_a
+    !key_b
+    !key_a
+    return 1
+
+L_FAIL_DEL:
+    EXPAND MAP_FREE map
+    !missing_is_null
+    !removed_found
+    !got_b_found
+    !got_a_found
+    !got_b
+    !got_a
+    !missing_value
+    !removed_value
+    !value_b
+    !value_a
+    !key_b
+    !key_a
+    return 1
+
+L_FAIL_MISS:
+    EXPAND MAP_FREE map
+    !missing_is_null
+    !removed_found
+    !got_b_found
+    !got_a_found
+    !got_b
+    !got_a
+    !missing_value
+    !removed_value
+    !value_b
+    !value_a
+    !key_b
+    !key_a
     return 1
