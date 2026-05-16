@@ -1,0 +1,200 @@
+// Bounded MPSC ring buffer built on inline storage and atomic indices.
+// Payloads are raw u64 bits; callers cast at the boundary explicitly.
+@import "mpsc.saasm-layout"
+@import "../core/mem.saasm"
+@import "../time.saasm-iface"
+
+@__mpsc_try_send(&chan: ptr, &value_slot: ptr) -> i32:
+L_ENTRY:
+    cap = atomic_load chan+Mpsc_cap as u64 acquire
+    head = atomic_load chan+Mpsc_head as u64 acquire
+    tail = atomic_load chan+Mpsc_tail as u64 acquire
+    used = sub tail, head
+    full = uge used, cap
+    br full -> L_MPSC_TRY_SEND_FULL, L_MPSC_TRY_SEND_RESERVE
+
+L_MPSC_TRY_SEND_FULL:
+    !full
+    !used
+    !tail
+    !head
+    !cap
+    return 0
+
+L_MPSC_TRY_SEND_RESERVE:
+    next_tail = add tail, 1
+    old_tail, ok = cmpxchg chan+Mpsc_tail, tail, next_tail as u64 acq_rel acquire
+    br ok -> L_MPSC_TRY_SEND_COMMIT, L_MPSC_TRY_SEND_RETRY
+
+L_MPSC_TRY_SEND_RETRY:
+    !old_tail
+    !ok
+    !next_tail
+    !full
+    !used
+    !tail
+    !head
+    !cap
+    return 0
+
+L_MPSC_TRY_SEND_COMMIT:
+    slot_index = urem tail, cap
+    slot_base = ptr_add chan, Mpsc_data
+    slot_off = mul slot_index, Mpsc_SLOT_SIZE
+    slot = ptr_add slot_base, slot_off
+    message = load value_slot+0 as u64
+    store slot+Mpsc_SLOT_value, message as u64
+    atomic_store slot+Mpsc_SLOT_ready, Mpsc_SLOT_READY as u64 release
+    !message
+    !slot
+    !slot_index
+    !slot_off
+    !slot_base
+    !old_tail
+    !ok
+    !next_tail
+    !full
+    !used
+    !tail
+    !head
+    !cap
+    return 1
+
+@__mpsc_try_recv(&chan: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    cap = atomic_load chan+Mpsc_cap as u64 acquire
+    head = atomic_load chan+Mpsc_head as u64 acquire
+    tail = atomic_load chan+Mpsc_tail as u64 acquire
+    empty = eq head, tail
+    br empty -> L_MPSC_TRY_RECV_EMPTY, L_MPSC_TRY_RECV_CHECK
+
+L_MPSC_TRY_RECV_EMPTY:
+    !empty
+    !tail
+    !head
+    !cap
+    return 0
+
+L_MPSC_TRY_RECV_CHECK:
+    slot_index = urem head, cap
+    slot_base = ptr_add chan, Mpsc_data
+    slot_off = mul slot_index, Mpsc_SLOT_SIZE
+    slot = ptr_add slot_base, slot_off
+    ready = atomic_load slot+Mpsc_SLOT_ready as u64 acquire
+    is_ready = eq ready, Mpsc_SLOT_READY
+    br is_ready -> L_MPSC_TRY_RECV_COMMIT, L_MPSC_TRY_RECV_WAIT
+
+L_MPSC_TRY_RECV_WAIT:
+    !is_ready
+    !ready
+    !slot
+    !slot_index
+    !slot_off
+    !slot_base
+    !tail
+    !head
+    !cap
+    return 0
+
+L_MPSC_TRY_RECV_COMMIT:
+    message = load slot+Mpsc_SLOT_value as u64
+    atomic_store slot+Mpsc_SLOT_ready, Mpsc_SLOT_EMPTY as u64 release
+    next_head = add head, 1
+    atomic_store chan+Mpsc_head, next_head as u64 release
+    store out_value_slot+0, message as u64
+    !message
+    !next_head
+    !is_ready
+    !ready
+    !slot
+    !slot_index
+    !slot_off
+    !slot_base
+    !tail
+    !head
+    !cap
+    return 1
+
+[MACRO] MPSC_NEW %out_chan, %cap
+    // Keep the normalization branchless to avoid backend miscompilation
+    // when the cap is a constant and the whole control-flow diamond folds.
+    __mpsc_cap_is_zero_%out_chan = eq %cap, 0
+    __mpsc_cap_%out_chan = add %cap, __mpsc_cap_is_zero_%out_chan
+    __mpsc_data_bytes_%out_chan = mul __mpsc_cap_%out_chan, Mpsc_SLOT_SIZE
+    __mpsc_total_bytes_%out_chan = add Mpsc_data, __mpsc_data_bytes_%out_chan
+    %out_chan = alloc __mpsc_total_bytes_%out_chan
+    call @sa_mem_set(&%out_chan, 0, __mpsc_total_bytes_%out_chan)
+    store %out_chan+Mpsc_cap, __mpsc_cap_%out_chan as u64
+    store %out_chan+Mpsc_head, 0 as u64
+    store %out_chan+Mpsc_tail, 0 as u64
+    !__mpsc_total_bytes_%out_chan
+    !__mpsc_data_bytes_%out_chan
+    !__mpsc_cap_%out_chan
+    !__mpsc_cap_is_zero_%out_chan
+[END_MACRO]
+
+[MACRO] MPSC_FREE %chan
+    !%chan
+[END_MACRO]
+
+[MACRO] MPSC_TRY_SEND %out_ok, %chan, %value
+    __mpsc_value_slot_%out_ok = stack_alloc 8
+    store __mpsc_value_slot_%out_ok+0, %value as u64
+    __mpsc_ok_%out_ok = call @__mpsc_try_send(&%chan, &__mpsc_value_slot_%out_ok)
+    br __mpsc_ok_%out_ok -> L_MPSC_TRY_SEND_OK_%out_ok, L_MPSC_TRY_SEND_FAIL_%out_ok
+L_MPSC_TRY_SEND_OK_%out_ok:
+    %out_ok = __mpsc_ok_%out_ok
+    jmp L_MPSC_TRY_SEND_DONE_%out_ok
+L_MPSC_TRY_SEND_FAIL_%out_ok:
+    %out_ok = __mpsc_ok_%out_ok
+    jmp L_MPSC_TRY_SEND_DONE_%out_ok
+L_MPSC_TRY_SEND_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] MPSC_SEND %chan, %value
+    // Keep the payload slot outside the retry loop so the allocation
+    // stays live across re-entry without creating phi conflicts.
+    __mpsc_value_slot_%value = stack_alloc 8
+    store __mpsc_value_slot_%value+0, %value as u64
+L_MPSC_SEND_ENTRY_%value:
+    __mpsc_send_ok_%value = call @__mpsc_try_send(&%chan, &__mpsc_value_slot_%value)
+    br __mpsc_send_ok_%value -> L_MPSC_SEND_DONE_%value, L_MPSC_SEND_WAIT_%value
+L_MPSC_SEND_WAIT_%value:
+    !__mpsc_send_ok_%value
+    call @sa_time_sleep_ns(1)
+    jmp L_MPSC_SEND_ENTRY_%value
+L_MPSC_SEND_DONE_%value:
+    !%value
+    !__mpsc_send_ok_%value
+[END_MACRO]
+
+[MACRO] MPSC_TRY_RECV %out_ok, %out_value, %chan
+    __mpsc_value_slot_%out_ok = stack_alloc 8
+    __mpsc_ok_%out_ok = call @__mpsc_try_recv(&%chan, &__mpsc_value_slot_%out_ok)
+    br __mpsc_ok_%out_ok -> L_MPSC_TRY_RECV_OK_%out_ok, L_MPSC_TRY_RECV_FAIL_%out_ok
+L_MPSC_TRY_RECV_OK_%out_ok:
+    %out_value = load __mpsc_value_slot_%out_ok+0 as u64
+    %out_ok = __mpsc_ok_%out_ok
+    jmp L_MPSC_TRY_RECV_DONE_%out_ok
+L_MPSC_TRY_RECV_FAIL_%out_ok:
+    %out_value = 0 as u64
+    %out_ok = __mpsc_ok_%out_ok
+    jmp L_MPSC_TRY_RECV_DONE_%out_ok
+L_MPSC_TRY_RECV_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] MPSC_RECV %out_value, %chan
+    // Keep the receive slot outside the retry loop for the same reason:
+    // the loop re-enters the same live allocation on every spin.
+    __mpsc_value_slot_%out_value = stack_alloc 8
+L_MPSC_RECV_ENTRY_%out_value:
+    __mpsc_recv_ok_%out_value = call @__mpsc_try_recv(&%chan, &__mpsc_value_slot_%out_value)
+    br __mpsc_recv_ok_%out_value -> L_MPSC_RECV_DONE_%out_value, L_MPSC_RECV_WAIT_%out_value
+L_MPSC_RECV_WAIT_%out_value:
+    !__mpsc_recv_ok_%out_value
+    call @sa_time_sleep_ns(1)
+    jmp L_MPSC_RECV_ENTRY_%out_value
+L_MPSC_RECV_DONE_%out_value:
+    %out_value = load __mpsc_value_slot_%out_value+0 as u64
+    !__mpsc_recv_ok_%out_value
+[END_MACRO]

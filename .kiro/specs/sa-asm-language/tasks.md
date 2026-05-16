@@ -1089,6 +1089,10 @@ sa/
     - `ONCE_NEW` / `ONCE_IS_READY` / `ONCE_TRY_CLAIM` / `ONCE_WAIT_READY` / `ONCE_PUBLISH` / `ONCE_GET` / `ONCE_GET_OR_INIT`
     - 基于 `atomic_load` + `cmpxchg` + `sa_time_sleep_ns` 的 OnceCell 懒加载与竞态收敛
 
+  - [x] 37.10 `sa_std/sync/mpsc.saasm`：多生产者单消费者通道宏
+    - `MPSC_NEW` / `MPSC_FREE` / `MPSC_TRY_SEND` / `MPSC_SEND` / `MPSC_TRY_RECV` / `MPSC_RECV`
+    - 基于内联环形缓冲区、原子 head/tail 指针和 slot ready 标志的 bounded MPSC 队列
+
 ---
 
 # Version 0.6 — 高可靠性认证（post-v0.5，8-12 周）

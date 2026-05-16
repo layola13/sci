@@ -1,0 +1,11 @@
+#def Mpsc_SIZE = 32
+#def Mpsc_cap = +0
+#def Mpsc_head = +8
+#def Mpsc_tail = +16
+#def Mpsc_data = +32
+
+#def Mpsc_SLOT_SIZE = 16
+#def Mpsc_SLOT_value = +0
+#def Mpsc_SLOT_ready = +8
+#def Mpsc_SLOT_EMPTY = 0
+#def Mpsc_SLOT_READY = 1

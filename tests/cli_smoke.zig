@@ -942,6 +942,14 @@ test "once demo runs through saasm run" {
     try assertRunStdout("demos/support/once_probe.saasm", "once ok\n");
 }
 
+test "mpsc demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/mpsc_probe.saasm", "mpsc ok\n");
+}
+
+test "mpsc demo runs through saasm run" {
+    try assertRunStdout("demos/support/mpsc_probe.saasm", "mpsc ok\n");
+}
+
 test "io demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/io_probe.saasm", "alpha\n5\n");
 }

@@ -298,6 +298,33 @@ test "sa_std once helpers are concrete and verifiable" {
     try std.testing.expectEqual(@as(usize, 9), once_flat.function_sigs.len);
 }
 
+test "sa_std mpsc helpers are concrete and verifiable" {
+    const mpsc_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/mpsc.saasm-layout");
+    defer std.testing.allocator.free(mpsc_layout);
+    try std.testing.expectEqualStrings(
+        "#def Mpsc_SIZE = 32\n#def Mpsc_cap = +0\n#def Mpsc_head = +8\n#def Mpsc_tail = +16\n#def Mpsc_data = +32\n\n#def Mpsc_SLOT_SIZE = 16\n#def Mpsc_SLOT_value = +0\n#def Mpsc_SLOT_ready = +8\n#def Mpsc_SLOT_EMPTY = 0\n#def Mpsc_SLOT_READY = 1\n",
+        mpsc_layout,
+    );
+
+    const mpsc_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/mpsc.saasm");
+    defer std.testing.allocator.free(mpsc_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../time.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_TRY_SEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_SEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_TRY_RECV"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_RECV"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@__mpsc_try_send"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@__mpsc_try_recv"));
+
+    var mpsc_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sync/mpsc.saasm", mpsc_src);
+    defer mpsc_flat.deinit(std.testing.allocator);
+    try std.testing.expect(mpsc_flat.instructions.len > 0);
+    try std.testing.expectEqual(@as(usize, 11), mpsc_flat.function_sigs.len);
+}
+
 test "sa_std async helpers are concrete and verifiable" {
     const async_src = try readFileAlloc(std.testing.allocator, "sa_std/libsa_async.saasm");
     defer std.testing.allocator.free(async_src);

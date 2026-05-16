@@ -14,8 +14,9 @@
    - [x] sa_std/sync/once.saasm (单次初始化)
      - 实现 OnceCell 语义，用于全局单例的懒加载初始化，避免多线程初始化竞态。
      - 提供 ONCE_NEW, ONCE_IS_READY, ONCE_TRY_CLAIM, ONCE_WAIT_READY, ONCE_PUBLISH, ONCE_GET, ONCE_GET_OR_INIT 宏。
-   - [ ] sa_std/sync/mpsc.saasm (通道)
-     - 基于环形缓冲区和原子操作实现多生产者单消费者（MPSC）队列。这是实现高级 Actor 模型和并发任务调度的基石。
+   - [x] sa_std/sync/mpsc.saasm (通道)
+     - 基于内联环形缓冲区 + 原子头尾指针 + ready 标志实现多生产者单消费者（MPSC）队列。
+     - 提供 MPSC_NEW, MPSC_FREE, MPSC_TRY_SEND, MPSC_SEND, MPSC_TRY_RECV, MPSC_RECV 宏。
 
   🟡 优先级 2：高级集合与数据结构 (Priority: Medium-High)
   目前只有 Vec 和 HashMap，缺乏特定场景下的高性能容器。

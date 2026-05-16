@@ -478,7 +478,7 @@ call @thread_spawn(^data)
 | 局限 | 说明 | 缓解 |
 |---|---|---|
 | 无原生 goroutine/async | 并发调度完全交给宿主 | `@extern` 调用 OS/runtime API |
-| 无 channel | 需要手搓或用 FFI | 用 `atomic_rmw_*` + 共享 buffer 实现 |
+| 无原生 channel 关键字 | 需要手搓或用 FFI | 用 `sa_std/sync/mpsc.saasm` + `atomic_rmw_*` + 共享 buffer 实现 |
 | 无 M:N 调度器 | SA 不管线程如何调度 | 宿主（Go runtime / tokio / libuv）负责 |
 | async 膨胀 40x | CPS 转换代码量大 | v0.3 `libsa_async` 宏模板（R26） |
 
