@@ -1165,6 +1165,24 @@ fn intValue(value: RegValue, signed: bool) i128 {
         name: []const u8,
         args: []const RegValue,
     ) !SysCallOutcome {
+        if (std.mem.eql(u8, name, "sa_mem_copy")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const dst_addr = args[0].bits;
+            const src_addr = args[1].bits;
+            const count = @as(usize, @intCast(args[2].bits));
+            if (count == 0) return .{ .handled = null };
+            const src_data = try self.memory.sliceAt(src_addr, count);
+            const dst_data = try self.memory.sliceAt(dst_addr, count);
+            @memcpy(dst_data, src_data);
+            // Also copy PtrMeta for each pointer-sized aligned chunk.
+            const ptr_size = @sizeOf(u64);
+            var off: usize = 0;
+            while (off + ptr_size <= count) : (off += ptr_size) {
+                const meta = self.memory.ptrMetaAt(src_addr + @as(u64, @intCast(off)), ptr_size);
+                try self.memory.writePtrMeta(dst_addr + @as(u64, @intCast(off)), ptr_size, meta);
+            }
+            return .{ .handled = null };
+        }
         if (std.mem.eql(u8, name, "panic")) {
             if (args.len != 1) return RunError.InvalidOperand;
             self.recordPanic(@as(u8, @truncate(args[0].bits)), null);
@@ -1378,12 +1396,20 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     const source_meta = self.memory.ptrMetaAt(addr, @intCast(sig.primTypeBytes(ty)));
                     const block_meta = self.memory.blockMeta(addr);
                     const selected_meta = source_meta orelse block_meta;
+                    const src_mask = item.entry_caps[@intCast(src)];
+                    const src_is_borrowed =
+                        (src_mask & @intFromEnum(cap.CapabilityMask.borrow_view)) != 0 or
+                        (src_mask & @intFromEnum(cap.CapabilityMask.ffi_borrow)) != 0 or
+                        srcv.interior_ptr;
                     try regs.put(dst, .{
                         .ty = loaded.ty,
                         .bits = loaded.bits,
                         .fallible = loaded.fallible,
                         .status = loaded.status,
-                        .interior_ptr = loaded.interior_ptr or (selected_meta != null and selected_meta.?.interior_ptr),
+                        .interior_ptr =
+                            loaded.interior_ptr or
+                            (selected_meta != null and selected_meta.?.interior_ptr) or
+                            (loaded.ty == .ptr and src_is_borrowed),
                         .const_name = if (selected_meta) |m| m.const_name else null,
                         .vtable_slot_name = if (selected_meta) |m| m.vtable_slot_name else null,
                         .call_target_name = if (selected_meta) |m| m.call_target_name else null,
@@ -1405,6 +1431,14 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     const value = try resolveOperandValue(self, &regs, base.operands[2]);
                     const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
+                    // When storing a ptr value into another allocation, mark the
+                    // source register as interior_ptr so that a subsequent `!`
+                    // does not physically free the transferred pointer.
+                    if (ty == .ptr and base.operands[2] == .reg) {
+                        if (regs.getPtr(base.operands[2].reg)) |entry| {
+                            entry.interior_ptr = true;
+                        }
+                    }
                 },
                 .atomic_load => {
                     const dst = base.operands[0].reg;

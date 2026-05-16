@@ -39,14 +39,18 @@ L_VEC_PUSH_COPY_%i:
     copied = eq old_idx, vec_len
     br copied -> L_VEC_PUSH_COPY_DONE_%i, L_VEC_PUSH_COPY_BODY_%i
 L_VEC_PUSH_COPY_BODY_%i:
-    old_src = ptr_add vec_ptr, mul old_idx, %elem_size
-    old_dst = ptr_add next_ptr, mul old_idx, %elem_size
+    old_src_off = mul old_idx, %elem_size
+    old_dst_off = mul old_idx, %elem_size
+    old_src = ptr_add vec_ptr, old_src_off
+    old_dst = ptr_add next_ptr, old_dst_off
     old_value = load old_src+0 as ptr
     store old_dst+0, old_value as ptr
     next_old_idx = add old_idx, 1
     store old_idx_slot+0, next_old_idx as u64
     !old_src
     !old_dst
+    !old_src_off
+    !old_dst_off
     !old_value
     !old_idx
     !copied
@@ -65,7 +69,8 @@ L_VEC_PUSH_COPY_DONE_%i:
     !next_ptr
     jmp L_VEC_PUSH_WRITE_%i
 L_VEC_PUSH_WRITE_%i:
-    write_ptr = ptr_add vec_ptr, mul vec_len, %elem_size
+    write_off = mul vec_len, %elem_size
+    write_ptr = ptr_add vec_ptr, write_off
     store write_ptr+0, %value as ptr
     next_len = add vec_len, 1
     store %vec_reg+Vec_len, next_len as u64
@@ -74,6 +79,7 @@ L_VEC_PUSH_WRITE_%i:
     !vec_cap
     !needs_grow
     !write_ptr
+    !write_off
     !next_len
 [END_MACRO]
 

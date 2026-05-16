@@ -958,6 +958,14 @@ test "hashmap demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/hashmap_probe.saasm", "alpha\nbravo\nmap ok\n");
 }
 
+test "hashset demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/hashset_probe.saasm", "set ok\n");
+}
+
+test "hashset demo runs through saasm run" {
+    try assertRunStdout("demos/support/hashset_probe.saasm", "set ok\n");
+}
+
 test "sort demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/sort_probe.saasm", "sort ok\n");
 }

@@ -610,29 +610,175 @@
 
 ---
 
-### Requirement 31: 包管理与依赖解析 `sa.pkg`（v0.5 — 生态基建）
+### Requirement 31: 零信任包管理 `sa.mod` / `sa.lock` / `sa.sum`（v0.5 — 生态基建）
 
 **User Story**  
-作为 LLM 或人类开发者，当项目规模增长到多文件/多模块时，我需要一种声明式的依赖管理机制，使得"引入别人写的 SA 库"像 `cargo add` / `go get` 一样简单，而不是手动拷贝 `.saasm` 文件。
+作为 LLM 或人类开发者，当项目规模增长到多文件/多模块时，我需要一种**去中心化、绝对确定性、零信任**的依赖管理机制，使得"引入别人写的 SA 库"像 `go get` 一样简单，而不是手动拷贝 `.saasm` 文件，**也不必承担 npm/crates.io 式的供应链投毒、SemVer 求解地狱与黑盒二进制风险**。
+
+> 本需求遵循 **去中心化（URL 即命名空间）**、**绝对哈希钉版（无 SemVer 求解）**、**纯文本源码分发（拒绝预编译二进制）**、**默认零权限**、**零隐式状态** 五条物理级原则。详细设计文档见 [`docs/package_management.md`](../../../docs/package_management.md)。
 
 **Acceptance Criteria**
-1. WHEN 项目根目录存在 `sa.pkg` 文件 THEN CLI SHALL 识别其为包描述文件，格式为：
+1. WHEN 项目根目录存在 `sa.mod` 文件 THEN CLI SHALL 识别其为依赖清单，每条依赖为单行扁平声明，格式为：
    ```
-   #pkg name = "my_app"
-   #pkg version = "0.1.0"
-   #pkg deps = [
-       { name = "sa_std", version = "0.5.0", source = "https://registry.sa-lang.org/sa_std" },
-       { name = "sa_http", version = "0.1.0", source = "./local_libs/sa_http" }
-   ]
+   require <URL> @<ref> sha256:<hash> [grants [<cap>, ...]]
    ```
-2. WHEN `saasm build-exe` / `build-wasm` / `build-obj` 被调用 THEN CLI SHALL 自动解析 `sa.pkg` 中的依赖，按拓扑序编译所有依赖包
-3. WHEN 依赖包被引入 THEN 其 `.saasm-iface` 接口文件 SHALL 被自动注入当前编译单元（等价于 `@import`）
-4. WHEN 依赖包的 `.saasm-layout` 布局文件存在 THEN 其 `#def` 常量 SHALL 被自动注入（带命名空间前缀避免冲突：`pkg_name.FIELD_NAME`）
+   字段：
+   - URL：完整命名空间（如 `github.com/xiaoming/sa-ecs` / `gitlab.corp.local/team/util`）
+   - `@<ref>`：Git tag / branch / commit
+   - `sha256:`：纯文本源码 SHA-256 哈希
+   - `grants`：可选权限白名单，缺省 = `grants []`（绝对零权限）
+2. WHEN `saasm build-exe` / `build-wasm` / `build-obj` 被调用 THEN CLI SHALL 解析 `sa.mod`，按 URL 拓扑序定位 / 拉取依赖，并对每个依赖独立跑 Flattener + Referee + Emitter
+3. WHEN 依赖包内的 `.saasm-iface` 接口文件存在 THEN 其 SHALL 被自动注入当前编译单元（等价于 `@import`）
+4. WHEN 依赖包内的 `.saasm-layout` 布局文件存在 THEN 其 `#def` 常量 SHALL 被自动注入（带命名空间前缀避免冲突：`pkg_url.FIELD_NAME`）
 5. WHEN 两个依赖包声明了同名 `@export` 函数 THEN 链接期 SHALL 报 `Trap: DuplicateExportSymbol`
-6. WHEN 依赖源为远程 URL THEN CLI SHALL 支持 `saasm pkg fetch` 命令下载到本地 `.sa-cache/deps/` 目录
-7. WHEN 依赖源为本地路径 THEN CLI SHALL 直接引用，不做拷贝
-8. WHEN 版本冲突（同一包的两个不同版本被间接依赖）THEN CLI SHALL 报错并要求用户显式选择版本（不做自动 semver 解析——保持确定性）
-9. WHEN LLM 生成代码 THEN 其 SHALL 可以在 `sa.pkg` 中声明依赖，然后在源码中直接使用依赖包的 `@extern` 函数（无需手写 `@import`）
+6. WHEN 拉取源码字节级 SHA-256 与 `sa.mod` 中 `sha256:` 字段不一致 THEN 编译器 SHALL 立刻 `Fatal Error: UpstreamShaMismatch`，**绝不**重新解析或推导
+7. WHEN 同一包的两个不同版本被间接依赖 THEN CLI SHALL 报错并要求用户显式声明（不做自动 semver 求解 —— 保持确定性，杜绝依赖地狱）
+8. WHEN 项目存在 `sa.sum` 文件 THEN CLI SHALL 把全部传递依赖的哈希拍平记录其中；任意子树包源码变化 → 顶层 `sa.sum` 哈希不匹配 → 整棵树物理熔断
+9. WHEN LLM 生成代码 THEN 其 SHALL 可以在 `sa.mod` 中声明依赖，然后在源码中直接使用依赖包的 `@extern` 函数（无需手写 `@import`）
+10. **Non-Goal**：
+    - 不建造 crates.io / npm 式的中心化注册仓库
+    - 不实现任何 SemVer 兼容性 SAT 求解
+    - 不分发预编译二进制（`.so` / `.dll` / `.a` / wheels）
+    - 不引入 `postinstall` 等任何生命周期钩子（`sa fetch` 必须图灵不完备）
+
+### Requirement 31a: 默认局部 + 可选全局缓存（v0.5）
+
+**User Story**  
+作为开发者，我希望默认拉到的依赖位于当前项目目录内（自包含、可断网拷贝部署），但允许我在熟悉风险后通过显式 CLI 参数复用全局缓存以节省磁盘。
+
+**Acceptance Criteria**
+1. WHEN `sa fetch`（无参数）被调用 THEN CLI SHALL 把依赖拉到当前项目根目录的 `sa_vendor/<URL>/`
+2. WHEN `sa fetch -g`（带 `-g` 参数）被调用 THEN CLI SHALL 拉取到全局缓存 `~/.sa/pkg/<URL>@<ref>/`，且以**只读**形式解压
+3. WHEN 编译器解析 `@import` THEN 其 SHALL 严格按以下顺序短路：
+   - 项目级 `./sa_vendor/<URL>/`
+   - 全局缓存 `~/.sa/pkg/<URL>@<ref>/`
+   - 都不存在 → `Trap: PackageNotResolved`
+4. WHEN 多个项目依赖同一全局缓存的库 THEN 编译器 SHALL 通过 `mmap` 内存映射只读读取（同源不复制）
+5. WHEN `sa.mod` 被提交到 Git THEN 其 SHALL **不**记录"开发者用全局还是局部"的偏好（这是 CLI 个人操作自由，团队成员可异构）
+6. WHEN 项目被拷贝到任意机器（包括离线/无管理员权限环境） THEN 只要拷贝带上 `sa_vendor/` + `sa.mod` + `sa.lock`，`sa build --offline` SHALL 完整可用
+7. **Non-Goal**：禁止依赖任何全局配置文件（如 `~/.sa/config.toml`、`~/.sa/mirror.toml`）—— 隐式状态会污染编译可重复性，详见 R31g.4
+
+### Requirement 31b: 哑拉取 + 防投毒四道防火墙（v0.5）
+
+**User Story**  
+作为安全敏感的开发者，我希望包管理器在物理层面就免疫 npm 式投毒（event-stream / colors.js 等灾难），不需要靠运行扫描工具救火。
+
+**Acceptance Criteria**
+1. WHEN `sa fetch <URL>` 被调用 THEN CLI SHALL 仅执行纯 HTTP/Git 文本下载与解压，**不执行**任何来自被拉取包的代码（无 hooks / scripts / postinstall / build.zig / setup.py）
+2. WHEN 任意被拉取的包源码内容字节变更 THEN 其 SHA-256 SHALL 必然变化；编译器据此熔断，杜绝"被覆盖 tag"式的隐式更新（npm 死穴 1：SemVer 自动升级）
+3. WHEN 编译器扫描到 `sa.mod` 中的 URL THEN 其 SHALL 直接对应一个 Git host 物理坐标，**不允许**任何"短名称→注册中心查表"的中间层（解决 npm 死穴 2：typosquatting 抢注）
+4. WHEN 任意依赖包以 `.so` / `.dll` / `.dylib` / `.a` / `.lib` / `.whl` / `.node` 等编译产物形态分发 THEN CLI SHALL 拒绝拉取，报 `Trap: PrecompiledArtifactRejected`（解决 npm 死穴 3：二进制黑盒）
+5. WHEN 项目存在 `sa.sum` 文件且代表全树拍平的哈希 THEN 任意传递依赖（A 依赖 B，B 依赖 C）的字节变化 SHALL 触发顶层哈希失配并物理熔断（防御传递依赖投毒）
+
+### Requirement 31c: 模块级零权限沙箱（v0.5）
+
+**User Story**  
+作为企业安全主管，我需要一个比 Deno `--allow-net` 更精细的权限模型 —— 把权限收敛到**单个第三方包级别**，让主程序拥有网络权也无法让"字符串处理工具包"间接联网。
+
+**Acceptance Criteria**
+1. WHEN `sa.mod` 中某依赖未显式写 `grants [...]` THEN 该依赖 SHALL 被赋予**绝对零权限**（不能调用任何 `@sys_*` 原语）
+2. WHEN `sa.mod` 中某依赖写了 `grants [net_tx]` THEN 该依赖 SHALL **仅**能调用 `@sys_net_tx`，调用列表外原语立刻熔断
+3. WHEN 编译器扫描某依赖包源码 AST 发现 `@sys_*` 调用 THEN 其 SHALL 通过物理路径（如 `sa_vendor/github.com/.../`）反推所属包，与 `sa.mod` 的 `grants` 列表精确匹配
+4. IF 包内 `@sys_*` 调用未被该包的 `grants` 覆盖 THEN 编译器 SHALL 拒绝生成机器码，返回 `Trap: UnauthorizedPrimitive`，并在错误中打印：
+   - 越权原语名（如 `@sys_net_tx`）
+   - 调用所在源码位置（`upstream_loc`）
+   - 当前 `grants` 列表（可能为空）
+5. WHEN 零权限包 A 调用了高权限包 B 的公开函数（间接复用 B 的网络权）THEN 编译器 SHALL 在控制流分析阶段拒绝跨包能力提升，返回 `Trap: NonTransitivePrimitive`
+6. WHEN 标签校验启用 THEN 权限校验 SHALL 与 R32 标签校验互不依赖（独立通路）
+7. **Non-Goal**：进程级 `--allow-net` 风格的全局权限授予（粒度太粗，违反"模块级微沙箱"原则）
+
+### Requirement 31d: AST X 光扫描与安全信用评分（v0.5）
+
+**User Story**  
+作为开发者，我希望在 `sa fetch` 落盘的瞬间就能在终端看到这个包"想要哪些权限"的体检报告，不必再靠 Snyk 这类外部静态扫描工具来事后救火。
+
+**Acceptance Criteria**
+1. WHEN `sa fetch <URL>` 完成源码落盘 THEN CLI SHALL 在几毫秒内（≤ 50ms 单包）跑一次单遍 AST 扫描，搜剿全部 `@sys_*` 原语调用，并打印结构化报告至 stdout
+2. WHEN 报告生成 THEN 其 SHALL 计算"信用分"（Trust Score，0–100）：
+   - 100：无任何 `@sys_*` 调用（Pure Compute）
+   - 80：仅 `@sys_mem_*`
+   - 50：含 `@sys_io_*`（本地文件读写）
+   - 20 及以下：含 `@sys_net_*` 或跨核心绑定
+3. WHEN 报告输出 THEN 其 SHALL 至少包含：
+   - 包 URL + 版本 + 源码 SHA
+   - 全部 `@sys_*` 调用列表 + 每条的 `upstream_loc`
+   - Trust Score 数值与等级（HIGH RISK / MEDIUM / SAFE）
+   - 当前在 `sa.mod` 中的 `grants` 状态
+   - 修复建议（手动添加 `grants [...]` 的字符串模板）
+4. WHEN `sa audit <URL>` 被调用 THEN 其 SHALL 重新跑一次扫描并打印同样格式报告（用于代码审查时引用）
+5. WHEN 报告输出 THEN 其 SHALL 支持 `--format json` 输出结构化 JSON，便于 CI 收集 / GitHub Step Summary 集成
+6. **Non-Goal**：不依赖 LLM / SAT solver，纯静态 AST 词法扫描；不引入"沙箱运行后取行为"等动态分析
+
+### Requirement 31e: 破窗确权 —— 强制人肉审判台（v0.5）
+
+**User Story**  
+作为开发者，我希望在面对低分高危依赖时，工具不要静默通过、也不要粗暴删源码（剥夺我的数字主权），而是通过**极致的交互摩擦**逼我清醒确认 / 主动净化依赖树。
+
+**Acceptance Criteria**
+1. WHEN 编译器在内存中检测到某依赖既包含未授权的 `@sys_*` 原语，又信用分 ≤ 20 THEN 其 SHALL 把该依赖临时标记为 `BLOCKED_RISK`（仅存当前进程内存）并阻塞编译管线
+2. WHEN 阻塞触发 THEN CLI SHALL 在 stdout 打印审判台 banner，包含：
+   - 醒目的 `[SA-CRITICAL WARNING] RISK ACKNOWLEDGMENT REQUIRED` 标题
+   - 完整的越权权限列表（带 `upstream_loc`）
+   - 信用分
+   - 提示输入完整 URL 才能解锁
+3. WHEN CLI 等待输入 THEN 其 SHALL **仅**接受**完整匹配**的 URL 字符串（如 `github.com/hacker/bad-lib`）
+   - 不接受 `y` / `n` / 简写
+   - 不接受任何裁剪或前缀
+4. WHEN `std.os.isatty(stdin) == false` THEN CLI SHALL **拒绝**等待输入，立刻报 `Trap: MissingTtyForConfirmation` 并以非零状态码退出（防止 `yes |` 管道绕过）
+5. WHEN 用户输入完整 URL 通过 THEN 编译器 SHALL **仅在当前进程内存中**标记为已确权，**绝不**写入任何文件（`sa.mod` / `sa.lock` / 全局配置 / 项目本地配置都不允许）
+6. WHEN 进程退出（不论编译成功还是失败） THEN 该确权状态 SHALL 随 allocator 释放在物理内存中彻底蒸发；下次编译必须重新人肉输入
+7. WHEN 任意依赖触发 `BLOCKED_RISK` THEN CLI SHALL 拒绝以 `--yes` / `--auto-approve` 等任何"绕过参数"在 TTY 模式下跳过审判
+8. **Non-Goal**：不允许"永久豁免"（写入 `sa.mod` 会通过 Git 横向传播形成后门）；不允许进程级缓存（违反每次必输的摩擦原则）
+
+### Requirement 31f: 指令级哈希钉版与项目级孤岛（v0.5）
+
+**User Story**  
+作为零信任架构的实践者，我不信任易变的源码（黑客可加几行宏混淆），我只信任**这一刻被本项目编译出来的、那段唯一确定的物理机器码**。
+
+**Acceptance Criteria**
+1. WHEN 开发者通过 R31e 的审判台确认某依赖 THEN 编译器 SHALL 立刻把该依赖单独送入编译管线，生成 SA-ASM 机器码 / WASM 二进制块
+2. WHEN 机器码生成 THEN 编译器 SHALL 计算 SHA-256，并写入**当前项目根**的 `sa.lock`：
+   ```
+   dependency "github.com/hacker/bad-lib" {
+       version: "v1.2.0"
+       source_sha:                "8f4e2d..."
+       approved_machine_code_hash: "a1b2c3..."
+   }
+   ```
+3. WHEN 下次 `sa build` 重新扫描该依赖 THEN 编译器 SHALL 在内存中重新生成机器码，与 `sa.lock` 的 `approved_machine_code_hash` 逐比特比对：
+   - 一致 → 跳过审判台直接放行（增量 AOT 红利）
+   - 不一致 → 视为新风险，重弹审判台
+4. WHEN `sa.lock` 被生成 THEN 其 SHALL **绝对**仅存储于**当前项目根**目录，不允许全局或父目录复用
+5. WHEN 项目编译产物缓存（如 `.samx` / `.o`） THEN 其 SHALL 存储于当前项目的 `.sa_cache/`，**不可**与其他项目共享
+6. WHEN 同一台机器上两个项目都依赖同一高危包 THEN 两个项目的开发者 SHALL **各自**面对一次审判台、**各自**输入 URL、**各自**生成物理隔离的 `sa.lock` 与机器码缓存（信任不跨项目漂移）
+7. WHEN 全平台交叉编译启用（`sa build --all-targets --lock-only`） THEN 编译器 SHALL 在内存中同时推导 `x86_64-linux-musl` / `x86_64-windows-gnu` / `aarch64-macos` / `wasm32-wasi` 等目标的机器码哈希并并行写入 `sa.lock`
+8. **Non-Goal**：禁止全局机器码缓存（信任污染：爬虫项目的网络权机器码 → 钱包项目可能被无声击穿）；禁止跨项目复用 `approved_machine_code_hash`
+
+### Requirement 31g: CI/CD 双轨执行 + 内网/断网模式（v0.5）
+
+**User Story**  
+作为团队 / 企业用户，我希望 SA 既能在本地终端做"严格人肉摩擦"，又能在 GitHub Actions 这种无 TTY 流水线、甚至完全断网的内网 CI 环境里安全自动化。
+
+**Acceptance Criteria**
+1. WHEN 编译器探测到以下任一信号 THEN 其 SHALL 自动进入 CI 模式：
+   - 环境变量 `CI=true` 或 `GITHUB_ACTIONS=true`
+   - `std.os.isatty(stdin) == false`
+   - 显式 flag `sa build --ci`
+2. WHEN CI 模式启用且检测到未审计高危依赖 THEN 其 SHALL 按以下两种策略二选一执行（由 CLI 参数显式选择）：
+   - **冷酷熔断（默认）**：打印权限列表 → 退出码 1 → 流水线爆红
+   - **染色放行**（`--allow-unaudited-risks`）：照常输出二进制，但产物元数据段写入 `TAINTED_UNAUDITED_CODE` 标记，编译日志输出醒目 ASCII 警告 banner，并向 `$GITHUB_STEP_SUMMARY` 写入"高风险资产看板"
+3. WHEN CI 编译每个依赖 THEN 其 SHALL 跑双轨核验：
+   - **第一轨**：依赖中调用的 `@sys_*` 必须被 `sa.mod` 的 `grants` 覆盖（R31c）
+   - **第二轨**：依赖源码字节 SHA == `sa.mod` 中 `sha256:`（R31.6）
+   - 任一不满足 → 拒绝产出机器码，分别报 `Trap: UnauthorizedPrimitive` / `Trap: UpstreamShaMismatch`
+4. WHEN `sa build --offline` 被调用 THEN 编译器 SHALL **完全切断**网络模块，仅读硬盘 `sa_vendor/`，与 `sa.lock` / `sa.sum` 做物理比对；任何尝试发起网络请求 SHALL 被立即拦截
+5. WHEN 内网部署需要 URL 镜像劫持 THEN 编译器 SHALL **仅**支持以下两种来源（按优先级）：
+   - 进程级环境变量 `SA_MIRROR_<HOST_UPPER>`（如 `SA_MIRROR_GITHUB_COM=gitlab.corp.local/mirror`）
+   - 项目本地 `.sa_env` 文件 或 `sa.mod` 内的 `[mirrors]` 块
+6. WHEN 编译器探测到任何全局配置文件（如 `~/.sa/mirror.toml` / `~/.sa/config.toml` / `/etc/sa/*.toml`） THEN 其 SHALL 报 `Trap: ForbiddenGlobalConfig` 并拒绝启动
+7. WHEN 染色产物被 Referee runtime 加载 THEN 其 SHALL 在 `main()` 入口前向 stderr 强行打印三行红字 `TAINTED` 警告（无法被 `--release` 移除）
+8. WHEN 全平台 CI 矩阵启动（Ubuntu / Windows / macOS Runner 并发） THEN 三平台的 SA 编译器 SHALL 各自计算源码 SHA 与 `sa.mod` 比对（信任锚点是平台无关的源码哈希，机器码哈希仅当 `--lock-only` 时才被本地铸造）
+9. **Non-Goal**：CI 模式下不引入 TTY 模拟器（任何"伪交互"都是后门）；不强制要求 GPG/SSH 签名（保留至 v0.6+ 可选模式以兼顾门槛）
 
 ### Requirement 32: 布局标签校验（v0.5 — 可选类型安全增强）
 

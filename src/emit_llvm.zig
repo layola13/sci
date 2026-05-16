@@ -1324,7 +1324,7 @@ fn emitUserFunctionsParallel(
         allocator.free(jobs);
     }
     for (jobs) |*job| {
-        job.* = .{ .arena = std.heap.ArenaAllocator.init(allocator) };
+        job.* = .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
     }
 
     if (worker_count > 1) {

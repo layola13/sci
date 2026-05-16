@@ -1,0 +1,73 @@
+@import "hashset.saasm-layout"
+@import "hashmap.saasm"
+
+@const HASHSET_SENTINEL = utf8:"hashset"
+
+@export sa_set_new() -> ^ptr:
+L_ENTRY:
+    set = call @sa_map_new()
+    return set
+
+@export sa_set_free(^set: ptr) -> void:
+L_ENTRY:
+    call @sa_map_free(^set)
+    return
+
+@export sa_set_insert(&set: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    len_before = load set+HashSet_len as u64
+    sentinel = &HASHSET_SENTINEL
+    call @sa_map_put(&set, &key, &sentinel)
+    len_after = load set+HashSet_len as u64
+    is_new = ne len_after, len_before
+    result = is_new as i32
+    !sentinel
+    !len_after
+    !len_before
+    !key
+    !set
+    return result
+
+@export sa_set_contains(&set: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    existing = call @sa_map_get(&set, &key)
+    found = ne existing, 0
+    result = found as i32
+    !existing
+    !key
+    !set
+    return result
+
+@export sa_set_remove(&set: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    len_before = load set+HashSet_len as u64
+    removed = call @sa_map_del(&set, &key)
+    len_after = load set+HashSet_len as u64
+    is_found = ne len_after, len_before
+    result = is_found as i32
+    !removed
+    !len_after
+    !len_before
+    !key
+    !set
+    return result
+
+[MACRO] SET_NEW %out_set
+    %out_set = call @sa_set_new()
+[END_MACRO]
+
+[MACRO] SET_INSERT %out_ok, %set_reg, %key
+    %out_ok = call @sa_set_insert(&%set_reg, &%key)
+[END_MACRO]
+
+[MACRO] SET_CONTAINS %out_ok, %set_reg, %key
+    %out_ok = call @sa_set_contains(&%set_reg, &%key)
+[END_MACRO]
+
+[MACRO] SET_REMOVE %out_ok, %set_reg, %key
+    %out_ok = call @sa_set_remove(&%set_reg, &%key)
+[END_MACRO]
+
+[MACRO] SET_FREE %set_reg
+    call @sa_set_free(^%set_reg)
+[END_MACRO]

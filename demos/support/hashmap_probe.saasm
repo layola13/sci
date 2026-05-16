@@ -53,85 +53,36 @@ L_GET_B_OK:
 L_DEL_OK:
     EXPAND MAP_GET missing_value, map, key_a
     missing_is_null = eq missing_value, 0
+    !got_a
+    !got_b
+    !removed_value
+    !missing_value
+    !got_a_found
+    !got_b_found
+    !removed_found
+    !value_a
+    !value_b
+    !key_a
+    !key_b
     br missing_is_null -> L_OK, L_FAIL_MISS
 
 L_OK:
     call @sa_print_bytes(&RESULT_OK, 7)
     EXPAND MAP_FREE map
-    !missing_is_null
-    !removed_found
-    !got_b_found
-    !got_a_found
-    !got_b
-    !got_a
-    !missing_value
-    !removed_value
-    !value_b
-    !value_a
-    !key_b
-    !key_a
     return 0
 
 L_FAIL_A:
     EXPAND MAP_FREE map
-    !missing_is_null
-    !removed_found
-    !got_b_found
-    !got_a_found
-    !got_b
-    !got_a
-    !missing_value
-    !removed_value
-    !value_b
-    !value_a
-    !key_b
-    !key_a
     return 1
 
 L_FAIL_B:
     EXPAND MAP_FREE map
-    !missing_is_null
-    !removed_found
-    !got_b_found
-    !got_a_found
-    !got_b
-    !got_a
-    !missing_value
-    !removed_value
-    !value_b
-    !value_a
-    !key_b
-    !key_a
     return 1
 
 L_FAIL_DEL:
     EXPAND MAP_FREE map
-    !missing_is_null
-    !removed_found
-    !got_b_found
-    !got_a_found
-    !got_b
-    !got_a
-    !missing_value
-    !removed_value
-    !value_b
-    !value_a
-    !key_b
-    !key_a
     return 1
 
 L_FAIL_MISS:
     EXPAND MAP_FREE map
-    !missing_is_null
-    !removed_found
-    !got_b_found
-    !got_a_found
-    !got_b
-    !got_a
-    !missing_value
-    !removed_value
-    !value_b
-    !value_a
-    !key_b
-    !key_a
     return 1

@@ -583,6 +583,70 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     }
 }
 
+test "sa_std hashset helpers are concrete and verifiable" {
+    const hashset_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashset.saasm-layout");
+    defer std.testing.allocator.free(hashset_layout);
+    try std.testing.expectEqualStrings(
+        "#def HashSet_SIZE = 32\n#def HashSet_slots = +0\n#def HashSet_cap = +8\n#def HashSet_len = +16\n#def HashSet_tombs = +24\n\n#def HashSetSlot_SIZE = 32\n#def HashSetSlot_hash = +0\n#def HashSetSlot_key = +8\n#def HashSetSlot_value = +16\n#def HashSetSlot_state = +24\n\n#def HashSet_INITIAL_CAP = 8\n#def HashSet_STATE_EMPTY = 0\n#def HashSet_STATE_FILLED = 1\n#def HashSet_STATE_TOMB = 2\n\n#def HashSet_VALUE_SENTINEL = 1\n",
+        hashset_layout,
+    );
+
+    const collections_hashset = try readFileAlloc(std.testing.allocator, "sa_std/collections/hashset.saasm");
+    defer std.testing.allocator.free(collections_hashset);
+    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashset, 1, "@import \"../hashset.saasm\""));
+
+    const hashset_src = try readFileAlloc(std.testing.allocator, "sa_std/hashset.saasm");
+    defer std.testing.allocator.free(hashset_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashset.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashmap.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_insert"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_contains"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_remove"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_INSERT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_CONTAINS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_REMOVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_FREE"));
+
+    var hashset_error_ctx = saasm.flattener.ErrorContext{};
+    var hashset_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/hashset.saasm", hashset_src, &hashset_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&hashset_error_ctx) orelse 0;
+        std.debug.print("hashset flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer hashset_flat.deinit(std.testing.allocator);
+    try std.testing.expect(hashset_flat.instructions.len > 0);
+    try std.testing.expect(hashset_flat.function_sigs.len >= 14);
+
+    const hashset_verified = try saasm.referee.verify(std.testing.allocator, hashset_flat.instructions, hashset_flat.const_decls);
+    switch (hashset_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 14);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print(
+                "hashset smoke verifier trap: {s} (line={d}, source_line={d}, function={s}, text={s}, register={s}, expected={s}, actual={s})\n",
+                .{
+                    report.message,
+                    report.line,
+                    report.source_line,
+                    std.mem.sliceTo(&report.function_buf, 0),
+                    std.mem.sliceTo(&report.source_text_buf, 0),
+                    if (report.register) |r| r else std.mem.sliceTo(&report.register_buf, 0),
+                    if (report.expected_mask_name) |r| r else "",
+                    if (report.actual_mask_name) |r| r else "",
+                },
+            );
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
 test "sa_std sort helpers are concrete and verifiable" {
     const sort_src = try readFileAlloc(std.testing.allocator, "sa_std/sort.saasm");
     defer std.testing.allocator.free(sort_src);

@@ -207,6 +207,16 @@ const InteriorContext = struct {
 
 threadlocal var interior_ctx: ?InteriorContext = null;
 
+const LabelSnapshot = struct {
+    state: []u16,
+    origins: []?u32,
+    locks: []u16,
+    flags: []u8,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+};
+
 fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
 }
@@ -519,6 +529,57 @@ fn mergeJoinStates(dst: []u16, src: []const u16) bool {
     return true;
 }
 
+fn duplicateLabelSnapshot(
+    allocator: std.mem.Allocator,
+    state: []const u16,
+    origins: []const ?u32,
+    locks: []const u16,
+    flags: []const u8,
+    interior_parent: []const ?u32,
+    interior_first_child: []const ?u32,
+    interior_next_sibling: []const ?u32,
+) !LabelSnapshot {
+    return .{
+        .state = try allocator.dupe(u16, state),
+        .origins = try allocator.dupe(?u32, origins),
+        .locks = try allocator.dupe(u16, locks),
+        .flags = try allocator.dupe(u8, flags),
+        .interior_parent = try allocator.dupe(?u32, interior_parent),
+        .interior_first_child = try allocator.dupe(?u32, interior_first_child),
+        .interior_next_sibling = try allocator.dupe(?u32, interior_next_sibling),
+    };
+}
+
+fn restoreLabelSnapshot(
+    snapshot: *const LabelSnapshot,
+    state: []u16,
+    origins: []?u32,
+    locks: []u16,
+    flags: []u8,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
+) void {
+    @memcpy(state, snapshot.state);
+    @memcpy(origins, snapshot.origins);
+    @memcpy(locks, snapshot.locks);
+    @memcpy(flags, snapshot.flags);
+    @memcpy(interior_parent, snapshot.interior_parent);
+    @memcpy(interior_first_child, snapshot.interior_first_child);
+    @memcpy(interior_next_sibling, snapshot.interior_next_sibling);
+}
+
+fn freeLabelSnapshot(allocator: std.mem.Allocator, snapshot: *LabelSnapshot) void {
+    allocator.free(snapshot.state);
+    allocator.free(snapshot.origins);
+    allocator.free(snapshot.locks);
+    allocator.free(snapshot.flags);
+    allocator.free(snapshot.interior_parent);
+    allocator.free(snapshot.interior_first_child);
+    allocator.free(snapshot.interior_next_sibling);
+    snapshot.* = undefined;
+}
+
 fn callConsumesByValueArg(callee: []const u8) bool {
     return std.mem.eql(u8, callee, "pthread_drop") or
         std.mem.eql(u8, callee, "fd_close") or
@@ -569,6 +630,7 @@ fn detachInteriorChild(
     interior_next_sibling: []?u32,
     child_id: u32,
 ) void {
+    _ = state;
     const child_idx: usize = @intCast(child_id);
     if (interior_parent[child_idx]) |parent_id| {
         const parent_idx: usize = @intCast(parent_id);
@@ -590,7 +652,6 @@ fn detachInteriorChild(
     }
     interior_parent[child_idx] = null;
     interior_next_sibling[child_idx] = null;
-    _ = state;
 }
 
 fn attachInteriorChild(
@@ -1319,22 +1380,28 @@ fn markBranchCondition(flags: []u8, id: u32) void {
 
 fn updateLabel(
     item: inst.Instruction,
-    labels: *std.AutoHashMap(u32, []u16),
+    labels: *std.AutoHashMap(u32, LabelSnapshot),
     state: []u16,
+    origins: []?u32,
+    locks: []u16,
+    flags: []u8,
+    interior_parent: []?u32,
+    interior_first_child: []?u32,
+    interior_next_sibling: []?u32,
     allocator: std.mem.Allocator,
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
 ) ?VerifyBodyResult {
     const label_id = item.operands[1].label;
     if (labels.getPtr(label_id)) |entry| {
-        @memcpy(state, entry.*);
+        restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling);
         return null;
     }
-    const dup = allocator.dupe(u16, state) catch {
+    var dup = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     labels.put(label_id, dup) catch {
-        allocator.free(dup);
+        freeLabelSnapshot(allocator, &dup);
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     return null;
@@ -1358,9 +1425,9 @@ fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(Annotat
     annotated.deinit();
 }
 
-fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, []u16)) void {
+fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, LabelSnapshot)) void {
     var it = labels.iterator();
-    while (it.next()) |entry| allocator.free(entry.value_ptr.*);
+    while (it.next()) |entry| freeLabelSnapshot(allocator, entry.value_ptr);
     labels.clearRetainingCapacity();
 }
 
@@ -1407,10 +1474,10 @@ fn verifyBody(
     var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
     defer atomic_history.deinit();
 
-    var labels = std.AutoHashMap(u32, []u16).init(allocator);
+    var labels = std.AutoHashMap(u32, LabelSnapshot).init(allocator);
     defer {
         var it = labels.iterator();
-        while (it.next()) |entry| allocator.free(entry.value_ptr.*);
+        while (it.next()) |entry| freeLabelSnapshot(allocator, entry.value_ptr);
         labels.deinit();
     }
     var defined_labels = std.AutoHashMap(u32, void).init(allocator);
@@ -1514,7 +1581,7 @@ fn verifyBody(
             if (defined_labels.contains(item.operands[1].label)) {
                 return trapReport(.duplicate_label, item, current_function_text, current_is_ffi_wrapper, null, null, null, "label is already defined", "rename the label or merge the blocks");
             }
-            if (updateLabel(item, &labels, state, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
+            if (updateLabel(item, &labels, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
                 return tr;
             }
             defined_labels.put(item.operands[1].label, {}) catch {
@@ -1572,16 +1639,18 @@ fn verifyBody(
             },
             .load, .take => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
-                const src_idx: usize = @intCast(item.operands[1].reg);
-                const src_mask = state[src_idx];
                 const loaded_ty: sig.PrimType = if (item.operands[3] == .ty) blk: {
                     break :blk sig.primTypeFromTag(item.operands[3].ty) orelse if (item.kind == .take) .ptr else .i64;
                 } else if (item.kind == .take) .ptr else .i64;
-                const source_is_interior = (src_mask & maskOf(.interior_ptr)) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg);
-                const new_mask = maskOf(.active) | if (item.kind == .take or (loaded_ty == .ptr and source_is_interior)) maskOf(.interior_ptr) else 0;
+                const source_idx: usize = @intCast(item.operands[1].reg);
+                const source_mask = state[source_idx];
+                const load_is_borrowed_ptr =
+                    loaded_ty == .ptr and
+                    ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow))) != 0);
+                const new_mask = maskOf(.active) | if (load_is_borrowed_ptr) maskOf(.interior_ptr) else 0;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, new_mask)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = if (item.kind == .load and loaded_ty != .ptr) regFlagEphemeralScalar else 0;
-                if (item.kind == .take or (loaded_ty == .ptr and source_is_interior)) {
+                if (item.kind == .take and ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg))) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
                 }
             },
@@ -1780,18 +1849,22 @@ fn verifyBody(
                 if (defined_labels.contains(target)) has_unbounded_loop = true;
                 if (labels.getPtr(target)) |entry| {
                     if (defined_labels.contains(target)) {
-                        if (!statesCompatibleForJoin(entry.*, state)) {
-                            const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                        if (!statesCompatibleForJoin(entry.state, state)) {
+                            const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
                             return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     } else {
-                        if (!mergeJoinStates(entry.*, state)) {
-                            const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                        if (!mergeJoinStates(entry.state, state)) {
+                            const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
                             return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     }
                 } else {
-                    labels.put(target, try allocator.dupe(u16, state)) catch {
+                    var snapshot = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                    };
+                    labels.put(target, snapshot) catch {
+                        freeLabelSnapshot(allocator, &snapshot);
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                 }
@@ -1803,18 +1876,22 @@ fn verifyBody(
                 for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
                         if (defined_labels.contains(target)) {
-                            if (!statesCompatibleForJoin(entry.*, state)) {
-                                const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                            if (!statesCompatibleForJoin(entry.state, state)) {
+                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         } else {
-                            if (!mergeJoinStates(entry.*, state)) {
-                                const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                            if (!mergeJoinStates(entry.state, state)) {
+                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         }
                     } else {
-                        labels.put(target, try allocator.dupe(u16, state)) catch {
+                        var snapshot = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                        };
+                        labels.put(target, snapshot) catch {
+                            freeLabelSnapshot(allocator, &snapshot);
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                     }
@@ -1828,18 +1905,22 @@ fn verifyBody(
                 for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
                         if (defined_labels.contains(target)) {
-                            if (!statesCompatibleForJoin(entry.*, state)) {
-                                const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                            if (!statesCompatibleForJoin(entry.state, state)) {
+                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         } else {
-                            if (!mergeJoinStates(entry.*, state)) {
-                                const mismatch = firstStateMismatch(entry.*, state, &metadata.symbols);
+                            if (!mergeJoinStates(entry.state, state)) {
+                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         }
                     } else {
-                        labels.put(target, try allocator.dupe(u16, state)) catch {
+                        var snapshot = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                        };
+                        labels.put(target, snapshot) catch {
+                            freeLabelSnapshot(allocator, &snapshot);
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                     }
@@ -2245,7 +2326,7 @@ fn verifyParallel(
 
     const jobs = try allocator.alloc(ParallelVerifyJob, chunks.len);
     for (jobs) |*job| {
-        job.* = .{ .arena = std.heap.ArenaAllocator.init(allocator) };
+        job.* = .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
     }
     defer {
         for (jobs) |*job| job.deinit();

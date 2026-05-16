@@ -1066,6 +1066,13 @@ sa/
     - 开放寻址法 + FNV-1a 哈希
     - `MAP_NEW` / `MAP_PUT` / `MAP_GET` / `MAP_DEL` / `MAP_FREE`
 
+  - [x] 37.3a `sa_std/hashset.saasm`：哈希集合宏
+    - 基于现有 `sa_std/hashmap.saasm` 封装，值使用非零哨兵
+    - `SET_NEW` / `SET_INSERT` / `SET_CONTAINS` / `SET_REMOVE` / `SET_FREE`
+
+  - [x] 37.3b `sa_std/collections/hashset.saasm`：集合命名空间入口
+    - 仅透出 `../hashset.saasm` 作为薄包装
+
   - [x] 37.4 `sa_std/sort.saasm`：排序宏
     - 快速排序（`[MACRO] QSORT %arr, %len, %elem_size, %cmp_fn`）
 
