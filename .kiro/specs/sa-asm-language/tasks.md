@@ -838,21 +838,21 @@ sa/
     - 外部传入的裸指针 VTable 不做签名校验（Referee 无法获知外部签名）
     - _Requirements: R25.4_
 
-- [ ] 29. `libsa_async` 异步状态机宏模板（R26）
+- [x] 29. `libsa_async` 异步状态机宏模板（R26）
 
-  - [ ] 29.1 编写 `libsa_async.saasm` 宏文件
+  - [x] 29.1 编写 `libsa_async.saasm` 宏文件
     - 包含 `ASYNC_CTX_DEF` / `ASYNC_POLL_PROLOGUE` / `ASYNC_AWAIT_POINT` / `ASYNC_RETURN_PENDING` 四个标准宏
     - _Requirements: R26.1, R26.3_
 
-  - [ ] 29.2 Flattener 文件拼接机制（`@import "libsa_async.saasm"`）
+  - [x] 29.2 Flattener 文件拼接机制（`@import "libsa_async.saasm"`）
     - 在预处理阶段把外部 `.saasm` 文件内容原样插入当前源码
     - _Requirements: R26.4_
 
-  - [ ] 29.3 用 `libsa_async` 重写案例 23 的 demo
+  - [x] 29.3 用 `libsa_async` 重写案例 23 的 demo
     - 验证展开后与手写等价
     - _Requirements: R26.2, R26.5_
 
-  - [ ]* 29.4 宏展开等价性 Property 测试 — **P32 (NEW)**
+  - [x] 29.4 宏展开等价性 Property 测试 — **P32 (NEW)**
     - 对比手写 120 行 SA 与 `EXPAND ASYNC_AWAIT_POINT ...` 展开后的 `Instruction[]`
     - 断言字段级相等
     - 最少 100 次

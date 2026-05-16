@@ -1,195 +1,149 @@
-评估目前 sa_std 与 Rust std 的对比情况，sa_std 已经建立了一个功能性骨架，但在高级抽象和集合类上仍有显著差距。
+基于对 tasks.md、docs/std_rfc.md 以及当前 sa_std/ 源码目录的深度挖掘，目前 v0.5
+  阶段的基础集合和时间模块虽然已经建立，但距离一个完备的、能让 LLM 高效产出复杂业务逻辑的“标准库”还有不少空白。
 
-  1. 已支持的核心模块 (Facade 模式)
-  sa_std 目前采用的是 Zig-backed Facade 架构，即底层由 Zig 实现，上游通过 .saasm-iface 暴露 C-ABI 契约。
-
-   * fs (文件系统): 支持基本的 Open/Read/Write/Close/Seek/Metadata。对比 Rust std::fs 基本功能对齐，但缺乏 BufReader/BufWriter 等缓冲层。
-   * net (网络): 已有 TcpListener 和 TcpStream 的接口声明，支持基本的 Socket 操作。
-   * process (进程): 支持 spawn, run, argv 处理，功能接近 Rust std::process。
-   * term (终端): 这是一个特色模块，提供了 Rust std 并不直接提供（通常需第三方库）的 Raw Mode, Winsize 和 epoll 事件循环集成，这使得 SA-ASM
-     编写高性能 TUI 更有优势。
-   * fmt (格式化): 提供了 i64, u64, f64, bool 的基础格式化，以及 sa_fmt_buffer 这种手动缓冲区管理。
-   * vec / string: 已经通过宏实现了基础的动态数组（Push/Get/Len/Free）和 UTF-8 字节序列管理。
-
-  2. 对比 Rust std 显著缺失的部分
-
-  ┌───────────┬───────────────────────────────┬───────────────────────────┬──────────────────────────────────────────────────────────────────┐
-  │ 缺失领域  │ Rust 对应特性                 │ SA-ASM 现状               │ 影响评估                                                         │
-  ├───────────┼───────────────────────────────┼───────────────────────────┼──────────────────────────────────────────────────────────────────┤
-  │ 高级集合  │ HashMap, HashSet, BTreeMap    │ 完全缺失 (Task 37.3 待办) │ 最高优先级缺口。目前只能靠数组线性查找，无法处理大规模 KV 索引。 │
-  │ 同步原语  │ Mutex, RwLock, Condvar        │ 只有 atomic_* 原子原语    │ 无法方便地在 SA 层手搓复杂的线程同步逻辑。                       │
-  │ 智能指针  │ Arc, Rc, Box, RefCell         │ 仅有手动 alloc/!reg       │ 缺乏引用计数和运行时借用检查，复杂图结构的内存管理成本极高。     │
-  │ 时间/日期 │ Duration, Instant, SystemTime │ 完全缺失                  │ 无法进行超时控制、性能分析或获取当前时间。                       │
-  │ 路径处理  │ Path, PathBuf                 │ 仅有裸字符串指针          │ 缺乏跨平台的路径拼接、父目录查询等语义操作。                     │
-  │ 迭代器    │ Iterator (map/filter/fold)    │ 只有基础循环宏            │ 导致集合处理代码冗长，LLM 生成时的逻辑复杂度较高。               │
-  │ 缓冲 IO   │ BufReader, BufWriter          │ 直接系统调用              │ 在小碎步读写场景下性能较差。                                     │
-  └───────────┴───────────────────────────────┴───────────────────────────┴──────────────────────────────────────────────────────────────────┘
-
-  3. 真实评估与下一步建议
-
-  目前的 sa_std 已经能支撑“系统级”开发（如写编译器、写 CLI 工具、写基础网络服务），因为它已经打通了 OS 边界（FS, Net, Process, Epoll）。
-
-  下一步该补什么？
-   1. HashMap (优先级 🔴 最高): 这是从“工具级”语言向“应用级”语言跨越的标志，也是 tasks.md 中 v0.5 的核心。
-   2. sa_std/time (优先级 🟡 高): 现代应用不可或缺的计时能力。
-▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
- > 不够详细，好像还有很多                                                                                                                            
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-✦ 深入对比 Rust std 库，sa_std 目前的完成度大约只有 15% -
-  20%。它目前仅仅解决了“让程序能动起来”的最低限度需求，在工业级开发的便利性和鲁棒性上缺失了大量关键组件。
-
-  以下是极其详细的对比清单，标注了 SA-ASM 缺失的“大板块”：
-
-  1. 集合与数据结构 (Rust std::collections) —— 重灾区
-  Rust 拥有丰富的内存布局优化的集合，而 SA-ASM 几乎全是空白。
-
-   * 缺失 HashMap/HashSet：目前没有哈希表实现，这意味着所有的 KV 查询、去重逻辑在 SA-ASM 里只能靠 O(N) 的数组遍历，或者你自己手搓红黑树。
-   * 缺失 VecDeque：没有双端队列，无法高效实现 O(1) 的首尾收缩（FIFO 队列）。
-   * 缺失 BTreeMap/BTreeSet：没有有序映射，无法进行范围查询。
-   * 缺失 BinaryHeap：没有优先队列，无法实现高效的任务调度或 Dijkstra 等算法。
-   * 缺失 LinkedList：虽然 SA 指针能做，但标准库没提供任何宏封装。
-
-  2. 并发与同步 (Rust std::sync / std::thread)
-  SA-ASM 虽然在 ISA 层面有原子指令，但标准库没有提供任何“易用性”封装。
-
-   * 缺失 Thread 抽象：Rust 有 std::thread::spawn，SA 目前只能通过 @extern 直接调 pthread（见 Demo 184），标准库内没有跨平台的线程句柄管理。
-   * 缺失 Mutex/RwLock 宏：没有标准的锁协议。开发者必须自己用 cmpxchg 手搓自旋锁，极易出错且不具备可组合性。
-   * 缺失 Channel (mpsc/mpmc)：没有标准信道，线程间通信完全靠手动内存共享，极易发生所有权冲突（Referee 会拦截，但你写起来很痛苦）。
-   * 缺失 Once / OnceCell：没有单次初始化保证，全局静态变量的初始化非常危险。
-
-  3. 时间与日期 (Rust std::time) —— 完全缺失
-   * 缺失 Instant / SystemTime：你无法获取当前系统时间，无法计算函数执行时长，无法实现 sleep(ms)。
-   * 缺失 Duration：没有时间段的算术运算（如 5秒 + 500毫秒）。
-
-  4. 高级 IO 与路径 (Rust std::io / std::fs / std::path)
-   * 缺失 BufReader / BufWriter：目前 sa_std/fs 是裸的系统调用。如果你一行一行读 1GB 的文件，会因为系统调用太频繁而慢得离谱。
-   * 缺失 Path / PathBuf：没有路径拼接（如 dir + file）、没有获取扩展名、没有跨平台路径分隔符处理（/ vs \）。
-   * 缺失 Cursor：无法将一段内存内存块当作 Read/Write 流来处理。
-
-  5. 错误处理与诊断 (Rust std::error / std::panic)
-   * 缺失 Error Trait 体系：Rust 有 dyn Error 可以向下转型（downcast），SA 只有硬编码的 u32 错误码或简单的结构体，缺乏错误上下文（Backtrace）追踪。
-   * 缺失 Panic Hook：无法自定义崩溃时的行为（例如在崩溃前保存日志或清理终端状态）。
-
-  6. 数学与数值处理 (Rust std::num / std::f64)
-   * 缺失 Libm 库集成：ISA 只有加减乘除。标准库目前没有 sqrt, sin, cos, log, pow, abs, ceil, floor 等函数。你需要通过 FFI 链接 C 语言的 math.h。
-   * 缺失 128 位整数支持：虽然底层支持 v128，但标准库没提供 i128 的算术宏。
-
-  7. 环境变量与网络高级特性 (Rust std::env / std::net)
-   * 缺失 Environment Variables：无法获取或设置环境变量（如 PATH, USER）。
-   * 缺失 UDP 支持：目前 sa_std/net 只有 TCP，没有 UdpSocket。
-   * 缺失 DNS 解析：没有 ToSocketAddrs，你只能通过硬编码的 IP 地址连接，无法通过域名（如 google.com）连接。
-
-  8. FFI 辅助 (Rust std::ffi)
-   * 缺失 CString / CStr 转换：SA 的字符串是 [ptr | len]，而 C 语言是 \0 结尾。目前没有标准宏来安全地在两者间转换（特别是处理内存分配和 \0 注入）。
+  以下是为你整理的 SA-ASM 标准库 (sa_std) 补完计划完整 TODO 列表，按架构重要性和 LLM 生成的痛点优先级排序：
 
   ---
 
-  总结评估
+  🔴 优先级 1：核心并发与同步 (Priority: High)
+  LLM 极难直接写对无锁算法或正确的自旋锁，标准库必须提供开箱即用的宏。
 
-  ┌───────────┬─────────────────┬─────────────────────────────┐
-  │ 维度      │ Rust std 覆盖率 │ 评价                        │
-  ├───────────┼─────────────────┼─────────────────────────────┤
-  │ 内存/基础 │ 70%             │ alloc, mem, slice 算够用    │
-  │ 基础 IO   │ 40%             │ 只有裸读写，没有缓冲        │
-  │ 集合类    │ 5%              │ 只有 Vec，没有 Map/Set/Heap │
-  │ 并发      │ 2%              │ 只有原子指令，没有同步原语  │
-  │ 时间/数学 │ 0%              │ 完全空白                    │
-  │ 网络      │ 20%             │ 只有基础 TCP，没有 UDP/DNS  │
-  └───────────┴─────────────────┴─────────────────────────────┘
+   - [ ] sa_std/sync/mutex.saasm (互斥锁)
+     - 实现基于 atomic_rmw_xchg 和 sa_time_sleep_ns (用于 yield) 的自旋锁 / 互斥锁。
+     - 提供 MUTEX_NEW, MUTEX_LOCK, MUTEX_UNLOCK 宏。
+   - [ ] sa_std/sync/once.saasm (单次初始化)
+     - 实现 OnceCell 语义，用于全局单例的懒加载初始化，避免多线程初始化竞态。
+   - [ ] sa_std/sync/mpsc.saasm (通道)
+     - 基于环形缓冲区和原子操作实现多生产者单消费者（MPSC）队列。这是实现高级 Actor 模型和并发任务调度的基石。
 
-  为什么感觉缺失很多？
-  因为 SA-ASM 的哲学是“剥离人类语法糖”。很多 Rust 里一行代码解决的事（比如 path.join("file").metadata()?），在 SA-ASM 里目前需要你手动：
-   1. alloc 路径缓冲区。
-   2. 循环拷贝字符串。
-   3. 手动注入 /。
-   4. 调用 @sa_fs_metadata。
-   5. 手动 !release 缓冲区。
+  🟡 优先级 2：高级集合与数据结构 (Priority: Medium-High)
+  目前只有 Vec 和 HashMap，缺乏特定场景下的高性能容器。
 
-  下一步的补齐建议：
-  如果你想让这个语言从“原型”变成“生产力工具”，你需要优先补齐 BufReader (性能)、HashMap (逻辑能力) 和 Time (基础功能)。
-▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
- > 还要列出rust常用宏，我们也要支持                                                                                                                  
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-✦ 为了让 LLM 在生成 SA-ASM 代码时能够像写 Rust 一样高效，我们需要在 sa_std 中提供等价的宏封装。
+   - [ ] sa_std/collections/hashset.saasm (哈希集合)
+     - 基于现有的 HashMap 封装，值类型设为 void (0 字节)。提供 SET_INSERT, SET_CONTAINS, SET_REMOVE 宏。
+   - [ ] sa_std/collections/vec_deque.saasm (双端队列)
+     - 基于环形数组实现，支持 O(1) 的头尾插入删除。这对实现任务队列、BFS 搜索至关重要。
+   - [ ] sa_std/collections/binary_heap.saasm (优先队列)
+     - 基于 Vec 实现最大/最小堆，提供 HEAP_PUSH, HEAP_POP 宏。用于定时器调度、A* 寻路等算法。
+   - [ ] sa_std/collections/btree_map.saasm (有序映射)
+     - 实现基础的 B 树或红黑树。虽然 LLM 很少主动写 B 树，但在需要范围查询（Range Query）时是不可替代的。
 
-  以下是 Rust 常用宏的对比及其在 SA-ASM 中的实现建议：
+  🟡 优先级 3：高级 I/O 与缓冲区管理 (Priority: Medium)
+  目前的 fs 和 net 是裸系统调用，频繁调用会导致极高的上下文切换开销。
 
-  1. 打印与格式化 (Output & Formatting)
-  这是最常用的功能。SA-ASM 需要解决所有权和自动换行的问题。
+   - [ ] sa_std/io/buf_reader.saasm (缓冲读)
+     - 维护一个内部 alloc 的 buffer，批量执行 sa_fs_file_read，对外提供 BUF_READ_LINE, BUF_READ_EXACT 宏。
+   - [ ] sa_std/io/buf_writer.saasm (缓冲写)
+     - 聚合零碎的写操作，达到阈值或显式 FLUSH 时才调用系统写，极大提升文件和网络写入性能。
+   - [ ] sa_std/path.saasm (路径操作)
+     - 提供跨平台的路径拼接 (PATH_JOIN)、父目录获取 (PATH_DIRNAME)、扩展名提取等字符串操作。
 
-  ┌──────────┬───────────────┬──────────────────────────────────────────────────────────────┐
-  │ Rust 宏  │ SA-ASM 宏建议 │ 实现细节                                                     │
-  ├──────────┼───────────────┼──────────────────────────────────────────────────────────────┤
-  │ print!   │ PRINT         │ 调用 @sys_print。                                            │
-  │ println! │ PRINTLN       │ 调用 @sys_print 并自动追加 \n。                              │
-  │ format!  │ FORMAT        │ 调用 sa_fmt_* 族函数，返回一个 Owned (^ptr) 的格式化缓冲区。 │
-  │ dbg!     │ DBG           │ 自动打印 #loc 信息 + 寄存器当前值的十六进制表示。            │
-  └──────────┴───────────────┴──────────────────────────────────────────────────────────────┘
+  🟢 优先级 4：生态辅助与运行时增强 (Priority: Medium-Low)
+  完善开发体验，对齐现代系统语言的标配能力。
 
-  2. 断言与测试 (Assertions & Safety)
-  SA-ASM 的验证器（Referee）在编译期工作，但运行时逻辑仍需断言。
+   - [ ] sa_std/env.saasm (环境变量)
+     - 通过 FFI 或系统原语，暴露 GET_ENV 宏，支持按名称查询环境变量（如读取 PATH 或配置）。
+   - [ ] sa_std/math.saasm (数学库)
+     - 暴露 C 标准库 libm 的 @extern 接口（sin, cos, sqrt, pow, abs 等），并提供宏包装，解决 SA-ASM ISA 中只有基础算术指令的问题。
+   - [ ] sa_std/string_format.saasm (高级字符串构建)
+     - 基于现有的 sa_fmt_buffer，提供类似 format! 的高级拼装宏 FORMAT_STR %out_ptr, %fmt_string, %arg1, %arg2。
+   - [ ] 包装与发布 (sa_std/sa.pkg)
+     - （对应 Tasks 37.6）完成标准库的打包配置，使其能通过 saasm pkg fetch 或构建系统作为独立依赖被第三方项目引入。
 
-  ┌───────────────┬───────────────┬───────────────────────────────────────────────────┐
-  │ Rust 宏       │ SA-ASM 宏建议 │ 实现细节                                          │
-  ├───────────────┼───────────────┼───────────────────────────────────────────────────┤
-  │ assert!       │ ASSERT        │ br cond -> L_OK, L_PANIC。                        │
-  │ assert_eq!    │ ASSERT_EQ     │ eq a, b + br。如果不等则触发 panic(code)。        │
-  │ debug_assert! │ D_ASSERT      │ 仅在非 --release 模式下展开，用于性能敏感的检查。 │
-  │ panic!        │ PANIC         │ 直接调用 panic(code) 指令。                       │
-  └───────────────┴───────────────┴───────────────────────────────────────────────────┘
-
-  3. 开发占位符 (Development Placeholders)
-  这些宏能防止 LLM 在没写完代码时“胡编乱造”。
-
-  ┌────────────────┬───────────────┬────────────────────────────────────────────────────┐
-  │ Rust 宏        │ SA-ASM 宏建议 │ 实现细节                                           │
-  ├────────────────┼───────────────┼────────────────────────────────────────────────────┤
-  │ todo!          │ TODO          │ 编译期发出警告，运行时触发 panic(999)。            │
-  │ unimplemented! │ UNIMPLEMENTED │ 触发特定的错误码，标记此功能尚未实现。             │
-  │ unreachable!   │ UNREACHABLE   │ 提示优化器（LLVM）此路径不可达，若到达则立即崩溃。 │
-  └────────────────┴───────────────┴────────────────────────────────────────────────────┘
-
-  4. 集合字面量 (Collection Literals)
-  SA-ASM 必须手动处理动态分配。
-
-  ┌────────────┬───────────────┬────────────────────────────────────────────────────┐
-  │ Rust 宏    │ SA-ASM 宏建议 │ 实现细节                                           │
-  ├────────────┼───────────────┼────────────────────────────────────────────────────┤
-  │ vec![1, 2] │ VEC_LITERAL   │ 自动计算总大小 -> alloc -> 展开成多条 store 指令。 │
-  │ hashmap!{} │ MAP_LITERAL   │ 待实现。需要先完成 sa_std/hashmap.saasm。          │
-  └────────────┴───────────────┴────────────────────────────────────────────────────┘
-
-  5. 资源与环境 (Resources & Env)
-  这些宏通常在编译期处理文件。
-
-  ┌────────────────┬────────────────────┬────────────────────────────────────────────────┐
-  │ Rust 宏        │ SA-ASM 宏建议      │ 实现细节                                       │
-  ├────────────────┼────────────────────┼────────────────────────────────────────────────┤
-  │ include_bytes! │ @const ... = embed │ 已经在 SA 规范中：@const NAME = embed:"path"。 │
-  │ include_str!   │ @const ... = utf8  │ 已经在 SA 规范中。                             │
-  │ env!           │ GET_ENV            │ 编译期读取环境变量并转为静态字符串常量。       │
-  └────────────────┴────────────────────┴────────────────────────────────────────────────┘
   ---
 
-  重点：如何实现这些宏？
+  💡 核心建议与切入点：
 
-  在 SA-ASM 中，宏使用 [MACRO] 块定义。例如，实现一个简单的 ASSERT_EQ：
+  你刚刚完成了 HashMap 和 Time 这两块硬骨头。接下来的破局点应该放在 同步原语 (sa_std/sync) 上。
 
-   1 [MACRO] ASSERT_EQ %val1, %val2
-   2     __is_eq = eq %val1, %val2
-   3     br __is_eq -> L_ASSERT_OK_%i, L_ASSERT_FAIL_%i
-   4 L_ASSERT_FAIL_%i:
-   5     !__is_eq
-   6     panic(103)  // 103: AssertEqFailed
-   7 L_ASSERT_OK_%i:
-   8     !__is_eq
-   9 [END_MACRO]
+  为什么？
+  因为你之前提到过用 SA-ASM 重写 llama.cpp，或者构建类似 AutoBevy 的高性能框架。这些场景高度依赖多线程。如果没有 Mutex 和 Channel
+  这种标准库级别的防呆封装，LLM 生成的并发代码 100% 会触发 Referee 的所有权 Trap，或者在运行时产生死锁。
 
-  还需要补齐的“大头”：
-   1. matches! 宏：SA-ASM 没有 match 关键字，我们需要一个宏来简化 load tag -> eq -> br 的繁琐过程。
-   2. try! (或 ?)：虽然 SA 支持 ? 语法糖，但在跨语言 FFI 边界时，需要一个宏来自动将 C 错误码转换为 SA 的 Fallible 状态。
-   3. concat! 宏：在编译期拼接多个静态字符串常量。
+  你可以从写一个基于 cmpxchg 的 SPIN_LOCK 宏开始，这将填补 SA-ASM 并发编程的最后一块关键拼图。
 
-  评估建议：
-  如果你现在要补齐这些，第一优先级是 PRINTLN 和 ASSERT_EQ。它们能让 Demo 的可读性和稳定性瞬间提升一个档次，也能让 test_all_300.sh
-  的验证逻辑变得极简。
+  ## 🔴 优先级 1.5：异步状态机宏模板 (Task 29: libsa_async)
+*解决异步代码直接展平导致 40x 膨胀的问题，将样板代码压缩至 10x 左右，这是 v0.3 的核心交付物。*
+
+  - [x] **`ASYNC_CTX_DEF`**
+  - 自动生成状态机的结构体偏移量字典。
+- [x] **`ASYNC_POLL_PROLOGUE`**
+  - 生成轮询入口，根据状态 ID 使用 `jmp` 分发到对应的恢复路径 (`L_RESUME_%i`)。
+- [x] **`ASYNC_AWAIT_POINT`**
+  - 核心挂起宏。打包以下逻辑：保存上下文寄存器、返回 `PENDING`、定义下一次唤醒的 Label、从上下文中恢复寄存器并释放。
+- [x] **`ASYNC_RETURN_PENDING` / `ASYNC_READY`**
+  - 标准化状态机退出点。
+- [x] **`ASYNC_AWAIT_POINT_FINAL`**
+  - 最终 await 分支的对称收尾宏。
+- [x] **`ASYNC_INVALID_STATE`**
+  - 非法状态统一 `panic(102)`。
+
+
+  > 是否有必要将async,await 用宏封装？现在直接展平很长代码                                                                           
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+✦ 非常有必要，而且这正是路线图（v0.3）中明确规划的核心任务。
+
+  在 docs/faq.md 和 tasks.md 中，这被称为 “Task 29: libsa_async 异步状态机宏模板 (R26)”。
+
+  由于 SA-ASM 拒绝引入隐藏控制流的内建关键字（如 Rust 的 async/await），所有的异步逻辑必须由前端或开发者手动进行
+  CPS（Continuation-Passing Style，连续传递风格）转换，也就是手动写一个基于结构体的状态机。
+
+  如果直接展平，代码膨胀率会达到惊人的 40x。这对于人类阅读是灾难，对于 LLM 更是严重浪费 Token 上下文并极易产生逻辑断裂。
+
+  为什么必须用宏封装？
+
+   1. 状态机样板代码过重：
+      每个 async 函数都需要定义一个状态枚举、一个保存局部变量的结构体环境（Context）、一个 poll
+  分发函数。这些代码在每次挂起（Suspend）和恢复（Resume）时高度重复。
+   2. 所有权转移极易出错：
+      在 await 点挂起时，所有的 Active 寄存器必须被保存到 Context 结构体中并释放（!reg）；在唤醒时，又需要从结构体中 load
+  出来重新绑定。只要漏掉一个寄存器，Referee 就会立刻报 MemoryLeak 或 UseAfterMove。用宏封装可以保证保存和恢复动作的对称性。
+   3. 标准化 Poll 契约：
+      异步运行时（Executor）需要一套统一的唤醒机制。宏可以确保每个异步函数返回的 Pending 或 Ready 状态标志是一致的。
+
+  计划中的 libsa_async.saasm 会长什么样？
+
+  根据你的 tasks.md，这套宏主要包含四个核心组件。以下是它们的作用演示：
+
+  1. 定义异步上下文 (ASYNC_CTX_DEF)
+  自动生成状态机的结构体偏移量。
+
+   1 // 宏内部处理 #def 的拼装
+   2 EXPAND ASYNC_CTX_DEF MyTask, "socket:ptr, buf:ptr, bytes_read:u64"
+
+  2. 轮询入口与恢复 (ASYNC_POLL_PROLOGUE)
+  根据状态机当前的状态，使用 jmp 直接跳转到上一次挂起的地方。
+
+   1 @my_task_poll(ctx: &ptr) -> i32:
+   2 L_ENTRY:
+   3     // 自动取出 state_id，并生成多路分支跳转到对应的 L_RESUME_%i
+   4     EXPAND ASYNC_POLL_PROLOGUE ctx, L_FINISH
+
+  3. 挂起与等待 (ASYNC_AWAIT_POINT)
+  这是最核心的宏，它将“保存状态、返回 Pending、定义恢复标签”三件事打包。
+
+    1     // 发起异步读
+    2     call @async_read(socket, buf)
+    3     
+    4     // 宏展开：
+    5     // 1. state_id = 1, store ctx+State, 1
+    6     // 2. store ctx+Socket, socket; store ctx+Buf, buf
+    7     // 3. !socket, !buf
+    8     // 4. return PENDING
+    9     // 5. L_RESUME_1: (下一次 poll 进来的地方)
+   10     // 6. socket = load ctx+Socket; buf = load ctx+Buf
+   11     EXPAND ASYNC_AWAIT_POINT ctx, 1, "socket, buf"
+   12     
+   13     // 醒来后继续执行...
+
+  4. 异步返回 (ASYNC_RETURN_PENDING / READY)
+  标准化退出点。
+
+   1 L_FINISH:
+   2     EXPAND ASYNC_READY ctx, 0  // 返回成功
+
+  总结
+
+  引入 libsa_async.saasm 宏可以将异步代码的膨胀率从 40x 压缩到约 10x-13x。
+  你现在的编译器核心（Flattener 的嵌套宏展开和深度栈能力）已经完全能够支撑这种复杂度的宏了。如果你目前正在处理带有 I/O
+  阻塞或并发调度的 Demo（例如 135_async_streams），现在立刻着手实现这套异步宏，将是最能提升开发体验的一步。

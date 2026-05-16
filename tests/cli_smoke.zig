@@ -906,6 +906,10 @@ test "remaining rosetta demos compile and print through build-exe" {
     try assertBuildExeStdout("demos/rosetta/100_full_app/main.saasm", "12\n");
 }
 
+test "async await demo runs through saasm run" {
+    try assertRunStdout("demos/rosetta/09_async_await/main.saasm", "2\n");
+}
+
 test "macro demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/macro_print.saasm", "macro ok\n");
 }

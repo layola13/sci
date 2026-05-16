@@ -566,26 +566,27 @@ const Interpreter = struct {
             return try valueFromFloat(target, floatValue(value));
         }
         if (isIntLike(target)) {
-            const signed = isSignedInt(target);
-            const width = primWidth(target);
             const raw = if (value.ty == .f32 or value.ty == .f64) blk: {
                 const fv = floatValue(value);
-                if (signed) {
+                if (isSignedInt(target)) {
                     break :blk @as(u64, @bitCast(@as(i64, @intFromFloat(fv))));
                 } else {
                     break :blk @as(u64, @intCast(@as(u128, @intFromFloat(fv))));
                 }
             } else blk: {
-                const iv = intValue(value, signed);
-                break :blk @as(u64, @bitCast(@as(i64, @intCast(iv))));
+                const src_bits = primWidth(value.ty);
+                const width = primWidth(target);
+                const mask = maskForWidth(src_bits);
+                const raw_bits = value.bits & mask;
+                if (width <= src_bits) {
+                    break :blk raw_bits & maskForWidth(width);
+                }
+                if (isSignedInt(value.ty) and src_bits != 0 and src_bits < 64 and ((raw_bits >> @intCast(src_bits - 1)) & 1) == 1) {
+                    break :blk raw_bits | (~mask);
+                }
+                break :blk raw_bits;
             };
-            const mask = maskForWidth(width);
-            const bits = raw & mask;
-            if (signed and width < 64 and width != 0 and ((bits >> @intCast(width - 1)) & 1) == 1) {
-                const ext = bits | (~mask);
-                return .{ .ty = target, .bits = ext };
-            }
-            return .{ .ty = target, .bits = bits };
+            return .{ .ty = target, .bits = raw };
         }
         return value;
     }

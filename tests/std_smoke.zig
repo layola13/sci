@@ -20,6 +20,66 @@ fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !st
     });
 }
 
+const NormalizedInstruction = struct {
+    kind: saasm.common.instruction.InstKind,
+    op_kind: ?saasm.common.instruction.OpKind,
+    operands: [4]saasm.common.instruction.Operand,
+    raw_text: []const u8,
+    atomic_value_ty: ?u32,
+    atomic_ordering: ?saasm.common.instruction.AtomicOrdering,
+    atomic_second_ordering: ?saasm.common.instruction.AtomicOrdering,
+    atomic_rmw_op: ?saasm.common.instruction.AtomicRmwOp,
+    atomic_expected_text: ?[]const u8,
+    atomic_new_text: ?[]const u8,
+    native_reg_names: []const []const u8,
+};
+
+fn normalizeInstruction(inst: saasm.flattener.Instruction) NormalizedInstruction {
+    return .{
+        .kind = inst.kind,
+        .op_kind = inst.op_kind,
+        .operands = inst.operands,
+        .raw_text = inst.raw_text,
+        .atomic_value_ty = inst.atomic_value_ty,
+        .atomic_ordering = inst.atomic_ordering,
+        .atomic_second_ordering = inst.atomic_second_ordering,
+        .atomic_rmw_op = inst.atomic_rmw_op,
+        .atomic_expected_text = inst.atomic_expected_text,
+        .atomic_new_text = inst.atomic_new_text,
+        .native_reg_names = inst.native_reg_names,
+    };
+}
+
+fn expectFlattenEquivalent(lhs: saasm.flattener.FlattenResult, rhs: saasm.flattener.FlattenResult) !void {
+    try std.testing.expectEqual(lhs.instructions.len, rhs.instructions.len);
+    try std.testing.expectEqual(lhs.function_sigs.len, rhs.function_sigs.len);
+    try std.testing.expectEqual(lhs.const_decls.len, rhs.const_decls.len);
+    try std.testing.expectEqual(lhs.loc_table.len, rhs.loc_table.len);
+    for (lhs.instructions, rhs.instructions, 0..) |l, r, idx| {
+        const ln = normalizeInstruction(l);
+        const rn = normalizeInstruction(r);
+        try std.testing.expectEqual(ln.kind, rn.kind);
+        try std.testing.expectEqual(ln.op_kind, rn.op_kind);
+        try std.testing.expectEqualDeep(ln.operands, rn.operands);
+        try std.testing.expectEqualStrings(ln.raw_text, rn.raw_text);
+        try std.testing.expectEqual(ln.atomic_value_ty, rn.atomic_value_ty);
+        try std.testing.expectEqual(ln.atomic_ordering, rn.atomic_ordering);
+        try std.testing.expectEqual(ln.atomic_second_ordering, rn.atomic_second_ordering);
+        try std.testing.expectEqual(ln.atomic_rmw_op, rn.atomic_rmw_op);
+        try std.testing.expectEqual(ln.atomic_expected_text, rn.atomic_expected_text);
+        try std.testing.expectEqual(ln.atomic_new_text, rn.atomic_new_text);
+        try std.testing.expectEqualDeep(ln.native_reg_names, rn.native_reg_names);
+        _ = idx;
+    }
+}
+
+fn dumpInstructionTexts(prefix: []const u8, flat: saasm.flattener.FlattenResult) void {
+    std.debug.print("{s} ({d} instructions)\n", .{ prefix, flat.instructions.len });
+    for (flat.instructions, 0..) |item, idx| {
+        std.debug.print("  [{d}] {s}\n", .{ idx, item.raw_text });
+    }
+}
+
 test "sa_std core primitives are concrete and verifiable" {
     const slice_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/slice.saasm-layout");
     defer std.testing.allocator.free(slice_layout);
@@ -183,6 +243,179 @@ test "sa_std time helpers are concrete and verifiable" {
     defer time_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 7), time_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 7), time_flat.function_sigs.len);
+}
+
+test "sa_std async helpers are concrete and verifiable" {
+    const async_src = try readFileAlloc(std.testing.allocator, "sa_std/libsa_async.saasm");
+    defer std.testing.allocator.free(async_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_CTX_DEF"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_POLL_PROLOGUE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_AWAIT_POINT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_AWAIT_POINT_FINAL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_RETURN_PENDING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_READY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_INVALID_STATE"));
+
+    var async_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/libsa_async.saasm", async_src);
+    defer async_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), async_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), async_flat.function_sigs.len);
+}
+
+test "libsa_async macro expansion stays equivalent to the manual state machine" {
+    const macro_source = try readFileAlloc(std.testing.allocator, "demos/rosetta/09_async_await/main.saasm");
+    defer std.testing.allocator.free(macro_source);
+
+    const print_iface_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std/io/print.saasm-iface");
+    defer std.testing.allocator.free(print_iface_path);
+
+    const manual_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\@import "{s}"
+        \\
+        \\@const RESULT_OK = utf8:"2\n"
+        \\@const RESULT_ERR = utf8:"error\n"
+        \\
+        \\#def Run_SIZE = 32
+        \\#def Run_state = +0
+        \\#def Run_stage = +4
+        \\#def Run_status = +8
+        \\#def Run_value = +16
+        \\#def Run_resume = +24
+        \\#def Run_PENDING = 0
+        \\#def Run_READY = 1
+        \\#def Run_INVALID = 102
+        \\
+        \\@poll_step(state: ptr) -> i32:
+        \\L_ENTRY:
+        \\    stage = load state+Run_stage as u32
+        \\    ready = eq stage, 1
+        \\    !stage
+        \\    return ready
+        \\
+        \\@take_step(state: ptr) -> void:
+        \\L_ENTRY:
+        \\    store state+Run_value, 1 as i32
+        \\    return
+        \\
+        \\@poll_run(state: ptr) -> i32:
+        \\L_ENTRY:
+        \\    state_id = load state+Run_state as u32
+        \\    is_state0 = eq state_id, 0
+        \\    br is_state0 -> L_STATE_0, L_STATE_1
+        \\
+        \\L_STATE_0:
+        \\    store state+Run_stage, 1 as u32
+        \\    store state+Run_state, 1 as u32
+        \\    !state_id
+        \\    !is_state0
+        \\    return 0
+        \\
+        \\L_STATE_1:
+        \\    !state_id
+        \\    !is_state0
+        \\    async_poll_status_1_Run_state = call @poll_step(state)
+        \\    async_is_ready_1_Run_state = eq async_poll_status_1_Run_state, 1
+        \\    br async_is_ready_1_Run_state -> L_ASYNC_AWAIT_READY_1_Run_state, L_ASYNC_AWAIT_PENDING_1_Run_state
+        \\L_ASYNC_AWAIT_PENDING_1_Run_state:
+        \\    store state+Run_state, 1 as u32
+        \\    !async_poll_status_1_Run_state
+        \\    !async_is_ready_1_Run_state
+        \\    return 0
+        \\L_ASYNC_AWAIT_READY_1_Run_state:
+        \\    call @take_step(state)
+        \\    async_result_1_Run_state = load state+Run_value as i32
+        \\    async_next_state_1_Run_state = add 1, 1
+        \\    store state+Run_state, async_next_state_1_Run_state as u32
+        \\    !async_poll_status_1_Run_state
+        \\    !async_is_ready_1_Run_state
+        \\    !async_next_state_1_Run_state
+        \\    next = add async_result_1_Run_state, 1
+        \\    store state+Run_value, next as i32
+        \\    store state+Run_stage, 2 as u32
+        \\    !async_result_1_Run_state
+        \\    !next
+        \\    return 1
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    state = alloc Run_SIZE
+        \\    store state+Run_state, 0 as u32
+        \\    store state+Run_stage, 0 as u32
+        \\    store state+Run_status, 0 as u32
+        \\    store state+Run_value, 0 as i32
+        \\    store state+Run_resume, 0 as u32
+        \\
+        \\    ready0 = call @poll_run(state)
+        \\    ready1 = call @poll_run(state)
+        \\    value = load state+Run_value as i32
+        \\    ok_ready0 = eq ready0, 0
+        \\    ok_ready1 = eq ready1, 1
+        \\    ok_value = eq value, 2
+        \\    ok0 = and ok_ready0, ok_ready1
+        \\    ok = and ok0, ok_value
+        \\
+        \\    !ready0
+        \\    !ready1
+        \\    !value
+        \\    !ok_ready0
+        \\    !ok_ready1
+        \\    !ok_value
+        \\    !ok0
+        \\    !state
+        \\
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    call @sa_print_bytes(&RESULT_OK, 2)
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    call @sa_print_bytes(&RESULT_ERR, 6)
+        \\    return 1
+    , .{print_iface_path});
+    defer std.testing.allocator.free(manual_source);
+
+    for (0..100) |_| {
+        var macro_flat = try saasm.flattener.flattenFile(
+            std.testing.allocator,
+            "demos/rosetta/09_async_await/main.saasm",
+            macro_source,
+        );
+        defer macro_flat.deinit(std.testing.allocator);
+        var manual_flat = try saasm.flattener.flatten(std.testing.allocator, manual_source);
+        defer manual_flat.deinit(std.testing.allocator);
+
+        if (macro_flat.instructions.len != manual_flat.instructions.len) {
+            dumpInstructionTexts("macro", macro_flat);
+            dumpInstructionTexts("manual", manual_flat);
+        }
+        try expectFlattenEquivalent(macro_flat, manual_flat);
+
+        const macro_verified = try saasm.referee.verify(std.testing.allocator, macro_flat.instructions, macro_flat.const_decls);
+        switch (macro_verified) {
+            .ok => |ok| {
+                var owned = ok;
+                defer owned.deinit(std.testing.allocator);
+            },
+            .trap => |report| {
+                std.debug.print("macro async verifier trap: {s}\n", .{report.message});
+                return error.TestUnexpectedResult;
+            },
+        }
+        const manual_verified = try saasm.referee.verify(std.testing.allocator, manual_flat.instructions, manual_flat.const_decls);
+        switch (manual_verified) {
+            .ok => |ok| {
+                var owned = ok;
+                defer owned.deinit(std.testing.allocator);
+            },
+            .trap => |report| {
+                std.debug.print("manual async verifier trap: {s}\n", .{report.message});
+                return error.TestUnexpectedResult;
+            },
+        }
+    }
 }
 
 test "sa_std io helpers are concrete and verifiable" {
