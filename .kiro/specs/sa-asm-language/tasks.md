@@ -1081,6 +1081,14 @@ sa/
     - `TIME_UTC_NOW` / `TIME_SLEEP_MS` / `TIME_SLEEP_NS` / `TIME_DURATION_*`
     - 直连 Zig-backed monotonic / system / UTC calendar ABI
 
+  - [x] 37.8 `sa_std/sync/mutex.saasm`：互斥锁宏
+    - `MUTEX_NEW` / `MUTEX_LOCK` / `MUTEX_UNLOCK`
+    - 基于 `atomic_rmw_xchg` + `sa_time_sleep_ns` 的自旋等待与 release 解锁
+
+  - [x] 37.9 `sa_std/sync/once.saasm`：单次初始化宏
+    - `ONCE_NEW` / `ONCE_IS_READY` / `ONCE_TRY_CLAIM` / `ONCE_WAIT_READY` / `ONCE_PUBLISH` / `ONCE_GET` / `ONCE_GET_OR_INIT`
+    - 基于 `atomic_load` + `cmpxchg` + `sa_time_sleep_ns` 的 OnceCell 懒加载与竞态收敛
+
 ---
 
 # Version 0.6 — 高可靠性认证（post-v0.5，8-12 周）

@@ -8,11 +8,12 @@
   🔴 优先级 1：核心并发与同步 (Priority: High)
   LLM 极难直接写对无锁算法或正确的自旋锁，标准库必须提供开箱即用的宏。
 
-   - [ ] sa_std/sync/mutex.saasm (互斥锁)
+   - [x] sa_std/sync/mutex.saasm (互斥锁)
      - 实现基于 atomic_rmw_xchg 和 sa_time_sleep_ns (用于 yield) 的自旋锁 / 互斥锁。
      - 提供 MUTEX_NEW, MUTEX_LOCK, MUTEX_UNLOCK 宏。
-   - [ ] sa_std/sync/once.saasm (单次初始化)
+   - [x] sa_std/sync/once.saasm (单次初始化)
      - 实现 OnceCell 语义，用于全局单例的懒加载初始化，避免多线程初始化竞态。
+     - 提供 ONCE_NEW, ONCE_IS_READY, ONCE_TRY_CLAIM, ONCE_WAIT_READY, ONCE_PUBLISH, ONCE_GET, ONCE_GET_OR_INIT 宏。
    - [ ] sa_std/sync/mpsc.saasm (通道)
      - 基于环形缓冲区和原子操作实现多生产者单消费者（MPSC）队列。这是实现高级 Actor 模型和并发任务调度的基石。
 
@@ -147,3 +148,78 @@
   引入 libsa_async.saasm 宏可以将异步代码的膨胀率从 40x 压缩到约 10x-13x。
   你现在的编译器核心（Flattener 的嵌套宏展开和深度栈能力）已经完全能够支撑这种复杂度的宏了。如果你目前正在处理带有 I/O
   阻塞或并发调度的 Demo（例如 135_async_streams），现在立刻着手实现这套异步宏，将是最能提升开发体验的一步。
+
+
+为了让 LLM 能更高效地编写 SA-ASM，我们需要构建的是一个 “编译器 $\rightarrow$ LLM” 的闭环反馈系统。以下是比插件重要 100 倍的开发方向：
+
+  #### 1. 结构化错误报告 (LLM-Readable Traps)
+
+  目前 Referee 抛出的 Trap 可能是简单的 Trap: UseAfterMove。对于人类这足够了，但对于 LLM，它需要上下文。
+
+  - 目标：将 Trap 升级为类似这样的 JSON 报告：
+
+    {
+      "trap": "UseAfterMove",
+      "register": "ptr_01",
+      "location": "file.saasm:42:10",
+      "history": {
+        "allocated": "line 10",
+        "consumed": "line 35 (via ^ operator)",
+        "attempted_access": "line 42"
+      },
+      "suggestion": "The register 'ptr_01' was moved at line 35. Please release it or avoid using it after that point."
+    }
+
+  #### 2. 自动化测试套件 (The "Oracle" Test-bed)
+
+  LLM 需要一个快速验证其生成的代码是否正确的“裁判”。
+
+  - 目标：构建一套自动化的 saasm run $\rightarrow$ check output $\rightarrow$ feedback 的 Pipeline。
+  - 价值：让 LLM 在提交代码前，先在沙箱里跑 10 组测试用例，只有全部通过才输出最终结果。
+
+  #### 3. 宏展开可视化 (Macro Expansion Trace)
+
+  由于异步宏 (libsa_async) 会导致代码大幅膨胀，LLM 很难在脑中模拟展开后的所有权状态。
+
+  - 目标：提供一个 saasm expand <file> 命令，将宏展开后的完整线性代码输出，并标注每个指令是由哪个宏生成的。
+  - 价值：当 Referee 报错在展开后的代码中时，LLM 可以通过这个 Trace 快速定位到是哪个宏调用导致的所有权冲突。
+
+  #### 4. 针对 LLM 的“标准库文档” (The LLM-Context-Guide)
+
+  LLM 不需要精美的 HTML 文档，它需要的是一个高信息密度的 Markdown 索引。
+
+  - 目标：为 sa_std 的每个宏提供：签名 $\rightarrow$ 所有权转移清单 (Inputs/Outputs) $\rightarrow$ 最小可运行示例。
+  - 价值：直接作为 System Prompt 的一部分，让 LLM 瞬间掌握 Mutex 或 Channel 的正确用法。
+
+  ### 结论
+
+  放弃 VSCode 插件 $\rightarrow$ 转向构建 LLM 闭环。
+
+  我们要做的不是一个“编辑器”，而是一个**“能够给 LLM 提供精确诊断信息的编译器”**。只要 saasm 的报错足够清晰、测试足够快、宏展开足够透明，LLM 就能在没有任何 IDE 的情况
+  下，写出工业级的 SA-ASM 代码。
+
+  为了将这个目标转化为具体的执行计划，我建议将接下来的开发重点量化为以下三个具体的技术突破点：
+
+  目前的 Trap 是给人类看的“警告”，我们需要将其升级为给 LLM 看的“调试指令”。
+
+  - 具体动作：修改 src/referee/verifier.zig，在触发 Trap 时，不再仅仅返回错误码，而是记录该寄存器的生命周期轨迹 (Life-cycle Trace)。
+  - 预期效果：当 LLM 触发 UseAfterMove 时，编译器会告诉它：reg X 在第 10 行分配 $\rightarrow$ 在第 20 行被 ^ 转移 $\rightarrow$ 在第 30 行被非法访问。LLM 看到这个轨迹
+    后，修复率将从 50% 提升到 90% 以上。
+
+  ### 2. 构建 sa_std 的“所有权契约”索引
+
+  LLM 写错标准库宏的原因通常是不知道宏内部偷偷做了什么（例如：某个宏是否在内部执行了 !reg）。
+
+  - 具体动作：为 sa_std 中的每个核心宏编写一份 Ownership Manifest。
+      - 输入状态 $\rightarrow$ 输出状态。
+      - 例如 MUTEX_LOCK(%lock, %guard)：%lock (Active) $\rightarrow$ %lock (Locked_Read), %guard (Active)。
+  - 预期效果：将这些契约直接喂给 LLM，使其在调用宏之前就已经在脑中完成了所有权预演，从而实现“一次性写对”。
+
+  ### 3. 完善 libsa_async 的自动化验证链路
+
+  异步代码是目前最容易产生 MemoryLeak 的地方，必须建立一套严格的验证闭环。
+
+  - 具体动作：
+      - 实现 saasm expand 功能，允许 LLM 查看宏展开后的线性指令流。
+      - 编写一组针对异步状态机的“压力测试” Demo，覆盖所有可能的挂起/恢复路径。
+  - 预期效果：确保异步宏模板在任何极端路径下都不会导致所有权泄露，为构建高性能异步框架提供绝对可靠的底层。

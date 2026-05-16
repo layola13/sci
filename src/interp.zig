@@ -530,12 +530,15 @@ const Interpreter = struct {
         };
     }
 
-    fn intValue(value: RegValue, signed: bool) i128 {
-        const width = primWidth(value.ty);
-        const raw = value.bits & maskForWidth(width);
-        if (signed) {
-            const sign_bit = if (width == 0) 0 else (@as(u64, 1) << @intCast(width - 1));
-            if (width != 0 and (raw & sign_bit) != 0) {
+fn intValue(value: RegValue, signed: bool) i128 {
+    const width = primWidth(value.ty);
+    const raw = value.bits & maskForWidth(width);
+    if (width <= 1) {
+        return @as(i128, @intCast(raw));
+    }
+    if (signed) {
+        const sign_bit = if (width == 0) 0 else (@as(u64, 1) << @intCast(width - 1));
+        if (width != 0 and (raw & sign_bit) != 0) {
                 const extended = raw | (~maskForWidth(width));
                 return @as(i128, @intCast(@as(i64, @bitCast(extended))));
             }

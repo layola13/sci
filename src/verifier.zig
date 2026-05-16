@@ -941,17 +941,11 @@ fn collectMetadata(
                 if (item.operands[1] == .reg) {
                     _ = try symbols.intern(classified.parts[1]);
                 }
-                if (item.operands[2] == .reg or (item.operands[2] == .text and isIdentLike(item.operands[2].text))) {
-                    _ = try symbols.intern(classified.parts[2]);
-                }
             },
             .ptr_add => {
                 _ = try symbols.intern(classified.parts[0]);
                 if (item.operands[1] == .reg) {
                     _ = try symbols.intern(classified.parts[1]);
-                }
-                if (item.operands[2] == .reg or (item.operands[2] == .text and isIdentLike(item.operands[2].text))) {
-                    _ = try symbols.intern(classified.parts[2]);
                 }
             },
             .atomic_load => {
@@ -962,21 +956,17 @@ fn collectMetadata(
             .atomic_store => {
                 const parsed = try atomic.parseStore(item.raw_text);
                 if (isIdentLike(parsed.base)) _ = try symbols.intern(parsed.base);
-                if (isIdentLike(parsed.value)) _ = try symbols.intern(parsed.value);
             },
             .cmpxchg => {
                 const parsed = try atomic.parseCmpxchg(item.raw_text);
                 _ = try symbols.intern(parsed.dst);
                 _ = try symbols.intern(parsed.ok);
                 if (isIdentLike(parsed.base)) _ = try symbols.intern(parsed.base);
-                if (isIdentLike(parsed.expected)) _ = try symbols.intern(parsed.expected);
-                if (isIdentLike(parsed.new_value)) _ = try symbols.intern(parsed.new_value);
             },
             .atomic_rmw => {
                 const parsed = try atomic.parseRmw(item.raw_text);
                 _ = try symbols.intern(parsed.dst);
                 if (isIdentLike(parsed.base)) _ = try symbols.intern(parsed.base);
-                if (isIdentLike(parsed.value)) _ = try symbols.intern(parsed.value);
             },
             .fence => {},
             .borrow => {
@@ -1022,9 +1012,6 @@ fn collectMetadata(
                     defer parsed.deinit(allocator);
                     if (parsed.dest) |dest| {
                         if (isIdentLike(dest)) _ = try symbols.intern(dest);
-                    }
-                    for (parsed.args) |arg| {
-                        if (isIdentLike(arg.text)) _ = try symbols.intern(arg.text);
                     }
                 } else |_| {}
             },

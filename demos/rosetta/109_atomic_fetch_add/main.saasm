@@ -10,8 +10,8 @@
 L_ENTRY:
     node = alloc Atomic_SIZE
     store node+Atomic_value, 5 as i32
-    old = atomic_rmw_add node+Atomic_value, 3 seq_cst
-    new = atomic_load node+Atomic_value seq_cst
+    old = atomic_rmw_add node+Atomic_value, 3 as i32 seq_cst
+    new = atomic_load node+Atomic_value as i32 seq_cst
     total = add old, new
     ok = eq total, 13
     !old

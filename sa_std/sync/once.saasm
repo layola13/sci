@@ -1,0 +1,116 @@
+// Concrete OnceCell helpers built on an explicit three-state machine.
+// The payload is stored as raw u64 bits so callers can round-trip ptr or
+// integer values without hidden type magic.
+@import "once.saasm-layout"
+@import "../time.saasm-iface"
+
+@__once_wait_ready(&once: ptr) -> void:
+L_ENTRY:
+    state = atomic_load once+Once_state as u32 acquire
+    ready = eq state, Once_STATE_READY
+    br ready -> L_ONCE_WAIT_READY_DONE, L_ONCE_WAIT_READY_SPIN
+
+L_ONCE_WAIT_READY_SPIN:
+    !ready
+    !state
+    call @sa_time_sleep_ns(1)
+    jmp L_ENTRY
+
+L_ONCE_WAIT_READY_DONE:
+    !ready
+    !state
+    !once
+    return
+
+@__once_try_claim(&once: ptr) -> i32:
+L_ENTRY:
+    state = atomic_load once+Once_state as u32 acquire
+    ready = eq state, Once_STATE_READY
+    br ready -> L_ONCE_TRY_READY, L_ONCE_TRY_CHECK
+
+L_ONCE_TRY_CHECK:
+    is_uninit = eq state, Once_STATE_UNINIT
+    br is_uninit -> L_ONCE_TRY_CLAIM, L_ONCE_TRY_WAIT
+
+L_ONCE_TRY_CLAIM:
+    old, ok = cmpxchg once+Once_state, Once_STATE_UNINIT, Once_STATE_RUNNING as u32 acq_rel acquire
+    br ok -> L_ONCE_TRY_OWNER, L_ONCE_TRY_RETRY
+
+L_ONCE_TRY_RETRY:
+    !old
+    !ok
+    !is_uninit
+    !ready
+    !state
+    call @sa_time_sleep_ns(1)
+    jmp L_ENTRY
+
+L_ONCE_TRY_WAIT:
+    !is_uninit
+    !ready
+    !state
+    call @sa_time_sleep_ns(1)
+    jmp L_ENTRY
+
+L_ONCE_TRY_OWNER:
+    !old
+    !ok
+    !is_uninit
+    !ready
+    !state
+    !once
+    return 1
+
+L_ONCE_TRY_READY:
+    !ready
+    !state
+    !once
+    return 0
+
+[MACRO] ONCE_NEW %out_once
+    %out_once = alloc Once_SIZE
+    store %out_once+Once_state, Once_STATE_UNINIT as u32
+    store %out_once+Once_value, 0 as u64
+[END_MACRO]
+
+[MACRO] ONCE_IS_READY %out_ready, %once_reg
+    __once_state = atomic_load %once_reg+Once_state as u32 acquire
+    %out_ready = eq __once_state, Once_STATE_READY
+    !__once_state
+[END_MACRO]
+
+[MACRO] ONCE_TRY_CLAIM %out_owned, %once_reg
+    __once_owned = call @__once_try_claim(&%once_reg)
+    %out_owned = __once_owned
+    !__once_owned
+[END_MACRO]
+
+[MACRO] ONCE_WAIT_READY %once_reg
+    call @__once_wait_ready(&%once_reg)
+[END_MACRO]
+
+[MACRO] ONCE_PUBLISH %once_reg, %value
+    store %once_reg+Once_value, %value as u64
+    atomic_store %once_reg+Once_state, Once_STATE_READY as u32 release
+[END_MACRO]
+
+[MACRO] ONCE_GET %out_value, %once_reg
+    EXPAND ONCE_WAIT_READY %once_reg
+    %out_value = load %once_reg+Once_value as u64
+[END_MACRO]
+
+[MACRO] ONCE_GET_OR_INIT %out_value, %once_reg, %init_fn
+    __once_owner = call @__once_try_claim(&%once_reg)
+    br __once_owner -> L_ONCE_GET_OR_INIT_INIT_%out_value, L_ONCE_GET_OR_INIT_READY_%out_value
+L_ONCE_GET_OR_INIT_INIT_%out_value:
+    __once_init_value = call %init_fn()
+    EXPAND ONCE_PUBLISH %once_reg, __once_init_value
+    %out_value = __once_init_value
+    !__once_owner
+    jmp L_ONCE_GET_OR_INIT_DONE_%out_value
+L_ONCE_GET_OR_INIT_READY_%out_value:
+    %out_value = load %once_reg+Once_value as u64
+    !__once_owner
+    jmp L_ONCE_GET_OR_INIT_DONE_%out_value
+L_ONCE_GET_OR_INIT_DONE_%out_value:
+[END_MACRO]

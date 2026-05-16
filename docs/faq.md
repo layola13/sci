@@ -248,7 +248,7 @@ store v+Vec3_x, 1.0 as f32
 
 ### Q: 为什么没有 `Mutex` / `RwLock`？
 
-**A**: SA 提供原子原语（`atomic_rmw_*` / `cmpxchg` / `fence`），Mutex 是用这些原语**在 SA 层手搓**的数据结构。
+**A**: SA 提供原子原语（`atomic_rmw_*` / `cmpxchg` / `fence`），Mutex 是用这些原语**在 SA 层手搓**的数据结构；标准库里已经提供了 `sa_std/sync/mutex.saasm` 作为可复用宏封装。
 
 原因：
 - `Mutex` 是"原子操作 + 等待队列"的组合模式

@@ -245,6 +245,59 @@ test "sa_std time helpers are concrete and verifiable" {
     try std.testing.expectEqual(@as(usize, 7), time_flat.function_sigs.len);
 }
 
+test "sa_std mutex helpers are concrete and verifiable" {
+    const mutex_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/mutex.saasm-layout");
+    defer std.testing.allocator.free(mutex_layout);
+    try std.testing.expectEqualStrings(
+        "#def Mutex_SIZE = 8\n#def Mutex_lock = +0\n#def Mutex_data = +8\n",
+        mutex_layout,
+    );
+
+    const mutex_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/mutex.saasm");
+    defer std.testing.allocator.free(mutex_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "@import \"../time.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "[MACRO] MUTEX_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "[MACRO] MUTEX_LOCK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "[MACRO] MUTEX_UNLOCK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "atomic_rmw_xchg lock+Mutex_lock, 1 as u64 seq_cst"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "atomic_store %lock_ptr+Mutex_lock, 0 as u64 release"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "@__mutex_lock_spin"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "call @sa_time_sleep_ns(1)"));
+
+    var mutex_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sync/mutex.saasm", mutex_src);
+    defer mutex_flat.deinit(std.testing.allocator);
+    try std.testing.expect(mutex_flat.instructions.len > 0);
+    try std.testing.expectEqual(@as(usize, 8), mutex_flat.function_sigs.len);
+}
+
+test "sa_std once helpers are concrete and verifiable" {
+    const once_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/once.saasm-layout");
+    defer std.testing.allocator.free(once_layout);
+    try std.testing.expectEqualStrings(
+        "#def Once_SIZE = 16\n#def Once_state = +0\n#def Once_value = +8\n#def Once_STATE_UNINIT = 0\n#def Once_STATE_RUNNING = 1\n#def Once_STATE_READY = 2\n",
+        once_layout,
+    );
+
+    const once_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/once.saasm");
+    defer std.testing.allocator.free(once_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "@import \"../time.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_IS_READY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_TRY_CLAIM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_WAIT_READY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_PUBLISH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_GET_OR_INIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "atomic_load once+Once_state as u32 acquire"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "cmpxchg once+Once_state, Once_STATE_UNINIT, Once_STATE_RUNNING as u32 acq_rel acquire"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "atomic_store %once_reg+Once_state, Once_STATE_READY as u32 release"));
+
+    var once_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sync/once.saasm", once_src);
+    defer once_flat.deinit(std.testing.allocator);
+    try std.testing.expect(once_flat.instructions.len > 0);
+    try std.testing.expectEqual(@as(usize, 9), once_flat.function_sigs.len);
+}
+
 test "sa_std async helpers are concrete and verifiable" {
     const async_src = try readFileAlloc(std.testing.allocator, "sa_std/libsa_async.saasm");
     defer std.testing.allocator.free(async_src);

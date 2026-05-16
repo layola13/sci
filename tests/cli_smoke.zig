@@ -926,6 +926,22 @@ test "time demo runs through saasm run" {
     try assertRunStdout("demos/support/time_probe.saasm", "time ok\n");
 }
 
+test "mutex demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/mutex_probe.saasm", "mutex ok\n");
+}
+
+test "mutex demo runs through saasm run" {
+    try assertRunStdout("demos/support/mutex_probe.saasm", "mutex ok\n");
+}
+
+test "once demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/once_probe.saasm", "once ok\n");
+}
+
+test "once demo runs through saasm run" {
+    try assertRunStdout("demos/support/once_probe.saasm", "once ok\n");
+}
+
 test "io demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/io_probe.saasm", "alpha\n5\n");
 }

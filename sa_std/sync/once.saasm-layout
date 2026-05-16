@@ -1,0 +1,6 @@
+#def Once_SIZE = 16
+#def Once_state = +0
+#def Once_value = +8
+#def Once_STATE_UNINIT = 0
+#def Once_STATE_RUNNING = 1
+#def Once_STATE_READY = 2
