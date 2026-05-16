@@ -758,11 +758,15 @@ fn emitParsedLine(
                         inst.operands[2] = .{ .text = mode };
                     }
                 },
-                .unknown => return error.InvalidSyntax,
+                .unknown => {
+                    return error.InvalidSyntax;
+                },
             }
             try instructions.append(inst);
         },
-        .unknown => return error.InvalidSyntax,
+        .unknown => {
+            return error.InvalidSyntax;
+        },
         .macro_start, .macro_end, .rep_start, .rep_end, .expand => return error.InvalidSyntax,
     }
 }
@@ -1306,6 +1310,50 @@ fn buildMacroPbtProgram(allocator: std.mem.Allocator, random: std.Random, iter: 
     };
 }
 
+const ArithmeticExpr = struct {
+    text: []u8,
+    value: i64,
+
+    fn deinit(self: *ArithmeticExpr, allocator: std.mem.Allocator) void {
+        allocator.free(self.text);
+        self.* = undefined;
+    }
+};
+
+fn buildArithmeticExpr(allocator: std.mem.Allocator, random: std.Random, depth: u8) !ArithmeticExpr {
+    if (depth == 0 or random.intRangeAtMost(u8, 0, 3) == 0) {
+        const raw = @as(i64, @intCast(random.intRangeAtMost(u32, 0, 9)));
+        const signed = if (random.intRangeLessThan(u8, 0, 2) == 0) raw else -raw;
+        return .{
+            .text = try std.fmt.allocPrint(allocator, "{d}", .{signed}),
+            .value = signed,
+        };
+    }
+
+    var left = try buildArithmeticExpr(allocator, random, depth - 1);
+    defer left.deinit(allocator);
+    var right = try buildArithmeticExpr(allocator, random, depth - 1);
+    defer right.deinit(allocator);
+
+    const op_index = random.intRangeLessThan(u8, 0, 3);
+    const op: u8 = switch (op_index) {
+        0 => '+',
+        1 => '-',
+        else => '*',
+    };
+    const value: i64 = switch (op) {
+        '+' => left.value + right.value,
+        '-' => left.value - right.value,
+        '*' => left.value * right.value,
+        else => unreachable,
+    };
+
+    return .{
+        .text = try std.fmt.allocPrint(allocator, "({s} {c} {s})", .{ left.text, op, right.text }),
+        .value = value,
+    };
+}
+
 fn expectOperandReg(inst: Instruction, index: usize, expected: u32) !void {
     switch (inst.operands[index]) {
         .reg => |actual| try std.testing.expectEqual(expected, actual),
@@ -1648,5 +1696,103 @@ test "macro PBT rejects invalid definitions and invocations" {
             else => unreachable,
         };
         try std.testing.expectError(expected_error, flatten(std.testing.allocator, source));
+    }
+}
+
+test "def dict PBT folds random arithmetic expressions through flatten" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6A20);
+    const random = prng.random();
+
+    for (0..48) |iter| {
+        var base_expr = try buildArithmeticExpr(std.testing.allocator, random, 3);
+        defer base_expr.deinit(std.testing.allocator);
+
+        const delta = @as(i64, @intCast(random.intRangeAtMost(i32, -3, 6)));
+        const size_value = base_expr.value + delta;
+
+        const tmp_name = try std.fmt.allocPrint(std.testing.allocator, "tmp_{d}", .{iter});
+        defer std.testing.allocator.free(tmp_name);
+
+        var source = std.ArrayList(u8).init(std.testing.allocator);
+        errdefer source.deinit();
+        const writer = source.writer();
+        try writer.writeAll("#def BASE = ");
+        try writer.writeAll(base_expr.text);
+        try writer.writeByte('\n');
+        try writer.print("#def SIZE = BASE + {d}\n", .{delta});
+        try writer.writeAll("@main() -> i32:\n");
+        try writer.print("{s} = add SIZE, 1\n", .{tmp_name});
+        try writer.print("return {s}\n", .{tmp_name});
+
+        const source_text = try source.toOwnedSlice();
+        defer std.testing.allocator.free(source_text);
+
+        var result = try flatten(std.testing.allocator, source_text);
+        defer result.deinit(std.testing.allocator);
+
+        var base_buf: [32]u8 = undefined;
+        const base_text = try std.fmt.bufPrint(&base_buf, "{d}", .{base_expr.value});
+        try std.testing.expectEqualStrings(base_text, result.def_dict.get("BASE").?);
+
+        var size_buf: [32]u8 = undefined;
+        const size_text = try std.fmt.bufPrint(&size_buf, "{d}", .{size_value});
+        try std.testing.expectEqualStrings(size_text, result.def_dict.get("SIZE").?);
+
+        try std.testing.expectEqual(@as(usize, 3), result.instructions.len);
+        try std.testing.expectEqual(InstKind.func_decl, result.instructions[0].kind);
+        try std.testing.expectEqual(InstKind.op, result.instructions[1].kind);
+        try std.testing.expectEqual(common_instruction.OpKind.add, result.instructions[1].op_kind.?);
+        try expectOperandImmI64(result.instructions[1], 1, size_value);
+        try expectOperandImmI64(result.instructions[1], 2, 1);
+        try std.testing.expectEqual(InstKind.return_, result.instructions[2].kind);
+    }
+}
+
+test "forbidden syntax PBT rejects random forbidden lines through flatten" {
+    const ForbiddenCase = struct {
+        text: []const u8,
+        token: forbidden.ForbiddenToken,
+    };
+
+    const cases = [_]ForbiddenCase{
+        .{ .text = "if x = 1", .token = .keyword_if },
+        .{ .text = "else x = 1", .token = .keyword_else },
+        .{ .text = "while x = 1", .token = .keyword_while },
+        .{ .text = "for x = 1", .token = .keyword_for },
+        .{ .text = "x = { y }", .token = .brace_open },
+        .{ .text = "x = }", .token = .brace_close },
+        .{ .text = "x = a.b.c", .token = .property_chain },
+    };
+
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6A21);
+    const random = prng.random();
+
+    for (0..48) |iter| {
+        const case = cases[random.intRangeLessThan(usize, 0, cases.len)];
+        try std.testing.expectEqual(case.token, forbidden.findForbiddenSyntax(case.text).?.token);
+
+        const forbidden_at_tail = (iter & 1) == 0;
+        const source = if (forbidden_at_tail) blk: {
+            break :blk try std.fmt.allocPrint(std.testing.allocator,
+                \\@main() -> i32:
+                \\value = alloc 8
+                \\{s}
+                \\return 0
+            , .{case.text});
+        } else blk: {
+            break :blk try std.fmt.allocPrint(std.testing.allocator,
+                \\@main() -> i32:
+                \\{s}
+                \\value = alloc 8
+                \\return 0
+            , .{case.text});
+        };
+        defer std.testing.allocator.free(source);
+
+        const expected_line_no: u32 = if (forbidden_at_tail) 3 else 2;
+        const found = findFirstForbiddenLine(source).?;
+        try std.testing.expectEqual(expected_line_no, found.line_no);
+        try std.testing.expectEqual(case.token, found.hit.token);
+        try std.testing.expectError(error.ForbiddenSyntax, flatten(std.testing.allocator, source));
     }
 }

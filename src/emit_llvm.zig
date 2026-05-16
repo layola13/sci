@@ -601,6 +601,22 @@ fn returnTypeForSig(return_cap: ?inst.CapPrefix, return_ty: sig.PrimType) sig.Pr
     };
 }
 
+fn decorateCallReturn(value: Value, return_cap: ?inst.CapPrefix) Value {
+    var ret = value;
+    switch (return_cap orelse .by_value) {
+        .borrow => {
+            ret.borrow_view = true;
+            ret.interior_ptr = true;
+        },
+        .raw => {
+            ret.ffi_borrow = true;
+            ret.interior_ptr = true;
+        },
+        else => {},
+    }
+    return ret;
+}
+
 fn atomicValueType(item: inst.Instruction, fallback: sig.PrimType) sig.PrimType {
     if (item.atomic_value_ty) |tag| {
         if (sig.primTypeFromTag(tag)) |ty| return ty;
@@ -1767,7 +1783,7 @@ fn emitBuiltinCall(
         try emitArgList(allocator, &prelude, &args_buf, state, symbols, parsed.args, &.{.{ .name = "index", .ty = .i64, .cap = .by_value }});
         try out.appendSlice(prelude.items);
         try out.writer().print("  {s} = call ptr @sys_argv({s})\n", .{ tmp, args_buf.items });
-        return .{ .handled_value = .{ .expr = tmp, .ty = .ptr } };
+        return .{ .handled_value = .{ .expr = tmp, .ty = .ptr, .borrow_view = true, .interior_ptr = true } };
     }
     if (std.mem.eql(u8, name, "sys_print")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -1840,7 +1856,7 @@ fn emitDirectCall(
         try out.writer().print("  {s} = call ", .{tmp});
         try writeReturnAbiType(out.writer(), resolved.return_cap, resolved.return_ty, resolved.return_fallible);
         try out.writer().print(" @{s}({s})\n", .{ emittedFunctionName(resolved), args_buf.items });
-        return .{ .handled_value = .{ .expr = tmp, .ty = ret_ty, .fallible = resolved.return_fallible } };
+        return .{ .handled_value = decorateCallReturn(.{ .expr = tmp, .ty = ret_ty, .fallible = resolved.return_fallible }, resolved.return_cap) };
     } else {
         var prelude = std.ArrayList(u8).init(allocator);
         defer prelude.deinit();
@@ -1898,7 +1914,7 @@ fn emitIndirectCall(
     const tmp = if (call_ty == .void) null else try state.tempName(allocator);
     if (tmp) |tmp_name| {
         try out.writer().print("  {s} = call {s} {s}({s})\n", .{ tmp_name, llvmTypeName(call_ty), callee.expr, args_buf.items });
-        return .{ .expr = tmp_name, .ty = call_ty, .fallible = resolved.return_fallible };
+        return decorateCallReturn(.{ .expr = tmp_name, .ty = call_ty, .fallible = resolved.return_fallible }, resolved.return_cap);
     }
     try out.writer().print("  call void {s}({s})\n", .{ callee.expr, args_buf.items });
     return null;
@@ -2276,6 +2292,7 @@ fn emitInstruction(
                 },
                 .@"and" => try out.writer().print("  {s} = and {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
                 .@"or" => try out.writer().print("  {s} = or {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
+                .xor => try out.writer().print("  {s} = xor {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
                 .shl => try out.writer().print("  {s} = shl {s} {s}, {s}\n", .{ tmp, llvmTypeName(target_ty), l.expr, r.expr }),
                 .shr => try out.writer().print("  {s} = {s} {s} {s}, {s}\n", .{ tmp, if (kind == .signed) "ashr" else "lshr", llvmTypeName(target_ty), l.expr, r.expr }),
                 .gt, .lt, .eq, .ne => {
@@ -2803,6 +2820,38 @@ test "llvm emitter produces a module with builtin helpers" {
     const text = try emitLlvm(std.testing.allocator, ok, empty_loc, "test.saasm", @as(u16, @bitSizeOf(usize)), .{});
     defer std.testing.allocator.free(text);
     try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "define void @sys_print"));
+}
+
+test "llvm emitter produces identical text with serial and parallel jobs" {
+    const source =
+        \\@helper(value: i32) -> i32:
+        \\return value
+        \\
+        \\@main() -> i32:
+        \\value = call @helper(7)
+        \\return value
+    ;
+
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try referee.verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    switch (verified) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+
+            const serial = try emitLlvm(std.testing.allocator, owned, flat.loc_table, "parallel_emit.saasm", @as(u16, @bitSizeOf(usize)), .{ .jobs = 1 });
+            defer std.testing.allocator.free(serial);
+            const parallel = try emitLlvm(std.testing.allocator, owned, flat.loc_table, "parallel_emit.saasm", @as(u16, @bitSizeOf(usize)), .{ .jobs = 2 });
+            defer std.testing.allocator.free(parallel);
+
+            try std.testing.expectEqualStrings(serial, parallel);
+            try std.testing.expect(std.mem.containsAtLeast(u8, serial, 1, "define i32 @main()"));
+            try std.testing.expect(std.mem.containsAtLeast(u8, serial, 1, "define i32 @helper("));
+        },
+    }
 }
 
 test "llvm emitter preserves native escape bytes verbatim" {

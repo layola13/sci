@@ -9,6 +9,7 @@ const const_decl = @import("common/const_decl.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
 const trap = @import("common/trap.zig");
+const upstream = @import("common/upstream_loc.zig");
 const classifier = @import("flattener/line_classifier.zig");
 const symbol = @import("flattener/symbol.zig");
 
@@ -64,6 +65,54 @@ const VerifyBodyResult = union(enum) {
     ok: VerifyBodyOk,
     trap: trap.TrapReport,
 };
+
+fn appendRandomLocBlock(
+    writer: anytype,
+    random: std.Random,
+    expected: *?upstream.UpstreamLoc,
+    min_count: u8,
+) !void {
+    const count = if (min_count >= 3) 3 else random.intRangeAtMost(u8, min_count, 3);
+    var idx: u8 = 0;
+    while (idx < count) : (idx += 1) {
+        const line = random.intRangeAtMost(u32, 1, 2000);
+        const col = random.intRangeAtMost(u32, 1, 80);
+        try writer.print("#loc \"pbt.rs\":{d}:{d}\n", .{ line, col });
+        expected.* = .{ .file = "pbt.rs", .line = line, .col = col };
+    }
+}
+
+fn expectOptionalUpstreamLoc(actual: ?upstream.UpstreamLoc, expected: ?upstream.UpstreamLoc) !void {
+    if (expected) |exp| {
+        const act = actual orelse return error.TestUnexpectedResult;
+        try std.testing.expectEqualStrings(exp.file, act.file);
+        try std.testing.expectEqual(exp.line, act.line);
+        try std.testing.expectEqual(exp.col, act.col);
+    } else {
+        try std.testing.expect(actual == null);
+    }
+}
+
+fn expectTrapReportUpstreamLoc(report: trap.TrapReport, expected: ?upstream.UpstreamLoc) !void {
+    if (expected) |exp| {
+        if (report.upstream_loc) |act| {
+            try std.testing.expectEqualStrings(exp.file, act.file);
+            try std.testing.expectEqual(exp.line, act.line);
+            try std.testing.expectEqual(exp.col, act.col);
+            return;
+        }
+
+        const file = std.mem.sliceTo(&report.upstream_file_buf, 0);
+        try std.testing.expectEqualStrings(exp.file, file);
+        try std.testing.expectEqual(exp.line, report.upstream_line);
+        try std.testing.expectEqual(exp.col, report.upstream_col);
+    } else {
+        try std.testing.expect(report.upstream_loc == null);
+        try std.testing.expect(std.mem.sliceTo(&report.upstream_file_buf, 0).len == 0);
+        try std.testing.expectEqual(@as(u32, 0), report.upstream_line);
+        try std.testing.expectEqual(@as(u32, 0), report.upstream_col);
+    }
+}
 
 const ParallelVerifyJob = struct {
     arena: std.heap.ArenaAllocator,
@@ -1076,7 +1125,7 @@ fn assignValueCtx(
 ) ?VerifyBodyResult {
     const idx: usize = @intCast(id);
     const current = state[idx];
-    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0) {
+    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
         return trapReport(.register_redefinition, item, function_text, is_ffi_wrapper, name, null, null, "register is already live", null);
     }
     if (hasInteriorPtr(current) or interior.interior_first_child[idx] != null) {
@@ -1541,11 +1590,11 @@ fn verifyBody(
                 const loaded_ty: sig.PrimType = if (item.operands[3] == .ty) blk: {
                     break :blk sig.primTypeFromTag(item.operands[3].ty) orelse if (item.kind == .take) .ptr else .i64;
                 } else if (item.kind == .take) .ptr else .i64;
-                const source_is_tracked = (src_mask & (maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
-                const new_mask = maskOf(.active) | if (item.kind == .take or (loaded_ty == .ptr and source_is_tracked)) maskOf(.interior_ptr) else 0;
+                const source_is_interior = (src_mask & maskOf(.interior_ptr)) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg);
+                const new_mask = maskOf(.active) | if (item.kind == .take or (loaded_ty == .ptr and source_is_interior)) maskOf(.interior_ptr) else 0;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, new_mask)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = if (item.kind == .load and loaded_ty != .ptr) regFlagEphemeralScalar else 0;
-                if (item.kind == .take or (loaded_ty == .ptr and source_is_tracked)) {
+                if (item.kind == .take or (loaded_ty == .ptr and source_is_interior)) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
                 }
             },
@@ -1673,10 +1722,18 @@ fn verifyBody(
             },
             .assign => {
                 const dst_id = item.operands[0].reg;
+                const source_is_ephemeral = switch (item.operands[1]) {
+                    .imm_i64, .imm_u64, .imm_int, .imm_float => true,
+                    .reg => |src| (flags[@intCast(src)] & regFlagEphemeralScalar) != 0,
+                    else => false,
+                };
                 if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 }
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active))) |tr| return tr;
+                if (source_is_ephemeral) {
+                    flags[@intCast(dst_id)] = regFlagEphemeralScalar;
+                }
                 if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {
                     if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, true)) |tr| return tr;
                 }
@@ -1866,7 +1923,7 @@ fn verifyBody(
                                 }
                             }
                             if (sig_match) |resolved| {
-                                if ((resolved.kind == .external or resolved.kind == .ffi_wrapper) and hasInteriorTree(state, interior_first_child, arg_id)) {
+                                if (arg.prefix != .borrow and (resolved.kind == .external or resolved.kind == .ffi_wrapper) and hasInteriorTree(state, interior_first_child, arg_id)) {
                                     return trapReport(.interior_ptr_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.interior_ptr), state[arg_reg_idx], "interior pointers cannot cross FFI boundaries", null);
                                 }
                             }
@@ -1916,7 +1973,7 @@ fn verifyBody(
                     if (isIdentLike(dest)) {
                         if (metadata.symbols.findId(dest)) |dest_id| {
                             const idx: usize = @intCast(dest_id);
-                            if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0) {
+                            if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
                                 return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
                             }
                             if (isImmutableConst(state, flags, dest_id)) {
@@ -2077,7 +2134,7 @@ fn verifyBody(
             if ((flags[idx] & regFlagBranchCondition) != 0) continue;
             if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
             if (regConsumedLater(instructions, current_function_start_idx, @intCast(idx))) continue;
-            return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, mask, "live registers remain at function exit", null);
+            return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(@intCast(idx)), null, mask, "live registers remain at function exit", null);
         }
     }
 
@@ -3383,6 +3440,103 @@ const VerifySnapshot = union(enum) {
     trap: trap.TrapReport,
 };
 
+fn trapSnapshot(report: trap.TrapReport) struct {
+    trap: trap.Trap,
+    trap_code: u32,
+    line: u32,
+    source_line: u32,
+    message: []const u8,
+    register: []const u8,
+    function: []const u8,
+} {
+    return .{
+        .trap = report.trap,
+        .trap_code = report.trap_code orelse 0,
+        .line = report.line,
+        .source_line = report.source_line,
+        .message = report.message,
+        .register = if (report.register) |text| text else std.mem.sliceTo(&report.register_buf, 0),
+        .function = if (report.function) |text| text else std.mem.sliceTo(&report.function_buf, 0),
+    };
+}
+
+fn expectVerifyResultEqual(lhs: VerifyResult, rhs: VerifyResult) !void {
+    switch (lhs) {
+        .ok => |l_ok| switch (rhs) {
+            .ok => |r_ok| {
+                try std.testing.expectEqual(l_ok.annotated.len, r_ok.annotated.len);
+                try std.testing.expectEqual(l_ok.function_sigs.len, r_ok.function_sigs.len);
+                try std.testing.expectEqualDeep(l_ok.gas, r_ok.gas);
+                try std.testing.expectEqualDeep(l_ok.symbols.names.items, r_ok.symbols.names.items);
+            },
+            .trap => return error.TestUnexpectedResult,
+        },
+        .trap => |l_trap| switch (rhs) {
+            .trap => |r_trap| {
+                const lhs_snap = trapSnapshot(l_trap);
+                const rhs_snap = trapSnapshot(r_trap);
+                try std.testing.expectEqualDeep(lhs_snap, rhs_snap);
+            },
+            .ok => return error.TestUnexpectedResult,
+        },
+    }
+}
+
+test "verifyWithOptions serial and parallel results are identical" {
+    const source =
+        \\@first() -> i32:
+        \\a = alloc 8
+        \\!a
+        \\return 0
+        \\
+        \\@second() -> i32:
+        \\b = alloc 8
+        \\!b
+        \\return 1
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const serial = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    const parallel = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 2 });
+
+    defer switch (serial) {
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+        },
+        .trap => {},
+    };
+    defer switch (parallel) {
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+        },
+        .trap => {},
+    };
+
+    try expectVerifyResultEqual(serial, parallel);
+}
+
+test "verifyWithOptions serial and parallel traps are identical" {
+    const source =
+        \\@first() -> i32:
+        \\return missing_value
+        \\
+        \\@second() -> i32:
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const serial = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    const parallel = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 2 });
+
+    try expectVerifyResultEqual(serial, parallel);
+}
+
 const GasFixture = struct {
     instructions: []inst.Instruction,
     owned_texts: [][]u8,
@@ -3733,6 +3887,67 @@ test "unknown register PBT traps on random undeclared op operands" {
                 try std.testing.expectEqual(trap.Trap.unknown_register, report.trap);
                 try std.testing.expectEqual(trap.trapCode(.unknown_register), report.trap_code orelse return error.TestUnexpectedResult);
                 try std.testing.expect(report.register == null);
+                try std.testing.expect(std.mem.startsWith(u8, report.register_buf[0..], ghost_name));
+            },
+            .ok => return error.TestUnexpectedResult,
+        }
+    }
+}
+
+test "#loc PBT keeps trap upstream locations aligned with loc table entries" {
+    var prng = std.Random.DefaultPrng.init(0x5A5A_6254);
+    const random = prng.random();
+
+    for (0..48) |iter| {
+        const ghost_name = try std.fmt.allocPrint(std.testing.allocator, "ghost_{d}", .{iter});
+        defer std.testing.allocator.free(ghost_name);
+
+        var source = std.ArrayList(u8).init(std.testing.allocator);
+        errdefer source.deinit();
+        const writer = source.writer();
+
+        var expected_main_loc: ?upstream.UpstreamLoc = null;
+        var expected_alloc_loc: ?upstream.UpstreamLoc = null;
+        var expected_error_loc: ?upstream.UpstreamLoc = null;
+        var expected_return_loc: ?upstream.UpstreamLoc = null;
+
+        try appendRandomLocBlock(writer, random, &expected_main_loc, 0);
+        try writer.writeAll("@main() -> i32:\n");
+        try appendRandomLocBlock(writer, random, &expected_alloc_loc, 0);
+        try writer.writeAll("value = alloc 8\n");
+        try appendRandomLocBlock(writer, random, &expected_error_loc, 1);
+        if ((iter & 1) == 0) {
+            try writer.print("result = add {s}, 1\n", .{ghost_name});
+        } else {
+            try writer.print("result = add 1, {s}\n", .{ghost_name});
+        }
+        try appendRandomLocBlock(writer, random, &expected_return_loc, 0);
+        try writer.writeAll("return result\n");
+
+        const source_text = try source.toOwnedSlice();
+        defer std.testing.allocator.free(source_text);
+
+        var flat = try @import("flattener.zig").flatten(std.testing.allocator, source_text);
+        defer flat.deinit(std.testing.allocator);
+
+        const expected_alloc_effective_loc = expected_alloc_loc orelse expected_main_loc;
+
+        try std.testing.expectEqual(@as(usize, 4), flat.instructions.len);
+        try std.testing.expectEqual(flat.instructions.len, flat.loc_table.len);
+        try expectOptionalUpstreamLoc(flat.instructions[0].upstream_loc, expected_main_loc);
+        try expectOptionalUpstreamLoc(flat.loc_table[0], null);
+        try expectOptionalUpstreamLoc(flat.instructions[1].upstream_loc, expected_alloc_effective_loc);
+        try expectOptionalUpstreamLoc(flat.loc_table[1], expected_alloc_effective_loc);
+        try expectOptionalUpstreamLoc(flat.loc_table[2], expected_error_loc);
+        try expectOptionalUpstreamLoc(flat.instructions[3].upstream_loc, expected_return_loc);
+        try expectOptionalUpstreamLoc(flat.loc_table[3], expected_return_loc);
+
+        const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+        switch (verified) {
+            .trap => |report| {
+                try std.testing.expectEqual(trap.Trap.unknown_register, report.trap);
+                try std.testing.expectEqual(trap.trapCode(.unknown_register), report.trap_code orelse return error.TestUnexpectedResult);
+                try expectTrapReportUpstreamLoc(report, expected_error_loc);
                 try std.testing.expect(std.mem.startsWith(u8, report.register_buf[0..], ghost_name));
             },
             .ok => return error.TestUnexpectedResult,

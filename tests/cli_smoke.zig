@@ -341,7 +341,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "ret i32 %res, !dbg"));
 
     const obj_path = "sample.o";
-    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "sample.saasm", "-o", obj_path };
+    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "sample.saasm", "--jobs", "auto", "-o", obj_path };
     const obj_code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), obj_code);
 
@@ -352,7 +352,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(obj_bytes.len > 0);
 
     const wasm_path = "sample.wasm";
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "sample.saasm", "-o", wasm_path, "--target", "wasm32" };
+    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "sample.saasm", "--jobs", "auto", "-o", wasm_path, "--target", "wasm32" };
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
@@ -918,12 +918,20 @@ test "time demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/time_probe.saasm", "time ok\n");
 }
 
+test "time demo runs through saasm run" {
+    try assertRunStdout("demos/support/time_probe.saasm", "time ok\n");
+}
+
 test "io demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/io_probe.saasm", "alpha\n5\n");
 }
 
 test "hashmap demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/support/hashmap_probe.saasm", "alpha\nbravo\nmap ok\n");
+}
+
+test "sort demo compiles and prints through build-exe" {
+    try assertBuildExeStdout("demos/support/sort_probe.saasm", "sort ok\n");
 }
 
 test "use after move demo is rejected with structured trap output" {
