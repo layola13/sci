@@ -205,8 +205,6 @@ const InteriorContext = struct {
     interior_next_sibling: []?u32,
 };
 
-threadlocal var interior_ctx: ?InteriorContext = null;
-
 const LabelSnapshot = struct {
     state: []u16,
     origins: []?u32,
@@ -258,7 +256,7 @@ fn seedConstSymbols(
 
 fn isDecl(kind: inst.InstKind) bool {
     return switch (kind) {
-        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => true,
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
         else => false,
     };
 }
@@ -916,6 +914,7 @@ fn parseDeclKind(kind: inst.InstKind) ?sig.FunctionKind {
         .ffi_wrapper_decl => .ffi_wrapper,
         .extern_decl => .external,
         .export_decl => .exported,
+        .test_decl => .test_func,
         else => null,
     };
 }
@@ -949,7 +948,7 @@ fn collectMetadata(
             .label => {
                 _ = try symbols.intern(classified.parts[0]);
             },
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
                 const kind = parseDeclKind(item.kind).?;
                 var parsed = sig.parseFunctionHeader(allocator, item.raw_text, @intCast(sigs.items.len), item.expanded_line, kind) catch |err| {
                     return switch (err) {
@@ -958,6 +957,17 @@ fn collectMetadata(
                     };
                 };
                 errdefer parsed.deinit(allocator);
+
+                // Validate @test function signatures: must be () -> void
+                if (kind == .test_func) {
+                    if (parsed.params.len != 0) {
+                        return error.TestFuncSignatureMismatch;
+                    }
+                    if (parsed.return_ty != .void) {
+                        return error.TestFuncSignatureMismatch;
+                    }
+                }
+
                 if (item.upstream_loc) |loc| {
                     const file_copy = try allocator.dupe(u8, loc.file);
                     errdefer allocator.free(file_copy);
@@ -1195,9 +1205,9 @@ fn assignValue(
     state: []u16,
     flags: []u8,
     mask: u16,
+    interior: *InteriorContext,
 ) ?VerifyBodyResult {
-    var ctx = interior_ctx orelse return null;
-    return assignValueCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, mask, &ctx);
+    return assignValueCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, mask, interior);
 }
 
 fn consumeSourceValueCtx(
@@ -1251,9 +1261,9 @@ fn consumeSourceValue(
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
     allow_const_copy: bool,
+    interior: *InteriorContext,
 ) ?VerifyBodyResult {
-    var ctx = interior_ctx orelse return null;
-    return consumeSourceValueCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, allow_const_copy, &ctx);
+    return consumeSourceValueCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, allow_const_copy, interior);
 }
 
 fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst: u32, src: u32, is_mut: bool, is_ffi: bool) void {
@@ -1316,9 +1326,9 @@ fn clearBorrow(
     origins: []?u32,
     locks: []u16,
     id: u32,
+    interior: *InteriorContext,
 ) void {
-    var ctx = interior_ctx orelse return;
-    clearBorrowCtx(state, flags, origins, locks, id, &ctx);
+    clearBorrowCtx(state, flags, origins, locks, id, interior);
 }
 
 fn consumeAtContractBoundaryCtx(
@@ -1369,9 +1379,9 @@ fn consumeAtContractBoundary(
     interior_parent: []?u32,
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
+    interior: *InteriorContext,
 ) ?VerifyBodyResult {
-    var ctx = interior_ctx orelse return null;
-    return consumeAtContractBoundaryCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, &ctx);
+    return consumeAtContractBoundaryCtx(item, function_text, is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, interior);
 }
 
 fn markBranchCondition(flags: []u8, id: u32) void {
@@ -1463,14 +1473,12 @@ fn verifyBody(
     const interior_next_sibling = try allocator.alloc(?u32, reg_count);
     defer allocator.free(interior_next_sibling);
     @memset(interior_next_sibling, null);
-    const previous_interior_ctx = interior_ctx;
-    interior_ctx = .{
+    var interior = InteriorContext{
         .state = state,
         .interior_parent = interior_parent,
         .interior_first_child = interior_first_child,
         .interior_next_sibling = interior_next_sibling,
     };
-    defer interior_ctx = previous_interior_ctx;
     var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
     defer atomic_history.deinit();
 
@@ -1618,7 +1626,7 @@ fn verifyBody(
 
         switch (item.kind) {
             .alloc => {
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = 0;
                 gas_alloc_bytes += switch (item.operands[1]) {
                     .imm_u64 => |v| v,
@@ -1628,7 +1636,7 @@ fn verifyBody(
                 };
             },
             .stack_alloc => {
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = regFlagStackAlloc;
                 gas_alloc_bytes += switch (item.operands[1]) {
                     .imm_u64 => |v| v,
@@ -1648,7 +1656,7 @@ fn verifyBody(
                     loaded_ty == .ptr and
                     ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow))) != 0);
                 const new_mask = maskOf(.active) | if (load_is_borrowed_ptr) maskOf(.interior_ptr) else 0;
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, new_mask)) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, new_mask, &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = if (item.kind == .load and loaded_ty != .ptr) regFlagEphemeralScalar else 0;
                 if (item.kind == .take and ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg))) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
@@ -1672,7 +1680,7 @@ fn verifyBody(
             },
             .atomic_load => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.untracked))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.untracked), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = regFlagEphemeralScalar;
             },
             .atomic_store => {
@@ -1689,8 +1697,8 @@ fn verifyBody(
                 if (item.operands[3] == .imm_u64) {
                     _ = item.operands[3].imm_u64;
                 }
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active))) |tr| return tr;
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = 0;
                 flags[@intCast(item.operands[1].reg)] = 0;
             },
@@ -1702,7 +1710,7 @@ fn verifyBody(
                         if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[3].text, value_id, state, flags)) |tr| return tr;
                     }
                 }
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = regFlagEphemeralScalar;
             },
             .fence => {},
@@ -1723,7 +1731,7 @@ fn verifyBody(
                         else => {},
                     }
                 }
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.untracked))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.untracked), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = 0;
             },
             .ptr_add => {
@@ -1738,7 +1746,7 @@ fn verifyBody(
                 const src_idx: usize = @intCast(item.operands[1].reg);
                 const tracked = (state[src_idx] & (maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
                 const dst_mask: u16 = if (tracked) maskOf(.active) | maskOf(.interior_ptr) else maskOf(.active);
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, dst_mask)) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, dst_mask, &interior)) |tr| return tr;
                 if (tracked) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
                 }
@@ -1769,12 +1777,12 @@ fn verifyBody(
                         return trapReport(.double_mutable_borrow, item, current_function_text, current_is_ffi_wrapper, classified.parts[2], maskOf(.active), state[source_idx], "cannot borrow mut more than once", null);
                     }
                 }
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active) | maskOf(.borrow_view))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active) | maskOf(.borrow_view), &interior)) |tr| return tr;
                 setBorrowState(state, flags, origins, locks, item.operands[0].reg, source_reg, is_mut, false);
             },
             .move_ => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
-                if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, false)) |tr| return tr;
+                if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, false, &interior)) |tr| return tr;
             },
             .assign => {
                 const dst_id = item.operands[0].reg;
@@ -1786,18 +1794,18 @@ fn verifyBody(
                 if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 }
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 if (source_is_ephemeral) {
                     flags[@intCast(dst_id)] = regFlagEphemeralScalar;
                 }
                 if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {
-                    if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, true)) |tr| return tr;
+                    if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, true, &interior)) |tr| return tr;
                 }
             },
             .release => {
                 const idx: usize = @intCast(item.operands[0].reg);
                 if ((state[idx] & maskOf(.borrow_view)) != 0) {
-                    clearBorrow(state, flags, origins, locks, item.operands[0].reg);
+                    clearBorrow(state, flags, origins, locks, item.operands[0].reg, &interior);
                 } else {
                     if (isImmutableConst(state, flags, item.operands[0].reg)) {
                         return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], state[idx], "immutable registers cannot be released");
@@ -1819,12 +1827,12 @@ fn verifyBody(
             .raw_cast => {
                 if (!current_is_ffi_wrapper) return trapReport(.illegal_unsafe_context, item, current_function_text, current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.untracked))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.untracked), &interior)) |tr| return tr;
             },
             .assume_safe => {
                 if (!current_is_ffi_wrapper) return trapReport(.illegal_unsafe_context, item, current_function_text, current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
             },
             .assume_borrow => {
                 if (!current_is_ffi_wrapper) return trapReport(.illegal_unsafe_context, item, current_function_text, current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
@@ -1833,14 +1841,14 @@ fn verifyBody(
                 if (is_mut and isImmutableConst(state, flags, item.operands[1].reg)) {
                     return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], state[@intCast(item.operands[1].reg)], "immutable registers cannot be exclusively borrowed");
                 }
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active) | maskOf(.borrow_view))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active) | maskOf(.borrow_view), &interior)) |tr| return tr;
                 setBorrowState(state, flags, origins, locks, item.operands[0].reg, item.operands[1].reg, is_mut, true);
             },
             .native => {
                 for (item.native_reg_names) |name| {
                     if (!isIdentLike(name)) continue;
                     if (metadata.symbols.findId(name)) |id| {
-                        if (consumeAtContractBoundary(item, current_function_text, current_is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling)) |tr| return tr;
+                        if (consumeAtContractBoundary(item, current_function_text, current_is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, &interior)) |tr| return tr;
                     }
                 }
             },
@@ -2016,7 +2024,7 @@ fn verifyBody(
                                         continue;
                                     }
                                     if ((state[move_arg_reg_idx] & maskOf(.borrow_view)) != 0) {
-                                        clearBorrow(state, flags, origins, locks, arg_id);
+                                        clearBorrow(state, flags, origins, locks, arg_id, &interior);
                                     } else {
                                         if (hasInteriorTree(state, interior_first_child, arg_id)) {
                                             consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, arg_id);
@@ -2095,7 +2103,7 @@ fn verifyBody(
                     return trapReport(.early_return_leak, item, current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(src_id), maskOf(.fallible), src_mask, "early return would leak live registers", null);
                 }
 
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active))) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(dst_id)] = 0;
             },
             .return_ => {
@@ -2124,7 +2132,7 @@ fn verifyBody(
                         }
                         if ((flags[idx] & regFlagRawPointer) == 0) {
                             if ((state[idx] & maskOf(.borrow_view)) != 0) {
-                                clearBorrow(state, flags, origins, locks, ret_id);
+                                clearBorrow(state, flags, origins, locks, ret_id, &interior);
                             } else if (hasInteriorTree(state, interior_first_child, ret_id)) {
                                 consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
                             } else if ((state[idx] & maskOf(.untracked)) == 0) {
@@ -2158,14 +2166,14 @@ fn verifyBody(
                             if (isStackAllocated(flags, origins, state, ret_id)) {
                                 return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
                             }
-                            if ((flags[idx] & regFlagRawPointer) == 0) {
-                                if ((state[idx] & maskOf(.borrow_view)) != 0) {
-                                    clearBorrow(state, flags, origins, locks, ret_id);
-                                } else if (hasInteriorTree(state, interior_first_child, ret_id)) {
-                                    consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
-                                } else if ((state[idx] & maskOf(.untracked)) == 0) {
-                                    state[idx] = maskOf(.consumed);
-                                }
+                        if ((flags[idx] & regFlagRawPointer) == 0) {
+                            if ((state[idx] & maskOf(.borrow_view)) != 0) {
+                                clearBorrow(state, flags, origins, locks, ret_id, &interior);
+                            } else if (hasInteriorTree(state, interior_first_child, ret_id)) {
+                                consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
+                            } else if ((state[idx] & maskOf(.untracked)) == 0) {
+                                state[idx] = maskOf(.consumed);
+                            }
                             }
                         }
                     } else {
@@ -2453,15 +2461,18 @@ pub fn verifyWithOptions(
         const kind: trap.Trap = switch (err) {
             error.UnsupportedType => .unsupported_type,
             error.OutOfMemory => .arena_oom,
+            error.TestFuncSignatureMismatch => .test_func_signature_mismatch,
             else => .forbidden_syntax,
         };
         return .{ .trap = trapReportFromText(kind, 1, 1, instructions[0].raw_text, switch (err) {
             error.UnsupportedType => "unsupported type annotation while rebuilding metadata",
             error.OutOfMemory => "out of memory while rebuilding metadata",
+            error.TestFuncSignatureMismatch => "@test function must have signature () -> void",
             else => "failed to rebuild metadata",
         }, switch (err) {
             error.UnsupportedType => "check primitive type names in signatures and atomic suffixes",
             error.OutOfMemory => null,
+            error.TestFuncSignatureMismatch => "test functions cannot have parameters and must return void",
             else => null,
         }) };
     };

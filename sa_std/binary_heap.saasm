@@ -1,0 +1,413 @@
+// Concrete u64 max-heap with grow-on-demand storage.
+@import "core/mem.saasm"
+@import "binary_heap.saasm-layout"
+
+@binary_heap_swap(&heap: ptr, lhs: u64, rhs: u64) -> void:
+L_ENTRY:
+    buf = load heap+BinaryHeap_buf as ptr
+    lhs_off = mul lhs, BinaryHeap_SLOT_SIZE
+    rhs_off = mul rhs, BinaryHeap_SLOT_SIZE
+    lhs_ptr = ptr_add buf, lhs_off
+    rhs_ptr = ptr_add buf, rhs_off
+    lhs_value = load lhs_ptr+0 as u64
+    rhs_value = load rhs_ptr+0 as u64
+    store lhs_ptr+0, rhs_value as u64
+    store rhs_ptr+0, lhs_value as u64
+    !lhs_value
+    !rhs_value
+    !lhs_ptr
+    !rhs_ptr
+    !lhs_off
+    !rhs_off
+    !buf
+    !rhs
+    !lhs
+    !heap
+    return
+
+@export sa_binary_heap_new() -> ^ptr:
+L_ENTRY:
+    heap = alloc BinaryHeap_SIZE
+    initial_bytes = mul BinaryHeap_INITIAL_CAP, BinaryHeap_SLOT_SIZE
+    buf = alloc initial_bytes
+    call @sa_mem_set(&buf, 0, initial_bytes)
+    store heap+BinaryHeap_buf, buf as ptr
+    store heap+BinaryHeap_cap, BinaryHeap_INITIAL_CAP as u64
+    store heap+BinaryHeap_len, 0 as u64
+    ^buf
+    !initial_bytes
+    return heap
+
+@export sa_binary_heap_free(^heap: ptr) -> void:
+L_ENTRY:
+    buf = load heap+BinaryHeap_buf as ptr
+    !buf
+    !heap
+    return
+
+@export sa_binary_heap_len(&heap: ptr) -> u64:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    !heap
+    return len
+
+@export sa_binary_heap_peek(&heap: ptr) -> u64:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    empty = eq len, 0
+    br empty -> L_EMPTY, L_HIT
+
+L_HIT:
+    buf = load heap+BinaryHeap_buf as ptr
+    root = load buf+0 as u64
+    !buf
+    !empty
+    !len
+    !heap
+    return root
+
+L_EMPTY:
+    !empty
+    !len
+    !heap
+    return 0
+
+@binary_heap_sift_up(&heap: ptr, index: u64) -> void:
+L_ENTRY:
+    is_root = eq index, 0
+    br is_root -> L_DONE_ROOT, L_BODY
+
+L_BODY:
+    idx_minus_one = sub index, 1
+    parent = udiv idx_minus_one, 2
+    buf = load heap+BinaryHeap_buf as ptr
+    child_off = mul index, BinaryHeap_SLOT_SIZE
+    parent_off = mul parent, BinaryHeap_SLOT_SIZE
+    child_ptr = ptr_add buf, child_off
+    parent_ptr = ptr_add buf, parent_off
+    child_value = load child_ptr+0 as u64
+    parent_value = load parent_ptr+0 as u64
+    should_swap = ugt child_value, parent_value
+    br should_swap -> L_SWAP, L_DONE_BODY
+
+L_SWAP:
+    call @binary_heap_swap(&heap, parent, index)
+    call @binary_heap_sift_up(&heap, parent)
+    !should_swap
+    !child_value
+    !parent_value
+    !child_ptr
+    !parent_ptr
+    !child_off
+    !parent_off
+    !idx_minus_one
+    !buf
+    !parent
+    !index
+    !is_root
+    !heap
+    return
+
+L_DONE_BODY:
+    !should_swap
+    !child_value
+    !parent_value
+    !child_ptr
+    !parent_ptr
+    !child_off
+    !parent_off
+    !idx_minus_one
+    !buf
+    !parent
+    !index
+    !is_root
+    !heap
+    return
+
+L_DONE_ROOT:
+    !is_root
+    !index
+    !heap
+    return
+
+@binary_heap_sift_down(&heap: ptr, index: u64) -> void:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    left_base = mul index, 2
+    left = add left_base, 1
+    has_left = ult left, len
+    br has_left -> L_BODY, L_DONE_SHORT
+
+L_BODY:
+    buf = load heap+BinaryHeap_buf as ptr
+    parent_off = mul index, BinaryHeap_SLOT_SIZE
+    parent_ptr = ptr_add buf, parent_off
+    parent_value = load parent_ptr+0 as u64
+    left_off = mul left, BinaryHeap_SLOT_SIZE
+    left_ptr = ptr_add buf, left_off
+    left_value = load left_ptr+0 as u64
+    right = add left, 1
+    has_right = ult right, len
+    br has_right -> L_RIGHT_BRANCH, L_LEFT_ONLY
+
+L_LEFT_ONLY:
+    should_swap = ugt left_value, parent_value
+    br should_swap -> L_SWAP_LEFT_ONLY, L_DONE_LEFT_ONLY
+
+L_RIGHT_BRANCH:
+    right_off = mul right, BinaryHeap_SLOT_SIZE
+    right_ptr = ptr_add buf, right_off
+    right_value = load right_ptr+0 as u64
+    right_bigger = ugt right_value, left_value
+    br right_bigger -> L_RIGHT_BIGGER, L_LEFT_BIGGER
+
+L_RIGHT_BIGGER:
+    should_swap = ugt right_value, parent_value
+    br should_swap -> L_SWAP_RIGHT, L_DONE_RIGHT_BRANCH
+
+L_LEFT_BIGGER:
+    should_swap = ugt left_value, parent_value
+    br should_swap -> L_SWAP_LEFT_RIGHT, L_DONE_RIGHT_BRANCH
+
+L_SWAP_RIGHT:
+    call @binary_heap_swap(&heap, index, right)
+    call @binary_heap_sift_down(&heap, right)
+    !should_swap
+    !right_bigger
+    !right_value
+    !right_ptr
+    !right_off
+    !has_right
+    !right
+    !left_value
+    !left_ptr
+    !left_off
+    !parent_value
+    !parent_ptr
+    !parent_off
+    !buf
+    !len
+    !left_base
+    !left
+    !index
+    !heap
+    return
+
+L_SWAP_LEFT_RIGHT:
+    call @binary_heap_swap(&heap, index, left)
+    call @binary_heap_sift_down(&heap, left)
+    !should_swap
+    !right_bigger
+    !right_value
+    !right_ptr
+    !right_off
+    !has_right
+    !right
+    !left_value
+    !left_ptr
+    !left_off
+    !parent_value
+    !parent_ptr
+    !parent_off
+    !buf
+    !len
+    !left_base
+    !left
+    !index
+    !heap
+    return
+
+L_SWAP_LEFT_ONLY:
+    call @binary_heap_swap(&heap, index, left)
+    call @binary_heap_sift_down(&heap, left)
+    !should_swap
+    !left_value
+    !left_ptr
+    !left_off
+    !parent_value
+    !parent_ptr
+    !parent_off
+    !buf
+    !len
+    !left_base
+    !left
+    !has_left
+    !index
+    !heap
+    return
+
+L_DONE_RIGHT_BRANCH:
+    !should_swap
+    !right_bigger
+    !right_value
+    !right_ptr
+    !right_off
+    !has_right
+    !right
+    !left_value
+    !left_ptr
+    !left_off
+    !parent_value
+    !parent_ptr
+    !parent_off
+    !buf
+    !len
+    !left_base
+    !left
+    !index
+    !heap
+    return
+
+L_DONE_LEFT_ONLY:
+    !should_swap
+    !left_value
+    !left_ptr
+    !left_off
+    !parent_value
+    !parent_ptr
+    !parent_off
+    !buf
+    !len
+    !left_base
+    !left
+    !has_left
+    !index
+    !heap
+    return
+
+L_DONE_SHORT:
+    !has_left
+    !left_base
+    !left
+    !len
+    !index
+    !heap
+    return
+
+@binary_heap_grow(&heap: ptr) -> void:
+L_ENTRY:
+    old_buf = load heap+BinaryHeap_buf as ptr
+    old_cap = load heap+BinaryHeap_cap as u64
+    old_len = load heap+BinaryHeap_len as u64
+    next_cap = add old_cap, old_cap
+    copy_bytes = mul old_len, BinaryHeap_SLOT_SIZE
+    new_bytes = mul next_cap, BinaryHeap_SLOT_SIZE
+    new_buf = alloc new_bytes
+    call @sa_mem_copy(&new_buf, &old_buf, copy_bytes)
+    !copy_bytes
+    !new_bytes
+    !old_len
+    !old_cap
+    !old_buf
+    store heap+BinaryHeap_buf, new_buf as ptr
+    store heap+BinaryHeap_cap, next_cap as u64
+    ^new_buf
+    !next_cap
+    !heap
+    return
+
+@export sa_binary_heap_push(&heap: ptr, value: u64) -> void:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    cap = load heap+BinaryHeap_cap as u64
+    room = ult len, cap
+    br room -> L_INSERT_RELEASE, L_GROW
+
+L_GROW:
+    call @binary_heap_grow(&heap)
+    !room
+    !cap
+    !len
+    jmp L_INSERT_WRITE
+
+L_INSERT_RELEASE:
+    !room
+    !cap
+    !len
+    jmp L_INSERT_WRITE
+
+L_INSERT_WRITE:
+    len2 = load heap+BinaryHeap_len as u64
+    buf = load heap+BinaryHeap_buf as ptr
+    slot_off = mul len2, BinaryHeap_SLOT_SIZE
+    slot = ptr_add buf, slot_off
+    store slot+0, value as u64
+    next_len = add len2, 1
+    store heap+BinaryHeap_len, next_len as u64
+    call @binary_heap_sift_up(&heap, len2)
+    !slot
+    !slot_off
+    !next_len
+    !buf
+    !len2
+    !value
+    !heap
+    return
+
+@export sa_binary_heap_try_pop(&heap: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    empty = eq len, 0
+    br empty -> L_EMPTY, L_READY
+
+L_READY:
+    buf = load heap+BinaryHeap_buf as ptr
+    root_ptr = ptr_add buf, 0
+    value = load root_ptr+0 as u64
+    last_index = sub len, 1
+    last_off = mul last_index, BinaryHeap_SLOT_SIZE
+    last_ptr = ptr_add buf, last_off
+    last_value = load last_ptr+0 as u64
+    next_len = sub len, 1
+    store out_value_slot+0, value as u64
+    store heap+BinaryHeap_len, next_len as u64
+    store root_ptr+0, last_value as u64
+    call @binary_heap_sift_down(&heap, 0)
+    !last_value
+    !last_ptr
+    !last_off
+    !last_index
+    !value
+    !root_ptr
+    !next_len
+    !buf
+    !len
+    !empty
+    !out_value_slot
+    !heap
+    return 1
+
+L_EMPTY:
+    store out_value_slot+0, 0 as u64
+    !empty
+    !len
+    !out_value_slot
+    !heap
+    return 0
+
+[MACRO] BINARY_HEAP_NEW %out_heap
+    %out_heap = call @sa_binary_heap_new()
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_FREE %heap_reg
+    call @sa_binary_heap_free(^%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_LEN %out_len, %heap_reg
+    %out_len = call @sa_binary_heap_len(&%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_PEEK %out_value, %heap_reg
+    %out_value = call @sa_binary_heap_peek(&%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_PUSH %heap_reg, %value
+    call @sa_binary_heap_push(&%heap_reg, %value)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_TRY_POP %out_ok, %out_value, %heap_reg
+    __binary_heap_value_slot_%out_ok = stack_alloc 8
+    __binary_heap_ok_%out_ok = call @sa_binary_heap_try_pop(&%heap_reg, &__binary_heap_value_slot_%out_ok)
+    %out_value = load __binary_heap_value_slot_%out_ok+0 as u64
+    %out_ok = __binary_heap_ok_%out_ok
+[END_MACRO]

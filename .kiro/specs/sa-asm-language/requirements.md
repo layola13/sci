@@ -942,4 +942,93 @@
 
 ---
 
-**文档终态：以上 33 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
+### Requirement 34: SA 零信任列式数据库（v0.6 — 数据库生态）
+
+**User Story**  
+作为 SA 生态的数据层，我需要一个与包管理同构的列式数据库引擎，支持预编译查询、SHA-256 锁版、模块级权限隔离、零拷贝沙箱执行。
+
+**Acceptance Criteria**
+
+1. WHEN 表 schema 定义为 `.sadb-schema` 文件 THEN 编译器 SHALL 在编译期一次扫描映射为 `#def COL_*_STRIDE` 与 `#def TABLE_*_ROW_BYTES` 常量，生成 `.iface` 接口文件供查询模块导入
+2. WHEN 查询模块定义为 `.query.saasm` 文件 THEN 编译器 SHALL 编译为二进制 `.qmod` 模块，计算源码 SHA-256 哈希，注册到查询模块注册表
+3. WHEN 查询模块声明 `grants [db_read:<table>, db_write:<table>, db_atomic_cursor:<table>, db_alloc_blob:<arena>]` THEN Referee 扩展 SHALL 在注册时执行 X 光扫描，校验所有 `load` / `store` / `atomic_rmw_*` 指令是否在权限白名单内，违规返回 `Trap: DbCapabilityEscalation`
+4. WHEN 数据库引擎执行查询模块 THEN 引擎 SHALL 通过 `@ffi_wrapper` 注入列基址为 mmap 只读切片（`MAP_PRIVATE | PROT_READ`），任何越权写入触发 CPU SIGSEGV，宿主进程捕获中断返回 `Trap: DbMemoryGuardViolation`
+5. WHEN 表执行 Insert 操作 THEN 引擎 SHALL 用 `atomic_rmw_add global_len, 1` 无锁自增行游标，所有 Insert 竞争此单点串行化点，保证行号唯一分配
+6. WHEN 表执行 Blob 分配 THEN 引擎 SHALL 采用 Bump Allocator（纯追加），整段 mmap 视为单个 `alloc`，单次 `!arena` 释放，删除标记墓碑，段死亡比例 ≥ 50% 时触发整段重写
+7. WHEN 表数据分层 THEN 引擎 SHALL 支持冷热分层：RAM（7 天）/ mmap NVMe（1 月）/ Zstd 压缩落 S3（1 年+，体积压至 10–15%）
+8. WHEN 数据库引擎启动 THEN 引擎 SHALL 不使用 WAL，改用快照 epoch + 不可变段 + 原子游标的等价方案保证崩溃恢复
+9. WHEN 跨行事务需要一致性 THEN 引擎 SHALL 支持可选乐观锁（每行 8 字节 version 列，`cmpxchg` 失败返回 `Trap: DbConcurrencyConflict`），明确否决 MVCC
+10. WHEN 表 schema 与查询模块分发 THEN 引擎 SHALL 复用 `sa.mod` 的 SHA-256 锁版、零权限默认、URL 即命名空间的包管理哲学，无需单独 `sadb.mod` 文件
+11. WHEN CLI 提供数据库子命令 THEN 引擎 SHALL 支持至少 10 条子命令：`db init` / `db register` / `db exec` / `db ingest` / `db snapshot` / `db restore` / `db inspect` / `db compact` / `db lock` / `db verify`
+12. WHEN 数据库引擎报错 THEN 引擎 SHALL 登记 12 条新 Trap 错误码（`DbCapabilityEscalation` / `DbMemoryGuardViolation` / `DbBlobArenaOOM` / `DbConcurrencyConflict` / `DbSchemaMismatch` / `DbCursorOverflow` / `DbColumnTypeMismatch` / `DbQueryHashUnknown` / `DbBlobHandleInvalid` / `DbSnapshotCorrupted` / `DbDuplicateRegister` / `DbForbiddenSqlString`），每条附带诊断字段（`table` / `sha256` / `offset` / `expected_mask` / `actual_mask` / `upstream_loc`）
+
+**设计文档**：见 `docs/database.md`（§0–§15 + 附录 A/B）
+
+**决策来源**：talk.md L3859–4848（14 轮数据库脑暴）
+
+---
+
+### Requirement 35: SA 极速网络引擎 `sa_netx`（v0.8 — 物理打败魔法的网络基座）
+
+**User Story**  
+作为 SA 生态的网络层，我需要一个能在内网裸跑、单机暴打 Bun/Node/Go 的 io_uring 网络引擎，复用 SA-ASM 的线性所有权与 SA 数据库的算子内核，把"Web 框架"还原为"网络字节流到内存切片的翻译器"。
+
+**Acceptance Criteria**
+
+1. WHEN 网络引擎启动 THEN 引擎 SHALL 在 `src/runtime/sa_net_uring.zig` 提供独立模块，与 `src/runtime/sa_std.zig` 并列存在，导出符号统一以 `sa_netx_` 前缀，**不修改现有 117 个 `sa_*` export，不取代现有 `sa_net_tcp_*` API**
+2. WHEN 网络引擎初始化 THEN 引擎 SHALL 通过 `mmap(MAP_POPULATE | MAP_HUGETLB)` 一次性预分配 10⁵ – 10⁶ 个 `ConnectionSlot`（cache-line 对齐 64 字节，含 4 KB inline scratch + overflow 链 + 状态枚举），稳态运行禁止任何 `malloc/free`
+3. WHEN 网络引擎处理 I/O THEN 引擎 SHALL 使用 Linux `io_uring`（Zig `std.os.linux.IoUring`），通过 `IORING_OP_ACCEPT_MULTISHOT` + `IORING_OP_RECV_MULTISHOT` + `IORING_REGISTER_PBUF_RING` 实现 per-core sharded reactor，绑核运行（`sched_setaffinity`），**禁用 `epoll` 路径**
+4. WHEN 协议拆包 THEN HTTP/1.1 DFA 解析与 WebSocket 帧头解析、SIMD 解掩码 SHALL 全部在 Zig 侧用 `@Vector(16/32, u8)` 完成；**SA-ASM ISA 不新增向量算子，不引入 `bitcast` 指令**，SA-ASM 仅消费结构化 `Ticket`
+5. WHEN 网络核心与 SA 业务核心通信 THEN 引擎 SHALL 提供 per-core sharded SPSC 三环（Inbound / Execution / Outbound），每对 reactor↔SA-core 一组独立 SPSC；现有 `sa_std/sync/mpsc.saasm` 仅作跨分片回收的慢路径
+6. WHEN WebSocket 协议升级 THEN 引擎 SHALL 在原 `ConnectionSlot` 上拨转 `state` 字段（`Http → WebSocket`），fd 与 buffer 不迁移、不分配新内存；握手栈上完成 `Base64(SHA1(key + magic))`
+7. WHEN 服务器执行广播扇出（1 source → N receivers，且 `N ≥ 8` 或 `payload ≥ 1.5 KB`）THEN 引擎 SHALL 通过 `IORING_OP_SEND_ZC` + 共享物理切片 + 引用计数（`gen` 代纪元）+ `notification CQE` 回收实现内核 DMA 扇出；**单点小包通信走 `IORING_OP_SEND` + provided buffer**，禁止对小消息默认启用 SEND_ZC
+8. WHEN 入站环满 THEN reactor SHALL 停止 arm `IORING_OP_RECV_MULTISHOT`，让 TCP 滑动窗口自然收窄，**绝不丢包，绝不分配新 buffer**；出站环满时 `sa_netx_push_outbound` 返回 `EAGAIN`，由业务决定丢弃
+9. WHEN 连接闲置或握手超时 THEN 引擎 SHALL 通过 `IORING_OP_TIMEOUT` 配对清扫，关闭后槽位归还连接池；连接生命周期严格走九态状态机（`Free / Accepting / Handshake / Reading / Http / WebSocket / RawBinary / HalfClosed / Closing`）
+10. WHEN SA-ASM 业务调用网络 FFI THEN 引擎 SHALL 提供 7 条新 `@extern`：`sa_netx_init` / `sa_netx_listen` / `sa_netx_recv_ticket` / `sa_netx_push_outbound` / `sa_netx_broadcast` / `sa_netx_close_slot` / `sa_netx_shutdown`；契约写入新增的 `sa_std/netx.saasm-iface` 与 `sa_std/netx.saasm-layout`，**不修改 `sa_std/net.saasm-iface`**
+11. WHEN TLS / HTTPS 必要 THEN 引擎 SHALL **不本地终结 TLS**，明确要求由前置反向代理（Nginx / Envoy / HAProxy）终结，SA 引擎只在安全内网裸跑 HTTP/TCP/WS；本期不实现 HTTP/2、HTTP/3 (QUIC)
+12. WHEN 性能基线 THEN 引擎 SHALL 提供两条独立 KPI：
+    - **K1（对标 Bun 单点 ping-pong）**：32 client × 64B 双向消息 ≥ 2,500,000 msg/s（持平 Bun v1.2），M6 阶段冲击 ≥ 3,500,000 msg/s（≥ 1.4× Bun）
+    - **K2（SA 护城河广播）**：1 source × 10⁵ receivers × 1 KB payload ≥ 30 GB/s 总吞吐（≥ 10× Bun 同场景），CPU 占用 ≤ Bun 的 30%
+13. WHEN 网络引擎落入文档 THEN 引擎 SHALL 在 `docs/network_engine_plan.md` 维护完整施工蓝图（v0.9+），并在 `docs/std_rfc.md` 登记 `sa_netx_*` 加入标准库的 RFC
+
+**设计文档**：见 `docs/network_engine_plan.md`（§0–§8）
+
+**决策来源**：talk.md 网络层四轮脑暴 + Bun/Deno/Node ws benchmark 对标
+
+---
+
+**决策来源**：talk.md 网络层四轮脑暴 + Bun/Deno/Node ws benchmark 对标
+
+---
+
+### Requirement 36: SAX 前端 UI 方言（v0.9 — Symbolic Affine XML，全栈 SA 闭环）
+
+**User Story**  
+作为 SA 生态的前端层，我需要一个不是"又一个 JS 框架"的 UI 方言：在 `.saasm` 之上仅增加 XML 结构层，编译目标直接是 WebAssembly + HTML，由同一套 Flattener / Referee 验证，把后端 EXE 与前端 WASM 统一在一种语言、一套所有权契约下。
+
+**Acceptance Criteria**
+
+1. WHEN `.sax` 源文件被处理 THEN 编译器 SHALL 在 `src/sax/` 提供独立前端层（已存在 `parser.zig` / `lowerer.zig` / `airlock_gen.zig` / `sax_rules.zig` / `cli.zig` / `mod.zig`），输出**合法 `.saasm` 文本**，**不构造任何 AST、不引入新的 SA-ASM 指令、不修改 ISA**
+2. WHEN SAX Parser 解析 `<Component name="X">` THEN 解析器 SHALL 识别 `<state>` 块、DOM 树（XML 标签 + `{expr}` 插值）、`@handler:` 函数体、`!var1 !var2` 释放序列；DOM 树降级为 `@ffi_wrapper` 内对 Airlock `@extern` 的调用，状态变量降级为 `alloc N` + 固定偏移 `store`
+3. WHEN `<state>` 变量被声明 THEN 每条声明 SHALL 一行一变量；类型由字面量或 `as T` 推断（同 `.saasm`）；**每个 `<state>` 变量必须出现在组件结尾的 `!var` 释放序列中**，遗漏触发 `Trap: SaxStateLeak`
+4. WHEN `{expr}` 出现在文本或属性值 THEN 表达式 SHALL 是只读 SA 表达式（`load` / 算术），**禁止包含 `^`（Move）或 `!`（Release）**，违规触发 `Trap: SaxInvalidInterpolation`
+5. WHEN `onclick={^handler}` 等事件属性出现 THEN `^handler` SHALL 产生 `BorrowView` 掩码并指向**同一 `<Component>` 内**定义的 `@handler:`；跨组件引用触发 `Trap: SaxEventEscape`；支持事件白名单（`onclick onchange oninput onsubmit onkeydown onkeyup onfocus onblur onmouseenter onmouseleave`），未在白名单内触发 `Trap: SaxUnknownEvent`
+6. WHEN DOM 标签被使用 THEN 标签 SHALL 在 HTML5 白名单内（`div / section / article / header / footer / main / nav / aside / h1-h6 / p / span / label / strong / em / button / input / textarea / select / option / form / ul / ol / li / table / thead / tbody / tr / th / td / img / video / canvas` + SAX 保留 `<Router> / <Page> / <Slot>`），其他标签触发 `Trap: SaxUnknownTag`
+7. WHEN `call @render()` 出现 THEN 此调用 SHALL 仅出现在 `@handler:` 函数体内；初始化由 Lowerer 自动插入首次渲染；其他位置出现触发 `Trap: SaxRenderOutsideHandler`
+8. WHEN 组件外部代码尝试写入某 Component 的 `<state>` 内存槽 THEN Referee SHALL 触发 `Trap: SaxStateWriteFromOutside`，保证组件状态封装性
+9. WHEN Referee 验证 SAX 派生的 `.saasm` THEN 验证器 SHALL 复用 SA 现有 23 条 Trap，并在 `src/sax/sax_rules.zig`（约 200 行）追加 7 条 SAX 专属 Trap：`SaxStateLeak / SaxEventEscape / SaxRenderOutsideHandler / SaxInvalidInterpolation / SaxStateWriteFromOutside / SaxUnknownTag / SaxUnknownEvent`，每条附带 `component / handler / tag / event / upstream_loc` 诊断字段
+10. WHEN DOM Airlock 被声明 THEN Airlock SHALL 严格遵守 SA 气闸舱 FFI（R13）：所有 DOM 操作通过 `@extern` 声明，**只能在 `@ffi_wrapper` 内调用**；`airlock.js` 由 `airlock_gen.zig` 自动生成，是 WASM ↔ DOM 的唯一合法通道；不接受字符串形式的事件 / 选择器注入；`sax_dom_set_text` 必须使用 `textContent`（禁用 `innerHTML`）；`sax_dom_set_attr` 仅允许属性白名单（`class / style / value / placeholder / disabled`），`href / src` 等敏感属性需独立 API
+11. WHEN CLI 提供 SAX 子命令 THEN CLI SHALL 支持至少 4 条：`saasm sax build <file.sax>`（→ `app.wasm + airlock.js + index.html`）、`saasm sax check <file.sax>`（仅 Referee 验证）、`saasm sax new <name>`（脚手架）、`saasm sax dev`（Phase 2，热重载）
+12. WHEN WASM 产物落地 THEN 编译目标 SHALL 是 `wasm32-unknown-unknown`（**非 WASI**，纯浏览器环境）；复用现有 `src/emit_wasm/` 后端，**零修改**；`flattener/` / `common/` 完全复用，零修改；`referee/` 仅追加 `sax_rules.zig`
+13. WHEN 项目以 SAX 为唯一前端入口 THEN SAX SHALL **不提供** `v-if / v-for / v-model / JSX 表达式嵌套 / 隐式响应式追踪 / async-await 直接语法 / CSS-in-JS / SSR / 隐式 Drop`；控制流统一走扁平 `L_LABEL:` + `br` / `jmp`；状态泄漏一律编译期触发 `SaxStateLeak`
+14. WHEN SAX 文档落地 THEN 引擎 SHALL 在 `docs/sax_whitepaper.md`（v0.1+）、`docs/sax_design.md`、`docs/sax_airlock.md`、`docs/sax_syntax.md` 维护完整契约；`docs/std_rfc.md` 登记 SAX 加入标准库的 RFC
+
+**设计文档**：见 `docs/sax_whitepaper.md` / `docs/sax_design.md` / `docs/sax_airlock.md` / `docs/sax_syntax.md`
+
+**决策来源**：web.md 前端方言讨论 + 现有 `src/sax/` 五件套实现（parser / lowerer / airlock_gen / sax_rules / cli）
+
+---
+
+**文档终态：以上 36 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + R36 v0.9 SAX）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
+
+> 版本号说明：v0.7 已规划为"原生单元测试框架"（见 `tasks.md` Version 0.7），v0.8 网络引擎，v0.9 SAX 前端方言。

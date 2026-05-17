@@ -1,25 +1,39 @@
+@import "../../../sa_std/core/slice.saasm-layout"
+@import "../../../sa_std/core/slice.saasm"
+@import "../../../sa_std/collections/btree_map.saasm"
 @import "../../../sa_std/io/print.saasm-iface"
 
+@const KEY_ALPHA = utf8:"alpha"
 @const RESULT_OK = utf8:"5\n"
 @const RESULT_ERR = utf8:"error\n"
 
-@lookup_value() -> i32:
-L_ENTRY:
-    return 5
-
 @main() -> i32:
 L_ENTRY:
-    value = call @lookup_value()
+    map = 0 as ptr
+    key = 0 as ptr
+    lookup = 0 as ptr
+    value = 0 as u64
+    ok = 0 as u64
+
+    EXPAND BTREE_MAP_NEW map
+    key = alloc Slice_SIZE
+    lookup = alloc Slice_SIZE
+    EXPAND SLICE_NEW key, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW lookup, &KEY_ALPHA, 5
+    EXPAND BTREE_MAP_INSERT map, key, 5
+    value = call @sa_btree_map_get(&map, &lookup)
     ok = eq value, 5
     !value
+    !lookup
+    !key
     br ok -> L_OK, L_ERR
 
 L_OK:
-    !ok
+    EXPAND BTREE_MAP_FREE map
     call @sa_print_bytes(&RESULT_OK, 2)
     return 0
 
 L_ERR:
-    !ok
+    EXPAND BTREE_MAP_FREE map
     call @sa_print_bytes(&RESULT_ERR, 6)
     return 1

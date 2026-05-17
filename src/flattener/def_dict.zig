@@ -47,12 +47,12 @@ pub const DefDict = struct {
         return self.get(token) orelse token;
     }
 
-    pub fn foldToken(self: *const DefDict, token: []const u8) DefError![]const u8 {
+    pub fn foldToken(self: *const DefDict, token: []const u8) ![]const u8 {
         const resolved = self.resolveToken(token) orelse return token;
         return resolved;
     }
 
-    pub fn foldText(self: *const DefDict, allocator: std.mem.Allocator, text: []const u8) DefError![]const u8 {
+    pub fn foldText(self: *const DefDict, allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
         var out = std.ArrayList(u8).init(allocator);
         errdefer out.deinit();
 
@@ -61,7 +61,7 @@ pub const DefDict = struct {
             if (std.ascii.isAlphabetic(text[i]) or text[i] == '_') {
                 const start = i;
                 i += 1;
-                while (i < text.len and (std.ascii.isAlphanumeric(text[i]) or text[i] == '_')) : (i += 1) {}
+                while (i < text.len and (std.ascii.isAlphanumeric(text[i]) or text[i] == '_' or text[i] == '.')) : (i += 1) {}
                 const token = text[start..i];
                 if (self.get(token)) |replacement| {
                     try out.appendSlice(replacement);
@@ -100,9 +100,37 @@ pub const DefDict = struct {
         const first = text[start];
         if (!(std.ascii.isAlphabetic(first) or first == '_')) return null;
         var i = start + 1;
-        while (i < text.len and (std.ascii.isAlphanumeric(text[i]) or text[i] == '_')) : (i += 1) {}
+        while (i < text.len and (std.ascii.isAlphanumeric(text[i]) or text[i] == '_' or text[i] == '.')) : (i += 1) {}
+        const ident = text[start..i];
+        if (!isQualifiedIdent(ident)) return null;
         pos.* = i;
-        return text[start..i];
+        return ident;
+    }
+
+    fn isQualifiedIdent(text: []const u8) bool {
+        if (text.len == 0) return false;
+        if (text[0] == '.' or text[text.len - 1] == '.') return false;
+
+        var segment_start: usize = 0;
+        var idx: usize = 0;
+        while (idx < text.len) : (idx += 1) {
+            if (text[idx] != '.') continue;
+            if (idx == segment_start) return false;
+            if (!(std.ascii.isAlphabetic(text[segment_start]) or text[segment_start] == '_')) return false;
+            var seg_idx = segment_start + 1;
+            while (seg_idx < idx) : (seg_idx += 1) {
+                if (!(std.ascii.isAlphanumeric(text[seg_idx]) or text[seg_idx] == '_')) return false;
+            }
+            segment_start = idx + 1;
+        }
+
+        if (segment_start >= text.len) return false;
+        if (!(std.ascii.isAlphabetic(text[segment_start]) or text[segment_start] == '_')) return false;
+        var seg_idx = segment_start + 1;
+        while (seg_idx < text.len) : (seg_idx += 1) {
+            if (!(std.ascii.isAlphanumeric(text[seg_idx]) or text[seg_idx] == '_')) return false;
+        }
+        return true;
     }
 
     fn parsePrimary(self: *const DefDict, text: []const u8, pos: *usize, depth: u8) DefError!i64 {

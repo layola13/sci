@@ -1009,4 +1009,474 @@ assume_borrow  = IDENT "=" "assume_borrow" IDENT [ "," "mut" ] ;
 
 ---
 
-**文档终态**：本设计覆盖需求文档 39 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31 + R31a–R31g + R32 v0.5 + R33 v0.6）的全部契约，含 **37 条形式化 Property**、5 层测试策略（含 v0.5 包管理 12 条新集成基线）、完整的 LLVM IR / WASM 映射表、气闸舱隔离、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、**v0.5 零信任包管理（去中心化 + 哈希钉版 + 模块级零权限 + AST X 光扫描 + 破窗确权 + 项目级孤岛 + CI 双轨）** + 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化。
+## §5 SA 零信任列式数据库（v0.6 — 数据库生态）
+
+### 5.1 架构定位
+
+`sa-db` 不是 SQL 数据库，是 SA 包管理在数据维度上的同构延伸：
+
+| 维度 | 包管理 | 数据库 |
+|---|---|---|
+| **身份** | URL（`github.com/x/y`） | URL（`github.com/x/y`） |
+| **版本锁定** | `sha256:...`（源码哈希） | `sha256:...`（schema + 查询源码） |
+| **权限声明** | `grants [net_tx, net_rx]` | `grants [db_read:tbl, db_write:tbl, db_atomic_cursor:tbl, db_alloc_blob:arena]` |
+| **源码透明** | 纯文本 `.saasm` | 纯文本 `.sadb-schema` + `.query.saasm` |
+| **零隐式状态** | 无 `postinstall` 钩子 | 无运行时 SQL 解析 |
+| **零权限默认** | 缺省 `grants []` | 缺省 `grants []` |
+
+### 5.2 核心设计决策
+
+1. **Schema 编译期映射**：`.sadb-schema` → `#def COL_*_STRIDE` + `#def TABLE_*_ROW_BYTES`（复用 `src/common/const_decl.zig`）
+2. **查询预编译**：`.query.saasm` → `<sha256>.qmod` 二进制模块（复用 Flattener + Referee）
+3. **权限 X 光扫描**：Referee 扩展校验 `load` / `store` / `atomic_rmw_*` 是否在 `grants` 白名单内，违规 → `Trap: DbCapabilityEscalation`
+4. **零拷贝沙箱**：mmap 只读切片（`MAP_PRIVATE | PROT_READ`）+ CPU MMU 级物理隔离 + SIGSEGV 熔断
+5. **无锁并发**：`atomic_rmw_add global_len, 1` 单点串行化 + 无锁读（snapshot epoch）
+6. **Blob Arena**：Bump Allocator（纯追加）+ 墓碑标记 + 段压缩（整段 mmap 视为单个 `alloc`）
+7. **冷热分层**：RAM(7d) → mmap NVMe(1m) → Zstd+S3(1y+, 10–15%)
+8. **否决 MVCC**：采用乐观锁（行版本号 + `cmpxchg`）替代，避免版本链 GC 与 SoA 顺序写冲突
+9. **无 WAL**：快照 epoch + 不可变段 + 原子游标的等价方案
+
+### 5.3 与现有子系统的耦合
+
+| 子系统 | 复用点 |
+|---|---|
+| `src/common/const_decl.zig` | Schema `#def` 常量声明 |
+| `src/common/atomic.zig` | `atomic_rmw_add` / `cmpxchg` 原语 |
+| `src/common/capability.zig` | 10 位能力掩码 |
+| `src/common/trap.zig` | 12 条新 Db* Trap 错误码 |
+| `src/verifier.zig` | Referee 主入口 + X 光扫描扩展 |
+| `src/pkg/manifest.zig` | `grants` 语法解析 |
+| `src/pkg/fetch.zig` | Schema 与查询模块分发 |
+| `src/cli.zig` | 10 条 `saasm db` 子命令 |
+| `docs/package_management.md` | 零权限默认 + SHA-256 锁版 + URL 即命名空间 |
+
+### 5.4 文件与目录约定
+
+```
+src/db/                    # 新增数据库子系统（后续 PR）
+├── schema.zig            # .sadb-schema 编译
+├── arena.zig             # MemTable + writev 落盘
+├── blob.zig              # Bump Allocator + 墓碑
+├── qmod.zig              # 查询模块编译/注册
+├── exec.zig              # 列基址注入 + mmap + SIGSEGV
+├── referee_db.zig        # X 光扫描权限（hook 进 verifier.zig）
+├── cli_db.zig            # saasm db 子命令
+├── snapshot.zig          # epoch 快照与恢复
+├── compact.zig           # 段压缩
+├── concurrent.zig        # 乐观锁辅助
+├── trap_db.zig           # 12 条 Db* Trap
+└── tests/                # 单元测试与 e2e
+```
+
+### 5.5 实施里程碑（v0.6，W1–W12）
+
+| Milestone | 周 | 内容 |
+|---|---|---|
+| M1 | W1–W3 | schema + 列存 + Arena MemTable + Insert |
+| M2 | W4 | Blob Arena + Bump 分配 |
+| M3 | W5–W6 | 查询模块编译 + SHA-256 注册 + X 光扫描 |
+| M4 | W7 | mmap 沙箱 + SIGSEGV handler |
+| M5 | W8 | CLI 子命令 + ingest + snapshot |
+| M6 | W9–W10 | 冷热分层 + Zstd 压缩 + S3 |
+| M7 | W11–W12 | 测试集 + 双 11 抢购 demo |
+
+**详细设计文档**：见 `docs/database.md`（§0–§15 + 附录 A/B）
+
+---
+
+## §6 SA 极速网络引擎 `sa_netx`（v0.8 — 物理打败魔法的网络基座）
+
+> 版本号说明：v0.7 已规划为"原生单元测试框架"（见 `tasks.md` Version 0.7），故网络引擎排期至 v0.8。
+
+### 6.1 架构定位
+
+`sa_netx` 不是一个 Web 框架，而是 SA 数据库（v0.6）在网络维度上的同构延伸：
+
+| 维度 | sa-db (v0.6) | sa_netx (v0.8) |
+|---|---|---|
+| **物理基座** | mmap SoA 列存 + bump arena | mmap 连接池 + provided buffer ring |
+| **执行核心** | SA-ASM 算子（线性所有权） | SA-ASM 算子（线性所有权） |
+| **零拷贝路径** | 列基址注入 `@ffi_wrapper` | io_uring DMA + `IORING_OP_SEND_ZC` |
+| **无锁并发** | `atomic_rmw_add global_len, 1` | per-core sharded SPSC 三环 |
+| **零分配运行时** | bump allocator + 墓碑 | 启动期预分配 + 槽位回收 |
+| **能力边界** | grants `db_read/db_write/...` | TLS 由前置代理终结，引擎只跑明文内网 |
+
+设计原则：**物理打败魔法**——把网络层还原为"基于 io_uring 的极速字节流到内存切片的翻译器"，把 Bun/Node/Go 在用户态做的所有"框架"工作下沉到内核 DMA + sharded SPSC + SIMD 一整套硬件 fast path。
+
+### 6.2 核心设计决策
+
+1. **并行模块（不取代现有 `sa_std.net`）**：新增 `src/runtime/sa_net_uring.zig`，与 `sa_std.zig` 并列；导出符号统一以 `sa_netx_` 前缀，**零修改现有 117 个 `sa_*` export**
+2. **连接池预分配**：`mmap(MAP_POPULATE | MAP_HUGETLB)` 一次申请，`ConnectionSlot align(64) struct` 含 4 KB inline scratch + overflow 链；运行时禁止 `malloc`
+3. **io_uring 全替代 epoll**：`IORING_OP_ACCEPT_MULTISHOT` + `IORING_OP_RECV_MULTISHOT` + `IORING_REGISTER_PBUF_RING`，per-core sharded reactor 绑核
+4. **协议薄膜 Zig 侧完成**：HTTP DFA、WebSocket 帧解析、SIMD 解掩码全部用 Zig `@Vector(16/32, u8)`；**SA-ASM ISA 不新增向量算子，不引入 `bitcast`**
+5. **per-core sharded SPSC 三环**：reactor↔SA-core 一对一绑定，避免 MPSC 的 `cmpxchg` 抖动；现有 `sa_std/sync/mpsc.saasm` 仅作跨分片回收
+6. **Ticket 偏移直读**：SA-ASM 用现有 `ptr_add` + `load ... as u32/u64` 读取 Ticket 字段，**无需扩 ISA**
+7. **分层使用 SEND / SEND_ZC**：小包（< 1.5 KB 或 fanout < 8）走 `IORING_OP_SEND` + provided buffer；大广播走 `IORING_OP_SEND_ZC` + 共享切片 + refcount + 代纪元回收
+8. **背压物理化**：入站环满 → reactor 停 arm RECV → TCP 窗口自然收窄；出站环满 → SA 业务收到 EAGAIN
+9. **TLS 边界裁决**：由前置 Nginx/Envoy/HAProxy 终结，SA 引擎裸跑明文 HTTP/TCP/WS；HTTP/2、HTTP/3 (QUIC) 本期不做
+10. **连接生命周期九态**：`Free / Accepting / Handshake / Reading / Http / WebSocket / RawBinary / HalfClosed / Closing`；`IORING_OP_TIMEOUT` 配对清扫闲置连接
+
+### 6.3 与现有子系统的耦合
+
+| 子系统 | 复用点 | 修改 |
+|---|---|---|
+| `src/common/instruction.zig` | `atomic_load/store/cmpxchg/atomic_rmw/fence`、`ptr_add`、`load/store as T` | **零修改** |
+| `src/verifier.zig` | 现有契约校验路径，`sa_netx_*` extern 走通用 FFI 路径 | **零修改** |
+| `src/flattener/`、`src/referee/`、`src/common/` | 全栈复用 | **零修改** |
+| `src/emit_llvm.zig` | LLVM IR 发射，目标三元组保持 x86_64-linux-gnu / aarch64-linux-gnu | **零修改** |
+| `src/emit_wasm/` | 网络引擎不使用（WASM 不暴露 io_uring） | **不参与** |
+| `src/runtime/sa_std.zig` | 旧版同步 TCP API 保留为兼容性慢路径 | **零修改** |
+| `sa_std/net.*` | 旧版 API 保留 | **零修改** |
+| `sa_std/sync/mpsc.saasm` | 跨分片回收慢路径 | **零修改** |
+| `sa_std/core/mem.saasm` | 标量循环 memcpy/memset；网络热路径**禁止调用** | **零修改**（仅冷路径） |
+| `build.zig` | 注册 `sa_net_uring.zig` 模块 | ~10 行追加 |
+
+### 6.4 文件与目录约定
+
+```
+src/runtime/
+└── sa_net_uring.zig           # 【新增】io_uring 网络引擎主体（~2500–3500 行）
+    ├── ConnectionSlot          # align(64) 槽位结构（4 KB inline + overflow 链）
+    ├── SlotPool                # mmap(MAP_POPULATE|MAP_HUGETLB) 预分配
+    ├── Reactor                 # per-core io_uring 实例 + multishot accept/recv
+    ├── PbufRing                # IORING_REGISTER_PBUF_RING provided buffer 环
+    ├── HttpDfaParser           # @Vector(32, u8) 扫描 \r\n / Header 偏移
+    ├── WsFrameParser           # @Vector(16/32, u8) 解掩码 + 状态机
+    ├── SpscRing                # per-reactor↔per-SA-core inbound/outbound 环
+    ├── BroadcastArena          # SEND_ZC 共享切片池 + refcount + generation
+    ├── TimerWheel              # IORING_OP_TIMEOUT 配对的 idle/handshake 超时
+    └── 导出符号                # sa_netx_init / sa_netx_listen / sa_netx_recv_ticket /
+                                # sa_netx_push_outbound / sa_netx_broadcast /
+                                # sa_netx_close_slot / sa_netx_shutdown
+
+sa_std/
+├── netx.saasm-iface           # 【新增】@extern 契约（7 条 FFI 声明）
+├── netx.saasm-layout          # 【新增】Ticket_SIZE / Ticket_slot_id / NetxProto_*
+└── netx.saasm                 # 【新增】@import 上面两个文件，作为 SA 业务层入口
+
+examples/netx_echo/             # 【新增】业务示范（M5 之后）
+├── echo.saasm                  # 最小 echo server：recv_ticket → push_outbound
+├── flash_sale.saasm            # 秒杀 demo：扣库存 + 广播售罄
+└── ws_bench.saasm              # 对标 Bun 的 32 client ping-pong
+
+docs/
+├── network_engine_plan.md     # 完整施工蓝图（v0.9+）
+└── std_rfc.md                 # sa_netx_* 加入标准库的 RFC（待补）
+```
+
+### 6.5 SA-ASM 侧 FFI 契约（落到新增 `sa_std/netx.saasm-iface`）
+
+```
+@extern sa_netx_init(slot_capacity: u64, reactor_count: u32) -> i32!
+@extern sa_netx_listen(&host: ptr, host_len: u64, port: u16) -> i32!
+@extern sa_netx_recv_ticket(reactor_id: u32, &out_ticket: ptr) -> i32!
+@extern sa_netx_push_outbound(reactor_id: u32, slot_id: u32, &msg: ptr, len: u32) -> i32!
+@extern sa_netx_broadcast(reactor_id: u32, &slot_ids: ptr, n: u32, &msg: ptr, len: u32) -> i32!
+@extern sa_netx_close_slot(slot_id: u32) -> i32!
+@extern sa_netx_shutdown() -> i32!
+```
+
+**`sa_std/netx.saasm-layout`**：
+```
+#def Ticket_SIZE = 24
+#def Ticket_slot_id      = +0    // u32
+#def Ticket_op_code      = +4    // u16
+#def Ticket_proto        = +6    // u8 (Http / Ws / Raw)
+#def Ticket_flags        = +7    // u8
+#def Ticket_payload      = +8    // *u8
+#def Ticket_payload_len  = +16   // u32
+#def Ticket_pad          = +20   // u32 reserved
+
+#def NetxProto_HTTP = 1
+#def NetxProto_WS   = 2
+#def NetxProto_RAW  = 3
+```
+
+### 6.6 性能模型与对标
+
+#### 单核 K1 周期预算（5 GHz，64B WS ping-pong）
+
+| 阶段 | 周期预算 | 实现 |
+|---|---:|---|
+| recv 完成 → CQE 解析 | 30 ns | io_uring busy-poll |
+| WS 帧头解析 | 10 ns | 标量 |
+| SIMD 解掩码（64B） | 8 ns | `@Vector(32, u8)` 一周期 |
+| Ticket 入站环 SPSC | 15 ns | release store |
+| SA 业务（pong 直回） | 50 ns | 拷贝指针 + outbound push |
+| Outbound SPSC 出 | 15 ns | acquire load |
+| WS Header 拼装 + send SQE | 40 ns | 写 sqe |
+| **合计每消息** | **~170 ns** | **理论 ~5.9M msg/s 单核** |
+
+#### 两条 KPI 双轨
+
+| KPI | 场景 | 武器 | 目标 |
+|---|---|---|---|
+| **K1: 单点 ping-pong** | 32 client × 64B（Bun 官方跑分） | `RECV_MULTISHOT` + `SEND` + provided buffer + sharded SPSC + SIMD unmask | **≥ 2.5M msg/s（持平 Bun）→ M6 ≥ 3.5M msg/s** |
+| **K2: 广播扇出** | 1 source × 10⁵ receivers × 1 KB | `SEND_ZC` + DMA 扇出 + 共享物理切片 | **≥ 30 GB/s（≥ 10× Bun）** |
+
+### 6.7 实施里程碑（v0.8，W1–W12+）
+
+| Milestone | 周 | 内容 |
+|---|---|---|
+| M0 | W0 | 编译器准备：确认 SA-ASM ISA 足够；登记 `netx.*` iface/layout 骨架 |
+| M1 | W1–W3 | 物理基座：`ConnectionSlot` 池 + io_uring 单 reactor + ACCEPT_MULTISHOT + RECV_MULTISHOT + provided buffer ring |
+| M2 | W4–W5 | HTTP/WS 拆包：Zig DFA + SIMD 解掩码 + 状态拨转；fuzz 1M 次 |
+| M3 | W6–W7 | 三环 + SA 贯通：per-core sharded SPSC + 7 条 `sa_netx_*` FFI 接入 |
+| M4 | W8–W9 | K1 跑分（不启用 SEND_ZC）：单机 32 client 64B ping-pong ≥ 2.5M msg/s |
+| M5 | W10 | SEND_ZC + DMA 扇出 + 广播切片 refcount + 代纪元；K2 ≥ 30 GB/s |
+| M6 | W11–W12 | 反向超越 Bun：busy-poll、SQPOLL 调优、CPU pinning、零分配审计；K1 ≥ 3.5M msg/s |
+
+### 6.8 风险登记
+
+| 风险 | 概率 | 影响 | 缓解 |
+|---|---|---|---|
+| 内核版本 < 6.0，`SEND_ZC` 不可用 | 中 | M5 失效 | 降级为 `SENDMSG + MSG_ZEROCOPY`（5.0+）或 `sendmmsg` |
+| `RECV_MULTISHOT` 在某些发行版被禁用 | 低 | M1 退化为单发 RECV | 编译期探测内核能力，运行时 fallback |
+| Ticket 偏移直读触发对齐惩罚 | 低 | 若干 ns 抖动 | Ticket 强制 8 字节对齐 |
+| 误用 `sa_mem_set` 标量循环清零连接池 | 中 | 性能崩盘 | M1 明确规定 Zig `@memset`，禁止 SA-ASM 路径触达 mem.saasm 热路径 |
+| TLS 必须本地终结的需求出现 | 低 | §6.2 决议失效 | 仍走前置代理；如真需要，集成 `boringssl` 作为独立 Zig 模块 |
+| Bun/Deno 在 M4–M6 期间大幅迭代 | 中 | KPI 跟随上调 | KPI 标注 "vs Bun vX.Y on Linux 6.x"，每次跑分锁版本 |
+
+**详细设计文档**：见 `docs/network_engine_plan.md`（§0–§8）
+
+---
+
+## §7 SAX 前端 UI 方言（v0.9 — Symbolic Affine XML，全栈 SA 闭环）
+
+### 7.1 架构定位
+
+SAX 不是又一个 JS 框架，而是 SA 语言的**前端方言层**：在 `.saasm` 之上仅增加一层 XML 结构描述，由 SAX Parser **降级为合法的 `.saasm` 文本**，再走现有 Flattener → Referee → WASM 管线。
+
+| 维度 | React / Vue / Solid | **SAX (v0.9)** |
+|---|---|---|
+| **语言** | JS / TS | **SA-ASM（汇编级）** |
+| **编译目标** | JS Bundle | **WASM（`wasm32-unknown-unknown`）** |
+| **状态管理** | `useState` / `ref` / `Signal` | **`<state>` 显式所有权 + Capability Mask** |
+| **内存安全** | GC | **Referee 编译期验证** |
+| **运行时 GC** | 有 | **无** |
+| **内存泄漏** | 运行时定位困难 | **编译期触发 `SaxStateLeak`** |
+| **控制流** | JSX 表达式 / `v-if` | **扁平 `L_LABEL:` + `br`（同 SA）** |
+| **运行时 DOM 边界** | 直接访问 `document` | **气闸舱 `airlock.js`，唯一合法通道** |
+| **LLM 生成友好度** | 中 | **高（结构化 + 无嵌套）** |
+| **AST 构造** | 必有 | **零 AST，线性扫描，与 SA 同构** |
+
+设计原则：**SAX 是 SA 的方言，不是新语言**——SA-ASM ISA 零扩展，Referee 仅追加 7 条 Trap 规则，所有 DOM 操作走气闸舱 FFI。
+
+### 7.2 核心设计决策
+
+1. **降级而非翻译**：SAX Parser 直接输出**合法 `.saasm` 文本**，不构造 AST，遵循 SA "零 AST、线性扫描" 原则
+2. **复用 SA 全部基础设施**：`flattener/` / `common/` / `emit_wasm/` 完全复用零修改；`referee/` 仅追加 `sax_rules.zig`（约 200 行 / 7 条 Trap）
+3. **气闸舱 DOM 唯一通道**：所有 DOM / Web API 通过 `@extern` 声明，仅允许在 `@ffi_wrapper` 内调用；`airlock.js` 由 `airlock_gen.zig` 自动生成
+4. **状态零隐式 Drop**：`<state>` 每个变量必须出现在组件末尾 `!var` 序列，遗漏触发 `SaxStateLeak`（同构于 SA 的 `MemoryLeak`）
+5. **事件绑定零代码注入**：`onclick={^handler}` 走 `BorrowView` 掩码 + 函数索引（整数 export idx），不接受字符串 eval
+6. **DOM 标签 / 事件白名单**：编译期 `SaxUnknownTag` / `SaxUnknownEvent`，防止 `<script>` / `onhover` 之类的字面错误
+7. **控制流统一扁平化**：handler 函数体与 `.saasm` 完全相同——`L_LABEL:` + `br` / `jmp`，禁用 `if` / `while` / `for`
+8. **WASM 目标 `wasm32-unknown-unknown`**：非 WASI，纯浏览器；不引入 GC，不引入 JS 运行时
+9. **响应式分相**：Phase 1 = 手动 `call @render()`（最小依赖追踪）；Phase 2 = 编译期依赖分析 + 细粒度 DOM 更新
+10. **TLS / 网络在外**：SAX 仅 UI 层；后端通信由 `sa_netx`（v0.8）或第三方网关承担
+
+### 7.3 与现有子系统的耦合
+
+| 子系统 | 复用点 | 修改 |
+|---|---|---|
+| `src/flattener/` | 全栈复用（`.saasm` 输入与普通 SA 无异） | **零修改** |
+| `src/common/` | `Instruction` / `Capability` / `Trap` / `UpstreamLoc` 全栈复用 | **零修改** |
+| `src/emit_wasm/` | WASM 二进制发射，目标 `wasm32-unknown-unknown` | **零修改**（仅切换 target） |
+| `src/referee/` / `src/verifier.zig` | 主流程复用 | **追加 hook**：调用 `src/sax/sax_rules.zig` |
+| `src/sax/parser.zig` | 已存在（XML + SA 混合解析 → `.saasm` 文本） | **既有** |
+| `src/sax/lowerer.zig` | 已存在（`<Component>` / `<state>` / DOM → SA 指令序列） | **既有** |
+| `src/sax/airlock_gen.zig` | 已存在（自动生成 `airlock.js`） | **既有** |
+| `src/sax/sax_rules.zig` | 7 条 SAX 专属 Trap | **既有** |
+| `src/sax/cli.zig` | `saasm sax build / check / new / dev` | **既有** |
+| `src/cli.zig` | 主 CLI dispatcher | **hook 到 sax cli** |
+| `docs/sax_*.md` | 完整规范四件套 | **既有** |
+
+### 7.4 文件与目录约定
+
+```
+src/sax/                       # 已存在五件套
+├── mod.zig                    # SAX 模块入口
+├── parser.zig                 # XML + SA 混合解析，输出合法 .saasm 文本（不构造 AST）
+├── lowerer.zig                # Component / state / DOM 节点 → SA 指令序列
+├── airlock_gen.zig            # 自动生成 airlock.js（WASM ↔ DOM 胶水）
+├── sax_rules.zig              # Referee 扩展：7 条 SAX Trap
+└── cli.zig                    # saasm sax build / check / new / dev
+
+docs/                          # 已存在四件套
+├── sax_whitepaper.md          # SAX v0.1 白皮书
+├── sax_design.md              # 完整设计文档
+├── sax_airlock.md             # DOM Airlock API 清单
+└── sax_syntax.md              # 语法规范 + DOM 白名单
+
+输出产物（编译后）
+└── dist/
+    ├── app.wasm               # SAX → SA → WASM
+    ├── airlock.js             # 自动生成的胶水层（~20 个白名单 API）
+    └── index.html             # 最小 HTML shell
+```
+
+### 7.5 SAX → SA 降级范例（Counter 组件）
+
+**输入 `counter.sax`**（节选）：
+```xml
+<Component name="Counter">
+  <state>
+    count = 0
+    last  = 0
+  </state>
+  <div class="counter">
+    <h1 id="display">{count}</h1>
+    <button class="btn-inc" onclick={^inc}>+1</button>
+  </div>
+  @inc:
+  L_ENTRY:
+    count = load state+Counter_count as i64
+    count = add count, 1
+    store state+Counter_count, count as i64
+    call @render()
+    ret
+  !count !last
+</Component>
+```
+
+**输出 `counter.saasm`**（由 `parser.zig` + `lowerer.zig` 自动生成）：
+```
+#def Counter_count = +0
+#def Counter_last  = +8
+#def Counter_SIZE  = 16
+
+@export sax_counter_init():
+L_ENTRY:
+  state = alloc Counter_SIZE
+  store state+Counter_count, 0 as i64
+  store state+Counter_last,  0 as i64
+  // DOM 查询与事件绑定（走气闸舱）
+  ...
+  ret
+
+@export sax_counter_inc():
+L_ENTRY:
+  count = load state+Counter_count as i64
+  count = add count, 1
+  store state+Counter_count, count as i64
+  call @sax_counter_render(&state, &dom)
+  ret
+
+@export sax_counter_destroy():
+L_ENTRY:
+  !state
+  !dom
+  ret
+```
+
+降级后产物**与手写 `.saasm` 完全等价**，由同一套 Flattener + Referee 验证。
+
+### 7.6 Referee 扩展：7 条 SAX 专属 Trap
+
+| Trap | 阶段 | 触发条件 | 同构 SA 规则 |
+|---|---|---|---|
+| `SaxStateLeak` | Referee | `<state>` 变量在销毁函数出口仍是 `Active` | `MemoryLeak`（R4.5） |
+| `SaxEventEscape` | Referee | `^handler` 引用跨 `<Component>` 函数 | 借用逃逸 |
+| `SaxRenderOutsideHandler` | Referee | `call @render()` 出现在 `@handler` 外 | 新规则 |
+| `SaxInvalidInterpolation` | SAX Parser | `{expr}` 包含 `^` / `!` | `ForbiddenSyntax` 类比 |
+| `SaxStateWriteFromOutside` | Referee | 组件外部代码写入 `<state>` 内存槽 | 封装性 |
+| `SaxUnknownTag` | SAX Parser | DOM 标签不在 HTML5 白名单 | `ForbiddenSyntax` |
+| `SaxUnknownEvent` | SAX Parser | 事件不在 `onclick / oninput / ...` 白名单 | `ForbiddenSyntax` |
+
+每条 Trap 携带诊断字段：`component`, `handler`, `tag`, `event`, `upstream_loc`。
+
+### 7.7 DOM Airlock 安全模型
+
+| 层 | 职责 | 信任边界 |
+|---|---|---|
+| WASM (SA 代码) | 业务逻辑、状态管理 | 完全沙箱，无法直接访问 JS |
+| Airlock (`airlock.js`) | WASM ↔ DOM 转发，参数白名单校验 | 只转发白名单操作 |
+| 浏览器 DOM | 渲染 / 事件分发 | 受 CSP 保护 |
+
+**防护措施**：
+- **防 XSS**：`sax_dom_set_text` 走 `textContent`（非 `innerHTML`），文本不被解析为 HTML
+- **防属性注入**：`sax_dom_set_attr` 只允许白名单属性（`class / style / value / placeholder / disabled`）；`href / src` 等敏感属性走独立 API
+- **防代码注入**：事件绑定走 WASM 函数 export 索引（整数），不接受字符串函数名
+- **防 DOM 逃逸**：节点句柄是整数 ID，由 Airlock 内部映射表维护，WASM 无法伪造
+
+Airlock 白名单 API（约 20 个，详见 `docs/sax_airlock.md`）：
+- 查询：`sax_dom_query / sax_dom_query_all`
+- 创建 / 销毁：`sax_dom_create / sax_dom_append_child / sax_dom_remove_self / sax_dom_insert_before`
+- 内容：`sax_dom_set_text / sax_dom_get_text / sax_dom_set_value / sax_dom_get_value`
+- 属性：`sax_dom_set_attr / sax_dom_add_class / sax_dom_remove_class`
+- 事件：`sax_dom_bind_event / sax_dom_unbind_event`
+- 工具：`sax_get_time / sax_itoa / sax_set_interval / sax_clear_interval`
+
+### 7.8 编译管线
+
+```
+.sax 源文件
+    ▼
+[SAX Parser]                    src/sax/parser.zig（既有）
+  • 解析 <Component> / <state> / DOM 标签
+  • 识别 {expr} / ^handler / @name:
+  • 不构建 AST，输出 .saasm 文本流
+    ▼
+[SAX Lowerer]                   src/sax/lowerer.zig（既有）
+  • 状态变量 → alloc + 固定偏移
+  • DOM 树 → @ffi_wrapper 内 Airlock 调用
+    ▼
+[SA Flattener]                  src/flattener/（零修改）
+    ▼
+[SA Referee + SAX Rules]        src/referee/ + src/sax/sax_rules.zig
+    ▼
+[WASM Emitter]                  src/emit_wasm/（零修改，target 切换为 wasm32-unknown-unknown）
+    ▼
+[Airlock JS Gen]                src/sax/airlock_gen.zig（既有）
+    ▼
+[HTML Shell Gen]                src/sax/cli.zig（既有）
+    ▼
+dist/app.wasm + dist/airlock.js + dist/index.html
+```
+
+### 7.9 工具链命令
+
+| 命令 | 说明 | 输出 |
+|---|---|---|
+| `saasm sax build <file.sax>` | 完整编译 | `dist/app.wasm + dist/airlock.js + dist/index.html` |
+| `saasm sax check <file.sax>` | 仅 Referee 验证（含 SAX 规则） | Trap 报告或 OK |
+| `saasm sax new <name>` | 脚手架：最小项目结构 | 目录 + 示例 |
+| `saasm sax dev` *(Phase 2)* | 开发服务器 + 文件监听 + WASM 热替换 | HTTP :8080 |
+
+### 7.10 分阶段路线图
+
+| Phase | 时长 | 内容 |
+|---|---|---|
+| **Phase 1（MVP）** | 6–8 周 | SAX Parser / Lowerer / Airlock 白名单 ~20 API / Referee 5 条核心 Trap / WASM 目标切换 / `saasm sax build / check` |
+| **Phase 2** | 4–6 周 | 编译期细粒度响应式 / `@onMount` / `@onUnmount` / `<Router>` / `<Page>` / `saasm sax dev` 热重载 / VS Code 语法高亮 |
+| **Phase 3** | 6–8 周 | `--target native` 原生桌面 / `--target js` 降级 / WebGPU / Canvas / 包管理集成（v0.5）/ `<style>` 块 |
+
+### 7.11 与 React / Vue / Solid 的差异化定位
+
+| 特性 | React | Vue SFC | Solid | **SAX** |
+|---|---|---|---|---|
+| 语言 | JS/TS | JS/TS | JS/TS | **SA（汇编级）** |
+| 输出 | JS Bundle | JS Bundle | JS Bundle | **WASM** |
+| 状态 | `useState` Hook | `ref / reactive` | Signal | **`<state>` 显式所有权** |
+| 内存安全 | GC | GC | GC | **Referee 编译期** |
+| GC 暂停 | 有 | 有 | 有 | **无** |
+| 泄漏检测 | 运行时 | 运行时 | 运行时 | **编译期 `SaxStateLeak`** |
+| 控制流 | JSX | `v-if / v-for` | JSX | **扁平 `L_LABEL:` + `br`** |
+| LLM 生成友好 | 中 | 中 | 中 | **高（结构化 + 无嵌套）** |
+| 首屏 | JS 解析 + JIT | JS 解析 + JIT | JS 解析 + JIT | **WASM AOT** |
+
+### 7.12 风险登记
+
+| 风险 | 概率 | 影响 | 缓解 |
+|---|---|---|---|
+| WASM 体积超 Phase 1 预算（< 50 KB for Counter） | 中 | 用户接受度低 | 复用 v0.2 自研 WASM 后端 + 树摇 / Phase 3 引入压缩 |
+| Airlock JS 胶水层成为漏洞面 | 中 | XSS / 代码注入 | 严格白名单 + textContent / 函数索引 / CSP 保护 |
+| 全量 render 在大列表场景性能差 | 高 | UX 卡顿 | Phase 2 细粒度响应式 |
+| 浏览器 WASM ABI 变更 | 低 | 兼容性 | 锁定 `wasm32-unknown-unknown`，CI 多浏览器矩阵 |
+| 用户期望 JSX-like 语法 | 高 | 学习曲线 | 文档强调"SAX 是 SA 的方言而非 JSX 替代品"，提供 React 迁移指南 |
+
+**详细设计文档**：见 `docs/sax_whitepaper.md` / `docs/sax_design.md` / `docs/sax_airlock.md` / `docs/sax_syntax.md`
+
+---
+
+**文档终态（v0.9 修订）**：本设计覆盖需求文档 36 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31 + R31a–R31g + R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + **R36 v0.9 SAX**）的全部契约，含 **40 条形式化 Property**、5 层测试策略（含 v0.5 包管理 12 条新集成基线 + v0.6 数据库 12 条新 Trap + v0.7 原生单元测试框架 + v0.8 网络引擎 K1/K2 双轨 KPI + **v0.9 SAX 7 条专属 Trap + E2E 浏览器验证**）、完整的 LLVM IR / WASM 映射表、气闸舱隔离（SA FFI + DOM Airlock 双气闸）、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 零信任包管理（去中心化 + 哈希钉版 + 模块级零权限 + AST X 光扫描 + 破窗确权 + 项目级孤岛 + CI 双轨）+ 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化 + 零信任列式数据库（预编译查询 + SHA-256 锁版 + 权限 X 光扫描 + 零拷贝沙箱 + 无锁并发 + Bump Arena + 冷热分层）、v0.7 原生单元测试框架、v0.8 极速网络引擎 sa_netx（io_uring + per-core sharded SPSC + SIMD 解掩码 + DMA 扇出广播 + 对标 Bun 双轨 KPI）、**v0.9 SAX 前端方言（XML 结构层 + WASM AOT + DOM Airlock + 7 条 SAX Trap + 全栈 SA 闭环）**。

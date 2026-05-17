@@ -10,6 +10,7 @@ const atomic = @import("common/atomic.zig");
 const common_signature = @import("common/signature.zig");
 const common_trap = @import("common/trap.zig");
 const common_upstream = @import("common/upstream_loc.zig");
+const pkg_resolver = @import("pkg/resolver.zig");
 
 pub const LineKind = classifier.LineKind;
 pub const InstructionForm = classifier.InstructionForm;
@@ -26,6 +27,22 @@ pub const FunctionSig = common_signature.FunctionSig;
 pub const FunctionKind = common_signature.FunctionKind;
 pub const Trap = common_trap.Trap;
 pub const LocTable = common_upstream.LocTable;
+
+pub const ResolveContext = struct {
+    dependencies: []const pkg_resolver.Dependency = &.{},
+    options: pkg_resolver.ResolveOptions = .{},
+    package_identity: ?[]const u8 = null,
+};
+
+pub const LayoutVersion = struct {
+    path: []u8,
+    version: u64,
+
+    fn deinit(self: *LayoutVersion, allocator: std.mem.Allocator) void {
+        allocator.free(self.path);
+        self.* = undefined;
+    }
+};
 
 const MacroDef = struct {
     params: []const []const u8,
@@ -68,14 +85,25 @@ pub fn takeErrorSourceLine(error_ctx: *ErrorContext) ?u32 {
 const ImportExpansion = struct {
     source: []u8,
     active_paths: std.StringHashMap(void),
+    seen_paths: std.StringHashMap(void),
+    seen_package_identities: std.StringHashMap(void),
     owned_paths: std.ArrayList([]u8),
+    layout_versions: std.ArrayList(LayoutVersion),
 
     fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
         for (self.owned_paths.items) |path| {
             allocator.free(path);
         }
         self.owned_paths.deinit();
+        var pkg_it = self.seen_package_identities.iterator();
+        while (pkg_it.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+        }
+        self.seen_package_identities.deinit();
+        for (self.layout_versions.items) |*layout_version| layout_version.deinit(allocator);
+        self.layout_versions.deinit();
         self.active_paths.deinit();
+        self.seen_paths.deinit();
         allocator.free(self.source);
         self.* = undefined;
     }
@@ -85,9 +113,11 @@ pub const FlattenResult = struct {
     instructions: []Instruction,
     const_decls: []ConstDecl,
     function_sigs: []FunctionSig,
+    test_sigs: []FunctionSig,
     def_dict: DefDict,
     symbols: SymbolTable,
     loc_table: LocTable,
+    layout_versions: []LayoutVersion,
     owned_text: [][]const u8,
     trap: ?Trap = null,
 
@@ -96,6 +126,8 @@ pub const FlattenResult = struct {
             if (entry) |loc| allocator.free(loc.file);
         }
         allocator.free(self.loc_table);
+        for (self.layout_versions) |*layout_version| layout_version.deinit(allocator);
+        allocator.free(self.layout_versions);
         for (self.instructions) |item| {
             if (item.upstream_loc) |loc| allocator.free(loc.file);
             if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
@@ -106,6 +138,7 @@ pub const FlattenResult = struct {
         allocator.free(self.owned_text);
         for (self.function_sigs) |*sig| sig.deinit(allocator);
         allocator.free(self.function_sigs);
+        allocator.free(self.test_sigs);
         allocator.free(self.instructions);
         self.def_dict.deinit();
         self.symbols.deinit();
@@ -303,6 +336,28 @@ fn setPendingLoc(
     };
 }
 
+fn recordLayoutVersion(
+    allocator: std.mem.Allocator,
+    layout_versions: *std.ArrayList(LayoutVersion),
+    path: []const u8,
+    source: []const u8,
+) !void {
+    var iterator = std.mem.splitScalar(u8, source, '\n');
+    while (iterator.next()) |raw_line| {
+        const classified = classifier.classifyLine(raw_line);
+        if (classified.kind != .version) continue;
+
+        const version = std.fmt.parseInt(u64, classified.parts[0], 10) catch return error.InvalidSyntax;
+        const path_copy = try allocator.dupe(u8, path);
+        errdefer allocator.free(path_copy);
+        try layout_versions.append(.{
+            .path = path_copy,
+            .version = version,
+        });
+        return;
+    }
+}
+
 fn findBlockEnd(lines: []const SourceLine, start: usize, close_kind: LineKind) ?usize {
     var idx = start;
     while (idx < lines.len) : (idx += 1) {
@@ -399,7 +454,7 @@ fn emitParsedLine(
 ) !void {
     const classified = classifier.classifyLine(raw_line);
     switch (classified.kind) {
-        .blank_or_comment => {},
+        .blank_or_comment, .version => {},
         .import_decl => {},
         .const_decl => {
             const upstream_loc = takePendingLoc(pending_loc);
@@ -441,12 +496,13 @@ fn emitParsedLine(
             inst.operands[1] = .{ .label = label_id };
             try instructions.append(inst);
         },
-        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
             const kind = switch (classified.kind) {
                 .func_decl => FunctionKind.normal,
                 .ffi_wrapper_decl => FunctionKind.ffi_wrapper,
                 .extern_decl => FunctionKind.external,
                 .export_decl => FunctionKind.exported,
+                .test_decl => FunctionKind.test_func,
                 else => FunctionKind.normal,
             };
             var sig = try parseFunctionSigForKind(
@@ -482,6 +538,7 @@ fn emitParsedLine(
                 .ffi_wrapper => .ffi_wrapper_decl,
                 .external => .extern_decl,
                 .exported => .export_decl,
+                .test_func => .test_decl,
             };
             try appendNullLoc(loc_table);
             const raw_copy = try ownText(allocator, owned_text, raw_line);
@@ -782,7 +839,7 @@ fn collectMacroDefinitions(
         const line = lines[idx];
         recordErrorSourceLine(error_ctx, line.line_no);
         switch (line.classified.kind) {
-            .blank_or_comment, .def, .const_decl, .import_decl, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
+            .blank_or_comment, .def, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
             .macro_start => {
                 const end = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
                 const name = line.classified.parts[0];
@@ -829,7 +886,7 @@ fn emitRange(
         recordErrorSourceLine(error_ctx, source_line);
 
         switch (line.classified.kind) {
-            .blank_or_comment, .import_decl => {},
+            .blank_or_comment, .import_decl, .version => {},
             .const_decl => {
                 if (!top_level) return error.InvalidMacroDefinitionContext;
                 const upstream_loc = takePendingLoc(pending_loc);
@@ -850,7 +907,7 @@ fn emitRange(
                 const col_no = try std.fmt.parseInt(u32, line.classified.parts[2], 10);
                 try setPendingLoc(allocator, pending_loc, line.classified.parts[0], line_no, col_no);
             },
-            .def, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .instruction, .native, .unknown => {
+            .def, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .native, .unknown => {
                 const should_render = source_line_override != null or replacements.len != 0;
                 if (should_render) {
                     const rendered = try renderWithReplacements(allocator, line.text, replacements);
@@ -1026,23 +1083,282 @@ fn readImportFile(
     allocator: std.mem.Allocator,
     base_dir: []const u8,
     import_path: []const u8,
-) !struct { full_path: []u8, source: []u8 } {
-    const joined_path = if (std.fs.path.isAbsolute(import_path))
-        try allocator.dupe(u8, import_path)
-    else
-        try std.fs.path.join(allocator, &.{ base_dir, import_path });
-    errdefer allocator.free(joined_path);
+    resolve_ctx: ?ResolveContext,
+) !pkg_resolver.ResolvedImport {
+    const deps = if (resolve_ctx) |ctx| ctx.dependencies else &.{};
+    var options: pkg_resolver.ResolveOptions = .{};
+    if (resolve_ctx) |ctx| options = ctx.options;
+    return try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
+}
 
-    // Normalize the import path before we store it in the active path set.
-    // This keeps cycles visible even when intermediate imports contain `..`.
-    const full_path = try std.fs.cwd().realpathAlloc(allocator, joined_path);
-    allocator.free(joined_path);
-    errdefer allocator.free(full_path);
+fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {
+    return try std.fs.path.join(allocator, parts);
+}
 
-    const source = try std.fs.cwd().readFileAlloc(allocator, full_path, 16 * 1024 * 1024);
-    errdefer allocator.free(source);
+fn pathStem(path: []const u8) []const u8 {
+    const base = std.fs.path.basename(path);
+    const dot = std.mem.lastIndexOfScalar(u8, base, '.') orelse return base;
+    return base[0..dot];
+}
 
-    return .{ .full_path = full_path, .source = source };
+fn packageNamespacePrefix(allocator: std.mem.Allocator, package_identity: []const u8) ![]u8 {
+    const trimmed = std.mem.trim(u8, package_identity, " \t\r\n");
+    if (trimmed.len == 0) return error.InvalidPath;
+
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    try out.appendSlice("pkg_");
+
+    for (trimmed) |c| {
+        switch (c) {
+            'a'...'z', 'A'...'Z', '0'...'9' => try out.append(c),
+            '_' => try out.appendSlice("_us_"),
+            '.' => try out.appendSlice("_dot_"),
+            '/' => try out.appendSlice("_slash_"),
+            '-' => try out.appendSlice("_dash_"),
+            ':' => try out.appendSlice("_colon_"),
+            '@' => try out.appendSlice("_at_"),
+            '+' => try out.appendSlice("_plus_"),
+            '~' => try out.appendSlice("_tilde_"),
+            else => {
+                try out.appendSlice("_x");
+                try out.writer().print("{X:0>2}_", .{c});
+            },
+        }
+    }
+
+    return try out.toOwnedSlice();
+}
+
+fn rememberPackageIdentity(
+    allocator: std.mem.Allocator,
+    seen_package_identities: *std.StringHashMap(void),
+    package_identity: []const u8,
+) !bool {
+    if (seen_package_identities.contains(package_identity)) return false;
+
+    const copy = try allocator.dupe(u8, package_identity);
+    errdefer allocator.free(copy);
+    try seen_package_identities.put(copy, {});
+    return true;
+}
+
+fn containsText(items: []const []const u8, needle: []const u8) bool {
+    for (items) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
+}
+
+fn rewritePackageLayoutExpr(
+    allocator: std.mem.Allocator,
+    expr: []const u8,
+    prefix: []const u8,
+    local_defs: []const []const u8,
+) ![]const u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    var idx: usize = 0;
+    while (idx < expr.len) {
+        if (std.ascii.isAlphabetic(expr[idx]) or expr[idx] == '_') {
+            const start = idx;
+            idx += 1;
+            while (idx < expr.len and (std.ascii.isAlphanumeric(expr[idx]) or expr[idx] == '_' or expr[idx] == '.')) : (idx += 1) {}
+            const token = expr[start..idx];
+            if (containsText(local_defs, token)) {
+                try out.appendSlice(prefix);
+                try out.append('.');
+                try out.appendSlice(token);
+            } else {
+                try out.appendSlice(token);
+            }
+            continue;
+        }
+        try out.append(expr[idx]);
+        idx += 1;
+    }
+
+    return try out.toOwnedSlice();
+}
+
+fn rewritePackageLayoutSource(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    package_identity: []const u8,
+) ![]u8 {
+    const prefix = try packageNamespacePrefix(allocator, package_identity);
+    defer allocator.free(prefix);
+
+    var local_defs = std.ArrayList([]const u8).init(allocator);
+    defer local_defs.deinit();
+
+    var collector = std.mem.splitScalar(u8, source, '\n');
+    while (collector.next()) |raw_line| {
+        const classified = classifier.classifyLine(raw_line);
+        if (classified.kind == .def) {
+            try local_defs.append(classified.parts[0]);
+        }
+    }
+
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    var iterator = std.mem.splitScalar(u8, source, '\n');
+    var first_line = true;
+    while (iterator.next()) |raw_line| {
+        if (!first_line) try out.append('\n');
+        first_line = false;
+
+        const classified = classifier.classifyLine(raw_line);
+        switch (classified.kind) {
+            .def => {
+                const rewritten_rhs = try rewritePackageLayoutExpr(allocator, classified.parts[1], prefix, local_defs.items);
+                defer allocator.free(rewritten_rhs);
+                try out.appendSlice("#def ");
+                try out.appendSlice(prefix);
+                try out.append('.');
+                try out.appendSlice(classified.parts[0]);
+                try out.appendSlice(" = ");
+                try out.appendSlice(rewritten_rhs);
+            },
+            else => try out.appendSlice(raw_line),
+        }
+    }
+
+    if (source.len != 0 and source[source.len - 1] == '\n') {
+        try out.append('\n');
+    }
+
+    return try out.toOwnedSlice();
+}
+
+fn injectImportedFile(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    imported: *pkg_resolver.ResolvedImport,
+    active_paths: *std.StringHashMap(void),
+    seen_paths: *std.StringHashMap(void),
+    seen_package_identities: *std.StringHashMap(void),
+    owned_paths: *std.ArrayList([]u8),
+    layout_versions: *std.ArrayList(LayoutVersion),
+    error_ctx: ?*ErrorContext,
+    current_package_identity: ?[]const u8,
+    resolve_ctx: ?ResolveContext,
+) anyerror!void {
+    const entry_path = imported.entry_path;
+    if (!std.mem.endsWith(u8, entry_path, ".saasm")) return;
+
+    const effective_package_identity = imported.package_identity orelse current_package_identity;
+    if (effective_package_identity) |identity| {
+        if (!(try rememberPackageIdentity(allocator, seen_package_identities, identity))) return;
+    }
+
+    const import_dir = std.fs.path.dirname(entry_path) orelse ".";
+    const stem = pathStem(entry_path);
+    const iface_name = try std.fmt.allocPrint(allocator, "{s}.saasm-iface", .{stem});
+    defer allocator.free(iface_name);
+    const layout_name = try std.fmt.allocPrint(allocator, "{s}.saasm-layout", .{stem});
+    defer allocator.free(layout_name);
+
+    const injected_root = struct {
+        fn run(
+            allocator2: std.mem.Allocator,
+            out2: *std.ArrayList(u8),
+            base_dir: []const u8,
+            file_name: []const u8,
+            active_paths2: *std.StringHashMap(void),
+            seen_paths2: *std.StringHashMap(void),
+            seen_package_identities2: *std.StringHashMap(void),
+            owned_paths2: *std.ArrayList([]u8),
+            layout_versions2: *std.ArrayList(LayoutVersion),
+            error_ctx2: ?*ErrorContext,
+            current_package_identity2: ?[]const u8,
+            resolve_ctx2: ?ResolveContext,
+        ) anyerror!void {
+            var injected = try readImportFile(allocator2, base_dir, file_name, resolve_ctx2);
+            defer injected.deinit(allocator2);
+            if (active_paths2.contains(injected.entry_path) or seen_paths2.contains(injected.entry_path)) return;
+            owned_paths2.append(injected.entry_path) catch |err| {
+                injected.deinit(allocator2);
+                return err;
+            };
+            injected.entry_path_owned = false;
+            try seen_paths2.put(injected.entry_path, {});
+            try active_paths2.put(injected.entry_path, {});
+            defer _ = active_paths2.remove(injected.entry_path);
+
+            const effective_child_package_identity = injected.package_identity orelse current_package_identity2;
+            const is_layout_file = std.mem.endsWith(u8, injected.entry_path, ".saasm-layout");
+            var rewritten_source: ?[]u8 = null;
+            defer if (rewritten_source) |rewritten| allocator2.free(rewritten);
+            const expanded_source = if (is_layout_file) blk: {
+                if (effective_child_package_identity) |identity| {
+                    const rewritten = try rewritePackageLayoutSource(allocator2, injected.source, identity);
+                    rewritten_source = rewritten;
+                    break :blk rewritten;
+                }
+                break :blk injected.source;
+            } else injected.source;
+
+            if (is_layout_file) {
+                try recordLayoutVersion(allocator2, layout_versions2, injected.entry_path, injected.source);
+            }
+            const injected_dir = std.fs.path.dirname(injected.entry_path) orelse ".";
+            try expandImportsInto(
+                allocator2,
+                out2,
+                expanded_source,
+                injected_dir,
+                active_paths2,
+                seen_paths2,
+                seen_package_identities2,
+                owned_paths2,
+                layout_versions2,
+                error_ctx2,
+                effective_child_package_identity,
+                resolve_ctx2,
+            );
+        }
+    }.run;
+
+    const iface_path = try pathJoin(allocator, &.{ import_dir, iface_name });
+    defer allocator.free(iface_path);
+    if (std.fs.cwd().access(iface_path, .{})) |_| {
+        try injected_root(
+            allocator,
+            out,
+            import_dir,
+            iface_name,
+            active_paths,
+            seen_paths,
+            seen_package_identities,
+            owned_paths,
+            layout_versions,
+            error_ctx,
+            effective_package_identity,
+            resolve_ctx,
+        );
+    } else |_| {}
+
+    const layout_path = try pathJoin(allocator, &.{ import_dir, layout_name });
+    defer allocator.free(layout_path);
+    if (std.fs.cwd().access(layout_path, .{})) |_| {
+        try injected_root(
+            allocator,
+            out,
+            import_dir,
+            layout_name,
+            active_paths,
+            seen_paths,
+            seen_package_identities,
+            owned_paths,
+            layout_versions,
+            error_ctx,
+            effective_package_identity,
+            resolve_ctx,
+        );
+    } else |_| {}
 }
 
 fn expandImportsInto(
@@ -1051,30 +1367,82 @@ fn expandImportsInto(
     source: []const u8,
     base_dir: []const u8,
     active_paths: *std.StringHashMap(void),
+    seen_paths: *std.StringHashMap(void),
+    seen_package_identities: *std.StringHashMap(void),
     owned_paths: *std.ArrayList([]u8),
+    layout_versions: *std.ArrayList(LayoutVersion),
     error_ctx: ?*ErrorContext,
+    current_package_identity: ?[]const u8,
+    resolve_ctx: ?ResolveContext,
 ) !void {
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
     while (iterator.next()) |raw_line| : (line_no += 1) {
         recordErrorSourceLine(error_ctx, line_no);
         if (parseImportPath(raw_line)) |import_path| {
-            const imported = try readImportFile(allocator, base_dir, import_path);
-            defer allocator.free(imported.source);
+            var imported = try readImportFile(allocator, base_dir, import_path, resolve_ctx);
+            const imported_package_identity = imported.package_identity orelse current_package_identity;
 
-            if (active_paths.contains(imported.full_path)) {
-                allocator.free(imported.full_path);
+            if (active_paths.contains(imported.entry_path)) {
+                imported.deinit(allocator);
                 return error.ImportCycle;
             }
-            owned_paths.append(imported.full_path) catch |err| {
-                allocator.free(imported.full_path);
+            if (seen_paths.contains(imported.entry_path)) {
+                imported.deinit(allocator);
+                continue;
+            }
+            if (std.mem.endsWith(u8, imported.entry_path, ".saasm-layout")) {
+                try recordLayoutVersion(allocator, layout_versions, imported.entry_path, imported.source);
+            }
+            owned_paths.append(imported.entry_path) catch |err| {
+                imported.deinit(allocator);
                 return err;
             };
-            try active_paths.put(imported.full_path, {});
-            defer _ = active_paths.remove(imported.full_path);
+            imported.entry_path_owned = false;
+            defer imported.deinit(allocator);
+            try seen_paths.put(imported.entry_path, {});
+            try active_paths.put(imported.entry_path, {});
+            defer _ = active_paths.remove(imported.entry_path);
 
-            const import_dir = std.fs.path.dirname(imported.full_path) orelse ".";
-            try expandImportsInto(allocator, out, imported.source, import_dir, active_paths, owned_paths, error_ctx);
+            const import_dir = std.fs.path.dirname(imported.entry_path) orelse ".";
+            try injectImportedFile(
+                allocator,
+                out,
+                &imported,
+                active_paths,
+                seen_paths,
+                seen_package_identities,
+                owned_paths,
+                layout_versions,
+                error_ctx,
+                current_package_identity,
+                resolve_ctx,
+            );
+            const is_layout_file = std.mem.endsWith(u8, imported.entry_path, ".saasm-layout");
+            var rewritten_source: ?[]u8 = null;
+            defer if (rewritten_source) |rewritten| allocator.free(rewritten);
+            const expanded_source = if (is_layout_file) blk: {
+                if (imported_package_identity) |identity| {
+                    const rewritten = try rewritePackageLayoutSource(allocator, imported.source, identity);
+                    rewritten_source = rewritten;
+                    break :blk rewritten;
+                }
+                break :blk imported.source;
+            } else imported.source;
+            try expandImportsInto(
+                allocator,
+                out,
+                expanded_source,
+                import_dir,
+                active_paths,
+                seen_paths,
+                seen_package_identities,
+                owned_paths,
+                layout_versions,
+                error_ctx,
+                imported_package_identity,
+                resolve_ctx,
+            );
             continue;
         }
 
@@ -1088,14 +1456,30 @@ fn expandImports(
     source: []const u8,
     source_path: ?[]const u8,
     error_ctx: ?*ErrorContext,
+    resolve_ctx: ?ResolveContext,
 ) !ImportExpansion {
     var active_paths = std.StringHashMap(void).init(allocator);
     errdefer active_paths.deinit();
+
+    var seen_paths = std.StringHashMap(void).init(allocator);
+    errdefer seen_paths.deinit();
+
+    var seen_package_identities = std.StringHashMap(void).init(allocator);
+    errdefer {
+        var pkg_it = seen_package_identities.iterator();
+        while (pkg_it.next()) |entry| allocator.free(entry.key_ptr.*);
+        seen_package_identities.deinit();
+    }
 
     var owned_paths = std.ArrayList([]u8).init(allocator);
     errdefer {
         for (owned_paths.items) |path| allocator.free(path);
         owned_paths.deinit();
+    }
+    var layout_versions = std.ArrayList(LayoutVersion).init(allocator);
+    errdefer {
+        for (layout_versions.items) |*layout_version| layout_version.deinit(allocator);
+        layout_versions.deinit();
     }
 
     var out = std.ArrayList(u8).init(allocator);
@@ -1112,14 +1496,36 @@ fn expandImports(
             return err;
         };
         try active_paths.put(source_full, {});
+        try seen_paths.put(source_full, {});
+
+        if (std.mem.endsWith(u8, source_full, ".saasm-layout")) {
+            try recordLayoutVersion(allocator, &layout_versions, source_full, source);
+        }
     }
 
-    try expandImportsInto(allocator, &out, source, base_dir, &active_paths, &owned_paths, error_ctx);
+    const current_package_identity = if (resolve_ctx) |ctx| ctx.package_identity else null;
+    try expandImportsInto(
+        allocator,
+        &out,
+        source,
+        base_dir,
+        &active_paths,
+        &seen_paths,
+        &seen_package_identities,
+        &owned_paths,
+        &layout_versions,
+        error_ctx,
+        current_package_identity,
+        resolve_ctx,
+    );
 
     return .{
         .source = try out.toOwnedSlice(),
         .active_paths = active_paths,
+        .seen_paths = seen_paths,
+        .seen_package_identities = seen_package_identities,
         .owned_paths = owned_paths,
+        .layout_versions = layout_versions,
     };
 }
 
@@ -1141,9 +1547,10 @@ fn flattenInternal(
     source: []const u8,
     source_path: ?[]const u8,
     error_ctx: ?*ErrorContext,
+    resolve_ctx: ?ResolveContext,
 ) !FlattenResult {
     if (error_ctx) |ctx| ctx.source_line = null;
-    var expanded = try expandImports(allocator, source, source_path, error_ctx);
+    var expanded = try expandImports(allocator, source, source_path, error_ctx, resolve_ctx);
     defer expanded.deinit(allocator);
 
     if (findFirstForbiddenLine(expanded.source)) |_| {
@@ -1215,26 +1622,40 @@ fn flattenInternal(
     }
 
     const loc_table_slice = try collectLocTableEntries(allocator, instructions.items);
+    const layout_versions = try expanded.layout_versions.toOwnedSlice();
     loc_table.deinit();
+
+    const function_sigs_slice = try function_sigs.toOwnedSlice();
+
+    // Filter test functions from function_sigs
+    var test_sigs_list = std.ArrayList(FunctionSig).init(allocator);
+    errdefer test_sigs_list.deinit();
+    for (function_sigs_slice) |sig| {
+        if (sig.kind == .test_func) {
+            try test_sigs_list.append(sig);
+        }
+    }
 
     return .{
         .instructions = try instructions.toOwnedSlice(),
         .const_decls = try const_decls.toOwnedSlice(),
-        .function_sigs = try function_sigs.toOwnedSlice(),
+        .function_sigs = function_sigs_slice,
+        .test_sigs = try test_sigs_list.toOwnedSlice(),
         .def_dict = dict,
         .symbols = symbols,
         .loc_table = loc_table_slice,
+        .layout_versions = layout_versions,
         .owned_text = try owned_text.toOwnedSlice(),
         .trap = null,
     };
 }
 
 pub fn flatten(allocator: std.mem.Allocator, source: []const u8) !FlattenResult {
-    return flattenInternal(allocator, source, null, null);
+    return flattenInternal(allocator, source, null, null, null);
 }
 
 pub fn flattenWithContext(allocator: std.mem.Allocator, source: []const u8, error_ctx: ?*ErrorContext) !FlattenResult {
-    return flattenInternal(allocator, source, null, error_ctx);
+    return flattenInternal(allocator, source, null, error_ctx, null);
 }
 
 pub fn flattenFileWithContext(
@@ -1243,11 +1664,47 @@ pub fn flattenFileWithContext(
     source: []const u8,
     error_ctx: ?*ErrorContext,
 ) !FlattenResult {
-    return flattenInternal(allocator, source, source_path, error_ctx);
+    return flattenInternal(allocator, source, source_path, error_ctx, null);
 }
 
 pub fn flattenFile(allocator: std.mem.Allocator, source_path: []const u8, source: []const u8) !FlattenResult {
-    return flattenInternal(allocator, source, source_path, null);
+    return flattenInternal(allocator, source, source_path, null, null);
+}
+
+pub fn flattenWithPackages(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    resolve_ctx: ResolveContext,
+) !FlattenResult {
+    return flattenInternal(allocator, source, null, null, resolve_ctx);
+}
+
+pub fn flattenWithContextAndPackages(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    error_ctx: ?*ErrorContext,
+    resolve_ctx: ResolveContext,
+) !FlattenResult {
+    return flattenInternal(allocator, source, null, error_ctx, resolve_ctx);
+}
+
+pub fn flattenFileWithPackages(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    source: []const u8,
+    resolve_ctx: ResolveContext,
+) !FlattenResult {
+    return flattenInternal(allocator, source, source_path, null, resolve_ctx);
+}
+
+pub fn flattenFileWithContextAndPackages(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    source: []const u8,
+    error_ctx: ?*ErrorContext,
+    resolve_ctx: ResolveContext,
+) !FlattenResult {
+    return flattenInternal(allocator, source, source_path, error_ctx, resolve_ctx);
 }
 
 const MacroPbtProgram = struct {
@@ -1544,6 +2001,69 @@ test "flattenFile expands relative @import files" {
     try std.testing.expectEqualStrings("sa_print_bytes", result.function_sigs[0].name);
     try std.testing.expectEqual(FunctionKind.normal, result.function_sigs[1].kind);
     try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
+}
+
+test "flattenFileWithPackages injects package iface and namespaced layout defs once" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
+
+    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    try pkg_main.writeAll("// package body intentionally empty\n");
+    pkg_main.close();
+
+    var pkg_iface = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm-iface", .{ .truncate = true });
+    try pkg_iface.writeAll("@extern pkg_iface() -> i32\n");
+    pkg_iface.close();
+
+    var pkg_layout = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm-layout", .{ .truncate = true });
+    try pkg_layout.writeAll(
+        \\#version 1
+        \\#def Pkg_SIZE = 4
+    );
+    pkg_layout.close();
+
+    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "github.com/example/pkg"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+
+    var result = try flattenFileWithPackages(
+        std.testing.allocator,
+        source_path,
+        source,
+        .{
+            .options = .{ .project_root = project_root },
+        },
+    );
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), result.function_sigs.len);
+    try std.testing.expectEqualStrings("pkg_iface", result.function_sigs[0].name);
+    try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
+    try std.testing.expectEqual(@as(usize, 1), result.layout_versions.len);
+    try std.testing.expectEqual(@as(u64, 1), result.layout_versions[0].version);
+
+    const prefix = try packageNamespacePrefix(std.testing.allocator, "github.com/example/pkg");
+    defer std.testing.allocator.free(prefix);
+    const namespaced_key = try std.fmt.allocPrint(std.testing.allocator, "{s}.Pkg_SIZE", .{prefix});
+    defer std.testing.allocator.free(namespaced_key);
+    try std.testing.expectEqualStrings("4", result.def_dict.get(namespaced_key).?);
 }
 
 test "flattenFile rejects import cycles" {

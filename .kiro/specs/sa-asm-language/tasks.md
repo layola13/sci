@@ -984,36 +984,218 @@ sa/
 
 ## v0.5 任务
 
-- [ ] 35. 包管理 `sa.pkg`（R31）
+- [ ] 35. 零信任包管理 `sa.mod` / `sa.lock` / `sa.sum`（R31, R31a–R31g）
 
-  - [ ] 35.1 定义 `sa.pkg` 文件格式
-    - `#pkg name/version/deps` 声明
-    - deps 支持远程 URL 与本地路径
+  > 完整设计文档：[`docs/package_management.md`](../../../docs/package_management.md)；架构对接：design.md §3.10 / §4.8。
+
+  - [ ] 35.1 定义 `sa.mod` 文件格式与解析器（`src/pkg/manifest.zig`）
+    - 单行扁平 `require <URL> @<ref> sha256:<hash> [grants [...]]`
+    - 解析为 `RequireEntry` 结构体（design §4.8）
+    - 缺省 grants = `&.{}`（绝对零权限），禁止 nil / magic
     - _Requirements: R31.1_
 
-  - [ ] 35.2 CLI `saasm pkg fetch` 命令
-    - 下载远程依赖到 `.sa-cache/deps/`
-    - _Requirements: R31.6_
+  - [ ] 35.2 CLI `sa fetch` 哑下载
+    - 默认拉到 `./sa_vendor/<URL>/`
+    - `-g` 拉到 `~/.sa/pkg/<URL>@<ref>/` 只读
+    - 仅 HTTP/Git 文本下载，**不**执行任何 hooks / build / postinstall
+    - _Requirements: R31.2, R31a.1, R31a.2, R31b.1_
 
-  - [ ] 35.3 依赖拓扑排序与自动编译
-    - `saasm build-exe` 时自动解析 `sa.pkg`，按拓扑序编译依赖
-    - _Requirements: R31.2_
+  - [ ] 35.3 `@import` 解析短路（`src/pkg/resolver.zig`）
+    - 顺序：`./sa_vendor/<URL>/` → `~/.sa/pkg/<URL>@<ref>/` → `Trap: PackageNotResolved`
+    - 命中全局缓存时通过 `mmap` 只读读取
+    - _Requirements: R31a.3, R31a.4_
 
-  - [ ] 35.4 依赖接口自动注入
+  - [ ] 35.4 依赖接口与布局自动注入
     - 依赖包的 `.saasm-iface` 自动 `@import` 到当前编译单元
-    - _Requirements: R31.3_
+    - 依赖包的 `.saasm-layout` `#def` 自动注入，带 `pkg_url.FIELD_NAME` 命名空间前缀
+    - _Requirements: R31.3, R31.4_
 
-  - [ ] 35.5 依赖布局自动注入（带命名空间前缀）
-    - `pkg_name.FIELD_NAME` 避免 `#def` 冲突
-    - _Requirements: R31.4_
+  - [ ] 35.5 重复导出 / 版本冲突 / 预编译产物拒绝
+    - 两个依赖包同名 `@export` → 链接期 `Trap: DuplicateExportSymbol`
+    - 同一包两个版本被间接依赖 → CLI 报错要求显式选择
+    - 拉取目录含 `.so/.dll/.dylib/.a/.lib/.whl/.node` → `Trap: PrecompiledArtifactRejected`
+    - _Requirements: R31.5, R31.7, R31b.4_
 
-  - [ ] 35.6 重复导出符号检测
-    - 两个依赖包同名 `@export` → `Trap: DuplicateExportSymbol`
-    - _Requirements: R31.5_
+  - [ ] 35.6 源码 SHA-256 双轨核验
+    - 拉取后立刻字节级哈希
+    - 与 `sa.mod` 中 `sha256:` 比对，差一比特 → `Trap: UpstreamShaMismatch`
+    - _Requirements: R31.6, R31g.3_
 
-  - [ ] 35.7 版本冲突报错
-    - 同一包两个版本被间接依赖 → 报错要求用户选择
-    - _Requirements: R31.8_
+  - [ ] 35.7 `sa.sum` 全树拍平
+    - 自动生成全部传递依赖的哈希记录
+    - 任何子树字节变化 → 顶层哈希失配，整棵树物理熔断
+    - _Requirements: R31.8, R31b.5_
+
+- [ ] 35a. AST X 光扫描与安全信用评分（R31d）
+
+  - [ ] 35a.1 实现 `src/pkg/audit.zig`
+    - 单遍线性 token 扫描，搜剿 `@sys_*` 调用
+    - 单包 ≤ 50ms（MVP）/ ≤ 20ms（stretch）
+    - _Requirements: R31d.1_
+
+  - [ ] 35a.2 Trust Score 计算（0–100）
+    - 100 = pure compute；80 = mem；50 = io；20 及以下 = net / 跨核心
+    - _Requirements: R31d.2_
+
+  - [ ] 35a.3 报告输出（stdout 文本 + `--format json`）
+    - 含等级、权限列表、`upstream_loc`、修复建议
+    - _Requirements: R31d.3, R31d.5_
+
+  - [ ] 35a.4 `sa audit <URL>` CLI 命令
+    - 重新跑扫描，打印同样格式
+    - _Requirements: R31d.4_
+
+  - [ ]* 35a.5 Audit Score Property 测试 — **P33 (NEW)**
+    - 合成三类包（pure / io / net），断言信用分等级与权限列表精确
+    - 最少 100 次
+    - _Requirements: R31d.2_
+
+- [ ] 35b. 模块级零权限沙箱与 grants 校验（R31c）
+
+  - [ ] 35b.1 实现"包路径反推"
+    - 从源码物理路径（`sa_vendor/<URL>/...`）反推所属包
+    - 与 `sa.mod` 的 `RequireEntry.grants` 精确匹配
+    - _Requirements: R31c.3_
+
+  - [ ] 35b.2 `Trap: UnauthorizedPrimitive` 发射
+    - 包内 `@sys_*` 不在 `grants` 列表 → 拒绝生成机器码
+    - 错误中精确点出越权原语名 + `upstream_loc` + 当前 grants 列表
+    - _Requirements: R31c.1, R31c.2, R31c.4_
+
+  - [ ] 35b.3 跨包能力提升拦截
+    - 零权限包 A 调用高权限包 B → `Trap: NonTransitivePrimitive`
+    - 在控制流分析阶段实施，不依赖 Referee CapabilityMask
+    - _Requirements: R31c.5_
+
+  - [ ]* 35b.4 grants 静态校验 PBT — **P33（同上，复用）**
+    - _Requirements: R31c.1, R31c.2, R31c.4_
+
+- [ ] 35c. 破窗确权审判台（R31e）
+
+  - [ ] 35c.1 `BLOCKED_RISK` 内存态机
+    - 编译器扫到信用分 ≤ 20 + 越权原语 → 阻塞管线
+    - 状态**仅存进程内存**，进程退出蒸发
+    - _Requirements: R31e.1, R31e.6_
+
+  - [ ] 35c.2 审判台 banner 输出
+    - 醒目标题 + 完整权限列表（带 `upstream_loc`）+ 信用分 + 提示输入完整 URL
+    - _Requirements: R31e.2_
+
+  - [ ] 35c.3 完整 URL 字符串校验
+    - 不接受 `y`/`n`/简写、不接受任何前缀或裁剪
+    - _Requirements: R31e.3_
+
+  - [ ] 35c.4 TTY 探测与 `MissingTtyForConfirmation`
+    - `std.os.isatty(stdin) == false` → 立刻退出
+    - 防御 `yes |` 管道绕过
+    - _Requirements: R31e.4_
+
+  - [ ] 35c.5 拒绝 `--yes` / `--auto-approve` 在 TTY 模式下绕过
+    - _Requirements: R31e.7_
+
+  - [ ]* 35c.6 零状态生命周期 PBT — **P35 (NEW)**
+    - 验证编译进程退出后状态彻底蒸发
+    - 验证审判台**不**修改任何文件（`sa.mod` / `sa.lock` / 全局 / 本地配置）
+    - _Requirements: R31e.5, R31e.6_
+
+- [ ] 35d. 指令级哈希钉版与项目级孤岛（R31f）
+
+  - [ ] 35d.1 机器码 SHA-256 计算与 `sa.lock` 写入（`src/pkg/lock.zig`）
+    - 审判通过后单独编译该依赖，对生成的机器码字节流计算 SHA
+    - 写入项目根的 `sa.lock`，结构按 design §4.8 `LockEntry`
+    - _Requirements: R31f.1, R31f.2_
+
+  - [ ] 35d.2 增量哈希命中跳过审判
+    - 重新生成机器码，与 `sa.lock` 比对一致 → 直接放行（AOT 红利）
+    - 不一致 → `Trap: MachineCodeHashMismatch` + 重弹审判台
+    - _Requirements: R31f.3_
+
+  - [ ] 35d.3 项目级孤岛强制
+    - `sa.lock` 必须位于项目根；解析器拒绝其它路径
+    - `.sa_cache/` 仅本项目可访问；禁止跨项目复用
+    - _Requirements: R31f.4, R31f.5, R31f.6_
+
+  - [ ] 35d.4 `sa audit --update-lock` 子命令
+    - **唯一**允许写 `sa.lock` 的命令；显式动作
+    - _Requirements: R31f.2_
+
+  - [ ] 35d.5 全平台交叉编译 `sa build --all-targets --lock-only`
+    - 同时推导 `x86_64-linux-musl` / `x86_64-windows-gnu` / `aarch64-macos` / `wasm32-wasi` 机器码哈希
+    - `LockEntry.approved_machine_code_hashes` 多键存储
+    - _Requirements: R31f.7_
+
+  - [ ]* 35d.6 项目级孤岛 PBT — **P36 (NEW)**
+    - 模拟同机器两个项目共依赖同一高危包，断言审判台各自触发
+    - 断言 `~/.sa/pkg/` 不出现 `approved_machine_code_hash`
+    - 最少 100 次
+    - _Requirements: R31f.4, R31f.6_
+
+  - [ ]* 35d.7 双轨独立性 PBT — **P34 (NEW)**
+    - 源码 SHA 一致但机器码变 → 仍熔断
+    - 最少 100 次
+    - _Requirements: R31.6, R31f.3_
+
+- [ ] 35e. CI/CD 双轨执行与内网/断网模式（R31g）
+
+  - [ ] 35e.1 CI 模式自动探测（`src/pkg/ci.zig`）
+    - 信号：`CI=true` / `GITHUB_ACTIONS=true` / `isatty=false` / `--ci`
+    - _Requirements: R31g.1_
+
+  - [ ] 35e.2 双轨核验
+    - 第一轨：`@sys_*` 在 `grants` 列表？否 → `UnauthorizedPrimitive`
+    - 第二轨：源码 SHA == `sa.mod`？否 → `UpstreamShaMismatch`
+    - _Requirements: R31g.3_
+
+  - [ ] 35e.3 冷酷熔断 vs 染色放行
+    - 默认：发现未审计高危依赖 → 退出码 1
+    - `--allow-unaudited-risks`：染色路径，写入 `TAINTED_UNAUDITED_CODE` 元数据 + Job Summary 看板
+    - _Requirements: R31g.2_
+
+  - [ ] 35e.4 染色产物运行时警告
+    - Referee runtime 探测元数据 → `main()` 入口前 stderr 强行打印三行红字
+    - 无法被 `--release` 移除
+    - _Requirements: R31g.7_
+
+  - [ ] 35e.5 `sa build --offline` 完全断网
+    - 关闭网络模块，仅读 `sa_vendor/`
+    - 与 `sa.lock` / `sa.sum` 物理比对
+    - _Requirements: R31g.4_
+
+  - [ ] 35e.6 URL 镜像劫持（`src/pkg/mirror.zig`）
+    - 来源 1：`SA_MIRROR_<HOST_UPPER>` 进程级环境变量
+    - 来源 2：项目本地 `.sa_env` 或 `sa.mod` 的 `[mirrors]` 块
+    - 严禁全局配置文件
+    - _Requirements: R31g.5_
+
+  - [ ] 35e.7 `Trap: ForbiddenGlobalConfig`
+    - 探测 `~/.sa/config.toml` / `~/.sa/mirror.toml` / `/etc/sa/*.toml` 等 → 拒绝启动
+    - _Requirements: R31g.6_
+
+  - [ ] 35e.8 全平台 CI 矩阵核验
+    - Ubuntu / Windows / macOS Runner 各自算源码 SHA → 与 `sa.mod` 对齐
+    - _Requirements: R31g.8_
+
+  - [ ]* 35e.9 CI 模式探测 PBT — **P37 (NEW)**
+    - 验证四种信号的非空交集子集均触发 CI 模式
+    - 验证 CI 模式下任何 stdin 输入被拒绝
+    - 最少 100 次
+    - _Requirements: R31g.1, R31g.2, R31e.4_
+
+- [ ] 35f. 包管理集成测试基线（design.md §8.5 第 16–27 条）
+
+  - [ ] 35f.1 PkgMgr-Fetch-Smoke：基础下载 + 哈希一致 + 不执行源码
+  - [ ] 35f.2 PkgMgr-Audit-Score：信用分 100/50/12 三档断言
+  - [ ] 35f.3 PkgMgr-Confirm-Tty：伪 TTY 输入完整 URL 通过
+  - [ ] 35f.4 PkgMgr-Confirm-NonTty：管道流必报 `MissingTtyForConfirmation`
+  - [ ] 35f.5 PkgMgr-Lock-Idempotency：第二次跳审判 + 改源码重弹
+  - [ ] 35f.6 PkgMgr-Sum-Transitive：A→B→C 篡改检测
+  - [ ] 35f.7 PkgMgr-Offline-Build：拷贝 `sa_vendor/` + `sa.mod` + `sa.lock` 到断网容器
+  - [ ] 35f.8 PkgMgr-CI-DualTrack：模拟 GitHub Actions 双轨触发
+  - [ ] 35f.9 PkgMgr-Tainted-Artifact：染色路径产物元数据 + 运行时红字
+  - [ ] 35f.10 PkgMgr-ForbiddenGlobal：放假全局配置触发 `ForbiddenGlobalConfig`
+  - [ ] 35f.11 PkgMgr-Mirror-Env：环境变量重定向到内网镜像，进程结束规则消失
+  - [ ] 35f.12 PkgMgr-PrecompiledRejected：注入 `.so/.dll` 触发 `PrecompiledArtifactRejected`
+    - _Requirements: R31, R31a–R31g（全部）_
 
 - [ ] 36. 布局标签校验（R32）
 
@@ -1143,14 +1325,565 @@ sa/
 
 ---
 
+# Version 0.7 — 原生单元测试框架（Native Unit Test Framework）
+
+目标：实现 SA-ASM 的原生单元测试支持，提供类似 `cargo test` 的体验，彻底替代基于 Bash/Zig 的外部集成测试调用。
+
+## v0.7 任务
+
+- [ ] 40. 编译器前端与测试收集
+  - [ ] 40.1 支持 `@test "name"()` 声明或测试宏
+  - [ ] 40.2 验证测试函数签名无参无返
+  - [ ] 40.3 在 Flattener 阶段收集测试元数据至 `TestRegistry`
+
+- [ ] 41. CLI 与 Test Runner
+  - [ ] 41.1 扩展 `src/cli.zig` 支持 `saasm test`
+  - [ ] 41.2 支持 `--filter` 过滤特定测试
+  - [ ] 41.3 动态生成虚拟入口函数，编排测试调用与执行隔离
+  - [ ] 41.4 控制台进度打印、隔离进程运行、退出状态判断（捕获 103 Panic）
+
+- [ ] 42. 标准库断言与支持
+  - [ ] 42.1 增强 `ASSERT_EQ` / `ASSERT_TRUE`，支持带有文件名、行号及具体 diff 的 `panic_msg`
+  - [ ] 42.2 提供基础的 Mock 机制（如内存 I/O 缓冲）
+
+- [ ] 43. 测试用例迁移
+  - [ ] 43.1 逐步将 `test_all_300.sh` 中的 demo 转化为原生 `@test` 并用 `saasm test` 验证
+
+---
+
+# Version 0.6 — SA 零信任列式数据库（12 周）
+
+目标：实现 R34 需求，交付一个与包管理同构的列式数据库引擎，支持预编译查询、SHA-256 锁版、权限 X 光扫描、零拷贝沙箱执行、无锁并发、Blob Arena、冷热分层。
+
+## v0.6 任务
+
+### M1：Schema + 列存 + Arena MemTable + Insert（W1–W3）
+
+- [ ] 1. 实现 `.sadb-schema` 编译器（`src/db/schema.zig`）
+  - [ ] 1.1 扫描 `#def COL_*_STRIDE` 与 `#def TABLE_*_ROW_BYTES`
+  - [ ] 1.2 生成 `.iface` 接口文件（纯文本 `#def` 副本）
+  - [ ] 1.3 验证容量（`MAX_ROWS * TABLE_ROW_BYTES ≤ 64GB`）
+  - _Requirements: R34.1, R2.4_
+
+- [ ] 2. 实现 SoA 列存与 MemTable Arena（`src/db/arena.zig`）
+  - [ ] 2.1 Zig `ArenaAllocator` 包装（Append-Only，64MB 阈值）
+  - [ ] 2.2 `writev` 系统调用落盘（整块写入磁盘）
+  - [ ] 2.3 不可变段文件格式（`<table>.col<i>.<seg>.dat` + `<table>.meta`）
+  - [ ] 2.4 段内 SoA 列式布局
+  - _Requirements: R34.1, R34.2_
+
+- [ ] 3. 实现 Insert 算子（`src/db/exec.zig` 初版）
+  - [ ] 3.1 `atomic_rmw_add global_len, 1` 无锁自增游标
+  - [ ] 3.2 多列并发写入（`mul + ptr_add + store`）
+  - [ ] 3.3 容量检查与 OOM 处理
+  - _Requirements: R34.5, R2.7_
+
+- [ ] 4. 单元测试与基准（`tests/db/arena.zig`）
+  - [ ] 4.1 Insert 吞吐基线（目标 ≥ 1M rows/sec）
+  - [ ] 4.2 MemTable → 段落盘的正确性验证
+
+### M2：Blob Arena + Bump 分配（W4）
+
+- [ ] 5. 实现 Blob Arena（`src/db/blob.zig`）
+  - [ ] 5.1 Bump Allocator（纯追加，无碎片）
+  - [ ] 5.2 `blob_handle = u64 = (seg_id:24 << 40) | offset:40` 位布局
+  - [ ] 5.3 墓碑标记删除（1 字节标志位）
+  - [ ] 5.4 段压缩触发（死亡比例 ≥ 50%）
+  - _Requirements: R34.6_
+
+- [ ] 6. Blob 写入范式（SA-ASM）
+  - [ ] 6.1 `@write_blob_text` 完整实现（原子 bump 指针 + 容量检查）
+  - [ ] 6.2 与 Insert 的集成（blob_handle 列写入）
+  - _Requirements: R34.6_
+
+- [ ] 7. 单元测试（`tests/db/blob.zig`）
+  - [ ] 7.1 Blob 分配与释放正确性
+  - [ ] 7.2 段压缩的数据完整性
+
+### M3：查询模块编译 + SHA-256 注册 + X 光扫描（W5–W6）
+
+- [ ] 8. 查询模块编译（`src/db/qmod.zig`）
+  - [ ] 8.1 `.query.saasm` → `<sha256>.qmod` 二进制编译
+  - [ ] 8.2 源码 SHA-256 哈希计算与注册
+  - [ ] 8.3 查询模块注册表（内存 HashMap）
+  - _Requirements: R34.2_
+
+- [ ] 9. Referee X 光扫描扩展（`src/db/referee_db.zig` + hook 进 `src/verifier.zig`）
+  - [ ] 9.1 解析 `grants [db_read:tbl, db_write:tbl, db_atomic_cursor:tbl, db_alloc_blob:arena]`
+  - [ ] 9.2 遍历查询模块指令流，校验 `load` / `store` / `atomic_rmw_*` 权限
+  - [ ] 9.3 违规返回 `Trap: DbCapabilityEscalation`（附 `upstream_loc`）
+  - _Requirements: R34.3, R9.3_
+
+- [ ] 10. 单元测试（`tests/db/qmod.zig`）
+  - [ ] 10.1 权限白名单校验（正常 + 越权场景）
+  - [ ] 10.2 SHA-256 哈希稳定性
+
+### M4：mmap 沙箱 + SIGSEGV handler + Trap 上报（W7）
+
+- [ ] 11. 列基址注入与 mmap 映射（`src/db/exec.zig` 完整版）
+  - [ ] 11.1 `@ffi_wrapper db_inject_cols` 实现
+  - [ ] 11.2 mmap `MAP_PRIVATE | PROT_READ` 配置
+  - [ ] 11.3 列基址作为 `&col: ptr` 借用传入查询模块
+  - _Requirements: R34.4, R7_
+
+- [ ] 12. SIGSEGV handler 与越权保护
+  - [ ] 12.1 libc SIGSEGV 信号处理
+  - [ ] 12.2 越权写入检测与进程终止
+  - [ ] 12.3 `Trap: DbMemoryGuardViolation` 上报
+  - _Requirements: R34.4_
+
+- [ ] 13. 单元测试（`tests/db/exec.zig`）
+  - [ ] 13.1 越权读写的 SIGSEGV 捕获
+  - [ ] 13.2 合法读写的正常执行
+
+### M5：CLI 子命令 + ingest + snapshot（W8）
+
+- [ ] 14. CLI 子命令分发（`src/db/cli_db.zig` + hook 进 `src/cli.zig`）
+  - [ ] 14.1 `saasm db init <table>.sadb-schema`
+  - [ ] 14.2 `saasm db register <query>.saasm`
+  - [ ] 14.3 `saasm db exec <sha256> --params <file>`
+  - [ ] 14.4 `saasm db ingest <table> <csv|jsonl>`
+  - [ ] 14.5 `saasm db snapshot <table>`
+  - [ ] 14.6 `saasm db restore <table> <epoch>`
+  - [ ] 14.7 `saasm db inspect <sha256>`
+  - [ ] 14.8 `saasm db compact <table>`
+  - [ ] 14.9 `saasm db lock <table>`
+  - [ ] 14.10 `saasm db verify <table>`
+  - _Requirements: R34.11_
+
+- [ ] 15. Snapshot 与恢复（`src/db/snapshot.zig`）
+  - [ ] 15.1 Epoch 快照记录（全局 epoch 号 + 段列表）
+  - [ ] 15.2 崩溃恢复（扫描 `.meta` 重建 MemTable 状态）
+  - _Requirements: R34.8_
+
+- [ ] 16. 单元测试（`tests/db/cli.zig`）
+  - [ ] 16.1 各子命令的基本功能
+  - [ ] 16.2 snapshot/restore 的一致性
+
+### M6：冷热分层 + Zstd 压缩 + S3 落冷（W9–W10）
+
+- [ ] 17. 冷热分层策略（`src/db/compact.zig`）
+  - [ ] 17.1 后台线程定期扫描段 mtime
+  - [ ] 17.2 热数据（7 天）Pin to RAM
+  - [ ] 17.3 温数据（1 月）mmap NVMe
+  - [ ] 17.4 冷数据（1 年+）Zstd 压缩落 S3
+  - _Requirements: R34.7_
+
+- [ ] 18. Zstd 压缩与 S3 集成
+  - [ ] 18.1 Zstd 字典压缩（体积目标 10–15%）
+  - [ ] 18.2 S3 API 集成（可选本地 mock）
+  - [ ] 18.3 按需解压（冷数据访问时）
+
+- [ ] 19. 单元测试（`tests/db/compact.zig`）
+  - [ ] 19.1 分层策略的正确性
+  - [ ] 19.2 压缩率验证
+
+### M7：测试集 + 双 11 抢购 demo（W11–W12）
+
+- [ ] 20. 完整单元测试套件（`tests/db/`）
+  - [ ] 20.1 12 条 Trap 错误码的边界覆盖
+  - [ ] 20.2 并发冲突（乐观锁失败）
+  - [ ] 20.3 容量溢出（Blob OOM / 行游标溢出）
+  - [ ] 20.4 数据完整性（Insert + Query + Snapshot）
+
+- [ ] 21. 双 11 抢购 demo（`demos/flash_sale.saasm`）
+  - [ ] 21.1 10 万 SKU，初始库存 1000
+  - [ ] 21.2 单线程 Insert + Update（扣库存）+ Query（统计）
+  - [ ] 21.3 性能目标：1KW TPS 扣减（单线程）
+  - [ ] 21.4 查询延迟 ≤ 10ms（p99）
+
+- [ ] 22. 性能基线与文档
+  - [ ] 22.1 1 亿行 SoA 列扫描 ≤ 200ms（AVX-512 启用）
+  - [ ] 22.2 Insert 吞吐 ≥ 1M rows/sec
+  - [ ] 22.3 生成 `docs/database.md` 落地文档
+
+### 新增 Trap 错误码（`src/db/trap_db.zig` + 登记到 `docs/errorcode.md`）
+
+- [ ] 23. 12 条新 Trap 错误码
+  - [ ] 23.1 `DbCapabilityEscalation` — 查询模块越权 load/store
+  - [ ] 23.2 `DbMemoryGuardViolation` — mmap 越界 SIGSEGV
+  - [ ] 23.3 `DbBlobArenaOOM` — Bump 分配器写满
+  - [ ] 23.4 `DbConcurrencyConflict` — 行版本号 cmpxchg 失败
+  - [ ] 23.5 `DbSchemaMismatch` — 数据列类型与 schema 不符
+  - [ ] 23.6 `DbCursorOverflow` — `global_len` ≥ MAX_ROWS
+  - [ ] 23.7 `DbColumnTypeMismatch` — qmod 用错列类型偏移
+  - [ ] 23.8 `DbQueryHashUnknown` — EXEC 一个未注册的 SHA-256
+  - [ ] 23.9 `DbBlobHandleInvalid` — blob_handle 段号或偏移越界
+  - [ ] 23.10 `DbSnapshotCorrupted` — 段文件 SHA-256 校验失败
+  - [ ] 23.11 `DbDuplicateRegister` — 同 SHA-256 重复注册不同 grants
+  - [ ] 23.12 `DbForbiddenSqlString` — 任何运行时 SQL 字符串入口
+  - _Requirements: R34.12_
+
+---
+
+## v0.8 网络引擎 `sa_netx`（io_uring + per-core sharded SPSC + DMA 扇出）
+
+> 版本号说明：v0.7 已规划为"原生单元测试框架"（见本文件 Version 0.7 章节），故网络引擎排期至 v0.8。
+>
+> 实施目录：`src/runtime/sa_net_uring.zig`（新增，与 `sa_std.zig` 并列）+ `sa_std/netx.*` 三件套。**零修改 `flattener/` / `referee/` / `verifier.zig` / `common/` / 现有 `sa_std.zig` 的 117 个 `sa_*` export / 现有 `sa_std/net.*` / `sa_std/sync/mpsc.*` / `sa_std/core/mem.*`**。
+>
+> 详细蓝图：`docs/network_engine_plan.md` v0.9+。
+
+### M0：编译器与契约准备（W0）
+
+- [ ] 44. 确认 SA-ASM ISA 足够支撑 Ticket 偏移直读
+  - [ ] 44.1 复查 `src/common/instruction.zig` 中 `load ... as u32/u64`、`ptr_add`、`atomic_*` 全部就绪
+  - [ ] 44.2 确认无需新增向量算子（`v_load / v_xor / v_broadcast` 留给 Zig `@Vector` 完成）
+  - [ ] 44.3 确认无需新增 `bitcast` 指令（用 `ptr_add` + `load as T` 替代）
+  - _Requirements: R35.4, R35.6_
+
+- [ ] 45. 登记 SA 端契约骨架（仅文件骨架，不接入 build）
+  - [ ] 45.1 创建 `sa_std/netx.saasm-iface`：7 条 `@extern` 声明
+  - [ ] 45.2 创建 `sa_std/netx.saasm-layout`：`Ticket_*` 偏移 + `NetxProto_*` 枚举
+  - [ ] 45.3 创建 `sa_std/netx.saasm`：`@import` 上面两个文件
+  - _Requirements: R35.10_
+
+### M1：物理基座（W1–W3）
+
+- [ ] 46. 新增 `src/runtime/sa_net_uring.zig` 骨架
+  - [ ] 46.1 `ConnectionSlot align(64) struct`：fd + 9 态枚举 + 4 KB inline buffer + overflow 链 + `inflight_zc` 计数
+  - [ ] 46.2 `SlotPool`：`mmap(MAP_POPULATE | MAP_HUGETLB)` 一次性预分配 10⁵ – 10⁶ 槽位
+  - [ ] 46.3 Zig 侧零分配审计:用 `@memset` 清零，禁止调用 `sa_std/core/mem.saasm`
+  - _Requirements: R35.1, R35.2_
+
+- [ ] 47. `io_uring` reactor 骨架
+  - [ ] 47.1 `IoUring.init` per-core 实例 + `sched_setaffinity` 绑核
+  - [ ] 47.2 `IORING_OP_ACCEPT_MULTISHOT` 单 SQE 持续产 CQE
+  - [ ] 47.3 `IORING_OP_RECV_MULTISHOT` + `IORING_REGISTER_PBUF_RING` provided buffer 环
+  - [ ] 47.4 编译期探测 `RECV_MULTISHOT` / `SEND_ZC` 内核能力，运行时 fallback
+  - _Requirements: R35.3_
+
+- [ ] 48. 槽位生命周期九态状态机
+  - [ ] 48.1 实现 `Free → Accepting → Handshake → (Http | WebSocket | RawBinary)` 转换
+  - [ ] 48.2 实现 `Reading / HalfClosed / Closing` 三态保护重入与半关闭
+  - [ ] 48.3 `IORING_OP_TIMEOUT` 配对 idle / handshake 清扫
+  - _Requirements: R35.9_
+
+- [ ] 49. M1 验收
+  - [ ] 49.1 预分配 100W Slot 启动无 OOM（`ulimit -v` 配套）
+  - [ ] 49.2 TCP 握手 + echo 跑通
+  - [ ] 49.3 `perf` 抓 `__libc_malloc` 调用次数 == 0（稳态运行 60s）
+  - _Requirements: R35.2, R35.3_
+
+### M2：HTTP/WS 拆包（W4–W5）
+
+- [ ] 50. Zig 侧零分配 DFA HTTP 解析器
+  - [ ] 50.1 `@Vector(32, u8)` 扫描 `\r\n` 与 `:` 分隔符
+  - [ ] 50.2 不创建 `HashMap<String, String>`，仅记录 `(offset, len)` 二元组
+  - [ ] 50.3 输出 `Ticket` 紧凑结构压入入站环
+  - _Requirements: R35.4_
+
+- [ ] 51. WebSocket 零分配协议升级
+  - [ ] 51.1 识别 `Upgrade: websocket` → 栈上 `Base64(SHA1(key + magic))`
+  - [ ] 51.2 `slot.state` 由 `Http` 拨至 `WebSocket`，fd / buffer 不迁移
+  - _Requirements: R35.6_
+
+- [ ] 52. SIMD 暴力解掩码（Zig `@Vector`）
+  - [ ] 52.1 `@Vector(16, u8)` 基线（SSE2/NEON）
+  - [ ] 52.2 `@Vector(32, u8)` x86_64 AVX2 路径
+  - [ ] 52.3 标量尾收尾（≤ 15 字节）
+  - [ ] 52.4 fuzz 1M 次 random payload + mask 不 panic
+  - [ ] 52.5 perf 热路径占比 < 1%
+  - _Requirements: R35.4_
+
+- [ ] 53. M2 验收
+  - [ ] 53.1 `curl http://localhost:PORT/` 通
+  - [ ] 53.2 `wscat -c ws://localhost:PORT/` 握手通
+  - [ ] 53.3 端到端 echo（HTTP + WS）跑通
+  - _Requirements: R35.4, R35.6_
+
+### M3：三环 + SA 贯通（W6–W7）
+
+- [ ] 54. per-core sharded SPSC 三环
+  - [ ] 54.1 Inbound Ring：reactor → SA（SPSC，每 reactor↔SA-core 一对）
+  - [ ] 54.2 Execution Ring：SA-ASM 算子消费 Ticket
+  - [ ] 54.3 Outbound Ring：SA → reactor（SPSC）
+  - [ ] 54.4 与现有 `sa_std/sync/mpsc.saasm` 共存：MPSC 仅作跨分片回收慢路径
+  - _Requirements: R35.5_
+
+- [ ] 55. 7 条 `sa_netx_*` FFI 接入
+  - [ ] 55.1 `sa_netx_init(slot_capacity, reactor_count)`
+  - [ ] 55.2 `sa_netx_listen(&host, host_len, port)`
+  - [ ] 55.3 `sa_netx_recv_ticket(reactor_id, &out_ticket)`
+  - [ ] 55.4 `sa_netx_push_outbound(reactor_id, slot_id, &msg, len)`
+  - [ ] 55.5 `sa_netx_broadcast(reactor_id, &slot_ids, n, &msg, len)`
+  - [ ] 55.6 `sa_netx_close_slot(slot_id)`
+  - [ ] 55.7 `sa_netx_shutdown()`
+  - _Requirements: R35.10_
+
+- [ ] 56. 背压策略实施
+  - [ ] 56.1 入站环满 → reactor 停 arm `RECV_MULTISHOT`（TCP 窗口自然收窄）
+  - [ ] 56.2 出站环满 → `sa_netx_push_outbound` 返回 `EAGAIN`
+  - [ ] 56.3 验证：满载注入 1M req/s，10s 内零 OOM、零内存分配
+  - _Requirements: R35.8_
+
+- [ ] 57. Raw Binary RPC 路径
+  - [ ] 57.1 Ticket 偏移直读：`load payload+0 as u32` / `load payload+4 as u64`
+  - [ ] 57.2 SA-ASM 业务核心吃 Ticket < 80 ns
+  - _Requirements: R35.4_
+
+- [ ] 58. M3 验收
+  - [ ] 58.1 `examples/netx_echo/echo.saasm` 端到端跑通
+  - [ ] 58.2 业务核心吃 Ticket 时间 ≤ 80 ns（micro-benchmark）
+  - _Requirements: R35.5, R35.10_
+
+### M4：K1 跑分（对标 Bun ping-pong，W8–W9）
+
+- [ ] 59. ping-pong 基准实施
+  - [ ] 59.1 `examples/netx_echo/ws_bench.saasm`：32 client × 64B 双向
+  - [ ] 59.2 **不启用 SEND_ZC**：只用 `SEND` + provided buffer + sharded SPSC + SIMD unmask
+  - [ ] 59.3 CPU pinning + busy-poll 调优
+  - _Requirements: R35.7, R35.12_
+
+- [ ] 60. M4 验收
+  - [ ] 60.1 单机 32 client 64B ping-pong **≥ 2,500,000 msg/s**（持平 Bun v1.2）
+  - [ ] 60.2 CPU 占用 ≤ 50%
+  - [ ] 60.3 KPI 表标注内核版本与 Bun 版本
+  - _Requirements: R35.12 (K1)_
+
+### M5：SEND_ZC + DMA 扇出（W10）
+
+- [ ] 61. 广播切片生命周期
+  - [ ] 61.1 `BroadcastArena`：算子 Arena 内生成 `[WS Header | Payload]` 连续切片
+  - [ ] 61.2 `gen: u32` 代纪元号 + `refcount: u16`（= fanout_count）
+  - [ ] 61.3 SQE `user_data` 编码 `(gen, slot_id)`，notification CQE 触发 refcount--
+  - [ ] 61.4 refcount 归零 → 切片归还 Arena
+  - _Requirements: R35.7_
+
+- [ ] 62. `IORING_OP_SEND_ZC` 批量轰炸
+  - [ ] 62.1 自动选路：单 payload ≥ 1.5 KB **或** `fanout_count ≥ 8` **或** `NETX_FLAG_BROADCAST` → SEND_ZC；否则 SEND
+  - [ ] 62.2 SQ 容量 4096–32768，10⁵ 扇出分批 enter
+  - [ ] 62.3 共享物理切片：所有 SQE `addr` 指向同一内存
+  - [ ] 62.4 内核版本 < 6.0 降级为 `SENDMSG + MSG_ZEROCOPY` 或 `sendmmsg`
+  - _Requirements: R35.7_
+
+- [ ] 63. M5 验收（K2 跑分）
+  - [ ] 63.1 1 source × 10⁵ receivers × 1 KB payload **≥ 30 GB/s** 总吞吐（≥ 10× Bun 同场景）
+  - [ ] 63.2 CPU 占用 ≤ Bun 同场景的 30%
+  - [ ] 63.3 ZC notification CQE 必须全部回收，无 leak（valgrind / mtrack 抽检）
+  - _Requirements: R35.12 (K2)_
+
+### M6：反向超越 Bun（W11–W12）
+
+- [ ] 64. 极限调优
+  - [ ] 64.1 `IORING_SETUP_SQPOLL` 选择性启用（benchmark / 单租户裸金属）
+  - [ ] 64.2 reactor busy-poll 节流 + L1 cache 亲和审计
+  - [ ] 64.3 零分配审计：perf 抓 `mmap/brk` 调用 == 0
+  - _Requirements: R35.2, R35.3, R35.12_
+
+- [ ] 65. M6 验收
+  - [ ] 65.1 单机 32 client 64B ping-pong **≥ 3,500,000 msg/s**（≥ 1.4× Bun）
+  - [ ] 65.2 KPI 报告锁定内核版本 / Bun 版本 / 硬件型号
+  - _Requirements: R35.12 (K1 stretch)_
+
+### 文档与生态登记
+
+- [ ] 66. `docs/network_engine_plan.md` 维护至 v0.9+（已含 §0–§8）
+  - [ ] 66.1 §0 边界裁决（TLS 由前置代理终结，HTTP/2/3 本期不做）
+  - [ ] 66.2 §0.2 项目目录架构（落到现仓库 src/runtime / sa_std / examples / docs）
+  - [ ] 66.3 §6 性能模型与 K1/K2 双轨 KPI
+  - _Requirements: R35.13_
+
+- [ ] 67. `docs/std_rfc.md` 登记 `sa_netx_*` 加入标准库的 RFC
+  - [ ] 67.1 列出 7 条 FFI + Ticket layout
+  - [ ] 67.2 标注与现有 `sa_std.net` 的并行关系
+  - _Requirements: R35.13_
+
+### 性能基线与回归
+
+- [ ] 68. 持续 benchmark 基线
+  - [ ] 68.1 K1 / K2 双轨每次发版跑分入库
+  - [ ] 68.2 KPI 回退 ≥ 5% 触发 CI 红灯
+  - [ ] 68.3 内核版本兼容矩阵：6.0 / 6.1 / 6.6 LTS / 6.10
+  - _Requirements: R35.12_
+
+---
+
+## v0.9 SAX 前端 UI 方言（Symbolic Affine XML，全栈 SA 闭环）
+
+> 实施目录：`src/sax/`（已存在 `parser.zig` / `lowerer.zig` / `airlock_gen.zig` / `sax_rules.zig` / `cli.zig` / `mod.zig`）+ `docs/sax_*.md` 四件套（已存在）。**零修改 `src/flattener/` / `src/common/` / `src/emit_wasm/`**；`src/referee/` / `src/verifier.zig` 仅追加 SAX 规则 hook。**SA-ASM ISA 零扩展**。
+>
+> 详细蓝图：`docs/sax_whitepaper.md` / `docs/sax_design.md` / `docs/sax_airlock.md` / `docs/sax_syntax.md`。
+
+### Phase 1：MVP 基础渲染闭环（W1–W8）
+
+#### M0：契约与降级蓝图确认（W0）
+
+- [ ] 69. 确认 SAX 不需要扩展 SA-ASM ISA
+  - [ ] 69.1 复查 `src/common/instruction.zig`，所有 SAX 降级目标指令（`alloc / store / load / call / br / jmp / ret / !release`）就绪
+  - [ ] 69.2 确认 `src/emit_wasm/` 支持 `wasm32-unknown-unknown` 目标（非 WASI）
+  - [ ] 69.3 复查 `src/sax/` 既有五件套结构，登记 SAX Parser → SA 文本流的降级契约
+  - _Requirements: R36.1, R36.12_
+
+#### M1：SAX Parser 与 Lowerer（W1–W3）
+
+- [ ] 70. SAX Parser 完整实现（`src/sax/parser.zig`）
+  - [ ] 70.1 解析 `<Component name="X">` 顶层结构
+  - [ ] 70.2 解析 `<state>` 块：一行一变量，支持 `i64 / f64 / i1 / ptr / alloc N` 五种字面/标注
+  - [ ] 70.3 解析 DOM 树：标签 + 属性 + `{expr}` 插值 + `onevent={^handler}` 事件
+  - [ ] 70.4 解析 `@handler:` 函数体（直通 SA-ASM 文本，不变换）
+  - [ ] 70.5 解析尾部 `!var1 !var2 ...` 释放序列
+  - [ ] 70.6 **不构造 AST**：所有解析结果直接以 `.saasm` 文本流形式输出
+  - _Requirements: R36.1, R36.2, R36.3_
+
+- [ ] 71. SAX Lowerer 完整实现（`src/sax/lowerer.zig`）
+  - [ ] 71.1 状态变量 → `alloc Component_SIZE` + 固定偏移 `store` 初始化
+  - [ ] 71.2 DOM 树 → `@ffi_wrapper` 内 `sax_dom_create / sax_dom_append_child / sax_dom_set_attr / sax_dom_set_text` 调用序列
+  - [ ] 71.3 `{expr}` 插值 → `load state+offset` + `sax_dom_set_text(node, &buf, len)`
+  - [ ] 71.4 `onclick={^handler}` → `sax_dom_bind_event(&dom, node, "click", 5, ^handler)`，handler 走函数 export 索引
+  - [ ] 71.5 自动生成 `sax_X_init` / `sax_X_render` / `sax_X_destroy` 三组 `@export` 函数
+  - [ ] 71.6 释放序列 `!var` → `Consumed` 掩码，落到 `destroy` 函数末尾
+  - _Requirements: R36.2, R36.3_
+
+- [ ] 72. WASM 目标切换
+  - [ ] 72.1 `src/sax/cli.zig` 强制目标为 `wasm32-unknown-unknown`（非 WASI）
+  - [ ] 72.2 复用 `src/emit_wasm/` 后端，零修改
+  - [ ] 72.3 验证：Counter 组件产物 `app.wasm` 体积 < 50 KB（Phase 1 预算）
+  - _Requirements: R36.12_
+
+#### M2：Referee 扩展（W4）
+
+- [ ] 73. SAX 7 条专属 Trap 规则（`src/sax/sax_rules.zig`）
+  - [ ] 73.1 `SaxStateLeak`：销毁函数出口 `<state>` 仍 `Active` → Trap
+  - [ ] 73.2 `SaxEventEscape`：`^handler` 引用跨 `<Component>` 函数 → Trap
+  - [ ] 73.3 `SaxRenderOutsideHandler`：`call @render()` 出现在 `@handler` 外 → Trap
+  - [ ] 73.4 `SaxInvalidInterpolation`：`{expr}` 包含 `^` / `!` → Trap（Parser 阶段）
+  - [ ] 73.5 `SaxStateWriteFromOutside`：组件外部代码写 `<state>` 内存槽 → Trap
+  - [ ] 73.6 `SaxUnknownTag`：DOM 标签不在 HTML5 白名单 → Trap（Parser 阶段）
+  - [ ] 73.7 `SaxUnknownEvent`：事件不在白名单 → Trap（Parser 阶段）
+  - [ ] 73.8 每条 Trap 携带 `component / handler / tag / event / upstream_loc` 诊断字段
+  - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
+
+- [ ] 74. Referee hook 接入（`src/verifier.zig` 追加 SAX 规则调用）
+  - [ ] 74.1 在 `verifyBody` 主循环内添加 SAX 规则分发（仅当输入源标记为 SAX 派生）
+  - [ ] 74.2 不破坏现有 23 条 Trap 规则
+  - _Requirements: R36.9_
+
+#### M3：DOM Airlock 与 HTML Shell（W5–W6）
+
+- [ ] 75. Airlock JS 自动生成（`src/sax/airlock_gen.zig`）
+  - [ ] 75.1 ~20 个白名单 API 全部覆盖（查询 / 创建 / 内容 / 属性 / 事件 / 工具）
+  - [ ] 75.2 节点句柄走整数 ID（Airlock 内部映射表，WASM 不可伪造）
+  - [ ] 75.3 `sax_dom_set_text` 强制走 `textContent`（防 XSS）
+  - [ ] 75.4 `sax_dom_set_attr` 属性白名单：`class / style / value / placeholder / disabled`
+  - [ ] 75.5 事件绑定走函数 export 索引（不接受字符串）
+  - [ ] 75.6 验证：`<script>` 注入 / `innerHTML` 注入 / `eval` 注入三类用例触发 Airlock 拒绝
+  - _Requirements: R36.10_
+
+- [ ] 76. HTML Shell 生成器
+  - [ ] 76.1 生成最小 `index.html`（加载 `app.wasm` + `airlock.js`）
+  - [ ] 76.2 注入 CSP（`Content-Security-Policy`）头部，禁用 inline script / eval
+  - [ ] 76.3 自动注入 entry 调用：`sax_X_init` 在 DOMContentLoaded 后启动
+  - _Requirements: R36.10, R36.11_
+
+#### M4：CLI 子命令（W7）
+
+- [ ] 77. `saasm sax` 子命令族（`src/sax/cli.zig` + hook 进 `src/cli.zig`）
+  - [ ] 77.1 `saasm sax build <file.sax>` → `dist/app.wasm + dist/airlock.js + dist/index.html`
+  - [ ] 77.2 `saasm sax check <file.sax>` → 仅 Referee 验证（含 SAX 规则），不产出产物
+  - [ ] 77.3 `saasm sax new <name>` → 脚手架最小项目（`Counter.sax` + `package.json` + `README.md`）
+  - [ ] 77.4 错误退出码统一：Trap → exit 1，未知命令 → exit 2，IO 错误 → exit 3
+  - _Requirements: R36.11_
+
+#### M5：Phase 1 验收（W8）
+
+- [ ] 78. E2E 浏览器验证（Phase 1 验收）
+  - [ ] 78.1 `Counter.sax` 编译通过 + 浏览器点击 +1/-1 正确（Chrome / Firefox / Safari 三浏览器）
+  - [ ] 78.2 `TodoList.sax` 编译通过 + 增删项 + 输入框 + 列表渲染
+  - [ ] 78.3 删掉 `!count` → `saasm sax check` 报 `SaxStateLeak`
+  - [ ] 78.4 `^handler` 跨组件引用 → 报 `SaxEventEscape`
+  - [ ] 78.5 `{count + ^x}` → 报 `SaxInvalidInterpolation`
+  - [ ] 78.6 `<foo>` 自定义标签 → 报 `SaxUnknownTag`
+  - [ ] 78.7 `<button onhover={^x}>` → 报 `SaxUnknownEvent`
+  - [ ] 78.8 包体积对比：TodoList SAX vs React，目标 < 50 KB WASM vs ~130 KB+ React
+  - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
+
+### Phase 2：响应式 + 路由 + 生命周期（W9–W14）
+
+- [ ] 79. 编译期细粒度响应式（依赖分析）
+  - [ ] 79.1 SAX Parser 分析 `{expr}` ↔ `<state>` 依赖关系
+  - [ ] 79.2 `call @render()` 展开为最小 DOM 更新调用集（仅更新依赖该状态的节点）
+  - [ ] 79.3 性能基线：1000 行列表中单行更新 ≤ 1ms（vs 全量 render）
+  - _Requirements: R36.2_
+
+- [ ] 80. 生命周期钩子
+  - [ ] 80.1 `@onMount:` Lowerer 在 init 末尾追加调用
+  - [ ] 80.2 `@onUnmount:` Lowerer 在 destroy 头部插入调用
+  - [ ] 80.3 钩子函数签名一致性校验（无参无返）
+  - _Requirements: R36.2_
+
+- [ ] 81. `<Router>` / `<Page>` 基础路由
+  - [ ] 81.1 `<Router>` 顶层组件，挂载 `popstate` / `hashchange` 事件
+  - [ ] 81.2 `<Page path="/x" component="X" />` 声明式路由表
+  - [ ] 81.3 路由变化触发对应 `<Page>` 组件的 mount/unmount
+  - _Requirements: R36.2_
+
+- [ ] 82. `saasm sax dev` 开发服务器
+  - [ ] 82.1 HTTP :8080 + 静态文件托管
+  - [ ] 82.2 文件监听（`inotify` / `kqueue`）+ 自动重新编译
+  - [ ] 82.3 WASM 模块热替换（保留 SA 状态）
+  - _Requirements: R36.11_
+
+- [ ] 83. VS Code 插件
+  - [ ] 83.1 TextMate grammar for `.sax`（XML + SA-ASM 混合高亮）
+  - [ ] 83.2 `saasm sax check` 集成到 LSP 诊断
+  - _Requirements: R36.11_
+
+### Phase 3：跨端 + 生态（W15–W22）
+
+- [ ] 84. `--target native` 原生桌面 UI
+  - [ ] 84.1 自定义渲染器（GLFW / SDL2 / 自研）
+  - [ ] 84.2 Airlock 接口在原生侧的等价实现
+  - _Requirements: R36.12_
+
+- [ ] 85. `--target js` 降级模式
+  - [ ] 85.1 SAX → JS Bundle（兼容旧浏览器 / 扩大受众）
+  - [ ] 85.2 与 WASM 路径并行存在，CLI 标志切换
+  - _Requirements: R36.12_
+
+- [ ] 86. WebGPU / Canvas 渲染路径
+  - [ ] 86.1 `<canvas>` 标签下沉到 WebGPU 调用
+  - [ ] 86.2 高性能 Dashboard / 数据可视化场景
+  - _Requirements: R36.6_
+
+- [ ] 87. 包管理集成（复用 v0.5 零信任包管理）
+  - [ ] 87.1 `sa.mod` 声明 SAX 组件库依赖
+  - [ ] 87.2 `grants [dom_query, dom_event_bind, ...]` 模块级权限
+  - _Requirements: R36.14_
+
+- [ ] 88. `<style>` 块支持
+  - [ ] 88.1 类 Vue SFC 风格，组件作用域 CSS
+  - [ ] 88.2 SA 变量驱动动态样式（编译期展开）
+  - _Requirements: R36.6_
+
+### 文档与生态登记
+
+- [ ] 89. `docs/sax_*.md` 四件套维护
+  - [ ] 89.1 `sax_whitepaper.md` 升级到 v0.2（含 Phase 2 路线）
+  - [ ] 89.2 `sax_design.md` 跟进 Lowerer 实际实现细节
+  - [ ] 89.3 `sax_airlock.md` 同步白名单 API 变更
+  - [ ] 89.4 `sax_syntax.md` 维护 DOM 标签 / 事件白名单
+  - _Requirements: R36.14_
+
+- [ ] 90. `docs/std_rfc.md` 登记 SAX 加入标准库的 RFC
+  - [ ] 90.1 列出 7 条 SAX Trap + Airlock 白名单 + CLI 命令
+  - [ ] 90.2 与 `sa_netx`（v0.8）/ `sa-db`（v0.6）的协同关系
+  - _Requirements: R36.14_
+
+---
+
 ## 说明
 
 - 带 `*` 的任务为可选 PBT；核心实现任务必做。
 - 每条 PBT 显式标注 Property 编号（P1–P32）与验证的需求号。
-- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"，v0.6 才谈"军工/航空级形式化认证"。**不要把这六件事压在 14 周 MVP 里**。
+- **版本分期的核心原则**：v0.1 只证明"能跑通"，v0.2 只证明"WASM 后端可自研"，v0.3 才谈"性能兑现"，v0.4 才谈"多人/多 LLM 并行协作"，v0.5 才谈"生态自给自足"，v0.6 才谈"军工/航空级形式化认证 + 数据库生态"。**不要把这七件事压在 14 周 MVP 里**。
 - **v0.1 特别说明**：WASM 产线默认仍委托 `zig cc -target wasm32-wasi`，这意味着：
   - v0.1 的 `.wasm` 体积会比 v0.2 大（48 KB vs 32 KB），这是可接受的权衡
   - `wasm64` 先开放为 freestanding / no-entry 的纯计算路径，不承诺 WASI / I/O 支持；完整 memory64 产线仍归 v0.2
   - v0.1 的 WASI 映射由 Zig 自动完成，不手写（v0.2 手写后可精简）
   - 这一刀砍下去节省约 3-4 周时间
+- **v0.6 特别说明**：sa-db 是 v0.5 包管理的自然延伸，复用所有既有基础设施（Referee、`#def`、`grants`、SHA-256、零权限默认）。12 周时间表假设 v0.5 已交付。
+- **v0.7 特别说明**：原生单元测试框架（见本文件 Version 0.7 章节），与 v0.6 数据库无强依赖。
+- **v0.8 特别说明**：sa_netx 是 v0.6 数据库的同构延伸（mmap 预分配 / SA-ASM 算子内核 / 零拷贝沙箱）。**SA-ASM ISA 零扩展**，**flattener / referee / verifier / common / 现有 sa_std 全部零修改**。所有新增能力落到 `src/runtime/sa_net_uring.zig`（新增）+ `sa_std/netx.*` 三件套（新增）。TLS 由前置 Nginx/Envoy 终结，本期不做 HTTP/2/3。12 周时间表假设 v0.5 + v0.6 已交付（v0.7 可并行）。
+- **v0.9 特别说明**：SAX 是 SA 的**前端方言层**而非新语言。**SA-ASM ISA 零扩展**；`src/flattener/` / `src/common/` / `src/emit_wasm/` 全部零修改；`src/referee/` 仅追加 `src/sax/sax_rules.zig`（7 条 SAX Trap）。SAX Parser 直接输出**合法 `.saasm` 文本**，不构造 AST。WASM 目标 `wasm32-unknown-unknown`（非 WASI），DOM 通过气闸舱 `airlock.js` 唯一通道访问。Phase 1（MVP）6–8 周交付 Counter / TodoList 闭环；Phase 2 加路由 + 细粒度响应式；Phase 3 跨端。可与 v0.5 / v0.7 / v0.8 解耦并行（仅依赖 SA v0.1 MVP 的 Flattener + Referee + emit_wasm）。
 - 实现阶段打开 tasks.md 点击 "Start task" 按钮开始执行。

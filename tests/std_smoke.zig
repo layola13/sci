@@ -519,6 +519,67 @@ test "sa_std io helpers are concrete and verifiable" {
     try std.testing.expectEqual(@as(usize, 24), io_flat.function_sigs.len);
 }
 
+test "sa_std buffered io helpers are concrete and verifiable" {
+    const buf_reader_src = try readFileAlloc(std.testing.allocator, "sa_std/io/buf_reader.saasm");
+    defer std.testing.allocator.free(buf_reader_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "@import \"../io.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_READ_LINE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_READ"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_READ_EXACT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_CLOSE"));
+
+    var buf_reader_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/io/buf_reader.saasm", buf_reader_src);
+    defer buf_reader_flat.deinit(std.testing.allocator);
+    try std.testing.expect(buf_reader_flat.function_sigs.len > 0);
+
+    const buf_writer_src = try readFileAlloc(std.testing.allocator, "sa_std/io/buf_writer.saasm");
+    defer std.testing.allocator.free(buf_writer_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "@import \"../io.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_WRITE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_WRITE_ALL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_FLUSH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_CLOSE"));
+
+    var buf_writer_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/io/buf_writer.saasm", buf_writer_src);
+    defer buf_writer_flat.deinit(std.testing.allocator);
+    try std.testing.expect(buf_writer_flat.function_sigs.len > 0);
+}
+
+test "sa_std math helpers are concrete and verifiable" {
+    const math_src = try readFileAlloc(std.testing.allocator, "sa_std/math.saasm");
+    defer std.testing.allocator.free(math_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, math_src, 1, "[MACRO] MATH_ABS_I64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, math_src, 1, "[MACRO] MATH_MIN_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, math_src, 1, "[MACRO] MATH_MAX_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, math_src, 1, "[MACRO] MATH_CLAMP_U64"));
+
+    var math_flat = try saasm.flattener.flatten(std.testing.allocator, math_src);
+    defer math_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), math_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), math_flat.function_sigs.len);
+}
+
+test "sa_std string_format helpers are concrete and verifiable" {
+    const string_format_src = try readFileAlloc(std.testing.allocator, "sa_std/string_format.saasm");
+    defer std.testing.allocator.free(string_format_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "@import \"fmt.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_I64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_F64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_BOOL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_BYTES"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_DATA"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_WRITE_TO"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_FREE"));
+
+    var string_format_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/string_format.saasm", string_format_src);
+    defer string_format_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), string_format_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), string_format_flat.function_sigs.len);
+}
+
 test "sa_std hashmap helpers are concrete and verifiable" {
     const hashmap_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.saasm-layout");
     defer std.testing.allocator.free(hashmap_layout);
@@ -642,6 +703,469 @@ test "sa_std hashset helpers are concrete and verifiable" {
                     if (report.actual_mask_name) |r| r else "",
                 },
             );
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "sa_std vec_deque helpers are concrete and verifiable" {
+    const deque_layout = try readFileAlloc(std.testing.allocator, "sa_std/vec_deque.saasm-layout");
+    defer std.testing.allocator.free(deque_layout);
+    try std.testing.expectEqualStrings(
+        "#def VecDeque_SIZE = 32\n#def VecDeque_buf = +0\n#def VecDeque_cap = +8\n#def VecDeque_head = +16\n#def VecDeque_len = +24\n\n#def VecDeque_INITIAL_CAP = 8\n#def VecDeque_SLOT_SIZE = 8\n",
+        deque_layout,
+    );
+
+    const collections_vec_deque = try readFileAlloc(std.testing.allocator, "sa_std/collections/vec_deque.saasm");
+    defer std.testing.allocator.free(collections_vec_deque);
+    try std.testing.expectEqualStrings("@import \"../vec_deque.saasm\"\n", collections_vec_deque);
+
+    const deque_src = try readFileAlloc(std.testing.allocator, "sa_std/vec_deque.saasm");
+    defer std.testing.allocator.free(deque_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_push_back"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_push_front"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_pop_front"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_pop_back"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_rotate_left"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_rotate_right"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_FRONT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_BACK"));
+
+    var deque_error_ctx = saasm.flattener.ErrorContext{};
+    var deque_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec_deque.saasm", deque_src, &deque_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&deque_error_ctx) orelse 0;
+        std.debug.print("vec_deque flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer deque_flat.deinit(std.testing.allocator);
+    try std.testing.expect(deque_flat.instructions.len > 0);
+    try std.testing.expect(deque_flat.function_sigs.len >= 12);
+
+    const deque_verified = try saasm.referee.verify(std.testing.allocator, deque_flat.instructions, deque_flat.const_decls);
+    switch (deque_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 12);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print(
+                "vec_deque smoke verifier trap: {s} (line={d}, source_line={d}, function={s}, text={s}, register={s}, expected={s}, actual={s})\n",
+                .{
+                    report.message,
+                    report.line,
+                    report.source_line,
+                    std.mem.sliceTo(&report.function_buf, 0),
+                    std.mem.sliceTo(&report.source_text_buf, 0),
+                    if (report.register) |r| r else std.mem.sliceTo(&report.register_buf, 0),
+                    if (report.expected_mask_name) |r| r else "",
+                    if (report.actual_mask_name) |r| r else "",
+                },
+            );
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const deque_fixture =
+        \\@import "../sa_std/collections/vec_deque.saasm"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND VEC_DEQUE_NEW queue
+        \\    EXPAND VEC_DEQUE_PUSH_BACK queue, 1
+        \\    EXPAND VEC_DEQUE_PUSH_BACK queue, 2
+        \\    EXPAND VEC_DEQUE_PUSH_FRONT queue, 0
+        \\    EXPAND VEC_DEQUE_ROTATE_LEFT queue, 1
+        \\    EXPAND VEC_DEQUE_LEN len0, queue
+        \\    EXPAND VEC_DEQUE_TRY_POP_FRONT ok_front, front, queue
+        \\    EXPAND VEC_DEQUE_TRY_POP_BACK ok_back, back, queue
+        \\    EXPAND VEC_DEQUE_GET remaining, queue, 0
+        \\    EXPAND VEC_DEQUE_LEN len1, queue
+        \\    ok_len0 = eq len0, 3
+        \\    ok_front_status = eq ok_front, 1
+        \\    ok_back_status = eq ok_back, 1
+        \\    ok_front_val = eq front, 1
+        \\    ok_back_val = eq back, 0
+        \\    ok_remaining = eq remaining, 2
+        \\    ok_len1 = eq len1, 1
+        \\    ok01 = and ok_len0, ok_front_status
+        \\    ok02 = and ok01, ok_back_status
+        \\    ok03 = and ok02, ok_front_val
+        \\    ok04 = and ok03, ok_back_val
+        \\    ok05 = and ok04, ok_remaining
+        \\    ok = and ok05, ok_len1
+        \\    !front
+        \\    !back
+        \\    !remaining
+        \\    !ok_front
+        \\    !ok_back
+        \\    !len0
+        \\    !len1
+        \\    !ok_len0
+        \\    !ok_front_status
+        \\    !ok_back_status
+        \\    !ok_front_val
+        \\    !ok_back_val
+        \\    !ok_remaining
+        \\    !ok_len1
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    EXPAND VEC_DEQUE_FREE queue
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var deque_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/vec_deque_fixture.saasm", deque_fixture);
+    defer deque_fixture_flat.deinit(std.testing.allocator);
+    const deque_fixture_verified = try saasm.referee.verify(std.testing.allocator, deque_fixture_flat.instructions, deque_fixture_flat.const_decls);
+    switch (deque_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 13), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("vec_deque fixture verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "sa_std binary_heap helpers are concrete and verifiable" {
+    const heap_layout = try readFileAlloc(std.testing.allocator, "sa_std/binary_heap.saasm-layout");
+    defer std.testing.allocator.free(heap_layout);
+    try std.testing.expectEqualStrings(
+        "#def BinaryHeap_SIZE = 24\n#def BinaryHeap_buf = +0\n#def BinaryHeap_cap = +8\n#def BinaryHeap_len = +16\n\n#def BinaryHeap_INITIAL_CAP = 8\n#def BinaryHeap_SLOT_SIZE = 8\n",
+        heap_layout,
+    );
+
+    const collections_binary_heap = try readFileAlloc(std.testing.allocator, "sa_std/collections/binary_heap.saasm");
+    defer std.testing.allocator.free(collections_binary_heap);
+    try std.testing.expectEqualStrings("@import \"../binary_heap.saasm\"\n", collections_binary_heap);
+
+    const heap_src = try readFileAlloc(std.testing.allocator, "sa_std/binary_heap.saasm");
+    defer std.testing.allocator.free(heap_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_peek"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_push"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_try_pop"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PUSH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_TRY_POP"));
+
+    var heap_error_ctx = saasm.flattener.ErrorContext{};
+    var heap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/binary_heap.saasm", heap_src, &heap_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&heap_error_ctx) orelse 0;
+        std.debug.print("binary_heap flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer heap_flat.deinit(std.testing.allocator);
+    try std.testing.expect(heap_flat.instructions.len > 0);
+    try std.testing.expect(heap_flat.function_sigs.len >= 10);
+
+    const heap_verified = try saasm.referee.verify(std.testing.allocator, heap_flat.instructions, heap_flat.const_decls);
+    switch (heap_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 10);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            for (heap_flat.instructions, 0..) |inst, i| {
+                if (i >= 415 and i <= 425) {
+                    std.debug.print("[{d}] {s}\n", .{i, inst.raw_text});
+                }
+            }
+            std.debug.print(
+                "binary_heap smoke verifier trap: {s} (line={d}, source_line={d}, function={s}, text={s}, register={s}, expected={s}, actual={s})\n",
+                .{
+                    report.message,
+                    report.line,
+                    report.source_line,
+                    std.mem.sliceTo(&report.function_buf, 0),
+                    std.mem.sliceTo(&report.source_text_buf, 0),
+                    if (report.register) |r| r else std.mem.sliceTo(&report.register_buf, 0),
+                    if (report.expected_mask_name) |r| r else "",
+                    if (report.actual_mask_name) |r| r else "",
+                },
+            );
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const heap_fixture =
+        \\@import "../sa_std/collections/binary_heap.saasm"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND BINARY_HEAP_NEW heap
+        \\    EXPAND BINARY_HEAP_PUSH heap, 4
+        \\    EXPAND BINARY_HEAP_PUSH heap, 1
+        \\    EXPAND BINARY_HEAP_PUSH heap, 7
+        \\    EXPAND BINARY_HEAP_PUSH heap, 2
+        \\    EXPAND BINARY_HEAP_PUSH heap, 9
+        \\    EXPAND BINARY_HEAP_PUSH heap, 3
+        \\    EXPAND BINARY_HEAP_PUSH heap, 8
+        \\    EXPAND BINARY_HEAP_PUSH heap, 6
+        \\    EXPAND BINARY_HEAP_PUSH heap, 5
+        \\    EXPAND BINARY_HEAP_LEN len0, heap
+        \\    EXPAND BINARY_HEAP_PEEK peek0, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok0, pop0, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok1, pop1, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok2, pop2, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok3, pop3, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok4, pop4, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok5, pop5, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok6, pop6, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok7, pop7, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok8, pop8, heap
+        \\    EXPAND BINARY_HEAP_TRY_POP ok_empty, empty_value, heap
+        \\    EXPAND BINARY_HEAP_LEN len1, heap
+        \\    ok_len0 = eq len0, 9
+        \\    ok_peek = eq peek0, 9
+        \\    ok0v = eq pop0, 9
+        \\    ok1v = eq pop1, 8
+        \\    ok2v = eq pop2, 7
+        \\    ok3v = eq pop3, 6
+        \\    ok4v = eq pop4, 5
+        \\    ok5v = eq pop5, 4
+        \\    ok6v = eq pop6, 3
+        \\    ok7v = eq pop7, 2
+        \\    ok8v = eq pop8, 1
+        \\    ok_empty_ok = eq ok_empty, 0
+        \\    ok_empty_value = eq empty_value, 0
+        \\    ok_len1 = eq len1, 0
+        \\    ok01 = and ok_len0, ok_peek
+        \\    ok02 = and ok01, ok0v
+        \\    ok03 = and ok02, ok1v
+        \\    ok04 = and ok03, ok2v
+        \\    ok05 = and ok04, ok3v
+        \\    ok06 = and ok05, ok4v
+        \\    ok07 = and ok06, ok5v
+        \\    ok08 = and ok07, ok6v
+        \\    ok09 = and ok08, ok7v
+        \\    ok10 = and ok09, ok8v
+        \\    ok11 = and ok10, ok_empty_ok
+        \\    ok12 = and ok11, ok_empty_value
+        \\    ok = and ok12, ok_len1
+        \\    !peek0
+        \\    !pop0
+        \\    !pop1
+        \\    !pop2
+        \\    !pop3
+        \\    !pop4
+        \\    !pop5
+        \\    !pop6
+        \\    !pop7
+        \\    !pop8
+        \\    !empty_value
+        \\    !ok0
+        \\    !ok1
+        \\    !ok2
+        \\    !ok3
+        \\    !ok4
+        \\    !ok5
+        \\    !ok6
+        \\    !ok7
+        \\    !ok8
+        \\    !ok_empty
+        \\    !len0
+        \\    !len1
+        \\    !ok_len0
+        \\    !ok_peek
+        \\    !ok0v
+        \\    !ok1v
+        \\    !ok2v
+        \\    !ok3v
+        \\    !ok4v
+        \\    !ok5v
+        \\    !ok6v
+        \\    !ok7v
+        \\    !ok8v
+        \\    !ok_empty_ok
+        \\    !ok_empty_value
+        \\    !ok_len1
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    !ok06
+        \\    !ok07
+        \\    !ok08
+        \\    !ok09
+        \\    !ok10
+        \\    !ok11
+        \\    !ok12
+        \\    EXPAND BINARY_HEAP_FREE heap
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var heap_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/binary_heap_fixture.saasm", heap_fixture);
+    defer heap_fixture_flat.deinit(std.testing.allocator);
+    const heap_fixture_verified = try saasm.referee.verify(std.testing.allocator, heap_fixture_flat.instructions, heap_fixture_flat.const_decls);
+    switch (heap_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 13), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("binary_heap fixture verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "sa_std btree_map helpers are concrete and verifiable" {
+    const btree_layout = try readFileAlloc(std.testing.allocator, "sa_std/btree_map.saasm-layout");
+    defer std.testing.allocator.free(btree_layout);
+    try std.testing.expectEqualStrings(
+        "#def BTreeMap_SIZE = 24\n#def BTreeMap_entries = +0\n#def BTreeMap_cap = +8\n#def BTreeMap_len = +16\n\n#def BTreeMapEntry_SIZE = 24\n#def BTreeMapEntry_key_ptr = +0\n#def BTreeMapEntry_key_len = +8\n#def BTreeMapEntry_value = +16\n\n#def BTreeMap_INITIAL_CAP = 8\n",
+        btree_layout,
+    );
+
+    const collections_btree_map = try readFileAlloc(std.testing.allocator, "sa_std/collections/btree_map.saasm");
+    defer std.testing.allocator.free(collections_btree_map);
+    try std.testing.expectEqualStrings("@import \"../btree_map.saasm\"\n", collections_btree_map);
+
+    const btree_src = try readFileAlloc(std.testing.allocator, "sa_std/btree_map.saasm");
+    defer std.testing.allocator.free(btree_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/slice.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_insert"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_INSERT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_FREE"));
+
+    var btree_error_ctx = saasm.flattener.ErrorContext{};
+    var btree_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/btree_map.saasm", btree_src, &btree_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&btree_error_ctx) orelse 0;
+        std.debug.print("btree_map flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer btree_flat.deinit(std.testing.allocator);
+    try std.testing.expect(btree_flat.instructions.len > 0);
+    try std.testing.expectEqual(@as(usize, 12), btree_flat.function_sigs.len);
+
+    const btree_verified = try saasm.referee.verify(std.testing.allocator, btree_flat.instructions, btree_flat.const_decls);
+    switch (btree_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 12), owned.function_sigs.len);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print(
+                "btree_map smoke verifier trap: {s} (line={d}, source_line={d}, function={s}, text={s}, register={s}, expected={s}, actual={s})\n",
+                .{
+                    report.message,
+                    report.line,
+                    report.source_line,
+                    std.mem.sliceTo(&report.function_buf, 0),
+                    std.mem.sliceTo(&report.source_text_buf, 0),
+                    if (report.register) |r| r else std.mem.sliceTo(&report.register_buf, 0),
+                    if (report.expected_mask_name) |r| r else "",
+                    if (report.actual_mask_name) |r| r else "",
+                },
+            );
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const btree_fixture =
+        \\@import "../sa_std/core/slice.saasm-layout"
+        \\@import "../sa_std/core/slice.saasm"
+        \\@import "../sa_std/collections/btree_map.saasm"
+        \\
+        \\@const KEY_ALPHA = utf8:"alpha"
+        \\@const KEY_BRAVO = utf8:"bravo"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    map = 0 as ptr
+        \\    alpha = alloc Slice_SIZE
+        \\    bravo = alloc Slice_SIZE
+        \\    lookup = alloc Slice_SIZE
+        \\    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+        \\    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+        \\    EXPAND SLICE_NEW lookup, &KEY_ALPHA, 5
+        \\    EXPAND BTREE_MAP_NEW map
+        \\    EXPAND BTREE_MAP_INSERT map, bravo, 2
+        \\    EXPAND BTREE_MAP_INSERT map, alpha, 1
+        \\    EXPAND BTREE_MAP_INSERT map, lookup, 3
+        \\    value_alpha = call @sa_btree_map_get(&map, &alpha)
+        \\    value_bravo = call @sa_btree_map_get(&map, &bravo)
+        \\    len = call @sa_btree_map_len(&map)
+        \\    ok_alpha = eq value_alpha, 3
+        \\    ok_bravo = eq value_bravo, 2
+        \\    ok_len = eq len, 2
+        \\    ok01 = and ok_alpha, ok_bravo
+        \\    ok = and ok01, ok_len
+        \\    !ok_len
+        \\    !ok_bravo
+        \\    !ok_alpha
+        \\    !len
+        \\    !value_bravo
+        \\    !value_alpha
+        \\    !lookup
+        \\    !bravo
+        \\    !alpha
+        \\    EXPAND BTREE_MAP_FREE map
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var btree_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/btree_map_fixture.saasm", btree_fixture);
+    defer btree_fixture_flat.deinit(std.testing.allocator);
+    const btree_fixture_verified = try saasm.referee.verify(std.testing.allocator, btree_fixture_flat.instructions, btree_fixture_flat.const_decls);
+    switch (btree_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 13), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("btree_map fixture verifier trap: {s}\n", .{report.message});
             return error.TestUnexpectedResult;
         },
     }

@@ -1,0 +1,113 @@
+@import "../sa_std/collections/binary_heap.saasm"
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND BINARY_HEAP_NEW heap
+    EXPAND BINARY_HEAP_PUSH heap, 4
+    EXPAND BINARY_HEAP_PUSH heap, 1
+    EXPAND BINARY_HEAP_PUSH heap, 7
+    EXPAND BINARY_HEAP_PUSH heap, 2
+    EXPAND BINARY_HEAP_PUSH heap, 9
+    EXPAND BINARY_HEAP_PUSH heap, 3
+    EXPAND BINARY_HEAP_PUSH heap, 8
+    EXPAND BINARY_HEAP_PUSH heap, 6
+    EXPAND BINARY_HEAP_PUSH heap, 5
+    EXPAND BINARY_HEAP_LEN len0, heap
+    EXPAND BINARY_HEAP_PEEK peek0, heap
+    EXPAND BINARY_HEAP_TRY_POP ok0, pop0, heap
+    EXPAND BINARY_HEAP_TRY_POP ok1, pop1, heap
+    EXPAND BINARY_HEAP_TRY_POP ok2, pop2, heap
+    EXPAND BINARY_HEAP_TRY_POP ok3, pop3, heap
+    EXPAND BINARY_HEAP_TRY_POP ok4, pop4, heap
+    EXPAND BINARY_HEAP_TRY_POP ok5, pop5, heap
+    EXPAND BINARY_HEAP_TRY_POP ok6, pop6, heap
+    EXPAND BINARY_HEAP_TRY_POP ok7, pop7, heap
+    EXPAND BINARY_HEAP_TRY_POP ok8, pop8, heap
+    EXPAND BINARY_HEAP_TRY_POP ok_empty, empty_value, heap
+    EXPAND BINARY_HEAP_LEN len1, heap
+    ok_len0 = eq len0, 9
+    ok_peek = eq peek0, 9
+    ok0v = eq pop0, 9
+    ok1v = eq pop1, 8
+    ok2v = eq pop2, 7
+    ok3v = eq pop3, 6
+    ok4v = eq pop4, 5
+    ok5v = eq pop5, 4
+    ok6v = eq pop6, 3
+    ok7v = eq pop7, 2
+    ok8v = eq pop8, 1
+    ok_empty_ok = eq ok_empty, 0
+    ok_empty_value = eq empty_value, 0
+    ok_len1 = eq len1, 0
+    ok01 = and ok_len0, ok_peek
+    ok02 = and ok01, ok0v
+    ok03 = and ok02, ok1v
+    ok04 = and ok03, ok2v
+    ok05 = and ok04, ok3v
+    ok06 = and ok05, ok4v
+    ok07 = and ok06, ok5v
+    ok08 = and ok07, ok6v
+    ok09 = and ok08, ok7v
+    ok10 = and ok09, ok8v
+    ok11 = and ok10, ok_empty_ok
+    ok12 = and ok11, ok_empty_value
+    ok = and ok12, ok_len1
+    !peek0
+    !pop0
+    !pop1
+    !pop2
+    !pop3
+    !pop4
+    !pop5
+    !pop6
+    !pop7
+    !pop8
+    !empty_value
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    !ok7
+    !ok8
+    !ok_empty
+    !len0
+    !len1
+    !ok_len0
+    !ok_peek
+    !ok0v
+    !ok1v
+    !ok2v
+    !ok3v
+    !ok4v
+    !ok5v
+    !ok6v
+    !ok7v
+    !ok8v
+    !ok_empty_ok
+    !ok_empty_value
+    !ok_len1
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    EXPAND BINARY_HEAP_FREE heap
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    return 0
+
+L_ERR:
+    !ok
+    return 1

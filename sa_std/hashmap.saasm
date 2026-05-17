@@ -21,347 +21,478 @@ L_ENTRY:
     !bits3
     !bits2
     !bits1
+    !bits0
     !hash2
     !hash1
-    !bits0
     !key
     return hash3
 
-@map_linear_find(&slots: ptr, len: u64, &key: ptr, &out_index: ptr, &out_found: ptr) -> void:
+@map_table_probe(&slots: ptr, cap: u64, hash: u64, &key: ptr, &out_index: ptr, &out_found: ptr) -> void:
 L_ENTRY:
     index_slot = stack_alloc 8
+    remaining_slot = stack_alloc 8
     store out_found+0, 0 as u64
     store out_index+0, 0 as u64
-    store index_slot+0, 0 as u64
-    jmp L_FIND_LOOP
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_PROBE_END, L_PROBE_INIT
 
-L_FIND_LOOP:
+L_PROBE_INIT:
+    cap_minus_one = sub cap, 1
+    start_index = and hash, cap_minus_one
+    store index_slot+0, start_index as u64
+    store remaining_slot+0, cap as u64
+    !start_index
+    !cap_minus_one
+    jmp L_PROBE_LOOP
+
+L_PROBE_LOOP:
+    remaining = load remaining_slot+0 as u64
+    exhausted = eq remaining, 0
+    br exhausted -> L_PROBE_EXHAUSTED, L_PROBE_BODY
+
+L_PROBE_BODY:
+    !exhausted
     index = load index_slot+0 as u64
-    done = eq index, len
-    br done -> L_FIND_DONE, L_FIND_BODY
-
-L_FIND_BODY:
     slot_off = mul index, HashMapSlot_SIZE
     slot = ptr_add slots, slot_off
+    state = load slot+HashMapSlot_state as u8
+    is_empty = eq state, HashMap_STATE_EMPTY
+    br is_empty -> L_PROBE_EMPTY, L_PROBE_NONEMPTY
+
+L_PROBE_NONEMPTY:
+    slot_hash = load slot+HashMapSlot_hash as u64
+    hash_match = eq slot_hash, hash
+    br hash_match -> L_PROBE_KEY_CHECK, L_PROBE_STEP
+
+L_PROBE_STEP:
+    next_index = add index, 1
+    wrapped = eq next_index, cap
+    next_remaining = sub remaining, 1
+    store remaining_slot+0, next_remaining as u64
+    !next_remaining
+    !slot_hash
+    !hash_match
+    !is_empty
+    !state
+    !slot
+    !slot_off
+    !index
+    !remaining
+    br wrapped -> L_PROBE_WRAP, L_PROBE_CONT
+
+L_PROBE_WRAP:
+    store index_slot+0, 0 as u64
+    !next_index
+    !wrapped
+    jmp L_PROBE_LOOP
+
+L_PROBE_CONT:
+    store index_slot+0, next_index as u64
+    !next_index
+    !wrapped
+    jmp L_PROBE_LOOP
+
+L_PROBE_KEY_CHECK:
     slot_key = load slot+HashMapSlot_key as ptr
     key_match = eq slot_key, key
-    br key_match -> L_FIND_FOUND, L_FIND_STEP
+    br key_match -> L_PROBE_FOUND, L_PROBE_KEY_MISS
 
-L_FIND_FOUND:
+L_PROBE_FOUND:
     store out_index+0, index as u64
     store out_found+0, 1 as u64
     !key_match
     !slot_key
+    !slot_hash
+    !hash_match
+    !is_empty
+    !state
     !slot
     !slot_off
     !index
-    !done
-    jmp L_FIND_END
+    !remaining
+    jmp L_PROBE_END
 
-L_FIND_STEP:
-    next_index = add index, 1
-    store index_slot+0, next_index as u64
-    !next_index
+L_PROBE_KEY_MISS:
     !key_match
     !slot_key
+    jmp L_PROBE_STEP
+
+L_PROBE_EMPTY:
+    store out_index+0, index as u64
+    !is_empty
+    !state
     !slot
     !slot_off
     !index
-    !done
-    jmp L_FIND_LOOP
+    !remaining
+    jmp L_PROBE_END
 
-L_FIND_DONE:
-    store out_index+0, index as u64
-    !index
-    !done
-    jmp L_FIND_END
+L_PROBE_EXHAUSTED:
+    current_index = load index_slot+0 as u64
+    store out_index+0, current_index as u64
+    !current_index
+    !remaining
+    !exhausted
+    jmp L_PROBE_END
 
-L_FIND_END:
-    ^slots
-    !len
+L_PROBE_END:
+    !cap_is_zero
+    !slots
+    !cap
+    !hash
     !key
     !out_index
     !out_found
     return
 
+@map_table_insert(&slots: ptr, cap: u64, hash: u64, &key: ptr, &value: ptr) -> void:
+L_ENTRY:
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_index = load probe_index_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    store slot+HashMapSlot_hash, hash as u64
+    store slot+HashMapSlot_key, key as ptr
+    store slot+HashMapSlot_value, value as ptr
+    store slot+HashMapSlot_state, HashMap_STATE_FILLED as u8
+    !slot
+    !slot_off
+    !probe_index
+    !slots
+    !cap
+    !hash
+    !key
+    !value
+    return
+
 @map_rehash(&map: ptr, new_cap: u64) -> void:
 L_ENTRY:
     old_slots = load map+HashMap_slots as ptr
-    old_len = load map+HashMap_len as u64
-    copy_bytes = mul old_len, HashMapSlot_SIZE
+    old_cap = load map+HashMap_cap as u64
     new_bytes = mul new_cap, HashMapSlot_SIZE
     new_slots = alloc new_bytes
-    call @sa_mem_copy(&new_slots, &old_slots, copy_bytes)
+    call @sa_mem_set(&new_slots, 0, new_bytes)
     store map+HashMap_slots, new_slots as ptr
     store map+HashMap_cap, new_cap as u64
+    store map+HashMap_len, 0 as u64
     store map+HashMap_tombs, 0 as u64
-    !copy_bytes
-    !new_bytes
-    !old_len
+
+    old_idx_slot = stack_alloc 8
+    store old_idx_slot+0, 0 as u64
+    probe_idx_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    old_cap_is_zero = eq old_cap, 0
+    br old_cap_is_zero -> L_REHASH_END_ZERO, L_REHASH_LOOP
+
+L_REHASH_LOOP:
+    old_idx = load old_idx_slot+0 as u64
+    done = eq old_idx, old_cap
+    br done -> L_REHASH_END, L_REHASH_BODY
+
+L_REHASH_BODY:
+    old_slot_off = mul old_idx, HashMapSlot_SIZE
+    old_slot = ptr_add old_slots, old_slot_off
+    state = load old_slot+HashMapSlot_state as u8
+    is_filled = eq state, HashMap_STATE_FILLED
+    br is_filled -> L_REHASH_INSERT, L_REHASH_NEXT
+
+L_REHASH_INSERT:
+    old_hash = load old_slot+HashMapSlot_hash as u64
+    old_key = load old_slot+HashMapSlot_key as ptr
+    old_value = load old_slot+HashMapSlot_value as ptr
+    call @map_table_insert(&new_slots, new_cap, old_hash, &old_key, &old_value)
+    cur_len = load map+HashMap_len as u64
+    next_len = add cur_len, 1
+    store map+HashMap_len, next_len as u64
+    !old_hash
+    !old_key
+    !old_value
+    !cur_len
+    !next_len
+    jmp L_REHASH_NEXT
+
+L_REHASH_NEXT:
+    next_old_idx = add old_idx, 1
+    store old_idx_slot+0, next_old_idx as u64
+    !old_idx
+    !done
+    !old_slot_off
+    !old_slot
+    !state
+    !is_filled
+    !next_old_idx
+    jmp L_REHASH_LOOP
+
+L_REHASH_END:
     !old_slots
-    !new_slots
-    !map
+    !old_cap
+    !new_bytes
+    !old_cap_is_zero
+    return
+
+L_REHASH_END_ZERO:
+    !old_slots
+    !old_cap
+    !new_bytes
+    !old_cap_is_zero
     return
 
 @export sa_map_new() -> ^ptr:
 L_ENTRY:
     map = alloc HashMap_SIZE
-    initial_bytes = mul HashMap_INITIAL_CAP, HashMapSlot_SIZE
-    slots = alloc initial_bytes
-    store map+HashMap_slots, slots as ptr
-    store map+HashMap_cap, HashMap_INITIAL_CAP as u64
+    store map+HashMap_slots, 0 as ptr
+    store map+HashMap_cap, 0 as u64
     store map+HashMap_len, 0 as u64
     store map+HashMap_tombs, 0 as u64
-    !initial_bytes
-    ^slots
     return map
 
 @export sa_map_free(^map: ptr) -> void:
 L_ENTRY:
     slots = load map+HashMap_slots as ptr
+    has_slots = ne slots, 0
+    br has_slots -> L_FREE_SLOTS, L_FREE_MAP
+
+L_FREE_SLOTS:
     !slots
+
+L_FREE_MAP:
+    !has_slots
     !map
     return
 
 @export sa_map_put(&map: ptr, &key: ptr, &value: ptr) -> void:
 L_ENTRY:
-    find_index_slot = stack_alloc 8
-    find_found_slot = stack_alloc 8
-
     slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
-    hash0 = call @map_hash_ptr(&key)
-    call @map_linear_find(&slots, len, &key, &find_index_slot, &find_found_slot)
-    find_index0 = load find_index_slot+0 as u64
-    find_found0 = load find_found_slot+0 as u64
-    already_found0 = ne find_found0, 0
-    br already_found0 -> L_PUT_UPDATE, L_PUT_INSERT
-
-L_PUT_UPDATE:
-    update_off0 = mul find_index0, HashMapSlot_SIZE
-    update_slot0 = ptr_add slots, update_off0
-    store update_slot0+HashMapSlot_value, value as ptr
-    !update_slot0
-    !update_off0
-    !already_found0
-    !find_index0
-    !find_found0
-    !hash0
-    !cap
-    !len
-    !value
-    !key
-    !map
-    return
-
-L_PUT_INSERT:
-    len_is_cap = eq len, cap
-    br len_is_cap -> L_PUT_GROW, L_PUT_INSERT_RELEASE
-
-L_PUT_INSERT_RELEASE:
-    !len_is_cap
-    !already_found0
-    !find_index0
-    !find_found0
-    !slots
-    !cap
-    !len
-    jmp L_PUT_INSERT_READY
+    tombs = load map+HashMap_tombs as u64
+    used = add len, tombs
+    used_twice = shl used, 1
+    cap_is_zero = eq cap, 0
+    pressure = uge used_twice, cap
+    grow = or cap_is_zero, pressure
+    br grow -> L_PUT_GROW, L_PUT_PROBE_DIRECT
 
 L_PUT_GROW:
-    !len_is_cap
-    !already_found0
-    !find_index0
-    !find_found0
-    !len
-    cap_is_zero = eq cap, 0
     br cap_is_zero -> L_PUT_GROW_INIT, L_PUT_GROW_DOUBLE
 
 L_PUT_GROW_INIT:
-    !cap
-    !cap_is_zero
-    old_slots = load map+HashMap_slots as ptr
-    old_len = load map+HashMap_len as u64
-    copy_bytes = mul old_len, HashMapSlot_SIZE
-    next_cap0 = HashMap_INITIAL_CAP as u64
-    new_bytes = mul next_cap0, HashMapSlot_SIZE
-    new_slots = alloc new_bytes
-    call @sa_mem_copy(&new_slots, &old_slots, copy_bytes)
-    !copy_bytes
-    !new_bytes
-    !old_len
-    !old_slots
-    !slots
-    store map+HashMap_slots, new_slots as ptr
-    store map+HashMap_cap, next_cap0 as u64
-    store map+HashMap_tombs, 0 as u64
-    ^new_slots
-    !next_cap0
-    jmp L_PUT_INSERT_READY
+    next_cap_raw = HashMap_INITIAL_CAP
+    next_cap = next_cap_raw
+    jmp L_PUT_GROW_REHASH
 
 L_PUT_GROW_DOUBLE:
-    next_cap0 = add cap, cap
-    !cap
-    !cap_is_zero
-    old_slots = load map+HashMap_slots as ptr
-    old_len = load map+HashMap_len as u64
-    copy_bytes = mul old_len, HashMapSlot_SIZE
-    new_bytes = mul next_cap0, HashMapSlot_SIZE
-    new_slots = alloc new_bytes
-    call @sa_mem_copy(&new_slots, &old_slots, copy_bytes)
-    !copy_bytes
-    !new_bytes
-    !old_len
-    !old_slots
-    !slots
-    store map+HashMap_slots, new_slots as ptr
-    store map+HashMap_cap, next_cap0 as u64
-    store map+HashMap_tombs, 0 as u64
-    ^new_slots
-    !next_cap0
-    jmp L_PUT_INSERT_READY
+    next_cap_raw = add cap, cap
+    next_cap = next_cap_raw
+    jmp L_PUT_GROW_REHASH
 
-L_PUT_INSERT_READY:
+L_PUT_GROW_REHASH:
+    ^slots
+    !cap
+    !len
+    !tombs
+    !cap_is_zero
+    call @map_rehash(&map, next_cap)
     slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
-    insert_off0 = mul len, HashMapSlot_SIZE
-    insert_slot0 = ptr_add slots, insert_off0
-    next_len0 = add len, 1
-    store insert_slot0+HashMapSlot_hash, hash0 as u64
-    store insert_slot0+HashMapSlot_key, key as ptr
-    store insert_slot0+HashMapSlot_value, value as ptr
-    store insert_slot0+HashMapSlot_state, HashMap_STATE_FILLED as u8
-    store map+HashMap_len, next_len0 as u64
-    !insert_slot0
-    !insert_off0
-    !hash0
-    !cap
-    !len
-    !next_len0
+    tombs = load map+HashMap_tombs as u64
+    !next_cap
+    jmp L_PUT_PROBE
+
+L_PUT_PROBE_DIRECT:
+    !cap_is_zero
+    jmp L_PUT_PROBE
+
+L_PUT_PROBE:
+    hash = call @map_hash_ptr(&key)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_index = load probe_index_slot+0 as u64
+    probe_found = load probe_found_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    already_found = ne probe_found, 0
+    br already_found -> L_PUT_UPDATE, L_PUT_INSERT
+
+L_PUT_UPDATE:
+    store slot+HashMapSlot_value, value as ptr
+    jmp L_PUT_END
+
+L_PUT_INSERT:
+    slot_state = load slot+HashMapSlot_state as u8
+    tomb_slot = eq slot_state, HashMap_STATE_TOMB
+    br tomb_slot -> L_PUT_INSERT_TOMB, L_PUT_INSERT_EMPTY
+
+L_PUT_INSERT_TOMB:
+    next_tombs = sub tombs, 1
+    store map+HashMap_tombs, next_tombs as u64
+    !next_tombs
+    jmp L_PUT_INSERT_EMPTY
+
+L_PUT_INSERT_EMPTY:
+    next_len = add len, 1
+    store map+HashMap_len, next_len as u64
+    store slot+HashMapSlot_hash, hash as u64
+    store slot+HashMapSlot_key, key as ptr
+    store slot+HashMapSlot_value, value as ptr
+    store slot+HashMapSlot_state, HashMap_STATE_FILLED as u8
+    !next_len
+    !slot_state
+    !tomb_slot
+    !probe_found
+    !probe_index
+    !slot_off
+    !slot
+    !hash
     !key
     !value
-    !map
+    !cap
+    !len
+    !tombs
+    !used
+    !used_twice
+    !pressure
+    !grow
+    !slots
+    return
+
+L_PUT_END:
+    !probe_found
+    !probe_index
+    !slot_off
+    !slot
+    !hash
+    !key
+    !value
+    !cap
+    !len
+    !tombs
+    !used
+    !used_twice
+    !pressure
+    !grow
+    !slots
     return
 
 @export sa_map_get(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
-    slots = take map+HashMap_slots
-    len = load map+HashMap_len as u64
-    len_is_zero = eq len, 0
-    br len_is_zero -> L_GET_MISS_ZERO, L_GET_FIND
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_GET_MISS_ZERO, L_GET_PROBE
 
-L_GET_FIND:
-    find_index_slot = stack_alloc 8
-    find_found_slot = stack_alloc 8
-    call @map_linear_find(&slots, len, &key, &find_index_slot, &find_found_slot)
-    find_index = load find_index_slot+0 as u64
-    found = load find_found_slot+0 as u64
-    has_match = ne found, 0
-    br has_match -> L_GET_HIT, L_GET_MISS_FIND
+L_GET_PROBE:
+    hash = call @map_hash_ptr(&key)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    br found -> L_GET_HIT, L_GET_MISS_PROBE
 
 L_GET_HIT:
-    slot_off = mul find_index, HashMapSlot_SIZE
+    probe_index = load probe_index_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
     slot = ptr_add slots, slot_off
     value = load slot+HashMapSlot_value as ptr
     !slot
     !slot_off
-    !find_index
-    !found
-    !has_match
-    !len
+    !probe_index
+    !probe_found
+    !hash
     !key
-    !map
+    !cap
+    !cap_is_zero
+    !slots
     return value
 
-L_GET_MISS_FIND:
-    !found
-    !has_match
-    !find_index
-    !len
+L_GET_MISS_PROBE:
+    !probe_found
+    !hash
     !key
-    !map
+    !cap
+    !cap_is_zero
+    !slots
     return 0
 
 L_GET_MISS_ZERO:
-    !len_is_zero
-    !slots
-    !len
+    !cap
+    !cap_is_zero
     !key
-    !map
+    !slots
     return 0
 
 @export sa_map_del(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
-    slots = take map+HashMap_slots
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
-    len_is_zero = eq len, 0
-    br len_is_zero -> L_DEL_MISS_ZERO, L_DEL_FIND
+    tombs = load map+HashMap_tombs as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_DEL_MISS_ZERO, L_DEL_PROBE
 
-L_DEL_FIND:
-    find_index_slot = stack_alloc 8
-    find_found_slot = stack_alloc 8
-    call @map_linear_find(&slots, len, &key, &find_index_slot, &find_found_slot)
-    find_index = load find_index_slot+0 as u64
-    found = load find_found_slot+0 as u64
-    has_match = ne found, 0
-    br has_match -> L_DEL_HIT, L_DEL_MISS_FIND
+L_DEL_PROBE:
+    hash = call @map_hash_ptr(&key)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    br found -> L_DEL_HIT, L_DEL_MISS_PROBE
 
 L_DEL_HIT:
-    slot_off = mul find_index, HashMapSlot_SIZE
+    probe_index = load probe_index_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
     slot = ptr_add slots, slot_off
     value = load slot+HashMapSlot_value as ptr
     next_len = sub len, 1
+    next_tombs = add tombs, 1
     store map+HashMap_len, next_len as u64
-    needs_swap = ne find_index, next_len
-    br needs_swap -> L_DEL_HIT_SWAP, L_DEL_DONE
-
-L_DEL_HIT_SWAP:
-    last_off = mul next_len, HashMapSlot_SIZE
-    last_slot = ptr_add slots, last_off
-    last_hash = load last_slot+HashMapSlot_hash as u64
-    last_key = load last_slot+HashMapSlot_key as ptr
-    last_value = load last_slot+HashMapSlot_value as ptr
-    store slot+HashMapSlot_hash, last_hash as u64
-    store slot+HashMapSlot_key, last_key as ptr
-    store slot+HashMapSlot_value, last_value as ptr
-    store slot+HashMapSlot_state, HashMap_STATE_FILLED as u8
-    !last_value
-    !last_key
-    !last_hash
-    !last_slot
-    !last_off
-    jmp L_DEL_DONE
-
-L_DEL_DONE:
-    !needs_swap
-    !next_len
+    store map+HashMap_tombs, next_tombs as u64
+    store slot+HashMapSlot_hash, 0 as u64
+    store slot+HashMapSlot_key, 0 as ptr
+    store slot+HashMapSlot_value, 0 as ptr
+    store slot+HashMapSlot_state, HashMap_STATE_TOMB as u8
     !slot
     !slot_off
-    !find_index
-    !found
-    !has_match
+    !probe_index
+    !probe_found
+    !hash
+    !cap
     !len
+    !tombs
+    !next_len
+    !next_tombs
+    !cap_is_zero
     !key
-    !slots
     !map
+    !slots
     return value
 
-L_DEL_MISS_FIND:
-    !found
-    !has_match
-    !find_index
-    !len
+L_DEL_MISS_PROBE:
+    !probe_found
+    !hash
     !key
+    !cap
+    !len
+    !tombs
+    !cap_is_zero
     !map
+    !slots
     return 0
 
 L_DEL_MISS_ZERO:
-    !len_is_zero
+    !cap
     !len
+    !tombs
+    !cap_is_zero
     !key
     !map
+    !slots
     return 0
 
 [MACRO] MAP_NEW %out_map

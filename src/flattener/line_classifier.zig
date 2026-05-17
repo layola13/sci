@@ -4,6 +4,7 @@ const common_signature = @import("../common/signature.zig");
 
 pub const LineKind = enum {
     blank_or_comment,
+    version,
     def,
     const_decl,
     import_decl,
@@ -12,6 +13,7 @@ pub const LineKind = enum {
     ffi_wrapper_decl,
     extern_decl,
     export_decl,
+    test_decl,
     label,
     macro_start,
     macro_end,
@@ -70,6 +72,32 @@ fn isIdentStart(c: u8) bool {
 
 fn isIdentChar(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+fn isQualifiedDefName(name: []const u8) bool {
+    if (name.len == 0) return false;
+    if (name[0] == '.' or name[name.len - 1] == '.') return false;
+
+    var segment_start: usize = 0;
+    var idx: usize = 0;
+    while (idx < name.len) : (idx += 1) {
+        if (name[idx] != '.') continue;
+        if (idx == segment_start) return false;
+        if (!isIdentStart(name[segment_start])) return false;
+        var seg_idx = segment_start + 1;
+        while (seg_idx < idx) : (seg_idx += 1) {
+            if (!isIdentChar(name[seg_idx])) return false;
+        }
+        segment_start = idx + 1;
+    }
+
+    if (segment_start >= name.len) return false;
+    if (!isIdentStart(name[segment_start])) return false;
+    var seg_idx = segment_start + 1;
+    while (seg_idx < name.len) : (seg_idx += 1) {
+        if (!isIdentChar(name[seg_idx])) return false;
+    }
+    return true;
 }
 
 fn containsToken(tokens: []const []const u8, needle: []const u8) bool {
@@ -247,11 +275,20 @@ fn parseFunctionHeader(
     const close = std.mem.lastIndexOfScalar(u8, after_name, ')') orelse return null;
     if (close < open) return null;
 
-    const name = std.mem.trim(u8, after_name[0..open], " \t");
-    if (name.len == 0 or !isIdentStart(name[0])) return null;
-    for (name[1..]) |c| {
-        if (!isIdentChar(c)) return null;
-    }
+    const name_part = std.mem.trim(u8, after_name[0..open], " \t");
+    if (name_part.len == 0) return null;
+
+    // For @test functions, allow string literals as names
+    const name = if (kind == .test_decl and name_part[0] == '"') blk: {
+        const end_quote = std.mem.indexOfScalarPos(u8, name_part, 1, '"') orelse return null;
+        break :blk name_part[0 .. end_quote + 1];
+    } else blk: {
+        if (!isIdentStart(name_part[0])) return null;
+        for (name_part[1..]) |c| {
+            if (!isIdentChar(c)) return null;
+        }
+        break :blk name_part;
+    };
 
     const params = std.mem.trim(u8, after_name[open + 1 .. close], " \t");
     const tail = std.mem.trim(u8, after_name[close + 1 ..], " \t");
@@ -707,12 +744,24 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
         return out;
     }
 
+    if (std.mem.startsWith(u8, trimmed, "#version")) {
+        const after = std.mem.trimLeft(u8, trimmed["#version".len..], " \t");
+        if (after.len == 0) return makeLine(.unknown, line, trimmed);
+        var i: usize = 0;
+        while (i < after.len and std.ascii.isDigit(after[i])) : (i += 1) {}
+        if (i == 0 or std.mem.trim(u8, after[i..], " \t").len != 0) return makeLine(.unknown, line, trimmed);
+        var out = makeLine(.version, line, trimmed);
+        addPart(&out, 0, after[0..i]);
+        return out;
+    }
+
     if (std.mem.startsWith(u8, trimmed, "#def")) {
         const after = std.mem.trimLeft(u8, trimmed["#def".len..], " \t");
         const eq = std.mem.indexOfScalar(u8, after, '=') orelse return makeLine(.unknown, line, trimmed);
         const name = std.mem.trim(u8, after[0..eq], " \t");
         const value = std.mem.trim(u8, after[eq + 1 ..], " \t");
         if (name.len == 0 or value.len == 0) return makeLine(.unknown, line, trimmed);
+        if (!isQualifiedDefName(name)) return makeLine(.unknown, line, trimmed);
         var out = makeLine(.def, line, trimmed);
         addPart(&out, 0, name);
         addPart(&out, 1, value);
@@ -727,6 +776,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
     if (parseFunctionHeader(line, trimmed, "@ffi_wrapper", .ffi_wrapper_decl, true)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@extern", .extern_decl, false)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@export", .export_decl, true)) |out| return out;
+    if (parseFunctionHeader(line, trimmed, "@test", .test_decl, true)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@", .func_decl, true)) |out| return out;
 
     if (trimmed.len >= 3 and trimmed[0] == 'L' and trimmed[1] == '_' and trimmed[trimmed.len - 1] == ':') {

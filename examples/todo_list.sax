@@ -1,0 +1,58 @@
+<Component name="TodoList">
+
+  <state>
+    todos     = alloc 24
+    input_buf = alloc 256
+    input_len = 0
+  </state>
+
+  <div class="todo-app">
+    <h1>Todo List</h1>
+
+    <div class="input-row">
+      <input
+        type="text"
+        placeholder="What needs to be done?"
+        value="{input_len}"
+        oninput={^handleInput} />
+      <button onclick={^addTodo}>Add</button>
+    </div>
+
+    <ul id="todo-list">
+    </ul>
+
+    <p>Total items: {input_len}</p>
+  </div>
+
+  @handleInput:
+  L_ENTRY:
+    new_len = call @sax_dom_get_value(&input_buf, 256)
+    store input_len_slot+0, new_len as i64
+    call @render()
+    ret
+
+  @addTodo:
+  L_ENTRY:
+    len = load input_len_slot+0 as i64
+    ok  = sgt len, 0
+    br ok -> L_DO_ADD, L_SKIP
+  L_DO_ADD:
+    call @sax_array_push(&todos, &input_buf, len)
+    store input_len_slot+0, 0 as i64
+    call @sax_dom_set_value(&input_node, utf8:"", 0)
+    call @render()
+    jmp L_END
+  L_SKIP:
+    jmp L_END
+  L_END:
+    ret
+
+  @deleteTodo:
+  L_ENTRY:
+    idx = call @sax_dom_get_event_data()
+    call @sax_array_remove(&todos, idx)
+    call @render()
+    ret
+
+  !todos !input_buf !input_len
+</Component>

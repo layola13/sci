@@ -1,0 +1,10 @@
+// Basic unit test example for SA native test framework
+
+@test "simple pass"():
+L_TEST1:
+    return
+
+@test "another test"():
+L_TEST2:
+    return
+

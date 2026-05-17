@@ -1,0 +1,54 @@
+@import "../sa_std/collections/vec_deque.saasm"
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND VEC_DEQUE_NEW queue
+    EXPAND VEC_DEQUE_PUSH_BACK queue, 1
+    EXPAND VEC_DEQUE_PUSH_BACK queue, 2
+    EXPAND VEC_DEQUE_PUSH_FRONT queue, 0
+    EXPAND VEC_DEQUE_ROTATE_LEFT queue, 1
+    EXPAND VEC_DEQUE_LEN len0, queue
+    EXPAND VEC_DEQUE_TRY_POP_FRONT ok_front, front, queue
+    EXPAND VEC_DEQUE_TRY_POP_BACK ok_back, back, queue
+    EXPAND VEC_DEQUE_GET remaining, queue, 0
+    EXPAND VEC_DEQUE_LEN len1, queue
+    ok_len0 = eq len0, 3
+    ok_front_status = eq ok_front, 1
+    ok_back_status = eq ok_back, 1
+    ok_front_val = eq front, 1
+    ok_back_val = eq back, 0
+    ok_remaining = eq remaining, 2
+    ok_len1 = eq len1, 1
+    ok01 = and ok_len0, ok_front_status
+    ok02 = and ok01, ok_back_status
+    ok03 = and ok02, ok_front_val
+    ok04 = and ok03, ok_back_val
+    ok05 = and ok04, ok_remaining
+    ok = and ok05, ok_len1
+    !front
+    !back
+    !remaining
+    !len0
+    !len1
+    !ok_len0
+    !ok_front_status
+    !ok_back_status
+    !ok_front_val
+    !ok_back_val
+    !ok_remaining
+    !ok_len1
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND VEC_DEQUE_FREE queue
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    return 0
+
+L_ERR:
+    !ok
+    return 1

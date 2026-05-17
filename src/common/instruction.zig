@@ -208,6 +208,7 @@ pub const InstKind = enum(u8) {
     ffi_wrapper_decl,
     extern_decl,
     export_decl,
+    test_decl,
     label,
     raw_cast,
     assume_safe,

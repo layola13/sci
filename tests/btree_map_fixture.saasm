@@ -1,0 +1,32 @@
+@import "../sa_std/collections/btree_map.saasm"
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND BTREE_MAP_NEW map
+    EXPAND BTREE_MAP_INSERT map, KEY_BRAVO, 2
+    EXPAND BTREE_MAP_INSERT map, KEY_ALPHA, 1
+    EXPAND BTREE_MAP_INSERT map, KEY_LOOKUP, 3
+    EXPAND BTREE_MAP_GET value_alpha, map, KEY_ALPHA
+    EXPAND BTREE_MAP_GET value_bravo, map, KEY_BRAVO
+    EXPAND BTREE_MAP_LEN len0, map
+    ok_alpha = eq value_alpha, 3
+    ok_bravo = eq value_bravo, 2
+    ok_len = eq len0, 2
+    ok01 = and ok_alpha, ok_bravo
+    ok = and ok01, ok_len
+    !ok_len
+    !ok_bravo
+    !ok_alpha
+    !len0
+    !value_bravo
+    !value_alpha
+    EXPAND BTREE_MAP_FREE map
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    return 0
+
+L_ERR:
+    !ok
+    return 1

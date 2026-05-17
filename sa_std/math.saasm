@@ -1,0 +1,69 @@
+[MACRO] MATH_ABS_I64 %out_value, %value
+    is_negative = slt %value, 0
+    br is_negative -> L_MATH_ABS_NEG_%i, L_MATH_ABS_POS_%i
+L_MATH_ABS_NEG_%i:
+    neg_value = sub 0, %value
+    %out_value = add neg_value, 0
+    !neg_value
+    !is_negative
+    jmp L_MATH_ABS_END_%i
+L_MATH_ABS_POS_%i:
+    %out_value = add %value, 0
+    !is_negative
+L_MATH_ABS_END_%i:
+    !%value
+[END_MACRO]
+
+[MACRO] MATH_MIN_U64 %out_value, %lhs, %rhs
+    take_lhs = ult %lhs, %rhs
+    br take_lhs -> L_MATH_MIN_LHS_%i, L_MATH_MIN_RHS_%i
+L_MATH_MIN_LHS_%i:
+    %out_value = add %lhs, 0
+    !take_lhs
+    jmp L_MATH_MIN_END_%i
+L_MATH_MIN_RHS_%i:
+    %out_value = add %rhs, 0
+    !take_lhs
+L_MATH_MIN_END_%i:
+    !%lhs
+    !%rhs
+[END_MACRO]
+
+[MACRO] MATH_MAX_U64 %out_value, %lhs, %rhs
+    take_lhs = ugt %lhs, %rhs
+    br take_lhs -> L_MATH_MAX_LHS_%i, L_MATH_MAX_RHS_%i
+L_MATH_MAX_LHS_%i:
+    %out_value = add %lhs, 0
+    !take_lhs
+    jmp L_MATH_MAX_END_%i
+L_MATH_MAX_RHS_%i:
+    %out_value = add %rhs, 0
+    !take_lhs
+L_MATH_MAX_END_%i:
+    !%lhs
+    !%rhs
+[END_MACRO]
+
+[MACRO] MATH_CLAMP_U64 %out_value, %value, %min_value, %max_value
+    below_min = ult %value, %min_value
+    br below_min -> L_MATH_CLAMP_MIN_%i, L_MATH_CLAMP_CHECK_MAX_%i
+L_MATH_CLAMP_MIN_%i:
+    %out_value = add %min_value, 0
+    !below_min
+    jmp L_MATH_CLAMP_END_%i
+L_MATH_CLAMP_CHECK_MAX_%i:
+    above_max = ugt %value, %max_value
+    br above_max -> L_MATH_CLAMP_MAX_%i, L_MATH_CLAMP_VALUE_%i
+L_MATH_CLAMP_MAX_%i:
+    %out_value = add %max_value, 0
+    !above_max
+    jmp L_MATH_CLAMP_END_%i
+L_MATH_CLAMP_VALUE_%i:
+    %out_value = add %value, 0
+    !above_max
+L_MATH_CLAMP_END_%i:
+    !below_min
+    !%value
+    !%min_value
+    !%max_value
+[END_MACRO]

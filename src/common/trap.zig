@@ -32,6 +32,7 @@ pub const Trap = enum(u8) {
     fallible_contract_mismatch,
     invalid_atomic_ordering,
     atomic_ordering_mismatch,
+    test_func_signature_mismatch,
 };
 
 pub const TrapReport = struct {
@@ -92,6 +93,7 @@ pub fn trapName(trap: Trap) []const u8 {
         .fallible_contract_mismatch => "FallibleContractMismatch",
         .invalid_atomic_ordering => "InvalidAtomicOrdering",
         .atomic_ordering_mismatch => "AtomicOrderingMismatch",
+        .test_func_signature_mismatch => "TestFuncSignatureMismatch",
     };
 }
 
@@ -126,6 +128,7 @@ pub fn trapCode(trap: Trap) u32 {
         .fallible_contract_mismatch => 1027,
         .invalid_atomic_ordering => 1028,
         .atomic_ordering_mismatch => 1029,
+        .test_func_signature_mismatch => 1030,
     };
 }
 

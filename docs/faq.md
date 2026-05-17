@@ -358,6 +358,315 @@ store v+Vec3_x, 1.0 as f32
 
 ---
 
+## 包管理与零信任类
+
+> 完整设计文档见 [`docs/package_management.md`](./package_management.md)。
+
+### Q: 为什么不建造 crates.io / npm 式的中心化包注册中心？
+
+**A**: SA 直接用 URL（如 `github.com/xiaoming/sa-ecs`）作为命名空间，不建造任何中央 registry。
+
+原因：
+- **运营成本**：crates.io / npm 需要持续投入服务器、人工审核、安全应急
+- **抢注风险**：短名称（如 `react-router` vs `react-ruter`）是 typosquatting 攻击温床
+- **单点故障**：一个中心化 registry 倒了，整个生态瘫痪
+- **去中心化天然就有**：GitHub / GitLab / 内网 Git / 私有 Bitbucket 都是合法包源
+- 黑客要伪造一个包，必须先黑进对应组织账号 —— **门槛拉高几个数量级**
+
+### Q: 为什么没有 SemVer 版本范围（`^1.2.0`）？
+
+**A**: SA 的 `sa.mod` 只接受**绝对哈希钉版**，没有版本范围、没有 SAT 求解器。
+
+```
+require github.com/xiaoming/sa-ecs @v1.2.0 sha256:8f4e2d...
+```
+
+原因：
+- SemVer Resolution 是依赖地狱的根源（每次拉包结果可能不同）
+- 跑 SAT 求解器极其耗时
+- 黑客覆盖 `v1.2.0` tag 释放毒包 → 自动升级 → 全球中招
+- SA 只做一件事：去 URL 拉源码 → 算 SHA-256 → 差一比特 → Fatal Error 物理熔断
+
+### Q: 为什么 `sa fetch` 不允许执行 `postinstall` 之类的钩子？
+
+**A**: `sa fetch` 是**绝对图灵不完备**的"哑下载器"，只做 HTTP/Git 文本下载与解压。
+
+原因：
+- npm 的 `postinstall` 是 event-stream / colors.js 等灾难的源头
+- 黑客只要等你敲下 `npm install`，他们的代码就在你电脑上跑了
+- SA 生态系统**没有任何**生命周期钩子（Hooks / Scripts / Build 脚本）
+- 拉下来的源码是静态文本，不主动塞进编译/运行管线就毫无杀伤力
+
+### Q: 为什么默认拉到项目本地 `sa_vendor/` 而不是全局缓存？
+
+**A**: SA 的默认行为是**绝对便携**：拷进 U 盘到任何一台装了编译器的离线电脑上敲 `sa build` 就能瞬间编译。
+
+原因：
+- "在我机器上能跑" = 部署到 CI 时崩溃，根源就是依赖了隐式宿主机状态
+- 全局路径在 CI / 无管理员权限服务器上经常因权限问题报错
+- 项目自包含 = 真正的"绿色软件"
+- 仍然提供 `sa fetch -g` 给那些清楚知道自己在做什么的开发者（如本地 50 个微服务共用底层库）
+
+### Q: 为什么禁止全局配置文件（`~/.sa/config.toml`）？
+
+**A**: 全局配置 = 隐式宿主机状态污染。SA 强制规则：
+
+> **执行结果 = 源码 AST + 项目本地 `sa.mod` + 项目本地 `sa.lock` + 进程环境变量**
+
+除此之外，编译器对宿主机一无所求、一无所知。
+
+替代方案：
+- 镜像规则用 `SA_MIRROR_<HOST>` 环境变量（CI / Docker 一等公民）
+- 或者写在项目本地 `.sa_env` / `sa.mod` 的 `[mirrors]` 块（自包含）
+
+如果探测到任何 `~/.sa/*` / `/etc/sa/*` → 编译器立刻报 `Trap: ForbiddenGlobalConfig` 拒绝启动。
+
+### Q: 为什么不允许分发预编译二进制（`.so` / `.dll` / wheels）？
+
+**A**: SA 的包管理**绝对不接受**任何编译产物分发，只接受纯文本 `.saasm` 源码。
+
+原因：
+- C++ / Python 包管理为啥难搞？因为牵扯不同平台的二进制黑盒
+- 二进制黑盒里如果藏了后门，杀毒软件根本扫不出来
+- Zig 编译器有 32 核心瞬时并行能力，全源码白盒编译速度根本不是瓶颈
+- 源码层一切 `@sys_*` 调用一览无余，`sa fetch` 顺便就能跑 X 光扫描
+
+如果检测到拉取目录包含 `.so/.dll/.dylib/.a/.lib/.whl/.node` → `Trap: PrecompiledArtifactRejected`。
+
+### Q: 为什么每个包默认是"绝对零权限"？
+
+**A**: SA 把权限粒度从 Deno 的"进程级"降维到"模块级微沙箱"。
+
+```
+require github.com/util/string-utils @v1.0.0 sha256:...
+                                                 # 缺省 = grants []，绝对零权限
+require github.com/org/sa-net        @v1.0.0 sha256:... grants [net_tx, net_rx]
+                                                 # 显式声明，才解锁 @sys_net_*
+```
+
+原因：
+- Deno 的 `--allow-net` 是进程级的：一旦给了，所有第三方包都顺带获得
+- 黑客在合法的字符串处理库里偷偷加一行 `@sys_net_tx` → 数据被偷发
+- SA 的解法：编译器扫到任何越权 `@sys_*` 调用 → `Trap: UnauthorizedPrimitive`，**连机器码都不生成**
+- 第三方代码被**物理超度**为人畜无害的纯算力
+
+### Q: 引入第三方包时怎么知道它危险不危险？
+
+**A**: `sa fetch` 出厂自带 X 光扫描，几毫秒内打印冷酷的体检报告：
+
+```
+[SA-SECURE] Fetching github.com/org/image-parser @v1.2.0 ... Done (12ms)
+
+>> SECURITY AUDIT REPORT (image-parser)
+------------------------------------------------------------
+[X-Ray Scan] Found 3 capability requests in AST:
+  ! @sys_mem_slice  (Used in src/decoder.sa:45)
+  ! @sys_io_read    (Used in src/loader.sa:12)
+  ! @sys_net_tx     (Used in src/telemetry.sa:8) -> [CRITICAL WARNING]
+
+[Evaluation] 
+  Trust Score: 15 / 100 (HIGH RISK - Network exfiltration possible)
+```
+
+信用分等级：
+| 分数 | 等级 | 含义 |
+|---|---|---|
+| 100 | Pure Compute | 无任何 `@sys_*`，纯数学 |
+| 80 | 内存分配 | 仅 `@sys_mem_*` |
+| 50 | 本地 IO | 含 `@sys_io_*` |
+| ≤ 20 | HIGH RISK | 含 `@sys_net_*` 或跨核心绑定 |
+
+报告会**直接撕下**所有开源包的伪装：开发者只想下个本地图片解析库，结果 AST 里赫然发现 `@sys_net_tx` —— 它在偷偷收集用户数据！
+
+### Q: 引入了高危包，编译器会自动删源码吗？
+
+**A**: **不会**。SA 不会粗暴剥夺开发者的"数字主权"。但它通过**极致摩擦**让你忽略风险的代价大到可怕。
+
+机制：
+1. 源码照常落盘到 `sa_vendor/`
+2. 编译器在内存中标记为 `BLOCKED_RISK`，阻塞编译管线
+3. 终端清屏，弹出**审判台**，列出所有越权权限 + 源码位置
+4. 必须**完整输入**仓库 URL 字符串（如 `github.com/hacker/bad-lib`）才能解锁
+5. 不接受 `y/n` 简写、不接受裁剪
+6. 非 TTY 环境（管道 / `yes |`）→ `Trap: MissingTtyForConfirmation` 立刻退出
+7. 输入错误或 `Ctrl+C` → 进程当场物理死亡
+
+多输几次后，开发者会被逼着 fork 净化或更换依赖。**用极致的交互摩擦力，硬生生逼着开发者去净化他们的依赖树**。
+
+### Q: 那我每次 build 都要重新输一遍 URL，太烦了！能不能记住？
+
+**A**: 不能写盘。但**可以**写到 `sa.lock` 的"机器码哈希"里。
+
+逻辑：
+1. 你输入 URL 通过审判台 → 编译器立刻把这个包单独编出 SA-ASM 机器码
+2. 计算机器码 SHA-256 → 写入项目本地的 `sa.lock`：
+
+```
+dependency "github.com/hacker/bad-lib" {
+    version: "v1.2.0"
+    source_sha:                "8f4e2d..."
+    approved_machine_code_hash: "a1b2c3..."
+}
+```
+
+3. 下次 `sa build`：编译器在内存中重新生成机器码，与 `sa.lock` 比对：
+   - **一致** → 静默放行（增量 AOT 红利）
+   - **不一致** → 重弹审判台
+
+为什么锁机器码不锁源码？因为黑客可能用复杂宏混淆，源码字节看似没变但执行逻辑变了。**机器码序列变化骗不了人**。
+
+### Q: 这个豁免能写到 `sa.mod` 吗？让团队共享？
+
+**A**: **绝对不行**。这是设计中最严格的一条：
+
+> 风险只属于**当前终端、此时此刻、那一个人**。
+
+原因：允许写入 `sa.mod` 会通过 Git 横向传播：
+
+```
+开发者 A 本地敲下确认 → 写入 sa.mod
+       ↓
+push 到 GitHub
+       ↓
+开发者 B、CI/CD 拉代码 → 自动继承高危豁免
+       ↓
+毒包在生产环境无声运行
+```
+
+**`sa.lock` 的机器码哈希也只属于当前项目**：哪怕同一台机器上两个项目都依赖同一个高危包，开发者必须**各自**面对一次审判台、**各自**输入 URL、**各自**生成物理隔离的 `sa.lock`。
+
+### Q: 为什么禁止全局机器码缓存复用？
+
+**A**: 防止"信任污染（Trust Contamination）"。
+
+| 场景 | 风险 |
+|---|---|
+| 爬虫项目引入网络库 → `@sys_net_tx` 合理 | 可放行 |
+| 加密钱包项目引入**同一**网络库 | 物理防线被无声击穿 |
+
+如果允许全局缓存复用，钱包项目的编译器会读全局缓存说"哦这段机器码之前确权过了，放行" —— **加密钱包的物理防线直接被无声无息击穿**。
+
+SA 的解法：每个项目都是物理孤岛（Air-Gap），机器码缓存绝不出全局路径，`approved_machine_code_hash` 只在项目本地的 `sa.lock`。
+
+### Q: GitHub Actions 没有 TTY，怎么处理审判台？
+
+**A**: SA 编译器自动探测 CI 模式（`CI=true` / `GITHUB_ACTIONS=true` / `isatty=false`），切换到双轨制：
+
+#### 默认：冷酷熔断（Fail-Safe）
+- 发现未审计高危依赖 → 打印权限列表 → 退出码 1 → 流水线爆红
+- 黑客 PR 第一秒被拒
+- 必须显式加 `sa build --allow-unaudited-risks` 才能放行
+
+#### 选项：染色放行（Tainted Pass）
+- 不卡死流水线，照常输出二进制 / WASM
+- 产物元数据段被注入 `TAINTED_UNAUDITED_CODE` 标记
+- 编译日志输出醒目 ASCII 警告 Banner
+- `$GITHUB_STEP_SUMMARY` 自动钉一张"高风险资产看板"
+- 任何团队成员打开 PR 第一眼就看到，不需要去翻几万行日志
+- **染色无法被 `--release` 移除**：运行时 stderr 强行打印三行红字警告
+
+### Q: 内网 / 断网企业怎么用 SA 包管理？
+
+**A**: SA 的零信任设计天然兼容空气间隙（Air-Gapped）环境。
+
+#### 方案 1：全源码入库（Vendor Committal）
+```bash
+# 在桥接机（有外网）
+sa fetch                       # 拉到 ./sa_vendor/
+
+# 把 sa_vendor/ + sa.mod + sa.lock 全部提交到内网私有 Git
+git add sa_vendor sa.mod sa.lock
+git commit -m "vendor deps for offline build"
+
+# 内网 CI
+sa build --offline             # 编译器完全切断网络模块
+```
+
+由于 SA 所有依赖都是极简纯文本，提交到 Git 无压力（对比 `node_modules` 几 GB 的二进制黑洞）。
+
+#### 方案 2：URL 镜像劫持（环境变量）
+```dockerfile
+# Dockerfile / Kubernetes / GitHub Actions
+ENV SA_MIRROR_GITHUB_COM=gitlab.corp.local/mirror
+ENV SA_MIRROR_GITLAB_COM=gitlab.corp.local/proxy
+```
+
+容器销毁 → 规则灰飞烟灭，硬盘无任何垃圾。**严禁**全局配置文件。
+
+### Q: 单机开发者如何安全地为 Linux/Windows/macOS 同时发布？
+
+**A**: SA 的信任锚点是**平台无关的源码 SHA**，不是机器码。
+
+工作流：
+1. 开发者在 Mac 上跑 `sa fetch` + 审计 + 输入 URL → `sa.mod` 锁定源码 SHA
+2. 推到 GitHub Actions
+3. Ubuntu / Windows / macOS Runner 各自拉代码
+4. 三个平台的 SA 编译器**各自**算源码 SHA → 与 `sa.mod` 比对 → 一致则放行
+5. 各自生成对应平台的机器码
+
+**开发者审的是"逻辑"，CI 负责"翻译"，两者在源码 SHA 处完美交接**。
+
+如果是高密级场景，加上 `sa build --all-targets --lock-only`：Zig 在轻薄笔记本上几秒内推导出全平台机器码哈希全部写进 `sa.lock`。
+
+### Q: 怎么防御传递依赖（A 依赖 B，B 依赖 C）的投毒？
+
+**A**: SA 引入扁平的全树哈希记录 `sa.sum`：
+
+```
+// sa.sum —— 整棵依赖树的哈希拍平
+github.com/xiaoming/sa-ecs   @v1.2.0   sha256:8f4e2d...
+github.com/org/sa-net        @main     sha256:c3a1b9...
+github.com/transitive/dep    @v0.1.0   sha256:ddee01...   // 间接依赖
+```
+
+任何子树包源码字节变化 → 顶层 `sa.sum` 哈希不匹配 → **整棵树物理熔断**。
+
+### Q: 安全审计企业级怎么用？
+
+**A**: 传统流程：安全团队拿着 Snyk 之类的扫描工具去扫几万行源码 → 几天才能审完一个包。
+
+SA 流程：安全主管打开 `sa.mod` 扫一眼 `grants` 列表：
+
+| 看到的 | 结论 |
+|---|---|
+| `grants []` 或不写 | 这是纯算力库，闭眼放行 |
+| `grants [io_read]` | 只能读本地文件，不能联网或写入 |
+| `grants [net_tx]` | 这个包能联网，必须人肉审计 X 光报告 |
+
+不管这个包源码写得多么诡异，只要在 `sa.mod` 里被定义为零权限或受限权限，它就**绝对无法**调用越权原语。第三方包被**物理超度**为透明的、关在笼子里的物理切片。
+
+### Q: 如果黑客攻破 GitHub 账号覆盖了 v1.2.0 tag 怎么办？
+
+**A**: SA 的源码 SHA 和机器码 SHA 双轨核验直接物理熔断。
+
+1. 黑客覆盖 tag → 上游源码字节变化
+2. 编译器拉源码 → 算 SHA → 与 `sa.mod` 锁定的 `sha256:...` 不一致
+3. 立刻 `Fatal Error: UpstreamShaMismatch` 物理熔断
+4. 即使开发者本地已确权过 → 机器码哈希也对不上 `sa.lock` → 重弹审判台
+
+没有你的手动确认和修改 `sa.mod` / `sa.lock`，**任何更新都无法潜入**。
+
+### Q: SA 的包管理为什么强调"零隐式状态"？
+
+**A**: 因为隐式状态是工程灾难的根源。
+
+| 隐式状态来源 | 引发的问题 |
+|---|---|
+| `~/.cargo/config` 全局配置 | "在我机器上能跑"症 |
+| `$NPM_TOKEN` / `$GOPRIVATE` | CI 上突然失败 |
+| `node_modules` 跨项目幽灵复用 | 升级一个项目影响另一个 |
+| npm `package.json` 的 `scripts` | 投毒入口 |
+| `postinstall` 全局副作用 | SSH 密钥被偷 |
+
+SA 把所有状态收敛到三处：
+1. **项目本地** `sa.mod` / `sa.lock` / `sa.sum`（提交到 Git）
+2. **进程级**环境变量（用完即毁）
+3. **进程内存**的临时审判通过状态（进程退出蒸发）
+
+这就是真正的**绿色软件**和**零信任编译**。
+
+---
+
 ## 总结：SA 的设计哲学
 
 | 原则 | 含义 |
@@ -1631,3 +1940,299 @@ LLM 生成 SA 代码
 ```
 
 这比传统语言的"LLM 写代码 → 编译器报一堆人类都看不懂的错误 → LLM 彻底迷路"强一万倍。
+
+---
+
+## 附录 D：SA 零信任列式数据库（sa-db）常见问题
+
+### D1. sa-db 是什么？为什么不用 SQLite / DuckDB？
+
+**Q**：SA 已经有包管理了，为什么还要做数据库？
+
+**A**：sa-db 不是"又一个数据库"，而是 SA 包管理在数据维度上的同构延伸。核心区别：
+
+| 维度 | SQLite / DuckDB | sa-db |
+|---|---|---|
+| **查询语言** | SQL 字符串（运行时解析） | 预编译 SA-ASM 模块（编译期） |
+| **权限模型** | 用户级 GRANT/REVOKE | 模块级 `grants` 声明（源码透明） |
+| **版本控制** | 无 | SHA-256 锁版（源码 + 机器码） |
+| **隔离** | 进程级沙箱 | CPU MMU 级物理隔离 |
+| **并发** | 锁 / MVCC | `atomic_rmw_add` 单点 + 无锁读 |
+| **架构** | 通用 | SA 专属（复用 Referee、`#def`、`grants`） |
+
+**为什么选择 sa-db**：
+- 零 SQL 字符串 = 零注入漏洞
+- 预编译 = 编译期就能验证权限
+- 与包管理同构 = 统一的信任模型
+- 物理隔离 = 越权自动 SIGSEGV 熔断
+
+### D2. 如何定义表 Schema？
+
+**Q**：`.sadb-schema` 文件怎么写？
+
+**A**：纯文本 `#def` 常量，继承 `docs/ebnf.md` 的语法：
+
+```saasm
+// flash_sale.sadb-schema
+#def MAX_ROWS = 1000000
+#def COL_ID_STRIDE        8   // u64
+#def COL_PRICE_STRIDE     4   // f32
+#def COL_INVENTORY_STRIDE 4   // u32
+#def COL_STATUS_STRIDE    1   // u8
+#def TABLE_ROW_BYTES = 17     // 8 + 4 + 4 + 1
+```
+
+编译：`saasm db init flash_sale.sadb-schema` → 生成 `flash_sale.iface`（纯文本副本）
+
+**支持的列类型**：`i8..u64 / f32 / f64 / ptr / blob_handle`（无 `struct` / `array` / `string`）
+
+### D3. 如何写查询模块？
+
+**Q**：`.query.saasm` 怎么写？能用 SQL 吗？
+
+**A**：纯 SA-ASM，无 SQL。完整范式见 `docs/database.md` §7：
+
+```saasm
+@import "flash_sale.sadb-schema"
+
+@query_heavy_discount(
+    &col_id: ptr,
+    &col_price: ptr,
+    &col_inventory: ptr,
+    len: u64,
+    &result_buf: ptr
+) -> u64:
+    grants [db_read:flash_sale, db_alloc_blob:result_arena]
+
+L_ENTRY:
+    idx = 0
+    res_idx = 0
+    jmp L_COND
+
+L_COND:
+    cond = ult idx, len
+    br cond -> L_BODY, L_EXIT
+
+L_BODY:
+    // 读取库存，检查是否 < 100
+    offset_inv = mul idx, COL_INVENTORY_STRIDE
+    inv = load col_inventory+offset_inv as u32
+    is_low = ult inv, 100
+    br is_low -> L_CHECK_PRICE, L_NEXT
+    
+L_CHECK_PRICE:
+    !is_low
+    // 读取价格，检查是否 > 1000
+    offset_price = mul idx, COL_PRICE_STRIDE
+    price = load col_price+offset_price as f32
+    is_expensive = fcmp_gt price, 1000.0
+    br is_expensive -> L_MATCH, L_NEXT
+    
+L_MATCH:
+    !is_expensive
+    // 写入结果
+    offset_res = mul res_idx, 8
+    store result_buf+offset_res, idx as u64
+    res_idx = add res_idx, 1
+    !offset_res
+
+L_NEXT:
+    !is_expensive
+    !is_low
+    !offset_inv
+    !offset_price
+    idx = add idx, 1
+    !cond
+    jmp L_COND
+
+L_EXIT:
+    !cond
+    !idx
+    !col_id
+    !col_price
+    !col_inventory
+    !len
+    !result_buf
+    return res_idx
+```
+
+**关键点**：
+- 无 `if/else/while/for/{}`，仅 `L_LABEL:` + `jmp/br`
+- 每个寄存器显式 `!` 释放（Referee 强制）
+- `grants` 声明权限白名单（编译期校验）
+
+### D4. 权限 X 光扫描是什么？
+
+**Q**：`grants [db_read:flash_sale, db_write:logs]` 怎么工作？
+
+**A**：Referee 在注册查询模块时执行 X 光扫描：
+
+1. **遍历指令流**：扫描所有 `load` / `store` / `atomic_rmw_*` 指令
+2. **权限校验**：
+   - `load <col_base>+offset` → 检查 `db_read:flash_sale` 白名单
+   - `store <col_base>+offset` → 检查 `db_write:logs` 白名单
+   - `atomic_rmw_add <cursor>+0` → 检查 `db_atomic_cursor:logs`
+3. **违规处理**：返回 `Trap: DbCapabilityEscalation`，附源码位置
+
+**例子**：查询模块声明 `grants [db_read:flash_sale]`，但代码里有 `store col_logs+offset, ...`，编译直接砸穿报错。
+
+### D5. 如何执行查询？
+
+**Q**：怎么调用查询模块？
+
+**A**：两种方式：
+
+**方式 1：CLI**
+```bash
+saasm db register heavy_users.query.saasm
+# 输出：Hash: a1b2c3d4e5f6...
+
+saasm db exec a1b2c3d4e5f6 --params params.bin
+```
+
+**方式 2：代码内**
+```saasm
+@main() -> i32:
+L_ENTRY:
+    // 注入列基址、参数，调用查询模块
+    result = call @exec_qmod(a1b2c3d4e5f6, args)
+    !args
+    return result
+```
+
+### D6. 越权写入会怎样？
+
+**Q**：如果查询模块尝试越权修改只读列，会发生什么？
+
+**A**：三层防线：
+
+1. **编译期**：Referee X 光扫描检查权限白名单 → `Trap: DbCapabilityEscalation`
+2. **运行时**：mmap 标记为 `PROT_READ`（只读） → CPU 拒绝写入
+3. **硬件**：CPU 触发 SIGSEGV 信号 → 宿主进程捕获 → `Trap: DbMemoryGuardViolation` → 进程终止
+
+**没有逃脱的可能**。
+
+### D7. Blob Arena 是什么？
+
+**Q**：变长文本（评价、聊天记录）怎么存储？
+
+**A**：独立的 Blob Arena（Bump Allocator）：
+
+```
+<table>.blob.0.bin    // 第 0 个 Blob 段（256 MB mmap）
+<table>.blob.1.bin    // 第 1 个 Blob 段
+```
+
+**blob_handle 位布局**：
+```
+blob_handle = u64 = (seg_id:24 << 40) | offset:40
+
+seg_id:  段号（0–16777215）
+offset:  段内偏移（0–1099511627775）
+```
+
+**特点**：
+- 纯追加分配（无碎片）
+- 删除标记墓碑（1 字节标志位）
+- 段死亡比例 ≥ 50% 时整段重写
+- 整段 mmap 视为单个 `alloc`，单次 `!arena` 释放
+
+**为什么不用 Free-List**：Free-List 需要维护空闲链表，破坏"显式所有权释放"的语义。
+
+### D8. 并发模型是什么？
+
+**Q**：多个 Insert 同时写入，会不会冲突？
+
+**A**：无锁并发设计：
+
+**写入串行化点**：唯一的 `atomic_rmw_add global_len, 1`
+- 所有 Insert 竞争这个原子操作
+- 每个 Insert 拿到唯一的行号
+- 然后各自计算偏移、写入数据（无锁）
+
+**读无锁**：所有查询模块拿到 snapshot epoch 的 mmap 只读视图
+- 查询开始时记录当前 epoch
+- 数据库注入该 epoch 的列基址
+- 查询在只读视图上执行，无需加锁
+- 同时进行的 Insert 写入新行，不影响查询
+
+**跨行事务**：可选乐观锁
+- 每行 8 字节 `version` 列
+- Update 时用 `cmpxchg` 尝试原子更新版本号
+- 失败返回 `Trap: DbConcurrencyConflict`
+
+**为什么不用 MVCC**：
+- 违反 SoA 顺序写（版本链破坏列的连续性）
+- 引入 GC（与"显式所有权"冲突）
+- 与 Bump Arena 冲突（无法支持版本链）
+
+### D9. 冷热分层怎么工作？
+
+**Q**：数据怎么自动从 RAM 降到 S3？
+
+**A**：三层存储：
+
+| 温度 | 时间范围 | 存储 | 访问方式 |
+|---|---|---|---|
+| **热** | 最近 7 天 | RAM（MemTable + 最新段） | 直接内存访问 |
+| **温** | 7 天 – 1 月 | NVMe（mmap） | 零拷贝 mmap 映射 |
+| **冷** | 1 年+ | S3（Zstd 压缩） | 按需解压（体积压至 10–15%） |
+
+**分层策略**：后台线程定期扫描段的 mtime，自动降温。
+
+**压缩**：Zstd 字典压缩，体积可压至原大小 10–15%。
+
+### D10. 为什么不用 WAL？
+
+**Q**：没有 WAL，崩溃恢复怎么保证一致性？
+
+**A**：sa-db 采用等价方案：
+
+1. **快照 epoch**：每个 MemTable 刷盘时记录全局 epoch 号
+2. **不可变段**：段一旦落盘，物理上不可改
+3. **原子游标**：`global_len` 用 `atomic_rmw_add` 自增，保证一致性
+4. **恢复**：重启时扫描 `.meta` 文件，重建 MemTable 状态
+
+**为什么不用 WAL**：与"零隐式状态"哲学冲突。WAL 是隐式的后台日志，违反 SA 的"所有状态显式可见"原则。
+
+### D11. 与包管理的关系？
+
+**Q**：表 schema 和查询模块怎么分发？需要 `sadb.mod` 吗？
+
+**A**：复用 `sa.mod`，无需单独 `sadb.mod`：
+
+```
+// sa.mod
+require_db_table github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a]
+require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write:tbl_b]
+```
+
+**同构关系**：
+- **身份**：URL（`github.com/x/y`）
+- **版本锁定**：SHA-256（源码哈希）
+- **权限声明**：`grants` 白名单
+- **源码透明**：纯文本 `.sadb-schema` + `.query.saasm`
+- **零权限默认**：缺省 `grants []`
+
+### D12. 性能目标是多少？
+
+**Q**：sa-db 能跑多快？
+
+**A**：性能基线（单线程）：
+
+| 操作 | 目标 |
+|---|---|
+| Insert 吞吐 | ≥ 1M rows/sec |
+| 1 亿行列扫描 | ≤ 200 ms（AVX-512 启用） |
+| Query 延迟 | ≤ 10 ms（p99） |
+| 抢购场景 | 1KW TPS 扣减（双 11 demo） |
+
+**为什么这么快**：
+- SoA 列式 + 顺序写 = 缓存友好
+- 预编译查询 = 无解析开销
+- 无锁并发 = 无争用
+- 物理隔离 = CPU 直接执行
+
+---
+
+**更多信息**：见 `docs/database.md`（完整设计文档）、`requirements.md` R34（需求）、`design.md` §5（架构）、`tasks.md` v0.6（实现计划）。

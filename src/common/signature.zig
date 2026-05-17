@@ -67,6 +67,7 @@ pub const FunctionKind = enum(u8) {
     ffi_wrapper,
     external,
     exported,
+    test_func,
 };
 
 const HeaderSpec = struct {
@@ -284,6 +285,7 @@ pub fn parseFunctionHeader(
         .ffi_wrapper => .{ .prefix = "@ffi_wrapper", .require_colon = true },
         .external => .{ .prefix = "@extern", .require_colon = false },
         .exported => .{ .prefix = "@export", .require_colon = true },
+        .test_func => .{ .prefix = "@test", .require_colon = true },
     };
 
     if (!std.mem.startsWith(u8, trimmed, spec.prefix)) return ParseError.InvalidFunctionSig;
@@ -300,9 +302,18 @@ pub fn parseFunctionHeader(
     if (close <= open) return ParseError.InvalidFunctionSig;
 
     const name_text = std.mem.trim(u8, after_name[0..open], " \t\r");
-    if (name_text.len == 0 or !isIdentStart(name_text[0])) return ParseError.InvalidFunctionSig;
-    for (name_text[1..]) |c| {
-        if (!isIdentChar(c)) return ParseError.InvalidFunctionSig;
+    if (name_text.len == 0) return ParseError.InvalidFunctionSig;
+
+    // For @test functions, allow string literals as names
+    if (kind == .test_func) {
+        if (name_text[0] != '"') return ParseError.InvalidFunctionSig;
+        const end_quote = std.mem.indexOfScalarPos(u8, name_text, 1, '"') orelse return ParseError.InvalidFunctionSig;
+        if (end_quote != name_text.len - 1) return ParseError.InvalidFunctionSig;
+    } else {
+        if (!isIdentStart(name_text[0])) return ParseError.InvalidFunctionSig;
+        for (name_text[1..]) |c| {
+            if (!isIdentChar(c)) return ParseError.InvalidFunctionSig;
+        }
     }
 
     const params_text = std.mem.trim(u8, after_name[open + 1 .. close], " \t\r");
@@ -591,6 +602,7 @@ test "function signature parsing is deterministic across random headers" {
             .ffi_wrapper => try writer.writeAll("@ffi_wrapper "),
             .external => try writer.writeAll("@extern "),
             .exported => try writer.writeAll("@export "),
+            .test_func => try writer.writeAll("@test "),
         }
         try writer.print("f_{d}(", .{idx});
         for (0..param_count) |pidx| {

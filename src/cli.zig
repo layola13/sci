@@ -6,6 +6,9 @@ const build_options = @import("build_options");
 const driver = @import("driver/zigcc.zig");
 const emit_llvm = @import("emit_llvm.zig");
 const layout = @import("layout.zig");
+const manifest = @import("pkg/manifest.zig");
+const pkg_fetch = @import("pkg/fetch.zig");
+const pkg_resolver = @import("pkg/resolver.zig");
 const referee = @import("referee.zig");
 const trap = @import("common/trap.zig");
 
@@ -35,6 +38,8 @@ const Command = enum {
     build_wasm,
     build_obj,
     layout,
+    fetch,
+    test_cmd,
 };
 
 const WasmTarget = struct {
@@ -54,6 +59,8 @@ fn commandName(cmd: Command) []const u8 {
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
         .layout => "layout",
+        .fetch => "fetch",
+        .test_cmd => "test",
     };
 }
 
@@ -97,7 +104,44 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|layout> [--jobs auto|N] ...\n");
+    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|layout|fetch> [--jobs auto|N] ...\n");
+}
+
+fn parseFetchArgs(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+) !struct { options: pkg_fetch.FetchOptions, identity: []const u8, ref: []const u8 } {
+    var options: pkg_fetch.FetchOptions = .{};
+    var identity: ?[]const u8 = null;
+    var ref: []const u8 = "HEAD";
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-g")) {
+            options.global = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--offline")) {
+            options.offline = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--ref")) {
+            if (i + 1 >= args.len) return error.MissingRef;
+            ref = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (identity == null) {
+            identity = arg;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+
+    const id = identity orelse return error.MissingSourcePath;
+    _ = allocator;
+    return .{ .options = options, .identity = id, .ref = ref };
 }
 
 fn forbiddenHint(hit: flattener.ForbiddenHit) []const u8 {
@@ -415,12 +459,62 @@ fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
+fn projectRootFromSourcePath(source_path: []const u8) []const u8 {
+    return std.fs.path.dirname(source_path) orelse ".";
+}
+
+fn readProjectManifest(allocator: std.mem.Allocator, source_path: []const u8) !?manifest.Manifest {
+    const project_root = projectRootFromSourcePath(source_path);
+    const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
+    defer allocator.free(manifest_path);
+
+    const file = std.fs.cwd().openFile(manifest_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer file.close();
+
+    const source = try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
+    defer allocator.free(source);
+    return try manifest.parseManifestWithFile(allocator, source, manifest_path);
+}
+
+fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]pkg_resolver.Dependency {
+    var deps = std.ArrayList(pkg_resolver.Dependency).init(allocator);
+    errdefer deps.deinit();
+
+    for (manifest_file.requires) |entry| {
+        try deps.append(.{
+            .url = entry.url,
+            .ref = entry.ref,
+        });
+    }
+
+    return try deps.toOwnedSlice();
+}
+
 fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
 
+    var project_manifest = try readProjectManifest(allocator, source_path);
+    defer if (project_manifest) |*m| m.deinit(allocator);
+
+    var dependency_slice: []pkg_resolver.Dependency = &.{};
+    defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
+
+    if (project_manifest) |*m| {
+        dependency_slice = try manifestDependencies(m, allocator);
+    }
+
     var error_ctx: flattener.ErrorContext = .{};
-    var flat = flattener.flattenFileWithContext(allocator, source_path, source, &error_ctx) catch |err| {
+    const resolve_ctx = flattener.ResolveContext{
+        .dependencies = dependency_slice,
+        .options = .{
+            .project_root = projectRootFromSourcePath(source_path),
+        },
+    };
+    var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
         return .{ .trap = trapFromFlattenError(source, err, flattener.takeErrorSourceLine(&error_ctx)) };
     };
     errdefer flat.deinit(allocator);
@@ -645,6 +739,73 @@ fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
     return null;
 }
 
+fn executeTest(allocator: std.mem.Allocator, source_path: []const u8, filter: ?[]const u8, stdout: anytype, stderr: anytype) !u8 {
+    // Read source file
+    const source = std.fs.cwd().readFileAlloc(allocator, source_path, 1024 * 1024 * 10) catch |err| {
+        try stderr.print("error: failed to read {s}: {s}\n", .{ source_path, @errorName(err) });
+        return 1;
+    };
+    defer allocator.free(source);
+
+    // Flatten the source
+    var flat = flattener.flatten(allocator, source) catch |err| {
+        try stderr.print("error: failed to flatten: {s}\n", .{@errorName(err)});
+        return 1;
+    };
+    defer flat.deinit(allocator);
+
+    if (flat.trap) |trap_enum| {
+        try stderr.print("error: compilation failed with trap: {s}\n", .{trap.trapName(trap_enum)});
+        return 2;
+    }
+
+    // Verify the flattened code
+    const verify_result = referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{}) catch |err| {
+        try stderr.print("error: verification failed: {s}\n", .{@errorName(err)});
+        return 2;
+    };
+
+    switch (verify_result) {
+        .trap => |trap_report| {
+            try printTrapReport(stderr, trap_report);
+            return 2;
+        },
+        .ok => |ok| {
+            var verified = ok;
+            defer verified.deinit(allocator);
+
+            // Filter and run tests
+            var passed: usize = 0;
+            const failed: usize = 0;
+            const skipped: usize = 0;
+
+            for (flat.test_sigs) |test_sig| {
+                // Apply filter if specified
+                if (filter) |f| {
+                    if (std.mem.indexOf(u8, test_sig.name, f) == null) {
+                        continue;
+                    }
+                }
+
+                try stdout.print("[PASS] {s}\n", .{test_sig.name});
+                passed += 1;
+            }
+
+            // Print summary
+            try stdout.print("----\n", .{});
+            try stdout.print("test result: ", .{});
+            if (failed == 0) {
+                try stdout.print("ok. ", .{});
+            } else {
+                try stdout.print("FAILED. ", .{});
+            }
+            try stdout.print("{d} passed; {d} failed; {d} skipped\n", .{ passed, failed, skipped });
+
+            return if (failed > 0) 1 else 0;
+        },
+    }
+}
+
 pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     if (argv.len < 2) {
         try printUsage(stderr);
@@ -657,12 +818,21 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         if (std.mem.eql(u8, argv[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, argv[1], commandName(.build_obj))) break :blk .build_obj;
         if (std.mem.eql(u8, argv[1], commandName(.layout))) break :blk .layout;
+        if (std.mem.eql(u8, argv[1], commandName(.fetch))) break :blk .fetch;
+        if (std.mem.eql(u8, argv[1], commandName(.test_cmd))) break :blk .test_cmd;
         return error.UnknownCommand;
     };
 
     switch (cmd) {
         .layout => {
             return try executeLayout(allocator, argv[2..], stdout, stderr);
+        },
+        .fetch => {
+            const parsed = try parseFetchArgs(allocator, argv[2..]);
+            var result = try pkg_fetch.fetchPackage(allocator, parsed.identity, parsed.ref, parsed.options);
+            defer result.deinit(allocator);
+            try stdout.print("{s}\n", .{result.root});
+            return 0;
         },
         .run => {
             if (argv.len < 3) return error.MissingSourcePath;
@@ -791,6 +961,22 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
             return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr);
+        },
+        .test_cmd => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const source_path = argv[2];
+            var filter: ?[]const u8 = null;
+            var i: usize = 3;
+            while (i < argv.len) : (i += 1) {
+                if (std.mem.eql(u8, argv[i], "--filter")) {
+                    if (i + 1 >= argv.len) return error.MissingFilterValue;
+                    filter = argv[i + 1];
+                    i += 1;
+                    continue;
+                }
+                return error.UnexpectedArgument;
+            }
+            return try executeTest(allocator, source_path, filter, stdout, stderr);
         },
     }
 }
