@@ -65,6 +65,16 @@ const FmtHandle = struct {
     }
 };
 
+const EnvHandle = struct {
+    allocator: std.mem.Allocator,
+    bytes: []u8,
+
+    fn deinit(self: *EnvHandle) void {
+        if (self.bytes.len != 0) self.allocator.free(self.bytes);
+        self.bytes = &.{};
+    }
+};
+
 const TimeDate = extern struct {
     unix_ms: i64,
     unix_ns: i64,
@@ -150,6 +160,7 @@ const Resource = union(enum) {
     metadata: MetadataHandle,
     net_addr: NetAddrHandle,
     fmt: FmtHandle,
+    env: EnvHandle,
     owned_fd: OwnedFdHandle,
     terminal_session: TerminalSession,
     process: ProcessHandle,
@@ -163,6 +174,7 @@ const Resource = union(enum) {
             .metadata => |*metadata| metadata.deinit(),
             .net_addr => |*addr| addr.deinit(),
             .fmt => |*fmt| fmt.deinit(),
+            .env => |*env| env.deinit(),
             .owned_fd => |*fd| fd.deinit(),
             .terminal_session => |*session| try session.deinit(),
             .process => |*proc| proc.deinit(),
@@ -514,12 +526,12 @@ fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessAr
 }
 
 fn envpFromCurrentProcess(arena: std.mem.Allocator) ![:null]const ?[*:0]const u8 {
-    const environ = try arena.alloc(?[*:0]const u8, std.os.environ.len + 1);
+    const env_block = try arena.alloc(?[*:0]const u8, std.os.environ.len + 1);
     for (std.os.environ, 0..) |entry, i| {
-        environ[i] = entry;
+        env_block[i] = entry;
     }
-    environ[std.os.environ.len] = null;
-    return environ[0 .. std.os.environ.len :null];
+    env_block[std.os.environ.len] = null;
+    return env_block[0 .. std.os.environ.len :null];
 }
 
 fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]u8 {
@@ -698,8 +710,51 @@ fn formatBytes(bytes: []const u8) ![]u8 {
     return std.heap.page_allocator.dupe(u8, bytes);
 }
 
+fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
+    var bytes = try std.heap.page_allocator.alloc(u8, left.len + right.len);
+    if (left.len != 0) std.mem.copyForwards(u8, bytes[0..left.len], left);
+    if (right.len != 0) std.mem.copyForwards(u8, bytes[left.len .. left.len + right.len], right);
+    return bytes;
+}
+
 fn openOwnedBuffer(bytes: []u8) !u64 {
     return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } });
+}
+
+fn openOwnedEnvBuffer(bytes: []u8) !u64 {
+    return registerResource(.{ .env = .{ .allocator = std.heap.page_allocator, .bytes = bytes } });
+}
+
+fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
+    const key = try constBytes(key_ptr, key_len);
+    if (key.len == 0) return error.InvalidArgument;
+    if (std.mem.indexOfScalar(u8, key, 0) != null) return error.InvalidArgument;
+    if (std.mem.indexOfScalar(u8, key, '=') != null) return error.InvalidArgument;
+    return key;
+}
+
+fn envValueFromCurrentProcess(key: []const u8) ?[]const u8 {
+    if (builtin.is_test) {
+        for (std.os.environ) |line| {
+            const entry = std.mem.span(line);
+            const eq = std.mem.indexOfScalar(u8, entry, '=') orelse continue;
+            if (!std.mem.eql(u8, entry[0..eq], key)) continue;
+            return entry[eq + 1 ..];
+        }
+        return null;
+    }
+
+    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch return null;
+    defer std.heap.page_allocator.free(key_z);
+
+    const getenv = @extern(*const fn ([*:0]const u8) callconv(.c) ?[*:0]u8, .{ .name = "getenv" });
+    const value = getenv(key_z.ptr) orelse return null;
+    return std.mem.span(value);
+}
+
+fn envGetOwned(key: []const u8) ![]u8 {
+    const value = envValueFromCurrentProcess(key) orelse return error.FileNotFound;
+    return std.heap.page_allocator.dupe(u8, value);
 }
 
 pub export fn sa_std_version() u32 {
@@ -1428,6 +1483,49 @@ pub export fn sa_fmt_bool(value: bool) u64 {
 pub export fn sa_fmt_bytes(buf: ?[*]const u8, len: u64) u64 {
     const bytes = constBytes(buf, len) catch return 0;
     const owned = formatBytes(bytes) catch return 0;
+    return openOwnedBuffer(owned) catch return 0;
+}
+
+pub export fn sa_env_get(key_ptr: ?[*]const u8, key_len: u64) u64 {
+    const key = envKeyBytes(key_ptr, key_len) catch return 0;
+    const owned = envGetOwned(key) catch return 0;
+    return openOwnedEnvBuffer(owned) catch return 0;
+}
+
+pub export fn sa_env_has(key_ptr: ?[*]const u8, key_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const present = envValueFromCurrentProcess(key) != null;
+    return finish(if (present) SA_STD_OK else SA_STD_ERR_NOT_FOUND);
+}
+
+pub export fn sa_env_buffer_data(buffer: u64) ?[*]u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(buffer) orelse return null;
+    return switch (resource.*) {
+        .env => |*env| env.bytes.ptr,
+        else => null,
+    };
+}
+
+pub export fn sa_env_buffer_len(buffer: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(buffer) orelse return 0;
+    return switch (resource.*) {
+        .env => |env| @as(u64, @intCast(env.bytes.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_env_buffer_free(handle: u64) i32 {
+    return sa_std_close(handle);
+}
+
+pub export fn sa_string_concat(left_ptr: ?[*]const u8, left_len: u64, right_ptr: ?[*]const u8, right_len: u64) u64 {
+    const left = constBytes(left_ptr, left_len) catch return 0;
+    const right = constBytes(right_ptr, right_len) catch return 0;
+    const owned = stringConcat(left, right) catch return 0;
     return openOwnedBuffer(owned) catch return 0;
 }
 

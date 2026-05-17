@@ -13,6 +13,21 @@ fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     try file.writeAll(source);
 }
 
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
+    return try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+    });
+}
+
+fn runCommandWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const std.process.EnvMap) !std.process.Child.RunResult {
+    return try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+        .env_map = env_map,
+    });
+}
+
 fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
     return try std.process.Child.run(.{
         .allocator = allocator,
@@ -576,8 +591,222 @@ test "sa_std string_format helpers are concrete and verifiable" {
 
     var string_format_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/string_format.saasm", string_format_src);
     defer string_format_flat.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(usize, 0), string_format_flat.instructions.len);
-    try std.testing.expectEqual(@as(usize, 0), string_format_flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 9), string_format_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 9), string_format_flat.function_sigs.len);
+}
+
+test "sa_std path helpers are concrete and verifiable" {
+    const path_src = try readFileAlloc(std.testing.allocator, "sa_std/path.saasm");
+    defer std.testing.allocator.free(path_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"core/slice.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"core/slice.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"string.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_BASENAME"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_DIRNAME"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_STEM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_EXT"));
+
+    var path_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/path.saasm", path_src);
+    defer path_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), path_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), path_flat.function_sigs.len);
+}
+
+test "sa_std path module exercises real string macros" {
+    const path_src = try readFileAlloc(std.testing.allocator, "sa_std/path.saasm");
+    defer std.testing.allocator.free(path_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_BASENAME"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_DIRNAME"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_STEM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_EXT"));
+
+    var path_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/path.saasm", path_src);
+    defer path_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), path_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), path_flat.function_sigs.len);
+}
+
+test "sa_std string concat runtime helper is usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t *left = (const uint8_t *)"hello, ";
+        \\    const uint8_t *right = (const uint8_t *)"world";
+        \\    uint64_t handle = sa_string_concat(left, 7, right, 5);
+        \\    uint64_t len = 0;
+        \\    uint8_t *bytes = NULL;
+        \\    if (handle == 0) return 2;
+        \\    len = sa_fmt_buffer_len(handle);
+        \\    if (len != 12) return 3;
+        \\    bytes = sa_fmt_buffer_data(handle);
+        \\    if (bytes == NULL) return 4;
+        \\    if (memcmp(bytes, "hello, world", 12) != 0) return 5;
+        \\    if (sa_fmt_buffer_free(handle) != SA_STD_OK) return 6;
+        \\    puts("sa_std string concat ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "main.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "main.c",
+        "libsa_std.a",
+        "-o",
+        "sa_std_string_concat_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_string_concat_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+    try std.testing.expectEqualStrings("sa_std string concat ok\n", run_result.stdout);
+}
+
+test "sa_std env helpers are concrete and verifiable" {
+    const env_src = try readFileAlloc(std.testing.allocator, "sa_std/env.saasm");
+    defer std.testing.allocator.free(env_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "@import \"env.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "[MACRO] ENV_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "[MACRO] ENV_HAS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "[MACRO] ENV_BUFFER_FREE"));
+
+    var env_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/env.saasm", env_src);
+    defer env_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 5), env_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 5), env_flat.function_sigs.len);
+}
+
+test "sa_std env runtime helper is usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t key[] = "PATH";
+        \\    uint64_t handle = 0;
+        \\    uint8_t *data = NULL;
+        \\    uint64_t len = 0;
+        \\
+        \\    if (sa_env_has(key, sizeof(key) - 1) != SA_STD_OK) return 2;
+        \\    handle = sa_env_get(key, sizeof(key) - 1);
+        \\    if (handle == 0) return 3;
+        \\    len = sa_env_buffer_len(handle);
+        \\    if (len == 0) return 4;
+        \\    data = sa_env_buffer_data(handle);
+        \\    if (data == NULL) return 5;
+        \\    if (memchr(data, ':', len) == NULL) return 6;
+        \\    if (sa_env_buffer_free(handle) != SA_STD_OK) return 7;
+        \\    puts("sa_std env ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "main.c", c_source);
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "main.c",
+        "libsa_std.a",
+        "-o",
+        "sa_std_env_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_env_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+    try std.testing.expectEqualStrings("sa_std env ok\n", run_result.stdout);
 }
 
 test "sa_std hashmap helpers are concrete and verifiable" {

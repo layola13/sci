@@ -7,15 +7,15 @@
 - [x] HashMap 开放寻址恢复
 
 ## I/O
-- [ ] `sa_std/io/buf_reader.saasm`
-- [ ] `sa_std/io/buf_writer.saasm`
-- [ ] `sa_std/path.saasm`
+- [x] `sa_std/io/buf_reader.saasm`
+- [x] `sa_std/io/buf_writer.saasm`
+- [x] `sa_std/path.saasm`
 
 ## 运行时 / 辅助
-- [ ] `sa_std/env.saasm`
-- [ ] `sa_std/math.saasm`
-- [ ] `sa_std/string_format.saasm`
-- [ ] `sa_std/sa.mod`（替代旧 `sa.pkg`，按 v0.5 零信任包格式产出）
+- [x] `sa_std/env.saasm`
+- [x] `sa_std/math.saasm`
+- [x] `sa_std/string_format.saasm`
+- [ ] `sa_std/sa.mod`（包管理项，后置到 v0.5；不计入当前标准库收口）
 
 ## 零信任包管理（v0.5，R31 + R31a–R31g）
 
@@ -102,8 +102,8 @@
 
 ### P1: 现有功能补齐
 - [ ] SAX Phase 1 MVP (~1500-2000 行)
-- [ ] `sa_std` 剩余模块 (buf_reader, math, env)
-- [ ] 零信任包管理 v0.5 (task 35)
+- [x] `sa_std` 收口完成（buf_reader, buf_writer, path, env, math, string_format）
+- [ ] 零信任包管理 v0.5 (`sa.mod` / task 35)
 
 ### P2: `llvm2sa` 管道 (在网络引擎稳定后启动)
 
