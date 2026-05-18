@@ -220,6 +220,7 @@ pub const Instruction = struct {
     kind: InstKind,
     source_line: u32,
     expanded_line: u32,
+    package_identity: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
     op_kind: ?OpKind = null,
     operands: [4]Operand,
@@ -238,6 +239,7 @@ pub fn makeInstruction(kind: InstKind, source_line: u32, expanded_line: u32, ups
         .kind = kind,
         .source_line = source_line,
         .expanded_line = expanded_line,
+        .package_identity = null,
         .upstream_loc = upstream_loc,
         .op_kind = null,
         .operands = .{ operandNone(), operandNone(), operandNone(), operandNone() },
@@ -260,6 +262,7 @@ test "instruction layout keeps four operands and tags" {
     const inst = makeInstruction(.alloc, 7, 11, null, "x = alloc 8");
     try std.testing.expectEqual(@as(u32, 7), inst.source_line);
     try std.testing.expectEqual(@as(u32, 11), inst.expanded_line);
+    try std.testing.expect(inst.package_identity == null);
     try std.testing.expect(inst.upstream_loc == null);
     try std.testing.expect(inst.op_kind == null);
     try std.testing.expectEqual(@as(usize, 4), inst.operands.len);

@@ -164,7 +164,7 @@ pub fn wasmValueTypeForPrim(ty: sig.PrimType, target: Target) MapError!ValueType
     return switch (ty) {
         .void => error.InvalidType,
         .i1, .i8, .i16, .i32, .u8, .u16, .u32 => .i32,
-        .i64, .u64 => .i64,
+        .i64, .u64, .blob_handle => .i64,
         .f32 => .f32,
         .f64 => .f64,
         .ptr => pointerValueType(target),
@@ -213,7 +213,7 @@ fn isSignedIntegerPrim(ty: sig.PrimType) bool {
 }
 
 fn isIntegerLikePrim(ty: sig.PrimType) bool {
-    return isSignedIntegerPrim(ty) or isUnsignedIntegerPrim(ty) or ty == .ptr;
+    return isSignedIntegerPrim(ty) or isUnsignedIntegerPrim(ty) or ty == .ptr or ty == .blob_handle;
 }
 
 fn isSimdPrim(ty: sig.PrimType) bool {
@@ -233,7 +233,7 @@ fn naturalAlignLog2ForPrim(ty: sig.PrimType, target: Target) u32 {
         .i1, .i8, .u8 => 0,
         .i16, .u16 => 1,
         .i32, .u32, .f32 => 2,
-        .i64, .u64, .f64 => 3,
+        .i64, .u64, .f64, .blob_handle => 3,
         .ptr => switch (target) {
             .wasm32 => 2,
             .wasm64 => 3,
@@ -281,7 +281,7 @@ fn loadOpcodeForPrim(ty: sig.PrimType, target: Target) MapError!Opcode {
         .i16 => .i32_load16_s,
         .u16 => .i32_load16_u,
         .i32, .u32 => .i32_load,
-        .i64, .u64 => .i64_load,
+        .i64, .u64, .blob_handle => .i64_load,
         .ptr => switch (pointerValueType(target)) {
             .i32 => .i32_load,
             .i64 => .i64_load,
@@ -299,7 +299,7 @@ fn storeOpcodeForPrim(ty: sig.PrimType, target: Target) MapError!Opcode {
         .i1, .i8, .u8 => .i32_store8,
         .i16, .u16 => .i32_store16,
         .i32, .u32 => .i32_store,
-        .i64, .u64 => .i64_store,
+        .i64, .u64, .blob_handle => .i64_store,
         .ptr => switch (pointerValueType(target)) {
             .i32 => .i32_store,
             .i64 => .i64_store,

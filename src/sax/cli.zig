@@ -4,7 +4,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const sax = @import("sax/mod.zig");
+const sax = @import("mod.zig");
 
 pub const SaxCommand = enum {
     build,

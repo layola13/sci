@@ -66,7 +66,7 @@ fn fieldInfo(ty: sig.PrimType, target_bits: u16) LayoutError!FieldInfo {
         .i8, .u8 => .{ .size = 1, .alignment = 1 },
         .i16, .u16 => .{ .size = 2, .alignment = 2 },
         .i32, .u32, .f32 => .{ .size = 4, .alignment = 4 },
-        .i64, .u64, .f64 => .{ .size = 8, .alignment = 8 },
+        .i64, .u64, .f64, .blob_handle => .{ .size = 8, .alignment = 8 },
         .v128 => .{ .size = 16, .alignment = 16 },
         .ptr => switch (target_bits) {
             32 => .{ .size = 4, .alignment = 4 },

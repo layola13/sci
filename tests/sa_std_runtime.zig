@@ -38,6 +38,106 @@ fn writeProcessArgv(
     };
 }
 
+test "sa_std udp loopback and address accessors are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t *bind_host = (const uint8_t *)"127.0.0.1";
+        \\    const uint8_t *send_host = (const uint8_t *)"127.0.0.1";
+        \\    const uint8_t payload[] = "udp-loopback";
+        \\    uint64_t socket_handle = 0;
+        \\    uint64_t recv_addr_handle = 0;
+        \\    uint64_t local_addr_handle = 0;
+        \\    uint64_t written = 0;
+        \\    uint64_t read_count = 0;
+        \\    uint8_t buffer[64] = {0};
+        \\    const uint8_t *addr_host = 0;
+        \\    uint64_t addr_host_len = 0;
+        \\    uint16_t addr_port = 0;
+        \\    uint32_t addr_family = 0;
+        \\
+        \\    if (sa_std_net_udp_bind(bind_host, 9, 0, &socket_handle) != SA_STD_OK) return 2;
+        \\    if (socket_handle == 0) return 3;
+        \\    if (sa_std_net_udp_local_addr(socket_handle, &local_addr_handle) != SA_STD_OK) return 4;
+        \\    if (local_addr_handle == 0) return 5;
+        \\    addr_port = sa_net_addr_port(local_addr_handle);
+        \\    if (addr_port == 0) return 6;
+        \\    if (sa_std_net_udp_send_to(socket_handle, payload, sizeof(payload) - 1, send_host, 9, addr_port, &written) != SA_STD_OK) return 7;
+        \\    if (written != sizeof(payload) - 1) return 5;
+        \\    if (sa_std_net_udp_recv_from(socket_handle, buffer, sizeof(buffer), &read_count, &recv_addr_handle) != SA_STD_OK) return 8;
+        \\    if (read_count != sizeof(payload) - 1) return 9;
+        \\    if (recv_addr_handle == 0) return 10;
+        \\    addr_host = sa_net_addr_host(recv_addr_handle);
+        \\    addr_host_len = sa_net_addr_host_len(recv_addr_handle);
+        \\    addr_port = sa_net_addr_port(recv_addr_handle);
+        \\    addr_family = sa_net_addr_family(recv_addr_handle);
+        \\    if (addr_host == 0 || addr_host_len == 0) return 11;
+        \\    if (memcmp(buffer, payload, sizeof(payload) - 1) != 0) return 12;
+        \\    if (addr_port == 0) return 13;
+        \\    if (addr_family != 2 && addr_family != 10) return 14;
+        \\    if (sa_net_addr_free(recv_addr_handle) != SA_STD_OK) return 15;
+        \\    if (sa_net_addr_free(local_addr_handle) != SA_STD_OK) return 16;
+        \\    if (sa_net_udp_close(socket_handle) != SA_STD_OK) return 17;
+        \\    puts("sa_std udp ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "udp.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "udp.c",
+        "libsa_std.a",
+        "-o",
+        "sa_std_udp_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_udp_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std udp ok"));
+}
+
 test "sa_std static library exposes a usable C ABI" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

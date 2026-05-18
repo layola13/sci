@@ -33,6 +33,18 @@ pub const Trap = enum(u8) {
     invalid_atomic_ordering,
     atomic_ordering_mismatch,
     test_func_signature_mismatch,
+    db_capability_escalation,
+    db_memory_guard_violation,
+    db_blob_arena_oom,
+    db_concurrency_conflict,
+    db_schema_mismatch,
+    db_cursor_overflow,
+    db_column_type_mismatch,
+    db_query_hash_unknown,
+    db_blob_handle_invalid,
+    db_snapshot_corrupted,
+    db_duplicate_register,
+    db_forbidden_sql_string,
 };
 
 pub const TrapReport = struct {
@@ -94,6 +106,18 @@ pub fn trapName(trap: Trap) []const u8 {
         .invalid_atomic_ordering => "InvalidAtomicOrdering",
         .atomic_ordering_mismatch => "AtomicOrderingMismatch",
         .test_func_signature_mismatch => "TestFuncSignatureMismatch",
+        .db_capability_escalation => "DbCapabilityEscalation",
+        .db_memory_guard_violation => "DbMemoryGuardViolation",
+        .db_blob_arena_oom => "DbBlobArenaOOM",
+        .db_concurrency_conflict => "DbConcurrencyConflict",
+        .db_schema_mismatch => "DbSchemaMismatch",
+        .db_cursor_overflow => "DbCursorOverflow",
+        .db_column_type_mismatch => "DbColumnTypeMismatch",
+        .db_query_hash_unknown => "DbQueryHashUnknown",
+        .db_blob_handle_invalid => "DbBlobHandleInvalid",
+        .db_snapshot_corrupted => "DbSnapshotCorrupted",
+        .db_duplicate_register => "DbDuplicateRegister",
+        .db_forbidden_sql_string => "DbForbiddenSqlString",
     };
 }
 
@@ -129,6 +153,18 @@ pub fn trapCode(trap: Trap) u32 {
         .invalid_atomic_ordering => 1028,
         .atomic_ordering_mismatch => 1029,
         .test_func_signature_mismatch => 1030,
+        .db_capability_escalation => 1031,
+        .db_memory_guard_violation => 1032,
+        .db_blob_arena_oom => 1033,
+        .db_concurrency_conflict => 1034,
+        .db_schema_mismatch => 1035,
+        .db_cursor_overflow => 1036,
+        .db_column_type_mismatch => 1037,
+        .db_query_hash_unknown => 1038,
+        .db_blob_handle_invalid => 1039,
+        .db_snapshot_corrupted => 1040,
+        .db_duplicate_register => 1041,
+        .db_forbidden_sql_string => 1042,
     };
 }
 
@@ -374,4 +410,11 @@ test "trap json serialization falls back to owned buffers" {
         "{\"trap\":\"MemoryLeak\",\"trap_code\":1012,\"line\":12,\"source_line\":9,\"source_text\":\"result = load node+0 as i32\",\"original_text\":\"result = load node+0 as i32\",\"register\":null,\"registers\":[],\"expected_mask\":null,\"actual_mask\":null,\"expected_mask_name\":null,\"actual_mask_name\":null,\"upstream_loc\":null,\"function\":null,\"is_ffi_wrapper\":null,\"message\":\"live registers remain at function exit\",\"hint\":null}",
         list.items,
     );
+}
+
+test "db trap names and codes are stable" {
+    try std.testing.expectEqualStrings("DbCapabilityEscalation", trapName(.db_capability_escalation));
+    try std.testing.expectEqualStrings("DbForbiddenSqlString", trapName(.db_forbidden_sql_string));
+    try std.testing.expectEqual(@as(u32, 1031), trapCode(.db_capability_escalation));
+    try std.testing.expectEqual(@as(u32, 1042), trapCode(.db_forbidden_sql_string));
 }

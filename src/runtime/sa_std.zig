@@ -53,7 +53,44 @@ const NetAddrHandle = struct {
         if (self.host.len != 0) self.allocator.free(self.host);
         self.host = &.{};
     }
+
+    fn init(allocator: std.mem.Allocator, address: std.net.Address) !NetAddrHandle {
+        const host = try addressHostText(allocator, address);
+        return .{
+            .allocator = allocator,
+            .host = host,
+            .addr = address,
+        };
+    }
 };
+
+fn addressHostText(allocator: std.mem.Allocator, address: std.net.Address) ![]u8 {
+    return switch (address.any.family) {
+        std.posix.AF.INET => blk: {
+            const ip = @as(*const [4]u8, @ptrCast(&address.in.sa.addr)).*;
+            break :blk try std.fmt.allocPrint(allocator, "{}.{}.{}.{}", .{ ip[0], ip[1], ip[2], ip[3] });
+        },
+        std.posix.AF.INET6 => blk: {
+            const full = try std.fmt.allocPrint(allocator, "{}", .{address});
+            if (full.len >= 4 and full[0] == '[') {
+                const closing = std.mem.lastIndexOfScalar(u8, full, ']') orelse return full;
+                if (closing + 2 <= full.len and full[closing + 1] == ':') {
+                    const host = try allocator.dupe(u8, full[1..closing]);
+                    allocator.free(full);
+                    break :blk host;
+                }
+            }
+            if (std.mem.lastIndexOfScalar(u8, full, ':')) |sep| {
+                const host = try allocator.dupe(u8, full[0..sep]);
+                allocator.free(full);
+                break :blk host;
+            }
+            break :blk full;
+        },
+        std.posix.AF.UNIX => try allocator.dupe(u8, std.mem.sliceTo(&address.un.path, 0)),
+        else => try allocator.dupe(u8, ""),
+    };
+}
 
 const FmtHandle = struct {
     allocator: std.mem.Allocator,
@@ -85,6 +122,14 @@ const TimeDate = extern struct {
     minute: u8,
     second: u8,
     millisecond: u16,
+};
+
+const SaNetAddr = extern struct {
+    family: u32,
+    port: u32,
+    host_ptr: [*]u8,
+    host_len: u64,
+    scope_id: u64,
 };
 
 const OwnedFdHandle = struct {
@@ -156,6 +201,7 @@ const Resource = union(enum) {
     file: std.fs.File,
     tcp_stream: std.net.Stream,
     tcp_listener: std.net.Server,
+    udp_socket: std.posix.socket_t,
     buffer: BufferHandle,
     metadata: MetadataHandle,
     net_addr: NetAddrHandle,
@@ -170,6 +216,7 @@ const Resource = union(enum) {
             .file => |file| file.close(),
             .tcp_stream => |stream| stream.close(),
             .tcp_listener => |*server| server.deinit(),
+            .udp_socket => |fd| std.posix.close(fd),
             .buffer => |*buffer| buffer.deinit(),
             .metadata => |*metadata| metadata.deinit(),
             .net_addr => |*addr| addr.deinit(),
@@ -365,6 +412,7 @@ fn handleToFd(handle: u64) !std.posix.fd_t {
                 .file => |file| file.handle,
                 .tcp_stream => |stream| stream.handle,
                 .tcp_listener => |server| server.stream.handle,
+                .udp_socket => |fd| fd,
                 .owned_fd => |fd| fd.fd,
                 .terminal_session => |session| session.fd,
                 else => error.InvalidHandle,
@@ -1416,7 +1464,25 @@ pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) i32 { r
 pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(stream, out, len); }
 pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(stream, out, len); }
 pub export fn sa_net_tcp_stream_flush(stream: u64) i32 { _ = stream; return finish(SA_STD_OK); }
-pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 { _ = stream; return finish(SA_STD_ERR_UNSUPPORTED); }
+pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .tcp_stream => |s| {
+            var addr: std.net.Address = undefined;
+            var len: std.posix.socklen_t = @sizeOf(std.net.Address);
+            std.posix.getpeername(s.handle, &addr.any, &len) catch |err| return finishErr(err);
+            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
+            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                net_addr.deinit();
+                return finishErr(err);
+            };
+            return finish(@as(i32, @intCast(handle)));
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
 pub export fn sa_net_tcp_stream_shutdown(stream: u64, how: u32) i32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -1448,16 +1514,184 @@ pub export fn sa_net_tcp_listener_accept(listener: u64) i32 {
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(handle));
 }
-pub export fn sa_net_tcp_listener_local_addr(listener: u64) i32 { _ = listener; return finish(SA_STD_ERR_UNSUPPORTED); }
+pub export fn sa_net_tcp_listener_local_addr(listener: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .tcp_listener => |server| {
+            var net_addr = NetAddrHandle.init(std.heap.page_allocator, server.listen_address) catch |err| return finishErr(err);
+            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                net_addr.deinit();
+                return finishErr(err);
+            };
+            return finish(@as(i32, @intCast(handle)));
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
 pub export fn sa_net_tcp_listener_close(listener: u64) i32 { return sa_std_close(listener); }
-pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 { _ = host_ptr; _ = host_len; _ = port; return finish(SA_STD_ERR_UNSUPPORTED); }
-pub export fn sa_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 { _ = socket; _ = buf; _ = len; _ = host_ptr; _ = host_len; _ = port; return finish(SA_STD_ERR_UNSUPPORTED); }
-pub export fn sa_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 { _ = socket; _ = out; _ = cap; if (out_addr) |ptr| ptr.* = 0; return finish(SA_STD_ERR_UNSUPPORTED); }
+pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const host = constBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const port16 = portFromU32(port) catch |err| return finishErr(err);
+    const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
+    const fd = std.posix.socket(address.any.family, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP) catch |err| return finishErr(err);
+    errdefer std.posix.close(fd);
+    var bind_addr = address;
+    std.posix.bind(fd, &bind_addr.any, bind_addr.getOsSockLen()) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const handle = registerResourceLocked(.{ .udp_socket = fd }) catch |err| {
+        std.posix.close(fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .udp_socket => |fd| {
+            var addr: std.net.Address = undefined;
+            var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+            std.posix.getsockname(fd, &addr.any, &addr_len) catch |err| return finishErr(err);
+            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
+            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                net_addr.deinit();
+                return finishErr(err);
+            };
+            handle_ptr.* = handle;
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+    const host = constBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const port16 = portFromU32(port) catch |err| return finishErr(err);
+    const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const fd = handleToFd(socket) catch |err| return finishErr(err);
+    const written = std.posix.sendto(fd, bytes, 0, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    written_ptr.* = @as(u64, @intCast(written));
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const fd = handleToFd(socket) catch |err| return finishErr(err);
+    var addr: std.net.Address = undefined;
+    var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    const read = std.posix.recvfrom(fd, buffer, 0, &addr.any, &addr_len) catch |err| return finishErr(err);
+    read_ptr.* = @as(u64, @intCast(read));
+    if (out_addr) |ptr| {
+        var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
+        const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+            net_addr.deinit();
+            return finishErr(err);
+        };
+        ptr.* = handle;
+    }
+    return finish(SA_STD_OK);
+}
+pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    var handle: u64 = 0;
+    const status = sa_std_net_udp_bind(host_ptr, host_len, port, &handle);
+    if (status != SA_STD_OK) return status;
+    return @as(i32, @intCast(handle));
+}
+pub export fn sa_net_udp_local_addr(socket: u64) i32 {
+    var handle: u64 = 0;
+    const status = sa_std_net_udp_local_addr(socket, &handle);
+    if (status != SA_STD_OK) return status;
+    return @as(i32, @intCast(handle));
+}
+pub export fn sa_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    var written: u64 = 0;
+    const status = sa_std_net_udp_send_to(socket, buf, len, host_ptr, host_len, port, &written);
+    if (status != SA_STD_OK) return status;
+    return @as(i32, @intCast(written));
+}
+pub export fn sa_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_udp_recv_from(socket, out, cap, &read, out_addr);
+    if (status != SA_STD_OK) return status;
+    return @as(i32, @intCast(read));
+}
 pub export fn sa_net_udp_close(socket: u64) i32 { return sa_std_close(socket); }
-pub export fn sa_net_addr_host(addr: u64) i32 { _ = addr; return finish(SA_STD_ERR_UNSUPPORTED); }
-pub export fn sa_net_addr_host_len(addr: u64) i32 { _ = addr; return finish(SA_STD_ERR_UNSUPPORTED); }
-pub export fn sa_net_addr_port(addr: u64) i32 { _ = addr; return finish(SA_STD_ERR_UNSUPPORTED); }
-pub export fn sa_net_addr_family(addr: u64) i32 { _ = addr; return finish(SA_STD_ERR_UNSUPPORTED); }
+pub export fn sa_net_addr_host(addr: u64) ?[*]u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return null;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| net_addr.host.ptr,
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return null;
+        },
+    };
+}
+pub export fn sa_net_addr_host_len(addr: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| @as(u64, @intCast(net_addr.host.len)),
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
+pub export fn sa_net_addr_port(addr: u64) u16 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| net_addr.addr.getPort(),
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
+pub export fn sa_net_addr_family(addr: u64) u32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| @as(u32, @intCast(net_addr.addr.any.family)),
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
 pub export fn sa_net_addr_free(addr: u64) i32 { return sa_std_close(addr); }
 
 pub export fn sa_fmt_i64(value: i64, base: u32) u64 {

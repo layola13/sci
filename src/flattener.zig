@@ -64,6 +64,7 @@ pub const SourceLine = struct {
     line_no: u32,
     text: []const u8,
     classified: ClassifiedLine,
+    package_identity: ?[]const u8 = null,
 };
 
 pub const ErrorContext = struct {
@@ -82,15 +83,28 @@ pub fn takeErrorSourceLine(error_ctx: *ErrorContext) ?u32 {
     return line_no;
 }
 
+fn appendExpandedLine(
+    out: *std.ArrayList(u8),
+    line_package_identities: *std.ArrayList(?[]const u8),
+    text: []const u8,
+    package_identity: ?[]const u8,
+) !void {
+    try out.appendSlice(text);
+    try out.append('\n');
+    try line_package_identities.append(package_identity);
+}
+
 const ImportExpansion = struct {
     source: []u8,
     active_paths: std.StringHashMap(void),
     seen_paths: std.StringHashMap(void),
     seen_package_identities: std.StringHashMap(void),
+    line_package_identities: std.ArrayList(?[]const u8),
     owned_paths: std.ArrayList([]u8),
     layout_versions: std.ArrayList(LayoutVersion),
 
     fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
+        self.line_package_identities.deinit();
         for (self.owned_paths.items) |path| {
             allocator.free(path);
         }
@@ -118,6 +132,7 @@ pub const FlattenResult = struct {
     symbols: SymbolTable,
     loc_table: LocTable,
     layout_versions: []LayoutVersion,
+    package_identities: std.StringHashMap(void),
     owned_text: [][]const u8,
     trap: ?Trap = null,
 
@@ -128,7 +143,11 @@ pub const FlattenResult = struct {
         allocator.free(self.loc_table);
         for (self.layout_versions) |*layout_version| layout_version.deinit(allocator);
         allocator.free(self.layout_versions);
+        var pkg_it = self.package_identities.iterator();
+        while (pkg_it.next()) |entry| allocator.free(entry.key_ptr.*);
+        self.package_identities.deinit();
         for (self.instructions) |item| {
+            if (item.package_identity) |identity| allocator.free(identity);
             if (item.upstream_loc) |loc| allocator.free(loc.file);
             if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
         }
@@ -451,6 +470,7 @@ fn emitParsedLine(
     const_decls: *std.ArrayList(ConstDecl),
     function_sigs: *std.ArrayList(FunctionSig),
     owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
 ) !void {
     const classified = classifier.classifyLine(raw_line);
     switch (classified.kind) {
@@ -543,6 +563,9 @@ fn emitParsedLine(
             try appendNullLoc(loc_table);
             const raw_copy = try ownText(allocator, owned_text, raw_line);
             var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
+            if (current_package_identity) |identity| {
+                inst.package_identity = try allocator.dupe(u8, identity);
+            }
             inst.operands[0] = .{ .symbol = name_id };
             inst.operands[1] = .{ .func = name_id };
             try instructions.append(inst);
@@ -553,6 +576,9 @@ fn emitParsedLine(
             const inst_loc = try consumePendingLoc(loc_table, pending_loc);
             const raw_copy = try ownText(allocator, owned_text, raw_line);
             var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
+            if (current_package_identity) |identity| {
+                inst.package_identity = try allocator.dupe(u8, identity);
+            }
             switch (classified.inst_form.?) {
                 .alloc => {
                     const dst = try symbols.intern(classified.parts[0]);
@@ -876,6 +902,7 @@ fn emitRange(
     function_sigs: *std.ArrayList(FunctionSig),
     owned_text: *std.ArrayList([]const u8),
     error_ctx: ?*ErrorContext,
+    current_package_identity: ?[]const u8,
 ) !void {
     if (depth > 256) return error.MacroRecursionLimit;
 
@@ -883,6 +910,7 @@ fn emitRange(
     while (idx < end) : (idx += 1) {
         const line = lines[idx];
         const source_line = source_line_override orelse line.line_no;
+        const effective_package_identity = line.package_identity orelse current_package_identity;
         recordErrorSourceLine(error_ctx, source_line);
 
         switch (line.classified.kind) {
@@ -912,9 +940,9 @@ fn emitRange(
                 if (should_render) {
                     const rendered = try renderWithReplacements(allocator, line.text, replacements);
                     try owned_text.append(rendered);
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity);
                 } else {
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, const_decls, function_sigs, owned_text);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity);
                 }
             },
             .macro_start => {
@@ -967,6 +995,7 @@ fn emitRange(
                         function_sigs,
                         owned_text,
                         error_ctx,
+                        effective_package_identity,
                     );
                 }
 
@@ -1012,6 +1041,7 @@ fn emitRange(
                     function_sigs,
                     owned_text,
                     error_ctx,
+                    effective_package_identity,
                 );
             },
         }
@@ -1050,17 +1080,24 @@ fn collectLocTableEntries(
     return try table.toOwnedSlice();
 }
 
-pub fn scanSource(allocator: std.mem.Allocator, source: []const u8) ![]SourceLine {
+pub fn scanSource(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    line_package_identities: []const ?[]const u8,
+) ![]SourceLine {
     var lines = std.ArrayList(SourceLine).init(allocator);
     errdefer lines.deinit();
 
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
     while (iterator.next()) |raw_line| : (line_no += 1) {
+        const idx: usize = @intCast(line_no - 1);
+        const package_identity = if (idx < line_package_identities.len) line_package_identities[idx] else null;
         try lines.append(.{
             .line_no = line_no,
             .text = raw_line,
             .classified = classifier.classifyLine(raw_line),
+            .package_identity = package_identity,
         });
     }
 
@@ -1134,13 +1171,13 @@ fn rememberPackageIdentity(
     allocator: std.mem.Allocator,
     seen_package_identities: *std.StringHashMap(void),
     package_identity: []const u8,
-) !bool {
-    if (seen_package_identities.contains(package_identity)) return false;
+) ![]const u8 {
+    if (seen_package_identities.getKeyPtr(package_identity)) |key_ptr| return key_ptr.*;
 
     const copy = try allocator.dupe(u8, package_identity);
     errdefer allocator.free(copy);
     try seen_package_identities.put(copy, {});
-    return true;
+    return copy;
 }
 
 fn containsText(items: []const []const u8, needle: []const u8) bool {
@@ -1236,6 +1273,7 @@ fn rewritePackageLayoutSource(
 fn injectImportedFile(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
+    line_package_identities: *std.ArrayList(?[]const u8),
     imported: *pkg_resolver.ResolvedImport,
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
@@ -1249,10 +1287,12 @@ fn injectImportedFile(
     const entry_path = imported.entry_path;
     if (!std.mem.endsWith(u8, entry_path, ".saasm")) return;
 
-    const effective_package_identity = imported.package_identity orelse current_package_identity;
-    if (effective_package_identity) |identity| {
-        if (!(try rememberPackageIdentity(allocator, seen_package_identities, identity))) return;
-    }
+    const effective_package_identity = if (imported.package_identity) |identity|
+        try rememberPackageIdentity(allocator, seen_package_identities, identity)
+    else if (current_package_identity) |identity|
+        try rememberPackageIdentity(allocator, seen_package_identities, identity)
+    else
+        null;
 
     const import_dir = std.fs.path.dirname(entry_path) orelse ".";
     const stem = pathStem(entry_path);
@@ -1265,6 +1305,7 @@ fn injectImportedFile(
         fn run(
             allocator2: std.mem.Allocator,
             out2: *std.ArrayList(u8),
+            line_package_identities2: *std.ArrayList(?[]const u8),
             base_dir: []const u8,
             file_name: []const u8,
             active_paths2: *std.StringHashMap(void),
@@ -1308,6 +1349,7 @@ fn injectImportedFile(
             try expandImportsInto(
                 allocator2,
                 out2,
+                line_package_identities2,
                 expanded_source,
                 injected_dir,
                 active_paths2,
@@ -1328,6 +1370,7 @@ fn injectImportedFile(
         try injected_root(
             allocator,
             out,
+            line_package_identities,
             import_dir,
             iface_name,
             active_paths,
@@ -1347,6 +1390,7 @@ fn injectImportedFile(
         try injected_root(
             allocator,
             out,
+            line_package_identities,
             import_dir,
             layout_name,
             active_paths,
@@ -1364,6 +1408,7 @@ fn injectImportedFile(
 fn expandImportsInto(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
+    line_package_identities: *std.ArrayList(?[]const u8),
     source: []const u8,
     base_dir: []const u8,
     active_paths: *std.StringHashMap(void),
@@ -1408,6 +1453,7 @@ fn expandImportsInto(
             try injectImportedFile(
                 allocator,
                 out,
+                line_package_identities,
                 &imported,
                 active_paths,
                 seen_paths,
@@ -1432,6 +1478,7 @@ fn expandImportsInto(
             try expandImportsInto(
                 allocator,
                 out,
+                line_package_identities,
                 expanded_source,
                 import_dir,
                 active_paths,
@@ -1446,8 +1493,7 @@ fn expandImportsInto(
             continue;
         }
 
-        try out.appendSlice(raw_line);
-        try out.append('\n');
+        try appendExpandedLine(out, line_package_identities, raw_line, current_package_identity);
     }
 }
 
@@ -1470,6 +1516,9 @@ fn expandImports(
         while (pkg_it.next()) |entry| allocator.free(entry.key_ptr.*);
         seen_package_identities.deinit();
     }
+
+    var line_package_identities = std.ArrayList(?[]const u8).init(allocator);
+    errdefer line_package_identities.deinit();
 
     var owned_paths = std.ArrayList([]u8).init(allocator);
     errdefer {
@@ -1503,10 +1552,17 @@ fn expandImports(
         }
     }
 
-    const current_package_identity = if (resolve_ctx) |ctx| ctx.package_identity else null;
+    const current_package_identity = if (resolve_ctx) |ctx|
+        if (ctx.package_identity) |identity|
+            try rememberPackageIdentity(allocator, &seen_package_identities, identity)
+        else
+            null
+    else
+        null;
     try expandImportsInto(
         allocator,
         &out,
+        &line_package_identities,
         source,
         base_dir,
         &active_paths,
@@ -1524,6 +1580,7 @@ fn expandImports(
         .active_paths = active_paths,
         .seen_paths = seen_paths,
         .seen_package_identities = seen_package_identities,
+        .line_package_identities = line_package_identities,
         .owned_paths = owned_paths,
         .layout_versions = layout_versions,
     };
@@ -1591,7 +1648,7 @@ fn flattenInternal(
     var macros = std.StringHashMap(MacroDef).init(allocator);
     defer deinitMacroMap(allocator, &macros);
 
-    const lines = try scanSource(allocator, expanded.source);
+    const lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..]);
     defer allocator.free(lines);
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
@@ -1615,6 +1672,7 @@ fn flattenInternal(
         &function_sigs,
         &owned_text,
         error_ctx,
+        null,
     );
     if (pending_loc) |loc| {
         allocator.free(loc.file);
@@ -1623,6 +1681,8 @@ fn flattenInternal(
 
     const loc_table_slice = try collectLocTableEntries(allocator, instructions.items);
     const layout_versions = try expanded.layout_versions.toOwnedSlice();
+    const package_identities = expanded.seen_package_identities;
+    expanded.seen_package_identities = std.StringHashMap(void).init(allocator);
     loc_table.deinit();
 
     const function_sigs_slice = try function_sigs.toOwnedSlice();
@@ -1645,6 +1705,7 @@ fn flattenInternal(
         .symbols = symbols,
         .loc_table = loc_table_slice,
         .layout_versions = layout_versions,
+        .package_identities = package_identities,
         .owned_text = try owned_text.toOwnedSlice(),
         .trap = null,
     };
@@ -1842,7 +1903,7 @@ test "scanSource preserves line order and classification" {
         \\L_LOOP:
         \\node = alloc 8
     ;
-    const lines = try scanSource(std.testing.allocator, source);
+    const lines = try scanSource(std.testing.allocator, source, &.{});
     defer std.testing.allocator.free(lines);
 
     try std.testing.expectEqual(@as(usize, 3), lines.len);

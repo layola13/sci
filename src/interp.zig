@@ -488,7 +488,7 @@ const Interpreter = struct {
 
     fn isIntLike(ty: sig.PrimType) bool {
         return switch (ty) {
-            .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr => true,
+            .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr, .blob_handle => true,
             else => false,
         };
     }
@@ -513,7 +513,7 @@ const Interpreter = struct {
         const bits = switch (ty) {
             .i1 => @as(u64, if (value != 0) 1 else 0),
             .i8, .i16, .i32, .i64 => @as(u64, @bitCast(@as(i64, @intCast(value)))),
-            .u8, .u16, .u32, .u64, .ptr => @as(u64, @intCast(@as(u128, @intCast(value)))),
+            .u8, .u16, .u32, .u64, .ptr, .blob_handle => @as(u64, @intCast(@as(u128, @intCast(value)))),
             .void, .f32, .f64, .v128 => return RunError.UnsupportedInstruction,
         };
         return .{ .ty = ty, .bits = bits };
@@ -641,6 +641,10 @@ fn intValue(value: RegValue, signed: bool) i128 {
                 const buf: *const [8]u8 = @ptrCast(base.ptr);
                 break :blk .{ .ty = .ptr, .bits = std.mem.readInt(u64, buf, .little) };
             },
+            .blob_handle => blk: {
+                const buf: *const [8]u8 = @ptrCast(base.ptr);
+                break :blk .{ .ty = .blob_handle, .bits = std.mem.readInt(u64, buf, .little) };
+            },
             .v128 => return RunError.UnsupportedInstruction,
         };
     }
@@ -659,7 +663,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                 const buf: *[4]u8 = @ptrCast(base.ptr);
                 std.mem.writeInt(u32, buf, @as(u32, @intCast(value.bits & 0xffff_ffff)), .little);
             },
-            .i64, .u64, .ptr => {
+            .i64, .u64, .ptr, .blob_handle => {
                 const buf: *[8]u8 = @ptrCast(base.ptr);
                 std.mem.writeInt(u64, buf, value.bits, .little);
             },

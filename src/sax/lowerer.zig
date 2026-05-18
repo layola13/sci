@@ -12,6 +12,11 @@ pub const LowerError = error{
     InvalidTextExpression,
 };
 
+pub const LowerOptions = struct {
+    emit_shared_decls: bool = true,
+    emit_app_alias: bool = false,
+};
+
 const StringPool = struct {
     allocator: Allocator,
     items: std.ArrayList([]const u8),
@@ -157,6 +162,46 @@ pub const SaxLowerer = struct {
             .f64 => "f64",
             .ptr => "ptr",
         };
+    }
+
+    fn stateSlotConstName(self: *const SaxLowerer, state_name: []const u8) ![]const u8 {
+        return try std.fmt.allocPrint(self.allocator, "sax_{s}_{s}_slot", .{ self.component.name, state_name });
+    }
+
+    fn stateSizeConstName(self: *const SaxLowerer) ![]const u8 {
+        return try std.fmt.allocPrint(self.allocator, "sax_{s}_STATE_SIZE", .{self.component.name});
+    }
+
+    fn domSizeConstName(self: *const SaxLowerer) ![]const u8 {
+        return try std.fmt.allocPrint(self.allocator, "sax_{s}_DOM_SIZE", .{self.component.name});
+    }
+
+    fn stateSlotExpr(self: *const SaxLowerer, name: []const u8) ![]const u8 {
+        return try self.stateSlotConstName(name);
+    }
+
+    fn stateAllocSize(self: *const SaxLowerer) usize {
+        return @max(self.state_size, 8);
+    }
+
+    fn domAllocSize(self: *const SaxLowerer) usize {
+        const bytes = self.node_slots.len * 8;
+        return @max(bytes, 8);
+    }
+
+    fn nodeTextBufferSize(self: *const SaxLowerer, node: parser.DomNode) usize {
+        _ = self;
+        var size: usize = 1;
+        for (node.children) |child| {
+            switch (child) {
+                .text => |piece| switch (piece) {
+                    .text => |txt| size += txt.len,
+                    .interpolation => size += 64,
+                },
+                else => {},
+            }
+        }
+        return size;
     }
 
     fn stateValueExpr(self: *const SaxLowerer, var_name: []const u8) ![]const u8 {
@@ -374,9 +419,9 @@ pub const SaxLowerer = struct {
             const slot = self.state_slots[idx];
             switch (sv.ty) {
                 .ptr => {
-                    const init = std.mem.trim(u8, sv.init_expr, " \t\r");
-                    if (std.mem.startsWith(u8, init, "alloc ")) {
-                        const sz = std.mem.trim(u8, init["alloc ".len..], " \t\r");
+                    const init_expr = std.mem.trim(u8, sv.init_expr, " 	");
+                    if (std.mem.startsWith(u8, init_expr, "alloc ")) {
+                        const sz = std.mem.trim(u8, init_expr["alloc ".len..], " \t\r");
                         try out.writer().print("  tmp_ptr_{d} = stack_alloc {}\n", .{ idx, sz });
                         try out.writer().print("  store state+{}, tmp_ptr_{d} as ptr\n", .{ slot.offset, idx });
                     } else {
@@ -428,7 +473,8 @@ pub const SaxLowerer = struct {
         try out.writeAll("  return\n\n");
     }
 
-    pub fn lower(self: *const SaxLowerer, out: *std.ArrayList(u8)) !void {
+    pub fn lower(self: *const SaxLowerer, out: *std.ArrayList(u8), options: LowerOptions) !void {
+        _ = options;
         try self.appendConstDecls(out);
         try self.appendExternDecls(out);
         try self.emitInit(out);

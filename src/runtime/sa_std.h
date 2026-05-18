@@ -116,11 +116,17 @@ int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t 
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);
 
-uint8_t *sa_net_addr_host(const SaNetAddr *addr);
-uint64_t sa_net_addr_host_len(const SaNetAddr *addr);
-uint16_t sa_net_addr_port(const SaNetAddr *addr);
-uint32_t sa_net_addr_family(const SaNetAddr *addr);
-int32_t sa_net_addr_free(SaNetAddr *addr);
+int32_t sa_std_net_udp_bind(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_udp_local_addr(uint64_t socket_handle, uint64_t *out_handle);
+int32_t sa_std_net_udp_send_to(uint64_t socket_handle, const uint8_t *buf, uint64_t len, const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_written);
+int32_t sa_std_net_udp_recv_from(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read, uint64_t *out_addr_handle);
+int32_t sa_net_udp_close(uint64_t socket_handle);
+
+uint8_t *sa_net_addr_host(uint64_t addr_handle);
+uint64_t sa_net_addr_host_len(uint64_t addr_handle);
+uint16_t sa_net_addr_port(uint64_t addr_handle);
+uint32_t sa_net_addr_family(uint64_t addr_handle);
+int32_t sa_net_addr_free(uint64_t addr_handle);
 
 int32_t sa_std_process_run(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);
 int32_t sa_std_process_spawn(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);

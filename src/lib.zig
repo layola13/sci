@@ -66,7 +66,7 @@ test "root module imports common types" {
         \\L_START:
         \\node = alloc 8
     ;
-    const lines = try flatten.scanSource(std.testing.allocator, source);
+    const lines = try flatten.scanSource(std.testing.allocator, source, &.{});
     defer std.testing.allocator.free(lines);
     try std.testing.expectEqual(@as(usize, 3), lines.len);
     try std.testing.expectEqual(flatten.LineKind.def, lines[0].classified.kind);

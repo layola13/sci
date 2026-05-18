@@ -424,7 +424,7 @@ fn isSignedInt(ty: sig.PrimType) bool {
 
 fn isIntLike(ty: sig.PrimType) bool {
     return switch (ty) {
-        .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr => true,
+        .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr, .blob_handle => true,
         else => false,
     };
 }
@@ -552,7 +552,7 @@ fn llvmTypeName(ty: sig.PrimType) []const u8 {
         .i8, .u8 => "i8",
         .i16, .u16 => "i16",
         .i32, .u32 => "i32",
-        .i64, .u64 => "i64",
+        .i64, .u64, .blob_handle => "i64",
         .f32 => "float",
         .f64 => "double",
         .ptr => "ptr",
@@ -567,7 +567,7 @@ fn llvmAlign(ty: sig.PrimType) u32 {
         .i8, .u8 => 1,
         .i16, .u16 => 2,
         .i32, .u32, .f32 => 4,
-        .i64, .u64, .f64, .ptr => 8,
+        .i64, .u64, .f64, .ptr, .blob_handle => 8,
         .v128 => 16,
     };
 }

@@ -22,6 +22,7 @@ pub const PrimType = enum(u8) {
     f32,
     f64,
     ptr,
+    blob_handle,
     v128,
 };
 
@@ -103,6 +104,7 @@ pub fn parsePrimType(text: []const u8) ParseError!PrimType {
         .{ .name = "f32", .ty = .f32 },
         .{ .name = "f64", .ty = .f64 },
         .{ .name = "ptr", .ty = .ptr },
+        .{ .name = "blob_handle", .ty = .blob_handle },
         .{ .name = "v128", .ty = .v128 },
     }) |item| {
         if (std.mem.eql(u8, trimmed, item.name)) return item.ty;
@@ -125,6 +127,7 @@ pub fn primTypeName(ty: PrimType) []const u8 {
         .f32 => "f32",
         .f64 => "f64",
         .ptr => "ptr",
+        .blob_handle => "blob_handle",
         .v128 => "v128",
     };
 }
@@ -136,7 +139,7 @@ pub fn primTypeBits(ty: PrimType) u32 {
         .i8, .u8 => 8,
         .i16, .u16 => 16,
         .i32, .u32, .f32 => 32,
-        .i64, .u64, .f64, .ptr => 64,
+        .i64, .u64, .f64, .ptr, .blob_handle => 64,
         .v128 => 128,
     };
 }

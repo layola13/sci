@@ -26,12 +26,29 @@ pub const SaxCompiler = struct {
         airlock_js: std.ArrayList(u8),
         index_html: std.ArrayList(u8),
     } {
-        // Step 1: SAX Parser: .sax → .saasm
-        var sax_parser = parser.SaxParser.init(self.allocator, sax_source);
-        const saasm_code = try sax_parser.parse();
+        const program = try parser.SaxParser.init(self.allocator, sax_source).parse();
+        defer program.deinit();
+
+        if (program.components.len == 0) return error.InvalidComponentBody;
+
+        var saasm_code = std.ArrayList(u8).init(self.allocator);
         errdefer saasm_code.deinit();
 
-        // Step 2: Airlock 生成器
+        for (program.components, 0..) |component, idx| {
+            var sax_lowerer = try lowerer.SaxLowerer.init(self.allocator, component);
+            defer sax_lowerer.deinit();
+
+            const opts: lowerer.LowerOptions = .{ .emit_shared_decls = idx == 0 };
+            try sax_lowerer.lower(&saasm_code, opts);
+
+            if (idx + 1 < program.components.len) try saasm_code.appendByte('\n');
+        }
+
+        if (program.components.len != 0) {
+            const root_name = program.components[0].name;
+            try saasm_code.writer().print("@export sax_app_init():\nL_ENTRY:\n  call @sax_{s}_init()\n  return\n\n", .{ root_name });
+        }
+
         var airlock_generator = airlock_gen.AirlockGenerator.init(self.allocator);
         const airlock_js = try airlock_generator.generateAirlockJS();
         errdefer airlock_js.deinit();
@@ -52,6 +69,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var compiler = SaxCompiler.init(allocator);
+    const compiler = SaxCompiler.init(allocator);
     _ = compiler;
 }
