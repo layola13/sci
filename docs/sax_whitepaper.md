@@ -183,21 +183,21 @@ Rules:
 
   @inc:
   L_ENTRY:
-    count = load count_slot+0 as i64
+    count = load state+Counter_count as i64
     count = add count, 1
-    store count_slot+0, count as i64
+    store state+Counter_count, count as i64
     last  = call @sax_get_time()
-    store last_slot+0, last as i64
+    store state+Counter_last, last as i64
     call @render()
     ret
 
   @dec:
   L_ENTRY:
-    count = load count_slot+0 as i64
+    count = load state+Counter_count as i64
     count = sub count, 1
-    store count_slot+0, count as i64
+    store state+Counter_count, count as i64
     last  = call @sax_get_time()
-    store last_slot+0, last as i64
+    store state+Counter_last, last as i64
     call @render()
     ret
 
@@ -219,12 +219,12 @@ saasm sax build counter.sax
 ```
 @handleSubmit:
 L_ENTRY:
-    len = load input_len_slot+0 as i64
+    len = load state+TodoList_input_len as i64
     ok  = sgt len, 0
     br ok -> L_DO, L_SKIP
 L_DO:
     call @sax_array_push(&items, &input_buf, len)
-    store input_len_slot+0, 0 as i64
+    store state+TodoList_input_len, 0 as i64
     call @render()
     jmp L_END
 L_SKIP:
@@ -243,13 +243,13 @@ No `if`. No `{`. Labels + `br`. This is identical to standard SA.
 @renderList:
 L_ENTRY:
     i   = 0
-    end = load items_len_slot+0 as i64
+    end = load state+TodoList_items_len as i64
 L_LOOP:
     cond = ult i, end
     br cond -> L_BODY, L_END
 L_BODY:
     row = call @sax_array_get(&items, i)
-    call @sax_dom_append_row(&list_node, row)
+    call @sax_dom_append_row(list_node, row)
     i = add i, 1
     jmp L_LOOP
 L_END:
@@ -267,12 +267,12 @@ Phase 2 adds optional hooks:
 @onMount:          <!-- called after component is inserted into DOM -->
 L_ENTRY:
     id = call @sax_set_interval(^onTick, 1000)
-    store timer_id_slot+0, id as i64
+    store timer_id, id as i64
     ret
 
 @onUnmount:        <!-- called before component is removed from DOM -->
 L_ENTRY:
-    id = load timer_id_slot+0 as i64
+    id = load timer_id as i64
     call @sax_clear_interval(id)
     ret
 ```

@@ -1137,15 +1137,25 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/mem.saasm\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_capacity"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_push_back"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_push_front"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_pop_front"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_pop_back"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_front"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_back"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_rotate_left"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_rotate_right"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_FRONT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_BACK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_FRONT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_BACK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_CLEAR"));
 
     var deque_error_ctx = saasm.flattener.ErrorContext{};
     var deque_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec_deque.saasm", deque_src, &deque_error_ctx) catch |err| {
@@ -1155,14 +1165,14 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     };
     defer deque_flat.deinit(std.testing.allocator);
     try std.testing.expect(deque_flat.instructions.len > 0);
-    try std.testing.expect(deque_flat.function_sigs.len >= 12);
+    try std.testing.expect(deque_flat.function_sigs.len >= 15);
 
     const deque_verified = try saasm.referee.verify(std.testing.allocator, deque_flat.instructions, deque_flat.const_decls);
     switch (deque_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 12);
+            try std.testing.expect(owned.function_sigs.len >= 15);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -1183,64 +1193,9 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
         },
     }
 
-    const deque_fixture =
-        \\@import "../sa_std/collections/vec_deque.saasm"
-        \\
-        \\@main() -> i32:
-        \\L_ENTRY:
-        \\    EXPAND VEC_DEQUE_NEW queue
-        \\    EXPAND VEC_DEQUE_PUSH_BACK queue, 1
-        \\    EXPAND VEC_DEQUE_PUSH_BACK queue, 2
-        \\    EXPAND VEC_DEQUE_PUSH_FRONT queue, 0
-        \\    EXPAND VEC_DEQUE_ROTATE_LEFT queue, 1
-        \\    EXPAND VEC_DEQUE_LEN len0, queue
-        \\    EXPAND VEC_DEQUE_TRY_POP_FRONT ok_front, front, queue
-        \\    EXPAND VEC_DEQUE_TRY_POP_BACK ok_back, back, queue
-        \\    EXPAND VEC_DEQUE_GET remaining, queue, 0
-        \\    EXPAND VEC_DEQUE_LEN len1, queue
-        \\    ok_len0 = eq len0, 3
-        \\    ok_front_status = eq ok_front, 1
-        \\    ok_back_status = eq ok_back, 1
-        \\    ok_front_val = eq front, 1
-        \\    ok_back_val = eq back, 0
-        \\    ok_remaining = eq remaining, 2
-        \\    ok_len1 = eq len1, 1
-        \\    ok01 = and ok_len0, ok_front_status
-        \\    ok02 = and ok01, ok_back_status
-        \\    ok03 = and ok02, ok_front_val
-        \\    ok04 = and ok03, ok_back_val
-        \\    ok05 = and ok04, ok_remaining
-        \\    ok = and ok05, ok_len1
-        \\    !front
-        \\    !back
-        \\    !remaining
-        \\    !ok_front
-        \\    !ok_back
-        \\    !len0
-        \\    !len1
-        \\    !ok_len0
-        \\    !ok_front_status
-        \\    !ok_back_status
-        \\    !ok_front_val
-        \\    !ok_back_val
-        \\    !ok_remaining
-        \\    !ok_len1
-        \\    !ok01
-        \\    !ok02
-        \\    !ok03
-        \\    !ok04
-        \\    !ok05
-        \\    EXPAND VEC_DEQUE_FREE queue
-        \\    br ok -> L_OK, L_ERR
-        \\
-        \\L_OK:
-        \\    !ok
-        \\    return 0
-        \\
-        \\L_ERR:
-        \\    !ok
-        \\    return 1
-    ;
+    const deque_fixture = try readFileAlloc(std.testing.allocator, "tests/vec_deque_fixture.saasm");
+    defer std.testing.allocator.free(deque_fixture);
+
     var deque_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/vec_deque_fixture.saasm", deque_fixture);
     defer deque_fixture_flat.deinit(std.testing.allocator);
     const deque_fixture_verified = try saasm.referee.verify(std.testing.allocator, deque_fixture_flat.instructions, deque_fixture_flat.const_decls);
@@ -1248,7 +1203,7 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 13), owned.function_sigs.len);
+            try std.testing.expect(owned.function_sigs.len >= 15);
         },
         .trap => |report| {
             std.debug.print("vec_deque fixture verifier trap: {s}\n", .{report.message});

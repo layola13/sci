@@ -365,6 +365,86 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
 }
 
+
+test "cli sax build produces browser bundle artifacts" {
+    const source =
+        \\<Component name="App">
+        \\
+        \\  <state>
+        \\    count = 0
+        \\  </state>
+        \\
+        \\  <div class="app">
+        \\    <h1>Hello SAX</h1>
+        \\    <p>Count: {count}</p>
+        \\    <button onclick={^increment}>+1</button>
+        \\  </div>
+        \\
+        \\  @increment:
+        \\  L_ENTRY:
+        \\    count = load state+App_count as i64
+        \\    count = add count, 1
+        \\    store state+App_count, count as i64
+        \\    call @render()
+        \\    ret
+        \\
+        \\  !count
+        \\</Component>
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "app.sax", source);
+
+    const build_argv = [_][]const u8{ "saasm", "sax", "build", "app.sax" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "✓ SAX build successful"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/app.saasm"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/app.wasm"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/airlock.js"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/index.html"));
+
+    const saasm_file = try tmp.dir.openFile("dist/app.saasm", .{});
+    defer saasm_file.close();
+    const saasm_bytes = try saasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(saasm_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, saasm_bytes, 1, "#def App_count = +0"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, saasm_bytes, 1, "state+App_count"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, saasm_bytes, 1, "sax_App_node_button"));
+
+    const wasm_file = try tmp.dir.openFile("dist/app.wasm", .{});
+    defer wasm_file.close();
+    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(wasm_bytes);
+    try std.testing.expect(wasm_bytes.len > 8);
+    try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
+    try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+
+    const index_file = try tmp.dir.openFile("dist/index.html", .{});
+    defer index_file.close();
+    const index_bytes = try index_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(index_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, index_bytes, 1, "app.wasm"));
+}
+
 test "cli build-exe with jobs 1 and auto produce the same runtime result" {
     const source =
         \\@helper(value: i32) -> i32:

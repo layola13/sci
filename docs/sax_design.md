@@ -148,7 +148,7 @@ SAX 的状态变量与 SA 保持一致，**不引入新的类型关键字**：
   • 生成最小 index.html（加载 .wasm + airlock.js）
     │
     ▼
-输出：app.wasm + airlock.js + index.html
+输出：app.wasm + airlock.js + index.html + 生成的 .saasm
 ```
 
 ### 3.2 SAX Parser 降级策略
@@ -386,21 +386,21 @@ Airlock（airlock.js）
   L_ENTRY:
     // 挂载后启动定时器（通过 Airlock 调用 setInterval）
     id = call @sax_set_interval(^onTick, 1000)
-    store timer_state+0, id as i64
+    store state+TimerWidget_timer_id, id as i64
     ret
 
   @onUnmount:
   L_ENTRY:
     // 卸载前清理定时器
-    id = load timer_state+0 as i64
+    id = load state+TimerWidget_timer_id as i64
     call @sax_clear_interval(id)
     ret
 
   @onTick:
   L_ENTRY:
-    tick = load tick_state+0 as i64
+    tick = load state+TimerWidget_tick as i64
     tick = add tick, 1
-    store tick_state+0, tick as i64
+    store state+TimerWidget_tick, tick as i64
     call @render()
     ret
 
@@ -455,7 +455,7 @@ SAX 路由基于 `<Router>` 和 `<Page>` 组件，保持极简风格：
 
 | 命令 | 说明 | 输出 |
 |------|------|------|
-| `saasm sax build <file.sax>` | 完整编译 | `app.wasm + airlock.js + index.html` |
+| `saasm sax build <file.sax>` | 完整编译 | `app.wasm + airlock.js + index.html + 生成的 .saasm` |
 | `saasm sax check <file.sax>` | 仅 Referee 验证（含 SAX 规则），不产出产物 | Trap 报告或 OK |
 | `saasm sax dev` | 开发服务器 + 文件监听 + WASM 热替换 | HTTP :8080 |
 | `saasm sax new <name>` | 脚手架：生成最小项目结构 | 目录 + 示例文件 |
@@ -470,7 +470,7 @@ saasm sax build app.sax
   4. WASM Emitter: → app.wasm
   5. Airlock Gen:  → airlock.js
   6. HTML Shell:   → index.html
-  输出: dist/app.wasm + dist/airlock.js + dist/index.html
+  输出: dist/app.wasm + dist/airlock.js + dist/index.html + dist/app.saasm
 ```
 
 ---

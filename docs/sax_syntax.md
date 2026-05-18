@@ -256,29 +256,29 @@ Referee 验证：组件销毁函数出口处，所有 `<state>` 变量必须全�
 
   @inc:
   L_ENTRY:
-    count = load count_slot+0 as i64
+    count = load state+Counter_count as i64
     count = add count, 1
-    store count_slot+0, count as i64
+    store state+Counter_count, count as i64
     last  = call @sax_get_time()
-    store last_slot+0, last as i64
+    store state+Counter_last, last as i64
     call @render()
     ret
 
   @dec:
   L_ENTRY:
-    count = load count_slot+0 as i64
+    count = load state+Counter_count as i64
     count = sub count, 1
-    store count_slot+0, count as i64
+    store state+Counter_count, count as i64
     last  = call @sax_get_time()
-    store last_slot+0, last as i64
+    store state+Counter_last, last as i64
     call @render()
     ret
 
   @reset:
   L_ENTRY:
-    store count_slot+0, 0 as i64
+    store state+Counter_count, 0 as i64
     last  = call @sax_get_time()
-    store last_slot+0, last as i64
+    store state+Counter_last, last as i64
     call @render()
     ret
 
@@ -320,22 +320,23 @@ Referee 验证：组件销毁函数出口处，所有 `<state>` 变量必须全�
   L_ENTRY:
     // 从 DOM input 事件读取新值（通过 Airlock）
     new_len = call @sax_dom_get_value(&input_buf, 256)
-    store input_len_slot+0, new_len as i64
+    store state+TodoList_input_len, new_len as i64
     call @render()
     ret
 
   @addTodo:
   L_ENTRY:
     // 检查输入非空
-    len = load input_len_slot+0 as i64
+    len = load state+TodoList_input_len as i64
     ok  = sgt len, 0
     br ok -> L_DO_ADD, L_SKIP
   L_DO_ADD:
     // 将 input_buf 内容追加到 todos 数组
     call @sax_array_push(&todos, &input_buf, len)
     // 清空输入
-    store input_len_slot+0, 0 as i64
-    call @sax_dom_set_value(&input_node, utf8:"", 0)
+    store state+TodoList_input_len, 0 as i64
+    todo_input = call @sax_dom_query(utf8:"#todo-input", 11)
+    call @sax_dom_set_value(todo_input, utf8:"", 0)
     call @render()
     jmp L_END
   L_SKIP:
@@ -407,7 +408,7 @@ Referee 验证：组件销毁函数出口处，所有 `<state>` 变量必须全�
   @handleSubmit:
   L_ENTRY:
     // 设置 loading 状态
-    store is_loading_slot+0, 1 as i1
+    store state+LoginForm_is_loading, 1 as i1
     call @render()
     // 发起认证请求（通过 @extern HTTP Airlock）
     result = call @sax_http_post(utf8:"/api/login", 10, &username_buf, &password_buf)
@@ -415,14 +416,14 @@ Referee 验证：组件销毁函数出口处，所有 `<state>` 变量必须全�
     ok     = eq status, 200
     br ok -> L_SUCCESS, L_FAIL
   L_SUCCESS:
-    store is_loading_slot+0, 0 as i1
-    store has_error_slot+0, 0 as i1
+    store state+LoginForm_is_loading, 0 as i1
+    store state+LoginForm_has_error, 0 as i1
     // 跳转到首页
     call @sax_router_push(utf8:"/", 1)
     jmp L_END
   L_FAIL:
-    store is_loading_slot+0, 0 as i1
-    store has_error_slot+0, 1 as i1
+    store state+LoginForm_is_loading, 0 as i1
+    store state+LoginForm_has_error, 1 as i1
     // 复制错误消息
     err_ptr = load result+8 as ptr
     err_len = load result+16 as i64
@@ -465,7 +466,7 @@ Referee 验证：组件销毁函数出口处，所有 `<state>` 变量必须全�
   L_ENTRY:
     // data_ptr / data_len 由外部传入（父组件调用时注入）
     i   = 0
-    end = load data_len_slot+0 as i64
+    end = data_len
   L_LOOP:
     cond = ult i, end
     br cond -> L_BODY, L_END
@@ -578,7 +579,7 @@ L_END:
 
 <!-- 正确：只能是只读 load 表达式 -->
 <h1>{count}</h1>
-<p>{load count_slot+0 as i64}</p>
+<p>{load state+Counter_count as i64}</p>
 ```
 
 ---

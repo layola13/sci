@@ -241,6 +241,8 @@ pub fn executeSaxNew(
         \\saasm sax build app.sax
         \\```
         \\
+        \\生成 `dist/app.wasm`、`dist/airlock.js`、`dist/index.html` 和 `dist/app.saasm`。
+        \\
         \\## 开发
         \\
         \\```bash
@@ -253,7 +255,6 @@ pub fn executeSaxNew(
         \\saasm sax check app.sax
         \\```
     ;
-
     const readme_path = try std.fmt.allocPrint(allocator, "{s}/README.md", .{project_name});
     defer allocator.free(readme_path);
     {

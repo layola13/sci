@@ -30,6 +30,21 @@ L_ENTRY:
     !deque
     return len
 
+@export sa_vec_deque_capacity(&deque: ptr) -> u64:
+L_ENTRY:
+    cap = load deque+VecDeque_cap as u64
+    !deque
+    return cap
+
+@export sa_vec_deque_is_empty(&deque: ptr) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    empty = eq len, 0
+    result = empty as i32
+    !len
+    !deque
+    return result
+
 @export sa_vec_deque_get(&deque: ptr, index: u64) -> u64:
 L_ENTRY:
     len = load deque+VecDeque_len as u64
@@ -222,6 +237,91 @@ L_POP_BACK_EMPTY:
     !deque
     return 0
 
+@export sa_vec_deque_front(&deque: ptr) -> u64:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    empty = eq len, 0
+    br empty -> L_FRONT_EMPTY, L_FRONT_READY
+L_FRONT_READY:
+    buf = load deque+VecDeque_buf as ptr
+    head = load deque+VecDeque_head as u64
+    head_off = mul head, VecDeque_SLOT_SIZE
+    head_ptr = ptr_add buf, head_off
+    value = load head_ptr+0 as u64
+    !head_ptr
+    !head_off
+    !head
+    !buf
+    !empty
+    !len
+    !deque
+    return value
+L_FRONT_EMPTY:
+    !empty
+    !len
+    !deque
+    return 0
+
+@export sa_vec_deque_back(&deque: ptr) -> u64:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    empty = eq len, 0
+    br empty -> L_BACK_EMPTY, L_BACK_READY
+L_BACK_READY:
+    buf = load deque+VecDeque_buf as ptr
+    head = load deque+VecDeque_head as u64
+    cap = load deque+VecDeque_cap as u64
+    last_index = sub len, 1
+    tail_sum = add head, last_index
+    tail_index = urem tail_sum, cap
+    tail_off = mul tail_index, VecDeque_SLOT_SIZE
+    tail_ptr = ptr_add buf, tail_off
+    value = load tail_ptr+0 as u64
+    !tail_ptr
+    !tail_off
+    !tail_index
+    !tail_sum
+    !last_index
+    !cap
+    !head
+    !buf
+    !empty
+    !len
+    !deque
+    return value
+L_BACK_EMPTY:
+    !empty
+    !len
+    !deque
+    return 0
+
+@export sa_vec_deque_clear(&deque: ptr) -> void:
+L_ENTRY:
+    buf = load deque+VecDeque_buf as ptr
+    cap = load deque+VecDeque_cap as u64
+    bytes = mul cap, VecDeque_SLOT_SIZE
+    has_buf = ne buf, 0
+    br has_buf -> L_CLEAR_BUF, L_CLEAR_SKIP
+L_CLEAR_BUF:
+    call @sa_mem_set(&buf, 0, bytes)
+    !bytes
+    store deque+VecDeque_head, 0 as u64
+    store deque+VecDeque_len, 0 as u64
+    !has_buf
+    !buf
+    !cap
+    !deque
+    return
+L_CLEAR_SKIP:
+    !bytes
+    store deque+VecDeque_head, 0 as u64
+    store deque+VecDeque_len, 0 as u64
+    !has_buf
+    !buf
+    !cap
+    !deque
+    return
+
 @export sa_vec_deque_rotate_left(&deque: ptr, count: u64) -> void:
 L_ENTRY:
     len = load deque+VecDeque_len as u64
@@ -319,6 +419,14 @@ L_ROTATE_RIGHT_DONE_RUN:
     %out_len = call @sa_vec_deque_len(&%deque_reg)
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_CAPACITY %out_cap, %deque_reg
+    %out_cap = call @sa_vec_deque_capacity(&%deque_reg)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_IS_EMPTY %out_flag, %deque_reg
+    %out_flag = call @sa_vec_deque_is_empty(&%deque_reg)
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_GET %out_value, %deque_reg, %index
     %out_value = call @sa_vec_deque_get(&%deque_reg, %index)
 [END_MACRO]
@@ -351,4 +459,16 @@ L_ROTATE_RIGHT_DONE_RUN:
 
 [MACRO] VEC_DEQUE_ROTATE_RIGHT %deque_reg, %count
     call @sa_vec_deque_rotate_right(&%deque_reg, %count)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_FRONT %out_value, %deque_reg
+    %out_value = call @sa_vec_deque_front(&%deque_reg)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_BACK %out_value, %deque_reg
+    %out_value = call @sa_vec_deque_back(&%deque_reg)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_CLEAR %deque_reg
+    call @sa_vec_deque_clear(&%deque_reg)
 [END_MACRO]

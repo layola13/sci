@@ -11,6 +11,7 @@
 
     <div class="input-row">
       <input
+        id="todo-input"
         type="text"
         placeholder="What needs to be done?"
         value="{input_len}"
@@ -27,19 +28,20 @@
   @handleInput:
   L_ENTRY:
     new_len = call @sax_dom_get_value(&input_buf, 256)
-    store input_len_slot+0, new_len as i64
+    store state+TodoList_input_len, new_len as i64
     call @render()
     ret
 
   @addTodo:
   L_ENTRY:
-    len = load input_len_slot+0 as i64
+    len = load state+TodoList_input_len as i64
     ok  = sgt len, 0
     br ok -> L_DO_ADD, L_SKIP
   L_DO_ADD:
     call @sax_array_push(&todos, &input_buf, len)
-    store input_len_slot+0, 0 as i64
-    call @sax_dom_set_value(&input_node, utf8:"", 0)
+    store state+TodoList_input_len, 0 as i64
+    todo_input = call @sax_dom_query(utf8:"#todo-input", 11)
+    call @sax_dom_set_value(todo_input, utf8:"", 0)
     call @render()
     jmp L_END
   L_SKIP:

@@ -793,7 +793,7 @@ test "parser accepts a simple component" {
         \\
         \\  @inc:
         \\  L_ENTRY:
-        \\    count = load count_slot+0 as i64
+        \\    count = load state+Counter_count as i64
         \\    call @render()
         \\    return
         \\
