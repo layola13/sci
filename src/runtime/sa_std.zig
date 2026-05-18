@@ -132,6 +132,10 @@ const SaNetAddr = extern struct {
     scope_id: u64,
 };
 
+const Timeval = std.posix.timeval;
+const TimevalSec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).sec);
+const TimevalUsec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).usec);
+
 const OwnedFdHandle = struct {
     fd: std.posix.fd_t,
 
@@ -366,6 +370,95 @@ fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
 fn portFromU32(port: u32) !u16 {
     if (port > std.math.maxInt(u16)) return error.InvalidArgument;
     return @as(u16, @intCast(port));
+}
+
+fn timevalFromNs(ns: u64) !Timeval {
+    const sec = ns / std.time.ns_per_s;
+    const usec = (ns % std.time.ns_per_s) / std.time.ns_per_us;
+    return .{
+        .sec = std.math.cast(TimevalSec, sec) orelse return error.InvalidArgument,
+        .usec = std.math.cast(TimevalUsec, usec) orelse return error.InvalidArgument,
+    };
+}
+
+fn nsFromTimeval(tv: Timeval) !u64 {
+    const sec = std.math.cast(u64, tv.sec) orelse return error.InvalidArgument;
+    const usec = std.math.cast(u64, tv.usec) orelse return error.InvalidArgument;
+    const sec_ns = std.math.mul(u64, sec, std.time.ns_per_s) catch return error.InvalidArgument;
+    const usec_ns = std.math.mul(u64, usec, std.time.ns_per_us) catch return error.InvalidArgument;
+    return std.math.add(u64, sec_ns, usec_ns) catch return error.InvalidArgument;
+}
+
+fn setSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
+    var value: i32 = if (enabled) 1 else 0;
+    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&value));
+}
+
+fn setSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32, value: i32) !void {
+    var mutable = value;
+    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
+}
+
+fn setSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32, ns: u64) !void {
+    const tv = try timevalFromNs(ns);
+    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&tv));
+}
+
+fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
+    var value: i32 = 0;
+    var len: std.posix.socklen_t = @sizeOf(i32);
+    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            std.debug.assert(len == @sizeOf(i32));
+            return value != 0;
+        },
+        else => return error.InvalidArgument,
+    }
+}
+
+fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
+    var value: i32 = 0;
+    var len: std.posix.socklen_t = @sizeOf(i32);
+    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            std.debug.assert(len == @sizeOf(i32));
+            return value;
+        },
+        else => return error.InvalidArgument,
+    }
+}
+
+fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
+    var tv: Timeval = .{ .sec = 0, .usec = 0 };
+    var len: std.posix.socklen_t = @sizeOf(Timeval);
+    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&tv)), &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            std.debug.assert(len == @sizeOf(Timeval));
+            return try nsFromTimeval(tv);
+        },
+        else => return error.InvalidArgument,
+    }
+}
+
+fn socketFdFromHandle(handle: u64) !std.posix.fd_t {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    return try handleToFd(handle);
+}
+
+fn ensureSocketHandle(handle: u64) !struct { fd: std.posix.fd_t, kind: enum { tcp_stream, tcp_listener, udp_socket } } {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
+    return switch (resource.*) {
+        .tcp_stream => |stream| .{ .fd = stream.handle, .kind = .tcp_stream },
+        .tcp_listener => |server| .{ .fd = server.stream.handle, .kind = .tcp_listener },
+        .udp_socket => |fd| .{ .fd = fd, .kind = .udp_socket },
+        else => error.InvalidHandle,
+    };
 }
 
 fn dynamicIndex(handle: u64) ?usize {
@@ -1530,6 +1623,25 @@ pub export fn sa_net_tcp_stream_shutdown(stream: u64, how: u32) i32 {
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
 }
+pub export fn sa_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
+    return sa_std_net_tcp_stream_set_read_timeout(stream, timeout_ns);
+}
+
+pub export fn sa_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
+    return sa_std_net_tcp_stream_set_write_timeout(stream, timeout_ns);
+}
+
+pub export fn sa_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
+    return sa_std_net_tcp_stream_set_nonblocking(stream, enabled);
+}
+
+pub export fn sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
+    return sa_std_net_tcp_stream_set_nodelay(stream, enabled);
+}
+
+pub export fn sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
+    return sa_std_net_tcp_stream_set_ttl(stream, ttl);
+}
 pub export fn sa_net_tcp_stream_close(stream: u64) i32 { return sa_std_close(stream); }
 pub export fn sa_net_tcp_listener_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     var handle: u64 = 0;
@@ -1560,6 +1672,48 @@ pub export fn sa_net_tcp_listener_local_addr(listener: u64) i32 {
     };
 }
 pub export fn sa_net_tcp_listener_close(listener: u64) i32 { return sa_std_close(listener); }
+
+pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const flags = std.posix.fcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
+    const new_flags = if (enabled != 0)
+        flags | @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK")
+    else
+        flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
+    _ = std.posix.fcntl(handle.fd, std.posix.F.SETFL, new_flags) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -1617,6 +1771,67 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
     std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
+pub export fn sa_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
+    return sa_std_net_udp_set_read_timeout(socket, timeout_ns);
+}
+
+pub export fn sa_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
+    return sa_std_net_udp_set_write_timeout(socket, timeout_ns);
+}
+
+pub export fn sa_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
+    return sa_std_net_udp_set_nonblocking(socket, enabled);
+}
+
+pub export fn sa_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
+    return sa_std_net_udp_set_broadcast(socket, enabled);
+}
+
+pub export fn sa_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
+    return sa_std_net_udp_set_ttl(socket, ttl);
+}
+
+pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const flags = std.posix.fcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
+    const new_flags = if (enabled != 0)
+        flags | @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK")
+    else
+        flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
+    _ = std.posix.fcntl(handle.fd, std.posix.F.SETFL, new_flags) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
@@ -1953,4 +2168,85 @@ pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port
     const handle = registerResource(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
+}
+
+fn expectTimeoutRoundedUpWithin(requested_ns: u64, observed_ns: u64) !void {
+    try std.testing.expect(observed_ns >= requested_ns);
+    try std.testing.expect(observed_ns - requested_ns <= 10 * std.time.ns_per_ms);
+}
+
+test "socket helper round trip on raw udp socket" {
+    const fd = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP);
+    defer std.posix.close(fd);
+
+    try setSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, true);
+    try std.testing.expect(try getSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST));
+    try setSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, false);
+    try std.testing.expect(!(try getSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST)));
+
+    try setSocketOptInt(fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL, 64);
+    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL));
+
+    const timeout_ns: u64 = 1_234_567_890;
+    try setSocketOptTimeval(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, timeout_ns);
+    try expectTimeoutRoundedUpWithin(timeout_ns, try getSocketOptTimeval(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
+
+    const tv = try timevalFromNs(timeout_ns);
+    try std.testing.expectEqual(@as(u64, 1_234_567_000), try nsFromTimeval(tv));
+}
+
+test "exported tcp and udp socket setters update live handles" {
+    const host = "127.0.0.1";
+
+    var udp_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &udp_handle));
+    defer _ = sa_std_close(udp_handle);
+
+    const udp = try ensureSocketHandle(udp_handle);
+    try std.testing.expectEqual(@as(@TypeOf(udp.kind), .udp_socket), udp.kind);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_nonblocking(udp_handle, 1));
+    const udp_flags = try std.posix.fcntl(udp.fd, std.posix.F.GETFL, 0);
+    try std.testing.expect((udp_flags & (@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"))) != 0);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_broadcast(udp_handle, 1));
+    try std.testing.expect(try getSocketOptBool(udp.fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_ttl(udp_handle, 64));
+    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(udp.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(udp_handle, 250_000_000));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_write_timeout(udp_handle, 250_000_000));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO));
+
+    var listener_handle: u64 = 0;
+    var bound_port: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener_handle, &bound_port));
+    defer _ = sa_std_close(listener_handle);
+    try std.testing.expect(bound_port != 0);
+
+    var client_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client_handle));
+    defer _ = sa_std_close(client_handle);
+
+    var server_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener_handle, &server_handle));
+    defer _ = sa_std_close(server_handle);
+
+    const server = try ensureSocketHandle(server_handle);
+    try std.testing.expectEqual(@as(@TypeOf(server.kind), .tcp_stream), server.kind);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nonblocking(server_handle, 1));
+    const server_flags = try std.posix.fcntl(server.fd, std.posix.F.GETFL, 0);
+    try std.testing.expect((server_flags & (@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"))) != 0);
+    var peek_buf: [1]u8 = undefined;
+    try std.testing.expectEqual(SA_STD_ERR_IO, sa_net_tcp_stream_peek(server_handle, &peek_buf, peek_buf.len));
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nodelay(server_handle, 1));
+    try std.testing.expect(try getSocketOptBool(server.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_ttl(server_handle, 64));
+    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(server.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_read_timeout(server_handle, 250_000_000));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_write_timeout(server_handle, 250_000_000));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO));
 }

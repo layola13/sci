@@ -29,6 +29,8 @@ const Translator = struct {
     out: std.ArrayList(u8),
     current: ?FunctionContext = null,
     pending_labels: std.ArrayList([]const u8),
+    skip_function: bool = false,
+    current_block_is_entry: bool = false,
     emit_preamble: bool = true,
 
     fn init(allocator: std.mem.Allocator, input: []const u8) Translator {
@@ -41,6 +43,7 @@ const Translator = struct {
     }
 
     fn deinit(self: *Translator) void {
+        for (self.pending_labels.items) |label| self.allocator.free(label);
         self.pending_labels.deinit();
         self.out.deinit();
         self.* = undefined;
@@ -48,12 +51,12 @@ const Translator = struct {
 
     fn emitLine(self: *Translator, bytes: []const u8) !void {
         try self.out.appendSlice(bytes);
-        try self.out.appendByte('\n');
+        try self.out.append('\n');
     }
 
     fn emitFmt(self: *Translator, comptime fmt: []const u8, args: anytype) !void {
         try self.out.writer().print(fmt, args);
-        try self.out.appendByte('\n');
+        try self.out.append('\n');
     }
 
     fn startsWithWord(text: []const u8, word: []const u8) bool {
@@ -179,9 +182,156 @@ const Translator = struct {
         return t;
     }
 
+    fn isLlvmTypeWord(word: []const u8) bool {
+        return std.mem.eql(u8, word, "void") or
+            std.mem.eql(u8, word, "ptr") or
+            std.mem.eql(u8, word, "i1") or
+            std.mem.eql(u8, word, "i8") or
+            std.mem.eql(u8, word, "i16") or
+            std.mem.eql(u8, word, "i32") or
+            std.mem.eql(u8, word, "i64") or
+            std.mem.eql(u8, word, "u8") or
+            std.mem.eql(u8, word, "u16") or
+            std.mem.eql(u8, word, "u32") or
+            std.mem.eql(u8, word, "u64") or
+            std.mem.eql(u8, word, "f32") or
+            std.mem.eql(u8, word, "f64");
+    }
+
+    fn stripTypedValue(text: []const u8) []const u8 {
+        const trimmed = trim(text);
+        const parts = splitFirstWord(trimmed);
+        if (parts.word.len != 0 and isLlvmTypeWord(parts.word) and parts.rest.len != 0) {
+            return trim(parts.rest);
+        }
+        return trimmed;
+    }
+
+    fn stripLlvmSymbol(text: []const u8) []const u8 {
+        const trimmed = stripTypedValue(text);
+        if (trimmed.len != 0 and (trimmed[0] == '%' or trimmed[0] == '@')) return trimmed[1..];
+        return trimmed;
+    }
+
+    fn renderPlainValue(self: *Translator, text: []const u8) ![]const u8 {
+        const _ = self;
+        return stripLlvmSymbol(text);
+    }
+
+    fn renderCallArg(self: *Translator, callee: []const u8, arg_index: usize, text: []const u8) ![]const u8 {
+        const plain = try self.renderPlainValue(text);
+        if (std.mem.eql(u8, callee, "sa_print_bytes") and arg_index == 0) {
+            return try std.fmt.allocPrint(self.allocator, "&{s}", .{plain});
+        }
+        if (std.mem.eql(u8, callee, "sys_print") or std.mem.eql(u8, callee, "sys_read_file") or std.mem.eql(u8, callee, "sys_write_file")) {
+            if (arg_index == 0 or (std.mem.eql(u8, callee, "sys_read_file") and arg_index == 2) or (std.mem.eql(u8, callee, "sys_write_file") and arg_index == 2)) {
+                return try std.fmt.allocPrint(self.allocator, "*{s}", .{plain});
+            }
+        }
+        return plain;
+    }
+
+    fn decodeLlvmCString(allocator: std.mem.Allocator, literal: []const u8) ![]u8 {
+        var list = std.ArrayList(u8).init(allocator);
+        errdefer list.deinit();
+
+        var i: usize = 0;
+        while (i < literal.len) : (i += 1) {
+            const c = literal[i];
+            if (c == '"') break;
+            if (c != '\\') {
+                try list.append(c);
+                continue;
+            }
+            if (i + 1 >= literal.len) return TranslateError.InvalidLlvm;
+            const esc = literal[i + 1];
+            switch (esc) {
+                '\\' => {
+                    try list.append('\\');
+                    i += 1;
+                },
+                '"' => {
+                    try list.append('"');
+                    i += 1;
+                },
+                'n' => {
+                    try list.append('\n');
+                    i += 1;
+                },
+                'r' => {
+                    try list.append('\r');
+                    i += 1;
+                },
+                't' => {
+                    try list.append('\t');
+                    i += 1;
+                },
+                else => {
+                    const hi = std.fmt.charToDigit(esc, 16) catch return TranslateError.InvalidLlvm;
+                    if (i + 2 >= literal.len) return TranslateError.InvalidLlvm;
+                    const lo = std.fmt.charToDigit(literal[i + 2], 16) catch return TranslateError.InvalidLlvm;
+                    try list.append(@as(u8, @intCast((hi << 4) | lo)));
+                    i += 2;
+                },
+            }
+        }
+
+        return try list.toOwnedSlice();
+    }
+
+    fn emitConstFromBytes(self: *Translator, name: []const u8, bytes: []const u8) !void {
+        var rendered = std.ArrayList(u8).init(self.allocator);
+        errdefer rendered.deinit();
+
+        try rendered.appendSlice("@const ");
+        try rendered.appendSlice(name);
+        try rendered.appendSlice(" = ");
+
+        const utf8_ok = std.unicode.utf8ValidateSlice(bytes);
+        if (utf8_ok) {
+            try rendered.appendSlice("utf8:\"");
+            for (bytes) |byte| {
+                switch (byte) {
+                    '\\' => try rendered.appendSlice("\\\\"),
+                    '"' => try rendered.appendSlice("\\\""),
+                    '\n' => try rendered.appendSlice("\\n"),
+                    '\r' => try rendered.appendSlice("\\r"),
+                    '\t' => try rendered.appendSlice("\\t"),
+                    0 => try rendered.appendSlice("\\0"),
+                    else => if (byte >= 0x20 and byte < 0x7f) {
+                        try rendered.append(byte);
+                    } else {
+                        try rendered.writer().print("\\x{X:0>2}", .{byte});
+                    },
+                }
+            }
+            try rendered.append('"');
+        } else {
+            try rendered.appendSlice("hex:");
+            for (bytes) |byte| {
+                try rendered.writer().print("\\x{X:0>2}", .{byte});
+            }
+        }
+
+        try self.emitLine(rendered.items);
+    }
+
+    fn shouldSkipFunction(name: []const u8, params: []const u8) bool {
+        if (std.mem.eql(u8, name, "main") and trim(params).len != 0) return true;
+        return std.mem.eql(u8, name, "__sa_panic") or
+            std.mem.eql(u8, name, "saasm_strdupz") or
+            std.mem.eql(u8, name, "saasm_streq") or
+            std.mem.eql(u8, name, "sys_print") or
+            std.mem.eql(u8, name, "sys_exit") or
+            std.mem.eql(u8, name, "sys_argc") or
+            std.mem.eql(u8, name, "sys_argv") or
+            std.mem.eql(u8, name, "sys_read_file") or
+            std.mem.eql(u8, name, "sys_write_file");
+    }
+
     fn mapFunctionName(self: *Translator, name: []const u8, params: []const u8) ![]const u8 {
         _ = self;
-        if (std.mem.eql(u8, name, "main") and trim(params).len == 0) return "saasm_main";
+        if (std.mem.eql(u8, name, "saasm_main")) return "main";
         return name;
     }
 
@@ -207,12 +357,12 @@ const Translator = struct {
 
     fn emitFunctionHeader(self: *Translator, kind: FunctionMode, name: []const u8, params: []const u8, ret_ty: []const u8) !void {
         switch (kind) {
-            .normal => try self.out.appendByte('@'),
+            .normal => try self.out.append('@'),
             .ffi_wrapper => try self.out.appendSlice("@ffi_wrapper "),
             .external => try self.out.appendSlice("@extern "),
         }
         try self.out.appendSlice(name);
-        try self.out.appendByte('(');
+        try self.out.append('(');
         if (trim(params).len != 0) {
             const args = try splitCommaArgs(self.allocator, params);
             defer self.allocator.free(args);
@@ -221,13 +371,13 @@ const Translator = struct {
                 try self.out.appendSlice(try self.translateParam(arg));
             }
         }
-        try self.out.appendByte(')');
+        try self.out.append(')');
         if (!std.mem.eql(u8, trim(ret_ty), "void")) {
             try self.out.appendSlice(" -> ");
             try self.out.appendSlice(try self.translateReturn(ret_ty));
         }
-        try self.out.appendByte(':');
-        try self.out.appendByte('\n');
+        try self.out.append(':');
+        try self.out.append('\n');
         if (self.current) |*ctx| ctx.rendered_header = true;
     }
 
@@ -482,8 +632,6 @@ pub fn translateAlloc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     try translator.emitLine("    panic(102)");
     try translator.emitLine("");
 
-    const lines = try std.mem.splitScalar(u8, input, '\n');
-    _ = lines;
     var all_lines = std.ArrayList([]const u8).init(allocator);
     defer all_lines.deinit();
     var iter = std.mem.splitScalar(u8, input, '\n');

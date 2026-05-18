@@ -858,20 +858,33 @@ fn builtinGrantRequirement(name: []const u8) ?pkg_manifest.Capability {
     return null;
 }
 
+fn packageGrantEntry(
+    package_identity: ?[]const u8,
+    package_grants: []const pkg_manifest.RequireEntry,
+) ?*const pkg_manifest.RequireEntry {
+    const identity = package_identity orelse return null;
+    for (package_grants, 0..) |entry, idx| {
+        if (std.mem.eql(u8, entry.url, identity)) {
+            return &package_grants[idx];
+        }
+    }
+    return null;
+}
+
+fn packageGrantAllowsEntry(entry: *const pkg_manifest.RequireEntry, required: pkg_manifest.Capability) bool {
+    for (entry.grants) |grant| {
+        if (grant == required) return true;
+    }
+    return false;
+}
+
 fn packageGrantAllows(
     package_identity: ?[]const u8,
     required: pkg_manifest.Capability,
     package_grants: []const pkg_manifest.RequireEntry,
 ) bool {
-    const identity = package_identity orelse return true;
-    for (package_grants) |entry| {
-        if (!std.mem.eql(u8, entry.url, identity)) continue;
-        for (entry.grants) |grant| {
-            if (grant == required) return true;
-        }
-        return false;
-    }
-    return false;
+    const entry = packageGrantEntry(package_identity, package_grants) orelse return true;
+    return packageGrantAllowsEntry(entry, required);
 }
 
 fn builtinReturnCap(name: []const u8) ?inst.CapPrefix {
@@ -1990,8 +2003,19 @@ fn verifyBody(
 
                 if (!parsed.is_indirect) {
                     if (builtinGrantRequirement(parsed.callee)) |required_grant| {
-                        if (!packageGrantAllows(item.package_identity, required_grant, package_grants)) {
-                            return trapReport(.unauthorized_primitive, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "package grants do not allow this @sys_* intrinsic", null);
+                        if (item.package_identity) |identity| {
+                            const grant_entry = packageGrantEntry(identity, package_grants) orelse {
+                                return trapReport(.unauthorized_primitive, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "package grants do not allow this @sys_* intrinsic", null);
+                            };
+                            if (!packageGrantAllowsEntry(grant_entry, required_grant)) {
+                                return trapReport(.unauthorized_primitive, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "package grants do not allow this @sys_* intrinsic", null);
+                            }
+                            const package_hash = item.package_source_sha256 orelse {
+                                return trapReport(.upstream_sha_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "package source hash does not match the granted requirement", null);
+                            };
+                            if (!std.mem.eql(u8, grant_entry.source_sha256[0..], package_hash[0..])) {
+                                return trapReport(.upstream_sha_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "package source hash does not match the granted requirement", null);
+                            }
                         }
                     }
                 }
@@ -3273,10 +3297,40 @@ test "verifier rejects call-site capability prefix mismatches" {
     }
 }
 
-test "verifier rejects ungranted sys file write for package instructions" {
-    const source =
-        \\@import "github.com/example/pkg"
-    ;
+fn packageSourceHashForIdentity(instructions: []const inst.Instruction, identity: []const u8) ?[32]u8 {
+    for (instructions) |item| {
+        if (item.package_identity) |item_identity| {
+            if (std.mem.eql(u8, item_identity, identity)) {
+                if (item.package_source_sha256) |hash| return hash;
+            }
+        }
+    }
+    return null;
+}
+
+fn makePackageGrant(
+    allocator: std.mem.Allocator,
+    url: []const u8,
+    ref: []const u8,
+    source_sha256: [32]u8,
+    grants: []const pkg_manifest.Capability,
+) !pkg_manifest.RequireEntry {
+    return .{
+        .url = try allocator.dupe(u8, url),
+        .ref = try allocator.dupe(u8, ref),
+        .source_sha256 = source_sha256,
+        .grants = try allocator.dupe(pkg_manifest.Capability, grants),
+        .upstream_loc = .{ .file = try allocator.dupe(u8, "sa.mod"), .line = 1, .col = 1 },
+    };
+}
+
+fn verifyPackageIntrinsicProgram(
+    allocator: std.mem.Allocator,
+    package_body: []const u8,
+    grant_caps: []const pkg_manifest.Capability,
+    mismatch_hash: bool,
+) !VerifyResult {
+    const root_source = "@import \"github.com/example/pkg\"\n";
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -3284,7 +3338,48 @@ test "verifier rejects ungranted sys file write for package instructions" {
     try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
 
     var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
-    try pkg_main.writeAll(
+    try pkg_main.writeAll(package_body);
+    pkg_main.close();
+
+    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    try main_file.writeAll(root_source);
+    main_file.close();
+
+    const source_text = try tmp.dir.readFileAlloc(allocator, "main.saasm", 4096);
+    defer allocator.free(source_text);
+
+    const path = try tmp.dir.realpathAlloc(allocator, "main.saasm");
+    defer allocator.free(path);
+    const project_root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(project_root);
+
+    var flat = try @import("flattener.zig").flattenFileWithPackages(
+        allocator,
+        path,
+        source_text,
+        .{
+            .options = .{ .project_root = project_root },
+        },
+    );
+    defer flat.deinit(allocator);
+
+    const package_hash = packageSourceHashForIdentity(flat.instructions, "github.com/example/pkg") orelse return error.TestUnexpectedResult;
+    var grant_hash = package_hash;
+    if (mismatch_hash) {
+        grant_hash[0] ^= 0xFF;
+    }
+
+    var grants = [_]pkg_manifest.RequireEntry{
+        try makePackageGrant(allocator, "github.com/example/pkg", "main", grant_hash, grant_caps),
+    };
+    defer grants[0].deinit(allocator);
+
+    return try verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .package_grants = grants[0..] });
+}
+
+test "verifier rejects ungranted sys file write for package instructions" {
+    const result = try verifyPackageIntrinsicProgram(
+        std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\path = alloc 8
@@ -3293,50 +3388,16 @@ test "verifier rejects ungranted sys file write for package instructions" {
         \\!path
         \\!data
         \\return value
-    );
-    pkg_main.close();
-
-    const source_path = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
-    try source_path.writeAll(source);
-    source_path.close();
-
-    const source_text = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
-    defer std.testing.allocator.free(source_text);
-
-    const path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
-    defer std.testing.allocator.free(path);
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
-    defer std.testing.allocator.free(project_root);
-
-    var flat = try @import("flattener.zig").flattenFileWithPackages(
-        std.testing.allocator,
-        path,
-        source_text,
-        .{
-            .options = .{ .project_root = project_root },
-        },
-    );
-    defer flat.deinit(std.testing.allocator);
-
-    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
-    switch (verified) {
+    , &.{}, false);
+    switch (result) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.unauthorized_primitive, report.trap),
         .ok => return error.TestUnexpectedResult,
     }
 }
 
 test "verifier allows granted sys file write for package instructions" {
-    const source =
-        \\@import "github.com/example/pkg"
-    ;
-
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
-
-    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
-    try pkg_main.writeAll(
+    const result = try verifyPackageIntrinsicProgram(
+        std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\path = alloc 8
@@ -3345,50 +3406,106 @@ test "verifier allows granted sys file write for package instructions" {
         \\!path
         \\!data
         \\return value
-    );
-    pkg_main.close();
-
-    const source_path = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
-    try source_path.writeAll(source);
-    source_path.close();
-
-    const source_text = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
-    defer std.testing.allocator.free(source_text);
-
-    const path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
-    defer std.testing.allocator.free(path);
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
-    defer std.testing.allocator.free(project_root);
-
-    var grants = [_]pkg_manifest.RequireEntry{
-        .{
-            .url = try std.testing.allocator.dupe(u8, "github.com/example/pkg"),
-            .ref = try std.testing.allocator.dupe(u8, "main"),
-            .source_sha256 = [_]u8{0} ** 32,
-            .grants = try std.testing.allocator.dupe(pkg_manifest.Capability, &.{ .io_write }),
-            .upstream_loc = .{ .file = try std.testing.allocator.dupe(u8, "sa.mod"), .line = 1, .col = 1 },
-        },
-    };
-    defer grants[0].deinit(std.testing.allocator);
-
-    var flat = try @import("flattener.zig").flattenFileWithPackages(
-        std.testing.allocator,
-        path,
-        source_text,
-        .{
-            .options = .{ .project_root = project_root },
-        },
-    );
-    defer flat.deinit(std.testing.allocator);
-
-    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .package_grants = grants[0..] });
-    switch (verified) {
+    , &.{ .io_write }, false);
+    switch (result) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
             try std.testing.expect(owned.annotated.len > 0);
         },
+    }
+}
+
+test "verifier allows granted sys print for package instructions" {
+    const result = try verifyPackageIntrinsicProgram(
+        std.testing.allocator,
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\msg = alloc 8
+        \\call @sys_print(*msg, 5)
+        \\!msg
+        \\return 0
+    , &.{ .io_write }, false);
+    switch (result) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+    }
+}
+
+test "verifier allows granted sys exit for package instructions" {
+    const result = try verifyPackageIntrinsicProgram(
+        std.testing.allocator,
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\code = call @sys_exit(0)
+        \\return code
+    , &.{ .proc_exit }, false);
+    switch (result) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+    }
+}
+
+test "verifier allows granted sys argc for package instructions" {
+    const result = try verifyPackageIntrinsicProgram(
+        std.testing.allocator,
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\argc = call @sys_argc()
+        \\return argc
+    , &.{ .proc_args }, false);
+    switch (result) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+    }
+}
+
+test "verifier allows granted sys argv for package instructions" {
+    const result = try verifyPackageIntrinsicProgram(
+        std.testing.allocator,
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\argv = call @sys_argv(0)
+        \\return 0
+    , &.{ .proc_args }, false);
+    switch (result) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+    }
+}
+
+test "verifier rejects package source hash mismatch for granted sys write" {
+    const result = try verifyPackageIntrinsicProgram(
+        std.testing.allocator,
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\path = alloc 8
+        \\data = alloc 8
+        \\value = call @sys_write_file(*path, 4, *data, 4)
+        \\!path
+        \\!data
+        \\return value
+    , &.{ .io_write }, true);
+    switch (result) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.upstream_sha_mismatch, report.trap),
+        .ok => return error.TestUnexpectedResult,
     }
 }
 

@@ -10,6 +10,7 @@ pub const common = struct {
 };
 
 pub const flattener = @import("flattener.zig");
+pub const db = @import("db/mod.zig");
 pub const layout = @import("layout.zig");
 pub const test_executor = @import("test_executor.zig");
 pub const test_formatter = @import("test_formatter.zig");
@@ -66,7 +67,7 @@ test "root module imports common types" {
         \\L_START:
         \\node = alloc 8
     ;
-    const lines = try flatten.scanSource(std.testing.allocator, source, &.{});
+    const lines = try flatten.scanSource(std.testing.allocator, source, &.{}, &.{});
     defer std.testing.allocator.free(lines);
     try std.testing.expectEqual(@as(usize, 3), lines.len);
     try std.testing.expectEqual(flatten.LineKind.def, lines[0].classified.kind);

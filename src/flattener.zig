@@ -1950,7 +1950,7 @@ test "scanSource preserves line order and classification" {
         \\L_LOOP:
         \\node = alloc 8
     ;
-    const lines = try scanSource(std.testing.allocator, source, &.{});
+    const lines = try scanSource(std.testing.allocator, source, &.{}, &.{});
     defer std.testing.allocator.free(lines);
 
     try std.testing.expectEqual(@as(usize, 3), lines.len);
@@ -2208,6 +2208,16 @@ test "flattenFileWithPackages preserves package identity on imported instruction
     const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
 
+    var resolved = try pkg_resolver.resolveImport(
+        std.testing.allocator,
+        &.{},
+        project_root,
+        "github.com/example/pkg",
+        .{ .project_root = project_root },
+    );
+    defer resolved.deinit(std.testing.allocator);
+    const expected_hash = resolved.source_sha256 orelse return error.TestUnexpectedResult;
+
     var result = try flattenFileWithPackages(
         std.testing.allocator,
         source_path,
@@ -2219,14 +2229,22 @@ test "flattenFileWithPackages preserves package identity on imported instruction
     defer result.deinit(std.testing.allocator);
 
     var saw_pkg_instruction = false;
+    var saw_pkg_call = false;
     for (result.instructions) |item| {
-        if (std.mem.eql(u8, item.raw_text, "value = call @sys_write_file(*path, 4, *data, 4)")) {
-            saw_pkg_instruction = true;
-            try std.testing.expect(item.package_identity != null);
-            try std.testing.expectEqualStrings("github.com/example/pkg", item.package_identity.?);
+        if (item.package_identity) |identity| {
+            if (std.mem.eql(u8, identity, "github.com/example/pkg")) {
+                saw_pkg_instruction = true;
+                try std.testing.expect(item.package_source_sha256 != null);
+                const actual_hash = item.package_source_sha256.?;
+                try std.testing.expect(std.mem.eql(u8, actual_hash[0..], expected_hash[0..]));
+                if (std.mem.eql(u8, item.raw_text, "value = call @sys_write_file(*path, 4, *data, 4)")) {
+                    saw_pkg_call = true;
+                }
+            }
         }
     }
     try std.testing.expect(saw_pkg_instruction);
+    try std.testing.expect(saw_pkg_call);
 }
 
 test "flattenFile rejects import cycles" {

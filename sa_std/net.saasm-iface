@@ -3,6 +3,11 @@
 @extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u16) -> ^ptr!
 @extern sa_net_tcp_stream_read(stream: ptr, &buf: ptr, cap: u64) -> u64!
 @extern sa_net_tcp_stream_peek(stream: ptr, &buf: ptr, cap: u64) -> u64!
+@extern sa_net_tcp_stream_set_read_timeout(stream: ptr, timeout_ns: u64) -> i32!
+@extern sa_net_tcp_stream_set_write_timeout(stream: ptr, timeout_ns: u64) -> i32!
+@extern sa_net_tcp_stream_set_nonblocking(stream: ptr, enabled: i32) -> i32!
+@extern sa_net_tcp_stream_set_nodelay(stream: ptr, enabled: i32) -> i32!
+@extern sa_net_tcp_stream_set_ttl(stream: ptr, ttl: u32) -> i32!
 @extern sa_net_tcp_stream_write(stream: ptr, &buf: ptr, len: u64) -> u64!
 @extern sa_net_tcp_stream_write_all(stream: ptr, &buf: ptr, len: u64) -> i32!
 @extern sa_net_tcp_stream_flush(stream: ptr) -> i32!
@@ -17,6 +22,11 @@
 
 @extern sa_net_udp_bind(&host: ptr, host_len: u64, port: u16) -> ^ptr!
 @extern sa_net_udp_connect(socket: ptr, &host: ptr, host_len: u64, port: u16) -> i32!
+@extern sa_net_udp_set_read_timeout(socket: ptr, timeout_ns: u64) -> i32!
+@extern sa_net_udp_set_write_timeout(socket: ptr, timeout_ns: u64) -> i32!
+@extern sa_net_udp_set_nonblocking(socket: ptr, enabled: i32) -> i32!
+@extern sa_net_udp_set_broadcast(socket: ptr, enabled: i32) -> i32!
+@extern sa_net_udp_set_ttl(socket: ptr, ttl: u32) -> i32!
 @extern sa_net_udp_send(socket: ptr, &buf: ptr, len: u64) -> u64!
 @extern sa_net_udp_recv(socket: ptr, &buf: ptr, cap: u64) -> u64!
 @extern sa_net_udp_send_to(socket: ptr, &buf: ptr, len: u64, &host: ptr, host_len: u64, port: u16) -> u64!

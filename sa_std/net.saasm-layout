@@ -15,6 +15,12 @@
 #def SA_NET_SHUTDOWN_WRITE = 1
 #def SA_NET_SHUTDOWN_BOTH = 2
 
+#def SA_NET_AF_INET = 2
+#def SA_NET_AF_INET6 = 10
+
+#def SA_NET_SOCKET_OPTION_ENABLE = 1
+#def SA_NET_SOCKET_OPTION_DISABLE = 0
+
 #def SaNetAddr_SIZE = 32
 #def SaNetAddr_family = +0
 #def SaNetAddr_port = +4

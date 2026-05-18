@@ -23,6 +23,7 @@ pub const AirlockGenerator = struct {
             \\
             \\// ── 节点句柄映射表
             \\const _nodeMap = new Map();
+            \\const _bindingMap = new Map();
             \\let _nextHandle = 1;
             \\function _alloc_handle(el) {
             \\  const h = _nextHandle++;
@@ -34,6 +35,15 @@ pub const AirlockGenerator = struct {
             \\}
             \\function _free_handle(h) {
             \\  _nodeMap.delete(Number(h));
+            \\}
+            \\function _unbind_handle_events(node_h) {
+            \\  const prefix = String(Number(node_h)) + "::";
+            \\  for (const [key, binding] of _bindingMap.entries()) {
+            \\    if (key.startsWith(prefix)) {
+            \\      binding.node.removeEventListener(binding.evt, binding.listener);
+            \\      _bindingMap.delete(key);
+            \\    }
+            \\  }
             \\}
             \\
             \\// ── WASM 内存读写工具
@@ -87,6 +97,7 @@ pub const AirlockGenerator = struct {
             \\
             \\  sax_dom_remove_self(node_h) {
             \\    _get_node(node_h).remove();
+            \\    _unbind_handle_events(node_h);
             \\    _free_handle(node_h);
             \\  },
             \\
@@ -147,19 +158,33 @@ pub const AirlockGenerator = struct {
             \\  },
             \\
             \\  // 事件系统
-            \\  sax_dom_bind_event(node_h, evt_ptr, evt_len, fn_idx) {
+            \\  sax_dom_bind_event(node_h, evt_ptr, evt_len, handler_ptr, handler_len, ctx) {
             \\    const evt = _read_str(evt_ptr, evt_len);
+            \\    const handler = _read_str(handler_ptr, handler_len);
             \\    const el = _get_node(node_h);
-            \\    el.addEventListener(evt, () => {
-            \\      // 调用 WASM 导出函数
-            \\      if (_wasm_instance && _wasm_instance.exports[fn_idx]) {
-            \\        _wasm_instance.exports[fn_idx]();
+            \\    const listener = () => {
+            \\      if (_wasm_instance && _wasm_instance.exports[handler]) {
+            \\        _wasm_instance.exports[handler](ctx);
             \\      }
-            \\    });
+            \\    };
+            \\    const key = `${Number(node_h)}::${evt}::${handler}::${ctx}`;
+            \\    const prev = _bindingMap.get(key);
+            \\    if (prev) {
+            \\      prev.node.removeEventListener(prev.evt, prev.listener);
+            \\    }
+            \\    el.addEventListener(evt, listener);
+            \\    _bindingMap.set(key, { node: el, evt, listener });
             \\  },
             \\
-            \\  sax_dom_unbind_event(node_h, evt_ptr, evt_len, fn_idx) {
-            \\    // Phase 2: 实现事件解绑
+            \\  sax_dom_unbind_event(node_h, evt_ptr, evt_len, handler_ptr, handler_len, ctx) {
+            \\    const evt = _read_str(evt_ptr, evt_len);
+            \\    const handler = _read_str(handler_ptr, handler_len);
+            \\    const key = `${Number(node_h)}::${evt}::${handler}::${ctx}`;
+            \\    const binding = _bindingMap.get(key);
+            \\    if (binding) {
+            \\      binding.node.removeEventListener(binding.evt, binding.listener);
+            \\      _bindingMap.delete(key);
+            \\    }
             \\  },
             \\
             \\  // 工具函数
