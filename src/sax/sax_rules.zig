@@ -98,12 +98,13 @@ pub const SaxRefereeRules = struct {
     /// Rule 4: SaxInvalidInterpolation
     /// 检查插值表达式中是否包含 ^ 或 !
     pub fn checkInterpolation(self: *SaxRefereeRules, expr: []const u8) !void {
+        _ = self;
         if (std.mem.containsAtLeast(u8, expr, 1, "^") or
             std.mem.containsAtLeast(u8, expr, 1, "!"))
         {
             std.debug.print(
-                "SaxInvalidInterpolation: interpolation {{expr}} must not contain ^ or !\n",
-                .{},
+                "SaxInvalidInterpolation: interpolation '{s}' must not contain ^ or !\n",
+                .{expr},
             );
             return error.SaxInvalidInterpolation;
         }
@@ -116,6 +117,7 @@ pub const SaxRefereeRules = struct {
         memory_offset: usize,
         is_from_outside: bool,
     ) !void {
+        _ = memory_offset;
         if (is_from_outside) {
             std.debug.print(
                 "SaxStateWriteFromOutside: state slot of '{s}' written from outside component\n",

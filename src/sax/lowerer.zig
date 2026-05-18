@@ -419,7 +419,7 @@ pub const SaxLowerer = struct {
             const slot = self.state_slots[idx];
             switch (sv.ty) {
                 .ptr => {
-                    const init_expr = std.mem.trim(u8, sv.init_expr, " 	");
+                    const init_expr = std.mem.trim(u8, sv.init_expr, " \t\r");
                     if (std.mem.startsWith(u8, init_expr, "alloc ")) {
                         const sz = std.mem.trim(u8, init_expr["alloc ".len..], " \t\r");
                         try out.writer().print("  tmp_ptr_{d} = stack_alloc {}\n", .{ idx, sz });

@@ -127,6 +127,8 @@ pub fn executeSaxNew(
     stdout: anytype,
     stderr: anytype,
 ) !u8 {
+    _ = stderr;
+
     // 创建项目目录
     try std.fs.cwd().makePath(project_name);
 

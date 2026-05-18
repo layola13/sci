@@ -15,6 +15,9 @@
 @extern sa_net_tcp_listener_close(^listener: ptr) -> i32!
 
 @extern sa_net_udp_bind(&host: ptr, host_len: u64, port: u16) -> ^ptr!
+@extern sa_net_udp_connect(socket: ptr, &host: ptr, host_len: u64, port: u16) -> i32!
+@extern sa_net_udp_send(socket: ptr, &buf: ptr, len: u64) -> u64!
+@extern sa_net_udp_recv(socket: ptr, &buf: ptr, cap: u64) -> u64!
 @extern sa_net_udp_send_to(socket: ptr, &buf: ptr, len: u64, &host: ptr, host_len: u64, port: u16) -> u64!
 @extern sa_net_udp_recv_from(socket: ptr, &buf: ptr, cap: u64, &out_addr: ptr) -> u64!
 @extern sa_net_udp_close(^socket: ptr) -> i32!

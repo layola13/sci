@@ -545,6 +545,8 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         dependency_slice = try manifestDependencies(m, allocator);
     }
 
+    const package_grants: []const manifest.RequireEntry = if (project_manifest) |*m| m.requires else &.{};
+
     var error_ctx: flattener.ErrorContext = .{};
     const resolve_ctx = flattener.ResolveContext{
         .dependencies = dependency_slice,
@@ -557,7 +559,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     };
     errdefer flat.deinit(allocator);
 
-    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs });
+    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants });
     return switch (verified) {
         .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok } },
         .trap => |report| {

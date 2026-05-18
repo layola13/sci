@@ -7,6 +7,7 @@ const atomic = @import("common/atomic.zig");
 const gas = @import("common/gas.zig");
 const const_decl = @import("common/const_decl.zig");
 const inst = @import("common/instruction.zig");
+const pkg_manifest = @import("pkg/manifest.zig");
 const sig = @import("common/signature.zig");
 const trap = @import("common/trap.zig");
 const upstream = @import("common/upstream_loc.zig");
@@ -53,6 +54,7 @@ const ParallelFunctionChunk = struct {
 
 pub const VerifyOptions = struct {
     jobs: ?usize = null,
+    package_grants: []const pkg_manifest.RequireEntry = &.{},
 };
 
 const VerifyBodyOk = struct {
@@ -130,6 +132,7 @@ const ParallelVerifyContext = struct {
     instructions: []const inst.Instruction,
     const_decls: []const const_decl.ConstDecl,
     metadata: *const CollectResult,
+    package_grants: []const pkg_manifest.RequireEntry,
     chunks: []const ParallelFunctionChunk,
     jobs: []ParallelVerifyJob,
     requested_jobs: ?usize,
@@ -845,6 +848,32 @@ fn builtinArgSpec(name: []const u8) ?[]const inst.CapPrefix {
     return null;
 }
 
+fn builtinGrantRequirement(name: []const u8) ?pkg_manifest.Capability {
+    if (std.mem.eql(u8, name, "sys_print")) return .io_write;
+    if (std.mem.eql(u8, name, "sys_read_file")) return .io_read;
+    if (std.mem.eql(u8, name, "sys_write_file")) return .io_write;
+    if (std.mem.eql(u8, name, "sys_exit")) return .proc_exit;
+    if (std.mem.eql(u8, name, "sys_argv")) return .proc_args;
+    if (std.mem.eql(u8, name, "sys_argc")) return .proc_args;
+    return null;
+}
+
+fn packageGrantAllows(
+    package_identity: ?[]const u8,
+    required: pkg_manifest.Capability,
+    package_grants: []const pkg_manifest.RequireEntry,
+) bool {
+    const identity = package_identity orelse return true;
+    for (package_grants) |entry| {
+        if (!std.mem.eql(u8, entry.url, identity)) continue;
+        for (entry.grants) |grant| {
+            if (grant == required) return true;
+        }
+        return false;
+    }
+    return false;
+}
+
 fn builtinReturnCap(name: []const u8) ?inst.CapPrefix {
     if (std.mem.eql(u8, name, "panic")) return null;
     if (std.mem.eql(u8, name, "panic_msg")) return null;
@@ -1448,6 +1477,7 @@ fn verifyBody(
     metadata: *const CollectResult,
     sig_index_start: usize,
     check_exit_leaks: bool,
+    package_grants: []const pkg_manifest.RequireEntry,
 ) !VerifyBodyResult {
     var sig_index = sig_index_start;
 
@@ -1959,6 +1989,14 @@ fn verifyBody(
                 }
 
                 if (!parsed.is_indirect) {
+                    if (builtinGrantRequirement(parsed.callee)) |required_grant| {
+                        if (!packageGrantAllows(item.package_identity, required_grant, package_grants)) {
+                            return trapReport(.unauthorized_primitive, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "package grants do not allow this @sys_* intrinsic", null);
+                        }
+                    }
+                }
+
+                if (!parsed.is_indirect) {
                     if (sig_match) |resolved| {
                         if (resolved.params.len != parsed.args.len) {
                             return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
@@ -2311,6 +2349,7 @@ fn verifyWorker(context: *ParallelVerifyContext) void {
             context.metadata,
             chunk.sig_index,
             chunk_index + 1 == context.chunks.len,
+            context.package_grants,
         ) catch |err| {
             job.err = err;
             return;
@@ -2324,12 +2363,13 @@ fn verifyParallel(
     instructions: []const inst.Instruction,
     const_decls: []const const_decl.ConstDecl,
     metadata: *const CollectResult,
+    package_grants: []const pkg_manifest.RequireEntry,
     chunks: []const ParallelFunctionChunk,
     requested_jobs: ?usize,
 ) !VerifyBodyResult {
     const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
     if (worker_count <= 1) {
-        return verifyBody(allocator, instructions, const_decls, metadata, 0, true);
+        return verifyBody(allocator, instructions, const_decls, metadata, 0, true, package_grants);
     }
 
     const jobs = try allocator.alloc(ParallelVerifyJob, chunks.len);
@@ -2346,6 +2386,7 @@ fn verifyParallel(
         .instructions = instructions,
         .const_decls = const_decls,
         .metadata = metadata,
+        .package_grants = package_grants,
         .chunks = chunks,
         .jobs = jobs,
         .requested_jobs = requested_jobs,
@@ -2486,10 +2527,10 @@ pub fn verifyWithOptions(
     const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
 
     const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
-        const parallel = try verifyParallel(allocator, instructions, const_decls, &metadata, chunks, options.jobs);
+        const parallel = try verifyParallel(allocator, instructions, const_decls, &metadata, options.package_grants, chunks, options.jobs);
         break :blk parallel;
     } else blk: {
-        break :blk try verifyBody(allocator, instructions, const_decls, &metadata, 0, true);
+        break :blk try verifyBody(allocator, instructions, const_decls, &metadata, 0, true, options.package_grants);
     };
 
     switch (body_result) {
@@ -3229,6 +3270,125 @@ test "verifier rejects call-site capability prefix mismatches" {
     switch (verified) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.capability_mismatch, report.trap),
         .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "verifier rejects ungranted sys file write for package instructions" {
+    const source =
+        \\@import "github.com/example/pkg"
+    ;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
+
+    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    try pkg_main.writeAll(
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\path = alloc 8
+        \\data = alloc 8
+        \\value = call @sys_write_file(*path, 4, *data, 4)
+        \\!path
+        \\!data
+        \\return value
+    );
+    pkg_main.close();
+
+    const source_path = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    try source_path.writeAll(source);
+    source_path.close();
+
+    const source_text = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    defer std.testing.allocator.free(source_text);
+
+    const path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    defer std.testing.allocator.free(path);
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+
+    var flat = try @import("flattener.zig").flattenFileWithPackages(
+        std.testing.allocator,
+        path,
+        source_text,
+        .{
+            .options = .{ .project_root = project_root },
+        },
+    );
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.unauthorized_primitive, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "verifier allows granted sys file write for package instructions" {
+    const source =
+        \\@import "github.com/example/pkg"
+    ;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
+
+    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    try pkg_main.writeAll(
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\path = alloc 8
+        \\data = alloc 8
+        \\value = call @sys_write_file(*path, 4, *data, 4)
+        \\!path
+        \\!data
+        \\return value
+    );
+    pkg_main.close();
+
+    const source_path = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    try source_path.writeAll(source);
+    source_path.close();
+
+    const source_text = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    defer std.testing.allocator.free(source_text);
+
+    const path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    defer std.testing.allocator.free(path);
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+
+    var grants = [_]pkg_manifest.RequireEntry{
+        .{
+            .url = try std.testing.allocator.dupe(u8, "github.com/example/pkg"),
+            .ref = try std.testing.allocator.dupe(u8, "main"),
+            .source_sha256 = [_]u8{0} ** 32,
+            .grants = try std.testing.allocator.dupe(pkg_manifest.Capability, &.{ .io_write }),
+            .upstream_loc = .{ .file = try std.testing.allocator.dupe(u8, "sa.mod"), .line = 1, .col = 1 },
+        },
+    };
+    defer grants[0].deinit(std.testing.allocator);
+
+    var flat = try @import("flattener.zig").flattenFileWithPackages(
+        std.testing.allocator,
+        path,
+        source_text,
+        .{
+            .options = .{ .project_root = project_root },
+        },
+    );
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .package_grants = grants[0..] });
+    switch (verified) {
+        .trap => return error.TestUnexpectedResult,
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
     }
 }
 

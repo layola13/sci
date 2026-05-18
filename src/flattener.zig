@@ -1426,7 +1426,12 @@ fn expandImportsInto(
         recordErrorSourceLine(error_ctx, line_no);
         if (parseImportPath(raw_line)) |import_path| {
             var imported = try readImportFile(allocator, base_dir, import_path, resolve_ctx);
-            const imported_package_identity = imported.package_identity orelse current_package_identity;
+            const imported_package_identity = if (imported.package_identity) |identity|
+                try rememberPackageIdentity(allocator, seen_package_identities, identity)
+            else if (current_package_identity) |identity|
+                try rememberPackageIdentity(allocator, seen_package_identities, identity)
+            else
+                null;
 
             if (active_paths.contains(imported.entry_path)) {
                 imported.deinit(allocator);
@@ -2125,6 +2130,61 @@ test "flattenFileWithPackages injects package iface and namespaced layout defs o
     const namespaced_key = try std.fmt.allocPrint(std.testing.allocator, "{s}.Pkg_SIZE", .{prefix});
     defer std.testing.allocator.free(namespaced_key);
     try std.testing.expectEqualStrings("4", result.def_dict.get(namespaced_key).?);
+}
+
+test "flattenFileWithPackages preserves package identity on imported instructions" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
+
+    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    try pkg_main.writeAll(
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\path = alloc 8
+        \\data = alloc 8
+        \\value = call @sys_write_file(*path, 4, *data, 4)
+        \\!path
+        \\!data
+        \\return value
+    );
+    pkg_main.close();
+
+    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "github.com/example/pkg"
+    );
+    main_file.close();
+
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    defer std.testing.allocator.free(source_path);
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+
+    var result = try flattenFileWithPackages(
+        std.testing.allocator,
+        source_path,
+        source,
+        .{
+            .options = .{ .project_root = project_root },
+        },
+    );
+    defer result.deinit(std.testing.allocator);
+
+    var saw_pkg_instruction = false;
+    for (result.instructions) |item| {
+        if (std.mem.eql(u8, item.raw_text, "value = call @sys_write_file(*path, 4, *data, 4)")) {
+            saw_pkg_instruction = true;
+            try std.testing.expect(item.package_identity != null);
+            try std.testing.expectEqualStrings("github.com/example/pkg", item.package_identity.?);
+        }
+    }
+    try std.testing.expect(saw_pkg_instruction);
 }
 
 test "flattenFile rejects import cycles" {

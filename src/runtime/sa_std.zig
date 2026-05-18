@@ -256,6 +256,13 @@ fn mapError(err: anyerror) i32 {
         error.FileDescriptorAlreadyPresentInSet, error.OperationCausesCircularLoop => SA_STD_ERR_INVALID_ARGUMENT,
         error.FileDescriptorNotRegistered => SA_STD_ERR_INVALID_HANDLE,
         error.FileDescriptorIncompatibleWithEpoll => SA_STD_ERR_UNSUPPORTED,
+        error.AlreadyConnected,
+        error.ConnectionPending,
+        error.SocketNotConnected,
+        error.UnreachableAddress,
+        error.NetworkSubsystemFailed,
+        => SA_STD_ERR_NET,
+        error.MessageTooBig => SA_STD_ERR_TRUNCATED,
         error.Unsupported, error.SystemResources, error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded => SA_STD_ERR_UNSUPPORTED,
         error.ProcessNotFound, error.AlreadyTerminated => SA_STD_ERR_INVALID_HANDLE,
         error.NameTooLong,
@@ -1572,6 +1579,56 @@ pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
 }
+pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
+    const host = constBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const port16 = portFromU32(port) catch |err| return finishErr(err);
+    const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const written = std.posix.send(fd, bytes, 0) catch |err| return finishErr(err);
+    written_ptr.* = @as(u64, @intCast(written));
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const read = std.posix.recv(fd, buffer, 0) catch |err| return finishErr(err);
+    read_ptr.* = @as(u64, @intCast(read));
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
@@ -1613,11 +1670,26 @@ pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) 
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(handle));
 }
+pub export fn sa_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    return sa_std_net_udp_connect(socket, host_ptr, host_len, port);
+}
 pub export fn sa_net_udp_local_addr(socket: u64) i32 {
     var handle: u64 = 0;
     const status = sa_std_net_udp_local_addr(socket, &handle);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(handle));
+}
+pub export fn sa_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64) i32 {
+    var written: u64 = 0;
+    const status = sa_std_net_udp_send(socket, buf, len, &written);
+    if (status != SA_STD_OK) return status;
+    return @as(i32, @intCast(written));
+}
+pub export fn sa_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_udp_recv(socket, out, cap, &read);
+    if (status != SA_STD_OK) return status;
+    return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     var written: u64 = 0;
