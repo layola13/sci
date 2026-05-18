@@ -247,11 +247,11 @@ pub const AirlockGenerator = struct {
             \\  <div id="app"></div>
             \\  <script type="module">
             \\    import {{ sax_init }} from './airlock.js';
-            \\    sax_init('./{s}.wasm');
+            \\    sax_init('./{s}');
             \\  </script>
             \\</body>
             \\</html>
-            , .{ app_name, app_name },
+            , .{ title, wasm_file_name },
         );
 
         return output;

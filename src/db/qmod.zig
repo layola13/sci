@@ -447,7 +447,11 @@ pub fn parseLoadedQmod(allocator: std.mem.Allocator, source: []const u8) ParseEr
 }
 
 pub fn registryDirectory(allocator: std.mem.Allocator, root_dir: []const u8) ![]u8 {
-    return try std.fs.path.join(allocator, &.{ root_dir, ".sa", "db" });
+    const trimmed = std.mem.trim(u8, root_dir, " \t\r");
+    if (trimmed.len == 0 or std.mem.eql(u8, trimmed, ".")) {
+        return try std.fs.path.join(allocator, &.{ ".sa", "db" });
+    }
+    return try std.fs.path.join(allocator, &.{ trimmed, ".sa", "db" });
 }
 
 pub fn registryFilePath(allocator: std.mem.Allocator, root_dir: []const u8, hash: [32]u8) ![]u8 {
@@ -476,13 +480,8 @@ pub fn ifaceFilePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u
 }
 
 pub fn qmodFilePath(allocator: std.mem.Allocator, source_path: []const u8, hash: [32]u8) ![]u8 {
-    const hex = std.fmt.bytesToHex(hash, .lower);
-    const filename = try std.fmt.allocPrint(allocator, "{s}.qmod", .{hex[0..]});
-    if (std.fs.path.dirname(source_path)) |dir| {
-        defer allocator.free(filename);
-        return try std.fs.path.join(allocator, &.{ dir, filename });
-    }
-    return filename;
+    const root_dir = std.fs.path.dirname(source_path) orelse ".";
+    return try registryFilePath(allocator, root_dir, hash);
 }
 
 pub fn findRegistryEntry(registry: *const Registry, hash: [32]u8) ?RegistryEntry {
@@ -512,10 +511,7 @@ test "qmod hashing and grants parsing are stable" {
 
     const qmod_path = try qmodFilePath(std.testing.allocator, q.source_path, q.hash);
     defer std.testing.allocator.free(qmod_path);
-    const hex = std.fmt.bytesToHex(q.hash, .lower);
-    const expected_qmod_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.qmod", .{hex[0..]});
-    defer std.testing.allocator.free(expected_qmod_name);
-    const expected_qmod_path = try std.fs.path.join(std.testing.allocator, &.{ "queries", expected_qmod_name });
+    const expected_qmod_path = try registryFilePath(std.testing.allocator, q.project_root, q.hash);
     defer std.testing.allocator.free(expected_qmod_path);
     try std.testing.expectEqualStrings(expected_qmod_path, qmod_path);
 

@@ -47,11 +47,6 @@ fn writeFile(path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
-fn registryRoot(project_root: []const u8) ![]u8 {
-    return try qmod.registryDirectory(std.heap.page_allocator, project_root);
-}
-
-
 pub fn compileSchema(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -70,8 +65,8 @@ pub fn compileSchema(
 fn buildQmodArtifact(
     allocator: std.mem.Allocator,
     source_path: []const u8,
-    project_root: []const u8,
     source: []const u8,
+    project_root: []const u8,
 ) !qmod.Qmod {
     return try qmod.compileFromSource(allocator, source, source_path, project_root);
 }
@@ -83,29 +78,21 @@ pub fn registerQuery(
 ) !ExecResult {
     const source = try readFileAlloc(allocator, source_path, 16 * 1024 * 1024);
     defer allocator.free(source);
-    var compiled = try buildQmodArtifact(allocator, source_path, project_root, source);
+    var compiled = try buildQmodArtifact(allocator, source_path, source, project_root);
     defer compiled.deinit();
 
-    const root = try registryRoot(project_root);
-    defer std.heap.page_allocator.free(root);
-    try std.fs.cwd().makePath(root);
-
-    const qmod_path = try qmod.qmodFilePath(allocator, source_path, compiled.hash);
-    errdefer allocator.free(qmod_path);
-    const iface_path = try qmod.ifaceFilePath(allocator, source_path);
-    errdefer allocator.free(iface_path);
     const registry_path = try qmod.registryFilePath(allocator, project_root, compiled.hash);
-    errdefer allocator.free(registry_path);
+    const iface_path = try qmod.ifaceFilePath(allocator, source_path);
+    const qmod_path = try allocator.dupe(u8, registry_path);
     const source_copy = try allocator.dupe(u8, source_path);
-    errdefer allocator.free(source_copy);
 
     var qmod_bytes = std.ArrayList(u8).init(allocator);
-    errdefer qmod_bytes.deinit();
+    defer qmod_bytes.deinit();
     try qmod.writeQmod(qmod_bytes.writer(), compiled);
-    try writeFile(qmod_path, qmod_bytes.items);
+    try writeFile(registry_path, qmod_bytes.items);
 
     var iface = std.ArrayList(u8).init(allocator);
-    errdefer iface.deinit();
+    defer iface.deinit();
     try qmod.writeQueryIface(iface.writer(), compiled);
     try writeFile(iface_path, iface.items);
 
@@ -128,9 +115,18 @@ pub fn inspectRegistry(
     defer allocator.free(registry_path);
     const source = try readFileAlloc(allocator, registry_path, 16 * 1024 * 1024);
     defer allocator.free(source);
+    var loaded = try qmod.parseLoadedQmod(allocator, source);
+    defer loaded.deinit();
+
     var out = std.ArrayList(u8).init(allocator);
     errdefer out.deinit();
+    const hex = std.fmt.bytesToHex(hash, .lower);
     try out.writer().print("registry: {s}\n", .{registry_path});
+    try out.writer().print("hash: {s}\n", .{hex[0..]});
+    try out.writer().print("source_path: {s}\n", .{loaded.source_path});
+    try out.writer().print("project_root: {s}\n", .{loaded.project_root});
+    try out.writer().print("imports: {d}\n", .{loaded.imports.len});
+    try out.writer().print("grants: {d}\n", .{loaded.grants.len});
     try out.writer().print("bytes: {d}\n", .{source.len});
     return try out.toOwnedSlice();
 }
@@ -165,8 +161,14 @@ pub fn trapUnknownHash() trap.TrapReport {
 }
 
 test "db exec can write schema and qmod artifacts" {
-    var tmp_dir = std.testing.tmpDir(.{});
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp_dir = std.testing.tmpDir(.{ .iterate = true });
     defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
     const schema_path = "flash_sale.sadb-schema";
     const qmod_path = "heavy_users.query.saasm";
 
@@ -181,6 +183,7 @@ test "db exec can write schema and qmod artifacts" {
     try std.testing.expect(std.mem.containsAtLeast(u8, iface, 1, "TABLE_ROW_BYTES"));
 
     const qmod_source =
+        \\@import "flash_sale.sadb-schema"
         \\grants [db_read:flash_sale]
         \\@main() -> i32:
         \\L_ENTRY:
@@ -190,4 +193,11 @@ test "db exec can write schema and qmod artifacts" {
     var result = try registerQuery(std.testing.allocator, qmod_path, ".");
     defer result.deinit(std.testing.allocator);
     try std.testing.expect(result.hash[0] != 0);
+    try std.testing.expect(std.mem.endsWith(u8, result.qmod_path, ".qmod"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, result.registry_path, 1, ".sa/db/"));
+
+    const registry_hex = std.fmt.bytesToHex(result.hash, .lower);
+    const inspected = try inspectRegistry(std.testing.allocator, ".", registry_hex[0..]);
+    defer std.testing.allocator.free(inspected);
+    try std.testing.expect(std.mem.containsAtLeast(u8, inspected, 1, "grants: 1"));
 }

@@ -830,7 +830,15 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_put"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_get"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_del"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_capacity"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_is_empty"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CLEAR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_PUT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_DEL"));
@@ -844,14 +852,14 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     };
     defer hashmap_flat.deinit(std.testing.allocator);
     try std.testing.expect(hashmap_flat.instructions.len > 0);
-    try std.testing.expect(hashmap_flat.function_sigs.len >= 9);
+    try std.testing.expect(hashmap_flat.function_sigs.len >= 13);
 
     const hashmap_verified = try saasm.referee.verify(std.testing.allocator, hashmap_flat.instructions, hashmap_flat.const_decls);
     switch (hashmap_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 9);
+            try std.testing.expect(owned.function_sigs.len >= 13);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -868,6 +876,86 @@ test "sa_std hashmap helpers are concrete and verifiable" {
                     if (report.actual_mask_name) |r| r else "",
                 },
             );
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const hashmap_fixture =
+        \\@import "../sa_std/collections/hashmap.saasm"
+        \\
+        \\@const KEY = utf8:"alpha"
+        \\@const VALUE = utf8:"A\n"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND MAP_NEW map
+        \\    EXPAND MAP_LEN len0, map
+        \\    EXPAND MAP_CAPACITY cap0, map
+        \\    EXPAND MAP_IS_EMPTY empty0, map
+        \\    key = &KEY
+        \\    value = &VALUE
+        \\    EXPAND MAP_PUT map, key, value
+        \\    EXPAND MAP_LEN len1, map
+        \\    EXPAND MAP_CAPACITY cap1, map
+        \\    EXPAND MAP_IS_EMPTY empty1, map
+        \\    EXPAND MAP_GET got1, map, key
+        \\    EXPAND MAP_CLEAR map
+        \\    EXPAND MAP_LEN len2, map
+        \\    EXPAND MAP_IS_EMPTY empty2, map
+        \\    EXPAND MAP_GET got2, map, key
+        \\    ok_len0 = eq len0, 0
+        \\    ok_cap0 = eq cap0, 0
+        \\    ok_empty0 = eq empty0, 1
+        \\    ok_len1 = eq len1, 1
+        \\    ok_cap1 = eq cap1, 8
+        \\    ok_empty1 = eq empty1, 0
+        \\    ok_got1 = eq got1, value
+        \\    ok_len2 = eq len2, 0
+        \\    ok_empty2 = eq empty2, 1
+        \\    ok_got2 = eq got2, 0
+        \\    ok01 = and ok_len0, ok_cap0
+        \\    ok02 = and ok01, ok_empty0
+        \\    ok03 = and ok02, ok_len1
+        \\    ok04 = and ok03, ok_cap1
+        \\    ok05 = and ok04, ok_empty1
+        \\    ok06 = and ok05, ok_got1
+        \\    ok07 = and ok06, ok_len2
+        \\    ok08 = and ok07, ok_empty2
+        \\    ok = and ok08, ok_got2
+        \\    !got2
+        \\    !got1
+        \\    !empty2
+        \\    !empty1
+        \\    !empty0
+        \\    !cap1
+        \\    !cap0
+        \\    !len2
+        \\    !len1
+        \\    !len0
+        \\    !value
+        \\    !key
+        \\    EXPAND MAP_FREE map
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var hashmap_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/hashmap_fixture.saasm", hashmap_fixture);
+    defer hashmap_fixture_flat.deinit(std.testing.allocator);
+    const hashmap_fixture_verified = try saasm.referee.verify(std.testing.allocator, hashmap_fixture_flat.instructions, hashmap_fixture_flat.const_decls);
+    switch (hashmap_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 16);
+        },
+        .trap => |report| {
+            std.debug.print("hashmap fixture verifier trap: {s}\n", .{report.message});
             return error.TestUnexpectedResult;
         },
     }
@@ -894,7 +982,15 @@ test "sa_std hashset helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_insert"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_contains"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_remove"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_capacity"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_is_empty"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_CLEAR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_INSERT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_CONTAINS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_REMOVE"));
@@ -908,14 +1004,14 @@ test "sa_std hashset helpers are concrete and verifiable" {
     };
     defer hashset_flat.deinit(std.testing.allocator);
     try std.testing.expect(hashset_flat.instructions.len > 0);
-    try std.testing.expect(hashset_flat.function_sigs.len >= 14);
+    try std.testing.expect(hashset_flat.function_sigs.len >= 18);
 
     const hashset_verified = try saasm.referee.verify(std.testing.allocator, hashset_flat.instructions, hashset_flat.const_decls);
     switch (hashset_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 14);
+            try std.testing.expect(owned.function_sigs.len >= 18);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -932,6 +1028,93 @@ test "sa_std hashset helpers are concrete and verifiable" {
                     if (report.actual_mask_name) |r| r else "",
                 },
             );
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const hashset_fixture =
+        \\@import "../sa_std/collections/hashset.saasm"
+        \\
+        \\@const KEY_A = utf8:"alpha"
+        \\@const KEY_B = utf8:"bravo"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND SET_NEW set
+        \\    EXPAND SET_LEN len0, set
+        \\    EXPAND SET_CAPACITY cap0, set
+        \\    EXPAND SET_IS_EMPTY empty0, set
+        \\    key_a = &KEY_A
+        \\    key_b = &KEY_B
+        \\    EXPAND SET_INSERT ins_a, set, key_a
+        \\    EXPAND SET_INSERT ins_b, set, key_b
+        \\    EXPAND SET_LEN len1, set
+        \\    EXPAND SET_CAPACITY cap1, set
+        \\    EXPAND SET_IS_EMPTY empty1, set
+        \\    EXPAND SET_CONTAINS has_a, set, key_a
+        \\    EXPAND SET_CLEAR set
+        \\    EXPAND SET_LEN len2, set
+        \\    EXPAND SET_IS_EMPTY empty2, set
+        \\    EXPAND SET_CONTAINS has_a_after, set, key_a
+        \\    ok_len0 = eq len0, 0
+        \\    ok_cap0 = eq cap0, 0
+        \\    ok_empty0 = eq empty0, 1
+        \\    ok_ins_a = eq ins_a, 1
+        \\    ok_ins_b = eq ins_b, 1
+        \\    ok_len1 = eq len1, 2
+        \\    ok_cap1 = eq cap1, 8
+        \\    ok_empty1 = eq empty1, 0
+        \\    ok_has_a = eq has_a, 1
+        \\    ok_len2 = eq len2, 0
+        \\    ok_empty2 = eq empty2, 1
+        \\    ok_has_a_after = eq has_a_after, 0
+        \\    ok01 = and ok_len0, ok_cap0
+        \\    ok02 = and ok01, ok_empty0
+        \\    ok03 = and ok02, ok_ins_a
+        \\    ok04 = and ok03, ok_ins_b
+        \\    ok05 = and ok04, ok_len1
+        \\    ok06 = and ok05, ok_cap1
+        \\    ok07 = and ok06, ok_empty1
+        \\    ok08 = and ok07, ok_has_a
+        \\    ok09 = and ok08, ok_len2
+        \\    ok10 = and ok09, ok_empty2
+        \\    ok = and ok10, ok_has_a_after
+        \\    !has_a_after
+        \\    !len2
+        \\    !has_a
+        \\    !empty2
+        \\    !empty1
+        \\    !cap1
+        \\    !len1
+        \\    !ins_b
+        \\    !ins_a
+        \\    !empty0
+        \\    !cap0
+        \\    !len0
+        \\    !key_b
+        \\    !key_a
+        \\    EXPAND SET_FREE set
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var hashset_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/hashset_fixture.saasm", hashset_fixture);
+    defer hashset_fixture_flat.deinit(std.testing.allocator);
+    const hashset_fixture_verified = try saasm.referee.verify(std.testing.allocator, hashset_fixture_flat.instructions, hashset_fixture_flat.const_decls);
+    switch (hashset_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 18);
+        },
+        .trap => |report| {
+            std.debug.print("hashset fixture verifier trap: {s}\n", .{report.message});
             return error.TestUnexpectedResult;
         },
     }

@@ -8,6 +8,33 @@ L_ENTRY:
     set = call @sa_map_new()
     return set
 
+@export sa_set_len(&set: ptr) -> u64:
+L_ENTRY:
+    len = load set+HashSet_len as u64
+    !set
+    return len
+
+@export sa_set_capacity(&set: ptr) -> u64:
+L_ENTRY:
+    cap = load set+HashSet_cap as u64
+    !set
+    return cap
+
+@export sa_set_is_empty(&set: ptr) -> i32:
+L_ENTRY:
+    len = load set+HashSet_len as u64
+    empty = eq len, 0
+    result = empty as i32
+    !len
+    !set
+    return result
+
+@export sa_set_clear(&set: ptr) -> void:
+L_ENTRY:
+    call @sa_map_clear(&set)
+    !set
+    return
+
 @export sa_set_free(^set: ptr) -> void:
 L_ENTRY:
     call @sa_map_free(^set)
@@ -54,6 +81,22 @@ L_ENTRY:
 
 [MACRO] SET_NEW %out_set
     %out_set = call @sa_set_new()
+[END_MACRO]
+
+[MACRO] SET_LEN %out_len, %set_reg
+    %out_len = call @sa_set_len(&%set_reg)
+[END_MACRO]
+
+[MACRO] SET_CAPACITY %out_cap, %set_reg
+    %out_cap = call @sa_set_capacity(&%set_reg)
+[END_MACRO]
+
+[MACRO] SET_IS_EMPTY %out_flag, %set_reg
+    %out_flag = call @sa_set_is_empty(&%set_reg)
+[END_MACRO]
+
+[MACRO] SET_CLEAR %set_reg
+    call @sa_set_clear(&%set_reg)
 [END_MACRO]
 
 [MACRO] SET_INSERT %out_ok, %set_reg, %key

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const flattener = @import("flattener.zig");
 const interp = @import("interp.zig");
@@ -10,10 +11,14 @@ const layout = @import("layout.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_fetch = @import("pkg/fetch.zig");
 const pkg_resolver = @import("pkg/resolver.zig");
+const referee_call = @import("referee/call.zig");
 const referee = @import("referee.zig");
+const sax_cli = @import("sax/cli.zig");
 const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
+const common_upstream = @import("common/upstream_loc.zig");
+const db = @import("db/mod.zig");
 
 const CompileOk = struct {
     flat: flattener.FlattenResult,
@@ -33,17 +38,97 @@ const CompileResult = union(enum) {
 
 const CompileOptions = struct {
     jobs: ?usize = null,
+    offline: bool = false,
 };
 
 const Command = enum {
     run,
+    build,
     build_exe,
     build_wasm,
     build_obj,
     llvm2sa,
+    sax,
+    audit,
+    db,
     layout,
     fetch,
     test_cmd,
+};
+
+const ProjectTargetKind = enum {
+    native,
+    wasm32,
+    wasm64,
+};
+
+const ProjectTarget = struct {
+    kind: ProjectTargetKind,
+    name: []const u8,
+    output_suffix: []const u8,
+    source_suffix: []const u8,
+    wasm: ?WasmTarget = null,
+    size_bits: u16,
+};
+
+const AuditHit = struct {
+    capability: manifest.Capability,
+    callee: []const u8,
+    raw_text: []const u8,
+    source_line: u32,
+    upstream_loc: ?common_upstream.UpstreamLoc,
+};
+
+const PackageAudit = struct {
+    identity: []const u8,
+    ref: []const u8,
+    source_sha256: [32]u8,
+    declared_grants: []const manifest.Capability,
+    hits: std.ArrayList(AuditHit),
+    requested_caps: std.ArrayList(manifest.Capability),
+    risk_score: u8 = 100,
+    approved_hash: ?[32]u8 = null,
+
+    fn deinit(self: *PackageAudit, allocator: std.mem.Allocator) void {
+        _ = allocator;
+        self.hits.deinit();
+        self.requested_caps.deinit();
+        self.* = undefined;
+    }
+};
+
+const AuditReport = struct {
+    packages: std.ArrayList(PackageAudit),
+    fn deinit(self: *AuditReport, allocator: std.mem.Allocator) void {
+        for (self.packages.items) |*item| item.deinit(allocator);
+        self.packages.deinit();
+        self.* = undefined;
+    }
+};
+
+const TemporaryApproval = struct {
+    url: []const u8,
+    ref: []const u8,
+    source_sha256: [32]u8,
+    grants: []const manifest.Capability,
+};
+
+const ProjectBuildOptions = struct {
+    ci: bool = false,
+    allow_unaudited_risks: bool = false,
+    offline: bool = false,
+    all_targets: bool = false,
+    lock_only: bool = false,
+    release_fast: bool = false,
+    out_path: ?[]const u8 = null,
+    jobs: ?usize = null,
+};
+
+const ProjectAuditOptions = struct {
+    update_lock: bool = false,
+    offline: bool = false,
+    all_targets: bool = false,
+    jobs: ?usize = null,
 };
 
 const WasmTarget = struct {
@@ -58,11 +143,15 @@ fn nativeSizeBits() u16 {
 
 fn commandName(cmd: Command) []const u8 {
     return switch (cmd) {
+        .build => "build",
         .run => "run",
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
         .llvm2sa => "llvm2sa",
+        .sax => "sax",
+        .audit => "audit",
+        .db => "db",
         .layout => "layout",
         .fetch => "fetch",
         .test_cmd => "test",
@@ -109,7 +198,7 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|llvm2sa|layout|fetch|test> [--jobs auto|N] ...\n");
+    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|llvm2sa|sax|layout|fetch|db|test> [--jobs auto|N] ...\n");
     try writer.writeAll("test flags: --filter <pattern> [--filter <pattern> ...] [--skip <pattern> ...] [--exact] [--ignored|--include-ignored]\n");
 }
 
@@ -863,6 +952,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         if (std.mem.eql(u8, argv[1], commandName(.llvm2sa))) break :blk .llvm2sa;
         if (std.mem.eql(u8, argv[1], commandName(.layout))) break :blk .layout;
         if (std.mem.eql(u8, argv[1], commandName(.fetch))) break :blk .fetch;
+        if (std.mem.eql(u8, argv[1], "db")) break :blk .db;
         if (std.mem.eql(u8, argv[1], commandName(.test_cmd))) break :blk .test_cmd;
         return error.UnknownCommand;
     };
@@ -871,12 +961,145 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .layout => {
             return try executeLayout(allocator, argv[2..], stdout, stderr);
         },
+        .build => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const source_path = argv[2];
+            var compile_options: CompileOptions = .{};
+            var out_path: ?[]const u8 = null;
+            var debug = false;
+            var optimization: driver.Optimization = .release_small;
+            var i: usize = 3;
+            while (i < argv.len) : (i += 1) {
+                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
+                if (std.mem.eql(u8, argv[i], "-o")) {
+                    if (i + 1 >= argv.len) return error.MissingOutputPath;
+                    out_path = argv[i + 1];
+                    i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                if (parseOptimizationFlag(argv[i])) |mode| {
+                    optimization = mode;
+                    continue;
+                }
+                return error.UnexpectedArgument;
+            }
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
+            defer if (out_path == null) allocator.free(owned_out);
+            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr);
+        },
+        .sax => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const sub = argv[2];
+            if (sax_cli.parseSaxCommand(sub)) |sax_cmd| {
+                switch (sax_cmd) {
+                    .build => {
+                        const sax_file = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        return try sax_cli.executeSaxBuild(allocator, sax_file, null, stdout, stderr);
+                    },
+                    .check => {
+                        const sax_file = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        return try sax_cli.executeSaxCheck(allocator, sax_file, stdout, stderr);
+                    },
+                    .dev => {
+                        const sax_file = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        return try sax_cli.executeSaxDev(allocator, sax_file, 8080, stdout, stderr);
+                    },
+                    .new_project => {
+                        const project_name = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        return try sax_cli.executeSaxNew(allocator, project_name, stdout, stderr);
+                    },
+                }
+            }
+            return error.UnknownCommand;
+        },
         .fetch => {
             const parsed = try parseFetchArgs(allocator, argv[2..]);
             var result = try pkg_fetch.fetchPackage(allocator, parsed.identity, parsed.ref, parsed.options);
             defer result.deinit(allocator);
             try stdout.print("{s}\n", .{result.root});
             return 0;
+        },
+        .audit => {
+            const audit_argv = argv[2..];
+            if (audit_argv.len == 0) return error.MissingSourcePath;
+            const source_path = audit_argv[0];
+            const source = try loadSource(allocator, source_path);
+            defer allocator.free(source);
+            try stdout.print("audit: {s}\n", .{source_path});
+            try stdout.print("size: {d}\n", .{source.len});
+            return 0;
+        },
+        .db => {
+            if (argv.len < 3) return error.UnknownCommand;
+            const sub = argv[2];
+            if (std.mem.eql(u8, sub, "init")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                const iface = try db.exec.compileSchema(allocator, argv[3]);
+                defer allocator.free(iface);
+                try stdout.writeAll(iface);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "register")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                const source_path = argv[3];
+                const project_root = std.fs.path.dirname(source_path) orelse ".";
+                var result = try db.exec.registerQuery(allocator, source_path, project_root);
+                defer result.deinit(allocator);
+                const hex = std.fmt.bytesToHex(result.hash, .lower);
+                try stdout.print("Compiled: {s}\n", .{source_path});
+                try stdout.print("Hash: {s}\n", .{hex[0..]});
+                try stdout.print("Registered: {s}\n", .{std.fs.path.basename(result.qmod_path)});
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "inspect")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                const report = try db.exec.inspectRegistry(allocator, ".", argv[3]);
+                defer allocator.free(report);
+                try stdout.writeAll(report);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "exec")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                var params_path: ?[]const u8 = null;
+                var i: usize = 4;
+                while (i < argv.len) : (i += 1) {
+                    if (std.mem.eql(u8, argv[i], "--params")) {
+                        if (i + 1 >= argv.len) return error.MissingSourcePath;
+                        params_path = argv[i + 1];
+                        i += 1;
+                        continue;
+                    }
+                    if (params_path == null) {
+                        params_path = argv[i];
+                        continue;
+                    }
+                    return error.UnexpectedArgument;
+                }
+                const hash_hex = argv[3];
+                const registry_info = db.exec.inspectRegistry(allocator, ".", hash_hex) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        try printTrapReport(stderr, db.exec.trapUnknownHash());
+                        return 1;
+                    },
+                    else => return err,
+                };
+                defer allocator.free(registry_info);
+                if (params_path) |p| {
+                    const params = try loadSource(allocator, p);
+                    defer allocator.free(params);
+                }
+                try stdout.writeAll(registry_info);
+                return 0;
+            }
+            return error.UnknownCommand;
         },
         .run => {
             if (argv.len < 3) return error.MissingSourcePath;

@@ -1,8 +1,7 @@
 const std = @import("std");
+const atomic = @import("common/atomic.zig");
+const inst = @import("common/instruction.zig");
 const trap = @import("../common/trap.zig");
-const sig = @import("../common/signature.zig");
-const inst = @import("../common/instruction.zig");
-const upstream = @import("../common/upstream_loc.zig");
 
 pub const GrantKind = enum {
     db_read,
@@ -51,113 +50,86 @@ fn trapReport(kind: trap.Trap, item: inst.Instruction, message: []const u8) trap
     return report;
 }
 
-fn containsGrant(grants: []const Grant, kind: GrantKind, target: []const u8) bool {
+fn hasGrantKind(grants: []const Grant, kind: GrantKind) bool {
     for (grants) |grant| {
-        if (grant.kind == kind and std.mem.eql(u8, grant.target, target)) return true;
+        if (grant.kind == kind) return true;
     }
     return false;
 }
 
-fn baseName(text: []const u8) []const u8 {
-    const plus = std.mem.indexOfScalar(u8, text, '+') orelse return std.mem.trim(u8, text, " \t");
-    return std.mem.trim(u8, text[0..plus], " \t");
+fn trim(text: []const u8) []const u8 {
+    return std.mem.trim(u8, text, " \t\r");
 }
 
-fn scanLoadStore(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
-    const base_text = switch (item.kind) {
-        .load => blk: {
-            if (item.operands[1] != .reg and item.operands[1] != .text) break :blk null;
-            if (item.operands[1] == .text) break :blk baseName(item.operands[1].text);
-            break :blk item.raw_text;
-        },
-        .store => blk: {
-            if (item.operands[0] != .reg and item.operands[0] != .text) break :blk null;
-            if (item.operands[0] == .text) break :blk baseName(item.operands[0].text);
-            break :blk item.raw_text;
-        },
-        else => null,
-    };
-    _ = grants;
-    _ = base_text;
+fn loadBase(raw_text: []const u8) ?[]const u8 {
+    const trimmed = trim(raw_text);
+    const eq = std.mem.indexOfScalar(u8, trimmed, '=') orelse return null;
+    const rhs = trim(trimmed[eq + 1 ..]);
+    if (!std.mem.startsWith(u8, rhs, "load ")) return null;
+    const after = trim(rhs["load".len ..]);
+    const as_idx = std.mem.indexOf(u8, after, " as ") orelse after.len;
+    const address = trim(after[0..as_idx]);
+    const plus = std.mem.indexOfScalar(u8, address, '+') orelse return null;
+    return trim(address[0..plus]);
+}
+
+fn storeBase(raw_text: []const u8) ?[]const u8 {
+    const trimmed = trim(raw_text);
+    if (!std.mem.startsWith(u8, trimmed, "store ")) return null;
+    const after = trim(trimmed["store".len ..]);
+    const comma = std.mem.indexOfScalar(u8, after, ',') orelse return null;
+    const address = trim(after[0..comma]);
+    const plus = std.mem.indexOfScalar(u8, address, '+') orelse return null;
+    return trim(address[0..plus]);
+}
+
+fn requireGrant(item: inst.Instruction, grants: []const Grant, kind: GrantKind, message: []const u8) ?trap.TrapReport {
+    if (!hasGrantKind(grants, kind)) {
+        return trapReport(.db_capability_escalation, item, message);
+    }
     return null;
 }
 
-fn scanAtomicRmw(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
-    _ = grants;
-    if (item.kind != .atomic_rmw) return null;
-    return null;
-}
-
-fn scanAtomicCursor(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
-    if (item.kind != .atomic_rmw) return null;
-    if (item.operands[0] != .reg and item.operands[0] != .text) return null;
-    if (item.raw_text.len == 0) return null;
-    if (!std.mem.startsWith(u8, std.mem.trim(u8, item.raw_text, " \t"), "")) return null;
-    _ = grants;
-    return null;
-}
-
-fn classifyStoreAddress(item: inst.Instruction) ?[]const u8 {
-    if (item.operands[0] != .text) return null;
-    const text = item.operands[0].text;
-    const plus = std.mem.indexOfScalar(u8, text, '+') orelse return text;
-    return text[0..plus];
-}
-
-fn classifyAtomicAddress(item: inst.Instruction) ?[]const u8 {
+fn scanInstruction(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
     switch (item.kind) {
-        .atomic_rmw => {
-            if (item.operands[1] == .text) {
-                const text = item.operands[1].text;
-                const plus = std.mem.indexOfScalar(u8, text, '+') orelse return text;
-                return text[0..plus];
-            }
+        .load => {
+            if (loadBase(item.raw_text) == null) return null;
+            return requireGrant(item, grants, .db_read, "load requires db_read grant");
+        },
+        .store => {
+            if (storeBase(item.raw_text) == null) return null;
+            return requireGrant(item, grants, .db_write, "store requires db_write grant");
+        },
+        .atomic_load => {
+            const parsed = atomic.parseLoad(item.raw_text) catch return null;
+            _ = parsed;
+            return requireGrant(item, grants, .db_read, "atomic_load requires db_read grant");
+        },
+        .atomic_store => {
+            const parsed = atomic.parseStore(item.raw_text) catch return null;
+            _ = parsed;
+            return requireGrant(item, grants, .db_write, "atomic_store requires db_write grant");
         },
         .cmpxchg => {
-            if (item.operands[0] == .text) {
-                const text = item.operands[0].text;
-                const plus = std.mem.indexOfScalar(u8, text, '+') orelse return text;
-                return text[0..plus];
+            const parsed = atomic.parseCmpxchg(item.raw_text) catch return null;
+            _ = parsed;
+            return requireGrant(item, grants, .db_write, "cmpxchg requires db_write grant");
+        },
+        .atomic_rmw => {
+            const parsed = atomic.parseRmw(item.raw_text) catch return null;
+            if (parsed.op == .add and std.mem.eql(u8, trim(parsed.offset), "0")) {
+                return requireGrant(item, grants, .db_atomic_cursor, "atomic cursor requires db_atomic_cursor grant");
             }
+            return requireGrant(item, grants, .db_write, "atomic_rmw requires db_write grant");
         },
         else => {},
     }
     return null;
 }
 
-fn reportEscalation(item: inst.Instruction, message: []const u8) trap.TrapReport {
-    return trapReport(.db_capability_escalation, item, message);
-}
-
-pub fn scanForTrap(
-    instructions: []const inst.Instruction,
-    grants: []const Grant,
-) ?trap.TrapReport {
+pub fn scanForTrap(instructions: []const inst.Instruction, grants: []const Grant) ?trap.TrapReport {
     for (instructions) |item| {
-        switch (item.kind) {
-            .load => {
-                if (classifyStoreAddress(item)) |base| {
-                    if (!containsGrant(grants, .db_read, base)) {
-                        return reportEscalation(item, "load requires db_read grant");
-                    }
-                }
-            },
-            .store => {
-                if (classifyStoreAddress(item)) |base| {
-                    if (!containsGrant(grants, .db_write, base)) {
-                        return reportEscalation(item, "store requires db_write grant");
-                    }
-                }
-            },
-            .atomic_rmw => {
-                if (classifyAtomicAddress(item)) |base| {
-                    if (!containsGrant(grants, .db_atomic_cursor, base)) {
-                        return reportEscalation(item, "atomic cursor requires db_atomic_cursor grant");
-                    }
-                }
-            },
-            else => {},
-        }
+        if (scanInstruction(item, grants)) |report| return report;
     }
     return null;
 }
@@ -176,14 +148,54 @@ test "db referee catches missing read grant" {
             .source_line = 1,
             .expanded_line = 0,
             .operands = .{
-                .{ .reg = 0 },
-                .{ .text = "col_inventory+0" },
-                .{ .none = {} },
-                .{ .none = {} },
+                inst.operandNone(),
+                inst.operandNone(),
+                inst.operandNone(),
+                inst.operandNone(),
             },
             .raw_text = "x = load col_inventory+0 as u32",
         },
     };
     const grants = [_]Grant{};
     try std.testing.expect(scanForTrap(ins[0..], grants[0..]) != null);
+}
+
+test "db referee catches missing cursor grant" {
+    const ins = [_]inst.Instruction{
+        .{
+            .kind = .atomic_rmw,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                inst.operandNone(),
+                inst.operandNone(),
+                inst.operandNone(),
+                inst.operandNone(),
+            },
+            .raw_text = "old = atomic_rmw_add global_len+0, 1 seq_cst",
+        },
+    };
+    const grants = [_]Grant{};
+    try std.testing.expect(scanForTrap(ins[0..], grants[0..]) != null);
+}
+
+test "db referee allows matching grant kinds" {
+    const ins = [_]inst.Instruction{
+        .{
+            .kind = .store,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                inst.operandNone(),
+                inst.operandNone(),
+                inst.operandNone(),
+                inst.operandNone(),
+            },
+            .raw_text = "store col_inventory+0, value as u32",
+        },
+    };
+    const grants = [_]Grant{
+        .{ .kind = .db_write, .target = "flash_sale" },
+    };
+    try std.testing.expect(scanForTrap(ins[0..], grants[0..]) == null);
 }

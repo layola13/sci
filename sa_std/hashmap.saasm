@@ -248,6 +248,49 @@ L_ENTRY:
     store map+HashMap_tombs, 0 as u64
     return map
 
+@export sa_map_len(&map: ptr) -> u64:
+L_ENTRY:
+    len = load map+HashMap_len as u64
+    !map
+    return len
+
+@export sa_map_capacity(&map: ptr) -> u64:
+L_ENTRY:
+    cap = load map+HashMap_cap as u64
+    !map
+    return cap
+
+@export sa_map_is_empty(&map: ptr) -> i32:
+L_ENTRY:
+    len = load map+HashMap_len as u64
+    empty = eq len, 0
+    result = empty as i32
+    !len
+    !map
+    return result
+
+@export sa_map_clear(&map: ptr) -> void:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    bytes = mul cap, HashMapSlot_SIZE
+    has_slots = ne slots, 0
+    br has_slots -> L_CLEAR_SLOTS, L_CLEAR_DONE
+
+L_CLEAR_SLOTS:
+    call @sa_mem_set(&slots, 0, bytes)
+    jmp L_CLEAR_DONE
+
+L_CLEAR_DONE:
+    store map+HashMap_len, 0 as u64
+    store map+HashMap_tombs, 0 as u64
+    !bytes
+    !has_slots
+    !cap
+    !slots
+    !map
+    return
+
 @export sa_map_free(^map: ptr) -> void:
 L_ENTRY:
     slots = load map+HashMap_slots as ptr
@@ -497,6 +540,22 @@ L_DEL_MISS_ZERO:
 
 [MACRO] MAP_NEW %out_map
     %out_map = call @sa_map_new()
+[END_MACRO]
+
+[MACRO] MAP_LEN %out_len, %map_reg
+    %out_len = call @sa_map_len(&%map_reg)
+[END_MACRO]
+
+[MACRO] MAP_CAPACITY %out_cap, %map_reg
+    %out_cap = call @sa_map_capacity(&%map_reg)
+[END_MACRO]
+
+[MACRO] MAP_IS_EMPTY %out_flag, %map_reg
+    %out_flag = call @sa_map_is_empty(&%map_reg)
+[END_MACRO]
+
+[MACRO] MAP_CLEAR %map_reg
+    call @sa_map_clear(&%map_reg)
 [END_MACRO]
 
 [MACRO] MAP_PUT %map_reg, %key, %value

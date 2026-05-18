@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 pub const parser = @import("parser.zig");
 pub const lowerer = @import("lowerer.zig");
 pub const airlock_gen = @import("airlock_gen.zig");
+pub const build = @import("build.zig");
 pub const sax_rules = @import("sax_rules.zig");
 
 pub const SaxCompiler = struct {
@@ -26,7 +27,8 @@ pub const SaxCompiler = struct {
         airlock_js: std.ArrayList(u8),
         index_html: std.ArrayList(u8),
     } {
-        const program = try parser.SaxParser.init(self.allocator, sax_source).parse();
+        var sax_parser = parser.SaxParser.init(self.allocator, sax_source);
+        var program = try sax_parser.parse();
         defer program.deinit();
 
         if (program.components.len == 0) return error.InvalidComponentBody;
@@ -41,7 +43,7 @@ pub const SaxCompiler = struct {
             const opts: lowerer.LowerOptions = .{ .emit_shared_decls = idx == 0 };
             try sax_lowerer.lower(&saasm_code, opts);
 
-            if (idx + 1 < program.components.len) try saasm_code.appendByte('\n');
+            if (idx + 1 < program.components.len) try saasm_code.writer().writeByte('\n');
         }
 
         if (program.components.len != 0) {
@@ -53,7 +55,7 @@ pub const SaxCompiler = struct {
         const airlock_js = try airlock_generator.generateAirlockJS();
         errdefer airlock_js.deinit();
 
-        const index_html = try airlock_generator.generateIndexHTML(component_name);
+        const index_html = try airlock_generator.generateIndexHTML(component_name, "app.wasm");
         errdefer index_html.deinit();
 
         return .{
