@@ -16,19 +16,6 @@ pub const Grant = struct {
     target: []const u8,
 };
 
-pub const ScanFinding = struct {
-    trap: trap.Trap = .db_capability_escalation,
-    line: u32,
-    source_line: u32,
-    message: []const u8,
-    expected_mask: ?u16 = null,
-    actual_mask: ?u16 = null,
-    upstream_loc: ?upstream.UpstreamLoc = null,
-    table: ?[]const u8 = null,
-    sha256: ?[32]u8 = null,
-    offset: ?u64 = null,
-};
-
 fn trapReport(kind: trap.Trap, item: inst.Instruction, message: []const u8) trap.TrapReport {
     var report: trap.TrapReport = .{
         .trap = kind,
@@ -69,6 +56,45 @@ fn containsGrant(grants: []const Grant, kind: GrantKind, target: []const u8) boo
         if (grant.kind == kind and std.mem.eql(u8, grant.target, target)) return true;
     }
     return false;
+}
+
+fn baseName(text: []const u8) []const u8 {
+    const plus = std.mem.indexOfScalar(u8, text, '+') orelse return std.mem.trim(u8, text, " \t");
+    return std.mem.trim(u8, text[0..plus], " \t");
+}
+
+fn scanLoadStore(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
+    const base_text = switch (item.kind) {
+        .load => blk: {
+            if (item.operands[1] != .reg and item.operands[1] != .text) break :blk null;
+            if (item.operands[1] == .text) break :blk baseName(item.operands[1].text);
+            break :blk item.raw_text;
+        },
+        .store => blk: {
+            if (item.operands[0] != .reg and item.operands[0] != .text) break :blk null;
+            if (item.operands[0] == .text) break :blk baseName(item.operands[0].text);
+            break :blk item.raw_text;
+        },
+        else => null,
+    };
+    _ = grants;
+    _ = base_text;
+    return null;
+}
+
+fn scanAtomicRmw(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
+    _ = grants;
+    if (item.kind != .atomic_rmw) return null;
+    return null;
+}
+
+fn scanAtomicCursor(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
+    if (item.kind != .atomic_rmw) return null;
+    if (item.operands[0] != .reg and item.operands[0] != .text) return null;
+    if (item.raw_text.len == 0) return null;
+    if (!std.mem.startsWith(u8, std.mem.trim(u8, item.raw_text, " \t"), "")) return null;
+    _ = grants;
+    return null;
 }
 
 fn classifyStoreAddress(item: inst.Instruction) ?[]const u8 {
@@ -136,14 +162,11 @@ pub fn scanForTrap(
     return null;
 }
 
-pub fn inspectText(
-    allocator: std.mem.Allocator,
-    source: []const u8,
-) ![]u8 {
-    var list = std.ArrayList(u8).init(allocator);
-    errdefer list.deinit();
-    try list.writer().print("db-inspect: {d} bytes\n", .{source.len});
-    return try list.toOwnedSlice();
+pub fn inspectText(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    try out.writer().print("db-inspect: {d} bytes\n", .{source.len});
+    return try out.toOwnedSlice();
 }
 
 test "db referee catches missing read grant" {

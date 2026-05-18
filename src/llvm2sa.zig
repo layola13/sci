@@ -214,7 +214,7 @@ const Translator = struct {
     }
 
     fn renderPlainValue(self: *Translator, text: []const u8) ![]const u8 {
-        const _ = self;
+        _ = self;
         return stripLlvmSymbol(text);
     }
 
@@ -316,8 +316,18 @@ const Translator = struct {
         try self.emitLine(rendered.items);
     }
 
-    fn shouldSkipFunction(name: []const u8, params: []const u8) bool {
-        if (std.mem.eql(u8, name, "main") and trim(params).len != 0) return true;
+    fn shouldSkipTopLevelLine(trimmed: []const u8) bool {
+        if (trimmed.len == 0) return true;
+        if (trimmed[0] == ';') return true;
+        if (trimmed.len > 1 and trimmed[0] == '/' and trimmed[1] == '/') return true;
+        if (std.mem.startsWith(u8, trimmed, "source_filename")) return true;
+        if (std.mem.startsWith(u8, trimmed, "target ")) return true;
+        if (std.mem.startsWith(u8, trimmed, "attributes ")) return true;
+        if (std.mem.startsWith(u8, trimmed, "!")) return true;
+        return false;
+    }
+
+    fn isRuntimeFunctionName(name: []const u8) bool {
         return std.mem.eql(u8, name, "__sa_panic") or
             std.mem.eql(u8, name, "saasm_strdupz") or
             std.mem.eql(u8, name, "saasm_streq") or
@@ -326,11 +336,104 @@ const Translator = struct {
             std.mem.eql(u8, name, "sys_argc") or
             std.mem.eql(u8, name, "sys_argv") or
             std.mem.eql(u8, name, "sys_read_file") or
-            std.mem.eql(u8, name, "sys_write_file");
+            std.mem.eql(u8, name, "sys_write_file") or
+            std.mem.eql(u8, name, "fprintf") or
+            std.mem.eql(u8, name, "exit") or
+            std.mem.eql(u8, name, "malloc") or
+            std.mem.eql(u8, name, "free") or
+            std.mem.eql(u8, name, "memcpy") or
+            std.mem.eql(u8, name, "fopen") or
+            std.mem.eql(u8, name, "fseek") or
+            std.mem.eql(u8, name, "ftell") or
+            std.mem.eql(u8, name, "rewind") or
+            std.mem.eql(u8, name, "fread") or
+            std.mem.eql(u8, name, "fwrite") or
+            std.mem.eql(u8, name, "fclose") or
+            std.mem.eql(u8, name, "write") or
+            std.mem.eql(u8, name, "getenv") or
+            std.mem.eql(u8, name, "sa_print_bytes");
+    }
+
+    fn shouldSkipFunction(name: []const u8, params: []const u8) bool {
+        if (std.mem.eql(u8, name, "main") and trim(params).len != 0) return true;
+        return isRuntimeFunctionName(name);
+    }
+
+    fn parseTypedOperand(self: *Translator, text: []const u8) !struct { ty: []const u8, value: []const u8 } {
+        _ = self;
+        const trimmed = trim(text);
+        const parts = splitFirstWord(trimmed);
+        if (!isLlvmTypeWord(parts.word) or parts.rest.len == 0) return TranslateError.InvalidLlvm;
+        return .{ .ty = parts.word, .value = trim(parts.rest) };
+    }
+
+    fn renderAddressExpr(self: *Translator, text: []const u8) ![]const u8 {
+        const trimmed = trim(text);
+        if (std.mem.startsWith(u8, trimmed, "getelementptr")) {
+            const rest = trim(trimmed["getelementptr".len..]);
+            const first_comma = std.mem.indexOfScalar(u8, rest, ',') orelse return TranslateError.InvalidLlvm;
+            const after_type = trim(rest[first_comma + 1 ..]);
+            const parts = try splitCommaArgs(self.allocator, after_type);
+            defer self.allocator.free(parts);
+            if (parts.len < 2) return TranslateError.InvalidLlvm;
+            const base = try self.renderPlainValue(parts[0]);
+            const offset = try self.renderPlainValue(parts[parts.len - 1]);
+            return try std.fmt.allocPrint(self.allocator, "{s}+{s}", .{ base, offset });
+        }
+        const plain = try self.renderPlainValue(trimmed);
+        return try std.fmt.allocPrint(self.allocator, "{s}+0", .{plain});
+    }
+
+    fn emitAddressExpr(self: *Translator, text: []const u8) ![]const u8 {
+        return try self.renderAddressExpr(text);
+    }
+
+    fn extractLlvmConstBytes(allocator: std.mem.Allocator, rhs: []const u8) !?[]u8 {
+        const literal_start = std.mem.indexOf(u8, rhs, " c\"") orelse return null;
+        const literal = rhs[literal_start + 3 ..];
+        const bytes = try decodeLlvmCString(allocator, literal);
+        return bytes;
+    }
+
+    fn emitTopLevelGlobal(self: *Translator, line: []const u8) !bool {
+        const assign = splitAssignment(line) orelse return false;
+        const lhs = trim(assign.lhs);
+        const rhs = trim(assign.rhs);
+        if (!isGlobalName(lhs)) return false;
+
+        const name = stripPrefix(lhs, '@');
+        if (std.mem.eql(u8, name, "saasm_argc") or
+            std.mem.eql(u8, name, "saasm_argv") or
+            std.mem.eql(u8, name, ".mode_rb") or
+            std.mem.eql(u8, name, ".mode_wb") or
+            std.mem.eql(u8, name, ".panic_code_fmt") or
+            std.mem.eql(u8, name, ".panic_msg_fmt") or
+            std.mem.eql(u8, name, "stderr"))
+        {
+            return true;
+        }
+
+        if (std.mem.startsWith(u8, rhs, "private unnamed_addr constant") or
+            std.mem.startsWith(u8, rhs, "internal unnamed_addr constant") or
+            std.mem.startsWith(u8, rhs, "constant"))
+        {
+            if (try extractLlvmConstBytes(self.allocator, rhs)) |bytes| {
+                defer self.allocator.free(bytes);
+                try self.emitConstFromBytes(name, bytes);
+                return true;
+            }
+        }
+
+        if (std.mem.startsWith(u8, rhs, "external global") or std.mem.startsWith(u8, rhs, "internal global")) {
+            return true;
+        }
+
+        return true;
     }
 
     fn mapFunctionName(self: *Translator, name: []const u8, params: []const u8) ![]const u8 {
         _ = self;
+        _ = params;
         if (std.mem.eql(u8, name, "saasm_main")) return "main";
         return name;
     }
@@ -346,7 +449,7 @@ const Translator = struct {
         const params = trimmed[at + open + 1 .. close];
         const ret_ty = trim(trimmed["define".len..at]);
         const mapped = try self.mapFunctionName(name, params);
-        const kind: FunctionMode = if (std.mem.eql(u8, name, "main") or std.mem.eql(u8, name, "saasm_main") or std.mem.eql(u8, name, "__sa_panic") or std.mem.eql(u8, name, "sys_print") or std.mem.eql(u8, name, "sys_exit") or std.mem.eql(u8, name, "sys_argc") or std.mem.eql(u8, name, "sys_argv") or std.mem.eql(u8, name, "sys_read_file") or std.mem.eql(u8, name, "sys_write_file") or std.mem.eql(u8, name, "fprintf") or std.mem.eql(u8, name, "exit") or std.mem.eql(u8, name, "malloc") or std.mem.eql(u8, name, "free") or std.mem.eql(u8, name, "memcpy") or std.mem.eql(u8, name, "fopen") or std.mem.eql(u8, name, "fseek") or std.mem.eql(u8, name, "ftell") or std.mem.eql(u8, name, "rewind") or std.mem.eql(u8, name, "fread") or std.mem.eql(u8, name, "fwrite") or std.mem.eql(u8, name, "fclose") or std.mem.eql(u8, name, "write") or std.mem.eql(u8, name, "getenv")) .ffi_wrapper else .normal;
+        const kind: FunctionMode = if (isRuntimeFunctionName(name)) .ffi_wrapper else .normal;
         self.current = .{
             .name = try self.allocator.dupe(u8, name),
             .kind = kind,
@@ -399,14 +502,14 @@ const Translator = struct {
         return parseTypeName(ret_ty);
     }
 
-    fn renderArgs(self: *Translator, args_text: []const u8) ![]const u8 {
+    fn renderArgs(self: *Translator, callee: []const u8, args_text: []const u8) ![]const u8 {
         const args = try splitCommaArgs(self.allocator, args_text);
         defer self.allocator.free(args);
         var rendered = std.ArrayList(u8).init(self.allocator);
         errdefer rendered.deinit();
         for (args, 0..) |arg, idx| {
             if (idx != 0) try rendered.appendSlice(", ");
-            try rendered.appendSlice(arg);
+            try rendered.appendSlice(try self.renderCallArg(callee, idx, arg));
         }
         return try rendered.toOwnedSlice();
     }
@@ -424,7 +527,7 @@ const Translator = struct {
         const callee = stripPrefix(trim(rest[0..open]), '@');
         const args_text = trim(rest[open + 1 .. close]);
         if (std.mem.eql(u8, callee, "fprintf")) return;
-        const args = try self.renderArgs(args_text);
+        const args = try self.renderArgs(callee, args_text);
         defer self.allocator.free(args);
 
         if (std.mem.eql(u8, callee, "malloc")) {
@@ -432,14 +535,11 @@ const Translator = struct {
             return;
         }
         if (std.mem.eql(u8, callee, "free")) {
-            try self.emitFmt("!{s}", .{trim(args_text)});
+            try self.emitFmt("!{s}", .{args});
             return;
         }
         if (std.mem.eql(u8, callee, "memcpy")) {
-            const parts = try splitCommaArgs(self.allocator, args_text);
-            defer self.allocator.free(parts);
-            if (parts.len < 3) return TranslateError.InvalidLlvm;
-            if (lhs) |name| try self.emitFmt("{s} = call @memcpy({s}, {s}, {s})", .{ name, parts[0], parts[1], parts[2] }) else try self.emitFmt("call @memcpy({s}, {s}, {s})", .{ parts[0], parts[1], parts[2] });
+            if (lhs) |name| try self.emitFmt("{s} = call @memcpy({s})", .{ name, args }) else try self.emitFmt("call @memcpy({s})", .{args});
             return;
         }
         if (std.mem.eql(u8, callee, "exit")) {
@@ -457,7 +557,7 @@ const Translator = struct {
         if (std.mem.startsWith(u8, trimmed, "br i1 ")) {
             const rest = trim(trimmed["br i1".len..]);
             const comma1 = std.mem.indexOfScalar(u8, rest, ',') orelse return TranslateError.InvalidLlvm;
-            const cond = trim(rest[0..comma1]);
+            const cond = try self.renderPlainValue(rest[0..comma1]);
             const tail = trim(rest[comma1 + 1 ..]);
             const parts = try splitCommaArgs(self.allocator, tail);
             defer self.allocator.free(parts);
@@ -506,9 +606,13 @@ const Translator = struct {
             if (suffix_idx) |idx| {
                 const source = trim(body[0..idx]);
                 const ty = parseTypeName(body[idx + 4 ..]);
-                try self.emitFmt("{s} = load {s} as {s}", .{ stripPrefix(lhs, '%'), source, ty });
+                const addr = try self.emitAddressExpr(source);
+                defer self.allocator.free(addr);
+                try self.emitFmt("{s} = load {s} as {s}", .{ stripPrefix(lhs, '%'), addr, ty });
             } else {
-                try self.emitFmt("{s} = load {s}", .{ stripPrefix(lhs, '%'), body });
+                const addr = try self.emitAddressExpr(body);
+                defer self.allocator.free(addr);
+                try self.emitFmt("{s} = load {s}", .{ stripPrefix(lhs, '%'), addr });
             }
             return;
         }
@@ -549,7 +653,7 @@ const Translator = struct {
             const second_comma = std.mem.indexOfScalar(u8, rest[first_comma + 1 ..], ',') orelse return TranslateError.InvalidLlvm;
             const base = trim(rest[first_comma + 1 .. first_comma + 1 + second_comma]);
             const offset = trim(rest[first_comma + 1 + second_comma + 1 ..]);
-            try self.emitFmt("{s} = ptr_add {s}, {s}", .{ stripPrefix(lhs, '%'), stripPrefix(base, '@'), stripPrefix(offset, '%') });
+            try self.emitFmt("{s} = ptr_add {s}, {s}", .{ stripPrefix(lhs, '%'), try self.renderPlainValue(base), try self.renderPlainValue(offset) });
             return;
         }
         if (std.mem.eql(u8, kind, "phi")) {
@@ -581,13 +685,9 @@ const Translator = struct {
     fn emitInstruction(self: *Translator, line: []const u8) !void {
         const trimmed = trim(line);
         if (trimmed.len == 0) return;
-        if (trimmed[0] == ';') return;
-        if (trimmed.len > 1 and trimmed[0] == '/' and trimmed[1] == '/') return;
+        if (shouldSkipTopLevelLine(trimmed)) return;
         if (std.mem.startsWith(u8, trimmed, "declare ")) return;
-        if (std.mem.startsWith(u8, trimmed, "source_filename")) return;
-        if (std.mem.startsWith(u8, trimmed, "target ")) return;
-        if (std.mem.startsWith(u8, trimmed, "attributes ")) return;
-        if (std.mem.startsWith(u8, trimmed, "!")) return;
+        if (std.mem.eql(u8, trimmed, "entry:")) return;
         if (std.mem.endsWith(u8, trimmed, ":")) {
             try self.emitLine(try std.fmt.allocPrint(self.allocator, "{s}:", .{stripLabel(trimmed[0 .. trimmed.len - 1])}));
             return;
@@ -606,13 +706,15 @@ const Translator = struct {
                 try self.emitLine("return");
                 return;
             }
-            const parts = splitFirstWord(rest);
-            _ = parts;
-            try self.emitFmt("return {s}", .{rest});
+            try self.emitFmt("return {s}", .{try self.renderPlainValue(rest)});
             return;
         }
         if (std.mem.eql(u8, trimmed, "unreachable")) {
             try self.emitLine("panic(102)");
+            return;
+        }
+        if (std.mem.startsWith(u8, trimmed, "call ")) {
+            try self.emitCall(null, trimmed);
             return;
         }
         if (splitAssignment(trimmed)) |assign| {
@@ -627,9 +729,7 @@ pub fn translateAlloc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     var translator = Translator.init(allocator, input);
     defer translator.deinit();
 
-    try translator.emitLine("@ffi_wrapper __sa_panic(*code: ptr, *msg: ptr, len: u64) -> void:");
-    try translator.emitLine("L_ENTRY:");
-    try translator.emitLine("    panic(102)");
+    try translator.emitLine("@import \"../../../sa_std/io/print.saasm-iface\"");
     try translator.emitLine("");
 
     var all_lines = std.ArrayList([]const u8).init(allocator);
@@ -639,41 +739,21 @@ pub fn translateAlloc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         try all_lines.append(line);
     }
 
-    var saw_io_iface = false;
     for (all_lines.items) |line| {
         const trimmed = trim(line);
         if (trimmed.len == 0) continue;
-        if (std.mem.startsWith(u8, trimmed, "@import ")) {
-            try translator.emitLine(trimmed);
-            if (std.mem.containsAtLeast(u8, trimmed, 1, "io/print.saasm-iface") or std.mem.containsAtLeast(u8, trimmed, 1, "io.saasm-iface") or std.mem.containsAtLeast(u8, trimmed, 1, "sa_std/io.saasm-iface")) {
-                saw_io_iface = true;
-            }
-            continue;
-        }
-        if (std.mem.startsWith(u8, trimmed, "@const ")) {
-            try translator.emitLine(trimmed);
-            continue;
-        }
-        if (std.mem.startsWith(u8, trimmed, "declare ")) {
-            const declare = trim(trimmed["declare".len..]);
-            if (std.mem.startsWith(u8, declare, "i32 @fprintf")) continue;
-            if (std.mem.startsWith(u8, declare, "ptr @getenv")) continue;
-            if (std.mem.startsWith(u8, declare, "void @exit")) continue;
-            if (std.mem.startsWith(u8, declare, "ptr @malloc")) continue;
-            if (std.mem.startsWith(u8, declare, "void @free")) continue;
-            if (std.mem.startsWith(u8, declare, "ptr @memcpy")) continue;
-            if (std.mem.startsWith(u8, declare, "ptr @fopen")) continue;
-            if (std.mem.startsWith(u8, declare, "i32 @fseek")) continue;
-            if (std.mem.startsWith(u8, declare, "i64 @ftell")) continue;
-            if (std.mem.startsWith(u8, declare, "void @rewind")) continue;
-            if (std.mem.startsWith(u8, declare, "i32 @fread")) continue;
-            if (std.mem.startsWith(u8, declare, "i32 @fwrite")) continue;
-            if (std.mem.startsWith(u8, declare, "i32 @fclose")) continue;
-            if (std.mem.startsWith(u8, declare, "i32 @write")) continue;
-            continue;
-        }
         if (std.mem.startsWith(u8, trimmed, "define ")) {
             try translator.parseFunctionHeader(trimmed);
+            continue;
+        }
+        if (translator.skip_function) {
+            if (std.mem.eql(u8, trimmed, "}")) translator.skip_function = false;
+            continue;
+        }
+        if (try translator.emitTopLevelGlobal(trimmed)) continue;
+        if (std.mem.startsWith(u8, trimmed, "declare ")) {
+            const declare = trim(trimmed["declare".len..]);
+            if (std.mem.startsWith(u8, declare, "void @sa_print_bytes")) continue;
             continue;
         }
         if (std.mem.eql(u8, trimmed, "entry:")) {
@@ -681,11 +761,6 @@ pub fn translateAlloc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
             continue;
         }
         try translator.emitInstruction(trimmed);
-    }
-
-    if (!saw_io_iface) {
-        // Legacy hello-world compat: the probe IR expects sa_print_bytes to exist.
-        try translator.out.insertSlice(0, "@import \"sa_std/io.saasm-iface\"\n");
     }
 
     return try translator.out.toOwnedSlice();
@@ -699,7 +774,12 @@ pub fn translateFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try translateAlloc(allocator, bytes);
 }
 
+pub fn translatePath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    return try translateFile(allocator, path);
+}
+
 test "translator module imports" {
     _ = translateAlloc;
     _ = translateFile;
+    _ = translatePath;
 }

@@ -527,9 +527,14 @@ pub const SaxLowerer = struct {
         try out.writer().print("@export {s}(ctx: ptr):\n", .{export_name});
         try out.writer().print("L_ENTRY:\n  state = load ctx+{s} as ptr\n  dom = load ctx+{s} as ptr\n", .{ ctx_state_name, ctx_dom_name });
         var lines = std.mem.splitScalar(u8, body, '\n');
+        var emitted_entry = false;
         while (lines.next()) |line| {
             const trimmed = std.mem.trimRight(u8, line, "\r");
             if (trimmed.len == 0) continue;
+            if (!emitted_entry and std.mem.eql(u8, trimmed, "L_ENTRY:")) {
+                emitted_entry = true;
+                continue;
+            }
             if (std.mem.containsAtLeast(u8, trimmed, 1, "call @render()")) {
                 try out.writer().print("  call @sax_{s}_render(ctx)\n", .{self.component.name});
                 continue;

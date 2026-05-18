@@ -227,7 +227,7 @@ pub const AirlockGenerator = struct {
     }
 
     /// 生成 index.html 入口文件
-    pub fn generateIndexHTML(self: *AirlockGenerator, app_name: []const u8) !std.ArrayList(u8) {
+    pub fn generateIndexHTML(self: *AirlockGenerator, title: []const u8, wasm_file_name: []const u8) !std.ArrayList(u8) {
         var output = std.ArrayList(u8).init(self.allocator);
         errdefer output.deinit();
 

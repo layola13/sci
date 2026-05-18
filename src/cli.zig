@@ -5,6 +5,7 @@ const interp = @import("interp.zig");
 const build_options = @import("build_options");
 const driver = @import("driver/zigcc.zig");
 const emit_llvm = @import("emit_llvm.zig");
+const llvm2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_fetch = @import("pkg/fetch.zig");
@@ -39,6 +40,7 @@ const Command = enum {
     build_exe,
     build_wasm,
     build_obj,
+    llvm2sa,
     layout,
     fetch,
     test_cmd,
@@ -60,6 +62,7 @@ fn commandName(cmd: Command) []const u8 {
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
+        .llvm2sa => "llvm2sa",
         .layout => "layout",
         .fetch => "fetch",
         .test_cmd => "test",
@@ -106,7 +109,7 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|layout|fetch|test> [--jobs auto|N] ...\n");
+    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|llvm2sa|layout|fetch|test> [--jobs auto|N] ...\n");
     try writer.writeAll("test flags: --filter <pattern> [--filter <pattern> ...] [--skip <pattern> ...] [--exact] [--ignored|--include-ignored]\n");
 }
 
@@ -857,6 +860,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         if (std.mem.eql(u8, argv[1], commandName(.build_exe))) break :blk .build_exe;
         if (std.mem.eql(u8, argv[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, argv[1], commandName(.build_obj))) break :blk .build_obj;
+        if (std.mem.eql(u8, argv[1], commandName(.llvm2sa))) break :blk .llvm2sa;
         if (std.mem.eql(u8, argv[1], commandName(.layout))) break :blk .layout;
         if (std.mem.eql(u8, argv[1], commandName(.fetch))) break :blk .fetch;
         if (std.mem.eql(u8, argv[1], commandName(.test_cmd))) break :blk .test_cmd;
@@ -960,6 +964,15 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
             return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr);
+        },
+        .llvm2sa => {
+            if (argv.len < 3) return error.MissingSourcePath;
+            const source_path = argv[2];
+            const translated = try llvm2sa.translateFile(allocator, source_path);
+            defer allocator.free(translated);
+            try stdout.writeAll(translated);
+            if (translated.len == 0 or translated[translated.len - 1] != '\n') try stdout.writeByte('\n');
+            return 0;
         },
         .build_wasm => {
             if (argv.len < 3) return error.MissingSourcePath;

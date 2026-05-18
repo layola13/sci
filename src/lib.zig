@@ -12,6 +12,7 @@ pub const common = struct {
 pub const flattener = @import("flattener.zig");
 pub const db = @import("db/mod.zig");
 pub const layout = @import("layout.zig");
+pub const llvm2sa = @import("llvm2sa.zig");
 pub const test_executor = @import("test_executor.zig");
 pub const test_formatter = @import("test_formatter.zig");
 pub const test_meta = @import("test_meta.zig");

@@ -51,6 +51,7 @@ fn registryRoot(project_root: []const u8) ![]u8 {
     return try qmod.registryDirectory(std.heap.page_allocator, project_root);
 }
 
+
 pub fn compileSchema(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -69,9 +70,10 @@ pub fn compileSchema(
 fn buildQmodArtifact(
     allocator: std.mem.Allocator,
     source_path: []const u8,
+    project_root: []const u8,
     source: []const u8,
 ) !qmod.Qmod {
-    return try qmod.compileFromSource(allocator, source, source_path);
+    return try qmod.compileFromSource(allocator, source, source_path, project_root);
 }
 
 pub fn registerQuery(
@@ -81,7 +83,7 @@ pub fn registerQuery(
 ) !ExecResult {
     const source = try readFileAlloc(allocator, source_path, 16 * 1024 * 1024);
     defer allocator.free(source);
-    var compiled = try buildQmodArtifact(allocator, source_path, source);
+    var compiled = try buildQmodArtifact(allocator, source_path, project_root, source);
     defer compiled.deinit();
 
     const root = try registryRoot(project_root);
@@ -89,9 +91,13 @@ pub fn registerQuery(
     try std.fs.cwd().makePath(root);
 
     const qmod_path = try qmod.qmodFilePath(allocator, source_path, compiled.hash);
+    errdefer allocator.free(qmod_path);
     const iface_path = try qmod.ifaceFilePath(allocator, source_path);
+    errdefer allocator.free(iface_path);
     const registry_path = try qmod.registryFilePath(allocator, project_root, compiled.hash);
+    errdefer allocator.free(registry_path);
     const source_copy = try allocator.dupe(u8, source_path);
+    errdefer allocator.free(source_copy);
 
     var qmod_bytes = std.ArrayList(u8).init(allocator);
     errdefer qmod_bytes.deinit();
@@ -100,15 +106,8 @@ pub fn registerQuery(
 
     var iface = std.ArrayList(u8).init(allocator);
     errdefer iface.deinit();
-    try iface.writer().print("source_path={s}\nsha256=", .{source_path});
-    try qmod.writeQmod(iface.writer(), compiled) catch {};
+    try qmod.writeQueryIface(iface.writer(), compiled);
     try writeFile(iface_path, iface.items);
-
-    var reg = std.ArrayList(u8).init(allocator);
-    errdefer reg.deinit();
-    try reg.writer().print("hash=", .{});
-    try qmod.writeQmod(reg.writer(), compiled) catch {};
-    try writeFile(registry_path, reg.items);
 
     return .{
         .hash = compiled.hash,
@@ -166,7 +165,7 @@ pub fn trapUnknownHash() trap.TrapReport {
 }
 
 test "db exec can write schema and qmod artifacts" {
-    const tmp_dir = try std.testing.tmpDir(.{});
+    var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
     const schema_path = "flash_sale.sadb-schema";
     const qmod_path = "heavy_users.query.saasm";
