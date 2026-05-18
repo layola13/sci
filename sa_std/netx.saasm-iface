@@ -1,0 +1,9 @@
+// SA-facing contracts for the Zig-backed sa_netx runtime module.
+// The runtime owns sockets, slot pools, parsing, and io_uring orchestration.
+@extern sa_netx_init(slot_capacity: u64, reactor_count: u32) -> i32!
+@extern sa_netx_listen(&host: ptr, host_len: u64, port: u16) -> i32!
+@extern sa_netx_recv_ticket(reactor_id: u32, &out_ticket: ptr) -> i32!
+@extern sa_netx_push_outbound(reactor_id: u32, slot_id: u32, &msg: ptr, len: u32) -> i32!
+@extern sa_netx_broadcast(reactor_id: u32, &slot_ids: ptr, n: u32, &msg: ptr, len: u32) -> i32!
+@extern sa_netx_close_slot(slot_id: u32) -> i32!
+@extern sa_netx_shutdown() -> i32!

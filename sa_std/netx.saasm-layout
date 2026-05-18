@@ -1,0 +1,12 @@
+#def Ticket_SIZE = 24
+#def Ticket_slot_id      = +0
+#def Ticket_op_code      = +4
+#def Ticket_proto        = +6
+#def Ticket_flags        = +7
+#def Ticket_payload      = +8
+#def Ticket_payload_len  = +16
+#def Ticket_pad          = +20
+
+#def NetxProto_HTTP = 1
+#def NetxProto_WS   = 2
+#def NetxProto_RAW  = 3
