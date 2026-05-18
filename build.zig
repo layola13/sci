@@ -192,6 +192,17 @@ pub fn build(b: *std.Build) void {
     run_native_sys_runtime.setCwd(repo_root);
     test_step.dependOn(&run_native_sys_runtime.step);
 
+    const std_smoke_step = b.step("std-smoke", "Run the SA standard library smoke tests");
+    std_smoke_step.dependOn(&run_std_smoke.step);
+
+    const std_step = b.step("std", "Run the SA standard library and runtime checks");
+    std_step.dependOn(&run_std_smoke.step);
+    std_step.dependOn(&run_sa_std_unit.step);
+    std_step.dependOn(&run_sa_std_runtime.step);
+    std_step.dependOn(&run_sa_net_uring_tests.step);
+    std_step.dependOn(&run_sa_term_runtime.step);
+    std_step.dependOn(&run_native_sys_runtime.step);
+
     const smoke = b.addTest(.{
         .root_source_file = b.path("tests/smoke/whitepaper_lint.zig"),
         .target = target,
