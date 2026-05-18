@@ -115,6 +115,7 @@ int32_t sa_fs_read_buffer_free(SaFsReadBuffer *buffer);
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap);
 
 int32_t sa_std_net_udp_bind(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_udp_local_addr(uint64_t socket_handle, uint64_t *out_handle);

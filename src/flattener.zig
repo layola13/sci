@@ -65,6 +65,7 @@ pub const SourceLine = struct {
     text: []const u8,
     classified: ClassifiedLine,
     package_identity: ?[]const u8 = null,
+    package_source_sha256: ?[32]u8 = null,
 };
 
 pub const ErrorContext = struct {
@@ -86,12 +87,15 @@ pub fn takeErrorSourceLine(error_ctx: *ErrorContext) ?u32 {
 fn appendExpandedLine(
     out: *std.ArrayList(u8),
     line_package_identities: *std.ArrayList(?[]const u8),
+    line_package_hashes: *std.ArrayList(?[32]u8),
     text: []const u8,
     package_identity: ?[]const u8,
+    package_hash: ?[32]u8,
 ) !void {
     try out.appendSlice(text);
     try out.append('\n');
     try line_package_identities.append(package_identity);
+    try line_package_hashes.append(package_hash);
 }
 
 const ImportExpansion = struct {
@@ -100,11 +104,13 @@ const ImportExpansion = struct {
     seen_paths: std.StringHashMap(void),
     seen_package_identities: std.StringHashMap(void),
     line_package_identities: std.ArrayList(?[]const u8),
+    line_package_hashes: std.ArrayList(?[32]u8),
     owned_paths: std.ArrayList([]u8),
     layout_versions: std.ArrayList(LayoutVersion),
 
     fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
         self.line_package_identities.deinit();
+        self.line_package_hashes.deinit();
         for (self.owned_paths.items) |path| {
             allocator.free(path);
         }
@@ -471,6 +477,7 @@ fn emitParsedLine(
     function_sigs: *std.ArrayList(FunctionSig),
     owned_text: *std.ArrayList([]const u8),
     current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
 ) !void {
     const classified = classifier.classifyLine(raw_line);
     switch (classified.kind) {
@@ -566,6 +573,7 @@ fn emitParsedLine(
             if (current_package_identity) |identity| {
                 inst.package_identity = try allocator.dupe(u8, identity);
             }
+            inst.package_source_sha256 = current_package_hash;
             inst.operands[0] = .{ .symbol = name_id };
             inst.operands[1] = .{ .func = name_id };
             try instructions.append(inst);
@@ -579,6 +587,7 @@ fn emitParsedLine(
             if (current_package_identity) |identity| {
                 inst.package_identity = try allocator.dupe(u8, identity);
             }
+            inst.package_source_sha256 = current_package_hash;
             switch (classified.inst_form.?) {
                 .alloc => {
                     const dst = try symbols.intern(classified.parts[0]);
@@ -903,6 +912,7 @@ fn emitRange(
     owned_text: *std.ArrayList([]const u8),
     error_ctx: ?*ErrorContext,
     current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
 ) !void {
     if (depth > 256) return error.MacroRecursionLimit;
 
@@ -940,9 +950,9 @@ fn emitRange(
                 if (should_render) {
                     const rendered = try renderWithReplacements(allocator, line.text, replacements);
                     try owned_text.append(rendered);
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash);
                 } else {
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash);
                 }
             },
             .macro_start => {
@@ -996,6 +1006,7 @@ fn emitRange(
                         owned_text,
                         error_ctx,
                         effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
                     );
                 }
 
@@ -1042,6 +1053,7 @@ fn emitRange(
                     owned_text,
                     error_ctx,
                     effective_package_identity,
+                    line.package_source_sha256 orelse current_package_hash,
                 );
             },
         }
@@ -1084,6 +1096,7 @@ pub fn scanSource(
     allocator: std.mem.Allocator,
     source: []const u8,
     line_package_identities: []const ?[]const u8,
+    line_package_hashes: []const ?[32]u8,
 ) ![]SourceLine {
     var lines = std.ArrayList(SourceLine).init(allocator);
     errdefer lines.deinit();
@@ -1093,11 +1106,13 @@ pub fn scanSource(
     while (iterator.next()) |raw_line| : (line_no += 1) {
         const idx: usize = @intCast(line_no - 1);
         const package_identity = if (idx < line_package_identities.len) line_package_identities[idx] else null;
+        const package_source_sha256 = if (idx < line_package_hashes.len) line_package_hashes[idx] else null;
         try lines.append(.{
             .line_no = line_no,
             .text = raw_line,
             .classified = classifier.classifyLine(raw_line),
             .package_identity = package_identity,
+            .package_source_sha256 = package_source_sha256,
         });
     }
 
@@ -1274,6 +1289,7 @@ fn injectImportedFile(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
     line_package_identities: *std.ArrayList(?[]const u8),
+    line_package_hashes: *std.ArrayList(?[32]u8),
     imported: *pkg_resolver.ResolvedImport,
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
@@ -1282,6 +1298,7 @@ fn injectImportedFile(
     layout_versions: *std.ArrayList(LayoutVersion),
     error_ctx: ?*ErrorContext,
     current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
     resolve_ctx: ?ResolveContext,
 ) anyerror!void {
     const entry_path = imported.entry_path;
@@ -1306,6 +1323,7 @@ fn injectImportedFile(
             allocator2: std.mem.Allocator,
             out2: *std.ArrayList(u8),
             line_package_identities2: *std.ArrayList(?[]const u8),
+            line_package_hashes2: *std.ArrayList(?[32]u8),
             base_dir: []const u8,
             file_name: []const u8,
             active_paths2: *std.StringHashMap(void),
@@ -1315,6 +1333,7 @@ fn injectImportedFile(
             layout_versions2: *std.ArrayList(LayoutVersion),
             error_ctx2: ?*ErrorContext,
             current_package_identity2: ?[]const u8,
+            current_package_hash2: ?[32]u8,
             resolve_ctx2: ?ResolveContext,
         ) anyerror!void {
             var injected = try readImportFile(allocator2, base_dir, file_name, resolve_ctx2);
@@ -1350,6 +1369,7 @@ fn injectImportedFile(
                 allocator2,
                 out2,
                 line_package_identities2,
+                line_package_hashes2,
                 expanded_source,
                 injected_dir,
                 active_paths2,
@@ -1359,6 +1379,7 @@ fn injectImportedFile(
                 layout_versions2,
                 error_ctx2,
                 effective_child_package_identity,
+                current_package_hash2,
                 resolve_ctx2,
             );
         }
@@ -1371,6 +1392,7 @@ fn injectImportedFile(
             allocator,
             out,
             line_package_identities,
+            line_package_hashes,
             import_dir,
             iface_name,
             active_paths,
@@ -1380,6 +1402,7 @@ fn injectImportedFile(
             layout_versions,
             error_ctx,
             effective_package_identity,
+            current_package_hash,
             resolve_ctx,
         );
     } else |_| {}
@@ -1391,6 +1414,7 @@ fn injectImportedFile(
             allocator,
             out,
             line_package_identities,
+            line_package_hashes,
             import_dir,
             layout_name,
             active_paths,
@@ -1400,6 +1424,7 @@ fn injectImportedFile(
             layout_versions,
             error_ctx,
             effective_package_identity,
+            current_package_hash,
             resolve_ctx,
         );
     } else |_| {}
@@ -1409,6 +1434,7 @@ fn expandImportsInto(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
     line_package_identities: *std.ArrayList(?[]const u8),
+    line_package_hashes: *std.ArrayList(?[32]u8),
     source: []const u8,
     base_dir: []const u8,
     active_paths: *std.StringHashMap(void),
@@ -1418,6 +1444,7 @@ fn expandImportsInto(
     layout_versions: *std.ArrayList(LayoutVersion),
     error_ctx: ?*ErrorContext,
     current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
     resolve_ctx: ?ResolveContext,
 ) !void {
     var iterator = std.mem.splitScalar(u8, source, '\n');
@@ -1432,6 +1459,10 @@ fn expandImportsInto(
                 try rememberPackageIdentity(allocator, seen_package_identities, identity)
             else
                 null;
+            const imported_package_hash = if (imported.package_identity != null)
+                imported.source_sha256 orelse current_package_hash
+            else
+                current_package_hash;
 
             if (active_paths.contains(imported.entry_path)) {
                 imported.deinit(allocator);
@@ -1459,6 +1490,7 @@ fn expandImportsInto(
                 allocator,
                 out,
                 line_package_identities,
+                line_package_hashes,
                 &imported,
                 active_paths,
                 seen_paths,
@@ -1467,6 +1499,7 @@ fn expandImportsInto(
                 layout_versions,
                 error_ctx,
                 current_package_identity,
+                imported_package_hash,
                 resolve_ctx,
             );
             const is_layout_file = std.mem.endsWith(u8, imported.entry_path, ".saasm-layout");
@@ -1484,6 +1517,7 @@ fn expandImportsInto(
                 allocator,
                 out,
                 line_package_identities,
+                line_package_hashes,
                 expanded_source,
                 import_dir,
                 active_paths,
@@ -1493,12 +1527,13 @@ fn expandImportsInto(
                 layout_versions,
                 error_ctx,
                 imported_package_identity,
+                imported_package_hash,
                 resolve_ctx,
             );
             continue;
         }
 
-        try appendExpandedLine(out, line_package_identities, raw_line, current_package_identity);
+        try appendExpandedLine(out, line_package_identities, line_package_hashes, raw_line, current_package_identity, current_package_hash);
     }
 }
 
@@ -1524,6 +1559,9 @@ fn expandImports(
 
     var line_package_identities = std.ArrayList(?[]const u8).init(allocator);
     errdefer line_package_identities.deinit();
+
+    var line_package_hashes = std.ArrayList(?[32]u8).init(allocator);
+    errdefer line_package_hashes.deinit();
 
     var owned_paths = std.ArrayList([]u8).init(allocator);
     errdefer {
@@ -1568,6 +1606,7 @@ fn expandImports(
         allocator,
         &out,
         &line_package_identities,
+        &line_package_hashes,
         source,
         base_dir,
         &active_paths,
@@ -1577,6 +1616,7 @@ fn expandImports(
         &layout_versions,
         error_ctx,
         current_package_identity,
+        null,
         resolve_ctx,
     );
 
@@ -1586,6 +1626,7 @@ fn expandImports(
         .seen_paths = seen_paths,
         .seen_package_identities = seen_package_identities,
         .line_package_identities = line_package_identities,
+        .line_package_hashes = line_package_hashes,
         .owned_paths = owned_paths,
         .layout_versions = layout_versions,
     };
@@ -1653,7 +1694,7 @@ fn flattenInternal(
     var macros = std.StringHashMap(MacroDef).init(allocator);
     defer deinitMacroMap(allocator, &macros);
 
-    const lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..]);
+    const lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
     defer allocator.free(lines);
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
@@ -1677,6 +1718,7 @@ fn flattenInternal(
         &function_sigs,
         &owned_text,
         error_ctx,
+        null,
         null,
     );
     if (pending_loc) |loc| {

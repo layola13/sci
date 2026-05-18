@@ -1,11 +1,102 @@
 const std = @import("std");
 
+fn pathHasPrecompiledArtifact(name: []const u8) bool {
+    const lower = std.ascii.lowerString;
+    var buf: [256]u8 = undefined;
+    const slice = if (name.len <= buf.len) lower(&buf, name) else name;
+    return std.mem.endsWith(u8, slice, ".so") or
+        std.mem.endsWith(u8, slice, ".dll") or
+        std.mem.endsWith(u8, slice, ".dylib") or
+        std.mem.endsWith(u8, slice, ".a") or
+        std.mem.endsWith(u8, slice, ".lib") or
+        std.mem.endsWith(u8, slice, ".whl") or
+        std.mem.endsWith(u8, slice, ".node");
+}
+
+fn hashSourceBytes(source: []const u8) [32]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(source);
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return out;
+}
+
+fn hashDelimiter(writer: anytype) !void {
+    try writer.writeByte(0);
+}
+
+fn normalizedPath(path: []const u8) []u8 {
+    return std.mem.replaceOwned(u8, std.heap.page_allocator, path, std.fs.path.sep_str, "/") catch unreachable;
+}
+
+fn appendPathComponent(writer: anytype, path: []const u8) !void {
+    for (path) |c| {
+        try writer.writeByte(if (std.fs.path.isSep(c)) '/' else c);
+    }
+}
+
+fn packageTreeHash(allocator: std.mem.Allocator, root_dir: []const u8) ResolveError![32]u8 {
+    var entries = std.ArrayList([]u8).init(allocator);
+    defer {
+        for (entries.items) |entry| allocator.free(entry);
+        entries.deinit();
+    }
+
+    var root = std.fs.cwd().openDir(root_dir, .{ .iterate = true }) catch return error.PackageNotResolved;
+    defer root.close();
+
+    var walker = try root.walk(allocator);
+    defer walker.deinit();
+
+    while (walker.next() catch return error.PackageNotResolved) |entry| {
+        switch (entry.kind) {
+            .file => {
+                if (pathHasPrecompiledArtifact(entry.basename)) return error.PrecompiledArtifactRejected;
+                const copied = try allocator.dupe(u8, entry.path);
+                errdefer allocator.free(copied);
+                try entries.append(copied);
+            },
+            .directory => {},
+            .sym_link, .unknown, .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port => return error.PackageNotResolved,
+        }
+    }
+
+    std.mem.sort([]u8, entries.items, {}, struct {
+        fn lessThan(_: void, lhs: []u8, rhs: []u8) bool {
+            return std.mem.order(u8, lhs, rhs) == .lt;
+        }
+    }.lessThan);
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    for (entries.items) |entry_path| {
+        const full_path = try std.fs.path.join(allocator, &.{ root_dir, entry_path });
+        defer allocator.free(full_path);
+        const file_bytes = try readFileAlloc(allocator, full_path, 16 * 1024 * 1024);
+        defer allocator.free(file_bytes);
+
+        var normalized = std.ArrayList(u8).init(allocator);
+        defer normalized.deinit();
+        for (entry_path) |c| {
+            try normalized.append(if (std.fs.path.isSep(c)) '/' else c);
+        }
+        hasher.update(normalized.items);
+        hasher.update(&[_]u8{0});
+        hasher.update(file_bytes);
+        hasher.update(&[_]u8{0});
+    }
+
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return out;
+}
+
 pub const ResolveError = error{
     OutOfMemory,
     InvalidPath,
     InvalidImportPath,
     PackageNotResolved,
     AmbiguousPackageVersion,
+    PrecompiledArtifactRejected,
 };
 
 pub const Dependency = struct {
@@ -26,6 +117,7 @@ pub const ResolvedImport = struct {
     entry_path_owned: bool = true,
     root_dir: ?[]u8 = null,
     package_identity: ?[]u8 = null,
+    source_sha256: ?[32]u8 = null,
     source: []const u8,
     owned_source: ?[]u8 = null,
     mapped: ?[]align(std.heap.page_size_min) u8 = null,
@@ -134,6 +226,19 @@ fn mapFileReadOnly(path: []const u8) ResolveError!struct { mapped: []align(std.h
     return .{ .mapped = mapped, .source = mapped };
 }
 
+fn computeResolvedSourceHash(
+    allocator: std.mem.Allocator,
+    entry_path: []const u8,
+    root_dir: ?[]const u8,
+    source: []const u8,
+) ResolveError![32]u8 {
+    _ = entry_path;
+    if (root_dir) |dir| {
+        return packageTreeHash(allocator, dir);
+    }
+    return hashSourceBytes(source);
+}
+
 fn resolveRelativeImport(
     allocator: std.mem.Allocator,
     base_dir: []const u8,
@@ -150,10 +255,12 @@ fn resolveRelativeImport(
     errdefer allocator.free(canonical);
 
     const source = try readFileAlloc(allocator, canonical, max_bytes);
+    const source_hash = try computeResolvedSourceHash(allocator, canonical, null, source);
     return .{
         .entry_path = canonical,
         .source = source,
         .owned_source = source,
+        .source_sha256 = source_hash,
     };
 }
 
@@ -190,6 +297,7 @@ fn resolveFromPackageRoot(
 
         if (global) {
             const mapped = try mapFileReadOnly(canonical_entry);
+            const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, mapped.source);
             var resolved: ResolvedImport = .{
                 .entry_path = canonical_entry,
                 .root_dir = canonical_root,
@@ -197,6 +305,7 @@ fn resolveFromPackageRoot(
                 .owned_source = null,
                 .mapped = mapped.mapped,
                 .is_global = true,
+                .source_sha256 = source_hash,
             };
             if (package_identity) |identity| {
                 resolved.package_identity = try allocator.dupe(u8, identity);
@@ -205,11 +314,13 @@ fn resolveFromPackageRoot(
         }
 
         const source = try readFileAlloc(allocator, canonical_entry, max_bytes);
+        const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);
         var resolved: ResolvedImport = .{
             .entry_path = canonical_entry,
             .root_dir = canonical_root,
             .source = source,
             .owned_source = source,
+            .source_sha256 = source_hash,
         };
         if (package_identity) |identity| {
             resolved.package_identity = try allocator.dupe(u8, identity);

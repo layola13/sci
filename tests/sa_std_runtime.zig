@@ -334,6 +334,109 @@ test "sa_std static library exposes a usable C ABI" {
     try std.testing.expectEqualStrings("sa_std abi ok\n", run_result.stdout);
 }
 
+test "sa_std tcp stream peek does not consume bytes" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\#include <sys/wait.h>
+        \\#include <unistd.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t *host = (const uint8_t *)"127.0.0.1";
+        \\    const uint8_t payload[] = "tcp-peek-data";
+        \\    uint64_t listener = 0;
+        \\    uint64_t server = 0;
+        \\    uint64_t client = 0;
+        \\    uint64_t written = 0;
+        \\    uint64_t read_count = 0;
+        \\    uint32_t port = 0;
+        \\    uint8_t peek_buf[64] = {0};
+        \\    uint8_t read_buf[64] = {0};
+        \\    pid_t pid = 0;
+        \\    int status = 0;
+        \\
+        \\    if (sa_std_net_tcp_listen(host, 9, 0, &listener, &port) != SA_STD_OK) return 2;
+        \\    if (listener == 0 || port == 0) return 3;
+        \\    pid = fork();
+        \\    if (pid < 0) return 4;
+        \\    if (pid == 0) {
+        \\        if (sa_std_net_tcp_connect(host, 9, port, &client) != SA_STD_OK) _exit(20);
+        \\        if (client == 0) _exit(21);
+        \\        if (sa_std_write(client, payload, sizeof(payload) - 1, &written) != SA_STD_OK) _exit(22);
+        \\        if (written != sizeof(payload) - 1) _exit(23);
+        \\        if (sa_std_close(client) != SA_STD_OK) _exit(24);
+        \\        _exit(0);
+        \\    }
+        \\    if (sa_std_net_tcp_accept(listener, &server) != SA_STD_OK) return 5;
+        \\    if (server == 0) return 6;
+        \\    if (sa_net_tcp_stream_peek(server, peek_buf, sizeof(peek_buf)) != (int32_t)(sizeof(payload) - 1)) return 7;
+        \\    if (memcmp(peek_buf, payload, sizeof(payload) - 1) != 0) return 8;
+        \\    if (sa_std_read(server, read_buf, sizeof(read_buf), &read_count) != SA_STD_OK) return 9;
+        \\    if (read_count != sizeof(payload) - 1) return 10;
+        \\    if (memcmp(read_buf, payload, sizeof(payload) - 1) != 0) return 11;
+        \\    if (sa_net_tcp_stream_peek(server, peek_buf, sizeof(peek_buf)) != 0) return 12;
+        \\    if (sa_std_close(server) != SA_STD_OK) return 13;
+        \\    if (sa_std_close(listener) != SA_STD_OK) return 14;
+        \\    if (waitpid(pid, &status, 0) < 0) return 15;
+        \\    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return 16;
+        \\    puts("sa_std tcp peek ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "tcp_peek.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "tcp_peek.c",
+        "libsa_std.a",
+        "-o",
+        "sa_std_tcp_peek_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_tcp_peek_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std tcp peek ok"));
+}
+
 test "sa_std fmt and process exports are usable from C" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

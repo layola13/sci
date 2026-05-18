@@ -1468,6 +1468,28 @@ pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u1
 }
 
 pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) i32 { return sa_std_read(stream, out, cap, null); }
+pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+
+    registry_mutex.lock();
+    const fd = blk: {
+        const resource = getResourceLocked(stream) orelse {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        };
+        break :blk switch (resource.*) {
+            .tcp_stream => |s| s.handle,
+            else => {
+                registry_mutex.unlock();
+                return finish(SA_STD_ERR_INVALID_HANDLE);
+            },
+        };
+    };
+    registry_mutex.unlock();
+
+    const read = std.posix.recv(fd, buffer, std.posix.MSG.PEEK) catch |err| return finishErr(err);
+    return finish(@as(i32, @intCast(read)));
+}
 pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(stream, out, len); }
 pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(stream, out, len); }
 pub export fn sa_net_tcp_stream_flush(stream: u64) i32 { _ = stream; return finish(SA_STD_OK); }
@@ -1896,15 +1918,26 @@ pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     registry_mutex.lock();
-    defer registry_mutex.unlock();
     const resource = getResourceLocked(listener_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const connection = switch (resource.*) {
-        .tcp_listener => |*server| server.accept() catch |err| return finishErr(err),
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    const listener = switch (resource.*) {
+        .tcp_listener => |server| server,
+        else => {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        },
     };
+    registry_mutex.unlock();
+
+    var listener_copy = listener;
+    const connection = listener_copy.accept() catch |err| return finishErr(err);
     var stream = connection.stream;
-    errdefer stream.close();
-    const handle = registerResourceLocked(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    const handle = registerResourceLocked(.{ .tcp_stream = stream }) catch |err| {
+        registry_mutex.unlock();
+        stream.close();
+        return finishErr(err);
+    };
+    registry_mutex.unlock();
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
 }

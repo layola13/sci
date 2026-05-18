@@ -1,5 +1,5 @@
 const std = @import("std");
-const sig = @import("../common/signature.zig");
+const sig = @import("common/signature.zig");
 
 pub const ParseError = error{
     OutOfMemory,
@@ -17,22 +17,45 @@ pub const Column = struct {
     ty: ?sig.PrimType = null,
 };
 
+pub const Def = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
 pub const Schema = struct {
     allocator: std.mem.Allocator,
     table_name: []const u8,
     max_rows: u64,
     columns: []Column,
     row_bytes: u64,
+    defs: []Def,
 
     pub fn deinit(self: *Schema) void {
-        for (self.columns) |column| {
-            self.allocator.free(column.name);
-        }
+        for (self.columns) |column| self.allocator.free(column.name);
         self.allocator.free(self.columns);
+        for (self.defs) |def| {
+            self.allocator.free(def.name);
+            self.allocator.free(def.value);
+        }
+        self.allocator.free(self.defs);
         self.allocator.free(self.table_name);
         self.* = undefined;
     }
 };
+
+pub fn ifaceFilePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    const basename = std.fs.path.basename(source_path);
+    const stem = if (std.mem.endsWith(u8, basename, ".sadb-schema"))
+        basename[0 .. basename.len - ".sadb-schema".len]
+    else if (std.mem.endsWith(u8, basename, ".saasm"))
+        basename[0 .. basename.len - ".saasm".len]
+    else
+        basename;
+    if (std.fs.path.dirname(source_path)) |dir| {
+        return try std.fs.path.join(allocator, &.{ dir, stem, ".iface" });
+    }
+    return try std.fs.path.join(allocator, &.{ stem, ".iface" });
+}
 
 fn trim(text: []const u8) []const u8 {
     return std.mem.trim(u8, text, " \t\r");
@@ -88,25 +111,50 @@ fn parseTableName(path: []const u8) []const u8 {
     return basename;
 }
 
-fn parseDef(line: []const u8) ?struct { name: []const u8, value: []const u8 } {
+fn parseDef(line: []const u8) ?Def {
     if (!std.mem.startsWith(u8, line, "#def")) return null;
-    const after = std.mem.trimLeft(u8, line["#def".len..], " \t");
-    const eq = std.mem.indexOfScalar(u8, after, '=') orelse return null;
-    const name = trim(after[0..eq]);
-    const value = trim(after[eq + 1 ..]);
-    if (name.len == 0 or value.len == 0) return null;
-    if (!isIdentStart(name[0])) return null;
-    for (name[1..]) |c| {
+    var rest = std.mem.trimLeft(u8, line["#def".len..], " \t");
+    if (rest.len == 0) return null;
+
+    const eq = std.mem.indexOfScalar(u8, rest, '=');
+    const name_text: []const u8 = if (eq) |idx| blk: {
+        const name = trim(rest[0..idx]);
+        const value = trim(rest[idx + 1 ..]);
+        if (name.len == 0 or value.len == 0) return null;
+        rest = value;
+        break :blk name;
+    } else blk: {
+        const split = std.mem.indexOfAny(u8, rest, " \t") orelse return null;
+        const name = trim(rest[0..split]);
+        const value = trim(rest[split..]);
+        if (name.len == 0 or value.len == 0) return null;
+        rest = value;
+        break :blk name;
+    };
+
+    if (!isIdentStart(name_text[0])) return null;
+    for (name_text[1..]) |c| {
         if (!isIdentChar(c)) return null;
     }
-    return .{ .name = name, .value = value };
+    return .{ .name = name_text, .value = rest };
 }
 
 fn isColumnDefName(name: []const u8) bool {
     return std.mem.startsWith(u8, name, "COL_") and std.mem.endsWith(u8, name, "_STRIDE");
 }
 
-fn writeDef(writer: anytype, name: []const u8, value: u64) !void {
+fn appendDef(list: *std.ArrayList(Def), allocator: std.mem.Allocator, name: []const u8, value: []const u8) !void {
+    try list.append(.{
+        .name = try allocator.dupe(u8, name),
+        .value = try allocator.dupe(u8, value),
+    });
+}
+
+fn writeDef(writer: anytype, name: []const u8, value: []const u8) !void {
+    try writer.print("#def {s} = {s}\n", .{ name, value });
+}
+
+fn writeDefInt(writer: anytype, name: []const u8, value: u64) !void {
     try writer.print("#def {s} = {d}\n", .{ name, value });
 }
 
@@ -131,6 +179,15 @@ pub fn compile(
         columns.deinit();
     }
 
+    var defs = std.ArrayList(Def).init(allocator);
+    errdefer {
+        for (defs.items) |def| {
+            allocator.free(def.name);
+            allocator.free(def.value);
+        }
+        defs.deinit();
+    }
+
     var seen = std.StringHashMap(void).init(allocator);
     defer seen.deinit();
 
@@ -142,6 +199,7 @@ pub fn compile(
         const def = parseDef(line) orelse return ParseError.InvalidFormat;
         if (seen.contains(def.name)) return ParseError.DuplicateDef;
         try seen.put(def.name, {});
+        try appendDef(&defs, allocator, def.name, def.value);
 
         if (std.mem.eql(u8, def.name, "MAX_ROWS")) {
             max_rows = std.fmt.parseInt(u64, def.value, 10) catch return ParseError.InvalidFormat;
@@ -174,11 +232,7 @@ pub fn compile(
                 }
             }
         }
-        try columns.append(.{
-            .name = col_name,
-            .stride = stride,
-            .ty = col_ty,
-        });
+        try columns.append(.{ .name = col_name, .stride = stride, .ty = col_ty });
     }
 
     const max_rows_value = max_rows orelse return ParseError.MissingMaxRows;
@@ -189,11 +243,10 @@ pub fn compile(
         }
         break :blk total;
     };
-    if (row_bytes) |declared| {
+    const final_row_bytes = if (row_bytes) |declared| blk: {
         if (declared != computed_row_bytes) return ParseError.InvalidFormat;
-    } else {
-        return ParseError.MissingRowBytes;
-    }
+        break :blk declared;
+    } else computed_row_bytes;
     if (max_rows_value != 0 and computed_row_bytes != 0) {
         const cap = std.math.mul(u64, max_rows_value, computed_row_bytes) catch return ParseError.CapacityOverflow;
         if (cap > 64 * 1024 * 1024 * 1024) return ParseError.CapacityOverflow;
@@ -204,20 +257,31 @@ pub fn compile(
         .table_name = table_name,
         .max_rows = max_rows_value,
         .columns = try columns.toOwnedSlice(),
-        .row_bytes = computed_row_bytes,
+        .row_bytes = final_row_bytes,
+        .defs = try defs.toOwnedSlice(),
     };
 }
 
-pub fn writeIface(writer: anytype, schema: Schema) !void {
-    for (schema.columns) |column| {
-        const col_name = try std.fmt.allocPrint(std.heap.page_allocator, "COL_{s}_STRIDE", .{column.name});
-        defer std.heap.page_allocator.free(col_name);
-        try writeDef(writer, col_name, column.stride);
+fn hasDef(defs: []const Def, name: []const u8) bool {
+    for (defs) |def| {
+        if (std.mem.eql(u8, def.name, name)) return true;
     }
-    try writeDef(writer, "TABLE_ROW_BYTES", schema.row_bytes);
-    const alias = try std.fmt.allocPrint(std.heap.page_allocator, "{s}_ROW_BYTES", .{schema.table_name});
-    defer std.heap.page_allocator.free(alias);
-    try writeDef(writer, alias, schema.row_bytes);
+    return false;
+}
+
+pub fn writeIface(writer: anytype, schema: Schema) !void {
+    try writer.writeAll("// generated by saasm db init\n");
+    for (schema.defs) |def| {
+        try writeDef(writer, def.name, def.value);
+    }
+    if (!hasDef(schema.defs, "TABLE_ROW_BYTES")) {
+        try writeDefInt(writer, "TABLE_ROW_BYTES", schema.row_bytes);
+    }
+    const alias = try std.fmt.allocPrint(schema.allocator, "{s}_ROW_BYTES", .{schema.table_name});
+    defer schema.allocator.free(alias);
+    if (!hasDef(schema.defs, alias)) {
+        try writeDefInt(writer, alias, schema.row_bytes);
+    }
 }
 
 test "schema compiler computes row bytes and preserves table alias" {

@@ -2,6 +2,7 @@
 // TcpStream, TcpListener, and UdpSocket handles are opaque owned ptr values.
 @extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u16) -> ^ptr!
 @extern sa_net_tcp_stream_read(stream: ptr, &buf: ptr, cap: u64) -> u64!
+@extern sa_net_tcp_stream_peek(stream: ptr, &buf: ptr, cap: u64) -> u64!
 @extern sa_net_tcp_stream_write(stream: ptr, &buf: ptr, len: u64) -> u64!
 @extern sa_net_tcp_stream_write_all(stream: ptr, &buf: ptr, len: u64) -> i32!
 @extern sa_net_tcp_stream_flush(stream: ptr) -> i32!

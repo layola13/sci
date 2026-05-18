@@ -29,6 +29,7 @@ pub const Trap = enum(u8) {
     vtable_signature_mismatch,
     stack_escape,
     unauthorized_primitive,
+    upstream_sha_mismatch,
     early_return_leak,
     fallible_contract_mismatch,
     invalid_atomic_ordering,
@@ -103,6 +104,7 @@ pub fn trapName(trap: Trap) []const u8 {
         .vtable_signature_mismatch => "VTableSignatureMismatch",
         .stack_escape => "StackEscape",
         .unauthorized_primitive => "UnauthorizedPrimitive",
+        .upstream_sha_mismatch => "UpstreamShaMismatch",
         .early_return_leak => "EarlyReturnLeak",
         .fallible_contract_mismatch => "FallibleContractMismatch",
         .invalid_atomic_ordering => "InvalidAtomicOrdering",
@@ -151,6 +153,7 @@ pub fn trapCode(trap: Trap) u32 {
         .vtable_signature_mismatch => 1024,
         .stack_escape => 1025,
         .unauthorized_primitive => 1043,
+        .upstream_sha_mismatch => 1044,
         .early_return_leak => 1026,
         .fallible_contract_mismatch => 1027,
         .invalid_atomic_ordering => 1028,
@@ -308,6 +311,7 @@ test "trap names are stable" {
     try std.testing.expectEqualStrings("MemoryLeak", trapName(.memory_leak));
     try std.testing.expectEqualStrings("InteriorPtrEscape", trapName(.interior_ptr_escape));
     try std.testing.expectEqualStrings("UnauthorizedPrimitive", trapName(.unauthorized_primitive));
+    try std.testing.expectEqualStrings("UpstreamShaMismatch", trapName(.upstream_sha_mismatch));
 }
 
 test "trap codes are explicit and stable" {
@@ -315,6 +319,7 @@ test "trap codes are explicit and stable" {
     try std.testing.expectEqual(@as(u32, 1012), trapCode(.memory_leak));
     try std.testing.expectEqual(@as(u32, 1022), trapCode(.interior_ptr_escape));
     try std.testing.expectEqual(@as(u32, 1043), trapCode(.unauthorized_primitive));
+    try std.testing.expectEqual(@as(u32, 1044), trapCode(.upstream_sha_mismatch));
 }
 
 test "trap json serialization is stable" {
