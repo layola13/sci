@@ -1,0 +1,21 @@
+@import "../sa_std/time.saasm-iface"
+
+@test "slow one"():
+L_SLOW_ONE:
+    call @sa_time_sleep_ms(300)
+    return
+
+@test "slow two"():
+L_SLOW_TWO:
+    call @sa_time_sleep_ms(300)
+    return
+
+@test "slow three"():
+L_SLOW_THREE:
+    call @sa_time_sleep_ms(300)
+    return
+
+@test "slow four"():
+L_SLOW_FOUR:
+    call @sa_time_sleep_ms(300)
+    return

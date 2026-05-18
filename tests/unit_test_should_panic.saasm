@@ -1,0 +1,5 @@
+// Native test fixture that is expected to panic.
+
+@test should_panic "panic path"():
+L_PANIC:
+    panic(99)

@@ -119,6 +119,19 @@ pub fn build(b: *std.Build) void {
     run_std_smoke.setCwd(repo_root);
     test_step.dependOn(&run_std_smoke.step);
 
+    const unit_framework_module = b.createModule(.{
+        .root_source_file = b.path("tests/unit_framework/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    unit_framework_module.addImport("saasm", lib_module);
+    const unit_framework = b.addTest(.{
+        .root_module = unit_framework_module,
+    });
+    const run_unit_framework = b.addRunArtifact(unit_framework);
+    run_unit_framework.setCwd(repo_root);
+    test_step.dependOn(&run_unit_framework.step);
+
     const sa_std_unit_module = b.createModule(.{
         .root_source_file = b.path("src/runtime/sa_std.zig"),
         .target = target,
@@ -142,6 +155,18 @@ pub fn build(b: *std.Build) void {
     const run_sa_std_runtime = b.addRunArtifact(sa_std_runtime);
     run_sa_std_runtime.setCwd(repo_root);
     test_step.dependOn(&run_sa_std_runtime.step);
+
+    const sa_net_uring_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_net_uring.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const sa_net_uring_tests = b.addTest(.{
+        .root_module = sa_net_uring_module,
+    });
+    const run_sa_net_uring_tests = b.addRunArtifact(sa_net_uring_tests);
+    run_sa_net_uring_tests.setCwd(repo_root);
+    test_step.dependOn(&run_sa_net_uring_tests.step);
 
     const sa_term_runtime_module = b.createModule(.{
         .root_source_file = b.path("tests/sa_term_runtime.zig"),
@@ -208,8 +233,10 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&run_cli_tests.step);
     ci_step.dependOn(&run_trap_baseline.step);
     ci_step.dependOn(&run_std_smoke.step);
+    ci_step.dependOn(&run_unit_framework.step);
     ci_step.dependOn(&run_sa_std_unit.step);
     ci_step.dependOn(&run_sa_std_runtime.step);
+    ci_step.dependOn(&run_sa_net_uring_tests.step);
     ci_step.dependOn(&run_sa_term_runtime.step);
     ci_step.dependOn(&run_native_sys_runtime.step);
     ci_step.dependOn(&run_smoke.step);

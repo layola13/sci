@@ -11,6 +11,11 @@ pub const common = struct {
 
 pub const flattener = @import("flattener.zig");
 pub const layout = @import("layout.zig");
+pub const test_executor = @import("test_executor.zig");
+pub const test_formatter = @import("test_formatter.zig");
+pub const test_meta = @import("test_meta.zig");
+pub const test_result = @import("test_result.zig");
+pub const test_runner = @import("test_runner.zig");
 pub const pkg = struct {
     pub const fetch = @import("pkg/fetch.zig");
     pub const manifest = @import("pkg/manifest.zig");
@@ -18,6 +23,7 @@ pub const pkg = struct {
 };
 pub const libsa_scope = @import("libsa_scope.zig");
 pub const runtime = struct {
+    pub const sa_net_uring = @import("runtime/sa_net_uring.zig");
     pub const sa_std = @import("runtime/sa_std.zig");
 };
 pub const referee = @import("referee.zig");
@@ -32,6 +38,11 @@ test "root module imports common types" {
     const sig = @import("common/signature.zig");
     const flatten = @import("flattener.zig");
     const layout_mod = @import("layout.zig");
+    const executor_mod = @import("test_executor.zig");
+    const formatter_mod = @import("test_formatter.zig");
+    const test_model = @import("test_meta.zig");
+    const test_result_mod = @import("test_result.zig");
+    const test_runner_mod = @import("test_runner.zig");
     const manifest_mod = @import("pkg/manifest.zig");
     const resolver_mod = @import("pkg/resolver.zig");
     const verify = @import("referee.zig");
@@ -42,6 +53,11 @@ test "root module imports common types" {
     _ = upstream_loc.UpstreamLoc;
     _ = gas.GasReport;
     _ = sig.FunctionSig;
+    _ = executor_mod.TestExecutor;
+    _ = formatter_mod.RunSummary{ .passed = 0, .failed = 0, .skipped = 0, .ignored = 0 };
+    _ = test_model.TestListOrder.Unsorted;
+    _ = test_result_mod.Termination{ .exited = 0 };
+    _ = test_runner_mod.run;
     _ = manifest_mod.Capability.mem_alloc;
     _ = resolver_mod.Dependency{ .url = "example", .ref = "HEAD" };
 

@@ -49,6 +49,9 @@ pub const FunctionSig = struct {
     upstream_file: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
     param_ids: []const u32 = &.{},
+    llvm_name: ?[]const u8 = null,
+    ignored: bool = false,
+    should_panic: bool = false,
 
     pub fn deinit(self: *FunctionSig, allocator: std.mem.Allocator) void {
         for (self.params) |param| {
@@ -57,6 +60,7 @@ pub const FunctionSig = struct {
         allocator.free(self.params);
         if (self.param_ids.len != 0) allocator.free(self.param_ids);
         if (self.upstream_file) |file| allocator.free(file);
+        if (self.llvm_name) |name| allocator.free(name);
         allocator.free(self.name);
         self.* = undefined;
     }
@@ -152,6 +156,10 @@ pub fn primTypeBytes(ty: PrimType) u32 {
     };
 }
 
+pub fn testLLVMName(allocator: std.mem.Allocator, id: u32) ![]const u8 {
+    return try std.fmt.allocPrint(allocator, "_saasm_test_{d}", .{id});
+}
+
 pub fn primTypeFromTag(tag: u32) ?PrimType {
     if (tag > @intFromEnum(PrimType.v128)) return null;
     return @enumFromInt(tag);
@@ -166,6 +174,14 @@ fn parseOptionalCap(text: []const u8) struct { cap: ?instr.CapPrefix, rest: []co
         '*' => .{ .cap = .raw, .rest = std.mem.trim(u8, trimmed[1..], " \t\r") },
         else => .{ .cap = null, .rest = trimmed },
     };
+}
+
+pub fn displayName(kind: FunctionKind, name: []const u8) []const u8 {
+    if (kind != .test_func) return name;
+    if (name.len >= 2 and name[0] == '"' and name[name.len - 1] == '"') {
+        return name[1 .. name.len - 1];
+    }
+    return name;
 }
 
 fn parseParam(allocator: std.mem.Allocator, fragment: []const u8) ParseError!ParamSpec {
@@ -187,6 +203,39 @@ fn parseParam(allocator: std.mem.Allocator, fragment: []const u8) ParseError!Par
         .name = try allocator.dupe(u8, name),
         .ty = try parsePrimType(ty_text),
         .cap = cap_split.cap orelse .by_value,
+    };
+}
+
+const TestModifiers = struct {
+    ignored: bool = false,
+    should_panic: bool = false,
+    rest: []const u8,
+};
+
+fn parseTestModifiers(text: []const u8) ParseError!TestModifiers {
+    var rest = std.mem.trimLeft(u8, text, " \t");
+    var ignored = false;
+    var should_panic = false;
+
+    while (rest.len != 0 and rest[0] != '"') {
+        const token_end = std.mem.indexOfAny(u8, rest, " \t") orelse rest.len;
+        const token = rest[0..token_end];
+        if (std.mem.eql(u8, token, "ignored")) {
+            if (ignored) return ParseError.InvalidFunctionSig;
+            ignored = true;
+        } else if (std.mem.eql(u8, token, "should_panic")) {
+            if (should_panic) return ParseError.InvalidFunctionSig;
+            should_panic = true;
+        } else {
+            return ParseError.InvalidFunctionSig;
+        }
+        rest = std.mem.trimLeft(u8, rest[token_end..], " \t");
+    }
+
+    return .{
+        .ignored = ignored,
+        .should_panic = should_panic,
+        .rest = rest,
     };
 }
 
@@ -291,10 +340,19 @@ pub fn parseFunctionHeader(
     if (!std.mem.startsWith(u8, trimmed, spec.prefix)) return ParseError.InvalidFunctionSig;
     if (spec.require_colon and trimmed[trimmed.len - 1] != ':') return ParseError.InvalidFunctionSig;
 
-    const body = if (spec.require_colon)
+    var body = if (spec.require_colon)
         trimmed[spec.prefix.len .. trimmed.len - 1]
     else
         std.mem.trimRight(u8, trimmed[spec.prefix.len..], " :\t\r");
+
+    var ignored = false;
+    var should_panic = false;
+    if (kind == .test_func) {
+        const modifiers = try parseTestModifiers(body);
+        body = modifiers.rest;
+        ignored = modifiers.ignored;
+        should_panic = modifiers.should_panic;
+    }
 
     const after_name = std.mem.trimLeft(u8, body, " \t");
     const open = std.mem.indexOfScalar(u8, after_name, '(') orelse return ParseError.InvalidFunctionSig;
@@ -358,6 +416,7 @@ pub fn parseFunctionHeader(
     const name = try allocator.dupe(u8, name_text);
     errdefer allocator.free(name);
     const params = try param_list.toOwnedSlice();
+    const llvm_name = if (kind == .test_func) try testLLVMName(allocator, id) else null;
 
     return .{
         .id = id,
@@ -371,6 +430,9 @@ pub fn parseFunctionHeader(
         .is_ffi_wrapper = kind == .ffi_wrapper,
         .upstream_file = null,
         .upstream_loc = null,
+        .llvm_name = llvm_name,
+        .ignored = ignored,
+        .should_panic = should_panic,
     };
 }
 
@@ -556,6 +618,39 @@ fn capText(prefix: instr.CapPrefix) []const u8 {
     };
 }
 
+pub fn writeFunctionHeader(writer: anytype, sig: FunctionSig) !void {
+    switch (sig.kind) {
+        .normal => try writer.writeAll("@"),
+        .ffi_wrapper => try writer.writeAll("@ffi_wrapper "),
+        .external => try writer.writeAll("@extern "),
+        .exported => try writer.writeAll("@export "),
+        .test_func => {
+            try writer.writeAll("@test ");
+            if (sig.ignored) try writer.writeAll("ignored ");
+            if (sig.should_panic) try writer.writeAll("should_panic ");
+        },
+    }
+    if (sig.kind == .test_func and sig.name.len != 0 and sig.name[0] == '"') {
+        try writer.writeAll(sig.name);
+    } else {
+        try writer.writeAll(sig.name);
+    }
+    try writer.writeByte('(');
+    for (sig.params, 0..) |param, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        if (param.cap != .by_value) try writer.writeAll(capText(param.cap));
+        try writer.print("{s}: {s}", .{ param.name, primTypeName(param.ty) });
+    }
+    try writer.writeByte(')');
+    if (sig.return_ty != .void) {
+        try writer.writeAll(" -> ");
+        if (sig.return_cap) |cap| try writer.writeAll(capText(cap));
+        try writer.writeAll(primTypeName(sig.return_ty));
+        if (sig.return_fallible) try writer.writeByte('!');
+    }
+    if (sig.kind != .external) try writer.writeByte(':');
+}
+
 fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
     try std.testing.expectEqual(expected.id, actual.id);
     try std.testing.expectEqual(expected.kind, actual.kind);
@@ -564,6 +659,8 @@ fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
     try std.testing.expectEqual(expected.return_fallible, actual.return_fallible);
     try std.testing.expectEqual(expected.entry_inst_idx, actual.entry_inst_idx);
     try std.testing.expectEqual(expected.is_ffi_wrapper, actual.is_ffi_wrapper);
+    try std.testing.expectEqual(expected.ignored, actual.ignored);
+    try std.testing.expectEqual(expected.should_panic, actual.should_panic);
     try std.testing.expectEqualStrings(expected.name, actual.name);
     try std.testing.expectEqual(expected.params.len, actual.params.len);
     for (expected.params, actual.params) |lhs, rhs| {
@@ -596,30 +693,36 @@ test "function signature parsing is deterministic across random headers" {
         var buf = std.ArrayList(u8).init(std.testing.allocator);
         defer buf.deinit();
         const writer = buf.writer();
-
-        switch (kind) {
-            .normal => try writer.writeAll("@"),
-            .ffi_wrapper => try writer.writeAll("@ffi_wrapper "),
-            .external => try writer.writeAll("@extern "),
-            .exported => try writer.writeAll("@export "),
-            .test_func => try writer.writeAll("@test "),
-        }
-        try writer.print("f_{d}(", .{idx});
+        var expected = FunctionSig{
+            .id = @intCast(idx),
+            .name = try std.fmt.allocPrint(std.testing.allocator, "f_{d}", .{idx}),
+            .params = &.{},
+            .kind = kind,
+            .return_cap = if (include_return and return_case.ty != .void) return_cap else null,
+            .return_ty = if (include_return) return_case.ty else .void,
+            .return_fallible = include_return and return_fallible,
+            .entry_inst_idx = @intCast(idx * 10),
+            .is_ffi_wrapper = kind == .ffi_wrapper,
+            .upstream_file = null,
+            .upstream_loc = null,
+        };
+        defer std.testing.allocator.free(expected.name);
+        const param_buf = try std.testing.allocator.alloc(ParamSpec, param_count);
+        defer std.testing.allocator.free(param_buf);
+        expected.params = param_buf;
         for (0..param_count) |pidx| {
-            if (pidx != 0) try writer.writeAll(", ");
             const param_cap = caps[random.intRangeLessThan(usize, 0, caps.len)];
             const param_ty = nonvoid_type_cases[random.intRangeLessThan(usize, 0, nonvoid_type_cases.len)];
-            try writer.print("{s}p{d}: {s}", .{ capText(param_cap), pidx, param_ty.name });
+            param_buf[pidx] = .{
+                .name = try std.fmt.allocPrint(std.testing.allocator, "p{d}", .{pidx}),
+                .ty = param_ty.ty,
+                .cap = param_cap,
+            };
         }
-        try writer.writeByte(')');
-
-        if (include_return) {
-            try writer.writeAll(" -> ");
-            if (return_case.ty != .void) try writer.writeAll(capText(return_cap));
-            try writer.writeAll(return_case.name);
-            if (return_fallible) try writer.writeByte('!');
+        try writeFunctionHeader(writer, expected);
+        for (param_buf) |param| {
+            std.testing.allocator.free(param.name);
         }
-        if (kind != .external) try writer.writeByte(':');
 
         var first = try parseFunctionHeader(std.testing.allocator, buf.items, @intCast(idx), @intCast(idx * 10), kind);
         defer first.deinit(std.testing.allocator);
@@ -628,6 +731,29 @@ test "function signature parsing is deterministic across random headers" {
 
         try expectSigEqual(first, second);
     }
+}
+
+test "test signatures receive stable internal llvm names" {
+    const name = try testLLVMName(std.testing.allocator, 7);
+    defer std.testing.allocator.free(name);
+    try std.testing.expectEqualStrings("_saasm_test_7", name);
+}
+
+test "test signatures parse ignored and should_panic modifiers" {
+    var sig = try parseFunctionHeader(
+        std.testing.allocator,
+        "@test ignored should_panic \"panic path\"():",
+        9,
+        90,
+        .test_func,
+    );
+    defer sig.deinit(std.testing.allocator);
+
+    try std.testing.expect(sig.ignored);
+    try std.testing.expect(sig.should_panic);
+    try std.testing.expectEqualStrings("\"panic path\"", sig.name);
+    try std.testing.expectEqualStrings("panic path", displayName(sig.kind, sig.name));
+    try std.testing.expectEqualStrings("_saasm_test_9", sig.llvm_name.?);
 }
 
 test "type literal PBT accepts supported names and rejects near misses" {

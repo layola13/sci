@@ -25,6 +25,7 @@ pub const EmitOptions = struct {
     debug: bool = false,
     wasm_compat: bool = false,
     jobs: ?usize = null,
+    test_mode: bool = false,
 };
 
 const Value = struct {
@@ -73,6 +74,7 @@ fn isIdentLike(text: []const u8) bool {
 const FunctionState = struct {
     sig: sig.FunctionSig,
     emitted_name: []const u8,
+    source_name: []const u8,
     regs: std.AutoHashMap(u32, Value),
     reg_slots: []?[]const u8,
     owned: std.ArrayList([]const u8),
@@ -87,6 +89,7 @@ const FunctionState = struct {
         return .{
             .sig = sig_,
             .emitted_name = emittedFunctionName(sig_),
+            .source_name = sig_.name,
             .regs = std.AutoHashMap(u32, Value).init(allocator),
             .reg_slots = reg_slots,
             .owned = std.ArrayList([]const u8).init(allocator),
@@ -401,6 +404,7 @@ fn emittedFunctionName(fsig: sig.FunctionSig) []const u8 {
     if (fsig.kind == .normal and fsig.params.len == 0 and std.mem.eql(u8, fsig.name, "main")) {
         return "saasm_main";
     }
+    if (fsig.llvm_name) |name| return name;
     return fsig.name;
 }
 
@@ -842,6 +846,7 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try out.writer().print("declare {s} @write(i32, ptr, {s})\n", .{ size_ty_name, size_ty_name });
     try emitLine(out, "declare void @exit(i32)");
     try emitLine(out, "declare i32 @fprintf(ptr, ptr, ...)");
+    try emitLine(out, "declare ptr @getenv(ptr)");
     try emitLine(out, "@stderr = external global ptr");
     try out.writer().print("@.panic_code_fmt = private unnamed_addr constant [{d} x i8] c\"PANIC: code=%d\\0A\\00\"\n", .{"PANIC: code=%d\n".len + 1});
     try out.writer().print("@.panic_msg_fmt = private unnamed_addr constant [{d} x i8] c\"PANIC[%d]: %.*s\\0A\\00\"\n", .{"PANIC[%d]: %.*s\n".len + 1});
@@ -884,6 +889,30 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try out.writer().print("  %end = getelementptr i8, ptr %buf, {s} %len\n", .{size_ty_name});
     try emitLine(out, "  store i8 0, ptr %end, align 1");
     try emitLine(out, "  ret ptr %buf");
+    try emitLine(out, "}");
+    try emitLine(out, "");
+
+    try out.writer().print("define internal i1 @saasm_streq(ptr %lhs, ptr %rhs) {{\n", .{});
+    try emitLine(out, "entry:");
+    try emitLine(out, "  br label %loop");
+    try emitLine(out, "loop:");
+    try out.writer().print("  %idx = phi {s} [0, %entry], [%next_idx, %advance]\n", .{size_ty_name});
+    try out.writer().print("  %lhs_ptr = getelementptr i8, ptr %lhs, {s} %idx\n", .{size_ty_name});
+    try out.writer().print("  %rhs_ptr = getelementptr i8, ptr %rhs, {s} %idx\n", .{size_ty_name});
+    try emitLine(out, "  %lhs_ch = load i8, ptr %lhs_ptr, align 1");
+    try emitLine(out, "  %rhs_ch = load i8, ptr %rhs_ptr, align 1");
+    try emitLine(out, "  %same = icmp eq i8 %lhs_ch, %rhs_ch");
+    try emitLine(out, "  br i1 %same, label %equal, label %diff");
+    try emitLine(out, "equal:");
+    try emitLine(out, "  %is_zero = icmp eq i8 %lhs_ch, 0");
+    try emitLine(out, "  br i1 %is_zero, label %match, label %advance");
+    try emitLine(out, "advance:");
+    try out.writer().print("  %next_idx = add {s} %idx, 1\n", .{size_ty_name});
+    try emitLine(out, "  br label %loop");
+    try emitLine(out, "match:");
+    try emitLine(out, "  ret i1 true");
+    try emitLine(out, "diff:");
+    try emitLine(out, "  ret i1 false");
     try emitLine(out, "}");
     try emitLine(out, "");
 
@@ -1080,11 +1109,82 @@ fn countEmitFunctionChunks(annotated: []const referee.AnnotatedInstruction) usiz
     var count: usize = 0;
     for (annotated) |item| {
         switch (item.base.kind) {
-            .func_decl, .ffi_wrapper_decl, .export_decl => count += 1,
+            .func_decl, .ffi_wrapper_decl, .export_decl, .test_decl => count += 1,
             else => {},
         }
     }
     return count;
+}
+
+fn shouldEmitMainWrapper(options: EmitOptions) bool {
+    return !options.test_mode;
+}
+
+fn emitTestHarnessMain(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    function_sigs: []const sig.FunctionSig,
+    size_bits: u16,
+) !void {
+    _ = size_bits;
+    try emitPrivateCString(out, ".saasm_test_name_env", "SAASM_TEST_NAME");
+    try emitPrivateCString(out, ".saasm_test_missing_msg", "error: no matching test\n");
+
+    var test_count: usize = 0;
+    for (function_sigs) |fsig| {
+        if (fsig.kind == .test_func) test_count += 1;
+    }
+    if (test_count == 0) {
+        try emitLine(out, "define i32 @main(i32 %argc, ptr %argv) {");
+        try emitLine(out, "entry:");
+        try emitLine(out, "  ret i32 0");
+        try emitLine(out, "}");
+        try emitLine(out, "");
+        return;
+    }
+
+    for (function_sigs) |fsig| {
+        if (fsig.kind != .test_func) continue;
+        const internal = fsig.llvm_name orelse fsig.name;
+        try out.writer().print("@.saasm_test_name_{d} = private unnamed_addr constant [{d} x i8] c\"", .{ fsig.id, internal.len + 1 });
+        for (internal) |byte| {
+            try emitByteEscape(out, byte);
+        }
+        try emitLine(out, "\\00\"");
+    }
+    try emitLine(out, "");
+
+    try out.writer().print("define i32 @main(i32 %argc, ptr %argv) {{\n", .{});
+    try emitLine(out, "entry:");
+    try emitLine(out, "  %filter = call ptr @getenv(ptr @.saasm_test_name_env)");
+    try emitLine(out, "  %has_filter = icmp ne ptr %filter, null");
+    try emitLine(out, "  br i1 %has_filter, label %select, label %run_all");
+    try emitLine(out, "run_all:");
+    for (function_sigs) |fsig| {
+        if (fsig.kind != .test_func) continue;
+        try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
+    }
+    try emitLine(out, "  ret i32 0");
+    try emitLine(out, "select:");
+    for (function_sigs) |fsig| {
+        if (fsig.kind != .test_func) continue;
+        const next_label = try std.fmt.allocPrint(allocator, "next_test_{d}", .{fsig.id});
+        defer allocator.free(next_label);
+        const run_label = try std.fmt.allocPrint(allocator, "run_test_{d}", .{fsig.id});
+        defer allocator.free(run_label);
+        try out.writer().print("  %match_{d} = call i1 @saasm_streq(ptr %filter, ptr @.saasm_test_name_{d})\n", .{ fsig.id, fsig.id });
+        try out.writer().print("  br i1 %match_{d}, label %{s}, label %{s}\n", .{ fsig.id, run_label, next_label });
+        try out.writer().print("{s}:\n", .{run_label});
+        try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
+        try emitLine(out, "  ret i32 0");
+        try out.writer().print("{s}:\n", .{next_label});
+    }
+    try emitLine(out, "  %stderr = load ptr, ptr @stderr, align 8");
+    try emitLine(out, "  call i32 (ptr, ptr, ...) @fprintf(ptr %stderr, ptr @.saasm_test_missing_msg)");
+    try emitLine(out, "  call void @exit(i32 1)");
+    try emitLine(out, "  unreachable");
+    try emitLine(out, "}");
+    try emitLine(out, "");
 }
 
 fn chooseEmitWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
@@ -1144,7 +1244,7 @@ fn emitFunctionChunkText(
         .extern_decl => {
             return emitExternDeclText(allocator, fsig);
         },
-        .func_decl, .ffi_wrapper_decl, .export_decl => {
+        .func_decl, .ffi_wrapper_decl, .export_decl, .test_decl => {
             var state = try FunctionState.init(allocator, fsig, symbols.names.items.len);
             defer state.deinit(allocator);
             for (const_decls) |item_const| {
@@ -1248,7 +1348,7 @@ fn emitUserFunctionsParallel(
 
     for (annotated, 0..) |item, idx| {
         switch (item.base.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
                 if (current_function_start) |start| {
                     try function_chunks.append(.{
                         .start = start,
@@ -1397,67 +1497,75 @@ fn emitUserFunctionsParallel(
         }
     }
 
-    // Emit the native entry wrapper if the program defines a zero-arg `main`.
-    for (function_sigs) |fsig| {
-        if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
-            const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
-            const wrapper_dbg = main_wrapper_dbg;
-            try out.writer().print("define i32 @main(i32 %argc, ptr %argv) {{\n", .{});
-            try emitLine(out, "entry:");
-            if (wrapper_dbg) |dbg_id| {
-                try out.writer().print("  store i32 %argc, ptr @saasm_argc, align 4, !dbg !{d}\n", .{dbg_id});
-                try out.writer().print("  store ptr %argv, ptr @saasm_argv, align 8, !dbg !{d}\n", .{dbg_id});
-            } else {
-                try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
-                try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
-            }
+    if (options.test_mode) {
+        try emitTestHarnessMain(allocator, out, function_sigs, size_bits);
+    } else if (shouldEmitMainWrapper(options)) {
+        const has_main_wrapper = for (function_sigs) |fsig| {
+            if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) break true;
+        } else false;
+        if (has_main_wrapper) {
+            for (function_sigs) |fsig| {
+                if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
+                    const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
+                    const wrapper_dbg = main_wrapper_dbg;
+                    try out.writer().print("define i32 @main(i32 %argc, ptr %argv) {{\n", .{});
+                    try emitLine(out, "entry:");
+                    if (wrapper_dbg) |dbg_id| {
+                        try out.writer().print("  store i32 %argc, ptr @saasm_argc, align 4, !dbg !{d}\n", .{dbg_id});
+                        try out.writer().print("  store ptr %argv, ptr @saasm_argv, align 8, !dbg !{d}\n", .{dbg_id});
+                    } else {
+                        try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
+                        try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
+                    }
 
-            if (fsig.return_fallible) {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.appendSlice("  %res = call ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.writer().print(" @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
-                    try out.appendSlice("  %status = extractvalue ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.writer().print(" %res, 0, !dbg !{d}\n", .{dbg_id});
-                    try out.writer().print("  ret i32 %status, !dbg !{d}\n", .{dbg_id});
-                } else {
-                    try out.appendSlice("  %res = call ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.writer().print(" @{s}()\n", .{emittedFunctionName(fsig)});
-                    try out.appendSlice("  %status = extractvalue ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.appendSlice(" %res, 0\n");
-                    try emitLine(out, "  ret i32 %status");
-                }
-            } else if (ret_ty == .void) {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.writer().print("  call void @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
-                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
-                } else {
-                    try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
-                    try emitLine(out, "  ret i32 0");
-                }
-            } else if (ret_ty == .i32 or ret_ty == .u32) {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.writer().print("  %res = call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
-                    try out.writer().print("  ret i32 %res, !dbg !{d}\n", .{dbg_id});
-                } else {
-                    try out.writer().print("  %res = call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
-                    try out.writer().print("  ret i32 %res\n", .{});
-                }
-            } else {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.writer().print("  call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
-                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
-                } else {
-                    try out.writer().print("  call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
-                    try emitLine(out, "  ret i32 0");
+                    if (fsig.return_fallible) {
+                        if (wrapper_dbg) |dbg_id| {
+                            try out.appendSlice("  %res = call ");
+                            try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                            try out.writer().print(" @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                            try out.appendSlice("  %status = extractvalue ");
+                            try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                            try out.writer().print(" %res, 0, !dbg !{d}\n", .{dbg_id});
+                            try out.writer().print("  ret i32 %status, !dbg !{d}\n", .{dbg_id});
+                        } else {
+                            try out.appendSlice("  %res = call ");
+                            try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                            try out.writer().print(" @{s}()\n", .{emittedFunctionName(fsig)});
+                            try out.appendSlice("  %status = extractvalue ");
+                            try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                            try out.appendSlice(" %res, 0\n");
+                            try emitLine(out, "  ret i32 %status");
+                        }
+                    } else if (ret_ty == .void) {
+                        if (wrapper_dbg) |dbg_id| {
+                            try out.writer().print("  call void @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                            try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                        } else {
+                            try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
+                            try emitLine(out, "  ret i32 0");
+                        }
+                    } else if (ret_ty == .i32 or ret_ty == .u32) {
+                        if (wrapper_dbg) |dbg_id| {
+                            try out.writer().print("  %res = call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                            try out.writer().print("  ret i32 %res, !dbg !{d}\n", .{dbg_id});
+                        } else {
+                            try out.writer().print("  %res = call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                            try out.writer().print("  ret i32 %res\n", .{});
+                        }
+                    } else {
+                        if (wrapper_dbg) |dbg_id| {
+                            try out.writer().print("  call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                            try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                        } else {
+                            try out.writer().print("  call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                            try emitLine(out, "  ret i32 0");
+                        }
+                    }
+                    try emitLine(out, "}");
+                    try emitLine(out, "");
+                    break;
                 }
             }
-            try emitLine(out, "}");
-            try emitLine(out, "");
-            break;
         }
     }
 
@@ -1538,6 +1646,15 @@ fn emitByteEscape(out: *std.ArrayList(u8), byte: u8) !void {
             try out.append(hex[byte & 0x0f]);
         },
     }
+}
+
+fn emitPrivateCString(out: *std.ArrayList(u8), name: []const u8, text: []const u8) !void {
+    try out.writer().print("@{s} = private unnamed_addr constant [{d} x i8] c\"", .{ name, text.len + 1 });
+    for (text) |byte| {
+        try emitByteEscape(out, byte);
+    }
+    try out.appendSlice("\\00\"");
+    try out.append('\n');
 }
 
 fn findConstDeclByName(const_decls: []const common_const_decl.ConstDecl, name: []const u8) ?common_const_decl.ConstDecl {
@@ -2526,7 +2643,7 @@ fn emitUserFunctions(
 
     for (verified.annotated, 0..) |item, idx| {
         switch (item.base.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
                 if (current) |*state| {
                     try emitFunctionFooter(out);
                     state.deinit(allocator);
@@ -2608,67 +2725,71 @@ fn emitUserFunctions(
         current = null;
     }
 
-    // Emit the native entry wrapper if the program defines a zero-arg `main`.
-    for (verified.function_sigs) |fsig| {
-        if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
-            const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
-            const wrapper_dbg = main_wrapper_dbg;
-            try out.writer().print("define i32 @main(i32 %argc, ptr %argv) {{\n", .{});
-            try emitLine(out, "entry:");
-            if (wrapper_dbg) |dbg_id| {
-                try out.writer().print("  store i32 %argc, ptr @saasm_argc, align 4, !dbg !{d}\n", .{dbg_id});
-                try out.writer().print("  store ptr %argv, ptr @saasm_argv, align 8, !dbg !{d}\n", .{dbg_id});
-            } else {
-                try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
-                try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
-            }
+    if (options.test_mode) {
+        try emitTestHarnessMain(allocator, out, verified.function_sigs, size_bits);
+    } else if (shouldEmitMainWrapper(options)) {
+        // Emit the native entry wrapper if the program defines a zero-arg `main`.
+        for (verified.function_sigs) |fsig| {
+            if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0) {
+                const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
+                const wrapper_dbg = main_wrapper_dbg;
+                try out.writer().print("define i32 @main(i32 %argc, ptr %argv) {{\n", .{});
+                try emitLine(out, "entry:");
+                if (wrapper_dbg) |dbg_id| {
+                    try out.writer().print("  store i32 %argc, ptr @saasm_argc, align 4, !dbg !{d}\n", .{dbg_id});
+                    try out.writer().print("  store ptr %argv, ptr @saasm_argv, align 8, !dbg !{d}\n", .{dbg_id});
+                } else {
+                    try emitLine(out, "  store i32 %argc, ptr @saasm_argc, align 4");
+                    try emitLine(out, "  store ptr %argv, ptr @saasm_argv, align 8");
+                }
 
-            if (fsig.return_fallible) {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.appendSlice("  %res = call ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.writer().print(" @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
-                    try out.appendSlice("  %status = extractvalue ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.writer().print(" %res, 0, !dbg !{d}\n", .{dbg_id});
-                    try out.writer().print("  ret i32 %status, !dbg !{d}\n", .{dbg_id});
+                if (fsig.return_fallible) {
+                    if (wrapper_dbg) |dbg_id| {
+                        try out.appendSlice("  %res = call ");
+                        try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                        try out.writer().print(" @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                        try out.appendSlice("  %status = extractvalue ");
+                        try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                        try out.writer().print(" %res, 0, !dbg !{d}\n", .{dbg_id});
+                        try out.writer().print("  ret i32 %status, !dbg !{d}\n", .{dbg_id});
+                    } else {
+                        try out.appendSlice("  %res = call ");
+                        try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                        try out.writer().print(" @{s}()\n", .{emittedFunctionName(fsig)});
+                        try out.appendSlice("  %status = extractvalue ");
+                        try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
+                        try out.appendSlice(" %res, 0\n");
+                        try emitLine(out, "  ret i32 %status");
+                    }
+                } else if (ret_ty == .void) {
+                    if (wrapper_dbg) |dbg_id| {
+                        try out.writer().print("  call void @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
+                        try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                    } else {
+                        try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
+                        try emitLine(out, "  ret i32 0");
+                    }
+                } else if (ret_ty == .i32 or ret_ty == .u32) {
+                    if (wrapper_dbg) |dbg_id| {
+                        try out.writer().print("  %res = call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                        try out.writer().print("  ret i32 %res, !dbg !{d}\n", .{dbg_id});
+                    } else {
+                        try out.writer().print("  %res = call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                        try out.writer().print("  ret i32 %res\n", .{});
+                    }
                 } else {
-                    try out.appendSlice("  %res = call ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.writer().print(" @{s}()\n", .{emittedFunctionName(fsig)});
-                    try out.appendSlice("  %status = extractvalue ");
-                    try writeReturnAbiType(out.writer(), fsig.return_cap, fsig.return_ty, true);
-                    try out.appendSlice(" %res, 0\n");
-                    try emitLine(out, "  ret i32 %status");
+                    if (wrapper_dbg) |dbg_id| {
+                        try out.writer().print("  call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
+                        try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
+                    } else {
+                        try out.writer().print("  call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
+                        try emitLine(out, "  ret i32 0");
+                    }
                 }
-            } else if (ret_ty == .void) {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.writer().print("  call void @{s}(), !dbg !{d}\n", .{ emittedFunctionName(fsig), dbg_id });
-                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
-                } else {
-                    try out.writer().print("  call void @{s}()\n", .{emittedFunctionName(fsig)});
-                    try emitLine(out, "  ret i32 0");
-                }
-            } else if (ret_ty == .i32 or ret_ty == .u32) {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.writer().print("  %res = call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
-                    try out.writer().print("  ret i32 %res, !dbg !{d}\n", .{dbg_id});
-                } else {
-                    try out.writer().print("  %res = call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
-                    try out.writer().print("  ret i32 %res\n", .{});
-                }
-            } else {
-                if (wrapper_dbg) |dbg_id| {
-                    try out.writer().print("  call {s} @{s}(), !dbg !{d}\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig), dbg_id });
-                    try out.writer().print("  ret i32 0, !dbg !{d}\n", .{dbg_id});
-                } else {
-                    try out.writer().print("  call {s} @{s}()\n", .{ llvmTypeName(ret_ty), emittedFunctionName(fsig) });
-                    try emitLine(out, "  ret i32 0");
-                }
+                try emitLine(out, "}");
+                try emitLine(out, "");
+                break;
             }
-            try emitLine(out, "}");
-            try emitLine(out, "");
-            break;
         }
     }
 

@@ -1,0 +1,9 @@
+// Native test fixture that mixes ignored and normal tests.
+
+@test ignored "ignored case"():
+L_IGNORED:
+    return
+
+@test "active case"():
+L_ACTIVE:
+    return

@@ -114,6 +114,20 @@ fn startsWithWord(s: []const u8, word: []const u8) bool {
     return std.ascii.isWhitespace(next) or next == '(' or next == '[' or next == ':' or next == '=' or next == '@' or next == '-';
 }
 
+fn parseTestModifierPrefix(body: []const u8) ?[]const u8 {
+    var rest = std.mem.trimLeft(u8, body, " \t");
+    while (rest.len != 0 and rest[0] != '"') {
+        const token_end = std.mem.indexOfAny(u8, rest, " \t") orelse rest.len;
+        const token = rest[0..token_end];
+        if (std.mem.eql(u8, token, "ignored") or std.mem.eql(u8, token, "should_panic")) {
+            rest = std.mem.trimLeft(u8, rest[token_end..], " \t");
+            continue;
+        }
+        break;
+    }
+    return rest;
+}
+
 fn makeLine(kind: LineKind, raw: []const u8, trimmed: []const u8) ClassifiedLine {
     return .{
         .kind = kind,
@@ -270,7 +284,12 @@ fn parseFunctionHeader(
         break :blk std.mem.trimRight(u8, body_raw, ": \t\r");
     };
 
-    const after_name = std.mem.trimLeft(u8, body, " \t");
+    const effective_body = if (kind == .test_decl) blk: {
+        const modifiers_rest = parseTestModifierPrefix(body) orelse return null;
+        break :blk modifiers_rest;
+    } else body;
+
+    const after_name = std.mem.trimLeft(u8, effective_body, " \t");
     const open = std.mem.indexOfScalar(u8, after_name, '(') orelse return null;
     const close = std.mem.lastIndexOfScalar(u8, after_name, ')') orelse return null;
     if (close < open) return null;
@@ -871,6 +890,10 @@ test "classify representative line families" {
     const ext = classifyLine("@extern libc_malloc(size) -> *void");
     try std.testing.expectEqual(LineKind.extern_decl, ext.kind);
     try std.testing.expectEqualStrings("libc_malloc", ext.parts[0]);
+
+    const test_decl = classifyLine("@test ignored should_panic \"panic path\"():");
+    try std.testing.expectEqual(LineKind.test_decl, test_decl.kind);
+    try std.testing.expectEqualStrings("\"panic path\"", test_decl.parts[0]);
 
     const label = classifyLine("L_LOOP:");
     try std.testing.expectEqual(LineKind.label, label.kind);

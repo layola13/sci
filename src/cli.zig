@@ -10,6 +10,8 @@ const manifest = @import("pkg/manifest.zig");
 const pkg_fetch = @import("pkg/fetch.zig");
 const pkg_resolver = @import("pkg/resolver.zig");
 const referee = @import("referee.zig");
+const test_meta = @import("test_meta.zig");
+const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
 
 const CompileOk = struct {
@@ -104,7 +106,43 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|layout|fetch> [--jobs auto|N] ...\n");
+    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|layout|fetch|test> [--jobs auto|N] ...\n");
+    try writer.writeAll("test flags: --filter <pattern> [--filter <pattern> ...] [--skip <pattern> ...] [--exact] [--ignored|--include-ignored]\n");
+}
+
+const TmpWorkDir = struct {
+    dir: std.fs.Dir,
+    parent_dir: std.fs.Dir,
+    sub_path: [std.fs.base64_encoder.calcSize(12)]u8,
+
+    fn init() !TmpWorkDir {
+        var random_bytes: [12]u8 = undefined;
+        std.crypto.random.bytes(&random_bytes);
+
+        var sub_path: [std.fs.base64_encoder.calcSize(12)]u8 = undefined;
+        _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
+
+        const cwd = std.fs.cwd();
+        var cache_dir = try cwd.makeOpenPath(".zig-cache", .{});
+        defer cache_dir.close();
+        var parent_dir = try cache_dir.makeOpenPath("tmp", .{});
+        errdefer parent_dir.close();
+        const dir = try parent_dir.makeOpenPath(&sub_path, .{});
+        return .{ .dir = dir, .parent_dir = parent_dir, .sub_path = sub_path };
+    }
+
+    fn cleanup(self: *TmpWorkDir) void {
+        self.dir.close();
+        self.parent_dir.deleteTree(&self.sub_path) catch {};
+        self.parent_dir.close();
+        self.* = undefined;
+    }
+};
+
+fn writeFile(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
+    var file = try dir.createFile(path, .{ .truncate = true });
+    defer file.close();
+    try file.writeAll(bytes);
 }
 
 fn parseFetchArgs(
@@ -739,69 +777,69 @@ fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
     return null;
 }
 
-fn executeTest(allocator: std.mem.Allocator, source_path: []const u8, filter: ?[]const u8, stdout: anytype, stderr: anytype) !u8 {
-    // Read source file
-    const source = std.fs.cwd().readFileAlloc(allocator, source_path, 1024 * 1024 * 10) catch |err| {
-        try stderr.print("error: failed to read {s}: {s}\n", .{ source_path, @errorName(err) });
-        return 1;
-    };
-    defer allocator.free(source);
-
-    // Flatten the source
-    var flat = flattener.flatten(allocator, source) catch |err| {
-        try stderr.print("error: failed to flatten: {s}\n", .{@errorName(err)});
-        return 1;
-    };
-    defer flat.deinit(allocator);
-
-    if (flat.trap) |trap_enum| {
-        try stderr.print("error: compilation failed with trap: {s}\n", .{trap.trapName(trap_enum)});
-        return 2;
-    }
-
-    // Verify the flattened code
-    const verify_result = referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{}) catch |err| {
-        try stderr.print("error: verification failed: {s}\n", .{@errorName(err)});
-        return 2;
-    };
-
-    switch (verify_result) {
-        .trap => |trap_report| {
-            try printTrapReport(stderr, trap_report);
-            return 2;
+fn executeTest(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    compile_options: CompileOptions,
+    selection: test_meta.TestSelection,
+    stdout: anytype,
+    stderr: anytype,
+) !u8 {
+    const compiled = try compileSource(allocator, source_path, compile_options);
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(stderr, report);
+            return 1;
         },
         .ok => |ok| {
-            var verified = ok;
-            defer verified.deinit(allocator);
+            var owned = ok;
+            defer owned.deinit(allocator);
 
-            // Filter and run tests
-            var passed: usize = 0;
-            const failed: usize = 0;
-            const skipped: usize = 0;
+            const ll = try emit_llvm.emitLlvm(
+                allocator,
+                owned.verified,
+                owned.flat.loc_table,
+                source_path,
+                nativeSizeBits(),
+                .{ .jobs = compile_options.jobs, .test_mode = true },
+            );
+            defer allocator.free(ll);
 
-            for (flat.test_sigs) |test_sig| {
-                // Apply filter if specified
-                if (filter) |f| {
-                    if (std.mem.indexOf(u8, test_sig.name, f) == null) {
-                        continue;
-                    }
-                }
+            var tmp = try TmpWorkDir.init();
+            defer tmp.cleanup();
 
-                try stdout.print("[PASS] {s}\n", .{test_sig.name});
-                passed += 1;
-            }
+            const source_stem = sourceStem(source_path);
+            const ll_name = try std.fmt.allocPrint(allocator, "{s}.test.saasm.ll", .{source_stem});
+            defer allocator.free(ll_name);
+            const exe_name = try std.fmt.allocPrint(allocator, "{s}.test", .{source_stem});
+            defer allocator.free(exe_name);
 
-            // Print summary
-            try stdout.print("----\n", .{});
-            try stdout.print("test result: ", .{});
-            if (failed == 0) {
-                try stdout.print("ok. ", .{});
-            } else {
-                try stdout.print("FAILED. ", .{});
-            }
-            try stdout.print("{d} passed; {d} failed; {d} skipped\n", .{ passed, failed, skipped });
+            const ll_path = try tmp.dir.realpathAlloc(allocator, ".");
+            defer allocator.free(ll_path);
 
-            return if (failed > 0) 1 else 0;
+            const ll_full_path = try std.fs.path.join(allocator, &.{ ll_path, ll_name });
+            defer allocator.free(ll_full_path);
+            try writeFile(tmp.dir, ll_name, ll);
+
+            const exe_full_path = try std.fs.path.join(allocator, &.{ ll_path, exe_name });
+            defer allocator.free(exe_full_path);
+
+            driver.compileExe(allocator, ll_full_path, exe_full_path, .release_small, build_options.sa_std_archive_path, false, stderr) catch |err| switch (err) {
+                error.ChildProcessFailed => return 1,
+                else => return err,
+            };
+
+            var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            return try test_runner.run(
+                allocator,
+                exe_full_path,
+                tmp.dir,
+                &test_list,
+                selection,
+                compile_options.jobs,
+                stdout.any(),
+                stderr.any(),
+            );
         },
     }
 }
@@ -965,18 +1003,49 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .test_cmd => {
             if (argv.len < 3) return error.MissingSourcePath;
             const source_path = argv[2];
-            var filter: ?[]const u8 = null;
+            var compile_options: CompileOptions = .{};
+            var include_filters = std.ArrayList([]const u8).init(allocator);
+            defer include_filters.deinit();
+            var skip_filters = std.ArrayList([]const u8).init(allocator);
+            defer skip_filters.deinit();
+            var exact = false;
+            var run_ignored = test_meta.RunIgnored.normal;
             var i: usize = 3;
             while (i < argv.len) : (i += 1) {
+                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
                 if (std.mem.eql(u8, argv[i], "--filter")) {
                     if (i + 1 >= argv.len) return error.MissingFilterValue;
-                    filter = argv[i + 1];
+                    try include_filters.append(argv[i + 1]);
                     i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--skip")) {
+                    if (i + 1 >= argv.len) return error.MissingFilterValue;
+                    try skip_filters.append(argv[i + 1]);
+                    i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--exact")) {
+                    exact = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--ignored")) {
+                    run_ignored = .only;
+                    continue;
+                }
+                if (std.mem.eql(u8, argv[i], "--include-ignored")) {
+                    run_ignored = .include;
                     continue;
                 }
                 return error.UnexpectedArgument;
             }
-            return try executeTest(allocator, source_path, filter, stdout, stderr);
+            const selection = test_meta.TestSelection{
+                .include_filters = include_filters.items,
+                .skip_filters = skip_filters.items,
+                .exact = exact,
+                .ignored = run_ignored,
+            };
+            return try executeTest(allocator, source_path, compile_options, selection, stdout, stderr);
         },
     }
 }
