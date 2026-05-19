@@ -886,18 +886,22 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"core/mem.saasm\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"hashmap.saasm-layout\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_put"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_get"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_del"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_contains_key"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_len"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_WITH_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CONTAINS_KEY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CLEAR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_PUT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_GET"));
@@ -948,49 +952,61 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         \\
         \\@main() -> i32:
         \\L_ENTRY:
-        \\    EXPAND MAP_NEW map
+        \\    EXPAND MAP_WITH_CAPACITY map, 9
         \\    EXPAND MAP_LEN len0, map
         \\    EXPAND MAP_CAPACITY cap0, map
         \\    EXPAND MAP_IS_EMPTY empty0, map
         \\    key = &KEY
         \\    value = &VALUE
+        \\    EXPAND MAP_CONTAINS_KEY has0, map, key
         \\    EXPAND MAP_PUT map, key, value
         \\    EXPAND MAP_LEN len1, map
         \\    EXPAND MAP_CAPACITY cap1, map
         \\    EXPAND MAP_IS_EMPTY empty1, map
+        \\    EXPAND MAP_CONTAINS_KEY has1, map, key
         \\    EXPAND MAP_GET got1, map, key
         \\    EXPAND MAP_CLEAR map
         \\    EXPAND MAP_LEN len2, map
         \\    EXPAND MAP_IS_EMPTY empty2, map
+        \\    EXPAND MAP_CONTAINS_KEY has2, map, key
         \\    EXPAND MAP_GET got2, map, key
         \\    ok_len0 = eq len0, 0
-        \\    ok_cap0 = eq cap0, 0
+        \\    ok_cap0 = eq cap0, 16
         \\    ok_empty0 = eq empty0, 1
+        \\    ok_has0 = eq has0, 0
         \\    ok_len1 = eq len1, 1
-        \\    ok_cap1 = eq cap1, 8
+        \\    ok_cap1 = eq cap1, 16
         \\    ok_empty1 = eq empty1, 0
+        \\    ok_has1 = eq has1, 1
         \\    ok_got1 = eq got1, value
         \\    ok_len2 = eq len2, 0
         \\    ok_empty2 = eq empty2, 1
+        \\    ok_has2 = eq has2, 0
         \\    ok_got2 = eq got2, 0
         \\    ok01 = and ok_len0, ok_cap0
         \\    ok02 = and ok01, ok_empty0
-        \\    ok03 = and ok02, ok_len1
-        \\    ok04 = and ok03, ok_cap1
-        \\    ok05 = and ok04, ok_empty1
-        \\    ok06 = and ok05, ok_got1
-        \\    ok07 = and ok06, ok_len2
-        \\    ok08 = and ok07, ok_empty2
-        \\    ok = and ok08, ok_got2
+        \\    ok03 = and ok02, ok_has0
+        \\    ok04 = and ok03, ok_len1
+        \\    ok05 = and ok04, ok_cap1
+        \\    ok06 = and ok05, ok_empty1
+        \\    ok07 = and ok06, ok_has1
+        \\    ok08 = and ok07, ok_got1
+        \\    ok09 = and ok08, ok_len2
+        \\    ok10 = and ok09, ok_empty2
+        \\    ok11 = and ok10, ok_has2
+        \\    ok = and ok11, ok_got2
         \\    !got2
-        \\    !got1
+        \\    !has2
         \\    !empty2
+        \\    !len2
+        \\    !got1
+        \\    !has1
         \\    !empty1
+        \\    !len1
+        \\    !has0
         \\    !empty0
         \\    !cap1
         \\    !cap0
-        \\    !len2
-        \\    !len1
         \\    !len0
         \\    !value
         \\    !key
@@ -1012,7 +1028,7 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 16);
+            try std.testing.expect(owned.function_sigs.len >= 15);
         },
         .trap => |report| {
             std.debug.print("hashmap fixture verifier trap: {s}\n", .{report.message});

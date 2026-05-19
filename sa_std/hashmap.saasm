@@ -167,6 +167,33 @@ L_ENTRY:
     !value
     return
 
+@map_next_capacity(requested: u64) -> u64:
+L_ENTRY:
+    cap = HashMap_INITIAL_CAP
+    requested_is_zero = eq requested, 0
+    br requested_is_zero -> L_NEXT_CAP_ZERO, L_NEXT_CAP_LOOP
+
+L_NEXT_CAP_LOOP:
+    cap_ge_requested = uge cap, requested
+    br cap_ge_requested -> L_NEXT_CAP_DONE, L_NEXT_CAP_GROW
+
+L_NEXT_CAP_GROW:
+    next_cap = add cap, cap
+    cap = next_cap
+    !cap_ge_requested
+    jmp L_NEXT_CAP_LOOP
+
+L_NEXT_CAP_DONE:
+    !cap_ge_requested
+    !requested_is_zero
+    !requested
+    return cap
+
+L_NEXT_CAP_ZERO:
+    !requested_is_zero
+    !requested
+    return 0
+
 @map_rehash(&map: ptr, new_cap: u64) -> void:
 L_ENTRY:
     old_slots = take map+HashMap_slots
@@ -248,6 +275,28 @@ L_ENTRY:
     store map+HashMap_tombs, 0 as u64
     return map
 
+@export sa_map_with_capacity(cap: u64) -> ^ptr:
+L_ENTRY:
+    map = alloc HashMap_SIZE
+    store map+HashMap_slots, 0 as ptr
+    store map+HashMap_cap, 0 as u64
+    store map+HashMap_len, 0 as u64
+    store map+HashMap_tombs, 0 as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_WITH_CAP_ZERO, L_WITH_CAP_ALLOC
+
+L_WITH_CAP_ALLOC:
+    next_cap = call @map_next_capacity(cap)
+    call @map_rehash(&map, next_cap)
+    !cap_is_zero
+    !cap
+    return map
+
+L_WITH_CAP_ZERO:
+    !cap_is_zero
+    !cap
+    return map
+
 @export sa_map_len(&map: ptr) -> u64:
 L_ENTRY:
     len = load map+HashMap_len as u64
@@ -269,9 +318,39 @@ L_ENTRY:
     !map
     return result
 
+@export sa_map_contains_key(&map: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_CONTAINS_MISS_ZERO, L_CONTAINS_PROBE
+
+L_CONTAINS_PROBE:
+    hash = call @map_hash_ptr(&key)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    result = found as i32
+    !probe_found
+    !hash
+    !key
+    !cap
+    !cap_is_zero
+    !slots
+    return result
+
+L_CONTAINS_MISS_ZERO:
+    !cap
+    !cap_is_zero
+    !key
+    !slots
+    return 0
+
 @export sa_map_clear(&map: ptr) -> void:
 L_ENTRY:
-    slots = take map+HashMap_slots
+    slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     bytes = mul cap, HashMapSlot_SIZE
     has_slots = ne slots, 0
@@ -307,7 +386,7 @@ L_FREE_MAP:
 
 @export sa_map_put(&map: ptr, &key: ptr, &value: ptr) -> void:
 L_ENTRY:
-    slots = take map+HashMap_slots
+    slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
@@ -332,13 +411,13 @@ L_PUT_GROW_DOUBLE:
     jmp L_PUT_GROW_REHASH
 
 L_PUT_GROW_REHASH:
-    ^slots
     !cap
     !len
     !tombs
     !cap_is_zero
+    !slots
     call @map_rehash(&map, next_cap)
-    slots = take map+HashMap_slots
+    slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
@@ -423,7 +502,7 @@ L_PUT_END:
 
 @export sa_map_get(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
-    slots = take map+HashMap_slots
+    slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     cap_is_zero = eq cap, 0
     br cap_is_zero -> L_GET_MISS_ZERO, L_GET_PROBE
@@ -471,7 +550,7 @@ L_GET_MISS_ZERO:
 
 @export sa_map_del(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
-    slots = take map+HashMap_slots
+    slots = load map+HashMap_slots as ptr
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
@@ -542,6 +621,10 @@ L_DEL_MISS_ZERO:
     %out_map = call @sa_map_new()
 [END_MACRO]
 
+[MACRO] MAP_WITH_CAPACITY %out_map, %cap
+    %out_map = call @sa_map_with_capacity(%cap)
+[END_MACRO]
+
 [MACRO] MAP_LEN %out_len, %map_reg
     %out_len = call @sa_map_len(&%map_reg)
 [END_MACRO]
@@ -552,6 +635,10 @@ L_DEL_MISS_ZERO:
 
 [MACRO] MAP_IS_EMPTY %out_flag, %map_reg
     %out_flag = call @sa_map_is_empty(&%map_reg)
+[END_MACRO]
+
+[MACRO] MAP_CONTAINS_KEY %out_flag, %map_reg, %key_reg
+    %out_flag = call @sa_map_contains_key(&%map_reg, &%key_reg)
 [END_MACRO]
 
 [MACRO] MAP_CLEAR %map_reg

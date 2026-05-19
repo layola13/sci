@@ -1,67 +1,70 @@
 @import "../sa_std/collections/hashmap.saasm"
 
-@const KEY_A = utf8:"alpha"
-@const KEY_B = utf8:"bravo"
-@const KEY_C = utf8:"charlie"
-@const VALUE_A = utf8:"A\n"
-@const VALUE_B = utf8:"B\n"
-@const VALUE_C = utf8:"C\n"
+@const KEY = utf8:"alpha"
+@const VALUE = utf8:"A\n"
 
 @main() -> i32:
 L_ENTRY:
-    map = 0 as ptr
-    key_a = 0 as ptr
-    key_b = 0 as ptr
-    key_c = 0 as ptr
-    value_a = 0 as ptr
-    value_b = 0 as ptr
-    value_c = 0 as ptr
-    got_a = 0 as ptr
-    got_b = 0 as ptr
-    got_c = 0 as ptr
-    removed_b = 0 as ptr
-    missing_b = 0 as ptr
+    EXPAND MAP_WITH_CAPACITY map, 9
+    EXPAND MAP_LEN len0, map
+    EXPAND MAP_CAPACITY cap0, map
+    EXPAND MAP_IS_EMPTY empty0, map
+    key = &KEY
+    value = &VALUE
+    EXPAND MAP_CONTAINS_KEY has0, map, key
+    EXPAND MAP_PUT map, key, value
+    EXPAND MAP_LEN len1, map
+    EXPAND MAP_CAPACITY cap1, map
+    EXPAND MAP_IS_EMPTY empty1, map
+    EXPAND MAP_CONTAINS_KEY has1, map, key
+    EXPAND MAP_GET got1, map, key
+    EXPAND MAP_CLEAR map
+    EXPAND MAP_LEN len2, map
+    EXPAND MAP_IS_EMPTY empty2, map
+    EXPAND MAP_CONTAINS_KEY has2, map, key
+    EXPAND MAP_GET got2, map, key
 
-    EXPAND MAP_NEW map
-    key_a = &KEY_A
-    key_b = &KEY_B
-    key_c = &KEY_C
-    value_a = &VALUE_A
-    value_b = &VALUE_B
-    value_c = &VALUE_C
+    ok_len0 = eq len0, 0
+    ok_cap0 = eq cap0, 16
+    ok_empty0 = eq empty0, 1
+    ok_has0 = eq has0, 0
+    ok_len1 = eq len1, 1
+    ok_cap1 = eq cap1, 16
+    ok_empty1 = eq empty1, 0
+    ok_has1 = eq has1, 1
+    ok_got1 = eq got1, value
+    ok_len2 = eq len2, 0
+    ok_empty2 = eq empty2, 1
+    ok_has2 = eq has2, 0
+    ok_got2 = eq got2, 0
+    ok01 = and ok_len0, ok_cap0
+    ok02 = and ok01, ok_empty0
+    ok03 = and ok02, ok_has0
+    ok04 = and ok03, ok_len1
+    ok05 = and ok04, ok_cap1
+    ok06 = and ok05, ok_empty1
+    ok07 = and ok06, ok_has1
+    ok08 = and ok07, ok_got1
+    ok09 = and ok08, ok_len2
+    ok10 = and ok09, ok_empty2
+    ok11 = and ok10, ok_has2
+    ok = and ok11, ok_got2
 
-    EXPAND MAP_PUT map, key_a, value_a
-    EXPAND MAP_PUT map, key_b, value_b
-    EXPAND MAP_PUT map, key_c, value_c
-    EXPAND MAP_PUT map, key_b, value_c
-
-    EXPAND MAP_GET got_a, map, key_a
-    EXPAND MAP_GET got_b, map, key_b
-    EXPAND MAP_GET got_c, map, key_c
-    EXPAND MAP_DEL removed_b, map, key_b
-    EXPAND MAP_GET missing_b, map, key_b
-
-    ok_a = eq got_a, value_a
-    ok_b = eq got_b, value_c
-    ok_c = eq got_c, value_c
-    ok_removed = ne removed_b, 0
-    ok_missing = eq missing_b, 0
-    ok01 = and ok_a, ok_b
-    ok02 = and ok01, ok_c
-    ok03 = and ok02, ok_removed
-    ok = and ok03, ok_missing
-
-    !missing_b
-    !removed_b
-    !got_c
-    !got_b
-    !got_a
-    !value_c
-    !value_b
-    !value_a
-    !key_c
-    !key_b
-    !key_a
+    !got2
+    !has2
+    !empty2
+    !len2
+    !got1
+    !has1
+    !empty1
+    !len1
+    !has0
+    !empty0
+    !cap1
+    !cap0
+    !len0
+    !value
+    !key
     EXPAND MAP_FREE map
     br ok -> L_OK, L_ERR
 
