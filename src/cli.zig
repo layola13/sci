@@ -39,6 +39,7 @@ const CompileResult = union(enum) {
 const CompileOptions = struct {
     jobs: ?usize = null,
     offline: bool = false,
+    project_root: ?[]const u8 = null,
 };
 
 const Command = enum {
@@ -77,6 +78,13 @@ const AuditHit = struct {
     raw_text: []const u8,
     source_line: u32,
     upstream_loc: ?common_upstream.UpstreamLoc,
+
+    fn deinit(self: *AuditHit, allocator: std.mem.Allocator) void {
+        if (self.upstream_loc) |loc| allocator.free(loc.file);
+        allocator.free(self.callee);
+        allocator.free(self.raw_text);
+        self.* = undefined;
+    }
 };
 
 const PackageAudit = struct {
@@ -88,10 +96,16 @@ const PackageAudit = struct {
     requested_caps: std.ArrayList(manifest.Capability),
     risk_score: u8 = 100,
     approved_hash: ?[32]u8 = null,
+    source_sha_matches: bool = true,
+    lock_present: bool = false,
+    lock_hash_matches: bool = false,
 
     fn deinit(self: *PackageAudit, allocator: std.mem.Allocator) void {
-        _ = allocator;
+        for (self.hits.items) |*hit| hit.deinit(allocator);
         self.hits.deinit();
+        allocator.free(self.identity);
+        allocator.free(self.ref);
+        allocator.free(self.declared_grants);
         self.requested_caps.deinit();
         self.* = undefined;
     }
@@ -104,6 +118,11 @@ const AuditReport = struct {
         self.packages.deinit();
         self.* = undefined;
     }
+};
+
+const ProjectAuditResult = union(enum) {
+    ok: AuditReport,
+    trap: trap.TrapReport,
 };
 
 const TemporaryApproval = struct {
@@ -119,6 +138,7 @@ const ProjectBuildOptions = struct {
     offline: bool = false,
     all_targets: bool = false,
     lock_only: bool = false,
+    debug: bool = false,
     release_fast: bool = false,
     out_path: ?[]const u8 = null,
     jobs: ?usize = null,
@@ -131,6 +151,42 @@ const ProjectAuditOptions = struct {
     jobs: ?usize = null,
 };
 
+const ProjectBuildArtifact = struct {
+    name: []const u8,
+    out_path: []const u8,
+    ll_path: []const u8,
+    target_name: []const u8,
+    source_suffix: []const u8,
+    hash_key: []const u8,
+
+    fn deinit(self: *ProjectBuildArtifact, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.out_path);
+        allocator.free(self.ll_path);
+        allocator.free(self.target_name);
+        allocator.free(self.source_suffix);
+        allocator.free(self.hash_key);
+        self.* = undefined;
+    }
+};
+
+const ProjectContext = struct {
+    root_path: []const u8,
+    manifest_path: []const u8,
+    manifest: ?manifest.Manifest,
+    lock_file: ?manifest.LockFile,
+    sum_file: ?manifest.SumFile,
+
+    fn deinit(self: *ProjectContext, allocator: std.mem.Allocator) void {
+        if (self.manifest) |*m| m.deinit(allocator);
+        if (self.lock_file) |*lock| lock.deinit(allocator);
+        if (self.sum_file) |*sum| sum.deinit(allocator);
+        allocator.free(self.root_path);
+        allocator.free(self.manifest_path);
+        self.* = undefined;
+    }
+};
+
 const WasmTarget = struct {
     triple: []const u8,
     no_entry: bool,
@@ -139,6 +195,205 @@ const WasmTarget = struct {
 
 fn nativeSizeBits() u16 {
     return @as(u16, @bitSizeOf(usize));
+}
+
+fn boolEnv(name: []const u8) bool {
+    const value = std.process.getEnvVarOwned(std.heap.page_allocator, name) catch return false;
+    defer std.heap.page_allocator.free(value);
+    return value.len != 0 and !std.mem.eql(u8, value, "0") and !std.mem.eql(u8, value, "false") and !std.mem.eql(u8, value, "False");
+}
+
+fn stdinIsTty() bool {
+    return std.posix.isatty(std.io.getStdIn().handle);
+}
+
+fn isCiMode(options: ProjectBuildOptions) bool {
+    return options.ci or boolEnv("CI") or boolEnv("GITHUB_ACTIONS") or !stdinIsTty();
+}
+
+fn isProjectRootPath(path: []const u8) bool {
+    return std.fs.path.basename(path).len != 0;
+}
+
+fn projectRootDir(allocator: std.mem.Allocator) ![]u8 {
+    return std.fs.cwd().realpathAlloc(allocator, ".") catch return error.InvalidPath;
+}
+
+fn pathJoinAlloc(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {
+    return try std.fs.path.join(allocator, parts);
+}
+
+fn projectPathExists(path: []const u8) bool {
+    return std.fs.cwd().access(path, .{}) catch false;
+}
+
+fn readTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
+}
+
+fn projectManifestPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ root_path, "sa.mod" });
+}
+
+fn projectLockPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ root_path, "sa.lock" });
+}
+
+fn projectSumPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ root_path, "sa.sum" });
+}
+
+fn projectSourcePath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
+    const src_path = try pathJoinAlloc(allocator, &.{ root_path, "src", "main.saasm" });
+    if (projectPathExists(src_path)) return src_path;
+    allocator.free(src_path);
+    const fallback = try pathJoinAlloc(allocator, &.{ root_path, "main.saasm" });
+    if (projectPathExists(fallback)) return fallback;
+    allocator.free(fallback);
+    return error.FileNotFound;
+}
+
+fn readManifestFile(allocator: std.mem.Allocator, path: []const u8) !manifest.Manifest {
+    const source = try readTextFileAlloc(allocator, path);
+    defer allocator.free(source);
+    return try manifest.parseManifestWithFile(allocator, source, path);
+}
+
+fn readLockFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.LockFile {
+    const source = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer source.close();
+    const bytes = try source.readToEndAlloc(allocator, 16 * 1024 * 1024);
+    defer allocator.free(bytes);
+    return try manifest.parseLock(allocator, bytes);
+}
+
+fn readSumFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.SumFile {
+    const source = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer source.close();
+    const bytes = try source.readToEndAlloc(allocator, 16 * 1024 * 1024);
+    defer allocator.free(bytes);
+    return try manifest.parseSum(allocator, bytes);
+}
+
+fn loadProjectContext(allocator: std.mem.Allocator, root_path: []const u8) !ProjectContext {
+    const root_copy = try allocator.dupe(u8, root_path);
+    errdefer allocator.free(root_copy);
+    const manifest_path = try projectManifestPath(allocator, root_copy);
+    errdefer allocator.free(manifest_path);
+
+    var ctx = ProjectContext{
+        .root_path = root_copy,
+        .manifest_path = manifest_path,
+        .manifest = null,
+        .lock_file = null,
+        .sum_file = null,
+    };
+
+    const manifest_file = readManifestFile(allocator, manifest_path) catch |err| switch (err) {
+        error.FileNotFound => null,
+        else => return err,
+    };
+    ctx.manifest = manifest_file;
+
+    const lock_path = try projectLockPath(allocator, root_copy);
+    defer allocator.free(lock_path);
+    if (try readLockFile(allocator, lock_path)) |lock_file| {
+        ctx.lock_file = lock_file;
+    }
+
+    const sum_path = try projectSumPath(allocator, root_copy);
+    defer allocator.free(sum_path);
+    if (try readSumFile(allocator, sum_path)) |sum_file| {
+        ctx.sum_file = sum_file;
+    }
+
+    return ctx;
+}
+
+fn sourceHashHex(hash: [32]u8) [64]u8 {
+    return std.fmt.bytesToHex(hash, .lower);
+}
+
+fn hashBytes(bytes: []const u8) [32]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(bytes);
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return out;
+}
+
+fn sourceStem(path: []const u8) []const u8 {
+    const basename = std.fs.path.basename(path);
+    const dot = std.mem.lastIndexOfScalar(u8, basename, '.') orelse return basename;
+    return basename[0..dot];
+}
+
+fn projectTargetKey(allocator: std.mem.Allocator, target_name: []const u8, source_suffix: []const u8) ![]u8 {
+    return try std.fmt.allocPrint(allocator, "{s}:{s}", .{ target_name, source_suffix });
+}
+
+fn projectTargetDisplayName(allocator: std.mem.Allocator, target_name: []const u8, source_suffix: []const u8) ![]u8 {
+    if (source_suffix.len == 0) return try allocator.dupe(u8, target_name);
+    return try std.fmt.allocPrint(allocator, "{s}:{s}", .{ target_name, source_suffix });
+}
+
+fn targetTripleName(target: builtin.Target) ![]u8 {
+    return try target.zigTriple(std.heap.page_allocator);
+}
+
+fn emitSumFromManifest(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest) !manifest.SumFile {
+    var entries = std.ArrayList(manifest.SumEntry).init(allocator);
+    errdefer {
+        for (entries.items) |*entry| entry.deinit(allocator);
+        entries.deinit();
+    }
+
+    for (manifest_file.requires) |entry| {
+        try entries.append(.{
+            .url = try allocator.dupe(u8, entry.url),
+            .ref = try allocator.dupe(u8, entry.ref),
+            .source_sha256 = entry.source_sha256,
+            .depth = 0,
+        });
+    }
+
+    std.sort.insertion(manifest.SumEntry, entries.items, {}, struct {
+        fn lessThan(_: void, lhs: manifest.SumEntry, rhs: manifest.SumEntry) bool {
+            const order = std.mem.order(u8, lhs.url, rhs.url);
+            if (order != .eq) return order == .lt;
+            return std.mem.order(u8, lhs.ref, rhs.ref) == .lt;
+        }
+    }.lessThan);
+
+    return .{ .entries = try entries.toOwnedSlice() };
+}
+
+fn targetHashKeyForName(allocator: std.mem.Allocator, name: []const u8, source_suffix: []const u8) ![]const u8 {
+    return try projectTargetKey(allocator, name, source_suffix);
+}
+
+fn computeArtifactHash(source_path: []const u8, source_bytes: []const u8, target_name: []const u8, source_suffix: []const u8, out_path: []const u8) [32]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(source_path);
+    hasher.update(&[_]u8{0});
+    hasher.update(source_bytes);
+    hasher.update(&[_]u8{0});
+    hasher.update(target_name);
+    hasher.update(&[_]u8{0});
+    hasher.update(source_suffix);
+    hasher.update(&[_]u8{0});
+    hasher.update(out_path);
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return out;
 }
 
 fn commandName(cmd: Command) []const u8 {
@@ -198,7 +453,7 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <run|build-exe|build-wasm|build-obj|llvm2sa|sax|layout|fetch|db|test> [--jobs auto|N] ...\n");
+    try writer.writeAll("usage: saasm <build|run|build-exe|build-wasm|build-obj|llvm2sa|sax|audit|layout|fetch|db|test> [--jobs auto|N] ...\n");
     try writer.writeAll("test flags: --filter <pattern> [--filter <pattern> ...] [--skip <pattern> ...] [--exact] [--ignored|--include-ignored]\n");
 }
 
@@ -593,8 +848,7 @@ fn projectRootFromSourcePath(source_path: []const u8) []const u8 {
     return std.fs.path.dirname(source_path) orelse ".";
 }
 
-fn readProjectManifest(allocator: std.mem.Allocator, source_path: []const u8) !?manifest.Manifest {
-    const project_root = projectRootFromSourcePath(source_path);
+fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
     const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
     defer allocator.free(manifest_path);
 
@@ -627,7 +881,9 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
 
-    var project_manifest = try readProjectManifest(allocator, source_path);
+    const project_root = options.project_root orelse projectRootFromSourcePath(source_path);
+
+    var project_manifest = try readProjectManifest(allocator, project_root);
     defer if (project_manifest) |*m| m.deinit(allocator);
 
     var dependency_slice: []pkg_resolver.Dependency = &.{};
@@ -643,7 +899,8 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     const resolve_ctx = flattener.ResolveContext{
         .dependencies = dependency_slice,
         .options = .{
-            .project_root = projectRootFromSourcePath(source_path),
+            .project_root = project_root,
+            .offline = options.offline,
         },
     };
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
@@ -660,12 +917,6 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         },
     };
 } 
-
-fn sourceStem(path: []const u8) []const u8 {
-    const basename = std.fs.path.basename(path);
-    const dot = std.mem.lastIndexOfScalar(u8, basename, '.') orelse return basename;
-    return basename[0..dot];
-}
 
 fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffix: []const u8) ![]const u8 {
     const dir = std.fs.path.dirname(source_path);
@@ -687,6 +938,18 @@ fn writeAllFile(path: []const u8, bytes: []const u8) !void {
     var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
+}
+
+fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8) !void {
+    _ = allocator;
+    try writeAllFile(path, bytes);
+}
+
+fn printTableInfo(writer: anytype, info: db.table.TableInfo) !void {
+    try writer.print("row_count: {d}\n", .{info.row_count});
+    try writer.print("segment_count: {d}\n", .{info.segment_count});
+    try writer.print("epoch: {d}\n", .{info.epoch});
+    try writer.print("locked: {s}\n", .{if (info.locked) "true" else "false"});
 }
 
 fn executeRun(
@@ -945,11 +1208,14 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
     }
 
     const cmd: Command = blk: {
+        if (std.mem.eql(u8, argv[1], commandName(.build))) break :blk .build;
         if (std.mem.eql(u8, argv[1], commandName(.run))) break :blk .run;
         if (std.mem.eql(u8, argv[1], commandName(.build_exe))) break :blk .build_exe;
         if (std.mem.eql(u8, argv[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, argv[1], commandName(.build_obj))) break :blk .build_obj;
         if (std.mem.eql(u8, argv[1], commandName(.llvm2sa))) break :blk .llvm2sa;
+        if (std.mem.eql(u8, argv[1], commandName(.sax))) break :blk .sax;
+        if (std.mem.eql(u8, argv[1], commandName(.audit))) break :blk .audit;
         if (std.mem.eql(u8, argv[1], commandName(.layout))) break :blk .layout;
         if (std.mem.eql(u8, argv[1], commandName(.fetch))) break :blk .fetch;
         if (std.mem.eql(u8, argv[1], "db")) break :blk .db;
@@ -1042,16 +1308,31 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             const sub = argv[2];
             if (std.mem.eql(u8, sub, "init")) {
                 if (argv.len < 4) return error.MissingSourcePath;
-                const iface = try db.exec.compileSchema(allocator, argv[3]);
+                const iface = db.exec.compileSchema(allocator, argv[3]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
                 defer allocator.free(iface);
-                try stdout.writeAll(iface);
+                const iface_path = db.schema.ifaceFilePath(allocator, argv[3]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                defer allocator.free(iface_path);
+                writeTextFile(allocator, iface_path, iface) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                try stdout.print("{s}\n", .{iface_path});
                 return 0;
             }
             if (std.mem.eql(u8, sub, "register")) {
                 if (argv.len < 4) return error.MissingSourcePath;
                 const source_path = argv[3];
                 const project_root = std.fs.path.dirname(source_path) orelse ".";
-                var result = try db.exec.registerQuery(allocator, source_path, project_root);
+                var result = db.exec.registerQuery(allocator, source_path, project_root) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
                 defer result.deinit(allocator);
                 const hex = std.fmt.bytesToHex(result.hash, .lower);
                 try stdout.print("Compiled: {s}\n", .{source_path});
@@ -1061,9 +1342,67 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             if (std.mem.eql(u8, sub, "inspect")) {
                 if (argv.len < 4) return error.MissingSourcePath;
-                const report = try db.exec.inspectRegistry(allocator, ".", argv[3]);
+                const report = db.exec.inspectRegistry(allocator, ".", argv[3]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
                 defer allocator.free(report);
                 try stdout.writeAll(report);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "ingest")) {
+                if (argv.len < 5) return error.MissingSourcePath;
+                const info = db.table.ingestTable(allocator, ".", argv[3], argv[4]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                try printTableInfo(stdout, info);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "snapshot")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                const info = db.table.snapshotTable(allocator, ".", argv[3]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                try printTableInfo(stdout, info);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "restore")) {
+                if (argv.len < 5) return error.MissingSourcePath;
+                const epoch = std.fmt.parseInt(u64, argv[4], 10) catch return error.InvalidPath;
+                const info = db.table.restoreTable(allocator, ".", argv[3], epoch) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                try printTableInfo(stdout, info);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "verify")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                const info = db.table.verifyTable(allocator, ".", argv[3]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                try printTableInfo(stdout, info);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "lock")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                const info = db.table.lockTable(allocator, ".", argv[3]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                try printTableInfo(stdout, info);
+                return 0;
+            }
+            if (std.mem.eql(u8, sub, "compact")) {
+                if (argv.len < 4) return error.MissingSourcePath;
+                const info = db.table.compactTable(allocator, ".", argv[3]) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                try printTableInfo(stdout, info);
                 return 0;
             }
             if (std.mem.eql(u8, sub, "exec")) {
@@ -1083,21 +1422,20 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
                     }
                     return error.UnexpectedArgument;
                 }
-                const hash_hex = argv[3];
-                const registry_info = db.exec.inspectRegistry(allocator, ".", hash_hex) catch |err| switch (err) {
-                    error.FileNotFound => {
-                        try printTrapReport(stderr, db.exec.trapUnknownHash());
+                var exec_result = db.exec.execQuery(allocator, ".", argv[3], params_path, stdout, stderr) catch |err| {
+                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    return 1;
+                };
+                defer exec_result.deinit(allocator);
+                switch (exec_result) {
+                    .trap => |report| {
+                        try printTrapReport(stderr, report);
                         return 1;
                     },
-                    else => return err,
-                };
-                defer allocator.free(registry_info);
-                if (params_path) |p| {
-                    const params = try loadSource(allocator, p);
-                    defer allocator.free(params);
+                    .ok => |result| {
+                        return result.code;
+                    },
                 }
-                try stdout.writeAll(registry_info);
-                return 0;
             }
             return error.UnknownCommand;
         },

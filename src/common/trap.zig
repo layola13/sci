@@ -47,6 +47,11 @@ pub const Trap = enum(u8) {
     db_snapshot_corrupted,
     db_duplicate_register,
     db_forbidden_sql_string,
+    sax_state_leak,
+    sax_event_escape,
+    sax_render_outside_handler,
+    sax_invalid_interpolation,
+    sax_state_write_from_outside,
 };
 
 pub const TrapReport = struct {
@@ -122,6 +127,11 @@ pub fn trapName(trap: Trap) []const u8 {
         .db_snapshot_corrupted => "DbSnapshotCorrupted",
         .db_duplicate_register => "DbDuplicateRegister",
         .db_forbidden_sql_string => "DbForbiddenSqlString",
+        .sax_state_leak => "SaxStateLeak",
+        .sax_event_escape => "SaxEventEscape",
+        .sax_render_outside_handler => "SaxRenderOutsideHandler",
+        .sax_invalid_interpolation => "SaxInvalidInterpolation",
+        .sax_state_write_from_outside => "SaxStateWriteFromOutside",
     };
 }
 
@@ -171,6 +181,11 @@ pub fn trapCode(trap: Trap) u32 {
         .db_snapshot_corrupted => 1040,
         .db_duplicate_register => 1041,
         .db_forbidden_sql_string => 1042,
+        .sax_state_leak => 1045,
+        .sax_event_escape => 1046,
+        .sax_render_outside_handler => 1047,
+        .sax_invalid_interpolation => 1048,
+        .sax_state_write_from_outside => 1049,
     };
 }
 
@@ -312,6 +327,7 @@ test "trap names are stable" {
     try std.testing.expectEqualStrings("InteriorPtrEscape", trapName(.interior_ptr_escape));
     try std.testing.expectEqualStrings("UnauthorizedPrimitive", trapName(.unauthorized_primitive));
     try std.testing.expectEqualStrings("UpstreamShaMismatch", trapName(.upstream_sha_mismatch));
+    try std.testing.expectEqualStrings("SaxStateLeak", trapName(.sax_state_leak));
 }
 
 test "trap codes are explicit and stable" {
@@ -320,6 +336,7 @@ test "trap codes are explicit and stable" {
     try std.testing.expectEqual(@as(u32, 1022), trapCode(.interior_ptr_escape));
     try std.testing.expectEqual(@as(u32, 1043), trapCode(.unauthorized_primitive));
     try std.testing.expectEqual(@as(u32, 1044), trapCode(.upstream_sha_mismatch));
+    try std.testing.expectEqual(@as(u32, 1045), trapCode(.sax_state_leak));
 }
 
 test "trap json serialization is stable" {

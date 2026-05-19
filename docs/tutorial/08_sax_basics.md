@@ -1,67 +1,92 @@
 # 08. SAX: 声明式组件开发
 
-SAX (Safe Architecture XML) 是 SA 生态中用于构建视图和交互逻辑的高级 DSL。它允许你用类 HTML 的语法描述结构，同时嵌入原生的 SA-ASM 代码处理逻辑。
+SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态和事件逻辑放在一起，最后编译成浏览器可直接加载的 `app.wasm`、`airlock.js`、`index.html` 和对应的 `.saasm`。
 
-## SAX 文件结构
-一个 `.sax` 文件通常由三部分组成：
-1.  **`<state>`**：定义组件的私有状态。
-2.  **`<view>`**：定义 UI 布局。
-3.  **`<script>`**：编写底层的 SA-ASM 逻辑。
+## 文件结构
 
-## 示例：计数器 (Counter)
+一个 `.sax` 文件通常包含：
+1. 一个或多个 `<Component>` 块。
+2. 可选的 `<state>` 块。
+3. DOM 树。
+4. 一个或多个 `@handler:` 函数和末尾的 `!` 释放语句。
+
+## 示例：计数器
+
 ```sax
-<component name="Counter">
-    <!-- 状态定义：100% 对应 SA 内存布局 -->
-    <state>
-        count: i32 = 0;
-    </state>
+<Component name="Counter">
 
-    <!-- 视图：声明式绑定 -->
-    <view>
-        <div class="container">
-            <h1>当前计数: {this.count}</h1>
-            <button onclick="increment">增加</button>
-            <button onclick="decrement">减少</button>
-        </div>
-    </view>
+  <state>
+    count = 0
+    last = 0
+  </state>
 
-    <!-- 逻辑：内联 SA-ASM -->
-    <script type="sa-asm">
-        @increment(this: ptr) -> void:
-        L_ENTRY:
-            v = load this+Counter_count as i32
-            new_v = add v, 1
-            store this+Counter_count, new_v as i32
-            return
+  <div class="counter">
+    <h1>{count}</h1>
+    <p>Last updated: {last} ms ago</p>
+    <button onclick={^inc}>+1</button>
+    <button onclick={^dec}>-1</button>
+    <button onclick={^reset}>Reset</button>
+  </div>
 
-        @decrement(this: ptr) -> void:
-        L_ENTRY:
-            v = load this+Counter_count as i32
-            new_v = sub v, 1
-            store this+Counter_count, new_v as i32
-            return
-    </script>
-</component>
+  @inc:
+  L_ENTRY:
+    count = load state+Counter_count as i64
+    count = add count, 1
+    store state+Counter_count, count as i64
+    last  = call @sax_get_time()
+    store state+Counter_last, last as i64
+    call @render()
+    ret
+
+  @dec:
+  L_ENTRY:
+    count = load state+Counter_count as i64
+    count = sub count, 1
+    store state+Counter_count, count as i64
+    last  = call @sax_get_time()
+    store state+Counter_last, last as i64
+    call @render()
+    ret
+
+  @reset:
+  L_ENTRY:
+    store state+Counter_count, 0 as i64
+    last  = call @sax_get_time()
+    store state+Counter_last, last as i64
+    call @render()
+    ret
+
+  !count !last
+</Component>
 ```
 
-## 核心机制：Airlock
-SAX 并不是直接操作 DOM。它通过名为 **Airlock** 的气闸舱机制：
-- **逻辑层 (SA-ASM)**：运行在高性能沙箱中，处理纯数据。
-- **视图层 (Renderer)**：运行在浏览器或原生窗口中。
-- 当 `this.count` 发生变化时，SA 编译器会自动生成增量更新补丁（Delta Patch），通过 Airlock 发往视图层。
+## 编译
 
-## 为什么使用 SAX？
-1.  **极致响应**：数据变动到视图更新的延迟在微秒级，远超 React/Vue。
-2.  **类型安全**：从 XML 属性到内联汇编的全链路类型检查。
-3.  **轻量级**：生成的二进制极小，适合嵌入式设备或高性能 Web 应用。
-
-## 编译 SAX
-使用 `saasm sax` 子命令进行构建：
+使用 `saasm sax build` 构建浏览器包：
 
 ```bash
-saasm sax build counter.sax -o counter.wasm
+saasm sax build counter.sax
 ```
 
+默认输出目录是 `dist/`。对于 `counter.sax`，会生成：
+
+```text
+dist/app.wasm
+dist/airlock.js
+dist/index.html
+dist/counter.saasm
+```
+
+如果输入文件叫 `app.sax`，对应的 `.saasm` 文件名也会变成 `app.saasm`。
+
+## 关键点
+
+1. `<state>` 变量在 handler 里通过 `state+Component_var` 访问。
+2. 文本插值 `{count}` 是只读读取。
+3. `call @render()` 只应出现在 `@handler` 中。
+4. 浏览器运行时只依赖 `app.wasm` 和轻量的 `airlock.js` 桥接层。
+
 ## 练习
-1. 给计数器增加一个 "重置" 按钮。
-2. 尝试在 `<state>` 中增加一个字符串类型的状态，并在视图中显示。
+
+1. 给计数器增加一个重置按钮的确认提示。
+2. 再加一个 `ticks = 0` 状态，并在视图里显示它。

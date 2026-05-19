@@ -8,6 +8,19 @@ fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     try file.writeAll(source);
 }
 
+fn writeBytes(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
+    var file = try dir.createFile(path, .{ .truncate = true });
+    defer file.close();
+    try file.writeAll(bytes);
+}
+
+fn extractLineValue(output: []const u8, prefix: []const u8) ![]const u8 {
+    const start = std.mem.indexOf(u8, output, prefix) orelse return error.NotFound;
+    const value_start = start + prefix.len;
+    const value_end = std.mem.indexOfScalarPos(u8, output, value_start, '\n') orelse output.len;
+    return std.mem.trim(u8, output[value_start..value_end], " \t\r");
+}
+
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     const result = try std.process.Child.run(.{
         .allocator = allocator,
@@ -1641,6 +1654,42 @@ test "vtable loads preserve indirect call provenance end to end" {
     try std.testing.expectEqualStrings("OK\n", exe_result.stdout);
 }
 
+test "llvm2sa hello roundtrip matches the golden output" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.saasm");
+    defer std.testing.allocator.free(source_path);
+    const expected_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/llvm2sa_expected_hello.saasm");
+    defer std.testing.allocator.free(expected_path);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "hello.out" };
+    const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const llvm2sa_argv = [_][]const u8{ "saasm", "llvm2sa", "hello.out.saasm.ll" };
+    const llvm2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, llvm2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), llvm2sa_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+
+    const expected_file = try std.fs.cwd().openFile(expected_path, .{});
+    defer expected_file.close();
+    const expected = try expected_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(expected);
+
+    try std.testing.expectEqualStrings(expected, stdout_buf.items);
+}
+
 test "import expansion keeps source paths alive end to end" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -2224,6 +2273,262 @@ test "build-wasm supports wasm64 freestanding no-entry" {
     const import_names = try wasmImportNames(wasm_bytes, std.testing.allocator);
     defer std.testing.allocator.free(import_names);
     try std.testing.expectEqual(@as(usize, 0), import_names.len);
+}
+
+
+
+test "db cli init writes iface and table lifecycle commands update storage" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "flash_sale.sadb-schema",
+        \\#def MAX_ROWS = 10
+        \\#def COL_ID_STRIDE = 8 // u64
+        \\#def COL_PRICE_STRIDE = 4 // f32
+    );
+    try writeSource(tmp.dir, "rows.csv",
+        \\ID,PRICE
+        \\1,9.5
+        \\2,10.25
+    );
+    try writeSource(tmp.dir, "more.jsonl",
+        \\{"ID":3,"PRICE":11.75}
+    );
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const init_argv = [_][]const u8{ "saasm", "db", "init", "flash_sale.sadb-schema" };
+    const init_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        init_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), init_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "flash_sale.iface"));
+
+    const iface_file = try tmp.dir.openFile("flash_sale.iface", .{});
+    defer iface_file.close();
+    const iface_bytes = try iface_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(iface_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, iface_bytes, 1, "#def MAX_ROWS = 10"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, iface_bytes, 1, "#def TABLE_ROW_BYTES = 12"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, iface_bytes, 1, "#def flash_sale_ROW_BYTES = 12"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const ingest_argv = [_][]const u8{ "saasm", "db", "ingest", "flash_sale", "rows.csv" };
+    const ingest_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        ingest_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), ingest_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 2"));
+
+    const meta_file = try tmp.dir.openFile("flash_sale.meta", .{});
+    defer meta_file.close();
+    const meta_bytes = try meta_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(meta_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, meta_bytes, 1, "\"row_count\":2"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const snapshot_argv = [_][]const u8{ "saasm", "db", "snapshot", "flash_sale" };
+    const snapshot_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        snapshot_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), snapshot_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "epoch: 1"));
+    const snapshot_meta = try tmp.dir.openFile(".sa/db/snapshots/flash_sale/1/flash_sale.meta", .{});
+    defer snapshot_meta.close();
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const second_ingest_argv = [_][]const u8{ "saasm", "db", "ingest", "flash_sale", "more.jsonl" };
+    const second_ingest_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        second_ingest_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), second_ingest_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 3"));
+
+    const updated_meta_file = try tmp.dir.openFile("flash_sale.meta", .{});
+    defer updated_meta_file.close();
+    const updated_meta_bytes = try updated_meta_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(updated_meta_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, updated_meta_bytes, 1, "\"row_count\":3"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const verify_argv = [_][]const u8{ "saasm", "db", "verify", "flash_sale" };
+    const verify_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        verify_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), verify_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 3"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const compact_argv = [_][]const u8{ "saasm", "db", "compact", "flash_sale" };
+    const compact_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        compact_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), compact_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "segment_count: 1"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const restore_argv = [_][]const u8{ "saasm", "db", "restore", "flash_sale", "1" };
+    const restore_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        restore_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), restore_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 2"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const lock_argv = [_][]const u8{ "saasm", "db", "lock", "flash_sale" };
+    const lock_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        lock_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), lock_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "locked: true"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const locked_compact_argv = [_][]const u8{ "saasm", "db", "compact", "flash_sale" };
+    const locked_compact_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        locked_compact_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), locked_compact_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "error: Locked"));
+}
+
+test "db cli register inspect exec round trip through registry" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "simple.sadb-schema",
+        \#def MAX_ROWS = 10
+        \#def COL_ID_STRIDE = 8 // u64
+        \#def COL_FACTOR_STRIDE = 8 // u64
+        \#def TABLE_ROW_BYTES = 16
+    );
+    try writeSource(tmp.dir, "simple.query.saasm",
+        \@import "simple.sadb-schema"
+        \grants [db_read:simple]
+        \@main(id: u64, factor: u64) -> u64:
+        \L_ENTRY:
+        \total = add id, factor
+        \!id
+        \!factor
+        \return total
+    );
+
+    var params = std.ArrayList(u8).init(std.testing.allocator);
+    defer params.deinit();
+    try params.writer().writeInt(u64, 7, .little);
+    try params.writer().writeInt(u64, 5, .little);
+    try writeBytes(tmp.dir, "params.bin", params.items);
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const register_argv = [_][]const u8{ "saasm", "db", "register", "simple.query.saasm" };
+    const register_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        register_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), register_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Compiled: simple.query.saasm"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Registered:"));
+
+    const hash_hex = try extractLineValue(stdout_buffer.items, "Hash: ");
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const inspect_argv = [_][]const u8{ "saasm", "db", "inspect", hash_hex };
+    const inspect_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        inspect_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), inspect_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "imports: 1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "grants: 1"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const exec_argv = [_][]const u8{ "saasm", "db", "exec", hash_hex, "--params", "params.bin" };
+    const exec_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        exec_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 12), exec_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }
 
 test "layout cli prints text and json outputs" {

@@ -169,7 +169,7 @@ L_ENTRY:
 
 @map_rehash(&map: ptr, new_cap: u64) -> void:
 L_ENTRY:
-    old_slots = load map+HashMap_slots as ptr
+    old_slots = take map+HashMap_slots
     old_cap = load map+HashMap_cap as u64
     new_bytes = mul new_cap, HashMapSlot_SIZE
     new_slots = alloc new_bytes
@@ -271,7 +271,7 @@ L_ENTRY:
 
 @export sa_map_clear(&map: ptr) -> void:
 L_ENTRY:
-    slots = load map+HashMap_slots as ptr
+    slots = take map+HashMap_slots
     cap = load map+HashMap_cap as u64
     bytes = mul cap, HashMapSlot_SIZE
     has_slots = ne slots, 0
@@ -293,7 +293,7 @@ L_CLEAR_DONE:
 
 @export sa_map_free(^map: ptr) -> void:
 L_ENTRY:
-    slots = load map+HashMap_slots as ptr
+    slots = take map+HashMap_slots
     has_slots = ne slots, 0
     br has_slots -> L_FREE_SLOTS, L_FREE_MAP
 
@@ -307,7 +307,7 @@ L_FREE_MAP:
 
 @export sa_map_put(&map: ptr, &key: ptr, &value: ptr) -> void:
 L_ENTRY:
-    slots = load map+HashMap_slots as ptr
+    slots = take map+HashMap_slots
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
@@ -338,7 +338,7 @@ L_PUT_GROW_REHASH:
     !tombs
     !cap_is_zero
     call @map_rehash(&map, next_cap)
-    slots = load map+HashMap_slots as ptr
+    slots = take map+HashMap_slots
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
@@ -423,7 +423,7 @@ L_PUT_END:
 
 @export sa_map_get(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
-    slots = load map+HashMap_slots as ptr
+    slots = take map+HashMap_slots
     cap = load map+HashMap_cap as u64
     cap_is_zero = eq cap, 0
     br cap_is_zero -> L_GET_MISS_ZERO, L_GET_PROBE
@@ -471,7 +471,7 @@ L_GET_MISS_ZERO:
 
 @export sa_map_del(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
-    slots = load map+HashMap_slots as ptr
+    slots = take map+HashMap_slots
     cap = load map+HashMap_cap as u64
     len = load map+HashMap_len as u64
     tombs = load map+HashMap_tombs as u64
@@ -512,8 +512,8 @@ L_DEL_HIT:
     !next_tombs
     !cap_is_zero
     !key
-    !map
     !slots
+    !map
     return value
 
 L_DEL_MISS_PROBE:
@@ -524,8 +524,8 @@ L_DEL_MISS_PROBE:
     !len
     !tombs
     !cap_is_zero
-    !map
     !slots
+    !map
     return 0
 
 L_DEL_MISS_ZERO:
@@ -534,8 +534,8 @@ L_DEL_MISS_ZERO:
     !tombs
     !cap_is_zero
     !key
-    !map
     !slots
+    !map
     return 0
 
 [MACRO] MAP_NEW %out_map

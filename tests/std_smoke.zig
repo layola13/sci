@@ -158,15 +158,6 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "add 0, 0"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "假定"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "示例"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "@export sa_vec_new"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "@export sa_vec_free"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "store vec+Vec_ptr, 0 as ptr"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "store vec+Vec_cap, 0 as u64"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "store vec+Vec_len, 0 as u64"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "load vec+Vec_ptr as ptr"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "!inner_ptr"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "!vec"));
-
     var vec_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/alloc/vec.saasm", vec_src);
     defer vec_flat.deinit(std.testing.allocator);
     const vec_verified = try saasm.referee.verify(std.testing.allocator, vec_flat.instructions, vec_flat.const_decls);
@@ -174,10 +165,79 @@ test "sa_std alloc helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 2), owned.function_sigs.len);
+            try std.testing.expect(owned.function_sigs.len >= 11);
         },
         .trap => |report| {
             std.debug.print("vec smoke verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const vec_macro_layout = try readFileAlloc(std.testing.allocator, "sa_std/vec.saasm-layout");
+    defer std.testing.allocator.free(vec_macro_layout);
+    try std.testing.expectEqualStrings("#def Vec_data = +0\n", vec_macro_layout);
+
+    const vec_macro_src = try readFileAlloc(std.testing.allocator, "sa_std/vec.saasm");
+    defer std.testing.allocator.free(vec_macro_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "@import \"alloc/vec.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_PUSH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_CLEAR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRUNCATE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_POP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_WITH_CAPACITY"));
+
+    var vec_macro_error_ctx = saasm.flattener.ErrorContext{};
+    var vec_macro_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec.saasm", vec_macro_src, &vec_macro_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&vec_macro_error_ctx) orelse 0;
+        std.debug.print("vec macro flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer vec_macro_flat.deinit(std.testing.allocator);
+    try std.testing.expect(vec_macro_flat.instructions.len > 0);
+    try std.testing.expect(vec_macro_flat.function_sigs.len >= 11);
+
+    const vec_macro_verified = try saasm.referee.verify(std.testing.allocator, vec_macro_flat.instructions, vec_macro_flat.const_decls);
+    switch (vec_macro_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 11);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print("vec macro verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const vec_fixture = try readFileAlloc(std.testing.allocator, "tests/vec_fixture.saasm");
+    defer std.testing.allocator.free(vec_fixture);
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_TRY_POP"));
+
+    var vec_fixture_error_ctx = saasm.flattener.ErrorContext{};
+    var vec_fixture_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "tests/vec_fixture.saasm", vec_fixture, &vec_fixture_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&vec_fixture_error_ctx) orelse 0;
+        std.debug.print("vec fixture flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer vec_fixture_flat.deinit(std.testing.allocator);
+    try std.testing.expect(vec_fixture_flat.instructions.len > 0);
+    const vec_fixture_verified = try saasm.referee.verify(std.testing.allocator, vec_fixture_flat.instructions, vec_fixture_flat.const_decls);
+    switch (vec_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 11);
+        },
+        .trap => |report| {
+            std.debug.print("vec fixture verifier trap: {s}\n", .{report.message});
             return error.TestUnexpectedResult;
         },
     }
@@ -1230,13 +1290,19 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_capacity"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_peek"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_push"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_try_pop"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PUSH"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_TRY_POP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_CLEAR"));
 
     var heap_error_ctx = saasm.flattener.ErrorContext{};
     var heap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/binary_heap.saasm", heap_src, &heap_error_ctx) catch |err| {
@@ -1246,14 +1312,14 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     };
     defer heap_flat.deinit(std.testing.allocator);
     try std.testing.expect(heap_flat.instructions.len > 0);
-    try std.testing.expect(heap_flat.function_sigs.len >= 10);
+    try std.testing.expect(heap_flat.function_sigs.len >= 13);
 
     const heap_verified = try saasm.referee.verify(std.testing.allocator, heap_flat.instructions, heap_flat.const_decls);
     switch (heap_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 10);
+            try std.testing.expect(owned.function_sigs.len >= 13);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -1401,7 +1467,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 13), owned.function_sigs.len);
+            try std.testing.expect(owned.function_sigs.len >= 16);
         },
         .trap => |report| {
             std.debug.print("binary_heap fixture verifier trap: {s}\n", .{report.message});

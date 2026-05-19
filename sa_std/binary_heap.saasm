@@ -4,7 +4,7 @@
 
 @binary_heap_swap(&heap: ptr, lhs: u64, rhs: u64) -> void:
 L_ENTRY:
-    buf = load heap+BinaryHeap_buf as ptr
+    buf = take heap+BinaryHeap_buf
     lhs_off = mul lhs, BinaryHeap_SLOT_SIZE
     rhs_off = mul rhs, BinaryHeap_SLOT_SIZE
     lhs_ptr = ptr_add buf, lhs_off
@@ -40,7 +40,7 @@ L_ENTRY:
 
 @export sa_binary_heap_free(^heap: ptr) -> void:
 L_ENTRY:
-    buf = load heap+BinaryHeap_buf as ptr
+    buf = take heap+BinaryHeap_buf
     !buf
     !heap
     return
@@ -51,6 +51,21 @@ L_ENTRY:
     !heap
     return len
 
+@export sa_binary_heap_capacity(&heap: ptr) -> u64:
+L_ENTRY:
+    cap = load heap+BinaryHeap_cap as u64
+    !heap
+    return cap
+
+@export sa_binary_heap_is_empty(&heap: ptr) -> i32:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    empty = eq len, 0
+    result = empty as i32
+    !len
+    !heap
+    return result
+
 @export sa_binary_heap_peek(&heap: ptr) -> u64:
 L_ENTRY:
     len = load heap+BinaryHeap_len as u64
@@ -58,7 +73,7 @@ L_ENTRY:
     br empty -> L_EMPTY, L_HIT
 
 L_HIT:
-    buf = load heap+BinaryHeap_buf as ptr
+    buf = take heap+BinaryHeap_buf
     root = load buf+0 as u64
     !buf
     !empty
@@ -80,7 +95,7 @@ L_ENTRY:
 L_BODY:
     idx_minus_one = sub index, 1
     parent = udiv idx_minus_one, 2
-    buf = load heap+BinaryHeap_buf as ptr
+    buf = take heap+BinaryHeap_buf
     child_off = mul index, BinaryHeap_SLOT_SIZE
     parent_off = mul parent, BinaryHeap_SLOT_SIZE
     child_ptr = ptr_add buf, child_off
@@ -139,7 +154,7 @@ L_ENTRY:
     br has_left -> L_BODY, L_DONE_SHORT
 
 L_BODY:
-    buf = load heap+BinaryHeap_buf as ptr
+    buf = take heap+BinaryHeap_buf
     parent_off = mul index, BinaryHeap_SLOT_SIZE
     parent_ptr = ptr_add buf, parent_off
     parent_value = load parent_ptr+0 as u64
@@ -286,7 +301,7 @@ L_DONE_SHORT:
 
 @binary_heap_grow(&heap: ptr) -> void:
 L_ENTRY:
-    old_buf = load heap+BinaryHeap_buf as ptr
+    old_buf = take heap+BinaryHeap_buf
     old_cap = load heap+BinaryHeap_cap as u64
     old_len = load heap+BinaryHeap_len as u64
     next_cap = add old_cap, old_cap
@@ -328,7 +343,7 @@ L_INSERT_RELEASE:
 
 L_INSERT_WRITE:
     len2 = load heap+BinaryHeap_len as u64
-    buf = load heap+BinaryHeap_buf as ptr
+    buf = take heap+BinaryHeap_buf
     slot_off = mul len2, BinaryHeap_SLOT_SIZE
     slot = ptr_add buf, slot_off
     store slot+0, value as u64
@@ -351,8 +366,8 @@ L_ENTRY:
     br empty -> L_EMPTY, L_READY
 
 L_READY:
-    buf = load heap+BinaryHeap_buf as ptr
-    root_ptr = ptr_add buf, 0
+    buf = take heap+BinaryHeap_buf
+    root_ptr = take heap+BinaryHeap_buf
     value = load root_ptr+0 as u64
     last_index = sub len, 1
     last_off = mul last_index, BinaryHeap_SLOT_SIZE
@@ -385,6 +400,31 @@ L_EMPTY:
     !heap
     return 0
 
+@export sa_binary_heap_clear(&heap: ptr) -> void:
+L_ENTRY:
+    buf = take heap+BinaryHeap_buf
+    cap = load heap+BinaryHeap_cap as u64
+    bytes = mul cap, BinaryHeap_SLOT_SIZE
+    has_buf = ne buf, 0
+    br has_buf -> L_CLEAR_BUF, L_CLEAR_SKIP
+L_CLEAR_BUF:
+    call @sa_mem_set(&buf, 0, bytes)
+    !bytes
+    store heap+BinaryHeap_len, 0 as u64
+    !has_buf
+    !buf
+    !cap
+    !heap
+    return
+L_CLEAR_SKIP:
+    !bytes
+    store heap+BinaryHeap_len, 0 as u64
+    !has_buf
+    !buf
+    !cap
+    !heap
+    return
+
 [MACRO] BINARY_HEAP_NEW %out_heap
     %out_heap = call @sa_binary_heap_new()
 [END_MACRO]
@@ -395,6 +435,14 @@ L_EMPTY:
 
 [MACRO] BINARY_HEAP_LEN %out_len, %heap_reg
     %out_len = call @sa_binary_heap_len(&%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_CAPACITY %out_cap, %heap_reg
+    %out_cap = call @sa_binary_heap_capacity(&%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg
+    %out_flag = call @sa_binary_heap_is_empty(&%heap_reg)
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_PEEK %out_value, %heap_reg
@@ -410,4 +458,8 @@ L_EMPTY:
     __binary_heap_ok_%out_ok = call @sa_binary_heap_try_pop(&%heap_reg, &__binary_heap_value_slot_%out_ok)
     %out_value = load __binary_heap_value_slot_%out_ok+0 as u64
     %out_ok = __binary_heap_ok_%out_ok
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_CLEAR %heap_reg
+    call @sa_binary_heap_clear(&%heap_reg)
 [END_MACRO]

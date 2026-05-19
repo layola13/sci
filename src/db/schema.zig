@@ -1,5 +1,5 @@
 const std = @import("std");
-const sig = @import("common/signature.zig");
+const sig = @import("../common/signature.zig");
 
 pub const ParseError = error{
     OutOfMemory,
@@ -52,9 +52,11 @@ pub fn ifaceFilePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u
     else
         basename;
     if (std.fs.path.dirname(source_path)) |dir| {
-        return try std.fs.path.join(allocator, &.{ dir, stem, ".iface" });
+        const filename = try std.fmt.allocPrint(allocator, "{s}.iface", .{stem});
+        defer allocator.free(filename);
+        return try std.fs.path.join(allocator, &.{ dir, filename });
     }
-    return try std.fs.path.join(allocator, &.{ stem, ".iface" });
+    return try std.fmt.allocPrint(allocator, "{s}.iface", .{stem});
 }
 
 fn trim(text: []const u8) []const u8 {

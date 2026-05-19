@@ -9,14 +9,6 @@ pub const TranslateError = error{
 const FunctionMode = enum {
     normal,
     ffi_wrapper,
-    external,
-};
-
-const FunctionContext = struct {
-    name: []const u8,
-    kind: FunctionMode,
-    sa_name: []const u8,
-    rendered_header: bool = false,
 };
 
 fn trim(text: []const u8) []const u8 {
@@ -25,34 +17,25 @@ fn trim(text: []const u8) []const u8 {
 
 const Translator = struct {
     allocator: std.mem.Allocator,
-    input: []const u8,
     out: std.ArrayList(u8),
-    current: ?FunctionContext = null,
-    pending_labels: std.ArrayList([]const u8),
+    in_function: bool = false,
     aliases: std.StringHashMap([]const u8),
     skip_function: bool = false,
     current_block_is_entry: bool = false,
-    emit_preamble: bool = true,
+    entry_label_emitted: bool = false,
 
-    fn init(allocator: std.mem.Allocator, input: []const u8) Translator {
+    fn init(allocator: std.mem.Allocator) Translator {
         return .{
             .allocator = allocator,
-            .input = input,
             .out = std.ArrayList(u8).init(allocator),
-            .pending_labels = std.ArrayList([]const u8).init(allocator),
             .aliases = std.StringHashMap([]const u8).init(allocator),
         };
     }
 
     fn deinit(self: *Translator) void {
-        var alias_iter = self.aliases.iterator();
-        while (alias_iter.next()) |entry| {
-            self.allocator.free(entry.key_ptr.*);
-            self.allocator.free(entry.value_ptr.*);
-        }
+        self.closeCurrentFunction();
+        self.clearAliases();
         self.aliases.deinit();
-        for (self.pending_labels.items) |label| self.allocator.free(label);
-        self.pending_labels.deinit();
         self.out.deinit();
         self.* = undefined;
     }
@@ -63,6 +46,18 @@ const Translator = struct {
     }
 
     fn emitFmt(self: *Translator, comptime fmt: []const u8, args: anytype) !void {
+        try self.out.writer().print(fmt, args);
+        try self.out.append('\n');
+    }
+
+    fn emitBodyLine(self: *Translator, bytes: []const u8) !void {
+        try self.out.appendSlice("    ");
+        try self.out.appendSlice(bytes);
+        try self.out.append('\n');
+    }
+
+    fn emitBodyFmt(self: *Translator, comptime fmt: []const u8, args: anytype) !void {
+        try self.out.appendSlice("    ");
         try self.out.writer().print(fmt, args);
         try self.out.append('\n');
     }
@@ -256,6 +251,22 @@ const Translator = struct {
         return saw_digit;
     }
 
+    fn clearAliases(self: *Translator) void {
+        var iter = self.aliases.iterator();
+        while (iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.aliases.clearRetainingCapacity();
+    }
+
+    fn closeCurrentFunction(self: *Translator) void {
+        self.in_function = false;
+        self.clearAliases();
+        self.current_block_is_entry = false;
+        self.entry_label_emitted = false;
+    }
+
     fn setAlias(self: *Translator, name: []const u8, expr: []const u8) !void {
         const key = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(key);
@@ -294,6 +305,129 @@ const Translator = struct {
         return trimmed;
     }
 
+    fn stripLlvmQualifiers(text: []const u8) []const u8 {
+        var trimmed = trim(text);
+        while (trimmed.len != 0) {
+            const parts = splitFirstWord(trimmed);
+            if (std.mem.eql(u8, parts.word, "atomic") or std.mem.eql(u8, parts.word, "volatile")) {
+                trimmed = trim(parts.rest);
+                continue;
+            }
+            return trimmed;
+        }
+        return trimmed;
+    }
+
+    fn hasLlvmAtomicQualifier(text: []const u8) bool {
+        var trimmed = trim(text);
+        while (trimmed.len != 0) {
+            const parts = splitFirstWord(trimmed);
+            if (std.mem.eql(u8, parts.word, "atomic")) return true;
+            if (std.mem.eql(u8, parts.word, "volatile")) {
+                trimmed = trim(parts.rest);
+                continue;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    fn stripAlignClause(text: []const u8) []const u8 {
+        const idx = std.mem.lastIndexOf(u8, text, ", align ") orelse return trim(text);
+        return trim(text[0..idx]);
+    }
+
+    fn stripLeadingLlvmPtr(text: []const u8) []const u8 {
+        const trimmed = trim(text);
+        if (startsWithWord(trimmed, "ptr")) return trim(trimmed["ptr".len..]);
+        return trimmed;
+    }
+
+    fn mapLlvmAtomicOrdering(text: []const u8) ?[]const u8 {
+        if (std.mem.eql(u8, text, "monotonic") or std.mem.eql(u8, text, "relaxed")) return "relaxed";
+        if (std.mem.eql(u8, text, "acquire")) return "acquire";
+        if (std.mem.eql(u8, text, "release")) return "release";
+        if (std.mem.eql(u8, text, "acq_rel")) return "acq_rel";
+        if (std.mem.eql(u8, text, "seq_cst")) return "seq_cst";
+        return null;
+    }
+
+    fn peelLastToken(text: []const u8) ?struct { body: []const u8, token: []const u8 } {
+        var end: usize = text.len;
+        while (end > 0 and std.ascii.isWhitespace(text[end - 1])) : (end -= 1) {}
+        if (end == 0) return null;
+        var start: usize = end;
+        while (start > 0 and !std.ascii.isWhitespace(text[start - 1])) : (start -= 1) {}
+        return .{ .body = trim(text[0..start]), .token = text[start..end] };
+    }
+
+    fn peelLlvmAtomicOrdering(text: []const u8) ?struct { body: []const u8, ordering: []const u8 } {
+        const peel = peelLastToken(text) orelse return null;
+        const ordering = mapLlvmAtomicOrdering(peel.token) orelse return null;
+        return .{ .body = peel.body, .ordering = ordering };
+    }
+
+    fn joinCommaArgs(self: *Translator, args: []const []const u8, start: usize, end: usize) ![]const u8 {
+        if (start >= end or end > args.len) return TranslateError.InvalidLlvm;
+        var list = std.ArrayList(u8).init(self.allocator);
+        errdefer list.deinit();
+        for (args[start..end], 0..) |arg, idx| {
+            if (idx != 0) try list.appendSlice(", ");
+            try list.appendSlice(arg);
+        }
+        return try list.toOwnedSlice();
+    }
+
+    fn translateExternParam(self: *Translator, idx: usize, fragment: []const u8) ![]const u8 {
+        const trimmed = trim(fragment);
+        if (trimmed.len == 0) return TranslateError.InvalidLlvm;
+        const ty_token = firstTypeToken(trimmed) orelse return TranslateError.InvalidLlvm;
+        return try std.fmt.allocPrint(self.allocator, "arg{d}: {s}", .{ idx, parseTypeName(ty_token) });
+    }
+
+    fn emitExternHeader(self: *Translator, name: []const u8, params: []const u8, ret_ty: []const u8) !void {
+        try self.out.appendSlice("@extern ");
+        try self.out.appendSlice(name);
+        try self.out.append('(');
+        if (trim(params).len != 0) {
+            const args = try splitCommaArgs(self.allocator, params);
+            defer self.allocator.free(args);
+            var rendered_idx: usize = 0;
+            for (args) |arg| {
+                const trimmed_arg = trim(arg);
+                if (trimmed_arg.len == 0) continue;
+                if (std.mem.eql(u8, trimmed_arg, "...")) break;
+                if (rendered_idx != 0) try self.out.appendSlice(", ");
+                const rendered = try self.translateExternParam(rendered_idx, trimmed_arg);
+                defer self.allocator.free(rendered);
+                try self.out.appendSlice(rendered);
+                rendered_idx += 1;
+            }
+        }
+        try self.out.append(')');
+        try self.out.appendSlice(" -> ");
+        try self.out.appendSlice(parseTypeName(ret_ty));
+        try self.out.append('\n');
+    }
+
+    fn emitDeclare(self: *Translator, line: []const u8) !bool {
+        const trimmed = trim(line);
+        if (!std.mem.startsWith(u8, trimmed, "declare ")) return false;
+        const body = trim(trimmed["declare".len..]);
+        const at = std.mem.indexOfScalar(u8, body, '@') orelse return TranslateError.InvalidLlvm;
+        const open = std.mem.indexOfScalar(u8, body[at..], '(') orelse return TranslateError.InvalidLlvm;
+        const close = std.mem.lastIndexOfScalar(u8, body, ')') orelse return TranslateError.InvalidLlvm;
+        if (close <= at + open) return TranslateError.InvalidLlvm;
+
+        const name = stripPrefix(trim(body[at + 1 .. at + open]), '@');
+        if (isRuntimeFunctionName(name)) return true;
+
+        const ret_ty = lastTypeToken(body[0..at]) orelse return TranslateError.InvalidLlvm;
+        const params = trim(body[at + open + 1 .. close]);
+        try self.emitExternHeader(name, params, ret_ty);
+        return true;
+    }
+
     fn stripLlvmSymbol(text: []const u8) []const u8 {
         const trimmed = stripTypedValue(text);
         if (trimmed.len != 0 and (trimmed[0] == '%' or trimmed[0] == '@')) return trimmed[1..];
@@ -327,7 +461,7 @@ const Translator = struct {
             }
         }
         _ = rendered.ty;
-        return rendered.value;
+        return try std.fmt.allocPrint(self.allocator, "{s}", .{rendered.value});
     }
 
     fn renderLabelName(self: *Translator, text: []const u8) ![]const u8 {
@@ -385,7 +519,7 @@ const Translator = struct {
 
     fn emitConstFromBytes(self: *Translator, name: []const u8, bytes: []const u8) !void {
         var rendered = std.ArrayList(u8).init(self.allocator);
-        errdefer rendered.deinit();
+        defer rendered.deinit();
 
         try rendered.appendSlice("@const ");
         try rendered.appendSlice(name);
@@ -554,17 +688,13 @@ const Translator = struct {
         const ret_ty = lastTypeToken(trimmed["define".len..at]) orelse return TranslateError.InvalidLlvm;
         if (shouldSkipFunction(name, params)) {
             self.skip_function = true;
-            self.current = null;
+            self.in_function = false;
             return;
         }
         const mapped = try self.mapFunctionName(name, params);
         const kind: FunctionMode = if (isRuntimeFunctionName(name)) .ffi_wrapper else .normal;
         try self.ensureBlankLineBeforeFunction();
-        self.current = .{
-            .name = try self.allocator.dupe(u8, name),
-            .kind = kind,
-            .sa_name = try self.allocator.dupe(u8, mapped),
-        };
+        self.in_function = true;
         try self.emitFunctionHeader(kind, mapped, params, ret_ty);
     }
 
@@ -572,7 +702,6 @@ const Translator = struct {
         switch (kind) {
             .normal => try self.out.append('@'),
             .ffi_wrapper => try self.out.appendSlice("@ffi_wrapper "),
-            .external => try self.out.appendSlice("@extern "),
         }
         try self.out.appendSlice(name);
         try self.out.append('(');
@@ -581,7 +710,9 @@ const Translator = struct {
             defer self.allocator.free(args);
             for (args, 0..) |arg, idx| {
                 if (idx != 0) try self.out.appendSlice(", ");
-                try self.out.appendSlice(try self.translateParam(arg));
+                const rendered = try self.translateParam(arg);
+                defer self.allocator.free(rendered);
+                try self.out.appendSlice(rendered);
             }
         }
         try self.out.append(')');
@@ -591,7 +722,6 @@ const Translator = struct {
         }
         try self.out.append(':');
         try self.out.append('\n');
-        if (self.current) |*ctx| ctx.rendered_header = true;
     }
 
     fn translateParam(self: *Translator, arg: []const u8) ![]const u8 {
@@ -621,7 +751,9 @@ const Translator = struct {
         errdefer rendered.deinit();
         for (args, 0..) |arg, idx| {
             if (idx != 0) try rendered.appendSlice(", ");
-            try rendered.appendSlice(try self.renderTypedCallArg(callee, idx, arg));
+            const rendered_arg = try self.renderTypedCallArg(callee, idx, arg);
+            defer self.allocator.free(rendered_arg);
+            try rendered.appendSlice(rendered_arg);
         }
         return try rendered.toOwnedSlice();
     }
@@ -643,26 +775,26 @@ const Translator = struct {
         defer self.allocator.free(args);
 
         if (std.mem.eql(u8, callee, "malloc")) {
-            if (lhs) |name| try self.emitFmt("{s} = alloc {s}", .{ name, args }) else try self.emitFmt("alloc {s}", .{args});
+            if (lhs) |name| try self.emitBodyFmt("{s} = alloc {s}", .{ name, args }) else try self.emitBodyFmt("alloc {s}", .{args});
             return;
         }
         if (std.mem.eql(u8, callee, "free")) {
-            try self.emitFmt("!{s}", .{args});
+            try self.emitBodyFmt("!{s}", .{args});
             return;
         }
         if (std.mem.eql(u8, callee, "memcpy")) {
-            if (lhs) |name| try self.emitFmt("{s} = call @memcpy({s})", .{ name, args }) else try self.emitFmt("call @memcpy({s})", .{args});
+            if (lhs) |name| try self.emitBodyFmt("{s} = call @memcpy({s})", .{ name, args }) else try self.emitBodyFmt("call @memcpy({s})", .{args});
             return;
         }
         if (std.mem.eql(u8, callee, "exit")) {
-            try self.emitFmt("call @sys_exit({s})", .{args});
+            try self.emitBodyFmt("call @sys_exit({s})", .{args});
             return;
         }
         if (std.mem.eql(u8, callee, "sa_print_bytes") or std.mem.eql(u8, callee, "sys_print") or std.mem.eql(u8, callee, "sys_exit") or std.mem.eql(u8, callee, "sys_argc") or std.mem.eql(u8, callee, "sys_argv") or std.mem.eql(u8, callee, "sys_read_file") or std.mem.eql(u8, callee, "sys_write_file")) {
-            if (lhs) |name| try self.emitFmt("{s} = call @{s}({s})", .{ name, callee, args }) else try self.emitFmt("call @{s}({s})", .{ callee, args });
+            if (lhs) |name| try self.emitBodyFmt("{s} = call @{s}({s})", .{ name, callee, args }) else try self.emitBodyFmt("call @{s}({s})", .{ callee, args });
             return;
         }
-        if (lhs) |name| try self.emitFmt("{s} = call @{s}({s})", .{ name, callee, args }) else try self.emitFmt("call @{s}({s})", .{ callee, args });
+        if (lhs) |name| try self.emitBodyFmt("{s} = call @{s}({s})", .{ name, callee, args }) else try self.emitBodyFmt("call @{s}({s})", .{ callee, args });
     }
 
     fn emitBranch(self: *Translator, trimmed: []const u8) !void {
@@ -674,12 +806,12 @@ const Translator = struct {
             const parts = try splitCommaArgs(self.allocator, tail);
             defer self.allocator.free(parts);
             if (parts.len < 2) return TranslateError.InvalidLlvm;
-            try self.emitFmt("br {s} -> {s}, {s}", .{ cond, stripLabel(parts[0]), stripLabel(parts[1]) });
+            try self.emitBodyFmt("br {s} -> {s}, {s}", .{ cond, stripLabel(parts[0]), stripLabel(parts[1]) });
             return;
         }
         if (std.mem.startsWith(u8, trimmed, "br label ")) {
             const target = stripLabel(trim(trimmed["br label".len..]));
-            try self.emitFmt("jmp {s}", .{target});
+            try self.emitBodyFmt("jmp {s}", .{target});
             return;
         }
         if (std.mem.startsWith(u8, trimmed, "br ")) {
@@ -689,42 +821,138 @@ const Translator = struct {
             const parts = try splitCommaArgs(self.allocator, trim(rest[arrow + 2 ..]));
             defer self.allocator.free(parts);
             if (parts.len < 2) return TranslateError.InvalidLlvm;
-            try self.emitFmt("br {s} -> {s}, {s}", .{ cond, stripLabel(parts[0]), stripLabel(parts[1]) });
+            try self.emitBodyFmt("br {s} -> {s}, {s}", .{ cond, stripLabel(parts[0]), stripLabel(parts[1]) });
             return;
         }
     }
 
     fn emitStore(self: *Translator, trimmed: []const u8) !void {
-        const rest = trim(trimmed["store".len..]);
+        const body = trim(trimmed["store".len..]);
+        if (hasLlvmAtomicQualifier(body)) {
+            const pieces = try splitCommaArgs(self.allocator, stripAlignClause(body));
+            defer self.allocator.free(pieces);
+            if (pieces.len < 2) return TranslateError.InvalidLlvm;
+            const value = try self.parseTypedOperand(stripLlvmQualifiers(pieces[0]));
+            const addr_and_order = try self.joinCommaArgs(pieces, 1, pieces.len);
+            defer self.allocator.free(addr_and_order);
+            const ordered = peelLlvmAtomicOrdering(addr_and_order) orelse return TranslateError.UnsupportedLlvm;
+            const addr_body = trim(ordered.body);
+            if (!startsWithWord(addr_body, "ptr")) return TranslateError.InvalidLlvm;
+            const addr = try self.renderAddressExpr(trim(addr_body["ptr".len..]));
+            defer self.allocator.free(addr);
+            try self.emitBodyFmt("atomic_store {s}, {s} as {s} {s}", .{ addr, value.value, value.ty, ordered.ordering });
+            return;
+        }
+
+        const rest = trim(body);
         const pair = try splitCommaArgs(self.allocator, rest);
         defer self.allocator.free(pair);
         if (pair.len < 2) return TranslateError.InvalidLlvm;
+
+        const value_piece = trim(pair[0]);
+        if (firstTypeToken(value_piece)) |value_ty| {
+            const typed = try self.parseTypedOperand(value_piece);
+            const addr_and_tail = try self.joinCommaArgs(pair, 1, pair.len);
+            defer self.allocator.free(addr_and_tail);
+            const addr_body = stripAlignClause(addr_and_tail);
+            if (!startsWithWord(addr_body, "ptr")) return TranslateError.InvalidLlvm;
+            const addr = try self.renderAddressExpr(trim(addr_body["ptr".len..]));
+            defer self.allocator.free(addr);
+            try self.emitBodyFmt("store {s}, {s} as {s}", .{ addr, typed.value, value_ty });
+            return;
+        }
+
         const addr = trim(pair[1]);
-        const value = trim(pair[0]);
+        const value = value_piece;
         if (std.mem.indexOf(u8, addr, "getelementptr") != null) {
-            try self.emitFmt("store {s}, {s}", .{ addr, value });
+            try self.emitBodyFmt("store {s}, {s}", .{ addr, value });
             return;
         }
         const parsed = try splitAddress(addr);
-        try self.emitFmt("store {s}+{s}, {s}", .{ parsed.base, parsed.offset, value });
+        try self.emitBodyFmt("store {s}+{s}, {s}", .{ parsed.base, parsed.offset, value });
     }
 
     fn emitAssign(self: *Translator, lhs: []const u8, rhs: []const u8) !void {
         const op = splitFirstWord(rhs);
         if (std.mem.startsWith(u8, rhs, "load ")) {
             const body = trim(rhs["load".len..]);
-            const suffix_idx = std.mem.lastIndexOf(u8, body, " as ");
+            if (hasLlvmAtomicQualifier(body)) {
+                const pieces = try splitCommaArgs(self.allocator, stripAlignClause(body));
+                defer self.allocator.free(pieces);
+                if (pieces.len < 2) return TranslateError.InvalidLlvm;
+                const value_ty = firstTypeToken(stripLlvmQualifiers(pieces[0])) orelse return TranslateError.InvalidLlvm;
+                const addr_and_order = try self.joinCommaArgs(pieces, 1, pieces.len);
+                defer self.allocator.free(addr_and_order);
+                const ordered = peelLlvmAtomicOrdering(addr_and_order) orelse return TranslateError.UnsupportedLlvm;
+                const addr_body = trim(ordered.body);
+                if (!startsWithWord(addr_body, "ptr")) return TranslateError.InvalidLlvm;
+                const addr = try self.renderAddressExpr(trim(addr_body["ptr".len..]));
+                defer self.allocator.free(addr);
+                try self.emitBodyFmt("{s} = atomic_load {s} as {s} {s}", .{ stripPrefix(lhs, '%'), addr, parseTypeName(value_ty), ordered.ordering });
+                return;
+            }
+            const body_noq = stripLlvmQualifiers(body);
+            if (std.mem.indexOfScalar(u8, body_noq, ',')) |comma| {
+                const ty_text = trim(body_noq[0..comma]);
+                const addr_and_tail = trim(body_noq[comma + 1 ..]);
+                const addr_body = stripAlignClause(addr_and_tail);
+                if (startsWithWord(addr_body, "ptr")) {
+                    const addr = try self.renderAddressExpr(trim(addr_body["ptr".len..]));
+                    defer self.allocator.free(addr);
+                    try self.emitBodyFmt("{s} = load {s} as {s}", .{ stripPrefix(lhs, '%'), addr, parseTypeName(ty_text) });
+                    return;
+                }
+            }
+            const suffix_idx = std.mem.lastIndexOf(u8, body_noq, " as ");
             if (suffix_idx) |idx| {
-                const source = trim(body[0..idx]);
-                const ty = parseTypeName(body[idx + 4 ..]);
+                const source = trim(body_noq[0..idx]);
+                const ty = parseTypeName(body_noq[idx + 4 ..]);
                 const addr = try self.emitAddressExpr(source);
                 defer self.allocator.free(addr);
-                try self.emitFmt("{s} = load {s} as {s}", .{ stripPrefix(lhs, '%'), addr, ty });
+                try self.emitBodyFmt("{s} = load {s} as {s}", .{ stripPrefix(lhs, '%'), addr, ty });
             } else {
-                const addr = try self.emitAddressExpr(body);
+                const addr = try self.emitAddressExpr(body_noq);
                 defer self.allocator.free(addr);
-                try self.emitFmt("{s} = load {s}", .{ stripPrefix(lhs, '%'), addr });
+                try self.emitBodyFmt("{s} = load {s}", .{ stripPrefix(lhs, '%'), addr });
             }
+            return;
+        }
+        if (std.mem.startsWith(u8, rhs, "cmpxchg ")) {
+            const pieces = try splitCommaArgs(self.allocator, stripAlignClause(trim(rhs["cmpxchg".len..])));
+            defer self.allocator.free(pieces);
+            if (pieces.len < 3) return TranslateError.InvalidLlvm;
+            const failure_peel = peelLastToken(pieces[pieces.len - 1]) orelse return TranslateError.UnsupportedLlvm;
+            const failure_order = mapLlvmAtomicOrdering(failure_peel.token) orelse return TranslateError.UnsupportedLlvm;
+            const success_peel = peelLastToken(failure_peel.body) orelse return TranslateError.UnsupportedLlvm;
+            const success_order = mapLlvmAtomicOrdering(success_peel.token) orelse return TranslateError.UnsupportedLlvm;
+            const new_op = try self.parseTypedOperand(success_peel.body);
+            const expected = try self.parseTypedOperand(pieces[pieces.len - 2]);
+            if (!std.mem.eql(u8, expected.ty, new_op.ty)) return TranslateError.UnsupportedLlvm;
+            const addr = try self.renderAddressExpr(stripLeadingLlvmPtr(pieces[0]));
+            defer self.allocator.free(addr);
+            const lhs_parts = try splitCommaArgs(self.allocator, lhs);
+            defer self.allocator.free(lhs_parts);
+            if (lhs_parts.len != 2) return TranslateError.InvalidLlvm;
+            const old_name = stripPrefix(trim(lhs_parts[0]), '%');
+            const ok_name = stripPrefix(trim(lhs_parts[1]), '%');
+            try self.emitBodyFmt("{s}, {s} = cmpxchg {s}, {s}, {s} as {s} {s} {s}", .{ old_name, ok_name, addr, expected.value, new_op.value, expected.ty, success_order, failure_order });
+            return;
+        }
+        if (std.mem.startsWith(u8, rhs, "atomicrmw ")) {
+            const rest = trim(rhs["atomicrmw".len..]);
+            const op_and_rest = splitFirstWord(rest);
+            if (op_and_rest.word.len == 0) return TranslateError.InvalidLlvm;
+            const pieces = try splitCommaArgs(self.allocator, stripAlignClause(op_and_rest.rest));
+            defer self.allocator.free(pieces);
+            if (pieces.len < 2) return TranslateError.InvalidLlvm;
+            const value_piece = pieces[pieces.len - 1];
+            const value_ordered = peelLlvmAtomicOrdering(value_piece) orelse return TranslateError.UnsupportedLlvm;
+            const value = try self.parseTypedOperand(value_ordered.body);
+            const addr_and_order = try self.joinCommaArgs(pieces, 0, pieces.len - 1);
+            defer self.allocator.free(addr_and_order);
+            const addr = try self.renderAddressExpr(stripLeadingLlvmPtr(addr_and_order));
+            defer self.allocator.free(addr);
+            try self.emitBodyFmt("{s} = atomic_rmw_{s} {s}, {s} as {s} {s}", .{ stripPrefix(lhs, '%'), op_and_rest.word, addr, value.value, value.ty, value_ordered.ordering });
             return;
         }
         if (std.mem.startsWith(u8, rhs, "call ")) {
@@ -732,13 +960,16 @@ const Translator = struct {
             return;
         }
         if (std.mem.startsWith(u8, rhs, "icmp ")) {
-            const cmp = op.word;
-            const rest = trim(op.rest);
-            const comma = std.mem.indexOfScalar(u8, rest, ',') orelse return TranslateError.InvalidLlvm;
-            const left = trim(rest[0..comma]);
-            const right = trim(rest[comma + 1 ..]);
+            const cmp_rest = splitFirstWord(trim(rhs["icmp".len..]));
+            const cmp = cmp_rest.word;
+            const typed = trim(cmp_rest.rest);
+            const value_ty = firstTypeToken(typed) orelse return TranslateError.InvalidLlvm;
+            const values = trim(typed[value_ty.len..]);
+            const comma = std.mem.indexOfScalar(u8, values, ',') orelse return TranslateError.InvalidLlvm;
+            const left = try self.renderPlainValue(values[0..comma]);
+            const right = try self.renderPlainValue(values[comma + 1 ..]);
             const kind = if (std.mem.endsWith(u8, cmp, "eq")) "eq" else if (std.mem.endsWith(u8, cmp, "ne")) "ne" else if (std.mem.endsWith(u8, cmp, "slt")) "slt" else if (std.mem.endsWith(u8, cmp, "sle")) "sle" else if (std.mem.endsWith(u8, cmp, "sgt")) "sgt" else if (std.mem.endsWith(u8, cmp, "sge")) "sge" else if (std.mem.endsWith(u8, cmp, "ult")) "ult" else if (std.mem.endsWith(u8, cmp, "ule")) "ule" else if (std.mem.endsWith(u8, cmp, "ugt")) "ugt" else if (std.mem.endsWith(u8, cmp, "uge")) "uge" else return TranslateError.UnsupportedLlvm;
-            try self.emitFmt("{s} = {s} {s}, {s}", .{ stripPrefix(lhs, '%'), kind, left, right });
+            try self.emitBodyFmt("{s} = {s} {s}, {s}", .{ stripPrefix(lhs, '%'), kind, left, right });
             return;
         }
         const kind = op.word;
@@ -747,7 +978,7 @@ const Translator = struct {
             const comma = std.mem.indexOfScalar(u8, rest, ',') orelse return TranslateError.InvalidLlvm;
             const left = trim(rest[0..comma]);
             const right = trim(rest[comma + 1 ..]);
-            try self.emitFmt("{s} = {s} {s}, {s}", .{ stripPrefix(lhs, '%'), kind, left, right });
+            try self.emitBodyFmt("{s} = {s} {s}, {s}", .{ stripPrefix(lhs, '%'), kind, left, right });
             return;
         }
         if (std.mem.eql(u8, kind, "trunc") or std.mem.eql(u8, kind, "zext") or std.mem.eql(u8, kind, "sext") or std.mem.eql(u8, kind, "fptosi") or std.mem.eql(u8, kind, "sitofp") or std.mem.eql(u8, kind, "uitofp") or std.mem.eql(u8, kind, "fptrunc") or std.mem.eql(u8, kind, "fpext") or std.mem.eql(u8, kind, "bitcast")) {
@@ -760,45 +991,29 @@ const Translator = struct {
                 try self.setAlias(stripPrefix(lhs, '%'), resolved);
                 return;
             }
-            try self.emitFmt("{s} = {s} {s} as {s}", .{ stripPrefix(lhs, '%'), kind, resolved, ty });
+            try self.emitBodyFmt("{s} = {s} {s} as {s}", .{ stripPrefix(lhs, '%'), kind, resolved, ty });
             return;
         }
         if (std.mem.eql(u8, kind, "getelementptr")) {
-            const rest = trim(op.rest);
-            const first_comma = std.mem.indexOfScalar(u8, rest, ',') orelse return TranslateError.InvalidLlvm;
-            const second_comma = std.mem.indexOfScalar(u8, rest[first_comma + 1 ..], ',') orelse return TranslateError.InvalidLlvm;
-            const base = trim(rest[first_comma + 1 .. first_comma + 1 + second_comma]);
-            const offset = trim(rest[first_comma + 1 + second_comma + 1 ..]);
-            try self.emitFmt("{s} = ptr_add {s}, {s}", .{ stripPrefix(lhs, '%'), try self.renderPlainValue(base), try self.renderPlainValue(offset) });
+            const rendered = try self.renderAddressExpr(rhs);
+            defer self.allocator.free(rendered);
+            const parsed = try splitAddress(rendered);
+            try self.emitBodyFmt("{s} = ptr_add {s}, {s}", .{ stripPrefix(lhs, '%'), parsed.base, parsed.offset });
             return;
         }
-        if (std.mem.eql(u8, kind, "phi")) {
-            const rest = trim(op.rest);
-            const comma_entries = try splitCommaArgs(self.allocator, rest);
-            defer self.allocator.free(comma_entries);
-            if (comma_entries.len == 0) return TranslateError.UnsupportedLlvm;
-            const first = comma_entries[0];
-            const lb = std.mem.indexOfScalar(u8, first, '[') orelse return TranslateError.UnsupportedLlvm;
-            const rb = std.mem.indexOfScalarPos(u8, first, lb, ']') orelse return TranslateError.UnsupportedLlvm;
-            const val = trim(first[lb + 1 .. rb]);
-            const comma = std.mem.indexOfScalar(u8, val, ',') orelse return TranslateError.UnsupportedLlvm;
-            const incoming = trim(val[0..comma]);
-            const resolved = try self.renderPlainValue(incoming);
-            if (isIntegerLiteral(resolved)) {
-                try self.setAlias(stripPrefix(lhs, '%'), resolved);
-                return;
-            }
-            try self.setAlias(stripPrefix(lhs, '%'), resolved);
-            return;
-        }
+        if (std.mem.eql(u8, kind, "phi")) return TranslateError.UnsupportedLlvm;
         if (std.mem.eql(u8, kind, "alloca")) {
             const rest = trim(op.rest);
-            const count = if (std.mem.indexOf(u8, rest, ",")) |idx| trim(rest[idx + 1 ..]) else "1";
-            try self.emitFmt("{s} = stack_alloc {s}", .{ stripPrefix(lhs, '%'), count });
+            const count = if (std.mem.indexOfScalar(u8, rest, ',')) |idx| blk: {
+                const after_type = stripTypedValue(trim(rest[idx + 1 ..]));
+                const count_text = trim(after_type[0 .. std.mem.indexOfScalar(u8, after_type, ',') orelse after_type.len]);
+                break :blk count_text;
+            } else "1";
+            try self.emitBodyFmt("{s} = stack_alloc {s}", .{ stripPrefix(lhs, '%'), try self.renderPlainValue(count) });
             return;
         }
         if (std.mem.eql(u8, kind, "unreachable")) {
-            try self.emitLine("panic(102)");
+            try self.emitBodyLine("panic(102)");
             return;
         }
         return TranslateError.UnsupportedLlvm;
@@ -810,13 +1025,25 @@ const Translator = struct {
         if (shouldSkipTopLevelLine(trimmed)) return;
         if (std.mem.startsWith(u8, trimmed, "declare ")) return;
         if (std.mem.eql(u8, trimmed, "entry:")) {
-            try self.emitLine("L_ENTRY:");
-            return;
+            self.current_block_is_entry = true;
+            self.entry_label_emitted = false;
+                return;
         }
         if (std.mem.endsWith(u8, trimmed, ":")) {
-            try self.emitLine(try std.fmt.allocPrint(self.allocator, "{s}:", .{try self.renderLabelName(trimmed[0 .. trimmed.len - 1])}));
+            if (self.current_block_is_entry and !self.entry_label_emitted) {
+                self.current_block_is_entry = false;
+                    }
+            const label = try self.renderLabelName(trimmed[0 .. trimmed.len - 1]);
+            try self.emitFmt("{s}:", .{label});
             return;
         }
+        if (self.current_block_is_entry and !self.entry_label_emitted and std.mem.startsWith(u8, trimmed, "br label ")) {
+            return;
+        }
+        if (self.current_block_is_entry and !self.entry_label_emitted) {
+            try self.emitLine("L_ENTRY:");
+            self.entry_label_emitted = true;
+            }
         if (std.mem.startsWith(u8, trimmed, "br ")) {
             try self.emitBranch(trimmed);
             return;
@@ -828,14 +1055,20 @@ const Translator = struct {
         if (std.mem.startsWith(u8, trimmed, "ret ")) {
             const rest = trim(trimmed["ret".len..]);
             if (std.mem.eql(u8, rest, "void")) {
-                try self.emitLine("return");
+                try self.emitBodyLine("return");
                 return;
             }
-            try self.emitFmt("return {s}", .{try self.renderPlainValue(rest)});
+            try self.emitBodyFmt("return {s}", .{try self.renderPlainValue(rest)});
             return;
         }
         if (std.mem.eql(u8, trimmed, "unreachable")) {
-            try self.emitLine("panic(102)");
+            try self.emitBodyLine("panic(102)");
+            return;
+        }
+        if (startsWithWord(trimmed, "fence")) {
+            const rest = trim(trimmed["fence".len..]);
+            const ordering = if (rest.len == 0) "seq_cst" else mapLlvmAtomicOrdering(rest) orelse return TranslateError.UnsupportedLlvm;
+            try self.emitBodyFmt("fence {s}", .{ordering});
             return;
         }
         if (std.mem.startsWith(u8, trimmed, "call ")) {
@@ -851,7 +1084,7 @@ const Translator = struct {
 };
 
 pub fn translateAlloc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-    var translator = Translator.init(allocator, input);
+    var translator = Translator.init(allocator);
     defer translator.deinit();
 
     try translator.emitLine("@import \"../../../sa_std/io/print.saasm-iface\"");
@@ -868,29 +1101,24 @@ pub fn translateAlloc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         const trimmed = trim(line);
         if (trimmed.len == 0) continue;
         if (std.mem.startsWith(u8, trimmed, "define ")) {
+            translator.closeCurrentFunction();
             try translator.parseFunctionHeader(trimmed);
             continue;
         }
         if (translator.skip_function) {
-            if (std.mem.eql(u8, trimmed, "}")) translator.skip_function = false;
+            if (std.mem.eql(u8, trimmed, "}")) {
+                translator.skip_function = false;
+                translator.closeCurrentFunction();
+            }
             continue;
         }
-        if (translator.current == null and std.mem.eql(u8, trimmed, "}")) continue;
         if (try translator.emitTopLevelGlobal(trimmed)) continue;
-        if (std.mem.startsWith(u8, trimmed, "declare ")) {
-            const declare = trim(trimmed["declare".len..]);
-            if (std.mem.startsWith(u8, declare, "void @sa_print_bytes")) continue;
-            continue;
-        }
         if (std.mem.eql(u8, trimmed, "}")) {
-            translator.current = null;
+            translator.closeCurrentFunction();
             continue;
         }
-        if (translator.current == null) {
-            continue;
-        }
-        if (std.mem.eql(u8, trimmed, "entry:")) {
-            try translator.emitLine("L_ENTRY:");
+        if (try translator.emitDeclare(trimmed)) continue;
+        if (!translator.in_function) {
             continue;
         }
         try translator.emitInstruction(trimmed);
@@ -915,4 +1143,102 @@ test "translator module imports" {
     _ = translateAlloc;
     _ = translateFile;
     _ = translatePath;
+}
+
+test "translator lowers declares and atomic instructions" {
+    const source =
+        \\@node = external global i64
+        \\declare i32 @ext_add(i32, i32)
+        \\declare void @sa_print_bytes(ptr, i64)
+        \\
+        \\define i32 @probe() {
+        \\entry:
+        \\  %loaded = load atomic i64, ptr @node acquire, align 8
+        \\  store atomic i64 5, ptr @node release, align 8
+        \\  %old = atomicrmw add ptr @node, i64 3 seq_cst
+        \\  %cmp_old, %ok = cmpxchg ptr @node, i64 8, i64 11 acq_rel acquire
+        \\  fence release
+        \\  ret i32 0
+        \\}
+    ;
+
+    const translated = try translateAlloc(std.testing.allocator, source);
+    defer std.testing.allocator.free(translated);
+
+    try std.testing.expectEqualStrings(
+        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\
+        \\@extern ext_add(arg0: i32, arg1: i32) -> i32
+        \\
+        \\@probe() -> i32:
+        \\L_ENTRY:
+        \\    loaded = atomic_load node+0 as i64 acquire
+        \\    atomic_store node+0, 5 as i64 release
+        \\    old = atomic_rmw_add node+0, 3 as i64 seq_cst
+        \\    cmp_old, ok = cmpxchg node+0, 8, 11 as i64 acq_rel acquire
+        \\    fence release
+        \\    return 0
+        \\
+    , translated);
+}
+
+test "translator lowers standard llvm syntax" {
+    const source =
+        \\declare ptr @malloc(i64)
+        \\declare void @free(ptr)
+        \\
+        \\define i32 @probe(i64 %n) {
+        \\entry:
+        \\  %buf = alloca i8, i64 8, align 1
+        \\  %slot = getelementptr i8, ptr %buf, i64 %n
+        \\  store i32 7, ptr %slot, align 4
+        \\  %loaded = load i32, ptr %slot, align 4
+        \\  %cmp = icmp eq i32 %loaded, 7
+        \\  br i1 %cmp, label %then, label %else
+        \\then:
+        \\  %tmp = call ptr @malloc(i64 %n)
+        \\  call void @free(ptr %tmp)
+        \\  ret i32 %loaded
+        \\else:
+        \\  ret i32 0
+        \\}
+    ;
+
+    const translated = try translateAlloc(std.testing.allocator, source);
+    defer std.testing.allocator.free(translated);
+
+    try std.testing.expectEqualStrings(
+        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\
+        \\@probe(n: i64) -> i32:
+        \\L_ENTRY:
+        \\    buf = stack_alloc 8
+        \\    slot = ptr_add buf, n
+        \\    store slot+0, 7 as i32
+        \\    loaded = load slot+0 as i32
+        \\    cmp = eq loaded, 7
+        \\    br cmp -> then, else
+        \\then:
+        \\    tmp = alloc n
+        \\    !tmp
+        \\    return loaded
+        \\else:
+        \\    return 0
+        \\
+    , translated);
+}
+
+test "translator round-trips the probe hello llvm fixture" {
+    const probe_path = ".probe_wasm2/hello.wasm.saasm.ll";
+    const expected_path = "tests/llvm2sa_expected_hello.saasm";
+
+    const translated = try translateFile(std.testing.allocator, probe_path);
+    defer std.testing.allocator.free(translated);
+
+    const expected_file = try std.fs.cwd().openFile(expected_path, .{});
+    defer expected_file.close();
+    const expected = try expected_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(expected);
+
+    try std.testing.expectEqualStrings(expected, translated);
 }

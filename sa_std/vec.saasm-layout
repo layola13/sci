@@ -1,4 +1,1 @@
-#def Vec_SIZE = 24
 #def Vec_data = +0
-#def Vec_len = +8
-#def Vec_cap = +16

@@ -21,7 +21,7 @@ ISA, ownership model, and Referee verbatim. This paper only documents the delta.
 
 | Command | Pipeline | Output |
 |---|---|---|
-| `saasm sax build <file.sax>` | SAX Parser → Flattener → Referee → WASM Emitter → Airlock Gen | `app.wasm + airlock.js + index.html` |
+| `saasm sax build <file.sax>` | SAX Parser → Flattener → Referee → WASM Emitter → Airlock Gen | `app.wasm + airlock.js + index.html + generated .saasm` |
 | `saasm sax check <file.sax>` | SAX Parser → Flattener → Referee (SAX rules) | Trap report or OK |
 | `saasm sax new <name>` | scaffold | project directory |
 
@@ -209,7 +209,7 @@ Build:
 
 ```
 saasm sax build counter.sax
-# → dist/app.wasm  dist/airlock.js  dist/index.html
+# → dist/app.wasm  dist/airlock.js  dist/index.html  dist/counter.saasm
 ```
 
 ---
@@ -243,13 +243,13 @@ No `if`. No `{`. Labels + `br`. This is identical to standard SA.
 @renderList:
 L_ENTRY:
     i   = 0
-    end = load state+TodoList_items_len as i64
+    end = items_len
 L_LOOP:
     cond = ult i, end
     br cond -> L_BODY, L_END
 L_BODY:
     row = call @sax_array_get(&items, i)
-    call @sax_dom_append_row(list_node, row)
+    call @sax_dom_append_row(tbody, row)
     i = add i, 1
     jmp L_LOOP
 L_END:

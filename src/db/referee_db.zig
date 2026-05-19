@@ -1,6 +1,6 @@
 const std = @import("std");
-const atomic = @import("common/atomic.zig");
-const inst = @import("common/instruction.zig");
+const atomic = @import("../common/atomic.zig");
+const inst = @import("../common/instruction.zig");
 const trap = @import("../common/trap.zig");
 
 pub const GrantKind = enum {
@@ -15,7 +15,7 @@ pub const Grant = struct {
     target: []const u8,
 };
 
-fn trapReport(kind: trap.Trap, item: inst.Instruction, message: []const u8) trap.TrapReport {
+fn trapReport(kind: trap.Trap, item: anytype, message: []const u8) trap.TrapReport {
     var report: trap.TrapReport = .{
         .trap = kind,
         .trap_code = trap.trapCode(kind),
@@ -32,7 +32,7 @@ fn trapReport(kind: trap.Trap, item: inst.Instruction, message: []const u8) trap
         .actual_mask = null,
         .expected_mask_name = null,
         .actual_mask_name = null,
-        .upstream_loc = item.upstream_loc,
+        .upstream_loc = null,
         .upstream_file_buf = [_]u8{0} ** 128,
         .upstream_line = if (item.upstream_loc) |loc| loc.line else 0,
         .upstream_col = if (item.upstream_loc) |loc| loc.col else 0,
@@ -42,6 +42,10 @@ fn trapReport(kind: trap.Trap, item: inst.Instruction, message: []const u8) trap
         .message = message,
         .hint = null,
     };
+    if (item.upstream_loc) |loc| {
+        const len = @min(report.upstream_file_buf.len, loc.file.len);
+        std.mem.copyForwards(u8, report.upstream_file_buf[0..len], loc.file[0..len]);
+    }
     if (item.raw_text.len != 0) {
         const len = @min(report.source_text_buf.len, item.raw_text.len);
         std.mem.copyForwards(u8, report.source_text_buf[0..len], item.raw_text[0..len]);
@@ -83,14 +87,14 @@ fn storeBase(raw_text: []const u8) ?[]const u8 {
     return trim(address[0..plus]);
 }
 
-fn requireGrant(item: inst.Instruction, grants: []const Grant, kind: GrantKind, message: []const u8) ?trap.TrapReport {
+fn requireGrant(item: anytype, grants: []const Grant, kind: GrantKind, message: []const u8) ?trap.TrapReport {
     if (!hasGrantKind(grants, kind)) {
         return trapReport(.db_capability_escalation, item, message);
     }
     return null;
 }
 
-fn scanInstruction(item: inst.Instruction, grants: []const Grant) ?trap.TrapReport {
+fn scanInstruction(item: anytype, grants: []const Grant) ?trap.TrapReport {
     switch (item.kind) {
         .load => {
             if (loadBase(item.raw_text) == null) return null;
@@ -127,7 +131,7 @@ fn scanInstruction(item: inst.Instruction, grants: []const Grant) ?trap.TrapRepo
     return null;
 }
 
-pub fn scanForTrap(instructions: []const inst.Instruction, grants: []const Grant) ?trap.TrapReport {
+pub fn scanForTrap(instructions: anytype, grants: []const Grant) ?trap.TrapReport {
     for (instructions) |item| {
         if (scanInstruction(item, grants)) |report| return report;
     }

@@ -748,6 +748,14 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         return true;
     }
 
+    if (startsWithWord(trimmed, "ret")) {
+        const rest = std.mem.trimLeft(u8, trimmed["ret".len..], " \t");
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .return_;
+        if (rest.len != 0) addPart(line, 0, rest);
+        return true;
+    }
+
     return false;
 }
 

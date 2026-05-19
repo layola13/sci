@@ -220,7 +220,7 @@ pub fn buildBrowserWasmFromSourceText(
                 allocator,
                 ll_path,
                 out_path,
-                .{ .triple = "wasm32-unknown-unknown", .no_entry = true },
+                .{ .triple = "wasm32-freestanding", .no_entry = true },
                 optimization,
                 debug,
                 stderr,

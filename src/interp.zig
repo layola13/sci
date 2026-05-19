@@ -1090,6 +1090,86 @@ fn intValue(value: RegValue, signed: bool) i128 {
         return try self.resolveTextOperand(frame_regs, arg.text);
     }
 
+    fn decodeBinaryValue(self: *Interpreter, ty: sig.PrimType, bytes: []const u8) !RegValue {
+        _ = self;
+        return switch (ty) {
+            .void => RunError.InvalidOperand,
+            .i1 => blk: {
+                if (bytes.len != 1) return RunError.InvalidOperand;
+                break :blk .{ .ty = .i1, .bits = @as(u64, bytes[0] & 1) };
+            },
+            .i8 => blk: {
+                if (bytes.len != 1) return RunError.InvalidOperand;
+                const buf: *const [1]u8 = @ptrCast(bytes.ptr);
+                break :blk try valueFromInt(.i8, @as(i128, std.mem.readInt(i8, buf, .little)));
+            },
+            .u8 => blk: {
+                if (bytes.len != 1) return RunError.InvalidOperand;
+                const buf: *const [1]u8 = @ptrCast(bytes.ptr);
+                break :blk try valueFromInt(.u8, @as(i128, std.mem.readInt(u8, buf, .little)));
+            },
+            .i16 => blk: {
+                if (bytes.len != 2) return RunError.InvalidOperand;
+                const buf: *const [2]u8 = @ptrCast(bytes.ptr);
+                break :blk try valueFromInt(.i16, @as(i128, std.mem.readInt(i16, buf, .little)));
+            },
+            .u16 => blk: {
+                if (bytes.len != 2) return RunError.InvalidOperand;
+                const buf: *const [2]u8 = @ptrCast(bytes.ptr);
+                break :blk try valueFromInt(.u16, @as(i128, std.mem.readInt(u16, buf, .little)));
+            },
+            .i32 => blk: {
+                if (bytes.len != 4) return RunError.InvalidOperand;
+                const buf: *const [4]u8 = @ptrCast(bytes.ptr);
+                break :blk try valueFromInt(.i32, @as(i128, std.mem.readInt(i32, buf, .little)));
+            },
+            .u32 => blk: {
+                if (bytes.len != 4) return RunError.InvalidOperand;
+                const buf: *const [4]u8 = @ptrCast(bytes.ptr);
+                break :blk try valueFromInt(.u32, @as(i128, std.mem.readInt(u32, buf, .little)));
+            },
+            .i64 => blk: {
+                if (bytes.len != 8) return RunError.InvalidOperand;
+                const buf: *const [8]u8 = @ptrCast(bytes.ptr);
+                break :blk try valueFromInt(.i64, @as(i128, std.mem.readInt(i64, buf, .little)));
+            },
+            .u64, .ptr, .blob_handle => blk: {
+                if (bytes.len != 8) return RunError.InvalidOperand;
+                const buf: *const [8]u8 = @ptrCast(bytes.ptr);
+                const raw = std.mem.readInt(u64, buf, .little);
+                break :blk .{ .ty = ty, .bits = raw };
+            },
+            .f32 => blk: {
+                if (bytes.len != 4) return RunError.InvalidOperand;
+                const buf: *const [4]u8 = @ptrCast(bytes.ptr);
+                const raw = std.mem.readInt(u32, buf, .little);
+                break :blk .{ .ty = .f32, .bits = @as(u64, raw) };
+            },
+            .f64 => blk: {
+                if (bytes.len != 8) return RunError.InvalidOperand;
+                const buf: *const [8]u8 = @ptrCast(bytes.ptr);
+                break :blk .{ .ty = .f64, .bits = std.mem.readInt(u64, buf, .little) };
+            },
+            .v128 => RunError.UnsupportedInstruction,
+        };
+    }
+
+    fn decodeBinaryArgs(self: *Interpreter, sig_index: usize, arg_blob: []const u8) ![]RegValue {
+        const fsig = self.program.function_sigs[sig_index];
+        var offset: usize = 0;
+        const out = try self.allocator.alloc(RegValue, fsig.params.len);
+        errdefer self.allocator.free(out);
+        for (fsig.params, 0..) |param, idx| {
+            const target_ty = valueTypeForPrefix(param.cap, param.ty);
+            const width = @as(usize, @intCast(sig.primTypeBytes(target_ty)));
+            if (offset + width > arg_blob.len) return RunError.InvalidOperand;
+            out[idx] = try self.decodeBinaryValue(target_ty, arg_blob[offset .. offset + width]);
+            offset += width;
+        }
+        if (offset != arg_blob.len) return RunError.InvalidOperand;
+        return out;
+    }
+
     fn parseImmediateValue(allocator: std.mem.Allocator, mem: *Memory, text: []const u8) !RegValue {
         _ = allocator;
         _ = mem;
@@ -1760,16 +1840,48 @@ fn intValue(value: RegValue, signed: bool) i128 {
     }
 };
 
+fn runPrepared(
+    interp: *Interpreter,
+    sig_index: usize,
+    arg_values: []const RegValue,
+) !u8 {
+    const result = interp.execFunction(sig_index, arg_values) catch |err| switch (err) {
+        error.UserExit => return interp.exit_code orelse 0,
+        else => return err,
+    };
+
+    if (interp.exit_code) |code| return code;
+    if (result.fallible) return @as(u8, @truncate(result.status));
+    return @as(u8, @truncate(result.bits));
+}
+
+pub fn runFunctionAtIndexWithBinaryArgs(
+    allocator: std.mem.Allocator,
+    program: *const referee.VerifyOk,
+    sig_index: usize,
+    arg_blob: []const u8,
+    stdout: std.io.AnyWriter,
+    stderr: std.io.AnyWriter,
+) !u8 {
+    if (program.function_sigs.len == 0) return 0;
+    if (sig_index >= program.function_sigs.len) return RunError.InvalidFunction;
+
+    var interp = try Interpreter.init(allocator, program, &.{}, stdout, stderr);
+    defer interp.deinit();
+
+    const args = try interp.decodeBinaryArgs(sig_index, arg_blob);
+    defer allocator.free(args);
+
+    return try runPrepared(&interp, sig_index, args);
+}
+
 pub fn runWithWriters(
     allocator: std.mem.Allocator,
     program: *const referee.VerifyOk,
     argv: []const []const u8,
     stdout: std.io.AnyWriter,
     stderr: std.io.AnyWriter,
-) !u8 {
-    var interp = try Interpreter.init(allocator, program, argv, stdout, stderr);
-    defer interp.deinit();
-
+    ) !u8 {
     const main_index = blk: {
         for (program.function_sigs, 0..) |fsig, idx| {
             if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main")) break :blk idx;
@@ -1778,17 +1890,13 @@ pub fn runWithWriters(
         return 0;
     };
 
+    var interp = try Interpreter.init(allocator, program, argv, stdout, stderr);
+    defer interp.deinit();
+
     const args = try allocator.alloc(RegValue, 0);
     defer allocator.free(args);
 
-    const result = interp.execFunction(main_index, args) catch |err| switch (err) {
-        error.UserExit => return interp.exit_code orelse 0,
-        else => return err,
-    };
-
-    if (interp.exit_code) |code| return code;
-    if (result.fallible) return @as(u8, @truncate(result.status));
-    return @as(u8, @truncate(result.bits));
+    return try runPrepared(&interp, main_index, args);
 }
 
 pub fn run(

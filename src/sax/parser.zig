@@ -11,7 +11,6 @@ pub const ParseError = error{
     InvalidHandler,
     DuplicateStateVar,
     DuplicateHandler,
-    MissingStateRelease,
     InvalidInterpolation,
     UnknownTag,
     UnknownEvent,
@@ -73,6 +72,11 @@ pub const Handler = struct {
     body: []const u8,
 };
 
+pub const BodyLine = struct {
+    line: u32,
+    text: []const u8,
+};
+
 pub const Component = struct {
     name: []const u8,
     state_vars: []StateVar,
@@ -80,6 +84,7 @@ pub const Component = struct {
     root_nodes: []usize,
     handlers: []Handler,
     release_vars: []const []const u8,
+    orphan_lines: []BodyLine,
 };
 
 pub const SaxProgram = struct {
@@ -235,7 +240,6 @@ fn parseTextPieces(allocator: std.mem.Allocator, raw_text: []const u8) ParseErro
         const close = std.mem.indexOfScalarPos(u8, trimmed, open + 1, '}') orelse return ParseError.InvalidInterpolation;
         const expr = trimText(trimmed[open + 1 .. close]);
         if (expr.len == 0) return ParseError.InvalidInterpolation;
-        if (std.mem.indexOfAny(u8, expr, "^!") != null) return ParseError.InvalidInterpolation;
         try pieces.append(.{ .interpolation = try allocator.dupe(u8, expr) });
         cursor = close + 1;
     }
@@ -249,7 +253,6 @@ fn parseAttrValue(allocator: std.mem.Allocator, text: []const u8) ParseError!Att
     if (trimmed[0] == '{' and trimmed[trimmed.len - 1] == '}') {
         const expr = trimText(trimmed[1 .. trimmed.len - 1]);
         if (expr.len == 0) return ParseError.InvalidInterpolation;
-        if (std.mem.indexOfAny(u8, expr, "^!") != null) return ParseError.InvalidInterpolation;
         return .{ .interpolation = try allocator.dupe(u8, expr) };
     }
     return .{ .literal = try allocator.dupe(u8, trimmed) };
@@ -344,6 +347,9 @@ const Parser = struct {
         var release_vars = std.ArrayList([]const u8).init(allocator);
         defer release_vars.deinit();
 
+        var orphan_lines = std.ArrayList(BodyLine).init(allocator);
+        defer orphan_lines.deinit();
+
         self.skipWhitespaceAndComments(pos);
         if (self.peekString(pos, "<state>")) {
             try self.parseStateBlock(allocator, pos, &state_vars, &state_names);
@@ -385,10 +391,13 @@ const Parser = struct {
                 try self.parseReleaseLines(allocator, pos, &release_vars);
                 continue;
             }
-            return ParseError.InvalidComponentBody;
-        }
 
-        if (state_vars.items.len != 0 and release_vars.items.len == 0) return ParseError.MissingStateRelease;
+            try orphan_lines.append(.{
+                .line = self.line,
+                .text = try allocator.dupe(u8, line),
+            });
+            self.advanceLine(pos);
+        }
 
         self.skipWhitespaceAndComments(pos);
         try self.expectString(pos, "</Component>");
@@ -398,15 +407,6 @@ const Parser = struct {
         defer node_aliases.deinit();
         for (dom_builder.nodes.items) |node| {
             _ = try node_aliases.put(node.alias, {});
-        }
-
-        // event bindings must target in-component handlers.
-        for (dom_builder.nodes.items) |node| {
-            for (node.attrs) |attr| {
-                if (!attr.is_event) continue;
-                const handler_name = attr.event_handler orelse return ParseError.InvalidEventName;
-                if (!handler_names.contains(handler_name)) return ParseError.UnknownEvent;
-            }
         }
 
         // releases must refer to declared state vars.
@@ -421,6 +421,7 @@ const Parser = struct {
             .root_nodes = try self.copyRootNodes(allocator, dom_builder.nodes.items, dom_text),
             .handlers = try handlers.toOwnedSlice(),
             .release_vars = try release_vars.toOwnedSlice(),
+            .orphan_lines = try orphan_lines.toOwnedSlice(),
         };
     }
 
@@ -690,7 +691,11 @@ const Parser = struct {
 
     fn advanceLine(self: *Parser, pos: *usize) void {
         while (pos.* < self.source.len and self.source[pos.*] != '\n') : (pos.* += 1) {}
-        if (pos.* < self.source.len and self.source[pos.*] == '\n') pos.* += 1;
+        if (pos.* < self.source.len and self.source[pos.*] == '\n') {
+            pos.* += 1;
+            self.line += 1;
+            self.col = 1;
+        }
         self.skipWhitespaceAndComments(pos);
     }
 
@@ -698,11 +703,20 @@ const Parser = struct {
         while (pos.* < self.source.len) {
             const ch = self.source[pos.*];
             if (ch == ' ' or ch == '\t' or ch == '\r' or ch == '\n') {
+                if (ch == '\n') {
+                    self.line += 1;
+                    self.col = 1;
+                }
                 pos.* += 1;
                 continue;
             }
             if (ch == '/' and pos.* + 1 < self.source.len and self.source[pos.* + 1] == '/') {
                 while (pos.* < self.source.len and self.source[pos.*] != '\n') : (pos.* += 1) {}
+                if (pos.* < self.source.len and self.source[pos.*] == '\n') {
+                    pos.* += 1;
+                    self.line += 1;
+                    self.col = 1;
+                }
                 continue;
             }
             break;

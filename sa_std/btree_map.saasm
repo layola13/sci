@@ -207,7 +207,7 @@ L_FIND_DONE:
 
 @btree_map_grow(&map: ptr) -> void:
 L_ENTRY:
-    old_entries = load map+BTreeMap_entries as ptr
+    old_entries = take map+BTreeMap_entries
     old_cap = load map+BTreeMap_cap as u64
     old_len = load map+BTreeMap_len as u64
     next_cap = add old_cap, old_cap
@@ -242,7 +242,7 @@ L_ENTRY:
 
 @export sa_btree_map_free(^map: ptr) -> void:
 L_ENTRY:
-    entries = load map+BTreeMap_entries as ptr
+    entries = take map+BTreeMap_entries
     !entries
     !map
     return
@@ -259,7 +259,7 @@ L_ENTRY:
     find_found_slot = stack_alloc 8
     value_off = add 0, 0
     value_entry = 0 as ptr
-    entries = load map+BTreeMap_entries as ptr
+    entries = take map+BTreeMap_entries
     len = load map+BTreeMap_len as u64
     call @btree_map_find(&entries, len, &key, &find_index_slot, &find_found_slot)
     find_index = load find_index_slot+0 as u64
@@ -298,7 +298,7 @@ L_GET_MISS:
 L_ENTRY:
     find_index_slot = stack_alloc 8
     find_found_slot = stack_alloc 8
-    entries = load map+BTreeMap_entries as ptr
+    entries = take map+BTreeMap_entries
     cap = load map+BTreeMap_cap as u64
     len = load map+BTreeMap_len as u64
     call @btree_map_find(&entries, len, &key, &find_index_slot, &find_found_slot)
@@ -333,7 +333,7 @@ L_INSERT_RELEASE:
     jmp L_INSERT_READY
 
 L_INSERT_READY:
-    entries2 = load map+BTreeMap_entries as ptr
+    entries2 = take map+BTreeMap_entries
     len2 = load map+BTreeMap_len as u64
     shift_slot = stack_alloc 8
     store shift_slot+0, len2 as u64
