@@ -1,0 +1,17 @@
+// SA-facing contracts for the Zig-backed sa_std.encoding.json module.
+// JSON documents and derived nodes are opaque owned ptr values and must be freed explicitly.
+// JSON stringification returns an owned byte buffer handle.
+@extern sa_json_parse(&json_bytes: ptr, len: u64) -> ^ptr!
+@extern sa_json_kind(node: ptr) -> u32
+@extern sa_json_object_get(node: ptr, &key: ptr, key_len: u64, &out_handle: ptr) -> i32!
+@extern sa_json_as_f64(node: ptr, &out_value: ptr) -> i32!
+@extern sa_json_as_i64(node: ptr, &out_value: ptr) -> i32!
+@extern sa_json_as_bool(node: ptr, &out_value: ptr) -> i32!
+@extern sa_json_string_ptr(node: ptr) -> &ptr
+@extern sa_json_string_len(node: ptr) -> u64
+@extern sa_json_value_count(node: ptr, &out_count: ptr) -> i32!
+@extern sa_json_free(^node: ptr) -> i32!
+@extern sa_json_stringify(node: ptr, &out_handle: ptr) -> i32!
+@extern sa_json_buffer_data(&buffer: ptr) -> &ptr
+@extern sa_json_buffer_len(&buffer: ptr) -> u64
+@extern sa_json_buffer_free(^buffer: ptr) -> i32!

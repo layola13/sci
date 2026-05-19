@@ -25,6 +25,16 @@ extern "C" {
 #define SA_STD_STDOUT 2ull
 #define SA_STD_STDERR 3ull
 
+#define SA_JSON_KIND_INVALID 4294967295u
+#define SA_JSON_KIND_NULL 0u
+#define SA_JSON_KIND_BOOL 1u
+#define SA_JSON_KIND_INTEGER 2u
+#define SA_JSON_KIND_FLOAT 3u
+#define SA_JSON_KIND_NUMBER_STRING 4u
+#define SA_JSON_KIND_STRING 5u
+#define SA_JSON_KIND_ARRAY 6u
+#define SA_JSON_KIND_OBJECT 7u
+
 typedef struct SaIoBuffer {
     uint8_t *ptr;
     uint64_t len;
@@ -87,6 +97,22 @@ uint64_t sa_io_stderr(void);
 
 int32_t sa_std_print(const uint8_t *data, uint64_t len);
 int32_t sa_std_println(const uint8_t *data, uint64_t len);
+
+uint64_t sa_json_parse(const uint8_t *json_bytes, uint64_t len);
+uint32_t sa_json_kind(uint64_t node);
+int32_t sa_json_object_get(uint64_t node, const uint8_t *key, uint64_t key_len, uint64_t *out_handle);
+int32_t sa_json_as_f64(uint64_t node, double *out_value);
+int32_t sa_json_as_i64(uint64_t node, int64_t *out_value);
+int32_t sa_json_as_bool(uint64_t node, uint8_t *out_value);
+const uint8_t *sa_json_string_ptr(uint64_t node);
+uint64_t sa_json_string_len(uint64_t node);
+int32_t sa_json_value_count(uint64_t node, uint64_t *out_count);
+int32_t sa_json_free(uint64_t node);
+int32_t sa_json_stringify(uint64_t node, uint64_t *out_handle);
+uint8_t *sa_json_buffer_data(uint64_t buffer);
+uint64_t sa_json_buffer_len(uint64_t buffer);
+int32_t sa_json_buffer_free(uint64_t buffer);
+
 int32_t sa_std_write(uint64_t handle, const uint8_t *data, uint64_t len, uint64_t *out_written);
 int32_t sa_std_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_std_close(uint64_t handle);

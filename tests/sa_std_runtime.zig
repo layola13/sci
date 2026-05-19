@@ -521,6 +521,140 @@ test "sa_std fmt and process exports are usable from C" {
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std fmt/process ok"));
 }
 
+
+
+test "sa_std json exports are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\
+        \\#include <stdio.h>
+        \\
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t json[] = "{\"name\":\"sci\",\"count\":7,\"active\":true,\"nested\":[1,2,3]}";
+        \\    const uint8_t key_name[] = "name";
+        \\    const uint8_t key_count[] = "count";
+        \\    const uint8_t key_active[] = "active";
+        \\    const uint8_t key_nested[] = "nested";
+        \\    const uint8_t needle[] = "\"name\":\"sci\"";
+        \\    uint64_t root = 0;
+        \\    uint64_t child = 0;
+        \\    uint64_t buffer = 0;
+        \\    uint64_t count = 0;
+        \\    double count_f64 = 0.0;
+        \\    int64_t count_i64 = 0;
+        \\    uint8_t active = 0;
+        \\    uint8_t found = 0;
+        \\    uint32_t kind = 0;
+        \\    const uint8_t *name_ptr = NULL;
+        \\    uint64_t name_len = 0;
+        \\    const uint8_t *json_text = NULL;
+        \\    uint64_t json_len = 0;
+        \\
+        \\    root = sa_json_parse(json, sizeof(json) - 1);
+        \\    if (root == 0) return 2;
+        \\    kind = sa_json_kind(root);
+        \\    if (kind != SA_JSON_KIND_OBJECT) return 3;
+        \\
+        \\    if (sa_json_object_get(root, key_name, sizeof(key_name) - 1, &child) != SA_STD_OK) return 4;
+        \\    if (child == 0) return 5;
+        \\    kind = sa_json_kind(child);
+        \\    if (kind != SA_JSON_KIND_STRING) return 6;
+        \\    name_ptr = sa_json_string_ptr(child);
+        \\    name_len = sa_json_string_len(child);
+        \\    if (name_ptr == NULL || name_len != 3 || memcmp(name_ptr, "sci", 3) != 0) return 7;
+        \\    if (sa_json_free(child) != SA_STD_OK) return 8;
+        \\
+        \\    if (sa_json_object_get(root, key_count, sizeof(key_count) - 1, &child) != SA_STD_OK) return 9;
+        \\    if (sa_json_as_f64(child, &count_f64) != SA_STD_OK) return 10;
+        \\    if (sa_json_as_i64(child, &count_i64) != SA_STD_OK) return 11;
+        \\    if (count_f64 != 7.0 || count_i64 != 7) return 12;
+        \\    if (sa_json_free(child) != SA_STD_OK) return 13;
+        \\
+        \\    if (sa_json_object_get(root, key_active, sizeof(key_active) - 1, &child) != SA_STD_OK) return 14;
+        \\    if (sa_json_as_bool(child, &active) != SA_STD_OK) return 15;
+        \\    if (active != 1) return 16;
+        \\    if (sa_json_free(child) != SA_STD_OK) return 17;
+        \\
+        \\    if (sa_json_object_get(root, key_nested, sizeof(key_nested) - 1, &child) != SA_STD_OK) return 18;
+        \\    if (sa_json_value_count(child, &count) != SA_STD_OK) return 19;
+        \\    if (count != 3) return 20;
+        \\    if (sa_json_free(child) != SA_STD_OK) return 21;
+        \\
+        \\    if (sa_json_stringify(root, &buffer) != SA_STD_OK) return 22;
+        \\    if (buffer == 0) return 23;
+        \\    json_text = sa_json_buffer_data(buffer);
+        \\    json_len = sa_json_buffer_len(buffer);
+        \\    if (json_text == NULL || json_len == 0) return 24;
+        \\    if (json_len < sizeof(needle) - 1) return 25;
+        \\    for (uint64_t i = 0; i + (uint64_t)(sizeof(needle) - 1) <= json_len; ++i) {
+        \\        if (memcmp(json_text + i, needle, sizeof(needle) - 1) == 0) {
+        \\            found = 1;
+        \\            break;
+        \\        }
+        \\    }
+        \\    if (!found) return 25;
+        \\    if (sa_json_buffer_free(buffer) != SA_STD_OK) return 26;
+        \\
+        \\    if (sa_json_free(root) != SA_STD_OK) return 27;
+        \\    puts("sa_std json ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "json.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "json.c",
+        "libsa_std.a",
+        "-o",
+        "sa_std_json_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_json_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std json ok"));
+}
+
 test "sa_std time exports are usable from C" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

@@ -253,13 +253,149 @@ L_ENTRY:
     !map
     return len
 
+@export sa_btree_map_is_empty(&map: ptr) -> i32:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    empty = eq len, 0
+    result = empty as i32
+    !len
+    !map
+    return result
+
+@export sa_btree_map_contains_key(&map: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    find_index_slot = stack_alloc 8
+    find_found_slot = stack_alloc 8
+    entries = load map+BTreeMap_entries as ptr
+    len = load map+BTreeMap_len as u64
+    call @btree_map_find(&entries, len, &key, &find_index_slot, &find_found_slot)
+    found = load find_found_slot+0 as u64
+    present = ne found, 0
+    result = present as i32
+    !found
+    !len
+    !key
+    !entries
+    !map
+    return result
+
+@export sa_btree_map_clear(&map: ptr) -> void:
+L_ENTRY:
+    entries = load map+BTreeMap_entries as ptr
+    cap = load map+BTreeMap_cap as u64
+    bytes = mul cap, BTreeMapEntry_SIZE
+    has_entries = ne entries, 0
+    br has_entries -> L_CLEAR_ENTRIES, L_CLEAR_DONE
+
+L_CLEAR_ENTRIES:
+    call @sa_mem_set(&entries, 0, bytes)
+    jmp L_CLEAR_DONE
+
+L_CLEAR_DONE:
+    store map+BTreeMap_len, 0 as u64
+    !bytes
+    !has_entries
+    !cap
+    !entries
+    !map
+    return
+
+@export sa_btree_map_remove(&map: ptr, &key: ptr) -> u64:
+L_ENTRY:
+    find_index_slot = stack_alloc 8
+    find_found_slot = stack_alloc 8
+    entries = load map+BTreeMap_entries as ptr
+    len = load map+BTreeMap_len as u64
+    call @btree_map_find(&entries, len, &key, &find_index_slot, &find_found_slot)
+    find_index = load find_index_slot+0 as u64
+    found = load find_found_slot+0 as u64
+    is_found = ne found, 0
+    br is_found -> L_REMOVE_HIT, L_REMOVE_MISS
+
+L_REMOVE_HIT:
+    remove_off = mul find_index, BTreeMapEntry_SIZE
+    remove_entry = ptr_add entries, remove_off
+    removed_value = load remove_entry+BTreeMapEntry_value as u64
+    removed_value_slot = stack_alloc 8
+    store removed_value_slot+0, removed_value as u64
+    last_index = sub len, 1
+    shift_slot = stack_alloc 8
+    store shift_slot+0, find_index as u64
+    jmp L_REMOVE_SHIFT_LOOP
+
+L_REMOVE_SHIFT_LOOP:
+    shift_idx = load shift_slot+0 as u64
+    needs_shift = ult shift_idx, last_index
+    br needs_shift -> L_REMOVE_SHIFT_BODY, L_REMOVE_DONE
+
+L_REMOVE_SHIFT_BODY:
+    next_idx = add shift_idx, 1
+    src_off = mul next_idx, BTreeMapEntry_SIZE
+    dst_off = mul shift_idx, BTreeMapEntry_SIZE
+    src_entry = ptr_add entries, src_off
+    dst_entry = ptr_add entries, dst_off
+    src_key_ptr = load src_entry+BTreeMapEntry_key_ptr as ptr
+    src_key_len = load src_entry+BTreeMapEntry_key_len as u64
+    src_value = load src_entry+BTreeMapEntry_value as u64
+    store dst_entry+BTreeMapEntry_key_ptr, src_key_ptr as ptr
+    store dst_entry+BTreeMapEntry_key_len, src_key_len as u64
+    store dst_entry+BTreeMapEntry_value, src_value as u64
+    next_shift = add shift_idx, 1
+    store shift_slot+0, next_shift as u64
+    !src_value
+    !src_key_len
+    !src_key_ptr
+    !dst_entry
+    !src_entry
+    !dst_off
+    !src_off
+    !next_idx
+    !next_shift
+    !shift_idx
+    !needs_shift
+    jmp L_REMOVE_SHIFT_LOOP
+
+L_REMOVE_DONE:
+    last_off = mul last_index, BTreeMapEntry_SIZE
+    last_entry = ptr_add entries, last_off
+    store last_entry+BTreeMapEntry_key_ptr, 0 as ptr
+    store last_entry+BTreeMapEntry_key_len, 0 as u64
+    store last_entry+BTreeMapEntry_value, 0 as u64
+    next_len = sub len, 1
+    store map+BTreeMap_len, next_len as u64
+    !last_entry
+    !last_off
+    !next_len
+    !last_index
+    !remove_entry
+    !remove_off
+    !is_found
+    !found
+    !find_index
+    !len
+    !entries
+    !key
+    !map
+    removed_value2 = load removed_value_slot+0 as u64
+    return removed_value2
+
+L_REMOVE_MISS:
+    !is_found
+    !found
+    !find_index
+    !len
+    !entries
+    !key
+    !map
+    return 0
+
 @export sa_btree_map_get(&map: ptr, &key: ptr) -> u64:
 L_ENTRY:
     find_index_slot = stack_alloc 8
     find_found_slot = stack_alloc 8
     value_off = add 0, 0
     value_entry = 0 as ptr
-    entries = take map+BTreeMap_entries
+    entries = load map+BTreeMap_entries as ptr
     len = load map+BTreeMap_len as u64
     call @btree_map_find(&entries, len, &key, &find_index_slot, &find_found_slot)
     find_index = load find_index_slot+0 as u64
@@ -298,7 +434,7 @@ L_GET_MISS:
 L_ENTRY:
     find_index_slot = stack_alloc 8
     find_found_slot = stack_alloc 8
-    entries = take map+BTreeMap_entries
+    entries = load map+BTreeMap_entries as ptr
     cap = load map+BTreeMap_cap as u64
     len = load map+BTreeMap_len as u64
     call @btree_map_find(&entries, len, &key, &find_index_slot, &find_found_slot)
@@ -326,14 +462,20 @@ L_INSERT_NEED_GROW:
     br len_is_cap -> L_INSERT_GROW, L_INSERT_RELEASE
 
 L_INSERT_GROW:
+    !entries
+    !len
+    !cap
     call @btree_map_grow(&map)
     jmp L_INSERT_READY
 
 L_INSERT_RELEASE:
+    !entries
+    !len
+    !cap
     jmp L_INSERT_READY
 
 L_INSERT_READY:
-    entries2 = take map+BTreeMap_entries
+    entries2 = load map+BTreeMap_entries as ptr
     len2 = load map+BTreeMap_len as u64
     shift_slot = stack_alloc 8
     store shift_slot+0, len2 as u64
@@ -387,9 +529,6 @@ L_INSERT_WRITE:
     !insert_off
     !entries2
     !len2
-    !len_is_cap
-    !cap
-    !len
     !value
     !key
     !find_index
@@ -408,8 +547,24 @@ L_INSERT_WRITE:
     %out_len = call @sa_btree_map_len(&%map_reg)
 [END_MACRO]
 
+[MACRO] BTREE_MAP_IS_EMPTY %out_flag, %map_reg
+    %out_flag = call @sa_btree_map_is_empty(&%map_reg)
+[END_MACRO]
+
 [MACRO] BTREE_MAP_GET %out_value, %map_reg, %key_reg
     %out_value = call @sa_btree_map_get(&%map_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_CONTAINS_KEY %out_flag, %map_reg, %key_reg
+    %out_flag = call @sa_btree_map_contains_key(&%map_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_CLEAR %map_reg
+    call @sa_btree_map_clear(&%map_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_REMOVE %out_value, %map_reg, %key_reg
+    %out_value = call @sa_btree_map_remove(&%map_reg, &%key_reg)
 [END_MACRO]
 
 [MACRO] BTREE_MAP_INSERT %map_reg, %key_reg, %value

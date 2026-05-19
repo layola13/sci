@@ -291,6 +291,25 @@ test "sa_std alloc helpers are concrete and verifiable" {
     }
 }
 
+test "sa_std json helpers are concrete and verifiable" {
+    const json_layout = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm-layout");
+    defer std.testing.allocator.free(json_layout);
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_KIND_OBJECT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_KIND_NULL"));
+
+    const json_iface = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm-iface");
+    defer std.testing.allocator.free(json_iface);
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_parse"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stringify"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_buffer_free"));
+
+    const json_src = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm");
+    defer std.testing.allocator.free(json_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.saasm-iface\""));
+}
+
 test "sa_std time helpers are concrete and verifiable" {
     const time_layout = try readFileAlloc(std.testing.allocator, "sa_std/time.saasm-layout");
     defer std.testing.allocator.free(time_layout);
@@ -1511,11 +1530,19 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_contains_key"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_clear"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_remove"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_insert"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_CONTAINS_KEY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_CLEAR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_REMOVE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_INSERT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_FREE"));
 
@@ -1527,14 +1554,14 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     };
     defer btree_flat.deinit(std.testing.allocator);
     try std.testing.expect(btree_flat.instructions.len > 0);
-    try std.testing.expectEqual(@as(usize, 12), btree_flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 16), btree_flat.function_sigs.len);
 
     const btree_verified = try saasm.referee.verify(std.testing.allocator, btree_flat.instructions, btree_flat.const_decls);
     switch (btree_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 12), owned.function_sigs.len);
+            try std.testing.expectEqual(@as(usize, 16), owned.function_sigs.len);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -1573,23 +1600,54 @@ test "sa_std btree_map helpers are concrete and verifiable" {
         \\    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
         \\    EXPAND SLICE_NEW lookup, &KEY_ALPHA, 5
         \\    EXPAND BTREE_MAP_NEW map
+        \\    EXPAND BTREE_MAP_IS_EMPTY empty0, map
         \\    EXPAND BTREE_MAP_INSERT map, bravo, 2
         \\    EXPAND BTREE_MAP_INSERT map, alpha, 1
         \\    EXPAND BTREE_MAP_INSERT map, lookup, 3
+        \\    EXPAND BTREE_MAP_CONTAINS_KEY has_alpha, map, alpha
+        \\    EXPAND BTREE_MAP_CONTAINS_KEY has_lookup, map, lookup
         \\    value_alpha = call @sa_btree_map_get(&map, &alpha)
         \\    value_bravo = call @sa_btree_map_get(&map, &bravo)
+        \\    removed_alpha = call @sa_btree_map_remove(&map, &alpha)
+        \\    EXPAND BTREE_MAP_CONTAINS_KEY has_alpha_after, map, alpha
         \\    len = call @sa_btree_map_len(&map)
+        \\    EXPAND BTREE_MAP_CLEAR map
+        \\    EXPAND BTREE_MAP_IS_EMPTY empty1, map
         \\    ok_alpha = eq value_alpha, 3
         \\    ok_bravo = eq value_bravo, 2
-        \\    ok_len = eq len, 2
+        \\    ok_removed = ne removed_alpha, 0
+        \\    ok_len = eq len, 1
+        \\    ok_empty0 = eq empty0, 1
+        \\    ok_empty1 = eq empty1, 1
+        \\    ok_has_alpha = eq has_alpha, 1
+        \\    ok_has_lookup = eq has_lookup, 1
+        \\    ok_has_alpha_after = eq has_alpha_after, 0
         \\    ok01 = and ok_alpha, ok_bravo
-        \\    ok = and ok01, ok_len
+        \\    ok02 = and ok01, ok_removed
+        \\    ok03 = and ok02, ok_len
+        \\    ok04 = and ok03, ok_empty0
+        \\    ok05 = and ok04, ok_empty1
+        \\    ok06 = and ok05, ok_has_alpha
+        \\    ok07 = and ok06, ok_has_lookup
+        \\    ok = and ok07, ok_has_alpha_after
+        \\    !ok_has_alpha_after
+        \\    !ok_has_lookup
+        \\    !ok_has_alpha
+        \\    !ok_empty1
+        \\    !ok_empty0
         \\    !ok_len
+        \\    !ok_removed
         \\    !ok_bravo
         \\    !ok_alpha
         \\    !len
         \\    !value_bravo
         \\    !value_alpha
+        \\    !empty1
+        \\    !empty0
+        \\    !removed_alpha
+        \\    !has_alpha_after
+        \\    !has_lookup
+        \\    !has_alpha
         \\    !lookup
         \\    !bravo
         \\    !alpha
@@ -1611,7 +1669,7 @@ test "sa_std btree_map helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 13), owned.function_sigs.len);
+            try std.testing.expectEqual(@as(usize, 17), owned.function_sigs.len);
         },
         .trap => |report| {
             std.debug.print("btree_map fixture verifier trap: {s}\n", .{report.message});
@@ -1619,7 +1677,6 @@ test "sa_std btree_map helpers are concrete and verifiable" {
         },
     }
 }
-
 test "sa_std sort helpers are concrete and verifiable" {
     const sort_src = try readFileAlloc(std.testing.allocator, "sa_std/sort.saasm");
     defer std.testing.allocator.free(sort_src);

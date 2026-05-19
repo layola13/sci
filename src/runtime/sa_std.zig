@@ -19,6 +19,16 @@ pub const SA_STD_STDIN: u64 = 1;
 pub const SA_STD_STDOUT: u64 = 2;
 pub const SA_STD_STDERR: u64 = 3;
 
+pub const SA_JSON_KIND_INVALID: u32 = std.math.maxInt(u32);
+pub const SA_JSON_KIND_NULL: u32 = 0;
+pub const SA_JSON_KIND_BOOL: u32 = 1;
+pub const SA_JSON_KIND_INTEGER: u32 = 2;
+pub const SA_JSON_KIND_FLOAT: u32 = 3;
+pub const SA_JSON_KIND_NUMBER_STRING: u32 = 4;
+pub const SA_JSON_KIND_STRING: u32 = 5;
+pub const SA_JSON_KIND_ARRAY: u32 = 6;
+pub const SA_JSON_KIND_OBJECT: u32 = 7;
+
 const FIRST_DYNAMIC_HANDLE: u64 = 4;
 const DEFAULT_CAPTURE_LIMIT: usize = 50 * 1024;
 
@@ -101,6 +111,165 @@ const FmtHandle = struct {
         self.bytes = &.{};
     }
 };
+
+const JsonDocumentHandle = struct {
+    allocator: std.mem.Allocator,
+    parsed: std.json.Parsed(std.json.Value),
+    ref_count: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+
+    fn retain(self: *JsonDocumentHandle) void {
+        _ = self.ref_count.fetchAdd(1, .monotonic);
+    }
+
+    fn release(self: *JsonDocumentHandle) void {
+        if (self.ref_count.fetchSub(1, .release) == 1) {
+            _ = self.ref_count.load(.acquire);
+            self.parsed.deinit();
+            self.allocator.destroy(self);
+        }
+    }
+};
+
+const JsonNodeHandle = struct {
+    document: *JsonDocumentHandle,
+    value: std.json.Value,
+
+    fn deinit(self: *JsonNodeHandle) void {
+        self.document.release();
+    }
+};
+
+const JsonBufferHandle = struct {
+    allocator: std.mem.Allocator,
+    bytes: []u8,
+
+    fn deinit(self: *JsonBufferHandle) void {
+        if (self.bytes.len != 0) self.allocator.free(self.bytes);
+        self.bytes = &.{};
+    }
+};
+
+fn jsonKindOf(value: std.json.Value) u32 {
+    return switch (value) {
+        .null => SA_JSON_KIND_NULL,
+        .bool => SA_JSON_KIND_BOOL,
+        .integer => SA_JSON_KIND_INTEGER,
+        .float => SA_JSON_KIND_FLOAT,
+        .number_string => SA_JSON_KIND_NUMBER_STRING,
+        .string => SA_JSON_KIND_STRING,
+        .array => SA_JSON_KIND_ARRAY,
+        .object => SA_JSON_KIND_OBJECT,
+    };
+}
+
+fn jsonTextSlice(value: std.json.Value) ?[]const u8 {
+    return switch (value) {
+        .string => |text| text,
+        .number_string => |text| text,
+        else => null,
+    };
+}
+
+fn jsonValueAsF64(value: std.json.Value) !f64 {
+    return switch (value) {
+        .integer => |inner| @as(f64, @floatFromInt(inner)),
+        .float => |inner| {
+            if (!std.math.isFinite(inner)) return error.InvalidArgument;
+            return inner;
+        },
+        .number_string => |text| blk: {
+            const parsed = std.fmt.parseFloat(f64, text) catch return error.InvalidArgument;
+            if (!std.math.isFinite(parsed)) break :blk error.InvalidArgument;
+            break :blk parsed;
+        },
+        else => error.InvalidArgument,
+    };
+}
+
+fn jsonValueAsI64(value: std.json.Value) !i64 {
+    return switch (value) {
+        .integer => |inner| inner,
+        .float => |inner| blk: {
+            if (!std.math.isFinite(inner)) break :blk error.InvalidArgument;
+            if (@round(inner) != inner) break :blk error.InvalidArgument;
+            if (inner > @as(f64, @floatFromInt(std.math.maxInt(i64)))) break :blk error.InvalidArgument;
+            if (inner < @as(f64, @floatFromInt(std.math.minInt(i64)))) break :blk error.InvalidArgument;
+            break :blk @as(i64, @intFromFloat(inner));
+        },
+        .number_string => |text| std.fmt.parseInt(i64, text, 10) catch |err| switch (err) {
+            error.Overflow, error.InvalidCharacter => return error.InvalidArgument,
+        },
+        else => error.InvalidArgument,
+    };
+}
+
+fn jsonValueAsBool(value: std.json.Value) !bool {
+    return switch (value) {
+        .bool => |inner| inner,
+        else => error.InvalidArgument,
+    };
+}
+
+fn registerJsonNode(document: *JsonDocumentHandle, value: std.json.Value, retain_document: bool) !u64 {
+    if (retain_document) document.retain();
+    return registerResource(.{ .json_node = .{ .document = document, .value = value } }) catch |err| {
+        document.release();
+        return err;
+    };
+}
+
+fn acquireJsonNode(handle: u64) !JsonNodeHandle {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
+    return switch (resource.*) {
+        .json_node => |node| blk: {
+            node.document.retain();
+            break :blk node;
+        },
+        else => error.InvalidHandle,
+    };
+}
+
+fn jsonDocumentFromSlice(allocator: std.mem.Allocator, input: []const u8) !*JsonDocumentHandle {
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, input, .{});
+    errdefer parsed.deinit();
+    const document = try allocator.create(JsonDocumentHandle);
+    document.* = .{
+        .allocator = allocator,
+        .parsed = parsed,
+        .ref_count = std.atomic.Value(usize).init(1),
+    };
+    return document;
+}
+
+fn jsonObjectGet(node: JsonNodeHandle, key: []const u8) !JsonNodeHandle {
+    return switch (node.value) {
+        .object => |object| {
+            const child = object.get(key) orelse return error.FileNotFound;
+            return .{
+                .document = node.document,
+                .value = child,
+            };
+        },
+        else => error.InvalidHandle,
+    };
+}
+
+fn jsonStringifyAlloc(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
+    var list = std.ArrayList(u8).init(allocator);
+    errdefer list.deinit();
+    try std.json.stringify(value, .{}, list.writer());
+    return try list.toOwnedSlice();
+}
+
+fn jsonSerializeBuffer(allocator: std.mem.Allocator, value: std.json.Value) !u64 {
+    const bytes = try jsonStringifyAlloc(allocator, value);
+    return registerResource(.{ .json_buffer = .{ .allocator = allocator, .bytes = bytes } }) catch |err| {
+        allocator.free(bytes);
+        return err;
+    };
+}
 
 const EnvHandle = struct {
     allocator: std.mem.Allocator,
@@ -211,6 +380,8 @@ const Resource = union(enum) {
     net_addr: NetAddrHandle,
     fmt: FmtHandle,
     env: EnvHandle,
+    json_node: JsonNodeHandle,
+    json_buffer: JsonBufferHandle,
     owned_fd: OwnedFdHandle,
     terminal_session: TerminalSession,
     process: ProcessHandle,
@@ -226,6 +397,8 @@ const Resource = union(enum) {
             .net_addr => |*addr| addr.deinit(),
             .fmt => |*fmt| fmt.deinit(),
             .env => |*env| env.deinit(),
+            .json_node => |*node| node.deinit(),
+            .json_buffer => |*buffer| buffer.deinit(),
             .owned_fd => |*fd| fd.deinit(),
             .terminal_session => |*session| try session.deinit(),
             .process => |*proc| proc.deinit(),
@@ -260,6 +433,18 @@ fn mapError(err: anyerror) i32 {
         error.FileDescriptorAlreadyPresentInSet, error.OperationCausesCircularLoop => SA_STD_ERR_INVALID_ARGUMENT,
         error.FileDescriptorNotRegistered => SA_STD_ERR_INVALID_HANDLE,
         error.FileDescriptorIncompatibleWithEpoll => SA_STD_ERR_UNSUPPORTED,
+        error.SyntaxError,
+        error.UnexpectedEndOfInput,
+        error.UnexpectedToken,
+        error.InvalidNumber,
+        error.DuplicateField,
+        error.UnknownField,
+        error.MissingField,
+        error.LengthMismatch,
+        error.InvalidEnumTag,
+        error.ValueTooLong,
+        error.BufferUnderrun,
+        => SA_STD_ERR_INVALID_ARGUMENT,
         error.AlreadyConnected,
         error.ConnectionPending,
         error.SocketNotConnected,
@@ -866,11 +1051,17 @@ fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
 }
 
 fn openOwnedBuffer(bytes: []u8) !u64 {
-    return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } });
+    return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return err;
+    };
 }
 
 fn openOwnedEnvBuffer(bytes: []u8) !u64 {
-    return registerResource(.{ .env = .{ .allocator = std.heap.page_allocator, .bytes = bytes } });
+    return registerResource(.{ .env = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return err;
+    };
 }
 
 fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
@@ -948,6 +1139,130 @@ pub export fn sa_std_println(data: ?[*]const u8, len: u64) i32 {
     std.io.getStdOut().writeAll(bytes) catch |err| return finishErr(err);
     std.io.getStdOut().writeAll("\n") catch |err| return finishErr(err);
     return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_parse(json_bytes: ?[*]const u8, len: u64) u64 {
+    const input = constBytes(json_bytes, len) catch return 0;
+    const document = jsonDocumentFromSlice(std.heap.page_allocator, input) catch return 0;
+    return registerJsonNode(document, document.parsed.value, false) catch return 0;
+}
+
+pub export fn sa_json_kind(node: u64) u32 {
+    var node_value = acquireJsonNode(node) catch return SA_JSON_KIND_INVALID;
+    defer node_value.deinit();
+    return jsonKindOf(node_value.value);
+}
+
+pub export fn sa_json_object_get(node: u64, key_ptr: ?[*]const u8, key_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const child = jsonObjectGet(node_value, key) catch |err| return finishErr(err);
+    const handle = registerJsonNode(child.document, child.value, true) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_as_f64(node: u64, out_value: ?*f64) i32 {
+    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    value_ptr.* = 0;
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const parsed = jsonValueAsF64(node_value.value) catch |err| return finishErr(err);
+    value_ptr.* = parsed;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_as_i64(node: u64, out_value: ?*i64) i32 {
+    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    value_ptr.* = 0;
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const parsed = jsonValueAsI64(node_value.value) catch |err| return finishErr(err);
+    value_ptr.* = parsed;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_as_bool(node: u64, out_value: ?*u8) i32 {
+    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    value_ptr.* = 0;
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const parsed = jsonValueAsBool(node_value.value) catch |err| return finishErr(err);
+    value_ptr.* = if (parsed) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_string_ptr(node: u64) ?[*]const u8 {
+    var node_value = acquireJsonNode(node) catch return null;
+    defer node_value.deinit();
+    return if (jsonTextSlice(node_value.value)) |text| text.ptr else null;
+}
+
+pub export fn sa_json_string_len(node: u64) u64 {
+    var node_value = acquireJsonNode(node) catch return 0;
+    defer node_value.deinit();
+    return if (jsonTextSlice(node_value.value)) |text| @as(u64, @intCast(text.len)) else 0;
+}
+
+pub export fn sa_json_value_count(node: u64, out_count: ?*u64) i32 {
+    const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    count_ptr.* = 0;
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    return switch (node_value.value) {
+        .array => |array| {
+            count_ptr.* = @as(u64, @intCast(array.items.len));
+            return finish(SA_STD_OK);
+        },
+        .object => |object| {
+            count_ptr.* = @as(u64, @intCast(object.count()));
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_ARGUMENT),
+    };
+}
+
+pub export fn sa_json_free(node: u64) i32 {
+    return sa_std_close(node);
+}
+
+pub export fn sa_json_stringify(node: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const handle = jsonSerializeBuffer(std.heap.page_allocator, node_value.value) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+
+pub export fn sa_json_buffer_data(buffer: u64) ?[*]u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(buffer) orelse return null;
+    return switch (resource.*) {
+        .json_buffer => |*json_buffer| json_buffer.bytes.ptr,
+        else => null,
+    };
+}
+
+pub export fn sa_json_buffer_len(buffer: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(buffer) orelse return 0;
+    return switch (resource.*) {
+        .json_buffer => |json_buffer| @as(u64, @intCast(json_buffer.bytes.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_json_buffer_free(buffer: u64) i32 {
+    return sa_std_close(buffer);
 }
 
 pub export fn sa_time_instant_ns() u64 {
