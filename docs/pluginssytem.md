@@ -162,3 +162,29 @@ return 0;
    - 验证独立测试：`zig build test-package`, `zig build test-sax` 等。
    - 验证主线测试：`zig build test`。
    - 行为一致性校验：手工执行 `sci sax`, `sci db`, `sci fetch`, `sci llvm2sa`，确保使用体验毫无破坏。
+
+## 架构边界说明：Plugin vs Package vs 标准库
+
+为了保证系统长期的清晰度，我们需要明确不同“扩展”机制之间的严格边界：
+
+### 1. 为什么标准库 (std) 不作为插件？
+- **依赖级别：** 标准库（`sa_std`）是语言运行时的**核心基础设施**。编译器在编译代码时，必定需要知道标准库的布局和签名。
+- **构建机制：** 它不应该实现 `init` / `prebuild` 等应用层 CLI 钩子。它的独立编译应当通过 `build.zig` 作为一个独立的静态库或 Module (构建产物) 来解耦，而不是作为 `plugins.zig` 中的命令行插件。
+
+### 2. Playground 适合作为插件吗？
+- **极度适合。** Playground 作为一个本地轻量级 Web Server 兼编辑器提供者，其网络和伺服逻辑与 SA 核心编译管线毫无关联。
+- 它可以作为一个完全独立的子命令（如 `sci playground`）。通过将其做成插件，在生产环境或无界面的 CI/CD 构建中，我们可以完全在 `build_options` 中剥离 Playground 插件，减小二进制体积，提升安全性。
+
+### 3. Plugin（插件系统）与 Package（包管理系统）的联系与区别
+这是两个极易混淆的概念，它们运作在完全不同的维度：
+
+| 维度 | Plugin 系统 (如 `src/plugins.zig`) | Package 系统 (如 `saasm fetch`) |
+| :--- | :--- | :--- |
+| **扩展对象** | 扩展 **编译器 CLI 工具本身** (`sci` 宿主程序) | 扩展 **用户编写的 SA 业务代码** |
+| **运行时机** | **编译期 / CLI 启动时** (拦截命令、注入 Hook) | **运行期 / 代码展开时** (用户代码 import) |
+| **语言实现** | **Zig 代码**，与编译器核心静态编译到一起 | **SA 代码 (`.saasm`)** 或纯数据 |
+| **注册机制** | **静态/硬编码 (Comptime)：** 需在 `build.zig` 中声明并重新编译 | **动态/网络拉取：** 运行时动态拉取解析 `manifest.zig` |
+| **类比参考** | 类似 Webpack Plugins 或 `cargo-fmt` | 类似 npm `dependencies` 或 Cargo.toml 库 |
+
+**它们的协同工作：**
+“包管理器”功能的本身（即解析配置、下载代码的工具），是由 **Package Plugin (包管理插件)** 来提供支持的。换句话说，Plugin 系统通过向 CLI 注入能力，支撑起了整个 Package 系统的运作。

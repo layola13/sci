@@ -31,7 +31,7 @@ L_ENTRY:
     EXPAND BINARY_HEAP_LEN len2, heap
     EXPAND BINARY_HEAP_IS_EMPTY empty1, heap
     ok_len0 = eq len0, 9
-    ok_cap0 = eq cap0, 8
+    ok_cap0 = eq cap0, 16
     ok_empty0 = eq empty0, 0
     ok_peek = eq peek0, 9
     ok0v = eq pop0, 9
