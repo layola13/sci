@@ -35,6 +35,48 @@ extern "C" {
 #define SA_JSON_KIND_ARRAY 6u
 #define SA_JSON_KIND_OBJECT 7u
 
+#define SA_JSON_TOKEN_INVALID 4294967295u
+#define SA_JSON_TOKEN_OBJECT_BEGIN 0u
+#define SA_JSON_TOKEN_OBJECT_END 1u
+#define SA_JSON_TOKEN_ARRAY_BEGIN 2u
+#define SA_JSON_TOKEN_ARRAY_END 3u
+#define SA_JSON_TOKEN_TRUE 4u
+#define SA_JSON_TOKEN_FALSE 5u
+#define SA_JSON_TOKEN_NULL 6u
+#define SA_JSON_TOKEN_NUMBER 7u
+#define SA_JSON_TOKEN_PARTIAL_NUMBER 8u
+#define SA_JSON_TOKEN_STRING 9u
+#define SA_JSON_TOKEN_PARTIAL_STRING 10u
+#define SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1 11u
+#define SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2 12u
+#define SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3 13u
+#define SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4 14u
+#define SA_JSON_TOKEN_END_OF_DOCUMENT 15u
+#define SA_JSON_TOKEN_ALLOCATED_NUMBER 16u
+#define SA_JSON_TOKEN_ALLOCATED_STRING 17u
+
+#define SA_JSON_WHITESPACE_MINIFIED 0u
+#define SA_JSON_WHITESPACE_INDENT_1 1u
+#define SA_JSON_WHITESPACE_INDENT_2 2u
+#define SA_JSON_WHITESPACE_INDENT_3 3u
+#define SA_JSON_WHITESPACE_INDENT_4 4u
+#define SA_JSON_WHITESPACE_INDENT_8 5u
+#define SA_JSON_WHITESPACE_INDENT_TAB 6u
+
+typedef struct SaJsonToken {
+    uint32_t kind;
+    const uint8_t *text_ptr;
+    uint64_t text_len;
+} SaJsonToken;
+
+typedef struct SaJsonStringifyOptions {
+    uint32_t whitespace;
+    uint8_t emit_null_optional_fields;
+    uint8_t emit_strings_as_arrays;
+    uint8_t escape_unicode;
+    uint8_t emit_nonportable_numbers_as_strings;
+} SaJsonStringifyOptions;
+
 typedef struct SaIoBuffer {
     uint8_t *ptr;
     uint64_t len;
@@ -112,6 +154,24 @@ int32_t sa_json_stringify(uint64_t node, uint64_t *out_handle);
 uint8_t *sa_json_buffer_data(uint64_t buffer);
 uint64_t sa_json_buffer_len(uint64_t buffer);
 int32_t sa_json_buffer_free(uint64_t buffer);
+int32_t sa_json_scanner_new(uint64_t *out_handle);
+int32_t sa_json_scanner_feed(uint64_t scanner, const uint8_t *input, uint64_t len);
+int32_t sa_json_scanner_end_input(uint64_t scanner);
+int32_t sa_json_scanner_next(uint64_t scanner, SaJsonToken *out_token);
+int32_t sa_json_scanner_free(uint64_t scanner);
+int32_t sa_json_writer_new(uint32_t whitespace, uint8_t emit_null_optional_fields, uint8_t emit_strings_as_arrays, uint8_t escape_unicode, uint8_t emit_nonportable_numbers_as_strings, uint64_t *out_handle);
+int32_t sa_json_writer_begin_object(uint64_t writer);
+int32_t sa_json_writer_end_object(uint64_t writer);
+int32_t sa_json_writer_begin_array(uint64_t writer);
+int32_t sa_json_writer_end_array(uint64_t writer);
+int32_t sa_json_writer_object_field(uint64_t writer, const uint8_t *key, uint64_t key_len);
+int32_t sa_json_writer_write_bool(uint64_t writer, uint8_t value);
+int32_t sa_json_writer_write_i64(uint64_t writer, int64_t value);
+int32_t sa_json_writer_write_f64(uint64_t writer, double value);
+int32_t sa_json_writer_write_string(uint64_t writer, const uint8_t *data, uint64_t len);
+int32_t sa_json_writer_write_null(uint64_t writer);
+int32_t sa_json_writer_finish(uint64_t writer, uint64_t *out_handle);
+int32_t sa_json_writer_free(uint64_t writer);
 
 int32_t sa_std_write(uint64_t handle, const uint8_t *data, uint64_t len, uint64_t *out_written);
 int32_t sa_std_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);

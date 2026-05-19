@@ -15,3 +15,21 @@
 @extern sa_json_buffer_data(&buffer: ptr) -> &ptr
 @extern sa_json_buffer_len(&buffer: ptr) -> u64
 @extern sa_json_buffer_free(^buffer: ptr) -> i32!
+@extern sa_json_scanner_new(&out_handle: ptr) -> i32!
+@extern sa_json_scanner_feed(scanner: ptr, &input: ptr, len: u64) -> i32!
+@extern sa_json_scanner_end_input(scanner: ptr) -> i32!
+@extern sa_json_scanner_next(scanner: ptr, &out_token: ptr) -> i32!
+@extern sa_json_scanner_free(^scanner: ptr) -> i32!
+@extern sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8, emit_strings_as_arrays: u8, escape_unicode: u8, emit_nonportable_numbers_as_strings: u8, &out_handle: ptr) -> i32!
+@extern sa_json_writer_begin_object(writer: ptr) -> i32!
+@extern sa_json_writer_end_object(writer: ptr) -> i32!
+@extern sa_json_writer_begin_array(writer: ptr) -> i32!
+@extern sa_json_writer_end_array(writer: ptr) -> i32!
+@extern sa_json_writer_object_field(writer: ptr, &key: ptr, key_len: u64) -> i32!
+@extern sa_json_writer_write_bool(writer: ptr, value: u8) -> i32!
+@extern sa_json_writer_write_i64(writer: ptr, value: i64) -> i32!
+@extern sa_json_writer_write_f64(writer: ptr, value: f64) -> i32!
+@extern sa_json_writer_write_string(writer: ptr, &data: ptr, len: u64) -> i32!
+@extern sa_json_writer_write_null(writer: ptr) -> i32!
+@extern sa_json_writer_finish(writer: ptr, &out_handle: ptr) -> i32!
+@extern sa_json_writer_free(^writer: ptr) -> i32!

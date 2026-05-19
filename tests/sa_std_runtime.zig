@@ -655,6 +655,114 @@ test "sa_std json exports are usable from C" {
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std json ok"));
 }
 
+test "sa_std json streaming scanner and writer are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t chunk1[] = "{\"name\":\"s";
+        \\    const uint8_t chunk2[] = "ci\",\"count\":";
+        \\    const uint8_t chunk3[] = "7}";
+        \\    uint64_t scanner = 0;
+        \\    uint64_t writer = 0;
+        \\    uint64_t buffer = 0;
+        \\    SaJsonToken token = {0};
+        \\    const uint8_t *json = NULL;
+        \\    uint64_t json_len = 0;
+        \\
+        \\    if (sa_json_scanner_new(&scanner) != SA_STD_OK) return 2;
+        \\    if (scanner == 0) return 3;
+        \\    if (sa_json_scanner_feed(scanner, chunk1, sizeof(chunk1) - 1) != SA_STD_OK) return 4;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_OBJECT_BEGIN) return 5;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_STRING || token.text_len != 4 || memcmp(token.text_ptr, "name", 4) != 0) return 6;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_PARTIAL_STRING || token.text_len != 1 || memcmp(token.text_ptr, "s", 1) != 0) return 7;
+        \\    if (sa_json_scanner_feed(scanner, chunk2, sizeof(chunk2) - 1) != SA_STD_OK) return 8;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_STRING || token.text_len != 2 || memcmp(token.text_ptr, "ci", 2) != 0) return 9;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_STRING || token.text_len != 5 || memcmp(token.text_ptr, "count", 5) != 0) return 10;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_ERR_TRUNCATED) return 11;
+        \\    if (sa_json_scanner_feed(scanner, chunk3, sizeof(chunk3) - 1) != SA_STD_OK) return 12;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_NUMBER || token.text_len != 1 || memcmp(token.text_ptr, "7", 1) != 0) return 13;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_OBJECT_END) return 14;
+        \\    if (sa_json_scanner_end_input(scanner) != SA_STD_OK) return 15;
+        \\    if (sa_json_scanner_next(scanner, &token) != SA_STD_OK || token.kind != SA_JSON_TOKEN_END_OF_DOCUMENT) return 16;
+        \\    if (sa_json_scanner_free(scanner) != SA_STD_OK) return 17;
+        \\
+        \\    if (sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer) != SA_STD_OK) return 18;
+        \\    if (writer == 0) return 19;
+        \\    if (sa_json_writer_begin_object(writer) != SA_STD_OK) return 20;
+        \\    if (sa_json_writer_object_field(writer, (const uint8_t *)"name", 4) != SA_STD_OK) return 21;
+        \\    if (sa_json_writer_write_string(writer, (const uint8_t *)"sci", 3) != SA_STD_OK) return 22;
+        \\    if (sa_json_writer_object_field(writer, (const uint8_t *)"count", 5) != SA_STD_OK) return 23;
+        \\    if (sa_json_writer_write_i64(writer, 7) != SA_STD_OK) return 24;
+        \\    if (sa_json_writer_end_object(writer) != SA_STD_OK) return 25;
+        \\    if (sa_json_writer_finish(writer, &buffer) != SA_STD_OK) return 26;
+        \\    if (buffer == 0) return 27;
+        \\    json = sa_json_buffer_data(buffer);
+        \\    json_len = sa_json_buffer_len(buffer);
+        \\    if (json == NULL || json_len == 0) return 28;
+        \\    if (memcmp(json, "{\"name\":\"sci\",\"count\":7}", json_len) != 0) return 29;
+        \\    if (sa_json_writer_finish(writer, &buffer) != SA_STD_OK) return 30;
+        \\    if (sa_json_buffer_free(buffer) != SA_STD_OK) return 31;
+        \\    if (sa_json_writer_free(writer) != SA_STD_OK) return 32;
+        \\    puts("sa_std json streaming ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "json_stream.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "json_stream.c",
+        "libsa_std.a",
+        "-o",
+        "sa_std_json_stream_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_json_stream_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std json streaming ok"));
+}
+
 test "sa_std time exports are usable from C" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

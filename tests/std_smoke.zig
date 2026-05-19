@@ -296,6 +296,8 @@ test "sa_std json helpers are concrete and verifiable" {
     defer std.testing.allocator.free(json_layout);
     try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_KIND_OBJECT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_KIND_NULL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_TOKEN_OBJECT_BEGIN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_WHITESPACE_MINIFIED"));
 
     const json_iface = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm-iface");
     defer std.testing.allocator.free(json_iface);
@@ -303,6 +305,8 @@ test "sa_std json helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stringify"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_buffer_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_scanner_next"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_writer_finish"));
 
     const json_src = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm");
     defer std.testing.allocator.free(json_src);

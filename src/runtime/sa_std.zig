@@ -29,6 +29,48 @@ pub const SA_JSON_KIND_STRING: u32 = 5;
 pub const SA_JSON_KIND_ARRAY: u32 = 6;
 pub const SA_JSON_KIND_OBJECT: u32 = 7;
 
+pub const SA_JSON_TOKEN_INVALID: u32 = std.math.maxInt(u32);
+pub const SA_JSON_TOKEN_OBJECT_BEGIN: u32 = 0;
+pub const SA_JSON_TOKEN_OBJECT_END: u32 = 1;
+pub const SA_JSON_TOKEN_ARRAY_BEGIN: u32 = 2;
+pub const SA_JSON_TOKEN_ARRAY_END: u32 = 3;
+pub const SA_JSON_TOKEN_TRUE: u32 = 4;
+pub const SA_JSON_TOKEN_FALSE: u32 = 5;
+pub const SA_JSON_TOKEN_NULL: u32 = 6;
+pub const SA_JSON_TOKEN_NUMBER: u32 = 7;
+pub const SA_JSON_TOKEN_PARTIAL_NUMBER: u32 = 8;
+pub const SA_JSON_TOKEN_STRING: u32 = 9;
+pub const SA_JSON_TOKEN_PARTIAL_STRING: u32 = 10;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1: u32 = 11;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2: u32 = 12;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3: u32 = 13;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4: u32 = 14;
+pub const SA_JSON_TOKEN_END_OF_DOCUMENT: u32 = 15;
+pub const SA_JSON_TOKEN_ALLOCATED_NUMBER: u32 = 16;
+pub const SA_JSON_TOKEN_ALLOCATED_STRING: u32 = 17;
+
+pub const SA_JSON_WHITESPACE_MINIFIED: u32 = 0;
+pub const SA_JSON_WHITESPACE_INDENT_1: u32 = 1;
+pub const SA_JSON_WHITESPACE_INDENT_2: u32 = 2;
+pub const SA_JSON_WHITESPACE_INDENT_3: u32 = 3;
+pub const SA_JSON_WHITESPACE_INDENT_4: u32 = 4;
+pub const SA_JSON_WHITESPACE_INDENT_8: u32 = 5;
+pub const SA_JSON_WHITESPACE_INDENT_TAB: u32 = 6;
+
+pub const SaJsonToken = extern struct {
+    kind: u32,
+    text_ptr: ?[*]const u8,
+    text_len: u64,
+};
+
+pub const SaJsonStringifyOptions = extern struct {
+    whitespace: u32 = SA_JSON_WHITESPACE_MINIFIED,
+    emit_null_optional_fields: u8 = 1,
+    emit_strings_as_arrays: u8 = 0,
+    escape_unicode: u8 = 0,
+    emit_nonportable_numbers_as_strings: u8 = 0,
+};
+
 const FIRST_DYNAMIC_HANDLE: u64 = 4;
 const DEFAULT_CAPTURE_LIMIT: usize = 50 * 1024;
 
@@ -146,6 +188,69 @@ const JsonBufferHandle = struct {
     fn deinit(self: *JsonBufferHandle) void {
         if (self.bytes.len != 0) self.allocator.free(self.bytes);
         self.bytes = &.{};
+    }
+};
+
+const JsonScannerHandle = struct {
+    allocator: std.mem.Allocator,
+    scanner: std.json.Scanner,
+    pending_input: []u8 = &.{},
+    pending_text: std.ArrayList(u8),
+
+    fn init(allocator: std.mem.Allocator) !*JsonScannerHandle {
+        const handle = try allocator.create(JsonScannerHandle);
+        handle.* = .{
+            .allocator = allocator,
+            .scanner = std.json.Scanner.initStreaming(allocator),
+            .pending_input = &.{},
+            .pending_text = std.ArrayList(u8).init(allocator),
+        };
+        return handle;
+    }
+
+    fn deinit(self: *JsonScannerHandle) void {
+        self.pending_text.deinit();
+        self.scanner.deinit();
+        if (self.pending_input.len != 0) self.allocator.free(self.pending_input);
+        self.pending_input = &.{};
+    }
+
+    fn destroy(self: *JsonScannerHandle) void {
+        self.deinit();
+        self.allocator.destroy(self);
+    }
+};
+
+const JsonWriterHandle = struct {
+    allocator: std.mem.Allocator,
+    buffer: std.ArrayList(u8),
+    stream: std.json.WriteStream(std.ArrayList(u8).Writer, .checked_to_arbitrary_depth),
+    options: std.json.StringifyOptions,
+    root_value_started: bool = false,
+    root_value_complete: bool = false,
+    open_depth: u32 = 0,
+    result_buffer: ?u64 = null,
+
+    fn init(allocator: std.mem.Allocator, options: std.json.StringifyOptions) !*JsonWriterHandle {
+        const handle = try allocator.create(JsonWriterHandle);
+        handle.* = .{
+            .allocator = allocator,
+            .buffer = std.ArrayList(u8).init(allocator),
+            .stream = undefined,
+            .options = options,
+            .root_value_started = false,
+            .root_value_complete = false,
+            .open_depth = 0,
+            .result_buffer = null,
+        };
+        handle.stream = std.json.writeStreamArbitraryDepth(allocator, handle.buffer.writer(), options);
+        return handle;
+    }
+
+    fn deinit(self: *JsonWriterHandle) void {
+        self.stream.deinit();
+        self.buffer.deinit();
+        self.allocator.destroy(self);
     }
 };
 
@@ -271,6 +376,59 @@ fn jsonSerializeBuffer(allocator: std.mem.Allocator, value: std.json.Value) !u64
     };
 }
 
+fn tokenTypeOf(token: std.json.Token) u32 {
+    return switch (token) {
+        .object_begin => SA_JSON_TOKEN_OBJECT_BEGIN,
+        .object_end => SA_JSON_TOKEN_OBJECT_END,
+        .array_begin => SA_JSON_TOKEN_ARRAY_BEGIN,
+        .array_end => SA_JSON_TOKEN_ARRAY_END,
+        .true => SA_JSON_TOKEN_TRUE,
+        .false => SA_JSON_TOKEN_FALSE,
+        .null => SA_JSON_TOKEN_NULL,
+        .number => SA_JSON_TOKEN_NUMBER,
+        .partial_number => SA_JSON_TOKEN_PARTIAL_NUMBER,
+        .allocated_number => SA_JSON_TOKEN_ALLOCATED_NUMBER,
+        .string => SA_JSON_TOKEN_STRING,
+        .partial_string => SA_JSON_TOKEN_PARTIAL_STRING,
+        .partial_string_escaped_1 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1,
+        .partial_string_escaped_2 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2,
+        .partial_string_escaped_3 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3,
+        .partial_string_escaped_4 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4,
+        .allocated_string => SA_JSON_TOKEN_ALLOCATED_STRING,
+        .end_of_document => SA_JSON_TOKEN_END_OF_DOCUMENT,
+    };
+}
+
+fn tokenTextBytes(scanner_handle: *JsonScannerHandle, token: std.json.Token) ![]const u8 {
+    scanner_handle.pending_text.clearRetainingCapacity();
+    switch (token) {
+        .number => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        .partial_number => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        .allocated_number => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        .string => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        .partial_string => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        .partial_string_escaped_1 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
+        .partial_string_escaped_2 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
+        .partial_string_escaped_3 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
+        .partial_string_escaped_4 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
+        .allocated_string => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        else => return error.InvalidArgument,
+    }
+    return scanner_handle.pending_text.items;
+}
+
+fn jsonScannerFeed(scanner_handle: *JsonScannerHandle, input: []const u8, end_input: bool) !void {
+    if (scanner_handle.pending_input.len != 0) {
+        if (scanner_handle.scanner.cursor != scanner_handle.scanner.input.len) return error.InvalidArgument;
+        scanner_handle.allocator.free(scanner_handle.pending_input);
+        scanner_handle.pending_input = &.{};
+    }
+    const owned = try scanner_handle.allocator.dupe(u8, input);
+    scanner_handle.pending_input = owned;
+    scanner_handle.scanner.feedInput(owned);
+    if (end_input) scanner_handle.scanner.endInput();
+}
+
 const EnvHandle = struct {
     allocator: std.mem.Allocator,
     bytes: []u8,
@@ -382,6 +540,8 @@ const Resource = union(enum) {
     env: EnvHandle,
     json_node: JsonNodeHandle,
     json_buffer: JsonBufferHandle,
+    json_scanner: *JsonScannerHandle,
+    json_writer: *JsonWriterHandle,
     owned_fd: OwnedFdHandle,
     terminal_session: TerminalSession,
     process: ProcessHandle,
@@ -399,6 +559,8 @@ const Resource = union(enum) {
             .env => |*env| env.deinit(),
             .json_node => |*node| node.deinit(),
             .json_buffer => |*buffer| buffer.deinit(),
+            .json_scanner => |scanner| scanner.destroy(),
+            .json_writer => |writer| writer.deinit(),
             .owned_fd => |*fd| fd.deinit(),
             .terminal_session => |*session| try session.deinit(),
             .process => |*proc| proc.deinit(),
@@ -1237,6 +1399,304 @@ pub export fn sa_json_stringify(node: u64, out_handle: ?*u64) i32 {
     defer node_value.deinit();
     const handle = jsonSerializeBuffer(std.heap.page_allocator, node_value.value) catch |err| return finishErr(err);
     handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_scanner_new(out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const scanner_handle = JsonScannerHandle.init(std.heap.page_allocator) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .json_scanner = scanner_handle }) catch |err| {
+        scanner_handle.destroy();
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_scanner_feed(scanner: u64, input: ?[*]const u8, len: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(scanner) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const scanner_handle = switch (resource.*) {
+        .json_scanner => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const bytes = constBytes(input, len) catch |err| return finishErr(err);
+    jsonScannerFeed(scanner_handle, bytes, false) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_scanner_end_input(scanner: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(scanner) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const scanner_handle = switch (resource.*) {
+        .json_scanner => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    scanner_handle.scanner.endInput();
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_scanner_next(scanner: u64, out_token: ?*SaJsonToken) i32 {
+    const token_ptr = out_token orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    token_ptr.* = .{ .kind = SA_JSON_TOKEN_INVALID, .text_ptr = null, .text_len = 0 };
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(scanner) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const scanner_handle = switch (resource.*) {
+        .json_scanner => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    scanner_handle.pending_text.clearRetainingCapacity();
+    const token = scanner_handle.scanner.next() catch |err| switch (err) {
+        error.BufferUnderrun => return finish(SA_STD_ERR_TRUNCATED),
+        else => return finishErr(err),
+    };
+    token_ptr.kind = tokenTypeOf(token);
+    switch (token) {
+        .number, .partial_number, .allocated_number,
+        .string, .partial_string, .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4, .allocated_string,
+        => {
+            const text = tokenTextBytes(scanner_handle, token) catch |err| return finishErr(err);
+            token_ptr.text_ptr = text.ptr;
+            token_ptr.text_len = @as(u64, @intCast(text.len));
+        },
+        else => {},
+    }
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_scanner_free(scanner: u64) i32 {
+    return sa_std_close(scanner);
+}
+
+pub export fn sa_json_writer_free(writer: u64) i32 {
+    return sa_std_close(writer);
+}
+
+pub export fn sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8, emit_strings_as_arrays: u8, escape_unicode: u8, emit_nonportable_numbers_as_strings: u8, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const options: std.json.StringifyOptions = .{
+        .whitespace = switch (whitespace) {
+            SA_JSON_WHITESPACE_MINIFIED => .minified,
+            SA_JSON_WHITESPACE_INDENT_1 => .indent_1,
+            SA_JSON_WHITESPACE_INDENT_2 => .indent_2,
+            SA_JSON_WHITESPACE_INDENT_3 => .indent_3,
+            SA_JSON_WHITESPACE_INDENT_4 => .indent_4,
+            SA_JSON_WHITESPACE_INDENT_8 => .indent_8,
+            SA_JSON_WHITESPACE_INDENT_TAB => .indent_tab,
+            else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        },
+        .emit_null_optional_fields = emit_null_optional_fields != 0,
+        .emit_strings_as_arrays = emit_strings_as_arrays != 0,
+        .escape_unicode = escape_unicode != 0,
+        .emit_nonportable_numbers_as_strings = emit_nonportable_numbers_as_strings != 0,
+    };
+    const writer_handle = JsonWriterHandle.init(std.heap.page_allocator, options) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .json_writer = writer_handle }) catch |err| {
+        writer_handle.deinit();
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_begin_object(writer: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.beginObject() catch |err| return finishErr(err);
+    writer_handle.open_depth += 1;
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = false;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_end_object(writer: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.endObject() catch |err| return finishErr(err);
+    writer_handle.open_depth -= 1;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_begin_array(writer: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.beginArray() catch |err| return finishErr(err);
+    writer_handle.open_depth += 1;
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = false;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_end_array(writer: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.endArray() catch |err| return finishErr(err);
+    writer_handle.open_depth -= 1;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_object_field(writer: u64, key: ?[*]const u8, key_len: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const field = constBytes(key, key_len) catch |err| return finishErr(err);
+    writer_handle.stream.objectField(field) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_write_bool(writer: u64, value: u8) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.write(value != 0) catch |err| return finishErr(err);
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_write_i64(writer: u64, value: i64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.write(value) catch |err| return finishErr(err);
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_write_f64(writer: u64, value: f64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.write(value) catch |err| return finishErr(err);
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_write_string(writer: u64, data: ?[*]const u8, len: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const bytes = constBytes(data, len) catch |err| return finishErr(err);
+    writer_handle.stream.write(bytes) catch |err| return finishErr(err);
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_write_null(writer: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.write(null) catch |err| return finishErr(err);
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_finish(writer: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer) |existing| {
+        const existing_resource = getResourceLocked(existing) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        switch (existing_resource.*) {
+            .json_buffer => {},
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        }
+        handle_ptr.* = existing;
+        return finish(SA_STD_OK);
+    }
+    if (!writer_handle.root_value_started or !writer_handle.root_value_complete or writer_handle.open_depth != 0) {
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    }
+    const bytes = writer_handle.buffer.toOwnedSlice() catch |err| return finishErr(err);
+    errdefer std.heap.page_allocator.free(bytes);
+    const buffer_handle = registerResourceLocked(.{ .json_buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return finishErr(err);
+    };
+    writer_handle.result_buffer = buffer_handle;
+    handle_ptr.* = buffer_handle;
     return finish(SA_STD_OK);
 }
 
