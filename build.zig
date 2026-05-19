@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/runtime/sa_std.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     const sa_std_static = b.addLibrary(.{
         .name = "sa_std",
@@ -40,6 +41,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/runtime/sa_std.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     const sa_std_shared = b.addLibrary(.{
         .name = "sa_std",
@@ -136,6 +138,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/runtime/sa_std.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     const sa_std_unit = b.addTest(.{
         .root_module = sa_std_unit_module,
@@ -160,6 +163,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/runtime/sa_net_uring.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     const sa_net_uring_tests = b.addTest(.{
         .root_module = sa_net_uring_module,

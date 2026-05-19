@@ -23,6 +23,16 @@ fn expectSuccess(result: std.process.Child.RunResult) !void {
     }
 }
 
+fn expectSuccessCode(result: std.process.Child.RunResult) !void {
+    if (result.stderr.len != 0) {
+        std.debug.print("{s}", .{result.stderr});
+    }
+    switch (result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
 fn writeProcessArgv(
     allocator: std.mem.Allocator,
     args: []const []const u8,
@@ -109,6 +119,7 @@ test "sa_std udp loopback and address accessors are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -123,6 +134,7 @@ test "sa_std udp loopback and address accessors are usable from C" {
         include_dir,
         "udp.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_udp_demo",
     };
@@ -218,6 +230,7 @@ test "sa_std udp connected send and recv are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -232,6 +245,7 @@ test "sa_std udp connected send and recv are usable from C" {
         include_dir,
         "udp_connected.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_udp_connected_demo",
     };
@@ -305,6 +319,7 @@ test "sa_std static library exposes a usable C ABI" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -319,6 +334,7 @@ test "sa_std static library exposes a usable C ABI" {
         include_dir,
         "main.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_c_demo",
     };
@@ -408,6 +424,7 @@ test "sa_std tcp stream peek does not consume bytes" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -422,6 +439,7 @@ test "sa_std tcp stream peek does not consume bytes" {
         include_dir,
         "tcp_peek.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_tcp_peek_demo",
     };
@@ -492,6 +510,7 @@ test "sa_std fmt and process exports are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -506,6 +525,7 @@ test "sa_std fmt and process exports are usable from C" {
         include_dir,
         "main.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_fmtdemo",
     };
@@ -626,6 +646,7 @@ test "sa_std json exports are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -640,6 +661,7 @@ test "sa_std json exports are usable from C" {
         include_dir,
         "json.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_json_demo",
     };
@@ -734,6 +756,7 @@ test "sa_std json streaming scanner and writer are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -748,6 +771,7 @@ test "sa_std json streaming scanner and writer are usable from C" {
         include_dir,
         "json_stream.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_json_stream_demo",
     };
@@ -761,6 +785,203 @@ test "sa_std json streaming scanner and writer are usable from C" {
     defer std.testing.allocator.free(run_result.stderr);
     try expectSuccess(run_result);
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std json streaming ok"));
+}
+
+test "sa_std regex compile match and group access are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t pattern[] = "h([a-z]+)o ([a-z]+)";
+        \\    const uint8_t text[] = "hello world";
+        \\    uint64_t regex = 0;
+        \\    uint64_t match = 0;
+        \\    const uint8_t *group0 = NULL;
+        \\    const uint8_t *group1 = NULL;
+        \\    const uint8_t *group2 = NULL;
+        \\    uint64_t group0_len = 0;
+        \\    uint64_t group1_len = 0;
+        \\    uint64_t group2_len = 0;
+        \\    uint64_t group_count = 0;
+        \\
+        \\    regex = sa_regex_compile(pattern, sizeof(pattern) - 1, SA_REGEX_EXTENDED);
+        \\    if (regex == 0) return 2;
+        \\    group_count = sa_regex_group_count(regex);
+        \\    if (group_count != 3) return 3;
+        \\    match = sa_regex_match(regex, text, sizeof(text) - 1);
+        \\    if (match == 0) return 4;
+        \\    group0 = sa_regex_group_ptr(match, 0);
+        \\    group1 = sa_regex_group_ptr(match, 1);
+        \\    group2 = sa_regex_group_ptr(match, 2);
+        \\    group0_len = sa_regex_group_len(match, 0);
+        \\    group1_len = sa_regex_group_len(match, 1);
+        \\    group2_len = sa_regex_group_len(match, 2);
+        \\    if (group0 == NULL || group1 == NULL || group2 == NULL) return 5;
+        \\    if (group0_len != 11 || memcmp(group0, "hello world", 11) != 0) return 6;
+        \\    if (group1_len != 3 || memcmp(group1, "ell", 3) != 0) return 7;
+        \\    if (group2_len != 5 || memcmp(group2, "world", 5) != 0) return 8;
+        \\    if (sa_regex_match_free(match) != SA_STD_OK) return 9;
+        \\    if (sa_regex_free(regex) != SA_STD_OK) return 10;
+        \\    puts("sa_std regex ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "regex.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "regex.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_regex_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_regex_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std regex ok"));
+}
+
+test "sa_std json streaming handle exposes stable slices from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t json[] = "{\"name\":\"sci\",\"count\":7}";
+        \\    uint64_t stream = 0;
+        \\    uint32_t token = 0;
+        \\    const uint8_t *slice = NULL;
+        \\    uint64_t slice_len = 0;
+        \\
+        \\    stream = sa_json_stream_new(json, sizeof(json) - 1);
+        \\    if (stream == 0) return 2;
+        \\    token = sa_json_stream_next(stream);
+        \\    if (token != SA_JSON_TOKEN_OBJECT_BEGIN) return 3;
+        \\    token = sa_json_stream_next(stream);
+        \\    if (token != SA_JSON_TOKEN_STRING) return 4;
+        \\    slice = sa_json_stream_get_slice_ptr(stream);
+        \\    slice_len = sa_json_stream_get_slice_len(stream);
+        \\    if (slice == NULL || slice_len != 4 || memcmp(slice, "name", 4) != 0) return 5;
+        \\    token = sa_json_stream_next(stream);
+        \\    if (token != SA_JSON_TOKEN_STRING) return 6;
+        \\    slice = sa_json_stream_get_slice_ptr(stream);
+        \\    slice_len = sa_json_stream_get_slice_len(stream);
+        \\    if (slice == NULL || slice_len != 3 || memcmp(slice, "sci", 3) != 0) return 7;
+        \\    token = sa_json_stream_next(stream);
+        \\    if (token != SA_JSON_TOKEN_STRING) return 8;
+        \\    slice = sa_json_stream_get_slice_ptr(stream);
+        \\    slice_len = sa_json_stream_get_slice_len(stream);
+        \\    if (slice == NULL || slice_len != 5 || memcmp(slice, "count", 5) != 0) return 9;
+        \\    token = sa_json_stream_next(stream);
+        \\    if (token != SA_JSON_TOKEN_NUMBER) return 10;
+        \\    slice = sa_json_stream_get_slice_ptr(stream);
+        \\    slice_len = sa_json_stream_get_slice_len(stream);
+        \\    if (slice == NULL || slice_len != 1 || memcmp(slice, "7", 1) != 0) return 11;
+        \\    token = sa_json_stream_next(stream);
+        \\    if (token != SA_JSON_TOKEN_OBJECT_END) return 12;
+        \\    token = sa_json_stream_next(stream);
+        \\    if (token != SA_JSON_TOKEN_END_OF_DOCUMENT) return 13;
+        \\    if (sa_json_stream_free(stream) != SA_STD_OK) return 14;
+        \\    puts("sa_std json stream ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "json_stream_direct.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "json_stream_direct.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_json_stream_direct_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_json_stream_direct_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std json stream ok"));
 }
 
 test "sa_std time exports are usable from C" {
@@ -838,6 +1059,7 @@ test "sa_std time exports are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -852,6 +1074,7 @@ test "sa_std time exports are usable from C" {
         include_dir,
         "time.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_time_demo",
     };

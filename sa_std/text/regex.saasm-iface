@@ -1,0 +1,9 @@
+// SA-facing contracts for the Zig-backed sa_std.text.regex module.
+// Regex and regex match handles are opaque owned ptr values.
+@extern sa_regex_compile(pattern: &ptr, pattern_len: u64, cflags: i32) -> ^ptr
+@extern sa_regex_match(regex: ptr, &text: ptr, text_len: u64) -> ^ptr
+@extern sa_regex_group_ptr(match: ptr, group_idx: u32) -> &ptr
+@extern sa_regex_group_len(match: ptr, group_idx: u32) -> u64
+@extern sa_regex_group_count(regex: ptr) -> u64
+@extern sa_regex_free(^regex: ptr) -> i32!
+@extern sa_regex_match_free(^match: ptr) -> i32!

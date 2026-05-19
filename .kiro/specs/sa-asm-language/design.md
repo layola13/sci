@@ -87,7 +87,22 @@ saasm build-obj  <file.saasm> -o out.o     # C-ABI 目标文件
 
 调试开关：`-g` 启用 DWARF；`--no-debug` 禁用以缩减体积。
 
-### 1.7 阶段性里程碑与设计对齐
+### 1.7 Agent-First Toolchain 与 Plugin System (NEW)
+
+SA 编译器全面拥抱 "Agent-First" 理念：
+- **结构化诊断**：所有 CLI 命令支持 `--json` 输出，提供稳定的错误码（如 `SA-REF-042`）和基于行/列的修复建议 (`repair`)。
+- **Token / Gas 计算**：编译成功时，以 JSON 格式吐出 `compile_tokens` 和 `instruction_count`，供 Agent 侧进行多轮博弈与代码瘦身优化。
+- **Agent 交互指令**：提供 `saasm explain <code>` (讲解错误原理)、`saasm fix --plan` (生成结构化修补补丁)。
+- **动态自解释与插件系统**：CLI 基于 Zig `comptime` 实现了可插拔插件架构（拆分了 `saasm db`, `saasm sax`, `saasm fetch` 等）。Agent 执行 `saasm skills` 时，主程序会聚合所有已激活插件的能力字典，动态生成完全对齐当前版本的开发手册，杜绝 Agent 幻觉。
+
+### 1.8 SA 标准库 (sa_std) 的能力边界与 FFI 策略 (NEW)
+
+- **纯汇编基元**：`Vec`, `HashMap`, `String`, `Arc/Mutex` 等极轻量数据结构完全由 `.saasm` 宏拼装，零 C 库依赖。
+- **Zig-backed FFI 桥接**：对于高密度计算（JSON 解析、Regex、文件/网络 I/O、事件循环），走 C-ABI 桥接到高效的 Zig 标准库，对外暴露不透明句柄 (Opaque Handle)。
+  - **双模 JSON**：提供 DOM 树解析和 100MB+ 大文件 Streaming 游标零拷贝双模 API。
+- **严格剥离重型 C 库**：YAML、XML、TOML 等格式严禁放入 `sa_std`，将被下放至 Package 生态中，由用户按需引入，以维持编译器体积在几 MB 级别。
+
+### 1.9 阶段性里程碑与设计对齐
 
 | 阶段 | 周 | 需求涵盖 | 本设计章节 |
 |---|---|---|---|

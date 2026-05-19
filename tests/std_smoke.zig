@@ -306,12 +306,35 @@ test "sa_std json helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stringify"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_buffer_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_scanner_next"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_next"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_get_slice_ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_get_slice_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_writer_finish"));
 
     const json_src = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm");
     defer std.testing.allocator.free(json_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.saasm-layout\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.saasm-iface\""));
+
+    const regex_layout = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.saasm-layout");
+    defer std.testing.allocator.free(regex_layout);
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_layout, 1, "SA_REGEX_REG_NOERROR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_layout, 1, "SA_REGEX_REG_OK"));
+
+    const regex_iface = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.saasm-iface");
+    defer std.testing.allocator.free(regex_iface);
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_compile"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_match"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_group_count"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_match_free"));
+
+    const regex_src = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.saasm");
+    defer std.testing.allocator.free(regex_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_src, 1, "@import \"regex.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_src, 1, "@import \"regex.saasm-iface\""));
 }
 
 test "sa_std time helpers are concrete and verifiable" {
@@ -755,6 +778,7 @@ test "sa_std string concat runtime helper is usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -772,6 +796,7 @@ test "sa_std string concat runtime helper is usable from C" {
         include_dir,
         "main.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_string_concat_demo",
     };
@@ -854,6 +879,7 @@ test "sa_std env runtime helper is usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -871,6 +897,7 @@ test "sa_std env runtime helper is usable from C" {
         include_dir,
         "main.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_std_env_demo",
     };

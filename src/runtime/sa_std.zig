@@ -1,6 +1,36 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const RegexC = extern struct {
+    buffer: ?*anyopaque,
+    allocated: c_ulong,
+    used: c_ulong,
+    syntax: c_ulong,
+    fastmap: ?[*]u8,
+    translate: ?[*]u8,
+    re_nsub: usize,
+    flags: u32,
+};
+
+const RegexMatchC = extern struct {
+    rm_so: c_int,
+    rm_eo: c_int,
+};
+
+extern fn regcomp(preg: ?*RegexC, pattern: [*c]const u8, cflags: c_int) c_int;
+extern fn regexec(preg: ?*const RegexC, text: [*c]const u8, nmatch: usize, pmatch: [*]RegexMatchC, eflags: c_int) c_int;
+extern fn regfree(preg: ?*RegexC) void;
+
+comptime {
+    std.debug.assert(@sizeOf(RegexC) == 64);
+    std.debug.assert(@alignOf(RegexC) == 8);
+    std.debug.assert(@offsetOf(RegexC, "re_nsub") == 48);
+    std.debug.assert(@offsetOf(RegexC, "flags") == 56);
+    std.debug.assert(@sizeOf(RegexMatchC) == 8);
+    std.debug.assert(@offsetOf(RegexMatchC, "rm_so") == 0);
+    std.debug.assert(@offsetOf(RegexMatchC, "rm_eo") == 4);
+}
+
 pub const SA_STD_ABI_VERSION: u32 = 1;
 
 pub const SA_STD_OK: i32 = 0;
@@ -56,6 +86,29 @@ pub const SA_JSON_WHITESPACE_INDENT_3: u32 = 3;
 pub const SA_JSON_WHITESPACE_INDENT_4: u32 = 4;
 pub const SA_JSON_WHITESPACE_INDENT_8: u32 = 5;
 pub const SA_JSON_WHITESPACE_INDENT_TAB: u32 = 6;
+
+pub const SA_REGEX_EXTENDED: c_int = 1;
+pub const SA_REGEX_ICASE: c_int = 2;
+pub const SA_REGEX_NEWLINE: c_int = 4;
+pub const SA_REGEX_NOSUB: c_int = 8;
+pub const SA_REGEX_NOTBOL: c_int = 1;
+pub const SA_REGEX_NOTEOL: c_int = 2;
+pub const SA_REGEX_REG_NOERROR: c_int = 0;
+pub const SA_REGEX_REG_OK: c_int = 0;
+pub const SA_REGEX_REG_NOMATCH: c_int = 1;
+pub const SA_REGEX_REG_BADPAT: c_int = 2;
+pub const SA_REGEX_REG_ECOLLATE: c_int = 3;
+pub const SA_REGEX_REG_ECTYPE: c_int = 4;
+pub const SA_REGEX_REG_EESCAPE: c_int = 5;
+pub const SA_REGEX_REG_ESUBREG: c_int = 6;
+pub const SA_REGEX_REG_EBRACK: c_int = 7;
+pub const SA_REGEX_REG_EPAREN: c_int = 8;
+pub const SA_REGEX_REG_EBRACE: c_int = 9;
+pub const SA_REGEX_REG_BADBR: c_int = 10;
+pub const SA_REGEX_REG_ERANGE: c_int = 11;
+pub const SA_REGEX_REG_ESPACE: c_int = 12;
+pub const SA_REGEX_REG_BADRPT: c_int = 13;
+pub const SA_REGEX_REG_ENOSYS: c_int = -1;
 
 pub const SaJsonToken = extern struct {
     kind: u32,
@@ -194,8 +247,11 @@ const JsonBufferHandle = struct {
 const JsonScannerHandle = struct {
     allocator: std.mem.Allocator,
     scanner: std.json.Scanner,
-    pending_input: []u8 = &.{},
+    pending_input: []const u8 = &.{},
+    pending_input_owned: bool = false,
     pending_text: std.ArrayList(u8),
+    current_text: ?[]const u8 = null,
+    current_token: u32 = SA_JSON_TOKEN_INVALID,
 
     fn init(allocator: std.mem.Allocator) !*JsonScannerHandle {
         const handle = try allocator.create(JsonScannerHandle);
@@ -203,7 +259,24 @@ const JsonScannerHandle = struct {
             .allocator = allocator,
             .scanner = std.json.Scanner.initStreaming(allocator),
             .pending_input = &.{},
+            .pending_input_owned = false,
             .pending_text = std.ArrayList(u8).init(allocator),
+            .current_text = null,
+            .current_token = SA_JSON_TOKEN_INVALID,
+        };
+        return handle;
+    }
+
+    fn initCompleteInput(allocator: std.mem.Allocator, input: []const u8) !*JsonScannerHandle {
+        const handle = try allocator.create(JsonScannerHandle);
+        handle.* = .{
+            .allocator = allocator,
+            .scanner = std.json.Scanner.initCompleteInput(allocator, input),
+            .pending_input = input,
+            .pending_input_owned = false,
+            .pending_text = std.ArrayList(u8).init(allocator),
+            .current_text = null,
+            .current_token = SA_JSON_TOKEN_INVALID,
         };
         return handle;
     }
@@ -211,12 +284,45 @@ const JsonScannerHandle = struct {
     fn deinit(self: *JsonScannerHandle) void {
         self.pending_text.deinit();
         self.scanner.deinit();
-        if (self.pending_input.len != 0) self.allocator.free(self.pending_input);
+        if (self.pending_input_owned and self.pending_input.len != 0) self.allocator.free(self.pending_input);
         self.pending_input = &.{};
+        self.pending_input_owned = false;
+        self.current_text = null;
+        self.current_token = SA_JSON_TOKEN_INVALID;
     }
 
     fn destroy(self: *JsonScannerHandle) void {
         self.deinit();
+        self.allocator.destroy(self);
+    }
+};
+
+const JsonStreamHandle = struct {
+    allocator: std.mem.Allocator,
+    owned_input: []u8,
+    scanner: *JsonScannerHandle,
+    last_token: u32 = SA_JSON_TOKEN_INVALID,
+
+    fn init(allocator: std.mem.Allocator, input: []const u8) !*JsonStreamHandle {
+        const owned_input = try allocator.alloc(u8, input.len);
+        errdefer allocator.free(owned_input);
+        @memcpy(owned_input, input);
+        const scanner = try JsonScannerHandle.initCompleteInput(allocator, owned_input);
+        errdefer scanner.destroy();
+        const handle = try allocator.create(JsonStreamHandle);
+        handle.* = .{
+            .allocator = allocator,
+            .owned_input = owned_input,
+            .scanner = scanner,
+            .last_token = SA_JSON_TOKEN_INVALID,
+        };
+        return handle;
+    }
+
+    fn deinit(self: *JsonStreamHandle) void {
+        self.scanner.destroy();
+        if (self.owned_input.len != 0) self.allocator.free(self.owned_input);
+        self.owned_input = &.{};
         self.allocator.destroy(self);
     }
 };
@@ -253,6 +359,129 @@ const JsonWriterHandle = struct {
         self.allocator.destroy(self);
     }
 };
+
+const RegexHandle = struct {
+    allocator: std.mem.Allocator,
+    pattern_z: []u8,
+    compiled: RegexC,
+    compiled_valid: bool = false,
+
+    fn init(allocator: std.mem.Allocator, pattern: []const u8, cflags: c_int) !*RegexHandle {
+        if (std.mem.indexOfScalar(u8, pattern, 0) != null) return error.InvalidArgument;
+        const owned_pattern = try allocator.alloc(u8, pattern.len + 1);
+        errdefer allocator.free(owned_pattern);
+        @memcpy(owned_pattern[0..pattern.len], pattern);
+        owned_pattern[pattern.len] = 0;
+        const handle = try allocator.create(RegexHandle);
+        errdefer allocator.destroy(handle);
+        handle.* = .{
+            .allocator = allocator,
+            .pattern_z = owned_pattern,
+            .compiled = undefined,
+            .compiled_valid = false,
+        };
+        const pattern_c: [*:0]const u8 = @ptrCast(owned_pattern.ptr);
+        const rc = regcomp(&handle.compiled, pattern_c, cflags);
+        if (rc != SA_REGEX_REG_NOERROR) {
+            return regexErrorToZig(rc);
+        }
+        handle.compiled_valid = true;
+        return handle;
+    }
+
+    fn deinit(self: *RegexHandle) void {
+        if (self.compiled_valid) regfree(&self.compiled);
+        if (self.pattern_z.len != 0) self.allocator.free(self.pattern_z);
+        self.pattern_z = &.{};
+        self.compiled_valid = false;
+    }
+
+    fn destroy(self: *RegexHandle) void {
+        self.deinit();
+        self.allocator.destroy(self);
+    }
+};
+
+const RegexMatchHandle = struct {
+    allocator: std.mem.Allocator,
+    text_z: []u8,
+    matches: []RegexMatchC,
+
+    fn init(allocator: std.mem.Allocator, text: []const u8, group_count: usize) !*RegexMatchHandle {
+        const owned_text = try allocator.alloc(u8, text.len + 1);
+        errdefer allocator.free(owned_text);
+        @memcpy(owned_text[0..text.len], text);
+        owned_text[text.len] = 0;
+        const matches = try allocator.alloc(RegexMatchC, group_count);
+        errdefer allocator.free(matches);
+        const handle = try allocator.create(RegexMatchHandle);
+        errdefer allocator.destroy(handle);
+        handle.* = .{
+            .allocator = allocator,
+            .text_z = owned_text,
+            .matches = matches,
+        };
+        return handle;
+    }
+
+    fn deinit(self: *RegexMatchHandle) void {
+        if (self.matches.len != 0) self.allocator.free(self.matches);
+        if (self.text_z.len != 0) self.allocator.free(self.text_z);
+        self.matches = &.{};
+        self.text_z = &.{};
+    }
+
+    fn destroy(self: *RegexMatchHandle) void {
+        self.deinit();
+        self.allocator.destroy(self);
+    }
+};
+
+fn regexErrorToZig(rc: c_int) anyerror {
+    return switch (rc) {
+        SA_REGEX_REG_NOMATCH => error.FileNotFound,
+        SA_REGEX_REG_BADPAT => error.SyntaxError,
+        SA_REGEX_REG_ESPACE => error.OutOfMemory,
+        SA_REGEX_REG_ENOSYS => error.Unsupported,
+        else => error.InvalidArgument,
+    };
+}
+
+fn regexGroupCount(regex_handle: *RegexHandle) usize {
+    return @as(usize, @intCast(regex_handle.compiled.re_nsub)) + 1;
+}
+
+fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHandle {
+    if (std.mem.indexOfScalar(u8, text, 0) != null) return error.InvalidArgument;
+    const allocator = regex_handle.allocator;
+    const owned_text = try allocator.alloc(u8, text.len + 1);
+    errdefer allocator.free(owned_text);
+    @memcpy(owned_text[0..text.len], text);
+    owned_text[text.len] = 0;
+
+    const groups = try allocator.alloc(RegexMatchC, regexGroupCount(regex_handle));
+    errdefer allocator.free(groups);
+
+    const rc = regexec(&regex_handle.compiled, @ptrCast(owned_text.ptr), groups.len, groups.ptr, 0);
+    if (rc == SA_REGEX_REG_NOMATCH) {
+        allocator.free(groups);
+        allocator.free(owned_text);
+        return error.FileNotFound;
+    }
+    if (rc != SA_REGEX_REG_NOERROR) {
+        allocator.free(groups);
+        allocator.free(owned_text);
+        return regexErrorToZig(rc);
+    }
+
+    const handle = try allocator.create(RegexMatchHandle);
+    handle.* = .{
+        .allocator = allocator,
+        .text_z = owned_text,
+        .matches = groups,
+    };
+    return handle;
+}
 
 fn jsonKindOf(value: std.json.Value) u32 {
     return switch (value) {
@@ -399,19 +628,37 @@ fn tokenTypeOf(token: std.json.Token) u32 {
     };
 }
 
+fn tokenTextSlice(token: std.json.Token) ?[]const u8 {
+    return switch (token) {
+        .number => |slice| slice,
+        .partial_number => |slice| slice,
+        .string => |slice| slice,
+        .partial_string => |slice| slice,
+        else => null,
+    };
+}
+
 fn tokenTextBytes(scanner_handle: *JsonScannerHandle, token: std.json.Token) ![]const u8 {
     scanner_handle.pending_text.clearRetainingCapacity();
     switch (token) {
         .number => |slice| try scanner_handle.pending_text.appendSlice(slice),
         .partial_number => |slice| try scanner_handle.pending_text.appendSlice(slice),
-        .allocated_number => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        .allocated_number => |slice| {
+            errdefer scanner_handle.allocator.free(slice);
+            try scanner_handle.pending_text.appendSlice(slice);
+            scanner_handle.allocator.free(slice);
+        },
         .string => |slice| try scanner_handle.pending_text.appendSlice(slice),
         .partial_string => |slice| try scanner_handle.pending_text.appendSlice(slice),
         .partial_string_escaped_1 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
         .partial_string_escaped_2 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
         .partial_string_escaped_3 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
         .partial_string_escaped_4 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
-        .allocated_string => |slice| try scanner_handle.pending_text.appendSlice(slice),
+        .allocated_string => |slice| {
+            errdefer scanner_handle.allocator.free(slice);
+            try scanner_handle.pending_text.appendSlice(slice);
+            scanner_handle.allocator.free(slice);
+        },
         else => return error.InvalidArgument,
     }
     return scanner_handle.pending_text.items;
@@ -420,11 +667,13 @@ fn tokenTextBytes(scanner_handle: *JsonScannerHandle, token: std.json.Token) ![]
 fn jsonScannerFeed(scanner_handle: *JsonScannerHandle, input: []const u8, end_input: bool) !void {
     if (scanner_handle.pending_input.len != 0) {
         if (scanner_handle.scanner.cursor != scanner_handle.scanner.input.len) return error.InvalidArgument;
-        scanner_handle.allocator.free(scanner_handle.pending_input);
+        if (scanner_handle.pending_input_owned) scanner_handle.allocator.free(scanner_handle.pending_input);
         scanner_handle.pending_input = &.{};
+        scanner_handle.pending_input_owned = false;
     }
     const owned = try scanner_handle.allocator.dupe(u8, input);
     scanner_handle.pending_input = owned;
+    scanner_handle.pending_input_owned = true;
     scanner_handle.scanner.feedInput(owned);
     if (end_input) scanner_handle.scanner.endInput();
 }
@@ -541,7 +790,10 @@ const Resource = union(enum) {
     json_node: JsonNodeHandle,
     json_buffer: JsonBufferHandle,
     json_scanner: *JsonScannerHandle,
+    json_stream: *JsonStreamHandle,
     json_writer: *JsonWriterHandle,
+    regex: *RegexHandle,
+    regex_match: *RegexMatchHandle,
     owned_fd: OwnedFdHandle,
     terminal_session: TerminalSession,
     process: ProcessHandle,
@@ -560,7 +812,10 @@ const Resource = union(enum) {
             .json_node => |*node| node.deinit(),
             .json_buffer => |*buffer| buffer.deinit(),
             .json_scanner => |scanner| scanner.destroy(),
+            .json_stream => |stream| stream.deinit(),
             .json_writer => |writer| writer.deinit(),
+            .regex => |regex| regex.destroy(),
+            .regex_match => |match| match.destroy(),
             .owned_fd => |*fd| fd.deinit(),
             .terminal_session => |*session| try session.deinit(),
             .process => |*proc| proc.deinit(),
@@ -630,6 +885,10 @@ fn mapError(err: anyerror) i32 {
         error.InvalidIpv4Mapping,
         error.Overflow,
         => SA_STD_ERR_INVALID_ARGUMENT,
+        error.RegexInvalidArgument,
+        error.RegexNoMatch,
+        error.RegexBadPattern,
+        error.RegexOutOfMemory,
         error.UnknownHostName,
         error.TemporaryNameServerFailure,
         error.NameServerFailure,
@@ -1456,10 +1715,13 @@ pub export fn sa_json_scanner_next(scanner: u64, out_token: ?*SaJsonToken) i32 {
         else => return finishErr(err),
     };
     token_ptr.kind = tokenTypeOf(token);
-    switch (token) {
-        .number, .partial_number, .allocated_number,
-        .string, .partial_string, .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4, .allocated_string,
-        => {
+    if (tokenTextSlice(token)) |text| {
+        token_ptr.text_ptr = text.ptr;
+        token_ptr.text_len = @as(u64, @intCast(text.len));
+    } else switch (token) {
+        .allocated_number,
+        .allocated_string,
+        .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => {
             const text = tokenTextBytes(scanner_handle, token) catch |err| return finishErr(err);
             token_ptr.text_ptr = text.ptr;
             token_ptr.text_len = @as(u64, @intCast(text.len));
@@ -1471,6 +1733,70 @@ pub export fn sa_json_scanner_next(scanner: u64, out_token: ?*SaJsonToken) i32 {
 
 pub export fn sa_json_scanner_free(scanner: u64) i32 {
     return sa_std_close(scanner);
+}
+
+pub export fn sa_json_stream_new(json_bytes: ?[*]const u8, len: u64) u64 {
+    const input = constBytes(json_bytes, len) catch return 0;
+    const stream_handle = JsonStreamHandle.init(std.heap.page_allocator, input) catch return 0;
+    return registerResource(.{ .json_stream = stream_handle }) catch |err| {
+        stream_handle.deinit();
+        _ = finishErr(err);
+        return 0;
+    };
+}
+
+pub export fn sa_json_stream_next(stream: u64) u32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(stream) orelse return SA_JSON_TOKEN_INVALID;
+    const stream_handle = switch (resource.*) {
+        .json_stream => |handle| handle,
+        else => return SA_JSON_TOKEN_INVALID,
+    };
+    stream_handle.scanner.pending_text.clearRetainingCapacity();
+    const token = stream_handle.scanner.scanner.next() catch return SA_JSON_TOKEN_INVALID;
+    stream_handle.last_token = tokenTypeOf(token);
+    if (tokenTextSlice(token)) |text| {
+        stream_handle.scanner.current_text = text;
+    } else switch (token) {
+        .allocated_number,
+        .allocated_string,
+        .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => {
+            const text = tokenTextBytes(stream_handle.scanner, token) catch return SA_JSON_TOKEN_INVALID;
+            stream_handle.scanner.current_text = text;
+        },
+        else => {
+            stream_handle.scanner.current_text = null;
+        },
+    }
+    stream_handle.scanner.current_token = stream_handle.last_token;
+    return stream_handle.last_token;
+}
+
+pub export fn sa_json_stream_get_slice_ptr(stream: u64) ?[*]const u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(stream) orelse return null;
+    const stream_handle = switch (resource.*) {
+        .json_stream => |handle| handle,
+        else => return null,
+    };
+    return if (stream_handle.scanner.current_text) |text| text.ptr else null;
+}
+
+pub export fn sa_json_stream_get_slice_len(stream: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(stream) orelse return 0;
+    const stream_handle = switch (resource.*) {
+        .json_stream => |handle| handle,
+        else => return 0,
+    };
+    return if (stream_handle.scanner.current_text) |text| @as(u64, @intCast(text.len)) else 0;
+}
+
+pub export fn sa_json_stream_free(stream: u64) i32 {
+    return sa_std_close(stream);
 }
 
 pub export fn sa_json_writer_free(writer: u64) i32 {
@@ -1700,6 +2026,83 @@ pub export fn sa_json_writer_finish(writer: u64, out_handle: ?*u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_regex_compile(pattern: ?[*]const u8, pattern_len: u64, cflags: i32) u64 {
+    const input = constBytes(pattern, pattern_len) catch return 0;
+    const handle = RegexHandle.init(std.heap.page_allocator, input, cflags) catch return 0;
+    return registerResource(.{ .regex = handle }) catch |err| {
+        handle.destroy();
+        _ = finishErr(err);
+        return 0;
+    };
+}
+
+pub export fn sa_regex_match(regex: u64, text: ?[*]const u8, text_len: u64) u64 {
+    const input = constBytes(text, text_len) catch return 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(regex) orelse return 0;
+    const regex_handle = switch (resource.*) {
+        .regex => |handle| handle,
+        else => return 0,
+    };
+    const match_handle = regexMatchHandle(regex_handle, input) catch return 0;
+    return registerResourceLocked(.{ .regex_match = match_handle }) catch |err| {
+        match_handle.destroy();
+        _ = finishErr(err);
+        return 0;
+    };
+}
+
+pub export fn sa_regex_group_ptr(match: u64, group_idx: u32) ?[*]const u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(match) orelse return null;
+    const match_handle = switch (resource.*) {
+        .regex_match => |handle| handle,
+        else => return null,
+    };
+    const idx = @as(usize, @intCast(group_idx));
+    if (idx >= match_handle.matches.len) return null;
+    const reg = match_handle.matches[idx];
+    if (reg.rm_so < 0 or reg.rm_eo < 0) return null;
+    const start: usize = @intCast(reg.rm_so);
+    return match_handle.text_z[start..].ptr;
+}
+
+pub export fn sa_regex_group_len(match: u64, group_idx: u32) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(match) orelse return 0;
+    const match_handle = switch (resource.*) {
+        .regex_match => |handle| handle,
+        else => return 0,
+    };
+    const idx = @as(usize, @intCast(group_idx));
+    if (idx >= match_handle.matches.len) return 0;
+    const reg = match_handle.matches[idx];
+    if (reg.rm_so < 0 or reg.rm_eo < 0) return 0;
+    return @as(u64, @intCast(reg.rm_eo - reg.rm_so));
+}
+
+pub export fn sa_regex_group_count(regex: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(regex) orelse return 0;
+    const regex_handle = switch (resource.*) {
+        .regex => |handle| handle,
+        else => return 0,
+    };
+    return @as(u64, @intCast(regexGroupCount(regex_handle)));
+}
+
+pub export fn sa_regex_free(regex: u64) i32 {
+    return sa_std_close(regex);
+}
+
+pub export fn sa_regex_match_free(match: u64) i32 {
+    return sa_std_close(match);
+}
+
 
 pub export fn sa_json_buffer_data(buffer: u64) ?[*]u8 {
     registry_mutex.lock();
@@ -1824,52 +2227,52 @@ pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i3
 }
 
 // Compatibility shims for the rosetta demos that model host APIs directly.
-pub export fn fd_open(path_ptr: ?[*]const u8) i32 {
+pub fn fd_open(path_ptr: ?[*]const u8) callconv(.c) i32 {
     _ = path_ptr;
     last_error = SA_STD_OK;
     return 3;
 }
 
-pub export fn fd_read(fd: i32) i32 {
+pub fn fd_read(fd: i32) callconv(.c) i32 {
     _ = fd;
     last_error = SA_STD_OK;
     return 3;
 }
 
-pub export fn fd_close(fd: i32) i32 {
+pub fn fd_close(fd: i32) callconv(.c) i32 {
     _ = fd;
     last_error = SA_STD_OK;
     return SA_STD_OK;
 }
 
-pub export fn mmap(fd: i32, len: i32) ?[*]u8 {
+pub fn mmap(fd: i32, len: i32) callconv(.c) ?[*]u8 {
     _ = fd;
     _ = len;
     last_error = SA_STD_OK;
     return compatibility_mmap_page[0..].ptr;
 }
 
-pub export fn munmap(map: ?[*]u8, len: i32) i32 {
+pub fn munmap(map: ?[*]u8, len: i32) callconv(.c) i32 {
     _ = map;
     _ = len;
     last_error = SA_STD_OK;
     return SA_STD_OK;
 }
 
-pub export fn signal(sig: i32, handler: ?[*]const u8) i32 {
+pub fn signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
     _ = handler;
     last_error = SA_STD_OK;
     return sig;
 }
 
-pub export fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) i32 {
+pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
     _ = entry;
     _ = arg;
     last_error = SA_STD_OK;
     return 1;
 }
 
-pub export fn pthread_join(handle: i32, out: ?[*]u8) i32 {
+pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
     _ = handle;
     const out_ptr = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const joined: i32 = 5;
@@ -1878,32 +2281,32 @@ pub export fn pthread_join(handle: i32, out: ?[*]u8) i32 {
     return SA_STD_OK;
 }
 
-pub export fn pthread_drop(handle: i32) void {
+pub fn pthread_drop(handle: i32) callconv(.c) void {
     _ = handle;
     last_error = SA_STD_OK;
 }
 
-pub export fn dlopen(path_ptr: ?[*]const u8, flags: i32) ?[*]u8 {
+pub fn dlopen(path_ptr: ?[*]const u8, flags: i32) callconv(.c) ?[*]u8 {
     _ = path_ptr;
     _ = flags;
     last_error = SA_STD_OK;
     return compatibility_dlopen_cookie[0..].ptr;
 }
 
-pub export fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) ?[*]u8 {
+pub fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) callconv(.c) ?[*]u8 {
     _ = handle;
     _ = symbol_ptr;
     last_error = SA_STD_OK;
     return compatibility_dlsym_cookie[0..].ptr;
 }
 
-pub export fn dlclose(handle: ?[*]u8) i32 {
+pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
     _ = handle;
     last_error = SA_STD_OK;
     return SA_STD_OK;
 }
 
-pub export fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) i32 {
+pub fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) callconv(.c) i32 {
     _ = sqlite;
     _ = sql;
     _ = len;
@@ -1912,16 +2315,36 @@ pub export fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_
     return SA_STD_OK;
 }
 
-pub export fn sqlite3_step(stmt: ?[*]u8) i32 {
+pub fn sqlite3_step(stmt: ?[*]u8) callconv(.c) i32 {
     _ = stmt;
     last_error = SA_STD_OK;
     return 1;
 }
 
-pub export fn sqlite3_finalize(stmt: ?[*]u8) i32 {
+pub fn sqlite3_finalize(stmt: ?[*]u8) callconv(.c) i32 {
     _ = stmt;
     last_error = SA_STD_OK;
     return SA_STD_OK;
+}
+
+comptime {
+    if (!builtin.is_test) {
+        @export(&fd_open, .{ .name = "fd_open" });
+        @export(&fd_read, .{ .name = "fd_read" });
+        @export(&fd_close, .{ .name = "fd_close" });
+        @export(&mmap, .{ .name = "mmap" });
+        @export(&munmap, .{ .name = "munmap" });
+        @export(&signal, .{ .name = "signal" });
+        @export(&pthread_spawn, .{ .name = "pthread_spawn" });
+        @export(&pthread_join, .{ .name = "pthread_join" });
+        @export(&pthread_drop, .{ .name = "pthread_drop" });
+        @export(&dlopen, .{ .name = "dlopen" });
+        @export(&dlsym, .{ .name = "dlsym" });
+        @export(&dlclose, .{ .name = "dlclose" });
+        @export(&sqlite3_prepare, .{ .name = "sqlite3_prepare" });
+        @export(&sqlite3_step, .{ .name = "sqlite3_step" });
+        @export(&sqlite3_finalize, .{ .name = "sqlite3_finalize" });
+    }
 }
 
 pub export fn sa_std_fs_open_read(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {

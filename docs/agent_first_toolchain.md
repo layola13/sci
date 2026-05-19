@@ -18,9 +18,19 @@
 *   **分配稳定错误码 (Stable Codes)**：将原来的 `DuplicateDef`、`InvalidAtomicOrdering` 映射为稳定的错误码，例如 `SA-FLAT-001` (展开器错误)、`SA-REF-042` (语义验证错误)。
 *   **执行 `sci build --json`**：将原本的彩色标准错误流（Stderr）输出转化为机器可读的 JSON 数组。
 
-**JSON 数据模型：**
+### 1.2 引入 Token 消耗评估 (Compile/Execution Tokens)
+借鉴大模型 (LLM) 的 Token 计费模型，在编译器的 `--json` 输出中引入指令计数（等价于区块链智能合约中的 Gas）。这为 Agent 提供了**超越“编译通过”的深度优化反馈**。
+*   **编译期 Tokens (`compile_tokens`)**：记录展开器 (`Flattener`) 和验证器 (`Referee`) 处理代码所消耗的内部步数。宏嵌套越深，消耗越高。
+*   **执行期 Tokens 预估 (`instruction_count` / `run_tokens`)**：统计生成的物理指令数量。Agent 可以通过博弈不断寻找完成同一功能但 `instruction_count` 更低的代码写法。
+
+**JSON 数据模型示例：**
 ```json
 {
+  "status": "error",
+  "metrics": {
+    "compile_tokens": 12050,
+    "instruction_count": 842
+  },
   "diagnostics": [
     {
       "code": "SA-REF-010",

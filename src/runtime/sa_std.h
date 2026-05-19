@@ -159,6 +159,11 @@ int32_t sa_json_scanner_feed(uint64_t scanner, const uint8_t *input, uint64_t le
 int32_t sa_json_scanner_end_input(uint64_t scanner);
 int32_t sa_json_scanner_next(uint64_t scanner, SaJsonToken *out_token);
 int32_t sa_json_scanner_free(uint64_t scanner);
+uint64_t sa_json_stream_new(const uint8_t *json_bytes, uint64_t len);
+uint32_t sa_json_stream_next(uint64_t stream);
+const uint8_t *sa_json_stream_get_slice_ptr(uint64_t stream);
+uint64_t sa_json_stream_get_slice_len(uint64_t stream);
+int32_t sa_json_stream_free(uint64_t stream);
 int32_t sa_json_writer_new(uint32_t whitespace, uint8_t emit_null_optional_fields, uint8_t emit_strings_as_arrays, uint8_t escape_unicode, uint8_t emit_nonportable_numbers_as_strings, uint64_t *out_handle);
 int32_t sa_json_writer_begin_object(uint64_t writer);
 int32_t sa_json_writer_end_object(uint64_t writer);
@@ -172,6 +177,48 @@ int32_t sa_json_writer_write_string(uint64_t writer, const uint8_t *data, uint64
 int32_t sa_json_writer_write_null(uint64_t writer);
 int32_t sa_json_writer_finish(uint64_t writer, uint64_t *out_handle);
 int32_t sa_json_writer_free(uint64_t writer);
+
+#define SA_REGEX_EXTENDED 1
+#define SA_REGEX_ICASE 2
+#define SA_REGEX_NEWLINE 4
+#define SA_REGEX_NOSUB 8
+#define SA_REGEX_NOTBOL 1
+#define SA_REGEX_NOTEOL 2
+#define SA_REGEX_REG_NOERROR 0
+#define SA_REGEX_REG_OK SA_REGEX_REG_NOERROR
+#define SA_REGEX_REG_NOMATCH 1
+#define SA_REGEX_REG_BADPAT 2
+#define SA_REGEX_REG_ECOLLATE 3
+#define SA_REGEX_REG_ECTYPE 4
+#define SA_REGEX_REG_EESCAPE 5
+#define SA_REGEX_REG_ESUBREG 6
+#define SA_REGEX_REG_EBRACK 7
+#define SA_REGEX_REG_EPAREN 8
+#define SA_REGEX_REG_EBRACE 9
+#define SA_REGEX_REG_BADBR 10
+#define SA_REGEX_REG_ERANGE 11
+#define SA_REGEX_REG_ESPACE 12
+#define SA_REGEX_REG_BADRPT 13
+#define SA_REGEX_REG_ENOSYS -1
+
+typedef struct SaRegexGroup {
+    const uint8_t *ptr;
+    uint64_t len;
+} SaRegexGroup;
+
+typedef struct SaRegexMatch {
+    uint32_t matched;
+    uint32_t group_count;
+    SaRegexGroup *groups;
+} SaRegexMatch;
+
+uint64_t sa_regex_compile(const uint8_t *pattern, uint64_t pattern_len, int32_t cflags);
+uint64_t sa_regex_match(uint64_t regex, const uint8_t *text, uint64_t text_len);
+const uint8_t *sa_regex_group_ptr(uint64_t match, uint32_t group_idx);
+uint64_t sa_regex_group_len(uint64_t match, uint32_t group_idx);
+uint64_t sa_regex_group_count(uint64_t regex);
+int32_t sa_regex_free(uint64_t regex);
+int32_t sa_regex_match_free(uint64_t match);
 
 int32_t sa_std_write(uint64_t handle, const uint8_t *data, uint64_t len, uint64_t *out_written);
 int32_t sa_std_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);

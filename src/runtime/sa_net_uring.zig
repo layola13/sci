@@ -511,10 +511,13 @@ const Reactor = struct {
         getState().worker_state.mutex.lock();
         getState().worker_state.stop = true;
         getState().worker_state.cond.broadcast();
+        while (getState().worker_state.active_workers != 0) {
+            getState().worker_state.cond.wait(&getState().worker_state.mutex);
+        }
         getState().worker_state.mutex.unlock();
         self.signalWake();
         if (self.worker) |worker| {
-            worker.join();
+            worker.detach();
             self.worker = null;
         }
         self.worker_started = false;
@@ -1276,7 +1279,7 @@ fn setNonBlocking(fd: posix.fd_t) void {
 }
 
 fn reactorWorkerMain(reactor: *Reactor) void {
-    setThreadAffinity(reactor.id);
+    if (!builtin.is_test) setThreadAffinity(reactor.id);
     const state = &getState().worker_state;
     state.mutex.lock();
     state.active_workers += 1;
@@ -1789,17 +1792,6 @@ pub fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
         };
     }
 
-    for (reactors) |*reactor| {
-        reactor.startWorker() catch {
-            var j: usize = 0;
-            while (j < reactors.len) : (j += 1) reactors[j].deinit();
-            std.heap.page_allocator.free(reactors);
-            var pool_owned = pool;
-            pool_owned.deinit();
-            return SA_NETX_ERR_IO;
-        };
-    }
-
     runtime_state = .{
         .initialized = true,
         .slot_pool = pool,
@@ -1809,6 +1801,23 @@ pub fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
         .listen_address = null,
         .ticket_capacity = ticket_capacity,
     };
+
+    for (reactors) |*reactor| {
+        reactor.startWorker() catch {
+            runtime_state.worker_state.mutex.lock();
+            runtime_state.worker_state.stop = true;
+            runtime_state.worker_state.cond.broadcast();
+            runtime_state.worker_state.mutex.unlock();
+            var j: usize = 0;
+            while (j < reactors.len) : (j += 1) reactors[j].deinit();
+            std.heap.page_allocator.free(reactors);
+            var pool_owned = pool;
+            pool_owned.deinit();
+            runtime_state = .{};
+            return SA_NETX_ERR_IO;
+        };
+    }
+
     return SA_NETX_OK;
 }
 
@@ -2207,9 +2216,9 @@ test "websocket upgrade and binary frame work end to end" {
     if (total_collected != 4 or total_result != SA_NETX_OK) return error.TestUnexpectedResult;
 
     _ = sa_netx_close_slot(ws_slot);
-    _ = sa_netx_shutdown();
     collector_thread.join();
     ws_thread.join();
+    _ = sa_netx_shutdown();
 
     try std.testing.expect(std.mem.indexOf(u8, ws_client.upgrade_response[0..ws_client.upgrade_len], "101 Switching Protocols") != null);
     try std.testing.expectEqual(ws_client.expected_frame_len, ws_client.frame_len);
@@ -2356,10 +2365,10 @@ test "listen accept recv_ticket and outbound commands work end to end" {
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_close_slot(accept_slots[0]));
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_close_slot(accept_slots[1]));
 
-    _ = sa_netx_shutdown();
     collector_thread.join();
     client1_thread.join();
     client2_thread.join();
+    _ = sa_netx_shutdown();
 
     const client1_received = client1.received[0..client1.received_len];
     const client2_received = client2.received[0..client2.received_len];

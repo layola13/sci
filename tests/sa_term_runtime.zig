@@ -135,6 +135,7 @@ test "sa_term raw mode and winsize are usable from C" {
         include_dir,
         "raw_mode.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_term_raw_demo",
     };
@@ -234,6 +235,7 @@ test "sa_term epoll and process streaming are usable from C" {
         include_dir,
         "stream.c",
         "libsa_std.a",
+        "-lc",
         "-o",
         "sa_term_stream_demo",
     };

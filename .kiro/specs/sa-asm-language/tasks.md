@@ -447,6 +447,20 @@ sa/
     - `-g` 默认关，`build-exe -g` 启用 DWARF 生成
     - _Requirements: R19.4, R19.5_
 
+  - [ ] 8.22 Agent-First JSON 诊断体系改造 (NEW)
+    - 为 `trap.zig` 中的报错赋予稳定的 `SA-XXX` 错误码
+    - 实现全局 `--json` 标志，输出含 `repair`、`compile_tokens` 和 `instruction_count` 的结构化诊断
+    - 新增 `saasm explain` 和 `saasm fix --plan` 骨架命令
+
+  - [ ] 8.23 可插拔 CLI 插件系统重构 (NEW)
+    - 建立 `src/plugin.zig` 和 `src/plugins.zig` 接口与注册表
+    - 从主线剥离 package (`fetch`), db, sax, llvm2sa 逻辑至独立插件
+    - 注入 `init` / `prebuild` 钩子，实现 `saasm skills` 动态能力输出
+
+  - [ ] 8.24 标准库 JSON FFI 与生态剥离 (NEW)
+    - 打通 `sa_std/encoding/json` 的 DOM 与流式双模 FFI 桥接
+    - 在文档层明确拒绝 YAML/XML 进入标准库，规划至周边 Package 生态
+
 - [x] 9. W10-11 内存解释器（`saasm run`）
 
   - [x] 9.1 大 switch 分派全部 `InstKind`

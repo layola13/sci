@@ -2236,3 +2236,33 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
 ---
 
 **更多信息**：见 `docs/database.md`（完整设计文档）、`requirements.md` R34（需求）、`design.md` §5（架构）、`tasks.md` v0.6（实现计划）。
+
+---
+
+## 架构与生态边界类
+
+### Q: 为什么 `sa_std` 只有 JSON，不支持 YAML/XML 等其他序列化格式？
+
+**A**: 为了保证标准库的极致精简和零 C 库污染。
+
+原因：
+- SA 缺乏高级类型系统，处理动态树状结构（如 JSON/YAML）需要 FFI 桥接到底层。
+- Zig 标准库内置了极度优秀的 `std.json`，可以实现零依赖的 JSON 极速流式解析。
+- 而 YAML、XML 等格式如果放入核心，则必须在编译期静态链接 `libyaml`、`expat` 等臃肿的 C 库。
+- 因此，JSON 作为现代 Web 血液被唯一内置，而 YAML/XML/TOML 被明确剥离为外围生态中的 Package/Plugin，供用户按需引入。
+
+### Q: Plugin (插件) 和 Package (包) 有什么区别？
+
+**A**: 它们运作在完全不同的维度。
+
+- **Plugin (插件，如 `saasm db` / `saasm sax`)**：用于扩展 **CLI 编译器工具自身**。它们在编译期链接，帮助处理特殊子命令。
+- **Package (包，如第三方 `libyaml`)**：用于扩展 **用户编写的业务代码**。它们在运行期/展开期通过 `saasm fetch` 拉取，供业务逻辑 `@import` 使用。
+
+### Q: 为什么 `sci` 编译器要在输出里提供 `compile_tokens` 和 `instruction_count`？
+
+**A**: 这是构建 "Agent-First Toolchain" 的核心。
+
+原因：
+- SA 的目标用户不仅仅是人类，更是 LLM Agent。
+- 输出精确的 `compile_tokens` (展开消耗) 和 `instruction_count` (生成的物理指令数) 提供了一个完美的量化评价标准。
+- 这使得 Agent 在编写代码时，可以把指令数当作 "损失函数 (Loss Function)"，通过多轮自我博弈 (Self-Play) 写出消耗最低、性能最极致的汇编代码。
