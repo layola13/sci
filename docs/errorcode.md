@@ -28,6 +28,7 @@ Use it together with:
 | `DuplicateDef` | Flattener | emitted |
 | `DuplicateLabel` | Referee | emitted |
 | `UnsupportedType` | Signature / Layout / Referee / CLI flatten wrapper | emitted |
+| `ImportResolutionFailed` | Flattener / CLI flatten wrapper | emitted |
 | `MacroRecursionLimit` | Flattener | emitted |
 | `RegisterRedefinition` | Referee / CapabilityTable | emitted |
 | `UnknownRegister` | Referee / CapabilityTable / metadata collection | emitted |
@@ -149,6 +150,7 @@ Notes:
 | `DuplicateDef` | Trap | Flattener | repeated `#def` name | primary message, no hint today | emitted |
 | `DuplicateLabel` | Trap | Referee | same `L_NAME:` twice in one function | primary message, optional hint | emitted |
 | `UnsupportedType` | Trap | Signature / Layout / Referee / CLI flatten wrapper | unsupported primitive type annotation | primary message, no hint today | emitted |
+| `ImportResolutionFailed` | Trap | Flattener / CLI flatten wrapper | unresolved import path / ambiguous package version / rejected precompiled artifact | primary message, contextual hint | emitted |
 | `MacroRecursionLimit` | Trap | Flattener | macro expansion depth > 256 | primary message, no hint today | emitted |
 | `RegisterRedefinition` | Trap | Referee | macro expansion or instruction rebinds an already live register | primary message, `register` | emitted |
 | `UnknownRegister` | Trap | Referee | use of a never-declared register | primary message, `register` | emitted |

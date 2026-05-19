@@ -1,3 +1,6 @@
+@import "json_regex.saasm"
+@import "stdlib_surface.saasm"
+
 // Helpers distilled from the rosetta demos that the native unit-test suite
 // already covered in separate batches.
 
@@ -16,7 +19,7 @@ L_B:
     !a
     return b
 
-@support_make_point(x: i32, y: i32) -> ^ptr:
+@support_make_point(x: i32, y: i32) -> ptr:
 L_ENTRY:
     point = alloc 8
     store point+0, x as i32

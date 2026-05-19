@@ -11,7 +11,7 @@ pub fn main() !void {
 
     const code = cli.execute(allocator, argv) catch |err| {
         const stderr = std.io.getStdErr().writer();
-        try stderr.print("error: {s}\n", .{@errorName(err)});
+        try cli.printCliError(stderr, err, if (cli.hasJsonFlag(argv)) .json else .human);
         std.process.exit(1);
     };
 

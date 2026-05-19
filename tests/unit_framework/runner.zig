@@ -32,9 +32,12 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectContains(stdout_buffer.items, "[PASS] 06_enum_and_match tag dispatch");
     try expectContains(stdout_buffer.items, "[PASS] 28_borrow_chains repeated load");
     try expectContains(stdout_buffer.items, "[PASS] 41_module_imports helper import");
+    try expectContains(stdout_buffer.items, "[PASS] sa_std json dom roundtrip");
+    try expectContains(stdout_buffer.items, "[PASS] sa_std json stream tokens");
+    try expectContains(stdout_buffer.items, "[PASS] sa_std regex groups");
     try expectContains(stdout_buffer.items, "[PASS] 178 panic hook path");
     try expectNotContains(stdout_buffer.items, "[PASS] framework ignored case");
-    try expectContains(stdout_buffer.items, "test result: ok. 6 passed; 0 failed; 0 skipped; 1 ignored");
+    try expectContains(stdout_buffer.items, "test result: ok. 9 passed; 0 failed; 0 skipped; 1 ignored");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 
     stdout_buffer.clearRetainingCapacity();
@@ -69,8 +72,11 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectContains(stdout_buffer.items, "[PASS] 06_enum_and_match tag dispatch");
     try expectContains(stdout_buffer.items, "[PASS] 28_borrow_chains repeated load");
     try expectContains(stdout_buffer.items, "[PASS] 41_module_imports helper import");
+    try expectContains(stdout_buffer.items, "[PASS] sa_std json dom roundtrip");
+    try expectContains(stdout_buffer.items, "[PASS] sa_std json stream tokens");
+    try expectContains(stdout_buffer.items, "[PASS] sa_std regex groups");
     try expectContains(stdout_buffer.items, "[PASS] 178 panic hook path");
     try expectContains(stdout_buffer.items, "[PASS] framework ignored case");
-    try expectContains(stdout_buffer.items, "test result: ok. 7 passed; 0 failed; 0 skipped");
+    try expectContains(stdout_buffer.items, "test result: ok. 10 passed; 0 failed; 0 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }

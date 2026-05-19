@@ -42,6 +42,17 @@ const CompileOptions = struct {
     project_root: ?[]const u8 = null,
 };
 
+pub const DiagnosticsMode = enum {
+    human,
+    json,
+};
+
+const CliErrorInfo = struct {
+    code: ?[]const u8,
+    message: []const u8,
+    hint: ?[]const u8,
+};
+
 const Command = enum {
     run,
     build,
@@ -56,6 +67,25 @@ const Command = enum {
     fetch,
     test_cmd,
 };
+
+pub fn hasJsonFlag(argv: []const []const u8) bool {
+    for (argv) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) return true;
+    }
+    return false;
+}
+
+fn stripJsonFlag(allocator: std.mem.Allocator, argv: []const []const u8) ![]const []const u8 {
+    var items = std.ArrayList([]const u8).init(allocator);
+    errdefer items.deinit();
+
+    for (argv) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) continue;
+        try items.append(arg);
+    }
+
+    return try items.toOwnedSlice();
+}
 
 const ProjectTargetKind = enum {
     native,
@@ -413,47 +443,56 @@ fn commandName(cmd: Command) []const u8 {
     };
 }
 
-fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
-    const function_text = textOrBuf(report.function, report.function_buf[0..]);
-    const register_text = textOrBuf(report.register, report.register_buf[0..]);
-    var source_text_buf: [256]u8 = [_]u8{0} ** 256;
-    copyTextBuf(&source_text_buf, reportText(report));
-    const source_text = bufText(source_text_buf[0..]);
-    try writer.print("error[{s}]: {s}\n", .{ trap.trapName(report.trap), report.message });
-    if (function_text.len != 0) {
-        try writer.print("  in function {s}\n", .{function_text});
-    }
-    try printUpstreamLocation(writer, report);
-    if (source_text.len != 0) {
-        if (report.source_line != 0) {
-            if (report.line != 0 and report.line != report.source_line) {
-                try writer.print("  line {d} (expanded {d}): {s}\n", .{ report.source_line, report.line, source_text });
-            } else {
-                try writer.print("  line {d}: {s}\n", .{ report.source_line, source_text });
+fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMode) !void {
+    switch (mode) {
+        .human => {
+            const function_text = textOrBuf(report.function, report.function_buf[0..]);
+            const register_text = textOrBuf(report.register, report.register_buf[0..]);
+            var source_text_buf: [256]u8 = [_]u8{0} ** 256;
+            copyTextBuf(&source_text_buf, reportText(report));
+            const source_text = bufText(source_text_buf[0..]);
+            try writer.print("error[{s}]: {s}\n", .{ trap.trapName(report.trap), report.message });
+            if (function_text.len != 0) {
+                try writer.print("  in function {s}\n", .{function_text});
             }
-        } else {
-            try writer.print("  source: {s}\n", .{source_text});
-        }
+            try printUpstreamLocation(writer, report);
+            if (source_text.len != 0) {
+                if (report.source_line != 0) {
+                    if (report.line != 0 and report.line != report.source_line) {
+                        try writer.print("  line {d} (expanded {d}): {s}\n", .{ report.source_line, report.line, source_text });
+                    } else {
+                        try writer.print("  line {d}: {s}\n", .{ report.source_line, source_text });
+                    }
+                } else {
+                    try writer.print("  source: {s}\n", .{source_text});
+                }
+            }
+            if (register_text.len != 0) {
+                try writer.print("  register: {s}\n", .{register_text});
+            } else if (report.registers.len != 0) {
+                try writer.writeAll("  registers:");
+                for (report.registers) |name| {
+                    try writer.print(" {s}", .{name});
+                }
+                try writer.writeByte('\n');
+            }
+            try printMaskState(writer, report);
+            if (report.hint) |hint| {
+                try writer.print("  help: {s}\n", .{hint});
+            }
+            try trap.writeJson(writer, report);
+            try writer.writeByte('\n');
+        },
+        .json => {
+            try writer.writeAll("{\"status\":\"error\",\"diagnostics\":[");
+            try trap.writeJson(writer, report);
+            try writer.writeAll("]}\n");
+        },
     }
-    if (register_text.len != 0) {
-        try writer.print("  register: {s}\n", .{register_text});
-    } else if (report.registers.len != 0) {
-        try writer.writeAll("  registers:");
-        for (report.registers) |name| {
-            try writer.print(" {s}", .{name});
-        }
-        try writer.writeByte('\n');
-    }
-    try printMaskState(writer, report);
-    if (report.hint) |hint| {
-        try writer.print("  help: {s}\n", .{hint});
-    }
-    try trap.writeJson(writer, report);
-    try writer.writeByte('\n');
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <build|run|build-exe|build-wasm|build-obj|llvm2sa|sax|audit|layout|fetch|db|test> [--jobs auto|N] ...\n");
+    try writer.writeAll("usage: saasm <build|run|build-exe|build-wasm|build-obj|llvm2sa|sax|audit|layout|fetch|db|test> [--json] [--jobs auto|N] ...\n");
     try writer.writeAll("test flags: --filter <pattern> [--filter <pattern> ...] [--skip <pattern> ...] [--exact] [--ignored|--include-ignored]\n");
 }
 
@@ -534,6 +573,185 @@ fn forbiddenHint(hit: flattener.ForbiddenHit) []const u8 {
         .brace_open, .brace_close => "remove brace syntax and flatten the control flow into labels and jumps",
         .keyword_if, .keyword_else, .keyword_while, .keyword_for => "replace control-flow keywords with labels and jmp/br instructions",
         .property_chain => "replace dotted property access with explicit SSA registers or constant expansion",
+    };
+}
+
+fn lineContains(line: ?[]const u8, needle: []const u8) bool {
+    return if (line) |text| std.mem.indexOf(u8, text, needle) != null else false;
+}
+
+fn writeJsonString(writer: anytype, text: []const u8) !void {
+    try writer.writeByte('"');
+    for (text) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 0x20) {
+                    try writer.print("\\u{X:0>4}", .{c});
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
+    try writer.writeByte('"');
+}
+
+fn writeMaybeJsonString(writer: anytype, value: ?[]const u8) !void {
+    if (value) |text| {
+        try writeJsonString(writer, text);
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+fn unsupportedTypeHint(line: ?[]const u8) []const u8 {
+    if (lineContains(line, "call @")) {
+        return "inspect the callee declaration referenced by this call site; the unsupported annotation is usually in the imported signature";
+    }
+    if (lineContains(line, "@import")) {
+        return "inspect the imported file for unsupported primitive names or ownership suffixes";
+    }
+    return "check the primitive type names and ownership suffixes in the declaration";
+}
+
+fn cliErrorInfo(err: anyerror) CliErrorInfo {
+    return switch (err) {
+        error.MissingSourcePath => .{
+            .code = "SA-CLI-001",
+            .message = "missing required positional argument",
+            .hint = "pass the source file, project path, or required operand after the command",
+        },
+        error.MissingOutputPath => .{
+            .code = "SA-CLI-002",
+            .message = "missing output path after -o",
+            .hint = "add a path after -o or omit -o to use the default output name",
+        },
+        error.MissingJobs => .{
+            .code = "SA-CLI-003",
+            .message = "missing job count after --jobs",
+            .hint = "use --jobs auto or --jobs <positive integer>",
+        },
+        error.InvalidJobs => .{
+            .code = "SA-CLI-004",
+            .message = "invalid job count",
+            .hint = "use --jobs auto or a positive integer",
+        },
+        error.MissingTarget => .{
+            .code = "SA-CLI-005",
+            .message = "missing target after --target",
+            .hint = "use wasm32 or wasm64 after --target",
+        },
+        error.InvalidTarget => .{
+            .code = "SA-CLI-006",
+            .message = "invalid target",
+            .hint = "use wasm32 or wasm64 after --target",
+        },
+        error.MissingFilterValue => .{
+            .code = "SA-CLI-007",
+            .message = "missing filter pattern",
+            .hint = "pass a pattern after --filter or --skip",
+        },
+        error.MissingLayoutName => .{
+            .code = "SA-CLI-008",
+            .message = "missing layout name",
+            .hint = "pass --name <TypeName>",
+        },
+        error.MissingLayoutFields => .{
+            .code = "SA-CLI-009",
+            .message = "missing layout fields",
+            .hint = "pass --fields <name:ty,...>",
+        },
+        error.MissingLayoutFormat => .{
+            .code = "SA-CLI-010",
+            .message = "missing layout format",
+            .hint = "use --format text or --format json",
+        },
+        error.InvalidLayoutFormat => .{
+            .code = "SA-CLI-011",
+            .message = "invalid layout format",
+            .hint = "use --format text or --format json",
+        },
+        error.UnknownCommand => .{
+            .code = "SA-CLI-012",
+            .message = "unknown command",
+            .hint = "use build, run, build-exe, build-wasm, build-obj, llvm2sa, sax, audit, layout, fetch, db, or test",
+        },
+        error.UnexpectedArgument => .{
+            .code = "SA-CLI-013",
+            .message = "unexpected argument",
+            .hint = "check option order and remove unsupported flags",
+        },
+        error.InvalidPath => .{
+            .code = "SA-CLI-014",
+            .message = "invalid path",
+            .hint = "check the filesystem path and project root",
+        },
+        error.MissingRef => .{
+            .code = "SA-CLI-015",
+            .message = "missing package ref",
+            .hint = "pass a ref value after --ref",
+        },
+        else => .{
+            .code = null,
+            .message = @errorName(err),
+            .hint = null,
+        },
+    };
+}
+
+pub fn printCliError(writer: anytype, err: anyerror, mode: DiagnosticsMode) !void {
+    const info = cliErrorInfo(err);
+    switch (mode) {
+        .human => {
+            if (info.code) |code| {
+                try writer.print("error[{s}]: {s}\n", .{ code, info.message });
+            } else {
+                try writer.print("error: {s}\n", .{info.message});
+            }
+            if (info.hint) |hint| {
+                try writer.print("  help: {s}\n", .{hint});
+            }
+        },
+        .json => {
+            try writer.writeAll("{\"status\":\"error\",\"error\":{");
+            try writer.writeAll("\"name\":");
+            try writeJsonString(writer, @errorName(err));
+            try writer.writeAll(",\"code\":");
+            try writeMaybeJsonString(writer, info.code);
+            try writer.writeAll(",\"message\":");
+            try writeJsonString(writer, info.message);
+            try writer.writeAll(",\"hint\":");
+            try writeMaybeJsonString(writer, info.hint);
+            try writer.writeAll("}}\n");
+        },
+    }
+}
+
+fn importResolutionMessage(err: anyerror) []const u8 {
+    return switch (err) {
+        error.InvalidImportPath => "invalid import path",
+        error.PackageNotResolved => "import path could not be resolved",
+        error.AmbiguousPackageVersion => "multiple package versions match this import",
+        error.PrecompiledArtifactRejected => "precompiled artifact imports are not allowed",
+        error.InvalidPath => "invalid path while resolving an import",
+        else => "import resolution failed",
+    };
+}
+
+fn importResolutionHint(line: ?[]const u8, err: anyerror) []const u8 {
+    _ = line;
+    return switch (err) {
+        error.InvalidImportPath => "use a valid relative `.saasm` or package identity without `../`, empty segments, or whitespace",
+        error.PackageNotResolved => "check the import path, package identity, local vendor tree, and package cache",
+        error.AmbiguousPackageVersion => "pin the required package ref in `sa.mod` so the resolver can choose one version",
+        error.PrecompiledArtifactRejected => "depend on the source package instead of a precompiled artifact",
+        error.InvalidPath => "check the project root or import path for filesystem errors",
+        else => "check the import path, package identity, local vendor tree, and package cache",
     };
 }
 
@@ -665,7 +883,27 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
             .function = null,
             .is_ffi_wrapper = null,
             .message = "unsupported type annotation during flattening",
-            .hint = "check primitive type names in signatures and atomic suffixes",
+            .hint = unsupportedTypeHint(line_text),
+        },
+        error.InvalidImportPath, error.PackageNotResolved, error.AmbiguousPackageVersion, error.PrecompiledArtifactRejected, error.InvalidPath => .{
+            .trap = .import_resolution_failed,
+            .trap_code = trap.trapCode(.import_resolution_failed),
+            .line = line_no,
+            .source_line = line_no,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
+            .register = null,
+            .registers = &.{},
+            .expected_mask = null,
+            .actual_mask = null,
+            .expected_mask_name = null,
+            .actual_mask_name = null,
+            .function = null,
+            .is_ffi_wrapper = null,
+            .message = importResolutionMessage(err),
+            .hint = importResolutionHint(line_text, err),
         },
         error.OutOfMemory => .{
             .trap = .arena_oom,
@@ -916,7 +1154,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             return .{ .trap = report };
         },
     };
-} 
+}
 
 fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffix: []const u8) ![]const u8 {
     const dir = std.fs.path.dirname(source_path);
@@ -959,11 +1197,12 @@ fn executeRun(
     argv: []const []const u8,
     stdout: anytype,
     stderr: anytype,
+    diagnostics_mode: DiagnosticsMode,
 ) !u8 {
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(stderr, report);
+            try printTrapReport(stderr, report, diagnostics_mode);
             return 1;
         },
         .ok => |ok| {
@@ -972,7 +1211,7 @@ fn executeRun(
             return interp.runWithWriters(allocator, &owned.verified, argv, stdout.any(), stderr.any()) catch |err| switch (err) {
                 error.UserExit => 0,
                 else => {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    try printCliError(stderr, err, diagnostics_mode);
                     return 1;
                 },
             };
@@ -980,11 +1219,11 @@ fn executeRun(
     }
 }
 
-fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype) !u8 {
+fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(stderr, report);
+            try printTrapReport(stderr, report, diagnostics_mode);
             return 1;
         },
         .ok => |ok| {
@@ -1006,11 +1245,11 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     }
 }
 
-fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype) !u8 {
+fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(stderr, report);
+            try printTrapReport(stderr, report, diagnostics_mode);
             return 1;
         },
         .ok => |ok| {
@@ -1032,11 +1271,11 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     }
 }
 
-fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype) !u8 {
+fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(stderr, report);
+            try printTrapReport(stderr, report, diagnostics_mode);
             return 1;
         },
         .ok => |ok| {
@@ -1141,11 +1380,12 @@ fn executeTest(
     selection: test_meta.TestSelection,
     stdout: anytype,
     stderr: anytype,
+    diagnostics_mode: DiagnosticsMode,
 ) !u8 {
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
-            try printTrapReport(stderr, report);
+            try printTrapReport(stderr, report, diagnostics_mode);
             return 1;
         },
         .ok => |ok| {
@@ -1202,56 +1442,62 @@ fn executeTest(
 }
 
 pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
-    if (argv.len < 2) {
+    const normalized_args = try stripJsonFlag(allocator, argv);
+    defer allocator.free(normalized_args);
+
+    const args = normalized_args;
+    const json_mode = hasJsonFlag(argv);
+
+    if (args.len < 2) {
         try printUsage(stderr);
         return 1;
     }
 
     const cmd: Command = blk: {
-        if (std.mem.eql(u8, argv[1], commandName(.build))) break :blk .build;
-        if (std.mem.eql(u8, argv[1], commandName(.run))) break :blk .run;
-        if (std.mem.eql(u8, argv[1], commandName(.build_exe))) break :blk .build_exe;
-        if (std.mem.eql(u8, argv[1], commandName(.build_wasm))) break :blk .build_wasm;
-        if (std.mem.eql(u8, argv[1], commandName(.build_obj))) break :blk .build_obj;
-        if (std.mem.eql(u8, argv[1], commandName(.llvm2sa))) break :blk .llvm2sa;
-        if (std.mem.eql(u8, argv[1], commandName(.sax))) break :blk .sax;
-        if (std.mem.eql(u8, argv[1], commandName(.audit))) break :blk .audit;
-        if (std.mem.eql(u8, argv[1], commandName(.layout))) break :blk .layout;
-        if (std.mem.eql(u8, argv[1], commandName(.fetch))) break :blk .fetch;
-        if (std.mem.eql(u8, argv[1], "db")) break :blk .db;
-        if (std.mem.eql(u8, argv[1], commandName(.test_cmd))) break :blk .test_cmd;
+        if (std.mem.eql(u8, args[1], commandName(.build))) break :blk .build;
+        if (std.mem.eql(u8, args[1], commandName(.run))) break :blk .run;
+        if (std.mem.eql(u8, args[1], commandName(.build_exe))) break :blk .build_exe;
+        if (std.mem.eql(u8, args[1], commandName(.build_wasm))) break :blk .build_wasm;
+        if (std.mem.eql(u8, args[1], commandName(.build_obj))) break :blk .build_obj;
+        if (std.mem.eql(u8, args[1], commandName(.llvm2sa))) break :blk .llvm2sa;
+        if (std.mem.eql(u8, args[1], commandName(.sax))) break :blk .sax;
+        if (std.mem.eql(u8, args[1], commandName(.audit))) break :blk .audit;
+        if (std.mem.eql(u8, args[1], commandName(.layout))) break :blk .layout;
+        if (std.mem.eql(u8, args[1], commandName(.fetch))) break :blk .fetch;
+        if (std.mem.eql(u8, args[1], "db")) break :blk .db;
+        if (std.mem.eql(u8, args[1], commandName(.test_cmd))) break :blk .test_cmd;
         return error.UnknownCommand;
     };
 
     switch (cmd) {
         .layout => {
-            return try executeLayout(allocator, argv[2..], stdout, stderr);
+            return try executeLayout(allocator, args[2..], stdout, stderr);
         },
         .build => {
-            if (argv.len < 3) return error.MissingSourcePath;
-            const source_path = argv[2];
+            if (args.len < 3) return error.MissingSourcePath;
+            const source_path = args[2];
             var compile_options: CompileOptions = .{};
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
-            while (i < argv.len) : (i += 1) {
-                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
-                if (std.mem.eql(u8, argv[i], "-o")) {
-                    if (i + 1 >= argv.len) return error.MissingOutputPath;
-                    out_path = argv[i + 1];
+            while (i < args.len) : (i += 1) {
+                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
                     i += 1;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "-g")) {
+                if (std.mem.eql(u8, args[i], "-g")) {
                     debug = true;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
                     debug = false;
                     continue;
                 }
-                if (parseOptimizationFlag(argv[i])) |mode| {
+                if (parseOptimizationFlag(args[i])) |mode| {
                     optimization = mode;
                     continue;
                 }
@@ -1259,27 +1505,27 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr);
+            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .sax => {
-            if (argv.len < 3) return error.MissingSourcePath;
-            const sub = argv[2];
+            if (args.len < 3) return error.MissingSourcePath;
+            const sub = args[2];
             if (sax_cli.parseSaxCommand(sub)) |sax_cmd| {
                 switch (sax_cmd) {
                     .build => {
-                        const sax_file = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        const sax_file = if (args.len >= 4) args[3] else return error.MissingSourcePath;
                         return try sax_cli.executeSaxBuild(allocator, sax_file, null, stdout, stderr);
                     },
                     .check => {
-                        const sax_file = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        const sax_file = if (args.len >= 4) args[3] else return error.MissingSourcePath;
                         return try sax_cli.executeSaxCheck(allocator, sax_file, stdout, stderr);
                     },
                     .dev => {
-                        const sax_file = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        const sax_file = if (args.len >= 4) args[3] else return error.MissingSourcePath;
                         return try sax_cli.executeSaxDev(allocator, sax_file, 8080, stdout, stderr);
                     },
                     .new_project => {
-                        const project_name = if (argv.len >= 4) argv[3] else return error.MissingSourcePath;
+                        const project_name = if (args.len >= 4) args[3] else return error.MissingSourcePath;
                         return try sax_cli.executeSaxNew(allocator, project_name, stdout, stderr);
                     },
                 }
@@ -1287,14 +1533,14 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             return error.UnknownCommand;
         },
         .fetch => {
-            const parsed = try parseFetchArgs(allocator, argv[2..]);
+            const parsed = try parseFetchArgs(allocator, args[2..]);
             var result = try pkg_fetch.fetchPackage(allocator, parsed.identity, parsed.ref, parsed.options);
             defer result.deinit(allocator);
             try stdout.print("{s}\n", .{result.root});
             return 0;
         },
         .audit => {
-            const audit_argv = argv[2..];
+            const audit_argv = args[2..];
             if (audit_argv.len == 0) return error.MissingSourcePath;
             const source_path = audit_argv[0];
             const source = try loadSource(allocator, source_path);
@@ -1304,33 +1550,33 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             return 0;
         },
         .db => {
-            if (argv.len < 3) return error.UnknownCommand;
-            const sub = argv[2];
+            if (args.len < 3) return error.UnknownCommand;
+            const sub = args[2];
             if (std.mem.eql(u8, sub, "init")) {
-                if (argv.len < 4) return error.MissingSourcePath;
-                const iface = db.exec.compileSchema(allocator, argv[3]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 4) return error.MissingSourcePath;
+                const iface = db.exec.compileSchema(allocator, args[3]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 defer allocator.free(iface);
-                const iface_path = db.schema.ifaceFilePath(allocator, argv[3]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                const iface_path = db.schema.ifaceFilePath(allocator, args[3]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 defer allocator.free(iface_path);
                 writeTextFile(allocator, iface_path, iface) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 try stdout.print("{s}\n", .{iface_path});
                 return 0;
             }
             if (std.mem.eql(u8, sub, "register")) {
-                if (argv.len < 4) return error.MissingSourcePath;
-                const source_path = argv[3];
+                if (args.len < 4) return error.MissingSourcePath;
+                const source_path = args[3];
                 const project_root = std.fs.path.dirname(source_path) orelse ".";
                 var result = db.exec.registerQuery(allocator, source_path, project_root) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 defer result.deinit(allocator);
@@ -1341,9 +1587,9 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
                 return 0;
             }
             if (std.mem.eql(u8, sub, "inspect")) {
-                if (argv.len < 4) return error.MissingSourcePath;
-                const report = db.exec.inspectRegistry(allocator, ".", argv[3]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 4) return error.MissingSourcePath;
+                const report = db.exec.inspectRegistry(allocator, ".", args[3]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 defer allocator.free(report);
@@ -1351,85 +1597,85 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
                 return 0;
             }
             if (std.mem.eql(u8, sub, "ingest")) {
-                if (argv.len < 5) return error.MissingSourcePath;
-                const info = db.table.ingestTable(allocator, ".", argv[3], argv[4]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 5) return error.MissingSourcePath;
+                const info = db.table.ingestTable(allocator, ".", args[3], args[4]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 try printTableInfo(stdout, info);
                 return 0;
             }
             if (std.mem.eql(u8, sub, "snapshot")) {
-                if (argv.len < 4) return error.MissingSourcePath;
-                const info = db.table.snapshotTable(allocator, ".", argv[3]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 4) return error.MissingSourcePath;
+                const info = db.table.snapshotTable(allocator, ".", args[3]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 try printTableInfo(stdout, info);
                 return 0;
             }
             if (std.mem.eql(u8, sub, "restore")) {
-                if (argv.len < 5) return error.MissingSourcePath;
-                const epoch = std.fmt.parseInt(u64, argv[4], 10) catch return error.InvalidPath;
-                const info = db.table.restoreTable(allocator, ".", argv[3], epoch) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 5) return error.MissingSourcePath;
+                const epoch = std.fmt.parseInt(u64, args[4], 10) catch return error.InvalidPath;
+                const info = db.table.restoreTable(allocator, ".", args[3], epoch) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 try printTableInfo(stdout, info);
                 return 0;
             }
             if (std.mem.eql(u8, sub, "verify")) {
-                if (argv.len < 4) return error.MissingSourcePath;
-                const info = db.table.verifyTable(allocator, ".", argv[3]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 4) return error.MissingSourcePath;
+                const info = db.table.verifyTable(allocator, ".", args[3]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 try printTableInfo(stdout, info);
                 return 0;
             }
             if (std.mem.eql(u8, sub, "lock")) {
-                if (argv.len < 4) return error.MissingSourcePath;
-                const info = db.table.lockTable(allocator, ".", argv[3]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 4) return error.MissingSourcePath;
+                const info = db.table.lockTable(allocator, ".", args[3]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 try printTableInfo(stdout, info);
                 return 0;
             }
             if (std.mem.eql(u8, sub, "compact")) {
-                if (argv.len < 4) return error.MissingSourcePath;
-                const info = db.table.compactTable(allocator, ".", argv[3]) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                if (args.len < 4) return error.MissingSourcePath;
+                const info = db.table.compactTable(allocator, ".", args[3]) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 try printTableInfo(stdout, info);
                 return 0;
             }
             if (std.mem.eql(u8, sub, "exec")) {
-                if (argv.len < 4) return error.MissingSourcePath;
+                if (args.len < 4) return error.MissingSourcePath;
                 var params_path: ?[]const u8 = null;
                 var i: usize = 4;
-                while (i < argv.len) : (i += 1) {
-                    if (std.mem.eql(u8, argv[i], "--params")) {
-                        if (i + 1 >= argv.len) return error.MissingSourcePath;
-                        params_path = argv[i + 1];
+                while (i < args.len) : (i += 1) {
+                    if (std.mem.eql(u8, args[i], "--params")) {
+                        if (i + 1 >= args.len) return error.MissingSourcePath;
+                        params_path = args[i + 1];
                         i += 1;
                         continue;
                     }
                     if (params_path == null) {
-                        params_path = argv[i];
+                        params_path = args[i];
                         continue;
                     }
                     return error.UnexpectedArgument;
                 }
-                var exec_result = db.exec.execQuery(allocator, ".", argv[3], params_path, stdout, stderr) catch |err| {
-                    try stderr.print("error: {s}\n", .{@errorName(err)});
+                var exec_result = db.exec.execQuery(allocator, ".", args[3], params_path, stdout, stderr) catch |err| {
+                    try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 defer exec_result.deinit(allocator);
                 switch (exec_result) {
                     .trap => |report| {
-                        try printTrapReport(stderr, report);
+                        try printTrapReport(stderr, report, if (json_mode) .json else .human);
                         return 1;
                     },
                     .ok => |result| {
@@ -1440,49 +1686,49 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             return error.UnknownCommand;
         },
         .run => {
-            if (argv.len < 3) return error.MissingSourcePath;
+            if (args.len < 3) return error.MissingSourcePath;
             var compile_options: CompileOptions = .{};
             var source_path: ?[]const u8 = null;
             var runtime_args = std.ArrayList([]const u8).init(allocator);
             defer runtime_args.deinit();
 
             var i: usize = 2;
-            while (i < argv.len) : (i += 1) {
-                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
+            while (i < args.len) : (i += 1) {
+                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
                 if (source_path == null) {
-                    source_path = argv[i];
+                    source_path = args[i];
                     continue;
                 }
-                try runtime_args.append(argv[i]);
+                try runtime_args.append(args[i]);
             }
             const source = source_path orelse return error.MissingSourcePath;
-            return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr);
+            return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr, if (json_mode) .json else .human);
         },
         .build_exe => {
-            if (argv.len < 3) return error.MissingSourcePath;
-            const source_path = argv[2];
+            if (args.len < 3) return error.MissingSourcePath;
+            const source_path = args[2];
             var compile_options: CompileOptions = .{};
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
-            while (i < argv.len) : (i += 1) {
-                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
-                if (std.mem.eql(u8, argv[i], "-o")) {
-                    if (i + 1 >= argv.len) return error.MissingOutputPath;
-                    out_path = argv[i + 1];
+            while (i < args.len) : (i += 1) {
+                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
                     i += 1;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "-g")) {
+                if (std.mem.eql(u8, args[i], "-g")) {
                     debug = true;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
                     debug = false;
                     continue;
                 }
-                if (parseOptimizationFlag(argv[i])) |mode| {
+                if (parseOptimizationFlag(args[i])) |mode| {
                     optimization = mode;
                     continue;
                 }
@@ -1490,33 +1736,33 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr);
+            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_obj => {
-            if (argv.len < 3) return error.MissingSourcePath;
-            const source_path = argv[2];
+            if (args.len < 3) return error.MissingSourcePath;
+            const source_path = args[2];
             var compile_options: CompileOptions = .{};
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
-            while (i < argv.len) : (i += 1) {
-                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
-                if (std.mem.eql(u8, argv[i], "-o")) {
-                    if (i + 1 >= argv.len) return error.MissingOutputPath;
-                    out_path = argv[i + 1];
+            while (i < args.len) : (i += 1) {
+                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
                     i += 1;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "-g")) {
+                if (std.mem.eql(u8, args[i], "-g")) {
                     debug = true;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
                     debug = false;
                     continue;
                 }
-                if (parseOptimizationFlag(argv[i])) |mode| {
+                if (parseOptimizationFlag(args[i])) |mode| {
                     optimization = mode;
                     continue;
                 }
@@ -1524,11 +1770,11 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr);
+            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .llvm2sa => {
-            if (argv.len < 3) return error.MissingSourcePath;
-            const source_path = argv[2];
+            if (args.len < 3) return error.MissingSourcePath;
+            const source_path = args[2];
             const translated = try llvm2sa.translateFile(allocator, source_path);
             defer allocator.free(translated);
             try stdout.writeAll(translated);
@@ -1536,37 +1782,37 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             return 0;
         },
         .build_wasm => {
-            if (argv.len < 3) return error.MissingSourcePath;
-            const source_path = argv[2];
+            if (args.len < 3) return error.MissingSourcePath;
+            const source_path = args[2];
             var compile_options: CompileOptions = .{};
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
-            while (i < argv.len) : (i += 1) {
-                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
-                if (std.mem.eql(u8, argv[i], "-o")) {
-                    if (i + 1 >= argv.len) return error.MissingOutputPath;
-                    out_path = argv[i + 1];
+            while (i < args.len) : (i += 1) {
+                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
                     i += 1;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "-g")) {
+                if (std.mem.eql(u8, args[i], "-g")) {
                     debug = true;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--no-debug")) {
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
                     debug = false;
                     continue;
                 }
-                if (parseOptimizationFlag(argv[i])) |mode| {
+                if (parseOptimizationFlag(args[i])) |mode| {
                     optimization = mode;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--target")) {
-                    if (i + 1 >= argv.len) return error.MissingTarget;
-                    target = try parseTarget(argv[i + 1]);
+                if (std.mem.eql(u8, args[i], "--target")) {
+                    if (i + 1 >= args.len) return error.MissingTarget;
+                    target = try parseTarget(args[i + 1]);
                     i += 1;
                     continue;
                 }
@@ -1574,11 +1820,11 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr);
+            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .test_cmd => {
-            if (argv.len < 3) return error.MissingSourcePath;
-            const source_path = argv[2];
+            if (args.len < 3) return error.MissingSourcePath;
+            const source_path = args[2];
             var compile_options: CompileOptions = .{};
             var include_filters = std.ArrayList([]const u8).init(allocator);
             defer include_filters.deinit();
@@ -1587,29 +1833,29 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var exact = false;
             var run_ignored = test_meta.RunIgnored.normal;
             var i: usize = 3;
-            while (i < argv.len) : (i += 1) {
-                if (try consumeJobsOption(argv[i], argv, &i, &compile_options)) continue;
-                if (std.mem.eql(u8, argv[i], "--filter")) {
-                    if (i + 1 >= argv.len) return error.MissingFilterValue;
-                    try include_filters.append(argv[i + 1]);
+            while (i < args.len) : (i += 1) {
+                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (std.mem.eql(u8, args[i], "--filter")) {
+                    if (i + 1 >= args.len) return error.MissingFilterValue;
+                    try include_filters.append(args[i + 1]);
                     i += 1;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--skip")) {
-                    if (i + 1 >= argv.len) return error.MissingFilterValue;
-                    try skip_filters.append(argv[i + 1]);
+                if (std.mem.eql(u8, args[i], "--skip")) {
+                    if (i + 1 >= args.len) return error.MissingFilterValue;
+                    try skip_filters.append(args[i + 1]);
                     i += 1;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--exact")) {
+                if (std.mem.eql(u8, args[i], "--exact")) {
                     exact = true;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--ignored")) {
+                if (std.mem.eql(u8, args[i], "--ignored")) {
                     run_ignored = .only;
                     continue;
                 }
-                if (std.mem.eql(u8, argv[i], "--include-ignored")) {
+                if (std.mem.eql(u8, args[i], "--include-ignored")) {
                     run_ignored = .include;
                     continue;
                 }
@@ -1621,7 +1867,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
                 .exact = exact,
                 .ignored = run_ignored,
             };
-            return try executeTest(allocator, source_path, compile_options, selection, stdout, stderr);
+            return try executeTest(allocator, source_path, compile_options, selection, stdout, stderr, if (json_mode) .json else .human);
         },
     }
 }
@@ -1669,7 +1915,7 @@ test "trap reports print a human summary and preserve json payload" {
     const function = "@main() -> i32:";
     std.mem.copyForwards(u8, report.function_buf[0..function.len], function);
 
-    try printTrapReport(list.writer(), report);
+    try printTrapReport(list.writer(), report, .human);
     const output = list.items;
 
     try std.testing.expect(std.mem.indexOf(u8, output, "error[MemoryLeak]: live registers remain at function exit") != null);
@@ -1683,4 +1929,42 @@ test "trap reports print a human summary and preserve json payload" {
     try std.testing.expect(std.mem.indexOf(u8, output, "\"function\":\"@main() -> i32:\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"register\":\"r1\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"hint\":\"insert explicit release\"") != null);
+}
+
+test "cli error printing is detailed and json capable" {
+    var human = std.ArrayList(u8).init(std.testing.allocator);
+    defer human.deinit();
+    try printCliError(human.writer(), error.MissingSourcePath, .human);
+    try std.testing.expect(std.mem.indexOf(u8, human.items, "error[SA-CLI-001]: missing required positional argument") != null);
+    try std.testing.expect(std.mem.indexOf(u8, human.items, "help: pass the source file, project path, or required operand after the command") != null);
+
+    var json = std.ArrayList(u8).init(std.testing.allocator);
+    defer json.deinit();
+    try printCliError(json.writer(), error.InvalidTarget, .json);
+    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"status\":\"error\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"code\":\"SA-CLI-006\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"name\":\"InvalidTarget\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"message\":\"invalid target\"") != null);
+}
+
+test "flatten error mapping keeps import resolution and unsupported type hints specific" {
+    const import_source =
+        \\@import "missing.saasm"
+        \\@main() -> i32:
+        \\    return 0
+    ;
+    const import_report = trapFromFlattenError(import_source, error.PackageNotResolved, 1);
+    try std.testing.expectEqual(trap.Trap.import_resolution_failed, import_report.trap);
+    try std.testing.expectEqual(@as(u32, 1050), import_report.trap_code.?);
+    try std.testing.expectEqualStrings("import path could not be resolved", import_report.message);
+    try std.testing.expectEqualStrings("check the import path, package identity, local vendor tree, and package cache", import_report.hint.?);
+
+    const type_source =
+        \\@test "probe":
+        \\    point = call @support_make_point(10, 20)
+    ;
+    const type_report = trapFromFlattenError(type_source, error.UnsupportedType, 2);
+    try std.testing.expectEqual(trap.Trap.unsupported_type, type_report.trap);
+    try std.testing.expectEqualStrings("unsupported type annotation during flattening", type_report.message);
+    try std.testing.expectEqualStrings("inspect the callee declaration referenced by this call site; the unsupported annotation is usually in the imported signature", type_report.hint.?);
 }

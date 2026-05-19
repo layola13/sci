@@ -2524,7 +2524,9 @@ fn emitInstruction(
             state.block_open = false;
         },
         .call, .call_indirect, .panic, .panic_msg => {
-            var parsed = call.parseCall(allocator, base.raw_text) catch return EmitError.InvalidOperand;
+            const call_text = try instructionCallText(allocator, symbols, base);
+            defer allocator.free(call_text);
+            var parsed = call.parseCall(allocator, call_text) catch return EmitError.InvalidOperand;
             defer parsed.deinit(allocator);
             if (try emitCall(allocator, out, state, symbols, sigs, options, size_bits, parsed)) |ret| {
                 if (parsed.dest) |dest| {
@@ -2608,6 +2610,43 @@ fn emitInstruction(
             try out.writer().print("  {s}\n", .{base.operands[0].native_text});
         },
         else => return EmitError.UnsupportedInstruction,
+    }
+}
+
+fn instructionCallText(
+    allocator: std.mem.Allocator,
+    symbols: *const symbol.SymbolTable,
+    base: inst.Instruction,
+) ![]u8 {
+    switch (base.kind) {
+        .call, .call_indirect => {
+            const keyword = if (base.kind == .call) "call" else "call_indirect";
+            switch (base.operands[0]) {
+                .reg => |dest_reg| {
+                    const dest_name = symbols.lookupName(dest_reg) orelse return EmitError.InvalidOperand;
+                    switch (base.operands[1]) {
+                        .text => |callee_text| {
+                            return try std.fmt.allocPrint(allocator, "{s} = {s} {s}", .{ dest_name, keyword, callee_text });
+                        },
+                        else => return try allocator.dupe(u8, base.raw_text),
+                    }
+                },
+                .text => |call_text| {
+                    return try std.fmt.allocPrint(allocator, "{s} {s}", .{ keyword, call_text });
+                },
+                else => return try allocator.dupe(u8, base.raw_text),
+            }
+        },
+        .panic, .panic_msg => {
+            const keyword = if (base.kind == .panic) "panic" else "panic_msg";
+            switch (base.operands[0]) {
+                .text => |call_text| {
+                    return try std.fmt.allocPrint(allocator, "{s}{s}", .{ keyword, call_text });
+                },
+                else => return try allocator.dupe(u8, base.raw_text),
+            }
+        },
+        else => return try allocator.dupe(u8, base.raw_text),
     }
 }
 

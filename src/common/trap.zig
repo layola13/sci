@@ -7,6 +7,7 @@ pub const Trap = enum(u8) {
     duplicate_def,
     duplicate_label,
     unsupported_type,
+    import_resolution_failed,
     macro_recursion_limit,
     register_redefinition,
     unknown_register,
@@ -87,6 +88,7 @@ pub fn trapName(trap: Trap) []const u8 {
         .duplicate_def => "DuplicateDef",
         .duplicate_label => "DuplicateLabel",
         .unsupported_type => "UnsupportedType",
+        .import_resolution_failed => "ImportResolutionFailed",
         .macro_recursion_limit => "MacroRecursionLimit",
         .register_redefinition => "RegisterRedefinition",
         .unknown_register => "UnknownRegister",
@@ -141,6 +143,7 @@ pub fn trapCode(trap: Trap) u32 {
         .duplicate_def => 1002,
         .duplicate_label => 1003,
         .unsupported_type => 1004,
+        .import_resolution_failed => 1050,
         .macro_recursion_limit => 1005,
         .register_redefinition => 1006,
         .unknown_register => 1007,
@@ -328,6 +331,7 @@ test "trap names are stable" {
     try std.testing.expectEqualStrings("UnauthorizedPrimitive", trapName(.unauthorized_primitive));
     try std.testing.expectEqualStrings("UpstreamShaMismatch", trapName(.upstream_sha_mismatch));
     try std.testing.expectEqualStrings("SaxStateLeak", trapName(.sax_state_leak));
+    try std.testing.expectEqualStrings("ImportResolutionFailed", trapName(.import_resolution_failed));
 }
 
 test "trap codes are explicit and stable" {
@@ -337,6 +341,7 @@ test "trap codes are explicit and stable" {
     try std.testing.expectEqual(@as(u32, 1043), trapCode(.unauthorized_primitive));
     try std.testing.expectEqual(@as(u32, 1044), trapCode(.upstream_sha_mismatch));
     try std.testing.expectEqual(@as(u32, 1045), trapCode(.sax_state_leak));
+    try std.testing.expectEqual(@as(u32, 1050), trapCode(.import_resolution_failed));
 }
 
 test "trap json serialization is stable" {

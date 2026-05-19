@@ -82,6 +82,51 @@ L_ERR:
     !ok
     panic(205)
 
+@test "sa_std json dom roundtrip"():
+L_ENTRY:
+    call @support_json_dom_roundtrip()
+    return
+
+@test "sa_std json stream tokens"():
+L_ENTRY:
+    call @support_json_stream_tokens()
+    return
+
+@test "sa_std regex groups"():
+L_ENTRY:
+    call @support_regex_groups()
+    return
+
+@test "sa_std mem"():
+L_ENTRY:
+    call @support_mem_surface()
+    return
+
+@test "sa_std string"():
+L_ENTRY:
+    call @support_string_surface()
+    return
+
+@test "sa_std vec"():
+L_ENTRY:
+    call @support_vec_surface()
+    return
+
+@test "sa_std hashmap"():
+L_ENTRY:
+    call @support_hashmap_surface()
+    return
+
+@test "sa_std btree"():
+L_ENTRY:
+    call @support_btree_surface()
+    return
+
+@test "sa_std net"():
+L_ENTRY:
+    call @support_net_surface()
+    return
+
 @test should_panic "178 panic hook path"():
 L_ENTRY:
     panic(99)

@@ -20,7 +20,7 @@
 @extern sa_json_scanner_end_input(scanner: ptr) -> i32!
 @extern sa_json_scanner_next(scanner: ptr, &out_token: ptr) -> i32!
 @extern sa_json_scanner_free(^scanner: ptr) -> i32!
-@extern sa_json_stream_new(json_bytes: &ptr, len: u64) -> ^ptr
+@extern sa_json_stream_new(&json_bytes: ptr, len: u64) -> ^ptr
 @extern sa_json_stream_next(stream: ptr) -> u32
 @extern sa_json_stream_get_slice_ptr(stream: ptr) -> &ptr
 @extern sa_json_stream_get_slice_len(stream: ptr) -> u64

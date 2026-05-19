@@ -19,7 +19,9 @@
 #def SA_REGEX_REG_ERANGE = 11
 #def SA_REGEX_REG_ESPACE = 12
 #def SA_REGEX_REG_BADRPT = 13
-#def SA_REGEX_REG_ENOSYS = -1
+// SAASM layout constants currently avoid negative literals; keep the signed -1
+// bit pattern so the value still matches the runtime's C ABI error code.
+#def SA_REGEX_REG_ENOSYS = 0xffffffffffffffff
 
 #def SaRegexGroup_SIZE = 16
 #def SaRegexGroup_ptr = +0

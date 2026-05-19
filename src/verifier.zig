@@ -596,11 +596,29 @@ fn callConsumesByValueArg(callee: []const u8) bool {
         std.mem.endsWith(u8, callee, "_release");
 }
 
+fn callTextMentionsMovedRegister(text: []const u8, reg_name: []const u8) bool {
+    var search_start: usize = 0;
+    while (search_start < text.len) {
+        const caret_idx = std.mem.indexOfPos(u8, text, search_start, "^") orelse return false;
+        const name_start = caret_idx + 1;
+        if (name_start + reg_name.len <= text.len and std.mem.startsWith(u8, text[name_start..], reg_name)) {
+            const after = name_start + reg_name.len;
+            if (after == text.len or !(std.ascii.isAlphanumeric(text[after]) or text[after] == '_')) {
+                return true;
+            }
+        }
+        search_start = caret_idx + 1;
+    }
+    return false;
+}
+
 fn regConsumedLater(
     instructions: []const inst.Instruction,
     function_start_idx: usize,
+    symbols: *const symbol.SymbolTable,
     reg: u32,
 ) bool {
+    const reg_name = symbols.lookupName(reg) orelse return false;
     var idx = function_start_idx + 1;
     while (idx < instructions.len) : (idx += 1) {
         const item = instructions[idx];
@@ -620,6 +638,7 @@ fn regConsumedLater(
             },
             else => {},
         }
+        if (callTextMentionsMovedRegister(item.raw_text, reg_name)) return true;
     }
     return false;
 }
@@ -897,6 +916,37 @@ fn builtinReturnCap(name: []const u8) ?inst.CapPrefix {
     if (std.mem.eql(u8, name, "sys_write_file")) return .by_value;
     if (std.mem.eql(u8, name, "sys_print")) return null;
     return null;
+}
+
+fn callTextForInstruction(
+    allocator: std.mem.Allocator,
+    symbols: *const symbol.SymbolTable,
+    item: inst.Instruction,
+) ![]u8 {
+    switch (item.kind) {
+        .call, .call_indirect => {
+            const keyword = if (item.kind == .call) "call" else "call_indirect";
+            switch (item.operands[0]) {
+                .reg => |dest_reg| {
+                    const dest_name = symbols.lookupName(dest_reg) orelse return error.InvalidOperand;
+                    switch (item.operands[1]) {
+                        .text => |callee_text| return try std.fmt.allocPrint(allocator, "{s} = {s} {s}", .{ dest_name, keyword, callee_text }),
+                        else => return try allocator.dupe(u8, item.raw_text),
+                    }
+                },
+                .text => |call_text| return try std.fmt.allocPrint(allocator, "{s} {s}", .{ keyword, call_text }),
+                else => return try allocator.dupe(u8, item.raw_text),
+            }
+        },
+        .panic, .panic_msg => {
+            const keyword = if (item.kind == .panic) "panic" else "panic_msg";
+            switch (item.operands[0]) {
+                .text => |call_text| return try std.fmt.allocPrint(allocator, "{s}{s}", .{ keyword, call_text }),
+                else => return try allocator.dupe(u8, item.raw_text),
+            }
+        },
+        else => return try allocator.dupe(u8, item.raw_text),
+    }
 }
 
 fn callPrefixMatchesParam(param: sig.ParamSpec, arg_prefix: inst.CapPrefix) bool {
@@ -1980,7 +2030,9 @@ fn verifyBody(
                 terminated = true;
             },
             .call, .call_indirect, .panic, .panic_msg => {
-                var parsed = call.parseCall(allocator, item.raw_text) catch {
+                const call_text = try callTextForInstruction(allocator, &metadata.symbols, item);
+                defer allocator.free(call_text);
+                var parsed = call.parseCall(allocator, call_text) catch {
                     return trapReport(.forbidden_syntax, item, current_function_text, current_is_ffi_wrapper, null, null, null, "invalid call syntax", null);
                 };
                 defer parsed.deinit(allocator);
@@ -2161,7 +2213,7 @@ fn verifyBody(
                     if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
                     if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
                     if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
-                    if (regConsumedLater(instructions, current_function_start_idx, @intCast(idx))) continue;
+                    if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, @intCast(idx))) continue;
                     return trapReport(.early_return_leak, item, current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(src_id), maskOf(.fallible), src_mask, "early return would leak live registers", null);
                 }
 
@@ -2271,7 +2323,7 @@ fn verifyBody(
             if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
             if ((flags[idx] & regFlagBranchCondition) != 0) continue;
             if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
-            if (regConsumedLater(instructions, current_function_start_idx, @intCast(idx))) continue;
+            if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, @intCast(idx))) continue;
             return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(@intCast(idx)), null, mask, "live registers remain at function exit", null);
         }
     }

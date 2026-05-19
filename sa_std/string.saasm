@@ -16,63 +16,64 @@
 [END_MACRO]
 
 [MACRO] STR_EQ %out_bool, %left_slice, %right_slice
-    left_ptr = load %left_slice+Slice_ptr as ptr
-    right_ptr = load %right_slice+Slice_ptr as ptr
-    left_len = load %left_slice+Slice_len as u64
-    right_len = load %right_slice+Slice_len as u64
-    same_len = eq left_len, right_len
-    br same_len -> L_STR_EQ_LOOP_%i, L_STR_EQ_NE_%i
-L_STR_EQ_LOOP_%i:
-    idx_slot = stack_alloc 8
-    store idx_slot+0, 0 as u64
-    jmp L_STR_EQ_HEAD_%i
-L_STR_EQ_HEAD_%i:
-    idx = load idx_slot+0 as u64
-    done = eq idx, left_len
-    br done -> L_STR_EQ_TRUE_%i, L_STR_EQ_BODY_%i
-L_STR_EQ_BODY_%i:
-    left_ip = ptr_add left_ptr, idx
-    right_ip = ptr_add right_ptr, idx
-    left_byte = load left_ip+0 as u8
-    right_byte = load right_ip+0 as u8
-    bytes_eq = eq left_byte, right_byte
-    !left_ip
-    !right_ip
-    br bytes_eq -> L_STR_EQ_NEXT_%i, L_STR_EQ_FALSE_%i
-L_STR_EQ_NEXT_%i:
-    next_idx = add idx, 1
-    store idx_slot+0, next_idx as u64
-    !idx
-    !done
-    !bytes_eq
-    !next_idx
-    jmp L_STR_EQ_HEAD_%i
-L_STR_EQ_TRUE_%i:
+    left_ptr_%out_bool = load %left_slice+Slice_ptr as ptr
+    right_ptr_%out_bool = load %right_slice+Slice_ptr as ptr
+    left_len_%out_bool = load %left_slice+Slice_len as u64
+    right_len_%out_bool = load %right_slice+Slice_len as u64
+    same_len_%out_bool = eq left_len_%out_bool, right_len_%out_bool
+    br same_len_%out_bool -> L_STR_EQ_LOOP_%out_bool, L_STR_EQ_NE_%out_bool
+L_STR_EQ_LOOP_%out_bool:
+    idx_slot_%out_bool = stack_alloc 8
+    store idx_slot_%out_bool+0, 0 as u64
+    jmp L_STR_EQ_HEAD_%out_bool
+L_STR_EQ_HEAD_%out_bool:
+    idx_%out_bool = load idx_slot_%out_bool+0 as u64
+    done_%out_bool = eq idx_%out_bool, left_len_%out_bool
+    br done_%out_bool -> L_STR_EQ_TRUE_%out_bool, L_STR_EQ_BODY_%out_bool
+L_STR_EQ_BODY_%out_bool:
+    left_ip_%out_bool = ptr_add left_ptr_%out_bool, idx_%out_bool
+    right_ip_%out_bool = ptr_add right_ptr_%out_bool, idx_%out_bool
+    left_byte_%out_bool = load left_ip_%out_bool+0 as u8
+    right_byte_%out_bool = load right_ip_%out_bool+0 as u8
+    bytes_eq_%out_bool = eq left_byte_%out_bool, right_byte_%out_bool
+    !left_byte_%out_bool
+    !right_byte_%out_bool
+    !left_ip_%out_bool
+    !right_ip_%out_bool
+    br bytes_eq_%out_bool -> L_STR_EQ_NEXT_%out_bool, L_STR_EQ_FALSE_%out_bool
+L_STR_EQ_NEXT_%out_bool:
+    next_idx_%out_bool = add idx_%out_bool, 1
+    store idx_slot_%out_bool+0, next_idx_%out_bool as u64
+    !idx_%out_bool
+    !done_%out_bool
+    !bytes_eq_%out_bool
+    !next_idx_%out_bool
+    jmp L_STR_EQ_HEAD_%out_bool
+L_STR_EQ_TRUE_%out_bool:
     %out_bool = add 0, 1
-    !idx_slot
-    !left_ptr
-    !right_ptr
-    !left_len
-    !right_len
-    !same_len
-    jmp L_STR_EQ_END_%i
-L_STR_EQ_FALSE_%i:
+    !left_ptr_%out_bool
+    !right_ptr_%out_bool
+    !left_len_%out_bool
+    !right_len_%out_bool
+    !same_len_%out_bool
+    jmp L_STR_EQ_END_%out_bool
+L_STR_EQ_FALSE_%out_bool:
     %out_bool = add 0, 0
-    !idx_slot
-    !left_ptr
-    !right_ptr
-    !left_len
-    !right_len
-    !same_len
-    jmp L_STR_EQ_END_%i
-L_STR_EQ_NE_%i:
+    !bytes_eq_%out_bool
+    !left_ptr_%out_bool
+    !right_ptr_%out_bool
+    !left_len_%out_bool
+    !right_len_%out_bool
+    !same_len_%out_bool
+    jmp L_STR_EQ_END_%out_bool
+L_STR_EQ_NE_%out_bool:
     %out_bool = add 0, 0
-    !left_ptr
-    !right_ptr
-    !left_len
-    !right_len
-    !same_len
-L_STR_EQ_END_%i:
+    !left_ptr_%out_bool
+    !right_ptr_%out_bool
+    !left_len_%out_bool
+    !right_len_%out_bool
+    !same_len_%out_bool
+L_STR_EQ_END_%out_bool:
 [END_MACRO]
 
 [MACRO] STR_CONCAT %out_slice, %left_slice, %right_slice

@@ -18,3 +18,4 @@ repro_*.zig
 *tmp.o
 *.wasm
 *.out
+.mimir/

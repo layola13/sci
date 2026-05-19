@@ -84,14 +84,56 @@ pub const DefDict = struct {
     fn parseNumber(text: []const u8, pos: *usize) ?i64 {
         const start = pos.*;
         var i = start;
+        var negative = false;
         if (i < text.len and (text[i] == '+' or text[i] == '-')) i += 1;
+        if (text[start] == '-') negative = true;
+
+        var radix: u8 = 10;
+        if (i + 1 < text.len and text[i] == '0' and (text[i + 1] == 'x' or text[i + 1] == 'X')) {
+            radix = 16;
+            i += 2;
+        }
+
+        const digits_start = i;
         var has_digit = false;
-        while (i < text.len and std.ascii.isDigit(text[i])) : (i += 1) {
+        while (i < text.len) : (i += 1) {
+            if (radix == 10) {
+                if (!std.ascii.isDigit(text[i])) break;
+            } else {
+                if (!std.ascii.isHex(text[i])) break;
+            }
             has_digit = true;
         }
         if (!has_digit) return null;
+
+        const digits = text[digits_start..i];
         pos.* = i;
-        return std.fmt.parseInt(i64, text[start..i], 10) catch null;
+
+        if (negative) {
+            if (radix == 16) {
+                const unsigned = std.fmt.parseInt(u64, digits, 16) catch return null;
+                if (unsigned == @as(u64, @intCast(std.math.maxInt(i64))) + 1) return std.math.minInt(i64);
+                if (unsigned <= @as(u64, @intCast(std.math.maxInt(i64)))) {
+                    const positive: i64 = @intCast(unsigned);
+                    return -positive;
+                }
+                return null;
+            }
+            return std.fmt.parseInt(i64, text[start..i], 10) catch null;
+        }
+
+        if (radix == 16) {
+            const unsigned = std.fmt.parseInt(u64, digits, 16) catch return null;
+            return @bitCast(unsigned);
+        }
+
+        return std.fmt.parseInt(i64, text[start..i], 10) catch |err| switch (err) {
+            error.Overflow => blk: {
+                const unsigned = std.fmt.parseInt(u64, digits, 10) catch return null;
+                break :blk @bitCast(unsigned);
+            },
+            else => null,
+        };
     }
 
     fn parseIdentifier(text: []const u8, pos: *usize) ?[]const u8 {
@@ -225,4 +267,15 @@ test "def dict rejects duplicate names" {
 
     try dict.putExpression("X", "8");
     try std.testing.expectError(DefError.DuplicateDef, dict.putExpression("X", "9"));
+}
+
+test "def dict accepts hex literals and bit patterns" {
+    var dict = DefDict.init(std.testing.allocator);
+    defer dict.deinit();
+
+    try dict.putExpression("HEX", "0x10");
+    try dict.putExpression("BIT", "0xffffffffffffffff");
+
+    try std.testing.expectEqualStrings("16", dict.get("HEX").?);
+    try std.testing.expectEqualStrings("-1", dict.get("BIT").?);
 }
