@@ -41,15 +41,21 @@ pub const TestExecutor = struct {
         }) catch |err| {
             return launchFailure(test_case, @errorName(err));
         };
-        defer self.allocator.free(run_result.stdout);
+        self.allocator.free(run_result.stdout);
         defer self.allocator.free(run_result.stderr);
 
-        return test_result.toOutcome(
+        var outcome = test_result.toOutcome(
             test_case.displayName(),
             run_result.term,
             run_result.stderr,
             test_case.desc.should_panic,
         );
+        if (outcome == .failed) {
+            outcome.failed.stderr = self.allocator.dupe(u8, run_result.stderr) catch |err| {
+                return launchFailure(test_case, @errorName(err));
+            };
+        }
+        return outcome;
     }
 };
 

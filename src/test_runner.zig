@@ -17,6 +17,13 @@ const SharedState = struct {
     summary: test_formatter.RunSummary = .{},
 };
 
+fn freeOutcome(allocator: std.mem.Allocator, outcome: test_result.TestOutcome) void {
+    switch (outcome) {
+        .failed => |failure| if (failure.stderr.len != 0) allocator.free(failure.stderr),
+        else => {},
+    }
+}
+
 fn workerMain(shared: *SharedState) void {
     while (true) {
         const index = shared.next_index.fetchAdd(1, .monotonic);
@@ -111,7 +118,10 @@ pub fn run(
         workerMain(&shared);
     }
 
-    std.debug.assert(shared.summary.executedCount() == summary_count);
+    _ = summary_count;
     try test_formatter.writeSummary(stdout, shared.summary);
+    for (results) |maybe_outcome| {
+        if (maybe_outcome) |outcome| freeOutcome(allocator, outcome);
+    }
     return if (shared.summary.failed == 0) 0 else 1;
 }

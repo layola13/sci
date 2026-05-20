@@ -1,41 +1,41 @@
 // SA-facing contracts for the Zig-backed sa_std.net module.
-// TcpStream, TcpListener, and UdpSocket handles are opaque owned ptr values.
-@extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u16) -> ^ptr!
-@extern sa_net_tcp_stream_read(stream: ptr, &buf: ptr, cap: u64) -> u64!
-@extern sa_net_tcp_stream_peek(stream: ptr, &buf: ptr, cap: u64) -> u64!
-@extern sa_net_tcp_stream_set_read_timeout(stream: ptr, timeout_ns: u64) -> i32!
-@extern sa_net_tcp_stream_set_write_timeout(stream: ptr, timeout_ns: u64) -> i32!
-@extern sa_net_tcp_stream_set_nonblocking(stream: ptr, enabled: i32) -> i32!
-@extern sa_net_tcp_stream_set_nodelay(stream: ptr, enabled: i32) -> i32!
-@extern sa_net_tcp_stream_set_ttl(stream: ptr, ttl: u32) -> i32!
-@extern sa_net_tcp_stream_write(stream: ptr, &buf: ptr, len: u64) -> u64!
-@extern sa_net_tcp_stream_write_all(stream: ptr, &buf: ptr, len: u64) -> i32!
-@extern sa_net_tcp_stream_flush(stream: ptr) -> i32!
-@extern sa_net_tcp_stream_peer_addr(stream: ptr) -> ^ptr!
-@extern sa_net_tcp_stream_shutdown(stream: ptr, how: u32) -> i32!
-@extern sa_net_tcp_stream_close(^stream: ptr) -> i32!
+// TcpStream, TcpListener, UdpSocket, and NetAddr values are opaque u64 handles.
+@extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u16) -> u64!
+@extern sa_net_tcp_stream_read(stream: u64, &buf: ptr, cap: u64) -> u64!
+@extern sa_net_tcp_stream_peek(stream: u64, &buf: ptr, cap: u64) -> u64!
+@extern sa_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) -> i32!
+@extern sa_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) -> i32!
+@extern sa_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) -> i32!
+@extern sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) -> i32!
+@extern sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) -> i32!
+@extern sa_net_tcp_stream_write(stream: u64, &buf: ptr, len: u64) -> u64!
+@extern sa_net_tcp_stream_write_all(stream: u64, &buf: ptr, len: u64) -> i32!
+@extern sa_net_tcp_stream_flush(stream: u64) -> i32!
+@extern sa_net_tcp_stream_peer_addr(stream: u64) -> u64!
+@extern sa_net_tcp_stream_shutdown(stream: u64, how: u32) -> i32!
+@extern sa_net_tcp_stream_close(stream: u64) -> i32!
 
-@extern sa_net_tcp_listener_bind(&host: ptr, host_len: u64, port: u16) -> ^ptr!
-@extern sa_net_tcp_listener_accept(listener: ptr) -> ^ptr!
-@extern sa_net_tcp_listener_local_addr(listener: ptr) -> ^ptr!
-@extern sa_net_tcp_listener_close(^listener: ptr) -> i32!
+@extern sa_net_tcp_listener_bind(&host: ptr, host_len: u64, port: u16) -> u64!
+@extern sa_net_tcp_listener_accept(listener: u64) -> u64!
+@extern sa_net_tcp_listener_local_addr(listener: u64) -> u64!
+@extern sa_net_tcp_listener_close(listener: u64) -> i32!
 
-@extern sa_net_udp_bind(&host: ptr, host_len: u64, port: u16) -> ^ptr!
-@extern sa_net_udp_connect(socket: ptr, &host: ptr, host_len: u64, port: u16) -> i32!
-@extern sa_net_udp_set_read_timeout(socket: ptr, timeout_ns: u64) -> i32!
-@extern sa_net_udp_set_write_timeout(socket: ptr, timeout_ns: u64) -> i32!
-@extern sa_net_udp_set_nonblocking(socket: ptr, enabled: i32) -> i32!
-@extern sa_net_udp_set_broadcast(socket: ptr, enabled: i32) -> i32!
-@extern sa_net_udp_set_ttl(socket: ptr, ttl: u32) -> i32!
-@extern sa_net_udp_send(socket: ptr, &buf: ptr, len: u64) -> u64!
-@extern sa_net_udp_recv(socket: ptr, &buf: ptr, cap: u64) -> u64!
-@extern sa_net_udp_send_to(socket: ptr, &buf: ptr, len: u64, &host: ptr, host_len: u64, port: u16) -> u64!
-@extern sa_net_udp_recv_from(socket: ptr, &buf: ptr, cap: u64, &out_addr: ptr) -> u64!
-@extern sa_net_udp_close(^socket: ptr) -> i32!
+@extern sa_net_udp_bind(&host: ptr, host_len: u64, port: u16) -> u64!
+@extern sa_net_udp_connect(socket: u64, &host: ptr, host_len: u64, port: u16) -> i32!
+@extern sa_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) -> i32!
+@extern sa_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) -> i32!
+@extern sa_net_udp_set_nonblocking(socket: u64, enabled: i32) -> i32!
+@extern sa_net_udp_set_broadcast(socket: u64, enabled: i32) -> i32!
+@extern sa_net_udp_set_ttl(socket: u64, ttl: u32) -> i32!
+@extern sa_net_udp_send(socket: u64, &buf: ptr, len: u64) -> u64!
+@extern sa_net_udp_recv(socket: u64, &buf: ptr, cap: u64) -> u64!
+@extern sa_net_udp_send_to(socket: u64, &buf: ptr, len: u64, &host: ptr, host_len: u64, port: u16) -> u64!
+@extern sa_net_udp_recv_from(socket: u64, &buf: ptr, cap: u64, &out_addr: ptr) -> u64!
+@extern sa_net_udp_close(socket: u64) -> i32!
 
 // Owned SaNetAddr values are returned by address query APIs and must be freed.
-@extern sa_net_addr_host(&addr: ptr) -> ptr
-@extern sa_net_addr_host_len(&addr: ptr) -> u64
-@extern sa_net_addr_port(&addr: ptr) -> u16
-@extern sa_net_addr_family(&addr: ptr) -> u32
-@extern sa_net_addr_free(^addr: ptr) -> i32!
+@extern sa_net_addr_host(addr: u64) -> ptr
+@extern sa_net_addr_host_len(addr: u64) -> u64
+@extern sa_net_addr_port(addr: u64) -> u16
+@extern sa_net_addr_family(addr: u64) -> u32
+@extern sa_net_addr_free(addr: u64) -> i32!

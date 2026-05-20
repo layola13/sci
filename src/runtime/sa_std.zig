@@ -2883,20 +2883,20 @@ pub export fn sa_net_tcp_listener_accept(listener: u64) Fallible(u64) {
     if (status != SA_STD_OK) return fail(u64, status);
     return ok(u64, handle);
 }
-pub export fn sa_net_tcp_listener_local_addr(listener: u64) i32 {
+pub export fn sa_net_tcp_listener_local_addr(listener: u64) Fallible(u64) {
     registry_mutex.lock();
     defer registry_mutex.unlock();
-    const resource = getResourceLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const resource = getResourceLocked(listener) orelse return fail(u64, SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .tcp_listener => |server| {
-            var net_addr = NetAddrHandle.init(std.heap.page_allocator, server.listen_address) catch |err| return finishErr(err);
+            var net_addr = NetAddrHandle.init(std.heap.page_allocator, server.listen_address) catch |err| return fail(u64, mapError(err));
             const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
                 net_addr.deinit();
-                return finishErr(err);
+                return fail(u64, mapError(err));
             };
-            return finish(@as(i32, @intCast(handle)));
+            return ok(u64, handle);
         },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
+        else => fail(u64, SA_STD_ERR_INVALID_HANDLE),
     };
 }
 pub export fn sa_net_tcp_listener_close(listener: u64) Fallible(i32) {

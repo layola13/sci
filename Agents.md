@@ -1235,3 +1235,17 @@ Answer:
 
 Next:
 - Inspect `findFunctionSigIndex` and the const-decl parser output for vtable slot function names.
+Question:
+- Does emit_llvm support loading the pointer/value field of a fallible return at +8, or is it still hard-coded to offsets 0 and 4?
+
+Evidence checked:
+- tests/unit_framework/support/json_regex.saasm
+- tests/unit_framework/support/stdlib_surface.saasm
+- src/emit_llvm.zig
+- src/interp.zig
+
+Answer:
+- Pending. The failing instruction is a fallible-result field load at offset +8, so I need to verify the struct layout and the load lowering before changing code.
+
+Next:
+- Inspect the fallible ABI layout in emit_llvm/interp and then patch the load field extraction to match the actual returned struct layout.

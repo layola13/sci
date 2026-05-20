@@ -465,7 +465,7 @@ L_OK:
 L_ENTRY:
     listener_res = call @sa_net_tcp_listener_bind(&NET_LOOPBACK, NET_LOOPBACK_LEN, 0)
     listener_status = load listener_res+0 as u32
-    listener = load listener_res+8 as ptr
+    listener = load listener_res+8 as u64
     !listener_res
     listener_status_ok = eq listener_status, 0
     listener_ok = ne listener, 0
@@ -482,7 +482,7 @@ L_ADDR:
     !listener_ok
     addr_res = call @sa_net_tcp_listener_local_addr(listener)
     addr_status = load addr_res+0 as u32
-    addr = load addr_res+8 as ptr
+    addr = load addr_res+8 as u64
     !addr_res
     addr_status_ok = eq addr_status, 0
     addr_ok = ne addr, 0
@@ -492,7 +492,7 @@ L_ADDR:
 
 L_FAIL_ADDR:
     !addr_ok
-    close_listener_res = call @sa_net_tcp_listener_close(^listener)
+    close_listener_res = call @sa_net_tcp_listener_close(listener)
     close_listener_status = load close_listener_res+4 as i32
     !close_listener_res
     !close_listener_status
@@ -500,13 +500,13 @@ L_FAIL_ADDR:
 
 L_ADDR_COPY:
     !addr_ok
-    host_ptr = call @sa_net_addr_host(&addr)
-    host_len = call @sa_net_addr_host_len(&addr)
-    port = call @sa_net_addr_port(&addr)
-    family = call @sa_net_addr_family(&addr)
+    host_ptr = call @sa_net_addr_host(addr)
+    host_len = call @sa_net_addr_host_len(addr)
+    port = call @sa_net_addr_port(addr)
+    family = call @sa_net_addr_family(addr)
     host_copy = alloc host_len
     call @sa_mem_copy(&host_copy, &host_ptr, host_len)
-    addr_free_res = call @sa_net_addr_free(^addr)
+    addr_free_res = call @sa_net_addr_free(addr)
     addr_free_status = load addr_free_res+4 as i32
     !addr_free_res
     host_view = alloc Slice_SIZE
@@ -549,7 +549,7 @@ L_FAIL_CONNECT:
     !host_len
     !port
     !host_copy
-    close_listener_res = call @sa_net_tcp_listener_close(^listener)
+    close_listener_res = call @sa_net_tcp_listener_close(listener)
     close_listener_status = load close_listener_res+4 as i32
     !close_listener_res
     !close_listener_status
@@ -558,7 +558,7 @@ L_FAIL_CONNECT:
 L_CONNECT:
     connect_res = call @sa_net_tcp_connect(&host_copy, host_len, port)
     connect_status = load connect_res+0 as u32
-    client = load connect_res+8 as ptr
+    client = load connect_res+8 as u64
     !connect_res
     connect_status_ok = eq connect_status, 0
     connect_ok = ne client, 0
@@ -573,7 +573,7 @@ L_FAIL_CONNECT_CLIENT:
     !host_text_ok
     !addr_free_ok
     !connect_all_ok
-    close_listener_res = call @sa_net_tcp_listener_close(^listener)
+    close_listener_res = call @sa_net_tcp_listener_close(listener)
     close_listener_status = load close_listener_res+4 as i32
     !close_listener_res
     !close_listener_status
@@ -582,7 +582,7 @@ L_FAIL_CONNECT_CLIENT:
 L_ACCEPT:
     accept_res = call @sa_net_tcp_listener_accept(listener)
     accept_status = load accept_res+0 as u32
-    server = load accept_res+8 as ptr
+    server = load accept_res+8 as u64
     !accept_res
     accept_status_ok = eq accept_status, 0
     accept_ok = ne server, 0
@@ -594,10 +594,10 @@ L_FAIL_ACCEPT:
     !host_text_ok
     !addr_free_ok
     !accept_all_ok
-    client_close_res = call @sa_net_tcp_stream_close(^client)
+    client_close_res = call @sa_net_tcp_stream_close(client)
     client_close_status = load client_close_res+4 as i32
     !client_close_res
-    listener_close_res = call @sa_net_tcp_listener_close(^listener)
+    listener_close_res = call @sa_net_tcp_listener_close(listener)
     listener_close_status = load listener_close_res+4 as i32
     !listener_close_res
     !client_close_status
@@ -616,13 +616,13 @@ L_FAIL_WRITE:
     !host_text_ok
     !addr_free_ok
     !send_ok
-    server_close_res = call @sa_net_tcp_stream_close(^server)
+    server_close_res = call @sa_net_tcp_stream_close(server)
     server_close_status = load server_close_res+4 as i32
     !server_close_res
-    client_close_res = call @sa_net_tcp_stream_close(^client)
+    client_close_res = call @sa_net_tcp_stream_close(client)
     client_close_status = load client_close_res+4 as i32
     !client_close_res
-    listener_close_res = call @sa_net_tcp_listener_close(^listener)
+    listener_close_res = call @sa_net_tcp_listener_close(listener)
     listener_close_status = load listener_close_res+4 as i32
     !listener_close_res
     !server_close_status
@@ -648,13 +648,13 @@ L_FAIL_READ:
     !read_all_ok
     !read_len
     !read_buf
-    server_close_res = call @sa_net_tcp_stream_close(^server)
+    server_close_res = call @sa_net_tcp_stream_close(server)
     server_close_status = load server_close_res+4 as i32
     !server_close_res
-    client_close_res = call @sa_net_tcp_stream_close(^client)
+    client_close_res = call @sa_net_tcp_stream_close(client)
     client_close_status = load client_close_res+4 as i32
     !client_close_res
-    listener_close_res = call @sa_net_tcp_listener_close(^listener)
+    listener_close_res = call @sa_net_tcp_listener_close(listener)
     listener_close_status = load listener_close_res+4 as i32
     !listener_close_res
     !server_close_status
@@ -673,13 +673,13 @@ L_COMPARE:
     !read_view
     !expected_msg
     !read_buf
-    server_close_res = call @sa_net_tcp_stream_close(^server)
+    server_close_res = call @sa_net_tcp_stream_close(server)
     server_close_status = load server_close_res+4 as i32
     !server_close_res
-    client_close_res = call @sa_net_tcp_stream_close(^client)
+    client_close_res = call @sa_net_tcp_stream_close(client)
     client_close_status = load client_close_res+4 as i32
     !client_close_res
-    listener_close_res = call @sa_net_tcp_listener_close(^listener)
+    listener_close_res = call @sa_net_tcp_listener_close(listener)
     listener_close_status = load listener_close_res+4 as i32
     !listener_close_res
 

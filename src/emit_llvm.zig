@@ -228,11 +228,11 @@ const FunctionState = struct {
     }
 
     fn reloadLiveRegs(self: *FunctionState, allocator: std.mem.Allocator, out: *std.ArrayList(u8), live_caps: []const u16) !void {
-        for (live_caps, 0..) |mask, idx| {
-            if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
+        _ = live_caps;
+        for (self.reg_slots, 0..) |maybe_slot, idx| {
+            const slot = maybe_slot orelse continue;
             const reg_id: u32 = @intCast(idx);
             const value = self.getReg(reg_id) orelse continue;
-            const slot = self.reg_slots[idx] orelse return EmitError.InvalidOperand;
             const tmp = try self.tempName(allocator);
             try out.writer().print("  {s} = load ", .{tmp});
             try writeValueType(out.writer(), value);
@@ -682,10 +682,7 @@ fn parseImmediateValue(allocator: std.mem.Allocator, state: *FunctionState, text
         const num = try std.fmt.parseFloat(f64, trimmed);
         return .{ .expr = try state.ownFmt(allocator, "{d}", .{num}), .ty = .f64 };
     }
-    const num = std.fmt.parseInt(i64, trimmed, 10) catch |err| {
-        std.debug.print("emit_llvm.parseImmediateValue failed for '{s}': {}\n", .{ trimmed, err });
-        return err;
-    };
+    const num = try std.fmt.parseInt(i64, trimmed, 10);
     return .{ .expr = try state.ownFmt(allocator, "{d}", .{num}), .ty = .i64 };
 }
 
@@ -1092,6 +1089,37 @@ fn emitFunctionFooter(out: *std.ArrayList(u8)) !void {
     try emitLine(out, "");
 }
 
+fn ensureFunctionSlots(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    state: *FunctionState,
+    symbols: *const symbol.SymbolTable,
+    def_dict: ?*const flattener.DefDict,
+    items: []const referee.AnnotatedInstruction,
+) !void {
+    for (items) |item| {
+        for (item.base.operands) |operand| {
+            if (operand == .reg) {
+                _ = try state.ensureSlot(allocator, out, operand.reg);
+            }
+        }
+        switch (item.base.kind) {
+            .call, .call_indirect => {
+                const call_text = try instructionCallText(allocator, symbols, def_dict, item.base);
+                defer allocator.free(call_text);
+                var parsed = call.parseCall(allocator, call_text) catch continue;
+                defer parsed.deinit(allocator);
+                if (parsed.dest) |dest| {
+                    if (symbols.findId(dest)) |id| {
+                        _ = try state.ensureSlot(allocator, out, id);
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+}
+
 const EmitFunctionChunk = struct {
     start: usize,
     end: usize,
@@ -1281,6 +1309,7 @@ fn emitFunctionChunkText(
             }
 
             try emitFunctionHeader(&out, &state, chunk.subprogram_id);
+            try ensureFunctionSlots(allocator, &out, &state, symbols, def_dict, annotated[chunk.start + 1 .. chunk.end]);
             for (fsig.params, 0..) |param, pidx| {
                 const reg_id = fsig.param_ids[pidx];
                 const value = Value{
@@ -2414,9 +2443,12 @@ fn emitInstruction(
             const srcv = state.getReg(src) orelse return EmitError.InvalidOperand;
             if (srcv.fallible) {
                 if (base.kind == .take) return EmitError.InvalidOperand;
+                // Map byte offsets to LLVM aggregate field indices.
+                // {i32, <T>}: field 0 (status) is at byte 0; field 1 (data)
+                //   is at byte 4 when T is i32/u32, or byte 8 when T is ptr/i64/u64.
                 const component_idx: u32 = switch (off) {
                     0 => 0,
-                    4 => 1,
+                    4, 8 => 1,
                     else => return EmitError.InvalidOperand,
                 };
                 const extracted = try state.tempName(allocator);
@@ -3258,7 +3290,6 @@ test "llvm emitter produces a module with builtin helpers" {
     const empty_loc: upstream.LocTable = &.{};
     const text = try emitLlvm(std.testing.allocator, ok, null, empty_loc, "test.saasm", @as(u16, @bitSizeOf(usize)), .{});
     defer std.testing.allocator.free(text);
-    std.debug.print("builtin helper text:\n{s}\n", .{text});
     try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "define internal void @sys_print"));
 }
 
