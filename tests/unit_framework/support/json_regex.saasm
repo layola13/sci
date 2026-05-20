@@ -96,15 +96,8 @@ L_EQ_FALSE:
 
 @support_json_dom_roundtrip() -> void:
 L_ENTRY:
-    parse_res = call @sa_json_parse(&JSON_DOM, JSON_DOM_LEN)
-    parse_status = load parse_res+0 as u32
-    root = load parse_res+8 as ptr
-    !parse_res
-    parse_status_ok = eq parse_status, 0
-    has_root = ne root, 0
-    parse_ok = and parse_status_ok, has_root
-    !parse_status_ok
-    !has_root
+    root = call @sa_json_parse(&JSON_DOM, JSON_DOM_LEN)
+    parse_ok = ne root, 0
     br parse_ok -> L_KIND, L_FAIL_PARSE
 
 L_FAIL_PARSE:
@@ -125,7 +118,7 @@ L_COUNT:
     !kind_ok
     count_slot = stack_alloc 8
     count_res = call @sa_json_value_count(root, &count_slot)
-    count_status = load count_res+0 as u32
+    count_status = add count_res, 0
     !count_res
     count_value = load count_slot+0 as u64
     count_status_ok = eq count_status, 0
@@ -145,7 +138,7 @@ L_NAME_GET:
     !count_ok
     name_slot = stack_alloc 8
     name_res = call @sa_json_object_get(root, &JSON_NAME_KEY, JSON_NAME_KEY_LEN, &name_slot)
-    name_status = load name_res+0 as u32
+    name_status = add name_res, 0
     !name_res
     name_status_ok = eq name_status, 0
     br name_status_ok -> L_NAME_HANDLE, L_FAIL_NAME_GET
@@ -193,7 +186,7 @@ L_FAIL_NAME:
 L_COUNT_GET:
     count2_slot = stack_alloc 8
     count_res = call @sa_json_object_get(root, &JSON_COUNT_KEY, JSON_COUNT_KEY_LEN, &count2_slot)
-    count_status = load count_res+0 as u32
+    count_status = add count_res, 0
     !count_res
     count_status_ok = eq count_status, 0
     br count_status_ok -> L_COUNT_HANDLE, L_FAIL_COUNT_GET
@@ -209,7 +202,7 @@ L_COUNT_HANDLE:
     count_handle = load count2_slot+0 as ptr
     count_value_slot = stack_alloc 8
     count_value_res = call @sa_json_as_i64(count_handle, &count_value_slot)
-    count_value_status = load count_value_res+0 as u32
+    count_value_status = add count_value_res, 0
     !count_value_res
     count_value = load count_value_slot+0 as i64
     count_value_status_ok = eq count_value_status, 0
@@ -232,7 +225,7 @@ L_OK_GET:
     !count_ok
     ok_slot = stack_alloc 8
     ok_res = call @sa_json_object_get(root, &JSON_OK_KEY, JSON_OK_KEY_LEN, &ok_slot)
-    ok_status = load ok_res+0 as u32
+    ok_status = add ok_res, 0
     !ok_res
     ok_status_ok = eq ok_status, 0
     br ok_status_ok -> L_OK_HANDLE, L_FAIL_OK_GET
@@ -250,7 +243,7 @@ L_OK_HANDLE:
     ok_handle = load ok_slot+0 as ptr
     ok_value_slot = stack_alloc 8
     ok_value_res = call @sa_json_as_bool(ok_handle, &ok_value_slot)
-    ok_value_status = load ok_value_res+0 as u32
+    ok_value_status = add ok_value_res, 0
     !ok_value_res
     ok_value = load ok_value_slot+0 as u8
     ok_value_status_ok = eq ok_value_status, 0
@@ -280,7 +273,7 @@ L_STRINGIFY:
     !ok_free_res
     stringify_slot = stack_alloc 8
     stringify_res = call @sa_json_stringify(root, &stringify_slot)
-    stringify_status = load stringify_res+0 as u32
+    stringify_status = add stringify_res, 0
     !stringify_res
     stringify_buffer = load stringify_slot+0 as ptr
     stringify_status_ok = eq stringify_status, 0
