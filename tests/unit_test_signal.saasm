@@ -1,8 +1,0 @@
-// Native test fixture that terminates via a real POSIX signal.
-
-@extern raise(sig: i32) -> i32
-
-@test "signal abort"():
-L_SIGNAL:
-    call @raise(6)
-    panic(99)

@@ -1450,8 +1450,19 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const signal_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_signal.saasm");
-    defer std.testing.allocator.free(signal_path);
+    const signal_source =
+        \\// Native test fixture that terminates via a real POSIX signal.
+        \\
+        \\@extern raise(sig: i32) -> i32
+        \\
+        \\@test "signal abort"():
+        \\L_SIGNAL:
+        \\    call @raise(6)
+        \\    panic(99)
+        \\
+    ;
+    try writeSource(tmp.dir, "signal.saasm", signal_source);
+    const signal_path = "signal.saasm";
 
     const signal_argv = [_][]const u8{ "saasm", "test", signal_path };
     const signal_code = try saasm.cli.executeWithWriters(

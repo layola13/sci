@@ -37,7 +37,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectContains(stdout_buffer.items, "[PASS] sa_std regex groups");
     try expectContains(stdout_buffer.items, "[PASS] 178 panic hook path");
     try expectNotContains(stdout_buffer.items, "[PASS] framework ignored case");
-    try expectContains(stdout_buffer.items, "test result: ok. 9 passed; 0 failed; 0 skipped; 1 ignored");
+    try expectContains(stdout_buffer.items, "test result: ok. 15 passed; 0 failed; 0 skipped; 1 ignored");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 
     stdout_buffer.clearRetainingCapacity();
@@ -53,7 +53,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try std.testing.expectEqual(@as(u8, 0), ignored_code);
     try expectContains(stdout_buffer.items, "[PASS] framework ignored case");
     try expectNotContains(stdout_buffer.items, "[PASS] 03_if_else branch path");
-    try expectContains(stdout_buffer.items, "test result: ok. 1 passed; 0 failed; 6 skipped");
+    try expectContains(stdout_buffer.items, "test result: ok. 1 passed; 0 failed; 15 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 
     stdout_buffer.clearRetainingCapacity();
@@ -77,6 +77,6 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectContains(stdout_buffer.items, "[PASS] sa_std regex groups");
     try expectContains(stdout_buffer.items, "[PASS] 178 panic hook path");
     try expectContains(stdout_buffer.items, "[PASS] framework ignored case");
-    try expectContains(stdout_buffer.items, "test result: ok. 10 passed; 0 failed; 0 skipped");
+    try expectContains(stdout_buffer.items, "test result: ok. 16 passed; 0 failed; 0 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }
