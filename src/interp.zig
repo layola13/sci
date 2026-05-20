@@ -135,12 +135,18 @@ fn readRawReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
 
 fn readValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
     if (regs.get(id)) |value| return try requireNonFallible(value);
-    return self.constPointerValue(id) orelse RunError.InvalidOperand;
+    return self.constPointerValue(id) orelse blk: {
+        std.debug.print("interp.readValue failed for id {d} ('{s}')\n", .{ id, self.program.symbols.lookupName(id) orelse "???" });
+        break :blk RunError.InvalidOperand;
+    };
 }
 
 fn readRawValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
     if (regs.get(id)) |value| return value;
-    return self.constPointerValue(id) orelse RunError.InvalidOperand;
+    return self.constPointerValue(id) orelse blk: {
+        std.debug.print("interp.readRawValue failed for id {d} ('{s}')\n", .{ id, self.program.symbols.lookupName(id) orelse "???" });
+        break :blk RunError.InvalidOperand;
+    };
 }
 
 fn ptrMetaFromValue(value: RegValue) ?PtrMeta {
@@ -217,7 +223,10 @@ fn resolveOperandValue(
         .imm_i64 => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
         .imm_int => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
         .imm_float => |v| .{ .ty = .f64, .bits = @bitCast(v) },
-        else => RunError.InvalidOperand,
+        else => {
+            std.debug.print("interp.resolveOperandValue failed for operand kind {s}\n", .{ @tagName(operand) });
+            return RunError.InvalidOperand;
+        },
     };
 }
 
@@ -394,10 +403,14 @@ const Interpreter = struct {
         var decl_indices = try allocator.alloc(usize, program.function_sigs.len);
         defer allocator.free(decl_indices);
 
+        for (program.function_sigs, 0..) |fsig, i| {
+            std.debug.print("sig[{d}]: {s} ({d} params)\n", .{ i, fsig.name, fsig.params.len });
+        }
+
         var decl_count: usize = 0;
         for (program.annotated, 0..) |item, idx| {
             switch (item.base.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
                     if (decl_count < decl_indices.len) {
                         decl_indices[decl_count] = idx;
                         decl_count += 1;
@@ -1035,7 +1048,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
             .imm_u64 => |v| v,
             .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
             .imm_int => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
-            .text => |text| std.fmt.parseInt(u64, std.mem.trim(u8, text, " \t"), 10) catch return RunError.InvalidOperand,
+            .text => |text| try std.fmt.parseInt(u64, std.mem.trim(u8, text, " \t"), 10),
             .reg => |id| blk: {
                 const value = try readValue(self, regs, id);
                 if (!isIntLike(value.ty)) return RunError.InvalidOperand;
@@ -1174,7 +1187,10 @@ fn intValue(value: RegValue, signed: bool) i128 {
         _ = allocator;
         _ = mem;
         const trimmed = std.mem.trim(u8, text, " \t");
-        if (trimmed.len == 0) return RunError.InvalidOperand;
+        if (trimmed.len == 0) {
+            std.debug.print("interp.parseImmediateValue empty input\n", .{});
+            return RunError.InvalidOperand;
+        }
         if (std.mem.indexOfScalar(u8, trimmed, '.') != null) {
             const value = try std.fmt.parseFloat(f64, trimmed);
             return .{ .ty = .f64, .bits = @bitCast(value) };
@@ -1413,7 +1429,10 @@ fn intValue(value: RegValue, signed: bool) i128 {
         }
 
         for (fsig.params, 0..) |param, idx| {
-            if (idx >= arg_values.len) return RunError.InvalidOperand;
+            if (idx >= arg_values.len) {
+                std.debug.print("interp.execFunction: arg count mismatch for {s} ({d} params, {d} args)\n", .{ fsig.name, fsig.params.len, arg_values.len });
+                return RunError.InvalidOperand;
+            }
             const id = fsig.param_ids[idx];
             const target_ty = valueTypeForPrefix(param.cap, param.ty);
             const value = try self.coerce(arg_values[idx], target_ty);
@@ -1881,9 +1900,9 @@ pub fn runWithWriters(
     argv: []const []const u8,
     stdout: std.io.AnyWriter,
     stderr: std.io.AnyWriter,
-    ) !u8 {
-    const main_index = blk: {
-        for (program.function_sigs, 0..) |fsig, idx| {
+) !u8 {
+    std.debug.print("interp.runWithWriters start\n", .{});
+    const main_index = blk: {        for (program.function_sigs, 0..) |fsig, idx| {
             if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main")) break :blk idx;
         }
         if (program.function_sigs.len != 0) break :blk @as(usize, 0);

@@ -78,6 +78,9 @@ pub const TrapReport = struct {
     function_buf: [64]u8 = [_]u8{0} ** 64,
     function: ?[]const u8 = null,
     is_ffi_wrapper: ?bool = null,
+    repair_action: ?[]const u8 = null,
+    repair_hint: ?[]const u8 = null,
+    repair_confidence: ?[]const u8 = null,
     message: []const u8,
     hint: ?[]const u8 = null,
 };
@@ -246,6 +249,10 @@ fn writeMaybeBool(writer: anytype, value: ?bool) !void {
     }
 }
 
+fn writeMaybeRepair(writer: anytype, value: ?[]const u8) !void {
+    try writeMaybeString(writer, value);
+}
+
 fn writeMaybeU16(writer: anytype, value: ?u16) !void {
     if (value) |v| {
         try writer.print("{d}", .{v});
@@ -317,6 +324,17 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
     try writeStringOrBuf(writer, report.function, &report.function_buf);
     try writer.writeAll(",\"is_ffi_wrapper\":");
     try writeMaybeBool(writer, report.is_ffi_wrapper);
+    if (report.repair_action != null or report.repair_hint != null or report.repair_confidence != null) {
+        try writer.writeAll(",\"repair\":");
+        try writer.writeByte('{');
+        try writer.writeAll("\"action\":");
+        try writeMaybeRepair(writer, report.repair_action);
+        try writer.writeAll(",\"hint\":");
+        try writeMaybeRepair(writer, report.repair_hint);
+        try writer.writeAll(",\"confidence\":");
+        try writeMaybeRepair(writer, report.repair_confidence);
+        try writer.writeByte('}');
+    }
     try writer.writeAll(",\"message\":");
     try writeJsonString(writer, report.message);
     try writer.writeAll(",\"hint\":");
@@ -442,6 +460,25 @@ test "trap json serialization falls back to owned buffers" {
         "{\"trap\":\"MemoryLeak\",\"trap_code\":1012,\"line\":12,\"source_line\":9,\"source_text\":\"result = load node+0 as i32\",\"original_text\":\"result = load node+0 as i32\",\"register\":null,\"registers\":[],\"expected_mask\":null,\"actual_mask\":null,\"expected_mask_name\":null,\"actual_mask_name\":null,\"upstream_loc\":null,\"function\":null,\"is_ffi_wrapper\":null,\"message\":\"live registers remain at function exit\",\"hint\":null}",
         list.items,
     );
+}
+
+test "trap json serialization emits repair object when present" {
+    var list = std.ArrayList(u8).init(std.testing.allocator);
+    defer list.deinit();
+
+    const report = TrapReport{
+        .trap = .forbidden_syntax,
+        .trap_code = 1001,
+        .line = 4,
+        .source_line = 4,
+        .message = "forbidden syntax detected during flattening",
+        .repair_action = "rewrite",
+        .repair_hint = "lower structured control flow into labels, branches, and explicit register moves",
+        .repair_confidence = "high",
+    };
+
+    try writeJson(list.writer(), report);
+    try std.testing.expect(std.mem.containsAtLeast(u8, list.items, 1, "\"repair\":{\"action\":\"rewrite\",\"hint\":\"lower structured control flow into labels, branches, and explicit register moves\",\"confidence\":\"high\"}"));
 }
 
 test "db trap names and codes are stable" {

@@ -203,6 +203,7 @@ pub fn buildBrowserWasmFromSourceText(
             const ll = try emit_llvm.emitLlvm(
                 allocator,
                 owned.verified,
+                &owned.flat.def_dict,
                 owned.flat.loc_table,
                 source_path,
                 32,

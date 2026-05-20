@@ -568,7 +568,7 @@ fn emitParsedLine(
                 .test_func => .test_decl,
             };
             try appendNullLoc(loc_table);
-            const raw_copy = try ownText(allocator, owned_text, raw_line);
+            const raw_copy = try ownFoldedText(allocator, dict, owned_text, raw_line);
             var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
             if (current_package_identity) |identity| {
                 inst.package_identity = try allocator.dupe(u8, identity);
@@ -582,7 +582,7 @@ fn emitParsedLine(
         .instruction => {
             const inst_kind = mapInstKind(classified.inst_form.?);
             const inst_loc = try consumePendingLoc(loc_table, pending_loc);
-            const raw_copy = try ownText(allocator, owned_text, raw_line);
+            const raw_copy = try ownFoldedText(allocator, dict, owned_text, raw_line);
             var inst = common_instruction.makeInstruction(inst_kind, source_line, @intCast(instructions.items.len), inst_loc, raw_copy);
             if (current_package_identity) |identity| {
                 inst.package_identity = try allocator.dupe(u8, identity);

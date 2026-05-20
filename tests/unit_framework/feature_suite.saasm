@@ -1,5 +1,23 @@
 @import "support/index.saasm"
 
+@main():
+L_ENTRY:
+    call @"03_if_else branch path"()
+    call @"05_struct field layout"()
+    call @"06_enum_and_match tag dispatch"()
+    call @"28_borrow_chains repeated load"()
+    call @"41_module_imports helper import"()
+    call @"sa_std json dom roundtrip"()
+    call @"sa_std json stream tokens"()
+    call @"sa_std regex groups"()
+    call @"sa_std mem"()
+    call @"sa_std string"()
+    call @"sa_std vec"()
+    call @"sa_std hashmap"()
+    call @"sa_std btree"()
+    // call @"sa_std net"() // skip net for now as it might need external setup
+    return
+
 // This suite condenses representative behaviors from the completed rosetta
 // demos into one native-unit-test corpus.
 

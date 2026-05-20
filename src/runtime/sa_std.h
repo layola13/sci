@@ -126,6 +126,16 @@ typedef struct SaTimeDate {
     uint16_t millisecond;
 } SaTimeDate;
 
+typedef struct sa_std_fallible_u64 {
+    int32_t status;
+    uint64_t value;
+} sa_std_fallible_u64;
+
+typedef struct sa_std_fallible_i32 {
+    int32_t status;
+    int32_t value;
+} sa_std_fallible_i32;
+
 uint32_t sa_std_version(void);
 int32_t sa_std_last_error(void);
 int32_t sa_std_error_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
@@ -140,7 +150,7 @@ uint64_t sa_io_stderr(void);
 int32_t sa_std_print(const uint8_t *data, uint64_t len);
 int32_t sa_std_println(const uint8_t *data, uint64_t len);
 
-uint64_t sa_json_parse(const uint8_t *json_bytes, uint64_t len);
+sa_std_fallible_u64 sa_json_parse(const uint8_t *json_bytes, uint64_t len);
 uint32_t sa_json_kind(uint64_t node);
 int32_t sa_json_object_get(uint64_t node, const uint8_t *key, uint64_t key_len, uint64_t *out_handle);
 int32_t sa_json_as_f64(uint64_t node, double *out_value);

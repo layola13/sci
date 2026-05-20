@@ -19,3 +19,4 @@ repro_*.zig
 *.wasm
 *.out
 .mimir/
+.antigravitycli/

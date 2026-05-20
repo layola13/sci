@@ -517,7 +517,7 @@ const Reactor = struct {
         getState().worker_state.mutex.unlock();
         self.signalWake();
         if (self.worker) |worker| {
-            worker.detach();
+            worker.join();
             self.worker = null;
         }
         self.worker_started = false;

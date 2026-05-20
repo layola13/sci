@@ -923,30 +923,8 @@ fn callTextForInstruction(
     symbols: *const symbol.SymbolTable,
     item: inst.Instruction,
 ) ![]u8 {
-    switch (item.kind) {
-        .call, .call_indirect => {
-            const keyword = if (item.kind == .call) "call" else "call_indirect";
-            switch (item.operands[0]) {
-                .reg => |dest_reg| {
-                    const dest_name = symbols.lookupName(dest_reg) orelse return error.InvalidOperand;
-                    switch (item.operands[1]) {
-                        .text => |callee_text| return try std.fmt.allocPrint(allocator, "{s} = {s} {s}", .{ dest_name, keyword, callee_text }),
-                        else => return try allocator.dupe(u8, item.raw_text),
-                    }
-                },
-                .text => |call_text| return try std.fmt.allocPrint(allocator, "{s} {s}", .{ keyword, call_text }),
-                else => return try allocator.dupe(u8, item.raw_text),
-            }
-        },
-        .panic, .panic_msg => {
-            const keyword = if (item.kind == .panic) "panic" else "panic_msg";
-            switch (item.operands[0]) {
-                .text => |call_text| return try std.fmt.allocPrint(allocator, "{s}{s}", .{ keyword, call_text }),
-                else => return try allocator.dupe(u8, item.raw_text),
-            }
-        },
-        else => return try allocator.dupe(u8, item.raw_text),
-    }
+    _ = symbols;
+    return try allocator.dupe(u8, item.raw_text);
 }
 
 fn callPrefixMatchesParam(param: sig.ParamSpec, arg_prefix: inst.CapPrefix) bool {

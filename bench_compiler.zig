@@ -35,7 +35,7 @@ pub fn main() !void {
 
             switch (verified) {
                 .ok => |ok| {
-                    const ll_text = emit_llvm.emitLlvm(alloc, ok, flat.loc_table, file_path, 64, .{}) catch continue;
+                    const ll_text = emit_llvm.emitLlvm(alloc, ok, &flat.def_dict, flat.loc_table, file_path, 64, .{}) catch continue;
                     const t3 = std.time.nanoTimestamp();
                     total_emit_ns += @intCast(t3 - t2);
                     

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const flattener = @import("flattener.zig");
+const line_classifier = @import("flattener/line_classifier.zig");
 const interp = @import("interp.zig");
 const build_options = @import("build_options");
 const driver = @import("driver/zigcc.zig");
@@ -23,6 +24,7 @@ const db = @import("db/mod.zig");
 const CompileOk = struct {
     flat: flattener.FlattenResult,
     verified: referee.VerifyOk,
+    metrics: CompileMetrics,
 
     fn deinit(self: *CompileOk, allocator: std.mem.Allocator) void {
         self.verified.deinit(allocator);
@@ -36,6 +38,282 @@ const CompileResult = union(enum) {
     trap: trap.TrapReport,
 };
 
+const GraphNodeKind = enum {
+    source_file,
+    function,
+    call_target,
+};
+
+const GraphNode = struct {
+    id: []const u8,
+    kind: GraphNodeKind,
+    label: []const u8,
+};
+
+const GraphEdgeKind = enum {
+    imports,
+    calls,
+};
+
+const GraphEdge = struct {
+    from: []const u8,
+    to: []const u8,
+    kind: GraphEdgeKind,
+};
+
+const FunctionSizeEntry = struct {
+    name: []const u8,
+    instruction_count: u64,
+    byte_count: u64,
+};
+
+const CompileMetrics = struct {
+    compile_tokens: u64,
+    instruction_count: u64,
+};
+
+fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk) CompileMetrics {
+    const compile_tokens = @as(u64, flat.instructions.len)
+        + @as(u64, flat.const_decls.len)
+        + @as(u64, flat.function_sigs.len)
+        + @as(u64, flat.test_sigs.len)
+        + @as(u64, verified.annotated.len);
+    return .{
+        .compile_tokens = compile_tokens,
+        .instruction_count = @as(u64, verified.annotated.len),
+    };
+}
+
+fn computeFunctionSizes(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]FunctionSizeEntry {
+    var entries = std.ArrayList(FunctionSizeEntry).init(allocator);
+    errdefer entries.deinit();
+
+    for (verified.function_sigs, 0..) |sig_item, idx| {
+        const start = @as(usize, @intCast(sig_item.entry_inst_idx));
+        const end = if (idx + 1 < verified.function_sigs.len)
+            @as(usize, @intCast(verified.function_sigs[idx + 1].entry_inst_idx))
+        else
+            verified.annotated.len;
+
+        var instruction_count: u64 = 0;
+        var byte_count: u64 = 0;
+        if (start < end and end <= verified.annotated.len) {
+            for (verified.annotated[start..end]) |item| {
+                instruction_count += 1;
+                byte_count += @as(u64, @intCast(item.base.raw_text.len));
+            }
+        }
+
+        try entries.append(.{
+            .name = sig_item.name,
+            .instruction_count = instruction_count,
+            .byte_count = byte_count,
+        });
+    }
+
+    return try entries.toOwnedSlice();
+}
+
+const GraphBuildContext = struct {
+    allocator: std.mem.Allocator,
+    node_map: *std.StringHashMap(usize),
+    nodes: *std.ArrayList(GraphNode),
+    edges: *std.ArrayList(GraphEdge),
+    dependencies: []const pkg_resolver.Dependency,
+    project_root: []const u8,
+    offline: bool,
+};
+
+fn graphNodeId(allocator: std.mem.Allocator, kind: []const u8, text: []const u8) ![]u8 {
+    return try std.fmt.allocPrint(allocator, "{s}:{s}", .{ kind, text });
+}
+
+fn graphNodeKindName(kind: GraphNodeKind) []const u8 {
+    return switch (kind) {
+        .source_file => "source_file",
+        .function => "function",
+        .call_target => "call_target",
+    };
+}
+
+fn graphEdgeKindName(kind: GraphEdgeKind) []const u8 {
+    return switch (kind) {
+        .imports => "imports",
+        .calls => "calls",
+    };
+}
+
+fn ensureGraphNode(ctx: *GraphBuildContext, id: []const u8, kind: GraphNodeKind, label: []const u8) !usize {
+    if (ctx.node_map.get(id)) |index| {
+        ctx.allocator.free(id);
+        return index;
+    }
+
+    const key = try ctx.allocator.dupe(u8, id);
+    errdefer ctx.allocator.free(key);
+    const label_copy = try ctx.allocator.dupe(u8, label);
+    errdefer ctx.allocator.free(label_copy);
+
+    const index = ctx.nodes.items.len;
+    try ctx.node_map.put(key, index);
+    try ctx.nodes.append(.{
+        .id = id,
+        .kind = kind,
+        .label = label_copy,
+    });
+    return index;
+}
+
+fn appendGraphEdge(ctx: *GraphBuildContext, from: []const u8, to: []const u8, kind: GraphEdgeKind) !void {
+    try ctx.edges.append(.{ .from = from, .to = to, .kind = kind });
+}
+
+fn collectSourceGraph(ctx: *GraphBuildContext, source_path: []const u8) !usize {
+    const source_id = try graphNodeId(ctx.allocator, "source", source_path);
+    if (ctx.node_map.get(source_id)) |index| {
+        ctx.allocator.free(source_id);
+        return index;
+    }
+
+    const stable_source_id = try ensureGraphNode(ctx, source_id, .source_file, source_path);
+    const source = try loadSource(ctx.allocator, source_path);
+    defer ctx.allocator.free(source);
+
+    var iter = std.mem.splitScalar(u8, source, '\n');
+    while (iter.next()) |line| {
+        const classified = line_classifier.classifyLine(line);
+        if (classified.kind != .import_decl) continue;
+        const import_path = classified.parts[0];
+        var imported = try pkg_resolver.resolveImport(ctx.allocator, ctx.dependencies, std.fs.path.dirname(source_path) orelse ".", import_path, .{
+            .project_root = ctx.project_root,
+            .offline = ctx.offline,
+        });
+        defer imported.deinit(ctx.allocator);
+
+        const child_index = try collectSourceGraph(ctx, imported.entry_path);
+        try appendGraphEdge(ctx, ctx.nodes.items[stable_source_id].id, ctx.nodes.items[child_index].id, .imports);
+    }
+
+    return stable_source_id;
+}
+
+fn buildFunctionGraph(ctx: *GraphBuildContext, verified: *const referee.VerifyOk) !std.StringHashMap(usize) {
+    var function_nodes = std.StringHashMap(usize).init(ctx.allocator);
+    errdefer function_nodes.deinit();
+
+    for (verified.function_sigs) |sig_item| {
+        const node_id = try graphNodeId(ctx.allocator, "function", sig_item.name);
+        const index = try ensureGraphNode(ctx, node_id, .function, sig_item.name);
+        try function_nodes.put(sig_item.name, index);
+    }
+
+    return function_nodes;
+}
+
+fn buildCallGraph(
+    ctx: *GraphBuildContext,
+    verified: *const referee.VerifyOk,
+    function_nodes: *const std.StringHashMap(usize),
+) !void {
+    var current_fn: ?usize = null;
+    var sig_index: usize = 0;
+
+    for (verified.annotated) |item| {
+        switch (item.base.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                if (sig_index >= verified.function_sigs.len) break;
+                const sig_item = verified.function_sigs[sig_index];
+                sig_index += 1;
+                current_fn = function_nodes.get(sig_item.name);
+            },
+            .call, .call_indirect => {
+                const caller_index = current_fn orelse continue;
+                var parsed = referee_call.parseCall(ctx.allocator, item.base.raw_text) catch continue;
+                defer parsed.deinit(ctx.allocator);
+
+                const target_index = if (function_nodes.get(parsed.callee)) |fn_idx| blk: {
+                    break :blk fn_idx;
+                } else blk: {
+                    const call_target_id = try graphNodeId(ctx.allocator, "target", parsed.callee);
+                    break :blk try ensureGraphNode(ctx, call_target_id, .call_target, parsed.callee);
+                };
+                try appendGraphEdge(ctx, ctx.nodes.items[caller_index].id, ctx.nodes.items[target_index].id, .calls);
+            },
+            else => {},
+        }
+    }
+}
+
+fn writeGraphJson(writer: anytype, metrics: CompileMetrics, nodes: []const GraphNode, edges: []const GraphEdge) !void {
+    try writer.writeAll("{\"status\":\"ok\",\"metrics\":");
+    try writeMetricsJson(writer, metrics);
+    try writer.writeAll(",\"graph\":{\"nodes\":[");
+    for (nodes, 0..) |node, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writer.writeByte('{');
+        try writer.writeAll("\"id\":");
+        try writeJsonString(writer, node.id);
+        try writer.writeAll(",\"kind\":");
+        try writeJsonString(writer, graphNodeKindName(node.kind));
+        try writer.writeAll(",\"label\":");
+        try writeJsonString(writer, node.label);
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("],\"edges\":[");
+    for (edges, 0..) |edge, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writer.writeByte('{');
+        try writer.writeAll("\"from\":");
+        try writeJsonString(writer, edge.from);
+        try writer.writeAll(",\"to\":");
+        try writeJsonString(writer, edge.to);
+        try writer.writeAll(",\"kind\":");
+        try writeJsonString(writer, graphEdgeKindName(edge.kind));
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}}\n");
+}
+
+fn writeGraphText(writer: anytype, metrics: CompileMetrics, nodes: []const GraphNode, edges: []const GraphEdge) !void {
+    try writer.print("compile_tokens: {d}\n", .{metrics.compile_tokens});
+    try writer.print("instruction_count: {d}\n", .{metrics.instruction_count});
+    try writer.print("nodes: {d}\n", .{nodes.len});
+    for (nodes) |node| {
+        try writer.print("- {s} [{s}] {s}\n", .{ node.id, graphNodeKindName(node.kind), node.label });
+    }
+    try writer.print("edges: {d}\n", .{edges.len});
+    for (edges) |edge| {
+        try writer.print("- {s} -> {s} ({s})\n", .{ edge.from, edge.to, graphEdgeKindName(edge.kind) });
+    }
+}
+
+fn writeSizeJson(writer: anytype, metrics: CompileMetrics, entries: []const FunctionSizeEntry) !void {
+    try writer.writeAll("{\"status\":\"ok\",\"metrics\":");
+    try writeMetricsJson(writer, metrics);
+    try writer.writeAll(",\"functions\":[");
+    for (entries, 0..) |entry, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writer.writeByte('{');
+        try writer.writeAll("\"name\":");
+        try writeJsonString(writer, entry.name);
+        try writer.writeAll(",\"instruction_count\":");
+        try writer.print("{d}", .{entry.instruction_count});
+        try writer.writeAll(",\"byte_count\":");
+        try writer.print("{d}", .{entry.byte_count});
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
+}
+
+fn writeSizeText(writer: anytype, metrics: CompileMetrics, entries: []const FunctionSizeEntry) !void {
+    try writer.print("compile_tokens: {d}\n", .{metrics.compile_tokens});
+    try writer.print("instruction_count: {d}\n", .{metrics.instruction_count});
+    try writer.writeAll("functions:\n");
+    for (entries) |entry| {
+        try writer.print("- {s}: instructions={d} bytes={d}\n", .{ entry.name, entry.instruction_count, entry.byte_count });
+    }
+}
+
 const CompileOptions = struct {
     jobs: ?usize = null,
     offline: bool = false,
@@ -45,6 +323,31 @@ const CompileOptions = struct {
 pub const DiagnosticsMode = enum {
     human,
     json,
+};
+
+pub const ExplainEntry = struct {
+    codes: []const []const u8,
+    title: []const u8,
+    summary: []const u8,
+    details: []const []const u8,
+    fix_hint: ?[]const u8 = null,
+};
+
+pub const FixPlanStep = struct {
+    action: []const u8,
+    target: []const u8,
+    detail: []const u8,
+};
+
+pub const FixPlan = struct {
+    steps: []const FixPlanStep,
+    rationale: []const []const u8,
+};
+
+pub const SkillSection = struct {
+    name: []const u8,
+    summary: []const u8,
+    items: []const []const u8,
 };
 
 const CliErrorInfo = struct {
@@ -62,10 +365,15 @@ const Command = enum {
     llvm2sa,
     sax,
     audit,
+    graph,
     db,
     layout,
     fetch,
+    size,
     test_cmd,
+    explain,
+    fix,
+    skills,
 };
 
 pub fn hasJsonFlag(argv: []const []const u8) bool {
@@ -254,7 +562,8 @@ fn pathJoinAlloc(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 
 }
 
 fn projectPathExists(path: []const u8) bool {
-    return std.fs.cwd().access(path, .{}) catch false;
+    std.fs.cwd().access(path, .{}) catch return false;
+    return true;
 }
 
 fn readTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -436,11 +745,100 @@ fn commandName(cmd: Command) []const u8 {
         .llvm2sa => "llvm2sa",
         .sax => "sax",
         .audit => "audit",
+        .graph => "graph",
         .db => "db",
         .layout => "layout",
         .fetch => "fetch",
+        .size => "size",
         .test_cmd => "test",
+        .explain => "explain",
+        .fix => "fix",
+        .skills => "skills",
     };
+}
+
+fn commandSupported(name: []const u8) bool {
+    return std.mem.eql(u8, name, "build")
+        or std.mem.eql(u8, name, "run")
+        or std.mem.eql(u8, name, "build-exe")
+        or std.mem.eql(u8, name, "build-wasm")
+        or std.mem.eql(u8, name, "build-obj")
+        or std.mem.eql(u8, name, "llvm2sa")
+        or std.mem.eql(u8, name, "sax")
+        or std.mem.eql(u8, name, "audit")
+        or std.mem.eql(u8, name, "graph")
+        or std.mem.eql(u8, name, "layout")
+        or std.mem.eql(u8, name, "fetch")
+        or std.mem.eql(u8, name, "db")
+        or std.mem.eql(u8, name, "size")
+        or std.mem.eql(u8, name, "test")
+        or std.mem.eql(u8, name, "explain")
+        or std.mem.eql(u8, name, "fix")
+        or std.mem.eql(u8, name, "skills");
+}
+
+fn explainEntries() []const ExplainEntry {
+    return &.{
+        .{
+            .codes = &.{ "ForbiddenSyntax", "SA-FLAT-001" },
+            .title = "Flattening rejected surface syntax",
+            .summary = "The flattener only accepts the SA linear instruction surface.",
+            .details = &.{
+                "Braces, if/else, while, for, and dotted property chains are rejected before verification.",
+                "The frontend must lower structured control flow into labels, branches, and explicit register moves.",
+            },
+            .fix_hint = "Rewrite the source into labels and br/jmp blocks before flattening.",
+        },
+        .{
+            .codes = &.{ "ImportResolutionFailed", "SA-FLAT-050" },
+            .title = "Import could not be resolved",
+            .summary = "The import path or package identity could not be matched to a source artifact.",
+            .details = &.{
+                "The resolver accepts source packages and pinned package identities.",
+                "Ambiguous versions, rejected artifacts, and invalid paths all surface through the same public trap.",
+            },
+            .fix_hint = "Pin the package ref, fix the path, or depend on the source package instead of a precompiled artifact.",
+        },
+        .{
+            .codes = &.{ "RegisterRedefinition", "SA-REF-010" },
+            .title = "Live register re-bound",
+            .summary = "A register that is still live cannot be assigned a second time without an explicit move or release.",
+            .details = &.{
+                "The referee checks register ownership and capability masks on every instruction.",
+                "Rebinding a live register without consuming the previous value violates the linear ownership model.",
+            },
+            .fix_hint = "Rename the destination register or release/move the old value first.",
+        },
+        .{
+            .codes = &.{ "UnknownRegister", "SA-REF-011" },
+            .title = "Register used before declaration",
+            .summary = "The verifier could not resolve the register name to a live slot.",
+            .details = &.{
+                "All register reads and writes must refer to a register introduced by a preceding instruction.",
+                "Import-expanded code and macro-generated code must keep the same register namespace consistent.",
+            },
+            .fix_hint = "Declare the register earlier or thread the correct register name through the macro expansion.",
+        },
+        .{
+            .codes = &.{ "SA-CLI-001" },
+            .title = "Missing required operand",
+            .summary = "The CLI command needs a positional argument such as a source file or project path.",
+            .details = &.{
+                "The top-level dispatcher fails fast when no source or operand is provided.",
+                "The same issue appears in build, run, test, fetch, and db subcommands when the target path is omitted.",
+            },
+            .fix_hint = "Pass the required file, path, or operand after the command.",
+        },
+    };
+}
+
+fn explainEntryForCode(code: []const u8) ?ExplainEntry {
+    for (explainEntries()) |entry| {
+        for (entry.codes) |alias| {
+            if (std.mem.eql(u8, alias, code)) return entry;
+        }
+    }
+    return null;
 }
 
 fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMode) !void {
@@ -449,7 +847,7 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMo
             const function_text = textOrBuf(report.function, report.function_buf[0..]);
             const register_text = textOrBuf(report.register, report.register_buf[0..]);
             var source_text_buf: [256]u8 = [_]u8{0} ** 256;
-            copyTextBuf(&source_text_buf, reportText(report));
+            copyTextBuf(&source_text_buf, reportText(&report));
             const source_text = bufText(source_text_buf[0..]);
             try writer.print("error[{s}]: {s}\n", .{ trap.trapName(report.trap), report.message });
             if (function_text.len != 0) {
@@ -480,6 +878,15 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMo
             if (report.hint) |hint| {
                 try writer.print("  help: {s}\n", .{hint});
             }
+            if (report.repair_action) |action| {
+                try writer.print("  repair: {s}\n", .{action});
+                if (report.repair_hint) |hint| {
+                    try writer.print("    hint: {s}\n", .{hint});
+                }
+                if (report.repair_confidence) |confidence| {
+                    try writer.print("    confidence: {s}\n", .{confidence});
+                }
+            }
             try trap.writeJson(writer, report);
             try writer.writeByte('\n');
         },
@@ -492,7 +899,7 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMo
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <build|run|build-exe|build-wasm|build-obj|llvm2sa|sax|audit|layout|fetch|db|test> [--json] [--jobs auto|N] ...\n");
+    try writer.writeAll("usage: saasm <build|run|build-exe|build-wasm|build-obj|llvm2sa|sax|audit|graph|layout|fetch|db|size|test|explain|fix|skills> [--json] [--jobs auto|N] ...\n");
     try writer.writeAll("test flags: --filter <pattern> [--filter <pattern> ...] [--skip <pattern> ...] [--exact] [--ignored|--include-ignored]\n");
 }
 
@@ -679,7 +1086,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-012",
             .message = "unknown command",
-            .hint = "use build, run, build-exe, build-wasm, build-obj, llvm2sa, sax, audit, layout, fetch, db, or test",
+            .hint = "use build, run, build-exe, build-wasm, build-obj, llvm2sa, sax, audit, graph, layout, fetch, db, size, or test",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-013",
@@ -783,7 +1190,7 @@ fn textOrBuf(value: ?[]const u8, buf: []const u8) []const u8 {
     return bufText(buf);
 }
 
-fn reportText(report: trap.TrapReport) []const u8 {
+fn reportText(report: *const trap.TrapReport) []const u8 {
     if (report.source_text) |text| return text;
     const source_fallback = bufText(report.source_text_buf[0..]);
     if (source_fallback.len != 0) return source_fallback;
@@ -836,6 +1243,225 @@ fn printMaskState(writer: anytype, report: trap.TrapReport) !void {
     if (report.actual_mask) |actual| {
         try writer.print("  state: {d}\n", .{actual});
     }
+}
+
+fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
+    try writer.writeByte('{');
+    try writer.writeAll("\"compile_tokens\":");
+    try writer.print("{d}", .{metrics.compile_tokens});
+    try writer.writeAll(",\"instruction_count\":");
+    try writer.print("{d}", .{metrics.instruction_count});
+    try writer.writeByte('}');
+}
+
+fn writeSuccessJson(writer: anytype, metrics: CompileMetrics) !void {
+    try writer.writeAll("{\"status\":\"ok\",\"metrics\":");
+    try writeMetricsJson(writer, metrics);
+    try writer.writeAll("}\n");
+}
+
+fn writeJsonStringArray(writer: anytype, items: []const []const u8) !void {
+    try writer.writeByte('[');
+    for (items, 0..) |item, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writeJsonString(writer, item);
+    }
+    try writer.writeByte(']');
+}
+
+fn writeExplainEntryJson(writer: anytype, entry: ExplainEntry) !void {
+    try writer.writeByte('{');
+    try writer.writeAll("\"codes\":");
+    try writeJsonStringArray(writer, entry.codes);
+    try writer.writeAll(",\"title\":");
+    try writeJsonString(writer, entry.title);
+    try writer.writeAll(",\"summary\":");
+    try writeJsonString(writer, entry.summary);
+    try writer.writeAll(",\"details\":");
+    try writeJsonStringArray(writer, entry.details);
+    try writer.writeAll(",\"fix_hint\":");
+    try writeMaybeJsonString(writer, entry.fix_hint);
+    try writer.writeByte('}');
+}
+
+fn writeExplainEntryText(writer: anytype, entry: ExplainEntry) !void {
+    try writer.print("code: {s}\n", .{entry.codes[0]});
+    if (entry.codes.len > 1) {
+        try writer.writeAll("aliases:");
+        for (entry.codes[1..]) |alias| {
+            try writer.print(" {s}", .{alias});
+        }
+        try writer.writeByte('\n');
+    }
+    try writer.print("title: {s}\n", .{entry.title});
+    try writer.print("summary: {s}\n", .{entry.summary});
+    for (entry.details) |detail| {
+        try writer.print("detail: {s}\n", .{detail});
+    }
+    if (entry.fix_hint) |hint| {
+        try writer.print("fix: {s}\n", .{hint});
+    }
+}
+
+fn writeFixPlanJson(writer: anytype, code: []const u8, plan: FixPlan) !void {
+    try writer.writeByte('{');
+    try writer.writeAll("\"code\":");
+    try writeJsonString(writer, code);
+    try writer.writeAll(",\"plan\":[");
+    for (plan.steps, 0..) |step, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writer.writeByte('{');
+        try writer.writeAll("\"action\":");
+        try writeJsonString(writer, step.action);
+        try writer.writeAll(",\"target\":");
+        try writeJsonString(writer, step.target);
+        try writer.writeAll(",\"detail\":");
+        try writeJsonString(writer, step.detail);
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("],\"rationale\":");
+    try writeJsonStringArray(writer, plan.rationale);
+    try writer.writeByte('}');
+}
+
+fn writeFixPlanText(writer: anytype, code: []const u8, plan: FixPlan) !void {
+    try writer.print("code: {s}\n", .{code});
+    for (plan.rationale) |item| {
+        try writer.print("rationale: {s}\n", .{item});
+    }
+    for (plan.steps) |step| {
+        try writer.print("plan: {s} {s} - {s}\n", .{ step.action, step.target, step.detail });
+    }
+}
+
+fn explainCommand(writer: anytype, args: []const []const u8, json_mode: bool) !u8 {
+    if (args.len < 3) return error.MissingSourcePath;
+    const code = args[2];
+    const entry = explainEntryForCode(code) orelse {
+        try writer.print("unknown code: {s}\n", .{code});
+        return 1;
+    };
+    if (json_mode) {
+        try writer.writeAll("{\"status\":\"ok\",\"explain\":");
+        try writeExplainEntryJson(writer, entry);
+        try writer.writeAll("}\n");
+    } else {
+        try writeExplainEntryText(writer, entry);
+    }
+    return 0;
+}
+
+fn fixPlanForCode(code: []const u8) ?FixPlan {
+    return if (std.mem.eql(u8, code, "ForbiddenSyntax")) .{
+        .steps = &.{
+            .{ .action = "rewrite", .target = "control-flow", .detail = "lower braces and keywords into labels, br, and jmp" },
+            .{ .action = "re-run", .target = "flattener", .detail = "verify that the line stream no longer contains forbidden syntax" },
+        },
+        .rationale = &.{
+            "The flattener rejects structured syntax before semantic verification.",
+            "Agent-side patching should preserve the original semantics while removing unsupported surface forms.",
+        },
+    } else if (std.mem.eql(u8, code, "ImportResolutionFailed")) .{
+        .steps = &.{
+            .{ .action = "pin", .target = "package-ref", .detail = "choose a single version or local path and record it in the manifest" },
+            .{ .action = "retry", .target = "resolver", .detail = "re-run the import resolution against the pinned source" },
+        },
+        .rationale = &.{
+            "The resolver needs one concrete source artifact, not an ambiguous graph.",
+            "The current CLI fallback already treats invalid import data as a structured trap.",
+        },
+    } else if (std.mem.eql(u8, code, "SA-CLI-001")) .{
+        .steps = &.{
+            .{ .action = "add", .target = "positional-argument", .detail = "supply the missing source file or project path" },
+            .{ .action = "retry", .target = "command", .detail = "invoke the same CLI command with the required operand" },
+        },
+        .rationale = &.{
+            "The command dispatcher needs an explicit target path to operate on.",
+            "This is a deterministic CLI error rather than a semantic trap.",
+        },
+    } else null;
+}
+
+fn fixCommand(writer: anytype, args: []const []const u8, json_mode: bool) !u8 {
+    var code: ?[]const u8 = null;
+    var i: usize = 2;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--plan")) continue;
+        if (std.mem.eql(u8, arg, "--json")) continue;
+        if (code == null) {
+            code = arg;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+    const target = code orelse return error.MissingSourcePath;
+    const plan = fixPlanForCode(target) orelse {
+        try writer.print("unknown code: {s}\n", .{target});
+        return 1;
+    };
+    if (json_mode) {
+        try writer.writeAll("{\"status\":\"ok\",\"fix\":");
+        try writeFixPlanJson(writer, target, plan);
+        try writer.writeAll("}\n");
+    } else {
+        try writeFixPlanText(writer, target, plan);
+    }
+    return 0;
+}
+
+fn writeSkillSectionText(writer: anytype, title: []const u8, summary: []const u8, items: []const []const u8) !void {
+    try writer.print("{s}\n", .{title});
+    try writer.print("summary: {s}\n", .{summary});
+    for (items) |item| {
+        try writer.print("- {s}\n", .{item});
+    }
+}
+
+fn writeSkillsJson(writer: anytype, sections: []const SkillSection) !void {
+    try writer.writeByte('{');
+    try writer.writeAll("\"status\":\"ok\",\"skills\":[");
+    for (sections, 0..) |section, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writer.writeByte('{');
+        try writer.writeAll("\"name\":");
+        try writeJsonString(writer, section.name);
+        try writer.writeAll(",\"summary\":");
+        try writeJsonString(writer, section.summary);
+        try writer.writeAll(",\"items\":");
+        try writeJsonStringArray(writer, section.items);
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
+}
+
+fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
+    const sections = [_]SkillSection{
+        .{ .name = "core diagnostics", .summary = "Agent-facing error handling and JSON reports", .items = &.{
+            "stable trap names and trap codes",
+            "structured JSON diagnostics with repair hints",
+            "human and JSON output modes remain aligned",
+        } },
+        .{ .name = "cli toolchain", .summary = "Agent-first CLI entry points", .items = &.{
+            "explain <code>",
+            "fix --plan --json",
+            "skills",
+        } },
+        .{ .name = "std runtime", .summary = "Current Zig-backed facade surface", .items = &.{
+            "JSON DOM and streaming facade",
+            "Regex facade over Zig/POSIX backend",
+            "fs/net/process/term facades stay thin in SA",
+        } },
+    };
+    if (json_mode) {
+        try writeSkillsJson(writer, &sections);
+    } else {
+        try writer.writeAll("agent-first toolchain\n");
+        for (sections) |section| {
+            try writeSkillSectionText(writer, section.name, section.summary, section.items);
+        }
+    }
+    return 0;
 }
 
 fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap.TrapReport {
@@ -1058,6 +1684,39 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         copyTextBuf(&report.source_text_buf, excerpt);
         copyTextBuf(&report.original_text_buf, excerpt);
     }
+    switch (report.trap) {
+        .forbidden_syntax => {
+            report.repair_action = "rewrite";
+            report.repair_hint = "lower structured control flow into labels, branches, and explicit register moves";
+            report.repair_confidence = "high";
+        },
+        .unsupported_type => {
+            report.repair_action = "inspect-signature";
+            report.repair_hint = "check the callee declaration or imported signature for unsupported primitive names";
+            report.repair_confidence = "medium";
+        },
+        .import_resolution_failed => {
+            report.repair_action = "pin-import";
+            report.repair_hint = "choose one source package or ref and avoid ambiguous or rejected artifacts";
+            report.repair_confidence = "medium";
+        },
+        .duplicate_def => {
+            report.repair_action = "rename-def";
+            report.repair_hint = "change one of the conflicting #def names";
+            report.repair_confidence = "high";
+        },
+        .macro_recursion_limit => {
+            report.repair_action = "simplify-macro";
+            report.repair_hint = "reduce recursive expansion depth or inline the macro body";
+            report.repair_confidence = "medium";
+        },
+        .invalid_atomic_ordering => {
+            report.repair_action = "adjust-ordering";
+            report.repair_hint = "use a success ordering that is not weaker than the failure ordering";
+            report.repair_confidence = "medium";
+        },
+        else => {},
+    }
     return report;
 }
 
@@ -1148,7 +1807,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
 
     const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants });
     return switch (verified) {
-        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok } },
+        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok) } },
         .trap => |report| {
             flat.deinit(allocator);
             return .{ .trap = report };
@@ -1208,13 +1867,17 @@ fn executeRun(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            return interp.runWithWriters(allocator, &owned.verified, argv, stdout.any(), stderr.any()) catch |err| switch (err) {
+            const code = interp.runWithWriters(allocator, &owned.verified, argv, stdout.any(), stderr.any()) catch |err| switch (err) {
                 error.UserExit => 0,
                 else => {
                     try printCliError(stderr, err, diagnostics_mode);
                     return 1;
                 },
             };
+            if (diagnostics_mode == .json) {
+                try writeSuccessJson(stderr, owned.metrics);
+            }
+            return code;
         },
     }
 }
@@ -1229,7 +1892,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
+            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
             defer allocator.free(ll);
 
             const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
@@ -1240,6 +1903,9 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+            if (diagnostics_mode == .json) {
+                try writeSuccessJson(stderr, owned.metrics);
+            }
             return 0;
         },
     }
@@ -1255,7 +1921,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
+            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
             defer allocator.free(ll);
 
             const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
@@ -1266,6 +1932,9 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+            if (diagnostics_mode == .json) {
+                try writeSuccessJson(stderr, owned.metrics);
+            }
             return 0;
         },
     }
@@ -1281,7 +1950,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs });
+            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs });
             defer allocator.free(ll);
 
             const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
@@ -1292,6 +1961,9 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+            if (diagnostics_mode == .json) {
+                try writeSuccessJson(stderr, owned.metrics);
+            }
             return 0;
         },
     }
@@ -1361,6 +2033,147 @@ fn executeLayout(
     return 0;
 }
 
+fn executeGraph(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+    json_mode: bool,
+) !u8 {
+    var compile_options: CompileOptions = .{};
+    var source_arg: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (try consumeJobsOption(arg, args, &i, &compile_options)) continue;
+        if (std.mem.eql(u8, arg, "--offline")) {
+            compile_options.offline = true;
+            continue;
+        }
+        if (source_arg == null) {
+            source_arg = arg;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+
+    const project_root = try projectRootDir(allocator);
+    defer allocator.free(project_root);
+    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
+    defer if (source_arg == null) allocator.free(source_path);
+
+    const compiled = try compileSource(allocator, source_path, compile_options);
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(stderr, report, if (json_mode) .json else .human);
+            return 1;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+
+            var project_manifest = try readProjectManifest(allocator, compile_options.project_root orelse projectRootFromSourcePath(source_path));
+            defer if (project_manifest) |*m| m.deinit(allocator);
+
+            var dependencies: []pkg_resolver.Dependency = &.{};
+            defer if (dependencies.len != 0) allocator.free(dependencies);
+            if (project_manifest) |*m| {
+                dependencies = try manifestDependencies(m, allocator);
+            }
+
+            var node_map = std.StringHashMap(usize).init(allocator);
+            defer {
+                var it = node_map.iterator();
+                while (it.next()) |entry| allocator.free(entry.key_ptr.*);
+                node_map.deinit();
+            }
+            var nodes = std.ArrayList(GraphNode).init(allocator);
+            defer {
+                for (nodes.items) |node| {
+                    allocator.free(node.id);
+                    allocator.free(node.label);
+                }
+                nodes.deinit();
+            }
+            var edges = std.ArrayList(GraphEdge).init(allocator);
+            defer edges.deinit();
+
+            var graph_ctx = GraphBuildContext{
+                .allocator = allocator,
+                .node_map = &node_map,
+                .nodes = &nodes,
+                .edges = &edges,
+                .dependencies = dependencies,
+                .project_root = compile_options.project_root orelse projectRootFromSourcePath(source_path),
+                .offline = compile_options.offline,
+            };
+
+            _ = try collectSourceGraph(&graph_ctx, source_path);
+            var function_nodes = try buildFunctionGraph(&graph_ctx, &owned.verified);
+            defer function_nodes.deinit();
+            try buildCallGraph(&graph_ctx, &owned.verified, &function_nodes);
+
+            if (json_mode) {
+                try writeGraphJson(stdout, owned.metrics, nodes.items, edges.items);
+            } else {
+                try writeGraphText(stdout, owned.metrics, nodes.items, edges.items);
+            }
+            return 0;
+        },
+    }
+}
+
+fn executeSize(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+    json_mode: bool,
+) !u8 {
+    var compile_options: CompileOptions = .{};
+    var source_arg: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (try consumeJobsOption(arg, args, &i, &compile_options)) continue;
+        if (std.mem.eql(u8, arg, "--offline")) {
+            compile_options.offline = true;
+            continue;
+        }
+        if (source_arg == null) {
+            source_arg = arg;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+
+    const project_root = try projectRootDir(allocator);
+    defer allocator.free(project_root);
+    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
+    defer if (source_arg == null) allocator.free(source_path);
+
+    const compiled = try compileSource(allocator, source_path, compile_options);
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(stderr, report, if (json_mode) .json else .human);
+            return 1;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+            const sizes = try computeFunctionSizes(allocator, &owned.verified);
+            defer allocator.free(sizes);
+
+            if (json_mode) {
+                try writeSizeJson(stdout, owned.metrics, sizes);
+            } else {
+                try writeSizeText(stdout, owned.metrics, sizes);
+            }
+            return 0;
+        },
+    }
+}
+
 fn parseTarget(text: []const u8) !WasmTarget {
     if (std.mem.eql(u8, text, "wasm32")) return .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
     if (std.mem.eql(u8, text, "wasm64")) return .{ .triple = "wasm64-freestanding", .no_entry = true, .size_bits = 64 };
@@ -1395,6 +2208,7 @@ fn executeTest(
             const ll = try emit_llvm.emitLlvm(
                 allocator,
                 owned.verified,
+                &owned.flat.def_dict,
                 owned.flat.loc_table,
                 source_path,
                 nativeSizeBits(),
@@ -1462,10 +2276,15 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         if (std.mem.eql(u8, args[1], commandName(.llvm2sa))) break :blk .llvm2sa;
         if (std.mem.eql(u8, args[1], commandName(.sax))) break :blk .sax;
         if (std.mem.eql(u8, args[1], commandName(.audit))) break :blk .audit;
+        if (std.mem.eql(u8, args[1], commandName(.graph))) break :blk .graph;
         if (std.mem.eql(u8, args[1], commandName(.layout))) break :blk .layout;
         if (std.mem.eql(u8, args[1], commandName(.fetch))) break :blk .fetch;
         if (std.mem.eql(u8, args[1], "db")) break :blk .db;
+        if (std.mem.eql(u8, args[1], commandName(.size))) break :blk .size;
         if (std.mem.eql(u8, args[1], commandName(.test_cmd))) break :blk .test_cmd;
+        if (std.mem.eql(u8, args[1], commandName(.explain))) break :blk .explain;
+        if (std.mem.eql(u8, args[1], commandName(.fix))) break :blk .fix;
+        if (std.mem.eql(u8, args[1], commandName(.skills))) break :blk .skills;
         return error.UnknownCommand;
     };
 
@@ -1473,6 +2292,22 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .layout => {
             return try executeLayout(allocator, args[2..], stdout, stderr);
         },
+        .graph => {
+            return try executeGraph(allocator, args[2..], stdout, stderr, json_mode);
+        },
+        .audit => {
+            const audit_argv = args[2..];
+            if (audit_argv.len == 0) return error.MissingSourcePath;
+            const source_path = audit_argv[0];
+            const source = try loadSource(allocator, source_path);
+            defer allocator.free(source);
+            try stdout.print("audit: {s}\n", .{source_path});
+            try stdout.print("size: {d}\n", .{source.len});
+            return 0;
+        },
+        .explain => return try explainCommand(stdout, args, json_mode),
+        .fix => return try fixCommand(stdout, args, json_mode),
+        .skills => return try skillsCommand(stdout, json_mode),
         .build => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
@@ -1539,15 +2374,8 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             try stdout.print("{s}\n", .{result.root});
             return 0;
         },
-        .audit => {
-            const audit_argv = args[2..];
-            if (audit_argv.len == 0) return error.MissingSourcePath;
-            const source_path = audit_argv[0];
-            const source = try loadSource(allocator, source_path);
-            defer allocator.free(source);
-            try stdout.print("audit: {s}\n", .{source_path});
-            try stdout.print("size: {d}\n", .{source.len});
-            return 0;
+        .size => {
+            return try executeSize(allocator, args[2..], stdout, stderr, json_mode);
         },
         .db => {
             if (args.len < 3) return error.UnknownCommand;
@@ -1914,7 +2742,6 @@ test "trap reports print a human summary and preserve json payload" {
     std.mem.copyForwards(u8, report.upstream_file_buf[0..upstream_file.len], upstream_file);
     const function = "@main() -> i32:";
     std.mem.copyForwards(u8, report.function_buf[0..function.len], function);
-
     try printTrapReport(list.writer(), report, .human);
     const output = list.items;
 

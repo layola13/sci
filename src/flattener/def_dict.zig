@@ -261,6 +261,16 @@ test "def dict folds arithmetic expressions" {
     try std.testing.expectEqualStrings("16", dict.get("B").?);
 }
 
+test "foldText handles identifiers with underscores" {
+    var dict = DefDict.init(std.testing.allocator);
+    defer dict.deinit();
+
+    try dict.putExpression("MY_VAL", "123");
+    const folded = try dict.foldText(std.testing.allocator, "call(MY_VAL)");
+    defer std.testing.allocator.free(folded);
+    try std.testing.expectEqualStrings("call(123)", folded);
+}
+
 test "def dict rejects duplicate names" {
     var dict = DefDict.init(std.testing.allocator);
     defer dict.deinit();

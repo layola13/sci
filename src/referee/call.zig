@@ -55,6 +55,73 @@ fn parseArg(allocator: std.mem.Allocator, text: []const u8) !ParsedArg {
     };
 }
 
+fn splitCallArgs(allocator: std.mem.Allocator, text: []const u8) ![]const []const u8 {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    if (trimmed.len == 0) return try allocator.alloc([]const u8, 0);
+
+    var segments = std.ArrayList([]const u8).init(allocator);
+    errdefer segments.deinit();
+
+    var paren_depth: usize = 0;
+    var brace_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var in_string = false;
+    var escape = false;
+    var start: usize = 0;
+
+    for (trimmed, 0..) |c, idx| {
+        if (in_string) {
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            switch (c) {
+                '\\' => escape = true,
+                '"' => in_string = false,
+                else => {},
+            }
+            continue;
+        }
+
+        switch (c) {
+            '"' => in_string = true,
+            '(' => paren_depth += 1,
+            ')' => {
+                if (paren_depth == 0) return CallError.InvalidCallSyntax;
+                paren_depth -= 1;
+            },
+            '{' => brace_depth += 1,
+            '}' => {
+                if (brace_depth == 0) return CallError.InvalidCallSyntax;
+                brace_depth -= 1;
+            },
+            '[' => bracket_depth += 1,
+            ']' => {
+                if (bracket_depth == 0) return CallError.InvalidCallSyntax;
+                bracket_depth -= 1;
+            },
+            ',' => {
+                if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) {
+                    const segment = std.mem.trim(u8, trimmed[start..idx], " \t");
+                    if (segment.len == 0) return CallError.InvalidCallSyntax;
+                    try segments.append(segment);
+                    start = idx + 1;
+                }
+            },
+            else => {},
+        }
+    }
+
+    if (in_string or escape or paren_depth != 0 or brace_depth != 0 or bracket_depth != 0) {
+        return CallError.InvalidCallSyntax;
+    }
+
+    const final_segment = std.mem.trim(u8, trimmed[start..], " \t");
+    if (final_segment.len == 0) return CallError.InvalidCallSyntax;
+    try segments.append(final_segment);
+    return try segments.toOwnedSlice();
+}
+
 fn parseCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bool) !ParsedCall {
     const trimmed = std.mem.trim(u8, body, " \t");
     if (trimmed.len == 0) return CallError.InvalidCallSyntax;
@@ -76,8 +143,9 @@ fn parseCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bo
 
     const args_text = std.mem.trim(u8, trimmed[open + 1 .. close], " \t");
     if (args_text.len != 0) {
-        var it = std.mem.splitScalar(u8, args_text, ',');
-        while (it.next()) |fragment| {
+        const fragments = try splitCallArgs(allocator, args_text);
+        defer allocator.free(fragments);
+        for (fragments) |fragment| {
             try args_list.append(try parseArg(allocator, fragment));
         }
     }
@@ -110,8 +178,9 @@ fn parseSpecialCallBody(allocator: std.mem.Allocator, body: []const u8, callee_n
 
     const args_text = std.mem.trim(u8, trimmed[open + 1 .. close], " \t");
     if (args_text.len != 0) {
-        var it = std.mem.splitScalar(u8, args_text, ',');
-        while (it.next()) |fragment| {
+        const fragments = try splitCallArgs(allocator, args_text);
+        defer allocator.free(fragments);
+        for (fragments) |fragment| {
             try args_list.append(try parseArg(allocator, fragment));
         }
     }
@@ -262,6 +331,20 @@ test "parse and validate panic builtins" {
 test "parseCall rejects trailing garbage on special calls" {
     try std.testing.expectError(CallError.InvalidCallSyntax, parseCall(std.testing.allocator, "panic(7) extra"));
     try std.testing.expectError(CallError.InvalidCallSyntax, parseCall(std.testing.allocator, "panic_msg(7, *msg, len) trailing"));
+}
+
+test "parseCall keeps quoted commas inside arguments" {
+    var call = try parseCall(std.testing.allocator, "call @sink(utf8:\"a,b\", *\"c,d\", len)");
+    defer call.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("sink", call.callee);
+    try std.testing.expectEqual(@as(usize, 3), call.args.len);
+    try std.testing.expectEqual(common_instruction.CapPrefix.by_value, call.args[0].prefix);
+    try std.testing.expectEqualStrings("utf8:\"a,b\"", call.args[0].text);
+    try std.testing.expectEqual(common_instruction.CapPrefix.raw, call.args[1].prefix);
+    try std.testing.expectEqualStrings("\"c,d\"", call.args[1].text);
+    try std.testing.expectEqual(common_instruction.CapPrefix.by_value, call.args[2].prefix);
+    try std.testing.expectEqualStrings("len", call.args[2].text);
 }
 
 test "validateCall rejects capability mismatches" {

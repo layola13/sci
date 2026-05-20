@@ -1517,6 +1517,22 @@ fn envGetOwned(key: []const u8) ![]u8 {
     return std.heap.page_allocator.dupe(u8, value);
 }
 
+
+pub fn Fallible(comptime T: type) type {
+    return extern struct {
+        status: i32,
+        value: T,
+    };
+}
+
+pub fn ok(comptime T: type, value: T) Fallible(T) {
+    return .{ .status = SA_STD_OK, .value = value };
+}
+
+pub fn fail(comptime T: type, status: i32) Fallible(T) {
+    return .{ .status = status, .value = @as(T, @bitCast(@as(std.meta.Int(.unsigned, @bitSizeOf(T)), 0))) };
+}
+
 pub export fn sa_std_version() u32 {
     return SA_STD_ABI_VERSION;
 }
@@ -1647,8 +1663,10 @@ pub export fn sa_json_value_count(node: u64, out_count: ?*u64) i32 {
     };
 }
 
-pub export fn sa_json_free(node: u64) i32 {
-    return sa_std_close(node);
+pub export fn sa_json_free(node: u64) Fallible(i32) {
+    const status = sa_std_close(node);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
 }
 
 pub export fn sa_json_stringify(node: u64, out_handle: ?*u64) i32 {
@@ -1795,8 +1813,10 @@ pub export fn sa_json_stream_get_slice_len(stream: u64) u64 {
     return if (stream_handle.scanner.current_text) |text| @as(u64, @intCast(text.len)) else 0;
 }
 
-pub export fn sa_json_stream_free(stream: u64) i32 {
-    return sa_std_close(stream);
+pub export fn sa_json_stream_free(stream: u64) Fallible(i32) {
+    const status = sa_std_close(stream);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
 }
 
 pub export fn sa_json_writer_free(writer: u64) i32 {
@@ -2095,12 +2115,16 @@ pub export fn sa_regex_group_count(regex: u64) u64 {
     return @as(u64, @intCast(regexGroupCount(regex_handle)));
 }
 
-pub export fn sa_regex_free(regex: u64) i32 {
-    return sa_std_close(regex);
+pub export fn sa_regex_free(regex: u64) Fallible(i32) {
+    const status = sa_std_close(regex);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
 }
 
-pub export fn sa_regex_match_free(match: u64) i32 {
-    return sa_std_close(match);
+pub export fn sa_regex_match_free(match: u64) Fallible(i32) {
+    const status = sa_std_close(match);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
 }
 
 
@@ -2124,8 +2148,10 @@ pub export fn sa_json_buffer_len(buffer: u64) u64 {
     };
 }
 
-pub export fn sa_json_buffer_free(buffer: u64) i32 {
-    return sa_std_close(buffer);
+pub export fn sa_json_buffer_free(buffer: u64) Fallible(i32) {
+    const status = sa_std_close(buffer);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
 }
 
 pub export fn sa_time_instant_ns() u64 {
@@ -2751,14 +2777,14 @@ pub export fn sa_fs_remove_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u16) Fallible(u64) {
     var handle: u64 = 0;
     const status = sa_std_net_tcp_connect(host_ptr, host_len, port, &handle);
-    if (status != SA_STD_OK) return status;
-    return @as(i32, @intCast(handle));
+    if (status != SA_STD_OK) return fail(u64, status);
+    return ok(u64, handle);
 }
 
-pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) i32 { return sa_std_read(stream, out, cap, null); }
+pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) { var read: u64 = 0; const status = sa_std_read(stream, out, cap, &read); if (status != SA_STD_OK) return fail(u64, status); return ok(u64, read); }
 pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
 
@@ -2782,7 +2808,7 @@ pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
     return finish(@as(i32, @intCast(read)));
 }
 pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(stream, out, len); }
-pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(stream, out, len); }
+pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) Fallible(i32) { const status = sa_io_write_all(stream, out, len); if (status != SA_STD_OK) return fail(i32, status); return ok(i32, 0); }
 pub export fn sa_net_tcp_stream_flush(stream: u64) i32 { _ = stream; return finish(SA_STD_OK); }
 pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
     registry_mutex.lock();
@@ -2840,18 +2866,22 @@ pub export fn sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
 pub export fn sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
     return sa_std_net_tcp_stream_set_ttl(stream, ttl);
 }
-pub export fn sa_net_tcp_stream_close(stream: u64) i32 { return sa_std_close(stream); }
-pub export fn sa_net_tcp_listener_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+pub export fn sa_net_tcp_stream_close(stream: u64) Fallible(i32) {
+    const status = sa_std_close(stream);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
+}
+pub export fn sa_net_tcp_listener_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) Fallible(u64) {
     var handle: u64 = 0;
     const status = sa_std_net_tcp_listen(host_ptr, host_len, port, &handle, null);
-    if (status != SA_STD_OK) return status;
-    return @as(i32, @intCast(handle));
+    if (status != SA_STD_OK) return fail(u64, status);
+    return ok(u64, handle);
 }
-pub export fn sa_net_tcp_listener_accept(listener: u64) i32 {
+pub export fn sa_net_tcp_listener_accept(listener: u64) Fallible(u64) {
     var handle: u64 = 0;
     const status = sa_std_net_tcp_accept(listener, &handle);
-    if (status != SA_STD_OK) return status;
-    return @as(i32, @intCast(handle));
+    if (status != SA_STD_OK) return fail(u64, status);
+    return ok(u64, handle);
 }
 pub export fn sa_net_tcp_listener_local_addr(listener: u64) i32 {
     registry_mutex.lock();
@@ -2869,7 +2899,11 @@ pub export fn sa_net_tcp_listener_local_addr(listener: u64) i32 {
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
 }
-pub export fn sa_net_tcp_listener_close(listener: u64) i32 { return sa_std_close(listener); }
+pub export fn sa_net_tcp_listener_close(listener: u64) Fallible(i32) {
+    const status = sa_std_close(listener);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
+}
 
 pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
@@ -3199,7 +3233,11 @@ pub export fn sa_net_addr_family(addr: u64) u32 {
         },
     };
 }
-pub export fn sa_net_addr_free(addr: u64) i32 { return sa_std_close(addr); }
+pub export fn sa_net_addr_free(addr: u64) Fallible(i32) {
+    const status = sa_std_close(addr);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
+}
 
 pub export fn sa_fmt_i64(value: i64, base: u32) u64 {
     const bytes = formatInteger(value, base) catch return 0;
@@ -3303,8 +3341,10 @@ pub export fn sa_fmt_buffer_write_to(buffer: u64, writer: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fmt_buffer_free(handle: u64) i32 {
-    return sa_std_close(handle);
+pub export fn sa_fmt_buffer_free(handle: u64) Fallible(i32) {
+    const status = sa_std_close(handle);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
 }
 
 pub export fn sa_print_bytes(msg: ?[*]const u8, len: u64) void {

@@ -2,6 +2,32 @@ const std = @import("std");
 const saasm = @import("saasm");
 const builtin = @import("builtin");
 
+fn parseJsonValue(allocator: std.mem.Allocator, text: []const u8) !std.json.Parsed(std.json.Value) {
+    return try std.json.parseFromSlice(std.json.Value, allocator, text, .{});
+}
+
+fn jsonObjectGet(parsed: *const std.json.Parsed(std.json.Value), key: []const u8) !std.json.Value {
+    const root = switch (parsed.value) {
+        .object => |object| object,
+        else => return error.TestUnexpectedResult,
+    };
+    return root.get(key) orelse return error.TestUnexpectedResult;
+}
+
+fn jsonArrayCount(value: std.json.Value) !usize {
+    return switch (value) {
+        .array => |array| array.items.len,
+        else => error.TestUnexpectedResult,
+    };
+}
+
+fn jsonStringValue(value: std.json.Value) ![]const u8 {
+    return switch (value) {
+        .string => |text| text,
+        else => error.TestUnexpectedResult,
+    };
+}
+
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
@@ -2460,20 +2486,20 @@ test "db cli register inspect exec round trip through registry" {
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "simple.sadb-schema",
-        \#def MAX_ROWS = 10
-        \#def COL_ID_STRIDE = 8 // u64
-        \#def COL_FACTOR_STRIDE = 8 // u64
-        \#def TABLE_ROW_BYTES = 16
+        \\#def MAX_ROWS = 10
+        \\#def COL_ID_STRIDE = 8 // u64
+        \\#def COL_FACTOR_STRIDE = 8 // u64
+        \\#def TABLE_ROW_BYTES = 16
     );
     try writeSource(tmp.dir, "simple.query.saasm",
-        \@import "simple.sadb-schema"
-        \grants [db_read:simple]
-        \@main(id: u64, factor: u64) -> u64:
-        \L_ENTRY:
-        \total = add id, factor
-        \!id
-        \!factor
-        \return total
+        \\@import "simple.sadb-schema"
+        \\grants [db_read:simple]
+        \\@main(id: u64, factor: u64) -> u64:
+        \\L_ENTRY:
+        \\total = add id, factor
+        \\!id
+        \\!factor
+        \\return total
     );
 
     var params = std.ArrayList(u8).init(std.testing.allocator);
@@ -2567,4 +2593,188 @@ test "layout cli prints text and json outputs" {
         stdout_buffer.items,
     );
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+}
+
+test "agent-first cli commands print explain fix and skills outputs" {
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const explain_argv = [_][]const u8{ "saasm", "explain", "SA-CLI-001" };
+    const explain_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        explain_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), explain_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "code: SA-CLI-001"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "title: Missing required operand"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "fix: Pass the required file, path, or operand after the command."));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const explain_json_argv = [_][]const u8{ "saasm", "explain", "SA-CLI-001", "--json" };
+    const explain_json_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        explain_json_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), explain_json_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"codes\":[\"SA-CLI-001\"]"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const fix_argv = [_][]const u8{ "saasm", "fix", "--plan", "SA-CLI-001", "--json" };
+    const fix_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        fix_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), fix_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"action\":\"add\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"plan\""));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const skills_argv = [_][]const u8{ "saasm", "skills", "--json" };
+    const skills_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        skills_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), skills_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"core diagnostics\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"std runtime\""));
+}
+
+test "build and run json diagnostics emit structured success metrics on stderr" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "json_success.saasm",
+        \\@main() -> i32:
+        \\return 7
+    );
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const run_argv = [_][]const u8{ "saasm", "run", "json_success.saasm", "--json" };
+    const run_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        run_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 7), run_code);
+    try std.testing.expectEqualStrings("{\"status\":\"ok\",\"metrics\":{\"compile_tokens\":5,\"instruction_count\":2}}\n", stderr_buffer.items);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "json_success.saasm", "-o", "json_success.out", "--json" };
+    const build_exe_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"status\":\"ok\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"compile_tokens\":5"));
+}
+
+test "graph and size cli emit structured reports for a tiny project" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("src");
+    try writeSource(tmp.dir, "src/main.saasm",
+        \\@helper(value: i32) -> i32:
+        \\    return value
+        \\@main() -> i32:
+        \\    value = call @helper(7)
+        \\    return value
+    );
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const graph_argv = [_][]const u8{ "saasm", "graph", "--json" };
+    const graph_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        graph_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), graph_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    const graph_parsed = try parseJsonValue(std.testing.allocator, stdout_buffer.items);
+    defer graph_parsed.deinit();
+    const graph_root = try jsonObjectGet(&graph_parsed, "graph");
+
+    const graph_value = switch (graph_root) {
+        .object => |object| object,
+        else => return error.TestUnexpectedResult,
+    };
+    const nodes_value = graph_value.get("nodes") orelse return error.TestUnexpectedResult;
+    const edges_value = graph_value.get("edges") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 3), try jsonArrayCount(nodes_value));
+    try std.testing.expectEqual(@as(usize, 1), try jsonArrayCount(edges_value));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"kind\":\"source_file\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"kind\":\"function\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"kind\":\"calls\""));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const size_argv = [_][]const u8{ "saasm", "size", "--json" };
+    const size_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        size_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), size_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    const size_parsed = try parseJsonValue(std.testing.allocator, stdout_buffer.items);
+    defer size_parsed.deinit();
+    const size_graph = try jsonObjectGet(&size_parsed, "functions");
+    try std.testing.expectEqual(@as(usize, 2), try jsonArrayCount(size_graph));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"name\":\"helper\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"name\":\"main\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"instruction_count\":"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"byte_count\":"));
 }
