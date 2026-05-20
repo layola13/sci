@@ -869,6 +869,8 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
     try emitLine(out, "declare void @exit(i32)");
     try emitLine(out, "declare i32 @fprintf(ptr, ptr, ...)");
     try emitLine(out, "declare ptr @getenv(ptr)");
+    try emitLine(out, "declare i64 @strlen(ptr)");
+    try emitLine(out, "declare i32 @memcmp(ptr, ptr, i64)");
     try emitLine(out, "@stderr = external global ptr");
     try out.writer().print("@.panic_code_fmt = private unnamed_addr constant [{d} x i8] c\"PANIC: code=%d\\0A\\00\"\n", .{"PANIC: code=%d\n".len + 1});
     try out.writer().print("@.panic_msg_fmt = private unnamed_addr constant [{d} x i8] c\"PANIC[%d]: %.*s\\0A\\00\"\n", .{"PANIC[%d]: %.*s\n".len + 1});
@@ -916,24 +918,15 @@ fn emitHelpers(out: *std.ArrayList(u8), size_bits: u16, options: EmitOptions) !v
 
     try out.writer().print("define internal i1 @saasm_streq(ptr %lhs, ptr %rhs) {{\n", .{});
     try emitLine(out, "entry:");
-    try emitLine(out, "  br label %loop");
-    try emitLine(out, "loop:");
-    try out.writer().print("  %idx = phi {s} [0, %entry], [%next_idx, %advance]\n", .{size_ty_name});
-    try out.writer().print("  %lhs_ptr = getelementptr i8, ptr %lhs, {s} %idx\n", .{size_ty_name});
-    try out.writer().print("  %rhs_ptr = getelementptr i8, ptr %rhs, {s} %idx\n", .{size_ty_name});
-    try emitLine(out, "  %lhs_ch = load i8, ptr %lhs_ptr, align 1");
-    try emitLine(out, "  %rhs_ch = load i8, ptr %rhs_ptr, align 1");
-    try emitLine(out, "  %same = icmp eq i8 %lhs_ch, %rhs_ch");
-    try emitLine(out, "  br i1 %same, label %equal, label %diff");
-    try emitLine(out, "equal:");
-    try emitLine(out, "  %is_zero = icmp eq i8 %lhs_ch, 0");
-    try emitLine(out, "  br i1 %is_zero, label %match, label %advance");
-    try emitLine(out, "advance:");
-    try out.writer().print("  %next_idx = add {s} %idx, 1\n", .{size_ty_name});
-    try emitLine(out, "  br label %loop");
-    try emitLine(out, "match:");
-    try emitLine(out, "  ret i1 true");
-    try emitLine(out, "diff:");
+    try emitLine(out, "  %lhs_len = call i64 @strlen(ptr %lhs)");
+    try emitLine(out, "  %len = call i64 @strlen(ptr %rhs)");
+    try emitLine(out, "  %len_ok = icmp eq i64 %lhs_len, %len");
+    try emitLine(out, "  br i1 %len_ok, label %compare, label %miss");
+    try emitLine(out, "compare:");
+    try emitLine(out, "  %cmp = call i32 @memcmp(ptr %lhs, ptr %rhs, i64 %len)");
+    try emitLine(out, "  %same = icmp eq i32 %cmp, 0");
+    try emitLine(out, "  ret i1 %same");
+    try emitLine(out, "miss:");
     try emitLine(out, "  ret i1 false");
     try emitLine(out, "}");
     try emitLine(out, "");
@@ -1077,6 +1070,9 @@ fn emitFunctionHeader(out: *std.ArrayList(u8), state: *FunctionState, dbg_id: ?u
         try out.writer().print("{s} %{s}", .{ llvmTypeName(ty), param.name });
     }
     try out.appendSlice(")");
+    if (state.sig.kind == .test_func) {
+        try out.appendSlice(" noinline optnone");
+    }
     if (dbg_id) |id| {
         try out.writer().print(" !dbg !{d}", .{id});
     }
@@ -1201,7 +1197,7 @@ fn emitTestHarnessMain(
     for (function_sigs) |fsig| {
         if (fsig.kind != .test_func) continue;
         const internal = fsig.llvm_name orelse fsig.name;
-        try out.writer().print("@.saasm_test_name_{d} = private unnamed_addr constant [{d} x i8] c\"", .{ fsig.id, internal.len + 1 });
+        try out.writer().print("@.saasm_test_name_{d} = private constant [{d} x i8] c\"", .{ fsig.id, internal.len + 1 });
         for (internal) |byte| {
             try emitByteEscape(out, byte);
         }
@@ -1223,10 +1219,12 @@ fn emitTestHarnessMain(
     try emitLine(out, "select:");
     for (function_sigs) |fsig| {
         if (fsig.kind != .test_func) continue;
+        const internal = fsig.llvm_name orelse fsig.name;
         const next_label = try std.fmt.allocPrint(allocator, "next_test_{d}", .{fsig.id});
         defer allocator.free(next_label);
         const run_label = try std.fmt.allocPrint(allocator, "run_test_{d}", .{fsig.id});
         defer allocator.free(run_label);
+        _ = internal;
         try out.writer().print("  %match_{d} = call i1 @saasm_streq(ptr %filter, ptr @.saasm_test_name_{d})\n", .{ fsig.id, fsig.id });
         try out.writer().print("  br i1 %match_{d}, label %{s}, label %{s}\n", .{ fsig.id, run_label, next_label });
         try out.writer().print("{s}:\n", .{run_label});
