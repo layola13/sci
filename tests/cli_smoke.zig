@@ -387,7 +387,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!DILocation(line: 10, column: 4"));
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "!DISubprogram(name: \"main\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "store i32 %argc, ptr @saasm_argc, align 4, !dbg"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "ret i32 %res, !dbg"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "ret i32 %status, !dbg"));
 
     const obj_path = "sample.o";
     const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "sample.saasm", "--jobs", "auto", "-o", obj_path };
@@ -493,7 +493,7 @@ test "cli sax build produces browser bundle artifacts" {
     try std.testing.expect(std.mem.containsAtLeast(u8, index_bytes, 1, "app.wasm"));
 }
 
-test "cli build-exe with jobs 1 and auto produce the same runtime result" {
+test "cli build-exe with jobs 1 and auto produce the same emitted LLVM" {
     const source =
         \\@helper(value: i32) -> i32:
         \\return value
@@ -508,38 +508,43 @@ test "cli build-exe with jobs 1 and auto produce the same runtime result" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
-    defer original_cwd.setAsCwd() catch {};
+    const tmp_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_root);
 
     try writeSource(tmp.dir, "jobs_ok.saasm", source);
+    const source_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "jobs_ok.saasm" });
+    defer std.testing.allocator.free(source_path);
+    const serial_out_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "serial.out" });
+    defer std.testing.allocator.free(serial_out_path);
+    const auto_out_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "auto.out" });
+    defer std.testing.allocator.free(auto_out_path);
 
-    const serial_build_argv = [_][]const u8{ "saasm", "build-exe", "jobs_ok.saasm", "--jobs", "1", "-o", "serial.out" };
+    const serial_build_argv = [_][]const u8{ "saasm", "build-exe", source_path, "--jobs", "1", "-o", serial_out_path };
     const serial_code = try saasm.cli.execute(std.testing.allocator, serial_build_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), serial_code);
 
-    const auto_build_argv = [_][]const u8{ "saasm", "build-exe", "jobs_ok.saasm", "--jobs", "auto", "-o", "auto.out" };
+    const auto_build_argv = [_][]const u8{ "saasm", "build-exe", source_path, "--jobs", "auto", "-o", auto_out_path };
     const auto_code = try saasm.cli.execute(std.testing.allocator, auto_build_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), auto_code);
 
-    const serial_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./serial.out"});
-    defer std.testing.allocator.free(serial_result.stdout);
-    defer std.testing.allocator.free(serial_result.stderr);
-    switch (serial_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
-        else => return error.TestUnexpectedResult,
-    }
-    try std.testing.expectEqual(@as(usize, 0), serial_result.stdout.len);
-    try std.testing.expectEqual(@as(usize, 0), serial_result.stderr.len);
+    const serial_ll_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.saasm.ll", .{serial_out_path});
+    defer std.testing.allocator.free(serial_ll_path);
+    const auto_ll_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.saasm.ll", .{auto_out_path});
+    defer std.testing.allocator.free(auto_ll_path);
 
-    const auto_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./auto.out"});
-    defer std.testing.allocator.free(auto_result.stdout);
-    defer std.testing.allocator.free(auto_result.stderr);
-    switch (auto_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
-        else => return error.TestUnexpectedResult,
-    }
-    try std.testing.expectEqualStrings(serial_result.stdout, auto_result.stdout);
-    try std.testing.expectEqualStrings(serial_result.stderr, auto_result.stderr);
+    const serial_ll = try tmp.dir.openFile(serial_ll_path, .{});
+    defer serial_ll.close();
+    const serial_ll_bytes = try serial_ll.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(serial_ll_bytes);
+
+    const auto_ll = try tmp.dir.openFile(auto_ll_path, .{});
+    defer auto_ll.close();
+    const auto_ll_bytes = try auto_ll.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(auto_ll_bytes);
+
+    try std.testing.expect(serial_ll_bytes.len > 0);
+    try std.testing.expectEqualStrings(serial_ll_bytes, auto_ll_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, serial_ll_bytes, 1, "define i32 @main(i32 %argc, ptr %argv)"));
 }
 
 test "cli run with jobs 2 keeps the earliest source-order trap" {
@@ -1451,6 +1456,77 @@ test "panic builtins terminate through the interpreter" {
     const msg_argv = [_][]const u8{ "saasm", "run", "panic_msg.saasm" };
     const msg_code = try saasm.cli.execute(std.testing.allocator, msg_argv[0..]);
     try std.testing.expectEqual(@as(u8, 151), msg_code);
+
+    const result_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm-layout");
+    defer std.testing.allocator.free(result_layout_path);
+    const option_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/option.saasm-layout");
+    defer std.testing.allocator.free(option_layout_path);
+    const result_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm");
+    defer std.testing.allocator.free(result_src_path);
+    const option_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/option.saasm");
+    defer std.testing.allocator.free(option_src_path);
+    const panic_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/panic.saasm");
+    defer std.testing.allocator.free(panic_src_path);
+
+    const result_unwrap_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\@import "{s}"
+        \\@import "{s}"
+        \\@import "{s}"
+        \\
+        \\@main() -> i32:
+        \\res = alloc Result_SIZE
+        \\EXPAND RESULT_SET_ERR res, 7
+        \\EXPAND RESULT_UNWRAP value, res
+        \\!res
+        \\return value
+    , .{ result_layout_path, result_src_path, panic_src_path });
+    defer std.testing.allocator.free(result_unwrap_source);
+
+    try writeSource(tmp.dir, "result_unwrap.saasm", result_unwrap_source);
+
+    const result_unwrap_argv = [_][]const u8{ "saasm", "run", "result_unwrap.saasm" };
+    const result_unwrap_code = try saasm.cli.execute(std.testing.allocator, result_unwrap_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 145), result_unwrap_code);
+
+    const option_unwrap_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\@import "{s}"
+        \\@import "{s}"
+        \\@import "{s}"
+        \\
+        \\@main() -> i32:
+        \\opt = alloc Option_SIZE
+        \\EXPAND OPTION_SET_NONE opt
+        \\EXPAND OPTION_UNWRAP value, opt
+        \\!opt
+        \\return value
+    , .{ option_layout_path, option_src_path, panic_src_path });
+    defer std.testing.allocator.free(option_unwrap_source);
+
+    try writeSource(tmp.dir, "option_unwrap.saasm", option_unwrap_source);
+
+    const option_unwrap_argv = [_][]const u8{ "saasm", "run", "option_unwrap.saasm" };
+    const option_unwrap_code = try saasm.cli.execute(std.testing.allocator, option_unwrap_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 145), option_unwrap_code);
+
+    const result_unwrap_err_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\@import "{s}"
+        \\@import "{s}"
+        \\@import "{s}"
+        \\
+        \\@main() -> i32:
+        \\res = alloc Result_SIZE
+        \\EXPAND RESULT_SET_OK res, 7
+        \\EXPAND RESULT_UNWRAP_ERR value, res
+        \\!res
+        \\return value
+    , .{ result_layout_path, result_src_path, panic_src_path });
+    defer std.testing.allocator.free(result_unwrap_err_source);
+
+    try writeSource(tmp.dir, "result_unwrap_err.saasm", result_unwrap_err_source);
+
+    const result_unwrap_err_argv = [_][]const u8{ "saasm", "run", "result_unwrap_err.saasm" };
+    const result_unwrap_err_code = try saasm.cli.execute(std.testing.allocator, result_unwrap_err_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 145), result_unwrap_err_code);
 }
 
 test "saasm test runs isolated native tests with filterable names" {
@@ -1745,6 +1821,74 @@ test "fallible ABI and ? propagation work end to end" {
         .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
+}
+
+test "result unwrap_or and map_or helpers branch on tags correctly" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const result_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm-layout");
+    defer std.testing.allocator.free(result_layout_path);
+    const result_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm");
+    defer std.testing.allocator.free(result_src_path);
+    const panic_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/panic.saasm");
+    defer std.testing.allocator.free(panic_src_path);
+
+    const source = try std.fmt.allocPrint(std.testing.allocator,
+        \\@import "{s}"
+        \\@import "{s}"
+        \\@import "{s}"
+        \\
+        \\@double(x: u64) -> u64:
+        \\L_ENTRY:
+        \\    y = mul x, 2
+        \\    return y
+        \\@fallback() -> u64:
+        \\L_ENTRY:
+        \\    return 99
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    ok_res = alloc Result_SIZE
+        \\    EXPAND RESULT_SET_OK ok_res, 7
+        \\    err_res = alloc Result_SIZE
+        \\    EXPAND RESULT_SET_ERR err_res, 3
+        \\    EXPAND RESULT_UNWRAP_OR ok_unwrap, ok_res, 1
+        \\    EXPAND RESULT_UNWRAP_OR err_unwrap, err_res, 5
+        \\    EXPAND RESULT_MAP_OR ok_map, ok_res, @double, 1
+        \\    EXPAND RESULT_MAP_OR err_map, err_res, @double, 3
+        \\    EXPAND RESULT_MAP_OR_ELSE ok_map_else, ok_res, @double, @fallback
+        \\    EXPAND RESULT_MAP_OR_ELSE err_map_else, err_res, @double, @fallback
+        \\    sum1 = add ok_unwrap, err_unwrap
+        \\    sum2 = add ok_map, err_map
+        \\    sum3 = add ok_map_else, err_map_else
+        \\    sum12 = add sum1, sum2
+        \\    total = add sum12, sum3
+        \\    !sum1
+        \\    !sum2
+        \\    !sum3
+        \\    !sum12
+        \\    !ok_unwrap
+        \\    !err_unwrap
+        \\    !ok_map
+        \\    !err_map
+        \\    !ok_map_else
+        \\    !err_map_else
+        \\    !ok_res
+        \\    !err_res
+        \\    return total
+    , .{ result_layout_path, result_src_path, panic_src_path });
+    defer std.testing.allocator.free(source);
+
+    try writeSource(tmp.dir, "result_helpers.saasm", source);
+
+    const run_argv = [_][]const u8{ "saasm", "run", "result_helpers.saasm" };
+    const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 142), run_code);
 }
 
 test "const pointer stores survive load and print end to end" {

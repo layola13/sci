@@ -289,18 +289,12 @@ fn readRawReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
 
 fn readValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
     if (regs.get(id)) |value| return try requireNonFallible(value);
-    return self.constPointerValue(id) orelse blk: {
-        std.debug.print("interp.readValue failed for id {d} ('{s}')\n", .{ id, self.program.symbols.lookupName(id) orelse "???" });
-        break :blk RunError.InvalidOperand;
-    };
+    return self.constPointerValue(id) orelse RunError.InvalidOperand;
 }
 
 fn readRawValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
     if (regs.get(id)) |value| return value;
-    return self.constPointerValue(id) orelse blk: {
-        std.debug.print("interp.readRawValue failed for id {d} ('{s}')\n", .{ id, self.program.symbols.lookupName(id) orelse "???" });
-        break :blk RunError.InvalidOperand;
-    };
+    return self.constPointerValue(id) orelse RunError.InvalidOperand;
 }
 
 fn ptrMetaFromValue(value: RegValue) ?PtrMeta {
@@ -559,10 +553,6 @@ const Interpreter = struct {
 
         var decl_indices = try allocator.alloc(usize, program.function_sigs.len);
         defer allocator.free(decl_indices);
-
-        for (program.function_sigs, 0..) |fsig, i| {
-            std.debug.print("sig[{d}]: {s} ({d} params)\n", .{ i, fsig.name, fsig.params.len });
-        }
 
         var decl_count: usize = 0;
         for (program.annotated, 0..) |item, idx| {
@@ -1870,10 +1860,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
         }
 
         for (fsig.params, 0..) |param, idx| {
-            if (idx >= arg_values.len) {
-                std.debug.print("interp.execFunction: arg count mismatch for {s} ({d} params, {d} args)\n", .{ fsig.name, fsig.params.len, arg_values.len });
-                return RunError.InvalidOperand;
-            }
+            if (idx >= arg_values.len) return RunError.InvalidOperand;
             const id = fsig.param_ids[idx];
             const target_ty = valueTypeForPrefix(param.cap, param.ty);
             const value = try self.coerce(arg_values[idx], target_ty);
@@ -2350,7 +2337,6 @@ pub fn runWithWriters(
     stdout: std.io.AnyWriter,
     stderr: std.io.AnyWriter,
 ) !u8 {
-    std.debug.print("interp.runWithWriters start\n", .{});
     const main_index = blk: {        for (program.function_sigs, 0..) |fsig, idx| {
             if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main")) break :blk idx;
         }

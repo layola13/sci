@@ -77,9 +77,28 @@ The following Rust `std` modules have no corresponding implementation or mapping
 
 1.  **Memory & Data Abstraction**: `std::any`, `std::array`, `std::ascii`, `std::boxed`, `std::cell` (`Cell`, `RefCell`), `std::char`, `std::rc` (`Rc`), `std::ptr` (`NonNull`), `std::pin`.
 2.  **Core Trait Paradigm**: `std::convert` (`From`/`Into`), `std::default`, `std::error`, `std::iter` (`Iterator` system), `std::marker` (`Send`/`Sync`/`Copy`), `std::ops` (Operator overloading/`Drop`), `std::cmp`.
-3.  **Safety & Error Handling**: `std::option` (`Option<T>`), `std::result` (`Result<T, E>`), `std::panic` (Panic handling/Backtrace).
-4.  **FFI & Platform Specific**: `std::ffi` (`CString`, `OsString`), `std::os` (Unix/Windows extensions).
-5.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`), `std::future`, `std::task`.
+3.  **FFI & Platform Specific**: `std::ffi` (`CString`, `OsString`), `std::os` (Unix/Windows extensions).
+4.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`), `std::future`, `std::task`.
+
+## 4. Rust Core Minimal Closed Loop
+
+The project now treats the following Rust core items as a **SA layout + macro contract**, not as native SA type-system features:
+
+- `Option<T>`: represented by a tag + payload memory contract and helper macros in `sa_std/core/option.saasm`.
+- `Result<T, E>`: represented by a tag + ok/err payload memory contract and helper macros in `sa_std/core/result.saasm`.
+- `panic` / `panic_msg`: represented by wrapper macros in `sa_std/core/panic.saasm` and lowered as builtin termination paths.
+- `iter` / iterator-like traversal: represented by slice-backed cursor helpers in `sa_std/core/iter.saasm`.
+
+These helpers intentionally stop short of native Rust `trait` / `generic` semantics. In SA, those remain a frontend lowering concern: monomorphization, concrete ABI selection, and call-site rewriting belong in the compiler frontend, not in SA source.
+
+This closed loop is already backed by concrete files and smoke coverage:
+
+- `sa_std/core/option.saasm` / `.layout`
+- `sa_std/core/result.saasm` / `.layout`
+- `sa_std/core/panic.saasm`
+- `sa_std/core/iter.saasm` / `.layout`
+- `sa_std/rust_core.saasm` / `.layout`
+- `tests/rust_core_fixture.saasm`
 
 ---
 
@@ -103,10 +122,10 @@ Rust relies heavily on declarative and procedural macros. `sa_std` provides func
     *   Missing `format!` (No dynamic string interpolation/formatting macro).
     *   Missing `write!`, `writeln!` (No macro to write formatted data to a buffer/stream).
 *   **Error Handling & Control Flow**:
-    *   Missing `panic!` (No macro to trigger a controlled crash with message).
+    *   Missing `panic!` as a Rust macro surface; runtime panic behavior is available through `sa_std/core/panic.saasm`.
     *   Missing `todo!`, `unimplemented!`, `unreachable!`.
     *   Missing `matches!` (Pattern matching macro).
-    *   Missing `try!` / `?` (Syntactic sugar for error propagation).
+    *   `?` / early-return lowering is handled in the SA frontend for core `Option` / `Result` flows; a general Rust `try!` macro surface is still missing.
 *   **Compile-time & Metaprogramming**:
     *   Missing `cfg!` (Compile-time configuration check).
     *   Missing `env!`, `option_env!` (Compile-time environment variables).
@@ -115,4 +134,3 @@ Rust relies heavily on declarative and procedural macros. `sa_std` provides func
     *   Missing `stringify!` (Convert expression to string literal).
 *   **Collection Initializers**:
     *   Missing literal initializers for all collections (e.g., no `hashmap!{...}`, `set!{...}`).
-

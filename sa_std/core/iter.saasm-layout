@@ -1,0 +1,4 @@
+#def Iter_SIZE = 24
+#def Iter_ptr = +0
+#def Iter_len = +8
+#def Iter_index = +16

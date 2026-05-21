@@ -1,25 +1,21 @@
 @import "../../../sa_std/io/print.saasm-iface"
+@import "../../../sa_std/core/option.saasm-layout"
+@import "../../../sa_std/core/option.saasm"
+@import "../../../sa_std/core/panic.saasm"
 
 @const RESULT_OK = utf8:"1\n"
 @const RESULT_ERR = utf8:"error\n"
 
-#def Option_SIZE = 8
-#def Option_some = +0
-#def Option_value = +4
-
 @main() -> i32:
 L_ENTRY:
     opt = alloc Option_SIZE
-    store opt+Option_some, 1 as i32
-    store opt+Option_value, 1 as i32
-    tag = load opt+Option_some as i32
-    some = eq tag, 1
+    EXPAND OPTION_SET_SOME opt, 1
+    EXPAND OPTION_IS_SOME some, opt
     br some -> L_SOME, L_NONE
 
 L_SOME:
-    value = load opt+Option_value as i32
+    EXPAND OPTION_GET value, opt
     ok = eq value, 1
-    !tag
     !some
     !opt
     br ok -> L_OK, L_ERR

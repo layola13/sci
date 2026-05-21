@@ -1,17 +1,14 @@
 @import "../../../sa_std/io/print.saasm-iface"
+@import "../../../sa_std/core/option.saasm-layout"
+@import "../../../sa_std/core/option.saasm"
 
 @const RESULT_OK = utf8:"5\n"
 @const RESULT_ERR = utf8:"error\n"
 
-#def Option_SIZE = 8
-#def Option_some = +0
-#def Option_value = +4
-
 @eval_guard(&opt: ptr) -> i32:
 L_ENTRY:
-    is_some = load opt+Option_some as i32
-    some = eq is_some, 1
-    br some -> L_SOME, L_NONE
+    EXPAND OPTION_IS_SOME is_some, opt
+    br is_some -> L_SOME, L_NONE
 
 L_SOME:
     value = load opt+Option_value as i32
@@ -21,7 +18,6 @@ L_SOME:
 L_HIT:
     !pass
     !is_some
-    !some
     !opt
     return value
 
@@ -29,21 +25,18 @@ L_MISS:
     !pass
     !value
     !is_some
-    !some
     !opt
     return 0
 
 L_NONE:
     !is_some
-    !some
     !opt
     return -1
 
 @main() -> i32:
 L_ENTRY:
     opt = alloc Option_SIZE
-    store opt+Option_some, 1 as i32
-    store opt+Option_value, 5 as i32
+    EXPAND OPTION_SET_SOME opt, 5
     result = call @eval_guard(&opt)
     ok = eq result, 5
     !result

@@ -1,57 +1,33 @@
 @import "../../../sa_std/io/print.saasm-iface"
+@import "../../../sa_std/core/result.saasm-layout"
+@import "../../../sa_std/core/result.saasm"
+@import "../../../sa_std/core/panic.saasm"
 
 @const RESULT_OK = utf8:"5\n"
-@const RESULT_ERR = utf8:"error\n"
-
-#def Result_SIZE = 8
-#def Result_tag = +0
-#def Result_value = +4
+@const RESULT_ERR = utf8:"13\n"
+@const RESULT_PANIC = utf8:"error\n"
 
 @make_some(&slot: ptr) -> i32:
 L_ENTRY:
-    store slot+Result_tag, 0 as i32
-    store slot+Result_value, 5 as i32
+    EXPAND RESULT_SET_OK slot, 5
     !slot
     return 0
 
 @make_err(&slot: ptr) -> i32:
 L_ENTRY:
-    store slot+Result_tag, 1 as i32
-    store slot+Result_value, 13 as i32
+    EXPAND RESULT_SET_ERR slot, 13
     !slot
     return 1
 
 @unwrap_value(&res: ptr) -> i32:
 L_ENTRY:
-    tag = load res+Result_tag as i32
-    ok = eq tag, 0
-    br ok -> L_VALUE, L_PANIC
-
-L_VALUE:
-    value = load res+Result_value as i32
-    !tag
-    !res
+    EXPAND RESULT_UNWRAP value, res
     return value
-
-L_PANIC:
-    panic_msg(17, *RESULT_ERR, 6)
-    return 0
 
 @unwrap_err_value(&res: ptr) -> i32:
 L_ENTRY:
-    tag = load res+Result_tag as i32
-    is_err = eq tag, 1
-    br is_err -> L_ERR, L_PANIC
-
-L_ERR:
-    value = load res+Result_value as i32
-    !tag
-    !res
-    return value
-
-L_PANIC:
-    panic_msg(17, *RESULT_ERR, 6)
-    return 0
+    EXPAND RESULT_UNWRAP_ERR err_value, res
+    return err_value
 
 @main() -> i32:
 L_ENTRY:
@@ -77,5 +53,5 @@ L_OK:
     return 0
 
 L_ERR:
-    call @sa_print_bytes(&RESULT_ERR, 6)
+    call @sa_print_bytes(&RESULT_PANIC, 6)
     return 1

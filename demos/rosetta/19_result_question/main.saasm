@@ -1,4 +1,6 @@
 @import "../../../sa_std/io/print.saasm-iface"
+@import "../../../sa_std/core/result.saasm-layout"
+@import "../../../sa_std/core/result.saasm"
 
 @const RESULT_OK = utf8:"21\n"
 @const RESULT_ERR = utf8:"error\n"

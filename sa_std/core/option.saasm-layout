@@ -1,0 +1,5 @@
+#def Option_SIZE = 16
+#def Option_tag = +0
+#def Option_value = +8
+#def Option_NONE = 0
+#def Option_SOME = 1

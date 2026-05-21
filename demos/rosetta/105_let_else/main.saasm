@@ -1,28 +1,23 @@
 @import "../../../sa_std/io/print.saasm-iface"
+@import "../../../sa_std/core/option.saasm-layout"
+@import "../../../sa_std/core/option.saasm"
 
 @const RESULT_OK = utf8:"5\n"
 @const RESULT_ERR = utf8:"0\n"
 
-#def Option_SIZE = 8
-#def Option_some = +0
-#def Option_value = +4
-
 @main() -> i32:
 L_ENTRY:
     value = alloc Option_SIZE
-    store value+Option_some, 1 as i32
-    store value+Option_value, 5 as i32
-    tag = load value+Option_some as i32
-    ok = eq tag, 1
+    EXPAND OPTION_SET_SOME value, 5
+    EXPAND OPTION_IS_SOME ok, value
     br ok -> L_SOME, L_NONE
 
 L_SOME:
-    x = load value+Option_value as i32
+    EXPAND OPTION_GET x, value
     sum = add x, 0
     result = add sum, 0
     ok_value = eq result, 5
     !sum
-    !tag
     !ok
     !value
     br ok_value -> L_OK, L_ERR
@@ -31,7 +26,6 @@ L_NONE:
     x = 0
     result = add 0, 0
     ok_value = eq result, 5
-    !tag
     !ok
     !value
     br ok_value -> L_OK, L_ERR

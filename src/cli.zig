@@ -75,11 +75,7 @@ const CompileMetrics = struct {
 };
 
 fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk) CompileMetrics {
-    const compile_tokens = @as(u64, flat.instructions.len)
-        + @as(u64, flat.const_decls.len)
-        + @as(u64, flat.function_sigs.len)
-        + @as(u64, flat.test_sigs.len)
-        + @as(u64, verified.annotated.len);
+    const compile_tokens = @as(u64, flat.instructions.len) + @as(u64, flat.const_decls.len) + @as(u64, flat.function_sigs.len) + @as(u64, flat.test_sigs.len) + @as(u64, verified.annotated.len);
     return .{
         .compile_tokens = compile_tokens,
         .instruction_count = @as(u64, verified.annotated.len),
@@ -1789,6 +1785,38 @@ fn pluginSoPath(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
     return try std.fs.path.join(allocator, &.{ build_options.repo_root, "zig-out", "lib", file_name });
 }
 
+fn copyFileByStream(source_path: []const u8, dest_path: []const u8) !void {
+    const source_file = try std.fs.openFileAbsolute(source_path, .{ .mode = .read_only });
+    defer source_file.close();
+
+    const source_stat = try source_file.stat();
+    var dest_file = std.fs.createFileAbsolute(dest_path, .{
+        .truncate = true,
+        .exclusive = true,
+        .read = true,
+        .mode = source_stat.mode,
+    }) catch |err| switch (err) {
+        error.PathAlreadyExists => return,
+        else => return err,
+    };
+    defer dest_file.close();
+
+    var buffer: [16 * 1024]u8 = undefined;
+    while (true) {
+        const read_len = try source_file.read(&buffer);
+        if (read_len == 0) break;
+        try dest_file.writeAll(buffer[0..read_len]);
+    }
+}
+
+fn copyFileAbsoluteCompat(source_path: []const u8, dest_path: []const u8) !void {
+    std.fs.copyFileAbsolute(source_path, dest_path, .{}) catch |err| switch (err) {
+        error.PathAlreadyExists => return,
+        error.AccessDenied, error.BadPathName, error.FileNotFound, error.FileTooBig, error.IsDir, error.NoDevice, error.NotDir, error.SystemResources, error.Unexpected => return copyFileByStream(source_path, dest_path),
+        else => return err,
+    };
+}
+
 fn ensurePluginSoAvailable(allocator: std.mem.Allocator, out_path: []const u8, file_name: []const u8) !void {
     const source_path = try pluginSoPath(allocator, file_name);
     defer allocator.free(source_path);
@@ -1806,10 +1834,7 @@ fn ensurePluginSoAvailable(allocator: std.mem.Allocator, out_path: []const u8, f
     defer allocator.free(dest_path);
     try std.fs.cwd().makePath(abs_dest_dir);
 
-    std.fs.copyFileAbsolute(source_path, dest_path, .{}) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err,
-    };
+    try copyFileAbsoluteCompat(source_path, dest_path);
 }
 
 fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {

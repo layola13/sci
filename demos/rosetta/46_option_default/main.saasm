@@ -1,37 +1,34 @@
 @import "../../../sa_std/io/print.saasm-iface"
+@import "../../../sa_std/core/option.saasm-layout"
+@import "../../../sa_std/core/option.saasm"
 
 @const RESULT_OK = utf8:"9\n"
 @const RESULT_ERR = utf8:"error\n"
 
-#def Option_SIZE = 8
-#def Option_tag = +0
-#def Option_value = +4
-
 @choose(&opt: ptr, fallback: i32) -> i32:
 L_ENTRY:
-    tag = load opt+Option_tag as u32
-    has_value = eq tag, 1
-    br has_value -> L_SOME, L_NONE
+    value = load opt+Option_value as u64
+    tag = load opt+Option_tag as u64
+    is_some = eq tag, Option_SOME
+    br is_some -> L_SOME, L_NONE
 
 L_SOME:
-    value = load opt+Option_value as i32
     !tag
-    !has_value
+    !is_some
     !opt
     !fallback
     return value
 
 L_NONE:
     !tag
-    !has_value
-    !opt
+    !is_some
     return fallback
 
 @main() -> i32:
 L_ENTRY:
     opt = alloc Option_SIZE
-    store opt+Option_tag, 1 as u32
-    store opt+Option_value, 9 as i32
+    store opt+Option_tag, Option_SOME as u64
+    store opt+Option_value, 9 as u64
     value = call @choose(&opt, 1)
     ok = eq value, 9
     !value

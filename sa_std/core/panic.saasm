@@ -1,0 +1,19 @@
+[MACRO] PANIC %code
+    panic(%code)
+[END_MACRO]
+
+[MACRO] PANIC_MSG %code, %msg_ptr, %msg_len
+    panic_msg(%code, *%msg_ptr, %msg_len)
+[END_MACRO]
+
+[MACRO] TODO
+    panic(102)
+[END_MACRO]
+
+[MACRO] UNIMPLEMENTED
+    panic(102)
+[END_MACRO]
+
+[MACRO] UNREACHABLE
+    panic(102)
+[END_MACRO]

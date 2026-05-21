@@ -22,6 +22,22 @@
 
 公共 API 保持 Rust-like 命名与行为，但遵守 SA 约束：没有 trait/generic，句柄都是显式 `ptr`，拥有的句柄或缓冲区必须显式 `close` / `free`，写入端必须显式 `flush`。已有 demo 使用的 `sa_print_bytes(&msg, len)` 继续保留，语义等价于 `stdout().write_all(bytes)` 的兼容入口。
 
+Rust 核心语义的最小闭环按布局契约和宏层落地：
+
+- `Option<T>` / `Result<T, E>` 只提供 tag + payload 布局常量和宏包装，不在 SA 源码层复刻 Rust trait/generic。
+- `panic` / `panic_msg` 只提供统一终结路径包装，真正的终止语义由 builtin/runtime 处理。
+- `iter` 只提供 slice/cursor 级遍历约定，不尝试在 SA 中实现完整 `Iterator` trait。
+- `trait` / `generic` 仍然是前端 lowering 责任，SA 侧只承认具体 monomorphized ABI 和具体布局。
+
+这条闭环已由以下文件和冒烟测试覆盖：
+
+- `sa_std/core/option.saasm` / `.layout`
+- `sa_std/core/result.saasm` / `.layout`
+- `sa_std/core/panic.saasm`
+- `sa_std/core/iter.saasm` / `.layout`
+- `sa_std/rust_core.saasm` / `.layout`
+- `tests/rust_core_fixture.saasm`
+
 本 RFC 规划了 `sa_std` 的四个演进阶段。
 
 ---
