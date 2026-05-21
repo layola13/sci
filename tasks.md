@@ -1,5 +1,13 @@
 # 实现计划：SA 线性所有权语言与编译器（按版本路线图）
 
+## 当前执行顺序
+
+1. 先完成主线：标准库收口、单元测试框架、零信任包管理、`sa_net_uring`、`llvm2sa`。
+2. 插件工作只允许在插件边界内推进：每个插件必须独立交付 `.so` 产物、runtime 加载、热重载、ABI 版本化、失败隔离、skills 元数据和生命周期钩子。
+3. 不要把插件实现回写到主线程分发逻辑里；主线程只保留发现、加载、卸载、热重载与派发入口，插件命令、skills、生命周期逻辑和测试必须留在各自目录。
+4. 构建期错误和运行期失败隔离分开验收：单个插件编译失败只能影响对应 `.so` 产物或插件自身测试，不应把已稳定的宿主运行路径退回静态注册模型。
+5. 任务拆分时默认按插件目录并发推进；如果某个插件已有错误，优先修它自己的目录，不要把修复扩散到主线程或别的插件目录。
+
 ## 概述
 
 本实现计划按**版本递进**组织，而不是一次性交付全部 23 条需求。核心思路：
@@ -7,6 +15,20 @@
 1. **v0.1 MVP（Week 1-14）** — "跑通闭环"。SA 源码 → Flattener → Referee → LLVM IR → **全程走 `zig cc`** 产出 `.exe` 和 `.wasm`。不自研任何后端。
 2. **v0.2（post-MVP，4-6 周）** — "后端自研"。替换 WASM 产线为手写二进制 Emitter，获得更小体积、wasm64、DWARF-in-WASM 精细控制。
 3. **v0.3（post-MVP，6-8 周）** — "性能兑现"。SIMD/并行调度/LLM 微调 / AutoBevy 1M ±30%（最低优先级）路线。
+
+## 插件任务验收标准
+
+- 插件必须以 runtime `.so` 形式交付，不能把静态注册或宿主内联实现当成完成态。
+- 插件必须支持热重载语义，至少能在宿主进程内完成加载、卸载、重新加载的回归验证。
+- 插件必须保持目录隔离，agent 只改本插件目录及其入口文件，不改 `src/cli.zig` 的静态分发逻辑。
+- 插件编译失败只能影响对应插件产物与该插件测试，不应让其它插件回退到静态耦合路径。
+- 插件目录内必须包含 skills 元数据、命令实现和自己的测试，不能依赖宿主补写业务语义。
+- 如果插件有公共 ABI 适配层，必须写在插件目录内，且以 `plugin_descriptor` / `saasm_plugin_descriptor_v1` 作为 runtime 导出验收点。
+- “完成”必须同时满足：`.so` 可被宿主 runtime 发现，命令入口可执行，skills 可收集，热重载测试通过，且失败插件不会污染其他插件的加载结果。
+- 任何插件相关实现都不得把主线程从 runtime loader 回写成静态注册；如果需要改宿主，只能改 loader/隔离/热重载这一层。
+- 任何插件任务的验收都必须写清楚：要修改的目录、是否会影响主线程、是否需要 `.so` build、是否需要 hot reload 测试、是否需要失败隔离验证。
+- 如果插件最终要开放给 SA 调用，还要额外验收 `saasm run` / `@extern` 直调该插件 ABI，并确认解释器不会把插件 handle 当普通堆指针释放。
+- 目前 HTTP client/server 已完成 `saasm run` 直调桥接，后续新增插件若要给 SA 调用，必须沿用同样的 runtime `.so` + interpreter bridge 模式，不能回到主线程静态分发。
 
 **v0.1 不做的事**（这是刻意的风险削减）：
 - ❌ 不手写 WASM 二进制 Emitter（走 `zig cc -target wasm32-wasi -O ReleaseSmall`）
@@ -451,13 +473,41 @@ sa/
     - 为 `trap.zig` 中的报错赋予稳定的 `SA-XXX` 错误码
     - 实现全局 `--json` 标志，输出含 `repair`、`compile_tokens` 和 `instruction_count` 的结构化诊断
     - 新增 `saasm explain` 和 `saasm fix --plan` 骨架命令
+    - 当前已落地的子集：`trap.zig` 已支持 `repair` 对象，`src/cli.zig` / `src/cli_util.zig` 已接入 `SA-CLI-001..015` 诊断码，`saasm explain` / `saasm fix --plan` / `saasm skills` 已实现并有 `tests/cli_smoke.zig` 覆盖
+    - 仍待补齐：trap 侧稳定 `SA-XXX` 命名与后续 trap 词表统一
 
-  - [ ] 8.23 可插拔 CLI 插件系统重构 (NEW)
-    - 建立 `src/plugin.zig` 和 `src/plugins.zig` 接口与注册表
-    - 从主线剥离 package (`fetch`), db, sax, llvm2sa 逻辑至独立插件
-    - 注入 `init` / `prebuild` 钩子，实现 `saasm skills` 动态能力输出
+  - [x] 8.23 可热插拔 CLI 插件系统重构 (NEW，后置)
+    - 完成态必须是 runtime hot-reloadable 的动态库 `.so`，不接受静态注册、静态库 `.a`、或主线程硬编码分支作为替代
+    - 每个插件必须独立交付自己的 `.so` 产物，并导出稳定 ABI 版本号、descriptor、命令入口、生命周期钩子与 skills 元数据
+    - `src/plugins.zig` 只负责 runtime 发现、`dlopen`、`dlsym`、`dlclose`、热重载和失败隔离，不承载插件命令语义
+    - 插件边界必须可热插拔：宿主可在运行时替换 `.so`，新版本生效后旧版本可卸载，同名插件以新版本覆盖旧版本
+    - `init` / `prebuild` / `postbuild` / `skills` 必须来自已加载插件的运行时导出，宿主不内建插件行为
+    - 插件错误必须局部化：单个插件加载失败、ABI 不匹配、符号缺失、descriptor 空值、命令返回异常，都不能拖垮主程序；宿主应跳过坏插件并保留结构化诊断
+    - 主线代码的修改面必须最小化：插件实现只改各自目录与必要的宿主加载器，不回写主线程命令分发逻辑
+    - 当前验收口径：
+      - 至少 1 个插件完成端到端 `.so` 化，且宿主可在运行时发现、调用、卸载并重新加载
+      - 至少 1 个同名插件替换回归测试，验证新 `.so` 覆盖旧版本后重新加载并生效
+      - 至少 1 个失败隔离测试，验证坏插件不会阻断其他插件和主程序，且同目录内其他插件仍可加载
+      - 至少 1 份最小 ABI 文档，写清版本号、导出符号、回调约定、错误码、兼容规则与 reload 语义
+      - 每个插件目录都要有自己的最小运行时测试，覆盖 descriptor 导出、skills 元数据和命令入口
+      - 插件构建失败只能影响对应 `.so` 产物或插件测试，不应把宿主退回成静态耦合模型
+    - 并发拆分建议：
+      - `src/sax/` 负责 SAX 插件的 runtime `.so` 完整化与热重载回归
+      - `src/db/` 负责 DB 插件的 runtime `.so` 完整化与失败隔离
+      - `src/pkg/` 负责 fetch/pkg 插件的 runtime `.so` 完整化与技能元数据
+      - `src/llvm2sa/` 负责 llvm2sa 插件的 runtime `.so` 完整化与命令一致性
+      - `src/http_server/` 负责 HTTP server 插件的 runtime `.so` 完整化与 scaffold 入口
+      - 每个 agent 只允许改自己的插件目录和必要的本地测试，不得跨目录改动其他插件或主线程分发逻辑
+      - 宿主侧只允许与动态加载和目录发现相关的最小改动；若无必要，不改 `src/cli.zig` 的主命令分发
+      - 任何插件交付如果仍然依赖静态注册、静态库 `.a` 或主线程硬编码分支，视为未完成
+    - 已验证完成：
+      - `src/http_server/`：descriptor / skills / scaffold / serve / runtime `.so`
+      - `src/llvm2sa/`：descriptor / skills / command consistency / runtime `.so`
+      - `src/sax/`：descriptor / skills / runtime `.so`，并通过 compile-time plugin-mode split 避免将 `std.process.Child.run` 拉进 shared-library 图
+      - `src/db/`：descriptor / skills / runtime `.so`，nested test graph 通过本地 stub 收口，runtime wrapper 图通过真实 DB 入口
+      - `src/http_client/` 与 `src/http_server/`：`saasm run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
 
-  - [ ] 8.24 标准库 JSON FFI 与生态剥离 (NEW)
+  - [ ] 8.24 标准库 JSON FFI 与生态剥离 (NEW，后置)
     - 打通 `sa_std/encoding/json` 的 DOM 与流式双模 FFI 桥接
     - 在文档层明确拒绝 YAML/XML 进入标准库，规划至周边 Package 生态
 
@@ -479,10 +529,16 @@ sa/
     - `assume_*` 只更新 mask，不做实际指针操作
     - _Requirements: R13.2, R13.3_
 
-  - [x] 9.4 `panic(code)` 打印 + 退出 128+code
+  - [x] 9.4 插件 ABI bridge
+    - `saasm run` 已可通过 `@extern` 直接调用 `sa_http_client_*` / `sa_http_server_*`
+    - 解释器对插件句柄增加了外部所有权标记，避免把插件返回的 handle 当普通堆指针释放
+    - 仓库级 `cli_smoke.zig` 仍有少数非 HTTP 回归待清理
+    - _Requirements: R16.1, R13.8_
+
+  - [x] 9.5 `panic(code)` 打印 + 退出 128+code
     - _Requirements: R18.4_
 
-  - [x] 9.5 Interpreter API `run(allocator, annotated, argv) !u8`
+  - [x] 9.6 Interpreter API `run(allocator, annotated, argv) !u8`
     - _Requirements: R16.1_
 
 - [x] 10. W12 `@sys_*` 原语 + FFI 气闸舱 + panic runtime
@@ -659,11 +715,12 @@ sa/
   - [ ] 14.2 CI 流水线
     - `zig build test` → Property × 25 × 100+ → 集成 15 个 → 基准回归 ±10% → 白皮书 ≤ 2000 → Referee LOC ≤ 2500 → `.wasm` ≤ 48 KB → DWARF 冒烟 → merge
     - _Requirements: R22.3, R23.1, R9.5, R9.6, R15.3, R16.6_
+    - 当前仓库已落地版本化 pre-push hook：根目录 `.githooks/pre-push` 调 `zig build pre-push`，并已通过；它是更窄的前置门禁，不等同于完整 CI
 
   - [x]* 14.3 Trap 基线回归
     - _Requirements: R22.2, R22.3_
 
-- [ ] 15. v0.1 最终验收
+  - [ ] 15. v0.1 最终验收
   - 运行全部测试
   - 硬约束：Referee ≤ 2500 行 / 真实代码 ≥ 500K 行每秒 / 白皮书 ≤ 2000 行 / `.wasm` ≤ 48 KB / `.exe` ≤ 800 KB / CLI ≤ 15 MB / LLM pilot baseline 归档 / AutoBevy 1K 通过（最低优先级）
   - Stretch 全部不强求
@@ -1689,6 +1746,25 @@ sa/
   - [ ] 65.1 单机 32 client 64B ping-pong **≥ 3,500,000 msg/s**（≥ 1.4× Bun）
   - [ ] 65.2 KPI 报告锁定内核版本 / Bun 版本 / 硬件型号
   - _Requirements: R35.12 (K1 stretch)_
+
+### v0.8.5 HTTP 插件增强与 OpenAI 转发 (HubProxy)
+
+- [ ] 65a. `sa_http_client` 插件实现
+  - [x] 集成 Zig `std.http.Client`
+  - [x] 暴露 `sa_http_req_send` 及流式 Reader
+  - [x] 支持 `POST`、自定义 `--header`、请求 body 透传和本地 loopback 回归
+  - [x] 实现 HTTPS/TLS 出站请求
+  - 说明：当前已完成 HTTP GET / POST / stream / TLS / runtime descriptor / skills 路径
+- [ ] 65b. `sa_http_server` 高层级封装
+  - [x] 基于 `sa_net_uring` 实现 AOT 静态路由
+  - [x] 实现 Header 注入与中间件流水线
+  - [x] 请求体读取、路由分发和 SSE/chunked 透传
+  - [ ] 65c. HubProxy 端到端实现
+  - [ ] 实现可运行 `main()` 入口，加载 `upstream.json` 并监听本地端口
+  - [ ] 实现 `/v1/chat/completions` 与 `/v1/responses` 两条转发路由
+  - [ ] 支持 SSE / chunked 流式响应透传，不允许回退为一次性缓冲假流
+  - [ ] HubProxy 仅作为示例工程存在，不回写主线程命令分发逻辑
+  - [ ] 性能目标：转发延迟损耗 < 1ms
 
 ### 文档与生态登记
 

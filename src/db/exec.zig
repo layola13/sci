@@ -5,10 +5,53 @@ const schema = @import("schema.zig");
 const referee = @import("../referee.zig");
 const interp = @import("../interp.zig");
 const referee_db = @import("referee_db.zig");
-const trap = @import("../common/trap.zig");
+const trap = @import("common/trap.zig");
 const dbtrap = @import("trap_db.zig");
-const manifest = @import("../pkg/manifest.zig");
-const pkg_resolver = @import("../pkg/resolver.zig");
+const root = @import("root");
+const has_pkg_manifest = @hasDecl(root, "pkg_manifest");
+const RealPkgManifest = @import("../pkg/manifest.zig");
+const PkgManifest = if (has_pkg_manifest) @import("../pkg/manifest.zig") else struct {
+    pub const Capability = enum(u8) {
+        mem_alloc,
+        mem_slice,
+        io_read,
+        io_write,
+        net_tx,
+        net_rx,
+        proc_spawn,
+        proc_exit,
+        proc_args,
+        time_now,
+        rand_get,
+    };
+
+    pub const RequireEntry = struct {
+        url: []const u8 = "",
+        ref: []const u8 = "",
+        source_sha256: [32]u8 = [_]u8{0} ** 32,
+        grants: []const Capability = &.{},
+        upstream_loc: struct {
+            file: []const u8 = "",
+            line: u32 = 0,
+            col: u32 = 0,
+        } = .{},
+    };
+
+    pub const Manifest = struct {
+        requires: []RequireEntry = &.{},
+        mirrors: []void = &.{},
+
+        pub fn deinit(self: *Manifest, allocator: std.mem.Allocator) void {
+            _ = allocator;
+            self.* = undefined;
+        }
+    };
+
+    pub fn parseManifestWithFile(_: std.mem.Allocator, _: []const u8, _: []const u8) !Manifest {
+        return .{};
+    }
+};
+const PkgResolver = @import("../pkg/resolver.zig");
 
 pub const ExecError = error{
     OutOfMemory,
@@ -83,7 +126,8 @@ fn loadBinaryFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
-fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
+fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?PkgManifest.Manifest {
+    if (!has_pkg_manifest) return null;
     const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
     defer allocator.free(manifest_path);
 
@@ -95,11 +139,11 @@ fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !
 
     const source = try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
     defer allocator.free(source);
-    return try manifest.parseManifestWithFile(allocator, source, manifest_path);
+    return try PkgManifest.parseManifestWithFile(allocator, source, manifest_path);
 }
 
-fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]pkg_resolver.Dependency {
-    var deps = std.ArrayList(pkg_resolver.Dependency).init(allocator);
+fn manifestDependencies(manifest_file: *const PkgManifest.Manifest, allocator: std.mem.Allocator) ![]PkgResolver.Dependency {
+    var deps = std.ArrayList(PkgResolver.Dependency).init(allocator);
     errdefer deps.deinit();
 
     for (manifest_file.requires) |entry| {
@@ -227,6 +271,30 @@ fn convertDbGrants(allocator: std.mem.Allocator, grants: []const qmod.Grant) ![]
     return out;
 }
 
+fn convertPackageGrants(allocator: std.mem.Allocator, manifest: *const PkgManifest.Manifest) ![]RealPkgManifest.RequireEntry {
+    var grants = std.ArrayList(RealPkgManifest.RequireEntry).init(allocator);
+    errdefer grants.deinit();
+    for (manifest.requires) |entry| {
+        var entry_grants = try allocator.alloc(RealPkgManifest.Capability, entry.grants.len);
+        errdefer allocator.free(entry_grants);
+        for (entry.grants, 0..) |grant, idx| {
+            entry_grants[idx] = @enumFromInt(@intFromEnum(grant));
+        }
+        try grants.append(.{
+            .url = entry.url,
+            .ref = entry.ref,
+            .source_sha256 = entry.source_sha256,
+            .grants = entry_grants,
+            .upstream_loc = .{
+                .file = entry.upstream_loc.file,
+                .line = entry.upstream_loc.line,
+                .col = entry.upstream_loc.col,
+            },
+        });
+    }
+    return try grants.toOwnedSlice();
+}
+
 fn emptyDbTrap(kind: dbtrap.DbTrap) trap.TrapReport {
     const info = dbtrap.dbTrapInfo(kind);
     return .{
@@ -257,13 +325,49 @@ fn emptyDbTrap(kind: dbtrap.DbTrap) trap.TrapReport {
     };
 }
 
+fn copyTrapReport(report: anytype) trap.TrapReport {
+    return .{
+        .trap = @as(trap.Trap, @enumFromInt(@intFromEnum(report.trap))),
+        .trap_code = report.trap_code,
+        .line = report.line,
+        .source_line = report.source_line,
+        .source_text_buf = report.source_text_buf,
+        .original_text_buf = report.original_text_buf,
+        .source_text = report.source_text,
+        .original_text = report.original_text,
+        .register_buf = report.register_buf,
+        .register = report.register,
+        .registers = report.registers,
+        .expected_mask = report.expected_mask,
+        .actual_mask = report.actual_mask,
+        .expected_mask_name = report.expected_mask_name,
+        .actual_mask_name = report.actual_mask_name,
+        .upstream_loc = if (report.upstream_loc) |loc| .{
+            .file = loc.file,
+            .line = loc.line,
+            .col = loc.col,
+        } else null,
+        .upstream_file_buf = report.upstream_file_buf,
+        .upstream_line = report.upstream_line,
+        .upstream_col = report.upstream_col,
+        .function_buf = report.function_buf,
+        .function = report.function,
+        .is_ffi_wrapper = report.is_ffi_wrapper,
+        .repair_action = report.repair_action,
+        .repair_hint = report.repair_hint,
+        .repair_confidence = report.repair_confidence,
+        .message = report.message,
+        .hint = report.hint,
+    };
+}
+
 pub fn execQuery(
     allocator: std.mem.Allocator,
     root_dir: []const u8,
     hash_hex: []const u8,
     params_path: ?[]const u8,
-    stdout: anytype,
-    stderr: anytype,
+    stdout: std.io.AnyWriter,
+    stderr: std.io.AnyWriter,
 ) !ExecRun {
     var loaded = readRegistryEntry(allocator, root_dir, hash_hex) catch |err| switch (err) {
         error.FileNotFound, error.InvalidSha256 => return .{ .trap = trapUnknownHash() },
@@ -271,18 +375,20 @@ pub fn execQuery(
         else => return err,
     };
     defer loaded.deinit();
+    std.debug.print("db exec loaded source={s} root={s}\n", .{ loaded.source_path, loaded.project_root });
 
     const project_root = if (loaded.project_root.len != 0) loaded.project_root else root_dir;
     var project_manifest = try readProjectManifest(allocator, project_root);
     defer if (project_manifest) |*m| m.deinit(allocator);
 
-    var dependency_slice: []pkg_resolver.Dependency = &.{};
+    var dependency_slice: []PkgResolver.Dependency = &.{};
     defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
     if (project_manifest) |*m| {
         dependency_slice = try manifestDependencies(m, allocator);
     }
 
-    const package_grants: []const manifest.RequireEntry = if (project_manifest) |*m| m.requires else &.{};
+    const package_grants: []const RealPkgManifest.RequireEntry = if (project_manifest) |*m| try convertPackageGrants(allocator, m) else &.{};
+    defer if (package_grants.len != 0) allocator.free(package_grants);
 
     var error_ctx: flattener.ErrorContext = .{};
     const resolve_ctx = flattener.ResolveContext{
@@ -291,29 +397,34 @@ pub fn execQuery(
     };
     var flat = try flattener.flattenFileWithContextAndPackages(allocator, loaded.source_path, loaded.stripped_source, &error_ctx, resolve_ctx);
     defer flat.deinit(allocator);
+    std.debug.print("db exec flatten ok instructions={d} consts={d}\n", .{ flat.instructions.len, flat.const_decls.len });
 
     const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .package_grants = package_grants });
     switch (verified) {
-        .trap => |report| return .{ .trap = report },
+        .trap => |report| return .{ .trap = copyTrapReport(report) },
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            std.debug.print("db exec verify ok functions={d}\n", .{ owned.function_sigs.len });
 
             const db_grants = try convertDbGrants(allocator, loaded.grants);
             defer allocator.free(db_grants);
             if (referee_db.scanForTrap(flat.instructions[0..], db_grants)) |report| {
                 return .{ .trap = report };
             }
+            std.debug.print("db exec db grant scan ok grants={d}\n", .{ db_grants.len });
 
             const entry_index = qmodFunctionIndex(&owned) orelse return .{ .trap = emptyDbTrap(.schema_mismatch) };
             const params_blob = if (params_path) |path| try loadBinaryFile(allocator, path) else try allocator.alloc(u8, 0);
             defer allocator.free(params_blob);
+            std.debug.print("db exec entry_index={d} params={d}\n", .{ entry_index, params_blob.len });
 
-            const code = interp.runFunctionAtIndexWithBinaryArgs(allocator, &owned, entry_index, params_blob, stdout.any(), stderr.any()) catch |err| switch (err) {
+            const code = interp.runFunctionAtIndexWithBinaryArgs(allocator, &owned, entry_index, params_blob, stdout, stderr) catch |err| switch (err) {
                 error.InvalidOperand, error.InvalidFunction, error.UnknownFunction, error.MissingIndirectCallProvenance, error.UnsupportedInstruction, error.UnsupportedSysIntrinsic => return .{ .trap = emptyDbTrap(.schema_mismatch) },
                 error.InvalidAddress => return .{ .trap = emptyDbTrap(.memory_guard_violation) },
                 else => return err,
             };
+            std.debug.print("db exec interp code={d}\n", .{code});
             const function_name = try allocator.dupe(u8, owned.function_sigs[entry_index].name);
             return .{ .ok = .{ .code = code, .function_name = function_name, .hash = loaded.hash } };
         },
@@ -435,7 +546,7 @@ test "db exec can run a registered query with binary params" {
     defer stderr_buf.deinit();
 
     const hex = std.fmt.bytesToHex(result.hash, .lower);
-    var exec_result = try execQuery(std.testing.allocator, ".", hex[0..], params_path, stdout_buf.writer(), stderr_buf.writer());
+    var exec_result = try execQuery(std.testing.allocator, ".", hex[0..], params_path, stdout_buf.writer().any(), stderr_buf.writer().any());
     defer exec_result.deinit(std.testing.allocator);
     switch (exec_result) {
         .ok => |ok| {

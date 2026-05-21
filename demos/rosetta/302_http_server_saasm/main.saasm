@@ -1,0 +1,158 @@
+@import "../../../sa_std/io/print.saasm-iface"
+
+@extern sa_http_server_new(&out_server: ptr) -> u32
+@extern sa_http_server_start(server: ptr, &host: ptr, host_len: u64, port: u16) -> u32
+@extern sa_http_server_accept(server: ptr, &out_req: ptr) -> u32
+@extern sa_http_server_req_get_path(req: ptr, &out_path: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_req_get_header(req: ptr, &key: ptr, key_len: u64, &out_val: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_req_get_body(req: ptr, &out_body: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_resp_stream_new(req: ptr, status: u16, &out_resp: ptr) -> u32
+@extern sa_http_server_resp_stream_write(resp: ptr, &body: ptr, body_len: u64) -> u32
+@extern sa_http_server_resp_stream_flush(resp: ptr) -> u32
+@extern sa_http_server_resp_stream_end(resp: ptr) -> u32
+@extern sa_http_server_resp_stream_free(^resp: ptr) -> u32
+@extern sa_http_server_req_free(^req: ptr) -> u32
+@extern sa_http_server_free(^server: ptr) -> u32
+
+@const HOST = utf8:"127.0.0.1"
+@const PATH = utf8:"/stream"
+@const HDR_KEY = utf8:"content-type"
+@const HDR_VAL = utf8:"text/plain"
+@const CHUNK_1 = utf8:"data: first\n\n"
+@const CHUNK_2 = utf8:"data: second\n\n"
+@const RESULT_OK = utf8:"ok\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def HOST_LEN = 9
+#def PATH_LEN = 7
+#def HDR_KEY_LEN = 12
+#def HDR_VAL_LEN = 10
+#def CHUNK_1_LEN = 13
+#def CHUNK_2_LEN = 14
+
+@main() -> i32!:
+L_ENTRY:
+    server_slot = stack_alloc 8
+    server_status = call @sa_http_server_new(&server_slot)
+    server = load server_slot+0 as ptr
+
+    start_status = call @sa_http_server_start(server, &HOST, HOST_LEN, 18091)
+
+    req_slot = stack_alloc 8
+    resp_slot = stack_alloc 8
+    path_ptr_slot = stack_alloc 8
+    path_len_slot = stack_alloc 8
+    hdr_ptr_slot = stack_alloc 8
+    hdr_len_slot = stack_alloc 8
+    body_ptr_slot = stack_alloc 8
+    body_len_slot = stack_alloc 8
+
+    accept_status = call @sa_http_server_accept(server, &req_slot)
+    req = load req_slot+0 as ptr
+    path_status = call @sa_http_server_req_get_path(req, &path_ptr_slot, &path_len_slot)
+    hdr_status = call @sa_http_server_req_get_header(req, &HDR_KEY, HDR_KEY_LEN, &hdr_ptr_slot, &hdr_len_slot)
+    body_status = call @sa_http_server_req_get_body(req, &body_ptr_slot, &body_len_slot)
+    resp_status = call @sa_http_server_resp_stream_new(req, 200, &resp_slot)
+    resp = load resp_slot+0 as ptr
+    write_1_status = call @sa_http_server_resp_stream_write(resp, &CHUNK_1, CHUNK_1_LEN)
+    flush_1_status = call @sa_http_server_resp_stream_flush(resp)
+    write_2_status = call @sa_http_server_resp_stream_write(resp, &CHUNK_2, CHUNK_2_LEN)
+    flush_2_status = call @sa_http_server_resp_stream_flush(resp)
+    end_status = call @sa_http_server_resp_stream_end(resp)
+
+    path_ptr = load path_ptr_slot+0 as ptr
+    path_len = load path_len_slot+0 as u64
+    hdr_ptr = load hdr_ptr_slot+0 as ptr
+    hdr_len = load hdr_len_slot+0 as u64
+    body_len = load body_len_slot+0 as u64
+    path0 = load path_ptr+0 as u8
+    hdr0 = load hdr_ptr+0 as u8
+    path1 = load path_ptr+1 as u8
+    hdr1 = load hdr_ptr+1 as u8
+    ok_path_len = eq path_len, PATH_LEN
+    ok_hdr_len = eq hdr_len, HDR_VAL_LEN
+    ok_path0 = eq path0, 47
+    ok_hdr0 = eq hdr0, 116
+    ok_path1 = eq path1, 115
+    ok_hdr1 = eq hdr1, 101
+    ok_path = eq path_status, 0
+    ok_hdr = eq hdr_status, 0
+    ok_body = eq body_status, 0
+    ok_resp = eq resp_status, 0
+    ok_write_1 = eq write_1_status, 0
+    ok_flush_1 = eq flush_1_status, 0
+    ok_write_2 = eq write_2_status, 0
+    ok_flush_2 = eq flush_2_status, 0
+    ok_end = eq end_status, 0
+    ok_accept = eq accept_status, 0
+    ok_server = eq server_status, 0
+    ok_start = eq start_status, 0
+    ok = and ok_server, ok_start
+    ok = and ok, ok_accept
+    ok = and ok, ok_path
+    ok = and ok, ok_hdr
+    ok = and ok, ok_resp
+    ok = and ok, ok_write_1
+    ok = and ok, ok_flush_1
+    ok = and ok, ok_write_2
+    ok = and ok, ok_flush_2
+    ok = and ok, ok_end
+    ok = and ok, ok_path_len
+    ok = and ok, ok_hdr_len
+    ok = and ok, ok_path0
+    ok = and ok, ok_hdr0
+    ok = and ok, ok_path1
+    ok = and ok, ok_hdr1
+
+    call @sa_http_server_resp_stream_free(^resp)
+    call @sa_http_server_req_free(^req)
+    call @sa_http_server_free(^server)
+    !server_status
+    !start_status
+    !accept_status
+    !path_status
+    !hdr_status
+    !body_status
+    !resp_status
+    !write_1_status
+    !flush_1_status
+    !write_2_status
+    !flush_2_status
+    !end_status
+    !ok_server
+    !ok_start
+    !ok_accept
+    !ok_path
+    !ok_hdr
+    !ok_resp
+    !ok_write_1
+    !ok_flush_1
+    !ok_write_2
+    !ok_flush_2
+    !ok_end
+    !ok_path_len
+    !ok_hdr_len
+    !ok_path0
+    !ok_hdr0
+    !ok_path1
+    !ok_hdr1
+    !path0
+    !hdr0
+    !path1
+    !hdr1
+    !path_ptr
+    !path_len
+    !hdr_ptr
+    !hdr_len
+    !body_len
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

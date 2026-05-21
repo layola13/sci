@@ -31,7 +31,7 @@ pub const DefDict = struct {
     pub fn putExpression(self: *DefDict, name: []const u8, expr: []const u8) DefError!void {
         if (self.entries.contains(name)) return DefError.DuplicateDef;
 
-        const value = try self.evalExpression(expr, 0);
+        const value = try self.evalExpression(std.mem.trim(u8, stripInlineComment(expr), " \t\r"), 0);
         const key_copy = try self.allocator.dupe(u8, name);
         const value_copy = try std.fmt.allocPrint(self.allocator, "{d}", .{value});
         errdefer self.allocator.free(key_copy);
@@ -79,6 +79,38 @@ pub const DefDict = struct {
 
     fn skipSpaces(text: []const u8, pos: *usize) void {
         while (pos.* < text.len and std.ascii.isWhitespace(text[pos.*])) : (pos.* += 1) {}
+    }
+
+    fn stripInlineComment(line: []const u8) []const u8 {
+        var in_string = false;
+        var escape = false;
+        var i: usize = 0;
+        while (i + 1 < line.len) : (i += 1) {
+            const c = line[i];
+            if (in_string) {
+                if (escape) {
+                    escape = false;
+                    continue;
+                }
+                switch (c) {
+                    '\\' => escape = true,
+                    '"' => in_string = false,
+                    else => {},
+                }
+                continue;
+            }
+            switch (c) {
+                '"' => in_string = true,
+                '/' => {
+                    if (line[i + 1] == '/') {
+                        const prev = if (i == 0) ' ' else line[i - 1];
+                        if (i == 0 or std.ascii.isWhitespace(prev)) return line[0..i];
+                    }
+                },
+                else => {},
+            }
+        }
+        return line;
     }
 
     fn parseNumber(text: []const u8, pos: *usize) ?i64 {
@@ -288,4 +320,17 @@ test "def dict accepts hex literals and bit patterns" {
 
     try std.testing.expectEqualStrings("16", dict.get("HEX").?);
     try std.testing.expectEqualStrings("-1", dict.get("BIT").?);
+}
+
+test "def dict ignores trailing inline comments in expressions" {
+    var dict = DefDict.init(std.testing.allocator);
+    defer dict.deinit();
+
+    try dict.putExpression("MAX_ROWS", "10 // row cap");
+    try dict.putExpression("TABLE_ROW_BYTES", "8 // bytes per row");
+    try dict.putExpression("TOTAL", "MAX_ROWS * TABLE_ROW_BYTES // derived");
+
+    try std.testing.expectEqualStrings("10", dict.get("MAX_ROWS").?);
+    try std.testing.expectEqualStrings("8", dict.get("TABLE_ROW_BYTES").?);
+    try std.testing.expectEqualStrings("80", dict.get("TOTAL").?);
 }

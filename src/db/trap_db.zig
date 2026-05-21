@@ -1,5 +1,5 @@
 const std = @import("std");
-const trap = @import("../common/trap.zig");
+const trap = @import("common/trap.zig");
 
 pub const DbTrap = enum {
     capability_escalation,

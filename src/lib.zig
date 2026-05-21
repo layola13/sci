@@ -10,6 +10,10 @@ pub const common = struct {
 };
 
 pub const flattener = @import("flattener.zig");
+pub const driver = @import("driver/zigcc.zig");
+pub const emit_llvm = @import("emit_llvm.zig");
+pub const interp = @import("interp.zig");
+pub const sax = @import("sax.zig");
 pub const db = @import("db/mod.zig");
 pub const layout = @import("layout.zig");
 pub const llvm2sa = @import("llvm2sa.zig");
@@ -181,7 +185,7 @@ test "db exec returns a stable hash trap and runs binary params" {
     defer stderr_buf.deinit();
 
     const hex = std.fmt.bytesToHex(result.hash, .lower);
-    var exec_result = try db.exec.execQuery(std.testing.allocator, ".", hex[0..], params_path, stdout_buf.writer(), stderr_buf.writer());
+    var exec_result = try db.exec.execQuery(std.testing.allocator, ".", hex[0..], params_path, stdout_buf.writer().any(), stderr_buf.writer().any());
     defer exec_result.deinit(std.testing.allocator);
     switch (exec_result) {
         .ok => |ok| {

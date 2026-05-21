@@ -1,5 +1,5 @@
 const std = @import("std");
-const trap = @import("../common/trap.zig");
+pub const trap = @import("common/trap.zig");
 
 pub const schema = @import("schema.zig");
 pub const blob = @import("blob.zig");
@@ -68,7 +68,65 @@ test "db exec runs a registered query with binary params" {
     defer stderr_buf.deinit();
 
     const hex = std.fmt.bytesToHex(result.hash, .lower);
-    var exec_result = try exec.execQuery(std.testing.allocator, ".", hex[0..], params_path, stdout_buf.writer(), stderr_buf.writer());
+    var exec_result = try exec.execQuery(std.testing.allocator, ".", hex[0..], params_path, stdout_buf.writer().any(), stderr_buf.writer().any());
+    defer exec_result.deinit(std.testing.allocator);
+    switch (exec_result) {
+        .ok => |ok| {
+            try std.testing.expectEqual(@as(u8, 12), ok.code);
+            try std.testing.expectEqualStrings("main", ok.function_name);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+}
+
+test "db exec runs an imported registered query with binary params" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp_dir = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const schema_path = "simple.sadb-schema";
+    const qmod_path = "simple.query.saasm";
+    const params_path = "params.bin";
+
+    try writeFile(tmp_dir.dir, schema_path,
+        \\#def MAX_ROWS = 10
+        \\#def COL_ID_STRIDE = 8 // u64
+        \\#def COL_FACTOR_STRIDE = 8 // u64
+        \\#def TABLE_ROW_BYTES = 16
+    );
+    try writeFile(tmp_dir.dir, qmod_path,
+        \\@import "simple.sadb-schema"
+        \\grants [db_read:simple]
+        \\@main(id: u64, factor: u64) -> u64:
+        \\L_ENTRY:
+        \\total = add id, factor
+        \\!id
+        \\!factor
+        \\return total
+    );
+
+    var result = try exec.registerQuery(std.testing.allocator, qmod_path, ".");
+    defer result.deinit(std.testing.allocator);
+
+    var params = std.ArrayList(u8).init(std.testing.allocator);
+    defer params.deinit();
+    try params.writer().writeInt(u64, 7, .little);
+    try params.writer().writeInt(u64, 5, .little);
+    try writeFile(tmp_dir.dir, params_path, params.items);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const hex = std.fmt.bytesToHex(result.hash, .lower);
+    var exec_result = try exec.execQuery(std.testing.allocator, ".", hex[0..], params_path, stdout_buf.writer().any(), stderr_buf.writer().any());
     defer exec_result.deinit(std.testing.allocator);
     switch (exec_result) {
         .ok => |ok| {

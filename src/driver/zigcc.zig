@@ -30,6 +30,7 @@ pub fn argvForExe(
     out_path: []const u8,
     optimization: Optimization,
     sa_std_archive_path: []const u8,
+    extra_inputs: []const []const u8,
     debug: bool,
 ) Argv {
     var argv: Argv = .{};
@@ -48,6 +49,12 @@ pub fn argvForExe(
     argv.items[index] = ll_path;
     index += 1;
     argv.items[index] = sa_std_archive_path;
+    index += 1;
+    for (extra_inputs) |input| {
+        argv.items[index] = input;
+        index += 1;
+    }
+    argv.items[index] = "-Wl,-rpath,$ORIGIN";
     index += 1;
     argv.items[index] = "-o";
     index += 1;
@@ -171,10 +178,11 @@ pub fn compileExe(
     out_path: []const u8,
     optimization: Optimization,
     sa_std_archive_path: []const u8,
+    extra_inputs: []const []const u8,
     debug: bool,
     stderr: anytype,
 ) !void {
-    const argv = argvForExe(ll_path, out_path, optimization, sa_std_archive_path, debug);
+    const argv = argvForExe(ll_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
     const argv_slice = argv.slice();
     const result = runProcess(allocator, argv_slice) catch |err| {
         try printCompilerLaunchFailure(stderr, argv_slice, "linking", ll_path, out_path, err);
@@ -249,14 +257,14 @@ pub fn compileWasm(
 }
 
 test "argv helpers choose the requested optimization" {
-    const exe_small = argvForExe("input.ll", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a");
+    const exe_small = argvForExe("input.ll", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
     try std.testing.expectEqualStrings("-O1", exe_small.slice()[2]);
     try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[4]);
-    const exe_fast = argvForExe("input.ll", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a");
+    const exe_fast = argvForExe("input.ll", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
     try std.testing.expectEqualStrings("-O3", exe_fast.slice()[2]);
 
-    const wasm_small = argvForWasm("input.ll", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small);
+    const wasm_small = argvForWasm("input.ll", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false);
     try std.testing.expectEqualStrings("-O1", wasm_small.slice()[4]);
-    const wasm_fast = argvForWasm("input.ll", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast);
+    const wasm_fast = argvForWasm("input.ll", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false);
     try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[5]);
 }

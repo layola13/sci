@@ -759,6 +759,49 @@ sa audit --update-lock            # 把当前机器码 hash 写入 sa.lock
 
 ---
 
+## 19. 实战教程：怎么拉取与审计一个 SA 包
+
+如果你是第一次使用 SA-ASM 的包管理，请跟随本教程感受真正的“零信任”体验。
+
+### 第一步：声明依赖
+在你的 `sa.mod` 文件中，加入你想要的包。注意：此时你**不需要**给它任何权限。
+```text
+require github.com/user/sa-http-utils @v1.0.0
+```
+
+### 第二步：拉取源码与 X 光扫描
+在终端运行：
+```bash
+sa fetch
+```
+由于没有任何 `postinstall` 钩子，下载绝对安全。此时 SA 编译器会对源码进行 AST X光扫描，并在终端打印一份震撼的安全体检报告：
+```text
+[X-Ray Scan] github.com/user/sa-http-utils
+⚠️ 发现 @sys_read_file 调用 (1 处)
+⚠️ 发现 @sys_net_connect 调用 (2 处)
+⚠️ 发现 @ffi_wrapper 气闸舱开启 (1 处)
+综合 Trust Score: 50/100 (高危)
+结论：此包具有网络与磁盘读取能力。当前 sa.mod 授予权限：[无]。
+```
+
+### 第三步：人工赋权 (Grants)
+既然扫描出了网络能力，你必须在 `sa.mod` 中显式为其授予权限，否则编译会直接报错（`Trap: UnauthorizedPrimitive`）。
+
+打开 `sa.mod` 修改：
+```text
+require github.com/user/sa-http-utils @v1.0.0 grants [net_tx:api.example.com]
+```
+此时你只给了它往 `api.example.com` 发数据的权限。如果这个包内部悄悄尝试读取你的 SSH 密钥文件（`fs_read`）或连向恶意服务器，SA 会在运行时立刻切断并抛出异常。
+
+### 第四步：锁定机器码 (Locking)
+当你完成开发后，运行：
+```bash
+sa audit --update-lock
+```
+这不仅会锁定源码的 SHA-256，还会把这个包最终编译出的底层机器码哈希记录进 `sa.lock`。未来在 CI 服务器上，只要机器码发生了1个 bit 的漂移（例如黑客通过 LLVM 后门注入），CI 会直接冷酷熔断。
+
+---
+
 **附录：相关文件清单（v0.5 落地后）**
 
 ```

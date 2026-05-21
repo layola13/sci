@@ -6,7 +6,7 @@ const flattener = @import("../flattener.zig");
 const manifest = @import("../pkg/manifest.zig");
 const pkg_resolver = @import("../pkg/resolver.zig");
 const referee = @import("../referee.zig");
-const trap = @import("../common/trap.zig");
+const trap = @import("common/trap.zig");
 
 pub const CompileOptions = struct {
     jobs: ?usize = null,
@@ -105,15 +105,13 @@ pub fn printTrapReport(writer: anytype, report: trap.TrapReport) !void {
 fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap.TrapReport {
     const line_no = last_line orelse 1;
     const line_text = lineAt(source, line_no);
-    const source_text_buf: [256]u8 = [_]u8{0} ** 256;
-    const original_text_buf: [256]u8 = [_]u8{0} ** 256;
     var report: trap.TrapReport = .{
         .trap = .forbidden_syntax,
         .trap_code = trap.trapCode(.forbidden_syntax),
         .line = line_no,
         .source_line = line_no,
-        .source_text_buf = source_text_buf,
-        .original_text_buf = original_text_buf,
+        .source_text_buf = [_]u8{0} ** 256,
+        .original_text_buf = [_]u8{0} ** 256,
         .source_text = null,
         .original_text = null,
         .register = null,

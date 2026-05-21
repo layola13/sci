@@ -4,7 +4,7 @@ This document is the canonical reference for SA diagnostics.
 
 Use it together with:
 - [`design.md`](../.kiro/specs/sa-asm-language/design.md) §4.4, which pins the `TrapReport` schema and field semantics.
-- [`tasks.md`](../.kiro/specs/sa-asm-language/tasks.md) §2.5a and §30.2-30.4, which track the diagnostics rollout and debug-mode scope.
+- [`tasks.md`](../tasks.md) §2.5a and §30.2-30.4, which track the diagnostics rollout and debug-mode scope.
 - [`docs/faq.md`](./faq.md), which explains the user-facing reason for JSON-first diagnostics and stable trap names.
 - [`docs/whitepaper.md`](./whitepaper.md), which keeps the reader-facing summary compact.
 
@@ -237,7 +237,7 @@ The addition must not break existing `trap`-first consumers.
 - [`src/cli.zig`](../src/cli.zig) currently performs flattening-to-trap fallback mapping.
 - [`src/referee/verifier.zig`](../src/referee/verifier.zig) is the main semantic trap emitter.
 - [`.kiro/specs/sa-asm-language/design.md`](../.kiro/specs/sa-asm-language/design.md) §4.4 defines the schema contract that this guide indexes.
-- [`.kiro/specs/sa-asm-language/tasks.md`](../.kiro/specs/sa-asm-language/tasks.md) §2.5a and §30.2-30.4 track rollout, debug-gas, and debug-san work.
+- [`tasks.md`](../tasks.md) §2.5a and §30.2-30.4 track rollout, debug-gas, and debug-san work.
 - [`docs/faq.md`](./faq.md) explains the rationale in user-facing terms.
 - [`.kiro/specs/sa-asm-language/requirements.md`](../.kiro/specs/sa-asm-language/requirements.md) carries the originating requirements.
 - [`docs/whitepaper.md`](./whitepaper.md) carries the compact reader summary.

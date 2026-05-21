@@ -281,4 +281,4 @@ SA interoperates with any language through standard C-ABI:
 
 This document reflects the current v0.1 implementation state. Flattener, Referee,
 LLVM IR Emitter, Interpreter, CLI, and `saasm layout` are operational. Remaining
-roadmap items are tracked in `.kiro/specs/sa-asm-language/tasks.md`.
+roadmap items are tracked in `tasks.md`.

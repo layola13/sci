@@ -7,7 +7,8 @@ const Allocator = std.mem.Allocator;
 const sax = @import("mod.zig");
 const sax_build = @import("build.zig");
 const parser = @import("parser.zig");
-const trap = @import("../common/trap.zig");
+const trap = @import("common/trap.zig");
+const plugin_mode = @hasDecl(@import("root"), "plugin_mode") and @import("root").plugin_mode;
 
 pub const SaxCommand = enum {
     build,
@@ -272,6 +273,11 @@ fn buildDevArtifacts(
     dist_dir: []const u8,
     stderr: anytype,
 ) !bool {
+    if (comptime plugin_mode) {
+        try stderr.print("error: sax build is unavailable inside the plugin runtime; run `saasm sax build` from the host CLI instead\n", .{});
+        return false;
+    }
+
     if (!try validateAndPrintSaxSource(allocator, source, stderr)) return false;
 
     const compiled = compileSaxSource(allocator, sax_file, source, stderr) catch |err| switch (err) {
@@ -439,6 +445,11 @@ pub fn executeSaxBuild(
     stdout: anytype,
     stderr: anytype,
 ) !u8 {
+    if (comptime plugin_mode) {
+        try stderr.print("error: sax build is unavailable inside the plugin runtime; run `saasm sax build` from the host CLI instead\n", .{});
+        return 1;
+    }
+
     const source = try readSource(allocator, sax_file, stderr);
     defer allocator.free(source);
     if (!try validateAndPrintSaxSource(allocator, source, stderr)) return 1;
@@ -576,37 +587,37 @@ pub fn executeSaxNew(
         try file.writeAll(sax_template);
     }
 
-    const readme_template =
-        \\ # {s}
-        \\ 
-        \\ SAX 项目脚手架
-        \\ 
-        \\ ## 编译
-        \\ 
-        \\ ```bash
-        \\ saasm sax build app.sax
-        \\ ```
-        \\ 
-        \\ 生成 `dist/app.wasm`、`dist/airlock.js`、`dist/index.html` 和 `dist/app.saasm`。
-        \\ 
-        \\ ## 开发
-        \\ 
-        \\ ```bash
-        \\ saasm sax dev
-        \\ ```
-        \\ 
-        \\ ## 验证
-        \\ 
-        \\ ```bash
-        \\ saasm sax check app.sax
-        \\ ```
-    ;
     const readme_path = try std.fmt.allocPrint(allocator, "{s}/README.md", .{project_name});
     defer allocator.free(readme_path);
     {
         var file = try std.fs.cwd().createFile(readme_path, .{ .truncate = true });
         defer file.close();
-        try file.writer().print(readme_template, .{project_name});
+        try file.writer().print(
+            \\ # {s}
+            \\ 
+            \\ SAX 项目脚手架
+            \\ 
+            \\ ## 编译
+            \\ 
+            \\ ```bash
+            \\ saasm sax build app.sax
+            \\ ```
+            \\ 
+            \\ 生成 `dist/app.wasm`、`dist/airlock.js`、`dist/index.html` 和 `dist/app.saasm`。
+            \\ 
+            \\ ## 开发
+            \\ 
+            \\ ```bash
+            \\ saasm sax dev
+            \\ ```
+            \\ 
+            \\ ## 验证
+            \\ 
+            \\ ```bash
+            \\ saasm sax check app.sax
+            \\ ```
+            , .{project_name},
+        );
     }
 
     try stdout.print("✓ SAX project created: {s}\n", .{project_name});
@@ -622,6 +633,11 @@ pub fn executeSaxDev(
     stdout: anytype,
     stderr: anytype,
 ) !u8 {
+    if (comptime plugin_mode) {
+        try stderr.print("error: sax dev is unavailable inside the plugin runtime; run `saasm sax dev` from the host CLI instead\n", .{});
+        return 1;
+    }
+
     const project_root = try sourceDirAbs(allocator, sax_file);
     defer allocator.free(project_root);
 

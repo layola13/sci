@@ -1,7 +1,7 @@
 const std = @import("std");
-const atomic = @import("../common/atomic.zig");
-const inst = @import("../common/instruction.zig");
-const trap = @import("../common/trap.zig");
+const atomic = @import("common/atomic.zig");
+const inst = @import("common/instruction.zig");
+const trap = @import("common/trap.zig");
 
 pub const GrantKind = enum {
     db_read,

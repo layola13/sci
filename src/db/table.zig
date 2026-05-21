@@ -1,6 +1,6 @@
 const std = @import("std");
 const schema = @import("schema.zig");
-const sig = @import("../common/signature.zig");
+const sig = @import("common/signature.zig");
 
 pub const TableError = error{
     OutOfMemory,

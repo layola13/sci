@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const tasks_path = ".kiro/specs/sa-asm-language/tasks.md";
+const tasks_path = "tasks.md";
 const referee_path = "src/referee/";
 
 const AppError = error{

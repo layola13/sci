@@ -72,6 +72,14 @@ fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !st
     });
 }
 
+fn runCommandAnyExitWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const std.process.EnvMap) !std.process.Child.RunResult {
+    return try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+        .env_map = env_map,
+    });
+}
+
 fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !std.process.Child.RunResult {
     const args_json = try std.json.stringifyAlloc(allocator, args, .{});
     defer allocator.free(args_json);
@@ -125,6 +133,8 @@ fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
 fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
+    const print_iface = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/io/print.saasm-iface");
+    defer std.testing.allocator.free(print_iface);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -337,7 +347,7 @@ fn wasmImportNames(bytes: []const u8, allocator: std.mem.Allocator) ![]const []c
 test "cli run/build-exe/build-wasm produce real artifacts" {
     const source =
         \\#loc "hello.rs":10:4
-        \\@main() -> i32:
+        \\@main() -> i32!:
         \\node = alloc 8
         \\!node
         \\return 7
@@ -403,7 +413,6 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
 }
-
 
 test "cli sax build produces browser bundle artifacts" {
     const source =
@@ -489,7 +498,7 @@ test "cli build-exe with jobs 1 and auto produce the same runtime result" {
         \\@helper(value: i32) -> i32:
         \\return value
         \\
-        \\@main() -> i32:
+        \\@main() -> i32!:
         \\value = call @helper(7)
         \\return value
     ;
@@ -1257,6 +1266,155 @@ test "ffi airlock demo preserves pointer values through assume_* in saasm run" {
     }
     try std.testing.expectEqualStrings("ok\n", exe_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
+}
+
+test "http client saasm demo builds through plugin-linked native exe" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/301_http_client_saasm/main.saasm");
+    defer std.testing.allocator.free(source_path);
+    const plugin_dir = try original_cwd.realpathAlloc(std.testing.allocator, "zig-out/lib");
+    defer std.testing.allocator.free(plugin_dir);
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const address = try std.net.Address.parseIp4("127.0.0.1", 18090);
+    const server = try std.testing.allocator.create(std.net.Server);
+    server.* = try address.listen(.{ .reuse_address = true });
+    defer std.testing.allocator.destroy(server);
+
+    const body_seen = try std.testing.allocator.create(bool);
+    body_seen.* = false;
+    defer std.testing.allocator.destroy(body_seen);
+    const server_ready = try std.testing.allocator.create(std.atomic.Value(bool));
+    server_ready.* = std.atomic.Value(bool).init(false);
+    defer std.testing.allocator.destroy(server_ready);
+
+    const server_thread = try std.Thread.spawn(.{}, struct {
+        fn run(listen_server: *std.net.Server, seen: *bool, ready: *std.atomic.Value(bool)) void {
+            defer listen_server.deinit();
+            ready.store(true, .release);
+            var conn = listen_server.accept() catch return;
+            defer conn.stream.close();
+
+            var request_buffer: [4096]u8 = undefined;
+            var http_server = std.http.Server.init(conn, &request_buffer);
+            var request = http_server.receiveHead() catch return;
+            const reader = request.reader() catch return;
+
+            var body = std.ArrayList(u8).init(std.testing.allocator);
+            defer body.deinit();
+            if (reader.readAllArrayList(&body, 1024 * 1024)) |_| {
+                seen.* = std.mem.eql(u8, body.items, "hello from saasm");
+                request.respond(body.items, .{ .status = .ok }) catch return;
+            } else |_| return;
+        }
+    }.run, .{ server, body_seen, server_ready });
+    while (!server_ready.load(.acquire)) std.time.sleep(1 * std.time.ns_per_ms);
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "http_client_saasm.out" };
+    const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_code);
+
+    var env_map = try std.process.getEnvMap(std.testing.allocator);
+    defer env_map.deinit();
+    try env_map.put("SAASM_PLUGIN_DIR", plugin_dir);
+
+    const exe_result = try runCommandAnyExitWithEnvMap(std.testing.allocator, &[_][]const u8{"./http_client_saasm.out"}, &env_map);
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("http client demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("ok\n", exe_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
+
+    server_thread.join();
+    try std.testing.expect(body_seen.*);
+}
+
+test "http server saasm demo builds through plugin-linked native exe" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/302_http_server_saasm/main.saasm");
+    defer std.testing.allocator.free(source_path);
+    const plugin_dir = try original_cwd.realpathAlloc(std.testing.allocator, "zig-out/lib");
+    defer std.testing.allocator.free(plugin_dir);
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "http_server_saasm.out" };
+    const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_code);
+
+    const response_seen = try std.testing.allocator.create(bool);
+    response_seen.* = false;
+    defer std.testing.allocator.destroy(response_seen);
+
+    const server_thread = try std.Thread.spawn(.{}, struct {
+        fn run(seen: *bool) void {
+            var attempt: usize = 0;
+            while (attempt < 50) : (attempt += 1) {
+                const conn = std.net.tcpConnectToHost(std.testing.allocator, "127.0.0.1", 18091) catch |err| switch (err) {
+                    error.ConnectionRefused => {
+                        std.time.sleep(20 * std.time.ns_per_ms);
+                        continue;
+                    },
+                    else => return,
+                };
+                defer conn.close();
+
+                conn.writeAll(
+                    "GET /stream HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n",
+                ) catch return;
+
+                var buf: [256]u8 = undefined;
+                var response = std.ArrayList(u8).init(std.testing.allocator);
+                defer response.deinit();
+                while (true) {
+                    const n = conn.read(&buf) catch return;
+                    if (n == 0) break;
+                    response.appendSlice(buf[0..n]) catch return;
+                }
+                seen.* = std.mem.containsAtLeast(u8, response.items, 1, "data: first") and
+                    std.mem.containsAtLeast(u8, response.items, 1, "data: second");
+                return;
+            }
+        }
+    }.run, .{response_seen});
+    var env_map = try std.process.getEnvMap(std.testing.allocator);
+    defer env_map.deinit();
+    try env_map.put("SAASM_PLUGIN_DIR", plugin_dir);
+
+    const exe_result = try runCommandAnyExitWithEnvMap(std.testing.allocator, &[_][]const u8{"./http_server_saasm.out"}, &env_map);
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("http server demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("ok\n", exe_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
+
+    server_thread.join();
+    try std.testing.expect(response_seen.*);
 }
 
 test "panic builtins terminate through the interpreter" {
@@ -2312,8 +2470,6 @@ test "build-wasm supports wasm64 freestanding no-entry" {
     try std.testing.expectEqual(@as(usize, 0), import_names.len);
 }
 
-
-
 test "db cli init writes iface and table lifecycle commands update storage" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -2536,8 +2692,8 @@ test "db cli register inspect exec round trip through registry" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Compiled: simple.query.saasm"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Registered:"));
 
-    const hash_hex = try extractLineValue(stdout_buffer.items, "Hash: ");
-
+    const hash_hex = try std.testing.allocator.dupe(u8, try extractLineValue(stdout_buffer.items, "Hash: "));
+    defer std.testing.allocator.free(hash_hex);
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 

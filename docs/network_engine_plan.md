@@ -99,6 +99,42 @@ SA 标准库（现有 sa_std/）
 
 > 实施目录：新建 `src/runtime/sa_net_uring.zig`，与现有 `src/runtime/sa_std.zig` 并列；导出符号一律以 `sa_netx_` 前缀，避免与现有 117 个 `sa_*` 导出冲突。
 
+### 1.0 核心架构时序 (I/O 生命周期与内存管理)
+
+在深入底层数据结构之前，下面展示了零系统调用 (Zero-Syscall) 网络接收和预分配内存池的运作流：
+
+```mermaid
+sequenceDiagram
+    participant Kernel as Linux Kernel (io_uring)
+    participant Reactor as Zig Reactor 线程
+    participant Parser as HttpDfa / WsParser
+    participant Ring as SpscRing
+    participant SA as SA-ASM 业务逻辑
+
+    Note over Reactor: 启动时 mmap 分配 SlotPool 
+    Reactor->>Kernel: 提交 IORING_OP_ACCEPT_MULTISHOT (单次)
+    
+    loop Per-Core Event Loop
+        Kernel-->>Reactor: CQE (新连接 FD)
+        Reactor->>Reactor: 从 SlotPool 认领一个 ConnectionSlot
+        Reactor->>Kernel: 提交 IORING_OP_RECV_MULTISHOT + IORING_REGISTER_PBUF_RING
+        
+        Kernel-->>Reactor: CQE (接收到网络报文，缓冲被自动填充)
+        Reactor->>Parser: @Vector SIMD 解析报文
+        
+        alt 完整报文
+            Parser->>Ring: 生成结构化 Ticket，推入 SpscRing
+            Ring->>SA: 唤醒 SA-ASM，交付 slot_id
+            SA->>SA: 业务逻辑处理，不涉及任何内存拷贝
+            SA->>Ring: 调用 sa_netx_push_outbound
+            Ring->>Reactor: 组装出站请求
+            Reactor->>Kernel: 提交 IORING_OP_SEND_ZC
+        else 报文碎片
+            Parser->>Reactor: 暂存于 Slot.inline_buffer
+        end
+    end
+```
+
 ### 1.1 全局预分配连接池 (Connection Slot Pool)
 
 启动瞬间向 OS 申请连续内存数组，容量按部署目标定（10 万 ~ 100 万）。槽位**完全由 Zig 拥有**，SA-ASM 看不见此结构。

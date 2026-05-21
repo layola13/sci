@@ -1,5 +1,6 @@
 const std = @import("std");
 const cli = @import("cli.zig");
+const cli_util = @import("cli_util.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -11,7 +12,7 @@ pub fn main() !void {
 
     const code = cli.execute(allocator, argv) catch |err| {
         const stderr = std.io.getStdErr().writer();
-        try cli.printCliError(stderr, err, if (cli.hasJsonFlag(argv)) .json else .human);
+        try cli_util.printCliError(stderr, err, if (cli.hasJsonFlag(argv)) .json else .human);
         std.process.exit(1);
     };
 

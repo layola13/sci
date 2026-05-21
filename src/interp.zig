@@ -8,6 +8,8 @@ const atomic = @import("common/atomic.zig");
 const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
+const plugin = @import("plugin");
+const plugin_api = plugin.api;
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
@@ -40,6 +42,8 @@ const RegValue = struct {
     fallible: bool = false,
     status: u32 = 0,
     interior_ptr: bool = false,
+    extern_handle: bool = false,
+    from_try: bool = false,
     const_name: ?[]const u8 = null,
     vtable_slot_name: ?[]const u8 = null,
     call_target_name: ?[]const u8 = null,
@@ -67,7 +71,132 @@ const PtrMeta = struct {
     vtable_slot_name: ?[]const u8 = null,
     call_target_name: ?[]const u8 = null,
     interior_ptr: bool = false,
+    extern_handle: bool = false,
 };
+
+const HttpClientNewFn = *const fn (use_tls: u8, out_client: ?*?*anyopaque) callconv(.c) u32;
+const HttpClientReqNewFn = *const fn (client: ?*anyopaque, method: u8, url_ptr: ?[*]const u8, url_len: u64, out_req: ?*?*anyopaque) callconv(.c) u32;
+const HttpClientReqAddHeaderFn = *const fn (req: ?*anyopaque, key_ptr: ?[*]const u8, key_len: u64, val_ptr: ?[*]const u8, val_len: u64) callconv(.c) u32;
+const HttpClientReqSetBodyFn = *const fn (req: ?*anyopaque, body_ptr: ?[*]const u8, body_len: u64) callconv(.c) u32;
+const HttpClientReqSendFn = *const fn (req: ?*anyopaque, out_resp: ?*?*anyopaque) callconv(.c) u32;
+const HttpClientRespStatusFn = *const fn (resp: ?*anyopaque) callconv(.c) u16;
+const HttpClientRespBodyReaderFn = *const fn (resp: ?*anyopaque, out_reader: ?*?*anyopaque) callconv(.c) u32;
+const HttpClientRespReadChunkFn = *const fn (reader: ?*anyopaque, buf_ptr: ?[*]u8, cap: u64, out_len: ?*u64) callconv(.c) u32;
+const HttpClientRespFreeFn = *const fn (resp: ?*anyopaque) callconv(.c) u32;
+const HttpClientBodyReaderFreeFn = *const fn (reader: ?*anyopaque) callconv(.c) u32;
+const HttpClientReqFreeFn = *const fn (req: ?*anyopaque) callconv(.c) u32;
+const HttpClientFreeFn = *const fn (client: ?*anyopaque) callconv(.c) u32;
+const HttpServerNewFn = *const fn (out_server: ?*?*anyopaque) callconv(.c) u32;
+const HttpServerStartFn = *const fn (server: ?*anyopaque, host_ptr: ?[*]const u8, host_len: u64, port: u16) callconv(.c) u32;
+const HttpServerAcceptFn = *const fn (server: ?*anyopaque, out_req: ?*?*anyopaque) callconv(.c) u32;
+const HttpServerReqGetPathFn = *const fn (req: ?*anyopaque, out_path_ptr: ?*?[*]const u8, out_len: ?*u64) callconv(.c) u32;
+const HttpServerReqGetHeaderFn = *const fn (req: ?*anyopaque, key_ptr: ?[*]const u8, key_len: u64, out_val_ptr: ?*?[*]const u8, out_val_len: ?*u64) callconv(.c) u32;
+const HttpServerReqGetBodyFn = *const fn (req: ?*anyopaque, out_body_ptr: ?*?[*]const u8, out_body_len: ?*u64) callconv(.c) u32;
+const HttpServerReqFreeFn = *const fn (req: ?*anyopaque) callconv(.c) u32;
+const HttpServerRespNewFn = *const fn (req: ?*anyopaque, status: u16, out_resp: ?*?*anyopaque) callconv(.c) u32;
+const HttpServerRespSendFn = *const fn (resp: ?*anyopaque, body_ptr: ?[*]const u8, body_len: u64) callconv(.c) u32;
+const HttpServerRespFreeFn = *const fn (resp: ?*anyopaque) callconv(.c) u32;
+const HttpServerRespStreamNewFn = *const fn (req: ?*anyopaque, status: u16, out_resp: ?*?*anyopaque) callconv(.c) u32;
+const HttpServerRespStreamWriteFn = *const fn (resp: ?*anyopaque, body_ptr: ?[*]const u8, body_len: u64) callconv(.c) u32;
+const HttpServerRespStreamFlushFn = *const fn (resp: ?*anyopaque) callconv(.c) u32;
+const HttpServerRespStreamEndFn = *const fn (resp: ?*anyopaque) callconv(.c) u32;
+const HttpServerRespStreamFreeFn = *const fn (resp: ?*anyopaque) callconv(.c) u32;
+const HttpServerFreeFn = *const fn (server: ?*anyopaque) callconv(.c) u32;
+
+const HttpBridge = struct {
+    client_lib: std.DynLib,
+    server_lib: std.DynLib,
+    client_new: ?HttpClientNewFn = null,
+    client_req_new: ?HttpClientReqNewFn = null,
+    client_req_add_header: ?HttpClientReqAddHeaderFn = null,
+    client_req_set_body: ?HttpClientReqSetBodyFn = null,
+    client_req_send: ?HttpClientReqSendFn = null,
+    client_resp_status: ?HttpClientRespStatusFn = null,
+    client_resp_body_reader: ?HttpClientRespBodyReaderFn = null,
+    client_resp_read_chunk: ?HttpClientRespReadChunkFn = null,
+    client_resp_free: ?HttpClientRespFreeFn = null,
+    client_body_reader_free: ?HttpClientBodyReaderFreeFn = null,
+    client_req_free: ?HttpClientReqFreeFn = null,
+    client_free: ?HttpClientFreeFn = null,
+    server_new: ?HttpServerNewFn = null,
+    server_start: ?HttpServerStartFn = null,
+    server_accept: ?HttpServerAcceptFn = null,
+    server_req_get_path: ?HttpServerReqGetPathFn = null,
+    server_req_get_header: ?HttpServerReqGetHeaderFn = null,
+    server_req_get_body: ?HttpServerReqGetBodyFn = null,
+    server_req_free: ?HttpServerReqFreeFn = null,
+    server_resp_new: ?HttpServerRespNewFn = null,
+    server_resp_send: ?HttpServerRespSendFn = null,
+    server_resp_free: ?HttpServerRespFreeFn = null,
+    server_resp_stream_new: ?HttpServerRespStreamNewFn = null,
+    server_resp_stream_write: ?HttpServerRespStreamWriteFn = null,
+    server_resp_stream_flush: ?HttpServerRespStreamFlushFn = null,
+    server_resp_stream_end: ?HttpServerRespStreamEndFn = null,
+    server_resp_stream_free: ?HttpServerRespStreamFreeFn = null,
+    server_free: ?HttpServerFreeFn = null,
+
+    fn deinit(self: *HttpBridge) void {
+        self.client_lib.close();
+        self.server_lib.close();
+        self.* = undefined;
+    }
+};
+
+fn httpPluginDirPath(allocator: std.mem.Allocator) ![]u8 {
+    return std.process.getEnvVarOwned(allocator, "SAASM_PLUGIN_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => try allocator.dupe(u8, "zig-out/lib"),
+        else => return err,
+    };
+}
+
+fn loadHttpBridge(allocator: std.mem.Allocator) !HttpBridge {
+    const dir_path = try httpPluginDirPath(allocator);
+    defer allocator.free(dir_path);
+
+    const client_path = try std.fs.path.join(allocator, &.{ dir_path, "libsaasm-http-client.so" });
+    defer allocator.free(client_path);
+    const server_path = try std.fs.path.join(allocator, &.{ dir_path, "libsaasm-http-server.so" });
+    defer allocator.free(server_path);
+
+    var client_lib = try std.DynLib.open(client_path);
+    errdefer client_lib.close();
+    var server_lib = try std.DynLib.open(server_path);
+    errdefer server_lib.close();
+
+    const bridge = HttpBridge{
+        .client_lib = client_lib,
+        .server_lib = server_lib,
+        .client_new = client_lib.lookup(HttpClientNewFn, "sa_http_client_new"),
+        .client_req_new = client_lib.lookup(HttpClientReqNewFn, "sa_http_client_req_new"),
+        .client_req_add_header = client_lib.lookup(HttpClientReqAddHeaderFn, "sa_http_client_req_add_header"),
+        .client_req_set_body = client_lib.lookup(HttpClientReqSetBodyFn, "sa_http_client_req_set_body"),
+        .client_req_send = client_lib.lookup(HttpClientReqSendFn, "sa_http_client_req_send"),
+        .client_resp_status = client_lib.lookup(HttpClientRespStatusFn, "sa_http_client_resp_status"),
+        .client_resp_body_reader = client_lib.lookup(HttpClientRespBodyReaderFn, "sa_http_client_resp_body_reader"),
+        .client_resp_read_chunk = client_lib.lookup(HttpClientRespReadChunkFn, "sa_http_client_resp_read_chunk"),
+        .client_resp_free = client_lib.lookup(HttpClientRespFreeFn, "sa_http_client_resp_free"),
+        .client_body_reader_free = client_lib.lookup(HttpClientBodyReaderFreeFn, "sa_http_client_body_reader_free"),
+        .client_req_free = client_lib.lookup(HttpClientReqFreeFn, "sa_http_client_req_free"),
+        .client_free = client_lib.lookup(HttpClientFreeFn, "sa_http_client_free"),
+        .server_new = server_lib.lookup(HttpServerNewFn, "sa_http_server_new"),
+        .server_start = server_lib.lookup(HttpServerStartFn, "sa_http_server_start"),
+        .server_accept = server_lib.lookup(HttpServerAcceptFn, "sa_http_server_accept"),
+        .server_req_get_path = server_lib.lookup(HttpServerReqGetPathFn, "sa_http_server_req_get_path"),
+        .server_req_get_header = server_lib.lookup(HttpServerReqGetHeaderFn, "sa_http_server_req_get_header"),
+        .server_req_get_body = server_lib.lookup(HttpServerReqGetBodyFn, "sa_http_server_req_get_body"),
+        .server_req_free = server_lib.lookup(HttpServerReqFreeFn, "sa_http_server_req_free"),
+        .server_resp_new = server_lib.lookup(HttpServerRespNewFn, "sa_http_server_resp_new"),
+        .server_resp_send = server_lib.lookup(HttpServerRespSendFn, "sa_http_server_resp_send"),
+        .server_resp_free = server_lib.lookup(HttpServerRespFreeFn, "sa_http_server_resp_free"),
+        .server_resp_stream_new = server_lib.lookup(HttpServerRespStreamNewFn, "sa_http_server_resp_stream_new"),
+        .server_resp_stream_write = server_lib.lookup(HttpServerRespStreamWriteFn, "sa_http_server_resp_stream_write"),
+        .server_resp_stream_flush = server_lib.lookup(HttpServerRespStreamFlushFn, "sa_http_server_resp_stream_flush"),
+        .server_resp_stream_end = server_lib.lookup(HttpServerRespStreamEndFn, "sa_http_server_resp_stream_end"),
+        .server_resp_stream_free = server_lib.lookup(HttpServerRespStreamFreeFn, "sa_http_server_resp_stream_free"),
+        .server_free = server_lib.lookup(HttpServerFreeFn, "sa_http_server_free"),
+    };
+    return bridge;
+}
 
 fn valueTypeForPrefix(prefix: inst.CapPrefix, declared: sig.PrimType) sig.PrimType {
     return switch (prefix) {
@@ -98,6 +227,8 @@ fn packFallible(status: u32, value: RegValue) RegValue {
         .fallible = true,
         .status = status,
         .interior_ptr = value.interior_ptr,
+        .extern_handle = value.extern_handle,
+        .from_try = value.from_try,
         .const_name = value.const_name,
         .vtable_slot_name = value.vtable_slot_name,
         .call_target_name = value.call_target_name,
@@ -109,10 +240,33 @@ fn unpackSuccess(value: RegValue) RegValue {
         .ty = value.ty,
         .bits = value.bits,
         .interior_ptr = value.interior_ptr,
+        .extern_handle = value.extern_handle,
+        .from_try = value.from_try,
         .const_name = value.const_name,
         .vtable_slot_name = value.vtable_slot_name,
         .call_target_name = value.call_target_name,
     };
+}
+
+fn cloneValue(value: RegValue) RegValue {
+    return .{
+        .ty = value.ty,
+        .bits = value.bits,
+        .fallible = value.fallible,
+        .status = value.status,
+        .interior_ptr = value.interior_ptr,
+        .extern_handle = value.extern_handle,
+        .from_try = value.from_try,
+        .const_name = value.const_name,
+        .vtable_slot_name = value.vtable_slot_name,
+        .call_target_name = value.call_target_name,
+    };
+}
+
+fn withExternHandle(value: RegValue) RegValue {
+    var out = cloneValue(value);
+    out.extern_handle = true;
+    return out;
 }
 
 fn makeFallibleI32(status: i32) RegValue {
@@ -150,12 +304,13 @@ fn readRawValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u
 }
 
 fn ptrMetaFromValue(value: RegValue) ?PtrMeta {
-    if (value.const_name == null and value.vtable_slot_name == null and value.call_target_name == null and !value.interior_ptr) return null;
+    if (value.const_name == null and value.vtable_slot_name == null and value.call_target_name == null and !value.interior_ptr and !value.extern_handle) return null;
     return .{
         .const_name = value.const_name,
         .vtable_slot_name = value.vtable_slot_name,
         .call_target_name = value.call_target_name,
         .interior_ptr = value.interior_ptr,
+        .extern_handle = value.extern_handle,
     };
 }
 
@@ -167,6 +322,7 @@ fn withPtrMeta(value: RegValue, meta: ?PtrMeta) RegValue {
             .fallible = value.fallible,
             .status = value.status,
             .interior_ptr = value.interior_ptr or m.interior_ptr,
+            .extern_handle = value.extern_handle or m.extern_handle,
             .const_name = m.const_name orelse value.const_name,
             .vtable_slot_name = m.vtable_slot_name orelse value.vtable_slot_name,
             .call_target_name = m.call_target_name orelse value.call_target_name,
@@ -386,6 +542,7 @@ const Interpreter = struct {
     stderr: std.io.AnyWriter,
     const_addrs: std.StringHashMap(u64),
     memory: Memory,
+    http_bridge: ?HttpBridge = null,
     monotonic_origin: ?std.time.Instant = null,
     trace_runtime: bool = false,
     exit_code: ?u8 = null,
@@ -450,6 +607,7 @@ const Interpreter = struct {
             .stderr = stderr,
             .const_addrs = std.StringHashMap(u64).init(allocator),
             .memory = Memory.init(allocator),
+            .http_bridge = loadHttpBridge(allocator) catch null,
             .monotonic_origin = null,
             .trace_runtime = traceRuntime(allocator) catch false,
             .exit_code = null,
@@ -460,6 +618,7 @@ const Interpreter = struct {
     }
 
     fn deinit(self: *Interpreter) void {
+        if (self.http_bridge) |*bridge| bridge.deinit();
         self.const_addrs.deinit();
         self.memory.deinit();
         for (self.argv_storage) |arg| self.allocator.free(arg);
@@ -576,7 +735,15 @@ fn intValue(value: RegValue, signed: bool) i128 {
         if (value.ty == target) return value;
         if (value.ty == .v128 or target == .v128) return RunError.UnsupportedInstruction;
         if (target == .ptr) {
-            return .{ .ty = .ptr, .bits = value.bits, .interior_ptr = value.interior_ptr };
+            return .{
+                .ty = .ptr,
+                .bits = value.bits,
+                .interior_ptr = value.interior_ptr,
+                .extern_handle = value.extern_handle,
+                .const_name = value.const_name,
+                .vtable_slot_name = value.vtable_slot_name,
+                .call_target_name = value.call_target_name,
+            };
         }
         if (isFloatLike(target)) {
             return try valueFromFloat(target, floatValue(value));
@@ -1260,6 +1427,273 @@ fn intValue(value: RegValue, signed: bool) i128 {
         std.mem.writeInt(u16, @as(*[2]u8, @ptrCast(out[off_millisecond..].ptr)), @as(u16, @intCast(@mod(unix_ms, std.time.ms_per_s))), .little);
     }
 
+    fn handleHttpSysCall(self: *Interpreter, bridge: HttpBridge, name: []const u8, args: []const RegValue) !SysCallOutcome {
+        _ = self;
+        if (std.mem.eql(u8, name, "sa_http_client_new")) {
+            if (args.len != 2) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_new orelse return RunError.UnsupportedSysIntrinsic;
+            const out_slot = @as(?*?*anyopaque, @ptrFromInt(args[1].bits));
+            const status = fn_ptr(@as(u8, @truncate(args[0].bits)), out_slot);
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_req_new")) {
+            if (args.len != 5) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_req_new orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(u8, @truncate(args[1].bits)),
+                @as(?[*]const u8, @ptrFromInt(args[2].bits)),
+                args[3].bits,
+                @as(?*?*anyopaque, @ptrFromInt(args[4].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_req_add_header")) {
+            if (args.len != 5) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_req_add_header orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?[*]const u8, @ptrFromInt(args[1].bits)),
+                args[2].bits,
+                @as(?[*]const u8, @ptrFromInt(args[3].bits)),
+                args[4].bits,
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_req_set_body")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_req_set_body orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?[*]const u8, @ptrFromInt(args[1].bits)),
+                args[2].bits,
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_req_send")) {
+            if (args.len != 2) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_req_send orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?*?*anyopaque, @ptrFromInt(args[1].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_resp_status")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_resp_status orelse return RunError.UnsupportedSysIntrinsic;
+            return .{ .handled = .{ .ty = .u16, .bits = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits))) } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_resp_body_reader")) {
+            if (args.len != 2) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_resp_body_reader orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?*?*anyopaque, @ptrFromInt(args[1].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_resp_read_chunk")) {
+            if (args.len != 4) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_resp_read_chunk orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?[*]u8, @ptrFromInt(args[1].bits)),
+                args[2].bits,
+                @as(?*u64, @ptrFromInt(args[3].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_resp_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_resp_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_body_reader_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_body_reader_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_req_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_req_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_client_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.client_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+
+        if (std.mem.eql(u8, name, "sa_http_server_new")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_new orelse return RunError.UnsupportedSysIntrinsic;
+            const out_slot = @as(?*?*anyopaque, @ptrFromInt(args[0].bits));
+            const status = fn_ptr(out_slot);
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_start")) {
+            if (args.len != 4) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_start orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?[*]const u8, @ptrFromInt(args[1].bits)),
+                args[2].bits,
+                @as(u16, @truncate(args[3].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_accept")) {
+            if (args.len != 2) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_accept orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?*?*anyopaque, @ptrFromInt(args[1].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_req_get_path")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_req_get_path orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?*?[*]const u8, @ptrFromInt(args[1].bits)),
+                @as(?*u64, @ptrFromInt(args[2].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_req_get_header")) {
+            if (args.len != 5) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_req_get_header orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?[*]const u8, @ptrFromInt(args[1].bits)),
+                args[2].bits,
+                @as(?*?[*]const u8, @ptrFromInt(args[3].bits)),
+                @as(?*u64, @ptrFromInt(args[4].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_req_get_body")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_req_get_body orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?*?[*]const u8, @ptrFromInt(args[1].bits)),
+                @as(?*u64, @ptrFromInt(args[2].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_req_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_req_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_new")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_new orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(u16, @truncate(args[1].bits)),
+                @as(?*?*anyopaque, @ptrFromInt(args[2].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_send")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_send orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?[*]const u8, @ptrFromInt(args[1].bits)),
+                args[2].bits,
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_stream_new")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_stream_new orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(u16, @truncate(args[1].bits)),
+                @as(?*?*anyopaque, @ptrFromInt(args[2].bits)),
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_stream_write")) {
+            if (args.len != 3) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_stream_write orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(
+                @as(?*anyopaque, @ptrFromInt(args[0].bits)),
+                @as(?[*]const u8, @ptrFromInt(args[1].bits)),
+                args[2].bits,
+            );
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_stream_flush")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_stream_flush orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_stream_end")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_stream_end orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_resp_stream_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_resp_stream_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        if (std.mem.eql(u8, name, "sa_http_server_free")) {
+            if (args.len != 1) return RunError.InvalidOperand;
+            const fn_ptr = bridge.server_free orelse return RunError.UnsupportedSysIntrinsic;
+            const status = fn_ptr(@as(?*anyopaque, @ptrFromInt(args[0].bits)));
+            if (status != @intFromEnum(plugin_api.AbiStatus.ok)) return .{ .handled = makeFallibleI32(@as(i32, @intCast(status))) };
+            return .{ .handled = .{ .ty = .u32, .bits = 0 } };
+        }
+        return RunError.UnsupportedSysIntrinsic;
+    }
+
     fn handleSysCall(
         self: *Interpreter,
         name: []const u8,
@@ -1314,6 +1748,13 @@ fn intValue(value: RegValue, signed: bool) i128 {
             }
             self.stdout.writeByte('\n') catch return .{ .handled = makeFallibleI32(SA_STD_ERR_IO) };
             return .{ .handled = makeFallibleI32(SA_STD_OK) };
+        }
+        if (std.mem.startsWith(u8, name, "sa_http_client_") or std.mem.startsWith(u8, name, "sa_http_server_")) {
+            const bridge = self.http_bridge orelse blk: {
+                self.http_bridge = loadHttpBridge(self.allocator) catch return .{ .handled = makeFallibleI32(SA_STD_ERR_UNSUPPORTED) };
+                break :blk self.http_bridge.?;
+            };
+            return try self.handleHttpSysCall(bridge, name, args);
         }
         if (std.mem.eql(u8, name, "sa_time_instant_ns")) {
             if (args.len != 0) return RunError.InvalidOperand;
@@ -1797,7 +2238,9 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     if (value.status != 0) {
                         return value;
                     }
-                    try regs.put(dst, unpackSuccess(value));
+                    var success = unpackSuccess(value);
+                    success.from_try = true;
+                    try regs.put(dst, success);
                 },
                 .return_ => {
                     if (base.operands[0] == .none) {
@@ -1810,7 +2253,9 @@ fn intValue(value: RegValue, signed: bool) i128 {
                         const value = try resolveOperandValue(self, &regs, base.operands[0]);
                         if (value.fallible) return value;
                         const coerced = try self.coerce(value, ret_ty);
-                        return packFallible(0, coerced);
+                        var ret_value = packFallible(0, coerced);
+                        ret_value.from_try = value.from_try;
+                        return ret_value;
                     }
                     const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
                     if (ret_ty == .void) {
@@ -1870,7 +2315,11 @@ fn runPrepared(
     };
 
     if (interp.exit_code) |code| return code;
-    if (result.fallible) return @as(u8, @truncate(result.status));
+    if (result.fallible) {
+        if (result.status != 0) return @as(u8, @truncate(result.status));
+        if (result.from_try) return 0;
+        return @as(u8, @truncate(result.bits));
+    }
     return @as(u8, @truncate(result.bits));
 }
 

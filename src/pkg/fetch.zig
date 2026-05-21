@@ -165,15 +165,31 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     try argv.append(remote_url);
     try argv.append(target_root);
 
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv.items,
-    }) catch return error.SourceNotFound;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-    switch (result.term) {
-        .Exited => |code| if (code != 0) return error.SourceNotFound,
-        else => return error.SourceNotFound,
+    var env_map = try std.process.getEnvMap(allocator);
+    defer env_map.deinit();
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    const exec_argv = try arena_alloc.allocSentinel(?[*:0]const u8, argv.items.len, null);
+    for (argv.items, 0..) |arg, idx| {
+        exec_argv[idx] = (try arena_alloc.dupeZ(u8, arg)).ptr;
+    }
+    const envp = (try std.process.createNullDelimitedEnvMap(arena_alloc, &env_map)).ptr;
+
+    const pid = try std.posix.fork();
+    if (pid == 0) {
+        const git_z: [*:0]const u8 = "git";
+        std.posix.execvpeZ(git_z, exec_argv.ptr, envp) catch {
+            std.posix.exit(127);
+        };
+        unreachable;
+    }
+
+    const wait_result = std.posix.waitpid(pid, 0);
+    if (wait_result.pid != pid) return error.SourceNotFound;
+    if (wait_result.status != 0) {
+        return error.SourceNotFound;
     }
 }
 

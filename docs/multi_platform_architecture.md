@@ -1,62 +1,115 @@
-# SA-ASM 全平台架构设计评估方案
+# SA-ASM 全平台架构设计与 PAL 实施指南
 
-本文档评估了 SA-ASM 当前架构对多平台（Windows, macOS, Linux）的支持现状，并提出了改进建议。
+## 1. 架构现状与痛点评估
+SA-ASM 初期开发为了追求极致性能，将运行时的核心系统服务（System Services）和事件驱动基座（Reactor）深度绑定了 Linux 特性：
+- 进程与路径处理依赖 `/proc/self/cmdline`。
+- 网络引擎 `sa_net_uring` 完全基于 Linux 的 `io_uring`。
+- 甚至底层的 `sa_std.h` 接口暴露了特定于 `epoll` 的结构体（如 `SaTermEpollEvent`）。
 
-## 1. 当前现状评估
+这导致当前版本无法在 Windows 和 macOS 上原生运行。为了真正实现“一次编写，到处链接”的全平台愿景，我们正在全面推行 **PAL (Platform Abstraction Layer)** 架构。
 
-目前 SA-ASM 的运行时（Runtime）深度绑定了 Linux 特性，主要体现在以下几个方面：
+## 2. 架构重构蓝图：PAL (平台抽象层)
 
-### 1.1 系统服务层 (System Services)
-- **问题**：`src/runtime/native_sys.zig` 依赖 `/proc/self/cmdline` 来获取进程参数，这在 Windows 和 macOS 上不可用。
-- **现状**：仅能在支持 procfs 的类 Unix 系统运行。
+我们必须将“面向 Linux 编程”转变为“面向抽象接口编程”。
 
-### 1.2 事件驱动基座 (Event Loop / Reactor)
-- **问题**：`src/runtime/sa_net_uring.zig` 核心实现完全基于 Linux 的 `io_uring`。
-- **问题**：`sa_std.h` 接口中直接暴露了 `epoll` 相关的结构（如 `SaTermEpollEvent`）和函数。
-- **现状**：无法在 Windows (IOCP) 和 macOS (kqueue) 上编译或运行。
+### 2.1 引入 PAL 调度中枢
+在 `src/runtime/` 下建立 PAL 目录：
+```text
+src/runtime/
+├── pal.zig          (核心中枢，使用 @import("builtin").os.tag 动态路由)
+├── pal_linux.zig    (基于 io_uring, epoll, procfs)
+├── pal_macos.zig    (基于 kqueue, sysctl, mach ports)
+└── pal_windows.zig  (基于 IOCP, GetCommandLineW)
+```
 
-### 1.3 核心标准库 (sa_std)
-- **问题**：部分网络地址处理逻辑直接使用了 `std.posix` 中的特定常量，虽然 Zig 提供了跨平台包装，但在某些边缘情况（如 Unix Domain Socket）下仍存在差异。
-
-## 2. 架构改进建议
-
-为了实现全平台支持，建议将架构从“面向 Linux 实现”转变为“面向平台抽象接口”。
-
-### 2.1 引入 PAL (Platform Abstraction Layer)
-建议在 `src/runtime/` 下建立 PAL 结构：
-- `pal.zig`: 核心分发层，通过 `@import("builtin").os.tag` 调度。
-- `pal/linux.zig`: 实现 Linux 特有逻辑。
-- `pal/windows.zig`: 使用 Win32 API (如 `GetCommandLineW`) 实现。
-- `pal/macos.zig`: 使用 `sysctl` 实现。
-
-### 2.2 Reactor 模式抽象
-将 `sa_net_uring` 从核心逻辑中剥离，定义通用的 `Reactor` 接口：
+在 `pal.zig` 中：
 ```zig
-pub const Reactor = struct {
-    // 定义统一的 init, deinit, poll, send, recv 等接口
+const builtin = @import("builtin");
+
+pub const sys = switch (builtin.os.tag) {
+    .linux => @import("pal_linux.zig"),
+    .windows => @import("pal_windows.zig"),
+    .macos => @import("pal_macos.zig"),
+    else => @compileError("Unsupported OS"),
 };
 ```
-针对不同平台提供不同驱动：
-- **Linux**: `reactor_uring.zig`
-- **Windows**: `reactor_iocp.zig` (待开发)
-- **macOS**: `reactor_kqueue.zig` (待开发)
+在 SA-ASM 的核心代码中，一律调用 `sys.get_executable_path()`，严禁直接调用操作系统的裸接口。
 
-### 2.3 API 泛化
-重构 `sa_std.h`，删除 `epoll` 字样，改为更通用的 `event_loop`：
-- `sa_term_epoll_create` -> `sa_event_loop_create`
-- `sa_term_epoll_wait` -> `sa_event_loop_wait`
+## 3. 核心驱动抽象：跨平台 Reactor 模型
 
-## 3. 构建系统调整
+要把极速网络基座 `sa_net_uring` 泛化，我们需要定义一套标准的 C-ABI 接口，让所有平台的轮询机制都能对接。
 
-在 `build.zig` 中，根据 `target.os.tag` 动态选择参与编译的文件：
-```zig
-const os_tag = target.result.os.tag;
-if (os_tag == .linux) {
-    sa_std_module.addExtraSourceFile(.{ .file = b.path("src/runtime/pal/linux.zig") });
-} else if (os_tag == .windows) {
-    sa_std_module.addExtraSourceFile(.{ .file = b.path("src/runtime/pal/windows.zig") });
-}
+### 3.1 C-ABI 统一接口 (消灭平台特定名词)
+废弃 `sa_term_epoll_wait` 这种带有强烈 Linux 色彩的命名，改为 `event_loop`：
+
+```c
+// sa_std.h - 统一的跨平台 C ABI
+typedef struct {
+    uint64_t user_data;
+    uint32_t flags;
+    int32_t res;
+} SaEvent;
+
+// 无论底层是 io_uring, IOCP 还是 kqueue，外部只看这套接口
+int32_t sa_event_loop_create(void** out_loop);
+int32_t sa_event_loop_submit(void* loop, SaEvent* ev);
+int32_t sa_event_loop_wait(void* loop, SaEvent* out_events, uint32_t max_events, int32_t timeout_ms);
 ```
 
-## 4. 结论
-当前架构具备良好的模块化基础，但“Linux 优先”的倾向非常明显。通过引入 PAL 和泛化 Reactor 接口，可以在不牺牲 Linux 性能的前提下，实现对 Windows 和 macOS 的原生支持。
+### 3.2 平台对接实现示例
+
+**Windows (IOCP / I/O Completion Ports)**：
+Windows 上没有任何类似 `epoll` 的机制，但它天生拥有支持异步 I/O 的 IOCP，且在最新版本中加入了类似 `io_uring` 的 `IoRing`。我们将优先对接 IOCP。
+```zig
+// pal_windows.zig
+const win = std.os.windows;
+
+pub fn event_loop_create(out_loop: *?*anyopaque) i32 {
+    const handle = win.kernel32.CreateIoCompletionPort(win.INVALID_HANDLE_VALUE, null, 0, 0);
+    if (handle == null) return -1;
+    out_loop.* = @ptrCast(handle);
+    return 0;
+}
+
+// 通过 GetQueuedCompletionStatus 获取事件
+```
+
+**macOS (kqueue)**：
+macOS 依靠 `kqueue`，它属于事件通知机制。
+```zig
+// pal_macos.zig
+const posix = std.posix;
+
+pub fn event_loop_create(out_loop: *?*anyopaque) i32 {
+    const kq = posix.kqueue() catch return -1;
+    // 分配一个堆结构来保存 fd 并转换为指针
+    out_loop.* = @ptrFromInt(@as(usize, @intCast(kq)));
+    return 0;
+}
+
+// 通过 kevent 获取事件
+```
+
+## 4. 构建系统的动态配置
+
+我们需要在 `build.zig` 中，根据构建目标（Target）的不同，只编译对应的文件：
+
+```zig
+// build.zig
+const os_tag = target.result.os.tag;
+
+var pal_file: []const u8 = "";
+if (os_tag == .linux) {
+    pal_file = "src/runtime/pal_linux.zig";
+} else if (os_tag == .windows) {
+    pal_file = "src/runtime/pal_windows.zig";
+} else if (os_tag == .macos) {
+    pal_file = "src/runtime/pal_macos.zig";
+}
+
+// 仅把当前平台的代码打进静态库
+sa_std_module.addExtraSourceFile(.{ .file = b.path(pal_file) });
+```
+
+## 5. 结论与排期
+当前我们虽然带有明显的“Linux 优先”特征，但底层引擎 `src/runtime` 和上层编译器完全是解耦的。只要完成了 `pal.zig` 接口层的设计（大约需要替换 15 个底层的 OS API 调用），SA 就可以无缝实现全平台原生运行，无需为跨平台妥协任何运行效率。

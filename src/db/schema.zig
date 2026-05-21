@@ -1,5 +1,5 @@
 const std = @import("std");
-const sig = @import("../common/signature.zig");
+const sig = @import("common/signature.zig");
 
 pub const ParseError = error{
     OutOfMemory,

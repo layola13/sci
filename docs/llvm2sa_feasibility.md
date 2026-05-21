@@ -40,6 +40,67 @@ llvm2sa 是什么（逆向）：
 | **GEP 带变量偏移** `getelementptr %T, ptr %p, i32 %i` | 需展开为 `ptr_add` 链 | ⚠️ 需计算 |
 | `call void @free(ptr %p)` | `!p`（理论）或 `call @free(p)` | ⚠️ 所有权语义丢失 |
 
+### 2.1 实战对比：Rust 源码 -> LLVM IR -> SA-ASM
+
+为了更直观地理解，我们来看一段真实的 Rust 代码是如何跨越边界降级为 SA-ASM 汇编的：
+
+**Rust 源文件 (example.rs)**
+```rust
+pub fn calculate_sum(a: i32, b: i32) -> i32 {
+    let mut sum = a;
+    if b > 0 {
+        sum += b;
+    }
+    sum
+}
+```
+
+**Rust 生成的 LLVM IR (降维后, 去除 Phi 节点)**
+```llvm
+define i32 @calculate_sum(i32 %a, i32 %b) {
+entry:
+  %sum = alloca i32, align 4
+  store i32 %a, ptr %sum, align 4
+  %cmp = icmp sgt i32 %b, 0
+  br i1 %cmp, label %if.then, label %if.end
+
+if.then:
+  %0 = load i32, ptr %sum, align 4
+  %add = add i32 %0, %b
+  store i32 %add, ptr %sum, align 4
+  br label %if.end
+
+if.end:
+  %1 = load i32, ptr %sum, align 4
+  ret i32 %1
+}
+```
+
+**llvm2sa 翻译出的 SA-ASM**
+```saasm
+@func calculate_sum(a: i32, b: i32) -> i32 {
+    // alloca 被精准映射为生命周期绑定的 stack_alloc
+    sum = stack_alloc 4
+    store sum+0, a as i32
+    
+    // 比较与分支
+    cmp = sgt b, 0
+    br cmp -> L_if_then, L_if_end
+
+L_if_then:
+    t0 = load sum+0 as i32
+    add_val = add t0, b
+    store sum+0, add_val as i32
+    jmp L_if_end
+
+L_if_end:
+    t1 = load sum+0 as i32
+    // stack_alloc 产生的内存在 return 时安全销毁
+    return t1
+}
+```
+*这一侧写完美证明了：只要前端经过正确的 `reg2mem` 处理消除了 Phi 节点，SA 的底座完全可以 1:1 承载 Rust 的计算与分支逻辑。*
+
 ---
 
 ## 三、三大技术障碍的逐一解剖

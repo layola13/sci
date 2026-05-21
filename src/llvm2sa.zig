@@ -589,6 +589,8 @@ const Translator = struct {
             std.mem.eql(u8, name, "fclose") or
             std.mem.eql(u8, name, "write") or
             std.mem.eql(u8, name, "getenv") or
+            std.mem.eql(u8, name, "strlen") or
+            std.mem.eql(u8, name, "memcmp") or
             std.mem.eql(u8, name, "sa_print_bytes");
     }
 

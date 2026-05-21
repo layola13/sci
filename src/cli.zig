@@ -12,6 +12,7 @@ const layout = @import("layout.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_fetch = @import("pkg/fetch.zig");
 const pkg_resolver = @import("pkg/resolver.zig");
+const plugins = @import("plugins.zig");
 const referee_call = @import("referee/call.zig");
 const referee = @import("referee.zig");
 const sax_cli = @import("sax/cli.zig");
@@ -20,6 +21,7 @@ const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
 const common_upstream = @import("common/upstream_loc.zig");
 const db = @import("db/mod.zig");
+const db_trap = @import("db/common/trap.zig");
 
 const CompileOk = struct {
     flat: flattener.FlattenResult,
@@ -374,6 +376,8 @@ const Command = enum {
     explain,
     fix,
     skills,
+    help,
+    version,
 };
 
 pub fn hasJsonFlag(argv: []const []const u8) bool {
@@ -747,34 +751,20 @@ fn commandName(cmd: Command) []const u8 {
         .audit => "audit",
         .graph => "graph",
         .db => "db",
-        .layout => "layout",
         .fetch => "fetch",
+        .layout => "layout",
         .size => "size",
         .test_cmd => "test",
         .explain => "explain",
         .fix => "fix",
         .skills => "skills",
+        .help => "help",
+        .version => "version",
     };
 }
 
 fn commandSupported(name: []const u8) bool {
-    return std.mem.eql(u8, name, "build")
-        or std.mem.eql(u8, name, "run")
-        or std.mem.eql(u8, name, "build-exe")
-        or std.mem.eql(u8, name, "build-wasm")
-        or std.mem.eql(u8, name, "build-obj")
-        or std.mem.eql(u8, name, "llvm2sa")
-        or std.mem.eql(u8, name, "sax")
-        or std.mem.eql(u8, name, "audit")
-        or std.mem.eql(u8, name, "graph")
-        or std.mem.eql(u8, name, "layout")
-        or std.mem.eql(u8, name, "fetch")
-        or std.mem.eql(u8, name, "db")
-        or std.mem.eql(u8, name, "size")
-        or std.mem.eql(u8, name, "test")
-        or std.mem.eql(u8, name, "explain")
-        or std.mem.eql(u8, name, "fix")
-        or std.mem.eql(u8, name, "skills");
+    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills");
 }
 
 fn explainEntries() []const ExplainEntry {
@@ -820,7 +810,7 @@ fn explainEntries() []const ExplainEntry {
             .fix_hint = "Declare the register earlier or thread the correct register name through the macro expansion.",
         },
         .{
-            .codes = &.{ "SA-CLI-001" },
+            .codes = &.{"SA-CLI-001"},
             .title = "Missing required operand",
             .summary = "The CLI command needs a positional argument such as a source file or project path.",
             .details = &.{
@@ -898,9 +888,80 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMo
     }
 }
 
+fn convertDbTrapReport(report: db_trap.TrapReport) trap.TrapReport {
+    return .{
+        .trap = @as(trap.Trap, @enumFromInt(@intFromEnum(report.trap))),
+        .trap_code = report.trap_code,
+        .line = report.line,
+        .source_line = report.source_line,
+        .source_text_buf = report.source_text_buf,
+        .original_text_buf = report.original_text_buf,
+        .source_text = report.source_text,
+        .original_text = report.original_text,
+        .register_buf = report.register_buf,
+        .register = report.register,
+        .registers = report.registers,
+        .expected_mask = report.expected_mask,
+        .actual_mask = report.actual_mask,
+        .expected_mask_name = report.expected_mask_name,
+        .actual_mask_name = report.actual_mask_name,
+        .upstream_loc = if (report.upstream_loc) |loc| .{
+            .file = loc.file,
+            .line = loc.line,
+            .col = loc.col,
+        } else null,
+        .upstream_file_buf = report.upstream_file_buf,
+        .upstream_line = report.upstream_line,
+        .upstream_col = report.upstream_col,
+        .function_buf = report.function_buf,
+        .function = report.function,
+        .is_ffi_wrapper = report.is_ffi_wrapper,
+        .repair_action = report.repair_action,
+        .repair_hint = report.repair_hint,
+        .repair_confidence = report.repair_confidence,
+        .message = report.message,
+        .hint = report.hint,
+    };
+}
+
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <build|run|build-exe|build-wasm|build-obj|llvm2sa|sax|audit|graph|layout|fetch|db|size|test|explain|fix|skills> [--json] [--jobs auto|N] ...\n");
-    try writer.writeAll("test flags: --filter <pattern> [--filter <pattern> ...] [--skip <pattern> ...] [--exact] [--ignored|--include-ignored]\n");
+    try writer.writeAll("usage: saasm <command> [options]\n\n");
+    try writer.writeAll("Commands:\n");
+    try writer.writeAll("  build        <file>            Compile a .saasm source to a native executable\n");
+    try writer.writeAll("  run          <file>            Compile and immediately execute a .saasm file\n");
+    try writer.writeAll("  build-exe    <file>            Build a standalone executable (alias for build)\n");
+    try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
+    try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
+    try writer.writeAll("  test         <file>            Run @test blocks in a .saasm file\n");
+    try writer.writeAll("  sax          <sub> <file>      SAX subcommands: build | check | dev | new\n");
+    try writer.writeAll("  db           <sub> ...         DB subcommands: init | register | exec | inspect | ...\n");
+    try writer.writeAll("  fetch        <url>             Fetch and cache a remote package\n");
+    try writer.writeAll("  audit        <file>            Audit package capability declarations\n");
+    try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
+    try writer.writeAll("  layout       ...               Print struct layout information\n");
+    try writer.writeAll("  size         <file>            Print function size statistics\n");
+    try writer.writeAll("  llvm2sa      <file>            Translate LLVM IR to SA assembly\n");
+    try writer.writeAll("  explain      <code>            Explain a diagnostic error code\n");
+    try writer.writeAll("  fix          <file>            Suggest fixes for diagnostics\n");
+    try writer.writeAll("  skills                         List compiler skills and capabilities\n");
+    try writer.writeAll("  help         [command]         Show this help message\n");
+    try writer.writeAll("  version                        Print the SA toolchain version\n");
+    try writer.writeAll("\nGlobal options:\n");
+    try writer.writeAll("  --json                         Output diagnostics in JSON format\n");
+    try writer.writeAll("  --jobs auto|N                  Set the number of parallel compile jobs\n");
+    try writer.writeAll("  -h, --help                     Show this help message\n");
+    try writer.writeAll("  --version                      Print version and exit\n");
+    try writer.writeAll("\nTest flags:\n");
+    try writer.writeAll("  --filter <pattern>             Include only matching tests (repeatable)\n");
+    try writer.writeAll("  --skip <pattern>               Exclude matching tests (repeatable)\n");
+    try writer.writeAll("  --exact                        Match test names exactly\n");
+    try writer.writeAll("  --ignored                      Run only ignored tests\n");
+    try writer.writeAll("  --include-ignored              Run all tests including ignored\n");
+}
+
+fn printVersion(writer: anytype) !void {
+    const ver = build_options.version;
+    try writer.print("saasm {s}\n", .{ver});
 }
 
 const TmpWorkDir = struct {
@@ -936,43 +997,6 @@ fn writeFile(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
-}
-
-fn parseFetchArgs(
-    allocator: std.mem.Allocator,
-    args: []const []const u8,
-) !struct { options: pkg_fetch.FetchOptions, identity: []const u8, ref: []const u8 } {
-    var options: pkg_fetch.FetchOptions = .{};
-    var identity: ?[]const u8 = null;
-    var ref: []const u8 = "HEAD";
-
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (std.mem.eql(u8, arg, "-g")) {
-            options.global = true;
-            continue;
-        }
-        if (std.mem.eql(u8, arg, "--offline")) {
-            options.offline = true;
-            continue;
-        }
-        if (std.mem.eql(u8, arg, "--ref")) {
-            if (i + 1 >= args.len) return error.MissingRef;
-            ref = args[i + 1];
-            i += 1;
-            continue;
-        }
-        if (identity == null) {
-            identity = arg;
-            continue;
-        }
-        return error.UnexpectedArgument;
-    }
-
-    const id = identity orelse return error.MissingSourcePath;
-    _ = allocator;
-    return .{ .options = options, .identity = id, .ref = ref };
 }
 
 fn forbiddenHint(hit: flattener.ForbiddenHit) []const u8 {
@@ -1086,7 +1110,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-012",
             .message = "unknown command",
-            .hint = "use build, run, build-exe, build-wasm, build-obj, llvm2sa, sax, audit, graph, layout, fetch, db, size, or test",
+            .hint = "use build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, sax, db, fetch, llvm2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-013",
@@ -1436,7 +1460,7 @@ fn writeSkillsJson(writer: anytype, sections: []const SkillSection) !void {
 }
 
 fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
-    const sections = [_]SkillSection{
+    const base_sections = [_]SkillSection{
         .{ .name = "core diagnostics", .summary = "Agent-facing error handling and JSON reports", .items = &.{
             "stable trap names and trap codes",
             "structured JSON diagnostics with repair hints",
@@ -1453,8 +1477,24 @@ fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
             "fs/net/process/term facades stay thin in SA",
         } },
     };
+    const plugin_sections = try plugins.collectSkills(std.heap.page_allocator);
+    defer std.heap.page_allocator.free(plugin_sections);
+
+    var sections_list = std.ArrayList(SkillSection).init(std.heap.page_allocator);
+    errdefer sections_list.deinit();
+    try sections_list.appendSlice(&base_sections);
+    for (plugin_sections) |section| {
+        try sections_list.append(.{
+            .name = section.name,
+            .summary = section.summary,
+            .items = section.items,
+        });
+    }
+    const sections = try sections_list.toOwnedSlice();
+    defer std.heap.page_allocator.free(sections);
+
     if (json_mode) {
-        try writeSkillsJson(writer, &sections);
+        try writeSkillsJson(writer, sections);
     } else {
         try writer.writeAll("agent-first toolchain\n");
         for (sections) |section| {
@@ -1745,6 +1785,33 @@ fn projectRootFromSourcePath(source_path: []const u8) []const u8 {
     return std.fs.path.dirname(source_path) orelse ".";
 }
 
+fn pluginSoPath(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
+    return try std.fs.path.join(allocator, &.{ build_options.repo_root, "zig-out", "lib", file_name });
+}
+
+fn ensurePluginSoAvailable(allocator: std.mem.Allocator, out_path: []const u8, file_name: []const u8) !void {
+    const source_path = try pluginSoPath(allocator, file_name);
+    defer allocator.free(source_path);
+
+    const dest_dir = std.fs.path.dirname(out_path) orelse ".";
+    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(cwd_abs);
+    const abs_dest_dir = if (std.fs.path.isAbsolute(dest_dir))
+        try allocator.dupe(u8, dest_dir)
+    else
+        try std.fs.path.join(allocator, &.{ cwd_abs, dest_dir });
+    defer allocator.free(abs_dest_dir);
+
+    const dest_path = try std.fs.path.join(allocator, &.{ abs_dest_dir, file_name });
+    defer allocator.free(dest_path);
+    try std.fs.cwd().makePath(abs_dest_dir);
+
+    std.fs.copyFileAbsolute(source_path, dest_path, .{}) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+}
+
 fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
     const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
     defer allocator.free(manifest_path);
@@ -1899,10 +1966,18 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer allocator.free(ll_path);
             try writeAllFile(ll_path, ll);
 
-            driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path, debug, stderr) catch |err| switch (err) {
+            const extra_inputs = &[_][]const u8{
+                try pluginSoPath(allocator, "libsaasm-http-client.so"),
+                try pluginSoPath(allocator, "libsaasm-http-server.so"),
+            };
+            defer allocator.free(extra_inputs[0]);
+            defer allocator.free(extra_inputs[1]);
+            driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+            try ensurePluginSoAvailable(allocator, out_path, "libsaasm-http-client.so");
+            try ensurePluginSoAvailable(allocator, out_path, "libsaasm-http-server.so");
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
@@ -2235,10 +2310,18 @@ fn executeTest(
             const exe_full_path = try std.fs.path.join(allocator, &.{ ll_path, exe_name });
             defer allocator.free(exe_full_path);
 
-            driver.compileExe(allocator, ll_full_path, exe_full_path, .release_small, build_options.sa_std_archive_path, false, stderr) catch |err| switch (err) {
+            const extra_inputs = &[_][]const u8{
+                try pluginSoPath(allocator, "libsaasm-http-client.so"),
+                try pluginSoPath(allocator, "libsaasm-http-server.so"),
+            };
+            defer allocator.free(extra_inputs[0]);
+            defer allocator.free(extra_inputs[1]);
+            driver.compileExe(allocator, ll_full_path, exe_full_path, .release_small, build_options.sa_std_archive_path, extra_inputs[0..], false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+            try ensurePluginSoAvailable(allocator, exe_full_path, "libsaasm-http-client.so");
+            try ensurePluginSoAvailable(allocator, exe_full_path, "libsaasm-http-server.so");
 
             var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
             return try test_runner.run(
@@ -2262,6 +2345,18 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
     const args = normalized_args;
     const json_mode = hasJsonFlag(argv);
 
+    // Global flags: --help / -h / --version (checked before command dispatch)
+    if (args.len >= 2) {
+        if (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h")) {
+            try printUsage(stdout);
+            return 0;
+        }
+        if (std.mem.eql(u8, args[1], "--version")) {
+            try printVersion(stdout);
+            return 0;
+        }
+    }
+
     if (args.len < 2) {
         try printUsage(stderr);
         return 1;
@@ -2277,18 +2372,28 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         if (std.mem.eql(u8, args[1], commandName(.sax))) break :blk .sax;
         if (std.mem.eql(u8, args[1], commandName(.audit))) break :blk .audit;
         if (std.mem.eql(u8, args[1], commandName(.graph))) break :blk .graph;
+        if (std.mem.eql(u8, args[1], commandName(.db))) break :blk .db;
         if (std.mem.eql(u8, args[1], commandName(.layout))) break :blk .layout;
         if (std.mem.eql(u8, args[1], commandName(.fetch))) break :blk .fetch;
-        if (std.mem.eql(u8, args[1], "db")) break :blk .db;
         if (std.mem.eql(u8, args[1], commandName(.size))) break :blk .size;
         if (std.mem.eql(u8, args[1], commandName(.test_cmd))) break :blk .test_cmd;
         if (std.mem.eql(u8, args[1], commandName(.explain))) break :blk .explain;
         if (std.mem.eql(u8, args[1], commandName(.fix))) break :blk .fix;
         if (std.mem.eql(u8, args[1], commandName(.skills))) break :blk .skills;
+        if (std.mem.eql(u8, args[1], commandName(.help))) break :blk .help;
+        if (std.mem.eql(u8, args[1], commandName(.version))) break :blk .version;
         return error.UnknownCommand;
     };
 
     switch (cmd) {
+        .help => {
+            try printUsage(stdout);
+            return 0;
+        },
+        .version => {
+            try printVersion(stdout);
+            return 0;
+        },
         .layout => {
             return try executeLayout(allocator, args[2..], stdout, stderr);
         },
@@ -2368,8 +2473,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             return error.UnknownCommand;
         },
         .fetch => {
-            const parsed = try parseFetchArgs(allocator, args[2..]);
-            var result = try pkg_fetch.fetchPackage(allocator, parsed.identity, parsed.ref, parsed.options);
+            var result = try pkg_fetch.fetchPackage(allocator, args[2], "HEAD", .{});
             defer result.deinit(allocator);
             try stdout.print("{s}\n", .{result.root});
             return 0;
@@ -2402,8 +2506,10 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             if (std.mem.eql(u8, sub, "register")) {
                 if (args.len < 4) return error.MissingSourcePath;
                 const source_path = args[3];
-                const project_root = std.fs.path.dirname(source_path) orelse ".";
-                var result = db.exec.registerQuery(allocator, source_path, project_root) catch |err| {
+                const abs_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
+                defer allocator.free(abs_source_path);
+                const project_root = std.fs.path.dirname(abs_source_path) orelse ".";
+                var result = db.exec.registerQuery(allocator, abs_source_path, project_root) catch |err| {
                     try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
@@ -2416,7 +2522,9 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             }
             if (std.mem.eql(u8, sub, "inspect")) {
                 if (args.len < 4) return error.MissingSourcePath;
-                const report = db.exec.inspectRegistry(allocator, ".", args[3]) catch |err| {
+                const root_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+                defer allocator.free(root_dir);
+                const report = db.exec.inspectRegistry(allocator, root_dir, args[3]) catch |err| {
                     try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
@@ -2496,17 +2604,24 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
                     }
                     return error.UnexpectedArgument;
                 }
-                var exec_result = db.exec.execQuery(allocator, ".", args[3], params_path, stdout, stderr) catch |err| {
+                const root_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+                defer allocator.free(root_dir);
+                const abs_params_path = if (params_path) |path| try std.fs.cwd().realpathAlloc(allocator, path) else null;
+                defer if (abs_params_path) |path| allocator.free(path);
+                var exec_result = db.exec.execQuery(allocator, root_dir, args[3], abs_params_path, stdout.any(), stderr.any()) catch |err| {
                     try printCliError(stderr, err, if (json_mode) .json else .human);
                     return 1;
                 };
                 defer exec_result.deinit(allocator);
                 switch (exec_result) {
                     .trap => |report| {
-                        try printTrapReport(stderr, report, if (json_mode) .json else .human);
+                        const converted = convertDbTrapReport(report);
+                        std.debug.print("cli db exec trap={s}\n", .{trap.trapName(converted.trap)});
+                        try printTrapReport(stderr, converted, if (json_mode) .json else .human);
                         return 1;
                     },
                     .ok => |result| {
+                        std.debug.print("cli db exec ok code={d}\n", .{result.code});
                         return result.code;
                     },
                 }
@@ -2600,15 +2715,6 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             defer if (out_path == null) allocator.free(owned_out);
             return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
-        .llvm2sa => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
-            const translated = try llvm2sa.translateFile(allocator, source_path);
-            defer allocator.free(translated);
-            try stdout.writeAll(translated);
-            if (translated.len == 0 or translated[translated.len - 1] != '\n') try stdout.writeByte('\n');
-            return 0;
-        },
         .build_wasm => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
@@ -2649,6 +2755,15 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
             return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+        },
+        .llvm2sa => {
+            if (args.len < 3) return error.MissingSourcePath;
+            const source_path = args[2];
+            const translated = try llvm2sa.translateFile(allocator, source_path);
+            defer allocator.free(translated);
+            try stdout.writeAll(translated);
+            if (translated.len == 0 or translated[translated.len - 1] != '\n') try stdout.writeByte('\n');
+            return 0;
         },
         .test_cmd => {
             if (args.len < 3) return error.MissingSourcePath;

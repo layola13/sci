@@ -139,6 +139,9 @@ const FunctionState = struct {
         } else {
             try self.regs.put(id, value);
         }
+        if (value.ty == .ptr and (value.origin.indirect_sig_index != null or value.origin.const_name != null or value.const_ref != null)) {
+            try self.recordMemoryPtrMeta(value.expr, 0, value);
+        }
         if (out) |stmt| {
             const slot_name = try self.ensureSlot(allocator, stmt, id);
             try stmt.writer().writeAll("  store ");
@@ -225,6 +228,21 @@ const FunctionState = struct {
             }
         }
         return null;
+    }
+
+    fn enrichPointerValue(self: *const FunctionState, value: Value) Value {
+        if (value.ty != .ptr) return value;
+        if (value.origin.indirect_sig_index != null and value.origin.const_name != null) return value;
+        if (self.lookupMemoryPtrMeta(value.expr, 0)) |meta| {
+            var enriched = value;
+            if (enriched.origin.const_name == null) enriched.origin.const_name = meta.origin.const_name;
+            if (enriched.origin.indirect_sig_index == null) enriched.origin.indirect_sig_index = meta.origin.indirect_sig_index;
+            enriched.const_ref = enriched.const_ref orelse meta.origin.const_name;
+            enriched.interior_ptr = enriched.interior_ptr or meta.interior_ptr;
+            enriched.borrow_view = enriched.borrow_view or meta.interior_ptr;
+            return enriched;
+        }
+        return value;
     }
 
     fn reloadLiveRegs(self: *FunctionState, allocator: std.mem.Allocator, out: *std.ArrayList(u8), live_caps: []const u16) !void {
@@ -694,7 +712,10 @@ fn valueFromOperand(
     op: inst.Operand,
 ) !Value {
     return switch (op) {
-        .reg => |id| state.getReg(id) orelse EmitError.InvalidOperand,
+        .reg => |id| blk: {
+            const reg_value = state.getReg(id) orelse return EmitError.InvalidOperand;
+            break :blk state.enrichPointerValue(reg_value);
+        },
         .text => |t| blk: {
             var text = std.mem.trim(u8, t, " \t");
             if (text.len == 0) return EmitError.InvalidOperand;
@@ -745,21 +766,37 @@ fn castValue(
     target: sig.PrimType,
 ) !Value {
     if (value.fallible) return EmitError.InvalidOperand;
-    if (value.ty == target) return value;
+        if (value.ty == target) return if (target == .ptr) state.enrichPointerValue(value) else value;
 
     if (target == .ptr) {
-        if (value.ty == .ptr) return value;
+        if (value.ty == .ptr) return state.enrichPointerValue(value);
         if (!isIntLike(value.ty)) return EmitError.UnsupportedType;
         const tmp = try state.tempName(allocator);
         try out.writer().print("  {s} = inttoptr {s} {s} to ptr\n", .{ tmp, llvmTypeName(value.ty), value.expr });
-        return .{ .expr = tmp, .ty = .ptr, .interior_ptr = value.interior_ptr };
+        return .{
+            .expr = tmp,
+            .ty = .ptr,
+            .interior_ptr = value.interior_ptr,
+            .borrow_view = value.borrow_view,
+            .ffi_borrow = value.ffi_borrow,
+            .const_ref = value.const_ref,
+            .origin = value.origin,
+        };
     }
 
     if (value.ty == .ptr) {
         if (!isIntLike(target)) return EmitError.UnsupportedType;
         const tmp = try state.tempName(allocator);
         try out.writer().print("  {s} = ptrtoint ptr {s} to {s}\n", .{ tmp, value.expr, llvmTypeName(target) });
-        return .{ .expr = tmp, .ty = target };
+        return .{
+            .expr = tmp,
+            .ty = target,
+            .interior_ptr = value.interior_ptr,
+            .borrow_view = value.borrow_view,
+            .ffi_borrow = value.ffi_borrow,
+            .const_ref = value.const_ref,
+            .origin = value.origin,
+        };
     }
 
     if (isIntLike(value.ty) and isIntLike(target)) {
@@ -1242,12 +1279,9 @@ fn emitTestHarnessMain(
 
 fn chooseEmitWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
     if (chunk_count < 2) return 1;
-    if (requested_jobs) |jobs| {
-        return if (jobs <= 1) 1 else @min(jobs, chunk_count);
-    }
-    const cpu_count = std.Thread.getCpuCount() catch 1;
-    if (cpu_count < 2) return 1;
-    return @min(cpu_count, chunk_count);
+    // Keep function emission deterministic unless the parallel path is explicitly proven safe.
+    _ = requested_jobs;
+    return 1;
 }
 
 fn emitExternDeclText(
@@ -1717,7 +1751,7 @@ fn valueFromRegOrConst(
     symbols: *const symbol.SymbolTable,
     reg_id: u32,
 ) !Value {
-    if (state.getReg(reg_id)) |value| return value;
+        if (state.getReg(reg_id)) |value| return state.enrichPointerValue(value);
     const name = symbols.lookupName(reg_id) orelse return EmitError.InvalidOperand;
     if (!state.hasConstRef(name)) return EmitError.InvalidOperand;
     return .{
@@ -2056,15 +2090,52 @@ fn resolveConstValueOrigin(
 }
 
 fn resolveLoadOrigin(
+    def_dict: ?*const flattener.DefDict,
     const_decls: []const common_const_decl.ConstDecl,
     sigs: []const sig.FunctionSig,
     src: Value,
     offset: u64,
     loaded_ty: sig.PrimType,
 ) PointerOrigin {
+    if (src.origin.indirect_sig_index) |sig_index| {
+        return .{
+            .const_name = src.origin.const_name orelse src.const_ref,
+            .const_offset = offset,
+            .indirect_sig_index = sig_index,
+        };
+    }
     const const_name = src.origin.const_name orelse src.const_ref orelse return .{};
     const decl = findConstDeclByName(const_decls, const_name) orelse return .{ .const_name = const_name };
+    _ = def_dict;
     return resolveConstValueOrigin(decl.value, const_name, offset, loaded_ty, sigs);
+}
+
+fn resolveIndirectCallOriginFromText(
+    def_dict: ?*const flattener.DefDict,
+    const_decls: []const common_const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+    text: []const u8,
+) PointerOrigin {
+    const raw_text = if (def_dict) |defs| defs.foldText(std.heap.page_allocator, text) catch text else text;
+    defer if (def_dict != null and raw_text.ptr != text.ptr) std.heap.page_allocator.free(raw_text);
+    const trimmed = std.mem.trim(u8, raw_text, " \t");
+    if (trimmed.len == 0) return .{};
+    if (trimmed[0] == '@' and trimmed.len > 1) {
+        const name = trimmed[1..];
+        const decl = findConstDeclByName(const_decls, name) orelse return .{ .const_name = name };
+        return resolveConstValueOrigin(decl.value, name, 0, .ptr, sigs);
+    }
+    if (trimmed[0] == '&' and trimmed.len > 1) {
+        const name = trimmed[1..];
+        const decl = findConstDeclByName(const_decls, name) orelse return .{ .const_name = name };
+        return resolveConstValueOrigin(decl.value, name, 0, .ptr, sigs);
+    }
+    if (std.mem.indexOfScalar(u8, trimmed, '@')) |at_idx| {
+        const name = std.mem.trim(u8, trimmed[at_idx + 1 ..], " \t");
+        const decl = findConstDeclByName(const_decls, name) orelse return .{ .const_name = name };
+        return resolveConstValueOrigin(decl.value, name, 0, .ptr, sigs);
+    }
+    return .{};
 }
 
 fn findVtableSlotSigIndexByName(
@@ -2107,6 +2178,7 @@ fn functionSigsCompatible(a: sig.FunctionSig, b: sig.FunctionSig) bool {
 }
 
 fn inferIndirectSigIndexFromLoadText(
+    def_dict: ?*const flattener.DefDict,
     const_decls: []const common_const_decl.ConstDecl,
     sigs: []const sig.FunctionSig,
     raw_text: []const u8,
@@ -2119,7 +2191,14 @@ fn inferIndirectSigIndexFromLoadText(
     const offset_token = std.mem.trim(u8, address[plus + 1 ..], " \t");
     if (offset_token.len == 0) return null;
 
-    if (findVtableSlotSigIndexByName(const_decls, sigs, offset_token)) |sig_index| {
+    const folded_offset = if (def_dict) |defs| defs.foldText(std.heap.page_allocator, offset_token) catch offset_token else offset_token;
+    defer if (def_dict != null and folded_offset.ptr != offset_token.ptr) std.heap.page_allocator.free(folded_offset);
+    const parsed_offset = std.fmt.parseInt(u64, folded_offset, 10) catch {
+        if (findVtableSlotSigIndexByName(const_decls, sigs, folded_offset)) |sig_index| return sig_index;
+        return null;
+    };
+
+    if (findVtableSlotSigIndexByOffset(const_decls, sigs, parsed_offset)) |sig_index| {
         return sig_index;
     }
 
@@ -2129,6 +2208,64 @@ fn inferIndirectSigIndexFromLoadText(
         if (candidate.len == 0 or !isIdentLike(candidate)) continue;
         if (findVtableSlotSigIndexByName(const_decls, sigs, candidate)) |sig_index| {
             return sig_index;
+        }
+    }
+    return null;
+}
+
+fn findVtableSlotSigIndexByOffset(
+    const_decls: []const common_const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+    offset: u64,
+) ?usize {
+    if (offset % 8 != 0) return null;
+    const slot_index: usize = @intCast(offset / 8);
+    var resolved: ?usize = null;
+    for (const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                if (slot_index >= literal.slots.len) continue;
+                const sig_index = findFunctionSigIndex(sigs, literal.slots[slot_index].func_name) orelse return null;
+                if (resolved) |existing| {
+                    const existing_sig = sigs[existing];
+                    const candidate_sig = sigs[sig_index];
+                    if (!functionSigsCompatible(existing_sig, candidate_sig)) return null;
+                } else {
+                    resolved = sig_index;
+                }
+            },
+            else => {},
+        }
+    }
+    return resolved;
+}
+
+fn inferIndirectSigIndexFromExpr(
+    const_decls: []const common_const_decl.ConstDecl,
+    sigs: []const sig.FunctionSig,
+    expr: []const u8,
+) ?usize {
+    const trimmed = std.mem.trim(u8, expr, " \t");
+    if (trimmed.len == 0) return null;
+    if (trimmed[0] == '@' and trimmed.len > 1) {
+        const name = trimmed[1..];
+        if (findConstDeclByName(const_decls, name)) |decl| {
+            const origin = resolveConstValueOrigin(decl.value, name, 0, .ptr, sigs);
+            if (origin.indirect_sig_index) |sig_index| return sig_index;
+        }
+    }
+    if (trimmed[0] == '&' and trimmed.len > 1) {
+        const name = trimmed[1..];
+        if (findConstDeclByName(const_decls, name)) |decl| {
+            const origin = resolveConstValueOrigin(decl.value, name, 0, .ptr, sigs);
+            if (origin.indirect_sig_index) |sig_index| return sig_index;
+        }
+    }
+    if (std.mem.indexOfScalar(u8, trimmed, '@')) |at_idx| {
+        const name = std.mem.trim(u8, trimmed[at_idx + 1 ..], " \t");
+        if (findConstDeclByName(const_decls, name)) |decl| {
+            const origin = resolveConstValueOrigin(decl.value, name, 0, .ptr, sigs);
+            if (origin.indirect_sig_index) |sig_index| return sig_index;
         }
     }
     return null;
@@ -2216,7 +2353,7 @@ fn emitBuiltinCall(
         try emitArgList(allocator, &prelude, &args_buf, state, def_dict, symbols, parsed.args, &.{ .{ .name = "path", .ty = .ptr, .cap = .raw }, .{ .name = "len", .ty = .i64, .cap = .by_value }, .{ .name = "out_len", .ty = .ptr, .cap = .raw } });
         try out.appendSlice(prelude.items);
         try out.writer().print("  {s} = call ptr @sys_read_file({s})\n", .{ tmp, args_buf.items });
-        return .{ .handled_value = .{ .expr = tmp, .ty = .ptr } };
+        return .{ .handled_value = .{ .expr = tmp, .ty = .ptr, .borrow_view = true, .interior_ptr = true } };
     }
     if (std.mem.eql(u8, name, "sys_write_file")) {
         var prelude = std.ArrayList(u8).init(allocator);
@@ -2277,6 +2414,7 @@ fn emitIndirectCall(
     out: *std.ArrayList(u8),
     state: *FunctionState,
     def_dict: ?*const flattener.DefDict,
+    const_decls: []const common_const_decl.ConstDecl,
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
     options: EmitOptions,
@@ -2284,16 +2422,40 @@ fn emitIndirectCall(
 ) !?Value {
     const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
     const callee = state.getReg(callee_id) orelse return EmitError.InvalidOperand;
-    if (callee.origin.indirect_sig_index == null) {
-        if (options.debug) {
-            std.debug.print(
-                "emit indirect missing provenance for {s}: expr={s} const={?s}\n",
-                .{ parsed.callee, callee.expr, callee.origin.const_name },
-            );
+    var resolved_origin = callee.origin;
+    if (resolved_origin.indirect_sig_index == null) {
+        if (state.lookupMemoryPtrMeta(callee.expr, 0)) |meta| {
+            resolved_origin = meta.origin;
         }
+    }
+    if (resolved_origin.indirect_sig_index == null) {
+        if (callee.origin.const_name) |const_name| {
+            var probe = callee;
+            probe.origin.const_name = const_name;
+            resolved_origin = resolveLoadOrigin(def_dict, const_decls, sigs, probe, probe.origin.const_offset, .ptr);
+        } else if (callee.const_ref) |const_name| {
+            var probe = callee;
+            probe.origin.const_name = const_name;
+            probe.const_ref = const_name;
+            resolved_origin = resolveLoadOrigin(def_dict, const_decls, sigs, probe, probe.origin.const_offset, .ptr);
+        }
+    }
+    if (resolved_origin.indirect_sig_index == null) {
+        resolved_origin = resolveIndirectCallOriginFromText(def_dict, const_decls, sigs, parsed.callee);
+    }
+    if (resolved_origin.indirect_sig_index == null) {
+        if (inferIndirectSigIndexFromExpr(const_decls, sigs, callee.expr)) |sig_index| {
+            resolved_origin.indirect_sig_index = sig_index;
+        }
+    }
+    if (resolved_origin.indirect_sig_index == null) {
+        std.debug.print(
+            "emit indirect missing provenance for {s}: expr={s} ty={s} const={?s} const_ref={?s} origin_const={?s} origin_sig={?d}\n",
+            .{ parsed.callee, callee.expr, llvmTypeName(callee.ty), callee.const_ref, callee.const_ref, callee.origin.const_name, callee.origin.indirect_sig_index },
+        );
         return EmitError.MissingIndirectCallProvenance;
     }
-    const sig_index = callee.origin.indirect_sig_index.?;
+    const sig_index = resolved_origin.indirect_sig_index.?;
     if (sig_index >= sigs.len) {
         if (options.debug) {
             std.debug.print(
@@ -2329,6 +2491,7 @@ fn emitCall(
     out: *std.ArrayList(u8),
     state: *FunctionState,
     def_dict: ?*const flattener.DefDict,
+    const_decls: []const common_const_decl.ConstDecl,
     symbols: *const symbol.SymbolTable,
     sigs: []const sig.FunctionSig,
     options: EmitOptions,
@@ -2336,7 +2499,7 @@ fn emitCall(
     parsed: call.ParsedCall,
 ) !?Value {
     if (parsed.is_indirect) {
-        return try emitIndirectCall(allocator, out, state, def_dict, symbols, sigs, options, parsed);
+        return try emitIndirectCall(allocator, out, state, def_dict, const_decls, symbols, sigs, options, parsed);
     }
 
     switch (try emitBuiltinCall(allocator, out, state, def_dict, symbols, options, size_bits, parsed)) {
@@ -2472,23 +2635,39 @@ fn emitInstruction(
             try out.writer().print("  {s} = getelementptr i8, ptr {s}, i64 {d}\n", .{ gep, ptrv.expr, off });
             const tmp = try state.tempName(allocator);
             try out.writer().print("  {s} = load {s}, ptr {s}, align {d}\n", .{ tmp, llvmTypeName(ty), gep, llvmAlign(ty) });
-            var loaded_origin: PointerOrigin = .{};
+            var loaded_origin: PointerOrigin = ptrv.origin;
+            if (loaded_origin.const_name == null) {
+                loaded_origin.const_name = ptrv.const_ref;
+            }
             var loaded_interior_ptr = false;
             if (ty == .ptr) {
                 if (state.lookupMemoryPtrMeta(ptrv.expr, off)) |meta| {
                     loaded_origin = meta.origin;
                     loaded_interior_ptr = meta.interior_ptr;
-                } else {
-                    loaded_origin = resolveLoadOrigin(const_decls, sigs, ptrv, off, ty);
-                    if (loaded_origin.indirect_sig_index == null) {
-                        if (inferIndirectSigIndexFromLoadText(const_decls, sigs, base.raw_text)) |sig_index| {
-                            loaded_origin.indirect_sig_index = sig_index;
-                            if (options.debug) {
-                                std.debug.print(
-                                    "emit load inferred indirect sig {d} from {s}\n",
-                                    .{ sig_index, base.raw_text },
-                                );
-                            }
+                }
+                var resolved_origin = resolveLoadOrigin(def_dict, const_decls, sigs, ptrv, off, ty);
+                if (loaded_origin.const_name != null) {
+                    var const_src = ptrv;
+                    const_src.origin.const_name = loaded_origin.const_name;
+                    const_src.const_ref = loaded_origin.const_name;
+                    resolved_origin = resolveLoadOrigin(def_dict, const_decls, sigs, const_src, off, ty);
+                    if (loaded_origin.indirect_sig_index == null and resolved_origin.indirect_sig_index != null) {
+                        loaded_origin.indirect_sig_index = resolved_origin.indirect_sig_index;
+                    }
+                } else if (resolved_origin.const_name != null) {
+                    loaded_origin.const_name = resolved_origin.const_name;
+                }
+                if (loaded_origin.indirect_sig_index == null and resolved_origin.indirect_sig_index != null) {
+                    loaded_origin.indirect_sig_index = resolved_origin.indirect_sig_index;
+                }
+                if (loaded_origin.indirect_sig_index == null) {
+                    if (inferIndirectSigIndexFromLoadText(def_dict, const_decls, sigs, base.raw_text)) |sig_index| {
+                        loaded_origin.indirect_sig_index = sig_index;
+                        if (options.debug) {
+                            std.debug.print(
+                                "emit load inferred indirect sig {d} from {s}\n",
+                                .{ sig_index, base.raw_text },
+                            );
                         }
                     }
                 }
@@ -2505,6 +2684,23 @@ fn emitInstruction(
                 .const_ref = loaded_origin.const_name,
                 .origin = loaded_origin,
             });
+            if (options.debug and ty == .ptr) {
+                std.debug.print(
+                    "emit load resolved {s}: base={s} const={?s} sig={?d} interior={}\n",
+                    .{ base.raw_text, ptrv.expr, loaded_origin.const_name, loaded_origin.indirect_sig_index, loaded_interior_ptr },
+                );
+            }
+            if (ty == .ptr) {
+                try state.recordMemoryPtrMeta(tmp, 0, .{
+                    .expr = tmp,
+                    .ty = .ptr,
+                    .interior_ptr = loaded_interior_ptr,
+                    .borrow_view = ptrv.borrow_view or loaded_interior_ptr,
+                    .ffi_borrow = ptrv.ffi_borrow,
+                    .const_ref = loaded_origin.const_name,
+                    .origin = loaded_origin,
+                });
+            }
         },
         .atomic_load => {
             const dst = base.operands[0].reg;
@@ -2659,11 +2855,31 @@ fn emitInstruction(
                     .bitcast => {
                         const target = target_ty orelse return EmitError.InvalidOperand;
                         const casted = try castValue(allocator, out, state, value, target);
+                        if (value.ty == .ptr and casted.ty == .ptr) {
+                            var carried = casted;
+                            carried.origin = value.origin;
+                            carried.const_ref = value.const_ref;
+                            carried.borrow_view = value.borrow_view or casted.borrow_view;
+                            carried.ffi_borrow = value.ffi_borrow or casted.ffi_borrow;
+                            carried.interior_ptr = value.interior_ptr or casted.interior_ptr;
+                            try state.setReg(allocator, out, dst, carried);
+                            return;
+                        }
                         try state.setReg(allocator, out, dst, casted);
                     },
                     .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext => {
                         const target = target_ty orelse return EmitError.InvalidOperand;
                         const casted = try castValue(allocator, out, state, value, target);
+                        if (value.ty == .ptr and casted.ty == .ptr) {
+                            var carried = casted;
+                            carried.origin = value.origin;
+                            carried.const_ref = value.const_ref;
+                            carried.borrow_view = value.borrow_view or casted.borrow_view;
+                            carried.ffi_borrow = value.ffi_borrow or casted.ffi_borrow;
+                            carried.interior_ptr = value.interior_ptr or casted.interior_ptr;
+                            try state.setReg(allocator, out, dst, carried);
+                            return;
+                        }
                         try state.setReg(allocator, out, dst, casted);
                     },
                     else => unreachable,
@@ -2787,18 +3003,34 @@ fn emitInstruction(
             const src = base.operands[1].reg;
             const value = state.getReg(src) orelse return EmitError.InvalidOperand;
             const raw = try castValue(allocator, out, state, value, .i64);
-            try state.setReg(allocator, out, dst, raw);
+            var carried = raw;
+            carried.origin = value.origin;
+            carried.const_ref = value.const_ref;
+            carried.borrow_view = value.borrow_view;
+            carried.ffi_borrow = value.ffi_borrow;
+            carried.interior_ptr = value.interior_ptr;
+            try state.setReg(allocator, out, dst, carried);
+            return;
         },
         .assume_safe, .assume_borrow => {
             const dst = base.operands[0].reg;
             const src = base.operands[1].reg;
             const value = state.getReg(src) orelse return EmitError.InvalidOperand;
             const ptrv = try castValue(allocator, out, state, value, .ptr);
-            try state.setReg(allocator, out, dst, ptrv);
+            var carried = ptrv;
+            carried.origin = value.origin;
+            carried.const_ref = value.const_ref;
+            carried.borrow_view = value.borrow_view or (base.kind == .assume_borrow);
+            carried.ffi_borrow = value.ffi_borrow;
+            carried.interior_ptr = value.interior_ptr or ptrv.interior_ptr;
+            try state.setReg(allocator, out, dst, carried);
         },
         .assign => {
             const dst = base.operands[0].reg;
             const value = try valueFromOperand(allocator, state, string_literals, symbols, base.operands[1]);
+            if (value.ty == .ptr and value.origin.indirect_sig_index != null) {
+                try state.recordMemoryPtrMeta(value.expr, 0, value);
+            }
             try state.setReg(allocator, out, dst, value);
         },
         .move_ => {
@@ -2854,7 +3086,7 @@ fn emitInstruction(
             defer allocator.free(call_text);
             var parsed = call.parseCall(allocator, call_text) catch return EmitError.InvalidOperand;
             defer parsed.deinit(allocator);
-            if (try emitCall(allocator, out, state, def_dict, symbols, sigs, options, size_bits, parsed)) |ret| {
+            if (try emitCall(allocator, out, state, def_dict, const_decls, symbols, sigs, options, size_bits, parsed)) |ret| {
                 if (parsed.dest) |dest| {
                     if (symbols.findId(dest)) |id| try state.setReg(allocator, out, id, ret);
                 }

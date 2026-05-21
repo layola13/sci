@@ -1,88 +1,80 @@
-# SA-ASM 原生单元测试框架设计 (Native Unit Test Framework)
+# SA-ASM 原生单元测试框架 (Native Unit Test Framework)
 
-## 1. 痛点与现状
+SA-ASM 拥有内置的、零运行时开销的单元测试框架。它允许你在汇编级别直接编写断言和隔离测试，无需借助外部 bash 脚本或繁重的宿主环境。
 
-当前 SA (Symbolic Affine) 项目在 v0.1 至 v0.5 的路线图中，主要依赖外部的测试手段：
-- 依靠 Bash 脚本 `test_all_300.sh` 批量执行示例代码并校验 Exit Code 和 Stdout。
-- 依靠 Zig 测试套件（`tests/cli_smoke.zig` 等）利用子进程拉起 `saasm` 进行回归测试。
-- 虽然 `sa_std/core/sa_core.saasm` 中存在基础的 `ASSERT_EQ` / `ASSERT_TRUE` 断言宏，但它们在失败时会立即触发 `panic(PANIC_ASSERT)` 导致进程结束（Fail-Fast），并且没有提供隔离机制。
+## 1. 如何编写与运行测试
 
-为了提供现代语言标准（类似 `cargo test` 或 `zig test`）的开发体验，SA 必须拥有原生的单元测试框架，实现用例隔离、详细失败报告及测试集自动收集。
+### 1.1 编写 `@test` 用例
+在 `.saasm` 源码中，你可以使用 `@test` 关键字直接声明一个无参无返回值的测试块。
 
-## 2. 核心设计原则
+```saasm
+// math_test.saasm
 
-1. **零运行时侵入**：测试元数据仅存在于编译期，不污染 Release 产物。
-2. **显示优于隐式**：不魔改控制流。用例与环境设置保持纯粹的线性和清晰度。
-3. **基于现有原语**：尽可能复用 Flattener、Referee 和现有的 `panic_msg` 机制，降低实现复杂度。
-4. **多进程隔离 (Process Isolation)**：由于 SA 秉持“panic 即终止”原则，单个测试用例失败不应中断其他测试。测试引擎将通过 Spawn 机制执行测试进程来捕获 Trap / Exit Code 103。
+@test "addition handles negative numbers" {
+    // 1. 执行被测逻辑
+    a = add -5, 10
+    
+    // 2. 调用断言宏
+    EXPAND ASSERT_EQ a, 5
+    
+    return
+}
 
-## 3. 架构设计与阶段规划
+@test "memory correctly freed prevents leaks" {
+    p = alloc 16
+    ! p
+    
+    // 如果忘记写 ! p，测试框架会自动探测到 MemoryLeak 并标记测试失败
+    return
+}
+```
 
-原生单元测试框架分为四个主要阶段（对应 Tasks 中的 Version 0.7）。
+### 1.2 运行测试 (`saasm test`)
+使用 `saasm test` 命令行可以直接发现并执行目录下所有的 `@test`：
 
-### 3.1. 阶段一：编译器前端支持与元数据收集
+```bash
+# 运行当前目录下的所有测试
+saasm test ./
 
-**目标**：允许开发者在 `.saasm` 源码中标记测试用例，并在 Flattener 中提取这些符号。
+# 模糊匹配测试名 (只运行带有 "addition" 的测试)
+saasm test ./ --filter "addition"
+```
 
-- **语法扩展**：
-  引入顶层标记 `@test "description"()`（或者利用特定的宏）。
-  ```saasm
-  @test "hashmap handles collisions correctly"():
-  L_ENTRY:
-      // 测试逻辑
-      return
-  ```
-- **签名校验**：所有 `@test` 函数必须是无参无返回值的（`() -> void`）。
-- **元数据收集**：`src/flattener.zig` 在扫描时，将遇到 `@test` 声明的函数登记到全局内存表 `TestRegistry`，记录其名称、原始源文件、行号和生成的内部指令地址。
+**测试报告输出示例：**
+```text
+[PASS] memory correctly freed prevents leaks (2ms)
+[FAIL] addition handles negative numbers (1ms)
+       => AssertionFailed at math_test.saasm:6: expected 5, got -5
+       
+Test Summary: 1 passed, 1 failed, 0 skipped.
+```
 
-### 3.2. 阶段二：CLI 原生指令与测试运行器 (Test Runner)
+## 2. 断言宏的底层原理 (ASSERT_*)
 
-**目标**：提供 `saasm test` 命令，自动编排、执行测试并生成报告。
+在 `sa_std/core/sa_core.saasm` 中，断言是通过宏展开来实现的，它们在底层会被展开为极其高效的分支语句。
 
-- **新增命令**：在 `src/cli.zig` 中新增 `saasm test` 命令，支持指定文件或目录，并允许通过 `--filter` 参数模糊匹配测试名称。
-- **动态入口生成**：
-  如果用户执行了 `saasm test`，编译器内部在展开完毕后，不使用常规的 `@main`。取而代之的是生成一个动态的虚拟 `@main` 驱动器，该驱动器负责查表调用 `TestRegistry` 中的函数。
-- **进程隔离执行 (Process-based Isolation)**：
-  - 测试 Runner（通常是主 `saasm` 进程自身作为协调者）会以子进程方式运行测试驱动程序。
-  - 对于给定的测试列表，主进程逐一（或并发）通过传递环境变量或特殊参数给子进程，使其仅执行某个对应的测试用例。
-  - 主进程监听子进程退出码。退出码为 `0` 记作 Pass；退出码为 `103` (AssertionFailed) 记作 Fail；其他非零退出码或 Trap JSON 记录为 Crash/Error。
-- **报告输出**：
-  控制台输出类似 Rust 的绿色/红色格式：
-  ```
-  [PASS] hashmap handles collisions correctly
-  [FAIL] string format handles negative numbers
-         AssertionFailed at fs.saasm:42: expected -10, got 10
-  ```
+```saasm
+[MACRO] ASSERT_EQ %actual, %expected
+    %cond = eq %actual, %expected
+    br %cond -> %L_ok, %L_fail
+%L_fail:
+    // 触发 103 Panic 陷阱，向外抛出 AssertionFailed 报告
+    panic(103)
+%L_ok:
+[END_MACRO]
+```
+当你在代码中使用 `EXPAND ASSERT_EQ a, 5` 时，编译器 (Flattener) 会自动注入当前行的 `#loc` 信息，使得 `panic` 能够精准抓取失败的文件和行号。
 
-### 3.3. 阶段三：标准库断言与诊断强化
+## 3. 测试隔离架构 (Process Isolation)
 
-**目标**：使得 `ASSERT_*` 宏的失败能够携带足够上下文（文件、行号、预期值与实际值）。
+由于 SA 的设计哲学是 **Fail-Fast (Panic 即终止)**，如果一个测试断言失败或触发了非法内存访问，整个解释器通常应该崩溃。
 
-- **升级宏定义**：
-  修改 `sa_std/core/sa_core.saasm`：
-  ```saasm
-  [MACRO] ASSERT_EQ %cond, %actual, %expected, %ok_label, %fail_label
-      %cond = eq %actual, %expected
-      br %cond -> %ok_label, %fail_label
-  %fail_label:
-      // 利用编译器自带的 #loc 获取当前文件与行号字符串
-      // 调用 panic_msg(PANIC_ASSERT, "assertion failed: expected X, got Y", len)
-      panic_msg(...)
-  %ok_label:
-  [END_MACRO]
-  ```
-- 依赖于 Flattener 阶段将源文件信息作为静态字符串池常量注入，使得 `panic_msg` 能直接引用。
+为了让测试“失败而不中断执行列表”，`saasm test` 实现了一种多进程隔离机制：
+1. 主进程（Test Runner）解析出所有的 `@test` 符号，形成一张内存映射表 (`TestRegistry`)。
+2. 针对每一个测试，主进程通过 `fork` / `spawn` 拉起一个孤立的子进程。
+3. 主进程监听子进程的 Exit Code：
+   - 如果 Exit Code == `0`，标记为 **PASS**。
+   - 如果 Exit Code == `103` (AssertionFailed)，标记为 **FAIL** 并提取 stderr 日志。
+   - 如果触发了 `UseAfterMove` / `MemoryLeak` 等 Trap，记录为 **ERROR**。
 
-### 3.4. 阶段四：测试替身 (Mocks) 与生态集成
-
-**目标**：为涉及底层 I/O、网络的逻辑提供可测试性。
-
-- **内存 Mock 原语**：在 `sa_std` 建立独立的 `test/mock.saasm`。
-  由于 SA 的接口由契约（Contract 和 `@extern`）保证，可以通过注入不同版本的 `.saasm-iface` 实现，来实现脱离物理宿主机的虚拟文件系统和网络收发。
-- **持续集成 (CI)**：将原先 `test_all_300.sh` 的验证步骤逐步整合至 `saasm test` 管线，利用零信任包管理体系，直接测试从本地到云端的全量代码。
-
-## 4. 预期产出
-
-1. **`saasm test` 命令**：全功能、带色彩高亮与隔离的测试执行器。
-2. **`@test` 语法**：一种 SA-ASM 的内建用例声明标准。
-3. **更强的诊断信息**：当断言失败时不再是冰冷的 exit code 103，而是包含上下文字符串的精准定位。
+这种隔离机制确保了即便某个测试严重违规导致内存段错误，其余的测试依旧会正常排队执行，为你提供最完整的安全体检报告。
