@@ -394,6 +394,9 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&run_hubproxy_tests.step);
     ci_step.dependOn(&referee_loc_lint.step);
 
+    const pre_push_step = b.step("pre-push", "Run the pre-push gate");
+    pre_push_step.dependOn(ci_step);
+
     const bench_step = b.addSystemCommand(&.{ "zig", "run", "bench/task_6_26.zig", "--", "--lines", "64" });
     bench_step.setCwd(repo_root_lazy);
     ci_step.dependOn(&bench_step.step);

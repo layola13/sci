@@ -135,10 +135,12 @@ SA 编译器全面拥抱 "Agent-First" 理念：
 
 ### 1.10 工业级可伸缩性架构 (Industrial Scalability Architecture) - 紧急 P0
 
-针对大规模（10k+ 函数）工程测试中发现的 $O(N^2)$ 内存爆炸问题，设计进行如下核心校准：
-1. **寄存器作用域局部化**：`Flattener` 必须在进入每个 `@func` 时重置寄存器计数器。全局寄存器 ID 空间被切分为“函数局部 ID 空间”，确保单个函数的校验快照体积与全工程函数总量解耦。
-2. **稀疏状态注解 (Sparse Annotation)**：`AnnotatedInstruction` 不再存储全量寄存器状态数组，而是改为存储 **Delta（状态增量）**。对于未在当前指令发生权限变更的寄存器，快照中不占空间。
-3. **流式发射 (Streaming Emission)**：`LLVM Emitter` 放弃全量内存 Buffer 拼接，改为基于 `std.io.BufferedWriter` 的流式写入，支持边验证边发射，实现内存占用的常数级压缩。
+针对大规模（10k+ 函数）工程测试中发现的性能瓶颈，借鉴 Zig 编译器内部实现进行如下核心校准：
+1. **寄存器作用域局部化**：`Flattener` 必须在进入每个 `@func` 时重置寄存器 ID。确保单个函数的校验复杂度与全工程函数总量解耦。
+2. **稀疏状态注解 (Sparse Annotation)**：仅存储状态 **Delta（增量）**，消除 $O(Inst \times Reg)$ 的冗余内存占用。
+3. **声明级并行后端 (Per-Decl Parallelism)**：借鉴 Zig `Zcu.PerThread` 模型。不再生成单一庞大 `.ll` 文件，而是将发射任务打散至函数粒度，由多线程并行填充后端模块，彻底释放多核 LLVM 性能。
+4. **内存直通物理路径 (In-memory Physical Path)**：借鉴 Zig `codegen/llvm.zig`。放弃文本 IR 发射，通过 `llvm-c` 绑定在内存中直接构造指令对象。消除“生成文本-磁盘写入-后端解析”的冗余链路。
+5. **异步流水线 (Asynchronous Pipeline)**：`Referee` 验证与 `In-memory Emitter` 实现异步重叠，达成“瞬发级”编译体验。
 
 ---
 

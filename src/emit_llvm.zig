@@ -162,14 +162,6 @@ const FunctionState = struct {
         return text;
     }
 
-    fn resolveSlot(self: *const FunctionState, id: u32) ?u32 {
-        if (self.sig.slotOf(id)) |slot| {
-            if (slot != id) return slot;
-        }
-        if (id < self.reg_slots.len) return id;
-        return null;
-    }
-
     fn tempName(self: *FunctionState, allocator: std.mem.Allocator) ![]const u8 {
         const name = try self.ownFmt(allocator, "%t{d}", .{self.temp_index});
         self.temp_index += 1;
@@ -191,29 +183,11 @@ const FunctionState = struct {
         try out.print(" {s}, ptr {s}, align {d}\n", .{ value.expr, slot_name, register_slot_align });
     }
 
-    fn setRegGlobal(self: *FunctionState, allocator: std.mem.Allocator, out: anytype, id: u32, value: Value) !void {
-        if (self.sig.slotOf(id)) |slot| {
-            try self.setReg(allocator, out, slot, value);
-            if (slot != id) {
-                if (self.regs.getPtr(id)) |entry| {
-                    entry.* = value;
-                } else {
-                    try self.regs.put(id, value);
-                }
-                if (value.ty == .ptr and (value.origin.indirect_sig_index != null or value.origin.const_name != null or value.const_ref != null)) {
-                    try self.recordMemoryPtrMeta(value.expr, 0, value);
-                }
-            }
-            return;
-        }
-        try self.setReg(allocator, out, id, value);
-    }
-
     fn ensureSlot(self: *FunctionState, allocator: std.mem.Allocator, out: anytype, id: u32) ![]const u8 {
-        if (self.resolveSlot(id)) |slot| {
-            const idx: usize = @intCast(slot);
+        if (id < self.reg_slots.len) {
+            const idx: usize = @intCast(id);
             if (self.reg_slots[idx]) |slot_name| return slot_name;
-            const slot_name = try self.ownFmt(allocator, "%slot_{d}", .{slot});
+            const slot_name = try self.ownFmt(allocator, "%slot_{d}", .{id});
             self.reg_slots[idx] = slot_name;
             try out.print("  {s} = alloca i8, i64 {d}, align {d}\n", .{ slot_name, register_slot_bytes, register_slot_align });
             return slot_name;
@@ -239,13 +213,6 @@ const FunctionState = struct {
 
     fn getReg(self: *FunctionState, id: u32) ?Value {
         return self.regs.get(id);
-    }
-
-    fn getRegGlobal(self: *FunctionState, id: u32) ?Value {
-        if (self.sig.slotOf(id)) |slot| {
-            return self.getReg(slot);
-        }
-        return self.getReg(id);
     }
 
     fn setConstRef(self: *FunctionState, name: []const u8) !void {
@@ -798,6 +765,31 @@ fn findRegValueByName(state: *FunctionState, symbols: *const symbol.SymbolTable,
     return null;
 }
 
+fn resolveSymbolValue(
+    allocator: std.mem.Allocator,
+    state: *FunctionState,
+    _symbols: *const symbol.SymbolTable,
+    sigs: []const sig.FunctionSig,
+    name: []const u8,
+) !?Value {
+    _ = _symbols;
+    if (state.hasConstRef(name)) {
+        return .{ .expr = try state.ownFmt(allocator, "@{s}", .{name}), .ty = .ptr, .const_ref = name, .origin = .{ .const_name = name } };
+    }
+
+    if (findFunctionSigIndex(sigs, name)) |sig_index| {
+        const resolved = sigs[sig_index];
+        return .{
+            .expr = try state.ownFmt(allocator, "@{s}", .{resolved.name}),
+            .ty = .ptr,
+            .call_target_name = resolved.name,
+            .origin = .{ .indirect_sig_index = sig_index },
+        };
+    }
+
+    return null;
+}
+
 fn valueFromOperand(
     allocator: std.mem.Allocator,
     state: *FunctionState,
@@ -810,19 +802,7 @@ fn valueFromOperand(
             if (state.getReg(id)) |reg_value| {
                 break :blk state.enrichPointerValue(reg_value);
             }
-            const name = if (id < state.sig.reg_ids.len)
-                symbols.lookupName(state.sig.globalId(id)) orelse return EmitError.InvalidOperand
-            else
-                symbols.lookupName(id) orelse return EmitError.InvalidOperand;
-            if (findRegValueByName(state, symbols, name)) |reg_value| {
-                break :blk state.enrichPointerValue(reg_value);
-            }
-            break :blk .{
-                .expr = try state.ownFmt(allocator, "@{s}", .{name}),
-                .ty = .ptr,
-                .const_ref = name,
-                .origin = .{ .const_name = name },
-            };
+            return EmitError.InvalidOperand;
         },
         .text => |t| blk: {
             var text = std.mem.trim(u8, t, " \t");
@@ -847,12 +827,7 @@ fn valueFromOperand(
                 if (state.hasConstRef(name)) {
                     break :blk .{ .expr = try state.ownFmt(allocator, "@{s}", .{name}), .ty = .ptr, .const_ref = name, .origin = .{ .const_name = name } };
                 }
-                if (symbols.findId(name)) |id| {
-                    if (state.sig.slotOf(id)) |slot| {
-                        break :blk state.getReg(slot) orelse EmitError.InvalidOperand;
-                    }
-                    break :blk state.getReg(id) orelse EmitError.InvalidOperand;
-                }
+                break :blk .{ .expr = try state.ownFmt(allocator, "@{s}", .{name}), .ty = .ptr, .const_ref = name, .origin = .{ .const_name = name } };
             }
             if (text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_')) {
                 if (findRegValueByName(state, symbols, text)) |reg_value| {
@@ -860,12 +835,6 @@ fn valueFromOperand(
                 }
                 if (state.hasConstRef(text)) {
                     break :blk .{ .expr = try state.ownFmt(allocator, "@{s}", .{text}), .ty = .ptr, .const_ref = text, .origin = .{ .const_name = text } };
-                }
-                if (symbols.findId(text)) |id| {
-                    if (state.sig.slotOf(id)) |slot| {
-                        break :blk state.getReg(slot) orelse EmitError.InvalidOperand;
-                    }
-                    break :blk state.getReg(id) orelse EmitError.InvalidOperand;
                 }
             }
             break :blk try parseImmediateValue(allocator, state, text);
@@ -1551,19 +1520,8 @@ fn valueFromArgText(
         }
     }
     if (resolved.len != 0 and (std.ascii.isAlphabetic(resolved[0]) or resolved[0] == '_')) {
-        if (findRegValueByName(state, symbols, resolved)) |value| return state.enrichPointerValue(value);
         if (state.hasConstRef(resolved)) {
             return .{ .expr = try state.ownFmt(allocator, "@{s}", .{resolved}), .ty = .ptr, .const_ref = resolved, .origin = .{ .const_name = resolved } };
-        }
-        if (symbols.findId(resolved)) |id| {
-            if (state.getReg(id)) |value| return state.enrichPointerValue(value);
-            if (findRegValueByName(state, symbols, resolved)) |value| return state.enrichPointerValue(value);
-            return .{
-                .expr = try state.ownFmt(allocator, "@{s}", .{resolved}),
-                .ty = .ptr,
-                .const_ref = resolved,
-                .origin = .{ .const_name = resolved },
-            };
         }
     }
     return try parseImmediateValue(allocator, state, resolved);
@@ -1575,9 +1533,12 @@ fn valueFromRegOrConst(
     symbols: *const symbol.SymbolTable,
     reg_id: u32,
 ) !Value {
-    if (state.getReg(reg_id)) |value| return state.enrichPointerValue(value);
+    if (state.sig.slotOf(reg_id)) |slot| {
+        if (state.getReg(slot)) |value| return state.enrichPointerValue(value);
+    }
     const name = symbols.lookupName(reg_id) orelse return EmitError.InvalidOperand;
     if (findRegValueByName(state, symbols, name)) |value| return state.enrichPointerValue(value);
+    if (!state.hasConstRef(name)) return EmitError.InvalidOperand;
     return .{
         .expr = try state.ownFmt(allocator, "@{s}", .{name}),
         .ty = .ptr,
@@ -2226,7 +2187,10 @@ fn emitIndirectCall(
     parsed: call.ParsedCall,
 ) !?Value {
     const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
-    const callee = state.getReg(callee_id) orelse return EmitError.InvalidOperand;
+    const callee = if (state.sig.slotOf(callee_id)) |slot|
+        state.getReg(slot) orelse return EmitError.InvalidOperand
+    else
+        try valueFromRegOrConst(allocator, state, symbols, callee_id);
     var resolved_origin = callee.origin;
     if (resolved_origin.indirect_sig_index == null) {
         if (state.lookupMemoryPtrMeta(callee.expr, 0)) |meta| {
@@ -2978,12 +2942,12 @@ fn emitInstruction(
 
 fn instructionCallText(
     allocator: std.mem.Allocator,
-    symbols: *const symbol.SymbolTable,
-    def_dict: ?*const flattener.DefDict,
+    _symbols: *const symbol.SymbolTable,
+    _def_dict: ?*const flattener.DefDict,
     base: inst.Instruction,
 ) ![]u8 {
-    _ = symbols;
-    _ = def_dict;
+    _ = _symbols;
+    _ = _def_dict;
     return try allocator.dupe(u8, base.raw_text);
 }
 

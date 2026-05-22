@@ -676,12 +676,17 @@ fn snapshotStateAt(snapshot: *const LabelSnapshot, reg: u32) u16 {
 }
 
 fn snapshotMaskAt(snapshot: *const LabelSnapshot, reg: u32) u16 {
-    return snapshotChangeFor(snapshot, reg).?.state orelse 0;
+    const change = snapshotChangeFor(snapshot, reg) orelse return 0;
+    return change.state orelse 0;
 }
 
 fn snapshotStatesCompatible(snapshot: *const LabelSnapshot, state: []const u16) bool {
     for (state, 0..) |mask, idx| {
-        if (snapshotMaskAt(snapshot, @intCast(idx)) != mask) return false;
+        const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
+        if (snap_mask == mask) continue;
+        if ((snap_mask == 0 and mask == maskOf(.consumed)) or (mask == 0 and snap_mask == maskOf(.consumed))) continue;
+        if ((snap_mask == maskOf(.consumed) and mask == 0) or (mask == maskOf(.consumed) and snap_mask == 0)) continue;
+        return false;
     }
     return true;
 }
@@ -698,9 +703,12 @@ fn snapshotMergeCompatible(snapshot: *const LabelSnapshot, state: []const u16) b
 
 fn snapshotFirstMismatch(snapshot: *const LabelSnapshot, state: []const u16, symbols: *const symbol.SymbolTable) ?StateMismatch {
     for (state, 0..) |mask, idx| {
-        if (snapshotMaskAt(snapshot, @intCast(idx)) == mask) continue;
+        const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
+        if (snap_mask == mask) continue;
+        if ((snap_mask == 0 and mask == maskOf(.consumed)) or (mask == 0 and snap_mask == maskOf(.consumed))) continue;
+        if ((snap_mask == maskOf(.consumed) and mask == 0) or (mask == maskOf(.consumed) and snap_mask == 0)) continue;
         const name = symbols.lookupName(@intCast(idx)) orelse continue;
-        return .{ .name = name, .expected = mask, .actual = snapshotMaskAt(snapshot, @intCast(idx)) };
+        return .{ .name = name, .expected = mask, .actual = snap_mask };
     }
     return null;
 }
@@ -1494,6 +1502,7 @@ fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u16
     if ((state[idx] & maskOf(.borrow_view)) != 0) {
         if (origins[idx]) |origin| {
             const origin_idx: usize = @intCast(origin);
+            if (origin_idx >= flags.len) return false;
             return (flags[origin_idx] & regFlagStackAlloc) != 0;
         }
     }
@@ -1541,6 +1550,7 @@ fn writeCheck(
     if ((current & maskOf(.borrow_view)) != 0) {
         const origin_id = origins[idx] orelse return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), current, "borrow rules reject this access", null);
         const origin_idx: usize = @intCast(origin_id);
+        if (origin_idx >= locks.len) return trapReport(.unknown_register, item, function_text, is_ffi_wrapper, name, null, null, "register is not declared in the current scope", null);
         if (locks[origin_idx] > 1) {
             return trapReport(.read_write_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), current, "cannot write through a shared borrow", null);
         }
@@ -1565,6 +1575,9 @@ fn assignValueCtx(
     interior: *InteriorContext,
 ) ?VerifyBodyResult {
     const idx: usize = @intCast(id);
+    if (idx >= state.len) {
+        return trapReport(.unknown_register, item, function_text, is_ffi_wrapper, name, null, null, "register is not declared in the current scope", null);
+    }
     const current = state[idx];
     if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
         return trapReport(.register_redefinition, item, function_text, is_ffi_wrapper, name, null, null, "register is already live", null);
@@ -1692,6 +1705,12 @@ fn clearBorrowCtx(
         return;
     };
     const origin_idx: usize = @intCast(origin);
+    if (origin_idx >= locks.len) {
+        state[idx] = 0;
+        flags[idx] = 0;
+        origins[idx] = null;
+        return;
+    }
     if (locks[origin_idx] > 0) {
         locks[origin_idx] -= 1;
         if (locks[origin_idx] == 0) {
@@ -2004,7 +2023,7 @@ fn verifyBody(
                     };
                     flags[reg_idx] = if (param.cap == .raw) regFlagRawPointer else 0;
                     if (param.cap == .borrow) {
-                        origins[reg_idx] = reg_id;
+                        origins[reg_idx] = reg_slot;
                         locks[reg_idx] = 1;
                     }
                 }
@@ -2120,7 +2139,7 @@ fn verifyBody(
                 if ((state[dst_idx] & maskOf(.borrow_view)) != 0) {
                     const origin_id = origins[dst_idx] orelse unreachable;
                     const origin_idx: usize = @intCast(origin_id);
-                    if (state[origin_idx] == maskOf(.locked_read)) {
+                    if (origin_idx < state.len and state[origin_idx] == maskOf(.locked_read)) {
                         state[origin_idx] = maskOf(.locked_mut);
                     }
                 }
@@ -3469,6 +3488,34 @@ test "borrowed parameters can be written through when unique" {
         \\call @bump(&box)
         \\value = load box+0 as i32
         \\!value
+        \\!box
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s}\n", .{ @tagName(report.trap), report.message });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "borrowed parameters can be released without origin index overflow" {
+    const source =
+        \\@bump(&box: ptr) -> void:
+        \\!box
+        \\return
+        \\@main() -> i32:
+        \\box = alloc 4
+        \\call @bump(&box)
         \\!box
         \\return 0
     ;

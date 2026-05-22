@@ -1,4 +1,13 @@
-# 紧急 P0：大规模工程性能与可伸缩性 (Industrial-Scale Performance & Scalability)
+# 设计与架构导读 (Design & Architecture Links)
+
+> 在开始实施以下任务前，请务必阅读 `design.md` 中的对应章节以确保实现与架构目标对齐：
+> - **物理极限性能架构**：参见 [`design.md §1.10 工业级可伸缩性架构`](.kiro/specs/sa-asm-language/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
+> - **宏驱动高级特性**：参见 [`design.md §1.4 宏驱动高级特性演进`](.kiro/specs/sa-asm-language/design.md#14-宏驱动高级特性演进-macro-driven-advanced-features)
+> - **零信任包管理**：参见 [`design.md §3.10 包管理子系统`](.kiro/specs/sa-asm-language/design.md#310-包管理子系统new对应-r31r31gv05)
+> - **极速网络引擎**：参见 [`design.md §6 网络引擎 sa_netx`](.kiro/specs/sa-asm-language/design.md#§6-sa-极速网络引擎-sa_netxv08--物理打败魔法的网络基座)
+
+---
+
 
 > **评估结论**：当前 SA 在 10,000+ 函数规模下存在 $O(N^2)$ 内存爆炸风险（指令数 × 全局寄存器数），导致大规模编译 OOM。这是达成“Zig 速度”宗旨的头号障碍，必须立即修复。
 
@@ -8,11 +17,18 @@
 - [x] **2. 稀疏状态追踪 (Sparse State Tracking)**
   - **问题**：`AnnotatedInstruction` 为每条指令存储全量掩码数组，内存占用 $\approx$ $O(Inst \times Reg)$。
   - **方案**：仅存储在该指令中**发生状态变更**的寄存器差异（Delta），大幅降低长序列下的内存压强。
-- [x] **3. 流式 IR 发射与 Buffer 复用 (Streaming IR & Buffer Reuse)**
+- [ ] **3. 流式 IR 发射与 Buffer 复用 (Streaming IR & Buffer Reuse)**
   - **问题**：`emit_llvm.zig` 全量缓存 IR 文本且存在大量字符串拼接，效率低下。
   - **方案**：引入 `StreamingEmitter`，边校验边写盘/写管道；使用 `std.SegmentedList` 或高效 Buffer 池减少分配。
+- [ ] **4. 声明级后端并行化 (Decl-level Backend Parallelism)**
+  - **启发**：借鉴 Zig 源码 `Zcu.PerThread` 模型。
+  - **方案**：将发射任务打散至函数（Decl）粒度，利用多线程并行驱动后端生成，消除全局巨大 `.ll` 文件的单线程解析瓶颈。
+- [ ] **5. 内存直通 Emitter (In-memory LLVM IR Construction)**
+  - **启发**：借鉴 Zig 源码 `codegen/llvm.zig`。
+  - **方案**：放弃文本 `.ll` 发射，集成 LLVM C API (llvm-c)。在内存中并发构造指令流，消除磁盘 I/O 和文本解析开销，实现真正的“瞬发级”编译。
 
 ---
+
 
 
 ## 极简格式化打印 (Minimal Formatted Printing)

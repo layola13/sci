@@ -1232,9 +1232,12 @@ fn intValue(value: RegValue, signed: bool) i128 {
         if (isIdentLike(candidate)) {
             if (self.program.symbols.findId(candidate)) |id| {
                 if (fsig.slotOf(id)) |slot| {
-                    return try readValue(self, regs, slot);
+                    return readValue(self, regs, slot);
                 }
                 return self.constPointerValue(id) orelse RunError.InvalidOperand;
+            }
+            if (self.findFunctionIndex(candidate)) |idx| {
+                return .{ .ty = .ptr, .bits = 0, .call_target_name = self.program.function_sigs[idx].name };
             }
         }
         return try Interpreter.parseImmediateValue(self.allocator, &self.memory, candidate);
@@ -1905,7 +1908,20 @@ fn intValue(value: RegValue, signed: bool) i128 {
             const id = fsig.slotOf(fsig.param_ids[idx]) orelse return RunError.InvalidOperand;
             const target_ty = valueTypeForPrefix(param.cap, param.ty);
             const value = try self.coerce(arg_values[idx], target_ty);
-            try regs.put(id, value);
+            try regs.put(id, .{
+                .ty = value.ty,
+                .bits = value.bits,
+                .fallible = value.fallible,
+                .status = value.status,
+                .interior_ptr = value.interior_ptr or arg_values[idx].interior_ptr,
+                .borrow_view = arg_values[idx].borrow_view,
+                .ffi_borrow = arg_values[idx].ffi_borrow,
+                .extern_handle = value.extern_handle or arg_values[idx].extern_handle,
+                .from_try = value.from_try,
+                .const_name = value.const_name,
+                .vtable_slot_name = value.vtable_slot_name,
+                .call_target_name = value.call_target_name,
+            });
         }
 
         var pc: usize = 0;
@@ -2224,7 +2240,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                         const callee_index = self.findFunctionIndex(target_name) orelse return RunError.UnknownFunction;
                         const target_sig = self.program.function_sigs[callee_index];
                         if (parsed.args.len != target_sig.params.len) return RunError.InvalidOperand;
-                        const args = try self.collectArgs(&target_sig, parsed, &regs, target_sig.params);
+                        const args = try self.collectArgs(&fsig, parsed, &regs, target_sig.params);
                         defer self.allocator.free(args);
                         const ret = try self.execFunction(callee_index, args);
                         if (parsed.dest) |dest| {
@@ -2253,7 +2269,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                         .not_syscall => {
                             const callee_sig_index = self.findFunctionIndex(parsed.callee) orelse return RunError.UnknownFunction;
                             const callee_sig = self.program.function_sigs[callee_sig_index];
-                            const args = try self.collectArgs(&callee_sig, parsed, &regs, callee_sig.params);
+                            const args = try self.collectArgs(&fsig, parsed, &regs, callee_sig.params);
                             defer self.allocator.free(args);
                             const ret = try self.execFunction(callee_sig_index, args);
                             if (parsed.dest) |dest| {
@@ -2333,7 +2349,21 @@ fn intValue(value: RegValue, signed: bool) i128 {
                 self.stderr.print("interp indirect arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
                 return err;
             };
-            out[idx] = try self.coerce(raw, valueTypeForPrefix(param.cap, param.ty));
+            const coerced = try self.coerce(raw, valueTypeForPrefix(param.cap, param.ty));
+            out[idx] = .{
+                .ty = coerced.ty,
+                .bits = coerced.bits,
+                .fallible = coerced.fallible,
+                .status = coerced.status,
+                .interior_ptr = coerced.interior_ptr or raw.interior_ptr,
+                .borrow_view = raw.borrow_view or arg.prefix == .borrow,
+                .ffi_borrow = raw.ffi_borrow or arg.prefix == .raw,
+                .extern_handle = coerced.extern_handle or raw.extern_handle,
+                .from_try = coerced.from_try,
+                .const_name = coerced.const_name,
+                .vtable_slot_name = coerced.vtable_slot_name,
+                .call_target_name = coerced.call_target_name,
+            };
         }
         return out;
     }

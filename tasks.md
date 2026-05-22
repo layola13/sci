@@ -1,3 +1,13 @@
+# 架构设计参考 (Technical Design Reference)
+
+> **实施准则**：所有任务实现必须遵循 `.kiro/specs/sa-asm-language/design.md` 中的架构规范。
+> - **工业级性能 (P0)**：[`design.md §1.10`](.kiro/specs/sa-asm-language/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
+> - **宏驱动高级特性**：[`design.md §1.4`](.kiro/specs/sa-asm-language/design.md#14-宏驱动高级特性演进-macro-driven-advanced-features)
+> - **格式化打印 (R39)**：[`design.md §3.7`](.kiro/specs/sa-asm-language/design.md#37-sys_原语--ffi-气闸舱--错误传播-runtime)
+> - **物理极限速度 (R40)**：[`design.md §1.10 (Point 3, 4)`](.kiro/specs/sa-asm-language/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
+
+---
+
 # 实现计划：SA 线性所有权语言与编译器（按版本路线图）
 
 ## 紧急 P0 任务：工业级性能重构 (Industrial Performance Refactor)
@@ -7,7 +17,10 @@
 
 - [x] **Task P0.1: 寄存器作用域局部化**：修改 Flattener 逻辑，确保每个 `@func` 拥有独立的寄存器 ID 空间。
 - [x] **Task P0.2: 稀疏状态注解存储**：重构 `AnnotatedInstruction`，由全量 `[]u16` 快照改为记录状态增量（Delta），解决内存爆炸。
-- [x] **Task P0.3: 流式 Emitter 改造**：将 `emit_llvm.zig` 改造为流式写入，减少中间内存缓冲，支持边验证边发射。
+- [ ] **Task P0.3: 流式 Emitter 改造**：将 `emit_llvm.zig` 改造为流式写入，减少中间内存缓冲，支持边验证边发射。
+- [ ] **Task P0.4: 声明级并行发射 (Decl-level Parallel Emission)**：借鉴 Zig `Zcu.PerThread` 模型，将发射任务打散至单函数粒度，充分利用多核并行驱动后端。
+- [ ] **Task P0.5: 内存直通 Emitter 重构**：借鉴 Zig `codegen/llvm.zig`，引入 `llvm-c` 绑定，放弃文本 `.ll` 中转，直接在内存中构造 LLVM IR 模块，消除 I/O 瓶颈。
+
 
 ## 当前执行顺序
 

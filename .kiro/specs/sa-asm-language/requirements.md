@@ -1071,6 +1071,19 @@
 
 ---
 
-**文档终态：以上 39 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + R36 v0.9 SAX + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
+### Requirement 40: 物理极限编译速度 (Physical-Limit Compilation Speed) - 紧急 P0
+
+**User Story**  
+作为工业级高性能编译器，我需要总编译时长（Wall-clock time）在任何规模下都能显著超越 Rust，消除 LLVM 文本 IR 的生成与单线程解析瓶颈。
+
+**Acceptance Criteria**
+1. WHEN 处理大型工程（10k+ 函数）THEN 编译器 SHALL 实现**声明级后端并行 (Decl-level Parallelism)**：模仿 Zig `Zcu.PerThread` 模型，将发射任务按函数粒度打散，并行驱动多核 LLVM 生成，禁止由于单线程解析巨大 `.ll` 文件导致的性能塌陷。
+2. WHEN 生成中间代码 THEN 编译器 SHALL 采用**内存直通路径 (In-memory Physical Path)**：直接调用 LLVM C API (llvm-c) 在内存中构造 IR 对象，**禁止生成中间文本 `.ll` 文件**，物理消除磁盘 I/O 和后端文本解析开销。
+3. WHEN 进行端到端构建 THEN 编译器在 16 核标准工作站上的总耗时 SHALL 达到 Rust (O3 模式) 的 **200% - 500% 速度**。
+4. WHEN 执行 `sa run` 模式 THEN 编译与启动延迟 SHALL 保持在**毫秒级（< 50ms）**，实现即时反馈。
+
+---
+
+**文档终态：以上 40 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + R36 v0.9 SAX + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
 
 > 版本号说明：v0.7 已规划为"原生单元测试框架"（见 `tasks.md` Version 0.7），v0.8 网络引擎，v0.9 SAX 前端方言。
