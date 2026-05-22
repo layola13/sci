@@ -81,9 +81,21 @@ test "root module imports common types" {
 
     const program = [_]flatten.Instruction{
         .{
-            .kind = .alloc,
+            .kind = .func_decl,
             .source_line = 1,
             .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> ptr:",
+        },
+        .{
+            .kind = .alloc,
+            .source_line = 2,
+            .expanded_line = 1,
             .operands = .{
                 .{ .reg = 0 },
                 .{ .imm_u64 = 8 },
@@ -94,8 +106,8 @@ test "root module imports common types" {
         },
         .{
             .kind = .return_,
-            .source_line = 2,
-            .expanded_line = 1,
+            .source_line = 3,
+            .expanded_line = 2,
             .operands = .{
                 .{ .reg = 0 },
                 .{ .none = {} },
@@ -109,7 +121,7 @@ test "root module imports common types" {
     switch (verified) {
         .ok => |ok| {
             var owned = ok;
-            try std.testing.expectEqual(@as(usize, 2), owned.annotated.len);
+            try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
             owned.deinit(std.testing.allocator);
         },
         .trap => return error.TestUnexpectedResult,

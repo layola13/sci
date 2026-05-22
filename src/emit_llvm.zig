@@ -1520,6 +1520,7 @@ fn valueFromArgText(
         }
     }
     if (resolved.len != 0 and (std.ascii.isAlphabetic(resolved[0]) or resolved[0] == '_')) {
+        if (findRegValueByName(state, symbols, resolved)) |value| return state.enrichPointerValue(value);
         if (state.hasConstRef(resolved)) {
             return .{ .expr = try state.ownFmt(allocator, "@{s}", .{resolved}), .ty = .ptr, .const_ref = resolved, .origin = .{ .const_name = resolved } };
         }
@@ -1527,16 +1528,36 @@ fn valueFromArgText(
     return try parseImmediateValue(allocator, state, resolved);
 }
 
+fn valueFromGlobalId(
+    allocator: std.mem.Allocator,
+    state: *FunctionState,
+    symbols: *const symbol.SymbolTable,
+    global_id: u32,
+) !Value {
+    if (state.sig.slotOf(global_id)) |slot| {
+        if (state.getReg(slot)) |value| return state.enrichPointerValue(value);
+    }
+    const name = symbols.lookupName(global_id) orelse return EmitError.InvalidOperand;
+    if (findRegValueByName(state, symbols, name)) |value| return state.enrichPointerValue(value);
+    if (!state.hasConstRef(name)) return EmitError.InvalidOperand;
+    return .{
+        .expr = try state.ownFmt(allocator, "@{s}", .{name}),
+        .ty = .ptr,
+        .const_ref = name,
+        .origin = .{ .const_name = name },
+    };
+}
+
 fn valueFromRegOrConst(
     allocator: std.mem.Allocator,
     state: *FunctionState,
     symbols: *const symbol.SymbolTable,
-    reg_id: u32,
+    slot: u32,
 ) !Value {
-    if (state.sig.slotOf(reg_id)) |slot| {
-        if (state.getReg(slot)) |value| return state.enrichPointerValue(value);
-    }
-    const name = symbols.lookupName(reg_id) orelse return EmitError.InvalidOperand;
+    if (state.getReg(slot)) |value| return state.enrichPointerValue(value);
+    if (slot >= state.sig.reg_ids.len) return EmitError.InvalidOperand;
+    const global_id = state.sig.globalId(slot);
+    const name = symbols.lookupName(global_id) orelse return EmitError.InvalidOperand;
     if (findRegValueByName(state, symbols, name)) |value| return state.enrichPointerValue(value);
     if (!state.hasConstRef(name)) return EmitError.InvalidOperand;
     return .{
@@ -2187,10 +2208,7 @@ fn emitIndirectCall(
     parsed: call.ParsedCall,
 ) !?Value {
     const callee_id = symbols.findId(parsed.callee) orelse return EmitError.UnknownFunction;
-    const callee = if (state.sig.slotOf(callee_id)) |slot|
-        state.getReg(slot) orelse return EmitError.InvalidOperand
-    else
-        try valueFromRegOrConst(allocator, state, symbols, callee_id);
+    const callee = try valueFromGlobalId(allocator, state, symbols, callee_id);
     var resolved_origin = callee.origin;
     if (resolved_origin.indirect_sig_index == null) {
         if (state.lookupMemoryPtrMeta(callee.expr, 0)) |meta| {

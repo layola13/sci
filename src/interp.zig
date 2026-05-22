@@ -282,12 +282,16 @@ fn requireNonFallible(value: RegValue) !RegValue {
 }
 
 const FrameRegs = struct {
+    fsig: *const sig.FunctionSig,
     values: []?RegValue,
 
-    fn init(allocator: std.mem.Allocator, reg_count: usize) !FrameRegs {
-        const values = try allocator.alloc(?RegValue, reg_count);
+    fn init(allocator: std.mem.Allocator, fsig: *const sig.FunctionSig) !FrameRegs {
+        const values = try allocator.alloc(?RegValue, fsig.reg_ids.len);
         @memset(values, null);
-        return .{ .values = values };
+        return .{
+            .fsig = fsig,
+            .values = values,
+        };
     }
 
     fn deinit(self: *FrameRegs, allocator: std.mem.Allocator) void {
@@ -325,12 +329,16 @@ fn readRawReg(regs: *FrameRegs, id: u32) !RegValue {
 
 fn readValue(self: *Interpreter, regs: *FrameRegs, id: u32) !RegValue {
     if (regs.get(id)) |value| return try requireNonFallible(value);
-    return self.constPointerValue(id) orelse RunError.InvalidOperand;
+    if (id >= regs.fsig.reg_ids.len) return RunError.InvalidOperand;
+    const global_id = regs.fsig.globalId(id);
+    return self.constPointerValue(global_id) orelse RunError.InvalidOperand;
 }
 
 fn readRawValue(self: *Interpreter, regs: *FrameRegs, id: u32) !RegValue {
     if (regs.get(id)) |value| return value;
-    return self.constPointerValue(id) orelse RunError.InvalidOperand;
+    if (id >= regs.fsig.reg_ids.len) return RunError.InvalidOperand;
+    const global_id = regs.fsig.globalId(id);
+    return self.constPointerValue(global_id) orelse RunError.InvalidOperand;
 }
 
 fn ptrMetaFromValue(value: RegValue) ?PtrMeta {
@@ -1891,7 +1899,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
         const range = self.ranges[sig_index];
         const body = self.program.annotated[range.start..range.end];
 
-        var regs = try FrameRegs.init(self.allocator, fsig.reg_ids.len);
+        var regs = try FrameRegs.init(self.allocator, &fsig);
         defer regs.deinit(self.allocator);
         var labels = try self.buildLabelMap(body);
         defer labels.deinit();

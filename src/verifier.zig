@@ -1187,10 +1187,18 @@ fn addScopeReg(
 fn finalizeFunctionScope(
     sigs: *std.ArrayList(sig.FunctionSig),
     reg_ids: *std.ArrayList(u32),
+    reg_seen: *std.AutoHashMap(u32, void),
+    const_decls: []const const_decl.ConstDecl,
+    symbols: *const symbol.SymbolTable,
 ) !void {
     if (sigs.items.len == 0) {
         reg_ids.clearRetainingCapacity();
         return;
+    }
+    for (const_decls) |decl| {
+        if (symbols.findId(decl.name)) |id| {
+            try addScopeReg(reg_ids, reg_seen, id);
+        }
     }
     const slice = try reg_ids.toOwnedSlice();
     sigs.items[sigs.items.len - 1].reg_ids = slice;
@@ -1333,7 +1341,7 @@ fn collectMetadata(
             .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
                 const kind = parseDeclKind(item.kind).?;
                 if (sigs.items.len != 0 and current_sig_index < sigs.items.len) {
-                    try finalizeFunctionScope(&sigs, &current_reg_ids);
+                    try finalizeFunctionScope(&sigs, &current_reg_ids, &current_reg_seen, const_decls, &symbols);
                 }
                 current_reg_ids.clearRetainingCapacity();
                 current_reg_seen.clearRetainingCapacity();
@@ -1487,7 +1495,7 @@ fn collectMetadata(
     }
 
     if (sigs.items.len != 0) {
-        try finalizeFunctionScope(&sigs, &current_reg_ids);
+        try finalizeFunctionScope(&sigs, &current_reg_ids, &current_reg_seen, const_decls, &symbols);
     }
 
     return .{
