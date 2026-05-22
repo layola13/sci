@@ -28,7 +28,7 @@ cd sa
 zig build -Doptimize=ReleaseSafe
 ```
 
-编译完成后，建议将 `zig-out/bin/saasm` 添加到你的 `PATH` 环境变量中。
+编译完成后，建议将 `zig-out/bin/sa` 添加到你的 `PATH` 环境变量中。
 
 ### 3. VS Code 插件
 搜索并安装 `SA-ASM Language Support` 插件，以获得语法高亮和代码补全支持。
@@ -37,7 +37,7 @@ zig build -Doptimize=ReleaseSafe
 在终端输入：
 
 ```bash
-saasm --version
+sa --version
 ```
 
 如果你看到版本号输出，恭喜你，你已经准备好开启 SA 之旅了！

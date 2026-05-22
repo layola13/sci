@@ -470,7 +470,7 @@ test "db exec can write schema and qmod artifacts" {
     defer original_cwd.setAsCwd() catch {};
 
     const schema_path = "flash_sale.sadb-schema";
-    const qmod_path = "heavy_users.query.saasm";
+    const qmod_path = "heavy_users.query.sa";
 
     const schema_source =
         \\#def MAX_ROWS = 10
@@ -512,7 +512,7 @@ test "db exec can run a registered query with binary params" {
     defer original_cwd.setAsCwd() catch {};
 
     const schema_path = "flash_sale.sadb-schema";
-    const qmod_path = "heavy_users.query.saasm";
+    const qmod_path = "heavy_users.query.sa";
     const params_path = "params.bin";
 
     try writeFile(schema_path, \\#def MAX_ROWS = 10

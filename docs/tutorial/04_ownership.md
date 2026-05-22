@@ -14,7 +14,7 @@
 ## 移动语义示例
 当你把一个寄存器作为参数传递给函数时，所有权就发生了转移：
 
-```saasm
+```sa
 @process_data(data: ptr) -> void:
 L_ENTRY:
     // 此处 process_data 拥有了 data
@@ -33,7 +33,7 @@ L_ENTRY:
 ## 借用 (Borrowing) 与 指针
 SA 支持通过 `&` 符号进行借用。借用不会转移所有权，但会受到 Referee 的严格生命周期检查。
 
-```saasm
+```sa
     p = alloc 64
     ptr_to_p = &p   // 借用 p 的地址
     // 只要 ptr_to_p 还在使用，p 就不能被销毁或移动
@@ -50,7 +50,7 @@ SA 支持通过 `&` 符号进行借用。借用不会转移所有权，但会受
 
 ### 1. 往返模式 (Round-trip)
 如果你需要函数修改数据并还给你：
-```saasm
+```sa
 @modify(p: ptr) -> ptr:
     store p+0, 1 as i32
     return p // 还回所有权
@@ -67,7 +67,7 @@ SA 的 Referee 不允许"交叉借用"。即如果你借用了 `A` 给 `B`，在
 
 ## 常见陷阱：僵尸寄存器 (Zombie Registers)
 如果你在分支中漏掉了销毁指令：
-```saasm
+```sa
     br cond -> L_TRUE, L_FALSE
 L_TRUE:
     !p

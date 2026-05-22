@@ -1,0 +1,95 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Yield_SIZE = 20
+#def Yield_state = +0
+#def Yield_pending = +4
+#def Yield_waker = +8
+#def Yield_value = +12
+#def Yield_steps = +16
+#def STATE_START = 0
+#def STATE_SUSPENDED = 1
+#def STATE_DONE = 2
+#def POLL_PENDING = 0
+#def POLL_READY = 1
+
+@poll_yield(&y: ptr) -> i32:
+L_ENTRY:
+    state = load y+Yield_state as i32
+    br state -> L_RESUME, L_FIRST
+
+L_FIRST:
+    store y+Yield_state, STATE_SUSPENDED as i32
+    store y+Yield_pending, 1 as i32
+    store y+Yield_steps, 1 as i32
+    !state
+    return POLL_PENDING
+
+L_RESUME:
+    steps = load y+Yield_steps as i32
+    next_steps = add steps, 1
+    store y+Yield_state, STATE_DONE as i32
+    store y+Yield_pending, 0 as i32
+    store y+Yield_steps, next_steps as i32
+    store y+Yield_value, 2 as i32
+    !steps
+    !next_steps
+    !state
+    return POLL_READY
+
+@main() -> i32:
+L_ENTRY:
+    y = alloc Yield_SIZE
+    store y+Yield_state, STATE_START as i32
+    store y+Yield_pending, 0 as i32
+    store y+Yield_waker, 0 as i32
+    store y+Yield_value, 0 as i32
+    store y+Yield_steps, 0 as i32
+
+    ready0 = call @poll_yield(&y)
+    pending0 = load y+Yield_pending as i32
+    ready1 = call @poll_yield(&y)
+    pending1 = load y+Yield_pending as i32
+    value = load y+Yield_value as i32
+    steps = load y+Yield_steps as i32
+    ok_value = eq value, 2
+    ok_ready0 = eq ready0, POLL_PENDING
+    ok_ready1 = eq ready1, POLL_READY
+    ok_pending0 = eq pending0, 1
+    ok_pending1 = eq pending1, 0
+    ok_steps = eq steps, 2
+    ok0 = and ok_value, ok_ready0
+    ok1 = and ok_ready1, ok_pending1
+    ok2 = and ok_pending0, ok_steps
+    ok3 = and ok0, ok1
+    ok = and ok3, ok2
+    !ok_value
+    !ok_ready0
+    !ok_ready1
+    !ok_pending0
+    !ok_pending1
+    !ok_steps
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ready0
+    !ready1
+    !pending0
+    !pending1
+    !value
+    !steps
+    !y
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

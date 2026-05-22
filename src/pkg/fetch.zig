@@ -89,6 +89,16 @@ fn pathHasPrecompiledArtifact(name: []const u8) bool {
         std.mem.endsWith(u8, slice, ".node");
 }
 
+fn isIgnoredTreeDir(name: []const u8) bool {
+    return std.mem.eql(u8, name, ".git") or
+        std.mem.eql(u8, name, ".codex") or
+        std.mem.eql(u8, name, ".mimir") or
+        std.mem.eql(u8, name, ".kiro") or
+        std.mem.eql(u8, name, "artifacts") or
+        std.mem.eql(u8, name, "zig-out") or
+        std.mem.eql(u8, name, "zig-cache");
+}
+
 fn rejectPrecompiledArtifacts(root: std.fs.Dir, allocator: std.mem.Allocator) !void {
     var walker = try root.walk(allocator);
     defer walker.deinit();
@@ -106,6 +116,7 @@ fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Alloc
     defer walker.deinit();
 
     while (try walker.next()) |entry| {
+        if (entry.kind == .directory and isIgnoredTreeDir(entry.basename)) continue;
         const dst_path = try std.fs.path.join(allocator, &.{ dst_root, entry.path });
         defer allocator.free(dst_path);
 
@@ -260,7 +271,7 @@ test "fetch copies a local source tree into sa_vendor" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("github.com/example/pkg/src");
-    var src_file = try tmp.dir.createFile("github.com/example/pkg/src/main.saasm", .{ .truncate = true });
+    var src_file = try tmp.dir.createFile("github.com/example/pkg/src/main.sa", .{ .truncate = true });
     defer src_file.close();
     try src_file.writeAll("@main() -> i32:\n    return 0\n");
 
@@ -274,7 +285,7 @@ test "fetch copies a local source tree into sa_vendor" {
 
     var copied = try std.fs.cwd().openDir(result.root, .{ .iterate = true });
     defer copied.close();
-    try copied.access("src/main.saasm", .{ .mode = .read_only });
+    try copied.access("src/main.sa", .{ .mode = .read_only });
 }
 
 test "fetch rejects precompiled artifacts" {

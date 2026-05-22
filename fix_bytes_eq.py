@@ -1,6 +1,6 @@
 import re
 
-with open('tests/unit_framework/support/json_regex.saasm', 'r') as f:
+with open('tests/unit_framework/support/json_regex.sa', 'r') as f:
     content = f.read()
 
 content = re.sub(
@@ -9,5 +9,5 @@ content = re.sub(
     content
 )
 
-with open('tests/unit_framework/support/json_regex.saasm', 'w') as f:
+with open('tests/unit_framework/support/json_regex.sa', 'w') as f:
     f.write(content)

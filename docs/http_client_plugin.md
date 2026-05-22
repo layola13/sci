@@ -49,8 +49,8 @@ HTTP 插件使用不透明的 C 指针 (`ptr`) 表示三种资源，所有资源
 - `Request`: 单次 HTTP 请求上下文
 - `Response`: HTTP 响应数据
 
-### 3.2 完整接口定义 (`sa_http_client.saasm-iface`)
-```saasm
+### 3.2 完整接口定义 (`sa_http_client.sai`)
+```sa
 // 1. 初始化客户端（use_tls=1 开启 HTTPS，0 为纯 HTTP）
 @extern sa_http_client_new(use_tls: u8, &out_client: ptr) -> i32!
 
@@ -79,7 +79,7 @@ HTTP 插件使用不透明的 C 指针 (`ptr`) 表示三种资源，所有资源
 
 以下是一段真实合法的 SA-ASM 代码，演示如何使用该插件发送带有 Header 的 JSON POST 请求。
 
-```saasm
+```sa
 @func fetch_data() -> i32! {
     // 1. 创建开启了 TLS 的客户端
     res = call @sa_http_client_new(1, &client)

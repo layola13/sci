@@ -1,8 +1,0 @@
-@import "layout.saasm-layout"
-@import "detail/seed.saasm"
-
-@right_value() -> i32:
-L_ENTRY:
-    seed = call @right_seed_value()
-    value = add SHADOW_SIZE, seed
-    return value

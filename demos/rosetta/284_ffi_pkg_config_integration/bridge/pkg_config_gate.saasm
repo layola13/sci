@@ -1,9 +1,0 @@
-@import "pkg_config_gate.saasm-layout"
-@import "../ffi/pkg_config.saasm-iface"
-
-@ffi_wrapper pkg_config_probe_gate(*probe: ptr) -> i32:
-L_ENTRY:
-    view = assume_borrow probe
-    tag = load view+PkgConfigProbe_tag as i32
-    !view
-    return tag

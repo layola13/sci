@@ -1,0 +1,41 @@
+@import "fmt.sai"
+
+[MACRO] STRFMT_I64 %out_buf, %value, %base
+    %out_buf = call @sa_fmt_i64(%value, %base)
+[END_MACRO]
+
+[MACRO] STRFMT_U64 %out_buf, %value, %base
+    %out_buf = call @sa_fmt_u64(%value, %base)
+[END_MACRO]
+
+[MACRO] STRFMT_F64 %out_buf, %value, %precision
+    %out_buf = call @sa_fmt_f64(%value, %precision)
+[END_MACRO]
+
+[MACRO] STRFMT_BOOL %out_buf, %value
+    %out_buf = call @sa_fmt_bool(%value)
+[END_MACRO]
+
+[MACRO] STRFMT_BYTES %out_buf, %buf, %len
+    %out_buf = call @sa_fmt_bytes(&%buf, %len)
+[END_MACRO]
+
+[MACRO] STRFMT_DATA %out_ptr, %buffer
+    %out_ptr = call @sa_fmt_buffer_data(&%buffer)
+[END_MACRO]
+
+[MACRO] STRFMT_LEN %out_len, %buffer
+    %out_len = call @sa_fmt_buffer_len(&%buffer)
+[END_MACRO]
+
+[MACRO] STRFMT_WRITE_TO %out_ok, %buffer, %writer
+    __strfmt_write_to = call @sa_fmt_buffer_write_to(&%buffer, %writer)
+    %out_ok = ? __strfmt_write_to
+    !__strfmt_write_to
+[END_MACRO]
+
+[MACRO] STRFMT_FREE %out_ok, %buffer
+    __strfmt_free = call @sa_fmt_buffer_free(^%buffer)
+    %out_ok = ? __strfmt_free
+    !__strfmt_free
+[END_MACRO]

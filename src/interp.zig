@@ -42,6 +42,8 @@ const RegValue = struct {
     fallible: bool = false,
     status: u32 = 0,
     interior_ptr: bool = false,
+    borrow_view: bool = false,
+    ffi_borrow: bool = false,
     extern_handle: bool = false,
     from_try: bool = false,
     const_name: ?[]const u8 = null,
@@ -279,20 +281,54 @@ fn requireNonFallible(value: RegValue) !RegValue {
     return value;
 }
 
-fn readReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+const FrameRegs = struct {
+    values: []?RegValue,
+
+    fn init(allocator: std.mem.Allocator, reg_count: usize) !FrameRegs {
+        const values = try allocator.alloc(?RegValue, reg_count);
+        @memset(values, null);
+        return .{ .values = values };
+    }
+
+    fn deinit(self: *FrameRegs, allocator: std.mem.Allocator) void {
+        if (self.values.len != 0) allocator.free(self.values);
+        self.* = undefined;
+    }
+
+    fn get(self: *const FrameRegs, id: u32) ?RegValue {
+        const idx: usize = @intCast(id);
+        if (idx >= self.values.len) return null;
+        return self.values[idx];
+    }
+
+    fn getPtr(self: *FrameRegs, id: u32) ?*RegValue {
+        const idx: usize = @intCast(id);
+        if (idx >= self.values.len) return null;
+        if (self.values[idx]) |*value| return value;
+        return null;
+    }
+
+    fn put(self: *FrameRegs, id: u32, value: RegValue) !void {
+        const idx: usize = @intCast(id);
+        if (idx >= self.values.len) return RunError.InvalidOperand;
+        self.values[idx] = value;
+    }
+};
+
+fn readReg(regs: *FrameRegs, id: u32) !RegValue {
     return try requireNonFallible(regs.get(id) orelse return RunError.InvalidOperand);
 }
 
-fn readRawReg(regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+fn readRawReg(regs: *FrameRegs, id: u32) !RegValue {
     return regs.get(id) orelse return RunError.InvalidOperand;
 }
 
-fn readValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+fn readValue(self: *Interpreter, regs: *FrameRegs, id: u32) !RegValue {
     if (regs.get(id)) |value| return try requireNonFallible(value);
     return self.constPointerValue(id) orelse RunError.InvalidOperand;
 }
 
-fn readRawValue(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), id: u32) !RegValue {
+fn readRawValue(self: *Interpreter, regs: *FrameRegs, id: u32) !RegValue {
     if (regs.get(id)) |value| return value;
     return self.constPointerValue(id) orelse RunError.InvalidOperand;
 }
@@ -363,12 +399,13 @@ fn stripTextOperandPrefix(text: []const u8) []const u8 {
 
 fn resolveOperandValue(
     self: *Interpreter,
-    regs: *std.AutoHashMap(u32, RegValue),
+    fsig: *const sig.FunctionSig,
+    regs: *FrameRegs,
     operand: inst.Operand,
 ) !RegValue {
     return switch (operand) {
         .reg => |id| try readValue(self, regs, id),
-        .text => |text| try self.resolveTextOperand(regs, text),
+        .text => |text| try self.resolveTextOperand(fsig, regs, text),
         .imm_u64 => |v| .{ .ty = .u64, .bits = v },
         .imm_i64 => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
         .imm_int => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
@@ -1189,18 +1226,21 @@ fn intValue(value: RegValue, signed: bool) i128 {
         return null;
     }
 
-    fn resolveTextOperand(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), text: []const u8) !RegValue {
+    fn resolveTextOperand(self: *Interpreter, fsig: *const sig.FunctionSig, regs: *FrameRegs, text: []const u8) !RegValue {
         const candidate = stripTextOperandPrefix(text);
         if (candidate.len == 0) return RunError.InvalidOperand;
         if (isIdentLike(candidate)) {
             if (self.program.symbols.findId(candidate)) |id| {
-                return try readValue(self, regs, id);
+                if (fsig.slotOf(id)) |slot| {
+                    return try readValue(self, regs, slot);
+                }
+                return self.constPointerValue(id) orelse RunError.InvalidOperand;
             }
         }
         return try Interpreter.parseImmediateValue(self.allocator, &self.memory, candidate);
     }
 
-    fn resolveSizeOperand(self: *Interpreter, regs: *std.AutoHashMap(u32, RegValue), operand: inst.Operand) !u64 {
+    fn resolveSizeOperand(self: *Interpreter, regs: *FrameRegs, operand: inst.Operand) !u64 {
         return switch (operand) {
             .imm_u64 => |v| v,
             .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
@@ -1254,10 +1294,11 @@ fn intValue(value: RegValue, signed: bool) i128 {
 
     fn decodeArg(
         self: *Interpreter,
-        frame_regs: *std.AutoHashMap(u32, RegValue),
+        fsig: *const sig.FunctionSig,
+        frame_regs: *FrameRegs,
         arg: call.ParsedArg,
     ) !RegValue {
-        return try self.resolveTextOperand(frame_regs, arg.text);
+        return try self.resolveTextOperand(fsig, frame_regs, arg.text);
     }
 
     fn decodeBinaryValue(self: *Interpreter, ty: sig.PrimType, bytes: []const u8) !RegValue {
@@ -1847,8 +1888,8 @@ fn intValue(value: RegValue, signed: bool) i128 {
         const range = self.ranges[sig_index];
         const body = self.program.annotated[range.start..range.end];
 
-        var regs = std.AutoHashMap(u32, RegValue).init(self.allocator);
-        defer regs.deinit();
+        var regs = try FrameRegs.init(self.allocator, fsig.reg_ids.len);
+        defer regs.deinit(self.allocator);
         var labels = try self.buildLabelMap(body);
         defer labels.deinit();
         var stack_allocs = std.ArrayList(u64).init(self.allocator);
@@ -1861,7 +1902,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
 
         for (fsig.params, 0..) |param, idx| {
             if (idx >= arg_values.len) return RunError.InvalidOperand;
-            const id = fsig.param_ids[idx];
+            const id = fsig.slotOf(fsig.param_ids[idx]) orelse return RunError.InvalidOperand;
             const target_ty = valueTypeForPrefix(param.cap, param.ty);
             const value = try self.coerce(arg_values[idx], target_ty);
             try regs.put(id, value);
@@ -1927,11 +1968,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     const source_meta = self.memory.ptrMetaAt(addr, @intCast(sig.primTypeBytes(ty)));
                     const block_meta = self.memory.blockMeta(addr);
                     const selected_meta = source_meta orelse block_meta;
-                    const src_mask = item.entry_caps[@intCast(src)];
-                    const src_is_borrowed =
-                        (src_mask & @intFromEnum(cap.CapabilityMask.borrow_view)) != 0 or
-                        (src_mask & @intFromEnum(cap.CapabilityMask.ffi_borrow)) != 0 or
-                        srcv.interior_ptr;
+                    const src_is_borrowed = srcv.borrow_view or srcv.ffi_borrow or srcv.interior_ptr;
                     try regs.put(dst, .{
                         .ty = loaded.ty,
                         .bits = loaded.bits,
@@ -1959,7 +1996,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     const ty: sig.PrimType = if (base.operands[3] == .ty) blk: {
                         break :blk sig.primTypeFromTag(base.operands[3].ty) orelse .i64;
                     } else if (base.operands[2] == .reg) (try readValue(self, &regs, base.operands[2].reg)).ty else .i64;
-                    const value = try resolveOperandValue(self, &regs, base.operands[2]);
+                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
                     const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
                     // When storing a ptr value into another allocation, mark the
@@ -1997,7 +2034,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     };
                     const basev = try readValue(self, &regs, base_reg);
                     const ty = atomicValueType(base, .i64);
-                    const value = try resolveOperandValue(self, &regs, base.operands[2]);
+                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
                     const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
                 },
@@ -2016,8 +2053,8 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     const ty = atomicValueType(base, .i64);
                     const expected_text = base.atomic_expected_text orelse return RunError.InvalidOperand;
                     const new_text = base.atomic_new_text orelse return RunError.InvalidOperand;
-                    const expected_value = try resolveOperandValue(self, &regs, .{ .text = expected_text });
-                    const new_value = try resolveOperandValue(self, &regs, .{ .text = new_text });
+                    const expected_value = try resolveOperandValue(self, &fsig, &regs, .{ .text = expected_text });
+                    const new_value = try resolveOperandValue(self, &fsig, &regs, .{ .text = new_text });
                     const expected = try self.coerce(expected_value, ty);
                     const new_coerced = try self.coerce(new_value, ty);
                     const current = try self.loadFromMemory(basev.bits + off, ty);
@@ -2040,7 +2077,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     };
                     const basev = try readValue(self, &regs, src);
                     const ty = atomicValueType(base, .i64);
-                    const value = try resolveOperandValue(self, &regs, base.operands[3]);
+                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[3]);
                     const coerced = try self.coerce(value, ty);
                     const current = try self.loadFromMemory(basev.bits + off, ty);
                     const updated = try atomicRmwApply(base.atomic_rmw_op orelse return RunError.InvalidOperand, current, coerced);
@@ -2053,25 +2090,25 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     const op = base.op_kind orelse return RunError.InvalidInstruction;
                     const result = try switch (op) {
                         .neg, .not, .fneg => blk: {
-                            const value = try resolveOperandValue(self, &regs, base.operands[1]);
+                            const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
                             break :blk self.opUnary(op, value, null);
                         },
                         .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => blk: {
-                            const value = try resolveOperandValue(self, &regs, base.operands[1]);
+                            const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
                             const target = if (base.operands[2] == .ty) sig.primTypeFromTag(base.operands[2].ty) else null;
                             break :blk self.opUnary(op, value, target);
                         },
                         .extract_lane => blk: {
-                            const value = try resolveOperandValue(self, &regs, base.operands[1]);
-                            const lane = try resolveOperandValue(self, &regs, base.operands[2]);
+                            const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
+                            const lane = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
                             _ = value;
                             _ = lane;
                             break :blk RunError.UnsupportedInstruction;
                         },
                         .shuffle_v128, .insert_lane, .add_v128, .sub_v128, .mul_v128 => RunError.UnsupportedInstruction,
                         else => blk: {
-                            const lhs = try resolveOperandValue(self, &regs, base.operands[1]);
-                            const rhs = try resolveOperandValue(self, &regs, base.operands[2]);
+                            const lhs = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
+                            const rhs = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
                             break :blk self.opBinary(op, lhs, rhs);
                         },
                     };
@@ -2082,7 +2119,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     const src = base.operands[1].reg;
                     const basev = try readValue(self, &regs, src);
                     const ptrv = try self.coerce(basev, .ptr);
-                    const offset = try resolveOperandValue(self, &regs, base.operands[2]);
+                    const offset = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
                     const delta = @as(u64, @bitCast(intValueAsOffset(offset)));
                     try regs.put(dst, .{
                         .ty = .ptr,
@@ -2115,7 +2152,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                 },
                 .assign => {
                     const dst = base.operands[0].reg;
-                    const value = try resolveOperandValue(self, &regs, base.operands[1]);
+                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
                     try regs.put(dst, value);
                 },
                 .move_ => {
@@ -2123,10 +2160,10 @@ fn intValue(value: RegValue, signed: bool) i128 {
                 },
                 .release => {
                     const reg_id = base.operands[0].reg;
-                    const mask = item.entry_caps[@intCast(reg_id)];
-                    if ((mask & @intFromEnum(cap.CapabilityMask.borrow_view)) != 0 or (mask & @intFromEnum(cap.CapabilityMask.ffi_borrow)) != 0) {
-                        // Borrow views do not physically free.
-                    } else if (regs.get(reg_id)) |value| {
+                    if (regs.get(reg_id)) |value| {
+                        if (value.borrow_view or value.ffi_borrow) {
+                            // Borrow views do not physically free.
+                        } else {
                         if (value.interior_ptr or value.const_name != null) {
                             // Interior pointers are derived views into an allocation.
                         } else {
@@ -2140,6 +2177,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                             if (!is_stack_alloc and value.ty == .ptr and value.bits != 0) {
                                 self.memory.free(value.bits) catch {};
                             }
+                        }
                         }
                     }
                 },
@@ -2168,7 +2206,10 @@ fn intValue(value: RegValue, signed: bool) i128 {
 
                     if (parsed.is_indirect) {
                         const callee_id = self.program.symbols.findId(parsed.callee) orelse return RunError.UnknownFunction;
-                        const callee = try readRawValue(self, &regs, callee_id);
+                        const callee = if (fsig.slotOf(callee_id)) |slot|
+                            try readRawValue(self, &regs, slot)
+                        else
+                            self.constPointerValue(callee_id) orelse return RunError.UnknownFunction;
                         if (callee.ty != .ptr) return RunError.MissingIndirectCallProvenance;
                         const target_name = blk: {
                             if (callee.call_target_name) |name| break :blk name;
@@ -2183,36 +2224,43 @@ fn intValue(value: RegValue, signed: bool) i128 {
                         const callee_index = self.findFunctionIndex(target_name) orelse return RunError.UnknownFunction;
                         const target_sig = self.program.function_sigs[callee_index];
                         if (parsed.args.len != target_sig.params.len) return RunError.InvalidOperand;
-                        const args = try self.collectArgs(parsed, &regs, target_sig.params);
+                        const args = try self.collectArgs(&target_sig, parsed, &regs, target_sig.params);
                         defer self.allocator.free(args);
                         const ret = try self.execFunction(callee_index, args);
                         if (parsed.dest) |dest| {
                             if (self.program.symbols.findId(dest)) |id| {
-                                try regs.put(id, ret);
+                                const slot = fsig.slotOf(id) orelse return RunError.InvalidOperand;
+                                try regs.put(slot, ret);
                             }
                         }
                         break :call_case;
                     }
 
-                    const call_values = try self.collectCallValues(parsed, &regs);
+                    const call_values = try self.collectCallValues(&fsig, parsed, &regs);
                     defer self.allocator.free(call_values);
 
                     switch (try self.handleSysCall(parsed.callee, call_values)) {
                         .handled => |ret_or_null| {
                             if (ret_or_null) |ret| {
                                 if (parsed.dest) |dest| {
-                                    if (self.program.symbols.findId(dest)) |id| try regs.put(id, ret);
+                                    if (self.program.symbols.findId(dest)) |id| {
+                                        const slot = fsig.slotOf(id) orelse return RunError.InvalidOperand;
+                                        try regs.put(slot, ret);
+                                    }
                                 }
                             }
                         },
                         .not_syscall => {
                             const callee_sig_index = self.findFunctionIndex(parsed.callee) orelse return RunError.UnknownFunction;
                             const callee_sig = self.program.function_sigs[callee_sig_index];
-                            const args = try self.collectArgs(parsed, &regs, callee_sig.params);
+                            const args = try self.collectArgs(&callee_sig, parsed, &regs, callee_sig.params);
                             defer self.allocator.free(args);
                             const ret = try self.execFunction(callee_sig_index, args);
                             if (parsed.dest) |dest| {
-                                if (self.program.symbols.findId(dest)) |id| try regs.put(id, ret);
+                                if (self.program.symbols.findId(dest)) |id| {
+                                    const slot = fsig.slotOf(id) orelse return RunError.InvalidOperand;
+                                    try regs.put(slot, ret);
+                                }
                             }
                         },
                     }
@@ -2237,7 +2285,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     if (fsig.return_fallible) {
                         const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
                         if (ret_ty == .void) return RunError.InvalidOperand;
-                        const value = try resolveOperandValue(self, &regs, base.operands[0]);
+                        const value = try resolveOperandValue(self, &fsig, &regs, base.operands[0]);
                         if (value.fallible) return value;
                         const coerced = try self.coerce(value, ret_ty);
                         var ret_value = packFallible(0, coerced);
@@ -2248,7 +2296,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                     if (ret_ty == .void) {
                         return .{ .ty = .void, .bits = 0 };
                     }
-                    const value = try resolveOperandValue(self, &regs, base.operands[0]);
+                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[0]);
                     return try self.coerce(value, ret_ty);
                 },
                 .native => {
@@ -2264,11 +2312,11 @@ fn intValue(value: RegValue, signed: bool) i128 {
         return RunError.InvalidInstruction;
     }
 
-    fn collectCallValues(self: *Interpreter, parsed: call.ParsedCall, regs: *std.AutoHashMap(u32, RegValue)) ![]RegValue {
+    fn collectCallValues(self: *Interpreter, fsig: *const sig.FunctionSig, parsed: call.ParsedCall, regs: *FrameRegs) ![]RegValue {
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, 0..) |arg, idx| {
-            out[idx] = self.resolveTextOperand(regs, arg.text) catch |err| {
+            out[idx] = self.resolveTextOperand(fsig, regs, arg.text) catch |err| {
                 self.stderr.print("interp call arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
                 return err;
             };
@@ -2276,12 +2324,12 @@ fn intValue(value: RegValue, signed: bool) i128 {
         return out;
     }
 
-    fn collectArgs(self: *Interpreter, parsed: call.ParsedCall, regs: *std.AutoHashMap(u32, RegValue), params: []const sig.ParamSpec) ![]RegValue {
+    fn collectArgs(self: *Interpreter, fsig: *const sig.FunctionSig, parsed: call.ParsedCall, regs: *FrameRegs, params: []const sig.ParamSpec) ![]RegValue {
         if (parsed.args.len != params.len) return RunError.InvalidOperand;
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, params, 0..) |arg, param, idx| {
-            const raw = self.resolveTextOperand(regs, arg.text) catch |err| {
+            const raw = self.resolveTextOperand(fsig, regs, arg.text) catch |err| {
                 self.stderr.print("interp indirect arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
                 return err;
             };

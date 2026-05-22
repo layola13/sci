@@ -1,7 +1,0 @@
-@import "a/detail/seed.saasm"
-@import "b.saasm"
-
-@export cycle_a_value() -> i32:
-L_ENTRY:
-    seed = call @cycle_a_seed()
-    return seed

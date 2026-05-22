@@ -5,7 +5,7 @@
 ## 标签 (Labels)
 标签是代码中的锚点，以冒号结尾：
 
-```saasm
+```sa
 L_MY_LABEL:
     x = 1
 ```
@@ -13,20 +13,20 @@ L_MY_LABEL:
 ## 无条件跳转
 使用 `jump` 指令直接跳到某个标签：
 
-```saasm
+```sa
     jump L_DEST
 ```
 
 ## 条件跳转 (`br`)
 这是最常用的分支指令。它根据一个布尔值决定走向：
 
-```saasm
+```sa
     is_ok = eq x, 10
     br is_ok -> L_TRUE, L_FALSE
 ```
 
 ### 示例：If-Else 结构
-```saasm
+```sa
 @main() -> i32:
 L_ENTRY:
     x = 15
@@ -50,7 +50,7 @@ L_LESS:
 ## 循环的实现
 SA 没有 `for` 或 `while` 关键字，循环通过**回跳**实现：
 
-```saasm
+```sa
 @main() -> i32:
 L_ENTRY:
     i = 0

@@ -1,0 +1,59 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+@const TARGET_VT = vtable { call = @guarded_target }
+
+#def Fn_SIZE = 16
+#def Fn_data = +0
+#def Fn_vtable = +8
+#def Fn_call = +0
+
+@guarded_target(x: i32) -> i32:
+L_ENTRY:
+    result = add x, 1
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    fn = alloc Fn_SIZE
+    store fn+Fn_data, 0 as i32
+    store fn+Fn_vtable, &TARGET_VT as ptr
+    vt = load fn+Fn_vtable as ptr
+    call_slot = load vt+Fn_call as ptr
+    expected_vt = &TARGET_VT
+    expected = load expected_vt+Fn_call as ptr
+    tag_ok = eq call_slot, expected
+    !expected_vt
+    br tag_ok -> L_CALL, L_TRAP
+
+L_CALL:
+    !tag_ok
+    value = call_indirect call_slot(1)
+    ok = eq value, 2
+    !value
+    !call_slot
+    !vt
+    !fn
+    br ok -> L_OK, L_ERR
+
+L_TRAP:
+    !tag_ok
+    expected_vt2 = &TARGET_VT
+    expected2 = load expected_vt2+Fn_call as ptr
+    ok = eq call_slot, expected2
+    !expected_vt2
+    !call_slot
+    !vt
+    !fn
+    jmp L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -567,8 +567,8 @@ const Translator = struct {
 
     fn isRuntimeFunctionName(name: []const u8) bool {
         return std.mem.eql(u8, name, "__sa_panic") or
-            std.mem.eql(u8, name, "saasm_strdupz") or
-            std.mem.eql(u8, name, "saasm_streq") or
+            std.mem.eql(u8, name, "sa_strdupz") or
+            std.mem.eql(u8, name, "sa_streq") or
             std.mem.eql(u8, name, "sys_print") or
             std.mem.eql(u8, name, "sys_exit") or
             std.mem.eql(u8, name, "sys_argc") or
@@ -1089,7 +1089,7 @@ pub fn translateAlloc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     var translator = Translator.init(allocator);
     defer translator.deinit();
 
-    try translator.emitLine("@import \"../../../sa_std/io/print.saasm-iface\"");
+    try translator.emitLine("@import \"sa_std/io/print.sai\"");
     try translator.emitLine("");
 
     var all_lines = std.ArrayList([]const u8).init(allocator);
@@ -1168,7 +1168,7 @@ test "translator lowers declares and atomic instructions" {
     defer std.testing.allocator.free(translated);
 
     try std.testing.expectEqualStrings(
-        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\@import "sa_std/io/print.sai"
         \\
         \\@extern ext_add(arg0: i32, arg1: i32) -> i32
         \\
@@ -1210,7 +1210,7 @@ test "translator lowers standard llvm syntax" {
     defer std.testing.allocator.free(translated);
 
     try std.testing.expectEqualStrings(
-        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\@import "sa_std/io/print.sai"
         \\
         \\@probe(n: i64) -> i32:
         \\L_ENTRY:
@@ -1231,8 +1231,8 @@ test "translator lowers standard llvm syntax" {
 }
 
 test "translator round-trips the probe hello llvm fixture" {
-    const probe_path = ".probe_wasm2/hello.wasm.saasm.ll";
-    const expected_path = "tests/llvm2sa_expected_hello.saasm";
+    const probe_path = ".probe_wasm2/hello.wasm.sa.ll";
+    const expected_path = "tests/llvm2sa_expected_hello.sa";
 
     const translated = try translateFile(std.testing.allocator, probe_path);
     defer std.testing.allocator.free(translated);

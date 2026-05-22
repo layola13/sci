@@ -157,12 +157,11 @@ if ($DryRun) {
         Expand-Archive -Path $tempZip -DestinationPath $tempExtractDir -Force
         Write-Ok "Extraction complete."
 
-        $exePath = Join-Path $tempExtractDir "bin\saasm.exe"
+        $exePath = Join-Path $tempExtractDir "bin\sa.exe"
         if (Test-Path $exePath) {
-            Copy-Item -Path $exePath -Destination (Join-Path $saBinDir "saasm.exe") -Force
             Copy-Item -Path $exePath -Destination (Join-Path $saBinDir "sa.exe") -Force
         } else {
-            throw "Invalid archive structure: bin\saasm.exe not found."
+            throw "Invalid archive structure: bin\sa.exe not found."
         }
 
         $stdPath = Join-Path $tempExtractDir "std"
@@ -180,8 +179,9 @@ if ($DryRun) {
             Write-Info "'zig' found — attempting to build from source..."
             try {
                 Start-Process -FilePath "zig" -ArgumentList "build -Doptimize=ReleaseSafe" -NoNewWindow -Wait
-                Copy-Item -Path "zig-out\bin\saasm.exe" -Destination (Join-Path $saBinDir "saasm.exe") -Force
-                Copy-Item -Path "zig-out\bin\saasm.exe" -Destination (Join-Path $saBinDir "sa.exe") -Force
+                if (Test-Path "zig-out\bin\sa.exe") {
+                    Copy-Item -Path "zig-out\bin\sa.exe" -Destination (Join-Path $saBinDir "sa.exe") -Force
+                }
                 if (Test-Path "sa_std") {
                     Copy-Item -Path "sa_std\*" -Destination $saStdDir -Recurse -Force
                 }
@@ -217,8 +217,8 @@ if (-not $NoShell) {
 
 Write-Host ""
 Write-Ok "SA Toolchain installed successfully!"
-Write-Host "  Executable:  $saBinDir\saasm.exe  (and 'sa.exe')" -ForegroundColor Green
-Write-Host "  Std Library: $saStdDir`n" -ForegroundColor Green
+Write-Host "  Executable:  $saBinDir\sa.exe" -ForegroundColor Green
+Write-Host "  Std Library Root: $saStdDir`n" -ForegroundColor Green
 
 if ($DryRun) {
     Write-Info "(dry-run: no files were written)"

@@ -212,8 +212,8 @@ configure_shell() {
     printf "\n"
     success "SA Toolchain installed successfully!"
     printf "\n"
-    printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/saasm  (and symlink 'sa')"
-    printf "  ${BOLD}Std Library:${RESET} %s\n" "$SA_STD_DIR"
+    printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/sa  (and symlink 'sa')"
+    printf "  ${BOLD}Std Library Root:${RESET} %s\n" "$SA_STD_DIR"
     printf "\n"
 
     if [ "${DRY_RUN:-0}" = "1" ]; then
@@ -325,7 +325,7 @@ main() {
                 info "Zig compiler detected — attempting to build from source..."
                 step "Building via 'zig build -Doptimize=ReleaseSafe'"
                 if zig build -Doptimize=ReleaseSafe >/dev/null 2>&1; then
-                    cp -f zig-out/bin/saasm "$SA_BIN_DIR/saasm"
+                    cp -f zig-out/bin/sa "$SA_BIN_DIR/sa"
                     mkdir -p "$SA_STD_DIR"
                     if [ -d sa_std ]; then
                         cp -rf sa_std/* "$SA_STD_DIR/"
@@ -369,12 +369,12 @@ main() {
                 EXTRACTED_DIR="$TEMP_DIR"
             fi
 
-            if [ -f "$EXTRACTED_DIR/bin/saasm" ]; then
-                cp -f "$EXTRACTED_DIR/bin/saasm" "$SA_BIN_DIR/saasm"
-                chmod +x "$SA_BIN_DIR/saasm"
+            if [ -f "$EXTRACTED_DIR/bin/sa" ]; then
+                cp -f "$EXTRACTED_DIR/bin/sa" "$SA_BIN_DIR/sa"
+                chmod +x "$SA_BIN_DIR/sa"
             else
                 rm -rf "$TEMP_DIR"
-                error "Archive structure invalid: 'bin/saasm' not found."
+                error "Archive structure invalid: 'bin/sa' not found."
             fi
 
             if [ -d "$EXTRACTED_DIR/std" ]; then
@@ -385,9 +385,9 @@ main() {
         rm -rf "$TEMP_DIR"
     fi
 
-    # ── Symlink sa -> saasm ───────────────────────────────────────────────
-    if [ "$DRY_RUN" != "1" ] && [ -f "$SA_BIN_DIR/saasm" ]; then
-        run_or_echo ln -sf "saasm" "$SA_BIN_DIR/sa"
+    # ── Symlink sa ───────────────────────────────────────────────────────
+    if [ "$DRY_RUN" != "1" ] && [ -f "$SA_BIN_DIR/sa" ]; then
+        run_or_echo chmod +x "$SA_BIN_DIR/sa"
     fi
 
     # ── Environment File ──────────────────────────────────────────────────
@@ -409,7 +409,7 @@ EOF
         printf "\n"
         success "SA Toolchain installed successfully!"
         printf "\n"
-        printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/saasm  (and symlink 'sa')"
+        printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/sa  (and symlink 'sa')"
         printf "  ${BOLD}Std Library:${RESET} %s\n" "$SA_STD_DIR"
         printf "\n"
         info "Shell profile modification skipped (--no-shell)."

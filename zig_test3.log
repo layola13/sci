@@ -1,0 +1,9 @@
+
+[RESOLVE_ROOT] error error.PrecompiledArtifactRejected in '/home/vscode/projects/sci' for 'sa_std/encoding/json.sa'
+error[ImportResolutionFailed]: precompiled artifact imports are not allowed
+  line 1: @import "support/index.sa"
+  help: depend on the source package instead of a precompiled artifact
+  repair: pin-import
+    hint: choose one source package or ref and avoid ambiguous or rejected artifacts
+    confidence: medium
+{"trap":"ImportResolutionFailed","trap_code":1050,"line":1,"source_line":1,"source_text":"@import \"support/index.sa\"","original_text":"@import \"support/index.sa\"","register":null,"registers":[],"expected_mask":null,"actual_mask":null,"expected_mask_name":null,"actual_mask_name":null,"upstream_loc":null,"function":null,"is_ffi_wrapper":null,"repair":{"action":"pin-import","hint":"choose one source package or ref and avoid ambiguous or rejected artifacts","confidence":"medium"},"message":"precompiled artifact imports are not allowed","hint":"depend on the source package instead of a precompiled artifact"}

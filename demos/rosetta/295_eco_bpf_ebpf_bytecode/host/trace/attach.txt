@@ -1,2 +1,2 @@
 attach = demo-295
-program = guest/program.saasm
+program = guest/program.sa

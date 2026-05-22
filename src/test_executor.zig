@@ -29,7 +29,7 @@ pub const TestExecutor = struct {
         };
         defer env_map.deinit();
 
-        env_map.put("SAASM_TEST_NAME", test_case.selectorName()) catch |err| {
+        env_map.put("SA_TEST_NAME", test_case.selectorName()) catch |err| {
             return launchFailure(test_case, @errorName(err));
         };
 

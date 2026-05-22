@@ -26,7 +26,7 @@ pub fn parseSaxCommand(cmd_str: []const u8) ?SaxCommand {
 }
 
 const SaxArtifacts = struct {
-    saasm_code: std.ArrayList(u8),
+    sa_code: std.ArrayList(u8),
     airlock_js: std.ArrayList(u8),
     index_html: std.ArrayList(u8),
 };
@@ -259,7 +259,7 @@ fn compileSaxSource(allocator: Allocator, sax_file: []const u8, source: []const 
     };
 
     return .{ .component_name = component_name, .artifacts = .{
-        .saasm_code = artifacts.saasm_code,
+        .sa_code = artifacts.sa_code,
         .airlock_js = artifacts.airlock_js,
         .index_html = artifacts.index_html,
     } };
@@ -274,7 +274,7 @@ fn buildDevArtifacts(
     stderr: anytype,
 ) !bool {
     if (comptime plugin_mode) {
-        try stderr.print("error: sax build is unavailable inside the plugin runtime; run `saasm sax build` from the host CLI instead\n", .{});
+        try stderr.print("error: sax build is unavailable inside the plugin runtime; run `sa sax build` from the host CLI instead\n", .{});
         return false;
     }
 
@@ -286,15 +286,15 @@ fn buildDevArtifacts(
     };
     const component_name = compiled.component_name;
     const artifacts = compiled.artifacts;
-    defer artifacts.saasm_code.deinit();
+    defer artifacts.sa_code.deinit();
     defer artifacts.airlock_js.deinit();
     defer artifacts.index_html.deinit();
 
-    const generated_source_path = try std.fmt.allocPrint(allocator, "{s}/{s}.saasm", .{ project_root, component_name });
+    const generated_source_path = try std.fmt.allocPrint(allocator, "{s}/{s}.sa", .{ project_root, component_name });
     defer allocator.free(generated_source_path);
 
-    const saasm_path = try std.fs.path.join(allocator, &.{ dist_dir, "app.saasm" });
-    defer allocator.free(saasm_path);
+    const sa_path = try std.fs.path.join(allocator, &.{ dist_dir, "app.sa" });
+    defer allocator.free(sa_path);
 
     const airlock_path = try std.fs.path.join(allocator, &.{ dist_dir, "airlock.js" });
     defer allocator.free(airlock_path);
@@ -308,7 +308,7 @@ fn buildDevArtifacts(
     const build_code = try sax_build.buildBrowserWasmFromSourceText(
         allocator,
         generated_source_path,
-        artifacts.saasm_code.items,
+        artifacts.sa_code.items,
         wasm_path,
         false,
         .release_small,
@@ -317,7 +317,7 @@ fn buildDevArtifacts(
     );
     if (build_code != 0) return false;
 
-    try writeAllFile(saasm_path, artifacts.saasm_code.items);
+    try writeAllFile(sa_path, artifacts.sa_code.items);
     try writeAllFile(airlock_path, artifacts.airlock_js.items);
     try writeAllFile(html_path, artifacts.index_html.items);
     return true;
@@ -430,7 +430,7 @@ fn devServerLoop(
             "application/javascript"
         else if (std.mem.endsWith(u8, target.?, ".wasm"))
             "application/wasm"
-        else if (std.mem.endsWith(u8, target.?, ".saasm"))
+        else if (std.mem.endsWith(u8, target.?, ".sa"))
             "text/plain"
         else
             "text/html";
@@ -446,7 +446,7 @@ pub fn executeSaxBuild(
     stderr: anytype,
 ) !u8 {
     if (comptime plugin_mode) {
-        try stderr.print("error: sax build is unavailable inside the plugin runtime; run `saasm sax build` from the host CLI instead\n", .{});
+        try stderr.print("error: sax build is unavailable inside the plugin runtime; run `sa sax build` from the host CLI instead\n", .{});
         return 1;
     }
 
@@ -460,7 +460,7 @@ pub fn executeSaxBuild(
     };
     const component_name = compiled.component_name;
     const artifacts = compiled.artifacts;
-    defer artifacts.saasm_code.deinit();
+    defer artifacts.sa_code.deinit();
     defer artifacts.airlock_js.deinit();
     defer artifacts.index_html.deinit();
 
@@ -468,11 +468,11 @@ pub fn executeSaxBuild(
     const source_dir_abs = try sourceDirAbs(allocator, sax_file);
     defer allocator.free(source_dir_abs);
 
-    const generated_source_path = try std.fmt.allocPrint(allocator, "{s}/{s}.saasm", .{ source_dir_abs, component_name });
+    const generated_source_path = try std.fmt.allocPrint(allocator, "{s}/{s}.sa", .{ source_dir_abs, component_name });
     defer allocator.free(generated_source_path);
 
-    const saasm_path = try std.fmt.allocPrint(allocator, "{s}/{s}.saasm", .{ out_dir, component_name });
-    defer allocator.free(saasm_path);
+    const sa_path = try std.fmt.allocPrint(allocator, "{s}/{s}.sa", .{ out_dir, component_name });
+    defer allocator.free(sa_path);
 
     const wasm_path = try std.fmt.allocPrint(allocator, "{s}/app.wasm", .{out_dir});
     defer allocator.free(wasm_path);
@@ -480,7 +480,7 @@ pub fn executeSaxBuild(
     const build_code = try sax_build.buildBrowserWasmFromSourceText(
         allocator,
         generated_source_path,
-        artifacts.saasm_code.items,
+        artifacts.sa_code.items,
         wasm_path,
         false,
         .release_small,
@@ -489,7 +489,7 @@ pub fn executeSaxBuild(
     );
     if (build_code != 0) return build_code;
 
-    try writeAllFile(saasm_path, artifacts.saasm_code.items);
+    try writeAllFile(sa_path, artifacts.sa_code.items);
 
     const airlock_path = try std.fmt.allocPrint(allocator, "{s}/airlock.js", .{out_dir});
     defer allocator.free(airlock_path);
@@ -500,7 +500,7 @@ pub fn executeSaxBuild(
     try writeAllFile(html_path, artifacts.index_html.items);
 
     try stdout.print("✓ SAX build successful\n", .{});
-    try stdout.print("  .saasm: {s}\n", .{saasm_path});
+    try stdout.print("  .sa: {s}\n", .{sa_path});
     try stdout.print("  app.wasm: {s}\n", .{wasm_path});
     try stdout.print("  airlock.js: {s}\n", .{airlock_path});
     try stdout.print("  index.html: {s}\n", .{html_path});
@@ -523,17 +523,17 @@ pub fn executeSaxCheck(
     };
     const component_name = compiled.component_name;
     const artifacts = compiled.artifacts;
-    defer artifacts.saasm_code.deinit();
+    defer artifacts.sa_code.deinit();
     defer artifacts.airlock_js.deinit();
     defer artifacts.index_html.deinit();
 
     const source_dir_abs = try sourceDirAbs(allocator, sax_file);
     defer allocator.free(source_dir_abs);
 
-    const check_source_path = try std.fmt.allocPrint(allocator, "{s}/{s}.saasm", .{ source_dir_abs, component_name });
+    const check_source_path = try std.fmt.allocPrint(allocator, "{s}/{s}.sa", .{ source_dir_abs, component_name });
     defer allocator.free(check_source_path);
 
-    const verified = try sax_build.compileSourceText(allocator, check_source_path, artifacts.saasm_code.items, .{});
+    const verified = try sax_build.compileSourceText(allocator, check_source_path, artifacts.sa_code.items, .{});
     switch (verified) {
         .trap => |report| {
             try sax_build.printTrapReport(stderr, report);
@@ -600,21 +600,21 @@ pub fn executeSaxNew(
             \\ ## 编译
             \\ 
             \\ ```bash
-            \\ saasm sax build app.sax
+            \\ sa sax build app.sax
             \\ ```
             \\ 
-            \\ 生成 `dist/app.wasm`、`dist/airlock.js`、`dist/index.html` 和 `dist/app.saasm`。
+            \\ 生成 `dist/app.wasm`、`dist/airlock.js`、`dist/index.html` 和 `dist/app.sa`。
             \\ 
             \\ ## 开发
             \\ 
             \\ ```bash
-            \\ saasm sax dev
+            \\ sa sax dev
             \\ ```
             \\ 
             \\ ## 验证
             \\ 
             \\ ```bash
-            \\ saasm sax check app.sax
+            \\ sa sax check app.sax
             \\ ```
             , .{project_name},
         );
@@ -634,7 +634,7 @@ pub fn executeSaxDev(
     stderr: anytype,
 ) !u8 {
     if (comptime plugin_mode) {
-        try stderr.print("error: sax dev is unavailable inside the plugin runtime; run `saasm sax dev` from the host CLI instead\n", .{});
+        try stderr.print("error: sax dev is unavailable inside the plugin runtime; run `sa sax dev` from the host CLI instead\n", .{});
         return 1;
     }
 

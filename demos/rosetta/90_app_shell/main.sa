@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"app --mode demo\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@shell(a: i32, b: i32, c: i32) -> i32:
+L_ENTRY:
+    ab = add a, b
+    total = add ab, c
+    !a
+    !b
+    !c
+    !ab
+    return total
+
+@main() -> i32:
+L_ENTRY:
+    total = call @shell(3, 3, 10)
+    ok = eq total, 16
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 16)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

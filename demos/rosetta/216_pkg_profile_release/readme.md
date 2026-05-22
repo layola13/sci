@@ -8,15 +8,15 @@
    ```text
    216_pkg_profile_release/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── src/
-       ├── index.saasm
+       ├── index.sa
        └── profiles/
            └── release/
-               ├── index.saasm
+               ├── index.sa
                └── helpers/
-                   ├── profile.saasm-layout
-                   └── index.saasm
+                   ├── profile.sal
+                   └── index.sa
    ```
 2. **代码组织**：release 配置只暴露给 `src/profiles/release/helpers/`，包级入口只拿到包装后的值。
 3. **说明**：`sa.pkg` 仅表示未来的包元数据，不是当前编译器输入。

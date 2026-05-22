@@ -32,7 +32,7 @@
 - **输入**：Rust 源码。
 - **处理流**：
     - `rustc -C opt-level=3 --emit=llvm-ir` -> 生成优化后的 `.ll` 文件。
-    - `llvm2sa` (基于 `src/llvm2sa.zig` 开发) -> 解析 `.ll` 并生成 `.saasm`。
+    - `llvm2sa` (基于 `src/llvm2sa.zig` 开发) -> 解析 `.ll` 并生成 `.sa`。
     - **注意**：生成的 SA-ASM 将处于 `Untracked` 模式，所有权验证在 Rust 层完成。
 - **输出**：SA-ASM 源码。
 

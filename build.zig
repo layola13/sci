@@ -25,6 +25,7 @@ pub fn build(b: *std.Build) void {
     });
     lib_module.addImport("plugin", plugin_api_module);
     lib_module.addOptions("build_options", build_options);
+    plugin_api_module.addOptions("build_options", build_options);
 
     const lib = b.addLibrary(.{
         .name = "sa_asm",
@@ -78,6 +79,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sax_module.addOptions("build_options", build_options);
     sax_module.addImport("trap", b.createModule(.{
         .root_source_file = b.path("src/common/trap.zig"),
         .target = target,
@@ -132,6 +134,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         });
         mod.addImport("plugin", plugin_api_module);
+        mod.addOptions("build_options", build_options);
         const lib_plugin = b.addLibrary(.{
             .name = entry.name,
             .root_module = mod,
@@ -158,6 +161,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     plugins_tests_module.addImport("plugin", plugin_api_module);
+    plugins_tests_module.addOptions("build_options", build_options);
     const plugins_tests = b.addTest(.{
         .root_module = plugins_tests_module,
     });
@@ -173,7 +177,7 @@ pub fn build(b: *std.Build) void {
     cli_module.addImport("plugin", plugin_api_module);
     cli_module.addOptions("build_options", build_options);
     const exe = b.addExecutable(.{
-        .name = "saasm",
+        .name = "sa",
         .root_module = cli_module,
     });
     b.installArtifact(exe);
@@ -184,6 +188,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cli_tests_module.addImport("saasm", lib_module);
+    cli_tests_module.addOptions("build_options", build_options);
     const cli_tests = b.addTest(.{
         .root_module = cli_tests_module,
     });
@@ -197,6 +202,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     trap_baseline_module.addImport("saasm", lib_module);
+    trap_baseline_module.addOptions("build_options", build_options);
     const trap_baseline = b.addTest(.{
         .root_module = trap_baseline_module,
     });
@@ -210,6 +216,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     std_smoke_module.addImport("saasm", lib_module);
+    std_smoke_module.addOptions("build_options", build_options);
     const std_smoke = b.addTest(.{
         .root_module = std_smoke_module,
     });
@@ -223,6 +230,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     unit_framework_module.addImport("saasm", lib_module);
+    unit_framework_module.addOptions("build_options", build_options);
     const unit_framework = b.addTest(.{
         .root_module = unit_framework_module,
     });
@@ -236,6 +244,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_std_unit_module.addOptions("build_options", build_options);
     const sa_std_unit = b.addTest(.{
         .root_module = sa_std_unit_module,
     });
@@ -248,6 +257,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sa_std_runtime_module.addOptions("build_options", build_options);
     const sa_std_runtime = b.addTest(.{
         .root_module = sa_std_runtime_module,
     });
@@ -261,6 +271,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_net_uring_module.addOptions("build_options", build_options);
     const sa_net_uring_tests = b.addTest(.{
         .root_module = sa_net_uring_module,
     });
@@ -273,6 +284,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sa_term_runtime_module.addOptions("build_options", build_options);
     const sa_term_runtime = b.addTest(.{
         .root_module = sa_term_runtime_module,
     });
@@ -285,6 +297,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    native_sys_runtime_module.addOptions("build_options", build_options);
     const native_sys_runtime = b.addTest(.{
         .root_module = native_sys_runtime_module,
     });
@@ -308,6 +321,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    smoke.root_module.addOptions("build_options", build_options);
     const run_smoke = b.addRunArtifact(smoke);
     run_smoke.setCwd(repo_root_lazy);
     const smoke_step = b.step("smoke", "Run smoke tests");
@@ -320,6 +334,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    scope_demo.root_module.addOptions("build_options", build_options);
     const run_scope_demo = b.addRunArtifact(scope_demo);
     run_scope_demo.setCwd(repo_root_lazy);
     test_step.dependOn(&run_scope_demo.step);
@@ -330,6 +345,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     ffi_handle_demo_module.addImport("saasm", lib_module);
+    ffi_handle_demo_module.addOptions("build_options", build_options);
     const ffi_handle_demo = b.addTest(.{
         .root_module = ffi_handle_demo_module,
     });
@@ -344,6 +360,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     hubproxy_module.addImport("saasm", lib_module);
+    hubproxy_module.addOptions("build_options", build_options);
     const hubproxy_tests = b.addTest(.{
         .root_module = hubproxy_module,
     });

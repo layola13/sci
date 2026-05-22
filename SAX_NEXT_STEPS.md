@@ -25,7 +25,7 @@
 ## Phase 1 MVP 实现清单（优先级排序）
 
 ### 1️⃣ 完善 SAX Parser（关键路径）
-**目标**：能正确解析 .sax 文件，输出合法的 .saasm 指令流
+**目标**：能正确解析 .sax 文件，输出合法的 .sa 指令流
 
 **任务**：
 - [ ] 完整的 XML 标签解析（支持嵌套、属性、文本内容）
@@ -37,7 +37,7 @@
 
 **预期输出**：
 ```
-counter.sax → counter.saasm（合法的 SA 指令流）
+counter.sax → counter.sa（合法的 SA 指令流）
 ```
 
 **工作量**：~300-400 行 Zig
@@ -60,7 +60,7 @@ counter.sax → counter.saasm（合法的 SA 指令流）
   - 释放所有状态变量
 
 **预期输出**：
-```saasm
+```sa
 @export sax_counter_init():
 L_ENTRY:
   state = alloc 16
@@ -86,7 +86,7 @@ L_ENTRY:
 
 **预期输出**：
 ```
-counter.saasm → Referee Pass（无 SaxStateLeak / SaxEventEscape 等）
+counter.sa → Referee Pass（无 SaxStateLeak / SaxEventEscape 等）
 ```
 
 **工作量**：~200-300 行 Zig
@@ -94,7 +94,7 @@ counter.saasm → Referee Pass（无 SaxStateLeak / SaxEventEscape 等）
 ---
 
 ### 4️⃣ WASM 目标代码生成（关键路径）
-**目标**：将 .saasm 编译到 wasm32-unknown-unknown
+**目标**：将 .sa 编译到 wasm32-unknown-unknown
 
 **任务**：
 - [ ] 在 emit_wasm 中切换目标为 `wasm32-unknown-unknown`
@@ -104,7 +104,7 @@ counter.saasm → Referee Pass（无 SaxStateLeak / SaxEventEscape 等）
 
 **预期输出**：
 ```
-counter.saasm → counter.wasm（可在浏览器中加载）
+counter.sa → counter.wasm（可在浏览器中加载）
 ```
 
 **工作量**：~200-300 行 Zig（复用现有 emit_wasm）
@@ -112,11 +112,11 @@ counter.saasm → counter.wasm（可在浏览器中加载）
 ---
 
 ### 5️⃣ CLI 命令完整实现（关键路径）
-**目标**：`saasm sax build/check` 子命令可用
+**目标**：`sa sax build/check` 子命令可用
 
 **任务**：
 - [ ] 在 cli.zig 中添加 `sax` 子命令识别
-- [ ] 实现 `saasm sax build counter.sax` 完整流程
+- [ ] 实现 `sa sax build counter.sax` 完整流程
   - 读取 .sax 文件
   - 调用 SAX Parser
   - 调用 Flattener
@@ -124,11 +124,11 @@ counter.saasm → counter.wasm（可在浏览器中加载）
   - 调用 WASM Emitter
   - 调用 Airlock 生成器
   - 输出 app.wasm + airlock.js + index.html
-- [ ] 实现 `saasm sax check counter.sax` 验证流程
+- [ ] 实现 `sa sax check counter.sax` 验证流程
 
 **预期输出**：
 ```bash
-$ saasm sax build counter.sax
+$ sa sax build counter.sax
 ✓ SAX build successful
   .wasm: dist/counter.wasm
   airlock.js: dist/airlock.js
@@ -195,7 +195,7 @@ fn parseComponent(source: []const u8) -> SasmCode {
     // 4. 解析 @handler 函数块
     //    - 复制 SA-ASM 代码直到下一个 @ 或 !
     // 5. 解析 !var1 !var2 ... 释放语句
-    // 6. 输出 .saasm 文本
+    // 6. 输出 .sa 文本
 }
 ```
 
@@ -250,12 +250,12 @@ fn checkRenderCall(current_context: Context) {
 
 ### 单元测试
 - [ ] SAX Parser 解析 counter.sax 正确
-- [ ] SAX Lowerer 生成合法的 .saasm
+- [ ] SAX Lowerer 生成合法的 .sa
 - [ ] Referee 验证通过
 - [ ] WASM Emitter 生成有效的 .wasm
 
 ### 集成测试
-- [ ] `saasm sax build counter.sax` 完整流程
+- [ ] `sa sax build counter.sax` 完整流程
 - [ ] 生成的 app.wasm + airlock.js + index.html 可用
 - [ ] 在浏览器中加载并运行
 
@@ -281,7 +281,7 @@ fn checkRenderCall(current_context: Context) {
 ## 成功标准
 
 ✅ **Phase 1 MVP 完成**：
-1. `saasm sax build counter.sax` 成功生成 app.wasm + airlock.js + index.html
+1. `sa sax build counter.sax` 成功生成 app.wasm + airlock.js + index.html
 2. 在浏览器中打开 index.html，Counter 组件正常运行
 3. 点击按钮，计数正确更新
 4. 所有 SAX Trap 规则正确触发

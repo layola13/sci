@@ -8,17 +8,17 @@
    ```text
    214_pkg_target_specific_deps/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── src/
-       ├── index.saasm
+       ├── index.sa
        └── targets/
-           ├── index.saasm
+           ├── index.sa
            └── helpers/
-               ├── target.saasm-layout
-               ├── index.saasm
-               ├── native.saasm
-               └── portable.saasm
+               ├── target.sal
+               ├── index.sa
+               ├── native.sa
+               └── portable.sa
    ```
-2. **代码组织**：`helpers/index.saasm` 在运行时选择 native 或 portable helper，布局常量只放在 `target.saasm-layout`。
-3. **说明**：`sa.pkg` 只示意未来 metadata；当前编译仍只看 `.saasm` / `.saasm-layout`。
+2. **代码组织**：`helpers/index.sa` 在运行时选择 native 或 portable helper，布局常量只放在 `target.sal`。
+3. **说明**：`sa.pkg` 只示意未来 metadata；当前编译仍只看 `.sa` / `.sal`。
 

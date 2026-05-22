@@ -5,7 +5,7 @@
 ## 1. 栈分配 (`stack_alloc`)
 栈分配用于函数内部的临时存储。它的速度极快，且在函数返回时自动回收（由编译器插入回收逻辑）。
 
-```saasm
+```sa
 @example() -> void:
 L_ENTRY:
     // 在栈上分配 16 字节
@@ -18,7 +18,7 @@ L_ENTRY:
 ## 2. 堆分配 (`alloc`)
 当你需要跨函数传递大型数据或动态大小的数据时，使用 `alloc` 指令。这会调用运行时环境的 `malloc` 实现。
 
-```saasm
+```sa
 @main() -> i32:
 L_ENTRY:
     // 在堆上分配 1024 字节
@@ -32,7 +32,7 @@ L_ENTRY:
 SA 不支持 `struct` 关键字，而是使用**偏移量 (Offset)** 来模拟结构体。为了代码可读性，我们强烈建议使用 `#def` 定义布局。
 
 ### 定义一个 Person 结构
-```saasm
+```sa
 #def Person_SIZE = 16
 #def Person_age  = +0   // i32
 #def Person_id   = +8   // u64

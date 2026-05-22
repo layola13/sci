@@ -8,15 +8,15 @@
    ```text
    213_pkg_default_features/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── src/
-       ├── index.saasm
+       ├── index.sa
        └── defaults/
-           ├── index.saasm
+           ├── index.sa
            └── helpers/
-               ├── defaults.saasm-layout
-               └── index.saasm
+               ├── defaults.sal
+               └── index.sa
    ```
-2. **代码组织**：默认值只在 `src/defaults/helpers/` 中定义，`src/defaults/index.saasm` 再把它们包装成包级入口。
+2. **代码组织**：默认值只在 `src/defaults/helpers/` 中定义，`src/defaults/index.sa` 再把它们包装成包级入口。
 3. **说明**：`sa.pkg` 只表示未来的包元数据，不会被当前编译器读取。
 

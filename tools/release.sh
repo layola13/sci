@@ -77,7 +77,7 @@ build_target() {
     rm -rf "$REPO_ROOT/.zig-cache"
     
     # 2. Build SA Compiler
-    working "Compiling saasm compiler"
+    working "Compiling sa compiler"
     if ! zig build -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe >/dev/null 2>&1; then
         printf " failed.\n"
         error "Zig compilation failed for target: $ZIG_TARGET"
@@ -89,9 +89,9 @@ build_target() {
     mkdir -p "$TARGET_DIR/std"
     
     # 4. Copy SAASM Executable
-    EXE_FILE="saasm"
+    EXE_FILE="sa"
     if [ "$OS" = "windows" ]; then
-        EXE_FILE="saasm.exe"
+        EXE_FILE="sa.exe"
     fi
     
     if [ -f "$REPO_ROOT/zig-out/bin/$EXE_FILE" ]; then

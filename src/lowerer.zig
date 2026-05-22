@@ -24,6 +24,7 @@ fn opName(op: common_instruction.OpKind) []const u8 {
             else => unreachable,
         },
         .eq => "==",
+        .ne => "!=",
         .@"and" => "&",
         .@"or" => "|",
         .xor => "^",
@@ -314,6 +315,9 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
             .native => {
                 try out.writer().print("    {s}\n", .{operandText(inst, 0)});
             },
+            else => {
+                return LowerError.UnsupportedInstruction;
+            },
         }
     }
 
@@ -350,8 +354,7 @@ test "lowerer emits concrete zig text" {
                 },
                 .raw_text = "node = alloc 16",
             },
-            .entry_caps = entry0,
-            .exit_caps = exit0,
+            .delta = .{ .changes = &.{} },
             .gas_step_cost = 1,
         },
         .{
@@ -367,8 +370,7 @@ test "lowerer emits concrete zig text" {
                 },
                 .raw_text = "return node",
             },
-            .entry_caps = entry1,
-            .exit_caps = exit1,
+            .delta = .{ .changes = &.{} },
             .gas_step_cost = 1,
         },
     };
@@ -407,8 +409,7 @@ test "lowerer lowers panic builtins explicitly" {
                 },
                 .raw_text = "panic(7)",
             },
-            .entry_caps = entry0,
-            .exit_caps = exit0,
+            .delta = .{ .changes = &.{} },
             .gas_step_cost = 1,
         },
         .{
@@ -424,17 +425,16 @@ test "lowerer lowers panic builtins explicitly" {
                 },
                 .raw_text = "panic_msg(7, msg, len)",
             },
-            .entry_caps = entry1,
-            .exit_caps = exit1,
+            .delta = .{ .changes = &.{} },
             .gas_step_cost = 1,
         },
     };
 
     const text = try lower(std.testing.allocator, annotated[0..]);
     defer std.testing.allocator.free(text);
-    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.debug.print(\"PANIC: code={d}\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.debug.print(\"PANIC[{d}]: {s}\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.process.exit(128 + @as(u8, @intCast(@as(u32, @bitCast(__panic_code)) & 0x7f)));"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.debug.print(\"PANIC: code={d}\\n\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.debug.print(\"PANIC[{d}]: {s}\\n\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "std.process.exit(__panic_exit);"));
 }
 
 test "lowerer output survives zig fmt" {
@@ -465,8 +465,7 @@ test "lowerer output survives zig fmt" {
                 },
                 .raw_text = "node = alloc 8",
             },
-            .entry_caps = entry0,
-            .exit_caps = exit0,
+            .delta = .{ .changes = &.{} },
             .gas_step_cost = 1,
         },
         .{
@@ -482,8 +481,7 @@ test "lowerer output survives zig fmt" {
                 },
                 .raw_text = "return node",
             },
-            .entry_caps = entry1,
-            .exit_caps = exit1,
+            .delta = .{ .changes = &.{} },
             .gas_step_cost = 1,
         },
     };

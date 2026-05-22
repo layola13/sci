@@ -13,12 +13,12 @@
 2.  **Dispatcher**：根据 Ticket 的 `op_code` 分发任务。
 3.  **Handler**：处理具体的业务逻辑。
 
-## 3. 源码实现 (`echo.saasm`)
+## 3. 源码实现 (`echo.sa`)
 
-```saasm
-@import "sa_std/netx.saasm-layout"
-@import "sa_std/netx.saasm-iface"
-@import "sa_std/io.saasm"
+```sa
+@import "sa_std/netx.sal"
+@import "sa_std/netx.sai"
+@import "sa_std/io.sa"
 
 @const PREFIX = utf8:"ECHO: "
 
@@ -65,7 +65,7 @@ L_CLEANUP:
 ```
 
 ## 4. 运行与测试
-1.  编译并运行：`saasm run echo.saasm`
+1.  编译并运行：`sa run echo.sa`
 2.  在另一个终端使用 `telnet` 或 `nc` 连接：
     ```bash
     nc localhost 8080

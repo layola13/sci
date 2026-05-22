@@ -8,15 +8,15 @@
    ```text
    212_pkg_feature_flags/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── src/
-       ├── index.saasm
+       ├── index.sa
        └── flags/
-           ├── index.saasm
+           ├── index.sa
            └── helpers/
-               ├── flags.saasm-layout
-               └── index.saasm
+               ├── flags.sal
+               └── index.sa
    ```
-2. **代码组织**：`src/index.saasm` 只聚合 `src/flags/index.saasm`，真正的 flag 常量放在 `src/flags/helpers/flags.saasm-layout`。
+2. **代码组织**：`src/index.sa` 只聚合 `src/flags/index.sa`，真正的 flag 常量放在 `src/flags/helpers/flags.sal`。
 3. **说明**：`sa.pkg` 仅是未来包元数据示意，不是当前编译器输入。
 

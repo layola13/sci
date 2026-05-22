@@ -49,7 +49,7 @@
 
 - **src/sax/cli.zig** (222 行)
   - SAX CLI 命令集成
-  - `saasm sax build` / `check` / `dev` / `new` 子命令实现
+  - `sa sax build` / `check` / `dev` / `new` 子命令实现
 
 - **src/sax/mod.zig** (57 行)
   - SAX 模块主入口
@@ -78,7 +78,7 @@
 
 ### 核心设计原则（遵守 SA 哲学）
 
-1. **零 AST**：SAX Parser 直接输出 `.saasm` 文本，不构建中间树
+1. **零 AST**：SAX Parser 直接输出 `.sa` 文本，不构建中间树
 2. **五符号契约不变**：`=` `&` `^` `!` `*` 语义完全继承自 SA
 3. **气闸舱隔离**：所有 DOM 操作通过 Airlock `@ffi_wrapper` 层
 4. **Referee 零修改核心**：新增规则独立在 `sax_rules.zig`，约 200 行
@@ -130,14 +130,14 @@
 - [ ] 实现 SAX Lowerer 的完整降级逻辑
 - [ ] 扩展 Referee 的 SAX 规则验证
 - [ ] WASM 目标代码生成
-- [ ] `saasm sax build` / `check` 子命令完整实现
+- [ ] `sa sax build` / `check` 子命令完整实现
 - [ ] Counter + TodoList 在浏览器中正常运行
 
 ### Phase 2（响应式 + 路由 + 生命周期）
 - [ ] 细粒度响应式（编译期依赖分析）
 - [ ] `@onMount:` / `@onUnmount:` 生命周期钩子
 - [ ] `<Router>` + `<Page>` 基础路由
-- [ ] `saasm sax dev` 热重载开发服务器
+- [ ] `sa sax dev` 热重载开发服务器
 - [ ] VS Code 语法高亮插件
 
 ### Phase 3（跨端 + 生态）
@@ -164,7 +164,7 @@ docs/
 ```
 src/sax/
 ├── parser.zig             (282 行) - XML 解析
-├── lowerer.zig            (144 行) - 降级到 .saasm
+├── lowerer.zig            (144 行) - 降级到 .sa
 ├── airlock_gen.zig        (234 行) - JS 胶水生成
 ├── sax_rules.zig          (127 行) - Referee 规则
 ├── cli.zig                (222 行) - CLI 命令
@@ -222,7 +222,7 @@ test_sax_integration.sh    - 集成测试脚本
 2. 实现 SAX Lowerer 的完整降级逻辑（状态初始化、DOM 查询、事件绑定）
 3. 扩展 Referee 的 SAX 规则验证（集成到现有 Referee）
 4. 测试 Counter 组件的完整编译流程
-5. 集成 `saasm sax build` 子命令到 CLI
+5. 集成 `sa sax build` 子命令到 CLI
 
 ### 中期（Phase 2）
 1. 实现细粒度响应式（编译期依赖分析）
@@ -239,7 +239,7 @@ test_sax_integration.sh    - 集成测试脚本
 
 ## 设计亮点
 
-1. **零 AST 设计**：SAX Parser 直接输出 `.saasm` 文本，复用现有编译管线，最小化新增代码
+1. **零 AST 设计**：SAX Parser 直接输出 `.sa` 文本，复用现有编译管线，最小化新增代码
 2. **气闸舱隔离**：DOM 操作完全隔离在 Airlock 层，WASM 沙箱保证安全
 3. **编译期安全**：内存泄漏、事件逃逸、状态不一致都在编译期检测，零运行时开销
 4. **LLM 友好**：极简语法、扁平控制流、显式所有权，最大化 LLM 生成成功率

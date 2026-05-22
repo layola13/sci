@@ -40,4 +40,4 @@
 - **Atomic**: `atomic_load`, `atomic_store`, `cmpxchg`, `fence`.
 - **Types**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `ptr`, `v128`.
 
-*(When generating `.saasm` code, strictly adhere to flat control flow, rigorous explicit cleanup, and the exact keyword set).*
+*(When generating `.sa` code, strictly adhere to flat control flow, rigorous explicit cleanup, and the exact keyword set).*

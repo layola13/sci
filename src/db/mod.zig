@@ -41,7 +41,7 @@ test "db exec runs a registered query with binary params" {
     try tmp_dir.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const qmod_path = "simple.query.saasm";
+    const qmod_path = "simple.query.sa";
     const params_path = "params.bin";
 
     try writeFile(tmp_dir.dir, qmod_path,
@@ -91,7 +91,7 @@ test "db exec runs an imported registered query with binary params" {
     defer original_cwd.setAsCwd() catch {};
 
     const schema_path = "simple.sadb-schema";
-    const qmod_path = "simple.query.saasm";
+    const qmod_path = "simple.query.sa";
     const params_path = "params.bin";
 
     try writeFile(tmp_dir.dir, schema_path,

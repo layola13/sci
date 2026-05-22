@@ -74,7 +74,7 @@ def patch_rust(filepath):
 for i in range(2, 11):
     pattern = f"demos/rosetta/{i:02d}_*/*"
     for filepath in glob.glob(pattern):
-        if filepath.endswith('.saasm'):
+        if filepath.endswith('.sa'):
             patch_saasm(filepath)
         elif filepath.endswith('.rs'):
             patch_rust(filepath)

@@ -3,4 +3,4 @@ headers = [
   "bindgen/include/ffi_api.h",
   "bindgen/include/ffi_platform.h",
 ]
-output = "generated/bindings.saasm"
+output = "generated/bindings.sa"

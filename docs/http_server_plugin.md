@@ -49,8 +49,8 @@ graph TD
 
 和客户端插件一样，服务端的全套 API 也作为外部依赖桥接（通过 `@extern` 和 `ptr` 句柄）。
 
-### 3.1 完整接口定义 (`sa_http_server.saasm-iface`)
-```saasm
+### 3.1 完整接口定义 (`sa_http_server.sai`)
+```sa
 // 1. 初始化 HTTP 服务
 @extern sa_http_server_new(&out_server: ptr) -> i32!
 
@@ -76,7 +76,7 @@ graph TD
 下面是一个基于 `sa_http_server` 的完整服务端启动及请求处理示例：
 
 ### 4.1 启动服务器的主函数
-```saasm
+```sa
 @func main() -> i32! {
     // 1. 初始化 Server
     res = call @sa_http_server_new(&server)
@@ -108,7 +108,7 @@ graph TD
 ### 4.2 路由处理器 (Handler)
 处理器的签名必须符合插件约定的 ABI：接受一个代表请求的 `ticket`。
 
-```saasm
+```sa
 // 注意这里是在气闸舱环境，因为我们会直接与 FFI 请求句柄打交道
 @ffi_wrapper handle_echo(ticket: ptr) -> i32! {
     // 1. 从 Ticket 中解析请求

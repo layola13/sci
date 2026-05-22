@@ -919,9 +919,9 @@ test "classify representative line families" {
     try std.testing.expectEqualStrings("42", loc.parts[1]);
     try std.testing.expectEqualStrings("7", loc.parts[2]);
 
-    const import = classifyLine("@import \"sa_std/io/print.saasm-iface\"");
+    const import = classifyLine("@import \"sa_std/io/print.sai\"");
     try std.testing.expectEqual(LineKind.import_decl, import.kind);
-    try std.testing.expectEqualStrings("sa_std/io/print.saasm-iface", import.parts[0]);
+    try std.testing.expectEqualStrings("sa_std/io/print.sai", import.parts[0]);
 
     const raw = classifyLine("raw = *safe");
     try std.testing.expectEqual(InstructionForm.raw_cast, raw.inst_form.?);

@@ -14,5 +14,5 @@ completed demo coverage into a single framework-focused suite.
 | Panic handling | `178_panic_hook_override` | `178 panic hook path` |
 | Ignored selection | native unit-test framework behavior | `framework ignored case` |
 
-The sibling `runner.zig` file executes the suite through `saasm test` and
+The sibling `runner.zig` file executes the suite through `sa test` and
 checks default, `--ignored`, and `--include-ignored` behavior end to end.

@@ -1,9 +1,0 @@
-@import "../../../sa_std/io/print.saasm-iface"
-
-@const RESULT_ERR = utf8:"error\n"
-@const SOURCE = utf8:"@import \"../../../sa_std/io/print.saasm-iface\"\n\n@const RESULT_ERR = utf8:\"error\\n\"\n@const SOURCE = utf8:\"@import \\\"../../../sa_std/io/print.saasm-iface\\\"\\n\\n@const RESULT_ERR = utf8:\\\"error\\\\n\\\"\\n@const SOURCE = utf8:\"\n\n@main() -> i32:\nL_ENTRY:\n    call @sa_print_bytes(&SOURCE, 200)\n    return 0\n"
-
-@main() -> i32:
-L_ENTRY:
-    call @sa_print_bytes(&SOURCE, 200)
-    return 0

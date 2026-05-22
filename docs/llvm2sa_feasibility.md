@@ -1,7 +1,7 @@
 # llvm2sa 可行性评估报告
 
 > 评估日期：2026-05-17
-> 评估范围：基于本仓库 `src/emit_llvm.zig`（3247 行）、`src/common/instruction.zig`、`.probe_wasm2/hello.wasm.saasm.ll` 及现有编译管线的深度分析。
+> 评估范围：基于本仓库 `src/emit_llvm.zig`（3247 行）、`src/common/instruction.zig`、`.probe_wasm2/hello.wasm.sa.ll` 及现有编译管线的深度分析。
 
 ---
 
@@ -11,10 +11,10 @@
 
 ```
 当前管线（正向）：
-.saasm → Flattener → Referee → [emit_llvm.zig] → .ll → zig cc → native
+.sa → Flattener → Referee → [emit_llvm.zig] → .ll → zig cc → native
 
 llvm2sa 是什么（逆向）：
-.bc/.ll → [llvm2sa] → .saasm → 现有管线
+.bc/.ll → [llvm2sa] → .sa → 现有管线
 ```
 
 **要做的，是把 `emit_llvm.zig` 的方向反转**。这带来了一个非常有趣的对称性——现有 Emitter 已经告诉了 llvm2sa 需要处理什么，因为它的输出就是 llvm2sa 的输入。
@@ -77,7 +77,7 @@ if.end:
 ```
 
 **llvm2sa 翻译出的 SA-ASM**
-```saasm
+```sa
 @func calculate_sum(a: i32, b: i32) -> i32 {
     // alloca 被精准映射为生命周期绑定的 stack_alloc
     sum = stack_alloc 4
@@ -178,14 +178,14 @@ llvm2sa 的最自然落点是作为 `sa_net_uring.zig` 的**输入管道**，而
 
 ```
 现有管线（保留不动）：
-.saasm → Flattener → Referee → emit_llvm → .ll → zig cc → EXE
+.sa → Flattener → Referee → emit_llvm → .ll → zig cc → EXE
 
 新增 llvm2sa 管道：
 外部 .bc（Rustc/Clang/Zig 编译产物）
     ↓  opt -passes=reg2mem,O3       ← 白嫖 LLVM 优化
     ↓  llc -emit-llvm -filetype=asm → .ll（PHI-free）
     ↓  [src/llvm2sa.zig]            ← 新增，~800-1200 行 Zig
-    ↓  .saasm（全 Untracked 模式）
+    ↓  .sa（全 Untracked 模式）
     ↓  Flattener → Referee（气闸舱校验 @sys_net_* 调用）
     ↓  emit_llvm → zig cc
     ↓  sa_net_uring runtime（网络引擎）
@@ -197,7 +197,7 @@ llvm2sa 的最自然落点是作为 `sa_net_uring.zig` 的**输入管道**，而
 |---|---|---|
 | `src/llvm2sa.zig`（文本 .ll 解析 + 逆向翻译） | ~800–1200 | 核心模块 |
 | `src/phi_elim.zig`（Phi 消除，可选） | ~200–400 | 前期可用 `opt` 代劳 |
-| CLI 扩展 `saasm llvm2sa <file.ll>` | ~50 | 接入现有 `src/cli.zig` |
+| CLI 扩展 `sa llvm2sa <file.ll>` | ~50 | 接入现有 `src/cli.zig` |
 | 黄金文件测试套件 | ~200 | roundtrip 验证 |
 | **合计** | **~1250–1850** | 比 SAX Phase 1 略小或相当 |
 
@@ -230,11 +230,11 @@ P2（llvm2sa 的正确位置）：
 不用等到完整实现，可以先做一个**反向验证实验**（~100–200 行 Zig）：
 
 ```bash
-# 取本仓库已有的 .ll 文件（.probe_wasm2/hello.wasm.saasm.ll）
+# 取本仓库已有的 .ll 文件（.probe_wasm2/hello.wasm.sa.ll）
 # 手工反向翻译一次，验证对称性
 
-# 目标：把 hello.wasm.saasm.ll 还原成 hello_roundtrip.saasm
-# 再跑 saasm run hello_roundtrip.saasm，输出应与原版一致
+# 目标：把 hello.wasm.sa.ll 还原成 hello_roundtrip.sa
+# 再跑 sa run hello_roundtrip.sa，输出应与原版一致
 ```
 
 **为什么这个 PoC 几乎没有障碍**：本仓库自产的 `.ll` 是 PHI-free 的 mem-slot 形式、全字节偏移 GEP、无复杂结构体类型——正是 `emit_llvm.zig` 设计的输出形态。翻译层的忠实度可以在 PoC 阶段快速验证。
@@ -278,8 +278,8 @@ PoC 需要实现的最小翻译集：
 
 SA-ASM 已有 `@ffi_wrapper` 和 `@extern`，为什么还需要 `llvm2sa`？这本质上是**“打电话（FFI）”与“全资收购并入大平层（llvm2sa）”**的区别。
 
-1. **全局极限内联 (Global Inlining)**：FFI 必须跨越 C ABI（保存寄存器/压栈），阻断了流水线。而 `llvm2sa` 将 C/Rust 翻译为 `.saasm` 后，外语代码变成了 SA 的“一等公民”，SA 优化器能实现跨语言内联，彻底消除调用开销。
-2. **白盒透明审计**：引入第三方 `libfoo.so` 是盲盒，极度危险。`llvm2sa` 会将外部依赖碾碎为透明的 `.saasm` 汇编，必须接受 SA Flattener/Verifier 的审查，从根源上防御恶意投毒。
+1. **全局极限内联 (Global Inlining)**：FFI 必须跨越 C ABI（保存寄存器/压栈），阻断了流水线。而 `llvm2sa` 将 C/Rust 翻译为 `.sa` 后，外语代码变成了 SA 的“一等公民”，SA 优化器能实现跨语言内联，彻底消除调用开销。
+2. **白盒透明审计**：引入第三方 `libfoo.so` 是盲盒，极度危险。`llvm2sa` 会将外部依赖碾碎为透明的 `.sa` 汇编，必须接受 SA Flattener/Verifier 的审查，从根源上防御恶意投毒。
 3. **消除平台碎片化**：脱离了 `.so`/`.dll` 的羁绊。C/Rust 编译出的 LLVM IR 经 `llvm2sa` 转换后，全量变成 SA 纯文本，最终编译出的可执行文件或 WASM 模块是 **100% 毫无外部依赖**的单一实体。
 4. **同化为可挂起协程**：被转化为 SA 寄存器机状态的外部代码，可以被 SA 引擎极轻量地快照和挂起（Yield），避免了由于阻塞的 FFI 调用卡死 io_uring 主线程的噩梦。
 

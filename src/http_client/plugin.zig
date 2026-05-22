@@ -297,7 +297,7 @@ test "http client plugin exports runtime descriptor and loopback GET works" {
     const url = try std.fmt.allocPrint(std.testing.allocator, "http://127.0.0.1:{d}/hello", .{loopback.server.listen_address.getPort()});
     defer std.testing.allocator.free(url);
 
-    const args = [_][]const u8{ "saasm", "http-client", "get", url };
+    const args = [_][]const u8{ "sa", "http-client", "get", url };
     var ctx = plugin_api.Context{ .allocator = std.testing.allocator };
     const code = try runHttpClientCommand(&ctx, args[0..], stdout_buf.writer().any(), stderr_buf.writer().any());
 
@@ -360,7 +360,7 @@ test "http client plugin stream command forwards chunked SSE body incrementally"
     const url = try std.fmt.allocPrint(std.testing.allocator, "http://127.0.0.1:{d}/events", .{server.listen_address.getPort()});
     defer std.testing.allocator.free(url);
 
-    const args = [_][]const u8{ "saasm", "http-client", "stream", url };
+    const args = [_][]const u8{ "sa", "http-client", "stream", url };
     var ctx = plugin_api.Context{ .allocator = std.testing.allocator };
     const code = try runHttpClientCommand(&ctx, args[0..], stdout_buf.writer().any(), stderr_buf.writer().any());
     try std.testing.expectEqual(@as(?u8, 0), code);
@@ -431,7 +431,7 @@ test "http client plugin post command forwards headers and body" {
     defer std.testing.allocator.free(url);
 
     const args = [_][]const u8{
-        "saasm",
+        "sa",
         "http-client",
         "post",
         "--header",
@@ -535,7 +535,7 @@ test "http client plugin https ca bundle works against a local self-signed serve
 
     const url = "https://localhost:18443/";
     const ca_bundle = "server.crt";
-    const args = [_][]const u8{ "saasm", "http-client", "get", "--ca-bundle", ca_bundle, url };
+    const args = [_][]const u8{ "sa", "http-client", "get", "--ca-bundle", ca_bundle, url };
     var ctx = plugin_api.Context{ .allocator = std.testing.allocator };
 
     var attempt: usize = 0;

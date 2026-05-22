@@ -1,0 +1,86 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"12\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    outer = 0
+    total = 0
+    jmp L_OUTER_START
+
+L_OUTER_START:
+    outer_next = add outer, 1
+    !outer
+    outer = outer_next
+    inner = 0
+    jmp L_INNER_START
+
+L_INNER_START:
+    inner_next = add inner, 1
+    !inner
+    inner = inner_next
+    outer_is_two = eq outer, 2
+    inner_is_two = eq inner, 2
+    break_outer = and outer_is_two, inner_is_two
+    br break_outer -> L_BREAK_OUTER_CLEAN, L_INNER_BODY
+
+L_BREAK_OUTER_CLEAN:
+    !break_outer
+    !inner_is_two
+    !outer_is_two
+    !inner
+    !outer
+    jmp L_EXIT_CLEAN
+
+L_INNER_BODY:
+    addend = add outer, inner
+    total_next = add total, addend
+    !total
+    total = total_next
+    inner_done = sge inner, 3
+    !addend
+    br inner_done -> L_INNER_DONE_CLEAN, L_INNER_CONT_CLEAN
+
+L_INNER_DONE_CLEAN:
+    !inner_done
+    !break_outer
+    !inner_is_two
+    !outer_is_two
+    !inner
+    jmp L_OUTER_CHECK
+
+L_INNER_CONT_CLEAN:
+    !inner_done
+    !break_outer
+    !inner_is_two
+    !outer_is_two
+    jmp L_INNER_START
+
+L_OUTER_CHECK:
+    outer_done = sge outer, 3
+    br outer_done -> L_OUTER_DONE_CLEAN, L_OUTER_CONT_CLEAN
+
+L_OUTER_DONE_CLEAN:
+    !outer_done
+    !outer
+    jmp L_EXIT_CLEAN
+
+L_OUTER_CONT_CLEAN:
+    !outer_done
+    jmp L_OUTER_START
+
+L_EXIT_CLEAN:
+    ok = eq total, 12
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"15\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Account_SIZE = 4
+#def Account_balance = +0
+
+@deposit(&account: ptr, amount: i32) -> void:
+L_ENTRY:
+    balance = load account+Account_balance as i32
+    next = add balance, amount
+    store account+Account_balance, next as i32
+    !balance
+    !next
+    !amount
+    !account
+    return
+
+@main() -> i32:
+L_ENTRY:
+    account = alloc Account_SIZE
+    store account+Account_balance, 10 as i32
+    call @deposit(&account, 5)
+    balance = load account+Account_balance as i32
+    ok = eq balance, 15
+    !balance
+    !account
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

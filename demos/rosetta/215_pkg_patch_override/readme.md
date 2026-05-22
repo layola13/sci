@@ -8,17 +8,17 @@
    ```text
    215_pkg_patch_override/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── src/
-       ├── index.saasm
+       ├── index.sa
        └── patches/
-           ├── index.saasm
+           ├── index.sa
            └── helpers/
-               ├── patch.saasm-layout
-               ├── index.saasm
-               ├── upstream.saasm
-               └── override.saasm
+               ├── patch.sal
+               ├── index.sa
+               ├── upstream.sa
+               └── override.sa
    ```
-2. **代码组织**：`override.saasm` 先调用 upstream，再用 `patch.saasm-layout` 里的常量做本地覆盖。
+2. **代码组织**：`override.sa` 先调用 upstream，再用 `patch.sal` 里的常量做本地覆盖。
 3. **说明**：`sa.pkg` 只是未来元数据示意，不属于当前编译输入。
 

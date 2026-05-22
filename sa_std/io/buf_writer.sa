@@ -1,0 +1,25 @@
+@import "../io.sai"
+
+[MACRO] BUF_WRITER_WRITE %out_count, %handle, %buf, %len
+    __buf_writer_write = call @sa_io_write(%handle, &%buf, %len)
+    %out_count = ? __buf_writer_write
+    !__buf_writer_write
+[END_MACRO]
+
+[MACRO] BUF_WRITER_WRITE_ALL %out_ok, %handle, %buf, %len
+    __buf_writer_write_all = call @sa_io_write_all(%handle, &%buf, %len)
+    %out_ok = ? __buf_writer_write_all
+    !__buf_writer_write_all
+[END_MACRO]
+
+[MACRO] BUF_WRITER_FLUSH %out_ok, %handle
+    __buf_writer_flush = call @sa_io_flush(%handle)
+    %out_ok = ? __buf_writer_flush
+    !__buf_writer_flush
+[END_MACRO]
+
+[MACRO] BUF_WRITER_CLOSE %out_ok, %handle
+    __buf_writer_close = call @sa_io_close(^%handle)
+    %out_ok = ? __buf_writer_close
+    !__buf_writer_close
+[END_MACRO]

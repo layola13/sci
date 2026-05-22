@@ -1,6 +1,6 @@
 import re
 
-with open('tests/unit_framework/support/json_regex.saasm', 'r') as f:
+with open('tests/unit_framework/support/json_regex.sa', 'r') as f:
     text = f.read()
 
 text = re.sub(
@@ -22,6 +22,6 @@ text = text.replace(
     '+0 as i32'
 )
 
-with open('tests/unit_framework/support/json_regex.saasm', 'w') as f:
+with open('tests/unit_framework/support/json_regex.sa', 'w') as f:
     f.write(text)
 

@@ -11,7 +11,7 @@ fn expectNotContains(text: []const u8, needle: []const u8) !void {
 }
 
 test "native unit framework suite covers the demo-derived feature matrix" {
-    const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "tests/unit_framework/feature_suite.saasm");
+    const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "tests/unit_framework/feature_suite.sa");
     defer std.testing.allocator.free(suite_path);
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -19,13 +19,17 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const default_argv = [_][]const u8{ "saasm", "test", suite_path, "--jobs", "1" };
+    const default_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1" };
     const default_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         default_argv[0..],
         stdout_buffer.writer(),
         stderr_buffer.writer(),
     );
+    if (default_code != 0) {
+        std.debug.print("stdout: {s}\n", .{stdout_buffer.items});
+        std.debug.print("stderr: {s}\n", .{stderr_buffer.items});
+    }
     try std.testing.expectEqual(@as(u8, 0), default_code);
     try expectContains(stdout_buffer.items, "[PASS] 03_if_else branch path");
     try expectContains(stdout_buffer.items, "[PASS] 05_struct field layout");
@@ -43,7 +47,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const ignored_argv = [_][]const u8{ "saasm", "test", suite_path, "--jobs", "1", "--ignored" };
+    const ignored_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1", "--ignored" };
     const ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ignored_argv[0..],
@@ -59,7 +63,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const include_ignored_argv = [_][]const u8{ "saasm", "test", suite_path, "--jobs", "1", "--include-ignored" };
+    const include_ignored_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1", "--include-ignored" };
     const include_ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         include_ignored_argv[0..],

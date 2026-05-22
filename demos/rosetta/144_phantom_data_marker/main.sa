@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"7\n"
+@const RESULT_ERR = utf8:"error\n"
+
+// PhantomData 占据 0 字节。结构体退化为只包含 i32。
+#def Wrapper_SIZE = 4
+#def Wrapper_id = +0
+
+@main() -> i32:
+L_ENTRY:
+    w = alloc Wrapper_SIZE
+    store w+Wrapper_id, 7 as i32
+    
+    // 对 PhantomData 的赋值在此被完全抹除。
+    
+    val = load w+Wrapper_id as i32
+    ok = eq val, 7
+    !val
+    !w
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

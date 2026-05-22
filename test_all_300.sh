@@ -3,7 +3,7 @@
 set -u
 set -o pipefail
 
-SAASM_BIN=${SAASM_BIN:-./zig-out/bin/saasm}
+SAASM_BIN=${SAASM_BIN:-./zig-out/bin/sa}
 NODE_BIN=${NODE_BIN:-node}
 
 if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
@@ -94,7 +94,7 @@ skip=0
 fail_list=""
 
 for dir in demos/rosetta/*; do
-    [ -f "$dir/main.saasm" ] || continue
+    [ -f "$dir/main.sa" ] || continue
 
     base=$(basename "$dir")
     num_raw=${base%%_*}
@@ -106,7 +106,7 @@ for dir in demos/rosetta/*; do
         continue
     fi
 
-    source_path=$(realpath "$dir/main.saasm")
+    source_path=$(realpath "$dir/main.sa")
     native_stdout="$tmp_root/$base.native.stdout"
     native_stderr="$tmp_root/$base.native.stderr"
     wasm_stdout="$tmp_root/$base.wasm.stdout"
@@ -121,8 +121,8 @@ for dir in demos/rosetta/*; do
         native_out="$demo_bin_path/$base.out"
         wasm_out="$demo_bin_path/$base.wasm"
     fi
-    native_ll_out="${native_out}.saasm.ll"
-    wasm_ll_out="${wasm_out}.saasm.ll"
+    native_ll_out="${native_out}.sa.ll"
+    wasm_ll_out="${wasm_out}.sa.ll"
     rm -f "$native_out" "$native_ll_out" "$wasm_out" "$wasm_ll_out"
     wasm_target="wasm32"
     wasm_compile_only=0
@@ -200,8 +200,8 @@ for dir in demos/rosetta/*; do
     esac
 
     if [ "$base" = "220_pkg_lib_dynamic" ]; then
-        main_source=$(realpath "$dir/main.saasm")
-        lib_source=$(realpath "$dir/lib/index.saasm")
+        main_source=$(realpath "$dir/main.sa")
+        lib_source=$(realpath "$dir/lib/index.sa")
         sa_std_archive_path="artifacts/sa_std/libsa_std.a"
         main_obj="$tmp_root/$base.main.o"
         lib_obj="$tmp_root/$base.lib.o"

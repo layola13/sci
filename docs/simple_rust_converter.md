@@ -19,7 +19,7 @@
 ## 2. 利用现有特性实现
 
 ### 2.1 借用 SAX 的降级思想
-项目中的 `src/sax/parser.zig` 已经实现了一套从 XML 结构降级到 `.saasm` 的逻辑。我们可以参考此逻辑，编写一个 `src/sax/rust_flavor.zig`，它：
+项目中的 `src/sax/parser.zig` 已经实现了一套从 XML 结构降级到 `.sa` 的逻辑。我们可以参考此逻辑，编写一个 `src/sax/rust_flavor.zig`，它：
 - 使用正则或简单的词法分析器（Lexer）提取 Rust 的 `fn` 块。
 - **不构建复杂的 AST**，而是直接线性扫描并将大括号 `{}` 块展平为 SA-ASM 的标签流。
 

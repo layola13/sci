@@ -120,7 +120,7 @@ fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
-    const run_argv = [_][]const u8{ "saasm", "run", path };
+    const run_argv = [_][]const u8{ "sa", "run", path };
     const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     if (run_code != 0 or stderr_buf.items.len != 0 or !std.mem.eql(u8, stdout_buf.items, expected_stdout)) {
         std.debug.print("demo run failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, stdout_buf.items, stderr_buf.items });
@@ -133,7 +133,7 @@ fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
 fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const print_iface = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/io/print.saasm-iface");
+    const print_iface = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/io/print.sai");
     defer std.testing.allocator.free(print_iface);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -150,7 +150,7 @@ fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
     const out_path = try std.fmt.allocPrint(std.testing.allocator, "bin/{s}.out", .{demo_dir});
     defer std.testing.allocator.free(out_path);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", out_path };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", out_path };
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     if (build_exe_code != 0) {
         std.debug.print("build-exe failed: {s}\n", .{path});
@@ -188,7 +188,7 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", out_name };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", out_name };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -202,7 +202,7 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(out_name, .{}));
-    const ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.saasm.ll", .{out_name});
+    const ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.ll", .{out_name});
     defer std.testing.allocator.free(ll_name);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(ll_name, .{}));
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -231,7 +231,7 @@ fn assertBuildExeLinkFailure(source_name: []const u8, source: []const u8, out_na
 
     try writeSource(tmp.dir, source_name, source);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_name, "-o", out_name };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_name, "-o", out_name };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -258,7 +258,7 @@ fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
-    const run_argv = [_][]const u8{ "saasm", "run", path, arg };
+    const run_argv = [_][]const u8{ "sa", "run", path, arg };
     const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     if (run_code != 0 or stderr_buf.items.len != 0 or !std.mem.eql(u8, stdout_buf.items, expected_stdout)) {
         std.debug.print("demo run failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, stdout_buf.items, stderr_buf.items });
@@ -361,14 +361,14 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "sample.saasm", source);
+    try writeSource(tmp.dir, "sample.sa", source);
 
-    const run_argv = [_][]const u8{ "saasm", "run", "sample.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "sample.sa" };
     const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
     try std.testing.expectEqual(@as(u8, 7), run_code);
 
     const exe_path = "sample.out";
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "sample.saasm", "-o", exe_path, "-g" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "sample.sa", "-o", exe_path, "-g" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
@@ -378,7 +378,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     defer std.testing.allocator.free(exe_bytes);
     try std.testing.expect(exe_bytes.len > 0);
 
-    const ll_path = "sample.out.saasm.ll";
+    const ll_path = "sample.out.sa.ll";
     const ll = try tmp.dir.openFile(ll_path, .{});
     defer ll.close();
     const ll_bytes = try ll.readToEndAlloc(std.testing.allocator, 1 << 20);
@@ -390,7 +390,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "ret i32 %status, !dbg"));
 
     const obj_path = "sample.o";
-    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "sample.saasm", "--jobs", "auto", "-o", obj_path };
+    const build_obj_argv = [_][]const u8{ "sa", "build-obj", "sample.sa", "--jobs", "auto", "-o", obj_path };
     const obj_code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), obj_code);
 
@@ -401,7 +401,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(obj_bytes.len > 0);
 
     const wasm_path = "sample.wasm";
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "sample.saasm", "--jobs", "auto", "-o", wasm_path, "--target", "wasm32" };
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", "sample.sa", "--jobs", "auto", "-o", wasm_path, "--target", "wasm32" };
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
@@ -450,7 +450,7 @@ test "cli sax build produces browser bundle artifacts" {
 
     try writeSource(tmp.dir, "app.sax", source);
 
-    const build_argv = [_][]const u8{ "saasm", "sax", "build", "app.sax" };
+    const build_argv = [_][]const u8{ "sa", "sax", "build", "app.sax" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -465,12 +465,12 @@ test "cli sax build produces browser bundle artifacts" {
     try std.testing.expectEqual(@as(u8, 0), code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "✓ SAX build successful"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/app.saasm"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/app.sa"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/app.wasm"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/airlock.js"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/index.html"));
 
-    const saasm_file = try tmp.dir.openFile("dist/app.saasm", .{});
+    const saasm_file = try tmp.dir.openFile("dist/app.sa", .{});
     defer saasm_file.close();
     const saasm_bytes = try saasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(saasm_bytes);
@@ -511,25 +511,25 @@ test "cli build-exe with jobs 1 and auto produce the same emitted LLVM" {
     const tmp_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(tmp_root);
 
-    try writeSource(tmp.dir, "jobs_ok.saasm", source);
-    const source_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "jobs_ok.saasm" });
+    try writeSource(tmp.dir, "jobs_ok.sa", source);
+    const source_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "jobs_ok.sa" });
     defer std.testing.allocator.free(source_path);
     const serial_out_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "serial.out" });
     defer std.testing.allocator.free(serial_out_path);
     const auto_out_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "auto.out" });
     defer std.testing.allocator.free(auto_out_path);
 
-    const serial_build_argv = [_][]const u8{ "saasm", "build-exe", source_path, "--jobs", "1", "-o", serial_out_path };
+    const serial_build_argv = [_][]const u8{ "sa", "build-exe", source_path, "--jobs", "1", "-o", serial_out_path };
     const serial_code = try saasm.cli.execute(std.testing.allocator, serial_build_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), serial_code);
 
-    const auto_build_argv = [_][]const u8{ "saasm", "build-exe", source_path, "--jobs", "auto", "-o", auto_out_path };
+    const auto_build_argv = [_][]const u8{ "sa", "build-exe", source_path, "--jobs", "auto", "-o", auto_out_path };
     const auto_code = try saasm.cli.execute(std.testing.allocator, auto_build_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), auto_code);
 
-    const serial_ll_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.saasm.ll", .{serial_out_path});
+    const serial_ll_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.ll", .{serial_out_path});
     defer std.testing.allocator.free(serial_ll_path);
-    const auto_ll_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.saasm.ll", .{auto_out_path});
+    const auto_ll_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.ll", .{auto_out_path});
     defer std.testing.allocator.free(auto_ll_path);
 
     const serial_ll = try tmp.dir.openFile(serial_ll_path, .{});
@@ -572,14 +572,14 @@ test "cli run with jobs 2 keeps the earliest source-order trap" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "parallel_trap.saasm", source);
+    try writeSource(tmp.dir, "parallel_trap.sa", source);
 
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
-    const run_argv = [_][]const u8{ "saasm", "run", "parallel_trap.saasm", "--jobs", "2" };
+    const run_argv = [_][]const u8{ "sa", "run", "parallel_trap.sa", "--jobs", "2" };
     const code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
@@ -588,13 +588,13 @@ test "cli run with jobs 2 keeps the earliest source-order trap" {
     try std.testing.expect(std.mem.indexOf(u8, stderr_buf.items, "return second_missing") == null);
 }
 
-test "hello world demo prints through saasm run" {
+test "hello world demo prints through sa run" {
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
-    const run_argv = [_][]const u8{ "saasm", "run", "demos/rosetta/01_hello_world/main.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "demos/rosetta/01_hello_world/main.sa" };
     const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), run_code);
     try std.testing.expectEqualStrings("hello, saasm\n", stdout_buf.items);
@@ -622,14 +622,14 @@ test "hello world demo prints through build-wasm and node wasi" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.sa");
     defer std.testing.allocator.free(source_path);
 
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", source_path, "-o", "hello.wasm", "--target", "wasm32" };
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", "hello.wasm", "--target", "wasm32" };
     const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "hello.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "hello.out" };
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
@@ -648,7 +648,7 @@ test "hello world demo prints through build-wasm and node wasi" {
     try std.testing.expectEqualStrings("hello, saasm\n", native_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), native_result.stderr.len);
 
-    const node_result = try runWasmWithNode(std.testing.allocator, "hello.wasm", &.{ "saasm", "hello.wasm" });
+    const node_result = try runWasmWithNode(std.testing.allocator, "hello.wasm", &.{ "sa", "hello.wasm" });
     defer std.testing.allocator.free(node_result.stdout);
     defer std.testing.allocator.free(node_result.stderr);
     switch (node_result.term) {
@@ -704,10 +704,10 @@ test "hello world upstream line can break in gdb" {
         \\// 9
         \\// 10
     ;
-    try writeSource(tmp.dir, "hello.saasm", source);
+    try writeSource(tmp.dir, "hello.sa", source);
     try writeSource(tmp.dir, "hello.rs", upstream_source);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "hello.saasm", "-o", "hello.out", "-g" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "hello.sa", "-o", "hello.out", "-g" };
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
@@ -775,10 +775,10 @@ test "hello compute demo prints through build-exe and build-wasm" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/98_build_pipeline/main.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/98_build_pipeline/main.sa");
     defer std.testing.allocator.free(source_path);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "hello_compute.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "hello_compute.out" };
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
@@ -797,11 +797,11 @@ test "hello compute demo prints through build-exe and build-wasm" {
     try std.testing.expectEqualStrings("6\n", native_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), native_result.stderr.len);
 
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", source_path, "-o", "hello_compute.wasm", "--target", "wasm32" };
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", "hello_compute.wasm", "--target", "wasm32" };
     const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
 
-    const node_result = try runWasmWithNode(std.testing.allocator, "hello_compute.wasm", &.{ "saasm", "hello_compute.wasm" });
+    const node_result = try runWasmWithNode(std.testing.allocator, "hello_compute.wasm", &.{ "sa", "hello_compute.wasm" });
     defer std.testing.allocator.free(node_result.stdout);
     defer std.testing.allocator.free(node_result.stderr);
     switch (node_result.term) {
@@ -817,13 +817,13 @@ test "hello compute demo prints through build-exe and build-wasm" {
     try std.testing.expectEqual(@as(usize, 0), node_result.stderr.len);
 }
 
-test "trait vtable demo runs through saasm run" {
+test "trait vtable demo runs through sa run" {
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
-    const run_argv = [_][]const u8{ "saasm", "run", "demos/rosetta/07_trait_vtable/main.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "demos/rosetta/07_trait_vtable/main.sa" };
     const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), run_code);
     try std.testing.expectEqualStrings("77\n", stdout_buf.items);
@@ -831,7 +831,7 @@ test "trait vtable demo runs through saasm run" {
 }
 
 test "callback registration demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/253_contract_callback_registration/main.saasm", "253\n");
+    try assertBuildExeStdout("demos/rosetta/253_contract_callback_registration/main.sa", "253\n");
 }
 
 test "pkg lib dynamic demo compiles via object archive and prints through native link" {
@@ -844,9 +844,9 @@ test "pkg lib dynamic demo compiles via object archive and prints through native
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const main_source = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/220_pkg_lib_dynamic/main.saasm");
+    const main_source = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/220_pkg_lib_dynamic/main.sa");
     defer std.testing.allocator.free(main_source);
-    const lib_source = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/220_pkg_lib_dynamic/lib/index.saasm");
+    const lib_source = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/220_pkg_lib_dynamic/lib/index.sa");
     defer std.testing.allocator.free(lib_source);
     const sa_std_archive_path = try original_cwd.realpathAlloc(std.testing.allocator, "artifacts/sa_std/libsa_std.a");
     defer std.testing.allocator.free(sa_std_archive_path);
@@ -856,11 +856,11 @@ test "pkg lib dynamic demo compiles via object archive and prints through native
     const lib_archive = "220_pkg_lib_dynamic_lib.a";
     const out_path = "220_pkg_lib_dynamic.out";
 
-    const build_main_argv = [_][]const u8{ "saasm", "build-obj", main_source, "-o", main_obj };
+    const build_main_argv = [_][]const u8{ "sa", "build-obj", main_source, "-o", main_obj };
     const build_main_code = try saasm.cli.execute(std.testing.allocator, build_main_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_main_code);
 
-    const build_lib_argv = [_][]const u8{ "saasm", "build-obj", lib_source, "-o", lib_obj };
+    const build_lib_argv = [_][]const u8{ "sa", "build-obj", lib_source, "-o", lib_obj };
     const build_lib_code = try saasm.cli.execute(std.testing.allocator, build_lib_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_lib_code);
 
@@ -881,328 +881,328 @@ test "pkg lib dynamic demo compiles via object archive and prints through native
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
 }
 
-test "comparison alias demos run through saasm run" {
-    try assertRunStdout("demos/rosetta/03_if_else/main.saasm", "20\n");
-    try assertRunStdout("demos/rosetta/04_loop/main.saasm", "[0,0,0,0]\n");
-    try assertRunStdout("demos/rosetta/21_while_loop/main.saasm", "15\n");
-    try assertRunStdout("demos/rosetta/24_factorial/main.saasm", "120\n");
-    try assertRunStdout("demos/rosetta/25_fibonacci/main.saasm", "21\n");
+test "comparison alias demos run through sa run" {
+    try assertRunStdout("demos/rosetta/03_if_else/main.sa", "20\n");
+    try assertRunStdout("demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
+    try assertRunStdout("demos/rosetta/21_while_loop/main.sa", "15\n");
+    try assertRunStdout("demos/rosetta/24_factorial/main.sa", "120\n");
+    try assertRunStdout("demos/rosetta/25_fibonacci/main.sa", "21\n");
 }
 
 test "ownership and borrow demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/02_mutability/main.saasm", "20\n");
-    try assertBuildExeStdout("demos/rosetta/20_boxed_value/main.saasm", "9\n");
-    try assertBuildExeStdout("demos/rosetta/26_reference_return/main.saasm", "9\n");
-    try assertBuildExeStdout("demos/rosetta/27_move_semantics/main.saasm", "11\n");
-    try assertBuildExeStdout("demos/rosetta/28_borrow_chains/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/51_refcount/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/58_borrow_update/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/61_thread_pool/main.saasm", "5\n");
-    try assertBuildExeStdout("demos/rosetta/67_resource_pool/main.saasm", "20\n");
-    try assertBuildExeStdout("demos/rosetta/52_queue_rotate/main.saasm", "2,3,1\n");
+    try assertBuildExeStdout("demos/rosetta/02_mutability/main.sa", "20\n");
+    try assertBuildExeStdout("demos/rosetta/20_boxed_value/main.sa", "9\n");
+    try assertBuildExeStdout("demos/rosetta/26_reference_return/main.sa", "9\n");
+    try assertBuildExeStdout("demos/rosetta/27_move_semantics/main.sa", "11\n");
+    try assertBuildExeStdout("demos/rosetta/28_borrow_chains/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/51_refcount/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/58_borrow_update/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/61_thread_pool/main.sa", "5\n");
+    try assertBuildExeStdout("demos/rosetta/67_resource_pool/main.sa", "20\n");
+    try assertBuildExeStdout("demos/rosetta/52_queue_rotate/main.sa", "2,3,1\n");
 }
 
 test "core control-flow and data demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/03_if_else/main.saasm", "20\n");
-    try assertBuildExeStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
-    try assertBuildExeStdout("demos/rosetta/06_enum_and_match/main.saasm", "30\n");
-    try assertBuildExeStdout("demos/rosetta/11_tuples/main.saasm", "(3, 4)\n");
-    try assertBuildExeStdout("demos/rosetta/13_array_sum/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/15_string_bytes/main.saasm", "4\n");
-    try assertBuildExeStdout("demos/rosetta/18_option_map/main.saasm", "8\n");
-    try assertBuildExeStdout("demos/rosetta/16_methods/main.saasm", "25\n");
-    try assertBuildExeStdout("demos/rosetta/24_factorial/main.saasm", "120\n");
-    try assertBuildExeStdout("demos/rosetta/25_fibonacci/main.saasm", "21\n");
-    try assertBuildExeStdout("demos/rosetta/29_const_data/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/31_trait_static_dispatch/main.saasm", "16\n");
+    try assertBuildExeStdout("demos/rosetta/03_if_else/main.sa", "20\n");
+    try assertBuildExeStdout("demos/rosetta/05_struct/main.sa", "(10,20)\n");
+    try assertBuildExeStdout("demos/rosetta/06_enum_and_match/main.sa", "30\n");
+    try assertBuildExeStdout("demos/rosetta/11_tuples/main.sa", "(3, 4)\n");
+    try assertBuildExeStdout("demos/rosetta/13_array_sum/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/15_string_bytes/main.sa", "4\n");
+    try assertBuildExeStdout("demos/rosetta/18_option_map/main.sa", "8\n");
+    try assertBuildExeStdout("demos/rosetta/16_methods/main.sa", "25\n");
+    try assertBuildExeStdout("demos/rosetta/24_factorial/main.sa", "120\n");
+    try assertBuildExeStdout("demos/rosetta/25_fibonacci/main.sa", "21\n");
+    try assertBuildExeStdout("demos/rosetta/29_const_data/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/31_trait_static_dispatch/main.sa", "16\n");
 }
 
 test "additional rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/12_destructuring/main.saasm", "7\n");
-    try assertBuildExeStdout("demos/rosetta/34_iterator_filter/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/35_iterator_fold/main.saasm", "7\n");
-    try assertBuildExeStdout("demos/rosetta/36_tuple_struct/main.saasm", "14\n");
-    try assertBuildExeStdout("demos/rosetta/40_impl_block_state/main.saasm", "15\n");
-    try assertBuildExeStdout("demos/rosetta/41_module_imports/main.saasm", "42\n");
-    try assertBuildExeStdout("demos/rosetta/42_export_visibility/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/45_config_merge/main.saasm", "4 3\n");
-    try assertBuildExeStdout("demos/rosetta/46_option_default/main.saasm", "9\n");
-    try assertBuildExeStdout("demos/rosetta/48_generic_pair/main.saasm", "11,31\n");
-    try assertBuildExeStdout("demos/rosetta/63_router_table/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/12_destructuring/main.sa", "7\n");
+    try assertBuildExeStdout("demos/rosetta/34_iterator_filter/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/35_iterator_fold/main.sa", "7\n");
+    try assertBuildExeStdout("demos/rosetta/36_tuple_struct/main.sa", "14\n");
+    try assertBuildExeStdout("demos/rosetta/40_impl_block_state/main.sa", "15\n");
+    try assertBuildExeStdout("demos/rosetta/41_module_imports/main.sa", "42\n");
+    try assertBuildExeStdout("demos/rosetta/42_export_visibility/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/45_config_merge/main.sa", "4 3\n");
+    try assertBuildExeStdout("demos/rosetta/46_option_default/main.sa", "9\n");
+    try assertBuildExeStdout("demos/rosetta/48_generic_pair/main.sa", "11,31\n");
+    try assertBuildExeStdout("demos/rosetta/63_router_table/main.sa", "2\n");
 }
 
 test "fallible rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/19_result_question/main.saasm", "21\n");
-    try assertBuildExeStdout("demos/rosetta/50_error_chain/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/176_result_flattening/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/19_result_question/main.sa", "21\n");
+    try assertBuildExeStdout("demos/rosetta/50_error_chain/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/176_result_flattening/main.sa", "2\n");
 }
 
 test "slice and cache rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/44_slice_iteration/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/54_mem_fill/main.saasm", "7,7,7,7\n");
-    try assertBuildExeStdout("demos/rosetta/86_cache_eviction/main.saasm", "20\n");
+    try assertBuildExeStdout("demos/rosetta/44_slice_iteration/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/54_mem_fill/main.sa", "7,7,7,7\n");
+    try assertBuildExeStdout("demos/rosetta/86_cache_eviction/main.sa", "20\n");
 }
 
 test "baseline rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/01_hello_world/main.saasm", "hello, saasm\n");
-    try assertBuildExeStdout("demos/rosetta/04_loop/main.saasm", "[0,0,0,0]\n");
-    try assertBuildExeStdout("demos/rosetta/07_trait_vtable/main.saasm", "77\n");
-    try assertBuildExeStdout("demos/rosetta/21_while_loop/main.saasm", "15\n");
+    try assertBuildExeStdout("demos/rosetta/01_hello_world/main.sa", "hello, saasm\n");
+    try assertBuildExeStdout("demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
+    try assertBuildExeStdout("demos/rosetta/07_trait_vtable/main.sa", "77\n");
+    try assertBuildExeStdout("demos/rosetta/21_while_loop/main.sa", "15\n");
 }
 
 test "break and nested loop rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/22_break_continue/main.saasm", "9\n");
-    try assertBuildExeStdout("demos/rosetta/23_nested_loops/main.saasm", "18\n");
+    try assertBuildExeStdout("demos/rosetta/22_break_continue/main.sa", "9\n");
+    try assertBuildExeStdout("demos/rosetta/23_nested_loops/main.sa", "18\n");
 }
 
 test "more baseline rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/29_const_data/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/31_trait_static_dispatch/main.saasm", "16\n");
-    try assertBuildExeStdout("demos/rosetta/37_newtype/main.saasm", "42\n");
-    try assertBuildExeStdout("demos/rosetta/38_generic_struct_i32/main.saasm", "31\n");
-    try assertBuildExeStdout("demos/rosetta/39_generic_enum_i32/main.saasm", "7\n");
-    try assertBuildExeStdout("demos/rosetta/40_impl_block_state/main.saasm", "15\n");
+    try assertBuildExeStdout("demos/rosetta/29_const_data/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/31_trait_static_dispatch/main.sa", "16\n");
+    try assertBuildExeStdout("demos/rosetta/37_newtype/main.sa", "42\n");
+    try assertBuildExeStdout("demos/rosetta/38_generic_struct_i32/main.sa", "31\n");
+    try assertBuildExeStdout("demos/rosetta/39_generic_enum_i32/main.sa", "7\n");
+    try assertBuildExeStdout("demos/rosetta/40_impl_block_state/main.sa", "15\n");
 }
 
 test "more rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/08_closures/main.saasm", "15\n");
-    try assertBuildExeStdout("demos/rosetta/10_generics_monomorph/main.saasm", "42\n");
-    try assertBuildExeStdout("demos/rosetta/17_associated_fn/main.saasm", "42\n");
-    try assertBuildExeStdout("demos/rosetta/30_manual_guard_branch/main.saasm", "5\n");
-    try assertBuildExeStdout("demos/rosetta/33_iterator_map/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/37_newtype/main.saasm", "42\n");
-    try assertBuildExeStdout("demos/rosetta/38_generic_struct_i32/main.saasm", "31\n");
-    try assertBuildExeStdout("demos/rosetta/39_generic_enum_i32/main.saasm", "7\n");
-    try assertBuildExeStdout("demos/rosetta/59_method_counter/main.saasm", "4\n");
-    try assertBuildExeStdout("demos/rosetta/60_enum_branch/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/08_closures/main.sa", "15\n");
+    try assertBuildExeStdout("demos/rosetta/10_generics_monomorph/main.sa", "42\n");
+    try assertBuildExeStdout("demos/rosetta/17_associated_fn/main.sa", "42\n");
+    try assertBuildExeStdout("demos/rosetta/30_manual_guard_branch/main.sa", "5\n");
+    try assertBuildExeStdout("demos/rosetta/33_iterator_map/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/37_newtype/main.sa", "42\n");
+    try assertBuildExeStdout("demos/rosetta/38_generic_struct_i32/main.sa", "31\n");
+    try assertBuildExeStdout("demos/rosetta/39_generic_enum_i32/main.sa", "7\n");
+    try assertBuildExeStdout("demos/rosetta/59_method_counter/main.sa", "4\n");
+    try assertBuildExeStdout("demos/rosetta/60_enum_branch/main.sa", "2\n");
 }
 
 test "even more rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/64_file_manifest/main.saasm", "3\n");
-    try assertBuildExeStdout("demos/rosetta/68_parser_tokens/main.saasm", "4\n");
-    try assertBuildExeStdout("demos/rosetta/69_serializer/main.saasm", "{\"id\":7}\n");
-    try assertBuildExeStdout("demos/rosetta/70_integration_service/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/71_pipeline_stage/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/72_graph_walk/main.saasm", "3\n");
-    try assertBuildExeStdout("demos/rosetta/73_scene_nodes/main.saasm", "15\n");
-    try assertBuildExeStdout("demos/rosetta/74_component_store/main.saasm", "2\n");
-    try assertBuildExeStdout("demos/rosetta/77_http_route/main.saasm", "/health\n");
-    try assertBuildExeStdout("demos/rosetta/78_cli_args/main.saasm", "2\n");
+    try assertBuildExeStdout("demos/rosetta/64_file_manifest/main.sa", "3\n");
+    try assertBuildExeStdout("demos/rosetta/68_parser_tokens/main.sa", "4\n");
+    try assertBuildExeStdout("demos/rosetta/69_serializer/main.sa", "{\"id\":7}\n");
+    try assertBuildExeStdout("demos/rosetta/70_integration_service/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/71_pipeline_stage/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/72_graph_walk/main.sa", "3\n");
+    try assertBuildExeStdout("demos/rosetta/73_scene_nodes/main.sa", "15\n");
+    try assertBuildExeStdout("demos/rosetta/74_component_store/main.sa", "2\n");
+    try assertBuildExeStdout("demos/rosetta/77_http_route/main.sa", "/health\n");
+    try assertBuildExeStdout("demos/rosetta/78_cli_args/main.sa", "2\n");
 }
 
 test "final rosetta batch compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/79_metrics/main.saasm", "4\n");
-    try assertBuildExeStdout("demos/rosetta/80_workflow/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/81_kv_store/main.saasm", "5\n");
-    try assertBuildExeStdout("demos/rosetta/82_sql_scan/main.saasm", "2\n");
-    try assertBuildExeStdout("demos/rosetta/83_blob_chunk/main.saasm", "4\n");
-    try assertBuildExeStdout("demos/rosetta/84_sync_gate/main.saasm", "1\n");
-    try assertBuildExeStdout("demos/rosetta/85_scheduler_tree/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/89_job_queue/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/90_app_shell/main.saasm", "app --mode demo\n");
-    try assertBuildExeStdout("demos/rosetta/91_db_session/main.saasm", "2\n");
-    try assertBuildExeStdout("demos/rosetta/87_protocol_frame/main.saasm", "3\n");
-    try assertBuildExeStdout("demos/rosetta/88_text_index/main.saasm", "3\n");
-    try assertBuildExeStdout("demos/rosetta/92_query_plan/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/93_log_aggregator/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/94_graphql_router/main.saasm", "query user\n");
-    try assertBuildExeStdout("demos/rosetta/95_repl_shell/main.saasm", "sa> \n");
-    try assertBuildExeStdout("demos/rosetta/96_task_orchestrator/main.saasm", "4\n");
-    try assertBuildExeStdout("demos/rosetta/97_sync_service/main.saasm", "1\n");
-    try assertBuildExeStdout("demos/rosetta/98_build_pipeline/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/99_release_bundle/main.saasm", "3\n");
-    try assertBuildExeStdout("demos/rosetta/100_full_app/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/178_panic_hook_override/main.saasm", "1\n");
+    try assertBuildExeStdout("demos/rosetta/79_metrics/main.sa", "4\n");
+    try assertBuildExeStdout("demos/rosetta/80_workflow/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/81_kv_store/main.sa", "5\n");
+    try assertBuildExeStdout("demos/rosetta/82_sql_scan/main.sa", "2\n");
+    try assertBuildExeStdout("demos/rosetta/83_blob_chunk/main.sa", "4\n");
+    try assertBuildExeStdout("demos/rosetta/84_sync_gate/main.sa", "1\n");
+    try assertBuildExeStdout("demos/rosetta/85_scheduler_tree/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/89_job_queue/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/90_app_shell/main.sa", "app --mode demo\n");
+    try assertBuildExeStdout("demos/rosetta/91_db_session/main.sa", "2\n");
+    try assertBuildExeStdout("demos/rosetta/87_protocol_frame/main.sa", "3\n");
+    try assertBuildExeStdout("demos/rosetta/88_text_index/main.sa", "3\n");
+    try assertBuildExeStdout("demos/rosetta/92_query_plan/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/93_log_aggregator/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/94_graphql_router/main.sa", "query user\n");
+    try assertBuildExeStdout("demos/rosetta/95_repl_shell/main.sa", "sa> \n");
+    try assertBuildExeStdout("demos/rosetta/96_task_orchestrator/main.sa", "4\n");
+    try assertBuildExeStdout("demos/rosetta/97_sync_service/main.sa", "1\n");
+    try assertBuildExeStdout("demos/rosetta/98_build_pipeline/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/99_release_bundle/main.sa", "3\n");
+    try assertBuildExeStdout("demos/rosetta/100_full_app/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/178_panic_hook_override/main.sa", "1\n");
 }
 
 test "service and concurrency rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/55_builder_pattern/main.saasm", "POST /api\n");
-    try assertBuildExeStdout("demos/rosetta/56_state_machine/main.saasm", "2\n");
-    try assertBuildExeStdout("demos/rosetta/57_event_loop/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/62_channel_pingpong/main.saasm", "8\n");
-    try assertBuildExeStdout("demos/rosetta/65_job_scheduler/main.saasm", "10\n");
-    try assertBuildExeStdout("demos/rosetta/66_actor_mailbox/main.saasm", "6\n");
-    try assertBuildExeStdout("demos/rosetta/75_async_bridge/main.saasm", "5\n");
-    try assertBuildExeStdout("demos/rosetta/76_lockfree_counter/main.saasm", "3\n");
+    try assertBuildExeStdout("demos/rosetta/55_builder_pattern/main.sa", "POST /api\n");
+    try assertBuildExeStdout("demos/rosetta/56_state_machine/main.sa", "2\n");
+    try assertBuildExeStdout("demos/rosetta/57_event_loop/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/62_channel_pingpong/main.sa", "8\n");
+    try assertBuildExeStdout("demos/rosetta/65_job_scheduler/main.sa", "10\n");
+    try assertBuildExeStdout("demos/rosetta/66_actor_mailbox/main.sa", "6\n");
+    try assertBuildExeStdout("demos/rosetta/75_async_bridge/main.sa", "5\n");
+    try assertBuildExeStdout("demos/rosetta/76_lockfree_counter/main.sa", "3\n");
 }
 
 test "remaining rosetta demos compile and print through build-exe" {
-    try assertBuildExeStdout("demos/rosetta/14_slice_window/main.saasm", "5\n");
-    try assertBuildExeStdout("demos/rosetta/32_trait_object_vector/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/09_async_await/main.saasm", "2\n");
-    try assertBuildExeStdout("demos/rosetta/47_tuple_swap/main.saasm", "8,3\n");
-    try assertBuildExeStdout("demos/rosetta/53_cache_hits/main.saasm", "3\n");
-    try assertBuildExeStdout("demos/rosetta/43_tagged_union/main.saasm", "36\n");
-    try assertBuildExeStdout("demos/rosetta/49_pipeline_map/main.saasm", "12\n");
-    try assertBuildExeStdout("demos/rosetta/94_graphql_router/main.saasm", "query user\n");
-    try assertBuildExeStdout("demos/rosetta/95_repl_shell/main.saasm", "sa> \n");
-    try assertBuildExeStdout("demos/rosetta/100_full_app/main.saasm", "12\n");
+    try assertBuildExeStdout("demos/rosetta/14_slice_window/main.sa", "5\n");
+    try assertBuildExeStdout("demos/rosetta/32_trait_object_vector/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/09_async_await/main.sa", "2\n");
+    try assertBuildExeStdout("demos/rosetta/47_tuple_swap/main.sa", "8,3\n");
+    try assertBuildExeStdout("demos/rosetta/53_cache_hits/main.sa", "3\n");
+    try assertBuildExeStdout("demos/rosetta/43_tagged_union/main.sa", "36\n");
+    try assertBuildExeStdout("demos/rosetta/49_pipeline_map/main.sa", "12\n");
+    try assertBuildExeStdout("demos/rosetta/94_graphql_router/main.sa", "query user\n");
+    try assertBuildExeStdout("demos/rosetta/95_repl_shell/main.sa", "sa> \n");
+    try assertBuildExeStdout("demos/rosetta/100_full_app/main.sa", "12\n");
 }
 
-test "async await demo runs through saasm run" {
-    try assertRunStdout("demos/rosetta/09_async_await/main.saasm", "2\n");
+test "async await demo runs through sa run" {
+    try assertRunStdout("demos/rosetta/09_async_await/main.sa", "2\n");
 }
 
 test "macro demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/macro_print.saasm", "macro ok\n");
+    try assertBuildExeStdout("demos/support/macro_print.sa", "macro ok\n");
 }
 
 test "sa_core macros compile and print through imported standard library macros" {
-    try assertBuildExeStdout("demos/support/macro_core.saasm", "macro core ok\n");
+    try assertBuildExeStdout("demos/support/macro_core.sa", "macro core ok\n");
 }
 
 test "time demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/time_probe.saasm", "time ok\n");
+    try assertBuildExeStdout("demos/support/time_probe.sa", "time ok\n");
 }
 
-test "time demo runs through saasm run" {
-    try assertRunStdout("demos/support/time_probe.saasm", "time ok\n");
+test "time demo runs through sa run" {
+    try assertRunStdout("demos/support/time_probe.sa", "time ok\n");
 }
 
 test "mutex demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/mutex_probe.saasm", "mutex ok\n");
+    try assertBuildExeStdout("demos/support/mutex_probe.sa", "mutex ok\n");
 }
 
-test "mutex demo runs through saasm run" {
-    try assertRunStdout("demos/support/mutex_probe.saasm", "mutex ok\n");
+test "mutex demo runs through sa run" {
+    try assertRunStdout("demos/support/mutex_probe.sa", "mutex ok\n");
 }
 
 test "once demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/once_probe.saasm", "once ok\n");
+    try assertBuildExeStdout("demos/support/once_probe.sa", "once ok\n");
 }
 
-test "once demo runs through saasm run" {
-    try assertRunStdout("demos/support/once_probe.saasm", "once ok\n");
+test "once demo runs through sa run" {
+    try assertRunStdout("demos/support/once_probe.sa", "once ok\n");
 }
 
 test "mpsc demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/mpsc_probe.saasm", "mpsc ok\n");
+    try assertBuildExeStdout("demos/support/mpsc_probe.sa", "mpsc ok\n");
 }
 
-test "mpsc demo runs through saasm run" {
-    try assertRunStdout("demos/support/mpsc_probe.saasm", "mpsc ok\n");
+test "mpsc demo runs through sa run" {
+    try assertRunStdout("demos/support/mpsc_probe.sa", "mpsc ok\n");
 }
 
 test "io demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/io_probe.saasm", "alpha\n5\n");
+    try assertBuildExeStdout("demos/support/io_probe.sa", "alpha\n5\n");
 }
 
 test "hashmap demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/hashmap_probe.saasm", "alpha\nbravo\nmap ok\n");
+    try assertBuildExeStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
 }
 
 test "hashset demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/hashset_probe.saasm", "set ok\n");
+    try assertBuildExeStdout("demos/support/hashset_probe.sa", "set ok\n");
 }
 
-test "hashset demo runs through saasm run" {
-    try assertRunStdout("demos/support/hashset_probe.saasm", "set ok\n");
+test "hashset demo runs through sa run" {
+    try assertRunStdout("demos/support/hashset_probe.sa", "set ok\n");
 }
 
 test "sort demo compiles and prints through build-exe" {
-    try assertBuildExeStdout("demos/support/sort_probe.saasm", "sort ok\n");
+    try assertBuildExeStdout("demos/support/sort_probe.sa", "sort ok\n");
 }
 
 test "use after move demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/use_after_move.saasm", "use_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
+    try assertBuildExeTrap("demos/support/use_after_move.sa", "use_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
 }
 
 test "return after move demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/return_after_move.saasm", "return_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
+    try assertBuildExeTrap("demos/support/return_after_move.sa", "return_after_move.out", "UseAfterMove", 1009, "moved value is no longer usable");
 }
 
 test "borrow conflict demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/borrow_conflict.saasm", "borrow_conflict.out", "BorrowConflict", 1008, "borrow rules reject this access");
+    try assertBuildExeTrap("demos/support/borrow_conflict.sa", "borrow_conflict.out", "BorrowConflict", 1008, "borrow rules reject this access");
 }
 
 test "read write conflict demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/read_write_conflict.saasm", "read_write_conflict.out", "ReadWriteConflict", 1011, "cannot write through a shared borrow");
+    try assertBuildExeTrap("demos/support/read_write_conflict.sa", "read_write_conflict.out", "ReadWriteConflict", 1011, "cannot write through a shared borrow");
 }
 
 test "illegal unsafe context demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/illegal_unsafe_context.saasm", "illegal_unsafe_context.out", "IllegalUnsafeContext", 1019, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper");
+    try assertBuildExeTrap("demos/support/illegal_unsafe_context.sa", "illegal_unsafe_context.out", "IllegalUnsafeContext", 1019, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper");
 }
 
 test "stack escape demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/stack_escape.saasm", "stack_escape.out", "StackEscape", 1025, "stack allocation cannot be moved out of its function");
+    try assertBuildExeTrap("demos/support/stack_escape.sa", "stack_escape.out", "StackEscape", 1025, "stack allocation cannot be moved out of its function");
 }
 
 test "const mutation demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/const_mutation.saasm", "const_mutation.out", "ConstMutation", 1023, "immutable registers cannot be released");
+    try assertBuildExeTrap("demos/support/const_mutation.sa", "const_mutation.out", "ConstMutation", 1023, "immutable registers cannot be released");
 }
 
 test "early return leak demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/early_return_leak.saasm", "early_return_leak.out", "EarlyReturnLeak", 1026, "early return would leak live registers");
+    try assertBuildExeTrap("demos/support/early_return_leak.sa", "early_return_leak.out", "EarlyReturnLeak", 1026, "early return would leak live registers");
 }
 
 test "macro recursion demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/macro_recursion.saasm", "macro_recursion.out", "MacroRecursionLimit", 1005, "macro recursion limit exceeded");
+    try assertBuildExeTrap("demos/support/macro_recursion.sa", "macro_recursion.out", "MacroRecursionLimit", 1005, "macro recursion limit exceeded");
 }
 
 test "forbidden syntax demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/forbidden_syntax.saasm", "forbidden_syntax.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+    try assertBuildExeTrap("demos/support/forbidden_syntax.sa", "forbidden_syntax.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
 }
 
 test "forbidden if demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/forbidden_if.saasm", "forbidden_if.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+    try assertBuildExeTrap("demos/support/forbidden_if.sa", "forbidden_if.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
 }
 
 test "forbidden while demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/forbidden_while.saasm", "forbidden_while.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+    try assertBuildExeTrap("demos/support/forbidden_while.sa", "forbidden_while.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
 }
 
 test "forbidden for demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/forbidden_for.saasm", "forbidden_for.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+    try assertBuildExeTrap("demos/support/forbidden_for.sa", "forbidden_for.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
 }
 
 test "forbidden brace demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/forbidden_brace.saasm", "forbidden_brace.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+    try assertBuildExeTrap("demos/support/forbidden_brace.sa", "forbidden_brace.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
 }
 
 test "forbidden property chain demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/forbidden_property_chain.saasm", "forbidden_property_chain.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
+    try assertBuildExeTrap("demos/support/forbidden_property_chain.sa", "forbidden_property_chain.out", "ForbiddenSyntax", 1001, "forbidden syntax detected during flattening");
 }
 
 test "memory leak after borrow demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/memory_leak_after_borrow.saasm", "memory_leak_after_borrow.out", "MemoryLeak", 1012, "live registers remain at function exit");
+    try assertBuildExeTrap("demos/support/memory_leak_after_borrow.sa", "memory_leak_after_borrow.out", "MemoryLeak", 1012, "live registers remain at function exit");
 }
 
 test "memory leak partial release demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/memory_leak_partial_release.saasm", "memory_leak_partial_release.out", "MemoryLeak", 1012, "live registers remain at function exit");
+    try assertBuildExeTrap("demos/support/memory_leak_partial_release.sa", "memory_leak_partial_release.out", "MemoryLeak", 1012, "live registers remain at function exit");
 }
 
 test "atomic ordering mismatch demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/atomic_ordering_mismatch.saasm", "atomic_ordering_mismatch.out", "AtomicOrderingMismatch", 1029, "same-address RMW ordering combination is not allowed");
+    try assertBuildExeTrap("demos/support/atomic_ordering_mismatch.sa", "atomic_ordering_mismatch.out", "AtomicOrderingMismatch", 1029, "same-address RMW ordering combination is not allowed");
 }
 
 test "invalid atomic ordering demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/invalid_atomic_ordering.saasm", "invalid_atomic_ordering.out", "InvalidAtomicOrdering", 1028, "invalid atomic ordering");
+    try assertBuildExeTrap("demos/support/invalid_atomic_ordering.sa", "invalid_atomic_ordering.out", "InvalidAtomicOrdering", 1028, "invalid atomic ordering");
 }
 
 test "unknown register return demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/unknown_register_return.saasm", "unknown_register_return.out", "UnknownRegister", 1007, "register is not declared in the current scope");
+    try assertBuildExeTrap("demos/support/unknown_register_return.sa", "unknown_register_return.out", "UnknownRegister", 1007, "register is not declared in the current scope");
 }
 
 test "capability mismatch demo is rejected with structured trap output" {
-    try assertBuildExeTrap("demos/support/capability_mismatch.saasm", "capability_mismatch.out", "CapabilityMismatch", 1013, "call-site capability prefix does not match the callee contract");
+    try assertBuildExeTrap("demos/support/capability_mismatch.sa", "capability_mismatch.out", "CapabilityMismatch", 1013, "call-site capability prefix does not match the callee contract");
 }
 
 test "package and module roadmap demos are rejected with structured trap output" {
-    try assertBuildExeTrap("demos/rosetta/205_pkg_cyclic_dependency_reject/main.saasm", "205_pkg_cyclic_dependency_reject.out", "ForbiddenSyntax", 1001, "import cycle detected during flattening");
-    try assertBuildExeTrap("demos/rosetta/207_pkg_multiple_versions_conflict/main.saasm", "207_pkg_multiple_versions_conflict.out", "DuplicateDef", 1002, "duplicate definition detected during flattening");
-    try assertBuildExeTrap("demos/rosetta/226_mod_cyclic_import_detect/main.saasm", "226_mod_cyclic_import_detect.out", "ForbiddenSyntax", 1001, "import cycle detected during flattening");
-    try assertBuildExeTrap("demos/rosetta/227_mod_shadowing_prevention/main.saasm", "227_mod_shadowing_prevention.out", "DuplicateDef", 1002, "duplicate definition detected during flattening");
-    try assertBuildExeTrap("demos/rosetta/243_contract_sig_mismatch_link/main.saasm", "243_contract_sig_mismatch_link.out", "CapabilityMismatch", 1013, "call-site capability prefix does not match the callee contract");
+    try assertBuildExeTrap("demos/rosetta/205_pkg_cyclic_dependency_reject/main.sa", "205_pkg_cyclic_dependency_reject.out", "ForbiddenSyntax", 1001, "import cycle detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/207_pkg_multiple_versions_conflict/main.sa", "207_pkg_multiple_versions_conflict.out", "DuplicateDef", 1002, "duplicate definition detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/226_mod_cyclic_import_detect/main.sa", "226_mod_cyclic_import_detect.out", "ForbiddenSyntax", 1001, "import cycle detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/227_mod_shadowing_prevention/main.sa", "227_mod_shadowing_prevention.out", "DuplicateDef", 1002, "duplicate definition detected during flattening");
+    try assertBuildExeTrap("demos/rosetta/243_contract_sig_mismatch_link/main.sa", "243_contract_sig_mismatch_link.out", "CapabilityMismatch", 1013, "call-site capability prefix does not match the callee contract");
 }
 
-test "struct demo runs through saasm run" {
-    try assertRunStdout("demos/rosetta/05_struct/main.saasm", "(10,20)\n");
+test "struct demo runs through sa run" {
+    try assertRunStdout("demos/rosetta/05_struct/main.sa", "(10,20)\n");
 }
 
 test "sys runtime demo prints and round-trips file contents" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/sys_runtime_probe.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/sys_runtime_probe.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1213,7 +1213,7 @@ test "sys runtime demo prints and round-trips file contents" {
 
     try assertRunStdoutWithArg(source_path, "marker", "ok\n");
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "sys_runtime_probe.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "sys_runtime_probe.out" };
     const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_code);
 
@@ -1239,10 +1239,10 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expectEqualStrings("saasm", contents);
 }
 
-test "ffi airlock demo preserves pointer values through assume_* in saasm run" {
+test "ffi airlock demo preserves pointer values through assume_* in sa run" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/airlock_probe.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/airlock_probe.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1253,7 +1253,7 @@ test "ffi airlock demo preserves pointer values through assume_* in saasm run" {
 
     try assertRunStdout(source_path, "ok\n");
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "airlock_probe.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "airlock_probe.out" };
     const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_code);
 
@@ -1276,7 +1276,7 @@ test "ffi airlock demo preserves pointer values through assume_* in saasm run" {
 test "http client saasm demo builds through plugin-linked native exe" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/301_http_client_saasm/main.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/301_http_client_saasm/main.sa");
     defer std.testing.allocator.free(source_path);
     const plugin_dir = try original_cwd.realpathAlloc(std.testing.allocator, "zig-out/lib");
     defer std.testing.allocator.free(plugin_dir);
@@ -1320,7 +1320,7 @@ test "http client saasm demo builds through plugin-linked native exe" {
     }.run, .{ server, body_seen, server_ready });
     while (!server_ready.load(.acquire)) std.time.sleep(1 * std.time.ns_per_ms);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "http_client_saasm.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "http_client_saasm.out" };
     const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_code);
 
@@ -1350,7 +1350,7 @@ test "http client saasm demo builds through plugin-linked native exe" {
 test "http server saasm demo builds through plugin-linked native exe" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/302_http_server_saasm/main.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/302_http_server_saasm/main.sa");
     defer std.testing.allocator.free(source_path);
     const plugin_dir = try original_cwd.realpathAlloc(std.testing.allocator, "zig-out/lib");
     defer std.testing.allocator.free(plugin_dir);
@@ -1360,7 +1360,7 @@ test "http server saasm demo builds through plugin-linked native exe" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "http_server_saasm.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "http_server_saasm.out" };
     const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_code);
 
@@ -1436,9 +1436,9 @@ test "panic builtins terminate through the interpreter" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "panic.saasm", plain_source);
+    try writeSource(tmp.dir, "panic.sa", plain_source);
 
-    const plain_argv = [_][]const u8{ "saasm", "run", "panic.saasm" };
+    const plain_argv = [_][]const u8{ "sa", "run", "panic.sa" };
     const plain_code = try saasm.cli.execute(std.testing.allocator, plain_argv[0..]);
     try std.testing.expectEqual(@as(u8, 145), plain_code);
 
@@ -1451,21 +1451,21 @@ test "panic builtins terminate through the interpreter" {
         \\panic_msg(23, *buf, 2)
     ;
 
-    try writeSource(tmp.dir, "panic_msg.saasm", msg_source);
+    try writeSource(tmp.dir, "panic_msg.sa", msg_source);
 
-    const msg_argv = [_][]const u8{ "saasm", "run", "panic_msg.saasm" };
+    const msg_argv = [_][]const u8{ "sa", "run", "panic_msg.sa" };
     const msg_code = try saasm.cli.execute(std.testing.allocator, msg_argv[0..]);
     try std.testing.expectEqual(@as(u8, 151), msg_code);
 
-    const result_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm-layout");
+    const result_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.sal");
     defer std.testing.allocator.free(result_layout_path);
-    const option_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/option.saasm-layout");
+    const option_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/option.sal");
     defer std.testing.allocator.free(option_layout_path);
-    const result_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm");
+    const result_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.sa");
     defer std.testing.allocator.free(result_src_path);
-    const option_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/option.saasm");
+    const option_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/option.sa");
     defer std.testing.allocator.free(option_src_path);
-    const panic_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/panic.saasm");
+    const panic_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/panic.sa");
     defer std.testing.allocator.free(panic_src_path);
 
     const result_unwrap_source = try std.fmt.allocPrint(std.testing.allocator,
@@ -1482,9 +1482,9 @@ test "panic builtins terminate through the interpreter" {
     , .{ result_layout_path, result_src_path, panic_src_path });
     defer std.testing.allocator.free(result_unwrap_source);
 
-    try writeSource(tmp.dir, "result_unwrap.saasm", result_unwrap_source);
+    try writeSource(tmp.dir, "result_unwrap.sa", result_unwrap_source);
 
-    const result_unwrap_argv = [_][]const u8{ "saasm", "run", "result_unwrap.saasm" };
+    const result_unwrap_argv = [_][]const u8{ "sa", "run", "result_unwrap.sa" };
     const result_unwrap_code = try saasm.cli.execute(std.testing.allocator, result_unwrap_argv[0..]);
     try std.testing.expectEqual(@as(u8, 145), result_unwrap_code);
 
@@ -1502,9 +1502,9 @@ test "panic builtins terminate through the interpreter" {
     , .{ option_layout_path, option_src_path, panic_src_path });
     defer std.testing.allocator.free(option_unwrap_source);
 
-    try writeSource(tmp.dir, "option_unwrap.saasm", option_unwrap_source);
+    try writeSource(tmp.dir, "option_unwrap.sa", option_unwrap_source);
 
-    const option_unwrap_argv = [_][]const u8{ "saasm", "run", "option_unwrap.saasm" };
+    const option_unwrap_argv = [_][]const u8{ "sa", "run", "option_unwrap.sa" };
     const option_unwrap_code = try saasm.cli.execute(std.testing.allocator, option_unwrap_argv[0..]);
     try std.testing.expectEqual(@as(u8, 145), option_unwrap_code);
 
@@ -1522,14 +1522,14 @@ test "panic builtins terminate through the interpreter" {
     , .{ result_layout_path, result_src_path, panic_src_path });
     defer std.testing.allocator.free(result_unwrap_err_source);
 
-    try writeSource(tmp.dir, "result_unwrap_err.saasm", result_unwrap_err_source);
+    try writeSource(tmp.dir, "result_unwrap_err.sa", result_unwrap_err_source);
 
-    const result_unwrap_err_argv = [_][]const u8{ "saasm", "run", "result_unwrap_err.saasm" };
+    const result_unwrap_err_argv = [_][]const u8{ "sa", "run", "result_unwrap_err.sa" };
     const result_unwrap_err_code = try saasm.cli.execute(std.testing.allocator, result_unwrap_err_argv[0..]);
     try std.testing.expectEqual(@as(u8, 145), result_unwrap_err_code);
 }
 
-test "saasm test runs isolated native tests with filterable names" {
+test "sa test runs isolated native tests with filterable names" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1538,7 +1538,7 @@ test "saasm test runs isolated native tests with filterable names" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_basic.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_basic.sa");
     defer std.testing.allocator.free(source_path);
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -1546,7 +1546,7 @@ test "saasm test runs isolated native tests with filterable names" {
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const test_argv = [_][]const u8{ "saasm", "test", source_path, "--jobs", "1" };
+    const test_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
     const test_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         test_argv[0..],
@@ -1554,7 +1554,7 @@ test "saasm test runs isolated native tests with filterable names" {
         stderr_buffer.writer(),
     );
     if (test_code != 0 or stderr_buffer.items.len != 0) {
-        std.debug.print("saasm test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
+        std.debug.print("sa test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
     }
     try std.testing.expectEqual(@as(u8, 0), test_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] simple pass"));
@@ -1565,7 +1565,7 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const filter_argv = [_][]const u8{ "saasm", "test", source_path, "--filter", "another" };
+    const filter_argv = [_][]const u8{ "sa", "test", source_path, "--filter", "another" };
     const filter_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         filter_argv[0..],
@@ -1579,7 +1579,7 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const exact_argv = [_][]const u8{ "saasm", "test", source_path, "--exact", "--filter", "simple pass" };
+    const exact_argv = [_][]const u8{ "sa", "test", source_path, "--exact", "--filter", "simple pass" };
     const exact_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         exact_argv[0..],
@@ -1594,10 +1594,10 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const should_panic_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_should_panic.saasm");
+    const should_panic_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_should_panic.sa");
     defer std.testing.allocator.free(should_panic_path);
 
-    const should_panic_argv = [_][]const u8{ "saasm", "test", should_panic_path };
+    const should_panic_argv = [_][]const u8{ "sa", "test", should_panic_path };
     const should_panic_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         should_panic_argv[0..],
@@ -1612,7 +1612,7 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const skip_argv = [_][]const u8{ "saasm", "test", source_path, "--skip", "another" };
+    const skip_argv = [_][]const u8{ "sa", "test", source_path, "--skip", "another" };
     const skip_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         skip_argv[0..],
@@ -1627,10 +1627,10 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const ignored_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_ignored.saasm");
+    const ignored_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_ignored.sa");
     defer std.testing.allocator.free(ignored_path);
 
-    const ignored_default_argv = [_][]const u8{ "saasm", "test", ignored_path };
+    const ignored_default_argv = [_][]const u8{ "sa", "test", ignored_path };
     const ignored_default_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ignored_default_argv[0..],
@@ -1645,7 +1645,7 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const ignored_only_argv = [_][]const u8{ "saasm", "test", ignored_path, "--ignored" };
+    const ignored_only_argv = [_][]const u8{ "sa", "test", ignored_path, "--ignored" };
     const ignored_only_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ignored_only_argv[0..],
@@ -1660,7 +1660,7 @@ test "saasm test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const include_ignored_argv = [_][]const u8{ "saasm", "test", ignored_path, "--include-ignored" };
+    const include_ignored_argv = [_][]const u8{ "sa", "test", ignored_path, "--include-ignored" };
     const include_ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         include_ignored_argv[0..],
@@ -1695,10 +1695,10 @@ test "saasm test runs isolated native tests with filterable names" {
         \\    panic(99)
         \\
     ;
-    try writeSource(tmp.dir, "signal.saasm", signal_source);
-    const signal_path = "signal.saasm";
+    try writeSource(tmp.dir, "signal.sa", signal_source);
+    const signal_path = "signal.sa";
 
-    const signal_argv = [_][]const u8{ "saasm", "test", signal_path };
+    const signal_argv = [_][]const u8{ "sa", "test", signal_path };
     const signal_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         signal_argv[0..],
@@ -1709,7 +1709,7 @@ test "saasm test runs isolated native tests with filterable names" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "terminated by signal"));
 }
 
-test "saasm test schedules native tests in parallel when jobs are higher" {
+test "sa test schedules native tests in parallel when jobs are higher" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1718,7 +1718,7 @@ test "saasm test schedules native tests in parallel when jobs are higher" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_jobs_parallel.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_jobs_parallel.sa");
     defer std.testing.allocator.free(source_path);
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -1727,7 +1727,7 @@ test "saasm test schedules native tests in parallel when jobs are higher" {
     defer stderr_buffer.deinit();
 
     const serial_start = std.time.nanoTimestamp();
-    const serial_argv = [_][]const u8{ "saasm", "test", source_path, "--jobs", "1" };
+    const serial_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
     const serial_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         serial_argv[0..],
@@ -1753,7 +1753,7 @@ test "saasm test schedules native tests in parallel when jobs are higher" {
     stderr_buffer.clearRetainingCapacity();
 
     const parallel_start = std.time.nanoTimestamp();
-    const parallel_argv = [_][]const u8{ "saasm", "test", source_path, "--jobs", "4" };
+    const parallel_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "4" };
     const parallel_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         parallel_argv[0..],
@@ -1796,17 +1796,17 @@ test "fallible ABI and ? propagation work end to end" {
 
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
-    try writeSource(tmp.dir, "fallible.saasm", source);
+    try writeSource(tmp.dir, "fallible.sa", source);
 
-    const run_argv = [_][]const u8{ "saasm", "run", "fallible.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "fallible.sa" };
     const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), run_code);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "fallible.saasm", "-o", "fallible.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "fallible.sa", "-o", "fallible.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const ll_file = try tmp.dir.openFile("fallible.out.saasm.ll", .{});
+    const ll_file = try tmp.dir.openFile("fallible.out.sa.ll", .{});
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);
@@ -1832,11 +1832,11 @@ test "result unwrap_or and map_or helpers branch on tags correctly" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const result_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm-layout");
+    const result_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.sal");
     defer std.testing.allocator.free(result_layout_path);
-    const result_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.saasm");
+    const result_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.sa");
     defer std.testing.allocator.free(result_src_path);
-    const panic_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/panic.saasm");
+    const panic_src_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/panic.sa");
     defer std.testing.allocator.free(panic_src_path);
 
     const source = try std.fmt.allocPrint(std.testing.allocator,
@@ -1884,16 +1884,16 @@ test "result unwrap_or and map_or helpers branch on tags correctly" {
     , .{ result_layout_path, result_src_path, panic_src_path });
     defer std.testing.allocator.free(source);
 
-    try writeSource(tmp.dir, "result_helpers.saasm", source);
+    try writeSource(tmp.dir, "result_helpers.sa", source);
 
-    const run_argv = [_][]const u8{ "saasm", "run", "result_helpers.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "result_helpers.sa" };
     const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
     try std.testing.expectEqual(@as(u8, 142), run_code);
 }
 
 test "const pointer stores survive load and print end to end" {
     const source =
-        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\@import "sa_std/io/print.sai"
         \\@const RESULT_OK = utf8:"OK\n"
         \\#def Box_SIZE = 8
         \\#def Box_ptr = +0
@@ -1914,9 +1914,9 @@ test "const pointer stores survive load and print end to end" {
 
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
-    try writeSource(tmp.dir, "const_ptr_store.saasm", source);
+    try writeSource(tmp.dir, "const_ptr_store.sa", source);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "const_ptr_store.saasm", "-o", "const_ptr_store.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "const_ptr_store.sa", "-o", "const_ptr_store.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
@@ -1932,7 +1932,7 @@ test "const pointer stores survive load and print end to end" {
 
 test "vtable loads preserve indirect call provenance end to end" {
     const source =
-        \\@import "../../../sa_std/io/print.saasm-iface"
+        \\@import "sa_std/io/print.sai"
         \\@const RESULT_OK = utf8:"OK\n"
         \\@const VTABLE = vtable { run = @slot_run }
         \\#def Obj_SIZE = 16
@@ -1977,9 +1977,9 @@ test "vtable loads preserve indirect call provenance end to end" {
 
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
-    try writeSource(tmp.dir, "vtable_indirect.saasm", source);
+    try writeSource(tmp.dir, "vtable_indirect.sa", source);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "vtable_indirect.saasm", "-o", "vtable_indirect.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "vtable_indirect.sa", "-o", "vtable_indirect.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
@@ -2002,12 +2002,12 @@ test "llvm2sa hello roundtrip matches the golden output" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.sa");
     defer std.testing.allocator.free(source_path);
-    const expected_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/llvm2sa_expected_hello.saasm");
+    const expected_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/llvm2sa_expected_hello.sa");
     defer std.testing.allocator.free(expected_path);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "hello.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "hello.out" };
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
@@ -2016,7 +2016,7 @@ test "llvm2sa hello roundtrip matches the golden output" {
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
-    const llvm2sa_argv = [_][]const u8{ "saasm", "llvm2sa", "hello.out.saasm.ll" };
+    const llvm2sa_argv = [_][]const u8{ "sa", "llvm2sa", "hello.out.sa.ll" };
     const llvm2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, llvm2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), llvm2sa_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -2032,7 +2032,7 @@ test "llvm2sa hello roundtrip matches the golden output" {
 test "import expansion keeps source paths alive end to end" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/40_impl_block_state/main.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/40_impl_block_state/main.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2041,7 +2041,7 @@ test "import expansion keeps source paths alive end to end" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "impl_block_state.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "impl_block_state.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
@@ -2081,17 +2081,17 @@ test "atomic instructions work end to end and emit real LLVM" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "atomic.saasm", source);
+    try writeSource(tmp.dir, "atomic.sa", source);
 
-    const run_argv = [_][]const u8{ "saasm", "run", "atomic.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "atomic.sa" };
     const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
     try std.testing.expectEqual(@as(u8, 11), run_code);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "atomic.saasm", "-o", "atomic.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "atomic.sa", "-o", "atomic.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const ll_file = try tmp.dir.openFile("atomic.out.saasm.ll", .{});
+    const ll_file = try tmp.dir.openFile("atomic.out.sa.ll", .{});
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);
@@ -2109,7 +2109,7 @@ test "atomic instructions work end to end and emit real LLVM" {
         else => return error.TestUnexpectedResult,
     }
 
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "atomic.saasm", "-o", "atomic.wasm", "--target", "wasm32" };
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", "atomic.sa", "-o", "atomic.wasm", "--target", "wasm32" };
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
@@ -2121,7 +2121,7 @@ test "atomic instructions work end to end and emit real LLVM" {
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
 
-    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "atomic.saasm", "-o", "atomic.o" };
+    const build_obj_argv = [_][]const u8{ "sa", "build-obj", "atomic.sa", "-o", "atomic.o" };
     const obj_code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), obj_code);
 
@@ -2157,17 +2157,17 @@ test "ptr arithmetic lowers to gep and runs through the interpreter" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "ptr_add.saasm", source);
+    try writeSource(tmp.dir, "ptr_add.sa", source);
 
-    const run_argv = [_][]const u8{ "saasm", "run", "ptr_add.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "ptr_add.sa" };
     const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
     try std.testing.expectEqual(@as(u8, 65), run_code);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "ptr_add.saasm", "-o", "ptr_add.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "ptr_add.sa", "-o", "ptr_add.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const ll_file = try tmp.dir.openFile("ptr_add.out.saasm.ll", .{});
+    const ll_file = try tmp.dir.openFile("ptr_add.out.sa.ll", .{});
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);
@@ -2236,13 +2236,13 @@ test "panic lowers to a real runtime call in emitted LLVM and native executables
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "panic_native.saasm", source);
+    try writeSource(tmp.dir, "panic_native.sa", source);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "panic_native.saasm", "-o", "panic_native.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "panic_native.sa", "-o", "panic_native.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const ll_file = try tmp.dir.openFile("panic_native.out.saasm.ll", .{});
+    const ll_file = try tmp.dir.openFile("panic_native.out.sa.ll", .{});
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);
@@ -2260,7 +2260,7 @@ test "panic lowers to a real runtime call in emitted LLVM and native executables
     }
     try std.testing.expect(std.mem.containsAtLeast(u8, exe_result.stderr, 1, "PANIC[77]: hi"));
 
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "panic_native.saasm", "-o", "panic_native.wasm", "--target", "wasm32" };
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", "panic_native.sa", "-o", "panic_native.wasm", "--target", "wasm32" };
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
@@ -2316,13 +2316,13 @@ test "extern export ffi wrapper map to real declarations and symbols" {
 
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
-    try writeSource(tmp.dir, "contracts.saasm", source);
+    try writeSource(tmp.dir, "contracts.sa", source);
 
-    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", "contracts.saasm", "-o", "contracts.o" };
+    const build_obj_argv = [_][]const u8{ "sa", "build-obj", "contracts.sa", "-o", "contracts.o" };
     const code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), code);
 
-    const ll_file = try tmp.dir.openFile("contracts.o.saasm.ll", .{});
+    const ll_file = try tmp.dir.openFile("contracts.o.sa.ll", .{});
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);
@@ -2356,9 +2356,9 @@ test "unknown sys intrinsic is rejected before emission" {
 
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
-    try writeSource(tmp.dir, "unsupported_sys.saasm", source);
+    try writeSource(tmp.dir, "unsupported_sys.sa", source);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "unsupported_sys.saasm", "-o", "unsupported_sys.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "unsupported_sys.sa", "-o", "unsupported_sys.out" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -2371,7 +2371,7 @@ test "unknown sys intrinsic is rejected before emission" {
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out.saasm.ll", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out.sa.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnsupportedSysIntrinsic\""));
 }
 
@@ -2385,13 +2385,13 @@ test "external compiler failures report linker context instead of child process 
         \\return value
     ;
 
-    try assertBuildExeLinkFailure("link_fail.saasm", source, "link_fail.out", "ld.lld: error: undefined symbol: missing_symbol");
+    try assertBuildExeLinkFailure("link_fail.sa", source, "link_fail.out", "ld.lld: error: undefined symbol: missing_symbol");
 }
 
 test "unknown register demo is rejected with structured trap output" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/unknown_register.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/unknown_register.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2400,7 +2400,7 @@ test "unknown register demo is rejected with structured trap output" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "unknown_register.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "unknown_register.out" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -2414,7 +2414,7 @@ test "unknown register demo is rejected with structured trap output" {
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unknown_register.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unknown_register.out.saasm.ll", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unknown_register.out.sa.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnknownRegister\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1007"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"register\":\"ghost\""));
@@ -2423,7 +2423,7 @@ test "unknown register demo is rejected with structured trap output" {
 test "memory leak demo is rejected with structured trap output" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/memory_leak.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/memory_leak.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2432,7 +2432,7 @@ test "memory leak demo is rejected with structured trap output" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "memory_leak.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "memory_leak.out" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -2446,7 +2446,7 @@ test "memory leak demo is rejected with structured trap output" {
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("memory_leak.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("memory_leak.out.saasm.ll", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("memory_leak.out.sa.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"MemoryLeak\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1012"));
 }
@@ -2454,7 +2454,7 @@ test "memory leak demo is rejected with structured trap output" {
 test "fallthrough demo is rejected without a terminator" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/fallthrough.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/fallthrough.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2463,7 +2463,7 @@ test "fallthrough demo is rejected without a terminator" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "fallthrough.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "fallthrough.out" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -2477,7 +2477,7 @@ test "fallthrough demo is rejected without a terminator" {
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("fallthrough.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("fallthrough.out.saasm.ll", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("fallthrough.out.sa.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"FallthroughForbidden\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1014"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "function body ended without a terminator"));
@@ -2486,7 +2486,7 @@ test "fallthrough demo is rejected without a terminator" {
 test "duplicate label demo is rejected with structured trap output" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/duplicate_label.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/duplicate_label.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2495,7 +2495,7 @@ test "duplicate label demo is rejected with structured trap output" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "duplicate_label.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "duplicate_label.out" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -2509,7 +2509,7 @@ test "duplicate label demo is rejected with structured trap output" {
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("duplicate_label.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("duplicate_label.out.saasm.ll", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("duplicate_label.out.sa.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"DuplicateLabel\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1003"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "label is already defined"));
@@ -2518,7 +2518,7 @@ test "duplicate label demo is rejected with structured trap output" {
 test "phi conflict demo is rejected on mismatched join states" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_conflict.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_conflict.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2527,7 +2527,7 @@ test "phi conflict demo is rejected on mismatched join states" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "phi_conflict.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "phi_conflict.out" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -2541,7 +2541,7 @@ test "phi conflict demo is rejected on mismatched join states" {
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("phi_conflict.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("phi_conflict.out.saasm.ll", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("phi_conflict.out.sa.ll", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"PhiStateConflict\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1015"));
 }
@@ -2549,7 +2549,7 @@ test "phi conflict demo is rejected on mismatched join states" {
 test "phi join AND demo runs through the join point" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_join_and.saasm");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_join_and.sa");
     defer std.testing.allocator.free(source_path);
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2558,7 +2558,7 @@ test "phi join AND demo runs through the join point" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", source_path, "-o", "phi_join_and.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "phi_join_and.out" };
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -2596,9 +2596,9 @@ test "build-wasm supports wasm64 freestanding no-entry" {
 
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
-    try writeSource(tmp.dir, "wasm64.saasm", source);
+    try writeSource(tmp.dir, "wasm64.sa", source);
 
-    const build_wasm_argv = [_][]const u8{ "saasm", "build-wasm", "wasm64.saasm", "-o", "wasm64.wasm", "--target", "wasm64" };
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", "wasm64.sa", "-o", "wasm64.wasm", "--target", "wasm64" };
     const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
 
@@ -2642,7 +2642,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const init_argv = [_][]const u8{ "saasm", "db", "init", "flash_sale.sadb-schema" };
+    const init_argv = [_][]const u8{ "sa", "db", "init", "flash_sale.sadb-schema" };
     const init_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         init_argv[0..],
@@ -2664,7 +2664,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const ingest_argv = [_][]const u8{ "saasm", "db", "ingest", "flash_sale", "rows.csv" };
+    const ingest_argv = [_][]const u8{ "sa", "db", "ingest", "flash_sale", "rows.csv" };
     const ingest_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ingest_argv[0..],
@@ -2684,7 +2684,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const snapshot_argv = [_][]const u8{ "saasm", "db", "snapshot", "flash_sale" };
+    const snapshot_argv = [_][]const u8{ "sa", "db", "snapshot", "flash_sale" };
     const snapshot_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         snapshot_argv[0..],
@@ -2700,7 +2700,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const second_ingest_argv = [_][]const u8{ "saasm", "db", "ingest", "flash_sale", "more.jsonl" };
+    const second_ingest_argv = [_][]const u8{ "sa", "db", "ingest", "flash_sale", "more.jsonl" };
     const second_ingest_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         second_ingest_argv[0..],
@@ -2720,7 +2720,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const verify_argv = [_][]const u8{ "saasm", "db", "verify", "flash_sale" };
+    const verify_argv = [_][]const u8{ "sa", "db", "verify", "flash_sale" };
     const verify_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         verify_argv[0..],
@@ -2734,7 +2734,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const compact_argv = [_][]const u8{ "saasm", "db", "compact", "flash_sale" };
+    const compact_argv = [_][]const u8{ "sa", "db", "compact", "flash_sale" };
     const compact_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         compact_argv[0..],
@@ -2748,7 +2748,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const restore_argv = [_][]const u8{ "saasm", "db", "restore", "flash_sale", "1" };
+    const restore_argv = [_][]const u8{ "sa", "db", "restore", "flash_sale", "1" };
     const restore_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         restore_argv[0..],
@@ -2762,7 +2762,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const lock_argv = [_][]const u8{ "saasm", "db", "lock", "flash_sale" };
+    const lock_argv = [_][]const u8{ "sa", "db", "lock", "flash_sale" };
     const lock_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         lock_argv[0..],
@@ -2776,7 +2776,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const locked_compact_argv = [_][]const u8{ "saasm", "db", "compact", "flash_sale" };
+    const locked_compact_argv = [_][]const u8{ "sa", "db", "compact", "flash_sale" };
     const locked_compact_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         locked_compact_argv[0..],
@@ -2802,7 +2802,7 @@ test "db cli register inspect exec round trip through registry" {
         \\#def COL_FACTOR_STRIDE = 8 // u64
         \\#def TABLE_ROW_BYTES = 16
     );
-    try writeSource(tmp.dir, "simple.query.saasm",
+    try writeSource(tmp.dir, "simple.query.sa",
         \\@import "simple.sadb-schema"
         \\grants [db_read:simple]
         \\@main(id: u64, factor: u64) -> u64:
@@ -2824,7 +2824,7 @@ test "db cli register inspect exec round trip through registry" {
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const register_argv = [_][]const u8{ "saasm", "db", "register", "simple.query.saasm" };
+    const register_argv = [_][]const u8{ "sa", "db", "register", "simple.query.sa" };
     const register_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         register_argv[0..],
@@ -2833,7 +2833,7 @@ test "db cli register inspect exec round trip through registry" {
     );
     try std.testing.expectEqual(@as(u8, 0), register_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Compiled: simple.query.saasm"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Compiled: simple.query.sa"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Registered:"));
 
     const hash_hex = try std.testing.allocator.dupe(u8, try extractLineValue(stdout_buffer.items, "Hash: "));
@@ -2841,7 +2841,7 @@ test "db cli register inspect exec round trip through registry" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const inspect_argv = [_][]const u8{ "saasm", "db", "inspect", hash_hex };
+    const inspect_argv = [_][]const u8{ "sa", "db", "inspect", hash_hex };
     const inspect_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         inspect_argv[0..],
@@ -2856,7 +2856,7 @@ test "db cli register inspect exec round trip through registry" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const exec_argv = [_][]const u8{ "saasm", "db", "exec", hash_hex, "--params", "params.bin" };
+    const exec_argv = [_][]const u8{ "sa", "db", "exec", hash_hex, "--params", "params.bin" };
     const exec_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         exec_argv[0..],
@@ -2874,7 +2874,7 @@ test "layout cli prints text and json outputs" {
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const text_argv = [_][]const u8{ "saasm", "layout", "--name", "Entity", "--fields", "id:u32, pos_x:f64, pos_y:f64, hp:i32" };
+    const text_argv = [_][]const u8{ "sa", "layout", "--name", "Entity", "--fields", "id:u32, pos_x:f64, pos_y:f64, hp:i32" };
     const text_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         text_argv[0..],
@@ -2891,7 +2891,7 @@ test "layout cli prints text and json outputs" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const json_argv = [_][]const u8{ "saasm", "layout", "--name", "Pair", "--fields", "head:ptr, count:u32", "--format", "json", "--target", "32" };
+    const json_argv = [_][]const u8{ "sa", "layout", "--name", "Pair", "--fields", "head:ptr, count:u32", "--format", "json", "--target", "32" };
     const json_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         json_argv[0..],
@@ -2912,7 +2912,7 @@ test "agent-first cli commands print explain fix and skills outputs" {
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const explain_argv = [_][]const u8{ "saasm", "explain", "SA-CLI-001" };
+    const explain_argv = [_][]const u8{ "sa", "explain", "SA-CLI-001" };
     const explain_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         explain_argv[0..],
@@ -2928,7 +2928,7 @@ test "agent-first cli commands print explain fix and skills outputs" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const explain_json_argv = [_][]const u8{ "saasm", "explain", "SA-CLI-001", "--json" };
+    const explain_json_argv = [_][]const u8{ "sa", "explain", "SA-CLI-001", "--json" };
     const explain_json_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         explain_json_argv[0..],
@@ -2943,7 +2943,7 @@ test "agent-first cli commands print explain fix and skills outputs" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const fix_argv = [_][]const u8{ "saasm", "fix", "--plan", "SA-CLI-001", "--json" };
+    const fix_argv = [_][]const u8{ "sa", "fix", "--plan", "SA-CLI-001", "--json" };
     const fix_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         fix_argv[0..],
@@ -2958,7 +2958,7 @@ test "agent-first cli commands print explain fix and skills outputs" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const skills_argv = [_][]const u8{ "saasm", "skills", "--json" };
+    const skills_argv = [_][]const u8{ "sa", "skills", "--json" };
     const skills_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         skills_argv[0..],
@@ -2981,7 +2981,7 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "json_success.saasm",
+    try writeSource(tmp.dir, "json_success.sa",
         \\@main() -> i32:
         \\return 7
     );
@@ -2991,7 +2991,7 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const run_argv = [_][]const u8{ "saasm", "run", "json_success.saasm", "--json" };
+    const run_argv = [_][]const u8{ "sa", "run", "json_success.sa", "--json" };
     const run_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_argv[0..],
@@ -3005,7 +3005,7 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "json_success.saasm", "-o", "json_success.out", "--json" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "json_success.sa", "-o", "json_success.out", "--json" };
     const build_exe_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
@@ -3028,7 +3028,7 @@ test "graph and size cli emit structured reports for a tiny project" {
     defer original_cwd.setAsCwd() catch {};
 
     try tmp.dir.makePath("src");
-    try writeSource(tmp.dir, "src/main.saasm",
+    try writeSource(tmp.dir, "src/main.sa",
         \\@helper(value: i32) -> i32:
         \\    return value
         \\@main() -> i32:
@@ -3041,7 +3041,7 @@ test "graph and size cli emit structured reports for a tiny project" {
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const graph_argv = [_][]const u8{ "saasm", "graph", "--json" };
+    const graph_argv = [_][]const u8{ "sa", "graph", "--json" };
     const graph_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         graph_argv[0..],
@@ -3070,7 +3070,7 @@ test "graph and size cli emit structured reports for a tiny project" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const size_argv = [_][]const u8{ "saasm", "size", "--json" };
+    const size_argv = [_][]const u8{ "sa", "size", "--json" };
     const size_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         size_argv[0..],

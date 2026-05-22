@@ -1,0 +1,43 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Poll_SIZE = 8
+#def Poll_ready = +0
+#def Poll_events = +4
+
+@main() -> i32:
+L_ENTRY:
+    poll = alloc Poll_SIZE
+    store poll+Poll_ready, 1 as i32
+    store poll+Poll_events, 3 as i32
+    ready = load poll+Poll_ready as i32
+    br ready -> L_FIRE, L_WAIT
+
+L_FIRE:
+    events = load poll+Poll_events as i32
+    ok = eq events, 3
+    !ready
+    !events
+    !poll
+    br ok -> L_OK, L_ERR
+
+L_WAIT:
+    store poll+Poll_events, 0 as i32
+    events = load poll+Poll_events as i32
+    ok = eq events, 3
+    !ready
+    !events
+    !poll
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

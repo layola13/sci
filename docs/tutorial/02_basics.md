@@ -3,9 +3,9 @@
 在这一章，我们将编写第一个 SA 程序，并理解它的基本结构。
 
 ## 你的第一个 SA 程序
-创建一个名为 `hello.saasm` 的文件，输入以下内容：
+创建一个名为 `hello.sa` 的文件，输入以下内容：
 
-```saasm
+```sa
 @main() -> i32:
 L_ENTRY:
     x = 10          // 将立即数 10 赋值给虚拟寄存器 x
@@ -23,9 +23,9 @@ L_ENTRY:
 ### 1. 模块导入 (`@import`)
 SA 使用 `@import` 引入其他文件的内容（包括宏、常量和函数声明）。
 
-```saasm
-@import "sa_std/io.saasm"
-@import "../my_lib.saasm"
+```sa
+@import "sa_std/io.sa"
+@import "../my_lib.sa"
 ```
 - **路径**：支持相对路径和标准库路径。
 - **作用**：被导入的文件中的所有 `@export` 函数和宏将在当前文件可用。
@@ -33,7 +33,7 @@ SA 使用 `@import` 引入其他文件的内容（包括宏、常量和函数声
 ### 2. 常量定义 (`@const`)
 用于定义全局不可变的原始数据，通常用于字符串或字节数组。
 
-```saasm
+```sa
 @const GREETING = utf8:"Hello, SA!"
 @const MAGIC_BYTES = bytes:[0xDE, 0xAD, 0xBE, 0xEF]
 ```
@@ -41,7 +41,7 @@ SA 使用 `@import` 引入其他文件的内容（包括宏、常量和函数声
 ### 3. 外部函数声明 (`@extern`)
 当你需要调用由运行时（如 Zig 或 C）提供的函数时，使用 `@extern`。这告诉编译器该函数的符号将在链接阶段解决。
 
-```saasm
+```sa
 // 声明一个外部函数，接收一个指针并返回 i32
 @extern sa_net_tcp_connect(host: ptr, len: u64, port: u16) -> i32!
 ```
@@ -67,10 +67,10 @@ SA 的指令采用 `结果 = 指令 操纵数` 的形式。常用指令包括：
 - 如果你忘记销毁一个未使用的寄存器，编译器（Referee）会报错，从而防止内存泄漏。
 
 ## 编译并运行
-使用 `saasm run` 命令直接执行：
+使用 `sa run` 命令直接执行：
 
 ```bash
-saasm run hello.saasm
+sa run hello.sa
 echo $?  # 输出应该是 30
 ```
 

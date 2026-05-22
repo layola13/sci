@@ -1682,7 +1682,7 @@ L_ENTRY:
 ### SA（v0.3：使用 libsa_async 宏）
 ```
 // 引入标准异步宏库
-@import "libsa_async.saasm"
+@import "libsa_async.sa"
 
 // 状态机上下文布局（仍需手写，因为跨 await 变量是业务特定的）
 #def Ctx_SIZE      = 40
@@ -1764,14 +1764,14 @@ L_ENTRY:
     return v
 ```
 
-#### `saasm build-exe process.saasm -o out`（默认 `--release`）
+#### `sa build-exe process.sa -o out`（默认 `--release`）
 ```
 // 产物中零 Referee 运行时代码
 // 所有所有权校验已在编译期完成
 // 性能 = LLVM O1 原生速度
 ```
 
-#### `saasm build-exe process.saasm -o out --debug-gas`
+#### `sa build-exe process.sa -o out --debug-gas`
 ```
 // 产物在每个函数入口插入 gas 计数器
 // 伪代码等价：
@@ -1780,7 +1780,7 @@ L_ENTRY:
 // 用于防御失控的 LLM 产物（无限循环等）
 ```
 
-#### `saasm build-exe process.saasm -o out --debug-san`
+#### `sa build-exe process.sa -o out --debug-san`
 ```
 // 产物在 alloc/free 点插入簿记
 // 伪代码等价：
@@ -1814,7 +1814,7 @@ L_ENTRY:
 
 ---
 
-## 32. `saasm layout` 布局生成工具（R7b） ✅
+## 32. `sa layout` 布局生成工具（R7b） ✅
 
 ### 问题场景：LLM 手算偏移量出错
 
@@ -1824,10 +1824,10 @@ L_ENTRY:
 #def Entity_pos_x = +4     // ❌ 错！f64 需要 8 字节对齐，应该是 +8
 ```
 
-### 解法：`saasm layout` 工具自动生成正确的 `#def` 字典
+### 解法：`sa layout` 工具自动生成正确的 `#def` 字典
 
 ```bash
-$ saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
+$ sa layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
 
 #def Entity_SIZE  = 32
 #def Entity_id    = +0     // u32, 4 bytes
@@ -1841,7 +1841,7 @@ $ saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
 ### SA 中使用生成的字典
 
 ```
-// 直接粘贴 saasm layout 的输出
+// 直接粘贴 sa layout 的输出
 #def Entity_SIZE  = 32
 #def Entity_id    = +0
 #def Entity_pos_x = +8
@@ -1863,7 +1863,7 @@ L_ENTRY:
 ### JSON 输出格式（供 LLM 程序化消费）
 
 ```bash
-$ saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32" --format json
+$ sa layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32" --format json
 ```
 
 ```json
@@ -1893,9 +1893,9 @@ $ saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32" --f
 
 ```
 1. LLM 决定需要一个结构体
-2. LLM 调用: saasm layout --name X --fields "a:i32, b:f64, c:ptr"
+2. LLM 调用: sa layout --name X --fields "a:i32, b:f64, c:ptr"
 3. 工具输出正确的 #def 字典
-4. LLM 把字典粘贴到 .saasm 文件顶部
+4. LLM 把字典粘贴到 .sa 文件顶部
 5. LLM 用常量名写代码: load ptr+X_b as f64
 6. 永远不需要手算偏移量
 7. 永远不会因为对齐错误导致内存踩踏

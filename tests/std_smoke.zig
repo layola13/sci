@@ -1,6 +1,10 @@
 const std = @import("std");
 const saasm = @import("saasm");
 
+fn repoRoot(allocator: std.mem.Allocator) ![]u8 {
+    return std.fs.cwd().realpathAlloc(allocator, ".");
+}
+
 fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -96,14 +100,14 @@ fn dumpInstructionTexts(prefix: []const u8, flat: saasm.flattener.FlattenResult)
 }
 
 test "sa_std core primitives are concrete and verifiable" {
-    const slice_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/slice.saasm-layout");
+    const slice_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/slice.sal");
     defer std.testing.allocator.free(slice_layout);
     try std.testing.expectEqualStrings(
         "#def Slice_SIZE = 16\n#def Slice_ptr  = +0\n#def Slice_len  = +8\n",
         slice_layout,
     );
 
-    const slice_src = try readFileAlloc(std.testing.allocator, "sa_std/core/slice.saasm");
+    const slice_src = try readFileAlloc(std.testing.allocator, "sa_std/core/slice.sa");
     defer std.testing.allocator.free(slice_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_PTR"));
@@ -114,7 +118,7 @@ test "sa_std core primitives are concrete and verifiable" {
     try std.testing.expectEqual(@as(usize, 0), slice_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), slice_flat.function_sigs.len);
 
-    const mem_src = try readFileAlloc(std.testing.allocator, "sa_std/core/mem.saasm");
+    const mem_src = try readFileAlloc(std.testing.allocator, "sa_std/core/mem.sa");
     defer std.testing.allocator.free(mem_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "@export sa_mem_copy"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "@export sa_mem_set"));
@@ -145,28 +149,28 @@ test "sa_std core primitives are concrete and verifiable" {
 }
 
 test "sa_std rust core helpers are concrete and verifiable" {
-    const option_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/option.saasm-layout");
+    const option_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/option.sal");
     defer std.testing.allocator.free(option_layout);
     try std.testing.expectEqualStrings(
         "#def Option_SIZE = 16\n#def Option_tag = +0\n#def Option_value = +8\n#def Option_NONE = 0\n#def Option_SOME = 1\n",
         option_layout,
     );
 
-    const result_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/result.saasm-layout");
+    const result_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/result.sal");
     defer std.testing.allocator.free(result_layout);
     try std.testing.expectEqualStrings(
         "#def Result_SIZE = 24\n#def Result_tag = +0\n#def Result_ok = +8\n#def Result_err = +16\n#def Result_OK = 0\n#def Result_ERR = 1\n",
         result_layout,
     );
 
-    const iter_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/iter.saasm-layout");
+    const iter_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/iter.sal");
     defer std.testing.allocator.free(iter_layout);
     try std.testing.expectEqualStrings(
         "#def Iter_SIZE = 24\n#def Iter_ptr = +0\n#def Iter_len = +8\n#def Iter_index = +16\n",
         iter_layout,
     );
 
-    const option_src = try readFileAlloc(std.testing.allocator, "sa_std/core/option.saasm");
+    const option_src = try readFileAlloc(std.testing.allocator, "sa_std/core/option.sa");
     defer std.testing.allocator.free(option_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_NEW_NONE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_NEW_SOME"));
@@ -181,7 +185,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_SET_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_BRANCH"));
 
-    const result_src = try readFileAlloc(std.testing.allocator, "sa_std/core/result.saasm");
+    const result_src = try readFileAlloc(std.testing.allocator, "sa_std/core/result.sa");
     defer std.testing.allocator.free(result_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_NEW_OK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_NEW_ERR"));
@@ -198,7 +202,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_SET_ERR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_BRANCH"));
 
-    const panic_src = try readFileAlloc(std.testing.allocator, "sa_std/core/panic.saasm");
+    const panic_src = try readFileAlloc(std.testing.allocator, "sa_std/core/panic.sa");
     defer std.testing.allocator.free(panic_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, panic_src, 1, "[MACRO] PANIC "));
     try std.testing.expect(std.mem.containsAtLeast(u8, panic_src, 1, "[MACRO] PANIC_MSG"));
@@ -206,7 +210,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, panic_src, 1, "[MACRO] UNIMPLEMENTED"));
     try std.testing.expect(std.mem.containsAtLeast(u8, panic_src, 1, "[MACRO] UNREACHABLE"));
 
-    const iter_src = try readFileAlloc(std.testing.allocator, "sa_std/core/iter.saasm");
+    const iter_src = try readFileAlloc(std.testing.allocator, "sa_std/core/iter.sa");
     defer std.testing.allocator.free(iter_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, iter_src, 1, "[MACRO] ITER_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, iter_src, 1, "[MACRO] ITER_FROM_SLICE"));
@@ -218,39 +222,39 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, iter_src, 1, "[MACRO] ITER_NEXT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, iter_src, 1, "[MACRO] ITER_NEXT_U64"));
 
-    const rust_core_src = try readFileAlloc(std.testing.allocator, "sa_std/rust_core.saasm");
+    const rust_core_src = try readFileAlloc(std.testing.allocator, "sa_std/rust_core.sa");
     defer std.testing.allocator.free(rust_core_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/option.saasm\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/result.saasm\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/panic.saasm\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/iter.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/option.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/result.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/panic.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/iter.sa\""));
 
-    var option_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/core/option.saasm", option_src);
+    var option_flat = try flattenFixture(std.testing.allocator, "sa_std/core/option.sa", option_src);
     defer option_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), option_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), option_flat.function_sigs.len);
 
-    var result_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/core/result.saasm", result_src);
+    var result_flat = try flattenFixture(std.testing.allocator, "sa_std/core/result.sa", result_src);
     defer result_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), result_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), result_flat.function_sigs.len);
 
-    var panic_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/core/panic.saasm", panic_src);
+    var panic_flat = try flattenFixture(std.testing.allocator, "sa_std/core/panic.sa", panic_src);
     defer panic_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), panic_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), panic_flat.function_sigs.len);
 
-    var iter_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/core/iter.saasm", iter_src);
+    var iter_flat = try flattenFixture(std.testing.allocator, "sa_std/core/iter.sa", iter_src);
     defer iter_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), iter_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), iter_flat.function_sigs.len);
 
-    var rust_core_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/rust_core.saasm", rust_core_src);
+    var rust_core_flat = try flattenFixture(std.testing.allocator, "sa_std/rust_core.sa", rust_core_src);
     defer rust_core_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), rust_core_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), rust_core_flat.function_sigs.len);
 
-    const rust_core_fixture = try readFileAlloc(std.testing.allocator, "tests/rust_core_fixture.saasm");
+    const rust_core_fixture = try readFileAlloc(std.testing.allocator, "tests/rust_core_fixture.sa");
     defer std.testing.allocator.free(rust_core_fixture);
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_fixture, 1, "EXPAND OPTION_IS_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_fixture, 1, "EXPAND OPTION_UNWRAP"));
@@ -260,129 +264,129 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_fixture, 1, "EXPAND RESULT_MAP_OR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_fixture, 1, "EXPAND ITER_FROM_SLICE"));
 
-    var rust_core_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/rust_core_fixture.saasm", rust_core_fixture);
+    var rust_core_fixture_flat = try flattenFixture(std.testing.allocator, "tests/rust_core_fixture.sa", rust_core_fixture);
     defer rust_core_fixture_flat.deinit(std.testing.allocator);
     try std.testing.expect(rust_core_fixture_flat.instructions.len > 0);
     try std.testing.expect(rust_core_fixture_flat.function_sigs.len >= 1);
 
-    const option_default_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/46_option_default/main.saasm");
+    const option_default_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/46_option_default/main.sa");
     defer std.testing.allocator.free(option_default_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, option_default_demo, 1, "@import \"../../../sa_std/core/option.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, option_default_demo, 1, "@import \"sa_std/core/option.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_default_demo, 1, "Option_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_default_demo, 1, "call @choose(&opt, 1)"));
-    var option_default_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/46_option_default/main.saasm", option_default_demo);
+    var option_default_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/46_option_default/main.sa", option_default_demo);
     defer option_default_flat.deinit(std.testing.allocator);
     try std.testing.expect(option_default_flat.instructions.len > 0);
 
-    const result_question_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/19_result_question/main.saasm");
+    const result_question_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/19_result_question/main.sa");
     defer std.testing.allocator.free(result_question_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, result_question_demo, 1, "@import \"../../../sa_std/core/result.saasm\""));
-    var result_question_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/19_result_question/main.saasm", result_question_demo);
+    try std.testing.expect(std.mem.containsAtLeast(u8, result_question_demo, 1, "@import \"sa_std/core/result.sa\""));
+    var result_question_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/19_result_question/main.sa", result_question_demo);
     defer result_question_flat.deinit(std.testing.allocator);
     try std.testing.expect(result_question_flat.instructions.len > 0);
 
-    const result_unwrap_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/177_unwrap_unwrap_err/main.saasm");
+    const result_unwrap_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/177_unwrap_unwrap_err/main.sa");
     defer std.testing.allocator.free(result_unwrap_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, result_unwrap_demo, 1, "@import \"../../../sa_std/core/result.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, result_unwrap_demo, 1, "@import \"sa_std/core/result.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_unwrap_demo, 1, "EXPAND RESULT_UNWRAP_ERR"));
-    var result_unwrap_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/177_unwrap_unwrap_err/main.saasm", result_unwrap_demo);
+    var result_unwrap_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/177_unwrap_unwrap_err/main.sa", result_unwrap_demo);
     defer result_unwrap_flat.deinit(std.testing.allocator);
     try std.testing.expect(result_unwrap_flat.instructions.len > 0);
 
-    const iterator_fold_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/35_iterator_fold/main.saasm");
+    const iterator_fold_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/35_iterator_fold/main.sa");
     defer std.testing.allocator.free(iterator_fold_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, iterator_fold_demo, 1, "@import \"../../../sa_std/core/iter.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, iterator_fold_demo, 1, "@import \"sa_std/core/iter.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, iterator_fold_demo, 1, "ITER_FROM_SLICE"));
-    var iterator_fold_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/35_iterator_fold/main.saasm", iterator_fold_demo);
+    var iterator_fold_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/35_iterator_fold/main.sa", iterator_fold_demo);
     defer iterator_fold_flat.deinit(std.testing.allocator);
     try std.testing.expect(iterator_fold_flat.instructions.len > 0);
 
-    const option_map_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/18_option_map/main.saasm");
+    const option_map_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/18_option_map/main.sa");
     defer std.testing.allocator.free(option_map_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, option_map_demo, 1, "@import \"../../../sa_std/core/option.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, option_map_demo, 1, "@import \"sa_std/core/option.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_map_demo, 1, "!opt"));
-    var option_map_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/18_option_map/main.saasm", option_map_demo);
+    var option_map_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/18_option_map/main.sa", option_map_demo);
     defer option_map_flat.deinit(std.testing.allocator);
     try std.testing.expect(option_map_flat.instructions.len > 0);
 
-    const manual_guard_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/30_manual_guard_branch/main.saasm");
+    const manual_guard_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/30_manual_guard_branch/main.sa");
     defer std.testing.allocator.free(manual_guard_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, manual_guard_demo, 1, "@import \"../../../sa_std/core/option.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, manual_guard_demo, 1, "@import \"sa_std/core/option.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, manual_guard_demo, 1, "OPTION_SET_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, manual_guard_demo, 1, "OPTION_IS_SOME"));
-    var manual_guard_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/30_manual_guard_branch/main.saasm", manual_guard_demo);
+    var manual_guard_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/30_manual_guard_branch/main.sa", manual_guard_demo);
     defer manual_guard_flat.deinit(std.testing.allocator);
     try std.testing.expect(manual_guard_flat.instructions.len > 0);
 
-    const never_type_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/146_never_type_fallback/main.saasm");
+    const never_type_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/146_never_type_fallback/main.sa");
     defer std.testing.allocator.free(never_type_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, never_type_demo, 1, "@import \"../../../sa_std/core/option.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, never_type_demo, 1, "@import \"sa_std/core/option.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, never_type_demo, 1, "OPTION_SET_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, never_type_demo, 1, "OPTION_IS_SOME"));
-    var never_type_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/146_never_type_fallback/main.saasm", never_type_demo);
+    var never_type_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/146_never_type_fallback/main.sa", never_type_demo);
     defer never_type_flat.deinit(std.testing.allocator);
     try std.testing.expect(never_type_flat.instructions.len > 0);
 
-    const if_let_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/104_if_let_chains/main.saasm");
+    const if_let_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/104_if_let_chains/main.sa");
     defer std.testing.allocator.free(if_let_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, if_let_demo, 1, "@import \"../../../sa_std/core/option.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, if_let_demo, 1, "@import \"sa_std/core/option.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, if_let_demo, 1, "OPTION_SET_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, if_let_demo, 1, "OPTION_GET"));
-    var if_let_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/104_if_let_chains/main.saasm", if_let_demo);
+    var if_let_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/104_if_let_chains/main.sa", if_let_demo);
     defer if_let_flat.deinit(std.testing.allocator);
     try std.testing.expect(if_let_flat.instructions.len > 0);
 
-    const let_else_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/105_let_else/main.saasm");
+    const let_else_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/105_let_else/main.sa");
     defer std.testing.allocator.free(let_else_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, let_else_demo, 1, "@import \"../../../sa_std/core/option.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, let_else_demo, 1, "@import \"sa_std/core/option.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, let_else_demo, 1, "OPTION_SET_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, let_else_demo, 1, "OPTION_GET"));
-    var let_else_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/105_let_else/main.saasm", let_else_demo);
+    var let_else_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/105_let_else/main.sa", let_else_demo);
     defer let_else_flat.deinit(std.testing.allocator);
     try std.testing.expect(let_else_flat.instructions.len > 0);
 
-    const generics_monomorph_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/10_generics_monomorph/main.saasm");
+    const generics_monomorph_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/10_generics_monomorph/main.sa");
     defer std.testing.allocator.free(generics_monomorph_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, generics_monomorph_demo, 1, "@import \"../../../sa_std/core/option.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, generics_monomorph_demo, 1, "@import \"sa_std/core/option.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, generics_monomorph_demo, 1, "OPTION_SET_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, generics_monomorph_demo, 1, "OPTION_IS_SOME"));
-    var generics_monomorph_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/10_generics_monomorph/main.saasm", generics_monomorph_demo);
+    var generics_monomorph_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/10_generics_monomorph/main.sa", generics_monomorph_demo);
     defer generics_monomorph_flat.deinit(std.testing.allocator);
     try std.testing.expect(generics_monomorph_flat.instructions.len > 0);
 
-    const result_flatten_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/176_result_flattening/main.saasm");
+    const result_flatten_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/176_result_flattening/main.sa");
     defer std.testing.allocator.free(result_flatten_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, result_flatten_demo, 1, "@import \"../../../sa_std/core/result.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, result_flatten_demo, 1, "@import \"sa_std/core/result.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_flatten_demo, 1, "RESULT_SET_OK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_flatten_demo, 1, "RESULT_GET_OK"));
-    var result_flatten_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/176_result_flattening/main.saasm", result_flatten_demo);
+    var result_flatten_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/176_result_flattening/main.sa", result_flatten_demo);
     defer result_flatten_flat.deinit(std.testing.allocator);
     try std.testing.expect(result_flatten_flat.instructions.len > 0);
 
-    const assert_macro_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/179_assert_macro_expansion/main.saasm");
+    const assert_macro_demo = try readFileAlloc(std.testing.allocator, "demos/rosetta/179_assert_macro_expansion/main.sa");
     defer std.testing.allocator.free(assert_macro_demo);
-    try std.testing.expect(std.mem.containsAtLeast(u8, assert_macro_demo, 1, "@import \"../../../sa_std/core/panic.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, assert_macro_demo, 1, "@import \"sa_std/core/panic.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, assert_macro_demo, 1, "EXPAND PANIC_MSG"));
-    var assert_macro_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/179_assert_macro_expansion/main.saasm", assert_macro_demo);
+    var assert_macro_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/179_assert_macro_expansion/main.sa", assert_macro_demo);
     defer assert_macro_flat.deinit(std.testing.allocator);
     try std.testing.expect(assert_macro_flat.instructions.len > 0);
 }
 
 test "sa_std alloc helpers are concrete and verifiable" {
-    const vec_layout = try readFileAlloc(std.testing.allocator, "sa_std/alloc/vec.saasm-layout");
+    const vec_layout = try readFileAlloc(std.testing.allocator, "sa_std/alloc/vec.sal");
     defer std.testing.allocator.free(vec_layout);
     try std.testing.expectEqualStrings(
         "#def Vec_SIZE = 24\n#def Vec_ptr  = +0\n#def Vec_cap  = +8\n#def Vec_len  = +16",
         vec_layout,
     );
 
-    const vec_src = try readFileAlloc(std.testing.allocator, "sa_std/alloc/vec.saasm");
+    const vec_src = try readFileAlloc(std.testing.allocator, "sa_std/alloc/vec.sa");
     defer std.testing.allocator.free(vec_src);
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "inttoptr"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "add 0, 0"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "假定"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "示例"));
-    var vec_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/alloc/vec.saasm", vec_src);
+    var vec_flat = try flattenFixture(std.testing.allocator, "sa_std/alloc/vec.sa", vec_src);
     defer vec_flat.deinit(std.testing.allocator);
     const vec_verified = try saasm.referee.verify(std.testing.allocator, vec_flat.instructions, vec_flat.const_decls);
     switch (vec_verified) {
@@ -397,13 +401,13 @@ test "sa_std alloc helpers are concrete and verifiable" {
         },
     }
 
-    const vec_macro_layout = try readFileAlloc(std.testing.allocator, "sa_std/vec.saasm-layout");
+    const vec_macro_layout = try readFileAlloc(std.testing.allocator, "sa_std/vec.sal");
     defer std.testing.allocator.free(vec_macro_layout);
     try std.testing.expectEqualStrings("#def Vec_data = +0\n", vec_macro_layout);
 
-    const vec_macro_src = try readFileAlloc(std.testing.allocator, "sa_std/vec.saasm");
+    const vec_macro_src = try readFileAlloc(std.testing.allocator, "sa_std/vec.sa");
     defer std.testing.allocator.free(vec_macro_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "@import \"alloc/vec.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "@import \"alloc/vec.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET"));
@@ -417,7 +421,7 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_WITH_CAPACITY"));
 
     var vec_macro_error_ctx = saasm.flattener.ErrorContext{};
-    var vec_macro_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec.saasm", vec_macro_src, &vec_macro_error_ctx) catch |err| {
+    var vec_macro_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec.sa", vec_macro_src, &vec_macro_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&vec_macro_error_ctx) orelse 0;
         std.debug.print("vec macro flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -440,13 +444,13 @@ test "sa_std alloc helpers are concrete and verifiable" {
         },
     }
 
-    const vec_fixture = try readFileAlloc(std.testing.allocator, "tests/vec_fixture.saasm");
+    const vec_fixture = try readFileAlloc(std.testing.allocator, "tests/vec_fixture.sa");
     defer std.testing.allocator.free(vec_fixture);
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_TRY_POP"));
 
     var vec_fixture_error_ctx = saasm.flattener.ErrorContext{};
-    var vec_fixture_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "tests/vec_fixture.saasm", vec_fixture, &vec_fixture_error_ctx) catch |err| {
+    var vec_fixture_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "tests/vec_fixture.sa", vec_fixture, &vec_fixture_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&vec_fixture_error_ctx) orelse 0;
         std.debug.print("vec fixture flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -466,7 +470,7 @@ test "sa_std alloc helpers are concrete and verifiable" {
         },
     }
 
-    const string_src = try readFileAlloc(std.testing.allocator, "sa_std/alloc/string.saasm");
+    const string_src = try readFileAlloc(std.testing.allocator, "sa_std/alloc/string.sa");
     defer std.testing.allocator.free(string_src);
     try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "inttoptr"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "假定"));
@@ -475,9 +479,9 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "EXPAND SLICE_NEW"));
 
     const string_fixture =
-        \\@import "../../../sa_std/core/slice.saasm-layout"
-        \\@import "../../../sa_std/core/slice.saasm"
-        \\@import "../../../sa_std/alloc/string.saasm"
+        \\@import "sa_std/core/slice.sal"
+        \\@import "sa_std/core/slice.sa"
+        \\@import "sa_std/alloc/string.sa"
         \\
         \\@const WORD = utf8:"rust"
         \\
@@ -499,7 +503,7 @@ test "sa_std alloc helpers are concrete and verifiable" {
         \\    !ok
         \\    return 1
     ;
-    var string_flat = try saasm.flattener.flattenFile(std.testing.allocator, "demos/rosetta/15_string_bytes/main.saasm", string_fixture);
+    var string_flat = try flattenFixture(std.testing.allocator, "demos/rosetta/15_string_bytes/main.sa", string_fixture);
     defer string_flat.deinit(std.testing.allocator);
     const string_verified = try saasm.referee.verify(std.testing.allocator, string_flat.instructions, string_flat.const_decls);
     switch (string_verified) {
@@ -516,14 +520,14 @@ test "sa_std alloc helpers are concrete and verifiable" {
 }
 
 test "sa_std json helpers are concrete and verifiable" {
-    const json_layout = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm-layout");
+    const json_layout = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.sal");
     defer std.testing.allocator.free(json_layout);
     try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_KIND_OBJECT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_KIND_NULL"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_TOKEN_OBJECT_BEGIN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_layout, 1, "SA_JSON_WHITESPACE_MINIFIED"));
 
-    const json_iface = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm-iface");
+    const json_iface = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.sai");
     defer std.testing.allocator.free(json_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_parse"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get"));
@@ -537,17 +541,17 @@ test "sa_std json helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_writer_finish"));
 
-    const json_src = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.saasm");
+    const json_src = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.sa");
     defer std.testing.allocator.free(json_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.saasm-layout\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.sai\""));
 
-    const regex_layout = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.saasm-layout");
+    const regex_layout = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.sal");
     defer std.testing.allocator.free(regex_layout);
     try std.testing.expect(std.mem.containsAtLeast(u8, regex_layout, 1, "SA_REGEX_REG_NOERROR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, regex_layout, 1, "SA_REGEX_REG_OK"));
 
-    const regex_iface = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.saasm-iface");
+    const regex_iface = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.sai");
     defer std.testing.allocator.free(regex_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_compile"));
     try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_match"));
@@ -555,28 +559,28 @@ test "sa_std json helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, regex_iface, 1, "sa_regex_match_free"));
 
-    const regex_src = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.saasm");
+    const regex_src = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.sa");
     defer std.testing.allocator.free(regex_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, regex_src, 1, "@import \"regex.saasm-layout\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, regex_src, 1, "@import \"regex.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_src, 1, "@import \"regex.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, regex_src, 1, "@import \"regex.sai\""));
 }
 
 test "sa_std time helpers are concrete and verifiable" {
-    const time_layout = try readFileAlloc(std.testing.allocator, "sa_std/time.saasm-layout");
+    const time_layout = try readFileAlloc(std.testing.allocator, "sa_std/time.sal");
     defer std.testing.allocator.free(time_layout);
     try std.testing.expectEqualStrings(
         "#def Time_NS_PER_US = 1000\n#def Time_NS_PER_MS = 1000000\n#def Time_NS_PER_S  = 1000000000\n#def Time_MS_PER_S  = 1000\n#def TimeDate_SIZE = 32\n#def TimeDate_unix_ms = +0\n#def TimeDate_unix_ns = +8\n#def TimeDate_year = +16\n#def TimeDate_month = +18\n#def TimeDate_day = +19\n#def TimeDate_hour = +20\n#def TimeDate_minute = +21\n#def TimeDate_second = +22\n#def TimeDate_millisecond = +24\n",
         time_layout,
     );
 
-    const time_iface = try readFileAlloc(std.testing.allocator, "sa_std/time.saasm-iface");
+    const time_iface = try readFileAlloc(std.testing.allocator, "sa_std/time.sai");
     defer std.testing.allocator.free(time_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_instant_ns"));
     try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_unix_ms"));
     try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_utc_now"));
     try std.testing.expect(std.mem.containsAtLeast(u8, time_iface, 1, "sa_time_sleep_ms"));
 
-    const time_src = try readFileAlloc(std.testing.allocator, "sa_std/time.saasm");
+    const time_src = try readFileAlloc(std.testing.allocator, "sa_std/time.sa");
     defer std.testing.allocator.free(time_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_NOW_NS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_NOW_UNIX_MS"));
@@ -584,23 +588,23 @@ test "sa_std time helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_SLEEP_MS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_DURATION_FROM_MS"));
 
-    var time_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/time.saasm", time_src);
+    var time_flat = try flattenFixture(std.testing.allocator, "sa_std/time.sa", time_src);
     defer time_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 7), time_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 7), time_flat.function_sigs.len);
 }
 
 test "sa_std mutex helpers are concrete and verifiable" {
-    const mutex_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/mutex.saasm-layout");
+    const mutex_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/mutex.sal");
     defer std.testing.allocator.free(mutex_layout);
     try std.testing.expectEqualStrings(
         "#def Mutex_SIZE = 8\n#def Mutex_lock = +0\n#def Mutex_data = +8\n",
         mutex_layout,
     );
 
-    const mutex_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/mutex.saasm");
+    const mutex_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/mutex.sa");
     defer std.testing.allocator.free(mutex_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "@import \"../time.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "@import \"../time.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "[MACRO] MUTEX_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "[MACRO] MUTEX_LOCK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "[MACRO] MUTEX_UNLOCK"));
@@ -609,23 +613,23 @@ test "sa_std mutex helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "@__mutex_lock_spin"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "call @sa_time_sleep_ns(1)"));
 
-    var mutex_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sync/mutex.saasm", mutex_src);
+    var mutex_flat = try flattenFixture(std.testing.allocator, "sa_std/sync/mutex.sa", mutex_src);
     defer mutex_flat.deinit(std.testing.allocator);
     try std.testing.expect(mutex_flat.instructions.len > 0);
     try std.testing.expectEqual(@as(usize, 8), mutex_flat.function_sigs.len);
 }
 
 test "sa_std once helpers are concrete and verifiable" {
-    const once_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/once.saasm-layout");
+    const once_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/once.sal");
     defer std.testing.allocator.free(once_layout);
     try std.testing.expectEqualStrings(
         "#def Once_SIZE = 16\n#def Once_state = +0\n#def Once_value = +8\n#def Once_STATE_UNINIT = 0\n#def Once_STATE_RUNNING = 1\n#def Once_STATE_READY = 2\n",
         once_layout,
     );
 
-    const once_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/once.saasm");
+    const once_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/once.sa");
     defer std.testing.allocator.free(once_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "@import \"../time.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "@import \"../time.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_IS_READY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "[MACRO] ONCE_TRY_CLAIM"));
@@ -637,24 +641,24 @@ test "sa_std once helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "cmpxchg once+Once_state, Once_STATE_UNINIT, Once_STATE_RUNNING as u32 acq_rel acquire"));
     try std.testing.expect(std.mem.containsAtLeast(u8, once_src, 1, "atomic_store %once_reg+Once_state, Once_STATE_READY as u32 release"));
 
-    var once_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sync/once.saasm", once_src);
+    var once_flat = try flattenFixture(std.testing.allocator, "sa_std/sync/once.sa", once_src);
     defer once_flat.deinit(std.testing.allocator);
     try std.testing.expect(once_flat.instructions.len > 0);
     try std.testing.expectEqual(@as(usize, 9), once_flat.function_sigs.len);
 }
 
 test "sa_std mpsc helpers are concrete and verifiable" {
-    const mpsc_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/mpsc.saasm-layout");
+    const mpsc_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/mpsc.sal");
     defer std.testing.allocator.free(mpsc_layout);
     try std.testing.expectEqualStrings(
         "#def Mpsc_SIZE = 32\n#def Mpsc_cap = +0\n#def Mpsc_head = +8\n#def Mpsc_tail = +16\n#def Mpsc_data = +32\n\n#def Mpsc_SLOT_SIZE = 16\n#def Mpsc_SLOT_value = +0\n#def Mpsc_SLOT_ready = +8\n#def Mpsc_SLOT_EMPTY = 0\n#def Mpsc_SLOT_READY = 1\n",
         mpsc_layout,
     );
 
-    const mpsc_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/mpsc.saasm");
+    const mpsc_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/mpsc.sa");
     defer std.testing.allocator.free(mpsc_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../core/mem.saasm\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../time.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../core/mem.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../time.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_FREE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_TRY_SEND"));
@@ -664,14 +668,14 @@ test "sa_std mpsc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@__mpsc_try_send"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@__mpsc_try_recv"));
 
-    var mpsc_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sync/mpsc.saasm", mpsc_src);
+    var mpsc_flat = try flattenFixture(std.testing.allocator, "sa_std/sync/mpsc.sa", mpsc_src);
     defer mpsc_flat.deinit(std.testing.allocator);
     try std.testing.expect(mpsc_flat.instructions.len > 0);
     try std.testing.expectEqual(@as(usize, 11), mpsc_flat.function_sigs.len);
 }
 
 test "sa_std async helpers are concrete and verifiable" {
-    const async_src = try readFileAlloc(std.testing.allocator, "sa_std/libsa_async.saasm");
+    const async_src = try readFileAlloc(std.testing.allocator, "sa_std/libsa_async.sa");
     defer std.testing.allocator.free(async_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_CTX_DEF"));
     try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_POLL_PROLOGUE"));
@@ -681,17 +685,17 @@ test "sa_std async helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_READY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, async_src, 1, "[MACRO] ASYNC_INVALID_STATE"));
 
-    var async_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/libsa_async.saasm", async_src);
+    var async_flat = try flattenFixture(std.testing.allocator, "sa_std/libsa_async.sa", async_src);
     defer async_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), async_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), async_flat.function_sigs.len);
 }
 
 test "libsa_async macro expansion stays equivalent to the manual state machine" {
-    const macro_source = try readFileAlloc(std.testing.allocator, "demos/rosetta/09_async_await/main.saasm");
+    const macro_source = try readFileAlloc(std.testing.allocator, "demos/rosetta/09_async_await/main.sa");
     defer std.testing.allocator.free(macro_source);
 
-    const print_iface_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std/io/print.saasm-iface");
+    const print_iface_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std/io/print.sai");
     defer std.testing.allocator.free(print_iface_path);
 
     const manual_source = try std.fmt.allocPrint(std.testing.allocator,
@@ -803,9 +807,9 @@ test "libsa_async macro expansion stays equivalent to the manual state machine" 
     defer std.testing.allocator.free(manual_source);
 
     for (0..100) |_| {
-        var macro_flat = try saasm.flattener.flattenFile(
+        var macro_flat = try flattenFixture(
             std.testing.allocator,
-            "demos/rosetta/09_async_await/main.saasm",
+            "demos/rosetta/09_async_await/main.sa",
             macro_source,
         );
         defer macro_flat.deinit(std.testing.allocator);
@@ -844,55 +848,55 @@ test "libsa_async macro expansion stays equivalent to the manual state machine" 
 }
 
 test "sa_std io helpers are concrete and verifiable" {
-    const io_iface = try readFileAlloc(std.testing.allocator, "sa_std/io.saasm-iface");
+    const io_iface = try readFileAlloc(std.testing.allocator, "sa_std/io.sai");
     defer std.testing.allocator.free(io_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_std_println"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_io_read_line"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_io_buffer_data"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "sa_io_buffer_free"));
 
-    const io_src = try readFileAlloc(std.testing.allocator, "sa_std/io.saasm");
+    const io_src = try readFileAlloc(std.testing.allocator, "sa_std/io.sa");
     defer std.testing.allocator.free(io_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "@import \"fmt.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "@import \"fmt.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] PRINTLN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] READ_LINE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] FORMAT_INT"));
 
-    var io_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/io.saasm", io_src);
+    var io_flat = try flattenFixture(std.testing.allocator, "sa_std/io.sa", io_src);
     defer io_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 24), io_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 24), io_flat.function_sigs.len);
 }
 
 test "sa_std buffered io helpers are concrete and verifiable" {
-    const buf_reader_src = try readFileAlloc(std.testing.allocator, "sa_std/io/buf_reader.saasm");
+    const buf_reader_src = try readFileAlloc(std.testing.allocator, "sa_std/io/buf_reader.sa");
     defer std.testing.allocator.free(buf_reader_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "@import \"../io.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "@import \"../io.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_READ_LINE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_READ"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_READ_EXACT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_FREE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "[MACRO] BUF_READER_CLOSE"));
 
-    var buf_reader_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/io/buf_reader.saasm", buf_reader_src);
+    var buf_reader_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buf_reader.sa", buf_reader_src);
     defer buf_reader_flat.deinit(std.testing.allocator);
     try std.testing.expect(buf_reader_flat.function_sigs.len > 0);
 
-    const buf_writer_src = try readFileAlloc(std.testing.allocator, "sa_std/io/buf_writer.saasm");
+    const buf_writer_src = try readFileAlloc(std.testing.allocator, "sa_std/io/buf_writer.sa");
     defer std.testing.allocator.free(buf_writer_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "@import \"../io.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "@import \"../io.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_WRITE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_WRITE_ALL"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_FLUSH"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "[MACRO] BUF_WRITER_CLOSE"));
 
-    var buf_writer_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/io/buf_writer.saasm", buf_writer_src);
+    var buf_writer_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buf_writer.sa", buf_writer_src);
     defer buf_writer_flat.deinit(std.testing.allocator);
     try std.testing.expect(buf_writer_flat.function_sigs.len > 0);
 }
 
 test "sa_std math helpers are concrete and verifiable" {
-    const math_src = try readFileAlloc(std.testing.allocator, "sa_std/math.saasm");
+    const math_src = try readFileAlloc(std.testing.allocator, "sa_std/math.sa");
     defer std.testing.allocator.free(math_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, math_src, 1, "[MACRO] MATH_ABS_I64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, math_src, 1, "[MACRO] MATH_MIN_U64"));
@@ -906,9 +910,9 @@ test "sa_std math helpers are concrete and verifiable" {
 }
 
 test "sa_std string_format helpers are concrete and verifiable" {
-    const string_format_src = try readFileAlloc(std.testing.allocator, "sa_std/string_format.saasm");
+    const string_format_src = try readFileAlloc(std.testing.allocator, "sa_std/string_format.sa");
     defer std.testing.allocator.free(string_format_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "@import \"fmt.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "@import \"fmt.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_I64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_F64"));
@@ -919,38 +923,38 @@ test "sa_std string_format helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_WRITE_TO"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_FREE"));
 
-    var string_format_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/string_format.saasm", string_format_src);
+    var string_format_flat = try flattenFixture(std.testing.allocator, "sa_std/string_format.sa", string_format_src);
     defer string_format_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 9), string_format_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 9), string_format_flat.function_sigs.len);
 }
 
 test "sa_std path helpers are concrete and verifiable" {
-    const path_src = try readFileAlloc(std.testing.allocator, "sa_std/path.saasm");
+    const path_src = try readFileAlloc(std.testing.allocator, "sa_std/path.sa");
     defer std.testing.allocator.free(path_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"core/slice.saasm-layout\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"core/slice.saasm\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"string.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"core/slice.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"core/slice.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "@import \"string.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_BASENAME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_DIRNAME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_STEM"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_EXT"));
 
-    var path_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/path.saasm", path_src);
+    var path_flat = try flattenFixture(std.testing.allocator, "sa_std/path.sa", path_src);
     defer path_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), path_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), path_flat.function_sigs.len);
 }
 
 test "sa_std path module exercises real string macros" {
-    const path_src = try readFileAlloc(std.testing.allocator, "sa_std/path.saasm");
+    const path_src = try readFileAlloc(std.testing.allocator, "sa_std/path.sa");
     defer std.testing.allocator.free(path_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_BASENAME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_DIRNAME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_STEM"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_EXT"));
 
-    var path_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/path.saasm", path_src);
+    var path_flat = try flattenFixture(std.testing.allocator, "sa_std/path.sa", path_src);
     defer path_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), path_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), path_flat.function_sigs.len);
@@ -1043,14 +1047,14 @@ test "sa_std string concat runtime helper is usable from C" {
 }
 
 test "sa_std env helpers are concrete and verifiable" {
-    const env_src = try readFileAlloc(std.testing.allocator, "sa_std/env.saasm");
+    const env_src = try readFileAlloc(std.testing.allocator, "sa_std/env.sa");
     defer std.testing.allocator.free(env_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "@import \"env.saasm-iface\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "@import \"env.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "[MACRO] ENV_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "[MACRO] ENV_HAS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, env_src, 1, "[MACRO] ENV_BUFFER_FREE"));
 
-    var env_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/env.saasm", env_src);
+    var env_flat = try flattenFixture(std.testing.allocator, "sa_std/env.sa", env_src);
     defer env_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 5), env_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 5), env_flat.function_sigs.len);
@@ -1144,21 +1148,21 @@ test "sa_std env runtime helper is usable from C" {
 }
 
 test "sa_std hashmap helpers are concrete and verifiable" {
-    const hashmap_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.saasm-layout");
+    const hashmap_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.sal");
     defer std.testing.allocator.free(hashmap_layout);
     try std.testing.expectEqualStrings(
         "#def HashMap_SIZE = 32\n#def HashMap_slots = +0\n#def HashMap_cap = +8\n#def HashMap_len = +16\n#def HashMap_tombs = +24\n\n#def HashMapSlot_SIZE = 32\n#def HashMapSlot_hash = +0\n#def HashMapSlot_key = +8\n#def HashMapSlot_value = +16\n#def HashMapSlot_state = +24\n\n#def HashMap_INITIAL_CAP = 8\n#def HashMap_STATE_EMPTY = 0\n#def HashMap_STATE_FILLED = 1\n#def HashMap_STATE_TOMB = 2\n\n#def HashMap_FNV_OFFSET = -3750763034362895579\n#def HashMap_FNV_PRIME = 1099511628211\n",
         hashmap_layout,
     );
 
-    const collections_hashmap = try readFileAlloc(std.testing.allocator, "sa_std/collections/hashmap.saasm");
+    const collections_hashmap = try readFileAlloc(std.testing.allocator, "sa_std/collections/hashmap.sa");
     defer std.testing.allocator.free(collections_hashmap);
-    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashmap, 1, "@import \"../hashmap.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashmap, 1, "@import \"../hashmap.sa\""));
 
-    const hashmap_src = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.saasm");
+    const hashmap_src = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.sa");
     defer std.testing.allocator.free(hashmap_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"core/mem.saasm\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"hashmap.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"core/mem.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"hashmap.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_free"));
@@ -1183,7 +1187,7 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_FREE"));
 
     var hashmap_error_ctx = saasm.flattener.ErrorContext{};
-    var hashmap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/hashmap.saasm", hashmap_src, &hashmap_error_ctx) catch |err| {
+    var hashmap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/hashmap.sa", hashmap_src, &hashmap_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&hashmap_error_ctx) orelse 0;
         std.debug.print("hashmap flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -1219,7 +1223,7 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     }
 
     const hashmap_fixture =
-        \\@import "../sa_std/collections/hashmap.saasm"
+        \\@import "sa_std/collections/hashmap.sa"
         \\
         \\@const KEY = utf8:"alpha"
         \\@const VALUE = utf8:"A\n"
@@ -1295,7 +1299,7 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         \\    !ok
         \\    return 1
     ;
-    var hashmap_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/hashmap_fixture.saasm", hashmap_fixture);
+    var hashmap_fixture_flat = try flattenFixture(std.testing.allocator, "tests/hashmap_fixture.sa", hashmap_fixture);
     defer hashmap_fixture_flat.deinit(std.testing.allocator);
     const hashmap_fixture_verified = try saasm.referee.verify(std.testing.allocator, hashmap_fixture_flat.instructions, hashmap_fixture_flat.const_decls);
     switch (hashmap_fixture_verified) {
@@ -1312,21 +1316,21 @@ test "sa_std hashmap helpers are concrete and verifiable" {
 }
 
 test "sa_std hashset helpers are concrete and verifiable" {
-    const hashset_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashset.saasm-layout");
+    const hashset_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashset.sal");
     defer std.testing.allocator.free(hashset_layout);
     try std.testing.expectEqualStrings(
         "#def HashSet_SIZE = 32\n#def HashSet_slots = +0\n#def HashSet_cap = +8\n#def HashSet_len = +16\n#def HashSet_tombs = +24\n\n#def HashSetSlot_SIZE = 32\n#def HashSetSlot_hash = +0\n#def HashSetSlot_key = +8\n#def HashSetSlot_value = +16\n#def HashSetSlot_state = +24\n\n#def HashSet_INITIAL_CAP = 8\n#def HashSet_STATE_EMPTY = 0\n#def HashSet_STATE_FILLED = 1\n#def HashSet_STATE_TOMB = 2\n\n#def HashSet_VALUE_SENTINEL = 1\n",
         hashset_layout,
     );
 
-    const collections_hashset = try readFileAlloc(std.testing.allocator, "sa_std/collections/hashset.saasm");
+    const collections_hashset = try readFileAlloc(std.testing.allocator, "sa_std/collections/hashset.sa");
     defer std.testing.allocator.free(collections_hashset);
-    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashset, 1, "@import \"../hashset.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashset, 1, "@import \"../hashset.sa\""));
 
-    const hashset_src = try readFileAlloc(std.testing.allocator, "sa_std/hashset.saasm");
+    const hashset_src = try readFileAlloc(std.testing.allocator, "sa_std/hashset.sa");
     defer std.testing.allocator.free(hashset_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashset.saasm-layout\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashmap.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashset.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashmap.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_insert"));
@@ -1347,7 +1351,7 @@ test "sa_std hashset helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_FREE"));
 
     var hashset_error_ctx = saasm.flattener.ErrorContext{};
-    var hashset_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/hashset.saasm", hashset_src, &hashset_error_ctx) catch |err| {
+    var hashset_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/hashset.sa", hashset_src, &hashset_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&hashset_error_ctx) orelse 0;
         std.debug.print("hashset flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -1383,7 +1387,7 @@ test "sa_std hashset helpers are concrete and verifiable" {
     }
 
     const hashset_fixture =
-        \\@import "../sa_std/collections/hashset.saasm"
+        \\@import "sa_std/collections/hashset.sa"
         \\
         \\@const KEY_A = utf8:"alpha"
         \\@const KEY_B = utf8:"bravo"
@@ -1454,7 +1458,7 @@ test "sa_std hashset helpers are concrete and verifiable" {
         \\    !ok
         \\    return 1
     ;
-    var hashset_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/hashset_fixture.saasm", hashset_fixture);
+    var hashset_fixture_flat = try flattenFixture(std.testing.allocator, "tests/hashset_fixture.sa", hashset_fixture);
     defer hashset_fixture_flat.deinit(std.testing.allocator);
     const hashset_fixture_verified = try saasm.referee.verify(std.testing.allocator, hashset_fixture_flat.instructions, hashset_fixture_flat.const_decls);
     switch (hashset_fixture_verified) {
@@ -1471,20 +1475,20 @@ test "sa_std hashset helpers are concrete and verifiable" {
 }
 
 test "sa_std vec_deque helpers are concrete and verifiable" {
-    const deque_layout = try readFileAlloc(std.testing.allocator, "sa_std/vec_deque.saasm-layout");
+    const deque_layout = try readFileAlloc(std.testing.allocator, "sa_std/vec_deque.sal");
     defer std.testing.allocator.free(deque_layout);
     try std.testing.expectEqualStrings(
         "#def VecDeque_SIZE = 32\n#def VecDeque_buf = +0\n#def VecDeque_cap = +8\n#def VecDeque_head = +16\n#def VecDeque_len = +24\n\n#def VecDeque_INITIAL_CAP = 8\n#def VecDeque_SLOT_SIZE = 8\n",
         deque_layout,
     );
 
-    const collections_vec_deque = try readFileAlloc(std.testing.allocator, "sa_std/collections/vec_deque.saasm");
+    const collections_vec_deque = try readFileAlloc(std.testing.allocator, "sa_std/collections/vec_deque.sa");
     defer std.testing.allocator.free(collections_vec_deque);
-    try std.testing.expectEqualStrings("@import \"../vec_deque.saasm\"\n", collections_vec_deque);
+    try std.testing.expectEqualStrings("@import \"../vec_deque.sa\"\n", collections_vec_deque);
 
-    const deque_src = try readFileAlloc(std.testing.allocator, "sa_std/vec_deque.saasm");
+    const deque_src = try readFileAlloc(std.testing.allocator, "sa_std/vec_deque.sa");
     defer std.testing.allocator.free(deque_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_capacity"));
@@ -1508,7 +1512,7 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_CLEAR"));
 
     var deque_error_ctx = saasm.flattener.ErrorContext{};
-    var deque_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec_deque.saasm", deque_src, &deque_error_ctx) catch |err| {
+    var deque_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec_deque.sa", deque_src, &deque_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&deque_error_ctx) orelse 0;
         std.debug.print("vec_deque flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -1543,10 +1547,10 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
         },
     }
 
-    const deque_fixture = try readFileAlloc(std.testing.allocator, "tests/vec_deque_fixture.saasm");
+    const deque_fixture = try readFileAlloc(std.testing.allocator, "tests/vec_deque_fixture.sa");
     defer std.testing.allocator.free(deque_fixture);
 
-    var deque_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/vec_deque_fixture.saasm", deque_fixture);
+    var deque_fixture_flat = try flattenFixture(std.testing.allocator, "tests/vec_deque_fixture.sa", deque_fixture);
     defer deque_fixture_flat.deinit(std.testing.allocator);
     const deque_fixture_verified = try saasm.referee.verify(std.testing.allocator, deque_fixture_flat.instructions, deque_fixture_flat.const_decls);
     switch (deque_fixture_verified) {
@@ -1563,20 +1567,20 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
 }
 
 test "sa_std binary_heap helpers are concrete and verifiable" {
-    const heap_layout = try readFileAlloc(std.testing.allocator, "sa_std/binary_heap.saasm-layout");
+    const heap_layout = try readFileAlloc(std.testing.allocator, "sa_std/binary_heap.sal");
     defer std.testing.allocator.free(heap_layout);
     try std.testing.expectEqualStrings(
         "#def BinaryHeap_SIZE = 24\n#def BinaryHeap_buf = +0\n#def BinaryHeap_cap = +8\n#def BinaryHeap_len = +16\n\n#def BinaryHeap_INITIAL_CAP = 8\n#def BinaryHeap_SLOT_SIZE = 8\n",
         heap_layout,
     );
 
-    const collections_binary_heap = try readFileAlloc(std.testing.allocator, "sa_std/collections/binary_heap.saasm");
+    const collections_binary_heap = try readFileAlloc(std.testing.allocator, "sa_std/collections/binary_heap.sa");
     defer std.testing.allocator.free(collections_binary_heap);
-    try std.testing.expectEqualStrings("@import \"../binary_heap.saasm\"\n", collections_binary_heap);
+    try std.testing.expectEqualStrings("@import \"../binary_heap.sa\"\n", collections_binary_heap);
 
-    const heap_src = try readFileAlloc(std.testing.allocator, "sa_std/binary_heap.saasm");
+    const heap_src = try readFileAlloc(std.testing.allocator, "sa_std/binary_heap.sa");
     defer std.testing.allocator.free(heap_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_len"));
@@ -1595,7 +1599,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_CLEAR"));
 
     var heap_error_ctx = saasm.flattener.ErrorContext{};
-    var heap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/binary_heap.saasm", heap_src, &heap_error_ctx) catch |err| {
+    var heap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/binary_heap.sa", heap_src, &heap_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&heap_error_ctx) orelse 0;
         std.debug.print("binary_heap flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -1636,7 +1640,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     }
 
     const heap_fixture =
-        \\@import "../sa_std/collections/binary_heap.saasm"
+        \\@import "sa_std/collections/binary_heap.sa"
         \\
         \\@main() -> i32:
         \\L_ENTRY:
@@ -1750,7 +1754,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
         \\    !ok
         \\    return 1
     ;
-    var heap_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/binary_heap_fixture.saasm", heap_fixture);
+    var heap_fixture_flat = try flattenFixture(std.testing.allocator, "tests/binary_heap_fixture.sa", heap_fixture);
     defer heap_fixture_flat.deinit(std.testing.allocator);
     const heap_fixture_verified = try saasm.referee.verify(std.testing.allocator, heap_fixture_flat.instructions, heap_fixture_flat.const_decls);
     switch (heap_fixture_verified) {
@@ -1767,21 +1771,21 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
 }
 
 test "sa_std btree_map helpers are concrete and verifiable" {
-    const btree_layout = try readFileAlloc(std.testing.allocator, "sa_std/btree_map.saasm-layout");
+    const btree_layout = try readFileAlloc(std.testing.allocator, "sa_std/btree_map.sal");
     defer std.testing.allocator.free(btree_layout);
     try std.testing.expectEqualStrings(
         "#def BTreeMap_SIZE = 24\n#def BTreeMap_entries = +0\n#def BTreeMap_cap = +8\n#def BTreeMap_len = +16\n\n#def BTreeMapEntry_SIZE = 24\n#def BTreeMapEntry_key_ptr = +0\n#def BTreeMapEntry_key_len = +8\n#def BTreeMapEntry_value = +16\n\n#def BTreeMap_INITIAL_CAP = 8\n",
         btree_layout,
     );
 
-    const collections_btree_map = try readFileAlloc(std.testing.allocator, "sa_std/collections/btree_map.saasm");
+    const collections_btree_map = try readFileAlloc(std.testing.allocator, "sa_std/collections/btree_map.sa");
     defer std.testing.allocator.free(collections_btree_map);
-    try std.testing.expectEqualStrings("@import \"../btree_map.saasm\"\n", collections_btree_map);
+    try std.testing.expectEqualStrings("@import \"../btree_map.sa\"\n", collections_btree_map);
 
-    const btree_src = try readFileAlloc(std.testing.allocator, "sa_std/btree_map.saasm");
+    const btree_src = try readFileAlloc(std.testing.allocator, "sa_std/btree_map.sa");
     defer std.testing.allocator.free(btree_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/mem.saasm\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/slice.saasm-layout\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/mem.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/slice.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_len"));
@@ -1802,7 +1806,7 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_FREE"));
 
     var btree_error_ctx = saasm.flattener.ErrorContext{};
-    var btree_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/btree_map.saasm", btree_src, &btree_error_ctx) catch |err| {
+    var btree_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/btree_map.sa", btree_src, &btree_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&btree_error_ctx) orelse 0;
         std.debug.print("btree_map flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -1838,9 +1842,9 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     }
 
     const btree_fixture =
-        \\@import "../sa_std/core/slice.saasm-layout"
-        \\@import "../sa_std/core/slice.saasm"
-        \\@import "../sa_std/collections/btree_map.saasm"
+        \\@import "sa_std/core/slice.sal"
+        \\@import "sa_std/core/slice.sa"
+        \\@import "sa_std/collections/btree_map.sa"
         \\
         \\@const KEY_ALPHA = utf8:"alpha"
         \\@const KEY_BRAVO = utf8:"bravo"
@@ -1917,7 +1921,7 @@ test "sa_std btree_map helpers are concrete and verifiable" {
         \\    !ok
         \\    return 1
     ;
-    var btree_fixture_flat = try saasm.flattener.flattenFile(std.testing.allocator, "tests/btree_map_fixture.saasm", btree_fixture);
+    var btree_fixture_flat = try flattenFixture(std.testing.allocator, "tests/btree_map_fixture.sa", btree_fixture);
     defer btree_fixture_flat.deinit(std.testing.allocator);
     const btree_fixture_verified = try saasm.referee.verify(std.testing.allocator, btree_fixture_flat.instructions, btree_fixture_flat.const_decls);
     switch (btree_fixture_verified) {
@@ -1933,23 +1937,23 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     }
 }
 test "sa_std sort helpers are concrete and verifiable" {
-    const sort_src = try readFileAlloc(std.testing.allocator, "sa_std/sort.saasm");
+    const sort_src = try readFileAlloc(std.testing.allocator, "sa_std/sort.sa");
     defer std.testing.allocator.free(sort_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@import \"core/mem.saasm\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "[MACRO] QSORT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_swap_bytes"));
     try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_partition_bounds"));
     try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_qsort_bounds"));
     try std.testing.expect(std.mem.containsAtLeast(u8, sort_src, 1, "@sort_qsort_len"));
 
-    var sort_flat = try saasm.flattener.flattenFile(std.testing.allocator, "sa_std/sort.saasm", sort_src);
+    var sort_flat = try flattenFixture(std.testing.allocator, "sa_std/sort.sa", sort_src);
     defer sort_flat.deinit(std.testing.allocator);
     try std.testing.expect(sort_flat.instructions.len > 0);
     try std.testing.expect(sort_flat.function_sigs.len >= 4);
 }
 
 test "std smoke fixture runs through the current compiler surface" {
-    const fixture = try readFileAlloc(std.testing.allocator, "tests/std_smoke.saasm");
+    const fixture = try readFileAlloc(std.testing.allocator, "tests/std_smoke.sa");
     defer std.testing.allocator.free(fixture);
     try std.testing.expect(std.mem.containsAtLeast(u8, fixture, 1, "ptr_add"));
 
@@ -1961,17 +1965,17 @@ test "std smoke fixture runs through the current compiler surface" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try writeSource(tmp.dir, "std_smoke.saasm", fixture);
+    try writeSource(tmp.dir, "std_smoke.sa", fixture);
 
-    const run_argv = [_][]const u8{ "saasm", "run", "std_smoke.saasm" };
+    const run_argv = [_][]const u8{ "sa", "run", "std_smoke.sa" };
     const run_code = try saasm.cli.execute(std.testing.allocator, run_argv[0..]);
     try std.testing.expectEqual(@as(u8, 209), run_code);
 
-    const build_exe_argv = [_][]const u8{ "saasm", "build-exe", "std_smoke.saasm", "-o", "std_smoke.out" };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "std_smoke.sa", "-o", "std_smoke.out" };
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const ll_file = try tmp.dir.openFile("std_smoke.out.saasm.ll", .{});
+    const ll_file = try tmp.dir.openFile("std_smoke.out.sa.ll", .{});
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);
@@ -1987,4 +1991,13 @@ test "std smoke fixture runs through the current compiler surface" {
         .Exited => |code| try std.testing.expectEqual(@as(u8, 209), code),
         else => return error.TestUnexpectedResult,
     }
+}
+
+fn flattenFixture(allocator: std.mem.Allocator, source_path: []const u8, source: []const u8) !saasm.flattener.FlattenResult {
+    const repo_root = try repoRoot(allocator);
+    defer allocator.free(repo_root);
+    var resolve_ctx = saasm.flattener.ResolveContext{};
+    resolve_ctx.options.std_root = try std.fs.path.join(allocator, &.{ repo_root, "sa_std" });
+    defer allocator.free(resolve_ctx.options.std_root.?);
+    return saasm.flattener.flattenFileWithPackages(allocator, source_path, source, resolve_ctx);
 }

@@ -1,7 +1,7 @@
 ---
 name: "sa-asm"
 description: "Programming guide and reference for Symbolic Affine Assembly (SA-ASM), focusing on ownership, register management, and FFI safety."
-when_to_use: "Activate this skill whenever you need to read, write, or debug SA-ASM (.saasm) code. It is essential for ensuring correct register accounting, ownership transfers, and compliance with the Referee's strict safety checks."
+when_to_use: "Activate this skill whenever you need to read, write, or debug SA-ASM (.sa) code. It is essential for ensuring correct register accounting, ownership transfers, and compliance with the Referee's strict safety checks."
 ---
 
 # SA Assembly (SA-ASM) Programming Guide
@@ -36,7 +36,7 @@ Every register (including temporaries) MUST be explicitly released (`!`) when no
 
 ### If / Else (Conditional Branching)
 Must clean up the condition and unused parameters in BOTH paths.
-```saasm
+```sa
 @max(a: i32, b: i32) -> i32:
 L_ENTRY:
     is_a = sgt a, b
@@ -55,7 +55,7 @@ L_B:
 
 ### Loops (Using stack_alloc)
 Standard pattern for a `for` or `while` loop.
-```saasm
+```sa
 L_ENTRY:
     i_ptr = stack_alloc 8
     store i_ptr+0, 0 as u64
@@ -83,7 +83,7 @@ L_EXIT:
 
 ## 6. Structs & Memory Layout
 Accessed via raw offsets defined by `#def`.
-```saasm
+```sa
 #def Pt_SIZE = 8
 #def Pt_x = +0
 #def Pt_y = +4
@@ -113,7 +113,7 @@ L_ENTRY:
 - `#def NAME = VALUE`
 - `@const NAME = utf8:"..."`
 - `@const NAME = vtable { ... }`
-- `@import "file.saasm-iface"`
+- `@import "file.sai"`
 
 ## 11. Further Reading & Detailed Examples
 For a deeper dive into specific error codes, troubleshooting, and advanced optimization patterns, refer to:

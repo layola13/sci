@@ -50,6 +50,7 @@ pub const FunctionSig = struct {
     upstream_file: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
     param_ids: []const u32 = &.{},
+    reg_ids: []const u32 = &.{},
     llvm_name: ?[]const u8 = null,
     ignored: bool = false,
     should_panic: bool = false,
@@ -60,10 +61,22 @@ pub const FunctionSig = struct {
         }
         allocator.free(self.params);
         if (self.param_ids.len != 0) allocator.free(self.param_ids);
+        if (self.reg_ids.len != 0) allocator.free(self.reg_ids);
         if (self.upstream_file) |file| allocator.free(file);
         if (self.llvm_name) |name| allocator.free(name);
         allocator.free(self.name);
         self.* = undefined;
+    }
+
+    pub fn slotOf(self: FunctionSig, global_id: u32) ?u32 {
+        for (self.reg_ids, 0..) |reg_id, idx| {
+            if (reg_id == global_id) return @intCast(idx);
+        }
+        return null;
+    }
+
+    pub fn globalId(self: FunctionSig, slot: u32) u32 {
+        return self.reg_ids[@intCast(slot)];
     }
 };
 
@@ -456,6 +469,7 @@ test "function signature carries prefix and params" {
         .upstream_file = "main.rs",
         .upstream_loc = .{ .file = "main.rs", .line = 1, .col = 1 },
         .param_ids = &.{},
+        .reg_ids = &.{},
     };
     try std.testing.expectEqual(@as(u32, 1), sig.id);
     try std.testing.expectEqualStrings("main", sig.name);
@@ -662,6 +676,8 @@ fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
     try std.testing.expectEqual(expected.return_fallible, actual.return_fallible);
     try std.testing.expectEqual(expected.entry_inst_idx, actual.entry_inst_idx);
     try std.testing.expectEqual(expected.is_ffi_wrapper, actual.is_ffi_wrapper);
+    try std.testing.expectEqualSlices(u32, expected.param_ids, actual.param_ids);
+    try std.testing.expectEqualSlices(u32, expected.reg_ids, actual.reg_ids);
     try std.testing.expectEqual(expected.ignored, actual.ignored);
     try std.testing.expectEqual(expected.should_panic, actual.should_panic);
     try std.testing.expectEqualStrings(expected.name, actual.name);

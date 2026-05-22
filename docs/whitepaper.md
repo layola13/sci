@@ -5,23 +5,23 @@ SA (Symbolic Affine) is a fully independent, line-oriented affine ownership lang
 ## Identity
 
 - **Not an IR**: SA is a standalone language with its own CLI, interpreter, and system primitives.
-- **Not a host-dependent plugin**: `saasm run hello.saasm` executes directly. No Go, Rust, Zig, or Python runtime required.
+- **Not a host-dependent plugin**: `sa run hello.sa` executes directly. No Go, Rust, Zig, or Python runtime required.
 - **Full-platform**: Native (x86_64 / ARM64 / Windows / Linux / macOS) + WASM (wasm32-wasi / wasm64) + embeddable `.o` for any C-ABI project.
 
 ## What ships today (v0.1 baseline)
 
 | Command | Pipeline | Output |
 |---|---|---|
-| `saasm run <file>` | Flattener → Referee → Interpreter | stdout + exit code |
-| `saasm build-exe <file>` | Flattener → Referee → LLVM IR → `zig cc` | standalone `.exe` |
-| `saasm build-wasm <file>` | Flattener → Referee → LLVM IR → `zig cc -target wasm32-wasi` | `.wasm` module |
-| `saasm build-obj <file>` | Flattener → Referee → LLVM IR → `zig cc -c` | `.o` (C-ABI linkable) |
+| `sa run <file>` | Flattener → Referee → Interpreter | stdout + exit code |
+| `sa build-exe <file>` | Flattener → Referee → LLVM IR → `zig cc` | standalone `.exe` |
+| `sa build-wasm <file>` | Flattener → Referee → LLVM IR → `zig cc -target wasm32-wasi` | `.wasm` module |
+| `sa build-obj <file>` | Flattener → Referee → LLVM IR → `zig cc -c` | `.o` (C-ABI linkable) |
 
 No Zig source generation. No AST construction. No hidden round-trips.
 
 ## Checked-in `sa_std` Archive
 
-SA-facing std modules (`io`, `fs`, `net`, `fmt`, `process`) are assembled with `@import` on the SA side and `@extern` declarations in their `.saasm-iface` files. C/C++ host examples still use `#include`, but only in host code.
+SA-facing std modules (`io`, `fs`, `net`, `fmt`, `process`) are assembled with `@import` on the SA side and `@extern` declarations in their `.sai` files. C/C++ host examples still use `#include`, but only in host code.
 
 The repository checks in `artifacts/sa_std/libsa_std.a`. Rebuild it with `zig build sa-std-static -Doptimize=Debug`. The implementation source is `src/runtime/sa_std.zig`; the public C header is `src/runtime/sa_std.h`.
 
@@ -158,7 +158,7 @@ No type annotation. Byte length inferred from literal. Roadmap feature: immutabl
 
 ## Build Modes
 
-- `saasm build-exe` and `saasm build-wasm` default to `--release`; all ownership checks are complete at compile time, so release artifacts carry no Referee runtime.
+- `sa build-exe` and `sa build-wasm` default to `--release`; all ownership checks are complete at compile time, so release artifacts carry no Referee runtime.
 - `-g` enables DWARF and upstream source mapping.
 - `--no-debug` strips debug metadata.
 - `--debug-gas` inserts gas counters and may trap with `GasExceeded`.
@@ -227,7 +227,7 @@ This section is a compact summary for readers; it may lag the live namespace.
 | v0.1 | Closed loop: Flattener + Referee + LLVM IR + CLI (14 weeks) |
 | v0.2 | Self-authored WASM emitter + `#mode compact` infix sugar |
 | v0.3 | Performance: VTable signature check + `libsa_async` macros + `--debug-san` |
-| v0.4 | Parallel dev: `.saasm-iface` + `.saasm-layout` + incremental compilation |
+| v0.4 | Parallel dev: `.sai` + `.sal` + incremental compilation |
 | v0.5 | Ecosystem: `sa.pkg` package manager + `#tag` layout tagging + `sa_std` |
 | v0.6 | Certification: Referee formal proof (Coq/Lean4) + FPGA hardware Referee |
 | v1.0+ | Self-hosting (SA compiler written in SA) |
@@ -249,13 +249,13 @@ This section is a compact summary for readers; it may lag the live namespace.
 SA interoperates with any language through standard C-ABI:
 - `@export` produces unmangled symbols callable from C/C++/Rust/Go/Zig.
 - `@extern` declares external symbols provided by any C-ABI library.
-- `saasm build-obj` produces `.o` files linkable with `zig cc`, `gcc`, `clang`, or `cargo`.
+- `sa build-obj` produces `.o` files linkable with `zig cc`, `gcc`, `clang`, or `cargo`.
 - FFI memory safety enforced by airlock: external pointers enter via `assume_borrow` only.
 
 ## Testing Model
 
-- `saasm run test.saasm` + exit code 0/non-zero for pass/fail.
-- `ASSERT_EQ` / `ASSERT_TRUE` macros in `sa_core.saasm`.
+- `sa run test.sa` + exit code 0/non-zero for pass/fail.
+- `ASSERT_EQ` / `ASSERT_TRUE` macros in `sa_core.sa`.
 - Must-trap tests: verify Referee correctly rejects invalid code.
 - `@export` + external test frameworks (Zig test / Rust #[test] / Google Test).
 - Property-based testing: 32 properties × 100+ random iterations.
@@ -280,5 +280,5 @@ SA interoperates with any language through standard C-ABI:
 ## Status
 
 This document reflects the current v0.1 implementation state. Flattener, Referee,
-LLVM IR Emitter, Interpreter, CLI, and `saasm layout` are operational. Remaining
+LLVM IR Emitter, Interpreter, CLI, and the layout generator are operational. Remaining
 roadmap items are tracked in `tasks.md`.

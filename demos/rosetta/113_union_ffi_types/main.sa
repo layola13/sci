@@ -1,0 +1,28 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"36\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Payload_SIZE = 4
+#def Payload_i = +0
+#def Payload_b = +0
+
+@main() -> i32:
+L_ENTRY:
+    payload = alloc Payload_SIZE
+    store payload+Payload_i, 36 as i32
+    value = load payload+Payload_i as i32
+    ok = eq value, 36
+    !value
+    !payload
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

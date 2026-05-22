@@ -1,0 +1,132 @@
+@import "result.sal"
+@import "panic.sa"
+
+@const RESULT_UNWRAP_PANIC = utf8:"called Result::unwrap() on an Err value"
+@const RESULT_UNWRAP_ERR_PANIC = utf8:"called Result::unwrap_err() on an Ok value"
+
+[MACRO] RESULT_NEW_OK %out_res, %value
+    %out_res = alloc Result_SIZE
+    store %out_res+Result_tag, Result_OK as u64
+    store %out_res+Result_ok, %value as u64
+    store %out_res+Result_err, 0 as u64
+[END_MACRO]
+
+[MACRO] RESULT_NEW_ERR %out_res, %err
+    %out_res = alloc Result_SIZE
+    store %out_res+Result_tag, Result_ERR as u64
+    store %out_res+Result_ok, 0 as u64
+    store %out_res+Result_err, %err as u64
+[END_MACRO]
+
+[MACRO] RESULT_IS_OK %out_bool, %res_reg
+    __result_tag_%out_bool = load %res_reg+Result_tag as u64
+    %out_bool = eq __result_tag_%out_bool, Result_OK
+    !__result_tag_%out_bool
+[END_MACRO]
+
+[MACRO] RESULT_IS_ERR %out_bool, %res_reg
+    __result_tag_%out_bool = load %res_reg+Result_tag as u64
+    %out_bool = eq __result_tag_%out_bool, Result_ERR
+    !__result_tag_%out_bool
+[END_MACRO]
+
+[MACRO] RESULT_GET_OK %out_value, %res_reg
+    %out_value = load %res_reg+Result_ok as u64
+[END_MACRO]
+
+[MACRO] RESULT_GET_ERR %out_value, %res_reg
+    %out_value = load %res_reg+Result_err as u64
+[END_MACRO]
+
+[MACRO] RESULT_UNWRAP_OR %out_value, %res_reg, %default_value
+    __result_tag_%out_value = load %res_reg+Result_tag as u64
+    __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
+    br __result_is_ok_%out_value -> L_RESULT_UNWRAP_OR_OK_%out_value, L_RESULT_UNWRAP_OR_ERR_%out_value
+L_RESULT_UNWRAP_OR_OK_%out_value:
+    %out_value = load %res_reg+Result_ok as u64
+    !__result_tag_%out_value
+    jmp L_RESULT_UNWRAP_OR_END_%out_value
+L_RESULT_UNWRAP_OR_ERR_%out_value:
+    %out_value = add %default_value, 0
+    !__result_tag_%out_value
+L_RESULT_UNWRAP_OR_END_%out_value:
+[END_MACRO]
+
+[MACRO] RESULT_UNWRAP %out_value, %res_reg
+    __result_tag_%out_value = load %res_reg+Result_tag as u64
+    __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
+    br __result_is_ok_%out_value -> L_RESULT_UNWRAP_OK_%out_value, L_RESULT_UNWRAP_ERR_%out_value
+L_RESULT_UNWRAP_OK_%out_value:
+    %out_value = load %res_reg+Result_ok as u64
+    !__result_tag_%out_value
+    jmp L_RESULT_UNWRAP_END_%out_value
+L_RESULT_UNWRAP_ERR_%out_value:
+    EXPAND PANIC_MSG 17, *RESULT_UNWRAP_PANIC, 39
+    %out_value = add 0, 0
+L_RESULT_UNWRAP_END_%out_value:
+[END_MACRO]
+
+[MACRO] RESULT_UNWRAP_ERR %out_value, %res_reg
+    __result_tag_%out_value = load %res_reg+Result_tag as u64
+    __result_is_err_%out_value = eq __result_tag_%out_value, Result_ERR
+    br __result_is_err_%out_value -> L_RESULT_UNWRAP_ERR_ERR_%out_value, L_RESULT_UNWRAP_ERR_OK_%out_value
+L_RESULT_UNWRAP_ERR_ERR_%out_value:
+    %out_value = load %res_reg+Result_err as u64
+    !__result_tag_%out_value
+    jmp L_RESULT_UNWRAP_ERR_END_%out_value
+L_RESULT_UNWRAP_ERR_OK_%out_value:
+    EXPAND PANIC_MSG 17, *RESULT_UNWRAP_ERR_PANIC, 42
+    %out_value = add 0, 0
+L_RESULT_UNWRAP_ERR_END_%out_value:
+[END_MACRO]
+
+[MACRO] RESULT_MAP_OR %out_value, %res_reg, %map_fn, %default_value
+    __result_tag_%out_value = load %res_reg+Result_tag as u64
+    __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
+    br __result_is_ok_%out_value -> L_RESULT_MAP_OR_OK_%out_value, L_RESULT_MAP_OR_ERR_%out_value
+L_RESULT_MAP_OR_OK_%out_value:
+    __result_value_%out_value = load %res_reg+Result_ok as u64
+    %out_value = call %map_fn(__result_value_%out_value)
+    !__result_value_%out_value
+    !__result_tag_%out_value
+    jmp L_RESULT_MAP_OR_END_%out_value
+L_RESULT_MAP_OR_ERR_%out_value:
+    %out_value = add %default_value, 0
+    !__result_tag_%out_value
+L_RESULT_MAP_OR_END_%out_value:
+[END_MACRO]
+
+[MACRO] RESULT_MAP_OR_ELSE %out_value, %res_reg, %map_fn, %default_fn
+    __result_tag_%out_value = load %res_reg+Result_tag as u64
+    __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
+    br __result_is_ok_%out_value -> L_RESULT_MAP_OR_ELSE_OK_%out_value, L_RESULT_MAP_OR_ELSE_ERR_%out_value
+L_RESULT_MAP_OR_ELSE_OK_%out_value:
+    __result_value_%out_value = load %res_reg+Result_ok as u64
+    %out_value = call %map_fn(__result_value_%out_value)
+    !__result_value_%out_value
+    !__result_tag_%out_value
+    jmp L_RESULT_MAP_OR_ELSE_END_%out_value
+L_RESULT_MAP_OR_ELSE_ERR_%out_value:
+    %out_value = call %default_fn()
+    !__result_tag_%out_value
+L_RESULT_MAP_OR_ELSE_END_%out_value:
+[END_MACRO]
+
+[MACRO] RESULT_SET_OK %res_reg, %value
+    store %res_reg+Result_tag, Result_OK as u64
+    store %res_reg+Result_ok, %value as u64
+    store %res_reg+Result_err, 0 as u64
+[END_MACRO]
+
+[MACRO] RESULT_SET_ERR %res_reg, %err
+    store %res_reg+Result_tag, Result_ERR as u64
+    store %res_reg+Result_ok, 0 as u64
+    store %res_reg+Result_err, %err as u64
+[END_MACRO]
+
+[MACRO] RESULT_BRANCH %res_reg, %ok_label, %err_label
+    __result_tag_%res_reg = load %res_reg+Result_tag as u64
+    __result_is_ok_%res_reg = eq __result_tag_%res_reg, Result_OK
+    br __result_is_ok_%res_reg -> %ok_label, %err_label
+    !__result_tag_%res_reg
+[END_MACRO]

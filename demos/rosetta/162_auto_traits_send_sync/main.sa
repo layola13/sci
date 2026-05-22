@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Data_SIZE = 4
+#def Data_val = +0
+
+// 自动 Traits 仅在前端存在。函数直接接收 ptr。
+@require_send(^val: ptr) -> i32:
+L_ENTRY:
+    !val
+    res = add 42, 0
+    return res
+
+@main() -> i32:
+L_ENTRY:
+    d = alloc Data_SIZE
+    store d+Data_val, 0 as i32
+    
+    // Move 调用
+    result = call @require_send(^d)
+    ok = eq result, 42
+    !result
+    
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

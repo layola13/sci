@@ -107,9 +107,9 @@ test "llvm2sa command and abi wrapper match on the hello fixture" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, ".probe_wasm2/hello.wasm.saasm.ll");
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, ".probe_wasm2/hello.wasm.sa.ll");
     defer std.testing.allocator.free(source_path);
-    const expected_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/llvm2sa_expected_hello.saasm");
+    const expected_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/llvm2sa_expected_hello.sa");
     defer std.testing.allocator.free(expected_path);
 
     const expected_file = try std.fs.cwd().openFile(expected_path, .{});
@@ -117,7 +117,7 @@ test "llvm2sa command and abi wrapper match on the hello fixture" {
     const expected = try expected_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(expected);
 
-    const args = [_][]const u8{ "saasm", "llvm2sa", source_path };
+    const args = [_][]const u8{ "sa", "llvm2sa", source_path };
     var native_stdout = std.ArrayList(u8).init(std.testing.allocator);
     defer native_stdout.deinit();
     var native_stderr = std.ArrayList(u8).init(std.testing.allocator);
@@ -142,7 +142,7 @@ test "llvm2sa command and abi wrapper match on the hello fixture" {
     var stderr_ctx = CaptureCtx{ .buffer = &abi_stderr };
     const source_c = try std.testing.allocator.dupeZ(u8, source_path);
     defer std.testing.allocator.free(source_c);
-    const c_argv = [_][*:0]const u8{ "saasm", "llvm2sa", source_c };
+    const c_argv = [_][*:0]const u8{ "sa", "llvm2sa", source_c };
     const abi_status = runLlvm2SaCommandAbi(
         &plugin_api.Context{ .allocator = std.testing.allocator },
         c_argv[0..].ptr,
@@ -158,7 +158,7 @@ test "llvm2sa command and abi wrapper match on the hello fixture" {
 }
 
 test "llvm2sa unknown command stays unknown through native and abi paths" {
-    const args = [_][]const u8{ "saasm", "not-llvm2sa", "ignored.ll" };
+    const args = [_][]const u8{ "sa", "not-llvm2sa", "ignored.ll" };
     const native_result = try runLlvm2SaCommand(
         &plugin_api.Context{ .allocator = std.testing.allocator },
         args[0..],
@@ -176,7 +176,7 @@ test "llvm2sa unknown command stays unknown through native and abi paths" {
     var stderr_ctx = CaptureCtx{ .buffer = &stderr_buf };
     const ignored_c = try std.testing.allocator.dupeZ(u8, "ignored.ll");
     defer std.testing.allocator.free(ignored_c);
-    const c_argv = [_][*:0]const u8{ "saasm", "not-llvm2sa", ignored_c };
+    const c_argv = [_][*:0]const u8{ "sa", "not-llvm2sa", ignored_c };
 
     const abi_status = runLlvm2SaCommandAbi(
         &plugin_api.Context{ .allocator = std.testing.allocator },

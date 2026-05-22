@@ -8,15 +8,15 @@
    ```text
    217_pkg_profile_debug/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── src/
-       ├── index.saasm
+       ├── index.sa
        └── profiles/
            └── debug/
-               ├── index.saasm
+               ├── index.sa
                └── helpers/
-                   ├── profile.saasm-layout
-                   └── index.saasm
+                   ├── profile.sal
+                   └── index.sa
    ```
 2. **代码组织**：debug 配置与 release 一样被包成单独子树，只是 helper 常量不同。
 3. **说明**：`sa.pkg` 只作为未来 metadata 的文本示意。

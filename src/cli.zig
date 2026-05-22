@@ -585,10 +585,10 @@ fn projectSumPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
 }
 
 fn projectSourcePath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
-    const src_path = try pathJoinAlloc(allocator, &.{ root_path, "src", "main.saasm" });
+    const src_path = try pathJoinAlloc(allocator, &.{ root_path, "src", "main.sa" });
     if (projectPathExists(src_path)) return src_path;
     allocator.free(src_path);
-    const fallback = try pathJoinAlloc(allocator, &.{ root_path, "main.saasm" });
+    const fallback = try pathJoinAlloc(allocator, &.{ root_path, "main.sa" });
     if (projectPathExists(fallback)) return fallback;
     allocator.free(fallback);
     return error.FileNotFound;
@@ -921,14 +921,14 @@ fn convertDbTrapReport(report: db_trap.TrapReport) trap.TrapReport {
 }
 
 fn printUsage(writer: anytype) !void {
-    try writer.writeAll("usage: saasm <command> [options]\n\n");
+    try writer.writeAll("usage: sa <command> [options]\n\n");
     try writer.writeAll("Commands:\n");
-    try writer.writeAll("  build        <file>            Compile a .saasm source to a native executable\n");
-    try writer.writeAll("  run          <file>            Compile and immediately execute a .saasm file\n");
+    try writer.writeAll("  build        <file>            Compile a .sa source to a native executable\n");
+    try writer.writeAll("  run          <file>            Compile and immediately execute a .sa file\n");
     try writer.writeAll("  build-exe    <file>            Build a standalone executable (alias for build)\n");
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
-    try writer.writeAll("  test         <file>            Run @test blocks in a .saasm file\n");
+    try writer.writeAll("  test         <file>            Run @test blocks in a .sa file\n");
     try writer.writeAll("  sax          <sub> <file>      SAX subcommands: build | check | dev | new\n");
     try writer.writeAll("  db           <sub> ...         DB subcommands: init | register | exec | inspect | ...\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package\n");
@@ -957,7 +957,7 @@ fn printUsage(writer: anytype) !void {
 
 fn printVersion(writer: anytype) !void {
     const ver = build_options.version;
-    try writer.print("saasm {s}\n", .{ver});
+    try writer.print("sa {s}\n", .{ver});
 }
 
 const TmpWorkDir = struct {
@@ -1173,7 +1173,7 @@ fn importResolutionMessage(err: anyerror) []const u8 {
 fn importResolutionHint(line: ?[]const u8, err: anyerror) []const u8 {
     _ = line;
     return switch (err) {
-        error.InvalidImportPath => "use a valid relative `.saasm` or package identity without `../`, empty segments, or whitespace",
+        error.InvalidImportPath => "use a valid relative `.sa` or package identity without `../`, empty segments, or whitespace",
         error.PackageNotResolved => "check the import path, package identity, local vendor tree, and package cache",
         error.AmbiguousPackageVersion => "pin the required package ref in `sa.mod` so the resolver can choose one version",
         error.PrecompiledArtifactRejected => "depend on the source package instead of a precompiled artifact",
@@ -1777,8 +1777,51 @@ fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
-fn projectRootFromSourcePath(source_path: []const u8) []const u8 {
-    return std.fs.path.dirname(source_path) orelse ".";
+fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
+    errdefer allocator.free(cwd_abs);
+
+    const source_dir = std.fs.path.dirname(source_path) orelse ".";
+    var current = try allocator.dupe(u8, source_dir);
+    defer allocator.free(current);
+
+    while (true) {
+        const candidate_dir = if (std.fs.path.isAbsolute(current))
+            try allocator.dupe(u8, current)
+        else
+            try std.fs.path.join(allocator, &.{ cwd_abs, current });
+        defer allocator.free(candidate_dir);
+
+        const manifest_path = try std.fs.path.join(allocator, &.{ candidate_dir, "sa.mod" });
+        defer allocator.free(manifest_path);
+
+        if (std.fs.cwd().openFile(manifest_path, .{})) |file| {
+            file.close();
+            allocator.free(cwd_abs);
+            return try std.fs.cwd().realpathAlloc(allocator, candidate_dir);
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        }
+
+        const parent = std.fs.path.dirname(current) orelse break;
+        if (std.mem.eql(u8, parent, current)) break;
+        const next = try allocator.dupe(u8, parent);
+        allocator.free(current);
+        current = next;
+    }
+
+    return cwd_abs;
+}
+
+fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
+    if (builtin.is_test) {
+        return try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" });
+    }
+    return std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" }),
+        else => return err,
+    };
 }
 
 fn pluginSoPath(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
@@ -1870,7 +1913,10 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
 
-    const project_root = options.project_root orelse projectRootFromSourcePath(source_path);
+    const project_root = options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
+    defer allocator.free(project_root);
+    const std_root = try stdRootFromEnv(allocator);
+    defer allocator.free(std_root);
 
     var project_manifest = try readProjectManifest(allocator, project_root);
     defer if (project_manifest) |*m| m.deinit(allocator);
@@ -1889,6 +1935,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         .dependencies = dependency_slice,
         .options = .{
             .project_root = project_root,
+            .std_root = std_root,
             .offline = options.offline,
         },
     };
@@ -1984,12 +2031,14 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
-            defer allocator.free(ll);
-
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
+            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
             defer allocator.free(ll_path);
-            try writeAllFile(ll_path, ll);
+            try ensureParentDir(ll_path);
+            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
+            defer file.close();
+            var bw = std.io.bufferedWriter(file.writer());
+            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
+            try bw.flush();
 
             const extra_inputs = &[_][]const u8{
                 try pluginSoPath(allocator, "libsaasm-http-client.so"),
@@ -2021,12 +2070,14 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
-            defer allocator.free(ll);
-
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
+            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
             defer allocator.free(ll_path);
-            try writeAllFile(ll_path, ll);
+            try ensureParentDir(ll_path);
+            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
+            defer file.close();
+            var bw = std.io.bufferedWriter(file.writer());
+            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
+            try bw.flush();
 
             driver.compileObj(allocator, ll_path, out_path, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
@@ -2050,12 +2101,14 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll = try emit_llvm.emitLlvm(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs });
-            defer allocator.free(ll);
-
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
+            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
             defer allocator.free(ll_path);
-            try writeAllFile(ll_path, ll);
+            try ensureParentDir(ll_path);
+            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
+            defer file.close();
+            var bw = std.io.bufferedWriter(file.writer());
+            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs });
+            try bw.flush();
 
             driver.compileWasm(allocator, ll_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
@@ -2172,7 +2225,10 @@ fn executeGraph(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            var project_manifest = try readProjectManifest(allocator, compile_options.project_root orelse projectRootFromSourcePath(source_path));
+            const resolved_project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
+            defer allocator.free(resolved_project_root);
+
+            var project_manifest = try readProjectManifest(allocator, resolved_project_root);
             defer if (project_manifest) |*m| m.deinit(allocator);
 
             var dependencies: []pkg_resolver.Dependency = &.{};
@@ -2204,7 +2260,7 @@ fn executeGraph(
                 .nodes = &nodes,
                 .edges = &edges,
                 .dependencies = dependencies,
-                .project_root = compile_options.project_root orelse projectRootFromSourcePath(source_path),
+                .project_root = resolved_project_root,
                 .offline = compile_options.offline,
             };
 
@@ -2305,22 +2361,11 @@ fn executeTest(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            const ll = try emit_llvm.emitLlvm(
-                allocator,
-                owned.verified,
-                &owned.flat.def_dict,
-                owned.flat.loc_table,
-                source_path,
-                nativeSizeBits(),
-                .{ .jobs = compile_options.jobs, .test_mode = true },
-            );
-            defer allocator.free(ll);
-
             var tmp = try TmpWorkDir.init();
             defer tmp.cleanup();
 
             const source_stem = sourceStem(source_path);
-            const ll_name = try std.fmt.allocPrint(allocator, "{s}.test.saasm.ll", .{source_stem});
+            const ll_name = try std.fmt.allocPrint(allocator, "{s}.test.sa.ll", .{source_stem});
             defer allocator.free(ll_name);
             const exe_name = try std.fmt.allocPrint(allocator, "{s}.test", .{source_stem});
             defer allocator.free(exe_name);
@@ -2330,7 +2375,11 @@ fn executeTest(
 
             const ll_full_path = try std.fs.path.join(allocator, &.{ ll_path, ll_name });
             defer allocator.free(ll_full_path);
-            try writeFile(tmp.dir, ll_name, ll);
+            var file = try tmp.dir.createFile(ll_name, .{ .truncate = true });
+            defer file.close();
+            var bw = std.io.bufferedWriter(file.writer());
+            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true });
+            try bw.flush();
 
             const exe_full_path = try std.fs.path.join(allocator, &.{ ll_path, exe_name });
             defer allocator.free(exe_full_path);
@@ -2916,7 +2965,7 @@ test "cli error printing is detailed and json capable" {
 
 test "flatten error mapping keeps import resolution and unsupported type hints specific" {
     const import_source =
-        \\@import "missing.saasm"
+        \\@import "missing.sa"
         \\@main() -> i32:
         \\    return 0
     ;

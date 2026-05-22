@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Lock_SIZE = 4
+#def Lock_state = +0
+
+@main() -> i32:
+L_ENTRY:
+    lock = alloc Lock_SIZE
+    store lock+Lock_state, 0 as i32
+    jmp L_SPIN
+
+L_SPIN:
+    state = atomic_load lock+Lock_state as i32 acquire
+    free = eq state, 0
+    br free -> L_LOCK, L_RETRY_FREE
+
+L_LOCK:
+    !free
+    old, ok = cmpxchg lock+Lock_state, 0, 1 as i32 acquire relaxed
+    br ok -> L_CRITICAL, L_SPIN_AGAIN
+
+L_RETRY_FREE:
+    !free
+    !state
+    jmp L_SPIN
+
+L_SPIN_AGAIN:
+    !ok
+    !old
+    !state
+    jmp L_SPIN
+
+L_CRITICAL:
+    store lock+Lock_state, 0 as i32
+    atomic_store lock+Lock_state, 0 as i32 release
+    !ok
+    !old
+    !state
+    !lock
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0

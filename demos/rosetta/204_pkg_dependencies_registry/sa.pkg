@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "saasm-0.6"
 
 [dependencies]
-codec = { registry = "sa-lang", version = "1.2.3", path = "registry/codec.saasm" }
+codec = { registry = "sa-lang", version = "1.2.3", path = "registry/codec.sa" }
 
 [targets]
-entry = "main.saasm"
-lib = "src/lib.saasm"
+entry = "main.sa"
+lib = "src/lib.sa"
 
 [notes]
 compiler_input = false

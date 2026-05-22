@@ -50,6 +50,7 @@ pub const FunctionSig = struct {
     upstream_file: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
     param_ids: []const u32 = &.{},
+    reg_ids: []const u32 = &.{},
     llvm_name: ?[]const u8 = null,
     ignored: bool = false,
     should_panic: bool = false,
@@ -60,6 +61,7 @@ pub const FunctionSig = struct {
         }
         allocator.free(self.params);
         if (self.param_ids.len != 0) allocator.free(self.param_ids);
+        if (self.reg_ids.len != 0) allocator.free(self.reg_ids);
         if (self.upstream_file) |file| allocator.free(file);
         if (self.llvm_name) |name| allocator.free(name);
         allocator.free(self.name);

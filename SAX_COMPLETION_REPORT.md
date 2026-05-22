@@ -166,10 +166,10 @@ pub fn checkStateWrite(...)
 #### 5. src/sax/cli.zig（222 行）
 **功能**：SAX CLI 命令集成
 **实现的命令**：
-- `saasm sax build <file.sax>` - 完整编译
-- `saasm sax check <file.sax>` - 仅验证
-- `saasm sax dev` - 开发服务器（Phase 2）
-- `saasm sax new <name>` - 项目脚手架
+- `sa sax build <file.sax>` - 完整编译
+- `sa sax check <file.sax>` - 仅验证
+- `sa sax dev` - 开发服务器（Phase 2）
+- `sa sax new <name>` - 项目脚手架
 
 **关键函数**：
 ```zig
@@ -248,10 +248,10 @@ pub const sax_compiler = @import("sax/mod.zig").SaxCompiler;
 ## 架构设计亮点
 
 ### 1. 零 AST 设计
-SAX Parser 直接输出 `.saasm` 文本，不构建任何中间树结构，最大化复用现有编译管线。
+SAX Parser 直接输出 `.sa` 文本，不构建任何中间树结构，最大化复用现有编译管线。
 
 ```
-.sax → SAX Parser → .saasm → Flattener → Referee → WASM Emitter
+.sax → SAX Parser → .sa → Flattener → Referee → WASM Emitter
 ```
 
 ### 2. 气闸舱隔离
@@ -279,8 +279,8 @@ SaxStateLeak / SaxEventEscape / SaxRenderOutsideHandler
 后端 SA → EXE，前端 SAX → WASM，技术栈完全统一。
 
 ```
-后端：saasm build-exe app.saasm → app.exe
-前端：saasm sax build app.sax → app.wasm + airlock.js + index.html
+后端：sa build-exe app.sa → app.exe
+前端：sa sax build app.sax → app.wasm + airlock.js + index.html
 ```
 
 ---
@@ -307,12 +307,12 @@ SaxStateLeak / SaxEventEscape / SaxRenderOutsideHandler
 2. 完善 SAX Lowerer（状态初始化、DOM 查询、事件绑定）
 3. 集成 Referee SAX 规则（5 条新规则）
 4. WASM 目标代码生成（wasm32-unknown-unknown）
-5. CLI 命令完整实现（`saasm sax build/check`）
+5. CLI 命令完整实现（`sa sax build/check`）
 6. 浏览器集成测试
 
 **预期输出**：
 ```bash
-$ saasm sax build counter.sax
+$ sa sax build counter.sax
 ✓ SAX build successful
   .wasm: dist/counter.wasm
   airlock.js: dist/airlock.js

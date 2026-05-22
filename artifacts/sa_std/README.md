@@ -12,7 +12,7 @@ zig build sa-std-static -Doptimize=Debug
 
 - `src/runtime/sa_std.zig`
 - `src/runtime/sa_std.h`
-- `sa_std/*.saasm`
+- `sa_std/*.sa`
 - `build.zig`
 
 ## Produced Files

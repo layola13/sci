@@ -4,21 +4,21 @@ This demo shows a package-shaped tree with two sibling bin modules and a shared 
 
 ```text
 demos/rosetta/219_pkg_bin_multiple/
-├── main.saasm
+├── main.sa
 ├── readme.md
 ├── sa.pkg
 └── bin/
-    ├── index.saasm
+    ├── index.sa
     ├── alpha/
-    │   ├── index.saasm
+    │   ├── index.sa
     │   └── helpers/
-    │       ├── index.saasm
-    │       └── alpha.saasm-layout
+    │       ├── index.sa
+    │       └── alpha.sal
     └── beta/
-        ├── index.saasm
+        ├── index.sa
         └── helpers/
-            ├── index.saasm
-            └── beta.saasm-layout
+            ├── index.sa
+            └── beta.sal
 ```
 
-`main.saasm` compiles. `sa.pkg` is future metadata only.
+`main.sa` compiles. `sa.pkg` is future metadata only.

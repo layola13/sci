@@ -1,9 +1,0 @@
-@import "dynamic_gate.saasm-layout"
-@import "../ffi/dynamic_lib.saasm-iface"
-
-@ffi_wrapper dynamic_probe_gate(*slot: ptr) -> i32:
-L_ENTRY:
-    view = assume_borrow slot
-    tag = load view+DynamicProbe_tag as i32
-    !view
-    return tag

@@ -4,14 +4,14 @@
 
 ## 1. 现象
 
-- `sa_std/env.saasm` 的宏层已经存在，`tests/std_smoke.zig` 也覆盖了 flatten/iface 形态。
+- `sa_std/env.sa` 的宏层已经存在，`tests/std_smoke.zig` 也覆盖了 flatten/iface 形态。
 - 真正卡住的是 `sa_std env runtime helper is usable from C` 这一条 smoke。
 - 失败表现是 C demo 进程退出码 `2`，也就是 `sa_env_has("PATH")` 没有返回 `SA_STD_OK`。
 
 ## 2. 我遇到的难题
 
 - 这不是 SA-ASM verifier 的 join / phi 问题。
-- 也不是 `sa_std/env.saasm` 宏本身的问题。
+- 也不是 `sa_std/env.sa` 宏本身的问题。
 - 难点在于 `sa_env_has` / `sa_env_get` 要同时满足两种编译态：
   - `zig build test` 的 test 产物
   - `zig build-lib` 产出的静态库，再由 `zig cc` 链接给 C demo

@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"20\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@borrow_pool(first: i32, second: i32, third: i32) -> i32:
+L_ENTRY:
+    total = add first, second
+    total2 = add total, third
+    !first
+    !second
+    !third
+    !total
+    return total2
+
+@main() -> i32:
+L_ENTRY:
+    total = call @borrow_pool(10, 20, 30)
+    ok = eq total, 60
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

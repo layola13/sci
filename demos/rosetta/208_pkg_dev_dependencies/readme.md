@@ -4,20 +4,20 @@
 展示 dev/test 辅助代码和主发布路径分离的包布局。
 
 ## 模块化与工程化预演 (Module & Ecosystem Architecture)
-1. **主路径与开发路径分离**：`src/` 里的代码参与主入口，`dev/` 里的 helpers 和 tests 只作为开发辅助目录存在，不会被 `main.saasm` 直接引入。
+1. **主路径与开发路径分离**：`src/` 里的代码参与主入口，`dev/` 里的 helpers 和 tests 只作为开发辅助目录存在，不会被 `main.sa` 直接引入。
 2. **树形结构**：
    ```text
    208_pkg_dev_dependencies/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    ├── src/
-   │   ├── index.saasm
+   │   ├── index.sa
    │   └── helpers/
-   │       ├── flags.saasm-layout
-   │       └── index.saasm
+   │       ├── flags.sal
+   │       └── index.sa
    └── dev/
-       ├── helpers/index.saasm
-       └── tests/index.saasm
+       ├── helpers/index.sa
+       └── tests/index.sa
    ```
 3. **说明**：`sa.pkg` 只作为未来包元数据示意，不是当前编译器输入。
 

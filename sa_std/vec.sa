@@ -1,0 +1,57 @@
+@import "alloc/vec.sal"
+@import "alloc/vec.sa"
+
+[MACRO] VEC_NEW %out_vec
+    %out_vec = call @sa_vec_new()
+[END_MACRO]
+
+[MACRO] VEC_LEN %out_len, %vec_reg
+    %out_len = call @sa_vec_len(&%vec_reg)
+[END_MACRO]
+
+[MACRO] VEC_GET %out_ptr, %vec_reg, %index
+    __vec_view_%out_ptr = & %vec_reg
+    vec_ptr = load __vec_view_%out_ptr+Vec_ptr as ptr
+    elem_off = mul %index, 8
+    elem_ptr = ptr_add vec_ptr, elem_off
+    %out_ptr = load elem_ptr+0 as u64
+    !elem_off
+    !elem_ptr
+    !vec_ptr
+    !__vec_view_%out_ptr
+[END_MACRO]
+
+[MACRO] VEC_PUSH %vec_reg, %value, %elem_size
+    %vec_reg = call @sa_vec_push(^%vec_reg, %value, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_FREE %vec_reg
+    call @sa_vec_free(^%vec_reg)
+[END_MACRO]
+
+[MACRO] VEC_CAPACITY %out_cap, %vec_reg
+    %out_cap = call @sa_vec_capacity(&%vec_reg)
+[END_MACRO]
+
+[MACRO] VEC_IS_EMPTY %out_flag, %vec_reg
+    %out_flag = call @sa_vec_is_empty(&%vec_reg)
+[END_MACRO]
+
+[MACRO] VEC_CLEAR %vec_reg
+    call @sa_vec_clear(&%vec_reg)
+[END_MACRO]
+
+[MACRO] VEC_TRUNCATE %vec_reg, %new_len
+    call @sa_vec_truncate(&%vec_reg, %new_len)
+[END_MACRO]
+
+[MACRO] VEC_TRY_POP %out_ok, %out_value, %vec_reg
+    __vec_value_slot_%out_ok = stack_alloc 8
+    __vec_ok_%out_ok = call @sa_vec_try_pop(&%vec_reg, &__vec_value_slot_%out_ok)
+    %out_value = load __vec_value_slot_%out_ok+0 as u64
+    %out_ok = __vec_ok_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_WITH_CAPACITY %out_vec, %cap, %elem_size
+    %out_vec = call @sa_vec_with_capacity(%cap, %elem_size)
+[END_MACRO]

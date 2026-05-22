@@ -2,6 +2,6 @@
 
 This tree splits the layout from the FFI airlock.
 
-- `layout/slot.saasm-layout` defines the slot used by the consumer.
-- `bridge/boundary.saasm` keeps the unsafe pointer handling inside `@ffi_wrapper`.
-- `consumer/boundary_consumer.saasm` calls the wrapper and checks the returned value.
+- `layout/slot.sal` defines the slot used by the consumer.
+- `bridge/boundary.sa` keeps the unsafe pointer handling inside `@ffi_wrapper`.
+- `consumer/boundary_consumer.sa` calls the wrapper and checks the returned value.

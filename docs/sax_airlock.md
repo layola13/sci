@@ -1,6 +1,6 @@
 # SAX DOM Airlock API 文档
 
-> 本文档与 `src/sax/airlock_gen.zig` 的当前实现保持一致，只描述今天 `saasm sax build` 真正生成的 `airlock.js`。
+> 本文档与 `src/sax/airlock_gen.zig` 的当前实现保持一致，只描述今天 `sa sax build` 真正生成的 `airlock.js`。
 > 如果某个 API 没有列在这里，当前生成器就不会输出它。
 > 
 > 上游的 SAX parser / lowerer 负责标签、属性、事件名和 handler 名的校验；`airlock.js` 本身只做 DOM 读写和事件转发。
@@ -9,12 +9,12 @@
 
 ## 1. 生成物
 
-`saasm sax build <file.sax>` 生成前端三件套：
+`sa sax build <file.sax>` 生成前端三件套：
 
 - `app.wasm`
 - `airlock.js`
 - `index.html`
-- 以及对应的 `.saasm` 侧车文件
+- 以及对应的 `.sa` 侧车文件
 
 当前 `airlock.js` 的骨架由 `src/sax/airlock_gen.zig` 直接拼出，核心成员如下：
 

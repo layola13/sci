@@ -20,8 +20,8 @@
 │    └─ Blob Arena(mmap bump) ──seal──► <tbl>.blob.<seg>.bin            │
 │        │                                                              │
 │        ▼                                                              │
-│ ③ <name>.query.saasm  +  grants [db_read:t1, db_write:t2]             │
-│        │  saasm db register                                           │
+│ ③ <name>.query.sa  +  grants [db_read:t1, db_write:t2]             │
+│        │  sa db register                                           │
 │        ▼                                                              │
 │ ④ <sha256>.qmod  ──Referee X-ray──►  load/store/atomic_rmw 权限校验   │
 │        │  违规 ► Trap: DbCapabilityEscalation                         │
@@ -78,7 +78,7 @@
 | **身份** | URL（`github.com/x/y`） | URL（`github.com/x/y`） |
 | **版本锁定** | `sha256:...`（源码哈希） | `sha256:...`（schema + 查询源码） |
 | **权限声明** | `grants [net_tx, net_rx]` | `grants [db_read:tbl_a, db_write:tbl_b]` |
-| **源码透明** | 纯文本 `.saasm` | 纯文本 `.sadb-schema` + `.query.saasm` |
+| **源码透明** | 纯文本 `.sa` | 纯文本 `.sadb-schema` + `.query.sa` |
 | **零隐式状态** | 无 `postinstall` 钩子 | 无运行时 SQL 解析 |
 | **零权限默认** | 缺省 `grants []` | 缺省 `grants []` |
 | **双轨缓存** | `sa_vendor/` + `~/.sa/pkg/` | 同上 |
@@ -103,7 +103,7 @@ blank          = "" ;
 
 **示例**（`flash_sale.sadb-schema`，取自 talk.md L4737–L4750）：
 
-```saasm
+```sa
 // flash_sale.sadb-schema
 // 定义秒杀表的物理内存属性
 
@@ -136,14 +136,14 @@ blank          = "" ;
 
 ### 2.3 编译期一次扫描算法
 
-`saasm db init <table>.sadb-schema` 执行以下步骤：
+`sa db init <table>.sadb-schema` 执行以下步骤：
 
 1. **扫描 `#def COL_*_STRIDE`**：提取所有列的字节步长
 2. **计算行大小**：`TABLE_ROW_BYTES = sum(COL_*_STRIDE)`
-3. **生成 `.iface` 文件**：包含所有 `#def` 的副本，供查询模块 `@import` 使用
+3. **生成 `.sai` 文件**：包含所有 `#def` 的副本，供查询模块 `@import` 使用
 4. **验证容量**：`MAX_ROWS * TABLE_ROW_BYTES ≤ 64GB`（MemTable 上限）
 
-**产物**：`<table>.iface`（纯文本，可被 `@import` 引用）
+**产物**：`<table>.sai`（纯文本，可被 `@import` 引用）
 
 **决策来源**：talk.md L4736–L4750 + `requirements.md` R2.4 + `src/common/const_decl.zig`
 
@@ -236,13 +236,13 @@ Blob Arena 采用 **Bump Allocator**（纯追加分配器）：
 - **分配**：全局 `bump_ptr` 自增，无碎片
 - **释放**：不支持单条释放；整段 mmap 视为单个 `alloc`，单次 `!arena` 释放
 - **删除**：标记墓碑（1 字节标志位），不回收空间
-- **压缩**：当段死亡比例 ≥ 50% 时，`saasm db compact` 触发整段重写
+- **压缩**：当段死亡比例 ≥ 50% 时，`sa db compact` 触发整段重写
 
 **为何不用 Free-List**：Free-List 需要维护空闲链表，破坏"显式所有权释放"的语义（无法精确追踪哪些字节被释放）。
 
 ### 4.4 Blob 写入范式（SA-ASM）
 
-```saasm
+```sa
 @write_blob_text(&arena: ptr, text_ptr: ptr, text_len: u64) -> u64:
 L_ENTRY:
     // 1. 原子获取当前 bump 指针
@@ -283,20 +283,20 @@ L_OOM:
 
 ---
 
-## §5 查询模块：从 `.saasm` 到 `<sha256>.qmod`
+## §5 查询模块：从 `.sa` 到 `<sha256>.qmod`
 
 ### 5.1 文件形态
 
 查询由两个文件组成：
 
 ```
-<name>.query.saasm    // 查询逻辑（SA 汇编）
-<name>.query.iface    // 接口声明（导入的表 schema）
+<name>.query.sa    // 查询逻辑（SA 汇编）
+<name>.query.sai    // 接口声明（导入的表 schema）
 ```
 
-**示例**（`heavy_users.query.saasm`）：
+**示例**（`heavy_users.query.sa`）：
 
-```saasm
+```sa
 @import "flash_sale.sadb-schema"
 
 // 查询：找出库存 < 100 且价格 > 1000 的商品
@@ -364,7 +364,7 @@ L_EXIT:
 
 复用 `sa.mod` 的 `grants []` 语法，新增四种数据库权限：
 
-```saasm
+```sa
 grants [
     db_read:<table>,           // 注入 <table> 的只读列基址
     db_write:<table>,          // 注入 <table> 的可写列基址
@@ -375,16 +375,16 @@ grants [
 
 **示例**：
 
-```saasm
+```sa
 grants [db_read:users, db_read:orders, db_write:logs, db_atomic_cursor:logs]
 ```
 
 ### 5.3 编译与注册
 
 ```bash
-saasm db register heavy_users.query.saasm
+sa db register heavy_users.query.sa
 # 输出：
-# Compiled: heavy_users.query.saasm
+# Compiled: heavy_users.query.sa
 # Hash: a1b2c3d4e5f6...
 # Registered: a1b2c3d4e5f6.qmod
 ```
@@ -426,7 +426,7 @@ mmap(..., MAP_SHARED | PROT_WRITE, ...)
 
 数据库引擎通过 `@ffi_wrapper` 把列基址注入查询模块：
 
-```saasm
+```sa
 @ffi_wrapper db_inject_cols(
     &col0_raw: ptr,
     &col1_raw: ptr,
@@ -463,7 +463,7 @@ L_ENTRY:
 
 ### 7.1 Insert（基于 talk.md L4766–L4824）
 
-```saasm
+```sa
 @insert_flash_item(
     &global_len: ptr,
     &col_id: ptr,
@@ -533,7 +533,7 @@ L_OOM:
 
 ### 7.2 Update（乐观锁）
 
-```saasm
+```sa
 @update_price(
     &col_id: ptr,
     &col_price: ptr,
@@ -594,7 +594,7 @@ L_CONFLICT:
 
 ### 7.3 Delete（墓碑标记）
 
-```saasm
+```sa
 @delete_row(
     &col_deleted: ptr,
     row_idx: u64
@@ -619,7 +619,7 @@ L_ENTRY:
 
 ### 7.4 JOIN（物理索引跳转）
 
-```saasm
+```sa
 @join_order_user(
     &col_order_user_id: ptr,
     &col_user_age: ptr,
@@ -660,7 +660,7 @@ L_ENTRY:
 
 所有写入通过**唯一的串行化点**序列化：
 
-```saasm
+```sa
 r_idx = atomic_rmw_add global_len, 1
 ```
 
@@ -700,16 +700,16 @@ r_idx = atomic_rmw_add global_len, 1
 
 | 命令 | 用途 |
 |---|---|
-| `saasm db init <table>.sadb-schema` | 编译 schema → `.iface` |
-| `saasm db register <query>.saasm` | 编译查询 → `<sha256>.qmod` |
-| `saasm db exec <sha256> --params <file>` | 执行注册过的查询 |
-| `saasm db ingest <table> <csv\|jsonl>` | 编译期一次性导入数据 |
-| `saasm db snapshot <table>` | 落盘当前 epoch |
-| `saasm db restore <table> <epoch>` | 从快照恢复 |
-| `saasm db inspect <sha256>` | 打印 X 光扫描结果 |
-| `saasm db compact <table>` | 触发 Blob Arena 段重写 |
-| `saasm db lock <table>` | 冻结表为不可变 |
-| `saasm db verify <table>` | 全段 SHA-256 校验 |
+| `sa db init <table>.sadb-schema` | 编译 schema → `.sai` |
+| `sa db register <query>.sa` | 编译查询 → `<sha256>.qmod` |
+| `sa db exec <sha256> --params <file>` | 执行注册过的查询 |
+| `sa db ingest <table> <csv\|jsonl>` | 编译期一次性导入数据 |
+| `sa db snapshot <table>` | 落盘当前 epoch |
+| `sa db restore <table> <epoch>` | 从快照恢复 |
+| `sa db inspect <sha256>` | 打印 X 光扫描结果 |
+| `sa db compact <table>` | 触发 Blob Arena 段重写 |
+| `sa db lock <table>` | 冻结表为不可变 |
+| `sa db verify <table>` | 全段 SHA-256 校验 |
 
 **决策来源**：talk.md L3899 + `src/cli.zig` 现有 5 个子命令的同构延伸
 
@@ -755,7 +755,7 @@ src/db/
 ├── qmod.zig        # 查询模块编译/注册/SHA-256
 ├── exec.zig        # 列基址注入 + mmap + SIGSEGV handler
 ├── referee_db.zig  # X 光扫描列权限（hook 进 src/verifier.zig）
-├── cli_db.zig      # saasm db 子命令分发
+├── cli_db.zig      # sa db 子命令分发
 ├── snapshot.zig    # epoch 快照与恢复
 ├── compact.zig     # 段死亡比例触发的整段重写
 ├── concurrent.zig  # 行版本号 + 乐观锁辅助
@@ -782,10 +782,10 @@ src/db/
 
 表 schema 与查询模块通过 `@import` 分发，复用 `sa.mod` 的 SHA-256 锁版：
 
-```saasm
+```sa
 // 在查询模块中
 @import "github.com/xiaoming/sa-db-shop/flash_sale.sadb-schema"
-@import "github.com/xiaoming/sa-db-shop/queries.saasm"
+@import "github.com/xiaoming/sa-db-shop/queries.sa"
 ```
 
 ### 12.2 `sa.mod` 扩展（不新增 `sadb.mod`）
@@ -872,7 +872,7 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
 | 零权限默认 | R31c | ✅ | `grants` 缺省为空 |
 | URL 即命名空间 | R31a | ✅ | `@import "github.com/.../sa-db-shop"` |
 | Trap 错误码 | errorcode.md | ✅ | 12 条新 Db* Trap 登记 |
-| 源码透明 | R31d | ✅ | 纯文本 `.sadb-schema` + `.query.saasm` |
+| 源码透明 | R31d | ✅ | 纯文本 `.sadb-schema` + `.query.sa` |
 
 ---
 
@@ -938,7 +938,7 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
 
  - 文件形态：纯文本 EBNF（继承 docs/ebnf.md 的 #def 语法），不引入新 token
  - 列类型仅允许 {i8..u64, f32, f64, ptr, blob_handle}（blob_handle = u64，新引入但仍是 SA 原生 8 字节）
- - 编译期一次扫描算法：saasm db schema-compile → 生成 <table>.iface 文件，里面全是 #def COL_<name>_STRIDE = N 与 #def TABLE_<x>_ROW_BYTES = N
+ - 编译期一次扫描算法：sa db schema-compile → 生成 <table>.sai 文件，里面全是 #def COL_<name>_STRIDE = N 与 #def TABLE_<x>_ROW_BYTES = N
  - 真实示例：flash_sale.sadb-schema 完整版（取自 talk.md L4737–L4750）
  - 决策来源：talk.md L4736–L4750 + requirements.md R2.4（原生类型集合）+ src/common/const_decl.zig
 
@@ -956,25 +956,25 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
  - 物理形态：每表独立 mmap 文件 <table>.blob.<seg>.bin
  - blob_handle = u64 = (seg_id:24 << 40) | offset:40，给出位布局图
  - Bump Allocator 唯一选择：整段 mmap 视为单个 alloc，单次 !arena 释放（脑暴明确否决 Free-List）
- - 删除策略：墓碑标记 + 段死亡比例 ≥ 50% 时 saasm db compact 整段重写
+ - 删除策略：墓碑标记 + 段死亡比例 ≥ 50% 时 sa db compact 整段重写
  - 写入流程的 SA-ASM 范式（10 行）
  - 决策来源：talk.md L4848（开放问题被作者后续选定 Bump）+ FAQ Drop 哲学（faq.md L218–L240）
 
- §5 查询模块：从 .saasm 到 <sha256>.qmod
+ §5 查询模块：从 .sa 到 <sha256>.qmod
 
- - 文件命名：<name>.query.saasm + 配套 <name>.query.iface
+ - 文件命名：<name>.query.sa + 配套 <name>.query.sai
  - grants 语法扩展（复用 sa.mod 现有 grants [] 语法）：
    - db_read:<table> — 注入只读列基址
    - db_write:<table> — 注入可写列基址（必经 @ffi_wrapper）
    - db_alloc_blob:<arena> — 在 Blob Arena 申请字节
    - db_atomic_cursor:<table> — 修改 global_len 行游标
- - 编译产物：<sha256>.qmod（哈希取自 .saasm 源码字节流，与 sa.mod 完全同构）
+ - 编译产物：<sha256>.qmod（哈希取自 .sa 源码字节流，与 sa.mod 完全同构）
  - 注册时 Referee 复用 src/verifier.zig 主入口，新增"列基址守门器"：
    - 任何 load <col_base>+offset → 检查 db_read 白名单
    - 任何 store <col_base>+offset → 检查 db_write 白名单
    - 任何 atomic_rmw_add <cursor>+0 → 检查 db_atomic_cursor
    - 违规 → Trap: DbCapabilityEscalation，附 upstream_loc（沿用 #loc 机制）
- - 调用约定：saasm db exec <sha256> --params <bin> 或代码内 call @exec_qmod(<hash>, args)
+ - 调用约定：sa db exec <sha256> --params <bin> 或代码内 call @exec_qmod(<hash>, args)
  - 决策来源：talk.md L3876–L3905 + docs/package_management.md §0、§2.1（grants 语法）+ src/pkg/manifest.zig
 
  §6 列基址注入与零拷贝沙箱
@@ -1010,25 +1010,25 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
  ┌────────────────────────────────────────┬──────────────────────────┐
  │                  命令                  │           用途           │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db init <table>.sadb-schema      │ 编译 schema → .iface     │
+ │ sa db init <table>.sadb-schema      │ 编译 schema → .sai     │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db register <query>.saasm        │ 编译查询 → <sha256>.qmod │
+ │ sa db register <query>.sa        │ 编译查询 → <sha256>.qmod │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db exec <sha256> --params <file> │ 执行注册过的查询         │
+ │ sa db exec <sha256> --params <file> │ 执行注册过的查询         │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db ingest <table> <csv|jsonl>    │ 编译期一次性导入         │
+ │ sa db ingest <table> <csv|jsonl>    │ 编译期一次性导入         │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db snapshot <table>              │ 落盘当前 epoch           │
+ │ sa db snapshot <table>              │ 落盘当前 epoch           │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db restore <table> <epoch>       │ 从快照重建               │
+ │ sa db restore <table> <epoch>       │ 从快照重建               │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db inspect <sha256>              │ 打印 X 光扫描结果        │
+ │ sa db inspect <sha256>              │ 打印 X 光扫描结果        │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db compact <table>               │ 触发 Blob Arena 段重写   │
+ │ sa db compact <table>               │ 触发 Blob Arena 段重写   │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db lock <table>                  │ 冻结表为不可变           │
+ │ sa db lock <table>                  │ 冻结表为不可变           │
  ├────────────────────────────────────────┼──────────────────────────┤
- │ saasm db verify <table>                │ 全段 SHA-256 校验        │
+ │ sa db verify <table>                │ 全段 SHA-256 校验        │
  └────────────────────────────────────────┴──────────────────────────┘
 
  决策来源：talk.md L3899（EXEC 形态）+ src/cli.zig 现有 5 个子命令的同构延伸
@@ -1075,7 +1075,7 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
  ├── qmod.zig        # 查询模块编译/注册/SHA-256
  ├── exec.zig        # 列基址注入 + mmap + SIGSEGV handler
  ├── referee_db.zig  # X 光扫描列权限（hook 进 src/verifier.zig）
- ├── cli_db.zig      # saasm db 子命令分发
+ ├── cli_db.zig      # sa db 子命令分发
  ├── snapshot.zig    # epoch 快照与恢复
  ├── compact.zig     # 段死亡比例触发的整段重写
  ├── concurrent.zig  # 行版本号 + 乐观锁辅助
@@ -1219,7 +1219,7 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
 
      - ✅ 写 /home/vscode/projects/sci/docs/database.md 一个文件
      - ❌ 不创建 src/db/ 任何 Zig 源文件
-     - ❌ 不修改 src/cli.zig 加 saasm db 子命令
+     - ❌ 不修改 src/cli.zig 加 sa db 子命令
      - ❌ 不修改 docs/errorcode.md 注册 Trap（文档内描述即可，留待后续 PR）
      - ❌ 不修改 docs/ebnf.md 加 .sadb-schema 语法（同上）
      - ❌ 不修改 requirements.md 加 R34（同上）

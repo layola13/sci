@@ -8,15 +8,15 @@
    ```text
    218_pkg_metadata_custom/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── src/
-       ├── index.saasm
+       ├── index.sa
        └── metadata/
-           ├── index.saasm
+           ├── index.sa
            └── helpers/
-               ├── metadata.saasm-layout
-               └── index.saasm
+               ├── metadata.sal
+               └── index.sa
    ```
-2. **代码组织**：`src/metadata/helpers/metadata.saasm-layout` 只放 layout 常量，包级入口再把它包装为统一值。
+2. **代码组织**：`src/metadata/helpers/metadata.sal` 只放 layout 常量，包级入口再把它包装为统一值。
 3. **说明**：`sa.pkg` 只是未来元数据示意，不参与当前 SA-ASM 编译。
 

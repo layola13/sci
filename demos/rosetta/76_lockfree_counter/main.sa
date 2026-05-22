@@ -1,0 +1,27 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@inc(counter: i32) -> i32:
+L_ENTRY:
+    next = add counter, 2
+    !counter
+    return next
+
+@main() -> i32:
+L_ENTRY:
+    value = call @inc(1)
+    ok = eq value, 3
+    !value
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

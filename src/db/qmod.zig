@@ -465,10 +465,10 @@ pub fn registryFilePath(allocator: std.mem.Allocator, root_dir: []const u8, hash
 
 pub fn ifaceFilePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     const basename = std.fs.path.basename(source_path);
-    const stem = if (std.mem.endsWith(u8, basename, ".query.saasm"))
-        basename[0 .. basename.len - ".saasm".len]
-    else if (std.mem.endsWith(u8, basename, ".saasm"))
-        basename[0 .. basename.len - ".saasm".len]
+    const stem = if (std.mem.endsWith(u8, basename, ".query.sa"))
+        basename[0 .. basename.len - ".sa".len]
+    else if (std.mem.endsWith(u8, basename, ".sa"))
+        basename[0 .. basename.len - ".sa".len]
     else
         basename;
     const filename = try std.fmt.allocPrint(allocator, "{s}.iface", .{stem});
@@ -496,7 +496,7 @@ test "qmod hashing and grants parsing are stable" {
         \\L_ENTRY:
         \\return 0
     ;
-    var q = try compileFromSource(std.testing.allocator, source, "queries/heavy_users.query.saasm", "queries");
+    var q = try compileFromSource(std.testing.allocator, source, "queries/heavy_users.query.sa", "queries");
     defer q.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), q.imports.len);

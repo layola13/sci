@@ -9,25 +9,25 @@
    ```text
    211_pkg_workspace_inheritance/
    ├── sa.pkg
-   ├── main.saasm
+   ├── main.sa
    └── workspace/
-       ├── index.saasm
+       ├── index.sa
        ├── shared/
        │   ├── sa.pkg
-       │   ├── config.saasm-layout
-       │   └── index.saasm
+       │   ├── config.sal
+       │   └── index.sa
        └── members/
            ├── app/
            │   ├── sa.pkg
-           │   ├── index.saasm
+           │   ├── index.sa
            │   └── helpers/
-           │       ├── app.saasm-layout
-           │       └── index.saasm
+           │       ├── app.sal
+           │       └── index.sa
            └── tool/
                ├── sa.pkg
-               ├── index.saasm
+               ├── index.sa
                └── helpers/
-                   ├── index.saasm
-                   └── tool.saasm-layout
+                   ├── index.sa
+                   └── tool.sal
    ```
 3. **说明**：共享目录里的 `sa.pkg` 和 layout 文件都是未来包系统的元数据示意，不是编译器输入。

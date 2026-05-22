@@ -248,6 +248,63 @@ fn ownFoldedText(
     return folded;
 }
 
+fn stripLeadingPlus(text: []const u8) []const u8 {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    if (trimmed.len > 0 and trimmed[0] == '+') {
+        return std.mem.trimLeft(u8, trimmed[1..], " \t");
+    }
+    return trimmed;
+}
+
+fn parseIntAllowLeadingPlus(comptime T: type, text: []const u8) !T {
+    const normalized = stripLeadingPlus(text);
+    return std.fmt.parseInt(T, normalized, 10) catch |err| {
+        return err;
+    };
+}
+
+fn parseLayoutOffset(
+    allocator: std.mem.Allocator,
+    dict: *DefDict,
+    owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
+    text: []const u8,
+) !u64 {
+    const folded = try ownFoldedText(allocator, dict, owned_text, text);
+    if (parseIntAllowLeadingPlus(u64, folded)) |value| {
+        return value;
+    } else |err| switch (err) {
+        error.InvalidCharacter => {},
+        else => return err,
+    }
+
+    if (dict.get(folded)) |value_text| {
+        return try parseIntAllowLeadingPlus(u64, value_text);
+    }
+
+    if (current_package_identity) |identity| {
+        const prefix = try packageNamespacePrefix(allocator, identity);
+        defer allocator.free(prefix);
+
+        const qualified = try std.fmt.allocPrint(allocator, "{s}.{s}", .{ prefix, folded });
+        defer allocator.free(qualified);
+
+        if (dict.get(qualified)) |value_text| {
+            return try parseIntAllowLeadingPlus(u64, value_text);
+        }
+    }
+
+    var it = dict.entries.iterator();
+    while (it.next()) |entry| {
+        const key = entry.key_ptr.*;
+        if (std.mem.endsWith(u8, key, folded) and key.len > folded.len and key[key.len - folded.len - 1] == '.') {
+            return try parseIntAllowLeadingPlus(u64, entry.value_ptr.*);
+        }
+    }
+
+    return error.InvalidSyntax;
+}
+
 fn parseNumericOperand(text: []const u8) ?common_instruction.Operand {
     const trimmed = std.mem.trim(u8, text, " \t");
     if (trimmed.len == 0) return null;
@@ -260,7 +317,21 @@ fn parseNumericOperand(text: []const u8) ?common_instruction.Operand {
                 return .{ .imm_u64 = value };
             } else |_| {}
         },
-        else => {},
+        error.InvalidCharacter => {
+            const no_plus = stripLeadingPlus(trimmed);
+            if (no_plus.len != trimmed.len) {
+                if (std.fmt.parseInt(i64, no_plus, 10)) |value| {
+                    return .{ .imm_i64 = value };
+                } else |retry_err| switch (retry_err) {
+                    error.Overflow => {
+                        if (std.fmt.parseInt(u64, no_plus, 10)) |value| {
+                            return .{ .imm_u64 = value };
+                        } else |_| {}
+                    },
+                    else => {},
+                }
+            }
+        },
     }
 
     if (std.mem.indexOfAny(u8, trimmed, ".eE")) |_| {
@@ -287,7 +358,24 @@ fn parseSizeOperand(text: []const u8) ?common_instruction.Operand {
                 return .{ .imm_u64 = value };
             } else |_| {}
         },
-        else => {},
+        error.InvalidCharacter => {
+            const no_plus = stripLeadingPlus(trimmed);
+            if (no_plus.len != trimmed.len) {
+                if (std.fmt.parseInt(i64, no_plus, 10)) |value| {
+                    if (value >= 0) {
+                        return .{ .imm_u64 = @as(u64, @intCast(value)) };
+                    }
+                    return .{ .imm_i64 = value };
+                } else |retry_err| switch (retry_err) {
+                    error.Overflow => {
+                        if (std.fmt.parseInt(u64, no_plus, 10)) |value| {
+                            return .{ .imm_u64 = value };
+                        } else |_| {}
+                    },
+                    else => {},
+                }
+            }
+        },
     }
 
     return null;
@@ -605,7 +693,7 @@ fn emitParsedLine(
                     inst.operands[0] = .{ .reg = dst };
                     inst.operands[1] = .{ .reg = base };
                     const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
-                    inst.operands[2] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.operands[2] = .{ .imm_u64 = try parseLayoutOffset(allocator, dict, owned_text, current_package_identity, offset_text) };
                     inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
                     inst.atomic_ordering = parsed.ordering;
                 },
@@ -618,7 +706,7 @@ fn emitParsedLine(
                     const base = try symbols.intern(parsed.base);
                     inst.operands[0] = .{ .reg = base };
                     const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
-                    inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.operands[1] = .{ .imm_u64 = try parseIntAllowLeadingPlus(u64, offset_text) };
                     const value_text = try ownFoldedText(allocator, dict, owned_text, parsed.value);
                     inst.operands[2] = .{ .text = value_text };
                     inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
@@ -637,7 +725,7 @@ fn emitParsedLine(
                     inst.operands[1] = .{ .reg = ok };
                     inst.operands[2] = .{ .reg = base };
                     const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
-                    inst.operands[3] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.operands[3] = .{ .imm_u64 = try parseLayoutOffset(allocator, dict, owned_text, current_package_identity, offset_text) };
                     inst.atomic_expected_text = try ownFoldedText(allocator, dict, owned_text, parsed.expected);
                     inst.atomic_new_text = try ownFoldedText(allocator, dict, owned_text, parsed.new_value);
                     inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
@@ -655,7 +743,7 @@ fn emitParsedLine(
                     inst.operands[0] = .{ .reg = dst };
                     inst.operands[1] = .{ .reg = base };
                     const offset_text = try ownFoldedText(allocator, dict, owned_text, parsed.offset);
-                    inst.operands[2] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.operands[2] = .{ .imm_u64 = try parseLayoutOffset(allocator, dict, owned_text, current_package_identity, offset_text) };
                     const value_text = try ownFoldedText(allocator, dict, owned_text, parsed.value);
                     inst.operands[3] = .{ .text = value_text };
                     inst.atomic_value_ty = if (parsed.ty) |ty| @intFromEnum(ty) else null;
@@ -681,7 +769,7 @@ fn emitParsedLine(
                     inst.operands[0] = .{ .reg = dst };
                     inst.operands[1] = .{ .reg = base };
                     const offset_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[2]);
-                    inst.operands[2] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.operands[2] = .{ .imm_u64 = try parseLayoutOffset(allocator, dict, owned_text, current_package_identity, offset_text) };
                     if (classified.part_count > 3) {
                         const ty = try common_signature.parsePrimType(classified.parts[3]);
                         inst.operands[3] = .{ .ty = @intFromEnum(ty) };
@@ -712,7 +800,7 @@ fn emitParsedLine(
                     const base = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = base };
                     const offset_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
-                    inst.operands[1] = .{ .imm_u64 = try std.fmt.parseInt(u64, offset_text, 10) };
+                    inst.operands[1] = .{ .imm_u64 = try parseLayoutOffset(allocator, dict, owned_text, current_package_identity, offset_text) };
                     const value_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[2]);
                     inst.operands[2] = .{ .text = value_text };
                     if (classified.part_count > 3) {
@@ -756,7 +844,7 @@ fn emitParsedLine(
                     inst.operands[0] = .{ .reg = dst };
                     inst.operands[1] = .{ .reg = base };
                     const offset_text = try ownFoldedText(allocator, dict, owned_text, classified.parts[2]);
-                    if (std.fmt.parseInt(i64, offset_text, 10)) |offset| {
+                    if (std.fmt.parseInt(i64, stripLeadingPlus(offset_text), 10)) |offset| {
                         inst.operands[2] = .{ .imm_i64 = offset };
                     } else |err| switch (err) {
                         error.Overflow => return error.InvalidSyntax,
@@ -1302,7 +1390,7 @@ fn injectImportedFile(
     resolve_ctx: ?ResolveContext,
 ) anyerror!void {
     const entry_path = imported.entry_path;
-    if (!std.mem.endsWith(u8, entry_path, ".saasm")) return;
+    if (!std.mem.endsWith(u8, entry_path, ".sa")) return;
 
     const effective_package_identity = if (imported.package_identity) |identity|
         try rememberPackageIdentity(allocator, seen_package_identities, identity)
@@ -1313,9 +1401,9 @@ fn injectImportedFile(
 
     const import_dir = std.fs.path.dirname(entry_path) orelse ".";
     const stem = pathStem(entry_path);
-    const iface_name = try std.fmt.allocPrint(allocator, "{s}.saasm-iface", .{stem});
+    const iface_name = try std.fmt.allocPrint(allocator, "{s}.sai", .{stem});
     defer allocator.free(iface_name);
-    const layout_name = try std.fmt.allocPrint(allocator, "{s}.saasm-layout", .{stem});
+    const layout_name = try std.fmt.allocPrint(allocator, "{s}.sal", .{stem});
     defer allocator.free(layout_name);
 
     const injected_root = struct {
@@ -1349,7 +1437,7 @@ fn injectImportedFile(
             defer _ = active_paths2.remove(injected.entry_path);
 
             const effective_child_package_identity = injected.package_identity orelse current_package_identity2;
-            const is_layout_file = std.mem.endsWith(u8, injected.entry_path, ".saasm-layout");
+            const is_layout_file = std.mem.endsWith(u8, injected.entry_path, ".sal");
             var rewritten_source: ?[]u8 = null;
             defer if (rewritten_source) |rewritten| allocator2.free(rewritten);
             const expanded_source = if (is_layout_file) blk: {
@@ -1472,7 +1560,7 @@ fn expandImportsInto(
                 imported.deinit(allocator);
                 continue;
             }
-            if (std.mem.endsWith(u8, imported.entry_path, ".saasm-layout")) {
+            if (std.mem.endsWith(u8, imported.entry_path, ".sal")) {
                 try recordLayoutVersion(allocator, layout_versions, imported.entry_path, imported.source);
             }
             owned_paths.append(imported.entry_path) catch |err| {
@@ -1502,7 +1590,7 @@ fn expandImportsInto(
                 imported_package_hash,
                 resolve_ctx,
             );
-            const is_layout_file = std.mem.endsWith(u8, imported.entry_path, ".saasm-layout");
+            const is_layout_file = std.mem.endsWith(u8, imported.entry_path, ".sal");
             var rewritten_source: ?[]u8 = null;
             defer if (rewritten_source) |rewritten| allocator.free(rewritten);
             const expanded_source = if (is_layout_file) blk: {
@@ -1590,7 +1678,7 @@ fn expandImports(
         try active_paths.put(source_full, {});
         try seen_paths.put(source_full, {});
 
-        if (std.mem.endsWith(u8, source_full, ".saasm-layout")) {
+        if (std.mem.endsWith(u8, source_full, ".sal")) {
             try recordLayoutVersion(allocator, &layout_versions, source_full, source);
         }
     }
@@ -1699,7 +1787,7 @@ fn flattenInternal(
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
     const empty_replacements = [_]Replacement{};
-    try emitRange(
+    emitRange(
         allocator,
         lines,
         0,
@@ -1720,7 +1808,7 @@ fn flattenInternal(
         error_ctx,
         null,
         null,
-    );
+    ) catch |err| return err;
     if (pending_loc) |loc| {
         allocator.free(loc.file);
         pending_loc = null;
@@ -2082,23 +2170,23 @@ test "flattenFile expands relative @import files" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("sa_std/io");
-    var iface = try tmp.dir.createFile("sa_std/io/print.saasm-iface", .{ .truncate = true });
+    var iface = try tmp.dir.createFile("sa_std/io/print.sai", .{ .truncate = true });
     try iface.writeAll("@extern sa_print_bytes(&msg: ptr, len: u64) -> void\n");
     iface.close();
 
-    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
-        \\@import "sa_std/io/print.saasm-iface"
+        \\@import "sa_std/io/print.sai"
         \\@main() -> i32:
         \\L_ENTRY:
         \\    return 0
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
     var result = try flattenFile(std.testing.allocator, source_path, source);
@@ -2117,22 +2205,22 @@ test "flattenFileWithPackages injects package iface and namespaced layout defs o
 
     try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
 
-    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
     try pkg_main.writeAll("// package body intentionally empty\n");
     pkg_main.close();
 
-    var pkg_iface = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm-iface", .{ .truncate = true });
+    var pkg_iface = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sai", .{ .truncate = true });
     try pkg_iface.writeAll("@extern pkg_iface() -> i32\n");
     pkg_iface.close();
 
-    var pkg_layout = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm-layout", .{ .truncate = true });
+    var pkg_layout = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sal", .{ .truncate = true });
     try pkg_layout.writeAll(
         \\#version 1
         \\#def Pkg_SIZE = 4
     );
     pkg_layout.close();
 
-    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
         \\@import "github.com/example/pkg"
         \\
@@ -2142,10 +2230,10 @@ test "flattenFileWithPackages injects package iface and namespaced layout defs o
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
     const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
@@ -2180,7 +2268,7 @@ test "flattenFileWithPackages preserves package identity on imported instruction
 
     try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
 
-    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
     try pkg_main.writeAll(
         \\@main() -> i32:
         \\L_ENTRY:
@@ -2193,16 +2281,16 @@ test "flattenFileWithPackages preserves package identity on imported instruction
     );
     pkg_main.close();
 
-    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
         \\@import "github.com/example/pkg"
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.saasm", 4096);
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.saasm");
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
     const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
@@ -2251,18 +2339,18 @@ test "flattenFile rejects import cycles" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    var a_file = try tmp.dir.createFile("a.saasm", .{ .truncate = true });
-    try a_file.writeAll("@import \"b.saasm\"\n");
+    var a_file = try tmp.dir.createFile("a.sa", .{ .truncate = true });
+    try a_file.writeAll("@import \"b.sa\"\n");
     a_file.close();
 
-    var b_file = try tmp.dir.createFile("b.saasm", .{ .truncate = true });
-    try b_file.writeAll("@import \"a.saasm\"\n");
+    var b_file = try tmp.dir.createFile("b.sa", .{ .truncate = true });
+    try b_file.writeAll("@import \"a.sa\"\n");
     b_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "a.saasm", 4096);
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "a.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "a.saasm");
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "a.sa");
     defer std.testing.allocator.free(source_path);
 
     try std.testing.expectError(error.ImportCycle, flattenFile(std.testing.allocator, source_path, source));

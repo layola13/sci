@@ -1,0 +1,19 @@
+
+[FLATTEN_ERROR] error error.InvalidCharacter at line 1005
+1000: #def pkg_vec_dot_sa.Vec_cap = +8
+1001: #def pkg_vec_dot_sa.Vec_len = +16
+1002: 
+1003: @export sa_vec_new() -> ^ptr:
+1004:     vec = alloc Vec_SIZE
+1005:     store vec+Vec_ptr, 0 as ptr
+1006:     store vec+Vec_cap, 0 as u64
+1007:     store vec+Vec_len, 0 as u64
+1008:     return vec
+1009: 
+1010: @export sa_vec_with_capacity(cap: u64, elem_size: u64) -> ^ptr:
+error[ForbiddenSyntax]: InvalidCharacter
+  help: flattening failed before a public trap mapping was available
+  repair: rewrite
+    hint: lower structured control flow into labels, branches, and explicit register moves
+    confidence: high
+{"trap":"ForbiddenSyntax","trap_code":1001,"line":1005,"source_line":1005,"source_text":null,"original_text":null,"register":null,"registers":[],"expected_mask":null,"actual_mask":null,"expected_mask_name":null,"actual_mask_name":null,"upstream_loc":null,"function":null,"is_ffi_wrapper":null,"repair":{"action":"rewrite","hint":"lower structured control flow into labels, branches, and explicit register moves","confidence":"high"},"message":"InvalidCharacter","hint":"flattening failed before a public trap mapping was available"}

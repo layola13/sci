@@ -1,0 +1,21 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"0\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    // Negative impl 拒绝编译是由前端负责的。
+    // 如果它编译通过了，就没有运行时代价。
+    ok = eq 0, 0
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,6 +1,0 @@
-@import "lib.saasm-layout"
-
-@library_impl_value() -> i32:
-L_ENTRY:
-    value = add LIB_DYNAMIC_VALUE, 0
-    return value

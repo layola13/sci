@@ -1,0 +1,4 @@
+error[UnsupportedSysIntrinsic]: target runtime does not support this @sys_* intrinsic
+  in function @main():
+  line 2026 (expanded 66003):     call @sys_0(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+{"trap":"UnsupportedSysIntrinsic","trap_code":1021,"line":66003,"source_line":2026,"source_text":"    call @sys_0(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)","original_text":"    call @sys_0(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)","register":null,"registers":[],"expected_mask":null,"actual_mask":null,"expected_mask_name":null,"actual_mask_name":null,"upstream_loc":null,"function":"@main():","is_ffi_wrapper":false,"message":"target runtime does not support this @sys_* intrinsic","hint":null}

@@ -4,13 +4,36 @@ fn pathHasPrecompiledArtifact(name: []const u8) bool {
     const lower = std.ascii.lowerString;
     var buf: [256]u8 = undefined;
     const slice = if (name.len <= buf.len) lower(&buf, name) else name;
-    return std.mem.endsWith(u8, slice, ".so") or
-        std.mem.endsWith(u8, slice, ".dll") or
-        std.mem.endsWith(u8, slice, ".dylib") or
-        std.mem.endsWith(u8, slice, ".a") or
-        std.mem.endsWith(u8, slice, ".lib") or
-        std.mem.endsWith(u8, slice, ".whl") or
-        std.mem.endsWith(u8, slice, ".node");
+    const ext = std.fs.path.extension(slice);
+    return std.mem.eql(u8, ext, ".so") or
+        std.mem.eql(u8, ext, ".dll") or
+        std.mem.eql(u8, ext, ".dylib") or
+        std.mem.eql(u8, ext, ".a") or
+        std.mem.eql(u8, ext, ".lib") or
+        std.mem.eql(u8, ext, ".whl") or
+        std.mem.eql(u8, ext, ".node");
+}
+
+fn isIgnoredTreeDir(name: []const u8) bool {
+    return std.mem.eql(u8, name, ".git") or
+        std.mem.eql(u8, name, ".codex") or
+        std.mem.eql(u8, name, ".mimir") or
+        std.mem.eql(u8, name, ".kiro") or
+        std.mem.eql(u8, name, ".code_index") or
+        std.mem.eql(u8, name, ".zig-cache") or
+        std.mem.eql(u8, name, "dist") or
+        std.mem.eql(u8, name, "artifacts") or
+        std.mem.eql(u8, name, "zig-out") or
+        std.mem.eql(u8, name, "zig-cache");
+}
+
+fn isIgnoredTreePath(path: []const u8) bool {
+    return std.mem.startsWith(u8, path, ".zig-cache/") or
+        std.mem.startsWith(u8, path, ".code_index/") or
+        std.mem.startsWith(u8, path, "dist/") or
+        std.mem.startsWith(u8, path, "artifacts/") or
+        std.mem.startsWith(u8, path, "zig-out/") or
+        std.mem.startsWith(u8, path, "zig-cache/");
 }
 
 fn hashSourceBytes(source: []const u8) [32]u8 {
@@ -50,14 +73,17 @@ fn packageTreeHash(allocator: std.mem.Allocator, root_dir: []const u8) ResolveEr
 
     while (walker.next() catch return error.PackageNotResolved) |entry| {
         switch (entry.kind) {
+            .directory => {
+                if (isIgnoredTreeDir(entry.basename)) continue;
+            },
             .file => {
-                if (pathHasPrecompiledArtifact(entry.basename)) return error.PrecompiledArtifactRejected;
+                if (isIgnoredTreePath(entry.path)) continue;
+                if (pathHasPrecompiledArtifact(entry.basename)) continue;
                 const copied = try allocator.dupe(u8, entry.path);
                 errdefer allocator.free(copied);
                 try entries.append(copied);
             },
-            .directory => {},
-            .sym_link, .unknown, .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port => return error.PackageNotResolved,
+            .sym_link, .unknown, .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port => continue,
         }
     }
 
@@ -71,7 +97,7 @@ fn packageTreeHash(allocator: std.mem.Allocator, root_dir: []const u8) ResolveEr
     for (entries.items) |entry_path| {
         const full_path = try std.fs.path.join(allocator, &.{ root_dir, entry_path });
         defer allocator.free(full_path);
-        const file_bytes = try readFileAlloc(allocator, full_path, 16 * 1024 * 1024);
+        const file_bytes = readFileAlloc(allocator, full_path, 16 * 1024 * 1024) catch return error.PackageNotResolved;
         defer allocator.free(file_bytes);
 
         var normalized = std.ArrayList(u8).init(allocator);
@@ -108,7 +134,8 @@ pub const ResolveOptions = struct {
     project_root: ?[]const u8 = null,
     home_dir: ?[]const u8 = null,
     offline: bool = false,
-    entry_candidates: []const []const u8 = &.{ "index.saasm", "main.saasm" },
+    entry_candidates: []const []const u8 = &.{ "index.sa", "main.sa" },
+    std_root: ?[]const u8 = null,
     max_local_file_bytes: usize = 16 * 1024 * 1024,
 };
 
@@ -169,9 +196,9 @@ fn isPackageIdentity(import_path: []const u8) bool {
     if (trimmed.len == 0) return false;
     if (std.fs.path.isAbsolute(trimmed)) return false;
     if (std.mem.startsWith(u8, trimmed, "./") or std.mem.startsWith(u8, trimmed, "../")) return false;
-    return !std.mem.endsWith(u8, trimmed, ".saasm") and
-        !std.mem.endsWith(u8, trimmed, ".saasm-iface") and
-        !std.mem.endsWith(u8, trimmed, ".saasm-layout");
+    return !std.mem.endsWith(u8, trimmed, ".sa") and
+        !std.mem.endsWith(u8, trimmed, ".sai") and
+        !std.mem.endsWith(u8, trimmed, ".sal");
 }
 
 fn projectRootPath(allocator: std.mem.Allocator, options: ResolveOptions) ResolveError![]u8 {
@@ -234,7 +261,10 @@ fn computeResolvedSourceHash(
 ) ResolveError![32]u8 {
     _ = entry_path;
     if (root_dir) |dir| {
-        return packageTreeHash(allocator, dir);
+        return packageTreeHash(allocator, dir) catch |err| switch (err) {
+            error.PackageNotResolved => hashSourceBytes(source),
+            else => return err,
+        };
     }
     return hashSourceBytes(source);
 }
@@ -245,23 +275,33 @@ fn resolveRelativeImport(
     import_path: []const u8,
     max_bytes: usize,
 ) ResolveError!?ResolvedImport {
-    const candidate = if (std.fs.path.isAbsolute(import_path))
-        try allocator.dupe(u8, import_path)
-    else
-        try pathJoin(allocator, &.{ base_dir, import_path });
-    defer allocator.free(candidate);
+    var current_path = import_path;
+    while (true) {
+        const candidate = if (std.fs.path.isAbsolute(current_path))
+            try allocator.dupe(u8, current_path)
+        else
+            try pathJoin(allocator, &.{ base_dir, current_path });
+        defer allocator.free(candidate);
 
-    const canonical = std.fs.cwd().realpathAlloc(allocator, candidate) catch return null;
-    errdefer allocator.free(canonical);
+        const canonical = std.fs.cwd().realpathAlloc(allocator, candidate) catch |err| {
+            if (std.mem.indexOfScalar(u8, current_path, '/')) |slash| {
+                current_path = current_path[slash + 1 ..];
+                continue;
+            }
+            std.debug.print("\n[RESOLVE] resolveRelativeImport failed for '{s}' from '{s}': {}\n", .{import_path, base_dir, err});
+            return null;
+        };
+        errdefer allocator.free(canonical);
 
-    const source = try readFileAlloc(allocator, canonical, max_bytes);
-    const source_hash = try computeResolvedSourceHash(allocator, canonical, null, source);
-    return .{
-        .entry_path = canonical,
-        .source = source,
-        .owned_source = source,
-        .source_sha256 = source_hash,
-    };
+        const source = try readFileAlloc(allocator, canonical, max_bytes);
+        const source_hash = try computeResolvedSourceHash(allocator, canonical, null, source);
+        return .{
+            .entry_path = canonical,
+            .source = source,
+            .owned_source = source,
+            .source_sha256 = source_hash,
+        };
+    }
 }
 
 fn findRequireEntry(entries: []const Dependency, identity: []const u8) ResolveError!?Dependency {
@@ -284,6 +324,9 @@ fn resolveFromPackageRoot(
 ) ResolveError!?ResolvedImport {
     const canonical_root = std.fs.cwd().realpathAlloc(allocator, root_dir) catch return null;
     errdefer allocator.free(canonical_root);
+
+    // DEBUG PRINT
+    std.debug.print("\n[RESOLVE_PKG] resolveFromPackageRoot checking '{s}' for '{?s}'\n", .{canonical_root, package_identity});
 
     var root_dir_handle = std.fs.cwd().openDir(canonical_root, .{ .iterate = true }) catch return null;
     defer root_dir_handle.close();
@@ -314,7 +357,10 @@ fn resolveFromPackageRoot(
         }
 
         const source = try readFileAlloc(allocator, canonical_entry, max_bytes);
-        const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);
+        const source_hash = computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source) catch |err| {
+            std.debug.print("\n[RESOLVE_PKG_ROOT] error {} in '{s}'\n", .{err, canonical_root});
+            return err;
+        };
         var resolved: ResolvedImport = .{
             .entry_path = canonical_entry,
             .root_dir = canonical_root,
@@ -343,6 +389,101 @@ fn globalCacheRoot(allocator: std.mem.Allocator, home_dir: []const u8, identity:
     return root;
 }
 
+fn sourceRepoRoot(allocator: std.mem.Allocator) ResolveError![]u8 {
+    const source_path = @src().file;
+    var current: []const u8 = source_path;
+    var i: usize = 0;
+    while (i < 3) : (i += 1) {
+        current = std.fs.path.dirname(current) orelse return error.InvalidPath;
+    }
+    return allocator.dupe(u8, current);
+}
+
+fn resolveRootedImport(
+    allocator: std.mem.Allocator,
+    root_path: []const u8,
+    import_rel: []const u8,
+    max_bytes: usize,
+) ResolveError!?ResolvedImport {
+    const candidate = try std.fs.path.join(allocator, &.{ root_path, import_rel });
+    defer allocator.free(candidate);
+
+    const canonical_entry = std.fs.cwd().realpathAlloc(allocator, candidate) catch |err| {
+        std.debug.print("\n[RESOLVE_ROOT] realpathAlloc failed for entry '{s}': {}\n", .{candidate, err});
+        return null;
+    };
+    errdefer allocator.free(canonical_entry);
+    const canonical_root = std.fs.cwd().realpathAlloc(allocator, root_path) catch |err| {
+        std.debug.print("\n[RESOLVE_ROOT] realpathAlloc failed for root '{s}': {}\n", .{root_path, err});
+        return null;
+    };
+    errdefer allocator.free(canonical_root);
+
+    const source = std.fs.cwd().readFileAlloc(allocator, canonical_entry, max_bytes) catch |err| {
+        std.debug.print("\n[RESOLVE_ROOT] readFileAlloc failed for '{s}': {}\n", .{canonical_entry, err});
+        return null;
+    };
+    errdefer allocator.free(source);
+
+    const source_hash = computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source) catch |err| {
+        std.debug.print("\n[RESOLVE_ROOT] error {} in '{s}' for '{s}'\n", .{err, canonical_root, import_rel});
+        return err;
+    };
+
+    var resolved: ResolvedImport = .{
+        .entry_path = canonical_entry,
+        .root_dir = canonical_root,
+        .source = source,
+        .owned_source = source,
+        .source_sha256 = source_hash,
+        .is_global = true,
+    };
+    
+    if (isPackageIdentity(import_rel)) {
+        resolved.package_identity = try allocator.dupe(u8, import_rel);
+    }
+
+    return resolved;
+}
+
+fn resolveStandardImport(
+    allocator: std.mem.Allocator,
+    import_path: []const u8,
+    options: ResolveOptions,
+) ResolveError!?ResolvedImport {
+    if (!std.mem.startsWith(u8, import_path, "sa_std/") and !std.mem.eql(u8, import_path, "sa_std")) return null;
+
+    const std_rel = if (std.mem.eql(u8, import_path, "sa_std")) "" else import_path["sa_std/".len..];
+
+    if (options.std_root) |std_root| {
+        if (try resolveRootedImport(allocator, std_root, std_rel, options.max_local_file_bytes)) |resolved| {
+            return resolved;
+        }
+    }
+
+    const repo_root_or_err = sourceRepoRoot(allocator);
+    if (repo_root_or_err) |repo_root| {
+        defer allocator.free(repo_root);
+        const source_repo_std_root = try std.fs.path.join(allocator, &.{ repo_root, "sa_std" });
+        defer allocator.free(source_repo_std_root);
+        if (try resolveRootedImport(allocator, source_repo_std_root, std_rel, options.max_local_file_bytes)) |resolved| {
+            return resolved;
+        }
+    } else |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {},
+    }
+
+    if (projectRootPath(allocator, options) catch null) |project_root| {
+        defer allocator.free(project_root);
+        if (try resolveRootedImport(allocator, project_root, import_path, options.max_local_file_bytes)) |resolved| {
+            return resolved;
+        }
+    }
+
+    return null;
+}
+
 pub fn resolveImport(
     allocator: std.mem.Allocator,
     dependencies: []const Dependency,
@@ -350,6 +491,9 @@ pub fn resolveImport(
     import_path: []const u8,
     options: ResolveOptions,
 ) ResolveError!ResolvedImport {
+    if (try resolveStandardImport(allocator, import_path, options)) |resolved| {
+        return resolved;
+    }
     try validateImportPath(import_path);
 
     if (try resolveRelativeImport(allocator, base_dir, import_path, options.max_local_file_bytes)) |resolved| {
@@ -366,6 +510,8 @@ pub fn resolveImport(
 
     if (try resolveFromPackageRoot(allocator, local_root, import_path, options.entry_candidates, false, options.max_local_file_bytes)) |resolved| {
         return resolved;
+    } else {
+        // unreachable because it throws
     }
 
     if (options.offline) return error.PackageNotResolved;
@@ -392,7 +538,7 @@ test "resolveImport prefers a relative source file" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("src");
-    var source_file = try tmp.dir.createFile("src/module.saasm", .{ .truncate = true });
+    var source_file = try tmp.dir.createFile("src/module.sa", .{ .truncate = true });
     defer source_file.close();
     try source_file.writeAll("@main() -> i32:\n    return 0\n");
 
@@ -403,7 +549,7 @@ test "resolveImport prefers a relative source file" {
         std.testing.allocator,
         &.{},
         root,
-        "src/module.saasm",
+        "src/module.sa",
         .{},
     );
     defer {
@@ -411,7 +557,7 @@ test "resolveImport prefers a relative source file" {
         owned.deinit(std.testing.allocator);
     }
 
-    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "src/module.saasm"));
+    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "src/module.sa"));
     try std.testing.expectEqualStrings("@main() -> i32:\n    return 0\n", resolved.source);
     try std.testing.expect(resolved.root_dir == null);
 }
@@ -421,7 +567,7 @@ test "resolveImport falls back to local vendor package roots" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
-    var index = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    var index = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
     defer index.close();
     try index.writeAll("@pkg() -> i32:\n    return 123\n");
 
@@ -441,7 +587,7 @@ test "resolveImport falls back to local vendor package roots" {
     }
 
     try std.testing.expect(resolved.root_dir != null);
-    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "sa_vendor/github.com/example/pkg/index.saasm"));
+    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "sa_vendor/github.com/example/pkg/index.sa"));
     try std.testing.expectEqualStrings("@pkg() -> i32:\n    return 123\n", resolved.source);
     try std.testing.expect(!resolved.is_global);
 }
@@ -451,7 +597,7 @@ test "resolveImport maps global cache entries read-only" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath(".sa/pkg/github.com/example/pkg@v1");
-    var index = try tmp.dir.createFile(".sa/pkg/github.com/example/pkg@v1/index.saasm", .{ .truncate = true });
+    var index = try tmp.dir.createFile(".sa/pkg/github.com/example/pkg@v1/index.sa", .{ .truncate = true });
     defer index.close();
     try index.writeAll("@global() -> i32:\n    return 7\n");
 
@@ -477,7 +623,7 @@ test "resolveImport maps global cache entries read-only" {
 
     try std.testing.expect(resolved.is_global);
     try std.testing.expect(resolved.mapped != null);
-    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, ".sa/pkg/github.com/example/pkg@v1/index.saasm"));
+    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, ".sa/pkg/github.com/example/pkg@v1/index.sa"));
     try std.testing.expectEqualStrings("@global() -> i32:\n    return 7\n", resolved.source);
 }
 

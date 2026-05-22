@@ -21,7 +21,7 @@ pub fn main() !void {
 
     while (try it.next()) |entry| {
         if (entry.kind == .directory) {
-            const file_path = try std.fmt.allocPrint(alloc, "demos/rosetta/{s}/main.saasm", .{entry.name});
+            const file_path = try std.fmt.allocPrint(alloc, "demos/rosetta/{s}/main.sa", .{entry.name});
             const source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch continue;
             
             const t0 = std.time.nanoTimestamp();

@@ -28,12 +28,46 @@ pub const CompileResult = union(enum) {
     trap: trap.TrapReport,
 };
 
-fn projectRootFromSourcePath(source_path: []const u8) []const u8 {
-    return std.fs.path.dirname(source_path) orelse ".";
+fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
+    errdefer allocator.free(cwd_abs);
+
+    const source_dir = std.fs.path.dirname(source_path) orelse ".";
+    var current = try allocator.dupe(u8, source_dir);
+    defer allocator.free(current);
+
+    while (true) {
+        const candidate_dir = if (std.fs.path.isAbsolute(current))
+            try allocator.dupe(u8, current)
+        else
+            try std.fs.path.join(allocator, &.{ cwd_abs, current });
+        defer allocator.free(candidate_dir);
+
+        const manifest_path = try std.fs.path.join(allocator, &.{ candidate_dir, "sa.mod" });
+        defer allocator.free(manifest_path);
+
+        if (std.fs.cwd().openFile(manifest_path, .{})) |file| {
+            file.close();
+            allocator.free(cwd_abs);
+            return try std.fs.cwd().realpathAlloc(allocator, candidate_dir);
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        }
+
+        const parent = std.fs.path.dirname(current) orelse break;
+        if (std.mem.eql(u8, parent, current)) break;
+        const next = try allocator.dupe(u8, parent);
+        allocator.free(current);
+        current = next;
+    }
+
+    return cwd_abs;
 }
 
 fn readProjectManifest(allocator: std.mem.Allocator, source_path: []const u8) !?manifest.Manifest {
-    const project_root = projectRootFromSourcePath(source_path);
+    const project_root = try projectRootFromSourcePath(allocator, source_path);
+    defer allocator.free(project_root);
     const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
     defer allocator.free(manifest_path);
 
@@ -144,6 +178,9 @@ pub fn compileSourceText(
     source_text: []const u8,
     options: CompileOptions,
 ) !CompileResult {
+    const project_root = try projectRootFromSourcePath(allocator, source_path);
+    defer allocator.free(project_root);
+
     var project_manifest = try readProjectManifest(allocator, source_path);
     defer if (project_manifest) |*m| m.deinit(allocator);
 
@@ -160,7 +197,7 @@ pub fn compileSourceText(
     const resolve_ctx = flattener.ResolveContext{
         .dependencies = dependency_slice,
         .options = .{
-            .project_root = projectRootFromSourcePath(source_path),
+            .project_root = project_root,
         },
     };
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source_text, &error_ctx, resolve_ctx) catch |err| {
@@ -198,22 +235,15 @@ pub fn buildBrowserWasmFromSourceText(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            const ll = try emit_llvm.emitLlvm(
-                allocator,
-                owned.verified,
-                &owned.flat.def_dict,
-                owned.flat.loc_table,
-                source_path,
-                32,
-                .{ .debug = debug, .wasm_compat = true, .jobs = options.jobs },
-            );
-            defer allocator.free(ll);
-
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.saasm.ll", .{out_path});
+            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
             defer allocator.free(ll_path);
 
             try ensureParentDir(ll_path);
-            try writeAllFile(ll_path, ll);
+            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
+            defer file.close();
+            var bw = std.io.bufferedWriter(file.writer());
+            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, 32, .{ .debug = debug, .wasm_compat = true, .jobs = options.jobs });
+            try bw.flush();
 
             driver.compileWasm(
                 allocator,

@@ -1,5 +1,5 @@
 {
   "stage": "post-compile",
-  "artifact": "generated/postcompile.saasm",
+  "artifact": "generated/postcompile.sa",
   "report": "artifacts/post-build/report.txt"
 }

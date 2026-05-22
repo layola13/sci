@@ -1,7 +1,7 @@
 # SA Native Unit Test Framework - Implementation Summary
 
 ## Overview
-This document summarizes the implementation of the SA native unit test framework, which enables developers to write `@test` functions directly in `.saasm` files and run them with the `saasm test` command.
+This document summarizes the implementation of the SA native unit test framework, which enables developers to write `@test` functions directly in `.sa` files and run them with the `sa test` command.
 
 ## Completed Phases
 
@@ -38,7 +38,7 @@ This document summarizes the implementation of the SA native unit test framework
    - Implemented signature validation for `@test` functions
    - Added error handling for `TestFuncSignatureMismatch`
 
-### Phase B: `saasm test` CLI Command ✅ COMPLETE (Basic Version)
+### Phase B: `sa test` CLI Command ✅ COMPLETE (Basic Version)
 
 #### Changes Made:
 1. **CLI Command** (`src/cli.zig`)
@@ -48,8 +48,8 @@ This document summarizes the implementation of the SA native unit test framework
    - Implemented `executeTest()` function
 
 #### Features:
-- `saasm test <file.saasm>` - Run all @test functions in file
-- `saasm test <file.saasm> --filter foo` - Filter tests by name
+- `sa test <file.sa>` - Run all @test functions in file
+- `sa test <file.sa> --filter foo` - Filter tests by name
 
 #### Output Format:
 ```
@@ -79,7 +79,7 @@ test result: ok. 1 passed; 0 failed; 0 skipped
 ## Testing
 
 ```bash
-cat > /tmp/test.saasm << 'EOF'
+cat > /tmp/test.sa << 'EOF'
 @test "simple pass"():
 L_ENTRY:
     return

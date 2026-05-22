@@ -1,7 +1,7 @@
 # 195 - Build Script CodeGen
 
 ## 目标特性 (Target Feature)
-展示 build.rs 生成外部 .saasm 依赖的过程。
+展示 build.rs 生成外部 .sa 依赖的过程。
 
 ## 降级逻辑预演 (Expected Lowering Logic)
 1. **前端先展开**：macro rules、proc macro、attribute rewrite 和 cfg selection 都发生在 SA 之前；SA 看到的应该是已经材料化的代码，而不是宏语言本身。

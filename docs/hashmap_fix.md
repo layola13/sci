@@ -35,6 +35,6 @@
 
 ## 6. 相关文件
 
-- [`sa_std/hashmap.saasm`](../sa_std/hashmap.saasm)
-- [`sa_std/hashset.saasm`](../sa_std/hashset.saasm)
+- [`sa_std/hashmap.sa`](sa_std/hashmap.sa)
+- [`sa_std/hashset.sa`](sa_std/hashset.sa)
 - [`tests/std_smoke.zig`](../tests/std_smoke.zig)

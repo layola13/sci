@@ -1,0 +1,403 @@
+// POSIX-like path helpers over Slice values.
+// Trailing separators are ignored; callers own the returned Slice and must ! it.
+@import "core/slice.sal"
+@import "core/slice.sa"
+@import "string.sa"
+
+[MACRO] PATH_MAKE_EMPTY %out_slice
+    %out_slice = alloc Slice_SIZE
+    empty_ptr = 0 as ptr
+    empty_len = 0 as u64
+    EXPAND SLICE_NEW %out_slice, empty_ptr, empty_len
+    !empty_ptr
+    !empty_len
+[END_MACRO]
+
+[MACRO] PATH_BASENAME %out_slice, %path_slice
+    path_ptr = load %path_slice+Slice_ptr as ptr
+    path_len = load %path_slice+Slice_len as u64
+    end_slot = stack_alloc 8
+    cursor_slot = stack_alloc 8
+    store end_slot+0, path_len as u64
+    path_is_empty = eq path_len, 0
+    br path_is_empty -> L_PATH_BASENAME_EMPTY_%i, L_PATH_BASENAME_TRIM_%i
+
+L_PATH_BASENAME_TRIM_%i:
+    end = load end_slot+0 as u64
+    end_is_zero = eq end, 0
+    br end_is_zero -> L_PATH_BASENAME_ROOT_%i, L_PATH_BASENAME_CHECK_%i
+
+L_PATH_BASENAME_CHECK_%i:
+    prev_end = sub end, 1
+    ch_ip = ptr_add path_ptr, prev_end
+    ch = load ch_ip+0 as u8
+    is_slash = eq ch, 47
+    br is_slash -> L_PATH_BASENAME_TRIM_NEXT_%i, L_PATH_BASENAME_SCAN_%i
+
+L_PATH_BASENAME_TRIM_NEXT_%i:
+    store end_slot+0, prev_end as u64
+    !prev_end
+    !ch_ip
+    !ch
+    !is_slash
+    !end
+    !end_is_zero
+    jmp L_PATH_BASENAME_TRIM_%i
+
+L_PATH_BASENAME_SCAN_%i:
+    store cursor_slot+0, end as u64
+    !prev_end
+    !ch_ip
+    !ch
+    !is_slash
+    !end_is_zero
+    jmp L_PATH_BASENAME_SCAN_LOOP_%i
+
+L_PATH_BASENAME_SCAN_LOOP_%i:
+    cursor = load cursor_slot+0 as u64
+    cursor_is_zero = eq cursor, 0
+    br cursor_is_zero -> L_PATH_BASENAME_NO_SLASH_%i, L_PATH_BASENAME_SCAN_CHECK_%i
+
+L_PATH_BASENAME_SCAN_CHECK_%i:
+    prev = sub cursor, 1
+    ch_ip = ptr_add path_ptr, prev
+    ch = load ch_ip+0 as u8
+    is_slash = eq ch, 47
+    br is_slash -> L_PATH_BASENAME_FOUND_%i, L_PATH_BASENAME_SCAN_NEXT_%i
+
+L_PATH_BASENAME_SCAN_NEXT_%i:
+    next_cursor = sub cursor, 1
+    store cursor_slot+0, next_cursor as u64
+    !cursor
+    !cursor_is_zero
+    !prev
+    !ch_ip
+    !ch
+    !is_slash
+    !next_cursor
+    jmp L_PATH_BASENAME_SCAN_LOOP_%i
+
+L_PATH_BASENAME_FOUND_%i:
+    start = cursor
+    basename_len = sub end, start
+    EXPAND STR_SLICE %out_slice, %path_slice, start, basename_len
+    !start
+    !basename_len
+    !cursor
+    !cursor_is_zero
+    !prev
+    !ch_ip
+    !ch
+    !is_slash
+    !end
+    jmp L_PATH_BASENAME_END_%i
+
+L_PATH_BASENAME_NO_SLASH_%i:
+    start = 0 as u64
+    basename_len = end
+    EXPAND STR_SLICE %out_slice, %path_slice, start, basename_len
+    !start
+    !basename_len
+    !cursor
+    !cursor_is_zero
+    !end
+    jmp L_PATH_BASENAME_END_%i
+
+L_PATH_BASENAME_ROOT_%i:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, 1
+    !end
+    !end_is_zero
+    jmp L_PATH_BASENAME_END_%i
+
+L_PATH_BASENAME_EMPTY_%i:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    jmp L_PATH_BASENAME_END_%i
+
+L_PATH_BASENAME_END_%i:
+    !path_ptr
+    !path_len
+    !path_is_empty
+    !end_slot
+    !cursor_slot
+[END_MACRO]
+
+[MACRO] PATH_DIRNAME %out_slice, %path_slice
+    path_ptr = load %path_slice+Slice_ptr as ptr
+    path_len = load %path_slice+Slice_len as u64
+    end_slot = stack_alloc 8
+    cursor_slot = stack_alloc 8
+    store end_slot+0, path_len as u64
+    path_is_empty = eq path_len, 0
+    br path_is_empty -> L_PATH_DIRNAME_EMPTY_%i, L_PATH_DIRNAME_TRIM_%i
+
+L_PATH_DIRNAME_TRIM_%i:
+    end = load end_slot+0 as u64
+    end_is_zero = eq end, 0
+    br end_is_zero -> L_PATH_DIRNAME_ROOT_FROM_TRIM_%i, L_PATH_DIRNAME_CHECK_%i
+
+L_PATH_DIRNAME_CHECK_%i:
+    prev_end = sub end, 1
+    ch_ip = ptr_add path_ptr, prev_end
+    ch = load ch_ip+0 as u8
+    is_slash = eq ch, 47
+    br is_slash -> L_PATH_DIRNAME_TRIM_NEXT_%i, L_PATH_DIRNAME_SCAN_%i
+
+L_PATH_DIRNAME_TRIM_NEXT_%i:
+    store end_slot+0, prev_end as u64
+    !prev_end
+    !ch_ip
+    !ch
+    !is_slash
+    !end
+    !end_is_zero
+    jmp L_PATH_DIRNAME_TRIM_%i
+
+L_PATH_DIRNAME_SCAN_%i:
+    store cursor_slot+0, end as u64
+    !prev_end
+    !ch_ip
+    !ch
+    !is_slash
+    !end_is_zero
+    jmp L_PATH_DIRNAME_SCAN_LOOP_%i
+
+L_PATH_DIRNAME_SCAN_LOOP_%i:
+    cursor = load cursor_slot+0 as u64
+    cursor_is_zero = eq cursor, 0
+    br cursor_is_zero -> L_PATH_DIRNAME_NO_SLASH_%i, L_PATH_DIRNAME_SCAN_CHECK_%i
+
+L_PATH_DIRNAME_SCAN_CHECK_%i:
+    prev = sub cursor, 1
+    ch_ip = ptr_add path_ptr, prev
+    ch = load ch_ip+0 as u8
+    is_slash = eq ch, 47
+    br is_slash -> L_PATH_DIRNAME_FOUND_%i, L_PATH_DIRNAME_SCAN_NEXT_%i
+
+L_PATH_DIRNAME_SCAN_NEXT_%i:
+    next_cursor = sub cursor, 1
+    store cursor_slot+0, next_cursor as u64
+    !cursor
+    !cursor_is_zero
+    !prev
+    !ch_ip
+    !ch
+    !is_slash
+    !next_cursor
+    jmp L_PATH_DIRNAME_SCAN_LOOP_%i
+
+L_PATH_DIRNAME_FOUND_%i:
+    slash_is_root = eq prev, 0
+    br slash_is_root -> L_PATH_DIRNAME_ROOT_FROM_SCAN_%i, L_PATH_DIRNAME_PREFIX_%i
+
+L_PATH_DIRNAME_PREFIX_%i:
+    dirname_len = prev
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, dirname_len
+    !dirname_len
+    !slash_is_root
+    !cursor
+    !cursor_is_zero
+    !prev
+    !ch_ip
+    !ch
+    !is_slash
+    !end
+    jmp L_PATH_DIRNAME_END_%i
+
+L_PATH_DIRNAME_ROOT_FROM_SCAN_%i:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, 1
+    !slash_is_root
+    !cursor
+    !cursor_is_zero
+    !prev
+    !ch_ip
+    !ch
+    !is_slash
+    !end
+    jmp L_PATH_DIRNAME_END_%i
+
+L_PATH_DIRNAME_NO_SLASH_%i:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    !cursor
+    !cursor_is_zero
+    !end
+    jmp L_PATH_DIRNAME_END_%i
+
+L_PATH_DIRNAME_ROOT_FROM_TRIM_%i:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, 1
+    !end
+    !end_is_zero
+    jmp L_PATH_DIRNAME_END_%i
+
+L_PATH_DIRNAME_EMPTY_%i:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    jmp L_PATH_DIRNAME_END_%i
+
+L_PATH_DIRNAME_END_%i:
+    !path_ptr
+    !path_len
+    !path_is_empty
+    !end_slot
+    !cursor_slot
+[END_MACRO]
+
+[MACRO] PATH_STEM %out_slice, %path_slice
+    base = alloc Slice_SIZE
+    EXPAND PATH_BASENAME base, %path_slice
+    base_ptr = load base+Slice_ptr as ptr
+    base_len = load base+Slice_len as u64
+    dot_cursor_slot = stack_alloc 8
+    store dot_cursor_slot+0, base_len as u64
+    jmp L_PATH_STEM_SCAN_%i
+
+L_PATH_STEM_SCAN_%i:
+    dot_cursor = load dot_cursor_slot+0 as u64
+    dot_cursor_is_zero = eq dot_cursor, 0
+    br dot_cursor_is_zero -> L_PATH_STEM_NO_DOT_%i, L_PATH_STEM_SCAN_CHECK_%i
+
+L_PATH_STEM_SCAN_CHECK_%i:
+    dot_prev = sub dot_cursor, 1
+    dot_ch_ip = ptr_add base_ptr, dot_prev
+    dot_ch = load dot_ch_ip+0 as u8
+    is_dot = eq dot_ch, 46
+    br is_dot -> L_PATH_STEM_DOT_%i, L_PATH_STEM_SCAN_NEXT_%i
+
+L_PATH_STEM_SCAN_NEXT_%i:
+    next_dot_cursor = sub dot_cursor, 1
+    store dot_cursor_slot+0, next_dot_cursor as u64
+    !dot_cursor
+    !dot_cursor_is_zero
+    !dot_prev
+    !dot_ch_ip
+    !dot_ch
+    !is_dot
+    !next_dot_cursor
+    jmp L_PATH_STEM_SCAN_%i
+
+L_PATH_STEM_DOT_%i:
+    leading_dot = eq dot_prev, 0
+    br leading_dot -> L_PATH_STEM_NO_DOT_%i, L_PATH_STEM_VALID_%i
+
+L_PATH_STEM_VALID_%i:
+    stem_len = dot_prev
+    EXPAND STR_SLICE %out_slice, base, 0, stem_len
+    !stem_len
+    !leading_dot
+    !dot_cursor
+    !dot_cursor_is_zero
+    !dot_prev
+    !dot_ch_ip
+    !dot_ch
+    !is_dot
+    !base_ptr
+    !base_len
+    !base
+    !dot_cursor_slot
+    jmp L_PATH_STEM_END_%i
+
+L_PATH_STEM_NO_DOT_%i:
+    EXPAND STR_SLICE %out_slice, base, 0, base_len
+    !leading_dot
+    !dot_cursor
+    !dot_cursor_is_zero
+    !dot_prev
+    !dot_ch_ip
+    !dot_ch
+    !is_dot
+    !base_ptr
+    !base_len
+    !base
+    !dot_cursor_slot
+    jmp L_PATH_STEM_END_%i
+
+L_PATH_STEM_END_%i:
+[END_MACRO]
+
+[MACRO] PATH_EXT %out_slice, %path_slice
+    base = alloc Slice_SIZE
+    EXPAND PATH_BASENAME base, %path_slice
+    base_ptr = load base+Slice_ptr as ptr
+    base_len = load base+Slice_len as u64
+    dot_cursor_slot = stack_alloc 8
+    store dot_cursor_slot+0, base_len as u64
+    jmp L_PATH_EXT_SCAN_%i
+
+L_PATH_EXT_SCAN_%i:
+    dot_cursor = load dot_cursor_slot+0 as u64
+    dot_cursor_is_zero = eq dot_cursor, 0
+    br dot_cursor_is_zero -> L_PATH_EXT_NO_DOT_EMPTY_%i, L_PATH_EXT_SCAN_CHECK_%i
+
+L_PATH_EXT_SCAN_CHECK_%i:
+    dot_prev = sub dot_cursor, 1
+    dot_ch_ip = ptr_add base_ptr, dot_prev
+    dot_ch = load dot_ch_ip+0 as u8
+    is_dot = eq dot_ch, 46
+    br is_dot -> L_PATH_EXT_DOT_%i, L_PATH_EXT_SCAN_NEXT_%i
+
+L_PATH_EXT_SCAN_NEXT_%i:
+    next_dot_cursor = sub dot_cursor, 1
+    store dot_cursor_slot+0, next_dot_cursor as u64
+    !dot_cursor
+    !dot_cursor_is_zero
+    !dot_prev
+    !dot_ch_ip
+    !dot_ch
+    !is_dot
+    !next_dot_cursor
+    jmp L_PATH_EXT_SCAN_%i
+
+L_PATH_EXT_DOT_%i:
+    leading_dot = eq dot_prev, 0
+    br leading_dot -> L_PATH_EXT_NO_DOT_INVALID_%i, L_PATH_EXT_TRAILING_%i
+
+L_PATH_EXT_TRAILING_%i:
+    trailing_dot = eq dot_cursor, base_len
+    br trailing_dot -> L_PATH_EXT_NO_DOT_INVALID_%i, L_PATH_EXT_VALID_%i
+
+L_PATH_EXT_VALID_%i:
+    ext_start = add dot_prev, 1
+    ext_len = sub base_len, ext_start
+    EXPAND STR_SLICE %out_slice, base, ext_start, ext_len
+    !ext_start
+    !ext_len
+    !trailing_dot
+    !leading_dot
+    !dot_cursor
+    !dot_cursor_is_zero
+    !dot_prev
+    !dot_ch_ip
+    !dot_ch
+    !is_dot
+    !base_ptr
+    !base_len
+    !base
+    !dot_cursor_slot
+    jmp L_PATH_EXT_END_%i
+
+L_PATH_EXT_NO_DOT_EMPTY_%i:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    !dot_cursor
+    !dot_cursor_is_zero
+    !base_ptr
+    !base_len
+    !base
+    !dot_cursor_slot
+    jmp L_PATH_EXT_END_%i
+
+L_PATH_EXT_NO_DOT_INVALID_%i:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    !trailing_dot
+    !leading_dot
+    !dot_cursor
+    !dot_cursor_is_zero
+    !dot_prev
+    !dot_ch_ip
+    !dot_ch
+    !is_dot
+    !base_ptr
+    !base_len
+    !base
+    !dot_cursor_slot
+    jmp L_PATH_EXT_END_%i
+
+L_PATH_EXT_END_%i:
+[END_MACRO]

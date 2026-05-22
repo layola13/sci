@@ -1,8 +1,0 @@
-@import "deeper/seed.saasm"
-
-@export step_value() -> i32:
-L_ENTRY:
-    seed = call @seed_value()
-    value = add seed, 20
-    !seed
-    return value

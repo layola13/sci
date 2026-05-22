@@ -1,0 +1,33 @@
+// Concrete mutex/spinlock macros built on atomic xchg and release unlock.
+@import "mutex.sal"
+@import "../time.sai"
+
+@__mutex_lock_spin(lock: ptr) -> void:
+L_MUTEX_LOCK_TRY:
+    prev = atomic_rmw_xchg lock+Mutex_lock, 1 as u64 seq_cst
+    free = eq prev, 0
+    br free -> L_MUTEX_LOCK_DONE, L_MUTEX_LOCK_WAIT
+
+L_MUTEX_LOCK_WAIT:
+    !free
+    !prev
+    call @sa_time_sleep_ns(1)
+    jmp L_MUTEX_LOCK_TRY
+
+L_MUTEX_LOCK_DONE:
+    !free
+    !prev
+    return
+
+[MACRO] MUTEX_NEW %out_mutex
+    %out_mutex = alloc Mutex_SIZE
+    store %out_mutex+Mutex_lock, 0 as u64
+[END_MACRO]
+
+[MACRO] MUTEX_LOCK %lock_ptr
+    call @__mutex_lock_spin(%lock_ptr)
+[END_MACRO]
+
+[MACRO] MUTEX_UNLOCK %lock_ptr
+    atomic_store %lock_ptr+Mutex_lock, 0 as u64 release
+[END_MACRO]

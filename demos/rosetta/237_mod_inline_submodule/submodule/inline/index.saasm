@@ -1,8 +1,0 @@
-@import "deep/seed.saasm"
-
-@export inline_value() -> i32:
-L_ENTRY:
-    seed = call @inline_seed()
-    value = add seed, 200
-    !seed
-    return value

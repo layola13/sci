@@ -138,7 +138,7 @@ test "db exec returns a stable hash trap and runs binary params" {
     defer original_cwd.setAsCwd() catch {};
 
     const schema_path = "flash_sale.sadb-schema";
-    const qmod_path = "simple.query.saasm";
+    const qmod_path = "simple.query.sa";
     const params_path = "params.bin";
 
     {

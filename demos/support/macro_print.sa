@@ -1,0 +1,11 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT = utf8:"macro ok\n"
+
+[MACRO] PRINT_MSG %msg, %len
+    call @sa_print_bytes(&%msg, %len)
+[END_MACRO]
+
+@main() -> i32:
+EXPAND PRINT_MSG RESULT, 9
+return 0

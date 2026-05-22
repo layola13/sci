@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "saasm-0.6"
 
 [targets]
-entry = "main.saasm"
-entry_module = "src/entry.saasm"
-manifest_module = "pkg/manifest.saasm"
-meta_module = "src/meta.saasm"
+entry = "main.sa"
+entry_module = "src/entry.sa"
+manifest_module = "pkg/manifest.sa"
+meta_module = "src/meta.sa"
 
 [notes]
 compiler_input = false

@@ -1,6 +1,6 @@
 # 08. SAX: 声明式组件开发
 
-SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态和事件逻辑放在一起，最后编译成浏览器可直接加载的 `app.wasm`、`airlock.js`、`index.html` 和对应的 `.saasm`。
+SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态和事件逻辑放在一起，最后编译成浏览器可直接加载的 `app.wasm`、`airlock.js`、`index.html` 和对应的 `.sa`。
 
 ## 文件结构
 
@@ -62,10 +62,10 @@ SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态
 
 ## 编译
 
-使用 `saasm sax build` 构建浏览器包：
+使用 `sa sax build` 构建浏览器包：
 
 ```bash
-saasm sax build counter.sax
+sa sax build counter.sax
 ```
 
 默认输出目录是 `dist/`。对于 `counter.sax`，会生成：
@@ -74,10 +74,10 @@ saasm sax build counter.sax
 dist/app.wasm
 dist/airlock.js
 dist/index.html
-dist/counter.saasm
+dist/counter.sa
 ```
 
-如果输入文件叫 `app.sax`，对应的 `.saasm` 文件名也会变成 `app.saasm`。
+如果输入文件叫 `app.sax`，对应的 `.sa` 文件名也会变成 `app.sa`。
 
 ## 关键点
 

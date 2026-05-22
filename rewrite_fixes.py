@@ -23,5 +23,5 @@ content = re.sub(
 # We can find all "pub export fn name(...) i32" and change it to Fallible(i32) EXCEPT:
 # sa_std_last_error
 # Wait, sa_std_last_error returns i32, sa_std_error_name returns i32, wait sa_std_error_name is fallible?
-# Let's read the .saasm-iface files to see which ones are NOT fallible.
+# Let's read the .sai files to see which ones are NOT fallible.
 

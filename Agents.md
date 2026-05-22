@@ -97,9 +97,9 @@ Question:
 
 Evidence checked:
 - `zig test /home/vscode/projects/sci/src/http_server/plugin.zig -ODebug`
-- `zig build-lib -dynamic --dep plugin --dep saasm -Mroot=/home/vscode/projects/sci/src/http_server/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_server/plugin_api.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name saasm-http-server -dynamic --zig-lib-dir /opt/zig/lib/`
+- `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/http_server/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_server/plugin_api.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name sa-http-server -dynamic --zig-lib-dir /opt/zig/lib/`
 - `zig test /home/vscode/projects/sci/src/llvm2sa_plugin.zig -ODebug`
-- `zig build-lib -dynamic --dep plugin --dep saasm -Mroot=/home/vscode/projects/sci/src/llvm2sa_plugin.zig -Mplugin=/home/vscode/projects/sci/src/plugin_api.zig -Msaasm=/home/vscode/projects/sci/src/lib.zig -femit-bin=/tmp/saasm-llvm2sa.so`
+- `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/llvm2sa_plugin.zig -Mplugin=/home/vscode/projects/sci/src/plugin_api.zig -Msa=/home/vscode/projects/sci/src/lib.zig -femit-bin=/tmp/sa-llvm2sa.so`
 - `zig test /home/vscode/projects/sci/src/sax_plugin.zig -ODebug`
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sax.so /home/vscode/projects/sci/src/sax_plugin.zig`
 
@@ -116,28 +116,28 @@ Question:
 - What are the real root causes behind the remaining SA std unit-test failures, why did this take so long to close, and in what order should the fixes be applied?
 
 Evidence checked:
-- `./zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1`
+- `./zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1`
 - direct runs of the failing selectors from `.zig-cache/tmp/.../feature_suite.test`
-- `tests/unit_framework/feature_suite.saasm`
+- `tests/unit_framework/feature_suite.sa`
 - `tests/unit_framework/runner.zig`
 - `src/test_runner.zig`
 - `src/test_executor.zig`
 - `src/test_result.zig`
 - `src/emit_llvm.zig`
-- `sa_std/encoding/json.saasm-iface`
-- `sa_std/net.saasm-iface`
+- `sa_std/encoding/json.sai`
+- `sa_std/net.sai`
 - `src/runtime/sa_std.zig`
 - `src/runtime/sa_std.h`
 
 Answer:
 - The failures are caused by two system-level problems, not by isolated test cleanup mistakes.
-- This note is about the SA std unit tests driven by `./zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1`, not `zig test`.
+- This note is about the SA std unit tests driven by `./zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1`, not `zig test`.
 - First, `src/emit_llvm.zig` is treating non-owning pointers loaded from slices/buffers as if they were owned malloc pointers, so generated LLVM frees data pointers from `STR_EQ` and related helpers. This explains the `mem`, `string`, `json`, and `regex` invalid-free and segfault crashes.
-- Second, the SA interface files and the Zig runtime exports disagree on fallible ABI shape. Several `.saasm-iface` declarations use `!` fallible returns, but the Zig exports return plain `i32`/`u64` handles or status codes. That mismatch is visible in `json_free`, `json_stream_free`, `regex_free`, `fmt_buffer_free`, and especially the `net` wrappers.
+- Second, the SA interface files and the Zig runtime exports disagree on fallible ABI shape. Several `.sai` declarations use `!` fallible returns, but the Zig exports return plain `i32`/`u64` handles or status codes. That mismatch is visible in `json_free`, `json_stream_free`, `regex_free`, `fmt_buffer_free`, and especially the `net` wrappers.
 - It took so long because the failures surfaced as runtime crashes rather than structured verifier traps, and the test runner obscured diagnosis by freeing captured stderr too early and by asserting on summary counts after filtered failures.
 
 Next:
-- Apply the fixes in this order: test runner stderr ownership and summary handling, emitter ownership modeling for `load ... as ptr`, SA std ABI alignment between `.saasm-iface` and runtime exports, then test expectation updates for the full std suite.
+- Apply the fixes in this order: test runner stderr ownership and summary handling, emitter ownership modeling for `load ... as ptr`, SA std ABI alignment between `.sai` and runtime exports, then test expectation updates for the full std suite.
 
 ## 2026-05-20 13:50
 
@@ -155,7 +155,7 @@ Evidence checked:
 - `docs/pluginssytem.md`
 
 Answer:
-- The smallest valid move is a versioned `pre-push` hook that runs the already-existing `saasm test` suite plus a narrow existing Zig std/core test subset, and a first-stage static command split for `sax`, `db`, `fetch`, and `llvm2sa`.
+- The smallest valid move is a versioned `pre-push` hook that runs the already-existing `sa test` suite plus a narrow existing Zig std/core test subset, and a first-stage static command split for `sax`, `db`, `fetch`, and `llvm2sa`.
 - `sax`, `fetch`, and `llvm2sa` can be delegated directly to their current public entrypoints.
 - `db` can be delegated through `src/db/exec.zig` without changing the internal storage modules.
 
@@ -247,7 +247,7 @@ Evidence checked:
 - `src/http_server/plugin.zig`
 - `zig test /home/vscode/projects/sci/src/http_client/plugin.zig -ODebug`
 - `zig test /home/vscode/projects/sci/src/http_server/plugin.zig -ODebug`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-http-client.so /home/vscode/projects/sci/src/http_client/plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-http-client.so /home/vscode/projects/sci/src/http_client/plugin.zig`
 
 Answer:
 - `http-client` now supports `GET`, `POST`, custom `--header`, optional `--ca-bundle`, response buffering, and a stream path that can also carry a request body. The plugin-local tests cover loopback GET, chunked SSE streaming, parser acceptance for CA bundles, and POST header/body forwarding.
@@ -265,7 +265,7 @@ Question:
 Evidence checked:
 - `src/http_server/plugin.zig`
 - `zig test /home/vscode/projects/sci/src/http_server/plugin.zig -ODebug`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-http-server.so /home/vscode/projects/sci/src/http_server/plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-http-server.so /home/vscode/projects/sci/src/http_server/plugin.zig`
 
 Answer:
 - `http-server` now reads request headers and bodies through `std.http.Server.Request`, dispatches by path, echoes request bodies on `/echo`, and returns chunked SSE-style output on `/stream`.
@@ -296,7 +296,7 @@ Next:
 ## 2026-05-21 12:50
 
 Question:
-- Are the current `http-client` / `http-server` plugins expected to be authored in `.saasm`, or is Zig the correct implementation language for the runtime plugin layer?
+- Are the current `http-client` / `http-server` plugins expected to be authored in `.sa`, or is Zig the correct implementation language for the runtime plugin layer?
 
 Evidence checked:
 - `src/http_client/plugin.zig`
@@ -306,7 +306,7 @@ Evidence checked:
 
 Answer:
 - The runtime plugin layer in this repository is implemented as Zig dynamic libraries (`.so`) exporting `saasm_plugin_descriptor_v1`.
-- `.saasm` appears in the repo as a scaffold/example artifact and for downstream application code, not as the current plugin implementation language.
+- `.sa` appears in the repo as a scaffold/example artifact and for downstream application code, not as the current plugin implementation language.
 - Therefore, using Zig for plugin implementation is aligned with the current plugin architecture and not a detour.
 
 Next:
@@ -319,7 +319,7 @@ Question:
 
 Evidence checked:
 - `zig test /home/vscode/projects/sci/src/http_client/plugin.zig -ODebug --test-filter 'https ca bundle works against a local self-signed server'`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-http-client.so /home/vscode/projects/sci/src/http_client/plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-http-client.so /home/vscode/projects/sci/src/http_client/plugin.zig`
 
 Answer:
 - Yes. The HTTPS/TLS regression passed against a local self-signed server using `--ca-bundle`, which verifies the outbound TLS path rather than just parser acceptance.
@@ -418,7 +418,7 @@ Evidence checked:
 - `src/lib.zig`
 
 Answer:
-- The `db` plugin is not just a local import-path issue. `src/db/plugin.zig` pulls in `exec.zig`, which pulls in `../flattener.zig`, `../interp.zig`, and `../referee.zig`, while the main `saasm` module also imports the same files.
+- The `db` plugin is not just a local import-path issue. `src/db/plugin.zig` pulls in `exec.zig`, which pulls in `../flattener.zig`, `../interp.zig`, and `../referee.zig`, while the main `sa` module also imports the same files.
 - Zig treats those files as belonging to multiple modules when the plugin build graph and the main library graph both touch them, so the plugin build fails with `file exists in multiple modules`.
 - This means DB still needs a real plugin-boundary refactor: either the plugin build must inject its own dependency graph for flattener/interp/referee/common, or DB must stop depending on the main library graph for those internals.
 
@@ -438,7 +438,7 @@ Evidence checked:
 - `build.zig`
 
 Answer:
-- Added root-level plugin wrapper entry files for `sax` and `llvm2sa` so the plugin build no longer depends on the main `saasm` module graph for those entrypoints.
+- Added root-level plugin wrapper entry files for `sax` and `llvm2sa` so the plugin build no longer depends on the main `sa` module graph for those entrypoints.
 - Kept `db` on a root-level wrapper entry as well, but its internal dependency graph still needs further refinement before the standalone plugin boundary can be considered closed.
 - `zig build plugins` ran through after the wrapper split; standalone `zig test` on the new wrapper files is not the acceptance target because they rely on build-injected `plugin` imports.
 
@@ -472,7 +472,7 @@ Next:
 ## 2026-05-21 02:40
 
 Question:
-- Why is the runtime loader skipping `saasm-db.so` during `zig build test`?
+- Why is the runtime loader skipping `sa-db.so` during `zig build test`?
 
 Evidence checked:
 - `src/plugins.zig`
@@ -480,7 +480,7 @@ Evidence checked:
 - `zig build test --summary all`
 
 Answer:
-- `src/plugins.zig` only loads runtime `.so` files from the plugin directory and skips non-matching names, so a missing or invalid `saasm-db.so` is a loader/discovery outcome, not a command-dispatch bug.
+- `src/plugins.zig` only loads runtime `.so` files from the plugin directory and skips non-matching names, so a missing or invalid `sa-db.so` is a loader/discovery outcome, not a command-dispatch bug.
 - The current plugin architecture is runtime hot-loadable dynamic libraries with isolated descriptors, not static host registration.
 
 Next:
@@ -488,7 +488,7 @@ Next:
 
 Answer:
 - The loader is correctly scanning `.so` files and skipping ones that do not export `saasm_plugin_descriptor_v1`.
-- `src/db_plugin.zig` was only a stub re-export (`pub const db = @import("db/plugin.zig");`) and did not itself export the descriptor symbol, so the built `saasm-db.so` was loadable but not discoverable by the runtime loader.
+- `src/db_plugin.zig` was only a stub re-export (`pub const db = @import("db/plugin.zig");`) and did not itself export the descriptor symbol, so the built `sa-db.so` was loadable but not discoverable by the runtime loader.
 
 Next:
 - Replace the db root wrapper with a real descriptor re-export so the runtime loader can discover the plugin normally.
@@ -496,13 +496,13 @@ Next:
 ## 2026-05-21 03:00
 
 Question:
-- Why does `saasm db register` still use the host CLI's built-in branch instead of plugin dispatch?
+- Why does `sa db register` still use the host CLI's built-in branch instead of plugin dispatch?
 
 Evidence checked:
 - `src/cli.zig`
 - `src/plugins.zig`
 - `src/main.zig`
-- `zig-out/bin/saasm db register simple.query.saasm`
+- `zig-out/bin/sa db register simple.query.sa`
 
 Answer:
 - `src/cli.zig` has a plugin-aware skills aggregation path, but the `db` subcommands are still implemented directly in the host CLI switch, including `register`, `inspect`, and `exec`.
@@ -537,11 +537,11 @@ Question:
 Evidence checked:
 - `src/plugins.zig`
 - `zig-out/lib/libsa_std.so`
-- `zig-out/lib/libsaasm-db.so`
+- `zig-out/lib/libsa-db.so`
 
 Answer:
 - The loader was scanning every `.so` in `zig-out/lib`, including runtime libraries that are not plugins.
-- `libsa_std.so` is a runtime library, not a plugin. The loader should only consider plugin artifacts, so filtering to `libsaasm-*.so` is the right fix.
+- `libsa_std.so` is a runtime library, not a plugin. The loader should only consider plugin artifacts, so filtering to `libsa-*.so` is the right fix.
 
 Next:
 - Rerun plugin build and the focused CLI smoke path after the loader filter change.
@@ -557,7 +557,7 @@ Evidence checked:
 - `zig build test --summary all`
 
 Answer:
-- The remaining failures are concentrated in the parallel emission path. The same demos that fail all go through `emitUserFunctionsParallel`, while `saasm run` and the db/runtime plugin path do not.
+- The remaining failures are concentrated in the parallel emission path. The same demos that fail all go through `emitUserFunctionsParallel`, while `sa run` and the db/runtime plugin path do not.
 - This is consistent with a worker race or nondeterministic emitter bug, not with plugin loader or db registry issues.
 
 Next:
@@ -606,10 +606,10 @@ Evidence checked:
 - `src/emit_llvm.zig`
 - `zig build plugins`
 - `zig build test --summary all`
-- failure traces for `demos/rosetta/253_contract_callback_registration/main.saasm`
-- failure traces for `demos/rosetta/07_trait_vtable/main.saasm`
-- failure traces for `demos/rosetta/32_trait_object_vector/main.saasm`
-- failure traces for `demos/support/sort_probe.saasm`
+- failure traces for `demos/rosetta/253_contract_callback_registration/main.sa`
+- failure traces for `demos/rosetta/07_trait_vtable/main.sa`
+- failure traces for `demos/rosetta/32_trait_object_vector/main.sa`
+- failure traces for `demos/support/sort_probe.sa`
 
 Answer:
 - The plugin build is now green again, so the remaining blocker is purely in `src/emit_llvm.zig`.
@@ -650,12 +650,12 @@ Evidence checked:
 - `src/verifier.zig`
 - `src/interp.zig`
 - `src/runtime/sa_std.zig`
-- `sa_std/encoding/json.saasm-iface`
-- `sa_std/text/regex.saasm-iface`
-- `sa_std/fmt.saasm-iface`
-- `sa_std/net.saasm-iface`
-- `tests/unit_framework/support/json_regex.saasm`
-- `tests/unit_framework/support/stdlib_surface.saasm`
+- `sa_std/encoding/json.sai`
+- `sa_std/text/regex.sai`
+- `sa_std/fmt.sai`
+- `sa_std/net.sai`
+- `tests/unit_framework/support/json_regex.sa`
+- `tests/unit_framework/support/stdlib_surface.sa`
 
 Answer:
 - Yes. The same order still holds: fix test runner diagnostics first, then make `load` read-only and `take` ownership-extracting in emitter/verifier/interpreter, then align SA std ABI declarations with runtime exports.
@@ -667,7 +667,7 @@ Answer:
   - leave the support corpus alone unless the compiler/runtime contract itself changes.
 
 Next:
-- Patch the runner diagnostics first, then the emitter/verifier/interpreter ownership split, then the SA std wrappers and `.saasm-iface` files.
+- Patch the runner diagnostics first, then the emitter/verifier/interpreter ownership split, then the SA std wrappers and `.sai` files.
 
 ## 2026-05-20 22:05
 
@@ -698,10 +698,10 @@ Question:
 
 Evidence checked:
 - `src/emit_llvm.zig`
-- `demos/rosetta/07_trait_vtable/main.saasm`
-- `demos/rosetta/253_contract_callback_registration/bridge/callback_vtable.saasm`
-- `demos/support/sort_probe.saasm`
-- `./zig-out/bin/saasm build-exe ... -g`
+- `demos/rosetta/07_trait_vtable/main.sa`
+- `demos/rosetta/253_contract_callback_registration/bridge/callback_vtable.sa`
+- `demos/support/sort_probe.sa`
+- `./zig-out/bin/sa build-exe ... -g`
 
 Answer:
 - The first `load` from an object field can recover vtable provenance, but the loaded pointer value itself is not registered as a future memory base.
@@ -783,11 +783,11 @@ Evidence checked:
 - `zig build plugins`
 - `zig build test --summary all`
 - temporary probes against:
-  - `/home/vscode/projects/sci/zig-out/lib/libsaasm-sax.so`
-  - `/home/vscode/projects/sci/zig-out/lib/libsaasm-db.so`
-  - `/home/vscode/projects/sci/zig-out/lib/libsaasm-pkg.so`
-  - `/home/vscode/projects/sci/zig-out/lib/libsaasm-llvm2sa.so`
-  - `/home/vscode/projects/sci/zig-out/lib/libsaasm-http-server.so`
+  - `/home/vscode/projects/sci/zig-out/lib/libsa-sax.so`
+  - `/home/vscode/projects/sci/zig-out/lib/libsa-db.so`
+  - `/home/vscode/projects/sci/zig-out/lib/libsa-pkg.so`
+  - `/home/vscode/projects/sci/zig-out/lib/libsa-llvm2sa.so`
+  - `/home/vscode/projects/sci/zig-out/lib/libsa-http-server.so`
 
 Answer:
 - The runtime plugin path is stable enough for the current hot-load contract.
@@ -813,7 +813,7 @@ Evidence checked:
 - `zig build test --summary all`
 - `src/plugins.zig`
 - `build.zig`
-- temporary probe against `zig-out/lib/libsaasm-*.so`
+- temporary probe against `zig-out/lib/libsa-*.so`
 
 Answer:
 - The descriptor read path is no longer the problem.
@@ -994,8 +994,8 @@ Evidence checked:
 
 Answer:
 - The remaining blocker is module ownership inside the DB subtree, not the runtime plugin ABI.
-- `db/plugin.zig` must not pull in `mod.zig` or its siblings as a separate root that collides with `saasm.db`; plugin build should consume the same DB implementation through a single ownership path.
-- The loader regression for `src/plugins.zig` is already green; the remaining work is to restore the plugin build graph to one owner per DB file and keep `saasm` as the only owner of the `db/mod.zig` subtree.
+- `db/plugin.zig` must not pull in `mod.zig` or its siblings as a separate root that collides with `sa.db`; plugin build should consume the same DB implementation through a single ownership path.
+- The loader regression for `src/plugins.zig` is already green; the remaining work is to restore the plugin build graph to one owner per DB file and keep `sa` as the only owner of the `db/mod.zig` subtree.
 
 Next:
 - Rebuild `zig build plugins` after the DB ownership cleanup, then record the final module boundary in `tasks.md` / `todo.md` once the build is green.
@@ -1211,7 +1211,7 @@ Evidence checked:
 - `src/emit_llvm.zig`
 - `src/flattener.zig`
 - `src/flattener/line_classifier.zig`
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 
 Answer:
 - The current `parseCallBody` / `parseSpecialCallBody` logic still splits on every comma with `std.mem.splitScalar`, so quoted commas inside raw string arguments would be unsafe.
@@ -1264,7 +1264,7 @@ Evidence checked:
 - `zig build test` output showing `parseImmediateValue` failing from `emit_llvm.zig`
 - `src/emit_llvm.zig` `valueFromArgText` / `emitArgList`
 - `src/verifier.zig` `callTextForInstruction`
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `src/referee/call.zig`
 - `src/flattener.zig`
 
@@ -1332,7 +1332,7 @@ Next:
 ## 2026-05-20 07:07
 
 Question:
-- For `graph` and `size`, should the CLI accept an optional source path and fall back to `src/main.saasm` or `main.saasm` when no path is given?
+- For `graph` and `size`, should the CLI accept an optional source path and fall back to `src/main.sa` or `main.sa` when no path is given?
 
 Evidence checked:
 - `src/cli.zig`
@@ -1369,11 +1369,11 @@ Question:
 - Why are `?` early-return sites still present inside `-> void` unit-framework helpers, and how should they be rewritten without changing the test wrapper signatures?
 
 Evidence checked:
-- `/home/vscode/projects/sci/tests/unit_framework/support/json_regex.saasm`
-- `/home/vscode/projects/sci/tests/unit_framework/support/stdlib_surface.saasm`
-- `/home/vscode/projects/sci/sa_std/encoding/json.saasm-iface`
-- `/home/vscode/projects/sci/sa_std/text/regex.saasm-iface`
-- `/home/vscode/projects/sci/sa_std/net.saasm-iface`
+- `/home/vscode/projects/sci/tests/unit_framework/support/json_regex.sa`
+- `/home/vscode/projects/sci/tests/unit_framework/support/stdlib_surface.sa`
+- `/home/vscode/projects/sci/sa_std/encoding/json.sai`
+- `/home/vscode/projects/sci/sa_std/text/regex.sai`
+- `/home/vscode/projects/sci/sa_std/net.sai`
 - `/home/vscode/projects/sci/docs/whitepaper.md`
 - `/home/vscode/projects/sci/docs/demos/rust-to-sa.md`
 
@@ -1409,7 +1409,7 @@ Question:
 - Why does `@support_net_surface()` now fail with `UseAfterMove` on `connect_ok`?
 
 Evidence checked:
-- `tests/unit_framework/support/stdlib_surface.saasm`
+- `tests/unit_framework/support/stdlib_surface.sa`
 - current SA test output
 - `support_net_surface()` success-path condition composition
 
@@ -1423,18 +1423,18 @@ Next:
 ## 2026-05-20 04:22
 
 Question:
-- Why did `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1` still exit with `InvalidOperand` after the earlier runtime-side fixes?
+- Why did `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1` still exit with `InvalidOperand` after the earlier runtime-side fixes?
 
 Evidence checked:
 - `src/cli.zig` `executeTest()` path
 - `src/emit_llvm.zig` `emitInstruction()` and `emitCall()`
-- `tests/unit_framework/support/json_regex.saasm`
-- `tests/unit_framework/support/stdlib_surface.saasm`
-- `sa_std/encoding/json.saasm-iface`
-- `sa_std/net.saasm-iface`
+- `tests/unit_framework/support/json_regex.sa`
+- `tests/unit_framework/support/stdlib_surface.sa`
+- `sa_std/encoding/json.sai`
+- `sa_std/net.sai`
 
 Answer:
-- `saasm test` first lowers the suite through `emit_llvm`, then builds a native test binary.
+- `sa test` first lowers the suite through `emit_llvm`, then builds a native test binary.
 - The emitter was still treating fallible return values as plain registers for `load` / `take`, so `load res+0 as u32` and `load res+4 as i32` could fall into `EmitError.InvalidOperand`.
 - The correct fix is in `src/emit_llvm.zig`, not in the runtime ABI or the SA support tests.
 
@@ -1447,7 +1447,7 @@ Question:
 - Why does `@support_json_dom_roundtrip()` now fail with `UseAfterMove` on `stringify_status_ok`?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `docs/faq.md` and `docs/sax_syntax.md` fallible ABI examples
 - current SA test output
 
@@ -1464,7 +1464,7 @@ Question:
 - Why does `@support_json_dom_roundtrip()` now fail with `PhiStateConflict` on `name_slot`?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `src/verifier.zig` label join handling
 - current SA test output
 
@@ -1474,7 +1474,7 @@ Answer:
 - The failure path needs its own label or its own explicit cleanup state so both incoming edges agree.
 
 Next:
-- Split the shared failure label(s) in `json_regex.saasm` and rerun the SA suite.
+- Split the shared failure label(s) in `json_regex.sa` and rerun the SA suite.
 
 ## 2026-05-20 03:38
 
@@ -1482,9 +1482,9 @@ Question:
 - Why does `@support_json_dom_roundtrip()` now fail with `PhiStateConflict` on the `count_status` path?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `src/verifier.zig` branch / join-state handling
-- `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1`
+- `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1`
 
 Answer:
 - The success branch keeps `count_status` live into the join, while the failure edge consumes it differently.
@@ -1499,18 +1499,18 @@ Question:
 - Why does `@support_json_dom_roundtrip()` still trap on the `count_value_res` path even after earlier JSON cleanup fixes?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `src/verifier.zig` `?` handling, `regConsumedLater`, and branch-condition marking
-- `tests/unit_framework/support/stdlib_surface.saasm`
-- `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1`
+- `tests/unit_framework/support/stdlib_surface.sa`
+- `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1`
 
 Answer:
 - The local fallible call is still exposed to live control-flow state in the block.
 - The important pattern in the repo is to keep fallible calls isolated from still-live branch-condition values and to consume or release every owned value before the next `?`.
-- The next fix should stay local to the `L_COUNT_HANDLE` / `L_OK_HANDLE` block in `json_regex.saasm`, not in the runtime ABI.
+- The next fix should stay local to the `L_COUNT_HANDLE` / `L_OK_HANDLE` block in `json_regex.sa`, not in the runtime ABI.
 
 Next:
-- Patch `json_regex.saasm` to remove the remaining leak-prone fallible edge and rerun the SA suite.
+- Patch `json_regex.sa` to remove the remaining leak-prone fallible edge and rerun the SA suite.
 
 ## 2026-05-20 03:01
 
@@ -1551,10 +1551,10 @@ Question:
 - Why does `@support_json_dom_roundtrip()` still fail on the `count_value_res` path?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `src/verifier.zig` `?` early-return handling and `regConsumedLater`
 - `src/runtime/sa_std.zig` JSON handle ownership model
-- `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1`
+- `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1`
 
 Answer:
 - The leak is not in the JSON status payload itself.
@@ -1571,8 +1571,8 @@ Question:
 
 Evidence checked:
 - `zig build test` output from `tests/unit_framework/runner.zig`
-- `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1`
-- `tests/unit_framework/support/json_regex.saasm`
+- `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1`
+- `tests/unit_framework/support/json_regex.sa`
 
 Answer:
 - The failure was real SA linear-ownership breakage, not a fake framework issue.
@@ -1589,8 +1589,8 @@ Question:
 Evidence checked:
 - `src/verifier.zig` early-return handling
 - `src/interp.zig` fallible call semantics
-- `sa_std/encoding/json.saasm-iface`
-- `tests/unit_framework/support/json_regex.saasm`
+- `sa_std/encoding/json.sai`
+- `tests/unit_framework/support/json_regex.sa`
 
 Answer:
 - The fallible result itself must not have other live owned values on the `?` path.
@@ -1607,7 +1607,7 @@ Question:
 
 Evidence checked:
 - `src/verifier.zig` `?` / early return handling
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - prior `EarlyReturnLeak` output for `name_free_res`
 
 Answer:
@@ -1620,11 +1620,11 @@ Next:
 ## 2026-05-20 02:04
 
 Question:
-- Which line in `json_regex.saasm` was still tripping `EarlyReturnLeak` after `name_ok` was released?
+- Which line in `json_regex.sa` was still tripping `EarlyReturnLeak` after `name_ok` was released?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
-- `tests/unit_framework/support/stdlib_surface.saasm`
+- `tests/unit_framework/support/json_regex.sa`
+- `tests/unit_framework/support/stdlib_surface.sa`
 - `rg` results for `? .*_free_res`
 
 Answer:
@@ -1637,11 +1637,11 @@ Next:
 ## 2026-05-20 02:08
 
 Question:
-- Which remaining cleanup calls in `json_regex.saasm` were still using `?` and keeping the suite from going green?
+- Which remaining cleanup calls in `json_regex.sa` were still using `?` and keeping the suite from going green?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
-- `tests/unit_framework/support/stdlib_surface.saasm`
+- `tests/unit_framework/support/json_regex.sa`
+- `tests/unit_framework/support/stdlib_surface.sa`
 - `src/verifier.zig` stack allocation and early-return leak handling
 
 Answer:
@@ -1657,9 +1657,9 @@ Question:
 - What change did the verifier still need for the `count_res` fallible JSON query path?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `src/verifier.zig` early-return leak path for `?`
-- current `zig-out/bin/saasm test` output
+- current `zig-out/bin/sa test` output
 
 Answer:
 - The fallible query result needed to be consumed in a more sequential order: read the status first, then release the temporary result register, then branch.
@@ -1674,7 +1674,7 @@ Question:
 - Why did the `count_res` path still trip `EarlyReturnLeak` after the reorder?
 
 Evidence checked:
-- `tests/unit_framework/support/json_regex.saasm`
+- `tests/unit_framework/support/json_regex.sa`
 - `tests/sa_std_runtime.zig`
 - verifier call/return handling in `src/verifier.zig`
 
@@ -1743,7 +1743,7 @@ Question:
 - Should we create a new entry point or duplicate main to support std tests?
 
 Evidence checked:
-- existing `tests/unit_framework/feature_suite.saasm`
+- existing `tests/unit_framework/feature_suite.sa`
 - prior history in `search-history`
 - current support files under `tests/unit_framework/support/`
 
@@ -1766,7 +1766,7 @@ Evidence checked:
 
 Answer:
 - Use the existing facade and FFI surface first.
-- For heavy compute and serialization, prefer the Zig-side implementation exposed through existing interfaces rather than hand-writing fragile `.saasm` logic.
+- For heavy compute and serialization, prefer the Zig-side implementation exposed through existing interfaces rather than hand-writing fragile `.sa` logic.
 
 Next:
 - Keep std additions aligned with existing facades and test them through SA unit tests.
@@ -1779,7 +1779,7 @@ Question:
 Evidence checked:
 - [`src/main.zig`](/home/vscode/projects/sci/src/main.zig)
 - [`src/cli.zig`](/home/vscode/projects/sci/src/cli.zig)
-- live validation with `zig-out/bin/saasm build` and `zig-out/bin/saasm build --json`
+- live validation with `zig-out/bin/sa build` and `zig-out/bin/sa build --json`
 
 Answer:
 - The CLI was still surfacing some top-level errors as bare `error: <name>` strings.
@@ -1795,10 +1795,10 @@ Question:
 - When `!res` is used on a fallible result handle such as `count_res = call @sa_json_value_count(...)`, should the emitter treat `res` as the whole `{status, payload}` aggregate or as a bare payload pointer?
 
 Evidence checked:
-- `/home/vscode/projects/sci/tests/unit_framework/support/json_regex.saasm`
+- `/home/vscode/projects/sci/tests/unit_framework/support/json_regex.sa`
 - `/home/vscode/projects/sci/src/emit_llvm.zig`
 - `/home/vscode/projects/sci/src/interp.zig`
-- `/home/vscode/projects/sci/sa_std/encoding/json.saasm-iface`
+- `/home/vscode/projects/sci/sa_std/encoding/json.sai`
 
 Answer:
 - Treat it as the whole fallible aggregate. The interpreter records fallible call results as `{status, payload}` and `!res` consumes the whole result handle; only the payload is later used through explicit `load res+4` or `load ...+0` patterns.
@@ -1836,8 +1836,8 @@ Evidence checked:
 - `/home/vscode/projects/sci/src/emit_llvm.zig`
 - `/home/vscode/projects/sci/src/flattener.zig`
 - `/home/vscode/projects/sci/src/verifier.zig`
-- `/home/vscode/projects/sci/tests/unit_framework/support/json_regex.saasm`
-- `/home/vscode/projects/sci/tests/unit_framework/support/stdlib_surface.saasm`
+- `/home/vscode/projects/sci/tests/unit_framework/support/json_regex.sa`
+- `/home/vscode/projects/sci/tests/unit_framework/support/stdlib_surface.sa`
 
 Answer:
 - The emitter rebuilds call text from `base.raw_text` in `instructionCallText`, so it can bypass the flattened operands that already had `#def` expressions folded by the flattener.
@@ -1885,7 +1885,7 @@ Next:
 ## 2026-05-20 08:12
 
 Question:
-- Why is `cli.test.trap reports print a human summary and preserve json payload` failing, and why does `tests/cli_smoke.zig` not see the `saasm` module when run standalone?
+- Why is `cli.test.trap reports print a human summary and preserve json payload` failing, and why does `tests/cli_smoke.zig` not see the `sa` module when run standalone?
 
 Evidence checked:
 - `zig test src/cli.zig` output
@@ -1895,10 +1895,10 @@ Evidence checked:
 
 Answer:
 - The trap test expectation is stale relative to the current human-summary text emitted by the CLI.
-- The smoke test file is not self-contained when compiled directly; it relies on the repo test harness to inject the `saasm` module, so direct `zig test tests/cli_smoke.zig` is the wrong standalone check for that file.
+- The smoke test file is not self-contained when compiled directly; it relies on the repo test harness to inject the `sa` module, so direct `zig test tests/cli_smoke.zig` is the wrong standalone check for that file.
 
 Next:
-- Update the stale trap assertion to match the current output, then run the repository-level test command that wires the `saasm` module instead of treating the smoke file as a standalone package.
+- Update the stale trap assertion to match the current output, then run the repository-level test command that wires the `sa` module instead of treating the smoke file as a standalone package.
 
 ## 2026-05-20 10:46
 
@@ -1927,7 +1927,7 @@ Evidence checked:
 - `src/interp.zig`
 - `src/verifier.zig`
 - `src/emit_llvm.zig`
-- `tests/integration/ffi_handle/handle.saasm`
+- `tests/integration/ffi_handle/handle.sa`
 
 Answer:
 - `move_` is an ownership-only instruction in this codebase: flattener records only the destination register, interpreter treats it as a no-op after verification, and verifier already enforces the consume semantics.
@@ -1974,16 +1974,16 @@ Next:
 ## 2026-05-20 11:28
 
 Question:
-- Why does `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1` still exit with `InvalidOperand` even after the earlier `move_` and return-path fixes?
+- Why does `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1` still exit with `InvalidOperand` even after the earlier `move_` and return-path fixes?
 
 Evidence checked:
-- `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1`
-- `zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1 --json`
-- `tests/unit_framework/feature_suite.saasm`
-- `tests/unit_framework/support/json_regex.saasm`
-- `tests/unit_framework/support/stdlib_surface.saasm`
-- `sa_std/encoding/json.saasm-iface`
-- `sa_std/text/regex.saasm-iface`
+- `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1`
+- `zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1 --json`
+- `tests/unit_framework/feature_suite.sa`
+- `tests/unit_framework/support/json_regex.sa`
+- `tests/unit_framework/support/stdlib_surface.sa`
+- `sa_std/encoding/json.sai`
+- `sa_std/text/regex.sai`
 - `src/emit_llvm.zig` call emission helpers
 
 Answer:
@@ -1995,14 +1995,14 @@ Next:
 
 ## 2026-05-20 10:02
 Question:
-- Why do `saasm test` and the `stdlib_surface`/`hashmap` probes still fail with `InvalidOperand` after the `move_` lowering fix?
+- Why do `sa test` and the `stdlib_surface`/`hashmap` probes still fail with `InvalidOperand` after the `move_` lowering fix?
 
 Evidence checked:
 - prior run summary from the current session
 - `zig build test --summary all` no longer fails in `src/emit_llvm.zig` on the old `move_` crash
-- `./zig-out/bin/saasm test tests/unit_framework/feature_suite.saasm --jobs 1 --json` still returns `InvalidOperand`
-- `./zig-out/bin/saasm build-obj tests/unit_framework/support/json_regex.saasm -o /tmp/json_regex.o --json` succeeds
-- `./zig-out/bin/saasm build-obj tests/unit_framework/support/stdlib_surface.saasm -o /tmp/stdlib_surface.o --json` fails with `InvalidOperand`
+- `./zig-out/bin/sa test tests/unit_framework/feature_suite.sa --jobs 1 --json` still returns `InvalidOperand`
+- `./zig-out/bin/sa build-obj tests/unit_framework/support/json_regex.sa -o /tmp/json_regex.o --json` succeeds
+- `./zig-out/bin/sa build-obj tests/unit_framework/support/stdlib_surface.sa -o /tmp/stdlib_surface.o --json` fails with `InvalidOperand`
 
 Answer:
 - The emitter fix is real, but there is still a separate operand-lowering bug on call arguments or folded definitions in `src/emit_llvm.zig`.
@@ -2013,32 +2013,32 @@ Next:
 
 ## 2026-05-20 10:15
 Question:
-- Which concrete call site in `tests/unit_framework/support/stdlib_surface.saasm` is tripping `EmitError.InvalidOperand`, and can `--debug` expose the exact lowering branch?
+- Which concrete call site in `tests/unit_framework/support/stdlib_surface.sa` is tripping `EmitError.InvalidOperand`, and can `--debug` expose the exact lowering branch?
 
 Evidence checked:
 - `src/emit_llvm.zig` call lowering and operand conversion paths
-- `tests/unit_framework/support/stdlib_surface.saasm`
-- `sa_std/collections/btree_map.saasm`
-- `sa_std/string.saasm`
-- `sa_std/core/mem.saasm`
+- `tests/unit_framework/support/stdlib_surface.sa`
+- `sa_std/collections/btree_map.sa`
+- `sa_std/string.sa`
+- `sa_std/core/mem.sa`
 
 Answer:
 - The current evidence points at `emit_llvm` call-argument lowering, not the std support files themselves.
 - The next fastest check is to rerun the failing build with debug logging enabled so the exact operand branch can be identified before patching.
 
 Next:
-- Run the failing `saasm build-obj` and `saasm test` with debug enabled, then patch the offending lowering branch only.
+- Run the failing `sa build-obj` and `sa test` with debug enabled, then patch the offending lowering branch only.
 
 ## 2026-05-20 10:28
 Question:
-- If `tests/hashmap_fixture.saasm` passes, which remaining stdlib block in `stdlib_surface` is most likely failing: `btree`, `net`, or something else?
+- If `tests/hashmap_fixture.sa` passes, which remaining stdlib block in `stdlib_surface` is most likely failing: `btree`, `net`, or something else?
 
 Evidence checked:
-- `./zig-out/bin/saasm build-obj tests/hashmap_fixture.saasm -o /tmp/hashmap_fixture.o --json` succeeded
-- `./zig-out/bin/saasm build-obj tests/unit_framework/support/stdlib_surface.saasm -o /tmp/stdlib_surface.o --json` still fails with `InvalidOperand`
-- `tests/unit_framework/support/stdlib_surface.saasm` contains `mem`, `string`, `hashmap`, `btree`, and `net` blocks
-- `sa_std/btree_map.saasm` exports `sa_btree_map_get/remove/len/insert` with `&map` and `&key` parameters
-- `sa_std/net.saasm` and `sa_std/encoding/json.saasm` are facades over iface files
+- `./zig-out/bin/sa build-obj tests/hashmap_fixture.sa -o /tmp/hashmap_fixture.o --json` succeeded
+- `./zig-out/bin/sa build-obj tests/unit_framework/support/stdlib_surface.sa -o /tmp/stdlib_surface.o --json` still fails with `InvalidOperand`
+- `tests/unit_framework/support/stdlib_surface.sa` contains `mem`, `string`, `hashmap`, `btree`, and `net` blocks
+- `sa_std/btree_map.sa` exports `sa_btree_map_get/remove/len/insert` with `&map` and `&key` parameters
+- `sa_std/net.sa` and `sa_std/encoding/json.sa` are facades over iface files
 
 Answer:
 - `hashmap` is not the blocker anymore.
@@ -2052,8 +2052,8 @@ Question:
 - Is the `btree_map_fixture` failure coming from parallel emission or from the serial lowering path itself?
 
 Evidence checked:
-- `./zig-out/bin/saasm build-obj tests/hashmap_fixture.saasm -o /tmp/hashmap_fixture.o --json` succeeds
-- `./zig-out/bin/saasm build-obj tests/btree_map_fixture.saasm -o /tmp/btree_map_fixture.o --json` fails with `InvalidOperand`
+- `./zig-out/bin/sa build-obj tests/hashmap_fixture.sa -o /tmp/hashmap_fixture.o --json` succeeds
+- `./zig-out/bin/sa build-obj tests/btree_map_fixture.sa -o /tmp/btree_map_fixture.o --json` fails with `InvalidOperand`
 - `emit_llvm` has a separate parallel path in `emitUserFunctionsParallel`
 
 Answer:
@@ -2065,29 +2065,29 @@ Next:
 
 ## 2026-05-20 10:56
 Question:
-- Why does `tests/vec_fixture.saasm` also fail with `InvalidOperand` while `tests/hashmap_fixture.saasm` succeeds?
+- Why does `tests/vec_fixture.sa` also fail with `InvalidOperand` while `tests/hashmap_fixture.sa` succeeds?
 
 Evidence checked:
-- `./zig-out/bin/saasm build-obj tests/hashmap_fixture.saasm -o /tmp/hashmap_fixture.o --json` succeeds
-- `./zig-out/bin/saasm build-obj tests/btree_map_fixture.saasm -o /tmp/btree_map_fixture.o --json --jobs 1` fails with `InvalidOperand`
-- `./zig-out/bin/saasm build-obj tests/vec_fixture.saasm -o /tmp/vec_fixture.o --json` fails with `InvalidOperand`
-- `sa_std/core/slice.saasm` uses `store %slice_reg+Slice_ptr, %data_ptr as ptr` and `store %slice_reg+Slice_len, %length as u64`
+- `./zig-out/bin/sa build-obj tests/hashmap_fixture.sa -o /tmp/hashmap_fixture.o --json` succeeds
+- `./zig-out/bin/sa build-obj tests/btree_map_fixture.sa -o /tmp/btree_map_fixture.o --json --jobs 1` fails with `InvalidOperand`
+- `./zig-out/bin/sa build-obj tests/vec_fixture.sa -o /tmp/vec_fixture.o --json` fails with `InvalidOperand`
+- `sa_std/core/slice.sa` uses `store %slice_reg+Slice_ptr, %data_ptr as ptr` and `store %slice_reg+Slice_len, %length as u64`
 
 Answer:
 - The remaining bug is likely shared by `vec`, `btree`, and other std support blocks that use macro-expanded `load/store/call` with layout offsets and borrowed pointer arguments.
-- The next step is to inspect `vec.saasm` and reproduce the smallest failing macro family, then patch the shared lowering path rather than any one fixture.
+- The next step is to inspect `vec.sa` and reproduce the smallest failing macro family, then patch the shared lowering path rather than any one fixture.
 
 Next:
-- Inspect `sa_std/vec.saasm` and compile smaller vec-specific probes to isolate the exact bad operand form.
+- Inspect `sa_std/vec.sa` and compile smaller vec-specific probes to isolate the exact bad operand form.
 
 ## 2026-05-20 11:03
 Question:
 - Does the `vec` failure come from the special `__vec_view_%out_ptr = & %vec_reg` borrow form in `VEC_GET`?
 
 Evidence checked:
-- `sa_std/vec.saasm` has the unique line `__vec_view_%out_ptr = & %vec_reg`
-- `tests/vec_fixture.saasm` fails with `InvalidOperand`
-- `tests/hashmap_fixture.saasm` succeeds, so the failure is not global
+- `sa_std/vec.sa` has the unique line `__vec_view_%out_ptr = & %vec_reg`
+- `tests/vec_fixture.sa` fails with `InvalidOperand`
+- `tests/hashmap_fixture.sa` succeeds, so the failure is not global
 
 Answer:
 - The unique borrow-view form in `vec` is the best remaining discriminator.
@@ -2099,7 +2099,7 @@ Next:
 ## 2026-05-20 11:02
 
 Question:
-- Why do `vec_fixture`, `btree_map_fixture`, and `tests/unit_framework/support/stdlib_surface.saasm` still hit `InvalidOperand` after the `.move_` lowering fix, and which shared lowering branch is actually rejecting the operand?
+- Why do `vec_fixture`, `btree_map_fixture`, and `tests/unit_framework/support/stdlib_surface.sa` still hit `InvalidOperand` after the `.move_` lowering fix, and which shared lowering branch is actually rejecting the operand?
 
 Evidence checked:
 - `build_index` output for `/home/vscode/projects/sci/.code_index`
@@ -2118,9 +2118,9 @@ Question:
 - Which concrete `EXPAND` or `call` inside `vec_fixture` / `btree_map_fixture` first triggers `InvalidOperand` after the current lowering changes?
 
 Evidence checked:
-- `tests/vec_fixture.saasm`
-- `tests/btree_map_fixture.saasm`
-- `tests/unit_framework/support/stdlib_surface.saasm`
+- `tests/vec_fixture.sa`
+- `tests/btree_map_fixture.sa`
+- `tests/unit_framework/support/stdlib_surface.sa`
 - `src/referee/call.zig`
 
 Answer:
@@ -2147,7 +2147,7 @@ Next:
 ## 2026-05-20 11:20
 
 Question:
-- Why does `zig build test` currently fail in `tests/unit_framework/runner.zig` with `default_code = 1`, and is that caused by the same `InvalidOperand` path or by the `saasm test` harness itself?
+- Why does `zig build test` currently fail in `tests/unit_framework/runner.zig` with `default_code = 1`, and is that caused by the same `InvalidOperand` path or by the `sa test` harness itself?
 
 Evidence checked:
 - `zig build test` output
@@ -2158,7 +2158,7 @@ Answer:
 - The failure is currently in the unit framework runner expectation, not yet in the same `InvalidOperand` stack. The harness is returning exit code 1 for the default suite run, so the next step is to inspect the runner's default execution path and its expected trap/test output.
 
 Next:
-- Read `tests/unit_framework/runner.zig` and the `saasm test` code path it exercises, then run that entrypoint directly if needed.
+- Read `tests/unit_framework/runner.zig` and the `sa test` code path it exercises, then run that entrypoint directly if needed.
 
 ## 2026-05-20 11:36
 
@@ -2179,14 +2179,14 @@ Next:
 ## 2026-05-20 11:43
 
 Question:
-- Which demo first exposes the real `emit_llvm` error when run with the repository `saasm` binary and `--jobs 1`, and does it reduce to the same `InvalidOperand` as the std fixtures?
+- Which demo first exposes the real `emit_llvm` error when run with the repository `sa` binary and `--jobs 1`, and does it reduce to the same `InvalidOperand` as the std fixtures?
 
 Evidence checked:
 - `tests/cli_smoke.zig` lists the failing demo paths
 - `src/emit_llvm.zig` parallel emission code can hide the worker error behind `job.err`
 
 Answer:
-- Pending. The next step is to use the built `saasm` CLI directly on a small failing demo with `--jobs 1` to surface the exact operand form.
+- Pending. The next step is to use the built `sa` CLI directly on a small failing demo with `--jobs 1` to surface the exact operand form.
 
 Next:
 - Build or reuse the repo CLI binary, then run the first failing demo with `build-exe` and serial jobs.
@@ -2194,10 +2194,10 @@ Next:
 ## 2026-05-20 11:50
 
 Question:
-- Why do `build-exe --jobs 1` runs for `demos/rosetta/253_contract_callback_registration/main.saasm`, `demos/rosetta/07_trait_vtable/main.saasm`, and `demos/support/sort_probe.saasm` fail with `MissingIndirectCallProvenance`?
+- Why do `build-exe --jobs 1` runs for `demos/rosetta/253_contract_callback_registration/main.sa`, `demos/rosetta/07_trait_vtable/main.sa`, and `demos/support/sort_probe.sa` fail with `MissingIndirectCallProvenance`?
 
 Evidence checked:
-- direct `zig-out/bin/saasm build-exe ... --jobs 1` runs for the three demos
+- direct `zig-out/bin/sa build-exe ... --jobs 1` runs for the three demos
 - current `src/emit_llvm.zig` indirect call path requires `callee.origin.indirect_sig_index`
 
 Answer:
@@ -2212,7 +2212,7 @@ Question:
 - Where does indirect-call provenance get lost so that `build-exe --jobs 1` on vtable-style demos returns `MissingIndirectCallProvenance`, even though the callee value should have come from a known function slot?
 
 Evidence checked:
-- direct `zig-out/bin/saasm build-exe ... --jobs 1` failures on `demos/rosetta/253_contract_callback_registration/main.saasm`, `demos/rosetta/07_trait_vtable/main.saasm`, and `demos/support/sort_probe.saasm`
+- direct `zig-out/bin/sa build-exe ... --jobs 1` failures on `demos/rosetta/253_contract_callback_registration/main.sa`, `demos/rosetta/07_trait_vtable/main.sa`, and `demos/support/sort_probe.sa`
 - `src/emit_llvm.zig` `emitIndirectCall` and `Value.origin` / `indirect_sig_index` search hits
 - `src/interp.zig` indirect-call provenance handling
 
@@ -2245,7 +2245,7 @@ Question:
 
 Evidence checked:
 - `src/emit_llvm.zig` `load` path and `resolveLoadOrigin`
-- `demos/rosetta/07_trait_vtable/main.saasm` stores `&BUTTON_VT as ptr` into a fat pointer field, then later does `call_indirect draw_fn(&data_ptr)`
+- `demos/rosetta/07_trait_vtable/main.sa` stores `&BUTTON_VT as ptr` into a fat pointer field, then later does `call_indirect draw_fn(&data_ptr)`
 
 Answer:
 - Pending. The next step is to read `resolveConstValueOrigin` and the vtable slot resolution helpers to see whether the slot signature index is attached at load time.
@@ -2274,8 +2274,8 @@ Question:
 - In the failing trait-vtable demos, is the offset constant name (`VTable_call`, `SortCmp_cmp`) actually the vtable slot name, or just a layout label that should be resolved through the const vtable definition?
 
 Evidence checked:
-- `demos/rosetta/07_trait_vtable/main.saasm` uses `VTable_call` for a slot whose const vtable literal names the field `draw`
-- `demos/support/sort_probe.saasm` uses `SortCmp_cmp` for a slot whose const vtable literal names the field `cmp`
+- `demos/rosetta/07_trait_vtable/main.sa` uses `VTable_call` for a slot whose const vtable literal names the field `draw`
+- `demos/support/sort_probe.sa` uses `SortCmp_cmp` for a slot whose const vtable literal names the field `cmp`
 
 Answer:
 - Pending. The next step is to inspect the layout/iface files that define the slot labels and then patch provenance lookup to use the actual vtable const metadata rather than relying on the raw offset label alone.
@@ -2331,8 +2331,8 @@ Question:
 - Does emit_llvm support loading the pointer/value field of a fallible return at +8, or is it still hard-coded to offsets 0 and 4?
 
 Evidence checked:
-- tests/unit_framework/support/json_regex.saasm
-- tests/unit_framework/support/stdlib_surface.saasm
+- tests/unit_framework/support/json_regex.sa
+- tests/unit_framework/support/stdlib_surface.sa
 - src/emit_llvm.zig
 - src/interp.zig
 
@@ -2405,7 +2405,7 @@ Evidence checked:
 
 Answer:
 - The plugin interface now carries real lifecycle slots and skill metadata, the registry aggregates them, and the active registry contains five concrete plugins: `sax`, `db`, `fetch`, `llvm2sa`, and `http-server`.
-- The `http-server` plugin is not a placeholder: it writes a concrete scaffold with `sa_http_server.saasm-iface`, `main.saasm`, and `README.md`.
+- The `http-server` plugin is not a placeholder: it writes a concrete scaffold with `sa_http_server.sai`, `main.sa`, and `README.md`.
 - `tasks.md` has been updated to mark the plugin system first stage as landed while keeping the CLI consumer side and `db` JSON threading as follow-up work.
 - `zig build pre-push` passes after the registry/type cleanup.
 
@@ -2415,7 +2415,7 @@ Next:
 ## 2026-05-20 23:05
 
 Question:
-- Why does `saasm db exec` still surface exit code `1` in the CLI smoke test when `src/db/exec.zig` and the `llvm2sa` translator both have focused module tests that look healthy?
+- Why does `sa db exec` still surface exit code `1` in the CLI smoke test when `src/db/exec.zig` and the `llvm2sa` translator both have focused module tests that look healthy?
 
 Evidence checked:
 - [src/cli.zig](/home/vscode/projects/sci/src/cli.zig#L2216)
@@ -2566,7 +2566,7 @@ Evidence checked:
 Answer:
 - The remaining failures come from module ownership, not syntax.
 - `db` and `sax` were importing `trap`, `signature`, `atomic`, `instruction`, and `upstream_loc` both as standalone root modules in `build.zig` and again through their own subtree import paths.
-- The fix direction is to give the shared types a single ownership path via the `saasm` root module and remove the extra root-module injections.
+- The fix direction is to give the shared types a single ownership path via the `sa` root module and remove the extra root-module injections.
 
 Next:
 - Re-run `zig build plugins` after the shared-module import unification, then only touch any residual plugin-local compile errors.
@@ -2582,8 +2582,8 @@ Evidence checked:
 - [`/home/vscode/projects/sci/src/lib.zig`](\/home/vscode/projects/sci/src/lib.zig)
 
 Answer:
-- `src/sax/build.zig` is compiled inside the `saasm` module tree, so `@import("saasm")` from that file is a self-reference and fails.
-- The file needs local relative imports for its dependencies when compiled as part of `saasm`; plugin-root code can still consume `saasm`, but the in-tree build helper cannot import the module that owns it.
+- `src/sax/build.zig` is compiled inside the `sa` module tree, so `@import("sa")` from that file is a self-reference and fails.
+- The file needs local relative imports for its dependencies when compiled as part of `sa`; plugin-root code can still consume `sa`, but the in-tree build helper cannot import the module that owns it.
 
 Next:
 - Switch `src/sax/build.zig` back to file-relative imports and rerun `zig build plugins`.
@@ -2606,7 +2606,7 @@ Evidence checked:
 
 Answer:
 - The fix was to separate the plugin ABI into `src/plugin_api.zig`, keep `src/plugins.zig` as the runtime loader over that ABI, and stop importing `plugin_api.zig` by file path inside the host tree.
-- The plugin build graph now uses the ABI module plus the `saasm` library module, while the in-tree `sax/build.zig` helper reverted to file-relative imports.
+- The plugin build graph now uses the ABI module plus the `sa` library module, while the in-tree `sax/build.zig` helper reverted to file-relative imports.
 - `zig build plugins` now passes after the ownership conflicts were removed.
 
 Next:
@@ -2853,7 +2853,7 @@ Question:
 Evidence checked:
 - `src/db_plugin.zig`
 - `src/db/exec.zig`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-db.so /home/vscode/projects/sci/src/db_plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:
 - The actual root wrapper for the DB plugin is `src/db_plugin.zig`, not `src/db/plugin.zig`, and it had not exported `pkg_manifest` / `pkg_resolver` yet.
@@ -2869,7 +2869,7 @@ Question:
 
 Evidence checked:
 - `src/db/exec.zig`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-db.so /home/vscode/projects/sci/src/db_plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:
 - One leftover local variable still used `pkg_resolver.Dependency` directly even after the import path was removed.
@@ -2885,7 +2885,7 @@ Question:
 
 Evidence checked:
 - `src/db/exec.zig`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-db.so /home/vscode/projects/sci/src/db_plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:
 - `readProjectManifest` was still typed against a root-injected manifest type, which Zig tried to resolve at comptime even in standalone plugin builds.
@@ -2901,7 +2901,7 @@ Question:
 - What is the current real boundary state of the DB plugin after the latest compile attempts?
 
 Evidence checked:
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-db.so /home/vscode/projects/sci/src/db_plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 - `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
 - `zig test /home/vscode/projects/sci/src/db_plugin.zig -ODebug`
 
@@ -2921,7 +2921,7 @@ Question:
 Evidence checked:
 - `zig test /home/vscode/projects/sci/src/pkg/plugin.zig -ODebug`
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/pkg.so /home/vscode/projects/sci/src/pkg/plugin.zig`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-db.so /home/vscode/projects/sci/src/db_plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 - `zig test /home/vscode/projects/sci/src/db_plugin.zig -ODebug`
 - `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
 
@@ -2961,7 +2961,7 @@ Evidence checked:
 - `src/db/db_stub.zig`
 - `src/db_plugin.zig`
 - `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-db.so /home/vscode/projects/sci/src/db_plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:
 - If the root module exposes `pkg_manifest`, the DB plugin imports the real `exec.zig` implementation and uses the runtime wrapper graph.
@@ -2978,7 +2978,7 @@ Question:
 
 Evidence checked:
 - `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
-- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/saasm-db.so /home/vscode/projects/sci/src/db_plugin.zig`
+- `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:
 - Yes. The nested DB plugin test graph now compiles and runs with the local stub path, and the runtime wrapper graph still builds the dynamic library.
@@ -3028,8 +3028,8 @@ Question:
 Evidence checked:
 - `zig test /home/vscode/projects/sci/src/http_client/plugin.zig -ODebug`
 - `zig test /home/vscode/projects/sci/src/http_server/plugin.zig -ODebug`
-- `zig build-lib -dynamic --dep plugin --dep saasm -Mroot=/home/vscode/projects/sci/src/http_client/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_client/plugin_api.zig -Msaasm=/home/vscode/projects/sci/src/lib.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name saasm-http-client -dynamic --zig-lib-dir /opt/zig/lib/`
-- `zig build-lib -dynamic --dep plugin --dep saasm -Mroot=/home/vscode/projects/sci/src/http_server/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_server/plugin_api.zig -Msaasm=/home/vscode/projects/sci/src/lib.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name saasm-http-server -dynamic --zig-lib-dir /opt/zig/lib/`
+- `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/http_client/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_client/plugin_api.zig -Msa=/home/vscode/projects/sci/src/lib.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name sa-http-client -dynamic --zig-lib-dir /opt/zig/lib/`
+- `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/http_server/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_server/plugin_api.zig -Msa=/home/vscode/projects/sci/src/lib.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name sa-http-server -dynamic --zig-lib-dir /opt/zig/lib/`
 
 Answer:
 - Yes. Both plugins now pass their local tests and their runtime `.so` build commands.
@@ -3053,7 +3053,7 @@ Evidence checked:
 - `zig test /home/vscode/projects/sci/src/http_server/plugin.zig -ODebug`
 - `zig test /home/vscode/projects/sci/src/sax_plugin.zig -ODebug`
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sax.so /home/vscode/projects/sci/src/sax_plugin.zig`
-- `zig build-lib -dynamic --dep plugin --dep saasm -Mroot=/home/vscode/projects/sci/src/http_client/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_client/plugin_api.zig -Msaasm=/home/vscode/projects/sci/src/lib.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name saasm-http-client -dynamic --zig-lib-dir /opt/zig/lib/`
+- `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/http_client/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_client/plugin_api.zig -Msa=/home/vscode/projects/sci/src/lib.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name sa-http-client -dynamic --zig-lib-dir /opt/zig/lib/`
 
 Answer:
 - Yes. A single shared `src/plugin_helpers.zig` now backs both HTTP plugins, and both `zig test` + runtime `.so` builds still pass.
@@ -3065,7 +3065,7 @@ Next:
 ## 2026-05-21 15:20
 
 Question:
-- What is the current state after wiring `sa_http_client_*` / `sa_http_server_*` into `saasm run`, and what is still blocking final closure?
+- What is the current state after wiring `sa_http_client_*` / `sa_http_server_*` into `sa run`, and what is still blocking final closure?
 
 Evidence checked:
 - `src/interp.zig`
@@ -3075,9 +3075,9 @@ Evidence checked:
 - `zig build test`
 
 Answer:
-- The interpreter now loads the HTTP client/server plugin `.so` files on demand and dispatches `sa_http_client_*` / `sa_http_server_*` symbol calls during `saasm run`.
+- The interpreter now loads the HTTP client/server plugin `.so` files on demand and dispatches `sa_http_client_*` / `sa_http_server_*` symbol calls during `sa run`.
 - The runtime values carrying plugin handles now keep an `extern_handle` marker so the interpreter does not free plugin-owned objects as normal heap pointers.
-- A separate return-value regression in `saasm run` was corrected so ordinary `return 7` style exits keep their expected code path.
+- A separate return-value regression in `sa run` was corrected so ordinary `return 7` style exits keep their expected code path.
 - Full `zig build test` is still not green: the remaining failures are unrelated CLI smoke regressions, not HTTP plugin wiring failures.
 
 Next:
@@ -3086,20 +3086,20 @@ Next:
 ## 2026-05-21 15:30
 
 Question:
-- What is the current state after wiring `sa_http_client_*` and `sa_http_server_*` into `saasm run`, and what still needs attention?
+- What is the current state after wiring `sa_http_client_*` and `sa_http_server_*` into `sa run`, and what still needs attention?
 
 Evidence checked:
 - [src/interp.zig](/home/vscode/projects/sci/src/interp.zig)
 - [src/http_client/http_saasm_api.zig](/home/vscode/projects/sci/src/http_client/http_saasm_api.zig)
 - [src/http_server/http_saasm_api.zig](/home/vscode/projects/sci/src/http_server/http_saasm_api.zig)
-- [demos/rosetta/301_http_client_saasm/main.saasm](/home/vscode/projects/sci/demos/rosetta/301_http_client_saasm/main.saasm)
-- [demos/rosetta/302_http_server_saasm/main.saasm](/home/vscode/projects/sci/demos/rosetta/302_http_server_saasm/main.saasm)
+- [demos/rosetta/301_http_client_sa/main.sa](/home/vscode/projects/sci/demos/rosetta/301_http_client_sa/main.sa)
+- [demos/rosetta/302_http_server_sa/main.sa](/home/vscode/projects/sci/demos/rosetta/302_http_server_sa/main.sa)
 - [tests/cli_smoke.zig](/home/vscode/projects/sci/tests/cli_smoke.zig)
 
 Answer:
-- The interpreter now loads the HTTP client/server plugin `.so` files on demand and dispatches `sa_http_client_*` / `sa_http_server_*` calls during `saasm run`.
+- The interpreter now loads the HTTP client/server plugin `.so` files on demand and dispatches `sa_http_client_*` / `sa_http_server_*` calls during `sa run`.
 - The interpreter keeps plugin handles marked as external so they are not freed as normal heap pointers.
-- The SA demos for HTTP client and server are present under `demos/rosetta/301_http_client_saasm` and `demos/rosetta/302_http_server_saasm`.
+- The SA demos for HTTP client and server are present under `demos/rosetta/301_http_client_sa` and `demos/rosetta/302_http_server_sa`.
 - What remains is repo-level verification and cleanup of unrelated CLI smoke regressions; the HTTP bridge itself is wired.
 
 Next:

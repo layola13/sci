@@ -1,0 +1,27 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"11\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Slot_SIZE = 4
+#def Slot_value = +0
+
+@main() -> i32:
+L_ENTRY:
+    slot = alloc Slot_SIZE
+    store slot+Slot_value, 11 as i32
+    value = load slot+Slot_value as i32
+    ok = eq value, 11
+    !value
+    !slot
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

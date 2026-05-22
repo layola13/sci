@@ -1,6 +1,6 @@
 import re
 
-with open('tests/unit_framework/support/stdlib_surface.saasm', 'r') as f:
+with open('tests/unit_framework/support/stdlib_surface.sa', 'r') as f:
     text = f.read()
 
 # Fix concat_free_status loading payload instead of status
@@ -24,6 +24,6 @@ text = re.sub(
     text
 )
 
-with open('tests/unit_framework/support/stdlib_surface.saasm', 'w') as f:
+with open('tests/unit_framework/support/stdlib_surface.sa', 'w') as f:
     f.write(text)
 

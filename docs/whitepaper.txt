@@ -6,19 +6,19 @@ linkable object files without depending on any host language runtime.
 
 Identity:
 - Not an IR: SA is a standalone language with its own CLI, interpreter, and system primitives.
-- Not host-dependent: saasm run hello.saasm executes directly. No Go/Rust/Zig/Python needed.
+- Not host-dependent: sa run hello.sa executes directly. No Go/Rust/Zig/Python needed.
 - Full-platform: Native (x86_64/ARM64/Win/Linux/macOS) + WASM (wasm32/wasm64) + .o for any C-ABI project.
 
 What ships today (v0.1 baseline):
-- saasm run <file>       : Flattener -> Referee -> Interpreter -> stdout + exit code
-- saasm build-exe <file> : Flattener -> Referee -> LLVM IR -> zig cc -> standalone .exe
-- saasm build-wasm <file>: Flattener -> Referee -> LLVM IR -> zig cc -target wasm32-wasi -> .wasm
-- saasm build-obj <file> : Flattener -> Referee -> LLVM IR -> zig cc -c -> .o (C-ABI linkable)
+- sa run <file>       : Flattener -> Referee -> Interpreter -> stdout + exit code
+- sa build-exe <file> : Flattener -> Referee -> LLVM IR -> zig cc -> standalone .exe
+- sa build-wasm <file>: Flattener -> Referee -> LLVM IR -> zig cc -target wasm32-wasi -> .wasm
+- sa build-obj <file> : Flattener -> Referee -> LLVM IR -> zig cc -c -> .o (C-ABI linkable)
 
 No Zig source generation. No AST construction. No hidden round-trips.
 
 Checked-in sa_std archive:
-- SA-facing std modules (io, fs, net, fmt, process) are assembled with @import on the SA side and @extern declarations in their .saasm-iface files.
+- SA-facing std modules (io, fs, net, fmt, process) are assembled with @import on the SA side and @extern declarations in their .sai files.
 - C/C++ host examples still use #include, but only in host code.
 - The repository checks in artifacts/sa_std/libsa_std.a.
 - Rebuild it with zig build sa-std-static -Doptimize=Debug.
@@ -128,7 +128,7 @@ Control Flow and Phi:
   - libsa_scope is the optional helper for explicit !reg cleanup text.
 
 Build Modes:
-  - saasm build-exe and build-wasm default to --release; no Referee runtime ships in release artifacts.
+  - sa build-exe and build-wasm default to --release; no Referee runtime ships in release artifacts.
   - -g enables DWARF and upstream source mapping.
   - --no-debug strips debug metadata.
   - --debug-gas inserts gas counters and may trap with GasExceeded.
@@ -166,7 +166,7 @@ Version Roadmap:
   v0.1  Closed loop: Flattener + Referee + LLVM IR + CLI (14 weeks)
   v0.2  Self-authored WASM emitter + #mode compact infix sugar
   v0.3  Performance: VTable check + libsa_async + --debug-san
-  v0.4  Parallel dev: .saasm-iface + .saasm-layout + incremental compilation
+  v0.4  Parallel dev: .sai + .sal + incremental compilation
   v0.5  Ecosystem: sa.pkg package manager + #tag layout tagging + sa_std
   v0.6  Certification: Referee formal proof (Coq/Lean4) + FPGA hardware Referee
   v1.0+ Self-hosting (SA compiler written in SA)
@@ -185,12 +185,12 @@ Design Principles:
 Interoperability:
   - @export: unmangled C-ABI symbols callable from C/C++/Rust/Go/Zig
   - @extern: external C-ABI symbols from any library
-  - saasm build-obj: .o linkable with zig cc / gcc / clang / cargo
+  - sa build-obj: .o linkable with zig cc / gcc / clang / cargo
   - FFI safety: external pointers enter via assume_borrow only
 
 Testing Model:
-  - saasm run test.saasm + exit code for pass/fail
-  - ASSERT_EQ / ASSERT_TRUE macros in sa_core.saasm
+  - sa run test.sa + exit code for pass/fail
+  - ASSERT_EQ / ASSERT_TRUE macros in sa_core.sa
   - Must-trap tests for Referee validation
   - @export + external test frameworks
   - 32 property-based tests x 100+ iterations
@@ -210,6 +210,6 @@ Pilot Protocol:
 
 Status:
   This document reflects the current v0.1 implementation state.
-  Flattener, Referee, LLVM IR Emitter, Interpreter, CLI, and saasm layout
+  Flattener, Referee, LLVM IR Emitter, Interpreter, CLI, and the layout generator
   are operational. Remaining roadmap items are tracked in
   tasks.md.

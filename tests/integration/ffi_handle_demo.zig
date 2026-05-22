@@ -25,7 +25,7 @@ test "ffi handle demo exposes an exported C ABI symbol" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const sa_source = try original_cwd.realpathAlloc(std.testing.allocator, "tests/integration/ffi_handle/handle.saasm");
+    const sa_source = try original_cwd.realpathAlloc(std.testing.allocator, "tests/integration/ffi_handle/handle.sa");
     defer std.testing.allocator.free(sa_source);
     const c_source = try original_cwd.realpathAlloc(std.testing.allocator, "tests/integration/ffi_handle/handle_host.c");
     defer std.testing.allocator.free(c_source);
@@ -35,10 +35,10 @@ test "ffi handle demo exposes an exported C ABI symbol" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const build_obj_argv = [_][]const u8{ "saasm", "build-obj", sa_source, "-o", "handle.o" };
+    const build_obj_argv = [_][]const u8{ "sa", "build-obj", sa_source, "-o", "handle.o" };
     try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]));
 
-    const ll_file = try std.fs.cwd().openFile("handle.o.saasm.ll", .{});
+    const ll_file = try std.fs.cwd().openFile("handle.o.sa.ll", .{});
     defer ll_file.close();
     const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(ll_bytes);

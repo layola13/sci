@@ -10,8 +10,8 @@ SA 专为高并发服务器设计。`sa_std.netx` 是其核心网络引擎，基
 ## 初始化网络引擎
 在开始监听前，必须初始化引擎池：
 
-```saasm
-@import "sa_std/netx.saasm-iface"
+```sa
+@import "sa_std/netx.sai"
 
 L_START:
     // 初始化 10,000 个连接槽，使用 4 个 Reactor 线程
@@ -24,7 +24,7 @@ L_START:
 ## 处理 Ticket
 Netx 就像一个生产 Ticket 的工厂，你的程序是一个消费 Ticket 的循环：
 
-```saasm
+```sa
 #def NetxProto_HTTP = 1
 #def NetxProto_WS   = 2
 
@@ -46,7 +46,7 @@ L_EVENT_LOOP:
 ## 发送数据
 Netx 提供极速的出站路径：
 
-```saasm
+```sa
     msg = utf8:"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi"
     // 将数据推入 0 号 Reactor 的出站环，发往 slot_id
     res = call @sa_netx_push_outbound(0, slot_id, &msg, 38)
@@ -60,5 +60,5 @@ Netx 的设计目标是在同样的硬件上，吞吐量达到 Bun 的 1.2x - 1.
 - **背压控制**：如果出站环满了，`push_outbound` 会返回 `EAGAIN`，此时业务层应当实施降级策略。
 
 ## 练习
-1. 参照 `sa_std/netx.saasm-layout` 完善一个最小的 HTTP Echo 服务。
+1. 参照 `sa_std/netx.sal` 完善一个最小的 HTTP Echo 服务。
 2. 思考为什么 Ticket 机制比传统的 `epoll` 回调更适合 SA 的所有权系统。

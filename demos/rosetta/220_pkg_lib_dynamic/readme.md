@@ -1,25 +1,25 @@
 # 220 - Pkg Lib Dynamic
 
-This demo splits the package into a host tree and a library tree. The host consumes the ABI declared in `lib/iface.saasm-iface`, while the library side keeps its implementation in `lib/impl/index.saasm` and exports the ABI from `lib/index.saasm`.
+This demo splits the package into a host tree and a library tree. The host consumes the ABI declared in `lib/iface.sai`, while the library side keeps its implementation in `lib/impl/index.sa` and exports the ABI from `lib/index.sa`.
 
 ```text
 demos/rosetta/220_pkg_lib_dynamic/
-├── main.saasm
+├── main.sa
 ├── readme.md
 ├── sa.pkg
 ├── host/
-│   ├── index.saasm
+│   ├── index.sa
 │   └── helpers/
-│       ├── index.saasm
-│       └── host.saasm-layout
+│       ├── index.sa
+│       └── host.sal
 └── lib/
-    ├── iface.saasm-iface
-    ├── index.saasm
+    ├── iface.sai
+    ├── index.sa
     └── impl/
-        ├── index.saasm
+        ├── index.sa
         └── helpers/
-            ├── index.saasm
-            └── lib.saasm-layout
+            ├── index.sa
+            └── lib.sal
 ```
 
-`main.saasm` compiles against the host-side ABI only. `sa.pkg` is future metadata only.
+`main.sa` compiles against the host-side ABI only. `sa.pkg` is future metadata only.

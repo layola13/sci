@@ -1,0 +1,9 @@
+@import "core/option.sal"
+@import "core/result.sal"
+@import "core/iter.sal"
+
+#def RustCore_VERSION = 1
+#def RustCore_SUPPORTS_OPTION = 1
+#def RustCore_SUPPORTS_RESULT = 1
+#def RustCore_SUPPORTS_PANIC = 1
+#def RustCore_SUPPORTS_ITER = 1

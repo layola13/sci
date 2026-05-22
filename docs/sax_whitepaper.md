@@ -11,7 +11,7 @@ ISA, ownership model, and Referee verbatim. This paper only documents the delta.
 ## Identity
 
 - **Not a JS framework**: SAX compiles to WASM. There is no JavaScript bundle.
-- **Not a templating engine**: SAX is lowered to `.saasm` and verified by the same Referee.
+- **Not a templating engine**: SAX is lowered to `.sa` and verified by the same Referee.
 - **Not a new language**: SAX is SA with one added layer — an XML structure wrapper.
 - **Full ownership**: Every state variable is tracked by Capability Mask. Leaks are compile errors.
 
@@ -21,9 +21,9 @@ ISA, ownership model, and Referee verbatim. This paper only documents the delta.
 
 | Command | Pipeline | Output |
 |---|---|---|
-| `saasm sax build <file.sax>` | SAX Parser → Flattener → Referee → WASM Emitter → Airlock Gen | `app.wasm + airlock.js + index.html + generated .saasm` |
-| `saasm sax check <file.sax>` | SAX Parser → Flattener → Referee (SAX rules) | Trap report or OK |
-| `saasm sax new <name>` | scaffold | project directory |
+| `sa sax build <file.sax>` | SAX Parser → Flattener → Referee → WASM Emitter → Airlock Gen | `app.wasm + airlock.js + index.html + generated .sa` |
+| `sa sax check <file.sax>` | SAX Parser → Flattener → Referee (SAX rules) | Trap report or OK |
+| `sa sax new <name>` | scaffold | project directory |
 
 ---
 
@@ -96,7 +96,7 @@ All other SA Traps remain active: `MemoryLeak`, `UseAfterMove`, `BorrowConflict`
 
 Rules:
 - One declaration per line.
-- Types follow SA literal inference (same as `.saasm`).
+- Types follow SA literal inference (same as `.sa`).
 - `alloc N` = heap allocation of N bytes. The Lowerer emits the `alloc` SA instruction.
 - Every `<state>` var **must** appear in the `!release_stmt` at the end of the component.
   Missing release → `SaxStateLeak`. Extra release of nonexistent var → `UseAfterMove`.
@@ -156,7 +156,7 @@ L_ENTRY:
 ```
 
 Rules:
-- Function body is **identical to `.saasm`** — full SA ISA, flat control flow, no `{}`.
+- Function body is **identical to `.sa`** — full SA ISA, flat control flow, no `{}`.
 - Access state via `load state_ptr+OFFSET as TYPE`.
 - Modify state via `store state_ptr+OFFSET, value as TYPE`.
 - Call `call @render()` after state mutations to update the DOM.
@@ -208,8 +208,8 @@ Rules:
 Build:
 
 ```
-saasm sax build counter.sax
-# → dist/app.wasm  dist/airlock.js  dist/index.html  dist/counter.saasm
+sa sax build counter.sax
+# → dist/app.wasm  dist/airlock.js  dist/index.html  dist/counter.sa
 ```
 
 ---
