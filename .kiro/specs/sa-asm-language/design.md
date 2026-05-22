@@ -56,6 +56,25 @@ flowchart LR
 8. **上游可追溯（NEW）**：`#loc` 伪指令 → `upstream_loc` → DWARF `!DILocation` → gdb/lldb 断点。
 9. **错误传播显式化（NEW）**：`!` 后缀函数 + `?` 早返回；不提供任何隐式 unwinding。
 
+### 1.4 宏驱动高级特性演进 (Macro-Driven Advanced Features)
+为了保持 SA-ASM 的核心指令集（ISA）极简（即 Zero-ISA 扩展），且同时具备等同于 Rust 的高级特性，我们确立了**纯宏与静态校验驱动**的实现路线。以下是亟待通过 `[MACRO]` 和 `referee.zig` 实现的 5 大特性：
+
+1. **动态分发与间接调用 (Defunctionalization 代替 `dyn Trait`)**
+   - **痛点**：目前 SA 缺乏 `call_indirect` 函数指针指令，无法优雅实现事件循环（Event Loop）和插件钩子。
+   - **实现方案**：坚决不修改 ISA。通过宏 `[MACRO] DISPATCH` 生成基于 Enum Tag 的静态分支路由树（`eq` + `br`），实现去功能化（Defunctionalization），以 O(log N) 的极低性能损耗模拟动态分发。
+2. **安全的枚举与模式匹配 (Tagged Unions / Sum Types)**
+   - **痛点**：通过原生内存偏移和整数标记手工模拟 `Option/Result` 极易引发内存安全或越界漏洞。
+   - **实现方案**：通过定义标准宏 `[MACRO] MATCH_RESULT`，自动根据内存 Layout 中的 Tag 执行安全解包和条件分支跳转（Exhaustive Match），屏蔽底层的裸指针计算。
+3. **细粒度的结构体字段级借用 (Disjoint Field Borrows)**
+   - **痛点**：目前 `referee.zig` 将借用绑定在整块内存上，造成网络引擎中大结构体（如 `ConnectionSlot`）频繁整块锁死。
+   - **实现方案**：不增加任何新语法，仅强化编译器 `referee.zig` 中对 `ptr_add` 的识别。让编译器认识到借用 `ptr_add obj, 4` 和 `ptr_add obj, 8` 是独立互不干涉的。
+4. **RAII 自动清理与 Drop 语义保护**
+   - **痛点**：异常路径或中途 `return` 极易漏写 `!p` 导致内存或文件描述符泄漏。
+   - **实现方案**：不引入运行时的 `defer`，而是通过强制规范化的作用域收尾宏（如 `[MACRO] DROP_AND_RETURN`）将资源释放指令与 `return` 强制捆绑。
+5. **跨线程安全边界约束 (Send / Sync 类似机制)**
+   - **痛点**：`sa_net_uring` 中的 SpscRing 进行线程间通信时，缺乏机制保证指针跨核心的安全传递。
+   - **实现方案**：在 `verifier.zig` 层面增加对 Capability 的多线程逃逸校验，保障跨核数据投递不发生 Data Race。
+
 ### 1.4 为什么不再生成 Zig 源码
 
 - Zig 前端会重建 AST / 类型推导，浪费已压平的工作。
@@ -98,6 +117,7 @@ SA 编译器全面拥抱 "Agent-First" 理念：
 ### 1.8 SA 标准库 (sa_std) 的能力边界与 FFI 策略 (NEW)
 
 - **纯汇编基元**：`Vec`, `HashMap`, `String`, `Arc/Mutex` 等极轻量数据结构完全由 `.saasm` 宏拼装，零 C 库依赖。
+- **极简格式化打印 (NEW)**：提供 `[MACRO] PRINT!` / `FORMAT!` 高层级宏。采用**编译期静态展开**策略，将格式化字符串拆解为一系列底层的 `STRFMT_*` 调用，通过 Zig 端的 FFI 接口执行高效的类型转字符串（如 `f64` 转换）。
 - **Zig-backed FFI 桥接**：对于高密度计算（JSON 解析、Regex、文件/网络 I/O、事件循环），走 C-ABI 桥接到高效的 Zig 标准库，对外暴露不透明句柄 (Opaque Handle)。
   - **双模 JSON**：提供 DOM 树解析和 100MB+ 大文件 Streaming 游标零拷贝双模 API。
 - **严格剥离重型 C 库**：YAML、XML、TOML 等格式严禁放入 `sa_std`，将被下放至 Package 生态中，由用户按需引入，以维持编译器体积在几 MB 级别。
@@ -112,6 +132,13 @@ SA 编译器全面拥抱 "Agent-First" 理念：
 | Emitters + CLI | W10-11 | R14, R15, R16, R19.3, R19.4 | §3.4, §3.5, §3.6 |
 | sys/FFI/panic runtime | W12 | R13, R17, R18.4 | §3.7 |
 | Pilot + Hello + AutoBevy 1K（最低优先级） | W13-14 | R21, R23.3 | §3.8 |
+
+### 1.10 工业级可伸缩性架构 (Industrial Scalability Architecture) - 紧急 P0
+
+针对大规模（10k+ 函数）工程测试中发现的 $O(N^2)$ 内存爆炸问题，设计进行如下核心校准：
+1. **寄存器作用域局部化**：`Flattener` 必须在进入每个 `@func` 时重置寄存器计数器。全局寄存器 ID 空间被切分为“函数局部 ID 空间”，确保单个函数的校验快照体积与全工程函数总量解耦。
+2. **稀疏状态注解 (Sparse Annotation)**：`AnnotatedInstruction` 不再存储全量寄存器状态数组，而是改为存储 **Delta（状态增量）**。对于未在当前指令发生权限变更的寄存器，快照中不占空间。
+3. **流式发射 (Streaming Emission)**：`LLVM Emitter` 放弃全量内存 Buffer 拼接，改为基于 `std.io.BufferedWriter` 的流式写入，支持边验证边发射，实现内存占用的常数级压缩。
 
 ---
 
@@ -297,6 +324,20 @@ saasm layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
 | `@sys_exit(code)` | `_exit` | `proc_exit` |
 | `@sys_argv(i)` / `@sys_argc()` | 进程栈 | `args_get / args_sizes_get` |
 | **`panic(code)`（NEW）** | `__sa_panic(code)` → 写 `PANIC: code=<N>` 到 stderr + `_exit(128+code)` | `unreachable` opcode |
+| **`sa_fmt_*` (FFI)** | 调 Zig `std.fmt` 实现高性能格式化 | 调 Zig 导出符号 |
+
+**`PRINT!` 宏工作原理**：
+```sa
+// 源码
+EXPAND PRINT! "val: {}", x
+// 展开后 (伪代码)
+tmp_s = call @sa_fmt_i64(x, 10)
+@sys_print("val: ", 5)
+s_ptr = call @sa_fmt_buffer_data(&tmp_s)
+s_len = call @sa_fmt_buffer_len(&tmp_s)
+@sys_print(s_ptr, s_len)
+!tmp_s
+```
 
 **`__sa_panic` 实现**：Zig 写一小段 stub（≤ 30 行），Native 链接期嵌入；WASM 不需要（`unreachable` 即 trap）。
 

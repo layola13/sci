@@ -1,4 +1,66 @@
-# 未完成 TODO
+# 紧急 P0：大规模工程性能与可伸缩性 (Industrial-Scale Performance & Scalability)
+
+> **评估结论**：当前 SA 在 10,000+ 函数规模下存在 $O(N^2)$ 内存爆炸风险（指令数 × 全局寄存器数），导致大规模编译 OOM。这是达成“Zig 速度”宗旨的头号障碍，必须立即修复。
+
+- [x] **1. 寄存器 ID 局部化 (Function-Local Register Scoping)**
+  - **问题**：目前 `reg_count` 是全局的，函数 A 的快照包含函数 B 的寄存器。
+  - **方案**：重构 `flattener.zig` 和 `verifier.zig`，使寄存器 ID 在函数边界内重置。每个函数的校验快照大小仅取决于本函数活跃寄存器数。
+- [x] **2. 稀疏状态追踪 (Sparse State Tracking)**
+  - **问题**：`AnnotatedInstruction` 为每条指令存储全量掩码数组，内存占用 $\approx$ $O(Inst \times Reg)$。
+  - **方案**：仅存储在该指令中**发生状态变更**的寄存器差异（Delta），大幅降低长序列下的内存压强。
+- [x] **3. 流式 IR 发射与 Buffer 复用 (Streaming IR & Buffer Reuse)**
+  - **问题**：`emit_llvm.zig` 全量缓存 IR 文本且存在大量字符串拼接，效率低下。
+  - **方案**：引入 `StreamingEmitter`，边校验边写盘/写管道；使用 `std.SegmentedList` 或高效 Buffer 池减少分配。
+
+---
+
+
+## 极简格式化打印 (Minimal Formatted Printing)
+为了提升开发者体验，计划在 `sa_std` 中实现类似 Rust 的高层级打印宏（基于变长宏特性）：
+
+- [ ] **1. `PRINT!` / `FORMAT!` 静态展开宏**
+  - 功能：解析 `%fmt` 字符串字面量，自动拆解为 `STRFMT_*` 调用链。
+  - 约束：展开结果必须符合所有权契约，自动清理中间生成的 `^ptr`。
+- [ ] **2. 结构体自动反射打印 (`{:?}`)**
+  - 功能：配合 `sa layout` 生成的元数据，自动递归打印结构体成员。
+- [ ] **3. 零分配打印模式 (No-Alloc Printing)**
+  - 功能：支持直接向已有的栈缓冲区或 `Writer` 格式化，避免堆分配。
+
+---
+
+## 宏系统后续演进 (Macro Evolution)
+为了支撑类似 Bevy/ECS 的工业级框架重构，计划引入以下极简宏增强（保持 Zero-AST 原则）：
+
+- [ ] **1. 变长参数支持 (Variadic Macro Parameters)**
+  - 语法：`[MACRO] SYS %name, %params...`
+  - 场景：自动展开任意数量组件的查询与借用。
+- [ ] **2. 编译期条件分支 (Macro-time Conditionals)**
+  - 语法：`[IF %is_mut] ... [ELSE] ... [END_IF]`
+  - 场景：根据组件读写标记自动发射 `&` 或 `=&`。
+- [ ] **3. 工具辅助增强 (Enhanced sa layout)**
+  - 功能：支持导出“布局查找字典”，使宏能根据组件名自动查到偏移量。
+  - 哲学：复杂度留给工具，极简留给宏。
+
+---
+
+## 宏驱动高级特性演进 (Macro-Driven Advanced Features)
+为了保持 SA-ASM 的核心指令集（ISA）极简（Zero-ISA 扩展），且同时具备等同于 Rust 的高级特性，我们确立了**纯宏与静态校验驱动**的实现路线。以下是后续亟待通过 `[MACRO]` 和 `referee.zig` 实现的 5 大特性（优先级按从高到低）：
+
+- [ ] **1. 动态分发与间接调用 (Defunctionalization 代替 `dyn Trait`)**
+  - **痛点**：目前 SA 缺乏 `call_indirect` 函数指针指令，无法优雅实现事件循环（Event Loop）和插件钩子。
+  - **实现方案**：坚决不修改 ISA。通过宏 `[MACRO] DISPATCH` 生成基于 Enum Tag 的静态分支路由树（`eq` + `br`），实现去功能化（Defunctionalization），以 O(log N) 的极低性能损耗模拟动态分发。
+- [ ] **2. 安全的枚举与模式匹配 (Tagged Unions / Sum Types)**
+  - **痛点**：通过原生内存偏移和整数标记手工模拟 `Option/Result` 极易引发内存安全或越界漏洞。
+  - **实现方案**：通过定义标准宏 `[MACRO] MATCH_RESULT`，自动根据内存 Layout 中的 Tag 执行安全解包和条件分支跳转（Exhaustive Match），屏蔽底层的裸指针计算。
+- [ ] **3. 细粒度的结构体字段级借用 (Disjoint Field Borrows)**
+  - **痛点**：目前 `referee.zig` 将借用绑定在整块内存上，造成网络引擎中大结构体（如 `ConnectionSlot`）频繁整块锁死。
+  - **实现方案**：不增加任何新语法，仅强化编译器 `referee.zig` 中对 `ptr_add` 的识别。让编译器认识到借用 `ptr_add obj, 4` 和 `ptr_add obj, 8` 是独立互不干涉的。
+- [ ] **4. RAII 自动清理与 Drop 语义保护**
+  - **痛点**：异常路径或中途 `return` 极易漏写 `!p` 导致内存或文件描述符泄漏。
+  - **实现方案**：不引入运行时的 `defer`，而是通过强制规范化的作用域收尾宏（如 `[MACRO] DROP_AND_RETURN`）将资源释放指令与 `return` 强制捆绑。
+- [ ] **5. 跨线程安全边界约束 (Send / Sync 类似机制)**
+  - **痛点**：`sa_net_uring` 中的 SpscRing 进行线程间通信时，缺乏机制保证指针跨核心的安全传递。
+  - **实现方案**：在 `verifier.zig` 层面增加对 Capability 的多线程逃逸校验，保障跨核数据投递不发生 Data Race。
 
 ## 当前优先级
 - 当前执行顺序：Rust core 基础闭环收口 -> 标准库收口 -> HTTP Client/Server 插件 -> OpenAI 转发服务 (HubProxy) -> 单元测试框架 -> 零信任包管理 -> `sa_net_uring` 深化。
@@ -11,16 +73,16 @@
 - [x] `sa_http_client` 插件实现，目标是独立 `.so`、runtime 热加载、命令一致性测试、HTTP 主路径、流式读取与 runtime descriptor
   - 说明：已补齐 `POST`、自定义 `--header`、请求 body 透传、流式请求 body、以及真实 loopback 回归测试
   - 说明：HTTPS/TLS 出站与证书管理先保留为后续增强，不阻塞当前 HTTP 插件主路径验收
-  - 说明：`saasm run` 已接通 `sa_http_client_*` 插件 ABI，SA 侧可以直接调用客户端接口；仓库全量测试仍有独立回归待清理
+  - 说明：`sa run` 已接通 `sa_http_client_*` 插件 ABI，SA 侧可以直接调用客户端接口；仓库全量测试仍有独立回归待清理
 - [x] `sa_http_server` 插件实现，目标是独立 `.so`、runtime 热加载、scaffold/serve 入口测试、最小 HTTP 响应闭环
   - 说明：已补齐请求头/请求体读取、按路径分发、`/echo` 反射和 `/stream` chunked SSE 回写；后续 HubProxy 仍需 upstream 转发 glue
-  - 说明：`saasm run` 已接通 `sa_http_server_*` 插件 ABI，SA 侧可以直接调用服务端接口；仓库全量测试仍有独立回归待清理
+  - 说明：`sa run` 已接通 `sa_http_server_*` 插件 ABI，SA 侧可以直接调用服务端接口；仓库全量测试仍有独立回归待清理
 - [x] `examples/hubproxy` 实现，作为可运行 OpenAI API 转发示例，不回写主线程分发
 - [x] HubProxy 必须具备真实 `main()` 入口、可配置 upstream、路由 `/v1/chat/completions` 和 `/v1/responses`
 - [x] HubProxy 必须支持 SSE / chunked 流式透传，不允许退化成一次性缓冲伪流
 - [x] HTTP 插件本地验收必须覆盖 descriptor 导出、skills 元数据、命令入口、runtime reload 与失败隔离
-- [x] `saasm run` 已接通 `sa_http_client_*` / `sa_http_server_*` 插件 ABI，并保持插件 handle 外部所有权，不回收为普通堆指针
-- [ ] 仓库级 HTTP/SA 验收补完：修复 `cli_smoke.zig` 里与 HTTP 无关的既有回归后，再把 301/302 的 `saasm run` 过滤测试纳入主验收
+- [x] `sa run` 已接通 `sa_http_client_*` / `sa_http_server_*` 插件 ABI，并保持插件 handle 外部所有权，不回收为普通堆指针
+- [ ] 仓库级 HTTP/SA 验收补完：修复 `cli_smoke.zig` 里与 HTTP 无关的既有回归后，再把 301/302 的 `sa run` 过滤测试纳入主验收
 
 ## 可热插拔插件系统
 - [x] 插件 ABI 版本号与 `plugin_descriptor` 导出
@@ -58,26 +120,26 @@
 - 如果需要改宿主，只允许改 runtime loader / 热重载 / 失败隔离这一层；不允许把插件语义回写进静态分发逻辑。
 
 ## 标准库
-- [x] `sa_std/collections/vec_deque.saasm`
-- [x] `sa_std/collections/binary_heap.saasm`
-- [x] `sa_std/collections/btree_map.saasm`
+- [x] `sa_std/collections/vec_deque.sa`
+- [x] `sa_std/collections/binary_heap.sa`
+- [x] `sa_std/collections/btree_map.sa`
 - [x] HashMap 开放寻址恢复
 
 ## I/O
-- [x] `sa_std/io/buf_reader.saasm`
-- [x] `sa_std/io/buf_writer.saasm`
-- [x] `sa_std/path.saasm`
+- [x] `sa_std/io/buf_reader.sa`
+- [x] `sa_std/io/buf_writer.sa`
+- [x] `sa_std/path.sa`
 
 ## 运行时 / 辅助
-- [x] `sa_std/env.saasm`
-- [x] `sa_std/math.saasm`
-- [x] `sa_std/string_format.saasm`
+- [x] `sa_std/env.sa`
+- [x] `sa_std/math.sa`
+- [x] `sa_std/string_format.sa`
 - [ ] `sa_std/sa.mod`（包管理项，后置到 v0.5；不计入当前标准库收口）
 
 ## 单元测试框架（Native Unit Test Framework）
 - [ ] 编译器前端支持 `@test` 或宏声明测试用例
 - [ ] 提取测试元数据并构建内存 `TestRegistry` 表
-- [ ] `src/cli.zig` 增加 `saasm test` 命令与 `filter` 参数支持
+- [ ] `src/cli.zig` 增加 `sa test` 命令与 `filter` 参数支持
 - [ ] 动态生成测试驱动器（Test Harness）以隔离或连续执行所有测试
 - [ ] `sa_std` 断言宏增强，包含详尽的源文件、行号及 expected/got 差异输出
 - [ ] 整合原 bash 冒烟脚本，将其作为 SA 内部测试框架的基线覆盖
@@ -166,12 +228,12 @@
 
 > **对称性分析原理**：`emit_llvm.zig` 将 SA 寄存器固化为 `alloca` (Mem-slotting)。`llvm2sa` 通过 `opt -passes=reg2mem` 可以得到完美的、无 `PHI` 节点的 LLVM IR，使得逆向翻译为 SA-ASM 成为可能且工程量极低。由于所有权在 LLVM 层丢失，`llvm2sa` 产出的将是 `Untracked` 模式的 SA-ASM，这对于从已通过安全检查的 Rust 降级而来的业务代码是安全且高性能的。
 
-- [ ] **反向验证 PoC** (~200 行)：手工跑 `opt -passes=reg2mem`，用 Zig 解析 `hello.wasm.saasm.ll` 的 `define`、`gep` 和 `store/load`，还原回 `.saasm`。
+- [ ] **反向验证 PoC** (~200 行)：手工跑 `opt -passes=reg2mem`，用 Zig 解析 `hello.wasm.sa.ll` 的 `define`、`gep` 和 `store/load`，还原回 `.sa`。
 - [ ] `src/llvm2sa.zig` (~800-1200 行)：核心文本 `.ll` 解析器与指令逆向翻译。
   - [ ] 降级 `alloca` -> `stack_alloc` / 虚拟寄存器。
   - [ ] 降级 `icmp`, `add`, `br` 为 SA 对等指令。
   - [ ] 降级定长偏移的 GEP (`getelementptr`)。
   - [ ] 降级动态变量偏移的 GEP (利用 `ptr_add` + `mul`)。
 - [ ] 外部依赖降级（`call @malloc` / `@free`）。
-- [ ] `src/cli.zig` 扩展：增加 `saasm llvm2sa <file.ll>` 子命令。
+- [ ] `src/cli.zig` 扩展：增加 `sa llvm2sa <file.ll>` 子命令。
 - [ ] 测试套件集成与黄金文件测试。

@@ -1,5 +1,14 @@
 # 实现计划：SA 线性所有权语言与编译器（按版本路线图）
 
+## 紧急 P0 任务：工业级性能重构 (Industrial Performance Refactor)
+
+> **当前状态**：通过 `demos/compare` 基准测试发现，由于寄存器 ID 全局化，在大规模（10k+ 函数）工程下编译会触发 $O(N^2)$ 内存爆炸并 OOM。
+> **目标**：将内存占用从 $O(Inst \times GlobalReg)$ 降至 $O(Inst \times LocalReg)$，实现真正的线性扩展。
+
+- [x] **Task P0.1: 寄存器作用域局部化**：修改 Flattener 逻辑，确保每个 `@func` 拥有独立的寄存器 ID 空间。
+- [x] **Task P0.2: 稀疏状态注解存储**：重构 `AnnotatedInstruction`，由全量 `[]u16` 快照改为记录状态增量（Delta），解决内存爆炸。
+- [x] **Task P0.3: 流式 Emitter 改造**：将 `emit_llvm.zig` 改造为流式写入，减少中间内存缓冲，支持边验证边发射。
+
 ## 当前执行顺序
 
 1. 先完成主线：标准库收口、单元测试框架、零信任包管理、`sa_net_uring`、`llvm2sa`。
@@ -27,8 +36,8 @@
 - “完成”必须同时满足：`.so` 可被宿主 runtime 发现，命令入口可执行，skills 可收集，热重载测试通过，且失败插件不会污染其他插件的加载结果。
 - 任何插件相关实现都不得把主线程从 runtime loader 回写成静态注册；如果需要改宿主，只能改 loader/隔离/热重载这一层。
 - 任何插件任务的验收都必须写清楚：要修改的目录、是否会影响主线程、是否需要 `.so` build、是否需要 hot reload 测试、是否需要失败隔离验证。
-- 如果插件最终要开放给 SA 调用，还要额外验收 `saasm run` / `@extern` 直调该插件 ABI，并确认解释器不会把插件 handle 当普通堆指针释放。
-- 目前 HTTP client/server 已完成 `saasm run` 直调桥接，后续新增插件若要给 SA 调用，必须沿用同样的 runtime `.so` + interpreter bridge 模式，不能回到主线程静态分发。
+- 如果插件最终要开放给 SA 调用，还要额外验收 `sa run` / `@extern` 直调该插件 ABI，并确认解释器不会把插件 handle 当普通堆指针释放。
+- 目前 HTTP client/server 已完成 `sa run` 直调桥接，后续新增插件若要给 SA 调用，必须沿用同样的 runtime `.so` + interpreter bridge 模式，不能回到主线程静态分发。
 
 **v0.1 不做的事**（这是刻意的风险削减）：
 - ❌ 不手写 WASM 二进制 Emitter（走 `zig cc -target wasm32-wasi -O ReleaseSmall`）
@@ -50,9 +59,9 @@ sa/
 │   ├── referee/             # 状态机 + Phi + 气闸舱 + 早返回 + 原子 ordering
 │   ├── emit_llvm/           # LLVM IR 文本发射器 + DWARF
 │   ├── emit_wasm/           # [v0.2] 手写 WASM 二进制（v0.1 为空目录）
-│   ├── interp/              # saasm run 内存解释器
+│   ├── interp/              # sa run 内存解释器
 │   ├── driver/              # zig cc 子进程封装
-│   ├── cli/                 # saasm 四模命令行
+│   ├── cli/                 # sa 四模命令行
 │   ├── runtime/             # @sys_* / __sa_panic / snapshot
 │   └── libsa_scope/         # 前端降级 helper (C-ABI)
 ├── tests/{unit,property,integration,golden,pilot}/
@@ -64,7 +73,7 @@ sa/
 
 # Version 0.1 — MVP：跑通闭环（14 周）
 
-目标：一段可编译的 `.saasm` 源码能通过 CLI 四模分别产出可运行的 `.exe`、`.wasm`，并在 Referee 上守住所有权正确性。**WASM 产线这一版完全委托 `zig cc`。**
+目标：一段可编译的 `.sa` 源码能通过 CLI 四模分别产出可运行的 `.exe`、`.wasm`，并在 Referee 上守住所有权正确性。**WASM 产线这一版完全委托 `zig cc`。**
 
 ## v0.1 任务
 
@@ -183,7 +192,7 @@ sa/
 
   - [x] 4.17 原生类型字面量合法性（11 种 + `v128`）
     - `PrimType` / `parsePrimType` / layout / LLVM type mapping 已接入 `v128`
-    - `saasm run` 遇 `v128` 明确返回 `UnsupportedInstruction`，不伪造语义
+    - `sa run` 遇 `v128` 明确返回 `UnsupportedInstruction`，不伪造语义
     - _Requirements: R2.4_
 
   - [x]* 4.18 类型字面量 PBT — **P14**
@@ -395,7 +404,7 @@ sa/
     - _Requirements: R14.9, R14.10_
 
   - [x] 8.7 索引访问物理降维（`mul + GEP + load`）
-    - `demos/rosetta/44_slice_iteration/main.saasm` 已实测走通 `offset = mul idx, 4` -> `ip = ptr_add data, offset` -> `value = load ip+0 as i32`
+    - `demos/rosetta/44_slice_iteration/main.sa` 已实测走通 `offset = mul idx, 4` -> `ip = ptr_add data, offset` -> `value = load ip+0 as i32`
     - `tests/cli_smoke.zig` 已固定验证该 demo `build-exe` 后真实运行并打印 `10\n`
     - _Requirements: R6.5_
 
@@ -452,17 +461,17 @@ sa/
 
   - [x] 8.18 `zig cc` 子进程封装 `driver/zigcc.zig`
     - 把 `.ll` 写临时文件
-    - `saasm build-exe` → `zig cc <ll> -o <exe> -O ReleaseSmall`（默认 O1 档，`--release-fast` 切 O3）
-    - **`saasm build-wasm` → `zig cc <ll> -target wasm32-wasi -o <wasm> -O ReleaseSmall`（v0.1 全委托 Zig，不用手写 Emitter）**
-    - `saasm build-obj` → `zig cc <ll> -c -o <o>`
+    - `sa build-exe` → `zig cc <ll> -o <exe> -O ReleaseSmall`（默认 O1 档，`--release-fast` 切 O3）
+    - **`sa build-wasm` → `zig cc <ll> -target wasm32-wasi -o <wasm> -O ReleaseSmall`（v0.1 全委托 Zig，不用手写 Emitter）**
+    - `sa build-obj` → `zig cc <ll> -c -o <o>`
     - _Requirements: R14.1, R14.11, R15.1, R15.2, R16.2, R16.3, R16.4_
 
-  - [x] 8.19 CLI `saasm run` / `build-exe` / `build-wasm` / `build-obj` 四模路由
+  - [x] 8.19 CLI `sa run` / `build-exe` / `build-wasm` / `build-obj` 四模路由
     - Trap 返回非零退出码 + JSON 到 stderr
     - _Requirements: R16.1, R16.5_
 
   - [x] 8.20 CLI 二进制分发约束
-    - `zig build -Drelease-small` 产物 ≤ 15 MB（MVP），`zig-out/bin/saasm` 为静态、剥离后的 ELF，可直接满足分发约束
+    - `zig build -Drelease-small` 产物 ≤ 15 MB（MVP），`zig-out/bin/sa` 为静态、剥离后的 ELF，可直接满足分发约束
     - _Requirements: R16.6_
 
   - [x] 8.21 `-g` / `--no-debug` 调试开关接入
@@ -472,8 +481,8 @@ sa/
   - [ ] 8.22 Agent-First JSON 诊断体系改造 (NEW)
     - 为 `trap.zig` 中的报错赋予稳定的 `SA-XXX` 错误码
     - 实现全局 `--json` 标志，输出含 `repair`、`compile_tokens` 和 `instruction_count` 的结构化诊断
-    - 新增 `saasm explain` 和 `saasm fix --plan` 骨架命令
-    - 当前已落地的子集：`trap.zig` 已支持 `repair` 对象，`src/cli.zig` / `src/cli_util.zig` 已接入 `SA-CLI-001..015` 诊断码，`saasm explain` / `saasm fix --plan` / `saasm skills` 已实现并有 `tests/cli_smoke.zig` 覆盖
+    - 新增 `sa explain` 和 `sa fix --plan` 骨架命令
+    - 当前已落地的子集：`trap.zig` 已支持 `repair` 对象，`src/cli.zig` / `src/cli_util.zig` 已接入 `SA-CLI-001..015` 诊断码，`sa explain` / `sa fix --plan` / `sa skills` 已实现并有 `tests/cli_smoke.zig` 覆盖
     - 仍待补齐：trap 侧稳定 `SA-XXX` 命名与后续 trap 词表统一
 
   - [x] 8.23 可热插拔 CLI 插件系统重构 (NEW，后置)
@@ -505,32 +514,32 @@ sa/
       - `src/llvm2sa/`：descriptor / skills / command consistency / runtime `.so`
       - `src/sax/`：descriptor / skills / runtime `.so`，并通过 compile-time plugin-mode split 避免将 `std.process.Child.run` 拉进 shared-library 图
       - `src/db/`：descriptor / skills / runtime `.so`，nested test graph 通过本地 stub 收口，runtime wrapper 图通过真实 DB 入口
-      - `src/http_client/` 与 `src/http_server/`：`saasm run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
+      - `src/http_client/` 与 `src/http_server/`：`sa run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
 
   - [ ] 8.24 标准库 JSON FFI 与生态剥离 (NEW，后置)
     - 打通 `sa_std/encoding/json` 的 DOM 与流式双模 FFI 桥接
     - 在文档层明确拒绝 YAML/XML 进入标准库，规划至周边 Package 生态
 
-- [x] 9. W10-11 内存解释器（`saasm run`）
+- [x] 9. W10-11 内存解释器（`sa run`）
 
   - [x] 9.1 大 switch 分派全部 `InstKind`
-    - `call_indirect` 现在优先使用寄存器里携带的 vtable provenance；`demos/rosetta/07_trait_vtable/main.saasm` 已可在 `saasm run` 下打印 `77`
-    - 解释器分派和 `call_indirect` 路径已被 `tests/cli_smoke.zig` 的 `trait vtable demo runs through saasm run` 覆盖
+    - `call_indirect` 现在优先使用寄存器里携带的 vtable provenance；`demos/rosetta/07_trait_vtable/main.sa` 已可在 `sa run` 下打印 `77`
+    - 解释器分派和 `call_indirect` 路径已被 `tests/cli_smoke.zig` 的 `trait vtable demo runs through sa run` 覆盖
     - _Requirements: R16.1_
 
   - [x] 9.2 `@sys_*` 原语原生实现
     - `@sys_print` / `@sys_read_file` / `@sys_write_file` / `@sys_exit` / `@sys_argv` / `@sys_argc`
-    - 兼容 legacy `@sa_print_bytes`，`demos/rosetta/01_hello_world/main.saasm` 已可在 `saasm run` 下真实打印
-    - 新增 `demos/support/sys_runtime_probe.saasm`，覆盖 `saasm run` 下的 argv、文件读写、打印与退出路径
+    - 兼容 legacy `@sa_print_bytes`，`demos/rosetta/01_hello_world/main.sa` 已可在 `sa run` 下真实打印
+    - 新增 `demos/support/sys_runtime_probe.sa`，覆盖 `sa run` 下的 argv、文件读写、打印与退出路径
     - _Requirements: R16.1, R17.1–R17.5_
 
   - [x] 9.3 气闸舱语义（Interp 模式）
-    - `demos/support/airlock_probe.saasm` 在 `saasm run` 下验证 `assume_safe` / `assume_borrow` 保持指针值不变，并由 `tests/cli_smoke.zig` 覆盖 native `build-exe` 真实运行
+    - `demos/support/airlock_probe.sa` 在 `sa run` 下验证 `assume_safe` / `assume_borrow` 保持指针值不变，并由 `tests/cli_smoke.zig` 覆盖 native `build-exe` 真实运行
     - `assume_*` 只更新 mask，不做实际指针操作
     - _Requirements: R13.2, R13.3_
 
   - [x] 9.4 插件 ABI bridge
-    - `saasm run` 已可通过 `@extern` 直接调用 `sa_http_client_*` / `sa_http_server_*`
+    - `sa run` 已可通过 `@extern` 直接调用 `sa_http_client_*` / `sa_http_server_*`
     - 解释器对插件句柄增加了外部所有权标记，避免把插件返回的 handle 当普通堆指针释放
     - 仓库级 `cli_smoke.zig` 仍有少数非 HTTP 回归待清理
     - _Requirements: R16.1, R13.8_
@@ -549,13 +558,13 @@ sa/
     - _Requirements: R17.1–R17.5_
 
   - [x] 10.2 **v0.1 WASM 路径**：`@sys_*` 映射到 WASI import
-    - `tests/cli_smoke.zig` 已验证 `saasm build-wasm` 产物包含 `fd_write` / `proc_exit` / `args_get` / `args_sizes_get`
+    - `tests/cli_smoke.zig` 已验证 `sa build-wasm` 产物包含 `fd_write` / `proc_exit` / `args_get` / `args_sizes_get`
     - 通过 `zig cc -target wasm32-wasi` 自动链接 Zig 的 WASI stub
     - 不需要手写 WASI 绑定（这部分移到 v0.2）
     - _Requirements: R15.2, R15.5, R17.1–R17.5_
 
   - [x]* 10.3 `@sys_*` 双轨等价 PBT — **P23**
-    - `tests/cli_smoke.zig` 已覆盖 `demos/rosetta/01_hello_world/main.saasm` 的 `build-exe` + `build-wasm` 双轨运行，并对比 stdout / 退出码
+    - `tests/cli_smoke.zig` 已覆盖 `demos/rosetta/01_hello_world/main.sa` 的 `build-exe` + `build-wasm` 双轨运行，并对比 stdout / 退出码
     - _Requirements: R15.5, R17.1–R17.5_
 
   - [x] 10.4 `__sa_panic` 运行时符号（Native）
@@ -563,8 +572,8 @@ sa/
     - _Requirements: R18.4_
 
   - [x] 10.5 句柄模式 FFI 集成样例
-    - `tests/integration/ffi_handle.saasm`：`@extern` 分配返回 ID → 后续查表借用
-    - 已补 `tests/integration/ffi_handle_demo.zig` / `tests/integration/ffi_handle/handle.saasm` / `tests/integration/ffi_handle/handle_host.c`，并纳入 `zig build test`
+    - `tests/integration/ffi_handle.sa`：`@extern` 分配返回 ID → 后续查表借用
+    - 已补 `tests/integration/ffi_handle_demo.zig` / `tests/integration/ffi_handle/handle.sa` / `tests/integration/ffi_handle/handle_host.c`，并纳入 `zig build test`
     - _Requirements: R13.8_
 
   - [x] 10.6 `@export` 对外符号样例
@@ -595,9 +604,9 @@ sa/
   - Hello-Compute 端到端：`build-exe` → `.exe` 跑通；`build-wasm` → `.wasm` 在 Wasmtime 跑通
   - v0.1 WASM 体积目标 ≤ 48 KB（由 `zig cc -O ReleaseSmall` 产出，允许较大；v0.2 手写 Emitter 再压到 32 KB）
 
-- [x] 12b. `saasm layout` 布局生成工具（R7b）
+- [x] 12b. `sa layout` 布局生成工具（R7b）
 
-  - [x] 12b.1 实现 `saasm layout --name NAME --fields "field:type, ..."` 子命令
+  - [x] 12b.1 实现 `sa layout --name NAME --fields "field:type, ..."` 子命令
     - 解析字段列表，按对齐规则计算偏移量
     - 输出 `#def` 字典文本到 stdout
     - _Requirements: R7b.1, R7b.2, R7b.3, R7b.4_
@@ -641,11 +650,11 @@ sa/
     - _Requirements: R23.4_
 
   - [x] 13.7 Hello-Compute `.exe` + `.wasm` 端到端测试
-    - `tests/cli_smoke.zig` 已覆盖 `demos/rosetta/98_build_pipeline/main.saasm` 的 native `build-exe` 与 wasm `build-wasm` 端到端输出/退出码
+    - `tests/cli_smoke.zig` 已覆盖 `demos/rosetta/98_build_pipeline/main.sa` 的 native `build-exe` 与 wasm `build-wasm` 端到端输出/退出码
     - _Requirements: R15.1, R15.3, R16.2, R16.3_
 
   - [x] 13.8 GDB/LLDB 上游行号断点验证
-    - `tests/cli_smoke.zig` 以 `-g` 编译最小 `hello.saasm`，并用 `gdb` 在 `hello.rs:10` 下断点实际命中
+    - `tests/cli_smoke.zig` 以 `-g` 编译最小 `hello.sa`，并用 `gdb` 在 `hello.rs:10` 下断点实际命中
     - `_debug` 路径保留 `.debug_line`，`build-exe -g` 可在 `gdb` 中回溯到上游源文件
     - _Requirements: R19.5, R19.6_
 
@@ -801,7 +810,7 @@ sa/
     - _Requirements: R19.4, R19.5_
 
 - [ ] 21. v0.2 切换
-  - CLI `saasm build-wasm` 默认改走手写 Emitter
+  - CLI `sa build-wasm` 默认改走手写 Emitter
   - 保留 `--via-zigcc` 开关以便对比回归
   - 更新白皮书与 design 文档中的 WASM 章节
 
@@ -911,13 +920,13 @@ sa/
 
 - [x] 29. `libsa_async` 异步状态机宏模板（R26）
 
-  - [x] 29.1 编写 `libsa_async.saasm` 宏文件
+  - [x] 29.1 编写 `libsa_async.sa` 宏文件
     - 包含 `ASYNC_CTX_DEF` / `ASYNC_STATE_BEGIN` / `ASYNC_STATE_END` / `ASYNC_POLL_PROLOGUE` / `ASYNC_AWAIT_POINT` / `ASYNC_AWAIT_POINT_FINAL` / `ASYNC_RETURN_PENDING` / `ASYNC_READY` / `ASYNC_INVALID_STATE` 等标准宏
     - 其中前者覆盖状态机骨架与恢复入口，后者覆盖最终收尾与非法状态处理
     - _Requirements: R26.1, R26.3_
 
-  - [x] 29.2 Flattener 文件拼接机制（`@import "libsa_async.saasm"`）
-    - 在预处理阶段把外部 `.saasm` 文件内容原样插入当前源码
+  - [x] 29.2 Flattener 文件拼接机制（`@import "libsa_async.sa"`）
+    - 在预处理阶段把外部 `.sa` 文件内容原样插入当前源码
     - _Requirements: R26.4_
 
   - [x] 29.3 用 `libsa_async` 重写案例 23 的 demo
@@ -959,14 +968,14 @@ sa/
 
 ## v0.4 任务
 
-- [ ] 31. 接口契约文件 `.saasm-iface`（R28）
+- [ ] 31. 接口契约文件 `.sai`（R28）
 
-  - [ ] 31.1 定义 `.saasm-iface` 文件格式
+  - [ ] 31.1 定义 `.sai` 文件格式
     - 仅包含 `@extern` 签名声明（含 cap_prefix + ty + 返回类型 + `!` 后缀）
     - 不包含函数体、不包含 `#def`、不包含 `@const`
     - _Requirements: R28.1_
 
-  - [ ] 31.2 Flattener 支持 `@import "module.saasm-iface"`
+  - [ ] 31.2 Flattener 支持 `@import "module.sai"`
     - 将接口文件中的 `@extern` 声明注入当前编译单元
     - 支持相对路径与绝对路径
     - _Requirements: R28.2_
@@ -980,7 +989,7 @@ sa/
     - _Requirements: R28.4_
 
   - [ ] 31.5 并行编译验证
-    - 多个 `.saasm` 文件引用同一 `.saasm-iface`，各自独立编译，最后链接
+    - 多个 `.sa` 文件引用同一 `.sai`，各自独立编译，最后链接
     - 验证结果与串行编译等价
     - _Requirements: R28.5_
 
@@ -988,18 +997,18 @@ sa/
     - 接口文件修改时自动标记依赖方需重新验证（文件哈希比对）
     - _Requirements: R28.6_
 
-- [ ] 32. 版本化布局文件 `.saasm-layout`（R29）
+- [ ] 32. 版本化布局文件 `.sal`（R29）
 
-  - [ ] 32.1 定义 `.saasm-layout` 文件格式
+  - [ ] 32.1 定义 `.sal` 文件格式
     - `#version N` 元数据行 + `#def` 常量声明
     - _Requirements: R29.1, R29.6_
 
-  - [ ] 32.2 Flattener 支持 `@import "entity.saasm-layout"`
+  - [ ] 32.2 Flattener 支持 `@import "entity.sal"`
     - 记录引用的 `#version` 值
     - _Requirements: R29.2_
 
   - [ ] 32.3 版本冲突检测
-    - 两个 `.saasm` 引用同一布局文件的不同版本 → 链接期 `Trap: LayoutVersionConflict`
+    - 两个 `.sa` 引用同一布局文件的不同版本 → 链接期 `Trap: LayoutVersionConflict`
     - 通过在 `.o` 文件中嵌入版本元数据实现
     - _Requirements: R29.4_
 
@@ -1037,7 +1046,7 @@ sa/
 - [ ] 34. 多 LLM 并行生成验证
 
   - [ ] 34.1 设计"N 个 LLM 实例并行生成 N 个函数"的测试协议
-    - 每个 LLM 实例只看到 `.saasm-iface` + `.saasm-layout`，独立生成一个函数
+    - 每个 LLM 实例只看到 `.sai` + `.sal`，独立生成一个函数
     - 最后链接，验证 Referee 通过 + 运行正确
     - _Requirements: R28.5, R30.4_
 
@@ -1077,8 +1086,8 @@ sa/
     - _Requirements: R31a.3, R31a.4_
 
   - [ ] 35.4 依赖接口与布局自动注入
-    - 依赖包的 `.saasm-iface` 自动 `@import` 到当前编译单元
-    - 依赖包的 `.saasm-layout` `#def` 自动注入，带 `pkg_url.FIELD_NAME` 命名空间前缀
+    - 依赖包的 `.sai` 自动 `@import` 到当前编译单元
+    - 依赖包的 `.sal` `#def` 自动注入，带 `pkg_url.FIELD_NAME` 命名空间前缀
     - _Requirements: R31.3, R31.4_
 
   - [ ] 35.5 重复导出 / 版本冲突 / 预编译产物拒绝
@@ -1301,55 +1310,55 @@ sa/
 - [ ] 37. `sa_std` 标准库 v0.1
 
   - [x] 37.0 SA-facing Zig-backed std facade
-    - `sa_std/{io,fs,net,fmt}.saasm` 作为只含 `@import` 的模块入口
-    - `sa_std/{io,fs,net,fmt}.saasm-iface` 声明 Zig-backed `@extern` API
-    - `sa_std/{io,fs,net,fmt}.saasm-layout` 声明显式布局、错误码和 flag 常量
+    - `sa_std/{io,fs,net,fmt}.sa` 作为只含 `@import` 的模块入口
+    - `sa_std/{io,fs,net,fmt}.sai` 声明 Zig-backed `@extern` API
+    - `sa_std/{io,fs,net,fmt}.sal` 声明显式布局、错误码和 flag 常量
     - 句柄/缓冲区全部显式传递，并要求调用方显式 `close` / `free` / `flush`
     - 保留 `sa_print_bytes` demo 兼容入口
 
-  - [x] 37.1 `sa_std/string.saasm`：字符串操作宏
+  - [x] 37.1 `sa_std/string.sa`：字符串操作宏
     - `STR_LEN` / `STR_CONCAT` / `STR_EQ` / `STR_SLICE`
     - 基于胖指针 `[data_ptr | len]` 布局
 
-  - [x] 37.2 `sa_std/vec.saasm`：动态数组宏
+  - [x] 37.2 `sa_std/vec.sa`：动态数组宏
     - `VEC_NEW` / `VEC_PUSH` / `VEC_GET` / `VEC_LEN` / `VEC_FREE`
     - 基于 `[data_ptr | len | cap]` 布局 + `alloc` 扩容
 
-  - [x] 37.3 `sa_std/hashmap.saasm`：哈希表宏
+  - [x] 37.3 `sa_std/hashmap.sa`：哈希表宏
     - 开放寻址法 + FNV-1a 哈希
     - `MAP_NEW` / `MAP_PUT` / `MAP_GET` / `MAP_DEL` / `MAP_FREE`
 
-  - [x] 37.3a `sa_std/hashset.saasm`：哈希集合宏
-    - 基于现有 `sa_std/hashmap.saasm` 封装，值使用非零哨兵
+  - [x] 37.3a `sa_std/hashset.sa`：哈希集合宏
+    - 基于现有 `sa_std/hashmap.sa` 封装，值使用非零哨兵
     - `SET_NEW` / `SET_INSERT` / `SET_CONTAINS` / `SET_REMOVE` / `SET_FREE`
 
-  - [x] 37.3b `sa_std/collections/hashset.saasm`：集合命名空间入口
-    - 仅透出 `../hashset.saasm` 作为薄包装
+  - [x] 37.3b `sa_std/collections/hashset.sa`：集合命名空间入口
+    - 仅透出 `../hashset.sa` 作为薄包装
 
-  - [x] 37.4 `sa_std/sort.saasm`：排序宏
+  - [x] 37.4 `sa_std/sort.sa`：排序宏
     - 快速排序（`[MACRO] QSORT %arr, %len, %elem_size, %cmp_fn`）
 
-  - [x] 37.5 `sa_std/io.saasm`：IO 便利宏
+  - [x] 37.5 `sa_std/io.sa`：IO 便利宏
     - `PRINTLN` / `READ_LINE` / `FORMAT_INT`（基于 `@sys_print` + `@sys_read_file`）
 
   - [ ] 37.6 打包为 `sa_std` 包
-    - 创建 `sa_std/sa.pkg` + `sa_std/*.saasm-iface`
+    - 创建 `sa_std/sa.pkg` + `sa_std/*.sai`
     - 发布到本地 registry
 
-  - [x] 37.7 `sa_std/time.saasm`：时间/日期便利宏
+  - [x] 37.7 `sa_std/time.sa`：时间/日期便利宏
     - `TIME_NOW_NS` / `TIME_NOW_UNIX_S` / `TIME_NOW_UNIX_MS` / `TIME_NOW_UNIX_NS`
     - `TIME_UTC_NOW` / `TIME_SLEEP_MS` / `TIME_SLEEP_NS` / `TIME_DURATION_*`
     - 直连 Zig-backed monotonic / system / UTC calendar ABI
 
-  - [x] 37.8 `sa_std/sync/mutex.saasm`：互斥锁宏
+  - [x] 37.8 `sa_std/sync/mutex.sa`：互斥锁宏
     - `MUTEX_NEW` / `MUTEX_LOCK` / `MUTEX_UNLOCK`
     - 基于 `atomic_rmw_xchg` + `sa_time_sleep_ns` 的自旋等待与 release 解锁
 
-  - [x] 37.9 `sa_std/sync/once.saasm`：单次初始化宏
+  - [x] 37.9 `sa_std/sync/once.sa`：单次初始化宏
     - `ONCE_NEW` / `ONCE_IS_READY` / `ONCE_TRY_CLAIM` / `ONCE_WAIT_READY` / `ONCE_PUBLISH` / `ONCE_GET` / `ONCE_GET_OR_INIT`
     - 基于 `atomic_load` + `cmpxchg` + `sa_time_sleep_ns` 的 OnceCell 懒加载与竞态收敛
 
-  - [x] 37.10 `sa_std/sync/mpsc.saasm`：多生产者单消费者通道宏
+  - [x] 37.10 `sa_std/sync/mpsc.sa`：多生产者单消费者通道宏
     - `MPSC_NEW` / `MPSC_FREE` / `MPSC_TRY_SEND` / `MPSC_SEND` / `MPSC_TRY_RECV` / `MPSC_RECV`
     - 基于内联环形缓冲区、原子 head/tail 指针和 slot ready 标志的 bounded MPSC 队列
 
@@ -1408,7 +1417,7 @@ sa/
   - [ ] 40.3 在 Flattener 阶段收集测试元数据至 `TestRegistry`
 
 - [ ] 41. CLI 与 Test Runner
-  - [ ] 41.1 扩展 `src/cli.zig` 支持 `saasm test`
+  - [ ] 41.1 扩展 `src/cli.zig` 支持 `sa test`
   - [ ] 41.2 支持 `--filter` 过滤特定测试
   - [ ] 41.3 动态生成虚拟入口函数，编排测试调用与执行隔离
   - [ ] 41.4 控制台进度打印、隔离进程运行、退出状态判断（捕获 103 Panic）
@@ -1418,7 +1427,7 @@ sa/
   - [ ] 42.2 提供基础的 Mock 机制（如内存 I/O 缓冲）
 
 - [ ] 43. 测试用例迁移
-  - [ ] 43.1 逐步将 `test_all_300.sh` 中的 demo 转化为原生 `@test` 并用 `saasm test` 验证
+  - [ ] 43.1 逐步将 `test_all_300.sh` 中的 demo 转化为原生 `@test` 并用 `sa test` 验证
 
 ---
 
@@ -1432,7 +1441,7 @@ sa/
 
 - [ ] 1. 实现 `.sadb-schema` 编译器（`src/db/schema.zig`）
   - [ ] 1.1 扫描 `#def COL_*_STRIDE` 与 `#def TABLE_*_ROW_BYTES`
-  - [ ] 1.2 生成 `.iface` 接口文件（纯文本 `#def` 副本）
+  - [ ] 1.2 生成 `.sai` 接口文件（纯文本 `#def` 副本）
   - [ ] 1.3 验证容量（`MAX_ROWS * TABLE_ROW_BYTES ≤ 64GB`）
   - _Requirements: R34.1, R2.4_
 
@@ -1474,7 +1483,7 @@ sa/
 ### M3：查询模块编译 + SHA-256 注册 + X 光扫描（W5–W6）
 
 - [ ] 8. 查询模块编译（`src/db/qmod.zig`）
-  - [ ] 8.1 `.query.saasm` → `<sha256>.qmod` 二进制编译
+  - [ ] 8.1 `.query.sa` → `<sha256>.qmod` 二进制编译
   - [ ] 8.2 源码 SHA-256 哈希计算与注册
   - [ ] 8.3 查询模块注册表（内存 HashMap）
   - _Requirements: R34.2_
@@ -1510,16 +1519,16 @@ sa/
 ### M5：CLI 子命令 + ingest + snapshot（W8）
 
 - [ ] 14. CLI 子命令分发（`src/db/cli_db.zig` + hook 进 `src/cli.zig`）
-  - [ ] 14.1 `saasm db init <table>.sadb-schema`
-  - [ ] 14.2 `saasm db register <query>.saasm`
-  - [ ] 14.3 `saasm db exec <sha256> --params <file>`
-  - [ ] 14.4 `saasm db ingest <table> <csv|jsonl>`
-  - [ ] 14.5 `saasm db snapshot <table>`
-  - [ ] 14.6 `saasm db restore <table> <epoch>`
-  - [ ] 14.7 `saasm db inspect <sha256>`
-  - [ ] 14.8 `saasm db compact <table>`
-  - [ ] 14.9 `saasm db lock <table>`
-  - [ ] 14.10 `saasm db verify <table>`
+  - [ ] 14.1 `sa db init <table>.sadb-schema`
+  - [ ] 14.2 `sa db register <query>.sa`
+  - [ ] 14.3 `sa db exec <sha256> --params <file>`
+  - [ ] 14.4 `sa db ingest <table> <csv|jsonl>`
+  - [ ] 14.5 `sa db snapshot <table>`
+  - [ ] 14.6 `sa db restore <table> <epoch>`
+  - [ ] 14.7 `sa db inspect <sha256>`
+  - [ ] 14.8 `sa db compact <table>`
+  - [ ] 14.9 `sa db lock <table>`
+  - [ ] 14.10 `sa db verify <table>`
   - _Requirements: R34.11_
 
 - [ ] 15. Snapshot 与恢复（`src/db/snapshot.zig`）
@@ -1557,7 +1566,7 @@ sa/
   - [ ] 20.3 容量溢出（Blob OOM / 行游标溢出）
   - [ ] 20.4 数据完整性（Insert + Query + Snapshot）
 
-- [ ] 21. 双 11 抢购 demo（`demos/flash_sale.saasm`）
+- [ ] 21. 双 11 抢购 demo（`demos/flash_sale.sa`）
   - [ ] 21.1 10 万 SKU，初始库存 1000
   - [ ] 21.2 单线程 Insert + Update（扣库存）+ Query（统计）
   - [ ] 21.3 性能目标：1KW TPS 扣减（单线程）
@@ -1604,9 +1613,9 @@ sa/
   - _Requirements: R35.4, R35.6_
 
 - [ ] 45. 登记 SA 端契约骨架（仅文件骨架，不接入 build）
-  - [ ] 45.1 创建 `sa_std/netx.saasm-iface`：7 条 `@extern` 声明
-  - [ ] 45.2 创建 `sa_std/netx.saasm-layout`：`Ticket_*` 偏移 + `NetxProto_*` 枚举
-  - [ ] 45.3 创建 `sa_std/netx.saasm`：`@import` 上面两个文件
+  - [ ] 45.1 创建 `sa_std/netx.sai`：7 条 `@extern` 声明
+  - [ ] 45.2 创建 `sa_std/netx.sal`：`Ticket_*` 偏移 + `NetxProto_*` 枚举
+  - [ ] 45.3 创建 `sa_std/netx.sa`：`@import` 上面两个文件
   - _Requirements: R35.10_
 
 ### M1：物理基座（W1–W3）
@@ -1614,7 +1623,7 @@ sa/
 - [ ] 46. 新增 `src/runtime/sa_net_uring.zig` 骨架
   - [ ] 46.1 `ConnectionSlot align(64) struct`：fd + 9 态枚举 + 4 KB inline buffer + overflow 链 + `inflight_zc` 计数
   - [ ] 46.2 `SlotPool`：`mmap(MAP_POPULATE | MAP_HUGETLB)` 一次性预分配 10⁵ – 10⁶ 槽位
-  - [ ] 46.3 Zig 侧零分配审计:用 `@memset` 清零，禁止调用 `sa_std/core/mem.saasm`
+  - [ ] 46.3 Zig 侧零分配审计:用 `@memset` 清零，禁止调用 `sa_std/core/mem.sa`
   - _Requirements: R35.1, R35.2_
 
 - [ ] 47. `io_uring` reactor 骨架
@@ -1669,7 +1678,7 @@ sa/
   - [ ] 54.1 Inbound Ring：reactor → SA（SPSC，每 reactor↔SA-core 一对）
   - [ ] 54.2 Execution Ring：SA-ASM 算子消费 Ticket
   - [ ] 54.3 Outbound Ring：SA → reactor（SPSC）
-  - [ ] 54.4 与现有 `sa_std/sync/mpsc.saasm` 共存：MPSC 仅作跨分片回收慢路径
+  - [ ] 54.4 与现有 `sa_std/sync/mpsc.sa` 共存：MPSC 仅作跨分片回收慢路径
   - _Requirements: R35.5_
 
 - [ ] 55. 7 条 `sa_netx_*` FFI 接入
@@ -1694,14 +1703,14 @@ sa/
   - _Requirements: R35.4_
 
 - [ ] 58. M3 验收
-  - [ ] 58.1 `examples/netx_echo/echo.saasm` 端到端跑通
+  - [ ] 58.1 `examples/netx_echo/echo.sa` 端到端跑通
   - [ ] 58.2 业务核心吃 Ticket 时间 ≤ 80 ns（micro-benchmark）
   - _Requirements: R35.5, R35.10_
 
 ### M4：K1 跑分（对标 Bun ping-pong，W8–W9）
 
 - [ ] 59. ping-pong 基准实施
-  - [ ] 59.1 `examples/netx_echo/ws_bench.saasm`：32 client × 64B 双向
+  - [ ] 59.1 `examples/netx_echo/ws_bench.sa`：32 client × 64B 双向
   - [ ] 59.2 **不启用 SEND_ZC**：只用 `SEND` + provided buffer + sharded SPSC + SIMD unmask
   - [ ] 59.3 CPU pinning + busy-poll 调优
   - _Requirements: R35.7, R35.12_
@@ -1813,7 +1822,7 @@ sa/
   - [ ] 70.3 解析 DOM 树：标签 + 属性 + `{expr}` 插值 + `onevent={^handler}` 事件
   - [ ] 70.4 解析 `@handler:` 函数体（直通 SA-ASM 文本，不变换）
   - [ ] 70.5 解析尾部 `!var1 !var2 ...` 释放序列
-  - [ ] 70.6 **不构造 AST**：所有解析结果直接以 `.saasm` 文本流形式输出
+  - [ ] 70.6 **不构造 AST**：所有解析结果直接以 `.sa` 文本流形式输出
   - _Requirements: R36.1, R36.2, R36.3_
 
 - [ ] 71. SAX Lowerer 完整实现（`src/sax/lowerer.zig`）
@@ -1868,10 +1877,10 @@ sa/
 
 #### M4：CLI 子命令（W7）
 
-- [ ] 77. `saasm sax` 子命令族（`src/sax/cli.zig` + hook 进 `src/cli.zig`）
-  - [ ] 77.1 `saasm sax build <file.sax>` → `dist/app.wasm + dist/airlock.js + dist/index.html`
-  - [ ] 77.2 `saasm sax check <file.sax>` → 仅 Referee 验证（含 SAX 规则），不产出产物
-  - [ ] 77.3 `saasm sax new <name>` → 脚手架最小项目（`Counter.sax` + `package.json` + `README.md`）
+- [ ] 77. `sa sax` 子命令族（`src/sax/cli.zig` + hook 进 `src/cli.zig`）
+  - [ ] 77.1 `sa sax build <file.sax>` → `dist/app.wasm + dist/airlock.js + dist/index.html`
+  - [ ] 77.2 `sa sax check <file.sax>` → 仅 Referee 验证（含 SAX 规则），不产出产物
+  - [ ] 77.3 `sa sax new <name>` → 脚手架最小项目（`Counter.sax` + `package.json` + `README.md`）
   - [ ] 77.4 错误退出码统一：Trap → exit 1，未知命令 → exit 2，IO 错误 → exit 3
   - _Requirements: R36.11_
 
@@ -1880,7 +1889,7 @@ sa/
 - [ ] 78. E2E 浏览器验证（Phase 1 验收）
   - [ ] 78.1 `Counter.sax` 编译通过 + 浏览器点击 +1/-1 正确（Chrome / Firefox / Safari 三浏览器）
   - [ ] 78.2 `TodoList.sax` 编译通过 + 增删项 + 输入框 + 列表渲染
-  - [ ] 78.3 删掉 `!count` → `saasm sax check` 报 `SaxStateLeak`
+  - [ ] 78.3 删掉 `!count` → `sa sax check` 报 `SaxStateLeak`
   - [ ] 78.4 `^handler` 跨组件引用 → 报 `SaxEventEscape`
   - [ ] 78.5 `{count + ^x}` → 报 `SaxInvalidInterpolation`
   - [ ] 78.6 `<foo>` 自定义标签 → 报 `SaxUnknownTag`
@@ -1908,7 +1917,7 @@ sa/
   - [ ] 81.3 路由变化触发对应 `<Page>` 组件的 mount/unmount
   - _Requirements: R36.2_
 
-- [ ] 82. `saasm sax dev` 开发服务器
+- [ ] 82. `sa sax dev` 开发服务器
   - [ ] 82.1 HTTP :8080 + 静态文件托管
   - [ ] 82.2 文件监听（`inotify` / `kqueue`）+ 自动重新编译
   - [ ] 82.3 WASM 模块热替换（保留 SA 状态）
@@ -1916,7 +1925,7 @@ sa/
 
 - [ ] 83. VS Code 插件
   - [ ] 83.1 TextMate grammar for `.sax`（XML + SA-ASM 混合高亮）
-  - [ ] 83.2 `saasm sax check` 集成到 LSP 诊断
+  - [ ] 83.2 `sa sax check` 集成到 LSP 诊断
   - _Requirements: R36.11_
 
 ### Phase 3：跨端 + 生态（W15–W22）
@@ -1975,5 +1984,5 @@ sa/
 - **v0.6 特别说明**：sa-db 是 v0.5 包管理的自然延伸，复用所有既有基础设施（Referee、`#def`、`grants`、SHA-256、零权限默认）。12 周时间表假设 v0.5 已交付。
 - **v0.7 特别说明**：原生单元测试框架（见本文件 Version 0.7 章节），与 v0.6 数据库无强依赖。
 - **v0.8 特别说明**：sa_netx 是 v0.6 数据库的同构延伸（mmap 预分配 / SA-ASM 算子内核 / 零拷贝沙箱）。**SA-ASM ISA 零扩展**，**flattener / referee / verifier / common / 现有 sa_std 全部零修改**。所有新增能力落到 `src/runtime/sa_net_uring.zig`（新增）+ `sa_std/netx.*` 三件套（新增）。TLS 由前置 Nginx/Envoy 终结，本期不做 HTTP/2/3。12 周时间表假设 v0.5 + v0.6 已交付（v0.7 可并行）。
-- **v0.9 特别说明**：SAX 是 SA 的**前端方言层**而非新语言。**SA-ASM ISA 零扩展**；`src/flattener/` / `src/common/` / `src/emit_wasm/` 全部零修改；`src/referee/` 仅追加 `src/sax/sax_rules.zig`（7 条 SAX Trap）。SAX Parser 直接输出**合法 `.saasm` 文本**，不构造 AST。WASM 目标 `wasm32-unknown-unknown`（非 WASI），DOM 通过气闸舱 `airlock.js` 唯一通道访问。Phase 1（MVP）6–8 周交付 Counter / TodoList 闭环；Phase 2 加路由 + 细粒度响应式；Phase 3 跨端。可与 v0.5 / v0.7 / v0.8 解耦并行（仅依赖 SA v0.1 MVP 的 Flattener + Referee + emit_wasm）。
+- **v0.9 特别说明**：SAX 是 SA 的**前端方言层**而非新语言。**SA-ASM ISA 零扩展**；`src/flattener/` / `src/common/` / `src/emit_wasm/` 全部零修改；`src/referee/` 仅追加 `src/sax/sax_rules.zig`（7 条 SAX Trap）。SAX Parser 直接输出**合法 `.sa` 文本**，不构造 AST。WASM 目标 `wasm32-unknown-unknown`（非 WASI），DOM 通过气闸舱 `airlock.js` 唯一通道访问。Phase 1（MVP）6–8 周交付 Counter / TodoList 闭环；Phase 2 加路由 + 细粒度响应式；Phase 3 跨端。可与 v0.5 / v0.7 / v0.8 解耦并行（仅依赖 SA v0.1 MVP 的 Flattener + Referee + emit_wasm）。
 - 实现阶段打开 tasks.md 点击 "Start task" 按钮开始执行。

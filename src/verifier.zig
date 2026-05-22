@@ -14,11 +14,30 @@ const upstream = @import("common/upstream_loc.zig");
 const classifier = @import("flattener/line_classifier.zig");
 const symbol = @import("flattener/symbol.zig");
 
+pub const RegStateChange = struct {
+    reg: u32,
+    before: u16,
+    after: u16,
+};
+
+const RegStateDelta = struct {
+    changes: []RegStateChange,
+
+    fn deinit(self: *RegStateDelta, allocator: std.mem.Allocator) void {
+        if (self.changes.len != 0) allocator.free(self.changes);
+        self.* = undefined;
+    }
+};
+
 pub const AnnotatedInstruction = struct {
     base: inst.Instruction,
-    entry_caps: []u16,
-    exit_caps: []u16,
+    delta: RegStateDelta,
     gas_step_cost: u32,
+
+    fn deinit(self: *AnnotatedInstruction, allocator: std.mem.Allocator) void {
+        self.delta.deinit(allocator);
+        self.* = undefined;
+    }
 };
 
 pub const VerifyOk = struct {
@@ -30,8 +49,8 @@ pub const VerifyOk = struct {
 
     pub fn deinit(self: *VerifyOk, allocator: std.mem.Allocator) void {
         for (self.annotated) |item| {
-            allocator.free(item.entry_caps);
-            allocator.free(item.exit_caps);
+            var owned = item;
+            owned.deinit(allocator);
         }
         allocator.free(self.annotated);
         for (self.function_sigs) |*item| item.deinit(allocator);
@@ -143,7 +162,44 @@ const CollectResult = struct {
     symbols: symbol.SymbolTable,
     sigs: std.ArrayList(sig.FunctionSig),
     const_vtables: std.ArrayList(ConstVTable),
-    reg_count: usize,
+};
+
+const FunctionRegScope = struct {
+    allocator: std.mem.Allocator,
+    reg_ids: []const u32,
+    slot_by_id: std.AutoHashMap(u32, u32),
+
+    fn init(allocator: std.mem.Allocator, reg_ids: []const u32) !FunctionRegScope {
+        var slot_by_id = std.AutoHashMap(u32, u32).init(allocator);
+        errdefer slot_by_id.deinit();
+        try slot_by_id.ensureTotalCapacity(@intCast(reg_ids.len));
+        for (reg_ids, 0..) |reg_id, idx| {
+            _ = slot_by_id.putAssumeCapacity(reg_id, @intCast(idx));
+        }
+        return .{
+            .allocator = allocator,
+            .reg_ids = reg_ids,
+            .slot_by_id = slot_by_id,
+        };
+    }
+
+    fn deinit(self: *FunctionRegScope) void {
+        self.slot_by_id.deinit();
+        if (self.reg_ids.len != 0) self.allocator.free(self.reg_ids);
+        self.* = undefined;
+    }
+
+    fn slotOf(self: *const FunctionRegScope, reg_id: u32) ?u32 {
+        return self.slot_by_id.get(reg_id);
+    }
+
+    fn globalId(self: *const FunctionRegScope, slot: u32) u32 {
+        return self.reg_ids[@intCast(slot)];
+    }
+
+    fn nameOf(self: *const FunctionRegScope, symbols: *const symbol.SymbolTable, slot: u32) ?[]const u8 {
+        return symbols.lookupName(self.globalId(slot));
+    }
 };
 
 const ConstVTableSlot = struct {
@@ -208,14 +264,24 @@ const InteriorContext = struct {
     interior_next_sibling: []?u32,
 };
 
+const LabelStateChange = struct {
+    reg: u32,
+    state: ?u16 = null,
+    origins: ?u32 = null,
+    locks: ?u16 = null,
+    flags: ?u8 = null,
+    interior_parent: ?u32 = null,
+    interior_first_child: ?u32 = null,
+    interior_next_sibling: ?u32 = null,
+};
+
 const LabelSnapshot = struct {
-    state: []u16,
-    origins: []?u32,
-    locks: []u16,
-    flags: []u8,
-    interior_parent: []?u32,
-    interior_first_child: []?u32,
-    interior_next_sibling: []?u32,
+    changes: []LabelStateChange,
+
+    fn deinit(self: *LabelSnapshot, allocator: std.mem.Allocator) void {
+        if (self.changes.len != 0) allocator.free(self.changes);
+        self.* = undefined;
+    }
 };
 
 fn isIdentLike(text: []const u8) bool {
@@ -245,12 +311,13 @@ fn constTrap(
 fn seedConstSymbols(
     state: []u16,
     flags: []u8,
+    scope: *const FunctionRegScope,
     symbols: *const symbol.SymbolTable,
     const_decls: []const const_decl.ConstDecl,
 ) void {
     for (const_decls) |decl| {
         if (symbols.findId(decl.name)) |id| {
-            const idx: usize = @intCast(id);
+            const idx: usize = @intCast(scope.slotOf(id) orelse continue);
             state[idx] = maskOf(.active) | maskOf(.immutable);
             flags[idx] |= regFlagImmutable;
         }
@@ -530,7 +597,7 @@ fn mergeJoinStates(dst: []u16, src: []const u16) bool {
     return true;
 }
 
-fn duplicateLabelSnapshot(
+fn captureLabelSnapshot(
     allocator: std.mem.Allocator,
     state: []const u16,
     origins: []const ?u32,
@@ -540,15 +607,31 @@ fn duplicateLabelSnapshot(
     interior_first_child: []const ?u32,
     interior_next_sibling: []const ?u32,
 ) !LabelSnapshot {
-    return .{
-        .state = try allocator.dupe(u16, state),
-        .origins = try allocator.dupe(?u32, origins),
-        .locks = try allocator.dupe(u16, locks),
-        .flags = try allocator.dupe(u8, flags),
-        .interior_parent = try allocator.dupe(?u32, interior_parent),
-        .interior_first_child = try allocator.dupe(?u32, interior_first_child),
-        .interior_next_sibling = try allocator.dupe(?u32, interior_next_sibling),
-    };
+    var changes = std.ArrayList(LabelStateChange).init(allocator);
+    errdefer changes.deinit();
+
+    for (state, 0..) |mask, idx| {
+        const origin = origins[idx];
+        const lock = locks[idx];
+        const flag = flags[idx];
+        const parent = interior_parent[idx];
+        const first_child = interior_first_child[idx];
+        const next_sibling = interior_next_sibling[idx];
+        const changed = mask != 0 or origin != null or lock != 0 or flag != 0 or parent != null or first_child != null or next_sibling != null;
+        if (!changed) continue;
+        try changes.append(.{
+            .reg = @intCast(idx),
+            .state = if (mask != 0) mask else null,
+            .origins = origin,
+            .locks = if (lock != 0) lock else null,
+            .flags = if (flag != 0) flag else null,
+            .interior_parent = parent,
+            .interior_first_child = first_child,
+            .interior_next_sibling = next_sibling,
+        });
+    }
+
+    return .{ .changes = try changes.toOwnedSlice() };
 }
 
 fn restoreLabelSnapshot(
@@ -561,24 +644,118 @@ fn restoreLabelSnapshot(
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
 ) void {
-    @memcpy(state, snapshot.state);
-    @memcpy(origins, snapshot.origins);
-    @memcpy(locks, snapshot.locks);
-    @memcpy(flags, snapshot.flags);
-    @memcpy(interior_parent, snapshot.interior_parent);
-    @memcpy(interior_first_child, snapshot.interior_first_child);
-    @memcpy(interior_next_sibling, snapshot.interior_next_sibling);
+    @memset(state, 0);
+    @memset(origins, null);
+    @memset(locks, 0);
+    @memset(flags, 0);
+    @memset(interior_parent, null);
+    @memset(interior_first_child, null);
+    @memset(interior_next_sibling, null);
+
+    for (snapshot.changes) |change| {
+        const idx: usize = @intCast(change.reg);
+        if (change.state) |value| state[idx] = value;
+        if (change.origins) |value| origins[idx] = value;
+        if (change.locks) |value| locks[idx] = value;
+        if (change.flags) |value| flags[idx] = value;
+        if (change.interior_parent) |value| interior_parent[idx] = value;
+        if (change.interior_first_child) |value| interior_first_child[idx] = value;
+        if (change.interior_next_sibling) |value| interior_next_sibling[idx] = value;
+    }
 }
 
-fn freeLabelSnapshot(allocator: std.mem.Allocator, snapshot: *LabelSnapshot) void {
-    allocator.free(snapshot.state);
-    allocator.free(snapshot.origins);
-    allocator.free(snapshot.locks);
-    allocator.free(snapshot.flags);
-    allocator.free(snapshot.interior_parent);
-    allocator.free(snapshot.interior_first_child);
-    allocator.free(snapshot.interior_next_sibling);
-    snapshot.* = undefined;
+fn snapshotChangeFor(snapshot: *const LabelSnapshot, reg: u32) ?LabelStateChange {
+    for (snapshot.changes) |change| {
+        if (change.reg == reg) return change;
+    }
+    return null;
+}
+
+fn snapshotStateAt(snapshot: *const LabelSnapshot, reg: u32) u16 {
+    return snapshotChangeFor(snapshot, reg) orelse .{ .reg = reg };
+}
+
+fn snapshotMaskAt(snapshot: *const LabelSnapshot, reg: u32) u16 {
+    return snapshotChangeFor(snapshot, reg).?.state orelse 0;
+}
+
+fn snapshotStatesCompatible(snapshot: *const LabelSnapshot, state: []const u16) bool {
+    for (state, 0..) |mask, idx| {
+        if (snapshotMaskAt(snapshot, @intCast(idx)) != mask) return false;
+    }
+    return true;
+}
+
+fn snapshotMergeCompatible(snapshot: *const LabelSnapshot, state: []const u16) bool {
+    if (snapshot.changes.len == 0) return state.len == 0;
+    for (snapshot.changes) |change| {
+        const idx: usize = @intCast(change.reg);
+        if (idx >= state.len) return false;
+        if (mergeJoinMask(change.state orelse 0, state[idx]) == null) return false;
+    }
+    return true;
+}
+
+fn snapshotFirstMismatch(snapshot: *const LabelSnapshot, state: []const u16, symbols: *const symbol.SymbolTable) ?StateMismatch {
+    for (state, 0..) |mask, idx| {
+        if (snapshotMaskAt(snapshot, @intCast(idx)) == mask) continue;
+        const name = symbols.lookupName(@intCast(idx)) orelse continue;
+        return .{ .name = name, .expected = mask, .actual = snapshotMaskAt(snapshot, @intCast(idx)) };
+    }
+    return null;
+}
+
+fn replaceLabelStateSnapshot(
+    allocator: std.mem.Allocator,
+    snapshot: *LabelSnapshot,
+    state: []const u16,
+    origins: []const ?u32,
+    locks: []const u16,
+    flags: []const u8,
+    interior_parent: []const ?u32,
+    interior_first_child: []const ?u32,
+    interior_next_sibling: []const ?u32,
+) !void {
+    _ = origins;
+    _ = locks;
+    _ = flags;
+    _ = interior_parent;
+    _ = interior_first_child;
+    _ = interior_next_sibling;
+    var changes = std.ArrayList(LabelStateChange).init(allocator);
+    errdefer changes.deinit();
+
+    for (state, 0..) |mask, idx| {
+        const existing = snapshotChangeFor(snapshot, @intCast(idx));
+        const prev = existing.?.state orelse 0;
+        const merged = mergeJoinMask(prev, mask) orelse return error.InvalidJoinState;
+        const meta = existing orelse .{ .reg = @as(u32, @intCast(idx)) };
+        const have_meta = meta.origins != null or meta.locks != null or meta.flags != null or meta.interior_parent != null or meta.interior_first_child != null or meta.interior_next_sibling != null;
+        if (merged == 0 and !have_meta) continue;
+        try changes.append(.{
+            .reg = @intCast(idx),
+            .state = if (merged != 0) merged else null,
+            .origins = meta.origins,
+            .locks = meta.locks,
+            .flags = meta.flags,
+            .interior_parent = meta.interior_parent,
+            .interior_first_child = meta.interior_first_child,
+            .interior_next_sibling = meta.interior_next_sibling,
+        });
+    }
+
+    snapshot.deinit(allocator);
+    snapshot.* = .{ .changes = try changes.toOwnedSlice() };
+}
+
+fn snapshotMergeState(snapshot: *const LabelSnapshot, state: []const u16, symbols: *const symbol.SymbolTable) ?StateMismatch {
+    for (state, 0..) |mask, idx| {
+        const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
+        if (snap_mask == mask) continue;
+        const name = symbols.lookupName(@intCast(idx)) orelse continue;
+        return .{ .name = name, .expected = mask, .actual = snap_mask };
+    }
+    return null;
 }
 
 fn callConsumesByValueArg(callee: []const u8) bool {
@@ -989,6 +1166,109 @@ fn parseDeclKind(kind: inst.InstKind) ?sig.FunctionKind {
     };
 }
 
+fn addScopeReg(
+    reg_ids: *std.ArrayList(u32),
+    seen: *std.AutoHashMap(u32, void),
+    reg_id: u32,
+) !void {
+    if (seen.contains(reg_id)) return;
+    try seen.put(reg_id, {});
+    try reg_ids.append(reg_id);
+}
+
+fn finalizeFunctionScope(
+    sigs: *std.ArrayList(sig.FunctionSig),
+    reg_ids: *std.ArrayList(u32),
+) !void {
+    if (sigs.items.len == 0) {
+        reg_ids.clearRetainingCapacity();
+        return;
+    }
+    const slice = try reg_ids.toOwnedSlice();
+    sigs.items[sigs.items.len - 1].reg_ids = slice;
+}
+
+fn buildFunctionRegScope(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    param_ids: []const u32,
+    const_decls: []const const_decl.ConstDecl,
+    symbols: *const symbol.SymbolTable,
+) !FunctionRegScope {
+    var reg_ids = std.ArrayList(u32).init(allocator);
+    errdefer reg_ids.deinit();
+    var seen = std.AutoHashMap(u32, void).init(allocator);
+    defer seen.deinit();
+
+    try reg_ids.ensureTotalCapacity(param_ids.len);
+    try seen.ensureTotalCapacity(@intCast(param_ids.len));
+    for (param_ids) |reg_id| {
+        try addScopeReg(&reg_ids, &seen, reg_id);
+    }
+
+    for (instructions) |item| {
+        for (item.operands) |operand| {
+            if (operand == .reg) {
+                try addScopeReg(&reg_ids, &seen, operand.reg);
+            }
+        }
+
+        switch (item.kind) {
+            .call, .call_indirect, .panic, .panic_msg, .return_, .native => {
+                if (call.parseCall(allocator, item.raw_text)) |parsed0| {
+                    var parsed = parsed0;
+                    defer parsed.deinit(allocator);
+                    if (parsed.dest) |dest| {
+                        if (isIdentLike(dest)) {
+                            if (symbols.findId(dest)) |id| {
+                                try addScopeReg(&reg_ids, &seen, id);
+                            }
+                        }
+                    }
+                } else |_| {}
+            },
+            else => {},
+        }
+    }
+
+    for (const_decls) |decl| {
+        if (symbols.findId(decl.name)) |id| {
+            try addScopeReg(&reg_ids, &seen, id);
+        }
+    }
+
+    const slice = try reg_ids.toOwnedSlice();
+    errdefer allocator.free(slice);
+    return try FunctionRegScope.init(allocator, slice);
+}
+
+fn localizeInstructionRegs(
+    item: *inst.Instruction,
+    scope: *const FunctionRegScope,
+    symbols: *const symbol.SymbolTable,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+) ?VerifyBodyResult {
+    for (&item.operands) |*operand| {
+        if (operand.* == .reg) {
+            const slot = scope.slotOf(operand.reg) orelse {
+                return trapReport(.unknown_register, item.*, function_text, is_ffi_wrapper, symbols.lookupName(operand.reg), null, null, "register is not declared in the current scope", null);
+            };
+            operand.* = .{ .reg = slot };
+        }
+    }
+    return null;
+}
+
+fn resolveScopedRegId(
+    scope: *const FunctionRegScope,
+    symbols: *const symbol.SymbolTable,
+    text: []const u8,
+) ?u32 {
+    const global_id = symbols.findId(text) orelse return null;
+    return scope.slotOf(global_id);
+}
+
 fn collectMetadata(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
@@ -1002,6 +1282,11 @@ fn collectMetadata(
         for (sigs.items) |*item| item.deinit(allocator);
         sigs.deinit();
     }
+    var current_reg_ids = std.ArrayList(u32).init(allocator);
+    defer current_reg_ids.deinit();
+    var current_reg_seen = std.AutoHashMap(u32, void).init(allocator);
+    defer current_reg_seen.deinit();
+    var current_sig_index: usize = 0;
 
     var const_idx: usize = 0;
     for (instructions) |item| {
@@ -1014,12 +1299,36 @@ fn collectMetadata(
         }
 
         const classified = classifier.classifyLine(item.raw_text);
+
+        for (item.operands) |operand| {
+            if (operand == .reg) {
+                try addScopeReg(&current_reg_ids, &current_reg_seen, operand.reg);
+            }
+        }
+
+        if (call.parseCall(allocator, item.raw_text)) |parsed0| {
+            var parsed = parsed0;
+            defer parsed.deinit(allocator);
+            if (parsed.dest) |dest| {
+                if (isIdentLike(dest)) {
+                    if (symbols.findId(dest)) |id| {
+                        try addScopeReg(&current_reg_ids, &current_reg_seen, id);
+                    }
+                }
+            }
+        } else |_| {}
+
         switch (item.kind) {
             .label => {
                 _ = try symbols.intern(classified.parts[0]);
             },
             .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
                 const kind = parseDeclKind(item.kind).?;
+                if (sigs.items.len != 0 and current_sig_index < sigs.items.len) {
+                    try finalizeFunctionScope(&sigs, &current_reg_ids);
+                }
+                current_reg_ids.clearRetainingCapacity();
+                current_reg_seen.clearRetainingCapacity();
                 var parsed = sig.parseFunctionHeader(allocator, item.raw_text, @intCast(sigs.items.len), item.expanded_line, kind) catch |err| {
                     return switch (err) {
                         sig.ParseError.UnsupportedType => error.UnsupportedType,
@@ -1053,11 +1362,13 @@ fn collectMetadata(
                     errdefer allocator.free(ids);
                     for (parsed.params, 0..) |param, idx| {
                         ids[idx] = try symbols.intern(param.name);
+                        try addScopeReg(&current_reg_ids, &current_reg_seen, ids[idx]);
                     }
                     parsed.param_ids = ids;
                 }
                 _ = try symbols.intern(parsed.name);
                 try sigs.append(parsed);
+                current_sig_index = sigs.items.len - 1;
             },
             .alloc, .stack_alloc => {
                 _ = try symbols.intern(classified.parts[0]);
@@ -1167,14 +1478,16 @@ fn collectMetadata(
         const_idx += 1;
     }
 
+    if (sigs.items.len != 0) {
+        try finalizeFunctionScope(&sigs, &current_reg_ids);
+    }
+
     return .{
         .symbols = symbols,
         .sigs = sigs,
         .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
-        .reg_count = symbols.names.items.len,
     };
 }
-
 fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u16, id: u32) bool {
     const idx: usize = @intCast(id);
     if ((flags[idx] & regFlagStackAlloc) != 0) return true;
@@ -1477,11 +1790,11 @@ fn updateLabel(
         restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling);
         return null;
     }
-    var dup = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+    var dup = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     labels.put(label_id, dup) catch {
-        freeLabelSnapshot(allocator, &dup);
+        dup.deinit(allocator);
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     return null;
@@ -1499,16 +1812,60 @@ fn freeConstVtables(allocator: std.mem.Allocator, const_vtables: *std.ArrayList(
 
 fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(AnnotatedInstruction)) void {
     for (annotated.items) |item| {
-        allocator.free(item.entry_caps);
-        allocator.free(item.exit_caps);
+        var owned = item;
+        owned.deinit(allocator);
     }
     annotated.deinit();
 }
 
+fn diffState(allocator: std.mem.Allocator, before: []const u16, after: []const u16) !RegStateDelta {
+    var changes = std.ArrayList(RegStateChange).init(allocator);
+    errdefer changes.deinit();
+    for (before, 0..) |mask, idx| {
+        const next = after[idx];
+        if (next != mask) {
+            try changes.append(.{ .reg = @intCast(idx), .before = mask, .after = next });
+        }
+    }
+    return .{ .changes = try changes.toOwnedSlice() };
+}
+
+fn applyDelta(state: []u16, delta: []const RegStateChange) void {
+    for (delta) |change| {
+        state[change.reg] = change.after;
+    }
+}
+
 fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, LabelSnapshot)) void {
     var it = labels.iterator();
-    while (it.next()) |entry| freeLabelSnapshot(allocator, entry.value_ptr);
+    while (it.next()) |entry| entry.value_ptr.deinit(allocator);
     labels.clearRetainingCapacity();
+}
+
+fn freeVerifierBuffers(
+    allocator: std.mem.Allocator,
+    state: *[]u16,
+    flags: *[]u8,
+    origins: *[]?u32,
+    locks: *[]u16,
+    interior_parent: *[]?u32,
+    interior_first_child: *[]?u32,
+    interior_next_sibling: *[]?u32,
+) void {
+    if (state.*.len != 0) allocator.free(state.*);
+    if (flags.*.len != 0) allocator.free(flags.*);
+    if (origins.*.len != 0) allocator.free(origins.*);
+    if (locks.*.len != 0) allocator.free(locks.*);
+    if (interior_parent.*.len != 0) allocator.free(interior_parent.*);
+    if (interior_first_child.*.len != 0) allocator.free(interior_first_child.*);
+    if (interior_next_sibling.*.len != 0) allocator.free(interior_next_sibling.*);
+    state.* = &.{};
+    flags.* = &.{};
+    origins.* = &.{};
+    locks.* = &.{};
+    interior_parent.* = &.{};
+    interior_first_child.* = &.{};
+    interior_next_sibling.* = &.{};
 }
 
 fn verifyBody(
@@ -1521,29 +1878,18 @@ fn verifyBody(
     package_grants: []const pkg_manifest.RequireEntry,
 ) !VerifyBodyResult {
     var sig_index = sig_index_start;
-
-    const reg_count = metadata.reg_count;
-    var state = zeroed(u16, allocator, reg_count) catch {
-        return .{ .trap = trapReportFromText(.arena_oom, 1, 1, instructions[0].raw_text, "unable to allocate verifier state", null) };
-    };
-    defer allocator.free(state);
-    const flags = try zeroed(u8, allocator, reg_count);
-    defer allocator.free(flags);
-    const origins = try allocator.alloc(?u32, reg_count);
-    defer allocator.free(origins);
-    @memset(origins, null);
-    const locks = try allocator.alloc(u16, reg_count);
-    defer allocator.free(locks);
-    @memset(locks, 0);
-    const interior_parent = try allocator.alloc(?u32, reg_count);
-    defer allocator.free(interior_parent);
-    @memset(interior_parent, null);
-    const interior_first_child = try allocator.alloc(?u32, reg_count);
-    defer allocator.free(interior_first_child);
-    @memset(interior_first_child, null);
-    const interior_next_sibling = try allocator.alloc(?u32, reg_count);
-    defer allocator.free(interior_next_sibling);
-    @memset(interior_next_sibling, null);
+    var state: []u16 = &.{};
+    var flags: []u8 = &.{};
+    var origins: []?u32 = &.{};
+    var locks: []u16 = &.{};
+    var interior_parent: []?u32 = &.{};
+    var interior_first_child: []?u32 = &.{};
+    var interior_next_sibling: []?u32 = &.{};
+    defer freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
+    var current_scope: ?FunctionRegScope = null;
+    defer {
+        if (current_scope) |*scope| scope.deinit();
+    }
     var interior = InteriorContext{
         .state = state,
         .interior_parent = interior_parent,
@@ -1556,7 +1902,7 @@ fn verifyBody(
     var labels = std.AutoHashMap(u32, LabelSnapshot).init(allocator);
     defer {
         var it = labels.iterator();
-        while (it.next()) |entry| freeLabelSnapshot(allocator, entry.value_ptr);
+        while (it.next()) |entry| entry.value_ptr.deinit(allocator);
         labels.deinit();
     }
     var defined_labels = std.AutoHashMap(u32, void).init(allocator);
@@ -1582,7 +1928,8 @@ fn verifyBody(
     var has_unbounded_loop = false;
     var current_function_start_idx: usize = 0;
 
-    for (instructions, 0..) |item, inst_idx| {
+    for (instructions, 0..) |raw_item, inst_idx| {
+        var item = raw_item;
         const classified = classifier.classifyLine(item.raw_text);
 
         if (isDecl(item.kind)) {
@@ -1605,20 +1952,51 @@ fn verifyBody(
                 current_sig = null;
             }
 
-            @memset(state, 0);
-            @memset(flags, 0);
-            @memset(origins, null);
-            @memset(locks, 0);
-            @memset(interior_parent, null);
-            @memset(interior_first_child, null);
-            @memset(interior_next_sibling, null);
-            atomic_history.clearRetainingCapacity();
-            defined_labels.clearRetainingCapacity();
+            if (current_scope) |*scope| scope.deinit();
+            current_scope = null;
+            freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
+
+            const function_end_idx = blk: {
+                var end_idx = inst_idx + 1;
+                while (end_idx < instructions.len and !isDecl(instructions[end_idx].kind)) : (end_idx += 1) {}
+                break :blk end_idx;
+            };
 
             if (current_sig) |decl_sig| {
+                var next_scope = try buildFunctionRegScope(allocator, instructions[inst_idx..function_end_idx], decl_sig.param_ids, const_decls, &metadata.symbols);
+                errdefer next_scope.deinit();
+                const reg_count = next_scope.reg_ids.len;
+                state = zeroed(u16, allocator, reg_count) catch {
+                    current_scope = null;
+                    return .{ .trap = trapReportFromText(.arena_oom, 1, 1, item.raw_text, "unable to allocate verifier state", null) };
+                };
+                flags = try zeroed(u8, allocator, reg_count);
+                origins = try allocator.alloc(?u32, reg_count);
+                @memset(origins, null);
+                locks = try allocator.alloc(u16, reg_count);
+                @memset(locks, 0);
+                interior_parent = try allocator.alloc(?u32, reg_count);
+                @memset(interior_parent, null);
+                interior_first_child = try allocator.alloc(?u32, reg_count);
+                @memset(interior_first_child, null);
+                interior_next_sibling = try allocator.alloc(?u32, reg_count);
+                @memset(interior_next_sibling, null);
+                interior = .{
+                    .state = state,
+                    .interior_parent = interior_parent,
+                    .interior_first_child = interior_first_child,
+                    .interior_next_sibling = interior_next_sibling,
+                };
+                current_scope = next_scope;
+                errdefer {
+                    if (current_scope) |*scope| scope.deinit();
+                    current_scope = null;
+                }
+
                 for (decl_sig.params, 0..) |param, pidx| {
                     const reg_id = decl_sig.param_ids[pidx];
-                    const reg_idx: usize = @intCast(reg_id);
+                    const reg_slot = current_scope.?.slotOf(reg_id) orelse unreachable;
+                    const reg_idx: usize = @intCast(reg_slot);
                     state[reg_idx] = switch (param.cap) {
                         .by_value, .move => maskOf(.active),
                         .borrow => maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_read),
@@ -1630,15 +2008,19 @@ fn verifyBody(
                         locks[reg_idx] = 1;
                     }
                 }
+            } else {
+                current_scope = null;
             }
-            seedConstSymbols(state, flags, &metadata.symbols, const_decls);
 
-            const snapshot = try allocator.dupe(u16, state);
-            const snapshot2 = try allocator.dupe(u16, state);
+            atomic_history.clearRetainingCapacity();
+            defined_labels.clearRetainingCapacity();
+            if (current_scope) |scope| {
+                seedConstSymbols(state, flags, &scope, &metadata.symbols, const_decls);
+            }
+
             try annotated.append(.{
                 .base = item,
-                .entry_caps = snapshot,
-                .exit_caps = snapshot2,
+                .delta = .{ .changes = &.{} },
                 .gas_step_cost = 0,
             });
             continue;
@@ -1656,6 +2038,12 @@ fn verifyBody(
             fatal_terminated = false;
         }
 
+        if (current_scope) |*scope| {
+            if (localizeInstructionRegs(&item, scope, &metadata.symbols, current_function_text, current_is_ffi_wrapper)) |tr| {
+                return tr;
+            }
+        }
+
         if (item.kind == .label) {
             if (defined_labels.contains(item.operands[1].label)) {
                 return trapReport(.duplicate_label, item, current_function_text, current_is_ffi_wrapper, null, null, null, "label is already defined", "rename the label or merge the blocks");
@@ -1666,24 +2054,18 @@ fn verifyBody(
             defined_labels.put(item.operands[1].label, {}) catch {
                 return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label definition", null);
             };
-            const snapshot = try allocator.dupe(u16, state);
-            const snapshot2 = try allocator.dupe(u16, state);
             try annotated.append(.{
                 .base = item,
-                .entry_caps = snapshot,
-                .exit_caps = snapshot2,
+                .delta = .{ .changes = &.{} },
                 .gas_step_cost = 0,
             });
             continue;
         }
 
         if (!isExecKind(item.kind)) {
-            const snapshot = try allocator.dupe(u16, state);
-            const snapshot2 = try allocator.dupe(u16, state);
             try annotated.append(.{
                 .base = item,
-                .entry_caps = snapshot,
-                .exit_caps = snapshot2,
+                .delta = .{ .changes = &.{} },
                 .gas_step_cost = 0,
             });
             continue;
@@ -1691,9 +2073,8 @@ fn verifyBody(
 
         body_seen = true;
         gas_steps += 1;
-        const snapshot_entry = try allocator.dupe(u16, state);
-        var snapshot_entry_owned = true;
-        defer if (snapshot_entry_owned) allocator.free(snapshot_entry);
+        const snapshot_before = try allocator.dupe(u16, state);
+        defer allocator.free(snapshot_before);
 
         switch (item.kind) {
             .alloc => {
@@ -1744,8 +2125,10 @@ fn verifyBody(
                     }
                 }
                 if (item.operands[2] == .text and isIdentLike(item.operands[2].text)) {
-                    if (metadata.symbols.findId(item.operands[2].text)) |value_id| {
-                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, item.operands[2].text)) |value_id| {
+                            if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                        }
                     }
                 }
             },
@@ -1757,8 +2140,10 @@ fn verifyBody(
             .atomic_store => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[0].reg, state, flags)) |tr| return tr;
                 if (item.operands[2] == .text and isIdentLike(item.operands[2].text)) {
-                    if (metadata.symbols.findId(item.operands[2].text)) |value_id| {
-                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, item.operands[2].text)) |value_id| {
+                            if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                        }
                     }
                 }
             },
@@ -1777,8 +2162,10 @@ fn verifyBody(
                 if (checkAtomicOrdering(item, current_function_text, current_is_ffi_wrapper, &atomic_history)) |tr| return tr;
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 if (item.operands[3] == .text and isIdentLike(item.operands[3].text)) {
-                    if (metadata.symbols.findId(item.operands[3].text)) |value_id| {
-                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[3].text, value_id, state, flags)) |tr| return tr;
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, item.operands[3].text)) |value_id| {
+                            if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[3].text, value_id, state, flags)) |tr| return tr;
+                        }
                     }
                 }
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
@@ -1793,8 +2180,12 @@ fn verifyBody(
                     switch (item.operands[op_idx]) {
                         .reg => |id| if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[part_idx], id, state, flags)) |tr| return tr,
                         .text => |text| if (isIdentLike(text)) {
-                            if (metadata.symbols.findId(text)) |id| {
-                                if (readCheck(item, current_function_text, current_is_ffi_wrapper, text, id, state, flags)) |tr| return tr;
+                            if (current_scope) |scope| {
+                                if (resolveScopedRegId(&scope, &metadata.symbols, text)) |id| {
+                                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, text, id, state, flags)) |tr| return tr;
+                                } else {
+                                    return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, text, null, null, "register is not declared in the current scope", null);
+                                }
                             } else {
                                 return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, text, null, null, "register is not declared in the current scope", null);
                             }
@@ -1810,8 +2201,10 @@ fn verifyBody(
                 if (item.operands[2] == .reg) {
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], item.operands[2].reg, state, flags)) |tr| return tr;
                 } else if (item.operands[2] == .text and isIdentLike(item.operands[2].text)) {
-                    if (metadata.symbols.findId(item.operands[2].text)) |value_id| {
-                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, item.operands[2].text)) |value_id| {
+                            if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[2].text, value_id, state, flags)) |tr| return tr;
+                        }
                     }
                 }
                 const src_idx: usize = @intCast(item.operands[1].reg);
@@ -1918,8 +2311,10 @@ fn verifyBody(
             .native => {
                 for (item.native_reg_names) |name| {
                     if (!isIdentLike(name)) continue;
-                    if (metadata.symbols.findId(name)) |id| {
-                        if (consumeAtContractBoundary(item, current_function_text, current_is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, &interior)) |tr| return tr;
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, name)) |id| {
+                            if (consumeAtContractBoundary(item, current_function_text, current_is_ffi_wrapper, name, id, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, &interior)) |tr| return tr;
+                        }
                     }
                 }
             },
@@ -1928,22 +2323,22 @@ fn verifyBody(
                 if (defined_labels.contains(target)) has_unbounded_loop = true;
                 if (labels.getPtr(target)) |entry| {
                     if (defined_labels.contains(target)) {
-                        if (!statesCompatibleForJoin(entry.state, state)) {
-                            const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
+                        if (!snapshotStatesCompatible(entry, state)) {
+                            const mismatch = snapshotFirstMismatch(entry, state, &metadata.symbols);
                             return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     } else {
-                        if (!mergeJoinStates(entry.state, state)) {
-                            const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
+                        if (!snapshotMergeCompatible(entry, state)) {
+                            const mismatch = snapshotMergeState(entry, state, &metadata.symbols);
                             return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     }
                 } else {
-                    var snapshot = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                     labels.put(target, snapshot) catch {
-                        freeLabelSnapshot(allocator, &snapshot);
+                        snapshot.deinit(allocator);
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                 }
@@ -1955,25 +2350,25 @@ fn verifyBody(
                 for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
                         if (defined_labels.contains(target)) {
-                            if (!statesCompatibleForJoin(entry.state, state)) {
-                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
+                            if (!snapshotStatesCompatible(entry, state)) {
+                                const mismatch = snapshotFirstMismatch(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         } else {
-                            if (!mergeJoinStates(entry.state, state)) {
-                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
+                            if (!snapshotMergeCompatible(entry, state)) {
+                                const mismatch = snapshotMergeState(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         }
                     } else {
-                        var snapshot = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
-                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                        };
-                        labels.put(target, snapshot) catch {
-                            freeLabelSnapshot(allocator, &snapshot);
-                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                        };
-                    }
+                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                    };
+                    labels.put(target, snapshot) catch {
+                        snapshot.deinit(allocator);
+                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                    };
+                }
                     if (defined_labels.contains(target)) has_unbounded_loop = true;
                 }
                 terminated = true;
@@ -1984,25 +2379,25 @@ fn verifyBody(
                 for ([_]u32{ item.operands[1].label, item.operands[3].label }) |target| {
                     if (labels.getPtr(target)) |entry| {
                         if (defined_labels.contains(target)) {
-                            if (!statesCompatibleForJoin(entry.state, state)) {
-                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
+                            if (!snapshotStatesCompatible(entry, state)) {
+                                const mismatch = snapshotFirstMismatch(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         } else {
-                            if (!mergeJoinStates(entry.state, state)) {
-                                const mismatch = firstStateMismatch(entry.state, state, &metadata.symbols);
+                            if (!snapshotMergeCompatible(entry, state)) {
+                                const mismatch = snapshotMergeState(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         }
                     } else {
-                        var snapshot = duplicateLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
-                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                        };
-                        labels.put(target, snapshot) catch {
-                            freeLabelSnapshot(allocator, &snapshot);
-                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                        };
-                    }
+                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                    };
+                    labels.put(target, snapshot) catch {
+                        snapshot.deinit(allocator);
+                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                    };
+                }
                     if (defined_labels.contains(target)) has_unbounded_loop = true;
                 }
                 terminated = true;
@@ -2074,8 +2469,9 @@ fn verifyBody(
 
                 for (parsed.args, 0..) |arg, arg_idx| {
                     if (isIdentLike(arg.text)) {
-                        if (metadata.symbols.findId(arg.text)) |arg_id| {
-                            const arg_reg_idx: usize = @intCast(arg_id);
+                        if (current_scope) |scope| {
+                            if (resolveScopedRegId(&scope, &metadata.symbols, arg.text)) |arg_id| {
+                                const arg_reg_idx: usize = @intCast(arg_id);
                             var is_function_symbol = false;
                             for (metadata.sigs.items) |one| {
                                 if (std.mem.eql(u8, one.name, arg.text)) {
@@ -2126,12 +2522,18 @@ fn verifyBody(
                                     }
                                 },
                             }
+                            } else if (sig_match) |resolved| {
+                                if (arg_idx < resolved.params.len and resolved.params[arg_idx].ty == .ptr) {
+                                    continue;
+                                }
+                                return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, arg.text, null, null, "register is not declared in the current scope", null);
+                            } else {
+                                return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, arg.text, null, null, "register is not declared in the current scope", null);
+                            }
                         } else if (sig_match) |resolved| {
                             if (arg_idx < resolved.params.len and resolved.params[arg_idx].ty == .ptr) {
                                 continue;
                             }
-                            return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, arg.text, null, null, "register is not declared in the current scope", null);
-                        } else {
                             return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, arg.text, null, null, "register is not declared in the current scope", null);
                         }
                     }
@@ -2139,8 +2541,9 @@ fn verifyBody(
 
                 if (parsed.dest) |dest| {
                     if (isIdentLike(dest)) {
-                        if (metadata.symbols.findId(dest)) |dest_id| {
-                            const idx: usize = @intCast(dest_id);
+                        if (current_scope) |scope| {
+                            if (resolveScopedRegId(&scope, &metadata.symbols, dest)) |dest_id| {
+                                const idx: usize = @intCast(dest_id);
                             if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
                                 return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
                             }
@@ -2166,6 +2569,7 @@ fn verifyBody(
                             };
                             state[idx] = ret_state;
                             flags[idx] = 0;
+                            }
                         }
                     }
                 }
@@ -2181,7 +2585,8 @@ fn verifyBody(
                 const src_idx: usize = @intCast(src_id);
                 const src_mask = state[src_idx];
                 if ((src_mask & maskOf(.fallible)) == 0) {
-                    return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(src_id), maskOf(.fallible), src_mask, "? can only be applied to fallible return values", null);
+                    const src_name = current_scope.?.nameOf(&metadata.symbols, src_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(src_id)) orelse "";
+                    return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, src_name, maskOf(.fallible), src_mask, "? can only be applied to fallible return values", null);
                 }
 
                 for (state, 0..) |mask, idx| {
@@ -2191,8 +2596,9 @@ fn verifyBody(
                     if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
                     if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
                     if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
-                    if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, @intCast(idx))) continue;
-                    return trapReport(.early_return_leak, item, current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(src_id), maskOf(.fallible), src_mask, "early return would leak live registers", null);
+                    if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, current_scope.?.globalId(@intCast(idx)))) continue;
+                    const src_name = current_scope.?.nameOf(&metadata.symbols, src_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(src_id)) orelse "";
+                    return trapReport(.early_return_leak, item, current_function_text, current_is_ffi_wrapper, src_name, maskOf(.fallible), src_mask, "early return would leak live registers", null);
                 }
 
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active), &interior)) |tr| return tr;
@@ -2201,7 +2607,7 @@ fn verifyBody(
             .return_ => {
                 if (item.operands[0] == .reg) {
                     const ret_id = item.operands[0].reg;
-                    const ret_name = metadata.symbols.lookupName(ret_id) orelse item.operands[0].text;
+                    const ret_name = current_scope.?.nameOf(&metadata.symbols, ret_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(ret_id)) orelse item.operands[0].text;
                     const idx: usize = @intCast(ret_id);
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, ret_name, ret_id, state, flags)) |tr| {
                         return tr;
@@ -2233,40 +2639,44 @@ fn verifyBody(
                         }
                     }
                 } else if (item.operands[0] == .text and isIdentLike(item.operands[0].text)) {
-                    if (metadata.symbols.findId(item.operands[0].text)) |ret_id| {
-                        const idx: usize = @intCast(ret_id);
-                        const ret_name = metadata.symbols.lookupName(ret_id) orelse item.operands[0].text;
-                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, ret_id, state, flags)) |tr| {
-                            return tr;
-                        }
-                        if (isImmutableConst(state, flags, ret_id)) {
-                            return constTrap(item, current_function_text, current_is_ffi_wrapper, ret_name, state[idx], "immutable registers cannot be returned by move");
-                        }
-                        if ((state[idx] & maskOf(.fallible)) != 0) {
-                            if (current_sig == null or current_sig.?.return_fallible == false) {
-                                return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, item.operands[0].text)) |ret_id| {
+                            const idx: usize = @intCast(ret_id);
+                            const ret_name = scope.nameOf(&metadata.symbols, ret_id) orelse item.operands[0].text;
+                            if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, ret_id, state, flags)) |tr| {
+                                return tr;
                             }
-                            if (hasInteriorTree(state, interior_first_child, ret_id)) {
-                                consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
+                            if (isImmutableConst(state, flags, ret_id)) {
+                                return constTrap(item, current_function_text, current_is_ffi_wrapper, ret_name, state[idx], "immutable registers cannot be returned by move");
+                            }
+                            if ((state[idx] & maskOf(.fallible)) != 0) {
+                                if (current_sig == null or current_sig.?.return_fallible == false) {
+                                    return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.fallible), state[idx], "fallible values must be propagated with ? or returned from a fallible function", null);
+                                }
+                                if (hasInteriorTree(state, interior_first_child, ret_id)) {
+                                    consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
+                                } else {
+                                    state[idx] = maskOf(.consumed);
+                                }
                             } else {
-                                state[idx] = maskOf(.consumed);
+                                if ((state[idx] & maskOf(.borrow_view)) == 0 and hasActiveBorrowRefs(locks, ret_id)) {
+                                    return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "borrow rules reject this access", null);
+                                }
+                                if (isStackAllocated(flags, origins, state, ret_id)) {
+                                    return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
+                                }
+                                if ((flags[idx] & regFlagRawPointer) == 0) {
+                                    if ((state[idx] & maskOf(.borrow_view)) != 0) {
+                                        clearBorrow(state, flags, origins, locks, ret_id, &interior);
+                                    } else if (hasInteriorTree(state, interior_first_child, ret_id)) {
+                                        consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
+                                    } else if ((state[idx] & maskOf(.untracked)) == 0) {
+                                        state[idx] = maskOf(.consumed);
+                                    }
+                                }
                             }
                         } else {
-                            if ((state[idx] & maskOf(.borrow_view)) == 0 and hasActiveBorrowRefs(locks, ret_id)) {
-                                return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "borrow rules reject this access", null);
-                            }
-                            if (isStackAllocated(flags, origins, state, ret_id)) {
-                                return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret_name, maskOf(.active), state[idx], "stack allocation cannot be returned", null);
-                            }
-                        if ((flags[idx] & regFlagRawPointer) == 0) {
-                            if ((state[idx] & maskOf(.borrow_view)) != 0) {
-                                clearBorrow(state, flags, origins, locks, ret_id, &interior);
-                            } else if (hasInteriorTree(state, interior_first_child, ret_id)) {
-                                consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret_id);
-                            } else if ((state[idx] & maskOf(.untracked)) == 0) {
-                                state[idx] = maskOf(.consumed);
-                            }
-                            }
+                            return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, null, null, "register is not declared in the current scope", null);
                         }
                     } else {
                         return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, null, null, "register is not declared in the current scope", null);
@@ -2277,17 +2687,16 @@ fn verifyBody(
             else => {},
         }
 
-        const snapshot_exit = try allocator.dupe(u16, state);
-        var snapshot_exit_owned = true;
-        defer if (snapshot_exit_owned) allocator.free(snapshot_exit);
+        const delta = try diffState(allocator, snapshot_before, state);
+        errdefer {
+            var owned = delta;
+            owned.deinit(allocator);
+        }
         try annotated.append(.{
             .base = item,
-            .entry_caps = snapshot_entry,
-            .exit_caps = snapshot_exit,
+            .delta = delta,
             .gas_step_cost = if (isExecKind(item.kind)) 1 else 0,
         });
-        snapshot_entry_owned = false;
-        snapshot_exit_owned = false;
     }
 
     if (body_seen and !terminated) {
@@ -2301,9 +2710,15 @@ fn verifyBody(
             if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
             if ((flags[idx] & regFlagBranchCondition) != 0) continue;
             if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
-            if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, @intCast(idx))) continue;
-            return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, metadata.symbols.lookupName(@intCast(idx)), null, mask, "live registers remain at function exit", null);
+            if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, current_scope.?.globalId(@intCast(idx)))) continue;
+            const leak_name = current_scope.?.nameOf(&metadata.symbols, @intCast(idx)) orelse metadata.symbols.lookupName(current_scope.?.globalId(@intCast(idx)));
+            return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, leak_name, null, mask, "live registers remain at function exit", null);
         }
+    }
+
+    if (current_scope) |*scope| {
+        scope.deinit();
+        current_scope = null;
     }
 
     const annotated_slice = annotated.toOwnedSlice() catch {
@@ -2325,8 +2740,8 @@ fn verifyBody(
 
 fn freeAnnotatedSlice(allocator: std.mem.Allocator, annotated: []AnnotatedInstruction) void {
     for (annotated) |item| {
-        allocator.free(item.entry_caps);
-        allocator.free(item.exit_caps);
+        var owned = item;
+        owned.deinit(allocator);
     }
     allocator.free(annotated);
 }
@@ -2488,20 +2903,15 @@ fn verifyParallel(
             },
             .ok => |ok| {
                 for (ok.annotated) |item| {
-                    const entry_caps = try allocator.dupe(u16, item.entry_caps);
-                    var entry_owned = false;
-                    defer if (!entry_owned) allocator.free(entry_caps);
-                    const exit_caps = try allocator.dupe(u16, item.exit_caps);
-                    var exit_owned = false;
-                    defer if (!exit_owned) allocator.free(exit_caps);
+                    const delta_changes = try allocator.dupe(RegStateChange, item.delta.changes);
+                    var delta_owned = false;
+                    defer if (!delta_owned) allocator.free(delta_changes);
                     try annotated.append(.{
                         .base = item.base,
-                        .entry_caps = entry_caps,
-                        .exit_caps = exit_caps,
+                        .delta = .{ .changes = delta_changes },
                         .gas_step_cost = item.gas_step_cost,
                     });
-                    entry_owned = true;
-                    exit_owned = true;
+                    delta_owned = true;
                 }
                 gas_alloc_bytes += ok.gas.max_alloc_bytes;
                 switch (ok.gas.max_instruction_steps) {
@@ -2742,6 +3152,40 @@ test "panic does not leak termination state into the next function" {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
             try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s} line={} source_line={} source={s}\n", .{
+                @tagName(report.trap),
+                report.message,
+                report.line,
+                report.source_line,
+                report.source_text orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "function scope rebuilds correctly with consts across declarations" {
+    const source =
+        \\@const MSG = utf8:"ok\\n"
+        \\@first() -> i32:
+        \\L_ENTRY:
+        \\return 1
+        \\@second() -> i32:
+        \\L_ENTRY:
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
             std.debug.print("trap={s} msg={s} line={} source_line={} source={s}\n", .{
@@ -3146,12 +3590,27 @@ test "assume_borrow marks ffi borrow state and release clears it without freeing
             for (owned.annotated) |item| {
                 if (item.base.kind == .assume_borrow) {
                     saw_assume = true;
-                    const mask = item.exit_caps[item.base.operands[0].reg];
-                    try std.testing.expect((mask & maskOf(.ffi_borrow)) != 0);
-                    try std.testing.expect((mask & maskOf(.borrow_view)) != 0);
+                    var found = false;
+                    for (item.delta.changes) |change| {
+                        if (change.reg == item.base.operands[0].reg) {
+                            found = true;
+                            try std.testing.expect((change.after & maskOf(.ffi_borrow)) != 0);
+                            try std.testing.expect((change.after & maskOf(.borrow_view)) != 0);
+                            break;
+                        }
+                    }
+                    try std.testing.expect(found);
                 } else if (item.base.kind == .release) {
                     saw_release = true;
-                    try std.testing.expectEqual(@as(u16, 0), item.exit_caps[item.base.operands[0].reg]);
+                    var found = false;
+                    for (item.delta.changes) |change| {
+                        if (change.reg == item.base.operands[0].reg) {
+                            found = true;
+                            try std.testing.expectEqual(@as(u16, 0), change.after);
+                            break;
+                        }
+                    }
+                    try std.testing.expect(found);
                 }
             }
             try std.testing.expect(saw_assume);
@@ -3368,18 +3827,18 @@ fn verifyPackageIntrinsicProgram(
 
     try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
 
-    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.saasm", .{ .truncate = true });
+    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
     try pkg_main.writeAll(package_body);
     pkg_main.close();
 
-    var main_file = try tmp.dir.createFile("main.saasm", .{ .truncate = true });
+    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(root_source);
     main_file.close();
 
-    const source_text = try tmp.dir.readFileAlloc(allocator, "main.saasm", 4096);
+    const source_text = try tmp.dir.readFileAlloc(allocator, "main.sa", 4096);
     defer allocator.free(source_text);
 
-    const path = try tmp.dir.realpathAlloc(allocator, "main.saasm");
+    const path = try tmp.dir.realpathAlloc(allocator, "main.sa");
     defer allocator.free(path);
     const project_root = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(project_root);
