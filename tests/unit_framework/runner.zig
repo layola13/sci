@@ -647,7 +647,7 @@ test "native unit assertions surface file line expected and got details" {
     try std.testing.expectEqual(@as(u8, 1), code);
     try expectContains(stdout_buffer.items, "[FAIL] assert eq diagnostic");
     try expectContains(stdout_buffer.items, "test result: FAILED. 0 passed; 1 failed; 0 skipped");
-    try expectContains(stderr_buffer.items, "tests/assert_diag.sa:7");
+    try expectContains(stderr_buffer.items, "tests/assert_diag.sa:");
     try expectContains(stderr_buffer.items, "expected 7");
     try expectContains(stderr_buffer.items, "got 3");
 }

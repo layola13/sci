@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 
 fn pathHasPrecompiledArtifact(name: []const u8) bool {
     const lower = std.ascii.lowerString;
@@ -456,27 +457,20 @@ fn resolveStandardImport(
     const std_rel = if (std.mem.eql(u8, import_path, "sa_std")) "" else import_path["sa_std/".len..];
 
     if (options.std_root) |std_root| {
-        if (try resolveRootedImport(allocator, std_root, std_rel, options.max_local_file_bytes)) |resolved| {
+        if (resolveRootedImport(allocator, std_root, std_rel, options.max_local_file_bytes) catch null) |resolved| {
             return resolved;
         }
     }
 
-    const repo_root_or_err = sourceRepoRoot(allocator);
-    if (repo_root_or_err) |repo_root| {
-        defer allocator.free(repo_root);
-        const source_repo_std_root = try std.fs.path.join(allocator, &.{ repo_root, "sa_std" });
-        defer allocator.free(source_repo_std_root);
-        if (try resolveRootedImport(allocator, source_repo_std_root, std_rel, options.max_local_file_bytes)) |resolved| {
-            return resolved;
-        }
-    } else |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => {},
+    const repo_std_root = try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" });
+    defer allocator.free(repo_std_root);
+    if (resolveRootedImport(allocator, repo_std_root, std_rel, options.max_local_file_bytes) catch null) |resolved| {
+        return resolved;
     }
 
     if (projectRootPath(allocator, options) catch null) |project_root| {
         defer allocator.free(project_root);
-        if (try resolveRootedImport(allocator, project_root, import_path, options.max_local_file_bytes)) |resolved| {
+        if (resolveRootedImport(allocator, project_root, import_path, options.max_local_file_bytes) catch null) |resolved| {
             return resolved;
         }
     }

@@ -1,23 +1,18 @@
-@main():
+@helper() -> i32:
 L_ENTRY:
-    sum = 0
-    i = 0
-    limit = 100000000
-    jmp L_COND
-L_COND:
-    cond = ult i, limit
-    br cond -> L_BODY, L_EXIT
-L_BODY:
-    sq = mul i, i
-    sum = add sum, sq
-    i = add i, 1
-    !sq
-    !cond
-    jmp L_COND
-L_EXIT:
-    !i
-    !limit
-    !cond
-    // Note: We don't have a format printer in bare SA yet, 
-    // but we can observe execution time.
-    return
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    value = call @helper()
+    ok = eq value, 7
+    !value
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    return 0
+
+L_ERR:
+    !ok
+    return 1

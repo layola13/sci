@@ -2,6 +2,7 @@
 @import "stdlib_surface.sa"
 @import "sa_std/core/mem.sa"
 @import "sa_std/core/option.sal"
+@import "sa_std/core/result.sa"
 
 
 // Helpers distilled from the rosetta demos that the native unit-test suite
@@ -4571,14 +4572,14 @@ L_ENTRY:
     !count
     return value
 
-@support_ffi_single_tag(*slot: ptr) -> i32:
+@ffi_wrapper support_ffi_single_tag(*slot: ptr) -> i32:
 L_ENTRY:
     view = assume_borrow slot
     tag = load view+SupportFfiSingle_tag as i32
     !view
     return tag
 
-@support_ffi_pair_sum(*slot: ptr) -> i32:
+@ffi_wrapper support_ffi_pair_sum(*slot: ptr) -> i32:
 L_ENTRY:
     view = assume_borrow slot
     tag = load view+SupportFfiPair_tag as i32
@@ -4667,7 +4668,7 @@ L_ENTRY:
     !value
     return next
 
-@support_ffi_callback_thunk_value() -> i32:
+@ffi_wrapper support_ffi_callback_thunk_value() -> i32:
 L_ENTRY:
     state = alloc 16
     store state+SupportFfiCallbackState_value, 289 as i32
@@ -4682,10 +4683,9 @@ L_ENTRY:
     !fn
     !vt
     !view
-    !state
     return result
 
-@support_eco_pair_sum(*slot: ptr) -> i32:
+@ffi_wrapper support_eco_pair_sum(*slot: ptr) -> i32:
 L_ENTRY:
     view = assume_borrow slot
     a = load view+SupportEcoPair_a as i32

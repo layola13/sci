@@ -1,24 +1,45 @@
 const std = @import("std");
-const saasm = @import("src/lib.zig");
+const saasm = @import("saasm");
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
-    
-    // Simulate what std_smoke does: first flatten vec.sa
-    const vec_src = try std.fs.cwd().readFileAlloc(alloc, "sa_std/vec.sa", 1024 * 1024);
-    var vec_err = saasm.flattener.ErrorContext{};
-    var vec_flat = try saasm.flattener.flattenFileWithContext(alloc, "sa_std/vec.sa", vec_src, &vec_err);
-    vec_flat.deinit(alloc);
-    alloc.free(vec_src);
+    const allocator = gpa.allocator();
 
-    const heap_src = try std.fs.cwd().readFileAlloc(alloc, "sa_std/binary_heap.sa", 1024 * 1024 * 10);
-    var heap_error_ctx = saasm.flattener.ErrorContext{};
-    const heap_flat = try saasm.flattener.flattenFileWithContext(alloc, "sa_std/binary_heap.sa", heap_src, &heap_error_ctx);
-    const heap_verified = saasm.referee.verify(alloc, heap_flat.instructions, heap_flat.const_decls) catch unreachable;
-    if (heap_verified == .trap) {
-       std.debug.print("TRAP: {s} {s}\n", .{heap_verified.trap.message, std.mem.sliceTo(&heap_verified.trap.source_text_buf, 0)});
-    } else {
-       std.debug.print("OK!\n", .{});
+    const suite_path = "tests/unit_framework/feature_suite.sa";
+    const source = try std.fs.cwd().readFileAlloc(allocator, suite_path, 10 * 1024 * 1024);
+    defer allocator.free(source);
+
+    var resolve_ctx = saasm.pkg.ResolveContext{
+        .allocator = allocator,
+        .dependencies = &.{},
+        .options = .{},
+    };
+    resolve_ctx.options.std_root = "sa_std";
+
+    var err_ctx = saasm.flattener.ErrorContext{};
+
+    var flat = saasm.flattener.flattenFileWithContextAndPackages(
+        allocator,
+        suite_path,
+        source,
+        &err_ctx,
+        resolve_ctx,
+    ) catch |err| {
+        std.debug.print("Flatten failed: {}\n", .{err});
+        if (err_ctx.source_line) |line| {
+            std.debug.print("Error occurred at source line {?}\n", .{line});
+        }
+        return err;
+    };
+    defer flat.deinit(allocator);
+
+    std.debug.print("Flatten succeeded! Total instructions: {}\n", .{flat.instructions.len});
+    var it = flat.def_dict.entries.iterator();
+    std.debug.print("Dictionary keys:\n", .{});
+    while (it.next()) |entry| {
+        if (std.mem.containsAtLeast(u8, entry.key_ptr.*, 1, "Result")) {
+            std.debug.print("  - '{s}': '{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+        }
     }
 }

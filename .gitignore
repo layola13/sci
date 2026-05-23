@@ -22,3 +22,4 @@ repro_*.zig
 .antigravitycli/
 .o
 .diff
+.exe

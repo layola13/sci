@@ -61,7 +61,7 @@ pub fn main() void {
         },
     }
 
-    const totals = parseTokeiTotals(tokei_result.stdout) catch |err| {
+    const totals = parseTokeiTotals(allocator, tokei_result.stdout) catch |err| {
         reportTokeiParseError(stderr, err, tokei_result.stdout) catch {};
         exit_code = 1;
         return;
@@ -109,7 +109,30 @@ fn parseUnsignedPrefix(slice: []const u8) !usize {
     return std.fmt.parseInt(usize, slice[0..end], 10) catch error.CeilingParseFailed;
 }
 
-fn parseTokeiTotals(output: []const u8) !TokeiTotals {
+fn stripAnsiEscapes(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
+    var i: usize = 0;
+    while (i < input.len) {
+        if (input[i] == 0x1b) {
+            i += 1;
+            if (i < input.len and input[i] == '[') {
+                i += 1;
+                while (i < input.len and !std.ascii.isAlphabetic(input[i])) : (i += 1) {}
+                i += 1;
+            }
+        } else {
+            try result.append(input[i]);
+            i += 1;
+        }
+    }
+    return try result.toOwnedSlice();
+}
+
+fn parseTokeiTotals(allocator: std.mem.Allocator, raw_output: []const u8) !TokeiTotals {
+    const output = try stripAnsiEscapes(allocator, raw_output);
+    defer allocator.free(output);
+
     var lines = std.mem.splitScalar(u8, output, '\n');
     while (lines.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, " \t\r");

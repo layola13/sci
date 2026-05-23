@@ -1824,13 +1824,41 @@ fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const 
 }
 
 fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
+    const repo_std_root = try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" });
+    errdefer allocator.free(repo_std_root);
+
     if (builtin.is_test) {
-        return try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" });
+        return repo_std_root;
     }
-    return std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" }),
+
+    const env_root = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return repo_std_root,
         else => return err,
     };
+    errdefer allocator.free(env_root);
+
+    const required_files = [_][]const u8{
+        "io/print.sai",
+        "core/sa_core.sa",
+        "core/result.sa",
+        "core/option.sa",
+    };
+    for (required_files) |rel| {
+        const probe_path = try std.fs.path.join(allocator, &.{ env_root, rel });
+        defer allocator.free(probe_path);
+        if (std.fs.cwd().openFile(probe_path, .{})) |file| {
+            file.close();
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                allocator.free(env_root);
+                return repo_std_root;
+            },
+            else => return err,
+        }
+    }
+
+    allocator.free(repo_std_root);
+    return env_root;
 }
 
 fn pluginSoPath(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
@@ -2244,6 +2272,9 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 .release_small => 1,
                 .release_fast => 3,
             });
+            const artifact_path = try intermediateArtifactPath(allocator, out_path);
+            defer allocator.free(artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }

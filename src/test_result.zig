@@ -39,7 +39,7 @@ pub fn terminationFrom(term: std.process.Child.Term) Termination {
 }
 
 fn stderrHasPanic(stderr: []const u8) bool {
-    return std.mem.startsWith(u8, stderr, "PANIC:") or std.mem.startsWith(u8, stderr, "PANIC[");
+    return std.mem.indexOf(u8, stderr, "PANIC:") != null or std.mem.indexOf(u8, stderr, "PANIC[") != null;
 }
 
 pub fn toOutcome(display_name: []const u8, term: std.process.Child.Term, stderr: []const u8, should_panic: bool) TestOutcome {

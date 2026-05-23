@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const call = @import("referee/call.zig");
+const referee = @import("referee.zig");
 const emit_options = @import("emit_options.zig");
 const flattener = @import("flattener.zig");
 const inst = @import("common/instruction.zig");
@@ -18,9 +19,9 @@ extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_pat
 pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction };
 pub const EmitOptions = emit_options.EmitOptions;
 
-const CType = enum(c_int) { void = 0, i1 = 1, i8 = 2, i16 = 3, i32 = 4, i64 = 5, f32 = 6, f64 = 7, ptr = 8 };
+const CType = enum(c_int) { void = 0, i1 = 1, i8 = 2, i16 = 3, i32 = 4, i64 = 5, f32 = 6, f64 = 7, ptr = 8, u8 = 9, u16 = 10, u32 = 11, u64 = 12 };
 const CFuncKind = enum(c_int) { normal = 0, external = 1, exported = 2, test_func = 3 };
-const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, atomic_load = 13, atomic_store = 14, atomic_rmw = 15, cmpxchg = 16, fence = 17, try_ = 18, call_indirect = 19, assign = 20 };
+const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21 };
 const COperandKind = enum(c_int) { none = 0, reg = 1, imm_i64 = 2, imm_u64 = 3, const_ptr = 4 };
 const CBinaryOp = enum(c_int) { add = 0, sub = 1, mul = 2, sdiv = 3, udiv = 4, srem = 5, urem = 6, band = 7, bor = 8, xor = 9, shl = 10, lshr = 11, ashr = 12, eq = 13, ne = 14, slt = 15, sle = 16, sgt = 17, sge = 18, ult = 19, ule = 20, ugt = 21, uge = 22 };
 const CAtomicOrdering = enum(c_int) { relaxed = 0, acquire = 1, release = 2, acq_rel = 3, seq_cst = 4 };
@@ -102,10 +103,14 @@ fn cType(ty: sig.PrimType) !CType {
     return switch (ty) {
         .void => .void,
         .i1 => .i1,
-        .i8, .u8 => .i8,
-        .i16, .u16 => .i16,
-        .i32, .u32, .blob_handle => .i32,
-        .i64, .u64 => .i64,
+        .i8 => .i8,
+        .u8 => .u8,
+        .i16 => .i16,
+        .u16 => .u16,
+        .i32, .blob_handle => .i32,
+        .u32 => .u32,
+        .i64 => .i64,
+        .u64 => .u64,
         .f32 => .f32,
         .f64 => .f64,
         .ptr => .ptr,
@@ -118,6 +123,70 @@ fn valueTypeForPrefix(prefix: inst.CapPrefix, ty: sig.PrimType) sig.PrimType {
         .borrow, .raw => .ptr,
         .move, .by_value => ty,
     };
+}
+
+fn isRawQuotedStringArg(arg: call.ParsedArg) bool {
+    return arg.prefix == .raw and arg.text.len >= 2 and arg.text[0] == '"' and arg.text[arg.text.len - 1] == '"';
+}
+
+fn parseHexDigitPair(text: []const u8) !u8 {
+    if (text.len != 2) return error.InvalidOperand;
+    const hi = std.fmt.charToDigit(text[0], 16) catch return error.InvalidOperand;
+    const lo = std.fmt.charToDigit(text[1], 16) catch return error.InvalidOperand;
+    return @as(u8, @intCast((hi << 4) | lo));
+}
+
+fn decodeQuotedBytes(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
+    if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"') return error.InvalidOperand;
+
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    var i: usize = 1;
+    while (i < raw.len - 1) {
+        const c = raw[i];
+        if (c != '\\') {
+            try out.append(c);
+            i += 1;
+            continue;
+        }
+
+        if (i + 1 >= raw.len - 1) return error.InvalidOperand;
+        switch (raw[i + 1]) {
+            '\\' => {
+                try out.append('\\');
+                i += 2;
+            },
+            '"' => {
+                try out.append('"');
+                i += 2;
+            },
+            'n' => {
+                try out.append('\n');
+                i += 2;
+            },
+            'r' => {
+                try out.append('\r');
+                i += 2;
+            },
+            't' => {
+                try out.append('\t');
+                i += 2;
+            },
+            '0' => {
+                try out.append(0);
+                i += 2;
+            },
+            'x' => {
+                if (i + 3 >= raw.len - 1) return error.InvalidOperand;
+                try out.append(try parseHexDigitPair(raw[i + 2 .. i + 4]));
+                i += 4;
+            },
+            else => return error.InvalidOperand,
+        }
+    }
+
+    return try out.toOwnedSlice();
 }
 
 fn returnTypeForSig(return_cap: ?inst.CapPrefix, return_ty: sig.PrimType) sig.PrimType {
@@ -216,19 +285,66 @@ fn fillConstBytes(out: []u8, value: const_decl.ConstValue) !void {
     }
 }
 
+fn collectAnonStringConsts(
+    allocator: std.mem.Allocator,
+    annotated: []const referee.AnnotatedInstruction,
+    anon_string_names: *std.StringHashMap([*:0]const u8),
+    c_consts: *std.ArrayList(CConst),
+) !void {
+    var anon_idx: usize = c_consts.items.len;
+    for (annotated) |item| {
+        switch (item.base.kind) {
+            .call, .call_indirect, .panic, .panic_msg => {},
+            else => continue,
+        }
+
+        var parsed = call.parseCall(allocator, item.base.raw_text) catch |err| switch (err) {
+            error.InvalidCallSyntax => continue,
+            else => return err,
+        };
+        defer parsed.deinit(allocator);
+
+        for (parsed.args) |arg| {
+            if (!isRawQuotedStringArg(arg)) continue;
+            if (anon_string_names.contains(arg.text)) continue;
+
+            const bytes = try decodeQuotedBytes(allocator, arg.text);
+            defer allocator.free(bytes);
+            if (!std.unicode.utf8ValidateSlice(bytes)) return error.InvalidOperand;
+
+            const raw_key = try allocator.dupe(u8, arg.text);
+            errdefer allocator.free(raw_key);
+            const name = try std.fmt.allocPrintZ(allocator, "__sa_anon_str_{d}", .{anon_idx});
+            const data = try allocator.dupe(u8, bytes);
+
+            try c_consts.append(.{ .name = name.ptr, .data = data.ptr, .len = data.len });
+            try anon_string_names.put(raw_key, name.ptr);
+            anon_idx += 1;
+        }
+    }
+}
+
 const BuildState = struct {
     allocator: std.mem.Allocator,
     symbols: *const @import("flattener/symbol.zig").SymbolTable,
     fsig: sig.FunctionSig,
     const_names: std.StringHashMap(void),
+    anon_string_names: *const std.StringHashMap([*:0]const u8),
     const_decls: []const const_decl.ConstDecl,
     function_sigs: []const sig.FunctionSig,
 
-    fn init(allocator: std.mem.Allocator, symbols: *const @import("flattener/symbol.zig").SymbolTable, fsig: sig.FunctionSig, const_decls: []const const_decl.ConstDecl, function_sigs: []const sig.FunctionSig) !BuildState {
+    fn init(
+        allocator: std.mem.Allocator,
+        symbols: *const @import("flattener/symbol.zig").SymbolTable,
+        fsig: sig.FunctionSig,
+        const_decls: []const const_decl.ConstDecl,
+        function_sigs: []const sig.FunctionSig,
+        anon_string_names: *const std.StringHashMap([*:0]const u8),
+    ) !BuildState {
         var const_names = std.StringHashMap(void).init(allocator);
         errdefer const_names.deinit();
         for (const_decls) |decl| try const_names.put(decl.name, {});
-        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .const_names = const_names, .const_decls = const_decls, .function_sigs = function_sigs };
+        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs };
     }
 
     fn deinit(self: *BuildState) void {
@@ -257,6 +373,14 @@ const BuildState = struct {
         };
     }
 
+    fn callArgOperand(self: *BuildState, arg: call.ParsedArg) !COperand {
+        if (isRawQuotedStringArg(arg)) {
+            const name = self.anon_string_names.get(arg.text) orelse return error.InvalidOperand;
+            return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .ty = .ptr, .name = name };
+        }
+        return try self.textOperand(arg.text);
+    }
+
     fn textOperand(self: *BuildState, raw: []const u8) !COperand {
         var text = std.mem.trim(u8, raw, " \t");
         if (text.len == 0) return error.InvalidOperand;
@@ -268,14 +392,22 @@ const BuildState = struct {
                 .ptr
             else if (std.mem.eql(u8, ty_text, "i1"))
                 .i1
-            else if (std.mem.eql(u8, ty_text, "i8") or std.mem.eql(u8, ty_text, "u8"))
+            else if (std.mem.eql(u8, ty_text, "i8"))
                 .i8
-            else if (std.mem.eql(u8, ty_text, "i16") or std.mem.eql(u8, ty_text, "u16"))
+            else if (std.mem.eql(u8, ty_text, "u8"))
+                .u8
+            else if (std.mem.eql(u8, ty_text, "i16"))
                 .i16
-            else if (std.mem.eql(u8, ty_text, "i32") or std.mem.eql(u8, ty_text, "u32"))
+            else if (std.mem.eql(u8, ty_text, "u16"))
+                .u16
+            else if (std.mem.eql(u8, ty_text, "i32"))
                 .i32
-            else if (std.mem.eql(u8, ty_text, "i64") or std.mem.eql(u8, ty_text, "u64"))
+            else if (std.mem.eql(u8, ty_text, "u32"))
+                .u32
+            else if (std.mem.eql(u8, ty_text, "i64"))
                 .i64
+            else if (std.mem.eql(u8, ty_text, "u64"))
+                .u64
             else
                 null;
         } else null;
@@ -530,12 +662,25 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, base: inst
         .jmp => .{ .op = .jmp, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .br => .{ .op = .br, .dst = 0, .operand0 = try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = try labelNameZ(allocator, state.symbols, base.operands[3]), .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .call, .call_indirect, .panic, .panic_msg => blk: {
-            if (base.kind != .call and base.kind != .call_indirect) break :blk .{ .op = .panic, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
             var parsed = call.parseCall(allocator, base.raw_text) catch return error.InvalidOperand;
             defer parsed.deinit(allocator);
+            if (base.kind == .panic) {
+                if (parsed.args.len != 1) return error.InvalidOperand;
+                break :blk .{ .op = .panic, .dst = 0, .operand0 = try state.callArgOperand(parsed.args[0]), .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+            }
+            if (base.kind == .panic_msg) {
+                if (parsed.args.len != 3) return error.InvalidOperand;
+                const panic_args = try allocator.alloc(COperand, 3);
+                errdefer allocator.free(panic_args);
+                panic_args[0] = try state.callArgOperand(parsed.args[0]);
+                panic_args[1] = try state.callArgOperand(parsed.args[1]);
+                panic_args[2] = try state.callArgOperand(parsed.args[2]);
+                break :blk .{ .op = .call, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = "panic_msg", .args = panic_args.ptr, .arg_count = panic_args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+            }
+            if (base.kind != .call and base.kind != .call_indirect) break :blk .{ .op = .panic, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
             const args = try allocator.alloc(COperand, parsed.args.len);
-            for (parsed.args, 0..) |arg, idx| args[idx] = try state.textOperand(arg.text);
-            const callee = try allocator.dupeZ(u8, parsed.callee);
+            for (parsed.args, 0..) |arg, idx| args[idx] = try state.callArgOperand(arg);
+            const resolved = state.calleeSig(parsed.callee);
             const dst: u32 = if (parsed.dest) |dest| blk2: {
                 const id = state.symbols.findId(dest) orelse return error.InvalidOperand;
                 break :blk2 state.fsig.slotOf(id) orelse return error.InvalidOperand;
@@ -544,7 +689,8 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, base: inst
                 const callee_op = try state.textOperand(parsed.callee);
                 break :blk .{ .op = .call_indirect, .dst = dst, .operand0 = callee_op, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
             }
-            const resolved = state.calleeSig(parsed.callee);
+            const callee_name = if (resolved) |resolved_sig| emittedFunctionName(resolved_sig) else parsed.callee;
+            const callee = try allocator.dupeZ(u8, callee_name);
             const call_ty = if (resolved) |resolved_sig| try cType(returnTypeForSig(resolved_sig.return_cap, resolved_sig.return_ty)) else builtinReturnType(parsed.callee) orelse CType.void;
             const call_fallible = if (resolved) |resolved_sig| resolved_sig.return_fallible else false;
             break :blk .{ .op = .call, .dst = dst, .operand0 = none, .operand1 = none, .operand2 = none, .ty = call_ty, .binary_op = .add, .label = null, .false_label = null, .callee = callee.ptr, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = call_fallible, .indirect_sig_index = std.math.maxInt(u32) };
@@ -582,6 +728,7 @@ fn ParallelEmitContext(comptime VerifiedType: type) type {
         loc_table: upstream.LocTable,
         source_path: []const u8,
         options: EmitOptions,
+        anon_string_names: *const std.StringHashMap([*:0]const u8),
         tasks: []const ParallelEmitTask,
         jobs: []ParallelEmitJob,
         next_task: std.atomic.Value(usize),
@@ -614,18 +761,36 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             .{ .line = fsig.entry_inst_idx + 1, .col = 1 };
 
         const func_source_path = if (fsig.upstream_loc) |loc| loc.file else context.source_path;
-        const func_source_file = a.dupeZ(u8, sourceFileName(func_source_path)) catch |err| { job.err = err; return; };
-        const func_source_dir = a.dupeZ(u8, sourceDirName(func_source_path)) catch |err| { job.err = err; return; };
+        const func_source_file = a.dupeZ(u8, sourceFileName(func_source_path)) catch |err| {
+            job.err = err;
+            return;
+        };
+        const func_source_dir = a.dupeZ(u8, sourceDirName(func_source_path)) catch |err| {
+            job.err = err;
+            return;
+        };
 
-        const params = a.alloc(CParam, fsig.params.len) catch |err| { job.err = err; return; };
+        const params = a.alloc(CParam, fsig.params.len) catch |err| {
+            job.err = err;
+            return;
+        };
         for (fsig.params, 0..) |param, pidx| {
-            const pname = a.dupeZ(u8, param.name) catch |err| { job.err = err; return; };
+            const pname = a.dupeZ(u8, param.name) catch |err| {
+                job.err = err;
+                return;
+            };
             const reg_id = fsig.param_ids[pidx];
-            params[pidx] = .{ .name = pname.ptr, .ty = cType(valueTypeForPrefix(param.cap, param.ty)) catch |err| { job.err = err; return; }, .slot = fsig.slotOf(reg_id) orelse @intCast(pidx) };
+            params[pidx] = .{ .name = pname.ptr, .ty = cType(valueTypeForPrefix(param.cap, param.ty)) catch |err| {
+                job.err = err;
+                return;
+            }, .slot = fsig.slotOf(reg_id) orelse @intCast(pidx) };
         }
 
         const debug_vars = if (context.options.debug and task.decl_kind != .extern_decl)
-            buildDebugVars(a, &context.verified.symbols, fsig, entry_loc) catch |err| { job.err = err; return; }
+            buildDebugVars(a, &context.verified.symbols, fsig, entry_loc) catch |err| {
+                job.err = err;
+                return;
+            }
         else
             @as([]CDebugVar, &.{});
 
@@ -633,20 +798,38 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
         var debug_locs = std.ArrayList(CDebugLoc).init(a);
 
         if (task.decl_kind != .extern_decl) {
-            var state = BuildState.init(a, &context.verified.symbols, fsig, context.verified.const_decls, context.verified.function_sigs) catch |err| { job.err = err; return; };
+            var state = BuildState.init(a, &context.verified.symbols, fsig, context.verified.const_decls, context.verified.function_sigs, context.anon_string_names) catch |err| {
+                job.err = err;
+                return;
+            };
             defer state.deinit();
             for (context.verified.annotated[task.start_idx + 1 .. task.end_idx], task.start_idx + 1..) |body_item, annotated_idx| {
-                if (lowerInstruction(a, &state, body_item.base) catch |err| { job.err = err; return; }) |ci| {
-                    insts.append(ci) catch |err| { job.err = err; return; };
+                if (lowerInstruction(a, &state, body_item.base) catch |err| {
+                    job.err = err;
+                    return;
+                }) |ci| {
+                    insts.append(ci) catch |err| {
+                        job.err = err;
+                        return;
+                    };
                     if (context.options.debug) {
-                        debug_locs.append(debugLocForInstruction(body_item.base, context.loc_table[annotated_idx], entry_loc)) catch |err| { job.err = err; return; };
+                        debug_locs.append(debugLocForInstruction(body_item.base, context.loc_table[annotated_idx], entry_loc)) catch |err| {
+                            job.err = err;
+                            return;
+                        };
                     }
                 }
             }
         }
 
-        const name = a.dupeZ(u8, emittedFunctionName(fsig)) catch |err| { job.err = err; return; };
-        const ret_ty = cType(returnTypeForSig(fsig.return_cap, fsig.return_ty)) catch |err| { job.err = err; return; };
+        const name = a.dupeZ(u8, emittedFunctionName(fsig)) catch |err| {
+            job.err = err;
+            return;
+        };
+        const ret_ty = cType(returnTypeForSig(fsig.return_cap, fsig.return_ty)) catch |err| {
+            job.err = err;
+            return;
+        };
 
         job.result = .{
             .name = name.ptr,
@@ -682,6 +865,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
 
     var c_consts = std.ArrayList(CConst).init(a);
     var c_vtables = std.ArrayList(CVTable).init(a);
+    var anon_string_names = std.StringHashMap([*:0]const u8).init(a);
     for (verified.const_decls) |decl| {
         switch (decl.value) {
             .vtable => |literal| {
@@ -703,6 +887,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             },
         }
     }
+    try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
     if (options.codegen_unit_index) |cgu_idx| {
@@ -829,6 +1014,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .loc_table = loc_table,
         .source_path = source_path,
         .options = options,
+        .anon_string_names = &anon_string_names,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -928,6 +1114,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
 
     var c_consts = std.ArrayList(CConst).init(a);
     var c_vtables = std.ArrayList(CVTable).init(a);
+    var anon_string_names = std.StringHashMap([*:0]const u8).init(a);
     for (verified.const_decls) |decl| {
         switch (decl.value) {
             .vtable => |literal| {
@@ -949,6 +1136,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             },
         }
     }
+    try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
     if (options.codegen_unit_index) |cgu_idx| {
@@ -1025,8 +1213,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
 
                 var should_include = true;
                 if (options.codegen_unit_index) |cgu_idx| {
-                    if (task_idx % options.codegen_unit_count == cgu_idx) {
-                    } else if (item.kind == .extern_decl or referenced_functions.contains(fsig.name)) {
+                    if (task_idx % options.codegen_unit_count == cgu_idx) {} else if (item.kind == .extern_decl or referenced_functions.contains(fsig.name)) {
                         c_kind = .external;
                         emit_wrapper = false;
                     } else {
@@ -1063,6 +1250,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .loc_table = loc_table,
         .source_path = source_path,
         .options = options,
+        .anon_string_names = &anon_string_names,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1144,39 +1332,4 @@ test "llvmc backend can construct and write bitcode in memory" {
     defer if (out_bytes) |ptr| sa_llvmc_free(ptr);
     try std.testing.expect(out_bytes != null);
     try std.testing.expect(out_len > 0);
-}
-
-test "scratch print" {
-    const allocator = std.testing.allocator;
-    const suite_path = "tests/unit_framework/feature_suite.sa";
-    var file = try std.fs.cwd().openFile(suite_path, .{});
-    defer file.close();
-    const source = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
-    defer allocator.free(source);
-
-    const std_root = try std.fs.cwd().realpathAlloc(allocator, "sa_std");
-    defer allocator.free(std_root);
-    const project_root = try std.fs.cwd().realpathAlloc(allocator, ".");
-    defer allocator.free(project_root);
-
-    var error_ctx = flattener.ErrorContext{};
-    const resolve_ctx = flattener.ResolveContext{
-        .dependencies = &.{},
-        .options = .{
-            .project_root = project_root,
-            .std_root = std_root,
-            .offline = true,
-        },
-    };
-
-    var flat = try flattener.flattenFileWithContextAndPackages(allocator, suite_path, source, &error_ctx, resolve_ctx);
-    defer flat.deinit(allocator);
-
-    std.debug.print("\nTotal instructions: {d}\n", .{flat.instructions.len});
-    for (3780..3840) |idx| {
-        if (idx < flat.instructions.len) {
-            const instruction = flat.instructions[idx];
-            std.debug.print("{d}: {s} (raw: {s})\n", .{idx, @tagName(instruction.kind), instruction.raw_text});
-        }
-    }
 }

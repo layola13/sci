@@ -109,7 +109,7 @@ const ImportExpansion = struct {
     owned_paths: std.ArrayList([]u8),
     layout_versions: std.ArrayList(LayoutVersion),
 
-    fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
         self.line_package_identities.deinit();
         self.line_package_hashes.deinit();
         for (self.owned_paths.items) |path| {
@@ -346,7 +346,9 @@ fn parseLayoutOffset(
     var it = dict.entries.iterator();
     while (it.next()) |entry| {
         const key = entry.key_ptr.*;
-        if (std.mem.endsWith(u8, key, folded) and key.len > folded.len and key[key.len - folded.len - 1] == '.') {
+        if (std.mem.endsWith(u8, key, folded) and key.len > folded.len) {
+            const separator = key[key.len - folded.len - 1];
+            if (separator != '.' and separator != '_') continue;
             return try parseIntAllowLeadingPlus(u64, entry.value_ptr.*);
         }
     }
@@ -2221,12 +2223,14 @@ fn injectImportedFile(
     const entry_path = imported.entry_path;
     if (!std.mem.endsWith(u8, entry_path, ".sa")) return;
 
-    const effective_package_identity = if (imported.package_identity) |identity|
-        try rememberPackageIdentity(allocator, seen_package_identities, identity)
-    else if (current_package_identity) |identity|
-        try rememberPackageIdentity(allocator, seen_package_identities, identity)
-    else
-        null;
+    const effective_package_identity = if (imported.package_identity) |identity| blk: {
+        break :blk try rememberPackageIdentity(allocator, seen_package_identities, identity);
+    } else if (!imported.is_global) blk: {
+        if (current_package_identity) |identity| {
+            break :blk try rememberPackageIdentity(allocator, seen_package_identities, identity);
+        }
+        break :blk null;
+    } else null;
 
     const import_dir = std.fs.path.dirname(entry_path) orelse ".";
     const stem = pathStem(entry_path);
@@ -2265,7 +2269,12 @@ fn injectImportedFile(
             try active_paths2.put(injected.entry_path, {});
             defer _ = active_paths2.remove(injected.entry_path);
 
-            const effective_child_package_identity = injected.package_identity orelse current_package_identity2;
+            const effective_child_package_identity = if (injected.package_identity) |identity|
+                identity
+            else if (!injected.is_global)
+                current_package_identity2
+            else
+                null;
             const is_layout_file = std.mem.endsWith(u8, injected.entry_path, ".sal");
             var rewritten_source: ?[]u8 = null;
             defer if (rewritten_source) |rewritten| allocator2.free(rewritten);
@@ -2371,12 +2380,14 @@ fn expandImportsInto(
         if (parseImportPath(raw_line)) |import_path| {
             var imported = try readImportFile(allocator, base_dir, import_path, resolve_ctx);
             std.debug.print("\n[IMPORT] resolved '{s}' -> '{s}'\n", .{ import_path, imported.entry_path });
-            const imported_package_identity = if (imported.package_identity) |identity|
-                try rememberPackageIdentity(allocator, seen_package_identities, identity)
-            else if (current_package_identity) |identity|
-                try rememberPackageIdentity(allocator, seen_package_identities, identity)
-            else
-                null;
+            const imported_package_identity = if (imported.package_identity) |identity| blk: {
+                break :blk try rememberPackageIdentity(allocator, seen_package_identities, identity);
+            } else if (!imported.is_global) blk: {
+                if (current_package_identity) |identity| {
+                    break :blk try rememberPackageIdentity(allocator, seen_package_identities, identity);
+                }
+                break :blk null;
+            } else null;
             const imported_package_hash = if (imported.package_identity != null)
                 imported.source_sha256 orelse current_package_hash
             else
@@ -2455,7 +2466,7 @@ fn expandImportsInto(
     }
 }
 
-fn expandImports(
+pub fn expandImports(
     allocator: std.mem.Allocator,
     source: []const u8,
     source_path: ?[]const u8,

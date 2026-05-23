@@ -392,6 +392,70 @@ fn materializeConstValue(allocator: std.mem.Allocator, value: const_decl.ConstVa
     return try out.toOwnedSlice();
 }
 
+fn parseHexDigitPair(text: []const u8) !u8 {
+    if (text.len != 2) return RunError.InvalidOperand;
+    const hi = std.fmt.charToDigit(text[0], 16) catch return RunError.InvalidOperand;
+    const lo = std.fmt.charToDigit(text[1], 16) catch return RunError.InvalidOperand;
+    return @as(u8, @intCast((hi << 4) | lo));
+}
+
+fn decodeQuotedBytes(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
+    if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"') return RunError.InvalidOperand;
+
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    var i: usize = 1;
+    while (i < raw.len - 1) {
+        const c = raw[i];
+        if (c != '\\') {
+            try out.append(c);
+            i += 1;
+            continue;
+        }
+
+        if (i + 1 >= raw.len - 1) return RunError.InvalidOperand;
+        switch (raw[i + 1]) {
+            '\\' => {
+                try out.append('\\');
+                i += 2;
+            },
+            '"' => {
+                try out.append('"');
+                i += 2;
+            },
+            'n' => {
+                try out.append('\n');
+                i += 2;
+            },
+            'r' => {
+                try out.append('\r');
+                i += 2;
+            },
+            't' => {
+                try out.append('\t');
+                i += 2;
+            },
+            '0' => {
+                try out.append(0);
+                i += 2;
+            },
+            'x' => {
+                if (i + 3 >= raw.len - 1) return RunError.InvalidOperand;
+                try out.append(try parseHexDigitPair(raw[i + 2 .. i + 4]));
+                i += 4;
+            },
+            else => return RunError.InvalidOperand,
+        }
+    }
+
+    return try out.toOwnedSlice();
+}
+
+fn isRawQuotedStringArg(arg: call.ParsedArg) bool {
+    return arg.prefix == .raw and arg.text.len >= 2 and arg.text[0] == '"' and arg.text[arg.text.len - 1] == '"';
+}
+
 fn isIdentLike(text: []const u8) bool {
     return text.len != 0 and (std.ascii.isAlphabetic(text[0]) or text[0] == '_');
 }
@@ -419,7 +483,7 @@ fn resolveOperandValue(
         .imm_int => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
         .imm_float => |v| .{ .ty = .f64, .bits = @bitCast(v) },
         else => {
-            std.debug.print("interp.resolveOperandValue failed for operand kind {s}\n", .{ @tagName(operand) });
+            std.debug.print("interp.resolveOperandValue failed for operand kind {s}\n", .{@tagName(operand)});
             return RunError.InvalidOperand;
         },
     };
@@ -580,6 +644,8 @@ const Interpreter = struct {
     stdout: std.io.AnyWriter,
     stderr: std.io.AnyWriter,
     const_addrs: std.StringHashMap(u64),
+    anon_const_addrs: std.StringHashMap(u64),
+    anon_const_keys: std.ArrayList([]u8),
     memory: Memory,
     http_bridge: ?HttpBridge = null,
     monotonic_origin: ?std.time.Instant = null,
@@ -641,6 +707,8 @@ const Interpreter = struct {
             .stdout = stdout,
             .stderr = stderr,
             .const_addrs = std.StringHashMap(u64).init(allocator),
+            .anon_const_addrs = std.StringHashMap(u64).init(allocator),
+            .anon_const_keys = std.ArrayList([]u8).init(allocator),
             .memory = Memory.init(allocator),
             .http_bridge = loadHttpBridge(allocator) catch null,
             .monotonic_origin = null,
@@ -649,11 +717,15 @@ const Interpreter = struct {
         };
         errdefer interp.deinit();
         try interp.materializeConsts();
+        try interp.materializeAnonStringConsts();
         return interp;
     }
 
     fn deinit(self: *Interpreter) void {
         if (self.http_bridge) |*bridge| bridge.deinit();
+        for (self.anon_const_keys.items) |key| self.allocator.free(key);
+        self.anon_const_keys.deinit();
+        self.anon_const_addrs.deinit();
         self.const_addrs.deinit();
         self.memory.deinit();
         for (self.argv_storage) |arg| self.allocator.free(arg);
@@ -661,6 +733,39 @@ const Interpreter = struct {
         self.allocator.free(self.argv);
         self.allocator.free(self.ranges);
         self.* = undefined;
+    }
+
+    fn materializeAnonStringConsts(self: *Interpreter) !void {
+        for (self.program.annotated) |item| {
+            switch (item.base.kind) {
+                .call, .call_indirect, .panic, .panic_msg => {},
+                else => continue,
+            }
+
+            var parsed = call.parseCall(self.allocator, item.base.raw_text) catch |err| switch (err) {
+                error.InvalidCallSyntax => continue,
+                else => return err,
+            };
+            defer parsed.deinit(self.allocator);
+
+            for (parsed.args) |arg| {
+                if (!isRawQuotedStringArg(arg)) continue;
+                if (self.anon_const_addrs.contains(arg.text)) continue;
+
+                const bytes = try decodeQuotedBytes(self.allocator, arg.text);
+                defer self.allocator.free(bytes);
+                if (!std.unicode.utf8ValidateSlice(bytes)) return RunError.InvalidOperand;
+
+                const key = try self.allocator.dupe(u8, arg.text);
+                errdefer self.allocator.free(key);
+
+                const addr = try self.memory.allocConst(bytes.len, null, &.{});
+                const dst = try self.memory.sliceAt(addr, bytes.len);
+                @memcpy(dst, bytes);
+                try self.anon_const_keys.append(key);
+                try self.anon_const_addrs.put(key, addr);
+            }
+        }
     }
 
     fn traceRuntime(allocator: std.mem.Allocator) !bool {
@@ -737,15 +842,15 @@ const Interpreter = struct {
         };
     }
 
-fn intValue(value: RegValue, signed: bool) i128 {
-    const width = primWidth(value.ty);
-    const raw = value.bits & maskForWidth(width);
-    if (width <= 1) {
-        return @as(i128, @intCast(raw));
-    }
-    if (signed) {
-        const sign_bit = if (width == 0) 0 else (@as(u64, 1) << @intCast(width - 1));
-        if (width != 0 and (raw & sign_bit) != 0) {
+    fn intValue(value: RegValue, signed: bool) i128 {
+        const width = primWidth(value.ty);
+        const raw = value.bits & maskForWidth(width);
+        if (width <= 1) {
+            return @as(i128, @intCast(raw));
+        }
+        if (signed) {
+            const sign_bit = if (width == 0) 0 else (@as(u64, 1) << @intCast(width - 1));
+            if (width != 0 and (raw & sign_bit) != 0) {
                 const extended = raw | (~maskForWidth(width));
                 return @as(i128, @intCast(@as(i64, @bitCast(extended))));
             }
@@ -1251,6 +1356,17 @@ fn intValue(value: RegValue, signed: bool) i128 {
         return try Interpreter.parseImmediateValue(self.allocator, &self.memory, candidate);
     }
 
+    fn callArgValue(self: *Interpreter, fsig: *const sig.FunctionSig, regs: *FrameRegs, arg: call.ParsedArg) !RegValue {
+        if (isRawQuotedStringArg(arg)) {
+            const addr = self.anon_const_addrs.get(arg.text) orelse return RunError.InvalidOperand;
+            return .{ .ty = .ptr, .bits = addr };
+        }
+        if (arg.prefix == .raw and arg.text.len >= 2 and arg.text[0] == '"' and arg.text[arg.text.len - 1] == '"') {
+            return RunError.InvalidOperand;
+        }
+        return try self.resolveTextOperand(fsig, regs, arg.text);
+    }
+
     fn resolveSizeOperand(self: *Interpreter, regs: *FrameRegs, operand: inst.Operand) !u64 {
         return switch (operand) {
             .imm_u64 => |v| v,
@@ -1301,15 +1417,6 @@ fn intValue(value: RegValue, signed: bool) i128 {
             }
             try self.const_addrs.put(decl.name, addr);
         }
-    }
-
-    fn decodeArg(
-        self: *Interpreter,
-        fsig: *const sig.FunctionSig,
-        frame_regs: *FrameRegs,
-        arg: call.ParsedArg,
-    ) !RegValue {
-        return try self.resolveTextOperand(fsig, frame_regs, arg.text);
     }
 
     fn decodeBinaryValue(self: *Interpreter, ty: sig.PrimType, bytes: []const u8) !RegValue {
@@ -1998,8 +2105,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
                         .bits = loaded.bits,
                         .fallible = loaded.fallible,
                         .status = loaded.status,
-                        .interior_ptr =
-                            loaded.interior_ptr or
+                        .interior_ptr = loaded.interior_ptr or
                             (selected_meta != null and selected_meta.?.interior_ptr) or
                             (loaded.ty == .ptr and src_is_borrowed),
                         .const_name = if (selected_meta) |m| m.const_name else null,
@@ -2188,20 +2294,20 @@ fn intValue(value: RegValue, signed: bool) i128 {
                         if (value.borrow_view or value.ffi_borrow) {
                             // Borrow views do not physically free.
                         } else {
-                        if (value.interior_ptr or value.const_name != null) {
-                            // Interior pointers are derived views into an allocation.
-                        } else {
-                            var is_stack_alloc = false;
-                            for (stack_allocs.items) |addr| {
-                                if (addr == value.bits) {
-                                    is_stack_alloc = true;
-                                    break;
+                            if (value.interior_ptr or value.const_name != null) {
+                                // Interior pointers are derived views into an allocation.
+                            } else {
+                                var is_stack_alloc = false;
+                                for (stack_allocs.items) |addr| {
+                                    if (addr == value.bits) {
+                                        is_stack_alloc = true;
+                                        break;
+                                    }
+                                }
+                                if (!is_stack_alloc and value.ty == .ptr and value.bits != 0) {
+                                    self.memory.free(value.bits) catch {};
                                 }
                             }
-                            if (!is_stack_alloc and value.ty == .ptr and value.bits != 0) {
-                                self.memory.free(value.bits) catch {};
-                            }
-                        }
                         }
                     }
                 },
@@ -2340,7 +2446,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, 0..) |arg, idx| {
-            out[idx] = self.resolveTextOperand(fsig, regs, arg.text) catch |err| {
+            out[idx] = self.callArgValue(fsig, regs, arg) catch |err| {
                 self.stderr.print("interp call arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
                 return err;
             };
@@ -2353,7 +2459,7 @@ fn intValue(value: RegValue, signed: bool) i128 {
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, params, 0..) |arg, param, idx| {
-            const raw = self.resolveTextOperand(fsig, regs, arg.text) catch |err| {
+            const raw = self.callArgValue(fsig, regs, arg) catch |err| {
                 self.stderr.print("interp indirect arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
                 return err;
             };
@@ -2423,7 +2529,8 @@ pub fn runWithWriters(
     stdout: std.io.AnyWriter,
     stderr: std.io.AnyWriter,
 ) !u8 {
-    const main_index = blk: {        for (program.function_sigs, 0..) |fsig, idx| {
+    const main_index = blk: {
+        for (program.function_sigs, 0..) |fsig, idx| {
             if (fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main")) break :blk idx;
         }
         if (program.function_sigs.len != 0) break :blk @as(usize, 0);

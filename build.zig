@@ -184,6 +184,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addLlvmcShimToModule(b, llvmc_test_module);
+    llvmc_test_module.addOptions("build_options", build_options);
     llvmc_test_module.addSystemIncludePath(.{ .cwd_relative = "/usr/lib/llvm-14/include" });
     llvmc_test_module.addLibraryPath(.{ .cwd_relative = "/usr/lib/llvm-14/lib" });
     llvmc_test_module.linkSystemLibrary("LLVM-14", .{});
@@ -609,9 +610,32 @@ pub fn build(b: *std.Build) void {
     const pre_push_step = b.step("pre-push", "Run the pre-push gate");
     pre_push_step.dependOn(ci_step);
 
-    const bench_step = b.addSystemCommand(&.{ "zig", "run", "bench/task_6_26.zig", "--", "--lines", "64" });
-    bench_step.setCwd(repo_root_lazy);
-    ci_step.dependOn(&bench_step.step);
+    const bench_module = b.createModule(.{
+        .root_source_file = b.path("bench/task_6_26.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bench_module.addOptions("build_options", build_options);
+    const bench_exe = b.addExecutable(.{
+        .name = "saasm-bench-task-6-26",
+        .root_module = bench_module,
+    });
+    const sa_bench_step = b.addRunArtifact(bench_exe);
+    sa_bench_step.addArgs(&.{ "--lines", "64" });
+    sa_bench_step.setCwd(repo_root_lazy);
+    const bench_step = b.step("bench", "Run benchmark checks");
+    bench_step.dependOn(&sa_bench_step.step);
+
+    const bench_compare = b.step("bench-compare", "Run Rust vs SA benchmark comparison");
+
+    const bench_compare_sa = b.addSystemCommand(&.{ "bash", "demos/compare/run_sa_bench.sh" });
+    bench_compare_sa.setCwd(repo_root_lazy);
+    bench_compare_sa.step.dependOn(&exe.step);
+    bench_compare.dependOn(&bench_compare_sa.step);
+
+    const bench_compare_rust = b.addSystemCommand(&.{ "bash", "demos/compare/run_rust_bench.sh" });
+    bench_compare_rust.setCwd(repo_root_lazy);
+    bench_compare.dependOn(&bench_compare_rust.step);
 }
 
 fn addLlvmcShimToModule(b: *std.Build, module: *std.Build.Module) void {

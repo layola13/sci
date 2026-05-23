@@ -347,9 +347,11 @@ store v+Vec3_x, 1.0 as f32
 - `a + b * c` 的歧义（是 `(a+b)*c` 还是 `a+(b*c)`？）是 bug 的温床
 - 强制拆成多行：`tmp = mul b, c; res = add a, tmp`
 
-### Q: 为什么没有字符串字面量 `"hello"`？
+### Q: 为什么没有通用字符串字面量 `"hello"`？
 
-**A**: SA 用 `@const NAME = utf8:"hello"` 声明 rodata 字节序列。
+**A**: SA 不把 `"hello"` 直接提升为通用指针表达式。静态只读字节序列的正规写法仍然是 `@const NAME = utf8:"hello"`。
+
+补充：`*"..."` 只作为调用参数里的窄语义特例，且必须是 `arg.prefix == .raw` 的场景。它表示匿名只读字节常量的指针，不隐含长度，不隐含 NUL，也不替代 `@const`。
 
 原因：
 - 字符串在底层就是一段字节数组

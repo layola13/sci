@@ -3,7 +3,7 @@
 [END_MACRO]
 
 [MACRO] PANIC_MSG %code, %msg_ptr, %msg_len
-    panic_msg(%code, *%msg_ptr, %msg_len)
+    panic_msg(%code, %msg_ptr, %msg_len)
 [END_MACRO]
 
 [MACRO] TODO
