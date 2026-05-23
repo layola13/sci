@@ -53,6 +53,32 @@ pub const DefDict = struct {
     }
 
     pub fn foldText(self: *const DefDict, allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
+        if (self.entries.count() == 0) {
+            return try allocator.dupe(u8, text);
+        }
+
+        // Fast path: check if any key exists in the text.
+        var has_replacement = false;
+        var i_fast: usize = 0;
+        while (i_fast < text.len) {
+            if (std.ascii.isAlphabetic(text[i_fast]) or text[i_fast] == '_') {
+                const start = i_fast;
+                i_fast += 1;
+                while (i_fast < text.len and (std.ascii.isAlphanumeric(text[i_fast]) or text[i_fast] == '_' or text[i_fast] == '.')) : (i_fast += 1) {}
+                const token = text[start..i_fast];
+                if (self.entries.contains(token)) {
+                    has_replacement = true;
+                    break;
+                }
+            } else {
+                i_fast += 1;
+            }
+        }
+
+        if (!has_replacement) {
+            return try allocator.dupe(u8, text);
+        }
+
         var out = std.ArrayList(u8).init(allocator);
         errdefer out.deinit();
 

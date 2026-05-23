@@ -6,6 +6,8 @@
 #include <llvm-c/BitWriter.h>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/DebugInfo.h>
+#include <llvm-c/Target.h>
+#include <llvm-c/TargetMachine.h>
 
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
@@ -1216,65 +1218,67 @@ static void emit_test_harness_main(EmitCtx *e, const SaModule *m) {
     LLVMBuildRet(e->builder, LLVMConstInt(e->i32_ty, 1, 0));
 }
 
-int sa_llvmc_emit_module_bitcode(const SaModule *m, unsigned char **out_bytes, size_t *out_len, char **out_error) {
-    if (m == NULL || out_bytes == NULL || out_len == NULL) return set_error(out_error, "invalid module pointers");
-    *out_bytes = NULL; *out_len = 0;
-    EmitCtx e;
-    memset(&e, 0, sizeof(e));
-    e.ctx = LLVMContextCreate();
-    if (e.ctx == NULL) return set_error(out_error, "LLVMContextCreate failed");
-    e.module = LLVMModuleCreateWithNameInContext("sa_module", e.ctx);
-    e.builder = LLVMCreateBuilderInContext(e.ctx);
-    e.size_bits = m->size_bits;
-    e.is_cgu = m->is_cgu;
-    e.i8_ty = LLVMInt8TypeInContext(e.ctx);
-    e.i32_ty = LLVMInt32TypeInContext(e.ctx);
-    e.i64_ty = LLVMInt64TypeInContext(e.ctx);
-    e.ptr_ty = LLVMPointerType(e.i8_ty, 0);
-    e.functions = m->functions;
-    e.function_count = m->function_count;
+/* Build an LLVM module from a SA module description.
+ * On success returns 0 and *e is fully initialised – caller must dispose_emit_ctx(e).
+ * On failure returns non-zero and disposes the partial context itself. */
+static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error) {
+    memset(e, 0, sizeof(*e));
+    e->ctx = LLVMContextCreate();
+    if (e->ctx == NULL) return set_error(out_error, "LLVMContextCreate failed");
+    e->module = LLVMModuleCreateWithNameInContext("sa_module", e->ctx);
+    e->builder = LLVMCreateBuilderInContext(e->ctx);
+    e->size_bits = m->size_bits;
+    e->is_cgu = m->is_cgu;
+    e->i8_ty  = LLVMInt8TypeInContext(e->ctx);
+    e->i32_ty = LLVMInt32TypeInContext(e->ctx);
+    e->i64_ty = LLVMInt64TypeInContext(e->ctx);
+    e->ptr_ty = LLVMPointerType(e->i8_ty, 0);
+    e->functions     = m->functions;
+    e->function_count = m->function_count;
 
-    debug_init(&e, m);
-    declare_runtime(&e);
+    debug_init(e, m);
+    declare_runtime(e);
+
     for (size_t i = 0; i < m->const_count; i++) {
-        LLVMTypeRef arr_ty = LLVMArrayType(e.i8_ty, (unsigned)m->consts[i].len);
-        LLVMValueRef glob = LLVMAddGlobal(e.module, arr_ty, m->consts[i].name);
+        LLVMTypeRef arr_ty = LLVMArrayType(e->i8_ty, (unsigned)m->consts[i].len);
+        LLVMValueRef glob = LLVMAddGlobal(e->module, arr_ty, m->consts[i].name);
         LLVMSetGlobalConstant(glob, 1);
         LLVMSetLinkage(glob, LLVMPrivateLinkage);
         LLVMValueRef *vals = NULL;
         if (m->consts[i].len != 0) vals = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * m->consts[i].len);
-        if (m->consts[i].len != 0 && vals == NULL) { dispose_emit_ctx(&e); return set_error(out_error, "alloc const failed"); }
-        for (size_t j = 0; j < m->consts[i].len; j++) vals[j] = LLVMConstInt(e.i8_ty, m->consts[i].data[j], 0);
-        LLVMSetInitializer(glob, LLVMConstArray(e.i8_ty, vals, (unsigned)m->consts[i].len));
+        if (m->consts[i].len != 0 && vals == NULL) { dispose_emit_ctx(e); return set_error(out_error, "alloc const failed"); }
+        for (size_t j = 0; j < m->consts[i].len; j++) vals[j] = LLVMConstInt(e->i8_ty, m->consts[i].data[j], 0);
+        LLVMSetInitializer(glob, LLVMConstArray(e->i8_ty, vals, (unsigned)m->consts[i].len));
         free(vals);
     }
 
     for (size_t i = 0; i < m->function_count; i++) {
         if (strcmp(m->functions[i].name, "sa_print_bytes") == 0 && m->functions[i].kind == SA_F_EXTERNAL) {
-            declare_sa_print_bytes(&e);
+            declare_sa_print_bytes(e);
             continue;
         }
-        LLVMTypeRef fty = fn_type_for(&e, &m->functions[i]);
-        if (fty == NULL) { dispose_emit_ctx(&e); return set_error(out_error, "function type failed"); }
-        LLVMValueRef fn = LLVMAddFunction(e.module, m->functions[i].name, fty);
-        if (m->functions[i].kind != SA_F_EXPORTED) LLVMSetLinkage(fn, (m->functions[i].kind == SA_F_EXTERNAL || m->is_cgu) ? LLVMExternalLinkage : LLVMInternalLinkage);
+        LLVMTypeRef fty = fn_type_for(e, &m->functions[i]);
+        if (fty == NULL) { dispose_emit_ctx(e); return set_error(out_error, "function type failed"); }
+        LLVMValueRef fn = LLVMAddFunction(e->module, m->functions[i].name, fty);
+        if (m->functions[i].kind != SA_F_EXPORTED)
+            LLVMSetLinkage(fn, (m->functions[i].kind == SA_F_EXTERNAL || m->is_cgu) ? LLVMExternalLinkage : LLVMInternalLinkage);
     }
-    if (m->wasm_compat) emit_sa_print_bytes(&e);
-    emit_sys_runtime(&e);
+    if (m->wasm_compat) emit_sa_print_bytes(e);
+    emit_sys_runtime(e);
 
     for (size_t i = 0; i < m->vtable_count; i++) {
-        LLVMTypeRef slot_ty = vtable_slot_type(&e);
-        LLVMTypeRef arr_ty = LLVMArrayType(slot_ty, (unsigned)m->vtables[i].func_count);
-        LLVMValueRef glob = LLVMAddGlobal(e.module, arr_ty, m->vtables[i].name);
+        LLVMTypeRef slot_ty = vtable_slot_type(e);
+        LLVMTypeRef arr_ty  = LLVMArrayType(slot_ty, (unsigned)m->vtables[i].func_count);
+        LLVMValueRef glob   = LLVMAddGlobal(e->module, arr_ty, m->vtables[i].name);
         LLVMSetGlobalConstant(glob, 1);
         LLVMSetLinkage(glob, LLVMPrivateLinkage);
         LLVMValueRef *vals = NULL;
         if (m->vtables[i].func_count != 0) vals = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * m->vtables[i].func_count);
-        if (m->vtables[i].func_count != 0 && vals == NULL) { dispose_emit_ctx(&e); return set_error(out_error, "alloc vtable failed"); }
+        if (m->vtables[i].func_count != 0 && vals == NULL) { dispose_emit_ctx(e); return set_error(out_error, "alloc vtable failed"); }
         for (size_t j = 0; j < m->vtables[i].func_count; j++) {
-            LLVMValueRef fn = find_function(&e, m->vtables[i].funcs[j]);
-            if (fn == NULL) { free(vals); dispose_emit_ctx(&e); return set_error(out_error, "vtable function not found"); }
-            vals[j] = vtable_slot_value(&e, fn);
+            LLVMValueRef fn = find_function(e, m->vtables[i].funcs[j]);
+            if (fn == NULL) { free(vals); dispose_emit_ctx(e); return set_error(out_error, "vtable function not found"); }
+            vals[j] = vtable_slot_value(e, fn);
         }
         LLVMSetInitializer(glob, LLVMConstArray(slot_ty, vals, (unsigned)m->vtables[i].func_count));
         free(vals);
@@ -1282,49 +1286,129 @@ int sa_llvmc_emit_module_bitcode(const SaModule *m, unsigned char **out_bytes, s
 
     for (size_t i = 0; i < m->function_count; i++) {
         if (m->functions[i].kind == SA_F_EXTERNAL) continue;
-        if (emit_function_body(&e, &m->functions[i]) != 0) {
-            int err_status = set_error(out_error, e.body_error[0] != 0 ? e.body_error : "emit function body failed");
-            dispose_emit_ctx(&e);
+        if (emit_function_body(e, &m->functions[i]) != 0) {
+            int err_status = set_error(out_error, e->body_error[0] != 0 ? e->body_error : "emit function body failed");
+            dispose_emit_ctx(e);
             return err_status;
         }
     }
 
     if (m->test_mode) {
-        emit_test_harness_main(&e, m);
+        emit_test_harness_main(e, m);
     } else {
         for (size_t i = 0; i < m->function_count; i++) {
             if (!m->functions[i].emit_main_wrapper) continue;
-            LLVMTypeRef params[2] = { e.i32_ty, e.ptr_ty };
-            LLVMValueRef main_fn = LLVMAddFunction(e.module, "main", LLVMFunctionType(e.i32_ty, params, 2, 0));
-            LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e.ctx, main_fn, "entry");
-            LLVMPositionBuilderAtEnd(e.builder, bb);
-            LLVMBuildStore(e.builder, LLVMGetParam(main_fn, 0), e.saasm_argc_global);
-            LLVMBuildStore(e.builder, LLVMGetParam(main_fn, 1), e.saasm_argv_global);
-            LLVMValueRef target = find_function(&e, m->functions[i].name);
-            LLVMValueRef res = LLVMBuildCall2(e.builder, LLVMGlobalGetValueType(target), target, NULL, 0, m->functions[i].ret_ty == SA_T_VOID && !m->functions[i].return_fallible ? "" : "res");
+            LLVMTypeRef params[2] = { e->i32_ty, e->ptr_ty };
+            LLVMValueRef main_fn = LLVMAddFunction(e->module, "main", LLVMFunctionType(e->i32_ty, params, 2, 0));
+            LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, main_fn, "entry");
+            LLVMPositionBuilderAtEnd(e->builder, bb);
+            LLVMBuildStore(e->builder, LLVMGetParam(main_fn, 0), e->saasm_argc_global);
+            LLVMBuildStore(e->builder, LLVMGetParam(main_fn, 1), e->saasm_argv_global);
+            LLVMValueRef target = find_function(e, m->functions[i].name);
+            LLVMValueRef res = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(target), target, NULL, 0,
+                m->functions[i].ret_ty == SA_T_VOID && !m->functions[i].return_fallible ? "" : "res");
             if (m->functions[i].return_fallible) {
-                LLVMValueRef status = LLVMBuildExtractValue(e.builder, res, 0, "status");
-                LLVMBuildRet(e.builder, status);
-            } else if (m->functions[i].ret_ty == SA_T_VOID) LLVMBuildRet(e.builder, LLVMConstInt(e.i32_ty, 0, 0));
-            else LLVMBuildRet(e.builder, coerce(&e, res, m->functions[i].ret_ty, SA_T_I32));
+                LLVMValueRef status = LLVMBuildExtractValue(e->builder, res, 0, "status");
+                LLVMBuildRet(e->builder, status);
+            } else if (m->functions[i].ret_ty == SA_T_VOID) {
+                LLVMBuildRet(e->builder, LLVMConstInt(e->i32_ty, 0, 0));
+            } else {
+                LLVMBuildRet(e->builder, coerce(e, res, m->functions[i].ret_ty, SA_T_I32));
+            }
             break;
         }
     }
 
-    if (e.dib != NULL) LLVMDIBuilderFinalize(e.dib);
+    if (e->dib != NULL) LLVMDIBuilderFinalize(e->dib);
+
     char *verify_error = NULL;
-    if (LLVMVerifyModule(e.module, LLVMReturnStatusAction, &verify_error) != 0) {
+    if (LLVMVerifyModule(e->module, LLVMReturnStatusAction, &verify_error) != 0) {
         if (verify_error != NULL) {
             int status = set_error(out_error, verify_error);
             LLVMDisposeMessage(verify_error);
-            dispose_emit_ctx(&e);
+            dispose_emit_ctx(e);
             return status;
         }
-        dispose_emit_ctx(&e);
+        dispose_emit_ctx(e);
         return set_error(out_error, "LLVMVerifyModule failed");
     }
+    return 0;
+}
+
+/* Emit LLVM bitcode bytes to heap (original interface). */
+int sa_llvmc_emit_module_bitcode(const SaModule *m, unsigned char **out_bytes, size_t *out_len, char **out_error) {
+    if (m == NULL || out_bytes == NULL || out_len == NULL) return set_error(out_error, "invalid module pointers");
+    *out_bytes = NULL; *out_len = 0;
+    EmitCtx e;
+    if (build_sa_llvm_module(m, &e, out_error) != 0) return 1;
     int status = module_bitcode_to_heap(e.module, out_bytes, out_len);
     dispose_emit_ctx(&e);
     if (status != 0) return set_error(out_error, "writing bitcode failed");
+    return 0;
+}
+
+/* In-process native object emission: build IR and emit .o without spawning any subprocess.
+ * opt_level: 0=none, 1=O1 (fast, matches -O1), 2=O2, 3=O3 */
+int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt_level, char **out_error) {
+    if (m == NULL || out_path == NULL) return set_error(out_error, "invalid pointers");
+    EmitCtx e;
+    if (build_sa_llvm_module(m, &e, out_error) != 0) return 1;
+
+    /* Initialize native backend (idempotent, safe to call from multiple threads) */
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+
+    char *triple = LLVMGetDefaultTargetTriple();
+    LLVMTargetRef target;
+    char *err_msg = NULL;
+    if (LLVMGetTargetFromTriple(triple, &target, &err_msg)) {
+        int s = set_error(out_error, err_msg ? err_msg : "target lookup failed");
+        if (err_msg) LLVMDisposeMessage(err_msg);
+        LLVMDisposeMessage(triple);
+        dispose_emit_ctx(&e);
+        return s;
+    }
+
+    LLVMCodeGenOptLevel cg_opt;
+    switch (opt_level) {
+        case 0:  cg_opt = LLVMCodeGenLevelNone;        break;
+        case 1:  cg_opt = LLVMCodeGenLevelLess;        break;
+        case 2:  cg_opt = LLVMCodeGenLevelDefault;     break;
+        default: cg_opt = LLVMCodeGenLevelAggressive;  break;
+    }
+
+    /* Use the host CPU so we get tuned codegen (equivalent to -mcpu=native) */
+    char *cpu      = LLVMGetHostCPUName();
+    char *features = LLVMGetHostCPUFeatures();
+    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
+        target, triple, cpu, features,
+        cg_opt, LLVMRelocDefault, LLVMCodeModelDefault
+    );
+    LLVMDisposeMessage(cpu);
+    LLVMDisposeMessage(features);
+    LLVMDisposeMessage(triple);
+
+    if (tm == NULL) {
+        dispose_emit_ctx(&e);
+        return set_error(out_error, "TargetMachine creation failed");
+    }
+
+    /* Align the module data layout with the target machine */
+    LLVMTargetDataRef dl = LLVMCreateTargetDataLayout(tm);
+    char *dl_str = LLVMCopyStringRepOfTargetData(dl);
+    LLVMSetDataLayout(e.module, dl_str);
+    LLVMDisposeMessage(dl_str);
+    LLVMDisposeTargetData(dl);
+
+    if (LLVMTargetMachineEmitToFile(tm, e.module, (char *)out_path, LLVMObjectFile, &err_msg)) {
+        int s = set_error(out_error, err_msg ? err_msg : "emit object failed");
+        if (err_msg) LLVMDisposeMessage(err_msg);
+        LLVMDisposeTargetMachine(tm);
+        dispose_emit_ctx(&e);
+        return s;
+    }
+
+    LLVMDisposeTargetMachine(tm);
+    dispose_emit_ctx(&e);
     return 0;
 }

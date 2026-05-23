@@ -20,3 +20,5 @@ repro_*.zig
 *.out
 .mimir/
 .antigravitycli/
+.o
+.diff

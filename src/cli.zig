@@ -1837,6 +1837,15 @@ fn pluginSoPath(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
     return try std.fs.path.join(allocator, &.{ build_options.repo_root, "zig-out", "lib", file_name });
 }
 
+fn needsHttpPlugins(verified: anytype) bool {
+    for (verified.function_sigs) |fsig| {
+        if (std.mem.startsWith(u8, fsig.name, "sa_http_client_") or std.mem.startsWith(u8, fsig.name, "sa_http_server_")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 fn copyFileByStream(source_path: []const u8, dest_path: []const u8) !void {
     const source_file = try std.fs.openFileAbsolute(source_path, .{ .mode = .read_only });
     defer source_file.close();
@@ -1948,12 +1957,14 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             .offline = options.offline,
         },
     };
+
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
         return .{ .trap = trapFromFlattenError(source, err, flattener.takeErrorSourceLine(&error_ctx)) };
     };
     errdefer flat.deinit(allocator);
 
     const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants });
+
     return switch (verified) {
         .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok) } },
         .trap => |report| {
@@ -2047,36 +2058,23 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 }
                 break :blk std.Thread.getCpuCount() catch 1;
             };
-            const use_cgu = (worker_count > 1 and owned.verified.function_sigs.len >= 100);
+            const emission_workers = @max(@min(worker_count, 4), 1);
+            const use_cgu = (compile_options.jobs != null and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
 
             if (use_cgu) {
-                const cgu_count = @min(worker_count, 16);
+                const cgu_count = @min(@max(emission_workers, 2), 3);
 
-                const cgu_bc_paths = try allocator.alloc([]const u8, cgu_count);
-                defer {
-                    for (cgu_bc_paths) |p| allocator.free(p);
-                    allocator.free(cgu_bc_paths);
-                }
                 const cgu_obj_paths = try allocator.alloc([]const u8, cgu_count);
                 defer {
                     for (cgu_obj_paths) |p| allocator.free(p);
                     allocator.free(cgu_obj_paths);
                 }
                 for (0..cgu_count) |i| {
-                    cgu_bc_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.sa.bc", .{out_path, i});
                     cgu_obj_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.o", .{out_path, i});
                 }
 
-                // Cleanup temp CGU files on exit
-                defer {
-                    for (0..cgu_count) |i| {
-                        std.fs.cwd().deleteFile(cgu_bc_paths[i]) catch {};
-                        std.fs.cwd().deleteFile(cgu_obj_paths[i]) catch {};
-                    }
-                }
-
                 // Ensure parent directory exists for all of them
-                for (cgu_bc_paths) |p| {
+                for (cgu_obj_paths) |p| {
                     try ensureParentDir(p);
                 }
 
@@ -2093,11 +2091,12 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     jobs_val: ?usize,
                     cgu_idx_val: usize,
                     cgu_count_val: usize,
-                    path_val: []const u8,
+                    object_path_val: []const u8,
+                    opt_level_val: u8,
                     err: ?anyerror = null,
 
                     pub fn run(self: *@This()) void {
-                        emit_llvm_llvmc.emitLlvmcToFile(
+                        emit_llvm_llvmc.emitLlvmcToObject(
                             self.alloc_val,
                             self.verified_ptr.*,
                             self.def_dict_ptr,
@@ -2106,11 +2105,12 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                             self.size_bits_val,
                             .{
                                 .debug = self.debug_val,
-                                .jobs = 1,
+                                .jobs = self.jobs_val,
                                 .codegen_unit_index = self.cgu_idx_val,
                                 .codegen_unit_count = self.cgu_count_val,
                             },
-                            self.path_val,
+                            self.object_path_val,
+                            self.opt_level_val,
                         ) catch |err| {
                             self.err = err;
                         };
@@ -2129,10 +2129,14 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .source_path_val = source_path,
                         .size_bits_val = nativeSizeBits(),
                         .debug_val = debug,
-                        .jobs_val = compile_options.jobs,
+                        .jobs_val = if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
                         .cgu_idx_val = i,
                         .cgu_count_val = cgu_count,
-                        .path_val = cgu_bc_paths[i],
+                        .object_path_val = cgu_obj_paths[i],
+                        .opt_level_val = switch (optimization) {
+                            .release_small => 1,
+                            .release_fast => 3,
+                        },
                     };
                 }
 
@@ -2162,104 +2166,56 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     if (w.err) |err| return err;
                 }
 
-                // Parallel compile CGU .sa.bc to .o
-                const StderrType = @TypeOf(stderr);
-                const CguCompileWorker = struct {
-                    alloc_val: std.mem.Allocator,
-                    bc_path_val: []const u8,
-                    obj_path_val: []const u8,
-                    optimization_val: driver.Optimization,
-                    debug_val: bool,
-                    stderr_val: StderrType,
-                    err: ?anyerror = null,
-
-                    pub fn run(self: *@This()) void {
-                        driver.compileObj(
-                            self.alloc_val,
-                            self.bc_path_val,
-                            self.obj_path_val,
-                            self.optimization_val,
-                            self.debug_val,
-                            self.stderr_val,
-                        ) catch |err| {
-                            self.err = err;
-                        };
-                    }
-                };
-
-                var cgu_compile_workers = try allocator.alloc(CguCompileWorker, cgu_count);
-                defer allocator.free(cgu_compile_workers);
-
-                for (0..cgu_count) |i| {
-                    cgu_compile_workers[i] = .{
-                        .alloc_val = allocator,
-                        .bc_path_val = cgu_bc_paths[i],
-                        .obj_path_val = cgu_obj_paths[i],
-                        .optimization_val = optimization,
-                        .debug_val = debug,
-                        .stderr_val = stderr,
-                    };
-                }
-
-                var cgu_compile_threads = try allocator.alloc(std.Thread, cgu_count - 1);
-                defer allocator.free(cgu_compile_threads);
-
-                var started_cgu_compile: usize = 0;
-                errdefer {
-                    while (started_cgu_compile > 0) {
-                        started_cgu_compile -= 1;
-                        cgu_compile_threads[started_cgu_compile].join();
-                    }
-                }
-
-                while (started_cgu_compile < cgu_count - 1) : (started_cgu_compile += 1) {
-                    cgu_compile_threads[started_cgu_compile] = try std.Thread.spawn(.{}, CguCompileWorker.run, .{ &cgu_compile_workers[started_cgu_compile + 1] });
-                }
-
-                cgu_compile_workers[0].run();
-
-                while (started_cgu_compile > 0) {
-                    started_cgu_compile -= 1;
-                    cgu_compile_threads[started_cgu_compile].join();
-                }
-
-                for (cgu_compile_workers) |w| {
-                    if (w.err) |err| return err;
-                }
-
                 // Link them all together
-                const extra_inputs = try allocator.alloc([]const u8, 2 + (cgu_count - 1));
+                const use_http_plugins = needsHttpPlugins(owned.verified);
+                const extra_input_count: usize = (cgu_count - 1) + if (use_http_plugins) @as(usize, 2) else @as(usize, 0);
+                const extra_inputs = try allocator.alloc([]const u8, extra_input_count);
                 defer allocator.free(extra_inputs);
 
-                extra_inputs[0] = try pluginSoPath(allocator, "libsaasm-http-client.so");
-                extra_inputs[1] = try pluginSoPath(allocator, "libsaasm-http-server.so");
-                defer allocator.free(extra_inputs[0]);
-                defer allocator.free(extra_inputs[1]);
+                var extra_idx: usize = 0;
+                if (use_http_plugins) {
+                    extra_inputs[extra_idx] = try pluginSoPath(allocator, "libsaasm-http-client.so");
+                    extra_idx += 1;
+                    extra_inputs[extra_idx] = try pluginSoPath(allocator, "libsaasm-http-server.so");
+                    extra_idx += 1;
+                    defer allocator.free(extra_inputs[0]);
+                    defer allocator.free(extra_inputs[1]);
+                }
 
                 for (1..cgu_count) |i| {
-                    extra_inputs[1 + i] = cgu_obj_paths[i];
+                    extra_inputs[extra_idx] = cgu_obj_paths[i];
+                    extra_idx += 1;
                 }
 
                 driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, build_options.sa_std_archive_path, extra_inputs, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
+
             } else {
                 const artifact_path = try intermediateArtifactPath(allocator, out_path);
                 defer allocator.free(artifact_path);
                 try ensureParentDir(artifact_path);
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
 
-                const extra_inputs = &[_][]const u8{
-                    try pluginSoPath(allocator, "libsaasm-http-client.so"),
-                    try pluginSoPath(allocator, "libsaasm-http-server.so"),
-                };
-                defer allocator.free(extra_inputs[0]);
-                defer allocator.free(extra_inputs[1]);
-                driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
-                    error.ChildProcessFailed => return 1,
-                    else => return err,
-                };
+                const use_http_plugins = needsHttpPlugins(owned.verified);
+                if (use_http_plugins) {
+                    const extra_inputs = &[_][]const u8{
+                        try pluginSoPath(allocator, "libsaasm-http-client.so"),
+                        try pluginSoPath(allocator, "libsaasm-http-server.so"),
+                    };
+                    defer allocator.free(extra_inputs[0]);
+                    defer allocator.free(extra_inputs[1]);
+                    driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
+                        error.ChildProcessFailed => return 1,
+                        else => return err,
+                    };
+                } else {
+                    driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, &.{}, debug, stderr) catch |err| switch (err) {
+                        error.ChildProcessFailed => return 1,
+                        else => return err,
+                    };
+                }
             }
 
             try ensurePluginSoAvailable(allocator, out_path, "libsaasm-http-client.so");
@@ -2282,15 +2238,12 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const artifact_path = try intermediateArtifactPath(allocator, out_path);
-            defer allocator.free(artifact_path);
-            try ensureParentDir(artifact_path);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
-
-            driver.compileObj(allocator, artifact_path, out_path, optimization, debug, stderr) catch |err| switch (err) {
-                error.ChildProcessFailed => return 1,
-                else => return err,
-            };
+            const object_path = try allocator.dupe(u8, out_path);
+            defer allocator.free(object_path);
+            try emit_llvm_llvmc.emitLlvmcToObject(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, object_path, switch (optimization) {
+                .release_small => 1,
+                .release_fast => 3,
+            });
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }

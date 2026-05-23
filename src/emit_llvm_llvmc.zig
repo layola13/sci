@@ -12,6 +12,8 @@ const upstream = @import("common/upstream_loc.zig");
 extern fn sa_llvmc_free(ptr: ?*anyopaque) callconv(.C) void;
 extern fn sa_llvmc_make_minimal_module_bitcode(out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
 extern fn sa_llvmc_emit_module_bitcode(module: *const CModule, out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
+extern fn sa_llvmc_emit_module_object(module: *const CModule, out_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.C) i32;
+extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_path: [*:0]const u8, out_object_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.C) i32;
 
 pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction };
 pub const EmitOptions = emit_options.EmitOptions;
@@ -668,7 +670,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
     }
 }
 
-pub fn emitLlvmc(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions) ![]const u8 {
+fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions, obj_path: ?[]const u8, opt_level: u8) ![]const u8 {
     _ = def_dict;
     if (options.debug and loc_table.len != verified.annotated.len) return error.InvalidOperand;
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -878,18 +880,251 @@ pub fn emitLlvmc(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*co
         .functions = c_funcs.items.ptr,
         .function_count = c_funcs.items.len,
     };
-    var out_bytes: ?[*]u8 = null;
-    var out_len: usize = 0;
+
+    if (obj_path) |path| {
+        const path_z = try a.dupeZ(u8, path);
+        var err_msg: ?[*:0]u8 = null;
+        if (sa_llvmc_emit_module_object(&module, path_z.ptr, @intCast(opt_level), &err_msg) != 0) {
+            if (err_msg) |msg| {
+                std.debug.print("llvmc object emit: {s}\n", .{std.mem.sliceTo(msg, 0)});
+                sa_llvmc_free(msg);
+            }
+            return error.Failed;
+        }
+        return &[_]u8{};
+    } else {
+        var out_bytes: ?[*]u8 = null;
+        var out_len: usize = 0;
+        var err_msg: ?[*:0]u8 = null;
+        if (sa_llvmc_emit_module_bitcode(&module, &out_bytes, &out_len, &err_msg) != 0) {
+            if (err_msg) |msg| {
+                std.debug.print("llvmc backend: {s}\n", .{std.mem.sliceTo(msg, 0)});
+                sa_llvmc_free(msg);
+            }
+            return error.Failed;
+        }
+        errdefer if (out_bytes) |ptr| sa_llvmc_free(ptr);
+        return try takeOwnedBitcode(allocator, &out_bytes, &out_len);
+    }
+}
+
+pub fn emitLlvmc(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions) ![]const u8 {
+    return emitLlvmcInternal(allocator, verified, def_dict, loc_table, source_path, size_bits, options, null, 0);
+}
+
+pub fn emitLlvmcToObject(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions, obj_path: []const u8, opt_level: u8) !void {
+    _ = try emitLlvmcInternal(allocator, verified, def_dict, loc_table, source_path, size_bits, options, obj_path, opt_level);
+}
+
+pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions, bitcode_path: []const u8, object_path: []const u8, opt_level: u8) !void {
+    _ = def_dict;
+    if (options.debug and loc_table.len != verified.annotated.len) return error.InvalidOperand;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const module_source_file = try a.dupeZ(u8, sourceFileName(source_path));
+    const module_source_dir = try a.dupeZ(u8, sourceDirName(source_path));
+
+    var c_consts = std.ArrayList(CConst).init(a);
+    var c_vtables = std.ArrayList(CVTable).init(a);
+    for (verified.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                const funcs = try a.alloc([*:0]const u8, literal.slots.len);
+                for (literal.slots, 0..) |slot, slot_idx| {
+                    const sig_idx = findFunctionSigIndex(verified.function_sigs, slot.func_name) orelse return error.UnknownFunction;
+                    const fname = try a.dupeZ(u8, emittedFunctionName(verified.function_sigs[sig_idx]));
+                    funcs[slot_idx] = fname.ptr;
+                }
+                const name = try a.dupeZ(u8, decl.name);
+                try c_vtables.append(.{ .name = name.ptr, .funcs = funcs.ptr, .func_count = funcs.len });
+            },
+            else => {
+                const len = try constBytesLen(decl.value);
+                const bytes = try a.alloc(u8, len);
+                try fillConstBytes(bytes, decl.value);
+                const name = try a.dupeZ(u8, decl.name);
+                try c_consts.append(.{ .name = name.ptr, .data = bytes.ptr, .len = bytes.len });
+            },
+        }
+    }
+
+    var referenced_functions = std.StringHashMap(void).init(a);
+    if (options.codegen_unit_index) |cgu_idx| {
+        for (verified.const_decls) |decl| {
+            switch (decl.value) {
+                .vtable => |literal| {
+                    for (literal.slots) |slot| try referenced_functions.put(slot.func_name, {});
+                },
+                else => {},
+            }
+        }
+
+        var sig_index: usize = 0;
+        var idx: usize = 0;
+        var task_idx: usize = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        else => true,
+                    }) : (end += 1) {}
+
+                    if (task_idx % options.codegen_unit_count == cgu_idx) {
+                        for (verified.annotated[idx + 1 .. end]) |body_item| {
+                            const inst_item = body_item.base;
+                            if (inst_item.kind == .call) {
+                                const text = inst_item.raw_text;
+                                if (std.mem.indexOf(u8, text, "@")) |at_idx| {
+                                    var end_name = at_idx + 1;
+                                    while (end_name < text.len and (text[end_name] == '_' or (text[end_name] >= 'a' and text[end_name] <= 'z') or (text[end_name] >= 'A' and text[end_name] <= 'Z') or (text[end_name] >= '0' and text[end_name] <= '9'))) : (end_name += 1) {}
+                                    try referenced_functions.put(text[at_idx + 1 .. end_name], {});
+                                }
+                            }
+                        }
+                    }
+                    task_idx += 1;
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
+    }
+
+    var tasks = std.ArrayList(ParallelEmitTask).init(a);
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    var task_idx: usize = 0;
+    while (idx < verified.annotated.len) : (idx += 1) {
+        const item = verified.annotated[idx].base;
+        switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                const fsig = verified.function_sigs[sig_index];
+                sig_index += 1;
+                var end = idx + 1;
+                while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                    else => true,
+                }) : (end += 1) {}
+
+                var c_kind: CFuncKind = switch (item.kind) {
+                    .extern_decl => .external,
+                    .export_decl => .exported,
+                    .ffi_wrapper_decl => .exported,
+                    .test_decl => .test_func,
+                    else => .normal,
+                };
+                var emit_wrapper = !options.test_mode and fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0;
+
+                var should_include = true;
+                if (options.codegen_unit_index) |cgu_idx| {
+                    if (task_idx % options.codegen_unit_count == cgu_idx) {
+                    } else if (item.kind == .extern_decl or referenced_functions.contains(fsig.name)) {
+                        c_kind = .external;
+                        emit_wrapper = false;
+                    } else {
+                        should_include = false;
+                    }
+                }
+
+                if (should_include) {
+                    try tasks.append(.{
+                        .fsig = fsig,
+                        .kind = c_kind,
+                        .emit_main_wrapper = emit_wrapper,
+                        .start_idx = idx,
+                        .end_idx = end,
+                        .decl_kind = if (c_kind == .external) .extern_decl else item.kind,
+                    });
+                }
+                task_idx += 1;
+                idx = end - 1;
+            },
+            else => {},
+        }
+    }
+
+    const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
+    const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
+    for (jobs) |*job| job.* = .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
+    defer for (jobs) |*job| job.arena.deinit();
+
+    const VerifiedType = @TypeOf(verified);
+    var context = ParallelEmitContext(VerifiedType){
+        .allocator = allocator,
+        .verified = verified,
+        .loc_table = loc_table,
+        .source_path = source_path,
+        .options = options,
+        .tasks = tasks.items,
+        .jobs = jobs,
+        .next_task = std.atomic.Value(usize).init(0),
+    };
+
+    if (worker_count <= 1) {
+        emitWorker(VerifiedType, &context);
+    } else {
+        const spawned_count = worker_count - 1;
+        var threads = try a.alloc(std.Thread, spawned_count);
+        var started_threads: usize = 0;
+        errdefer {
+            while (started_threads > 0) {
+                started_threads -= 1;
+                threads[started_threads].join();
+            }
+        }
+
+        while (started_threads < spawned_count) : (started_threads += 1) {
+            threads[started_threads] = try std.Thread.spawn(.{}, emitWorker, .{ VerifiedType, &context });
+        }
+
+        emitWorker(VerifiedType, &context);
+
+        while (started_threads > 0) {
+            started_threads -= 1;
+            threads[started_threads].join();
+        }
+    }
+
+    var c_funcs = std.ArrayList(CFunction).init(a);
+    for (jobs) |job| {
+        if (job.err) |err| return err;
+        try c_funcs.append(job.result orelse return error.Failed);
+    }
+
+    const module = CModule{
+        .size_bits = size_bits,
+        .wasm_compat = options.wasm_compat,
+        .test_mode = options.test_mode,
+        .debug = options.debug,
+        .is_cgu = options.codegen_unit_count > 1,
+        .source_file = if (options.debug) module_source_file.ptr else null,
+        .source_dir = if (options.debug) module_source_dir.ptr else null,
+        .consts = c_consts.items.ptr,
+        .const_count = c_consts.items.len,
+        .vtables = c_vtables.items.ptr,
+        .vtable_count = c_vtables.items.len,
+        .functions = c_funcs.items.ptr,
+        .function_count = c_funcs.items.len,
+    };
+
+    const bc_z = try a.dupeZ(u8, bitcode_path);
+    const obj_z = try a.dupeZ(u8, object_path);
     var err_msg: ?[*:0]u8 = null;
-    if (sa_llvmc_emit_module_bitcode(&module, &out_bytes, &out_len, &err_msg) != 0) {
+    if (sa_llvmc_emit_module_artifacts(&module, bc_z.ptr, obj_z.ptr, @intCast(opt_level), &err_msg) != 0) {
         if (err_msg) |msg| {
-            std.debug.print("llvmc backend: {s}\n", .{std.mem.sliceTo(msg, 0)});
+            std.debug.print("llvmc artifact emit: {s}\n", .{std.mem.sliceTo(msg, 0)});
             sa_llvmc_free(msg);
         }
         return error.Failed;
     }
-    errdefer if (out_bytes) |ptr| sa_llvmc_free(ptr);
-    return try takeOwnedBitcode(allocator, &out_bytes, &out_len);
 }
 
 pub fn emitLlvmcToFile(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions, path: []const u8) !void {
@@ -945,4 +1180,3 @@ test "scratch print" {
         }
     }
 }
-

@@ -142,6 +142,16 @@ fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !std.proce
     });
 }
 
+fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.Term {
+    var child = std.process.Child.init(argv, allocator);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    try child.spawn();
+    try child.waitForSpawn();
+    return try child.wait();
+}
+
 fn printCommandLine(writer: anytype, argv: []const []const u8) !void {
     try writer.writeAll("  command:");
     for (argv) |arg| {
@@ -184,18 +194,22 @@ pub fn compileExe(
 ) !void {
     const argv = argvForExe(artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
     const argv_slice = argv.slice();
-    const result = runProcess(allocator, argv_slice) catch |err| {
+    const term = runProcessFast(allocator, argv_slice) catch |err| {
         try printCompilerLaunchFailure(stderr, argv_slice, "linking", artifact_path, out_path, err);
         return CompileError.ChildProcessFailed;
     };
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
 
-    const failed = switch (result.term) {
+    const failed = switch (term) {
         .Exited => |code| code != 0,
         else => true,
     };
     if (failed) {
+        const result = runProcess(allocator, argv_slice) catch |err| {
+            try printCompilerLaunchFailure(stderr, argv_slice, "linking", artifact_path, out_path, err);
+            return CompileError.ChildProcessFailed;
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
         try printCompilerFailure(stderr, argv_slice, "linking", artifact_path, out_path, result);
         return CompileError.ChildProcessFailed;
     }
@@ -211,18 +225,22 @@ pub fn compileObj(
 ) !void {
     const argv = argvForObj(artifact_path, out_path, optimization, debug);
     const argv_slice = argv.slice();
-    const result = runProcess(allocator, argv_slice) catch |err| {
+    const term = runProcessFast(allocator, argv_slice) catch |err| {
         try printCompilerLaunchFailure(stderr, argv_slice, "compiling object", artifact_path, out_path, err);
         return CompileError.ChildProcessFailed;
     };
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
 
-    const failed = switch (result.term) {
+    const failed = switch (term) {
         .Exited => |code| code != 0,
         else => true,
     };
     if (failed) {
+        const result = runProcess(allocator, argv_slice) catch |err| {
+            try printCompilerLaunchFailure(stderr, argv_slice, "compiling object", artifact_path, out_path, err);
+            return CompileError.ChildProcessFailed;
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
         try printCompilerFailure(stderr, argv_slice, "compiling object", artifact_path, out_path, result);
         return CompileError.ChildProcessFailed;
     }
@@ -239,18 +257,22 @@ pub fn compileWasm(
 ) !void {
     const argv = argvForWasm(artifact_path, out_path, target, optimization, debug);
     const argv_slice = argv.slice();
-    const result = runProcess(allocator, argv_slice) catch |err| {
+    const term = runProcessFast(allocator, argv_slice) catch |err| {
         try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, err);
         return CompileError.ChildProcessFailed;
     };
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
 
-    const failed = switch (result.term) {
+    const failed = switch (term) {
         .Exited => |code| code != 0,
         else => true,
     };
     if (failed) {
+        const result = runProcess(allocator, argv_slice) catch |err| {
+            try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, err);
+            return CompileError.ChildProcessFailed;
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
         try printCompilerFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, result);
         return CompileError.ChildProcessFailed;
     }

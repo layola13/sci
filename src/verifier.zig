@@ -1848,16 +1848,15 @@ fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(Annotat
 fn diffState(allocator: std.mem.Allocator, before: []const u16, after: []const u16) !RegStateDelta {
     var changes = std.ArrayList(RegStateChange).init(allocator);
     errdefer changes.deinit();
-    for (before, 0..) |mask, idx| {
-        const next = after[idx];
-        if (next != mask) {
-            try changes.append(.{ .reg = @intCast(idx), .before = mask, .after = next });
-        }
+    if (before.len != after.len) return error.InvalidOperand;
+    for (before, after, 0..) |prev, next, idx| {
+        if (next == prev) continue;
+        try changes.append(.{ .reg = @intCast(idx), .before = prev, .after = next });
     }
     return .{ .changes = try changes.toOwnedSlice() };
 }
 
-fn applyDelta(state: []u16, delta: []const RegStateChange) void {
+fn applyStateDelta(state: []u16, delta: []const RegStateChange) void {
     for (delta) |change| {
         state[change.reg] = change.after;
     }
