@@ -2354,9 +2354,13 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            const artifact_path = try intermediateArtifactPath(allocator, out_path);
+            defer allocator.free(artifact_path);
+            try ensureParentDir(artifact_path);
             const object_path = try allocator.dupe(u8, out_path);
             defer allocator.free(object_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
             try emit_llvm_llvmc.emitLlvmcToObject(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, object_path, switch (optimization) {
                 .release_small => 1,
                 .release_fast => 3,
