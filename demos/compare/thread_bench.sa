@@ -1,0 +1,188 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"thread ok\n"
+@const RESULT_ERR = utf8:"thread err\n"
+@const WORKER_VT = vtable { call = @worker }
+
+@extern pthread_spawn(*entry: ptr, *arg: ptr) -> i32
+@extern pthread_join(handle: i32, *out: ptr) -> i32
+@extern pthread_drop(handle: i32) -> void
+
+#def Thread_SIZE = 16
+#def Thread_handle = +0
+#def Thread_start = +4
+#def Thread_count = +8
+#def Thread_result = +12
+
+#def TOTAL_WORK = 20000000
+
+@worker(&slot: ptr) -> i32:
+L_ENTRY:
+    i_ptr = stack_alloc 8
+    sum_ptr = stack_alloc 8
+    start = load slot+Thread_start as i32
+    count = load slot+Thread_count as i32
+    limit = add start, count
+    store i_ptr+0, start as i64
+    store sum_ptr+0, 0 as i64
+    !start
+    !count
+    jmp L_COND
+
+L_COND:
+    i = load i_ptr+0 as i64
+    limit64 = sext limit to i64
+    cond = slt i, limit64
+    br cond -> L_BODY, L_EXIT
+
+L_BODY:
+    sum = load sum_ptr+0 as i64
+    sq = mul i, i
+    next_sum = add sum, sq
+    next_i = add i, 1
+    store sum_ptr+0, next_sum as i64
+    store i_ptr+0, next_i as i64
+    !sum
+    !sq
+    !next_sum
+    !next_i
+    !i
+    !limit64
+    !cond
+    jmp L_COND
+
+L_EXIT:
+    result64 = load sum_ptr+0 as i64
+    result32 = trunc result64 to i32
+    store slot+Thread_result, result32 as i32
+    !result64
+    !result32
+    !i
+    !limit64
+    !cond
+    !limit
+    !slot
+    return 0
+
+@ffi_wrapper spawn_worker(*slot: ptr) -> i32:
+L_ENTRY:
+    worker_vt = &WORKER_VT
+    worker_fn = load worker_vt+0 as ptr
+    worker_raw = *worker_fn
+    worker_safe = assume_safe worker_raw
+    handle = call @pthread_spawn(*worker_safe, *slot)
+    !slot
+    return handle
+
+@ffi_wrapper join_worker(handle: i32, *slot: ptr) -> i32:
+L_ENTRY:
+    joined = call @pthread_join(handle, *slot)
+    !slot
+    !handle
+    return joined
+
+@main() -> i32:
+L_ENTRY:
+    threads = alloc 64
+    count = 4
+    chunk = 5000000
+
+    store threads+0, 0 as i32
+    store threads+4, 0 as i32
+    store threads+8, chunk as i32
+    store threads+12, 0 as i32
+
+    store threads+16, 0 as i32
+    store threads+20, chunk as i32
+    store threads+24, chunk as i32
+    store threads+28, 0 as i32
+
+    start2 = add chunk, chunk
+    store threads+32, 0 as i32
+    store threads+36, start2 as i32
+    store threads+40, chunk as i32
+    store threads+44, 0 as i32
+
+    start3 = add start2, chunk
+    store threads+48, 0 as i32
+    store threads+52, start3 as i32
+    store threads+56, chunk as i32
+    store threads+60, 0 as i32
+
+    h0 = call @spawn_worker(*threads)
+    store threads+0, h0 as i32
+    t1 = ptr_add threads, 16
+    h1 = call @spawn_worker(*t1)
+    store threads+16, h1 as i32
+    t2 = ptr_add threads, 32
+    h2 = call @spawn_worker(*t2)
+    store threads+32, h2 as i32
+    t3 = ptr_add threads, 48
+    h3 = call @spawn_worker(*t3)
+    store threads+48, h3 as i32
+
+    j0 = call @join_worker(h0, *threads)
+    j1 = call @join_worker(h1, *t1)
+    j2 = call @join_worker(h2, *t2)
+    j3 = call @join_worker(h3, *t3)
+
+    r0 = load threads+12 as i32
+    r1 = load threads+28 as i32
+    r2 = load threads+44 as i32
+    r3 = load threads+60 as i32
+    total01 = add r0, r1
+    total23 = add r2, r3
+    total = add total01, total23
+
+    ok0 = eq j0, 0
+    ok1 = eq j1, 0
+    ok2 = eq j2, 0
+    ok3 = eq j3, 0
+    ok01 = and ok0, ok1
+    ok23 = and ok2, ok3
+    ok_join = and ok01, ok23
+    ok_total = ne total, 0
+    ok = and ok_join, ok_total
+
+    !count
+    !chunk
+    !start2
+    !start3
+    !h0
+    !h1
+    !h2
+    !h3
+    !j0
+    !j1
+    !j2
+    !j3
+    !r0
+    !r1
+    !r2
+    !r3
+    !total01
+    !total23
+    !total
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok01
+    !ok23
+    !ok_join
+    !ok_total
+    !t1
+    !t2
+    !t3
+    !threads
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 10)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 11)
+    return 1

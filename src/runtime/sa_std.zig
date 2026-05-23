@@ -827,11 +827,64 @@ const Resource = union(enum) {
 var registry_mutex: std.Thread.Mutex = .{};
 var time_mutex: std.Thread.Mutex = .{};
 var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
+var pthread_registry_mutex: std.Thread.Mutex = .{};
+var pthread_slots = std.ArrayList(?*PthreadHandle).init(std.heap.page_allocator);
 var monotonic_origin: ?std.time.Instant = null;
 threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
 var compatibility_dlopen_cookie: [1]u8 = .{0};
 var compatibility_dlsym_cookie: [1]u8 = .{0};
+
+const PthreadEntryFn = *const fn (?[*]u8) callconv(.c) i32;
+
+const PthreadTask = struct {
+    entry: PthreadEntryFn,
+    arg: ?[*]u8,
+    result: i32 = SA_STD_OK,
+};
+
+const PthreadHandle = struct {
+    thread: std.Thread,
+    task: *PthreadTask,
+    joined: bool = false,
+};
+
+fn pthreadTaskMain(task: *PthreadTask) void {
+    task.result = task.entry(task.arg);
+}
+
+fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    for (pthread_slots.items, 0..) |slot, idx| {
+        if (slot == null) {
+            pthread_slots.items[idx] = handle;
+            return @intCast(idx + 1);
+        }
+    }
+    try pthread_slots.append(handle);
+    return @intCast(pthread_slots.items.len);
+}
+
+fn takePthreadHandle(handle: i32) !*PthreadHandle {
+    if (handle <= 0) return error.InvalidHandle;
+    const idx: usize = @intCast(handle - 1);
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    if (idx >= pthread_slots.items.len) return error.InvalidHandle;
+    return pthread_slots.items[idx] orelse return error.InvalidHandle;
+}
+
+fn freePthreadHandle(handle: i32) !*PthreadHandle {
+    if (handle <= 0) return error.InvalidHandle;
+    const idx: usize = @intCast(handle - 1);
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    if (idx >= pthread_slots.items.len) return error.InvalidHandle;
+    const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
+    pthread_slots.items[idx] = null;
+    return slot;
+}
 
 fn finish(status: i32) i32 {
     last_error = status;
@@ -2300,23 +2353,63 @@ pub fn signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
 }
 
 pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
-    _ = entry;
-    _ = arg;
+    const entry_fn: PthreadEntryFn = @ptrCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
+    task.* = .{ .entry = entry_fn, .arg = @ptrCast(@constCast(arg)) };
+    const thread = std.Thread.spawn(.{}, pthreadTaskMain, .{task}) catch |err| {
+        std.heap.page_allocator.destroy(task);
+        return finish(mapError(err));
+    };
+    const handle = std.heap.page_allocator.create(PthreadHandle) catch |err| {
+        thread.join();
+        std.heap.page_allocator.destroy(task);
+        return finish(mapError(err));
+    };
+    handle.* = .{ .thread = thread, .task = task };
+    const id = allocPthreadHandle(handle) catch |err| {
+        thread.join();
+        std.heap.page_allocator.destroy(task);
+        std.heap.page_allocator.destroy(handle);
+        return finish(mapError(err));
+    };
     last_error = SA_STD_OK;
-    return 1;
+    return id;
 }
 
 pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
-    _ = handle;
+    const handle_ptr = freePthreadHandle(handle) catch |err| return finish(mapError(err));
+    handle_ptr.thread.join();
     const out_ptr = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
-    const joined: i32 = 5;
-    std.mem.copyForwards(u8, out_ptr[4..8], std.mem.asBytes(&joined));
+    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&handle_ptr.task.result));
+    std.heap.page_allocator.destroy(handle_ptr.task);
+    std.heap.page_allocator.destroy(handle_ptr);
     last_error = SA_STD_OK;
     return SA_STD_OK;
 }
 
 pub fn pthread_drop(handle: i32) callconv(.c) void {
-    _ = handle;
+    if (handle <= 0) {
+        last_error = SA_STD_ERR_INVALID_HANDLE;
+        return;
+    }
+    const idx: usize = @intCast(handle - 1);
+    var handle_ptr: ?*PthreadHandle = null;
+    pthread_registry_mutex.lock();
+    if (idx >= pthread_slots.items.len) {
+        pthread_registry_mutex.unlock();
+        last_error = SA_STD_ERR_INVALID_HANDLE;
+        return;
+    }
+    if (pthread_slots.items[idx]) |slot| {
+        pthread_slots.items[idx] = null;
+        handle_ptr = slot;
+    }
+    pthread_registry_mutex.unlock();
+    if (handle_ptr) |slot| {
+        slot.thread.join();
+        std.heap.page_allocator.destroy(slot.task);
+        std.heap.page_allocator.destroy(slot);
+    }
     last_error = SA_STD_OK;
 }
 
