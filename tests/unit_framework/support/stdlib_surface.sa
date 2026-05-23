@@ -212,7 +212,7 @@ L_ENTRY:
     EXPAND STR_EQ same_match, left, same
     EXPAND STR_EQ diff_match, left, diff
     EXPAND STR_EQ sub_match, sub_slice, sub_expected
-    concat = call @sa_string_concat(*STR_JOIN_LEFT, STR_JOIN_LEFT_LEN, *STR_JOIN_RIGHT, STR_JOIN_RIGHT_LEN)
+    concat = call @sa_string_concat(&STR_JOIN_LEFT, STR_JOIN_LEFT_LEN, &STR_JOIN_RIGHT, STR_JOIN_RIGHT_LEN)
     concat_ok = ne concat, 0
     br concat_ok -> L_CONCAT, L_FAIL_CONCAT
 

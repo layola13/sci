@@ -15,3 +15,23 @@
     %cond = ne %actual, %unexpected
     br %cond -> %ok_label, %fail_label
 [END_MACRO]
+
+// Diagnostic assertion variants for `sa test`.
+// The message is caller-owned static text so macro expansion stays Zero-AST:
+// callers can include file, line, expected, and got details in one const.
+[MACRO] ASSERT_TRUE_MSG %cond, %msg_ptr, %msg_len
+    br %cond -> L_ASSERT_TRUE_MSG_OK_%cond, L_ASSERT_TRUE_MSG_FAIL_%cond
+L_ASSERT_TRUE_MSG_FAIL_%cond:
+    panic_msg(103, *%msg_ptr, %msg_len)
+L_ASSERT_TRUE_MSG_OK_%cond:
+[END_MACRO]
+
+[MACRO] ASSERT_EQ_MSG %cond, %actual, %expected, %msg_ptr, %msg_len
+    %cond = eq %actual, %expected
+    EXPAND ASSERT_TRUE_MSG %cond, %msg_ptr, %msg_len
+[END_MACRO]
+
+[MACRO] ASSERT_NE_MSG %cond, %actual, %unexpected, %msg_ptr, %msg_len
+    %cond = ne %actual, %unexpected
+    EXPAND ASSERT_TRUE_MSG %cond, %msg_ptr, %msg_len
+[END_MACRO]

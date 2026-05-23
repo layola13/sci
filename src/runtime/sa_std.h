@@ -335,6 +335,11 @@ uint64_t sa_fmt_u64(uint64_t value, uint32_t base);
 uint64_t sa_fmt_f64(double value, uint32_t precision);
 uint64_t sa_fmt_bool(uint8_t value);
 uint64_t sa_fmt_bytes(const uint8_t *buf, uint64_t len);
+int32_t sa_fmt_i64_into(int64_t value, uint32_t base, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_fmt_u64_into(uint64_t value, uint32_t base, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_fmt_f64_into(double value, uint32_t precision, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_fmt_bool_into(uint8_t value, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_fmt_bytes_into(const uint8_t *buf, uint64_t len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 
 #ifdef __cplusplus
 }

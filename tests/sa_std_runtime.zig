@@ -484,6 +484,19 @@ test "sa_std fmt and process exports are usable from C" {
         \\    if (sa_fmt_buffer_write_to(fmt_handle, SA_STD_STDOUT) != SA_STD_OK) return 4;
         \\    if (sa_fmt_buffer_free(fmt_handle) != SA_STD_OK) return 5;
         \\    if (sa_fmt_i64(-7, 10) == 0) return 6;
+        \\    if (sa_fmt_i64_into(-42, 10, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 12;
+        \\    if (out_len != 3 || memcmp(buffer, "-42", 3) != 0) return 13;
+        \\    memset(buffer, 0, sizeof(buffer));
+        \\    if (sa_fmt_u64_into(255, 16, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 14;
+        \\    if (out_len != 2 || memcmp(buffer, "ff", 2) != 0) return 15;
+        \\    memset(buffer, 0, sizeof(buffer));
+        \\    if (sa_fmt_bool_into(1, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 16;
+        \\    if (out_len != 4 || memcmp(buffer, "true", 4) != 0) return 17;
+        \\    memset(buffer, 0, sizeof(buffer));
+        \\    if (sa_fmt_bytes_into((const uint8_t *)"abc", 3, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 18;
+        \\    if (out_len != 3 || memcmp(buffer, "abc", 3) != 0) return 19;
+        \\    if (sa_fmt_i64_into(12345, 10, (uint8_t *)buffer, 2, &out_len) != SA_STD_ERR_TRUNCATED) return 20;
+        \\    if (out_len != 5) return 21;
         \\
         \\    SaProcessArgv argv[2];
         \\    argv[0].data = (const uint8_t *)"/bin/echo";

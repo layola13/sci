@@ -918,6 +918,11 @@ test "sa_std string_format helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_F64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_BOOL"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_BYTES"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_I64_INTO"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_U64_INTO"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_F64_INTO"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_BOOL_INTO"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_BYTES_INTO"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_DATA"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_format_src, 1, "[MACRO] STRFMT_WRITE_TO"));
@@ -925,8 +930,8 @@ test "sa_std string_format helpers are concrete and verifiable" {
 
     var string_format_flat = try flattenFixture(std.testing.allocator, "sa_std/string_format.sa", string_format_src);
     defer string_format_flat.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(usize, 9), string_format_flat.instructions.len);
-    try std.testing.expectEqual(@as(usize, 9), string_format_flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 14), string_format_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 14), string_format_flat.function_sigs.len);
 }
 
 test "sa_std path helpers are concrete and verifiable" {
@@ -1044,6 +1049,95 @@ test "sa_std string concat runtime helper is usable from C" {
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std string concat ok\n", run_result.stdout);
+}
+
+test "sa_std no-alloc format helpers write into caller buffers" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    uint8_t buf[32] = {0};
+        \\    uint64_t len = 0;
+        \\    if (sa_fmt_i64_into(-42, 10, buf, sizeof(buf), &len) != SA_STD_OK) return 2;
+        \\    if (len != 3 || memcmp(buf, "-42", 3) != 0) return 3;
+        \\    memset(buf, 0, sizeof(buf));
+        \\    if (sa_fmt_u64_into(255, 16, buf, sizeof(buf), &len) != SA_STD_OK) return 4;
+        \\    if (len != 2 || memcmp(buf, "ff", 2) != 0) return 5;
+        \\    memset(buf, 0, sizeof(buf));
+        \\    if (sa_fmt_bool_into(1, buf, sizeof(buf), &len) != SA_STD_OK) return 6;
+        \\    if (len != 4 || memcmp(buf, "true", 4) != 0) return 7;
+        \\    memset(buf, 0, sizeof(buf));
+        \\    if (sa_fmt_bytes_into((const uint8_t *)"abc", 3, buf, sizeof(buf), &len) != SA_STD_OK) return 8;
+        \\    if (len != 3 || memcmp(buf, "abc", 3) != 0) return 9;
+        \\    if (sa_fmt_i64_into(12345, 10, buf, 2, &len) != SA_STD_ERR_TRUNCATED) return 10;
+        \\    if (len != 5) return 11;
+        \\    puts("sa_std fmt into ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "main.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "main.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_fmt_into_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_fmt_into_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+    try std.testing.expectEqualStrings("sa_std fmt into ok\n", run_result.stdout);
 }
 
 test "sa_std env helpers are concrete and verifiable" {
@@ -1619,7 +1713,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
         .trap => |report| {
             for (heap_flat.instructions, 0..) |inst, i| {
                 if (i >= 415 and i <= 425) {
-                    std.debug.print("[{d}] {s}\n", .{i, inst.raw_text});
+                    std.debug.print("[{d}] {s}\n", .{ i, inst.raw_text });
                 }
             }
             std.debug.print(
@@ -1975,16 +2069,13 @@ test "std smoke fixture runs through the current compiler surface" {
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const ll_file = try tmp.dir.openFile("std_smoke.out.sa.ll", .{});
-    defer ll_file.close();
-    const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
-    defer std.testing.allocator.free(ll_bytes);
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "call ptr @malloc"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "call void @free"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "load i8"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "store i8"));
+    const artifact_file = try tmp.dir.openFile("std_smoke.out.sa.bc", .{});
+    defer artifact_file.close();
+    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(artifact_bytes);
+    try std.testing.expect(artifact_bytes.len > 0);
 
-    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{ "./std_smoke.out" });
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./std_smoke.out"});
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {

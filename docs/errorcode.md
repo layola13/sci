@@ -73,7 +73,7 @@ These are internal Zig error sets. They are not public SA Trap codes by themselv
 | `src/referee/table.zig` | `UnknownRegister`, `BorrowConflict`, `UseAfterMove`, `DoubleMutableBorrow`, `ReadWriteConflict`, `RegisterRedefinition`, `MemoryLeak`, `IllegalUnsafeContext`, `FfiOwnershipViolation` |
 | `src/interp.zig` | `OutOfMemory`, `InvalidOperand`, `InvalidAddress`, `InvalidInstruction`, `InvalidFunction`, `UnknownFunction`, `MissingIndirectCallProvenance`, `UnsupportedInstruction`, `UnsupportedSysIntrinsic`, `UserExit` |
 | `src/driver/zigcc.zig` | `ChildProcessFailed`, `InvalidTarget`, `MissingTarget` |
-| `src/emit_llvm.zig` | `EmitError` variants: `OutOfMemory`, `InvalidOperand`, `UnsupportedInstruction`, `UnsupportedType`, `UnknownFunction`, `MissingIndirectCallProvenance` |
+| `src/emit_llvm_llvmc.zig` | `LlvmcError` variants: `Failed`, `InvalidOperand`, `UnsupportedType`, `UnknownFunction`, `UnsupportedInstruction` |
 | `src/lowerer.zig` | `InvalidOperand`, `UnsupportedInstruction`, `OutOfMemory` |
 
 ### 2.3 Runtime ABI Exit Codes

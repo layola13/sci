@@ -1,0 +1,174 @@
+@import "mock_io.sal"
+
+@export sa_mock_io_init(&mock: ptr, &buf: ptr, cap: u64) -> void:
+L_ENTRY:
+    store mock+MockIo_buf, buf as ptr
+    store mock+MockIo_cap, cap as u64
+    store mock+MockIo_len, 0 as u64
+    store mock+MockIo_pos, 0 as u64
+    !cap
+    !buf
+    !mock
+    return
+
+@export sa_mock_io_rewind(&mock: ptr) -> void:
+L_ENTRY:
+    store mock+MockIo_pos, 0 as u64
+    !mock
+    return
+
+@export sa_mock_io_len(&mock: ptr) -> u64:
+L_ENTRY:
+    len = load mock+MockIo_len as u64
+    !mock
+    return len
+
+@export sa_mock_io_pos(&mock: ptr) -> u64:
+L_ENTRY:
+    pos = load mock+MockIo_pos as u64
+    !mock
+    return pos
+
+@export sa_mock_io_write(&mock: ptr, &src: ptr, requested: u64) -> u64:
+L_ENTRY:
+    cap = load mock+MockIo_cap as u64
+    len = load mock+MockIo_len as u64
+    room = sub cap, len
+    fits = ule requested, room
+    br fits -> L_USE_REQUESTED, L_USE_ROOM
+
+L_USE_REQUESTED:
+    count = add requested, 0
+    jmp L_COPY_INIT
+
+L_USE_ROOM:
+    count = add room, 0
+    jmp L_COPY_INIT
+
+L_COPY_INIT:
+    buf = load mock+MockIo_buf as ptr
+    offset_slot = stack_alloc 8
+    store offset_slot+0, 0 as u64
+    jmp L_COPY_HEAD
+
+L_COPY_HEAD:
+    offset = load offset_slot+0 as u64
+    done = eq offset, count
+    br done -> L_DONE, L_COPY_BODY
+
+L_COPY_BODY:
+    src_ip = ptr_add src, offset
+    dst_offset = add len, offset
+    dst_ip = ptr_add buf, dst_offset
+    byte = load src_ip+0 as u8
+    store dst_ip+0, byte as u8
+    next = add offset, 1
+    store offset_slot+0, next as u64
+    !src_ip
+    !dst_offset
+    !dst_ip
+    !byte
+    !offset
+    !done
+    !next
+    jmp L_COPY_HEAD
+
+L_DONE:
+    new_len = add len, count
+    store mock+MockIo_len, new_len as u64
+    !new_len
+    !offset
+    !done
+    !buf
+    !cap
+    !len
+    !room
+    !fits
+    !requested
+    !src
+    !mock
+    return count
+
+@export sa_mock_io_read(&mock: ptr, &dst: ptr, requested: u64) -> u64:
+L_ENTRY:
+    len = load mock+MockIo_len as u64
+    pos = load mock+MockIo_pos as u64
+    remaining = sub len, pos
+    fits = ule requested, remaining
+    br fits -> L_USE_REQUESTED, L_USE_REMAINING
+
+L_USE_REQUESTED:
+    count = add requested, 0
+    jmp L_COPY_INIT
+
+L_USE_REMAINING:
+    count = add remaining, 0
+    jmp L_COPY_INIT
+
+L_COPY_INIT:
+    buf = load mock+MockIo_buf as ptr
+    offset_slot = stack_alloc 8
+    store offset_slot+0, 0 as u64
+    jmp L_COPY_HEAD
+
+L_COPY_HEAD:
+    offset = load offset_slot+0 as u64
+    done = eq offset, count
+    br done -> L_DONE, L_COPY_BODY
+
+L_COPY_BODY:
+    src_offset = add pos, offset
+    src_ip = ptr_add buf, src_offset
+    dst_ip = ptr_add dst, offset
+    byte = load src_ip+0 as u8
+    store dst_ip+0, byte as u8
+    next = add offset, 1
+    store offset_slot+0, next as u64
+    !src_offset
+    !src_ip
+    !dst_ip
+    !byte
+    !offset
+    !done
+    !next
+    jmp L_COPY_HEAD
+
+L_DONE:
+    new_pos = add pos, count
+    store mock+MockIo_pos, new_pos as u64
+    !new_pos
+    !offset
+    !done
+    !buf
+    !len
+    !pos
+    !remaining
+    !fits
+    !requested
+    !dst
+    !mock
+    return count
+
+[MACRO] MOCK_IO_INIT %mock, %buf, %cap
+    call @sa_mock_io_init(&%mock, &%buf, %cap)
+[END_MACRO]
+
+[MACRO] MOCK_IO_REWIND %mock
+    call @sa_mock_io_rewind(&%mock)
+[END_MACRO]
+
+[MACRO] MOCK_IO_LEN %out_len, %mock
+    %out_len = call @sa_mock_io_len(&%mock)
+[END_MACRO]
+
+[MACRO] MOCK_IO_POS %out_pos, %mock
+    %out_pos = call @sa_mock_io_pos(&%mock)
+[END_MACRO]
+
+[MACRO] MOCK_IO_WRITE %out_count, %mock, %src, %len
+    %out_count = call @sa_mock_io_write(&%mock, &%src, %len)
+[END_MACRO]
+
+[MACRO] MOCK_IO_READ %out_count, %mock, %dst, %len
+    %out_count = call @sa_mock_io_read(&%mock, &%dst, %len)
+[END_MACRO]

@@ -13,9 +13,9 @@ SA (Symbolic Affine) is a fully independent, line-oriented affine ownership lang
 | Command | Pipeline | Output |
 |---|---|---|
 | `sa run <file>` | Flattener → Referee → Interpreter | stdout + exit code |
-| `sa build-exe <file>` | Flattener → Referee → LLVM IR → `zig cc` | standalone `.exe` |
-| `sa build-wasm <file>` | Flattener → Referee → LLVM IR → `zig cc -target wasm32-wasi` | `.wasm` module |
-| `sa build-obj <file>` | Flattener → Referee → LLVM IR → `zig cc -c` | `.o` (C-ABI linkable) |
+| `sa build-exe <file>` | Flattener → Referee → LLVM-C bitcode builder → `.sa.bc` → `zig cc` | standalone `.exe` |
+| `sa build-wasm <file>` | Flattener → Referee → LLVM-C bitcode builder → `.sa.bc` → `zig cc -target wasm32-wasi` | `.wasm` module |
+| `sa build-obj <file>` | Flattener → Referee → LLVM-C bitcode builder → `.sa.bc` → `zig cc -c` | `.o` (C-ABI linkable) |
 
 No Zig source generation. No AST construction. No hidden round-trips.
 
@@ -224,7 +224,7 @@ This section is a compact summary for readers; it may lag the live namespace.
 
 | Version | Focus |
 |---|---|
-| v0.1 | Closed loop: Flattener + Referee + LLVM IR + CLI (14 weeks) |
+| v0.1 | Closed loop: Flattener + Referee + LLVM bitcode + CLI (14 weeks) |
 | v0.2 | Self-authored WASM emitter + `#mode compact` infix sugar |
 | v0.3 | Performance: VTable signature check + `libsa_async` macros + `--debug-san` |
 | v0.4 | Parallel dev: `.sai` + `.sal` + incremental compilation |
@@ -260,9 +260,9 @@ SA interoperates with any language through standard C-ABI:
 - `@export` + external test frameworks (Zig test / Rust #[test] / Google Test).
 - Property-based testing: 32 properties × 100+ random iterations.
 
-## Rust -> SA -> LLVM IR Examples
+## Rust -> SA -> LLVM Bitcode Examples
 
-| Case | Rust | SA | LLVM IR sketch |
+| Case | Rust | SA | LLVM bitcode shape |
 |---|---|---|---|
 | Struct field access | `v.x + v.y` | `#def Vec3_x = +0`, `#def Vec3_y = +4`, `x = load v+Vec3_x as f32` | `getelementptr` + `load` |
 | Option + `?` | `let x = read()?;` | `res = call @read(...); x = ? res` | `extractvalue` + `icmp` + `br` |
@@ -280,5 +280,5 @@ SA interoperates with any language through standard C-ABI:
 ## Status
 
 This document reflects the current v0.1 implementation state. Flattener, Referee,
-LLVM IR Emitter, Interpreter, CLI, and the layout generator are operational. Remaining
+LLVM-C bitcode Emitter, Interpreter, CLI, and the layout generator are operational. Remaining
 roadmap items are tracked in `tasks.md`.

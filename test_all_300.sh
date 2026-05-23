@@ -121,9 +121,9 @@ for dir in demos/rosetta/*; do
         native_out="$demo_bin_path/$base.out"
         wasm_out="$demo_bin_path/$base.wasm"
     fi
-    native_ll_out="${native_out}.sa.ll"
-    wasm_ll_out="${wasm_out}.sa.ll"
-    rm -f "$native_out" "$native_ll_out" "$wasm_out" "$wasm_ll_out"
+    native_bc_out="${native_out}.sa.bc"
+    wasm_bc_out="${wasm_out}.sa.bc"
+    rm -f "$native_out" "$native_bc_out" "$wasm_out" "$wasm_bc_out"
     wasm_target="wasm32"
     wasm_compile_only=0
     wasm_native_only=0
@@ -173,28 +173,28 @@ for dir in demos/rosetta/*; do
 
             if "$SAASM_BIN" build-exe "$source_path" -o "$native_out" >"$build_log" 2>&1; then
                 append_failure "$base (native build unexpectedly succeeded)"
-                rm -f "$native_out" "$native_ll_out" "$wasm_out" "$wasm_ll_out"
+                rm -f "$native_out" "$native_bc_out" "$wasm_out" "$wasm_bc_out"
                 continue
             fi
             if ! check_trap_output "$build_log" "$expected_trap" "$expected_code" "$expected_message"; then
                 append_failure "$base (native trap output mismatch)"
-                rm -f "$native_out" "$native_ll_out" "$wasm_out" "$wasm_ll_out"
+                rm -f "$native_out" "$native_bc_out" "$wasm_out" "$wasm_bc_out"
                 continue
             fi
 
             if "$SAASM_BIN" build-wasm "$source_path" -o "$wasm_out" --target wasm32 >"$build_log" 2>&1; then
                 append_failure "$base (wasm build unexpectedly succeeded)"
-                rm -f "$native_out" "$native_ll_out" "$wasm_out" "$wasm_ll_out"
+                rm -f "$native_out" "$native_bc_out" "$wasm_out" "$wasm_bc_out"
                 continue
             fi
             if ! check_trap_output "$build_log" "$expected_trap" "$expected_code" "$expected_message"; then
                 append_failure "$base (wasm trap output mismatch)"
-                rm -f "$native_out" "$native_ll_out" "$wasm_out" "$wasm_ll_out"
+                rm -f "$native_out" "$native_bc_out" "$wasm_out" "$wasm_bc_out"
                 continue
             fi
 
             ((pass++))
-            rm -f "$native_ll_out" "$wasm_ll_out"
+            rm -f "$native_bc_out" "$wasm_bc_out"
             continue
             ;;
     esac
@@ -239,7 +239,7 @@ for dir in demos/rosetta/*; do
 
     if ! "$SAASM_BIN" build-exe "$source_path" -o "$native_out" >"$build_log" 2>&1; then
         append_failure "$base (native build failed)"
-        rm -f "$native_out" "$native_ll_out"
+        rm -f "$native_out" "$native_bc_out"
         continue
     fi
     if "$native_out" >"$native_stdout" 2>"$native_stderr"; then
@@ -249,11 +249,11 @@ for dir in demos/rosetta/*; do
     fi
     if [ "$native_code" -ne 0 ]; then
         append_failure "$base (native run mismatch)"
-        rm -f "$native_out" "$native_ll_out"
+        rm -f "$native_out" "$native_bc_out"
         continue
     fi
 
-    rm -f "$native_ll_out"
+    rm -f "$native_bc_out"
 
     if [ "$wasm_native_only" -eq 1 ]; then
         ((pass++))
@@ -263,19 +263,19 @@ for dir in demos/rosetta/*; do
     if [ "$wasm_compile_only" -eq 1 ]; then
         if ! "$SAASM_BIN" build-wasm "$source_path" -o "$wasm_out" --target "$wasm_target" >"$build_log" 2>&1; then
             append_failure "$base (wasm64 build failed)"
-            rm -f "$wasm_out" "$wasm_ll_out"
+            rm -f "$wasm_out" "$wasm_bc_out"
             continue
         fi
         if ! "$NODE_BIN" --no-warnings "$wasm64_validator" "$wasm_out" >"$wasm_stdout" 2>"$wasm_stderr"; then
             append_failure "$base (wasm64 validation failed)"
-            rm -f "$wasm_out" "$wasm_ll_out"
+            rm -f "$wasm_out" "$wasm_bc_out"
             continue
         fi
-        rm -f "$wasm_ll_out"
+        rm -f "$wasm_bc_out"
     else
         if ! "$SAASM_BIN" build-wasm "$source_path" -o "$wasm_out" --target "$wasm_target" >"$build_log" 2>&1; then
             append_failure "$base (wasm build failed)"
-            rm -f "$wasm_out" "$wasm_ll_out"
+            rm -f "$wasm_out" "$wasm_bc_out"
             continue
         fi
         if "$NODE_BIN" --no-warnings "$wasm_runner" "$wasm_out" saasm "$base.wasm" >"$wasm_stdout" 2>"$wasm_stderr"; then
@@ -285,10 +285,10 @@ for dir in demos/rosetta/*; do
         fi
         if [ "$wasm_code" -ne 0 ] || ! cmp -s "$wasm_stdout" "$native_stdout" || ! cmp -s "$wasm_stderr" "$native_stderr"; then
             append_failure "$base (wasm run mismatch)"
-            rm -f "$wasm_out" "$wasm_ll_out"
+            rm -f "$wasm_out" "$wasm_bc_out"
             continue
         fi
-        rm -f "$wasm_ll_out"
+        rm -f "$wasm_bc_out"
     fi
 
     ((pass++))

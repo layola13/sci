@@ -1180,7 +1180,7 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
  ├─────────────────┼──────────────────────────────────────────────────────┤
  │ 内存布局        │ /home/vscode/projects/sci/src/layout.zig             │
  ├─────────────────┼──────────────────────────────────────────────────────┤
- │ LLVM IR 后端    │ /home/vscode/projects/sci/src/emit_llvm.zig          │
+ │ LLVM-C BC 后端   │ /home/vscode/projects/sci/src/emit_llvm_llvmc.zig    │
  ├─────────────────┼──────────────────────────────────────────────────────┤
  │ WASM 后端       │ /home/vscode/projects/sci/src/emit_wasm/mod.zig      │
  ├─────────────────┼──────────────────────────────────────────────────────┤

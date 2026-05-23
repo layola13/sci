@@ -1,15 +1,15 @@
 const std = @import("std");
-const llvm2sa = @import("llvm2sa.zig");
+const bc2sa = @import("llvm2sa.zig");
 const plugin_api = @import("plugin_api.zig");
 const plugin_helpers = @import("llvm2sa/plugin_helpers.zig");
 
 const skills = [_]plugin_api.SkillSection{
     .{
-        .name = "llvm2sa",
-        .summary = "Translate text LLVM IR back into SA source",
+        .name = "bc2sa",
+        .summary = "Translate LLVM bitcode back into SA source",
         .items = &.{
-            "llvm2sa <file.ll>",
-            "line-oriented translation",
+            "bc2sa <file.bc>",
+            "bitcode-only input",
             "stdout emits translated SA source",
         },
     },
@@ -50,15 +50,15 @@ fn cArgvToSlice(argv: []const [*:0]const u8, allocator: std.mem.Allocator) ![]co
 }
 
 fn runLlvm2SaCommand(ctx: *const plugin_api.Context, argv: []const []const u8, stdout: std.io.AnyWriter, stderr: std.io.AnyWriter) anyerror!?u8 {
-    _ = stderr;
+    _ = stdout;
     if (argv.len < 2) return null;
-    if (!std.mem.eql(u8, argv[1], "llvm2sa")) return null;
+    if (!std.mem.eql(u8, argv[1], "bc2sa")) return null;
     if (argv.len < 3) return error.MissingSourcePath;
-    const translated = try llvm2sa.translateFile(ctx.allocator, argv[2]);
-    defer ctx.allocator.free(translated);
-    try stdout.writeAll(translated);
-    if (translated.len == 0 or translated[translated.len - 1] != '\n') try stdout.writeByte('\n');
-    return 0;
+    _ = bc2sa.translateBitcodeFile(ctx.allocator, argv[2]) catch |err| {
+        try stderr.print("error: {s}\n", .{@errorName(err)});
+        return 1;
+    };
+    unreachable;
 }
 
 fn runLlvm2SaCommandAbi(ctx: *const plugin_api.Context, argv: [*]const [*:0]const u8, argv_len: usize, stdout: plugin_api.HostStream, stderr: plugin_api.HostStream, out_code: *u8) callconv(.c) u32 {
@@ -80,7 +80,7 @@ fn runLlvm2SaCommandAbi(ctx: *const plugin_api.Context, argv: [*]const [*:0]cons
 const descriptor = plugin_api.PluginDescriptor{
     .abi_version = plugin_api.abi_version,
     .descriptor_size = @as(u32, @intCast(@sizeOf(plugin_api.PluginDescriptor))),
-    .name = "llvm2sa",
+    .name = "bc2sa",
     .init = null,
     .prebuild = null,
     .postbuild = null,
@@ -91,11 +91,11 @@ const descriptor = plugin_api.PluginDescriptor{
 
 pub export const saasm_plugin_descriptor_v1: *const plugin_api.PluginDescriptor = &descriptor;
 
-test "llvm2sa plugin exports runtime descriptor and skills" {
+test "bc2sa plugin exports runtime descriptor and skills" {
     const exported = saasm_plugin_descriptor_v1;
     try std.testing.expectEqual(plugin_api.abi_version, exported.abi_version);
-    try std.testing.expectEqualStrings("llvm2sa", std.mem.span(exported.name));
+    try std.testing.expectEqualStrings("bc2sa", std.mem.span(exported.name));
     try std.testing.expectEqual(@as(usize, 1), exported.skills_len);
-    try std.testing.expectEqualStrings("llvm2sa", exported.skills_ptr[0].name);
-    try std.testing.expectEqualStrings("llvm2sa <file.ll>", exported.skills_ptr[0].items[0]);
+    try std.testing.expectEqualStrings("bc2sa", exported.skills_ptr[0].name);
+    try std.testing.expectEqualStrings("bc2sa <file.bc>", exported.skills_ptr[0].items[0]);
 }

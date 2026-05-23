@@ -33,7 +33,7 @@
 SA 编译器（现有 src/）
 ├── flattener/             ← 网络引擎零修改复用
 ├── referee/               ← 网络引擎零修改复用
-├── emit_llvm.zig          ← 零修改；目标三元组保持 x86_64-linux-gnu / aarch64-linux-gnu
+├── emit_llvm_llvmc.zig    ← 零修改；LLVM-C 纯 `.sa.bc` 后端，目标三元组保持 x86_64-linux-gnu / aarch64-linux-gnu
 ├── emit_wasm/             ← 网络引擎不使用（WASM 不暴露 io_uring）
 ├── common/                ← 零修改复用（atomic / ptr_add / load / store 已就绪）
 ├── verifier.zig           ← 零修改；新增 sa_netx_* extern 走现有契约校验路径

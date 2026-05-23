@@ -46,6 +46,7 @@ pub const LayoutVersion = struct {
 
 const MacroDef = struct {
     params: []const []const u8,
+    variadic_param: ?[]const u8 = null,
     body_start: usize,
     body_end: usize,
 
@@ -195,6 +196,54 @@ fn parseTokenList(allocator: std.mem.Allocator, text: []const u8) ![]const []con
     return try list.toOwnedSlice();
 }
 
+fn parseMacroParams(allocator: std.mem.Allocator, text: []const u8) !struct { params: []const []const u8, variadic_param: ?[]const u8 } {
+    const raw_params = try parseTokenList(allocator, text);
+    errdefer allocator.free(raw_params);
+
+    var variadic_param: ?[]const u8 = null;
+    var param_count = raw_params.len;
+
+    for (raw_params, 0..) |param, idx| {
+        if (std.mem.endsWith(u8, param, "...")) {
+            if (idx + 1 != raw_params.len) return error.InvalidMacroInvocation;
+            const base = std.mem.trimRight(u8, param[0 .. param.len - 3], " \t");
+            if (base.len == 0) return error.InvalidMacroInvocation;
+            variadic_param = base;
+            param_count = idx;
+        }
+    }
+
+    if (param_count == raw_params.len) {
+        return .{ .params = raw_params, .variadic_param = null };
+    }
+
+    const fixed_params = try allocator.alloc([]const u8, param_count);
+    errdefer allocator.free(fixed_params);
+    @memcpy(fixed_params, raw_params[0..param_count]);
+    allocator.free(raw_params);
+    return .{ .params = fixed_params, .variadic_param = variadic_param };
+}
+
+fn joinTokens(allocator: std.mem.Allocator, tokens: []const []const u8) ![]const u8 {
+    if (tokens.len == 0) return try allocator.dupe(u8, "");
+    var total_len: usize = 0;
+    for (tokens) |token| total_len += token.len;
+    total_len += (tokens.len - 1) * 2;
+
+    var out = try allocator.alloc(u8, total_len);
+    var cursor: usize = 0;
+    for (tokens, 0..) |token, idx| {
+        if (idx != 0) {
+            out[cursor] = ',';
+            out[cursor + 1] = ' ';
+            cursor += 2;
+        }
+        @memcpy(out[cursor .. cursor + token.len], token);
+        cursor += token.len;
+    }
+    return out;
+}
+
 fn deinitMacroMap(allocator: std.mem.Allocator, macros: *std.StringHashMap(MacroDef)) void {
     var it = macros.valueIterator();
     while (it.next()) |macro_def| {
@@ -302,6 +351,11 @@ fn parseLayoutOffset(
         }
     }
 
+    std.debug.print("\nparseLayoutOffset failed for folded: '{s}' (text: '{s}')\nAvailable keys in dict:\n", .{ folded, text });
+    var it_keys = dict.entries.iterator();
+    while (it_keys.next()) |entry| {
+        std.debug.print("  - '{s}': '{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+    }
     return error.InvalidSyntax;
 }
 
@@ -493,6 +547,39 @@ fn findNestedRepEnd(lines: []const SourceLine, start: usize) ?usize {
         }
     }
     return null;
+}
+
+const IfBounds = struct {
+    else_idx: ?usize,
+    end_idx: usize,
+};
+
+fn findNestedIfBounds(lines: []const SourceLine, start: usize) ?IfBounds {
+    var depth: usize = 1;
+    var else_idx: ?usize = null;
+    var idx = start;
+    while (idx < lines.len) : (idx += 1) {
+        switch (lines[idx].classified.kind) {
+            .if_start => depth += 1,
+            .else_ => {
+                if (depth == 1 and else_idx == null) else_idx = idx;
+            },
+            .if_end => {
+                depth -= 1;
+                if (depth == 0) return .{ .else_idx = else_idx, .end_idx = idx };
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+fn macroConditionIsTrue(text: []const u8) !bool {
+    const trimmed = std.mem.trim(u8, text, " \t\r\n");
+    if (trimmed.len == 0) return false;
+    if (std.mem.eql(u8, trimmed, "1") or std.mem.eql(u8, trimmed, "true") or std.mem.eql(u8, trimmed, "yes") or std.mem.eql(u8, trimmed, "on")) return true;
+    if (std.mem.eql(u8, trimmed, "0") or std.mem.eql(u8, trimmed, "false") or std.mem.eql(u8, trimmed, "no") or std.mem.eql(u8, trimmed, "off")) return false;
+    return error.InvalidMacroInvocation;
 }
 
 fn mapInstKind(form: InstructionForm) InstKind {
@@ -947,7 +1034,7 @@ fn emitParsedLine(
         .unknown => {
             return error.InvalidSyntax;
         },
-        .macro_start, .macro_end, .rep_start, .rep_end, .expand => return error.InvalidSyntax,
+        .macro_start, .macro_end, .rep_start, .rep_end, .if_start, .else_, .if_end, .expand => return error.InvalidSyntax,
     }
 }
 
@@ -962,20 +1049,665 @@ fn collectMacroDefinitions(
         const line = lines[idx];
         recordErrorSourceLine(error_ctx, line.line_no);
         switch (line.classified.kind) {
-            .blank_or_comment, .def, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .macro_end => {},
+            .blank_or_comment, .def, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .if_start, .else_, .if_end, .macro_end => {},
             .macro_start => {
                 const end = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
                 const name = line.classified.parts[0];
-                const params = try parseTokenList(allocator, line.classified.parts[1]);
-                errdefer allocator.free(params);
+                const parsed_params = try parseMacroParams(allocator, line.classified.parts[1]);
+                errdefer allocator.free(parsed_params.params);
                 if (macros.contains(name)) return error.DuplicateDef;
                 try macros.put(name, .{
-                    .params = params,
+                    .params = parsed_params.params,
+                    .variadic_param = parsed_params.variadic_param,
                     .body_start = idx + 1,
                     .body_end = end,
                 });
                 idx = end;
             },
+        }
+    }
+}
+
+fn isFunctionSigDeclared(sigs: []const FunctionSig, name: []const u8) bool {
+    for (sigs) |sig| {
+        if (std.mem.eql(u8, sig.name, name)) return true;
+    }
+    return false;
+}
+
+fn parsePrintArgs(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 {
+    var args = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (args.items) |arg| allocator.free(arg);
+        args.deinit();
+    }
+
+    var i: usize = 0;
+    var start: usize = 0;
+    var in_quotes: bool = false;
+    var escaped: bool = false;
+
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (in_quotes) {
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                in_quotes = false;
+            }
+        } else {
+            if (c == '"') {
+                in_quotes = true;
+            } else if (c == ',') {
+                const arg = std.mem.trim(u8, text[start..i], " \t\r\n");
+                if (arg.len > 0) {
+                    const arg_dup = try allocator.dupe(u8, arg);
+                    try args.append(arg_dup);
+                }
+                start = i + 1;
+            }
+        }
+    }
+
+    const arg = std.mem.trim(u8, text[start..], " \t\r\n");
+    if (arg.len > 0) {
+        const arg_dup = try allocator.dupe(u8, arg);
+        try args.append(arg_dup);
+    }
+    return try args.toOwnedSlice();
+}
+
+fn unquoteString(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
+    var raw = text;
+    if (std.mem.startsWith(u8, raw, "utf8:\"") and std.mem.endsWith(u8, raw, "\"")) {
+        raw = raw[5..raw.len - 1];
+    } else if (std.mem.startsWith(u8, raw, "\"") and std.mem.endsWith(u8, raw, "\"")) {
+        raw = raw[1..raw.len - 1];
+    } else {
+        return error.InvalidFormatString;
+    }
+    return try allocator.dupe(u8, raw);
+}
+
+const FormatSegmentKind = enum {
+    literal,
+    placeholder,
+};
+
+const Specifier = enum {
+    none,
+    i64,
+    u64,
+    f64,
+    bytes,
+};
+
+const FormatSegment = struct {
+    kind: FormatSegmentKind,
+    text: []const u8,
+    specifier: Specifier,
+};
+
+fn parseFormatString(allocator: std.mem.Allocator, fmt_str: []const u8) ![]FormatSegment {
+    var segments = std.ArrayList(FormatSegment).init(allocator);
+    errdefer {
+        for (segments.items) |seg| {
+            if (seg.kind == .literal) allocator.free(seg.text);
+        }
+        segments.deinit();
+    }
+
+    var i: usize = 0;
+    var start: usize = 0;
+    while (i < fmt_str.len) {
+        if (fmt_str[i] == '{') {
+            if (i > start) {
+                const lit_text = try allocator.dupe(u8, fmt_str[start..i]);
+                try segments.append(.{
+                    .kind = .literal,
+                    .text = lit_text,
+                    .specifier = .none,
+                });
+            }
+
+            const close_idx = std.mem.indexOfScalar(u8, fmt_str[i..], '}') orelse return error.UnbalancedPlaceholder;
+            const absolute_close = i + close_idx;
+            const spec_text = fmt_str[i + 1 .. absolute_close];
+
+            var spec = Specifier.none;
+            if (spec_text.len == 0) {
+                spec = .none;
+            } else if (std.mem.eql(u8, spec_text, ":i") or std.mem.eql(u8, spec_text, ":d")) {
+                spec = .i64;
+            } else if (std.mem.eql(u8, spec_text, ":u")) {
+                spec = .u64;
+            } else if (std.mem.eql(u8, spec_text, ":f")) {
+                spec = .f64;
+            } else if (std.mem.eql(u8, spec_text, ":b") or std.mem.eql(u8, spec_text, ":s")) {
+                spec = .bytes;
+            } else {
+                return error.InvalidSpecifier;
+            }
+
+            try segments.append(.{
+                .kind = .placeholder,
+                .text = &.{},
+                .specifier = spec,
+            });
+
+            i = absolute_close + 1;
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+
+    if (start < fmt_str.len) {
+        const lit_text = try allocator.dupe(u8, fmt_str[start..]);
+        try segments.append(.{
+            .kind = .literal,
+            .text = lit_text,
+            .specifier = .none,
+        });
+    }
+
+    return try segments.toOwnedSlice();
+}
+
+fn unescapeLength(text: []const u8) usize {
+    var len: usize = 0;
+    var i: usize = 0;
+    while (i < text.len) {
+        if (text[i] == '\\' and i + 1 < text.len) {
+            i += 2;
+        } else {
+            i += 1;
+        }
+        len += 1;
+    }
+    return len;
+}
+
+const EXTERN_SA_FMT_I64 = "@extern sa_fmt_i64(value: i64, base: u32) -> ^ptr!";
+const EXTERN_SA_FMT_U64 = "@extern sa_fmt_u64(value: u64, base: u32) -> ^ptr!";
+const EXTERN_SA_FMT_F64 = "@extern sa_fmt_f64(value: f64, precision: u32) -> ^ptr!";
+const EXTERN_SA_FMT_BYTES = "@extern sa_fmt_bytes(&buf: ptr, len: u64) -> ^ptr!";
+const EXTERN_SA_FMT_BUFFER_DATA = "@extern sa_fmt_buffer_data(&buffer: ptr) -> &ptr";
+const EXTERN_SA_FMT_BUFFER_LEN = "@extern sa_fmt_buffer_len(&buffer: ptr) -> u64";
+const EXTERN_SA_FMT_BUFFER_FREE = "@extern sa_fmt_buffer_free(^buffer: ptr) -> i32!";
+const EXTERN_SA_STRING_CONCAT = "@extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> ^ptr";
+
+fn ensureExternSigs(
+    allocator: std.mem.Allocator,
+    dict: *DefDict,
+    symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
+    source_line: u32,
+    instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
+    function_sigs: *std.ArrayList(FunctionSig),
+    owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
+) !void {
+    const sigs = function_sigs.items;
+    if (!isFunctionSigDeclared(sigs, "sa_fmt_i64")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_FMT_I64, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+    if (!isFunctionSigDeclared(sigs, "sa_fmt_u64")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_FMT_U64, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+    if (!isFunctionSigDeclared(sigs, "sa_fmt_f64")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_FMT_F64, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+    if (!isFunctionSigDeclared(sigs, "sa_fmt_bytes")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_FMT_BYTES, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+    if (!isFunctionSigDeclared(sigs, "sa_fmt_buffer_data")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_FMT_BUFFER_DATA, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+    if (!isFunctionSigDeclared(sigs, "sa_fmt_buffer_len")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_FMT_BUFFER_LEN, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+    if (!isFunctionSigDeclared(sigs, "sa_fmt_buffer_free")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_FMT_BUFFER_FREE, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+    if (!isFunctionSigDeclared(sigs, "sa_string_concat")) {
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, EXTERN_SA_STRING_CONCAT, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    }
+}
+
+fn expandPrintOrFormat(
+    allocator: std.mem.Allocator,
+    macro_name: []const u8,
+    args_text: []const u8,
+    source_line: u32,
+    dict: *DefDict,
+    symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
+    instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
+    function_sigs: *std.ArrayList(FunctionSig),
+    owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
+) !void {
+    try ensureExternSigs(
+        allocator,
+        dict,
+        symbols,
+        loc_table,
+        pending_loc,
+        source_line,
+        instructions,
+        const_decls,
+        function_sigs,
+        owned_text,
+        current_package_identity,
+        current_package_hash,
+    );
+
+    const args = try parsePrintArgs(allocator, args_text);
+    defer {
+        for (args) |arg| allocator.free(arg);
+        allocator.free(args);
+    }
+
+    if (std.mem.eql(u8, macro_name, "PRINT!")) {
+        if (args.len < 1) return error.InvalidMacroInvocation;
+        const fmt_str_raw = args[0];
+        const format_args = args[1..];
+
+        const fmt_str = try unquoteString(allocator, fmt_str_raw);
+        defer allocator.free(fmt_str);
+
+        const segments = try parseFormatString(allocator, fmt_str);
+        defer {
+            for (segments) |seg| {
+                if (seg.kind == .literal) allocator.free(seg.text);
+            }
+            allocator.free(segments);
+        }
+
+        var expected_args: usize = 0;
+        for (segments) |seg| {
+            if (seg.kind == .placeholder) {
+                switch (seg.specifier) {
+                    .none, .i64, .u64, .f64 => expected_args += 1,
+                    .bytes => expected_args += 2,
+                }
+            }
+        }
+
+        if (expected_args != format_args.len) {
+            return error.ArgCountMismatch;
+        }
+
+        var var_counter: usize = 0;
+        var arg_idx: usize = 0;
+        for (segments) |seg| {
+            if (seg.kind == .literal) {
+                const unescaped_len = unescapeLength(seg.text);
+                const const_id = const_decls.items.len;
+                const const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, const_id });
+                defer allocator.free(const_name);
+
+                const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, seg.text });
+                defer allocator.free(const_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const print_line = try std.fmt.allocPrint(allocator, "call @sys_print(*{s}, {d})", .{ const_name, unescaped_len });
+                defer allocator.free(print_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, print_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+            } else {
+                const spec = seg.specifier;
+                const fmt_buf_fallible = try std.fmt.allocPrint(allocator, "__fmt_buf_fallible_{d}_{d}", .{ source_line, var_counter });
+                const fmt_buf = try std.fmt.allocPrint(allocator, "__fmt_buf_{d}_{d}", .{ source_line, var_counter });
+                const fmt_ptr = try std.fmt.allocPrint(allocator, "__fmt_ptr_{d}_{d}", .{ source_line, var_counter });
+                const fmt_len = try std.fmt.allocPrint(allocator, "__fmt_len_{d}_{d}", .{ source_line, var_counter });
+                const fmt_free_fallible = try std.fmt.allocPrint(allocator, "__fmt_free_fallible_{d}_{d}", .{ source_line, var_counter });
+                const fmt_free_ok = try std.fmt.allocPrint(allocator, "__fmt_free_ok_{d}_{d}", .{ source_line, var_counter });
+                defer {
+                    allocator.free(fmt_buf_fallible);
+                    allocator.free(fmt_buf);
+                    allocator.free(fmt_ptr);
+                    allocator.free(fmt_len);
+                    allocator.free(fmt_free_fallible);
+                    allocator.free(fmt_free_ok);
+                }
+                var_counter += 1;
+
+                const call_line = switch (spec) {
+                    .none, .i64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_i64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
+                    .u64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_u64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
+                    .f64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_f64({s}, 6)", .{ fmt_buf_fallible, format_args[arg_idx] }),
+                    .bytes => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_bytes(&{s}, {s})", .{ fmt_buf_fallible, format_args[arg_idx], format_args[arg_idx + 1] }),
+                };
+                defer allocator.free(call_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, call_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                switch (spec) {
+                    .none, .i64, .u64, .f64 => arg_idx += 1,
+                    .bytes => arg_idx += 2,
+                }
+
+                const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ fmt_buf, fmt_buf_fallible });
+                defer allocator.free(unpack_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ fmt_buf_fallible });
+                defer allocator.free(discard_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data(&{s})", .{ fmt_ptr, fmt_buf });
+                defer allocator.free(ptr_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len(&{s})", .{ fmt_len, fmt_buf });
+                defer allocator.free(len_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const print_line = try std.fmt.allocPrint(allocator, "call @sys_print({s}, {s})", .{ fmt_ptr, fmt_len });
+                defer allocator.free(print_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, print_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ fmt_free_fallible, fmt_buf });
+                defer allocator.free(free_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const free_unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ fmt_free_ok, fmt_free_fallible });
+                defer allocator.free(free_unpack_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const free_discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ fmt_free_fallible });
+                defer allocator.free(free_discard_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+            }
+        }
+    } else {
+        if (args.len < 2) return error.InvalidMacroInvocation;
+        const dest_reg = args[0];
+        const fmt_str_raw = args[1];
+        const format_args = args[2..];
+
+        const fmt_str = try unquoteString(allocator, fmt_str_raw);
+        defer allocator.free(fmt_str);
+
+        const segments = try parseFormatString(allocator, fmt_str);
+        defer {
+            for (segments) |seg| {
+                if (seg.kind == .literal) allocator.free(seg.text);
+            }
+            allocator.free(segments);
+        }
+
+        var expected_args: usize = 0;
+        for (segments) |seg| {
+            if (seg.kind == .placeholder) {
+                switch (seg.specifier) {
+                    .none, .i64, .u64, .f64 => expected_args += 1,
+                    .bytes => expected_args += 2,
+                }
+            }
+        }
+
+        if (expected_args != format_args.len) {
+            return error.ArgCountMismatch;
+        }
+
+        const SegmentData = struct {
+            ptr: []const u8,
+            len: []const u8,
+            owned: bool,
+            owned_buf_name: ?[]const u8,
+        };
+
+        var segment_datas = std.ArrayList(SegmentData).init(allocator);
+        defer {
+            for (segment_datas.items) |sd| {
+                allocator.free(sd.ptr);
+                allocator.free(sd.len);
+                if (sd.owned_buf_name) |ob| allocator.free(ob);
+            }
+            segment_datas.deinit();
+        }
+
+        var var_counter: usize = 0;
+        var arg_idx: usize = 0;
+        for (segments) |seg| {
+            if (seg.kind == .literal) {
+                const unescaped_len = unescapeLength(seg.text);
+                const const_id = const_decls.items.len;
+                const const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, const_id });
+                defer allocator.free(const_name);
+
+                const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, seg.text });
+                defer allocator.free(const_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const ptr_str = try std.fmt.allocPrint(allocator, "*{s}", .{ const_name });
+                const len_str = try std.fmt.allocPrint(allocator, "{d}", .{ unescaped_len });
+
+                try segment_datas.append(.{
+                    .ptr = ptr_str,
+                    .len = len_str,
+                    .owned = false,
+                    .owned_buf_name = null,
+                });
+            } else {
+                const spec = seg.specifier;
+                const fmt_buf_fallible = try std.fmt.allocPrint(allocator, "__fmt_buf_fallible_{d}_{d}", .{ source_line, var_counter });
+                const fmt_buf = try std.fmt.allocPrint(allocator, "__fmt_buf_{d}_{d}", .{ source_line, var_counter });
+                const fmt_ptr = try std.fmt.allocPrint(allocator, "__fmt_ptr_{d}_{d}", .{ source_line, var_counter });
+                const fmt_len = try std.fmt.allocPrint(allocator, "__fmt_len_{d}_{d}", .{ source_line, var_counter });
+                defer {
+                    allocator.free(fmt_buf_fallible);
+                    allocator.free(fmt_ptr);
+                    allocator.free(fmt_len);
+                }
+                var_counter += 1;
+
+                const call_line = switch (spec) {
+                    .none, .i64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_i64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
+                    .u64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_u64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
+                    .f64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_f64({s}, 6)", .{ fmt_buf_fallible, format_args[arg_idx] }),
+                    .bytes => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_bytes(&{s}, {s})", .{ fmt_buf_fallible, format_args[arg_idx], format_args[arg_idx + 1] }),
+                };
+                defer allocator.free(call_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, call_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                switch (spec) {
+                    .none, .i64, .u64, .f64 => arg_idx += 1,
+                    .bytes => arg_idx += 2,
+                }
+
+                const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ fmt_buf, fmt_buf_fallible });
+                defer allocator.free(unpack_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ fmt_buf_fallible });
+                defer allocator.free(discard_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data(&{s})", .{ fmt_ptr, fmt_buf });
+                defer allocator.free(ptr_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len(&{s})", .{ fmt_len, fmt_buf });
+                defer allocator.free(len_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const ptr_str = try allocator.dupe(u8, fmt_ptr);
+                const len_str = try allocator.dupe(u8, fmt_len);
+
+                try segment_datas.append(.{
+                    .ptr = ptr_str,
+                    .len = len_str,
+                    .owned = true,
+                    .owned_buf_name = fmt_buf,
+                });
+            }
+        }
+
+        if (segment_datas.items.len == 0) {
+            const const_id = const_decls.items.len;
+            const const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, const_id });
+            defer allocator.free(const_name);
+
+            const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{ const_name });
+            defer allocator.free(const_line);
+            try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+            const empty_const_id = const_decls.items.len;
+            const empty_const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, empty_const_id });
+            defer allocator.free(empty_const_name);
+
+            const empty_const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{ empty_const_name });
+            defer allocator.free(empty_const_line);
+            try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, empty_const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+            const concat_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_string_concat(*{s}, 0, *{s}, 0)", .{ dest_reg, const_name, empty_const_name });
+            defer allocator.free(concat_line);
+            try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, concat_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+        } else if (segment_datas.items.len == 1) {
+            const first = segment_datas.items[0];
+            if (first.owned) {
+                const assign_line = try std.fmt.allocPrint(allocator, "{s} = ^{s}", .{ dest_reg, first.owned_buf_name.? });
+                defer allocator.free(assign_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, assign_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+            } else {
+                const const_id = const_decls.items.len;
+                const const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, const_id });
+                defer allocator.free(const_name);
+
+                const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{ const_name });
+                defer allocator.free(const_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const concat_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_string_concat({s}, {s}, *{s}, 0)", .{ dest_reg, first.ptr, first.len, const_name });
+                defer allocator.free(concat_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, concat_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+            }
+        } else {
+            const left = segment_datas.items[0];
+            var left_owned = left.owned;
+            var left_buf_name: ?[]const u8 = if (left_owned) try allocator.dupe(u8, left.owned_buf_name.?) else null;
+            defer if (left_buf_name) |lbn| allocator.free(lbn);
+
+            var left_ptr = try allocator.dupe(u8, left.ptr);
+            var left_len = try allocator.dupe(u8, left.len);
+            defer {
+                allocator.free(left_ptr);
+                allocator.free(left_len);
+            }
+
+            var acc_name: ?[]const u8 = null;
+            defer if (acc_name) |an| allocator.free(an);
+
+            var i: usize = 1;
+            while (i < segment_datas.items.len) : (i += 1) {
+                const right = segment_datas.items[i];
+                const is_last = (i == segment_datas.items.len - 1);
+
+                const new_acc = if (is_last)
+                    dest_reg
+                else
+                    try std.fmt.allocPrint(allocator, "__fmt_acc_{d}_{d}", .{ source_line, var_counter });
+                defer if (!is_last) allocator.free(new_acc);
+                if (!is_last) var_counter += 1;
+
+                const concat_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_string_concat({s}, {s}, {s}, {s})", .{ new_acc, left_ptr, left_len, right.ptr, right.len });
+                defer allocator.free(concat_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, concat_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                if (left_owned) {
+                    const free_fallible = try std.fmt.allocPrint(allocator, "__fmt_free_fallible_{d}_{d}", .{ source_line, var_counter });
+                    const free_ok = try std.fmt.allocPrint(allocator, "__fmt_free_ok_{d}_{d}", .{ source_line, var_counter });
+                    defer {
+                        allocator.free(free_fallible);
+                        allocator.free(free_ok);
+                    }
+                    var_counter += 1;
+
+                    const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ free_fallible, left_buf_name.? });
+                    defer allocator.free(free_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ free_ok, free_fallible });
+                    defer allocator.free(unpack_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ free_fallible });
+                    defer allocator.free(discard_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+                }
+
+                if (right.owned) {
+                    const free_fallible = try std.fmt.allocPrint(allocator, "__fmt_free_fallible_{d}_{d}", .{ source_line, var_counter });
+                    const free_ok = try std.fmt.allocPrint(allocator, "__fmt_free_ok_{d}_{d}", .{ source_line, var_counter });
+                    defer {
+                        allocator.free(free_fallible);
+                        allocator.free(free_ok);
+                    }
+                    var_counter += 1;
+
+                    const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ free_fallible, right.owned_buf_name.? });
+                    defer allocator.free(free_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ free_ok, free_fallible });
+                    defer allocator.free(unpack_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ free_fallible });
+                    defer allocator.free(discard_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+
+                }
+
+                if (!is_last) {
+                    left_owned = true;
+                    if (left_buf_name) |lbn| allocator.free(lbn);
+                    left_buf_name = try allocator.dupe(u8, new_acc);
+
+                    const new_ptr = try std.fmt.allocPrint(allocator, "__fmt_ptr_{d}_{d}", .{ source_line, var_counter });
+                    const new_len = try std.fmt.allocPrint(allocator, "__fmt_len_{d}_{d}", .{ source_line, var_counter });
+                    defer {
+                        allocator.free(new_ptr);
+                        allocator.free(new_len);
+                    }
+                    var_counter += 1;
+
+                    const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data(&{s})", .{ new_ptr, new_acc });
+                    defer allocator.free(ptr_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len(&{s})", .{ new_len, new_acc });
+                    defer allocator.free(len_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    allocator.free(left_ptr);
+                    allocator.free(left_len);
+                    left_ptr = try allocator.dupe(u8, new_ptr);
+                    left_len = try allocator.dupe(u8, new_len);
+
+                    if (acc_name) |an| allocator.free(an);
+                    acc_name = try allocator.dupe(u8, new_acc);
+                } else {
+                    left_owned = false;
+                    if (left_buf_name) |lbn| {
+                        allocator.free(lbn);
+                        left_buf_name = null;
+                    }
+                }
+            }
+
+
         }
     }
 }
@@ -1101,6 +1833,45 @@ fn emitRange(
                 idx = rep_end;
             },
             .rep_end => return error.UnbalancedRep,
+            .if_start => {
+                const bounds = findNestedIfBounds(lines, idx + 1) orelse return error.InvalidMacroInvocation;
+                const condition_text = if (replacements.len == 0)
+                    try allocator.dupe(u8, line.classified.parts[0])
+                else
+                    try renderWithReplacements(allocator, line.classified.parts[0], replacements);
+                defer allocator.free(condition_text);
+                try owned_text.append(try allocator.dupe(u8, condition_text));
+
+                const condition_true = try macroConditionIsTrue(condition_text);
+                const selected_start = if (condition_true) idx + 1 else (if (bounds.else_idx) |else_idx| else_idx + 1 else bounds.end_idx);
+                const selected_end = if (condition_true) (bounds.else_idx orelse bounds.end_idx) else bounds.end_idx;
+                if (selected_start < selected_end) {
+                    try emitRange(
+                        allocator,
+                        lines,
+                        selected_start,
+                        selected_end,
+                        depth + 1,
+                        source_line_override orelse line.line_no,
+                        replacements,
+                        false,
+                        macros,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        error_ctx,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
+                }
+                idx = bounds.end_idx;
+            },
+            .else_, .if_end => return error.InvalidMacroInvocation,
             .expand => {
                 const rendered_line = if (replacements.len == 0) line.text else blk: {
                     const rendered = try renderWithReplacements(allocator, line.text, replacements);
@@ -1109,40 +1880,98 @@ fn emitRange(
                 };
                 const rendered_classified = classifier.classifyLine(rendered_line);
                 if (rendered_classified.kind != .expand) return error.InvalidSyntax;
-                const def = macros.get(rendered_classified.parts[0]) orelse return error.InvalidMacroInvocation;
-                const args = try parseTokenList(allocator, rendered_classified.parts[1]);
-                defer allocator.free(args);
-                if (args.len != def.params.len) return error.InvalidMacroInvocation;
+                const macro_name = rendered_classified.parts[0];
+                if (std.mem.eql(u8, macro_name, "PRINT!") or std.mem.eql(u8, macro_name, "FORMAT!")) {
+                    try expandPrintOrFormat(
+                        allocator,
+                        macro_name,
+                        rendered_classified.parts[1],
+                        source_line,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
+                } else {
+                    const def = macros.get(macro_name) orelse return error.InvalidMacroInvocation;
+                    const args = try parseTokenList(allocator, rendered_classified.parts[1]);
+                    defer allocator.free(args);
+                    if (def.variadic_param) |variadic_param| {
+                        if (args.len < def.params.len) return error.InvalidMacroInvocation;
+                        var local_replacements = std.ArrayList(Replacement).init(allocator);
+                        errdefer local_replacements.deinit();
+                        for (def.params, 0..) |param, iarg| {
+                            try local_replacements.append(.{ .needle = param, .replacement = args[iarg] });
+                        }
+                        const variadic_args = args[def.params.len..];
+                        const joined = try joinTokens(allocator, variadic_args);
+                        defer allocator.free(joined);
+                        try local_replacements.append(.{ .needle = variadic_param, .replacement = joined });
+                        const local_slice = try local_replacements.toOwnedSlice();
+                        defer allocator.free(local_slice);
+                        try emitRange(
+                            allocator,
+                            lines,
+                            def.body_start,
+                            def.body_end,
+                            depth + 1,
+                            source_line_override orelse line.line_no,
+                            local_slice,
+                            false,
+                            macros,
+                            dict,
+                            symbols,
+                            loc_table,
+                            pending_loc,
+                            instructions,
+                            const_decls,
+                            function_sigs,
+                            owned_text,
+                            error_ctx,
+                            effective_package_identity,
+                            line.package_source_sha256 orelse current_package_hash,
+                        );
+                        continue;
+                    }
 
-                var local_replacements = std.ArrayList(Replacement).init(allocator);
-                errdefer local_replacements.deinit();
-                for (def.params, 0..) |param, iarg| {
-                    try local_replacements.append(.{ .needle = param, .replacement = args[iarg] });
+                    if (args.len != def.params.len) return error.InvalidMacroInvocation;
+
+                    var local_replacements = std.ArrayList(Replacement).init(allocator);
+                    errdefer local_replacements.deinit();
+                    for (def.params, 0..) |param, iarg| {
+                        try local_replacements.append(.{ .needle = param, .replacement = args[iarg] });
+                    }
+                    const local_slice = try local_replacements.toOwnedSlice();
+                    defer allocator.free(local_slice);
+                    try emitRange(
+                        allocator,
+                        lines,
+                        def.body_start,
+                        def.body_end,
+                        depth + 1,
+                        source_line_override orelse line.line_no,
+                        local_slice,
+                        false,
+                        macros,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        error_ctx,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
                 }
-                const local_slice = try local_replacements.toOwnedSlice();
-                defer allocator.free(local_slice);
-                try emitRange(
-                    allocator,
-                    lines,
-                    def.body_start,
-                    def.body_end,
-                    depth + 1,
-                    source_line_override orelse line.line_no,
-                    local_slice,
-                    false,
-                    macros,
-                    dict,
-                    symbols,
-                    loc_table,
-                    pending_loc,
-                    instructions,
-                    const_decls,
-                    function_sigs,
-                    owned_text,
-                    error_ctx,
-                    effective_package_identity,
-                    line.package_source_sha256 orelse current_package_hash,
-                );
             },
         }
     }
@@ -1541,6 +2370,7 @@ fn expandImportsInto(
         recordErrorSourceLine(error_ctx, line_no);
         if (parseImportPath(raw_line)) |import_path| {
             var imported = try readImportFile(allocator, base_dir, import_path, resolve_ctx);
+            std.debug.print("\n[IMPORT] resolved '{s}' -> '{s}'\n", .{ import_path, imported.entry_path });
             const imported_package_identity = if (imported.package_identity) |identity|
                 try rememberPackageIdentity(allocator, seen_package_identities, identity)
             else if (current_package_identity) |identity|
@@ -2415,6 +3245,104 @@ test "macro PBT expands nested macros and repeat bodies deterministically" {
     }
 }
 
+test "variadic macro parameters consume remaining arguments" {
+    const source =
+        \\[MACRO] CALL_SUM %dst, %args...
+        \\    %dst = call @sum(%args)
+        \\[END_MACRO]
+        \\[MACRO] ZERO_OK %dst, %args...
+        \\    %dst = add 1, 0
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\    EXPAND CALL_SUM total, 1, 2, 3
+        \\    EXPAND ZERO_OK empty
+        \\    return 0
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), result.instructions.len);
+    try std.testing.expectEqual(InstKind.func_decl, result.instructions[0].kind);
+    try std.testing.expectEqual(InstKind.call, result.instructions[1].kind);
+    try expectRawText(result.instructions[1], "    total = call @sum(1, 2, 3)");
+    try std.testing.expectEqual(InstKind.op, result.instructions[2].kind);
+    try expectRawText(result.instructions[2], "    empty = add 1, 0");
+    try std.testing.expectEqual(InstKind.return_, result.instructions[3].kind);
+}
+
+test "variadic macro parameter must be last" {
+    const source =
+        \\[MACRO] BAD %args..., %tail
+        \\    %tail = add 1, 0
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\    return 0
+    ;
+
+    try std.testing.expectError(error.InvalidMacroInvocation, flatten(std.testing.allocator, source));
+}
+
+test "macro-time conditionals select then else and nested branches" {
+    const source =
+        \\[MACRO] PICK %dst, %flag
+        \\[IF %flag]
+        \\    %dst = add 10, 1
+        \\[ELSE]
+        \\    %dst = add 20, 2
+        \\[END_IF]
+        \\[END_MACRO]
+        \\[MACRO] NEST %dst, %outer, %inner
+        \\[IF %outer]
+        \\[IF %inner]
+        \\    %dst = add 1, 1
+        \\[ELSE]
+        \\    %dst = add 2, 2
+        \\[END_IF]
+        \\[END_IF]
+        \\[END_MACRO]
+        \\[MACRO] MAYBE %dst, %flag
+        \\[IF %flag]
+        \\    %dst = add 9, 9
+        \\[END_IF]
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\    EXPAND PICK a, true
+        \\    EXPAND PICK b, false
+        \\    EXPAND NEST c, 1, 0
+        \\    EXPAND MAYBE d, 0
+        \\    return 0
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 5), result.instructions.len);
+    try expectRawText(result.instructions[1], "    a = add 10, 1");
+    try expectRawText(result.instructions[2], "    b = add 20, 2");
+    try expectRawText(result.instructions[3], "    c = add 2, 2");
+    try std.testing.expectEqual(InstKind.return_, result.instructions[4].kind);
+}
+
+test "macro-time conditional rejects invalid condition values" {
+    const source =
+        \\[MACRO] BAD %flag
+        \\[IF %flag]
+        \\    x = add 1, 0
+        \\[END_IF]
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\    EXPAND BAD maybe
+        \\    return 0
+    ;
+
+    try std.testing.expectError(error.InvalidMacroInvocation, flatten(std.testing.allocator, source));
+}
+
 test "macro PBT rejects invalid definitions and invocations" {
     var prng = std.Random.DefaultPrng.init(0x5A5A_6A11);
     const random = prng.random();
@@ -2584,4 +3512,56 @@ test "forbidden syntax PBT rejects random forbidden lines through flatten" {
         try std.testing.expectEqual(case.token, found.hit.token);
         try std.testing.expectError(error.ForbiddenSyntax, flatten(std.testing.allocator, source));
     }
+}
+
+test "PRINT! and FORMAT! macro static expansion" {
+    const source =
+        \\@main() -> i32:
+        \\EXPAND PRINT! "Hello, world!"
+        \\EXPAND PRINT! "Value: {}", %val
+        \\EXPAND FORMAT! %res, "A: {}, B: {}", %val1, %val2
+        \\return 0
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // Let's assert that we have registered some const_decls for the literal segments
+    try std.testing.expect(result.const_decls.len >= 3);
+
+    // Let's verify that the literal contents match
+    var found_hello = false;
+    var found_value = false;
+    var found_a = false;
+    for (result.const_decls) |decl| {
+        if (std.mem.eql(u8, decl.name, "__PRINT_LIT_2_0")) {
+            try std.testing.expectEqualStrings("Hello, world!", decl.value.utf8.bytes);
+            found_hello = true;
+        }
+        if (std.mem.indexOf(u8, decl.name, "__PRINT_LIT_3_") != null) {
+            try std.testing.expectEqualStrings("Value: ", decl.value.utf8.bytes);
+            found_value = true;
+        }
+        if (std.mem.indexOf(u8, decl.name, "__PRINT_LIT_4_") != null) {
+            if (std.mem.eql(u8, decl.value.utf8.bytes, "A: ")) {
+                found_a = true;
+            }
+        }
+    }
+    try std.testing.expect(found_hello);
+    try std.testing.expect(found_value);
+    try std.testing.expect(found_a);
+
+    // Verify some instructions generated by the macros exist
+    var found_sys_print = false;
+    for (result.instructions) |inst| {
+        if (inst.kind == .call) {
+            if (inst.operands[0] == .text) {
+                if (std.mem.startsWith(u8, inst.operands[0].text, "@sys_print")) {
+                    found_sys_print = true;
+                }
+            }
+        }
+    }
+    try std.testing.expect(found_sys_print);
 }

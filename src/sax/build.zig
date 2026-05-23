@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const driver = @import("../driver/zigcc.zig");
-const emit_llvm = @import("../emit_llvm.zig");
+const emit_llvm_llvmc = @import("../emit_llvm_llvmc.zig");
 const flattener = @import("../flattener.zig");
 const manifest = @import("../pkg/manifest.zig");
 const pkg_resolver = @import("../pkg/resolver.zig");
@@ -235,19 +235,15 @@ pub fn buildBrowserWasmFromSourceText(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
-            defer allocator.free(ll_path);
+            const artifact_path = try std.fmt.allocPrint(allocator, "{s}.sa.bc", .{out_path});
+            defer allocator.free(artifact_path);
 
-            try ensureParentDir(ll_path);
-            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
-            defer file.close();
-            var bw = std.io.bufferedWriter(file.writer());
-            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, 32, .{ .debug = debug, .wasm_compat = true, .jobs = options.jobs });
-            try bw.flush();
+            try ensureParentDir(artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, 32, .{ .debug = debug, .wasm_compat = true, .jobs = options.jobs }, artifact_path);
 
             driver.compileWasm(
                 allocator,
-                ll_path,
+                artifact_path,
                 out_path,
                 .{ .triple = "wasm32-freestanding", .no_entry = true },
                 optimization,

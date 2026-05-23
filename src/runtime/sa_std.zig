@@ -1464,6 +1464,14 @@ fn formatBytes(bytes: []const u8) ![]u8 {
     return std.heap.page_allocator.dupe(u8, bytes);
 }
 
+fn writeFormattedInto(out: ?[*]u8, out_cap: u64, out_len: ?*u64, text: []const u8) i32 {
+    if (out_len) |ptr| ptr.* = @as(u64, @intCast(text.len));
+    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
+    if (buffer.len < text.len) return finish(SA_STD_ERR_TRUNCATED);
+    if (text.len != 0) @memcpy(buffer[0..text.len], text);
+    return finish(SA_STD_OK);
+}
+
 fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
     var bytes = try std.heap.page_allocator.alloc(u8, left.len + right.len);
     if (left.len != 0) std.mem.copyForwards(u8, bytes[0..left.len], left);
@@ -3244,9 +3252,33 @@ pub export fn sa_fmt_i64(value: i64, base: u32) u64 {
     return openOwnedBuffer(bytes) catch return 0;
 }
 
+pub export fn sa_fmt_i64_into(value: i64, base: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const actual_base: u8 = switch (base) {
+        2, 8, 10 => @as(u8, @intCast(base)),
+        16, 17 => 16,
+        else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+    };
+    const case: std.fmt.Case = if (base == 17) .upper else .lower;
+    var buf: [128]u8 = undefined;
+    const text = std.fmt.bufPrintIntToSlice(&buf, value, actual_base, case, .{});
+    return writeFormattedInto(out, out_cap, out_len, text);
+}
+
 pub export fn sa_fmt_u64(value: u64, base: u32) u64 {
     const bytes = formatInteger(value, base) catch return 0;
     return openOwnedBuffer(bytes) catch return 0;
+}
+
+pub export fn sa_fmt_u64_into(value: u64, base: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const actual_base: u8 = switch (base) {
+        2, 8, 10 => @as(u8, @intCast(base)),
+        16, 17 => 16,
+        else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+    };
+    const case: std.fmt.Case = if (base == 17) .upper else .lower;
+    var buf: [128]u8 = undefined;
+    const text = std.fmt.bufPrintIntToSlice(&buf, value, actual_base, case, .{});
+    return writeFormattedInto(out, out_cap, out_len, text);
 }
 
 pub export fn sa_fmt_f64(value: f64, precision: u32) u64 {
@@ -3254,15 +3286,30 @@ pub export fn sa_fmt_f64(value: f64, precision: u32) u64 {
     return openOwnedBuffer(bytes) catch return 0;
 }
 
+pub export fn sa_fmt_f64_into(value: f64, precision: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    var buf: [256]u8 = undefined;
+    const text = std.fmt.formatFloat(&buf, value, .{ .mode = .decimal, .precision = @as(usize, @intCast(precision)) }) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return writeFormattedInto(out, out_cap, out_len, text);
+}
+
 pub export fn sa_fmt_bool(value: bool) u64 {
     const bytes = formatBool(value) catch return 0;
     return openOwnedBuffer(bytes) catch return 0;
+}
+
+pub export fn sa_fmt_bool_into(value: bool, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    return writeFormattedInto(out, out_cap, out_len, if (value) "true" else "false");
 }
 
 pub export fn sa_fmt_bytes(buf: ?[*]const u8, len: u64) u64 {
     const bytes = constBytes(buf, len) catch return 0;
     const owned = formatBytes(bytes) catch return 0;
     return openOwnedBuffer(owned) catch return 0;
+}
+
+pub export fn sa_fmt_bytes_into(buf: ?[*]const u8, len: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+    return writeFormattedInto(out, out_cap, out_len, bytes);
 }
 
 pub export fn sa_env_get(key_ptr: ?[*]const u8, key_len: u64) u64 {

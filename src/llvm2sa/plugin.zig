@@ -3,17 +3,17 @@ const plugin_api = @import("plugin");
 
 const skills = [_]plugin_api.SkillSection{
     .{
-        .name = "llvm2sa",
-        .summary = "Translate text LLVM IR back into SA source",
+        .name = "bc2sa",
+        .summary = "Translate LLVM bitcode back into SA source",
         .items = &.{
-            "llvm2sa <file.ll>",
-            "line-oriented translation",
+            "bc2sa <file.bc>",
+            "bitcode-only input",
             "stdout emits translated SA source",
         },
     },
 };
 
-const llvm2sa = @import("translate.zig");
+const bc2sa = @import("translate.zig");
 
 const StreamCtx = struct {
     stream: plugin_api.HostStream,
@@ -41,15 +41,15 @@ fn makeCaptureStream(ctx: *CaptureCtx) plugin_api.HostStream {
 }
 
 fn runLlvm2SaCommand(ctx: *const plugin_api.Context, argv: []const []const u8, stdout: std.io.AnyWriter, stderr: std.io.AnyWriter) anyerror!?u8 {
-    _ = stderr;
+    _ = stdout;
     if (argv.len < 2) return null;
-    if (!std.mem.eql(u8, argv[1], "llvm2sa")) return null;
+    if (!std.mem.eql(u8, argv[1], "bc2sa")) return null;
     if (argv.len < 3) return error.MissingSourcePath;
-    const translated = try llvm2sa.translateFile(ctx.allocator, argv[2]);
-    defer ctx.allocator.free(translated);
-    try stdout.writeAll(translated);
-    if (translated.len == 0 or translated[translated.len - 1] != '\n') try stdout.writeByte('\n');
-    return 0;
+    _ = bc2sa.translateBitcodeFile(ctx.allocator, argv[2]) catch |err| {
+        try stderr.print("error: {s}\n", .{@errorName(err)});
+        return 1;
+    };
+    unreachable;
 }
 
 fn cArgvToSlice(argv: []const [*:0]const u8, allocator: std.mem.Allocator) ![]const []const u8 {
@@ -79,7 +79,7 @@ fn runLlvm2SaCommandAbi(ctx: *const plugin_api.Context, argv: [*]const [*:0]cons
 }
 
 pub const plugin = plugin_api.Plugin{
-    .name = "llvm2sa",
+    .name = "bc2sa",
     .handleCommand = runLlvm2SaCommand,
     .skills = &skills,
 };
@@ -87,7 +87,7 @@ pub const plugin = plugin_api.Plugin{
 const descriptor = plugin_api.PluginDescriptor{
     .abi_version = plugin_api.abi_version,
     .descriptor_size = @as(u32, @intCast(@sizeOf(plugin_api.PluginDescriptor))),
-    .name = "llvm2sa",
+    .name = "bc2sa",
     .init = null,
     .prebuild = null,
     .postbuild = null,
@@ -98,26 +98,8 @@ const descriptor = plugin_api.PluginDescriptor{
 
 pub export const saasm_plugin_descriptor_v1: *const plugin_api.PluginDescriptor = &descriptor;
 
-test "llvm2sa command and abi wrapper match on the hello fixture" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
-    defer original_cwd.close();
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.setAsCwd();
-    defer original_cwd.setAsCwd() catch {};
-
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, ".probe_wasm2/hello.wasm.sa.ll");
-    defer std.testing.allocator.free(source_path);
-    const expected_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/llvm2sa_expected_hello.sa");
-    defer std.testing.allocator.free(expected_path);
-
-    const expected_file = try std.fs.cwd().openFile(expected_path, .{});
-    defer expected_file.close();
-    const expected = try expected_file.readToEndAlloc(std.testing.allocator, 1 << 20);
-    defer std.testing.allocator.free(expected);
-
-    const args = [_][]const u8{ "sa", "llvm2sa", source_path };
+test "bc2sa command reports unsupported bitcode importer" {
+    const args = [_][]const u8{ "sa", "bc2sa", "input.bc" };
     var native_stdout = std.ArrayList(u8).init(std.testing.allocator);
     defer native_stdout.deinit();
     var native_stderr = std.ArrayList(u8).init(std.testing.allocator);
@@ -129,9 +111,9 @@ test "llvm2sa command and abi wrapper match on the hello fixture" {
         native_stdout.writer().any(),
         native_stderr.writer().any(),
     );
-    try std.testing.expectEqual(@as(?u8, 0), native_result);
-    try std.testing.expectEqualStrings(expected, native_stdout.items);
-    try std.testing.expectEqual(@as(usize, 0), native_stderr.items.len);
+    try std.testing.expectEqual(@as(?u8, 1), native_result);
+    try std.testing.expectEqual(@as(usize, 0), native_stdout.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, native_stderr.items, "UnsupportedBitcodeInput") != null);
 
     var abi_stdout = std.ArrayList(u8).init(std.testing.allocator);
     defer abi_stdout.deinit();
@@ -140,9 +122,9 @@ test "llvm2sa command and abi wrapper match on the hello fixture" {
     var out_code: u8 = 255;
     var stdout_ctx = CaptureCtx{ .buffer = &abi_stdout };
     var stderr_ctx = CaptureCtx{ .buffer = &abi_stderr };
-    const source_c = try std.testing.allocator.dupeZ(u8, source_path);
-    defer std.testing.allocator.free(source_c);
-    const c_argv = [_][*:0]const u8{ "sa", "llvm2sa", source_c };
+    const input_c = try std.testing.allocator.dupeZ(u8, "input.bc");
+    defer std.testing.allocator.free(input_c);
+    const c_argv = [_][*:0]const u8{ "sa", "bc2sa", input_c };
     const abi_status = runLlvm2SaCommandAbi(
         &plugin_api.Context{ .allocator = std.testing.allocator },
         c_argv[0..].ptr,
@@ -152,13 +134,13 @@ test "llvm2sa command and abi wrapper match on the hello fixture" {
         &out_code,
     );
     try std.testing.expectEqual(@as(u32, @intFromEnum(plugin_api.AbiStatus.ok)), abi_status);
-    try std.testing.expectEqual(@as(u8, 0), out_code);
-    try std.testing.expectEqualStrings(expected, abi_stdout.items);
-    try std.testing.expectEqualStrings("", abi_stderr.items);
+    try std.testing.expectEqual(@as(u8, 1), out_code);
+    try std.testing.expectEqual(@as(usize, 0), abi_stdout.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, abi_stderr.items, "UnsupportedBitcodeInput") != null);
 }
 
-test "llvm2sa unknown command stays unknown through native and abi paths" {
-    const args = [_][]const u8{ "sa", "not-llvm2sa", "ignored.ll" };
+test "bc2sa unknown command stays unknown through native and abi paths" {
+    const args = [_][]const u8{ "sa", "not-bc2sa", "ignored.bc" };
     const native_result = try runLlvm2SaCommand(
         &plugin_api.Context{ .allocator = std.testing.allocator },
         args[0..],
@@ -174,9 +156,9 @@ test "llvm2sa unknown command stays unknown through native and abi paths" {
     defer stderr_buf.deinit();
     var stdout_ctx = CaptureCtx{ .buffer = &stdout_buf };
     var stderr_ctx = CaptureCtx{ .buffer = &stderr_buf };
-    const ignored_c = try std.testing.allocator.dupeZ(u8, "ignored.ll");
+    const ignored_c = try std.testing.allocator.dupeZ(u8, "ignored.bc");
     defer std.testing.allocator.free(ignored_c);
-    const c_argv = [_][*:0]const u8{ "sa", "not-llvm2sa", ignored_c };
+    const c_argv = [_][*:0]const u8{ "sa", "not-bc2sa", ignored_c };
 
     const abi_status = runLlvm2SaCommandAbi(
         &plugin_api.Context{ .allocator = std.testing.allocator },

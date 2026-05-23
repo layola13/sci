@@ -17,14 +17,27 @@
 
 - [x] **Task P0.1: 寄存器作用域局部化**：修改 Flattener 逻辑，确保每个 `@func` 拥有独立的寄存器 ID 空间。
 - [x] **Task P0.2: 稀疏状态注解存储**：重构 `AnnotatedInstruction`，由全量 `[]u16` 快照改为记录状态增量（Delta），解决内存爆炸。
-- [ ] **Task P0.3: 流式 Emitter 改造**：将 `emit_llvm.zig` 改造为流式写入，减少中间内存缓冲，支持边验证边发射。
-- [ ] **Task P0.4: 声明级并行发射 (Decl-level Parallel Emission)**：借鉴 Zig `Zcu.PerThread` 模型，将发射任务打散至单函数粒度，充分利用多核并行驱动后端。
-- [ ] **Task P0.5: 内存直通 Emitter 重构**：借鉴 Zig `codegen/llvm.zig`，引入 `llvm-c` 绑定，放弃文本 `.ll` 中转，直接在内存中构造 LLVM IR 模块，消除 I/O 瓶颈。
+- [x] **Task P0.3: 流式 Emitter 改造**：历史文本 emitter 的流式化阶段已被 P0.5 取代；主线现已删除文本后端，只保留 LLVM-C 纯 `.sa.bc` 流。
+- [x] **Task P0.4: 声明级并行发射 (Decl-level Parallel Emission)**：借鉴 Zig `Zcu.PerThread` 模型，将发射任务打散至单函数粒度，充分利用多核并行驱动后端。
+- [x] **Task P0.5: 内存直通 Emitter 重构**：借鉴 Zig `codegen/llvm.zig`，引入 `llvm-c` 绑定，放弃文本 `.ll` 中转，直接在内存中构造 LLVM bitcode 模块，消除 I/O 瓶颈。
+  - [x] P0.5a 核心闭环：默认已走结构化 LLVM-C builder 直接生成 `.sa.bc`，不再通过文本 IR 解析桥接；已覆盖 hello、loop、while 与 FFI handle 对象生成。
+  - [x] P0.5a-default-bc：CLI / SAX 构建默认改为 LLVM-C 纯 `.bc` artifact 流，`build-exe` / `build-obj` / `build-wasm` / `test` 正常路径不再调用文本 emitter，也不再保留文本 LLVM 产物路径。
+  - [x] P0.5b-atomic：LLVM-C 后端已覆盖 `atomic_load` / `atomic_store` / `atomic_rmw_*` / `cmpxchg` / `fence`，atomic smoke 通过默认纯 `.sa.bc` 流生成 bitcode 并以退出码 11 运行。
+  - [x] P0.5b-fallible：LLVM-C 后端已覆盖 fallible ABI `{i32, payload}`、fallible call、`?` payload 提取/早返传播、fallible return 打包与 native main wrapper 状态返回；`19_result_question` / `50_error_chain` / `180_try_trait_v2` 默认 `.sa.bc` native smoke 通过。
+  - [x] P0.5b-vtable-indirect：LLVM-C 后端已覆盖 vtable 常量、vtable slot provenance、`call_indirect` typed callee cast 与纯 `.sa.bc` native 运行；`07_trait_vtable` / `110_trait_super_vtable` / `32_trait_object_vector` smoke 通过且不生成 `.ll`。
+  - [x] P0.5b-sys-wasm：LLVM-C 后端已内建 `@sys_print` / `@sys_exit` / `@sys_argc` / `@sys_argv` / `@sys_read_file` / `@sys_write_file` 最小 runtime，并按 `size_bits` 修正 wasm32 ABI；`demos/support/sys_runtime_probe.sa` native 运行输出 `ok`，wasm32 通过 Node/WASI 输出 `ok`，且只生成 `.sa.bc` 中间产物。
+  - [x] P0.5b-memslot：LLVM-C 后端将 SA 可变寄存器固化为按函数实际 slot 数分配的 entry `i64` mem-slot，消除分支/循环合流处的 SSA dominance 错误；`sort_probe` / `hashmap_probe` / `hashset_probe` / `once_probe` / `mpsc_probe` 已通过纯 `.sa.bc` native smoke 且不生成 `.ll`。
+  - [x] P0.5b-debug-min：LLVM-C 后端在纯 `.sa.bc` 流中写入最小 DWARF metadata（compile unit / subprogram / instruction location）；`build-exe -g` 通过，`llvm-bcanalyzer-14` 可见 `llvm.dbg.cu`，且未生成 `.ll`。
+  - [x] P0.5b-bitcode-reader：修正 LLVM-C sys argv runtime 的 typed-pointer GEP，`demos/support/sys_runtime_probe.sa` 生成的 `.sa.bc` 可被 `llvm-dis-14` 严格反汇编，native 运行输出 `ok`，且未生成 `.ll`。
+  - [x] P0.5b-debug-vars：LLVM-C 后端在 debug 模式下为函数参数和 SA slot alloca 写入 `llvm.dbg.declare` / `DILocalVariable`；`build-exe -g` 产物可被 `llvm-dis-14` 反汇编并可见变量元数据，native 运行输出 `21`，且未生成 `.ll`。
+  - [x] P0.5b-wasm-sys-e2e：`tests/cli_smoke.zig` 已将 `sys_runtime_probe.sa` 扩展为 native + wasm32-WASI 双轨验收，覆盖 argv、文件读写、打印、退出码、`.wasm.sa.bc` 产物和 Node/WASI 运行，且未生成 `.ll`。
+  - [x] P0.5b-wasm-demo-matrix：新增独立 `zig build wasm-matrix` rosetta/support native + wasm32-WASI 等价矩阵，覆盖 110 个 demo：基础 print/control-flow/struct/array/slice/string/loop/while/break/nested-loop/factorial/fibonacci、mutability/box/reference/move/borrow/refcount/resource、常量结构体、Option、generic、method、associated fn、enum/match/tuple/destructuring/tagged union、iterator map/filter/fold、module/import/export/config、cache/mem fill/queue、router/parser/serializer、service/pipeline/graph/component、metrics/workflow/kv/sql/blob/sync/scheduler、protocol/text/job/db/query/log/build/release、state/event/channel/actor/async/counter、fallible `?`/Result、vtable/trait object、callback contract、sort/hashmap/hashset/once/mpsc；修正 wasm32 vtable 8 字节槽宽 ABI，补 `sa_time_sleep_ns` fallible weak fallback，并补 LLVM-C `struct_` 常量字节展开；验证通过且主线不保留文本 LLVM 产物路径，同时从巨大的 `cli_smoke` 拆出，避免单项 matrix 重新编译整套 CLI smoke。
+  - [x] P0.5b 覆盖扩展：现有 rosetta/support native stdout smoke demos 已全部纳入 wasm/native 等价矩阵；argv / panic-hook 命名 demo 当前源码为纯确定性输出，也已覆盖。
 
 
 ## 当前执行顺序
 
-1. 先完成主线：标准库收口、单元测试框架、零信任包管理、`sa_net_uring`、`llvm2sa`。
+1. 先完成主线：标准库收口、单元测试框架、零信任包管理、`sa_net_uring`、`bc2sa`。
 2. 插件工作只允许在插件边界内推进：每个插件必须独立交付 `.so` 产物、runtime 加载、热重载、ABI 版本化、失败隔离、skills 元数据和生命周期钩子。
 3. 不要把插件实现回写到主线程分发逻辑里；主线程只保留发现、加载、卸载、热重载与派发入口，插件命令、skills、生命周期逻辑和测试必须留在各自目录。
 4. 构建期错误和运行期失败隔离分开验收：单个插件编译失败只能影响对应 `.so` 产物或插件自身测试，不应把已稳定的宿主运行路径退回静态注册模型。
@@ -34,7 +47,7 @@
 
 本实现计划按**版本递进**组织，而不是一次性交付全部 23 条需求。核心思路：
 
-1. **v0.1 MVP（Week 1-14）** — "跑通闭环"。SA 源码 → Flattener → Referee → LLVM IR → **全程走 `zig cc`** 产出 `.exe` 和 `.wasm`。不自研任何后端。
+1. **v0.1 MVP（Week 1-14）** — "跑通闭环"。SA 源码 → Flattener → Referee → LLVM bitcode → **全程走 `zig cc`** 产出 `.exe` 和 `.wasm`。不自研任何后端。
 2. **v0.2（post-MVP，4-6 周）** — "后端自研"。替换 WASM 产线为手写二进制 Emitter，获得更小体积、wasm64、DWARF-in-WASM 精细控制。
 3. **v0.3（post-MVP，6-8 周）** — "性能兑现"。SIMD/并行调度/LLM 微调 / AutoBevy 1M ±30%（最低优先级）路线。
 
@@ -70,7 +83,7 @@ sa/
 │   ├── common/              # Instruction / CapabilityMask / Trap / GasReport / UpstreamLoc
 │   ├── flattener/           # 预处理 + #loc + 宏
 │   ├── referee/             # 状态机 + Phi + 气闸舱 + 早返回 + 原子 ordering
-│   ├── emit_llvm/           # LLVM IR 文本发射器 + DWARF
+│   ├── emit_llvm_llvmc.zig    # LLVM-C bitcode builder + DWARF
 │   ├── emit_wasm/           # [v0.2] 手写 WASM 二进制（v0.1 为空目录）
 │   ├── interp/              # sa run 内存解释器
 │   ├── driver/              # zig cc 子进程封装
@@ -378,10 +391,10 @@ sa/
 - [x] 7. 检查点 — Referee 完成
   - 跑过 P1、P3、P5、P9、P10、P12、P13、P19、P21、P22、P24
 
-- [x] 8. W10-11 LLVM IR Emitter + CLI + `zig cc` 全权代劳的 exe/wasm
+- [x] 8. W10-11 LLVM bitcode Emitter + CLI + `zig cc` 全权代劳的 exe/wasm
 
   - [x] 8.1 基础映射 M01–M07（alloc/free/load/store/运算）
-    - `src/emit_llvm.zig` 已直接覆盖：
+    - `src/emit_llvm_llvmc.zig` 主线已直接覆盖：
       - `alloc -> call ptr @malloc(...)`
       - owned `!r -> call void @free(ptr ...)`
       - borrowed `!r -> no-op`
@@ -397,20 +410,20 @@ sa/
     - _Requirements: R14.8_
 
   - [x] 8.3 `take` 映射 M14
-    - `src/emit_llvm.zig` 已将 `take src+off` 发射为 `getelementptr i8, ptr %src, i64 off` + `load ptr`
+    - `src/emit_llvm_llvmc.zig` 主线已将 `take src+off` 发射为 `getelementptr i8, ptr %src, i64 off` + `load ptr`
     - 已补 emitter 级直接测试，断言 LLVM 产物包含 `load ptr, ptr`
     - _Requirements: R14.5_
 
   - [x] 8.4 原生逃逸块 M15 字节级透传
-    - `src/emit_llvm.zig` 已原样输出 `Instruction.native_text` 为独立 LLVM IR 行
+    - 文本 legacy emitter 已删除；主线 LLVM-C bitcode 后端不再支持文本 IR 原生逃逸透传
     - _Requirements: R14.7_
 
   - [x]* 8.5 原生逃逸字节透传 PBT — **P2**
-    - `src/emit_llvm.zig` 已加入确定性与随机片段透传测试，断言发射结果包含原始 native bytes
+    - `src/emit_llvm_llvmc.zig` 已覆盖主线；legacy 文本 emitter 与其文本 IR 测试已移除，避免 `.ll` 后门
     - _Requirements: R14.7_
 
   - [x] 8.6 函数/Label/`@extern`/`@export` 映射 M16-M17, M21-M22
-    - `src/emit_llvm.zig` 已对普通函数/label 产出 `define` / `L_X:`
+    - `src/emit_llvm_llvmc.zig` 主线已对普通函数/label 产出 `define` / `L_X:`
     - `@extern` 已产出 LLVM `declare`
     - `@export` 已产出无名称修饰的 `define`
     - `tests/cli_smoke.zig` 与 emitter 单测已覆盖 IR 与目标文件符号证据
@@ -422,18 +435,18 @@ sa/
     - _Requirements: R6.5_
 
   - [x]* 8.8 索引访问 PBT — **P15**
-    - `src/emit_llvm.zig` 已加入随机索引访问回归，断言 `mul -> getelementptr -> load` 链路稳定生成
+    - `src/emit_llvm_llvmc.zig` 已覆盖主线；索引访问回归以 `.sa.bc` 端到端 smoke 为准，不再保留文本 `.ll` 断言
     - `tests/cli_smoke.zig` 已有 `44_slice_iteration` 端到端 `build-exe` 回归，固定验证索引访问 demo 可真实运行并打印 `10\n`
     - _Requirements: R6.5_
 
   - [x] 8.9 气闸舱指令映射 M18-M20（`ptrtoint` / `inttoptr`）
-    - `src/emit_llvm.zig` 已将 `raw = *safe` 发射为 `ptrtoint ptr ... to i64`
+    - `src/emit_llvm_llvmc.zig` 主线已将 `raw = *safe` 发射为 `ptrtoint ptr ... to i64`
     - `assume_safe` / `assume_borrow` 已发射为 `inttoptr i64 ... to ptr`
     - 已补 emitter 级直接测试：`llvm emitter maps M18-M20 airlock casts`
     - _Requirements: R13.1, R13.2, R13.3_
 
   - [x] 8.10 原子指令映射 M24-M27
-    - `src/emit_llvm.zig` 已发射 `load atomic` / `store atomic` / `atomicrmw` / `cmpxchg` / `fence`
+    - `src/emit_llvm_llvmc.zig` 主线已发射 `load atomic` / `store atomic` / `atomicrmw` / `cmpxchg` / `fence`
     - `tests/cli_smoke.zig` 已覆盖端到端 exe/wasm/obj 产物与运行结果
     - 已补 emitter 级直接测试：`llvm emitter maps M24-M27 atomic instructions directly`
     - _Requirements: R2.6, R14.4, R14.5_
@@ -460,23 +473,23 @@ sa/
     - `--no-debug` 关闭
     - _Requirements: R19.3, R19.5_
 
-  - [x]* 8.15 LLVM IR 语法合法性 PBT — **P16**
-    - `src/emit_llvm.zig` 已加入 `opt -verify` 语法校验回归；本机用 LLVM 14 `-opaque-pointers` 实际通过
+  - [x]* 8.15 LLVM bitcode 语法合法性 PBT — **P16**
+    - `src/emit_llvm_llvmc.zig` 已覆盖主线；文本 `.ll` 语法校验回归已移除，合法性以 LLVM-C bitcode builder 和 `.sa.bc` 读写验收为准
     - _Requirements: R14.1, R14.3–R14.10_
 
   - [x]* 8.16 Zig 依赖受限 PBT — **P17**（v0.1 版本：断言产物 `@import` 集合为空，因为我们不生成 Zig 源码）
-    - `src/emit_llvm.zig` 已加入随机生成模块的 `@import` 为空断言
+    - `src/emit_llvm_llvmc.zig` 已覆盖主线；不再生成 Zig/LLVM 文本源码，`@import` 文本断言已无主线路径
     - _Requirements: R14.11_
 
-  - [x] 8.17 LLVM IR Emitter 公开 API `emitLlvm(allocator, annotated, loc_table) ![]const u8`
+  - [x] 8.17 LLVM-C bitcode Emitter 公开 API `emitLlvmc(allocator, verified, loc_table) ![]const u8`
     - 附 source map `inst_idx → ir_line`
     - _Requirements: R14.1_
 
   - [x] 8.18 `zig cc` 子进程封装 `driver/zigcc.zig`
-    - 把 `.ll` 写临时文件
-    - `sa build-exe` → `zig cc <ll> -o <exe> -O ReleaseSmall`（默认 O1 档，`--release-fast` 切 O3）
-    - **`sa build-wasm` → `zig cc <ll> -target wasm32-wasi -o <wasm> -O ReleaseSmall`（v0.1 全委托 Zig，不用手写 Emitter）**
-    - `sa build-obj` → `zig cc <ll> -c -o <o>`
+    - 把 `.bc` 写临时文件
+    - `sa build-exe` → `zig cc <bc> -o <exe> -O ReleaseSmall`（默认 O1 档，`--release-fast` 切 O3）
+    - **`sa build-wasm` → `zig cc <bc> -target wasm32-wasi -o <wasm> -O ReleaseSmall`（全程使用 `.sa.bc` artifact，不生成文本 `.ll`）**
+    - `sa build-obj` → `zig cc <bc> -c -o <o>`
     - _Requirements: R14.1, R14.11, R15.1, R15.2, R16.2, R16.3, R16.4_
 
   - [x] 8.19 CLI `sa run` / `build-exe` / `build-wasm` / `build-obj` 四模路由
@@ -517,14 +530,14 @@ sa/
       - `src/sax/` 负责 SAX 插件的 runtime `.so` 完整化与热重载回归
       - `src/db/` 负责 DB 插件的 runtime `.so` 完整化与失败隔离
       - `src/pkg/` 负责 fetch/pkg 插件的 runtime `.so` 完整化与技能元数据
-      - `src/llvm2sa/` 负责 llvm2sa 插件的 runtime `.so` 完整化与命令一致性
+      - `src/bc2sa/` 负责 bc2sa 插件的 runtime `.so` 完整化与命令一致性
       - `src/http_server/` 负责 HTTP server 插件的 runtime `.so` 完整化与 scaffold 入口
       - 每个 agent 只允许改自己的插件目录和必要的本地测试，不得跨目录改动其他插件或主线程分发逻辑
       - 宿主侧只允许与动态加载和目录发现相关的最小改动；若无必要，不改 `src/cli.zig` 的主命令分发
       - 任何插件交付如果仍然依赖静态注册、静态库 `.a` 或主线程硬编码分支，视为未完成
     - 已验证完成：
       - `src/http_server/`：descriptor / skills / scaffold / serve / runtime `.so`
-      - `src/llvm2sa/`：descriptor / skills / command consistency / runtime `.so`
+      - `src/bc2sa/`：descriptor / skills / command consistency / runtime `.so`
       - `src/sax/`：descriptor / skills / runtime `.so`，并通过 compile-time plugin-mode split 避免将 `std.process.Child.run` 拉进 shared-library 图
       - `src/db/`：descriptor / skills / runtime `.so`，nested test graph 通过本地 stub 收口，runtime wrapper 图通过真实 DB 入口
       - `src/http_client/` 与 `src/http_server/`：`sa run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
@@ -752,7 +765,7 @@ sa/
 
 # Version 0.2 — 自研 WASM 后端（post-MVP，4-6 周）
 
-目标：v0.1 已证明语义闭环，但 `zig cc` 产出的 WASM 偏大（48 KB 级别）且不可控 wasm64。v0.2 替换 WASM 产线为手写二进制 Emitter，获得体积、精度、wasm64 三项收益。Native 路径（LLVM IR + zig cc）保持不变。
+目标：v0.1 已证明语义闭环，但 `zig cc` 产出的 WASM 偏大（48 KB 级别）且不可控 wasm64。v0.2 替换 WASM 产线为手写二进制 Emitter，获得体积、精度、wasm64 三项收益。Native 路径（LLVM bitcode + zig cc）保持不变。
 
 ## v0.2 任务
 
@@ -877,7 +890,7 @@ sa/
 
 - [ ] 22. SIMD 路径全面启用
   - 前端层支持 `v128` 字面量与 lane 操作
-  - LLVM IR Emitter 完整映射
+  - LLVM bitcode Emitter 完整映射
   - _Requirements: R2.4, R2.5_
 
 - [ ] 23. AutoBevy 1M 性能追 Bevy ±30%（最低优先级）
@@ -1424,23 +1437,23 @@ sa/
 
 ## v0.7 任务
 
-- [ ] 40. 编译器前端与测试收集
-  - [ ] 40.1 支持 `@test "name"()` 声明或测试宏
-  - [ ] 40.2 验证测试函数签名无参无返
-  - [ ] 40.3 在 Flattener 阶段收集测试元数据至 `TestRegistry`
+- [x] 40. 编译器前端与测试收集
+  - [x] 40.1 支持 `@test "name"()` 声明，含 `ignored` / `should_panic` 修饰符
+  - [x] 40.2 验证测试函数签名无参无返（`TestFuncSignatureMismatch`）
+  - [x] 40.3 在 Flattener/Verifier 阶段收集测试元数据至 `TestRegistry`（`test_meta.TestList`）
 
-- [ ] 41. CLI 与 Test Runner
-  - [ ] 41.1 扩展 `src/cli.zig` 支持 `sa test`
-  - [ ] 41.2 支持 `--filter` 过滤特定测试
-  - [ ] 41.3 动态生成虚拟入口函数，编排测试调用与执行隔离
-  - [ ] 41.4 控制台进度打印、隔离进程运行、退出状态判断（捕获 103 Panic）
+- [x] 41. CLI 与 Test Runner
+  - [x] 41.1 扩展 `src/cli.zig` 支持 `sa test`
+  - [x] 41.2 支持 `--filter` / `--skip` / `--exact` / `--ignored` / `--include-ignored` 过滤测试
+  - [x] 41.3 动态生成测试 harness，使用 `SA_TEST_NAME` 选择目标测试并由子进程隔离执行
+  - [x] 41.4 控制台进度打印、隔离进程运行、退出状态判断（含 `should_panic` / signal / launch failure）
 
-- [ ] 42. 标准库断言与支持
-  - [ ] 42.1 增强 `ASSERT_EQ` / `ASSERT_TRUE`，支持带有文件名、行号及具体 diff 的 `panic_msg`
-  - [ ] 42.2 提供基础的 Mock 机制（如内存 I/O 缓冲）
+- [x] 42. 标准库断言与支持
+  - [x] 42.1 增强 `ASSERT_EQ` / `ASSERT_TRUE`：新增 `ASSERT_*_MSG` 诊断宏，支持带文件名、行号及具体 diff 的 `panic_msg`
+  - [x] 42.2 提供基础的 Mock 机制（如内存 I/O 缓冲）：新增 `sa_std/testing/mock_io.sal` / `.sa`，提供可 rewind 的内存读写缓冲，并由 `sa test` 回归覆盖写入截断、读取游标和 len/pos 查询
 
 - [ ] 43. 测试用例迁移
-  - [ ] 43.1 逐步将 `test_all_300.sh` 中的 demo 转化为原生 `@test` 并用 `sa test` 验证
+  - [ ] 43.1 逐步将 `test_all_300.sh` 中的 demo 转化为原生 `@test` 并用 `sa test` 验证（已有 `tests/unit_framework/feature_suite.sa` 代表性基线；已新增二十八批 demo-derived 覆盖：`04_loop` / `21_while_loop` / `24_factorial` / `25_fibonacci` / `35_iterator_fold`，`10_generics_monomorph` / `18_option_map` / `46_option_default` / `177_unwrap_unwrap_err`，`07_trait_vtable` / `11_tuples` / `12_destructuring` / `13_array_sum` / `14_slice_window` / `17_associated_fn` / `59_method_counter`，`08_closures` / `30_manual_guard_branch` / `33_iterator_map` / `34_iterator_filter` / `40_impl_block_state` / `42_export_visibility` / `45_config_merge` / `60_enum_branch`，`37_newtype` / `38_generic_struct_i32` / `39_generic_enum_i32` / `48_generic_pair` / `63_router_table`，以及 `53_cache_hits` / `54_mem_fill` / `56_state_machine` / `68_parser_tokens` / `69_serializer` / `70_integration_service` / `71_pipeline_stage` / `72_graph_walk`，以及 `73_scene_nodes` / `74_component_store` / `79_metrics` / `80_workflow` / `82_sql_scan` / `83_blob_chunk` / `84_sync_gate` / `85_scheduler_tree` / `87_protocol_frame` / `88_text_index`，以及 `89_job_queue` / `90_app_shell` / `91_db_session` / `92_query_plan` / `93_log_aggregator` / `96_task_orchestrator` / `97_sync_service` / `98_build_pipeline` / `99_release_bundle` / `100_full_app`，以及 `101_custom_drop` / `102_raii_guard` / `103_labeled_break` / `104_if_let_chains` / `105_let_else` / `106_cell_interior_mut` / `107_refcell_dynamic_borrow` / `108_atomic_spin_lock` / `109_atomic_fetch_add` / `110_trait_super_vtable`，以及 `111_extern_c_abi` / `112_raw_pointer_arithmetic` / `113_union_ffi_types` / `114_callback_from_c` / `115_opaque_pointers` / `116_va_list_variadic` / `118_global_mutable_state` / `119_simd_intrinsics` / `120_volatile_memory_access`，以及 `121_rwlock_reader_writer` / `122_condvar_wait_notify` / `123_barrier_sync` / `124_thread_local_storage` / `125_once_cell_lazy` / `126_mpmc_channel` / `127_hazard_pointers` / `128_rcu_read_copy_update` / `129_seqlock_optimistic` / `130_park_unpark_thread`，以及 `131_waker_vtable_mechanics` / `132_pinning_and_unpin` / `133_select_macro_race` / `134_join_all_futures` / `135_async_streams` / `136_executor_task_queue` / `137_io_uring_submission` / `138_epoll_kqueue_event` / `139_cancellation_safety` / `140_yield_now_suspend`，以及 `141_dynamically_sized_types` / `142_zero_sized_types` / `143_never_type_diverge` / `144_phantom_data_marker` / `145_opaque_type_alias` / `146_never_type_fallback` / `147_custom_dst_pointers` / `148_transparent_repr` / `149_packed_repr` / `150_c_repr_alignment`，以及 `151_global_alloc_trait` / `152_memory_layout_struct` / `153_box_into_raw` / `154_box_from_raw` / `155_arena_allocator_bump` / `156_slab_allocator_freelist` / `157_aligned_alloc_simd` / `158_custom_dst_alloc` / `159_mem_forget_leak` / `160_manually_drop_union`，以及 `161_generic_associated_types` / `162_auto_traits_send_sync` / `163_object_safety_rules` / `164_trait_upcasting` / `165_blanket_impl_resolution` / `166_specialization_fallback` / `167_const_generics_expansion` / `168_type_alias_impl_trait` / `169_negative_impls` / `170_marker_traits`，以及 `171_anyhow_dynamic_error` / `172_eyre_color_eyre` / `173_catch_unwind_panic` / `174_backtrace_capture` / `175_thiserror_macro_derive` / `176_result_flattening` / `178_panic_hook_override` / `179_assert_macro_expansion` / `180_try_trait_v2`，以及 `181_file_descriptor_raii` / `182_mmap_memory_mapping` / `183_signal_handling_setup` / `184_pthread_spawn_join` / `185_dynamic_lib_dlopen` / `186_sqlite_c_api_binding` / `187_opengl_context_swap` / `188_websocket_frame_parse` / `189_protobuf_varint_decode` / `190_base64_encode_simd`，以及 `191_macro_rules_ast_emit` / `192_proc_macro_derive_ast` / `193_attribute_macro_rewrite` / `194_cfg_conditional_compilation` / `195_build_script_codegen` / `196_lto_link_time_opt` / `197_profile_guided_opt` / `198_control_flow_guard_cfi` / `199_address_sanitizer_asan` / `200_sa_asm_quine`，以及 `201_pkg_manifest_basic` / `202_pkg_dependencies_local` / `203_pkg_dependencies_git` / `204_pkg_dependencies_registry` / `205_pkg_cyclic_dependency_reject` / `206_pkg_version_resolution` / `207_pkg_multiple_versions_conflict` / `208_pkg_dev_dependencies` / `209_pkg_build_dependencies` / `210_pkg_workspace_root`，以及 `211_pkg_workspace_inheritance` / `212_pkg_feature_flags` / `213_pkg_default_features` / `214_pkg_target_specific_deps` / `215_pkg_patch_override` / `216_pkg_profile_release` / `217_pkg_profile_debug` / `218_pkg_metadata_custom` / `219_pkg_bin_multiple` / `220_pkg_lib_dynamic`，以及 `221_mod_relative_import` / `222_mod_absolute_import` / `223_mod_visibility_private` / `224_mod_reexport_pub_use` / `225_mod_namespace_prefix` / `226_mod_cyclic_import_detect` / `227_mod_shadowing_prevention` / `228_mod_iface_separation` / `229_mod_layout_injection` / `230_mod_std_prelude`，以及 `231_mod_directory_module` / `232_mod_conditional_import` / `233_mod_alias_import` / `234_mod_unused_import_lint` / `235_mod_transitive_dependency` / `236_mod_extern_block_grouping` / `237_mod_inline_submodule` / `238_mod_path_resolution_order` / `239_mod_version_suffix_isolation` / `240_mod_entry_point_override`，以及 `241_contract_layout_stability` / `242_contract_opaque_struct` / `243_contract_sig_mismatch_link` / `244_contract_vtable_export` / `245_contract_generic_monomorph_share` / `246_contract_semver_minor_update` / `247_contract_semver_major_break` / `248_contract_ffi_boundary_trust` / `249_contract_macro_export` / `250_contract_const_export`，以及 `251_contract_resource_ownership` / `252_contract_error_code_mapping` / `253_contract_callback_registration` / `254_contract_plugin_system` / `255_contract_memory_allocator_swap` / `256_contract_panic_handler_propagate` / `257_contract_log_facade` / `258_contract_thread_local_isolation` / `259_contract_static_init_order` / `260_contract_deprecated_warning`，以及 `261_build_rs_codegen_saasm` / `262_build_bindgen_c_header` / `263_build_asset_bundling` / `264_build_env_var_injection` / `265_build_custom_linker_script` / `266_build_pre_compile_hook` / `267_build_post_compile_hook` / `268_build_cross_compile_wasm` / `269_build_cross_compile_windows` / `270_build_sysroot_custom`，以及 `271_build_optimization_passes` / `272_build_sanitizer_flags` / `273_build_test_harness` / `274_build_benchmark_runner` / `275_build_doc_generator` / `276_build_incremental_caching` / `277_build_parallel_compilation` / `278_build_reproducible_builds` / `279_build_artifact_caching_remote` / `280_build_ci_cd_integration`，以及 `281_ffi_link_system_libc` / `282_ffi_link_static_c_lib` / `283_ffi_link_dynamic_c_lib` / `284_ffi_pkg_config_integration` / `285_ffi_objective_c_framework` / `286_ffi_rust_staticlib_integration` / `287_ffi_zig_export_integration` / `288_ffi_cxx_name_mangling` / `289_ffi_opaque_handle_passing` / `290_ffi_callback_thunk`，以及 `291_eco_wasm_host_imports` / `292_eco_wasm_memory_export` / `293_eco_embedded_no_os` / `294_eco_os_kernel_module` / `295_eco_bpf_ebpf_bytecode` / `296_eco_gpu_ptx_shader` / `297_eco_game_engine_ecs` / `298_eco_cryptography_simd` / `299_eco_language_server_protocol` / `300_eco_sa_lang_registry_publish`；尚未全量迁移）
 
 ---
 

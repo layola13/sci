@@ -20,6 +20,36 @@
     %out_buf = call @sa_fmt_bytes(&%buf, %len)
 [END_MACRO]
 
+[MACRO] STRFMT_I64_INTO %out_ok, %out_len_ptr, %value, %base, %buf, %cap
+    __strfmt_i64_into = call @sa_fmt_i64_into(%value, %base, %buf, %cap, &%out_len_ptr)
+    %out_ok = ? __strfmt_i64_into
+    !__strfmt_i64_into
+[END_MACRO]
+
+[MACRO] STRFMT_U64_INTO %out_ok, %out_len_ptr, %value, %base, %buf, %cap
+    __strfmt_u64_into = call @sa_fmt_u64_into(%value, %base, %buf, %cap, &%out_len_ptr)
+    %out_ok = ? __strfmt_u64_into
+    !__strfmt_u64_into
+[END_MACRO]
+
+[MACRO] STRFMT_F64_INTO %out_ok, %out_len_ptr, %value, %precision, %buf, %cap
+    __strfmt_f64_into = call @sa_fmt_f64_into(%value, %precision, %buf, %cap, &%out_len_ptr)
+    %out_ok = ? __strfmt_f64_into
+    !__strfmt_f64_into
+[END_MACRO]
+
+[MACRO] STRFMT_BOOL_INTO %out_ok, %out_len_ptr, %value, %buf, %cap
+    __strfmt_bool_into = call @sa_fmt_bool_into(%value, %buf, %cap, &%out_len_ptr)
+    %out_ok = ? __strfmt_bool_into
+    !__strfmt_bool_into
+[END_MACRO]
+
+[MACRO] STRFMT_BYTES_INTO %out_ok, %out_len_ptr, %src, %src_len, %buf, %cap
+    __strfmt_bytes_into = call @sa_fmt_bytes_into(&%src, %src_len, %buf, %cap, &%out_len_ptr)
+    %out_ok = ? __strfmt_bytes_into
+    !__strfmt_bytes_into
+[END_MACRO]
+
 [MACRO] STRFMT_DATA %out_ptr, %buffer
     %out_ptr = call @sa_fmt_buffer_data(&%buffer)
 [END_MACRO]

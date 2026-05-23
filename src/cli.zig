@@ -6,8 +6,8 @@ const line_classifier = @import("flattener/line_classifier.zig");
 const interp = @import("interp.zig");
 const build_options = @import("build_options");
 const driver = @import("driver/zigcc.zig");
-const emit_llvm = @import("emit_llvm.zig");
-const llvm2sa = @import("llvm2sa.zig");
+const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
+const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_fetch = @import("pkg/fetch.zig");
@@ -22,6 +22,10 @@ const trap = @import("common/trap.zig");
 const common_upstream = @import("common/upstream_loc.zig");
 const db = @import("db/mod.zig");
 const db_trap = @import("db/common/trap.zig");
+
+fn intermediateArtifactPath(allocator: std.mem.Allocator, out_path: []const u8) ![]u8 {
+    return try std.fmt.allocPrint(allocator, "{s}.sa.bc", .{out_path});
+}
 
 const CompileOk = struct {
     flat: flattener.FlattenResult,
@@ -360,7 +364,7 @@ const Command = enum {
     build_exe,
     build_wasm,
     build_obj,
-    llvm2sa,
+    bc2sa,
     sax,
     audit,
     graph,
@@ -492,7 +496,7 @@ const ProjectAuditOptions = struct {
 const ProjectBuildArtifact = struct {
     name: []const u8,
     out_path: []const u8,
-    ll_path: []const u8,
+    artifact_path: []const u8,
     target_name: []const u8,
     source_suffix: []const u8,
     hash_key: []const u8,
@@ -500,7 +504,7 @@ const ProjectBuildArtifact = struct {
     fn deinit(self: *ProjectBuildArtifact, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         allocator.free(self.out_path);
-        allocator.free(self.ll_path);
+        allocator.free(self.artifact_path);
         allocator.free(self.target_name);
         allocator.free(self.source_suffix);
         allocator.free(self.hash_key);
@@ -742,7 +746,7 @@ fn commandName(cmd: Command) []const u8 {
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
-        .llvm2sa => "llvm2sa",
+        .bc2sa => "bc2sa",
         .sax => "sax",
         .audit => "audit",
         .graph => "graph",
@@ -936,7 +940,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
     try writer.writeAll("  layout       ...               Print struct layout information\n");
     try writer.writeAll("  size         <file>            Print function size statistics\n");
-    try writer.writeAll("  llvm2sa      <file>            Translate LLVM IR to SA assembly\n");
+    try writer.writeAll("  bc2sa      <file>            Translate LLVM bitcode to SA assembly\n");
     try writer.writeAll("  explain      <code>            Explain a diagnostic error code\n");
     try writer.writeAll("  fix          <file>            Suggest fixes for diagnostics\n");
     try writer.writeAll("  skills                         List compiler skills and capabilities\n");
@@ -1096,20 +1100,25 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.MissingLayoutFormat => .{
             .code = "SA-CLI-010",
             .message = "missing layout format",
-            .hint = "use --format text or --format json",
+            .hint = "use --format text, --format json, --format debug, or --format dict",
         },
         error.InvalidLayoutFormat => .{
             .code = "SA-CLI-011",
             .message = "invalid layout format",
-            .hint = "use --format text or --format json",
+            .hint = "use --format text, --format json, --format debug, or --format dict",
+        },
+        error.UnsupportedBitcodeInput => .{
+            .code = "SA-CLI-012",
+            .message = "unsupported bitcode input",
+            .hint = "bc2sa is bitcode-only; the LLVM bitcode reader is not implemented yet, and text IR is not accepted on this path",
         },
         error.UnknownCommand => .{
-            .code = "SA-CLI-012",
+            .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, sax, db, fetch, llvm2sa, help, or version",
+            .hint = "use build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, sax, db, fetch, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
-            .code = "SA-CLI-013",
+            .code = "SA-CLI-014",
             .message = "unexpected argument",
             .hint = "check option order and remove unsupported flags",
         },
@@ -2031,25 +2040,228 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
-            defer allocator.free(ll_path);
-            try ensureParentDir(ll_path);
-            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
-            defer file.close();
-            var bw = std.io.bufferedWriter(file.writer());
-            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
-            try bw.flush();
 
-            const extra_inputs = &[_][]const u8{
-                try pluginSoPath(allocator, "libsaasm-http-client.so"),
-                try pluginSoPath(allocator, "libsaasm-http-server.so"),
+            const worker_count = blk: {
+                if (compile_options.jobs) |j| {
+                    break :blk j;
+                }
+                break :blk std.Thread.getCpuCount() catch 1;
             };
-            defer allocator.free(extra_inputs[0]);
-            defer allocator.free(extra_inputs[1]);
-            driver.compileExe(allocator, ll_path, out_path, optimization, build_options.sa_std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
-                error.ChildProcessFailed => return 1,
-                else => return err,
-            };
+            const use_cgu = (worker_count > 1 and owned.verified.function_sigs.len >= 100);
+
+            if (use_cgu) {
+                const cgu_count = @min(worker_count, 16);
+
+                const cgu_bc_paths = try allocator.alloc([]const u8, cgu_count);
+                defer {
+                    for (cgu_bc_paths) |p| allocator.free(p);
+                    allocator.free(cgu_bc_paths);
+                }
+                const cgu_obj_paths = try allocator.alloc([]const u8, cgu_count);
+                defer {
+                    for (cgu_obj_paths) |p| allocator.free(p);
+                    allocator.free(cgu_obj_paths);
+                }
+                for (0..cgu_count) |i| {
+                    cgu_bc_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.sa.bc", .{out_path, i});
+                    cgu_obj_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.o", .{out_path, i});
+                }
+
+                // Cleanup temp CGU files on exit
+                defer {
+                    for (0..cgu_count) |i| {
+                        std.fs.cwd().deleteFile(cgu_bc_paths[i]) catch {};
+                        std.fs.cwd().deleteFile(cgu_obj_paths[i]) catch {};
+                    }
+                }
+
+                // Ensure parent directory exists for all of them
+                for (cgu_bc_paths) |p| {
+                    try ensureParentDir(p);
+                }
+
+                // Parallel emit CGU bitcode files
+                const VerifiedType = @TypeOf(owned.verified);
+                const CguEmitWorker = struct {
+                    alloc_val: std.mem.Allocator,
+                    verified_ptr: *const VerifiedType,
+                    def_dict_ptr: ?*const flattener.DefDict,
+                    loc_table_val: @TypeOf(owned.flat.loc_table),
+                    source_path_val: []const u8,
+                    size_bits_val: u16,
+                    debug_val: bool,
+                    jobs_val: ?usize,
+                    cgu_idx_val: usize,
+                    cgu_count_val: usize,
+                    path_val: []const u8,
+                    err: ?anyerror = null,
+
+                    pub fn run(self: *@This()) void {
+                        emit_llvm_llvmc.emitLlvmcToFile(
+                            self.alloc_val,
+                            self.verified_ptr.*,
+                            self.def_dict_ptr,
+                            self.loc_table_val,
+                            self.source_path_val,
+                            self.size_bits_val,
+                            .{
+                                .debug = self.debug_val,
+                                .jobs = 1,
+                                .codegen_unit_index = self.cgu_idx_val,
+                                .codegen_unit_count = self.cgu_count_val,
+                            },
+                            self.path_val,
+                        ) catch |err| {
+                            self.err = err;
+                        };
+                    }
+                };
+
+                var cgu_emit_workers = try allocator.alloc(CguEmitWorker, cgu_count);
+                defer allocator.free(cgu_emit_workers);
+
+                for (0..cgu_count) |i| {
+                    cgu_emit_workers[i] = .{
+                        .alloc_val = allocator,
+                        .verified_ptr = &owned.verified,
+                        .def_dict_ptr = &owned.flat.def_dict,
+                        .loc_table_val = owned.flat.loc_table,
+                        .source_path_val = source_path,
+                        .size_bits_val = nativeSizeBits(),
+                        .debug_val = debug,
+                        .jobs_val = compile_options.jobs,
+                        .cgu_idx_val = i,
+                        .cgu_count_val = cgu_count,
+                        .path_val = cgu_bc_paths[i],
+                    };
+                }
+
+                var cgu_emit_threads = try allocator.alloc(std.Thread, cgu_count - 1);
+                defer allocator.free(cgu_emit_threads);
+
+                var started_cgu_emit: usize = 0;
+                errdefer {
+                    while (started_cgu_emit > 0) {
+                        started_cgu_emit -= 1;
+                        cgu_emit_threads[started_cgu_emit].join();
+                    }
+                }
+
+                while (started_cgu_emit < cgu_count - 1) : (started_cgu_emit += 1) {
+                    cgu_emit_threads[started_cgu_emit] = try std.Thread.spawn(.{}, CguEmitWorker.run, .{ &cgu_emit_workers[started_cgu_emit + 1] });
+                }
+
+                cgu_emit_workers[0].run();
+
+                while (started_cgu_emit > 0) {
+                    started_cgu_emit -= 1;
+                    cgu_emit_threads[started_cgu_emit].join();
+                }
+
+                for (cgu_emit_workers) |w| {
+                    if (w.err) |err| return err;
+                }
+
+                // Parallel compile CGU .sa.bc to .o
+                const StderrType = @TypeOf(stderr);
+                const CguCompileWorker = struct {
+                    alloc_val: std.mem.Allocator,
+                    bc_path_val: []const u8,
+                    obj_path_val: []const u8,
+                    optimization_val: driver.Optimization,
+                    debug_val: bool,
+                    stderr_val: StderrType,
+                    err: ?anyerror = null,
+
+                    pub fn run(self: *@This()) void {
+                        driver.compileObj(
+                            self.alloc_val,
+                            self.bc_path_val,
+                            self.obj_path_val,
+                            self.optimization_val,
+                            self.debug_val,
+                            self.stderr_val,
+                        ) catch |err| {
+                            self.err = err;
+                        };
+                    }
+                };
+
+                var cgu_compile_workers = try allocator.alloc(CguCompileWorker, cgu_count);
+                defer allocator.free(cgu_compile_workers);
+
+                for (0..cgu_count) |i| {
+                    cgu_compile_workers[i] = .{
+                        .alloc_val = allocator,
+                        .bc_path_val = cgu_bc_paths[i],
+                        .obj_path_val = cgu_obj_paths[i],
+                        .optimization_val = optimization,
+                        .debug_val = debug,
+                        .stderr_val = stderr,
+                    };
+                }
+
+                var cgu_compile_threads = try allocator.alloc(std.Thread, cgu_count - 1);
+                defer allocator.free(cgu_compile_threads);
+
+                var started_cgu_compile: usize = 0;
+                errdefer {
+                    while (started_cgu_compile > 0) {
+                        started_cgu_compile -= 1;
+                        cgu_compile_threads[started_cgu_compile].join();
+                    }
+                }
+
+                while (started_cgu_compile < cgu_count - 1) : (started_cgu_compile += 1) {
+                    cgu_compile_threads[started_cgu_compile] = try std.Thread.spawn(.{}, CguCompileWorker.run, .{ &cgu_compile_workers[started_cgu_compile + 1] });
+                }
+
+                cgu_compile_workers[0].run();
+
+                while (started_cgu_compile > 0) {
+                    started_cgu_compile -= 1;
+                    cgu_compile_threads[started_cgu_compile].join();
+                }
+
+                for (cgu_compile_workers) |w| {
+                    if (w.err) |err| return err;
+                }
+
+                // Link them all together
+                const extra_inputs = try allocator.alloc([]const u8, 2 + (cgu_count - 1));
+                defer allocator.free(extra_inputs);
+
+                extra_inputs[0] = try pluginSoPath(allocator, "libsaasm-http-client.so");
+                extra_inputs[1] = try pluginSoPath(allocator, "libsaasm-http-server.so");
+                defer allocator.free(extra_inputs[0]);
+                defer allocator.free(extra_inputs[1]);
+
+                for (1..cgu_count) |i| {
+                    extra_inputs[1 + i] = cgu_obj_paths[i];
+                }
+
+                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, build_options.sa_std_archive_path, extra_inputs, debug, stderr) catch |err| switch (err) {
+                    error.ChildProcessFailed => return 1,
+                    else => return err,
+                };
+            } else {
+                const artifact_path = try intermediateArtifactPath(allocator, out_path);
+                defer allocator.free(artifact_path);
+                try ensureParentDir(artifact_path);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
+
+                const extra_inputs = &[_][]const u8{
+                    try pluginSoPath(allocator, "libsaasm-http-client.so"),
+                    try pluginSoPath(allocator, "libsaasm-http-server.so"),
+                };
+                defer allocator.free(extra_inputs[0]);
+                defer allocator.free(extra_inputs[1]);
+                driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
+                    error.ChildProcessFailed => return 1,
+                    else => return err,
+                };
+            }
+
             try ensurePluginSoAvailable(allocator, out_path, "libsaasm-http-client.so");
             try ensurePluginSoAvailable(allocator, out_path, "libsaasm-http-server.so");
             if (diagnostics_mode == .json) {
@@ -2070,16 +2282,12 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
-            defer allocator.free(ll_path);
-            try ensureParentDir(ll_path);
-            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
-            defer file.close();
-            var bw = std.io.bufferedWriter(file.writer());
-            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs });
-            try bw.flush();
+            const artifact_path = try intermediateArtifactPath(allocator, out_path);
+            defer allocator.free(artifact_path);
+            try ensureParentDir(artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
 
-            driver.compileObj(allocator, ll_path, out_path, optimization, debug, stderr) catch |err| switch (err) {
+            driver.compileObj(allocator, artifact_path, out_path, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -2101,16 +2309,12 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const ll_path = try std.fmt.allocPrint(allocator, "{s}.sa.ll", .{out_path});
-            defer allocator.free(ll_path);
-            try ensureParentDir(ll_path);
-            var file = try std.fs.cwd().createFile(ll_path, .{ .truncate = true });
-            defer file.close();
-            var bw = std.io.bufferedWriter(file.writer());
-            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs });
-            try bw.flush();
+            const artifact_path = try intermediateArtifactPath(allocator, out_path);
+            defer allocator.free(artifact_path);
+            try ensureParentDir(artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs }, artifact_path);
 
-            driver.compileWasm(allocator, ll_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
+            driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -2155,6 +2359,10 @@ fn executeLayout(
                 format = .json;
             } else if (std.mem.eql(u8, value, "text")) {
                 format = .text;
+            } else if (std.mem.eql(u8, value, "debug")) {
+                format = .debug;
+            } else if (std.mem.eql(u8, value, "dict")) {
+                format = .dict;
             } else {
                 return error.InvalidLayoutFormat;
             }
@@ -2181,6 +2389,8 @@ fn executeLayout(
             try layout.writeJson(stdout, computed);
             try stdout.writeByte('\n');
         },
+        .debug => try layout.writeDebug(stdout, computed),
+        .dict => try layout.writeDict(stdout, computed),
     }
     _ = stderr;
     return 0;
@@ -2365,23 +2575,19 @@ fn executeTest(
             defer tmp.cleanup();
 
             const source_stem = sourceStem(source_path);
-            const ll_name = try std.fmt.allocPrint(allocator, "{s}.test.sa.ll", .{source_stem});
-            defer allocator.free(ll_name);
+            const artifact_name = try std.fmt.allocPrint(allocator, "{s}.test.sa.bc", .{source_stem});
+            defer allocator.free(artifact_name);
             const exe_name = try std.fmt.allocPrint(allocator, "{s}.test", .{source_stem});
             defer allocator.free(exe_name);
 
-            const ll_path = try tmp.dir.realpathAlloc(allocator, ".");
-            defer allocator.free(ll_path);
+            const artifact_dir = try tmp.dir.realpathAlloc(allocator, ".");
+            defer allocator.free(artifact_dir);
 
-            const ll_full_path = try std.fs.path.join(allocator, &.{ ll_path, ll_name });
-            defer allocator.free(ll_full_path);
-            var file = try tmp.dir.createFile(ll_name, .{ .truncate = true });
-            defer file.close();
-            var bw = std.io.bufferedWriter(file.writer());
-            try emit_llvm.emitLlvmToWriter(bw.writer(), allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true });
-            try bw.flush();
+            const artifact_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, artifact_name });
+            defer allocator.free(artifact_full_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true }, artifact_full_path);
 
-            const exe_full_path = try std.fs.path.join(allocator, &.{ ll_path, exe_name });
+            const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
             defer allocator.free(exe_full_path);
 
             const extra_inputs = &[_][]const u8{
@@ -2390,7 +2596,7 @@ fn executeTest(
             };
             defer allocator.free(extra_inputs[0]);
             defer allocator.free(extra_inputs[1]);
-            driver.compileExe(allocator, ll_full_path, exe_full_path, .release_small, build_options.sa_std_archive_path, extra_inputs[0..], false, stderr) catch |err| switch (err) {
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, build_options.sa_std_archive_path, extra_inputs[0..], false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -2442,7 +2648,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         if (std.mem.eql(u8, args[1], commandName(.build_exe))) break :blk .build_exe;
         if (std.mem.eql(u8, args[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, args[1], commandName(.build_obj))) break :blk .build_obj;
-        if (std.mem.eql(u8, args[1], commandName(.llvm2sa))) break :blk .llvm2sa;
+        if (std.mem.eql(u8, args[1], commandName(.bc2sa))) break :blk .bc2sa;
         if (std.mem.eql(u8, args[1], commandName(.sax))) break :blk .sax;
         if (std.mem.eql(u8, args[1], commandName(.audit))) break :blk .audit;
         if (std.mem.eql(u8, args[1], commandName(.graph))) break :blk .graph;
@@ -2830,10 +3036,13 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             defer if (out_path == null) allocator.free(owned_out);
             return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
-        .llvm2sa => {
+        .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
-            const translated = try llvm2sa.translateFile(allocator, source_path);
+            const translated = bc2sa.translateBitcodeFile(allocator, source_path) catch |err| {
+                try printCliError(stderr, err, if (json_mode) .json else .human);
+                return 1;
+            };
             defer allocator.free(translated);
             try stdout.writeAll(translated);
             if (translated.len == 0 or translated[translated.len - 1] != '\n') try stdout.writeByte('\n');

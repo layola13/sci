@@ -46,8 +46,8 @@
   详尽的编译器 Panic 列表（如 `MemoryLeak`, `UseAfterMove`）及排查指南。
 - 🧪 **[Native Unit Test Framework (原生单元测试)](./unit_test_framework.md)**  
   如何编写 `@test` 以及 `sa test` CLI 的隔离架构。
-- 🔄 **[LLVM2SA Feasibility (LLVM IR 降级反编译)](./llvm2sa_feasibility.md)**  
-  将 Rust/C 的 `.ll` 无损翻译回 SA-ASM 的可行性与实战对比。
+- 🔄 **[BC2SA Feasibility (LLVM bitcode 降级反编译)](./llvm2sa_feasibility.md)**  
+  将 Rust/C 的 `.bc` 无损翻译回 SA-ASM 的可行性与实战对比。
 - 📚 **[Standard Library RFCs (标准库提案)](./std_rfc.md)**  
   SA 标准库的扩充计划与演进记录。
 

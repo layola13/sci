@@ -14,7 +14,7 @@
 ### 2. Playground 架构选型评估
 - **需求**：一个支持 Rust 和 SA-ASM 互转并能在线运行的 Web Playground。
 - **编译路径（Rust -> SA）**：
-  - *方案 A（依赖后端）*：前端 -> 后端 `rustc` 输出 LLVM IR -> 后端 `llvm2sa` -> 前端。优点是完全兼容 Rust 生态。
+  - *方案 A（依赖后端）*：前端 -> 后端 `rustc` 输出 LLVM bitcode -> 后端 `bc2sa` -> 前端。优点是完全兼容 Rust 生态。
   - *方案 B（纯前端，无 LLVM）*：编写轻量级转换器编译为 WASM。优点是零网络延迟，全本地运行。
 - **运行路径**：将 SA 的解释器（`src/interp.zig`）编译为 WASM，直接在浏览器沙箱中执行 SA-ASM 源码并拦截输出。
 

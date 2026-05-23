@@ -4,6 +4,8 @@ const sig = @import("common/signature.zig");
 pub const LayoutFormat = enum {
     text,
     json,
+    debug,
+    dict,
 };
 
 pub const LayoutField = struct {
@@ -215,6 +217,69 @@ pub fn writeJson(writer: anytype, layout: Layout) !void {
     try writer.writeAll("]}");
 }
 
+pub fn writeDict(writer: anytype, layout: Layout) !void {
+    try writer.print("#def LAYOUT_{s}_SIZE = {d}\n", .{ layout.name, layout.size });
+    try writer.print("#def LAYOUT_{s}_ALIGN = {d}\n", .{ layout.name, layout.max_align });
+    for (layout.fields) |field| {
+        try writer.print("#def LAYOUT_{s}_{s}_OFFSET = +{d}\n", .{ layout.name, field.name, field.offset });
+        try writer.print("#def LAYOUT_{s}_{s}_SIZE = {d}\n", .{ layout.name, field.name, field.size });
+        try writer.print("#def LAYOUT_{s}_{s}_ALIGN = {d}\n", .{ layout.name, field.name, field.alignment });
+        try writer.print("// LAYOUT_{s}_{s}_TYPE = {s}\n", .{ layout.name, field.name, sig.primTypeName(field.ty) });
+    }
+}
+
+fn debugFormatForType(ty: sig.PrimType) ?[]const u8 {
+    return switch (ty) {
+        .i64 => "{:i}",
+        .u64 => "{:u}",
+        .f64 => "{:f}",
+        else => null,
+    };
+}
+
+fn loadTypeName(ty: sig.PrimType) []const u8 {
+    return sig.primTypeName(ty);
+}
+
+pub fn writeDebugMacro(writer: anytype, layout: Layout) !void {
+    try writer.print("[MACRO] DEBUG_PRINT_{s} %ptr\n", .{layout.name});
+    try writer.print("    EXPAND PRINT! \"{s} {{ \"\n", .{layout.name});
+    for (layout.fields, 0..) |field, idx| {
+        const comma = if (idx + 1 == layout.fields.len) "" else ", ";
+        if (debugFormatForType(field.ty)) |fmt| {
+            try writer.print("    __dbg_{s}_{s} = load %ptr+{s}_{s} as {s}\n", .{
+                layout.name,
+                field.name,
+                layout.name,
+                field.name,
+                loadTypeName(field.ty),
+            });
+            try writer.print("    EXPAND PRINT! \"{s}: {s}{s}\", __dbg_{s}_{s}\n", .{
+                field.name,
+                fmt,
+                comma,
+                layout.name,
+                field.name,
+            });
+            try writer.print("    !__dbg_{s}_{s}\n", .{ layout.name, field.name });
+        } else {
+            try writer.print("    EXPAND PRINT! \"{s}: <unsupported:{s}>{s}\"\n", .{
+                field.name,
+                sig.primTypeName(field.ty),
+                comma,
+            });
+        }
+    }
+    try writer.writeAll("    EXPAND PRINT! \" }\\n\"\n");
+    try writer.writeAll("[END_MACRO]\n");
+}
+
+pub fn writeDebug(writer: anytype, layout: Layout) !void {
+    try writeText(writer, layout);
+    try writer.writeByte('\n');
+    try writeDebugMacro(writer, layout);
+}
+
 test "layout text output rounds offsets and sizes" {
     var layout = try compute(
         std.testing.allocator,
@@ -259,6 +324,57 @@ test "layout json output and 32-bit ptr alignment" {
         "{\"name\":\"Pair\",\"size\":8,\"fields\":[{\"name\":\"head\",\"offset\":0,\"size\":4,\"ty\":\"ptr\"},{\"name\":\"count\",\"offset\":4,\"size\":4,\"ty\":\"u32\"}]}",
         buf.items,
     );
+}
+
+test "layout debug macro emits static field formatter" {
+    var layout = try compute(std.testing.allocator, "Entity", "id:u64, pos:f64, active:i1", 64);
+    defer layout.deinit(std.testing.allocator);
+
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer buf.deinit();
+    try writeDebug(buf.writer(), layout);
+    try std.testing.expectEqualStrings(
+        \\#def Entity_SIZE  = 24
+        \\#def Entity_id = +0
+        \\#def Entity_pos = +8
+        \\#def Entity_active = +16
+        \\// 7 bytes tail padding
+        \\
+        \\[MACRO] DEBUG_PRINT_Entity %ptr
+        \\    EXPAND PRINT! "Entity { "
+        \\    __dbg_Entity_id = load %ptr+Entity_id as u64
+        \\    EXPAND PRINT! "id: {:u}, ", __dbg_Entity_id
+        \\    !__dbg_Entity_id
+        \\    __dbg_Entity_pos = load %ptr+Entity_pos as f64
+        \\    EXPAND PRINT! "pos: {:f}, ", __dbg_Entity_pos
+        \\    !__dbg_Entity_pos
+        \\    EXPAND PRINT! "active: <unsupported:i1>"
+        \\    EXPAND PRINT! " }\n"
+        \\[END_MACRO]
+        \\
+    , buf.items);
+}
+
+test "layout dict output emits lookup keys for macro tooling" {
+    var layout = try compute(std.testing.allocator, "Entity", "id:u64, pos:f64", 64);
+    defer layout.deinit(std.testing.allocator);
+
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer buf.deinit();
+    try writeDict(buf.writer(), layout);
+    try std.testing.expectEqualStrings(
+        \\#def LAYOUT_Entity_SIZE = 16
+        \\#def LAYOUT_Entity_ALIGN = 8
+        \\#def LAYOUT_Entity_id_OFFSET = +0
+        \\#def LAYOUT_Entity_id_SIZE = 8
+        \\#def LAYOUT_Entity_id_ALIGN = 8
+        \\// LAYOUT_Entity_id_TYPE = u64
+        \\#def LAYOUT_Entity_pos_OFFSET = +8
+        \\#def LAYOUT_Entity_pos_SIZE = 8
+        \\#def LAYOUT_Entity_pos_ALIGN = 8
+        \\// LAYOUT_Entity_pos_TYPE = f64
+        \\
+    , buf.items);
 }
 
 test "layout handles empty structs, v128 alignment, and invalid names" {

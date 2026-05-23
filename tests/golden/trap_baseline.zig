@@ -28,9 +28,9 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(out_name, .{}));
-    const ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.ll", .{out_name});
-    defer std.testing.allocator.free(ll_name);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(ll_name, .{}));
+    const bc_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{out_name});
+    defer std.testing.allocator.free(bc_name);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(bc_name, .{}));
 
     var trap_buf: [64]u8 = undefined;
     const trap_text = try std.fmt.bufPrint(&trap_buf, "\"trap\":\"{s}\"", .{expected_trap});

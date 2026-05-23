@@ -1,0 +1,5 @@
+#def MockIo_SIZE = 32
+#def MockIo_buf = +0
+#def MockIo_cap = +8
+#def MockIo_len = +16
+#def MockIo_pos = +24

@@ -26,7 +26,7 @@ pub const Argv = struct {
 };
 
 pub fn argvForExe(
-    ll_path: []const u8,
+    artifact_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
     sa_std_archive_path: []const u8,
@@ -46,7 +46,7 @@ pub fn argvForExe(
         .release_fast => "-O3",
     };
     index += 1;
-    argv.items[index] = ll_path;
+    argv.items[index] = artifact_path;
     index += 1;
     argv.items[index] = sa_std_archive_path;
     index += 1;
@@ -65,7 +65,7 @@ pub fn argvForExe(
 }
 
 pub fn argvForObj(
-    ll_path: []const u8,
+    artifact_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
     debug: bool,
@@ -85,7 +85,7 @@ pub fn argvForObj(
     index += 1;
     argv.items[index] = "-c";
     index += 1;
-    argv.items[index] = ll_path;
+    argv.items[index] = artifact_path;
     index += 1;
     argv.items[index] = "-o";
     index += 1;
@@ -96,7 +96,7 @@ pub fn argvForObj(
 }
 
 pub fn argvForWasm(
-    ll_path: []const u8,
+    artifact_path: []const u8,
     out_path: []const u8,
     target: Target,
     optimization: Optimization,
@@ -125,7 +125,7 @@ pub fn argvForWasm(
         .release_fast => "-O3",
     };
     index += 1;
-    argv.items[index] = ll_path;
+    argv.items[index] = artifact_path;
     index += 1;
     argv.items[index] = "-o";
     index += 1;
@@ -174,7 +174,7 @@ fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []con
 
 pub fn compileExe(
     allocator: std.mem.Allocator,
-    ll_path: []const u8,
+    artifact_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
     sa_std_archive_path: []const u8,
@@ -182,10 +182,10 @@ pub fn compileExe(
     debug: bool,
     stderr: anytype,
 ) !void {
-    const argv = argvForExe(ll_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
+    const argv = argvForExe(artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
     const argv_slice = argv.slice();
     const result = runProcess(allocator, argv_slice) catch |err| {
-        try printCompilerLaunchFailure(stderr, argv_slice, "linking", ll_path, out_path, err);
+        try printCompilerLaunchFailure(stderr, argv_slice, "linking", artifact_path, out_path, err);
         return CompileError.ChildProcessFailed;
     };
     defer allocator.free(result.stdout);
@@ -196,23 +196,23 @@ pub fn compileExe(
         else => true,
     };
     if (failed) {
-        try printCompilerFailure(stderr, argv_slice, "linking", ll_path, out_path, result);
+        try printCompilerFailure(stderr, argv_slice, "linking", artifact_path, out_path, result);
         return CompileError.ChildProcessFailed;
     }
 }
 
 pub fn compileObj(
     allocator: std.mem.Allocator,
-    ll_path: []const u8,
+    artifact_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
     debug: bool,
     stderr: anytype,
 ) !void {
-    const argv = argvForObj(ll_path, out_path, optimization, debug);
+    const argv = argvForObj(artifact_path, out_path, optimization, debug);
     const argv_slice = argv.slice();
     const result = runProcess(allocator, argv_slice) catch |err| {
-        try printCompilerLaunchFailure(stderr, argv_slice, "compiling object", ll_path, out_path, err);
+        try printCompilerLaunchFailure(stderr, argv_slice, "compiling object", artifact_path, out_path, err);
         return CompileError.ChildProcessFailed;
     };
     defer allocator.free(result.stdout);
@@ -223,24 +223,24 @@ pub fn compileObj(
         else => true,
     };
     if (failed) {
-        try printCompilerFailure(stderr, argv_slice, "compiling object", ll_path, out_path, result);
+        try printCompilerFailure(stderr, argv_slice, "compiling object", artifact_path, out_path, result);
         return CompileError.ChildProcessFailed;
     }
 }
 
 pub fn compileWasm(
     allocator: std.mem.Allocator,
-    ll_path: []const u8,
+    artifact_path: []const u8,
     out_path: []const u8,
     target: Target,
     optimization: Optimization,
     debug: bool,
     stderr: anytype,
 ) !void {
-    const argv = argvForWasm(ll_path, out_path, target, optimization, debug);
+    const argv = argvForWasm(artifact_path, out_path, target, optimization, debug);
     const argv_slice = argv.slice();
     const result = runProcess(allocator, argv_slice) catch |err| {
-        try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", ll_path, out_path, err);
+        try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, err);
         return CompileError.ChildProcessFailed;
     };
     defer allocator.free(result.stdout);
@@ -251,20 +251,20 @@ pub fn compileWasm(
         else => true,
     };
     if (failed) {
-        try printCompilerFailure(stderr, argv_slice, "linking wasm", ll_path, out_path, result);
+        try printCompilerFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, result);
         return CompileError.ChildProcessFailed;
     }
 }
 
 test "argv helpers choose the requested optimization" {
-    const exe_small = argvForExe("input.ll", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    const exe_small = argvForExe("input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
     try std.testing.expectEqualStrings("-O1", exe_small.slice()[2]);
     try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[4]);
-    const exe_fast = argvForExe("input.ll", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    const exe_fast = argvForExe("input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
     try std.testing.expectEqualStrings("-O3", exe_fast.slice()[2]);
 
-    const wasm_small = argvForWasm("input.ll", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false);
+    const wasm_small = argvForWasm("input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false);
     try std.testing.expectEqualStrings("-O1", wasm_small.slice()[4]);
-    const wasm_fast = argvForWasm("input.ll", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false);
+    const wasm_fast = argvForWasm("input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false);
     try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[5]);
 }

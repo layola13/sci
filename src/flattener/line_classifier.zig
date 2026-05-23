@@ -19,6 +19,9 @@ pub const LineKind = enum {
     macro_end,
     rep_start,
     rep_end,
+    if_start,
+    else_,
+    if_end,
     expand,
     instruction,
     native,
@@ -849,6 +852,23 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
 
     if (std.mem.eql(u8, trimmed, "[END_REP]")) {
         return makeLine(.rep_end, line, trimmed);
+    }
+
+    if (std.mem.startsWith(u8, trimmed, "[IF")) {
+        const close = std.mem.indexOfScalar(u8, trimmed, ']') orelse return makeLine(.unknown, line, trimmed);
+        const condition = std.mem.trim(u8, trimmed["[IF".len..close], " \t");
+        if (condition.len == 0) return makeLine(.unknown, line, trimmed);
+        var out = makeLine(.if_start, line, trimmed);
+        addPart(&out, 0, condition);
+        return out;
+    }
+
+    if (std.mem.eql(u8, trimmed, "[ELSE]")) {
+        return makeLine(.else_, line, trimmed);
+    }
+
+    if (std.mem.eql(u8, trimmed, "[END_IF]")) {
+        return makeLine(.if_end, line, trimmed);
     }
 
     if (std.mem.startsWith(u8, trimmed, "EXPAND")) {

@@ -1,1 +1,1 @@
-pub const translateFile = @import("saasm").llvm2sa.translateFile;
+pub const translateBitcodeFile = @import("saasm").llvm2sa.translateBitcodeFile;

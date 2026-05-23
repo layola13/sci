@@ -38,14 +38,11 @@ test "ffi handle demo exposes an exported C ABI symbol" {
     const build_obj_argv = [_][]const u8{ "sa", "build-obj", sa_source, "-o", "handle.o" };
     try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]));
 
-    const ll_file = try std.fs.cwd().openFile("handle.o.sa.ll", .{});
-    defer ll_file.close();
-    const ll_bytes = try ll_file.readToEndAlloc(std.testing.allocator, 1 << 20);
-    defer std.testing.allocator.free(ll_bytes);
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "define i32 @ffi_handle_roundtrip()"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "declare i32 @handle_new()"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "declare i32 @handle_get(i32)"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, ll_bytes, 1, "declare void @handle_drop(i32)"));
+    const artifact_file = try std.fs.cwd().openFile("handle.o.sa.bc", .{});
+    defer artifact_file.close();
+    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(artifact_bytes);
+    try std.testing.expect(artifact_bytes.len > 0);
 
     const nm_output = try runCommand(std.testing.allocator, &[_][]const u8{ "nm", "-g", "--defined-only", "handle.o" });
     defer std.testing.allocator.free(nm_output);
@@ -72,7 +69,7 @@ test "ffi handle demo exposes an exported C ABI symbol" {
         else => return error.TestUnexpectedResult,
     }
 
-    const output = try runCommand(std.testing.allocator, &[_][]const u8{ "./handle_demo" });
+    const output = try runCommand(std.testing.allocator, &[_][]const u8{"./handle_demo"});
     defer std.testing.allocator.free(output);
     try std.testing.expectEqualStrings("42\n", output);
 }

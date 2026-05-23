@@ -53,4 +53,4 @@ L_ENTRY:
 
 ## 练习
 1. 使用 `#def` 定义一个 `Point` 结构 (x, y)，并编写一个计算两点距离的函数。
-2. 观察 `stack_alloc` 与 `alloc` 在生成的 LLVM IR 中的区别。
+2. 观察 `stack_alloc` 与 `alloc` 在生成的 LLVM bitcode 形态中的区别。

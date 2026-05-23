@@ -62,13 +62,58 @@ pub fn findForbiddenSyntax(line: []const u8) ?ForbiddenHit {
     const scan = stripComment(line);
     if (scan.len == 0) return null;
 
-    if (std.mem.indexOfScalar(u8, scan, '{')) |idx| return .{ .token = .brace_open, .column = idx + 1 };
-    if (std.mem.indexOfScalar(u8, scan, '}')) |idx| return .{ .token = .brace_close, .column = idx + 1 };
-    if (findWord(scan, "if")) |idx| return .{ .token = .keyword_if, .column = idx + 1 };
-    if (findWord(scan, "else")) |idx| return .{ .token = .keyword_else, .column = idx + 1 };
-    if (findWord(scan, "while")) |idx| return .{ .token = .keyword_while, .column = idx + 1 };
-    if (findWord(scan, "for")) |idx| return .{ .token = .keyword_for, .column = idx + 1 };
-    if (findPropertyChain(scan)) |idx| return .{ .token = .property_chain, .column = idx + 1 };
+    var in_quote = false;
+    var escaped = false;
+    
+    // 1. Scan for braces outside of quotes
+    for (scan, 0..) |c, i| {
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (c == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (c == '"') {
+            in_quote = !in_quote;
+            continue;
+        }
+        if (in_quote) continue;
+
+        if (c == '{') return .{ .token = .brace_open, .column = i + 1 };
+        if (c == '}') return .{ .token = .brace_close, .column = i + 1 };
+    }
+
+    // 2. Scan for keywords and property chains outside of quotes using stack masking
+    var mask_buf: [2048]u8 = undefined;
+    const limit = @min(scan.len, mask_buf.len);
+    in_quote = false;
+    escaped = false;
+    for (scan[0..limit], 0..) |c, i| {
+        if (escaped) {
+            mask_buf[i] = ' ';
+            escaped = false;
+        } else if (c == '\\') {
+            mask_buf[i] = ' ';
+            escaped = true;
+        } else if (c == '"') {
+            mask_buf[i] = ' ';
+            in_quote = !in_quote;
+        } else if (in_quote) {
+            mask_buf[i] = ' ';
+        } else {
+            mask_buf[i] = c;
+        }
+    }
+    const masked = mask_buf[0..limit];
+
+    if (findWord(masked, "if")) |idx| return .{ .token = .keyword_if, .column = idx + 1 };
+    if (findWord(masked, "else")) |idx| return .{ .token = .keyword_else, .column = idx + 1 };
+    if (findWord(masked, "while")) |idx| return .{ .token = .keyword_while, .column = idx + 1 };
+    if (findWord(masked, "for")) |idx| return .{ .token = .keyword_for, .column = idx + 1 };
+    if (findPropertyChain(masked)) |idx| return .{ .token = .property_chain, .column = idx + 1 };
+
     return null;
 }
 
@@ -77,4 +122,11 @@ test "forbidden syntax detection is conservative and exact enough" {
     try std.testing.expectEqual(ForbiddenToken.keyword_if, findForbiddenSyntax("if x = 1").?.token);
     try std.testing.expectEqual(ForbiddenToken.brace_open, findForbiddenSyntax("x = { y }").?.token);
     try std.testing.expectEqual(ForbiddenToken.property_chain, findForbiddenSyntax("x = a.b.c").?.token);
+    
+    // Quote awareness tests
+    try std.testing.expect(findForbiddenSyntax("PRINT! \"Hello {}\"") == null);
+    try std.testing.expect(findForbiddenSyntax("FORMAT! \"A: {}, B: {}\"") == null);
+    try std.testing.expect(findForbiddenSyntax("PRINT! \"if x == 1 { a.b.c }\"") == null);
+    // Real forbidden syntax outside of quotes on the same line should still be caught
+    try std.testing.expectEqual(ForbiddenToken.brace_open, findForbiddenSyntax("PRINT! \"Hello {}\" { x }").?.token);
 }

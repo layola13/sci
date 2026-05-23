@@ -17,15 +17,28 @@
 - [x] **2. 稀疏状态追踪 (Sparse State Tracking)**
   - **问题**：`AnnotatedInstruction` 为每条指令存储全量掩码数组，内存占用 $\approx$ $O(Inst \times Reg)$。
   - **方案**：仅存储在该指令中**发生状态变更**的寄存器差异（Delta），大幅降低长序列下的内存压强。
-- [ ] **3. 流式 IR 发射与 Buffer 复用 (Streaming IR & Buffer Reuse)**
-  - **问题**：`emit_llvm.zig` 全量缓存 IR 文本且存在大量字符串拼接，效率低下。
+- [x] **3. 流式 IR 发射与 Buffer 复用 (Streaming IR & Buffer Reuse)**
+  - **问题**：历史 `emit_llvm.zig` legacy text emitter 全量缓存 IR 文本且存在大量字符串拼接；现已从主线删除，防止文本 IR 后门。
   - **方案**：引入 `StreamingEmitter`，边校验边写盘/写管道；使用 `std.SegmentedList` 或高效 Buffer 池减少分配。
-- [ ] **4. 声明级后端并行化 (Decl-level Backend Parallelism)**
+- [x] **4. 声明级后端并行化 (Decl-level Backend Parallelism)**
   - **启发**：借鉴 Zig 源码 `Zcu.PerThread` 模型。
-  - **方案**：将发射任务打散至函数（Decl）粒度，利用多线程并行驱动后端生成，消除全局巨大 `.ll` 文件的单线程解析瓶颈。
-- [ ] **5. 内存直通 Emitter (In-memory LLVM IR Construction)**
+  - **方案**：将发射任务打散至函数（Decl）粒度，利用多线程并行驱动后端生成，消除全局巨大 `.bc` 文件的单线程解析瓶颈。
+- [x] **5. 内存直通 Emitter (In-memory LLVM bitcode Construction)**
   - **启发**：借鉴 Zig 源码 `codegen/llvm.zig`。
   - **方案**：放弃文本 `.ll` 发射，集成 LLVM C API (llvm-c)。在内存中并发构造指令流，消除磁盘 I/O 和文本解析开销，实现真正的“瞬发级”编译。
+  - [x] 核心闭环：默认通过 C shim 调 LLVM-C builder 直接写 `.sa.bc`，覆盖 hello / loop / while / FFI handle，且后端代码无文本 IR parse bridge。
+  - [x] 默认纯 `.bc` 流：CLI / SAX 构建默认使用 LLVM-C artifact，`build-exe` / `build-obj` / `build-wasm` / `test` 不再走文本 `.ll` 发射路径；公共库不再导出文本 emitter。
+  - [x] atomic 覆盖：`atomic_load` / `atomic_store` / `atomic_rmw_*` / `cmpxchg` / `fence` 已走 LLVM-C builder，atomic smoke 通过 `.sa.bc` native 运行。
+  - [x] fallible ABI 覆盖：LLVM-C 后端支持 `{i32, payload}` fallible return、fallible call、`?` 分支传播、成功值打包与 main wrapper 状态返回；多层 `?` rosetta smoke 通过。
+  - [x] vtable / 间接调用覆盖：LLVM-C 后端支持 vtable 常量、slot provenance、`call_indirect` typed pointer cast，`07_trait_vtable` / `110_trait_super_vtable` / `32_trait_object_vector` 已通过纯 `.sa.bc` native smoke。
+  - [x] sys runtime / wasm32 覆盖：LLVM-C 后端内建 `@sys_print` / `@sys_exit` / `@sys_argc` / `@sys_argv` / `@sys_read_file` / `@sys_write_file`，并修正 wasm32 size ABI；`sys_runtime_probe.sa` 已通过 native 与 Node/WASI wasm 运行。
+  - [x] mem-slot 等价覆盖：LLVM-C 后端按函数实际寄存器上限分配 entry `i64` slot，普通 SA 寄存器通过 load/store 读写，fallible 聚合保留 SSA；`sort_probe` / `hashmap_probe` / `hashset_probe` / `once_probe` / `mpsc_probe` 已通过纯 `.sa.bc` native smoke，均无 `.ll` 产物。
+  - [x] 最小 debug metadata：LLVM-C 后端在纯 `.sa.bc` 流中写入 compile unit / subprogram / instruction location；`build-exe -g` 通过，`llvm-bcanalyzer-14` 可见 `llvm.dbg.cu`，且无 `.ll` 产物。
+  - [x] bitcode reader 可读性：修正 LLVM-C sys argv runtime 的 typed-pointer GEP，`sys_runtime_probe.sa` 的 `.sa.bc` 可被 `llvm-dis-14` 严格反汇编，native 运行输出 `ok`，且无 `.ll` 产物。
+  - [x] 变量级 debug metadata：LLVM-C 后端在 debug 模式下为函数参数和 SA slot alloca 写入 `llvm.dbg.declare` / `DILocalVariable`；`build-exe -g` 产物可被 `llvm-dis-14` 反汇编并可见变量元数据，native 运行输出 `21`，且无 `.ll` 产物。
+  - [x] wasm sys runtime E2E：`sys_runtime_probe.sa` 已在 `tests/cli_smoke.zig` 中覆盖 native + wasm32-WASI 双轨，验证 argv、文件读写、打印、退出码、`.wasm.sa.bc` 产物和 Node/WASI 运行，且无 `.ll` 产物。
+  - [x] wasm demo matrix 等价覆盖：新增独立 `zig build wasm-matrix` rosetta/support native + wasm32-WASI 双轨矩阵，覆盖 110 个 demo：基础 print/control-flow/struct/array/slice/string/loop/while/break/nested-loop/factorial/fibonacci、mutability/box/reference/move/borrow/refcount/resource、常量结构体、Option、generic、method、associated fn、enum/match/tuple/destructuring/tagged union、iterator map/filter/fold、module/import/export/config、cache/mem fill/queue、router/parser/serializer、service/pipeline/graph/component、metrics/workflow/kv/sql/blob/sync/scheduler、protocol/text/job/db/query/log/build/release、state/event/channel/actor/async/counter、fallible `?`/Result、vtable/trait object、callback contract、sort/hashmap/hashset/once/mpsc；修正 wasm32 vtable 固定 8 字节槽宽 ABI，补 `sa_time_sleep_ns` fallible weak fallback，并补 LLVM-C `struct_` 常量字节展开；验证通过且主线不保留文本 LLVM 产物路径，并已从 `cli_smoke` 拆出以降低单项验证编译成本。
+  - [x] 等价覆盖：现有 rosetta/support native stdout smoke demos 已全部纳入 wasm/native 等价矩阵；argv / panic-hook 命名 demo 当前源码为纯确定性输出，也已覆盖。
 
 ---
 
@@ -34,27 +47,27 @@
 ## 极简格式化打印 (Minimal Formatted Printing)
 为了提升开发者体验，计划在 `sa_std` 中实现类似 Rust 的高层级打印宏（基于变长宏特性）：
 
-- [ ] **1. `PRINT!` / `FORMAT!` 静态展开宏**
+- [x] **1. `PRINT!` / `FORMAT!` 静态展开宏**
   - 功能：解析 `%fmt` 字符串字面量，自动拆解为 `STRFMT_*` 调用链。
   - 约束：展开结果必须符合所有权契约，自动清理中间生成的 `^ptr`。
-- [ ] **2. 结构体自动反射打印 (`{:?}`)**
-  - 功能：配合 `sa layout` 生成的元数据，自动递归打印结构体成员。
-- [ ] **3. 零分配打印模式 (No-Alloc Printing)**
-  - 功能：支持直接向已有的栈缓冲区或 `Writer` 格式化，避免堆分配。
+- [x] **2. 结构体自动反射打印 (`{:?}`)**
+  - 功能：`sa layout --format debug` 生成自包含布局 `#def` + `DEBUG_PRINT_<Type>` 静态宏，当前覆盖 `i64` / `u64` / `f64` 字段；不支持字段输出 `<unsupported:ty>` 占位，避免生成不可编译调用。
+- [x] **3. 零分配打印模式 (No-Alloc Printing)**
+  - 功能：`sa_fmt_i64_into` / `sa_fmt_u64_into` / `sa_fmt_f64_into` / `sa_fmt_bool_into` / `sa_fmt_bytes_into` 直接写入调用方提供的缓冲区并返回长度，空间不足返回 `SA_STD_ERR_TRUNCATED`；`STRFMT_*_INTO` 宏已暴露该路径，避免创建 owned fmt buffer。
 
 ---
 
 ## 宏系统后续演进 (Macro Evolution)
 为了支撑类似 Bevy/ECS 的工业级框架重构，计划引入以下极简宏增强（保持 Zero-AST 原则）：
 
-- [ ] **1. 变长参数支持 (Variadic Macro Parameters)**
-  - 语法：`[MACRO] SYS %name, %params...`
+- [x] **1. 变长参数支持 (Variadic Macro Parameters)**
+  - 语法：`[MACRO] SYS %name, %params...`；仅最后一个形参允许 `...`，展开时 `%params` 替换为剩余实参的 `, ` 拼接文本，零个剩余实参替换为空字符串。
   - 场景：自动展开任意数量组件的查询与借用。
-- [ ] **2. 编译期条件分支 (Macro-time Conditionals)**
-  - 语法：`[IF %is_mut] ... [ELSE] ... [END_IF]`
+- [x] **2. 编译期条件分支 (Macro-time Conditionals)**
+  - 语法：`[IF %is_mut] ... [ELSE] ... [END_IF]`；条件支持 `1/true/yes/on` 与 `0/false/no/off/空`，支持嵌套分支。
   - 场景：根据组件读写标记自动发射 `&` 或 `=&`。
-- [ ] **3. 工具辅助增强 (Enhanced sa layout)**
-  - 功能：支持导出“布局查找字典”，使宏能根据组件名自动查到偏移量。
+- [x] **3. 工具辅助增强 (Enhanced sa layout)**
+  - 功能：`sa layout --format dict` 导出 `LAYOUT_<Type>_*` 查找常量，覆盖结构体总大小/对齐和字段 offset/size/align，字段类型以注释形式输出，供宏按组件名拼接偏移量。
   - 哲学：复杂度留给工具，极简留给宏。
 
 ---
@@ -112,7 +125,7 @@
 - [x] `src/sax` 插件 runtime 热重载回归与 descriptor/skills 测试
 - [x] `src/db` 插件 runtime 热重载回归与失败隔离测试
 - [x] `src/pkg` 插件 runtime 热重载回归与 skills 测试
-- [x] `src/llvm2sa` 插件 runtime 热重载回归与命令一致性测试
+- [x] `src/bc2sa` 插件 runtime 热重载回归与命令一致性测试
 - [x] `src/http_server` 插件 runtime 热重载回归与 scaffold 入口测试
 
 ### 插件验收口径
@@ -127,7 +140,7 @@
 - 插件验收必须同时覆盖：runtime 发现、descriptor 读取、skills 收集、命令执行、热重载、失败隔离。
 
 ### 当前插件切分规则
-- `sax`、`db`、`llvm2sa`、`http_server` 由各自目录独立推进。
+- `sax`、`db`、`bc2sa`、`http_server` 由各自目录独立推进。
 - 允许新增插件自己的辅助文件、测试、文档和 ABI 适配层。
 - 不允许把插件功能向 `src/cli.zig` 追加新的静态命令分支来替代 runtime 加载。
 - 不允许把插件产物降级回 `.a` 静态库或仅作编译期注册；最终交付必须是可热插拔 `.so`。
@@ -153,12 +166,13 @@
 - [ ] `sa_std/sa.mod`（包管理项，后置到 v0.5；不计入当前标准库收口）
 
 ## 单元测试框架（Native Unit Test Framework）
-- [ ] 编译器前端支持 `@test` 或宏声明测试用例
-- [ ] 提取测试元数据并构建内存 `TestRegistry` 表
-- [ ] `src/cli.zig` 增加 `sa test` 命令与 `filter` 参数支持
-- [ ] 动态生成测试驱动器（Test Harness）以隔离或连续执行所有测试
-- [ ] `sa_std` 断言宏增强，包含详尽的源文件、行号及 expected/got 差异输出
-- [ ] 整合原 bash 冒烟脚本，将其作为 SA 内部测试框架的基线覆盖
+- [x] 编译器前端支持 `@test` 声明测试用例，含 `ignored` / `should_panic` 修饰符，并由 verifier 强制 `() -> void`
+- [x] 提取测试元数据并构建内存 `TestRegistry` 表（`test_meta.TestList` / `TestDescAndFn`）
+- [x] `src/cli.zig` 增加 `sa test` 命令与 `--filter` / `--skip` / `--exact` / `--ignored` / `--include-ignored` 参数支持
+- [x] 动态生成测试驱动器（Test Harness）并按 `SA_TEST_NAME` 隔离子进程执行，支持 `--jobs` 并行调度
+- [x] `sa_std` 断言宏增强：新增 `ASSERT_TRUE_MSG` / `ASSERT_EQ_MSG` / `ASSERT_NE_MSG`，调用者可携带源文件、行号及 expected/got diff 到 `panic_msg`
+- [x] `sa_std/testing/mock_io.sa` / `.sal` 基础 Mock I/O：内存缓冲支持 init/write/read/rewind/len/pos，并由 `sa test` 回归覆盖
+- [ ] 整合原 bash 冒烟脚本，将其作为 SA 内部测试框架的基线覆盖（已有 `tests/unit_framework/feature_suite.sa` demo-derived 基线；已迁入二十八批控制流/递归/迭代、Rust core 语义、trait/vtable、tuple/destructuring、array/slice、associated fn/method、closures、guard、iterator map/filter、impl state、export visibility、config merge、enum branch、newtype/generic/router、cache、mem fill、state machine、parser/serializer、integration/pipeline/graph、scene/component/metrics/workflow/sql/blob/sync/scheduler/protocol/text-index、job/app/db/query/log/task/sync-service/build/release/full-app、drop/RAII/labeled-break/if-let/let-else/cell/refcell/atomic/vtable-super、extern/raw-pointer/union/callback/opaque/variadic/global/simd/volatile、rwlock/condvar/barrier/tls/once/mpmc/hazard/rcu/seqlock/park-unpark、waker/pinning/select/join/async-stream/executor/io-uring/epoll/cancellation/yield、DST/ZST/never/phantom/opaque/repr-layout、global-alloc/layout/box/raw/arena/slab/aligned/custom-DST/mem-forget/manually-drop、GAT/auto-trait/object-safety/upcasting/blanket/specialization/const-generic/TAIT/negative-impl/marker-trait、dynamic-error/color-eyre/catch-unwind/backtrace/thiserror/result-flattening/panic-hook/assert/Try-v2、fd/mmap/signal/pthread/dlopen/sqlite/opengl/websocket/protobuf/base64、macro/proc-macro/attribute/cfg/build-script/LTO/PGO/CFI/ASAN/quine、package manifest/dependency/workspace/conflict diagnostic、workspace inheritance/feature flags/target deps/profile/metadata/bin/dynamic lib、module import/visibility/reexport/namespace/iface/layout/prelude diagnostic、directory/conditional/alias/unused/transitive/extern-group/inline/path-order/version-suffix/entry-override、contract layout/opaque/sig diagnostic/vtable/generic/semver/ffi/macro/const、resource/error-code/callback/plugin/allocator/panic/log/tls/static-init/deprecated、build-codegen/bindgen/asset/env/linker/hooks/cross-compile/sysroot、build optimization/sanitizer/test-harness/bench/doc/cache/parallel/repro/remote/ci、FFI wrapper/linkage/export/opaque-handle/callback-thunk、ecosystem host/memory/embedded/kernel/BPF/GPU/ECS/crypto/LSP/registry 用例，尚未全量迁移 `test_all_300.sh`）
 
 ## 零信任包管理（v0.5，R31 + R31a–R31g）
 
@@ -223,9 +237,9 @@
 
 ---
 
-## 极速网络基座与 llvm2sa 战略蓝图 (Claude 架构评估结论)
+## 极速网络基座与 bc2sa 战略蓝图 (Claude 架构评估结论)
 
-> 本节确立 SA-ASM 的长期生产力形态：首先通过 `sa_net_uring.zig` 构建 10Gbps+ 的极速 io_uring 网络底层（P0 优先级），然后在第二阶段通过 `llvm2sa`（P2 优先级）将 Rust/C 的无状态计算逻辑无缝、零开销地注入网络流水线。
+> 本节确立 SA-ASM 的长期生产力形态：首先通过 `sa_net_uring.zig` 构建 10Gbps+ 的极速 io_uring 网络底层（P0 优先级），然后在第二阶段通过 `bc2sa`（P2 优先级）将 Rust/C 的无状态计算逻辑无缝、零开销地注入网络流水线。
 
 ### P0: 极速 io_uring 网络基座 (当前最高优，打败 Bun 的核心)
 - [ ] `sa_net_uring.zig` 核心框架
@@ -240,16 +254,16 @@
 - [x] `sa_std` 收口完成（buf_reader, buf_writer, path, env, math, string_format）
 - [ ] 零信任包管理 v0.5 (`sa.mod` / task 35)
 
-### P2: `llvm2sa` 管道 (在网络引擎稳定后启动)
+### P2: `bc2sa` 管道 (在网络引擎稳定后启动)
 
-> **对称性分析原理**：`emit_llvm.zig` 将 SA 寄存器固化为 `alloca` (Mem-slotting)。`llvm2sa` 通过 `opt -passes=reg2mem` 可以得到完美的、无 `PHI` 节点的 LLVM IR，使得逆向翻译为 SA-ASM 成为可能且工程量极低。由于所有权在 LLVM 层丢失，`llvm2sa` 产出的将是 `Untracked` 模式的 SA-ASM，这对于从已通过安全检查的 Rust 降级而来的业务代码是安全且高性能的。
+> **对称性分析原理**：`emit_llvm_llvmc.zig` 将 SA 寄存器固化为 entry mem-slot（基于 LLVM-C builder）。`bc2sa` 通过 `opt -passes=reg2mem` 可以得到完美的、无 `PHI` 节点的 LLVM bitcode，使得逆向翻译为 SA-ASM 成为可能且工程量极低。由于所有权在 LLVM 层丢失，`bc2sa` 产出的将是 `Untracked` 模式的 SA-ASM，这对于从已通过安全检查的 Rust 降级而来的业务代码是安全且高性能的。
 
-- [ ] **反向验证 PoC** (~200 行)：手工跑 `opt -passes=reg2mem`，用 Zig 解析 `hello.wasm.sa.ll` 的 `define`、`gep` 和 `store/load`，还原回 `.sa`。
-- [ ] `src/llvm2sa.zig` (~800-1200 行)：核心文本 `.ll` 解析器与指令逆向翻译。
+- [ ] **反向验证 PoC** (~200 行)：手工跑 `opt -passes=reg2mem`，用 LLVM-C bitcode reader 读取 `hello.out.sa.bc` 后降级 `define`、`gep` 和 `store/load`，还原回 `.sa`。
+- [ ] `src/bc2sa.zig` (~800-1200 行)：LLVM bitcode reader与指令逆向翻译。
   - [ ] 降级 `alloca` -> `stack_alloc` / 虚拟寄存器。
   - [ ] 降级 `icmp`, `add`, `br` 为 SA 对等指令。
   - [ ] 降级定长偏移的 GEP (`getelementptr`)。
   - [ ] 降级动态变量偏移的 GEP (利用 `ptr_add` + `mul`)。
 - [ ] 外部依赖降级（`call @malloc` / `@free`）。
-- [ ] `src/cli.zig` 扩展：增加 `sa llvm2sa <file.ll>` 子命令。
+- [ ] `src/cli.zig` 扩展：增加 `sa bc2sa <file.bc>` 子命令。
 - [ ] 测试套件集成与黄金文件测试。

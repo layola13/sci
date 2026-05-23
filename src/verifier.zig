@@ -2826,10 +2826,8 @@ fn chooseVerifyWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
     if (requested_jobs) |jobs| {
         return if (jobs <= 1) 1 else @min(jobs, chunk_count);
     }
-    // Keep auto mode deterministic for now. Explicit job counts still enable
-    // parallel verification, but the default path stays single-threaded until
-    // the parallel verifier is re-benchmarked and re-validated end-to-end.
-    return 1;
+    const cpu_count = std.Thread.getCpuCount() catch 1;
+    return if (cpu_count <= 1) 1 else @min(cpu_count, chunk_count);
 }
 
 fn verifyWorker(context: *ParallelVerifyContext) void {

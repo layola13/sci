@@ -24,7 +24,7 @@
 1. 一份完整可执行的**语言规范白皮书**（< 2000 行，LLM 即读即用）
 2. 一个**前端预处理器**（宏展平 Flattener）
 3. 一个**Referee 状态机验证器**（O(1) 位掩码扫描）
-4. 一个 **SA → LLVM IR + WASM** 发射管线（详见 R14）
+4. 一个 **SA → LLVM bitcode + WASM** 发射管线（详见 R14）
 5. 基于 Zig 工具链的 **WASM64** 产出管线
 6. 一组覆盖所有权边界条件的**测试集**（≥ 99.9% 通过率）
 
@@ -36,7 +36,7 @@
 
 ### Requirement 1: 语言符号系统（四大仿射操作符）
 
-**User Story**  
+**User Story**
 作为 LLM 代码生成端，我需要用极少的符号数量表达所有权的全部状态流转，以最大化 Token 密度、降低上下文占用。
 
 **Acceptance Criteria**
@@ -49,7 +49,7 @@
 
 ### Requirement 2: 极简线性指令集（ISA）
 
-**User Story**  
+**User Story**
 作为 Referee 验证器，我需要指令集被压缩到最少的正交原语，使线性扫描能以 O(1) 分支完成状态推进。
 
 **Acceptance Criteria**
@@ -95,7 +95,7 @@
 
 ### Requirement 3: 控制流扁平化（零嵌套）
 
-**User Story**  
+**User Story**
 作为 LLM 生成端，嵌套大括号极易产生闭合错误；我需要完全扁平的标签跳转控制流以最大化生成稳定性。
 
 **Acceptance Criteria**
@@ -107,7 +107,7 @@
 
 ### Requirement 4: 内存所有权状态机（Capability Mask）
 
-**User Story**  
+**User Story**
 作为 Referee 验证器，我需要一个用位运算就能 O(1) 完成状态比对的掩码模型，而不是基于图论的 NLL 推导。
 
 **Acceptance Criteria**
@@ -134,7 +134,7 @@
 
 ### Requirement 5: 函数签名与所有权契约
 
-**User Story**  
+**User Story**
 作为调用方，我需要在函数签名上直接看出每个参数的所有权走向，不需要阅读函数体推导。
 
 **Acceptance Criteria**
@@ -154,7 +154,7 @@
 
 ### Requirement 6: 数据结构的物理降维
 
-**User Story**  
+**User Story**
 作为机器语言，我不持有任何高级类型抽象；所有"结构体 / 数组 / 字符串 / 枚举 / Trait" 必须以裸内存块 + 偏移量形式表达。
 
 **Acceptance Criteria**
@@ -177,7 +177,7 @@
 
 ### Requirement 7: 伪指令字典（Layout Directive）
 
-**User Story**  
+**User Story**
 作为 LLM 生成端，心算字节偏移量（+0/+4/+8）容易出错；我需要一种不破坏扁平性的常量替换机制。
 
 **Acceptance Criteria**
@@ -190,7 +190,7 @@
 
 ### Requirement 7b: `sa layout` 布局生成工具（v0.1 辅助工具）
 
-**User Story**  
+**User Story**
 作为 LLM 或人类开发者，手算复杂结构体的字节偏移量（尤其是混合 `i32` / `f64` 时的对齐填充）极易出错。我需要一个 CLI 工具，输入字段描述，自动输出正确的 `#def` 字典。
 
 **Acceptance Criteria**
@@ -212,7 +212,7 @@
 
 ### Requirement 8: 扁平化宏系统（Assembly-Style Macros）
 
-**User Story**  
+**User Story**
 作为代码生成端，我需要避免重复代码又要保持最终指令流绝对扁平；宏必须是纯文本展开，不生成 AST。
 
 **Acceptance Criteria**
@@ -225,7 +225,7 @@
 
 ### Requirement 9: Referee 验证器（核心裁判）
 
-**User Story**  
+**User Story**
 作为 LLM 级联路由的裁判层，我需要一个代码行数极少、验证速度达 O(1)-per-line 的状态机引擎。
 
 **Acceptance Criteria**
@@ -248,7 +248,7 @@
 
 ### Requirement 10: 分支汇聚点状态一致性（Phi 检查）
 
-**User Story**  
+**User Story**
 作为所有权系统，我必须在控制流汇聚的 Label 处保证"同一寄存器在所有入边上的状态一致"，否则产生不可预测行为。
 
 **Acceptance Criteria**
@@ -259,7 +259,7 @@
 
 ### Requirement 11: Gas Metering（确定性算力计量）
 
-**User Story**  
+**User Story**
 作为沙盒托管系统，我需要在执行前就能预估代码的最大算力开销，以便熔断恶意或失控的 LLM 产物。
 
 **Acceptance Criteria**
@@ -270,7 +270,7 @@
 
 ### Requirement 12: 状态快照与序列化
 
-**User Story**  
+**User Story**
 作为分离式 Agent 运行时，我需要在任意指令点把执行现场打包成二进制快照，迁移到另一台机器继续运行。
 
 **Acceptance Criteria**
@@ -281,7 +281,7 @@
 
 ### Requirement 13: FFI 边界与气闸舱（Airlock）
 
-**User Story**  
+**User Story**
 作为内核纯洁的守护者，我需要把"裸指针越狱"物理隔离到专门的 FFI 边界函数中，使核心业务逻辑保持绝对安全；同时通过标准 C-ABI 与任意第三方库（Rust std / UE5 / SQLite / PhysX 等）零成本互操作。
 
 **Acceptance Criteria**
@@ -297,27 +297,27 @@
 10. WHEN 需要让宿主创建并长期托管对象 THEN 契约 SHALL 采用句柄/ID 模式（宿主返回 `i32`/`u64` 句柄而非裸指针），严禁宿主分配内存的所有权流入沙盒
 11. WHEN 函数带有 `@export` 前缀 THEN 发射器 SHALL 产出无名称修饰（no name mangling）、符合标准 C-ABI 的可链接符号
 
-### Requirement 14: 双轨发射器（LLVM IR + WASM 二进制直出）
+### Requirement 14: 双轨发射器（LLVM bitcode + WASM 二进制直出）
 
-**User Story**  
+**User Story**
 作为部署端，我需要把已验证的 SA 指令流直接发射为工业级后端格式，不走"生成 Zig 源码→让 Zig 前端再解析一次"这种无谓的往返。
 
 **Acceptance Criteria**
-1. WHEN 目标是 Native（`.exe` / `.so` / `.a`）THEN 发射器 SHALL 直接产出 LLVM IR 文本格式（`.ll`），由 `zig cc` / `zig ld` 作为链接器驱动 LLVM 生成原生目标文件并做 O3 优化
+1. WHEN 目标是 Native（`.exe` / `.so` / `.a`）THEN 发射器 SHALL 直接产出 LLVM bitcode 二进制格式（`.sa.bc`），由 `zig cc` / `zig ld` 作为链接器驱动 LLVM 生成原生目标文件并做 O3 优化
 2. WHEN 目标是 WASM THEN 发射器 SHALL 在内存中直接拼接 WebAssembly 二进制字节码（`.wasm`），不经过 LLVM
-3. WHEN 发射器处理 `= alloc N` THEN 其 SHALL 在 LLVM IR 中生成 `call ptr @malloc(i64 N)`（或可配置的 Arena Allocator 符号），在 WASM 中生成对应的 `call $malloc`
+3. WHEN 发射器处理 `= alloc N` THEN 其 SHALL 在 LLVM bitcode 中生成 `call ptr @malloc(i64 N)`（或可配置的 Arena Allocator 符号），在 WASM 中生成对应的 `call $malloc`
 4. WHEN 发射器处理 `!reg`（所有权释放）THEN 其 SHALL 生成 `call void @free(ptr reg)`；对借用释放（`BorrowView` 位标记）SHALL 不发射任何指令
 5. WHEN 发射器处理 `load reg+offset as T` THEN 其 SHALL 生成标准 LLVM `getelementptr` + `load` 组合
 6. WHEN 发射器处理 `store reg+offset, val as T` THEN 其 SHALL 生成对应 `getelementptr` + `store`
-7. WHEN 发射器处理 `$...$` 原生逃逸块 THEN 其 SHALL 原样把界定符内的字节作为独立的 LLVM IR 片段或内联汇编块插入
-8. WHEN 发射器处理 `jmp`/`br`/`br_null` THEN 其 SHALL 生成 LLVM IR 的 `br label %L_X` / `br i1 %c, label %L_T, label %L_F`（原生扁平控制流，无需 labeled switch）
+7. WHEN 发射器处理 `$...$` 原生逃逸块 THEN 其 SHALL 原样把界定符内的字节作为独立的 LLVM bitcode 片段或内联汇编块插入
+8. WHEN 发射器处理 `jmp`/`br`/`br_null` THEN 其 SHALL 生成 LLVM bitcode 的 `br label %L_X` / `br i1 %c, label %L_T, label %L_F`（原生扁平控制流，无需 labeled switch）
 9. WHEN 发射器处理 `@export` 函数 THEN 其 SHALL 生成无名称修饰（no name mangling）的 `extern "C"` 兼容符号，可被任意 C/C++/Rust 静态库链接
-10. WHEN 发射器处理 `@extern` 声明 THEN 其 SHALL 在 LLVM IR 顶部生成 `declare` 语句，在 WASM 中生成 `import` 段
+10. WHEN 发射器处理 `@extern` 声明 THEN 其 SHALL 在 LLVM bitcode 顶部生成 `declare` 语句，在 WASM 中生成 `import` 段
 11. WHEN Native 链接完成 THEN 输出 SHALL 不再依赖任何 Zig 运行时（Zig 仅作 LLVM 驱动器与跨平台链接器使用）
 
 ### Requirement 15: WASM64 产出管线
 
-**User Story**  
+**User Story**
 作为前端/边缘部署方，我需要最终产物是体积袖珍、可突破 4GB 内存限制的 .wasm 模块。
 
 **Acceptance Criteria**
@@ -329,12 +329,12 @@
 
 ### Requirement 16: CLI 三模驱动（run / build-exe / build-wasm）
 
-**User Story**  
+**User Story**
 作为开发者或 LLM，我需要像 `bun` / `deno` 那样一行命令就能跑通 SA 源码，或者打包成跨平台独立可执行文件，或者降级为沙盒 WASM，而不需要配置任何外部工具链。
 
 **Acceptance Criteria**
 1. WHEN 用户执行 `sa run <file.sa> [args...]` THEN CLI SHALL 走完 Flattener + Referee + 内存解释器/JIT，直接在本进程内执行 SA 代码，拥有宿主操作系统权限（文件读写、终端打印、进程退出码）
-2. WHEN 用户执行 `sa build-exe <file.sa> [-o out]` THEN CLI SHALL 依次运行 Flattener + Referee + LLVM IR 发射器 + `zig cc` 链接器，产出当前平台的独立原生可执行文件
+2. WHEN 用户执行 `sa build-exe <file.sa> [-o out]` THEN CLI SHALL 依次运行 Flattener + Referee + LLVM bitcode 发射器 + `zig cc` 链接器，产出当前平台的独立原生可执行文件
 3. WHEN 用户执行 `sa build-wasm <file.sa> [-o out.wasm]` THEN CLI SHALL 依次运行 Flattener + Referee + WASM 二进制发射器，产出 `.wasm` 文件（wasm32 或 wasm64 由 `--target` 参数控制）
 4. WHEN 用户执行 `sa build-obj <file.sa> -o out.o` THEN CLI SHALL 产出可被任意 C/C++/Rust 工程链接的标准目标文件
 5. WHEN 任一子命令遇到 Referee Trap THEN CLI SHALL 以非零退出码终止，并把结构化 JSON Trap 打印到 stderr
@@ -342,7 +342,7 @@
 
 ### Requirement 17: 内建系统原语 `@sys_*`
 
-**User Story**  
+**User Story**
 作为完全独立可运行的语言，我需要内建最小必要的系统调用原语（打印、文件读写、进程控制），无需用户配置任何外部 std 桥接；这些原语在不同目标下自动降级到对应的平台 ABI。
 
 **Acceptance Criteria**
@@ -356,7 +356,7 @@
 
 ### Requirement 18: 错误传播与 Panic 模型
 
-**User Story**  
+**User Story**
 作为系统语言，我需要一套统一的错误传播原语，使上层工具（smrustc / 业务逻辑）能把 `Result<T,E>` / `Option<T>` / panic 等高级概念一致地降级为 SA 指令，而不是让每个前端各自重新发明错误返回协议。
 
 **Acceptance Criteria**
@@ -382,20 +382,20 @@
 
 ### Requirement 19: 调试信息与上游 Source Map
 
-**User Story**  
+**User Story**
 作为开发者，当 SA 编译出的 `.exe` 崩溃或需要单步调试时，我需要看到**上游业务语义**（例如 smrustc 编译的 Rust 源码行号、或 LLM 生成 SA 时的高层意图注释），而不是只看到 SA 行号。
 
 **Acceptance Criteria**
 1. WHEN 源码中出现 `#loc "file.rs":line:col` 伪指令 THEN Flattener SHALL 将其记录为下一条真实指令的"上游位置注解"，不参与指令流
 2. WHEN Referee 产出 `Trap` THEN Trap 报告 SHALL 包含 `upstream_loc: { file, line, col } | null` 字段
-3. WHEN LLVM IR Emitter 发射指令 THEN 其 SHALL 为每条指令生成对应的 DWARF `!DILocation` 元数据（指向 `upstream_loc`，缺失时 fallback 到 SA 行号）
+3. WHEN LLVM bitcode Emitter 发射指令 THEN 其 SHALL 为每条指令生成对应的 DWARF `!DILocation` 元数据（指向 `upstream_loc`，缺失时 fallback 到 SA 行号）
 4. WHEN WASM Emitter 发射指令 THEN 其 SHALL 生成标准 `name` 自定义段与 DWARF-in-WASM 调试段（可通过 `--no-debug` 关闭以缩减体积）
 5. WHEN 用户调用 `sa build-exe -g` THEN 产物 SHALL 在 GDB / LLDB 中能以上游文件名 + 行号做断点与单步
 6. WHEN Runtime Panic 发生 THEN 栈回溯 SHALL 优先显示上游文件行号，SA 行号作为括号备注
 
 ### Requirement 20: 前端降级合约（Frontend Lowering Contract）
 
-**User Story**  
+**User Story**
 作为 smrustc（或任意写 SA 代码的前端）的实现者，我需要一份明确的合约说明：哪些高级语义**必须**由前端展平后再交给 SA，哪些由 SA 兜底。否则前端"机械映射"的边界不清楚，上游工具会变成另一种 NLL 推导器。
 
 **Acceptance Criteria**
@@ -411,7 +411,7 @@
 
 ### Requirement 21: AutoBevy ECS — 最低优先级 Stretch Demo（非 MVP 验收必选项）
 
-**User Story**  
+**User Story**
 作为语言架构的可行性展示，我希望用 SA 重构一个极简 ECS 运行时，但这**不是 MVP 验收的硬指标**，而是全项目**最低优先级**的 post-MVP stretch goal；MVP 只要求 1K 实体冒烟通过，1M 实体 + Bevy 性能对标留到 post-MVP。
 
 **Acceptance Criteria**
@@ -423,7 +423,7 @@
 
 ### Requirement 22: 测试集（Referee 行为基线）
 
-**User Story**  
+**User Story**
 作为实现方，我需要一套覆盖所有边界条件的测试用例，确保任何 Referee 重写都保持语义一致。
 
 **Acceptance Criteria**
@@ -452,7 +452,7 @@
 
 ### Requirement 23: 语法白皮书（LLM 即读即用）
 
-**User Story**  
+**User Story**
 作为被级联调用的任意 LLM，我必须在不经过微调的前提下，仅凭 System Prompt 阅读白皮书就能生成合法的 SA 代码。
 
 **Acceptance Criteria**
@@ -470,7 +470,7 @@
    - **标准 Panic Code 字典**（见 R18.6，复制粘贴到白皮书附录）
    - `#loc` 源码映射伪指令
    - 前端降级合约摘要（R20）
-   - Rust → SA → LLVM IR 对比样例（≥ 5 组，必须覆盖：结构体字段访问 / Option+`?` / dyn Trait+VTable / async 单步骤 poll / Rc clone+drop）
+   - Rust → SA → LLVM bitcode 对比样例（≥ 5 组，必须覆盖：结构体字段访问 / Option+`?` / dyn Trait+VTable / async 单步骤 poll / Rc clone+drop）
    - Referee Trap 代码表（含 `InteriorPtrEscape` / `StackEscape` / `ConstMutation` / `InvalidAtomicOrdering`）
 3. WHEN 发布前 LLM Pilot 实验被执行 THEN 规范 SHALL 包含以下验证协议：
    - 从 10 种基础用例（alloc/borrow/loop/branch/FFI/错误传播/结构体字段偏移/数组索引/递归/双缓冲）各抽 3 个变种共 30 题
@@ -481,7 +481,7 @@
 
 ### Requirement 24: `#mode compact` 中缀糖（v0.2 可选前处理器）
 
-**User Story**  
+**User Story**
 作为偶尔需要手写 SA 原型或 demo 的工程师/LLM，在所有权符号之外，我希望用日常算术/位运算中缀写法降低心智负担；但这种糖只能以**可选、严格受控**的方式引入，不得动摇 Referee 的 O(1) 线性扫描与零 AST 红线。
 
 **Acceptance Criteria**
@@ -518,7 +518,7 @@
 
 ### Requirement 25: VTable 签名静态校验（v0.3）
 
-**User Story**  
+**User Story**
 作为 Referee 验证器，当 `call_indirect` 通过 VTable 间接调用函数时，我需要在编译期校验调用点的参数 tuple 与 VTable 槽位声明的函数签名是否一致，避免 ABI 不匹配导致的运行时段错误。
 
 **Acceptance Criteria**
@@ -530,7 +530,7 @@
 
 ### Requirement 26: `libsa_async` 异步状态机宏模板（v0.3）
 
-**User Story**  
+**User Story**
 作为前端（smrustc / LLM），async/await 的 CPS 展平产生 40x 代码膨胀（案例 23），我需要一套标准化的宏模板来自动生成状态机骨架，而不是每次手写 120 行 SA。
 
 **Acceptance Criteria**
@@ -547,7 +547,7 @@
 
 ### Requirement 27: 发射产物诊断级别（v0.3）
 
-**User Story**  
+**User Story**
 作为部署方，我需要明确 SA 编译产物在不同构建模式下的安全保障级别，以便在性能与安全之间做出知情选择。
 
 **Acceptance Criteria**
@@ -562,7 +562,7 @@
 
 ### Requirement 28: 接口契约文件 `.sai`（v0.4 — 并行开发基建）
 
-**User Story**  
+**User Story**
 作为多人/多 LLM 并行开发同一 APP 的协作者，我需要一种轻量级的接口契约文件，使得 A 和 B 可以同时开发不同模块，互不阻塞，只要接口文件先冻结即可。
 
 **Acceptance Criteria**
@@ -576,7 +576,7 @@
 
 ### Requirement 29: 版本化布局文件 `.sal`（v0.4 — 并行开发基建）
 
-**User Story**  
+**User Story**
 作为多人协作团队，共享数据结构的内存布局（如 Entity / Component / Message）是最常见的冲突源。我需要一种版本化的布局声明文件，使布局变更可追踪、可检测。
 
 **Acceptance Criteria**
@@ -597,7 +597,7 @@
 
 ### Requirement 30: 函数粒度增量编译（v0.4 — 并行开发基建）
 
-**User Story**  
+**User Story**
 作为大型项目的开发者，当我只修改了一个函数时，不应该重新编译整个文件的所有函数。SA 的 Referee 已经是逐函数验证的，发射器也应该支持逐函数产出。
 
 **Acceptance Criteria**
@@ -612,7 +612,7 @@
 
 ### Requirement 31: 零信任包管理 `sa.mod` / `sa.lock` / `sa.sum`（v0.5 — 生态基建）
 
-**User Story**  
+**User Story**
 作为 LLM 或人类开发者，当项目规模增长到多文件/多模块时，我需要一种**去中心化、绝对确定性、零信任**的依赖管理机制，使得"引入别人写的 SA 库"像 `go get` 一样简单，而不是手动拷贝 `.sa` 文件，**也不必承担 npm/crates.io 式的供应链投毒、SemVer 求解地狱与黑盒二进制风险**。
 
 > 本需求遵循 **去中心化（URL 即命名空间）**、**绝对哈希钉版（无 SemVer 求解）**、**纯文本源码分发（拒绝预编译二进制）**、**默认零权限**、**零隐式状态** 五条物理级原则。详细设计文档见 [`docs/package_management.md`](../../../docs/package_management.md)。
@@ -643,7 +643,7 @@
 
 ### Requirement 31a: 默认局部 + 可选全局缓存（v0.5）
 
-**User Story**  
+**User Story**
 作为开发者，我希望默认拉到的依赖位于当前项目目录内（自包含、可断网拷贝部署），但允许我在熟悉风险后通过显式 CLI 参数复用全局缓存以节省磁盘。
 
 **Acceptance Criteria**
@@ -660,7 +660,7 @@
 
 ### Requirement 31b: 哑拉取 + 防投毒四道防火墙（v0.5）
 
-**User Story**  
+**User Story**
 作为安全敏感的开发者，我希望包管理器在物理层面就免疫 npm 式投毒（event-stream / colors.js 等灾难），不需要靠运行扫描工具救火。
 
 **Acceptance Criteria**
@@ -672,7 +672,7 @@
 
 ### Requirement 31c: 模块级零权限沙箱（v0.5）
 
-**User Story**  
+**User Story**
 作为企业安全主管，我需要一个比 Deno `--allow-net` 更精细的权限模型 —— 把权限收敛到**单个第三方包级别**，让主程序拥有网络权也无法让"字符串处理工具包"间接联网。
 
 **Acceptance Criteria**
@@ -689,7 +689,7 @@
 
 ### Requirement 31d: AST X 光扫描与安全信用评分（v0.5）
 
-**User Story**  
+**User Story**
 作为开发者，我希望在 `sa fetch` 落盘的瞬间就能在终端看到这个包"想要哪些权限"的体检报告，不必再靠 Snyk 这类外部静态扫描工具来事后救火。
 
 **Acceptance Criteria**
@@ -711,7 +711,7 @@
 
 ### Requirement 31e: 破窗确权 —— 强制人肉审判台（v0.5）
 
-**User Story**  
+**User Story**
 作为开发者，我希望在面对低分高危依赖时，工具不要静默通过、也不要粗暴删源码（剥夺我的数字主权），而是通过**极致的交互摩擦**逼我清醒确认 / 主动净化依赖树。
 
 **Acceptance Criteria**
@@ -732,7 +732,7 @@
 
 ### Requirement 31f: 指令级哈希钉版与项目级孤岛（v0.5）
 
-**User Story**  
+**User Story**
 作为零信任架构的实践者，我不信任易变的源码（黑客可加几行宏混淆），我只信任**这一刻被本项目编译出来的、那段唯一确定的物理机器码**。
 
 **Acceptance Criteria**
@@ -756,7 +756,7 @@
 
 ### Requirement 31g: CI/CD 双轨执行 + 内网/断网模式（v0.5）
 
-**User Story**  
+**User Story**
 作为团队 / 企业用户，我希望 SA 既能在本地终端做"严格人肉摩擦"，又能在 GitHub Actions 这种无 TTY 流水线、甚至完全断网的内网 CI 环境里安全自动化。
 
 **Acceptance Criteria**
@@ -782,7 +782,7 @@
 
 ### Requirement 32: 布局标签校验（v0.5 — 可选类型安全增强）
 
-**User Story**  
+**User Story**
 作为防御性编程的实践者，虽然 SA 刻意不做类型系统，但我希望有一种**可选的**轻量级机制来防止"把 Dog 指针传给期望 Cat 的函数"这种逻辑错误——在不引入完整类型系统的前提下。
 
 **Acceptance Criteria**
@@ -805,7 +805,7 @@
 
 ### Requirement 33: Referee 形式化验证（v0.6 — 高可靠性认证）
 
-**User Story**  
+**User Story**
 作为军工/航空/医疗等高可靠性领域的采用者，我需要数学证明 SA 的 Referee 算法本身没有 Bug——不是靠测试覆盖率，而是靠定理证明器（如 Coq / Lean4 / Isabelle）产出的机器可检查证明。
 
 **Acceptance Criteria**
@@ -838,9 +838,9 @@
 - 约束：核心代码 ≤ 2500 行 Zig（MVP 基线），stretch goal ≤ 1500 行
 - **新增一周**：补足真实代码 benchmark 与性能调优（R9.6 要求"真实代码"基准而非合成直线流）
 
-### 阶段四（Week 10-11）：LLVM IR 发射器 + WASM 直出 + CLI
+### 阶段四（Week 10-11）：LLVM bitcode 发射器 + WASM 直出 + CLI
 - 产出：
-  - 三地址码 → LLVM IR 文本映射表（无 Zig 源码往返）
+  - 三地址码 → LLVM-C bitcode builder 映射表（无 Zig 源码往返）
   - DWARF `!DILocation` 元数据（承载 `upstream_loc`）
   - WASM 二进制手写发射器（wasm32 / wasm64 双目标）+ DWARF-in-WASM 调试段
   - `sa run` / `build-exe` / `build-wasm` / `build-obj` 四模 CLI
@@ -891,7 +891,7 @@
 - **R2**：LLM 对扁平 CFG（`L_` + `jmp/br`）的原生亲和度可能低于嵌套结构。缓解：R23.3 Pilot 实测；R23.4 预留伪嵌套前端讨论位
 - **R3**：WASM64 (memory64) runtime 生态仍在演进。缓解：默认 wasm32，`--wasm64` 可选
 - **R4**：AutoBevy 1M 性能对标 Bevy 依赖 SIMD + 并行调度 + 缓存布局，12 周难达成。缓解：降级为最低优先级 stretch goal，MVP 只要求 1K 冒烟
-- **R5**：直接发射 LLVM IR 需跟随 LLVM 版本升级。缓解：锁定 Zig 内置 LLVM 版本入 CI 矩阵
+- **R5**：直接发射 LLVM bitcode 需跟随 LLVM 版本升级。缓解：锁定 Zig 内置 LLVM 版本入 CI 矩阵
 - **R6**：FFI 气闸舱的 `assume_*` 设计不严谨会变成全局 unsafe 漏洞。缓解：R13.5 Referee O(1) 强制校验
 - **R7**：LLVM O3 在中等规模代码库下仍为秒级到十秒级瓶颈；"毫秒级编译"宣传仅对 Debug 成立。缓解：MVP 默认 `sa build-exe` 走 O1，O3 显式开启
 - **R8**：SA 前端降级合约（R20）对上游实现者要求高，新手写 smrustc 会反复踩 Phi 汇聚坑。缓解：R20.8 提供 `libsa_scope` helper 库封装常见作用域跟踪模式
@@ -899,7 +899,7 @@
 
 ### 5.2 关键假设
 - **A1**：目标 LLM 至少具备阅读 2000 行 system prompt 并遵循结构化指令的能力（GPT-4 级别及以上）
-- **A2**：开发者具备编译器前端、MIR 设计、Zig、LLVM IR、WASM 二进制格式、DWARF 的交叉经验
+- **A2**：开发者具备编译器前端、MIR 设计、Zig、LLVM bitcode、WASM 二进制格式、DWARF 的交叉经验
 - **A3**：工具链使用 Zig（仅作 LLVM 驱动器 + 链接器 + 跨平台 runtime 入口），不依赖 Rust 官方工具链；允许手动构建 Rust std 防波堤作为可选 FFI 扩展
 - **A4**：前端（smrustc 或 LLM）承担全部词法作用域跟踪与隐式 Drop 插入责任（R20），SA 永不提供隐式 Drop
 
@@ -944,7 +944,7 @@
 
 ### Requirement 34: SA 零信任列式数据库（v0.6 — 数据库生态）
 
-**User Story**  
+**User Story**
 作为 SA 生态的数据层，我需要一个与包管理同构的列式数据库引擎，支持预编译查询、SHA-256 锁版、模块级权限隔离、零拷贝沙箱执行。
 
 **Acceptance Criteria**
@@ -970,7 +970,7 @@
 
 ### Requirement 35: SA 极速网络引擎 `sa_netx`（v0.8 — 物理打败魔法的网络基座）
 
-**User Story**  
+**User Story**
 作为 SA 生态的网络层，我需要一个能在内网裸跑、单机暴打 Bun/Node/Go 的 io_uring 网络引擎，复用 SA-ASM 的线性所有权与 SA 数据库的算子内核，把"Web 框架"还原为"网络字节流到内存切片的翻译器"。
 
 **Acceptance Criteria**
@@ -1003,7 +1003,7 @@
 
 ### Requirement 36: SAX 前端 UI 方言（v0.9 — Symbolic Affine XML，全栈 SA 闭环）
 
-**User Story**  
+**User Story**
 作为 SA 生态的前端层，我需要一个不是"又一个 JS 框架"的 UI 方言：在 `.sa` 之上仅增加 XML 结构层，编译目标直接是 WebAssembly + HTML，由同一套 Flattener / Referee 验证，把后端 EXE 与前端 WASM 统一在一种语言、一套所有权契约下。
 
 **Acceptance Criteria**
@@ -1031,7 +1031,7 @@
 
 ### Requirement 37: 宏驱动高级特性演进 (Macro-Driven Advanced Features)
 
-**User Story**  
+**User Story**
 作为高级语言（如 Rust）的降级目标，我需要 SA-ASM 在保持指令集（ISA）极简（Zero-ISA 扩展）的同时，具备等同于 Rust 的高级安全特性与抽象能力。
 
 **Acceptance Criteria**
@@ -1045,7 +1045,7 @@
 
 ### Requirement 38: 工业级性能与线性伸缩性 (Industrial-Scale Performance & Linear Scalability) - 紧急 P0
 
-**User Story**  
+**User Story**
 作为大型工程的构建系统，我需要编译器在面对万级函数（10k+ Functions）时，内存占用与编译耗时能保持线性增长（$O(N)$），而不是由于寄存器全局化导致的平方级增长（$O(N^2)$）。
 
 **Acceptance Criteria**
@@ -1059,7 +1059,7 @@
 
 ### Requirement 39: 极简格式化打印与字符串插值 (Minimal Formatted Printing & Interpolation)
 
-**User Story**  
+**User Story**
 作为开发者，我需要类似 Rust `println!` 的高层级打印能力，以便快速调试和输出结构化数据，而不是手动拼接多个 `STRFMT_*` 宏和调用 `@sys_print`。
 
 **Acceptance Criteria**
@@ -1073,11 +1073,11 @@
 
 ### Requirement 40: 物理极限编译速度 (Physical-Limit Compilation Speed) - 紧急 P0
 
-**User Story**  
-作为工业级高性能编译器，我需要总编译时长（Wall-clock time）在任何规模下都能显著超越 Rust，消除 LLVM 文本 IR 的生成与单线程解析瓶颈。
+**User Story**
+作为工业级高性能编译器，我需要总编译时长（Wall-clock time）在任何规模下都能显著超越 Rust，消除 LLVM 文本 IR 的生成、磁盘中转与单线程解析瓶颈。
 
 **Acceptance Criteria**
-1. WHEN 处理大型工程（10k+ 函数）THEN 编译器 SHALL 实现**声明级后端并行 (Decl-level Parallelism)**：模仿 Zig `Zcu.PerThread` 模型，将发射任务按函数粒度打散，并行驱动多核 LLVM 生成，禁止由于单线程解析巨大 `.ll` 文件导致的性能塌陷。
+1. WHEN 处理大型工程（10k+ 函数）THEN 编译器 SHALL 实现**声明级后端并行 (Decl-level Parallelism)**：模仿 Zig `Zcu.PerThread` 模型，将发射任务按函数粒度打散，并行驱动多核 LLVM 生成，禁止由于单线程解析巨大 `.bc` 文件导致的性能塌陷。
 2. WHEN 生成中间代码 THEN 编译器 SHALL 采用**内存直通路径 (In-memory Physical Path)**：直接调用 LLVM C API (llvm-c) 在内存中构造 IR 对象，**禁止生成中间文本 `.ll` 文件**，物理消除磁盘 I/O 和后端文本解析开销。
 3. WHEN 进行端到端构建 THEN 编译器在 16 核标准工作站上的总耗时 SHALL 达到 Rust (O3 模式) 的 **200% - 500% 速度**。
 4. WHEN 执行 `sa run` 模式 THEN 编译与启动延迟 SHALL 保持在**毫秒级（< 50ms）**，实现即时反馈。

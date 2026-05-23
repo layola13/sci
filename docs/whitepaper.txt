@@ -11,9 +11,9 @@ Identity:
 
 What ships today (v0.1 baseline):
 - sa run <file>       : Flattener -> Referee -> Interpreter -> stdout + exit code
-- sa build-exe <file> : Flattener -> Referee -> LLVM IR -> zig cc -> standalone .exe
-- sa build-wasm <file>: Flattener -> Referee -> LLVM IR -> zig cc -target wasm32-wasi -> .wasm
-- sa build-obj <file> : Flattener -> Referee -> LLVM IR -> zig cc -c -> .o (C-ABI linkable)
+- sa build-exe <file> : Flattener -> Referee -> LLVM-C bitcode builder -> .sa.bc -> zig cc -> standalone .exe
+- sa build-wasm <file>: Flattener -> Referee -> LLVM-C bitcode builder -> .sa.bc -> zig cc -target wasm32-wasi -> .wasm
+- sa build-obj <file> : Flattener -> Referee -> LLVM-C bitcode builder -> .sa.bc -> zig cc -c -> .o (C-ABI linkable)
 
 No Zig source generation. No AST construction. No hidden round-trips.
 
@@ -163,7 +163,7 @@ Referee Trap Codes:
   VTableSignatureMismatch (v0.3)
 
 Version Roadmap:
-  v0.1  Closed loop: Flattener + Referee + LLVM IR + CLI (14 weeks)
+  v0.1  Closed loop: Flattener + Referee + LLVM bitcode + CLI (14 weeks)
   v0.2  Self-authored WASM emitter + #mode compact infix sugar
   v0.3  Performance: VTable check + libsa_async + --debug-san
   v0.4  Parallel dev: .sai + .sal + incremental compilation
@@ -195,7 +195,7 @@ Testing Model:
   - @export + external test frameworks
   - 32 property-based tests x 100+ iterations
 
-Rust -> SA -> LLVM IR Examples:
+Rust -> SA -> LLVM Bitcode Examples:
   - Struct field access: v.x + v.y -> #def Vec3_x/+0, Vec3_y/+4, load v+Vec3_x -> gep + load
   - Option + ?: let x = read()?; -> res = call @read(...); x = ? res -> extractvalue + icmp + br
   - dyn Trait + VTable: obj.draw() -> @const VT = vtable { draw = @draw }; call_indirect -> load ptr + indirect call
@@ -210,6 +210,6 @@ Pilot Protocol:
 
 Status:
   This document reflects the current v0.1 implementation state.
-  Flattener, Referee, LLVM IR Emitter, Interpreter, CLI, and the layout generator
+  Flattener, Referee, LLVM-C bitcode Emitter, Interpreter, CLI, and the layout generator
   are operational. Remaining roadmap items are tracked in
   tasks.md.
