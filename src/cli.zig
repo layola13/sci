@@ -73,17 +73,48 @@ const FunctionSizeEntry = struct {
     byte_count: u64,
 };
 
+const CompilePhaseMetrics = struct {
+    load_ns: u64 = 0,
+    setup_ns: u64 = 0,
+    flatten_ns: u64 = 0,
+    verify_ns: u64 = 0,
+    emit_ns: ?u64 = null,
+    link_ns: ?u64 = null,
+    total_ns: ?u64 = null,
+};
+
 const CompileMetrics = struct {
     compile_tokens: u64,
     instruction_count: u64,
+    phases: ?CompilePhaseMetrics = null,
 };
 
-fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk) CompileMetrics {
+fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics) CompileMetrics {
     const compile_tokens = @as(u64, flat.instructions.len) + @as(u64, flat.const_decls.len) + @as(u64, flat.function_sigs.len) + @as(u64, flat.test_sigs.len) + @as(u64, verified.annotated.len);
     return .{
         .compile_tokens = compile_tokens,
         .instruction_count = @as(u64, verified.annotated.len),
+        .phases = phases,
     };
+}
+
+fn elapsedNs(start: std.time.Instant) u64 {
+    const end = std.time.Instant.now() catch return 0;
+    return end.since(start);
+}
+
+fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, total_ns: ?u64) void {
+    if (metrics.phases) |phases| {
+        metrics.phases = .{
+            .load_ns = phases.load_ns,
+            .setup_ns = phases.setup_ns,
+            .flatten_ns = phases.flatten_ns,
+            .verify_ns = phases.verify_ns,
+            .emit_ns = emit_ns,
+            .link_ns = link_ns,
+            .total_ns = total_ns,
+        };
+    }
 }
 
 fn computeFunctionSizes(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]FunctionSizeEntry {
@@ -318,8 +349,10 @@ fn writeSizeText(writer: anytype, metrics: CompileMetrics, entries: []const Func
 
 const CompileOptions = struct {
     jobs: ?usize = null,
+    jobs_explicit: bool = false,
     offline: bool = false,
     project_root: ?[]const u8 = null,
+    profile: bool = false,
 };
 
 pub const DiagnosticsMode = enum {
@@ -948,6 +981,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  version                        Print the SA toolchain version\n");
     try writer.writeAll("\nGlobal options:\n");
     try writer.writeAll("  --json                         Output diagnostics in JSON format\n");
+    try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --jobs auto|N                  Set the number of parallel compile jobs\n");
     try writer.writeAll("  -h, --help                     Show this help message\n");
     try writer.writeAll("  --version                      Print version and exit\n");
@@ -1280,6 +1314,30 @@ fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
     try writer.print("{d}", .{metrics.compile_tokens});
     try writer.writeAll(",\"instruction_count\":");
     try writer.print("{d}", .{metrics.instruction_count});
+    if (metrics.phases) |phases| {
+        try writer.writeAll(",\"phases_ns\":{");
+        try writer.writeAll("\"load\":");
+        try writer.print("{d}", .{phases.load_ns});
+        try writer.writeAll(",\"setup\":");
+        try writer.print("{d}", .{phases.setup_ns});
+        try writer.writeAll(",\"flatten\":");
+        try writer.print("{d}", .{phases.flatten_ns});
+        try writer.writeAll(",\"verify\":");
+        try writer.print("{d}", .{phases.verify_ns});
+        if (phases.emit_ns) |ns| {
+            try writer.writeAll(",\"emit\":");
+            try writer.print("{d}", .{ns});
+        }
+        if (phases.link_ns) |ns| {
+            try writer.writeAll(",\"link\":");
+            try writer.print("{d}", .{ns});
+        }
+        if (phases.total_ns) |ns| {
+            try writer.writeAll(",\"total\":");
+            try writer.print("{d}", .{ns});
+        }
+        try writer.writeByte('}');
+    }
     try writer.writeByte('}');
 }
 
@@ -1776,7 +1834,14 @@ fn consumeJobsOption(arg: []const u8, args: []const []const u8, index: *usize, o
     if (!std.mem.eql(u8, arg, "--jobs")) return false;
     if (index.* + 1 >= args.len) return error.MissingJobs;
     options.jobs = try parseJobsValue(args[index.* + 1]);
+    options.jobs_explicit = true;
     index.* += 1;
+    return true;
+}
+
+fn consumeProfileOption(arg: []const u8, options: *CompileOptions) bool {
+    if (!std.mem.eql(u8, arg, "--profile")) return false;
+    options.profile = true;
     return true;
 }
 
@@ -1956,9 +2021,13 @@ fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.
 }
 
 fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
+    const total_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const load_start = if (options.profile) std.time.Instant.now() catch null else null;
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
+    const load_ns = if (load_start) |start| elapsedNs(start) else 0;
 
+    const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
     const project_root = options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer allocator.free(project_root);
     const std_root = try stdRootFromEnv(allocator);
@@ -1985,16 +2054,21 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             .offline = options.offline,
         },
     };
+    const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
 
+    const flatten_start = if (options.profile) std.time.Instant.now() catch null else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
         return .{ .trap = trapFromFlattenError(source, err, flattener.takeErrorSourceLine(&error_ctx)) };
     };
     errdefer flat.deinit(allocator);
+    const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
 
+    const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
     const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants });
+    const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
 
     return switch (verified) {
-        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok) } },
+        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null) } },
         .trap => |report| {
             flat.deinit(allocator);
             return .{ .trap = report };
@@ -2070,6 +2144,7 @@ fn executeRun(
 }
 
 fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
@@ -2087,10 +2162,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 break :blk std.Thread.getCpuCount() catch 1;
             };
             const emission_workers = @max(@min(worker_count, 4), 1);
-            const use_cgu = (compile_options.jobs != null and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
+            const use_cgu = (compile_options.jobs_explicit and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
 
             if (use_cgu) {
-                const cgu_count = @min(@max(emission_workers, 2), 3);
+                const cgu_count = @min(@max(emission_workers, 2), 4);
 
                 const cgu_obj_paths = try allocator.alloc([]const u8, cgu_count);
                 defer {
@@ -2098,7 +2173,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     allocator.free(cgu_obj_paths);
                 }
                 for (0..cgu_count) |i| {
-                    cgu_obj_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.o", .{out_path, i});
+                    cgu_obj_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.o", .{ out_path, i });
                 }
 
                 // Ensure parent directory exists for all of them
@@ -2179,8 +2254,9 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     }
                 }
 
+                const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                 while (started_cgu_emit < cgu_count - 1) : (started_cgu_emit += 1) {
-                    cgu_emit_threads[started_cgu_emit] = try std.Thread.spawn(.{}, CguEmitWorker.run, .{ &cgu_emit_workers[started_cgu_emit + 1] });
+                    cgu_emit_threads[started_cgu_emit] = try std.Thread.spawn(.{}, CguEmitWorker.run, .{&cgu_emit_workers[started_cgu_emit + 1]});
                 }
 
                 cgu_emit_workers[0].run();
@@ -2193,6 +2269,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 for (cgu_emit_workers) |w| {
                     if (w.err) |err| return err;
                 }
+                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
                 // Link them all together
                 const use_http_plugins = needsHttpPlugins(owned.verified);
@@ -2215,16 +2292,20 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     extra_idx += 1;
                 }
 
+                const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                 driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, build_options.sa_std_archive_path, extra_inputs, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
-
+                const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             } else {
                 const artifact_path = try intermediateArtifactPath(allocator, out_path);
                 defer allocator.free(artifact_path);
                 try ensureParentDir(artifact_path);
+                const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
+                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
                 const use_http_plugins = needsHttpPlugins(owned.verified);
                 if (use_http_plugins) {
@@ -2234,15 +2315,21 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     };
                     defer allocator.free(extra_inputs[0]);
                     defer allocator.free(extra_inputs[1]);
+                    const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                     driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
                         error.ChildProcessFailed => return 1,
                         else => return err,
                     };
+                    const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                    finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
                 } else {
+                    const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                     driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, &.{}, debug, stderr) catch |err| switch (err) {
                         error.ChildProcessFailed => return 1,
                         else => return err,
                     };
+                    const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                    finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
                 }
             }
 
@@ -2257,6 +2344,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
 }
 
 fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
@@ -2268,13 +2356,12 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer owned.deinit(allocator);
             const object_path = try allocator.dupe(u8, out_path);
             defer allocator.free(object_path);
+            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             try emit_llvm_llvmc.emitLlvmcToObject(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, object_path, switch (optimization) {
                 .release_small => 1,
                 .release_fast => 3,
             });
-            const artifact_path = try intermediateArtifactPath(allocator, out_path);
-            defer allocator.free(artifact_path);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
+            finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
@@ -2393,6 +2480,7 @@ fn executeGraph(
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (try consumeJobsOption(arg, args, &i, &compile_options)) continue;
+        if (consumeProfileOption(arg, &compile_options)) continue;
         if (std.mem.eql(u8, arg, "--offline")) {
             compile_options.offline = true;
             continue;
@@ -2486,6 +2574,7 @@ fn executeSize(
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (try consumeJobsOption(arg, args, &i, &compile_options)) continue;
+        if (consumeProfileOption(arg, &compile_options)) continue;
         if (std.mem.eql(u8, arg, "--offline")) {
             compile_options.offline = true;
             continue;
@@ -2687,6 +2776,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (consumeProfileOption(args[i], &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -2902,6 +2992,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (consumeProfileOption(args[i], &compile_options)) continue;
                 if (source_path == null) {
                     source_path = args[i];
                     continue;
@@ -2921,6 +3012,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (consumeProfileOption(args[i], &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -2955,6 +3047,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (consumeProfileOption(args[i], &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -2990,6 +3083,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (consumeProfileOption(args[i], &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -3045,6 +3139,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
+                if (consumeProfileOption(args[i], &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "--filter")) {
                     if (i + 1 >= args.len) return error.MissingFilterValue;
                     try include_filters.append(args[i + 1]);

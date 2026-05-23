@@ -162,11 +162,13 @@ const CollectResult = struct {
     symbols: symbol.SymbolTable,
     sigs: std.ArrayList(sig.FunctionSig),
     const_vtables: std.ArrayList(ConstVTable),
+    function_starts: std.ArrayList(usize),
 };
 
 const FunctionRegScope = struct {
     allocator: std.mem.Allocator,
     reg_ids: []const u32,
+    owns_reg_ids: bool = true,
     slot_by_id: std.AutoHashMap(u32, u32),
 
     fn init(allocator: std.mem.Allocator, reg_ids: []const u32) !FunctionRegScope {
@@ -179,13 +181,20 @@ const FunctionRegScope = struct {
         return .{
             .allocator = allocator,
             .reg_ids = reg_ids,
+            .owns_reg_ids = true,
             .slot_by_id = slot_by_id,
         };
     }
 
+    fn initBorrowed(allocator: std.mem.Allocator, reg_ids: []const u32) !FunctionRegScope {
+        var scope = try FunctionRegScope.init(allocator, reg_ids);
+        scope.owns_reg_ids = false;
+        return scope;
+    }
+
     fn deinit(self: *FunctionRegScope) void {
         self.slot_by_id.deinit();
-        if (self.reg_ids.len != 0) self.allocator.free(self.reg_ids);
+        if (self.owns_reg_ids and self.reg_ids.len != 0) self.allocator.free(self.reg_ids);
         self.* = undefined;
     }
 
@@ -1298,6 +1307,8 @@ fn collectMetadata(
         for (sigs.items) |*item| item.deinit(allocator);
         sigs.deinit();
     }
+    var function_starts = std.ArrayList(usize).init(allocator);
+    errdefer function_starts.deinit();
     var current_reg_ids = std.ArrayList(u32).init(allocator);
     defer current_reg_ids.deinit();
     var current_reg_seen = std.AutoHashMap(u32, void).init(allocator);
@@ -1305,7 +1316,7 @@ fn collectMetadata(
     var current_sig_index: usize = 0;
 
     var const_idx: usize = 0;
-    for (instructions) |item| {
+    for (instructions, 0..) |item, inst_idx| {
         while (const_idx < const_decls.len and const_decls[const_idx].expanded_line <= item.expanded_line) {
             const decl = const_decls[const_idx];
             if (decl.name.len != 0) {
@@ -1384,6 +1395,7 @@ fn collectMetadata(
                 }
                 _ = try symbols.intern(parsed.name);
                 try sigs.append(parsed);
+                try function_starts.append(inst_idx);
                 current_sig_index = sigs.items.len - 1;
             },
             .alloc, .stack_alloc => {
@@ -1502,6 +1514,7 @@ fn collectMetadata(
         .symbols = symbols,
         .sigs = sigs,
         .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
+        .function_starts = function_starts,
     };
 }
 fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u16, id: u32) bool {
@@ -1837,6 +1850,10 @@ fn freeConstVtables(allocator: std.mem.Allocator, const_vtables: *std.ArrayList(
     const_vtables.deinit();
 }
 
+fn freeFunctionStarts(starts: *std.ArrayList(usize)) void {
+    starts.deinit();
+}
+
 fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(AnnotatedInstruction)) void {
     for (annotated.items) |item| {
         var owned = item;
@@ -1982,14 +1999,8 @@ fn verifyBody(
             current_scope = null;
             freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
 
-            const function_end_idx = blk: {
-                var end_idx = inst_idx + 1;
-                while (end_idx < instructions.len and !isDecl(instructions[end_idx].kind)) : (end_idx += 1) {}
-                break :blk end_idx;
-            };
-
             if (current_sig) |decl_sig| {
-                var next_scope = try buildFunctionRegScope(allocator, instructions[inst_idx..function_end_idx], decl_sig.param_ids, const_decls, &metadata.symbols);
+                var next_scope = try FunctionRegScope.initBorrowed(allocator, decl_sig.reg_ids);
                 errdefer next_scope.deinit();
                 const reg_count = next_scope.reg_ids.len;
                 state = zeroed(u16, allocator, reg_count) catch {
@@ -2387,14 +2398,14 @@ fn verifyBody(
                             }
                         }
                     } else {
-                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
-                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                    };
-                    labels.put(target, snapshot) catch {
-                        snapshot.deinit(allocator);
-                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                    };
-                }
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                        };
+                        labels.put(target, snapshot) catch {
+                            snapshot.deinit(allocator);
+                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                        };
+                    }
                     if (defined_labels.contains(target)) has_unbounded_loop = true;
                 }
                 terminated = true;
@@ -2416,14 +2427,14 @@ fn verifyBody(
                             }
                         }
                     } else {
-                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
-                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                    };
-                    labels.put(target, snapshot) catch {
-                        snapshot.deinit(allocator);
-                        return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
-                    };
-                }
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                        };
+                        labels.put(target, snapshot) catch {
+                            snapshot.deinit(allocator);
+                            return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
+                        };
+                    }
                     if (defined_labels.contains(target)) has_unbounded_loop = true;
                 }
                 terminated = true;
@@ -2498,56 +2509,56 @@ fn verifyBody(
                         if (current_scope) |scope| {
                             if (resolveScopedRegId(&scope, &metadata.symbols, arg.text)) |arg_id| {
                                 const arg_reg_idx: usize = @intCast(arg_id);
-                            var is_function_symbol = false;
-                            for (metadata.sigs.items) |one| {
-                                if (std.mem.eql(u8, one.name, arg.text)) {
-                                    is_function_symbol = true;
-                                    break;
-                                }
-                            }
-                            if (is_function_symbol) {
-                                if (sig_match) |resolved| {
-                                    if (arg_idx < resolved.params.len and resolved.params[arg_idx].ty == .ptr) {
-                                        continue;
+                                var is_function_symbol = false;
+                                for (metadata.sigs.items) |one| {
+                                    if (std.mem.eql(u8, one.name, arg.text)) {
+                                        is_function_symbol = true;
+                                        break;
                                     }
                                 }
-                            }
-                            if (sig_match) |resolved| {
-                                if (arg.prefix != .borrow and (resolved.kind == .external or resolved.kind == .ffi_wrapper) and hasInteriorTree(state, interior_first_child, arg_id)) {
-                                    return trapReport(.interior_ptr_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.interior_ptr), state[arg_reg_idx], "interior pointers cannot cross FFI boundaries", null);
-                                }
-                            }
-                            switch (arg.prefix) {
-                                .borrow => if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr,
-                                .by_value => if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr,
-                                .raw => if (panicMsgAllowsRawArg(parsed.callee, parsed.args.len, arg_idx)) {
-                                    if (readCheckAllowRaw(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
-                                } else {
-                                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
-                                },
-                                .move => {
-                                    if (isImmutableConst(state, flags, arg_id)) {
-                                        return constTrap(item, current_function_text, current_is_ffi_wrapper, arg.text, state[arg_reg_idx], "immutable registers cannot be moved");
-                                    }
-                                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
-                                    if (isStackAllocated(flags, origins, state, arg_id)) {
-                                        return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.active), state[@intCast(arg_id)], "stack allocation cannot be passed by move", null);
-                                    }
-                                    const move_arg_reg_idx: usize = @intCast(arg_id);
-                                    if ((flags[move_arg_reg_idx] & regFlagRawPointer) != 0) {
-                                        continue;
-                                    }
-                                    if ((state[move_arg_reg_idx] & maskOf(.borrow_view)) != 0) {
-                                        clearBorrow(state, flags, origins, locks, arg_id, &interior);
-                                    } else {
-                                        if (hasInteriorTree(state, interior_first_child, arg_id)) {
-                                            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, arg_id);
-                                        } else {
-                                            state[move_arg_reg_idx] = maskOf(.consumed);
+                                if (is_function_symbol) {
+                                    if (sig_match) |resolved| {
+                                        if (arg_idx < resolved.params.len and resolved.params[arg_idx].ty == .ptr) {
+                                            continue;
                                         }
                                     }
-                                },
-                            }
+                                }
+                                if (sig_match) |resolved| {
+                                    if (arg.prefix != .borrow and (resolved.kind == .external or resolved.kind == .ffi_wrapper) and hasInteriorTree(state, interior_first_child, arg_id)) {
+                                        return trapReport(.interior_ptr_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.interior_ptr), state[arg_reg_idx], "interior pointers cannot cross FFI boundaries", null);
+                                    }
+                                }
+                                switch (arg.prefix) {
+                                    .borrow => if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr,
+                                    .by_value => if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr,
+                                    .raw => if (panicMsgAllowsRawArg(parsed.callee, parsed.args.len, arg_idx)) {
+                                        if (readCheckAllowRaw(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
+                                    } else {
+                                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
+                                    },
+                                    .move => {
+                                        if (isImmutableConst(state, flags, arg_id)) {
+                                            return constTrap(item, current_function_text, current_is_ffi_wrapper, arg.text, state[arg_reg_idx], "immutable registers cannot be moved");
+                                        }
+                                        if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
+                                        if (isStackAllocated(flags, origins, state, arg_id)) {
+                                            return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, arg.text, maskOf(.active), state[@intCast(arg_id)], "stack allocation cannot be passed by move", null);
+                                        }
+                                        const move_arg_reg_idx: usize = @intCast(arg_id);
+                                        if ((flags[move_arg_reg_idx] & regFlagRawPointer) != 0) {
+                                            continue;
+                                        }
+                                        if ((state[move_arg_reg_idx] & maskOf(.borrow_view)) != 0) {
+                                            clearBorrow(state, flags, origins, locks, arg_id, &interior);
+                                        } else {
+                                            if (hasInteriorTree(state, interior_first_child, arg_id)) {
+                                                consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, arg_id);
+                                            } else {
+                                                state[move_arg_reg_idx] = maskOf(.consumed);
+                                            }
+                                        }
+                                    },
+                                }
                             } else if (sig_match) |resolved| {
                                 if (arg_idx < resolved.params.len and resolved.params[arg_idx].ty == .ptr) {
                                     continue;
@@ -2570,31 +2581,31 @@ fn verifyBody(
                         if (current_scope) |scope| {
                             if (resolveScopedRegId(&scope, &metadata.symbols, dest)) |dest_id| {
                                 const idx: usize = @intCast(dest_id);
-                            if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
-                                return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
-                            }
-                            if (isImmutableConst(state, flags, dest_id)) {
-                                return constTrap(item, current_function_text, current_is_ffi_wrapper, dest, state[idx], "immutable registers cannot be overwritten");
-                            }
-                            const ret_cap = if (parsed.is_indirect) null else if (sig_match) |resolved| resolved.return_cap else builtinReturnCap(parsed.callee);
-                            const ret_state = if (!parsed.is_indirect) blk: {
-                                if (sig_match) |resolved| {
-                                    if (resolved.return_fallible) break :blk maskOf(.fallible);
+                                if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
+                                    return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
                                 }
-                                break :blk switch (ret_cap orelse .move) {
-                                    .raw => maskOf(.untracked),
-                                    .borrow => maskOf(.active) | maskOf(.borrow_view),
-                                    .move, .by_value => maskOf(.active),
+                                if (isImmutableConst(state, flags, dest_id)) {
+                                    return constTrap(item, current_function_text, current_is_ffi_wrapper, dest, state[idx], "immutable registers cannot be overwritten");
+                                }
+                                const ret_cap = if (parsed.is_indirect) null else if (sig_match) |resolved| resolved.return_cap else builtinReturnCap(parsed.callee);
+                                const ret_state = if (!parsed.is_indirect) blk: {
+                                    if (sig_match) |resolved| {
+                                        if (resolved.return_fallible) break :blk maskOf(.fallible);
+                                    }
+                                    break :blk switch (ret_cap orelse .move) {
+                                        .raw => maskOf(.untracked),
+                                        .borrow => maskOf(.active) | maskOf(.borrow_view),
+                                        .move, .by_value => maskOf(.active),
+                                    };
+                                } else blk: {
+                                    break :blk switch (ret_cap orelse .move) {
+                                        .raw => maskOf(.untracked),
+                                        .borrow => maskOf(.active) | maskOf(.borrow_view),
+                                        .move, .by_value => maskOf(.active),
+                                    };
                                 };
-                            } else blk: {
-                                break :blk switch (ret_cap orelse .move) {
-                                    .raw => maskOf(.untracked),
-                                    .borrow => maskOf(.active) | maskOf(.borrow_view),
-                                    .move, .by_value => maskOf(.active),
-                                };
-                            };
-                            state[idx] = ret_state;
-                            flags[idx] = 0;
+                                state[idx] = ret_state;
+                                flags[idx] = 0;
                             }
                         }
                     }
@@ -3008,6 +3019,7 @@ pub fn verifyWithOptions(
     };
     defer freeSigs(allocator, &metadata.sigs);
     defer freeConstVtables(allocator, &metadata.const_vtables);
+    defer freeFunctionStarts(&metadata.function_starts);
     var symbols_moved = false;
     defer if (!symbols_moved) metadata.symbols.deinit();
 
@@ -3920,8 +3932,7 @@ fn verifyPackageIntrinsicProgram(
 }
 
 test "verifier rejects ungranted sys file write for package instructions" {
-    const result = try verifyPackageIntrinsicProgram(
-        std.testing.allocator,
+    const result = try verifyPackageIntrinsicProgram(std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\path = alloc 8
@@ -3938,8 +3949,7 @@ test "verifier rejects ungranted sys file write for package instructions" {
 }
 
 test "verifier allows granted sys file write for package instructions" {
-    const result = try verifyPackageIntrinsicProgram(
-        std.testing.allocator,
+    const result = try verifyPackageIntrinsicProgram(std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\path = alloc 8
@@ -3948,7 +3958,7 @@ test "verifier allows granted sys file write for package instructions" {
         \\!path
         \\!data
         \\return value
-    , &.{ .io_write }, false);
+    , &.{.io_write}, false);
     switch (result) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
@@ -3960,15 +3970,14 @@ test "verifier allows granted sys file write for package instructions" {
 }
 
 test "verifier allows granted sys print for package instructions" {
-    const result = try verifyPackageIntrinsicProgram(
-        std.testing.allocator,
+    const result = try verifyPackageIntrinsicProgram(std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\msg = alloc 8
         \\call @sys_print(*msg, 5)
         \\!msg
         \\return 0
-    , &.{ .io_write }, false);
+    , &.{.io_write}, false);
     switch (result) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
@@ -3980,13 +3989,12 @@ test "verifier allows granted sys print for package instructions" {
 }
 
 test "verifier allows granted sys exit for package instructions" {
-    const result = try verifyPackageIntrinsicProgram(
-        std.testing.allocator,
+    const result = try verifyPackageIntrinsicProgram(std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\code = call @sys_exit(0)
         \\return code
-    , &.{ .proc_exit }, false);
+    , &.{.proc_exit}, false);
     switch (result) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
@@ -3998,13 +4006,12 @@ test "verifier allows granted sys exit for package instructions" {
 }
 
 test "verifier allows granted sys argc for package instructions" {
-    const result = try verifyPackageIntrinsicProgram(
-        std.testing.allocator,
+    const result = try verifyPackageIntrinsicProgram(std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\argc = call @sys_argc()
         \\return argc
-    , &.{ .proc_args }, false);
+    , &.{.proc_args}, false);
     switch (result) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
@@ -4016,13 +4023,12 @@ test "verifier allows granted sys argc for package instructions" {
 }
 
 test "verifier allows granted sys argv for package instructions" {
-    const result = try verifyPackageIntrinsicProgram(
-        std.testing.allocator,
+    const result = try verifyPackageIntrinsicProgram(std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\argv = call @sys_argv(0)
         \\return 0
-    , &.{ .proc_args }, false);
+    , &.{.proc_args}, false);
     switch (result) {
         .trap => return error.TestUnexpectedResult,
         .ok => |ok| {
@@ -4034,8 +4040,7 @@ test "verifier allows granted sys argv for package instructions" {
 }
 
 test "verifier rejects package source hash mismatch for granted sys write" {
-    const result = try verifyPackageIntrinsicProgram(
-        std.testing.allocator,
+    const result = try verifyPackageIntrinsicProgram(std.testing.allocator,
         \\@main() -> i32:
         \\L_ENTRY:
         \\path = alloc 8
@@ -4044,7 +4049,7 @@ test "verifier rejects package source hash mismatch for granted sys write" {
         \\!path
         \\!data
         \\return value
-    , &.{ .io_write }, true);
+    , &.{.io_write}, true);
     switch (result) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.upstream_sha_mismatch, report.trap),
         .ok => return error.TestUnexpectedResult,

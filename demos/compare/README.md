@@ -1,29 +1,45 @@
-# SA vs Rust: 架构优越性基准测试战报
+# SA vs Rust Compare Benchmarks
 
-本目录包含针对 SA 设计哲学的深度对标测试。
+This directory contains reproducible comparison workloads. The scripts report median timings across repeated runs and keep compile time separate from runtime.
 
-## 1. Macro Hell (模拟 Bevy ECS 宏展开)
+## Workloads
 
-**测试场景**：
-*   生成 2000 个 `System` 函数。
-*   每个函数处理 10 个独立的可变组件（20,000 个并发可变借用）。
-*   对比 Rust 的 AST 宏系统与 SA 的纯文本宏系统。
+- `big_bench.*`: many small functions and direct calls. This stresses frontend scaling, symbol management, verifier work, LLVM lowering, and link time.
+- `bench.*`: equivalent `sum += i * i` loop work in SA and Rust. This is the runtime sanity benchmark.
+- `macro_hell.*`: macro-heavy ECS-like expansion pressure. Keep this reported separately from the ordinary big/loop benchmarks because it is intentionally adversarial to Rust macro and borrow-check paths.
 
-**实测数据 (2026-05-22)**：
+## Running
 
-| 编译器 | 编译耗时 (ms) | 耗时 (秒) | 性能差距 |
-| :--- | :--- | :--- | :--- |
-| **Rust (`rustc -C opt-level=0`)** | 172,434 ms | 172.4 s | 基准 (1x) |
-| **SA-ASM (`sa build-exe`)** | 1,526 ms | **1.5 s** | **提速 113x** |
+```sh
+python3 demos/compare/gen_big.py
+RUNS=3 bash demos/compare/run_sa_bench.sh
+RUNS=3 bash demos/compare/run_rust_bench.sh
+RUNS=3 bash demos/compare/run_sa_parallel_bench.sh
+```
 
-**架构分析**：
-*   **Rust**：死于图论。20,000 个可变借用的控制流图 (CFG) 导致 NLL 检查复杂度呈非线性指数级爆炸。
-*   **SA**：赢在降维。纯文本替换 (Flattener) + O(1) 位掩码查表 (Referee)。SA 不关心代码有多长，它只关心每一行是否符合掩码真值表，复杂度是严格线性的。
+The SA benchmark must use a release-built compiler. `run_sa_bench.sh` builds `zig-out/bin/sa` with `zig build -Doptimize=ReleaseFast` by default before timing benchmark workloads. Do not compare Rust `-C opt-level=3` against a Debug SA compiler.
 
----
+For the current big benchmark, `run_sa_bench.sh` defaults to `JOBS=1` because the current CGU path does extra repeated work and is slower on this workload. That is a compiler implementation detail, not a benchmark requirement.
 
-## 2. Big File Scalability (直线代码伸缩性)
+Use `run_sa_parallel_bench.sh` to track that implementation detail separately. It runs the same SA big benchmark across `JOBS_LIST` values, defaulting to `1 2 3 4 auto`, and reports each profile independently.
 
-**(注：本项目目前受限于 Verifier 中的全局寄存器 Bug，修复 P0 后将更新此项数据)**
+Useful knobs:
 
-当前 10k 函数规模下，SA 存在 $O(N^2)$ 内存瓶颈。一旦修复，其速度将回归线性，预计与 Macro Hell 测试结果一致。
+- `RUNS=N`: number of repetitions used for median timing.
+- `JOBS=auto|N`: SA compiler job setting for `run_sa_bench.sh`.
+- `JOBS_LIST="1 2 3 4 auto"`: SA job settings for `run_sa_parallel_bench.sh`.
+- `BUILD_RELEASE=0`: skip rebuilding the SA compiler, only when `SA_BIN` already points at a release binary.
+- `SA_BIN=/path/to/sa`: SA compiler binary.
+- `RUSTC=/path/to/rustc`: Rust compiler binary.
+
+## Interpreting Results
+
+Do not collapse these scenarios into one headline. A valid report should show at least:
+
+- big compile time
+- loop compile time
+- loop runtime
+- executable size
+- SA phase profile JSON from `--profile --json`
+
+Current known issue: the big benchmark is still dominated by SA frontend verification work on large generated files. Treat that as an optimization target, not as an already-won benchmark.

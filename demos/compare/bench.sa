@@ -1,18 +1,36 @@
-@helper() -> i32:
+@main():
 L_ENTRY:
-    return 7
+    sum_ptr = stack_alloc 8
+    i_ptr = stack_alloc 8
+    store sum_ptr+0, 0 as u64
+    store i_ptr+0, 0 as u64
+    limit = 100000000
+    jmp L_COND
 
-@main() -> i32:
-L_ENTRY:
-    value = call @helper()
-    ok = eq value, 7
-    !value
-    br ok -> L_OK, L_ERR
+L_COND:
+    i = load i_ptr+0 as u64
+    cond = ult i, limit
+    br cond -> L_BODY, L_EXIT
 
-L_OK:
-    !ok
-    return 0
+L_BODY:
+    sum = load sum_ptr+0 as u64
+    sq = mul i, i
+    next_sum = add sum, sq
+    next_i = add i, 1
+    store sum_ptr+0, next_sum as u64
+    store i_ptr+0, next_i as u64
+    !next_i
+    !next_sum
+    !sq
+    !sum
+    !i
+    !cond
+    jmp L_COND
 
-L_ERR:
-    !ok
-    return 1
+L_EXIT:
+    result = load sum_ptr+0 as u64
+    !result
+    !i
+    !cond
+    !limit
+    return

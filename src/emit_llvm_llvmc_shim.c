@@ -1117,11 +1117,12 @@ static int declare_runtime(EmitCtx *e) {
     }
     e->saasm_argc_global = LLVMAddGlobal(e->module, e->i32_ty, "saasm_argc");
     e->saasm_argv_global = LLVMAddGlobal(e->module, e->ptr_ty, "saasm_argv");
-    LLVMSetLinkage(e->saasm_argc_global, LLVMWeakAnyLinkage);
-    LLVMSetLinkage(e->saasm_argv_global, LLVMWeakAnyLinkage);
     if (e->is_cgu && !has_main_wrapper) {
-        // Declared extern without initializer
+        LLVMSetLinkage(e->saasm_argc_global, LLVMExternalLinkage);
+        LLVMSetLinkage(e->saasm_argv_global, LLVMExternalLinkage);
     } else {
+        LLVMSetLinkage(e->saasm_argc_global, LLVMWeakAnyLinkage);
+        LLVMSetLinkage(e->saasm_argv_global, LLVMWeakAnyLinkage);
         LLVMSetInitializer(e->saasm_argc_global, LLVMConstInt(e->i32_ty, 0, 0));
         LLVMSetInitializer(e->saasm_argv_global, LLVMConstPointerNull(e->ptr_ty));
     }
