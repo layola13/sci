@@ -393,6 +393,8 @@ const CliErrorInfo = struct {
 
 const Command = enum {
     run,
+    init,
+    install,
     build,
     build_exe,
     build_wasm,
@@ -776,6 +778,8 @@ fn commandName(cmd: Command) []const u8 {
     return switch (cmd) {
         .build => "build",
         .run => "run",
+        .init => "init",
+        .install => "install",
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
@@ -797,7 +801,7 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn commandSupported(name: []const u8) bool {
-    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills");
+    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills");
 }
 
 fn explainEntries() []const ExplainEntry {
@@ -960,6 +964,8 @@ fn convertDbTrapReport(report: db_trap.TrapReport) trap.TrapReport {
 fn printUsage(writer: anytype) !void {
     try writer.writeAll("usage: sa <command> [options]\n\n");
     try writer.writeAll("Commands:\n");
+    try writer.writeAll("  init         [path]            Create a new SA binary project\n");
+    try writer.writeAll("  install      [identity]        Install project dependencies or one package\n");
     try writer.writeAll("  build        <file>            Compile a .sa source to a native executable\n");
     try writer.writeAll("  run          <file>            Compile and immediately execute a .sa file\n");
     try writer.writeAll("  build-exe    <file>            Build a standalone executable (alias for build)\n");
@@ -968,7 +974,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa file\n");
     try writer.writeAll("  sax          <sub> <file>      SAX subcommands: build | check | dev | new\n");
     try writer.writeAll("  db           <sub> ...         DB subcommands: init | register | exec | inspect | ...\n");
-    try writer.writeAll("  fetch        <url>             Fetch and cache a remote package\n");
+    try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat alias)\n");
     try writer.writeAll("  audit        <file>            Audit package capability declarations\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
     try writer.writeAll("  layout       ...               Print struct layout information\n");
@@ -1530,9 +1536,18 @@ fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
             "human and JSON output modes remain aligned",
         } },
         .{ .name = "cli toolchain", .summary = "Agent-first CLI entry points", .items = &.{
+            "init [path]",
+            "install [identity]",
             "explain <code>",
             "fix --plan --json",
             "skills",
+        } },
+        .{ .name = "project lifecycle", .summary = "Rust-like project setup and local builds", .items = &.{
+            "init [path]",
+            "install",
+            "build src/main.sa",
+            "run src/main.sa",
+            "test <file>",
         } },
         .{ .name = "std runtime", .summary = "Current Zig-backed facade surface", .items = &.{
             "JSON DOM and streaming facade",
@@ -2103,6 +2118,136 @@ fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []const 
     try writeAllFile(path, bytes);
 }
 
+fn ensureNewFile(path: []const u8, bytes: []const u8) !void {
+    try ensureParentDir(path);
+    var file = try std.fs.cwd().createFile(path, .{ .exclusive = true });
+    defer file.close();
+    try file.writeAll(bytes);
+}
+
+fn executeInit(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype) !u8 {
+    if (args.len > 1) return error.UnexpectedArgument;
+    const project_path = if (args.len == 1) args[0] else ".";
+
+    try std.fs.cwd().makePath(project_path);
+
+    const src_dir = try std.fs.path.join(allocator, &.{ project_path, "src" });
+    defer allocator.free(src_dir);
+    try std.fs.cwd().makePath(src_dir);
+
+    const manifest_path = try std.fs.path.join(allocator, &.{ project_path, "sa.mod" });
+    defer allocator.free(manifest_path);
+    const main_path = try std.fs.path.join(allocator, &.{ project_path, "src", "main.sa" });
+    defer allocator.free(main_path);
+    const gitignore_path = try std.fs.path.join(allocator, &.{ project_path, ".gitignore" });
+    defer allocator.free(gitignore_path);
+
+    try ensureNewFile(manifest_path,
+        \\# generated by sa init
+        \\
+    );
+    try ensureNewFile(main_path,
+        \\@main() -> i32:
+        \\return 0
+        \\
+    );
+    try ensureNewFile(gitignore_path,
+        \\.zig-cache/
+        \\zig-out/
+        \\*.out
+        \\*.sa.bc
+        \\
+    );
+
+    try stdout.print("Initialized SA binary project: {s}\n", .{project_path});
+    try stdout.print("Entry: {s}\n", .{main_path});
+    return 0;
+}
+
+const InstallArgs = struct {
+    options: pkg_fetch.FetchOptions = .{},
+    identity: ?[]const u8 = null,
+    ref: []const u8 = "HEAD",
+};
+
+fn parseInstallArgs(args: []const []const u8) !InstallArgs {
+    var parsed = InstallArgs{};
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-g")) {
+            parsed.options.global = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--offline")) {
+            parsed.options.offline = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--ref")) {
+            if (i + 1 >= args.len) return error.MissingRef;
+            parsed.ref = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (parsed.identity == null) {
+            parsed.identity = arg;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+    return parsed;
+}
+
+fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.FetchOptions, stdout: anytype) !u8 {
+    const source = try loadSource(allocator, "sa.mod");
+    defer allocator.free(source);
+
+    var project_manifest = try manifest.parseManifestWithFile(allocator, source, "sa.mod");
+    defer project_manifest.deinit(allocator);
+
+    for (project_manifest.requires) |entry| {
+        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, options);
+        defer result.deinit(allocator);
+        try stdout.print("{s}\n", .{result.root});
+    }
+    return 0;
+}
+
+fn executeInstall(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype) !u8 {
+    const parsed = try parseInstallArgs(args);
+    if (parsed.identity) |identity| {
+        var result = try pkg_fetch.fetchPackage(allocator, identity, parsed.ref, parsed.options);
+        defer result.deinit(allocator);
+        try stdout.print("{s}\n", .{result.root});
+        return 0;
+    }
+    return try installManifestDependencies(allocator, parsed.options, stdout);
+}
+
+fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
+    const archive_name = switch (builtin.os.tag) {
+        .windows => "sa_std.lib",
+        else => "libsa_std.a",
+    };
+    const env_root: ?[]u8 = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    if (env_root) |root| {
+        errdefer allocator.free(root);
+        const archive = try std.fs.path.join(allocator, &.{ root, archive_name });
+        if (std.fs.cwd().openFile(archive, .{})) |file| {
+            file.close();
+            allocator.free(root);
+            return archive;
+        } else |_| {
+            allocator.free(archive);
+        }
+        allocator.free(root);
+    }
+    return try allocator.dupe(u8, build_options.sa_std_archive_path);
+}
+
 fn printTableInfo(writer: anytype, info: db.table.TableInfo) !void {
     try writer.print("row_count: {d}\n", .{info.row_count});
     try writer.print("segment_count: {d}\n", .{info.segment_count});
@@ -2154,6 +2299,8 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            const std_archive_path = try saStdArchivePath(allocator);
+            defer allocator.free(std_archive_path);
 
             const worker_count = blk: {
                 if (compile_options.jobs) |j| {
@@ -2293,7 +2440,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 }
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, build_options.sa_std_archive_path, extra_inputs, debug, stderr) catch |err| switch (err) {
+                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, extra_inputs, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -2316,7 +2463,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     defer allocator.free(extra_inputs[0]);
                     defer allocator.free(extra_inputs[1]);
                     const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                    driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
+                    driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
                         error.ChildProcessFailed => return 1,
                         else => return err,
                     };
@@ -2324,7 +2471,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
                 } else {
                     const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                    driver.compileExe(allocator, artifact_path, out_path, optimization, build_options.sa_std_archive_path, &.{}, debug, stderr) catch |err| switch (err) {
+                    driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, &.{}, debug, stderr) catch |err| switch (err) {
                         error.ChildProcessFailed => return 1,
                         else => return err,
                     };
@@ -2647,6 +2794,8 @@ fn executeTest(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            const std_archive_path = try saStdArchivePath(allocator);
+            defer allocator.free(std_archive_path);
 
             var tmp = try TmpWorkDir.init();
             defer tmp.cleanup();
@@ -2673,7 +2822,7 @@ fn executeTest(
             };
             defer allocator.free(extra_inputs[0]);
             defer allocator.free(extra_inputs[1]);
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, build_options.sa_std_archive_path, extra_inputs[0..], false, stderr) catch |err| switch (err) {
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, extra_inputs[0..], false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -2722,6 +2871,8 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
     const cmd: Command = blk: {
         if (std.mem.eql(u8, args[1], commandName(.build))) break :blk .build;
         if (std.mem.eql(u8, args[1], commandName(.run))) break :blk .run;
+        if (std.mem.eql(u8, args[1], commandName(.init))) break :blk .init;
+        if (std.mem.eql(u8, args[1], commandName(.install))) break :blk .install;
         if (std.mem.eql(u8, args[1], commandName(.build_exe))) break :blk .build_exe;
         if (std.mem.eql(u8, args[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, args[1], commandName(.build_obj))) break :blk .build_obj;
@@ -2770,6 +2921,8 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .explain => return try explainCommand(stdout, args, json_mode),
         .fix => return try fixCommand(stdout, args, json_mode),
         .skills => return try skillsCommand(stdout, json_mode),
+        .init => return try executeInit(allocator, args[2..], stdout),
+        .install => return try executeInstall(allocator, args[2..], stdout),
         .build => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];

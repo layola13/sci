@@ -5,9 +5,14 @@ const plugin_helpers = @import("plugin_helpers.zig");
 
 const skills = [_]plugin_api.SkillSection{
     .{
-        .name = "package fetch",
-        .summary = "Package retrieval and offline mirroring",
+        .name = "package install",
+        .summary = "Project dependency installation and offline mirroring",
         .items = &.{
+            "install",
+            "install <identity>",
+            "install --ref <ref>",
+            "install --offline",
+            "install -g <identity>",
             "fetch <identity>",
             "fetch --ref <ref>",
             "fetch --offline",
@@ -117,8 +122,8 @@ test "pkg plugin exports runtime descriptor" {
     try std.testing.expectEqual(plugin_api.abi_version, exported.abi_version);
     try std.testing.expectEqualStrings("fetch", std.mem.span(exported.name));
     try std.testing.expectEqual(@as(usize, 1), exported.skills_len);
-    try std.testing.expectEqualStrings("package fetch", exported.skills_ptr[0].name);
-    try std.testing.expectEqualStrings("fetch <identity>", exported.skills_ptr[0].items[0]);
+    try std.testing.expectEqualStrings("package install", exported.skills_ptr[0].name);
+    try std.testing.expectEqualStrings("install", exported.skills_ptr[0].items[0]);
     try std.testing.expect(exported.prebuild != null);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

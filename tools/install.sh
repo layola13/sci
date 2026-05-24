@@ -159,6 +159,16 @@ verify_checksum() {
     fi
 }
 
+verify_std_payload() {
+    STD_ROOT="$1"
+    [ -f "$STD_ROOT/io/print.sai" ] || error "Installed std payload is incomplete: missing std/io/print.sai"
+    [ -f "$STD_ROOT/core/sa_core.sa" ] || error "Installed std payload is incomplete: missing std/core/sa_core.sa"
+    [ -f "$STD_ROOT/core/result.sa" ] || error "Installed std payload is incomplete: missing std/core/result.sa"
+    [ -f "$STD_ROOT/core/option.sa" ] || error "Installed std payload is incomplete: missing std/core/option.sa"
+    [ -f "$STD_ROOT/sa_std.h" ] || error "Installed std payload is incomplete: missing std/sa_std.h"
+    [ -f "$STD_ROOT/libsa_std.a" ] || error "Installed std payload is incomplete: missing std/libsa_std.a"
+}
+
 # ── Shell Profile Integration ───────────────────────────────────────────────
 
 configure_shell() {
@@ -336,6 +346,7 @@ main() {
                     if [ -f src/runtime/sa_std.h ]; then
                         cp -f src/runtime/sa_std.h "$SA_STD_DIR/"
                     fi
+                    verify_std_payload "$SA_STD_DIR"
                     INSTALLED_FROM_SOURCE=1
                     success "Built from source."
                 else
@@ -379,7 +390,11 @@ main() {
 
             if [ -d "$EXTRACTED_DIR/std" ]; then
                 cp -rf "$EXTRACTED_DIR/std/"* "$SA_STD_DIR/"
+            else
+                rm -rf "$TEMP_DIR"
+                error "Archive structure invalid: 'std/' not found."
             fi
+            verify_std_payload "$SA_STD_DIR"
         fi
 
         rm -rf "$TEMP_DIR"

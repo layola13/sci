@@ -3111,6 +3111,75 @@ test "agent-first cli commands print explain fix and skills outputs" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"core diagnostics\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"std runtime\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"init [path]\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"install [identity]\""));
+}
+
+test "cli init creates a binary project and install syncs manifest dependencies" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const init_argv = [_][]const u8{ "sa", "init", "app" };
+    const init_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        init_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), init_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Initialized SA binary project: app"));
+    try tmp.dir.access("app/sa.mod", .{ .mode = .read_only });
+    try tmp.dir.access("app/src/main.sa", .{ .mode = .read_only });
+    try tmp.dir.access("app/.gitignore", .{ .mode = .read_only });
+
+    var app_dir = try tmp.dir.openDir("app", .{});
+    defer app_dir.close();
+    try app_dir.setAsCwd();
+    const run_argv = [_][]const u8{ "sa", "run", "src/main.sa" };
+    const run_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        run_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), run_code);
+
+    try original_cwd.setAsCwd();
+    try tmp.dir.setAsCwd();
+    try tmp.dir.makePath("app/deps/example/pkg");
+    try writeSource(tmp.dir, "app/deps/example/pkg/index.sa",
+        \\@pkg_value() -> i32:
+        \\return 42
+    );
+    try writeSource(tmp.dir, "app/sa.mod",
+        \\require deps/example/pkg @HEAD sha256:0000000000000000000000000000000000000000000000000000000000000000
+        \\
+    );
+    try app_dir.setAsCwd();
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const install_argv = [_][]const u8{ "sa", "install" };
+    const install_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        install_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), install_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/pkg"));
+    try tmp.dir.access("app/sa_vendor/deps/example/pkg/index.sa", .{ .mode = .read_only });
 }
 
 test "build and run json diagnostics emit structured success metrics on stderr" {

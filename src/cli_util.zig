@@ -56,7 +56,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.MissingLayoutFormat => .{ .code = "SA-CLI-010", .message = "missing layout format", .hint = "use --format text, --format json, --format debug, or --format dict" },
         error.InvalidLayoutFormat => .{ .code = "SA-CLI-011", .message = "invalid layout format", .hint = "use --format text, --format json, --format debug, or --format dict" },
         error.UnsupportedBitcodeInput => .{ .code = "SA-CLI-012", .message = "unsupported bitcode input", .hint = "bc2sa is bitcode-only; the LLVM bitcode reader is not implemented yet, and text IR is not accepted on this path" },
-        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, sax, db, fetch, bc2sa, help, or version" },
+        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, sax, db, fetch, bc2sa, help, or version" },
         error.UnexpectedArgument => .{ .code = "SA-CLI-014", .message = "unexpected argument", .hint = "check option order and remove unsupported flags" },
         error.InvalidPath => .{ .code = "SA-CLI-014", .message = "invalid path", .hint = "check the filesystem path and project root" },
         error.MissingRef => .{ .code = "SA-CLI-015", .message = "missing package ref", .hint = "pass a ref value after --ref" },

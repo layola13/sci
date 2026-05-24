@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            target: "linux;x86_64;x86_64-linux-gnu;tar.gz"
+            artifact: "sa-linux-x86_64.tar.gz"
+            llvm_include: "/usr/lib/llvm-14/include"
+            llvm_lib: "/usr/lib/llvm-14/lib"
+            llvm_name: "LLVM-14"
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: "linux;aarch64;aarch64-linux-gnu;tar.gz"
+            artifact: "sa-linux-aarch64.tar.gz"
+            llvm_include: "/usr/lib/llvm-14/include"
+            llvm_lib: "/usr/lib/llvm-14/lib"
+            llvm_name: "LLVM-14"
+          - name: macos-x86_64
+            runner: macos-15-intel
+            target: "macos;x86_64;x86_64-macos;tar.gz"
+            artifact: "sa-macos-x86_64.tar.gz"
+            llvm_include: "/usr/local/opt/llvm@14/include"
+            llvm_lib: "/usr/local/opt/llvm@14/lib"
+            llvm_name: "LLVM"
+          - name: macos-aarch64
+            runner: macos-15
+            target: "macos;aarch64;aarch64-macos;tar.gz"
+            artifact: "sa-macos-aarch64.tar.gz"
+            llvm_include: "/opt/homebrew/opt/llvm@14/include"
+            llvm_lib: "/opt/homebrew/opt/llvm@14/lib"
+            llvm_name: "LLVM"
+          - name: windows-x86_64
+            runner: windows-2025
+            target: "windows;x86_64;x86_64-windows-gnu;zip"
+            artifact: "sa-windows-x86_64.zip"
+            llvm_include: "C:/Program Files/LLVM/include"
+            llvm_lib: "C:/Program Files/LLVM/lib"
+            llvm_name: "LLVM"
+          - name: windows-aarch64
+            runner: windows-11-arm
+            target: "windows;aarch64;aarch64-windows-gnu;zip"
+            artifact: "sa-windows-aarch64.zip"
+            llvm_include: "C:/Program Files/LLVM/include"
+            llvm_lib: "C:/Program Files/LLVM/lib"
+            llvm_name: "LLVM"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zip llvm-14-dev
+
+      - name: Install macOS packaging dependencies
+        if: runner.os == 'macOS'
+        run: brew install llvm@14
+
+      - name: Install Windows packaging dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install llvm zip -y
+
+      - name: Build release archive
+        env:
+          SA_TARGETS: ${{ matrix.target }}
+          LLVM_INCLUDE_DIR: ${{ matrix.llvm_include }}
+          LLVM_LIB_DIR: ${{ matrix.llvm_lib }}
+          LLVM_LIB_NAME: ${{ matrix.llvm_name }}
+        shell: bash
+        run: tools/release.sh
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist/${{ matrix.artifact }}
+            dist/sha256sums.txt
+
+  release:
+    name: Create GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate combined checksums
+        run: |
+          cd dist
+          sha256sum sa-* > sha256sums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/sa-*.tar.gz
+            dist/sa-*.zip
+            dist/sha256sums.txt

@@ -3,6 +3,10 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const release_small = b.option(bool, "release-small", "Build all artifacts with ReleaseSmall optimization.") orelse false;
+    const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse "0.0.1";
+    const llvm_include_dir = b.option([]const u8, "llvm-include-dir", "LLVM C API include directory.") orelse "/usr/lib/llvm-14/include";
+    const llvm_lib_dir = b.option([]const u8, "llvm-lib-dir", "LLVM library directory.") orelse "/usr/lib/llvm-14/lib";
+    const llvm_lib_name = b.option([]const u8, "llvm-lib-name", "LLVM system library name.") orelse "LLVM-14";
     var optimize = b.standardOptimizeOption(.{});
     if (release_small) optimize = .ReleaseSmall;
     const repo_root = b.pathFromRoot(".");
@@ -11,7 +15,7 @@ pub fn build(b: *std.Build) void {
     const test_build_options = b.addOptions();
     build_options.addOption([]const u8, "sa_std_archive_path", b.pathFromRoot("artifacts/sa_std/libsa_std.a"));
     build_options.addOption([]const u8, "repo_root", repo_root);
-    build_options.addOption([]const u8, "version", "0.0.0");
+    build_options.addOption([]const u8, "version", version);
     test_build_options.addOption([]const u8, "repo_root", repo_root);
 
     const lib_module = b.createModule(.{
@@ -21,7 +25,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addLlvmcShimToModule(b, lib_module);
-    linkLLVMToModule(lib_module);
+    linkLLVMToModule(lib_module, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     const plugin_api_module = b.createModule(.{
         .root_source_file = b.path("src/plugin.zig"),
         .target = target,
@@ -95,7 +99,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     }));
     addLlvmcShimToModule(b, sax_module);
-    linkLLVMToModule(sax_module);
+    linkLLVMToModule(sax_module, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     sax_module.addImport("flattener", b.createModule(.{
         .root_source_file = b.path("src/flattener.zig"),
         .target = target,
@@ -218,14 +222,14 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addLlvmcShimToModule(b, cli_module);
-    linkLLVMToModule(cli_module);
+    linkLLVMToModule(cli_module, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     cli_module.addImport("plugin", plugin_api_module);
     cli_module.addOptions("build_options", build_options);
     const exe = b.addExecutable(.{
         .name = "sa",
         .root_module = cli_module,
     });
-    linkLLVMToCompile(exe);
+    linkLLVMToCompile(exe, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     b.installArtifact(exe);
 
     const cli_tests_module = b.createModule(.{
@@ -339,6 +343,7 @@ pub fn build(b: *std.Build) void {
             "phi conflict demo is rejected on mismatched join states",
             "phi join AND demo runs through the join point",
             "build-wasm supports wasm64 freestanding no-entry",
+            "cli init creates a binary project and install syncs manifest dependencies",
             "db cli init writes iface and table lifecycle commands update storage",
             "db cli register inspect exec round trip through registry",
             "layout cli prints text, json, and debug macro outputs",
@@ -642,14 +647,14 @@ fn addLlvmcShimToModule(b: *std.Build, module: *std.Build.Module) void {
     module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_shim.c"), .flags = &.{} });
 }
 
-fn linkLLVMToModule(module: *std.Build.Module) void {
-    module.addSystemIncludePath(.{ .cwd_relative = "/usr/lib/llvm-14/include" });
-    module.addLibraryPath(.{ .cwd_relative = "/usr/lib/llvm-14/lib" });
-    module.linkSystemLibrary("LLVM-14", .{});
+fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
+    module.addSystemIncludePath(.{ .cwd_relative = include_dir });
+    module.addLibraryPath(.{ .cwd_relative = lib_dir });
+    module.linkSystemLibrary(lib_name, .{});
 }
 
-fn linkLLVMToCompile(compile: *std.Build.Step.Compile) void {
-    compile.addSystemIncludePath(.{ .cwd_relative = "/usr/lib/llvm-14/include" });
-    compile.addLibraryPath(.{ .cwd_relative = "/usr/lib/llvm-14/lib" });
-    compile.linkSystemLibrary("LLVM-14");
+fn linkLLVMToCompile(compile: *std.Build.Step.Compile, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
+    compile.addSystemIncludePath(.{ .cwd_relative = include_dir });
+    compile.addLibraryPath(.{ .cwd_relative = lib_dir });
+    compile.linkSystemLibrary(lib_name);
 }

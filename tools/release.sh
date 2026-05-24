@@ -45,6 +45,14 @@ fi
 # Root directory of the repository
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$REPO_ROOT/dist"
+VERSION="${SA_VERSION:-}"
+if [ -z "$VERSION" ]; then
+    VERSION="$(git -C "$REPO_ROOT" describe --tags --exact-match 2>/dev/null || printf "0.0.1")"
+fi
+VERSION="${VERSION#v}"
+LLVM_INCLUDE_DIR="${LLVM_INCLUDE_DIR:-/usr/lib/llvm-14/include}"
+LLVM_LIB_DIR="${LLVM_LIB_DIR:-/usr/lib/llvm-14/lib}"
+LLVM_LIB_NAME="${LLVM_LIB_NAME:-LLVM-14}"
 
 info "Cleaning up old build environments..."
 rm -rf "$DIST_DIR"
@@ -52,13 +60,15 @@ mkdir -p "$DIST_DIR"
 
 # Targets definition: OS, ARCH, Zig Target String, Format (tar.gz or zip)
 # Format: "OS;ARCH;ZIG_TARGET;ARCHIVE_FORMAT"
-TARGETS="
-linux;x86_64;x86_64-linux-musl;tar.gz
-linux;aarch64;aarch64-linux-musl;tar.gz
+DEFAULT_TARGETS="
+linux;x86_64;x86_64-linux-gnu;tar.gz
+linux;aarch64;aarch64-linux-gnu;tar.gz
 macos;x86_64;x86_64-macos;tar.gz
 macos;aarch64;aarch64-macos;tar.gz
 windows;x86_64;x86_64-windows-gnu;zip
+windows;aarch64;aarch64-windows-gnu;zip
 "
+TARGETS="${SA_TARGETS:-$DEFAULT_TARGETS}"
 
 build_target() {
     OS="$1"
@@ -70,7 +80,7 @@ build_target() {
     TARGET_DIR="$DIST_DIR/$TARGET_NAME"
     
     info "--------------------------------------------------"
-    info "Building target: ${BOLD}$TARGET_NAME${RESET} ($ZIG_TARGET)"
+    info "Building target: ${BOLD}$TARGET_NAME${RESET} ($ZIG_TARGET, version $VERSION)"
     
     # 1. Clean previous build artifact directories
     rm -rf "$REPO_ROOT/zig-out"
@@ -78,7 +88,7 @@ build_target() {
     
     # 2. Build SA Compiler
     working "Compiling sa compiler"
-    if ! zig build -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe >/dev/null 2>&1; then
+    if ! zig build -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe -Dversion="$VERSION" -Dllvm-include-dir="$LLVM_INCLUDE_DIR" -Dllvm-lib-dir="$LLVM_LIB_DIR" -Dllvm-lib-name="$LLVM_LIB_NAME" >/dev/null 2>&1; then
         printf " failed.\n"
         error "Zig compilation failed for target: $ZIG_TARGET"
     fi
@@ -106,6 +116,8 @@ build_target() {
     # 5. Copy Standard Library sources
     if [ -d "$REPO_ROOT/sa_std" ]; then
         cp -rf "$REPO_ROOT/sa_std/"* "$TARGET_DIR/std/"
+    else
+        error "Standard library source directory not found: $REPO_ROOT/sa_std"
     fi
     
     # 6. Copy static runtime library if built
@@ -130,6 +142,13 @@ build_target() {
     elif [ -f "$REPO_ROOT/zig-out/include/sa_std.h" ]; then
         cp -f "$REPO_ROOT/zig-out/include/sa_std.h" "$TARGET_DIR/std/"
     fi
+
+    [ -f "$TARGET_DIR/std/io/print.sai" ] || error "Package std payload missing std/io/print.sai"
+    [ -f "$TARGET_DIR/std/core/sa_core.sa" ] || error "Package std payload missing std/core/sa_core.sa"
+    [ -f "$TARGET_DIR/std/core/result.sa" ] || error "Package std payload missing std/core/result.sa"
+    [ -f "$TARGET_DIR/std/core/option.sa" ] || error "Package std payload missing std/core/option.sa"
+    [ -f "$TARGET_DIR/std/$LIB_FILE" ] || error "Package std payload missing std/$LIB_FILE"
+    [ -f "$TARGET_DIR/std/sa_std.h" ] || error "Package std payload missing std/sa_std.h"
     
     # 7. Compress Package
     working "Packaging archive"

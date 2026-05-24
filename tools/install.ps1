@@ -42,6 +42,24 @@ function Invoke-OrEcho {
     }
 }
 
+function Test-StdPayload {
+    param([string]$StdRoot)
+    $required = @(
+        "io\print.sai",
+        "core\sa_core.sa",
+        "core\result.sa",
+        "core\option.sa",
+        "sa_std.h",
+        "sa_std.lib"
+    )
+    foreach ($rel in $required) {
+        $path = Join-Path $StdRoot $rel
+        if (-not (Test-Path $path)) {
+            Write-Err "Installed std payload is incomplete: missing std\$rel"
+        }
+    }
+}
+
 # ── Header ───────────────────────────────────────────────────────────────────
 
 function Print-Header {
@@ -93,9 +111,10 @@ if ($DryRun) {
 }
 
 # Architecture detection
-$arch = "x86_64"
-if (-not [Environment]::Is64BitOperatingSystem) {
-    Write-Err "Only 64-bit Windows environments are supported by SA."
+$arch = switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+    "X64" { "x86_64" }
+    "Arm64" { "aarch64" }
+    default { Write-Err "Unsupported Windows architecture: $([Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" }
 }
 Write-Info "Detected platform: windows-$arch"
 
@@ -157,17 +176,26 @@ if ($DryRun) {
         Expand-Archive -Path $tempZip -DestinationPath $tempExtractDir -Force
         Write-Ok "Extraction complete."
 
-        $exePath = Join-Path $tempExtractDir "bin\sa.exe"
+        $extractedRoot = $tempExtractDir
+        $rootDirs = @(Get-ChildItem -Path $tempExtractDir -Directory)
+        if ($rootDirs.Count -eq 1) {
+            $extractedRoot = $rootDirs[0].FullName
+        }
+
+        $exePath = Join-Path $extractedRoot "bin\sa.exe"
         if (Test-Path $exePath) {
             Copy-Item -Path $exePath -Destination (Join-Path $saBinDir "sa.exe") -Force
         } else {
             throw "Invalid archive structure: bin\sa.exe not found."
         }
 
-        $stdPath = Join-Path $tempExtractDir "std"
+        $stdPath = Join-Path $extractedRoot "std"
         if (Test-Path $stdPath) {
             Copy-Item -Path "$stdPath\*" -Destination $saStdDir -Recurse -Force
+        } else {
+            throw "Invalid archive structure: std not found."
         }
+        Test-StdPayload $saStdDir
 
         Remove-Item -Recurse -Force $tempExtractDir
         Remove-Item -Force $tempZip
@@ -191,6 +219,7 @@ if ($DryRun) {
                 if (Test-Path "src\runtime\sa_std.h") {
                     Copy-Item -Path "src\runtime\sa_std.h" -Destination (Join-Path $saStdDir "sa_std.h") -Force
                 }
+                Test-StdPayload $saStdDir
                 Write-Ok "Built from source."
             } catch {
                 Write-Err "Local source build failed: $_"
