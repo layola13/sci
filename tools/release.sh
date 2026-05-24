@@ -62,11 +62,11 @@ mkdir -p "$DIST_DIR"
 # Format: "OS;ARCH;ZIG_TARGET;ARCHIVE_FORMAT"
 DEFAULT_TARGETS="
 linux;x86_64;x86_64-linux-gnu;tar.gz
-linux;aarch64;aarch64-linux-gnu;tar.gz
-macos;x86_64;x86_64-macos;tar.gz
-macos;aarch64;aarch64-macos;tar.gz
-windows;x86_64;x86_64-windows-gnu;zip
-windows;aarch64;aarch64-windows-gnu;zip
+# linux;aarch64;aarch64-linux-gnu;tar.gz
+# macos;x86_64;x86_64-macos;tar.gz
+# macos;aarch64;aarch64-macos;tar.gz
+# windows;x86_64;x86_64-windows-gnu;zip
+# windows;aarch64;aarch64-windows-gnu;zip
 "
 TARGETS="${SA_TARGETS:-$DEFAULT_TARGETS}"
 

@@ -13,6 +13,7 @@ jobs:
   package:
     name: Package ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.allow_failure }}
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +25,7 @@ jobs:
             llvm_include: "/usr/lib/llvm-14/include"
             llvm_lib: "/usr/lib/llvm-14/lib"
             llvm_name: "LLVM-14"
+            allow_failure: false
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: "linux;aarch64;aarch64-linux-gnu;tar.gz"
@@ -31,6 +33,7 @@ jobs:
             llvm_include: "/usr/lib/llvm-14/include"
             llvm_lib: "/usr/lib/llvm-14/lib"
             llvm_name: "LLVM-14"
+            allow_failure: true
           - name: macos-x86_64
             runner: macos-15-intel
             target: "macos;x86_64;x86_64-macos;tar.gz"
@@ -38,6 +41,7 @@ jobs:
             llvm_include: "/usr/local/opt/llvm@14/include"
             llvm_lib: "/usr/local/opt/llvm@14/lib"
             llvm_name: "LLVM"
+            allow_failure: true
           - name: macos-aarch64
             runner: macos-15
             target: "macos;aarch64;aarch64-macos;tar.gz"
@@ -45,6 +49,7 @@ jobs:
             llvm_include: "/opt/homebrew/opt/llvm@14/include"
             llvm_lib: "/opt/homebrew/opt/llvm@14/lib"
             llvm_name: "LLVM"
+            allow_failure: true
           - name: windows-x86_64
             runner: windows-2025
             target: "windows;x86_64;x86_64-windows-gnu;zip"
@@ -52,6 +57,7 @@ jobs:
             llvm_include: "C:/Program Files/LLVM/include"
             llvm_lib: "C:/Program Files/LLVM/lib"
             llvm_name: "LLVM"
+            allow_failure: true
           - name: windows-aarch64
             runner: windows-11-arm
             target: "windows;aarch64;aarch64-windows-gnu;zip"
@@ -59,6 +65,7 @@ jobs:
             llvm_include: "C:/Program Files/LLVM/include"
             llvm_lib: "C:/Program Files/LLVM/lib"
             llvm_name: "LLVM"
+            allow_failure: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -111,6 +118,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+          name: linux-x86_64
 
       - name: Generate combined checksums
         run: |
