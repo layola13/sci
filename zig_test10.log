@@ -1,5 +1,0 @@
-error[UnknownRegister]: register is not declared in the current scope
-  in function @support_json_dom_roundtrip() -> void:
-  line 231 (expanded 114):     kind_ok = eq kind, SA_JSON_KIND_OBJECT
-  register: SA_JSON_KIND_OBJECT
-{"trap":"UnknownRegister","trap_code":1007,"line":114,"source_line":231,"source_text":"    kind_ok = eq kind, SA_JSON_KIND_OBJECT","original_text":"    kind_ok = eq kind, SA_JSON_KIND_OBJECT","register":"SA_JSON_KIND_OBJECT","registers":[],"expected_mask":null,"actual_mask":null,"expected_mask_name":null,"actual_mask_name":null,"upstream_loc":null,"function":"@support_json_dom_roundtrip() -> void:","is_ffi_wrapper":false,"message":"register is not declared in the current scope","hint":null}
