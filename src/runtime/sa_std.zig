@@ -2878,7 +2878,7 @@ pub export fn sa_fs_remove_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u16) Fallible(u64) {
+pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32) Fallible(u64) {
     var handle: u64 = 0;
     const status = sa_std_net_tcp_connect(host_ptr, host_len, port, &handle);
     if (status != SA_STD_OK) return fail(u64, status);
@@ -2990,7 +2990,10 @@ pub export fn sa_net_tcp_listener_local_addr(listener: u64) Fallible(u64) {
     const resource = getResourceLocked(listener) orelse return fail(u64, SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .tcp_listener => |server| {
-            var net_addr = NetAddrHandle.init(std.heap.page_allocator, server.listen_address) catch |err| return fail(u64, mapError(err));
+            var addr: std.net.Address = undefined;
+            var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+            std.posix.getsockname(server.stream.handle, &addr.any, &addr_len) catch |err| return fail(u64, mapError(err));
+            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return fail(u64, mapError(err));
             const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
                 net_addr.deinit();
                 return fail(u64, mapError(err));
@@ -3304,7 +3307,7 @@ pub export fn sa_net_addr_host_len(addr: u64) u64 {
         },
     };
 }
-pub export fn sa_net_addr_port(addr: u64) u16 {
+pub export fn sa_net_addr_port(addr: u64) u32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(addr) orelse {
@@ -3312,7 +3315,7 @@ pub export fn sa_net_addr_port(addr: u64) u16 {
         return 0;
     };
     return switch (resource.*) {
-        .net_addr => |net_addr| net_addr.addr.getPort(),
+        .net_addr => |net_addr| @as(u32, net_addr.addr.getPort()),
         else => {
             _ = finish(SA_STD_ERR_INVALID_HANDLE);
             return 0;
@@ -3503,7 +3506,12 @@ pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port:
     errdefer server.deinit();
     const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
-    if (out_bound_port) |port_ptr| port_ptr.* = server.listen_address.getPort();
+    if (out_bound_port) |port_ptr| {
+        var addr: std.net.Address = undefined;
+        var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+        std.posix.getsockname(server.stream.handle, &addr.any, &addr_len) catch |err| return finishErr(err);
+        port_ptr.* = addr.getPort();
+    }
     return finish(SA_STD_OK);
 }
 
