@@ -102,3 +102,23 @@ L_OPTION_MAP_OR_ELSE_END_%out_value:
     br __option_tag_%opt_reg -> %some_label, %none_label
     !__option_tag_%opt_reg
 [END_MACRO]
+
+[MACRO] MATCH_OPTION %out_value, %opt_reg, %some_label, %none_label
+    __match_option_tag_%out_value = load %opt_reg+Option_tag as u64
+    __match_option_is_some_%out_value = eq __match_option_tag_%out_value, Option_SOME
+    br __match_option_is_some_%out_value -> L_MATCH_OPTION_SOME_%out_value, L_MATCH_OPTION_NONE_%out_value
+L_MATCH_OPTION_SOME_%out_value:
+    %out_value = load %opt_reg+Option_value as u64
+    !__match_option_tag_%out_value
+    jmp %some_label
+L_MATCH_OPTION_NONE_%out_value:
+    %out_value = add 0, 0
+    !__match_option_tag_%out_value
+    jmp %none_label
+[END_MACRO]
+
+[MACRO] MATCHES_OPTION %out_bool, %opt_reg, %expected_tag
+    __matches_option_tag_%out_bool = load %opt_reg+Option_tag as u64
+    %out_bool = eq __matches_option_tag_%out_bool, %expected_tag
+    !__matches_option_tag_%out_bool
+[END_MACRO]

@@ -10,6 +10,7 @@ pub const AnnotatedInstruction = verifier.AnnotatedInstruction;
 pub const VerifyOk = verifier.VerifyOk;
 pub const VerifyResult = verifier.VerifyResult;
 pub const VerifyOptions = verifier.VerifyOptions;
+pub const SaxValidationContext = verifier.SaxValidationContext;
 pub const verify = verifier.verify;
 pub const verifyWithOptions = verifier.verifyWithOptions;
 

@@ -2,6 +2,31 @@
 // Callers supply explicit temporary condition registers so repeated
 // macro expansions remain hygienic.
 
+@import "cell.sal"
+@import "cell.sa"
+@import "refcell.sal"
+@import "refcell.sa"
+@import "rc.sal"
+@import "rc.sa"
+@import "weak.sal"
+@import "weak.sa"
+@import "trait_object.sal"
+@import "trait_object.sa"
+@import "waker.sal"
+@import "waker.sa"
+@import "result.sal"
+@import "result.sa"
+@import "box.sal"
+@import "box.sa"
+@import "derive.sal"
+@import "derive.sa"
+@import "dispatch.sal"
+@import "dispatch.sa"
+@import "arc.sal"
+@import "arc.sa"
+@import "../sync/rwlock.sal"
+@import "../sync/rwlock.sa"
+
 [MACRO] ASSERT_EQ %cond, %actual, %expected, %ok_label, %fail_label
     %cond = eq %actual, %expected
     br %cond -> %ok_label, %fail_label
@@ -34,4 +59,17 @@ L_ASSERT_TRUE_MSG_OK_%cond:
 [MACRO] ASSERT_NE_MSG %cond, %actual, %unexpected, %msg_ptr, %msg_len
     %cond = ne %actual, %unexpected
     EXPAND ASSERT_TRUE_MSG %cond, %msg_ptr, %msg_len
+[END_MACRO]
+
+[MACRO] DROP_AND_RETURN %resource_reg, %value
+    !%resource_reg
+    return %value
+[END_MACRO]
+
+[MACRO] CFG %out_bool, %flag
+    [IF %flag]
+    %out_bool = add 0, 1
+    [ELSE]
+    %out_bool = add 0, 0
+    [END_IF]
 [END_MACRO]

@@ -124,12 +124,13 @@ Rust relies heavily on declarative and procedural macros. `sa_std` provides func
 *   **Error Handling & Control Flow**:
     *   Missing `panic!` as a Rust macro surface; runtime panic behavior is available through `sa_std/core/panic.sa`.
     *   Missing `todo!`, `unimplemented!`, `unreachable!`.
-    *   Missing `matches!` (Pattern matching macro).
+    *   `MATCHES_OPTION` / `MATCHES_RESULT` cover the tag-checking subset of Rust `matches!` for `Option` / `Result` layouts.
     *   `?` / early-return lowering is handled in the SA frontend for core `Option` / `Result` flows; a general Rust `try!` macro surface is still missing.
 *   **Compile-time & Metaprogramming**:
-    *   Missing `cfg!` (Compile-time configuration check).
-    *   Missing `env!`, `option_env!` (Compile-time environment variables).
-    *   Missing `include!`, `include_str!`, `include_bytes!`.
+    *   `cfg!` is now covered by SA flattener macro expansion tests.
+    *   `env!`, `option_env!` are now covered by SA flattener macro expansion tests.
+    *   `include_str!` / `include_bytes!` are now covered by SA flattener macro expansion tests.
+    *   Missing `include!`.
     *   Missing `line!`, `file!`, `column!`, `module_path!` (Source location macros).
     *   Missing `stringify!` (Convert expression to string literal).
 *   **Collection Initializers**:

@@ -1,6 +1,5 @@
 const std = @import("std");
 const trap = @import("common/trap.zig");
-const db_table = @import("db/table.zig");
 
 pub const DiagnosticsMode = enum {
     human,
@@ -55,8 +54,11 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.MissingLayoutFields => .{ .code = "SA-CLI-009", .message = "missing layout fields", .hint = "pass --fields <name:ty,...>" },
         error.MissingLayoutFormat => .{ .code = "SA-CLI-010", .message = "missing layout format", .hint = "use --format text, --format json, --format debug, or --format dict" },
         error.InvalidLayoutFormat => .{ .code = "SA-CLI-011", .message = "invalid layout format", .hint = "use --format text, --format json, --format debug, or --format dict" },
-        error.UnsupportedBitcodeInput => .{ .code = "SA-CLI-012", .message = "unsupported bitcode input", .hint = "bc2sa is bitcode-only; the LLVM bitcode reader is not implemented yet, and text IR is not accepted on this path" },
-        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, sax, db, fetch, bc2sa, help, or version" },
+        error.UnsupportedBitcodeInput => .{ .code = "SA-CLI-012", .message = "unsupported bitcode input", .hint = "bc2sa expects real LLVM bitcode (.bc); text LLVM IR and non-bitcode files are rejected" },
+        error.LlvmDisNotFound => .{ .code = "SA-CLI-016", .message = "llvm-dis not found", .hint = "install llvm-dis-14 or make llvm-dis available on PATH before running bc2sa" },
+        error.LlvmDisFailed => .{ .code = "SA-CLI-017", .message = "llvm-dis failed", .hint = "verify the input is valid LLVM bitcode for the installed LLVM toolchain" },
+        error.UnsupportedInstruction => .{ .code = "SA-CLI-018", .message = "unsupported LLVM instruction", .hint = "bc2sa currently supports a conservative scalar/load-store/branch subset and rejects unsupported IR instead of emitting invalid SA" },
+        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version" },
         error.UnexpectedArgument => .{ .code = "SA-CLI-014", .message = "unexpected argument", .hint = "check option order and remove unsupported flags" },
         error.InvalidPath => .{ .code = "SA-CLI-014", .message = "invalid path", .hint = "check the filesystem path and project root" },
         error.MissingRef => .{ .code = "SA-CLI-015", .message = "missing package ref", .hint = "pass a ref value after --ref" },
@@ -124,11 +126,4 @@ pub fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []co
     var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
-}
-
-pub fn printTableInfo(writer: anytype, info: db_table.TableInfo) !void {
-    try writer.print("row_count: {d}\n", .{info.row_count});
-    try writer.print("segment_count: {d}\n", .{info.segment_count});
-    try writer.print("epoch: {d}\n", .{info.epoch});
-    try writer.print("locked: {s}\n", .{if (info.locked) "true" else "false"});
 }

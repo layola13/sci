@@ -130,3 +130,23 @@ L_RESULT_MAP_OR_ELSE_END_%out_value:
     br __result_is_ok_%res_reg -> %ok_label, %err_label
     !__result_tag_%res_reg
 [END_MACRO]
+
+[MACRO] MATCH_RESULT %out_value, %res_reg, %ok_label, %err_label
+    __match_result_tag_%out_value = load %res_reg+Result_tag as u64
+    __match_result_is_ok_%out_value = eq __match_result_tag_%out_value, Result_OK
+    br __match_result_is_ok_%out_value -> L_MATCH_RESULT_OK_%out_value, L_MATCH_RESULT_ERR_%out_value
+L_MATCH_RESULT_OK_%out_value:
+    %out_value = load %res_reg+Result_ok as u64
+    !__match_result_tag_%out_value
+    jmp %ok_label
+L_MATCH_RESULT_ERR_%out_value:
+    %out_value = load %res_reg+Result_err as u64
+    !__match_result_tag_%out_value
+    jmp %err_label
+[END_MACRO]
+
+[MACRO] MATCHES_RESULT %out_bool, %res_reg, %expected_tag
+    __matches_result_tag_%out_bool = load %res_reg+Result_tag as u64
+    %out_bool = eq __matches_result_tag_%out_bool, %expected_tag
+    !__matches_result_tag_%out_bool
+[END_MACRO]

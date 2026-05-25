@@ -279,7 +279,7 @@ fn parseCapability(text: []const u8) ?Capability {
     return if (std.mem.eql(u8, text, "mem_alloc")) .mem_alloc else if (std.mem.eql(u8, text, "mem_slice")) .mem_slice else if (std.mem.eql(u8, text, "io_read")) .io_read else if (std.mem.eql(u8, text, "io_write")) .io_write else if (std.mem.eql(u8, text, "net_tx")) .net_tx else if (std.mem.eql(u8, text, "net_rx")) .net_rx else if (std.mem.eql(u8, text, "proc_spawn")) .proc_spawn else if (std.mem.eql(u8, text, "proc_exit")) .proc_exit else if (std.mem.eql(u8, text, "proc_args")) .proc_args else if (std.mem.eql(u8, text, "time_now")) .time_now else if (std.mem.eql(u8, text, "rand_get")) .rand_get else null;
 }
 
-fn capabilityName(cap: Capability) []const u8 {
+pub fn capabilityName(cap: Capability) []const u8 {
     return switch (cap) {
         .mem_alloc => "mem_alloc",
         .mem_slice => "mem_slice",

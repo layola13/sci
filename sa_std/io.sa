@@ -2,11 +2,36 @@
 @import "fmt.sai"
 @import "io.sai"
 
+@const IO_NEWLINE = utf8:"\n"
+
+[MACRO] PRINT %msg, %len
+    call @sa_print_bytes(&%msg, %len)
+[END_MACRO]
+
 [MACRO] PRINTLN %msg, %len
-    __println_status = call @sa_std_println(&%msg, %len)
-    __println_ok = ? __println_status
-    !__println_status
-    !__println_ok
+    call @sa_print_bytes(&%msg, %len)
+    call @sa_print_bytes(&IO_NEWLINE, 1)
+[END_MACRO]
+
+[MACRO] WRITE %handle, %msg, %len
+    call @sa_io_write_all(%handle, &%msg, %len)
+[END_MACRO]
+
+[MACRO] WRITELN %handle, %msg, %len
+    call @sa_io_write_all(%handle, &%msg, %len)
+    call @sa_io_write_all(%handle, &IO_NEWLINE, 1)
+[END_MACRO]
+
+[MACRO] EPRINT %msg, %len
+    __eprint_handle = call @sa_io_stderr()
+    EXPAND WRITE __eprint_handle, %msg, %len
+    !__eprint_handle
+[END_MACRO]
+
+[MACRO] EPRINTLN %msg, %len
+    __eprintln_handle = call @sa_io_stderr()
+    EXPAND WRITELN __eprintln_handle, %msg, %len
+    !__eprintln_handle
 [END_MACRO]
 
 [MACRO] READ_LINE %out_buf, %handle, %max_bytes

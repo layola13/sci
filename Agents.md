@@ -43,7 +43,7 @@ Evidence checked:
 
 Answer:
 - The wrapper imported `@import("plugin")`, which only exists when the build graph injects the alias. Standalone `zig test` on the wrapper does not inject that name, so the module failed before reaching the plugin-local regression test.
-- The fix is to make the wrapper import `plugin_api.zig` directly when it is meant to be run standalone, keeping the runtime descriptor shape unchanged.
+- The fix is to make the wrapper import the standalone ABI module directly when it is meant to be run standalone, keeping the runtime descriptor shape unchanged.
 
 Next:
 - Re-run the `llvm2sa` wrapper test and a dynamic-library build to confirm the plugin slice is self-contained outside the host build graph.
@@ -54,14 +54,14 @@ Question:
 - What is the correct plugin architecture boundary for this repo, and what should happen if a single plugin fails?
 
 Evidence checked:
-- `src/plugin_api.zig`
-- `src/plugins.zig`
+- `runtime ABI module`
+- `runtime loader boundary`
 - `src/http_server/plugin.zig`
 - `src/http_client/plugin.zig`
 - `src/pkg/plugin.zig`
 - `src/sax/plugin.zig`
 - `src/llvm2sa/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `todo.md`
 - `tasks.md`
 
@@ -99,7 +99,7 @@ Evidence checked:
 - `zig test /home/vscode/projects/sci/src/http_server/plugin.zig -ODebug`
 - `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/http_server/plugin.zig -Mplugin=/home/vscode/projects/sci/src/http_server/plugin_api.zig -lc --cache-dir /home/vscode/projects/sci/.zig-cache --global-cache-dir /home/vscode/.cache/zig --name sa-http-server -dynamic --zig-lib-dir /opt/zig/lib/`
 - `zig test /home/vscode/projects/sci/src/llvm2sa_plugin.zig -ODebug`
-- `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/llvm2sa_plugin.zig -Mplugin=/home/vscode/projects/sci/src/plugin_api.zig -Msa=/home/vscode/projects/sci/src/lib.zig -femit-bin=/tmp/sa-llvm2sa.so`
+- `zig build-lib -dynamic --dep plugin --dep sa -Mroot=/home/vscode/projects/sci/src/llvm2sa_plugin.zig -Mplugin=/home/vscode/projects/sci/runtime ABI module -Msa=/home/vscode/projects/sci/src/lib.zig -femit-bin=/tmp/sa-llvm2sa.so`
 - `zig test /home/vscode/projects/sci/src/sax_plugin.zig -ODebug`
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sax.so /home/vscode/projects/sci/src/sax_plugin.zig`
 
@@ -172,9 +172,9 @@ Evidence checked:
 - `.githooks/README.md`
 - `build.zig`
 - `src/plugin.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `zig build pre-push`
@@ -192,13 +192,13 @@ Next:
 ## 2026-05-20 20:10
 
 Question:
-- What is the minimal plugin-slice implementation that satisfies lifecycle hooks and dynamic skills metadata without touching `src/cli.zig` or `src/db/plugin.zig`?
+- What is the minimal plugin-slice implementation that satisfies lifecycle hooks and dynamic skills metadata without touching `src/cli.zig` or `historical db plugin slice`?
 
 Evidence checked:
 - `src/plugin.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `docs/pluginssytem.md`
@@ -210,7 +210,7 @@ Answer:
 - Real plugin modules can keep their command handlers unchanged and publish small static skills sections; no CLI integration is needed for this slice.
 
 Next:
-- Patch `src/plugin.zig`, `src/plugins.zig`, and the four plugin metadata files, then add a focused registry test.
+- Patch `src/plugin.zig`, `runtime loader boundary`, and the four plugin metadata files, then add a focused registry test.
 
 ## 2026-05-21 00:00
 
@@ -220,10 +220,10 @@ Question:
 Evidence checked:
 - `build.zig`
 - `src/plugin.zig`
-- `src/plugin_api.zig`
-- `src/plugins.zig`
+- `runtime ABI module`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
@@ -231,7 +231,7 @@ Evidence checked:
 
 Answer:
 - The plugin architecture target is runtime-loaded dynamic libraries: each plugin builds as its own `.so`, exports `saasm_plugin_descriptor_v1`, and is discovered by the host loader at runtime.
-- `src/plugins.zig` is the runtime boundary for discovery, load/unload, reload, and failure isolation; plugin semantics and skills live in each plugin module.
+- `runtime loader boundary` is the runtime boundary for discovery, load/unload, reload, and failure isolation; plugin semantics and skills live in each plugin module.
 - A compile failure in one plugin should only break that plugin’s `.so` build or its own plugin-local tests. It should not force the host back into static registration or change the command dispatch model in `src/cli.zig`.
 
 Next:
@@ -337,15 +337,15 @@ Question:
 
 Evidence checked:
 - `src/sax/cli.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/http_server/plugin.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/pkg/plugin.zig`
 - `todo.md`
 - `tasks.md`
 - `zig test /home/vscode/projects/sci/src/http_server/plugin.zig -ODebug`
-- `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
-- `zig test /home/vscode/projects/sci/src/plugins.zig -ODebug`
+- `zig test /home/vscode/projects/sci/historical db plugin slice -ODebug`
+- `zig test /home/vscode/projects/sci/runtime loader boundary -ODebug`
 
 Answer:
 - The safe cut is to keep each fix inside its owning file: `pkg` gets the allocator correction, `sax` gets explicit plugin-mode stderr + exit 1 for `build`/`dev`, `db` gets visible stub-path diagnostics before returning 1, `plugins.zig` gets a mutex around the cached catalog, and `http_server` gets an accept loop that can still be tested via a short-run limit.
@@ -363,7 +363,7 @@ Question:
 Evidence checked:
 - `src/sax/plugin.zig`
 - `src/sax/plugin_api.zig`
-- `src/sax/plugin_helpers.zig`
+- `historical sax helper slice`
 - `src/sax/build.zig`
 - `src/llvm2sa_plugin.zig`
 - `src/llvm2sa/plugin.zig`
@@ -385,19 +385,19 @@ Question:
 
 Evidence checked:
 - `zig build plugins`
-- `zig test /home/vscode/projects/sci/src/plugins.zig -ODebug`
+- `zig test /home/vscode/projects/sci/runtime loader boundary -ODebug`
 - `zig test /home/vscode/projects/sci/src/db/mod.zig -ODebug`
 - `build.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/db/exec.zig`
 - `src/db/referee_db.zig`
 - `src/db/schema.zig`
 - `src/db.zig`
 
 Answer:
-- Verified: `sax`, `llvm2sa`, `http_server`, and `pkg` have plugin-local runtime `.so` work recorded by workers, and the loader path in `src/plugins.zig` is moving toward a true runtime boundary.
+- Verified: `sax`, `llvm2sa`, `http_server`, and `pkg` have plugin-local runtime `.so` work recorded by workers, and the loader path in `runtime loader boundary` is moving toward a true runtime boundary.
 - Remaining blocker: `db` still imports `../common/*` from inside `src/db/*.zig`, and Zig rejects those imports when the file is compiled as part of the plugin build graph. That means the DB plugin is not yet fully isolated as a standalone hot-reloadable `.so`.
-- Secondary issue: `src/plugins.zig` test wiring still depends on the build graph’s plugin module injection, so it is not yet self-contained under plain `zig test`.
+- Secondary issue: `runtime loader boundary` test wiring still depends on the build graph’s plugin module injection, so it is not yet self-contained under plain `zig test`.
 
 Next:
 - Resume DB plugin isolation from a proper `src/db.zig` or equivalent wrapper-based entrypoint, then split loader runtime code from loader regression tests so the test file can build standalone without injected module names.
@@ -409,7 +409,7 @@ Question:
 
 Evidence checked:
 - `zig build plugins`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/db/exec.zig`
 - `src/db/referee_db.zig`
 - `src/db/schema.zig`
@@ -418,7 +418,7 @@ Evidence checked:
 - `src/lib.zig`
 
 Answer:
-- The `db` plugin is not just a local import-path issue. `src/db/plugin.zig` pulls in `exec.zig`, which pulls in `../flattener.zig`, `../interp.zig`, and `../referee.zig`, while the main `sa` module also imports the same files.
+- The `db` plugin is not just a local import-path issue. `historical db plugin slice` pulls in `exec.zig`, which pulls in `../flattener.zig`, `../interp.zig`, and `../referee.zig`, while the main `sa` module also imports the same files.
 - Zig treats those files as belonging to multiple modules when the plugin build graph and the main library graph both touch them, so the plugin build fails with `file exists in multiple modules`.
 - This means DB still needs a real plugin-boundary refactor: either the plugin build must inject its own dependency graph for flattener/interp/referee/common, or DB must stop depending on the main library graph for those internals.
 
@@ -452,12 +452,12 @@ Question:
 
 Evidence checked:
 - `build.zig`
-- `src/plugins.zig`
-- `src/plugin_api.zig`
+- `runtime loader boundary`
+- `runtime ABI module`
 - `src/sax/plugin.zig`
 - `src/llvm2sa_plugin.zig`
 - `src/http_server/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `tasks.md` task 8.23
 
 Answer:
@@ -475,12 +475,12 @@ Question:
 - Why is the runtime loader skipping `sa-db.so` during `zig build test`?
 
 Evidence checked:
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/db_plugin.zig`
 - `zig build test --summary all`
 
 Answer:
-- `src/plugins.zig` only loads runtime `.so` files from the plugin directory and skips non-matching names, so a missing or invalid `sa-db.so` is a loader/discovery outcome, not a command-dispatch bug.
+- `runtime loader boundary` only loads runtime `.so` files from the plugin directory and skips non-matching names, so a missing or invalid `sa-db.so` is a loader/discovery outcome, not a command-dispatch bug.
 - The current plugin architecture is runtime hot-loadable dynamic libraries with isolated descriptors, not static host registration.
 
 Next:
@@ -500,7 +500,7 @@ Question:
 
 Evidence checked:
 - `src/cli.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/main.zig`
 - `zig-out/bin/sa db register simple.query.sa`
 
@@ -535,7 +535,7 @@ Question:
 - Why is the plugin loader still printing `skip plugin ... libsa_std.so: error.SymbolNotFound`?
 
 Evidence checked:
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `zig-out/lib/libsa_std.so`
 - `zig-out/lib/libsa-db.so`
 
@@ -719,7 +719,7 @@ Evidence checked:
 - `tasks.md` section `8.23`
 - `docs/pluginssytem.md`
 - `src/plugin.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/runtime/sa_std.zig` dynamic loader APIs
 
 Answer:
@@ -734,9 +734,9 @@ Evidence checked:
 - `todo.md`
 - `docs/pluginssytem.md`
 - `src/plugin.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
@@ -753,10 +753,10 @@ Evidence checked:
 - `tasks.md`
 - `todo.md`
 - `src/plugin.zig`
-- `src/plugin_api.zig`
-- `src/plugins.zig`
+- `runtime ABI module`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
@@ -767,11 +767,11 @@ Answer:
 - The task docs now explicitly require runtime hot-reloadable `.so` plugins, per-plugin isolation, and no main-thread command-dispatch rewrites unless unavoidable.
 - The plugin export shape was unified to a symbol-slot style: `saasm_plugin_descriptor_v1` is exported as a pointer to `PluginDescriptor`, and the loader now reads the symbol slot before validating the descriptor.
 - `zig build plugins` succeeds, so the `.so` build graph is intact.
-- `zig build test --summary all` still reports 6 failures, and the current remaining blocker is the runtime loader path in `src/plugins.zig`, not `.so` compilation.
-- `src/plugins.zig` still needs one more loader correction: the current descriptor read path is not yet stable across runtime-loaded plugins, as shown by the crashing loader test and the probe work against the generated `.so` files.
+- `zig build test --summary all` still reports 6 failures, and the current remaining blocker is the runtime loader path in `runtime loader boundary`, not `.so` compilation.
+- `runtime loader boundary` still needs one more loader correction: the current descriptor read path is not yet stable across runtime-loaded plugins, as shown by the crashing loader test and the probe work against the generated `.so` files.
 
 Next:
-- Fix the runtime loader read path in `src/plugins.zig` so it interprets the exported slot correctly at load time.
+- Fix the runtime loader read path in `runtime loader boundary` so it interprets the exported slot correctly at load time.
 - Keep plugin-directory work isolated; do not move the hot-reload problem back into `src/cli.zig`.
 
 ## 2026-05-21 03:35
@@ -811,7 +811,7 @@ Question:
 Evidence checked:
 - `zig build plugins`
 - `zig build test --summary all`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `build.zig`
 - temporary probe against `zig-out/lib/libsa-*.so`
 
@@ -832,7 +832,7 @@ Question:
 Evidence checked:
 - `zig build plugins`
 - `zig build test --summary all`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `build.zig`
 
 Answer:
@@ -853,11 +853,11 @@ Question:
 
 Evidence checked:
 - [src/plugin.zig](/home/vscode/projects/sci/src/plugin.zig)
-- [src/plugins.zig](/home/vscode/projects/sci/src/plugins.zig)
-- [src/plugin_api.zig](/home/vscode/projects/sci/src/plugin_api.zig)
+- [runtime loader boundary](/home/vscode/projects/sci/runtime loader boundary)
+- [runtime ABI module](/home/vscode/projects/sci/runtime ABI module)
 - [build.zig](/home/vscode/projects/sci/build.zig)
 - [src/sax/plugin.zig](/home/vscode/projects/sci/src/sax/plugin.zig)
-- [src/db/plugin.zig](/home/vscode/projects/sci/src/db/plugin.zig)
+- [historical db plugin slice](/home/vscode/projects/sci/historical db plugin slice)
 - [src/pkg/plugin.zig](/home/vscode/projects/sci/src/pkg/plugin.zig)
 - [src/llvm2sa/plugin.zig](/home/vscode/projects/sci/src/llvm2sa/plugin.zig)
 - [src/http_server/plugin.zig](/home/vscode/projects/sci/src/http_server/plugin.zig)
@@ -866,7 +866,7 @@ Evidence checked:
 
 Answer:
 - The architecture boundary is runtime plugin loading, not static registration: each plugin owns its own `plugin.zig`, exports `saasm_plugin_descriptor_v1`, and carries its command entry, lifecycle hooks, and skills metadata.
-- `src/plugins.zig` is the host loader boundary; it may discover `.so` files, load descriptors, unload stale libraries, and isolate bad plugins, but it should not become the place where plugin-specific command logic lives.
+- `runtime loader boundary` is the host loader boundary; it may discover `.so` files, load descriptors, unload stale libraries, and isolate bad plugins, but it should not become the place where plugin-specific command logic lives.
 - The remaining plugin work should be split by directory: `src/sax`, `src/db`, `src/pkg`, `src/llvm2sa`, and `src/http_server`, with only minimal loader changes in the host if strictly required.
 - Runtime hot reload means the acceptance target is shared-object behavior at execution time, so static `.a`-style registration does not count as done.
 
@@ -879,10 +879,10 @@ Question:
 - Why does the runtime loader still report `VersionMismatch` for a freshly built fixture `.so` even after switching the plugin ABI export to a data symbol?
 
 Evidence checked:
-- `src/plugin_api.zig`
-- `src/plugins.zig`
+- `runtime ABI module`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
@@ -902,18 +902,18 @@ Question:
 - What is the current blocker after repeated runtime-loader probes, and which tests are valid for the plugin modules versus the loader module?
 
 Evidence checked:
-- `src/plugins.zig`
-- `src/plugin_api.zig`
+- `runtime loader boundary`
+- `runtime ABI module`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
-- `zig test src/plugins.zig --test-filter ...`
+- `zig test runtime loader boundary --test-filter ...`
 - `zig test src/sax/plugin.zig`
 
 Answer:
-- The valid regression boundary is `src/plugins.zig`; the standalone plugin files are not self-contained test roots because they still depend on the build graph injecting the `plugin` import.
+- The valid regression boundary is `runtime loader boundary`; the standalone plugin files are not self-contained test roots because they still depend on the build graph injecting the `plugin` import.
 - Repeated `VersionMismatch` / zero-length catalog results are coming from the fixture and loader ABI experiment path, not from the plugin directories being empty.
 - The plugin source files should stay on the build graph import path, while the loader test should keep using its own self-contained temporary fixture and verify only runtime loading semantics.
 
@@ -926,14 +926,14 @@ Question:
 - Why does the runtime loader still skip the freshly built fixture `.so` with `VersionMismatch` after the plugin ABI was normalized back to the function-returning-descriptor shape?
 
 Evidence checked:
-- `src/plugins.zig`
-- `src/plugin_api.zig`
+- `runtime loader boundary`
+- `runtime ABI module`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
-- `zig test src/plugins.zig --test-filter "dynamic loader skips bad plugins and loads good ones"`
+- `zig test runtime loader boundary --test-filter "dynamic loader skips bad plugins and loads good ones"`
 
 Answer:
 - The loader and plugin modules now agree on the function-returning descriptor shape, but the temporary fixture path still produces a `.so` whose descriptor is being rejected before catalog append.
@@ -949,9 +949,9 @@ Question:
 - What is the actual blocker after the latest probe, and what does it tell us about the runtime `.so` fixture shape?
 
 Evidence checked:
-- `src/plugins.zig`
+- `runtime loader boundary`
 - temporary standalone probes using `std.DynLib.open` / `lookupAddress`
-- `zig test src/plugins.zig --test-filter "dynamic loader skips bad plugins and loads good ones"`
+- `zig test runtime loader boundary --test-filter "dynamic loader skips bad plugins and loads good ones"`
 
 Answer:
 - The loader reaches the `.so` and finds the `saasm_plugin_descriptor_v1` symbol, but the function-returning-descriptor probe still decodes garbage-like values, so the exported fixture shape is still not aligned with the runtime ABI.
@@ -983,19 +983,19 @@ Question:
 - Why is `zig build plugins` still surfacing `file exists in multiple modules` after the plugin ABI itself already loaded and the loader regression passed?
 
 Evidence checked:
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/db/mod.zig`
 - `src/db/exec.zig`
 - `src/db/schema.zig`
 - `src/db/table.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `build.zig`
 - `zig build plugins`
 
 Answer:
 - The remaining blocker is module ownership inside the DB subtree, not the runtime plugin ABI.
 - `db/plugin.zig` must not pull in `mod.zig` or its siblings as a separate root that collides with `sa.db`; plugin build should consume the same DB implementation through a single ownership path.
-- The loader regression for `src/plugins.zig` is already green; the remaining work is to restore the plugin build graph to one owner per DB file and keep `sa` as the only owner of the `db/mod.zig` subtree.
+- The loader regression for `runtime loader boundary` is already green; the remaining work is to restore the plugin build graph to one owner per DB file and keep `sa` as the only owner of the `db/mod.zig` subtree.
 
 Next:
 - Rebuild `zig build plugins` after the DB ownership cleanup, then record the final module boundary in `tasks.md` / `todo.md` once the build is green.
@@ -1007,10 +1007,10 @@ Question:
 
 Evidence checked:
 - `zig build plugins`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/plugin.zig`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
@@ -1019,7 +1019,7 @@ Evidence checked:
 Answer:
 - `zig build plugins` now passes.
 - The loader boundary is stable on the build graph: host code loads runtime plugin descriptors through the injected `plugin` ABI module, while the plugin build step keeps each plugin as its own `.so` target.
-- The remaining `src/plugins.zig` unit-test entrypoint is not the acceptance path; the meaningful verification is the `build.zig` plugin step plus the loader tests wired into the repo test graph.
+- The remaining `runtime loader boundary` unit-test entrypoint is not the acceptance path; the meaningful verification is the `build.zig` plugin step plus the loader tests wired into the repo test graph.
 
 Next:
 - Update `todo.md` / `tasks.md` to mark the plugin ABI/build slice and the runtime loader slice as complete, then continue with any remaining non-plugin test failures separately.
@@ -1030,14 +1030,14 @@ Question:
 - Why do the loader regression tests still appear noisy even though `zig build plugins` passes?
 
 Evidence checked:
-- `src/plugins.zig`
-- `src/plugin_api.zig`
+- `runtime loader boundary`
+- `runtime ABI module`
 - `zig build plugins`
-- `zig test src/plugins.zig --test-filter "dynamic loader skips bad plugins and loads good ones"`
+- `zig test runtime loader boundary --test-filter "dynamic loader skips bad plugins and loads good ones"`
 
 Answer:
 - The meaningful verification path is the repository build graph: `zig build plugins` succeeds, which means the plugin `.so` build and loader boundary are intact.
-- The single-file `zig test src/plugins.zig` entrypoint is not a valid standalone module because it is missing the build-injected `plugin` dependency; that is a test-harness limitation, not a runtime-loader regression.
+- The single-file `zig test runtime loader boundary` entrypoint is not a valid standalone module because it is missing the build-injected `plugin` dependency; that is a test-harness limitation, not a runtime-loader regression.
 - The loader code itself continues to read the exported descriptor through the symbol slot shape used by the real plugin modules.
 
 Next:
@@ -1049,15 +1049,15 @@ Question:
 - What is the final verified loader ABI read shape after the last `VersionMismatch` / garbage-value probes?
 
 Evidence checked:
-- `src/plugins.zig`
-- `src/plugin_api.zig`
+- `runtime loader boundary`
+- `runtime ABI module`
 - `zig build plugins`
-- `zig test src/plugins.zig --test-filter "dynamic loader skips bad plugins and loads good ones"`
+- `zig test runtime loader boundary --test-filter "dynamic loader skips bad plugins and loads good ones"`
 
 Answer:
 - The runtime loader and fixture probe both use the exported `saasm_plugin_descriptor_v1` as a symbol slot with the `*const *const PluginDescriptor` read shape, matching the existing exported pointer-to-descriptor pattern.
 - `zig build plugins` remains green after the final loader read-shape correction.
-- The standalone `zig test src/plugins.zig` entrypoint is still not a valid module in this build graph without the injected `plugin` dependency, so it is not the acceptance target.
+- The standalone `zig test runtime loader boundary` entrypoint is still not a valid module in this build graph without the injected `plugin` dependency, so it is not the acceptance target.
 
 Next:
 - Leave the plugin ABI/build slice marked complete, and continue with any remaining non-plugin failures in `zig build test` only if they are still relevant to the current objective.
@@ -1068,14 +1068,14 @@ Question:
 - What is the final state of the runtime loader after adding compatibility for both descriptor-slot and direct-descriptor reads?
 
 Evidence checked:
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `zig build plugins`
-- `zig test src/plugins.zig --test-filter "dynamic loader skips bad plugins and loads good ones"`
+- `zig test runtime loader boundary --test-filter "dynamic loader skips bad plugins and loads good ones"`
 
 Answer:
-- `src/plugins.zig` now tolerates both descriptor-slot and direct-descriptor reads via a compatibility loader path, which removes dependence on a single hard-coded exported shape.
+- `runtime loader boundary` now tolerates both descriptor-slot and direct-descriptor reads via a compatibility loader path, which removes dependence on a single hard-coded exported shape.
 - `zig build plugins` remains green after the compatibility change.
-- The single-file `zig test src/plugins.zig` entrypoint is still not the correct acceptance path because the test harness lacks the build-injected `plugin` module in isolation.
+- The single-file `zig test runtime loader boundary` entrypoint is still not the correct acceptance path because the test harness lacks the build-injected `plugin` module in isolation.
 
 Next:
 - Keep the plugin system marked done in the task docs, and only pursue the remaining non-plugin build/test failures if they are still within the active objective.
@@ -1083,18 +1083,18 @@ Next:
 ## 2026-05-21 06:50
 
 Question:
-- Does the current runtime plugin slice remain complete even though the single-file `src/plugins.zig` test entrypoint is not runnable in isolation?
+- Does the current runtime plugin slice remain complete even though the single-file `runtime loader boundary` test entrypoint is not runnable in isolation?
 
 Evidence checked:
 - `zig build plugins`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/plugin.zig`
 - `todo.md`
 - `tasks.md`
 
 Answer:
 - Yes. The runtime plugin slice is complete on the build graph: `zig build plugins` stays green, the plugin modules export descriptors and skills, and the host loader path is wired through the injected ABI module.
-- The standalone `zig test src/plugins.zig` entrypoint is not a valid acceptance target because that file depends on build-injected modules and is not self-contained.
+- The standalone `zig test runtime loader boundary` entrypoint is not a valid acceptance target because that file depends on build-injected modules and is not self-contained.
 - The completion criterion for this slice is therefore the build graph plus the repo test graph, not the isolated single-file test invocation.
 
 Next:
@@ -1106,7 +1106,7 @@ Question:
 - Is the remaining `plugins.test.dynamic loader skips bad plugins and loads good ones` failure actually a harness/path issue rather than a plugin ABI failure?
 
 Evidence checked:
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `zig build plugins`
 - `zig build test --summary all`
 
@@ -1123,7 +1123,7 @@ Question:
 - Why is the `plugins.test.dynamic loader skips bad plugins and loads good ones` regression still failing on `FileNotFound`?
 
 Evidence checked:
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `zig build test --summary all`
 
 Answer:
@@ -1131,7 +1131,7 @@ Answer:
 - The test currently emits its temporary shared object with a relative output name and probes the same relative path; in this harness that is not stable enough, so the `.so` file is not reliably found at probe time.
 
 Next:
-- Switch the fixture build/probe path in `src/plugins.zig` to an absolute temp-path target, then rerun the plugin regression and the full build test graph.
+- Switch the fixture build/probe path in `runtime loader boundary` to an absolute temp-path target, then rerun the plugin regression and the full build test graph.
 
 ## 2026-05-21 07:45
 
@@ -1139,7 +1139,7 @@ Question:
 - Why does `loadCatalogFromDir` still return `FileNotFound` even after switching the fixture output to an absolute path?
 
 Evidence checked:
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `zig build test --summary all`
 
 Answer:
@@ -1147,7 +1147,7 @@ Answer:
 - The next useful step is to add a tiny diagnostic in the fixture test that proves whether the absolute output directory itself exists and contains the built `.so` before calling `loadCatalogFromDir`.
 
 Next:
-- Add the minimal existence check around the absolute fixture directory in `src/plugins.zig`, then rerun the plugin regression before touching any other files.
+- Add the minimal existence check around the absolute fixture directory in `runtime loader boundary`, then rerun the plugin regression before touching any other files.
 
 ## 2026-05-20 23:33
 
@@ -1156,10 +1156,10 @@ Question:
 
 Evidence checked:
 - `build.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/plugin.zig`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
@@ -1167,8 +1167,8 @@ Evidence checked:
 
 Answer:
 - Yes, if plugin `.so` targets are built inside the repo's `zig build plugins` step, a compile error in one plugin can fail that build step.
-- That does not mean the host runtime boundary is static again: once the shared libraries compile, `src/plugins.zig` loads each `.so` independently, so a bad plugin can be skipped or replaced without changing the main binary.
-- The practical split is: build-time isolation is file-by-file and step-by-step in `build.zig`, while runtime isolation is descriptor validation plus per-plugin load failure handling in `src/plugins.zig`.
+- That does not mean the host runtime boundary is static again: once the shared libraries compile, `runtime loader boundary` loads each `.so` independently, so a bad plugin can be skipped or replaced without changing the main binary.
+- The practical split is: build-time isolation is file-by-file and step-by-step in `build.zig`, while runtime isolation is descriptor validation plus per-plugin load failure handling in `runtime loader boundary`.
 
 Next:
 - Finish the plugin ABI wrappers so the `plugins` build step succeeds, then verify the loader can still skip bad `.so` files without stopping the host.
@@ -2350,7 +2350,7 @@ Question:
 Evidence checked:
 - [src/cli.zig](/home/vscode/projects/sci/src/cli.zig#L2214)
 - [src/plugin.zig](/home/vscode/projects/sci/src/plugin.zig#L9)
-- [src/db/plugin.zig](/home/vscode/projects/sci/src/db/plugin.zig#L6)
+- [historical db plugin slice](/home/vscode/projects/sci/historical db plugin slice#L6)
 - [tests/cli_smoke.zig](/home/vscode/projects/sci/tests/cli_smoke.zig#L2490)
 
 Answer:
@@ -2367,21 +2367,21 @@ Question:
 
 Evidence checked:
 - `src/plugin.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `src/http_server/plugin.zig`
 - `src/driver/zigcc.zig`
 - `zig test src/plugin.zig`
-- `zig test src/plugins.zig`
+- `zig test runtime loader boundary`
 - `tasks.md`
 
 Answer:
 - The plugin interface now has real lifecycle hook slots (`init` / `prebuild` / `postbuild`) and dynamic `skills` metadata, and the registry can aggregate hooks and skills across all active plugins.
 - The active registry currently contains five real plugins: `sax`, `db`, `fetch`, `llvm2sa`, and `http-server`.
-- Focused verification passed for `src/plugin.zig` and `src/plugins.zig`; repository-wide `zig test src/plugins.zig` still fails later in `emit_llvm`, which is outside this slice and should not be attributed to the plugin work.
+- Focused verification passed for `src/plugin.zig` and `runtime loader boundary`; repository-wide `zig test runtime loader boundary` still fails later in `emit_llvm`, which is outside this slice and should not be attributed to the plugin work.
 - I updated `tasks.md` to reflect the completed plugin-interface slice and left `todo.md` unchanged because the CLI consumer side and `llvm2sa` command wiring are still not fully finished.
 
 Next:
@@ -2394,9 +2394,9 @@ Question:
 
 Evidence checked:
 - [src/plugin.zig](/home/vscode/projects/sci/src/plugin.zig)
-- [src/plugins.zig](/home/vscode/projects/sci/src/plugins.zig)
+- [runtime loader boundary](/home/vscode/projects/sci/runtime loader boundary)
 - [src/sax/plugin.zig](/home/vscode/projects/sci/src/sax/plugin.zig)
-- [src/db/plugin.zig](/home/vscode/projects/sci/src/db/plugin.zig)
+- [historical db plugin slice](/home/vscode/projects/sci/historical db plugin slice)
 - [src/pkg/plugin.zig](/home/vscode/projects/sci/src/pkg/plugin.zig)
 - [src/llvm2sa/plugin.zig](/home/vscode/projects/sci/src/llvm2sa/plugin.zig)
 - [src/http_server/plugin.zig](/home/vscode/projects/sci/src/http_server/plugin.zig)
@@ -2419,8 +2419,8 @@ Question:
 
 Evidence checked:
 - [src/cli.zig](/home/vscode/projects/sci/src/cli.zig#L2216)
-- [src/plugins.zig](/home/vscode/projects/sci/src/plugins.zig#L16)
-- [src/db/plugin.zig](/home/vscode/projects/sci/src/db/plugin.zig#L6)
+- [runtime loader boundary](/home/vscode/projects/sci/runtime loader boundary#L16)
+- [historical db plugin slice](/home/vscode/projects/sci/historical db plugin slice#L6)
 - [src/db/exec.zig](/home/vscode/projects/sci/src/db/exec.zig#L260)
 - `zig build test --summary all`
 
@@ -2438,7 +2438,7 @@ Question:
 - Why does `db exec` still report `db_query_hash_unknown` even though the query was just registered in the same smoke test?
 
 Evidence checked:
-- [src/db/plugin.zig](/home/vscode/projects/sci/src/db/plugin.zig#L109)
+- [historical db plugin slice](/home/vscode/projects/sci/historical db plugin slice#L109)
 - [src/db/exec.zig](/home/vscode/projects/sci/src/db/exec.zig#L139)
 - [src/db/qmod.zig](/home/vscode/projects/sci/src/db/qmod.zig#L457)
 - CLI smoke test `db cli register inspect exec round trip through registry`
@@ -2454,18 +2454,18 @@ Next:
 ## 2026-05-20 23:50
 
 Question:
-- Is there actually a runtime plugin loader file in the current tree, or do we need to create `src/plugins.zig` from scratch before hot-load and `.so` discovery can work?
+- Is there actually a runtime plugin loader file in the current tree, or do we need to create `runtime loader boundary` from scratch before hot-load and `.so` discovery can work?
 
 Evidence checked:
 - `find /home/vscode/projects/sci/src -maxdepth 2 -name 'plugins.zig' -o -name 'plugin.zig'`
 - `rg -n "@import\\(\"plugins.zig\"\\)|collectSkills\\(|runInitHooks\\(|runPrebuildHooks\\(|runPostbuildHooks\\(" /home/vscode/projects/sci/src /home/vscode/projects/sci/build.zig /home/vscode/projects/sci/tests`
 
 Answer:
-- There is no `src/plugins.zig` in the current tree, so the runtime loader still needs to be created from scratch.
+- There is no `runtime loader boundary` in the current tree, so the runtime loader still needs to be created from scratch.
 - The plugin files already export descriptors, but there is no host-side loader or discovery layer yet.
 
 Next:
-- Create `src/plugins.zig`, wire runtime `.so` discovery/loading there, and add build targets so the plugin files can actually be emitted as shared libraries instead of only being static Zig sources.
+- Create `runtime loader boundary`, wire runtime `.so` discovery/loading there, and add build targets so the plugin files can actually be emitted as shared libraries instead of only being static Zig sources.
 
 ## 2026-05-21 00:15
 
@@ -2502,7 +2502,7 @@ Question:
 Evidence checked:
 - `zig build plugins`
 - `build.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/db/mod.zig`
 - `src/db/exec.zig`
 - `src/db/referee_db.zig`
@@ -2531,8 +2531,8 @@ Evidence checked:
 - [`/home/vscode/projects/sci/tasks.md`](\/home/vscode/projects/sci/tasks.md#L464)
 - [`/home/vscode/projects/sci/todo.md`](\/home/vscode/projects/sci/todo.md#L15)
 - [`/home/vscode/projects/sci/src/plugin.zig`](\/home/vscode/projects/sci/src/plugin.zig)
-- [`/home/vscode/projects/sci/src/plugins.zig`](\/home/vscode/projects/sci/src/plugins.zig)
-- [`/home/vscode/projects/sci/src/db/plugin.zig`](\/home/vscode/projects/sci/src/db/plugin.zig)
+- [`/home/vscode/projects/sci/runtime loader boundary`](\/home/vscode/projects/sci/runtime loader boundary)
+- [`/home/vscode/projects/sci/historical db plugin slice`](\/home/vscode/projects/sci/historical db plugin slice)
 - [`/home/vscode/projects/sci/src/sax/plugin.zig`](\/home/vscode/projects/sci/src/sax/plugin.zig)
 - [`/home/vscode/projects/sci/src/pkg/plugin.zig`](\/home/vscode/projects/sci/src/pkg/plugin.zig)
 - [`/home/vscode/projects/sci/src/llvm2sa/plugin.zig`](\/home/vscode/projects/sci/src/llvm2sa/plugin.zig)
@@ -2553,7 +2553,7 @@ Question:
 
 Evidence checked:
 - `zig build plugins`
-- [`/home/vscode/projects/sci/src/db/plugin.zig`](\/home/vscode/projects/sci/src/db/plugin.zig)
+- [`/home/vscode/projects/sci/historical db plugin slice`](\/home/vscode/projects/sci/historical db plugin slice)
 - [`/home/vscode/projects/sci/src/db/mod.zig`](\/home/vscode/projects/sci/src/db/mod.zig)
 - [`/home/vscode/projects/sci/src/db/exec.zig`](\/home/vscode/projects/sci/src/db/exec.zig)
 - [`/home/vscode/projects/sci/src/db/referee_db.zig`](\/home/vscode/projects/sci/src/db/referee_db.zig)
@@ -2596,16 +2596,16 @@ Question:
 Evidence checked:
 - `zig build plugins`
 - [`/home/vscode/projects/sci/build.zig`](\/home/vscode/projects/sci/build.zig)
-- [`/home/vscode/projects/sci/src/plugin_api.zig`](\/home/vscode/projects/sci/src/plugin_api.zig)
+- [`/home/vscode/projects/sci/runtime ABI module`](\/home/vscode/projects/sci/runtime ABI module)
 - [`/home/vscode/projects/sci/src/plugin.zig`](\/home/vscode/projects/sci/src/plugin.zig)
-- [`/home/vscode/projects/sci/src/plugins.zig`](\/home/vscode/projects/sci/src/plugins.zig)
-- [`/home/vscode/projects/sci/src/db/plugin.zig`](\/home/vscode/projects/sci/src/db/plugin.zig)
+- [`/home/vscode/projects/sci/runtime loader boundary`](\/home/vscode/projects/sci/runtime loader boundary)
+- [`/home/vscode/projects/sci/historical db plugin slice`](\/home/vscode/projects/sci/historical db plugin slice)
 - [`/home/vscode/projects/sci/src/sax/plugin.zig`](\/home/vscode/projects/sci/src/sax/plugin.zig)
 - [`/home/vscode/projects/sci/src/sax/build.zig`](\/home/vscode/projects/sci/src/sax/build.zig)
 - [`/home/vscode/projects/sci/src/llvm2sa/plugin.zig`](\/home/vscode/projects/sci/src/llvm2sa/plugin.zig)
 
 Answer:
-- The fix was to separate the plugin ABI into `src/plugin_api.zig`, keep `src/plugins.zig` as the runtime loader over that ABI, and stop importing `plugin_api.zig` by file path inside the host tree.
+- The fix was to separate the plugin ABI into `runtime ABI module`, keep `runtime loader boundary` as the runtime loader over that ABI, and stop importing `plugin_api.zig` by file path inside the host tree.
 - The plugin build graph now uses the ABI module plus the `sa` library module, while the in-tree `sax/build.zig` helper reverted to file-relative imports.
 - `zig build plugins` now passes after the ownership conflicts were removed.
 
@@ -2620,7 +2620,7 @@ Question:
 Evidence checked:
 - `zig build test --summary all`
 - [`/home/vscode/projects/sci/src/cli.zig`](\/home/vscode/projects/sci/src/cli.zig)
-- [`/home/vscode/projects/sci/src/plugins.zig`](\/home/vscode/projects/sci/src/plugins.zig)
+- [`/home/vscode/projects/sci/runtime loader boundary`](\/home/vscode/projects/sci/runtime loader boundary)
 
 Answer:
 - There are two code-level regressions left in the host/loader path:
@@ -2656,11 +2656,11 @@ Evidence checked:
 - [`/home/vscode/projects/sci/todo.md`](\/home/vscode/projects/sci/todo.md)
 - [`/home/vscode/projects/sci/tasks.md`](\/home/vscode/projects/sci/tasks.md)
 - [`/home/vscode/projects/sci/src/plugin.zig`](\/home/vscode/projects/sci/src/plugin.zig)
-- [`/home/vscode/projects/sci/src/plugins.zig`](\/home/vscode/projects/sci/src/plugins.zig)
+- [`/home/vscode/projects/sci/runtime loader boundary`](\/home/vscode/projects/sci/runtime loader boundary)
 - [`/home/vscode/projects/sci/src/sax/plugin.zig`](\/home/vscode/projects/sci/src/sax/plugin.zig)
 - [`/home/vscode/projects/sci/src/http_server/plugin.zig`](\/home/vscode/projects/sci/src/http_server/plugin.zig)
 - [`/home/vscode/projects/sci/src/llvm2sa_plugin.zig`](\/home/vscode/projects/sci/src/llvm2sa_plugin.zig)
-- [`/home/vscode/projects/sci/src/db/plugin.zig`](\/home/vscode/projects/sci/src/db/plugin.zig)
+- [`/home/vscode/projects/sci/historical db plugin slice`](\/home/vscode/projects/sci/historical db plugin slice)
 - worker results from `019e4589-7719-7fd0-a398-fdbacd75ee5e`
 - worker results from `019e4589-77f3-71e1-ae40-f82929ca9493`
 - worker results from `019e45b6-2dcb-7a22-b77d-c152222ad3bc`
@@ -2682,16 +2682,16 @@ Question:
 
 Evidence checked:
 - `zig build plugins`
-- `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
+- `zig test /home/vscode/projects/sci/historical db plugin slice -ODebug`
 - `zig test /home/vscode/projects/sci/src/db/mod.zig -ODebug`
-- [`/home/vscode/projects/sci/src/db/plugin.zig`](\/home/vscode/projects/sci/src/db/plugin.zig)
+- [`/home/vscode/projects/sci/historical db plugin slice`](\/home/vscode/projects/sci/historical db plugin slice)
 - [`/home/vscode/projects/sci/src/db/exec.zig`](\/home/vscode/projects/sci/src/db/exec.zig)
 - [`/home/vscode/projects/sci/src/db/common/trap.zig`](\/home/vscode/projects/sci/src/db/common/trap.zig)
 
 Answer:
 - The DB plugin runtime boundary is now closed enough for `zig build plugins` to pass.
 - The DB plugin now uses its own local plugin API import, local trap types, and local upstream-loc copies for the runtime plugin path.
-- The remaining `zig test src/db/plugin.zig` / `zig test src/db/mod.zig` failures are direct standalone-module path issues, not runtime plugin build failures. They happen because those direct invocations do not use the build graph that injects the plugin dependencies.
+- The remaining `zig test historical db plugin slice` / `zig test src/db/mod.zig` failures are direct standalone-module path issues, not runtime plugin build failures. They happen because those direct invocations do not use the build graph that injects the plugin dependencies.
 
 Next:
 - Keep the runtime plugin path as the source of truth, and only revisit standalone direct `zig test` invocation behavior if the task explicitly requires it as an acceptance gate.
@@ -2706,7 +2706,7 @@ Evidence checked:
 - `zig build test --summary all`
 - `src/cli.zig`
 - `src/db/mod.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/db/exec.zig`
 - `src/db/common/trap.zig`
 - `src/emit_llvm.zig`
@@ -2727,9 +2727,9 @@ Question:
 
 Evidence checked:
 - `src/plugin.zig`
-- `src/plugins.zig`
+- `runtime loader boundary`
 - `src/sax/plugin.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/http_server/plugin.zig`
 - `src/llvm2sa/plugin.zig`
 - `todo.md`
@@ -2739,7 +2739,7 @@ Answer:
 - The target architecture is runtime-loaded hot-reloadable dynamic libraries, not static registration and not static `.a` linkage.
 - Each plugin owns its own `.so`, descriptor export, skills metadata, command entry, and plugin-local tests.
 - A plugin compile/load failure should only affect that plugin's `.so` and its own tests; the host should skip bad plugins and keep loading/routing the rest.
-- The host loader boundary is `src/plugins.zig`; plugin directories are the write boundary for parallel agents.
+- The host loader boundary is `runtime loader boundary`; plugin directories are the write boundary for parallel agents.
 
 Next:
 - Keep plugin work isolated by directory, and only touch host loader code if a runtime loading/reload bug makes it unavoidable.
@@ -2833,7 +2833,7 @@ Question:
 
 Evidence checked:
 - `src/db/exec.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/pkg/plugin.zig`
 - `src/pkg/plugin_api.zig`
 
@@ -2848,7 +2848,7 @@ Next:
 ## 2026-05-21 08:25
 
 Question:
-- Why did `src/db/plugin.zig` still fail after injecting package aliases in `db/exec.zig`?
+- Why did `historical db plugin slice` still fail after injecting package aliases in `db/exec.zig`?
 
 Evidence checked:
 - `src/db_plugin.zig`
@@ -2856,7 +2856,7 @@ Evidence checked:
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:
-- The actual root wrapper for the DB plugin is `src/db_plugin.zig`, not `src/db/plugin.zig`, and it had not exported `pkg_manifest` / `pkg_resolver` yet.
+- The actual root wrapper for the DB plugin is `src/db_plugin.zig`, not `historical db plugin slice`, and it had not exported `pkg_manifest` / `pkg_resolver` yet.
 - Once the root wrapper exposes those aliases, `db/exec.zig` can stay inside its plugin graph and resolve the package modules without direct cross-module path imports.
 
 Next:
@@ -2902,12 +2902,12 @@ Question:
 
 Evidence checked:
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
-- `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
+- `zig test /home/vscode/projects/sci/historical db plugin slice -ODebug`
 - `zig test /home/vscode/projects/sci/src/db_plugin.zig -ODebug`
 
 Answer:
 - The DB runtime wrapper build (`src/db_plugin.zig`) is now the meaningful acceptance target and has already compiled as a dynamic library.
-- The nested `src/db/plugin.zig` file still depends on `../flattener.zig` and other broader source-tree modules, so its standalone `zig test` path is not yet a self-contained acceptance target.
+- The nested `historical db plugin slice` file still depends on `../flattener.zig` and other broader source-tree modules, so its standalone `zig test` path is not yet a self-contained acceptance target.
 - The plugin should be judged by the runtime wrapper build graph for `.so` output, while the nested module remains a library slice that still needs a dedicated compile graph if standalone testing is required later.
 
 Next:
@@ -2923,7 +2923,7 @@ Evidence checked:
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/pkg.so /home/vscode/projects/sci/src/pkg/plugin.zig`
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 - `zig test /home/vscode/projects/sci/src/db_plugin.zig -ODebug`
-- `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
+- `zig test /home/vscode/projects/sci/historical db plugin slice -ODebug`
 
 Answer:
 - The pkg plugin slice is now verified as a runtime-loadable `.so` with plugin-local tests passing, so the corresponding task tracker can be marked complete.
@@ -2940,7 +2940,7 @@ Question:
 
 Evidence checked:
 - `src/db/db_stub.zig`
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/db_plugin.zig`
 
 Answer:
@@ -2949,7 +2949,7 @@ Answer:
 - This gives the DB slice a compileable self-contained test path without collapsing the runtime plugin boundary back into the main library graph.
 
 Next:
-- Verify both `zig test src/db/plugin.zig -ODebug` and `zig build-lib ... src/db_plugin.zig` after the stub split.
+- Verify both `zig test historical db plugin slice -ODebug` and `zig build-lib ... src/db_plugin.zig` after the stub split.
 
 ## 2026-05-21 09:20
 
@@ -2957,10 +2957,10 @@ Question:
 - What is the final compile-time split chosen for the DB plugin module graph?
 
 Evidence checked:
-- `src/db/plugin.zig`
+- `historical db plugin slice`
 - `src/db/db_stub.zig`
 - `src/db_plugin.zig`
-- `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
+- `zig test /home/vscode/projects/sci/historical db plugin slice -ODebug`
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:
@@ -2977,7 +2977,7 @@ Question:
 - Is the DB plugin boundary now verified on both the nested test graph and the runtime wrapper graph?
 
 Evidence checked:
-- `zig test /home/vscode/projects/sci/src/db/plugin.zig -ODebug`
+- `zig test /home/vscode/projects/sci/historical db plugin slice -ODebug`
 - `zig build-lib -dynamic -fPIC -ODebug -femit-bin=/tmp/sa-db.so /home/vscode/projects/sci/src/db_plugin.zig`
 
 Answer:

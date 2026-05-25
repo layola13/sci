@@ -1,0 +1,28 @@
+@import "../sa_std/core/slice.sal"
+@import "../sa_std/core/slice.sa"
+
+@test "include macros embed file contents"():
+L_ENTRY:
+    text_slice = alloc Slice_SIZE
+    bytes_slice = alloc Slice_SIZE
+    EXPAND INCLUDE_STR! "tests/include_macro_text.txt"
+    EXPAND INCLUDE_BYTES! "tests/include_macro_bytes.bin"
+    text_ptr = load text_slice+Slice_ptr as ptr
+    text_len = load text_slice+Slice_len as u64
+    bytes_ptr = load bytes_slice+Slice_ptr as ptr
+    bytes_len = load bytes_slice+Slice_len as u64
+    text_ptr_ok = ne text_ptr, 0
+    bytes_ptr_ok = ne bytes_ptr, 0
+    text_len_ok = eq text_len, 11
+    bytes_len_ok = eq bytes_len, 4
+    !text_ptr
+    !text_len
+    !bytes_ptr
+    !bytes_len
+    !text_ptr_ok
+    !bytes_ptr_ok
+    !text_len_ok
+    !bytes_len_ok
+    !text_slice
+    !bytes_slice
+    return

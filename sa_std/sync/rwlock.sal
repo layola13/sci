@@ -1,0 +1,3 @@
+#def RwLock_SIZE = 8
+#def RwLock_readers = +0
+#def RwLock_writing = +4

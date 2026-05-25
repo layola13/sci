@@ -1,0 +1,41 @@
+@import "waker.sal"
+
+[MACRO] WAKER_NEW %out_waker, %data_ptr, %vtable_ptr
+    %out_waker = alloc Waker_SIZE
+    store %out_waker+Waker_data, %data_ptr as ptr
+    store %out_waker+Waker_vtable, %vtable_ptr as ptr
+[END_MACRO]
+
+[MACRO] WAKER_GET_VTABLE %out_vtable, %waker_reg
+    %out_vtable = load %waker_reg+Waker_vtable as ptr
+[END_MACRO]
+
+[MACRO] WAKER_WAKE %out_value, %waker_reg
+    __waker_vt_%out_value = load %waker_reg+Waker_vtable as ptr
+    __waker_fn_%out_value = load __waker_vt_%out_value+WakerWakeSlot as ptr
+    __waker_data_%out_value = load %waker_reg+Waker_data as ptr
+    %out_value = call_indirect __waker_fn_%out_value(&__waker_data_%out_value)
+    !__waker_data_%out_value
+    !__waker_fn_%out_value
+    !__waker_vt_%out_value
+[END_MACRO]
+
+[MACRO] WAKER_WAKE_BY_REF %out_value, %waker_reg
+    __waker_vt_ref_%out_value = load %waker_reg+Waker_vtable as ptr
+    __waker_fn_ref_%out_value = load __waker_vt_ref_%out_value+WakerWakeByRefSlot as ptr
+    __waker_data_ref_%out_value = load %waker_reg+Waker_data as ptr
+    %out_value = call_indirect __waker_fn_ref_%out_value(&__waker_data_ref_%out_value)
+    !__waker_data_ref_%out_value
+    !__waker_fn_ref_%out_value
+    !__waker_vt_ref_%out_value
+[END_MACRO]
+
+[MACRO] WAKER_DROP %waker_reg, %free_label
+    __waker_vt_drop_%waker_reg = load %waker_reg+Waker_vtable as ptr
+    __waker_drop_fn_%waker_reg = load __waker_vt_drop_%waker_reg+WakerDropSlot as ptr
+    call_indirect __waker_drop_fn_%waker_reg(&%waker_reg)
+    !__waker_drop_fn_%waker_reg
+    !__waker_vt_drop_%waker_reg
+    jmp %free_label
+[END_MACRO]
+

@@ -1,5 +1,8 @@
 const std = @import("std");
-const build_options = @import("build_options");
+const builtin = @import("builtin");
+const build_options = if (builtin.is_test) struct {
+    pub const repo_root: []const u8 = ".";
+} else @import("build_options");
 
 fn pathHasPrecompiledArtifact(name: []const u8) bool {
     const lower = std.ascii.lowerString;
@@ -284,12 +287,11 @@ fn resolveRelativeImport(
             try pathJoin(allocator, &.{ base_dir, current_path });
         defer allocator.free(candidate);
 
-        const canonical = std.fs.cwd().realpathAlloc(allocator, candidate) catch |err| {
+        const canonical = std.fs.cwd().realpathAlloc(allocator, candidate) catch {
             if (std.mem.indexOfScalar(u8, current_path, '/')) |slash| {
                 current_path = current_path[slash + 1 ..];
                 continue;
             }
-            std.debug.print("\n[RESOLVE] resolveRelativeImport failed for '{s}' from '{s}': {}\n", .{import_path, base_dir, err});
             return null;
         };
         errdefer allocator.free(canonical);
@@ -326,9 +328,6 @@ fn resolveFromPackageRoot(
     const canonical_root = std.fs.cwd().realpathAlloc(allocator, root_dir) catch return null;
     errdefer allocator.free(canonical_root);
 
-    // DEBUG PRINT
-    std.debug.print("\n[RESOLVE_PKG] resolveFromPackageRoot checking '{s}' for '{?s}'\n", .{canonical_root, package_identity});
-
     var root_dir_handle = std.fs.cwd().openDir(canonical_root, .{ .iterate = true }) catch return null;
     defer root_dir_handle.close();
 
@@ -358,10 +357,7 @@ fn resolveFromPackageRoot(
         }
 
         const source = try readFileAlloc(allocator, canonical_entry, max_bytes);
-        const source_hash = computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source) catch |err| {
-            std.debug.print("\n[RESOLVE_PKG_ROOT] error {} in '{s}'\n", .{err, canonical_root});
-            return err;
-        };
+        const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);
         var resolved: ResolvedImport = .{
             .entry_path = canonical_entry,
             .root_dir = canonical_root,
@@ -409,27 +405,15 @@ fn resolveRootedImport(
     const candidate = try std.fs.path.join(allocator, &.{ root_path, import_rel });
     defer allocator.free(candidate);
 
-    const canonical_entry = std.fs.cwd().realpathAlloc(allocator, candidate) catch |err| {
-        std.debug.print("\n[RESOLVE_ROOT] realpathAlloc failed for entry '{s}': {}\n", .{candidate, err});
-        return null;
-    };
+    const canonical_entry = std.fs.cwd().realpathAlloc(allocator, candidate) catch return null;
     errdefer allocator.free(canonical_entry);
-    const canonical_root = std.fs.cwd().realpathAlloc(allocator, root_path) catch |err| {
-        std.debug.print("\n[RESOLVE_ROOT] realpathAlloc failed for root '{s}': {}\n", .{root_path, err});
-        return null;
-    };
+    const canonical_root = std.fs.cwd().realpathAlloc(allocator, root_path) catch return null;
     errdefer allocator.free(canonical_root);
 
-    const source = std.fs.cwd().readFileAlloc(allocator, canonical_entry, max_bytes) catch |err| {
-        std.debug.print("\n[RESOLVE_ROOT] readFileAlloc failed for '{s}': {}\n", .{canonical_entry, err});
-        return null;
-    };
+    const source = std.fs.cwd().readFileAlloc(allocator, canonical_entry, max_bytes) catch return null;
     errdefer allocator.free(source);
 
-    const source_hash = computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source) catch |err| {
-        std.debug.print("\n[RESOLVE_ROOT] error {} in '{s}' for '{s}'\n", .{err, canonical_root, import_rel});
-        return err;
-    };
+    const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);
 
     var resolved: ResolvedImport = .{
         .entry_path = canonical_entry,
@@ -439,7 +423,7 @@ fn resolveRootedImport(
         .source_sha256 = source_hash,
         .is_global = true,
     };
-    
+
     if (isPackageIdentity(import_rel)) {
         resolved.package_identity = try allocator.dupe(u8, import_rel);
     }

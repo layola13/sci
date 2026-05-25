@@ -214,15 +214,18 @@ const key = `${Number(node_h)}::${evt}::${handler}::${ctx}`;
 
 ---
 
-## 7. 当前未生成的能力
+## 7. 路由与 HTTP 扩展
 
-以下内容出现在旧版设计草案里，但**当前生成器不会输出**：
+当前生成器已经输出以下扩展接口：
 
 - `sax_set_timeout` / `sax_set_interval`
 - `sax_clear_timeout` / `sax_clear_interval`
 - `sax_http_get` / `sax_http_post`
 - `sax_router_push` / `sax_router_replace` / `sax_router_get_path`
+
+它们都挂在 `sax_airlock` 白名单对象上。路由接口直接包装 `history.pushState` / `history.replaceState`，并通过 `popstate` / `hashchange` 同步当前路径；HTTP 接口当前实现为同步请求，返回一个三字段结果块，布局与 SAX 侧 `load result+0/8/16` 的用法兼容。
+
+以下名字仍然保留为路线图或草案内容：
+
 - `sax_event_get_key` / `sax_event_get_data_int` / `sax_event_get_input_value`
 - `_wasm_call`
-
-如果你在其他文档里看到这些名字，它们属于路线图，不属于当前 `src/sax/airlock_gen.zig` 的输出。

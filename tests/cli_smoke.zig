@@ -40,6 +40,40 @@ fn writeBytes(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
+fn writeManifestForPackage(
+    dir: std.fs.Dir,
+    project_root: []const u8,
+    package_url: []const u8,
+    package_root: []const u8,
+    grants_clause: []const u8,
+) !void {
+    var report = try saasm.pkg.audit.auditPackage(std.testing.allocator, package_url, "HEAD", package_root, &.{});
+    defer report.deinit(std.testing.allocator);
+    const hash_hex = std.fmt.bytesToHex(report.source_sha256, .lower);
+    const manifest_source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "require {s} @HEAD sha256:{s}{s}\n",
+        .{ package_url, hash_hex[0..], grants_clause },
+    );
+    defer std.testing.allocator.free(manifest_source);
+    const manifest_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "sa.mod" });
+    defer std.testing.allocator.free(manifest_path);
+    try writeSource(dir, manifest_path, manifest_source);
+}
+
+fn writeProjectSum(dir: std.fs.Dir, project_root: []const u8) !void {
+    const manifest_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "sa.mod" });
+    defer std.testing.allocator.free(manifest_path);
+    const manifest_source = try dir.readFileAlloc(std.testing.allocator, manifest_path, 16 * 1024 * 1024);
+    defer std.testing.allocator.free(manifest_source);
+    var project_manifest = try saasm.pkg.manifest.parseManifestWithFile(std.testing.allocator, manifest_source, manifest_path);
+    defer project_manifest.deinit(std.testing.allocator);
+    const root_abs = try dir.realpathAlloc(std.testing.allocator, project_root);
+    defer std.testing.allocator.free(root_abs);
+    var update = try saasm.pkg.sum.updateProjectSum(std.testing.allocator, root_abs, project_manifest);
+    defer update.deinit(std.testing.allocator);
+}
+
 fn expectNoTextLlvmArtifacts(dir: std.fs.Dir, out_name: []const u8) !void {
     const ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.ll", .{out_name});
     defer std.testing.allocator.free(ll_name);
@@ -464,85 +498,6 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
-}
-
-test "cli sax build produces browser bundle artifacts" {
-    const source =
-        \\<Component name="App">
-        \\
-        \\  <state>
-        \\    count = 0
-        \\  </state>
-        \\
-        \\  <div class="app">
-        \\    <h1>Hello SAX</h1>
-        \\    <p>Count: {count}</p>
-        \\    <button onclick={^increment}>+1</button>
-        \\  </div>
-        \\
-        \\  @increment:
-        \\  L_ENTRY:
-        \\    count = load state+App_count as i64
-        \\    count = add count, 1
-        \\    store state+App_count, count as i64
-        \\    call @render()
-        \\    ret
-        \\
-        \\  !count
-        \\</Component>
-    ;
-
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
-    defer original_cwd.close();
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.setAsCwd();
-    defer original_cwd.setAsCwd() catch {};
-
-    try writeSource(tmp.dir, "app.sax", source);
-
-    const build_argv = [_][]const u8{ "sa", "sax", "build", "app.sax" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
-    defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
-    defer stderr_buffer.deinit();
-
-    const code = try saasm.cli.executeWithWriters(
-        std.testing.allocator,
-        build_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
-    );
-    try std.testing.expectEqual(@as(u8, 0), code);
-    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "✓ SAX build successful"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/app.sa"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/app.wasm"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/airlock.js"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "dist/index.html"));
-
-    const saasm_file = try tmp.dir.openFile("dist/app.sa", .{});
-    defer saasm_file.close();
-    const saasm_bytes = try saasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
-    defer std.testing.allocator.free(saasm_bytes);
-    try std.testing.expect(std.mem.containsAtLeast(u8, saasm_bytes, 1, "#def App_count = +0"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, saasm_bytes, 1, "state+App_count"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, saasm_bytes, 1, "sax_App_node_button"));
-
-    const wasm_file = try tmp.dir.openFile("dist/app.wasm", .{});
-    defer wasm_file.close();
-    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
-    defer std.testing.allocator.free(wasm_bytes);
-    try std.testing.expect(wasm_bytes.len > 8);
-    try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
-    try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
-
-    const index_file = try tmp.dir.openFile("dist/index.html", .{});
-    defer index_file.close();
-    const index_bytes = try index_file.readToEndAlloc(std.testing.allocator, 1 << 20);
-    defer std.testing.allocator.free(index_bytes);
-    try std.testing.expect(std.mem.containsAtLeast(u8, index_bytes, 1, "app.wasm"));
 }
 
 test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {
@@ -1378,13 +1333,11 @@ test "ffi airlock demo preserves pointer values through assume_* in sa run" {
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
 }
 
-test "http client saasm demo builds through plugin-linked native exe" {
+test "http client saasm demo builds through native exe" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/301_http_client_saasm/main.sa");
     defer std.testing.allocator.free(source_path);
-    const plugin_dir = try original_cwd.realpathAlloc(std.testing.allocator, "zig-out/lib");
-    defer std.testing.allocator.free(plugin_dir);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1429,11 +1382,7 @@ test "http client saasm demo builds through plugin-linked native exe" {
     const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_code);
 
-    var env_map = try std.process.getEnvMap(std.testing.allocator);
-    defer env_map.deinit();
-    try env_map.put("SAASM_PLUGIN_DIR", plugin_dir);
-
-    const exe_result = try runCommandAnyExitWithEnvMap(std.testing.allocator, &[_][]const u8{"./http_client_saasm.out"}, &env_map);
+    const exe_result = try runCommandAnyExitWithEnvMap(std.testing.allocator, &[_][]const u8{"./http_client_saasm.out"}, null);
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
@@ -1452,13 +1401,11 @@ test "http client saasm demo builds through plugin-linked native exe" {
     try std.testing.expect(body_seen.*);
 }
 
-test "http server saasm demo builds through plugin-linked native exe" {
+test "http server saasm demo builds through native exe" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/302_http_server_saasm/main.sa");
     defer std.testing.allocator.free(source_path);
-    const plugin_dir = try original_cwd.realpathAlloc(std.testing.allocator, "zig-out/lib");
-    defer std.testing.allocator.free(plugin_dir);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1504,11 +1451,7 @@ test "http server saasm demo builds through plugin-linked native exe" {
             }
         }
     }.run, .{response_seen});
-    var env_map = try std.process.getEnvMap(std.testing.allocator);
-    defer env_map.deinit();
-    try env_map.put("SAASM_PLUGIN_DIR", plugin_dir);
-
-    const exe_result = try runCommandAnyExitWithEnvMap(std.testing.allocator, &[_][]const u8{"./http_server_saasm.out"}, &env_map);
+    const exe_result = try runCommandAnyExitWithEnvMap(std.testing.allocator, &[_][]const u8{"./http_server_saasm.out"}, null);
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
@@ -2096,7 +2039,7 @@ test "vtable loads preserve indirect call provenance end to end" {
     try std.testing.expectEqualStrings("OK\n", exe_result.stdout);
 }
 
-test "bc2sa rejects bitcode until importer is implemented" {
+test "bc2sa translates real llvm bitcode" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -2105,23 +2048,46 @@ test "bc2sa rejects bitcode until importer is implemented" {
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.sa");
-    defer std.testing.allocator.free(source_path);
+    try writeSource(tmp.dir, "sample.ll",
+        \\define i32 @main(i32 %lhs, i32 %rhs) {
+        \\entry:
+        \\  %0 = add i32 %lhs, %rhs
+        \\  %1 = icmp sgt i32 %0, 2
+        \\  br i1 %1, label %ok, label %err
+        \\ok:
+        \\  ret i32 %0
+        \\err:
+        \\  ret i32 0
+        \\}
+        \\
+    );
 
-    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "hello.out" };
-    const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
-    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+    const as_result = std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "llvm-as-14", "sample.ll", "-o", "sample.bc" },
+    }) catch |err| switch (err) {
+        error.FileNotFound => return error.SkipZigTest,
+        else => return err,
+    };
+    defer std.testing.allocator.free(as_result.stdout);
+    defer std.testing.allocator.free(as_result.stderr);
+    switch (as_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
 
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
-    const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", "hello.out.sa.bc" };
+    const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", "sample.bc" };
     const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
-    try std.testing.expectEqual(@as(u8, 1), bc2sa_code);
-    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_buf.items, "unsupported bitcode input") != null);
+    try std.testing.expectEqual(@as(u8, 0), bc2sa_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export main(lhs: i32, rhs: i32) -> i32:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "r0 = add lhs, rhs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "br r1 -> L_ok, L_err") != null);
 }
 
 test "import expansion keeps source paths alive end to end" {
@@ -3115,6 +3081,97 @@ test "agent-first cli commands print explain fix and skills outputs" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"install [identity]\""));
 }
 
+test "cli audit dispatches through runtime package plugin" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("pkg");
+    try writeSource(tmp.dir, "pkg/index.sa",
+        \\call @sys_print(*MSG, 2)
+        \\
+    );
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "pkg");
+    defer std.testing.allocator.free(pkg_root);
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const audit_argv = [_][]const u8{ "sa", "audit", "--format", "json", pkg_root };
+    const audit_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        audit_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), audit_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.startsWith(u8, stdout_buffer.items, "{\"package\":"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"trust_score\":50"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"capability\":\"io_write\""));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "audit: "));
+}
+
+test "cli audit update-lock writes project lock through package flow" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("zig-out");
+    try tmp.dir.makePath("pkg");
+    try writeSource(tmp.dir, "pkg/index.sa",
+        \\@main() -> i32:
+        \\return 0
+        \\
+    );
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const audit_argv = [_][]const u8{ "sa", "audit", "--update-lock", "--format", "json", "pkg" };
+    const audit_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        audit_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), audit_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.startsWith(u8, stdout_buffer.items, "{\"package\":\"pkg\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"machine_code_sha256\":\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"created_entry\":true"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"changed\":true"));
+
+    const lock_source = try tmp.dir.readFileAlloc(std.testing.allocator, "sa.lock", 1024 * 1024);
+    defer std.testing.allocator.free(lock_source);
+    var lock_file = try saasm.pkg.manifest.parseLock(std.testing.allocator, lock_source);
+    defer lock_file.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 1), lock_file.entries.len);
+    try std.testing.expectEqualStrings("pkg", lock_file.entries[0].url);
+    try std.testing.expectEqualStrings("HEAD", lock_file.entries[0].ref);
+    try std.testing.expectEqual(@as(usize, 1), lock_file.entries[0].approved_machine_code_hashes.count());
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const second_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        audit_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"created_entry\":false"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"changed\":false"));
+}
+
 test "cli init creates a binary project and install syncs manifest dependencies" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -3162,10 +3219,18 @@ test "cli init creates a binary project and install syncs manifest dependencies"
         \\@pkg_value() -> i32:
         \\return 42
     );
-    try writeSource(tmp.dir, "app/sa.mod",
-        \\require deps/example/pkg @HEAD sha256:0000000000000000000000000000000000000000000000000000000000000000
-        \\
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/deps/example/pkg");
+    defer std.testing.allocator.free(pkg_root);
+    var pkg_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/pkg", "HEAD", pkg_root, &.{});
+    defer pkg_report.deinit(std.testing.allocator);
+    const pkg_hash_hex = std.fmt.bytesToHex(pkg_report.source_sha256, .lower);
+    const manifest_source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "require deps/example/pkg @HEAD sha256:{s}\n",
+        .{pkg_hash_hex[0..]},
     );
+    defer std.testing.allocator.free(manifest_source);
+    try writeSource(tmp.dir, "app/sa.mod", manifest_source);
     try app_dir.setAsCwd();
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
@@ -3180,6 +3245,285 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/pkg"));
     try tmp.dir.access("app/sa_vendor/deps/example/pkg/index.sa", .{ .mode = .read_only });
+    try tmp.dir.access("app/sa.sum", .{ .mode = .read_only });
+}
+
+test "package preflight rejects tampered project sum as structured trap" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("app/src");
+    try tmp.dir.makePath("app/deps/example/pkg");
+    try writeSource(tmp.dir, "app/src/main.sa",
+        \\@main() -> i32:
+        \\return 0
+    );
+    try writeSource(tmp.dir, "app/deps/example/pkg/index.sa",
+        \\@pkg_value() -> i32:
+        \\return 42
+    );
+
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/deps/example/pkg");
+    defer std.testing.allocator.free(pkg_root);
+    var pkg_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/pkg", "HEAD", pkg_root, &.{});
+    defer pkg_report.deinit(std.testing.allocator);
+    const pkg_hash_hex = std.fmt.bytesToHex(pkg_report.source_sha256, .lower);
+    const manifest_source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "require deps/example/pkg @HEAD sha256:{s}\n",
+        .{pkg_hash_hex[0..]},
+    );
+    defer std.testing.allocator.free(manifest_source);
+    try writeSource(tmp.dir, "app/sa.mod", manifest_source);
+
+    var app_dir = try tmp.dir.openDir("app", .{});
+    defer app_dir.close();
+    try app_dir.setAsCwd();
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const install_argv = [_][]const u8{ "sa", "install" };
+    const install_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        install_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), install_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    const bad_sum =
+        \\deps/example/pkg @HEAD sha256:0000000000000000000000000000000000000000000000000000000000000000
+        \\
+    ;
+    try writeSource(std.fs.cwd(), "sa.sum", bad_sum);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const run_argv = [_][]const u8{ "sa", "run", "src/main.sa", "--json" };
+    const run_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        run_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), run_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"SumHashMismatch\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"status\":\"error\""));
+}
+
+test "PkgMgr-Confirm-NonTty rejects risky package preflight before build output" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("app/src");
+    try tmp.dir.makePath("app/sa_vendor/risky/pkg");
+    try writeSource(tmp.dir, "app/src/main.sa",
+        \\@main() -> i32:
+        \\return 0
+    );
+    try writeSource(tmp.dir, "app/sa_vendor/risky/pkg/index.sa",
+        \\call @sys_net_tx(*BUF, 4)
+        \\
+    );
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/risky/pkg");
+    defer std.testing.allocator.free(pkg_root);
+    try writeManifestForPackage(tmp.dir, "app", "risky/pkg", pkg_root, "");
+    try writeProjectSum(tmp.dir, "app");
+
+    var app_dir = try tmp.dir.openDir("app", .{});
+    defer app_dir.close();
+    try app_dir.setAsCwd();
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    var input = std.io.fixedBufferStream("");
+    const build_argv = [_][]const u8{ "sa", "build-exe", "src/main.sa", "-o", "blocked.out", "--json" };
+    const code = try saasm.cli.executeWithWritersAndOptions(
+        std.testing.allocator,
+        build_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+        .{ .stdin_reader = input.reader().any(), .stdin_is_tty = false },
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"MissingTtyForConfirmation\""));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("blocked.out", .{ .mode = .read_only }));
+}
+
+test "PkgMgr-Confirm-Tty accepts exact URL through compile preflight" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("app/src");
+    try tmp.dir.makePath("app/sa_vendor/risky/pkg");
+    try writeSource(tmp.dir, "app/src/main.sa",
+        \\@main() -> i32:
+        \\return 0
+    );
+    try writeSource(tmp.dir, "app/sa_vendor/risky/pkg/index.sa",
+        \\call @sys_net_tx(*BUF, 4)
+        \\
+    );
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/risky/pkg");
+    defer std.testing.allocator.free(pkg_root);
+    try writeManifestForPackage(tmp.dir, "app", "risky/pkg", pkg_root, "");
+    try writeProjectSum(tmp.dir, "app");
+
+    var app_dir = try tmp.dir.openDir("app", .{});
+    defer app_dir.close();
+    try app_dir.setAsCwd();
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    var input = std.io.fixedBufferStream("risky/pkg\n");
+    const run_argv = [_][]const u8{ "sa", "run", "src/main.sa" };
+    const code = try saasm.cli.executeWithWritersAndOptions(
+        std.testing.allocator,
+        run_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+        .{ .stdin_reader = input.reader().any(), .stdin_is_tty = true },
+    );
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "SA ZERO-TRUST PACKAGE REVIEW REQUIRED"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "type the exact package URL to continue: risky/pkg"));
+}
+
+test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("app/src");
+    try tmp.dir.makePath("app/sa_vendor/ci/pkg");
+    try writeSource(tmp.dir, "app/src/main.sa",
+        \\@main() -> i32:
+        \\return 0
+    );
+    try writeSource(tmp.dir, "app/sa_vendor/ci/pkg/index.sa",
+        \\call @sys_net_tx(*BUF, 4)
+        \\
+    );
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/ci/pkg");
+    defer std.testing.allocator.free(pkg_root);
+
+    const bad_manifest =
+        \\require ci/pkg @HEAD sha256:0000000000000000000000000000000000000000000000000000000000000000
+        \\
+    ;
+    try writeSource(tmp.dir, "app/sa.mod", bad_manifest);
+
+    var app_dir = try tmp.dir.openDir("app", .{});
+    defer app_dir.close();
+    try app_dir.setAsCwd();
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const run_ci_argv = [_][]const u8{ "sa", "run", "src/main.sa", "--ci", "--json" };
+    var code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        run_ci_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UpstreamShaMismatch\""));
+
+    try original_cwd.setAsCwd();
+    try tmp.dir.setAsCwd();
+    try writeManifestForPackage(tmp.dir, "app", "ci/pkg", pkg_root, "");
+    try app_dir.setAsCwd();
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        run_ci_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnauthorizedPrimitive\""));
+}
+
+test "PkgMgr-Offline-Build uses vendored sources and project sum" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("app/src");
+    try tmp.dir.makePath("app/sa_vendor/safe/pkg");
+    try writeSource(tmp.dir, "app/src/main.sa",
+        \\@main() -> i32:
+        \\return 0
+    );
+    try writeSource(tmp.dir, "app/sa_vendor/safe/pkg/index.sa",
+        \\@pkg_value() -> i32:
+        \\return 42
+    );
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/safe/pkg");
+    defer std.testing.allocator.free(pkg_root);
+    try writeManifestForPackage(tmp.dir, "app", "safe/pkg", pkg_root, "");
+    try writeProjectSum(tmp.dir, "app");
+
+    var app_dir = try tmp.dir.openDir("app", .{});
+    defer app_dir.close();
+    try app_dir.setAsCwd();
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const run_argv = [_][]const u8{ "sa", "run", "src/main.sa", "--offline" };
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        run_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }
 
 test "build and run json diagnostics emit structured success metrics on stderr" {

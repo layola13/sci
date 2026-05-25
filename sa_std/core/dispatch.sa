@@ -1,0 +1,7 @@
+@import "dispatch.sal"
+
+[MACRO] DISPATCH %dispatch_reg, %tag_a_label, %tag_b_label
+    __dispatch_tag = load %dispatch_reg+Dispatch_tag as u64
+    __dispatch_is_a = eq __dispatch_tag, Dispatch_TAG_A
+    br __dispatch_is_a -> %tag_a_label, %tag_b_label
+[END_MACRO]

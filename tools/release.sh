@@ -96,6 +96,7 @@ build_target() {
     
     # 3. Create target directory layout
     mkdir -p "$TARGET_DIR/bin"
+    mkdir -p "$TARGET_DIR/lib"
     mkdir -p "$TARGET_DIR/std"
     
     # 4. Copy SAASM Executable
@@ -119,7 +120,7 @@ build_target() {
     else
         error "Standard library source directory not found: $REPO_ROOT/sa_std"
     fi
-    
+
     # 6. Copy static runtime library if built
     # Some targets compile static libraries in zig-out/lib
     LIB_FILE="libsa_std.a"
@@ -171,15 +172,20 @@ build_target() {
 }
 
 # Run through target builds
-for TARGET in $TARGETS; do
-    if [ -z "$TARGET" ]; then continue; fi
-    
+printf "%s\n" "$TARGETS" | while IFS= read -r TARGET; do
+    TARGET="$(printf "%s" "$TARGET" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -n "$TARGET" ] || continue
+    case "$TARGET" in
+        \#*) continue ;;
+    esac
+
     # Split fields
     OLD_IFS="$IFS"
     IFS=";"
     set -- $TARGET
     IFS="$OLD_IFS"
-    
+
+    [ "$#" -eq 4 ] || error "Invalid target entry: $TARGET"
     build_target "$1" "$2" "$3" "$4"
 done
 
@@ -188,11 +194,27 @@ info "--------------------------------------------------"
 working "Generating SHA256 checksums"
 cd "$DIST_DIR"
 if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum sa-* > sha256sums.txt
+    find . -maxdepth 1 -type f \( -name 'sa-*.tar.gz' -o -name 'sa-*.zip' \) -print | sort | while IFS= read -r ARCHIVE_FILE; do
+        ARCHIVE_NAME="${ARCHIVE_FILE#./}"
+        sha256sum "$ARCHIVE_NAME"
+    done > sha256sums.txt
+    find . -maxdepth 1 -type f \( -name 'sa-*.tar.gz' -o -name 'sa-*.zip' \) -print | sort | while IFS= read -r ARCHIVE_FILE; do
+        ARCHIVE_NAME="${ARCHIVE_FILE#./}"
+        SHA_LINE="$(sha256sum "$ARCHIVE_NAME")"
+        printf "%s\n" "$SHA_LINE" > "${ARCHIVE_FILE#./}.sha256"
+    done
     printf " done!\n"
     success "Generated checksums file at dist/sha256sums.txt"
 elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 sa-* > sha256sums.txt
+    find . -maxdepth 1 -type f \( -name 'sa-*.tar.gz' -o -name 'sa-*.zip' \) -print | sort | while IFS= read -r ARCHIVE_FILE; do
+        ARCHIVE_NAME="${ARCHIVE_FILE#./}"
+        shasum -a 256 "$ARCHIVE_NAME"
+    done > sha256sums.txt
+    find . -maxdepth 1 -type f \( -name 'sa-*.tar.gz' -o -name 'sa-*.zip' \) -print | sort | while IFS= read -r ARCHIVE_FILE; do
+        ARCHIVE_NAME="${ARCHIVE_FILE#./}"
+        SHA_LINE="$(shasum -a 256 "$ARCHIVE_NAME")"
+        printf "%s\n" "$SHA_LINE" > "${ARCHIVE_FILE#./}.sha256"
+    done
     printf " done!\n"
     success "Generated checksums file at dist/sha256sums.txt"
 else

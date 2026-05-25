@@ -1,0 +1,64 @@
+[MACRO] ARC_NEW %out_arc, %value
+    %out_arc = alloc ArcBox_SIZE
+    store %out_arc+ArcBox_strong, 1 as u64
+    store %out_arc+ArcBox_weak, 1 as u64
+    store %out_arc+ArcBox_data, %value as u64
+[END_MACRO]
+
+[MACRO] ARC_CLONE %arc_reg
+    __arc_strong_%arc_reg = atomic_load %arc_reg+ArcBox_strong as u64 acquire
+    __arc_next_strong_%arc_reg = atomic_rmw_add %arc_reg+ArcBox_strong, 1 as u64 acq_rel
+    !__arc_next_strong_%arc_reg
+    !__arc_strong_%arc_reg
+[END_MACRO]
+
+[MACRO] ARC_DROP %arc_reg, %cleanup_label
+    __arc_strong_%arc_reg = atomic_rmw_sub %arc_reg+ArcBox_strong, 1 as u64 acq_rel
+    __arc_is_last_%arc_reg = eq __arc_strong_%arc_reg, 1
+    br __arc_is_last_%arc_reg -> %cleanup_label, L_ARC_DROP_DONE_%arc_reg
+L_ARC_DROP_DONE_%arc_reg:
+    !__arc_is_last_%arc_reg
+    !__arc_strong_%arc_reg
+[END_MACRO]
+
+[MACRO] ARC_DOWNGRADE %out_weak, %arc_reg
+    __arc_weak_%out_weak = atomic_rmw_add %arc_reg+ArcBox_weak, 1 as u64 acq_rel
+    %out_weak = add %arc_reg, 0
+    !__arc_weak_%out_weak
+[END_MACRO]
+
+[MACRO] ARC_WEAK_CLONE %weak_reg
+    __weak_strong_%weak_reg = atomic_load %weak_reg+ArcBox_strong as u64 acquire
+    __weak_next_%weak_reg = atomic_rmw_add %weak_reg+ArcBox_strong, 1 as u64 acq_rel
+    !__weak_next_%weak_reg
+    !__weak_strong_%weak_reg
+[END_MACRO]
+
+[MACRO] ARC_WEAK_DROP %weak_reg, %free_label
+    __weak_next_count_%weak_reg = atomic_rmw_sub %weak_reg+ArcBox_weak, 1 as u64 acq_rel
+    __weak_is_last_%weak_reg = eq __weak_next_count_%weak_reg, 1
+    br __weak_is_last_%weak_reg -> %free_label, L_ARC_WEAK_DROP_DONE_%weak_reg
+L_ARC_WEAK_DROP_DONE_%weak_reg:
+    !__weak_is_last_%weak_reg
+    !__weak_next_count_%weak_reg
+[END_MACRO]
+
+[MACRO] ARC_WEAK_UPGRADE %out_arc, %out_ok, %weak_reg
+    __weak_strong_%out_arc = atomic_load %weak_reg+ArcBox_strong as u64 acquire
+    __weak_is_alive_%out_arc = ne __weak_strong_%out_arc, 0
+    br __weak_is_alive_%out_arc -> L_ARC_WEAK_UPGRADE_OK_%out_arc, L_ARC_WEAK_UPGRADE_NONE_%out_arc
+L_ARC_WEAK_UPGRADE_OK_%out_arc:
+    __weak_next_strong_%out_arc = atomic_rmw_add %weak_reg+ArcBox_strong, 1 as u64 acq_rel
+    %out_arc = add %weak_reg, 0
+    %out_ok = add 0, 1
+    !__weak_next_strong_%out_arc
+    !__weak_is_alive_%out_arc
+    !__weak_strong_%out_arc
+    jmp L_ARC_WEAK_UPGRADE_END_%out_arc
+L_ARC_WEAK_UPGRADE_NONE_%out_arc:
+    %out_arc = add 0, 0
+    %out_ok = add 0, 0
+    !__weak_is_alive_%out_arc
+    !__weak_strong_%out_arc
+L_ARC_WEAK_UPGRADE_END_%out_arc:
+[END_MACRO]

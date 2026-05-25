@@ -104,6 +104,8 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_SET_NONE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_SET_SOME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_BRANCH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] MATCHES_OPTION"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] MATCH_OPTION"));
 
     const result_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/result.sa");
     defer std.testing.allocator.free(result_src);
@@ -121,6 +123,16 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_SET_OK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_SET_ERR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_BRANCH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] MATCH_RESULT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] MATCHES_RESULT"));
+
+    const stringify_src = try common.readFileAlloc(std.testing.allocator, "src/flattener.zig");
+    defer std.testing.allocator.free(stringify_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stringify_src, 1, "STRINGIFY!"));
+
+    const sa_core_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/sa_core.sa");
+    defer std.testing.allocator.free(sa_core_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, sa_core_src, 1, "[MACRO] CFG"));
 
     const panic_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/panic.sa");
     defer std.testing.allocator.free(panic_src);

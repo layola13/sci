@@ -1,0 +1,8 @@
+#def Waker_SIZE = 16
+#def Waker_data = +0
+#def Waker_vtable = +8
+#def WakerCloneSlot = +0
+#def WakerWakeSlot = +8
+#def WakerWakeByRefSlot = +16
+#def WakerDropSlot = +24
+

@@ -195,11 +195,11 @@ configure_shell() {
             ;;
     esac
 
-    ENV_LINE=". \"\$HOME/.sa/env\""
+    ENV_LINE=". \"$SA_DIR/env\""
     PATH_UPDATED=0
 
     if [ -n "$SHELL_PROFILE" ] && [ -f "$SHELL_PROFILE" ]; then
-        if grep -q "\.sa/env" "$SHELL_PROFILE" >/dev/null 2>&1 || grep -q "\.sa/bin" "$SHELL_PROFILE" >/dev/null 2>&1; then
+        if grep -F -q "$SA_DIR/env" "$SHELL_PROFILE" >/dev/null 2>&1 || grep -F -q "$SA_BIN_DIR" "$SHELL_PROFILE" >/dev/null 2>&1; then
             info "PATH settings already exist in $SHELL_PROFILE."
             PATH_UPDATED=1
         else
@@ -213,16 +213,16 @@ configure_shell() {
     if command -v fish >/dev/null 2>&1 || [ -f "$HOME/.config/fish/config.fish" ]; then
         FISH_CONF="$HOME/.config/fish/config.fish"
         run_or_echo mkdir -p "$(dirname "$FISH_CONF")"
-        if ! grep -q "sa/bin" "$FISH_CONF" >/dev/null 2>&1; then
+        if ! grep -F -q "$SA_BIN_DIR" "$FISH_CONF" >/dev/null 2>&1; then
             step "Configuring Fish shell PATH"
-            run_or_echo sh -c "printf '\n# SA Toolchain Path\nfish_add_path \$HOME/.sa/bin\nset -gx SA_STD_DIR \$HOME/.sa/std\n' >> '$FISH_CONF'"
+            run_or_echo sh -c "printf '\n# SA Toolchain Path\nfish_add_path %s\nset -gx SA_STD_DIR %s\n' '$SA_BIN_DIR' '$SA_STD_DIR' >> '$FISH_CONF'"
         fi
     fi
 
     printf "\n"
     success "SA Toolchain installed successfully!"
     printf "\n"
-    printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/sa  (and symlink 'sa')"
+    printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/sa  (and symlink 'saasm')"
     printf "  ${BOLD}Std Library Root:${RESET} %s\n" "$SA_STD_DIR"
     printf "\n"
 
@@ -395,6 +395,7 @@ main() {
                 error "Archive structure invalid: 'std/' not found."
             fi
             verify_std_payload "$SA_STD_DIR"
+
         fi
 
         rm -rf "$TEMP_DIR"
@@ -403,16 +404,18 @@ main() {
     # ── Symlink sa ───────────────────────────────────────────────────────
     if [ "$DRY_RUN" != "1" ] && [ -f "$SA_BIN_DIR/sa" ]; then
         run_or_echo chmod +x "$SA_BIN_DIR/sa"
+        rm -f "$SA_BIN_DIR/saasm"
+        ln -s "sa" "$SA_BIN_DIR/saasm"
     fi
 
     # ── Environment File ──────────────────────────────────────────────────
     if [ "$DRY_RUN" != "1" ]; then
-        cat <<EOF > "$SA_DIR/env"
+cat <<EOF > "$SA_DIR/env"
 # SA (System Architecture) Environment Configuration
 # Source this file to enable SA commands in your terminal.
 
-export PATH="\$HOME/.sa/bin:\$PATH"
-export SA_STD_DIR="\$HOME/.sa/std"
+export PATH="$SA_BIN_DIR:\$PATH"
+export SA_STD_DIR="$SA_STD_DIR"
 EOF
         chmod +x "$SA_DIR/env"
     else
@@ -424,12 +427,12 @@ EOF
         printf "\n"
         success "SA Toolchain installed successfully!"
         printf "\n"
-        printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/sa  (and symlink 'sa')"
+        printf "  ${BOLD}Executable:${RESET}  %s\n" "$SA_BIN_DIR/sa  (and symlink 'saasm')"
         printf "  ${BOLD}Std Library:${RESET} %s\n" "$SA_STD_DIR"
         printf "\n"
         info "Shell profile modification skipped (--no-shell)."
         printf "  Add this to your shell profile to activate SA:\n"
-        printf "    ${BOLD}. \"\$HOME/.sa/env\"${RESET}\n\n"
+        printf "    ${BOLD}. \"$SA_DIR/env\"${RESET}\n\n"
     else
         configure_shell "$SA_DIR"
     fi

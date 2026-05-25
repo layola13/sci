@@ -10,18 +10,19 @@ const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const manifest = @import("pkg/manifest.zig");
+const pkg_audit = @import("pkg/audit.zig");
+const pkg_ci = @import("pkg/ci.zig");
+const pkg_confirm = @import("pkg/confirm.zig");
 const pkg_fetch = @import("pkg/fetch.zig");
+const pkg_mirror = @import("pkg/mirror.zig");
 const pkg_resolver = @import("pkg/resolver.zig");
-const plugins = @import("plugins.zig");
+const pkg_sum = @import("pkg/sum.zig");
 const referee_call = @import("referee/call.zig");
 const referee = @import("referee.zig");
-const sax_cli = @import("sax/cli.zig");
 const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
 const common_upstream = @import("common/upstream_loc.zig");
-const db = @import("db/mod.zig");
-const db_trap = @import("db/common/trap.zig");
 
 fn intermediateArtifactPath(allocator: std.mem.Allocator, out_path: []const u8) ![]u8 {
     return try std.fmt.allocPrint(allocator, "{s}.sa.bc", .{out_path});
@@ -351,8 +352,14 @@ const CompileOptions = struct {
     jobs: ?usize = null,
     jobs_explicit: bool = false,
     offline: bool = false,
+    ci: bool = false,
+    allow_unaudited_risks: bool = false,
+    auto_approve_requested: bool = false,
     project_root: ?[]const u8 = null,
     profile: bool = false,
+    stdin_reader: ?std.io.AnyReader = null,
+    stdin_is_tty: ?bool = null,
+    diagnostic_writer: ?std.io.AnyWriter = null,
 };
 
 pub const DiagnosticsMode = enum {
@@ -400,10 +407,8 @@ const Command = enum {
     build_wasm,
     build_obj,
     bc2sa,
-    sax,
     audit,
     graph,
-    db,
     layout,
     fetch,
     size,
@@ -784,10 +789,8 @@ fn commandName(cmd: Command) []const u8 {
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
         .bc2sa => "bc2sa",
-        .sax => "sax",
         .audit => "audit",
         .graph => "graph",
-        .db => "db",
         .fetch => "fetch",
         .layout => "layout",
         .size => "size",
@@ -852,7 +855,7 @@ fn explainEntries() []const ExplainEntry {
             .summary = "The CLI command needs a positional argument such as a source file or project path.",
             .details = &.{
                 "The top-level dispatcher fails fast when no source or operand is provided.",
-                "The same issue appears in build, run, test, fetch, and db subcommands when the target path is omitted.",
+                "The same issue appears in build, run, test, and fetch subcommands when the target path is omitted.",
             },
             .fix_hint = "Pass the required file, path, or operand after the command.",
         },
@@ -925,42 +928,6 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMo
     }
 }
 
-fn convertDbTrapReport(report: db_trap.TrapReport) trap.TrapReport {
-    return .{
-        .trap = @as(trap.Trap, @enumFromInt(@intFromEnum(report.trap))),
-        .trap_code = report.trap_code,
-        .line = report.line,
-        .source_line = report.source_line,
-        .source_text_buf = report.source_text_buf,
-        .original_text_buf = report.original_text_buf,
-        .source_text = report.source_text,
-        .original_text = report.original_text,
-        .register_buf = report.register_buf,
-        .register = report.register,
-        .registers = report.registers,
-        .expected_mask = report.expected_mask,
-        .actual_mask = report.actual_mask,
-        .expected_mask_name = report.expected_mask_name,
-        .actual_mask_name = report.actual_mask_name,
-        .upstream_loc = if (report.upstream_loc) |loc| .{
-            .file = loc.file,
-            .line = loc.line,
-            .col = loc.col,
-        } else null,
-        .upstream_file_buf = report.upstream_file_buf,
-        .upstream_line = report.upstream_line,
-        .upstream_col = report.upstream_col,
-        .function_buf = report.function_buf,
-        .function = report.function,
-        .is_ffi_wrapper = report.is_ffi_wrapper,
-        .repair_action = report.repair_action,
-        .repair_hint = report.repair_hint,
-        .repair_confidence = report.repair_confidence,
-        .message = report.message,
-        .hint = report.hint,
-    };
-}
-
 fn printUsage(writer: anytype) !void {
     try writer.writeAll("usage: sa <command> [options]\n\n");
     try writer.writeAll("Commands:\n");
@@ -972,8 +939,6 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa file\n");
-    try writer.writeAll("  sax          <sub> <file>      SAX subcommands: build | check | dev | new\n");
-    try writer.writeAll("  db           <sub> ...         DB subcommands: init | register | exec | inspect | ...\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat alias)\n");
     try writer.writeAll("  audit        <file>            Audit package capability declarations\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
@@ -1150,12 +1115,27 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnsupportedBitcodeInput => .{
             .code = "SA-CLI-012",
             .message = "unsupported bitcode input",
-            .hint = "bc2sa is bitcode-only; the LLVM bitcode reader is not implemented yet, and text IR is not accepted on this path",
+            .hint = "bc2sa expects real LLVM bitcode (.bc); text LLVM IR and non-bitcode files are rejected",
+        },
+        error.LlvmDisNotFound => .{
+            .code = "SA-CLI-016",
+            .message = "llvm-dis not found",
+            .hint = "install llvm-dis-14 or make llvm-dis available on PATH before running bc2sa",
+        },
+        error.LlvmDisFailed => .{
+            .code = "SA-CLI-017",
+            .message = "llvm-dis failed",
+            .hint = "verify the input is valid LLVM bitcode for the installed LLVM toolchain",
+        },
+        error.UnsupportedInstruction => .{
+            .code = "SA-CLI-018",
+            .message = "unsupported LLVM instruction",
+            .hint = "bc2sa currently supports a conservative scalar/load-store/branch subset and rejects unsupported IR instead of emitting invalid SA",
         },
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, sax, db, fetch, bc2sa, help, or version",
+            .hint = "use build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -1555,19 +1535,9 @@ fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
             "fs/net/process/term facades stay thin in SA",
         } },
     };
-    const plugin_sections = try plugins.collectSkills(std.heap.page_allocator);
-    defer std.heap.page_allocator.free(plugin_sections);
-
     var sections_list = std.ArrayList(SkillSection).init(std.heap.page_allocator);
     errdefer sections_list.deinit();
     try sections_list.appendSlice(&base_sections);
-    for (plugin_sections) |section| {
-        try sections_list.append(.{
-            .name = section.name,
-            .summary = section.summary,
-            .items = section.items,
-        });
-    }
     const sections = try sections_list.toOwnedSlice();
     defer std.heap.page_allocator.free(sections);
 
@@ -1838,6 +1808,239 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
     return report;
 }
 
+const PackageTrapInfo = struct {
+    kind: trap.Trap,
+    message: []const u8,
+    hint: ?[]const u8,
+};
+
+fn trapFromPackagePreflightError(err: anyerror) ?trap.TrapReport {
+    const info: PackageTrapInfo = switch (err) {
+        error.ForbiddenGlobalConfig => .{
+            .kind = .forbidden_global_config,
+            .message = "global SA package configuration is forbidden for reproducible builds",
+            .hint = "remove ~/.sa/config.toml, ~/.sa/mirror.toml, and /etc/sa/*.toml; use sa.mod or project .sa_env mirrors instead",
+        },
+        error.SumHashMismatch => .{
+            .kind = .sum_hash_mismatch,
+            .message = "sa.sum does not match the resolved dependency tree",
+            .hint = "run sa install to refresh sa.sum, or restore the vendored dependency source",
+        },
+        error.UpstreamShaMismatch => .{
+            .kind = .upstream_sha_mismatch,
+            .message = "package source hash does not match the granted requirement",
+            .hint = "verify the dependency source and update the manifest hash only after auditing it",
+        },
+        error.UnauthorizedPrimitive => .{
+            .kind = .unauthorized_primitive,
+            .message = "package uses @sys_* outside its declared grants",
+            .hint = "add the explicit grant only after auditing the package source, or remove the dependency",
+        },
+        error.MissingTtyForConfirmation => .{
+            .kind = .missing_tty_for_confirmation,
+            .message = "high-risk package confirmation requires an interactive TTY",
+            .hint = "run from a real terminal and type the full package URL, or use CI taint mode deliberately",
+        },
+        error.BlockedRiskUnconfirmed => .{
+            .kind = .blocked_risk_unconfirmed,
+            .message = "high-risk package confirmation did not match the full package URL",
+            .hint = "rerun and type the exact package URL shown in the review banner",
+        },
+        error.AutoApproveForbidden => .{
+            .kind = .blocked_risk_unconfirmed,
+            .message = "package risk confirmation cannot be auto-approved",
+            .hint = "remove --yes/--auto-approve and type the exact package URL in a TTY",
+        },
+        error.UnauditedRiskBlocked => .{
+            .kind = .blocked_risk_unconfirmed,
+            .message = "CI blocked a high-risk unaudited package",
+            .hint = "audit the dependency locally or rerun CI with --allow-unaudited-risks to produce a tainted build",
+        },
+        error.PackageNotResolved, error.InvalidImportPath, error.AmbiguousPackageVersion, error.PrecompiledArtifactRejected, error.InvalidPath => .{
+            .kind = .import_resolution_failed,
+            .message = importResolutionMessage(err),
+            .hint = importResolutionHint(null, err),
+        },
+        else => return null,
+    };
+
+    return .{
+        .trap = info.kind,
+        .trap_code = trap.trapCode(info.kind),
+        .line = 1,
+        .source_line = 1,
+        .registers = &.{},
+        .message = info.message,
+        .hint = info.hint,
+    };
+}
+
+fn pathExists(path: []const u8) !bool {
+    std.fs.cwd().access(path, .{ .mode = .read_only }) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    return true;
+}
+
+fn dirExists(path: []const u8) bool {
+    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return false;
+    dir.close();
+    return true;
+}
+
+fn globalCacheRoot(allocator: std.mem.Allocator, identity: []const u8, ref: []const u8) ![]u8 {
+    const home = std.process.getEnvVarOwned(allocator, "HOME") catch {
+        return error.PackageNotResolved;
+    };
+    defer allocator.free(home);
+    const leaf = try std.fmt.allocPrint(allocator, "{s}@{s}", .{ identity, ref });
+    defer allocator.free(leaf);
+    return try std.fs.path.join(allocator, &.{ home, ".sa", "pkg", leaf });
+}
+
+fn resolvePackageAuditRoot(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    entry: manifest.RequireEntry,
+    offline: bool,
+) ![]u8 {
+    const local_root = try std.fs.path.join(allocator, &.{ project_root, "sa_vendor", entry.url });
+    errdefer allocator.free(local_root);
+    if (dirExists(local_root)) return local_root;
+    allocator.free(local_root);
+
+    if (offline) return error.PackageNotResolved;
+
+    const global_root = try globalCacheRoot(allocator, entry.url, entry.ref);
+    errdefer allocator.free(global_root);
+    if (dirExists(global_root)) return global_root;
+    allocator.free(global_root);
+
+    return error.PackageNotResolved;
+}
+
+fn hashesEqual(lhs: [32]u8, rhs: [32]u8) bool {
+    return std.mem.eql(u8, lhs[0..], rhs[0..]);
+}
+
+fn appendCiSummaryIfConfigured(
+    allocator: std.mem.Allocator,
+    report: pkg_audit.AuditReport,
+    status: pkg_ci.VerifyStatus,
+) !void {
+    const summary_path = std.process.getEnvVarOwned(allocator, "GITHUB_STEP_SUMMARY") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return,
+        else => return err,
+    };
+    defer allocator.free(summary_path);
+    var summary_file = try std.fs.cwd().openFile(summary_path, .{ .mode = .write_only });
+    defer summary_file.close();
+    try summary_file.seekFromEnd(0);
+    try pkg_ci.writeGithubSummary(summary_file.writer(), report, status);
+}
+
+fn preflightCiPackage(
+    allocator: std.mem.Allocator,
+    report: pkg_audit.AuditReport,
+    expected_source_sha256: [32]u8,
+    options: CompileOptions,
+) !void {
+    const status = try pkg_ci.dualTrackVerify(report, .{
+        .expected_source_sha256 = expected_source_sha256,
+        .allow_unaudited_risks = options.allow_unaudited_risks,
+    });
+    if (status == .tainted_unaudited_code) {
+        var null_writer = std.io.null_writer;
+        const writer = options.diagnostic_writer orelse null_writer.any();
+        try pkg_ci.writeTaintBanner(writer, report);
+        try appendCiSummaryIfConfigured(allocator, report, status);
+    }
+}
+
+fn preflightInteractivePackage(
+    report: pkg_audit.AuditReport,
+    expected_source_sha256: [32]u8,
+    session: *pkg_confirm.Session,
+    options: CompileOptions,
+) !void {
+    if (!hashesEqual(report.source_sha256, expected_source_sha256)) return error.UpstreamShaMismatch;
+
+    var empty_input = std.io.fixedBufferStream("");
+    var null_writer = std.io.null_writer;
+    const reader = options.stdin_reader orelse empty_input.reader().any();
+    const writer = options.diagnostic_writer orelse null_writer.any();
+    const stdin_is_tty = options.stdin_is_tty orelse stdinIsTty();
+    try pkg_confirm.confirmWithReaderWriter(
+        session,
+        report,
+        reader,
+        writer,
+        stdin_is_tty,
+        options.auto_approve_requested,
+    );
+}
+
+fn verifyProjectPackageState(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    project_manifest: manifest.Manifest,
+    options: CompileOptions,
+) !void {
+    try pkg_mirror.rejectForbiddenGlobalConfig(allocator);
+
+    const sum_path = try std.fs.path.join(allocator, &.{ project_root, "sa.sum" });
+    defer allocator.free(sum_path);
+    if (try pathExists(sum_path)) {
+        try pkg_sum.verifyProjectSum(allocator, project_root, project_manifest);
+    }
+
+    var session = pkg_confirm.Session.init(allocator);
+    defer session.deinit();
+    const stdin_is_tty = options.stdin_is_tty orelse stdinIsTty();
+    const ci_mode = pkg_ci.detectMode(.{
+        .explicit_ci = options.ci,
+        // Plain pipes must not silently become the CI taint path; they should
+        // hit the interactive confirmation guard and fail with MissingTty.
+        .stdin_is_tty = if (options.ci) stdin_is_tty else true,
+    });
+
+    for (project_manifest.requires) |entry| {
+        const audit_root = try resolvePackageAuditRoot(allocator, project_root, entry, options.offline);
+        defer allocator.free(audit_root);
+        var report = try pkg_audit.auditPackage(allocator, entry.url, entry.ref, audit_root, entry.grants);
+        defer report.deinit(allocator);
+
+        if (ci_mode) {
+            try preflightCiPackage(allocator, report, entry.source_sha256, options);
+        } else {
+            try preflightInteractivePackage(report, entry.source_sha256, &session, options);
+        }
+    }
+}
+
+fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
+    if (try consumeJobsOption(arg, args, index, options)) return true;
+    if (consumeProfileOption(arg, options)) return true;
+    if (std.mem.eql(u8, arg, "--offline")) {
+        options.offline = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--ci")) {
+        options.ci = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--allow-unaudited-risks")) {
+        options.allow_unaudited_risks = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--yes") or std.mem.eql(u8, arg, "--auto-approve")) {
+        options.auto_approve_requested = true;
+        return true;
+    }
+    return false;
+}
+
 fn parseJobsValue(text: []const u8) !?usize {
     if (std.mem.eql(u8, text, "auto")) return null;
     const jobs = std.fmt.parseInt(usize, text, 10) catch return error.InvalidJobs;
@@ -1858,6 +2061,23 @@ fn consumeProfileOption(arg: []const u8, options: *CompileOptions) bool {
     if (!std.mem.eql(u8, arg, "--profile")) return false;
     options.profile = true;
     return true;
+}
+
+pub const ExecuteOptions = struct {
+    stdin_reader: ?std.io.AnyReader = null,
+    stdin_is_tty: ?bool = null,
+};
+
+fn applyExecuteOptions(options: *CompileOptions, exec_options: ExecuteOptions, diagnostic_writer: std.io.AnyWriter) void {
+    options.stdin_reader = exec_options.stdin_reader;
+    options.stdin_is_tty = exec_options.stdin_is_tty;
+    options.diagnostic_writer = diagnostic_writer;
+}
+
+fn newCompileOptions(exec_options: ExecuteOptions, diagnostic_writer: std.io.AnyWriter) CompileOptions {
+    var options: CompileOptions = .{};
+    applyExecuteOptions(&options, exec_options, diagnostic_writer);
+    return options;
 }
 
 fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -1941,70 +2161,6 @@ fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
     return env_root;
 }
 
-fn pluginSoPath(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
-    return try std.fs.path.join(allocator, &.{ build_options.repo_root, "zig-out", "lib", file_name });
-}
-
-fn needsHttpPlugins(verified: anytype) bool {
-    for (verified.function_sigs) |fsig| {
-        if (std.mem.startsWith(u8, fsig.name, "sa_http_client_") or std.mem.startsWith(u8, fsig.name, "sa_http_server_")) {
-            return true;
-        }
-    }
-    return false;
-}
-
-fn copyFileByStream(source_path: []const u8, dest_path: []const u8) !void {
-    const source_file = try std.fs.openFileAbsolute(source_path, .{ .mode = .read_only });
-    defer source_file.close();
-
-    const source_stat = try source_file.stat();
-    var dest_file = std.fs.createFileAbsolute(dest_path, .{
-        .truncate = true,
-        .exclusive = true,
-        .read = true,
-        .mode = source_stat.mode,
-    }) catch |err| switch (err) {
-        error.PathAlreadyExists => return,
-        else => return err,
-    };
-    defer dest_file.close();
-
-    var buffer: [16 * 1024]u8 = undefined;
-    while (true) {
-        const read_len = try source_file.read(&buffer);
-        if (read_len == 0) break;
-        try dest_file.writeAll(buffer[0..read_len]);
-    }
-}
-
-fn copyFileAbsoluteCompat(source_path: []const u8, dest_path: []const u8) !void {
-    std.fs.copyFileAbsolute(source_path, dest_path, .{}) catch |err| switch (err) {
-        error.PathAlreadyExists => return,
-        error.AccessDenied, error.BadPathName, error.FileNotFound, error.FileTooBig, error.IsDir, error.NoDevice, error.NotDir, error.SystemResources, error.Unexpected => return copyFileByStream(source_path, dest_path),
-        else => return err,
-    };
-}
-
-fn ensurePluginSoAvailable(allocator: std.mem.Allocator, out_path: []const u8, file_name: []const u8) !void {
-    const source_path = try pluginSoPath(allocator, file_name);
-    defer allocator.free(source_path);
-
-    const dest_dir = std.fs.path.dirname(out_path) orelse ".";
-    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
-    defer allocator.free(cwd_abs);
-    const abs_dest_dir = if (std.fs.path.isAbsolute(dest_dir))
-        try allocator.dupe(u8, dest_dir)
-    else
-        try std.fs.path.join(allocator, &.{ cwd_abs, dest_dir });
-    defer allocator.free(abs_dest_dir);
-
-    const dest_path = try std.fs.path.join(allocator, &.{ abs_dest_dir, file_name });
-    defer allocator.free(dest_path);
-    try std.fs.cwd().makePath(abs_dest_dir);
-
-    try copyFileAbsoluteCompat(source_path, dest_path);
-}
 
 fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
     const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
@@ -2043,8 +2199,9 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     const load_ns = if (load_start) |start| elapsedNs(start) else 0;
 
     const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const project_root_owned = options.project_root == null;
     const project_root = options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-    defer allocator.free(project_root);
+    defer if (project_root_owned) allocator.free(project_root);
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
 
@@ -2055,6 +2212,12 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
 
     if (project_manifest) |*m| {
+        verifyProjectPackageState(allocator, project_root, m.*, options) catch |err| {
+            if (trapFromPackagePreflightError(err)) |report| {
+                return .{ .trap = report };
+            }
+            return err;
+        };
         dependency_slice = try manifestDependencies(m, allocator);
     }
 
@@ -2205,11 +2368,24 @@ fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.
     var project_manifest = try manifest.parseManifestWithFile(allocator, source, "sa.mod");
     defer project_manifest.deinit(allocator);
 
+    const project_root = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(project_root);
+
+    var mirror_rules = try pkg_mirror.loadProjectRules(allocator, project_root, project_manifest.mirrors);
+    defer mirror_rules.deinit(allocator);
+
+    var fetch_options = options;
+    fetch_options.mirror_rules = mirror_rules.rules;
+
     for (project_manifest.requires) |entry| {
-        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, options);
+        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, fetch_options);
         defer result.deinit(allocator);
         try stdout.print("{s}\n", .{result.root});
     }
+
+    var update = try pkg_sum.updateProjectSum(allocator, project_root, project_manifest);
+    defer update.deinit(allocator);
+
     return 0;
 }
 
@@ -2246,13 +2422,6 @@ fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
         allocator.free(root);
     }
     return try allocator.dupe(u8, build_options.sa_std_archive_path);
-}
-
-fn printTableInfo(writer: anytype, info: db.table.TableInfo) !void {
-    try writer.print("row_count: {d}\n", .{info.row_count});
-    try writer.print("segment_count: {d}\n", .{info.segment_count});
-    try writer.print("epoch: {d}\n", .{info.epoch});
-    try writer.print("locked: {s}\n", .{if (info.locked) "true" else "false"});
 }
 
 fn executeRun(
@@ -2419,21 +2588,11 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
                 // Link them all together
-                const use_http_plugins = needsHttpPlugins(owned.verified);
-                const extra_input_count: usize = (cgu_count - 1) + if (use_http_plugins) @as(usize, 2) else @as(usize, 0);
+                const extra_input_count: usize = cgu_count - 1;
                 const extra_inputs = try allocator.alloc([]const u8, extra_input_count);
                 defer allocator.free(extra_inputs);
 
                 var extra_idx: usize = 0;
-                if (use_http_plugins) {
-                    extra_inputs[extra_idx] = try pluginSoPath(allocator, "libsaasm-http-client.so");
-                    extra_idx += 1;
-                    extra_inputs[extra_idx] = try pluginSoPath(allocator, "libsaasm-http-server.so");
-                    extra_idx += 1;
-                    defer allocator.free(extra_inputs[0]);
-                    defer allocator.free(extra_inputs[1]);
-                }
-
                 for (1..cgu_count) |i| {
                     extra_inputs[extra_idx] = cgu_obj_paths[i];
                     extra_idx += 1;
@@ -2454,34 +2613,15 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
-                const use_http_plugins = needsHttpPlugins(owned.verified);
-                if (use_http_plugins) {
-                    const extra_inputs = &[_][]const u8{
-                        try pluginSoPath(allocator, "libsaasm-http-client.so"),
-                        try pluginSoPath(allocator, "libsaasm-http-server.so"),
-                    };
-                    defer allocator.free(extra_inputs[0]);
-                    defer allocator.free(extra_inputs[1]);
-                    const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                    driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, extra_inputs[0..], debug, stderr) catch |err| switch (err) {
-                        error.ChildProcessFailed => return 1,
-                        else => return err,
-                    };
-                    const link_ns = if (link_start) |start| elapsedNs(start) else null;
-                    finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                } else {
-                    const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                    driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, &.{}, debug, stderr) catch |err| switch (err) {
-                        error.ChildProcessFailed => return 1,
-                        else => return err,
-                    };
-                    const link_ns = if (link_start) |start| elapsedNs(start) else null;
-                    finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                }
+                const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, &.{}, debug, stderr) catch |err| switch (err) {
+                    error.ChildProcessFailed => return 1,
+                    else => return err,
+                };
+                const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             }
 
-            try ensurePluginSoAvailable(allocator, out_path, "libsaasm-http-client.so");
-            try ensurePluginSoAvailable(allocator, out_path, "libsaasm-http-server.so");
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
@@ -2624,18 +2764,14 @@ fn executeGraph(
     stdout: anytype,
     stderr: anytype,
     json_mode: bool,
+    exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options: CompileOptions = .{};
+    var compile_options = newCompileOptions(exec_options, stderr.any());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (try consumeJobsOption(arg, args, &i, &compile_options)) continue;
-        if (consumeProfileOption(arg, &compile_options)) continue;
-        if (std.mem.eql(u8, arg, "--offline")) {
-            compile_options.offline = true;
-            continue;
-        }
+        if (try consumeCompileOption(arg, args, &i, &compile_options)) continue;
         if (source_arg == null) {
             source_arg = arg;
             continue;
@@ -2718,18 +2854,14 @@ fn executeSize(
     stdout: anytype,
     stderr: anytype,
     json_mode: bool,
+    exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options: CompileOptions = .{};
+    var compile_options = newCompileOptions(exec_options, stderr.any());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (try consumeJobsOption(arg, args, &i, &compile_options)) continue;
-        if (consumeProfileOption(arg, &compile_options)) continue;
-        if (std.mem.eql(u8, arg, "--offline")) {
-            compile_options.offline = true;
-            continue;
-        }
+        if (try consumeCompileOption(arg, args, &i, &compile_options)) continue;
         if (source_arg == null) {
             source_arg = arg;
             continue;
@@ -2816,18 +2948,10 @@ fn executeTest(
             const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
             defer allocator.free(exe_full_path);
 
-            const extra_inputs = &[_][]const u8{
-                try pluginSoPath(allocator, "libsaasm-http-client.so"),
-                try pluginSoPath(allocator, "libsaasm-http-server.so"),
-            };
-            defer allocator.free(extra_inputs[0]);
-            defer allocator.free(extra_inputs[1]);
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, extra_inputs[0..], false, stderr) catch |err| switch (err) {
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, &.{}, false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
-            try ensurePluginSoAvailable(allocator, exe_full_path, "libsaasm-http-client.so");
-            try ensurePluginSoAvailable(allocator, exe_full_path, "libsaasm-http-server.so");
 
             var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
             return try test_runner.run(
@@ -2844,7 +2968,13 @@ fn executeTest(
     }
 }
 
-pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+pub fn executeWithWritersAndOptions(
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+    exec_options: ExecuteOptions,
+) !u8 {
     const normalized_args = try stripJsonFlag(allocator, argv);
     defer allocator.free(normalized_args);
 
@@ -2877,10 +3007,8 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         if (std.mem.eql(u8, args[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, args[1], commandName(.build_obj))) break :blk .build_obj;
         if (std.mem.eql(u8, args[1], commandName(.bc2sa))) break :blk .bc2sa;
-        if (std.mem.eql(u8, args[1], commandName(.sax))) break :blk .sax;
         if (std.mem.eql(u8, args[1], commandName(.audit))) break :blk .audit;
         if (std.mem.eql(u8, args[1], commandName(.graph))) break :blk .graph;
-        if (std.mem.eql(u8, args[1], commandName(.db))) break :blk .db;
         if (std.mem.eql(u8, args[1], commandName(.layout))) break :blk .layout;
         if (std.mem.eql(u8, args[1], commandName(.fetch))) break :blk .fetch;
         if (std.mem.eql(u8, args[1], commandName(.size))) break :blk .size;
@@ -2906,18 +3034,9 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             return try executeLayout(allocator, args[2..], stdout, stderr);
         },
         .graph => {
-            return try executeGraph(allocator, args[2..], stdout, stderr, json_mode);
+            return try executeGraph(allocator, args[2..], stdout, stderr, json_mode, exec_options);
         },
-        .audit => {
-            const audit_argv = args[2..];
-            if (audit_argv.len == 0) return error.MissingSourcePath;
-            const source_path = audit_argv[0];
-            const source = try loadSource(allocator, source_path);
-            defer allocator.free(source);
-            try stdout.print("audit: {s}\n", .{source_path});
-            try stdout.print("size: {d}\n", .{source.len});
-            return 0;
-        },
+        .audit => return error.UnknownCommand,
         .explain => return try explainCommand(stdout, args, json_mode),
         .fix => return try fixCommand(stdout, args, json_mode),
         .skills => return try skillsCommand(stdout, json_mode),
@@ -2926,14 +3045,13 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .build => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
-            var compile_options: CompileOptions = .{};
+            var compile_options = newCompileOptions(exec_options, stderr.any());
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
-                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
-                if (consumeProfileOption(args[i], &compile_options)) continue;
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -2958,198 +3076,26 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             defer if (out_path == null) allocator.free(owned_out);
             return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
-        .sax => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const sub = args[2];
-            if (sax_cli.parseSaxCommand(sub)) |sax_cmd| {
-                switch (sax_cmd) {
-                    .build => {
-                        const sax_file = if (args.len >= 4) args[3] else return error.MissingSourcePath;
-                        return try sax_cli.executeSaxBuild(allocator, sax_file, null, stdout, stderr);
-                    },
-                    .check => {
-                        const sax_file = if (args.len >= 4) args[3] else return error.MissingSourcePath;
-                        return try sax_cli.executeSaxCheck(allocator, sax_file, stdout, stderr);
-                    },
-                    .dev => {
-                        const sax_file = if (args.len >= 4) args[3] else return error.MissingSourcePath;
-                        return try sax_cli.executeSaxDev(allocator, sax_file, 8080, stdout, stderr);
-                    },
-                    .new_project => {
-                        const project_name = if (args.len >= 4) args[3] else return error.MissingSourcePath;
-                        return try sax_cli.executeSaxNew(allocator, project_name, stdout, stderr);
-                    },
-                }
-            }
-            return error.UnknownCommand;
-        },
         .fetch => {
+            if (args.len < 3) return error.MissingSourcePath;
             var result = try pkg_fetch.fetchPackage(allocator, args[2], "HEAD", .{});
             defer result.deinit(allocator);
             try stdout.print("{s}\n", .{result.root});
             return 0;
         },
         .size => {
-            return try executeSize(allocator, args[2..], stdout, stderr, json_mode);
-        },
-        .db => {
-            if (args.len < 3) return error.UnknownCommand;
-            const sub = args[2];
-            if (std.mem.eql(u8, sub, "init")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                const iface = db.exec.compileSchema(allocator, args[3]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                defer allocator.free(iface);
-                const iface_path = db.schema.ifaceFilePath(allocator, args[3]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                defer allocator.free(iface_path);
-                writeTextFile(allocator, iface_path, iface) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                try stdout.print("{s}\n", .{iface_path});
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "register")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                const source_path = args[3];
-                const abs_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
-                defer allocator.free(abs_source_path);
-                const project_root = std.fs.path.dirname(abs_source_path) orelse ".";
-                var result = db.exec.registerQuery(allocator, abs_source_path, project_root) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                defer result.deinit(allocator);
-                const hex = std.fmt.bytesToHex(result.hash, .lower);
-                try stdout.print("Compiled: {s}\n", .{source_path});
-                try stdout.print("Hash: {s}\n", .{hex[0..]});
-                try stdout.print("Registered: {s}\n", .{std.fs.path.basename(result.qmod_path)});
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "inspect")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                const root_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
-                defer allocator.free(root_dir);
-                const report = db.exec.inspectRegistry(allocator, root_dir, args[3]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                defer allocator.free(report);
-                try stdout.writeAll(report);
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "ingest")) {
-                if (args.len < 5) return error.MissingSourcePath;
-                const info = db.table.ingestTable(allocator, ".", args[3], args[4]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                try printTableInfo(stdout, info);
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "snapshot")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                const info = db.table.snapshotTable(allocator, ".", args[3]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                try printTableInfo(stdout, info);
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "restore")) {
-                if (args.len < 5) return error.MissingSourcePath;
-                const epoch = std.fmt.parseInt(u64, args[4], 10) catch return error.InvalidPath;
-                const info = db.table.restoreTable(allocator, ".", args[3], epoch) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                try printTableInfo(stdout, info);
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "verify")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                const info = db.table.verifyTable(allocator, ".", args[3]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                try printTableInfo(stdout, info);
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "lock")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                const info = db.table.lockTable(allocator, ".", args[3]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                try printTableInfo(stdout, info);
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "compact")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                const info = db.table.compactTable(allocator, ".", args[3]) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                try printTableInfo(stdout, info);
-                return 0;
-            }
-            if (std.mem.eql(u8, sub, "exec")) {
-                if (args.len < 4) return error.MissingSourcePath;
-                var params_path: ?[]const u8 = null;
-                var i: usize = 4;
-                while (i < args.len) : (i += 1) {
-                    if (std.mem.eql(u8, args[i], "--params")) {
-                        if (i + 1 >= args.len) return error.MissingSourcePath;
-                        params_path = args[i + 1];
-                        i += 1;
-                        continue;
-                    }
-                    if (params_path == null) {
-                        params_path = args[i];
-                        continue;
-                    }
-                    return error.UnexpectedArgument;
-                }
-                const root_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
-                defer allocator.free(root_dir);
-                const abs_params_path = if (params_path) |path| try std.fs.cwd().realpathAlloc(allocator, path) else null;
-                defer if (abs_params_path) |path| allocator.free(path);
-                var exec_result = db.exec.execQuery(allocator, root_dir, args[3], abs_params_path, stdout.any(), stderr.any()) catch |err| {
-                    try printCliError(stderr, err, if (json_mode) .json else .human);
-                    return 1;
-                };
-                defer exec_result.deinit(allocator);
-                switch (exec_result) {
-                    .trap => |report| {
-                        const converted = convertDbTrapReport(report);
-                        std.debug.print("cli db exec trap={s}\n", .{trap.trapName(converted.trap)});
-                        try printTrapReport(stderr, converted, if (json_mode) .json else .human);
-                        return 1;
-                    },
-                    .ok => |result| {
-                        std.debug.print("cli db exec ok code={d}\n", .{result.code});
-                        return result.code;
-                    },
-                }
-            }
-            return error.UnknownCommand;
+            return try executeSize(allocator, args[2..], stdout, stderr, json_mode, exec_options);
         },
         .run => {
             if (args.len < 3) return error.MissingSourcePath;
-            var compile_options: CompileOptions = .{};
+            var compile_options = newCompileOptions(exec_options, stderr.any());
             var source_path: ?[]const u8 = null;
             var runtime_args = std.ArrayList([]const u8).init(allocator);
             defer runtime_args.deinit();
 
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
-                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
-                if (consumeProfileOption(args[i], &compile_options)) continue;
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (source_path == null) {
                     source_path = args[i];
                     continue;
@@ -3162,14 +3108,13 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .build_exe => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
-            var compile_options: CompileOptions = .{};
+            var compile_options = newCompileOptions(exec_options, stderr.any());
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
-                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
-                if (consumeProfileOption(args[i], &compile_options)) continue;
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -3197,14 +3142,13 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .build_obj => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
-            var compile_options: CompileOptions = .{};
+            var compile_options = newCompileOptions(exec_options, stderr.any());
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
-                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
-                if (consumeProfileOption(args[i], &compile_options)) continue;
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -3232,15 +3176,14 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .build_wasm => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
-            var compile_options: CompileOptions = .{};
+            var compile_options = newCompileOptions(exec_options, stderr.any());
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
-                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
-                if (consumeProfileOption(args[i], &compile_options)) continue;
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -3286,7 +3229,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
         .test_cmd => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];
-            var compile_options: CompileOptions = .{};
+            var compile_options = newCompileOptions(exec_options, stderr.any());
             var include_filters = std.ArrayList([]const u8).init(allocator);
             defer include_filters.deinit();
             var skip_filters = std.ArrayList([]const u8).init(allocator);
@@ -3295,8 +3238,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             var run_ignored = test_meta.RunIgnored.normal;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
-                if (try consumeJobsOption(args[i], args, &i, &compile_options)) continue;
-                if (consumeProfileOption(args[i], &compile_options)) continue;
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "--filter")) {
                     if (i + 1 >= args.len) return error.MissingFilterValue;
                     try include_filters.append(args[i + 1]);
@@ -3332,6 +3274,10 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
             return try executeTest(allocator, source_path, compile_options, selection, stdout, stderr, if (json_mode) .json else .human);
         },
     }
+}
+
+pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+    return executeWithWritersAndOptions(allocator, argv, stdout, stderr, .{});
 }
 
 pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {

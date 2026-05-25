@@ -19,19 +19,19 @@
   全景式概述 SA 的设计哲学、内存安全定理及能力。
 - 🔒 **[Zero-Trust Package Management (零信任包管理)](./package_management.md)**  
   介绍 SA 独创的“哈希锁死 + 零权限默认 + AST X光扫描”供应链安全体系。
-- 🧩 **[Hot-Pluggable Plugin System (热插拔插件系统)](./pluginssytem.md)**  
-  教你如何用 C-ABI 编写 `.so` 动态库，并实现极速热重载。
+- 🧩 **[External Plugin System (外部插件系统)](./pluginssytem.md)**  
+  教你如何把插件作为独立工程交付为 `.so` 动态库，并在宿主外部完成热重载。
 - ⚙️ **[Network Engine Plan (极速网络基座)](./network_engine_plan.md)**  
   详述 `sa_net_uring` 如何通过 io_uring 和零拷贝实现 10 万并发无开销。
 - 💻 **[Multi-Platform Architecture (全平台架构)](./multi_platform_architecture.md)**  
   PAL 抽象层设计，支持 Windows IOCP 与 macOS kqueue。
 
 ## 🔌 3. 插件开发指南 (Plugin Guides)
-专门针对内置核心插件的深度解析与实战。
+专门针对独立插件工程的深度解析与实战。
 
-- 🌐 **[HTTP Client Plugin (出站请求)](./http_client_plugin.md)**  
+- 🌐 **[HTTP Client Plugin (独立工程)](./http_client_plugin.md)**  
   如何发送 GET/POST、处理 TLS 和流式响应。
-- 🚀 **[HTTP Server Plugin (服务端网关)](./http_server_plugin.md)**  
+- 🚀 **[HTTP Server Plugin (独立工程)](./http_server_plugin.md)**  
   如何启动监听、处理路由与构建 Echo 服务器。
 - 🛡️ **[SAX Airlock (沙箱气闸舱)](./sax_airlock.md)**  
   FFI 调用的安全边界设计。

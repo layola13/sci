@@ -2,8 +2,8 @@
 
 借用 `zero` 项目的先进理念，传统的编译器 CLI 设计主要是为了“人”看（彩色控制台、带波浪线的代码提示），而在 AI 编程时代，编译器的主力用户将变成 Agent。为此，`sci` (SA Compiler) 需要进行深度的 Agent-First 架构升级。
 
-**核心定位：这是 `sci` 编译器主线的核心基础设施，绝对不是一个独立的插件。** 
-所有的基础命令（`explain`, `fix`, `skills`）、全局的 JSON 结构化输出能力，都将直接实现在 `src/cli.zig` 和 `src/common/trap.zig` 中。插件（Plugin）系统的作用仅仅是**向这个核心基础设施注册自己特有的文档和能力**，以便主线能够统一调度和输出。
+**核心定位：这是 `sci` 编译器主线的核心基础设施，插件应当作为外部独立工程接入，而不是内置耦合到主线实现。** 
+所有的基础命令（`explain`, `fix`, `skills`）、全局的 JSON 结构化输出能力，都将直接实现在 `src/cli.zig` 和 `src/common/trap.zig` 中。外部插件系统的作用是**向这个核心基础设施注册自己特有的文档和能力**，以便主线能够统一调度和输出。
 
 目标：**将 `sci` 打造为第一个原生对 Agent 友好的底层语言编译器。** 让 Agent 能够完全基于 CLI 输出进行自我学习、精准修复和图谱推理，消除“看终端报错 -> 猜原因 -> 瞎改”的幻觉循环 (Hallucination Loop)。
 
@@ -62,7 +62,7 @@
 
 ### 2.3 `sci skills` (自解释的动态能力说明)
 对于 `zero` 里的 `zero skills get zero --full`，在 `sci` 中意义更加重大：
-由于我们的 `sci` 引入了**可插拔插件系统 (Plugin System)**（比如 `database`, `sax`, `package` 插件），CLI 的能力是动态组合的。
+由于我们的 `sci` 引入了**外部可插拔插件系统 (Plugin System)**（比如 `database`, `sax`, `package` 插件工程），CLI 的能力可以动态组合。
 `sci skills` 命令将：
 1. 遍历当前启用的所有 Plugin。
 2. 聚合它们的 EBNF 语法、宏说明、内置原语和 API 契约。

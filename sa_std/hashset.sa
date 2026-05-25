@@ -114,3 +114,11 @@ L_ENTRY:
 [MACRO] SET_FREE %set_reg
     call @sa_set_free(^%set_reg)
 [END_MACRO]
+
+[MACRO] SET_LIT2 %out_set, %key1, %key2
+    EXPAND SET_NEW %out_set
+    EXPAND SET_INSERT __set_lit2_ok_1_%out_set, %out_set, %key1
+    EXPAND SET_INSERT __set_lit2_ok_2_%out_set, %out_set, %key2
+    !__set_lit2_ok_1_%out_set
+    !__set_lit2_ok_2_%out_set
+[END_MACRO]

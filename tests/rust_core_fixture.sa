@@ -7,6 +7,12 @@
 @import "sa_std/core/slice.sa"
 @import "sa_std/core/iter.sal"
 @import "sa_std/core/iter.sa"
+@import "sa_std/core/cell.sal"
+@import "sa_std/core/cell.sa"
+@import "sa_std/core/refcell.sal"
+@import "sa_std/core/refcell.sa"
+@import "sa_std/core/rc.sal"
+@import "sa_std/core/rc.sa"
 
 @double(x: u64) -> u64:
 L_ENTRY:
@@ -53,6 +59,28 @@ L_RES_OK:
     EXPAND ITER_REMAINING iter_remaining, iter
     EXPAND ITER_PEEK_U64 iter_peek, iter
     EXPAND ITER_NEXT_U64 iter_has, iter_item, iter
+    cell = alloc Cell_SIZE
+    store cell+Cell_value, 11 as i32
+    EXPAND CELL_GET cell_value, cell
+    EXPAND CELL_SET cell, 22
+    EXPAND CELL_REPLACE cell_prev, cell, 33
+    refcell = alloc RefCell_SIZE
+    store refcell+RefCell_value, 44 as u64
+    store refcell+RefCell_borrows, 0 as u64
+    EXPAND REFCELL_GET refcell_value, refcell
+    EXPAND REFCELL_SET refcell, 55
+    EXPAND REFCELL_RELEASE refcell
+    EXPAND RC_NEW rc_box, 66
+    EXPAND RC_CLONE rc_box
+    EXPAND RC_DOWNGRADE weak_box, rc_box
+    EXPAND WEAK_CLONE weak_box
+    EXPAND WEAK_UPGRADE upgraded_rc, upgraded_ok, weak_box
+    EXPAND RC_DROP rc_box, L_RC_DONE
+
+L_RC_DONE:
+    EXPAND WEAK_DROP weak_box, L_WEAK_FREE
+
+L_WEAK_FREE:
     EXPAND PANIC 0
 
 L_RES_ERR:

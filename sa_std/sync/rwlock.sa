@@ -1,0 +1,72 @@
+@import "rwlock.sal"
+
+[MACRO] RWLOCK_NEW %out_lock
+    %out_lock = alloc RwLock_SIZE
+    store %out_lock+RwLock_readers, 0 as i32
+    store %out_lock+RwLock_writing, 0 as i32
+[END_MACRO]
+
+[MACRO] RWLOCK_TRY_READ %out_ok, %out_guard, %lock_reg, %err_label
+    __rwlock_writing_%out_ok = load %lock_reg+RwLock_writing as i32
+    __rwlock_can_read_%out_ok = eq __rwlock_writing_%out_ok, 0
+    br __rwlock_can_read_%out_ok -> L_RWLOCK_TRY_READ_OK_%out_ok, L_RWLOCK_TRY_READ_FAIL_%out_ok
+L_RWLOCK_TRY_READ_OK_%out_ok:
+    __rwlock_readers_%out_ok = load %lock_reg+RwLock_readers as i32
+    __rwlock_next_readers_%out_ok = add __rwlock_readers_%out_ok, 1
+    store %lock_reg+RwLock_readers, __rwlock_next_readers_%out_ok as i32
+    %out_guard = add %lock_reg, 0
+    %out_ok = add 0, 1
+    !__rwlock_next_readers_%out_ok
+    !__rwlock_can_read_%out_ok
+    !__rwlock_writing_%out_ok
+    !__rwlock_readers_%out_ok
+    jmp L_RWLOCK_TRY_READ_END_%out_ok
+L_RWLOCK_TRY_READ_FAIL_%out_ok:
+    %out_guard = add 0, 0
+    %out_ok = add 0, 0
+    !__rwlock_can_read_%out_ok
+    !__rwlock_writing_%out_ok
+    jmp %err_label
+L_RWLOCK_TRY_READ_END_%out_ok:
+[END_MACRO]
+
+[MACRO] RWLOCK_TRY_WRITE %out_ok, %out_guard, %lock_reg, %err_label
+    __rwlock_writing_%out_ok = load %lock_reg+RwLock_writing as i32
+    __rwlock_readers_%out_ok = load %lock_reg+RwLock_readers as i32
+    __rwlock_is_free_%out_ok = eq __rwlock_writing_%out_ok, 0
+    __rwlock_no_readers_%out_ok = eq __rwlock_readers_%out_ok, 0
+    __rwlock_can_write_%out_ok = and __rwlock_is_free_%out_ok, __rwlock_no_readers_%out_ok
+    br __rwlock_can_write_%out_ok -> L_RWLOCK_TRY_WRITE_OK_%out_ok, L_RWLOCK_TRY_WRITE_FAIL_%out_ok
+L_RWLOCK_TRY_WRITE_OK_%out_ok:
+    store %lock_reg+RwLock_writing, 1 as i32
+    %out_guard = add %lock_reg, 0
+    %out_ok = add 0, 1
+    !__rwlock_can_write_%out_ok
+    !__rwlock_no_readers_%out_ok
+    !__rwlock_is_free_%out_ok
+    !__rwlock_readers_%out_ok
+    !__rwlock_writing_%out_ok
+    jmp L_RWLOCK_TRY_WRITE_END_%out_ok
+L_RWLOCK_TRY_WRITE_FAIL_%out_ok:
+    %out_guard = add 0, 0
+    %out_ok = add 0, 0
+    !__rwlock_can_write_%out_ok
+    !__rwlock_no_readers_%out_ok
+    !__rwlock_is_free_%out_ok
+    !__rwlock_readers_%out_ok
+    !__rwlock_writing_%out_ok
+    jmp %err_label
+L_RWLOCK_TRY_WRITE_END_%out_ok:
+[END_MACRO]
+
+[MACRO] RWLOCK_RELEASE_READ %lock_reg
+    __rwlock_readers_%lock_reg = load %lock_reg+RwLock_readers as i32
+    __rwlock_next_readers_%lock_reg = sub __rwlock_readers_%lock_reg, 1
+    store %lock_reg+RwLock_readers, __rwlock_next_readers_%lock_reg as i32
+    !__rwlock_next_readers_%lock_reg
+    !__rwlock_readers_%lock_reg
+[END_MACRO]
+
+[MACRO] RWLOCK_RELEASE_WRITE %lock_reg
+    store %lock_reg+RwLock_writing, 0 as i32
+[END_MACRO]

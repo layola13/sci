@@ -1,6 +1,6 @@
 # SA 语言与编译器 技术设计文档
 
-> 本设计承接 `requirements.md` 中的 23 条强约束需求。设计原则：**零 AST、线性扫描、O(1) 位掩码、直通 LLVM bitcode / WASM 二进制、五符号契约、气闸舱 FFI、前端降级责任制、上游源码映射**。
+> 本设计承接 `requirements.md` 中的 41 条强约束需求。设计原则：**零 AST、线性扫描、O(1) 位掩码、直通 LLVM bitcode / WASM 二进制、五符号契约、气闸舱 FFI、前端降级责任制、上游源码映射**。
 >
 > 语言名称为 **SA**（Symbolic Affine）。CLI 命令为 `sa`，源码统一使用 `.sa` 扩展名；旧 `saasm` / `.saasm` 仅作为历史称呼出现在归档讨论中。
 
@@ -112,7 +112,7 @@ SA 编译器全面拥抱 "Agent-First" 理念：
 - **结构化诊断**：所有 CLI 命令支持 `--json` 输出，提供稳定的错误码（如 `SA-REF-042`）和基于行/列的修复建议 (`repair`)。
 - **Token / Gas 计算**：编译成功时，以 JSON 格式吐出 `compile_tokens` 和 `instruction_count`，供 Agent 侧进行多轮博弈与代码瘦身优化。
 - **Agent 交互指令**：提供 `sa explain <code>` (讲解错误原理)、`sa fix --plan` (生成结构化修补补丁)。
-- **动态自解释与插件系统**：CLI 基于 Zig `comptime` 实现了可插拔插件架构（拆分了 `sa db`, `sa sax`, `sa fetch` 等）。Agent 执行 `sa skills` 时，主程序会聚合所有已激活插件的能力字典，动态生成完全对齐当前版本的开发手册，杜绝 Agent 幻觉。
+- **动态自解释与插件系统**：CLI 将插件作为独立外部工程处理。Agent 执行 `sa skills` 时，主程序会聚合已发现插件的能力字典，动态生成当前版本的开发手册，杜绝 Agent 幻觉。
 
 ### 1.8 SA 标准库 (sa_std) 的能力边界与 FFI 策略 (NEW)
 
@@ -141,6 +141,40 @@ SA 编译器全面拥抱 "Agent-First" 理念：
 3. **声明级并行后端 (Per-Decl Parallelism)**：借鉴 Zig `Zcu.PerThread` 模型。不再生成单一庞大 `.bc` 文件，而是将发射任务打散至函数粒度，由多线程并行填充后端模块，彻底释放多核 LLVM 性能。
 4. **内存直通物理路径 (In-memory Physical Path)**：借鉴 Zig `codegen/llvm.zig`。放弃文本 IR 发射，通过 `llvm-c` 绑定在内存中直接构造指令对象。消除“生成文本-磁盘写入-后端解析”的冗余链路。
 5. **异步流水线 (Asynchronous Pipeline)**：`Referee` 验证与 `In-memory Emitter` 实现异步重叠，达成“瞬发级”编译体验。
+
+### 1.11 Rust Core 模式映射层 (Rust Core Mapping Layer)
+
+SA 不把 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` / `Waker` 当成 ISA 内建特性，而是将它们定义为**可验证的布局与宏模式**，由前端降级器或标准库宏在 SA 之上拼装：
+
+1. **内部可变性**：`Cell` 仅是单字段 `store` 包装；`RefCell` 采用借用计数字段和显式归零路径，不依赖隐式 Drop。
+2. **共享所有权**：`Rc` / `Arc` / `Weak` 统一采用控制块 + 数据区布局，控制块头部至少包含 `strong` / `weak` 双计数；`Rc` 与 `Weak` 的宏必须把临时寄存器在展开末尾清理完毕，并通过唯一后缀标签避免多次展开冲突。
+3. **异步唤醒**：`Waker` 通过 vtable 或等价函数指针表表达，唤醒动作本质是一次可审计的间接调用；trait object 的胖指针同样必须暴露 `data` / `vtable` 两个槽位。
+4. **多态对象**：Trait Object 继续采用胖指针 `[data_ptr | vtable_ptr]`，但用于 Rust core 的常见模式时，布局文件必须能显式描述每个槽位的签名和对齐。
+5. **宏收尾约束**：相关宏必须在展开末尾释放全部临时寄存器，并使用唯一标签后缀避免重复展开冲突。
+6. **边界声明**：这些模式的正确性前提是前端已经完成对象布局、生命周期裁剪和句柄语义转换；SA 仅负责线性验证与物理一致性检查。
+
+### 1.12 Rust Core 标准库宏落地约束
+
+为了把 Rust Core 模式真正落到 `sa_std/core/`，新增以下标准库实现要求：
+
+1. `Cell` 以 `Cell_SIZE` / `Cell_value` 的最小布局表达，宏仅做 `alloc`、`load`、`store` 与 `!` 释放，不引入额外状态。
+2. `RefCell` 必须显式预留 `borrows` 字段，并提供 `REFCELL_BORROW_MUT` / `REFCELL_RELEASE` 这类宏；当借用计数非 0 时，独占借用必须走错误标签或 Trap。
+3. `Rc` / `Weak` 必须用 `RcBox_SIZE` / `RcBox_strong` / `RcBox_weak` / `RcBox_data` 的控制块布局表示，`RC_DROP` 在 Strong 归零后必须级联到 `WEAK_DROP`，由 Weak 层决定是否真正释放整块内存。
+4. `Weak::upgrade` 必须先检查 Strong 是否为 0，再决定返回 null 还是递增 Strong 并返回可用强引用。
+5. 所有相关宏必须保持标签隔离，调用方可重复展开而不发生标签冲突或临时寄存器泄漏。
+
+### 1.13 `sa_std` Rust Core 收口与宏约束
+
+为了把 Rust Core 模式从设计层真正收口到 `sa_std/`，标准库的落地必须遵循以下约束：
+
+1. `sa_std/rust_core.sa` SHALL 作为 Rust core 宏的聚合入口，兼容导入 `core/cell`、`core/refcell`、`core/rc`、`core/weak`、`core/trait_object`、`core/waker`，并与 `sa_std/core/sa_core.sa` 保持兼容。
+2. `sa_std/core/derive.sa` SHALL 提供 `STRUCT_COPY`、`STRUCT_EQ_FIELD`、`STRUCT_EQ4` 等零 AST 宏，用于字段拷贝与比较的静态展开。
+3. `sa_std/core/dispatch.sa` SHALL 以 `[MACRO] DISPATCH` 作为 trait-like 静态分发表达方式，路由树必须用 `eq` + `br` 展开，便于 Referee 保持线性追踪。
+4. `sa_std/core/arc.sa` SHALL 以原子 RMW 操作实现 Strong / Weak 双计数，且 clone/drop/downgrade/upgrade 宏体必须显式清理临时寄存器。
+5. `sa_std/sync/rwlock.sa` SHALL 作为多读单写锁宏的独立入口，允许通过 `REFCELL_*` 风格的显式状态机与原子标志位实现。
+6. `sa_std/core/mem.sa` SHALL 集中承载 `BOX_NEW` / `BOX_FREE` 这类分配语义包装，避免在各模块重复实现盒子分配约定。
+7. `tests/rust_core_unit.sa` SHALL 作为这些宏的原生 SA 单测入口，覆盖 `Cell` / `RefCell` / `Rc` / `Weak` / `Arc` / `RwLock` / `dispatch` / `trait_object` / `waker` / `box` / `derive` 的关键路径。
+8. `line!` / `file!` / `column!` / `module_path!` SHALL 作为 flattener 层的源位置宏收口到 `src/flattener.zig`，其值来源于当前上游定位或当前源码路径，并由专门的 SA 单测覆盖。
 
 ---
 
@@ -1537,4 +1571,10 @@ dist/app.wasm + dist/airlock.js + dist/index.html
 
 ---
 
-**文档终态（v0.9 修订）**：本设计覆盖需求文档 36 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31 + R31a–R31g + R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + **R36 v0.9 SAX**）的全部契约，含 **40 条形式化 Property**、5 层测试策略（含 v0.5 包管理 12 条新集成基线 + v0.6 数据库 12 条新 Trap + v0.7 原生单元测试框架 + v0.8 网络引擎 K1/K2 双轨 KPI + **v0.9 SAX 7 条专属 Trap + E2E 浏览器验证**）、完整的 LLVM bitcode / WASM 映射表、气闸舱隔离（SA FFI + DOM Airlock 双气闸）、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 零信任包管理（去中心化 + 哈希钉版 + 模块级零权限 + AST X 光扫描 + 破窗确权 + 项目级孤岛 + CI 双轨）+ 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化 + 零信任列式数据库（预编译查询 + SHA-256 锁版 + 权限 X 光扫描 + 零拷贝沙箱 + 无锁并发 + Bump Arena + 冷热分层）、v0.7 原生单元测试框架、v0.8 极速网络引擎 sa_netx（io_uring + per-core sharded SPSC + SIMD 解掩码 + DMA 扇出广播 + 对标 Bun 双轨 KPI）、**v0.9 SAX 前端方言（XML 结构层 + WASM AOT + DOM Airlock + 7 条 SAX Trap + 全栈 SA 闭环）**。
+**文档终态（v0.9+ 修订）**：本设计覆盖需求文档 41 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31 + R31a–R31g + R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + **R36 v0.9 SAX** + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed + R41 Rust Core） 的全部契约，含 **40 条形式化 Property**、5 层测试策略（含 v0.5 包管理 12 条新集成基线 + v0.6 数据库 12 条新 Trap + v0.7 原生单元测试框架 + v0.8 网络引擎 K1/K2 双轨 KPI + **v0.9 SAX 7 条专属 Trap + E2E 浏览器验证**）、完整的 LLVM bitcode / WASM 映射表、气闸舱隔离（SA FFI + DOM Airlock 双气闸）、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 零信任包管理（去中心化 + 哈希钉版 + 模块级零权限 + AST X 光扫描 + 破窗确权 + 项目级孤岛 + CI 双轨）+ 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化 + 零信任列式数据库（预编译查询 + SHA-256 锁版 + 权限 X 光扫描 + 零拷贝沙箱 + 无锁并发 + Bump Arena + 冷热分层）、v0.7 原生单元测试框架、v0.8 极速网络引擎 sa_netx（io_uring + per-core sharded SPSC + SIMD 解掩码 + DMA 扇出广播 + 对标 Bun 双轨 KPI）、**v0.9 SAX 前端方言（XML 结构层 + WASM AOT + DOM Airlock + 7 条 SAX Trap + 全栈 SA 闭环）**。
+
+## Standardized Macro Patterns for Polymorphism and Structural Operations (Derive/Trait Simulation)
+Given SA's Zero-AST philosophy, language-level attributes like `#[derive]` are fundamentally incompatible. Instead, SA relies on standardized macro patterns to achieve similar ergonomics for LLMs and frontends:
+1.  **Naming Contracts**: Structures requiring clone, drop, or formatting logic should provide macros adhering to strict naming conventions (e.g., `{STRUCT}_CLONE`, `{STRUCT}_FREE`).
+2.  **Structural Helpers**: A core set of generic macros (e.g., `STRUCT_COPY` wrapping `sa_mem_copy`, or field-wise equality helpers) should be provided to reduce boilerplate when implementing these naming contracts.
+3.  **Defunctionalization via DISPATCH**: For trait-like behavior, the `[MACRO] DISPATCH` pattern (generating a static routing tree using `eq` and `br`) is prioritized over explicit vtables (`call_indirect`) where possible, as it allows the Referee to maintain precise, linear ownership tracking without traversing indirect function pointers.

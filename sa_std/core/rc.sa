@@ -1,0 +1,78 @@
+@import "rc.sal"
+
+[MACRO] RC_NEW %out_rc, %value
+    %out_rc = alloc RcBox_SIZE
+    store %out_rc+RcBox_strong, 1 as u64
+    store %out_rc+RcBox_weak, 1 as u64
+    store %out_rc+RcBox_data, %value as u64
+[END_MACRO]
+
+[MACRO] RC_CLONE %rc_reg
+    __rc_strong_%rc_reg = load %rc_reg+RcBox_strong as u64
+    __rc_next_strong_%rc_reg = add __rc_strong_%rc_reg, 1
+    store %rc_reg+RcBox_strong, __rc_next_strong_%rc_reg as u64
+    !__rc_next_strong_%rc_reg
+    !__rc_strong_%rc_reg
+[END_MACRO]
+
+[MACRO] RC_DROP %rc_reg, %cleanup_label
+    __rc_strong_%rc_reg = load %rc_reg+RcBox_strong as u64
+    __rc_next_strong_%rc_reg = sub __rc_strong_%rc_reg, 1
+    store %rc_reg+RcBox_strong, __rc_next_strong_%rc_reg as u64
+    __rc_is_last_%rc_reg = eq __rc_next_strong_%rc_reg, 0
+    br __rc_is_last_%rc_reg -> %cleanup_label, L_RC_DROP_DONE_%rc_reg
+L_RC_DROP_DONE_%rc_reg:
+    !__rc_is_last_%rc_reg
+    !__rc_next_strong_%rc_reg
+    !__rc_strong_%rc_reg
+[END_MACRO]
+
+[MACRO] RC_DOWNGRADE %out_weak, %rc_reg
+    __rc_weak_%out_weak = load %rc_reg+RcBox_weak as u64
+    __rc_next_weak_%out_weak = add __rc_weak_%out_weak, 1
+    store %rc_reg+RcBox_weak, __rc_next_weak_%out_weak as u64
+    %out_weak = add %rc_reg, 0
+    !__rc_next_weak_%out_weak
+    !__rc_weak_%out_weak
+[END_MACRO]
+
+[MACRO] WEAK_CLONE %weak_reg
+    __weak_strong_%weak_reg = load %weak_reg+RcBox_strong as u64
+    __weak_next_%weak_reg = add __weak_strong_%weak_reg, 0
+    store %weak_reg+RcBox_strong, __weak_next_%weak_reg as u64
+    !__weak_next_%weak_reg
+    !__weak_strong_%weak_reg
+[END_MACRO]
+
+[MACRO] WEAK_DROP %weak_reg, %free_label
+    __weak_count_%weak_reg = load %weak_reg+RcBox_weak as u64
+    __weak_next_count_%weak_reg = sub __weak_count_%weak_reg, 1
+    store %weak_reg+RcBox_weak, __weak_next_count_%weak_reg as u64
+    __weak_is_last_%weak_reg = eq __weak_next_count_%weak_reg, 0
+    br __weak_is_last_%weak_reg -> %free_label, L_WEAK_DROP_DONE_%weak_reg
+L_WEAK_DROP_DONE_%weak_reg:
+    !__weak_is_last_%weak_reg
+    !__weak_next_count_%weak_reg
+    !__weak_count_%weak_reg
+[END_MACRO]
+
+[MACRO] WEAK_UPGRADE %out_rc, %out_ok, %weak_reg
+    __weak_strong_%out_rc = load %weak_reg+RcBox_strong as u64
+    __weak_is_alive_%out_rc = ne __weak_strong_%out_rc, 0
+    br __weak_is_alive_%out_rc -> L_WEAK_UPGRADE_OK_%out_rc, L_WEAK_UPGRADE_NONE_%out_rc
+L_WEAK_UPGRADE_OK_%out_rc:
+    __weak_next_strong_%out_rc = add __weak_strong_%out_rc, 1
+    store %weak_reg+RcBox_strong, __weak_next_strong_%out_rc as u64
+    %out_rc = add %weak_reg, 0
+    %out_ok = add 0, 1
+    !__weak_next_strong_%out_rc
+    !__weak_is_alive_%out_rc
+    !__weak_strong_%out_rc
+    jmp L_WEAK_UPGRADE_END_%out_rc
+L_WEAK_UPGRADE_NONE_%out_rc:
+    %out_rc = add 0, 0
+    %out_ok = add 0, 0
+    !__weak_is_alive_%out_rc
+    !__weak_strong_%out_rc
+L_WEAK_UPGRADE_END_%out_rc:
+[END_MACRO]

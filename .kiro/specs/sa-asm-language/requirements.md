@@ -1084,6 +1084,49 @@
 
 ---
 
-**文档终态：以上 40 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + R36 v0.9 SAX + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
+### Requirement 41: Rust Core 核心模式映射 (Cell / RefCell / Rc / Arc / Weak / Waker)
+
+**User Story**
+作为前端降级与库作者，我需要一组与 Rust 核心语义等价的低层模式，让 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` / `Waker` / Trait Object 的常见实现能够在 SA 中以宏和布局字典稳定落地，同时不破坏 Referee 的线性扫描、对齐约束与气闸舱边界。
+
+**Acceptance Criteria**
+1. WHEN 需要实现内部可变性 THEN 规范 SHALL 支持 `Cell` / `RefCell` 模式：`Cell` 以简单 `store` 包装实现；`RefCell` 以运行时借用计数字段实现；借用计数不为 0 时的独占借用请求 SHALL 触发回退分支或 Trap。
+2. WHEN `RefCell` 释放 THEN 规范 SHALL 定义显式的计数归零路径：借用结束后必须通过宏将 `borrows` 字段重置为 0，禁止依赖隐式 Drop。
+3. WHEN 需要实现共享所有权 THEN 规范 SHALL 支持 `Rc` / `Arc` / `Weak` 的双计数控制块模型：Strong / Weak 计数位于对象头部，数据位于控制块后方。
+4. WHEN 需要实现 `Rc` 克隆与丢弃 THEN 规范 SHALL 规定 `clone` 仅递增 Strong 计数，`drop` 递减 Strong 计数；当 Strong 归零时 SHALL 级联触发内部数据销毁，再由 Weak 逻辑决定是否释放整块内存。
+5. WHEN 需要实现 `Weak` THEN 规范 SHALL 支持 `downgrade` / `upgrade` / `drop`：`upgrade` 在 Strong 为 0 时返回 null，否则递增 Strong 并返回可用强引用；Weak 归零时才允许真正释放控制块。
+6. WHEN 需要实现异步唤醒与多态 THEN 规范 SHALL 支持 `Waker` / Trait Object / vtable 模式：动态分发通过 `call_indirect` 或等价函数指针表完成，唤醒路径通过 vtable 中的 `wake` / `wake_by_ref` 语义进入状态机。
+7. WHEN 宏展开使用临时寄存器 THEN 所有临时值 SHALL 在宏结束前显式 `!` 释放，且标签命名 SHALL 通过输出寄存器名或等价唯一后缀避免冲突。
+8. WHEN 进行共享引用或内部可变性时 THEN 规范 SHALL 保证对齐要求：控制块及其数据头部 SHALL 保持 8 字节或 16 字节对齐，且布局文件必须能显式表达该对齐约束。
+9. WHEN 实现这些 Rust core 模式时 THEN 规范 SHALL 将其视为前端降级责任：SA 核心仅要求可验证的 `#def` / `.sal` 布局、显式计数字段、显式释放路径与可审计的 vtable 调用点，不引入新的隐式生命周期或 GC 语义。
+10. WHEN 实现标准库宏收口时 THEN 规范 SHALL 将 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` / `Waker` 视为 `sa_std/core` 的一组可直接导入模块，`sa_std/rust_core.sa` 与 `sa_std/core/sa_core.sa` SHALL 同时兼容旧入口与新入口。
+11. WHEN 标准库作者需要结构化辅助时 THEN 规范 SHALL 允许 `[MACRO] STRUCT_COPY` / `[MACRO] STRUCT_EQ_FIELD` / `[MACRO] STRUCT_EQ4` 这类零 AST 宏，用于结构体复制与字段比较的静态展开。
+12. WHEN 需要 defunctionalized dynamic dispatch 时 THEN 规范 SHALL 将 `[MACRO] DISPATCH` 视为首选模式，并要求其展开产物以 `eq` + `br` 的静态路由树表达，不依赖语言级 `dyn Trait` 语法。
+
+### Requirement 41b: Rust Core 标准库宏与布局收口
+
+**User Story**
+作为标准库作者，我需要 `sa_std/core` 里已经存在可直接导入的 `Cell` / `RefCell` / `Rc` / `Weak` 宏与布局文件，这样 Rust Core 模式可以被前端稳定降级，而不是停留在文档层。
+
+**Acceptance Criteria**
+1. WHEN 导入 `sa_std/rust_core.sa` THEN 其 SHALL 同时引入 `core/cell.sal` / `core/cell.sa` / `core/refcell.sal` / `core/refcell.sa` / `core/rc.sal` / `core/rc.sa` / `core/trait_object.sal` / `core/trait_object.sa` / `core/waker.sal` / `core/waker.sa` 以及现有 `option` / `result` / `iter` / `panic` 模块。
+2. WHEN 导入 `sa_std/core/sa_core.sa` THEN 其 SHALL 兼容暴露上述 Rust core 宏模块，确保 CLI 与测试框架仍可通过旧入口使用这些模式。
+3. WHEN `RefCell` 需要独占借用 THEN 标准库 SHALL 提供显式计数检查宏，借用计数非 0 时必须跳转到调用方给定的错误标签。
+4. WHEN `RefCell` 结束借用 THEN 标准库 SHALL 提供显式归零宏，禁止依赖隐式 Drop。
+5. WHEN `Rc` / `Weak` 发生 clone / drop / upgrade THEN 标准库 SHALL 提供可展开的宏模板，且宏体末尾必须清理临时寄存器并保证标签唯一。
+6. WHEN `Weak::upgrade` 成功 THEN 它 SHALL 递增 Strong 计数并返回可用强引用；WHEN Strong 为 0 THEN 它 SHALL 返回 null 指针与失败标志。
+7. WHEN 需要实现 `dyn Trait` / `Waker` THEN 标准库 SHALL 提供 `DYN_*` / `WAKER_*` 宏与布局常量，胖指针布局必须显式表达 `data` / `vtable` 槽位，`call_indirect` 调用点必须遵守 vtable 槽位签名。
+8. WHEN 需要实现结构体复制与字段比较 THEN 标准库 SHALL 提供 `STRUCT_COPY` / `STRUCT_EQ_FIELD` / `STRUCT_EQ4` 等宏，并要求展开产物保持寄存器清理与标签唯一性。
+9. WHEN 需要实现动态分发模拟 THEN 标准库 SHALL 提供 `DISPATCH` 宏或等价模式，并要求其产物可被 Referee 线性验证。
+
+
+---
+
+**文档终态：以上 41 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + R36 v0.9 SAX + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed + R41 Rust Core）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
 
 > 版本号说明：v0.7 已规划为"原生单元测试框架"（见 `tasks.md` Version 0.7），v0.8 网络引擎，v0.9 SAX 前端方言。
+
+### 4.7 Standardized Ergonomic Macros (Trait & Derive Simulation)
+1.  **WHEN** operations like cloning or equality checking are required for complex structures, **THEN** the standard library SHALL provide standardized structural helper macros (e.g., `STRUCT_COPY`) to facilitate implementation without language-level reflection.
+2.  **WHEN** a structural type provides derived-like functionality, **THEN** it SHALL adhere to standard naming contracts (e.g., providing a `[MACRO] {STRUCT}_CLONE` or `[MACRO] {STRUCT}_FREE`).
+3.  **WHEN** dynamic trait-like behavior is needed, **THEN** the compiler and standard library SHOULD prefer the defunctionalized `[MACRO] DISPATCH` pattern over explicit vtables to ensure maximum compatibility with the Referee's linear ownership tracking.

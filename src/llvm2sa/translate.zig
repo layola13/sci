@@ -1,1 +1,1 @@
-pub const translateBitcodeFile = @import("saasm").llvm2sa.translateBitcodeFile;
+pub usingnamespace @import("../llvm2sa.zig");

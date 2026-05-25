@@ -1,0 +1,26 @@
+@import "trait_object.sal"
+
+[MACRO] DYN_NEW %out_dyn, %data_ptr, %vtable_ptr
+    %out_dyn = alloc Dyn_SIZE
+    store %out_dyn+Dyn_data, %data_ptr as ptr
+    store %out_dyn+Dyn_vtable, %vtable_ptr as ptr
+[END_MACRO]
+
+[MACRO] DYN_GET_DATA %out_data, %dyn_reg
+    %out_data = load %dyn_reg+Dyn_data as ptr
+[END_MACRO]
+
+[MACRO] DYN_GET_VTABLE %out_vtable, %dyn_reg
+    %out_vtable = load %dyn_reg+Dyn_vtable as ptr
+[END_MACRO]
+
+[MACRO] DYN_CALL %out_value, %dyn_reg, %slot_off
+    __dyn_data_%out_value = load %dyn_reg+Dyn_data as ptr
+    __dyn_vtable_%out_value = load %dyn_reg+Dyn_vtable as ptr
+    __dyn_fn_%out_value = load __dyn_vtable_%out_value+%slot_off as ptr
+    %out_value = call_indirect __dyn_fn_%out_value(&__dyn_data_%out_value)
+    !__dyn_fn_%out_value
+    !__dyn_vtable_%out_value
+    !__dyn_data_%out_value
+[END_MACRO]
+

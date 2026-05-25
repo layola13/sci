@@ -1,0 +1,38 @@
+@import "derive.sal"
+
+[MACRO] STRUCT_COPY_FIELD %dst_reg, %src_reg, %dst_offset, %src_offset
+    __derive_src_%dst_reg = load %src_reg+%src_offset as u64
+    store %dst_reg+%dst_offset, __derive_src_%dst_reg as u64
+    !__derive_src_%dst_reg
+[END_MACRO]
+
+[MACRO] STRUCT_COPY %dst_reg, %src_reg, %offset0, %offset1, %offset2, %offset3
+    EXPAND STRUCT_COPY_FIELD %dst_reg, %src_reg, %offset0, %offset0
+    EXPAND STRUCT_COPY_FIELD %dst_reg, %src_reg, %offset1, %offset1
+    EXPAND STRUCT_COPY_FIELD %dst_reg, %src_reg, %offset2, %offset2
+    EXPAND STRUCT_COPY_FIELD %dst_reg, %src_reg, %offset3, %offset3
+[END_MACRO]
+
+[MACRO] STRUCT_EQ_FIELD %out_bool, %lhs_reg, %rhs_reg, %offset
+    __derive_lhs_%out_bool = load %lhs_reg+%offset as u64
+    __derive_rhs_%out_bool = load %rhs_reg+%offset as u64
+    %out_bool = eq __derive_lhs_%out_bool, __derive_rhs_%out_bool
+    !__derive_rhs_%out_bool
+    !__derive_lhs_%out_bool
+[END_MACRO]
+
+[MACRO] STRUCT_EQ4 %out_bool, %lhs_reg, %rhs_reg, %offset0, %offset1, %offset2, %offset3
+    EXPAND STRUCT_EQ_FIELD eq0, %lhs_reg, %rhs_reg, %offset0
+    EXPAND STRUCT_EQ_FIELD eq1, %lhs_reg, %rhs_reg, %offset1
+    EXPAND STRUCT_EQ_FIELD eq2, %lhs_reg, %rhs_reg, %offset2
+    EXPAND STRUCT_EQ_FIELD eq3, %lhs_reg, %rhs_reg, %offset3
+    eq01 = and eq0, eq1
+    eq02 = and eq2, eq3
+    %out_bool = and eq01, eq02
+    !eq0
+    !eq1
+    !eq2
+    !eq3
+    !eq01
+    !eq02
+[END_MACRO]

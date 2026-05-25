@@ -6,14 +6,18 @@
     panic_msg(%code, %msg_ptr, %msg_len)
 [END_MACRO]
 
+@const TODO_PANIC = utf8:"called todo!() in SA"
+@const UNIMPLEMENTED_PANIC = utf8:"called unimplemented!() in SA"
+@const UNREACHABLE_PANIC = utf8:"entered unreachable!() in SA"
+
 [MACRO] TODO
-    panic(102)
+    EXPAND PANIC_MSG 102, *TODO_PANIC, 20
 [END_MACRO]
 
 [MACRO] UNIMPLEMENTED
-    panic(102)
+    EXPAND PANIC_MSG 102, *UNIMPLEMENTED_PANIC, 29
 [END_MACRO]
 
 [MACRO] UNREACHABLE
-    panic(102)
+    EXPAND PANIC_MSG 102, *UNREACHABLE_PANIC, 28
 [END_MACRO]

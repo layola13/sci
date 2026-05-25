@@ -660,3 +660,9 @@ L_DEL_MISS_ZERO:
 [MACRO] MAP_FREE %map_reg
     call @sa_map_free(^%map_reg)
 [END_MACRO]
+
+[MACRO] MAP_LIT2 %out_map, %key1, %value1, %key2, %value2
+    EXPAND MAP_NEW %out_map
+    EXPAND MAP_PUT %out_map, %key1, %value1
+    EXPAND MAP_PUT %out_map, %key2, %value2
+[END_MACRO]

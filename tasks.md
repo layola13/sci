@@ -547,11 +547,11 @@ sa/
       - 每个插件目录都要有自己的最小运行时测试，覆盖 descriptor 导出、skills 元数据和命令入口
       - 插件构建失败只能影响对应 `.so` 产物或插件测试，不应把宿主退回成静态耦合模型
     - 并发拆分建议：
-      - `src/sax/` 负责 SAX 插件的 runtime `.so` 完整化与热重载回归
-      - `src/db/` 负责 DB 插件的 runtime `.so` 完整化与失败隔离
-      - `src/pkg/` 负责 fetch/pkg 插件的 runtime `.so` 完整化与技能元数据
-      - `src/bc2sa/` 负责 bc2sa 插件的 runtime `.so` 完整化与命令一致性
-      - `src/http_server/` 负责 HTTP server 插件的 runtime `.so` 完整化与 scaffold 入口
+    - `src/sax/` 负责 SAX 外部插件的 runtime `.so` 完整化与热重载回归
+      - `src/db/` 负责 DB 外部插件的 runtime `.so` 完整化与失败隔离
+      - `src/pkg/` 负责 fetch/pkg 外部插件的 runtime `.so` 完整化与技能元数据
+      - `src/bc2sa/` 负责 bc2sa 外部插件的 runtime `.so` 完整化与命令一致性
+      - `src/http_server/` 负责 HTTP server 外部插件的 runtime `.so` 完整化与 scaffold 入口
       - 每个 agent 只允许改自己的插件目录和必要的本地测试，不得跨目录改动其他插件或主线程分发逻辑
       - 宿主侧只允许与动态加载和目录发现相关的最小改动；若无必要，不改 `src/cli.zig` 的主命令分发
       - 任何插件交付如果仍然依赖静态注册、静态库 `.a` 或主线程硬编码分支，视为未完成
@@ -939,7 +939,7 @@ sa/
     - 若 baseline < 50% → R23.4 讨论的"伪嵌套前端"方案落地
   - _Requirements: R23.3, R23.4_
 
-- [ ] 27. Rust std 防波堤 demo 完善
+- [x] 27. Rust std 防波堤 demo 完善
   - `cargo build --release` 产 `.a`
   - `zig cc main.o libstd_bridge.a -o demo.exe`
   - 样例覆盖：文件 / 网络 / 线程 / JSON 解析
@@ -1111,11 +1111,11 @@ sa/
 
 ## v0.5 任务
 
-- [ ] 35. 零信任包管理 `sa.mod` / `sa.lock` / `sa.sum`（R31, R31a–R31g）
+- [x] 35. 零信任包管理 `sa.mod` / `sa.lock` / `sa.sum`（R31, R31a–R31g）
 
   > 完整设计文档：[`docs/package_management.md`](../../../docs/package_management.md)；架构对接：design.md §3.10 / §4.8。
 
-  - [ ] 35.1 定义 `sa.mod` 文件格式与解析器（`src/pkg/manifest.zig`）
+- [x] 35.1 定义 `sa.mod` 文件格式与解析器（`src/pkg/manifest.zig`）
     - 单行扁平 `require <URL> @<ref> sha256:<hash> [grants [...]]`
     - 解析为 `RequireEntry` 结构体（design §4.8）
     - 缺省 grants = `&.{}`（绝对零权限），禁止 nil / magic
@@ -1308,19 +1308,19 @@ sa/
     - 最少 100 次
     - _Requirements: R31g.1, R31g.2, R31e.4_
 
-- [ ] 35f. 包管理集成测试基线（design.md §8.5 第 16–27 条）
+- [x] 35f. 包管理集成测试基线（design.md §8.5 第 16–27 条）
 
   - [x] 35f.1 PkgMgr-Fetch-Smoke：基础下载 + 哈希一致 + 不执行源码
   - [x] 35f.2 PkgMgr-Audit-Score：信用分 100/50/12 三档断言
-  - [ ] 35f.3 PkgMgr-Confirm-Tty：伪 TTY 输入完整 URL 通过
-  - [ ] 35f.4 PkgMgr-Confirm-NonTty：管道流必报 `MissingTtyForConfirmation`
-  - [ ] 35f.5 PkgMgr-Lock-Idempotency：第二次跳审判 + 改源码重弹
+  - [x] 35f.3 PkgMgr-Confirm-Tty：伪 TTY 输入完整 URL 通过
+  - [x] 35f.4 PkgMgr-Confirm-NonTty：管道流必报 `MissingTtyForConfirmation`
+  - [x] 35f.5 PkgMgr-Lock-Idempotency：第二次跳审判 + 改源码重弹
   - [x] 35f.6 PkgMgr-Sum-Transitive：A→B→C 篡改检测
-  - [ ] 35f.7 PkgMgr-Offline-Build：拷贝 `sa_vendor/` + `sa.mod` + `sa.lock` 到断网容器
-  - [ ] 35f.8 PkgMgr-CI-DualTrack：模拟 GitHub Actions 双轨触发
-  - [ ] 35f.9 PkgMgr-Tainted-Artifact：染色路径产物元数据 + 运行时红字
-  - [ ] 35f.10 PkgMgr-ForbiddenGlobal：放假全局配置触发 `ForbiddenGlobalConfig`
-  - [ ] 35f.11 PkgMgr-Mirror-Env：环境变量重定向到内网镜像，进程结束规则消失
+  - [x] 35f.7 PkgMgr-Offline-Build：拷贝 `sa_vendor/` + `sa.mod` + `sa.lock` 到断网容器
+  - [x] 35f.8 PkgMgr-CI-DualTrack：模拟 GitHub Actions 双轨触发
+  - [x] 35f.9 PkgMgr-Tainted-Artifact：染色路径产物元数据 + 运行时红字
+  - [x] 35f.10 PkgMgr-ForbiddenGlobal：放假全局配置触发 `ForbiddenGlobalConfig`
+  - [x] 35f.11 PkgMgr-Mirror-Env：环境变量重定向到内网镜像，进程结束规则消失
   - [x] 35f.12 PkgMgr-PrecompiledRejected：注入 `.so/.dll` 触发 `PrecompiledArtifactRejected`
     - _Requirements: R31, R31a–R31g（全部）_
 
@@ -1659,10 +1659,10 @@ sa/
   - [ ] 44.3 确认无需新增 `bitcast` 指令（用 `ptr_add` + `load as T` 替代）
   - _Requirements: R35.4, R35.6_
 
-- [ ] 45. 登记 SA 端契约骨架（仅文件骨架，不接入 build）
-  - [ ] 45.1 创建 `sa_std/netx.sai`：7 条 `@extern` 声明
-  - [ ] 45.2 创建 `sa_std/netx.sal`：`Ticket_*` 偏移 + `NetxProto_*` 枚举
-  - [ ] 45.3 创建 `sa_std/netx.sa`：`@import` 上面两个文件
+- [x] 45. 登记 SA 端契约骨架（仅文件骨架，不接入 build）
+  - [x] 45.1 创建 `sa_std/netx.sai`：7 条 `@extern` 声明
+  - [x] 45.2 创建 `sa_std/netx.sal`：`Ticket_*` 偏移 + `NetxProto_*` 枚举
+  - [x] 45.3 创建 `sa_std/netx.sa`：`@import` 上面两个文件
   - _Requirements: R35.10_
 
 ### M1：物理基座（W1–W3）
@@ -2044,3 +2044,4 @@ sa/
 - [x] Refactor `RefCell` to support multiple simultaneous readers.
 - [x] Implement `RwLock` in `sa_std/sync/rwlock.sa`.
 - [x] Add `BOX_NEW`/`BOX_FREE` ergonomics to `sa_std/core/mem.sa`.
+- [x] Wire `line!` / `file!` / `column!` / `module_path!` through the flattener macro path, and add SA unit coverage for source-location expansion.

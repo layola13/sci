@@ -87,3 +87,12 @@ L_END:
     !val
     !dst
     return
+
+[MACRO] BOX_NEW %out_box, %value
+    %out_box = alloc Box_SIZE
+    store %out_box+Box_value, %value as u64
+[END_MACRO]
+
+[MACRO] BOX_FREE %box_reg
+    !%box_reg
+[END_MACRO]

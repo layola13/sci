@@ -49,6 +49,14 @@ pub const SA_STD_STDIN: u64 = 1;
 pub const SA_STD_STDOUT: u64 = 2;
 pub const SA_STD_STDERR: u64 = 3;
 
+pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
+
+pub const SaPluginDescriptor = extern struct {
+    abi_version: u32,
+    descriptor_size: u32,
+    name: [*:0]const u8,
+};
+
 pub const SA_JSON_KIND_INVALID: u32 = std.math.maxInt(u32);
 pub const SA_JSON_KIND_NULL: u32 = 0;
 pub const SA_JSON_KIND_BOOL: u32 = 1;
@@ -779,6 +787,7 @@ const ProcessHandle = struct {
 
 const Resource = union(enum) {
     file: std.fs.File,
+    dynamic_lib: *DynamicLibHandle,
     tcp_stream: std.net.Stream,
     tcp_listener: std.net.Server,
     udp_socket: std.posix.socket_t,
@@ -801,6 +810,10 @@ const Resource = union(enum) {
     fn close(self: *Resource) !void {
         switch (self.*) {
             .file => |file| file.close(),
+            .dynamic_lib => |handle| {
+                handle.deinit();
+                std.heap.page_allocator.destroy(handle);
+            },
             .tcp_stream => |stream| stream.close(),
             .tcp_listener => |*server| server.deinit(),
             .udp_socket => |fd| std.posix.close(fd),
@@ -834,6 +847,15 @@ threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
 var compatibility_dlopen_cookie: [1]u8 = .{0};
 var compatibility_dlsym_cookie: [1]u8 = .{0};
+var compatibility_dl_error: [:0]const u8 = "unsupported";
+
+const DynamicLibHandle = struct {
+    lib: std.DynLib,
+
+    fn deinit(self: *DynamicLibHandle) void {
+        self.lib.close();
+    }
+};
 
 const PthreadEntryFn = *const fn (?[*]u8) callconv(.c) i32;
 
@@ -2328,8 +2350,8 @@ pub fn fd_read(fd: i32) callconv(.c) i32 {
 
 pub fn fd_close(fd: i32) callconv(.c) i32 {
     _ = fd;
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
+    last_error = SA_STD_ERR_UNSUPPORTED;
+    return SA_STD_ERR_UNSUPPORTED;
 }
 
 pub fn mmap(fd: i32, len: i32) callconv(.c) ?[*]u8 {
@@ -2416,21 +2438,87 @@ pub fn pthread_drop(handle: i32) callconv(.c) void {
 pub fn dlopen(path_ptr: ?[*]const u8, flags: i32) callconv(.c) ?[*]u8 {
     _ = path_ptr;
     _ = flags;
-    last_error = SA_STD_OK;
+    last_error = SA_STD_ERR_UNSUPPORTED;
     return compatibility_dlopen_cookie[0..].ptr;
 }
 
 pub fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) callconv(.c) ?[*]u8 {
     _ = handle;
     _ = symbol_ptr;
-    last_error = SA_STD_OK;
+    last_error = SA_STD_ERR_UNSUPPORTED;
     return compatibility_dlsym_cookie[0..].ptr;
 }
 
 pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
     _ = handle;
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
+    last_error = SA_STD_ERR_UNSUPPORTED;
+    return SA_STD_ERR_UNSUPPORTED;
+}
+
+pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(path_z);
+
+    const lib = std.DynLib.openZ(path_z) catch |err| switch (err) {
+        error.FileNotFound, error.NotElfFile, error.NotDynamicLibrary => {
+            compatibility_dl_error = "not_found";
+            return finish(SA_STD_ERR_NOT_FOUND);
+        },
+        error.OutOfMemory => return finish(SA_STD_ERR_NO_MEMORY),
+        else => return finish(SA_STD_ERR_UNKNOWN),
+    };
+
+    const handle = std.heap.page_allocator.create(DynamicLibHandle) catch |err| {
+        var lib_copy = lib;
+        lib_copy.close();
+        return finishErr(err);
+    };
+    handle.* = .{ .lib = lib };
+
+    const resource_handle = registerResource(.{ .dynamic_lib = handle }) catch |err| {
+        handle.deinit();
+        std.heap.page_allocator.destroy(handle);
+        return finishErr(err);
+    };
+
+    handle_ptr.* = resource_handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_dl_sym(handle: u64, symbol_ptr: ?[*]const u8, symbol_len: u64, out_ptr: ?*?*anyopaque) i32 {
+    const result_ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result_ptr.* = null;
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+
+    const symbol = pathBytes(symbol_ptr, symbol_len) catch |err| return finishErr(err);
+    const symbol_z = std.heap.page_allocator.dupeZ(u8, symbol) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(symbol_z);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const lib_handle = switch (resource.*) {
+        .dynamic_lib => |lib| lib,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    result_ptr.* = lib_handle.lib.lookup(*anyopaque, symbol_z) orelse {
+        compatibility_dl_error = "not_found";
+        return finish(SA_STD_ERR_NOT_FOUND);
+    };
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_dl_close(handle: u64) i32 {
+    return sa_std_close(handle);
+}
+
+pub export fn sa_dl_error() ?[*:0]const u8 {
+    return compatibility_dl_error.ptr;
 }
 
 pub fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) callconv(.c) i32 {
@@ -2793,6 +2881,32 @@ pub export fn sa_fs_file_read_exact(handle: u64, out: ?[*]u8, len: u64) i32 { re
 pub export fn sa_fs_file_write(handle: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(handle, out, len); }
 pub export fn sa_fs_file_write_all(handle: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(handle, out, len); }
 pub export fn sa_fs_file_flush(handle: u64) i32 { _ = handle; return finish(SA_STD_OK); }
+pub export fn sa_fs_file_sync(handle: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .file => |f| {
+            f.sync() catch |err| return finishErr(err);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_fs_file_truncate(handle: u64, new_size: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .file => |f| {
+            f.setEndPos(new_size) catch |err| return finishErr(err);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
 pub export fn sa_fs_file_seek(handle: u64, whence: u32, offset: i64) i32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();

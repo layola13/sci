@@ -74,6 +74,11 @@ const ParallelFunctionChunk = struct {
 pub const VerifyOptions = struct {
     jobs: ?usize = null,
     package_grants: []const pkg_manifest.RequireEntry = &.{},
+    sax_context: ?SaxValidationContext = null,
+};
+
+pub const SaxValidationContext = struct {
+    component_name: []const u8,
 };
 
 const VerifyBodyOk = struct {
@@ -152,6 +157,7 @@ const ParallelVerifyContext = struct {
     const_decls: []const const_decl.ConstDecl,
     metadata: *const CollectResult,
     package_grants: []const pkg_manifest.RequireEntry,
+    sax_context: ?SaxValidationContext,
     chunks: []const ParallelFunctionChunk,
     jobs: []ParallelVerifyJob,
     requested_jobs: ?usize,
@@ -1009,6 +1015,68 @@ fn trapReportWithRegisters(
     const result = trapReport(kind, item, function_text, is_ffi_wrapper, register, expected_mask, actual_mask, message, hint);
     _ = registers;
     return result;
+}
+
+fn saxTrapReport(
+    kind: trap.Trap,
+    item: inst.Instruction,
+    component_name: []const u8,
+    register: ?[]const u8,
+    expected_mask: ?u16,
+    actual_mask: ?u16,
+    message: []const u8,
+    hint: ?[]const u8,
+) VerifyBodyResult {
+    var report: trap.TrapReport = .{
+        .trap = kind,
+        .trap_code = trapCode(kind),
+        .line = item.expanded_line + 1,
+        .source_line = item.source_line,
+        .source_text_buf = [_]u8{0} ** 256,
+        .original_text_buf = [_]u8{0} ** 256,
+        .source_text = null,
+        .original_text = null,
+        .register = null,
+        .registers = &.{},
+        .expected_mask = expected_mask,
+        .actual_mask = actual_mask,
+        .expected_mask_name = if (expected_mask) |v| cap.maskName(v) else null,
+        .actual_mask_name = if (actual_mask) |v| cap.maskName(v) else null,
+        .upstream_loc = item.upstream_loc,
+        .upstream_file_buf = [_]u8{0} ** 128,
+        .upstream_line = if (item.upstream_loc) |loc| loc.line else 0,
+        .upstream_col = if (item.upstream_loc) |loc| loc.col else 0,
+        .function = null,
+        .is_ffi_wrapper = null,
+        .message = message,
+        .hint = hint,
+    };
+    copyTextBuf(&report.source_text_buf, trimTrailingCr(item.raw_text));
+    copyTextBuf(&report.original_text_buf, trimTrailingCr(item.raw_text));
+    copyTextBuf(&report.function_buf, component_name);
+    if (register) |value| {
+        const len = @min(report.register_buf.len, value.len);
+        std.mem.copyForwards(u8, report.register_buf[0..len], value[0..len]);
+    }
+    if (report.upstream_loc) |loc| {
+        const len = @min(report.upstream_file_buf.len, loc.file.len);
+        std.mem.copyForwards(u8, report.upstream_file_buf[0..len], loc.file[0..len]);
+        report.upstream_loc = null;
+    }
+    return .{ .trap = report };
+}
+
+fn saxReport(
+    ctx: SaxValidationContext,
+    kind: trap.Trap,
+    item: inst.Instruction,
+    register: ?[]const u8,
+    expected_mask: ?u16,
+    actual_mask: ?u16,
+    message: []const u8,
+    hint: ?[]const u8,
+) VerifyBodyResult {
+    return saxTrapReport(kind, item, ctx.component_name, register, expected_mask, actual_mask, message, hint);
 }
 
 fn trapReportFromText(
@@ -1919,6 +1987,7 @@ fn verifyBody(
     sig_index_start: usize,
     check_exit_leaks: bool,
     package_grants: []const pkg_manifest.RequireEntry,
+    sax_context: ?SaxValidationContext,
 ) !VerifyBodyResult {
     var sig_index = sig_index_start;
     var state: []u16 = &.{};
@@ -2152,6 +2221,12 @@ fn verifyBody(
                 }
             },
             .store => {
+                if (sax_context) |ctx| {
+                    const trimmed = std.mem.trim(u8, item.raw_text, " \t\r");
+                    if (std.mem.startsWith(u8, trimmed, "store state+") and !current_is_ffi_wrapper) {
+                        return saxReport(ctx, .sax_state_write_from_outside, item, classified.parts[0], null, null, "state slot written from outside component", null);
+                    }
+                }
                 if (writeCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, origins, locks)) |tr| return tr;
                 const dst_idx: usize = @intCast(item.operands[0].reg);
                 if ((state[dst_idx] & maskOf(.borrow_view)) != 0) {
@@ -2446,6 +2521,12 @@ fn verifyBody(
                     return trapReport(.forbidden_syntax, item, current_function_text, current_is_ffi_wrapper, null, null, null, "invalid call syntax", null);
                 };
                 defer parsed.deinit(allocator);
+
+                if (sax_context) |ctx| {
+                    if (std.mem.eql(u8, parsed.callee, "render") and !current_is_ffi_wrapper) {
+                        return saxReport(ctx, .sax_render_outside_handler, item, parsed.dest, null, null, "call @render() is only legal inside @handler", null);
+                    }
+                }
 
                 const sig_match: ?sig.FunctionSig = blk: {
                     for (metadata.sigs.items) |one| {
@@ -2749,6 +2830,11 @@ fn verifyBody(
             if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
             if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, current_scope.?.globalId(@intCast(idx)))) continue;
             const leak_name = current_scope.?.nameOf(&metadata.symbols, @intCast(idx)) orelse metadata.symbols.lookupName(current_scope.?.globalId(@intCast(idx)));
+            if (sax_context) |ctx| {
+                if (current_is_ffi_wrapper and current_function_text != null and std.mem.containsAtLeast(u8, current_function_text.?, 1, "destroy")) {
+                    return saxReport(ctx, .sax_state_leak, instructions[instructions.len - 1], leak_name, null, mask, "live state remains at component teardown", null);
+                }
+            }
             return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, leak_name, null, mask, "live registers remain at function exit", null);
         }
     }
@@ -2855,6 +2941,7 @@ fn verifyWorker(context: *ParallelVerifyContext) void {
             chunk.sig_index,
             chunk_index + 1 == context.chunks.len,
             context.package_grants,
+            context.sax_context,
         ) catch |err| {
             job.err = err;
             return;
@@ -2869,12 +2956,13 @@ fn verifyParallel(
     const_decls: []const const_decl.ConstDecl,
     metadata: *const CollectResult,
     package_grants: []const pkg_manifest.RequireEntry,
+    sax_context: ?SaxValidationContext,
     chunks: []const ParallelFunctionChunk,
     requested_jobs: ?usize,
 ) !VerifyBodyResult {
     const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
     if (worker_count <= 1) {
-        return verifyBody(allocator, instructions, const_decls, metadata, 0, true, package_grants);
+        return verifyBody(allocator, instructions, const_decls, metadata, 0, true, package_grants, sax_context);
     }
 
     const jobs = try allocator.alloc(ParallelVerifyJob, chunks.len);
@@ -2892,6 +2980,7 @@ fn verifyParallel(
         .const_decls = const_decls,
         .metadata = metadata,
         .package_grants = package_grants,
+        .sax_context = sax_context,
         .chunks = chunks,
         .jobs = jobs,
         .requested_jobs = requested_jobs,
@@ -3028,10 +3117,10 @@ pub fn verifyWithOptions(
     const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
 
     const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
-        const parallel = try verifyParallel(allocator, instructions, const_decls, &metadata, options.package_grants, chunks, options.jobs);
+        const parallel = try verifyParallel(allocator, instructions, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs);
         break :blk parallel;
     } else blk: {
-        break :blk try verifyBody(allocator, instructions, const_decls, &metadata, 0, true, options.package_grants);
+        break :blk try verifyBody(allocator, instructions, const_decls, &metadata, 0, true, options.package_grants, options.sax_context);
     };
 
     switch (body_result) {
@@ -3571,6 +3660,42 @@ test "borrowed views trap on write when shared" {
     const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.read_write_conflict, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "sax verifier hook maps state writes outside ffi wrappers to sax trap" {
+    const source =
+        \\@main() -> i32:
+        \\state = alloc 8
+        \\store state+0, 1 as i64
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .sax_context = .{ .component_name = "App" } });
+    switch (verified) {
+        .trap => |report| {
+            try std.testing.expectEqual(trap.Trap.sax_state_write_from_outside, report.trap);
+            try std.testing.expectEqualStrings("App", std.mem.sliceTo(&report.function_buf, 0));
+        },
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "sax verifier hook maps render outside ffi wrappers to sax trap" {
+    const source =
+        \\@main() -> i32:
+        \\call @render()
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .sax_context = .{ .component_name = "App" } });
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.sax_render_outside_handler, report.trap),
         .ok => return error.TestUnexpectedResult,
     }
 }

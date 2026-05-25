@@ -53,6 +53,13 @@ pub const Trap = enum(u8) {
     sax_render_outside_handler,
     sax_invalid_interpolation,
     sax_state_write_from_outside,
+    sax_unknown_tag,
+    sax_unknown_event,
+    machine_code_hash_mismatch,
+    blocked_risk_unconfirmed,
+    missing_tty_for_confirmation,
+    forbidden_global_config,
+    sum_hash_mismatch,
 };
 
 pub const TrapReport = struct {
@@ -137,6 +144,13 @@ pub fn trapName(trap: Trap) []const u8 {
         .sax_render_outside_handler => "SaxRenderOutsideHandler",
         .sax_invalid_interpolation => "SaxInvalidInterpolation",
         .sax_state_write_from_outside => "SaxStateWriteFromOutside",
+        .sax_unknown_tag => "SaxUnknownTag",
+        .sax_unknown_event => "SaxUnknownEvent",
+        .machine_code_hash_mismatch => "MachineCodeHashMismatch",
+        .blocked_risk_unconfirmed => "BlockedRiskUnconfirmed",
+        .missing_tty_for_confirmation => "MissingTtyForConfirmation",
+        .forbidden_global_config => "ForbiddenGlobalConfig",
+        .sum_hash_mismatch => "SumHashMismatch",
     };
 }
 
@@ -192,6 +206,13 @@ pub fn trapCode(trap: Trap) u32 {
         .sax_render_outside_handler => 1047,
         .sax_invalid_interpolation => 1048,
         .sax_state_write_from_outside => 1049,
+        .sax_unknown_tag => 1051,
+        .sax_unknown_event => 1052,
+        .machine_code_hash_mismatch => 1053,
+        .blocked_risk_unconfirmed => 1054,
+        .missing_tty_for_confirmation => 1055,
+        .forbidden_global_config => 1056,
+        .sum_hash_mismatch => 1057,
     };
 }
 
@@ -350,6 +371,8 @@ test "trap names are stable" {
     try std.testing.expectEqualStrings("UpstreamShaMismatch", trapName(.upstream_sha_mismatch));
     try std.testing.expectEqualStrings("SaxStateLeak", trapName(.sax_state_leak));
     try std.testing.expectEqualStrings("ImportResolutionFailed", trapName(.import_resolution_failed));
+    try std.testing.expectEqualStrings("ForbiddenGlobalConfig", trapName(.forbidden_global_config));
+    try std.testing.expectEqualStrings("SumHashMismatch", trapName(.sum_hash_mismatch));
 }
 
 test "trap codes are explicit and stable" {
@@ -360,6 +383,8 @@ test "trap codes are explicit and stable" {
     try std.testing.expectEqual(@as(u32, 1044), trapCode(.upstream_sha_mismatch));
     try std.testing.expectEqual(@as(u32, 1045), trapCode(.sax_state_leak));
     try std.testing.expectEqual(@as(u32, 1050), trapCode(.import_resolution_failed));
+    try std.testing.expectEqual(@as(u32, 1056), trapCode(.forbidden_global_config));
+    try std.testing.expectEqual(@as(u32, 1057), trapCode(.sum_hash_mismatch));
 }
 
 test "trap json serialization is stable" {

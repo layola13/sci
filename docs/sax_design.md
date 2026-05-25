@@ -350,6 +350,7 @@ Phase 2 在编译期由 SAX Parser 分析 `{expr}` 插值与 `<state>` 变量的
 - JS 胶水层（airlock.js）是唯一与浏览器 DOM 交互的边界
 - WASM 模块无法直接访问 JS 全局对象
 - 白名单 API 仅 ~20 个，超出白名单的 DOM 操作需显式扩展
+- SAX Lowerer 会把组件对外 `@export` 入口与内部 `@ffi_wrapper` 实现拆开，前者负责 ABI 暴露，后者负责实际的 DOM / Airlock 调用
 
 ### 6.2 安全模型
 
@@ -371,7 +372,7 @@ Airlock（airlock.js）
 
 ## 7. 组件生命周期
 
-### 7.1 生命周期钩子（Phase 2）
+### 7.1 生命周期钩子
 
 ```xml
 <Component name="TimerWidget">
@@ -414,13 +415,13 @@ Airlock（airlock.js）
 |----------|-----------|---------|---------|
 | `@onMount:` | `useEffect(fn, [])` | `mounted` | 组件首次插入 DOM 后 |
 | `@onUnmount:` | `useEffect(() => cleanup)` | `beforeUnmount` | 组件从 DOM 移除前 |
-| `@onUpdate:` | `useEffect(fn, [deps])` | `updated` | 状态变化触发 render 后（Phase 2） |
+| `@onUpdate:` | `useEffect(fn, [deps])` | `updated` | 每次显式 `call @render()` 之后 |
 
 ---
 
-## 8. 路由系统（Phase 2）
+## 8. 路由系统
 
-SAX 路由基于 `<Router>` 和 `<Page>` 组件，保持极简风格：
+SAX 路由基于 `<Router>` 和 `<Page>` 组件，保持极简风格。Lowerer 会把路由页面元数据下发为常量，并生成 `@export sax_*_router_init` 与内部 `@ffi_wrapper` 路由初始化实现：
 
 ```xml
 <Component name="App">
@@ -444,8 +445,7 @@ SAX 路由基于 `<Router>` 和 `<Page>` 组件，保持极简风格：
 </Component>
 ```
 
-路由变化通过 `popstate` / `hashchange` 事件（Airlock 提供）触发对应 `<Page>` 组件的
-挂载/卸载。
+路由变化通过 `popstate` / `hashchange` 事件（Airlock 提供）触发对应 `<Page>` 组件的挂载/卸载。
 
 ---
 
@@ -481,21 +481,22 @@ sa sax build app.sax
 
 目标：Counter + TodoList 在浏览器中正常运行
 
-- [ ] SAX Parser（XML 层 + SA 代码块混合解析 → .sa）
-- [ ] Lowerer（Component/state/DOM → SA 指令序列）
-- [ ] DOM Airlock 白名单（~20 个 API + airlock.js 生成）
-- [ ] Referee SAX 规则扩展（5 条新规则）
-- [ ] WASM 目标切换（wasm32-unknown-unknown）
-- [ ] `sa sax build` / `sax check` CLI 子命令
-- [ ] HTML Shell 生成器
-- 不做：生命周期钩子、路由、细粒度响应式
+- [x] SAX Parser（XML 层 + SA 代码块混合解析 → .sa）
+- [x] Lowerer（Component/state/DOM → SA 指令序列）
+- [x] DOM Airlock 白名单（~20 个 API + airlock.js 生成）
+- [x] Referee SAX 规则扩展（5 条新规则）
+- [x] WASM 目标切换（wasm32-unknown-unknown）
+- [x] `sa sax build` / `sax check` CLI 子命令
+- [x] HTML Shell 生成器
+- 已进入实现：生命周期钩子、路由、`@ffi_wrapper` 边界
 
 ### Phase 2（约 4-6 周）：响应式 + 路由 + 生命周期
 
 - [ ] 细粒度响应式（编译期依赖分析 + 最小 DOM 更新）
-- [ ] `@onMount:` / `@onUnmount:` 生命周期钩子
-- [ ] `<Router>` + `<Page>` 基础路由
-- [ ] `sa sax dev` 热重载开发服务器
+- [x] `@onMount:` / `@onUnmount:` 生命周期钩子
+- [x] `@onUpdate:` 生命周期钩子
+- [x] `<Router>` + `<Page>` 基础路由
+- [x] `sa sax dev` 热重载开发服务器
 - [ ] VS Code 语法高亮插件（TextMate grammar for .sax）
 
 ### Phase 3（约 6-8 周）：跨端 + 生态

@@ -111,9 +111,9 @@
   - 宏展开末尾必须清理临时寄存器并避免标签冲突
 
 ## 需求落点
-- [ ] 将上述 Rust core 模式补入 `.kiro/specs/sa-asm-language/requirements.md` / `design.md`
-- [ ] 将 `docs/faq.md` 中关于 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` 的边界解释补齐
-- [ ] 为对应模式补充后续的 tasks 追踪项，确保最终实现以宏和布局文件为主，不回写到 ISA
+- [x] 将上述 Rust core 模式补入 `.kiro/specs/sa-asm-language/requirements.md` / `design.md`
+- [x] 将 `docs/faq.md` 中关于 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` 的边界解释补齐
+- [x] 为对应模式补充后续的 tasks 追踪项，确保最终实现以宏和布局文件为主，不回写到 ISA
 
 ## 当前优先级
 - 当前执行顺序：Rust core 基础闭环收口 -> 标准库收口 -> HTTP Client/Server 插件 -> OpenAI 转发服务 (HubProxy) -> 单元测试框架 -> 零信任包管理 -> `sa_net_uring` 深化。
@@ -145,13 +145,13 @@
 - [x] 至少一个插件完成独立 `.so` 化并可被宿主热加载
 - [x] 插件目录隔离：每个插件只改自己的目录，不回写主线程命令分发
 - [x] runtime hot reload 为最终形态，禁止把静态注册当成完成标准
-- [x] `src/plugin_api.zig` / `src/plugins.zig` 的 runtime ABI/loader 收敛为稳定形态
-- [x] `src/sax` 插件 runtime 热重载回归与 descriptor/skills 测试
-- [x] `src/db` 插件 runtime 热重载回归与失败隔离测试
-- [x] `src/pkg` 插件 runtime 热重载回归与 skills 测试
-- [x] `src/pkg` 插件 `install`/`fetch` runtime 命令一致性测试，`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径
-- [x] `src/bc2sa` 插件 runtime 热重载回归与命令一致性测试
-- [x] `src/http_server` 插件 runtime 热重载回归与 scaffold 入口测试
+- [x] `runtime ABI module` / `runtime loader boundary` 的 runtime ABI/loader 收敛为稳定形态
+- [x] `sax` 外部插件 runtime 热重载回归与 descriptor/skills 测试
+- [x] `db` 外部插件 runtime 热重载回归与失败隔离测试
+- [x] `pkg` 外部插件 runtime 热重载回归与 skills 测试
+- [x] `pkg` 外部插件 `install`/`fetch` runtime 命令一致性测试，`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径
+- [x] `bc2sa` 外部插件 runtime 热重载回归与命令一致性测试
+- [x] `http_server` 外部插件 runtime 热重载回归与 scaffold 入口测试
 
 ### 插件验收口径
 - 宿主保持最小职责：发现、加载、卸载、热重载、运行时派发、失败隔离。

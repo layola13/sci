@@ -140,6 +140,11 @@ uint32_t sa_std_version(void);
 int32_t sa_std_last_error(void);
 int32_t sa_std_error_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 
+int32_t sa_dl_open(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
+int32_t sa_dl_sym(uint64_t handle, const uint8_t *symbol, uint64_t symbol_len, void **out_ptr);
+int32_t sa_dl_close(uint64_t handle);
+const uint8_t *sa_dl_error(void);
+
 uint64_t sa_std_stdin(void);
 uint64_t sa_std_stdout(void);
 uint64_t sa_std_stderr(void);
@@ -233,6 +238,8 @@ int32_t sa_regex_match_free(uint64_t match);
 int32_t sa_std_write(uint64_t handle, const uint8_t *data, uint64_t len, uint64_t *out_written);
 int32_t sa_std_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_std_close(uint64_t handle);
+int32_t sa_fs_file_sync(uint64_t handle);
+int32_t sa_fs_file_truncate(uint64_t handle, uint64_t new_size);
 int32_t sa_io_read_line(uint64_t handle, uint64_t max_bytes, uint64_t *out_handle);
 int32_t sa_io_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_io_read_exact(uint64_t handle, uint8_t *out, uint64_t len);

@@ -1,0 +1,19 @@
+@import "cell.sal"
+
+[MACRO] CELL_NEW %out_cell
+    %out_cell = alloc Cell_SIZE
+    store %out_cell+Cell_value, 0 as i32
+[END_MACRO]
+
+[MACRO] CELL_GET %out_value, %cell_reg
+    %out_value = load %cell_reg+Cell_value as i32
+[END_MACRO]
+
+[MACRO] CELL_SET %cell_reg, %value
+    store %cell_reg+Cell_value, %value as i32
+[END_MACRO]
+
+[MACRO] CELL_REPLACE %out_old, %cell_reg, %value
+    %out_old = load %cell_reg+Cell_value as i32
+    store %cell_reg+Cell_value, %value as i32
+[END_MACRO]

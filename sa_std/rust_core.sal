@@ -1,3 +1,9 @@
+@import "core/cell.sal"
+@import "core/refcell.sal"
+@import "core/rc.sal"
+@import "core/weak.sal"
+@import "core/trait_object.sal"
+@import "core/waker.sal"
 @import "core/option.sal"
 @import "core/result.sal"
 @import "core/iter.sal"
@@ -7,3 +13,9 @@
 #def RustCore_SUPPORTS_RESULT = 1
 #def RustCore_SUPPORTS_PANIC = 1
 #def RustCore_SUPPORTS_ITER = 1
+#def RustCore_SUPPORTS_CELL = 1
+#def RustCore_SUPPORTS_REFCELL = 1
+#def RustCore_SUPPORTS_RC = 1
+#def RustCore_SUPPORTS_WEAK = 1
+#def RustCore_SUPPORTS_TRAIT_OBJECT = 1
+#def RustCore_SUPPORTS_WAKER = 1

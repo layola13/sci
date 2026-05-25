@@ -1040,6 +1040,149 @@ fn emitParsedLine(
     }
 }
 
+fn includeFileAsConst(
+    allocator: std.mem.Allocator,
+    kind: enum { str, bytes },
+    args: []const u8,
+    source_line: u32,
+    source_path: ?[]const u8,
+    dict: *DefDict,
+    symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
+    instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
+    function_sigs: *std.ArrayList(FunctionSig),
+    owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
+) !void {
+    const path_arg = std.mem.trim(u8, args, " \t\r\n");
+    if (path_arg.len == 0) return error.InvalidMacroInvocation;
+
+    const include_path_raw = try unquoteString(allocator, path_arg);
+    defer allocator.free(include_path_raw);
+
+    const resolved_path = if (std.fs.path.isAbsolute(include_path_raw))
+        try allocator.dupe(u8, include_path_raw)
+    else if (source_path) |sp| blk: {
+        const base = std.fs.path.dirname(sp) orelse ".";
+        break :blk try std.fs.path.join(allocator, &.{ base, include_path_raw });
+    } else
+        try allocator.dupe(u8, include_path_raw);
+    defer allocator.free(resolved_path);
+
+    const file = try std.fs.cwd().openFile(resolved_path, .{});
+    defer file.close();
+    const bytes = try file.readToEndAlloc(allocator, 1 << 20);
+    defer allocator.free(bytes);
+
+    const const_name = try std.fmt.allocPrint(allocator, "__INCLUDE_{d}_{d}", .{ source_line, const_decls.items.len });
+    defer allocator.free(const_name);
+
+    var hex: ?std.ArrayList(u8) = null;
+    const literal_line = switch (kind) {
+        .str => try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, bytes }),
+        .bytes => blk: {
+            hex = std.ArrayList(u8).init(allocator);
+            try hex.?.appendSlice("hex:");
+            for (bytes) |b| {
+                try hex.?.writer().print("\\x{X:0>2}", .{b});
+            }
+            break :blk try std.fmt.allocPrint(allocator, "@const {s} = {s}", .{ const_name, hex.?.items });
+        },
+    };
+    defer allocator.free(literal_line);
+
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, literal_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    if (hex) |*h| h.deinit();
+}
+
+fn expandSourceLocationMacro(
+    allocator: std.mem.Allocator,
+    macro_name: []const u8,
+    args_text: []const u8,
+    source_line: u32,
+    source_path: ?[]const u8,
+    dict: *DefDict,
+    symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
+    instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
+    function_sigs: *std.ArrayList(FunctionSig),
+    owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
+) !void {
+    const out_reg = std.mem.trim(u8, args_text, " \t\r\n");
+    if (out_reg.len == 0) return error.InvalidMacroInvocation;
+
+    const loc = if (loc_table.items.len != 0) blk: {
+        if (loc_table.items[loc_table.items.len - 1]) |item| break :blk item;
+        if (pending_loc.*) |item| break :blk item;
+        if (source_path) |sp| {
+            break :blk common_upstream.UpstreamLoc{ .file = sp, .line = source_line, .col = 1 };
+        }
+        break :blk common_upstream.UpstreamLoc{ .file = "<unknown>", .line = source_line, .col = 1 };
+    } else if (pending_loc.*) |item|
+        item
+    else if (source_path) |sp|
+        common_upstream.UpstreamLoc{ .file = sp, .line = source_line, .col = 1 }
+    else
+        common_upstream.UpstreamLoc{ .file = "<unknown>", .line = source_line, .col = 1 };
+
+    if (std.mem.eql(u8, macro_name, "LINE!")) {
+        const line_line = try std.fmt.allocPrint(allocator, "{s} = add 0, {d}", .{ out_reg, loc.line });
+        defer allocator.free(line_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+        return;
+    }
+
+    if (std.mem.eql(u8, macro_name, "COLUMN!")) {
+        const col_line = try std.fmt.allocPrint(allocator, "{s} = add 0, {d}", .{ out_reg, loc.col });
+        defer allocator.free(col_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, col_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+        return;
+    }
+
+    if (std.mem.eql(u8, macro_name, "FILE!")) {
+        const const_name = try std.fmt.allocPrint(allocator, "__SOURCE_FILE_{d}_{d}", .{ source_line, const_decls.items.len });
+        defer allocator.free(const_name);
+
+        const file_text = source_path orelse loc.file;
+        const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, file_text });
+        defer allocator.free(const_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+        const ptr_line = try std.fmt.allocPrint(allocator, "{s} = add 0, 0", .{ out_reg });
+        defer allocator.free(ptr_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+        const assign_line = try std.fmt.allocPrint(allocator, "{s} = ^{s}", .{ out_reg, const_name });
+        defer allocator.free(assign_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, assign_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+        return;
+    }
+
+    if (std.mem.eql(u8, macro_name, "MODULE_PATH!")) {
+        const module_path = source_path orelse loc.file;
+        const const_name = try std.fmt.allocPrint(allocator, "__MODULE_PATH_{d}_{d}", .{ source_line, const_decls.items.len });
+        defer allocator.free(const_name);
+
+        const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, module_path });
+        defer allocator.free(const_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+        const assign_line = try std.fmt.allocPrint(allocator, "{s} = ^{s}", .{ out_reg, const_name });
+        defer allocator.free(assign_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, assign_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+        return;
+    }
+
+    return error.InvalidMacroInvocation;
+}
+
 fn collectMacroDefinitions(
     allocator: std.mem.Allocator,
     lines: []const SourceLine,
@@ -1714,6 +1857,147 @@ fn expandPrintOrFormat(
     }
 }
 
+fn expandStringify(
+    allocator: std.mem.Allocator,
+    args_text: []const u8,
+    source_line: u32,
+    dict: *DefDict,
+    symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
+    instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
+    function_sigs: *std.ArrayList(FunctionSig),
+    owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
+) !void {
+    const comma = std.mem.indexOfScalar(u8, args_text, ',') orelse return error.InvalidMacroInvocation;
+    const out_reg = std.mem.trim(u8, args_text[0..comma], " \t\r\n");
+    const expr_text = std.mem.trim(u8, args_text[comma + 1 ..], " \t\r\n");
+    if (out_reg.len == 0 or expr_text.len == 0) return error.InvalidMacroInvocation;
+
+    const const_name = try std.fmt.allocPrint(allocator, "__STRINGIFY_LIT_{d}_{d}", .{ source_line, const_decls.items.len });
+    defer allocator.free(const_name);
+
+    var hex = std.ArrayList(u8).init(allocator);
+    errdefer hex.deinit();
+    try hex.appendSlice("hex:");
+    for (expr_text) |b| {
+        try hex.writer().print("\\x{X:0>2}", .{b});
+    }
+
+    const const_line = try std.fmt.allocPrint(allocator, "@const {s} = {s}", .{ const_name, hex.items });
+    defer allocator.free(const_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    hex.deinit();
+
+    const len = expr_text.len;
+    const ptr_line = try std.fmt.allocPrint(allocator, "store {s}+Slice_ptr, &{s} as ptr", .{ out_reg, const_name });
+    defer allocator.free(ptr_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+    const len_line = try std.fmt.allocPrint(allocator, "store {s}+Slice_len, {d} as u64", .{ out_reg, len });
+    defer allocator.free(len_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+}
+
+fn expandEnvMacro(
+    allocator: std.mem.Allocator,
+    macro_name: []const u8,
+    args_text: []const u8,
+    source_line: u32,
+    dict: *DefDict,
+    symbols: *SymbolTable,
+    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    pending_loc: *?common_upstream.UpstreamLoc,
+    instructions: *std.ArrayList(Instruction),
+    const_decls: *std.ArrayList(ConstDecl),
+    function_sigs: *std.ArrayList(FunctionSig),
+    owned_text: *std.ArrayList([]const u8),
+    current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8,
+) !void {
+    const comma = std.mem.indexOfScalar(u8, args_text, ',') orelse return error.InvalidMacroInvocation;
+    const out_reg = std.mem.trim(u8, args_text[0..comma], " \t\r\n");
+    const key_text = std.mem.trim(u8, args_text[comma + 1 ..], " \t\r\n");
+    if (out_reg.len == 0 or key_text.len == 0) return error.InvalidMacroInvocation;
+
+    const key_raw = try unquoteString(allocator, key_text);
+    defer allocator.free(key_raw);
+    if (key_raw.len == 0) return error.InvalidMacroInvocation;
+
+    const env_value = std.process.getEnvVarOwned(allocator, key_raw) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => {
+            if (std.mem.eql(u8, macro_name, "OPTION_ENV!")) {
+                const none_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_NONE as u64", .{ out_reg });
+                defer allocator.free(none_tag_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, none_tag_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const none_value_line = try std.fmt.allocPrint(allocator, "store {s}+Option_value, 0 as u64", .{ out_reg });
+                defer allocator.free(none_value_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, none_value_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+                return;
+            }
+            return error.InvalidMacroInvocation;
+        },
+        else => return err,
+    };
+    defer allocator.free(env_value);
+
+    const const_name = try std.fmt.allocPrint(allocator, "__ENV_LIT_{d}_{d}", .{ source_line, const_decls.items.len });
+    defer allocator.free(const_name);
+
+    var hex = std.ArrayList(u8).init(allocator);
+    errdefer hex.deinit();
+    try hex.appendSlice("hex:");
+    for (env_value) |b| {
+        try hex.writer().print("\\x{X:0>2}", .{b});
+    }
+
+    const const_line = try std.fmt.allocPrint(allocator, "@const {s} = {s}", .{ const_name, hex.items });
+    defer allocator.free(const_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+    hex.deinit();
+
+    const value_len = env_value.len;
+    if (std.mem.eql(u8, macro_name, "ENV!")) {
+        const ptr_line = try std.fmt.allocPrint(allocator, "store {s}+Slice_ptr, &{s} as ptr", .{ out_reg, const_name });
+        defer allocator.free(ptr_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+        const len_line = try std.fmt.allocPrint(allocator, "store {s}+Slice_len, {d} as u64", .{ out_reg, value_len });
+        defer allocator.free(len_line);
+        try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+        return;
+    }
+
+    if (!std.mem.eql(u8, macro_name, "OPTION_ENV!")) return error.InvalidMacroInvocation;
+
+    const slice_reg = try std.fmt.allocPrint(allocator, "__ENV_SLICE_{d}_{d}", .{ source_line, const_decls.items.len });
+    defer allocator.free(slice_reg);
+
+    const slice_alloc_line = try std.fmt.allocPrint(allocator, "{s} = stack_alloc Slice_SIZE", .{ slice_reg });
+    defer allocator.free(slice_alloc_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, slice_alloc_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+    const slice_ptr_line = try std.fmt.allocPrint(allocator, "store {s}+Slice_ptr, &{s} as ptr", .{ slice_reg, const_name });
+    defer allocator.free(slice_ptr_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, slice_ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+    const slice_len_line = try std.fmt.allocPrint(allocator, "store {s}+Slice_len, {d} as u64", .{ slice_reg, value_len });
+    defer allocator.free(slice_len_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, slice_len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+    const some_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_SOME as u64", .{ out_reg });
+    defer allocator.free(some_tag_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, some_tag_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+    const some_value_line = try std.fmt.allocPrint(allocator, "store {s}+Option_value, {s} as ptr", .{ out_reg, slice_reg });
+    defer allocator.free(some_value_line);
+    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, some_value_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+}
+
 fn emitRange(
     allocator: std.mem.Allocator,
     lines: []const SourceLine,
@@ -1721,6 +2005,7 @@ fn emitRange(
     end: usize,
     depth: u16,
     source_line_override: ?u32,
+    source_path: ?[]const u8,
     replacements: []const Replacement,
     top_level: bool,
     macros: *std.StringHashMap(MacroDef),
@@ -1815,6 +2100,7 @@ fn emitRange(
                         rep_end,
                         depth + 1,
                         source_line_override orelse line.line_no,
+                        source_path,
                         combined,
                         false,
                         macros,
@@ -1855,6 +2141,7 @@ fn emitRange(
                         selected_end,
                         depth + 1,
                         source_line_override orelse line.line_no,
+                        source_path,
                         replacements,
                         false,
                         macros,
@@ -1900,6 +2187,82 @@ fn emitRange(
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
                     );
+                } else if (std.mem.eql(u8, macro_name, "STRINGIFY!")) {
+                    try expandStringify(
+                        allocator,
+                        rendered_classified.parts[1],
+                        source_line,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
+                } else if (std.mem.eql(u8, macro_name, "CFG!")) {
+                    const cfg_args = try parseTokenList(allocator, rendered_classified.parts[1]);
+                    defer allocator.free(cfg_args);
+                    if (cfg_args.len != 2) return error.InvalidMacroInvocation;
+                    const cfg_macro_line = try std.fmt.allocPrint(allocator, "EXPAND CFG {s}, {s}", .{ cfg_args[0], cfg_args[1] });
+                    defer allocator.free(cfg_macro_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, cfg_macro_line, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash);
+                } else if (std.mem.eql(u8, macro_name, "ENV!") or std.mem.eql(u8, macro_name, "OPTION_ENV!")) {
+                    try expandEnvMacro(
+                        allocator,
+                        macro_name,
+                        rendered_classified.parts[1],
+                        source_line,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
+                } else if (std.mem.eql(u8, macro_name, "LINE!") or std.mem.eql(u8, macro_name, "FILE!") or std.mem.eql(u8, macro_name, "COLUMN!") or std.mem.eql(u8, macro_name, "MODULE_PATH!")) {
+                    try expandSourceLocationMacro(
+                        allocator,
+                        macro_name,
+                        rendered_classified.parts[1],
+                        source_line,
+                        source_path,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
+                } else if (std.mem.eql(u8, macro_name, "INCLUDE_STR!") or std.mem.eql(u8, macro_name, "INCLUDE_BYTES!")) {
+                    try includeFileAsConst(
+                        allocator,
+                        if (std.mem.eql(u8, macro_name, "INCLUDE_STR!")) .str else .bytes,
+                        rendered_classified.parts[1],
+                        source_line,
+                        line.package_identity,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
                 } else {
                     const def = macros.get(macro_name) orelse return error.InvalidMacroInvocation;
                     const args = try parseTokenList(allocator, rendered_classified.parts[1]);
@@ -1924,6 +2287,7 @@ fn emitRange(
                             def.body_end,
                             depth + 1,
                             source_line_override orelse line.line_no,
+                            source_path,
                             local_slice,
                             false,
                             macros,
@@ -1958,6 +2322,7 @@ fn emitRange(
                         def.body_end,
                         depth + 1,
                         source_line_override orelse line.line_no,
+                        source_path,
                         local_slice,
                         false,
                         macros,
@@ -2635,6 +3000,7 @@ fn flattenInternal(
         lines.len,
         0,
         null,
+        source_path,
         empty_replacements[0..],
         true,
         &macros,
@@ -3195,6 +3561,62 @@ test "flattenFile rejects import cycles" {
     defer std.testing.allocator.free(source_path);
 
     try std.testing.expectError(error.ImportCycle, flattenFile(std.testing.allocator, source_path, source));
+}
+
+test "flatten expands source location macros from upstream location and file path" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\#loc "up.rs":42:7
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\line_out = alloc 8
+        \\EXPAND LINE! line_out
+        \\EXPAND COLUMN! col_out
+        \\file_slice = alloc 8
+        \\EXPAND FILE! file_slice
+        \\module_slice = alloc 8
+        \\EXPAND MODULE_PATH! module_slice
+        \\return 0
+    );
+    main_file.close();
+
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var result = try flattenFile(std.testing.allocator, source_path, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 9), result.instructions.len);
+
+    switch (result.instructions[2].operands[1]) {
+        .imm_i64 => |value| try std.testing.expectEqual(@as(i64, 42), value),
+        else => return error.TestUnexpectedResult,
+    }
+    switch (result.instructions[3].operands[1]) {
+        .imm_i64 => |value| try std.testing.expectEqual(@as(i64, 7), value),
+        else => return error.TestUnexpectedResult,
+    }
+
+    try std.testing.expectEqualStrings("@main() -> i32:", result.instructions[0].raw_text);
+    try std.testing.expectEqualStrings("L_ENTRY:", result.instructions[1].raw_text);
+
+    try std.testing.expectEqual(InstKind.op, result.instructions[6].kind);
+    try std.testing.expectEqual(InstKind.op, result.instructions[8].kind);
+
+    switch (result.instructions[6].operands[2]) {
+        .text => |text| try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "main.sa")),
+        else => return error.TestUnexpectedResult,
+    }
+    switch (result.instructions[8].operands[2]) {
+        .text => |text| try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "main.sa")),
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "macro PBT expands nested macros and repeat bodies deterministically" {

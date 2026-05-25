@@ -1,0 +1,542 @@
+@import "../sa_std/core/sa_core.sa"
+@import "../sa_std/core/option.sal"
+@import "../sa_std/core/option.sa"
+@import "../sa_std/core/result.sal"
+@import "../sa_std/core/result.sa"
+@import "../sa_std/netx.sa"
+
+@const TEST_TRAIT_OBJECT_VT = vtable { call = @demo_trait_object_call }
+@const TEST_WAKER_VT = vtable { clone = @demo_waker_clone, wake = @demo_waker_wake, wake_by_ref = @demo_waker_wake_by_ref, drop = @demo_waker_drop }
+
+#def TestDyn_SIZE = 16
+#def TestDyn_DATA = +0
+#def TestDyn_VTABLE = +8
+#def TestWaker_SIZE = 16
+#def TestWaker_DATA = +0
+#def TestWaker_VTABLE = +8
+#def TestPair_SIZE = 32
+#def TestPair_A = +0
+#def TestPair_B = +8
+#def TestPair_C = +16
+#def TestPair_D = +24
+
+@demo_trait_object_call(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestDyn_DATA as i32
+    result = add value, 3
+    !value
+    !self
+    return result
+
+@demo_waker_clone(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestWaker_DATA as i32
+    !self
+    return value
+
+@demo_waker_wake(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestWaker_DATA as i32
+    result = add value, 1
+    !value
+    !self
+    return result
+
+@demo_waker_wake_by_ref(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestWaker_DATA as i32
+    result = add value, 2
+    !value
+    !self
+    return result
+
+@demo_waker_drop(&self: ptr) -> i32:
+L_ENTRY:
+    !self
+    return 0
+
+@drop_probe(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestDyn_DATA as i32
+    !self
+    return value
+
+@box_probe(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+Box_value as u64
+    result = add value, 1
+    !self
+    !value
+    return result
+
+@arc_cleanup(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+ArcBox_data as u64
+    !self
+    !value
+    return 0
+
+@test "rwlock reader and writer state transitions"():
+L_ENTRY:
+    lock = alloc RwLock_SIZE
+    store lock+RwLock_readers, 0 as i32
+    store lock+RwLock_writing, 0 as i32
+    EXPAND RWLOCK_TRY_READ read_ok, read_guard, lock, L_READ_FAIL
+
+L_READ_OK:
+    readers = load lock+RwLock_readers as i32
+    ok1 = eq readers, 1
+    EXPAND RWLOCK_TRY_WRITE write_ok, write_guard, lock, L_WRITE_FAIL
+
+L_WRITE_OK:
+    trap = add 0, 0
+    !trap
+    return
+
+L_WRITE_FAIL:
+    EXPAND RWLOCK_RELEASE_READ lock
+    after_read = load lock+RwLock_readers as i32
+    ok2 = eq after_read, 0
+    EXPAND RWLOCK_TRY_WRITE write_ok2, write_guard2, lock, L_WRITE_FAIL2
+
+L_WRITE_OK2:
+    writer = load lock+RwLock_writing as i32
+    ok3 = eq writer, 1
+    EXPAND RWLOCK_RELEASE_WRITE lock
+    after_write = load lock+RwLock_writing as i32
+    ok4 = eq after_write, 0
+    !after_read
+    !after_write
+    !readers
+    !writer
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !read_guard
+    !write_guard
+    !write_guard2
+    !read_ok
+    !write_ok
+    !write_ok2
+    !lock
+    return
+
+L_READ_FAIL:
+    trap_read = add 0, 0
+    !trap_read
+    return
+
+L_WRITE_FAIL2:
+    trap_write = add 0, 0
+    !trap_write
+    return
+
+@test "derive struct copy and equality"():
+L_ENTRY:
+    left = alloc TestPair_SIZE
+    right = alloc TestPair_SIZE
+    store left+TestPair_A, 1 as u64
+    store left+TestPair_B, 2 as u64
+    store left+TestPair_C, 3 as u64
+    store left+TestPair_D, 4 as u64
+    EXPAND STRUCT_COPY right, left, TestPair_A, TestPair_B, TestPair_C, TestPair_D
+    EXPAND STRUCT_EQ_FIELD ok_a, left, right, TestPair_A
+    EXPAND STRUCT_EQ_FIELD ok_b, left, right, TestPair_B
+    EXPAND STRUCT_EQ_FIELD ok_c, left, right, TestPair_C
+    EXPAND STRUCT_EQ_FIELD ok_d, left, right, TestPair_D
+    EXPAND STRUCT_EQ4 ok_all, left, right, TestPair_A, TestPair_B, TestPair_C, TestPair_D
+    copied_a = load right+TestPair_A as u64
+    copied_d = load right+TestPair_D as u64
+    ok1 = eq copied_a, 1
+    ok2 = eq copied_d, 4
+    ok3 = eq ok_a, 1
+    ok4 = eq ok_b, 1
+    ok5 = eq ok_c, 1
+    ok6 = eq ok_d, 1
+    ok7 = eq ok_all, 1
+    !copied_a
+    !copied_d
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    !ok_all
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    !ok7
+    !left
+    !right
+    return
+
+@test "cell set get replace"():
+L_ENTRY:
+    cell = alloc Cell_SIZE
+    store cell+Cell_value, 7 as i32
+    EXPAND CELL_GET got, cell
+    ok1 = eq got, 7
+    EXPAND CELL_SET cell, 11
+    EXPAND CELL_REPLACE prev, cell, 13
+    ok2 = eq prev, 11
+    EXPAND CELL_GET next, cell
+    ok3 = eq next, 13
+    !got
+    !ok1
+    !ok2
+    !ok3
+    !next
+    !prev
+    !cell
+    return
+
+@test "refcell borrow release"():
+L_ENTRY:
+    refcell = alloc RefCell_SIZE
+    store refcell+RefCell_value, 21 as u64
+    store refcell+RefCell_borrows, 0 as u64
+    EXPAND REFCELL_BORROW_MUT ok, borrow, refcell, L_FAIL
+L_OK:
+    EXPAND REFCELL_GET value, borrow
+    ok1 = eq value, 21
+    EXPAND REFCELL_SET borrow, 22
+    EXPAND REFCELL_RELEASE borrow
+    borrows = load refcell+RefCell_borrows as u64
+    ok2 = eq borrows, 0
+    !borrows
+    !ok1
+    !ok2
+    !value
+    !borrow
+    !ok
+    !refcell
+    return
+
+L_FAIL:
+    fail = add 0, 0
+    !fail
+    !refcell
+    return
+
+@test "refcell shared borrows coexist and block mutable borrow"():
+L_ENTRY:
+    refcell = alloc RefCell_SIZE
+    store refcell+RefCell_value, 31 as u64
+    store refcell+RefCell_borrows, 0 as u64
+    EXPAND REFCELL_BORROW ok1, borrow1, refcell, L_FAIL
+
+L_OK1:
+    EXPAND REFCELL_BORROW ok2, borrow2, refcell, L_FAIL
+
+L_OK2:
+    count = load refcell+RefCell_borrows as i64
+    ok3 = eq count, 2
+    EXPAND REFCELL_GET value, borrow1
+    ok4 = eq value, 31
+    EXPAND REFCELL_BORROW_MUT mut_ok, mut_borrow, refcell, L_MUT_FAIL
+
+L_FAIL:
+    trap = add 0, 0
+    !trap
+    return
+
+L_MUT_OK:
+    trap = add 0, 0
+    !trap
+    return
+
+L_MUT_FAIL:
+    EXPAND REFCELL_RELEASE borrow2
+    after_one = load refcell+RefCell_borrows as i64
+    ok5 = eq after_one, 1
+    EXPAND REFCELL_RELEASE borrow1
+    after_two = load refcell+RefCell_borrows as i64
+    ok6 = eq after_two, 0
+    !after_one
+    !after_two
+    !count
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    !value
+    !borrow1
+    !borrow2
+    !mut_borrow
+    !mut_ok
+    return
+
+@test "rc clone downgrade drop"():
+L_ENTRY:
+    rc = alloc RcBox_SIZE
+    store rc+RcBox_strong, 1 as u64
+    store rc+RcBox_weak, 1 as u64
+    store rc+RcBox_data, 99 as u64
+    EXPAND RC_CLONE rc
+    strong1 = load rc+RcBox_strong as u64
+    ok1 = eq strong1, 2
+    EXPAND RC_DOWNGRADE weak, rc
+    weak_count = load rc+RcBox_weak as u64
+    ok2 = eq weak_count, 2
+    EXPAND RC_DROP rc, L_AFTER_RC_DROP
+
+L_AFTER_RC_DROP:
+    EXPAND WEAK_DROP weak, L_FREE
+
+L_FREE:
+    !ok1
+    !ok2
+    !strong1
+    !weak_count
+    !rc
+    !weak
+    return
+
+@test "weak upgrade succeeds and fails"():
+L_ENTRY:
+    rc = alloc RcBox_SIZE
+    store rc+RcBox_strong, 1 as u64
+    store rc+RcBox_weak, 1 as u64
+    store rc+RcBox_data, 44 as u64
+    EXPAND RC_DOWNGRADE weak, rc
+    EXPAND WEAK_UPGRADE upgraded_rc, upgraded_ok, weak
+    ok1 = eq upgraded_ok, 1
+    data = load upgraded_rc+RcBox_data as u64
+    ok2 = eq data, 44
+    EXPAND RC_DROP rc, L_RC_DONE
+
+L_RC_DONE:
+    EXPAND WEAK_DROP weak, L_WEAK_FREE
+
+L_WEAK_FREE:
+    !ok1
+    !ok2
+    !data
+    !upgraded_rc
+    !upgraded_ok
+    !rc
+    !weak
+    return
+
+@test "result match_result dispatches ok and err"():
+L_ENTRY:
+    ok_res = alloc Result_SIZE
+    store ok_res+Result_tag, Result_OK as u64
+    store ok_res+Result_ok, 77 as u64
+    store ok_res+Result_err, 0 as u64
+    err_res = alloc Result_SIZE
+    store err_res+Result_tag, Result_ERR as u64
+    store err_res+Result_ok, 0 as u64
+    store err_res+Result_err, 91 as u64
+    EXPAND MATCH_RESULT ok_value, ok_res, L_OK_OK, L_OK_ERR
+
+L_OK_OK:
+    ok_flag = eq ok_value, 77
+    EXPAND MATCH_RESULT err_value, err_res, L_ERR_OK, L_ERR_ERR
+
+L_ERR_OK:
+    !ok_flag
+    !ok_value
+    !err_res
+    !ok_res
+    return
+
+L_OK_ERR:
+    trap_ok = add 0, 0
+    !trap_ok
+    !ok_res
+    !err_res
+    return
+
+L_ERR_ERR:
+    err_flag = eq err_value, 91
+    !ok_flag
+    !err_flag
+    !err_value
+    !ok_res
+    !err_res
+    return
+
+@test "option match_option dispatches some and none"():
+L_ENTRY:
+    some_opt = alloc Option_SIZE
+    store some_opt+Option_tag, Option_SOME as u64
+    store some_opt+Option_value, 55 as u64
+    none_opt = alloc Option_SIZE
+    store none_opt+Option_tag, Option_NONE as u64
+    store none_opt+Option_value, 0 as u64
+    EXPAND MATCH_OPTION some_value, some_opt, L_SOME_OK, L_SOME_NONE
+
+L_SOME_OK:
+    some_flag = eq some_value, 55
+    EXPAND MATCH_OPTION none_value, none_opt, L_NONE_OK, L_NONE_NONE
+
+L_NONE_OK:
+    !some_flag
+    !some_value
+    !none_opt
+    !some_opt
+    return
+
+L_SOME_NONE:
+    trap_some = add 0, 0
+    !trap_some
+    !some_opt
+    !none_opt
+    return
+
+L_NONE_NONE:
+    none_flag = eq none_value, 0
+    !some_flag
+    !none_flag
+    !none_value
+    !some_opt
+    !none_opt
+    return
+
+@test "drop_and_return releases before return"():
+L_ENTRY:
+    probe = alloc TestDyn_SIZE
+    store probe+TestDyn_DATA, 64 as i32
+    store probe+TestDyn_VTABLE, &TEST_TRAIT_OBJECT_VT as ptr
+    EXPAND DROP_AND_RETURN probe, 123
+
+@test "box new free roundtrip"():
+L_ENTRY:
+    EXPAND BOX_NEW boxed, 19
+    stored = load boxed+Box_value as u64
+    ok1 = eq stored, 19
+    EXPAND BOX_FREE boxed
+    !stored
+    !ok1
+    return
+
+@test "arc clone drop roundtrip"():
+L_ENTRY:
+    EXPAND ARC_NEW arc, 41
+    EXPAND ARC_CLONE arc
+    strong1 = atomic_load arc+ArcBox_strong as u64 acquire
+    ok1 = eq strong1, 2
+    EXPAND ARC_DROP arc, L_ARC_CLEANUP
+
+L_ARC_CLEANUP:
+    EXPAND ARC_WEAK_DROP arc, L_ARC_FREE
+
+L_ARC_FREE:
+    !ok1
+    !strong1
+    !arc
+    return
+
+@test "dispatch routes by tag"():
+L_ENTRY:
+    dispatch = alloc Dispatch_SIZE
+    store dispatch+Dispatch_tag, Dispatch_TAG_A as u64
+    store dispatch+Dispatch_payload, 3 as u64
+    EXPAND DISPATCH dispatch, L_DISPATCH_A, L_DISPATCH_B
+
+L_DISPATCH_A:
+    payload_a = load dispatch+Dispatch_payload as u64
+    routed_a = add payload_a, 10
+    ok_a = eq routed_a, 13
+    store dispatch+Dispatch_tag, Dispatch_TAG_B as u64
+    store dispatch+Dispatch_payload, 4 as u64
+    jmp L_DISPATCH_ROUTE_B
+
+L_DISPATCH_B:
+    trap_a = add 0, 0
+    !trap_a
+    !dispatch
+    return
+
+L_DISPATCH_ROUTE_B:
+    EXPAND DISPATCH dispatch, L_DISPATCH_A_B, L_DISPATCH_B_B
+
+L_DISPATCH_A_B:
+    trap_b = add 0, 0
+    !trap_b
+    !dispatch
+    return
+
+L_DISPATCH_B_B:
+    payload_b = load dispatch+Dispatch_payload as u64
+    routed_b = add payload_b, 20
+    ok_b = eq routed_b, 24
+    !routed_a
+    !routed_b
+    !ok_a
+    !ok_b
+    !payload_a
+    !payload_b
+    !dispatch
+    return
+
+@test "trait object dyn call"():
+L_ENTRY:
+    data = alloc TestDyn_SIZE
+    store data+TestDyn_DATA, 5 as i32
+    store data+TestDyn_VTABLE, &TEST_TRAIT_OBJECT_VT as ptr
+    EXPAND DYN_CALL dyn_result, data, +0
+    ok1 = eq dyn_result, 8
+    !ok1
+    !dyn_result
+    !data
+    return
+
+@test "waker wake path"():
+L_ENTRY:
+    waker = alloc TestWaker_SIZE
+    store waker+TestWaker_DATA, 7 as i32
+    store waker+TestWaker_VTABLE, &TEST_WAKER_VT as ptr
+    EXPAND WAKER_WAKE wake_result, waker
+    ok1 = eq wake_result, 8
+    EXPAND WAKER_WAKE_BY_REF wake_ref_result, waker
+    ok2 = eq wake_ref_result, 9
+    !ok1
+    !ok2
+    !wake_result
+    !wake_ref_result
+    !waker
+    return
+
+@test "netx contract layout and constants"():
+L_ENTRY:
+    ticket = alloc Ticket_SIZE
+    store ticket+Ticket_slot_id, 17 as u32
+    store ticket+Ticket_op_code, 3 as u16
+    store ticket+Ticket_proto, NetxProto_WS as u8
+    store ticket+Ticket_flags, 5 as u8
+    store ticket+Ticket_payload, 0 as ptr
+    store ticket+Ticket_payload_len, 64 as u32
+    store ticket+Ticket_pad, 0 as u32
+    slot_id = load ticket+Ticket_slot_id as u32
+    op_code = load ticket+Ticket_op_code as u16
+    proto = load ticket+Ticket_proto as u8
+    flags = load ticket+Ticket_flags as u8
+    payload_len = load ticket+Ticket_payload_len as u32
+    pad = load ticket+Ticket_pad as u32
+    ok1 = eq slot_id, 17
+    ok2 = eq op_code, 3
+    ok3 = eq proto, NetxProto_WS
+    ok4 = eq flags, 5
+    ok5 = eq payload_len, 64
+    ok6 = eq pad, 0
+    !ticket
+    !slot_id
+    !op_code
+    !proto
+    !flags
+    !payload_len
+    !pad
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    return
