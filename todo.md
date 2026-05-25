@@ -27,7 +27,7 @@
   - **启发**：借鉴 Zig 源码 `codegen/llvm.zig`。
   - **方案**：放弃文本 `.ll` 发射，集成 LLVM C API (llvm-c)。在内存中并发构造指令流，消除磁盘 I/O 和文本解析开销，实现真正的“瞬发级”编译。
   - [x] 核心闭环：默认通过 C shim 调 LLVM-C builder 直接写 `.sa.bc`，覆盖 hello / loop / while / FFI handle，且后端代码无文本 IR parse bridge。
-  - [x] 默认纯 `.bc` 流：CLI / SAX 构建默认使用 LLVM-C artifact，`build-exe` / `build-obj` / `build-wasm` / `test` 不再走文本 `.ll` 发射路径；公共库不再导出文本 emitter。
+  - [x] 默认纯 `.bc` 流：CLI / SAX 构建默认使用 LLVM-C artifact，`build-exe` / `build-obj` / `build-wasm` / `test` 不再走文本 `.ll` 发射路径；公共库不再导出文本 emitter；SAX 测试替身也不再写 dummy 文本 bitcode，已用真实 LLVM bitcode 魔数和 `llvm-dis` 回归兜底。
   - [x] atomic 覆盖：`atomic_load` / `atomic_store` / `atomic_rmw_*` / `cmpxchg` / `fence` 已走 LLVM-C builder，atomic smoke 通过 `.sa.bc` native 运行。
   - [x] fallible ABI 覆盖：LLVM-C 后端支持 `{i32, payload}` fallible return、fallible call、`?` 分支传播、成功值打包与 main wrapper 状态返回；多层 `?` rosetta smoke 通过。
   - [x] vtable / 间接调用覆盖：LLVM-C 后端支持 vtable 常量、slot provenance、`call_indirect` typed pointer cast，`07_trait_vtable` / `110_trait_super_vtable` / `32_trait_object_vector` 已通过纯 `.sa.bc` native smoke。
@@ -91,6 +91,30 @@
   - **痛点**：`sa_net_uring` 中的 SpscRing 进行线程间通信时，缺乏机制保证指针跨核心的安全传递。
   - **实现方案**：在 `verifier.zig` 层面增加对 Capability 的多线程逃逸校验，保障跨核数据投递不发生 Data Race。
 
+## Rust Core 核心模式需求表
+为了补齐 Rust 核心语义的低层实现路径，后续需要把以下模式稳定落到宏、布局文件和 Referee 约束上：
+
+- [x] **1. 内部可变性模式 (Cell / RefCell)**
+  - `Cell` 走单字段 `store` 包装
+  - `RefCell` 走借用计数器 + 显式归零宏
+  - 借用计数不为 0 时的独占借用必须回退或 Trap
+- [x] **2. 共享所有权模式 (Rc / Arc / Weak)**
+  - 控制块采用 Strong / Weak 双计数模型
+  - `Rc::clone` / `Rc::drop` / `Weak::upgrade` / `Weak::drop` 都必须有可验证的布局与级联顺序
+  - 对齐要求必须显式写入 `.sal`
+- [x] **3. SA 原生单测覆盖 (cell / refcell / rc / weak)**
+  - `tests/rust_core_unit.sa` 已补齐 `CELL_*` / `REFCELL_*` / `RC_*` / `WEAK_*` 的 SA 单测
+  - 单测入口改为仓库内相对导入，避免依赖外部安装态旧标准库
+- [x] **3. 异步与多态模式 (Waker / Trait Object)**
+  - `Waker` 走 vtable 或等价函数指针表
+  - Trait Object 继续采用胖指针布局与间接调用
+  - 宏展开末尾必须清理临时寄存器并避免标签冲突
+
+## 需求落点
+- [ ] 将上述 Rust core 模式补入 `.kiro/specs/sa-asm-language/requirements.md` / `design.md`
+- [ ] 将 `docs/faq.md` 中关于 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` 的边界解释补齐
+- [ ] 为对应模式补充后续的 tasks 追踪项，确保最终实现以宏和布局文件为主，不回写到 ISA
+
 ## 当前优先级
 - 当前执行顺序：Rust core 基础闭环收口 -> 标准库收口 -> HTTP Client/Server 插件 -> OpenAI 转发服务 (HubProxy) -> 单元测试框架 -> 零信任包管理 -> `sa_net_uring` 深化。
 - 插件完成态只接受 runtime `.so` / hot reload / ABI 版本化 / descriptor 导出 / skills 元数据 / 失败隔离，不接受静态注册、静态库 `.a`、或主线程硬编码分支作为替代。
@@ -111,7 +135,7 @@
 - [x] HubProxy 必须支持 SSE / chunked 流式透传，不允许退化成一次性缓冲伪流
 - [x] HTTP 插件本地验收必须覆盖 descriptor 导出、skills 元数据、命令入口、runtime reload 与失败隔离
 - [x] `sa run` 已接通 `sa_http_client_*` / `sa_http_server_*` 插件 ABI，并保持插件 handle 外部所有权，不回收为普通堆指针
-- [ ] 仓库级 HTTP/SA 验收补完：修复 `cli_smoke.zig` 里与 HTTP 无关的既有回归后，再把 301/302 的 `sa run` 过滤测试纳入主验收
+- [x] 仓库级 HTTP/SA 验收补完：301/302 HTTP SAASM demo 已纳入 `cli-special` 主验收，`zig build test --summary all` 覆盖并通过。
 
 ## 可热插拔插件系统
 - [x] 插件 ABI 版本号与 `plugin_descriptor` 导出
@@ -125,6 +149,7 @@
 - [x] `src/sax` 插件 runtime 热重载回归与 descriptor/skills 测试
 - [x] `src/db` 插件 runtime 热重载回归与失败隔离测试
 - [x] `src/pkg` 插件 runtime 热重载回归与 skills 测试
+- [x] `src/pkg` 插件 `install`/`fetch` runtime 命令一致性测试，`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径
 - [x] `src/bc2sa` 插件 runtime 热重载回归与命令一致性测试
 - [x] `src/http_server` 插件 runtime 热重载回归与 scaffold 入口测试
 
@@ -163,7 +188,7 @@
 - [x] `sa_std/env.sa`
 - [x] `sa_std/math.sa`
 - [x] `sa_std/string_format.sa`
-- [ ] `sa_std/sa.mod`（包管理项，后置到 v0.5；不计入当前标准库收口）
+- [x] `sa_std/sa.mod`（包管理项，后置到 v0.5；不计入当前标准库收口）
 
 ## 单元测试框架（Native Unit Test Framework）
 - [x] 编译器前端支持 `@test` 声明测试用例，含 `ignored` / `should_panic` 修饰符，并由 verifier 强制 `() -> void`
@@ -181,13 +206,13 @@
 
 ### 工程清单 / 数据模型（task 35）
 - [ ] `RequireEntry.grants` 缺省值统一为 `&.{}`（绝对零权限）
-- [ ] 全树拍平 `sa.sum`：支持 100 依赖 ≤ 200ms
+- [x] 全树拍平 `sa.sum`：支持 100 依赖 ≤ 200ms
 
 ### AST X 光扫描（task 35a，R31d）
-- [ ] `src/pkg/audit.zig`：单遍 token 扫描 `@sys_*`，单包 ≤ 50ms
-- [ ] Trust Score 算法（100 / 80 / 50 / ≤ 20）
-- [ ] `sa audit <URL>` 子命令；`--format json` 输出
-- [ ] PBT **P33**：合成 pure/io/net 三类包，断言信用分等级
+- [x] `src/pkg/audit.zig`：单遍 token 扫描 `@sys_*`，单包 ≤ 50ms
+- [x] Trust Score 算法（100 / 80 / 50 / ≤ 20）
+- [x] `sa audit <URL>` 子命令；`--format json` 输出
+- [x] PBT **P33**：合成 pure/io/net 三类包，断言信用分等级
 
 ### 模块级零权限沙箱（task 35b，R31c）
 - [ ] 源码物理路径 → 所属包反推
@@ -222,12 +247,12 @@
 - [ ] PBT **P37**：CI 模式探测非欺骗性
 
 ### 包管理集成测试基线（task 35f，design.md §8.5 第 16–27 条）
-- [ ] `PkgMgr-Fetch-Smoke` / `PkgMgr-Audit-Score`
+- [x] `PkgMgr-Fetch-Smoke` / [x] `PkgMgr-Audit-Score`
 - [ ] `PkgMgr-Confirm-Tty` / `PkgMgr-Confirm-NonTty`
-- [ ] `PkgMgr-Lock-Idempotency` / `PkgMgr-Sum-Transitive`
+- [ ] `PkgMgr-Lock-Idempotency` / [x] `PkgMgr-Sum-Transitive`
 - [ ] `PkgMgr-Offline-Build` / `PkgMgr-CI-DualTrack`
 - [ ] `PkgMgr-Tainted-Artifact` / `PkgMgr-ForbiddenGlobal`
-- [ ] `PkgMgr-Mirror-Env` / `PkgMgr-PrecompiledRejected`
+- [ ] `PkgMgr-Mirror-Env` / [x] `PkgMgr-PrecompiledRejected`
 
 ### v0.6+ 待决策议题（来自 talk.md，暂未进入需求文档）
 - [ ] GPG/SSH 私钥签名 `sa.lock`（"军工级"模式 vs "宽容模式"开关）
@@ -267,3 +292,14 @@
 - [ ] 外部依赖降级（`call @malloc` / `@free`）。
 - [ ] `src/cli.zig` 扩展：增加 `sa bc2sa <file.bc>` 子命令。
 - [ ] 测试套件集成与黄金文件测试。
+
+### sa_std: Standardized Derive and Trait Simulation Macros
+- [x] **Establish "Naming Contracts" for Derived Operations:** Define a standard naming convention for operations that would typically be derived in Rust (e.g., `[MACRO] {STRUCT}_CLONE`, `[MACRO] {STRUCT}_FREE`, `[MACRO] FMT_{STRUCT}`).
+- [x] **Implement `sa_std/core/derive.sa`:** Create a new module providing generic structural operation macros (e.g., `STRUCT_COPY`, `STRUCT_EQ_FIELD`) to aid LLMs and frontends in generating boilerplate code for complex types.
+- [x] **Standardize `DISPATCH` and Trait Simulation:** Solidify the `[MACRO] DISPATCH` pattern for defunctionalized dynamic dispatch and standardize the usage of `trait_object.sa` for explicit vtable dispatch where required.
+
+### sa_std: Advanced Core Macros (Arc, RwLock, Full RefCell)
+- [x] **Implement `sa_std/core/arc.sa`**: Provide atomic reference counting (Arc) for multi-threaded shared ownership, mirroring `Rc` but using atomic RMW operations.
+- [x] **Enhance `RefCell` for Shared Borrows**: Update `refcell.sa` to support multiple shared borrows (readers) and one exclusive borrow (writer), utilizing a signed or bit-masked counter.
+- [x] **Implement `sa_std/sync/rwlock.sa`**: Provide a multi-reader, single-writer lock based on atomic state transitions.
+- [x] **Standardize `Box` Macros**: Add `BOX_NEW` and `BOX_FREE` to `sa_std/core/mem.sa` for consistent heap management ergonomics.

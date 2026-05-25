@@ -21,7 +21,7 @@
 - [x] **Task P0.4: 声明级并行发射 (Decl-level Parallel Emission)**：借鉴 Zig `Zcu.PerThread` 模型，将发射任务打散至单函数粒度，充分利用多核并行驱动后端。
 - [x] **Task P0.5: 内存直通 Emitter 重构**：借鉴 Zig `codegen/llvm.zig`，引入 `llvm-c` 绑定，放弃文本 `.ll` 中转，直接在内存中构造 LLVM bitcode 模块，消除 I/O 瓶颈。
   - [x] P0.5a 核心闭环：默认已走结构化 LLVM-C builder 直接生成 `.sa.bc`，不再通过文本 IR 解析桥接；已覆盖 hello、loop、while 与 FFI handle 对象生成。
-  - [x] P0.5a-default-bc：CLI / SAX 构建默认改为 LLVM-C 纯 `.bc` artifact 流，`build-exe` / `build-obj` / `build-wasm` / `test` 正常路径不再调用文本 emitter，也不再保留文本 LLVM 产物路径。
+  - [x] P0.5a-default-bc：CLI / SAX 构建默认改为 LLVM-C 纯 `.bc` artifact 流，`build-exe` / `build-obj` / `build-wasm` / `test` 正常路径不再调用文本 emitter，也不再保留文本 LLVM 产物路径；SAX 测试替身也已改为真实 LLVM bitcode，使用 `BC c0 de` 魔数与 `llvm-dis` 回归兜底，避免 dummy 文本 bitcode 占位。
   - [x] P0.5b-atomic：LLVM-C 后端已覆盖 `atomic_load` / `atomic_store` / `atomic_rmw_*` / `cmpxchg` / `fence`，atomic smoke 通过默认纯 `.sa.bc` 流生成 bitcode 并以退出码 11 运行。
   - [x] P0.5b-fallible：LLVM-C 后端已覆盖 fallible ABI `{i32, payload}`、fallible call、`?` payload 提取/早返传播、fallible return 打包与 native main wrapper 状态返回；`19_result_question` / `50_error_chain` / `180_try_trait_v2` 默认 `.sa.bc` native smoke 通过。
   - [x] P0.5b-vtable-indirect：LLVM-C 后端已覆盖 vtable 常量、vtable slot provenance、`call_indirect` typed callee cast 与纯 `.sa.bc` native 运行；`07_trait_vtable` / `110_trait_super_vtable` / `32_trait_object_vector` smoke 通过且不生成 `.ll`。
@@ -33,6 +33,26 @@
   - [x] P0.5b-wasm-sys-e2e：`tests/cli_smoke.zig` 已将 `sys_runtime_probe.sa` 扩展为 native + wasm32-WASI 双轨验收，覆盖 argv、文件读写、打印、退出码、`.wasm.sa.bc` 产物和 Node/WASI 运行，且未生成 `.ll`。
   - [x] P0.5b-wasm-demo-matrix：新增独立 `zig build wasm-matrix` rosetta/support native + wasm32-WASI 等价矩阵，覆盖 110 个 demo：基础 print/control-flow/struct/array/slice/string/loop/while/break/nested-loop/factorial/fibonacci、mutability/box/reference/move/borrow/refcount/resource、常量结构体、Option、generic、method、associated fn、enum/match/tuple/destructuring/tagged union、iterator map/filter/fold、module/import/export/config、cache/mem fill/queue、router/parser/serializer、service/pipeline/graph/component、metrics/workflow/kv/sql/blob/sync/scheduler、protocol/text/job/db/query/log/build/release、state/event/channel/actor/async/counter、fallible `?`/Result、vtable/trait object、callback contract、sort/hashmap/hashset/once/mpsc；修正 wasm32 vtable 8 字节槽宽 ABI，补 `sa_time_sleep_ns` fallible weak fallback，并补 LLVM-C `struct_` 常量字节展开；验证通过且主线不保留文本 LLVM 产物路径，同时从巨大的 `cli_smoke` 拆出，避免单项 matrix 重新编译整套 CLI smoke。
   - [x] P0.5b 覆盖扩展：现有 rosetta/support native stdout smoke demos 已全部纳入 wasm/native 等价矩阵；argv / panic-hook 命名 demo 当前源码为纯确定性输出，也已覆盖。
+
+## Rust Core 模式落地任务
+
+- [x] **1. Cell / RefCell 布局与宏**
+  - 产出 `Cell` / `RefCell` 的 `.sal` 布局样例和宏模板
+  - 明确借用计数器、归零路径、Trap 分支与显式释放顺序
+- [x] **2. Rc / Arc / Weak 双计数控制块**
+  - 产出 Strong / Weak 双计数控制块布局
+  - 验证 `clone` / `drop` / `downgrade` / `upgrade` / `drop` 的级联逻辑
+  - 对齐约束必须显式写入布局文件
+- [x] **2.1 SA 单测收口**
+  - `tests/rust_core_unit.sa` 已覆盖 `cell` / `refcell` / `rc` / `weak` 的 SA 原生 `@test`
+  - 使用仓库内 SA 标准库相对导入，直接由 `sa test` 执行
+- [x] **3. Waker / Trait Object 调度模式**
+  - 产出 vtable / 间接调用示例
+  - 确保宏展开末尾清理所有临时寄存器，并避免标签冲突
+
+### 验收口径
+- 只接受“宏 + 布局 + Referee 校验”路线，不接受新增 ISA
+- 前端降级失配必须通过结构化 Trap 暴露，不接受运行时静默容错
 
 
 ## 当前执行顺序
@@ -540,6 +560,7 @@ sa/
       - `src/bc2sa/`：descriptor / skills / command consistency / runtime `.so`
       - `src/sax/`：descriptor / skills / runtime `.so`，并通过 compile-time plugin-mode split 避免将 `std.process.Child.run` 拉进 shared-library 图
       - `src/db/`：descriptor / skills / runtime `.so`，nested test graph 通过本地 stub 收口，runtime wrapper 图通过真实 DB 入口
+      - `src/pkg/`：descriptor / skills / prebuild / `fetch` / `install` runtime 命令均有插件本地测试；`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径；`zig build pkg-plugin-test` 已纳入 `zig build test`
       - `src/http_client/` 与 `src/http_server/`：`sa run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
 
   - [ ] 8.24 标准库 JSON FFI 与生态剥离 (NEW，后置)
@@ -1127,31 +1148,31 @@ sa/
     - 与 `sa.mod` 中 `sha256:` 比对，差一比特 → `Trap: UpstreamShaMismatch`
     - _Requirements: R31.6, R31g.3_
 
-  - [ ] 35.7 `sa.sum` 全树拍平
+  - [x] 35.7 `sa.sum` 全树拍平
     - 自动生成全部传递依赖的哈希记录
     - 任何子树字节变化 → 顶层哈希失配，整棵树物理熔断
     - _Requirements: R31.8, R31b.5_
 
-- [ ] 35a. AST X 光扫描与安全信用评分（R31d）
+- [x] 35a. AST X 光扫描与安全信用评分（R31d）
 
-  - [ ] 35a.1 实现 `src/pkg/audit.zig`
+  - [x] 35a.1 实现 `src/pkg/audit.zig`
     - 单遍线性 token 扫描，搜剿 `@sys_*` 调用
     - 单包 ≤ 50ms（MVP）/ ≤ 20ms（stretch）
     - _Requirements: R31d.1_
 
-  - [ ] 35a.2 Trust Score 计算（0–100）
+  - [x] 35a.2 Trust Score 计算（0–100）
     - 100 = pure compute；80 = mem；50 = io；20 及以下 = net / 跨核心
     - _Requirements: R31d.2_
 
-  - [ ] 35a.3 报告输出（stdout 文本 + `--format json`）
+  - [x] 35a.3 报告输出（stdout 文本 + `--format json`）
     - 含等级、权限列表、`upstream_loc`、修复建议
     - _Requirements: R31d.3, R31d.5_
 
-  - [ ] 35a.4 `sa audit <URL>` CLI 命令
+  - [x] 35a.4 `sa audit <URL>` CLI 命令
     - 重新跑扫描，打印同样格式
     - _Requirements: R31d.4_
 
-  - [ ]* 35a.5 Audit Score Property 测试 — **P33 (NEW)**
+  - [x]* 35a.5 Audit Score Property 测试 — **P33 (NEW)**
     - 合成三类包（pure / io / net），断言信用分等级与权限列表精确
     - 最少 100 次
     - _Requirements: R31d.2_
@@ -1289,18 +1310,18 @@ sa/
 
 - [ ] 35f. 包管理集成测试基线（design.md §8.5 第 16–27 条）
 
-  - [ ] 35f.1 PkgMgr-Fetch-Smoke：基础下载 + 哈希一致 + 不执行源码
-  - [ ] 35f.2 PkgMgr-Audit-Score：信用分 100/50/12 三档断言
+  - [x] 35f.1 PkgMgr-Fetch-Smoke：基础下载 + 哈希一致 + 不执行源码
+  - [x] 35f.2 PkgMgr-Audit-Score：信用分 100/50/12 三档断言
   - [ ] 35f.3 PkgMgr-Confirm-Tty：伪 TTY 输入完整 URL 通过
   - [ ] 35f.4 PkgMgr-Confirm-NonTty：管道流必报 `MissingTtyForConfirmation`
   - [ ] 35f.5 PkgMgr-Lock-Idempotency：第二次跳审判 + 改源码重弹
-  - [ ] 35f.6 PkgMgr-Sum-Transitive：A→B→C 篡改检测
+  - [x] 35f.6 PkgMgr-Sum-Transitive：A→B→C 篡改检测
   - [ ] 35f.7 PkgMgr-Offline-Build：拷贝 `sa_vendor/` + `sa.mod` + `sa.lock` 到断网容器
   - [ ] 35f.8 PkgMgr-CI-DualTrack：模拟 GitHub Actions 双轨触发
   - [ ] 35f.9 PkgMgr-Tainted-Artifact：染色路径产物元数据 + 运行时红字
   - [ ] 35f.10 PkgMgr-ForbiddenGlobal：放假全局配置触发 `ForbiddenGlobalConfig`
   - [ ] 35f.11 PkgMgr-Mirror-Env：环境变量重定向到内网镜像，进程结束规则消失
-  - [ ] 35f.12 PkgMgr-PrecompiledRejected：注入 `.so/.dll` 触发 `PrecompiledArtifactRejected`
+  - [x] 35f.12 PkgMgr-PrecompiledRejected：注入 `.so/.dll` 触发 `PrecompiledArtifactRejected`
     - _Requirements: R31, R31a–R31g（全部）_
 
 - [ ] 36. 布局标签校验（R32）
@@ -1333,7 +1354,7 @@ sa/
     - 最少 100 次
     - _Requirements: R32.4, R32.5_
 
-- [ ] 37. `sa_std` 标准库 v0.1
+- [x] 37. `sa_std` 标准库 v0.1
 
   - [x] 37.0 SA-facing Zig-backed std facade
     - `sa_std/{io,fs,net,fmt}.sa` 作为只含 `@import` 的模块入口
@@ -1367,7 +1388,7 @@ sa/
   - [x] 37.5 `sa_std/io.sa`：IO 便利宏
     - `PRINTLN` / `READ_LINE` / `FORMAT_INT`（基于 `@sys_print` + `@sys_read_file`）
 
-  - [ ] 37.6 打包为 `sa_std` 包
+  - [x] 37.6 打包为 `sa_std` 包
     - 创建 `sa_std/sa.pkg` + `sa_std/*.sai`
     - 发布到本地 registry
 
@@ -1789,11 +1810,12 @@ sa/
   - [x] 暴露 `sa_http_req_send` 及流式 Reader
   - [x] 支持 `POST`、自定义 `--header`、请求 body 透传和本地 loopback 回归
   - [x] 实现 HTTPS/TLS 出站请求
-  - 说明：当前已完成 HTTP GET / POST / stream / TLS / runtime descriptor / skills 路径
+  - 说明：当前已完成 HTTP GET / POST / stream / TLS / runtime descriptor / skills 路径；301 HTTP client SAASM demo 已纳入 `cli-special` 主验收并通过 `zig build test --summary all`
 - [ ] 65b. `sa_http_server` 高层级封装
   - [x] 基于 `sa_net_uring` 实现 AOT 静态路由
   - [x] 实现 Header 注入与中间件流水线
   - [x] 请求体读取、路由分发和 SSE/chunked 透传
+  - 说明：302 HTTP server SAASM demo 已纳入 `cli-special` 主验收并通过 `zig build test --summary all`
   - [ ] 65c. HubProxy 端到端实现
   - [ ] 实现可运行 `main()` 入口，加载 `upstream.json` 并监听本地端口
   - [ ] 实现 `/v1/chat/completions` 与 `/v1/responses` 两条转发路由
@@ -2012,3 +2034,13 @@ sa/
 - **v0.8 特别说明**：sa_netx 是 v0.6 数据库的同构延伸（mmap 预分配 / SA-ASM 算子内核 / 零拷贝沙箱）。**SA-ASM ISA 零扩展**，**flattener / referee / verifier / common / 现有 sa_std 全部零修改**。所有新增能力落到 `src/runtime/sa_net_uring.zig`（新增）+ `sa_std/netx.*` 三件套（新增）。TLS 由前置 Nginx/Envoy 终结，本期不做 HTTP/2/3。12 周时间表假设 v0.5 + v0.6 已交付（v0.7 可并行）。
 - **v0.9 特别说明**：SAX 是 SA 的**前端方言层**而非新语言。**SA-ASM ISA 零扩展**；`src/flattener/` / `src/common/` / `src/emit_wasm/` 全部零修改；`src/referee/` 仅追加 `src/sax/sax_rules.zig`（7 条 SAX Trap）。SAX Parser 直接输出**合法 `.sa` 文本**，不构造 AST。WASM 目标 `wasm32-unknown-unknown`（非 WASI），DOM 通过气闸舱 `airlock.js` 唯一通道访问。Phase 1（MVP）6–8 周交付 Counter / TodoList 闭环；Phase 2 加路由 + 细粒度响应式；Phase 3 跨端。可与 v0.5 / v0.7 / v0.8 解耦并行（仅依赖 SA v0.1 MVP 的 Flattener + Referee + emit_wasm）。
 - 实现阶段打开 tasks.md 点击 "Start task" 按钮开始执行。
+
+### Phase X: sa_std Macro Ergonomics & Standardization
+- [x] Design and implement `sa_std/core/derive.sa` containing foundational macros for structural operations (e.g., shallow copy, field-wise equality).
+- [x] Document the "Naming Contract" pattern for structures (e.g., standardizing `_CLONE`, `_FREE` suffixes for macros).
+- [x] Refine and document the `[MACRO] DISPATCH` pattern as the preferred method for simulated dynamic dispatch (defunctionalization) to maintain O(1) ownership tracking by the Referee.
+
+- [x] Implement `Arc<T>` macros in `sa_std/core/arc.sa` using atomic `add`/`sub` operations.
+- [x] Refactor `RefCell` to support multiple simultaneous readers.
+- [x] Implement `RwLock` in `sa_std/sync/rwlock.sa`.
+- [x] Add `BOX_NEW`/`BOX_FREE` ergonomics to `sa_std/core/mem.sa`.
