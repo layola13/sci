@@ -40,7 +40,7 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 *   **Missing from Rust**: `args`, `args_os`, `vars`, `vars_os`, `set_var`, `remove_var`, `join_paths`, `split_paths`, `current_dir`, `set_current_dir`, `current_exe`, `temp_dir`.
 
 ### 1.8 Formatting & String (`std::fmt` & `std::string` vs `sa_std/fmt.sa`, `sa_std/string.sa`)
-*   **Implemented in `sa_std`**: `STRFMT_I64`, `U64`, `F64`, `BOOL`, `BYTES`, `STR_FROM_CONST`, `STR_LEN`, `STR_SLICE`, `STR_EQ`, `STR_CONCAT`.
+*   **Implemented in `sa_std`**: `STRFMT_I64`, `U64`, `F64`, `BOOL`, `BYTES`, `STR_FROM_CONST`, `STR_LEN`, `STR_SLICE`, `STR_EQ`, `STR_CONCAT`, plus the macro-level formatting scaffold around `PRINTLN` / `PRINT` / `FORMAT`.
 *   **Missing Infrastructure**: `Display`, `Debug`, `Formatter` traits; `format!` macro interpolation.
 *   **Missing Methods**: `String::push_str`, `String::pop`, `String::insert`, `String::split_off`, `String::replace_range`; `str` methods like `chars`, `bytes`, `split`, `lines`, `trim`, `starts_with`, `ends_with`, `find`, `replace`.
 
@@ -65,9 +65,9 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 *   **Missing from Rust**: Type-safe `Path` / `PathBuf` system; methods like `is_absolute`, `has_root`, `parent`, `strip_prefix`, `starts_with`, `join`, `with_file_name`, `components` iterator, `exists`, `is_file`, `is_dir`, `canonicalize`.
 
 ### 1.14 Time & Sync (`std::time`, `std::sync` vs `sa_std/time.sa`, `sa_std/sync/*`)
-*   **Implemented in `sa_std`**: `Instant` / `Unix` timestamps, `Sleep`, `MPSC` channels, `Mutex` (spin), `Once`.
+*   **Implemented in `sa_std`**: `Instant` / `Unix` timestamps, `Sleep`, `MPSC` channels, `Mutex` (spin), `Once`, `RwLock`, `Arc`, `RefCell` shared/exclusive borrow helpers, and the matching core macros in `sa_std/core/*`.
 *   **Missing from Rust (Time)**: `duration_since`, `elapsed`, `checked_add/sub`, `subsec_nanos` and rigorous duration arithmetic.
-*   **Missing from Rust (Sync)**: `RwLock`, `Condvar`, `Barrier`, `Arc` / `Weak`, Atomic variables (`AtomicI32`, `AtomicBool`, etc.), RAII `MutexGuard`, `PoisonError`.
+*   **Missing from Rust (Sync)**: `Condvar`, `Barrier`, Atomic variables (`AtomicI32`, `AtomicBool`, etc.), RAII `MutexGuard`, `PoisonError`.
 
 ---
 
@@ -115,6 +115,17 @@ Rust relies heavily on declarative and procedural macros. `sa_std` provides func
 | `assert_ne!` | `ASSERT_NE` | Basic inequality check. |
 | `vec!` | `VEC_NEW` / `VEC_PUSH` | No literal initialization like `vec![1, 2, 3]`. |
 | `concat!` | `STR_CONCAT` | Concatenates two slices. |
+
+### 3.1a Newly landed base macros
+These are now implemented as first-wave portability helpers rather than missing gaps:
+- Container and field access: `STRUCT_NEW`, `FIELD_GET`, `FIELD_SET`, `STRUCT_FREE`, `PTR_FIELD`
+- Structural copy and equality: `STRUCT_COPY_FIELD`, `STRUCT_COPY`, `STRUCT_EQ_FIELD`, `STRUCT_EQ4`
+- Option / Result ergonomics: `OPTION_MATCH_SOME_NONE`, `OPTION_UNWRAP_OR_RETURN`, `RESULT_MATCH_OK_ERR`, `RESULT_RETURN_ERR`, `RESULT_MAP_OK`, `RESULT_IS_OK`, `RESULT_IS_ERR`
+- Loop and index sugar: `WHILE`, `WHILE_COND`, `FOR_RANGE`, `INDEX_LOOP`, `ARRAY_FOR_EACH`, `ARRAY_SCAN_MIN/MAX`, `SLICE_GET_U64`, `SLICE_GET_U64_AT`
+- Bit and mask helpers: `BIT_MASK`, `BIT_SET`, `BIT_GET`, `BIT_CLEAR`, `BIT_TEST`, `BIT_INDEX_BYTE`, `BIT_INDEX_BIT`
+- Hash and probe helpers: `HASH_PTR`, `HASH_MIX`, `HASH_MOD`, `PROBE_START`, `PROBE_NEXT`, `MAP_LOOKUP`, `MAP_INSERT_OR_UPDATE`
+- Cleanup sugar: `DEFER`, `CLEANUP_ON_ERROR`, `WITH_TEMP`, `RETURN_CLEAN`, `FREE_AND_RETURN`
+- Control-flow sugar: `MATCH_BOOL`, `ELIF`, `WHILE_LET`, `BREAK_IF`, `CONTINUE_IF`
 
 ### 3.2 Missing or Partially Implemented (Gaps)
 *   **Formatting & Printing**: 

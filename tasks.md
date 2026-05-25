@@ -562,7 +562,7 @@ sa/
       - `src/sax/`：descriptor / skills / runtime `.so`，并通过 compile-time plugin-mode split 避免将 `std.process.Child.run` 拉进 shared-library 图
       - `src/db/`：descriptor / skills / runtime `.so`，nested test graph 通过本地 stub 收口，runtime wrapper 图通过真实 DB 入口
       - `src/pkg/`：descriptor / skills / prebuild / `fetch` / `install` runtime 命令均有插件本地测试；`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径；`zig build pkg-plugin-test` 已纳入 `zig build test`
-      - `src/http_client/` 与 `src/http_server/`：`sa run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
+      - `/home/vscode/projects/sa_plugins/sa_plugin_http_client` 与 `/home/vscode/projects/sa_plugins/sa_plugin_http_server`：`sa run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
 
   - [ ] 8.24 标准库 JSON FFI 与生态剥离 (NEW，后置)
     - 打通 `sa_std/encoding/json` 的 DOM 与流式双模 FFI 桥接

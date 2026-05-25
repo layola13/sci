@@ -25,6 +25,16 @@ SA-facing std modules (`io`, `fs`, `net`, `fmt`, `process`) are assembled with `
 
 The repository checks in `artifacts/sa_std/libsa_std.a`. Rebuild it with `zig build sa-std-static -Doptimize=Debug`. The implementation source is `src/runtime/sa_std.zig`; the public C header is `src/runtime/sa_std.h`.
 
+`sa_std` also now includes a first wave of portability-oriented base macros for data-structure code:
+- Container construction and field access: `STRUCT_NEW`, `FIELD_GET`, `FIELD_SET`, `STRUCT_FREE`, `PTR_FIELD`
+- Structural copy and equality: `STRUCT_COPY_FIELD`, `STRUCT_COPY`, `STRUCT_EQ_FIELD`, `STRUCT_EQ4`
+- Option and Result ergonomics: `OPTION_MATCH_SOME_NONE`, `OPTION_UNWRAP_OR_RETURN`, `RESULT_MATCH_OK_ERR`, `RESULT_RETURN_ERR`, `RESULT_MAP_OK`, `RESULT_IS_OK`, `RESULT_IS_ERR`
+- Loop and index sugar: `WHILE`, `WHILE_COND`, `FOR_RANGE`, `INDEX_LOOP`, `ARRAY_FOR_EACH`, `ARRAY_SCAN_MIN/MAX`, `SLICE_GET_U64`, `SLICE_GET_U64_AT`
+- Bit and mask helpers: `BIT_MASK`, `BIT_SET`, `BIT_GET`, `BIT_CLEAR`, `BIT_TEST`, `BIT_INDEX_BYTE`, `BIT_INDEX_BIT`
+- Hash and probe helpers: `HASH_PTR`, `HASH_MIX`, `HASH_MOD`, `PROBE_START`, `PROBE_NEXT`, `MAP_LOOKUP`, `MAP_INSERT_OR_UPDATE`
+- Cleanup sugar: `DEFER`, `CLEANUP_ON_ERROR`, `WITH_TEMP`, `RETURN_CLEAN`, `FREE_AND_RETURN`
+- Control-flow sugar: `MATCH_BOOL`, `ELIF`, `WHILE_LET`, `BREAK_IF`, `CONTINUE_IF`
+
 ## Core Symbols (5 ownership operators + 1 escape)
 
 | Symbol | Semantics | State Effect |

@@ -124,11 +124,10 @@
 
 ## HTTP 增强与 HubProxy (NEW)
 - [x] `sa_http_client` 插件实现，目标是独立 `.so`、runtime 热加载、命令一致性测试、HTTP 主路径、流式读取与 runtime descriptor
-  - 说明：已补齐 `POST`、自定义 `--header`、请求 body 透传、流式请求 body、以及真实 loopback 回归测试
-  - 说明：HTTPS/TLS 出站与证书管理先保留为后续增强，不阻塞当前 HTTP 插件主路径验收
+  - 说明：已在 `/home/vscode/projects/sa_plugins/sa_plugin_http_client` 独立工程完成，补齐 `POST`、自定义 `--header`、请求 body 透传、流式请求 body、HTTPS/TLS 出站与证书管理，以及真实 loopback 回归测试
   - 说明：`sa run` 已接通 `sa_http_client_*` 插件 ABI，SA 侧可以直接调用客户端接口；仓库全量测试仍有独立回归待清理
 - [x] `sa_http_server` 插件实现，目标是独立 `.so`、runtime 热加载、scaffold/serve 入口测试、最小 HTTP 响应闭环
-  - 说明：已补齐请求头/请求体读取、按路径分发、`/echo` 反射和 `/stream` chunked SSE 回写；后续 HubProxy 仍需 upstream 转发 glue
+  - 说明：已在 `/home/vscode/projects/sa_plugins/sa_plugin_http_server` 独立工程完成，补齐请求头/请求体读取、按路径分发、`/echo` 反射、`/stream` chunked SSE 回写，以及 scaffold/serve 回归测试；后续 HubProxy 仍需 upstream 转发 glue
   - 说明：`sa run` 已接通 `sa_http_server_*` 插件 ABI，SA 侧可以直接调用服务端接口；仓库全量测试仍有独立回归待清理
 - [x] `examples/hubproxy` 实现，作为可运行 OpenAI API 转发示例，不回写主线程分发
 - [x] HubProxy 必须具备真实 `main()` 入口、可配置 upstream、路由 `/v1/chat/completions` 和 `/v1/responses`

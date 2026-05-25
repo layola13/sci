@@ -75,6 +75,20 @@ flowchart LR
    - **痛点**：`sa_net_uring` 中的 SpscRing 进行线程间通信时，缺乏机制保证指针跨核心的安全传递。
    - **实现方案**：在 `verifier.zig` 层面增加对 Capability 的多线程逃逸校验，保障跨核数据投递不发生 Data Race。
 
+### 1.4a `sa_std` 基础宏波次（Wave 1/2）
+当前 `sa_std` 已经把一批最常用的 Rust 风格样板下沉成标准宏，不再只是少量 `Option` / `Result` 包装：
+
+1. **容器构造与字段访问**：`STRUCT_NEW`、`FIELD_GET`、`FIELD_SET`、`STRUCT_FREE`、`PTR_FIELD`
+2. **结构体字段拷贝与比较**：`STRUCT_COPY_FIELD`、`STRUCT_COPY`、`STRUCT_EQ_FIELD`、`STRUCT_EQ4`
+3. **`Option` / `Result` 便捷宏**：`OPTION_MATCH_SOME_NONE`、`OPTION_UNWRAP_OR_RETURN`、`RESULT_MATCH_OK_ERR`、`RESULT_RETURN_ERR`、`RESULT_MAP_OK`、`RESULT_IS_OK`、`RESULT_IS_ERR`
+4. **循环与索引宏**：`WHILE`、`WHILE_COND`、`FOR_RANGE`、`INDEX_LOOP`、`ARRAY_FOR_EACH`、`ARRAY_SCAN_MIN/MAX`、`SLICE_GET_U64`、`SLICE_GET_U64_AT`
+5. **位运算与掩码宏**：`BIT_MASK`、`BIT_SET`、`BIT_GET`、`BIT_CLEAR`、`BIT_TEST`、`BIT_INDEX_BYTE`、`BIT_INDEX_BIT`
+6. **哈希与探测宏**：`HASH_PTR`、`HASH_MIX`、`HASH_MOD`、`PROBE_START`、`PROBE_NEXT`、`MAP_LOOKUP`、`MAP_INSERT_OR_UPDATE`
+7. **资源清理宏**：`DEFER`、`CLEANUP_ON_ERROR`、`WITH_TEMP`、`RETURN_CLEAN`、`FREE_AND_RETURN`
+8. **结构化控制流糖衣**：`MATCH_BOOL`、`ELIF`、`WHILE_LET`、`BREAK_IF`、`CONTINUE_IF`
+
+这些宏的设计原则保持不变：只做低层展开糖衣，不引入新的语义层；展开后仍然是显式 `br` / `jmp` / `load` / `store` / `return`，便于 Referee 做线性验证与所有权追踪。
+
 ### 1.4 为什么不再生成 Zig 源码
 
 - Zig 前端会重建 AST / 类型推导，浪费已压平的工作。
