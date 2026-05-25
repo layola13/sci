@@ -11,3 +11,13 @@
 [MACRO] SLICE_GET_LEN %out_len, %slice_reg
     %out_len = load %slice_reg+Slice_len as u64
 [END_MACRO]
+
+[MACRO] SLICE_GET_U64 %out_value, %slice_reg, %index
+    __slice_ptr_%out_value = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_value = mul %index, 8
+    __slice_item_%out_value = ptr_add __slice_ptr_%out_value, __slice_off_%out_value
+    %out_value = load __slice_item_%out_value+0 as u64
+    !__slice_item_%out_value
+    !__slice_off_%out_value
+    !__slice_ptr_%out_value
+[END_MACRO]

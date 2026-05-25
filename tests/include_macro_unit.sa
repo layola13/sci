@@ -15,14 +15,13 @@ L_ENTRY:
     bytes_ptr_ok = ne bytes_ptr, 0
     text_len_ok = eq text_len, 11
     bytes_len_ok = eq bytes_len, 4
-    !text_ptr
-    !text_len
-    !bytes_ptr
-    !bytes_len
-    !text_ptr_ok
-    !bytes_ptr_ok
-    !text_len_ok
-    !bytes_len_ok
-    !text_slice
-    !bytes_slice
+    ok01 = and text_ptr_ok, bytes_ptr_ok
+    ok02 = and ok01, text_len_ok
+    ok = and ok02, bytes_len_ok
+    br ok -> L_OK, L_ERR
+
+L_OK:
     return
+
+L_ERR:
+    panic(1)

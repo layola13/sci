@@ -52,6 +52,29 @@ L_RESULT_UNWRAP_OR_ERR_%out_value:
 L_RESULT_UNWRAP_OR_END_%out_value:
 [END_MACRO]
 
+[MACRO] RESULT_RETURN_ERR %res_reg, %err_value
+    store %res_reg+Result_tag, Result_ERR as u64
+    store %res_reg+Result_ok, 0 as u64
+    store %res_reg+Result_err, %err_value as u64
+    return %res_reg
+[END_MACRO]
+
+[MACRO] RESULT_MAP_OK %out_value, %res_reg, %map_fn
+    __result_tag_%out_value = load %res_reg+Result_tag as u64
+    __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
+    br __result_is_ok_%out_value -> L_RESULT_MAP_OK_OK_%out_value, L_RESULT_MAP_OK_ERR_%out_value
+L_RESULT_MAP_OK_OK_%out_value:
+    __result_value_%out_value = load %res_reg+Result_ok as u64
+    %out_value = call %map_fn(__result_value_%out_value)
+    !__result_value_%out_value
+    !__result_tag_%out_value
+    jmp L_RESULT_MAP_OK_END_%out_value
+L_RESULT_MAP_OK_ERR_%out_value:
+    %out_value = add 0, 0
+    !__result_tag_%out_value
+L_RESULT_MAP_OK_END_%out_value:
+[END_MACRO]
+
 [MACRO] RESULT_UNWRAP %out_value, %res_reg
     __result_tag_%out_value = load %res_reg+Result_tag as u64
     __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
@@ -143,6 +166,10 @@ L_MATCH_RESULT_ERR_%out_value:
     %out_value = load %res_reg+Result_err as u64
     !__match_result_tag_%out_value
     jmp %err_label
+[END_MACRO]
+
+[MACRO] RESULT_MATCH_OK_ERR %out_value, %res_reg, %ok_label, %err_label
+    EXPAND MATCH_RESULT %out_value, %res_reg, %ok_label, %err_label
 [END_MACRO]
 
 [MACRO] MATCHES_RESULT %out_bool, %res_reg, %expected_tag

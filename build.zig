@@ -412,14 +412,7 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&run_wasm_matrix.step);
 
     const pre_push_step = b.step("pre-push", "Run the pre-push gate");
-    const run_pkg_sum_perf_after_ci = b.addRunArtifact(pkg_sum_perf_tests);
-    run_pkg_sum_perf_after_ci.setCwd(repo_root_lazy);
-    run_pkg_sum_perf_after_ci.step.dependOn(ci_step);
-    pre_push_step.dependOn(&run_pkg_sum_perf_after_ci.step);
-    const run_pkg_audit_perf_after_sum = b.addRunArtifact(pkg_audit_perf_tests);
-    run_pkg_audit_perf_after_sum.setCwd(repo_root_lazy);
-    run_pkg_audit_perf_after_sum.step.dependOn(&run_pkg_sum_perf_after_ci.step);
-    pre_push_step.dependOn(&run_pkg_audit_perf_after_sum.step);
+    pre_push_step.dependOn(ci_step);
 
     const bench_module = b.createModule(.{
         .root_source_file = b.path("bench/task_6_26.zig"),

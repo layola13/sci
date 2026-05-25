@@ -73,6 +73,7 @@
 
 ## 插件任务验收标准
 
+- 当前插件实现已统一外置到 `/home/vscode/projects/sa_plugins/` 的独立工程；主线只保留薄宿主层、ABI 约定和最小 loader 边界，不再承载插件业务逻辑。
 - 插件必须以 runtime `.so` 形式交付，不能把静态注册或宿主内联实现当成完成态。
 - 插件必须支持热重载语义，至少能在宿主进程内完成加载、卸载、重新加载的回归验证。
 - 插件必须保持目录隔离，agent 只改本插件目录及其入口文件，不改 `src/cli.zig` 的静态分发逻辑。
@@ -2039,9 +2040,85 @@ sa/
 - [x] Design and implement `sa_std/core/derive.sa` containing foundational macros for structural operations (e.g., shallow copy, field-wise equality).
 - [x] Document the "Naming Contract" pattern for structures (e.g., standardizing `_CLONE`, `_FREE` suffixes for macros).
 - [x] Refine and document the `[MACRO] DISPATCH` pattern as the preferred method for simulated dynamic dispatch (defunctionalization) to maintain O(1) ownership tracking by the Referee.
+- [ ] Prioritize the next macro wave for data-structure portability, in this order:
+  1. container construction and field access (`STRUCT_NEW`, `FIELD_GET`, `FIELD_SET`, `STRUCT_FREE`, `PTR_FIELD`)
+  2. `Option` / `Result` convenience helpers (`OPTION_MATCH_SOME_NONE`, `OPTION_UNWRAP_OR_RETURN`, `RESULT_MATCH_OK_ERR`, `RESULT_RETURN_ERR`, `RESULT_MAP_OK`, `RESULT_IS_OK` / `RESULT_IS_ERR`)
+  3. loop / index sugar (`FOR_RANGE`, `WHILE`, `WHILE_COND`, `INDEX_LOOP`, `ARRAY_FOR_EACH`, `ARRAY_SCAN_MIN/MAX`, `SLICE_GET_U64`)
+  4. bit / mask operations (`BIT_SET`, `BIT_GET`, `BIT_CLEAR`, `BIT_TEST`, `BIT_MASK`, `BIT_INDEX_BYTE`, `BIT_INDEX_BIT`)
+  5. hash / probe helpers (`HASH_PTR`, `HASH_MIX`, `HASH_MOD`, `PROBE_START`, `PROBE_NEXT`, `MAP_LOOKUP`, `MAP_INSERT_OR_UPDATE`)
+  6. resource cleanup sugar (`DEFER`, `CLEANUP_ON_ERROR`, `WITH_TEMP`, `RETURN_CLEAN`, `FREE_AND_RETURN`)
+  7. structured control-flow sugar (`IF`, `ELSE`, `ELIF`, `MATCH_BOOL`, `MATCH_OPTION`, `MATCH_RESULT`, `WHILE_LET`, `BREAK_IF`, `CONTINUE_IF`)
+  - Goal: keep future `trie` / `bloom_filter` / `segment_tree` / `graph` ports closer to Rust while still lowering to explicit labels, stores, and branches.
 
 - [x] Implement `Arc<T>` macros in `sa_std/core/arc.sa` using atomic `add`/`sub` operations.
 - [x] Refactor `RefCell` to support multiple simultaneous readers.
 - [x] Implement `RwLock` in `sa_std/sync/rwlock.sa`.
 - [x] Add `BOX_NEW`/`BOX_FREE` ergonomics to `sa_std/core/mem.sa`.
 - [x] Wire `line!` / `file!` / `column!` / `module_path!` through the flattener macro path, and add SA unit coverage for source-location expansion.
+- [x] Add `include!` SA coverage through `tests/include_macro_expand_unit.sa` and CLI smoke execution.
+
+### sa_std Macro Priority Backlog: Data-Structure Portability Wave 2
+- [ ] Container construction and field access macros
+  - `STRUCT_NEW`
+  - `FIELD_GET`
+  - `FIELD_SET`
+  - `STRUCT_FREE`
+  - `PTR_FIELD`
+  - Priority: highest; target `stack` / `queue` / `heap` / `linked_list` / `union_find` / `hash_table` / `fenwick_tree` ports first.
+- [ ] `Option` / `Result` convenience macros
+  - `OPTION_MATCH_SOME_NONE`
+  - `OPTION_UNWRAP_OR_RETURN`
+  - `RESULT_MATCH_OK_ERR`
+  - `RESULT_RETURN_ERR`
+  - `RESULT_MAP_OK`
+  - `RESULT_IS_OK` / `RESULT_IS_ERR`
+  - Priority: high; target `trie` / `bloom_filter` / `segment_tree` / `graph` next.
+- [ ] Loop and index macros
+  - `FOR_RANGE`
+  - `WHILE`
+  - `WHILE_COND`
+  - `INDEX_LOOP`
+  - `ARRAY_FOR_EACH`
+  - `ARRAY_SCAN_MIN/MAX`
+  - `SLICE_GET_U64`
+  - Priority: high; use to cut `jmp` / `branch` / `idx_slot` boilerplate and reduce `PhiStateConflict` risk.
+- [ ] Bit and mask macros
+  - `BIT_SET`
+  - `BIT_GET`
+  - `BIT_CLEAR`
+  - `BIT_TEST`
+  - `BIT_MASK`
+  - `BIT_INDEX_BYTE`
+  - `BIT_INDEX_BIT`
+  - Priority: medium-high; target `bloom_filter` / `bitset` / `bitmap` / compressed segment-tree layouts.
+- [ ] Hash and probe macros
+  - `HASH_PTR`
+  - `HASH_MIX`
+  - `HASH_MOD`
+  - `PROBE_START`
+  - `PROBE_NEXT`
+  - `MAP_LOOKUP`
+  - `MAP_INSERT_OR_UPDATE`
+  - Priority: medium-high; target `hashmap` / `hashset` / `bloom_filter` / `count_min_sketch`.
+- [ ] Resource cleanup macros
+  - `DEFER`
+  - `CLEANUP_ON_ERROR`
+  - `WITH_TEMP`
+  - `RETURN_CLEAN`
+  - `FREE_AND_RETURN`
+  - Priority: medium; make temp alloc cleanup and error-path teardown explicit and repeatable.
+- [ ] Structured control-flow sugar
+  - `IF`
+  - `ELSE`
+  - `ELIF`
+  - `MATCH_BOOL`
+  - `MATCH_OPTION`
+  - `MATCH_RESULT`
+  - `WHILE_LET`
+  - `BREAK_IF`
+  - `CONTINUE_IF`
+  - Priority: lower than the data-structure helpers; keep the expansion thin and label-based.
+- [ ] Add SA unit tests for every new macro family as soon as it lands
+  - Smoke coverage for expansion presence
+  - Behavior coverage for success / failure / cleanup paths
+  - Keep the tests in `tests/rust_core_unit.sa` or adjacent macro-specific SA tests

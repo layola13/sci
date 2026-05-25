@@ -1,0 +1,2 @@
+EXPAND INCLUDE_STR! "tests/include_macro_text.txt"
+EXPAND INCLUDE_BYTES! "tests/include_macro_bytes.bin"

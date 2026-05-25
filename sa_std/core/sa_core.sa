@@ -24,6 +24,11 @@
 @import "dispatch.sa"
 @import "arc.sal"
 @import "arc.sa"
+@import "bit.sa"
+@import "loop.sa"
+@import "control.sa"
+@import "hash.sa"
+@import "cleanup.sa"
 @import "../sync/rwlock.sal"
 @import "../sync/rwlock.sa"
 

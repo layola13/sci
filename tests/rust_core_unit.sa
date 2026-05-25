@@ -3,6 +3,11 @@
 @import "../sa_std/core/option.sa"
 @import "../sa_std/core/result.sal"
 @import "../sa_std/core/result.sa"
+@import "../sa_std/core/bit.sa"
+@import "../sa_std/core/loop.sa"
+@import "../sa_std/core/control.sa"
+@import "../sa_std/core/hash.sa"
+@import "../sa_std/core/cleanup.sa"
 @import "../sa_std/netx.sa"
 
 @const TEST_TRAIT_OBJECT_VT = vtable { call = @demo_trait_object_call }
@@ -54,6 +59,30 @@ L_ENTRY:
 L_ENTRY:
     !self
     return 0
+
+@double_u64(x: u64) -> u64:
+L_ENTRY:
+    y = add x, x
+    !x
+    !y
+    return y
+
+@option_unwrap_or_return_probe(opt: ptr) -> u64:
+L_ENTRY:
+    EXPAND OPTION_UNWRAP_OR_RETURN value, opt, 9
+    !opt
+    return value
+
+@result_map_ok_probe(res: ptr) -> u64:
+L_ENTRY:
+    EXPAND RESULT_MAP_OK mapped, res, @double_u64
+    !res
+    return mapped
+
+@result_return_err_probe(err: u64) -> ptr:
+L_ENTRY:
+    res = alloc Result_SIZE
+    EXPAND RESULT_RETURN_ERR res, err
 
 @drop_probe(&self: ptr) -> i32:
 L_ENTRY:
@@ -171,6 +200,453 @@ L_ENTRY:
     !ok7
     !left
     !right
+    return
+
+@test "derive copy field helper copies a single field"():
+L_ENTRY:
+    src = alloc TestPair_SIZE
+    dst = alloc TestPair_SIZE
+    store src+TestPair_A, 41 as u64
+    store src+TestPair_B, 0 as u64
+    store dst+TestPair_A, 0 as u64
+    store dst+TestPair_B, 9 as u64
+    EXPAND STRUCT_COPY_FIELD dst, src, TestPair_A, TestPair_A
+    copied = load dst+TestPair_A as u64
+    untouched = load dst+TestPair_B as u64
+    ok1 = eq copied, 41
+    ok2 = eq untouched, 9
+    !copied
+    !untouched
+    !ok1
+    !ok2
+    !src
+    !dst
+    return
+
+@test "derive field access and pointer helpers"():
+L_ENTRY:
+    slot = alloc TestPair_SIZE
+    EXPAND STRUCT_NEW pair, TestPair_SIZE
+    EXPAND FIELD_SET pair, TestPair_A, 17
+    EXPAND FIELD_SET pair, TestPair_B, 23
+    EXPAND FIELD_GET got_a, pair, TestPair_A
+    EXPAND FIELD_GET got_b, pair, TestPair_B
+    EXPAND PTR_FIELD ptr_a, pair, TestPair_A
+    pair_ptr = load pair+TestPair_A as u64
+    ok1 = eq got_a, 17
+    ok2 = eq got_b, 23
+    ok3 = ne ptr_a, 0
+    ok4 = eq pair_ptr, 17
+    ok01 = and ok1, ok2
+    ok02 = and ok01, ok3
+    ok = and ok02, ok4
+    !got_a
+    !got_b
+    !ptr_a
+    !pair_ptr
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !slot
+    EXPAND STRUCT_FREE pair
+    return
+
+@test "option and result convenience macros compose cleanly"():
+L_ENTRY:
+    some_opt = alloc Option_SIZE
+    store some_opt+Option_tag, Option_SOME as u64
+    store some_opt+Option_value, 11 as u64
+    none_opt = alloc Option_SIZE
+    store none_opt+Option_tag, Option_NONE as u64
+    store none_opt+Option_value, 0 as u64
+    ok_res = alloc Result_SIZE
+    store ok_res+Result_tag, Result_OK as u64
+    store ok_res+Result_ok, 13 as u64
+    store ok_res+Result_err, 0 as u64
+    err_res = alloc Result_SIZE
+    store err_res+Result_tag, Result_ERR as u64
+    store err_res+Result_ok, 0 as u64
+    store err_res+Result_err, 17 as u64
+
+    EXPAND OPTION_MATCH_SOME_NONE some_value, some_opt, L_SOME, L_NONE
+
+L_SOME:
+    some_ok = eq some_value, 11
+    EXPAND OPTION_MATCH_SOME_NONE none_value, none_opt, L_NONE_OK, L_NONE_FAIL
+
+L_NONE_OK:
+    none_ok = eq none_value, 0
+    EXPAND RESULT_MATCH_OK_ERR ok_value, ok_res, L_OK, L_ERR
+
+L_OK:
+    ok_match = eq ok_value, 13
+    EXPAND RESULT_MATCH_OK_ERR err_value, err_res, L_ERR_OK, L_ERR_ERR
+
+L_ERR_ERR:
+    err_match = eq err_value, 17
+    EXPAND RESULT_MAP_OK mapped_ok, ok_res, @double_u64
+    EXPAND RESULT_MAP_OK mapped_err, err_res, @double_u64
+    mapped_ok_ok = eq mapped_ok, 26
+    mapped_err_ok = eq mapped_err, 0
+    returned_opt = call @option_unwrap_or_return_probe(some_opt)
+    returned_none = call @option_unwrap_or_return_probe(none_opt)
+    returned_res = call @result_return_err_probe(99)
+    returned_tag = load returned_res+Result_tag as u64
+    returned_err = load returned_res+Result_err as u64
+    returned_ok = eq returned_tag, Result_ERR
+    returned_err_ok = eq returned_err, 99
+    !some_value
+    !none_value
+    !ok_value
+    !err_value
+    !mapped_ok
+    !mapped_err
+    !returned_opt
+    !returned_none
+    !returned_res
+    !returned_tag
+    !returned_err
+    !some_ok
+    !none_ok
+    !ok_match
+    !err_match
+    !mapped_ok_ok
+    !mapped_err_ok
+    !returned_ok
+    !returned_err_ok
+    !some_opt
+    !none_opt
+    !ok_res
+    !err_res
+    return
+
+@test "iter helpers and slice indexing support scanning patterns"():
+L_ENTRY:
+    data = alloc 32
+    store data+0, 9 as u64
+    store data+8, 3 as u64
+    store data+16, 14 as u64
+    store data+24, 7 as u64
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, data, 4
+    EXPAND SLICE_GET_U64 second, slice, 1
+    iter = alloc Iter_SIZE
+    EXPAND ITER_FROM_SLICE iter, slice
+    EXPAND ITER_IS_EMPTY is_empty, iter
+    EXPAND ITER_HAS_NEXT has_next, iter
+    EXPAND ITER_PEEK_U64 peek, iter
+    EXPAND ITER_NEXT_U64 has_item, next_item, iter
+    ok1 = eq second, 3
+    ok2 = eq is_empty, 0
+    ok3 = eq has_next, 1
+    ok4 = eq peek, 9
+    ok5 = eq has_item, 1
+    ok6 = eq next_item, 9
+    !data
+    !slice
+    !second
+    !iter
+    !is_empty
+    !has_next
+    !peek
+    !has_item
+    !next_item
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    return
+
+@test "loop hash and cleanup macros expand in core smoke"():
+L_ENTRY:
+    arr = alloc 24
+    store arr+0, 8 as u64
+    store arr+8, 4 as u64
+    store arr+16, 12 as u64
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, arr, 3
+    EXPAND FOR_RANGE idx, 0, 3, L_FOR_BODY, L_FOR_DONE
+
+L_FOR_BODY:
+    EXPAND SLICE_GET_U64 current, slice, idx
+    EXPAND ARRAY_SCAN_MIN min_value, current, 4
+    EXPAND ARRAY_SCAN_MAX max_value, current, 12
+    EXPAND HASH_PTR hash_value, slice
+    EXPAND DEFER slice
+    ok1 = ult 0, hash_value
+    ok2 = eq min_value, 4
+    ok3 = eq max_value, 12
+    !arr
+    !idx
+    !current
+    !hash_value
+    !min_value
+    !max_value
+    !ok1
+    !ok2
+    !ok3
+    return
+
+@test "control flow helper macros branch and label correctly"():
+L_ENTRY:
+    true_cond = eq 1, 1
+    false_cond = eq 1, 2
+    EXPAND MATCH_BOOL matched_true, true_cond, L_MATCH_TRUE, L_MATCH_FALSE
+
+L_MATCH_TRUE:
+    ok1 = eq matched_true, 1
+    EXPAND MATCH_BOOL matched_false, false_cond, L_MATCH_FALSE_OK, L_MATCH_TRUE_FAIL
+
+L_MATCH_FALSE_OK:
+    ok2 = eq matched_false, 0
+    EXPAND WHILE true_cond, L_WHILE_BODY, L_WHILE_DONE
+
+L_WHILE_BODY:
+    while_hit = add 7, 0
+    jmp L_AFTER_WHILE
+
+L_WHILE_DONE:
+    trap = add 0, 0
+    !trap
+    return
+
+L_AFTER_WHILE:
+    EXPAND WHILE_COND false_cond, L_WHILE_COND_BODY, L_WHILE_COND_DONE
+
+L_WHILE_COND_BODY:
+    trap2 = add 0, 0
+    !trap2
+    return
+
+L_WHILE_COND_DONE:
+    EXPAND INDEX_LOOP idx2, 1, 2, L_INDEX_BODY, L_INDEX_DONE
+
+L_INDEX_BODY:
+    idx_ok = eq idx2, 1
+    jmp L_INDEX_AFTER
+
+L_INDEX_DONE:
+    trap3 = add 0, 0
+    !trap3
+    return
+
+L_INDEX_AFTER:
+    ok3 = eq idx_ok, 1
+    !true_cond
+    !false_cond
+    !matched_true
+    !matched_false
+    !ok1
+    !ok2
+    !ok3
+    !while_hit
+    !idx2
+    !idx_ok
+    return
+
+L_MATCH_FALSE:
+    trap_false = add 0, 0
+    !trap_false
+    return
+
+L_MATCH_TRUE_FAIL:
+    trap_true = add 0, 0
+    !trap_true
+    return
+
+@test "control flow sugar aliases preserve branching semantics"():
+L_ENTRY:
+    cond = eq 3, 3
+    other = eq 4, 5
+    EXPAND ELIF cond, L_ELIF_TRUE, L_ELIF_FALSE
+
+L_ELIF_TRUE:
+    ok1 = eq cond, 1
+    EXPAND WHILE_LET cond, L_WHILE_LET_BODY, L_WHILE_LET_DONE
+
+L_WHILE_LET_BODY:
+    EXPAND BREAK_IF cond, L_BREAK_HIT, L_BREAK_SKIP
+
+L_BREAK_HIT:
+    EXPAND CONTINUE_IF other, L_CONTINUE_HIT, L_CONTINUE_SKIP
+
+L_CONTINUE_HIT:
+    ok2 = eq other, 0
+    !cond
+    !other
+    !ok1
+    !ok2
+    return
+
+L_CONTINUE_SKIP:
+    ok2 = eq other, 0
+    !cond
+    !other
+    !ok1
+    !ok2
+    return
+
+L_BREAK_SKIP:
+    trap_break = add 0, 0
+    !trap_break
+    return
+
+L_WHILE_LET_DONE:
+    trap_done = add 0, 0
+    !trap_done
+    return
+
+L_ELIF_FALSE:
+    trap_else = add 0, 0
+    !trap_else
+    return
+
+@test "hash map helper macros insert lookup and update"():
+L_ENTRY:
+    map = alloc HashMap_SIZE
+    store map+HashMap_slots, 0 as ptr
+    store map+HashMap_cap, 0 as u64
+    store map+HashMap_len, 0 as u64
+    store map+HashMap_tombs, 0 as u64
+    key = alloc 8
+    value1 = alloc 8
+    value2 = alloc 8
+    store key+0, 5 as u64
+    store value1+0, 11 as u64
+    store value2+0, 22 as u64
+    EXPAND HASH_PTR key_hash, key
+    EXPAND MAP_INSERT_OR_UPDATE map, key, value1
+    EXPAND MAP_LOOKUP got1, map, key
+    ok1 = eq got1, value1
+    EXPAND MAP_INSERT_OR_UPDATE map, key, value2
+    EXPAND MAP_LOOKUP got2, map, key
+    ok2 = eq got2, value2
+    ok3 = ult 0, key_hash
+    EXPAND MAP_FREE map
+    !map
+    !key
+    !value1
+    !value2
+    !key_hash
+    !got1
+    !got2
+    !ok1
+    !ok2
+    !ok3
+    return
+
+@test "bit macros set clear and index values"():
+L_ENTRY:
+    base = 0 as u64
+    EXPAND BIT_MASK mask, 5
+    EXPAND BIT_SET set_value, base, 5
+    EXPAND BIT_GET bit_is_set, set_value, 5
+    EXPAND BIT_CLEAR cleared_value, set_value, 5
+    EXPAND BIT_TEST bit_tested, set_value, 5
+    EXPAND BIT_INDEX_BYTE byte_index, 17
+    EXPAND BIT_INDEX_BIT bit_index, 17
+    ok1 = eq mask, 32
+    ok2 = eq set_value, 32
+    ok3 = eq bit_is_set, 1
+    ok4 = eq cleared_value, 0
+    ok5 = eq bit_tested, 1
+    ok6 = eq byte_index, 2
+    ok7 = eq bit_index, 1
+    !base
+    !mask
+    !set_value
+    !bit_is_set
+    !cleared_value
+    !bit_tested
+    !byte_index
+    !bit_index
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    !ok7
+    return
+
+@test "loop probe and cleanup helper macros compose"():
+L_ENTRY:
+    bytes = alloc 16
+    store bytes+0, 5 as u64
+    store bytes+8, 11 as u64
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, bytes, 2
+    EXPAND ARRAY_FOR_EACH idx, slice, L_LOOP_BODY, L_LOOP_DONE
+
+L_LOOP_BODY:
+    EXPAND SLICE_GET_U64_AT first_item, slice, idx
+    EXPAND PROBE_START probe_start, 6, 8
+    EXPAND PROBE_NEXT probe_next, probe_start, 8
+    cleanup_flag = eq idx, 0
+    EXPAND CLEANUP_ON_ERROR cleanup_flag, bytes, L_LOOP_FAIL
+    ok1 = ult 0, first_item
+    ok2 = ult probe_start, 8
+    ok3 = ult probe_next, 8
+    !bytes
+    !slice
+    !idx
+    !first_item
+    !probe_start
+    !probe_next
+    !cleanup_flag
+    !ok1
+    !ok2
+    !ok3
+    return
+
+L_LOOP_DONE:
+    trap = add 0, 0
+    !trap
+    return
+
+L_LOOP_FAIL:
+    trap_fail = add 0, 0
+    !trap_fail
+    return
+
+L_FOR_DONE:
+    trap = add 0, 0
+    !trap
+    return
+
+L_NONE:
+    trap_some = add 0, 0
+    !trap_some
+    !some_opt
+    !none_opt
+    return
+
+L_NONE_FAIL:
+    trap_none = add 0, 0
+    !trap_none
+    !some_opt
+    !none_opt
+    return
+
+L_ERR:
+    trap_ok = add 0, 0
+    !trap_ok
+    !some_opt
+    !none_opt
+    !ok_res
+    !err_res
+    return
+
+L_ERR_OK:
+    trap_err = add 0, 0
+    !trap_err
+    !some_opt
+    !none_opt
+    !ok_res
+    !err_res
     return
 
 @test "cell set get replace"():

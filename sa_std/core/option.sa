@@ -44,6 +44,20 @@ L_OPTION_UNWRAP_OR_NONE_%out_value:
 L_OPTION_UNWRAP_OR_END_%out_value:
 [END_MACRO]
 
+[MACRO] OPTION_UNWRAP_OR_RETURN %out_value, %opt_reg, %default_value
+    __option_tag_%out_value = load %opt_reg+Option_tag as u64
+    __option_is_some_%out_value = eq __option_tag_%out_value, Option_SOME
+    br __option_is_some_%out_value -> L_OPTION_UNWRAP_OR_RETURN_SOME_%out_value, L_OPTION_UNWRAP_OR_RETURN_NONE_%out_value
+L_OPTION_UNWRAP_OR_RETURN_SOME_%out_value:
+    %out_value = load %opt_reg+Option_value as u64
+    !__option_tag_%out_value
+    jmp L_OPTION_UNWRAP_OR_RETURN_END_%out_value
+L_OPTION_UNWRAP_OR_RETURN_NONE_%out_value:
+    !__option_tag_%out_value
+    return %default_value
+L_OPTION_UNWRAP_OR_RETURN_END_%out_value:
+[END_MACRO]
+
 [MACRO] OPTION_UNWRAP %out_value, %opt_reg
     __option_tag_%out_value = load %opt_reg+Option_tag as u64
     br __option_tag_%out_value -> L_OPTION_UNWRAP_SOME_%out_value, L_OPTION_UNWRAP_NONE_%out_value
@@ -115,6 +129,10 @@ L_MATCH_OPTION_NONE_%out_value:
     %out_value = add 0, 0
     !__match_option_tag_%out_value
     jmp %none_label
+[END_MACRO]
+
+[MACRO] OPTION_MATCH_SOME_NONE %out_value, %opt_reg, %some_label, %none_label
+    EXPAND MATCH_OPTION %out_value, %opt_reg, %some_label, %none_label
 [END_MACRO]
 
 [MACRO] MATCHES_OPTION %out_bool, %opt_reg, %expected_tag

@@ -138,6 +138,7 @@
 - [x] 仓库级 HTTP/SA 验收补完：301/302 HTTP SAASM demo 已纳入 `cli-special` 主验收，`zig build test --summary all` 覆盖并通过。
 
 ## 可热插拔插件系统
+- 现阶段插件实现已外置到 `/home/vscode/projects/sa_plugins/` 的独立工程；主仓库只保留薄宿主层、ABI 约定和最小 loader 入口，不再承载插件业务逻辑。
 - [x] 插件 ABI 版本号与 `plugin_descriptor` 导出
 - [x] 运行时 `.so` 发现 / `dlopen` / `dlsym` / `dlclose`
 - [x] 插件热重载与版本切换回归测试
@@ -297,6 +298,83 @@
 - [x] **Establish "Naming Contracts" for Derived Operations:** Define a standard naming convention for operations that would typically be derived in Rust (e.g., `[MACRO] {STRUCT}_CLONE`, `[MACRO] {STRUCT}_FREE`, `[MACRO] FMT_{STRUCT}`).
 - [x] **Implement `sa_std/core/derive.sa`:** Create a new module providing generic structural operation macros (e.g., `STRUCT_COPY`, `STRUCT_EQ_FIELD`) to aid LLMs and frontends in generating boilerplate code for complex types.
 - [x] **Standardize `DISPATCH` and Trait Simulation:** Solidify the `[MACRO] DISPATCH` pattern for defunctionalized dynamic dispatch and standardize the usage of `trait_object.sa` for explicit vtable dispatch where required.
+
+### sa_std: Macro Priority for Data-Structure Portability
+优先补下面几类宏，它们会直接提升当前这类数据结构移植的速度。优先级按“最值得先做”的顺序排列：
+
+优先级建议：先做容器构造与字段访问、`Option` / `Result` 便捷宏、循环与索引宏，再补位运算 / 掩码、哈希与容器 probe、资源清理、结构化控制流糖衣。
+
+1. 容器构造与字段访问宏
+   - `STRUCT_NEW`
+   - `FIELD_GET`
+   - `FIELD_SET`
+   - `STRUCT_FREE`
+   - `PTR_FIELD`
+   - 用途：初始化结构体时少写很多 `alloc + store`；读写字段时少写重复 `load/store`；让代码更接近 Rust 里的 `self.field`。
+   - 直接收益：对 `stack` / `queue` / `heap` / `linked_list` / `union_find` / `hash_table` / `fenwick_tree` 这一类重复样板压缩最明显。
+2. `Option` / `Result` 便捷宏
+   - `OPTION_MATCH_SOME_NONE`
+   - `OPTION_UNWRAP_OR_RETURN`
+   - `RESULT_MATCH_OK_ERR`
+   - `RESULT_RETURN_ERR`
+   - `RESULT_MAP_OK`
+   - `RESULT_IS_OK` / `RESULT_IS_ERR` 的更高层封装
+   - 用途：少写分支标签、清理寄存器、错误返回路径。
+   - 直接收益：对 `trie` / `bloom_filter` / `segment_tree` / `graph` 很有价值。
+3. 循环与索引宏
+   - `FOR_RANGE`
+   - `WHILE`
+   - `WHILE_COND`
+   - `INDEX_LOOP`
+   - `ARRAY_FOR_EACH`
+   - `ARRAY_SCAN_MIN/MAX`
+   - `SLICE_GET_U64`
+   - 用途：把手写 `jmp` / `branch` / `idx_slot` 变成模板展开。
+   - 直接收益：降低 `PhiStateConflict` 和循环临时寄存器泄漏，`segment_tree` / `rmq` / `bloom_filter` / `count_min_sketch` 会明显更稳。
+4. 位运算 / 掩码宏
+   - `BIT_SET`
+   - `BIT_GET`
+   - `BIT_CLEAR`
+   - `BIT_TEST`
+   - `BIT_MASK`
+   - `BIT_INDEX_BYTE`
+   - `BIT_INDEX_BIT`
+   - 用途：让 `bloom_filter` / `bitset` / `bitmap` / 压缩型 `segment tree` 少写 byte/bit 计算。
+5. 哈希与容器 probe 宏
+   - `HASH_PTR`
+   - `HASH_MIX`
+   - `HASH_MOD`
+   - `PROBE_START`
+   - `PROBE_NEXT`
+   - `MAP_LOOKUP`
+   - `MAP_INSERT_OR_UPDATE`
+   - 用途：封装散列、探测与分支。
+   - 直接收益：降低 `hashmap` / `hashset` / `bloom_filter` / `count_min_sketch` 的移植错误密度。
+6. 资源清理宏
+   - `DEFER`
+   - `CLEANUP_ON_ERROR`
+   - `WITH_TEMP`
+   - `RETURN_CLEAN`
+   - `FREE_AND_RETURN`
+   - 用途：统一临时 alloc、失败路径和资源释放。
+   - 直接收益：减少漏写 `!reg` 的问题，也能缓和很多 `UseAfterMove` 和控制流清理顺序问题。
+7. 结构化控制流糖衣
+   - `IF`
+   - `ELSE`
+   - `ELIF`
+   - `MATCH_BOOL`
+   - `MATCH_OPTION`
+   - `MATCH_RESULT`
+   - `WHILE_LET`
+   - `BREAK_IF`
+   - `CONTINUE_IF`
+   - 用途：让算法代码更接近 Rust。
+   - 约束：只做低层展开糖衣，不引入新的语义层，否则调试会更难。
+
+### sa_std: macro test policy
+- 每个新宏族都必须补 SA 单测。
+- 先做存在性 smoke，再做行为测试。
+- 新宏测试优先放入 `tests/rust_core_unit.sa`，必要时拆出独立宏测试文件。
 
 ### sa_std: Advanced Core Macros (Arc, RwLock, Full RefCell)
 - [x] **Implement `sa_std/core/arc.sa`**: Provide atomic reference counting (Arc) for multi-threaded shared ownership, mirroring `Rc` but using atomic RMW operations.

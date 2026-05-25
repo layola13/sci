@@ -130,8 +130,9 @@ Rust relies heavily on declarative and procedural macros. `sa_std` provides func
     *   `cfg!` is now covered by SA flattener macro expansion tests.
     *   `env!`, `option_env!` are now covered by SA flattener macro expansion tests.
     *   `include_str!` / `include_bytes!` are now covered by SA flattener macro expansion tests.
-    *   Missing `include!`.
-    *   Missing `line!`, `file!`, `column!`, `module_path!` (Source location macros).
+    *   `include!` is now covered by SA flattener macro expansion tests.
+    *   `line!`, `file!`, `column!` are now covered by SA flattener macro expansion tests.
+    *   `module_path!` is now covered by SA flattener macro expansion tests.
     *   Missing `stringify!` (Convert expression to string literal).
 *   **Collection Initializers**:
     *   Missing literal initializers for all collections (e.g., no `hashmap!{...}`, `set!{...}`).

@@ -6,6 +6,28 @@
     !__derive_src_%dst_reg
 [END_MACRO]
 
+[MACRO] PTR_FIELD %out_ptr, %base_reg, %offset
+    __derive_ptr_%out_ptr = ptr_add %base_reg, %offset
+    %out_ptr = add __derive_ptr_%out_ptr, 0
+    !__derive_ptr_%out_ptr
+[END_MACRO]
+
+[MACRO] FIELD_GET %out_value, %base_reg, %offset
+    %out_value = load %base_reg+%offset as u64
+[END_MACRO]
+
+[MACRO] FIELD_SET %base_reg, %offset, %value
+    store %base_reg+%offset, %value as u64
+[END_MACRO]
+
+[MACRO] STRUCT_NEW %out_reg, %size
+    %out_reg = alloc %size
+[END_MACRO]
+
+[MACRO] STRUCT_FREE %reg
+    !%reg
+[END_MACRO]
+
 [MACRO] STRUCT_COPY %dst_reg, %src_reg, %offset0, %offset1, %offset2, %offset3
     EXPAND STRUCT_COPY_FIELD %dst_reg, %src_reg, %offset0, %offset0
     EXPAND STRUCT_COPY_FIELD %dst_reg, %src_reg, %offset1, %offset1

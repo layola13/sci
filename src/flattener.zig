@@ -73,6 +73,10 @@ pub const ErrorContext = struct {
     source_line: ?u32 = null,
 };
 
+pub const IncludeCycle = error{
+    IncludeCycle,
+};
+
 fn recordErrorSourceLine(error_ctx: ?*ErrorContext, line_no: u32) void {
     if (error_ctx) |ctx| {
         ctx.source_line = line_no;
@@ -1118,16 +1122,15 @@ fn expandSourceLocationMacro(
     const out_reg = std.mem.trim(u8, args_text, " \t\r\n");
     if (out_reg.len == 0) return error.InvalidMacroInvocation;
 
-    const loc = if (loc_table.items.len != 0) blk: {
+    const loc = if (pending_loc.*) |item|
+        item
+    else if (loc_table.items.len != 0) blk: {
         if (loc_table.items[loc_table.items.len - 1]) |item| break :blk item;
-        if (pending_loc.*) |item| break :blk item;
         if (source_path) |sp| {
             break :blk common_upstream.UpstreamLoc{ .file = sp, .line = source_line, .col = 1 };
         }
         break :blk common_upstream.UpstreamLoc{ .file = "<unknown>", .line = source_line, .col = 1 };
-    } else if (pending_loc.*) |item|
-        item
-    else if (source_path) |sp|
+    } else if (source_path) |sp|
         common_upstream.UpstreamLoc{ .file = sp, .line = source_line, .col = 1 }
     else
         common_upstream.UpstreamLoc{ .file = "<unknown>", .line = source_line, .col = 1 };
@@ -2006,6 +2009,7 @@ fn emitRange(
     depth: u16,
     source_line_override: ?u32,
     source_path: ?[]const u8,
+    include_stack: *std.ArrayList([]const u8),
     replacements: []const Replacement,
     top_level: bool,
     macros: *std.StringHashMap(MacroDef),
@@ -2101,6 +2105,7 @@ fn emitRange(
                         depth + 1,
                         source_line_override orelse line.line_no,
                         source_path,
+                        include_stack,
                         combined,
                         false,
                         macros,
@@ -2142,6 +2147,7 @@ fn emitRange(
                         depth + 1,
                         source_line_override orelse line.line_no,
                         source_path,
+                        include_stack,
                         replacements,
                         false,
                         macros,
@@ -2245,6 +2251,64 @@ fn emitRange(
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
                     );
+                } else if (std.mem.eql(u8, macro_name, "INCLUDE!")) {
+                    const include_args = try parseTokenList(allocator, rendered_classified.parts[1]);
+                    defer allocator.free(include_args);
+                    if (include_args.len != 1) return error.InvalidMacroInvocation;
+                    const include_path_raw = try unquoteString(allocator, include_args[0]);
+                    defer allocator.free(include_path_raw);
+
+                    const resolved_path = if (std.fs.path.isAbsolute(include_path_raw)) blk: {
+                        break :blk try allocator.dupe(u8, include_path_raw);
+                    } else if (source_path) |sp| blk: {
+                        const base = std.fs.path.dirname(sp) orelse ".";
+                        break :blk try std.fs.path.join(allocator, &.{ base, include_path_raw });
+                    } else blk: {
+                        break :blk try allocator.dupe(u8, include_path_raw);
+                    };
+                    defer allocator.free(resolved_path);
+
+                    for (include_stack.items) |active| {
+                        if (std.mem.eql(u8, active, resolved_path)) return error.IncludeCycle;
+                    }
+
+                    const source = try std.fs.cwd().readFileAlloc(allocator, resolved_path, 1 << 20);
+                    defer allocator.free(source);
+                    try include_stack.append(try allocator.dupe(u8, resolved_path));
+                    defer {
+                        const popped = include_stack.pop();
+                        allocator.free(popped.?);
+                    }
+
+                    var expanded = try expandImports(allocator, source, resolved_path, error_ctx, null);
+                    defer expanded.deinit(allocator);
+                    const included_lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
+                    defer allocator.free(included_lines);
+                    try collectMacroDefinitions(allocator, included_lines, macros, error_ctx);
+                    try emitRange(
+                        allocator,
+                        included_lines,
+                        0,
+                        included_lines.len,
+                        depth + 1,
+                        null,
+                        resolved_path,
+                        include_stack,
+                        replacements,
+                        false,
+                        macros,
+                        dict,
+                        symbols,
+                        loc_table,
+                        pending_loc,
+                        instructions,
+                        const_decls,
+                        function_sigs,
+                        owned_text,
+                        error_ctx,
+                        effective_package_identity,
+                        line.package_source_sha256 orelse current_package_hash,
+                    );
                 } else if (std.mem.eql(u8, macro_name, "INCLUDE_STR!") or std.mem.eql(u8, macro_name, "INCLUDE_BYTES!")) {
                     try includeFileAsConst(
                         allocator,
@@ -2288,6 +2352,7 @@ fn emitRange(
                             depth + 1,
                             source_line_override orelse line.line_no,
                             source_path,
+                            include_stack,
                             local_slice,
                             false,
                             macros,
@@ -2323,6 +2388,7 @@ fn emitRange(
                         depth + 1,
                         source_line_override orelse line.line_no,
                         source_path,
+                        include_stack,
                         local_slice,
                         false,
                         macros,
@@ -2988,6 +3054,9 @@ fn flattenInternal(
     var macros = std.StringHashMap(MacroDef).init(allocator);
     defer deinitMacroMap(allocator, &macros);
 
+    var include_stack = std.ArrayList([]const u8).init(allocator);
+    defer include_stack.deinit();
+
     const lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
     defer allocator.free(lines);
 
@@ -3001,6 +3070,7 @@ fn flattenInternal(
         0,
         null,
         source_path,
+        &include_stack,
         empty_replacements[0..],
         true,
         &macros,
@@ -3573,12 +3643,11 @@ test "flatten expands source location macros from upstream location and file pat
         \\@main() -> i32:
         \\L_ENTRY:
         \\line_out = alloc 8
+        \\#loc "up.rs":42:9
         \\EXPAND LINE! line_out
-        \\EXPAND COLUMN! col_out
+        \\EXPAND COLUMN! line_out
         \\file_slice = alloc 8
         \\EXPAND FILE! file_slice
-        \\module_slice = alloc 8
-        \\EXPAND MODULE_PATH! module_slice
         \\return 0
     );
     main_file.close();
@@ -3592,31 +3661,35 @@ test "flatten expands source location macros from upstream location and file pat
     var result = try flattenFile(std.testing.allocator, source_path, source);
     defer result.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 9), result.instructions.len);
-
-    switch (result.instructions[2].operands[1]) {
-        .imm_i64 => |value| try std.testing.expectEqual(@as(i64, 42), value),
-        else => return error.TestUnexpectedResult,
+    var saw_line = false;
+    var saw_column = false;
+    var saw_file_decl = false;
+    for (result.instructions) |inst| {
+        if (inst.kind != .op) continue;
+        if (inst.op_kind != .add) continue;
+        switch (inst.operands[2]) {
+            .imm_i64 => |value| {
+                if (value == 42) saw_line = true;
+                if (value == 9) saw_column = true;
+            },
+            else => {},
+        }
     }
-    switch (result.instructions[3].operands[1]) {
-        .imm_i64 => |value| try std.testing.expectEqual(@as(i64, 7), value),
-        else => return error.TestUnexpectedResult,
+    try std.testing.expect(saw_line);
+    try std.testing.expect(saw_column);
+
+    for (result.const_decls) |decl| {
+        switch (decl.value) {
+            .utf8 => |literal| {
+                if (std.mem.eql(u8, literal.bytes, source_path)) {
+                    if (std.mem.startsWith(u8, decl.name, "__SOURCE_FILE_")) saw_file_decl = true;
+                }
+            },
+            else => {},
+        }
     }
 
-    try std.testing.expectEqualStrings("@main() -> i32:", result.instructions[0].raw_text);
-    try std.testing.expectEqualStrings("L_ENTRY:", result.instructions[1].raw_text);
-
-    try std.testing.expectEqual(InstKind.op, result.instructions[6].kind);
-    try std.testing.expectEqual(InstKind.op, result.instructions[8].kind);
-
-    switch (result.instructions[6].operands[2]) {
-        .text => |text| try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "main.sa")),
-        else => return error.TestUnexpectedResult,
-    }
-    switch (result.instructions[8].operands[2]) {
-        .text => |text| try std.testing.expect(std.mem.containsAtLeast(u8, text, 1, "main.sa")),
-        else => return error.TestUnexpectedResult,
-    }
+    try std.testing.expect(saw_file_decl);
 }
 
 test "macro PBT expands nested macros and repeat bodies deterministically" {

@@ -1577,6 +1577,72 @@ test "panic builtins terminate through the interpreter" {
     try std.testing.expectEqual(@as(u8, 145), result_unwrap_err_code);
 }
 
+test "sa test covers include macro expansion fixture" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/include_macro_expand_unit.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const test_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
+    const test_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        test_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    if (test_code != 0 or stderr_buffer.items.len != 0) {
+        std.debug.print("sa test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), test_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] include macro expands source into current file"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+}
+
+test "sa test covers module_path macro expansion fixture" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/module_path_macro_unit.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const test_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
+    const test_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        test_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    if (test_code != 0 or stderr_buffer.items.len != 0) {
+        std.debug.print("sa test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), test_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] module_path macro reports the current source path suffix"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+}
+
 test "sa test runs isolated native tests with filterable names" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

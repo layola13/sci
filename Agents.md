@@ -380,6 +380,27 @@ Answer:
 Next:
 - Either make the plugin-local wrappers self-contained with their own local `plugin_api` / support imports, or stop reusing those wrappers in standalone tests and keep the helper extraction limited to plugin directories that already have self-contained module graphs.
 
+## 2026-05-25 16:40
+
+Question:
+- Where is the current plugin implementation boundary now that the main repo should stay lightweight and not be bound to plugin logic?
+
+Evidence checked:
+- /home/vscode/projects/sa_plugins/README.md
+- /home/vscode/projects/sa_plugins/build-all.sh
+- docs/pluginssytem.md
+- docs/http_client_plugin.md
+- docs/http_server_plugin.md
+- tasks.md
+- todo.md
+
+Answer:
+- Plugin implementation has moved to standalone projects under `/home/vscode/projects/sa_plugins/`, each with its own `build.zig` and `.so` output.
+- The main repository now keeps only the thin host ABI / loader boundary and does not own plugin business logic.
+
+Next:
+- Keep future plugin work in the external workspace and only touch the main repo for ABI or loader boundary changes.
+
 Question:
 - What is the current blocker after trying to finish the remaining plugin hot-reload work, and which parts are already verified?
 
