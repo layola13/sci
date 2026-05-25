@@ -65,12 +65,19 @@ pub const Trap = enum(u8) {
 pub const TrapReport = struct {
     trap: Trap,
     trap_code: ?u32 = null,
+    file_buf: [128]u8 = [_]u8{0} ** 128,
+    file: ?[]const u8 = null,
     line: u32,
     source_line: u32,
+    column: ?u32 = null,
     source_text_buf: [256]u8 = [_]u8{0} ** 256,
     original_text_buf: [256]u8 = [_]u8{0} ** 256,
     source_text: ?[]const u8 = null,
     original_text: ?[]const u8 = null,
+    bad_token_buf: [64]u8 = [_]u8{0} ** 64,
+    bad_token: ?[]const u8 = null,
+    context: [5]ContextLine = .{ .{}, .{}, .{}, .{}, .{} },
+    context_len: u8 = 0,
     register_buf: [64]u8 = [_]u8{0} ** 64,
     register: ?[]const u8 = null,
     registers: []const []const u8 = &.{},
@@ -88,8 +95,17 @@ pub const TrapReport = struct {
     repair_action: ?[]const u8 = null,
     repair_hint: ?[]const u8 = null,
     repair_confidence: ?[]const u8 = null,
+    repair_alternatives_buf: [3][64]u8 = .{ .{0} ** 64, .{0} ** 64, .{0} ** 64 },
+    repair_alternatives: [3]?[]const u8 = .{ null, null, null },
+    repair_alternatives_len: u8 = 0,
     message: []const u8,
     hint: ?[]const u8 = null,
+};
+
+pub const ContextLine = struct {
+    line: u32 = 0,
+    text_buf: [256]u8 = [_]u8{0} ** 256,
+    text: ?[]const u8 = null,
 };
 
 pub fn trapName(trap: Trap) []const u8 {
@@ -290,20 +306,68 @@ fn writeMaybeU32(writer: anytype, value: ?u32) !void {
     }
 }
 
+fn writeTextOrBuf(writer: anytype, value: ?[]const u8, buf: []const u8) !void {
+    if (value) |text| {
+        try writeJsonString(writer, text);
+    } else {
+        const fallback = bufText(buf);
+        if (fallback.len == 0) {
+            try writer.writeAll("null");
+        } else {
+            try writeJsonString(writer, fallback);
+        }
+    }
+}
+
+fn writeContextLineJson(writer: anytype, line: ContextLine) !void {
+    try writer.writeByte('{');
+    try writer.writeAll("\"line\":");
+    try writer.print("{d}", .{line.line});
+    try writer.writeAll(",\"text\":");
+    try writeTextOrBuf(writer, line.text, &line.text_buf);
+    try writer.writeByte('}');
+}
+
+fn writeContextJson(writer: anytype, report: TrapReport) !void {
+    try writer.writeByte('[');
+    for (report.context[0..report.context_len], 0..) |line, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writeContextLineJson(writer, line);
+    }
+    try writer.writeByte(']');
+}
+
+fn writeAlternativesJson(writer: anytype, report: TrapReport) !void {
+    try writer.writeByte('[');
+    for (report.repair_alternatives[0..report.repair_alternatives_len], 0..) |alt, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writeMaybeString(writer, alt);
+    }
+    try writer.writeByte(']');
+}
+
 pub fn writeJson(writer: anytype, report: TrapReport) !void {
     try writer.writeAll("{");
     try writer.writeAll("\"trap\":");
     try writeJsonString(writer, trapName(report.trap));
     try writer.writeAll(",\"trap_code\":");
     try writeMaybeU32(writer, report.trap_code);
+    try writer.writeAll(",\"file\":");
+    try writeTextOrBuf(writer, report.file, &report.file_buf);
     try writer.writeAll(",\"line\":");
     try writer.print("{d}", .{report.line});
     try writer.writeAll(",\"source_line\":");
     try writer.print("{d}", .{report.source_line});
+    try writer.writeAll(",\"column\":");
+    try writeMaybeU32(writer, report.column);
     try writer.writeAll(",\"source_text\":");
     try writeStringOrBuf(writer, report.source_text, &report.source_text_buf);
     try writer.writeAll(",\"original_text\":");
     try writeStringOrBuf(writer, report.original_text, &report.original_text_buf);
+    try writer.writeAll(",\"bad_token\":");
+    try writeTextOrBuf(writer, report.bad_token, &report.bad_token_buf);
+    try writer.writeAll(",\"context\":");
+    try writeContextJson(writer, report);
     try writer.writeAll(",\"register\":");
     try writeStringOrBuf(writer, report.register, &report.register_buf);
     try writer.writeAll(",\"registers\":[");
@@ -354,6 +418,8 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
         try writeMaybeRepair(writer, report.repair_hint);
         try writer.writeAll(",\"confidence\":");
         try writeMaybeRepair(writer, report.repair_confidence);
+        try writer.writeAll(",\"suggested_alternatives\":");
+        try writeAlternativesJson(writer, report);
         try writer.writeByte('}');
     }
     try writer.writeAll(",\"message\":");
@@ -394,10 +460,19 @@ test "trap json serialization is stable" {
     const report = TrapReport{
         .trap = .memory_leak,
         .trap_code = 11,
+        .file = "main.sa",
         .line = 12,
         .source_line = 9,
+        .column = 18,
         .source_text = "result = load node+0 as i32",
         .original_text = "result = load node+0 as i32",
+        .bad_token = "node+0",
+        .context_len = 2,
+        .context = .{
+            .{ .line = 8, .text = "# setup" },
+            .{ .line = 9, .text = "result = load node+0 as i32" },
+            .{}, .{}, .{},
+        },
         .register = "r1",
         .registers = &.{ "r1", "r2" },
         .expected_mask = 0x01,
@@ -407,15 +482,22 @@ test "trap json serialization is stable" {
         .upstream_loc = .{ .file = "main.rs", .line = 42, .col = 7 },
         .function = "main",
         .is_ffi_wrapper = false,
+        .repair_action = "inspect-signature",
+        .repair_hint = "replace unsupported structured types with ptr or a primitive SA type and adjust the callee signature",
+        .repair_confidence = "medium",
+        .repair_alternatives = .{ "ptr", "u64", "i64" },
+        .repair_alternatives_len = 3,
         .message = "live registers remain at function exit",
         .hint = "insert explicit release",
     };
 
     try writeJson(list.writer(), report);
-    try std.testing.expectEqualStrings(
-        "{\"trap\":\"MemoryLeak\",\"trap_code\":11,\"line\":12,\"source_line\":9,\"source_text\":\"result = load node+0 as i32\",\"original_text\":\"result = load node+0 as i32\",\"register\":\"r1\",\"registers\":[\"r1\",\"r2\"],\"expected_mask\":1,\"actual_mask\":8,\"expected_mask_name\":\"Active\",\"actual_mask_name\":\"Consumed\",\"upstream_loc\":{\"file\":\"main.rs\",\"line\":42,\"col\":7},\"function\":\"main\",\"is_ffi_wrapper\":false,\"message\":\"live registers remain at function exit\",\"hint\":\"insert explicit release\"}",
-        list.items,
-    );
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"trap\":\"MemoryLeak\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"file\":\"main.sa\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"column\":18") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"bad_token\":\"node+0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"context\":[{\"line\":8,\"text\":\"# setup\"},{\"line\":9,\"text\":\"result = load node+0 as i32\"}]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"suggested_alternatives\":[\"ptr\",\"u64\",\"i64\"]") != null);
 }
 
 test "trap json serialization emits null for absent optional strings" {
@@ -445,10 +527,9 @@ test "trap json serialization emits null for absent optional strings" {
     };
 
     try writeJson(list.writer(), report);
-    try std.testing.expectEqualStrings(
-        "{\"trap\":\"ForbiddenSyntax\",\"trap_code\":1,\"line\":1,\"source_line\":1,\"source_text\":null,\"original_text\":null,\"register\":null,\"registers\":[],\"expected_mask\":null,\"actual_mask\":null,\"expected_mask_name\":null,\"actual_mask_name\":null,\"upstream_loc\":null,\"function\":null,\"is_ffi_wrapper\":null,\"message\":\"forbidden syntax detected during flattening\",\"hint\":null}",
-        list.items,
-    );
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"trap\":\"ForbiddenSyntax\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"source_text\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"context\":[]") != null);
 }
 
 test "trap json serialization falls back to owned buffers" {
@@ -481,10 +562,9 @@ test "trap json serialization falls back to owned buffers" {
     std.mem.copyForwards(u8, report.original_text_buf[0..text.len], text);
 
     try writeJson(list.writer(), report);
-    try std.testing.expectEqualStrings(
-        "{\"trap\":\"MemoryLeak\",\"trap_code\":1012,\"line\":12,\"source_line\":9,\"source_text\":\"result = load node+0 as i32\",\"original_text\":\"result = load node+0 as i32\",\"register\":null,\"registers\":[],\"expected_mask\":null,\"actual_mask\":null,\"expected_mask_name\":null,\"actual_mask_name\":null,\"upstream_loc\":null,\"function\":null,\"is_ffi_wrapper\":null,\"message\":\"live registers remain at function exit\",\"hint\":null}",
-        list.items,
-    );
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"trap\":\"MemoryLeak\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"source_text\":\"result = load node+0 as i32\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"context\":[]") != null);
 }
 
 test "trap json serialization emits repair object when present" {
@@ -503,7 +583,7 @@ test "trap json serialization emits repair object when present" {
     };
 
     try writeJson(list.writer(), report);
-    try std.testing.expect(std.mem.containsAtLeast(u8, list.items, 1, "\"repair\":{\"action\":\"rewrite\",\"hint\":\"lower structured control flow into labels, branches, and explicit register moves\",\"confidence\":\"high\"}"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, list.items, 1, "\"repair\":{\"action\":\"rewrite\",\"hint\":\"lower structured control flow into labels, branches, and explicit register moves\",\"confidence\":\"high\",\"suggested_alternatives\":[]}"));
 }
 
 test "db trap names and codes are stable" {

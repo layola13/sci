@@ -1045,6 +1045,79 @@ fn writeMaybeJsonString(writer: anytype, value: ?[]const u8) !void {
     }
 }
 
+fn copyContextLine(report: *trap.TrapReport, idx: usize, line_no: u32, text: []const u8) void {
+    if (idx >= report.context.len) return;
+    report.context[idx].line = line_no;
+    report.context[idx].text = null;
+    report.context[idx].text_buf = [_]u8{0} ** 256;
+    copyTextBuf(&report.context[idx].text_buf, std.mem.trimRight(u8, text, "\r"));
+}
+
+fn copyBadToken(report: *trap.TrapReport, token: []const u8) void {
+    report.bad_token = null;
+    report.bad_token_buf = [_]u8{0} ** 64;
+    copyTextBuf(&report.bad_token_buf, token);
+}
+
+fn setFile(report: *trap.TrapReport, source_path: []const u8) void {
+    report.file = null;
+    report.file_buf = [_]u8{0} ** 128;
+    copyTextBuf(&report.file_buf, source_path);
+}
+
+fn setContextFromLine(report: *trap.TrapReport, line_no: u32, text: ?[]const u8) void {
+    if (text) |line| {
+        copyContextLine(report, 0, line_no, line);
+        report.context_len = 1;
+    }
+}
+
+fn setRepairAlternatives(report: *trap.TrapReport, alternatives: []const []const u8) void {
+    const limit = @min(report.repair_alternatives.len, alternatives.len);
+    report.repair_alternatives_len = @intCast(limit);
+    for (0..limit) |idx| {
+        report.repair_alternatives[idx] = null;
+        report.repair_alternatives_buf[idx] = [_]u8{0} ** 64;
+        copyTextBuf(&report.repair_alternatives_buf[idx], alternatives[idx]);
+        const end = std.mem.indexOfScalar(u8, report.repair_alternatives_buf[idx][0..], 0) orelse alternatives[idx].len;
+        report.repair_alternatives[idx] = report.repair_alternatives_buf[idx][0..end];
+    }
+}
+
+fn firstBadTokenForTypeLine(line: ?[]const u8) ?[]const u8 {
+    const text = line orelse return null;
+    if (std.mem.indexOf(u8, text, "*")) |idx| {
+        const tail = text[idx..];
+        const end = std.mem.indexOfAny(u8, tail, " \t,)]}") orelse tail.len;
+        return tail[0..end];
+    }
+    if (std.mem.indexOf(u8, text, "bool")) |_| return "bool";
+    if (std.mem.indexOf(u8, text, "string")) |_| return "string";
+    if (std.mem.indexOf(u8, text, "&")) |_| return "&";
+    return null;
+}
+
+fn fillContextWindow(report: *trap.TrapReport, source: []const u8, center_line: u32) void {
+    const start_line = if (center_line > 2) center_line - 2 else 1;
+    var idx: usize = 0;
+    var line_no = start_line;
+    while (idx < report.context.len and line_no <= center_line + 2) : ({ idx += 1; line_no += 1; }) {
+        if (lineAt(source, line_no)) |line| {
+            copyContextLine(report, idx, line_no, sourceExcerpt(line));
+        }
+    }
+    report.context_len = @intCast(idx);
+}
+
+fn setLineText(report: *trap.TrapReport, text: []const u8) void {
+    report.source_text = null;
+    report.original_text = null;
+    report.source_text_buf = [_]u8{0} ** 256;
+    report.original_text_buf = [_]u8{0} ** 256;
+    copyTextBuf(&report.source_text_buf, text);
+    copyTextBuf(&report.original_text_buf, text);
+}
+
 fn unsupportedTypeHint(line: ?[]const u8) []const u8 {
     if (lineContains(line, "call @")) {
         return "inspect the callee declaration referenced by this call site; the unsupported annotation is usually in the imported signature";
@@ -1552,22 +1625,40 @@ fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
     return 0;
 }
 
-fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap.TrapReport {
+fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerror, last_line: ?u32) trap.TrapReport {
     const forbidden = flattener.findFirstForbiddenLine(source);
     const line_no = if (forbidden) |hit| hit.line_no else last_line orelse 1;
     const line_text = lineAt(source, line_no);
+    const source_text = if (line_text) |line| std.mem.trimRight(u8, line, "\r") else null;
     const source_text_buf: [256]u8 = [_]u8{0} ** 256;
     const original_text_buf: [256]u8 = [_]u8{0} ** 256;
+    const file_buf: [128]u8 = [_]u8{0} ** 128;
+    const bad_token_buf: [64]u8 = [_]u8{0} ** 64;
     var report: trap.TrapReport = switch (err) {
         error.ForbiddenSyntax => .{
             .trap = .forbidden_syntax,
             .trap_code = trap.trapCode(.forbidden_syntax),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = if (forbidden) |hit| @as(u32, @intCast(hit.hit.column)) else null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = if (forbidden) |hit| switch (hit.hit.token) {
+                .brace_open => "{",
+                .brace_close => "}",
+                .keyword_if => "if",
+                .keyword_else => "else",
+                .keyword_while => "while",
+                .keyword_for => "for",
+                .property_chain => ".",
+            } else null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1582,12 +1673,19 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         error.UnsupportedType => .{
             .trap = .unsupported_type,
             .trap_code = trap.trapCode(.unsupported_type),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = if (line_text) |lt| if (std.mem.indexOfAny(u8, lt, "*&")) |idx| @as(u32, @intCast(idx + 1)) else null else null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = firstBadTokenForTypeLine(source_text),
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1598,16 +1696,25 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
             .is_ffi_wrapper = null,
             .message = "unsupported type annotation during flattening",
             .hint = unsupportedTypeHint(line_text),
+            .repair_alternatives = .{ null, null, null },
+            .repair_alternatives_len = 0,
         },
         error.InvalidImportPath, error.PackageNotResolved, error.AmbiguousPackageVersion, error.PrecompiledArtifactRejected, error.InvalidPath => .{
             .trap = .import_resolution_failed,
             .trap_code = trap.trapCode(.import_resolution_failed),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1618,16 +1725,28 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
             .is_ffi_wrapper = null,
             .message = importResolutionMessage(err),
             .hint = importResolutionHint(line_text, err),
+            .repair_action = "fix-import",
+            .repair_hint = importResolutionHint(line_text, err),
+            .repair_confidence = if (err == error.InvalidImportPath) "high" else "medium",
+            .repair_alternatives = .{ null, null, null },
+            .repair_alternatives_len = 0,
         },
         error.OutOfMemory => .{
             .trap = .arena_oom,
             .trap_code = trap.trapCode(.arena_oom),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1642,12 +1761,19 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         error.ImportCycle => .{
             .trap = .forbidden_syntax,
             .trap_code = trap.trapCode(.forbidden_syntax),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1662,12 +1788,19 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         error.DuplicateDef => .{
             .trap = .duplicate_def,
             .trap_code = trap.trapCode(.duplicate_def),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1682,12 +1815,19 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         error.MacroRecursionLimit => .{
             .trap = .macro_recursion_limit,
             .trap_code = trap.trapCode(.macro_recursion_limit),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1702,12 +1842,19 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         error.InvalidAtomicOrdering => .{
             .trap = .invalid_atomic_ordering,
             .trap_code = trap.trapCode(.invalid_atomic_ordering),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1722,12 +1869,19 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         error.InvalidMacroInvocation, error.InvalidMacroDefinitionContext, error.UnbalancedMacro, error.UnbalancedRep, error.InvalidSyntax => .{
             .trap = .forbidden_syntax,
             .trap_code = trap.trapCode(.forbidden_syntax),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1749,12 +1903,19 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
         else => .{
             .trap = .forbidden_syntax,
             .trap_code = trap.trapCode(.forbidden_syntax),
+            .file_buf = file_buf,
+            .file = source_path,
             .line = line_no,
             .source_line = line_no,
+            .column = null,
             .source_text_buf = source_text_buf,
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
             .register = null,
             .registers = &.{},
             .expected_mask = null,
@@ -1769,28 +1930,31 @@ fn trapFromFlattenError(source: []const u8, err: anyerror, last_line: ?u32) trap
     };
     if (line_text) |line| {
         const excerpt = sourceExcerpt(line);
-        copyTextBuf(&report.source_text_buf, excerpt);
-        copyTextBuf(&report.original_text_buf, excerpt);
+        setLineText(&report, excerpt);
+        fillContextWindow(&report, source, line_no);
     }
     switch (report.trap) {
         .forbidden_syntax => {
             report.repair_action = "rewrite";
             report.repair_hint = "lower structured control flow into labels, branches, and explicit register moves";
             report.repair_confidence = "high";
+            setRepairAlternatives(&report, &.{ "jmp", "label", "ptr" });
         },
         .unsupported_type => {
             report.repair_action = "inspect-signature";
-            report.repair_hint = "check the callee declaration or imported signature for unsupported primitive names";
+            report.repair_hint = "replace unsupported structured types with ptr or a primitive SA type and adjust the callee signature";
             report.repair_confidence = "medium";
+            setRepairAlternatives(&report, &.{ "ptr", "u64", "i64" });
         },
         .import_resolution_failed => {
             report.repair_action = "pin-import";
-            report.repair_hint = "choose one source package or ref and avoid ambiguous or rejected artifacts";
+            report.repair_hint = "pin one package ref or replace the import path with a unique local package identity";
             report.repair_confidence = "medium";
+            setRepairAlternatives(&report, &.{ "sa.mod", "local package", "pinned ref" });
         },
         .duplicate_def => {
             report.repair_action = "rename-def";
-            report.repair_hint = "change one of the conflicting #def names";
+            report.repair_hint = "change one of the conflicting names or namespace the symbol";
             report.repair_confidence = "high";
         },
         .macro_recursion_limit => {
@@ -2236,7 +2400,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
 
     const flatten_start = if (options.profile) std.time.Instant.now() catch null else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
-        return .{ .trap = trapFromFlattenError(source, err, flattener.takeErrorSourceLine(&error_ctx)) };
+        return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.takeErrorSourceLine(&error_ctx)) };
     };
     errdefer flat.deinit(allocator);
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
@@ -3360,18 +3524,35 @@ test "flatten error mapping keeps import resolution and unsupported type hints s
         \\@main() -> i32:
         \\    return 0
     ;
-    const import_report = trapFromFlattenError(import_source, error.PackageNotResolved, 1);
+    const import_report = trapFromFlattenError("/tmp/import.sa", import_source, error.PackageNotResolved, 1);
     try std.testing.expectEqual(trap.Trap.import_resolution_failed, import_report.trap);
     try std.testing.expectEqual(@as(u32, 1050), import_report.trap_code.?);
+    try std.testing.expectEqualStrings("/tmp/import.sa", import_report.file.?);
     try std.testing.expectEqualStrings("import path could not be resolved", import_report.message);
     try std.testing.expectEqualStrings("check the import path, package identity, local vendor tree, and package cache", import_report.hint.?);
+    try std.testing.expectEqualStrings("fix-import", import_report.repair_action.?);
 
     const type_source =
         \\@test "probe":
         \\    point = call @support_make_point(10, 20)
     ;
-    const type_report = trapFromFlattenError(type_source, error.UnsupportedType, 2);
+    const type_report = trapFromFlattenError("/tmp/type.sa", type_source, error.UnsupportedType, 2);
     try std.testing.expectEqual(trap.Trap.unsupported_type, type_report.trap);
+    try std.testing.expectEqualStrings("/tmp/type.sa", type_report.file.?);
+    try std.testing.expect(type_report.bad_token != null);
     try std.testing.expectEqualStrings("unsupported type annotation during flattening", type_report.message);
     try std.testing.expectEqualStrings("inspect the callee declaration referenced by this call site; the unsupported annotation is usually in the imported signature", type_report.hint.?);
+}
+
+test "duplicate definition trap gets a repair hint" {
+    const source =
+        \\#def X = 1
+        \\#def X = 2
+    ;
+    const report = trapFromFlattenError("/tmp/dup.sa", source, error.DuplicateDef, 2);
+    try std.testing.expectEqual(trap.Trap.duplicate_def, report.trap);
+    try std.testing.expectEqualStrings("/tmp/dup.sa", report.file.?);
+    try std.testing.expectEqualStrings("rename-def", report.repair_action.?);
+    try std.testing.expectEqualStrings("change one of the conflicting names or namespace the symbol", report.repair_hint.?);
+    try std.testing.expectEqualStrings("high", report.repair_confidence.?);
 }
