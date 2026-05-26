@@ -8,6 +8,11 @@
 #include <llvm-c/DebugInfo.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
+#include <llvm-c/Transforms/IPO.h>
+#include <llvm-c/Transforms/PassManagerBuilder.h>
+#include <llvm-c/Transforms/Scalar.h>
+#include <llvm-c/Transforms/Utils.h>
+#include <llvm-c/Transforms/Vectorize.h>
 
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
@@ -156,6 +161,96 @@ static int module_bitcode_to_heap(LLVMModuleRef module, unsigned char **out_byte
     *out_bytes = bytes;
     *out_len = len;
     return 0;
+}
+
+static unsigned normalize_opt_level(int opt_level) {
+    if (opt_level <= 0) return 0;
+    if (opt_level == 1) return 1;
+    if (opt_level == 2) return 2;
+    return 3;
+}
+
+static void add_inline_hint(EmitCtx *e, LLVMValueRef fn) {
+    unsigned kind = LLVMGetEnumAttributeKindForName("inlinehint", strlen("inlinehint"));
+    if (kind == 0) return;
+    LLVMAttributeRef attr = LLVMCreateEnumAttribute(e->ctx, kind, 0);
+    LLVMAddAttributeAtIndex(fn, LLVMAttributeFunctionIndex, attr);
+}
+
+static int verify_emit_module(EmitCtx *e, char **out_error) {
+    char *verify_error = NULL;
+    if (LLVMVerifyModule(e->module, LLVMReturnStatusAction, &verify_error) != 0) {
+        if (verify_error != NULL) {
+            int status = set_error(out_error, verify_error);
+            LLVMDisposeMessage(verify_error);
+            return status;
+        }
+        return set_error(out_error, "LLVMVerifyModule failed");
+    }
+    return 0;
+}
+
+static void optimize_module_ir(EmitCtx *e, int opt_level) {
+    unsigned level = normalize_opt_level(opt_level);
+    if (level == 0 || e == NULL || e->module == NULL) return;
+
+    LLVMPassManagerBuilderRef pmb = LLVMPassManagerBuilderCreate();
+    if (pmb == NULL) return;
+    LLVMPassManagerBuilderSetOptLevel(pmb, level);
+    LLVMPassManagerBuilderSetSizeLevel(pmb, 0);
+    LLVMPassManagerBuilderUseInlinerWithThreshold(pmb, level >= 3 ? 275 : 125);
+
+    LLVMPassManagerRef fpm = LLVMCreateFunctionPassManagerForModule(e->module);
+    if (fpm != NULL) {
+        LLVMAddScalarReplAggregatesPassSSA(fpm);
+        LLVMAddPromoteMemoryToRegisterPass(fpm);
+        LLVMAddInstructionCombiningPass(fpm);
+        LLVMAddReassociatePass(fpm);
+        LLVMAddGVNPass(fpm);
+        LLVMAddCFGSimplificationPass(fpm);
+        LLVMPassManagerBuilderPopulateFunctionPassManager(pmb, fpm);
+        LLVMInitializeFunctionPassManager(fpm);
+        for (LLVMValueRef fn = LLVMGetFirstFunction(e->module); fn != NULL; fn = LLVMGetNextFunction(fn)) {
+            if (LLVMCountBasicBlocks(fn) != 0) LLVMRunFunctionPassManager(fpm, fn);
+        }
+        LLVMFinalizeFunctionPassManager(fpm);
+        LLVMDisposePassManager(fpm);
+    }
+
+    LLVMPassManagerRef mpm = LLVMCreatePassManager();
+    if (mpm != NULL) {
+        LLVMAddFunctionAttrsPass(mpm);
+        LLVMAddGlobalOptimizerPass(mpm);
+        if (level >= 2) LLVMAddIPSCCPPass(mpm);
+        LLVMPassManagerBuilderPopulateModulePassManager(pmb, mpm);
+        LLVMAddScalarReplAggregatesPassSSA(mpm);
+        LLVMAddPromoteMemoryToRegisterPass(mpm);
+        LLVMAddInstructionCombiningPass(mpm);
+        LLVMAddReassociatePass(mpm);
+        LLVMAddGVNPass(mpm);
+        LLVMAddSCCPPass(mpm);
+        LLVMAddDeadStoreEliminationPass(mpm);
+        LLVMAddTailCallEliminationPass(mpm);
+        LLVMAddLoopRotatePass(mpm);
+        LLVMAddLICMPass(mpm);
+        LLVMAddLoopDeletionPass(mpm);
+        LLVMAddLoopIdiomPass(mpm);
+        LLVMAddIndVarSimplifyPass(mpm);
+        LLVMAddMemCpyOptPass(mpm);
+        if (level >= 3) {
+            LLVMAddLoopUnrollPass(mpm);
+            LLVMAddLoopVectorizePass(mpm);
+            LLVMAddSLPVectorizePass(mpm);
+        }
+        LLVMAddCFGSimplificationPass(mpm);
+        LLVMAddAggressiveDCEPass(mpm);
+        LLVMAddGlobalDCEPass(mpm);
+        LLVMAddStripDeadPrototypesPass(mpm);
+        LLVMRunPassManager(mpm, e->module);
+        LLVMDisposePassManager(mpm);
+    }
+
+    LLVMPassManagerBuilderDispose(pmb);
 }
 
 static LLVMTypeRef type_of(EmitCtx *e, SaType ty) {
@@ -1611,6 +1706,12 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         LLVMValueRef fn = LLVMAddFunction(e->module, m->functions[i].name, fty);
         if (m->functions[i].kind != SA_F_EXPORTED && strcmp(m->functions[i].name, "saasm_main") != 0)
             LLVMSetLinkage(fn, (m->functions[i].kind == SA_F_EXTERNAL || m->is_cgu) ? LLVMExternalLinkage : LLVMInternalLinkage);
+        if (m->functions[i].kind == SA_F_NORMAL &&
+            !m->is_cgu &&
+            !m->functions[i].emit_main_wrapper &&
+            m->functions[i].instruction_count <= 80) {
+            add_inline_hint(e, fn);
+        }
     }
     if (m->wasm_compat) emit_sa_print_bytes(e);
     emit_sys_runtime(e);
@@ -1670,26 +1771,24 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
 
     if (e->dib != NULL) LLVMDIBuilderFinalize(e->dib);
 
-    char *verify_error = NULL;
-    if (LLVMVerifyModule(e->module, LLVMReturnStatusAction, &verify_error) != 0) {
-        if (verify_error != NULL) {
-            int status = set_error(out_error, verify_error);
-            LLVMDisposeMessage(verify_error);
-            dispose_emit_ctx(e);
-            return status;
-        }
+    if (verify_emit_module(e, out_error) != 0) {
         dispose_emit_ctx(e);
-        return set_error(out_error, "LLVMVerifyModule failed");
+        return 1;
     }
     return 0;
 }
 
 /* Emit LLVM bitcode bytes to heap (original interface). */
-int sa_llvmc_emit_module_bitcode(const SaModule *m, unsigned char **out_bytes, size_t *out_len, char **out_error) {
+int sa_llvmc_emit_module_bitcode(const SaModule *m, int opt_level, unsigned char **out_bytes, size_t *out_len, char **out_error) {
     if (m == NULL || out_bytes == NULL || out_len == NULL) return set_error(out_error, "invalid module pointers");
     *out_bytes = NULL; *out_len = 0;
     EmitCtx e;
     if (build_sa_llvm_module(m, &e, out_error) != 0) return 1;
+    optimize_module_ir(&e, opt_level);
+    if (verify_emit_module(&e, out_error) != 0) {
+        dispose_emit_ctx(&e);
+        return 1;
+    }
     int status = module_bitcode_to_heap(e.module, out_bytes, out_len);
     dispose_emit_ctx(&e);
     if (status != 0) return set_error(out_error, "writing bitcode failed");
@@ -1748,6 +1847,13 @@ int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt
     LLVMSetDataLayout(e.module, dl_str);
     LLVMDisposeMessage(dl_str);
     LLVMDisposeTargetData(dl);
+
+    optimize_module_ir(&e, opt_level);
+    if (verify_emit_module(&e, out_error) != 0) {
+        LLVMDisposeTargetMachine(tm);
+        dispose_emit_ctx(&e);
+        return 1;
+    }
 
     if (LLVMTargetMachineEmitToFile(tm, e.module, (char *)out_path, LLVMObjectFile, &err_msg)) {
         int s = set_error(out_error, err_msg ? err_msg : "emit object failed");

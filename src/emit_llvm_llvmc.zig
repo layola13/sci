@@ -12,7 +12,7 @@ const upstream = @import("common/upstream_loc.zig");
 
 extern fn sa_llvmc_free(ptr: ?*anyopaque) callconv(.C) void;
 extern fn sa_llvmc_make_minimal_module_bitcode(out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
-extern fn sa_llvmc_emit_module_bitcode(module: *const CModule, out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
+extern fn sa_llvmc_emit_module_bitcode(module: *const CModule, opt_level: c_int, out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
 extern fn sa_llvmc_emit_module_object(module: *const CModule, out_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.C) i32;
 extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_path: [*:0]const u8, out_object_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.C) i32;
 
@@ -1164,7 +1164,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         var out_bytes: ?[*]u8 = null;
         var out_len: usize = 0;
         var err_msg: ?[*:0]u8 = null;
-        if (sa_llvmc_emit_module_bitcode(&module, &out_bytes, &out_len, &err_msg) != 0) {
+        if (sa_llvmc_emit_module_bitcode(&module, @intCast(options.opt_level), &out_bytes, &out_len, &err_msg) != 0) {
             if (err_msg) |msg| {
                 std.debug.print("llvmc backend: {s}\n", .{std.mem.sliceTo(msg, 0)});
                 sa_llvmc_free(msg);

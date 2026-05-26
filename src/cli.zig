@@ -2700,6 +2700,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                             .{
                                 .debug = self.debug_val,
                                 .jobs = self.jobs_val,
+                                .opt_level = self.opt_level_val,
                                 .codegen_unit_index = self.cgu_idx_val,
                                 .codegen_unit_count = self.cgu_count_val,
                             },
@@ -2727,10 +2728,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .cgu_idx_val = i,
                         .cgu_count_val = cgu_count,
                         .object_path_val = cgu_obj_paths[i],
-                        .opt_level_val = switch (optimization) {
-                            .release_small => 1,
-                            .release_fast => 3,
-                        },
+                        .opt_level_val = emitOptLevel(debug, optimization),
                     };
                 }
 
@@ -2785,7 +2783,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 defer allocator.free(artifact_path);
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization) }, artifact_path);
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
@@ -2822,11 +2820,9 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const object_path = try allocator.dupe(u8, out_path);
             defer allocator.free(object_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, artifact_path);
-            try emit_llvm_llvmc.emitLlvmcToObject(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs }, object_path, switch (optimization) {
-                .release_small => 1,
-                .release_fast => 3,
-            });
+            const opt_level = emitOptLevel(debug, optimization);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToObject(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, object_path, opt_level);
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
@@ -3081,6 +3077,14 @@ fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
     if (std.mem.eql(u8, arg, "--release-fast")) return .release_fast;
     if (std.mem.eql(u8, arg, "--release-small")) return .release_small;
     return null;
+}
+
+fn emitOptLevel(debug: bool, optimization: driver.Optimization) u8 {
+    if (debug) return 0;
+    return switch (optimization) {
+        .release_small => 1,
+        .release_fast => 3,
+    };
 }
 
 fn executeTest(
