@@ -147,7 +147,7 @@
 - [x] runtime hot reload 为最终形态，禁止把静态注册当成完成标准
 - [x] `runtime ABI module` / `runtime loader boundary` 的 runtime ABI/loader 收敛为稳定形态
 - [x] `sax` 外部插件 runtime 热重载回归与 descriptor/skills 测试
-- [x] `sax` 外部插件 Phase 1 自动化闭环：Parser/Lowerer/Airlock/HTML shell/`sa sax check|build|new` 已由插件本地 `zig build test --summary all` 覆盖；新增 typed-state demo 覆盖 `i32` / `i1` / `f64 bits` 插值，WASM import/export 与 Airlock 事件名验证通过
+- [x] `sax` 外部插件 Phase 1 自动化闭环：Parser/Lowerer/Airlock/HTML shell/`sa sax check|build|new` 已由插件本地 `zig build test --summary all` 覆盖；新增 typed-state demo 覆盖 `i32` / `i1` / `f64 bits` 插值，WASM import/export、Airlock 事件名、Node 运行时挂载与点击更新验证通过
 - [x] `db` 外部插件 runtime 热重载回归与失败隔离测试
 - [x] `pkg` 外部插件 runtime 热重载回归与 skills 测试
 - [x] `pkg` 外部插件 `install`/`fetch` runtime 命令一致性测试，`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径
@@ -276,7 +276,7 @@
 - [ ] SA FFI 气闸舱对接 (入站/执行/出站三环)
 
 ### P1: 现有功能补齐
-- [x] SAX Phase 1 MVP 自动化闭环（外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_sax`；三浏览器人工点击与 React 体积对比仍按 `tasks.md` 保留为未验收项）
+- [x] SAX Phase 1 MVP 自动化闭环（外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_sax`；已覆盖真实 `app.wasm + airlock.js` Node 运行时挂载和事件更新；三浏览器人工点击、TodoList 案例与 React 体积对比仍按 `tasks.md` 保留为未验收项）
 - [x] `sa_std` 收口完成（buf_reader, buf_writer, path, env, math, string_format）
 - [ ] 零信任包管理 v0.5 (`sa.mod` / task 35)
 

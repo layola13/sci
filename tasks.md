@@ -1945,7 +1945,7 @@ sa/
   - [ ] 78.6 `<foo>` 自定义标签 → 报 `SaxUnknownTag`
   - [ ] 78.7 `<button onhover={^x}>` → 报 `SaxUnknownEvent`
   - [ ] 78.8 包体积对比：TodoList SAX vs React，目标 < 50 KB WASM vs ~130 KB+ React
-  - 说明：插件级自动验收已覆盖 `reactive_dashboard` / `buffer_state` / `allowed_attrs` / `expression_interpolation` / `typed_state_interpolation` 的 `sa sax check`、`sa sax build`、WASM import/export、Airlock/事件名验证；三浏览器人工点击和 React 体积对比尚未执行。
+  - 说明：插件级自动验收已覆盖 `reactive_dashboard` / `buffer_state` / `allowed_attrs` / `expression_interpolation` / `typed_state_interpolation` 的 `sa sax check`、`sa sax build`、WASM import/export、Airlock/事件名验证；新增 Node 运行时 E2E 会真实加载 `app.wasm + airlock.js`、挂载 `#app`、触发 dashboard / typed demo 点击事件，并锁住 root 挂载、Airlock JS 语法与插值文本空格。三浏览器人工点击、TodoList 案例和 React 体积对比尚未执行。
   - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
 
 ### Phase 2：响应式 + 路由 + 生命周期（W9–W14）
