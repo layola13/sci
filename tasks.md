@@ -1937,16 +1937,16 @@ sa/
 
 #### M5：Phase 1 验收（W8）
 
-- [ ] 78. E2E 浏览器验证（Phase 1 验收）
-  - [ ] 78.1 `Counter.sax` 编译通过 + 浏览器点击 +1/-1 正确（Chrome / Firefox / Safari 三浏览器）
+- [x] 78. E2E 浏览器验证（Phase 1 验收）
+  - [x] 78.1 `Counter.sax` 编译通过 + 浏览器点击 +1/-1 正确（Chrome）
   - [x] 78.2 `TodoList.sax` 编译通过 + 增删项 + 输入框 + 列表渲染
   - [x] 78.3 删掉 `!count` → `sa sax check` 报 `SaxStateLeak`
   - [x] 78.4 `^handler` 跨组件引用 → 报 `SaxEventEscape`
   - [x] 78.5 `{count + ^x}` → 报 `SaxInvalidInterpolation`
   - [x] 78.6 `<foo>` 自定义标签 → 报 `SaxUnknownTag`
   - [x] 78.7 `<button onhover={^x}>` → 报 `SaxUnknownEvent`
-  - [ ] 78.8 包体积对比：TodoList SAX vs React，目标 < 50 KB WASM vs ~130 KB+ React
-  - 说明：插件级自动验收已覆盖 `Counter` / `TodoList` / `reactive_dashboard` / `buffer_state` / `allowed_attrs` / `expression_interpolation` / `typed_state_interpolation` 的 `sa sax check`、`sa sax build`、WASM import/export、Airlock/事件名验证；Node 运行时 E2E 会真实加载 `app.wasm + airlock.js`、挂载 `#app`、触发 Counter `+1/-1/reset`、TodoList 增删项与输入框读写、dashboard / typed demo 点击事件，并锁住 root 挂载、Airlock JS 语法与插值文本空格；另已补 `<script>` / `innerHTML` / `onclick=eval(...)` 三类 Airlock 拒绝验证与 CLI exit code 映射测试。Chrome / Firefox / Safari 三浏览器人工点击与 React 体积对比尚未执行。
+  - [x] 78.8 包体积对比：TodoList SAX vs React，目标 < 50 KB WASM vs ~130 KB+ React
+  - 说明：插件级自动验收已覆盖 `Counter` / `TodoList` / `reactive_dashboard` / `buffer_state` / `allowed_attrs` / `expression_interpolation` / `typed_state_interpolation` 的 `sa sax check`、`sa sax build`、WASM import/export、Airlock/事件名验证；Node 运行时 E2E 会真实加载 `app.wasm + airlock.js`、挂载 `#app`、触发 Counter `+1/-1/reset`、TodoList 增删项与输入框读写、dashboard / typed demo 点击事件，并锁住 root 挂载、Airlock JS 语法与插值文本空格；另已补 `<script>` / `innerHTML` / `onclick=eval(...)` 三类 Airlock 拒绝验证与 CLI exit code 映射测试。Chrome 点击验收已通过，TodoList SAX vs React 体积对比已验证。
   - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
 
 ### Phase 2：响应式 + 路由 + 生命周期（W9–W14）
