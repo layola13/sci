@@ -1,6 +1,7 @@
 .zig-cache/
 
 zig-out/
+dist/
 .code_index
 # code-index generated artifacts
 .code_index
