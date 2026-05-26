@@ -18,6 +18,7 @@ pub const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 pub const interp = @import("interp.zig");
 pub const layout = @import("layout.zig");
 pub const llvm2sa = @import("llvm2sa.zig");
+pub const plugins = @import("plugins.zig");
 pub const test_executor = @import("test_executor.zig");
 pub const test_formatter = @import("test_formatter.zig");
 pub const test_meta = @import("test_meta.zig");

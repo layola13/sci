@@ -8,6 +8,7 @@ pub const TranslateError = error{
     LlvmDisNotFound,
     UnsupportedBitcodeInput,
     UnsupportedInstruction,
+    StaticMemoryOverflow,
 };
 
 const bitcode_magic = [_]u8{ 'B', 'C', 0xc0, 0xde };
@@ -237,6 +238,14 @@ fn typeBytes(type_text: []const u8) ?u64 {
     }
 
     return null;
+}
+
+fn arrayBoundFromType(type_text: []const u8) ?u64 {
+    const t = trim(type_text);
+    if (t.len < 5 or t[0] != '[' or t[t.len - 1] != ']') return null;
+    const body = trim(t[1 .. t.len - 1]);
+    const x_idx = std.mem.indexOf(u8, body, " x ") orelse return null;
+    return std.fmt.parseInt(u64, trim(body[0..x_idx]), 10) catch null;
 }
 
 fn firstTypeToken(fragment: []const u8) ?[]const u8 {
@@ -567,6 +576,25 @@ fn appendGetElementPtr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lh
     const args = try splitTopLevelComma(allocator, body);
     defer allocator.free(args);
     if (args.len < 3) return error.UnsupportedInstruction;
+
+    if (arrayBoundFromType(args[0])) |bound| {
+        var prefix_is_zero = true;
+        if (args.len > 3) {
+            for (args[2 .. args.len - 1]) |idx_text| {
+                const idx_value = llvmTypedValueToValue(idx_text);
+                if (!std.mem.eql(u8, idx_value, "0")) {
+                    prefix_is_zero = false;
+                    break;
+                }
+            }
+        }
+        if (prefix_is_zero) {
+            const last_idx_value = llvmTypedValueToValue(args[args.len - 1]);
+            if (std.fmt.parseInt(u64, last_idx_value, 10)) |idx| {
+                if (idx >= bound) return error.StaticMemoryOverflow;
+            } else |_| {}
+        }
+    }
 
     const dst = try sanitizeIdent(allocator, lhs, "r");
     defer allocator.free(dst);

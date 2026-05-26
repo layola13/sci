@@ -36,7 +36,7 @@ SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态
     last  = call @sax_get_time()
     store state+Counter_last, last as i64
     call @render()
-    ret
+    return
 
   @dec:
   L_ENTRY:
@@ -46,7 +46,7 @@ SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态
     last  = call @sax_get_time()
     store state+Counter_last, last as i64
     call @render()
-    ret
+    return
 
   @reset:
   L_ENTRY:
@@ -54,7 +54,7 @@ SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态
     last  = call @sax_get_time()
     store state+Counter_last, last as i64
     call @render()
-    ret
+    return
 
   !count !last
 </Component>

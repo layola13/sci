@@ -147,6 +147,7 @@
 - [x] runtime hot reload 为最终形态，禁止把静态注册当成完成标准
 - [x] `runtime ABI module` / `runtime loader boundary` 的 runtime ABI/loader 收敛为稳定形态
 - [x] `sax` 外部插件 runtime 热重载回归与 descriptor/skills 测试
+- [x] `sax` 外部插件 Phase 1 自动化闭环：Parser/Lowerer/Airlock/HTML shell/`sa sax check|build|new` 已由插件本地 `zig build test --summary all` 覆盖；新增 typed-state demo 覆盖 `i32` / `i1` / `f64 bits` 插值，WASM import/export 与 Airlock 事件名验证通过
 - [x] `db` 外部插件 runtime 热重载回归与失败隔离测试
 - [x] `pkg` 外部插件 runtime 热重载回归与 skills 测试
 - [x] `pkg` 外部插件 `install`/`fetch` runtime 命令一致性测试，`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径
@@ -191,7 +192,7 @@
 - [x] `sa_std/sa.mod`（包管理项，后置到 v0.5；不计入当前标准库收口）
 
 ## 单元测试框架（Native Unit Test Framework）
-- [x] 编译器前端支持 `@test` 声明测试用例，含 `ignored` / `should_panic` 修饰符，并由 verifier 强制 `() -> void`
+- [x] 编译器前端支持 `@test` 声明测试用例，含 `ignored` / `should_panic` 修饰符，并由 verifier 强制无返回值签名
 - [x] 提取测试元数据并构建内存 `TestRegistry` 表（`test_meta.TestList` / `TestDescAndFn`）
 - [x] `src/cli.zig` 增加 `sa test` 命令与 `--filter` / `--skip` / `--exact` / `--ignored` / `--include-ignored` 参数支持
 - [x] 动态生成测试驱动器（Test Harness）并按 `SA_TEST_NAME` 隔离子进程执行，支持 `--jobs` 并行调度
@@ -275,7 +276,7 @@
 - [ ] SA FFI 气闸舱对接 (入站/执行/出站三环)
 
 ### P1: 现有功能补齐
-- [ ] SAX Phase 1 MVP (~1500-2000 行)
+- [x] SAX Phase 1 MVP 自动化闭环（外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_sax`；三浏览器人工点击与 React 体积对比仍按 `tasks.md` 保留为未验收项）
 - [x] `sa_std` 收口完成（buf_reader, buf_writer, path, env, math, string_format）
 - [ ] 零信任包管理 v0.5 (`sa.mod` / task 35)
 

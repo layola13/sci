@@ -81,23 +81,23 @@ export async function sax_init(wasm_url) {
 - 标签白名单由 SAX parser / lowerer 负责；当前 `airlock.js` 不重复做校验。
 
 ```
-@extern sax_dom_append_child(parent_h: i64, child_h: i64) -> void
+@extern sax_dom_append_child(parent_h: i64, child_h: i64)
 ```
 - 等价 JS：`parent.appendChild(child)`
 
 ```
-@extern sax_dom_remove_child(parent_h: i64, child_h: i64) -> void
+@extern sax_dom_remove_child(parent_h: i64, child_h: i64)
 ```
 - 等价 JS：`parent.removeChild(child)`
 
 ```
-@extern sax_dom_remove_self(node_h: i64) -> void
+@extern sax_dom_remove_self(node_h: i64)
 ```
 - 等价 JS：`node.remove()`
 - 先解绑该节点的所有监听器，再释放句柄映射。
 
 ```
-@extern sax_dom_insert_before(parent_h: i64, new_h: i64, ref_h: i64) -> void
+@extern sax_dom_insert_before(parent_h: i64, new_h: i64, ref_h: i64)
 ```
 - 等价 JS：`parent.insertBefore(newNode, refNode)`
 
@@ -106,7 +106,7 @@ export async function sax_init(wasm_url) {
 ## 4. 文本、属性、class 和 value
 
 ```
-@extern sax_dom_set_text(node_h: i64, *text_ptr: ptr, text_len: i64) -> void
+@extern sax_dom_set_text(node_h: i64, *text_ptr: ptr, text_len: i64)
 ```
 - 等价 JS：`node.textContent = text`
 - 通过 `_read_str` 把 WASM 内存中的 UTF-8 字节转成字符串。
@@ -118,12 +118,12 @@ export async function sax_init(wasm_url) {
 - 通过 `_write_str` 写回缓冲区，返回实际写入字节数。
 
 ```
-@extern sax_dom_set_attr(node_h: i64, *key_ptr: ptr, key_len: i64, *val_ptr: ptr, val_len: i64) -> void
+@extern sax_dom_set_attr(node_h: i64, *key_ptr: ptr, key_len: i64, *val_ptr: ptr, val_len: i64)
 ```
 - 等价 JS：`node.setAttribute(key, val)`
 
 ```
-@extern sax_dom_remove_attr(node_h: i64, *key_ptr: ptr, key_len: i64) -> void
+@extern sax_dom_remove_attr(node_h: i64, *key_ptr: ptr, key_len: i64)
 ```
 - 等价 JS：`node.removeAttribute(key)`
 
@@ -134,12 +134,12 @@ export async function sax_init(wasm_url) {
 - 属性不存在时写回空字符串，返回 `0`。
 
 ```
-@extern sax_dom_add_class(node_h: i64, *cls_ptr: ptr, cls_len: i64) -> void
+@extern sax_dom_add_class(node_h: i64, *cls_ptr: ptr, cls_len: i64)
 ```
 - 等价 JS：`node.classList.add(cls)`
 
 ```
-@extern sax_dom_remove_class(node_h: i64, *cls_ptr: ptr, cls_len: i64) -> void
+@extern sax_dom_remove_class(node_h: i64, *cls_ptr: ptr, cls_len: i64)
 ```
 - 等价 JS：`node.classList.remove(cls)`
 
@@ -155,7 +155,7 @@ export async function sax_init(wasm_url) {
 - 等价 JS：`input.value`
 
 ```
-@extern sax_dom_set_value(node_h: i64, *val_ptr: ptr, val_len: i64) -> void
+@extern sax_dom_set_value(node_h: i64, *val_ptr: ptr, val_len: i64)
 ```
 - 等价 JS：`input.value = val`
 
@@ -164,7 +164,7 @@ export async function sax_init(wasm_url) {
 ## 5. 事件转发
 
 ```
-@extern sax_dom_bind_event(node_h: i64, *evt_ptr: ptr, evt_len: i64, *handler_ptr: ptr, handler_len: i64, ctx: ptr) -> void
+@extern sax_dom_bind_event(node_h: i64, *evt_ptr: ptr, evt_len: i64, *handler_ptr: ptr, handler_len: i64, ctx: ptr)
 ```
 - 等价 JS：`node.addEventListener(evt, listener)`
 - `handler_ptr` / `handler_len` 传入的是 WASM 导出函数名的字节串，不是函数表索引。
@@ -172,7 +172,7 @@ export async function sax_init(wasm_url) {
 - 重复绑定同一 `node + evt + handler + ctx` 时，会先移除旧监听器再安装新的。
 
 ```
-@extern sax_dom_unbind_event(node_h: i64, *evt_ptr: ptr, evt_len: i64, *handler_ptr: ptr, handler_len: i64, ctx: ptr) -> void
+@extern sax_dom_unbind_event(node_h: i64, *evt_ptr: ptr, evt_len: i64, *handler_ptr: ptr, handler_len: i64, ctx: ptr)
 ```
 - 等价 JS：`node.removeEventListener(evt, listener)`
 - 必须使用和绑定时完全相同的 `node / evt / handler / ctx` 组合。
@@ -208,7 +208,7 @@ const key = `${Number(node_h)}::${evt}::${handler}::${ctx}`;
 - 把浮点数写成固定小数位字符串并返回字节数。
 
 ```
-@extern sax_mem_copy(*dst_ptr: ptr, *src_ptr: ptr, len: i64) -> void
+@extern sax_mem_copy(*dst_ptr: ptr, *src_ptr: ptr, len: i64)
 ```
 - 在 WASM 线性内存内部做字节拷贝，不分配新内存。
 

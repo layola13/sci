@@ -42,7 +42,7 @@ Wrap the legacy instructions inside the test in a proper function declaration bl
 +                .{ .none = {} },
 +                .{ .none = {} },
 +            },
-+            .raw_text = "@main() -> void:",
++            .raw_text = "@main() -> i32:",
 +        },
          .{
              .kind = .alloc,

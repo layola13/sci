@@ -58,6 +58,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.LlvmDisNotFound => .{ .code = "SA-CLI-016", .message = "llvm-dis not found", .hint = "install llvm-dis-14 or make llvm-dis available on PATH before running bc2sa" },
         error.LlvmDisFailed => .{ .code = "SA-CLI-017", .message = "llvm-dis failed", .hint = "verify the input is valid LLVM bitcode for the installed LLVM toolchain" },
         error.UnsupportedInstruction => .{ .code = "SA-CLI-018", .message = "unsupported LLVM instruction", .hint = "bc2sa currently supports a conservative scalar/load-store/branch subset and rejects unsupported IR instead of emitting invalid SA" },
+        error.StaticMemoryOverflow => .{ .code = "SA-CLI-019", .message = "static memory overflow detected in LLVM bitcode", .hint = "reduce the constant GEP/index offset or widen the fixed-size array before translating" },
         error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version" },
         error.UnexpectedArgument => .{ .code = "SA-CLI-014", .message = "unexpected argument", .hint = "check option order and remove unsupported flags" },
         error.InvalidPath => .{ .code = "SA-CLI-014", .message = "invalid path", .hint = "check the filesystem path and project root" },

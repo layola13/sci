@@ -15,9 +15,8 @@
 当你把一个寄存器作为参数传递给函数时，所有权就发生了转移：
 
 ```sa
-@process_data(data: ptr) -> void:
+@process_data(data: ptr):
 L_ENTRY:
-    // 此处 process_data 拥有了 data
     !data
     return
 
@@ -25,8 +24,6 @@ L_ENTRY:
 L_ENTRY:
     p = alloc 64
     call @process_data(p)
-    // 此时 p 已失效！
-    // 再次使用 p 会触发编译器错误：Use-after-move
     return 0
 ```
 
@@ -34,11 +31,10 @@ L_ENTRY:
 SA 支持通过 `&` 符号进行借用。借用不会转移所有权，但会受到 Referee 的严格生命周期检查。
 
 ```sa
-    p = alloc 64
-    ptr_to_p = &p   // 借用 p 的地址
-    // 只要 ptr_to_p 还在使用，p 就不能被销毁或移动
-    !ptr_to_p
-    !p              // 现在可以安全销毁 p 了
+p = alloc 64
+ptr_to_p = &p
+!ptr_to_p
+!p
 ```
 
 ## 为什么这么做？
@@ -51,13 +47,15 @@ SA 支持通过 `&` 符号进行借用。借用不会转移所有权，但会受
 ### 1. 往返模式 (Round-trip)
 如果你需要函数修改数据并还给你：
 ```sa
-@modify(p: ptr) -> ptr:
+@modify(p: ptr) -> ^ptr:
+L_ENTRY:
     store p+0, 1 as i32
-    return p // 还回所有权
+    return p
 
 @main() -> i32:
+L_ENTRY:
     p = alloc 4
-    p = call @modify(p) // 重新接管所有权
+    p = call @modify(^p)
     !p
     return 0
 ```

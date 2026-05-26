@@ -150,7 +150,7 @@ SA 编译器全面拥抱 "Agent-First" 理念：
 ### 1.10 工业级可伸缩性架构 (Industrial Scalability Architecture) - 紧急 P0
 
 针对大规模（10k+ 函数）工程测试中发现的性能瓶颈，借鉴 Zig 编译器内部实现进行如下核心校准：
-1. **寄存器作用域局部化**：`Flattener` 必须在进入每个 `@func` 时重置寄存器 ID。确保单个函数的校验复杂度与全工程函数总量解耦。
+1. **寄存器作用域局部化**：`Flattener` 必须在进入每个函数声明时重置寄存器 ID。确保单个函数的校验复杂度与全工程函数总量解耦。
 2. **稀疏状态注解 (Sparse Annotation)**：仅存储状态 **Delta（增量）**，消除 $O(Inst \times Reg)$ 的冗余内存占用。
 3. **声明级并行后端 (Per-Decl Parallelism)**：借鉴 Zig `Zcu.PerThread` 模型。不再生成单一庞大 `.bc` 文件，而是将发射任务打散至函数粒度，由多线程并行填充后端模块，彻底释放多核 LLVM 性能。
 4. **内存直通物理路径 (In-memory Physical Path)**：借鉴 Zig `codegen/llvm.zig`。放弃文本 IR 发射，通过 `llvm-c` 绑定在内存中直接构造指令对象。消除“生成文本-磁盘写入-后端解析”的冗余链路。
@@ -259,7 +259,7 @@ SA 不把 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` / `Waker` 当成 ISA 内建
 2. 扫描 `#loc` 伪指令 → 为下一条真实指令附带 `upstream_loc`，并维护 `LocTable: Map<expanded_line, UpstreamLoc>`。
 3. 禁用语法扫描：`{` `}` `if` `else` `while` `for` `a.b.c` → `ForbiddenSyntax`。
 4. 寄存器名规范化为 `u32` ID。
-5. 函数签名解析，识别 `@func` / `@ffi_wrapper` / `@extern` / `@export` 四类及 `!` 后缀。
+5. 函数签名解析，识别 `@name(params) -> ret_type:` / `@ffi_wrapper` / `@extern` / `@export` 四类及 `!` 后缀。
 
 **公开 API**：
 ```zig
@@ -311,6 +311,21 @@ pub fn verify(
 - 为每条指令生成 `!DILocation`，指向 `upstream_loc`；`loc` 缺失则 fallback 到 `.sa` 文件行号。
 - 顶部生成 `!DICompileUnit` / `!DIFile` / `!DISubprogram`。
 - 允许 `--no-debug` 关闭。
+
+### 3.4b `bc2sa` LLVM bitcode 逆向翻译器
+
+**职责**：将保守子集的 LLVM bitcode 逆向翻译为 SA 文本，作为真实 C/C++/Rust 工程接入 SA 管线的入口。
+
+**当前可翻译子集**：
+- `define` / `declare` 函数头
+- `alloca`、`load`、`store`
+- `add` / `sub` / `mul` / 比较 / `br` / `ret`
+- 固定边界的 `getelementptr` 字节偏移
+
+**静态拒绝策略**：
+- 当 `getelementptr` 可被证明越过固定数组边界时，`bc2sa` SHALL 直接返回 `StaticMemoryOverflow`，CLI 以 `SA-CLI-019` 结构化报错退出。
+- 该策略只覆盖可静态解析的常量偏移与固定数组边界，不承诺对完整 C 内存安全做全量证明。
+- 这是一条保守护栏，用于把明显的越界样例从翻译入口挡下；复杂指针算术仍按 `UnsupportedInstruction` 处理。
 
 ### 3.5 WASM Emitter
 
@@ -381,7 +396,7 @@ sa layout --name Entity --fields "id:u32, pos_x:f64, pos_y:f64, hp:i32"
 // 源码
 EXPAND PRINT! "val: {}", x
 // 展开后 (伪代码)
-tmp_s = call @sa_fmt_i64(x, 10)
+tmp_s = call @sa_fmt_format(x, 10)
 @sys_print("val: ", 5)
 s_ptr = call @sa_fmt_buffer_data(&tmp_s)
 s_len = call @sa_fmt_buffer_len(&tmp_s)
@@ -776,7 +791,7 @@ pub const SumEntry = struct {         // sa.sum：全树拍平
 
 ### Property 26 (NEW): InteriorPtr 生命周期与母借用同步
 
-*For any* 普通 `@func` 内通过 `ptr_add` 或从借用寄存器 `load` 出的 `InteriorPtr` 寄存器 `IP`，其源借用寄存器 `B` 被 `!B` 释放后，对 `IP` 的任何访问 SHALL 触发 `Trap: UseAfterMove`；对 `IP` 作为 `@extern` 或 `@ffi_wrapper` 参数传递 SHALL 触发 `Trap: InteriorPtrEscape`。
+*For any* 普通函数体内通过 `ptr_add` 或从借用寄存器 `load` 出的 `InteriorPtr` 寄存器 `IP`，其源借用寄存器 `B` 被 `!B` 释放后，对 `IP` 的任何访问 SHALL 触发 `Trap: UseAfterMove`；对 `IP` 作为 `@extern` 或 `@ffi_wrapper` 参数传递 SHALL 触发 `Trap: InteriorPtrEscape`。
 
 **Validates: R4.9, R4.10, R13.6, R13.7**
 
@@ -806,7 +821,7 @@ pub const SumEntry = struct {         // sa.sum：全树拍平
 
 ### Property 31 (NEW, v0.3): VTable 签名静态校验
 
-*For any* `@const NAME = vtable { slot = @func }` 声明与任意 `call_indirect` 调用点，若调用点参数 tuple `(cap_prefix, ty)[]` 与 VTable 槽位声明的函数签名 tuple 完全一致，Referee SHALL 放行；若存在任意位置的 cap_prefix 或 ty 不匹配，Referee SHALL 返回 `Trap: VTableSignatureMismatch`。对 FFI 传入的外部 VTable（裸指针），此校验 SHALL 不适用。
+*For any* `@const NAME = vtable { slot = @name }` 声明与任意 `call_indirect` 调用点，若调用点参数 tuple `(cap_prefix, ty)[]` 与 VTable 槽位声明的函数签名 tuple 完全一致，Referee SHALL 放行；若存在任意位置的 cap_prefix 或 ty 不匹配，Referee SHALL 返回 `Trap: VTableSignatureMismatch`。对 FFI 传入的外部 VTable（裸指针），此校验 SHALL 不适用。
 
 **Validates: R25.1, R25.2, R25.3, R25.4**
 

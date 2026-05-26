@@ -76,7 +76,7 @@ Control Flow:
   jmp L_NAME
   br cond -> L_TRUE, L_FALSE
   br_null reg -> L_NULL, L_NOT_NULL
-  call @func(args) / call_indirect func_ptr(args)
+  call @f(args) / call_indirect func_ptr(args)
   return [reg]
 
 Error Propagation:
@@ -127,7 +127,7 @@ System Primitives (@sys_*):
 
 FFI Airlock Rules:
   - @ffi_wrapper is the ONLY place for * / assume_safe / assume_borrow
-  - Ordinary @func using these -> Trap: IllegalUnsafeContext
+  - Ordinary @f using these -> Trap: IllegalUnsafeContext
   - FFI memory enters via assume_borrow only (no ownership transfer in)
   - Handle/ID pattern for long-lived host objects
   - @extern declares C-ABI symbols; @export exposes without name mangling

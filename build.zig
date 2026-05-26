@@ -93,6 +93,23 @@ pub fn build(b: *std.Build) void {
     run_lib_root_smoke.setCwd(repo_root_lazy);
     test_step.dependOn(&run_lib_root_smoke.step);
 
+    const plugin_host_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/plugin_host_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    plugin_host_smoke_module.addImport("saasm", lib_module);
+    plugin_host_smoke_module.addOptions("build_options", build_options);
+    const plugin_host_smoke = b.addTest(.{
+        .root_module = plugin_host_smoke_module,
+    });
+    const run_plugin_host_smoke = b.addRunArtifact(plugin_host_smoke);
+    run_plugin_host_smoke.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_plugin_host_smoke.step);
+    const plugin_host_smoke_step = b.step("plugin-host-smoke", "Run runtime plugin host smoke tests");
+    plugin_host_smoke_step.dependOn(&run_plugin_host_smoke.step);
+
     const llvmc_test_module = b.createModule(.{
         .root_source_file = b.path("src/emit_llvm_llvmc.zig"),
         .target = target,
@@ -190,6 +207,26 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_wasm_matrix.step);
     const wasm_matrix_step = b.step("wasm-matrix", "Run LLVM-C native/wasm32 demo equivalence matrix");
     wasm_matrix_step.dependOn(&run_wasm_matrix.step);
+
+    const cli_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cli_smoke_module.addImport("saasm", lib_module);
+    cli_smoke_module.addOptions("build_options", build_options);
+    const cli_smoke = b.addTest(.{
+        .root_module = cli_smoke_module,
+        .filters = &.{
+            "bc2sa translates real llvm bitcode",
+            "bc2sa translates clang cmake bitcode demo",
+        },
+    });
+    const run_cli_smoke = b.addRunArtifact(cli_smoke);
+    run_cli_smoke.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_cli_smoke.step);
+    const cli_smoke_step = b.step("bc2sa-smoke", "Run the bc2sa real bitcode smoke tests");
+    cli_smoke_step.dependOn(&run_cli_smoke.step);
 
     const trap_baseline_module = b.createModule(.{
         .root_source_file = b.path("tests/golden/trap_baseline.zig"),
@@ -408,6 +445,7 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&run_ffi_handle_demo.step);
     ci_step.dependOn(&run_hubproxy_tests.step);
     ci_step.dependOn(&run_pkg_core_tests.step);
+    ci_step.dependOn(&run_plugin_host_smoke.step);
     ci_step.dependOn(&referee_loc_lint.step);
     ci_step.dependOn(&run_wasm_matrix.step);
 

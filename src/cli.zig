@@ -9,6 +9,7 @@ const driver = @import("driver/zigcc.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
+const plugins = @import("plugins.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_audit = @import("pkg/audit.zig");
 const pkg_ci = @import("pkg/ci.zig");
@@ -804,7 +805,7 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn commandSupported(name: []const u8) bool {
-    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills");
+    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills") or std.mem.eql(u8, name, "bc2sa") or std.mem.eql(u8, name, "fetch");
 }
 
 fn explainEntries() []const ExplainEntry {
@@ -1101,7 +1102,10 @@ fn fillContextWindow(report: *trap.TrapReport, source: []const u8, center_line: 
     const start_line = if (center_line > 2) center_line - 2 else 1;
     var idx: usize = 0;
     var line_no = start_line;
-    while (idx < report.context.len and line_no <= center_line + 2) : ({ idx += 1; line_no += 1; }) {
+    while (idx < report.context.len and line_no <= center_line + 2) : ({
+        idx += 1;
+        line_no += 1;
+    }) {
         if (lineAt(source, line_no)) |line| {
             copyContextLine(report, idx, line_no, sourceExcerpt(line));
         }
@@ -1204,6 +1208,11 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
             .code = "SA-CLI-018",
             .message = "unsupported LLVM instruction",
             .hint = "bc2sa currently supports a conservative scalar/load-store/branch subset and rejects unsupported IR instead of emitting invalid SA",
+        },
+        error.StaticMemoryOverflow => .{
+            .code = "SA-CLI-019",
+            .message = "static memory overflow detected in LLVM bitcode",
+            .hint = "reduce the constant GEP/index offset or widen the fixed-size array before translating",
         },
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
@@ -1611,6 +1620,9 @@ fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
     var sections_list = std.ArrayList(SkillSection).init(std.heap.page_allocator);
     errdefer sections_list.deinit();
     try sections_list.appendSlice(&base_sections);
+    var plugin_runtime = try plugins.Runtime.initFromEnv(std.heap.page_allocator);
+    defer plugin_runtime.deinit();
+    try plugin_runtime.appendSkills(&sections_list);
     const sections = try sections_list.toOwnedSlice();
     defer std.heap.page_allocator.free(sections);
 
@@ -2324,7 +2336,6 @@ fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
     allocator.free(repo_std_root);
     return env_root;
 }
-
 
 fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
     const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
@@ -3182,6 +3193,9 @@ pub fn executeWithWritersAndOptions(
         if (std.mem.eql(u8, args[1], commandName(.skills))) break :blk .skills;
         if (std.mem.eql(u8, args[1], commandName(.help))) break :blk .help;
         if (std.mem.eql(u8, args[1], commandName(.version))) break :blk .version;
+        var plugin_runtime = try plugins.Runtime.initFromEnv(allocator);
+        defer plugin_runtime.deinit();
+        if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
         return error.UnknownCommand;
     };
 

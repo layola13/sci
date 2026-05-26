@@ -11,10 +11,10 @@ L_MY_LABEL:
 ```
 
 ## 无条件跳转
-使用 `jump` 指令直接跳到某个标签：
+使用 `jmp` 指令直接跳到某个标签：
 
 ```sa
-    jump L_DEST
+    jmp L_DEST
 ```
 
 ## 条件跳转 (`br`)
@@ -31,7 +31,7 @@ L_MY_LABEL:
 L_ENTRY:
     x = 15
     limit = 10
-    is_greater = gt x, limit
+    is_greater = sgt x, limit
     br is_greater -> L_GREATER, L_LESS
 
 L_GREATER:
@@ -53,25 +53,30 @@ SA 没有 `for` 或 `while` 关键字，循环通过**回跳**实现：
 ```sa
 @main() -> i32:
 L_ENTRY:
-    i = 0
-    max = 10
-    jump L_LOOP_CHECK
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    jmp L_LOOP_CHECK
 
 L_LOOP_CHECK:
-    cond = lt i, max
+    i = load i_slot+0 as u64
+    cond = ult i, 10
     br cond -> L_LOOP_BODY, L_DONE
 
 L_LOOP_BODY:
+    next = add i, 1
+    store i_slot+0, next as u64
+    !next
+    !i
     !cond
-    i = add i, 1   // 递增
-    jump L_LOOP_CHECK
+    jmp L_LOOP_CHECK
 
 L_DONE:
     !cond
     !i
-    !max
     return 0
 ```
+
+`stack_alloc` 这类栈临时值会在函数退出时失效，不需要在这里手动 `!`。
 
 ## 关键规则
 - **Referee 验证**：在跳转之前，SA 的验证器会检查当前生命周期内的所有寄存器。如果一个寄存器在 `L_TRUE` 分支被销毁，但在 `L_FALSE` 分支没被销毁，编译器将拒绝编译。这保证了无论代码走哪条路径，内存状态都是确定的。

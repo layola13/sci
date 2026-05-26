@@ -1858,35 +1858,36 @@ sa/
 #### M0：契约与降级蓝图确认（W0）
 
 - [ ] 69. 确认 SAX 不需要扩展 SA-ASM ISA
-  - [ ] 69.1 复查 `src/common/instruction.zig`，所有 SAX 降级目标指令（`alloc / store / load / call / br / jmp / ret / !release`）就绪
+  - [x] 69.1 复查 `src/common/instruction.zig`，所有 SAX 降级目标指令（`alloc / store / load / call / br / jmp / ret / !release`）就绪
   - [ ] 69.2 确认 `src/emit_wasm/` 支持 `wasm32-unknown-unknown` 目标（非 WASI）
-  - [ ] 69.3 复查 `src/sax/` 既有五件套结构，登记 SAX Parser → SA 文本流的降级契约
+  - [x] 69.3 复查外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_sax/src/sax/` 五件套结构，登记 SAX Parser → SA 文本流的降级契约
   - _Requirements: R36.1, R36.12_
 
 #### M1：SAX Parser 与 Lowerer（W1–W3）
 
-- [ ] 70. SAX Parser 完整实现（`src/sax/parser.zig`）
-  - [ ] 70.1 解析 `<Component name="X">` 顶层结构
-  - [ ] 70.2 解析 `<state>` 块：一行一变量，支持 `i64 / f64 / i1 / ptr / alloc N` 五种字面/标注
-  - [ ] 70.3 解析 DOM 树：标签 + 属性 + `{expr}` 插值 + `onevent={^handler}` 事件
-  - [ ] 70.4 解析 `@handler:` 函数体（直通 SA-ASM 文本，不变换）
-  - [ ] 70.5 解析尾部 `!var1 !var2 ...` 释放序列
-  - [ ] 70.6 **不构造 AST**：所有解析结果直接以 `.sa` 文本流形式输出
+- [x] 70. SAX Parser 完整实现（外部插件 `src/sax/parser.zig`）
+  - [x] 70.1 解析 `<Component name="X">` 顶层结构
+  - [x] 70.2 解析 `<state>` 块：一行一变量，支持 `i64 / i32 / f64 / i1 / ptr / alloc N` 字面/标注
+  - [x] 70.3 解析 DOM 树：标签 + 属性 + `{expr}` 插值 + `onevent={^handler}` 事件
+  - [x] 70.4 解析 `@handler:` 函数体（直通 SA-ASM 文本，不变换）
+  - [x] 70.5 解析尾部 `!var1 !var2 ...` 释放序列
+  - [x] 70.6 **不构造宿主 AST**：解析结果由插件 Lowerer 直接输出 `.sa` 文本流
   - _Requirements: R36.1, R36.2, R36.3_
 
-- [ ] 71. SAX Lowerer 完整实现（`src/sax/lowerer.zig`）
-  - [ ] 71.1 状态变量 → `alloc Component_SIZE` + 固定偏移 `store` 初始化
-  - [ ] 71.2 DOM 树 → `@ffi_wrapper` 内 `sax_dom_create / sax_dom_append_child / sax_dom_set_attr / sax_dom_set_text` 调用序列
-  - [ ] 71.3 `{expr}` 插值 → `load state+offset` + `sax_dom_set_text(node, &buf, len)`
-  - [ ] 71.4 `onclick={^handler}` → `sax_dom_bind_event(&dom, node, "click", 5, ^handler)`，handler 走函数 export 索引
-  - [ ] 71.5 自动生成 `sax_X_init` / `sax_X_render` / `sax_X_destroy` 三组 `@export` 函数
-  - [ ] 71.6 释放序列 `!var` → `Consumed` 掩码，落到 `destroy` 函数末尾
+- [x] 71. SAX Lowerer 完整实现（外部插件 `src/sax/lowerer.zig`）
+  - [x] 71.1 状态变量 → `alloc Component_SIZE` + 固定偏移 `store` 初始化
+  - [x] 71.2 DOM 树 → `@ffi_wrapper` 内 `sax_dom_create / sax_dom_append_child / sax_dom_set_attr / sax_dom_set_text` 调用序列
+  - [x] 71.3 `{expr}` 插值 → typed `load state+offset` + `sax_itoa` / `sax_ftoa_bits` + `sax_dom_set_text(node, &buf, len)`
+  - [x] 71.4 `onclick={^handler}` → `sax_dom_bind_event(node, "click", handler_export, ctx)`，handler 走 WASM function export 名称
+  - [x] 71.5 自动生成 `sax_X_init` / `sax_X_render` / `sax_X_destroy` 三组 `@export` 函数
+  - [x] 71.6 释放序列 `!var` → `destroy` 中释放 state-owned ptr / state / dom / ctx
   - _Requirements: R36.2, R36.3_
 
 - [ ] 72. WASM 目标切换
   - [ ] 72.1 `src/sax/cli.zig` 强制目标为 `wasm32-unknown-unknown`（非 WASI）
   - [ ] 72.2 复用 `src/emit_wasm/` 后端，零修改
-  - [ ] 72.3 验证：Counter 组件产物 `app.wasm` 体积 < 50 KB（Phase 1 预算）
+  - [x] 72.3 验证：SAX demo 产物 `app.wasm` 体积 < 50 KB（typed demo 2583 bytes；reactive dashboard 4034 bytes）
+  - 说明：当前外部插件实测走 `LLVM-C .sa.bc + zig build-exe -target wasm32-freestanding -fno-entry --import-symbols` 浏览器模块路径，不走旧文档里的手写 `src/emit_wasm/` 目标。
   - _Requirements: R36.12_
 
 #### M2：Referee 扩展（W4）
@@ -1909,27 +1910,27 @@ sa/
 
 #### M3：DOM Airlock 与 HTML Shell（W5–W6）
 
-- [ ] 75. Airlock JS 自动生成（`src/sax/airlock_gen.zig`）
-  - [ ] 75.1 ~20 个白名单 API 全部覆盖（查询 / 创建 / 内容 / 属性 / 事件 / 工具）
-  - [ ] 75.2 节点句柄走整数 ID（Airlock 内部映射表，WASM 不可伪造）
-  - [ ] 75.3 `sax_dom_set_text` 强制走 `textContent`（防 XSS）
-  - [ ] 75.4 `sax_dom_set_attr` 属性白名单：`class / style / value / placeholder / disabled`
-  - [ ] 75.5 事件绑定走函数 export 索引（不接受字符串）
+- [ ] 75. Airlock JS 自动生成（外部插件 `src/sax/airlock_gen.zig`）
+  - [x] 75.1 ~20 个白名单 API 全部覆盖（查询 / 创建 / 内容 / 属性 / 事件 / 路由 / HTTP / 工具）
+  - [x] 75.2 节点句柄走整数 ID（Airlock 内部映射表，WASM 不可伪造）
+  - [x] 75.3 `sax_dom_set_text` 强制走 `textContent`（防 XSS）
+  - [x] 75.4 `sax_dom_set_attr` 属性白名单：`class / style / value / placeholder / disabled`
+  - [x] 75.5 事件绑定走 WASM function export 名称并由 Airlock lookup 调用，不接受任意 inline JS
   - [ ] 75.6 验证：`<script>` 注入 / `innerHTML` 注入 / `eval` 注入三类用例触发 Airlock 拒绝
   - _Requirements: R36.10_
 
-- [ ] 76. HTML Shell 生成器
-  - [ ] 76.1 生成最小 `index.html`（加载 `app.wasm` + `airlock.js`）
-  - [ ] 76.2 注入 CSP（`Content-Security-Policy`）头部，禁用 inline script / eval
-  - [ ] 76.3 自动注入 entry 调用：`sax_X_init` 在 DOMContentLoaded 后启动
+- [x] 76. HTML Shell 生成器
+  - [x] 76.1 生成最小 `index.html`（加载 `app.wasm` + `airlock.js`）
+  - [x] 76.2 注入 CSP（`Content-Security-Policy`）头部，禁用 inline script / eval
+  - [x] 76.3 自动注入 entry 调用：`sax_app_init` 在 DOMContentLoaded 后启动
   - _Requirements: R36.10, R36.11_
 
 #### M4：CLI 子命令（W7）
 
-- [ ] 77. `sa sax` 子命令族（`src/sax/cli.zig` + hook 进 `src/cli.zig`）
-  - [ ] 77.1 `sa sax build <file.sax>` → `dist/app.wasm + dist/airlock.js + dist/index.html`
-  - [ ] 77.2 `sa sax check <file.sax>` → 仅 Referee 验证（含 SAX 规则），不产出产物
-  - [ ] 77.3 `sa sax new <name>` → 脚手架最小项目（`Counter.sax` + `package.json` + `README.md`）
+- [ ] 77. `sa sax` 子命令族（外部插件 runtime command）
+  - [x] 77.1 `sa sax build <file.sax>` → `dist/app.sa + dist/app.wasm + dist/airlock.js + dist/index.html`
+  - [x] 77.2 `sa sax check <file.sax>` → 仅 Parser/Validation/Referee 验证，不产出产物
+  - [x] 77.3 `sa sax new <name>` → 脚手架最小项目（`app.sax` + `package.json` + `README.md`）
   - [ ] 77.4 错误退出码统一：Trap → exit 1，未知命令 → exit 2，IO 错误 → exit 3
   - _Requirements: R36.11_
 
@@ -1944,13 +1945,14 @@ sa/
   - [ ] 78.6 `<foo>` 自定义标签 → 报 `SaxUnknownTag`
   - [ ] 78.7 `<button onhover={^x}>` → 报 `SaxUnknownEvent`
   - [ ] 78.8 包体积对比：TodoList SAX vs React，目标 < 50 KB WASM vs ~130 KB+ React
+  - 说明：插件级自动验收已覆盖 `reactive_dashboard` / `buffer_state` / `allowed_attrs` / `expression_interpolation` / `typed_state_interpolation` 的 `sa sax check`、`sa sax build`、WASM import/export、Airlock/事件名验证；三浏览器人工点击和 React 体积对比尚未执行。
   - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
 
 ### Phase 2：响应式 + 路由 + 生命周期（W9–W14）
 
 - [ ] 79. 编译期细粒度响应式（依赖分析）
-  - [ ] 79.1 SAX Parser 分析 `{expr}` ↔ `<state>` 依赖关系
-  - [ ] 79.2 `call @render()` 展开为最小 DOM 更新调用集（仅更新依赖该状态的节点）
+  - [x] 79.1 SAX Parser 分析 `{expr}` ↔ `<state>` 依赖关系
+  - [x] 79.2 `call @render()` 展开为最小 DOM 更新调用集（仅更新依赖该状态的节点）
   - [ ] 79.3 性能基线：1000 行列表中单行更新 ≤ 1ms（vs 全量 render）
   - _Requirements: R36.2_
 

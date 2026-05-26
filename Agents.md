@@ -1387,7 +1387,7 @@ Next:
 ## 2026-05-20 05:10
 
 Question:
-- Why are `?` early-return sites still present inside `-> void` unit-framework helpers, and how should they be rewritten without changing the test wrapper signatures?
+- Why are `?` early-return sites still present inside unit-framework helpers with no return value, and how should they be rewritten without changing the test wrapper signatures?
 
 Evidence checked:
 - `/home/vscode/projects/sci/tests/unit_framework/support/json_regex.sa`
@@ -1399,11 +1399,11 @@ Evidence checked:
 - `/home/vscode/projects/sci/docs/demos/rust-to-sa.md`
 
 Answer:
-- The helper functions are `-> void`, so `?` cannot be used for fallible propagation there.
+- The helper functions return no value, so `?` cannot be used for fallible propagation there.
 - Keep the wrappers unchanged and rewrite each fallible call site as explicit status extraction plus branch or cleanup handling, matching the status-first ABI examples already documented in the repo.
 
 Next:
-- Patch the two support files to remove every `?` from `-> void` helpers, then rerun the SA unit framework and LLVM emitter tests.
+- Patch the two support files to remove every `?` from the no-return helpers, then rerun the SA unit framework and LLVM emitter tests.
 
 ## 2026-05-20 04:40
 

@@ -7,58 +7,48 @@
 
 - **`*.sai` (接口)**：包含 `@extern` 声明。它定义了你能调用哪些函数。
 - **`*.sal` (布局)**：包含 `#def` 常量。它定义了内存偏移量和错误代码。
-- **`*.sa` (实现)**：包含具体的 SA 代码和 `@macro`。它提供了高级封装。
+- **`*.sa` (实现)**：包含具体的 SA 代码和 `[MACRO]`。它提供了高级封装。
 
 **最佳实践**：
 ```sa
-@import "sa_std/vec.sal" // 导入布局（常量）
-@import "sa_std/vec.sa"        // 导入实现（宏）
-// 注意：vec.sa 内部通常会自动 @import 对应的 iface
+@import "sa_std/vec.sa"
 ```
 
 ## 2. 动态数组 (`Vec`)
 `sa_std/vec.sa` 提供了类似 C++ `std::vector` 的功能。
 
 ```sa
-@import "sa_std/vec.sal"
 @import "sa_std/vec.sa"
 
+@main() -> i32:
 L_ENTRY:
     EXPAND VEC_NEW v
-    EXPAND VEC_PUSH v, 10
-    EXPAND VEC_PUSH v, 20
-    len = call @sa_vec_len(v)
-    // ...
+    EXPAND VEC_PUSH v, 10, 8
+    EXPAND VEC_PUSH v, 20, 8
+    EXPAND VEC_LEN len, v
+    !len
     EXPAND VEC_FREE v
+    return 0
 ```
 
-## 2. 字符串处理 (`String`)
-SA 的原生字符串是 `utf8` 常量，但动态修改字符串需要 `sa_std/string.sa`。
-
-```sa
-@const GREET = utf8:"Hello"
-
-L_ENTRY:
-    s = call @sa_string_from_const(&GREET, 5)
-    // 拼接字符串
-    suffix = utf8:", World"
-    call @sa_string_append(s, &suffix, 7)
-    !s
-```
-
-## 3. 格式化输出 (IO)
-使用 `PRINTLN!` 宏可以方便地输出各种类型：
+## 3. 打印输出 (IO)
+使用 `sa_std/io.sa` 中的 `PRINT` / `PRINTLN` 宏可以输出静态字节串：
 
 ```sa
 @import "sa_std/io.sa"
 
+@const MSG = utf8:"Value"
+
+@main() -> i32:
 L_ENTRY:
-    x = 42
-    EXPAND PRINTLN! "Value is: ", x
-    !x
+    EXPAND PRINTLN MSG, 5
+    return 0
 ```
 
-## 4. 错误处理
+## 4. 格式化
+数值格式化目前以 `sa_std/fmt.sai` 的 ABI 暴露出来，但这部分接口对入门教程来说更偏底层。这里先记住两点：它是可失败的返回接口，且返回的缓冲区需要按 ABI 规则释放。
+
+## 5. 错误处理
 SA 不使用异常，而是使用**结果状态码**。大多数 `sa_std` 函数返回 `i32` 状态码：
 - `SA_STD_OK (0)`：操作成功。
 - `SA_STD_ERR_*`：各种错误代码。

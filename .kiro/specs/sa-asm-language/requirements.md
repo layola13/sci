@@ -62,7 +62,7 @@
    - `jmp L_NAME`（无条件跳转）
    - `br cond -> L_TRUE, L_FALSE`（条件二分跳转）
    - `br_null reg -> L_NULL, L_NOT_NULL`（空指针二分跳转）
-   - `call @func(args)`（函数调用）
+   - `call @name(args)`（函数调用）
    - `call_indirect func_ptr(args)`(间接函数指针调用)
    - `return [reg]`（函数返回）
    - `take src+offset`（从内存块中剥离内部指针所有权）
@@ -169,7 +169,7 @@
    - `utf8:"string"`（UTF-8 编码，**不含结尾 `\0`**；字节长度为字符串 UTF-8 字节数）
    - `repeat:N of BYTE`（N 个同值字节）
    - `struct { field1: N1 = v1, field2: N2 = v2 }`（字段大小显式声明）
-   - `vtable { slot1 = @func1, slot2 = @func2 }`（函数指针数组，每槽位 8 字节）
+   - `vtable { slot1 = @name1, slot2 = @name2 }`（函数指针数组，每槽位 8 字节）
 8. WHEN `@const` 用于 VTable THEN 其字段 SHALL 可以引用函数地址；Emitter 产出对应的函数指针数组在 `.rodata`
 9. WHEN 需要 Rust `&str` 风格的胖指针字面量 THEN 建议采用 **两步声明**：先 `@const FOO_BYTES = utf8:"..."`，再在运行时构造胖指针（`stack_alloc 16; store +0 &FOO_BYTES; store +8 <len>`）；SA 不提供直接的 Str 字面量糖
 10. WHEN 需要表达索引访问 `arr[i]` THEN 其 SHALL 被降维为 `offset = i * element_size; ptr = ptr_add data_ptr, offset; load ptr+0`，并由 LLM/前端自行插入越界检查
@@ -289,8 +289,8 @@
 2. WHEN 语法引入 `assume_safe reg` THEN 其 SHALL 强制把裸指针升级为具有 `Active` 掩码的受控寄存器（声明沙盒对其生命周期负责）
 3. WHEN 语法引入 `assume_borrow reg [, mut]` THEN 其 SHALL 强制把裸指针升级为 `BorrowView + FfiBorrow + Locked_Read` 或 `BorrowView + FfiBorrow + Locked_Mut` 的借用视图；该视图被 `!` 时仅销毁跟踪记录、绝不发射物理 free
 4. WHEN 函数带有 `@ffi_wrapper` 前缀 THEN 该函数体内 SHALL 是全工程唯一允许出现 `*` / `assume_safe` / `assume_borrow` 指令的位置
-5. IF 普通 `@func` 函数体内出现 `*` / `assume_safe` / `assume_borrow` 指令 THEN Referee SHALL 返回 `Trap: IllegalUnsafeContext`，定位到违规行
-6. WHEN 普通 `@func` 函数体内对 `&` 借用寄存器（无论 `Locked_Read` 还是 `Locked_Mut`）使用 `ptr_add` 或从胖指针 `load` 出裸数据指针 THEN 产物 SHALL 自动进入 `InteriorPtr` 状态（见 R4.9），**不触发气闸舱规则**；仅限本函数内 `load` / `store`，禁止作为 `@extern` 参数逃逸
+5. IF 普通函数体内出现 `*` / `assume_safe` / `assume_borrow` 指令 THEN Referee SHALL 返回 `Trap: IllegalUnsafeContext`，定位到违规行
+6. WHEN 普通函数体内对 `&` 借用寄存器（无论 `Locked_Read` 还是 `Locked_Mut`）使用 `ptr_add` 或从胖指针 `load` 出裸数据指针 THEN 产物 SHALL 自动进入 `InteriorPtr` 状态（见 R4.9），**不触发气闸舱规则**；仅限本函数内 `load` / `store`，禁止作为 `@extern` 参数逃逸
 7. IF `InteriorPtr` 寄存器被作为 `@extern` / `@ffi_wrapper` 参数传递 THEN Referee SHALL 返回 `Trap: InteriorPtrEscape`
 8. WHEN `@extern` 声明外部函数 THEN 其参数与返回值 SHALL 只允许使用原生数值类型或 `*` 裸指针，不得使用受掩码保护的寄存器
 9. WHEN FFI 内存通过 `assume_borrow` 入舱 THEN 沙盒内严禁对其执行 `^` Move 或 `!` 物理销毁；违反时 Referee 返回 `Trap: FfiOwnershipViolation`
@@ -485,7 +485,7 @@
 作为偶尔需要手写 SA 原型或 demo 的工程师/LLM，在所有权符号之外，我希望用日常算术/位运算中缀写法降低心智负担；但这种糖只能以**可选、严格受控**的方式引入，不得动摇 Referee 的 O(1) 线性扫描与零 AST 红线。
 
 **Acceptance Criteria**
-1. WHEN 源码顶部（首个 `@func` / `@const` / `@extern` / `@export` 之前）出现 `#mode compact` 伪指令 THEN Flattener SHALL 启用"紧凑糖"展开阶段；否则走默认严格模式，源码中出现任何中缀算术都视为语法错误
+1. WHEN 源码顶部（首个函数 / `@const` / `@extern` / `@export` 之前）出现 `#mode compact` 伪指令 THEN Flattener SHALL 启用"紧凑糖"展开阶段；否则走默认严格模式，源码中出现任何中缀算术都视为语法错误
 2. WHEN 紧凑糖被启用 THEN 以下 **8 条且仅 8 条** 中缀形态 SHALL 被 Flattener 在预处理期做纯文本替换：
    - `dst = a + b` → `dst = add a, b`
    - `dst = a - b` → `dst = sub a, b`（二元）
@@ -522,7 +522,7 @@
 作为 Referee 验证器，当 `call_indirect` 通过 VTable 间接调用函数时，我需要在编译期校验调用点的参数 tuple 与 VTable 槽位声明的函数签名是否一致，避免 ABI 不匹配导致的运行时段错误。
 
 **Acceptance Criteria**
-1. WHEN `@const NAME = vtable { slot = @func }` 声明时 THEN Referee SHALL 记录每个槽位对应函数的完整签名 tuple `[(cap_prefix, ty)]`
+1. WHEN `@const NAME = vtable { slot = @name }` 声明时 THEN Referee SHALL 记录每个槽位对应函数的完整签名 tuple `[(cap_prefix, ty)]`
 2. WHEN `call_indirect` 指令引用某 VTable 槽位 THEN Referee SHALL 在编译期比对调用点参数 tuple 与槽位声明的 tuple
 3. IF 参数数量、cap_prefix 或 ty 任一不匹配 THEN Referee SHALL 返回 `Trap: VTableSignatureMismatch`
 4. WHEN VTable 来自 FFI（外部传入的裸指针）THEN 此校验 SHALL 不适用（因为 Referee 无法获知外部 VTable 的签名），由气闸舱 `assume_borrow` 的保守策略兜底

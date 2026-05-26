@@ -259,6 +259,24 @@ store v+Vec3_x, 1.0 as f32
 
 **A**: 前端必须做 CPS（Continuation-Passing Style）转换，把 async 函数展平为状态机结构体 + poll 函数。
 
+### Q: `bc2sa` 能不能直接当作 C/C++ 的静态漏洞扫描器？
+
+**A**: 不能把它当成全量扫描器，但它可以作为一个保守的 bitcode 入口护栏，拦住一类可静态证明的固定边界越界。
+
+原因：
+- `bc2sa` 的主职责仍然是把 LLVM bitcode 逆向翻译成 SA，不是完整证明 C 语义安全。
+- 对于 `alloca [N x T]` + 常量 `getelementptr` 这类完全静态可判定的越界，`bc2sa` 现在可以直接报 `SA-CLI-019` / `StaticMemoryOverflow`。
+- 对于变量偏移、复杂指针运算、跨调用链的别名分析，`bc2sa` 仍然保守拒绝或退回 `UnsupportedInstruction`，不做伪精确分析。
+
+```c
+void hack_me(void) {
+    char buffer[8];
+    buffer[10] = 'A';
+}
+```
+
+如果这段代码先被 Clang 压成 bitcode，`bc2sa` 可以在翻译入口按固定边界判定直接拒绝，而不是输出一份看似正常、实际上已经越界的 SA。
+
 原因：
 - `async/await` 需要"可暂停栈帧"概念，破坏 SA "所有状态显式可见" 的核心哲学
 - Referee 的 O(1) 线性扫描无法处理"暂停后恢复"的非线性控制流
@@ -1485,7 +1503,7 @@ export fn zig_sort(data: [*]i32, len: usize) void {
 
 ```
 // sa_app.sa
-@extern zig_sort(*data: ptr, len: u64) -> void
+@extern zig_sort(*data: ptr, len: u64)
 
 @ffi_wrapper sort_array(arr: &ptr, len: u64):
 L_ENTRY:

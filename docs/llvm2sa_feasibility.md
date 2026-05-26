@@ -78,7 +78,7 @@ if.end:
 
 **bc2sa 翻译出的 SA-ASM**
 ```sa
-@func calculate_sum(a: i32, b: i32) -> i32 {
+@calculate_sum(a: i32, b: i32) -> i32:
     // alloca 被精准映射为生命周期绑定的 stack_alloc
     sum = stack_alloc 4
     store sum+0, a as i32
@@ -97,7 +97,6 @@ L_if_end:
     t1 = load sum+0 as i32
     // stack_alloc 产生的内存在 return 时安全销毁
     return t1
-}
 ```
 *这一侧写完美证明了：只要前端经过正确的 `reg2mem` 处理消除了 Phi 节点，SA 的底座完全可以 1:1 承载 Rust 的计算与分支逻辑。*
 

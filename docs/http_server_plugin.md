@@ -77,64 +77,48 @@ graph TD
 
 ### 4.1 启动服务器的主函数
 ```sa
-@func main() -> i32! {
-    // 1. 初始化 Server
+@main() -> i32!:
+L_ENTRY:
     res = call @sa_http_server_new(&server)
     _ = ? res
 
-    // 2. 配置路由 (将 "/echo" 路由给 handler 函数)
     #def PATH_LEN = 5
     path = alloc PATH_LEN
-    // ... 写入 "/echo" ...
-    
-    // 注意：我们将 handle_echo 的函数指针传递给路由系统
-    func_ptr = @handle_echo
-    res = call @sa_http_server_route(&server, &path, PATH_LEN, ^func_ptr)
-    
-    // 3. 启动监听 (绑定 0.0.0.0:8080)
+
+    res = call @sa_http_server_route(server, &path, PATH_LEN, ^handle_echo)
+
     #def HOST_LEN = 9
     host = alloc HOST_LEN
-    // ... 写入 "0.0.0.0" ...
-    
-    // 这里会阻塞，开始接管网络循环
-    res = call @sa_http_server_start(&server, &host, HOST_LEN, 8080)
-    
-    ! path
-    ! host
+
+    res = call @sa_http_server_start(server, &host, HOST_LEN, 8080)
+
+    !path
+    !host
     return 0
-}
 ```
 
 ### 4.2 路由处理器 (Handler)
 处理器的签名必须符合插件约定的 ABI：接受一个代表请求的 `ticket`。
 
 ```sa
-// 注意这里是在气闸舱环境，因为我们会直接与 FFI 请求句柄打交道
-@ffi_wrapper handle_echo(ticket: ptr) -> i32! {
-    // 1. 从 Ticket 中解析请求
+@ffi_wrapper handle_echo(ticket: ptr) -> i32!:
+L_ENTRY:
     res = call @sa_http_req_from_ticket(ticket, &req)
     _ = ? res
-    
-    // 2. 生成响应 (HTTP 200 OK)
-    res = call @sa_http_server_resp_new(&req, 200, &resp)
+
+    res = call @sa_http_server_resp_new(req, 200, &resp)
     _ = ? res
-    
-    // 3. 准备返回的数据
+
     #def BODY_LEN = 11
     body = alloc BODY_LEN
-    // ... 写入 "Hello Echo!" ...
-    
-    // 4. 发送响应
-    res = call @sa_http_server_resp_send(&resp, &body, BODY_LEN)
+
+    res = call @sa_http_server_resp_send(resp, &body, BODY_LEN)
     _ = ? res
-    
-    // 5. 释放句柄内存
+
     _ = call @sa_http_server_resp_free(^resp)
     _ = call @sa_http_req_free(^req)
-    ! body
-    
+    !body
     return 0
-}
 ```
 
 ## 5. 性能与安全性考量

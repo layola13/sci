@@ -80,41 +80,28 @@ HTTP 插件使用不透明的 C 指针 (`ptr`) 表示三种资源，所有资源
 以下是一段真实合法的 SA-ASM 代码，演示如何使用该插件发送带有 Header 的 JSON POST 请求。
 
 ```sa
-@func fetch_data() -> i32! {
-    // 1. 创建开启了 TLS 的客户端
+@ffi_wrapper fetch_data() -> i32!:
+L_ENTRY:
     res = call @sa_http_client_new(1, &client)
     _ = ? res
 
-    // 2. 准备 URL (硬编码字符串)
     #def URL_LEN = 30
     url = alloc URL_LEN
-    // ... 将 "https://api.example.com/data" 存入 url ...
-    
-    // 3. 创建 POST 请求 (Method=2)
-    res = call @sa_http_client_req_new(&client, 2, &url, URL_LEN, &req)
+
+    res = call @sa_http_client_req_new(client, 2, &url, URL_LEN, &req)
     _ = ? res
-    
-    // 4. 添加 Header (Content-Type: application/json)
-    // ... 假设已分配 key 和 val 寄存器 ...
-    res = call @sa_http_client_req_add_header(&req, &key, 12, &val, 16)
-    
-    // 5. 发送 Body
-    // ... 假设已分配 body_data 寄存器 ...
-    res = call @sa_http_client_req_send(&req, &body_data, body_len, &resp)
+
+    res = call @sa_http_client_req_add_header(req, &key, 12, &val, 16)
+    res = call @sa_http_client_req_send(req, &body_data, body_len, &resp)
     _ = ? res
-    
-    // 6. 获取响应状态码
-    status = call @sa_http_client_resp_status(&resp)
-    // 打印状态码...
-    
-    // 7. 严格清理内存，防止 MemoryLeak Trap
+
+    status = call @sa_http_client_resp_status(resp)
     _ = call @sa_http_client_resp_free(^resp)
     _ = call @sa_http_client_req_free(^req)
     _ = call @sa_http_client_free(^client)
-    
-    ! url
+
+    !url
     return 0
-}
 ```
 
 ## 5. 安全性与零信任 (Zero-Trust) 管控

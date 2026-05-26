@@ -2156,6 +2156,119 @@ test "bc2sa translates real llvm bitcode" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "br r1 -> L_ok, L_err") != null);
 }
 
+test "bc2sa translates clang cmake bitcode demo" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const demo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_cmake");
+    defer std.testing.allocator.free(demo_root);
+
+    const build_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(build_dir);
+
+    const cmake_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "cmake", "-S", demo_root, "-B", build_dir },
+    });
+    defer std.testing.allocator.free(cmake_result.stdout);
+    defer std.testing.allocator.free(cmake_result.stderr);
+    switch (cmake_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    const build_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "cmake", "--build", build_dir, "--target", "bc" },
+    });
+    defer std.testing.allocator.free(build_result.stdout);
+    defer std.testing.allocator.free(build_result.stderr);
+    switch (build_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const bc_path = try std.fs.path.join(std.testing.allocator, &.{ build_dir, "main.bc" });
+    defer std.testing.allocator.free(bc_path);
+
+    const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", bc_path };
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), bc2sa_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export demo(arg0: i32, arg1: i32) -> i32:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export scale(arg0: i32) -> i32:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "sgt r10, 4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @scale(r13)") != null);
+}
+
+test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const demo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_cmake");
+    defer std.testing.allocator.free(demo_root);
+
+    const build_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(build_dir);
+
+    const cmake_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "cmake", "-S", demo_root, "-B", build_dir },
+    });
+    defer std.testing.allocator.free(cmake_result.stdout);
+    defer std.testing.allocator.free(cmake_result.stderr);
+    switch (cmake_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    const build_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "cmake", "--build", build_dir, "--target", "bc" },
+    });
+    defer std.testing.allocator.free(build_result.stdout);
+    defer std.testing.allocator.free(build_result.stderr);
+    switch (build_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    try writeSource(tmp.dir, "vulnerable.c",
+        \\void hack_me(void) {
+        \\    char buffer[8];
+        \\    buffer[10] = 'A';
+        \\}
+    );
+
+    const clang_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "clang", "-std=c11", "-O0", "-emit-llvm", "-c", "vulnerable.c", "-o", "vulnerable.bc" },
+    });
+    defer std.testing.allocator.free(clang_result.stdout);
+    defer std.testing.allocator.free(clang_result.stderr);
+    switch (clang_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", "vulnerable.bc" };
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 1), bc2sa_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "SA-CLI-019"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "static memory overflow detected"));
+}
+
 test "import expansion keeps source paths alive end to end" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

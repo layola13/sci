@@ -67,7 +67,7 @@ pub export fn sa_math_matrix_multiply(a_ptr: [*]f32, b_ptr: [*]f32, out_ptr: [*]
 现在，你可以在业务代码中安全地调用它了（必须在 `@ffi_wrapper` 中）：
 
 ```sa
-@ffi_wrapper do_math() -> i32! {
+@ffi_wrapper do_math() -> i32!:
     // ... 假设已分配内存并初始化了矩阵 a, b, out ...
     raw_a = *a
     raw_b = *b
@@ -78,7 +78,6 @@ pub export fn sa_math_matrix_multiply(a_ptr: [*]f32, b_ptr: [*]f32, out_ptr: [*]
     _ = ? res
     
     return 0
-}
 ```
 
 ## 4. 插件的 Zero-Trust 权限管控

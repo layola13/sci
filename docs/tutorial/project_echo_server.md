@@ -21,47 +21,44 @@
 @import "sa_std/io.sa"
 
 @const PREFIX = utf8:"ECHO: "
+@const MSG = utf8:"Echo Server listening on 8080..."
 
 @main() -> i32:
 L_ENTRY:
-    // 1. 初始化引擎
     res = call @sa_netx_init(1024, 1)
     host = utf8:"0.0.0.0"
     res = call @sa_netx_listen(&host, 7, 8080)
-    EXPAND PRINTLN! "Echo Server listening on 8080..."
+    EXPAND PRINTLN MSG, 32
 
 L_LOOP:
     ticket = alloc Ticket_SIZE
-    // 阻塞等待 Ticket
     res = call @sa_netx_recv_ticket(0, ticket)
-    
+
     op = load ticket+Ticket_op_code as u16
-    is_data = eq op, 5 // NetxProto_RAW 数据到达
+    is_data = eq op, 5
     br is_data -> L_HANDLE_DATA, L_SKIP
 
 L_HANDLE_DATA:
     slot_id = load ticket+Ticket_slot_id as u32
     data_ptr = load ticket+Ticket_payload as ptr
     data_len = load ticket+Ticket_payload_len as u32
-    
-    // 构建响应：PREFIX + 原数据
-    // 注意：实际开发中应使用 sa_string_concat，此处为演示简化
+
     call @sa_netx_push_outbound(0, slot_id, &PREFIX, 6)
     call @sa_netx_push_outbound(0, slot_id, data_ptr, data_len)
-    
+
     !data_ptr
     !slot_id
     !data_len
-    jump L_CLEANUP
+    jmp L_CLEANUP
 
 L_SKIP:
     !op
-    jump L_CLEANUP
+    jmp L_CLEANUP
 
 L_CLEANUP:
     !ticket
     !is_data
-    jump L_LOOP
+    jmp L_LOOP
 ```
 
 ## 4. 运行与测试

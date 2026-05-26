@@ -21,7 +21,7 @@
 - **Offsets / Structs**: Emulated via preprocessor.
   `#def Vec_len = +0`, `load ptr+Vec_len as u32`.
 - **Error Propagation (`?`)**:
-  `res = call @func()`; `val = ? res`. Flattens to `br_ok + L_early_return`.
+  `res = call @f()`; `val = ? res`. Flattens to `br_ok + L_early_return`.
 - **Airlock (FFI)**: Unsafe pointer conversions (`assume_safe`, `assume_borrow`, `*`) are strictly forbidden outside of `@ffi_wrapper`.
 - **System Calls**: `@sys_print`, `@sys_exit`, `@sys_read_file`, etc., are native intrinsics.
 

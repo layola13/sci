@@ -160,26 +160,26 @@ sax<Component name="Counter" props="initial: i32 = 0">
     <p>Last click: {lastClick} ms ago</p>
   </div>
 
-  @func handleIncrement() -> void:
+  @handleIncrement() -> i32:
   L_ENTRY:
     count = count + 1
     lastClick = getCurrentTimestamp()
     render()                     // 触发组件重渲染
-    ret
+    return 0
 
-  @func handleDecrement() -> void:
+  @handleDecrement() -> i32:
   L_ENTRY:
     count = count - 1
     lastClick = getCurrentTimestamp()
     render()
-    ret
+    return 0
 
-  @func handleReset() -> void:
+  @handleReset() -> i32:
   L_ENTRY:
     count = 0
     lastClick = getCurrentTimestamp()
     render()
-    ret
+    return 0
 
   !count !lastClick                // 函数结束时显式释放状态借用
 </Component>
@@ -189,7 +189,7 @@ sax<Component name="Counter" props="initial: i32 = 0">
 混合语法：
 XML 标签负责 UI 结构（类似 JSX）
 {} 中可以直接嵌入 SA 表达式
-@func 定义组件内部的行为函数（SA-ASM 风格）
+@handle* 定义组件内部的行为函数（SA-ASM 风格）
 
 所有权显式可见：
 count = initial：状态初始化

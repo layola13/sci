@@ -79,7 +79,7 @@ The repository checks in `artifacts/sa_std/libsa_std.a`. Rebuild it with `zig bu
 - `jmp L_NAME` — unconditional jump
 - `br cond -> L_TRUE, L_FALSE` — conditional branch
 - `br_null reg -> L_NULL, L_NOT_NULL` — null check branch
-- `call @func(args)` / `call_indirect func_ptr(args)`
+- `call @f(args)` / `call_indirect func_ptr(args)`
 - `return [reg]`
 
 ## Control Flow and Phi
@@ -161,7 +161,7 @@ No type annotation. Byte length inferred from literal. Roadmap feature: immutabl
 ## FFI Airlock
 
 - `@ffi_wrapper` functions are the **only** place where `*` / `assume_safe` / `assume_borrow` are legal.
-- Ordinary `@func` using these → `Trap: IllegalUnsafeContext`.
+- Ordinary `@f` using these → `Trap: IllegalUnsafeContext`.
 - FFI memory enters sandbox via `assume_borrow` only (no ownership transfer into sandbox).
 - Handle/ID pattern for long-lived host objects.
 - `@extern` declares C-ABI symbols; `@export` exposes C-ABI symbols without name mangling.
