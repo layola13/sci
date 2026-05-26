@@ -508,6 +508,93 @@ fn findFunctionSigIndex(sigs: []const sig.FunctionSig, name: []const u8) ?usize 
     return null;
 }
 
+fn markReachableFunctionByName(reachable: *std.StringHashMap(void), sigs: []const sig.FunctionSig, name: []const u8) !bool {
+    const idx = findFunctionSigIndex(sigs, name) orelse return false;
+    const canonical_name = sigs[idx].name;
+    if (reachable.contains(canonical_name)) return false;
+    try reachable.put(canonical_name, {});
+    return true;
+}
+
+fn collectBodyDirectCallees(allocator: std.mem.Allocator, verified: anytype, start_idx: usize, end_idx: usize, reachable: *std.StringHashMap(void)) !bool {
+    var changed = false;
+    for (verified.annotated[start_idx..end_idx]) |body_item| {
+        const base = body_item.base;
+        if (base.kind != .call and base.kind != .call_indirect) continue;
+
+        var parsed = call.parseCall(allocator, base.raw_text) catch |err| switch (err) {
+            error.InvalidCallSyntax => continue,
+            else => return err,
+        };
+        defer parsed.deinit(allocator);
+
+        if (parsed.is_indirect) continue;
+        changed = (try markReachableFunctionByName(reachable, verified.function_sigs, parsed.callee)) or changed;
+    }
+    return changed;
+}
+
+fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytype, reachable: *std.StringHashMap(void)) !void {
+    for (verified.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                for (literal.slots) |slot| {
+                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, slot.func_name);
+                }
+            },
+            else => {},
+        }
+    }
+
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    while (idx < verified.annotated.len) : (idx += 1) {
+        const item = verified.annotated[idx].base;
+        switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                const fsig = verified.function_sigs[sig_index];
+                sig_index += 1;
+
+                const is_main = fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0;
+                const is_public_entry = item.kind == .export_decl or item.kind == .ffi_wrapper_decl or item.kind == .extern_decl;
+                if (is_main or is_public_entry) {
+                    try reachable.put(fsig.name, {});
+                }
+            },
+            else => {},
+        }
+    }
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        sig_index = 0;
+        idx = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    const fsig = verified.function_sigs[sig_index];
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        else => true,
+                    }) : (end += 1) {}
+
+                    if (reachable.contains(fsig.name)) {
+                        changed = (try collectBodyDirectCallees(allocator, verified, idx + 1, end, reachable)) or changed;
+                    }
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
+    }
+}
+
 fn functionSigShapeEqual(lhs: sig.FunctionSig, rhs: sig.FunctionSig) bool {
     if (lhs.return_cap != rhs.return_cap or lhs.return_ty != rhs.return_ty or lhs.return_fallible != rhs.return_fallible) return false;
     if (lhs.params.len != rhs.params.len) return false;
@@ -890,13 +977,17 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    if (options.codegen_unit_index) |cgu_idx| {
+    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null;
+    if (prune_unreachable) {
+        try collectNormalBuildReachability(a, verified, &referenced_functions);
+        prune_unreachable = referenced_functions.count() != 0;
+    } else if (options.codegen_unit_index) |cgu_idx| {
         // Collect functions referenced in Trait vtables
         for (verified.const_decls) |decl| {
             switch (decl.value) {
                 .vtable => |literal| {
                     for (literal.slots) |slot| {
-                        try referenced_functions.put(slot.func_name, {});
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, slot.func_name);
                     }
                 },
                 else => {},
@@ -920,18 +1011,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        for (verified.annotated[idx + 1 .. end]) |body_item| {
-                            const inst_item = body_item.base;
-                            if (inst_item.kind == .call) {
-                                const text = inst_item.raw_text;
-                                if (std.mem.indexOf(u8, text, "@")) |at_idx| {
-                                    var end_name = at_idx + 1;
-                                    while (end_name < text.len and (text[end_name] == '_' or (text[end_name] >= 'a' and text[end_name] <= 'z') or (text[end_name] >= 'A' and text[end_name] <= 'Z') or (text[end_name] >= '0' and text[end_name] <= '9'))) : (end_name += 1) {}
-                                    const callee_name = text[at_idx + 1 .. end_name];
-                                    try referenced_functions.put(callee_name, {});
-                                }
-                            }
-                        }
+                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -979,6 +1059,8 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                         // Not needed at all, completely skip!
                         should_include = false;
                     }
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                    should_include = false;
                 }
 
                 if (should_include) {
@@ -1139,11 +1221,17 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    if (options.codegen_unit_index) |cgu_idx| {
+    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null;
+    if (prune_unreachable) {
+        try collectNormalBuildReachability(a, verified, &referenced_functions);
+        prune_unreachable = referenced_functions.count() != 0;
+    } else if (options.codegen_unit_index) |cgu_idx| {
         for (verified.const_decls) |decl| {
             switch (decl.value) {
                 .vtable => |literal| {
-                    for (literal.slots) |slot| try referenced_functions.put(slot.func_name, {});
+                    for (literal.slots) |slot| {
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, slot.func_name);
+                    }
                 },
                 else => {},
             }
@@ -1165,17 +1253,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        for (verified.annotated[idx + 1 .. end]) |body_item| {
-                            const inst_item = body_item.base;
-                            if (inst_item.kind == .call) {
-                                const text = inst_item.raw_text;
-                                if (std.mem.indexOf(u8, text, "@")) |at_idx| {
-                                    var end_name = at_idx + 1;
-                                    while (end_name < text.len and (text[end_name] == '_' or (text[end_name] >= 'a' and text[end_name] <= 'z') or (text[end_name] >= 'A' and text[end_name] <= 'Z') or (text[end_name] >= '0' and text[end_name] <= '9'))) : (end_name += 1) {}
-                                    try referenced_functions.put(text[at_idx + 1 .. end_name], {});
-                                }
-                            }
-                        }
+                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1219,6 +1297,8 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     } else {
                         should_include = false;
                     }
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                    should_include = false;
                 }
 
                 if (should_include) {

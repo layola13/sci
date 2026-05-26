@@ -220,6 +220,7 @@ pub fn build(b: *std.Build) void {
         .filters = &.{
             "bc2sa translates real llvm bitcode",
             "bc2sa translates clang cmake bitcode demo",
+            "cli build-exe prunes unused imported functions before llvm emission",
         },
     });
     const run_cli_smoke = b.addRunArtifact(cli_smoke);

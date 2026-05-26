@@ -554,6 +554,35 @@ test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {
     try expectNoTextLlvmArtifacts(tmp.dir, "auto.out");
 }
 
+test "cli build-exe prunes unused imported functions before llvm emission" {
+    const source =
+        \\@import "sa_std/sort.sa"
+        \\
+        \\@main() -> i32:
+        \\return 0
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "unused_sort_import.sa", source);
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "unused_sort_import.sa", "-o", "unused_sort_import.out" };
+    const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+
+    const artifact_file = try tmp.dir.openFile("unused_sort_import.out.sa.bc", .{});
+    defer artifact_file.close();
+    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(artifact_bytes);
+    try std.testing.expect(artifact_bytes.len > 0);
+}
+
 test "cli run with jobs 2 keeps the earliest source-order trap" {
     const source =
         \\@first() -> i32:
