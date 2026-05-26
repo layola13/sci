@@ -1893,14 +1893,15 @@ sa/
 #### M2：Referee 扩展（W4）
 
 - [ ] 73. SAX 7 条专属 Trap 规则（`src/sax/sax_rules.zig`）
-  - [ ] 73.1 `SaxStateLeak`：销毁函数出口 `<state>` 仍 `Active` → Trap
-  - [ ] 73.2 `SaxEventEscape`：`^handler` 引用跨 `<Component>` 函数 → Trap
-  - [ ] 73.3 `SaxRenderOutsideHandler`：`call @render()` 出现在 `@handler` 外 → Trap
-  - [ ] 73.4 `SaxInvalidInterpolation`：`{expr}` 包含 `^` / `!` → Trap（Parser 阶段）
-  - [ ] 73.5 `SaxStateWriteFromOutside`：组件外部代码写 `<state>` 内存槽 → Trap
-  - [ ] 73.6 `SaxUnknownTag`：DOM 标签不在 HTML5 白名单 → Trap（Parser 阶段）
-  - [ ] 73.7 `SaxUnknownEvent`：事件不在白名单 → Trap（Parser 阶段）
+  - [x] 73.1 `SaxStateLeak`：销毁函数出口 `<state>` 仍 `Active` → Trap
+  - [x] 73.2 `SaxEventEscape`：`^handler` 引用跨 `<Component>` 函数 → Trap
+  - [x] 73.3 `SaxRenderOutsideHandler`：`call @render()` 出现在 `@handler` 外 → Trap
+  - [x] 73.4 `SaxInvalidInterpolation`：`{expr}` 包含 `^` / `!` → Trap（Parser 阶段）
+  - [x] 73.5 `SaxStateWriteFromOutside`：组件外部代码写 `<state>` 内存槽 → Trap
+  - [x] 73.6 `SaxUnknownTag`：DOM 标签不在 HTML5 白名单 → Trap（Parser 阶段）
+  - [x] 73.7 `SaxUnknownEvent`：事件不在白名单 → Trap（Parser 阶段）
   - [ ] 73.8 每条 Trap 携带 `component / handler / tag / event / upstream_loc` 诊断字段
+  - 说明：外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_sax` 已用 `zig build test --summary all` 自动覆盖 7 条 Trap 的 `sa sax check` 负向路径；宿主 `src/verifier.zig` 的 SAX source-map hook 仍按 73.8 / 74 保留。
   - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
 
 - [ ] 74. Referee hook 接入（`src/verifier.zig` 追加 SAX 规则调用）
@@ -1939,13 +1940,13 @@ sa/
 - [ ] 78. E2E 浏览器验证（Phase 1 验收）
   - [ ] 78.1 `Counter.sax` 编译通过 + 浏览器点击 +1/-1 正确（Chrome / Firefox / Safari 三浏览器）
   - [ ] 78.2 `TodoList.sax` 编译通过 + 增删项 + 输入框 + 列表渲染
-  - [ ] 78.3 删掉 `!count` → `sa sax check` 报 `SaxStateLeak`
-  - [ ] 78.4 `^handler` 跨组件引用 → 报 `SaxEventEscape`
-  - [ ] 78.5 `{count + ^x}` → 报 `SaxInvalidInterpolation`
-  - [ ] 78.6 `<foo>` 自定义标签 → 报 `SaxUnknownTag`
-  - [ ] 78.7 `<button onhover={^x}>` → 报 `SaxUnknownEvent`
+  - [x] 78.3 删掉 `!count` → `sa sax check` 报 `SaxStateLeak`
+  - [x] 78.4 `^handler` 跨组件引用 → 报 `SaxEventEscape`
+  - [x] 78.5 `{count + ^x}` → 报 `SaxInvalidInterpolation`
+  - [x] 78.6 `<foo>` 自定义标签 → 报 `SaxUnknownTag`
+  - [x] 78.7 `<button onhover={^x}>` → 报 `SaxUnknownEvent`
   - [ ] 78.8 包体积对比：TodoList SAX vs React，目标 < 50 KB WASM vs ~130 KB+ React
-  - 说明：插件级自动验收已覆盖 `reactive_dashboard` / `buffer_state` / `allowed_attrs` / `expression_interpolation` / `typed_state_interpolation` 的 `sa sax check`、`sa sax build`、WASM import/export、Airlock/事件名验证；新增 Node 运行时 E2E 会真实加载 `app.wasm + airlock.js`、挂载 `#app`、触发 dashboard / typed demo 点击事件，并锁住 root 挂载、Airlock JS 语法与插值文本空格。三浏览器人工点击、TodoList 案例和 React 体积对比尚未执行。
+  - 说明：插件级自动验收已覆盖 `Counter` / `reactive_dashboard` / `buffer_state` / `allowed_attrs` / `expression_interpolation` / `typed_state_interpolation` 的 `sa sax check`、`sa sax build`、WASM import/export、Airlock/事件名验证；Node 运行时 E2E 会真实加载 `app.wasm + airlock.js`、挂载 `#app`、触发 Counter `+1/-1/reset`、dashboard / typed demo 点击事件，并锁住 root 挂载、Airlock JS 语法与插值文本空格。Chrome / Firefox / Safari 三浏览器人工点击、TodoList 案例和 React 体积对比尚未执行。
   - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
 
 ### Phase 2：响应式 + 路由 + 生命周期（W9–W14）
