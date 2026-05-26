@@ -1,0 +1,47 @@
+// 323 - Index Trait Macro
+// SA: 用 INDEX_2D 宏模拟 Rust Index<(usize,usize)>
+// 卫生宏保证 _row_off/_flat/_byte_off/_p 每次展开独立
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"6\n"
+@const RESULT_ERR = utf8:"error\n"
+
+// INDEX_2D: 从行优先矩阵加载元素
+// 用 %c 和 %nc 避免 %col/%cols 前缀歧义
+[MACRO] INDEX_2D %out, %data, %r, %c, %nc
+    _row_off = mul %r, %nc
+    _flat = add _row_off, %c
+    !_row_off
+    _byte_off = mul _flat, 4
+    !_flat
+    _p = ptr_add %data, _byte_off
+    !_byte_off
+    %out = load _p+0 as i32
+    !_p
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    data = alloc 24
+    store data+0, 1 as i32
+    store data+4, 2 as i32
+    store data+8, 3 as i32
+    store data+12, 4 as i32
+    store data+16, 5 as i32
+    store data+20, 6 as i32
+
+    EXPAND INDEX_2D val, data, 1, 2, 3
+    !data
+
+    ok = eq val, 6
+    !val
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

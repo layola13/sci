@@ -1,0 +1,47 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"3628800\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@fact_acc(n: u64, acc: u64) -> u64:
+L_ENTRY:
+    jmp L_FACT_LOOP
+
+L_FACT_LOOP:
+    is_base = ule n, 1
+    br is_base -> L_FACT_BASE, L_FACT_RECURSE
+
+L_FACT_BASE:
+    !is_base
+    result = add acc, 0
+    !n
+    !acc
+    return result
+
+L_FACT_RECURSE:
+    !is_base
+    new_n = sub n, 1
+    new_acc = mul n, acc
+    !n
+    !acc
+    // rebind: n = new_n, acc = new_acc (new_n/new_acc are consumed by binding)
+    n = new_n
+    acc = new_acc
+    jmp L_FACT_LOOP
+
+@main() -> i32:
+L_ENTRY:
+    result = call @fact_acc(10, 1)
+    ok = eq result, 3628800
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 8)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

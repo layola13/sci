@@ -1,0 +1,43 @@
+// 328 - Cfg Runtime Macro
+// SA: 用 CFG_CHECK 宏模拟 Rust cfg!(target_arch)
+// 宏内 _flag/_match 被卫生化
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"x86_64\n"
+@const MSG_ERR = utf8:"error\n"
+
+#def CFG_ARCH_X86_64 = 1
+
+// CFG_CHECK: 检查运行时配置值是否匹配目标
+// %out: 输出 1/0, %config: 配置值, %target: 目标值
+[MACRO] CFG_CHECK %out, %config, %target
+    _match = eq %config, %target
+    %out = add _match, 0
+    !_match
+[END_MACRO]
+
+@get_arch() -> i32:
+L_ENTRY:
+    EXPAND CFG_CHECK is_x86, CFG_ARCH_X86_64, 1
+    br is_x86 -> L_X86, L_OTHER
+L_X86:
+    !is_x86
+    return 1
+L_OTHER:
+    !is_x86
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    arch = call @get_arch()
+    ok = eq arch, 1
+    !arch
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 7)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

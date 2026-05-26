@@ -1,0 +1,64 @@
+// 319 - Default Trait
+// SA: 用 DEFAULT_CONFIG 宏模拟 Rust 的 Default::default()
+// 和 struct update syntax { field, ..Default::default() }
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"1400\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Config_SIZE = 12
+#def Config_width = +0
+#def Config_height = +4
+#def Config_fullscreen = +8
+
+// DEFAULT_CONFIG: 将 Config 结构体初始化为默认值
+[MACRO] DEFAULT_CONFIG %ptr
+    store %ptr+Config_width, 800 as i32
+    store %ptr+Config_height, 600 as i32
+    store %ptr+Config_fullscreen, 0 as i32
+[END_MACRO]
+
+// CONFIG_UPDATE_WIDTH: struct update syntax 模拟
+// 先设默认值，再覆盖指定字段
+[MACRO] CONFIG_WITH_WIDTH %ptr, %w
+    EXPAND DEFAULT_CONFIG %ptr
+    store %ptr+Config_width, %w as i32
+[END_MACRO]
+
+// CONFIG_WITH_HEIGHT: struct update syntax 模拟
+[MACRO] CONFIG_WITH_HEIGHT %ptr, %h
+    EXPAND DEFAULT_CONFIG %ptr
+    store %ptr+Config_height, %h as i32
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    c = alloc Config_SIZE
+    EXPAND DEFAULT_CONFIG c
+
+    custom = alloc Config_SIZE
+    // Config { width: 1920, ..Default::default() }
+    EXPAND CONFIG_WITH_WIDTH custom, 1920
+
+    c_w = load c+Config_width as i32
+    custom_h = load custom+Config_height as i32
+    total = add c_w, custom_h
+
+    ok = eq total, 1400
+    !c_w
+    !custom_h
+    !total
+    !c
+    !custom
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 5)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

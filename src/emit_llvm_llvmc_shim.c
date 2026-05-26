@@ -170,11 +170,19 @@ static unsigned normalize_opt_level(int opt_level) {
     return 3;
 }
 
-static void add_inline_hint(EmitCtx *e, LLVMValueRef fn) {
-    unsigned kind = LLVMGetEnumAttributeKindForName("inlinehint", strlen("inlinehint"));
+static void add_enum_function_attr(EmitCtx *e, LLVMValueRef fn, const char *name) {
+    unsigned kind = LLVMGetEnumAttributeKindForName(name, strlen(name));
     if (kind == 0) return;
     LLVMAttributeRef attr = LLVMCreateEnumAttribute(e->ctx, kind, 0);
     LLVMAddAttributeAtIndex(fn, LLVMAttributeFunctionIndex, attr);
+}
+
+static void add_inline_hint(EmitCtx *e, LLVMValueRef fn) {
+    add_enum_function_attr(e, fn, "inlinehint");
+}
+
+static void add_always_inline(EmitCtx *e, LLVMValueRef fn) {
+    add_enum_function_attr(e, fn, "alwaysinline");
 }
 
 static int verify_emit_module(EmitCtx *e, char **out_error) {
@@ -198,7 +206,7 @@ static void optimize_module_ir(EmitCtx *e, int opt_level) {
     if (pmb == NULL) return;
     LLVMPassManagerBuilderSetOptLevel(pmb, level);
     LLVMPassManagerBuilderSetSizeLevel(pmb, 0);
-    LLVMPassManagerBuilderUseInlinerWithThreshold(pmb, level >= 3 ? 275 : 125);
+    LLVMPassManagerBuilderUseInlinerWithThreshold(pmb, level >= 3 ? 900 : 225);
 
     LLVMPassManagerRef fpm = LLVMCreateFunctionPassManagerForModule(e->module);
     if (fpm != NULL) {
@@ -220,6 +228,7 @@ static void optimize_module_ir(EmitCtx *e, int opt_level) {
     LLVMPassManagerRef mpm = LLVMCreatePassManager();
     if (mpm != NULL) {
         LLVMAddFunctionAttrsPass(mpm);
+        LLVMAddAlwaysInlinerPass(mpm);
         LLVMAddGlobalOptimizerPass(mpm);
         if (level >= 2) LLVMAddIPSCCPPass(mpm);
         LLVMPassManagerBuilderPopulateModulePassManager(pmb, mpm);
@@ -652,6 +661,34 @@ static int current_has_terminator(EmitCtx *e) {
     return bb != NULL && LLVMGetBasicBlockTerminator(bb) != NULL;
 }
 
+static int function_has_direct_self_call(const SaFunction *f) {
+    if (f == NULL || f->name == NULL) return 0;
+    for (size_t i = 0; i < f->instruction_count; i++) {
+        const SaInstruction *in = &f->instructions[i];
+        if (in->op == SA_OP_CALL && in->callee != NULL && strcmp(in->callee, f->name) == 0) return 1;
+    }
+    return 0;
+}
+
+static int self_call_is_immediate_tail_return(const SaFunction *f, size_t index) {
+    if (f == NULL || f->return_fallible || index + 1 >= f->instruction_count) return 0;
+
+    const SaInstruction *call = &f->instructions[index];
+    const SaInstruction *ret = &f->instructions[index + 1];
+    if (call->op != SA_OP_CALL || ret->op != SA_OP_RET) return 0;
+    if (call->callee == NULL || strcmp(call->callee, f->name) != 0) return 0;
+    if (call->return_fallible) return 0;
+
+    if (f->ret_ty == SA_T_VOID) {
+        return !call->has_dst && !ret->has_dst;
+    }
+
+    return call->has_dst &&
+           ret->has_dst &&
+           ret->operand0.kind == SA_OPER_REG &&
+           ret->operand0.reg == call->dst;
+}
+
 static int fail_body(EmitCtx *e, const SaFunction *f, const SaInstruction *in, size_t index, const char *message) {
     const char *fn_name = f != NULL && f->name != NULL ? f->name : "<unknown>";
     SaOp op = in != NULL ? in->op : SA_OP_NONE;
@@ -1037,6 +1074,17 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 }
                 free(param_types);
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)in->arg_count, in->has_dst ? "call" : "");
+                if (self_call_is_immediate_tail_return(f, i)) {
+                    LLVMSetTailCall(callv, 1);
+                    if (f->ret_ty == SA_T_VOID) {
+                        LLVMBuildRetVoid(e->builder);
+                    } else {
+                        LLVMBuildRet(e->builder, coerce(e, callv, in->ty, f->ret_ty));
+                    }
+                    free(args);
+                    i += 1;
+                    break;
+                }
                 if (in->has_dst) {
                     if (reg_store(e, regs, reg_count, in->dst, callv, in->ty, in->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
                 }
@@ -1706,10 +1754,17 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         LLVMValueRef fn = LLVMAddFunction(e->module, m->functions[i].name, fty);
         if (m->functions[i].kind != SA_F_EXPORTED && strcmp(m->functions[i].name, "saasm_main") != 0)
             LLVMSetLinkage(fn, (m->functions[i].kind == SA_F_EXTERNAL || m->is_cgu) ? LLVMExternalLinkage : LLVMInternalLinkage);
+        int direct_self_call = function_has_direct_self_call(&m->functions[i]);
         if (m->functions[i].kind == SA_F_NORMAL &&
             !m->is_cgu &&
             !m->functions[i].emit_main_wrapper &&
-            m->functions[i].instruction_count <= 80) {
+            !direct_self_call &&
+            m->functions[i].instruction_count <= 24) {
+            add_always_inline(e, fn);
+        } else if (m->functions[i].kind == SA_F_NORMAL &&
+            !m->is_cgu &&
+            !m->functions[i].emit_main_wrapper &&
+            m->functions[i].instruction_count <= 100) {
             add_inline_hint(e, fn);
         }
     }

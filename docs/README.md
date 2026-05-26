@@ -7,6 +7,8 @@
 
 - 📖 **[Beginner's Guide (初学者教程)](./tutorial/beginner_guide.md)**  
   👉 **必读**：包含安装、Hello World、核心 5 符号、扁平控制流及日常编写指南。
+- 🧱 **[SAX Basics (SAX 基础)](./tutorial/08_sax_basics.md)**  
+  说明 `.sax` 如何真实生成 `app.wasm`、`airlock.js`、`index.html` 和 `.sa`，以及如何在浏览器里验证。
 - ⚡ **[LLM Cheat Sheet (AI 极简速查表)](./llm_cheat_sheet.md)**  
   高浓度提取的语法规范与核心限制，专门写给 LLM (GPT/Claude) 读的 Prompt 底稿。
 - ❓ **[FAQ (常见问题解答)](./faq.md)**  

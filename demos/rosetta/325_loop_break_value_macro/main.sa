@@ -1,0 +1,51 @@
+// 325 - Loop Break Value Macro
+// SA: 用 LOOP_FIND 宏模拟 Rust loop { if cond { break val } }
+// 卫生宏保证 _i/_sq/_found/_new_i/L_LF_* 每次展开独立
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"25\n"
+@const MSG_ERR = utf8:"error\n"
+
+// LOOP_FIND: 从 %start 递增，找到 i*i > %threshold 时 break
+// %out: 输出找到的 i*i
+[MACRO] LOOP_FIND %out, %start, %threshold
+    _i = add %start, 0
+    jmp L_LF_LOOP
+L_LF_LOOP:
+    _sq = mul _i, _i
+    _found = ugt _sq, %threshold
+    br _found -> L_LF_FOUND, L_LF_NEXT
+L_LF_NEXT:
+    !_sq
+    !_found
+    _new_i = add _i, 1
+    !_i
+    _i = add _new_i, 0
+    !_new_i
+    jmp L_LF_LOOP
+L_LF_FOUND:
+    !_found
+    !_i
+    %out = add _sq, 0
+    !_sq
+[END_MACRO]
+
+@find_square() -> i32:
+L_ENTRY:
+    EXPAND LOOP_FIND result, 1, 20
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    result = call @find_square()
+    ok = eq result, 25
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 3)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

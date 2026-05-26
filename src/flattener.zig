@@ -278,6 +278,188 @@ fn renderWithReplacements(
     return current;
 }
 
+fn renderWithTokenReplacements(
+    allocator: std.mem.Allocator,
+    text: []const u8,
+    replacements: []const Replacement,
+) ![]const u8 {
+    if (replacements.len == 0) {
+        return try allocator.dupe(u8, text);
+    }
+
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
+
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+
+        // String literal: copy until closing quote
+        if (c == '"') {
+            try result.append(c);
+            i += 1;
+            while (i < text.len and text[i] != '"') {
+                try result.append(text[i]);
+                i += 1;
+            }
+            if (i < text.len) {
+                try result.append(text[i]); // closing quote
+                i += 1;
+            }
+            continue;
+        }
+
+        // Line comment: copy to end
+        if (c == '/' and i + 1 < text.len and text[i + 1] == '/') {
+            while (i < text.len) {
+                try result.append(text[i]);
+                i += 1;
+            }
+            continue;
+        }
+
+        // @ and # prefixed identifiers: always copy as-is (function names, defs)
+        if (c == '@' or c == '#') {
+            try result.append(c);
+            i += 1;
+            while (i < text.len and isIdentChar(text[i])) {
+                try result.append(text[i]);
+                i += 1;
+            }
+            continue;
+        }
+
+        // % prefixed identifiers: collect full token and check for replacement
+        if (c == '%') {
+            const token_start = i;
+            i += 1;
+            while (i < text.len and isIdentChar(text[i])) {
+                i += 1;
+            }
+            const token = text[token_start..i]; // e.g. %name_SIZE
+            var found = false;
+            for (replacements) |r| {
+                if (std.mem.eql(u8, r.needle, token)) {
+                    // Exact match: replace entire token
+                    try result.appendSlice(r.replacement);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                // Try prefix match: needle like %name matches %name_SIZE
+                for (replacements) |r| {
+                    if (r.needle.len > 0 and r.needle[0] == '%' and
+                        r.needle.len < token.len and
+                        std.mem.eql(u8, r.needle, token[0..r.needle.len]))
+                    {
+                        try result.appendSlice(r.replacement);
+                        try result.appendSlice(token[r.needle.len..]);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                try result.appendSlice(token);
+            }
+            continue;
+        }
+
+        // Identifier: collect and try replacement
+        if (isIdentStart(c)) {
+            const ident_start = i;
+            while (i < text.len and isIdentChar(text[i])) {
+                i += 1;
+            }
+            const ident = text[ident_start..i];
+
+            var found = false;
+            for (replacements) |r| {
+                if (std.mem.eql(u8, r.needle, ident)) {
+                    try result.appendSlice(r.replacement);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                try result.appendSlice(ident);
+            }
+            continue;
+        }
+
+        // Other characters: copy as-is
+        try result.append(c);
+        i += 1;
+    }
+
+    return result.toOwnedSlice();
+}
+
+fn isIdentStart(c: u8) bool {
+    return std.ascii.isAlphabetic(c) or c == '_';
+}
+
+fn isIdentChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+fn collectDefinedNames(
+    allocator: std.mem.Allocator,
+    lines: []const SourceLine,
+    start: usize,
+    end: usize,
+) !std.StringHashMap(void) {
+    var names = std.StringHashMap(void).init(allocator);
+
+    for (start..end) |idx| {
+        const line = lines[idx];
+        switch (line.classified.kind) {
+            .label => {
+                const name = line.classified.parts[0];
+                if (std.mem.startsWith(u8, name, "L_")) {
+                    try names.put(name, {});
+                }
+            },
+            .instruction => {
+                const form = line.classified.inst_form orelse continue;
+                const should_collect = switch (form) {
+                    .alloc, .stack_alloc, .load, .borrow, .move_, .assign, .op, .ptr_add, .call, .call_indirect, .try_, .cmpxchg, .atomic_load, .atomic_rmw, .fence, .raw_cast, .assume_safe, .assume_borrow => true,
+                    else => false,
+                };
+                if (should_collect) {
+                    const name = line.classified.parts[0];
+                    if (name.len > 0 and name[0] == '_') {
+                        try names.put(name, {});
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+
+    return names;
+}
+
+fn buildHygieneReplacements(
+    allocator: std.mem.Allocator,
+    defined_names: *std.StringHashMap(void),
+    expansion_id: u64,
+) !std.ArrayList(Replacement) {
+    var replacements = std.ArrayList(Replacement).init(allocator);
+    errdefer replacements.deinit();
+
+    var it = defined_names.keyIterator();
+    while (it.next()) |name_ptr| {
+        const name = name_ptr.*;
+        const replacement_text = try std.fmt.allocPrint(allocator, "{s}__sa_hyg{d}", .{ name, expansion_id });
+        errdefer allocator.free(replacement_text);
+        try replacements.append(.{ .needle = name, .replacement = replacement_text });
+    }
+
+    return replacements;
+}
+
 fn ownText(
     allocator: std.mem.Allocator,
     owned_text: *std.ArrayList([]const u8),
@@ -2024,6 +2206,7 @@ fn emitRange(
     error_ctx: ?*ErrorContext,
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
+    expansion_counter: *u64,
 ) !void {
     if (depth > 256) return error.MacroRecursionLimit;
 
@@ -2059,7 +2242,7 @@ fn emitRange(
             .def, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .native, .unknown => {
                 const should_render = source_line_override != null or replacements.len != 0;
                 if (should_render) {
-                    const rendered = try renderWithReplacements(allocator, line.text, replacements);
+                    const rendered = try renderWithTokenReplacements(allocator, line.text, replacements);
                     try owned_text.append(rendered);
                     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash);
                 } else {
@@ -2080,21 +2263,24 @@ fn emitRange(
 
                 var rep_index: usize = 0;
                 while (rep_index < count) : (rep_index += 1) {
+                    expansion_counter.* += 1;
+                    var rep_defined_names = try collectDefinedNames(allocator, lines, idx + 1, rep_end);
+                    defer rep_defined_names.deinit();
+                    var hygiene_replacements = try buildHygieneReplacements(allocator, &rep_defined_names, expansion_counter.*);
+                    defer {
+                        for (hygiene_replacements.items) |r| allocator.free(r.replacement);
+                        hygiene_replacements.deinit();
+                    }
+
                     const rep_value = try std.fmt.allocPrint(allocator, "{d}", .{rep_index});
                     defer allocator.free(rep_value);
 
-                    const combined = if (replacements.len == 0) blk: {
-                        var list = std.ArrayList(Replacement).init(allocator);
-                        errdefer list.deinit();
-                        try list.append(.{ .needle = "%i", .replacement = rep_value });
-                        break :blk try list.toOwnedSlice();
-                    } else blk: {
-                        var list = std.ArrayList(Replacement).init(allocator);
-                        errdefer list.deinit();
-                        try list.appendSlice(replacements);
-                        try list.append(.{ .needle = "%i", .replacement = rep_value });
-                        break :blk try list.toOwnedSlice();
-                    };
+                    var list = std.ArrayList(Replacement).init(allocator);
+                    errdefer list.deinit();
+                    try list.appendSlice(hygiene_replacements.items);
+                    try list.appendSlice(replacements);
+                    try list.append(.{ .needle = "%i", .replacement = rep_value });
+                    const combined = try list.toOwnedSlice();
                     defer allocator.free(combined);
 
                     try emitRange(
@@ -2120,6 +2306,7 @@ fn emitRange(
                         error_ctx,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
+                        expansion_counter,
                     );
                 }
 
@@ -2131,7 +2318,7 @@ fn emitRange(
                 const condition_text = if (replacements.len == 0)
                     try allocator.dupe(u8, line.classified.parts[0])
                 else
-                    try renderWithReplacements(allocator, line.classified.parts[0], replacements);
+                    try renderWithTokenReplacements(allocator, line.classified.parts[0], replacements);
                 defer allocator.free(condition_text);
                 try owned_text.append(try allocator.dupe(u8, condition_text));
 
@@ -2162,6 +2349,7 @@ fn emitRange(
                         error_ctx,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
+                        expansion_counter,
                     );
                 }
                 idx = bounds.end_idx;
@@ -2169,7 +2357,7 @@ fn emitRange(
             .else_, .if_end => return error.InvalidMacroInvocation,
             .expand => {
                 const rendered_line = if (replacements.len == 0) line.text else blk: {
-                    const rendered = try renderWithReplacements(allocator, line.text, replacements);
+                    const rendered = try renderWithTokenReplacements(allocator, line.text, replacements);
                     try owned_text.append(rendered);
                     break :blk rendered;
                 };
@@ -2308,6 +2496,7 @@ fn emitRange(
                         error_ctx,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
+                        expansion_counter,
                     );
                 } else if (std.mem.eql(u8, macro_name, "INCLUDE_STR!") or std.mem.eql(u8, macro_name, "INCLUDE_BYTES!")) {
                     try includeFileAsConst(
@@ -2333,8 +2522,19 @@ fn emitRange(
                     defer allocator.free(args);
                     if (def.variadic_param) |variadic_param| {
                         if (args.len < def.params.len) return error.InvalidMacroInvocation;
+
+                        expansion_counter.* += 1;
+                        var var_defined_names = try collectDefinedNames(allocator, lines, def.body_start, def.body_end);
+                        defer var_defined_names.deinit();
+                        var var_hygiene = try buildHygieneReplacements(allocator, &var_defined_names, expansion_counter.*);
+                        defer {
+                            for (var_hygiene.items) |r| allocator.free(r.replacement);
+                            var_hygiene.deinit();
+                        }
+
                         var local_replacements = std.ArrayList(Replacement).init(allocator);
                         errdefer local_replacements.deinit();
+                        try local_replacements.appendSlice(var_hygiene.items);
                         for (def.params, 0..) |param, iarg| {
                             try local_replacements.append(.{ .needle = param, .replacement = args[iarg] });
                         }
@@ -2367,14 +2567,25 @@ fn emitRange(
                             error_ctx,
                             effective_package_identity,
                             line.package_source_sha256 orelse current_package_hash,
+                        expansion_counter,
                         );
                         continue;
                     }
 
                     if (args.len != def.params.len) return error.InvalidMacroInvocation;
 
+                    expansion_counter.* += 1;
+                    var nv_defined_names = try collectDefinedNames(allocator, lines, def.body_start, def.body_end);
+                    defer nv_defined_names.deinit();
+                    var nv_hygiene = try buildHygieneReplacements(allocator, &nv_defined_names, expansion_counter.*);
+                    defer {
+                        for (nv_hygiene.items) |r| allocator.free(r.replacement);
+                        nv_hygiene.deinit();
+                    }
+
                     var local_replacements = std.ArrayList(Replacement).init(allocator);
                     errdefer local_replacements.deinit();
+                    try local_replacements.appendSlice(nv_hygiene.items);
                     for (def.params, 0..) |param, iarg| {
                         try local_replacements.append(.{ .needle = param, .replacement = args[iarg] });
                     }
@@ -2403,6 +2614,7 @@ fn emitRange(
                         error_ctx,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
+                        expansion_counter,
                     );
                 }
             },
@@ -3062,6 +3274,7 @@ fn flattenInternal(
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
     const empty_replacements = [_]Replacement{};
+    var expansion_counter: u64 = 0;
     emitRange(
         allocator,
         lines,
@@ -3085,6 +3298,7 @@ fn flattenInternal(
         error_ctx,
         null,
         null,
+        &expansion_counter,
     ) catch |err| return err;
     if (pending_loc) |loc| {
         allocator.free(loc.file);
@@ -4070,4 +4284,199 @@ test "PRINT! and FORMAT! macro static expansion" {
         }
     }
     try std.testing.expect(found_sys_print);
+}
+
+test "hygiene: two macro expansions produce distinct internal symbols" {
+    const source =
+        \\[MACRO] BAR %x
+        \\    _tmp = add %x, 1
+        \\    return _tmp
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND BAR 5
+        \\    EXPAND BAR 10
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // Both expansions should have hygienified _tmp
+    try std.testing.expect(result.symbols.contains("_tmp__sa_hyg1"));
+    try std.testing.expect(result.symbols.contains("_tmp__sa_hyg2"));
+    // Original _tmp should NOT appear as a symbol
+    try std.testing.expect(!result.symbols.contains("_tmp"));
+}
+
+test "hygiene: parameter text is not hygienified" {
+    const source =
+        \\[MACRO] BAZ %out, %val
+        \\    _internal = add %val, 1
+        \\    %out = _internal
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND BAZ _tmp, 5
+        \\    return _tmp
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // _internal defined in macro body should be hygienified
+    try std.testing.expect(result.symbols.contains("_internal__sa_hyg1"));
+    // _tmp passed as parameter should NOT be hygienified
+    try std.testing.expect(result.symbols.contains("_tmp"));
+    // Original _internal should not appear
+    try std.testing.expect(!result.symbols.contains("_internal"));
+}
+
+test "hygiene: token boundary does not falsely match partial identifiers" {
+    const source =
+        \\[MACRO] QUUX %x
+        \\    _tmp = add %x, 1
+        \\    _tmp2 = add _tmp, 2
+        \\    return _tmp2
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND QUUX 3
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // Both _tmp and _tmp2 should be hygienified (exact match)
+    try std.testing.expect(result.symbols.contains("_tmp__sa_hyg1"));
+    try std.testing.expect(result.symbols.contains("_tmp2__sa_hyg1"));
+}
+
+test "hygiene: REP labels are unique per iteration" {
+    const source =
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\[REP 3]
+        \\L_LOOP:
+        \\    tmp_%i = add %i, 0
+        \\[END_REP]
+        \\    return 0
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // Each REP iteration should produce a distinct hygienified label
+    try std.testing.expect(result.symbols.contains("L_LOOP__sa_hyg1"));
+    try std.testing.expect(result.symbols.contains("L_LOOP__sa_hyg2"));
+    try std.testing.expect(result.symbols.contains("L_LOOP__sa_hyg3"));
+    // Original L_LOOP should NOT appear as a label symbol
+    try std.testing.expect(!result.symbols.contains("L_LOOP"));
+}
+
+test "hygiene: string and comment contents are not modified" {
+    const source =
+        \\[MACRO] STR5 %x
+        \\    _tmp = add %x, 1
+        \\    _msg = add 0, 0
+        \\    return _tmp
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND STR5 42
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // _tmp and _msg should be hygienified
+    try std.testing.expect(result.symbols.contains("_tmp__sa_hyg1"));
+    try std.testing.expect(result.symbols.contains("_msg__sa_hyg1"));
+    // Original _tmp and _msg should NOT appear
+    try std.testing.expect(!result.symbols.contains("_tmp"));
+    try std.testing.expect(!result.symbols.contains("_msg"));
+}
+
+test "hygiene: nested macro expansion applies unique ids" {
+    const source =
+        \\[MACRO] INNER %x
+        \\    _val = add %x, 1
+        \\    return _val
+        \\[END_MACRO]
+        \\[MACRO] OUTER %y
+        \\    _val = add %y, 2
+        \\    EXPAND INNER _val
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    _out = alloc 8
+        \\    EXPAND OUTER 5
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // OUTER's _val should be hygienified
+    try std.testing.expect(result.symbols.contains("_val__sa_hyg1"));
+    // INNER's _val should get a different hygiene id
+    try std.testing.expect(result.symbols.contains("_val__sa_hyg2"));
+    // Both expansions produced _val, but with different ids
+    // Original _val should NOT appear
+    try std.testing.expect(!result.symbols.contains("_val"));
+}
+
+test "hygiene: while-let macro with multiple expansions" {
+    const source =
+        \\#def Option_SIZE = 8
+        \\
+        \\[MACRO] UNWRAP_OR_ZERO %out, %opt_ptr
+        \\    _tag = load %opt_ptr+0 as u32
+        \\    _is_some = eq _tag, 1
+        \\    !_tag
+        \\    br _is_some -> L_SOME, L_NONE
+        \\L_SOME:
+        \\    !_is_some
+        \\    %out = load %opt_ptr+4 as i32
+        \\    !%opt_ptr
+        \\    jmp L_END
+        \\L_NONE:
+        \\    !_is_some
+        \\    !%opt_ptr
+        \\    %out = add 0, 0
+        \\L_END:
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    opt0 = alloc Option_SIZE
+        \\    store opt0+0, 1 as u32
+        \\    store opt0+4, 42 as i32
+        \\    opt1 = alloc Option_SIZE
+        \\    store opt1+0, 0 as u32
+        \\    EXPAND UNWRAP_OR_ZERO v0, opt0
+        \\    EXPAND UNWRAP_OR_ZERO v1, opt1
+        \\    sum = add v0, v1
+        \\    return sum
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    // Labels should be hygienified - different per expansion
+    try std.testing.expect(result.symbols.contains("L_SOME__sa_hyg1"));
+    try std.testing.expect(result.symbols.contains("L_SOME__sa_hyg2"));
+    try std.testing.expect(!result.symbols.contains("L_SOME"));
+
+    // Internal names should be hygienified
+    try std.testing.expect(result.symbols.contains("_tag__sa_hyg1"));
+    try std.testing.expect(result.symbols.contains("_tag__sa_hyg2"));
+    try std.testing.expect(!result.symbols.contains("_tag"));
+
+    // Output params should NOT be hygienified
+    try std.testing.expect(result.symbols.contains("v0"));
+    try std.testing.expect(result.symbols.contains("v1"));
 }

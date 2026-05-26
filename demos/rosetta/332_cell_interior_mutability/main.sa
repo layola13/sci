@@ -1,0 +1,48 @@
+// 332 - Cell Interior Mutability
+// SA: 使用 CELL_NEW, CELL_GET, CELL_SET 模拟 Rust 的 Cell 内部可变性
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"100\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Cell_SIZE = 8
+#def Cell_value = +0
+
+@main() -> i32:
+L_ENTRY:
+    // Create new Cell
+    cell = alloc Cell_SIZE
+    store cell+Cell_value, 42 as i32
+    
+    // Set cell value to 100
+    EXPAND CELL_SET cell, 100
+    
+    // Get cell value
+    EXPAND CELL_GET val, cell
+    
+    ok = eq val, 100
+    !val
+    !cell
+    
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 4)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+// --- CELL 宏定义 ---
+
+[MACRO] CELL_GET %out_value, %cell_reg
+    %out_value = load %cell_reg+Cell_value as i32
+[END_MACRO]
+
+[MACRO] CELL_SET %cell_reg, %value
+    store %cell_reg+Cell_value, %value as i32
+[END_MACRO]

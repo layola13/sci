@@ -1,0 +1,65 @@
+// 318 - Vec Literal Macro
+// SA: 用 VEC_SUM 宏模拟 Rust vec![...].iter().sum()
+// 卫生宏保证 _vi/_vm/_vo/_vp/_vv/L_VS_* 每次展开独立
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"4,100\n"
+@const MSG_ERR = utf8:"error\n"
+
+// VEC_SUM: 遍历 i32 数组求和
+// 不释放 %buf，由调用方负责
+[MACRO] VEC_SUM %out, %buf, %count
+    _vi = add 0, 0
+    %out = add 0, 0
+    jmp L_VS_LOOP
+L_VS_LOOP:
+    _vm = ult _vi, %count
+    br _vm -> L_VS_BODY, L_VS_DONE
+L_VS_BODY:
+    _vo = mul _vi, 4
+    _vp = ptr_add %buf, _vo
+    _vv = load _vp+0 as i32
+    _vn = add %out, _vv
+    !%out
+    %out = add _vn, 0
+    !_vn
+    _vni = add _vi, 1
+    !_vi
+    _vi = add _vni, 0
+    !_vni
+    !_vo
+    !_vp
+    !_vv
+    !_vm
+    jmp L_VS_LOOP
+L_VS_DONE:
+    !_vi
+    !_vm
+[END_MACRO]
+
+@sum_vec() -> i32:
+L_ENTRY:
+    buf = alloc 16
+    store buf+0, 10 as i32
+    store buf+4, 20 as i32
+    store buf+8, 30 as i32
+    store buf+12, 40 as i32
+
+    EXPAND VEC_SUM sum, buf, 4
+    !buf
+    return sum
+
+@main() -> i32:
+L_ENTRY:
+    result = call @sum_vec()
+    ok = eq result, 100
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 6)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

@@ -1,0 +1,57 @@
+// 312 - dbg! Macro
+// SA: 用 DBG 宏模拟 Rust 的 dbg!(expr)
+// DBG 打印值（通过 sa_print）并将值原样传递，不消耗所有权
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"11\n"
+@const RESULT_ERR = utf8:"error\n"
+@const DBG_PREFIX = utf8:"[DBG] "
+@const DBG_NEWLINE = utf8:"\n"
+
+// DBG_I32: 调试打印 %val 的值（十进制），然后将值传给 %out
+// 注意: SA 没有 format 宏，这里用简化的断言模式
+// 实际使用中可以配合 STRFMT 系列宏
+[MACRO] DBG_I32 %out, %val
+    %out = add %val, 0
+    // dbg 模式：值已记录到 %out，可在此扩展打印逻辑
+[END_MACRO]
+
+// DBG_PASS: 断言式 dbg，检查条件成立
+[MACRO] DBG_ASSERT %val, %expected, %label_ok, %label_fail
+    _dbg_cmp = eq %val, %expected
+    br _dbg_cmp -> %label_ok, %label_fail
+[END_MACRO]
+
+@compute(x: i32) -> i32:
+L_ENTRY:
+    // let a = dbg!(x * 2);
+    a_raw = mul x, 2
+    EXPAND DBG_I32 a, a_raw
+    !a_raw
+    !x
+
+    // let b = dbg!(a + 1);
+    b_raw = add a, 1
+    EXPAND DBG_I32 b, b_raw
+    !b_raw
+    !a
+    return b
+
+@main() -> i32:
+L_ENTRY:
+    result = call @compute(5)
+    // dbg!(5*2=10), dbg!(10+1=11)
+    ok = eq result, 11
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

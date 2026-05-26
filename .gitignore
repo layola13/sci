@@ -23,3 +23,11 @@ repro_*.zig
 .o
 .diff
 .exe
+
+# Demos compiled artifacts
+demos/**/bin/
+demos/**/*.out
+demos/**/*.wasm
+demos/**/*.o
+demos/**/*.bc
+

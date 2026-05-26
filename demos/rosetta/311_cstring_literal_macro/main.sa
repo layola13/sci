@@ -1,0 +1,61 @@
+// 311 - CString Literal Macro
+// SA: 用 CSTRING_LEN 宏模拟 Rust CStr::len()
+// 卫生宏保证 _off/_p/_b/_is_end/L_SCAN/L_NEXT/L_DONE 每次展开独立
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"5\n"
+@const MSG_ERR = utf8:"error\n"
+
+// CSTRING_LEN: 扫描 null-terminated i32 数组，长度写入 %out
+// 不释放 %buf，由调用方负责
+[MACRO] CSTRING_LEN %out, %buf
+    %out = add 0, 0
+    jmp L_SCAN
+L_SCAN:
+    _off = mul %out, 4
+    _p = ptr_add %buf, _off
+    _b = load _p+0 as i32
+    _is_end = eq _b, 0
+    !_b
+    !_p
+    !_off
+    br _is_end -> L_DONE, L_NEXT
+L_NEXT:
+    !_is_end
+    _new_len = add %out, 1
+    !%out
+    %out = add _new_len, 0
+    !_new_len
+    jmp L_SCAN
+L_DONE:
+    !_is_end
+[END_MACRO]
+
+@count_null_term() -> i32:
+L_ENTRY:
+    buf = alloc 24
+    store buf+0, 104 as i32
+    store buf+4, 101 as i32
+    store buf+8, 108 as i32
+    store buf+12, 108 as i32
+    store buf+16, 111 as i32
+    store buf+20, 0 as i32
+
+    EXPAND CSTRING_LEN len, buf
+    !buf
+    return len
+
+@main() -> i32:
+L_ENTRY:
+    result = call @count_null_term()
+    ok = eq result, 5
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 2)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

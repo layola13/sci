@@ -1,0 +1,58 @@
+// 326 - Lazy Static Macro
+// SA: 用 LAZY_GET_OR_INIT 宏模拟 Rust lazy_static!
+// 卫生宏保证 _flag/_inited/L_LZY_* 每次展开独立
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"84\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def NOT_INIT = 0
+#def IS_INIT = 1
+
+// LAZY_GET_OR_INIT: 未初始化则写入 %init_val，否则读缓存
+// 不释放 %lock_ptr，由调用方负责
+[MACRO] LAZY_GET_OR_INIT %out, %lock_ptr, %init_val
+    _flag = load %lock_ptr+0 as u32
+    _inited = eq _flag, IS_INIT
+    br _inited -> L_LZY_CACHED, L_LZY_INIT
+L_LZY_INIT:
+    !_flag
+    !_inited
+    store %lock_ptr+4, %init_val as i32
+    store %lock_ptr+0, IS_INIT as u32
+    %out = add %init_val, 0
+    jmp L_LZY_DONE
+L_LZY_CACHED:
+    !_flag
+    !_inited
+    %out = load %lock_ptr+4 as i32
+L_LZY_DONE:
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    lock = alloc 8
+    store lock+0, NOT_INIT as u32
+    store lock+4, 0 as i32
+
+    // 两次 lazy init：卫生宏保证 _flag/_inited/L_LZY_* 每次独立
+    EXPAND LAZY_GET_OR_INIT a, lock, 42
+    EXPAND LAZY_GET_OR_INIT b, lock, 42
+
+    !lock
+
+    total = add a, b
+    ok = eq total, 84
+    !a
+    !b
+    !total
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -97,12 +97,19 @@ for dir in demos/rosetta/*; do
     [ -f "$dir/main.sa" ] || continue
 
     base=$(basename "$dir")
+    # Skip HTTP demos that need special runtime
+    case "$base" in
+        301_http_client_saasm|302_http_server_saasm)
+            ((skip++))
+            continue
+            ;;
+    esac
     num_raw=${base%%_*}
     case "$num_raw" in
         ''|*[!0-9]*) continue ;;
     esac
     num=$((10#$num_raw))
-    if [ "$num" -lt 1 ] || [ "$num" -gt 300 ]; then
+    if [ "$num" -lt 1 ] || [ "$num" -gt 333 ]; then
         continue
     fi
 

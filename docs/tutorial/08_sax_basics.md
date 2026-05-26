@@ -79,12 +79,15 @@ dist/counter.sa
 
 如果输入文件叫 `app.sax`，对应的 `.sa` 文件名也会变成 `app.sa`。
 
+这不是演示占位：`sa sax build` 会真实产出可运行的浏览器包。我们已经用 `counter.sax` 和 `todolist.sax` 跑通了完整链路，并在 Chromium 里验证了页面挂载和点击更新。
+
 ## 关键点
 
 1. `<state>` 变量在 handler 里通过 `state+Component_var` 访问。
 2. 文本插值 `{count}` 是只读读取。
 3. `call @render()` 只应出现在 `@handler` 中。
-4. 浏览器运行时只依赖 `app.wasm` 和轻量的 `airlock.js` 桥接层。
+4. 浏览器运行时依赖 `app.wasm` 和轻量的 `airlock.js` 桥接层，`index.html` 负责加载它们并设置 CSP。
+5. 真实运行时验证可以参考插件目录里的 `tools/verify_sax_browser.mjs` 和 `tools/verify_sax_runtime.mjs`。
 
 ## 练习
 

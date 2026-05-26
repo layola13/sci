@@ -1,0 +1,295 @@
+// rust_patterns.sal — SA 标准宏库：Rust 风格模式
+// 提供 match guard、range pattern、or-pattern、@-binding、
+// while-let、for-each、try block、generator、tail call 等宏
+// 所有宏均为纯文本展开，零运行时开销
+
+// ═══════════════════════════════════════════════════
+// 1. MATCH GUARD PATTERNS
+// ═══════════════════════════════════════════════════
+
+// MATCH_GUARD_LT: if val < bound → yes/no
+[MACRO] MATCH_GUARD_LT %val, %bound, %label_yes, %label_no
+    _mgl = slt %val, %bound
+    br _mgl -> %label_yes, %label_no
+[END_MACRO]
+
+// MATCH_GUARD_LE: if val <= bound → yes/no
+[MACRO] MATCH_GUARD_LE %val, %bound, %label_yes, %label_no
+    _mgle = sle %val, %bound
+    br _mgle -> %label_yes, %label_no
+[END_MACRO]
+
+// MATCH_GUARD_EQ: if val == bound → yes/no
+[MACRO] MATCH_GUARD_EQ %val, %bound, %label_yes, %label_no
+    _mgeq = eq %val, %bound
+    br _mgeq -> %label_yes, %label_no
+[END_MACRO]
+
+// MATCH_GUARD_NE: if val != bound → yes/no
+[MACRO] MATCH_GUARD_NE %val, %bound, %label_yes, %label_no
+    _mgne = ne %val, %bound
+    br _mgne -> %label_yes, %label_no
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 2. RANGE PATTERN
+// ═══════════════════════════════════════════════════
+
+// RANGE_IN: if lo <= val <= hi → yes/no
+[MACRO] RANGE_IN %val, %lo, %hi, %label_yes, %label_no
+    _rlo = sle %lo, %val
+    _rhi = sle %val, %hi
+    _rin = and _rlo, _rhi
+    !_rlo
+    !_rhi
+    br _rin -> %label_yes, %label_no
+[END_MACRO]
+
+// BIND_RANGE: bind val to %bound AND check range
+[MACRO] BIND_RANGE %bound, %val, %lo, %hi, %label_yes, %label_no
+    %bound = add %val, 0
+    _br_lo = sle %lo, %bound
+    _br_hi = sle %bound, %hi
+    _br_in = and _br_lo, _br_hi
+    !_br_lo
+    !_br_hi
+    br _br_in -> %label_yes, %label_no
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 3. OR-PATTERN (TAG MATCHING)
+// ═══════════════════════════════════════════════════
+
+// OR_TAG_2: tag == t1 || tag == t2 → bool
+[MACRO] OR_TAG_2 %out, %tag, %t1, %t2
+    _ot2a = eq %tag, %t1
+    _ot2b = eq %tag, %t2
+    %out = or _ot2a, _ot2b
+    !_ot2a
+    !_ot2b
+[END_MACRO]
+
+// OR_TAG_3: tag == t1 || t2 || t3 → bool
+[MACRO] OR_TAG_3 %out, %tag, %t1, %t2, %t3
+    _ot3a = eq %tag, %t1
+    _ot3b = eq %tag, %t2
+    _ot3c = eq %tag, %t3
+    _ot3ab = or _ot3a, _ot3b
+    %out = or _ot3ab, _ot3c
+    !_ot3a
+    !_ot3b
+    !_ot3c
+    !_ot3ab
+[END_MACRO]
+
+// OR_TAG_4: tag == t1 || t2 || t3 || t4 → bool
+[MACRO] OR_TAG_4 %out, %tag, %t1, %t2, %t3, %t4
+    _ot4a = eq %tag, %t1
+    _ot4b = eq %tag, %t2
+    _ot4c = eq %tag, %t3
+    _ot4d = eq %tag, %t4
+    _ot4ab = or _ot4a, _ot4b
+    _ot4cd = or _ot4c, _ot4d
+    %out = or _ot4ab, _ot4cd
+    !_ot4a
+    !_ot4b
+    !_ot4c
+    !_ot4d
+    !_ot4ab
+    !_ot4cd
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 4. MATCHES! MACRO
+// ═══════════════════════════════════════════════════
+
+// MATCHES_TAG: tag == target → bool
+[MACRO] MATCHES_TAG %out, %tag, %target
+    %out = eq %tag, %target
+[END_MACRO]
+
+// MATCHES_TAG_AND: tag == target AND extra_cond → bool
+[MACRO] MATCHES_TAG_AND %out, %tag, %target, %extra_cond
+    _mta = eq %tag, %target
+    %out = and _mta, %extra_cond
+    !_mta
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 5. WHILE-LET / FOR-EACH
+// ═══════════════════════════════════════════════════
+
+// WHILE_SOME: check option is Some → body/exit
+[MACRO] WHILE_SOME %opt_ptr, %out_val, %label_body, %label_exit
+    _ws = eq 0, 0
+    EXPAND OPTION_IS_SOME _ws, %opt_ptr
+    br _ws -> %label_body, %label_exit
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 6. TRY BLOCK
+// ═══════════════════════════════════════════════════
+
+// TRY_CHECK: check result is ok → unwrap/err
+[MACRO] TRY_CHECK %result, %out_val, %label_ok, %label_err
+    EXPAND RESULT_IS_OK _tc_ok, %result
+    br _tc_ok -> %label_ok, %label_err
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 7. TAIL CALL
+// ═══════════════════════════════════════════════════
+
+// TAIL_CALL_2: update 2 params and jump back
+[MACRO] TAIL_CALL_2 %p1, %p2, %new_p1, %new_p2, %label_loop
+    !%p1
+    !%p2
+    %p1 = add %new_p1, 0
+    %p2 = add %new_p2, 0
+    jmp %label_loop
+[END_MACRO]
+
+// TAIL_CALL_3: update 3 params and jump back
+[MACRO] TAIL_CALL_3 %p1, %p2, %p3, %new_p1, %new_p2, %new_p3, %label_loop
+    !%p1
+    !%p2
+    !%p3
+    %p1 = add %new_p1, 0
+    %p2 = add %new_p2, 0
+    %p3 = add %new_p3, 0
+    jmp %label_loop
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 8. LOOP BREAK VALUE
+// ═══════════════════════════════════════════════════
+
+// LOOP_FIND: loop pattern with break value
+// (specific implementations are per-use-case)
+
+// ═══════════════════════════════════════════════════
+// 9. STRUCT PATTERNS
+// ═══════════════════════════════════════════════════
+
+// DESTRUCT_PAIR: extract first two i32 from base
+[MACRO] DESTRUCT_PAIR %out_a, %out_b, %base
+    %out_a = load %base+0 as i32
+    %out_b = load %base+4 as i32
+[END_MACRO]
+
+// DESTRUCT_FIRST: extract first field at offset
+[MACRO] DESTRUCT_FIRST %out, %base, %offset
+    %out = load %base+%offset as i32
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 10. LAZY / ONCE
+// ═══════════════════════════════════════════════════
+
+#def LAZY_NOT_INIT = 0
+#def LAZY_IS_INIT = 1
+
+// LAZY_GET_OR_INIT: check init flag, init if needed, return value
+[MACRO] LAZY_GET_OR_INIT %out, %lock, %init_value
+    _lgi_flag = load %lock+0 as u32
+    _lgi_inited = eq _lgi_flag, LAZY_IS_INIT
+    br _lgi_inited -> L_LGI_CACHED, L_LGI_INIT
+
+L_LGI_INIT:
+    !_lgi_flag
+    !_lgi_inited
+    store %lock+4, %init_value as i32
+    store %lock+0, LAZY_IS_INIT as u32
+    %out = %init_value
+    jmp L_LGI_DONE
+
+L_LGI_CACHED:
+    !_lgi_flag
+    !_lgi_inited
+    %out = load %lock+4 as i32
+    jmp L_LGI_DONE
+
+L_LGI_DONE:
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 11. ASSERT WITH MESSAGE
+// ═══════════════════════════════════════════════════
+
+// ASSERT_NE_ZERO: assert val != 0, else panic(code)
+[MACRO] ASSERT_NE_ZERO %val, %panic_code, %label_ok
+    _anz = ne %val, 0
+    br _anz -> %label_ok, L_ANZ_FAIL
+
+L_ANZ_FAIL:
+    !_anz
+    panic(%panic_code)
+[END_MACRO]
+
+// ASSERT_GE_ZERO: assert val >= 0, else panic(code)
+[MACRO] ASSERT_GE_ZERO %val, %panic_code, %label_ok
+    _agz = sge %val, 0
+    br _agz -> %label_ok, L_AGZ_FAIL
+
+L_AGZ_FAIL:
+    !_agz
+    panic(%panic_code)
+[END_MACRO]
+
+// ASSERT_TRUE: assert cond is true, else panic(code)
+[MACRO] ASSERT_TRUE_MSG %cond, %panic_code, %label_ok
+    br %cond -> %label_ok, L_ATM_FAIL
+
+L_ATM_FAIL:
+    panic(%panic_code)
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 12. RAII GUARD
+// ═══════════════════════════════════════════════════
+
+// RAII_ALLOC: alloc resource at scope begin
+[MACRO] RAII_ALLOC %resource, %size
+    %resource = alloc %size
+[END_MACRO]
+
+// RAII_FREE: free resource at scope end
+[MACRO] RAII_FREE %resource
+    !%resource
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 13. C-STRING
+// ═══════════════════════════════════════════════════
+
+// CSTR_LEN: compute length of null-terminated string
+[MACRO] CSTR_LEN %out_len, %base
+    _cl_slot = stack_alloc 8
+    store _cl_slot+0, 0 as u64
+    jmp L_CL_LP
+
+L_CL_LP:
+    _cl_i = load _cl_slot+0 as u64
+    _cl_p = ptr_add %base, _cl_i
+    _cl_b = load _cl_p+0 as u8
+    _cl_end = eq _cl_b, 0
+    br _cl_end -> L_CL_DONE, L_CL_NEXT
+
+L_CL_NEXT:
+    _cl_n = add _cl_i, 1
+    store _cl_slot+0, _cl_n as u64
+    !_cl_i
+    !_cl_p
+    !_cl_b
+    !_cl_end
+    !_cl_n
+    jmp L_CL_LP
+
+L_CL_DONE:
+    !_cl_end
+    !_cl_b
+    !_cl_p
+    !_cl_i
+    %out_len = load _cl_slot+0 as u64
+    !_cl_slot
+[END_MACRO]
