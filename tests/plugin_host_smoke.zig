@@ -95,8 +95,13 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
         \\    _ = ctx;
         \\    _ = stderr;
         \\    out_code.* = 0;
-        \\    if (argv_len < 2 or !std.mem.eql(u8, std.mem.span(argv[1]), "hello-plugin")) return 1;
         \\    const write_all = stdout.write_all orelse return 2;
+        \\    if (argv_len >= 2 and std.mem.eql(u8, std.mem.span(argv[1]), "pkg")) {
+        \\        const message = "pkg command reached plugin\n";
+        \\        if (write_all(stdout.ctx, message.ptr, message.len) != 0) return 2;
+        \\        return 0;
+        \\    }
+        \\    if (argv_len < 2 or !std.mem.eql(u8, std.mem.span(argv[1]), "hello-plugin")) return 1;
         \\    const message = "hello from plugin\n";
         \\    if (write_all(stdout.ctx, message.ptr, message.len) != 0) return 2;
         \\    out_code.* = 7;
@@ -187,6 +192,18 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     );
     try std.testing.expectEqual(@as(u8, 7), cli_code);
     try std.testing.expectEqualStrings("hello from plugin\n", cli_stdout.items);
+    try std.testing.expectEqual(@as(usize, 0), cli_stderr.items.len);
+
+    cli_stdout.clearRetainingCapacity();
+    cli_stderr.clearRetainingCapacity();
+    const pkg_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        &.{ "sa", "pkg", "audit", "demo" },
+        cli_stdout.writer(),
+        cli_stderr.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), pkg_code);
+    try std.testing.expectEqualStrings("pkg command reached plugin\n", cli_stdout.items);
     try std.testing.expectEqual(@as(usize, 0), cli_stderr.items.len);
 
     cli_stdout.clearRetainingCapacity();

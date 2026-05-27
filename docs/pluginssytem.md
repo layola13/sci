@@ -6,6 +6,7 @@
 
 SA-ASM 主体只保留核心的所有权编译器 (Referee) 和指令执行引擎，而所有的扩展功能（例如数据库访问、HTTP 网络、大模型转换 `llvm2sa` 等）都由外部插件工程以动态库形式提供。当前这些插件都在 `/home/vscode/projects/sa_plugins/` 下以独立工程维护，各自拥有自己的 `build.zig` 和 `src/plugin.zig`。
 
+- **包管理插件化**：包管理命令由 `/home/vscode/projects/sa_plugins/sa_plugin_pkg` 提供，正式入口是 `sa pkg install/fetch/audit`。宿主仍保留编译期所需的最小 `sa.mod` 解析、import 解析与 grant 校验，避免编译链路依赖完整包管理业务实现。
 - **极速热重载 (Hot Reload)**：你可以在不重启 SA 解释器进程的情况下，直接替换后端的 `.so` 文件。下一个请求将自动使用新版本的插件。
 - **内存安全隔离**：插件代码即便是用 C/Zig 写的产生段错误 (Segfault) 崩溃，通过隔离机制（针对不同平台可选的子进程隔离或严格气闸舱）也不会轻易带崩主节点。
 - **多语言开发**：只要能导出标准 C-ABI (`cdecl`) 函数的语言（C, Rust, Zig, Go 等），都能为 SA 编写插件。

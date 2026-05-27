@@ -93,6 +93,7 @@ typedef struct {
     LLVMBuilderRef builder;
     unsigned short size_bits;
     unsigned char is_cgu;
+    unsigned char wasm_compat;
     LLVMTypeRef i8_ty;
     LLVMTypeRef i32_ty;
     LLVMTypeRef i64_ty;
@@ -201,6 +202,7 @@ static int verify_emit_module(EmitCtx *e, char **out_error) {
 static void optimize_module_ir(EmitCtx *e, int opt_level) {
     unsigned level = normalize_opt_level(opt_level);
     if (level == 0 || e == NULL || e->module == NULL) return;
+    if (e->wasm_compat) return;
 
     LLVMPassManagerBuilderRef pmb = LLVMPassManagerBuilderCreate();
     if (pmb == NULL) return;
@@ -588,13 +590,17 @@ static int reg_store(EmitCtx *e, RegValue *regs, size_t reg_count, unsigned int 
     regs[slot].initialized = 1;
     regs[slot].indirect_sig_index = indirect_sig_index;
     regs[slot].fallible_slot = NULL;
+    regs[slot].value = value;
     if (fallible) {
-        regs[slot].value = value;
         return 0;
     }
-    if (regs[slot].slot == NULL) return 1;
-    LLVMValueRef bits = reg_encode(e, value, ty);
-    LLVMBuildStore(e->builder, bits, regs[slot].slot);
+    if (ty == SA_T_VOID || value == NULL) {
+        return 0;
+    }
+    if (regs[slot].slot != NULL) {
+        LLVMValueRef bits = reg_encode(e, value, ty);
+        LLVMBuildStore(e->builder, bits, regs[slot].slot);
+    }
     return 0;
 }
 
@@ -615,13 +621,17 @@ static int operand_value(EmitCtx *e, const SaOperand *op, RegValue *regs, size_t
         case SA_OPER_REG:
             if (op->reg >= reg_count || !regs[op->reg].initialized) return 1;
             *out_ty = regs[op->reg].ty;
-            if (regs[op->reg].fallible) {
-                if (regs[op->reg].value == NULL) return 1;
+            if (regs[op->reg].ty == SA_T_VOID || regs[op->reg].fallible) {
                 *out = regs[op->reg].value;
-            } else {
-                if (regs[op->reg].slot == NULL) return 1;
+                return 0;
+            }
+            if (regs[op->reg].slot != NULL) {
                 LLVMValueRef bits = LLVMBuildLoad2(e->builder, e->i64_ty, regs[op->reg].slot, "slot_load");
                 *out = reg_decode(e, bits, *out_ty);
+            } else if (regs[op->reg].value != NULL) {
+                *out = regs[op->reg].value;
+            } else {
+                return 1;
             }
             return 0;
         case SA_OPER_IMM_I64:
@@ -1721,6 +1731,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     e->builder = LLVMCreateBuilderInContext(e->ctx);
     e->size_bits = m->size_bits;
     e->is_cgu = m->is_cgu;
+    e->wasm_compat = m->wasm_compat;
     e->i8_ty  = LLVMInt8TypeInContext(e->ctx);
     e->i32_ty = LLVMInt32TypeInContext(e->ctx);
     e->i64_ty = LLVMInt64TypeInContext(e->ctx);

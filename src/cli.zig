@@ -85,10 +85,20 @@ const CompilePhaseMetrics = struct {
     total_ns: ?u64 = null,
 };
 
+const BackendIrMetrics = struct {
+    functions: u64 = 0,
+    blocks: u64 = 0,
+    instructions: u64 = 0,
+    alloca_slots: u64 = 0,
+    loads: u64 = 0,
+    stores: u64 = 0,
+};
+
 const CompileMetrics = struct {
     compile_tokens: u64,
     instruction_count: u64,
     phases: ?CompilePhaseMetrics = null,
+    backend_ir: ?BackendIrMetrics = null,
 };
 
 fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics) CompileMetrics {
@@ -117,6 +127,40 @@ fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, 
             .total_ns = total_ns,
         };
     }
+}
+
+fn estimateBackendIrMetrics(verified: *const referee.VerifyOk, debug: bool) BackendIrMetrics {
+    var out = BackendIrMetrics{};
+    var sig_index: usize = 0;
+    for (verified.annotated) |item| {
+        switch (item.base.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                out.functions += 1;
+                out.blocks += 1;
+                if (sig_index < verified.function_sigs.len) {
+                    if (debug) out.alloca_slots += @as(u64, @intCast(verified.function_sigs[sig_index].reg_ids.len));
+                    sig_index += 1;
+                }
+            },
+            .label => out.blocks += 1,
+            .load, .take, .atomic_load => {
+                out.instructions += 1;
+                out.loads += 1;
+            },
+            .store, .atomic_store => {
+                out.instructions += 1;
+                out.stores += 1;
+            },
+            .move_, .release => {},
+            else => out.instructions += 1,
+        }
+    }
+    return out;
+}
+
+fn attachBackendIrMetrics(metrics: *CompileMetrics, verified: *const referee.VerifyOk, debug: bool) void {
+    if (metrics.phases == null) return;
+    metrics.backend_ir = estimateBackendIrMetrics(verified, debug);
 }
 
 fn computeFunctionSizes(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]FunctionSizeEntry {
@@ -403,6 +447,7 @@ const Command = enum {
     run,
     init,
     install,
+    pkg,
     build,
     build_exe,
     build_wasm,
@@ -786,6 +831,7 @@ fn commandName(cmd: Command) []const u8 {
         .run => "run",
         .init => "init",
         .install => "install",
+        .pkg => "pkg",
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
@@ -805,7 +851,7 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn commandSupported(name: []const u8) bool {
-    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills") or std.mem.eql(u8, name, "bc2sa") or std.mem.eql(u8, name, "fetch");
+    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "pkg") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills") or std.mem.eql(u8, name, "bc2sa") or std.mem.eql(u8, name, "fetch");
 }
 
 fn explainEntries() []const ExplainEntry {
@@ -933,15 +979,16 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("usage: sa <command> [options]\n\n");
     try writer.writeAll("Commands:\n");
     try writer.writeAll("  init         [path]            Create a new SA binary project\n");
-    try writer.writeAll("  install      [identity]        Install project dependencies or one package\n");
+    try writer.writeAll("  pkg          <subcommand>      Package fetch, audit, install, and lock commands\n");
+    try writer.writeAll("  install      [identity]        Install project dependencies or one package (compat)\n");
     try writer.writeAll("  build        <file>            Compile a .sa source to a native executable\n");
     try writer.writeAll("  run          <file>            Compile and immediately execute a .sa file\n");
     try writer.writeAll("  build-exe    <file>            Build a standalone executable (alias for build)\n");
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa file\n");
-    try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat alias)\n");
-    try writer.writeAll("  audit        <file>            Audit package capability declarations\n");
+    try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
+    try writer.writeAll("  audit        <file>            Use `sa pkg audit` from the package plugin\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
     try writer.writeAll("  layout       ...               Print struct layout information\n");
     try writer.writeAll("  size         <file>            Print function size statistics\n");
@@ -1217,7 +1264,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version",
+            .hint = "use build, run, build-exe, build-wasm, build-obj, pkg, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -1405,6 +1452,22 @@ fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
             try writer.print("{d}", .{ns});
         }
         try writer.writeByte('}');
+    }
+    if (metrics.backend_ir) |ir| {
+        try writer.writeAll(",\"backend\":{\"ir\":{");
+        try writer.writeAll("\"functions\":");
+        try writer.print("{d}", .{ir.functions});
+        try writer.writeAll(",\"blocks\":");
+        try writer.print("{d}", .{ir.blocks});
+        try writer.writeAll(",\"instructions\":");
+        try writer.print("{d}", .{ir.instructions});
+        try writer.writeAll(",\"alloca_slots\":");
+        try writer.print("{d}", .{ir.alloca_slots});
+        try writer.writeAll(",\"loads\":");
+        try writer.print("{d}", .{ir.loads});
+        try writer.writeAll(",\"stores\":");
+        try writer.print("{d}", .{ir.stores});
+        try writer.writeAll("}}");
     }
     try writer.writeByte('}');
 }
@@ -1599,14 +1662,14 @@ fn skillsCommand(writer: anytype, json_mode: bool) !u8 {
         } },
         .{ .name = "cli toolchain", .summary = "Agent-first CLI entry points", .items = &.{
             "init [path]",
-            "install [identity]",
+            "pkg install [identity]",
             "explain <code>",
             "fix --plan --json",
             "skills",
         } },
         .{ .name = "project lifecycle", .summary = "Rust-like project setup and local builds", .items = &.{
             "init [path]",
-            "install",
+            "pkg install",
             "build src/main.sa",
             "run src/main.sa",
             "test <file>",
@@ -2794,6 +2857,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 const link_ns = if (link_start) |start| elapsedNs(start) else null;
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             }
+            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
 
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
@@ -2824,6 +2888,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, artifact_path);
             try emit_llvm_llvmc.emitLlvmcToObject(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, object_path, opt_level);
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
+            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
@@ -2845,7 +2910,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             const artifact_path = try intermediateArtifactPath(allocator, out_path);
             defer allocator.free(artifact_path);
             try ensureParentDir(artifact_path);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs }, artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization) }, artifact_path);
 
             driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
@@ -3182,6 +3247,7 @@ pub fn executeWithWritersAndOptions(
         if (std.mem.eql(u8, args[1], commandName(.run))) break :blk .run;
         if (std.mem.eql(u8, args[1], commandName(.init))) break :blk .init;
         if (std.mem.eql(u8, args[1], commandName(.install))) break :blk .install;
+        if (std.mem.eql(u8, args[1], commandName(.pkg))) break :blk .pkg;
         if (std.mem.eql(u8, args[1], commandName(.build_exe))) break :blk .build_exe;
         if (std.mem.eql(u8, args[1], commandName(.build_wasm))) break :blk .build_wasm;
         if (std.mem.eql(u8, args[1], commandName(.build_obj))) break :blk .build_obj;
@@ -3217,6 +3283,12 @@ pub fn executeWithWritersAndOptions(
         },
         .graph => {
             return try executeGraph(allocator, args[2..], stdout, stderr, json_mode, exec_options);
+        },
+        .pkg => {
+            var plugin_runtime = try plugins.Runtime.initFromEnv(allocator);
+            defer plugin_runtime.deinit();
+            if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
+            return error.UnknownCommand;
         },
         .audit => return error.UnknownCommand,
         .explain => return try explainCommand(stdout, args, json_mode),
