@@ -1340,6 +1340,124 @@ test "sa_std env runtime helper is usable from C" {
     try std.testing.expectEqualStrings("sa_std env ok\n", run_result.stdout);
 }
 
+test "sa_std fs helper declarations stay aligned" {
+    const fs_iface = try readFileAlloc(std.testing.allocator, "sa_std/fs.sai");
+    defer std.testing.allocator.free(fs_iface);
+    const c_header = try readFileAlloc(std.testing.allocator, "src/runtime/sa_std.h");
+    defer std.testing.allocator.free(c_header);
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64) -> u64!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64) -> u64!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32!"));
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_read_file_base64(const uint8_t *path, uint64_t path_len, uint64_t max_bytes);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_fs_write_file_base64(const uint8_t *path, uint64_t path_len, const uint8_t *data_base64, uint64_t data_base64_len);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_read_dir_json(const uint8_t *path, uint64_t path_len, uint64_t max_entries);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_fs_make_dir(const uint8_t *path, uint64_t path_len);"));
+}
+
+test "sa_std fs base64 and directory helpers are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t dir[] = "fs_demo_dir/nested";
+        \\    const uint8_t path[] = "fs_demo_dir/nested/hello.txt";
+        \\    const uint8_t encoded[] = "aGVsbG8=";
+        \\    sa_std_fallible_u64 read_result = {0};
+        \\    sa_std_fallible_u64 dir_result = {0};
+        \\    uint8_t *read_data = NULL;
+        \\    uint64_t read_len = 0;
+        \\    uint8_t *dir_data = NULL;
+        \\    uint64_t dir_len = 0;
+        \\
+        \\    if (sa_fs_make_dir(dir, sizeof(dir) - 1) != SA_STD_OK) return 2;
+        \\    if (sa_fs_make_dir(dir, sizeof(dir) - 1) != SA_STD_OK) return 12;
+        \\    if (sa_fs_write_file_base64(path, sizeof(path) - 1, encoded, sizeof(encoded) - 1) != SA_STD_OK) return 3;
+        \\    read_result = sa_fs_read_file_base64(path, sizeof(path) - 1, 1024);
+        \\    if (read_result.status != SA_STD_OK || read_result.value == 0) return 4;
+        \\    read_data = sa_fs_read_buffer_data(read_result.value);
+        \\    read_len = sa_fs_read_buffer_len(read_result.value);
+        \\    if (read_len != sizeof(encoded) - 1 || memcmp(read_data, encoded, sizeof(encoded) - 1) != 0) return 5;
+        \\    if (sa_fs_read_buffer_free(read_result.value) != SA_STD_OK) return 6;
+        \\
+        \\    dir_result = sa_fs_read_dir_json(dir, sizeof(dir) - 1, 32);
+        \\    if (dir_result.status != SA_STD_OK || dir_result.value == 0) return 7;
+        \\    dir_data = sa_fs_dir_buffer_data(dir_result.value);
+        \\    dir_len = sa_fs_dir_buffer_len(dir_result.value);
+        \\    if (dir_len == 0) return 8;
+        \\    if (memmem(dir_data, dir_len, "hello.txt", 9) == NULL) return 9;
+        \\    if (memmem(dir_data, dir_len, "\"isFile\":true", 13) == NULL) return 10;
+        \\    if (sa_fs_dir_buffer_free(dir_result.value) != SA_STD_OK) return 11;
+        \\    puts("sa_std fs base64 dir ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "main.c", c_source);
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "main.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_fs_base64_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_fs_base64_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+    try std.testing.expectEqualStrings("sa_std fs base64 dir ok\n", run_result.stdout);
+}
+
 test "sa_std hashmap helpers are concrete and verifiable" {
     const hashmap_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.sal");
     defer std.testing.allocator.free(hashmap_layout);

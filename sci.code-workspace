@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../sa_plugins"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.sa": "cpp",
+			"*.sal": "cpp",
+			"*.sai": "cpp"
+		}
+	}
+}

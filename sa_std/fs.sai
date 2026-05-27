@@ -17,6 +17,12 @@
 @extern sa_fs_read_buffer_data(buffer: u64) -> &ptr
 @extern sa_fs_read_buffer_len(buffer: u64) -> u64
 @extern sa_fs_read_buffer_free(^buffer: u64) -> i32
+@extern sa_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
+@extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32!
+@extern sa_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64) -> u64!
+@extern sa_fs_dir_buffer_data(buffer: u64) -> &ptr
+@extern sa_fs_dir_buffer_len(buffer: u64) -> u64
+@extern sa_fs_dir_buffer_free(^buffer: u64) -> i32
 
 @extern sa_fs_metadata(&path: ptr, path_len: u64) -> ^ptr!
 @extern sa_fs_metadata_free(^metadata: ptr) -> i32!

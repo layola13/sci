@@ -624,6 +624,85 @@ test "sa_std fmt and process exports are usable from C" {
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std fmt/process ok"));
 }
 
+test "sa_std detached pthread export runs without join" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <time.h>
+        \\
+        \\static volatile int32_t shared_value = 0;
+        \\
+        \\static int32_t worker(uint8_t *arg) {
+        \\    volatile int32_t *slot = (volatile int32_t *)arg;
+        \\    *slot = 42;
+        \\    return 0;
+        \\}
+        \\
+        \\int main(void) {
+        \\    struct timespec delay = {0, 1000000};
+        \\    if (pthread_spawn_detached((const uint8_t *)(uintptr_t)&worker, (const uint8_t *)&shared_value) != SA_STD_OK) return 2;
+        \\    for (int i = 0; i < 1000 && shared_value != 42; i += 1) {
+        \\        nanosleep(&delay, 0);
+        \\    }
+        \\    if (shared_value != 42) return 3;
+        \\    puts("sa_std pthread detached ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "pthread_detached.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "pthread_detached.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_pthread_detached_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_pthread_detached_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std pthread detached ok"));
+}
+
 
 
 test "sa_std json exports are usable from C" {

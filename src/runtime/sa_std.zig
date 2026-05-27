@@ -148,6 +148,16 @@ const BufferHandle = struct {
     }
 };
 
+const FsDirBufferHandle = struct {
+    allocator: std.mem.Allocator,
+    bytes: []u8,
+
+    fn deinit(self: *FsDirBufferHandle) void {
+        if (self.bytes.len != 0) self.allocator.free(self.bytes);
+        self.bytes = &.{};
+    }
+};
+
 const MetadataHandle = struct {
     allocator: std.mem.Allocator,
     stat: std.fs.File.Stat,
@@ -792,6 +802,7 @@ const Resource = union(enum) {
     tcp_listener: std.net.Server,
     udp_socket: std.posix.socket_t,
     buffer: BufferHandle,
+    fs_dir_buffer: FsDirBufferHandle,
     metadata: MetadataHandle,
     net_addr: NetAddrHandle,
     fmt: FmtHandle,
@@ -818,6 +829,7 @@ const Resource = union(enum) {
             .tcp_listener => |*server| server.deinit(),
             .udp_socket => |fd| std.posix.close(fd),
             .buffer => |*buffer| buffer.deinit(),
+            .fs_dir_buffer => |*buffer| buffer.deinit(),
             .metadata => |*metadata| metadata.deinit(),
             .net_addr => |*addr| addr.deinit(),
             .fmt => |*fmt| fmt.deinit(),
@@ -863,6 +875,7 @@ const PthreadTask = struct {
     entry: PthreadEntryFn,
     arg: ?[*]u8,
     result: i32 = SA_STD_OK,
+    destroy_on_finish: bool = false,
 };
 
 const PthreadHandle = struct {
@@ -873,6 +886,9 @@ const PthreadHandle = struct {
 
 fn pthreadTaskMain(task: *PthreadTask) void {
     task.result = task.entry(task.arg);
+    if (task.destroy_on_finish) {
+        std.heap.page_allocator.destroy(task);
+    }
 }
 
 fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
@@ -1556,6 +1572,13 @@ fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
 
 fn openOwnedBuffer(bytes: []u8) !u64 {
     return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return err;
+    };
+}
+
+fn openOwnedFsDirBuffer(bytes: []u8) !u64 {
+    return registerResource(.{ .fs_dir_buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
         std.heap.page_allocator.free(bytes);
         return err;
     };
@@ -2392,6 +2415,23 @@ pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
     return id;
 }
 
+pub fn pthread_spawn_detached(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
+    const entry_fn: PthreadEntryFn = @ptrCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
+    task.* = .{
+        .entry = entry_fn,
+        .arg = @ptrCast(@constCast(arg)),
+        .destroy_on_finish = true,
+    };
+    const thread = std.Thread.spawn(.{}, pthreadTaskMain, .{task}) catch |err| {
+        std.heap.page_allocator.destroy(task);
+        return finish(mapError(err));
+    };
+    thread.detach();
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
 pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
     const handle_ptr = freePthreadHandle(handle) catch |err| return finish(mapError(err));
     handle_ptr.thread.join();
@@ -2545,6 +2585,7 @@ comptime {
         @export(&munmap, .{ .name = "munmap" });
         @export(&signal, .{ .name = "signal" });
         @export(&pthread_spawn, .{ .name = "pthread_spawn" });
+        @export(&pthread_spawn_detached, .{ .name = "pthread_spawn_detached" });
         @export(&pthread_join, .{ .name = "pthread_join" });
         @export(&pthread_drop, .{ .name = "pthread_drop" });
         @export(&dlopen, .{ .name = "dlopen" });
@@ -2979,6 +3020,100 @@ pub export fn sa_fs_read_buffer_free(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
+pub export fn sa_fs_read_file_base64(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) Fallible(u64) {
+    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
+    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return fail(u64, mapError(err));
+    defer file.close();
+    const cap = lenAsUsize(max_bytes) catch |err| return fail(u64, mapError(err));
+    const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return fail(u64, mapError(err));
+    defer std.heap.page_allocator.free(bytes);
+    const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
+    const encoded = std.heap.page_allocator.alloc(u8, encoded_len) catch |err| return fail(u64, mapError(err));
+    _ = std.base64.standard.Encoder.encode(encoded, bytes);
+    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = encoded } }) catch |err| {
+        std.heap.page_allocator.free(encoded);
+        return fail(u64, mapError(err));
+    };
+    return ok(u64, handle);
+}
+
+pub export fn sa_fs_write_file_base64(path_ptr: ?[*]const u8, path_len: u64, encoded_ptr: ?[*]const u8, encoded_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const encoded = constBytes(encoded_ptr, encoded_len) catch |err| return finishErr(err);
+    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const decoded = std.heap.page_allocator.alloc(u8, decoded_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(decoded);
+    std.base64.standard.Decoder.decode(decoded, encoded) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const file = std.fs.cwd().createFile(path, .{ .read = true, .truncate = true }) catch |err| return finishErr(err);
+    defer file.close();
+    file.writeAll(decoded) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+fn writeJsonBoolField(writer: anytype, name: []const u8, value: bool) !void {
+    try writer.writeAll("\"");
+    try writer.writeAll(name);
+    try writer.writeAll("\":");
+    try writer.writeAll(if (value) "true" else "false");
+}
+
+pub export fn sa_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) Fallible(u64) {
+    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
+    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| return fail(u64, mapError(err));
+    defer dir.close();
+
+    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    errdefer out.deinit();
+    const writer = out.writer();
+    writer.writeAll("{\"entries\":[") catch |err| return fail(u64, mapError(err));
+    const limit = lenAsUsize(max_entries) catch |err| return fail(u64, mapError(err));
+    var it = dir.iterate();
+    var count: usize = 0;
+    var first = true;
+    while (count < limit) {
+        const maybe_entry = it.next() catch |err| return fail(u64, mapError(err));
+        const entry = maybe_entry orelse break;
+        if (!first) writer.writeAll(",") catch |err| return fail(u64, mapError(err));
+        first = false;
+        writer.writeAll("{\"name\":") catch |err| return fail(u64, mapError(err));
+        std.json.stringify(entry.name, .{}, writer) catch |err| return fail(u64, mapError(err));
+        writer.writeAll(",") catch |err| return fail(u64, mapError(err));
+        writeJsonBoolField(writer, "isDirectory", entry.kind == .directory) catch |err| return fail(u64, mapError(err));
+        writer.writeAll(",") catch |err| return fail(u64, mapError(err));
+        writeJsonBoolField(writer, "isFile", entry.kind == .file) catch |err| return fail(u64, mapError(err));
+        writer.writeAll("}") catch |err| return fail(u64, mapError(err));
+        count += 1;
+    }
+    writer.writeAll("]}") catch |err| return fail(u64, mapError(err));
+    const bytes = out.toOwnedSlice() catch |err| return fail(u64, mapError(err));
+    const handle = openOwnedFsDirBuffer(bytes) catch |err| return fail(u64, mapError(err));
+    return ok(u64, handle);
+}
+
+pub export fn sa_fs_dir_buffer_data(handle: u64) ?[*]u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return null;
+    return switch (resource.*) {
+        .fs_dir_buffer => |*buf| buf.bytes.ptr,
+        else => null,
+    };
+}
+
+pub export fn sa_fs_dir_buffer_len(handle: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .fs_dir_buffer => |*buf| @as(u64, @intCast(buf.bytes.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_fs_dir_buffer_free(handle: u64) i32 {
+    return sa_std_close(handle);
+}
+
 pub export fn sa_fs_metadata(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     const stat = std.fs.cwd().statFile(path) catch |err| return finishErr(err);
@@ -3003,7 +3138,7 @@ pub export fn sa_fs_rename(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]
 
 pub export fn sa_fs_make_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().makeDir(path) catch |err| return finishErr(err);
+    std.fs.cwd().makePath(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 

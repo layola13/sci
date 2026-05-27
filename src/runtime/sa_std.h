@@ -259,9 +259,17 @@ int32_t sa_std_fs_exists(const uint8_t *path, uint64_t path_len);
 int32_t sa_std_fs_len(const uint8_t *path, uint64_t path_len, uint64_t *out_len);
 
 sa_std_fallible_u64 sa_fs_read_file(const uint8_t *path, uint64_t path_len, uint64_t max_bytes);
+int32_t sa_fs_write_file(const uint8_t *path, uint64_t path_len, const uint8_t *buf, uint64_t len);
 uint8_t *sa_fs_read_buffer_data(uint64_t handle);
 uint64_t sa_fs_read_buffer_len(uint64_t handle);
 int32_t sa_fs_read_buffer_free(uint64_t handle);
+sa_std_fallible_u64 sa_fs_read_file_base64(const uint8_t *path, uint64_t path_len, uint64_t max_bytes);
+int32_t sa_fs_write_file_base64(const uint8_t *path, uint64_t path_len, const uint8_t *data_base64, uint64_t data_base64_len);
+sa_std_fallible_u64 sa_fs_read_dir_json(const uint8_t *path, uint64_t path_len, uint64_t max_entries);
+uint8_t *sa_fs_dir_buffer_data(uint64_t handle);
+uint64_t sa_fs_dir_buffer_len(uint64_t handle);
+int32_t sa_fs_dir_buffer_free(uint64_t handle);
+int32_t sa_fs_make_dir(const uint8_t *path, uint64_t path_len);
 
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
@@ -327,6 +335,11 @@ int64_t sa_time_unix_ns(void);
 int32_t sa_time_utc_now(SaTimeDate *out_date);
 int32_t sa_time_sleep_ns(uint64_t ns);
 int32_t sa_time_sleep_ms(uint64_t ms);
+
+int32_t pthread_spawn(const uint8_t *entry, const uint8_t *arg);
+int32_t pthread_spawn_detached(const uint8_t *entry, const uint8_t *arg);
+int32_t pthread_join(int32_t handle, uint8_t *out);
+void pthread_drop(int32_t handle);
 
 uint8_t *sa_fmt_buffer_data(uint64_t buffer);
 uint64_t sa_fmt_buffer_len(uint64_t buffer);
