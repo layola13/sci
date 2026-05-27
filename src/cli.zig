@@ -2492,6 +2492,56 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     };
 }
 
+fn collectExternalSymbolNames(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]const []const u8 {
+    var names = std.ArrayList([]const u8).init(allocator);
+    errdefer names.deinit();
+    for (verified.function_sigs) |fsig| {
+        if (fsig.kind == .external) try names.append(fsig.name);
+    }
+    return try names.toOwnedSlice();
+}
+
+fn appendNativePluginLinkInputs(
+    allocator: std.mem.Allocator,
+    link_inputs: *std.ArrayList([]const u8),
+    owned_link_inputs: *std.ArrayList([]const u8),
+    verified: *const referee.VerifyOk,
+) !void {
+    const extern_names = try collectExternalSymbolNames(allocator, verified);
+    defer allocator.free(extern_names);
+    if (extern_names.len == 0) return;
+
+    var plugin_runtime = try plugins.Runtime.initFromEnv(allocator);
+    defer plugin_runtime.deinit();
+
+    var plugin_libs = std.ArrayList([]const u8).init(allocator);
+    defer plugin_libs.deinit();
+    try plugin_runtime.appendLibrariesExportingAny(&plugin_libs, extern_names);
+
+    for (plugin_libs.items) |lib_path| {
+        const owned_lib_path = try allocator.dupe(u8, lib_path);
+        link_inputs.append(owned_lib_path) catch |err| {
+            allocator.free(owned_lib_path);
+            return err;
+        };
+        owned_link_inputs.append(owned_lib_path) catch |err| {
+            allocator.free(owned_lib_path);
+            return err;
+        };
+        if (std.fs.path.dirname(lib_path)) |dir| {
+            const rpath_arg = try std.fmt.allocPrint(allocator, "-Wl,-rpath,{s}", .{dir});
+            link_inputs.append(rpath_arg) catch |err| {
+                allocator.free(rpath_arg);
+                return err;
+            };
+            owned_link_inputs.append(rpath_arg) catch |err| {
+                allocator.free(rpath_arg);
+                return err;
+            };
+        }
+    }
+}
+
 fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffix: []const u8) ![]const u8 {
     const dir = std.fs.path.dirname(source_path);
     const stem = sourceStem(source_path);
@@ -2823,19 +2873,21 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 }
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
-                // Link them all together
-                const extra_input_count: usize = cgu_count - 1;
-                const extra_inputs = try allocator.alloc([]const u8, extra_input_count);
-                defer allocator.free(extra_inputs);
-
-                var extra_idx: usize = 0;
-                for (1..cgu_count) |i| {
-                    extra_inputs[extra_idx] = cgu_obj_paths[i];
-                    extra_idx += 1;
+                var link_inputs = std.ArrayList([]const u8).init(allocator);
+                defer link_inputs.deinit();
+                var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
+                defer {
+                    for (owned_link_inputs.items) |arg| allocator.free(arg);
+                    owned_link_inputs.deinit();
                 }
 
+                for (1..cgu_count) |i| {
+                    try link_inputs.append(cgu_obj_paths[i]);
+                }
+                try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, extra_inputs, debug, stderr) catch |err| switch (err) {
+                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -2850,7 +2902,15 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, &.{}, debug, stderr) catch |err| switch (err) {
+                var link_inputs = std.ArrayList([]const u8).init(allocator);
+                defer link_inputs.deinit();
+                var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
+                defer {
+                    for (owned_link_inputs.items) |arg| allocator.free(arg);
+                    owned_link_inputs.deinit();
+                }
+                try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -3192,7 +3252,16 @@ fn executeTest(
             const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
             defer allocator.free(exe_full_path);
 
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, &.{}, false, stderr) catch |err| switch (err) {
+            var link_inputs = std.ArrayList([]const u8).init(allocator);
+            defer link_inputs.deinit();
+            var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
+            defer {
+                for (owned_link_inputs.items) |arg| allocator.free(arg);
+                owned_link_inputs.deinit();
+            }
+            try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };

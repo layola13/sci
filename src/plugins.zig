@@ -71,6 +71,15 @@ const LoadedPlugin = struct {
     lib: std.DynLib,
     descriptor: PluginDescriptor,
 
+    fn exportsAny(self: *LoadedPlugin, allocator: std.mem.Allocator, symbol_names: []const []const u8) !bool {
+        for (symbol_names) |symbol| {
+            const symbol_z = try allocator.dupeZ(u8, symbol);
+            defer allocator.free(symbol_z);
+            if (self.lib.lookup(*anyopaque, symbol_z)) |_| return true;
+        }
+        return false;
+    }
+
     fn deinit(self: *LoadedPlugin, allocator: std.mem.Allocator) void {
         self.lib.close();
         allocator.free(self.path);
@@ -171,6 +180,19 @@ pub const Runtime = struct {
                     .summary = section.summary,
                     .items = section.items,
                 });
+            }
+        }
+    }
+
+    pub fn appendLibrariesExportingAny(
+        self: *Runtime,
+        list: *std.ArrayList([]const u8),
+        symbol_names: []const []const u8,
+    ) !void {
+        if (symbol_names.len == 0) return;
+        for (self.plugins.items) |*loaded| {
+            if (try loaded.exportsAny(self.allocator, symbol_names)) {
+                try list.append(loaded.path);
             }
         }
     }

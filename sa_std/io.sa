@@ -41,7 +41,5 @@
 [END_MACRO]
 
 [MACRO] FORMAT_INT %out_buf, %value, %base
-    __format_int = call @sa_fmt_i64(%value, %base)
-    %out_buf = ? __format_int
-    !__format_int
+    %out_buf = call @sa_fmt_i64(%value, %base)
 [END_MACRO]

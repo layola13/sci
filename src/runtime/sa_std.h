@@ -258,9 +258,10 @@ int32_t sa_std_fs_remove(const uint8_t *path, uint64_t path_len);
 int32_t sa_std_fs_exists(const uint8_t *path, uint64_t path_len);
 int32_t sa_std_fs_len(const uint8_t *path, uint64_t path_len, uint64_t *out_len);
 
-uint8_t *sa_fs_read_buffer_data(const SaFsReadBuffer *buffer);
-uint64_t sa_fs_read_buffer_len(const SaFsReadBuffer *buffer);
-int32_t sa_fs_read_buffer_free(SaFsReadBuffer *buffer);
+sa_std_fallible_u64 sa_fs_read_file(const uint8_t *path, uint64_t path_len, uint64_t max_bytes);
+uint8_t *sa_fs_read_buffer_data(uint64_t handle);
+uint64_t sa_fs_read_buffer_len(uint64_t handle);
+int32_t sa_fs_read_buffer_free(uint64_t handle);
 
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);

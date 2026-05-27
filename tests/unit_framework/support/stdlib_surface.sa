@@ -6,7 +6,7 @@
 @import "sa_std/net.sa"
 @import "sa_std/fmt.sai"
 
-@extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> ^ptr
+@extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> u64
 
 @const MEM_SRC = utf8:"ABCDEFGH"
 @const MEM_FILL = utf8:"ZZZZZZZZ"
@@ -230,8 +230,8 @@ L_FAIL_CONCAT:
     panic(703)
 
 L_CONCAT:
-    concat_data = call @sa_fmt_buffer_data(&concat)
-    concat_len = call @sa_fmt_buffer_len(&concat)
+    concat_data = call @sa_fmt_buffer_data(concat)
+    concat_len = call @sa_fmt_buffer_len(concat)
     concat_data_ok = ne concat_data, 0
     concat_len_ok = eq concat_len, STR_JOINED_LEN
     concat_view = alloc Slice_SIZE
@@ -249,9 +249,7 @@ L_CONCAT:
     ok03 = and ok02, concat_data_ok
     ok04 = and ok03, concat_len_ok
     ok = and ok04, concat_match_ok
-    concat_free_res = call @sa_fmt_buffer_free(^concat)
-    concat_free_status = load concat_free_res+0 as i32
-    !concat_free_res
+    concat_free_status = call @sa_fmt_buffer_free(^concat)
     concat_free_ok = eq concat_free_status, 0
     ok = and ok, concat_free_ok
     !concat_match

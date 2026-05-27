@@ -9,10 +9,10 @@
 @extern sa_fs_file_flush(file: ptr) -> i32!
 @extern sa_fs_file_close(^file: ptr) -> i32!
 
-@extern sa_fmt_u64(value: u64, base: u32) -> ptr
-@extern sa_fmt_buffer_data(&buffer: ptr) -> &ptr
-@extern sa_fmt_buffer_len(&buffer: ptr) -> u64
-@extern sa_fmt_buffer_free(^buffer: ptr) -> i32!
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
 
 @extern sa_print_bytes(&msg: ptr, len: u64) -> void
 
@@ -116,16 +116,14 @@ L_FMT_FAIL:
     return 1
 
 L_FMT_OK:
-    fmt_ptr = call @sa_fmt_buffer_data(&fmt_buf)
-    fmt_len = call @sa_fmt_buffer_len(&fmt_buf)
+    fmt_ptr = call @sa_fmt_buffer_data(fmt_buf)
+    fmt_len = call @sa_fmt_buffer_len(fmt_buf)
     call @sa_print_bytes(&fmt_ptr, fmt_len)
     call @sa_print_bytes(&NL, 1)
     !fmt_ptr
     !fmt_len
 
-    fmt_free_res = call @sa_fmt_buffer_free(^fmt_buf)
-    fmt_free_status = ? fmt_free_res
-    !fmt_free_res
+    fmt_free_status = call @sa_fmt_buffer_free(^fmt_buf)
     !fmt_free_status
     !fmt_ok
     return 0

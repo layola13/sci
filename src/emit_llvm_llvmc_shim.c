@@ -343,6 +343,44 @@ static LLVMTypeRef return_type_for(EmitCtx *e, const SaFunction *f) {
     return type_of(e, f->ret_ty);
 }
 
+static int apply_native_target_layout(EmitCtx *e, char **out_error) {
+    if (e == NULL || e->module == NULL || e->wasm_compat) return 0;
+
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+
+    char *triple = LLVMGetDefaultTargetTriple();
+    if (triple == NULL) return set_error(out_error, "LLVMGetDefaultTargetTriple failed");
+
+    LLVMTargetRef target;
+    char *err_msg = NULL;
+    if (LLVMGetTargetFromTriple(triple, &target, &err_msg)) {
+        int status = set_error(out_error, err_msg ? err_msg : "target lookup failed");
+        if (err_msg) LLVMDisposeMessage(err_msg);
+        LLVMDisposeMessage(triple);
+        return status;
+    }
+
+    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
+        target, triple, "", "",
+        LLVMCodeGenLevelDefault, LLVMRelocDefault, LLVMCodeModelDefault
+    );
+    if (tm == NULL) {
+        LLVMDisposeMessage(triple);
+        return set_error(out_error, "TargetMachine creation failed");
+    }
+
+    LLVMSetTarget(e->module, triple);
+    LLVMTargetDataRef dl = LLVMCreateTargetDataLayout(tm);
+    char *dl_str = LLVMCopyStringRepOfTargetData(dl);
+    LLVMSetDataLayout(e->module, dl_str);
+    LLVMDisposeMessage(dl_str);
+    LLVMDisposeTargetData(dl);
+    LLVMDisposeTargetMachine(tm);
+    LLVMDisposeMessage(triple);
+    return 0;
+}
+
 static LLVMValueRef find_function(EmitCtx *e, const char *name) { return LLVMGetNamedFunction(e->module, name); }
 static LLVMValueRef find_global(EmitCtx *e, const char *name) { return LLVMGetNamedGlobal(e->module, name); }
 
@@ -1738,6 +1776,10 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     e->ptr_ty = LLVMPointerType(e->i8_ty, 0);
     e->functions     = m->functions;
     e->function_count = m->function_count;
+    if (apply_native_target_layout(e, out_error) != 0) {
+        dispose_emit_ctx(e);
+        return 1;
+    }
 
     debug_init(e, m);
     declare_runtime(e);
@@ -1868,10 +1910,6 @@ int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt
     EmitCtx e;
     if (build_sa_llvm_module(m, &e, out_error) != 0) return 1;
 
-    /* Initialize native backend (idempotent, safe to call from multiple threads) */
-    LLVMInitializeNativeTarget();
-    LLVMInitializeNativeAsmPrinter();
-
     char *triple = LLVMGetDefaultTargetTriple();
     LLVMTargetRef target;
     char *err_msg = NULL;
@@ -1906,13 +1944,6 @@ int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt
         dispose_emit_ctx(&e);
         return set_error(out_error, "TargetMachine creation failed");
     }
-
-    /* Align the module data layout with the target machine */
-    LLVMTargetDataRef dl = LLVMCreateTargetDataLayout(tm);
-    char *dl_str = LLVMCopyStringRepOfTargetData(dl);
-    LLVMSetDataLayout(e.module, dl_str);
-    LLVMDisposeMessage(dl_str);
-    LLVMDisposeTargetData(dl);
 
     optimize_module_ir(&e, opt_level);
     if (verify_emit_module(&e, out_error) != 0) {

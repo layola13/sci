@@ -11,12 +11,12 @@
 @extern sa_fs_file_flush(file: ptr) -> i32!
 @extern sa_fs_file_seek(file: ptr, whence: u32, offset: i64) -> u64!
 
-// Whole-file reads return an owned SaFsReadBuffer. Free it with sa_fs_read_buffer_free.
-@extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> ^ptr!
+// Whole-file reads return an owned buffer handle. Free it with sa_fs_read_buffer_free.
+@extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
 @extern sa_fs_write_file(&path: ptr, path_len: u64, &buf: ptr, len: u64) -> i32!
-@extern sa_fs_read_buffer_data(&buffer: ptr) -> &ptr
-@extern sa_fs_read_buffer_len(&buffer: ptr) -> u64
-@extern sa_fs_read_buffer_free(^buffer: ptr) -> i32!
+@extern sa_fs_read_buffer_data(buffer: u64) -> &ptr
+@extern sa_fs_read_buffer_len(buffer: u64) -> u64
+@extern sa_fs_read_buffer_free(^buffer: u64) -> i32
 
 @extern sa_fs_metadata(&path: ptr, path_len: u64) -> ^ptr!
 @extern sa_fs_metadata_free(^metadata: ptr) -> i32!

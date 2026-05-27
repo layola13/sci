@@ -17,121 +17,103 @@ pub const CompileError = error{
 };
 
 pub const Argv = struct {
-    items: [16][]const u8 = undefined,
-    len: usize = 0,
+    items: std.ArrayList([]const u8),
 
     pub fn slice(self: *const Argv) []const []const u8 {
-        return self.items[0..self.len];
+        return self.items.items;
+    }
+
+    pub fn deinit(self: *Argv) void {
+        self.items.deinit();
+        self.* = undefined;
     }
 };
 
 pub fn argvForExe(
+    allocator: std.mem.Allocator,
     artifact_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
     sa_std_archive_path: []const u8,
     extra_inputs: []const []const u8,
     debug: bool,
-) Argv {
-    var argv: Argv = .{};
-    argv.items[0] = "zig";
-    argv.items[1] = "cc";
-    var index: usize = 2;
+) !Argv {
+    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    errdefer argv.deinit();
+    try argv.items.append("zig");
+    try argv.items.append("cc");
     if (debug) {
-        argv.items[index] = "-g";
-        index += 1;
+        try argv.items.append("-g");
     }
-    argv.items[index] = if (debug) "-O0" else switch (optimization) {
+    try argv.items.append(if (debug) "-O0" else switch (optimization) {
         .release_small => "-O1",
         .release_fast => "-O3",
-    };
-    index += 1;
-    argv.items[index] = artifact_path;
-    index += 1;
-    argv.items[index] = sa_std_archive_path;
-    index += 1;
+    });
+    try argv.items.append(artifact_path);
+    try argv.items.append(sa_std_archive_path);
     for (extra_inputs) |input| {
-        argv.items[index] = input;
-        index += 1;
+        try argv.items.append(input);
     }
-    argv.items[index] = "-Wl,-rpath,$ORIGIN";
-    index += 1;
-    argv.items[index] = "-o";
-    index += 1;
-    argv.items[index] = out_path;
-    index += 1;
-    argv.len = index;
+    try argv.items.append("-Wl,-rpath,$ORIGIN");
+    try argv.items.append("-o");
+    try argv.items.append(out_path);
     return argv;
 }
 
 pub fn argvForObj(
+    allocator: std.mem.Allocator,
     artifact_path: []const u8,
     out_path: []const u8,
     optimization: Optimization,
     debug: bool,
-) Argv {
-    var argv: Argv = .{};
-    argv.items[0] = "zig";
-    argv.items[1] = "cc";
-    var index: usize = 2;
+) !Argv {
+    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    errdefer argv.deinit();
+    try argv.items.append("zig");
+    try argv.items.append("cc");
     if (debug) {
-        argv.items[index] = "-g";
-        index += 1;
+        try argv.items.append("-g");
     }
-    argv.items[index] = if (debug) "-O0" else switch (optimization) {
+    try argv.items.append(if (debug) "-O0" else switch (optimization) {
         .release_small => "-O1",
         .release_fast => "-O3",
-    };
-    index += 1;
-    argv.items[index] = "-c";
-    index += 1;
-    argv.items[index] = artifact_path;
-    index += 1;
-    argv.items[index] = "-o";
-    index += 1;
-    argv.items[index] = out_path;
-    index += 1;
-    argv.len = index;
+    });
+    try argv.items.append("-c");
+    try argv.items.append(artifact_path);
+    try argv.items.append("-o");
+    try argv.items.append(out_path);
     return argv;
 }
 
 pub fn argvForWasm(
+    allocator: std.mem.Allocator,
     artifact_path: []const u8,
     out_path: []const u8,
     target: Target,
     optimization: Optimization,
     debug: bool,
-) Argv {
-    var argv: Argv = .{};
-    argv.items[0] = "zig";
-    argv.items[1] = "cc";
-    var index: usize = 2;
+) !Argv {
+    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    errdefer argv.deinit();
+    try argv.items.append("zig");
+    try argv.items.append("cc");
     if (debug) {
-        argv.items[index] = "-g";
-        index += 1;
+        try argv.items.append("-g");
     }
-    argv.items[index] = "-target";
-    index += 1;
-    argv.items[index] = target.triple;
-    index += 1;
+    try argv.items.append("-target");
+    try argv.items.append(target.triple);
 
     if (target.no_entry) {
-        argv.items[index] = "-Wl,--no-entry";
-        index += 1;
+        try argv.items.append("-Wl,--no-entry");
     }
 
-    argv.items[index] = if (debug) "-O0" else switch (optimization) {
+    try argv.items.append(if (debug) "-O0" else switch (optimization) {
         .release_small => "-O1",
         .release_fast => "-O3",
-    };
-    index += 1;
-    argv.items[index] = artifact_path;
-    index += 1;
-    argv.items[index] = "-o";
-    index += 1;
-    argv.items[index] = out_path;
-    index += 1;
-    argv.len = index;
+    });
+    try argv.items.append(artifact_path);
+    try argv.items.append("-o");
+    try argv.items.append(out_path);
     return argv;
 }
 
@@ -192,7 +174,8 @@ pub fn compileExe(
     debug: bool,
     stderr: anytype,
 ) !void {
-    const argv = argvForExe(artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
+    var argv = try argvForExe(allocator, artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
+    defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {
         try printCompilerLaunchFailure(stderr, argv_slice, "linking", artifact_path, out_path, err);
@@ -223,7 +206,8 @@ pub fn compileObj(
     debug: bool,
     stderr: anytype,
 ) !void {
-    const argv = argvForObj(artifact_path, out_path, optimization, debug);
+    var argv = try argvForObj(allocator, artifact_path, out_path, optimization, debug);
+    defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {
         try printCompilerLaunchFailure(stderr, argv_slice, "compiling object", artifact_path, out_path, err);
@@ -255,7 +239,8 @@ pub fn compileWasm(
     debug: bool,
     stderr: anytype,
 ) !void {
-    const argv = argvForWasm(artifact_path, out_path, target, optimization, debug);
+    var argv = try argvForWasm(allocator, artifact_path, out_path, target, optimization, debug);
+    defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {
         try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, err);
@@ -279,14 +264,18 @@ pub fn compileWasm(
 }
 
 test "argv helpers choose the requested optimization" {
-    const exe_small = argvForExe("input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    var exe_small = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    defer exe_small.deinit();
     try std.testing.expectEqualStrings("-O1", exe_small.slice()[2]);
     try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[4]);
-    const exe_fast = argvForExe("input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    var exe_fast = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    defer exe_fast.deinit();
     try std.testing.expectEqualStrings("-O3", exe_fast.slice()[2]);
 
-    const wasm_small = argvForWasm("input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false);
+    var wasm_small = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false);
+    defer wasm_small.deinit();
     try std.testing.expectEqualStrings("-O1", wasm_small.slice()[4]);
-    const wasm_fast = argvForWasm("input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false);
+    var wasm_fast = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false);
+    defer wasm_fast.deinit();
     try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[5]);
 }

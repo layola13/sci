@@ -1349,7 +1349,7 @@ fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessAr
     for (args, 0..) |*slot, index| {
         const entry = entries[index];
         const n = try lenAsUsize(entry.len);
-        slot.* = if (n == 0) &.{ } else entry.data[0..n];
+        slot.* = if (n == 0) &.{} else entry.data[0..n];
     }
     return args;
 }
@@ -1360,7 +1360,7 @@ fn envpFromCurrentProcess(arena: std.mem.Allocator) ![:null]const ?[*:0]const u8
         env_block[i] = entry;
     }
     env_block[std.os.environ.len] = null;
-    return env_block[0 .. std.os.environ.len :null];
+    return env_block[0..std.os.environ.len :null];
 }
 
 fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]u8 {
@@ -1600,7 +1600,6 @@ fn envGetOwned(key: []const u8) ![]u8 {
     return std.heap.page_allocator.dupe(u8, value);
 }
 
-
 pub fn Fallible(comptime T: type) type {
     return extern struct {
         status: i32,
@@ -1820,9 +1819,7 @@ pub export fn sa_json_scanner_next(scanner: u64, out_token: ?*SaJsonToken) i32 {
         token_ptr.text_ptr = text.ptr;
         token_ptr.text_len = @as(u64, @intCast(text.len));
     } else switch (token) {
-        .allocated_number,
-        .allocated_string,
-        .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => {
+        .allocated_number, .allocated_string, .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => {
             const text = tokenTextBytes(scanner_handle, token) catch |err| return finishErr(err);
             token_ptr.text_ptr = text.ptr;
             token_ptr.text_len = @as(u64, @intCast(text.len));
@@ -1860,9 +1857,7 @@ pub export fn sa_json_stream_next(stream: u64) u32 {
     if (tokenTextSlice(token)) |text| {
         stream_handle.scanner.current_text = text;
     } else switch (token) {
-        .allocated_number,
-        .allocated_string,
-        .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => {
+        .allocated_number, .allocated_string, .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => {
             const text = tokenTextBytes(stream_handle.scanner, token) catch return SA_JSON_TOKEN_INVALID;
             stream_handle.scanner.current_text = text;
         },
@@ -2209,7 +2204,6 @@ pub export fn sa_regex_match_free(match: u64) Fallible(i32) {
     if (status != SA_STD_OK) return fail(i32, status);
     return ok(i32, 0);
 }
-
 
 pub export fn sa_json_buffer_data(buffer: u64) ?[*]u8 {
     registry_mutex.lock();
@@ -2875,12 +2869,25 @@ pub export fn sa_fs_file_create(path_ptr: ?[*]const u8, path_len: u64) i32 {
     return sa_std_fs_open_write(path_ptr, path_len, 1, null);
 }
 
-pub export fn sa_fs_file_close(handle: u64) i32 { return sa_std_close(handle); }
-pub export fn sa_fs_file_read(handle: u64, out: ?[*]u8, cap: u64) i32 { return sa_std_read(handle, out, cap, null); }
-pub export fn sa_fs_file_read_exact(handle: u64, out: ?[*]u8, len: u64) i32 { return sa_io_read_exact(handle, out, len); }
-pub export fn sa_fs_file_write(handle: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(handle, out, len); }
-pub export fn sa_fs_file_write_all(handle: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(handle, out, len); }
-pub export fn sa_fs_file_flush(handle: u64) i32 { _ = handle; return finish(SA_STD_OK); }
+pub export fn sa_fs_file_close(handle: u64) i32 {
+    return sa_std_close(handle);
+}
+pub export fn sa_fs_file_read(handle: u64, out: ?[*]u8, cap: u64) i32 {
+    return sa_std_read(handle, out, cap, null);
+}
+pub export fn sa_fs_file_read_exact(handle: u64, out: ?[*]u8, len: u64) i32 {
+    return sa_io_read_exact(handle, out, len);
+}
+pub export fn sa_fs_file_write(handle: u64, out: ?[*]const u8, len: u64) i32 {
+    return sa_io_write_all(handle, out, len);
+}
+pub export fn sa_fs_file_write_all(handle: u64, out: ?[*]const u8, len: u64) i32 {
+    return sa_io_write_all(handle, out, len);
+}
+pub export fn sa_fs_file_flush(handle: u64) i32 {
+    _ = handle;
+    return finish(SA_STD_OK);
+}
 pub export fn sa_fs_file_sync(handle: u64) i32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -2926,14 +2933,17 @@ pub export fn sa_fs_file_seek(handle: u64, whence: u32, offset: i64) i32 {
     };
 }
 
-pub export fn sa_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return finishErr(err);
-    errdefer file.close();
-    const cap = lenAsUsize(max_bytes) catch |err| return finishErr(err);
-    const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| return finishErr(err);
-    return @as(i32, @intCast(handle));
+pub export fn sa_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) Fallible(u64) {
+    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
+    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return fail(u64, mapError(err));
+    defer file.close();
+    const cap = lenAsUsize(max_bytes) catch |err| return fail(u64, mapError(err));
+    const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return fail(u64, mapError(err));
+    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return fail(u64, mapError(err));
+    };
+    return ok(u64, handle);
 }
 
 pub export fn sa_fs_write_file(path_ptr: ?[*]const u8, path_len: u64, buf: ?[*]const u8, len: u64) i32 {
@@ -2945,17 +2955,28 @@ pub export fn sa_fs_write_file(path_ptr: ?[*]const u8, path_len: u64, buf: ?[*]c
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_read_buffer_data(buffer: ?*const BufferHandle) ?[*]u8 {
-    return sa_io_buffer_data(buffer);
+pub export fn sa_fs_read_buffer_data(handle: u64) ?[*]u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return null;
+    return switch (resource.*) {
+        .buffer => |*buf| buf.bytes.ptr,
+        else => null,
+    };
 }
 
-pub export fn sa_fs_read_buffer_len(buffer: ?*const BufferHandle) u64 {
-    return sa_io_buffer_len(buffer);
+pub export fn sa_fs_read_buffer_len(handle: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .buffer => |*buf| @as(u64, @intCast(buf.bytes.len)),
+        else => 0,
+    };
 }
 
-pub export fn sa_fs_read_buffer_free(buffer: ?*BufferHandle) i32 {
-    _ = buffer;
-    return finish(SA_STD_OK);
+pub export fn sa_fs_read_buffer_free(handle: u64) i32 {
+    return sa_std_close(handle);
 }
 
 pub export fn sa_fs_metadata(path_ptr: ?[*]const u8, path_len: u64) i32 {
@@ -2999,7 +3020,12 @@ pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u3
     return ok(u64, handle);
 }
 
-pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) { var read: u64 = 0; const status = sa_std_read(stream, out, cap, &read); if (status != SA_STD_OK) return fail(u64, status); return ok(u64, read); }
+pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) {
+    var read: u64 = 0;
+    const status = sa_std_read(stream, out, cap, &read);
+    if (status != SA_STD_OK) return fail(u64, status);
+    return ok(u64, read);
+}
 pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
 
@@ -3022,9 +3048,18 @@ pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
     const read = std.posix.recv(fd, buffer, std.posix.MSG.PEEK) catch |err| return finishErr(err);
     return finish(@as(i32, @intCast(read)));
 }
-pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 { return sa_io_write_all(stream, out, len); }
-pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) Fallible(i32) { const status = sa_io_write_all(stream, out, len); if (status != SA_STD_OK) return fail(i32, status); return ok(i32, 0); }
-pub export fn sa_net_tcp_stream_flush(stream: u64) i32 { _ = stream; return finish(SA_STD_OK); }
+pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 {
+    return sa_io_write_all(stream, out, len);
+}
+pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) Fallible(i32) {
+    const status = sa_io_write_all(stream, out, len);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
+}
+pub export fn sa_net_tcp_stream_flush(stream: u64) i32 {
+    _ = stream;
+    return finish(SA_STD_OK);
+}
 pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -3390,7 +3425,9 @@ pub export fn sa_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_addr:
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(read));
 }
-pub export fn sa_net_udp_close(socket: u64) i32 { return sa_std_close(socket); }
+pub export fn sa_net_udp_close(socket: u64) i32 {
+    return sa_std_close(socket);
+}
 pub export fn sa_net_addr_host(addr: u64) ?[*]u8 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -3598,10 +3635,8 @@ pub export fn sa_fmt_buffer_write_to(buffer: u64, writer: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fmt_buffer_free(handle: u64) Fallible(i32) {
-    const status = sa_std_close(handle);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
+pub export fn sa_fmt_buffer_free(handle: u64) i32 {
+    return sa_std_close(handle);
 }
 
 pub export fn sa_print_bytes(msg: ?[*]const u8, len: u64) void {

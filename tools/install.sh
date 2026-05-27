@@ -325,6 +325,29 @@ main() {
         step "Would download: $DOWNLOAD_URL"
         step "Would verify checksum from: $CHECKSUM_URL"
         step "Would extract to: $SA_BIN_DIR and $SA_STD_DIR"
+    elif [ -f "build.zig" ] && command -v zig >/dev/null 2>&1; then
+        info "Source tree detected and Zig is available. Building from source directly."
+        step "Building via 'zig build -Doptimize=ReleaseFast'"
+        if zig build -Doptimize=ReleaseFast; then
+            cp -f zig-out/bin/sa "$SA_BIN_DIR/sa"
+            mkdir -p "$SA_STD_DIR"
+            if [ -d sa_std ]; then
+                cp -rf sa_std/* "$SA_STD_DIR/"
+            fi
+            if [ -f zig-out/lib/libsa_std.a ]; then
+                cp -f zig-out/lib/libsa_std.a "$SA_STD_DIR/"
+            fi
+            if [ -f src/runtime/sa_std.h ]; then
+                cp -f src/runtime/sa_std.h "$SA_STD_DIR/"
+            fi
+            verify_std_payload "$SA_STD_DIR"
+            INSTALLED_FROM_SOURCE=1
+            success "Built from source."
+        else
+            rm -rf "$TEMP_DIR"
+            error "Build from source failed."
+        fi
+        rm -rf "$TEMP_DIR"
     else
         step "Downloading SA package archive"
         if ! download_file "$DOWNLOAD_URL" "$TEMP_DIR/$TARBALL_NAME"; then
@@ -333,8 +356,8 @@ main() {
 
             if command -v zig >/dev/null 2>&1; then
                 info "Zig compiler detected — attempting to build from source..."
-                step "Building via 'zig build -Doptimize=ReleaseSafe'"
-                if zig build -Doptimize=ReleaseSafe >/dev/null 2>&1; then
+                step "Building via 'zig build -Doptimize=ReleaseFast'"
+                if zig build -Doptimize=ReleaseFast; then
                     cp -f zig-out/bin/sa "$SA_BIN_DIR/sa"
                     mkdir -p "$SA_STD_DIR"
                     if [ -d sa_std ]; then

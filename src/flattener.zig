@@ -1214,12 +1214,14 @@ fn emitParsedLine(
                     }
                 },
                 .unknown => {
+                    std.debug.print("\n=== INVALID SYNTAX: .unknown inst at line {d}: '{s}' ===\n", .{ source_line, raw_line });
                     return error.InvalidSyntax;
                 },
             }
             try instructions.append(inst);
         },
         .unknown => {
+            std.debug.print("\n=== INVALID SYNTAX: .unknown line kind at line {d}: '{s}' ===\n", .{ source_line, raw_line });
             return error.InvalidSyntax;
         },
         .macro_start, .macro_end, .rep_start, .rep_end, .if_start, .else_, .if_end, .expand => return error.InvalidSyntax,
@@ -1254,8 +1256,7 @@ fn includeFileAsConst(
     else if (source_path) |sp| blk: {
         const base = std.fs.path.dirname(sp) orelse ".";
         break :blk try std.fs.path.join(allocator, &.{ base, include_path_raw });
-    } else
-        try allocator.dupe(u8, include_path_raw);
+    } else try allocator.dupe(u8, include_path_raw);
     defer allocator.free(resolved_path);
 
     const file = try std.fs.cwd().openFile(resolved_path, .{});
@@ -1340,7 +1341,7 @@ fn expandSourceLocationMacro(
         defer allocator.free(const_line);
         try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-        const ptr_line = try std.fmt.allocPrint(allocator, "{s} = add 0, 0", .{ out_reg });
+        const ptr_line = try std.fmt.allocPrint(allocator, "{s} = add 0, 0", .{out_reg});
         defer allocator.free(ptr_line);
         try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -1452,9 +1453,9 @@ fn parsePrintArgs(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 
 fn unquoteString(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
     var raw = text;
     if (std.mem.startsWith(u8, raw, "utf8:\"") and std.mem.endsWith(u8, raw, "\"")) {
-        raw = raw[5..raw.len - 1];
+        raw = raw[5 .. raw.len - 1];
     } else if (std.mem.startsWith(u8, raw, "\"") and std.mem.endsWith(u8, raw, "\"")) {
-        raw = raw[1..raw.len - 1];
+        raw = raw[1 .. raw.len - 1];
     } else {
         return error.InvalidFormatString;
     }
@@ -1560,14 +1561,14 @@ fn unescapeLength(text: []const u8) usize {
     return len;
 }
 
-const EXTERN_SA_FMT_I64 = "@extern sa_fmt_i64(value: i64, base: u32) -> ^ptr!";
-const EXTERN_SA_FMT_U64 = "@extern sa_fmt_u64(value: u64, base: u32) -> ^ptr!";
-const EXTERN_SA_FMT_F64 = "@extern sa_fmt_f64(value: f64, precision: u32) -> ^ptr!";
-const EXTERN_SA_FMT_BYTES = "@extern sa_fmt_bytes(&buf: ptr, len: u64) -> ^ptr!";
-const EXTERN_SA_FMT_BUFFER_DATA = "@extern sa_fmt_buffer_data(&buffer: ptr) -> &ptr";
-const EXTERN_SA_FMT_BUFFER_LEN = "@extern sa_fmt_buffer_len(&buffer: ptr) -> u64";
-const EXTERN_SA_FMT_BUFFER_FREE = "@extern sa_fmt_buffer_free(^buffer: ptr) -> i32!";
-const EXTERN_SA_STRING_CONCAT = "@extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> ^ptr";
+const EXTERN_SA_FMT_I64 = "@extern sa_fmt_i64(value: i64, base: u32) -> u64";
+const EXTERN_SA_FMT_U64 = "@extern sa_fmt_u64(value: u64, base: u32) -> u64";
+const EXTERN_SA_FMT_F64 = "@extern sa_fmt_f64(value: f64, precision: u32) -> u64";
+const EXTERN_SA_FMT_BYTES = "@extern sa_fmt_bytes(&buf: ptr, len: u64) -> u64";
+const EXTERN_SA_FMT_BUFFER_DATA = "@extern sa_fmt_buffer_data(buffer: u64) -> &ptr";
+const EXTERN_SA_FMT_BUFFER_LEN = "@extern sa_fmt_buffer_len(buffer: u64) -> u64";
+const EXTERN_SA_FMT_BUFFER_FREE = "@extern sa_fmt_buffer_free(^buffer: u64) -> i32";
+const EXTERN_SA_STRING_CONCAT = "@extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> u64";
 
 fn ensureExternSigs(
     allocator: std.mem.Allocator,
@@ -1695,27 +1696,23 @@ fn expandPrintOrFormat(
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, print_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
             } else {
                 const spec = seg.specifier;
-                const fmt_buf_fallible = try std.fmt.allocPrint(allocator, "__fmt_buf_fallible_{d}_{d}", .{ source_line, var_counter });
                 const fmt_buf = try std.fmt.allocPrint(allocator, "__fmt_buf_{d}_{d}", .{ source_line, var_counter });
                 const fmt_ptr = try std.fmt.allocPrint(allocator, "__fmt_ptr_{d}_{d}", .{ source_line, var_counter });
                 const fmt_len = try std.fmt.allocPrint(allocator, "__fmt_len_{d}_{d}", .{ source_line, var_counter });
-                const fmt_free_fallible = try std.fmt.allocPrint(allocator, "__fmt_free_fallible_{d}_{d}", .{ source_line, var_counter });
                 const fmt_free_ok = try std.fmt.allocPrint(allocator, "__fmt_free_ok_{d}_{d}", .{ source_line, var_counter });
                 defer {
-                    allocator.free(fmt_buf_fallible);
                     allocator.free(fmt_buf);
                     allocator.free(fmt_ptr);
                     allocator.free(fmt_len);
-                    allocator.free(fmt_free_fallible);
                     allocator.free(fmt_free_ok);
                 }
                 var_counter += 1;
 
                 const call_line = switch (spec) {
-                    .none, .i64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_i64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
-                    .u64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_u64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
-                    .f64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_f64({s}, 6)", .{ fmt_buf_fallible, format_args[arg_idx] }),
-                    .bytes => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_bytes(&{s}, {s})", .{ fmt_buf_fallible, format_args[arg_idx], format_args[arg_idx + 1] }),
+                    .none, .i64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_i64({s}, 10)", .{ fmt_buf, format_args[arg_idx] }),
+                    .u64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_u64({s}, 10)", .{ fmt_buf, format_args[arg_idx] }),
+                    .f64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_f64({s}, 6)", .{ fmt_buf, format_args[arg_idx] }),
+                    .bytes => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_bytes(&{s}, {s})", .{ fmt_buf, format_args[arg_idx], format_args[arg_idx + 1] }),
                 };
                 defer allocator.free(call_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, call_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
@@ -1725,19 +1722,11 @@ fn expandPrintOrFormat(
                     .bytes => arg_idx += 2,
                 }
 
-                const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ fmt_buf, fmt_buf_fallible });
-                defer allocator.free(unpack_line);
-                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-                const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ fmt_buf_fallible });
-                defer allocator.free(discard_line);
-                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-                const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data(&{s})", .{ fmt_ptr, fmt_buf });
+                const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data({s})", .{ fmt_ptr, fmt_buf });
                 defer allocator.free(ptr_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len(&{s})", .{ fmt_len, fmt_buf });
+                const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len({s})", .{ fmt_len, fmt_buf });
                 defer allocator.free(len_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -1745,15 +1734,19 @@ fn expandPrintOrFormat(
                 defer allocator.free(print_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, print_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ fmt_free_fallible, fmt_buf });
+                const ptr_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{fmt_ptr});
+                defer allocator.free(ptr_release_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const len_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{fmt_len});
+                defer allocator.free(len_release_line);
+                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ fmt_free_ok, fmt_buf });
                 defer allocator.free(free_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                const free_unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ fmt_free_ok, fmt_free_fallible });
-                defer allocator.free(free_unpack_line);
-                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-                const free_discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ fmt_free_fallible });
+                const free_discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{fmt_free_ok});
                 defer allocator.free(free_discard_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
             }
@@ -1794,6 +1787,7 @@ fn expandPrintOrFormat(
             len: []const u8,
             owned: bool,
             owned_buf_name: ?[]const u8,
+            release_ptr_len: bool,
         };
 
         var segment_datas = std.ArrayList(SegmentData).init(allocator);
@@ -1819,33 +1813,32 @@ fn expandPrintOrFormat(
                 defer allocator.free(const_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                const ptr_str = try std.fmt.allocPrint(allocator, "*{s}", .{ const_name });
-                const len_str = try std.fmt.allocPrint(allocator, "{d}", .{ unescaped_len });
+                const ptr_str = try std.fmt.allocPrint(allocator, "*{s}", .{const_name});
+                const len_str = try std.fmt.allocPrint(allocator, "{d}", .{unescaped_len});
 
                 try segment_datas.append(.{
                     .ptr = ptr_str,
                     .len = len_str,
                     .owned = false,
                     .owned_buf_name = null,
+                    .release_ptr_len = false,
                 });
             } else {
                 const spec = seg.specifier;
-                const fmt_buf_fallible = try std.fmt.allocPrint(allocator, "__fmt_buf_fallible_{d}_{d}", .{ source_line, var_counter });
                 const fmt_buf = try std.fmt.allocPrint(allocator, "__fmt_buf_{d}_{d}", .{ source_line, var_counter });
                 const fmt_ptr = try std.fmt.allocPrint(allocator, "__fmt_ptr_{d}_{d}", .{ source_line, var_counter });
                 const fmt_len = try std.fmt.allocPrint(allocator, "__fmt_len_{d}_{d}", .{ source_line, var_counter });
                 defer {
-                    allocator.free(fmt_buf_fallible);
                     allocator.free(fmt_ptr);
                     allocator.free(fmt_len);
                 }
                 var_counter += 1;
 
                 const call_line = switch (spec) {
-                    .none, .i64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_i64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
-                    .u64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_u64({s}, 10)", .{ fmt_buf_fallible, format_args[arg_idx] }),
-                    .f64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_f64({s}, 6)", .{ fmt_buf_fallible, format_args[arg_idx] }),
-                    .bytes => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_bytes(&{s}, {s})", .{ fmt_buf_fallible, format_args[arg_idx], format_args[arg_idx + 1] }),
+                    .none, .i64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_i64({s}, 10)", .{ fmt_buf, format_args[arg_idx] }),
+                    .u64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_u64({s}, 10)", .{ fmt_buf, format_args[arg_idx] }),
+                    .f64 => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_f64({s}, 6)", .{ fmt_buf, format_args[arg_idx] }),
+                    .bytes => try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_bytes(&{s}, {s})", .{ fmt_buf, format_args[arg_idx], format_args[arg_idx + 1] }),
                 };
                 defer allocator.free(call_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, call_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
@@ -1855,19 +1848,11 @@ fn expandPrintOrFormat(
                     .bytes => arg_idx += 2,
                 }
 
-                const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ fmt_buf, fmt_buf_fallible });
-                defer allocator.free(unpack_line);
-                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-                const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ fmt_buf_fallible });
-                defer allocator.free(discard_line);
-                try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-                const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data(&{s})", .{ fmt_ptr, fmt_buf });
+                const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data({s})", .{ fmt_ptr, fmt_buf });
                 defer allocator.free(ptr_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len(&{s})", .{ fmt_len, fmt_buf });
+                const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len({s})", .{ fmt_len, fmt_buf });
                 defer allocator.free(len_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -1879,6 +1864,7 @@ fn expandPrintOrFormat(
                     .len = len_str,
                     .owned = true,
                     .owned_buf_name = fmt_buf,
+                    .release_ptr_len = true,
                 });
             }
         }
@@ -1888,7 +1874,7 @@ fn expandPrintOrFormat(
             const const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, const_id });
             defer allocator.free(const_name);
 
-            const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{ const_name });
+            const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{const_name});
             defer allocator.free(const_line);
             try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -1896,7 +1882,7 @@ fn expandPrintOrFormat(
             const empty_const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, empty_const_id });
             defer allocator.free(empty_const_name);
 
-            const empty_const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{ empty_const_name });
+            const empty_const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{empty_const_name});
             defer allocator.free(empty_const_line);
             try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, empty_const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -1906,7 +1892,17 @@ fn expandPrintOrFormat(
         } else if (segment_datas.items.len == 1) {
             const first = segment_datas.items[0];
             if (first.owned) {
-                const assign_line = try std.fmt.allocPrint(allocator, "{s} = ^{s}", .{ dest_reg, first.owned_buf_name.? });
+                if (first.release_ptr_len) {
+                    const ptr_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{first.ptr});
+                    defer allocator.free(ptr_release_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const len_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{first.len});
+                    defer allocator.free(len_release_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+                }
+
+                const assign_line = try std.fmt.allocPrint(allocator, "{s} = {s}", .{ dest_reg, first.owned_buf_name.? });
                 defer allocator.free(assign_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, assign_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
             } else {
@@ -1914,7 +1910,7 @@ fn expandPrintOrFormat(
                 const const_name = try std.fmt.allocPrint(allocator, "__PRINT_LIT_{d}_{d}", .{ source_line, const_id });
                 defer allocator.free(const_name);
 
-                const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{ const_name });
+                const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"\"", .{const_name});
                 defer allocator.free(const_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -1926,6 +1922,7 @@ fn expandPrintOrFormat(
             const left = segment_datas.items[0];
             var left_owned = left.owned;
             var left_buf_name: ?[]const u8 = if (left_owned) try allocator.dupe(u8, left.owned_buf_name.?) else null;
+            var left_release_ptr_len = left.release_ptr_len;
             defer if (left_buf_name) |lbn| allocator.free(lbn);
 
             var left_ptr = try allocator.dupe(u8, left.ptr);
@@ -1954,54 +1951,57 @@ fn expandPrintOrFormat(
                 defer allocator.free(concat_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, concat_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
+                if (left_release_ptr_len) {
+                    const ptr_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{left_ptr});
+                    defer allocator.free(ptr_release_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const len_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{left_len});
+                    defer allocator.free(len_release_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+                }
+
                 if (left_owned) {
-                    const free_fallible = try std.fmt.allocPrint(allocator, "__fmt_free_fallible_{d}_{d}", .{ source_line, var_counter });
                     const free_ok = try std.fmt.allocPrint(allocator, "__fmt_free_ok_{d}_{d}", .{ source_line, var_counter });
-                    defer {
-                        allocator.free(free_fallible);
-                        allocator.free(free_ok);
-                    }
+                    defer allocator.free(free_ok);
                     var_counter += 1;
 
-                    const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ free_fallible, left_buf_name.? });
+                    const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ free_ok, left_buf_name.? });
                     defer allocator.free(free_line);
                     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                    const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ free_ok, free_fallible });
-                    defer allocator.free(unpack_line);
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-                    const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ free_fallible });
+                    const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{free_ok});
                     defer allocator.free(discard_line);
                     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
                 }
 
+                if (right.release_ptr_len) {
+                    const ptr_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{right.ptr});
+                    defer allocator.free(ptr_release_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+
+                    const len_release_line = try std.fmt.allocPrint(allocator, "! {s}", .{right.len});
+                    defer allocator.free(len_release_line);
+                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_release_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
+                }
+
                 if (right.owned) {
-                    const free_fallible = try std.fmt.allocPrint(allocator, "__fmt_free_fallible_{d}_{d}", .{ source_line, var_counter });
                     const free_ok = try std.fmt.allocPrint(allocator, "__fmt_free_ok_{d}_{d}", .{ source_line, var_counter });
-                    defer {
-                        allocator.free(free_fallible);
-                        allocator.free(free_ok);
-                    }
+                    defer allocator.free(free_ok);
                     var_counter += 1;
 
-                    const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ free_fallible, right.owned_buf_name.? });
+                    const free_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_free(^{s})", .{ free_ok, right.owned_buf_name.? });
                     defer allocator.free(free_line);
                     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, free_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                    const unpack_line = try std.fmt.allocPrint(allocator, "{s} = ? {s}", .{ free_ok, free_fallible });
-                    defer allocator.free(unpack_line);
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, unpack_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-                    const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{ free_fallible });
+                    const discard_line = try std.fmt.allocPrint(allocator, "! {s}", .{free_ok});
                     defer allocator.free(discard_line);
                     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, discard_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
-
-
                 }
 
                 if (!is_last) {
                     left_owned = true;
+                    left_release_ptr_len = true;
                     if (left_buf_name) |lbn| allocator.free(lbn);
                     left_buf_name = try allocator.dupe(u8, new_acc);
 
@@ -2013,11 +2013,11 @@ fn expandPrintOrFormat(
                     }
                     var_counter += 1;
 
-                    const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data(&{s})", .{ new_ptr, new_acc });
+                    const ptr_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_data({s})", .{ new_ptr, new_acc });
                     defer allocator.free(ptr_line);
                     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, ptr_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                    const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len(&{s})", .{ new_len, new_acc });
+                    const len_line = try std.fmt.allocPrint(allocator, "{s} = call @sa_fmt_buffer_len({s})", .{ new_len, new_acc });
                     defer allocator.free(len_line);
                     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -2030,14 +2030,13 @@ fn expandPrintOrFormat(
                     acc_name = try allocator.dupe(u8, new_acc);
                 } else {
                     left_owned = false;
+                    left_release_ptr_len = false;
                     if (left_buf_name) |lbn| {
                         allocator.free(lbn);
                         left_buf_name = null;
                     }
                 }
             }
-
-
         }
     }
 }
@@ -2115,11 +2114,11 @@ fn expandEnvMacro(
     const env_value = std.process.getEnvVarOwned(allocator, key_raw) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => {
             if (std.mem.eql(u8, macro_name, "OPTION_ENV!")) {
-                const none_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_NONE as u64", .{ out_reg });
+                const none_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_NONE as u64", .{out_reg});
                 defer allocator.free(none_tag_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, none_tag_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-                const none_value_line = try std.fmt.allocPrint(allocator, "store {s}+Option_value, 0 as u64", .{ out_reg });
+                const none_value_line = try std.fmt.allocPrint(allocator, "store {s}+Option_value, 0 as u64", .{out_reg});
                 defer allocator.free(none_value_line);
                 try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, none_value_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
                 return;
@@ -2162,7 +2161,7 @@ fn expandEnvMacro(
     const slice_reg = try std.fmt.allocPrint(allocator, "__ENV_SLICE_{d}_{d}", .{ source_line, const_decls.items.len });
     defer allocator.free(slice_reg);
 
-    const slice_alloc_line = try std.fmt.allocPrint(allocator, "{s} = stack_alloc Slice_SIZE", .{ slice_reg });
+    const slice_alloc_line = try std.fmt.allocPrint(allocator, "{s} = stack_alloc Slice_SIZE", .{slice_reg});
     defer allocator.free(slice_alloc_line);
     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, slice_alloc_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -2174,7 +2173,7 @@ fn expandEnvMacro(
     defer allocator.free(slice_len_line);
     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, slice_len_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
-    const some_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_SOME as u64", .{ out_reg });
+    const some_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_SOME as u64", .{out_reg});
     defer allocator.free(some_tag_line);
     try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, some_tag_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -2567,7 +2566,7 @@ fn emitRange(
                             error_ctx,
                             effective_package_identity,
                             line.package_source_sha256 orelse current_package_hash,
-                        expansion_counter,
+                            expansion_counter,
                         );
                         continue;
                     }
@@ -4274,16 +4273,44 @@ test "PRINT! and FORMAT! macro static expansion" {
 
     // Verify some instructions generated by the macros exist
     var found_sys_print = false;
+    var found_direct_fmt_handle = false;
+    var found_direct_fmt_data = false;
+    var found_moved_fmt_free = false;
+    var found_try_on_fmt = false;
+    var found_legacy_fmt_data_borrow = false;
     for (result.instructions) |inst| {
+        const raw_text = inst.raw_text;
+        if (std.mem.indexOf(u8, raw_text, "call @sa_fmt_i64(%val, 10)") != null) {
+            found_direct_fmt_handle = true;
+        }
+        if (std.mem.indexOf(u8, raw_text, "call @sa_fmt_buffer_data(__fmt_buf_3_0)") != null) {
+            found_direct_fmt_data = true;
+        }
+        if (std.mem.indexOf(u8, raw_text, "call @sa_fmt_buffer_free(^__fmt_buf_3_0)") != null) {
+            found_moved_fmt_free = true;
+        }
+        if (std.mem.indexOf(u8, raw_text, "call @sa_fmt_buffer_data(&") != null) {
+            found_legacy_fmt_data_borrow = true;
+        }
         if (inst.kind == .call) {
             if (inst.operands[0] == .text) {
                 if (std.mem.startsWith(u8, inst.operands[0].text, "@sys_print")) {
                     found_sys_print = true;
                 }
             }
+        } else if (inst.kind == .early_return) {
+            const src_name = result.symbols.lookupName(inst.operands[1].reg) orelse "";
+            if (std.mem.startsWith(u8, src_name, "__fmt_")) {
+                found_try_on_fmt = true;
+            }
         }
     }
     try std.testing.expect(found_sys_print);
+    try std.testing.expect(found_direct_fmt_handle);
+    try std.testing.expect(found_direct_fmt_data);
+    try std.testing.expect(found_moved_fmt_free);
+    try std.testing.expect(!found_try_on_fmt);
+    try std.testing.expect(!found_legacy_fmt_data_borrow);
 }
 
 test "hygiene: two macro expansions produce distinct internal symbols" {

@@ -1,18 +1,18 @@
 // SA-facing contracts for the Zig-backed sa_std.fmt module.
 // Formatting helpers return owned buffer handles; free them explicitly.
-@extern sa_fmt_i64(value: i64, base: u32) -> ^ptr!
-@extern sa_fmt_u64(value: u64, base: u32) -> ^ptr!
-@extern sa_fmt_f64(value: f64, precision: u32) -> ^ptr!
-@extern sa_fmt_bool(value: i1) -> ^ptr!
-@extern sa_fmt_bytes(&buf: ptr, len: u64) -> ^ptr!
+@extern sa_fmt_i64(value: i64, base: u32) -> u64
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_f64(value: f64, precision: u32) -> u64
+@extern sa_fmt_bool(value: i1) -> u64
+@extern sa_fmt_bytes(&buf: ptr, len: u64) -> u64
 
-@extern sa_fmt_i64_into(value: i64, base: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32!
-@extern sa_fmt_u64_into(value: u64, base: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32!
-@extern sa_fmt_f64_into(value: f64, precision: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32!
-@extern sa_fmt_bool_into(value: i1, out: ptr, out_cap: u64, &out_len: ptr) -> i32!
-@extern sa_fmt_bytes_into(&buf: ptr, len: u64, out: ptr, out_cap: u64, &out_len: ptr) -> i32!
+@extern sa_fmt_i64_into(value: i64, base: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_fmt_u64_into(value: u64, base: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_fmt_f64_into(value: f64, precision: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_fmt_bool_into(value: i1, out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_fmt_bytes_into(&buf: ptr, len: u64, out: ptr, out_cap: u64, &out_len: ptr) -> i32
 
-@extern sa_fmt_buffer_data(&buffer: ptr) -> &ptr
-@extern sa_fmt_buffer_len(&buffer: ptr) -> u64
-@extern sa_fmt_buffer_write_to(&buffer: ptr, writer: ptr) -> i32!
-@extern sa_fmt_buffer_free(^buffer: ptr) -> i32!
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_write_to(buffer: u64, writer: u64) -> i32
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32

@@ -1964,6 +1964,108 @@ test "fallible ABI and ? propagation work end to end" {
     }
 }
 
+test "extern u64 fallible return can be loaded from ABI payload offset" {
+    const source =
+        \\@extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
+        \\@extern sa_fs_read_buffer_data(buffer: u64) -> &ptr
+        \\@extern sa_fs_read_buffer_len(buffer: u64) -> u64
+        \\@extern sa_fs_read_buffer_free(^buffer: u64) -> i32
+        \\
+        \\@const PROBE_PATH = utf8:"probe.env"
+        \\
+        \\@main() -> i32!:
+        \\L_ENTRY:
+        \\    path_tmp = *PROBE_PATH
+        \\    read_res = call @sa_fs_read_file(&path_tmp, 9, 1024)
+        \\    !path_tmp
+        \\    read_status = load read_res+0 as i32
+        \\    handle = load read_res+8 as u64
+        \\    !read_res
+        \\    read_ok = eq read_status, 0
+        \\    !read_status
+        \\    br read_ok -> L_CHECK_LEN, L_FAIL_READ
+        \\
+        \\L_CHECK_LEN:
+        \\    !read_ok
+        \\    len = call @sa_fs_read_buffer_len(handle)
+        \\    len_ok = eq len, 11
+        \\    !len
+        \\    br len_ok -> L_CHECK_CONTENT, L_FAIL_LEN
+        \\
+        \\L_CHECK_CONTENT:
+        \\    !len_ok
+        \\    data = call @sa_fs_read_buffer_data(handle)
+        \\    first = load data+0 as u8
+        \\    sixth = load data+5 as u8
+        \\    first_ok = eq first, 80
+        \\    sixth_ok = eq sixth, 50
+        \\    content_ok = and first_ok, sixth_ok
+        \\    !first
+        \\    !sixth
+        \\    !first_ok
+        \\    !sixth_ok
+        \\    !data
+        \\    br content_ok -> L_FREE, L_FAIL_CONTENT
+        \\
+        \\L_FREE:
+        \\    !content_ok
+        \\    free_status = call @sa_fs_read_buffer_free(^handle)
+        \\    free_ok = eq free_status, 0
+        \\    !free_status
+        \\    br free_ok -> L_PASS, L_FAIL_FREE
+        \\
+        \\L_PASS:
+        \\    !free_ok
+        \\    return 0
+        \\
+        \\L_FAIL_READ:
+        \\    !read_ok
+        \\    !handle
+        \\    panic(121)
+        \\
+        \\L_FAIL_LEN:
+        \\    !len_ok
+        \\    !handle
+        \\    panic(122)
+        \\
+        \\L_FAIL_CONTENT:
+        \\    !content_ok
+        \\    !handle
+        \\    panic(123)
+        \\
+        \\L_FAIL_FREE:
+        \\    !free_ok
+        \\    panic(124)
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "fallible_u64_file.sa", source);
+    try writeBytes(tmp.dir, "probe.env", "PORT=28080\n");
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "fallible_u64_file.sa", "-o", "fallible_u64_file.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./fallible_u64_file.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("fallible u64 ABI probe failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
 test "result unwrap_or and map_or helpers branch on tags correctly" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
