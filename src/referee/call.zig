@@ -200,6 +200,22 @@ fn startsWithWord(s: []const u8, word: []const u8) bool {
     return std.ascii.isWhitespace(next) or next == '(' or next == '[' or next == ':' or next == '=' or next == '@' or next == '-';
 }
 
+fn isCallKeywordBoundary(c: u8) bool {
+    return std.ascii.isWhitespace(c) or c == '=';
+}
+
+fn findCallKeyword(s: []const u8, keyword: []const u8) ?usize {
+    var index: usize = 0;
+    while (std.mem.indexOfPos(u8, s, index, keyword)) |found| {
+        const before_ok = found == 0 or isCallKeywordBoundary(s[found - 1]);
+        const after_index = found + keyword.len;
+        const after_ok = after_index >= s.len or std.ascii.isWhitespace(s[after_index]);
+        if (before_ok and after_ok) return found;
+        index = found + keyword.len;
+    }
+    return null;
+}
+
 pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall {
     const trimmed = std.mem.trim(u8, raw_text, " \t\r");
     if (trimmed.len == 0) return CallError.InvalidCallSyntax;
@@ -211,7 +227,7 @@ pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall
         return parseSpecialCallBody(allocator, trimmed, "panic");
     }
 
-    const call_start = if (std.mem.indexOf(u8, trimmed, "call_indirect")) |idx| idx else if (std.mem.indexOf(u8, trimmed, "call")) |idx| idx else return CallError.InvalidCallSyntax;
+    const call_start = if (findCallKeyword(trimmed, "call_indirect")) |idx| idx else if (findCallKeyword(trimmed, "call")) |idx| idx else return CallError.InvalidCallSyntax;
     const prefix = std.mem.trim(u8, trimmed[0..call_start], " \t");
     const dest = if (prefix.len != 0) blk: {
         const eq = std.mem.indexOfScalar(u8, prefix, '=') orelse return CallError.InvalidCallSyntax;
@@ -222,14 +238,14 @@ pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall
     } else null;
     errdefer if (dest) |value| allocator.free(value);
 
-    if (std.mem.indexOf(u8, trimmed, "call_indirect")) |idx| {
+    if (findCallKeyword(trimmed, "call_indirect")) |idx| {
         const body = std.mem.trimLeft(u8, trimmed[idx + "call_indirect".len ..], " \t");
         var call = try parseCallBody(allocator, body, true);
         call.dest = dest;
         return call;
     }
 
-    if (std.mem.indexOf(u8, trimmed, "call")) |idx| {
+    if (findCallKeyword(trimmed, "call")) |idx| {
         const body = std.mem.trimLeft(u8, trimmed[idx + "call".len ..], " \t");
         var call = try parseCallBody(allocator, body, false);
         call.dest = dest;
@@ -345,6 +361,17 @@ test "parseCall keeps quoted commas inside arguments" {
     try std.testing.expectEqualStrings("\"c,d\"", call.args[1].text);
     try std.testing.expectEqual(common_instruction.CapPrefix.by_value, call.args[2].prefix);
     try std.testing.expectEqualStrings("len", call.args[2].text);
+}
+
+test "parseCall does not treat call substring in destination as keyword" {
+    var call = try parseCall(std.testing.allocator, "call_idx = call @sa_bytes_find(&body, body_len, &J_CALL_ID_KEY, J_CALL_ID_KEY_LEN)");
+    defer call.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("call_idx", call.dest.?);
+    try std.testing.expectEqualStrings("sa_bytes_find", call.callee);
+    try std.testing.expectEqual(@as(usize, 4), call.args.len);
+    try std.testing.expectEqual(common_instruction.CapPrefix.borrow, call.args[0].prefix);
+    try std.testing.expectEqualStrings("body", call.args[0].text);
 }
 
 test "validateCall rejects capability mismatches" {
