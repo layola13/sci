@@ -20,6 +20,10 @@ const RegexMatchC = extern struct {
 extern fn regcomp(preg: ?*RegexC, pattern: [*c]const u8, cflags: c_int) c_int;
 extern fn regexec(preg: ?*const RegexC, text: [*c]const u8, nmatch: usize, pmatch: [*]RegexMatchC, eflags: c_int) c_int;
 extern fn regfree(preg: ?*RegexC) void;
+extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern fn unsetenv(name: [*:0]const u8) c_int;
+
+extern "c" var environ: [*:null]?[*:0]u8;
 
 comptime {
     std.debug.assert(@sizeOf(RegexC) == 64);
@@ -143,16 +147,6 @@ const BufferHandle = struct {
     bytes: []u8,
 
     fn deinit(self: *BufferHandle) void {
-        if (self.bytes.len != 0) self.allocator.free(self.bytes);
-        self.bytes = &.{};
-    }
-};
-
-const FsDirBufferHandle = struct {
-    allocator: std.mem.Allocator,
-    bytes: []u8,
-
-    fn deinit(self: *FsDirBufferHandle) void {
         if (self.bytes.len != 0) self.allocator.free(self.bytes);
         self.bytes = &.{};
     }
@@ -608,6 +602,36 @@ fn jsonObjectGet(node: JsonNodeHandle, key: []const u8) !JsonNodeHandle {
     };
 }
 
+fn jsonArrayGet(node: JsonNodeHandle, index: u64) !JsonNodeHandle {
+    return switch (node.value) {
+        .array => |array| {
+            const idx: usize = @intCast(index);
+            if (idx >= array.items.len) return error.FileNotFound;
+            return .{
+                .document = node.document,
+                .value = array.items[idx],
+            };
+        },
+        else => error.InvalidHandle,
+    };
+}
+
+fn jsonObjectKeyAt(node: JsonNodeHandle, index: u64) ![]const u8 {
+    return switch (node.value) {
+        .object => |object| {
+            const idx: usize = @intCast(index);
+            if (idx >= object.count()) return error.FileNotFound;
+            var it = object.iterator();
+            var current: usize = 0;
+            while (it.next()) |entry| : (current += 1) {
+                if (current == idx) return entry.key_ptr.*;
+            }
+            return error.FileNotFound;
+        },
+        else => error.InvalidHandle,
+    };
+}
+
 fn jsonStringifyAlloc(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
@@ -621,6 +645,28 @@ fn jsonSerializeBuffer(allocator: std.mem.Allocator, value: std.json.Value) !u64
         allocator.free(bytes);
         return err;
     };
+}
+
+fn acquireJsonWriterForWrite(writer: u64) !*JsonWriterHandle {
+    const resource = getResourceLocked(writer) orelse return error.InvalidHandle;
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return error.InvalidHandle,
+    };
+    if (writer_handle.result_buffer != null) return error.InvalidHandle;
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return error.InvalidArgument;
+    return writer_handle;
+}
+
+fn markJsonWriterValueComplete(writer_handle: *JsonWriterHandle) void {
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+}
+
+fn jsonWriterObjectFieldLocked(writer_handle: *JsonWriterHandle, key: []const u8) !void {
+    if (writer_handle.result_buffer != null) return error.InvalidHandle;
+    if (writer_handle.open_depth == 0) return error.InvalidArgument;
+    try writer_handle.stream.objectField(key);
 }
 
 fn tokenTypeOf(token: std.json.Token) u32 {
@@ -802,7 +848,6 @@ const Resource = union(enum) {
     tcp_listener: std.net.Server,
     udp_socket: std.posix.socket_t,
     buffer: BufferHandle,
-    fs_dir_buffer: FsDirBufferHandle,
     metadata: MetadataHandle,
     net_addr: NetAddrHandle,
     fmt: FmtHandle,
@@ -829,7 +874,6 @@ const Resource = union(enum) {
             .tcp_listener => |*server| server.deinit(),
             .udp_socket => |fd| std.posix.close(fd),
             .buffer => |*buffer| buffer.deinit(),
-            .fs_dir_buffer => |*buffer| buffer.deinit(),
             .metadata => |*metadata| metadata.deinit(),
             .net_addr => |*addr| addr.deinit(),
             .fmt => |*fmt| fmt.deinit(),
@@ -1371,12 +1415,25 @@ fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessAr
 }
 
 fn envpFromCurrentProcess(arena: std.mem.Allocator) ![:null]const ?[*:0]const u8 {
-    const env_block = try arena.alloc(?[*:0]const u8, std.os.environ.len + 1);
-    for (std.os.environ, 0..) |entry, i| {
-        env_block[i] = entry;
+    if (builtin.is_test) {
+        const env_block = try arena.alloc(?[*:0]const u8, std.os.environ.len + 1);
+        for (std.os.environ, 0..) |entry, i| {
+            env_block[i] = entry;
+        }
+        env_block[std.os.environ.len] = null;
+        return env_block[0..std.os.environ.len :null];
     }
-    env_block[std.os.environ.len] = null;
-    return env_block[0..std.os.environ.len :null];
+
+    var count: usize = 0;
+    while (environ[count] != null) : (count += 1) {}
+
+    const env_block = try arena.alloc(?[*:0]const u8, count + 1);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        env_block[i] = environ[i].?;
+    }
+    env_block[count] = null;
+    return env_block[0..count :null];
 }
 
 fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]u8 {
@@ -1413,7 +1470,7 @@ fn statusFromWaitStatus(status: u32) u32 {
     return 127;
 }
 
-fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode) !SpawnResult {
+fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8) !SpawnResult {
     if (argv.len == 0) return error.InvalidArgument;
 
     const use_pipes = mode != .inherit;
@@ -1441,6 +1498,9 @@ fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: Pr
 
     const pid = try std.posix.fork();
     if (pid == 0) {
+        if (cwd) |dir| {
+            std.posix.chdir(dir) catch std.posix.exit(127);
+        }
         if (use_pipes) {
             std.posix.close(stdout_pipe[0]);
             std.posix.close(stderr_pipe[0]);
@@ -1529,6 +1589,10 @@ fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: Pr
     }
 }
 
+fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode) !SpawnResult {
+    return spawnProcessCwd(allocator, argv, mode, null);
+}
+
 fn formatInteger(value: anytype, base: u32) ![]u8 {
     const actual_base: u8 = switch (base) {
         2, 8, 10 => @as(u8, @intCast(base)),
@@ -1577,8 +1641,8 @@ fn openOwnedBuffer(bytes: []u8) !u64 {
     };
 }
 
-fn openOwnedFsDirBuffer(bytes: []u8) !u64 {
-    return registerResource(.{ .fs_dir_buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+fn openOwnedByteBuffer(bytes: []u8) !u64 {
+    return registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
         std.heap.page_allocator.free(bytes);
         return err;
     };
@@ -1683,6 +1747,392 @@ pub export fn sa_std_println(data: ?[*]const u8, len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_deno_cwd() u64 {
+    const cwd = std.process.getCwdAlloc(std.heap.page_allocator) catch return 0;
+    return openOwnedByteBuffer(cwd) catch return 0;
+}
+
+pub export fn sa_deno_chdir(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.process.changeCurDir(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_deno_env_set(key_ptr: ?[*]const u8, key_len: u64, value_ptr: ?[*]const u8, value_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const value = constBytes(value_ptr, value_len) catch |err| return finishErr(err);
+    if (std.mem.indexOfScalar(u8, value, 0) != null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(key_z);
+    const value_z = std.heap.page_allocator.dupeZ(u8, value) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(value_z);
+    if (setenv(key_z.ptr, value_z.ptr, 1) != 0) return finish(SA_STD_ERR_IO);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_deno_env_delete(key_ptr: ?[*]const u8, key_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(key_z);
+    if (unsetenv(key_z.ptr) != 0) return finish(SA_STD_ERR_IO);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_deno_random_uuid() u64 {
+    var bytes: [16]u8 = undefined;
+    std.crypto.random.bytes(&bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    var text: [36]u8 = undefined;
+    _ = std.fmt.bufPrint(
+        &text,
+        "{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}",
+        .{
+            bytes[0],  bytes[1],  bytes[2],  bytes[3],
+            bytes[4],  bytes[5],  bytes[6],  bytes[7],
+            bytes[8],  bytes[9],  bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15],
+        },
+    ) catch return 0;
+    const owned = std.heap.page_allocator.dupe(u8, &text) catch return 0;
+    return openOwnedBuffer(owned) catch return 0;
+}
+
+pub export fn sa_deno_args_json() u64 {
+    var args = std.process.argsAlloc(std.heap.page_allocator) catch return 0;
+    defer std.process.argsFree(std.heap.page_allocator, args);
+
+    const deno_args = if (args.len > 0) args[1..] else args[0..0];
+    const json = std.json.stringifyAlloc(std.heap.page_allocator, deno_args, .{}) catch return 0;
+    return openOwnedByteBuffer(json) catch return 0;
+}
+
+pub export fn sa_deno_btoa(data_ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(data_ptr, len) catch return 0;
+    const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
+    const encoded = std.heap.page_allocator.alloc(u8, encoded_len) catch return 0;
+    _ = std.base64.standard.Encoder.encode(encoded, bytes);
+    return openOwnedBuffer(encoded) catch return 0;
+}
+
+pub export fn sa_deno_atob(data_ptr: ?[*]const u8, len: u64) u64 {
+    const encoded = constBytes(data_ptr, len) catch return 0;
+    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch return 0;
+    const decoded = std.heap.page_allocator.alloc(u8, decoded_len) catch return 0;
+    errdefer std.heap.page_allocator.free(decoded);
+    std.base64.standard.Decoder.decode(decoded, encoded) catch return 0;
+    return openOwnedBuffer(decoded) catch return 0;
+}
+
+pub export fn sa_deno_text_encode(data_ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(data_ptr, len) catch return 0;
+    const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+pub export fn sa_deno_text_decode(data_ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(data_ptr, len) catch return 0;
+    const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+pub export fn sa_deno_version_json() u64 {
+    const json = std.fmt.allocPrint(
+        std.heap.page_allocator,
+        "{{\"deno\":\"sa-std\",\"v8\":\"\",\"typescript\":\"\",\"sci\":\"{s}\"}}",
+        .{builtin.zig_version_string},
+    ) catch return 0;
+    return openOwnedByteBuffer(json) catch return 0;
+}
+
+pub export fn sa_deno_build_json() u64 {
+    const os = @tagName(builtin.os.tag);
+    const arch = @tagName(builtin.cpu.arch);
+    const vendor = @tagName(builtin.abi);
+    const json = std.fmt.allocPrint(
+        std.heap.page_allocator,
+        "{{\"os\":\"{s}\",\"arch\":\"{s}\",\"target\":\"{s}-{s}\"}}",
+        .{ os, arch, arch, vendor },
+    ) catch return 0;
+    return openOwnedByteBuffer(json) catch return 0;
+}
+
+const struct_sockaddr = extern struct {
+    sa_family: u16,
+    sa_data: [14]u8,
+};
+const struct_ifaddrs = extern struct {
+    ifa_next: ?*struct_ifaddrs,
+    ifa_name: [*:0]const u8,
+    ifa_flags: c_uint,
+    ifa_addr: ?*struct_sockaddr,
+    ifa_netmask: ?*struct_sockaddr,
+    ifa_ifu: extern union {
+        ifu_broadaddr: ?*struct_sockaddr,
+        ifu_dstaddr: ?*struct_sockaddr,
+    },
+    ifa_data: ?*anyopaque,
+};
+extern fn getifaddrs(ifap: *?*struct_ifaddrs) c_int;
+extern fn freeifaddrs(ifa: ?*struct_ifaddrs) void;
+extern fn inet_ntop(af: c_int, src: ?*const anyopaque, dst: [*]u8, size: c_uint) ?[*:0]const u8;
+
+pub export fn sa_deno_hostname() u64 {
+    const uname = std.posix.uname();
+    const nodename = std.mem.sliceTo(&uname.nodename, 0);
+    const owned = std.heap.page_allocator.dupe(u8, nodename) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+pub export fn sa_deno_os_release() u64 {
+    const uname = std.posix.uname();
+    const release = std.mem.sliceTo(&uname.release, 0);
+    const owned = std.heap.page_allocator.dupe(u8, release) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+pub export fn sa_deno_os_uptime() f64 {
+    var file = std.fs.openFileAbsolute("/proc/uptime", .{}) catch return -1.0;
+    defer file.close();
+    var buf: [64]u8 = undefined;
+    const n = file.readAll(&buf) catch return -1.0;
+    const content = buf[0..n];
+    const space_idx = std.mem.indexOfScalar(u8, content, ' ') orelse content.len;
+    const uptime_str = std.mem.trim(u8, content[0..space_idx], " \t\r\n");
+    return std.fmt.parseFloat(f64, uptime_str) catch -1.0;
+}
+
+pub export fn sa_deno_loadavg(out_ptr: ?*f64) i32 {
+    const ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var file = std.fs.openFileAbsolute("/proc/loadavg", .{}) catch return finish(SA_STD_ERR_IO);
+    defer file.close();
+    var buf: [64]u8 = undefined;
+    const n = file.readAll(&buf) catch return finish(SA_STD_ERR_IO);
+    const content = buf[0..n];
+    var it = std.mem.tokenizeScalar(u8, content, ' ');
+    const l1_str = it.next() orelse return finish(SA_STD_ERR_IO);
+    const l2_str = it.next() orelse return finish(SA_STD_ERR_IO);
+    const l3_str = it.next() orelse return finish(SA_STD_ERR_IO);
+    const l1 = std.fmt.parseFloat(f64, l1_str) catch return finish(SA_STD_ERR_IO);
+    const l2 = std.fmt.parseFloat(f64, l2_str) catch return finish(SA_STD_ERR_IO);
+    const l3 = std.fmt.parseFloat(f64, l3_str) catch return finish(SA_STD_ERR_IO);
+    const dest: [*]f64 = @ptrCast(ptr);
+    dest[0] = l1;
+    dest[1] = l2;
+    dest[2] = l3;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_deno_system_memory_info() u64 {
+    var file = std.fs.openFileAbsolute("/proc/meminfo", .{}) catch return 0;
+    defer file.close();
+    var buf: [2048]u8 = undefined;
+    const n = file.readAll(&buf) catch return 0;
+    const content = buf[0..n];
+
+    var total: u64 = 0;
+    var free: u64 = 0;
+    var available: u64 = 0;
+    var buffers: u64 = 0;
+    var cached: u64 = 0;
+    var swapTotal: u64 = 0;
+    var swapFree: u64 = 0;
+
+    var it = std.mem.tokenizeScalar(u8, content, '\n');
+    while (it.next()) |line| {
+        var line_it = std.mem.tokenizeAny(u8, line, " \t:");
+        const key = line_it.next() orelse continue;
+        const val_str = line_it.next() orelse continue;
+        const val = std.fmt.parseInt(u64, val_str, 10) catch continue;
+        const bytes = val * 1024;
+        if (std.mem.eql(u8, key, "MemTotal")) {
+            total = bytes;
+        } else if (std.mem.eql(u8, key, "MemFree")) {
+            free = bytes;
+        } else if (std.mem.eql(u8, key, "MemAvailable")) {
+            available = bytes;
+        } else if (std.mem.eql(u8, key, "Buffers")) {
+            buffers = bytes;
+        } else if (std.mem.eql(u8, key, "Cached")) {
+            cached = bytes;
+        } else if (std.mem.eql(u8, key, "SwapTotal")) {
+            swapTotal = bytes;
+        } else if (std.mem.eql(u8, key, "SwapFree")) {
+            swapFree = bytes;
+        }
+    }
+
+    var out_buf: [512]u8 = undefined;
+    const json = std.fmt.bufPrint(&out_buf, "{{\"total\":{d},\"free\":{d},\"available\":{d},\"buffers\":{d},\"cached\":{d},\"swapTotal\":{d},\"swapFree\":{d}}}", .{ total, free, available, buffers, cached, swapTotal, swapFree }) catch return 0;
+
+    const owned = std.heap.page_allocator.dupe(u8, json) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+pub export fn sa_deno_network_interfaces() u64 {
+    var ifap: ?*struct_ifaddrs = null;
+    if (getifaddrs(&ifap) != 0) return 0;
+    defer {
+        if (ifap) |ptr| freeifaddrs(ptr);
+    }
+
+    var list = std.ArrayList(u8).init(std.heap.page_allocator);
+    errdefer list.deinit();
+    list.append('[') catch return 0;
+
+    var first = true;
+    var current = ifap;
+    while (current) |ifa| : (current = ifa.ifa_next) {
+        const addr_ptr = ifa.ifa_addr orelse continue;
+        const family = addr_ptr.sa_family;
+        if (family != 2 and family != 10) continue;
+
+        const name = std.mem.sliceTo(ifa.ifa_name, 0);
+
+        var ip_buf: [46]u8 = undefined;
+        const family_str = if (family == 2) "IPv4" else "IPv6";
+        const af: c_int = if (family == 2) 2 else 10;
+
+        const ip_src = if (family == 2)
+            @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
+                sa_family: u16,
+                sin_port: u16,
+                sin_addr: [4]u8,
+            }, @ptrCast(addr_ptr)).sin_addr))
+        else
+            @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
+                sa_family: u16,
+                sin6_port: u16,
+                sin6_flowinfo: u32,
+                sin6_addr: [16]u8,
+                sin6_scope_id: u32,
+            }, @ptrCast(addr_ptr)).sin6_addr));
+
+        const ip_z = inet_ntop(af, ip_src, &ip_buf, ip_buf.len) orelse continue;
+        const ip_str = std.mem.sliceTo(ip_z, 0);
+
+        var mask_buf: [46]u8 = undefined;
+        var cidr: u32 = 0;
+        var mask_str: []const u8 = "000.000.000.000";
+        if (ifa.ifa_netmask) |mask_ptr| {
+            const mask_src = if (family == 2)
+                @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
+                    sa_family: u16,
+                    sin_port: u16,
+                    sin_addr: [4]u8,
+                }, @ptrCast(mask_ptr)).sin_addr))
+            else
+                @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
+                    sa_family: u16,
+                    sin6_port: u16,
+                    sin6_flowinfo: u32,
+                    sin6_addr: [16]u8,
+                    sin6_scope_id: u32,
+                }, @ptrCast(mask_ptr)).sin6_addr));
+            if (inet_ntop(af, mask_src, &mask_buf, mask_buf.len)) |mask_z| {
+                mask_str = std.mem.sliceTo(mask_z, 0);
+            }
+
+            if (family == 2) {
+                const sin_addr = @as(*align(1) const extern struct {
+                    sa_family: u16,
+                    sin_port: u16,
+                    sin_addr: [4]u8,
+                }, @ptrCast(mask_ptr)).sin_addr;
+                const mask_val = @as(u32, @bitCast(sin_addr));
+                cidr = @popCount(mask_val);
+            } else {
+                const sin6_addr = @as(*align(1) const extern struct {
+                    sa_family: u16,
+                    sin6_port: u16,
+                    sin6_flowinfo: u32,
+                    sin6_addr: [16]u8,
+                    sin6_scope_id: u32,
+                }, @ptrCast(mask_ptr)).sin6_addr;
+                for (sin6_addr) |b| {
+                    cidr += @popCount(b);
+                }
+            }
+        }
+
+        var mac_buf: [32]u8 = undefined;
+        var mac_path_buf: [128]u8 = undefined;
+        const mac_path = std.fmt.bufPrint(&mac_path_buf, "/sys/class/net/{s}/address", .{name}) catch "";
+        var mac_str: []const u8 = "00:00:00:00:00:00";
+        if (mac_path.len != 0) {
+            if (std.fs.openFileAbsolute(mac_path, .{})) |mac_file| {
+                defer mac_file.close();
+                if (mac_file.readAll(&mac_buf)) |mac_len| {
+                    mac_str = std.mem.trim(u8, mac_buf[0..mac_len], " \t\r\n");
+                } else |_| {}
+            } else |_| {}
+        }
+
+        if (!first) {
+            list.append(',') catch return 0;
+        }
+        first = false;
+
+        var json_buf: [512]u8 = undefined;
+        const entry = std.fmt.bufPrint(&json_buf, "{{\"name\":\"{s}\",\"family\":\"{s}\",\"address\":\"{s}\",\"netmask\":\"{s}\",\"scopeid\":null,\"cidr\":\"{s}/{d}\",\"mac\":\"{s}\"}}", .{ name, family_str, ip_str, mask_str, ip_str, cidr, mac_str }) catch return 0;
+
+        list.appendSlice(entry) catch return 0;
+    }
+
+    list.append(']') catch return 0;
+    const owned = list.toOwnedSlice() catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+extern fn getpid() c_int;
+extern fn getppid() c_int;
+extern fn getuid() c_uint;
+extern fn getgid() c_uint;
+extern fn getpagesize() c_int;
+
+pub export fn sa_deno_pid() u32 {
+    return @intCast(getpid());
+}
+
+pub export fn sa_deno_ppid() u32 {
+    return @intCast(getppid());
+}
+
+pub export fn sa_deno_uid() u32 {
+    return @intCast(getuid());
+}
+
+pub export fn sa_deno_gid() u32 {
+    return @intCast(getgid());
+}
+
+pub export fn sa_deno_exec_path() u64 {
+    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch return 0;
+    return openOwnedByteBuffer(path) catch return 0;
+}
+
+pub export fn sa_deno_memory_usage() u64 {
+    var file = std.fs.openFileAbsolute("/proc/self/statm", .{}) catch return 0;
+    defer file.close();
+    var buf: [64]u8 = undefined;
+    const n = file.readAll(&buf) catch return 0;
+    const content = buf[0..n];
+    var it = std.mem.tokenizeScalar(u8, content, ' ');
+    _ = it.next() orelse return 0;
+    const rss_pages_str = it.next() orelse return 0;
+    const rss_pages = std.fmt.parseInt(u64, rss_pages_str, 10) catch return 0;
+
+    const page_size: u64 = @intCast(getpagesize());
+    const rss = rss_pages * page_size;
+
+    var out_buf: [256]u8 = undefined;
+    const json = std.fmt.bufPrint(&out_buf, "{{\"rss\":{d},\"heapTotal\":{d},\"heapUsed\":{d},\"external\":0}}", .{ rss, rss, rss }) catch return 0;
+
+    const owned = std.heap.page_allocator.dupe(u8, json) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
 pub export fn sa_json_parse(json_bytes: ?[*]const u8, len: u64) u64 {
     const input = constBytes(json_bytes, len) catch return 0;
     const document = jsonDocumentFromSlice(std.heap.page_allocator, input) catch return 0;
@@ -1705,6 +2155,85 @@ pub export fn sa_json_object_get(node: u64, key_ptr: ?[*]const u8, key_len: u64,
     const child = jsonObjectGet(node_value, key) catch |err| return finishErr(err);
     const handle = registerJsonNode(child.document, child.value, true) catch |err| return finishErr(err);
     handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_array_get(node: u64, index: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const child = jsonArrayGet(node_value, index) catch |err| return finishErr(err);
+    const handle = registerJsonNode(child.document, child.value, true) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_key_at(node: u64, index: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) i32 {
+    const ptr_slot = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ptr_slot.* = null;
+    len_slot.* = 0;
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const key = jsonObjectKeyAt(node_value, index) catch |err| return finishErr(err);
+    ptr_slot.* = key.ptr;
+    len_slot.* = @as(u64, @intCast(key.len));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_get_string(node: u64, key_ptr: ?[*]const u8, key_len: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) i32 {
+    const ptr_slot = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ptr_slot.* = null;
+    len_slot.* = 0;
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const child = jsonObjectGet(node_value, key) catch |err| return finishErr(err);
+    const text = jsonTextSlice(child.value) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ptr_slot.* = text.ptr;
+    len_slot.* = @as(u64, @intCast(text.len));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_get_bool(node: u64, key_ptr: ?[*]const u8, key_len: u64, out_value: ?*u8) i32 {
+    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    value_ptr.* = 0;
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const child = jsonObjectGet(node_value, key) catch |err| return finishErr(err);
+    const parsed = jsonValueAsBool(child.value) catch |err| return finishErr(err);
+    value_ptr.* = if (parsed) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_get_i64(node: u64, key_ptr: ?[*]const u8, key_len: u64, out_value: ?*i64) i32 {
+    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    value_ptr.* = 0;
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const child = jsonObjectGet(node_value, key) catch |err| return finishErr(err);
+    const parsed = jsonValueAsI64(child.value) catch |err| return finishErr(err);
+    value_ptr.* = parsed;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_get_f64(node: u64, key_ptr: ?[*]const u8, key_len: u64, out_value: ?*f64) i32 {
+    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    value_ptr.* = 0;
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const child = jsonObjectGet(node_value, key) catch |err| return finishErr(err);
+    const parsed = jsonValueAsF64(child.value) catch |err| return finishErr(err);
+    value_ptr.* = parsed;
     return finish(SA_STD_OK);
 }
 
@@ -2021,15 +2550,78 @@ pub export fn sa_json_writer_end_array(writer: u64) i32 {
 pub export fn sa_json_writer_object_field(writer: u64, key: ?[*]const u8, key_len: u64) i32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
-    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const writer_handle = switch (resource.*) {
-        .json_writer => |handle| handle,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const field = constBytes(key, key_len) catch |err| return finishErr(err);
-    writer_handle.stream.objectField(field) catch |err| return finishErr(err);
+    const writer_handle = acquireJsonWriterForWrite(writer) catch |err| return finishErr(err);
+    jsonWriterObjectFieldLocked(writer_handle, field) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_field_string(writer: u64, key: ?[*]const u8, key_len: u64, data: ?[*]const u8, len: u64) i32 {
+    const field = constBytes(key, key_len) catch |err| return finishErr(err);
+    const bytes = constBytes(data, len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const writer_handle = acquireJsonWriterForWrite(writer) catch |err| return finishErr(err);
+    jsonWriterObjectFieldLocked(writer_handle, field) catch |err| return finishErr(err);
+    writer_handle.stream.write(bytes) catch |err| return finishErr(err);
+    markJsonWriterValueComplete(writer_handle);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_field_bool(writer: u64, key: ?[*]const u8, key_len: u64, value: u8) i32 {
+    const field = constBytes(key, key_len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const writer_handle = acquireJsonWriterForWrite(writer) catch |err| return finishErr(err);
+    jsonWriterObjectFieldLocked(writer_handle, field) catch |err| return finishErr(err);
+    writer_handle.stream.write(value != 0) catch |err| return finishErr(err);
+    markJsonWriterValueComplete(writer_handle);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_field_i64(writer: u64, key: ?[*]const u8, key_len: u64, value: i64) i32 {
+    const field = constBytes(key, key_len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const writer_handle = acquireJsonWriterForWrite(writer) catch |err| return finishErr(err);
+    jsonWriterObjectFieldLocked(writer_handle, field) catch |err| return finishErr(err);
+    writer_handle.stream.write(value) catch |err| return finishErr(err);
+    markJsonWriterValueComplete(writer_handle);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_field_f64(writer: u64, key: ?[*]const u8, key_len: u64, value: f64) i32 {
+    const field = constBytes(key, key_len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const writer_handle = acquireJsonWriterForWrite(writer) catch |err| return finishErr(err);
+    jsonWriterObjectFieldLocked(writer_handle, field) catch |err| return finishErr(err);
+    writer_handle.stream.write(value) catch |err| return finishErr(err);
+    markJsonWriterValueComplete(writer_handle);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_field_null(writer: u64, key: ?[*]const u8, key_len: u64) i32 {
+    const field = constBytes(key, key_len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const writer_handle = acquireJsonWriterForWrite(writer) catch |err| return finishErr(err);
+    jsonWriterObjectFieldLocked(writer_handle, field) catch |err| return finishErr(err);
+    writer_handle.stream.write(null) catch |err| return finishErr(err);
+    markJsonWriterValueComplete(writer_handle);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_field_node(writer: u64, key: ?[*]const u8, key_len: u64, node: u64) i32 {
+    const field = constBytes(key, key_len) catch |err| return finishErr(err);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const writer_handle = acquireJsonWriterForWrite(writer) catch |err| return finishErr(err);
+    jsonWriterObjectFieldLocked(writer_handle, field) catch |err| return finishErr(err);
+    writer_handle.stream.write(node_value.value) catch |err| return finishErr(err);
+    markJsonWriterValueComplete(writer_handle);
     return finish(SA_STD_OK);
 }
 
@@ -2109,6 +2701,24 @@ pub export fn sa_json_writer_write_null(writer: u64) i32 {
     if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     writer_handle.stream.write(null) catch |err| return finishErr(err);
+    writer_handle.root_value_started = true;
+    writer_handle.root_value_complete = writer_handle.open_depth == 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_writer_write_node(writer: u64, node: u64) i32 {
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(writer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const writer_handle = switch (resource.*) {
+        .json_writer => |handle| handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (writer_handle.result_buffer != null) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    writer_handle.stream.write(node_value.value) catch |err| return finishErr(err);
     writer_handle.root_value_started = true;
     writer_handle.root_value_complete = writer_handle.open_depth == 0;
     return finish(SA_STD_OK);
@@ -2650,12 +3260,34 @@ pub export fn sa_std_process_run(argv_ptr: ?[*]const SaProcessArgv, argv_len: u6
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_process_run_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
+    const result = spawnProcessCwd(std.heap.page_allocator, argv, .capture, cwd) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_process_spawn(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
     const result = spawnProcess(std.heap.page_allocator, argv, .inherit) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
+    const result = spawnProcessCwd(std.heap.page_allocator, argv, .inherit, cwd) catch |err| return finishErr(err);
     handle_ptr.* = result.process;
     return finish(SA_STD_OK);
 }
@@ -2670,6 +3302,23 @@ pub export fn sa_std_process_spawn_stream(argv_ptr: ?[*]const SaProcessArgv, arg
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
     const result = spawnProcess(std.heap.page_allocator, argv, .stream) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
+    const result = spawnProcessCwd(std.heap.page_allocator, argv, .stream, cwd) catch |err| return finishErr(err);
     process_ptr.* = result.process;
     stdout_ptr.* = result.stdout orelse 0;
     stderr_ptr.* = result.stderr orelse 0;
@@ -2710,6 +3359,121 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
+}
+
+const ProcessOutputStream = enum { stdout, stderr };
+
+fn readProcessOutput(handle: u64, stream: ProcessOutputStream, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
+    if (out_read) |ptr| ptr.* = 0;
+    const output = mutBytes(out, out_cap) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (!proc.capture_output or !proc.exited) return finish(SA_STD_ERR_INVALID_HANDLE);
+            const src = switch (stream) {
+                .stdout => proc.stdout_buf,
+                .stderr => proc.stderr_buf,
+            };
+            const pos_ptr = switch (stream) {
+                .stdout => &proc.stdout_pos,
+                .stderr => &proc.stderr_pos,
+            };
+            if (pos_ptr.* >= src.len) return finish(SA_STD_OK);
+            const remaining = src.len - pos_ptr.*;
+            const copy_len = @min(output.len, remaining);
+            @memcpy(output[0..copy_len], src[pos_ptr.* .. pos_ptr.* + copy_len]);
+            pos_ptr.* += copy_len;
+            if (out_read) |ptr| ptr.* = @as(u64, @intCast(copy_len));
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_read_stdout(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
+    return readProcessOutput(handle, .stdout, out, out_cap, out_read);
+}
+
+pub export fn sa_std_process_read_stderr(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
+    return readProcessOutput(handle, .stderr, out, out_cap, out_read);
+}
+
+pub export fn sa_std_process_exec_capture(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_code: ?*u32, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    code_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+
+    var process: u64 = 0;
+    var run_status = sa_std_process_run(argv_ptr, argv_len, &process);
+    if (run_status != SA_STD_OK) return run_status;
+    errdefer _ = sa_std_process_close(process);
+
+    run_status = sa_std_process_wait(process, code_ptr);
+    if (run_status != SA_STD_OK) return run_status;
+
+    var stdout_buf: [8192]u8 = undefined;
+    var stdout_len: u64 = 0;
+    run_status = sa_std_process_read_stdout(process, &stdout_buf, stdout_buf.len, &stdout_len);
+    if (run_status != SA_STD_OK) return run_status;
+
+    var stderr_buf: [8192]u8 = undefined;
+    var stderr_len: u64 = 0;
+    run_status = sa_std_process_read_stderr(process, &stderr_buf, stderr_buf.len, &stderr_len);
+    if (run_status != SA_STD_OK) return run_status;
+
+    const stdout_owned = std.heap.page_allocator.dupe(u8, stdout_buf[0..@as(usize, @intCast(stdout_len))]) catch |err| return finishErr(err);
+    errdefer std.heap.page_allocator.free(stdout_owned);
+    const stderr_owned = std.heap.page_allocator.dupe(u8, stderr_buf[0..@as(usize, @intCast(stderr_len))]) catch |err| return finishErr(err);
+    errdefer std.heap.page_allocator.free(stderr_owned);
+
+    stdout_ptr.* = openOwnedByteBuffer(stdout_owned) catch |err| return finishErr(err);
+    errdefer _ = sa_std_close(stdout_ptr.*);
+    stderr_ptr.* = openOwnedByteBuffer(stderr_owned) catch |err| return finishErr(err);
+    _ = sa_std_process_close(process);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_code: ?*u32, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    code_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+
+    var process: u64 = 0;
+    var run_status = sa_std_process_run_cwd(argv_ptr, argv_len, cwd_ptr, cwd_len, &process);
+    if (run_status != SA_STD_OK) return run_status;
+    errdefer _ = sa_std_process_close(process);
+
+    run_status = sa_std_process_wait(process, code_ptr);
+    if (run_status != SA_STD_OK) return run_status;
+
+    var stdout_buf: [8192]u8 = undefined;
+    var stdout_len: u64 = 0;
+    run_status = sa_std_process_read_stdout(process, &stdout_buf, stdout_buf.len, &stdout_len);
+    if (run_status != SA_STD_OK) return run_status;
+
+    var stderr_buf: [8192]u8 = undefined;
+    var stderr_len: u64 = 0;
+    run_status = sa_std_process_read_stderr(process, &stderr_buf, stderr_buf.len, &stderr_len);
+    if (run_status != SA_STD_OK) return run_status;
+
+    const stdout_owned = std.heap.page_allocator.dupe(u8, stdout_buf[0..@as(usize, @intCast(stdout_len))]) catch |err| return finishErr(err);
+    errdefer std.heap.page_allocator.free(stdout_owned);
+    const stderr_owned = std.heap.page_allocator.dupe(u8, stderr_buf[0..@as(usize, @intCast(stderr_len))]) catch |err| return finishErr(err);
+    errdefer std.heap.page_allocator.free(stderr_owned);
+
+    stdout_ptr.* = openOwnedByteBuffer(stdout_owned) catch |err| return finishErr(err);
+    errdefer _ = sa_std_close(stdout_ptr.*);
+    stderr_ptr.* = openOwnedByteBuffer(stderr_owned) catch |err| return finishErr(err);
+    _ = sa_std_process_close(process);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_process_close(handle: u64) i32 {
@@ -3057,6 +3821,34 @@ fn writeJsonBoolField(writer: anytype, name: []const u8, value: bool) !void {
     try writer.writeAll(if (value) "true" else "false");
 }
 
+fn nsToMs(ns: i128) i64 {
+    const ms = @divTrunc(ns, std.time.ns_per_ms);
+    if (ms > std.math.maxInt(i64)) return std.math.maxInt(i64);
+    if (ms < std.math.minInt(i64)) return std.math.minInt(i64);
+    return @intCast(ms);
+}
+
+fn writeJsonIntField(writer: anytype, name: []const u8, value: anytype) !void {
+    try writer.writeAll("\"");
+    try writer.writeAll(name);
+    try writer.writeAll("\":");
+    try writer.print("{}", .{value});
+}
+
+fn writeMetadataJson(writer: anytype, stat: std.fs.File.Stat) !void {
+    try writer.writeAll("{");
+    try writeJsonIntField(writer, "createdAtMs", nsToMs(stat.ctime));
+    try writer.writeAll(",");
+    try writeJsonBoolField(writer, "isDirectory", stat.kind == .directory);
+    try writer.writeAll(",");
+    try writeJsonBoolField(writer, "isFile", stat.kind == .file);
+    try writer.writeAll(",");
+    try writeJsonBoolField(writer, "isSymlink", stat.kind == .sym_link);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "modifiedAtMs", nsToMs(stat.mtime));
+    try writer.writeAll("}");
+}
+
 pub export fn sa_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) Fallible(u64) {
     const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
     var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| return fail(u64, mapError(err));
@@ -3086,43 +3878,102 @@ pub export fn sa_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_ent
     }
     writer.writeAll("]}") catch |err| return fail(u64, mapError(err));
     const bytes = out.toOwnedSlice() catch |err| return fail(u64, mapError(err));
-    const handle = openOwnedFsDirBuffer(bytes) catch |err| return fail(u64, mapError(err));
+    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return fail(u64, mapError(err));
+    };
     return ok(u64, handle);
 }
 
 pub export fn sa_fs_dir_buffer_data(handle: u64) ?[*]u8 {
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return null;
-    return switch (resource.*) {
-        .fs_dir_buffer => |*buf| buf.bytes.ptr,
-        else => null,
-    };
+    return sa_fs_read_buffer_data(handle);
 }
 
 pub export fn sa_fs_dir_buffer_len(handle: u64) u64 {
+    return sa_fs_read_buffer_len(handle);
+}
+
+pub export fn sa_fs_dir_buffer_free(handle: u64) i32 {
+    return sa_fs_read_buffer_free(handle);
+}
+
+pub export fn sa_fs_metadata(path_ptr: ?[*]const u8, path_len: u64) Fallible(u64) {
+    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
+    const posix_stat = std.posix.fstatat(std.fs.cwd().fd, path, std.posix.AT.SYMLINK_NOFOLLOW) catch |err| return fail(u64, mapError(err));
+    const stat = std.fs.File.Stat.fromPosix(posix_stat);
+    const handle = registerResource(.{ .metadata = .{ .allocator = std.heap.page_allocator, .stat = stat } }) catch |err| return fail(u64, mapError(err));
+    return ok(u64, handle);
+}
+
+pub export fn sa_fs_metadata_json(path_ptr: ?[*]const u8, path_len: u64) Fallible(u64) {
+    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
+    const posix_stat = std.posix.fstatat(std.fs.cwd().fd, path, std.posix.AT.SYMLINK_NOFOLLOW) catch |err| return fail(u64, mapError(err));
+    const stat = std.fs.File.Stat.fromPosix(posix_stat);
+    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    errdefer out.deinit();
+    writeMetadataJson(out.writer(), stat) catch |err| return fail(u64, mapError(err));
+    const bytes = out.toOwnedSlice() catch |err| return fail(u64, mapError(err));
+    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return fail(u64, mapError(err));
+    };
+    return ok(u64, handle);
+}
+
+pub export fn sa_fs_metadata_is_file(handle: u64) u8 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return 0;
     return switch (resource.*) {
-        .fs_dir_buffer => |*buf| @as(u64, @intCast(buf.bytes.len)),
+        .metadata => |*metadata| if (metadata.stat.kind == .file) 1 else 0,
         else => 0,
     };
 }
 
-pub export fn sa_fs_dir_buffer_free(handle: u64) i32 {
-    return sa_std_close(handle);
+pub export fn sa_fs_metadata_is_directory(handle: u64) u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| if (metadata.stat.kind == .directory) 1 else 0,
+        else => 0,
+    };
 }
 
-pub export fn sa_fs_metadata(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const stat = std.fs.cwd().statFile(path) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .metadata = .{ .allocator = std.heap.page_allocator, .stat = stat } }) catch |err| return finishErr(err);
-    return @as(i32, @intCast(handle));
+pub export fn sa_fs_metadata_is_symlink(handle: u64) u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| if (metadata.stat.kind == .sym_link) 1 else 0,
+        else => 0,
+    };
 }
 
-pub export fn sa_fs_metadata_free(handle: u64) i32 {
-    return sa_std_close(handle);
+pub export fn sa_fs_metadata_modified_ms(handle: u64) i64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| nsToMs(metadata.stat.mtime),
+        else => 0,
+    };
+}
+
+pub export fn sa_fs_metadata_created_ms(handle: u64) i64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| nsToMs(metadata.stat.ctime),
+        else => 0,
+    };
+}
+
+pub export fn sa_fs_metadata_free(handle: u64) Fallible(i32) {
+    const status = sa_std_close(handle);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
 }
 
 pub export fn sa_fs_remove_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
@@ -3145,6 +3996,19 @@ pub export fn sa_fs_make_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
 pub export fn sa_fs_remove_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     std.fs.cwd().deleteTree(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_remove_path(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.fs.cwd().deleteTree(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_copy_file(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
+    const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
+    const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
+    std.fs.cwd().copyFile(from, std.fs.cwd(), to, .{}) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 

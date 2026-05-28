@@ -155,9 +155,28 @@ uint64_t sa_io_stderr(void);
 int32_t sa_std_print(const uint8_t *data, uint64_t len);
 int32_t sa_std_println(const uint8_t *data, uint64_t len);
 
+uint64_t sa_deno_cwd(void);
+int32_t sa_deno_chdir(const uint8_t *path, uint64_t path_len);
+int32_t sa_deno_env_set(const uint8_t *key, uint64_t key_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_deno_env_delete(const uint8_t *key, uint64_t key_len);
+uint64_t sa_deno_random_uuid(void);
+uint64_t sa_deno_args_json(void);
+uint64_t sa_deno_btoa(const uint8_t *data, uint64_t len);
+uint64_t sa_deno_atob(const uint8_t *data_base64, uint64_t data_base64_len);
+uint64_t sa_deno_text_encode(const uint8_t *data, uint64_t len);
+uint64_t sa_deno_text_decode(const uint8_t *data, uint64_t len);
+uint64_t sa_deno_version_json(void);
+uint64_t sa_deno_build_json(void);
+
 uint64_t sa_json_parse(const uint8_t *json_bytes, uint64_t len);
 uint32_t sa_json_kind(uint64_t node);
 int32_t sa_json_object_get(uint64_t node, const uint8_t *key, uint64_t key_len, uint64_t *out_handle);
+int32_t sa_json_array_get(uint64_t node, uint64_t index, uint64_t *out_handle);
+int32_t sa_json_object_key_at(uint64_t node, uint64_t index, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_json_object_get_string(uint64_t node, const uint8_t *key, uint64_t key_len, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_json_object_get_bool(uint64_t node, const uint8_t *key, uint64_t key_len, uint8_t *out_value);
+int32_t sa_json_object_get_i64(uint64_t node, const uint8_t *key, uint64_t key_len, int64_t *out_value);
+int32_t sa_json_object_get_f64(uint64_t node, const uint8_t *key, uint64_t key_len, double *out_value);
 int32_t sa_json_as_f64(uint64_t node, double *out_value);
 int32_t sa_json_as_i64(uint64_t node, int64_t *out_value);
 int32_t sa_json_as_bool(uint64_t node, uint8_t *out_value);
@@ -185,11 +204,18 @@ int32_t sa_json_writer_end_object(uint64_t writer);
 int32_t sa_json_writer_begin_array(uint64_t writer);
 int32_t sa_json_writer_end_array(uint64_t writer);
 int32_t sa_json_writer_object_field(uint64_t writer, const uint8_t *key, uint64_t key_len);
+int32_t sa_json_writer_field_string(uint64_t writer, const uint8_t *key, uint64_t key_len, const uint8_t *data, uint64_t len);
+int32_t sa_json_writer_field_bool(uint64_t writer, const uint8_t *key, uint64_t key_len, uint8_t value);
+int32_t sa_json_writer_field_i64(uint64_t writer, const uint8_t *key, uint64_t key_len, int64_t value);
+int32_t sa_json_writer_field_f64(uint64_t writer, const uint8_t *key, uint64_t key_len, double value);
+int32_t sa_json_writer_field_null(uint64_t writer, const uint8_t *key, uint64_t key_len);
+int32_t sa_json_writer_field_node(uint64_t writer, const uint8_t *key, uint64_t key_len, uint64_t node);
 int32_t sa_json_writer_write_bool(uint64_t writer, uint8_t value);
 int32_t sa_json_writer_write_i64(uint64_t writer, int64_t value);
 int32_t sa_json_writer_write_f64(uint64_t writer, double value);
 int32_t sa_json_writer_write_string(uint64_t writer, const uint8_t *data, uint64_t len);
 int32_t sa_json_writer_write_null(uint64_t writer);
+int32_t sa_json_writer_write_node(uint64_t writer, uint64_t node);
 int32_t sa_json_writer_finish(uint64_t writer, uint64_t *out_handle);
 int32_t sa_json_writer_free(uint64_t writer);
 
@@ -269,7 +295,20 @@ sa_std_fallible_u64 sa_fs_read_dir_json(const uint8_t *path, uint64_t path_len, 
 uint8_t *sa_fs_dir_buffer_data(uint64_t handle);
 uint64_t sa_fs_dir_buffer_len(uint64_t handle);
 int32_t sa_fs_dir_buffer_free(uint64_t handle);
+sa_std_fallible_u64 sa_fs_metadata(const uint8_t *path, uint64_t path_len);
+sa_std_fallible_u64 sa_fs_metadata_json(const uint8_t *path, uint64_t path_len);
+uint8_t sa_fs_metadata_is_file(uint64_t handle);
+uint8_t sa_fs_metadata_is_directory(uint64_t handle);
+uint8_t sa_fs_metadata_is_symlink(uint64_t handle);
+int64_t sa_fs_metadata_modified_ms(uint64_t handle);
+int64_t sa_fs_metadata_created_ms(uint64_t handle);
+sa_std_fallible_i32 sa_fs_metadata_free(uint64_t handle);
+int32_t sa_fs_remove_file(const uint8_t *path, uint64_t path_len);
+int32_t sa_fs_rename(const uint8_t *from_path, uint64_t from_len, const uint8_t *to_path, uint64_t to_len);
 int32_t sa_fs_make_dir(const uint8_t *path, uint64_t path_len);
+int32_t sa_fs_remove_dir(const uint8_t *path, uint64_t path_len);
+int32_t sa_fs_remove_path(const uint8_t *path, uint64_t path_len);
+int32_t sa_fs_copy_file(const uint8_t *from_path, uint64_t from_len, const uint8_t *to_path, uint64_t to_len);
 
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
@@ -318,6 +357,9 @@ int32_t sa_std_process_run(const SaProcessArgv *argv, uint64_t argv_len, uint64_
 int32_t sa_std_process_spawn(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);
 int32_t sa_std_process_spawn_stream(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_process, uint64_t *out_stdout, uint64_t *out_stderr);
 int32_t sa_std_process_wait(uint64_t handle, uint32_t *out_code);
+int32_t sa_std_process_read_stdout(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
+int32_t sa_std_process_read_stderr(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
+int32_t sa_std_process_exec_capture(const SaProcessArgv *argv, uint64_t argv_len, uint32_t *out_code, uint64_t *out_stdout, uint64_t *out_stderr);
 int32_t sa_std_process_close(uint64_t handle);
 
 int32_t sa_term_raw_enter(uint64_t handle, uint64_t *out_session);

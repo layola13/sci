@@ -1,2 +1,255 @@
 @import "json.sal"
 @import "json.sai"
+
+[MACRO] JSON_PARSE %out_root, %bytes, %len
+    %out_root = call @sa_json_parse(&%bytes, %len)
+[END_MACRO]
+
+[MACRO] JSON_KIND %out_kind, %node
+    %out_kind = call @sa_json_kind(%node)
+[END_MACRO]
+
+[MACRO] JSON_IS_NULL %out_bool, %node
+    __json_kind_%out_bool = call @sa_json_kind(%node)
+    %out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_NULL
+    !__json_kind_%out_bool
+[END_MACRO]
+
+[MACRO] JSON_IS_BOOL %out_bool, %node
+    __json_kind_%out_bool = call @sa_json_kind(%node)
+    %out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_BOOL
+    !__json_kind_%out_bool
+[END_MACRO]
+
+[MACRO] JSON_IS_STRING %out_bool, %node
+    __json_kind_%out_bool = call @sa_json_kind(%node)
+    %out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_STRING
+    !__json_kind_%out_bool
+[END_MACRO]
+
+[MACRO] JSON_IS_ARRAY %out_bool, %node
+    __json_kind_%out_bool = call @sa_json_kind(%node)
+    %out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_ARRAY
+    !__json_kind_%out_bool
+[END_MACRO]
+
+[MACRO] JSON_IS_OBJECT %out_bool, %node
+    __json_kind_%out_bool = call @sa_json_kind(%node)
+    %out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_OBJECT
+    !__json_kind_%out_bool
+[END_MACRO]
+
+[MACRO] JSON_IS_NUMBER %out_bool, %node
+    __json_kind_%out_bool = call @sa_json_kind(%node)
+    __json_is_int_%out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_INTEGER
+    __json_is_float_%out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_FLOAT
+    __json_is_numstr_%out_bool = eq __json_kind_%out_bool, SA_JSON_KIND_NUMBER_STRING
+    __json_is_num_a_%out_bool = or __json_is_int_%out_bool, __json_is_float_%out_bool
+    %out_bool = or __json_is_num_a_%out_bool, __json_is_numstr_%out_bool
+    !__json_kind_%out_bool
+    !__json_is_int_%out_bool
+    !__json_is_float_%out_bool
+    !__json_is_numstr_%out_bool
+    !__json_is_num_a_%out_bool
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_GET %out_status, %out_node, %node, %key, %key_len
+    __json_get_slot_%out_node = stack_alloc 8
+    %out_status = call @sa_json_object_get(%node, &%key, %key_len, &__json_get_slot_%out_node)
+    %out_node = load __json_get_slot_%out_node+0 as ptr
+[END_MACRO]
+
+[MACRO] JSON_ARRAY_GET %out_status, %out_node, %node, %index
+    __json_array_slot_%out_node = stack_alloc 8
+    %out_status = call @sa_json_array_get(%node, %index, &__json_array_slot_%out_node)
+    %out_node = load __json_array_slot_%out_node+0 as ptr
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_KEY_AT %out_status, %out_ptr, %out_len, %node, %index
+    __json_key_ptr_slot_%out_ptr = stack_alloc 8
+    __json_key_len_slot_%out_ptr = stack_alloc 8
+    %out_status = call @sa_json_object_key_at(%node, %index, &__json_key_ptr_slot_%out_ptr, &__json_key_len_slot_%out_ptr)
+    %out_ptr = load __json_key_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __json_key_len_slot_%out_ptr+0 as u64
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_GET_STRING %out_status, %out_ptr, %out_len, %node, %key, %key_len
+    __json_str_ptr_slot_%out_ptr = stack_alloc 8
+    __json_str_len_slot_%out_ptr = stack_alloc 8
+    %out_status = call @sa_json_object_get_string(%node, &%key, %key_len, &__json_str_ptr_slot_%out_ptr, &__json_str_len_slot_%out_ptr)
+    %out_ptr = load __json_str_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __json_str_len_slot_%out_ptr+0 as u64
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_GET_BOOL %out_status, %out_value, %node, %key, %key_len
+    __json_bool_slot_%out_value = stack_alloc 1
+    %out_status = call @sa_json_object_get_bool(%node, &%key, %key_len, &__json_bool_slot_%out_value)
+    %out_value = load __json_bool_slot_%out_value+0 as u8
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_GET_I64 %out_status, %out_value, %node, %key, %key_len
+    __json_i64_slot_%out_value = stack_alloc 8
+    %out_status = call @sa_json_object_get_i64(%node, &%key, %key_len, &__json_i64_slot_%out_value)
+    %out_value = load __json_i64_slot_%out_value+0 as i64
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_GET_F64 %out_status, %out_value, %node, %key, %key_len
+    __json_f64_slot_%out_value = stack_alloc 8
+    %out_status = call @sa_json_object_get_f64(%node, &%key, %key_len, &__json_f64_slot_%out_value)
+    %out_value = load __json_f64_slot_%out_value+0 as f64
+[END_MACRO]
+
+[MACRO] JSON_AS_BOOL %out_status, %out_value, %node
+    __json_as_bool_slot_%out_value = stack_alloc 1
+    %out_status = call @sa_json_as_bool(%node, &__json_as_bool_slot_%out_value)
+    %out_value = load __json_as_bool_slot_%out_value+0 as u8
+[END_MACRO]
+
+[MACRO] JSON_AS_I64 %out_status, %out_value, %node
+    __json_as_i64_slot_%out_value = stack_alloc 8
+    %out_status = call @sa_json_as_i64(%node, &__json_as_i64_slot_%out_value)
+    %out_value = load __json_as_i64_slot_%out_value+0 as i64
+[END_MACRO]
+
+[MACRO] JSON_AS_F64 %out_status, %out_value, %node
+    __json_as_f64_slot_%out_value = stack_alloc 8
+    %out_status = call @sa_json_as_f64(%node, &__json_as_f64_slot_%out_value)
+    %out_value = load __json_as_f64_slot_%out_value+0 as f64
+[END_MACRO]
+
+[MACRO] JSON_VALUE_COUNT %out_status, %out_count, %node
+    __json_count_slot_%out_count = stack_alloc 8
+    %out_status = call @sa_json_value_count(%node, &__json_count_slot_%out_count)
+    %out_count = load __json_count_slot_%out_count+0 as u64
+[END_MACRO]
+
+[MACRO] JSON_ARRAY_LOOP_INIT %out_status, %out_index, %out_count, %array
+    EXPAND JSON_VALUE_COUNT %out_status, %out_count, %array
+    %out_index = add 0, 0
+[END_MACRO]
+
+[MACRO] JSON_ARRAY_LOOP_HAS_NEXT %out_bool, %index, %count
+    %out_bool = ult %index, %count
+[END_MACRO]
+
+[MACRO] JSON_ARRAY_LOOP_NEXT %out_index, %index
+    %out_index = add %index, 1
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_LOOP_INIT %out_status, %out_index, %out_count, %object
+    EXPAND JSON_VALUE_COUNT %out_status, %out_count, %object
+    %out_index = add 0, 0
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_LOOP_HAS_NEXT %out_bool, %index, %count
+    %out_bool = ult %index, %count
+[END_MACRO]
+
+[MACRO] JSON_OBJECT_LOOP_NEXT %out_index, %index
+    %out_index = add %index, 1
+[END_MACRO]
+
+[MACRO] JSON_STRING_SLICE %out_ptr, %out_len, %node
+    %out_ptr = call @sa_json_string_ptr(%node)
+    %out_len = call @sa_json_string_len(%node)
+[END_MACRO]
+
+[MACRO] JSON_FREE %node
+    __json_free_res_%node = call @sa_json_free(^%node)
+    !__json_free_res_%node
+[END_MACRO]
+
+[MACRO] JSON_BUFFER_SLICE %out_ptr, %out_len, %buffer
+    %out_ptr = call @sa_json_buffer_data(&%buffer)
+    %out_len = call @sa_json_buffer_len(&%buffer)
+[END_MACRO]
+
+[MACRO] JSON_BUFFER_FREE %buffer
+    __json_buffer_free_res_%buffer = call @sa_json_buffer_free(^%buffer)
+    !__json_buffer_free_res_%buffer
+[END_MACRO]
+
+[MACRO] JSON_WRITER_NEW_MINIFIED %out_status, %out_writer
+    __json_writer_slot_%out_writer = stack_alloc 8
+    %out_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &__json_writer_slot_%out_writer)
+    %out_writer = load __json_writer_slot_%out_writer+0 as ptr
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FIELD %out_status, %writer, %key, %key_len
+    %out_status = call @sa_json_writer_object_field(%writer, &%key, %key_len)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FIELD_STRING %out_status, %writer, %key, %key_len, %data, %data_len
+    %out_status = call @sa_json_writer_field_string(%writer, &%key, %key_len, &%data, %data_len)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FIELD_BOOL %out_status, %writer, %key, %key_len, %value
+    %out_status = call @sa_json_writer_field_bool(%writer, &%key, %key_len, %value)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FIELD_I64 %out_status, %writer, %key, %key_len, %value
+    %out_status = call @sa_json_writer_field_i64(%writer, &%key, %key_len, %value)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FIELD_F64 %out_status, %writer, %key, %key_len, %value
+    %out_status = call @sa_json_writer_field_f64(%writer, &%key, %key_len, %value)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FIELD_NULL %out_status, %writer, %key, %key_len
+    %out_status = call @sa_json_writer_field_null(%writer, &%key, %key_len)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FIELD_NODE %out_status, %writer, %key, %key_len, %node
+    %out_status = call @sa_json_writer_field_node(%writer, &%key, %key_len, %node)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_BEGIN_OBJECT %out_status, %writer
+    %out_status = call @sa_json_writer_begin_object(%writer)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_END_OBJECT %out_status, %writer
+    %out_status = call @sa_json_writer_end_object(%writer)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_BEGIN_ARRAY %out_status, %writer
+    %out_status = call @sa_json_writer_begin_array(%writer)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_END_ARRAY %out_status, %writer
+    %out_status = call @sa_json_writer_end_array(%writer)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_WRITE_STRING %out_status, %writer, %data, %len
+    %out_status = call @sa_json_writer_write_string(%writer, &%data, %len)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_WRITE_BOOL %out_status, %writer, %value
+    %out_status = call @sa_json_writer_write_bool(%writer, %value)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_WRITE_I64 %out_status, %writer, %value
+    %out_status = call @sa_json_writer_write_i64(%writer, %value)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_WRITE_F64 %out_status, %writer, %value
+    %out_status = call @sa_json_writer_write_f64(%writer, %value)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_WRITE_NULL %out_status, %writer
+    %out_status = call @sa_json_writer_write_null(%writer)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_WRITE_NODE %out_status, %writer, %node
+    %out_status = call @sa_json_writer_write_node(%writer, %node)
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FINISH %out_status, %out_buffer, %writer
+    __json_finish_slot_%out_buffer = stack_alloc 8
+    %out_status = call @sa_json_writer_finish(%writer, &__json_finish_slot_%out_buffer)
+    %out_buffer = load __json_finish_slot_%out_buffer+0 as ptr
+[END_MACRO]
+
+[MACRO] JSON_WRITER_FREE %writer
+    __json_writer_free_res_%writer = call @sa_json_writer_free(^%writer)
+    !__json_writer_free_res_%writer
+[END_MACRO]

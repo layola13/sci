@@ -1,0 +1,48 @@
+@import "sa_std/deno.sa"
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND DENO_HTTP_CLIENT_NEW client_status, client, 0
+    client_ok = eq client_status, 0
+    !client_status
+    br client_ok -> L_SERVER_NEW, L_FAIL_CLIENT
+
+L_SERVER_NEW:
+    !client_ok
+    EXPAND DENO_SERVE_NEW server_status, server
+    server_ok = eq server_status, 0
+    !server_status
+    br server_ok -> L_CLEANUP, L_FAIL_SERVER
+
+L_CLEANUP:
+    !server_ok
+    EXPAND DENO_SERVE_FREE server_free_status, server
+    EXPAND DENO_HTTP_CLIENT_FREE client_free_status, client
+    server_free_ok = eq server_free_status, 0
+    client_free_ok = eq client_free_status, 0
+    both_free_ok = and server_free_ok, client_free_ok
+    !server_free_status
+    !client_free_status
+    !server_free_ok
+    !client_free_ok
+    br both_free_ok -> L_PASS, L_FAIL_FREE
+
+L_PASS:
+    !both_free_ok
+    return 0
+
+L_FAIL_CLIENT:
+    !client_ok
+    !client
+    return 91
+
+L_FAIL_SERVER:
+    !server_ok
+    !server
+    EXPAND DENO_HTTP_CLIENT_FREE client_free_after_server_status, client
+    !client_free_after_server_status
+    return 92
+
+L_FAIL_FREE:
+    !both_free_ok
+    return 93

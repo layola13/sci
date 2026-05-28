@@ -728,6 +728,18 @@ fn snapshotFirstMismatch(snapshot: *const LabelSnapshot, state: []const u16, sym
     return null;
 }
 
+fn snapshotFirstMismatchInScope(snapshot: *const LabelSnapshot, state: []const u16, scope: *const FunctionRegScope, symbols: *const symbol.SymbolTable) ?StateMismatch {
+    for (state, 0..) |mask, idx| {
+        const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
+        if (snap_mask == mask) continue;
+        if ((snap_mask == 0 and mask == maskOf(.consumed)) or (mask == 0 and snap_mask == maskOf(.consumed))) continue;
+        if ((snap_mask == maskOf(.consumed) and mask == 0) or (mask == maskOf(.consumed) and snap_mask == 0)) continue;
+        const name = scope.nameOf(symbols, @intCast(idx)) orelse symbols.lookupName(@intCast(idx)) orelse continue;
+        return .{ .name = name, .expected = mask, .actual = snap_mask };
+    }
+    return null;
+}
+
 fn replaceLabelStateSnapshot(
     allocator: std.mem.Allocator,
     snapshot: *LabelSnapshot,
@@ -775,7 +787,19 @@ fn snapshotMergeState(snapshot: *const LabelSnapshot, state: []const u16, symbol
     for (state, 0..) |mask, idx| {
         const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
         if (snap_mask == mask) continue;
+        if (mergeJoinMask(snap_mask, mask) != null) continue;
         const name = symbols.lookupName(@intCast(idx)) orelse continue;
+        return .{ .name = name, .expected = mask, .actual = snap_mask };
+    }
+    return null;
+}
+
+fn snapshotMergeStateInScope(snapshot: *const LabelSnapshot, state: []const u16, scope: *const FunctionRegScope, symbols: *const symbol.SymbolTable) ?StateMismatch {
+    for (state, 0..) |mask, idx| {
+        const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
+        if (snap_mask == mask) continue;
+        if (mergeJoinMask(snap_mask, mask) != null) continue;
+        const name = scope.nameOf(symbols, @intCast(idx)) orelse symbols.lookupName(@intCast(idx)) orelse continue;
         return .{ .name = name, .expected = mask, .actual = snap_mask };
     }
     return null;
@@ -1395,6 +1419,57 @@ fn collectMetadata(
 
         const classified = classifier.classifyLine(item.raw_text);
 
+        if (isDecl(item.kind)) {
+            const kind = parseDeclKind(item.kind).?;
+            if (sigs.items.len != 0 and current_sig_index < sigs.items.len) {
+                try finalizeFunctionScope(&sigs, &current_reg_ids, &current_reg_seen, const_decls, &symbols);
+            }
+            current_reg_ids.clearRetainingCapacity();
+            current_reg_seen.clearRetainingCapacity();
+            var parsed = sig.parseFunctionHeader(allocator, item.raw_text, @intCast(sigs.items.len), item.expanded_line, kind) catch |err| {
+                return switch (err) {
+                    sig.ParseError.UnsupportedType => error.UnsupportedType,
+                    else => error.InvalidFunctionSig,
+                };
+            };
+            errdefer parsed.deinit(allocator);
+
+            // Validate @test function signatures: must be () -> void
+            if (kind == .test_func) {
+                if (parsed.params.len != 0) {
+                    return error.TestFuncSignatureMismatch;
+                }
+                if (parsed.return_ty != .void) {
+                    return error.TestFuncSignatureMismatch;
+                }
+            }
+
+            if (item.upstream_loc) |loc| {
+                const file_copy = try allocator.dupe(u8, loc.file);
+                errdefer allocator.free(file_copy);
+                parsed.upstream_file = file_copy;
+                parsed.upstream_loc = .{
+                    .file = file_copy,
+                    .line = loc.line,
+                    .col = loc.col,
+                };
+            }
+            if (parsed.params.len != 0) {
+                const ids = try allocator.alloc(u32, parsed.params.len);
+                errdefer allocator.free(ids);
+                for (parsed.params, 0..) |param, idx| {
+                    ids[idx] = try symbols.intern(param.name);
+                    try addScopeReg(&current_reg_ids, &current_reg_seen, ids[idx]);
+                }
+                parsed.param_ids = ids;
+            }
+            _ = try symbols.intern(parsed.name);
+            try sigs.append(parsed);
+            try function_starts.append(inst_idx);
+            current_sig_index = sigs.items.len - 1;
+            continue;
+        }
+
         for (item.operands) |operand| {
             if (operand == .reg) {
                 try addScopeReg(&current_reg_ids, &current_reg_seen, operand.reg);
@@ -1417,55 +1492,7 @@ fn collectMetadata(
             .label => {
                 _ = try symbols.intern(classified.parts[0]);
             },
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                const kind = parseDeclKind(item.kind).?;
-                if (sigs.items.len != 0 and current_sig_index < sigs.items.len) {
-                    try finalizeFunctionScope(&sigs, &current_reg_ids, &current_reg_seen, const_decls, &symbols);
-                }
-                current_reg_ids.clearRetainingCapacity();
-                current_reg_seen.clearRetainingCapacity();
-                var parsed = sig.parseFunctionHeader(allocator, item.raw_text, @intCast(sigs.items.len), item.expanded_line, kind) catch |err| {
-                    return switch (err) {
-                        sig.ParseError.UnsupportedType => error.UnsupportedType,
-                        else => error.InvalidFunctionSig,
-                    };
-                };
-                errdefer parsed.deinit(allocator);
-
-                // Validate @test function signatures: must be () -> void
-                if (kind == .test_func) {
-                    if (parsed.params.len != 0) {
-                        return error.TestFuncSignatureMismatch;
-                    }
-                    if (parsed.return_ty != .void) {
-                        return error.TestFuncSignatureMismatch;
-                    }
-                }
-
-                if (item.upstream_loc) |loc| {
-                    const file_copy = try allocator.dupe(u8, loc.file);
-                    errdefer allocator.free(file_copy);
-                    parsed.upstream_file = file_copy;
-                    parsed.upstream_loc = .{
-                        .file = file_copy,
-                        .line = loc.line,
-                        .col = loc.col,
-                    };
-                }
-                if (parsed.params.len != 0) {
-                    const ids = try allocator.alloc(u32, parsed.params.len);
-                    errdefer allocator.free(ids);
-                    for (parsed.params, 0..) |param, idx| {
-                        ids[idx] = try symbols.intern(param.name);
-                        try addScopeReg(&current_reg_ids, &current_reg_seen, ids[idx]);
-                    }
-                    parsed.param_ids = ids;
-                }
-                _ = try symbols.intern(parsed.name);
-                try sigs.append(parsed);
-                try function_starts.append(inst_idx);
-                current_sig_index = sigs.items.len - 1;
-            },
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => unreachable,
             .alloc, .stack_alloc => {
                 _ = try symbols.intern(classified.parts[0]);
             },
@@ -2436,12 +2463,18 @@ fn verifyBody(
                 if (labels.getPtr(target)) |entry| {
                     if (defined_labels.contains(target)) {
                         if (!snapshotStatesCompatible(entry, state)) {
-                            const mismatch = snapshotFirstMismatch(entry, state, &metadata.symbols);
+                            const mismatch = if (current_scope) |scope|
+                                snapshotFirstMismatchInScope(entry, state, &scope, &metadata.symbols)
+                            else
+                                snapshotFirstMismatch(entry, state, &metadata.symbols);
                             return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     } else {
                         if (!snapshotMergeCompatible(entry, state)) {
-                            const mismatch = snapshotMergeState(entry, state, &metadata.symbols);
+                            const mismatch = if (current_scope) |scope|
+                                snapshotMergeStateInScope(entry, state, &scope, &metadata.symbols)
+                            else
+                                snapshotMergeState(entry, state, &metadata.symbols);
                             return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                         }
                     }
@@ -2463,12 +2496,18 @@ fn verifyBody(
                     if (labels.getPtr(target)) |entry| {
                         if (defined_labels.contains(target)) {
                             if (!snapshotStatesCompatible(entry, state)) {
-                                const mismatch = snapshotFirstMismatch(entry, state, &metadata.symbols);
+                                const mismatch = if (current_scope) |scope|
+                                    snapshotFirstMismatchInScope(entry, state, &scope, &metadata.symbols)
+                                else
+                                    snapshotFirstMismatch(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         } else {
                             if (!snapshotMergeCompatible(entry, state)) {
-                                const mismatch = snapshotMergeState(entry, state, &metadata.symbols);
+                                const mismatch = if (current_scope) |scope|
+                                    snapshotMergeStateInScope(entry, state, &scope, &metadata.symbols)
+                                else
+                                    snapshotMergeState(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         }
@@ -2492,12 +2531,18 @@ fn verifyBody(
                     if (labels.getPtr(target)) |entry| {
                         if (defined_labels.contains(target)) {
                             if (!snapshotStatesCompatible(entry, state)) {
-                                const mismatch = snapshotFirstMismatch(entry, state, &metadata.symbols);
+                                const mismatch = if (current_scope) |scope|
+                                    snapshotFirstMismatchInScope(entry, state, &scope, &metadata.symbols)
+                                else
+                                    snapshotFirstMismatch(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         } else {
                             if (!snapshotMergeCompatible(entry, state)) {
-                                const mismatch = snapshotMergeState(entry, state, &metadata.symbols);
+                                const mismatch = if (current_scope) |scope|
+                                    snapshotMergeStateInScope(entry, state, &scope, &metadata.symbols)
+                                else
+                                    snapshotMergeState(entry, state, &metadata.symbols);
                                 return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
                             }
                         }
@@ -3953,6 +3998,104 @@ test "immutable const data can be read and printed without leak traps" {
             try std.testing.expectEqual(@as(usize, 5), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "loop snapshots ignore stable extern calls that touch const data" {
+    const source =
+        \\@extern sa_print_bytes(&msg: ptr, len: u64) -> i32
+        \\@const HELLO_MSG = utf8:"hello"
+        \\@helper() -> i32:
+        \\L_HELPER:
+        \\printed = call @sa_print_bytes(&HELLO_MSG, 5)
+        \\return printed
+        \\@main(n: u64) -> i32:
+        \\L_ENTRY:
+        \\i_slot = stack_alloc 8
+        \\store i_slot+0, 0 as u64
+        \\jmp L_COND
+        \\L_COND:
+        \\i = load i_slot+0 as u64
+        \\keep_going = ult i, n
+        \\br keep_going -> L_BODY, L_EXIT
+        \\L_BODY:
+        \\printed = call @helper()
+        \\next = add i, 1
+        \\store i_slot+0, next as u64
+        \\!next
+        \\!printed
+        \\!i
+        \\!keep_going
+        \\jmp L_COND
+        \\L_EXIT:
+        \\!i
+        \\!keep_going
+        \\!n
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s} line={} source_line={} source={s} register={s}\n", .{
+                @tagName(report.trap),
+                report.message,
+                report.line,
+                report.source_line,
+                report.source_text orelse "",
+                report.register orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "function declaration operands do not pollute previous function scope" {
+    const source =
+        \\@first() -> i32:
+        \\L_FIRST:
+        \\left = add 1, 1
+        \\!left
+        \\return 0
+        \\@second(&out_len: ptr) -> i32:
+        \\L_SECOND:
+        \\!out_len
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 2), owned.function_sigs.len);
+            for (owned.function_sigs[0].reg_ids) |reg_id| {
+                const name = owned.symbols.lookupName(reg_id) orelse "";
+                try std.testing.expect(!std.mem.eql(u8, name, "out_len"));
+            }
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s} line={} source_line={} source={s} register={s}\n", .{
+                @tagName(report.trap),
+                report.message,
+                report.line,
+                report.source_line,
+                report.source_text orelse "",
+                report.register orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
     }
 }
 

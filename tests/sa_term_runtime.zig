@@ -121,6 +121,7 @@ test "sa_term raw mode and winsize are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
@@ -221,6 +222,7 @@ test "sa_term epoll and process streaming are usable from C" {
         runtime_source,
         "-O",
         "Debug",
+        "-lc",
         "-femit-bin=libsa_std.a",
     };
     const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);

@@ -1,0 +1,587 @@
+@import "deno.sai"
+@import "env.sa"
+@import "fs.sai"
+@import "process.sai"
+@import "process.sal"
+@import "time.sai"
+@import "io.sai"
+@import "net.sai"
+@import "encoding/json.sa"
+
+[MACRO] DENO_ARGS_JSON %out_buffer
+    %out_buffer = call @sa_deno_args_json()
+[END_MACRO]
+
+[MACRO] DENO_ENV_GET %out_buffer, %key, %key_len
+    %out_buffer = call @sa_env_get(&%key, %key_len)
+[END_MACRO]
+
+[MACRO] DENO_ENV_HAS %out_status, %key, %key_len
+    %out_status = call @sa_env_has(&%key, %key_len)
+[END_MACRO]
+
+[MACRO] DENO_ENV_SET %out_status, %key, %key_len, %value, %value_len
+    %out_status = call @sa_deno_env_set(&%key, %key_len, &%value, %value_len)
+[END_MACRO]
+
+[MACRO] DENO_ENV_DELETE %out_status, %key, %key_len
+    %out_status = call @sa_deno_env_delete(&%key, %key_len)
+[END_MACRO]
+
+[MACRO] DENO_CWD %out_buffer
+    %out_buffer = call @sa_deno_cwd()
+[END_MACRO]
+
+[MACRO] DENO_CHDIR %out_status, %path, %path_len
+    %out_status = call @sa_deno_chdir(&%path, %path_len)
+[END_MACRO]
+
+[MACRO] DENO_RANDOM_UUID %out_buffer
+    %out_buffer = call @sa_deno_random_uuid()
+[END_MACRO]
+
+[MACRO] DENO_CRYPTO_RANDOM_UUID %out_buffer
+    EXPAND DENO_RANDOM_UUID %out_buffer
+[END_MACRO]
+
+[MACRO] DENO_BTOA %out_buffer, %data, %data_len
+    %out_buffer = call @sa_deno_btoa(&%data, %data_len)
+[END_MACRO]
+
+[MACRO] DENO_ATOB %out_buffer, %data_base64, %data_base64_len
+    %out_buffer = call @sa_deno_atob(&%data_base64, %data_base64_len)
+[END_MACRO]
+
+[MACRO] DENO_TEXT_ENCODE %out_buffer, %data, %data_len
+    %out_buffer = call @sa_deno_text_encode(&%data, %data_len)
+[END_MACRO]
+
+[MACRO] DENO_TEXT_DECODE %out_buffer, %data, %data_len
+    %out_buffer = call @sa_deno_text_decode(&%data, %data_len)
+[END_MACRO]
+
+[MACRO] DENO_VERSION_JSON %out_buffer
+    %out_buffer = call @sa_deno_version_json()
+[END_MACRO]
+
+[MACRO] DENO_BUILD_JSON %out_buffer
+    %out_buffer = call @sa_deno_build_json()
+[END_MACRO]
+
+[MACRO] DENO_JSON_PARSE %out_root, %bytes, %len
+    EXPAND JSON_PARSE %out_root, %bytes, %len
+[END_MACRO]
+
+[MACRO] DENO_JSON_STRINGIFY %out_status, %out_buffer, %node
+    __deno_json_stringify_slot_%out_buffer = stack_alloc 8
+    %out_status = call @sa_json_stringify(%node, &__deno_json_stringify_slot_%out_buffer)
+    %out_buffer = load __deno_json_stringify_slot_%out_buffer+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_JSON_BUFFER_SLICE %out_ptr, %out_len, %buffer
+    EXPAND JSON_BUFFER_SLICE %out_ptr, %out_len, %buffer
+[END_MACRO]
+
+[MACRO] DENO_JSON_BUFFER_FREE %buffer
+    EXPAND JSON_BUFFER_FREE %buffer
+[END_MACRO]
+
+[MACRO] DENO_JSON_FREE %node
+    EXPAND JSON_FREE %node
+[END_MACRO]
+
+[MACRO] DENO_FREE_BUFFER %buffer, %out_status
+    %out_status = call @sa_std_close(%buffer)
+[END_MACRO]
+
+[MACRO] DENO_EXIT %code
+    panic(%code)
+[END_MACRO]
+
+[MACRO] DENO_STDOUT %out_handle
+    %out_handle = call @sa_io_stdout()
+[END_MACRO]
+
+[MACRO] DENO_STDERR %out_handle
+    %out_handle = call @sa_io_stderr()
+[END_MACRO]
+
+[MACRO] DENO_STDIN %out_handle
+    %out_handle = call @sa_io_stdin()
+[END_MACRO]
+
+[MACRO] DENO_STDOUT_WRITE %out_status, %data, %data_len
+    __deno_stdout_handle_%out_status = call @sa_io_stdout()
+    %out_status = call @sa_io_write_all(__deno_stdout_handle_%out_status, &%data, %data_len)
+    !__deno_stdout_handle_%out_status
+[END_MACRO]
+
+[MACRO] DENO_STDERR_WRITE %out_status, %data, %data_len
+    __deno_stderr_handle_%out_status = call @sa_io_stderr()
+    %out_status = call @sa_io_write_all(__deno_stderr_handle_%out_status, &%data, %data_len)
+    !__deno_stderr_handle_%out_status
+[END_MACRO]
+
+[MACRO] DENO_READ_TEXT_FILE %out_status, %out_buffer, %path, %path_len, %max_bytes
+    __deno_read_res_%out_buffer = call @sa_fs_read_file(&%path, %path_len, %max_bytes)
+    %out_status = load __deno_read_res_%out_buffer+0 as i32
+    %out_buffer = load __deno_read_res_%out_buffer+8 as u64
+[END_MACRO]
+
+[MACRO] DENO_READ_TEXT_FILE_SYNC %out_status, %out_buffer, %path, %path_len, %max_bytes
+    EXPAND DENO_READ_TEXT_FILE %out_status, %out_buffer, %path, %path_len, %max_bytes
+[END_MACRO]
+
+[MACRO] DENO_WRITE_TEXT_FILE %out_status, %path, %path_len, %data, %data_len
+    __deno_write_text_res_%out_status = call @sa_fs_write_file(&%path, %path_len, &%data, %data_len)
+    %out_status = load __deno_write_text_res_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] DENO_WRITE_TEXT_FILE_SYNC %out_status, %path, %path_len, %data, %data_len
+    EXPAND DENO_WRITE_TEXT_FILE %out_status, %path, %path_len, %data, %data_len
+[END_MACRO]
+
+[MACRO] DENO_READ_FILE_BASE64 %out_status, %out_buffer, %path, %path_len, %max_bytes
+    __deno_read_b64_res_%out_buffer = call @sa_fs_read_file_base64(&%path, %path_len, %max_bytes)
+    %out_status = load __deno_read_b64_res_%out_buffer+0 as i32
+    %out_buffer = load __deno_read_b64_res_%out_buffer+8 as u64
+[END_MACRO]
+
+[MACRO] DENO_WRITE_FILE_BASE64 %out_status, %path, %path_len, %data_base64, %data_base64_len
+    __deno_write_b64_res_%out_status = call @sa_fs_write_file_base64(&%path, %path_len, &%data_base64, %data_base64_len)
+    %out_status = load __deno_write_b64_res_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] DENO_MKDIR %out_status, %path, %path_len
+    __deno_mkdir_res_%out_status = call @sa_fs_make_dir(&%path, %path_len)
+    %out_status = load __deno_mkdir_res_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] DENO_MKDIR_SYNC %out_status, %path, %path_len
+    EXPAND DENO_MKDIR %out_status, %path, %path_len
+[END_MACRO]
+
+[MACRO] DENO_READ_DIR_JSON %out_status, %out_buffer, %path, %path_len, %max_entries
+    __deno_dir_res_%out_buffer = call @sa_fs_read_dir_json(&%path, %path_len, %max_entries)
+    %out_status = load __deno_dir_res_%out_buffer+0 as i32
+    %out_buffer = load __deno_dir_res_%out_buffer+8 as u64
+[END_MACRO]
+
+[MACRO] DENO_READ_DIR_SYNC_JSON %out_status, %out_buffer, %path, %path_len, %max_entries
+    EXPAND DENO_READ_DIR_JSON %out_status, %out_buffer, %path, %path_len, %max_entries
+[END_MACRO]
+
+[MACRO] DENO_LSTAT_JSON %out_status, %out_buffer, %path, %path_len
+    __deno_meta_res_%out_buffer = call @sa_fs_metadata_json(&%path, %path_len)
+    %out_status = load __deno_meta_res_%out_buffer+0 as i32
+    %out_buffer = load __deno_meta_res_%out_buffer+8 as u64
+[END_MACRO]
+
+[MACRO] DENO_LSTAT_SYNC_JSON %out_status, %out_buffer, %path, %path_len
+    EXPAND DENO_LSTAT_JSON %out_status, %out_buffer, %path, %path_len
+[END_MACRO]
+
+[MACRO] DENO_REMOVE %out_status, %path, %path_len
+    %out_status = call @sa_fs_remove_path(&%path, %path_len)
+[END_MACRO]
+
+[MACRO] DENO_REMOVE_SYNC %out_status, %path, %path_len
+    EXPAND DENO_REMOVE %out_status, %path, %path_len
+[END_MACRO]
+
+[MACRO] DENO_COPY_FILE %out_status, %source_path, %source_len, %dest_path, %dest_len
+    %out_status = call @sa_fs_copy_file(&%source_path, %source_len, &%dest_path, %dest_len)
+[END_MACRO]
+
+[MACRO] DENO_COPY_FILE_SYNC %out_status, %source_path, %source_len, %dest_path, %dest_len
+    EXPAND DENO_COPY_FILE %out_status, %source_path, %source_len, %dest_path, %dest_len
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_RUN %out_status, %out_process, %argv, %argv_len
+    __deno_proc_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_run(&%argv, %argv_len, &__deno_proc_slot_%out_process)
+    %out_process = load __deno_proc_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_RUN_CWD %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len
+    __deno_proc_cwd_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_run_cwd(&%argv, %argv_len, &%cwd, %cwd_len, &__deno_proc_cwd_slot_%out_process)
+    %out_process = load __deno_proc_cwd_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_SPAWN %out_status, %out_process, %argv, %argv_len
+    __deno_spawn_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_spawn(&%argv, %argv_len, &__deno_spawn_slot_%out_process)
+    %out_process = load __deno_spawn_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_SPAWN_CWD %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len
+    __deno_spawn_cwd_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_cwd(&%argv, %argv_len, &%cwd, %cwd_len, &__deno_spawn_cwd_slot_%out_process)
+    %out_process = load __deno_spawn_cwd_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_SPAWN_STREAM %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len
+    __deno_spawn_proc_slot_%out_process = stack_alloc 8
+    __deno_spawn_stdout_slot_%out_stdout = stack_alloc 8
+    __deno_spawn_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_stream(&%argv, %argv_len, &__deno_spawn_proc_slot_%out_process, &__deno_spawn_stdout_slot_%out_stdout, &__deno_spawn_stderr_slot_%out_stderr)
+    %out_process = load __deno_spawn_proc_slot_%out_process+0 as u64
+    %out_stdout = load __deno_spawn_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __deno_spawn_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_SPAWN_STREAM_CWD %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len
+    __deno_spawn_cwd_proc_slot_%out_process = stack_alloc 8
+    __deno_spawn_cwd_stdout_slot_%out_stdout = stack_alloc 8
+    __deno_spawn_cwd_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_stream_cwd(&%argv, %argv_len, &%cwd, %cwd_len, &__deno_spawn_cwd_proc_slot_%out_process, &__deno_spawn_cwd_stdout_slot_%out_stdout, &__deno_spawn_cwd_stderr_slot_%out_stderr)
+    %out_process = load __deno_spawn_cwd_proc_slot_%out_process+0 as u64
+    %out_stdout = load __deno_spawn_cwd_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __deno_spawn_cwd_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_WAIT %out_status, %out_code, %process
+    __deno_code_slot_%out_code = stack_alloc 4
+    %out_status = call @sa_std_process_wait(%process, &__deno_code_slot_%out_code)
+    %out_code = load __deno_code_slot_%out_code+0 as u32
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_READ_STDOUT %out_status, %out_len, %process, %buf, %cap
+    __deno_stdout_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_std_process_read_stdout(%process, &%buf, %cap, &__deno_stdout_len_slot_%out_len)
+    %out_len = load __deno_stdout_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_READ_STDERR %out_status, %out_len, %process, %buf, %cap
+    __deno_stderr_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_std_process_read_stderr(%process, &%buf, %cap, &__deno_stderr_len_slot_%out_len)
+    %out_len = load __deno_stderr_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_CLOSE %out_status, %process
+    %out_status = call @sa_std_process_close(%process)
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_EXEC %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len
+    __deno_exec_code_slot_%out_code = stack_alloc 4
+    __deno_exec_stdout_slot_%out_stdout = stack_alloc 8
+    __deno_exec_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_exec_capture(&%argv, %argv_len, &__deno_exec_code_slot_%out_code, &__deno_exec_stdout_slot_%out_stdout, &__deno_exec_stderr_slot_%out_stderr)
+    %out_code = load __deno_exec_code_slot_%out_code+0 as u32
+    %out_stdout = load __deno_exec_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __deno_exec_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_EXEC_CWD %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len
+    __deno_exec_cwd_code_slot_%out_code = stack_alloc 4
+    __deno_exec_cwd_stdout_slot_%out_stdout = stack_alloc 8
+    __deno_exec_cwd_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_exec_capture_cwd(&%argv, %argv_len, &%cwd, %cwd_len, &__deno_exec_cwd_code_slot_%out_code, &__deno_exec_cwd_stdout_slot_%out_stdout, &__deno_exec_cwd_stderr_slot_%out_stderr)
+    %out_code = load __deno_exec_cwd_code_slot_%out_code+0 as u32
+    %out_stdout = load __deno_exec_cwd_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __deno_exec_cwd_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_NOW_MS %out_ms
+    %out_ms = call @sa_time_unix_ms()
+[END_MACRO]
+
+[MACRO] DENO_NOW_NS %out_ns
+    %out_ns = call @sa_time_unix_ns()
+[END_MACRO]
+
+[MACRO] DENO_SLEEP_MS %out_status, %ms
+    __deno_sleep_ms_res_%out_status = call @sa_time_sleep_ms(%ms)
+    %out_status = load __deno_sleep_ms_res_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] DENO_LISTEN_TCP %out_status, %out_listener, %host, %host_len, %port
+    __deno_listen_res_%out_listener = call @sa_net_tcp_listener_bind(&%host, %host_len, %port)
+    %out_status = load __deno_listen_res_%out_listener+0 as i32
+    %out_listener = load __deno_listen_res_%out_listener+8 as u64
+[END_MACRO]
+
+[MACRO] DENO_ACCEPT_TCP %out_status, %out_stream, %listener
+    __deno_accept_res_%out_stream = call @sa_net_tcp_listener_accept(%listener)
+    %out_status = load __deno_accept_res_%out_stream+0 as i32
+    %out_stream = load __deno_accept_res_%out_stream+8 as u64
+[END_MACRO]
+
+[MACRO] DENO_CONNECT_TCP %out_status, %out_stream, %host, %host_len, %port
+    __deno_connect_res_%out_stream = call @sa_net_tcp_connect(&%host, %host_len, %port)
+    %out_status = load __deno_connect_res_%out_stream+0 as i32
+    %out_stream = load __deno_connect_res_%out_stream+8 as u64
+[END_MACRO]
+
+[MACRO] DENO_CLOSE_TCP_LISTENER %out_status, %listener
+    __deno_listener_close_res_%out_status = call @sa_net_tcp_listener_close(%listener)
+    %out_status = load __deno_listener_close_res_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] DENO_CLOSE_TCP_STREAM %out_status, %stream
+    __deno_stream_close_res_%out_status = call @sa_net_tcp_stream_close(%stream)
+    %out_status = load __deno_stream_close_res_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] DENO_HOSTNAME %out_buffer
+    %out_buffer = call @sa_deno_hostname()
+[END_MACRO]
+
+[MACRO] DENO_OS_RELEASE %out_buffer
+    %out_buffer = call @sa_deno_os_release()
+[END_MACRO]
+
+[MACRO] DENO_OS_UPTIME %out_uptime
+    %out_uptime = call @sa_deno_os_uptime()
+[END_MACRO]
+
+[MACRO] DENO_LOADAVG %out_status, %out_ptr
+    %out_status = call @sa_deno_loadavg(&%out_ptr)
+[END_MACRO]
+
+[MACRO] DENO_SYSTEM_MEMORY_INFO %out_buffer
+    %out_buffer = call @sa_deno_system_memory_info()
+[END_MACRO]
+
+[MACRO] DENO_NETWORK_INTERFACES %out_buffer
+    %out_buffer = call @sa_deno_network_interfaces()
+[END_MACRO]
+
+[MACRO] DENO_PID %out_pid
+    %out_pid = call @sa_deno_pid()
+[END_MACRO]
+
+[MACRO] DENO_PPID %out_ppid
+    %out_ppid = call @sa_deno_ppid()
+[END_MACRO]
+
+[MACRO] DENO_UID %out_uid
+    %out_uid = call @sa_deno_uid()
+[END_MACRO]
+
+[MACRO] DENO_GID %out_gid
+    %out_gid = call @sa_deno_gid()
+[END_MACRO]
+
+[MACRO] DENO_EXEC_PATH %out_buffer
+    %out_buffer = call @sa_deno_exec_path()
+[END_MACRO]
+
+[MACRO] DENO_MEMORY_USAGE %out_buffer
+    %out_buffer = call @sa_deno_memory_usage()
+[END_MACRO]
+
+[MACRO] DENO_HTTP_CLIENT_NEW %out_status, %out_client, %use_tls
+    __deno_http_client_slot_%out_client = stack_alloc 8
+    %out_status = call @sa_http_client_new(%use_tls, &__deno_http_client_slot_%out_client)
+    %out_client = load __deno_http_client_slot_%out_client+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len
+    __deno_http_request_slot_%out_request = stack_alloc 8
+    %out_status = call @sa_http_client_req_new(%client, %method, &%url, %url_len, &__deno_http_request_slot_%out_request)
+    %out_request = load __deno_http_request_slot_%out_request+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_ADD_HEADER %out_status, %request, %key, %key_len, %value, %value_len
+    %out_status = call @sa_http_client_req_add_header(%request, &%key, %key_len, &%value, %value_len)
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_SET_BODY %out_status, %request, %body, %body_len
+    %out_status = call @sa_http_client_req_set_body(%request, &%body, %body_len)
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_SEND %out_status, %out_response, %request
+    __deno_http_response_slot_%out_response = stack_alloc 8
+    %out_status = call @sa_http_client_req_send(%request, &__deno_http_response_slot_%out_response)
+    %out_response = load __deno_http_response_slot_%out_response+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_HTTP_RESPONSE_STATUS %out_status_code, %response
+    %out_status_code = call @sa_http_client_resp_status(%response)
+[END_MACRO]
+
+[MACRO] DENO_HTTP_RESPONSE_GET_HEADER %out_status, %out_ptr, %out_len, %response, %key, %key_len
+    __deno_http_header_ptr_slot_%out_ptr = stack_alloc 8
+    __deno_http_header_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_http_client_resp_get_header(%response, &%key, %key_len, &__deno_http_header_ptr_slot_%out_ptr, &__deno_http_header_len_slot_%out_len)
+    %out_ptr = load __deno_http_header_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __deno_http_header_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_HTTP_RESPONSE_BODY_READER %out_status, %out_reader, %response
+    __deno_http_body_reader_slot_%out_reader = stack_alloc 8
+    %out_status = call @sa_http_client_resp_body_reader(%response, &__deno_http_body_reader_slot_%out_reader)
+    %out_reader = load __deno_http_body_reader_slot_%out_reader+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_HTTP_RESPONSE_READ_CHUNK %out_status, %out_len, %reader, %buf, %cap
+    __deno_http_read_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_http_client_resp_read_chunk(%reader, &%buf, %cap, &__deno_http_read_len_slot_%out_len)
+    %out_len = load __deno_http_read_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_HTTP_RESPONSE_FREE %out_status, %response
+    %out_status = call @sa_http_client_resp_free(^%response)
+[END_MACRO]
+
+[MACRO] DENO_HTTP_BODY_READER_FREE %out_status, %reader
+    %out_status = call @sa_http_client_body_reader_free(^%reader)
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_FREE %out_status, %request
+    %out_status = call @sa_http_client_req_free(^%request)
+[END_MACRO]
+
+[MACRO] DENO_HTTP_CLIENT_FREE %out_status, %client
+    %out_status = call @sa_http_client_free(^%client)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_NEW %out_status, %out_server
+    __deno_serve_server_slot_%out_server = stack_alloc 8
+    %out_status = call @sa_http_server_new(&__deno_serve_server_slot_%out_server)
+    %out_server = load __deno_serve_server_slot_%out_server+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_SERVE_START %out_status, %server, %host, %host_len, %port
+    %out_status = call @sa_http_server_start(%server, &%host, %host_len, %port)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_ACCEPT %out_status, %out_request, %server
+    __deno_serve_request_slot_%out_request = stack_alloc 8
+    %out_status = call @sa_http_server_accept(%server, &__deno_serve_request_slot_%out_request)
+    %out_request = load __deno_serve_request_slot_%out_request+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_SERVE_REQUEST_METHOD %out_status, %out_ptr, %out_len, %request
+    __deno_serve_method_ptr_slot_%out_ptr = stack_alloc 8
+    __deno_serve_method_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_http_server_req_get_method(%request, &__deno_serve_method_ptr_slot_%out_ptr, &__deno_serve_method_len_slot_%out_len)
+    %out_ptr = load __deno_serve_method_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __deno_serve_method_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_SERVE_REQUEST_PATH %out_status, %out_ptr, %out_len, %request
+    __deno_serve_path_ptr_slot_%out_ptr = stack_alloc 8
+    __deno_serve_path_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_http_server_req_get_path(%request, &__deno_serve_path_ptr_slot_%out_ptr, &__deno_serve_path_len_slot_%out_len)
+    %out_ptr = load __deno_serve_path_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __deno_serve_path_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_SERVE_REQUEST_HEADER %out_status, %out_ptr, %out_len, %request, %key, %key_len
+    __deno_serve_header_ptr_slot_%out_ptr = stack_alloc 8
+    __deno_serve_header_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_http_server_req_get_header(%request, &%key, %key_len, &__deno_serve_header_ptr_slot_%out_ptr, &__deno_serve_header_len_slot_%out_len)
+    %out_ptr = load __deno_serve_header_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __deno_serve_header_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_SERVE_REQUEST_BODY %out_status, %out_ptr, %out_len, %request
+    __deno_serve_body_ptr_slot_%out_ptr = stack_alloc 8
+    __deno_serve_body_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_http_server_req_get_body(%request, &__deno_serve_body_ptr_slot_%out_ptr, &__deno_serve_body_len_slot_%out_len)
+    %out_ptr = load __deno_serve_body_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __deno_serve_body_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_SERVE_RESPONSE_NEW %out_status, %out_response, %request, %status_code
+    __deno_serve_response_slot_%out_response = stack_alloc 8
+    %out_status = call @sa_http_server_resp_new(%request, %status_code, &__deno_serve_response_slot_%out_response)
+    %out_response = load __deno_serve_response_slot_%out_response+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_SERVE_RESPONSE_SET_CONTENT_TYPE %out_status, %response, %content_type, %content_type_len
+    %out_status = call @sa_http_server_resp_set_content_type(%response, &%content_type, %content_type_len)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_RESPONSE_SEND %out_status, %response, %body, %body_len
+    %out_status = call @sa_http_server_resp_send(%response, &%body, %body_len)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_RESPONSE_FREE %out_status, %response
+    %out_status = call @sa_http_server_resp_free(^%response)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_STREAM_NEW %out_status, %out_response, %request, %status_code
+    __deno_serve_stream_slot_%out_response = stack_alloc 8
+    %out_status = call @sa_http_server_resp_stream_new(%request, %status_code, &__deno_serve_stream_slot_%out_response)
+    %out_response = load __deno_serve_stream_slot_%out_response+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_SERVE_STREAM_WRITE %out_status, %response, %body, %body_len
+    %out_status = call @sa_http_server_resp_stream_write(%response, &%body, %body_len)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_STREAM_FLUSH %out_status, %response
+    %out_status = call @sa_http_server_resp_stream_flush(%response)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_STREAM_END %out_status, %response
+    %out_status = call @sa_http_server_resp_stream_end(%response)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_STREAM_FREE %out_status, %response
+    %out_status = call @sa_http_server_resp_stream_free(^%response)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_REQUEST_FREE %out_status, %request
+    %out_status = call @sa_http_server_req_free(^%request)
+[END_MACRO]
+
+[MACRO] DENO_SERVE_FREE %out_status, %server
+    %out_status = call @sa_http_server_free(^%server)
+[END_MACRO]
+
+[MACRO] DENO_FETCH_CLIENT_NEW %out_status, %out_client, %use_tls
+    EXPAND DENO_HTTP_CLIENT_NEW %out_status, %out_client, %use_tls
+[END_MACRO]
+
+[MACRO] DENO_FETCH_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len
+    EXPAND DENO_HTTP_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len
+[END_MACRO]
+
+[MACRO] DENO_HEADERS_APPEND %out_status, %request, %key, %key_len, %value, %value_len
+    EXPAND DENO_HTTP_REQUEST_ADD_HEADER %out_status, %request, %key, %key_len, %value, %value_len
+[END_MACRO]
+
+[MACRO] DENO_FETCH_REQUEST_SET_BODY %out_status, %request, %body, %body_len
+    EXPAND DENO_HTTP_REQUEST_SET_BODY %out_status, %request, %body, %body_len
+[END_MACRO]
+
+[MACRO] DENO_FETCH_SEND %out_status, %out_response, %request
+    EXPAND DENO_HTTP_REQUEST_SEND %out_status, %out_response, %request
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_STATUS %out_status_code, %response
+    EXPAND DENO_HTTP_RESPONSE_STATUS %out_status_code, %response
+[END_MACRO]
+
+[MACRO] DENO_HEADERS_GET %out_status, %out_ptr, %out_len, %response, %key, %key_len
+    EXPAND DENO_HTTP_RESPONSE_GET_HEADER %out_status, %out_ptr, %out_len, %response, %key, %key_len
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_BODY_READER %out_status, %out_reader, %response
+    EXPAND DENO_HTTP_RESPONSE_BODY_READER %out_status, %out_reader, %response
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_READ_CHUNK %out_status, %out_len, %reader, %buf, %cap
+    EXPAND DENO_HTTP_RESPONSE_READ_CHUNK %out_status, %out_len, %reader, %buf, %cap
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_FREE %out_status, %response
+    EXPAND DENO_HTTP_RESPONSE_FREE %out_status, %response
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_BODY_READER_FREE %out_status, %reader
+    EXPAND DENO_HTTP_BODY_READER_FREE %out_status, %reader
+[END_MACRO]
+
+[MACRO] DENO_FETCH_REQUEST_FREE %out_status, %request
+    EXPAND DENO_HTTP_REQUEST_FREE %out_status, %request
+[END_MACRO]
+
+[MACRO] DENO_FETCH_CLIENT_FREE %out_status, %client
+    EXPAND DENO_HTTP_CLIENT_FREE %out_status, %client
+[END_MACRO]

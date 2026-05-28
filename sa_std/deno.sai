@@ -1,0 +1,68 @@
+// Deno compatibility facade for SA applications ported from Deno services.
+// Returned buffers use the same owned buffer accessors as fs/json/fmt output.
+@extern sa_deno_cwd() -> u64
+@extern sa_deno_chdir(&path: ptr, path_len: u64) -> i32
+@extern sa_deno_env_set(&key: ptr, key_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_deno_env_delete(&key: ptr, key_len: u64) -> i32
+@extern sa_deno_random_uuid() -> u64
+@extern sa_deno_args_json() -> u64
+@extern sa_deno_btoa(&data: ptr, len: u64) -> u64
+@extern sa_deno_atob(&data_base64: ptr, data_base64_len: u64) -> u64
+@extern sa_deno_text_encode(&data: ptr, len: u64) -> u64
+@extern sa_deno_text_decode(&data: ptr, len: u64) -> u64
+@extern sa_deno_version_json() -> u64
+@extern sa_deno_build_json() -> u64
+@extern sa_deno_hostname() -> u64
+@extern sa_deno_os_release() -> u64
+@extern sa_deno_os_uptime() -> f64
+@extern sa_deno_loadavg(&out_load: ptr) -> i32
+@extern sa_deno_system_memory_info() -> u64
+@extern sa_deno_network_interfaces() -> u64
+@extern sa_deno_pid() -> u32
+@extern sa_deno_ppid() -> u32
+@extern sa_deno_uid() -> u32
+@extern sa_deno_gid() -> u32
+@extern sa_deno_exec_path() -> u64
+@extern sa_deno_memory_usage() -> u64
+@extern sa_std_close(handle: u64) -> i32
+
+#def DENO_HTTP_METHOD_GET = 1
+#def DENO_HTTP_METHOD_POST = 2
+#def DENO_HTTP_METHOD_PUT = 3
+#def DENO_HTTP_METHOD_DELETE = 4
+
+@extern sa_std_process_exec_capture(&argv: ptr, argv_len: u64, &out_code: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32
+@extern sa_std_process_exec_capture_cwd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, &out_code: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32
+
+@extern sa_http_client_new(use_tls: u8, &out_client: ptr) -> u32
+@extern sa_http_client_req_new(client: ptr, method: u8, &url: ptr, url_len: u64, &out_req: ptr) -> u32
+@extern sa_http_client_req_add_header(req: ptr, &key: ptr, key_len: u64, &val: ptr, val_len: u64) -> u32
+@extern sa_http_client_req_set_body(req: ptr, &body: ptr, body_len: u64) -> u32
+@extern sa_http_client_req_send(req: ptr, &out_resp: ptr) -> u32
+@extern sa_http_client_resp_status(resp: ptr) -> u16
+@extern sa_http_client_resp_get_header(resp: ptr, &key: ptr, key_len: u64, &out_val: ptr, &out_len: ptr) -> u32
+@extern sa_http_client_resp_body_reader(resp: ptr, &out_reader: ptr) -> u32
+@extern sa_http_client_resp_read_chunk(reader: ptr, &buf: ptr, cap: u64, &out_len: ptr) -> u32
+@extern sa_http_client_resp_free(^resp: ptr) -> u32
+@extern sa_http_client_body_reader_free(^reader: ptr) -> u32
+@extern sa_http_client_req_free(^req: ptr) -> u32
+@extern sa_http_client_free(^client: ptr) -> u32
+
+@extern sa_http_server_new(&out_server: ptr) -> u32
+@extern sa_http_server_start(server: ptr, &host: ptr, host_len: u64, port: u16) -> u32
+@extern sa_http_server_accept(server: ptr, &out_req: ptr) -> u32
+@extern sa_http_server_req_get_method(req: ptr, &out_method: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_req_get_path(req: ptr, &out_path: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_req_get_header(req: ptr, &key: ptr, key_len: u64, &out_val: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_req_get_body(req: ptr, &out_body: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_req_free(^req: ptr) -> u32
+@extern sa_http_server_resp_new(req: ptr, status: u16, &out_resp: ptr) -> u32
+@extern sa_http_server_resp_send(resp: ptr, &body: ptr, body_len: u64) -> u32
+@extern sa_http_server_resp_set_content_type(resp: ptr, &content_type: ptr, content_type_len: u64) -> u32
+@extern sa_http_server_resp_free(^resp: ptr) -> u32
+@extern sa_http_server_resp_stream_new(req: ptr, status: u16, &out_resp: ptr) -> u32
+@extern sa_http_server_resp_stream_write(resp: ptr, &body: ptr, body_len: u64) -> u32
+@extern sa_http_server_resp_stream_flush(resp: ptr) -> u32
+@extern sa_http_server_resp_stream_end(resp: ptr) -> u32
+@extern sa_http_server_resp_stream_free(^resp: ptr) -> u32
+@extern sa_http_server_free(^server: ptr) -> u32

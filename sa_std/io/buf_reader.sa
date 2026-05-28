@@ -7,15 +7,16 @@
 [END_MACRO]
 
 [MACRO] BUF_READER_READ %out_count, %handle, %buf, %cap
-    __buf_reader_read = call @sa_io_read(%handle, &%buf, %cap)
-    %out_count = ? __buf_reader_read
-    !__buf_reader_read
+    __buf_reader_read_slot = stack_alloc 8
+    __buf_reader_read_status = call @sa_io_read(%handle, &%buf, %cap, &__buf_reader_read_slot)
+    %out_count = load __buf_reader_read_slot+0 as u64
+    !__buf_reader_read_status
 [END_MACRO]
 
 [MACRO] BUF_READER_READ_EXACT %out_count, %handle, %buf, %len
-    __buf_reader_read_exact = call @sa_io_read_exact(%handle, &%buf, %len)
-    %out_count = ? __buf_reader_read_exact
-    !__buf_reader_read_exact
+    __buf_reader_read_exact_status = call @sa_io_read_exact(%handle, &%buf, %len)
+    %out_count = %len
+    !__buf_reader_read_exact_status
 [END_MACRO]
 
 [MACRO] BUF_READER_FREE %out_ok, %buf
@@ -25,7 +26,6 @@
 [END_MACRO]
 
 [MACRO] BUF_READER_CLOSE %out_ok, %handle
-    __buf_reader_close = call @sa_io_close(^%handle)
-    %out_ok = ? __buf_reader_close
-    !__buf_reader_close
+    __buf_reader_close = call @sa_io_close(%handle)
+    %out_ok = __buf_reader_close
 [END_MACRO]

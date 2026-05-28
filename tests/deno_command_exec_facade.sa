@@ -1,0 +1,95 @@
+@import "sa_std/deno.sa"
+@import "sa_std/fs.sai"
+
+@const ARG0 = utf8:"echo"
+@const ARG1 = utf8:"deno-exec"
+
+#def ARG0_LEN = 4
+#def ARG1_LEN = 9
+#def ARG1_DATA_OFF = 16
+#def ARG1_LEN_OFF = 24
+
+@main() -> i32:
+L_ENTRY:
+    argv = stack_alloc 32
+    store argv+SaProcessArgv_data, &ARG0 as ptr
+    store argv+SaProcessArgv_len, ARG0_LEN as u64
+    store argv+ARG1_DATA_OFF, &ARG1 as ptr
+    store argv+ARG1_LEN_OFF, ARG1_LEN as u64
+    EXPAND DENO_COMMAND_EXEC exec_status, code, stdout_buf, stderr_buf, argv, 2
+    status_ok = eq exec_status, 0
+    !exec_status
+    br status_ok -> L_CHECK_CODE, L_FAIL_STATUS
+
+L_CHECK_CODE:
+    !status_ok
+    code_ok = eq code, 0
+    !code
+    br code_ok -> L_CHECK_STDOUT, L_FAIL_CODE
+
+L_CHECK_STDOUT:
+    !code_ok
+    stdout_len = call @sa_fs_read_buffer_len(stdout_buf)
+    stdout_ok = eq stdout_len, 10
+    br stdout_ok -> L_CHECK_STDERR, L_FAIL_STDOUT
+
+L_CHECK_STDERR:
+    !stdout_ok
+    stderr_len = call @sa_fs_read_buffer_len(stderr_buf)
+    stderr_ok = eq stderr_len, 0
+    br stderr_ok -> L_CLEANUP, L_FAIL_STDERR
+
+L_CLEANUP:
+    !stderr_ok
+    EXPAND DENO_FREE_BUFFER stdout_buf, stdout_free_status
+    EXPAND DENO_FREE_BUFFER stderr_buf, stderr_free_status
+    stdout_free_ok = eq stdout_free_status, 0
+    stderr_free_ok = eq stderr_free_status, 0
+    free_ok = and stdout_free_ok, stderr_free_ok
+    !stdout_free_status
+    !stderr_free_status
+    !stdout_free_ok
+    !stderr_free_ok
+    !stdout_len
+    !stderr_len
+    br free_ok -> L_PASS, L_FAIL_FREE
+
+L_PASS:
+    !free_ok
+    return 0
+
+L_FAIL_STATUS:
+    !status_ok
+    !code
+    !stdout_buf
+    !stderr_buf
+    return 81
+
+L_FAIL_CODE:
+    !code_ok
+    !stdout_buf
+    !stderr_buf
+    return 82
+
+L_FAIL_STDOUT:
+    !stdout_ok
+    !stdout_len
+    EXPAND DENO_FREE_BUFFER stdout_buf, stdout_free_status2
+    EXPAND DENO_FREE_BUFFER stderr_buf, stderr_free_status2
+    !stdout_free_status2
+    !stderr_free_status2
+    return 83
+
+L_FAIL_STDERR:
+    !stderr_ok
+    !stdout_len
+    !stderr_len
+    EXPAND DENO_FREE_BUFFER stdout_buf, stdout_free_status3
+    EXPAND DENO_FREE_BUFFER stderr_buf, stderr_free_status3
+    !stdout_free_status3
+    !stderr_free_status3
+    return 84
+
+L_FAIL_FREE:
+    !free_ok
+    return 85

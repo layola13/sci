@@ -48,6 +48,27 @@ Answer:
 Next:
 - Re-run the `llvm2sa` wrapper test and a dynamic-library build to confirm the plugin slice is self-contained outside the host build graph.
 
+## 2026-05-28 17:45
+
+Question:
+- Which Deno compatibility macros were still missing from `sa_std` for HubProxy-style ports after checking the local demos/std surface and `sa_plugins`?
+
+Evidence checked:
+- `/home/vscode/projects/sci/sa_std/deno.sa`
+- `/home/vscode/projects/sci/sa_std/deno.sai`
+- `/home/vscode/projects/sa_plugins/tests/deno_plugin.sa`
+- `/home/vscode/projects/hubproxy/sa/main.sa`
+- `zig build std-smoke`
+- `/home/vscode/.sa/bin/sa build tests/deno_command_exec_facade.sa -o /tmp/deno_command_exec_facade --json && /tmp/deno_command_exec_facade`
+
+Answer:
+- The source `sa_std/deno` facade already covered env, JSON, fs, process run/wait/read/close, HTTP client/server, and fetch/header aliases, but lacked a high-level `DENO_COMMAND_EXEC` macro and a uniform `DENO_FREE_BUFFER` close helper that existed in the older plugin test facade.
+- `DENO_COMMAND_EXEC` could not be implemented as a pure macro over existing `DENO_COMMAND_RUN/WAIT/READ/CLOSE` without forcing every call site to preallocate fixed stdout/stderr buffers. The root fix was adding `sa_std_process_exec_capture` to the runtime and exposing it through `sa_std/process.sai` and `sa_std/deno.sai`.
+- `DENO_FREE_BUFFER` is now a thin `sa_std_close` wrapper so it works for runtime-owned buffer handles returned by Deno facade helpers.
+
+Next:
+- Prefer adding Deno-porting conveniences to `sa_std/deno.sa` with small SA fixtures, then install the updated toolchain before using them from HubProxy.
+
 ## 2026-05-21 09:10
 
 Question:
@@ -3125,3 +3146,363 @@ Answer:
 
 Next:
 - Keep plugin work inside plugin boundaries, do not regress to static host dispatch, and finish repo-level validation once the unrelated smoke failures are out of the way.
+
+## 2026-05-28 01:10
+
+Question:
+- Why could SA HubProxy not implement Deno-compatible `fs/getMetadata`, `fs/remove`, and `fs/copy` purely through `sa build`?
+
+Evidence checked:
+- [sa_std/fs.sai](/home/vscode/projects/sci/sa_std/fs.sai)
+- [src/runtime/sa_std.zig](/home/vscode/projects/sci/src/runtime/sa_std.zig)
+- [src/runtime/sa_std.h](/home/vscode/projects/sci/src/runtime/sa_std.h)
+- [tests/std_smoke.zig](/home/vscode/projects/sci/tests/std_smoke.zig)
+- `/home/vscode/projects/hubproxy/src/handlers.ts`
+- `/home/vscode/projects/hubproxy/src/state.ts`
+
+Answer:
+- The std FS ABI was incomplete and partially inconsistent. `sa_std/fs.sai` exposed an old `sa_fs_metadata -> ^ptr!`
+  shape while the runtime returned a truncated `i32` handle, there were no metadata field accessors, and the C header
+  did not declare the metadata/remove/rename/remove_dir/copy surface. That made HubProxy either unable to link the
+  methods or unable to consume metadata safely from SA.
+- The root fix is in SCI std, not in HubProxy: `sa_fs_metadata` now returns a `u64!` resource handle, and std also
+  exposes `sa_fs_metadata_json`, metadata accessors, `sa_fs_remove_path`, and `sa_fs_copy_file`. Metadata JSON returns
+  a normal owned read-buffer handle consumable with `sa_fs_read_buffer_data/len/free`; directory JSON now also uses the
+  same generic buffer resource, reducing ABI duplication.
+- A C smoke regression now covers base64 read/write, directory JSON, metadata JSON, metadata accessors, file copy, and
+  recursive remove. Verified with `zig build std-smoke --summary none` and `zig build test --summary none`.
+- The updated toolchain/std was installed with `./tools/install.sh --no-shell` using ReleaseFast. Installed
+  `/home/vscode/.sa/std/fs.sai` and `/home/vscode/.sa/std/libsa_std.a` now expose `sa_fs_metadata_json`,
+  `sa_fs_remove_path`, and `sa_fs_copy_file`.
+
+Next:
+- Keep future HubProxy FS RPCs on this std ABI instead of adding project-local native link scripts or hard-coded shell
+  fallbacks. If more Deno FS behavior is needed, add it to SCI std first with C/SA-facing regressions.
+
+## 2026-05-28 09:28
+
+Question:
+- Why did SA-built HubProxy crash on `command/exec` even after HTTP plugin linking and process ABI declarations were corrected?
+
+Evidence checked:
+- [src/runtime/sa_std.zig](/home/vscode/projects/sci/src/runtime/sa_std.zig)
+- [src/runtime/sa_std.h](/home/vscode/projects/sci/src/runtime/sa_std.h)
+- [sa_std/process.sai](/home/vscode/projects/sci/sa_std/process.sai)
+- [tests/sa_std_runtime.zig](/home/vscode/projects/sci/tests/sa_std_runtime.zig)
+- `zig test tests/sa_std_runtime.zig`
+- `zig build std-smoke --summary none`
+- `zig build plugin-host-smoke --summary none`
+- `/home/vscode/projects/sci/tools/install.sh --no-shell`
+
+Answer:
+- The root cause was `envpFromCurrentProcess` using Zig `std.os.environ`. That global is initialized by Zig's start
+  path, but SA-built native executables enter through the SA runtime/C path, so the process environment pointer can be
+  uninitialized there. `sa_std_process_run` could therefore segfault while preparing the child environment.
+- Runtime now reads libc `environ` outside `builtin.is_test` and keeps `std.os.environ` only for Zig unit tests.
+- The process SA ABI was also normalized to opaque `u64` handles plus status/out-parameter calls for stdout/stderr:
+  `sa_std_process_read_stdout(handle, buf, cap, out_read)` and `sa_std_process_read_stderr(...)`.
+- Verified with `zig test tests/sa_std_runtime.zig` and the std/plugin smoke builds, then installed ReleaseFast to
+  `/home/vscode/.sa`.
+
+Next:
+- Do not reintroduce `std.os.environ` as the runtime source of truth for SA-built executables. New process helpers
+  should get C-process state through libc or explicit parameters, with runtime tests covering both status and buffer
+  out-parameter ABI.
+
+## 2026-05-28 JSON std macro pass
+
+Question:
+- What changed after prioritizing SA std macros before continuing HubProxy's Deno conversion?
+
+Evidence checked:
+- [sa_std/encoding/json.sa](/home/vscode/projects/sci/sa_std/encoding/json.sa)
+- [sa_std/encoding/json.sai](/home/vscode/projects/sci/sa_std/encoding/json.sai)
+- [src/runtime/sa_std.zig](/home/vscode/projects/sci/src/runtime/sa_std.zig)
+- [src/runtime/sa_std.h](/home/vscode/projects/sci/src/runtime/sa_std.h)
+- [tests/std_smoke.zig](/home/vscode/projects/sci/tests/std_smoke.zig)
+- [tests/sa_std_runtime.zig](/home/vscode/projects/sci/tests/sa_std_runtime.zig)
+
+Answer:
+- `sa_std/encoding/json.sa` now exposes Deno-style JSON composition/traversal macros for the HubProxy conversion path:
+  array/object loop initialization and next-step helpers, object key lookup, typed getters, node writing, and
+  field-level writer macros for string/bool/i64/f64/null/node values.
+- Field-level writer macros call new runtime ABI functions (`sa_json_writer_field_string/bool/i64/f64/null/node`)
+  instead of expanding to two independent calls. This keeps `objectField` and value writing as one status-returning
+  operation and avoids hiding a failed field write.
+- Runtime and C header now export the new writer field helpers. C runtime tests verify mixed JSON output containing
+  string, bool, integer, float, null, and copied node values.
+- `tests/std_smoke.zig` now includes an actual SA macro-expansion fixture, not only string-presence checks. It parses a
+  document, exercises object/array traversal macros, typed getters, writer field macros, buffer access/free, and JSON
+  node free, then passes referee verification.
+- Verified with `zig test tests/sa_std_runtime.zig`, `zig build std-smoke --summary none`,
+  `zig test tests/sa_term_runtime.zig`, and `zig build test --summary none`.
+- Installed to `/home/vscode/.sa` with `tools/install.sh --no-shell`; installed std files and `libsa_std.a` were
+  checked for the new macros/externs/symbols.
+
+Follow-up:
+- If HubProxy still needs less boilerplate around Responses tools, add higher-level scoped cleanup/for-each or
+  “copy selected object fields to writer” helpers to std first, with SA macro fixtures and runtime ABI tests.
+
+## 2026-05-28 HubProxy JSON tool loop Phi issue
+
+Question:
+- What SA compiler issue blocked fully restoring a real JSON array loop for HubProxy Responses tools?
+
+Evidence checked:
+- `/home/vscode/projects/hubproxy/sa/main.sa`
+- `/home/vscode/projects/hubproxy/sa/tests/test_responses_fallback_capture.sh`
+- `/home/vscode/.sa/bin/sa build main.sa -o hubproxy --json`
+
+Answer:
+- `append_chat_fallback_tools_from_dom` originally used a normal loop over the parsed `tools` array. After adding
+  deeper DOM tool handling for `description` / `parameters`, and especially when attempting to add `strict`, the
+  verifier reported `PhiStateConflict` on the loop backedge. The reported register was unrelated to the edited logic
+  (`sa_io_write_all` or `sa_io_close`), with expected/actual `Active` vs `Uninitialized`.
+- The failure appears when the loop body calls helper functions whose internal paths first touch additional externs or
+  constants. This matches the earlier HubProxy observation that complex loops can fail to stabilize imported extern
+  state across backedges.
+- Temporary HubProxy workaround is to avoid the backedge: handle tool array indexes 0..7 with straight-line DOM calls.
+  This keeps the service buildable and lets fallback preserve `name`, `description`, and `parameters`, but it is not a
+  language-level fix and does not cover unbounded tools arrays or `strict`.
+
+Next:
+- Fix the SCI verifier/flattener loop state handling so extern/import symbol state is not treated as a normal affine
+  register across loop backedges, or otherwise ensure imported externs/constants have stable initialized state before
+  loop analysis. After that, restore HubProxy to `JSON_ARRAY_LOOP_*` and add `strict` passthrough regression.
+
+## 2026-05-28 HubProxy Phi root fix
+
+Question:
+- What was the actual SCI verifier root cause behind the HubProxy tools loop / strict passthrough failure?
+
+Answer:
+- The first diagnostics were misleading. `snapshotFirstMismatch` and `snapshotMergeState` interpreted function-local
+  scope slots as global symbol ids, so `PhiStateConflict` reports named unrelated globals such as `sa_io_write_all`,
+  `sa_io_close`, or `out_len`.
+- After making Phi diagnostics scope-aware, the real HubProxy issue was visible: strict-specific branch locals such as
+  `strict_tool_slot` were allocated only on one incoming path and then joined at `L_DOM_CLOSE_BODY`. That part is a
+  valid SA CFG/lifetime issue and was fixed in HubProxy by allocating the stack slots before the branch.
+- A separate compiler bug was fixed in `collectMetadata`: function declaration operands were added to the previous
+  function's register scope before the declaration boundary was processed. Function declarations are now handled before
+  generic operand collection, so a later function's parameters cannot pollute the previous function scope.
+- Regression coverage added in `src/verifier.zig`:
+  `function declaration operands do not pollute previous function scope` and
+  `loop snapshots ignore stable extern calls that touch const data`.
+- Verification: `zig test src/verifier.zig`, `zig build std-smoke --summary none`, and
+  `zig build test --summary none` all pass. Installed with `tools/install.sh --no-shell` using ReleaseFast to
+  `/home/vscode/.sa`.
+
+## 2026-05-28 Deno facade std macros
+
+Question:
+- What changed after pausing HubProxy conversion to add missing Deno-like SA std macros first?
+
+Evidence checked:
+- [sa_std/deno.sa](/home/vscode/projects/sci/sa_std/deno.sa)
+- [sa_std/deno.sai](/home/vscode/projects/sci/sa_std/deno.sai)
+- [src/runtime/sa_std.zig](/home/vscode/projects/sci/src/runtime/sa_std.zig)
+- [src/runtime/sa_std.h](/home/vscode/projects/sci/src/runtime/sa_std.h)
+- [tests/std_smoke.zig](/home/vscode/projects/sci/tests/std_smoke.zig)
+- [tests/sa_std_runtime.zig](/home/vscode/projects/sci/tests/sa_std_runtime.zig)
+- [docs/std_missing.md](/home/vscode/projects/sci/docs/std_missing.md)
+
+Answer:
+- Added `sa_std/deno.sa` and `sa_std/deno.sai` as the Deno compatibility facade for SA services ported from Deno.
+  The macro surface now covers the HubProxy Deno dependencies that belong in std instead of business code:
+  `DENO_ENV_GET/HAS/SET/DELETE`, `DENO_CWD/CHDIR`, `DENO_RANDOM_UUID`,
+  `DENO_READ_TEXT_FILE`, `DENO_WRITE_TEXT_FILE`, `DENO_READ_FILE_BASE64`,
+  `DENO_WRITE_FILE_BASE64`, `DENO_MKDIR`, `DENO_READ_DIR_JSON`, `DENO_LSTAT_JSON`,
+  `DENO_REMOVE`, `DENO_COPY_FILE`, `DENO_COMMAND_RUN/WAIT/READ_STDOUT/READ_STDERR/CLOSE`,
+  and `DENO_SLEEP_MS`.
+- Runtime ABI additions are intentionally small and root-cause based: `sa_deno_cwd`, `sa_deno_chdir`,
+  `sa_deno_env_set`, `sa_deno_env_delete`, and `sa_deno_random_uuid`. File, process, time, env get, and JSON work
+  reuse existing SA std runtime symbols instead of duplicating implementation.
+- `sa_deno_random_uuid` generates RFC4122-style version-4 UUID text with the correct version/variant bits. Returned
+  cwd/UUID strings are `fmt` buffers and must use `sa_fmt_buffer_*`; env values remain `env` buffers and fs reads
+  remain `fs` buffers.
+- Added regression coverage in `tests/std_smoke.zig` to require the Deno facade macros and verify the facade imports
+  flatten. Added a C ABI runtime test in `tests/sa_std_runtime.zig` for cwd, env set/get/delete, and UUID shape.
+- Updated `docs/std_missing.md` so these Deno facade capabilities are no longer listed as missing.
+
+Verification:
+- `zig test src/runtime/sa_std.zig -lc`
+- `zig build std-smoke --summary none`
+- `zig build test --summary none`
+
+Follow-up:
+- `fetch`/`Request`/`Response`/`Headers`/`ReadableStream` still belong to the HTTP plugin/server facade, not core
+  `sa_std`. If HubProxy needs a higher-level Deno HTTP facade, build it as a thin std/plugin bridge with tests against
+  `http-client` and `http-server` rather than hand-writing request logic in `main.sa`.
+
+## 2026-05-28 Deno facade expansion for HubProxy parity
+
+Question:
+- After auditing HubProxy's Deno usage and existing SCI demos/std, which Deno-like macros were still truly missing
+  from the SA std facade, and how were they fixed without guessing?
+
+Evidence checked:
+- `/home/vscode/projects/hubproxy/src/env.ts`
+- `/home/vscode/projects/hubproxy/src/handlers.ts`
+- `/home/vscode/projects/hubproxy/src/state.ts`
+- [sa_std/process.sai](/home/vscode/projects/sci/sa_std/process.sai)
+- [sa_std/io.sa](/home/vscode/projects/sci/sa_std/io.sa)
+- [sa_std/time.sa](/home/vscode/projects/sci/sa_std/time.sa)
+- [sa_std/net.sai](/home/vscode/projects/sci/sa_std/net.sai)
+- [demos/rosetta/09_async_await/main.sa](/home/vscode/projects/sci/demos/rosetta/09_async_await/main.sa)
+- [demos/rosetta/301_http_client_saasm/main.sa](/home/vscode/projects/sci/demos/rosetta/301_http_client_saasm/main.sa)
+- [demos/rosetta/302_http_server_saasm/main.sa](/home/vscode/projects/sci/demos/rosetta/302_http_server_saasm/main.sa)
+
+Answer:
+- Existing SA std already had the required low-level process, stdio, time, TCP, JSON, FS, env, async, and HTTP plugin
+  building blocks. The missing layer was a Deno-oriented facade, not a wholesale new runtime.
+- Added `sa_deno_args_json()` to the runtime ABI and `DENO_ARGS_JSON` in `sa_std/deno.sa`. It returns Deno-style user
+  args excluding argv[0] as a JSON array in the existing fs/read-buffer handle shape, so SA callers can parse it with
+  `sa_std/encoding/json.sa`.
+- Expanded `sa_std/deno.sa` with facade macros over existing ABI:
+  `DENO_STDIN`, `DENO_STDOUT`, `DENO_STDERR`, `DENO_STDOUT_WRITE`, `DENO_STDERR_WRITE`,
+  `DENO_COMMAND_SPAWN`, `DENO_COMMAND_SPAWN_STREAM`, `DENO_NOW_MS`, `DENO_NOW_NS`,
+  `DENO_LISTEN_TCP`, `DENO_ACCEPT_TCP`, `DENO_CONNECT_TCP`, `DENO_CLOSE_TCP_LISTENER`,
+  `DENO_CLOSE_TCP_STREAM`, and `DENO_EXIT`.
+- Regression coverage now requires these macros in `tests/std_smoke.zig`, verifies `sa_std/deno.sa` flattening, and
+  extends `tests/sa_std_runtime.zig` so the C ABI checks `sa_deno_args_json()` returns `[]` for no user args.
+- Verified this pass with:
+  `zig test src/runtime/sa_std.zig -lc`,
+  `zig build std-smoke --summary none`,
+  and `zig test tests/sa_std_runtime.zig -lc`.
+
+Remaining std/plugin gap:
+- Deno `fetch`, `Deno.serve`, `Request`, `Response`, `Headers`, `ReadableStream`, and `TextEncoder/TextDecoder`
+  should not be faked in business code. They need a thin HTTP plugin/std bridge if HubProxy wants Deno-level ergonomics
+  above the current `sa_http_client_*` / `sa_http_server_*` plugin ABI.
+
+## 2026-05-28 Targeted Deno macro parity pass for HubProxy
+
+Question:
+- Which remaining Deno-like APIs were actually used by HubProxy and small enough to belong in `sa_std/deno.sa`,
+  after checking HubProxy source and existing SCI demos/std instead of guessing?
+
+Evidence checked:
+- `/home/vscode/projects/hubproxy/src/env.ts`
+- `/home/vscode/projects/hubproxy/src/main.ts`
+- `/home/vscode/projects/hubproxy/src/handlers.ts`
+- `/home/vscode/projects/hubproxy/src/state.ts`
+- `/home/vscode/projects/hubproxy/src/proxy.ts`
+- [sa_std/deno.sa](/home/vscode/projects/sci/sa_std/deno.sa)
+- [sa_std/deno.sai](/home/vscode/projects/sci/sa_std/deno.sai)
+- [src/runtime/sa_std.zig](/home/vscode/projects/sci/src/runtime/sa_std.zig)
+- [src/runtime/sa_std.h](/home/vscode/projects/sci/src/runtime/sa_std.h)
+- [tests/std_smoke.zig](/home/vscode/projects/sci/tests/std_smoke.zig)
+
+Answer:
+- Added direct Deno facade ABI/functions for text/base64 and platform metadata:
+  `sa_deno_btoa`, `sa_deno_atob`, `sa_deno_text_encode`, `sa_deno_text_decode`,
+  `sa_deno_version_json`, and `sa_deno_build_json`.
+- Added matching macros:
+  `DENO_BTOA`, `DENO_ATOB`, `DENO_TEXT_ENCODE`, `DENO_TEXT_DECODE`,
+  `DENO_VERSION_JSON`, `DENO_BUILD_JSON`, and `DENO_CRYPTO_RANDOM_UUID`.
+- Added synchronous Deno spelling aliases over existing blocking SA std calls:
+  `DENO_READ_TEXT_FILE_SYNC`, `DENO_WRITE_TEXT_FILE_SYNC`, `DENO_MKDIR_SYNC`,
+  `DENO_READ_DIR_SYNC_JSON`, `DENO_LSTAT_SYNC_JSON`, `DENO_REMOVE_SYNC`, and
+  `DENO_COPY_FILE_SYNC`.
+- Handle ownership is intentionally explicit:
+  `DENO_BTOA`, `DENO_ATOB`, and `DENO_TEXT_DECODE` return fmt buffers and must use
+  `sa_fmt_buffer_*`; `DENO_TEXT_ENCODE`, `DENO_VERSION_JSON`, and `DENO_BUILD_JSON`
+  return byte buffers and must use `sa_fs_read_buffer_*`.
+- Added a targeted SA fixture in `tests/std_smoke.zig` that builds and runs these new macros,
+  plus facade coverage assertions so the macro surface cannot silently regress.
+
+Verification:
+- `zig build std-smoke --summary none`
+- `zig test src/runtime/sa_std.zig -lc`
+
+Remaining root gap:
+- `fetch`, `Deno.serve`, `Request`, `Response`, `Headers`, and `ReadableStream` remain HTTP/Web
+  abstraction work and should be implemented as a thin facade over the existing HTTP plugins/server ABI,
+  not as fake macros in HubProxy business code.
+
+## 2026-05-28 Deno JSON facade pass for HubProxy conversion
+
+Question:
+- HubProxy Deno code uses `JSON.parse` / `JSON.stringify` heavily. Does SA lack JSON support, or only a
+  Deno-style facade over existing JSON std APIs?
+
+Evidence checked:
+- `/home/vscode/projects/hubproxy/src/proxy.ts`
+- `/home/vscode/projects/hubproxy/src/handlers.ts`
+- [sa_std/encoding/json.sa](/home/vscode/projects/sci/sa_std/encoding/json.sa)
+- [sa_std/encoding/json.sai](/home/vscode/projects/sci/sa_std/encoding/json.sai)
+- [sa_std/deno.sa](/home/vscode/projects/sci/sa_std/deno.sa)
+- [tests/deno_json_facade.sa](/home/vscode/projects/sci/tests/deno_json_facade.sa)
+
+Answer:
+- SA already had JSON parse/stringify/DOM/writer support in `sa_std/encoding/json.sa`; the missing piece was a
+  Deno-oriented facade name layer. Added `DENO_JSON_PARSE`, `DENO_JSON_STRINGIFY`,
+  `DENO_JSON_BUFFER_SLICE`, `DENO_JSON_BUFFER_FREE`, and `DENO_JSON_FREE` in `sa_std/deno.sa`.
+- Added `tests/deno_json_facade.sa`, a minimal SA fixture that imports `sa_std/deno.sa`, parses JSON,
+  stringifies it back into a JSON buffer, checks the output length, and frees both buffer and node explicitly.
+- First fixture attempt hit `PhiStateConflict` because multiple failure branches joined with incompatible affine
+  register states. This was valid SA verifier behavior, not a compiler bug; fixed by splitting failure labels by
+  ownership state.
+
+Verification:
+- `./zig-out/bin/sa build-exe tests/deno_json_facade.sa -o /tmp/deno_json_facade --json && /tmp/deno_json_facade`
+  passed before install.
+- `./tools/install.sh --dir /home/vscode/.sa --no-shell` rebuilt and installed ReleaseFast.
+- `/home/vscode/.sa/bin/sa build-exe tests/deno_json_facade.sa -o /tmp/deno_json_facade_installed --json &&
+  /tmp/deno_json_facade_installed` passed after install, with imports resolving from `/home/vscode/.sa/std`.
+- A filtered `zig build test -- "sa_std Deno JSON facade runs from SA"` was attempted but proved too broad/slow for
+  the user's "only test新增" constraint and was terminated; the direct SA fixture is the retained focused test.
+
+Remaining root gap:
+- `fetch`, `Deno.serve`, `Request`, `Response`, `Headers`, and `ReadableStream` are still the main missing
+  Deno-level HTTP/Web facade. They should wrap the existing HTTP plugin ABI instead of being hand-coded repeatedly
+  inside HubProxy.
+
+## 2026-05-28 Deno HTTP/server macro bridge for HubProxy
+
+Question:
+- After checking SCI demos and `/home/vscode/projects/sa_plugins`, what Deno-equivalent HTTP macro layer is truly
+  missing for HubProxy, and what can be fixed now without inventing a fake runtime?
+
+Evidence checked:
+- [sa_std/deno.sa](/home/vscode/projects/sci/sa_std/deno.sa)
+- [sa_std/deno.sai](/home/vscode/projects/sci/sa_std/deno.sai)
+- [demos/rosetta/301_http_client_saasm/main.sa](/home/vscode/projects/sci/demos/rosetta/301_http_client_saasm/main.sa)
+- [demos/rosetta/302_http_server_saasm/main.sa](/home/vscode/projects/sci/demos/rosetta/302_http_server_saasm/main.sa)
+- `/home/vscode/projects/sa_plugins/sa_plugin_http_client/src/http_saasm_api.zig`
+- `/home/vscode/projects/sa_plugins/sa_plugin_http_server/src/http_saasm_api.zig`
+
+Answer:
+- SA already has working HTTP client/server plugin ABIs and demos, so the root gap is not "server mode unsupported".
+  The missing std layer is a Deno-oriented macro bridge over those plugin symbols.
+- Added HTTP method constants and plugin extern contracts to `sa_std/deno.sai`.
+- Added `DENO_HTTP_*` macros for client creation, request creation/header/body/send, response status/header/body
+  reader/chunk reads, and explicit frees.
+- Added `DENO_SERVE_*` macros for server creation/start/accept, request method/path/header/body access, normal response
+  send/content-type/free, stream response write/flush/end/free, request free, and server free.
+- Added practical `DENO_FETCH_*`, `DENO_HEADERS_*`, and `DENO_RESPONSE_*` aliases over the same plugin bridge so
+  ported service code can use fetch/Headers/Response-flavored names without duplicating request lifecycle glue.
+- This is intentionally a thin bridge. It does not yet implement full JavaScript `fetch`, `Request`, `Response`,
+  `Headers`, or `ReadableStream` object semantics. Those remain a higher-level facade task above the current plugin ABI.
+
+Verification:
+- Ran the targeted std smoke filter:
+  `zig build std-smoke -- "sa_std Deno compatibility facade covers HubProxy porting surface"`.
+  Because `std-smoke` currently depends on both core and containers smoke artifacts, Zig still executed both child
+  tests, but no full compiler suite was run.
+- Added [tests/deno_http_facade.sa](/home/vscode/projects/sci/tests/deno_http_facade.sa), a minimal installed-std
+  fixture that creates and frees one HTTP client and one HTTP server through the new `DENO_HTTP_*` / `DENO_SERVE_*`
+  macros. Verified after ReleaseFast install with:
+  `/home/vscode/.sa/bin/sa build-exe tests/deno_http_facade.sa -o /tmp/deno_http_facade --json && /tmp/deno_http_facade`.
+  Imports resolved from `/home/vscode/.sa/std/deno.sa`, proving the installed std contains the new bridge.
+- Rebuilt HubProxy with the installed compiler:
+  `/home/vscode/.sa/bin/sa build main.sa -o hubproxy --json` from `/home/vscode/projects/hubproxy/sa`.
+  Result: `{"status":"ok","metrics":{"compile_tokens":22831,"instruction_count":10862}}`.
+- After adding the fetch-flavored aliases, reran the same targeted std smoke filter, reinstalled with
+  `./tools/install.sh --dir /home/vscode/.sa --no-shell`, reran the installed fixture, and rebuilt HubProxy again.
+  An intermediate chained command tried to build HubProxy from the SCI cwd and failed with `FileNotFound`; rerunning
+  from `/home/vscode/projects/hubproxy/sa` succeeded with the same metrics above.
+
+Remaining gap:
+- A true Deno/Web facade should wrap these macros into higher-level `fetch`/`Deno.serve`/`Headers`/`Request`/`Response`
+  conventions with plugin-backed integration tests. Do not reimplement that behavior inside HubProxy business logic.

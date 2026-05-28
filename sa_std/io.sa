@@ -40,6 +40,20 @@
     !__read_line
 [END_MACRO]
 
+[MACRO] READ %out_len, %handle, %buf, %cap
+    __read_len_slot = stack_alloc 8
+    __read_status = call @sa_io_read(%handle, &%buf, %cap, &__read_len_slot)
+    %out_len = load __read_len_slot+0 as u64
+    !__read_status
+[END_MACRO]
+
+[MACRO] WRITE_SOME %out_len, %handle, %buf, %len
+    __write_len_slot = stack_alloc 8
+    __write_status = call @sa_io_write(%handle, &%buf, %len, &__write_len_slot)
+    %out_len = load __write_len_slot+0 as u64
+    !__write_status
+[END_MACRO]
+
 [MACRO] FORMAT_INT %out_buf, %value, %base
     %out_buf = call @sa_fmt_i64(%value, %base)
 [END_MACRO]

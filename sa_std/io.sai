@@ -1,20 +1,20 @@
 // SA-facing contracts for the Zig-backed sa_std.io module.
 // Handles returned by stdio accessors are borrowed process handles; do not close them.
-@extern sa_io_stdin() -> ptr
-@extern sa_io_stdout() -> ptr
-@extern sa_io_stderr() -> ptr
+@extern sa_io_stdin() -> u64
+@extern sa_io_stdout() -> u64
+@extern sa_io_stderr() -> u64
 
 // Convenience printing uses the same Zig-backed stdout writer as the runtime facade.
 @extern sa_std_println(&msg: ptr, len: u64) -> i32!
 
 // Owned handles returned by Zig-backed modules are closed explicitly.
 @extern sa_io_read_line(handle: ptr, max_bytes: u64) -> ^ptr!
-@extern sa_io_read(handle: ptr, &buf: ptr, cap: u64) -> u64!
-@extern sa_io_read_exact(handle: ptr, &buf: ptr, len: u64) -> u64!
-@extern sa_io_write(handle: ptr, &buf: ptr, len: u64) -> u64!
-@extern sa_io_write_all(handle: ptr, &buf: ptr, len: u64) -> i32!
-@extern sa_io_flush(handle: ptr) -> i32!
-@extern sa_io_close(^handle: ptr) -> i32!
+@extern sa_io_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_io_read_exact(handle: u64, &buf: ptr, len: u64) -> i32
+@extern sa_io_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
+@extern sa_io_write_all(handle: u64, &buf: ptr, len: u64) -> i32
+@extern sa_io_flush(handle: u64) -> i32
+@extern sa_io_close(handle: u64) -> i32
 
 // Owned byte buffers use SaIoBuffer layout and must be freed explicitly.
 @extern sa_io_buffer_data(&buffer: ptr) -> &ptr

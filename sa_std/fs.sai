@@ -24,9 +24,17 @@
 @extern sa_fs_dir_buffer_len(buffer: u64) -> u64
 @extern sa_fs_dir_buffer_free(^buffer: u64) -> i32
 
-@extern sa_fs_metadata(&path: ptr, path_len: u64) -> ^ptr!
-@extern sa_fs_metadata_free(^metadata: ptr) -> i32!
+@extern sa_fs_metadata(&path: ptr, path_len: u64) -> u64!
+@extern sa_fs_metadata_json(&path: ptr, path_len: u64) -> u64!
+@extern sa_fs_metadata_is_file(metadata: u64) -> u8
+@extern sa_fs_metadata_is_directory(metadata: u64) -> u8
+@extern sa_fs_metadata_is_symlink(metadata: u64) -> u8
+@extern sa_fs_metadata_modified_ms(metadata: u64) -> i64
+@extern sa_fs_metadata_created_ms(metadata: u64) -> i64
+@extern sa_fs_metadata_free(metadata: u64) -> i32!
 @extern sa_fs_remove_file(&path: ptr, path_len: u64) -> i32!
 @extern sa_fs_rename(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32!
 @extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32!
 @extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32!
+@extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_copy_file(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32

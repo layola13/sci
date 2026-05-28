@@ -606,6 +606,12 @@ test "sa_std json helpers are concrete and verifiable" {
     defer std.testing.allocator.free(json_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_parse"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_array_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_key_at"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get_string"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get_bool"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get_i64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get_f64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stringify"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_buffer_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_scanner_next"));
@@ -614,12 +620,134 @@ test "sa_std json helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_get_slice_ptr"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_get_slice_len"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stream_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_writer_write_node"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_writer_finish"));
 
     const json_src = try readFileAlloc(std.testing.allocator, "sa_std/encoding/json.sa");
     defer std.testing.allocator.free(json_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "@import \"json.sai\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_OBJECT_GET_STRING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_OBJECT_GET_BOOL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_OBJECT_GET_I64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_AS_I64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_IS_OBJECT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_ARRAY_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_ARRAY_LOOP_INIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_OBJECT_LOOP_INIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_WRITER_BEGIN_OBJECT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_WRITER_FIELD_STRING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_WRITER_FIELD_NODE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_WRITER_WRITE_STRING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_WRITER_WRITE_NODE"));
+
+    const json_macro_fixture =
+        \\@import "sa_std/encoding/json.sa"
+        \\
+        \\@const JSON_DOC = utf8:"{\"name\":\"sci\",\"active\":true,\"count\":7,\"ratio\":1.5,\"items\":[{\"type\":\"object\"}]}"
+        \\@const K_NAME = utf8:"name"
+        \\@const K_ACTIVE = utf8:"active"
+        \\@const K_COUNT = utf8:"count"
+        \\@const K_RATIO = utf8:"ratio"
+        \\@const K_ITEMS = utf8:"items"
+        \\@const K_FIRST = utf8:"first"
+        \\@const K_NONE = utf8:"none"
+        \\@const V_NAME = utf8:"sci"
+        \\
+        \\#def JSON_DOC_LEN = 78
+        \\#def K_NAME_LEN = 4
+        \\#def K_ACTIVE_LEN = 6
+        \\#def K_COUNT_LEN = 5
+        \\#def K_RATIO_LEN = 5
+        \\#def K_ITEMS_LEN = 5
+        \\#def K_FIRST_LEN = 5
+        \\#def K_NONE_LEN = 4
+        \\#def V_NAME_LEN = 3
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND JSON_PARSE root, JSON_DOC, JSON_DOC_LEN
+        \\    EXPAND JSON_OBJECT_GET items_status, items, root, K_ITEMS, K_ITEMS_LEN
+        \\    EXPAND JSON_ARRAY_LOOP_INIT array_status, idx, item_count, items
+        \\    EXPAND JSON_ARRAY_LOOP_HAS_NEXT has_item, idx, item_count
+        \\    EXPAND JSON_ARRAY_GET item_status, item0, items, idx
+        \\    EXPAND JSON_ARRAY_LOOP_NEXT next_idx, idx
+        \\    EXPAND JSON_OBJECT_LOOP_INIT object_status, object_idx, object_count, root
+        \\    EXPAND JSON_OBJECT_LOOP_HAS_NEXT has_key, object_idx, object_count
+        \\    EXPAND JSON_OBJECT_KEY_AT key_status, key_ptr, key_len, root, object_idx
+        \\    EXPAND JSON_OBJECT_LOOP_NEXT next_object_idx, object_idx
+        \\    EXPAND JSON_OBJECT_GET_STRING name_status, name_ptr, name_len, root, K_NAME, K_NAME_LEN
+        \\    EXPAND JSON_OBJECT_GET_BOOL active_status, active, root, K_ACTIVE, K_ACTIVE_LEN
+        \\    EXPAND JSON_OBJECT_GET_I64 count_status, count_value, root, K_COUNT, K_COUNT_LEN
+        \\    EXPAND JSON_OBJECT_GET_F64 ratio_status, ratio_value, root, K_RATIO, K_RATIO_LEN
+        \\    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+        \\    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+        \\    EXPAND JSON_WRITER_FIELD_STRING field_name_status, writer, K_NAME, K_NAME_LEN, V_NAME, V_NAME_LEN
+        \\    EXPAND JSON_WRITER_FIELD_BOOL field_active_status, writer, K_ACTIVE, K_ACTIVE_LEN, active
+        \\    EXPAND JSON_WRITER_FIELD_I64 field_count_status, writer, K_COUNT, K_COUNT_LEN, count_value
+        \\    EXPAND JSON_WRITER_FIELD_F64 field_ratio_status, writer, K_RATIO, K_RATIO_LEN, ratio_value
+        \\    EXPAND JSON_WRITER_FIELD_NULL field_none_status, writer, K_NONE, K_NONE_LEN
+        \\    EXPAND JSON_WRITER_FIELD_NODE field_first_status, writer, K_FIRST, K_FIRST_LEN, item0
+        \\    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+        \\    EXPAND JSON_WRITER_FINISH finish_status, buffer, writer
+        \\    EXPAND JSON_BUFFER_SLICE buffer_ptr, buffer_len, buffer
+        \\    EXPAND JSON_BUFFER_FREE buffer
+        \\    EXPAND JSON_WRITER_FREE writer
+        \\    EXPAND JSON_FREE item0
+        \\    EXPAND JSON_FREE items
+        \\    EXPAND JSON_FREE root
+        \\
+        \\    !items_status
+        \\    !array_status
+        \\    !idx
+        \\    !item_count
+        \\    !has_item
+        \\    !item_status
+        \\    !next_idx
+        \\    !object_status
+        \\    !object_idx
+        \\    !object_count
+        \\    !has_key
+        \\    !key_status
+        \\    !key_ptr
+        \\    !key_len
+        \\    !next_object_idx
+        \\    !name_status
+        \\    !name_ptr
+        \\    !name_len
+        \\    !active_status
+        \\    !active
+        \\    !count_status
+        \\    !count_value
+        \\    !ratio_status
+        \\    !ratio_value
+        \\    !writer_status
+        \\    !begin_status
+        \\    !field_name_status
+        \\    !field_active_status
+        \\    !field_count_status
+        \\    !field_ratio_status
+        \\    !field_none_status
+        \\    !field_first_status
+        \\    !end_status
+        \\    !finish_status
+        \\    !buffer_ptr
+        \\    !buffer_len
+        \\    return 0
+    ;
+    var json_macro_flat = try flattenFixture(std.testing.allocator, "tests/json_macro_fixture.sa", json_macro_fixture);
+    defer json_macro_flat.deinit(std.testing.allocator);
+    const json_macro_verified = try saasm.referee.verify(std.testing.allocator, json_macro_flat.instructions, json_macro_flat.const_decls);
+    switch (json_macro_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => |report| {
+            std.debug.print("json macro verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
 
     const regex_layout = try readFileAlloc(std.testing.allocator, "sa_std/text/regex.sal");
     defer std.testing.allocator.free(regex_layout);
@@ -1349,12 +1477,20 @@ test "sa_std fs helper declarations stay aligned" {
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64) -> u64!"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32!"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64) -> u64!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_metadata(&path: ptr, path_len: u64) -> u64!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_metadata_json(&path: ptr, path_len: u64) -> u64!"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_copy_file(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32"));
 
     try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_read_file_base64(const uint8_t *path, uint64_t path_len, uint64_t max_bytes);"));
     try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_fs_write_file_base64(const uint8_t *path, uint64_t path_len, const uint8_t *data_base64, uint64_t data_base64_len);"));
     try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_read_dir_json(const uint8_t *path, uint64_t path_len, uint64_t max_entries);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_metadata(const uint8_t *path, uint64_t path_len);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_metadata_json(const uint8_t *path, uint64_t path_len);"));
     try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_fs_make_dir(const uint8_t *path, uint64_t path_len);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_fs_remove_path(const uint8_t *path, uint64_t path_len);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_fs_copy_file(const uint8_t *from_path, uint64_t from_len, const uint8_t *to_path, uint64_t to_len);"));
 }
 
 test "sa_std fs base64 and directory helpers are usable from C" {
@@ -1379,14 +1515,21 @@ test "sa_std fs base64 and directory helpers are usable from C" {
         \\
         \\int main(void) {
         \\    const uint8_t dir[] = "fs_demo_dir/nested";
+        \\    const uint8_t root_dir[] = "fs_demo_dir";
         \\    const uint8_t path[] = "fs_demo_dir/nested/hello.txt";
+        \\    const uint8_t copy_path[] = "fs_demo_dir/nested/copy.txt";
         \\    const uint8_t encoded[] = "aGVsbG8=";
         \\    sa_std_fallible_u64 read_result = {0};
         \\    sa_std_fallible_u64 dir_result = {0};
+        \\    sa_std_fallible_u64 metadata_json_result = {0};
+        \\    sa_std_fallible_u64 metadata_result = {0};
+        \\    sa_std_fallible_i32 metadata_free_result = {0};
         \\    uint8_t *read_data = NULL;
         \\    uint64_t read_len = 0;
         \\    uint8_t *dir_data = NULL;
         \\    uint64_t dir_len = 0;
+        \\    uint8_t *metadata_data = NULL;
+        \\    uint64_t metadata_len = 0;
         \\
         \\    if (sa_fs_make_dir(dir, sizeof(dir) - 1) != SA_STD_OK) return 2;
         \\    if (sa_fs_make_dir(dir, sizeof(dir) - 1) != SA_STD_OK) return 12;
@@ -1406,7 +1549,28 @@ test "sa_std fs base64 and directory helpers are usable from C" {
         \\    if (memmem(dir_data, dir_len, "hello.txt", 9) == NULL) return 9;
         \\    if (memmem(dir_data, dir_len, "\"isFile\":true", 13) == NULL) return 10;
         \\    if (sa_fs_dir_buffer_free(dir_result.value) != SA_STD_OK) return 11;
-        \\    puts("sa_std fs base64 dir ok");
+        \\
+        \\    if (sa_fs_copy_file(path, sizeof(path) - 1, copy_path, sizeof(copy_path) - 1) != SA_STD_OK) return 13;
+        \\    metadata_json_result = sa_fs_metadata_json(copy_path, sizeof(copy_path) - 1);
+        \\    if (metadata_json_result.status != SA_STD_OK || metadata_json_result.value == 0) return 14;
+        \\    metadata_data = sa_fs_read_buffer_data(metadata_json_result.value);
+        \\    metadata_len = sa_fs_read_buffer_len(metadata_json_result.value);
+        \\    if (metadata_len == 0) return 15;
+        \\    if (memmem(metadata_data, metadata_len, "\"isFile\":true", 13) == NULL) return 16;
+        \\    if (memmem(metadata_data, metadata_len, "\"isDirectory\":false", 19) == NULL) return 17;
+        \\    if (sa_fs_read_buffer_free(metadata_json_result.value) != SA_STD_OK) return 18;
+        \\
+        \\    metadata_result = sa_fs_metadata(copy_path, sizeof(copy_path) - 1);
+        \\    if (metadata_result.status != SA_STD_OK || metadata_result.value == 0) return 19;
+        \\    if (sa_fs_metadata_is_file(metadata_result.value) != 1) return 20;
+        \\    if (sa_fs_metadata_is_directory(metadata_result.value) != 0) return 21;
+        \\    metadata_free_result = sa_fs_metadata_free(metadata_result.value);
+        \\    if (metadata_free_result.status != SA_STD_OK) return 22;
+        \\
+        \\    if (sa_fs_remove_path(root_dir, sizeof(root_dir) - 1) != SA_STD_OK) return 23;
+        \\    dir_result = sa_fs_read_dir_json(dir, sizeof(dir) - 1, 32);
+        \\    if (dir_result.status == SA_STD_OK) return 24;
+        \\    puts("sa_std fs base64 dir metadata copy remove ok");
         \\    return 0;
         \\}
         \\
@@ -1455,7 +1619,7 @@ test "sa_std fs base64 and directory helpers are usable from C" {
         .Exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
-    try std.testing.expectEqualStrings("sa_std fs base64 dir ok\n", run_result.stdout);
+    try std.testing.expectEqualStrings("sa_std fs base64 dir metadata copy remove ok\n", run_result.stdout);
 }
 
 test "sa_std hashmap helpers are concrete and verifiable" {
@@ -2263,6 +2427,354 @@ test "sa_std sort helpers are concrete and verifiable" {
     defer sort_flat.deinit(std.testing.allocator);
     try std.testing.expect(sort_flat.instructions.len > 0);
     try std.testing.expect(sort_flat.function_sigs.len >= 4);
+}
+
+test "sa_std Deno compatibility facade covers HubProxy porting surface" {
+    const deno_sai = try readFileAlloc(std.testing.allocator, "sa_std/deno.sai");
+    defer std.testing.allocator.free(deno_sai);
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_cwd"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_env_set"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_random_uuid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_args_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_btoa"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_atob"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_text_encode"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_text_decode"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_version_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_build_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "DENO_HTTP_METHOD_POST"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_req_send"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_resp_get_header"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_req_get_method"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_set_content_type"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_stream_write"));
+
+    const deno_src = try readFileAlloc(std.testing.allocator, "sa_std/deno.sa");
+    defer std.testing.allocator.free(deno_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ARGS_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ENV_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ENV_SET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CWD"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RANDOM_UUID"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CRYPTO_RANDOM_UUID"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BTOA"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ATOB"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_TEXT_ENCODE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_TEXT_DECODE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_VERSION_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BUILD_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_PARSE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_STRINGIFY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_BUFFER_SLICE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_BUFFER_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_FREE_BUFFER"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STDOUT_WRITE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STDERR_WRITE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE_BASE64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE_BASE64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MKDIR_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_SYNC_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_SYNC_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_REMOVE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COPY_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_RUN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_EXEC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_SPAWN_STREAM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_READ_STDOUT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_NOW_MS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LISTEN_TCP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CONNECT_TCP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_CLIENT_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_REQUEST_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_REQUEST_SEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_RESPONSE_GET_HEADER"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_RESPONSE_READ_CHUNK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_REQUEST_METHOD"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_RESPONSE_SET_CONTENT_TYPE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_STREAM_WRITE"));
+
+    var deno_flat = try flattenFixture(std.testing.allocator, "sa_std/deno.sa", deno_src);
+    defer deno_flat.deinit(std.testing.allocator);
+    try std.testing.expect(deno_flat.function_sigs.len >= 60);
+}
+
+test "sa_std Deno JSON facade runs from SA" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const source =
+        \\@import "sa_std/deno.sa"
+        \\
+        \\@const JSON_DOC = utf8:"{\"ok\":true,\"n\":7}"
+        \\
+        \\#def JSON_DOC_LEN = 17
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND DENO_JSON_PARSE root, JSON_DOC, JSON_DOC_LEN
+        \\    root_ok = ne root, 0
+        \\    br root_ok -> L_STRINGIFY, L_FAIL_ROOT
+        \\
+        \\L_STRINGIFY:
+        \\    !root_ok
+        \\    EXPAND DENO_JSON_STRINGIFY stringify_status, json_buf, root
+        \\    stringify_ok = eq stringify_status, 0
+        \\    !stringify_status
+        \\    br stringify_ok -> L_SLICE, L_FAIL_STRINGIFY
+        \\
+        \\L_SLICE:
+        \\    !stringify_ok
+        \\    EXPAND DENO_JSON_BUFFER_SLICE json_ptr, json_len, json_buf
+        \\    len_ok = eq json_len, JSON_DOC_LEN
+        \\    br len_ok -> L_CLEANUP, L_FAIL_LEN
+        \\
+        \\L_CLEANUP:
+        \\    !len_ok
+        \\    EXPAND DENO_JSON_BUFFER_FREE json_buf
+        \\    EXPAND DENO_JSON_FREE root
+        \\    !json_ptr
+        \\    !json_len
+        \\    return 0
+        \\
+        \\L_FAIL_ROOT:
+        \\    !root_ok
+        \\    return 63
+        \\
+        \\L_FAIL_STRINGIFY:
+        \\    !stringify_ok
+        \\    EXPAND DENO_JSON_FREE root
+        \\    !json_buf
+        \\    return 63
+        \\
+        \\L_FAIL_LEN:
+        \\    !len_ok
+        \\    EXPAND DENO_JSON_BUFFER_FREE json_buf
+        \\    EXPAND DENO_JSON_FREE root
+        \\    !json_ptr
+        \\    !json_len
+        \\    return 63
+    ;
+    try writeSource(tmp.dir, "deno_json_facade.sa", source);
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "deno_json_facade.sa", "-o", "deno_json_facade" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const run_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./deno_json_facade"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "sa_std Deno text and base64 facade runs from SA" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const source =
+        \\@import "sa_std/deno.sa"
+        \\@import "sa_std/fmt.sai"
+        \\@import "sa_std/fs.sai"
+        \\
+        \\@const TEXT = utf8:"ok"
+        \\@const ENCODED = utf8:"b2s="
+        \\
+        \\#def TEXT_LEN = 2
+        \\#def ENCODED_LEN = 4
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND DENO_BTOA btoa_buf, TEXT, TEXT_LEN
+        \\    btoa_ptr = call @sa_fmt_buffer_data(btoa_buf)
+        \\    btoa_len = call @sa_fmt_buffer_len(btoa_buf)
+        \\    btoa_len_ok = eq btoa_len, 4
+        \\    br btoa_len_ok -> L_DECODE, L_FAIL
+        \\
+        \\L_DECODE:
+        \\    !btoa_len_ok
+        \\    EXPAND DENO_ATOB atob_buf, ENCODED, ENCODED_LEN
+        \\    atob_ptr = call @sa_fmt_buffer_data(atob_buf)
+        \\    atob_len = call @sa_fmt_buffer_len(atob_buf)
+        \\    atob_len_ok = eq atob_len, 2
+        \\    br atob_len_ok -> L_TEXT_ENCODE, L_FAIL
+        \\
+        \\L_TEXT_ENCODE:
+        \\    !atob_len_ok
+        \\    EXPAND DENO_TEXT_ENCODE bytes_buf, TEXT, TEXT_LEN
+        \\    bytes_ptr = call @sa_fs_read_buffer_data(bytes_buf)
+        \\    bytes_len = call @sa_fs_read_buffer_len(bytes_buf)
+        \\    bytes_len_ok = eq bytes_len, 2
+        \\    br bytes_len_ok -> L_TEXT_DECODE, L_FAIL
+        \\
+        \\L_TEXT_DECODE:
+        \\    !bytes_len_ok
+        \\    EXPAND DENO_TEXT_DECODE text_buf, TEXT, TEXT_LEN
+        \\    text_ptr = call @sa_fmt_buffer_data(text_buf)
+        \\    text_len = call @sa_fmt_buffer_len(text_buf)
+        \\    text_len_ok = eq text_len, 2
+        \\    br text_len_ok -> L_VERSION, L_FAIL
+        \\
+        \\L_VERSION:
+        \\    !text_len_ok
+        \\    EXPAND DENO_VERSION_JSON version_buf
+        \\    version_ptr = call @sa_fs_read_buffer_data(version_buf)
+        \\    version_len = call @sa_fs_read_buffer_len(version_buf)
+        \\    version_ok = gt version_len, 2
+        \\    br version_ok -> L_BUILD, L_FAIL
+        \\
+        \\L_BUILD:
+        \\    !version_ok
+        \\    EXPAND DENO_BUILD_JSON build_buf
+        \\    build_ptr = call @sa_fs_read_buffer_data(build_buf)
+        \\    build_len = call @sa_fs_read_buffer_len(build_buf)
+        \\    build_ok = gt build_len, 2
+        \\    br build_ok -> L_CLEANUP, L_FAIL
+        \\
+        \\L_CLEANUP:
+        \\    !build_ok
+        \\    btoa_free = call @sa_fmt_buffer_free(^btoa_buf)
+        \\    atob_free = call @sa_fmt_buffer_free(^atob_buf)
+        \\    bytes_free = call @sa_fs_read_buffer_free(^bytes_buf)
+        \\    text_free = call @sa_fmt_buffer_free(^text_buf)
+        \\    version_free = call @sa_fs_read_buffer_free(^version_buf)
+        \\    build_free = call @sa_fs_read_buffer_free(^build_buf)
+        \\    !build_ptr
+        \\    !version_ptr
+        \\    !text_ptr
+        \\    !bytes_ptr
+        \\    !atob_ptr
+        \\    !btoa_ptr
+        \\    !build_free
+        \\    !version_free
+        \\    !text_free
+        \\    !bytes_free
+        \\    !atob_free
+        \\    !btoa_free
+        \\    return 0
+        \\
+        \\L_FAIL:
+        \\    return 64
+    ;
+    try writeSource(tmp.dir, "deno_text_base64.sa", source);
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "deno_text_base64.sa", "-o", "deno_text_base64" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const run_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./deno_text_base64"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "sa_std Deno fallible status macros compile and run" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source =
+        \\@import "sa_std/deno.sa"
+        \\
+        \\@const DIR = utf8:"deno_macro_dir"
+        \\@const TEXT_PATH = utf8:"deno_macro_dir/text.txt"
+        \\@const B64_PATH = utf8:"deno_macro_dir/b64.txt"
+        \\@const TEXT = utf8:"hello"
+        \\@const B64 = utf8:"aGVsbG8="
+        \\
+        \\#def DIR_LEN = 14
+        \\#def TEXT_PATH_LEN = 23
+        \\#def B64_PATH_LEN = 22
+        \\#def TEXT_LEN = 5
+        \\#def B64_LEN = 8
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND DENO_MKDIR mkdir_status, DIR, DIR_LEN
+        \\    mkdir_ok = eq mkdir_status, 0
+        \\    !mkdir_status
+        \\    br mkdir_ok -> L_WRITE_TEXT, L_FAIL_MKDIR
+        \\
+        \\L_WRITE_TEXT:
+        \\    !mkdir_ok
+        \\    EXPAND DENO_WRITE_TEXT_FILE text_status, TEXT_PATH, TEXT_PATH_LEN, TEXT, TEXT_LEN
+        \\    text_ok = eq text_status, 0
+        \\    !text_status
+        \\    br text_ok -> L_WRITE_B64, L_FAIL_TEXT
+        \\
+        \\L_WRITE_B64:
+        \\    !text_ok
+        \\    EXPAND DENO_WRITE_FILE_BASE64 b64_status, B64_PATH, B64_PATH_LEN, B64, B64_LEN
+        \\    b64_ok = eq b64_status, 0
+        \\    !b64_status
+        \\    br b64_ok -> L_SLEEP, L_FAIL_B64
+        \\
+        \\L_SLEEP:
+        \\    !b64_ok
+        \\    EXPAND DENO_SLEEP_MS sleep_status, 0
+        \\    sleep_ok = eq sleep_status, 0
+        \\    !sleep_status
+        \\    br sleep_ok -> L_PASS, L_FAIL_SLEEP
+        \\
+        \\L_PASS:
+        \\    !sleep_ok
+        \\    return 0
+        \\
+        \\L_FAIL_MKDIR:
+        \\    !mkdir_ok
+        \\    return 41
+        \\
+        \\L_FAIL_TEXT:
+        \\    !text_ok
+        \\    return 42
+        \\
+        \\L_FAIL_B64:
+        \\    !b64_ok
+        \\    return 43
+        \\
+        \\L_FAIL_SLEEP:
+        \\    !sleep_ok
+        \\    return 44
+    ;
+    try writeSource(tmp.dir, "deno_fallible_status.sa", source);
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "deno_fallible_status.sa", "-o", "deno_fallible_status" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const run_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./deno_fallible_status"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "std smoke fixture runs through the current compiler surface" {

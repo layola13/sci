@@ -37,7 +37,8 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 
 ### 1.7 Environment (`std::env` vs `sa_std/env.sa`)
 *   **Implemented in `sa_std`**: `ENV_GET`, `ENV_HAS`, `ENV_BUFFER_DATA`, `ENV_BUFFER_LEN`, `ENV_BUFFER_FREE`.
-*   **Missing from Rust**: `args`, `args_os`, `vars`, `vars_os`, `set_var`, `remove_var`, `join_paths`, `split_paths`, `current_dir`, `set_current_dir`, `current_exe`, `temp_dir`.
+*   **Implemented in Deno facade**: `DENO_ARGS_JSON`, `DENO_ENV_GET`, `DENO_ENV_HAS`, `DENO_ENV_SET`, `DENO_ENV_DELETE`, `DENO_CWD`, `DENO_CHDIR`, `DENO_RANDOM_UUID`.
+*   **Missing from Rust**: `args_os`, `vars`, `vars_os`, `join_paths`, `split_paths`, `current_exe`, `temp_dir`.
 
 ### 1.8 Formatting & String (`std::fmt` & `std::string` vs `sa_std/fmt.sa`, `sa_std/string.sa`)
 *   **Implemented in `sa_std`**: `STRFMT_I64`, `U64`, `F64`, `BOOL`, `BYTES`, `STR_FROM_CONST`, `STR_LEN`, `STR_SLICE`, `STR_EQ`, `STR_CONCAT`, plus the macro-level formatting scaffold around `PRINTLN` / `PRINT` / `FORMAT`.
@@ -46,19 +47,23 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 
 ### 1.9 File System (`std::fs` vs `sa_std/fs.sa`)
 *   **Implemented in `sa_std`**: Handles (`open`, `create`, `close`, `read`, `read_exact`, `write`, `write_all`, `flush`, `seek`), Full-file IO (`read_file`, `write_file`), Metadata (`metadata`, `remove_file`, `rename`, `make_dir`, `remove_dir`).
+*   **Implemented in Deno facade**: `DENO_READ_TEXT_FILE`, `DENO_WRITE_TEXT_FILE`, `DENO_READ_FILE_BASE64`, `DENO_WRITE_FILE_BASE64`, `DENO_MKDIR`, `DENO_READ_DIR_JSON`, `DENO_LSTAT_JSON`, `DENO_REMOVE`, `DENO_COPY_FILE`.
 *   **Missing from Rust**: `sync_all`, `sync_data`, `set_len`, `set_permissions`, fine-grained `OpenOptions`, expanded `Metadata` (`is_dir`, `modified`, etc.), `Permissions`, `FileType`, `DirBuilder`, `ReadDir` / `read_dir`, `copy`, `create_dir_all`, `hard_link`, `read_link`, `remove_dir_all`.
 
 ### 1.10 Input/Output (`std::io` vs `sa_std/io.sa`)
 *   **Implemented in `sa_std`**: `stdin`, `stdout`, `stderr`, `PRINTLN`, `READ_LINE`, `read`, `write`, etc.
+*   **Implemented in Deno facade**: `DENO_STDIN`, `DENO_STDOUT`, `DENO_STDERR`, `DENO_STDOUT_WRITE`, `DENO_STDERR_WRITE`.
 *   **Missing Infrastructure**: `Read`, `Write`, `Seek`, `BufRead` traits; `Cursor`, `Error`/`ErrorKind` system, `copy`, `empty`, `repeat`, `sink`, `read_to_end`, `read_to_string`, `bytes`, `chain`, `take`.
 
 ### 1.11 Networking (`std::net` vs `sa_std/net.sa`)
 *   **Implemented in `sa_std`**: TCP Connect/Bind/Accept/IO, UDP Bind/SendTo/RecvFrom, Async Reactor macros.
+*   **Implemented in Deno facade**: `DENO_LISTEN_TCP`, `DENO_ACCEPT_TCP`, `DENO_CONNECT_TCP`, `DENO_CLOSE_TCP_LISTENER`, `DENO_CLOSE_TCP_STREAM`.
 *   **Missing from Rust**: `set_read_timeout`, `set_write_timeout`, `peek`, `set_nodelay`, `set_ttl`, `set_nonblocking`; `TcpListener::incoming` iterator; `UdpSocket::connect`, `set_broadcast`, multicast control; `Ipv4Addr`, `Ipv6Addr`, `SocketAddr` structs and parsing.
 
 ### 1.12 Process (`std::process` vs `sa_std/process.sa`)
 *   **Implemented in `sa_std`**: `run`, `spawn`, `spawn_stream`, `wait`, `close`.
-*   **Missing from Rust**: `Command` builder (`env`, `current_dir`, pipe redirection), `Output` struct, `Child::id()`, `kill()`, `try_wait()`, `process::abort`, `process::exit`, `process::id`.
+*   **Implemented in Deno facade**: `DENO_COMMAND_RUN`, `DENO_COMMAND_SPAWN`, `DENO_COMMAND_SPAWN_STREAM`, `DENO_COMMAND_WAIT`, `DENO_COMMAND_READ_STDOUT`, `DENO_COMMAND_READ_STDERR`, `DENO_COMMAND_CLOSE`, `DENO_EXIT`.
+*   **Missing from Rust**: `Command` builder (`env`, `current_dir`, pipe redirection), `Output` struct, `Child::id()`, `kill()`, `try_wait()`, `process::abort`, `process::id`.
 
 ### 1.13 Path (`std::path` vs `sa_std/path.sa`)
 *   **Implemented in `sa_std`**: `PATH_MAKE_EMPTY`, `PATH_BASENAME`, `PATH_DIRNAME`, `PATH_STEM`, `PATH_EXT`.
@@ -66,6 +71,7 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 
 ### 1.14 Time & Sync (`std::time`, `std::sync` vs `sa_std/time.sa`, `sa_std/sync/*`)
 *   **Implemented in `sa_std`**: `Instant` / `Unix` timestamps, `Sleep`, `MPSC` channels, `Mutex` (spin), `Once`, `RwLock`, `Arc`, `RefCell` shared/exclusive borrow helpers, and the matching core macros in `sa_std/core/*`.
+*   **Implemented in Deno facade**: `DENO_NOW_MS`, `DENO_NOW_NS`, `DENO_SLEEP_MS`.
 *   **Missing from Rust (Time)**: `duration_since`, `elapsed`, `checked_add/sub`, `subsec_nanos` and rigorous duration arithmetic.
 *   **Missing from Rust (Sync)**: `Condvar`, `Barrier`, Atomic variables (`AtomicI32`, `AtomicBool`, etc.), RAII `MutexGuard`, `PoisonError`.
 

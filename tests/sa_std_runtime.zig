@@ -568,17 +568,28 @@ test "sa_std fmt and process exports are usable from C" {
         \\    if (sa_fmt_i64_into(12345, 10, (uint8_t *)buffer, 2, &out_len) != SA_STD_ERR_TRUNCATED) return 20;
         \\    if (out_len != 5) return 21;
         \\
-        \\    SaProcessArgv argv[2];
-        \\    argv[0].data = (const uint8_t *)"/bin/echo";
-        \\    argv[0].len = 9;
-        \\    argv[1].data = (const uint8_t *)"sa_std_runtime";
-        \\    argv[1].len = 14;
+        \\    SaProcessArgv argv[3];
+        \\    argv[0].data = (const uint8_t *)"/bin/sh";
+        \\    argv[0].len = 7;
+        \\    argv[1].data = (const uint8_t *)"-c";
+        \\    argv[1].len = 2;
+        \\    argv[2].data = (const uint8_t *)"printf sa_std_runtime; printf sa_std_error >&2";
+        \\    argv[2].len = 46;
         \\    uint64_t process = 0;
         \\    uint32_t code = 0;
-        \\    if (sa_std_process_run(argv, 2, &process) != SA_STD_OK) return 7;
+        \\    if (sa_std_process_run(argv, 3, &process) != SA_STD_OK) return 7;
         \\    if (process == 0) return 8;
         \\    if (sa_std_process_wait(process, &code) != SA_STD_OK) return 9;
         \\    if (code != 0) return 10;
+        \\    memset(buffer, 0, sizeof(buffer));
+        \\    if (sa_std_process_read_stdout(process, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 22;
+        \\    if (out_len != 14 || memcmp(buffer, "sa_std_runtime", 14) != 0) return 23;
+        \\    memset(buffer, 0, sizeof(buffer));
+        \\    if (sa_std_process_read_stderr(process, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 26;
+        \\    if (out_len != 12 || memcmp(buffer, "sa_std_error", 12) != 0) return 27;
+        \\    memset(buffer, 0, sizeof(buffer));
+        \\    if (sa_io_read(process, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 24;
+        \\    if (out_len != 0) return 25;
         \\    if (sa_std_process_close(process) != SA_STD_OK) return 11;
         \\    puts("sa_std fmt/process ok");
         \\    return 0;
@@ -703,8 +714,6 @@ test "sa_std detached pthread export runs without join" {
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std pthread detached ok"));
 }
 
-
-
 test "sa_std json exports are usable from C" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -729,7 +738,7 @@ test "sa_std json exports are usable from C" {
         \\#include <string.h>
         \\
         \\int main(void) {
-        \\    const uint8_t json[] = "{\"name\":\"sci\",\"count\":7,\"active\":true,\"nested\":[1,2,3]}";
+        \\    const uint8_t json[] = "{\"name\":\"sci\",\"count\":7,\"active\":true,\"nested\":[1,2,3],\"schema\":{\"type\":\"object\"}}";
         \\    const uint8_t key_name[] = "name";
         \\    const uint8_t key_count[] = "count";
         \\    const uint8_t key_active[] = "active";
@@ -737,17 +746,30 @@ test "sa_std json exports are usable from C" {
         \\    const uint8_t needle[] = "\"name\":\"sci\"";
         \\    uint64_t root = 0;
         \\    uint64_t child = 0;
+        \\    uint64_t nested_item = 0;
         \\    uint64_t buffer = 0;
+        \\    uint64_t writer = 0;
+        \\    uint64_t writer_buffer = 0;
         \\    uint64_t count = 0;
+        \\    int64_t first_nested_i64 = 0;
         \\    double count_f64 = 0.0;
         \\    int64_t count_i64 = 0;
+        \\    int64_t count_i64_direct = 0;
+        \\    double count_f64_direct = 0.0;
         \\    uint8_t active = 0;
         \\    uint8_t found = 0;
+        \\    uint8_t writer_found = 0;
         \\    uint32_t kind = 0;
         \\    const uint8_t *name_ptr = NULL;
         \\    uint64_t name_len = 0;
+        \\    const uint8_t *key_ptr = NULL;
+        \\    uint64_t key_len = 0;
         \\    const uint8_t *json_text = NULL;
         \\    uint64_t json_len = 0;
+        \\    const uint8_t *writer_text = NULL;
+        \\    uint64_t writer_len = 0;
+        \\    const uint8_t writer_prefix[] = "{\"name\":\"sci\",\"active\":true,\"count\":7,\"ratio\":";
+        \\    const uint8_t writer_schema[] = "\"schema\":{\"type\":\"object\"}";
         \\
         \\    root = sa_json_parse(json, sizeof(json) - 1);
         \\    if (root == 0) return 2;
@@ -763,38 +785,80 @@ test "sa_std json exports are usable from C" {
         \\    if (name_ptr == NULL || name_len != 3 || memcmp(name_ptr, "sci", 3) != 0) return 7;
         \\    if (sa_json_free(child) != SA_STD_OK) return 8;
         \\
+        \\    if (sa_json_object_get_string(root, key_name, sizeof(key_name) - 1, &name_ptr, &name_len) != SA_STD_OK) return 34;
+        \\    if (name_ptr == NULL || name_len != 3 || memcmp(name_ptr, "sci", 3) != 0) return 35;
+        \\
         \\    if (sa_json_object_get(root, key_count, sizeof(key_count) - 1, &child) != SA_STD_OK) return 9;
         \\    if (sa_json_as_f64(child, &count_f64) != SA_STD_OK) return 10;
         \\    if (sa_json_as_i64(child, &count_i64) != SA_STD_OK) return 11;
         \\    if (count_f64 != 7.0 || count_i64 != 7) return 12;
         \\    if (sa_json_free(child) != SA_STD_OK) return 13;
+        \\    if (sa_json_object_get_i64(root, key_count, sizeof(key_count) - 1, &count_i64_direct) != SA_STD_OK) return 50;
+        \\    if (sa_json_object_get_f64(root, key_count, sizeof(key_count) - 1, &count_f64_direct) != SA_STD_OK) return 51;
+        \\    if (count_i64_direct != 7 || count_f64_direct != 7.0) return 52;
         \\
         \\    if (sa_json_object_get(root, key_active, sizeof(key_active) - 1, &child) != SA_STD_OK) return 14;
         \\    if (sa_json_as_bool(child, &active) != SA_STD_OK) return 15;
         \\    if (active != 1) return 16;
         \\    if (sa_json_free(child) != SA_STD_OK) return 17;
+        \\    active = 0;
+        \\    if (sa_json_object_get_bool(root, key_active, sizeof(key_active) - 1, &active) != SA_STD_OK) return 36;
+        \\    if (active != 1) return 37;
         \\
         \\    if (sa_json_object_get(root, key_nested, sizeof(key_nested) - 1, &child) != SA_STD_OK) return 18;
         \\    if (sa_json_value_count(child, &count) != SA_STD_OK) return 19;
         \\    if (count != 3) return 20;
-        \\    if (sa_json_free(child) != SA_STD_OK) return 21;
+        \\    if (sa_json_array_get(child, 0, &nested_item) != SA_STD_OK) return 21;
+        \\    if (sa_json_as_i64(nested_item, &first_nested_i64) != SA_STD_OK) return 22;
+        \\    if (first_nested_i64 != 1) return 23;
+        \\    if (sa_json_free(nested_item) != SA_STD_OK) return 24;
+        \\    if (sa_json_free(child) != SA_STD_OK) return 25;
         \\
-        \\    if (sa_json_stringify(root, &buffer) != SA_STD_OK) return 22;
-        \\    if (buffer == 0) return 23;
+        \\    if (sa_json_object_key_at(root, 0, &key_ptr, &key_len) != SA_STD_OK) return 26;
+        \\    if (key_ptr == NULL || key_len != 4 || memcmp(key_ptr, "name", 4) != 0) return 27;
+        \\
+        \\    if (sa_json_stringify(root, &buffer) != SA_STD_OK) return 28;
+        \\    if (buffer == 0) return 29;
         \\    json_text = sa_json_buffer_data(buffer);
         \\    json_len = sa_json_buffer_len(buffer);
-        \\    if (json_text == NULL || json_len == 0) return 24;
-        \\    if (json_len < sizeof(needle) - 1) return 25;
+        \\    if (json_text == NULL || json_len == 0) return 30;
+        \\    if (json_len < sizeof(needle) - 1) return 31;
         \\    for (uint64_t i = 0; i + (uint64_t)(sizeof(needle) - 1) <= json_len; ++i) {
         \\        if (memcmp(json_text + i, needle, sizeof(needle) - 1) == 0) {
         \\            found = 1;
         \\            break;
         \\        }
         \\    }
-        \\    if (!found) return 25;
-        \\    if (sa_json_buffer_free(buffer) != SA_STD_OK) return 26;
+        \\    if (!found) return 31;
+        \\    if (sa_json_buffer_free(buffer) != SA_STD_OK) return 32;
         \\
-        \\    if (sa_json_free(root) != SA_STD_OK) return 27;
+        \\    if (sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer) != SA_STD_OK) return 38;
+        \\    if (sa_json_writer_begin_object(writer) != SA_STD_OK) return 39;
+        \\    if (sa_json_writer_field_string(writer, (const uint8_t *)"name", 4, (const uint8_t *)"sci", 3) != SA_STD_OK) return 53;
+        \\    if (sa_json_writer_field_bool(writer, (const uint8_t *)"active", 6, 1) != SA_STD_OK) return 54;
+        \\    if (sa_json_writer_field_i64(writer, (const uint8_t *)"count", 5, 7) != SA_STD_OK) return 55;
+        \\    if (sa_json_writer_field_f64(writer, (const uint8_t *)"ratio", 5, 1.5) != SA_STD_OK) return 56;
+        \\    if (sa_json_writer_field_null(writer, (const uint8_t *)"nothing", 7) != SA_STD_OK) return 57;
+        \\    if (sa_json_object_get(root, (const uint8_t *)"schema", 6, &child) != SA_STD_OK) return 41;
+        \\    if (sa_json_writer_field_node(writer, (const uint8_t *)"schema", 6, child) != SA_STD_OK) return 42;
+        \\    if (sa_json_free(child) != SA_STD_OK) return 43;
+        \\    if (sa_json_writer_end_object(writer) != SA_STD_OK) return 44;
+        \\    if (sa_json_writer_finish(writer, &writer_buffer) != SA_STD_OK) return 45;
+        \\    writer_text = sa_json_buffer_data(writer_buffer);
+        \\    writer_len = sa_json_buffer_len(writer_buffer);
+        \\    if (writer_text == NULL || writer_len < sizeof(writer_prefix) - 1) return 46;
+        \\    if (memcmp(writer_text, writer_prefix, sizeof(writer_prefix) - 1) != 0) return 47;
+        \\    for (uint64_t i = 0; i + (uint64_t)(sizeof(writer_schema) - 1) <= writer_len; ++i) {
+        \\        if (memcmp(writer_text + i, writer_schema, sizeof(writer_schema) - 1) == 0) {
+        \\            writer_found = 1;
+        \\            break;
+        \\        }
+        \\    }
+        \\    if (!writer_found) return 58;
+        \\    if (sa_json_buffer_free(writer_buffer) != SA_STD_OK) return 48;
+        \\    if (sa_json_writer_free(writer) != SA_STD_OK) return 49;
+        \\
+        \\    if (sa_json_free(root) != SA_STD_OK) return 33;
         \\    puts("sa_std json ok");
         \\    return 0;
         \\}
@@ -1250,4 +1314,118 @@ test "sa_std time exports are usable from C" {
     defer std.testing.allocator.free(run_result.stderr);
     try expectSuccess(run_result);
     try std.testing.expectEqualStrings("sa_std time ok\n", run_result.stdout);
+}
+
+test "sa_std Deno facade runtime helpers are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\static int valid_uuid(const uint8_t *s, uint64_t n) {
+        \\    if (n != 36) return 0;
+        \\    if (s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-') return 0;
+        \\    if (s[14] != '4') return 0;
+        \\    if (!(s[19] == '8' || s[19] == '9' || s[19] == 'a' || s[19] == 'b')) return 0;
+        \\    return 1;
+        \\}
+        \\
+        \\int main(void) {
+        \\    const uint8_t key[] = "SA_DENO_FACADE_TEST";
+        \\    const uint8_t value[] = "ok-value";
+        \\    uint64_t cwd = 0;
+        \\    uint64_t got = 0;
+        \\    uint64_t uuid = 0;
+        \\    uint64_t args = 0;
+        \\    uint8_t *ptr = 0;
+        \\    uint64_t len = 0;
+        \\
+        \\    cwd = sa_deno_cwd();
+        \\    if (cwd == 0) return 2;
+        \\    ptr = sa_fmt_buffer_data(cwd);
+        \\    len = sa_fmt_buffer_len(cwd);
+        \\    if (ptr == 0 || len == 0) return 3;
+        \\    if (sa_fmt_buffer_free(cwd) != SA_STD_OK) return 4;
+        \\
+        \\    if (sa_deno_env_set(key, sizeof(key) - 1, value, sizeof(value) - 1) != SA_STD_OK) return 5;
+        \\    got = sa_env_get(key, sizeof(key) - 1);
+        \\    if (got == 0) return 6;
+        \\    ptr = sa_env_buffer_data(got);
+        \\    len = sa_env_buffer_len(got);
+        \\    if (ptr == 0 || len != sizeof(value) - 1 || memcmp(ptr, value, sizeof(value) - 1) != 0) return 7;
+        \\    if (sa_env_buffer_free(got) != SA_STD_OK) return 8;
+        \\    if (sa_deno_env_delete(key, sizeof(key) - 1) != SA_STD_OK) return 9;
+        \\    if (sa_env_get(key, sizeof(key) - 1) != 0) return 10;
+        \\
+        \\    uuid = sa_deno_random_uuid();
+        \\    if (uuid == 0) return 11;
+        \\    ptr = sa_fmt_buffer_data(uuid);
+        \\    len = sa_fmt_buffer_len(uuid);
+        \\    if (!valid_uuid(ptr, len)) return 12;
+        \\    if (sa_fmt_buffer_free(uuid) != SA_STD_OK) return 13;
+        \\
+        \\    args = sa_deno_args_json();
+        \\    if (args == 0) return 14;
+        \\    ptr = sa_fs_read_buffer_data(args);
+        \\    len = sa_fs_read_buffer_len(args);
+        \\    if (ptr == 0 || len != 2 || memcmp(ptr, "[]", 2) != 0) return 15;
+        \\    if (sa_fs_read_buffer_free(args) != SA_STD_OK) return 16;
+        \\
+        \\    puts("sa_std deno facade ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "deno_facade.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "deno_facade.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_deno_facade_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_deno_facade_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expectEqualStrings("sa_std deno facade ok\n", run_result.stdout);
 }

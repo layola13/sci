@@ -68,6 +68,133 @@ test "sa_std package manifest parses as an empty package boundary" {
     try std.testing.expectEqual(@as(usize, 0), manifest_file.mirrors.len);
 }
 
+test "sa_std io and process interfaces match native resource ABI" {
+    const io_iface = try common.readFileAlloc(std.testing.allocator, "sa_std/io.sai");
+    defer std.testing.allocator.free(io_iface);
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_stdin() -> u64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_close(handle: u64) -> i32"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_read(handle: ptr, &buf: ptr, cap: u64) -> u64!"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_close(^handle: ptr) -> i32!"));
+
+    const process_iface = try common.readFileAlloc(std.testing.allocator, "sa_std/process.sai");
+    defer std.testing.allocator.free(process_iface);
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_run(&argv: ptr, argv_len: u64, &out_handle: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_wait(handle: u64, &out_code: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_read_stdout(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_read_stderr(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_close(handle: u64) -> i32"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, process_iface, 1, "sa_std_process_wait(handle: ptr"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, process_iface, 1, "sa_std_process_close(^handle: ptr"));
+
+    const io_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io.sa");
+    defer std.testing.allocator.free(io_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] READ "));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] WRITE_SOME"));
+    var io_flat = try flattenFixture(std.testing.allocator, "sa_std/io.sa", io_src);
+    defer io_flat.deinit(std.testing.allocator);
+    try std.testing.expect(io_flat.function_sigs.len > 0);
+
+    const buf_reader_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/buf_reader.sa");
+    defer std.testing.allocator.free(buf_reader_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "call @sa_io_read(%handle, &%buf, %cap, &__buf_reader_read_slot)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "call @sa_io_close(%handle)"));
+    var buf_reader_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buf_reader.sa", buf_reader_src);
+    defer buf_reader_flat.deinit(std.testing.allocator);
+    try std.testing.expect(buf_reader_flat.function_sigs.len > 0);
+
+    const buf_writer_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/buf_writer.sa");
+    defer std.testing.allocator.free(buf_writer_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "call @sa_io_write(%handle, &%buf, %len, &__buf_writer_write_slot)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "call @sa_io_close(%handle)"));
+    var buf_writer_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buf_writer.sa", buf_writer_src);
+    defer buf_writer_flat.deinit(std.testing.allocator);
+    try std.testing.expect(buf_writer_flat.function_sigs.len > 0);
+}
+
+test "sa_std Deno compatibility facade covers HubProxy porting surface" {
+    const deno_sai = try common.readFileAlloc(std.testing.allocator, "sa_std/deno.sai");
+    defer std.testing.allocator.free(deno_sai);
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_cwd"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_env_set"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_random_uuid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_args_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_btoa"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_atob"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_text_encode"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_text_decode"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_version_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_build_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "DENO_HTTP_METHOD_POST"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_req_send"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_resp_get_header"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_req_get_method"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_set_content_type"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_stream_write"));
+
+    const deno_src = try common.readFileAlloc(std.testing.allocator, "sa_std/deno.sa");
+    defer std.testing.allocator.free(deno_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ARGS_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ENV_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ENV_SET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CWD"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RANDOM_UUID"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CRYPTO_RANDOM_UUID"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BTOA"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ATOB"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_TEXT_ENCODE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_TEXT_DECODE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_VERSION_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BUILD_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_PARSE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_STRINGIFY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_BUFFER_SLICE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_BUFFER_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_FREE_BUFFER"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STDOUT_WRITE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STDERR_WRITE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE_BASE64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE_BASE64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MKDIR_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_SYNC_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_SYNC_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_REMOVE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COPY_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_RUN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_EXEC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_SPAWN_STREAM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_READ_STDOUT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_NOW_MS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LISTEN_TCP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CONNECT_TCP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_CLIENT_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_REQUEST_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_REQUEST_SEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_RESPONSE_GET_HEADER"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_RESPONSE_READ_CHUNK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_REQUEST_METHOD"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_RESPONSE_SET_CONTENT_TYPE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_STREAM_WRITE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_FETCH_CLIENT_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_FETCH_SEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HEADERS_APPEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HEADERS_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSE_STATUS"));
+
+    var deno_flat = try flattenFixture(std.testing.allocator, "sa_std/deno.sa", deno_src);
+    defer deno_flat.deinit(std.testing.allocator);
+    try std.testing.expect(deno_flat.function_sigs.len >= 60);
+}
+
 test "sa_std rust core helpers are concrete and verifiable" {
     const option_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/option.sal");
     defer std.testing.allocator.free(option_layout);

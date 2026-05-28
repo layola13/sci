@@ -1,0 +1,92 @@
+@import "sa_std/deno.sa"
+@import "sa_std/fs.sai"
+
+@const ARG0 = utf8:"pwd"
+@const CWD = utf8:"/home/vscode/projects/hubproxy"
+
+#def ARG0_LEN = 3
+#def CWD_LEN = 30
+#def EXPECT_STDOUT_LEN = 31
+
+@main() -> i32:
+L_ENTRY:
+    argv = stack_alloc 16
+    store argv+SaProcessArgv_data, &ARG0 as ptr
+    store argv+SaProcessArgv_len, ARG0_LEN as u64
+    EXPAND DENO_COMMAND_EXEC_CWD exec_status, code, stdout_buf, stderr_buf, argv, 1, CWD, CWD_LEN
+    status_ok = eq exec_status, 0
+    !exec_status
+    br status_ok -> L_CHECK_CODE, L_FAIL_STATUS
+
+L_CHECK_CODE:
+    !status_ok
+    code_ok = eq code, 0
+    !code
+    br code_ok -> L_CHECK_STDOUT, L_FAIL_CODE
+
+L_CHECK_STDOUT:
+    !code_ok
+    stdout_len = call @sa_fs_read_buffer_len(stdout_buf)
+    stdout_ok = eq stdout_len, EXPECT_STDOUT_LEN
+    br stdout_ok -> L_CHECK_STDERR, L_FAIL_STDOUT
+
+L_CHECK_STDERR:
+    !stdout_ok
+    stderr_len = call @sa_fs_read_buffer_len(stderr_buf)
+    stderr_ok = eq stderr_len, 0
+    br stderr_ok -> L_CLEANUP, L_FAIL_STDERR
+
+L_CLEANUP:
+    !stderr_ok
+    EXPAND DENO_FREE_BUFFER stdout_buf, stdout_free_status
+    EXPAND DENO_FREE_BUFFER stderr_buf, stderr_free_status
+    stdout_free_ok = eq stdout_free_status, 0
+    stderr_free_ok = eq stderr_free_status, 0
+    free_ok = and stdout_free_ok, stderr_free_ok
+    !stdout_free_status
+    !stderr_free_status
+    !stdout_free_ok
+    !stderr_free_ok
+    !stdout_len
+    !stderr_len
+    br free_ok -> L_PASS, L_FAIL_FREE
+
+L_PASS:
+    !free_ok
+    return 0
+
+L_FAIL_STATUS:
+    !status_ok
+    !code
+    !stdout_buf
+    !stderr_buf
+    return 91
+
+L_FAIL_CODE:
+    !code_ok
+    !stdout_buf
+    !stderr_buf
+    return 92
+
+L_FAIL_STDOUT:
+    !stdout_ok
+    !stdout_len
+    EXPAND DENO_FREE_BUFFER stdout_buf, stdout_free_status2
+    EXPAND DENO_FREE_BUFFER stderr_buf, stderr_free_status2
+    !stdout_free_status2
+    !stderr_free_status2
+    return 93
+
+L_FAIL_STDERR:
+    !stderr_ok
+    !stdout_len
+    !stderr_len
+    EXPAND DENO_FREE_BUFFER stdout_buf, stdout_free_status3
+    EXPAND DENO_FREE_BUFFER stderr_buf, stderr_free_status3
+    !stdout_free_status3
+    !stderr_free_status3
+    return 94
+
+L_FAIL_FREE:
+    !free_ok
+    return 95

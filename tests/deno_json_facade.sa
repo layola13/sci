@@ -1,0 +1,50 @@
+@import "sa_std/deno.sa"
+
+@const JSON_DOC = utf8:"{\"ok\":true,\"n\":7}"
+
+#def JSON_DOC_LEN = 17
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND DENO_JSON_PARSE root, JSON_DOC, JSON_DOC_LEN
+    root_ok = ne root, 0
+    br root_ok -> L_STRINGIFY, L_FAIL_ROOT
+
+L_STRINGIFY:
+    !root_ok
+    EXPAND DENO_JSON_STRINGIFY stringify_status, json_buf, root
+    stringify_ok = eq stringify_status, 0
+    !stringify_status
+    br stringify_ok -> L_SLICE, L_FAIL_STRINGIFY
+
+L_SLICE:
+    !stringify_ok
+    EXPAND DENO_JSON_BUFFER_SLICE json_ptr, json_len, json_buf
+    len_ok = eq json_len, JSON_DOC_LEN
+    br len_ok -> L_CLEANUP, L_FAIL_LEN
+
+L_CLEANUP:
+    !len_ok
+    EXPAND DENO_JSON_BUFFER_FREE json_buf
+    EXPAND DENO_JSON_FREE root
+    !json_ptr
+    !json_len
+    return 0
+
+L_FAIL_ROOT:
+    !root_ok
+    return 63
+
+L_FAIL_STRINGIFY:
+    !stringify_ok
+    EXPAND DENO_JSON_FREE root
+    !json_buf
+    return 63
+
+L_FAIL_LEN:
+    !len_ok
+    EXPAND DENO_JSON_BUFFER_FREE json_buf
+    EXPAND DENO_JSON_FREE root
+    !json_ptr
+    !json_len
+    return 63

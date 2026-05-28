@@ -4,6 +4,12 @@
 @extern sa_json_parse(&json_bytes: ptr, len: u64) -> ^ptr
 @extern sa_json_kind(node: ptr) -> u32
 @extern sa_json_object_get(node: ptr, &key: ptr, key_len: u64, &out_handle: ptr) -> i32
+@extern sa_json_array_get(node: ptr, index: u64, &out_handle: ptr) -> i32
+@extern sa_json_object_key_at(node: ptr, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_json_object_get_string(node: ptr, &key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_json_object_get_bool(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32
+@extern sa_json_object_get_i64(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32
+@extern sa_json_object_get_f64(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32
 @extern sa_json_as_f64(node: ptr, &out_value: ptr) -> i32
 @extern sa_json_as_i64(node: ptr, &out_value: ptr) -> i32
 @extern sa_json_as_bool(node: ptr, &out_value: ptr) -> i32
@@ -31,10 +37,17 @@
 @extern sa_json_writer_begin_array(writer: ptr) -> i32!
 @extern sa_json_writer_end_array(writer: ptr) -> i32!
 @extern sa_json_writer_object_field(writer: ptr, &key: ptr, key_len: u64) -> i32!
+@extern sa_json_writer_field_string(writer: ptr, &key: ptr, key_len: u64, &data: ptr, len: u64) -> i32!
+@extern sa_json_writer_field_bool(writer: ptr, &key: ptr, key_len: u64, value: u8) -> i32!
+@extern sa_json_writer_field_i64(writer: ptr, &key: ptr, key_len: u64, value: i64) -> i32!
+@extern sa_json_writer_field_f64(writer: ptr, &key: ptr, key_len: u64, value: f64) -> i32!
+@extern sa_json_writer_field_null(writer: ptr, &key: ptr, key_len: u64) -> i32!
+@extern sa_json_writer_field_node(writer: ptr, &key: ptr, key_len: u64, node: ptr) -> i32!
 @extern sa_json_writer_write_bool(writer: ptr, value: u8) -> i32!
 @extern sa_json_writer_write_i64(writer: ptr, value: i64) -> i32!
 @extern sa_json_writer_write_f64(writer: ptr, value: f64) -> i32!
 @extern sa_json_writer_write_string(writer: ptr, &data: ptr, len: u64) -> i32!
 @extern sa_json_writer_write_null(writer: ptr) -> i32!
+@extern sa_json_writer_write_node(writer: ptr, node: ptr) -> i32!
 @extern sa_json_writer_finish(writer: ptr, &out_handle: ptr) -> i32!
 @extern sa_json_writer_free(^writer: ptr) -> i32!
