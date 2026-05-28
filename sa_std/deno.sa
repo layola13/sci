@@ -64,8 +64,20 @@
     %out_buffer = call @sa_deno_version_json()
 [END_MACRO]
 
+[MACRO] DENO_VERSION_DENO %out_buffer
+    %out_buffer = call @sa_deno_version_deno()
+[END_MACRO]
+
 [MACRO] DENO_BUILD_JSON %out_buffer
     %out_buffer = call @sa_deno_build_json()
+[END_MACRO]
+
+[MACRO] DENO_BUILD_OS %out_buffer
+    %out_buffer = call @sa_deno_build_os()
+[END_MACRO]
+
+[MACRO] DENO_BUILD_PLATFORM_FAMILY %out_buffer
+    %out_buffer = call @sa_deno_build_platform_family()
 [END_MACRO]
 
 [MACRO] DENO_JSON_PARSE %out_root, %bytes, %len
@@ -193,6 +205,14 @@
     EXPAND DENO_READ_DIR_JSON %out_status, %out_buffer, %path, %path_len, %max_entries
 [END_MACRO]
 
+[MACRO] DENO_READ_DIR %out_status, %out_buffer, %path, %path_len, %max_entries
+    EXPAND DENO_READ_DIR_JSON %out_status, %out_buffer, %path, %path_len, %max_entries
+[END_MACRO]
+
+[MACRO] DENO_READ_DIR_SYNC %out_status, %out_buffer, %path, %path_len, %max_entries
+    EXPAND DENO_READ_DIR_SYNC_JSON %out_status, %out_buffer, %path, %path_len, %max_entries
+[END_MACRO]
+
 [MACRO] DENO_LSTAT_JSON %out_status, %out_buffer, %path, %path_len
     __deno_meta_res_%out_buffer = call @sa_fs_metadata_json(&%path, %path_len)
     %out_status = load __deno_meta_res_%out_buffer+0 as i32
@@ -204,12 +224,28 @@
     EXPAND DENO_LSTAT_JSON %out_status, %out_buffer, %path, %path_len
 [END_MACRO]
 
+[MACRO] DENO_LSTAT %out_status, %out_buffer, %path, %path_len
+    EXPAND DENO_LSTAT_JSON %out_status, %out_buffer, %path, %path_len
+[END_MACRO]
+
+[MACRO] DENO_LSTAT_SYNC %out_status, %out_buffer, %path, %path_len
+    EXPAND DENO_LSTAT_SYNC_JSON %out_status, %out_buffer, %path, %path_len
+[END_MACRO]
+
 [MACRO] DENO_STAT_JSON %out_status, %out_buffer, %path, %path_len
     EXPAND DENO_LSTAT_JSON %out_status, %out_buffer, %path, %path_len
 [END_MACRO]
 
 [MACRO] DENO_STAT_SYNC_JSON %out_status, %out_buffer, %path, %path_len
     EXPAND DENO_STAT_JSON %out_status, %out_buffer, %path, %path_len
+[END_MACRO]
+
+[MACRO] DENO_STAT %out_status, %out_buffer, %path, %path_len
+    EXPAND DENO_STAT_JSON %out_status, %out_buffer, %path, %path_len
+[END_MACRO]
+
+[MACRO] DENO_STAT_SYNC %out_status, %out_buffer, %path, %path_len
+    EXPAND DENO_STAT_SYNC_JSON %out_status, %out_buffer, %path, %path_len
 [END_MACRO]
 
 [MACRO] DENO_MAKE_TEMP_DIR %out_status, %out_buffer, %prefix, %prefix_len

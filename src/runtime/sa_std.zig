@@ -1918,6 +1918,11 @@ pub export fn sa_deno_version_json() u64 {
     return openOwnedByteBuffer(json) catch return 0;
 }
 
+pub export fn sa_deno_version_deno() u64 {
+    const owned = std.heap.page_allocator.dupe(u8, "sa-std") catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
 pub export fn sa_deno_build_json() u64 {
     const os = @tagName(builtin.os.tag);
     const arch = @tagName(builtin.cpu.arch);
@@ -1928,6 +1933,18 @@ pub export fn sa_deno_build_json() u64 {
         .{ os, arch, arch, vendor },
     ) catch return 0;
     return openOwnedByteBuffer(json) catch return 0;
+}
+
+pub export fn sa_deno_build_os() u64 {
+    const os = @tagName(builtin.os.tag);
+    const owned = std.heap.page_allocator.dupe(u8, os) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+pub export fn sa_deno_build_platform_family() u64 {
+    const family = if (builtin.os.tag == .windows) "windows" else "unix";
+    const owned = std.heap.page_allocator.dupe(u8, family) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
 }
 
 const struct_sockaddr = extern struct {

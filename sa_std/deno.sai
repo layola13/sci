@@ -12,6 +12,9 @@
 @extern sa_deno_text_decode(&data: ptr, len: u64) -> u64
 @extern sa_deno_version_json() -> u64
 @extern sa_deno_build_json() -> u64
+@extern sa_deno_version_deno() -> u64
+@extern sa_deno_build_os() -> u64
+@extern sa_deno_build_platform_family() -> u64
 @extern sa_deno_make_temp_dir(&prefix: ptr, prefix_len: u64) -> u64!
 @extern sa_deno_make_temp_file(&prefix: ptr, prefix_len: u64, &suffix: ptr, suffix_len: u64) -> u64!
 @extern sa_deno_hostname() -> u64

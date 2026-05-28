@@ -1,0 +1,348 @@
+@import "sa_std/deno.sa"
+@import "sa_std/fs.sai"
+
+@const EXPECT_VERSION = utf8:"sa-std"
+@const EXPECT_FAMILY = utf8:"unix"
+@const TMP_PREFIX = utf8:"sa-deno-hubproxy-"
+
+#def EXPECT_VERSION_LEN = 6
+#def EXPECT_FAMILY_LEN = 4
+#def TMP_PREFIX_LEN = 17
+
+@bytes_eq(&lhs: ptr, lhs_len: u64, &rhs: ptr, rhs_len: u64) -> i32:
+L_ENTRY:
+    same_len = eq lhs_len, rhs_len
+    br same_len -> L_EQ_LOOP_INIT, L_EQ_FALSE
+
+L_EQ_LOOP_INIT:
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_EQ_HEAD
+
+L_EQ_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, lhs_len
+    br done -> L_EQ_TRUE, L_EQ_BODY
+
+L_EQ_BODY:
+    lhs_ip = ptr_add lhs, idx
+    rhs_ip = ptr_add rhs, idx
+    lhs_byte = load lhs_ip+0 as u8
+    rhs_byte = load rhs_ip+0 as u8
+    byte_ok = eq lhs_byte, rhs_byte
+    !lhs_ip
+    !rhs_ip
+    !lhs_byte
+    !rhs_byte
+    br byte_ok -> L_EQ_NEXT, L_EQ_FALSE_FROM_BODY
+
+L_EQ_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !idx
+    !done
+    !byte_ok
+    jmp L_EQ_HEAD
+
+L_EQ_TRUE:
+    !idx
+    !done
+    !lhs
+    !lhs_len
+    !rhs
+    !rhs_len
+    !same_len
+    return 1
+
+L_EQ_FALSE_FROM_BODY:
+    !idx
+    !done
+    !byte_ok
+    !same_len
+    jmp L_EQ_FALSE_CONSUMED
+
+L_EQ_FALSE:
+    !same_len
+
+L_EQ_FALSE_CONSUMED:
+    !lhs
+    !lhs_len
+    !rhs
+    !rhs_len
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND DENO_VERSION_DENO version_buf
+    version_ptr = call @sa_fs_read_buffer_data(version_buf)
+    version_len = call @sa_fs_read_buffer_len(version_buf)
+    version_match = call @bytes_eq(&version_ptr, version_len, &EXPECT_VERSION, EXPECT_VERSION_LEN)
+    version_ok = eq version_match, 1
+    !version_match
+    br version_ok -> L_PLATFORM, L_FAIL_VERSION
+
+L_PLATFORM:
+    !version_ok
+    EXPAND DENO_BUILD_PLATFORM_FAMILY family_buf
+    family_ptr = call @sa_fs_read_buffer_data(family_buf)
+    family_len = call @sa_fs_read_buffer_len(family_buf)
+    family_match = call @bytes_eq(&family_ptr, family_len, &EXPECT_FAMILY, EXPECT_FAMILY_LEN)
+    family_ok = eq family_match, 1
+    !family_match
+    br family_ok -> L_OS, L_FAIL_FAMILY
+
+L_OS:
+    !family_ok
+    EXPAND DENO_BUILD_OS os_buf
+    os_len = call @sa_fs_read_buffer_len(os_buf)
+    os_ok = ugt os_len, 0
+    br os_ok -> L_TEMP_DIR, L_FAIL_OS
+
+L_TEMP_DIR:
+    !os_ok
+    EXPAND DENO_MAKE_TEMP_DIR dir_status, dir_buf, TMP_PREFIX, TMP_PREFIX_LEN
+    dir_ok = eq dir_status, 0
+    !dir_status
+    br dir_ok -> L_DIR_OPS, L_FAIL_DIR
+
+L_DIR_OPS:
+    !dir_ok
+    dir_ptr = call @sa_fs_read_buffer_data(dir_buf)
+    dir_len = call @sa_fs_read_buffer_len(dir_buf)
+    EXPAND DENO_STAT stat_status, stat_buf, dir_ptr, dir_len
+    stat_ok = eq stat_status, 0
+    !stat_status
+    br stat_ok -> L_LSTAT, L_FAIL_STAT
+
+L_LSTAT:
+    !stat_ok
+    EXPAND DENO_LSTAT_SYNC lstat_status, lstat_buf, dir_ptr, dir_len
+    lstat_ok = eq lstat_status, 0
+    !lstat_status
+    br lstat_ok -> L_READ_DIR, L_FAIL_LSTAT
+
+L_READ_DIR:
+    !lstat_ok
+    EXPAND DENO_READ_DIR read_dir_status, read_dir_buf, dir_ptr, dir_len, 8
+    read_dir_ok = eq read_dir_status, 0
+    !read_dir_status
+    br read_dir_ok -> L_CLEANUP, L_FAIL_READ_DIR
+
+L_CLEANUP:
+    !read_dir_ok
+    EXPAND DENO_REMOVE_SYNC remove_dir_status, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER read_dir_buf, read_dir_free_status
+    EXPAND DENO_FREE_BUFFER lstat_buf, lstat_free_status
+    EXPAND DENO_FREE_BUFFER stat_buf, stat_free_status
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status
+    EXPAND DENO_FREE_BUFFER os_buf, os_free_status
+    EXPAND DENO_FREE_BUFFER family_buf, family_free_status
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status
+    cleanup1 = eq remove_dir_status, 0
+    cleanup2 = eq read_dir_free_status, 0
+    cleanup3 = eq lstat_free_status, 0
+    cleanup4 = eq stat_free_status, 0
+    cleanup5 = eq dir_free_status, 0
+    cleanup6 = eq os_free_status, 0
+    cleanup7 = eq family_free_status, 0
+    cleanup8 = eq version_free_status, 0
+    cleanup_ok_a = and cleanup1, cleanup2
+    cleanup_ok_b = and cleanup3, cleanup4
+    cleanup_ok_c = and cleanup5, cleanup6
+    cleanup_ok_d = and cleanup7, cleanup8
+    cleanup_ok_ab = and cleanup_ok_a, cleanup_ok_b
+    cleanup_ok_cd = and cleanup_ok_c, cleanup_ok_d
+    cleanup_ok = and cleanup_ok_ab, cleanup_ok_cd
+    !remove_dir_status
+    !read_dir_free_status
+    !lstat_free_status
+    !stat_free_status
+    !dir_free_status
+    !os_free_status
+    !family_free_status
+    !version_free_status
+    !read_dir_buf
+    !lstat_buf
+    !stat_buf
+    !dir_buf
+    !os_buf
+    !family_buf
+    !version_buf
+    !cleanup1
+    !cleanup2
+    !cleanup3
+    !cleanup4
+    !cleanup5
+    !cleanup6
+    !cleanup7
+    !cleanup8
+    !cleanup_ok_a
+    !cleanup_ok_b
+    !cleanup_ok_c
+    !cleanup_ok_d
+    !cleanup_ok_ab
+    !cleanup_ok_cd
+    !dir_ptr
+    !dir_len
+    !os_len
+    !family_ptr
+    !family_len
+    !version_ptr
+    !version_len
+    br cleanup_ok -> L_PASS, L_FAIL_CLEANUP
+
+L_PASS:
+    !cleanup_ok
+    return 0
+
+L_FAIL_VERSION:
+    !version_ok
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status2
+    !version_free_status2
+    !version_buf
+    !version_ptr
+    !version_len
+    return 81
+
+L_FAIL_FAMILY:
+    !family_ok
+    EXPAND DENO_FREE_BUFFER family_buf, family_free_status2
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status3
+    !family_free_status2
+    !version_free_status3
+    !family_buf
+    !version_buf
+    !family_ptr
+    !family_len
+    !version_ptr
+    !version_len
+    return 82
+
+L_FAIL_OS:
+    !os_ok
+    EXPAND DENO_FREE_BUFFER os_buf, os_free_status2
+    EXPAND DENO_FREE_BUFFER family_buf, family_free_status3
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status4
+    !os_free_status2
+    !family_free_status3
+    !version_free_status4
+    !os_buf
+    !family_buf
+    !version_buf
+    !os_len
+    !family_ptr
+    !family_len
+    !version_ptr
+    !version_len
+    return 83
+
+L_FAIL_DIR:
+    !dir_ok
+    EXPAND DENO_FREE_BUFFER os_buf, os_free_status3
+    EXPAND DENO_FREE_BUFFER family_buf, family_free_status4
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status5
+    !os_free_status3
+    !family_free_status4
+    !version_free_status5
+    !dir_buf
+    !os_buf
+    !family_buf
+    !version_buf
+    !os_len
+    !family_ptr
+    !family_len
+    !version_ptr
+    !version_len
+    return 84
+
+L_FAIL_STAT:
+    !stat_ok
+    EXPAND DENO_REMOVE_SYNC remove_dir_status2, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status2
+    EXPAND DENO_FREE_BUFFER os_buf, os_free_status4
+    EXPAND DENO_FREE_BUFFER family_buf, family_free_status5
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status6
+    !remove_dir_status2
+    !dir_free_status2
+    !os_free_status4
+    !family_free_status5
+    !version_free_status6
+    !stat_buf
+    !dir_buf
+    !os_buf
+    !family_buf
+    !version_buf
+    !dir_ptr
+    !dir_len
+    !os_len
+    !family_ptr
+    !family_len
+    !version_ptr
+    !version_len
+    return 85
+
+L_FAIL_LSTAT:
+    !lstat_ok
+    EXPAND DENO_REMOVE_SYNC remove_dir_status3, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER stat_buf, stat_free_status2
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status3
+    EXPAND DENO_FREE_BUFFER os_buf, os_free_status5
+    EXPAND DENO_FREE_BUFFER family_buf, family_free_status6
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status7
+    !remove_dir_status3
+    !stat_free_status2
+    !dir_free_status3
+    !os_free_status5
+    !family_free_status6
+    !version_free_status7
+    !lstat_buf
+    !stat_buf
+    !dir_buf
+    !os_buf
+    !family_buf
+    !version_buf
+    !dir_ptr
+    !dir_len
+    !os_len
+    !family_ptr
+    !family_len
+    !version_ptr
+    !version_len
+    return 86
+
+L_FAIL_READ_DIR:
+    !read_dir_ok
+    EXPAND DENO_REMOVE_SYNC remove_dir_status4, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER lstat_buf, lstat_free_status2
+    EXPAND DENO_FREE_BUFFER stat_buf, stat_free_status3
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status4
+    EXPAND DENO_FREE_BUFFER os_buf, os_free_status6
+    EXPAND DENO_FREE_BUFFER family_buf, family_free_status7
+    EXPAND DENO_FREE_BUFFER version_buf, version_free_status8
+    !remove_dir_status4
+    !lstat_free_status2
+    !stat_free_status3
+    !dir_free_status4
+    !os_free_status6
+    !family_free_status7
+    !version_free_status8
+    !read_dir_buf
+    !lstat_buf
+    !stat_buf
+    !dir_buf
+    !os_buf
+    !family_buf
+    !version_buf
+    !dir_ptr
+    !dir_len
+    !os_len
+    !family_ptr
+    !family_len
+    !version_ptr
+    !version_len
+    return 87
+
+L_FAIL_CLEANUP:
+    !cleanup_ok
+    return 88
