@@ -1,0 +1,256 @@
+@import "sa_std/deno.sa"
+@import "sa_std/fs.sai"
+
+@const TMP_PREFIX = utf8:"sa-deno-fs-"
+@const TMP_SUFFIX = utf8:".txt"
+@const PAYLOAD = utf8:"bytes"
+
+#def TMP_PREFIX_LEN = 11
+#def TMP_SUFFIX_LEN = 4
+#def PAYLOAD_LEN = 5
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND DENO_MAKE_TEMP_DIR dir_status, dir_buf, TMP_PREFIX, TMP_PREFIX_LEN
+    dir_ok = eq dir_status, 0
+    !dir_status
+    br dir_ok -> L_STAT_DIR, L_FAIL_DIR
+
+L_STAT_DIR:
+    !dir_ok
+    dir_ptr = call @sa_fs_read_buffer_data(dir_buf)
+    dir_len = call @sa_fs_read_buffer_len(dir_buf)
+    EXPAND DENO_STAT_SYNC_JSON stat_dir_status, stat_dir_buf, dir_ptr, dir_len
+    stat_dir_ok = eq stat_dir_status, 0
+    !stat_dir_status
+    br stat_dir_ok -> L_TEMP_FILE, L_FAIL_STAT_DIR
+
+L_TEMP_FILE:
+    !stat_dir_ok
+    EXPAND DENO_MAKE_TEMP_FILE file_status, file_buf, TMP_PREFIX, TMP_PREFIX_LEN, TMP_SUFFIX, TMP_SUFFIX_LEN
+    file_ok = eq file_status, 0
+    !file_status
+    br file_ok -> L_WRITE_FILE, L_FAIL_FILE
+
+L_WRITE_FILE:
+    !file_ok
+    file_ptr = call @sa_fs_read_buffer_data(file_buf)
+    file_len = call @sa_fs_read_buffer_len(file_buf)
+    EXPAND DENO_WRITE_FILE_SYNC write_status, file_ptr, file_len, PAYLOAD, PAYLOAD_LEN
+    write_ok = eq write_status, 0
+    !write_status
+    br write_ok -> L_READ_FILE, L_FAIL_WRITE
+
+L_READ_FILE:
+    !write_ok
+    EXPAND DENO_READ_FILE_SYNC read_status, read_buf, file_ptr, file_len, 64
+    read_ok_status = eq read_status, 0
+    !read_status
+    br read_ok_status -> L_CHECK_READ_LEN, L_FAIL_READ
+
+L_CHECK_READ_LEN:
+    !read_ok_status
+    read_len = call @sa_fs_read_buffer_len(read_buf)
+    read_len_ok = eq read_len, PAYLOAD_LEN
+    br read_len_ok -> L_STAT_FILE, L_FAIL_READ_LEN
+
+L_STAT_FILE:
+    !read_len_ok
+    EXPAND DENO_STAT_JSON stat_file_status, stat_file_buf, file_ptr, file_len
+    stat_file_ok = eq stat_file_status, 0
+    !stat_file_status
+    br stat_file_ok -> L_LSTAT_FILE, L_FAIL_STAT_FILE
+
+L_LSTAT_FILE:
+    !stat_file_ok
+    EXPAND DENO_LSTAT_SYNC_JSON lstat_file_status, lstat_file_buf, file_ptr, file_len
+    lstat_file_ok = eq lstat_file_status, 0
+    !lstat_file_status
+    br lstat_file_ok -> L_CLEANUP, L_FAIL_LSTAT_FILE
+
+L_CLEANUP:
+    !lstat_file_ok
+    EXPAND DENO_REMOVE_SYNC remove_file_status, file_ptr, file_len
+    EXPAND DENO_REMOVE_SYNC remove_dir_status, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER read_buf, read_free_status
+    EXPAND DENO_FREE_BUFFER stat_file_buf, stat_file_free_status
+    EXPAND DENO_FREE_BUFFER lstat_file_buf, lstat_file_free_status
+    EXPAND DENO_FREE_BUFFER stat_dir_buf, stat_dir_free_status
+    EXPAND DENO_FREE_BUFFER file_buf, file_free_status
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status
+    remove_file_ok = eq remove_file_status, 0
+    remove_dir_ok = eq remove_dir_status, 0
+    read_free_ok = eq read_free_status, 0
+    stat_file_free_ok = eq stat_file_free_status, 0
+    lstat_file_free_ok = eq lstat_file_free_status, 0
+    stat_dir_free_ok = eq stat_dir_free_status, 0
+    file_free_ok = eq file_free_status, 0
+    dir_free_ok = eq dir_free_status, 0
+    cleanup_ok = and remove_file_ok, remove_dir_ok
+    cleanup_ok = and cleanup_ok, read_free_ok
+    cleanup_ok = and cleanup_ok, stat_file_free_ok
+    cleanup_ok = and cleanup_ok, lstat_file_free_ok
+    cleanup_ok = and cleanup_ok, stat_dir_free_ok
+    cleanup_ok = and cleanup_ok, file_free_ok
+    cleanup_ok = and cleanup_ok, dir_free_ok
+    !remove_file_status
+    !remove_dir_status
+    !read_free_status
+    !stat_file_free_status
+    !lstat_file_free_status
+    !stat_dir_free_status
+    !file_free_status
+    !dir_free_status
+    !remove_file_ok
+    !remove_dir_ok
+    !read_free_ok
+    !stat_file_free_ok
+    !lstat_file_free_ok
+    !stat_dir_free_ok
+    !file_free_ok
+    !dir_free_ok
+    !read_len
+    !file_ptr
+    !file_len
+    !dir_ptr
+    !dir_len
+    br cleanup_ok -> L_PASS, L_FAIL_CLEANUP
+
+L_PASS:
+    !cleanup_ok
+    return 0
+
+L_FAIL_DIR:
+    !dir_ok
+    !dir_buf
+    return 71
+
+L_FAIL_STAT_DIR:
+    !stat_dir_ok
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status2
+    !dir_free_status2
+    !dir_ptr
+    !dir_len
+    !stat_dir_buf
+    return 72
+
+L_FAIL_FILE:
+    !file_ok
+    EXPAND DENO_REMOVE_SYNC remove_dir_status2, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER stat_dir_buf, stat_dir_free_status2
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status3
+    !remove_dir_status2
+    !stat_dir_free_status2
+    !dir_free_status3
+    !dir_ptr
+    !dir_len
+    !file_buf
+    return 73
+
+L_FAIL_WRITE:
+    !write_ok
+    EXPAND DENO_REMOVE_SYNC remove_file_status2, file_ptr, file_len
+    EXPAND DENO_REMOVE_SYNC remove_dir_status3, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER file_buf, file_free_status2
+    EXPAND DENO_FREE_BUFFER stat_dir_buf, stat_dir_free_status3
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status4
+    !remove_file_status2
+    !remove_dir_status3
+    !file_free_status2
+    !stat_dir_free_status3
+    !dir_free_status4
+    !file_ptr
+    !file_len
+    !dir_ptr
+    !dir_len
+    return 74
+
+L_FAIL_READ:
+    !read_ok_status
+    EXPAND DENO_REMOVE_SYNC remove_file_status3, file_ptr, file_len
+    EXPAND DENO_REMOVE_SYNC remove_dir_status4, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER file_buf, file_free_status3
+    EXPAND DENO_FREE_BUFFER stat_dir_buf, stat_dir_free_status4
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status5
+    !remove_file_status3
+    !remove_dir_status4
+    !file_free_status3
+    !stat_dir_free_status4
+    !dir_free_status5
+    !file_ptr
+    !file_len
+    !dir_ptr
+    !dir_len
+    !read_buf
+    return 75
+
+L_FAIL_READ_LEN:
+    !read_len_ok
+    EXPAND DENO_REMOVE_SYNC remove_file_status4, file_ptr, file_len
+    EXPAND DENO_REMOVE_SYNC remove_dir_status5, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER read_buf, read_free_status2
+    EXPAND DENO_FREE_BUFFER file_buf, file_free_status4
+    EXPAND DENO_FREE_BUFFER stat_dir_buf, stat_dir_free_status5
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status6
+    !remove_file_status4
+    !remove_dir_status5
+    !read_free_status2
+    !file_free_status4
+    !stat_dir_free_status5
+    !dir_free_status6
+    !read_len
+    !file_ptr
+    !file_len
+    !dir_ptr
+    !dir_len
+    return 76
+
+L_FAIL_STAT_FILE:
+    !stat_file_ok
+    EXPAND DENO_REMOVE_SYNC remove_file_status5, file_ptr, file_len
+    EXPAND DENO_REMOVE_SYNC remove_dir_status6, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER read_buf, read_free_status3
+    EXPAND DENO_FREE_BUFFER file_buf, file_free_status5
+    EXPAND DENO_FREE_BUFFER stat_dir_buf, stat_dir_free_status6
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status7
+    !remove_file_status5
+    !remove_dir_status6
+    !read_free_status3
+    !file_free_status5
+    !stat_dir_free_status6
+    !dir_free_status7
+    !read_len
+    !file_ptr
+    !file_len
+    !dir_ptr
+    !dir_len
+    !stat_file_buf
+    return 77
+
+L_FAIL_LSTAT_FILE:
+    !lstat_file_ok
+    EXPAND DENO_REMOVE_SYNC remove_file_status6, file_ptr, file_len
+    EXPAND DENO_REMOVE_SYNC remove_dir_status7, dir_ptr, dir_len
+    EXPAND DENO_FREE_BUFFER read_buf, read_free_status4
+    EXPAND DENO_FREE_BUFFER stat_file_buf, stat_file_free_status2
+    EXPAND DENO_FREE_BUFFER file_buf, file_free_status6
+    EXPAND DENO_FREE_BUFFER stat_dir_buf, stat_dir_free_status7
+    EXPAND DENO_FREE_BUFFER dir_buf, dir_free_status8
+    !remove_file_status6
+    !remove_dir_status7
+    !read_free_status4
+    !stat_file_free_status2
+    !file_free_status6
+    !stat_dir_free_status7
+    !dir_free_status8
+    !read_len
+    !file_ptr
+    !file_len
+    !dir_ptr
+    !dir_len
+    !lstat_file_buf
+    return 78
+
+L_FAIL_CLEANUP:
+    !cleanup_ok
+    return 79

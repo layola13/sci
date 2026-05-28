@@ -1799,6 +1799,78 @@ pub export fn sa_deno_random_uuid() u64 {
     return openOwnedBuffer(owned) catch return 0;
 }
 
+fn tempRootAlloc(allocator: std.mem.Allocator) ![]u8 {
+    if (envValueFromCurrentProcess("TMPDIR")) |value| {
+        if (value.len != 0) return allocator.dupe(u8, value);
+    }
+    if (envValueFromCurrentProcess("TMP")) |value| {
+        if (value.len != 0) return allocator.dupe(u8, value);
+    }
+    if (envValueFromCurrentProcess("TEMP")) |value| {
+        if (value.len != 0) return allocator.dupe(u8, value);
+    }
+    return allocator.dupe(u8, "/tmp");
+}
+
+fn tempPathAlloc(
+    allocator: std.mem.Allocator,
+    prefix: []const u8,
+    suffix: []const u8,
+) ![]u8 {
+    const root = try tempRootAlloc(allocator);
+    defer allocator.free(root);
+    const normalized_prefix = if (prefix.len == 0) "sa-deno-" else prefix;
+    const a = std.crypto.random.int(u64);
+    const b = std.crypto.random.int(u64);
+    const name = try std.fmt.allocPrint(allocator, "{s}{x:0>16}{x:0>16}{s}", .{ normalized_prefix, a, b, suffix });
+    defer allocator.free(name);
+    return std.fs.path.join(allocator, &.{ root, name });
+}
+
+pub export fn sa_deno_make_temp_dir(prefix_ptr: ?[*]const u8, prefix_len: u64) Fallible(u64) {
+    const prefix = constBytes(prefix_ptr, prefix_len) catch |err| return fail(u64, mapError(err));
+    if (std.mem.indexOfScalar(u8, prefix, 0) != null) return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
+    const allocator = std.heap.page_allocator;
+    var attempts: u32 = 0;
+    while (attempts < 100) : (attempts += 1) {
+        const path = tempPathAlloc(allocator, prefix, "") catch |err| return fail(u64, mapError(err));
+        std.fs.cwd().makeDir(path) catch |err| {
+            allocator.free(path);
+            if (err == error.PathAlreadyExists) continue;
+            return fail(u64, mapError(err));
+        };
+        const handle = openOwnedByteBuffer(path) catch |err| return fail(u64, mapError(err));
+        return ok(u64, handle);
+    }
+    return fail(u64, SA_STD_ERR_IO);
+}
+
+pub export fn sa_deno_make_temp_file(
+    prefix_ptr: ?[*]const u8,
+    prefix_len: u64,
+    suffix_ptr: ?[*]const u8,
+    suffix_len: u64,
+) Fallible(u64) {
+    const prefix = constBytes(prefix_ptr, prefix_len) catch |err| return fail(u64, mapError(err));
+    const suffix = constBytes(suffix_ptr, suffix_len) catch |err| return fail(u64, mapError(err));
+    if (std.mem.indexOfScalar(u8, prefix, 0) != null) return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
+    if (std.mem.indexOfScalar(u8, suffix, 0) != null) return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
+    const allocator = std.heap.page_allocator;
+    var attempts: u32 = 0;
+    while (attempts < 100) : (attempts += 1) {
+        const path = tempPathAlloc(allocator, prefix, suffix) catch |err| return fail(u64, mapError(err));
+        const file = std.fs.cwd().createFile(path, .{ .read = true, .exclusive = true }) catch |err| {
+            allocator.free(path);
+            if (err == error.PathAlreadyExists) continue;
+            return fail(u64, mapError(err));
+        };
+        file.close();
+        const handle = openOwnedByteBuffer(path) catch |err| return fail(u64, mapError(err));
+        return ok(u64, handle);
+    }
+    return fail(u64, SA_STD_ERR_IO);
+}
+
 pub export fn sa_deno_args_json() u64 {
     var args = std.process.argsAlloc(std.heap.page_allocator) catch return 0;
     defer std.process.argsFree(std.heap.page_allocator, args);

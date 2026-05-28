@@ -157,8 +157,12 @@ test "sa_std Deno compatibility facade covers HubProxy porting surface" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STDERR_WRITE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE_SYNC"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE_SYNC"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE_BASE64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE_BASE64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MKDIR_SYNC"));
@@ -166,6 +170,12 @@ test "sa_std Deno compatibility facade covers HubProxy porting surface" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_SYNC_JSON"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_JSON"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_SYNC_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STAT_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STAT_SYNC_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_DIR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_DIR_SYNC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_FILE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_FILE_SYNC"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_REMOVE_SYNC"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COPY_FILE_SYNC"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_RUN"));
