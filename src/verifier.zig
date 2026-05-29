@@ -2866,7 +2866,8 @@ fn verifyBody(
         return trapReport(.fallthrough_forbidden, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, null, null, null, "function body ended without a terminator", "end the last block with jmp, br, br_null, or return");
     }
 
-    if (check_exit_leaks and !fatal_terminated) {
+    const current_is_bodyless_extern = current_sig != null and current_sig.?.kind == .external and !body_seen;
+    if (check_exit_leaks and !fatal_terminated and !current_is_bodyless_extern) {
         for (state, 0..) |mask, idx| {
             if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
             if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
@@ -4050,6 +4051,54 @@ test "loop snapshots ignore stable extern calls that touch const data" {
                 report.message,
                 report.line,
                 report.source_line,
+                report.source_text orelse "",
+                report.register orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "bodyless extern at end does not leak its signature parameters" {
+    const source =
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\return 0
+        \\@extern sa_http_client_free(^client: ptr) -> u32
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const serial = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    switch (serial) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 2), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("serial trap={s} msg={s} source={s} register={s}\n", .{
+                @tagName(report.trap),
+                report.message,
+                report.source_text orelse "",
+                report.register orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const parallel = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 2 });
+    switch (parallel) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 2), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("parallel trap={s} msg={s} source={s} register={s}\n", .{
+                @tagName(report.trap),
+                report.message,
                 report.source_text orelse "",
                 report.register orelse "",
             });

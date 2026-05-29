@@ -379,3 +379,151 @@ test "native build and test link installed plugin exporting referenced extern" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] plugin extern"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }
+
+test "plugin installer rejects raw libraries and installs source project in dev mode" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("plugin/src");
+    try writeSource(tmp.dir, "plugin/build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const root_module = b.createModule(.{
+        \\        .root_source_file = b.path("src/plugin.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    const lib = b.addLibrary(.{
+        \\        .name = "smoke",
+        \\        .root_module = root_module,
+        \\        .linkage = .dynamic,
+        \\    });
+        \\    b.installArtifact(lib);
+        \\}
+        \\
+    );
+    try writeSource(tmp.dir, "plugin/src/plugin.zig",
+        \\const SkillSection = extern struct {
+        \\    name: [*:0]const u8,
+        \\    summary: [*:0]const u8,
+        \\    items: [*]const [*:0]const u8,
+        \\    items_len: usize,
+        \\};
+        \\const PluginDescriptor = extern struct {
+        \\    abi_version: u32,
+        \\    descriptor_size: u32,
+        \\    name: [*:0]const u8,
+        \\    init: ?*const fn (?*anyopaque) callconv(.c) u32,
+        \\    prebuild: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) u32,
+        \\    postbuild: ?*const fn (?*anyopaque) callconv(.c) u32,
+        \\    handle_command: ?*const anyopaque,
+        \\    skills_ptr: [*]const SkillSection,
+        \\    skills_len: usize,
+        \\};
+        \\const skills = [_]SkillSection{};
+        \\pub export const saasm_plugin_descriptor_v1: PluginDescriptor = .{
+        \\    .abi_version = 1,
+        \\    .descriptor_size = @as(u32, @intCast(@sizeOf(PluginDescriptor))),
+        \\    .name = "smoke",
+        \\    .init = null,
+        \\    .prebuild = null,
+        \\    .postbuild = null,
+        \\    .handle_command = null,
+        \\    .skills_ptr = skills[0..].ptr,
+        \\    .skills_len = skills.len,
+        \\};
+        \\pub export fn sa_smoke_probe() u32 {
+        \\    return 0;
+        \\}
+        \\
+    );
+    try writeSource(tmp.dir, "plugin/smoke.sai",
+        \\@extern sa_smoke_probe() -> u32
+        \\
+    );
+    try writeSource(tmp.dir, "plugin/sap.json",
+        \\{
+        \\  "schema": "sa.plugin/1",
+        \\  "name": "smoke",
+        \\  "version": "0.1.0",
+        \\  "artifacts": {
+        \\    "linux-x86_64": { "path": "zig-out/lib/libsmoke.so" }
+        \\  },
+        \\  "interfaces": {
+        \\    "sai": { "path": "smoke.sai" }
+        \\  },
+        \\  "skills": [],
+        \\  "permissions": {
+        \\    "fs": [],
+        \\    "net": [],
+        \\    "env": [],
+        \\    "process": { "spawn": false, "exec": [] }
+        \\  },
+        \\  "dependencies": {}
+        \\}
+        \\
+    );
+    try writeSource(tmp.dir, "plugin/bad_net.sap.json",
+        \\{
+        \\  "schema": "sa.plugin/1",
+        \\  "name": "bad-net",
+        \\  "version": "0.1.0",
+        \\  "artifacts": {
+        \\    "linux-x86_64": { "path": "zig-out/lib/libsmoke.so" }
+        \\  },
+        \\  "interfaces": {},
+        \\  "skills": [],
+        \\  "permissions": {
+        \\    "fs": [],
+        \\    "net": [{ "url": "http://localhost.evil.example", "methods": ["POST"] }],
+        \\    "env": [],
+        \\    "process": { "spawn": false, "exec": [] }
+        \\  },
+        \\  "dependencies": {}
+        \\}
+        \\
+    );
+
+    const env_name: [:0]const u8 = "SA_PLUGINS_HOME";
+    const saved_env = try saveEnvVarZ(std.testing.allocator, env_name);
+    defer {
+        if (saved_env) |value| {
+            setEnvVarZ(env_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            unsetEnvVarZ(env_name);
+        }
+    }
+    try setEnvVarZ(env_name, "state");
+
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
+
+    const raw_code = try saasm.plugins.installFromPath(std.testing.allocator, "plugin/zig-out/lib/libsmoke.so", output.writer(), .{ .dev = true });
+    try std.testing.expectEqual(@as(u8, 1), raw_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "refusing to install a raw dynamic library"));
+
+    output.clearRetainingCapacity();
+    try std.testing.expectError(
+        error.InvalidPluginPermission,
+        saasm.plugins.installFromPath(std.testing.allocator, "plugin/bad_net.sap.json", output.writer(), .{ .dev = true }),
+    );
+
+    output.clearRetainingCapacity();
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "plugin", output.writer(), .{ .dev = true });
+    try std.testing.expectEqual(@as(u8, 0), install_code);
+    try tmp.dir.access("state/installed/smoke/current/libsmoke.so", .{ .mode = .read_only });
+    try tmp.dir.access("state/installed/smoke/current/sap.json", .{ .mode = .read_only });
+    try tmp.dir.access("state/installed/smoke/current/sap.lock", .{ .mode = .read_only });
+    try tmp.dir.access("state/installed/smoke/current/permissions.lock", .{ .mode = .read_only });
+    try tmp.dir.access("state/installed/smoke/current/sa/smoke.sai", .{ .mode = .read_only });
+    try tmp.dir.access("state/installed/smoke/0.1.0/libsmoke.so", .{ .mode = .read_only });
+}

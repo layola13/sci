@@ -128,6 +128,94 @@ SA 编译器全面拥抱 "Agent-First" 理念：
 - **Agent 交互指令**：提供 `sa explain <code>` (讲解错误原理)、`sa fix --plan` (生成结构化修补补丁)。
 - **动态自解释与插件系统**：CLI 将插件作为独立外部工程处理。Agent 执行 `sa skills` 时，主程序会聚合已发现插件的能力字典，动态生成当前版本的开发手册，杜绝 Agent 幻觉。
 
+### 1.7.1 外部插件系统的真实契约与改进线
+
+SA 插件不是语言本体的一部分，也不是包管理中的普通源码包。它是通过 C-ABI 动态库向 SA 暴露 native capability 的独立工程。当前推荐形态固定为：
+
+```
+sa_plugin_<name>/
+  sap.json                    # SA Plugin manifest: artifact/interface/dependency/permissions metadata
+  build.zig
+  src/plugin.zig              # saasm_plugin_descriptor_v1 + skills metadata
+  src/<name>_saasm_api.zig    # pub export fn sa_<name>_* C-ABI symbols
+  <name>.sa                   # optional SA-facing facade
+  <name>.sai                  # SA-facing @extern contract
+  <name>.sal                  # SA-facing macros/layout/facade
+  API_COVERAGE.md             # public surface ledger when replacing an external runtime
+  tests/*-smoke.sh            # build + symbol + native execution smoke
+```
+
+强约束：
+- 插件依赖插件必须通过 `sap.json` 声明，不能靠 README 或安装脚本隐式约定加载顺序。`sap` 表示 SA Plugin manifest，推荐文件名为 `sap.json`，不是 `sa.mod` 的替代品。
+- `.sai` 是插件的公开 ABI，不允许只把接口藏在 `tests/` 或文档里；每个 `@extern` 必须有 `.so` 导出符号。
+- `.sal` 用于常量、布局和宏 facade；复杂对象通过不透明 handle、显式 `*_free`、`poll/take` 或 JSON/bytes 记录表达，不把 Promise、事件对象、类实例直接塞进 SA ABI。
+- 插件不得静默调用被替代的外部运行时。例如 Deno 兼容插件的目标是 native replacement，不是 shell out 到 `deno`。
+- 每个插件必须提供 symbol smoke：`deno.sai` 这类接口文件与 `nm -D lib*.so` 必须双向可审计。
+- `sa run` 与 native `sa build` 的插件路径必须最终统一。现状中部分 extern-heavy 插件在 native build 可工作，但解释执行路径仍可能暴露 `InvalidInstruction`，这属于宿主运行路径一致性缺口。
+
+`sap.json` 最小契约：
+- `schema`: 当前主版本，例如 `sa.plugin/1`。
+- `name` / `version`: 与 descriptor name、安装目录和导出符号前缀交叉核验。
+- `abi`: 插件 descriptor ABI version、宿主 SAASM 版本范围、symbol smoke 来源。
+- `artifacts`: target triple 到动态库路径与 `sha256` 的映射。
+- `interfaces`: `.sai` / `.sal` 路径与 `sha256`。
+- `skills`: 提供给 `sa skills` 的能力集合。
+- `permissions`: 插件安装/运行所需的文件、网络、环境变量、进程能力声明。
+- `dependencies`: 插件依赖插件的版本、ABI、必需/可选、关键符号。
+
+完整性哈希默认使用 `sha256`。MD5 不得用于安全判断或防篡改校验；若未来需要更快的本地缓存校验，可以额外加入 `blake3`，但不能用 MD5 替代 `sha256`。
+
+权限契约：
+- `permissions` 是必填对象，缺省语义是 deny-all；纯计算插件也必须显式写 `fs: []`、`net: []`、`env: []`、`process.spawn: false`。
+- 文件权限必须声明 `read/write/create/delete` 和路径范围；禁止默认全盘访问。
+- 网络权限必须声明 URL；远程地址只允许 `https://`，本地开发只允许 `localhost`、`127.0.0.1` 或 `[::1]`。普通远程 `http://`、裸 IP 远程地址、缺少 scheme 的地址必须拒绝安装。
+- 环境变量必须列出变量名或受限前缀；禁止默认读取全部环境。
+- 进程启动默认禁止；若允许，必须声明二进制路径和参数策略。
+- 插件依赖不继承权限；依赖图中每个插件各自声明，安装器向用户展示合并后的权限账本。
+- `permissions` 在 `sap.json` 中表示插件安装/运行权限；在 `sa.mod` 中表示业务包权限请求。两者都通过时，业务代码才能使用对应插件能力。
+
+`permissions` 字段格式：
+- `fs: [{ op, path }]`，`op` ∈ `read|write|create|delete|metadata`，`path` 只允许 `$PROJECT`、`$HOME`、`$SA_CACHE`、`$SA_PLUGINS_HOME` 等受控前缀或明确绝对目录，禁止 `/`、`/**`、`..`。
+- `net: [{ url, methods? }]`，远程 URL 必须是 `https://host[:port][/prefix]`，localhost 可用 `http://localhost[:port]` / `http://127.0.0.1[:port]` / `http://[::1][:port]`，`methods` 只能列 HTTP 标准方法。
+- `env: ["NAME", "PREFIX_*"]`，禁止 `"*"`。
+- `process: { spawn: bool, exec: [{ path, args }] }`，`path` 必须是绝对路径；`args` 默认精确匹配，单独 `"*"` 表示该位置允许任意单个参数。
+- 未知权限 key、未知类型、缺少必填字段都必须安装失败，不能忽略。
+
+`sa.mod` 与 `sap.json` 的共同点：都声明 identity、dependencies、sha256 integrity、permissions，并默认 deny-all。最大区别：`sa.mod` 管正常工程包和透明源码依赖，类似 Rust crate；`sap.json` 管编译器/宿主插件和 native artifact，必须有 descriptor、symbol smoke、安装级 sandbox 和 `.so` artifact。
+
+防作弊边界：`sap.json.permissions` 不是 sandbox。native `.so` 若被同进程 `dlopen`，恶意插件仍可绕过声明直接调用 `connect/open/execve` 等 syscall。强制安全必须由 worker process + seccomp/Landlock/namespace/chroot 等 OS sandbox + 宿主 broker 完成。网络、文件、环境和进程能力必须经 broker 校验 `sap.json.permissions` 与项目 `sa.mod.permissions` 后执行；插件直接 syscall 应被内核策略拒绝。当前主线只具备 manifest/descriptor/URL 级校验，sandbox/broker enforcement 仍是必须补齐项。
+
+安装前 verifier hooks 必须存在，但只能由宿主/plugin-manager 提供，不能执行插件仓库自带的任意 `preinstall`/`postinstall` 脚本。最小 hook 集合：`manifest_schema`、`source_layout`、`text_source_required`、`permission_policy`、`interface_files`、`symbol_smoke`、`artifact_static_scan`、`dependency_dag`、`lock_emit`。其中 `text_source_required` 必须拒绝二进制-only 插件，正式安装只能接受含 `build.zig`、`src/plugin.zig` 和声明接口文本的工程；artifact 必须由安装器从文本源构建出来，不能直接安装 `.so/.dll/.dylib`。`artifact_static_scan` 应检查动态导入/字符串风险，例如 `connect/socket/getaddrinfo/open/execve/system/dlopen`；发现未声明能力或无 sandbox 的 privileged 插件必须拒绝安装。静态 hook 是准入门槛，不是安全证明，不能替代运行时 sandbox/broker。
+
+权限确认：安装器发现 `permissions.fs/net/env/process` 非空或允许 spawn 时，必须展示权限账本并要求用户手动输入插件名确认。正式安装禁止 `-y`、默认 yes、CI 自动确认；非 TTY 必须拒绝。只有显式 dev 模式（例如 `--dev` 或 `SA_PLUGIN_DEV=1`）可跳过，用于本地可信开发。
+
+Deno-like `--allow-*` 作为运行/构建时用户授权上限：支持 `--allow-env=NAME,PREFIX_*`、`--allow-net=https://host,http://localhost:port`、`--allow-read=PATH`、`--allow-write=PATH`、`--allow-run=/abs/bin`。有效权限必须是 `manifest_declared_permission ∩ cli_allow_permission`；manifest 未声明的能力不能被 CLI 放大，CLI 未授权的 manifest 能力也不能使用。裸 `--allow-*` 最多表示允许 manifest 已声明的同类权限，不表示全开放；正式安全路径不提供 `--allow-all` / `-A`，开发便利走显式 dev 模式。
+
+项目级权限预设：`sa.mod` 可定义 `permission_set <name> { env/read/write/net/run [...] }`，借鉴 Deno `deno.json` permission sets 的体验，但不自动生效。用户必须在命令行显式 `-P=<name>` / `--permission-set=<name>` 选择；CI 中缺少显式选择应失败。权限集只是 CLI 授权预设，最终仍与 `sa.mod.permissions` / `sap.json.permissions` 取交集。
+
+宿主或 plugin-manager 应先解析全部 `sap.json`，校验权限声明，构建依赖 DAG，按拓扑顺序加载动态库。缺少必要权限声明、必需依赖缺失、ABI 主版本不匹配、环形依赖、同名插件多版本并存、重复导出同名 SA extern symbol，都必须拒绝加载。可选依赖缺失时插件可以加载，但 descriptor skills 必须降级，不能向 Agent 广告不可用能力。后续可由 `sap.lock` 固化 artifact `sha256`、interface `sha256`、权限账本 hash 和依赖图 `sha256`，服务 CI 与部署复现。
+
+SA 文件后缀与清单边界：
+- `.sa`: SA-ASM 源码，包含实现、宏调用、`@import` 和可验证指令。
+- `.sai`: SA Interface，只声明外部 ABI，例如 `@extern`。
+- `.sal`: SA Layout/facade，声明布局常量、结构偏移、slot 装配和薄宏。
+- `sa.mod`: SA Package manifest，管理普通源码包依赖、hash、permissions 和插件需求。
+- `sap.json`: SA Plugin manifest，管理 native plugin artifact、interfaces、skills、permissions、ABI 和插件依赖。
+
+当前优点：
+- 核心编译器保持小而稳定，插件业务逻辑独立演进。
+- C-ABI 门槛低，Zig/C/Rust/Go 都能导出符号。
+- `.sai` 让 Referee 在不知道函数体的情况下仍能检查调用点所有权契约。
+- descriptor + skills metadata 让 Agent 能发现当前真实能力，而不是依赖静态手册。
+- `sap.json` 让插件依赖关系机器可读，HTTP/TLS/DNS/DB/Deno 这类能力可以组合成受审计的 native capability graph。
+
+当前缺口：
+- ABI 漂移风险仍高，必须用 CI 固化 `.sai` vs `.so` 符号检查。
+- 错误模型还偏 `0/1/2`，需要统一 status code、错误 buffer、权限错误、OS errno 映射。
+- async/stream/event 还没有统一 ABI，应采用 handle + `poll/take/free` 规范，而不是模拟 JS Promise。
+- 本地 `sa plugin install` 已能解析 `sap.json`、拒绝裸二进制、从文本工程构建、校验基础权限、校验接口路径与可选 `sha256`、执行 `.sai` → `.so` symbol smoke、生成 `sap.lock` / `permissions.lock`、写入依赖图 hash、递归处理带 `path` 的插件依赖并检测本地依赖环；GitHub/release 远程拉取、跨插件重复 extern symbol 拒绝和 optional skill 降级还需要继续实现。
+- 权限沙箱文档先行，真实 syscall/grant 阻断仍需宿主实现；文档必须区分“已实现”和“目标设计”。
+
 ### 1.8 SA 标准库 (sa_std) 的能力边界与 FFI 策略 (NEW)
 
 - **纯汇编基元**：`Vec`, `HashMap`, `String`, `Arc/Mutex` 等极轻量数据结构完全由 `.sa` 宏拼装，零 C 库依赖。

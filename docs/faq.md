@@ -2304,8 +2304,30 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
 
 **A**: 它们运作在完全不同的维度。
 
-- **Plugin (插件，如 `sa db` / `sa sax`)**：用于扩展 **CLI 编译器工具自身**。它们在编译期链接，帮助处理特殊子命令。
+- **Plugin (插件，如 `sa_plugin_deno` / `sa_plugin_http_client` / `sa_plugin_pkg`)**：用于扩展 **SA 宿主与 native capability**。它们是独立工程，交付 `sap.json + .so + .sa + .sai + .sal`，既可提供 CLI/Agent skills，也可通过 `@extern` 给 SA 业务代码调用。
 - **Package (包，如第三方 `libyaml`)**：用于扩展 **用户编写的业务代码**。它们在运行期/展开期通过 `sa fetch` 拉取，供业务逻辑 `@import` 使用。
+
+插件必须维护公开 ABI 契约：
+
+- `sap.json`：插件工程清单，声明 artifact、接口文件、skills、permissions、ABI 和插件依赖。
+- `.so`：实际导出的 C-ABI 符号。
+- `.sai`：SA 编译期看到的 `@extern` 签名。
+- `.sal`：宏、布局、slot 装配和 facade。
+- smoke：检查 `.sai` 中每个符号都存在于 `.so`。
+
+如果插件目标是替代 Deno/Bun 这类 runtime，它不应 shell out 到被替代 runtime，而应逐步实现 native replacement surface，并维护 `API_COVERAGE.md` 标记 `implemented` / `planned_native` / `stub_unsupported` / `type_only`。
+
+### Q: SA 目前有哪些文件后缀和清单？
+
+**A**: 当前应固定为五类入口。
+
+| 文件 | 用途 |
+| --- | --- |
+| `.sa` | SA-ASM 源码，实现函数、宏调用和可验证指令。 |
+| `.sai` | SA Interface，声明 `@extern` 等外部 ABI。 |
+| `.sal` | SA Layout，声明布局常量、结构偏移、slot 装配和薄宏 facade。 |
+| `sa.mod` | SA Package manifest，管理普通源码包依赖、hash、permissions 和插件需求。 |
+| `sap.json` | SA Plugin manifest，管理 native 插件 artifact、接口文件、skills、permissions、ABI 和插件依赖。 |
 
 ### Q: 为什么 `sci` 编译器要在输出里提供 `compile_tokens` 和 `instruction_count`？
 

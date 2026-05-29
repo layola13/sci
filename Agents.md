@@ -69,6 +69,25 @@ Answer:
 Next:
 - Prefer adding Deno-porting conveniences to `sa_std/deno.sa` with small SA fixtures, then install the updated toolchain before using them from HubProxy.
 
+## 2026-05-29 17:21
+
+Question:
+- Was the remaining Codex `OutputTextDelta without active item` warning caused by the SA compiler/plugin linker, or by HubProxy Responses fallback SSE shape?
+
+Evidence checked:
+- `/home/vscode/projects/sci/src/runtime/sa_std.zig`
+- `/home/vscode/projects/codex/codex-rs/core/src/session/turn.rs`
+- `/home/vscode/projects/codex/codex-rs/codex-api/src/sse/responses.rs`
+- `zig test --test-filter "chat SSE fallback" tests/std_smoke_core.zig`
+- `/home/vscode/.sa/bin/sa test tests/responses_chat_fallback_request_test.sa --jobs 1`
+
+Answer:
+- It was not an HTTP plugin link failure or compiler codegen failure. The SA std `sa_deno_chat_sse_to_responses` state machine finalized the reasoning output item again after the assistant message item had started, which cleared Codex's active item before the next `response.output_text.delta`.
+- The fix is in `sa_std` runtime: track reasoning/message output indices, include `item_id`/`output_index`/`content_index` in emitted deltas, and make reasoning finalization one-shot once message streaming has started.
+
+Next:
+- Keep regression coverage in both the Zig std fixture and HubProxy's native SA `@test` so future fallback SSE changes cannot reintroduce the active-item break.
+
 ## 2026-05-21 09:10
 
 Question:
@@ -3506,3 +3525,86 @@ Verification:
 Remaining gap:
 - A true Deno/Web facade should wrap these macros into higher-level `fetch`/`Deno.serve`/`Headers`/`Request`/`Response`
   conventions with plugin-backed integration tests. Do not reimplement that behavior inside HubProxy business logic.
+
+## 2026-05-29 19:01
+
+Question:
+- Why did SA HubProxy lose `name` on Responses `function_call_output` chat fallback tool messages after the old business-layer fallback was removed?
+
+Evidence checked:
+- [src/runtime/sa_std.zig](/home/vscode/projects/sci/src/runtime/sa_std.zig)
+- [tests/std_smoke_core.zig](/home/vscode/projects/sci/tests/std_smoke_core.zig)
+- `/home/vscode/projects/hubproxy/src/proxy.ts`
+- `/home/vscode/projects/hubproxy/src/proxy_test.ts`
+- `zig test tests/std_smoke_core.zig --test-filter "sa_std Deno responses chat fallback request"`
+
+Answer:
+- The root cause was in SCI std, not in HTTP linking or HubProxy routing. Deno normalizes Responses input by first collecting `call_id -> tool name` from preceding tool-call items, then applies that name to later `function_call_output` messages when the output item lacks `name`. `sa_deno_responses_chat_fallback_request` only copied an explicit output `name`, so the SA chat fallback produced a tool message with `tool_call_id` but no `name`.
+- Fixed in `sa_std`: `denoResponsesChatFallbackRequest` now builds the `call_id -> name` map from input items, uses normalized MCP names where needed, and falls back to that map for tool output messages. The focused C fixture now checks top-level string input handling and tool-history name preservation.
+
+Verification:
+- `zig test tests/std_smoke_core.zig --test-filter "sa_std Deno responses chat fallback request"`
+- `sh tools/install.sh --dir /home/vscode/.sa --no-shell`
+- `/home/vscode/.sa/bin/sa build main.sa -o hubproxy --json` from `/home/vscode/projects/hubproxy/sa`
+- HubProxy focused tests: `sa test tests/responses_chat_fallback_request_test.sa --jobs 1`, `test_responses_fallback_capture.sh`, `test_responses_fallback_strips_responses_only_fields.sh`, `test_responses_fallback_tool_history.sh`, `test_responses_fallback_json_tool_call.sh`, `test_responses_fallback_json_tool_only.sh`.
+
+Next:
+- Keep future Responses request fallback behavior in SCI std first; only leave HubProxy SA code as routing/glue unless a behavior truly depends on service state.
+
+## 2026-05-29 19:36
+
+Question:
+- Why did HubProxy need a trailing `__hubproxy_import_sentinel` after importing HTTP `.sai` files, and can that workaround be removed?
+
+Evidence checked:
+- [src/verifier.zig](/home/vscode/projects/sci/src/verifier.zig)
+- `/home/vscode/projects/hubproxy/sa/main.sa`
+- `zig test src/verifier.zig --test-filter "bodyless extern at end"`
+- `/home/vscode/.sa/bin/sa build main.sa -o hubproxy --json` from `/home/vscode/projects/hubproxy/sa`
+
+Answer:
+- Root cause was in the SCI verifier. `@extern` declarations are bodyless function signatures, but verifier still opened a parameter register scope for them. When the final instruction in a flattened program was a bodyless extern, the normal end-of-function leak check ran against extern signature parameters such as `^client`, producing a false `MemoryLeak` (`live registers remain at function exit`). HubProxy's sentinel only hid the bug by ensuring the final declaration was a real empty wrapper instead of the imported extern.
+- Fixed verifier exit checking to skip leak validation for `current_sig.kind == .external` when no body was seen.
+- Added a regression test covering a bodyless extern at file end through both serial and parallel `verifyWithOptions`.
+
+Verification:
+- `zig test src/verifier.zig --test-filter "bodyless extern at end"`
+- `sh tools/install.sh --dir /home/vscode/.sa --no-shell` completed ReleaseFast install.
+- After removing HubProxy's sentinel, installed `/home/vscode/.sa/bin/sa` rebuilt HubProxy successfully:
+  `{"status":"ok","metrics":{"compile_tokens":32102,"instruction_count":15363}}`.
+
+Next:
+- Keep bodyless extern handling in verifier, not in projects. SA projects should not need dummy trailing functions after `.sai` imports.
+
+## 2026-05-29 21:00
+
+Question:
+- Why should HubProxy stop doing byte-scan extraction for JSON-RPC `params` strings such as `environment/add.name`
+  and `review/start.threadId`?
+
+Evidence checked:
+- [src/runtime/sa_std.zig](/home/vscode/projects/sci/src/runtime/sa_std.zig)
+- [sa_std/deno.sai](/home/vscode/projects/sci/sa_std/deno.sai)
+- [sa_std/deno.sa](/home/vscode/projects/sci/sa_std/deno.sa)
+- [tests/std_smoke_core.zig](/home/vscode/projects/sci/tests/std_smoke_core.zig)
+- `/home/vscode/projects/hubproxy/sa/main.sa`
+- `/home/vscode/projects/hubproxy/sa/tests/model_list_contract_test.sa`
+
+Answer:
+- Root cause was not missing JSON support. SA std already has JSON DOM/stringify. The bug was HubProxy business code
+  still using byte-scan helpers that truncate escaped JSON strings at `\"` and mishandle backslashes.
+- Added `sa_deno_jsonrpc_params_string_literal(body, key, fallback, emit_null_if_missing)` to `libsa_std`. It parses
+  JSON-RPC request bodies with Zig `std.json`, reads `params[key]` only when it is a JSON text value, and returns an
+  owned byte buffer containing either the correctly escaped JSON string literal, `null`, or escaped fallback text.
+- Exposed the helper through `sa_std/deno.sai`, `sa_std/deno.sa` as `DENO_JSONRPC_PARAMS_STRING_LITERAL`, and
+  `src/runtime/sa_std.h`.
+
+Verification:
+- `zig test tests/std_smoke_core.zig --test-filter "JSON-RPC params string literal"` passed. The C fixture covers
+  escaped quotes, backslashes, missing fields, null fields, and invalid JSON fallback behavior.
+- `tools/install.sh --dir /home/vscode/.sa --no-shell` completed ReleaseFast install, updating the system SA/std.
+- HubProxy rebuilt against the installed std and now uses this helper for `environment/add` and `review/start`.
+
+Next:
+- Continue moving generic JSON/RPC transformation into SCI std/runtime helpers when the logic is independent of
+  HubProxy state. Keep SA business files as thin routing/state glue where possible.

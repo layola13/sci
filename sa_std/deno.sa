@@ -60,6 +60,50 @@
     %out_buffer = call @sa_deno_text_decode(&%data, %data_len)
 [END_MACRO]
 
+[MACRO] DENO_TEXT_ENCODER_ENCODE %out_buffer, %data, %data_len
+    EXPAND DENO_TEXT_ENCODE %out_buffer, %data, %data_len
+[END_MACRO]
+
+[MACRO] DENO_NEW_TEXT_ENCODER_ENCODE %out_buffer, %data, %data_len
+    EXPAND DENO_TEXT_ENCODER_ENCODE %out_buffer, %data, %data_len
+[END_MACRO]
+
+[MACRO] DENO_TEXT_DECODER_DECODE %out_buffer, %data, %data_len
+    EXPAND DENO_TEXT_DECODE %out_buffer, %data, %data_len
+[END_MACRO]
+
+[MACRO] DENO_NEW_TEXT_DECODER_DECODE %out_buffer, %data, %data_len
+    EXPAND DENO_TEXT_DECODER_DECODE %out_buffer, %data, %data_len
+[END_MACRO]
+
+[MACRO] DENO_CHAT_SSE_TO_RESPONSES %out_buffer, %chat_body, %chat_body_len, %req_body, %req_body_len
+    %out_buffer = call @sa_deno_chat_sse_to_responses(&%chat_body, %chat_body_len, &%req_body, %req_body_len)
+[END_MACRO]
+
+[MACRO] DENO_CHAT_JSON_TO_RESPONSES %out_buffer, %chat_body, %chat_body_len, %req_body, %req_body_len
+    %out_buffer = call @sa_deno_chat_json_to_responses(&%chat_body, %chat_body_len, &%req_body, %req_body_len)
+[END_MACRO]
+
+[MACRO] DENO_RESPONSES_SSE_NORMALIZE %out_buffer, %sse_body, %sse_body_len
+    %out_buffer = call @sa_deno_responses_sse_normalize(&%sse_body, %sse_body_len)
+[END_MACRO]
+
+[MACRO] DENO_RESPONSES_JSON_NORMALIZE %out_buffer, %body, %body_len
+    %out_buffer = call @sa_deno_responses_json_normalize(&%body, %body_len)
+[END_MACRO]
+
+[MACRO] DENO_RESPONSES_REQUEST_NORMALIZE %out_buffer, %body, %body_len
+    %out_buffer = call @sa_deno_responses_request_normalize(&%body, %body_len)
+[END_MACRO]
+
+[MACRO] DENO_RESPONSES_CHAT_FALLBACK_REQUEST %out_buffer, %body, %body_len, %default_model, %default_model_len, %plan_mode_like
+    %out_buffer = call @sa_deno_responses_chat_fallback_request(&%body, %body_len, &%default_model, %default_model_len, %plan_mode_like)
+[END_MACRO]
+
+[MACRO] DENO_JSONRPC_PARAMS_STRING_LITERAL %out_buffer, %body, %body_len, %key, %key_len, %fallback, %fallback_len, %emit_null_if_missing
+    %out_buffer = call @sa_deno_jsonrpc_params_string_literal(&%body, %body_len, &%key, %key_len, &%fallback, %fallback_len, %emit_null_if_missing)
+[END_MACRO]
+
 [MACRO] DENO_VERSION_JSON %out_buffer
     %out_buffer = call @sa_deno_version_json()
 [END_MACRO]
@@ -80,14 +124,34 @@
     %out_buffer = call @sa_deno_build_platform_family()
 [END_MACRO]
 
+[MACRO] DENO_DATE_NOW_ISO %out_buffer
+    %out_buffer = call @sa_deno_date_now_iso()
+[END_MACRO]
+
+[MACRO] DENO_NEW_DATE_TO_ISO_STRING %out_buffer
+    EXPAND DENO_DATE_NOW_ISO %out_buffer
+[END_MACRO]
+
+[MACRO] DENO_DATE_TO_ISO_STRING %out_buffer
+    EXPAND DENO_DATE_NOW_ISO %out_buffer
+[END_MACRO]
+
 [MACRO] DENO_JSON_PARSE %out_root, %bytes, %len
     EXPAND JSON_PARSE %out_root, %bytes, %len
+[END_MACRO]
+
+[MACRO] DENO_JSON_PARSE_TEXT %out_root, %bytes, %len
+    EXPAND DENO_JSON_PARSE %out_root, %bytes, %len
 [END_MACRO]
 
 [MACRO] DENO_JSON_STRINGIFY %out_status, %out_buffer, %node
     __deno_json_stringify_slot_%out_buffer = stack_alloc 8
     %out_status = call @sa_json_stringify(%node, &__deno_json_stringify_slot_%out_buffer)
     %out_buffer = load __deno_json_stringify_slot_%out_buffer+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_JSON_STRINGIFY_NODE %out_status, %out_buffer, %node
+    EXPAND DENO_JSON_STRINGIFY %out_status, %out_buffer, %node
 [END_MACRO]
 
 [MACRO] DENO_JSON_BUFFER_SLICE %out_ptr, %out_len, %buffer
@@ -372,8 +436,20 @@
     %out_stderr = load __deno_exec_cwd_stderr_slot_%out_stderr+0 as u64
 [END_MACRO]
 
+[MACRO] DENO_COMMAND_OUTPUT %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len
+    EXPAND DENO_COMMAND_EXEC %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len
+[END_MACRO]
+
+[MACRO] DENO_COMMAND_OUTPUT_CWD %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len
+    EXPAND DENO_COMMAND_EXEC_CWD %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len
+[END_MACRO]
+
 [MACRO] DENO_NOW_MS %out_ms
     %out_ms = call @sa_time_unix_ms()
+[END_MACRO]
+
+[MACRO] DENO_DATE_NOW %out_ms
+    EXPAND DENO_NOW_MS %out_ms
 [END_MACRO]
 
 [MACRO] DENO_NOW_NS %out_ns
@@ -497,6 +573,14 @@
     %out_status = call @sa_http_client_resp_get_header(%response, &%key, %key_len, &__deno_http_header_ptr_slot_%out_ptr, &__deno_http_header_len_slot_%out_len)
     %out_ptr = load __deno_http_header_ptr_slot_%out_ptr+0 as ptr
     %out_len = load __deno_http_header_len_slot_%out_len+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_HTTP_RESPONSE_BODY_SLICE %out_status, %out_ptr, %out_len, %response
+    __deno_http_body_ptr_slot_%out_ptr = stack_alloc 8
+    __deno_http_body_len_slot_%out_len = stack_alloc 8
+    %out_status = call @sa_http_client_resp_body_slice(%response, &__deno_http_body_ptr_slot_%out_ptr, &__deno_http_body_len_slot_%out_len)
+    %out_ptr = load __deno_http_body_ptr_slot_%out_ptr+0 as ptr
+    %out_len = load __deno_http_body_len_slot_%out_len+0 as u64
 [END_MACRO]
 
 [MACRO] DENO_HTTP_RESPONSE_BODY_READER %out_status, %out_reader, %response
@@ -631,16 +715,32 @@
     EXPAND DENO_HTTP_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len
 [END_MACRO]
 
+[MACRO] DENO_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len
+    EXPAND DENO_FETCH_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len
+[END_MACRO]
+
 [MACRO] DENO_HEADERS_APPEND %out_status, %request, %key, %key_len, %value, %value_len
     EXPAND DENO_HTTP_REQUEST_ADD_HEADER %out_status, %request, %key, %key_len, %value, %value_len
+[END_MACRO]
+
+[MACRO] DENO_REQUEST_HEADERS_APPEND %out_status, %request, %key, %key_len, %value, %value_len
+    EXPAND DENO_HEADERS_APPEND %out_status, %request, %key, %key_len, %value, %value_len
 [END_MACRO]
 
 [MACRO] DENO_FETCH_REQUEST_SET_BODY %out_status, %request, %body, %body_len
     EXPAND DENO_HTTP_REQUEST_SET_BODY %out_status, %request, %body, %body_len
 [END_MACRO]
 
+[MACRO] DENO_REQUEST_SET_BODY %out_status, %request, %body, %body_len
+    EXPAND DENO_FETCH_REQUEST_SET_BODY %out_status, %request, %body, %body_len
+[END_MACRO]
+
 [MACRO] DENO_FETCH_SEND %out_status, %out_response, %request
     EXPAND DENO_HTTP_REQUEST_SEND %out_status, %out_response, %request
+[END_MACRO]
+
+[MACRO] DENO_REQUEST_SEND %out_status, %out_response, %request
+    EXPAND DENO_FETCH_SEND %out_status, %out_response, %request
 [END_MACRO]
 
 [MACRO] DENO_RESPONSE_STATUS %out_status_code, %response
@@ -649,6 +749,32 @@
 
 [MACRO] DENO_HEADERS_GET %out_status, %out_ptr, %out_len, %response, %key, %key_len
     EXPAND DENO_HTTP_RESPONSE_GET_HEADER %out_status, %out_ptr, %out_len, %response, %key, %key_len
+[END_MACRO]
+
+[MACRO] DENO_HEADERS_HAS %out_has, %response, %key, %key_len
+    __deno_headers_has_status_%out_has = 0 as u32
+    __deno_headers_has_ptr_%out_has = 0 as ptr
+    __deno_headers_has_len_%out_has = 0 as u64
+    EXPAND DENO_HTTP_RESPONSE_GET_HEADER __deno_headers_has_status_%out_has, __deno_headers_has_ptr_%out_has, __deno_headers_has_len_%out_has, %response, %key, %key_len
+    %out_has = eq __deno_headers_has_status_%out_has, 0
+    !__deno_headers_has_ptr_%out_has
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_HEADERS_GET %out_status, %out_ptr, %out_len, %response, %key, %key_len
+    EXPAND DENO_HEADERS_GET %out_status, %out_ptr, %out_len, %response, %key, %key_len
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_TEXT %out_status, %out_ptr, %out_len, %response
+    EXPAND DENO_HTTP_RESPONSE_BODY_SLICE %out_status, %out_ptr, %out_len, %response
+[END_MACRO]
+
+[MACRO] DENO_RESPONSE_JSON_PARSE %out_status, %out_root, %response
+    __deno_response_json_ptr_%out_root = 0 as ptr
+    __deno_response_json_len_%out_root = 0 as u64
+    EXPAND DENO_RESPONSE_TEXT %out_status, __deno_response_json_ptr_%out_root, __deno_response_json_len_%out_root, %response
+    %out_root = call @sa_json_parse(&__deno_response_json_ptr_%out_root, __deno_response_json_len_%out_root)
+    !__deno_response_json_ptr_%out_root
+    !__deno_response_json_len_%out_root
 [END_MACRO]
 
 [MACRO] DENO_RESPONSE_BODY_READER %out_status, %out_reader, %response
@@ -669,6 +795,10 @@
 
 [MACRO] DENO_FETCH_REQUEST_FREE %out_status, %request
     EXPAND DENO_HTTP_REQUEST_FREE %out_status, %request
+[END_MACRO]
+
+[MACRO] DENO_REQUEST_FREE %out_status, %request
+    EXPAND DENO_FETCH_REQUEST_FREE %out_status, %request
 [END_MACRO]
 
 [MACRO] DENO_FETCH_CLIENT_FREE %out_status, %client

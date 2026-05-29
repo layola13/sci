@@ -12,7 +12,7 @@
 
 *   **`.sa`**：只包含 `@import`，作为模块入口。
 *   **`.sai`**：只包含 `@extern` 签名，声明 Zig-backed C-ABI 符号。
-*   **`.sal`**：包含 `#def` 布局/常量，供 SA 代码显式读取；`#version` 元数据等待 R29 落地后再启用。
+*   **`.sal`**：包含 `#def` 布局/常量，也可包含面向 `.sai` 的薄宏 facade（例如 slot 分配、out 参数加载、handle free 包装）。`#version` 元数据等待 R29 落地后再启用。
 
 `process` 的 SA 侧约定单独补充 `SaProcessArgv` 布局常量：调用方构造 `SaProcessArgv` 数组，再把数组首地址和元素个数传给 `sa_std_process_run` / `sa_std_process_spawn`。当需要把子进程输出接入 `epoll` 时，改用 `sa_std_process_spawn_stream`，它会返回 live 的 stdout/stderr 句柄。
 

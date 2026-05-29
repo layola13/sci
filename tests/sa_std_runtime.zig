@@ -1351,16 +1351,17 @@ test "sa_std Deno facade runtime helpers are usable from C" {
         \\    uint64_t cwd = 0;
         \\    uint64_t got = 0;
         \\    uint64_t uuid = 0;
+        \\    uint64_t now_iso = 0;
         \\    uint64_t args = 0;
         \\    uint8_t *ptr = 0;
         \\    uint64_t len = 0;
         \\
         \\    cwd = sa_deno_cwd();
         \\    if (cwd == 0) return 2;
-        \\    ptr = sa_fmt_buffer_data(cwd);
-        \\    len = sa_fmt_buffer_len(cwd);
+        \\    ptr = sa_fs_read_buffer_data(cwd);
+        \\    len = sa_fs_read_buffer_len(cwd);
         \\    if (ptr == 0 || len == 0) return 3;
-        \\    if (sa_fmt_buffer_free(cwd) != SA_STD_OK) return 4;
+        \\    if (sa_fs_read_buffer_free(cwd) != SA_STD_OK) return 4;
         \\
         \\    if (sa_deno_env_set(key, sizeof(key) - 1, value, sizeof(value) - 1) != SA_STD_OK) return 5;
         \\    got = sa_env_get(key, sizeof(key) - 1);
@@ -1379,12 +1380,20 @@ test "sa_std Deno facade runtime helpers are usable from C" {
         \\    if (!valid_uuid(ptr, len)) return 12;
         \\    if (sa_fmt_buffer_free(uuid) != SA_STD_OK) return 13;
         \\
+        \\    now_iso = sa_deno_date_now_iso();
+        \\    if (now_iso == 0) return 14;
+        \\    ptr = sa_fs_read_buffer_data(now_iso);
+        \\    len = sa_fs_read_buffer_len(now_iso);
+        \\    if (ptr == 0 || len != 24) return 15;
+        \\    if (ptr[4] != '-' || ptr[7] != '-' || ptr[10] != 'T' || ptr[13] != ':' || ptr[16] != ':' || ptr[19] != '.' || ptr[23] != 'Z') return 16;
+        \\    if (sa_fs_read_buffer_free(now_iso) != SA_STD_OK) return 17;
+        \\
         \\    args = sa_deno_args_json();
-        \\    if (args == 0) return 14;
+        \\    if (args == 0) return 18;
         \\    ptr = sa_fs_read_buffer_data(args);
         \\    len = sa_fs_read_buffer_len(args);
-        \\    if (ptr == 0 || len != 2 || memcmp(ptr, "[]", 2) != 0) return 15;
-        \\    if (sa_fs_read_buffer_free(args) != SA_STD_OK) return 16;
+        \\    if (ptr == 0 || len != 2 || memcmp(ptr, "[]", 2) != 0) return 19;
+        \\    if (sa_fs_read_buffer_free(args) != SA_STD_OK) return 20;
         \\
         \\    puts("sa_std deno facade ok");
         \\    return 0;

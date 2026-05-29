@@ -77,6 +77,41 @@ pub const RequireEntry = struct {
     }
 };
 
+pub const PluginRequireEntry = struct {
+    identity: []const u8,
+    ref: []const u8,
+    abi: u32,
+    upstream_loc: UpstreamLoc,
+
+    pub fn deinit(self: *PluginRequireEntry, allocator: std.mem.Allocator) void {
+        allocator.free(self.identity);
+        allocator.free(self.ref);
+        allocator.free(self.upstream_loc.file);
+        self.* = undefined;
+    }
+};
+
+pub const PermissionSet = struct {
+    name: []const u8,
+    env: []const []const u8,
+    read: []const []const u8,
+    write: []const []const u8,
+    net: []const []const u8,
+    run: []const []const u8,
+    upstream_loc: UpstreamLoc,
+
+    pub fn deinit(self: *PermissionSet, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        freeStringList(allocator, self.env);
+        freeStringList(allocator, self.read);
+        freeStringList(allocator, self.write);
+        freeStringList(allocator, self.net);
+        freeStringList(allocator, self.run);
+        allocator.free(self.upstream_loc.file);
+        self.* = undefined;
+    }
+};
+
 pub const MirrorRule = struct {
     host_pattern: []const u8,
     rewrite_to: []const u8,
@@ -90,11 +125,17 @@ pub const MirrorRule = struct {
 
 pub const Manifest = struct {
     requires: []RequireEntry,
+    plugin_requires: []PluginRequireEntry,
+    permission_sets: []PermissionSet,
     mirrors: []MirrorRule,
 
     pub fn deinit(self: *Manifest, allocator: std.mem.Allocator) void {
         for (self.requires) |*entry| entry.deinit(allocator);
         allocator.free(self.requires);
+        for (self.plugin_requires) |*entry| entry.deinit(allocator);
+        allocator.free(self.plugin_requires);
+        for (self.permission_sets) |*set| set.deinit(allocator);
+        allocator.free(self.permission_sets);
         for (self.mirrors) |*rule| rule.deinit(allocator);
         allocator.free(self.mirrors);
         self.* = undefined;
@@ -162,6 +203,11 @@ pub const SumManifest = SumFile;
 
 fn trim(text: []const u8) []const u8 {
     return std.mem.trim(u8, text, " \t\r");
+}
+
+fn freeStringList(allocator: std.mem.Allocator, list: []const []const u8) void {
+    for (list) |item| allocator.free(item);
+    allocator.free(list);
 }
 
 fn startsWithWord(text: []const u8, word: []const u8) bool {
@@ -389,6 +435,136 @@ fn parseMirrorEntry(allocator: std.mem.Allocator, line: []const u8) ParseError!M
     };
 }
 
+const PermissionSetBuilder = struct {
+    allocator: std.mem.Allocator,
+    name: []const u8,
+    file: []const u8,
+    line: u32,
+    env: std.ArrayList([]const u8),
+    read: std.ArrayList([]const u8),
+    write: std.ArrayList([]const u8),
+    net: std.ArrayList([]const u8),
+    run: std.ArrayList([]const u8),
+
+    fn init(allocator: std.mem.Allocator, name: []const u8, source_file: []const u8, line_no: u32) ParseError!PermissionSetBuilder {
+        return .{
+            .allocator = allocator,
+            .name = try allocator.dupe(u8, name),
+            .file = try allocator.dupe(u8, source_file),
+            .line = line_no,
+            .env = std.ArrayList([]const u8).init(allocator),
+            .read = std.ArrayList([]const u8).init(allocator),
+            .write = std.ArrayList([]const u8).init(allocator),
+            .net = std.ArrayList([]const u8).init(allocator),
+            .run = std.ArrayList([]const u8).init(allocator),
+        };
+    }
+
+    fn deinit(self: *PermissionSetBuilder) void {
+        self.allocator.free(self.name);
+        self.allocator.free(self.file);
+        freeArrayListStrings(self.allocator, &self.env);
+        freeArrayListStrings(self.allocator, &self.read);
+        freeArrayListStrings(self.allocator, &self.write);
+        freeArrayListStrings(self.allocator, &self.net);
+        freeArrayListStrings(self.allocator, &self.run);
+        self.* = undefined;
+    }
+
+    fn finish(self: *PermissionSetBuilder) ParseError!PermissionSet {
+        const result = PermissionSet{
+            .name = self.name,
+            .env = try self.env.toOwnedSlice(),
+            .read = try self.read.toOwnedSlice(),
+            .write = try self.write.toOwnedSlice(),
+            .net = try self.net.toOwnedSlice(),
+            .run = try self.run.toOwnedSlice(),
+            .upstream_loc = .{ .file = self.file, .line = self.line, .col = 1 },
+        };
+        self.name = &.{};
+        self.file = &.{};
+        return result;
+    }
+};
+
+fn freeArrayListStrings(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8)) void {
+    for (list.items) |item| allocator.free(item);
+    list.deinit();
+}
+
+fn parsePermissionSetHeader(allocator: std.mem.Allocator, line: []const u8, source_file: []const u8, line_no: u32) ParseError!PermissionSetBuilder {
+    var pos: usize = 0;
+    const keyword = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (!std.mem.eql(u8, keyword, "permission_set")) return ParseError.InvalidFormat;
+    const name = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    const tail = trim(line[pos..]);
+    if (!std.mem.eql(u8, tail, "{")) return ParseError.InvalidFormat;
+    return try PermissionSetBuilder.init(allocator, name, source_file, line_no);
+}
+
+fn parseStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *std.ArrayList([]const u8)) ParseError!void {
+    const trimmed = trim(text);
+    if (trimmed.len < 2 or trimmed[0] != '[' or trimmed[trimmed.len - 1] != ']') return ParseError.InvalidFormat;
+    const body = trim(trimmed[1 .. trimmed.len - 1]);
+    if (body.len == 0) return;
+    var it = std.mem.splitScalar(u8, body, ',');
+    while (it.next()) |fragment| {
+        const token = trim(fragment);
+        if (token.len == 0) return ParseError.InvalidFormat;
+        try list.append(try parseTextValue(allocator, token));
+    }
+}
+
+fn parsePermissionSetItem(builder: *PermissionSetBuilder, line: []const u8) ParseError!void {
+    var pos: usize = 0;
+    const key = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    const value = trim(line[pos..]);
+    if (std.mem.eql(u8, key, "env")) return parseStringListInto(builder.allocator, value, &builder.env);
+    if (std.mem.eql(u8, key, "read")) return parseStringListInto(builder.allocator, value, &builder.read);
+    if (std.mem.eql(u8, key, "write")) return parseStringListInto(builder.allocator, value, &builder.write);
+    if (std.mem.eql(u8, key, "net")) return parseStringListInto(builder.allocator, value, &builder.net);
+    if (std.mem.eql(u8, key, "run")) return parseStringListInto(builder.allocator, value, &builder.run);
+    return ParseError.InvalidFormat;
+}
+
+fn parsePluginRequireEntry(
+    allocator: std.mem.Allocator,
+    line: []const u8,
+    line_no: u32,
+    source_file: []const u8,
+) ParseError!PluginRequireEntry {
+    var pos: usize = 0;
+    const keyword = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (!std.mem.eql(u8, keyword, "require_plugin")) return ParseError.InvalidFormat;
+
+    const identity_token = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    const ref_token = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (ref_token.len < 2 or ref_token[0] != '@') return ParseError.InvalidFormat;
+    const abi_keyword = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (!std.mem.eql(u8, abi_keyword, "abi")) return ParseError.InvalidFormat;
+    const abi_token = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (trim(line[pos..]).len != 0) return ParseError.InvalidFormat;
+
+    const identity = try allocator.dupe(u8, identity_token);
+    errdefer allocator.free(identity);
+    const ref = try allocator.dupe(u8, ref_token[1..]);
+    errdefer allocator.free(ref);
+    const abi = std.fmt.parseUnsigned(u32, abi_token, 10) catch return ParseError.InvalidFormat;
+    const file_copy = try allocator.dupe(u8, source_file);
+    errdefer allocator.free(file_copy);
+
+    return .{
+        .identity = identity,
+        .ref = ref,
+        .abi = abi,
+        .upstream_loc = .{
+            .file = file_copy,
+            .line = line_no,
+            .col = 1,
+        },
+    };
+}
+
 fn requireExists(entries: []const RequireEntry, url: []const u8, ref: []const u8) bool {
     for (entries) |entry| {
         if (std.mem.eql(u8, entry.url, url) and std.mem.eql(u8, entry.ref, ref)) return true;
@@ -399,6 +575,13 @@ fn requireExists(entries: []const RequireEntry, url: []const u8, ref: []const u8
 fn mirrorExists(entries: []const MirrorRule, host: []const u8) bool {
     for (entries) |entry| {
         if (std.mem.eql(u8, entry.host_pattern, host)) return true;
+    }
+    return false;
+}
+
+fn pluginRequireExists(entries: []const PluginRequireEntry, identity: []const u8, ref: []const u8) bool {
+    for (entries) |entry| {
+        if (std.mem.eql(u8, entry.identity, identity) and std.mem.eql(u8, entry.ref, ref)) return true;
     }
     return false;
 }
@@ -424,7 +607,21 @@ pub fn parseManifestWithFile(
         mirrors.deinit();
     }
 
+    var plugin_requires = std.ArrayList(PluginRequireEntry).init(allocator);
+    errdefer {
+        for (plugin_requires.items) |*entry| entry.deinit(allocator);
+        plugin_requires.deinit();
+    }
+
+    var permission_sets = std.ArrayList(PermissionSet).init(allocator);
+    errdefer {
+        for (permission_sets.items) |*set| set.deinit(allocator);
+        permission_sets.deinit();
+    }
+
     var in_mirrors = false;
+    var permission_builder: ?PermissionSetBuilder = null;
+    defer if (permission_builder) |*builder| builder.deinit();
     var line_no: u32 = 0;
     var it = std.mem.splitScalar(u8, source, '\n');
     while (it.next()) |raw_line| {
@@ -432,11 +629,38 @@ pub fn parseManifestWithFile(
         const line = cleanLine(raw_line);
         if (line.len == 0) continue;
         if (line[0] == '#') continue;
+
+        if (permission_builder) |*builder| {
+            if (std.mem.eql(u8, line, "}")) {
+                try permission_sets.append(try builder.finish());
+                permission_builder = null;
+                continue;
+            }
+            try parsePermissionSetItem(builder, line);
+            continue;
+        }
+
         if (std.mem.eql(u8, line, "[mirrors]")) {
             in_mirrors = true;
             continue;
         }
         if (line[0] == '[') return ParseError.InvalidFormat;
+
+        if (startsWithWord(line, "permission_set")) {
+            permission_builder = try parsePermissionSetHeader(allocator, line, source_file, line_no);
+            in_mirrors = false;
+            continue;
+        }
+
+        if (startsWithWord(line, "require_plugin")) {
+            var entry = try parsePluginRequireEntry(allocator, line, line_no, source_file);
+            if (pluginRequireExists(plugin_requires.items, entry.identity, entry.ref)) {
+                entry.deinit(allocator);
+                return ParseError.DuplicateEntry;
+            }
+            try plugin_requires.append(entry);
+            continue;
+        }
 
         if (startsWithWord(line, "require")) {
             var entry = try parseRequireEntry(allocator, line, line_no, source_file);
@@ -461,8 +685,12 @@ pub fn parseManifestWithFile(
         return ParseError.InvalidFormat;
     }
 
+    if (permission_builder != null) return ParseError.InvalidFormat;
+
     return .{
         .requires = try requires.toOwnedSlice(),
+        .plugin_requires = try plugin_requires.toOwnedSlice(),
+        .permission_sets = try permission_sets.toOwnedSlice(),
         .mirrors = try mirrors.toOwnedSlice(),
     };
 }
@@ -488,14 +716,44 @@ pub fn writeManifest(writer: anytype, manifest: Manifest) !void {
         try writer.writeByte('\n');
     }
 
-    if (manifest.mirrors.len != 0) {
+    if (manifest.plugin_requires.len != 0) {
         if (manifest.requires.len != 0) try writer.writeByte('\n');
+        for (manifest.plugin_requires) |entry| {
+            try writer.print("require_plugin {s} @{s} abi {d}\n", .{ entry.identity, entry.ref, entry.abi });
+        }
+    }
+
+    if (manifest.permission_sets.len != 0) {
+        if (manifest.requires.len != 0 or manifest.plugin_requires.len != 0) try writer.writeByte('\n');
+        for (manifest.permission_sets, 0..) |set, set_idx| {
+            if (set_idx != 0) try writer.writeByte('\n');
+            try writer.print("permission_set {s} {{\n", .{set.name});
+            try writePermissionSetList(writer, "env", set.env);
+            try writePermissionSetList(writer, "read", set.read);
+            try writePermissionSetList(writer, "write", set.write);
+            try writePermissionSetList(writer, "net", set.net);
+            try writePermissionSetList(writer, "run", set.run);
+            try writer.writeAll("}\n");
+        }
+    }
+
+    if (manifest.mirrors.len != 0) {
+        if (manifest.requires.len != 0 or manifest.plugin_requires.len != 0 or manifest.permission_sets.len != 0) try writer.writeByte('\n');
         try writer.writeAll("[mirrors]\n");
         for (manifest.mirrors, 0..) |rule, idx| {
             if (idx != 0) try writer.writeByte('\n');
             try writer.print("{s} = {s}\n", .{ rule.host_pattern, rule.rewrite_to });
         }
     }
+}
+
+fn writePermissionSetList(writer: anytype, name: []const u8, list: []const []const u8) !void {
+    try writer.print("  {s} [", .{name});
+    for (list, 0..) |item, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try writer.writeAll(item);
+    }
+    try writer.writeAll("]\n");
 }
 
 const HashItem = struct {

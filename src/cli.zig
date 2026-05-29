@@ -400,6 +400,12 @@ const CompileOptions = struct {
     ci: bool = false,
     allow_unaudited_risks: bool = false,
     auto_approve_requested: bool = false,
+    permission_set: ?[]const u8 = null,
+    allow_env_requested: bool = false,
+    allow_net_requested: bool = false,
+    allow_read_requested: bool = false,
+    allow_write_requested: bool = false,
+    allow_run_requested: bool = false,
     project_root: ?[]const u8 = null,
     profile: bool = false,
     stdin_reader: ?std.io.AnyReader = null,
@@ -447,6 +453,7 @@ const Command = enum {
     run,
     init,
     install,
+    plugin,
     pkg,
     build,
     build_exe,
@@ -831,6 +838,7 @@ fn commandName(cmd: Command) []const u8 {
         .run => "run",
         .init => "init",
         .install => "install",
+        .plugin => "plugin",
         .pkg => "pkg",
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
@@ -851,7 +859,7 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn commandSupported(name: []const u8) bool {
-    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "pkg") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills") or std.mem.eql(u8, name, "bc2sa") or std.mem.eql(u8, name, "fetch");
+    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "plugin") or std.mem.eql(u8, name, "pkg") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills") or std.mem.eql(u8, name, "bc2sa") or std.mem.eql(u8, name, "fetch");
 }
 
 fn explainEntries() []const ExplainEntry {
@@ -980,6 +988,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("Commands:\n");
     try writer.writeAll("  init         [path]            Create a new SA binary project\n");
     try writer.writeAll("  pkg          <subcommand>      Package fetch, audit, install, and lock commands\n");
+    try writer.writeAll("  plugin       <subcommand>      Install and list native SA plugins\n");
     try writer.writeAll("  install      [identity]        Install project dependencies or one package (compat)\n");
     try writer.writeAll("  build        <file>            Compile a .sa source to a native executable\n");
     try writer.writeAll("  run          <file>            Compile and immediately execute a .sa file\n");
@@ -2243,6 +2252,11 @@ fn verifyProjectPackageState(
         // hit the interactive confirmation guard and fail with MissingTty.
         .stdin_is_tty = if (options.ci) stdin_is_tty else true,
     });
+    if (options.permission_set) |set_name| {
+        if (!manifestPermissionSetExists(project_manifest, set_name)) return error.InvalidPermissionSet;
+    } else if (ci_mode and project_manifest.permission_sets.len != 0 and !compileOptionsHaveAllowList(options)) {
+        return error.MissingPermissionSet;
+    }
 
     for (project_manifest.requires) |entry| {
         const audit_root = try resolvePackageAuditRoot(allocator, project_root, entry, options.offline);
@@ -2258,9 +2272,26 @@ fn verifyProjectPackageState(
     }
 }
 
+fn manifestPermissionSetExists(project_manifest: manifest.Manifest, name: []const u8) bool {
+    for (project_manifest.permission_sets) |set| {
+        if (std.mem.eql(u8, set.name, name)) return true;
+    }
+    return false;
+}
+
+fn compileOptionsHaveAllowList(options: CompileOptions) bool {
+    return options.allow_env_requested or
+        options.allow_net_requested or
+        options.allow_read_requested or
+        options.allow_write_requested or
+        options.allow_run_requested;
+}
+
 fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
     if (try consumeJobsOption(arg, args, index, options)) return true;
     if (consumeProfileOption(arg, options)) return true;
+    if (try consumePermissionSetOption(arg, args, index, options)) return true;
+    if (consumeAllowOption(arg, options)) return true;
     if (std.mem.eql(u8, arg, "--offline")) {
         options.offline = true;
         return true;
@@ -2275,6 +2306,54 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--yes") or std.mem.eql(u8, arg, "--auto-approve")) {
         options.auto_approve_requested = true;
+        return true;
+    }
+    return false;
+}
+
+fn consumePermissionSetOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
+    if (std.mem.startsWith(u8, arg, "--permission-set=")) {
+        options.permission_set = arg["--permission-set=".len..];
+        if (options.permission_set.?.len == 0) return error.InvalidPermissionSet;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--permission-set")) {
+        if (index.* + 1 >= args.len) return error.MissingPermissionSet;
+        options.permission_set = args[index.* + 1];
+        index.* += 1;
+        return true;
+    }
+    if (std.mem.startsWith(u8, arg, "-P=")) {
+        options.permission_set = arg["-P=".len..];
+        if (options.permission_set.?.len == 0) return error.InvalidPermissionSet;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "-P")) {
+        options.permission_set = "default";
+        return true;
+    }
+    return false;
+}
+
+fn consumeAllowOption(arg: []const u8, options: *CompileOptions) bool {
+    if (std.mem.eql(u8, arg, "--allow-env") or std.mem.startsWith(u8, arg, "--allow-env=")) {
+        options.allow_env_requested = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--allow-net") or std.mem.startsWith(u8, arg, "--allow-net=")) {
+        options.allow_net_requested = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--allow-read") or std.mem.startsWith(u8, arg, "--allow-read=")) {
+        options.allow_read_requested = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--allow-write") or std.mem.startsWith(u8, arg, "--allow-write=")) {
+        options.allow_write_requested = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--allow-run") or std.mem.startsWith(u8, arg, "--allow-run=")) {
+        options.allow_run_requested = true;
         return true;
     }
     return false;
@@ -2671,6 +2750,13 @@ fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.
         try stdout.print("{s}\n", .{result.root});
     }
 
+    for (project_manifest.plugin_requires) |entry| {
+        _ = entry.abi;
+        _ = entry.ref;
+        const code = try plugins.installFromPath(allocator, entry.identity, stdout, .{});
+        if (code != 0) return code;
+    }
+
     var update = try pkg_sum.updateProjectSum(allocator, project_root, project_manifest);
     defer update.deinit(allocator);
 
@@ -2686,6 +2772,44 @@ fn executeInstall(allocator: std.mem.Allocator, args: []const []const u8, stdout
         return 0;
     }
     return try installManifestDependencies(allocator, parsed.options, stdout);
+}
+
+fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+    if (args.len == 0) {
+        try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json> | list\n");
+        return 1;
+    }
+    if (std.mem.eql(u8, args[0], "install")) {
+        if (args.len < 2) {
+            try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json>\n");
+            return 1;
+        }
+        var dev = false;
+        var review = false;
+        var target: ?[]const u8 = null;
+        for (args[1..]) |arg| {
+            if (std.mem.eql(u8, arg, "--dev")) {
+                dev = true;
+                continue;
+            }
+            if (std.mem.eql(u8, arg, "--review")) {
+                review = true;
+                continue;
+            }
+            if (target == null) {
+                target = arg;
+                continue;
+            }
+            return error.UnexpectedArgument;
+        }
+        return try plugins.installFromPath(allocator, target orelse return error.MissingSourcePath, stdout, .{ .dev = dev, .review = review });
+    }
+    if (std.mem.eql(u8, args[0], "list")) {
+        if (args.len > 1) return error.UnexpectedArgument;
+        return try plugins.listInstalled(allocator, stdout);
+    }
+    try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json> | list\n");
+    return 1;
 }
 
 fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
@@ -3316,6 +3440,7 @@ pub fn executeWithWritersAndOptions(
         if (std.mem.eql(u8, args[1], commandName(.run))) break :blk .run;
         if (std.mem.eql(u8, args[1], commandName(.init))) break :blk .init;
         if (std.mem.eql(u8, args[1], commandName(.install))) break :blk .install;
+        if (std.mem.eql(u8, args[1], commandName(.plugin))) break :blk .plugin;
         if (std.mem.eql(u8, args[1], commandName(.pkg))) break :blk .pkg;
         if (std.mem.eql(u8, args[1], commandName(.build_exe))) break :blk .build_exe;
         if (std.mem.eql(u8, args[1], commandName(.build_wasm))) break :blk .build_wasm;
@@ -3365,6 +3490,7 @@ pub fn executeWithWritersAndOptions(
         .skills => return try skillsCommand(stdout, json_mode),
         .init => return try executeInit(allocator, args[2..], stdout),
         .install => return try executeInstall(allocator, args[2..], stdout),
+        .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
         .build => {
             if (args.len < 3) return error.MissingSourcePath;
             const source_path = args[2];

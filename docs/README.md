@@ -22,11 +22,21 @@
 - 🔒 **[Zero-Trust Package Management (零信任包管理)](./package_management.md)**  
   介绍 SA 独创的“哈希锁死 + 零权限默认 + AST X光扫描”供应链安全体系。
 - 🧩 **[External Plugin System (外部插件系统)](./pluginssytem.md)**  
-  教你如何把插件作为独立工程交付为 `.so` 动态库，并在宿主外部完成热重载。
+  说明插件作为独立工程交付 `sap.json + .so + .sa + .sai + .sal` 的真实契约、插件依赖、权限声明、ABI smoke、能力发现与当前限制。
 - ⚙️ **[Network Engine Plan (极速网络基座)](./network_engine_plan.md)**  
   详述 `sa_net_uring` 如何通过 io_uring 和零拷贝实现 10 万并发无开销。
 - 💻 **[Multi-Platform Architecture (全平台架构)](./multi_platform_architecture.md)**  
   PAL 抽象层设计，支持 Windows IOCP 与 macOS kqueue。
+
+## 🧾 2.1 SA 文件后缀与清单速查
+
+| 文件 | 作用域 | 用途 |
+| --- | --- | --- |
+| `.sa` | 用户代码 / 标准库源码 | SA-ASM 实现文件，包含可验证的指令、函数、宏调用和 `@import`。 |
+| `.sai` | 接口契约 | SA Interface 文件，只声明 `@extern` 等外部 ABI，让 Referee 能检查调用边界。 |
+| `.sal` | 布局与 facade | SA Layout 文件，声明 `#def` 常量、结构偏移、slot 装配和薄宏 facade。 |
+| `sa.mod` | 业务包依赖 | SA Package manifest，声明普通源码包依赖、hash、permissions 和插件需求，不描述 native artifact。 |
+| `sap.json` | 插件工程清单 | SA Plugin manifest，声明插件 `.so`、`.sa/.sai/.sal`、skills、permissions、ABI 和插件间依赖。 |
 
 ## 🔌 3. 插件开发指南 (Plugin Guides)
 专门针对独立插件工程的深度解析与实战。
@@ -38,6 +48,7 @@
 - 🛡️ **[SAX Airlock (沙箱气闸舱)](./sax_airlock.md)**  
   FFI 调用的安全边界设计。
 - 🗄️ **[Database Plugin Design (数据库插件)](./database.md)**  
+  说明数据库能力如何通过插件/FFI 与 SA 查询模块协作。
 
 ## 🔬 4. 底层规范与语言定义 (Specifications & Internals)
 给编译器前端开发者和 SA 核心贡献者看的硬核参考。

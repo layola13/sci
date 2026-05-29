@@ -1,5 +1,7 @@
 # SA-ASM HTTP Server 插件：架构与开发指南
 
+> 状态说明：本文描述 HTTP Server 插件的目标架构和 SA-facing ABI 方向。当前独立工程位于 `/home/vscode/projects/sa_plugins/sa_plugin_http_server`，真实实现以该工程源码和 smoke tests 为准。与 `sa_net_uring` 的深度零拷贝、权限阻断、路由 ABI 完整性需要通过独立测试确认。
+
 ## 1. 架构目标与定位
 `sa_http_server` 是建立在 `sa_net_uring` 极速网络基座之上的高层级网络组件，负责提供 HTTP 路由分发、中间件流水线（Middleware Pipeline）和多租户转发（Proxying）。
 
@@ -8,7 +10,7 @@
 ## 2. 核心架构设计
 
 ### 2.1 依赖层级与零拷贝机制 (Zero-Copy Proxy)
-- **底层 Reactor**: `sa_net_uring` 是真正的网络驱动，它使用 io_uring SQ/CQ 环形轮询直接和内核打交道，接管了所有套接字读写。
+- **底层 Reactor**: `sa_net_uring` 是目标网络驱动。当前插件文档中的 reactor/zero-copy 描述是设计方向，实际能力必须以插件工程源码和验证脚本为准。
 - **语义层**: `sa_http_server` 只负责 HTTP 协议的解析（请求头、体、路径提取）。
 - **零拷贝代理转发**: 如果你用 SA 做网关，`sa_http_server` 接受到的入站数据块可以被**直接指针映射**给 `sa_http_client` 插件的发送环，不经过任何用户态的内存复制。
 
@@ -47,7 +49,7 @@ graph TD
 
 ## 3. API 规范与 FFI 接口
 
-和客户端插件一样，服务端的全套 API 也作为外部依赖桥接（通过 `@extern` 和 `ptr` 句柄）。
+和客户端插件一样，服务端的全套 API 也作为外部依赖桥接（通过 `@extern` 和 `ptr` 句柄）。公开接口应由插件工程自带 `.sai` / `.sal` 发布，并用 symbol smoke 防止 ABI 漂移。
 
 ### 3.1 完整接口定义 (`sa_http_server.sai`)
 ```sa
