@@ -443,6 +443,31 @@ pub const SkillSection = struct {
     items: []const []const u8,
 };
 
+const OwnedPluginRuntimeAuthorization = struct {
+    input: plugins.RuntimeAuthorizationInput = .{},
+    env: []const []const u8 = &.{},
+    read: []const []const u8 = &.{},
+    write: []const []const u8 = &.{},
+    net: []const []const u8 = &.{},
+    run: []const []const u8 = &.{},
+    project_root: ?[]u8 = null,
+
+    fn deinit(self: *OwnedPluginRuntimeAuthorization, allocator: std.mem.Allocator) void {
+        for (self.env) |entry| allocator.free(entry);
+        allocator.free(self.env);
+        for (self.read) |entry| allocator.free(entry);
+        allocator.free(self.read);
+        for (self.write) |entry| allocator.free(entry);
+        allocator.free(self.write);
+        for (self.net) |entry| allocator.free(entry);
+        allocator.free(self.net);
+        for (self.run) |entry| allocator.free(entry);
+        allocator.free(self.run);
+        if (self.project_root) |root| allocator.free(root);
+        self.* = undefined;
+    }
+};
+
 const CliErrorInfo = struct {
     code: ?[]const u8,
     message: []const u8,
@@ -2494,6 +2519,200 @@ fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !
     return try manifest.parseManifestWithFile(allocator, source, manifest_path);
 }
 
+fn projectRootFromCurrentDir(allocator: std.mem.Allocator) ![]u8 {
+    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
+    errdefer allocator.free(cwd_abs);
+
+    var current = try allocator.dupe(u8, cwd_abs);
+    defer allocator.free(current);
+    while (true) {
+        const manifest_path = try std.fs.path.join(allocator, &.{ current, "sa.mod" });
+        defer allocator.free(manifest_path);
+
+        if (std.fs.cwd().openFile(manifest_path, .{})) |file| {
+            file.close();
+            allocator.free(cwd_abs);
+            return try allocator.dupe(u8, current);
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        }
+
+        const parent = std.fs.path.dirname(current) orelse break;
+        if (std.mem.eql(u8, parent, current)) break;
+        const next = try allocator.dupe(u8, parent);
+        allocator.free(current);
+        current = next;
+    }
+
+    return cwd_abs;
+}
+
+fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), value_text: []const u8) !void {
+    var it = std.mem.splitScalar(u8, value_text, ',');
+    while (it.next()) |raw_item| {
+        const item = std.mem.trim(u8, raw_item, " \t\r\n");
+        if (item.len == 0) return error.InvalidArgument;
+        try list.append(try allocator.dupe(u8, item));
+    }
+}
+
+fn appendPermissionSetStrings(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), entries: []const []const u8) !void {
+    for (entries) |entry| try list.append(try allocator.dupe(u8, entry));
+}
+
+fn validateRunAllowList(entries: []const []const u8) !void {
+    for (entries) |entry| {
+        if (!std.fs.path.isAbsolute(entry)) return error.InvalidArgument;
+    }
+}
+
+fn findPermissionSet(project_manifest: manifest.Manifest, name: []const u8) ?*const manifest.PermissionSet {
+    for (project_manifest.permission_sets) |*set| {
+        if (std.mem.eql(u8, set.name, name)) return set;
+    }
+    return null;
+}
+
+fn buildPluginRuntimeAuthorization(allocator: std.mem.Allocator, args: []const []const u8) !OwnedPluginRuntimeAuthorization {
+    var env = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (env.items) |entry| allocator.free(entry);
+        env.deinit();
+    }
+    var read = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (read.items) |entry| allocator.free(entry);
+        read.deinit();
+    }
+    var write = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (write.items) |entry| allocator.free(entry);
+        write.deinit();
+    }
+    var net = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (net.items) |entry| allocator.free(entry);
+        net.deinit();
+    }
+    var run = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (run.items) |entry| allocator.free(entry);
+        run.deinit();
+    }
+
+    var permission_set: ?[]const u8 = null;
+    var allow_env_declared = false;
+    var allow_read_declared = false;
+    var allow_write_declared = false;
+    var allow_net_declared = false;
+    var allow_run_declared = false;
+
+    var i: usize = 2;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.startsWith(u8, arg, "--permission-set=")) {
+            permission_set = arg["--permission-set=".len..];
+            if (permission_set.?.len == 0) return error.InvalidPermissionSet;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--permission-set")) {
+            if (i + 1 >= args.len) return error.MissingPermissionSet;
+            permission_set = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-P=")) {
+            permission_set = arg["-P=".len..];
+            if (permission_set.?.len == 0) return error.InvalidPermissionSet;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "-P")) {
+            permission_set = "default";
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--allow-env=")) {
+            try parseAllowListFragment(allocator, &env, arg["--allow-env=".len..]);
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--allow-env")) {
+            allow_env_declared = true;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--allow-read=")) {
+            try parseAllowListFragment(allocator, &read, arg["--allow-read=".len..]);
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--allow-read")) {
+            allow_read_declared = true;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--allow-write=")) {
+            try parseAllowListFragment(allocator, &write, arg["--allow-write=".len..]);
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--allow-write")) {
+            allow_write_declared = true;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--allow-net=")) {
+            try parseAllowListFragment(allocator, &net, arg["--allow-net=".len..]);
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--allow-net")) {
+            allow_net_declared = true;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--allow-run=")) {
+            try parseAllowListFragment(allocator, &run, arg["--allow-run=".len..]);
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--allow-run")) {
+            allow_run_declared = true;
+            continue;
+        }
+    }
+
+    const project_root = try projectRootFromCurrentDir(allocator);
+    errdefer allocator.free(project_root);
+
+    if (permission_set) |set_name| {
+        var project_manifest = (try readProjectManifest(allocator, project_root)) orelse return error.InvalidPermissionSet;
+        defer project_manifest.deinit(allocator);
+        const selected = findPermissionSet(project_manifest, set_name) orelse return error.InvalidPermissionSet;
+        try appendPermissionSetStrings(allocator, &env, selected.env);
+        try appendPermissionSetStrings(allocator, &read, selected.read);
+        try appendPermissionSetStrings(allocator, &write, selected.write);
+        try appendPermissionSetStrings(allocator, &net, selected.net);
+        try appendPermissionSetStrings(allocator, &run, selected.run);
+    }
+    try validateRunAllowList(run.items);
+
+    var owned = OwnedPluginRuntimeAuthorization{
+        .project_root = project_root,
+        .env = try env.toOwnedSlice(),
+        .read = try read.toOwnedSlice(),
+        .write = try write.toOwnedSlice(),
+        .net = try net.toOwnedSlice(),
+        .run = try run.toOwnedSlice(),
+    };
+    owned.input = .{
+        .dev_mode = false,
+        .project_root = owned.project_root,
+        .allow_env_declared = allow_env_declared,
+        .allow_env = owned.env,
+        .allow_read_declared = allow_read_declared,
+        .allow_read = owned.read,
+        .allow_write_declared = allow_write_declared,
+        .allow_write = owned.write,
+        .allow_net_declared = allow_net_declared,
+        .allow_net = owned.net,
+        .allow_run_declared = allow_run_declared,
+        .allow_run = owned.run,
+    };
+    return owned;
+}
+
 fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]pkg_resolver.Dependency {
     var deps = std.ArrayList(pkg_resolver.Dependency).init(allocator);
     errdefer deps.deinit();
@@ -3457,7 +3676,9 @@ pub fn executeWithWritersAndOptions(
         if (std.mem.eql(u8, args[1], commandName(.skills))) break :blk .skills;
         if (std.mem.eql(u8, args[1], commandName(.help))) break :blk .help;
         if (std.mem.eql(u8, args[1], commandName(.version))) break :blk .version;
-        var plugin_runtime = try plugins.Runtime.initFromEnv(allocator);
+        var plugin_auth = try buildPluginRuntimeAuthorization(allocator, args);
+        defer plugin_auth.deinit(allocator);
+        var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
         defer plugin_runtime.deinit();
         if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
         return error.UnknownCommand;
@@ -3479,7 +3700,9 @@ pub fn executeWithWritersAndOptions(
             return try executeGraph(allocator, args[2..], stdout, stderr, json_mode, exec_options);
         },
         .pkg => {
-            var plugin_runtime = try plugins.Runtime.initFromEnv(allocator);
+            var plugin_auth = try buildPluginRuntimeAuthorization(allocator, args);
+            defer plugin_auth.deinit(allocator);
+            var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
             defer plugin_runtime.deinit();
             if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
             return error.UnknownCommand;

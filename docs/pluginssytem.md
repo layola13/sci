@@ -291,7 +291,7 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 5. **路径由宿主归一化**：文件访问先 canonicalize，拒绝 `..`、符号链接逃逸和越权前缀。
 6. **权限账本可审计**：安装时生成 `permissions.lock`，记录插件权限、依赖插件权限、项目权限合并结果和 sandbox enforcement 状态。
 
-当前实现状态：`sci` 的本地插件安装器能解析 `sap.json` 并做基础 manifest/URL 校验，但 native sandbox/broker enforcement 尚未完成。因此当前安装插件仍应视为 trusted/dev 模式；不能把 `permissions` 当作已经能防恶意 `.so` 的运行时隔离。
+当前实现状态：`sci` 的本地插件安装器能解析 `sap.json` 并做基础 manifest/URL 校验，宿主 runtime 也会在正式模式下阻断带权限需求的已安装插件，除非显式 `SA_PLUGIN_DEV=1`。但 native sandbox/broker enforcement 仍未完成，因此这还不是 syscall 级隔离；`permissions` 不能被当作已经能防恶意 `.so` 的完整运行时安全边界。
 
 ### 4.3 安装前 verifier hooks
 
@@ -315,7 +315,7 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 
 - 它能发现明显作弊，例如无 `net` 权限却导入 `connect` / `getaddrinfo`。
 - 它不能证明二进制安全，因为插件可以静态链接、手写 syscall、运行时解密代码、通过其它库间接联网。
-- 因此结论分两级：hook 是安装准入门槛；sandbox/broker 是运行时强制边界。没有 sandbox/broker 时，privileged 插件必须拒绝正式安装。
+- 因此结论分两级：hook 是安装准入门槛；sandbox/broker 是运行时强制边界。当前 `sci` 已做到“没有 sandbox_enforced 时，privileged 已安装插件在 formal runtime mode 下不加载”；但这仍不等于真正的 syscall/broker 隔离。
 
 依赖解析规则：
 
@@ -378,7 +378,7 @@ SA 侧 import 规则：
 - 用户业务代码只 import 插件声明过的 `.sa/.sai/.sal`，例如 `@import "deno.sai"` 或 `@import "deno.sa"`。
 - `.sa` facade 可以依赖同插件的 `.sai/.sal`，但不能假设其他插件已存在；跨插件依赖必须写进 `sap.json.dependencies`。
 
-当前实现状态：`sci` 已能通过 `SA_PLUGINS_PATH` 直接加载 `.so`，也会扫描 `$SA_PLUGINS_HOME/installed/<plugin>/current` 下的 `.so`。本地 `sa plugin install` 已支持目录或 `sap.json`、拒绝裸 `.so/.dll/.dylib`、要求文本工程、从源码构建、做基础 `sap.json`/权限/URL 校验、校验接口路径与可选 `sha256`、执行 `.sai` 到 `.so` 的 symbol smoke、生成版本目录、`sap.lock`、`permissions.lock` 和依赖图 hash，并能递归安装带 `path` 的本地插件依赖且检测本地依赖环。GitHub/release 远程拉取、跨插件重复 extern symbol 拒绝、optional skill 降级、运行时 sandbox/broker enforcement 仍是需要补齐的 plugin-manager/宿主工作。
+当前实现状态：`sci` 已能通过 `SA_PLUGINS_PATH` 直接加载 `.so`，也会扫描 `$SA_PLUGINS_HOME/installed/<plugin>/current` 下的 `.so`。本地 `sa plugin install` 已支持目录或 `sap.json`、拒绝裸 `.so/.dll/.dylib`、要求文本工程、从源码构建、做基础 `sap.json`/权限/URL 校验、校验接口路径与可选 `sha256`、执行 `.sai` 到 `.so` 的 symbol smoke、做 artifact 轻量静态导入扫描、拒绝跨插件重复 extern symbol、生成版本目录、`sap.lock`、`permissions.lock` 和依赖图 hash，并能递归安装带 `path` 的本地插件依赖且检测本地依赖环。远程源方面，GitHub/Git clone 和带 `#sha256:` pin 的 release archive 文本源码安装都已支持。宿主 `sa skills` 也会在 optional 依赖缺失或关键符号不满足时自动隐藏对应插件技能。运行时 sandbox/broker enforcement 仍是需要补齐的 plugin-manager/宿主工作。
 
 ## 6. 生命周期
 
@@ -421,7 +421,7 @@ SA 侧 import 规则：
 - **错误模型太粗**：`0/1/2` 不足以表达 OS errno、权限错误、NotFound、InvalidData、Unsupported。需要统一 `sa_plugin_status` 和可选错误 buffer ABI。
 - **复杂对象缺标准**：File、Conn、Request、Response、Permission 等必须统一 handle ownership、drop/free、getter、reader 模式。
 - **async 缺 ABI**：Promise、stream、event 不应直接暴露到 SA；应统一为 `start -> handle`、`poll -> status`、`take -> bytes/json/handle`、`free`。
-- **插件安装器剩余缺口**：本地 `sap.json` 安装、基础权限校验、接口路径/hash 校验、`.sai` symbol smoke、`sap.lock` / `permissions.lock` 和本地依赖环检测已落地；仍需补 GitHub/release 拉取、跨插件重复 extern symbol 拒绝和 optional skill 降级。
+- **插件安装器剩余缺口**：本地 `sap.json` 安装、基础权限校验、接口路径/hash 校验、`.sai` symbol smoke、artifact 静态导入扫描、`sap.lock` / `permissions.lock`、远程 Git/release archive 安装、本地依赖环检测和 optional 技能降级已落地；仍需补运行时 sandbox/broker enforcement。
 - **权限隔离尚未完全落地**：文档中的 grant/syscall 阻断是目标设计；当前插件更多依赖 OS 调用和 SA FFI 规则。新文档必须明确区分现状和目标。
 - **运行路径不一致**：部分 extern-heavy 插件 native `sa build` 可工作，但 `sa run` 解释路径仍可能不支持完整插件执行。这是宿主一致性问题。
 

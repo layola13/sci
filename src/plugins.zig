@@ -1,9 +1,10 @@
 const std = @import("std");
 
 pub const abi_version: u32 = 1;
-pub const host_version: []const u8 = "sci-0.1";
+pub const host_version: []const u8 = "sci-0.2";
 pub const descriptor_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1";
 pub const descriptor_fn_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1_fn";
+pub const broker_abi_version: u32 = 1;
 
 pub const SkillSection = struct {
     name: []const u8,
@@ -17,6 +18,9 @@ pub const Context = struct {
     log: ?*const fn (ctx: *const anyopaque, level: LogLevel, message_ptr: [*]const u8, message_len: usize) callconv(.c) void = null,
     log_ctx: ?*anyopaque = null,
     json_mode: bool = false,
+    broker_abi_version: u32 = 0,
+    broker_call: ?BrokerCallFn = null,
+    broker_ctx: ?*anyopaque = null,
 };
 
 pub const LogLevel = enum(u8) {
@@ -33,6 +37,272 @@ pub const AbiStatus = enum(u32) {
     version_mismatch = 3,
     invalid_descriptor = 4,
 };
+
+pub const BrokerCallFn = *const fn (ctx: ?*anyopaque, op: u32, req: ?*const anyopaque, resp: ?*anyopaque) callconv(.c) u32;
+
+pub const BrokerOp = enum(u32) {
+    env_get = 1,
+    fs_read = 2,
+    http_request = 3,
+    process_spawn = 4,
+};
+
+pub const BrokerStatus = enum(u32) {
+    ok = 0,
+    denied = 1,
+    unsupported = 2,
+    invalid_request = 3,
+    not_found = 4,
+    insufficient_buffer = 5,
+    failed = 6,
+};
+
+pub const BrokerEnvGetRequest = extern struct {
+    name_ptr: [*]const u8,
+    name_len: usize,
+    value_ptr: ?[*]u8,
+    value_cap: usize,
+};
+
+pub const BrokerEnvGetResponse = extern struct {
+    value_len: usize,
+};
+
+pub const BrokerFsReadRequest = extern struct {
+    path_ptr: [*]const u8,
+    path_len: usize,
+    value_ptr: ?[*]u8,
+    value_cap: usize,
+};
+
+pub const BrokerFsReadResponse = extern struct {
+    value_len: usize,
+};
+
+pub const BrokerHttpRequest = extern struct {
+    method_ptr: [*]const u8,
+    method_len: usize,
+    url_ptr: [*]const u8,
+    url_len: usize,
+    body_ptr: ?[*]const u8,
+    body_len: usize,
+    value_ptr: ?[*]u8,
+    value_cap: usize,
+};
+
+pub const BrokerHttpResponse = extern struct {
+    status_code: u16,
+    value_len: usize,
+};
+
+pub const BrokerHttpResult = struct {
+    status_code: u16,
+    body: []const u8,
+};
+
+pub const BrokerString = extern struct {
+    ptr: [*]const u8,
+    len: usize,
+};
+
+pub const BrokerProcessSpawnRequest = extern struct {
+    path_ptr: [*]const u8,
+    path_len: usize,
+    argv_ptr: ?[*]const BrokerString,
+    argv_len: usize,
+    stdout_ptr: ?[*]u8,
+    stdout_cap: usize,
+    stderr_ptr: ?[*]u8,
+    stderr_cap: usize,
+};
+
+pub const BrokerProcessSpawnResponse = extern struct {
+    exit_code: u32,
+    stdout_len: usize,
+    stderr_len: usize,
+};
+
+pub const BrokerProcessSpawnResult = struct {
+    exit_code: u32,
+    stdout: []const u8,
+    stderr: []const u8,
+};
+
+pub const BrokerError = error{
+    Unsupported,
+    Denied,
+    InvalidRequest,
+    NotFound,
+    InsufficientBuffer,
+    Failed,
+};
+
+pub const RuntimeAuthorizationInput = struct {
+    dev_mode: bool = false,
+    project_root: ?[]const u8 = null,
+    allow_env_declared: bool = false,
+    allow_env: []const []const u8 = &.{},
+    allow_read_declared: bool = false,
+    allow_read: []const []const u8 = &.{},
+    allow_write_declared: bool = false,
+    allow_write: []const []const u8 = &.{},
+    allow_net_declared: bool = false,
+    allow_net: []const []const u8 = &.{},
+    allow_run_declared: bool = false,
+    allow_run: []const []const u8 = &.{},
+};
+
+pub fn brokerAvailable(ctx: *const Context) bool {
+    const version = ctx.host_version orelse return false;
+    if (!hostVersionSupportsBroker(version)) return false;
+    return ctx.broker_call != null and ctx.broker_abi_version >= broker_abi_version;
+}
+
+pub fn brokerEnvGet(ctx: *const Context, name: []const u8, buffer: []u8) BrokerError![]const u8 {
+    if (!brokerAvailable(ctx)) return error.Unsupported;
+    const broker_call = ctx.broker_call orelse return error.Unsupported;
+    var response = BrokerEnvGetResponse{ .value_len = 0 };
+    const request = BrokerEnvGetRequest{
+        .name_ptr = name.ptr,
+        .name_len = name.len,
+        .value_ptr = if (buffer.len == 0) null else buffer.ptr,
+        .value_cap = buffer.len,
+    };
+    const status = brokerStatusFromInt(broker_call(ctx.broker_ctx, @intFromEnum(BrokerOp.env_get), &request, &response));
+    return switch (status) {
+        .ok => buffer[0..response.value_len],
+        .denied => error.Denied,
+        .unsupported => error.Unsupported,
+        .invalid_request => error.InvalidRequest,
+        .not_found => error.NotFound,
+        .insufficient_buffer => error.InsufficientBuffer,
+        .failed => error.Failed,
+    };
+}
+
+pub fn brokerFsRead(ctx: *const Context, path: []const u8, buffer: []u8) BrokerError![]const u8 {
+    if (!brokerAvailable(ctx)) return error.Unsupported;
+    const broker_call = ctx.broker_call orelse return error.Unsupported;
+    var response = BrokerFsReadResponse{ .value_len = 0 };
+    const request = BrokerFsReadRequest{
+        .path_ptr = path.ptr,
+        .path_len = path.len,
+        .value_ptr = if (buffer.len == 0) null else buffer.ptr,
+        .value_cap = buffer.len,
+    };
+    const status = brokerStatusFromInt(broker_call(ctx.broker_ctx, @intFromEnum(BrokerOp.fs_read), &request, &response));
+    return switch (status) {
+        .ok => buffer[0..response.value_len],
+        .denied => error.Denied,
+        .unsupported => error.Unsupported,
+        .invalid_request => error.InvalidRequest,
+        .not_found => error.NotFound,
+        .insufficient_buffer => error.InsufficientBuffer,
+        .failed => error.Failed,
+    };
+}
+
+pub fn brokerHttpRequest(
+    ctx: *const Context,
+    method: []const u8,
+    url: []const u8,
+    body: []const u8,
+    buffer: []u8,
+) BrokerError!BrokerHttpResult {
+    if (!brokerAvailable(ctx)) return error.Unsupported;
+    const broker_call = ctx.broker_call orelse return error.Unsupported;
+    var response = BrokerHttpResponse{
+        .status_code = 0,
+        .value_len = 0,
+    };
+    const request = BrokerHttpRequest{
+        .method_ptr = method.ptr,
+        .method_len = method.len,
+        .url_ptr = url.ptr,
+        .url_len = url.len,
+        .body_ptr = if (body.len == 0) null else body.ptr,
+        .body_len = body.len,
+        .value_ptr = if (buffer.len == 0) null else buffer.ptr,
+        .value_cap = buffer.len,
+    };
+    const status = brokerStatusFromInt(broker_call(ctx.broker_ctx, @intFromEnum(BrokerOp.http_request), &request, &response));
+    return switch (status) {
+        .ok => .{
+            .status_code = response.status_code,
+            .body = buffer[0..response.value_len],
+        },
+        .denied => error.Denied,
+        .unsupported => error.Unsupported,
+        .invalid_request => error.InvalidRequest,
+        .not_found => error.NotFound,
+        .insufficient_buffer => error.InsufficientBuffer,
+        .failed => error.Failed,
+    };
+}
+
+pub fn brokerProcessSpawn(
+    ctx: *const Context,
+    path: []const u8,
+    argv: []const BrokerString,
+    stdout_buffer: []u8,
+    stderr_buffer: []u8,
+) BrokerError!BrokerProcessSpawnResult {
+    if (!brokerAvailable(ctx)) return error.Unsupported;
+    const broker_call = ctx.broker_call orelse return error.Unsupported;
+    var response = BrokerProcessSpawnResponse{
+        .exit_code = 0,
+        .stdout_len = 0,
+        .stderr_len = 0,
+    };
+    const request = BrokerProcessSpawnRequest{
+        .path_ptr = path.ptr,
+        .path_len = path.len,
+        .argv_ptr = if (argv.len == 0) null else argv.ptr,
+        .argv_len = argv.len,
+        .stdout_ptr = if (stdout_buffer.len == 0) null else stdout_buffer.ptr,
+        .stdout_cap = stdout_buffer.len,
+        .stderr_ptr = if (stderr_buffer.len == 0) null else stderr_buffer.ptr,
+        .stderr_cap = stderr_buffer.len,
+    };
+    const status = brokerStatusFromInt(broker_call(ctx.broker_ctx, @intFromEnum(BrokerOp.process_spawn), &request, &response));
+    return switch (status) {
+        .ok => .{
+            .exit_code = response.exit_code,
+            .stdout = stdout_buffer[0..response.stdout_len],
+            .stderr = stderr_buffer[0..response.stderr_len],
+        },
+        .denied => error.Denied,
+        .unsupported => error.Unsupported,
+        .invalid_request => error.InvalidRequest,
+        .not_found => error.NotFound,
+        .insufficient_buffer => error.InsufficientBuffer,
+        .failed => error.Failed,
+    };
+}
+
+fn hostVersionSupportsBroker(version: []const u8) bool {
+    const prefix = "sci-";
+    if (!std.mem.startsWith(u8, version, prefix)) return false;
+    var it = std.mem.splitScalar(u8, version[prefix.len..], '.');
+    const major_text = it.next() orelse return false;
+    const minor_text = it.next() orelse return false;
+    const major = std.fmt.parseUnsigned(u32, major_text, 10) catch return false;
+    const minor = std.fmt.parseUnsigned(u32, minor_text, 10) catch return false;
+    return major > 0 or minor >= 2;
+}
+
+fn brokerStatusFromInt(value: u32) BrokerStatus {
+    return switch (value) {
+        @intFromEnum(BrokerStatus.ok) => .ok,
+        @intFromEnum(BrokerStatus.denied) => .denied,
+        @intFromEnum(BrokerStatus.unsupported) => .unsupported,
+        @intFromEnum(BrokerStatus.invalid_request) => .invalid_request,
+        @intFromEnum(BrokerStatus.not_found) => .not_found,
+        @intFromEnum(BrokerStatus.insufficient_buffer) => .insufficient_buffer,
+        @intFromEnum(BrokerStatus.failed) => .failed,
+        else => .failed,
+    };
+}
 
 pub const StreamWriteAllFn = *const fn (ctx: ?*anyopaque, bytes: [*]const u8, len: usize) callconv(.c) u32;
 
@@ -70,6 +340,7 @@ const LoadedPlugin = struct {
     path: []const u8,
     lib: std.DynLib,
     descriptor: PluginDescriptor,
+    permission_policy: RuntimePermissionPolicy = .{},
 
     fn exportsAny(self: *LoadedPlugin, allocator: std.mem.Allocator, symbol_names: []const []const u8) !bool {
         for (symbol_names) |symbol| {
@@ -80,35 +351,775 @@ const LoadedPlugin = struct {
         return false;
     }
 
+    fn exportsAll(self: *LoadedPlugin, allocator: std.mem.Allocator, symbol_names: []const []u8) !bool {
+        for (symbol_names) |symbol| {
+            const symbol_z = try allocator.dupeZ(u8, symbol);
+            defer allocator.free(symbol_z);
+            if (self.lib.lookup(*anyopaque, symbol_z) == null) return false;
+        }
+        return true;
+    }
+
     fn deinit(self: *LoadedPlugin, allocator: std.mem.Allocator) void {
         self.lib.close();
+        allocator.free(self.path);
+        self.permission_policy.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
+const FsPermissionOp = enum {
+    read,
+    write,
+    create,
+    delete,
+    metadata,
+};
+
+const FsPermission = struct {
+    op: FsPermissionOp,
+    path: []u8,
+
+    fn deinit(self: *FsPermission, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         self.* = undefined;
     }
 };
 
+const HttpMethodMask = struct {
+    bits: u16 = 0,
+
+    fn default() HttpMethodMask {
+        var mask = HttpMethodMask{};
+        mask.insert(.GET);
+        return mask;
+    }
+
+    fn insert(self: *HttpMethodMask, method: std.http.Method) void {
+        self.bits |= httpMethodBit(method) orelse 0;
+    }
+
+    fn contains(self: HttpMethodMask, method: std.http.Method) bool {
+        const bit = httpMethodBit(method) orelse return false;
+        return (self.bits & bit) != 0;
+    }
+};
+
+const NetPermission = struct {
+    url: []u8,
+    methods: HttpMethodMask,
+
+    fn deinit(self: *NetPermission, allocator: std.mem.Allocator) void {
+        allocator.free(self.url);
+        self.* = undefined;
+    }
+};
+
+const ProcessExecPermission = struct {
+    path: []u8,
+    args: [][]u8,
+
+    fn deinit(self: *ProcessExecPermission, allocator: std.mem.Allocator) void {
+        allocator.free(self.path);
+        for (self.args) |arg| allocator.free(arg);
+        allocator.free(self.args);
+        self.* = undefined;
+    }
+};
+
+const RuntimePermissionPolicy = struct {
+    has_manifest: bool = false,
+    requires_sandbox: bool = false,
+    env_permissions: std.ArrayListUnmanaged([]u8) = .{},
+    fs_permissions: std.ArrayListUnmanaged(FsPermission) = .{},
+    net_permissions: std.ArrayListUnmanaged(NetPermission) = .{},
+    process_spawn: bool = false,
+    process_exec_permissions: std.ArrayListUnmanaged(ProcessExecPermission) = .{},
+
+    fn initFromManifest(allocator: std.mem.Allocator, manifest: SapManifest) !RuntimePermissionPolicy {
+        var policy = RuntimePermissionPolicy{
+            .has_manifest = true,
+            .requires_sandbox = manifest.requires_sandbox,
+        };
+        errdefer policy.deinit(allocator);
+        for (manifest.env_permissions) |entry| {
+            try policy.env_permissions.append(allocator, try allocator.dupe(u8, entry));
+        }
+        for (manifest.fs_permissions) |entry| {
+            try policy.fs_permissions.append(allocator, .{
+                .op = entry.op,
+                .path = try allocator.dupe(u8, entry.path),
+            });
+        }
+        for (manifest.net_permissions) |entry| {
+            try policy.net_permissions.append(allocator, .{
+                .url = try allocator.dupe(u8, entry.url),
+                .methods = entry.methods,
+            });
+        }
+        policy.process_spawn = manifest.process_spawn;
+        for (manifest.process_exec_permissions) |entry| {
+            var owned_args = std.ArrayList([]u8).init(allocator);
+            errdefer {
+                for (owned_args.items) |arg| allocator.free(arg);
+                owned_args.deinit();
+            }
+            for (entry.args) |arg| try owned_args.append(try allocator.dupe(u8, arg));
+            try policy.process_exec_permissions.append(allocator, .{
+                .path = try allocator.dupe(u8, entry.path),
+                .args = try owned_args.toOwnedSlice(),
+            });
+        }
+        return policy;
+    }
+
+    fn deinit(self: *RuntimePermissionPolicy, allocator: std.mem.Allocator) void {
+        for (self.env_permissions.items) |entry| allocator.free(entry);
+        self.env_permissions.deinit(allocator);
+        for (self.fs_permissions.items) |*entry| entry.deinit(allocator);
+        self.fs_permissions.deinit(allocator);
+        for (self.net_permissions.items) |*entry| entry.deinit(allocator);
+        self.net_permissions.deinit(allocator);
+        for (self.process_exec_permissions.items) |*entry| entry.deinit(allocator);
+        self.process_exec_permissions.deinit(allocator);
+        self.* = undefined;
+    }
+
+    fn allowsEnv(self: *const RuntimePermissionPolicy, name: []const u8) bool {
+        return matchesAnyEnvPattern(self.env_permissions.items, name);
+    }
+
+    fn allowsFs(self: *const RuntimePermissionPolicy, allocator: std.mem.Allocator, project_root: []const u8, op: FsPermissionOp, abs_path: []const u8) !bool {
+        for (self.fs_permissions.items) |entry| {
+            if (entry.op != op) continue;
+            if (try matchesPathPermissionPattern(allocator, entry.path, project_root, abs_path)) return true;
+        }
+        return false;
+    }
+
+    fn allowsNet(self: *const RuntimePermissionPolicy, allocator: std.mem.Allocator, method: std.http.Method, url: []const u8) !bool {
+        for (self.net_permissions.items) |entry| {
+            if (!entry.methods.contains(method)) continue;
+            if (try matchesUrlPermissionPattern(allocator, entry.url, url)) return true;
+        }
+        return false;
+    }
+
+    fn allowsProcessSpawn(self: *const RuntimePermissionPolicy, allocator: std.mem.Allocator, abs_path: []const u8, argv: []const []const u8) !bool {
+        if (!self.process_spawn) return false;
+        for (self.process_exec_permissions.items) |entry| {
+            if (try matchesExecutablePermissionPath(allocator, entry.path, abs_path) and processArgsMatch(entry.args, argv)) return true;
+        }
+        return false;
+    }
+};
+
+const RuntimeHostAuthorization = struct {
+    dev_mode: bool = false,
+    project_root: ?[]u8 = null,
+    allow_env_declared: bool = false,
+    allow_read_declared: bool = false,
+    allow_write_declared: bool = false,
+    allow_net_declared: bool = false,
+    allow_run_declared: bool = false,
+    allow_env: std.ArrayListUnmanaged([]u8) = .{},
+    allow_read: std.ArrayListUnmanaged([]u8) = .{},
+    allow_write: std.ArrayListUnmanaged([]u8) = .{},
+    allow_net: std.ArrayListUnmanaged([]u8) = .{},
+    allow_run: std.ArrayListUnmanaged([]u8) = .{},
+
+    fn init(allocator: std.mem.Allocator, input: RuntimeAuthorizationInput) !RuntimeHostAuthorization {
+        var auth = RuntimeHostAuthorization{
+            .dev_mode = input.dev_mode,
+            .allow_env_declared = input.allow_env_declared,
+            .allow_read_declared = input.allow_read_declared,
+            .allow_write_declared = input.allow_write_declared,
+            .allow_net_declared = input.allow_net_declared,
+            .allow_run_declared = input.allow_run_declared,
+        };
+        errdefer auth.deinit(allocator);
+        auth.project_root = if (input.project_root) |root|
+            try allocator.dupe(u8, root)
+        else
+            try std.fs.cwd().realpathAlloc(allocator, ".");
+        try appendOwnedStrings(allocator, &auth.allow_env, input.allow_env);
+        try appendOwnedStrings(allocator, &auth.allow_read, input.allow_read);
+        try appendOwnedStrings(allocator, &auth.allow_write, input.allow_write);
+        try appendOwnedStrings(allocator, &auth.allow_net, input.allow_net);
+        try appendOwnedStrings(allocator, &auth.allow_run, input.allow_run);
+        return auth;
+    }
+
+    fn deinit(self: *RuntimeHostAuthorization, allocator: std.mem.Allocator) void {
+        if (self.project_root) |root| allocator.free(root);
+        freeOwnedStringList(allocator, &self.allow_env);
+        freeOwnedStringList(allocator, &self.allow_read);
+        freeOwnedStringList(allocator, &self.allow_write);
+        freeOwnedStringList(allocator, &self.allow_net);
+        freeOwnedStringList(allocator, &self.allow_run);
+        self.* = undefined;
+    }
+
+    fn effectiveProjectRoot(self: *const RuntimeHostAuthorization) []const u8 {
+        return self.project_root orelse ".";
+    }
+
+    fn allowsEnv(self: *const RuntimeHostAuthorization, name: []const u8) bool {
+        if (self.dev_mode) return true;
+        if (self.allow_env_declared) return true;
+        return matchesAnyEnvPattern(self.allow_env.items, name);
+    }
+
+    fn allowsRead(self: *const RuntimeHostAuthorization, allocator: std.mem.Allocator, abs_path: []const u8) !bool {
+        if (self.dev_mode) return true;
+        if (self.allow_read_declared) return true;
+        const project_root = self.effectiveProjectRoot();
+        for (self.allow_read.items) |entry| {
+            if (try matchesPathPermissionPattern(allocator, entry, project_root, abs_path)) return true;
+        }
+        return false;
+    }
+
+    fn allowsNet(self: *const RuntimeHostAuthorization, allocator: std.mem.Allocator, url: []const u8) !bool {
+        if (self.dev_mode) return true;
+        if (self.allow_net_declared) return true;
+        for (self.allow_net.items) |entry| {
+            if (try matchesUrlPermissionPattern(allocator, entry, url)) return true;
+        }
+        return false;
+    }
+
+    fn allowsRun(self: *const RuntimeHostAuthorization, allocator: std.mem.Allocator, abs_path: []const u8) !bool {
+        if (self.dev_mode) return true;
+        if (self.allow_run_declared) return true;
+        for (self.allow_run.items) |entry| {
+            if (try matchesExecutablePermissionPath(allocator, entry, abs_path)) return true;
+        }
+        return false;
+    }
+};
+
+const RuntimeBroker = struct {
+    allocator: std.mem.Allocator,
+    policy: *const RuntimePermissionPolicy,
+    authorization: *const RuntimeHostAuthorization,
+};
+
+const max_net_probe_bytes: usize = 4 * 1024 * 1024;
+const max_process_probe_bytes: usize = 4 * 1024 * 1024;
+
+fn runtimeBrokerCall(ctx: ?*anyopaque, op_value: u32, req: ?*const anyopaque, resp: ?*anyopaque) callconv(.c) u32 {
+    const broker = if (ctx) |raw|
+        @as(*const RuntimeBroker, @ptrCast(@alignCast(raw)))
+    else
+        return @intFromEnum(BrokerStatus.invalid_request);
+
+    const op = switch (op_value) {
+        @intFromEnum(BrokerOp.env_get) => BrokerOp.env_get,
+        @intFromEnum(BrokerOp.fs_read) => BrokerOp.fs_read,
+        @intFromEnum(BrokerOp.http_request) => BrokerOp.http_request,
+        @intFromEnum(BrokerOp.process_spawn) => BrokerOp.process_spawn,
+        else => return @intFromEnum(BrokerStatus.unsupported),
+    };
+
+    return @intFromEnum(switch (op) {
+        .env_get => runtimeBrokerEnvGet(broker, req, resp),
+        .fs_read => runtimeBrokerFsRead(broker, req, resp),
+        .http_request => runtimeBrokerHttpRequest(broker, req, resp),
+        .process_spawn => runtimeBrokerProcessSpawn(broker, req, resp),
+    });
+}
+
+fn runtimeBrokerEnvGet(broker: *const RuntimeBroker, req: ?*const anyopaque, resp: ?*anyopaque) BrokerStatus {
+    const request = if (req) |raw|
+        @as(*const BrokerEnvGetRequest, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    const response = if (resp) |raw|
+        @as(*BrokerEnvGetResponse, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    response.* = .{ .value_len = 0 };
+
+    if (request.name_len == 0) return .invalid_request;
+    if (request.value_cap != 0 and request.value_ptr == null) return .invalid_request;
+
+    const env_name = request.name_ptr[0..request.name_len];
+    if (!broker.policy.allowsEnv(env_name)) return .denied;
+    if (!broker.authorization.allowsEnv(env_name)) return .denied;
+
+    const value = std.process.getEnvVarOwned(broker.allocator, env_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return .not_found,
+        else => return .failed,
+    };
+    defer broker.allocator.free(value);
+
+    response.value_len = value.len;
+    if (value.len > request.value_cap) return .insufficient_buffer;
+    if (value.len != 0) {
+        const out_ptr = request.value_ptr orelse return .invalid_request;
+        @memcpy(out_ptr[0..value.len], value);
+    }
+    return .ok;
+}
+
+fn runtimeBrokerFsRead(broker: *const RuntimeBroker, req: ?*const anyopaque, resp: ?*anyopaque) BrokerStatus {
+    const request = if (req) |raw|
+        @as(*const BrokerFsReadRequest, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    const response = if (resp) |raw|
+        @as(*BrokerFsReadResponse, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    response.* = .{ .value_len = 0 };
+
+    if (request.path_len == 0) return .invalid_request;
+    if (request.value_cap != 0 and request.value_ptr == null) return .invalid_request;
+
+    const project_root = broker.authorization.effectiveProjectRoot();
+    const abs_path = resolveBrokerRequestPath(broker.allocator, request.path_ptr[0..request.path_len], project_root) catch |err| switch (err) {
+        error.FileNotFound => return .not_found,
+        else => return .failed,
+    };
+    defer broker.allocator.free(abs_path);
+
+    const manifest_allowed = broker.policy.allowsFs(broker.allocator, project_root, .read, abs_path) catch return .failed;
+    if (!manifest_allowed) return .denied;
+    const host_allowed = broker.authorization.allowsRead(broker.allocator, abs_path) catch return .failed;
+    if (!host_allowed) return .denied;
+
+    var file = std.fs.openFileAbsolute(abs_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return .not_found,
+        else => return .failed,
+    };
+    defer file.close();
+
+    const file_size = file.getEndPos() catch return .failed;
+    response.value_len = @as(usize, @intCast(file_size));
+    if (file_size > request.value_cap) return .insufficient_buffer;
+    if (file_size == 0) return .ok;
+
+    const out_ptr = request.value_ptr orelse return .invalid_request;
+    const out = out_ptr[0..@as(usize, @intCast(file_size))];
+    const read_len = file.readAll(out) catch return .failed;
+    if (read_len != out.len) return .failed;
+    return .ok;
+}
+
+fn runtimeBrokerHttpRequest(broker: *const RuntimeBroker, req: ?*const anyopaque, resp: ?*anyopaque) BrokerStatus {
+    const request = if (req) |raw|
+        @as(*const BrokerHttpRequest, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    const response = if (resp) |raw|
+        @as(*BrokerHttpResponse, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    response.* = .{
+        .status_code = 0,
+        .value_len = 0,
+    };
+
+    if (request.method_len == 0 or request.url_len == 0) return .invalid_request;
+    if (request.body_len != 0 and request.body_ptr == null) return .invalid_request;
+    if (request.value_cap != 0 and request.value_ptr == null) return .invalid_request;
+
+    const method_text = request.method_ptr[0..request.method_len];
+    const method = parseBrokerHttpMethod(method_text) orelse return .invalid_request;
+    if (request.body_len != 0 and !method.requestHasBody()) return .invalid_request;
+
+    const url = request.url_ptr[0..request.url_len];
+    if (!allowedPermissionUrl(url)) return .denied;
+
+    const manifest_allowed = broker.policy.allowsNet(broker.allocator, method, url) catch return .failed;
+    if (!manifest_allowed) return .denied;
+    const host_allowed = broker.authorization.allowsNet(broker.allocator, url) catch return .failed;
+    if (!host_allowed) return .denied;
+
+    const uri = std.Uri.parse(url) catch return .invalid_request;
+    const body = if (request.body_len == 0)
+        ""
+    else
+        request.body_ptr.?[0..request.body_len];
+
+    var client: std.http.Client = .{ .allocator = broker.allocator };
+    defer client.deinit();
+
+    var server_header_buffer: [16 * 1024]u8 = undefined;
+    var http_request = client.open(method, uri, .{
+        .server_header_buffer = &server_header_buffer,
+        .redirect_behavior = .not_allowed,
+        .keep_alive = false,
+        .headers = .{
+            .accept_encoding = .omit,
+        },
+    }) catch return .failed;
+    defer http_request.deinit();
+
+    if (body.len != 0) {
+        http_request.transfer_encoding = .{ .content_length = body.len };
+    }
+
+    http_request.send() catch return .failed;
+    if (body.len != 0) http_request.writeAll(body) catch return .failed;
+    http_request.finish() catch return .failed;
+    http_request.wait() catch return .failed;
+
+    response.status_code = @intFromEnum(http_request.response.status);
+    if (!method.responseHasBody()) return .ok;
+
+    if (http_request.response.content_length) |content_length| {
+        response.value_len = @as(usize, @intCast(content_length));
+        if (content_length > request.value_cap) return .insufficient_buffer;
+        if (content_length == 0) return .ok;
+        const out_ptr = request.value_ptr orelse return .invalid_request;
+        const out = out_ptr[0..@as(usize, @intCast(content_length))];
+        const read_len = http_request.reader().readAll(out) catch return .failed;
+        if (read_len != out.len) return .failed;
+        return .ok;
+    }
+
+    var payload = std.ArrayList(u8).init(broker.allocator);
+    defer payload.deinit();
+    const unknown_body_limit = if (request.value_cap < max_net_probe_bytes)
+        request.value_cap + 1
+    else
+        max_net_probe_bytes;
+    http_request.reader().readAllArrayList(&payload, unknown_body_limit) catch |err| {
+        if (err == error.StreamTooLong) {
+            response.value_len = payload.items.len;
+            return .insufficient_buffer;
+        }
+        return .failed;
+    };
+
+    response.value_len = payload.items.len;
+    if (payload.items.len > request.value_cap) return .insufficient_buffer;
+    if (payload.items.len == 0) return .ok;
+
+    const out_ptr = request.value_ptr orelse return .invalid_request;
+    @memcpy(out_ptr[0..payload.items.len], payload.items);
+    return .ok;
+}
+
+fn runtimeBrokerProcessSpawn(broker: *const RuntimeBroker, req: ?*const anyopaque, resp: ?*anyopaque) BrokerStatus {
+    const request = if (req) |raw|
+        @as(*const BrokerProcessSpawnRequest, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    const response = if (resp) |raw|
+        @as(*BrokerProcessSpawnResponse, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    response.* = .{
+        .exit_code = 0,
+        .stdout_len = 0,
+        .stderr_len = 0,
+    };
+
+    if (request.path_len == 0) return .invalid_request;
+    if (request.argv_len != 0 and request.argv_ptr == null) return .invalid_request;
+    if (request.stdout_cap != 0 and request.stdout_ptr == null) return .invalid_request;
+    if (request.stderr_cap != 0 and request.stderr_ptr == null) return .invalid_request;
+
+    const path = request.path_ptr[0..request.path_len];
+    const abs_path = resolveExecutablePath(broker.allocator, path) catch |err| switch (err) {
+        error.FileNotFound => return .not_found,
+        error.InvalidPath => return .invalid_request,
+        else => return .failed,
+    };
+    defer broker.allocator.free(abs_path);
+
+    var argv_list = std.ArrayList([]const u8).init(broker.allocator);
+    defer argv_list.deinit();
+    if (request.argv_len != 0) {
+        const raw_argv = request.argv_ptr.?[0..request.argv_len];
+        for (raw_argv) |arg| {
+            if (arg.len == 0) return .invalid_request;
+            argv_list.append(arg.ptr[0..arg.len]) catch return .failed;
+        }
+    }
+
+    const manifest_allowed = broker.policy.allowsProcessSpawn(broker.allocator, abs_path, argv_list.items) catch return .failed;
+    if (!manifest_allowed) return .denied;
+    const host_allowed = broker.authorization.allowsRun(broker.allocator, abs_path) catch return .failed;
+    if (!host_allowed) return .denied;
+
+    var command_argv = std.ArrayList([]const u8).init(broker.allocator);
+    defer command_argv.deinit();
+    command_argv.append(abs_path) catch return .failed;
+    command_argv.appendSlice(argv_list.items) catch return .failed;
+
+    const max_output_bytes = if (request.stdout_cap + request.stderr_cap + 1 > max_process_probe_bytes)
+        max_process_probe_bytes
+    else
+        request.stdout_cap + request.stderr_cap + 1;
+    const result = std.process.Child.run(.{
+        .allocator = broker.allocator,
+        .argv = command_argv.items,
+        .max_output_bytes = max_output_bytes,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return .not_found,
+        error.StdoutStreamTooLong, error.StderrStreamTooLong => return .insufficient_buffer,
+        else => return .failed,
+    };
+    defer broker.allocator.free(result.stdout);
+    defer broker.allocator.free(result.stderr);
+
+    response.stdout_len = result.stdout.len;
+    response.stderr_len = result.stderr.len;
+    if (result.stdout.len > request.stdout_cap or result.stderr.len > request.stderr_cap) return .insufficient_buffer;
+
+    response.exit_code = switch (result.term) {
+        .Exited => |code| code,
+        else => return .failed,
+    };
+
+    if (result.stdout.len != 0) {
+        const stdout_ptr = request.stdout_ptr orelse return .invalid_request;
+        @memcpy(stdout_ptr[0..result.stdout.len], result.stdout);
+    }
+    if (result.stderr.len != 0) {
+        const stderr_ptr = request.stderr_ptr orelse return .invalid_request;
+        @memcpy(stderr_ptr[0..result.stderr.len], result.stderr);
+    }
+    return .ok;
+}
+
+fn loadRuntimePermissionPolicy(allocator: std.mem.Allocator, lib_path: []const u8) !RuntimePermissionPolicy {
+    const dir_path = std.fs.path.dirname(lib_path) orelse return .{};
+    const sap_path = try std.fs.path.join(allocator, &.{ dir_path, "sap.json" });
+    defer allocator.free(sap_path);
+    if (!fileExistsAbsolute(sap_path)) return .{};
+
+    var manifest = parseSapManifest(allocator, sap_path) catch return .{};
+    defer manifest.deinit(allocator);
+    return try RuntimePermissionPolicy.initFromManifest(allocator, manifest);
+}
+
+fn appendOwnedStrings(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged([]u8), entries: []const []const u8) !void {
+    for (entries) |entry| {
+        try list.append(allocator, try allocator.dupe(u8, entry));
+    }
+}
+
+fn freeOwnedStringList(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged([]u8)) void {
+    for (list.items) |entry| allocator.free(entry);
+    list.deinit(allocator);
+}
+
+fn matchesAnyEnvPattern(patterns: []const []u8, name: []const u8) bool {
+    for (patterns) |entry| {
+        if (std.mem.endsWith(u8, entry, "*")) {
+            if (std.mem.startsWith(u8, name, entry[0 .. entry.len - 1])) return true;
+            continue;
+        }
+        if (std.mem.eql(u8, name, entry)) return true;
+    }
+    return false;
+}
+
+fn resolveBrokerRequestPath(allocator: std.mem.Allocator, requested_path: []const u8, project_root: []const u8) ![]u8 {
+    if (std.fs.path.isAbsolute(requested_path)) return try std.fs.cwd().realpathAlloc(allocator, requested_path);
+    const joined = try std.fs.path.join(allocator, &.{ project_root, requested_path });
+    defer allocator.free(joined);
+    return try std.fs.cwd().realpathAlloc(allocator, joined);
+}
+
+fn parseBrokerHttpMethod(text: []const u8) ?std.http.Method {
+    const method: std.http.Method = @enumFromInt(std.http.Method.parse(text));
+    return switch (method) {
+        .GET, .POST, .PUT, .PATCH, .DELETE, .HEAD, .OPTIONS => method,
+        else => null,
+    };
+}
+
+fn httpMethodBit(method: std.http.Method) ?u16 {
+    return switch (method) {
+        .GET => 1 << 0,
+        .POST => 1 << 1,
+        .PUT => 1 << 2,
+        .PATCH => 1 << 3,
+        .DELETE => 1 << 4,
+        .HEAD => 1 << 5,
+        .OPTIONS => 1 << 6,
+        else => null,
+    };
+}
+
+fn matchesUrlPermissionPattern(allocator: std.mem.Allocator, pattern_url: []const u8, requested_url: []const u8) !bool {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    const pattern_uri = std.Uri.parse(pattern_url) catch return false;
+    const requested_uri = std.Uri.parse(requested_url) catch return false;
+
+    if (!std.ascii.eqlIgnoreCase(pattern_uri.scheme, requested_uri.scheme)) return false;
+
+    const pattern_host_component = pattern_uri.host orelse return false;
+    const requested_host_component = requested_uri.host orelse return false;
+    const pattern_host = try pattern_host_component.toRawMaybeAlloc(arena_alloc);
+    const requested_host = try requested_host_component.toRawMaybeAlloc(arena_alloc);
+    if (!std.ascii.eqlIgnoreCase(pattern_host, requested_host)) return false;
+
+    if (effectiveUriPort(pattern_uri) != effectiveUriPort(requested_uri)) return false;
+
+    const pattern_path = normalizedUriPath(pattern_uri, arena_alloc) catch return false;
+    const requested_path = normalizedUriPath(requested_uri, arena_alloc) catch return false;
+    return uriPathAllows(pattern_path, requested_path);
+}
+
+fn effectiveUriPort(uri: std.Uri) ?u16 {
+    if (uri.port) |port| return port;
+    if (std.ascii.eqlIgnoreCase(uri.scheme, "https")) return 443;
+    if (std.ascii.eqlIgnoreCase(uri.scheme, "http")) return 80;
+    return null;
+}
+
+fn normalizedUriPath(uri: std.Uri, allocator: std.mem.Allocator) ![]const u8 {
+    const raw_path = try uri.path.toRawMaybeAlloc(allocator);
+    if (raw_path.len == 0) return "/";
+    return trimTrailingSlashExceptRoot(raw_path);
+}
+
+fn trimTrailingSlashExceptRoot(path: []const u8) []const u8 {
+    var end = path.len;
+    while (end > 1 and path[end - 1] == '/') : (end -= 1) {}
+    return path[0..end];
+}
+
+fn uriPathAllows(pattern_path: []const u8, requested_path: []const u8) bool {
+    if (std.mem.eql(u8, pattern_path, "/")) return true;
+    if (std.mem.eql(u8, pattern_path, requested_path)) return true;
+    if (!std.mem.startsWith(u8, requested_path, pattern_path)) return false;
+    return requested_path.len > pattern_path.len and requested_path[pattern_path.len] == '/';
+}
+
+fn resolveExecutablePath(allocator: std.mem.Allocator, requested_path: []const u8) ![]u8 {
+    if (!std.fs.path.isAbsolute(requested_path)) return error.InvalidPath;
+    return try std.fs.cwd().realpathAlloc(allocator, requested_path);
+}
+
+fn matchesExecutablePermissionPath(allocator: std.mem.Allocator, declared_path: []const u8, abs_path: []const u8) !bool {
+    if (!std.fs.path.isAbsolute(declared_path)) return false;
+    const resolved_declared = std.fs.cwd().realpathAlloc(allocator, declared_path) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    defer allocator.free(resolved_declared);
+    return std.mem.eql(u8, resolved_declared, abs_path);
+}
+
+fn processArgsMatch(patterns: []const []u8, argv: []const []const u8) bool {
+    if (patterns.len != argv.len) return false;
+    for (patterns, argv) |pattern, arg| {
+        if (std.mem.eql(u8, pattern, "*")) continue;
+        if (!std.mem.eql(u8, pattern, arg)) return false;
+    }
+    return true;
+}
+
+fn matchesPathPermissionPattern(allocator: std.mem.Allocator, pattern: []const u8, project_root: []const u8, abs_path: []const u8) !bool {
+    const resolved = try resolvePermissionPathPattern(allocator, pattern, project_root);
+    defer allocator.free(resolved);
+    const recursive = std.mem.endsWith(u8, resolved, "/**");
+    const base = if (recursive) resolved[0 .. resolved.len - 3] else resolved;
+    if (recursive) {
+        if (std.mem.eql(u8, abs_path, base)) return true;
+        if (base.len == 0) return false;
+        if (!std.mem.startsWith(u8, abs_path, base)) return false;
+        return abs_path.len > base.len and abs_path[base.len] == '/';
+    }
+    return std.mem.eql(u8, abs_path, base);
+}
+
+fn resolvePermissionPathPattern(allocator: std.mem.Allocator, pattern: []const u8, project_root: []const u8) ![]u8 {
+    if (std.mem.startsWith(u8, pattern, "$PROJECT/") or std.mem.eql(u8, pattern, "$PROJECT")) {
+        return try resolvePatternFromRoot(allocator, project_root, pattern["$PROJECT".len..]);
+    }
+    if (std.mem.startsWith(u8, pattern, "$HOME/") or std.mem.eql(u8, pattern, "$HOME")) {
+        const home = std.process.getEnvVarOwned(allocator, "HOME") catch return error.InvalidPath;
+        defer allocator.free(home);
+        return try resolvePatternFromRoot(allocator, home, pattern["$HOME".len..]);
+    }
+    if (std.mem.startsWith(u8, pattern, "$SA_PLUGINS_HOME/") or std.mem.eql(u8, pattern, "$SA_PLUGINS_HOME")) {
+        const home = try pluginsHome(allocator);
+        defer allocator.free(home);
+        return try resolvePatternFromRoot(allocator, home, pattern["$SA_PLUGINS_HOME".len..]);
+    }
+    if (std.mem.startsWith(u8, pattern, "$SA_CACHE/") or std.mem.eql(u8, pattern, "$SA_CACHE")) {
+        const cache_root = try std.fs.path.join(allocator, &.{ project_root, ".sa_cache" });
+        defer allocator.free(cache_root);
+        return try resolvePatternFromRoot(allocator, cache_root, pattern["$SA_CACHE".len..]);
+    }
+    if (std.fs.path.isAbsolute(pattern)) return try allocator.dupe(u8, pattern);
+    return error.InvalidPath;
+}
+
+fn resolvePatternFromRoot(allocator: std.mem.Allocator, root: []const u8, suffix: []const u8) ![]u8 {
+    const recursive = std.mem.endsWith(u8, suffix, "/**");
+    const suffix_body = if (recursive) suffix[0 .. suffix.len - 3] else suffix;
+    const trimmed = std.mem.trimLeft(u8, suffix_body, "/");
+    const base = if (trimmed.len == 0)
+        try allocator.dupe(u8, root)
+    else
+        try std.fs.path.join(allocator, &.{ root, trimmed });
+    if (!recursive) return base;
+    defer allocator.free(base);
+    return try std.fmt.allocPrint(allocator, "{s}/**", .{base});
+}
+
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
     plugins: std.ArrayList(LoadedPlugin),
     diagnostics: std.ArrayList(LoadDiagnostic),
+    host_authorization: RuntimeHostAuthorization,
 
     pub fn init(allocator: std.mem.Allocator) Runtime {
         return .{
             .allocator = allocator,
             .plugins = std.ArrayList(LoadedPlugin).init(allocator),
             .diagnostics = std.ArrayList(LoadDiagnostic).init(allocator),
+            .host_authorization = .{},
         };
     }
 
-    pub fn initFromEnv(allocator: std.mem.Allocator) !Runtime {
+    pub fn initWithAuthorization(allocator: std.mem.Allocator, authorization: RuntimeAuthorizationInput) !Runtime {
         var runtime = Runtime.init(allocator);
+        errdefer runtime.deinit();
+        runtime.host_authorization = try RuntimeHostAuthorization.init(allocator, authorization);
+        return runtime;
+    }
+
+    pub fn initFromEnv(allocator: std.mem.Allocator) !Runtime {
+        var runtime = try Runtime.initWithAuthorization(allocator, .{
+            .dev_mode = pluginDevMode(allocator),
+        });
+        errdefer runtime.deinit();
+        try runtime.loadFromEnv();
+        return runtime;
+    }
+
+    pub fn initFromEnvWithAuthorization(allocator: std.mem.Allocator, authorization: RuntimeAuthorizationInput) !Runtime {
+        var runtime = try Runtime.initWithAuthorization(allocator, authorization);
         errdefer runtime.deinit();
         try runtime.loadFromEnv();
         return runtime;
     }
 
     pub fn initFromPathList(allocator: std.mem.Allocator, path_list: []const u8) !Runtime {
-        var runtime = Runtime.init(allocator);
+        var runtime = try Runtime.initWithAuthorization(allocator, .{
+            .dev_mode = pluginDevMode(allocator),
+        });
+        errdefer runtime.deinit();
+        try runtime.loadPathList(path_list);
+        return runtime;
+    }
+
+    pub fn initFromPathListWithAuthorization(allocator: std.mem.Allocator, path_list: []const u8, authorization: RuntimeAuthorizationInput) !Runtime {
+        var runtime = try Runtime.initWithAuthorization(allocator, authorization);
         errdefer runtime.deinit();
         try runtime.loadPathList(path_list);
         return runtime;
@@ -119,6 +1130,7 @@ pub const Runtime = struct {
         self.plugins.deinit();
         for (self.diagnostics.items) |*diagnostic| diagnostic.deinit(self.allocator);
         self.diagnostics.deinit();
+        self.host_authorization.deinit(self.allocator);
         self.* = undefined;
     }
 
@@ -132,10 +1144,7 @@ pub const Runtime = struct {
             else => return err,
         }
 
-        const home = std.process.getEnvVarOwned(self.allocator, "SA_PLUGINS_HOME") catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => try defaultPluginsHome(self.allocator),
-            else => return err,
-        };
+        const home = try pluginsHome(self.allocator);
         defer self.allocator.free(home);
 
         const installed = try std.fs.path.join(self.allocator, &.{ home, "installed" });
@@ -165,6 +1174,11 @@ pub const Runtime = struct {
         defer if (resolved_path) |absolute| self.allocator.free(absolute);
 
         if (std.mem.endsWith(u8, load_path, ".so")) {
+            if (try self.runtimePolicyDenialForLibrary(load_path)) |reason| {
+                defer self.allocator.free(reason);
+                try self.addDiagnostic(load_path, reason);
+                return;
+            }
             try self.loadLibrary(load_path);
             return;
         }
@@ -173,6 +1187,7 @@ pub const Runtime = struct {
 
     pub fn appendSkills(self: *const Runtime, list: anytype) !void {
         for (self.plugins.items) |loaded| {
+            if (!try self.shouldAdvertiseSkills(loaded)) continue;
             const skills = loaded.descriptor.skills_ptr[0..loaded.descriptor.skills_len];
             for (skills) |section| {
                 try list.append(.{
@@ -182,6 +1197,35 @@ pub const Runtime = struct {
                 });
             }
         }
+    }
+
+    fn shouldAdvertiseSkills(self: *const Runtime, loaded: LoadedPlugin) !bool {
+        const plugin_dir = std.fs.path.dirname(loaded.path) orelse return true;
+        const sap_path = try std.fs.path.join(self.allocator, &.{ plugin_dir, "sap.json" });
+        defer self.allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) return true;
+
+        var manifest = parseSapManifest(self.allocator, sap_path) catch return true;
+        defer manifest.deinit(self.allocator);
+        for (manifest.dependencies) |dep| {
+            const dependency = self.loadedPluginByName(dep.name) orelse {
+                if (dep.optional) return false;
+                return false;
+            };
+            if (dep.symbols.len != 0 and !(try dependency.exportsAll(self.allocator, dep.symbols))) {
+                if (dep.optional) return false;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn loadedPluginByName(self: *const Runtime, name: []const u8) ?*LoadedPlugin {
+        const mutable_items: []LoadedPlugin = @constCast(self.plugins.items);
+        for (mutable_items) |*loaded| {
+            if (std.mem.eql(u8, std.mem.span(loaded.descriptor.name), name)) return loaded;
+        }
+        return null;
     }
 
     pub fn appendLibrariesExportingAny(
@@ -209,11 +1253,6 @@ pub const Runtime = struct {
         const c_argv = try dupeZArgs(self.allocator, argv);
         defer freeZArgs(self.allocator, c_argv);
 
-        var ctx = Context{
-            .allocator = self.allocator,
-            .json_mode = json_mode,
-        };
-
         var stdout_value = stdout;
         var stderr_value = stderr;
         var stdout_ctx = StreamCtx(@TypeOf(stdout_value)){ .writer = &stdout_value };
@@ -221,7 +1260,19 @@ pub const Runtime = struct {
         const stdout_stream = HostStream{ .ctx = &stdout_ctx, .write_all = streamWriteAll(@TypeOf(stdout_value)) };
         const stderr_stream = HostStream{ .ctx = &stderr_ctx, .write_all = streamWriteAll(@TypeOf(stderr_value)) };
 
-        for (self.plugins.items) |loaded| {
+        for (self.plugins.items) |*loaded| {
+            var broker = RuntimeBroker{
+                .allocator = self.allocator,
+                .policy = &loaded.permission_policy,
+                .authorization = &self.host_authorization,
+            };
+            var ctx = Context{
+                .allocator = self.allocator,
+                .json_mode = json_mode,
+                .broker_abi_version = broker_abi_version,
+                .broker_call = runtimeBrokerCall,
+                .broker_ctx = &broker,
+            };
             const handle = loaded.descriptor.handle_command orelse continue;
             var out_code: u8 = 0;
             const status_value = handle(&ctx, c_argv.ptr, c_argv.len, stdout_stream, stderr_stream, &out_code);
@@ -258,6 +1309,12 @@ pub const Runtime = struct {
     }
 
     fn loadDirectory(self: *Runtime, dir_path: []const u8) !void {
+        if (try self.runtimePolicyDenialForDirectory(dir_path)) |reason| {
+            defer self.allocator.free(reason);
+            try self.addDiagnostic(dir_path, reason);
+            return;
+        }
+
         var dir = std.fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound, error.NotDir => {
                 try self.addDiagnostic(dir_path, @errorName(err));
@@ -295,8 +1352,21 @@ pub const Runtime = struct {
             return;
         }
 
+        var permission_policy = try loadRuntimePermissionPolicy(self.allocator, path);
+        errdefer permission_policy.deinit(self.allocator);
+
         if (descriptor.init) |init_fn| {
-            var ctx = Context{ .allocator = self.allocator };
+            var broker = RuntimeBroker{
+                .allocator = self.allocator,
+                .policy = &permission_policy,
+                .authorization = &self.host_authorization,
+            };
+            var ctx = Context{
+                .allocator = self.allocator,
+                .broker_abi_version = broker_abi_version,
+                .broker_call = runtimeBrokerCall,
+                .broker_ctx = &broker,
+            };
             const status = abiStatusFromInt(init_fn(&ctx));
             if (status != .ok) {
                 try self.addDiagnostic(path, @tagName(status));
@@ -310,8 +1380,49 @@ pub const Runtime = struct {
             .path = owned_path,
             .lib = lib,
             .descriptor = descriptor,
+            .permission_policy = permission_policy,
         });
         keep_lib = true;
+    }
+
+    fn runtimePolicyDenialForLibrary(self: *Runtime, lib_path: []const u8) !?[]u8 {
+        const dir = std.fs.path.dirname(lib_path) orelse return null;
+        return try self.runtimePolicyDenialForDirectory(dir);
+    }
+
+    fn runtimePolicyDenialForDirectory(self: *Runtime, dir_path: []const u8) !?[]u8 {
+        if (pluginDevMode(self.allocator)) return null;
+
+        const sap_path = try std.fs.path.join(self.allocator, &.{ dir_path, "sap.json" });
+        defer self.allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) return null;
+
+        var manifest = parseSapManifest(self.allocator, sap_path) catch |err| {
+            return try std.fmt.allocPrint(self.allocator, "plugin manifest could not be parsed at runtime: {s}", .{@errorName(err)});
+        };
+        defer manifest.deinit(self.allocator);
+        if (!manifest.requires_sandbox) return null;
+
+        const lock_path = try std.fs.path.join(self.allocator, &.{ dir_path, "permissions.lock" });
+        defer self.allocator.free(lock_path);
+        const lock_text = readFileAbsoluteAlloc(self.allocator, lock_path, 1 << 20) catch |err| switch (err) {
+            error.FileNotFound => {
+                return try std.fmt.allocPrint(
+                    self.allocator,
+                    "privileged plugin {s} is blocked in formal runtime mode: permissions.lock missing and runtime sandbox is not enforced",
+                    .{manifest.name},
+                );
+            },
+            else => return err,
+        };
+        defer self.allocator.free(lock_text);
+
+        if (lockHasKeyValue(lock_text, "sandbox_enforced", "true")) return null;
+        return try std.fmt.allocPrint(
+            self.allocator,
+            "privileged plugin {s} is blocked in formal runtime mode: runtime sandbox/broker enforcement is not active; use SA_PLUGIN_DEV=1 only for trusted development",
+            .{manifest.name},
+        );
     }
 
     fn addDiagnostic(self: *Runtime, path: []const u8, reason: []const u8) !void {
@@ -337,9 +1448,18 @@ const SapManifest = struct {
     artifact_rel: []u8,
     interface_files: []InterfaceFile,
     dependencies: []PluginDependency,
+    env_permissions: [][]u8,
+    fs_permissions: []FsPermission,
+    net_permissions: []NetPermission,
+    process_spawn: bool,
+    process_exec_permissions: []ProcessExecPermission,
     permission_digest: [32]u8,
     external_urls: [][]u8,
     requires_sandbox: bool,
+    has_fs_permission: bool,
+    has_net_permission: bool,
+    has_env_permission: bool,
+    has_process_permission: bool,
 
     fn deinit(self: *SapManifest, allocator: std.mem.Allocator) void {
         allocator.free(self.root_dir);
@@ -351,6 +1471,14 @@ const SapManifest = struct {
         allocator.free(self.interface_files);
         for (self.dependencies) |*dep| dep.deinit(allocator);
         allocator.free(self.dependencies);
+        for (self.env_permissions) |entry| allocator.free(entry);
+        allocator.free(self.env_permissions);
+        for (self.fs_permissions) |*entry| entry.deinit(allocator);
+        allocator.free(self.fs_permissions);
+        for (self.net_permissions) |*entry| entry.deinit(allocator);
+        allocator.free(self.net_permissions);
+        for (self.process_exec_permissions) |*entry| entry.deinit(allocator);
+        allocator.free(self.process_exec_permissions);
         for (self.external_urls) |url| allocator.free(url);
         allocator.free(self.external_urls);
         self.* = undefined;
@@ -379,12 +1507,15 @@ const PluginDependency = struct {
     version: []u8,
     abi: u32,
     optional: bool,
+    symbols: [][]u8,
     path: ?[]u8,
     url: ?[]u8,
 
     fn deinit(self: *PluginDependency, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         allocator.free(self.version);
+        for (self.symbols) |symbol| allocator.free(symbol);
+        allocator.free(self.symbols);
         if (self.path) |path| allocator.free(path);
         if (self.url) |url| allocator.free(url);
         self.* = undefined;
@@ -483,6 +1614,8 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
 
     if (try verifyInterfaceFiles(allocator, manifest) != 0) return 1;
     if (try verifySymbolSmoke(allocator, manifest, artifact_abs, stdout) != 0) return 1;
+    if (try verifyInstalledExternSymbolConflicts(allocator, manifest, stdout) != 0) return 1;
+    if (try verifyArtifactStaticPolicy(allocator, manifest, artifact_abs, stdout, options) != 0) return 1;
 
     if (manifest.interface_files.len > 0) {
         const sa_dir = try std.fs.path.join(allocator, &.{ installed_dir, "sa" });
@@ -643,6 +1776,8 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
         \\dependency_graph_sha256={s}
         \\requires_confirmation={s}
         \\confirmed={s}
+        \\artifact_scan=dynamic-imports
+        \\sandbox_enforced=false
         \\
     , .{
         manifest.name,
@@ -665,6 +1800,13 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
                 dep.abi,
                 if (dep.optional) "true" else "false",
             });
+            if (dep.symbols.len != 0) {
+                try out.writer().writeAll(" symbols=");
+                for (dep.symbols, 0..) |symbol, idx| {
+                    if (idx != 0) try out.writer().writeByte(',');
+                    try out.writer().writeAll(symbol);
+                }
+            }
             if (dep.path) |path| try out.writer().print(" path={s}", .{path});
             if (dep.url) |url| try out.writer().print(" url={s}", .{url});
             try out.writer().writeByte('\n');
@@ -685,6 +1827,10 @@ fn dependencyGraphDigest(manifest: SapManifest) [32]u8 {
         hasher.update(&abi_buf);
         hasher.update(if (dep.optional) "optional" else "required");
         hasher.update("\x00");
+        for (dep.symbols) |symbol| {
+            hasher.update(symbol);
+            hasher.update("\x00");
+        }
         if (dep.path) |path| hasher.update(path);
         hasher.update("\x00");
         if (dep.url) |url| hasher.update(url);
@@ -729,8 +1875,11 @@ fn lockHasLine(text: []const u8, expected: []const u8) bool {
 }
 
 const RemotePluginSpec = struct {
+    kind: RemotePluginKind,
     url: []u8,
     ref: ?[]u8,
+    archive_sha256: ?[32]u8 = null,
+    archive_format: ?ArchiveFormat = null,
 
     fn deinit(self: *RemotePluginSpec, allocator: std.mem.Allocator) void {
         allocator.free(self.url);
@@ -739,18 +1888,45 @@ const RemotePluginSpec = struct {
     }
 };
 
+const RemotePluginKind = enum {
+    git,
+    archive,
+};
+
+const ArchiveFormat = enum {
+    tar_gz,
+    tgz,
+    tar_xz,
+    tar_zst,
+};
+
 fn fetchRemotePluginSource(allocator: std.mem.Allocator, spec_text: []const u8, stdout: anytype, options: InstallOptions) ![]u8 {
     var spec = try parseRemotePluginSpec(allocator, spec_text);
     defer spec.deinit(allocator);
 
-    if (spec.ref == null and !options.dev and !pluginDevMode(allocator)) {
-        try stdout.print("refusing remote plugin install without fixed #ref: {s}\n", .{spec.url});
-        return error.RemotePluginRefRequired;
-    }
+    if (!options.dev and !pluginDevMode(allocator)) switch (spec.kind) {
+        .git => if (spec.ref == null) {
+            try stdout.print("refusing remote plugin install without fixed #ref: {s}\n", .{spec.url});
+            return error.RemotePluginRefRequired;
+        },
+        .archive => if (spec.archive_sha256 == null) {
+            try stdout.print("refusing remote plugin archive install without #sha256:<digest>: {s}\n", .{spec.url});
+            return error.RemotePluginRefRequired;
+        },
+    };
     if (!options.dev and !pluginDevMode(allocator)) {
         const confirmed = try confirmExternalUrl(stdout, spec.url);
         if (!confirmed) return error.RemotePluginUrlNotConfirmed;
     }
+
+    return switch (spec.kind) {
+        .git => try fetchRemoteGitPluginSource(allocator, spec, stdout),
+        .archive => try fetchRemoteArchivePluginSource(allocator, spec, stdout),
+    };
+}
+
+fn fetchRemoteGitPluginSource(allocator: std.mem.Allocator, spec: RemotePluginSpec, stdout: anytype) ![]u8 {
+    std.debug.assert(spec.kind == .git);
 
     const home = try pluginsHome(allocator);
     defer allocator.free(home);
@@ -758,7 +1934,7 @@ fn fetchRemotePluginSource(allocator: std.mem.Allocator, spec_text: []const u8, 
     defer allocator.free(cache_root);
     try std.fs.cwd().makePath(cache_root);
 
-    const cache_key = remoteCacheKey(spec_text);
+    const cache_key = remoteCacheKeyForSpec(spec);
     const cache_key_hex = std.fmt.bytesToHex(cache_key, .lower);
     const checkout_dir = try std.fs.path.join(allocator, &.{ cache_root, cache_key_hex[0..] });
     errdefer allocator.free(checkout_dir);
@@ -805,7 +1981,22 @@ fn parseRemotePluginSpec(allocator: std.mem.Allocator, spec_text: []const u8) !R
     };
     errdefer allocator.free(url);
     const ref = if (ref_text) |text| try allocator.dupe(u8, text) else null;
-    return .{ .url = url, .ref = ref };
+    const archive_format = archiveFormatFromUrl(url_text);
+    if (archive_format) |format| {
+        const archive_sha256 = if (ref_text) |text| try parseArchiveSha256(text) else null;
+        return .{
+            .kind = .archive,
+            .url = url,
+            .ref = ref,
+            .archive_sha256 = archive_sha256,
+            .archive_format = format,
+        };
+    }
+    return .{
+        .kind = .git,
+        .url = url,
+        .ref = ref,
+    };
 }
 
 fn splitRemoteRef(text: []const u8) struct { url: []const u8, ref: ?[]const u8 } {
@@ -817,7 +2008,9 @@ fn splitRemoteRef(text: []const u8) struct { url: []const u8, ref: ?[]const u8 }
 }
 
 fn remoteSpecForDependency(allocator: std.mem.Allocator, url: []const u8, version: []const u8) ![]u8 {
-    if (std.mem.indexOfScalar(u8, url, '#') != null or std.mem.eql(u8, version, "*")) return try allocator.dupe(u8, url);
+    if (std.mem.indexOfScalar(u8, url, '#') != null or std.mem.eql(u8, version, "*") or archiveFormatFromUrl(url) != null) {
+        return try allocator.dupe(u8, url);
+    }
     return try std.fmt.allocPrint(allocator, "{s}#{s}", .{ url, version });
 }
 
@@ -829,10 +2022,181 @@ fn remoteCacheKey(text: []const u8) [32]u8 {
     return digest;
 }
 
+fn remoteCacheKeyForSpec(spec: RemotePluginSpec) [32]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(spec.url);
+    hasher.update("\x00");
+    if (spec.ref) |ref| hasher.update(ref);
+    hasher.update("\x00");
+    if (spec.archive_sha256) |digest| hasher.update(&digest);
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return out;
+}
+
 fn childExitedZero(term: std.process.Child.Term) bool {
     return switch (term) {
         .Exited => |code| code == 0,
         else => false,
+    };
+}
+
+fn fetchRemoteArchivePluginSource(allocator: std.mem.Allocator, spec: RemotePluginSpec, stdout: anytype) ![]u8 {
+    std.debug.assert(spec.kind == .archive);
+    const format = spec.archive_format orelse return error.InvalidRemotePluginSource;
+
+    const home = try pluginsHome(allocator);
+    defer allocator.free(home);
+    const cache_root = try std.fs.path.join(allocator, &.{ home, "cache", "archive" });
+    defer allocator.free(cache_root);
+    try std.fs.cwd().makePath(cache_root);
+
+    const cache_key = remoteCacheKeyForSpec(spec);
+    const cache_key_hex = std.fmt.bytesToHex(cache_key, .lower);
+    const bundle_dir = try std.fs.path.join(allocator, &.{ cache_root, cache_key_hex[0..] });
+    defer allocator.free(bundle_dir);
+    if (dirExistsAbsolute(bundle_dir)) try std.fs.cwd().deleteTree(bundle_dir);
+    try std.fs.cwd().makePath(bundle_dir);
+
+    const archive_path = try std.fs.path.join(allocator, &.{ bundle_dir, archiveFilename(format) });
+    defer allocator.free(archive_path);
+    try downloadRemoteFile(allocator, spec.url, archive_path, stdout);
+
+    if (spec.archive_sha256) |expected| {
+        const actual = try sha256File(allocator, archive_path);
+        if (!std.mem.eql(u8, actual[0..], expected[0..])) {
+            try stdout.print("remote plugin archive sha256 mismatch for {s}\n", .{spec.url});
+            return error.RemotePluginArchiveShaMismatch;
+        }
+    }
+
+    const extract_dir = try std.fs.path.join(allocator, &.{ bundle_dir, "extract" });
+    defer allocator.free(extract_dir);
+    try std.fs.cwd().makePath(extract_dir);
+    try extractArchiveToDirectory(allocator, archive_path, extract_dir, format, stdout);
+    return try findExtractedPluginRoot(allocator, extract_dir);
+}
+
+fn downloadRemoteFile(allocator: std.mem.Allocator, url: []const u8, dst_path: []const u8, stdout: anytype) !void {
+    const curl_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "curl", "-L", "--fail", "--silent", "--show-error", "-o", dst_path, url },
+    }) catch |err| switch (err) {
+        error.FileNotFound => {
+            const wget_result = try std.process.Child.run(.{
+                .allocator = allocator,
+                .argv = &.{ "wget", "-q", "-O", dst_path, url },
+            });
+            defer allocator.free(wget_result.stdout);
+            defer allocator.free(wget_result.stderr);
+            if (!childExitedZero(wget_result.term)) {
+                try stdout.print("remote archive download failed for {s}\n{s}", .{ url, wget_result.stderr });
+                return error.RemotePluginFetchFailed;
+            }
+            return;
+        },
+        else => return err,
+    };
+    defer allocator.free(curl_result.stdout);
+    defer allocator.free(curl_result.stderr);
+    if (!childExitedZero(curl_result.term)) {
+        try stdout.print("remote archive download failed for {s}\n{s}", .{ url, curl_result.stderr });
+        return error.RemotePluginFetchFailed;
+    }
+}
+
+fn extractArchiveToDirectory(
+    allocator: std.mem.Allocator,
+    archive_path: []const u8,
+    extract_dir: []const u8,
+    format: ArchiveFormat,
+    stdout: anytype,
+) !void {
+    const argv: []const []const u8 = switch (format) {
+        .tar_gz, .tgz => &.{ "tar", "-xzf", archive_path, "-C", extract_dir },
+        .tar_xz => &.{ "tar", "-xJf", archive_path, "-C", extract_dir },
+        .tar_zst => &.{ "tar", "--zstd", "-xf", archive_path, "-C", extract_dir },
+    };
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (!childExitedZero(result.term)) {
+        try stdout.print("remote plugin archive extraction failed for {s}\n{s}", .{ archive_path, result.stderr });
+        return error.RemotePluginFetchFailed;
+    }
+}
+
+fn findExtractedPluginRoot(allocator: std.mem.Allocator, extract_dir: []const u8) ![]u8 {
+    if (fileExistsInProject(allocator, extract_dir, "sap.json")) return try allocator.dupe(u8, extract_dir);
+    return try findUniqueSapRoot(allocator, extract_dir, 0);
+}
+
+fn findUniqueSapRoot(allocator: std.mem.Allocator, root: []const u8, depth: u8) anyerror![]u8 {
+    if (depth > 4) return error.NoPluginManifestInArchive;
+    var dir = try std.fs.openDirAbsolute(root, .{ .iterate = true });
+    defer dir.close();
+
+    var found: ?[]u8 = null;
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind != .directory and entry.kind != .sym_link) continue;
+        const child = try std.fs.path.join(allocator, &.{ root, entry.name });
+        defer allocator.free(child);
+        if (fileExistsInProject(allocator, child, "sap.json")) {
+            if (found != null) return error.InvalidRemotePluginSource;
+            found = try allocator.dupe(u8, child);
+            continue;
+        }
+        const nested = findUniqueSapRoot(allocator, child, depth + 1) catch |err| switch (err) {
+            error.FileNotFound, error.NotDir, error.NoPluginManifestInArchive => null,
+            else => return err,
+        };
+        if (nested) |path| {
+            if (found != null) {
+                allocator.free(path);
+                return error.InvalidRemotePluginSource;
+            }
+            found = path;
+        }
+    }
+    return found orelse error.NoPluginManifestInArchive;
+}
+
+fn archiveFormatFromUrl(url: []const u8) ?ArchiveFormat {
+    const path = urlPathForRemote(url);
+    if (std.mem.endsWith(u8, path, ".tar.gz")) return .tar_gz;
+    if (std.mem.endsWith(u8, path, ".tgz")) return .tgz;
+    if (std.mem.endsWith(u8, path, ".tar.xz")) return .tar_xz;
+    if (std.mem.endsWith(u8, path, ".tar.zst")) return .tar_zst;
+    return null;
+}
+
+fn urlPathForRemote(url: []const u8) []const u8 {
+    const query_idx = std.mem.indexOfScalar(u8, url, '?') orelse url.len;
+    return url[0..query_idx];
+}
+
+fn parseArchiveSha256(text: []const u8) ![32]u8 {
+    if (!std.mem.startsWith(u8, text, "sha256:")) return error.InvalidRemotePluginSource;
+    return try parseSha256Text(text["sha256:".len..]);
+}
+
+fn parseSha256Text(body: []const u8) ![32]u8 {
+    if (body.len != 64) return error.InvalidRemotePluginSource;
+    var bytes: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(bytes[0..], body) catch return error.InvalidRemotePluginSource;
+    return bytes;
+}
+
+fn archiveFilename(format: ArchiveFormat) []const u8 {
+    return switch (format) {
+        .tar_gz => "plugin.tar.gz",
+        .tgz => "plugin.tgz",
+        .tar_xz => "plugin.tar.xz",
+        .tar_zst => "plugin.tar.zst",
     };
 }
 
@@ -934,9 +2298,18 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         .artifact_rel = artifact_rel,
         .interface_files = interface_files,
         .dependencies = dependencies,
+        .env_permissions = try permission_info.env_permissions.toOwnedSlice(),
+        .fs_permissions = try permission_info.fs_permissions.toOwnedSlice(),
+        .net_permissions = try permission_info.net_permissions.toOwnedSlice(),
+        .process_spawn = permission_info.process_spawn,
+        .process_exec_permissions = try permission_info.process_exec_permissions.toOwnedSlice(),
         .permission_digest = permission_info.digest,
         .external_urls = try permission_info.urls.toOwnedSlice(),
         .requires_sandbox = permission_info.requires_sandbox,
+        .has_fs_permission = permission_info.has_fs_permission,
+        .has_net_permission = permission_info.has_net_permission,
+        .has_env_permission = permission_info.has_env_permission,
+        .has_process_permission = permission_info.has_process_permission,
     };
 }
 
@@ -1118,6 +2491,253 @@ fn externSymbolExists(items: []const []u8, symbol: []const u8) bool {
     return false;
 }
 
+const ExternProvider = struct {
+    symbol: []u8,
+    plugin: []u8,
+
+    fn deinit(self: *ExternProvider, allocator: std.mem.Allocator) void {
+        allocator.free(self.symbol);
+        allocator.free(self.plugin);
+        self.* = undefined;
+    }
+};
+
+fn verifyInstalledExternSymbolConflicts(allocator: std.mem.Allocator, manifest: SapManifest, stdout: anytype) !u8 {
+    var installed = std.ArrayList(ExternProvider).init(allocator);
+    defer {
+        for (installed.items) |*provider| provider.deinit(allocator);
+        installed.deinit();
+    }
+    if (try collectInstalledExternProviders(allocator, manifest.name, stdout, &installed) != 0) return 1;
+
+    var current = std.ArrayList([]u8).init(allocator);
+    defer {
+        for (current.items) |symbol| allocator.free(symbol);
+        current.deinit();
+    }
+    try collectManifestExternSymbols(allocator, manifest, &current);
+    for (current.items) |symbol| {
+        if (findExternProvider(installed.items, symbol)) |provider| {
+            try stdout.print(
+                "plugin extern symbol conflict: {s} already provided by installed plugin {s}\n",
+                .{ symbol, provider.plugin },
+            );
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn collectInstalledExternProviders(
+    allocator: std.mem.Allocator,
+    installing_name: []const u8,
+    stdout: anytype,
+    out: *std.ArrayList(ExternProvider),
+) !u8 {
+    const home = try pluginsHome(allocator);
+    defer allocator.free(home);
+    const root_path = try std.fs.path.join(allocator, &.{ home, "installed" });
+    defer allocator.free(root_path);
+    var root = std.fs.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return 0,
+        else => return err,
+    };
+    defer root.close();
+
+    var it = root.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind != .directory and entry.kind != .sym_link) continue;
+        if (std.mem.eql(u8, entry.name, installing_name)) continue;
+        const sa_dir = try std.fs.path.join(allocator, &.{ root_path, entry.name, "current", "sa" });
+        defer allocator.free(sa_dir);
+        var dir = std.fs.openDirAbsolute(sa_dir, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound, error.NotDir => continue,
+            else => return err,
+        };
+        defer dir.close();
+
+        var dir_it = dir.iterate();
+        while (try dir_it.next()) |sa_entry| {
+            if (sa_entry.kind != .file and sa_entry.kind != .sym_link) continue;
+            if (!std.mem.endsWith(u8, sa_entry.name, ".sai")) continue;
+            const sai_path = try std.fs.path.join(allocator, &.{ sa_dir, sa_entry.name });
+            defer allocator.free(sai_path);
+            var symbols = std.ArrayList([]u8).init(allocator);
+            defer symbols.deinit();
+            try collectExternSymbolsFromSai(allocator, sai_path, &symbols);
+            for (symbols.items, 0..) |symbol, idx| {
+                if (findExternProvider(out.items, symbol)) |existing| {
+                    try stdout.print(
+                        "installed plugin extern symbol conflict: {s} is provided by both {s} and {s}\n",
+                        .{ symbol, existing.plugin, entry.name },
+                    );
+                    for (symbols.items[idx..]) |owned| allocator.free(owned);
+                    return 1;
+                }
+                try out.append(.{
+                    .symbol = symbol,
+                    .plugin = try allocator.dupe(u8, entry.name),
+                });
+            }
+            symbols.items.len = 0;
+        }
+    }
+    return 0;
+}
+
+fn collectManifestExternSymbols(allocator: std.mem.Allocator, manifest: SapManifest, out: *std.ArrayList([]u8)) !void {
+    for (manifest.interface_files) |iface| {
+        if (iface.kind != .sai) continue;
+        const path = try std.fs.path.join(allocator, &.{ manifest.root_dir, iface.path });
+        defer allocator.free(path);
+        try collectExternSymbolsFromSai(allocator, path, out);
+    }
+}
+
+fn findExternProvider(items: []const ExternProvider, symbol: []const u8) ?*const ExternProvider {
+    for (items) |*item| {
+        if (std.mem.eql(u8, item.symbol, symbol)) return item;
+    }
+    return null;
+}
+
+const ArtifactImportCapability = enum {
+    fs,
+    net,
+    env,
+    process,
+    dynamic_loader,
+};
+
+const ArtifactImportRule = struct {
+    symbol: []const u8,
+    capability: ArtifactImportCapability,
+};
+
+const artifact_import_rules = [_]ArtifactImportRule{
+    .{ .symbol = "connect", .capability = .net },
+    .{ .symbol = "socket", .capability = .net },
+    .{ .symbol = "getaddrinfo", .capability = .net },
+    .{ .symbol = "send", .capability = .net },
+    .{ .symbol = "sendto", .capability = .net },
+    .{ .symbol = "recv", .capability = .net },
+    .{ .symbol = "recvfrom", .capability = .net },
+    .{ .symbol = "open", .capability = .fs },
+    .{ .symbol = "openat", .capability = .fs },
+    .{ .symbol = "fopen", .capability = .fs },
+    .{ .symbol = "mkdir", .capability = .fs },
+    .{ .symbol = "rename", .capability = .fs },
+    .{ .symbol = "unlink", .capability = .fs },
+    .{ .symbol = "readlink", .capability = .fs },
+    .{ .symbol = "stat", .capability = .fs },
+    .{ .symbol = "getenv", .capability = .env },
+    .{ .symbol = "setenv", .capability = .env },
+    .{ .symbol = "unsetenv", .capability = .env },
+    .{ .symbol = "putenv", .capability = .env },
+    .{ .symbol = "execve", .capability = .process },
+    .{ .symbol = "execvpe", .capability = .process },
+    .{ .symbol = "posix_spawn", .capability = .process },
+    .{ .symbol = "fork", .capability = .process },
+    .{ .symbol = "vfork", .capability = .process },
+    .{ .symbol = "popen", .capability = .process },
+    .{ .symbol = "system", .capability = .process },
+    .{ .symbol = "dlopen", .capability = .dynamic_loader },
+    .{ .symbol = "dlmopen", .capability = .dynamic_loader },
+    .{ .symbol = "__libc_dlopen_mode", .capability = .dynamic_loader },
+    .{ .symbol = "LoadLibraryA", .capability = .dynamic_loader },
+    .{ .symbol = "LoadLibraryW", .capability = .dynamic_loader },
+    .{ .symbol = "LoadLibraryExA", .capability = .dynamic_loader },
+    .{ .symbol = "LoadLibraryExW", .capability = .dynamic_loader },
+};
+
+fn verifyArtifactStaticPolicy(
+    allocator: std.mem.Allocator,
+    manifest: SapManifest,
+    artifact_abs: []const u8,
+    stdout: anytype,
+    options: InstallOptions,
+) !u8 {
+    var imports = std.ArrayList([]u8).init(allocator);
+    defer {
+        for (imports.items) |symbol| allocator.free(symbol);
+        imports.deinit();
+    }
+    try collectArtifactUndefinedImports(allocator, artifact_abs, &imports);
+    for (artifact_import_rules) |rule| {
+        if (!externSymbolExists(imports.items, rule.symbol)) continue;
+        switch (rule.capability) {
+            .fs => if (!manifest.has_fs_permission) {
+                try stdout.print("plugin artifact references file-system symbol without declared fs permission: {s}\n", .{rule.symbol});
+                return 1;
+            },
+            .net => if (!manifest.has_net_permission) {
+                try stdout.print("plugin artifact references network symbol without declared net permission: {s}\n", .{rule.symbol});
+                return 1;
+            },
+            .env => if (!manifest.has_env_permission) {
+                try stdout.print("plugin artifact references environment symbol without declared env permission: {s}\n", .{rule.symbol});
+                return 1;
+            },
+            .process => if (!manifest.has_process_permission) {
+                try stdout.print("plugin artifact references process symbol without declared process permission: {s}\n", .{rule.symbol});
+                return 1;
+            },
+            .dynamic_loader => if (!options.dev and !pluginDevMode(allocator)) {
+                try stdout.print("plugin artifact references dynamic loader symbol forbidden for formal install: {s}\n", .{rule.symbol});
+                return 1;
+            },
+        }
+    }
+    return 0;
+}
+
+fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: []const u8, out: *std.ArrayList([]u8)) !void {
+    const tools = [_][]const u8{ "nm", "llvm-nm" };
+    for (tools) |tool| {
+        const result = std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &.{ tool, "-D", "--undefined-only", artifact_abs },
+        }) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => return err,
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+        if (!childExitedZero(result.term)) continue;
+        try parseUndefinedImportList(allocator, result.stdout, out);
+        return;
+    }
+    return error.PluginArtifactScanUnavailable;
+}
+
+fn parseUndefinedImportList(allocator: std.mem.Allocator, text: []const u8, out: *std.ArrayList([]u8)) !void {
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t\r");
+        if (line.len == 0) continue;
+        const last_delim = std.mem.lastIndexOfAny(u8, line, " \t") orelse continue;
+        var symbol = std.mem.trim(u8, line[last_delim + 1 ..], " \t");
+        if (std.mem.indexOfScalar(u8, symbol, '@')) |version_idx| symbol = symbol[0..version_idx];
+        if (symbol.len == 0 or externSymbolExists(out.items, symbol)) continue;
+        try out.append(try allocator.dupe(u8, symbol));
+    }
+}
+
+fn collectStringArray(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) ![][]u8 {
+    var items = std.ArrayList([]u8).init(allocator);
+    errdefer {
+        for (items.items) |item| allocator.free(item);
+        items.deinit();
+    }
+    const value = maybe_value orelse return try items.toOwnedSlice();
+    const arr = switch (value) {
+        .array => |a| a,
+        else => return error.InvalidSapManifest,
+    };
+    for (arr.items) |item| try items.append(try allocator.dupe(u8, try jsonString(item)));
+    return try items.toOwnedSlice();
+}
+
 fn collectPluginDependencies(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) ![]PluginDependency {
     var deps = std.ArrayList(PluginDependency).init(allocator);
     errdefer {
@@ -1144,6 +2764,11 @@ fn collectPluginDependencies(allocator: std.mem.Allocator, maybe_value: ?std.jso
             .bool => |b| b,
             else => return error.InvalidSapManifest,
         } else false;
+        const dep_symbols = try collectStringArray(allocator, dep_obj.get("symbols"));
+        errdefer {
+            for (dep_symbols) |symbol| allocator.free(symbol);
+            allocator.free(dep_symbols);
+        }
         const dep_path = if (dep_obj.get("path")) |path_value| try allocator.dupe(u8, try jsonString(path_value)) else null;
         errdefer if (dep_path) |path| allocator.free(path);
         const dep_url = if (dep_obj.get("url")) |url_value| blk: {
@@ -1158,6 +2783,7 @@ fn collectPluginDependencies(allocator: std.mem.Allocator, maybe_value: ?std.jso
             .version = try allocator.dupe(u8, version),
             .abi = abi,
             .optional = optional,
+            .symbols = dep_symbols,
             .path = dep_path,
             .url = dep_url,
         });
@@ -1201,10 +2827,27 @@ const PermissionInfo = struct {
     requires_sandbox: bool,
     digest: [32]u8,
     urls: std.ArrayList([]u8),
+    env_permissions: std.ArrayList([]u8),
+    fs_permissions: std.ArrayList(FsPermission),
+    net_permissions: std.ArrayList(NetPermission),
+    process_spawn: bool,
+    process_exec_permissions: std.ArrayList(ProcessExecPermission),
+    has_fs_permission: bool,
+    has_net_permission: bool,
+    has_env_permission: bool,
+    has_process_permission: bool,
 
     fn deinit(self: *PermissionInfo, allocator: std.mem.Allocator) void {
         for (self.urls.items) |url| allocator.free(url);
         self.urls.deinit();
+        for (self.env_permissions.items) |entry| allocator.free(entry);
+        self.env_permissions.deinit();
+        for (self.fs_permissions.items) |*entry| entry.deinit(allocator);
+        self.fs_permissions.deinit();
+        for (self.net_permissions.items) |*entry| entry.deinit(allocator);
+        self.net_permissions.deinit();
+        for (self.process_exec_permissions.items) |*entry| entry.deinit(allocator);
+        self.process_exec_permissions.deinit();
         self.* = undefined;
     }
 };
@@ -1223,42 +2866,58 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
     hasher.final(&digest);
 
     var requires_sandbox = false;
+    var has_fs_permission = false;
+    var has_net_permission = false;
+    var has_env_permission = false;
+    var has_process_permission = false;
     var urls = std.ArrayList([]u8).init(allocator);
+    var env_permissions = std.ArrayList([]u8).init(allocator);
+    var fs_permissions = std.ArrayList(FsPermission).init(allocator);
+    var net_permissions = std.ArrayList(NetPermission).init(allocator);
+    var process_spawn = false;
+    var process_exec_permissions = std.ArrayList(ProcessExecPermission).init(allocator);
     errdefer {
         for (urls.items) |url| allocator.free(url);
         urls.deinit();
+        for (env_permissions.items) |entry| allocator.free(entry);
+        env_permissions.deinit();
+        for (fs_permissions.items) |*entry| entry.deinit(allocator);
+        fs_permissions.deinit();
+        for (net_permissions.items) |*entry| entry.deinit(allocator);
+        net_permissions.deinit();
+        for (process_exec_permissions.items) |*entry| entry.deinit(allocator);
+        process_exec_permissions.deinit();
     }
 
     if (obj.get("fs")) |fs_value| switch (fs_value) {
         .array => |arr| {
+            has_fs_permission = arr.items.len != 0;
             if (arr.items.len != 0) requires_sandbox = true;
-            for (arr.items) |item| try validateFsPermission(item);
+            for (arr.items) |item| try fs_permissions.append(try parseFsPermission(allocator, item));
         },
         else => return error.InvalidPluginPermission,
     } else return error.InvalidPluginPermission;
     if (obj.get("net")) |net_value| switch (net_value) {
         .array => |arr| {
+            has_net_permission = arr.items.len != 0;
             if (arr.items.len != 0) requires_sandbox = true;
             for (arr.items) |item| {
-                const net_obj = switch (item) {
-                    .object => |o| o,
-                    else => return error.InvalidPluginPermission,
-                };
-                const url = try jsonString(net_obj.get("url") orelse return error.InvalidPluginPermission);
-                if (!allowedPermissionUrl(url)) return error.InvalidPluginPermission;
-                try urls.append(try allocator.dupe(u8, url));
-                if (net_obj.get("methods")) |methods_value| try validateHttpMethods(methods_value);
-                try rejectUnknownKeys(net_obj, &.{ "url", "methods" });
+                var permission = try parseNetPermission(allocator, item);
+                errdefer permission.deinit(allocator);
+                try urls.append(try allocator.dupe(u8, permission.url));
+                try net_permissions.append(permission);
             }
         },
         else => return error.InvalidPluginPermission,
     } else return error.InvalidPluginPermission;
     if (obj.get("env")) |env_value| switch (env_value) {
         .array => |arr| {
+            has_env_permission = arr.items.len != 0;
             if (arr.items.len != 0) requires_sandbox = true;
             for (arr.items) |item| {
                 const name = try jsonString(item);
                 if (!validEnvPermission(name)) return error.InvalidPluginPermission;
+                try env_permissions.append(try allocator.dupe(u8, name));
             }
         },
         else => return error.InvalidPluginPermission,
@@ -1269,19 +2928,21 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
             else => return error.InvalidPluginPermission,
         };
         try rejectUnknownKeys(process_obj, &.{ "spawn", "exec" });
-        var spawn = false;
         if (process_obj.get("spawn")) |spawn_value| switch (spawn_value) {
             .bool => |spawn_value_bool| {
                 if (spawn_value_bool) requires_sandbox = true;
-                spawn = spawn_value_bool;
+                if (spawn_value_bool) has_process_permission = true;
+                process_spawn = spawn_value_bool;
             },
             else => return error.InvalidPluginPermission,
         } else return error.InvalidPluginPermission;
         if (process_obj.get("exec")) |exec_value| switch (exec_value) {
             .array => |arr| {
+                if (arr.items.len != 0) has_process_permission = true;
                 if (arr.items.len != 0) requires_sandbox = true;
-                if (arr.items.len != 0 and !spawn) return error.InvalidPluginPermission;
-                for (arr.items) |item| try validateProcessExec(item);
+                if (arr.items.len != 0 and !process_spawn) return error.InvalidPluginPermission;
+                if (process_spawn and arr.items.len == 0) return error.InvalidPluginPermission;
+                for (arr.items) |item| try process_exec_permissions.append(try parseProcessExecPermission(allocator, item));
             },
             else => return error.InvalidPluginPermission,
         } else return error.InvalidPluginPermission;
@@ -1290,6 +2951,15 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
         .requires_sandbox = requires_sandbox,
         .digest = digest,
         .urls = urls,
+        .env_permissions = env_permissions,
+        .fs_permissions = fs_permissions,
+        .net_permissions = net_permissions,
+        .process_spawn = process_spawn,
+        .process_exec_permissions = process_exec_permissions,
+        .has_fs_permission = has_fs_permission,
+        .has_net_permission = has_net_permission,
+        .has_env_permission = has_env_permission,
+        .has_process_permission = has_process_permission,
     };
 }
 
@@ -1311,18 +2981,45 @@ fn rejectUnknownKeys(obj: std.json.ObjectMap, allowed: []const []const u8) !void
     }
 }
 
-fn validateFsPermission(value: std.json.Value) !void {
+fn parseFsPermission(allocator: std.mem.Allocator, value: std.json.Value) !FsPermission {
     const obj = switch (value) {
         .object => |o| o,
         else => return error.InvalidPluginPermission,
     };
     try rejectUnknownKeys(obj, &.{ "op", "path" });
     const op = try jsonString(obj.get("op") orelse return error.InvalidPluginPermission);
-    if (!std.mem.eql(u8, op, "read") and !std.mem.eql(u8, op, "write") and !std.mem.eql(u8, op, "create") and !std.mem.eql(u8, op, "delete") and !std.mem.eql(u8, op, "metadata")) {
-        return error.InvalidPluginPermission;
-    }
     const path = try jsonString(obj.get("path") orelse return error.InvalidPluginPermission);
     if (!validPermissionPath(path)) return error.InvalidPluginPermission;
+    return .{
+        .op = parseFsPermissionOp(op) orelse return error.InvalidPluginPermission,
+        .path = try allocator.dupe(u8, path),
+    };
+}
+
+fn parseNetPermission(allocator: std.mem.Allocator, value: std.json.Value) !NetPermission {
+    const obj = switch (value) {
+        .object => |o| o,
+        else => return error.InvalidPluginPermission,
+    };
+    try rejectUnknownKeys(obj, &.{ "url", "methods" });
+    const url = try jsonString(obj.get("url") orelse return error.InvalidPluginPermission);
+    if (!allowedPermissionUrl(url)) return error.InvalidPluginPermission;
+    return .{
+        .url = try allocator.dupe(u8, url),
+        .methods = if (obj.get("methods")) |methods_value|
+            try parseHttpMethods(methods_value)
+        else
+            HttpMethodMask.default(),
+    };
+}
+
+fn parseFsPermissionOp(text: []const u8) ?FsPermissionOp {
+    if (std.mem.eql(u8, text, "read")) return .read;
+    if (std.mem.eql(u8, text, "write")) return .write;
+    if (std.mem.eql(u8, text, "create")) return .create;
+    if (std.mem.eql(u8, text, "delete")) return .delete;
+    if (std.mem.eql(u8, text, "metadata")) return .metadata;
+    return null;
 }
 
 fn validPermissionPath(path: []const u8) bool {
@@ -1337,24 +3034,18 @@ fn validPermissionPath(path: []const u8) bool {
         (std.fs.path.isAbsolute(path) and !std.mem.startsWith(u8, path, "/dev/") and !std.mem.startsWith(u8, path, "/proc/"));
 }
 
-fn validateHttpMethods(value: std.json.Value) !void {
+fn parseHttpMethods(value: std.json.Value) !HttpMethodMask {
     const arr = switch (value) {
         .array => |a| a,
         else => return error.InvalidPluginPermission,
     };
+    var mask = HttpMethodMask{};
     for (arr.items) |item| {
         const method = try jsonString(item);
-        if (!std.mem.eql(u8, method, "GET") and
-            !std.mem.eql(u8, method, "POST") and
-            !std.mem.eql(u8, method, "PUT") and
-            !std.mem.eql(u8, method, "PATCH") and
-            !std.mem.eql(u8, method, "DELETE") and
-            !std.mem.eql(u8, method, "HEAD") and
-            !std.mem.eql(u8, method, "OPTIONS"))
-        {
-            return error.InvalidPluginPermission;
-        }
+        mask.insert(parseBrokerHttpMethod(method) orelse return error.InvalidPluginPermission);
     }
+    if (mask.bits == 0) return error.InvalidPluginPermission;
+    return mask;
 }
 
 fn validEnvPermission(name: []const u8) bool {
@@ -1367,7 +3058,7 @@ fn validEnvPermission(name: []const u8) bool {
     return true;
 }
 
-fn validateProcessExec(value: std.json.Value) !void {
+fn parseProcessExecPermission(allocator: std.mem.Allocator, value: std.json.Value) !ProcessExecPermission {
     const obj = switch (value) {
         .object => |o| o,
         else => return error.InvalidPluginPermission,
@@ -1375,13 +3066,26 @@ fn validateProcessExec(value: std.json.Value) !void {
     try rejectUnknownKeys(obj, &.{ "path", "args" });
     const path = try jsonString(obj.get("path") orelse return error.InvalidPluginPermission);
     if (!std.fs.path.isAbsolute(path)) return error.InvalidPluginPermission;
+    var args = std.ArrayList([]u8).init(allocator);
+    errdefer {
+        for (args.items) |arg| allocator.free(arg);
+        args.deinit();
+    }
     if (obj.get("args")) |args_value| {
         const arr = switch (args_value) {
             .array => |a| a,
             else => return error.InvalidPluginPermission,
         };
-        for (arr.items) |item| _ = try jsonString(item);
+        for (arr.items) |item| {
+            const arg = try jsonString(item);
+            if (arg.len == 0) return error.InvalidPluginPermission;
+            try args.append(try allocator.dupe(u8, arg));
+        }
     }
+    return .{
+        .path = try allocator.dupe(u8, path),
+        .args = try args.toOwnedSlice(),
+    };
 }
 
 fn allowedPermissionUrl(url: []const u8) bool {

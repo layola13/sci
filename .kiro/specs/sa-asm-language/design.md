@@ -183,7 +183,7 @@ sa_plugin_<name>/
 
 `sa.mod` 与 `sap.json` 的共同点：都声明 identity、dependencies、sha256 integrity、permissions，并默认 deny-all。最大区别：`sa.mod` 管正常工程包和透明源码依赖，类似 Rust crate；`sap.json` 管编译器/宿主插件和 native artifact，必须有 descriptor、symbol smoke、安装级 sandbox 和 `.so` artifact。
 
-防作弊边界：`sap.json.permissions` 不是 sandbox。native `.so` 若被同进程 `dlopen`，恶意插件仍可绕过声明直接调用 `connect/open/execve` 等 syscall。强制安全必须由 worker process + seccomp/Landlock/namespace/chroot 等 OS sandbox + 宿主 broker 完成。网络、文件、环境和进程能力必须经 broker 校验 `sap.json.permissions` 与项目 `sa.mod.permissions` 后执行；插件直接 syscall 应被内核策略拒绝。当前主线只具备 manifest/descriptor/URL 级校验，sandbox/broker enforcement 仍是必须补齐项。
+防作弊边界：`sap.json.permissions` 不是 sandbox。native `.so` 若被同进程 `dlopen`，恶意插件仍可绕过声明直接调用 `connect/open/execve` 等 syscall。强制安全必须由 worker process + seccomp/Landlock/namespace/chroot 等 OS sandbox + 宿主 broker 完成。网络、文件、环境和进程能力必须经 broker 校验 `sap.json.permissions` 与项目 `sa.mod.permissions` 后执行；插件直接 syscall 应被内核策略拒绝。当前主线已具备 manifest/descriptor/URL 级校验，并会在 formal runtime mode 下阻断未标记 `sandbox_enforced=true` 的 privileged 已安装插件；但真正的 sandbox/broker enforcement 仍是必须补齐项。
 
 安装前 verifier hooks 必须存在，但只能由宿主/plugin-manager 提供，不能执行插件仓库自带的任意 `preinstall`/`postinstall` 脚本。最小 hook 集合：`manifest_schema`、`source_layout`、`text_source_required`、`permission_policy`、`interface_files`、`symbol_smoke`、`artifact_static_scan`、`dependency_dag`、`lock_emit`。其中 `text_source_required` 必须拒绝二进制-only 插件，正式安装只能接受含 `build.zig`、`src/plugin.zig` 和声明接口文本的工程；artifact 必须由安装器从文本源构建出来，不能直接安装 `.so/.dll/.dylib`。`artifact_static_scan` 应检查动态导入/字符串风险，例如 `connect/socket/getaddrinfo/open/execve/system/dlopen`；发现未声明能力或无 sandbox 的 privileged 插件必须拒绝安装。静态 hook 是准入门槛，不是安全证明，不能替代运行时 sandbox/broker。
 
@@ -213,7 +213,7 @@ SA 文件后缀与清单边界：
 - ABI 漂移风险仍高，必须用 CI 固化 `.sai` vs `.so` 符号检查。
 - 错误模型还偏 `0/1/2`，需要统一 status code、错误 buffer、权限错误、OS errno 映射。
 - async/stream/event 还没有统一 ABI，应采用 handle + `poll/take/free` 规范，而不是模拟 JS Promise。
-- 本地 `sa plugin install` 已能解析 `sap.json`、拒绝裸二进制、从文本工程构建、校验基础权限、校验接口路径与可选 `sha256`、执行 `.sai` → `.so` symbol smoke、生成 `sap.lock` / `permissions.lock`、写入依赖图 hash、递归处理带 `path` 的插件依赖并检测本地依赖环；GitHub/release 远程拉取、跨插件重复 extern symbol 拒绝和 optional skill 降级还需要继续实现。
+- 本地 `sa plugin install` 已能解析 `sap.json`、拒绝裸二进制、从文本工程构建、校验基础权限、校验接口路径与可选 `sha256`、执行 `.sai` → `.so` symbol smoke、执行基于动态导入表的 artifact 静态扫描、拒绝跨插件重复 extern symbol、生成 `sap.lock` / `permissions.lock`、写入依赖图 hash、递归处理带 `path` 的插件依赖并检测本地依赖环；远程 Git/release archive 文本源码安装与 optional skill 降级也已实现。剩余核心缺口是运行时 sandbox/broker enforcement。
 - 权限沙箱文档先行，真实 syscall/grant 阻断仍需宿主实现；文档必须区分“已实现”和“目标设计”。
 
 ### 1.8 SA 标准库 (sa_std) 的能力边界与 FFI 策略 (NEW)
