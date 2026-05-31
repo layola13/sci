@@ -1,4 +1,4 @@
-@import "sa_std/deno.sa"
+@import "../../sa_plugins/sa_plugin_deno/deno.sal"
 @import "sa_std/fs.sai"
 
 @const EXPECT_VERSION = utf8:"sa-std"

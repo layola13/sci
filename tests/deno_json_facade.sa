@@ -1,4 +1,4 @@
-@import "sa_std/deno.sa"
+@import "../../sa_plugins/sa_plugin_deno/deno.sal"
 
 @const JSON_DOC = utf8:"{\"ok\":true,\"n\":7}"
 

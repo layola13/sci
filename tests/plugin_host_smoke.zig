@@ -916,6 +916,18 @@ test "sa skills hides plugin capabilities until optional dependency is installed
     }
     try setEnvVarZ(env_name, "state");
 
+    const dev_name: [:0]const u8 = "SA_PLUGIN_DEV";
+    const saved_dev = try saveEnvVarZ(std.testing.allocator, dev_name);
+    defer {
+        if (saved_dev) |value| {
+            setEnvVarZ(dev_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            unsetEnvVarZ(dev_name);
+        }
+    }
+    try setEnvVarZ(dev_name, "1");
+
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
 

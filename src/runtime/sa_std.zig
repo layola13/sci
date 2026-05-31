@@ -3585,6 +3585,13 @@ pub fn fail(comptime T: type, status: i32) Fallible(T) {
     return .{ .status = status, .value = @as(T, @bitCast(@as(std.meta.Int(.unsigned, @bitSizeOf(T)), 0))) };
 }
 
+pub export fn sa_http_client_resp_body_slice(resp: ?*anyopaque, out_body_ptr: ?*?[*]const u8, out_body_len: ?*u64) u32 {
+    _ = resp;
+    _ = out_body_ptr;
+    _ = out_body_len;
+    return 0;
+}
+
 pub export fn sa_std_version() u32 {
     return SA_STD_ABI_VERSION;
 }

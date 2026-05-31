@@ -2622,31 +2622,31 @@ test "sa_std sort helpers are concrete and verifiable" {
 }
 
 test "sa_std Deno compatibility facade covers HubProxy porting surface" {
-    const deno_sai = try readFileAlloc(std.testing.allocator, "sa_std/deno.sai");
+    const deno_sai = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sai");
     defer std.testing.allocator.free(deno_sai);
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_cwd"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_env_set"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_random_uuid"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_args_json"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_btoa"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_atob"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_text_encode"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_text_decode"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_chat_sse_to_responses"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_version_json"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_build_json"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_version_deno"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_build_os"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_build_platform_family"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_date_now_iso"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_cwd"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_env_set"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_random_uuid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_args_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_btoa"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_atob"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_text_encode"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_text_decode"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_chat_sse_to_responses"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_version_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_build_json"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_version_deno"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_build_os"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_build_platform_family"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_date_now_iso"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "DENO_HTTP_METHOD_POST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_req_send"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_resp_get_header"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_req_get_method"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_set_content_type"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_stream_write"));
-
-    const deno_src = try readFileAlloc(std.testing.allocator, "sa_std/deno.sa");
+ 
+    const deno_src = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
     defer std.testing.allocator.free(deno_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ARGS_JSON"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ENV_GET"));
@@ -2726,8 +2726,8 @@ test "sa_std Deno compatibility facade covers HubProxy porting surface" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_REQUEST_METHOD"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_RESPONSE_SET_CONTENT_TYPE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_STREAM_WRITE"));
-
-    var deno_flat = try flattenFixture(std.testing.allocator, "sa_std/deno.sa", deno_src);
+ 
+    var deno_flat = try flattenFixture(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal", deno_src);
     defer deno_flat.deinit(std.testing.allocator);
     try std.testing.expect(deno_flat.function_sigs.len >= 60);
 }
@@ -2736,8 +2736,16 @@ test "sa_std Deno JSON facade runs from SA" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
+    const deno_sal = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
+    defer std.testing.allocator.free(deno_sal);
+    const deno_sai = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sai");
+    defer std.testing.allocator.free(deno_sai);
+
+    try writeSource(tmp.dir, "deno.sal", deno_sal);
+    try writeSource(tmp.dir, "deno.sai", deno_sai);
+
     const source =
-        \\@import "sa_std/deno.sa"
+        \\@import "deno.sal"
         \\
         \\@const JSON_DOC = utf8:"{\"ok\":true,\"n\":7}"
         \\
@@ -2812,8 +2820,16 @@ test "sa_std Deno text and base64 facade runs from SA" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
+    const deno_sal = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
+    defer std.testing.allocator.free(deno_sal);
+    const deno_sai = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sai");
+    defer std.testing.allocator.free(deno_sai);
+
+    try writeSource(tmp.dir, "deno.sal", deno_sal);
+    try writeSource(tmp.dir, "deno.sai", deno_sai);
+
     const source =
-        \\@import "sa_std/deno.sa"
+        \\@import "deno.sal"
         \\@import "sa_std/fmt.sai"
         \\@import "sa_std/fs.sai"
         \\
@@ -2922,11 +2938,19 @@ test "sa_std Deno fallible status macros compile and run" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
+    const deno_sal = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
+    defer std.testing.allocator.free(deno_sal);
+    const deno_sai = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sai");
+    defer std.testing.allocator.free(deno_sai);
+
+    try writeSource(tmp.dir, "deno.sal", deno_sal);
+    try writeSource(tmp.dir, "deno.sai", deno_sai);
+
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
     const source =
-        \\@import "sa_std/deno.sa"
+        \\@import "deno.sal"
         \\
         \\@const DIR = utf8:"deno_macro_dir"
         \\@const TEXT_PATH = utf8:"deno_macro_dir/text.txt"
