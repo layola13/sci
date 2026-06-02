@@ -3587,9 +3587,9 @@ pub fn fail(comptime T: type, status: i32) Fallible(T) {
 
 pub export fn sa_http_client_resp_body_slice(resp: ?*anyopaque, out_body_ptr: ?*?[*]const u8, out_body_len: ?*u64) u32 {
     _ = resp;
-    _ = out_body_ptr;
-    _ = out_body_len;
-    return 0;
+    if (out_body_ptr) |ptr| ptr.* = null;
+    if (out_body_len) |len| len.* = 0;
+    return SA_STD_OK;
 }
 
 pub export fn sa_std_version() u32 {

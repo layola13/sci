@@ -179,6 +179,8 @@ uint64_t sa_deno_build_os(void);
 uint64_t sa_deno_build_platform_family(void);
 uint64_t sa_deno_date_now_iso(void);
 
+uint32_t sa_http_client_resp_body_slice(void *resp, const uint8_t **out_body_ptr, uint64_t *out_body_len);
+
 uint64_t sa_json_parse(const uint8_t *json_bytes, uint64_t len);
 uint32_t sa_json_kind(uint64_t node);
 int32_t sa_json_object_get(uint64_t node, const uint8_t *key, uint64_t key_len, uint64_t *out_handle);
