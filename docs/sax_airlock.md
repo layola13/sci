@@ -16,10 +16,13 @@
 - `index.html`
 - 以及对应的 `.sa` 侧车文件
 
+如果 SAX 源使用 WGPU sidecar（例如 `<canvas renderer="wgpu">` 或 `sa_wgpu_*`），还会生成 `wgpu_airlock.js`。该文件只承载浏览器 WebGPU broker；WGSL、顶点、索引和 uniform 数据仍来自 SA/WASM。
+
 当前 `airlock.js` 的骨架由 `src/sax/airlock_gen.zig` 直接拼出，核心成员如下：
 
 ```javascript
 const SAX_AIRLOCK_VERSION = "1.0";
+const SAX_WGPU_REQUIRED = false;
 
 const _nodeMap = new Map();
 const _bindingMap = new Map();
@@ -32,12 +35,15 @@ export const sax_airlock = {
 };
 
 export async function sax_init(wasm_url) {
+  const wgpu_module = await _load_wgpu_airlock();
+  const imports = wgpu_module ? { ...sax_airlock, ...wgpu_module.sax_wgpu_airlock } : sax_airlock;
   const { instance } = await WebAssembly.instantiateStreaming(
     fetch(wasm_url),
-    { env: sax_airlock }
+    { env: imports }
   );
   _wasm_instance = instance;
   _mem = instance.exports.memory;
+  if (wgpu_module) wgpu_module.sax_wgpu_bind_wasm(instance, _mem);
   if (instance.exports.sax_app_init) {
     instance.exports.sax_app_init();
   }
@@ -49,8 +55,9 @@ export async function sax_init(wasm_url) {
 - `nodeMap` 保存整数句柄到 DOM 节点的映射，句柄通过 `BigInt` 在 WASM 和 JS 之间传递。
 - `bindingMap` 的键是 `node::evt::handler::ctx` 形式的字符串；同一键重复绑定时会先移除旧监听器。
 - `_read_str` / `_write_str` 使用 `TextDecoder` / `TextEncoder` 在 WASM 线性内存里读写 UTF-8。
-- `sax_init` 只做 wasm 加载和 `memory` 缓存，然后调用 `sax_app_init`。
+- `sax_init` 会在需要 WGPU 时先加载 `./wgpu_airlock.js`，合并 import surface，缓存 `memory`，再调用 `sax_app_init`。
 - 当前生成器没有 `_wasm_call` 间接调用层。
+- `sax_debug_get_node(h)` 只用于 WGPU sidecar 把 SAX DOM handle 解析为 `<canvas>` DOM 节点。
 
 ---
 

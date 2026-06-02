@@ -177,7 +177,9 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 - `source` 记录插件来源，可以是本地路径、Git URL、GitHub shorthand 或 release archive；远程来源必须固定 tag/commit/release digest，不能只信浮动分支。
 - `abi.plugin` 对应 `saasm_plugin_descriptor_v1` 的 ABI version；`abi.saasm` 表示需要的宿主能力范围。
 - `artifacts` 按 target triple 指向构建产物路径，当前 Linux 路径先落地 `.so`。正式安装不得下载或接收预编译二进制；artifact 必须由安装器从文本源工程构建出来。
-- `interfaces.sa/sai/sal` 是 SA-facing 入口；`.sa` 是可选 facade，实现用户可 import 的薄封装；`.sai/.sal` 是 ABI 与布局合约；`abi.symbols` 指向 symbol smoke 的源文件。
+- `interfaces.sa/sai/sal` 是 SA-facing native 入口；`.sa` 是可选 facade，实现用户可 import 的薄封装；`.sai/.sal` 是 ABI 与布局合约；native `.sai` 会参与 symbol smoke。
+- `interfaces.wasm_imports` 用于 SAX/WASM browser sidecar 这类接口：文件会被复制到插件 `sa/` 目录供编译期使用，但其中的 `@extern` 是浏览器/WASM import，不要求 native `.so` 导出同名符号。
+- `assets.share` 用于声明插件运行所需的静态 sidecar 文件，例如 browser airlock JS、demo 源文件或其他 share 资源；安装器复制到 `installed/<plugin>/current/share/`。
 - `dependencies` 只声明插件依赖插件，不声明普通源码包。普通业务依赖仍归 `sa.mod` / `sa.lock`。
 - `permissions` 是插件整体可能使用的宿主能力声明。缺少权限声明却需要文件、网络、环境或进程能力的插件，安装器必须拒绝安装；真实阻断仍依赖宿主 sandbox/syscall 层补齐。
 - `sha256` 是 artifact 和 interface 的完整性字段。不要用 MD5 做安全判断；MD5 已不适合作为防篡改哈希。若未来需要更快校验，可额外支持 `blake3`，但 `sha256` 仍应作为默认兼容字段。
@@ -306,7 +308,8 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 | `text_source_required` | 插件工程目录 | 必须存在 `build.zig`、`src/plugin.zig` 和声明的接口文本；正式安装禁止二进制-only 插件。 |
 | `permission_policy` | `permissions` | fs/net/env/process 是否符合格式；远程 URL 是否 `https://`；localhost 是否 loopback；privileged 插件是否有 sandbox/broker。 |
 | `interface_files` | `.sa/.sai/.sal` | manifest 声明的接口文件必须存在，hash 匹配，路径不能逃逸工程目录。 |
-| `symbol_smoke` | `.sai` + artifact | `.sai` 中每个 `@extern` 必须有 `.so` 导出符号；重复 extern symbol 拒绝。 |
+| `share_assets` | `assets.share` | manifest 声明的静态 sidecar 文件必须存在，hash 匹配，安装到插件 share 目录。 |
+| `symbol_smoke` | native `.sai` + artifact | native `.sai` 中每个 `@extern` 必须有 `.so` 导出符号；`interfaces.wasm_imports` 不参与 native symbol smoke。 |
 | `artifact_static_scan` | artifact | 检查动态导入和字符串风险，如 `connect/socket/getaddrinfo/open/execve/system/dlopen`；发现未声明能力或无 sandbox 时拒绝。 |
 | `dependency_dag` | `sap.json.dependencies` | 依赖存在、ABI 主版本匹配、无环、权限账本可合并。 |
 | `lock_emit` | 安装计划 | 生成 `sap.lock` / `permissions.lock`，记录 hash、权限、hook 结果、sandbox enforcement 状态。 |
@@ -348,7 +351,7 @@ sa plugin install https://github.com/sa-plugins/releases/download/deno-v0.1.0/sa
 5. **Verify text project**：必须存在 `build.zig`、`src/plugin.zig` 和 manifest 声明的 `.sa/.sai/.sal`。缺少文本源工程时拒绝安装。
 6. **Verify permissions**：检查 `permissions` 是否覆盖插件声明的文件、网络、环境、进程能力；网络 URL 只能是 `https://...` 或 localhost。缺失或越权时拒绝安装。
 7. **Manual permission confirmation**：只要 `permissions.fs/net/env/process` 非空或允许 spawn，安装器必须展示权限账本并要求用户手动输入插件名确认。正式安装不能用 `-y`、默认 yes 或 CI 自动确认跳过；非 TTY 环境必须拒绝。只有显式 `--dev` / `SA_PLUGIN_DEV=1` 本地开发模式可以跳过。
-8. **Verify interfaces**：`sap.json.interfaces` 中声明的 `.sa/.sai/.sal` 必须存在并匹配 `sha256`；缺少 `.sai` 的 native 插件不能给 SA 业务代码调用。
+8. **Verify interfaces/assets**：`sap.json.interfaces` 中声明的 `.sa/.sai/.sal` 和 `interfaces.wasm_imports` 必须存在并匹配 `sha256`；`assets.share` 必须存在并安装到 share 目录。缺少 `.sai` 的 native 插件不能给 SA 业务代码调用。
 9. **Build from source**：安装器从文本源工程执行受控构建，产出 `sap.json.artifacts` 指向的 artifact。不能直接 unpack 远程预编译 `.so/.dll/.dylib` 当作正式安装。
 10. **Symbol smoke**：用 `.sai` 中的 `@extern` 与 `.so` 导出符号做双向检查。
 11. **Resolve deps**：递归安装 `sap.json.dependencies`，构建 DAG，拒绝环、ABI 不兼容和重复 extern symbol。

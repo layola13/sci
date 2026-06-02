@@ -1447,6 +1447,7 @@ const SapManifest = struct {
     abi_plugin: u32,
     artifact_rel: []u8,
     interface_files: []InterfaceFile,
+    asset_files: []AssetFile,
     dependencies: []PluginDependency,
     env_permissions: [][]u8,
     fs_permissions: []FsPermission,
@@ -1469,6 +1470,8 @@ const SapManifest = struct {
         allocator.free(self.artifact_rel);
         for (self.interface_files) |*iface| iface.deinit(allocator);
         allocator.free(self.interface_files);
+        for (self.asset_files) |*asset| asset.deinit(allocator);
+        allocator.free(self.asset_files);
         for (self.dependencies) |*dep| dep.deinit(allocator);
         allocator.free(self.dependencies);
         for (self.env_permissions) |entry| allocator.free(entry);
@@ -1489,6 +1492,7 @@ const InterfaceKind = enum {
     sa,
     sai,
     sal,
+    wasm_import,
 };
 
 const InterfaceFile = struct {
@@ -1498,6 +1502,23 @@ const InterfaceFile = struct {
 
     fn deinit(self: *InterfaceFile, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
+        self.* = undefined;
+    }
+};
+
+const AssetKind = enum {
+    share,
+};
+
+const AssetFile = struct {
+    kind: AssetKind,
+    path: []u8,
+    target: []u8,
+    sha256: ?[32]u8,
+
+    fn deinit(self: *AssetFile, allocator: std.mem.Allocator) void {
+        allocator.free(self.path);
+        allocator.free(self.target);
         self.* = undefined;
     }
 };
@@ -1613,6 +1634,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     try copyFileAbsolute(manifest.sap_path, version_sap);
 
     if (try verifyInterfaceFiles(allocator, manifest) != 0) return 1;
+    if (try verifyAssetFiles(allocator, manifest) != 0) return 1;
     if (try verifySymbolSmoke(allocator, manifest, artifact_abs, stdout) != 0) return 1;
     if (try verifyInstalledExternSymbolConflicts(allocator, manifest, stdout) != 0) return 1;
     if (try verifyArtifactStaticPolicy(allocator, manifest, artifact_abs, stdout, options) != 0) return 1;
@@ -1637,6 +1659,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
             try copyFileAbsolute(src, version_dst);
         }
     }
+    try copyAssetFiles(allocator, manifest, installed_dir, version_dir);
 
     var artifact_file = try std.fs.openFileAbsolute(artifact_abs, .{});
     defer artifact_file.close();
@@ -2283,6 +2306,11 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         for (interface_files) |*iface| iface.deinit(allocator);
         allocator.free(interface_files);
     }
+    const asset_files = try collectAssetFiles(allocator, object.get("assets"));
+    errdefer {
+        for (asset_files) |*asset| asset.deinit(allocator);
+        allocator.free(asset_files);
+    }
     const dependencies = try collectPluginDependencies(allocator, object.get("dependencies"));
     errdefer {
         for (dependencies) |*dep| dep.deinit(allocator);
@@ -2297,6 +2325,7 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         .abi_plugin = abi_plugin,
         .artifact_rel = artifact_rel,
         .interface_files = interface_files,
+        .asset_files = asset_files,
         .dependencies = dependencies,
         .env_permissions = try permission_info.env_permissions.toOwnedSlice(),
         .fs_permissions = try permission_info.fs_permissions.toOwnedSlice(),
@@ -2376,6 +2405,10 @@ fn collectInterfaceFiles(allocator: std.mem.Allocator, maybe_value: ?std.json.Va
     };
     if (obj.get("sai")) |sai_value| try files.append(try interfaceFileFromValue(allocator, .sai, sai_value));
     if (obj.get("sal")) |sal_value| try files.append(try interfaceFileFromValue(allocator, .sal, sal_value));
+    if (obj.get("wasm_imports")) |wasm_imports_value| switch (wasm_imports_value) {
+        .array => |arr| for (arr.items) |item| try files.append(try interfaceFileFromValue(allocator, .wasm_import, item)),
+        else => try files.append(try interfaceFileFromValue(allocator, .wasm_import, wasm_imports_value)),
+    };
     return try files.toOwnedSlice();
 }
 
@@ -2388,6 +2421,54 @@ fn interfaceFileFromValue(allocator: std.mem.Allocator, kind: InterfaceKind, val
             errdefer allocator.free(path);
             const hash = if (o.get("sha256")) |hash_value| try parseSha256Json(hash_value) else null;
             return .{ .kind = kind, .path = path, .sha256 = hash };
+        },
+        else => return error.InvalidSapManifest,
+    }
+}
+
+fn collectAssetFiles(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) ![]AssetFile {
+    var files = std.ArrayList(AssetFile).init(allocator);
+    errdefer {
+        for (files.items) |*file| file.deinit(allocator);
+        files.deinit();
+    }
+    const value = maybe_value orelse return try files.toOwnedSlice();
+    const obj = switch (value) {
+        .object => |o| o,
+        else => return error.InvalidSapManifest,
+    };
+    if (obj.get("share")) |share_value| switch (share_value) {
+        .array => |arr| for (arr.items) |item| try files.append(try assetFileFromValue(allocator, .share, item)),
+        else => return error.InvalidSapManifest,
+    };
+    return try files.toOwnedSlice();
+}
+
+fn assetFileFromValue(allocator: std.mem.Allocator, kind: AssetKind, value: std.json.Value) !AssetFile {
+    switch (value) {
+        .string => |s| {
+            try validateProjectRelativePath(s);
+            const target = std.fs.path.basename(s);
+            try validateProjectRelativePath(target);
+            return .{
+                .kind = kind,
+                .path = try allocator.dupe(u8, s),
+                .target = try allocator.dupe(u8, target),
+                .sha256 = null,
+            };
+        },
+        .object => |o| {
+            try rejectUnknownSapKeys(o, &.{ "path", "target", "sha256" });
+            const path_text = try jsonString(o.get("path") orelse return error.InvalidSapManifest);
+            try validateProjectRelativePath(path_text);
+            const target_text = if (o.get("target")) |target_value| try jsonString(target_value) else std.fs.path.basename(path_text);
+            try validateProjectRelativePath(target_text);
+            const path = try allocator.dupe(u8, path_text);
+            errdefer allocator.free(path);
+            const target = try allocator.dupe(u8, target_text);
+            errdefer allocator.free(target);
+            const hash = if (o.get("sha256")) |hash_value| try parseSha256Json(hash_value) else null;
+            return .{ .kind = kind, .path = path, .target = target, .sha256 = hash };
         },
         else => return error.InvalidSapManifest,
     }
@@ -2436,6 +2517,38 @@ fn verifyInterfaceFiles(allocator: std.mem.Allocator, manifest: SapManifest) !u8
         }
     }
     return 0;
+}
+
+fn verifyAssetFiles(allocator: std.mem.Allocator, manifest: SapManifest) !u8 {
+    for (manifest.asset_files) |asset| {
+        try validateProjectRelativePath(asset.path);
+        try validateProjectRelativePath(asset.target);
+        const path = try std.fs.path.join(allocator, &.{ manifest.root_dir, asset.path });
+        defer allocator.free(path);
+        if (!fileExistsAbsolute(path)) return error.PluginInterfaceMissing;
+        if (asset.sha256) |expected| {
+            const actual = try sha256File(allocator, path);
+            if (!std.mem.eql(u8, actual[0..], expected[0..])) return error.PluginInterfaceHashMismatch;
+        }
+    }
+    return 0;
+}
+
+fn copyAssetFiles(allocator: std.mem.Allocator, manifest: SapManifest, installed_dir: []const u8, version_dir: []const u8) !void {
+    for (manifest.asset_files) |asset| {
+        const src = try std.fs.path.join(allocator, &.{ manifest.root_dir, asset.path });
+        defer allocator.free(src);
+        switch (asset.kind) {
+            .share => {
+                const dst = try std.fs.path.join(allocator, &.{ installed_dir, "share", asset.target });
+                defer allocator.free(dst);
+                try copyFileAbsolute(src, dst);
+                const version_dst = try std.fs.path.join(allocator, &.{ version_dir, "share", asset.target });
+                defer allocator.free(version_dst);
+                try copyFileAbsolute(src, version_dst);
+            },
+        }
+    }
 }
 
 fn verifySymbolSmoke(allocator: std.mem.Allocator, manifest: SapManifest, artifact_abs: []const u8, stdout: anytype) !u8 {
@@ -2678,7 +2791,7 @@ fn verifyArtifactStaticPolicy(
                 try stdout.print("plugin artifact references environment symbol without declared env permission: {s}\n", .{rule.symbol});
                 return 1;
             },
-            .process => if (!manifest.has_process_permission) {
+            .process => if (!manifest.has_process_permission and !options.dev and !pluginDevMode(allocator)) {
                 try stdout.print("plugin artifact references process symbol without declared process permission: {s}\n", .{rule.symbol});
                 return 1;
             },
