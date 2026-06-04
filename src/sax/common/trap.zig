@@ -84,6 +84,7 @@ pub const TrapReport = struct {
     repair_hint: ?[]const u8 = null,
     repair_confidence: ?[]const u8 = null,
     message: []const u8,
+    hint_buf: [512]u8 = [_]u8{0} ** 512,
     hint: ?[]const u8 = null,
 };
 
@@ -344,7 +345,7 @@ pub fn writeJson(writer: anytype, report: TrapReport) !void {
     try writer.writeAll(",\"message\":");
     try writeJsonString(writer, report.message);
     try writer.writeAll(",\"hint\":");
-    try writeMaybeString(writer, report.hint);
+    try writeStringOrBuf(writer, report.hint, &report.hint_buf);
     try writer.writeAll("}");
 }
 

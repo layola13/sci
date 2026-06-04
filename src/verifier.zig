@@ -1041,6 +1041,78 @@ fn trapReportWithRegisters(
     return result;
 }
 
+fn phiStateConflictReport(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    target: u32,
+    last_seen_label: ?u32,
+    mismatch: ?StateMismatch,
+    symbols: *const symbol.SymbolTable,
+) VerifyBodyResult {
+    const mismatch_name = if (mismatch) |m| m.name else "unknown";
+    const expected_mask = if (mismatch) |m| m.expected else null;
+    const actual_mask = if (mismatch) |m| m.actual else null;
+
+    const target_name = symbols.lookupName(target) orelse "unknown";
+    const current_block_name = if (last_seen_label) |l| symbols.lookupName(l) orelse "unknown" else "entry";
+
+    const expected_name = if (expected_mask) |m| cap.maskName(m) else "Uninitialized";
+    const actual_name = if (actual_mask) |m| cap.maskName(m) else "Uninitialized";
+
+    var result = trapReportWithRegisters(
+        .phi_state_conflict,
+        item,
+        function_text,
+        is_ffi_wrapper,
+        if (mismatch) |m| m.name else null,
+        if (mismatch) |m| &[_][]const u8{m.name} else &.{},
+        expected_mask,
+        actual_mask,
+        "incoming control-flow states do not agree",
+        null,
+    );
+
+    var advice_buf: [256]u8 = [_]u8{0} ** 256;
+    const advice = if (expected_mask != null or actual_mask != null) blk: {
+        const m1 = expected_mask orelse 0;
+        const m2 = actual_mask orelse 0;
+        const active_mask = maskOf(.active);
+        const consumed_mask = maskOf(.consumed);
+        const is_borrow1 = (m1 & (maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.borrow_view) | maskOf(.ffi_borrow))) != 0;
+        const is_borrow2 = (m2 & (maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.borrow_view) | maskOf(.ffi_borrow))) != 0;
+
+        if (is_borrow1 or is_borrow2) {
+            break :blk std.fmt.bufPrint(
+                &advice_buf,
+                "Release all active borrows of '{s}' before paths merge.",
+                .{mismatch_name},
+            ) catch "";
+        } else if ((m1 == active_mask and (m2 == 0 or m2 == consumed_mask)) or
+                   (m2 == active_mask and (m1 == 0 or m1 == consumed_mask))) {
+            break :blk std.fmt.bufPrint(
+                &advice_buf,
+                "Consume/release '{s}' on all paths (e.g. using '!{s}'), or don't consume it on any path.",
+                .{ mismatch_name, mismatch_name },
+            ) catch "";
+        } else {
+            break :blk std.fmt.bufPrint(
+                &advice_buf,
+                "Ensure '{s}' has matching capability states across all paths.",
+                .{mismatch_name},
+            ) catch "";
+        }
+    } else "";
+
+    _ = std.fmt.bufPrint(
+        &result.trap.hint_buf,
+        "register '{s}' has mismatched path states:\n  - Path via '{s}': {s}\n  - Path via target '{s}': {s}\nSelf-repair hint: {s}",
+        .{ mismatch_name, current_block_name, expected_name, target_name, actual_name, advice },
+    ) catch {};
+
+    return result;
+}
+
 fn saxTrapReport(
     kind: trap.Trap,
     item: inst.Instruction,
@@ -2066,6 +2138,7 @@ fn verifyBody(
     const call_depth: u16 = 0;
     var has_unbounded_loop = false;
     var current_function_start_idx: usize = 0;
+    var last_seen_label: ?u32 = null;
 
     for (instructions, 0..) |raw_item, inst_idx| {
         var item = raw_item;
@@ -2079,6 +2152,7 @@ fn verifyBody(
             current_function_text = item.raw_text;
             current_is_ffi_wrapper = item.kind == .ffi_wrapper_decl;
             current_function_start_idx = inst_idx;
+            last_seen_label = null;
             terminated = false;
             fatal_terminated = false;
             body_seen = false;
@@ -2178,6 +2252,7 @@ fn verifyBody(
         }
 
         if (item.kind == .label) {
+            last_seen_label = item.operands[1].label;
             if (defined_labels.contains(item.operands[1].label)) {
                 return trapReport(.duplicate_label, item, current_function_text, current_is_ffi_wrapper, null, null, null, "label is already defined", "rename the label or merge the blocks");
             }
@@ -2467,7 +2542,7 @@ fn verifyBody(
                                 snapshotFirstMismatchInScope(entry, state, &scope, &metadata.symbols)
                             else
                                 snapshotFirstMismatch(entry, state, &metadata.symbols);
-                            return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
+                            return phiStateConflictReport(item, current_function_text, current_is_ffi_wrapper, target, last_seen_label, mismatch, &metadata.symbols);
                         }
                     } else {
                         if (!snapshotMergeCompatible(entry, state)) {
@@ -2475,7 +2550,7 @@ fn verifyBody(
                                 snapshotMergeStateInScope(entry, state, &scope, &metadata.symbols)
                             else
                                 snapshotMergeState(entry, state, &metadata.symbols);
-                            return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
+                            return phiStateConflictReport(item, current_function_text, current_is_ffi_wrapper, target, last_seen_label, mismatch, &metadata.symbols);
                         }
                     }
                 } else {
@@ -2500,7 +2575,7 @@ fn verifyBody(
                                     snapshotFirstMismatchInScope(entry, state, &scope, &metadata.symbols)
                                 else
                                     snapshotFirstMismatch(entry, state, &metadata.symbols);
-                                return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
+                                return phiStateConflictReport(item, current_function_text, current_is_ffi_wrapper, target, last_seen_label, mismatch, &metadata.symbols);
                             }
                         } else {
                             if (!snapshotMergeCompatible(entry, state)) {
@@ -2508,7 +2583,7 @@ fn verifyBody(
                                     snapshotMergeStateInScope(entry, state, &scope, &metadata.symbols)
                                 else
                                     snapshotMergeState(entry, state, &metadata.symbols);
-                                return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
+                                return phiStateConflictReport(item, current_function_text, current_is_ffi_wrapper, target, last_seen_label, mismatch, &metadata.symbols);
                             }
                         }
                     } else {
@@ -2535,7 +2610,7 @@ fn verifyBody(
                                     snapshotFirstMismatchInScope(entry, state, &scope, &metadata.symbols)
                                 else
                                     snapshotFirstMismatch(entry, state, &metadata.symbols);
-                                return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
+                                return phiStateConflictReport(item, current_function_text, current_is_ffi_wrapper, target, last_seen_label, mismatch, &metadata.symbols);
                             }
                         } else {
                             if (!snapshotMergeCompatible(entry, state)) {
@@ -2543,7 +2618,7 @@ fn verifyBody(
                                     snapshotMergeStateInScope(entry, state, &scope, &metadata.symbols)
                                 else
                                     snapshotMergeState(entry, state, &metadata.symbols);
-                                return trapReportWithRegisters(.phi_state_conflict, item, current_function_text, current_is_ffi_wrapper, if (mismatch) |m| m.name else null, if (mismatch) |m| &[_][]const u8{m.name} else &.{}, if (mismatch) |m| m.expected else null, if (mismatch) |m| m.actual else null, "incoming control-flow states do not agree", null);
+                                return phiStateConflictReport(item, current_function_text, current_is_ffi_wrapper, target, last_seen_label, mismatch, &metadata.symbols);
                             }
                         }
                     } else {

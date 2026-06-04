@@ -2784,8 +2784,12 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     return switch (verified) {
         .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null) } },
         .trap => |report| {
+            var r = report;
+            if (r.file == null) {
+                setFile(&r, source_path);
+            }
             flat.deinit(allocator);
-            return .{ .trap = report };
+            return .{ .trap = r };
         },
     };
 }
@@ -2809,7 +2813,12 @@ fn appendNativePluginLinkInputs(
     defer allocator.free(extern_names);
     if (extern_names.len == 0) return;
 
-    var plugin_runtime = try plugins.Runtime.initFromEnv(allocator);
+    // Native linking only needs plugin metadata and exported symbols. Do not
+    // apply runtime sandbox gating here, or privileged plugins such as HTTP
+    // client/server are silently skipped and their externs fail at link time.
+    var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, .{
+        .dev_mode = true,
+    });
     defer plugin_runtime.deinit();
 
     var plugin_libs = std.ArrayList([]const u8).init(allocator);
