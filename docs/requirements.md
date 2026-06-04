@@ -3,7 +3,7 @@
 ## 1. 项目概述
 
 ### 1.1 项目代号
-**SA** (Symbolic Affine) — 符号化仿射语言。实现与工具链保留 `sa` 作为命令行前缀，但文件扩展名统一为 `.sa` / `.sai` / `.sal`。
+**SA** (safe asm) — 安全汇编语言。实现与工具链保留 `sa` 作为命令行前缀，但文件扩展名统一为 `.sa` / `.sai` / `.sal`。
 
 ### 1.2 定位
 这是一门专门为 LLM（大语言模型）生成代码、机器进行形式化验证而设计的**线性所有权汇编语言**。它刻意抛弃所有为碳基生物（人类）设计的语法糖，将"编程语言"降维为一种**带所有权验证的资源调度协议**。
@@ -1001,7 +1001,7 @@
 
 ---
 
-### Requirement 36: SAX 前端 UI 方言（v0.9 — Symbolic Affine XML，全栈 SA 闭环）
+### Requirement 36: SAX 前端 UI 方言（v0.9 — safe asm XML，全栈 SA 闭环）
 
 **User Story**
 作为 SA 生态的前端层，我需要一个不是"又一个 JS 框架"的 UI 方言：在 `.sa` 之上仅增加 XML 结构层，编译目标直接是 WebAssembly + HTML，由同一套 Flattener / Referee 验证，把后端 EXE 与前端 WASM 统一在一种语言、一套所有权契约下。

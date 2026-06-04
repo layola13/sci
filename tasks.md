@@ -1,10 +1,12 @@
 # 架构设计参考 (Technical Design Reference)
 
-> **实施准则**：所有任务实现必须遵循 `.kiro/specs/sa-asm-language/design.md` 中的架构规范。
-> - **工业级性能 (P0)**：[`design.md §1.10`](.kiro/specs/sa-asm-language/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
-> - **宏驱动高级特性**：[`design.md §1.4`](.kiro/specs/sa-asm-language/design.md#14-宏驱动高级特性演进-macro-driven-advanced-features)
-> - **格式化打印 (R39)**：[`design.md §3.7`](.kiro/specs/sa-asm-language/design.md#37-sys_原语--ffi-气闸舱--错误传播-runtime)
-> - **物理极限速度 (R40)**：[`design.md §1.10 (Point 3, 4)`](.kiro/specs/sa-asm-language/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
+> **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
+> - **工业级性能 (P0)**：[`docs/design.md §1.10`](docs/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
+> - **宏驱动高级特性**：[`docs/design.md §1.4`](docs/design.md#14-宏驱动高级特性演进-macro-driven-advanced-features)
+> - **格式化打印 (R39)**：[`docs/design.md §3.7`](docs/design.md#37-sys_原语--ffi-气闸舱--错误传播-runtime)
+> - **物理极限速度 (R40)**：[`docs/design.md §1.10`](docs/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
+>
+> **2026-06-04 复评快照**：本文件当前共有 677 个任务行，392 个已勾选、285 个未勾选。评估口径仍是“源码实现 + 测试/运行证据”双证据；外部插件以 `/home/vscode/projects/sa_plugins/` 为权威实现目录。主仓 `timeout 600 zig build test --summary all` 未在 10 分钟窗口内完成，不能作为全绿证据；外部 pkg/db/SAX/HTTP/bc2sa/node/vm/wgpu 当前测试通过，Deno 可构建但无 test step，TS 插件 Debug 测试有 1 个 benchmark 阈值失败。
 
 ---
 
@@ -1852,9 +1854,11 @@ sa/
   - [x] 66.3 §6 性能模型与 K1/K2 双轨 KPI
   - _Requirements: R35.13_
 
-- [ ] 67. `docs/std_rfc.md` 登记 `sa_netx_*` 加入标准库的 RFC
-  - [ ] 67.1 列出 7 条 FFI + Ticket layout
-  - [ ] 67.2 标注与现有 `sa_std.net` 的并行关系
+- [x] 67. `docs/std_rfc.md` 登记 `sa_netx_*` 加入标准库的 RFC
+  - [x] 67.1 列出 7 条 FFI + Ticket layout
+    - 说明：`docs/std_rfc.md` 已新增 `sa_netx` RFC 小节，列出 `sa_netx_init/listen/recv_ticket/push_outbound/broadcast/close_slot/shutdown` 与 `Ticket_*` 布局。
+  - [x] 67.2 标注与现有 `sa_std.net` 的并行关系
+    - 说明：RFC 已明确 `sa_std/net.*` 是普通 socket facade，`sa_std/netx.*` 是高并发 reactor/Ticket API，不互相替代。
   - _Requirements: R35.13_
 
 ### 性能基线与回归
@@ -1867,9 +1871,9 @@ sa/
 
 ---
 
-## v0.9 SAX 前端 UI 方言（Symbolic Affine XML，全栈 SA 闭环）
+## v0.9 SAX 前端 UI 方言（safe asm XML，全栈 SA 闭环）
 
-> 实施目录：`src/sax/`（已存在 `parser.zig` / `lowerer.zig` / `airlock_gen.zig` / `sax_rules.zig` / `cli.zig` / `mod.zig`）+ `docs/sax_*.md` 四件套（已存在）。**零修改 `src/flattener/` / `src/common/` / `src/emit_wasm/`**；`src/referee/` / `src/verifier.zig` 仅追加 SAX 规则 hook。**SA-ASM ISA 零扩展**。
+> 实施目录：当前 SAX 主实现已外置到 `/home/vscode/projects/sa_plugins/sa_plugin_sax/src/sax/`（`parser.zig` / `lowerer.zig` / `airlock_gen.zig` / `build.zig` / `cli.zig`）并通过 runtime plugin command 接入；主仓只保留共享 SA 工具链、宿主 loader 和 `src/verifier.zig` 的 SAX hook。**SA-ASM ISA 零扩展**。
 >
 > 详细蓝图：`docs/sax_whitepaper.md` / `docs/sax_design.md` / `docs/sax_airlock.md` / `docs/sax_syntax.md`。
 
@@ -1877,9 +1881,10 @@ sa/
 
 #### M0：契约与降级蓝图确认（W0）
 
-- [ ] 69. 确认 SAX 不需要扩展 SA-ASM ISA
+- [x] 69. 确认 SAX 不需要扩展 SA-ASM ISA
   - [x] 69.1 复查 `src/common/instruction.zig`，所有 SAX 降级目标指令（`alloc / store / load / call / br / jmp / ret / !release`）就绪
-  - [ ] 69.2 确认 `src/emit_wasm/` 支持 `wasm32-unknown-unknown` 目标（非 WASI）
+  - [x] 69.2 确认浏览器 WASM 目标不需要扩展 SA-ASM ISA
+    - 说明：外部 SAX 插件当前走 LLVM-C `.sa.bc` + `zig build-exe -target wasm32-freestanding -fno-entry --import-symbols` 生成浏览器模块，不走旧任务原文中的手写 `src/emit_wasm/wasm32-unknown-unknown` 路线；这属于后端实现路线调整，不影响“ISA 零扩展”结论。
   - [x] 69.3 复查外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_sax/src/sax/` 五件套结构，登记 SAX Parser → SA 文本流的降级契约
   - _Requirements: R36.1, R36.12_
 
@@ -1903,11 +1908,13 @@ sa/
   - [x] 71.6 释放序列 `!var` → `destroy` 中释放 state-owned ptr / state / dom / ctx
   - _Requirements: R36.2, R36.3_
 
-- [ ] 72. WASM 目标切换
-  - [ ] 72.1 `src/sax/cli.zig` 强制目标为 `wasm32-unknown-unknown`（非 WASI）
-  - [ ] 72.2 复用 `src/emit_wasm/` 后端，零修改
+- [x] 72. WASM 目标切换
+  - [x] 72.1 外部插件 `src/sax/build.zig` 强制浏览器 freestanding WASM 模块路径
+    - 说明：`sax browser wasm build targets freestanding browser module` 单测覆盖当前目标路径；实际 target 为 `wasm32-freestanding -fno-entry --import-symbols`。
+  - [x] 72.2 不修改主仓手写 `src/emit_wasm/` 后端
+    - 说明：SAX 浏览器产物由 LLVM-C bitcode 路径交给 Zig 生成 WASM，避免把 SAX 专用逻辑写回主仓手写 WASM 后端。
   - [x] 72.3 验证：SAX demo 产物 `app.wasm` 体积 < 50 KB（typed demo 2583 bytes；reactive dashboard 4034 bytes）
-  - 说明：当前外部插件实测走 `LLVM-C .sa.bc + zig build-exe -target wasm32-freestanding -fno-entry --import-symbols` 浏览器模块路径，不走旧文档里的手写 `src/emit_wasm/` 目标。
+  - 说明：2026-06-04 复跑 `/home/vscode/projects/sa_plugins/sa_plugin_sax` 的 `zig build test --summary all` 通过 37/37，Build Summary 39/39；Counter/TodoList/dashboard/typed demos 均在 Node runtime E2E 中加载 `app.wasm + airlock.js`。
   - _Requirements: R36.12_
 
 #### M2：Referee 扩展（W4）
@@ -2029,16 +2036,18 @@ sa/
 
 ### 文档与生态登记
 
-- [ ] 89. `docs/sax_*.md` 四件套维护
-  - [ ] 89.1 `sax_whitepaper.md` 升级到 v0.2（含 Phase 2 路线）
-  - [ ] 89.2 `sax_design.md` 跟进 Lowerer 实际实现细节
-  - [ ] 89.3 `sax_airlock.md` 同步白名单 API 变更
-  - [ ] 89.4 `sax_syntax.md` 维护 DOM 标签 / 事件白名单
+- [x] 89. `docs/sax_*.md` 四件套维护
+  - [x] 89.1 `sax_whitepaper.md` 升级到当前外部插件口径（含 Phase 2 已落地/剩余路线）
+  - [x] 89.2 `sax_design.md` 跟进外部插件 Lowerer、LLVM-C/WASM 实际实现路径
+  - [x] 89.3 `sax_airlock.md` 同步白名单 API 与外部插件路径
+  - [x] 89.4 `sax_syntax.md` 维护 DOM 标签 / 属性 / 事件白名单
+  - 说明：四件套已同步为 `/home/vscode/projects/sa_plugins/sa_plugin_sax` 外部插件实现口径，并明确当前浏览器 WASM 路径与仍未完成的 dev hot replace/router mount 等 Phase 2 缺口。
   - _Requirements: R36.14_
 
-- [ ] 90. `docs/std_rfc.md` 登记 SAX 加入标准库的 RFC
-  - [ ] 90.1 列出 7 条 SAX Trap + Airlock 白名单 + CLI 命令
-  - [ ] 90.2 与 `sa_netx`（v0.8）/ `sa-db`（v0.6）的协同关系
+- [x] 90. `docs/std_rfc.md` 登记 SAX 加入标准库的 RFC
+  - [x] 90.1 列出 7 条 SAX Trap + Airlock 白名单 + CLI 命令
+  - [x] 90.2 与 `sa_netx`（v0.8）/ `sa-db`（v0.6）的协同关系
+  - 说明：`docs/std_rfc.md` 已新增 SAX RFC 小节，登记插件边界、Trap、Airlock、CLI、与 netx/DB/pkg/wgpu/3d 的协作关系。
   - _Requirements: R36.14_
 
 ---
@@ -2056,7 +2065,7 @@ sa/
 - **v0.6 特别说明**：sa-db 是 v0.5 包管理的自然延伸，复用所有既有基础设施（Referee、`#def`、`grants`、SHA-256、零权限默认）。12 周时间表假设 v0.5 已交付。
 - **v0.7 特别说明**：原生单元测试框架（见本文件 Version 0.7 章节），与 v0.6 数据库无强依赖。
 - **v0.8 特别说明**：sa_netx 是 v0.6 数据库的同构延伸（mmap 预分配 / SA-ASM 算子内核 / 零拷贝沙箱）。**SA-ASM ISA 零扩展**，**flattener / referee / verifier / common / 现有 sa_std 全部零修改**。所有新增能力落到 `src/runtime/sa_net_uring.zig`（新增）+ `sa_std/netx.*` 三件套（新增）。TLS 由前置 Nginx/Envoy 终结，本期不做 HTTP/2/3。12 周时间表假设 v0.5 + v0.6 已交付（v0.7 可并行）。
-- **v0.9 特别说明**：SAX 是 SA 的**前端方言层**而非新语言。**SA-ASM ISA 零扩展**；`src/flattener/` / `src/common/` / `src/emit_wasm/` 全部零修改；`src/referee/` 仅追加 `src/sax/sax_rules.zig`（7 条 SAX Trap）。SAX Parser 直接输出**合法 `.sa` 文本**，不构造 AST。WASM 目标 `wasm32-unknown-unknown`（非 WASI），DOM 通过气闸舱 `airlock.js` 唯一通道访问。Phase 1（MVP）6–8 周交付 Counter / TodoList 闭环；Phase 2 加路由 + 细粒度响应式；Phase 3 跨端。可与 v0.5 / v0.7 / v0.8 解耦并行（仅依赖 SA v0.1 MVP 的 Flattener + Referee + emit_wasm）。
+- **v0.9 特别说明**：SAX 是 SA 的**前端方言层**而非新语言。**SA-ASM ISA 零扩展**；当前实现已外置到 `/home/vscode/projects/sa_plugins/sa_plugin_sax`，主仓只保留共享工具链、宿主 loader 和 verifier hook。SAX Parser 直接输出**合法 `.sa` 文本**，不构造 AST。浏览器 WASM 当前通过 LLVM-C `.sa.bc` + Zig `wasm32-freestanding -fno-entry --import-symbols` 生成，DOM 通过气闸舱 `airlock.js` 唯一通道访问。Phase 1 已由 Counter / TodoList / dashboard / typed demos 闭环验证；Phase 2 已落地部分路由、生命周期和细粒度更新，仍缺 route mount/unmount、inotify/kqueue、热替换保留状态等验收；Phase 3 跨端继续未完成。
 - 实现阶段打开 tasks.md 点击 "Start task" 按钮开始执行。
 
 ### Phase X: sa_std Macro Ergonomics & Standardization

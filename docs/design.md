@@ -2,7 +2,7 @@
 
 > 本设计承接 `requirements.md` 中的 41 条强约束需求。设计原则：**零 AST、线性扫描、O(1) 位掩码、直通 LLVM bitcode / WASM 二进制、五符号契约、气闸舱 FFI、前端降级责任制、上游源码映射**。
 >
-> 语言名称为 **SA**（Symbolic Affine）。CLI 命令为 `sa`，源码统一使用 `.sa` 扩展名；旧 `saasm` / `.saasm` 仅作为历史称呼出现在归档讨论中。
+> 语言名称为 **SA**（safe asm）。CLI 命令为 `sa`，源码统一使用 `.sa` 扩展名；旧 `saasm` / `.saasm` 仅作为历史称呼出现在归档讨论中。
 
 ---
 
@@ -1450,7 +1450,7 @@ docs/
 
 ---
 
-## §7 SAX 前端 UI 方言（v0.9 — Symbolic Affine XML，全栈 SA 闭环）
+## §7 SAX 前端 UI 方言（v0.9 — safe asm XML，全栈 SA 闭环）
 
 ### 7.1 架构定位
 

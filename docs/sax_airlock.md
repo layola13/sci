@@ -1,6 +1,6 @@
 # SAX DOM Airlock API 文档
 
-> 本文档与 `src/sax/airlock_gen.zig` 的当前实现保持一致，只描述今天 `sa sax build` 真正生成的 `airlock.js`。
+> 本文档与 `/home/vscode/projects/sa_plugins/sa_plugin_sax/src/sax/airlock_gen.zig` 的当前实现保持一致，只描述今天 `sa sax build` 真正生成的 `airlock.js`。
 > 如果某个 API 没有列在这里，当前生成器就不会输出它。
 > 
 > 上游的 SAX parser / lowerer 负责标签、属性、事件名和 handler 名的校验；`airlock.js` 本身只做 DOM 读写和事件转发。
@@ -18,7 +18,7 @@
 
 如果 SAX 源使用 WGPU sidecar（例如 `<canvas renderer="wgpu">` 或 `sa_wgpu_*`），还会生成 `wgpu_airlock.js`。该文件只承载浏览器 WebGPU broker；WGSL、顶点、索引和 uniform 数据仍来自 SA/WASM。
 
-当前 `airlock.js` 的骨架由 `src/sax/airlock_gen.zig` 直接拼出，核心成员如下：
+当前 `airlock.js` 的骨架由外部 SAX 插件的 `airlock_gen.zig` 直接拼出，核心成员如下：
 
 ```javascript
 const SAX_AIRLOCK_VERSION = "1.0";

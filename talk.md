@@ -155,7 +155,7 @@ Rust 的所有权系统就像一个极其严厉但又想假装贴心的管家，
 
 要做到“极简”且“Token 数量少于人类语言”，核心策略是：用单字符的标点符号替代关键字，将状态机指令直接浓缩进变量绑定的语法中。 LLM 的分词器（Tokenizer）对连续紧凑的符号处理效率极高。
 
-我们可以设计一种 “符号化仿射语法” (Symbolic Affine Syntax)。
+我们可以设计一种 “安全汇编语法” (safe asm syntax)。
 
 1. 极简语法设计与对比
 我们彻底干掉 let, mut, struct, fn，将所有权转移和借用变成强制的前缀符号。
@@ -218,7 +218,7 @@ O(1) 级别的状态校验：
 
 非常好，给我一份完整的语法编译白皮书
 
-符号化仿射中间语言 (Symbolic Affine IR / SA-IR) 白皮书
+安全汇编中间语言 (safe asm IR / SA-IR) 白皮书
 1. 设计哲学与架构定位
 SA-IR 旨在提供一种极高 Token 密度、零隐式推导、面向状态机验证的编程语言规范。它完全抛弃了为碳基开发者设计的语法糖，其核心定位不是通用编程语言，而是作为现代编译链路中的高频枢纽：
 
@@ -349,7 +349,7 @@ Plaintext
 
 完全没有。 并且在设计上，它刻意拒绝了涵盖所有的 Rust 语法。
 
-SA-IR（符号化仿射 IR）与其说是一个完整的编程语言，不如说是一个 Core Calculus（核心演算） 或类似 Rust MIR（中级中间代码）的极简子集。
+SA-IR（安全汇编 IR）与其说是一个完整的编程语言，不如说是一个 Core Calculus（核心演算） 或类似 Rust MIR（中级中间代码）的极简子集。
 
 如果试图用这套薄薄的 IR 去硬扛完整的 Rust 语法树（AST），编译器不仅会变得极其臃肿，而且会失去“极简、高 Token 密度”的初衷。以下是 SA-IR 刻意抛弃，或者需要由前端工具在“降级（Lowering）”到 SA-IR 之前提前抹平的 Rust 核心语法模块：
 
@@ -659,7 +659,7 @@ Trait 是前端用来做类型系统体操的工具。当代码流淌到这套�
 
 那么你这个新的机器视觉下的编程白皮书还有哪些特性？
 
-当我们将泛型、闭包、异步、多态这些“前端幻觉”全部剥离后，SA-IR（符号化仿射 IR）已经不能被称为传统的编程语言了。它变成了一个纯粹的资源调度协议。
+当我们将泛型、闭包、异步、多态这些“前端幻觉”全部剥离后，SA-IR（安全汇编 IR）已经不能被称为传统的编程语言了。它变成了一个纯粹的资源调度协议。
 
 在这份机器视觉下的白皮书中，除了极速状态机和 O(1) 所有权验证，还要补齐以下几个专门为现代 AI 基础设施和高吞吐量系统设计的核心特性：
 
@@ -700,7 +700,7 @@ Trait 是前端用来做类型系统体操的工具。当代码流淌到这套�
 
 对于一个常规的、面向人类的通用编程语言（包含标准库、包管理器、复杂的类型推导和庞大的生态），从零开始通常需要数年甚至一个团队的时间。
 
-但这套 SA-IR（符号化仿射 IR）的定位完全不同。它砍掉了最耗时的前端类型系统推导和庞大的标准库，本质上是一个带所有权验证状态机的 S2S（Source-to-Source）转译核心。
+但这套 SA-IR（安全汇编 IR）的定位完全不同。它砍掉了最耗时的前端类型系统推导和庞大的标准库，本质上是一个带所有权验证状态机的 S2S（Source-to-Source）转译核心。
 
 如果由具备高级架构经验、熟悉 AST/MIR 映射逻辑、且深度理解底层内存与编译管线的单人主导，构建一个达到 99.9% 测试通过率的生产级 MVP（最小可行性产品），大约只需要 2 到 3 个月的时间。
 
@@ -1019,7 +1019,7 @@ Zig ,尽可能2000行语法白皮书ai llm完全不用学习 马上可以对比r
 
 你可以直接将这份“白皮书”作为 System Prompt 喂给任何没有任何背景知识的大模型。它没有任何复杂的抽象概念，LLM 读完即可直接在大脑中建立从 Rust 到 SA-ASM，再到 Zig 裸码的 1:1 物理映射。
 
-SA-ASM (Symbolic Affine Assembly) 机器视觉语法与 Zig 降级白皮书
+SA-ASM (safe asm / 安全汇编) 机器视觉语法与 Zig 降级白皮书
 [LLM 角色指令]
 从现在起，你是一个没有“高级语言思维”的内存状态机解释器。你不需要理解生命周期树、不需要理解垃圾回收、不需要理解面向对象。你的世界只有：连续的字节块、基于偏移量的读写、线性的跳转标签，以及基于四个符号（=, &, ^, !）的绝对所有权掩码。
 
@@ -4471,7 +4471,7 @@ Xiao Ming，把高层抽象彻底扒光，只留下“指令跳转”和“借�
 
 name: "sa-asm"
 
-description: "Programming guide and reference for Symbolic Affine Assembly (SA-ASM), focusing on ownership, register management, and FFI safety."
+description: "Programming guide and reference for safe asm / 安全汇编 (SA-ASM), focusing on ownership, register management, and FFI safety."
 
 when_to_use: "Activate this skill whenever you need to read, write, or debug SA-ASM (.sa) code. It is essential for ensuring correct register accounting, ownership transfers, and compliance with the Referee's strict safety checks."
 
@@ -4483,7 +4483,7 @@ when_to_use: "Activate this skill whenever you need to read, write, or debug SA-
 
 
 
-This guide details the syntax, keywords, and strict design patterns required to write valid Symbolic Affine (SA) assembly.
+This guide details the syntax, keywords, and strict design patterns required to write valid safe asm (SA) assembly.
 
 
 
@@ -4709,7 +4709,7 @@ For a deeper dive into specific error codes, troubleshooting, and advanced optim
 
 - `docs/errorcode.md`: Explanation of all compiler traps (e.g., `PhiStateConflict`, `UseAfterMove`).
 
-Xiao Ming，这份 SA-ASM (Symbolic Affine Assembly) 的底层规范我已经完全吸收并刻印在上下文里了。
+Xiao Ming，这份 SA-ASM (safe asm / 安全汇编) 的底层规范我已经完全吸收并刻印在上下文里了。
 
 这套设计完美贯彻了你之前推演的“带所有权校验的纯粹汇编”这一终极物理形态。没有任何高级语言 AST 的伪装，没有任何隐式垃圾回收或块级作用域（Block Scoping）的妥协，将内存安全和借用检查直接降维打击到了寄存器级别。
 
@@ -4727,7 +4727,7 @@ Xiao Ming，这份 SA-ASM (Symbolic Affine Assembly) 的底层规范我已经完
 
 继续按照这种极简设计我们的数据库，表，字段类型，等
 
-Xiao Ming，既然我们彻底抛弃了 AST，剥去了所有高级语言的伪装，那我们就用 SA-ASM (Symbolic Affine Assembly) 的纯粹物理法则，来重新定义什么是“数据库”、什么是“表”、什么是“字段”。
+Xiao Ming，既然我们彻底抛弃了 AST，剥去了所有高级语言的伪装，那我们就用 SA-ASM (safe asm / 安全汇编) 的纯粹物理法则，来重新定义什么是“数据库”、什么是“表”、什么是“字段”。
 
 在这个极简的汇编世界里，数据库就是几块连续的物理内存（Arenas），表就是一组步长（Stride）常量，字段类型就是 CPU 访存时的字节数。
 

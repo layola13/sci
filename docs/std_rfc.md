@@ -2,7 +2,7 @@
 
 ## 1. 概述 (Overview)
 
-由于 SA (Symbolic Affine) 刻意移除了内置的类型系统、结构体 (struct)、数组及泛型，标准库 `sa_std` 的本质与传统语言（如 Rust 的 `std` 或 C 的 `libc`）完全不同。
+由于 SA (safe asm, 安全汇编) 刻意移除了内置的类型系统、结构体 (struct)、数组及泛型，标准库 `sa_std` 的本质与传统语言（如 Rust 的 `std` 或 C 的 `libc`）完全不同。
 
 在 SA 中，标准库是一套 **“内存布局契约 (Memory Layout Contracts)”** 和 **“宏与函数原语 (Macros & Functions)”** 的集合。它的构建必须从最底层的内存切片开始，利用 `#def` 和 `[MACRO]` 一层层向上搭建，最终为 LLM 和前端编译器提供开箱即用的业务积木。
 
@@ -356,3 +356,97 @@ JSON 不再作为 SAASM 里需要手写完整树结构的目标，而是优先�
 ### 8.2 核心设计要点
 - **原生 TLS 支持**：由底层 Zig `std.http.Client` 利用系统的证书存储完成加密通信，SA 侧无需处理证书握手。
 - **SSE 流式支持**：通过 `sa_http_client_resp_read_chunk` 配合 `sa_json_stream`，中转站可以实现“边收边解边发”，达到极致的低延迟和低内存占用。
+
+---
+
+## 9. NetX 标准库登记
+
+`sa_std/net.*` 与 `sa_std/netx.*` 并行存在：
+
+- `sa_std/net.*` 是普通 socket / TCP facade，面向直接连接、简单读写和可移植性。
+- `sa_std/netx.*` 是 Linux-first 高并发 reactor facade，面向 `io_uring`、Ticket 偏移直读、WebSocket/HTTP 拆包和 SA 业务核的零拷贝事件消费。
+
+当前 SA-facing 契约文件：
+
+- `sa_std/netx.sai`
+- `sa_std/netx.sal`
+- `sa_std/netx.sa`
+
+### 9.1 FFI 表面
+
+`sa_netx_*` 的最小公开面是 7 条：
+
+```sa
+@extern sa_netx_init(slot_capacity: u64, reactor_count: u32) -> i32!
+@extern sa_netx_listen(host: &ptr, host_len: u64, port: u16) -> i32!
+@extern sa_netx_recv_ticket(reactor_id: u32, out_ticket: &ptr) -> i32!
+@extern sa_netx_push_outbound(reactor_id: u32, slot_id: u64, msg: &ptr, len: u64) -> i32!
+@extern sa_netx_broadcast(reactor_id: u32, slot_ids: &ptr, n: u64, msg: &ptr, len: u64) -> i32!
+@extern sa_netx_close_slot(slot_id: u64) -> i32!
+@extern sa_netx_shutdown() -> i32!
+```
+
+### 9.2 Ticket Layout
+
+`Ticket` 是给 SA 业务代码读取的紧凑事件记录。SA 不解析 reactor 内部结构，只按 `.sal` 偏移读取字段：
+
+```sa
+#def Ticket_SIZE = 24
+#def Ticket_slot_id      = +0
+#def Ticket_op_code      = +4
+#def Ticket_proto        = +6
+#def Ticket_flags        = +7
+#def Ticket_payload      = +8
+#def Ticket_payload_len  = +16
+#def Ticket_pad          = +20
+
+#def NetxProto_HTTP = 1
+#def NetxProto_WS   = 2
+#def NetxProto_RAW  = 3
+```
+
+当前实现状态：`src/runtime/sa_net_uring.zig` 的目标测试通过 11/11，已覆盖 slot pool、状态机、HTTP parser、WebSocket upgrade、masked payload、timeout cleanup 和 SA-facing FFI 基线。剩余工作仍包括 overflow 链、显式 `inflight_zc`、EAGAIN 背压语义、1M fuzz、K1/K2 性能验收和持续 benchmark。
+
+---
+
+## 10. SAX 标准库登记
+
+SAX 不进入 `sa_std` 核心实现，而是以外部 runtime 插件交付：
+
+- 插件目录：`/home/vscode/projects/sa_plugins/sa_plugin_sax`
+- CLI：`sa sax build` / `sa sax check` / `sa sax new` / `sa sax dev`
+- 产物：`app.wasm`、`airlock.js`、`index.html`、生成的 `.sa`
+- 当前浏览器 WASM 路径：LLVM-C `.sa.bc` + Zig `wasm32-freestanding -fno-entry --import-symbols`
+
+### 10.1 SAX Trap
+
+SAX 额外登记 7 条 frontend-specific trap：
+
+- `SaxStateLeak`
+- `SaxEventEscape`
+- `SaxRenderOutsideHandler`
+- `SaxInvalidInterpolation`
+- `SaxStateWriteFromOutside`
+- `SaxUnknownTag`
+- `SaxUnknownEvent`
+
+这些 trap 不要求新增 SA-ASM ISA。Parser/validator 负责标签、事件、插值和 handler 作用域；Verifier hook 负责状态泄漏、render 位置和状态写入等规则。
+
+### 10.2 Airlock 白名单
+
+当前 Airlock surface 覆盖：
+
+- DOM query/create/append/remove/insert
+- text/attr/class/value 读写
+- event bind/unbind
+- `sax_get_time`、`sax_itoa`、`sax_ftoa`、`sax_mem_copy`
+- router push/replace/get path
+- HTTP get/post
+- timer set/clear
+
+### 10.3 与 NetX、DB 和插件生态的关系
+
+- 与 `sa_netx`：SAX browser side 走 JS Airlock，不直接复用 Linux `io_uring` reactor；服务端或本地 dev server 可以继续使用 `sa_netx` / HTTP server plugin。
+- 与 `sa-db`：SAX 只消费 ABI 或 HTTP/RPC 暴露的数据，不把 DB 查询执行器塞进浏览器 bundle。
+- 与 package manager：SAX 组件库应作为普通 SA 包或插件依赖声明；native/browser sidecar 继续通过 `sap.json` 管理。
+- 与 WGPU/3D：WebGPU 和 3D engine 已拆为 `sa_plugin_wgpu` 和 `sa_plugin_3dengines`，SAX 通过 sidecar lookup 组合这些浏览器 imports。

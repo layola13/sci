@@ -1,10 +1,14 @@
 # SAX 框架技术设计文档
 
-> SAX（Symbolic Affine XML）是 SA 语言的前端 UI 方言扩展，在 `.sa` 基础上增加 XML 结构层，
+> SAX（safe asm XML，安全汇编 XML）是 SA 语言的前端 UI 方言扩展，在 `.sa` 基础上增加 XML 结构层，
 > 编译目标为 **WebAssembly + HTML**，实现全栈 SA：后端出单文件 EXE，前端出 WASM。
 >
 > 本文档承接 SA 语言的核心哲学（见 `design.md` / `requirements.md`），所有设计决策均以
 > **不破坏 SA 零 AST、线性扫描、O(1) 位掩码、气闸舱 FFI** 为前提。
+>
+> 当前实现口径（2026-06-04）：SAX 主实现已外置到
+> `/home/vscode/projects/sa_plugins/sa_plugin_sax`，通过 runtime plugin command 接入 `sa sax`。
+> 主仓 `sci` 只保留共享 SA 工具链、宿主 plugin loader 和 verifier hook。
 
 ---
 
@@ -32,19 +36,23 @@ SAX 就是填补这个缺口的**最小化前端方言**：在 `.sa` 的基础�
 
 ### 1.3 与现有 SA 编译器的关系
 
-SAX 是 SA 编译器的**前端方言层**，不是独立工具：
+SAX 是 SA 的**前端方言层**，当前以外部插件交付，而不是把业务逻辑内联在主仓编译器里：
 
 ```
-SA 编译器（现有 src/）
-├── flattener/      ← SAX 直接复用，零修改
-├── referee/        ← SAX 扩展约 200 行（新增 5 条 SAX 专属规则）
-├── emit_wasm/      ← SAX 复用，切换 target 为 wasm32-unknown-unknown
-├── common/         ← SAX 完全复用
-└── sax/            ← 新增：SAX 前端扩展层
-    ├── parser.zig      # XML + SA 混合解析，输出合法 .sa 文本
-    ├── lowerer.zig     # Component/state/DOM 节点 → SA 指令序列
-    ├── dom_schema.zig  # HTML5 白名单标签/属性表
-    ├── airlock_gen.zig # 自动生成 airlock.js
+SA 主仓（sci）
+├── flattener/        ← SAX 直接复用，零修改
+├── verifier/         ← 保留 SAX 派生 source-map / rule hook
+├── LLVM-C backend    ← 生成 .sa.bc，再交给 Zig 产出浏览器 WASM
+├── plugin host       ← runtime .so 发现、加载、命令派发
+└── docs/sax_*.md     ← SAX 公开契约
+
+外部插件 /home/vscode/projects/sa_plugins/sa_plugin_sax
+└── src/sax/
+    ├── parser.zig       # XML + SA 混合解析，输出合法 .sa 文本
+    ├── lowerer.zig      # Component/state/DOM 节点 → SA 指令序列
+    ├── build.zig        # 浏览器 WASM 构建：LLVM-C .sa.bc + wasm32-freestanding
+    ├── cli.zig          # build/check/new/dev 子命令实现
+    ├── airlock_gen.zig  # 自动生成 airlock.js
     └── html_shell_gen.zig  # 自动生成 index.html
 ```
 
@@ -127,16 +135,16 @@ SAX 的状态变量与 SA 保持一致，**不引入新的类型关键字**：
     │
     ▼ Instruction[]
     │
-[SA Referee]                     ← 复用 src/referee/，新增 sax_rules.zig（+200 行）
+[SA Referee]                     ← 复用主仓 verifier，SAX 派生输入启用专属规则 hook
   • 现有：Capability Mask O(1) 位运算、气闸舱校验、Phi 一致性
   • 新增：SaxStateLeak / SaxEventEscape / SaxRenderOutsideHandler 等规则
     │
     ▼ AnnotatedInstruction[]
     │
-[WASM Emitter]                   ← 复用 src/emit_wasm/
-  • target: wasm32-unknown-unknown（无 WASI，纯浏览器环境）
+[LLVM-C bitcode + Zig WASM link]
+  • 当前 target: wasm32-freestanding -fno-entry --import-symbols
   • 组件状态 → WASM 线性内存固定槽
-  • DOM 操作 → @extern 气闸舱函数（由 Airlock JS 实现）
+  • DOM 操作 → @extern 浏览器 import（由 Airlock JS 实现）
     │
     ▼ .wasm 字节
     │
@@ -273,7 +281,7 @@ L_ENTRY:
 
 ## 4. Referee SAX 扩展规则
 
-在现有 Referee 基础上新增 5 条 SAX 专属规则，约 200 行 Zig，放在 `src/referee/sax_rules.zig`。
+在现有 Referee 基础上新增 7 条 SAX 专属规则，当前由外部 SAX 插件的 check 路径与主仓 verifier hook 共同承担。
 
 ### 4.1 新增 Trap 类型
 
@@ -484,19 +492,19 @@ sa sax build app.sax
 - [x] SAX Parser（XML 层 + SA 代码块混合解析 → .sa）
 - [x] Lowerer（Component/state/DOM → SA 指令序列）
 - [x] DOM Airlock 白名单（~20 个 API + airlock.js 生成）
-- [x] Referee SAX 规则扩展（5 条新规则）
-- [x] WASM 目标切换（wasm32-unknown-unknown）
+- [x] Referee SAX 规则扩展（7 条规则，其中 parser 阶段覆盖标签、事件和插值类错误）
+- [x] WASM 目标切换（当前为 `wasm32-freestanding -fno-entry --import-symbols` 浏览器模块路径）
 - [x] `sa sax build` / `sax check` CLI 子命令
 - [x] HTML Shell 生成器
 - 已进入实现：生命周期钩子、路由、`@ffi_wrapper` 边界
 
 ### Phase 2（约 4-6 周）：响应式 + 路由 + 生命周期
 
-- [ ] 细粒度响应式（编译期依赖分析 + 最小 DOM 更新）
+- [x] 细粒度响应式子集（编译期依赖分析 + 状态写入最小 DOM 更新；1000 行性能基线未完成）
 - [x] `@onMount:` / `@onUnmount:` 生命周期钩子
 - [x] `@onUpdate:` 生命周期钩子
 - [x] `<Router>` + `<Page>` 基础路由
-- [x] `sa sax dev` 热重载开发服务器
+- [x] `sa sax dev` 基础静态服务/刷新入口（文件监听与 WASM 热替换保留状态仍未完成）
 - [ ] VS Code 语法高亮插件（TextMate grammar for .sax）
 
 ### Phase 3（约 6-8 周）：跨端 + 生态

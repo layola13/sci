@@ -3,7 +3,7 @@
 ## 执行摘要
 
 基于 `web.md` 聊天记录中的 SAX 框架愿景，已完成**规划、文档、源码框架**的全部工作。
-SAX（Symbolic Affine XML）是 SA 语言的前端 UI 方言，编译目标为 **WASM + HTML**，
+SAX（safe asm XML，安全汇编 XML）是 SA 语言的前端 UI 方言，编译目标为 **WASM + HTML**，
 实现全栈 SA：后端出单文件 EXE，前端出 WASM。
 
 **总工作量**：

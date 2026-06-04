@@ -1,6 +1,6 @@
-# SAX Whitepaper v0.1
+# SAX Whitepaper v0.2
 
-SAX (Symbolic Affine XML) is the frontend UI dialect of SA. It compiles `.sax` component files
+SAX (safe asm XML, 安全汇编 XML) is the frontend UI dialect of SA. It compiles `.sax` component files
 directly to WebAssembly + HTML — no JavaScript runtime, no GC, no hidden allocations.
 
 **Prerequisite**: Read `docs/whitepaper.md` first (SA base language). SAX reuses SA's entire
@@ -19,11 +19,17 @@ ISA, ownership model, and Referee verbatim. This paper only documents the delta.
 
 ## What ships in SAX v0.1
 
+Current implementation note: the SAX compiler/runtime lives in
+`/home/vscode/projects/sa_plugins/sa_plugin_sax` and is loaded by the SA plugin host. Browser
+WASM is produced through LLVM-C bitcode plus Zig's `wasm32-freestanding -fno-entry
+--import-symbols` path, not the older hand-written `src/emit_wasm` plan.
+
 | Command | Pipeline | Output |
 |---|---|---|
-| `sa sax build <file.sax>` | SAX Parser → Flattener → Referee → WASM Emitter → Airlock Gen | `app.wasm + airlock.js + index.html + generated .sa` |
+| `sa sax build <file.sax>` | SAX Parser → Flattener → Referee → LLVM-C `.sa.bc` → browser WASM → Airlock Gen | `app.wasm + airlock.js + index.html + generated .sa` |
 | `sa sax check <file.sax>` | SAX Parser → Flattener → Referee (SAX rules) | Trap report or OK |
 | `sa sax new <name>` | scaffold | project directory |
+| `sa sax dev <file.sax>` | refresh/static dev entry | dev artifacts; file watching and state-preserving hot swap remain roadmap |
 
 ---
 
@@ -68,7 +74,8 @@ Every `.sax` file contains one or more `<Component>` blocks:
 
 ## Ownership Rules (SAX additions to R4)
 
-SAX adds 5 new Referee rules on top of SA's existing 23 Traps:
+SAX adds 7 frontend-specific traps on top of SA's existing traps. Some are emitted during SAX
+parse/validation, and some are emitted by the verifier hook.
 
 | Trap | Trigger |
 |---|---|
@@ -77,6 +84,8 @@ SAX adds 5 new Referee rules on top of SA's existing 23 Traps:
 | `SaxRenderOutsideHandler` | `call @render()` appears outside a `@handler` body |
 | `SaxInvalidInterpolation` | `{expr}` contains `^` (Move) or `!` (Release) |
 | `SaxStateWriteFromOutside` | Code outside the component writes to its state memory slot |
+| `SaxUnknownTag` | DOM tag is not in the whitelist |
+| `SaxUnknownEvent` | Event name is not in the whitelist |
 
 All other SA Traps remain active: `MemoryLeak`, `UseAfterMove`, `BorrowConflict`, etc.
 
@@ -386,6 +395,7 @@ Checklist before emitting (reduces first-pass Referee failures):
 
 ## Version
 
-SAX v0.1 — corresponds to SA v0.1 MVP baseline.  
-Roadmap: Phase 2 adds lifecycle hooks + router + fine-grained reactivity.  
-Phase 3 adds native desktop target + WebGPU rendering path.
+SAX v0.2 — external plugin implementation with Phase 1 closed and part of Phase 2 landed.
+Remaining Phase 2 gaps: hook signature validation, route-change mount/unmount, inotify/kqueue
+watching, and state-preserving WASM hot replacement. Phase 3 adds native desktop, JS fallback,
+package integration, and WebGPU/3D rendering paths.

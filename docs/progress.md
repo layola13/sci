@@ -1,10 +1,21 @@
 # Progress Assessment
 
+## Latest Result 2026-06-04
+
+- 已按当前工作区重新评估 `tasks.md` 和 `/home/vscode/projects/sa_plugins/` 外部插件迁移状态；最新统计为 677 个任务行，其中 392 已勾、285 未勾。
+- 本轮补勾的主要是已经有实现/文档/测试证据闭环的 NetX RFC 登记和 SAX 外部插件架构登记项；没有把缺测试、缺性能验收、缺原文语义的宽项强行标成完成。
+- 命名口径已同步：旧英文展开名废弃，文档统一改为 `safe asm` / `安全汇编`；SAX 展开同步为 `safe asm XML` / `安全汇编 XML`，保留 `SA`、`SA-ASM`、`.sa/.sai/.sal` 作为工具链和文件格式名。
+- 主仓全量门禁仍不能按全绿处理：`timeout 600 zig build test --summary all` 未在 10 分钟窗口完成，`std-smoke` 和 `plugin-host-smoke` 也未形成通过输出。
+- 外部插件当前已纳入统一口径：pkg、DB、SAX、HTTP client/server、bc2sa、node、vm、wgpu 有当前测试通过证据；Deno 可构建但没有 test step；TS Debug 测试仍有 1 个 benchmark 阈值失败；3D engine 族完成结构验证和部分模块测试，但 Bevy parity 未完成。
+- 详细条目见下方 `Detailed Reassessment 2026-06-04`；更早的 2026-06-01/06-02 计数保留为历史审计记录。
+
+## Historical Assessment 2026-06-01
+
 评估时间：2026-06-01，工作区：`/home/vscode/projects/sci`。
 
 本次按用户要求对 `.kiro/specs/sa-asm-language/design.md`、`.kiro/specs/sa-asm-language/requirements.md`、`docs/whitepaper.md` 与根目录 `tasks.md` 做完成度核查。口径保持保守：只有同时具备实现证据和测试/运行证据的条目才在 `tasks.md` 勾选；文档、枚举、接口占位、descriptor/skills 文案、源码片段存在不单独算完成。Deno/pkg/db/SAX/HTTP 等已拆到 `/home/vscode/projects/sa_plugins/` 的模块，按外部插件仓库作为权威实现一起评估。
 
-## Current Result
+## 2026-06-01 Result
 
 - 已完成全量检查，但项目没有全绿。
 - `tasks.md` 当前统计：301 个未勾选项，376 个已勾选项，共 677 个任务行。
@@ -251,3 +262,17 @@
 - SAX 复核结论不变：外部 SAX 插件 Phase 1 和部分 Phase 2 证据强，35/35 测试通过；但剩余未勾项仍缺 hook 无参无返签名校验、route change mount/unmount、inotify/kqueue 文件监听、WASM 热替换保留状态、VS Code/native/js/WebGPU/package/style 证据。`docs/sax_*` 与 `docs/std_rfc.md` 仍未完全同步外部插件真实实现路径，因此文档维护项不能补勾。
 - netx 复核结论不变：`src/runtime/sa_net_uring.zig` 目标测试 11/11 通过，支持当前已勾的 Ticket/layout、HTTP/WS、listen/accept/recv_ticket/outbound/broadcast 子集；但 `ConnectionSlot` 仍缺 overflow chain 与显式 `inflight_zc`，出站满载未暴露任务要求的 `EAGAIN`，也没有 1M fuzz、K1/K2、perf、持续 benchmark 或 RFC 登记证据。
 - 机械一致性检查保持通过：未发现“父项未勾但所有直接子项已勾”的结构性遗漏。剩余未勾项不是漏查，而是原文功能尚未实现、缺测试/运行通过证据，或当前拆分插件架构与任务原文要求不完全一致。
+
+## Detailed Reassessment 2026-06-04
+
+- 本轮按用户要求重新做细致完成度评估，并把 `/home/vscode/projects/sa_plugins/` 下新增/迁移的插件一起纳入当前口径。`tasks.md` 当前统计是 677 个任务行，其中 392 已勾、285 未勾；本轮只把文档登记类和架构口径已经闭环的项补勾，没有把缺测试或缺原文语义的宽项强行完成。
+- 术语统一：旧英文展开名不再作为 SA/SAX 的展开名；最新文档统一使用 `safe asm` / `安全汇编`，SAX 使用 `safe asm XML` / `安全汇编 XML`。所有权模型里的 `affine` / `仿射` 概念和 Bevy 的 `Affine3A` 数学类型不属于旧项目名，保留不改。
+- 主仓全量门禁：`timeout 600 zig build test --summary all` 超时退出 124，期间进入 SA 标准库/矩阵路径并输出 `sa_std/sort.sa`、`core/mem.sa` import 解析，但 10 分钟窗口内未完成，因此不能作为主仓全绿证据。`timeout 180 zig build std-smoke --summary all` 同样超时；`timeout 180 zig build plugin-host-smoke --summary all` 未在窗口内形成通过输出。
+- 外部插件当前验证：`sa_plugin_pkg` 25/25 通过，`sa_plugin_db` 4/4 通过，`sa_plugin_sax` 37/37 通过且 Build Summary 39/39，`sa_plugin_http_client` 7/7 通过，`sa_plugin_http_server` 7/7 通过，`sa_plugin_bc2sa` 4/4 通过，`sa_plugin_node` 3/3 通过，`sa_plugin_vm` 7/7 通过，`sa_plugin_wgpu` 5/5 通过。`sa_plugin_deno` 仍只有 install/uninstall step，本轮 `zig build -Doptimize=Debug --summary all` 可构建但没有 test step。`sa_plugin_ts` 当前 Debug 测试 25/26 通过，`benchmark: parsing speed for large input` 因约 812 lines/sec 未超过 1000 lines/sec 阈值失败。
+- 3D engine 插件族新增纳入口径：`sa_plugin_3dengines/tools/verify_3d_modules.mjs` 成功验证 24 个 3D engine plugin module 的文件、manifest、依赖和 interface shape；`tools/build_all.mjs` 在 120 秒窗口内跑过 `3d_time`、`3d_app`、`3d_math`、`3d_color`、`3d_shader`、`3d_image`、`3d_transform` 的测试输出后超时，不能作为整族全绿证据。README/Bevy audit 明确还有多模块 behavior pending / Bevy parity 未完成。
+- SAX 状态更新：Phase 1 和部分 Phase 2 已经很强，外部插件测试现为 37/37。任务文案和文档已同步为真实外部插件架构：SAX 通过 `/home/vscode/projects/sa_plugins/sa_plugin_sax` runtime plugin 接入，浏览器 WASM 当前走 LLVM-C `.sa.bc` + Zig `wasm32-freestanding -fno-entry --import-symbols`，不再按旧文档声称依赖主仓手写 `src/emit_wasm` / `wasm32-unknown-unknown`。据此补勾 `69`、`72`、`89`、`90` 的文档/架构闭环项；剩余 `79.3`、`80.3`、`81.3`、`82.2`、`82.3`、VS Code/native/js/package/style 等仍未完成。
+- NetX 文档登记已补齐：`docs/std_rfc.md` 新增 `sa_netx` 小节，列出 7 条 `sa_netx_*` FFI、当前 `Ticket_*` layout 以及与 `sa_std/net.*` 的并行关系；因此补勾 `67.1` / `67.2`。实现侧仍缺 overflow chain、显式 `inflight_zc`、EAGAIN 背压语义、1M fuzz、K1/K2 和持续 benchmark，因此 46/47/49/52/53/56/58/59-65/68 继续未勾。
+- DB 结论保持保守：外部 DB 插件证明 schema/table/verify/snapshot/restore/lock/compact 的可用子集，但 `src/plugin.zig` 的 runtime command 仍只实际处理 `db init`，descriptor skill 列出的 ingest/export/query/run/exec 不能等同实现；`src/db_stub.zig` 的 register/inspect/exec 仍返回 `UnsupportedOperation`；schema 输出仍是 `.iface` 风格而非任务 1.2 的 `.sai`。DB 后续 CLI、qmod、Referee DB 权限、mmap/SIGSEGV、Blob、冷热分层、Zstd/S3、性能和 12 条 Trap 边界继续未完成。
+- pkg 结论保持保守：外部 pkg 插件通过 25/25，支持 `sa pkg fetch/install/audit/sum/lock/CI helper` 子集；但任务原文中的顶层 `sa fetch` 完整语义、重复导出与版本冲突、NonTransitivePrimitive、审判台生命周期 PBT、lock idempotency 端到端、tainted runtime warning 和全平台 CI matrix 仍未证明。
+- Deno 结论更新为“可构建但无测试入口”：`sa_plugin_deno` 已有 `sap.json`、`deno.sai`、`deno.sal` 和 `libdeno.so` 构建证据，但没有 `zig build test` step。主仓 Deno facade 链接旧阻塞本轮未快速复现为 undefined symbol，但全量主仓测试也未完成，因此仍不能当作最终验收通过。
+- 文档更新范围：`tasks.md` 顶部快照、SAX/NetX 文档登记任务；`docs/std_rfc.md` 新增 NetX/SAX 登记；`docs/sax_design.md`、`docs/sax_whitepaper.md`、`docs/sax_airlock.md`、`docs/sax_syntax.md` 同步外部插件真实路径和后端；本节作为最新评估记录追加到 `docs/progress.md`。

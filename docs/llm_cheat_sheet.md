@@ -1,6 +1,6 @@
 # SA-ASM (Linear Ownership Assembly) LLM Cheat Sheet
 
-**System Context**: SA (Symbolic Affine) is a line-oriented, affine ownership assembly language. It is memory-safe without GC.
+**System Context**: SA (safe asm, 安全汇编) is a line-oriented, affine ownership assembly language. It is memory-safe without GC.
 
 ## 1. Core 5-Symbol Ownership Contract
 - `=` **(Bind)**: `r = alloc N` → `r` becomes `Active`.

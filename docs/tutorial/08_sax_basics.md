@@ -1,6 +1,6 @@
 # 08. SAX: 声明式组件开发
 
-SAX (Symbolic Affine XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态和事件逻辑放在一起，最后编译成浏览器可直接加载的 `app.wasm`、`airlock.js`、`index.html` 和对应的 `.sa`。
+SAX (safe asm XML, 安全汇编 XML) 是 SA 的 UI 方言。`.sax` 文件把结构、状态和事件逻辑放在一起，最后编译成浏览器可直接加载的 `app.wasm`、`airlock.js`、`index.html` 和对应的 `.sa`。
 
 ## 文件结构
 

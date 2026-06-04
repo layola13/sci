@@ -4,10 +4,12 @@
 
 ## 1. 定位
 
-SA 插件是 native capability extension，不是普通源码包，也不是语言本体。典型插件包括 Deno 兼容层、HTTP client/server、数据库、SAX、包管理、bc2sa。插件面向两类入口：
+SA 插件是 native capability extension，不是普通源码包，也不是语言本体。典型插件包括 Deno 兼容层、HTTP client/server、数据库、SAX、包管理、bc2sa、Node facade、TS lowering、VM interpreter、WGPU 和 3D engine sidecar。插件面向两类入口：
 
 - **CLI/Agent 能力**：通过 `saasm_plugin_descriptor_v1.skills_ptr` 暴露给 `sa skills`，供 Agent 发现当前真实能力。
 - **SA 业务代码 ABI**：通过 `.sai` / `.sal` 暴露 `@extern`、布局常量和宏 facade，供 `.sa` 源码 import。
+
+当前外部工作区 `/home/vscode/projects/sa_plugins/` 中，`pkg`、`db`、`sax`、`http-client`、`http-server`、`bc2sa`、`node`、`vm`、`wgpu` 已有当前测试通过证据；`deno` 可构建但没有 test step；`ts` 插件当前 Debug 测试有 benchmark 阈值失败；`3dengines` 已拆成 24 个模块并有结构验证/部分模块测试证据，但 Bevy parity 仍是逐模块推进中的目标。
 
 ## 2. 一个合格插件必须包含什么
 

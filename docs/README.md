@@ -1,6 +1,6 @@
 # SA-ASM Documentation Index
 
-欢迎来到 SA (Symbolic Affine) 语言的核心文档库。为了帮助你快速找到所需的信息，我们将所有文档按照**阅读阶段与用途**进行了分类。
+欢迎来到 SA (safe asm, 安全汇编) 语言的核心文档库。为了帮助你快速找到所需的信息，我们将所有文档按照**阅读阶段与用途**进行了分类。
 
 ## 🎯 1. 入门与初学者教程 (Tutorials)
 如果你是第一次接触 SA 语言，请**务必**从这里开始。
@@ -40,6 +40,8 @@
 
 ## 🔌 3. 插件开发指南 (Plugin Guides)
 专门针对独立插件工程的深度解析与实战。
+
+当前外部插件工作区是 `/home/vscode/projects/sa_plugins/`。截至 2026-06-04，已纳入评估的独立工程包括：`sa_plugin_pkg`、`sa_plugin_db`、`sa_plugin_deno`、`sa_plugin_http_client`、`sa_plugin_http_server`、`sa_plugin_sax`、`sa_plugin_bc2sa`、`sa_plugin_node`、`sa_plugin_ts`、`sa_plugin_vm`、`sa_plugin_wgpu` 和 `sa_plugin_3dengines`。
 
 - 🌐 **[HTTP Client Plugin (独立工程)](./http_client_plugin.md)**  
   如何发送 GET/POST、处理 TLS 和流式响应。

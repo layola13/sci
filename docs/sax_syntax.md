@@ -1,6 +1,6 @@
 # SAX 语法规范
 
-> SAX（Symbolic Affine XML）是 SA 语言的前端 UI 方言。本文档是 `.sax` 文件的语法权威参考，
+> SAX（safe asm XML，安全汇编 XML）是 SA 语言的前端 UI 方言。本文档是 `.sax` 文件的语法权威参考，
 > 包含 BNF 范式、语法元素说明与完整示例。
 >
 > 前置阅读：`docs/whitepaper.md`（SA 基础语法）、`docs/sax_design.md`（SAX 框架设计）。
@@ -258,7 +258,7 @@ Referee 验证：组件销毁函数出口处，所有 `<state>` 变量必须全�
 
 ## 4. 完整示例
 
-> 注：4.3 / 4.4 里的路由、HTTP、数组与表格 API 属于 Phase 2 草案；当前 `src/sax/airlock_gen.zig` / `src/sax/lowerer.zig` 不会生成这些函数。
+> 注：路由和 HTTP Airlock 接口已在外部 SAX 插件中生成；数组与表格示例仍属于草案/手写 helper 口径。当前权威实现路径是 `/home/vscode/projects/sa_plugins/sa_plugin_sax/src/sax/airlock_gen.zig` 与 `lowerer.zig`。
 
 ### 4.1 Counter（计数器）
 

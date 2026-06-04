@@ -1,6 +1,6 @@
 SA Whitepaper v0.1
 
-SA (Symbolic Affine) is a fully independent, line-oriented affine ownership language
+SA (safe asm, 安全汇编) is a fully independent, line-oriented affine ownership language
 designed for the LLM era. It produces native executables, WebAssembly modules, and
 linkable object files without depending on any host language runtime.
 
