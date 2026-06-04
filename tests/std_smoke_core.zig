@@ -647,6 +647,106 @@ test "sa_std Deno chat JSON fallback normalizes Deno proxy edge cases" {
     try std.testing.expectEqualStrings("sa_std deno chat json proxy edge cases ok\n", run_result.stdout);
 }
 
+test "sa_std Deno native responses JSON preserves ordinary responses and normalizes thinking" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <string.h>
+        \\
+        \\static int has(uint8_t *data, uint64_t len, const char *needle) {
+        \\    size_t nlen = strlen(needle);
+        \\    if (nlen == 0) return 1;
+        \\    if (len < nlen) return 0;
+        \\    for (uint64_t i = 0; i <= len - nlen; i++) {
+        \\        if (memcmp(data + i, needle, nlen) == 0) return 1;
+        \\    }
+        \\    return 0;
+        \\}
+        \\
+        \\static int check(uint64_t h, const char *needle) {
+        \\    uint8_t *data = sa_fs_read_buffer_data(h);
+        \\    uint64_t len = sa_fs_read_buffer_len(h);
+        \\    if (h == 0 || data == NULL || len == 0) return 0;
+        \\    return has(data, len, needle);
+        \\}
+        \\
+        \\int main(void) {
+        \\    const uint8_t ordinary[] = "{\"output\":[],\"status\":\"completed\"}";
+        \\    const uint8_t thinking[] = "{\"id\":\"resp_1\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"thinking\":\"private\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}],\"output_text\":\"answer\",\"status\":\"completed\"}";
+        \\
+        \\    uint64_t h = sa_deno_responses_json_normalize(ordinary, sizeof(ordinary) - 1);
+        \\    if (!check(h, "\"output\":[]") || !check(h, "\"status\":\"completed\"")) return 2;
+        \\    if (check(h, "\"output_text\":\"\"")) return 3;
+        \\    if (sa_fs_read_buffer_free(h) != SA_STD_OK) return 4;
+        \\
+        \\    h = sa_deno_responses_json_normalize(thinking, sizeof(thinking) - 1);
+        \\    if (!check(h, "\"type\":\"reasoning\"") || !check(h, "private") || !check(h, "\"output_text\":\"answer\"")) return 5;
+        \\    if (sa_fs_read_buffer_free(h) != SA_STD_OK) return 6;
+        \\
+        \\    puts("sa_std deno responses json normalize ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try common.writeSource(tmp.dir, "main.c", c_source);
+    const build_lib_result = try common.runCommand(std.testing.allocator, &.{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    });
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const build_demo_result = try common.runCommand(std.testing.allocator, &.{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "main.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_deno_responses_json_normalize",
+    });
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+
+    const run_result = try common.runCommand(std.testing.allocator, &.{"./sa_std_deno_responses_json_normalize"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
+        .Exited => |code| code,
+        else => return error.TestUnexpectedResult,
+    });
+    try std.testing.expectEqualStrings("sa_std deno responses json normalize ok\n", run_result.stdout);
+}
+
 test "sa_std Deno native responses SSE normalizes MCP events generically" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

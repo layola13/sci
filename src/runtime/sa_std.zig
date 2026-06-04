@@ -2584,6 +2584,45 @@ fn appendNativeNormalizedOutput(
     try out.append(']');
 }
 
+fn nativeResponsesJsonNeedsNormalize(root: std.json.ObjectMap, output_text_reasoning: []const u8) bool {
+    if (output_text_reasoning.len != 0) return true;
+    const output = root.get("output") orelse return false;
+    return switch (output) {
+        .array => |array| {
+            for (array.items) |item| {
+                const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
+                if (isNativeReasoningType(item_type)) return true;
+                if (std.mem.eql(u8, item_type, "message")) {
+                    const reason_fields = [_][]const u8{ "reasoning", "reasoning_content", "thinking", "thought", "reason" };
+                    inline for (reason_fields) |field| {
+                        if (std.mem.trim(u8, jsonStringValue(jsonObjectGetValue(item, field)), " \t\r\n").len != 0) return true;
+                    }
+                    if (jsonObjectGetValue(item, "content")) |content| {
+                        switch (content) {
+                            .array => |content_array| {
+                                for (content_array.items) |part| {
+                                    const part_type = jsonStringValue(jsonObjectGetValue(part, "type"));
+                                    const text = jsonStringValue(jsonObjectGetValue(part, "text"));
+                                    if (std.mem.eql(u8, part_type, "text")) return true;
+                                    if (std.mem.eql(u8, part_type, "output_text") and
+                                        (std.mem.indexOf(u8, text, "<thought>") != null or
+                                            std.mem.indexOf(u8, text, "</thought>") != null))
+                                    {
+                                        return true;
+                                    }
+                                }
+                            },
+                            else => {},
+                        }
+                    }
+                }
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
 fn denoResponsesJsonNormalize(body: []const u8) ![]u8 {
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, body, .{}) catch {
         return std.heap.page_allocator.dupe(u8, body);
@@ -2598,6 +2637,9 @@ fn denoResponsesJsonNormalize(body: []const u8) ![]u8 {
     const output_text_split = try splitThoughtTextAlloc(std.heap.page_allocator, output_text);
     defer std.heap.page_allocator.free(output_text_split.visible);
     defer std.heap.page_allocator.free(output_text_split.reasoning);
+    if (!nativeResponsesJsonNeedsNormalize(root, output_text_split.reasoning)) {
+        return std.heap.page_allocator.dupe(u8, body);
+    }
 
     var out = std.ArrayList(u8).init(std.heap.page_allocator);
     errdefer out.deinit();

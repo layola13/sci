@@ -17,8 +17,8 @@
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
 typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21 } SaOp;
-typedef enum { SA_OPER_NONE=0, SA_OPER_REG=1, SA_OPER_IMM_I64=2, SA_OPER_IMM_U64=3, SA_OPER_CONST_PTR=4 } SaOperandKind;
-typedef enum { SA_BIN_ADD=0, SA_BIN_SUB=1, SA_BIN_MUL=2, SA_BIN_SDIV=3, SA_BIN_UDIV=4, SA_BIN_SREM=5, SA_BIN_UREM=6, SA_BIN_AND=7, SA_BIN_OR=8, SA_BIN_XOR=9, SA_BIN_SHL=10, SA_BIN_LSHR=11, SA_BIN_ASHR=12, SA_BIN_EQ=13, SA_BIN_NE=14, SA_BIN_SLT=15, SA_BIN_SLE=16, SA_BIN_SGT=17, SA_BIN_SGE=18, SA_BIN_ULT=19, SA_BIN_ULE=20, SA_BIN_UGT=21, SA_BIN_UGE=22 } SaBinaryOp;
+typedef enum { SA_OPER_NONE=0, SA_OPER_REG=1, SA_OPER_IMM_I64=2, SA_OPER_IMM_U64=3, SA_OPER_CONST_PTR=4, SA_OPER_IMM_F64=5 } SaOperandKind;
+typedef enum { SA_BIN_ADD=0, SA_BIN_SUB=1, SA_BIN_MUL=2, SA_BIN_SDIV=3, SA_BIN_UDIV=4, SA_BIN_SREM=5, SA_BIN_UREM=6, SA_BIN_AND=7, SA_BIN_OR=8, SA_BIN_XOR=9, SA_BIN_SHL=10, SA_BIN_LSHR=11, SA_BIN_ASHR=12, SA_BIN_EQ=13, SA_BIN_NE=14, SA_BIN_SLT=15, SA_BIN_SLE=16, SA_BIN_SGT=17, SA_BIN_SGE=18, SA_BIN_ULT=19, SA_BIN_ULE=20, SA_BIN_UGT=21, SA_BIN_UGE=22, SA_BIN_FADD=23, SA_BIN_FSUB=24, SA_BIN_FMUL=25, SA_BIN_FDIV=26, SA_BIN_FCMP_EQ=27, SA_BIN_FCMP_NE=28, SA_BIN_FCMP_LT=29, SA_BIN_FCMP_LE=30, SA_BIN_FCMP_GT=31, SA_BIN_FCMP_GE=32 } SaBinaryOp;
 typedef enum { SA_ATOMIC_RELAXED=0, SA_ATOMIC_ACQUIRE=1, SA_ATOMIC_RELEASE=2, SA_ATOMIC_ACQ_REL=3, SA_ATOMIC_SEQ_CST=4 } SaAtomicOrdering;
 typedef enum { SA_RMW_ADD=0, SA_RMW_SUB=1, SA_RMW_AND=2, SA_RMW_OR=3, SA_RMW_XOR=4, SA_RMW_XCHG=5, SA_RMW_MIN=6, SA_RMW_MAX=7, SA_RMW_UMIN=8, SA_RMW_UMAX=9 } SaAtomicRmwOp;
 
@@ -27,7 +27,7 @@ typedef struct { const char *name; const char *const *funcs; size_t func_count; 
 typedef struct { const char *name; SaType ty; unsigned int slot; } SaParam;
 typedef struct { unsigned int line; unsigned int col; } SaDebugLoc;
 typedef struct { const char *name; SaType ty; unsigned int slot; unsigned char is_param; unsigned int line; unsigned int col; } SaDebugVar;
-typedef struct { SaOperandKind kind; unsigned int reg; long long i64_value; unsigned long long u64_value; SaType ty; const char *name; } SaOperand;
+typedef struct { SaOperandKind kind; unsigned int reg; long long i64_value; unsigned long long u64_value; double f64_value; SaType ty; const char *name; } SaOperand;
 typedef struct {
     SaOp op;
     unsigned int dst;
@@ -512,6 +512,15 @@ static LLVMValueRef coerce(EmitCtx *e, LLVMValueRef v, SaType from, SaType to) {
     LLVMTypeRef dst = type_of(e, to);
     if (to == SA_T_PTR) return LLVMBuildIntToPtr(e->builder, v, dst, "cast_ptr");
     if (from == SA_T_PTR) return LLVMBuildPtrToInt(e->builder, v, dst, "cast_int");
+    if ((from == SA_T_F32 || from == SA_T_F64) && (to == SA_T_F32 || to == SA_T_F64)) {
+        return from == SA_T_F32 ? LLVMBuildFPExt(e->builder, v, dst, "fpext") : LLVMBuildFPTrunc(e->builder, v, dst, "fptrunc");
+    }
+    if (from == SA_T_F32 || from == SA_T_F64) {
+        return LLVMBuildFPToSI(e->builder, v, dst, "fptosi");
+    }
+    if (to == SA_T_F32 || to == SA_T_F64) {
+        return type_is_signed_int(from) ? LLVMBuildSIToFP(e->builder, v, dst, "sitofp") : LLVMBuildUIToFP(e->builder, v, dst, "uitofp");
+    }
     unsigned from_bits = type_bits(from);
     unsigned to_bits = type_bits(to);
     if (from_bits < to_bits) return type_is_signed_int(from) ? LLVMBuildSExt(e->builder, v, dst, "sext") : LLVMBuildZExt(e->builder, v, dst, "zext");
@@ -680,6 +689,10 @@ static int operand_value(EmitCtx *e, const SaOperand *op, RegValue *regs, size_t
             *out = LLVMConstInt(e->i64_ty, op->u64_value, 0);
             *out_ty = SA_T_I64;
             return 0;
+        case SA_OPER_IMM_F64:
+            *out_ty = op->ty == SA_T_F32 ? SA_T_F32 : SA_T_F64;
+            *out = LLVMConstReal(type_of(e, *out_ty), op->f64_value);
+            return 0;
         case SA_OPER_CONST_PTR:
             *out = find_global(e, op->name);
             if (*out == NULL) return 1;
@@ -777,8 +790,32 @@ static LLVMValueRef build_binop(EmitCtx *e, SaBinaryOp op, LLVMValueRef lhs, LLV
         case SA_BIN_ULE: return LLVMBuildZExt(e->builder, LLVMBuildICmp(e->builder, LLVMIntULE, lhs, rhs, "cmp"), e->i64_ty, "bool64");
         case SA_BIN_UGT: return LLVMBuildZExt(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGT, lhs, rhs, "cmp"), e->i64_ty, "bool64");
         case SA_BIN_UGE: return LLVMBuildZExt(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, lhs, rhs, "cmp"), e->i64_ty, "bool64");
+        case SA_BIN_FADD: return LLVMBuildFAdd(e->builder, lhs, rhs, "fop");
+        case SA_BIN_FSUB: return LLVMBuildFSub(e->builder, lhs, rhs, "fop");
+        case SA_BIN_FMUL: return LLVMBuildFMul(e->builder, lhs, rhs, "fop");
+        case SA_BIN_FDIV: return LLVMBuildFDiv(e->builder, lhs, rhs, "fop");
+        case SA_BIN_FCMP_EQ: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealOEQ, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
+        case SA_BIN_FCMP_NE: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealUNE, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
+        case SA_BIN_FCMP_LT: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealOLT, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
+        case SA_BIN_FCMP_LE: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealOLE, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
+        case SA_BIN_FCMP_GT: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealOGT, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
+        case SA_BIN_FCMP_GE: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealOGE, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
     }
     return NULL;
+}
+
+static int binop_is_float(SaBinaryOp op) {
+    return op >= SA_BIN_FADD && op <= SA_BIN_FCMP_GE;
+}
+
+static int binop_is_float_cmp(SaBinaryOp op) {
+    return op >= SA_BIN_FCMP_EQ && op <= SA_BIN_FCMP_GE;
+}
+
+static SaType float_binop_operand_type(SaType lhs, SaType rhs, SaType fallback) {
+    if (lhs == SA_T_F64 || rhs == SA_T_F64 || fallback == SA_T_F64) return SA_T_F64;
+    if (lhs == SA_T_F32 || rhs == SA_T_F32 || fallback == SA_T_F32) return SA_T_F32;
+    return SA_T_F64;
 }
 
 static void debug_init(EmitCtx *e, const SaModule *m) {
@@ -1062,8 +1099,16 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 break;
             case SA_OP_BINOP:
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }
-                v0 = coerce(e, v0, t0, SA_T_I64); v1 = coerce(e, v1, t1, SA_T_I64);
-                if (reg_store(e, regs, reg_count, in->dst, build_binop(e, in->binary_op, v0, v1), SA_T_I64, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                if (binop_is_float(in->binary_op)) {
+                    SaType op_ty = float_binop_operand_type(t0, t1, in->ty);
+                    v0 = coerce(e, v0, t0, op_ty);
+                    v1 = coerce(e, v1, t1, op_ty);
+                    SaType result_ty = binop_is_float_cmp(in->binary_op) ? SA_T_I64 : op_ty;
+                    if (reg_store(e, regs, reg_count, in->dst, build_binop(e, in->binary_op, v0, v1), result_ty, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                } else {
+                    v0 = coerce(e, v0, t0, SA_T_I64); v1 = coerce(e, v1, t1, SA_T_I64);
+                    if (reg_store(e, regs, reg_count, in->dst, build_binop(e, in->binary_op, v0, v1), SA_T_I64, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                }
                 break;
             case SA_OP_PTR_ADD:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }

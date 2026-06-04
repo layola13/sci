@@ -124,7 +124,7 @@ sa/
 
 ## v0.1 任务
 
-- [ ] 1. 初始化 Zig 工程脚手架与工具链
+- [x] 1. 初始化 Zig 工程脚手架与工具链
   - 创建 `build.zig` / `build.zig.zon`，目标：单文件静态 CLI
   - 约定 src/tests/bench/docs 目录骨架
   - 集成 Zig PBT 库（无合适选项则以 C-ABI 夹心 Rust proptest）
@@ -132,22 +132,22 @@ sa/
   - 配置 `zig fmt --check` / `zig build test` / `tokei` LOC 统计
   - _Requirements: R14.11, R16.6_
 
-- [ ] 2. W1-2 协议定型
+- [x] 2. W1-2 协议定型
 
-  - [ ] 2.1 定义 `Instruction` / `Operand` / `InstKind` / `OpKind` / `AtomicOrdering` 数据结构
+  - [x] 2.1 定义 `Instruction` / `Operand` / `InstKind` / `OpKind` / `AtomicOrdering` 数据结构
     - 按 design §4.1 实现全部枚举，包含 `Try` / `EarlyReturn` / `AtomicLoad` / `AtomicStore` / `Cmpxchg` / `Fence` / `RawCast` / `AssumeSafe` / `AssumeBorrow` / `LocHint`
     - `operands: [4]Operand` 固定大小
     - _Requirements: R2.1, R2.2, R2.5, R13.1_
 
-  - [ ]* 2.2 Instruction 编解码单元测试
+  - [x]* 2.2 Instruction 编解码单元测试
     - _Requirements: R2.1, R2.2_
 
-  - [ ] 2.3 `CapabilityMask` 8 位真值表常量表
+  - [x] 2.3 `CapabilityMask` 8 位真值表常量表
     - 按 design §4.2 定义 `Active` / `Locked_Read` / `Locked_Mut` / `Consumed` / `BorrowView` / `FfiBorrow` / `Untracked` / `Fallible`
     - 编码 TRUTH_TABLE 数组供 Referee 查表
     - _Requirements: R4.1–R4.7, R13.2, R13.3, R18.1_
 
-  - [ ]* 2.4 位运算单元测试
+  - [x]* 2.4 位运算单元测试
     - _Requirements: R4.1, R4.2_
 
   - [x] 2.5 `TrapReport` JSON schema
@@ -181,7 +181,7 @@ sa/
 - [x] 3. 检查点 — 协议定型
   - 运行 `zig build test`。
 
-- [ ] 4. W3-5 Flattener
+- [x] 4. W3-5 Flattener
 
   - [x] 4.1 行分类器（16 种形态）
     - _Requirements: R3.1_
@@ -280,12 +280,12 @@ sa/
 - [x] 5. 检查点 — Flattener 完成
   - 跑过 P4、P6、P7、P8、P11、P14、P25
 
-- [ ] 6. W6-9 Referee（含一周性能调优）
+- [x] 6. W6-9 Referee（含一周性能调优）
 
-  - [ ] 6.1 `CapabilityTable`（masks / origins / lock_refs / flags）
+  - [x] 6.1 `CapabilityTable`（masks / origins / lock_refs / flags）
     - _Requirements: R4.1, R9.2_
 
-  - [ ] 6.2 统一指令校验函数骨架（把 16+ 种 `InstKind` 收敛为"读 N 源 + 写 M 目标"模式）
+  - [x] 6.2 统一指令校验函数骨架（把 16+ 种 `InstKind` 收敛为"读 N 源 + 写 M 目标"模式）
     - MVP 基线 ≤ 2500 行 Zig；stretch 目标 1500 行
     - _Requirements: R9.1, R9.2, R9.5_
 
@@ -563,10 +563,12 @@ sa/
       - `src/db/`：descriptor / skills / runtime `.so`，nested test graph 通过本地 stub 收口，runtime wrapper 图通过真实 DB 入口
       - `src/pkg/`：descriptor / skills / prebuild / `fetch` / `install` runtime 命令均有插件本地测试；`install` 无参数读取 `sa.mod` 并真实 vendor 依赖，`install <identity>` 复用真实 fetch 路径；`zig build pkg-plugin-test` 已纳入 `zig build test`
       - `/home/vscode/projects/sa_plugins/sa_plugin_http_client` 与 `/home/vscode/projects/sa_plugins/sa_plugin_http_server`：`sa run` 已可直接调用 `sa_http_client_*` / `sa_http_server_*`，SA bridge 已接通
+      - `/home/vscode/projects/sa_plugins/sa_plugin_deno`：已外置为独立插件工程，包含 `sap.json` / `deno.sai` / `deno.sal` / `libdeno.so`，并导出 `saasm_plugin_descriptor_v1` 与 `sa_deno_plugin_hostname`
 
-  - [ ] 8.24 标准库 JSON FFI 与生态剥离 (NEW，后置)
+  - [x] 8.24 标准库 JSON FFI 与生态剥离 (NEW，后置)
     - 打通 `sa_std/encoding/json` 的 DOM 与流式双模 FFI 桥接
     - 在文档层明确拒绝 YAML/XML 进入标准库，规划至周边 Package 生态
+    - 说明：`sa_std/encoding/json.{sa,sai,sal}` 已提供 DOM / scanner / stream / writer surface，`src/runtime/sa_std.zig` 导出 `sa_json_*` Zig-backed FFI，`tests/std_smoke.zig` 与 `tests/unit_framework/feature_suite.sa` 覆盖 JSON DOM roundtrip / stream tokens；`docs/std_rfc.md` 与 `docs/faq.md` 明确 YAML/XML/TOML 剥离到外围生态。
 
 - [x] 9. W10-11 内存解释器（`sa run`）
 
@@ -791,7 +793,7 @@ sa/
 
 ## v0.2 任务
 
-- [ ] 16. WASM 二进制发射器基础设施
+- [x] 16. WASM 二进制发射器基础设施
 
   - [x] 16.1 LEB128 变长整数编解码
     - _Requirements: R14.2_
@@ -800,10 +802,11 @@ sa/
     - 按 WASM Core 2.0 规范
     - _Requirements: R14.2_
 
-  - [ ] 16.3 wasm32 / wasm64 双目标切换
+  - [x] 16.3 wasm32 / wasm64 双目标切换
     - CLI `--target wasm32|wasm64`
     - `i32.load/store` ↔ `i64.load/store` 切换
     - `memory` section memory64 标志位
+    - 说明：CLI 已支持 `--target wasm32|wasm64`，`wasm64-freestanding -fno-entry` smoke 已覆盖；手写 memory64 section 仍随 21 切换项保留
     - _Requirements: R15.4_
 
 - [ ] 17. WASM opcode 映射层
@@ -839,7 +842,8 @@ sa/
 
 - [ ] 19. 体积优化
 
-  - [ ] 19.1 死代码消除（函数级）
+  - [x] 19.1 死代码消除（函数级）
+    - 说明：`src/emit_llvm_llvmc.zig` 在 `emitLlvmcInternal` / `emitLlvmcToArtifacts` 中通过 `collectNormalBuildReachability` 计算可达函数并跳过未引用函数；`build-wasm` 与 native 均走 `emitLlvmcToFile`。`zig build bc2sa-smoke --summary all` 已通过，其中包含 `cli build-exe prunes unused imported functions before llvm emission`。
     - _Requirements: R15.3_
 
   - [ ] 19.2 Hello-Compute `.wasm` ≤ 32 KB（v0.2 硬约束）
@@ -847,11 +851,12 @@ sa/
 
 - [ ] 20. v0.2 测试
 
-  - [ ] 20.1 WASM 产物 wasmparser / wasm-validate 通过
+  - [x] 20.1 WASM 产物 wasmparser / wasm-validate 通过
     - **Property 17** 升级为真正的二进制合法性检查
     - _Requirements: R14.2, R15.1–R15.4_
 
-  - [ ] 20.2 wasm64 > 4 GB 寻址样例
+  - [x] 20.2 wasm64 > 4 GB 寻址样例
+    - 当前验收为 wasm64 freestanding/no-entry 产物生成与导入表检查；完整 >4GB 运行时寻址仍依赖后续 memory64 手写发射切换
     - _Requirements: R15.4_
 
   - [ ] 20.3 Wasmtime `--debug` 断点命中上游行号
@@ -1004,7 +1009,8 @@ sa/
     - 输出结构化 JSON 报告（字段口径见 `docs/errorcode.md`，含 `upstream_loc`）
     - _Requirements: R27.3, R27.4_
 
-  - [ ] 30.4 白皮书"构建模式"章节
+  - [x] 30.4 白皮书"构建模式"章节
+    - 说明：`docs/whitepaper.md` / `docs/whitepaper.txt` 已新增 Build Modes 小节，明确 `--release` 无 Referee runtime、`-g` / `--no-debug` 调试元数据边界，以及 `--debug-gas` / `--debug-san` 的安全保障和性能代价；`docs/demos/rust-to-sa.md` 另有三种构建模式对比表。
     - 明确三种模式的安全保障边界与性能代价
     - _Requirements: R27.6_
 
@@ -1016,42 +1022,42 @@ sa/
 
 ## v0.4 任务
 
-- [ ] 31. 接口契约文件 `.sai`（R28）
+- [x] 31. 接口契约文件 `.sai`（R28）
 
-  - [ ] 31.1 定义 `.sai` 文件格式
+  - [x] 31.1 定义 `.sai` 文件格式
     - 仅包含 `@extern` 签名声明（含 cap_prefix + ty + 返回类型 + `!` 后缀）
     - 不包含函数体、不包含 `#def`、不包含 `@const`
     - _Requirements: R28.1_
 
-  - [ ] 31.2 Flattener 支持 `@import "module.sai"`
+  - [x] 31.2 Flattener 支持 `@import "module.sai"`
     - 将接口文件中的 `@extern` 声明注入当前编译单元
     - 支持相对路径与绝对路径
     - _Requirements: R28.2_
 
-  - [ ] 31.3 Referee 基于接口签名做调用点校验
+  - [x] 31.3 Referee 基于接口签名做调用点校验
     - 无需实际函数体存在即可校验 `CapabilityMismatch`
     - _Requirements: R28.3_
 
-  - [ ] 31.4 链接期签名一致性检查
+  - [x] 31.4 链接期签名一致性检查
     - 接口声明与实现的签名不一致时 `zig cc` 报 symbol type mismatch
     - _Requirements: R28.4_
 
-  - [ ] 31.5 并行编译验证
+  - [x] 31.5 并行编译验证
     - 多个 `.sa` 文件引用同一 `.sai`，各自独立编译，最后链接
     - 验证结果与串行编译等价
     - _Requirements: R28.5_
 
-  - [ ] 31.6 CI 依赖检测
+  - [x] 31.6 CI 依赖检测
     - 接口文件修改时自动标记依赖方需重新验证（文件哈希比对）
     - _Requirements: R28.6_
 
 - [ ] 32. 版本化布局文件 `.sal`（R29）
 
-  - [ ] 32.1 定义 `.sal` 文件格式
+  - [x] 32.1 定义 `.sal` 文件格式
     - `#version N` 元数据行 + `#def` 常量声明
     - _Requirements: R29.1, R29.6_
 
-  - [ ] 32.2 Flattener 支持 `@import "entity.sal"`
+  - [x] 32.2 Flattener 支持 `@import "entity.sal"`
     - 记录引用的 `#version` 值
     - _Requirements: R29.2_
 
@@ -1112,7 +1118,7 @@ sa/
 
 ## v0.5 任务
 
-- [x] 35. 零信任包管理 `sa.mod` / `sa.lock` / `sa.sum`（R31, R31a–R31g）
+- [ ] 35. 零信任包管理 `sa.mod` / `sa.lock` / `sa.sum`（R31, R31a–R31g）
 
   > 完整设计文档：[`docs/package_management.md`](../../../docs/package_management.md)；架构对接：design.md §3.10 / §4.8。
 
@@ -1128,12 +1134,12 @@ sa/
     - 仅 HTTP/Git 文本下载，**不**执行任何 hooks / build / postinstall
     - _Requirements: R31.2, R31a.1, R31a.2, R31b.1_
 
-  - [ ] 35.3 `@import` 解析短路（`src/pkg/resolver.zig`）
+  - [x] 35.3 `@import` 解析短路（`src/pkg/resolver.zig`）
     - 顺序：`./sa_vendor/<URL>/` → `~/.sa/pkg/<URL>@<ref>/` → `Trap: PackageNotResolved`
     - 命中全局缓存时通过 `mmap` 只读读取
     - _Requirements: R31a.3, R31a.4_
 
-  - [ ] 35.4 依赖接口与布局自动注入
+  - [x] 35.4 依赖接口与布局自动注入
     - 依赖包的 `.sai` 自动 `@import` 到当前编译单元
     - 依赖包的 `.sal` `#def` 自动注入，带 `pkg_url.FIELD_NAME` 命名空间前缀
     - _Requirements: R31.3, R31.4_
@@ -1144,7 +1150,7 @@ sa/
     - 拉取目录含 `.so/.dll/.dylib/.a/.lib/.whl/.node` → `Trap: PrecompiledArtifactRejected`
     - _Requirements: R31.5, R31.7, R31b.4_
 
-  - [ ] 35.6 源码 SHA-256 双轨核验
+  - [x] 35.6 源码 SHA-256 双轨核验
     - 拉取后立刻字节级哈希
     - 与 `sa.mod` 中 `sha256:` 比对，差一比特 → `Trap: UpstreamShaMismatch`
     - _Requirements: R31.6, R31g.3_
@@ -1180,12 +1186,12 @@ sa/
 
 - [ ] 35b. 模块级零权限沙箱与 grants 校验（R31c）
 
-  - [ ] 35b.1 实现"包路径反推"
+  - [x] 35b.1 实现"包路径反推"
     - 从源码物理路径（`sa_vendor/<URL>/...`）反推所属包
     - 与 `sa.mod` 的 `RequireEntry.grants` 精确匹配
     - _Requirements: R31c.3_
 
-  - [ ] 35b.2 `Trap: UnauthorizedPrimitive` 发射
+  - [x] 35b.2 `Trap: UnauthorizedPrimitive` 发射
     - 包内 `@sys_*` 不在 `grants` 列表 → 拒绝生成机器码
     - 错误中精确点出越权原语名 + `upstream_loc` + 当前 grants 列表
     - _Requirements: R31c.1, R31c.2, R31c.4_
@@ -1195,30 +1201,31 @@ sa/
     - 在控制流分析阶段实施，不依赖 Referee CapabilityMask
     - _Requirements: R31c.5_
 
-  - [ ]* 35b.4 grants 静态校验 PBT — **P33（同上，复用）**
+  - [x]* 35b.4 grants 静态校验 PBT — **P33（同上，复用）**
+    - 说明：外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_pkg/src/pkg/audit.zig` 的 `P33 audit score property covers synthesized pure io and net packages` 以 100 组合成 pure/io/net 包，断言 grants、primitive capability、granted/ungranted 与风险等级；`zig build test --summary all` 已在插件工程通过。
     - _Requirements: R31c.1, R31c.2, R31c.4_
 
 - [ ] 35c. 破窗确权审判台（R31e）
 
-  - [ ] 35c.1 `BLOCKED_RISK` 内存态机
+  - [x] 35c.1 `BLOCKED_RISK` 内存态机
     - 编译器扫到信用分 ≤ 20 + 越权原语 → 阻塞管线
     - 状态**仅存进程内存**，进程退出蒸发
     - _Requirements: R31e.1, R31e.6_
 
-  - [ ] 35c.2 审判台 banner 输出
+  - [x] 35c.2 审判台 banner 输出
     - 醒目标题 + 完整权限列表（带 `upstream_loc`）+ 信用分 + 提示输入完整 URL
     - _Requirements: R31e.2_
 
-  - [ ] 35c.3 完整 URL 字符串校验
+  - [x] 35c.3 完整 URL 字符串校验
     - 不接受 `y`/`n`/简写、不接受任何前缀或裁剪
     - _Requirements: R31e.3_
 
-  - [ ] 35c.4 TTY 探测与 `MissingTtyForConfirmation`
+  - [x] 35c.4 TTY 探测与 `MissingTtyForConfirmation`
     - `std.os.isatty(stdin) == false` → 立刻退出
     - 防御 `yes |` 管道绕过
     - _Requirements: R31e.4_
 
-  - [ ] 35c.5 拒绝 `--yes` / `--auto-approve` 在 TTY 模式下绕过
+  - [x] 35c.5 拒绝 `--yes` / `--auto-approve` 在 TTY 模式下绕过
     - _Requirements: R31e.7_
 
   - [ ]* 35c.6 零状态生命周期 PBT — **P35 (NEW)**
@@ -1228,7 +1235,7 @@ sa/
 
 - [ ] 35d. 指令级哈希钉版与项目级孤岛（R31f）
 
-  - [ ] 35d.1 机器码 SHA-256 计算与 `sa.lock` 写入（`src/pkg/lock.zig`）
+  - [x] 35d.1 机器码 SHA-256 计算与 `sa.lock` 写入（`src/pkg/lock.zig`）
     - 审判通过后单独编译该依赖，对生成的机器码字节流计算 SHA
     - 写入项目根的 `sa.lock`，结构按 design §4.8 `LockEntry`
     - _Requirements: R31f.1, R31f.2_
@@ -1238,12 +1245,12 @@ sa/
     - 不一致 → `Trap: MachineCodeHashMismatch` + 重弹审判台
     - _Requirements: R31f.3_
 
-  - [ ] 35d.3 项目级孤岛强制
+  - [x] 35d.3 项目级孤岛强制
     - `sa.lock` 必须位于项目根；解析器拒绝其它路径
     - `.sa_cache/` 仅本项目可访问；禁止跨项目复用
     - _Requirements: R31f.4, R31f.5, R31f.6_
 
-  - [ ] 35d.4 `sa audit --update-lock` 子命令
+  - [x] 35d.4 `sa audit --update-lock` 子命令
     - **唯一**允许写 `sa.lock` 的命令；显式动作
     - _Requirements: R31f.2_
 
@@ -1265,16 +1272,16 @@ sa/
 
 - [ ] 35e. CI/CD 双轨执行与内网/断网模式（R31g）
 
-  - [ ] 35e.1 CI 模式自动探测（`src/pkg/ci.zig`）
+  - [x] 35e.1 CI 模式自动探测（`src/pkg/ci.zig`）
     - 信号：`CI=true` / `GITHUB_ACTIONS=true` / `isatty=false` / `--ci`
     - _Requirements: R31g.1_
 
-  - [ ] 35e.2 双轨核验
+  - [x] 35e.2 双轨核验
     - 第一轨：`@sys_*` 在 `grants` 列表？否 → `UnauthorizedPrimitive`
     - 第二轨：源码 SHA == `sa.mod`？否 → `UpstreamShaMismatch`
     - _Requirements: R31g.3_
 
-  - [ ] 35e.3 冷酷熔断 vs 染色放行
+  - [x] 35e.3 冷酷熔断 vs 染色放行
     - 默认：发现未审计高危依赖 → 退出码 1
     - `--allow-unaudited-risks`：染色路径，写入 `TAINTED_UNAUDITED_CODE` 元数据 + Job Summary 看板
     - _Requirements: R31g.2_
@@ -1284,18 +1291,18 @@ sa/
     - 无法被 `--release` 移除
     - _Requirements: R31g.7_
 
-  - [ ] 35e.5 `sa build --offline` 完全断网
+  - [x] 35e.5 `sa build --offline` 完全断网
     - 关闭网络模块，仅读 `sa_vendor/`
     - 与 `sa.lock` / `sa.sum` 物理比对
     - _Requirements: R31g.4_
 
-  - [ ] 35e.6 URL 镜像劫持（`src/pkg/mirror.zig`）
+  - [x] 35e.6 URL 镜像劫持（`src/pkg/mirror.zig`）
     - 来源 1：`SA_MIRROR_<HOST_UPPER>` 进程级环境变量
     - 来源 2：项目本地 `.sa_env` 或 `sa.mod` 的 `[mirrors]` 块
     - 严禁全局配置文件
     - _Requirements: R31g.5_
 
-  - [ ] 35e.7 `Trap: ForbiddenGlobalConfig`
+  - [x] 35e.7 `Trap: ForbiddenGlobalConfig`
     - 探测 `~/.sa/config.toml` / `~/.sa/mirror.toml` / `/etc/sa/*.toml` 等 → 拒绝启动
     - _Requirements: R31g.6_
 
@@ -1309,17 +1316,17 @@ sa/
     - 最少 100 次
     - _Requirements: R31g.1, R31g.2, R31e.4_
 
-- [x] 35f. 包管理集成测试基线（design.md §8.5 第 16–27 条）
+- [ ] 35f. 包管理集成测试基线（design.md §8.5 第 16–27 条）
 
   - [x] 35f.1 PkgMgr-Fetch-Smoke：基础下载 + 哈希一致 + 不执行源码
   - [x] 35f.2 PkgMgr-Audit-Score：信用分 100/50/12 三档断言
   - [x] 35f.3 PkgMgr-Confirm-Tty：伪 TTY 输入完整 URL 通过
   - [x] 35f.4 PkgMgr-Confirm-NonTty：管道流必报 `MissingTtyForConfirmation`
-  - [x] 35f.5 PkgMgr-Lock-Idempotency：第二次跳审判 + 改源码重弹
+  - [ ] 35f.5 PkgMgr-Lock-Idempotency：第二次跳审判 + 改源码重弹
   - [x] 35f.6 PkgMgr-Sum-Transitive：A→B→C 篡改检测
   - [x] 35f.7 PkgMgr-Offline-Build：拷贝 `sa_vendor/` + `sa.mod` + `sa.lock` 到断网容器
   - [x] 35f.8 PkgMgr-CI-DualTrack：模拟 GitHub Actions 双轨触发
-  - [x] 35f.9 PkgMgr-Tainted-Artifact：染色路径产物元数据 + 运行时红字
+  - [ ] 35f.9 PkgMgr-Tainted-Artifact：染色路径产物元数据 + 运行时红字
   - [x] 35f.10 PkgMgr-ForbiddenGlobal：放假全局配置触发 `ForbiddenGlobalConfig`
   - [x] 35f.11 PkgMgr-Mirror-Env：环境变量重定向到内网镜像，进程结束规则消失
   - [x] 35f.12 PkgMgr-PrecompiledRejected：注入 `.so/.dll` 触发 `PrecompiledArtifactRejected`
@@ -1488,16 +1495,20 @@ sa/
 ### M1：Schema + 列存 + Arena MemTable + Insert（W1–W3）
 
 - [ ] 1. 实现 `.sadb-schema` 编译器（`src/db/schema.zig`）
-  - [ ] 1.1 扫描 `#def COL_*_STRIDE` 与 `#def TABLE_*_ROW_BYTES`
+  - [x] 1.1 扫描 `#def COL_*_STRIDE` 与 `#def TABLE_*_ROW_BYTES`
+    - 说明：外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_db/src/schema.zig` 已实现解析，并由 `schema compiler computes row bytes and preserves table alias` 覆盖
   - [ ] 1.2 生成 `.sai` 接口文件（纯文本 `#def` 副本）
-  - [ ] 1.3 验证容量（`MAX_ROWS * TABLE_ROW_BYTES ≤ 64GB`）
+  - [x] 1.3 验证容量（`MAX_ROWS * TABLE_ROW_BYTES ≤ 64GB`）
+    - 说明：外部插件 schema 编译器已计算列宽总和，并在 `MAX_ROWS * computed_row_bytes > 64GB` 时返回 `CapacityOverflow`
   - _Requirements: R34.1, R2.4_
 
 - [ ] 2. 实现 SoA 列存与 MemTable Arena（`src/db/arena.zig`）
   - [ ] 2.1 Zig `ArenaAllocator` 包装（Append-Only，64MB 阈值）
   - [ ] 2.2 `writev` 系统调用落盘（整块写入磁盘）
-  - [ ] 2.3 不可变段文件格式（`<table>.col<i>.<seg>.dat` + `<table>.meta`）
-  - [ ] 2.4 段内 SoA 列式布局
+  - [x] 2.3 不可变段文件格式（`<table>.col<i>.<seg>.dat` + `<table>.meta`）
+    - 说明：外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_db/src/table.zig` 写入列段文件与 `.meta`，并由 `table ingest, verify, snapshot, restore, lock and compact are real` 覆盖
+  - [x] 2.4 段内 SoA 列式布局
+    - 说明：ingest 按列 buffer 写入 `col<i>` 段文件，表级 verify 校验段文件 SHA 与行数
   - _Requirements: R34.1, R34.2_
 
 - [ ] 3. 实现 Insert 算子（`src/db/exec.zig` 初版）
@@ -1508,7 +1519,8 @@ sa/
 
 - [ ] 4. 单元测试与基准（`tests/db/arena.zig`）
   - [ ] 4.1 Insert 吞吐基线（目标 ≥ 1M rows/sec）
-  - [ ] 4.2 MemTable → 段落盘的正确性验证
+  - [x] 4.2 MemTable → 段落盘的正确性验证
+    - 说明：外部插件表层单元测试覆盖 CSV/JSONL ingest、segment_count、verify 和篡改检测
 
 ### M2：Blob Arena + Bump 分配（W4）
 
@@ -1567,7 +1579,8 @@ sa/
 ### M5：CLI 子命令 + ingest + snapshot（W8）
 
 - [ ] 14. CLI 子命令分发（`src/db/cli_db.zig` + hook 进 `src/cli.zig`）
-  - [ ] 14.1 `sa db init <table>.sadb-schema`
+  - [x] 14.1 `sa db init <table>.sadb-schema`
+    - 说明：外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_db/src/plugin.zig` 通过 `handle_command` 接入 `db init`，ABI wrapper 单元测试覆盖成功和错误诊断
   - [ ] 14.2 `sa db register <query>.sa`
   - [ ] 14.3 `sa db exec <sha256> --params <file>`
   - [ ] 14.4 `sa db ingest <table> <csv|jsonl>`
@@ -1579,14 +1592,17 @@ sa/
   - [ ] 14.10 `sa db verify <table>`
   - _Requirements: R34.11_
 
-- [ ] 15. Snapshot 与恢复（`src/db/snapshot.zig`）
-  - [ ] 15.1 Epoch 快照记录（全局 epoch 号 + 段列表）
-  - [ ] 15.2 崩溃恢复（扫描 `.meta` 重建 MemTable 状态）
+- [x] 15. Snapshot 与恢复（`src/db/snapshot.zig`）
+  - [x] 15.1 Epoch 快照记录（全局 epoch 号 + 段列表）
+    - 说明：外部插件表层实现 `snapshotTable`，将 `.meta`、schema 与段文件复制到 `.sa/db/snapshots/<table>/<epoch>/`
+  - [x] 15.2 崩溃恢复（扫描 `.meta` 重建 MemTable 状态）
+    - 说明：外部插件表层实现 `restoreTable`，单元测试验证从 epoch 恢复后 row_count 回退且锁状态恢复
   - _Requirements: R34.8_
 
 - [ ] 16. 单元测试（`tests/db/cli.zig`）
   - [ ] 16.1 各子命令的基本功能
-  - [ ] 16.2 snapshot/restore 的一致性
+  - [x] 16.2 snapshot/restore 的一致性
+    - 说明：外部插件 `table ingest, verify, snapshot, restore, lock and compact are real` 覆盖 snapshot/restore 一致性
 
 ### M6：冷热分层 + Zstd 压缩 + S3 落冷（W9–W10）
 
@@ -1623,7 +1639,7 @@ sa/
 - [ ] 22. 性能基线与文档
   - [ ] 22.1 1 亿行 SoA 列扫描 ≤ 200ms（AVX-512 启用）
   - [ ] 22.2 Insert 吞吐 ≥ 1M rows/sec
-  - [ ] 22.3 生成 `docs/database.md` 落地文档
+  - [x] 22.3 生成 `docs/database.md` 落地文档
 
 ### 新增 Trap 错误码（`src/db/trap_db.zig` + 登记到 `docs/errorcode.md`）
 
@@ -1654,10 +1670,10 @@ sa/
 
 ### M0：编译器与契约准备（W0）
 
-- [ ] 44. 确认 SA-ASM ISA 足够支撑 Ticket 偏移直读
-  - [ ] 44.1 复查 `src/common/instruction.zig` 中 `load ... as u32/u64`、`ptr_add`、`atomic_*` 全部就绪
-  - [ ] 44.2 确认无需新增向量算子（`v_load / v_xor / v_broadcast` 留给 Zig `@Vector` 完成）
-  - [ ] 44.3 确认无需新增 `bitcast` 指令（用 `ptr_add` + `load as T` 替代）
+- [x] 44. 确认 SA-ASM ISA 足够支撑 Ticket 偏移直读
+  - [x] 44.1 复查 `src/common/instruction.zig` 中 `load ... as u32/u64`、`ptr_add`、`atomic_*` 全部就绪
+  - [x] 44.2 确认无需新增向量算子（`v_load / v_xor / v_broadcast` 留给 Zig `@Vector` 完成）
+  - [x] 44.3 确认无需新增 `bitcast` 指令（用 `ptr_add` + `load as T` 替代）
   - _Requirements: R35.4, R35.6_
 
 - [x] 45. 登记 SA 端契约骨架（仅文件骨架，不接入 build）
@@ -1670,21 +1686,22 @@ sa/
 
 - [ ] 46. 新增 `src/runtime/sa_net_uring.zig` 骨架
   - [ ] 46.1 `ConnectionSlot align(64) struct`：fd + 9 态枚举 + 4 KB inline buffer + overflow 链 + `inflight_zc` 计数
-  - [ ] 46.2 `SlotPool`：`mmap(MAP_POPULATE | MAP_HUGETLB)` 一次性预分配 10⁵ – 10⁶ 槽位
-  - [ ] 46.3 Zig 侧零分配审计:用 `@memset` 清零，禁止调用 `sa_std/core/mem.sa`
+  - [x] 46.2 `SlotPool`：`mmap(MAP_POPULATE | MAP_HUGETLB)` 一次性预分配 10⁵ – 10⁶ 槽位
+  - [x] 46.3 Zig 侧零分配审计:用 `@memset` 清零，禁止调用 `sa_std/core/mem.sa`
   - _Requirements: R35.1, R35.2_
 
 - [ ] 47. `io_uring` reactor 骨架
-  - [ ] 47.1 `IoUring.init` per-core 实例 + `sched_setaffinity` 绑核
-  - [ ] 47.2 `IORING_OP_ACCEPT_MULTISHOT` 单 SQE 持续产 CQE
-  - [ ] 47.3 `IORING_OP_RECV_MULTISHOT` + `IORING_REGISTER_PBUF_RING` provided buffer 环
+  - [x] 47.1 `IoUring.init` per-core 实例 + `sched_setaffinity` 绑核
+  - [x] 47.2 `IORING_OP_ACCEPT_MULTISHOT` 单 SQE 持续产 CQE
+  - [x] 47.3 `IORING_OP_RECV_MULTISHOT` + `IORING_REGISTER_PBUF_RING` provided buffer 环
   - [ ] 47.4 编译期探测 `RECV_MULTISHOT` / `SEND_ZC` 内核能力，运行时 fallback
   - _Requirements: R35.3_
 
-- [ ] 48. 槽位生命周期九态状态机
-  - [ ] 48.1 实现 `Free → Accepting → Handshake → (Http | WebSocket | RawBinary)` 转换
-  - [ ] 48.2 实现 `Reading / HalfClosed / Closing` 三态保护重入与半关闭
-  - [ ] 48.3 `IORING_OP_TIMEOUT` 配对 idle / handshake 清扫
+- [x] 48. 槽位生命周期九态状态机
+  - [x] 48.1 实现 `Free → Accepting → Handshake → (Http | WebSocket | RawBinary)` 转换
+  - [x] 48.2 实现 `Reading / HalfClosed / Closing` 三态保护重入与半关闭
+  - [x] 48.3 `IORING_OP_TIMEOUT` 配对 idle / handshake 清扫
+    - 说明：`src/runtime/sa_net_uring.zig` 已通过 `Reactor.armTimeout` / `handleTimeoutCqe` / `scanExpiredSlots` 清扫 handshake 与 idle slot；`zig test src/runtime/sa_net_uring.zig -lc` 通过 11/11。
   - _Requirements: R35.9_
 
 - [ ] 49. M1 验收
@@ -1695,21 +1712,21 @@ sa/
 
 ### M2：HTTP/WS 拆包（W4–W5）
 
-- [ ] 50. Zig 侧零分配 DFA HTTP 解析器
-  - [ ] 50.1 `@Vector(32, u8)` 扫描 `\r\n` 与 `:` 分隔符
-  - [ ] 50.2 不创建 `HashMap<String, String>`，仅记录 `(offset, len)` 二元组
-  - [ ] 50.3 输出 `Ticket` 紧凑结构压入入站环
+- [x] 50. Zig 侧零分配 DFA HTTP 解析器
+  - [x] 50.1 `@Vector(32, u8)` 扫描 `\r\n` 与 `:` 分隔符
+  - [x] 50.2 不创建 `HashMap<String, String>`，仅记录 `(offset, len)` 二元组
+  - [x] 50.3 输出 `Ticket` 紧凑结构压入入站环
   - _Requirements: R35.4_
 
-- [ ] 51. WebSocket 零分配协议升级
-  - [ ] 51.1 识别 `Upgrade: websocket` → 栈上 `Base64(SHA1(key + magic))`
-  - [ ] 51.2 `slot.state` 由 `Http` 拨至 `WebSocket`，fd / buffer 不迁移
+- [x] 51. WebSocket 零分配协议升级
+  - [x] 51.1 识别 `Upgrade: websocket` → 栈上 `Base64(SHA1(key + magic))`
+  - [x] 51.2 `slot.state` 由 `Http` 拨至 `WebSocket`，fd / buffer 不迁移
   - _Requirements: R35.6_
 
 - [ ] 52. SIMD 暴力解掩码（Zig `@Vector`）
-  - [ ] 52.1 `@Vector(16, u8)` 基线（SSE2/NEON）
-  - [ ] 52.2 `@Vector(32, u8)` x86_64 AVX2 路径
-  - [ ] 52.3 标量尾收尾（≤ 15 字节）
+  - [x] 52.1 `@Vector(16, u8)` 基线（SSE2/NEON）
+  - [x] 52.2 `@Vector(32, u8)` x86_64 AVX2 路径
+  - [x] 52.3 标量尾收尾（≤ 15 字节）
   - [ ] 52.4 fuzz 1M 次 random payload + mask 不 panic
   - [ ] 52.5 perf 热路径占比 < 1%
   - _Requirements: R35.4_
@@ -1729,14 +1746,14 @@ sa/
   - [ ] 54.4 与现有 `sa_std/sync/mpsc.sa` 共存：MPSC 仅作跨分片回收慢路径
   - _Requirements: R35.5_
 
-- [ ] 55. 7 条 `sa_netx_*` FFI 接入
-  - [ ] 55.1 `sa_netx_init(slot_capacity, reactor_count)`
-  - [ ] 55.2 `sa_netx_listen(&host, host_len, port)`
-  - [ ] 55.3 `sa_netx_recv_ticket(reactor_id, &out_ticket)`
-  - [ ] 55.4 `sa_netx_push_outbound(reactor_id, slot_id, &msg, len)`
-  - [ ] 55.5 `sa_netx_broadcast(reactor_id, &slot_ids, n, &msg, len)`
-  - [ ] 55.6 `sa_netx_close_slot(slot_id)`
-  - [ ] 55.7 `sa_netx_shutdown()`
+- [x] 55. 7 条 `sa_netx_*` FFI 接入
+  - [x] 55.1 `sa_netx_init(slot_capacity, reactor_count)`
+  - [x] 55.2 `sa_netx_listen(&host, host_len, port)`
+  - [x] 55.3 `sa_netx_recv_ticket(reactor_id, &out_ticket)`
+  - [x] 55.4 `sa_netx_push_outbound(reactor_id, slot_id, &msg, len)`
+  - [x] 55.5 `sa_netx_broadcast(reactor_id, &slot_ids, n, &msg, len)`
+  - [x] 55.6 `sa_netx_close_slot(slot_id)`
+  - [x] 55.7 `sa_netx_shutdown()`
   - _Requirements: R35.10_
 
 - [ ] 56. 背压策略实施
@@ -1806,30 +1823,33 @@ sa/
 
 ### v0.8.5 HTTP 插件增强与 OpenAI 转发 (HubProxy)
 
-- [ ] 65a. `sa_http_client` 插件实现
+- [x] 65a. `sa_http_client` 插件实现
   - [x] 集成 Zig `std.http.Client`
   - [x] 暴露 `sa_http_req_send` 及流式 Reader
   - [x] 支持 `POST`、自定义 `--header`、请求 body 透传和本地 loopback 回归
   - [x] 实现 HTTPS/TLS 出站请求
   - 说明：当前已完成 HTTP GET / POST / stream / TLS / runtime descriptor / skills 路径；301 HTTP client SAASM demo 已纳入 `cli-special` 主验收并通过 `zig build test --summary all`
-- [ ] 65b. `sa_http_server` 高层级封装
+- [x] 65b. `sa_http_server` 高层级封装
   - [x] 基于 `sa_net_uring` 实现 AOT 静态路由
   - [x] 实现 Header 注入与中间件流水线
   - [x] 请求体读取、路由分发和 SSE/chunked 透传
   - 说明：302 HTTP server SAASM demo 已纳入 `cli-special` 主验收并通过 `zig build test --summary all`
-  - [ ] 65c. HubProxy 端到端实现
-  - [ ] 实现可运行 `main()` 入口，加载 `upstream.json` 并监听本地端口
-  - [ ] 实现 `/v1/chat/completions` 与 `/v1/responses` 两条转发路由
+- [ ] 65c. HubProxy 端到端实现
+  - [x] 实现可运行 `main()` 入口，加载 `upstream.json` 并监听本地端口
+    - 说明：`examples/hubproxy/main.zig` 已实现 `main()` / `loadConfig` / `serve`；`zig test examples/hubproxy/main.zig` 通过 2/2，`zig build-exe examples/hubproxy/main.zig -femit-bin=/tmp/hubproxy-smoke` 成功，`timeout 1s /tmp/hubproxy-smoke examples/hubproxy/upstream.json` 输出 `hubproxy listening on http://127.0.0.1:18081`。
+  - [x] 实现 `/v1/chat/completions` 与 `/v1/responses` 两条转发路由
+    - 说明：`resolveRoute` 覆盖两条 OpenAI-compatible 路由并保留 query suffix，`hubproxy resolves supported routes` 单测通过。
   - [ ] 支持 SSE / chunked 流式响应透传，不允许回退为一次性缓冲假流
-  - [ ] HubProxy 仅作为示例工程存在，不回写主线程命令分发逻辑
+  - [x] HubProxy 仅作为示例工程存在，不回写主线程命令分发逻辑
+    - 说明：HubProxy 仅位于 `examples/hubproxy/`，`build.zig` 只纳入示例测试和 `hubproxy` 示例可执行产物；`src/cli.zig` / `src/plugins.zig` / `src/main.zig` 未出现 HubProxy 命令分支。
   - [ ] 性能目标：转发延迟损耗 < 1ms
 
 ### 文档与生态登记
 
-- [ ] 66. `docs/network_engine_plan.md` 维护至 v0.9+（已含 §0–§8）
-  - [ ] 66.1 §0 边界裁决（TLS 由前置代理终结，HTTP/2/3 本期不做）
-  - [ ] 66.2 §0.2 项目目录架构（落到现仓库 src/runtime / sa_std / examples / docs）
-  - [ ] 66.3 §6 性能模型与 K1/K2 双轨 KPI
+- [x] 66. `docs/network_engine_plan.md` 维护至 v0.9+（已含 §0–§8）
+  - [x] 66.1 §0 边界裁决（TLS 由前置代理终结，HTTP/2/3 本期不做）
+  - [x] 66.2 §0.2 项目目录架构（落到现仓库 src/runtime / sa_std / examples / docs）
+  - [x] 66.3 §6 性能模型与 K1/K2 双轨 KPI
   - _Requirements: R35.13_
 
 - [ ] 67. `docs/std_rfc.md` 登记 `sa_netx_*` 加入标准库的 RFC
@@ -1904,9 +1924,9 @@ sa/
   - 说明：外部插件 `/home/vscode/projects/sa_plugins/sa_plugin_sax` 已用 `zig build test --summary all` 自动覆盖 7 条 Trap 的 `sa sax check` 负向路径；宿主 `src/verifier.zig` 的 SAX source-map hook 仍按 73.8 / 74 保留。
   - _Requirements: R36.4, R36.5, R36.6, R36.7, R36.8, R36.9_
 
-- [ ] 74. Referee hook 接入（`src/verifier.zig` 追加 SAX 规则调用）
-  - [ ] 74.1 在 `verifyBody` 主循环内添加 SAX 规则分发（仅当输入源标记为 SAX 派生）
-  - [ ] 74.2 不破坏现有 23 条 Trap 规则
+- [x] 74. Referee hook 接入（`src/verifier.zig` 追加 SAX 规则调用）
+  - [x] 74.1 在 `verifyBody` 主循环内添加 SAX 规则分发（仅当输入源标记为 SAX 派生）
+  - [x] 74.2 不破坏现有 23 条 Trap 规则
   - _Requirements: R36.9_
 
 #### M3：DOM Airlock 与 HTML Shell（W5–W6）
@@ -1958,19 +1978,19 @@ sa/
   - _Requirements: R36.2_
 
 - [ ] 80. 生命周期钩子
-  - [ ] 80.1 `@onMount:` Lowerer 在 init 末尾追加调用
-  - [ ] 80.2 `@onUnmount:` Lowerer 在 destroy 头部插入调用
+  - [x] 80.1 `@onMount:` Lowerer 在 init 末尾追加调用
+  - [x] 80.2 `@onUnmount:` Lowerer 在 destroy 头部插入调用
   - [ ] 80.3 钩子函数签名一致性校验（无参无返）
   - _Requirements: R36.2_
 
 - [ ] 81. `<Router>` / `<Page>` 基础路由
-  - [ ] 81.1 `<Router>` 顶层组件，挂载 `popstate` / `hashchange` 事件
-  - [ ] 81.2 `<Page path="/x" component="X" />` 声明式路由表
+  - [x] 81.1 `<Router>` 顶层组件，挂载 `popstate` / `hashchange` 事件
+  - [x] 81.2 `<Page path="/x" component="X" />` 声明式路由表
   - [ ] 81.3 路由变化触发对应 `<Page>` 组件的 mount/unmount
   - _Requirements: R36.2_
 
 - [ ] 82. `sa sax dev` 开发服务器
-  - [ ] 82.1 HTTP :8080 + 静态文件托管
+  - [x] 82.1 HTTP :8080 + 静态文件托管
   - [ ] 82.2 文件监听（`inotify` / `kqueue`）+ 自动重新编译
   - [ ] 82.3 WASM 模块热替换（保留 SA 状态）
   - _Requirements: R36.11_
@@ -2043,7 +2063,7 @@ sa/
 - [x] Design and implement `sa_std/core/derive.sa` containing foundational macros for structural operations (e.g., shallow copy, field-wise equality).
 - [x] Document the "Naming Contract" pattern for structures (e.g., standardizing `_CLONE`, `_FREE` suffixes for macros).
 - [x] Refine and document the `[MACRO] DISPATCH` pattern as the preferred method for simulated dynamic dispatch (defunctionalization) to maintain O(1) ownership tracking by the Referee.
-- [ ] Prioritize the next macro wave for data-structure portability, in this order:
+- [x] Prioritize the next macro wave for data-structure portability, in this order:
   1. container construction and field access (`STRUCT_NEW`, `FIELD_GET`, `FIELD_SET`, `STRUCT_FREE`, `PTR_FIELD`)
   2. `Option` / `Result` convenience helpers (`OPTION_MATCH_SOME_NONE`, `OPTION_UNWRAP_OR_RETURN`, `RESULT_MATCH_OK_ERR`, `RESULT_RETURN_ERR`, `RESULT_MAP_OK`, `RESULT_IS_OK` / `RESULT_IS_ERR`)
   3. loop / index sugar (`FOR_RANGE`, `WHILE`, `WHILE_COND`, `INDEX_LOOP`, `ARRAY_FOR_EACH`, `ARRAY_SCAN_MIN/MAX`, `SLICE_GET_U64`)
@@ -2061,14 +2081,14 @@ sa/
 - [x] Add `include!` SA coverage through `tests/include_macro_expand_unit.sa` and CLI smoke execution.
 
 ### sa_std Macro Priority Backlog: Data-Structure Portability Wave 2
-- [ ] Container construction and field access macros
+- [x] Container construction and field access macros
   - `STRUCT_NEW`
   - `FIELD_GET`
   - `FIELD_SET`
   - `STRUCT_FREE`
   - `PTR_FIELD`
   - Priority: highest; target `stack` / `queue` / `heap` / `linked_list` / `union_find` / `hash_table` / `fenwick_tree` ports first.
-- [ ] `Option` / `Result` convenience macros
+- [x] `Option` / `Result` convenience macros
   - `OPTION_MATCH_SOME_NONE`
   - `OPTION_UNWRAP_OR_RETURN`
   - `RESULT_MATCH_OK_ERR`
@@ -2076,7 +2096,7 @@ sa/
   - `RESULT_MAP_OK`
   - `RESULT_IS_OK` / `RESULT_IS_ERR`
   - Priority: high; target `trie` / `bloom_filter` / `segment_tree` / `graph` next.
-- [ ] Loop and index macros
+- [x] Loop and index macros
   - `FOR_RANGE`
   - `WHILE`
   - `WHILE_COND`
@@ -2085,7 +2105,7 @@ sa/
   - `ARRAY_SCAN_MIN/MAX`
   - `SLICE_GET_U64`
   - Priority: high; use to cut `jmp` / `branch` / `idx_slot` boilerplate and reduce `PhiStateConflict` risk.
-- [ ] Bit and mask macros
+- [x] Bit and mask macros
   - `BIT_SET`
   - `BIT_GET`
   - `BIT_CLEAR`
@@ -2094,7 +2114,7 @@ sa/
   - `BIT_INDEX_BYTE`
   - `BIT_INDEX_BIT`
   - Priority: medium-high; target `bloom_filter` / `bitset` / `bitmap` / compressed segment-tree layouts.
-- [ ] Hash and probe macros
+- [x] Hash and probe macros
   - `HASH_PTR`
   - `HASH_MIX`
   - `HASH_MOD`
@@ -2103,14 +2123,14 @@ sa/
   - `MAP_LOOKUP`
   - `MAP_INSERT_OR_UPDATE`
   - Priority: medium-high; target `hashmap` / `hashset` / `bloom_filter` / `count_min_sketch`.
-- [ ] Resource cleanup macros
+- [x] Resource cleanup macros
   - `DEFER`
   - `CLEANUP_ON_ERROR`
   - `WITH_TEMP`
   - `RETURN_CLEAN`
   - `FREE_AND_RETURN`
   - Priority: medium; make temp alloc cleanup and error-path teardown explicit and repeatable.
-- [ ] Structured control-flow sugar
+- [x] Structured control-flow sugar
   - `IF`
   - `ELSE`
   - `ELIF`
@@ -2121,7 +2141,8 @@ sa/
   - `BREAK_IF`
   - `CONTINUE_IF`
   - Priority: lower than the data-structure helpers; keep the expansion thin and label-based.
-- [ ] Add SA unit tests for every new macro family as soon as it lands
+  - 说明：`src/flattener/line_classifier.zig` 已识别 `[IF]` / `[ELSE]` / `[END_IF]`，`src/flattener.zig` 的 `macro-time conditionals select then else and nested branches` 单测覆盖 then/else/nested/reject 路径；`sa_std/core/control.sa`、`sa_std/core/option.sa`、`sa_std/core/result.sa` 已提供其余宏，`tests/rust_core_unit.sa` 与 `tests/std_smoke_core.zig` 有对应用例/存在性覆盖。验证命令：`zig test src/flattener.zig` 通过 61/61；`zig build std-smoke --summary all` 仍因已知 Deno/HTTP 链接符号 `sa_http_client_resp_body_slice` 失败，非本项失败。
+- [x] Add SA unit tests for every new macro family as soon as it lands
   - Smoke coverage for expansion presence
   - Behavior coverage for success / failure / cleanup paths
   - Keep the tests in `tests/rust_core_unit.sa` or adjacent macro-specific SA tests

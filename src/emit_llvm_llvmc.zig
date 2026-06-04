@@ -22,8 +22,8 @@ pub const EmitOptions = emit_options.EmitOptions;
 const CType = enum(c_int) { void = 0, i1 = 1, i8 = 2, i16 = 3, i32 = 4, i64 = 5, f32 = 6, f64 = 7, ptr = 8, u8 = 9, u16 = 10, u32 = 11, u64 = 12 };
 const CFuncKind = enum(c_int) { normal = 0, external = 1, exported = 2, test_func = 3 };
 const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21 };
-const COperandKind = enum(c_int) { none = 0, reg = 1, imm_i64 = 2, imm_u64 = 3, const_ptr = 4 };
-const CBinaryOp = enum(c_int) { add = 0, sub = 1, mul = 2, sdiv = 3, udiv = 4, srem = 5, urem = 6, band = 7, bor = 8, xor = 9, shl = 10, lshr = 11, ashr = 12, eq = 13, ne = 14, slt = 15, sle = 16, sgt = 17, sge = 18, ult = 19, ule = 20, ugt = 21, uge = 22 };
+const COperandKind = enum(c_int) { none = 0, reg = 1, imm_i64 = 2, imm_u64 = 3, const_ptr = 4, imm_f64 = 5 };
+const CBinaryOp = enum(c_int) { add = 0, sub = 1, mul = 2, sdiv = 3, udiv = 4, srem = 5, urem = 6, band = 7, bor = 8, xor = 9, shl = 10, lshr = 11, ashr = 12, eq = 13, ne = 14, slt = 15, sle = 16, sgt = 17, sge = 18, ult = 19, ule = 20, ugt = 21, uge = 22, fadd = 23, fsub = 24, fmul = 25, fdiv = 26, fcmp_eq = 27, fcmp_ne = 28, fcmp_lt = 29, fcmp_le = 30, fcmp_gt = 31, fcmp_ge = 32 };
 const CAtomicOrdering = enum(c_int) { relaxed = 0, acquire = 1, release = 2, acq_rel = 3, seq_cst = 4 };
 const CAtomicRmwOp = enum(c_int) { add = 0, sub = 1, band = 2, bor = 3, xor = 4, xchg = 5, min = 6, max = 7, umin = 8, umax = 9 };
 
@@ -32,7 +32,7 @@ const CVTable = extern struct { name: [*:0]const u8, funcs: [*]const [*:0]const 
 const CParam = extern struct { name: [*:0]const u8, ty: CType, slot: u32 };
 const CDebugLoc = extern struct { line: u32, col: u32 };
 const CDebugVar = extern struct { name: [*:0]const u8, ty: CType, slot: u32, is_param: bool, line: u32, col: u32 };
-const COperand = extern struct { kind: COperandKind, reg: u32, i64_value: i64, u64_value: u64, ty: CType, name: ?[*:0]const u8 };
+const COperand = extern struct { kind: COperandKind, reg: u32, i64_value: i64, u64_value: u64, f64_value: f64, ty: CType, name: ?[*:0]const u8 };
 const CInstruction = extern struct {
     op: COp,
     dst: u32,
@@ -364,10 +364,11 @@ const BuildState = struct {
 
     fn operand(self: *BuildState, op: inst.Operand) !COperand {
         return switch (op) {
-            .reg => |slot| .{ .kind = .reg, .reg = slot, .i64_value = 0, .u64_value = 0, .ty = .i64, .name = null },
-            .imm_i64 => |v| .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .ty = .i64, .name = null },
-            .imm_int => |v| .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .ty = .i64, .name = null },
-            .imm_u64 => |v| .{ .kind = .imm_u64, .reg = 0, .i64_value = 0, .u64_value = v, .ty = .i64, .name = null },
+            .reg => |slot| .{ .kind = .reg, .reg = slot, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
+            .imm_i64 => |v| .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
+            .imm_int => |v| .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
+            .imm_u64 => |v| .{ .kind = .imm_u64, .reg = 0, .i64_value = 0, .u64_value = v, .f64_value = 0, .ty = .i64, .name = null },
+            .imm_float => |v| .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = v, .ty = .f64, .name = null },
             .text => |text| try self.textOperand(text),
             else => error.InvalidOperand,
         };
@@ -376,7 +377,7 @@ const BuildState = struct {
     fn callArgOperand(self: *BuildState, arg: call.ParsedArg) !COperand {
         if (isRawQuotedStringArg(arg)) {
             const name = self.anon_string_names.get(arg.text) orelse return error.InvalidOperand;
-            return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .ty = .ptr, .name = name };
+            return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .ptr, .name = name };
         }
         return try self.textOperand(arg.text);
     }
@@ -408,19 +409,26 @@ const BuildState = struct {
                 .i64
             else if (std.mem.eql(u8, ty_text, "u64"))
                 .u64
+            else if (std.mem.eql(u8, ty_text, "f32"))
+                .f32
+            else if (std.mem.eql(u8, ty_text, "f64"))
+                .f64
             else
                 null;
         } else null;
         if (std.fmt.parseInt(i64, text, 10)) |v| {
-            return .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .ty = explicit_ty orelse .i64, .name = null };
+            return .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = explicit_ty orelse .i64, .name = null };
+        } else |_| {}
+        if (std.fmt.parseFloat(f64, text)) |v| {
+            return .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = v, .ty = explicit_ty orelse .f64, .name = null };
         } else |_| {}
         if (self.const_names.contains(text)) {
             const z = try self.allocator.dupeZ(u8, text);
-            return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .ty = .ptr, .name = z.ptr };
+            return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .ptr, .name = z.ptr };
         }
         if (self.symbols.findId(text)) |id| {
             if (self.fsig.slotOf(id)) |slot| {
-                return .{ .kind = .reg, .reg = slot, .i64_value = 0, .u64_value = 0, .ty = .i64, .name = null };
+                return .{ .kind = .reg, .reg = slot, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null };
             }
         }
         return error.InvalidOperand;
@@ -461,6 +469,16 @@ fn binaryOp(kind: inst.OpKind) !CBinaryOp {
         .ule => .ule,
         .ugt => .ugt,
         .uge => .uge,
+        .fadd => .fadd,
+        .fsub, .fneg => .fsub,
+        .fmul => .fmul,
+        .fdiv => .fdiv,
+        .fcmp_eq => .fcmp_eq,
+        .fcmp_ne => .fcmp_ne,
+        .fcmp_lt => .fcmp_lt,
+        .fcmp_le => .fcmp_le,
+        .fcmp_gt => .fcmp_gt,
+        .fcmp_ge => .fcmp_ge,
         else => error.UnsupportedInstruction,
     };
 }
@@ -693,9 +711,17 @@ fn assignTy(kind: inst.InstKind, value: COperand) CType {
         .assign => switch (value.kind) {
             .const_ptr => .ptr,
             .imm_i64, .imm_u64 => if (value.ty == .ptr) .ptr else .void,
+            .imm_f64 => value.ty,
             else => .void,
         },
         else => .void,
+    };
+}
+
+fn isFloatOp(opcode: inst.OpKind) bool {
+    return switch (opcode) {
+        .fadd, .fsub, .fmul, .fdiv, .fneg, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => true,
+        else => false,
     };
 }
 
@@ -713,7 +739,7 @@ fn rawAssignOperand(state: *BuildState, base: inst.Instruction) ?COperand {
 }
 
 fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, base: inst.Instruction) !?CInstruction {
-    const none = COperand{ .kind = .none, .reg = 0, .i64_value = 0, .u64_value = 0, .ty = .void, .name = null };
+    const none = COperand{ .kind = .none, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .void, .name = null };
     const default_ordering: CAtomicOrdering = .seq_cst;
     const default_rmw: CAtomicRmwOp = .add;
     return switch (base.kind) {
@@ -733,7 +759,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, base: inst
         .cmpxchg => blk: {
             const args = try allocator.alloc(COperand, 2);
             args[0] = try state.textOperand(base.atomic_new_text orelse return error.InvalidOperand);
-            args[1] = .{ .kind = .reg, .reg = base.operands[1].reg, .i64_value = 0, .u64_value = 0, .ty = .i1, .name = null };
+            args[1] = .{ .kind = .reg, .reg = base.operands[1].reg, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i1, .name = null };
             break :blk .{ .op = .cmpxchg, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[2]), .operand1 = try state.operand(base.operands[3]), .operand2 = try state.textOperand(base.atomic_expected_text orelse return error.InvalidOperand), .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = atomicOrdering(base.atomic_second_ordering), .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
         },
         .fence => .{ .op = .fence, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
@@ -743,7 +769,10 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, base: inst
             if (inst.isTypeConversionOpKind(opcode)) {
                 break :blk .{ .op = .assign, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try opConversionTy(base), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
             }
-            break :blk .{ .op = .op, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = .i64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+            if (opcode == .fneg) {
+                break :blk .{ .op = .op, .dst = base.operands[0].reg, .operand0 = .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0.0, .ty = .f64, .name = null }, .operand1 = try state.operand(base.operands[1]), .operand2 = none, .ty = .f64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+            }
+            break :blk .{ .op = .op, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = if (isFloatOp(opcode)) .f64 else .i64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
         },
         .ptr_add => .{ .op = .ptr_add, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = .ptr, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .jmp => .{ .op = .jmp, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },

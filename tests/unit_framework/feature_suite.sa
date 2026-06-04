@@ -12,6 +12,7 @@
 L_ENTRY:
     call @"03_if_else branch path"()
     call @"04_loop zero fill"()
+    call @"04_float_ops native llvm"()
     call @"05_struct field layout"()
     call @"06_enum_and_match tag dispatch"()
     call @"07_trait_vtable dynamic dispatch"()
@@ -338,6 +339,62 @@ L_OK:
 L_ERR:
     !ok
     panic(206)
+
+@test "04_float_ops native llvm"():
+L_ENTRY:
+    sum = fadd 1.5, 2.25
+    diff = fsub 9.0, 4.25
+    prod = fmul 1.5, 4.0
+    quot = fdiv 7.5, 2.0
+    neg = fneg 2.5
+    sum_ok = fcmp_eq sum, 3.75
+    diff_ok = fcmp_eq diff, 4.75
+    prod_ok = fcmp_eq prod, 6.0
+    quot_ok = fcmp_eq quot, 3.75
+    neg_ok = fcmp_eq neg, -2.5
+    lt_ok = fcmp_lt neg, sum
+    ge_ok = fcmp_ge prod, 6.0
+    bits = alloc 4
+    store bits+0, sum as f32
+    sum_bits = load bits+0 as i32
+    bits_ok = eq sum_bits, 1081081856
+    p0 = and sum_ok, diff_ok
+    p1 = and prod_ok, quot_ok
+    p2 = and neg_ok, lt_ok
+    p3 = and ge_ok, bits_ok
+    p4 = and p0, p1
+    p5 = and p2, p3
+    ok = and p4, p5
+    !sum
+    !diff
+    !prod
+    !quot
+    !neg
+    !sum_ok
+    !diff_ok
+    !prod_ok
+    !quot_ok
+    !neg_ok
+    !lt_ok
+    !ge_ok
+    !sum_bits
+    !bits_ok
+    !p0
+    !p1
+    !p2
+    !p3
+    !p4
+    !p5
+    !bits
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    return
+
+L_ERR:
+    !ok
+    panic(207)
 
 @test "05_struct field layout"():
 L_ENTRY:

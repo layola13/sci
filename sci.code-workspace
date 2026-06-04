@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../sa_plugins"
+		},
+		{
+			"path": "../TheAlgorithms/Sa"
 		}
 	],
 	"settings": {
