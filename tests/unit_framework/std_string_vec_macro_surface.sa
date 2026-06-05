@@ -605,12 +605,25 @@ L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 2
     EXPAND VEC_PUSH_U64 vec, 44
     EXPAND VEC_PUSH_U64 vec, 55
+    append_src_data = alloc 16
+    store append_src_data+0, 66 as u64
+    store append_src_data+8, 77 as u64
+    append_src_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW append_src_slice, append_src_data, 2
+    EXPAND VEC_EXTEND_FROM_SLICE_U64 vec, append_src_slice
+    EXPAND VEC_TRY_GET_U64 after_extend_ok, after_extend, vec, 3
+    EXPAND VEC_WITH_CAPACITY_U64 append_src_vec, 2
+    EXPAND VEC_PUSH_U64 append_src_vec, 88
+    EXPAND VEC_PUSH_U64 append_src_vec, 99
+    EXPAND VEC_APPEND_U64 vec, append_src_vec
+    EXPAND VEC_TRY_GET_U64 after_append_ok, after_append, vec, 5
+    EXPAND VEC_LEN append_src_len_after, append_src_vec
     prefix_data = alloc 8
     suffix_data = alloc 8
     miss_prefix_data = alloc 8
     long_suffix_data = alloc 24
     store prefix_data+0, 44 as u64
-    store suffix_data+0, 55 as u64
+    store suffix_data+0, 99 as u64
     store miss_prefix_data+0, 66 as u64
     store long_suffix_data+0, 44 as u64
     store long_suffix_data+8, 55 as u64
@@ -623,9 +636,9 @@ L_ENTRY:
     EXPAND SLICE_NEW suffix, suffix_data, 1
     EXPAND SLICE_NEW miss_prefix, miss_prefix_data, 1
     EXPAND SLICE_NEW long_suffix, long_suffix_data, 3
-    EXPAND VEC_RESERVE_EXACT_U64 vec, 4
+    EXPAND VEC_RESERVE_EXACT_U64 vec, 2
     EXPAND VEC_CAPACITY cap_exact, vec
-    EXPAND VEC_RESERVE_U64 vec, 5
+    EXPAND VEC_RESERVE_U64 vec, 0
     EXPAND VEC_CAPACITY cap, vec
     EXPAND VEC_GET_U64 got, vec, 1
     EXPAND VEC_FRONT front, vec
@@ -633,7 +646,7 @@ L_ENTRY:
     EXPAND VEC_TRY_FRONT_U64 front_try_ok, front_try, vec
     EXPAND VEC_TRY_BACK_U64 back_try_ok, back_try, vec
     EXPAND VEC_CONTAINS_U64 contains_55, vec, 55
-    EXPAND VEC_CONTAINS_U64 contains_99, vec, 99
+    EXPAND VEC_CONTAINS_U64 contains_123, vec, 123
     EXPAND VEC_STARTS_WITH_U64 starts_ok, vec, prefix
     EXPAND VEC_ENDS_WITH_U64 ends_ok, vec, suffix
     EXPAND VEC_STARTS_WITH_U64 starts_miss, vec, miss_prefix
@@ -650,22 +663,30 @@ L_ENTRY:
     EXPAND VEC_AS_PTR data_ptr, vec
     EXPAND VEC_AS_SLICE slice, vec
     EXPAND SLICE_GET_LEN slice_len, slice
+    EXPAND VEC_TRY_SWAP_REMOVE_U64 swap_remove_ok, swap_removed, vec, 1
+    EXPAND VEC_TRY_GET_U64 swap_slot_ok, swap_slot, vec, 1
+    EXPAND VEC_TRY_SWAP_REMOVE_U64 swap_remove_miss_ok, swap_remove_miss, vec, 9
     EXPAND VEC_POP_U64 pop2_ok, popped2, vec
     EXPAND VEC_LEN len, vec
-    EXPAND VEC_TRY_FRONT_U64 empty_front_ok, empty_front, vec
-    EXPAND VEC_TRY_BACK_U64 empty_back_ok, empty_back, vec
+    EXPAND VEC_TRY_FRONT_U64 front_after_ok, front_after, vec
+    EXPAND VEC_TRY_BACK_U64 back_after_ok, back_after, vec
 
     got_ok = eq got, 55
-    cap_exact_ok = eq cap_exact, 6
-    cap_ok = eq cap, 7
+    after_extend_flag_ok = eq after_extend_ok, 1
+    after_extend_value_ok = eq after_extend, 77
+    after_append_flag_ok = eq after_append_ok, 1
+    after_append_value_ok = eq after_append, 99
+    append_src_len_after_ok = eq append_src_len_after, 0
+    cap_exact_ok = eq cap_exact, 8
+    cap_ok = eq cap, 8
     front_ok = eq front, 44
-    back_ok = eq back, 55
+    back_ok = eq back, 99
     front_try_flag_ok = eq front_try_ok, 1
     front_try_value_ok = eq front_try, 44
     back_try_flag_ok = eq back_try_ok, 1
-    back_try_value_ok = eq back_try, 55
+    back_try_value_ok = eq back_try, 99
     contains_55_ok = eq contains_55, 1
-    contains_99_ok = eq contains_99, 0
+    contains_123_ok = eq contains_123, 0
     starts_match_ok = eq starts_ok, 1
     ends_match_ok = eq ends_ok, 1
     starts_miss_ok = eq starts_miss, 0
@@ -673,32 +694,43 @@ L_ENTRY:
     strip_prefix_flag_ok = eq strip_prefix_ok, 1
     strip_suffix_flag_ok = eq strip_suffix_ok, 1
     strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
-    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 1
+    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 5
     strip_prefix_tail_first_ok = eq strip_prefix_tail_first, 55
-    strip_suffix_head_len_ok = eq strip_suffix_head_len, 1
+    strip_suffix_head_len_ok = eq strip_suffix_head_len, 5
     strip_suffix_head_first_ok = eq strip_suffix_head_first, 44
     strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
     pop_ok_flag = eq pop_ok, 1
-    pop_ok_value = eq popped, 55
+    pop_ok_value = eq popped, 99
     ptr_ok = ne data_ptr, 0
-    slice_len_ok = eq slice_len, 1
+    slice_len_ok = eq slice_len, 5
+    swap_remove_flag_ok = eq swap_remove_ok, 1
+    swap_remove_value_ok = eq swap_removed, 55
+    swap_slot_flag_ok = eq swap_slot_ok, 1
+    swap_slot_value_ok = eq swap_slot, 88
+    swap_remove_miss_flag_ok = eq swap_remove_miss_ok, 0
+    swap_remove_miss_value_ok = eq swap_remove_miss, 0
     pop2_ok_flag = eq pop2_ok, 1
-    pop2_ok_value = eq popped2, 44
-    len_ok = eq len, 0
-    empty_front_flag_ok = eq empty_front_ok, 0
-    empty_front_value_ok = eq empty_front, 0
-    empty_back_flag_ok = eq empty_back_ok, 0
-    empty_back_value_ok = eq empty_back, 0
-    ok01 = and got_ok, cap_exact_ok
-    ok02 = and ok01, cap_ok
-    ok03 = and ok02, front_ok
-    ok04 = and ok03, back_ok
-    ok05 = and ok04, front_try_flag_ok
-    ok06 = and ok05, front_try_value_ok
-    ok07 = and ok06, back_try_flag_ok
-    ok08 = and ok07, back_try_value_ok
-    ok09 = and ok08, contains_55_ok
-    ok10 = and ok09, contains_99_ok
+    pop2_ok_value = eq popped2, 77
+    len_ok = eq len, 3
+    front_after_flag_ok = eq front_after_ok, 1
+    front_after_value_ok = eq front_after, 44
+    back_after_flag_ok = eq back_after_ok, 1
+    back_after_value_ok = eq back_after, 66
+    ok01 = and got_ok, after_extend_flag_ok
+    ok02 = and ok01, after_extend_value_ok
+    ok03 = and ok02, after_append_flag_ok
+    ok04 = and ok03, after_append_value_ok
+    ok05 = and ok04, append_src_len_after_ok
+    ok06 = and ok05, cap_exact_ok
+    ok07 = and ok06, cap_ok
+    ok08 = and ok07, front_ok
+    ok09 = and ok08, back_ok
+    ok10 = and ok09, front_try_flag_ok
+    ok11 = and ok10, front_try_value_ok
+    ok12 = and ok11, back_try_flag_ok
+    ok13 = and ok12, back_try_value_ok
+    ok14 = and ok13, contains_55_ok
+    ok15 = and ok14, contains_123_ok
     pattern01 = and starts_match_ok, ends_match_ok
     pattern02 = and pattern01, starts_miss_ok
     pattern_ok = and pattern02, ends_long_miss_ok
@@ -709,20 +741,31 @@ L_ENTRY:
     strip05 = and strip04, strip_suffix_head_len_ok
     strip06 = and strip05, strip_suffix_head_first_ok
     strip_ok = and strip06, strip_prefix_miss_empty_ok
-    ok11 = and ok10, pattern_ok
-    ok12 = and ok11, strip_ok
-    ok13 = and ok12, pop_ok_flag
-    ok14 = and ok13, pop_ok_value
-    ok15 = and ok14, ptr_ok
-    ok16 = and ok15, slice_len_ok
-    ok17 = and ok16, pop2_ok_flag
-    ok18 = and ok17, pop2_ok_value
-    ok19 = and ok18, len_ok
-    ok20 = and ok19, empty_front_flag_ok
-    ok21 = and ok20, empty_front_value_ok
-    ok22 = and ok21, empty_back_flag_ok
-    ok = and ok22, empty_back_value_ok
+    ok16 = and ok15, pattern_ok
+    ok17 = and ok16, strip_ok
+    ok18 = and ok17, pop_ok_flag
+    ok19 = and ok18, pop_ok_value
+    ok20 = and ok19, ptr_ok
+    ok21 = and ok20, slice_len_ok
+    ok22 = and ok21, swap_remove_flag_ok
+    ok23 = and ok22, swap_remove_value_ok
+    ok24 = and ok23, swap_slot_flag_ok
+    ok25 = and ok24, swap_slot_value_ok
+    ok26 = and ok25, swap_remove_miss_flag_ok
+    ok27 = and ok26, swap_remove_miss_value_ok
+    ok28 = and ok27, pop2_ok_flag
+    ok29 = and ok28, pop2_ok_value
+    ok30 = and ok29, len_ok
+    ok31 = and ok30, front_after_flag_ok
+    ok32 = and ok31, front_after_value_ok
+    ok33 = and ok32, back_after_flag_ok
+    ok = and ok33, back_after_value_ok
     !got
+    !after_extend_ok
+    !after_extend
+    !after_append_ok
+    !after_append
+    !append_src_len_after
     !cap_exact
     !cap
     !front
@@ -732,7 +775,7 @@ L_ENTRY:
     !back_try_ok
     !back_try
     !contains_55
-    !contains_99
+    !contains_123
     !starts_ok
     !ends_ok
     !starts_miss
@@ -753,14 +796,28 @@ L_ENTRY:
     !data_ptr
     !slice
     !slice_len
+    !swap_remove_ok
+    !swap_removed
+    !swap_slot_ok
+    !swap_slot
+    !swap_remove_miss_ok
+    !swap_remove_miss
     !pop2_ok
     !popped2
     !len
-    !empty_front_ok
-    !empty_front
-    !empty_back_ok
-    !empty_back
+    !front_after_ok
+    !front_after
+    !back_after_ok
+    !back_after
+    !append_src_data
+    !append_src_slice
+    !append_src_vec
     !got_ok
+    !after_extend_flag_ok
+    !after_extend_value_ok
+    !after_append_flag_ok
+    !after_append_value_ok
+    !append_src_len_after_ok
     !cap_exact_ok
     !cap_ok
     !front_ok
@@ -770,7 +827,7 @@ L_ENTRY:
     !back_try_flag_ok
     !back_try_value_ok
     !contains_55_ok
-    !contains_99_ok
+    !contains_123_ok
     !starts_match_ok
     !ends_match_ok
     !starts_miss_ok
@@ -787,13 +844,19 @@ L_ENTRY:
     !pop_ok_value
     !ptr_ok
     !slice_len_ok
+    !swap_remove_flag_ok
+    !swap_remove_value_ok
+    !swap_slot_flag_ok
+    !swap_slot_value_ok
+    !swap_remove_miss_flag_ok
+    !swap_remove_miss_value_ok
     !pop2_ok_flag
     !pop2_ok_value
     !len_ok
-    !empty_front_flag_ok
-    !empty_front_value_ok
-    !empty_back_flag_ok
-    !empty_back_value_ok
+    !front_after_flag_ok
+    !front_after_value_ok
+    !back_after_flag_ok
+    !back_after_value_ok
     !ok01
     !ok02
     !ok03
@@ -816,6 +879,17 @@ L_ENTRY:
     !ok20
     !ok21
     !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
     !pattern01
     !pattern02
     !pattern_ok

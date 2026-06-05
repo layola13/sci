@@ -204,3 +204,38 @@
     EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, __vec_split_slice_%out_ok, %mid
     !__vec_split_slice_%out_ok
 [END_MACRO]
+
+[MACRO] VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, %elem_size
+    %vec_reg = call @sa_vec_extend_from_slice(^%vec_reg, &%slice_reg, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_EXTEND_FROM_SLICE_U64 %vec_reg, %slice_reg
+    EXPAND VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_APPEND %dst_vec_reg, %src_vec_reg, %elem_size
+    %dst_vec_reg = call @sa_vec_append(^%dst_vec_reg, &%src_vec_reg, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_APPEND_U64 %dst_vec_reg, %src_vec_reg
+    EXPAND VEC_APPEND %dst_vec_reg, %src_vec_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_TRY_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index
+    __vec_swap_remove_slot_%out_ok = stack_alloc 8
+    __vec_swap_remove_ok_%out_ok = call @sa_vec_try_swap_remove(&%vec_reg, %index, &__vec_swap_remove_slot_%out_ok)
+    %out_value = load __vec_swap_remove_slot_%out_ok+0 as u64
+    %out_ok = __vec_swap_remove_ok_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_SWAP_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
+    EXPAND VEC_TRY_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] VEC_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index
+    EXPAND VEC_TRY_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] VEC_SWAP_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
+    EXPAND VEC_TRY_SWAP_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
+[END_MACRO]

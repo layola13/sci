@@ -1,4 +1,6 @@
 @import "../core/mem.sa"
+@import "../core/slice.sal"
+@import "../core/slice.sa"
 @import "vec.sal"
 
 @export sa_vec_new() -> ^ptr:
@@ -202,6 +204,122 @@ L_EMPTY:
     store out_value_slot+0, 0 as ptr
     !len
     !empty
+    !out_value_slot
+    !vec
+    return 0
+
+@export sa_vec_extend_from_slice(^vec: ptr, &slice: ptr, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    add_len = load slice+Slice_len as u64
+    add_zero = eq add_len, 0
+    br add_zero -> L_DONE, L_GROW
+
+L_GROW:
+    len = load vec+Vec_len as u64
+    cap = load vec+Vec_cap as u64
+    needed = add len, add_len
+    has_room = uge cap, needed
+    br has_room -> L_COPY, L_REALLOC
+
+L_REALLOC:
+    old_buf = take vec+Vec_ptr
+    new_bytes = mul needed, elem_size
+    new_buf = alloc new_bytes
+    call @sa_mem_set(&new_buf, 0, new_bytes)
+    copy_old_bytes = mul len, elem_size
+    call @sa_mem_copy(&new_buf, &old_buf, copy_old_bytes)
+    store vec+Vec_ptr, new_buf as ptr
+    store vec+Vec_cap, needed as u64
+    ^new_buf
+    !copy_old_bytes
+    !new_bytes
+    !old_buf
+
+L_COPY:
+    dst_buf = load vec+Vec_ptr as ptr
+    src_buf = load slice+Slice_ptr as ptr
+    dst_off = mul len, elem_size
+    dst_ptr = ptr_add dst_buf, dst_off
+    copy_add_bytes = mul add_len, elem_size
+    call @sa_mem_copy(&dst_ptr, &src_buf, copy_add_bytes)
+    store vec+Vec_len, needed as u64
+    !copy_add_bytes
+    !dst_ptr
+    !dst_off
+    !src_buf
+    !dst_buf
+    !has_room
+    !needed
+    !cap
+    !len
+    !add_len
+    !add_zero
+    !elem_size
+    !slice
+    return vec
+
+L_DONE:
+    !add_len
+    !add_zero
+    !elem_size
+    !slice
+    return vec
+
+@export sa_vec_append(^dst_vec: ptr, &src_vec: ptr, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    src_slice = alloc Slice_SIZE
+    src_ptr = load src_vec+Vec_ptr as ptr
+    src_len = load src_vec+Vec_len as u64
+    EXPAND SLICE_NEW src_slice, src_ptr, src_len
+    dst_vec = call @sa_vec_extend_from_slice(^dst_vec, &src_slice, elem_size)
+    store src_vec+Vec_len, 0 as u64
+    !src_slice
+    !src_ptr
+    !src_len
+    !elem_size
+    !src_vec
+    return dst_vec
+
+@export sa_vec_try_swap_remove(&vec: ptr, index: u64, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    in_bounds = ult index, len
+    br in_bounds -> L_READY, L_MISS
+
+L_READY:
+    buf = load vec+Vec_ptr as ptr
+    last_index = sub len, 1
+    remove_off = mul index, 8
+    remove_ptr = ptr_add buf, remove_off
+    removed = load remove_ptr+0 as u64
+    last_off = mul last_index, 8
+    last_ptr = ptr_add buf, last_off
+    last_value = load last_ptr+0 as u64
+    store remove_ptr+0, last_value as u64
+    next_len = sub len, 1
+    store out_value_slot+0, removed as u64
+    store vec+Vec_len, next_len as u64
+    !next_len
+    !last_value
+    !last_ptr
+    !last_off
+    !removed
+    !remove_ptr
+    !remove_off
+    !last_index
+    !buf
+    !in_bounds
+    !len
+    !index
+    !out_value_slot
+    !vec
+    return 1
+
+L_MISS:
+    store out_value_slot+0, 0 as ptr
+    !in_bounds
+    !len
+    !index
     !out_value_slot
     !vec
     return 0
