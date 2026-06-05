@@ -1774,12 +1774,19 @@ test "sa test runs isolated native tests with filterable names" {
     stderr_buffer.clearRetainingCapacity();
 
     const assert_source =
-        \\@const ASSERT_MSG = utf8:"expected=42 actual=41"
-        \\#def ASSERT_MSG_LEN = 21
+        \\@extern sa_assert_eq_i64(actual: i64, expected: i64, code: i32) -> void
+        \\@extern sa_assert_eq_i64_at(actual: i64, expected: i64, code: i32, &file: ptr, file_len: u64, line: u32, col: u32) -> void
+        \\@extern sa_test_debug_i64(&name: ptr, name_len: u64, value: i64) -> void
+        \\@const ACTUAL_NAME = utf8:"actual"
+        \\@const ASSERT_FILE = utf8:"assert_values.sa"
         \\
         \\@test "assert equal reports values"():
         \\L_FAIL:
-        \\    panic_msg(103, *ASSERT_MSG, ASSERT_MSG_LEN)
+        \\    actual = add 40, 1
+        \\    call @sa_test_debug_i64(*ACTUAL_NAME, 6, actual)
+        \\    call @sa_assert_eq_i64_at(actual, 42, 103, *ASSERT_FILE, 16, 9, 5)
+        \\    !actual
+        \\    return
         \\
     ;
     try writeSource(tmp.dir, "assert_values.sa", assert_source);
@@ -1799,7 +1806,7 @@ test "sa test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const assert_argv = [_][]const u8{ "sa", "test", "assert_values.sa", "--jobs", "1" };
+    const assert_argv = [_][]const u8{ "sa", "test", "assert_values.sa", "--jobs", "1", "--trace-panic" };
     const assert_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         assert_argv[0..],
@@ -1809,10 +1816,17 @@ test "sa test runs isolated native tests with filterable names" {
     try std.testing.expectEqual(@as(u8, 1), assert_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[FAIL] assert equal reports values"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: FAILED. 0 passed; 1 failed; 0 skipped"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "test location: assert_values.sa:6:1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "code path: assert_values.sa::_saasm_test_"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "panic: code=103"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "panic location: assert_values.sa:9:5"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "trace-panic: enabled"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "recent scalars:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "actual=41"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "assertion failed:"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "expected: 42"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "actual: 41"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "PANIC[103]: expected=42 actual=41"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "PANIC[103]: assert_values.sa:9:5: expected=42 actual=41"));
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();

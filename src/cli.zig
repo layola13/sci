@@ -418,6 +418,7 @@ const TestCommandOptions = struct {
     selection: test_meta.TestSelection,
     list: bool = false,
     compile_only: bool = false,
+    trace_panic: bool = false,
 };
 
 pub const DiagnosticsMode = enum {
@@ -1110,6 +1111,8 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --list                         List selected tests without running them\n");
             try writer.writeAll("  --compile-only                 Compile and link tests without running them\n");
+            try writer.writeAll("  --trace-panic                  Include panic diagnostics on failed tests\n");
+            try writer.writeAll("  --test-debug                   Alias for --trace-panic\n");
             try writer.writeAll("  --filter <pattern>             Include only matching tests (repeatable)\n");
             try writer.writeAll("  --skip <pattern>               Exclude matching tests (repeatable)\n");
             try writer.writeAll("  --exact                        Match test names exactly\n");
@@ -1335,6 +1338,8 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("\nTest flags:\n");
     try writer.writeAll("  --list                         List selected tests without running them\n");
     try writer.writeAll("  --compile-only                 Compile and link tests without running them\n");
+    try writer.writeAll("  --trace-panic                  Include panic diagnostics on failed tests\n");
+    try writer.writeAll("  --test-debug                   Alias for --trace-panic\n");
     try writer.writeAll("  --filter <pattern>             Include only matching tests (repeatable)\n");
     try writer.writeAll("  --skip <pattern>               Exclude matching tests (repeatable)\n");
     try writer.writeAll("  --exact                        Match test names exactly\n");
@@ -3939,6 +3944,7 @@ fn executeTest(
                 tmp.dir,
                 &test_list,
                 test_options.selection,
+                test_options.trace_panic,
                 compile_options.jobs,
                 stdout.any(),
                 stderr.any(),
@@ -4216,6 +4222,7 @@ pub fn executeWithWritersAndOptions(
             var run_ignored = test_meta.RunIgnored.normal;
             var list_tests = false;
             var compile_only = false;
+            var trace_panic = false;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -4225,6 +4232,10 @@ pub fn executeWithWritersAndOptions(
                 }
                 if (std.mem.eql(u8, args[i], "--compile-only")) {
                     compile_only = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--trace-panic") or std.mem.eql(u8, args[i], "--test-debug")) {
+                    trace_panic = true;
                     continue;
                 }
                 if (std.mem.eql(u8, args[i], "--filter")) {
@@ -4263,6 +4274,7 @@ pub fn executeWithWritersAndOptions(
                 .selection = selection,
                 .list = list_tests,
                 .compile_only = compile_only,
+                .trace_panic = trace_panic,
             }, stdout, stderr, if (json_mode) .json else .human);
         },
     }

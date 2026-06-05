@@ -21,11 +21,26 @@ pub const AssertionFailure = struct {
     actual: []const u8,
 };
 
+pub const SourceLocation = struct {
+    file: []const u8,
+    line: u32 = 0,
+    col: u32 = 0,
+};
+
+pub const PanicInfo = struct {
+    code: u32,
+    location: ?SourceLocation = null,
+};
+
 pub const TestFailure = struct {
     display_name: []const u8,
     reason: FailureReason,
     stderr: []const u8,
     assertion: ?AssertionFailure = null,
+    location: ?SourceLocation = null,
+    panic: ?PanicInfo = null,
+    selector_name: ?[]const u8 = null,
+    trace_panic: bool = false,
 };
 
 pub const TestOutcome = union(enum) {
@@ -96,6 +111,54 @@ pub fn parseAssertionFailure(stderr: []const u8) ?AssertionFailure {
     };
 }
 
+fn parseUnsignedPrefix(text: []const u8) ?u32 {
+    var end: usize = 0;
+    while (end < text.len and std.ascii.isDigit(text[end])) : (end += 1) {}
+    if (end == 0) return null;
+    return std.fmt.parseInt(u32, text[0..end], 10) catch null;
+}
+
+fn parseSourceLocationPrefix(text: []const u8) ?SourceLocation {
+    const line_end = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
+    const line = text[0..line_end];
+    const first_colon = std.mem.indexOfScalar(u8, line, ':') orelse return null;
+    if (first_colon == 0) return null;
+    const line_start = first_colon + 1;
+    const line_value = parseUnsignedPrefix(line[line_start..]) orelse return null;
+    var after_line = line_start;
+    while (after_line < line.len and std.ascii.isDigit(line[after_line])) : (after_line += 1) {}
+    var col_value: u32 = 0;
+    if (after_line < line.len and line[after_line] == ':') {
+        const col_start = after_line + 1;
+        if (parseUnsignedPrefix(line[col_start..])) |parsed_col| {
+            col_value = parsed_col;
+        }
+    }
+    return .{
+        .file = line[0..first_colon],
+        .line = line_value,
+        .col = col_value,
+    };
+}
+
+pub fn parsePanicInfo(stderr: []const u8) ?PanicInfo {
+    if (std.mem.indexOf(u8, stderr, "PANIC[")) |start| {
+        const code_start = start + "PANIC[".len;
+        if (parseUnsignedPrefix(stderr[code_start..])) |code| {
+            var location: ?SourceLocation = null;
+            if (std.mem.indexOfPos(u8, stderr, code_start, "]: ")) |message_start| {
+                location = parseSourceLocationPrefix(stderr[message_start + "]: ".len ..]);
+            }
+            return .{ .code = code, .location = location };
+        }
+    }
+    if (std.mem.indexOf(u8, stderr, "PANIC: code=")) |start| {
+        const code_start = start + "PANIC: code=".len;
+        if (parseUnsignedPrefix(stderr[code_start..])) |code| return .{ .code = code };
+    }
+    return null;
+}
+
 pub fn toOutcome(display_name: []const u8, term: std.process.Child.Term, stderr: []const u8, should_panic: bool) TestOutcome {
     const termination = terminationFrom(term);
     if (should_panic) {
@@ -142,6 +205,33 @@ pub fn writeFailure(writer: anytype, failure: TestFailure) !void {
         .signal => |sig_num| try writer.print("error: test {s} terminated by signal {d}\n", .{ failure.display_name, sig_num }),
         .stopped => |sig_num| try writer.print("error: test {s} stopped by signal {d}\n", .{ failure.display_name, sig_num }),
         .unknown => |status| try writer.print("error: test {s} terminated with status {d}\n", .{ failure.display_name, status }),
+    }
+    if (failure.location) |loc| {
+        try writer.print("  test location: {s}", .{loc.file});
+        if (loc.line != 0) {
+            try writer.print(":{d}", .{loc.line});
+            if (loc.col != 0) try writer.print(":{d}", .{loc.col});
+        }
+        try writer.writeByte('\n');
+        if (failure.selector_name) |selector_name| {
+            try writer.print("  code path: {s}::{s}\n", .{ loc.file, selector_name });
+        }
+    } else if (failure.selector_name) |selector_name| {
+        try writer.print("  code path: {s}\n", .{selector_name});
+    }
+    if (failure.panic) |panic| {
+        try writer.print("  panic: code={d}\n", .{panic.code});
+        if (panic.location) |loc| {
+            try writer.print("  panic location: {s}", .{loc.file});
+            if (loc.line != 0) {
+                try writer.print(":{d}", .{loc.line});
+                if (loc.col != 0) try writer.print(":{d}", .{loc.col});
+            }
+            try writer.writeByte('\n');
+        }
+    }
+    if (failure.trace_panic) {
+        try writer.writeAll("  trace-panic: enabled\n");
     }
     if (failure.assertion) |assertion| {
         try writer.print(
@@ -190,6 +280,17 @@ test "assertion panic text extracts expected and actual values" {
     try std.testing.expectEqualStrings("41", keyed.actual);
 }
 
+test "panic text extracts numeric panic code" {
+    const simple = parsePanicInfo("PANIC: code=99\n") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 99), simple.code);
+
+    const message = parsePanicInfo("PANIC[103]: assert_values.sa:8:5: expected=42 actual=41\n") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 103), message.code);
+    try std.testing.expectEqualStrings("assert_values.sa", message.location.?.file);
+    try std.testing.expectEqual(@as(u32, 8), message.location.?.line);
+    try std.testing.expectEqual(@as(u32, 5), message.location.?.col);
+}
+
 test "failure formatting surfaces assertion values before raw stderr" {
     var out = std.ArrayList(u8).init(std.testing.allocator);
     defer out.deinit();
@@ -197,17 +298,24 @@ test "failure formatting surfaces assertion values before raw stderr" {
     try writeFailure(out.writer(), .{
         .display_name = "assert eq diagnostic",
         .reason = .{ .exited = 231 },
-        .stderr = "PANIC[103]: expected=42 actual=41",
+        .stderr = "PANIC[103]: assert_values.sa:8:5: expected=42 actual=41",
         .assertion = .{
             .expected = "42",
             .actual = "41",
         },
+        .location = .{ .file = "tests/assert_values.sa", .line = 4, .col = 1 },
+        .panic = .{ .code = 103, .location = .{ .file = "assert_values.sa", .line = 8, .col = 5 } },
+        .selector_name = "_saasm_test_1",
     });
 
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "test location: tests/assert_values.sa:4:1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "code path: tests/assert_values.sa::_saasm_test_1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "panic: code=103"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "panic location: assert_values.sa:8:5"));
     try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "assertion failed:"));
     try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "expected: 42"));
     try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "actual: 41"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "PANIC[103]: expected=42 actual=41"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "PANIC[103]: assert_values.sa:8:5: expected=42 actual=41"));
 }
 
 test "should panic classification treats PANIC output as success" {

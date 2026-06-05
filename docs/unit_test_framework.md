@@ -48,6 +48,9 @@ sa test ./ --list
 
 # 只完成编译和链接，确认测试可构建但不运行
 sa test ./ --compile-only
+
+# 失败时额外输出 panic 诊断和最近记录的调试标量
+sa test ./ --trace-panic
 ```
 
 **测试报告输出示例：**
@@ -62,10 +65,24 @@ test result: FAILED. 1 passed; 1 failed; 0 skipped
 
 ```text
 error: test addition handles negative numbers exited with code 231
+  test location: math_test.sa:3:1
+  code path: math_test.sa::_saasm_test_1
+  panic: code=103
+  panic location: math_test.sa:6:5
 assertion failed:
   expected: 5
   actual: -5
-PANIC[103]: math_test.sa:6: expected 5, got -5
+PANIC[103]: math_test.sa:6:5: expected 5, got -5
+```
+
+`--trace-panic`（或别名 `--test-debug`）只影响失败详情。配合测试 helper 记录标量后，失败 stderr 会包含最近记录值：
+
+```text
+  trace-panic: enabled
+recent scalars:
+  raw_status=0
+  strict_status=1
+  raw_mask=7
 ```
 
 `--list` 输出受 `--filter` / `--skip` / `--exact` / `--ignored` / `--include-ignored` 影响，并包含测试标记与源码位置：
@@ -103,6 +120,26 @@ L_ENTRY:
     !assert_cond
     return
 ```
+
+如果测试需要动态 actual/expected 值，可以使用轻量测试 helper：
+
+```sa
+@import "sa_std/testing/assert.sai"
+
+@const RAW_STATUS_NAME = utf8:"raw_status"
+@const THIS_FILE = utf8:"status_test.sa"
+
+@test "status matches strict parser"():
+L_ENTRY:
+    raw_status = add 0, 0
+    call @sa_test_debug_i64(*RAW_STATUS_NAME, 10, raw_status)
+    call @sa_assert_eq_i64_at(raw_status, 1, 103, *THIS_FILE, 14, 8, 5)
+    !raw_status
+    return
+```
+
+`sa_assert_eq_i64(actual, expected, code)` 失败时输出 `PANIC[code]: expected=<expected> actual=<actual>`，`sa test` 会自动提取为稳定的 `assertion failed` 字段。`sa_test_debug_i64(name, len, value)` 只记录最近标量；只有启用 `--trace-panic` / `--test-debug` 时才会在失败 panic 后打印这些值。
+如果需要具体错误行列，使用 `sa_assert_eq_i64_at(actual, expected, code, file, file_len, line, col)`；runner 会把它解析为 `panic location`。
 
 ## 3. 测试隔离架构 (Process Isolation)
 

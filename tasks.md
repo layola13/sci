@@ -1480,10 +1480,13 @@ sa/
   - [x] 41.4 控制台进度打印、隔离进程运行、退出状态判断（含 `should_panic` / signal / launch failure）
   - [x] 41.5 增强诊断工作流：`sa test --list` 可按现有选择器列出测试名、标记与源码位置；`sa test --compile-only` 完成测试模式编译/链接后退出不运行子进程，便于先定位构建问题
     - 说明：2026-06-05 已在 `src/test_formatter.zig` / `src/cli.zig` 增加列表与只编译路径，并由 `tests/cli_smoke.zig` 覆盖筛选列表、失败用例 compile-only 不执行。
+  - [x] 41.6 增强运行期 panic 诊断：失败报告补充测试源码位置、解析出的 panic code，并支持 `--trace-panic` / `--test-debug` 在失败时输出 opt-in 标量调试记录
+    - 说明：2026-06-05 `src/test_executor.zig` / `src/test_result.zig` / `src/cli.zig` 已接通该诊断路径，`SA_TEST_TRACE_PANIC=1` 传递给测试子进程。
 
 - [x] 42. 标准库断言与支持
   - [x] 42.1 增强 `ASSERT_EQ` / `ASSERT_TRUE`：新增 `ASSERT_*_MSG` 诊断宏，支持带文件名、行号及具体 diff 的 `panic_msg`
     - 说明：2026-06-05 `src/test_result.zig` 会识别 `expected ... got ...` 与 `expected=... actual=...` panic 文本，在原始 stderr 前输出稳定的 `assertion failed` / `expected` / `actual` 字段，降低复杂 Safe ASM 测试失败定位成本。
+    - 说明：2026-06-05 新增 `sa_std/testing/assert.sai`，提供 `sa_assert_eq_i64(actual, expected, code)` 和 `sa_test_debug_i64(name, len, value)`；失败时输出可解析的 actual/expected，并可在 `--trace-panic` 下打印最近记录的标量。
   - [x] 42.2 提供基础的 Mock 机制（如内存 I/O 缓冲）：新增 `sa_std/testing/mock_io.sal` / `.sa`，提供可 rewind 的内存读写缓冲，并由 `sa test` 回归覆盖写入截断、读取游标和 len/pos 查询
 
 - [ ] 43. 测试用例迁移

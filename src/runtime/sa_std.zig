@@ -55,6 +55,16 @@ pub const SA_STD_STDERR: u64 = 3;
 
 pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
 
+const TestDebugScalar = struct {
+    name: [64]u8 = [_]u8{0} ** 64,
+    name_len: usize = 0,
+    value: i64 = 0,
+};
+
+var test_debug_scalars: [16]TestDebugScalar = [_]TestDebugScalar{.{}} ** 16;
+var test_debug_next: usize = 0;
+var test_debug_count: usize = 0;
+
 pub const SaPluginDescriptor = extern struct {
     abi_version: u32,
     descriptor_size: u32,
@@ -6629,6 +6639,62 @@ pub export fn sa_fmt_i64_into(value: i64, base: u32, out: ?[*]u8, out_cap: u64, 
     var buf: [128]u8 = undefined;
     const text = std.fmt.bufPrintIntToSlice(&buf, value, actual_base, case, .{});
     return writeFormattedInto(out, out_cap, out_len, text);
+}
+
+pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) void {
+    const raw_name = name orelse return;
+    const slot_index = test_debug_next % test_debug_scalars.len;
+    var slot = &test_debug_scalars[slot_index];
+    const copy_len = @min(@as(usize, @intCast(name_len)), slot.name.len);
+    @memset(slot.name[0..], 0);
+    if (copy_len != 0) @memcpy(slot.name[0..copy_len], raw_name[0..copy_len]);
+    slot.name_len = copy_len;
+    slot.value = value;
+    test_debug_next = (test_debug_next + 1) % test_debug_scalars.len;
+    if (test_debug_count < test_debug_scalars.len) test_debug_count += 1;
+}
+
+fn testTracePanicEnabled() bool {
+    const value = envValueFromCurrentProcess("SA_TEST_TRACE_PANIC") orelse return false;
+    return value.len != 0 and !std.mem.eql(u8, value, "0");
+}
+
+fn printRecentTestScalars() void {
+    if (test_debug_count == 0) return;
+    std.debug.print("recent scalars:\n", .{});
+    var index: usize = test_debug_next + test_debug_scalars.len - test_debug_count;
+    var remaining = test_debug_count;
+    while (remaining > 0) : (remaining -= 1) {
+        const slot = test_debug_scalars[index % test_debug_scalars.len];
+        if (slot.name_len != 0) {
+            std.debug.print("  {s}={d}\n", .{ slot.name[0..slot.name_len], slot.value });
+        }
+        index += 1;
+    }
+}
+
+fn exitAfterAssertPanic(code: i32) noreturn {
+    if (testTracePanicEnabled()) printRecentTestScalars();
+    const raw_code: u32 = @bitCast(code);
+    const exit_code: u8 = @as(u8, @truncate((raw_code & 0x7f) + 128));
+    std.process.exit(exit_code);
+}
+
+pub export fn sa_assert_eq_i64(actual: i64, expected: i64, code: i32) void {
+    if (actual == expected) return;
+    std.debug.print("PANIC[{d}]: expected={d} actual={d}\n", .{ code, expected, actual });
+    exitAfterAssertPanic(code);
+}
+
+pub export fn sa_assert_eq_i64_at(actual: i64, expected: i64, code: i32, file: ?[*]const u8, file_len: u64, line: u32, col: u32) void {
+    if (actual == expected) return;
+    const file_slice = if (file) |ptr| ptr[0..@as(usize, @intCast(file_len))] else "";
+    if (file_slice.len != 0 and line != 0) {
+        std.debug.print("PANIC[{d}]: {s}:{d}:{d}: expected={d} actual={d}\n", .{ code, file_slice, line, col, expected, actual });
+    } else {
+        std.debug.print("PANIC[{d}]: expected={d} actual={d}\n", .{ code, expected, actual });
+    }
+    exitAfterAssertPanic(code);
 }
 
 pub export fn sa_fmt_u64(value: u64, base: u32) u64 {

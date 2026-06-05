@@ -8,6 +8,7 @@ pub const TestExecutor = struct {
     exe_path: []const u8,
     cwd_dir: std.fs.Dir,
     selection: test_meta.TestSelection,
+    trace_panic: bool = false,
 
     fn launchFailure(test_case: test_meta.TestDescAndFn, err_name: []const u8) test_result.TestOutcome {
         return .{
@@ -32,6 +33,11 @@ pub const TestExecutor = struct {
         env_map.put("SA_TEST_NAME", test_case.selectorName()) catch |err| {
             return launchFailure(test_case, @errorName(err));
         };
+        if (self.trace_panic) {
+            env_map.put("SA_TEST_TRACE_PANIC", "1") catch |err| {
+                return launchFailure(test_case, @errorName(err));
+            };
+        }
 
         const run_result = std.process.Child.run(.{
             .allocator = self.allocator,
@@ -55,6 +61,16 @@ pub const TestExecutor = struct {
                 return launchFailure(test_case, @errorName(err));
             };
             outcome.failed.assertion = test_result.parseAssertionFailure(outcome.failed.stderr);
+            outcome.failed.panic = test_result.parsePanicInfo(outcome.failed.stderr);
+            outcome.failed.selector_name = test_case.selectorName();
+            outcome.failed.trace_panic = self.trace_panic;
+            if (test_case.desc.source_file) |file| {
+                outcome.failed.location = .{
+                    .file = file,
+                    .line = test_case.desc.line,
+                    .col = test_case.desc.col,
+                };
+            }
         }
         return outcome;
     }
