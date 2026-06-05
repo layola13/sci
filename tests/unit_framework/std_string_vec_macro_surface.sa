@@ -6,6 +6,7 @@
 @const PREFIX = utf8:"ru"
 @const SUFFIX = utf8:"st"
 @const INFIX = utf8:"us"
+@const REPEATED = utf8:"ana"
 @const MISS = utf8:"zz"
 
 @test "sa_std string convenience macros"():
@@ -28,10 +29,14 @@ L_ENTRY:
     EXPAND STR_STARTS_WITH starts_ok, word, prefix
     EXPAND STRING_ENDS_WITH ends_ok, word, suffix
     EXPAND STR_CONTAINS contains_ok, word, infix
+    EXPAND STR_TRY_FIND find_ok, find_idx, word, infix
+    EXPAND STRING_TRY_RFIND rfind_ok, rfind_idx, word, infix
     EXPAND STRING_CONTAINS contains_empty_ok, word, str_empty
     EXPAND STR_STARTS_WITH starts_miss, word, miss
     EXPAND STRING_ENDS_WITH ends_miss, word, miss
     EXPAND STR_CONTAINS contains_miss, word, miss
+    EXPAND STR_TRY_FIND find_miss_ok, find_miss_idx, word, miss
+    EXPAND STRING_TRY_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
     EXPAND STR_TRY_STRIP_PREFIX strip_prefix_ok, strip_prefix_tail, word, prefix
     EXPAND STRING_TRY_STRIP_SUFFIX strip_suffix_ok, strip_suffix_head, word, suffix
     EXPAND STR_TRY_STRIP_PREFIX strip_prefix_miss_ok, strip_prefix_miss, word, miss
@@ -48,10 +53,18 @@ L_ENTRY:
     starts_match_ok = eq starts_ok, 1
     ends_match_ok = eq ends_ok, 1
     contains_match_ok = eq contains_ok, 1
+    find_flag_ok = eq find_ok, 1
+    find_idx_ok = eq find_idx, 1
+    rfind_flag_ok = eq rfind_ok, 1
+    rfind_idx_ok = eq rfind_idx, 1
     contains_empty_match_ok = eq contains_empty_ok, 1
     starts_miss_ok = eq starts_miss, 0
     ends_miss_ok = eq ends_miss, 0
     contains_miss_ok = eq contains_miss, 0
+    find_miss_flag_ok = eq find_miss_ok, 0
+    find_miss_idx_ok = eq find_miss_idx, 0
+    rfind_miss_flag_ok = eq rfind_miss_ok, 0
+    rfind_miss_idx_ok = eq rfind_miss_idx, 0
     strip_prefix_flag_ok = eq strip_prefix_ok, 1
     strip_suffix_flag_ok = eq strip_suffix_ok, 1
     strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
@@ -68,18 +81,26 @@ L_ENTRY:
     ok06 = and ok05, starts_match_ok
     ok07 = and ok06, ends_match_ok
     ok08 = and ok07, contains_match_ok
-    ok09 = and ok08, contains_empty_match_ok
-    ok10 = and ok09, starts_miss_ok
-    ok11 = and ok10, ends_miss_ok
-    ok12 = and ok11, contains_miss_ok
-    ok13 = and ok12, strip_prefix_flag_ok
-    ok14 = and ok13, strip_suffix_flag_ok
-    ok15 = and ok14, strip_prefix_miss_flag_ok
-    ok16 = and ok15, strip_suffix_miss_flag_ok
-    ok17 = and ok16, strip_prefix_tail_ok
-    ok18 = and ok17, strip_suffix_head_ok
-    ok19 = and ok18, strip_prefix_miss_empty_ok
-    ok = and ok19, strip_suffix_miss_empty_ok
+    ok09 = and ok08, find_flag_ok
+    ok10 = and ok09, find_idx_ok
+    ok11 = and ok10, rfind_flag_ok
+    ok12 = and ok11, rfind_idx_ok
+    ok13 = and ok12, contains_empty_match_ok
+    ok14 = and ok13, starts_miss_ok
+    ok15 = and ok14, ends_miss_ok
+    ok16 = and ok15, contains_miss_ok
+    ok17 = and ok16, find_miss_flag_ok
+    ok18 = and ok17, find_miss_idx_ok
+    ok19 = and ok18, rfind_miss_flag_ok
+    ok20 = and ok19, rfind_miss_idx_ok
+    ok21 = and ok20, strip_prefix_flag_ok
+    ok22 = and ok21, strip_suffix_flag_ok
+    ok23 = and ok22, strip_prefix_miss_flag_ok
+    ok24 = and ok23, strip_suffix_miss_flag_ok
+    ok25 = and ok24, strip_prefix_tail_ok
+    ok26 = and ok25, strip_suffix_head_ok
+    ok27 = and ok26, strip_prefix_miss_empty_ok
+    ok = and ok27, strip_suffix_miss_empty_ok
     !len
     !as_ptr
     !bytes
@@ -91,10 +112,18 @@ L_ENTRY:
     !starts_ok
     !ends_ok
     !contains_ok
+    !find_ok
+    !find_idx
+    !rfind_ok
+    !rfind_idx
     !contains_empty_ok
     !starts_miss
     !ends_miss
     !contains_miss
+    !find_miss_ok
+    !find_miss_idx
+    !rfind_miss_ok
+    !rfind_miss_idx
     !strip_prefix_ok
     !strip_prefix_tail
     !strip_suffix_ok
@@ -114,10 +143,18 @@ L_ENTRY:
     !starts_match_ok
     !ends_match_ok
     !contains_match_ok
+    !find_flag_ok
+    !find_idx_ok
+    !rfind_flag_ok
+    !rfind_idx_ok
     !contains_empty_match_ok
     !starts_miss_ok
     !ends_miss_ok
     !contains_miss_ok
+    !find_miss_flag_ok
+    !find_miss_idx_ok
+    !rfind_miss_flag_ok
+    !rfind_miss_idx_ok
     !strip_prefix_flag_ok
     !strip_suffix_flag_ok
     !strip_prefix_miss_flag_ok
@@ -145,6 +182,14 @@ L_ENTRY:
     !ok17
     !ok18
     !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
     !word
     !prefix
     !suffix
@@ -159,6 +204,65 @@ L_FAIL:
     panic(901)
 
 L_OK:
+    !ok
+    return
+
+@test "sa_std string find macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS infix, &INFIX, 2
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_TRY_FIND find_ok, find_idx, word, infix
+    EXPAND STRING_TRY_RFIND rfind_ok, rfind_idx, word, infix
+    EXPAND STR_TRY_FIND find_miss_ok, find_miss_idx, word, miss
+    EXPAND STRING_TRY_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
+    find_flag_ok = eq find_ok, 1
+    find_idx_ok = eq find_idx, 1
+    rfind_flag_ok = eq rfind_ok, 1
+    rfind_idx_ok = eq rfind_idx, 1
+    find_miss_flag_ok = eq find_miss_ok, 0
+    find_miss_idx_ok = eq find_miss_idx, 0
+    rfind_miss_flag_ok = eq rfind_miss_ok, 0
+    rfind_miss_idx_ok = eq rfind_miss_idx, 0
+    ok01 = and find_flag_ok, find_idx_ok
+    ok02 = and ok01, rfind_flag_ok
+    ok03 = and ok02, rfind_idx_ok
+    ok04 = and ok03, find_miss_flag_ok
+    ok05 = and ok04, find_miss_idx_ok
+    ok06 = and ok05, rfind_miss_flag_ok
+    ok = and ok06, rfind_miss_idx_ok
+    !find_ok
+    !find_idx
+    !rfind_ok
+    !rfind_idx
+    !find_miss_ok
+    !find_miss_idx
+    !rfind_miss_ok
+    !rfind_miss_idx
+    !find_flag_ok
+    !find_idx_ok
+    !rfind_flag_ok
+    !rfind_idx_ok
+    !find_miss_flag_ok
+    !find_miss_idx_ok
+    !rfind_miss_flag_ok
+    !rfind_miss_idx_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !word
+    !infix
+    !miss
+    br ok -> L_FIND_OK, L_FIND_FAIL
+
+L_FIND_FAIL:
+    !ok
+    panic(906)
+
+L_FIND_OK:
     !ok
     return
 

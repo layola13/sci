@@ -685,6 +685,7 @@ test "native unit assertions surface file line expected and got details" {
 test "native unit framework covers sa_std macro surface suites" {
     const string_vec_expected = [_][]const u8{
         "[PASS] sa_std string convenience macros",
+        "[PASS] sa_std string find macros",
         "[PASS] sa_std rust parity checked view macros",
         "[PASS] sa_std vec convenience macros",
         "[PASS] sa_std slice convenience macros",
@@ -692,7 +693,7 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_string_vec_macro_surface.sa",
         string_vec_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
+        "test result: ok. 5 passed; 0 failed; 0 skipped",
     );
 
     const hashset_expected = [_][]const u8{

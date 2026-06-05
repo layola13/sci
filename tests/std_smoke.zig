@@ -673,6 +673,8 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_FROM_PARTS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRY_FIND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRY_RFIND"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRIM_PREFIX"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRIM_SUFFIX"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRY_SPLIT_AT"));
@@ -722,6 +724,8 @@ test "sa_std alloc helpers are concrete and verifiable" {
         \\
         \\@const WORD = utf8:"rust"
         \\@const EMPTY = utf8:""
+        \\@const INFIX = utf8:"us"
+        \\@const MISS = utf8:"zz"
         \\
         \\@main() -> i32:
         \\L_ENTRY:
@@ -734,18 +738,32 @@ test "sa_std alloc helpers are concrete and verifiable" {
         \\    EXPAND STR_LEN bytes_len, bytes
         \\    EXPAND STRING_LEN str_len, str_view
         \\    EXPAND STRING_FROM_PARTS empty, &EMPTY, 0
+        \\    EXPAND STR_FROM_PARTS infix, &INFIX, 2
+        \\    EXPAND STR_FROM_PARTS miss, &MISS, 2
         \\    EXPAND STRING_NEW new_empty
         \\    EXPAND STR_EMPTY str_empty
         \\    EXPAND STR_IS_EMPTY word_empty, word
         \\    EXPAND STRING_IS_EMPTY empty_ok, empty
         \\    EXPAND STRING_IS_EMPTY new_empty_ok, new_empty
         \\    EXPAND STR_IS_EMPTY str_empty_ok, str_empty
+        \\    EXPAND STR_TRY_FIND find_ok, find_idx, word, infix
+        \\    EXPAND STRING_TRY_RFIND rfind_ok, rfind_idx, word, infix
+        \\    EXPAND STR_TRY_FIND find_miss_ok, find_miss_idx, word, miss
+        \\    EXPAND STRING_TRY_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
         \\    len_ok = eq len, 4
         \\    ptr_ok = ne ptr, 0
         \\    as_ptr_ok = ne as_ptr, 0
         \\    bytes_len_ok = eq bytes_len, 4
         \\    str_len_ok = eq str_len, 4
         \\    word_not_empty = eq word_empty, 0
+        \\    find_flag_ok = eq find_ok, 1
+        \\    find_idx_ok = eq find_idx, 1
+        \\    rfind_flag_ok = eq rfind_ok, 1
+        \\    rfind_idx_ok = eq rfind_idx, 1
+        \\    find_miss_flag_ok = eq find_miss_ok, 0
+        \\    find_miss_idx_ok = eq find_miss_idx, 0
+        \\    rfind_miss_flag_ok = eq rfind_miss_ok, 0
+        \\    rfind_miss_idx_ok = eq rfind_miss_idx, 0
         \\    ok01 = and len_ok, ptr_ok
         \\    ok02 = and ok01, as_ptr_ok
         \\    ok03 = and ok02, bytes_len_ok
@@ -753,7 +771,15 @@ test "sa_std alloc helpers are concrete and verifiable" {
         \\    ok05 = and ok04, word_not_empty
         \\    ok06 = and ok05, empty_ok
         \\    ok07 = and ok06, new_empty_ok
-        \\    ok = and ok07, str_empty_ok
+        \\    ok08 = and ok07, str_empty_ok
+        \\    ok09 = and ok08, find_flag_ok
+        \\    ok10 = and ok09, find_idx_ok
+        \\    ok11 = and ok10, rfind_flag_ok
+        \\    ok12 = and ok11, rfind_idx_ok
+        \\    ok13 = and ok12, find_miss_flag_ok
+        \\    ok14 = and ok13, find_miss_idx_ok
+        \\    ok15 = and ok14, rfind_miss_flag_ok
+        \\    ok = and ok15, rfind_miss_idx_ok
         \\    !len
         \\    !ptr
         \\    !as_ptr
@@ -765,12 +791,28 @@ test "sa_std alloc helpers are concrete and verifiable" {
         \\    !empty_ok
         \\    !new_empty_ok
         \\    !str_empty_ok
+        \\    !find_ok
+        \\    !find_idx
+        \\    !rfind_ok
+        \\    !rfind_idx
+        \\    !find_miss_ok
+        \\    !find_miss_idx
+        \\    !rfind_miss_ok
+        \\    !rfind_miss_idx
         \\    !len_ok
         \\    !ptr_ok
         \\    !as_ptr_ok
         \\    !bytes_len_ok
         \\    !str_len_ok
         \\    !word_not_empty
+        \\    !find_flag_ok
+        \\    !find_idx_ok
+        \\    !rfind_flag_ok
+        \\    !rfind_idx_ok
+        \\    !find_miss_flag_ok
+        \\    !find_miss_idx_ok
+        \\    !rfind_miss_flag_ok
+        \\    !rfind_miss_idx_ok
         \\    !ok01
         \\    !ok02
         \\    !ok03
@@ -778,8 +820,18 @@ test "sa_std alloc helpers are concrete and verifiable" {
         \\    !ok05
         \\    !ok06
         \\    !ok07
+        \\    !ok08
+        \\    !ok09
+        \\    !ok10
+        \\    !ok11
+        \\    !ok12
+        \\    !ok13
+        \\    !ok14
+        \\    !ok15
         \\    !word
         \\    !empty
+        \\    !infix
+        \\    !miss
         \\    !new_empty
         \\    !str_empty
         \\    br ok -> L_OK, L_ERR
