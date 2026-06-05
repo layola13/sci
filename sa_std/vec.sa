@@ -72,6 +72,14 @@
     %out_cap = call @sa_vec_capacity(&%vec_reg)
 [END_MACRO]
 
+[MACRO] VEC_RESERVE %vec_reg, %additional, %elem_size
+    %vec_reg = call @sa_vec_reserve(^%vec_reg, %additional, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_RESERVE_U64 %vec_reg, %additional
+    EXPAND VEC_RESERVE %vec_reg, %additional, 8
+[END_MACRO]
+
 [MACRO] VEC_IS_EMPTY %out_flag, %vec_reg
     %out_flag = call @sa_vec_is_empty(&%vec_reg)
 [END_MACRO]
@@ -109,4 +117,22 @@
 
 [MACRO] VEC_WITH_CAPACITY_U64 %out_vec, %cap
     EXPAND VEC_WITH_CAPACITY %out_vec, %cap, 8
+[END_MACRO]
+
+[MACRO] VEC_CONTAINS_U64 %out_bool, %vec_reg, %needle
+    EXPAND VEC_AS_SLICE __vec_contains_slice_%out_bool, %vec_reg
+    EXPAND SLICE_CONTAINS_U64 %out_bool, __vec_contains_slice_%out_bool, %needle
+    !__vec_contains_slice_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_STARTS_WITH_U64 %out_bool, %vec_reg, %prefix_slice
+    EXPAND VEC_AS_SLICE __vec_starts_slice_%out_bool, %vec_reg
+    EXPAND SLICE_STARTS_WITH_U64 %out_bool, __vec_starts_slice_%out_bool, %prefix_slice
+    !__vec_starts_slice_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_ENDS_WITH_U64 %out_bool, %vec_reg, %suffix_slice
+    EXPAND VEC_AS_SLICE __vec_ends_slice_%out_bool, %vec_reg
+    EXPAND SLICE_ENDS_WITH_U64 %out_bool, __vec_ends_slice_%out_bool, %suffix_slice
+    !__vec_ends_slice_%out_bool
 [END_MACRO]

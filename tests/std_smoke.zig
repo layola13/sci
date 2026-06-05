@@ -111,12 +111,100 @@ test "sa_std core primitives are concrete and verifiable" {
     defer std.testing.allocator.free(slice_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_AS_PTR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_FIRST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_LAST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_GET_U64"));
 
     var slice_flat = try saasm.flattener.flatten(std.testing.allocator, slice_src);
     defer slice_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), slice_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), slice_flat.function_sigs.len);
+
+    const slice_fixture =
+        \\@import "sa_std/core/slice.sal"
+        \\@import "sa_std/core/slice.sa"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    data = alloc 24
+        \\    store data+0, 11 as u64
+        \\    store data+8, 22 as u64
+        \\    store data+16, 33 as u64
+        \\    slice = alloc Slice_SIZE
+        \\    EXPAND SLICE_NEW slice, data, 3
+        \\    EXPAND SLICE_AS_PTR ptr, slice
+        \\    EXPAND SLICE_IS_EMPTY empty, slice
+        \\    EXPAND SLICE_FIRST_U64 first, slice
+        \\    EXPAND SLICE_LAST_U64 last, slice
+        \\    EXPAND SLICE_TRY_GET_U64 hit_ok, hit, slice, 1
+        \\    EXPAND SLICE_TRY_GET_U64 miss_ok, miss, slice, 9
+        \\    ptr_ok = ne ptr, 0
+        \\    empty_ok = eq empty, 0
+        \\    first_ok = eq first, 11
+        \\    last_ok = eq last, 33
+        \\    hit_flag_ok = eq hit_ok, 1
+        \\    hit_value_ok = eq hit, 22
+        \\    miss_flag_ok = eq miss_ok, 0
+        \\    miss_value_ok = eq miss, 0
+        \\    ok01 = and ptr_ok, empty_ok
+        \\    ok02 = and ok01, first_ok
+        \\    ok03 = and ok02, last_ok
+        \\    ok04 = and ok03, hit_flag_ok
+        \\    ok05 = and ok04, hit_value_ok
+        \\    ok06 = and ok05, miss_flag_ok
+        \\    ok = and ok06, miss_value_ok
+        \\    !ptr
+        \\    !empty
+        \\    !first
+        \\    !last
+        \\    !hit_ok
+        \\    !hit
+        \\    !miss_ok
+        \\    !miss
+        \\    !ptr_ok
+        \\    !empty_ok
+        \\    !first_ok
+        \\    !last_ok
+        \\    !hit_flag_ok
+        \\    !hit_value_ok
+        \\    !miss_flag_ok
+        \\    !miss_value_ok
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    !ok06
+        \\    !slice
+        \\    !data
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var slice_fixture_flat = try flattenFixture(std.testing.allocator, "tests/slice_fixture.sa", slice_fixture);
+    defer slice_fixture_flat.deinit(std.testing.allocator);
+    const slice_fixture_verified = try saasm.referee.verify(std.testing.allocator, slice_fixture_flat.instructions, slice_fixture_flat.const_decls);
+    switch (slice_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 1), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("slice fixture verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
 
     const mem_src = try readFileAlloc(std.testing.allocator, "sa_std/core/mem.sa");
     defer std.testing.allocator.free(mem_src);

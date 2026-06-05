@@ -3,6 +3,7 @@
 @import "sa_std/vec.sa"
 @import "sa_std/collections/hashmap.sa"
 @import "sa_std/collections/btree_map.sa"
+@import "sa_std/collections/btree_set.sa"
 @import "sa_std/net.sa"
 @import "sa_std/fmt.sai"
 
@@ -523,6 +524,7 @@ L_OK:
 @support_btree_surface() -> void:
 L_ENTRY:
     map = 0 as ptr
+    set = 0 as ptr
     alpha = alloc Slice_SIZE
     bravo = alloc Slice_SIZE
     lookup = alloc Slice_SIZE
@@ -543,6 +545,18 @@ L_ENTRY:
     len = call @sa_btree_map_len(&map)
     EXPAND BTREE_MAP_CLEAR map
     EXPAND BTREE_MAP_IS_EMPTY empty1, map
+    EXPAND BTREE_SET_NEW set
+    EXPAND BTREE_SET_IS_EMPTY set_empty0, set
+    EXPAND BTREE_SET_INSERT set_insert_alpha, set, alpha
+    EXPAND BTREE_SET_INSERT set_insert_alpha_again, set, lookup
+    EXPAND BTREE_SET_INSERT set_insert_bravo, set, bravo
+    EXPAND BTREE_SET_CONTAINS set_has_alpha, set, alpha
+    EXPAND BTREE_SET_CONTAINS set_has_lookup, set, lookup
+    EXPAND BTREE_SET_REMOVE set_removed_alpha, set, alpha
+    EXPAND BTREE_SET_CONTAINS set_has_alpha_after, set, alpha
+    EXPAND BTREE_SET_LEN set_len, set
+    EXPAND BTREE_SET_CLEAR set
+    EXPAND BTREE_SET_IS_EMPTY set_empty1, set
 
     ok_alpha = eq value_alpha, 3
     ok_bravo = eq value_bravo, 2
@@ -553,6 +567,16 @@ L_ENTRY:
     ok_has_alpha = eq has_alpha, 1
     ok_has_lookup = eq has_lookup, 1
     ok_has_alpha_after = eq has_alpha_after, 0
+    ok_set_empty0 = eq set_empty0, 1
+    ok_set_insert_alpha = eq set_insert_alpha, 1
+    ok_set_insert_alpha_again = eq set_insert_alpha_again, 0
+    ok_set_insert_bravo = eq set_insert_bravo, 1
+    ok_set_has_alpha = eq set_has_alpha, 1
+    ok_set_has_lookup = eq set_has_lookup, 1
+    ok_set_removed_alpha = eq set_removed_alpha, 1
+    ok_set_has_alpha_after = eq set_has_alpha_after, 0
+    ok_set_len = eq set_len, 1
+    ok_set_empty1 = eq set_empty1, 1
     ok01 = and ok_alpha, ok_bravo
     ok02 = and ok01, ok_removed
     ok03 = and ok02, ok_len
@@ -560,7 +584,27 @@ L_ENTRY:
     ok05 = and ok04, ok_empty1
     ok06 = and ok05, ok_has_alpha
     ok07 = and ok06, ok_has_lookup
-    ok = and ok07, ok_has_alpha_after
+    ok08 = and ok07, ok_has_alpha_after
+    ok09 = and ok08, ok_set_empty0
+    ok10 = and ok09, ok_set_insert_alpha
+    ok11 = and ok10, ok_set_insert_alpha_again
+    ok12 = and ok11, ok_set_insert_bravo
+    ok13 = and ok12, ok_set_has_alpha
+    ok14 = and ok13, ok_set_has_lookup
+    ok15 = and ok14, ok_set_removed_alpha
+    ok16 = and ok15, ok_set_has_alpha_after
+    ok17 = and ok16, ok_set_len
+    ok = and ok17, ok_set_empty1
+    !ok_set_empty1
+    !ok_set_len
+    !ok_set_has_alpha_after
+    !ok_set_removed_alpha
+    !ok_set_has_lookup
+    !ok_set_has_alpha
+    !ok_set_insert_bravo
+    !ok_set_insert_alpha_again
+    !ok_set_insert_alpha
+    !ok_set_empty0
     !ok_has_alpha_after
     !ok_has_lookup
     !ok_has_alpha
@@ -579,10 +623,38 @@ L_ENTRY:
     !has_alpha_after
     !has_lookup
     !has_alpha
+    !set_empty1
+    !set_len
+    !set_has_alpha_after
+    !set_removed_alpha
+    !set_has_lookup
+    !set_has_alpha
+    !set_insert_bravo
+    !set_insert_alpha_again
+    !set_insert_alpha
+    !set_empty0
     !lookup
     !bravo
     !alpha
+    !ok17
+    !ok16
+    !ok15
+    !ok14
+    !ok13
+    !ok12
+    !ok11
+    !ok10
+    !ok09
+    !ok08
+    !ok07
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
     EXPAND BTREE_MAP_FREE map
+    EXPAND BTREE_SET_FREE set
     br ok -> L_OK, L_FAIL
 
 L_FAIL:

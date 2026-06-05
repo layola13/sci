@@ -18,12 +18,164 @@ test "sa_std core primitives are concrete and verifiable" {
     defer std.testing.allocator.free(slice_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_AS_PTR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_FIRST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_FIRST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_LAST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_LAST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_CONTAINS_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_STARTS_WITH_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_ENDS_WITH_U64"));
 
     var slice_flat = try saasm.flattener.flatten(std.testing.allocator, slice_src);
     defer slice_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), slice_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), slice_flat.function_sigs.len);
+
+    const slice_fixture =
+        \\@import "sa_std/core/slice.sal"
+        \\@import "sa_std/core/slice.sa"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    data = alloc 24
+        \\    store data+0, 11 as u64
+        \\    store data+8, 22 as u64
+        \\    store data+16, 33 as u64
+        \\    slice = alloc Slice_SIZE
+        \\    empty_slice = alloc Slice_SIZE
+        \\    EXPAND SLICE_NEW slice, data, 3
+        \\    EXPAND SLICE_NEW empty_slice, data, 0
+        \\    EXPAND SLICE_AS_PTR ptr, slice
+        \\    EXPAND SLICE_IS_EMPTY empty, slice
+        \\    EXPAND SLICE_FIRST_U64 first, slice
+        \\    EXPAND SLICE_LAST_U64 last, slice
+        \\    EXPAND SLICE_TRY_FIRST_U64 first_try_ok, first_try, slice
+        \\    EXPAND SLICE_TRY_LAST_U64 last_try_ok, last_try, slice
+        \\    EXPAND SLICE_TRY_GET_U64 hit_ok, hit, slice, 1
+        \\    EXPAND SLICE_TRY_GET_U64 miss_ok, miss, slice, 9
+        \\    EXPAND SLICE_CONTAINS_U64 contains_22, slice, 22
+        \\    EXPAND SLICE_CONTAINS_U64 contains_44, slice, 44
+        \\    EXPAND SLICE_TRY_FIRST_U64 empty_first_ok, empty_first, empty_slice
+        \\    EXPAND SLICE_TRY_LAST_U64 empty_last_ok, empty_last, empty_slice
+        \\    ptr_ok = ne ptr, 0
+        \\    empty_ok = eq empty, 0
+        \\    first_ok = eq first, 11
+        \\    last_ok = eq last, 33
+        \\    first_try_flag_ok = eq first_try_ok, 1
+        \\    first_try_value_ok = eq first_try, 11
+        \\    last_try_flag_ok = eq last_try_ok, 1
+        \\    last_try_value_ok = eq last_try, 33
+        \\    hit_flag_ok = eq hit_ok, 1
+        \\    hit_value_ok = eq hit, 22
+        \\    miss_flag_ok = eq miss_ok, 0
+        \\    miss_value_ok = eq miss, 0
+        \\    contains_22_ok = eq contains_22, 1
+        \\    contains_44_ok = eq contains_44, 0
+        \\    empty_first_flag_ok = eq empty_first_ok, 0
+        \\    empty_first_value_ok = eq empty_first, 0
+        \\    empty_last_flag_ok = eq empty_last_ok, 0
+        \\    empty_last_value_ok = eq empty_last, 0
+        \\    ok01 = and ptr_ok, empty_ok
+        \\    ok02 = and ok01, first_ok
+        \\    ok03 = and ok02, last_ok
+        \\    ok04 = and ok03, first_try_flag_ok
+        \\    ok05 = and ok04, first_try_value_ok
+        \\    ok06 = and ok05, last_try_flag_ok
+        \\    ok07 = and ok06, last_try_value_ok
+        \\    ok08 = and ok07, hit_flag_ok
+        \\    ok09 = and ok08, hit_value_ok
+        \\    ok10 = and ok09, miss_flag_ok
+        \\    ok11 = and ok10, miss_value_ok
+        \\    ok12 = and ok11, contains_22_ok
+        \\    ok13 = and ok12, contains_44_ok
+        \\    ok14 = and ok13, empty_first_flag_ok
+        \\    ok15 = and ok14, empty_first_value_ok
+        \\    ok16 = and ok15, empty_last_flag_ok
+        \\    ok = and ok16, empty_last_value_ok
+        \\    !ptr
+        \\    !empty
+        \\    !first
+        \\    !last
+        \\    !first_try_ok
+        \\    !first_try
+        \\    !last_try_ok
+        \\    !last_try
+        \\    !hit_ok
+        \\    !hit
+        \\    !miss_ok
+        \\    !miss
+        \\    !contains_22
+        \\    !contains_44
+        \\    !empty_first_ok
+        \\    !empty_first
+        \\    !empty_last_ok
+        \\    !empty_last
+        \\    !ptr_ok
+        \\    !empty_ok
+        \\    !first_ok
+        \\    !last_ok
+        \\    !first_try_flag_ok
+        \\    !first_try_value_ok
+        \\    !last_try_flag_ok
+        \\    !last_try_value_ok
+        \\    !hit_flag_ok
+        \\    !hit_value_ok
+        \\    !miss_flag_ok
+        \\    !miss_value_ok
+        \\    !contains_22_ok
+        \\    !contains_44_ok
+        \\    !empty_first_flag_ok
+        \\    !empty_first_value_ok
+        \\    !empty_last_flag_ok
+        \\    !empty_last_value_ok
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    !ok06
+        \\    !ok07
+        \\    !ok08
+        \\    !ok09
+        \\    !ok10
+        \\    !ok11
+        \\    !ok12
+        \\    !ok13
+        \\    !ok14
+        \\    !ok15
+        \\    !ok16
+        \\    !empty_slice
+        \\    !slice
+        \\    !data
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var slice_fixture_flat = try flattenFixture(std.testing.allocator, "tests/slice_fixture.sa", slice_fixture);
+    defer slice_fixture_flat.deinit(std.testing.allocator);
+    const slice_fixture_verified = try saasm.referee.verify(std.testing.allocator, slice_fixture_flat.instructions, slice_fixture_flat.const_decls);
+    switch (slice_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 1), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("slice fixture verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
 
     const mem_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/mem.sa");
     defer std.testing.allocator.free(mem_src);
@@ -143,7 +295,7 @@ test "sa_std Deno compatibility facade covers HubProxy porting surface" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_req_get_method"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_set_content_type"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_stream_write"));
- 
+
     const deno_src = try common.readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
     defer std.testing.allocator.free(deno_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ARGS_JSON"));
@@ -237,7 +389,7 @@ test "sa_std Deno compatibility facade covers HubProxy porting surface" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSE_JSON_PARSE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSES_CHAT_FALLBACK_REQUEST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSONRPC_PARAMS_STRING_LITERAL"));
- 
+
     var deno_flat = try flattenFixture(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal", deno_src);
     defer deno_flat.deinit(std.testing.allocator);
     try std.testing.expect(deno_flat.function_sigs.len >= 60);

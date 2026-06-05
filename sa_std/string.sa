@@ -75,12 +75,12 @@
 [END_MACRO]
 
 [MACRO] STR_SLICE %out_slice, %src_slice, %start, %length
-    src_ptr = load %src_slice+Slice_ptr as ptr
-    start_ptr = ptr_add src_ptr, %start
+    __str_src_ptr_%out_slice = load %src_slice+Slice_ptr as ptr
+    __str_start_ptr_%out_slice = ptr_add __str_src_ptr_%out_slice, %start
     %out_slice = alloc Slice_SIZE
-    EXPAND SLICE_NEW %out_slice, start_ptr, %length
-    !src_ptr
-    !start_ptr
+    EXPAND SLICE_NEW %out_slice, __str_start_ptr_%out_slice, %length
+    !__str_src_ptr_%out_slice
+    !__str_start_ptr_%out_slice
 [END_MACRO]
 
 [MACRO] STR_EQ %out_bool, %left_slice, %right_slice
@@ -89,10 +89,10 @@
     left_len_%out_bool = load %left_slice+Slice_len as u64
     right_len_%out_bool = load %right_slice+Slice_len as u64
     same_len_%out_bool = eq left_len_%out_bool, right_len_%out_bool
-    br same_len_%out_bool -> L_STR_EQ_LOOP_%out_bool, L_STR_EQ_NE_%out_bool
-L_STR_EQ_LOOP_%out_bool:
     idx_slot_%out_bool = stack_alloc 8
     store idx_slot_%out_bool+0, 0 as u64
+    br same_len_%out_bool -> L_STR_EQ_HEAD_%out_bool, L_STR_EQ_NE_%out_bool
+L_STR_EQ_LOOP_%out_bool:
     jmp L_STR_EQ_HEAD_%out_bool
 L_STR_EQ_HEAD_%out_bool:
     idx_%out_bool = load idx_slot_%out_bool+0 as u64
@@ -144,19 +144,201 @@ L_STR_EQ_NE_%out_bool:
 L_STR_EQ_END_%out_bool:
 [END_MACRO]
 
+[MACRO] STR_CONTAINS %out_bool, %slice_reg, %needle_slice
+    __str_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
+    __str_needle_ptr_%out_bool = load %needle_slice+Slice_ptr as ptr
+    __str_len_%out_bool = load %slice_reg+Slice_len as u64
+    __str_needle_len_%out_bool = load %needle_slice+Slice_len as u64
+    __str_idx_slot_%out_bool = stack_alloc 8
+    __str_inner_slot_%out_bool = stack_alloc 8
+    store __str_idx_slot_%out_bool+0, 0 as u64
+    store __str_inner_slot_%out_bool+0, 0 as u64
+    __str_empty_needle_%out_bool = eq __str_needle_len_%out_bool, 0
+    br __str_empty_needle_%out_bool -> L_STR_CONTAINS_TRUE_EMPTY_%out_bool, L_STR_CONTAINS_CHECK_%out_bool
+
+L_STR_CONTAINS_TRUE_EMPTY_%out_bool:
+    %out_bool = add 0, 1
+    !__str_empty_needle_%out_bool
+    !__str_needle_len_%out_bool
+    !__str_len_%out_bool
+    !__str_needle_ptr_%out_bool
+    !__str_ptr_%out_bool
+    jmp L_STR_CONTAINS_END_%out_bool
+
+L_STR_CONTAINS_CHECK_%out_bool:
+    __str_can_match_%out_bool = ule __str_needle_len_%out_bool, __str_len_%out_bool
+    br __str_can_match_%out_bool -> L_STR_CONTAINS_INIT_%out_bool, L_STR_CONTAINS_FALSE_%out_bool
+
+L_STR_CONTAINS_INIT_%out_bool:
+    __str_last_start_%out_bool = sub __str_len_%out_bool, __str_needle_len_%out_bool
+    store __str_idx_slot_%out_bool+0, 0 as u64
+    !__str_can_match_%out_bool
+    !__str_empty_needle_%out_bool
+    jmp L_STR_CONTAINS_HEAD_%out_bool
+
+L_STR_CONTAINS_HEAD_%out_bool:
+    __str_idx_%out_bool = load __str_idx_slot_%out_bool+0 as u64
+    __str_after_last_%out_bool = ugt __str_idx_%out_bool, __str_last_start_%out_bool
+    br __str_after_last_%out_bool -> L_STR_CONTAINS_FALSE_LOOP_%out_bool, L_STR_CONTAINS_INNER_INIT_%out_bool
+
+L_STR_CONTAINS_INNER_INIT_%out_bool:
+    store __str_inner_slot_%out_bool+0, 0 as u64
+    !__str_after_last_%out_bool
+    jmp L_STR_CONTAINS_INNER_HEAD_%out_bool
+
+L_STR_CONTAINS_INNER_HEAD_%out_bool:
+    __str_inner_%out_bool = load __str_inner_slot_%out_bool+0 as u64
+    __str_inner_done_%out_bool = eq __str_inner_%out_bool, __str_needle_len_%out_bool
+    br __str_inner_done_%out_bool -> L_STR_CONTAINS_TRUE_%out_bool, L_STR_CONTAINS_BODY_%out_bool
+
+L_STR_CONTAINS_BODY_%out_bool:
+    __str_hay_off_%out_bool = add __str_idx_%out_bool, __str_inner_%out_bool
+    __str_hay_ip_%out_bool = ptr_add __str_ptr_%out_bool, __str_hay_off_%out_bool
+    __str_needle_ip_%out_bool = ptr_add __str_needle_ptr_%out_bool, __str_inner_%out_bool
+    __str_hay_byte_%out_bool = load __str_hay_ip_%out_bool+0 as u8
+    __str_needle_byte_%out_bool = load __str_needle_ip_%out_bool+0 as u8
+    __str_match_%out_bool = eq __str_hay_byte_%out_bool, __str_needle_byte_%out_bool
+    br __str_match_%out_bool -> L_STR_CONTAINS_INNER_NEXT_%out_bool, L_STR_CONTAINS_NEXT_%out_bool
+
+L_STR_CONTAINS_INNER_NEXT_%out_bool:
+    __str_inner_next_%out_bool = add __str_inner_%out_bool, 1
+    store __str_inner_slot_%out_bool+0, __str_inner_next_%out_bool as u64
+    !__str_inner_next_%out_bool
+    !__str_match_%out_bool
+    !__str_needle_byte_%out_bool
+    !__str_hay_byte_%out_bool
+    !__str_needle_ip_%out_bool
+    !__str_hay_ip_%out_bool
+    !__str_hay_off_%out_bool
+    !__str_inner_done_%out_bool
+    !__str_inner_%out_bool
+    jmp L_STR_CONTAINS_INNER_HEAD_%out_bool
+
+L_STR_CONTAINS_NEXT_%out_bool:
+    __str_next_%out_bool = add __str_idx_%out_bool, 1
+    store __str_idx_slot_%out_bool+0, __str_next_%out_bool as u64
+    !__str_next_%out_bool
+    !__str_match_%out_bool
+    !__str_needle_byte_%out_bool
+    !__str_hay_byte_%out_bool
+    !__str_needle_ip_%out_bool
+    !__str_hay_ip_%out_bool
+    !__str_hay_off_%out_bool
+    !__str_inner_done_%out_bool
+    !__str_inner_%out_bool
+    !__str_idx_%out_bool
+    jmp L_STR_CONTAINS_HEAD_%out_bool
+
+L_STR_CONTAINS_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__str_inner_done_%out_bool
+    !__str_inner_%out_bool
+    !__str_idx_%out_bool
+    !__str_last_start_%out_bool
+    !__str_needle_len_%out_bool
+    !__str_len_%out_bool
+    !__str_needle_ptr_%out_bool
+    !__str_ptr_%out_bool
+    jmp L_STR_CONTAINS_END_%out_bool
+
+L_STR_CONTAINS_FALSE_LOOP_%out_bool:
+    %out_bool = add 0, 0
+    !__str_after_last_%out_bool
+    !__str_idx_%out_bool
+    !__str_last_start_%out_bool
+    !__str_needle_len_%out_bool
+    !__str_len_%out_bool
+    !__str_needle_ptr_%out_bool
+    !__str_ptr_%out_bool
+    jmp L_STR_CONTAINS_END_%out_bool
+
+L_STR_CONTAINS_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__str_can_match_%out_bool
+    !__str_empty_needle_%out_bool
+    !__str_needle_len_%out_bool
+    !__str_len_%out_bool
+    !__str_needle_ptr_%out_bool
+    !__str_ptr_%out_bool
+
+L_STR_CONTAINS_END_%out_bool:
+[END_MACRO]
+
+[MACRO] STRING_CONTAINS %out_bool, %slice_reg, %needle_slice
+    EXPAND STR_CONTAINS %out_bool, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_STARTS_WITH %out_bool, %slice_reg, %prefix_slice
+    __str_len_%out_bool = load %slice_reg+Slice_len as u64
+    __str_prefix_len_%out_bool = load %prefix_slice+Slice_len as u64
+    __str_can_match_%out_bool = ule __str_prefix_len_%out_bool, __str_len_%out_bool
+    br __str_can_match_%out_bool -> L_STR_STARTS_CHECK_%out_bool, L_STR_STARTS_FALSE_%out_bool
+
+L_STR_STARTS_CHECK_%out_bool:
+    EXPAND STR_SLICE __str_prefix_view_%out_bool, %slice_reg, 0, __str_prefix_len_%out_bool
+    EXPAND STR_EQ %out_bool, __str_prefix_view_%out_bool, %prefix_slice
+    !__str_prefix_view_%out_bool
+    !__str_can_match_%out_bool
+    !__str_prefix_len_%out_bool
+    !__str_len_%out_bool
+    jmp L_STR_STARTS_END_%out_bool
+
+L_STR_STARTS_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__str_can_match_%out_bool
+    !__str_prefix_len_%out_bool
+    !__str_len_%out_bool
+
+L_STR_STARTS_END_%out_bool:
+[END_MACRO]
+
+[MACRO] STRING_STARTS_WITH %out_bool, %slice_reg, %prefix_slice
+    EXPAND STR_STARTS_WITH %out_bool, %slice_reg, %prefix_slice
+[END_MACRO]
+
+[MACRO] STR_ENDS_WITH %out_bool, %slice_reg, %suffix_slice
+    __str_len_%out_bool = load %slice_reg+Slice_len as u64
+    __str_suffix_len_%out_bool = load %suffix_slice+Slice_len as u64
+    __str_can_match_%out_bool = ule __str_suffix_len_%out_bool, __str_len_%out_bool
+    br __str_can_match_%out_bool -> L_STR_ENDS_CHECK_%out_bool, L_STR_ENDS_FALSE_%out_bool
+
+L_STR_ENDS_CHECK_%out_bool:
+    __str_suffix_start_%out_bool = sub __str_len_%out_bool, __str_suffix_len_%out_bool
+    EXPAND STR_SLICE __str_suffix_view_%out_bool, %slice_reg, __str_suffix_start_%out_bool, __str_suffix_len_%out_bool
+    EXPAND STR_EQ %out_bool, __str_suffix_view_%out_bool, %suffix_slice
+    !__str_suffix_view_%out_bool
+    !__str_suffix_start_%out_bool
+    !__str_can_match_%out_bool
+    !__str_suffix_len_%out_bool
+    !__str_len_%out_bool
+    jmp L_STR_ENDS_END_%out_bool
+
+L_STR_ENDS_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__str_can_match_%out_bool
+    !__str_suffix_len_%out_bool
+    !__str_len_%out_bool
+
+L_STR_ENDS_END_%out_bool:
+[END_MACRO]
+
+[MACRO] STRING_ENDS_WITH %out_bool, %slice_reg, %suffix_slice
+    EXPAND STR_ENDS_WITH %out_bool, %slice_reg, %suffix_slice
+[END_MACRO]
+
 [MACRO] STR_CONCAT %out_slice, %left_slice, %right_slice
-    left_ptr = load %left_slice+Slice_ptr as ptr
-    right_ptr = load %right_slice+Slice_ptr as ptr
-    left_len = load %left_slice+Slice_len as u64
-    right_len = load %right_slice+Slice_len as u64
-    total_len = add left_len, right_len
-    out_buf = call @sa_string_concat(left_ptr, left_len, right_ptr, right_len)
+    __str_left_ptr_%out_slice = load %left_slice+Slice_ptr as ptr
+    __str_right_ptr_%out_slice = load %right_slice+Slice_ptr as ptr
+    __str_left_len_%out_slice = load %left_slice+Slice_len as u64
+    __str_right_len_%out_slice = load %right_slice+Slice_len as u64
+    __str_total_len_%out_slice = add __str_left_len_%out_slice, __str_right_len_%out_slice
+    __str_out_buf_%out_slice = call @sa_string_concat(__str_left_ptr_%out_slice, __str_left_len_%out_slice, __str_right_ptr_%out_slice, __str_right_len_%out_slice)
     %out_slice = alloc Slice_SIZE
-    EXPAND SLICE_NEW %out_slice, out_buf, total_len
-    !left_ptr
-    !right_ptr
-    !left_len
-    !right_len
-    !total_len
-    !out_buf
+    EXPAND SLICE_NEW %out_slice, __str_out_buf_%out_slice, __str_total_len_%out_slice
+    !__str_left_ptr_%out_slice
+    !__str_right_ptr_%out_slice
+    !__str_left_len_%out_slice
+    !__str_right_len_%out_slice
+    !__str_total_len_%out_slice
+    !__str_out_buf_%out_slice
 [END_MACRO]

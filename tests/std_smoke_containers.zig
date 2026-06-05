@@ -54,6 +54,8 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_PUSH_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_FREE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_RESERVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_RESERVE_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_CLEAR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRUNCATE"));
@@ -63,6 +65,9 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_POP_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_WITH_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_WITH_CAPACITY_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_CONTAINS_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_STARTS_WITH_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_ENDS_WITH_U64"));
 
     var vec_macro_error_ctx = saasm.flattener.ErrorContext{};
     var vec_macro_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec.sa", vec_macro_src, &vec_macro_error_ctx) catch |err| {
@@ -92,6 +97,10 @@ test "sa_std alloc helpers are concrete and verifiable" {
     defer std.testing.allocator.free(vec_fixture);
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_TRY_POP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_RESERVE_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_CONTAINS_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_STARTS_WITH_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_fixture, 1, "EXPAND VEC_ENDS_WITH_U64"));
 
     var vec_fixture_error_ctx = saasm.flattener.ErrorContext{};
     var vec_fixture_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "tests/vec_fixture.sa", vec_fixture, &vec_fixture_error_ctx) catch |err| {
@@ -121,6 +130,20 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "示例"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "[MACRO] STR_FROM_CONST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "EXPAND SLICE_NEW"));
+
+    const string_macro_src = try common.readFileAlloc(std.testing.allocator, "sa_std/string.sa");
+    defer std.testing.allocator.free(string_macro_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_AS_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_AS_BYTES"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_CONTAINS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_CONTAINS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_STARTS_WITH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_STARTS_WITH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_ENDS_WITH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_ENDS_WITH"));
 
     const string_fixture =
         \\@import "sa_std/core/slice.sal"
@@ -158,6 +181,263 @@ test "sa_std alloc helpers are concrete and verifiable" {
         },
         .trap => |report| {
             std.debug.print("string smoke verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const string_macro_fixture =
+        \\@import "sa_std/string.sa"
+        \\
+        \\@const WORD = utf8:"rust"
+        \\@const PREFIX = utf8:"ru"
+        \\@const SUFFIX = utf8:"st"
+        \\@const INFIX = utf8:"us"
+        \\@const MISS = utf8:"zz"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND STR_FROM_PARTS word, &WORD, 4
+        \\    EXPAND STR_FROM_PARTS prefix, &PREFIX, 2
+        \\    EXPAND STR_FROM_PARTS suffix, &SUFFIX, 2
+        \\    EXPAND STR_FROM_PARTS infix, &INFIX, 2
+        \\    EXPAND STR_FROM_PARTS miss, &MISS, 2
+        \\    EXPAND STR_EMPTY empty
+        \\    EXPAND STRING_LEN len, word
+        \\    EXPAND STR_CONTAINS contains_ok, word, infix
+        \\    EXPAND STRING_CONTAINS contains_empty_ok, word, empty
+        \\    EXPAND STRING_CONTAINS contains_miss, word, miss
+        \\    EXPAND STR_STARTS_WITH starts_ok, word, prefix
+        \\    EXPAND STRING_STARTS_WITH starts_miss, word, miss
+        \\    EXPAND STR_ENDS_WITH ends_ok, word, suffix
+        \\    EXPAND STRING_ENDS_WITH ends_miss, word, miss
+        \\    len_ok = eq len, 4
+        \\    contains_match_ok = eq contains_ok, 1
+        \\    contains_empty_match_ok = eq contains_empty_ok, 1
+        \\    contains_miss_ok = eq contains_miss, 0
+        \\    starts_match_ok = eq starts_ok, 1
+        \\    starts_miss_ok = eq starts_miss, 0
+        \\    ends_match_ok = eq ends_ok, 1
+        \\    ends_miss_ok = eq ends_miss, 0
+        \\    ok01 = and len_ok, contains_match_ok
+        \\    ok02 = and ok01, contains_empty_match_ok
+        \\    ok03 = and ok02, contains_miss_ok
+        \\    ok04 = and ok03, starts_match_ok
+        \\    ok05 = and ok04, starts_miss_ok
+        \\    ok06 = and ok05, ends_match_ok
+        \\    ok = and ok06, ends_miss_ok
+        \\    !len
+        \\    !contains_ok
+        \\    !contains_empty_ok
+        \\    !contains_miss
+        \\    !starts_ok
+        \\    !starts_miss
+        \\    !ends_ok
+        \\    !ends_miss
+        \\    !len_ok
+        \\    !contains_match_ok
+        \\    !contains_empty_match_ok
+        \\    !contains_miss_ok
+        \\    !starts_match_ok
+        \\    !starts_miss_ok
+        \\    !ends_match_ok
+        \\    !ends_miss_ok
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    !ok06
+        \\    !word
+        \\    !prefix
+        \\    !suffix
+        \\    !infix
+        \\    !miss
+        \\    !empty
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var string_macro_flat = try flattenFixture(std.testing.allocator, "tests/string_macro_fixture.sa", string_macro_fixture);
+    defer string_macro_flat.deinit(std.testing.allocator);
+    const string_macro_verified = try saasm.referee.verify(std.testing.allocator, string_macro_flat.instructions, string_macro_flat.const_decls);
+    switch (string_macro_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 1), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("string macro verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "sa_std btree_set helpers are concrete and verifiable" {
+    const btree_set_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/btree_set.sal");
+    defer std.testing.allocator.free(btree_set_layout);
+    try std.testing.expectEqualStrings(
+        "#def BTreeSet_SIZE = 24\n#def BTreeSet_entries = +0\n#def BTreeSet_cap = +8\n#def BTreeSet_len = +16\n\n#def BTreeSet_INITIAL_CAP = 8\n",
+        btree_set_layout,
+    );
+
+    const collections_btree_set = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/btree_set.sa");
+    defer std.testing.allocator.free(collections_btree_set);
+    try std.testing.expectEqualStrings("@import \"../btree_set.sa\"\n", collections_btree_set);
+
+    const btree_set_src = try common.readFileAlloc(std.testing.allocator, "sa_std/btree_set.sa");
+    defer std.testing.allocator.free(btree_set_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@import \"btree_set.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@import \"btree_map.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_free"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_is_empty"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_contains"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_clear"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_insert"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_remove"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_CONTAINS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_CLEAR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_INSERT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_REMOVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LIT2"));
+
+    var btree_set_error_ctx = saasm.flattener.ErrorContext{};
+    var btree_set_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/btree_set.sa", btree_set_src, &btree_set_error_ctx) catch |err| {
+        const source_line = saasm.flattener.takeErrorSourceLine(&btree_set_error_ctx) orelse 0;
+        std.debug.print("btree_set flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
+        return err;
+    };
+    defer btree_set_flat.deinit(std.testing.allocator);
+    try std.testing.expect(btree_set_flat.instructions.len > 0);
+    try std.testing.expectEqual(@as(usize, 24), btree_set_flat.function_sigs.len);
+
+    const btree_set_verified = try saasm.referee.verify(std.testing.allocator, btree_set_flat.instructions, btree_set_flat.const_decls);
+    switch (btree_set_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 24), owned.function_sigs.len);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print("btree_set smoke verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const btree_set_fixture =
+        \\@import "sa_std/core/slice.sal"
+        \\@import "sa_std/core/slice.sa"
+        \\@import "sa_std/collections/btree_set.sa"
+        \\
+        \\@const KEY_ALPHA = utf8:"alpha"
+        \\@const KEY_BRAVO = utf8:"bravo"
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    set = 0 as ptr
+        \\    alpha = alloc Slice_SIZE
+        \\    bravo = alloc Slice_SIZE
+        \\    lookup = alloc Slice_SIZE
+        \\    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+        \\    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+        \\    EXPAND SLICE_NEW lookup, &KEY_ALPHA, 5
+        \\    EXPAND BTREE_SET_NEW set
+        \\    EXPAND BTREE_SET_IS_EMPTY empty0, set
+        \\    EXPAND BTREE_SET_INSERT insert_alpha, set, alpha
+        \\    EXPAND BTREE_SET_INSERT insert_alpha_again, set, lookup
+        \\    EXPAND BTREE_SET_INSERT insert_bravo, set, bravo
+        \\    EXPAND BTREE_SET_CONTAINS has_alpha, set, alpha
+        \\    EXPAND BTREE_SET_CONTAINS has_lookup, set, lookup
+        \\    EXPAND BTREE_SET_REMOVE removed_alpha, set, alpha
+        \\    EXPAND BTREE_SET_CONTAINS has_alpha_after, set, alpha
+        \\    EXPAND BTREE_SET_LEN len, set
+        \\    EXPAND BTREE_SET_CLEAR set
+        \\    EXPAND BTREE_SET_IS_EMPTY empty1, set
+        \\    ok_empty0 = eq empty0, 1
+        \\    ok_insert_alpha = eq insert_alpha, 1
+        \\    ok_insert_alpha_again = eq insert_alpha_again, 0
+        \\    ok_insert_bravo = eq insert_bravo, 1
+        \\    ok_has_alpha = eq has_alpha, 1
+        \\    ok_has_lookup = eq has_lookup, 1
+        \\    ok_removed_alpha = eq removed_alpha, 1
+        \\    ok_has_alpha_after = eq has_alpha_after, 0
+        \\    ok_len = eq len, 1
+        \\    ok_empty1 = eq empty1, 1
+        \\    ok01 = and ok_empty0, ok_insert_alpha
+        \\    ok02 = and ok01, ok_insert_alpha_again
+        \\    ok03 = and ok02, ok_insert_bravo
+        \\    ok04 = and ok03, ok_has_alpha
+        \\    ok05 = and ok04, ok_has_lookup
+        \\    ok06 = and ok05, ok_removed_alpha
+        \\    ok07 = and ok06, ok_has_alpha_after
+        \\    ok08 = and ok07, ok_len
+        \\    ok = and ok08, ok_empty1
+        \\    !empty0
+        \\    !insert_alpha
+        \\    !insert_alpha_again
+        \\    !insert_bravo
+        \\    !has_alpha
+        \\    !has_lookup
+        \\    !removed_alpha
+        \\    !has_alpha_after
+        \\    !len
+        \\    !empty1
+        \\    !ok_empty0
+        \\    !ok_insert_alpha
+        \\    !ok_insert_alpha_again
+        \\    !ok_insert_bravo
+        \\    !ok_has_alpha
+        \\    !ok_has_lookup
+        \\    !ok_removed_alpha
+        \\    !ok_has_alpha_after
+        \\    !ok_len
+        \\    !ok_empty1
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    !ok06
+        \\    !ok07
+        \\    !ok08
+        \\    !lookup
+        \\    !bravo
+        \\    !alpha
+        \\    EXPAND BTREE_SET_FREE set
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var btree_set_fixture_flat = try flattenFixture(std.testing.allocator, "tests/btree_set_fixture.sa", btree_set_fixture);
+    defer btree_set_fixture_flat.deinit(std.testing.allocator);
+    const btree_set_fixture_verified = try saasm.referee.verify(std.testing.allocator, btree_set_fixture_flat.instructions, btree_set_fixture_flat.const_decls);
+    switch (btree_set_fixture_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 25), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("btree_set fixture verifier trap: {s}\n", .{report.message});
             return error.TestUnexpectedResult;
         },
     }

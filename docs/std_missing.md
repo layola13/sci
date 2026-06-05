@@ -11,9 +11,14 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 ## 1. Partially Implemented Modules
 
 ### 1.1 Vector (`std::vec::Vec` vs `sa_std/vec.sa`)
-*   **Implemented in `sa_std`**: `VEC_NEW` / `sa_vec_new`, `VEC_FREE` / `sa_vec_free`, `VEC_LEN`, `VEC_GET`, `VEC_PUSH`.
-*   **Missing from Rust**: `with_capacity`, `capacity`, `reserve`, `reserve_exact`, `shrink_to_fit`, `shrink_to`, `truncate`, `as_slice`, `as_mut_slice`, `set_len`, `swap_remove`, `insert`, `remove`, `retain`, `retain_mut`, `dedup`, `dedup_by`, `pop`, `append`, `drain`, `clear`, `is_empty`, `split_off`, `resize`, `extend_from_slice`.
+*   **Implemented in `sa_std`**: `VEC_NEW` / `sa_vec_new`, `VEC_WITH_CAPACITY`, `VEC_FREE` / `sa_vec_free`, `VEC_LEN`, `VEC_CAPACITY`, `VEC_IS_EMPTY`, `VEC_AS_PTR`, `VEC_AS_SLICE`, `VEC_GET`, `VEC_GET_U64`, `VEC_FRONT`, `VEC_BACK`, `VEC_PUSH`, `VEC_PUSH_U64`, `VEC_RESERVE`, `VEC_RESERVE_U64`, `VEC_TRY_POP`, `VEC_POP`, `VEC_CLEAR`, `VEC_TRUNCATE`, `VEC_CONTAINS_U64`, `VEC_STARTS_WITH_U64`, `VEC_ENDS_WITH_U64`.
+*   **Missing from Rust**: `reserve_exact`, `shrink_to_fit`, `shrink_to`, `as_mut_slice`, `set_len`, `swap_remove`, `insert`, `remove`, `retain`, `retain_mut`, `dedup`, `dedup_by`, `append`, `drain`, `split_off`, `resize`, `extend_from_slice`.
 *   **Missing Infrastructure**: Iterator support (`IntoIterator`, `iter()`, `iter_mut()`).
+
+### 1.1a Slice (`core::slice` vs `sa_std/core/slice.sa`)
+*   **Implemented in `sa_std`**: `SLICE_NEW`, `SLICE_GET_PTR`, `SLICE_AS_PTR`, `SLICE_GET_LEN`, `SLICE_IS_EMPTY`, `SLICE_GET_U64`, `SLICE_FIRST_U64`, `SLICE_LAST_U64`, `SLICE_TRY_FIRST_U64`, `SLICE_TRY_LAST_U64`, `SLICE_TRY_GET_U64`, `SLICE_CONTAINS_U64`, `SLICE_STARTS_WITH_U64`, `SLICE_ENDS_WITH_U64`.
+*   **Missing from Rust**: generic element support, `first_mut`, `last_mut`, range-based `get`, split/chunk/window iterators, `split_at`, `copy_from_slice`, `fill`, `reverse`, sorting, binary search, and borrowed sub-slice return APIs.
+*   **Scope note**: Current slice comparison helpers are concrete `u64` helpers. They intentionally do not pretend to be Rust's generic `[T]` trait surface.
 
 ### 1.2 Deque (`std::collections::VecDeque` vs `sa_std/vec_deque.sa`)
 *   **Implemented in `sa_std`**: `NEW`, `FREE`, `LEN`, `GET`, `PUSH_BACK`, `PUSH_FRONT`, `TRY_POP_FRONT`, `TRY_POP_BACK`, `ROTATE_LEFT`, `ROTATE_RIGHT`.
@@ -28,8 +33,13 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 *   **Missing from Rust**: `with_capacity`, `capacity`, `reserve`, `shrink_to_fit`, `iter`, `len`, `is_empty`, `drain`, `retain`, `clear`, `intersection`, `union`, `difference`, `symmetric_difference`, `is_disjoint`, `is_subset`, `is_superset`, `replace`, `get`, `take`.
 
 ### 1.5 B-Tree Map (`std::collections::BTreeMap` vs `sa_std/btree_map.sa`)
-*   **Implemented in `sa_std`**: `NEW`, `FREE`, `LEN`, `GET`, `INSERT`.
-*   **Missing from Rust**: `clear`, `get_mut`, `get_key_value`, `first_key_value`, `first_entry`, `last_key_value`, `last_entry`, `pop_first`, `pop_last`, `contains_key`, `remove`, `remove_entry`, `retain`, `append`, `range`, `range_mut`, `entry`, `split_off`, `into_keys`, `into_values`, `iter`, `iter_mut`, `keys`, `values`, `is_empty`.
+*   **Implemented in `sa_std`**: `BTREE_MAP_NEW`, `BTREE_MAP_FREE`, `BTREE_MAP_LEN`, `BTREE_MAP_IS_EMPTY`, `BTREE_MAP_GET`, `BTREE_MAP_CONTAINS_KEY`, `BTREE_MAP_CLEAR`, `BTREE_MAP_REMOVE`, `BTREE_MAP_INSERT`.
+*   **Missing from Rust**: `get_mut`, `get_key_value`, `first_key_value`, `first_entry`, `last_key_value`, `last_entry`, `pop_first`, `pop_last`, `remove_entry`, `retain`, `append`, `range`, `range_mut`, `entry`, `split_off`, `into_keys`, `into_values`, `iter`, `iter_mut`, `keys`, `values`.
+
+### 1.5a B-Tree Set (`std::collections::BTreeSet` vs `sa_std/btree_set.sa`)
+*   **Implemented in `sa_std`**: `BTREE_SET_NEW`, `BTREE_SET_FREE`, `BTREE_SET_LEN`, `BTREE_SET_IS_EMPTY`, `BTREE_SET_CONTAINS`, `BTREE_SET_CLEAR`, `BTREE_SET_INSERT`, `BTREE_SET_REMOVE`, `BTREE_SET_LIT2`.
+*   **Missing from Rust**: `get`, `first`, `last`, `pop_first`, `pop_last`, `replace`, `take`, `append`, `split_off`, `range`, iterator APIs, and set algebra helpers (`union`, `intersection`, `difference`, `symmetric_difference`, subset/superset checks).
+*   **Scope note**: The SA facade reuses `BTreeMap` storage and comparison; it is a concrete string-slice-key subset, not Rust's generic `Ord`-driven implementation.
 
 ### 1.6 Binary Heap (`std::collections::BinaryHeap` vs `sa_std/binary_heap.sa`)
 *   **Implemented in `sa_std`**: `NEW`, `FREE`, `LEN`, `PEEK`, `PUSH`, `TRY_POP`.
@@ -41,9 +51,9 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 *   **Missing from Rust**: `args_os`, `vars`, `vars_os`, `join_paths`, `split_paths`, `current_exe`, `temp_dir`.
 
 ### 1.8 Formatting & String (`std::fmt` & `std::string` vs `sa_std/fmt.sa`, `sa_std/string.sa`)
-*   **Implemented in `sa_std`**: `STRFMT_I64`, `U64`, `F64`, `BOOL`, `BYTES`, `STR_FROM_CONST`, `STR_LEN`, `STR_SLICE`, `STR_EQ`, `STR_CONCAT`, plus the macro-level formatting scaffold around `PRINTLN` / `PRINT` / `FORMAT`.
+*   **Implemented in `sa_std`**: `STRFMT_I64`, `U64`, `F64`, `BOOL`, `BYTES`, `STR_FROM_CONST`, `STR_LEN`, `STRING_LEN`, `STR_PTR`, `STR_AS_PTR`, `STRING_AS_PTR`, `STR_AS_BYTES`, `STRING_AS_BYTES`, `STRING_AS_STR`, `STR_IS_EMPTY`, `STRING_IS_EMPTY`, `STRING_NEW`, `STR_EMPTY`, `STR_FROM_PARTS`, `STRING_FROM_PARTS`, `STR_SLICE`, `STR_EQ`, `STR_CONTAINS`, `STRING_CONTAINS`, `STR_STARTS_WITH`, `STRING_STARTS_WITH`, `STR_ENDS_WITH`, `STRING_ENDS_WITH`, `STR_CONCAT`, plus the macro-level formatting scaffold around `PRINTLN` / `PRINT` / `FORMAT`.
 *   **Missing Infrastructure**: `Display`, `Debug`, `Formatter` traits; `format!` macro interpolation.
-*   **Missing Methods**: `String::push_str`, `String::pop`, `String::insert`, `String::split_off`, `String::replace_range`; `str` methods like `chars`, `bytes`, `split`, `lines`, `trim`, `starts_with`, `ends_with`, `find`, `replace`.
+*   **Missing Methods**: `String::push_str`, `String::pop`, `String::insert`, `String::split_off`, `String::replace_range`; `str` methods like `chars`, `bytes`, `split`, `lines`, `trim`, `find`, `rfind`, `strip_prefix`, `strip_suffix`, `replace`.
 
 ### 1.9 File System (`std::fs` vs `sa_std/fs.sa`)
 *   **Implemented in `sa_std`**: Handles (`open`, `create`, `close`, `read`, `read_exact`, `write`, `write_all`, `flush`, `seek`), Full-file IO (`read_file`, `write_file`), Metadata (`metadata`, `remove_file`, `rename`, `make_dir`, `remove_dir`).
@@ -81,7 +91,7 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 
 The following Rust `std` modules have no corresponding implementation or mapping in `sa_std`:
 
-1.  **Memory & Data Abstraction**: `std::any`, `std::array`, `std::ascii`, `std::boxed`, `std::cell` (`Cell`, `RefCell`), `std::char`, `std::rc` (`Rc`), `std::ptr` (`NonNull`), `std::pin`.
+1.  **Memory & Data Abstraction**: `std::any`, `std::array`, `std::ascii`, `std::char`, `std::ptr` (`NonNull`), `std::pin`. `Box`, `Cell`, `RefCell`, `Rc`, `Arc`, and `Weak` have macro-level SA subsets under `sa_std/core/*`, but not full Rust module parity.
 2.  **Core Trait Paradigm**: `std::convert` (`From`/`Into`), `std::default`, `std::error`, `std::iter` (`Iterator` system), `std::marker` (`Send`/`Sync`/`Copy`), `std::ops` (Operator overloading/`Drop`), `std::cmp`.
 3.  **FFI & Platform Specific**: `std::ffi` (`CString`, `OsString`), `std::os` (Unix/Windows extensions).
 4.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`), `std::future`, `std::task`.

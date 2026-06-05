@@ -22,6 +22,34 @@ L_ENTRY:
     EXPAND VEC_CAPACITY cap2, vec1
     EXPAND VEC_LEN len4, vec1
     EXPAND VEC_IS_EMPTY empty2, vec1
+    EXPAND VEC_RESERVE_U64 vec1, 5
+    EXPAND VEC_CAPACITY cap3, vec1
+    EXPAND VEC_PUSH_U64 vec1, 44
+    EXPAND VEC_PUSH_U64 vec1, 55
+    prefix_data = alloc 8
+    suffix_data = alloc 8
+    miss_prefix_data = alloc 8
+    long_suffix_data = alloc 24
+    store prefix_data+0, 44 as u64
+    store suffix_data+0, 55 as u64
+    store miss_prefix_data+0, 66 as u64
+    store long_suffix_data+0, 44 as u64
+    store long_suffix_data+8, 55 as u64
+    store long_suffix_data+16, 66 as u64
+    prefix = alloc Slice_SIZE
+    suffix = alloc Slice_SIZE
+    miss_prefix = alloc Slice_SIZE
+    long_suffix = alloc Slice_SIZE
+    EXPAND SLICE_NEW prefix, prefix_data, 1
+    EXPAND SLICE_NEW suffix, suffix_data, 1
+    EXPAND SLICE_NEW miss_prefix, miss_prefix_data, 1
+    EXPAND SLICE_NEW long_suffix, long_suffix_data, 3
+    EXPAND VEC_CONTAINS_U64 contains_44, vec1, 44
+    EXPAND VEC_CONTAINS_U64 contains_99, vec1, 99
+    EXPAND VEC_STARTS_WITH_U64 starts_ok, vec1, prefix
+    EXPAND VEC_ENDS_WITH_U64 ends_ok, vec1, suffix
+    EXPAND VEC_STARTS_WITH_U64 starts_miss, vec1, miss_prefix
+    EXPAND VEC_ENDS_WITH_U64 ends_long_miss, vec1, long_suffix
     ok_cap0 = eq cap0, 0
     ok_empty0 = eq empty0, 1
     ok_len0 = eq len0, 3
@@ -36,6 +64,13 @@ L_ENTRY:
     ok_cap2 = eq cap2, 4
     ok_len4 = eq len4, 0
     ok_empty2 = eq empty2, 1
+    ok_cap3 = eq cap3, 5
+    ok_contains_44 = eq contains_44, 1
+    ok_contains_99 = eq contains_99, 0
+    ok_starts = eq starts_ok, 1
+    ok_ends = eq ends_ok, 1
+    ok_starts_miss = eq starts_miss, 0
+    ok_ends_long_miss = eq ends_long_miss, 0
     ok01 = and ok_cap0, ok_empty0
     ok02 = and ok01, ok_len0
     ok03 = and ok02, ok_cap1
@@ -48,7 +83,14 @@ L_ENTRY:
     ok10 = and ok09, ok_empty1
     ok11 = and ok10, ok_cap2
     ok12 = and ok11, ok_len4
-    ok = and ok12, ok_empty2
+    ok13 = and ok12, ok_empty2
+    ok14 = and ok13, ok_cap3
+    ok15 = and ok14, ok_contains_44
+    ok16 = and ok15, ok_contains_99
+    ok17 = and ok16, ok_starts
+    ok18 = and ok17, ok_ends
+    ok19 = and ok18, ok_starts_miss
+    ok = and ok19, ok_ends_long_miss
     !cap0
     !empty0
     !len0
@@ -63,6 +105,13 @@ L_ENTRY:
     !cap2
     !len4
     !empty2
+    !cap3
+    !contains_44
+    !contains_99
+    !starts_ok
+    !ends_ok
+    !starts_miss
+    !ends_long_miss
     !ok_cap0
     !ok_empty0
     !ok_len0
@@ -77,6 +126,13 @@ L_ENTRY:
     !ok_cap2
     !ok_len4
     !ok_empty2
+    !ok_cap3
+    !ok_contains_44
+    !ok_contains_99
+    !ok_starts
+    !ok_ends
+    !ok_starts_miss
+    !ok_ends_long_miss
     !ok01
     !ok02
     !ok03
@@ -89,6 +145,21 @@ L_ENTRY:
     !ok10
     !ok11
     !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !prefix
+    !suffix
+    !miss_prefix
+    !long_suffix
+    !prefix_data
+    !suffix_data
+    !miss_prefix_data
+    !long_suffix_data
     EXPAND VEC_FREE vec0
     EXPAND VEC_FREE vec1
     br ok -> L_OK, L_ERR

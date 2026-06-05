@@ -1,0 +1,102 @@
+@import "btree_set.sal"
+@import "btree_map.sa"
+
+#def BTreeSet_VALUE_SENTINEL = 1
+
+@export sa_btree_set_new() -> ^ptr:
+L_ENTRY:
+    set = call @sa_btree_map_new()
+    return set
+
+@export sa_btree_set_free(^set: ptr) -> void:
+L_ENTRY:
+    call @sa_btree_map_free(^set)
+    return
+
+@export sa_btree_set_len(&set: ptr) -> u64:
+L_ENTRY:
+    len = call @sa_btree_map_len(&set)
+    !set
+    return len
+
+@export sa_btree_set_is_empty(&set: ptr) -> i32:
+L_ENTRY:
+    empty = call @sa_btree_map_is_empty(&set)
+    !set
+    return empty
+
+@export sa_btree_set_contains(&set: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    contains = call @sa_btree_map_contains_key(&set, &key)
+    !key
+    !set
+    return contains
+
+@export sa_btree_set_clear(&set: ptr) -> void:
+L_ENTRY:
+    call @sa_btree_map_clear(&set)
+    !set
+    return
+
+@export sa_btree_set_insert(&set: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    len_before = call @sa_btree_map_len(&set)
+    call @sa_btree_map_insert(&set, &key, BTreeSet_VALUE_SENTINEL)
+    len_after = call @sa_btree_map_len(&set)
+    inserted = ne len_after, len_before
+    result = inserted as i32
+    !len_after
+    !len_before
+    !key
+    !set
+    return result
+
+@export sa_btree_set_remove(&set: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    removed = call @sa_btree_map_remove(&set, &key)
+    present = ne removed, 0
+    result = present as i32
+    !removed
+    !key
+    !set
+    return result
+
+[MACRO] BTREE_SET_NEW %out_set
+    %out_set = call @sa_btree_set_new()
+[END_MACRO]
+
+[MACRO] BTREE_SET_FREE %set_reg
+    call @sa_btree_set_free(^%set_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_LEN %out_len, %set_reg
+    %out_len = call @sa_btree_set_len(&%set_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_IS_EMPTY %out_flag, %set_reg
+    %out_flag = call @sa_btree_set_is_empty(&%set_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_CONTAINS %out_flag, %set_reg, %key_reg
+    %out_flag = call @sa_btree_set_contains(&%set_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_CLEAR %set_reg
+    call @sa_btree_set_clear(&%set_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_INSERT %out_ok, %set_reg, %key_reg
+    %out_ok = call @sa_btree_set_insert(&%set_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_REMOVE %out_ok, %set_reg, %key_reg
+    %out_ok = call @sa_btree_set_remove(&%set_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_LIT2 %out_set, %key1, %key2
+    EXPAND BTREE_SET_NEW %out_set
+    EXPAND BTREE_SET_INSERT __btree_set_lit2_ok_1_%out_set, %out_set, %key1
+    EXPAND BTREE_SET_INSERT __btree_set_lit2_ok_2_%out_set, %out_set, %key2
+    !__btree_set_lit2_ok_1_%out_set
+    !__btree_set_lit2_ok_2_%out_set
+[END_MACRO]
