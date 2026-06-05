@@ -1708,6 +1708,24 @@ test "sa test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
+    const list_argv = [_][]const u8{ "sa", "test", source_path, "--list", "--filter", "simple" };
+    const list_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        list_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), list_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "tests:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "- simple pass"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test count: 1"));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "[PASS]") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "another test") == null);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
     const filter_argv = [_][]const u8{ "sa", "test", source_path, "--filter", "another" };
     const filter_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
@@ -1751,6 +1769,50 @@ test "sa test runs isolated native tests with filterable names" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] panic path"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const assert_source =
+        \\@const ASSERT_MSG = utf8:"expected=42 actual=41"
+        \\#def ASSERT_MSG_LEN = 21
+        \\
+        \\@test "assert equal reports values"():
+        \\L_FAIL:
+        \\    panic_msg(103, *ASSERT_MSG, ASSERT_MSG_LEN)
+        \\
+    ;
+    try writeSource(tmp.dir, "assert_values.sa", assert_source);
+
+    const compile_only_argv = [_][]const u8{ "sa", "test", "assert_values.sa", "--compile-only" };
+    const compile_only_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        compile_only_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), compile_only_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "compiled 1 selected tests (1 discovered)"));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "[FAIL]") == null);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const assert_argv = [_][]const u8{ "sa", "test", "assert_values.sa", "--jobs", "1" };
+    const assert_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        assert_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), assert_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[FAIL] assert equal reports values"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: FAILED. 0 passed; 1 failed; 0 skipped"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "assertion failed:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "expected: 42"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "actual: 41"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "PANIC[103]: expected=42 actual=41"));
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();

@@ -1464,7 +1464,7 @@ sa/
 
 # Version 0.7 — 原生单元测试框架（Native Unit Test Framework）
 
-目标：实现 SA-ASM 的原生单元测试支持，提供类似 `cargo test` 的体验，彻底替代基于 Bash/Zig 的外部集成测试调用。
+目标：实现 Safe ASM 的原生单元测试支持，提供类似 `cargo test` 的体验，彻底替代基于 Bash/Zig 的外部集成测试调用。
 
 ## v0.7 任务
 
@@ -1478,9 +1478,12 @@ sa/
   - [x] 41.2 支持 `--filter` / `--skip` / `--exact` / `--ignored` / `--include-ignored` 过滤测试
   - [x] 41.3 动态生成测试 harness，使用 `SA_TEST_NAME` 选择目标测试并由子进程隔离执行
   - [x] 41.4 控制台进度打印、隔离进程运行、退出状态判断（含 `should_panic` / signal / launch failure）
+  - [x] 41.5 增强诊断工作流：`sa test --list` 可按现有选择器列出测试名、标记与源码位置；`sa test --compile-only` 完成测试模式编译/链接后退出不运行子进程，便于先定位构建问题
+    - 说明：2026-06-05 已在 `src/test_formatter.zig` / `src/cli.zig` 增加列表与只编译路径，并由 `tests/cli_smoke.zig` 覆盖筛选列表、失败用例 compile-only 不执行。
 
 - [x] 42. 标准库断言与支持
   - [x] 42.1 增强 `ASSERT_EQ` / `ASSERT_TRUE`：新增 `ASSERT_*_MSG` 诊断宏，支持带文件名、行号及具体 diff 的 `panic_msg`
+    - 说明：2026-06-05 `src/test_result.zig` 会识别 `expected ... got ...` 与 `expected=... actual=...` panic 文本，在原始 stderr 前输出稳定的 `assertion failed` / `expected` / `actual` 字段，降低复杂 Safe ASM 测试失败定位成本。
   - [x] 42.2 提供基础的 Mock 机制（如内存 I/O 缓冲）：新增 `sa_std/testing/mock_io.sal` / `.sa`，提供可 rewind 的内存读写缓冲，并由 `sa test` 回归覆盖写入截断、读取游标和 len/pos 查询
 
 - [ ] 43. 测试用例迁移

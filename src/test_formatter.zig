@@ -60,6 +60,29 @@ pub fn writeSummary(stdout: anytype, summary: RunSummary) !void {
     }
 }
 
+pub fn writeList(stdout: anytype, tests: []const test_meta.TestDescAndFn, selection: test_meta.TestSelection) !void {
+    try stdout.writeAll("tests:\n");
+    var count: usize = 0;
+    for (tests) |test_case| {
+        if (!selection.shouldRun(test_case)) continue;
+        count += 1;
+
+        try stdout.print("- {s}", .{test_case.displayName()});
+        if (test_case.desc.ignored) try stdout.writeAll(" [ignored]");
+        if (test_case.desc.should_panic) try stdout.writeAll(" [should_panic]");
+        if (test_case.desc.source_file) |source_file| {
+            try stdout.print(" ({s}", .{source_file});
+            if (test_case.desc.line != 0) {
+                try stdout.print(":{d}", .{test_case.desc.line});
+                if (test_case.desc.col != 0) try stdout.print(":{d}", .{test_case.desc.col});
+            }
+            try stdout.writeByte(')');
+        }
+        try stdout.writeByte('\n');
+    }
+    try stdout.print("test count: {d}\n", .{count});
+}
+
 test "formatter writes stable summary text" {
     var out = std.ArrayList(u8).init(std.testing.allocator);
     defer out.deinit();
@@ -72,6 +95,44 @@ test "formatter writes stable summary text" {
     });
 
     try std.testing.expectEqualStrings("----\ntest result: ok. 2 passed; 0 failed; 1 skipped\n", out.items);
+}
+
+test "formatter lists selected tests with flags and locations" {
+    const tests = [_]test_meta.TestDescAndFn{
+        .{
+            .desc = .{
+                .id = 1,
+                .name = "simple pass",
+                .source_file = "tests/basic.sa",
+                .line = 3,
+                .col = 1,
+                .ignored = false,
+                .should_panic = false,
+            },
+            .testfn = .{ .selector_name = "_saasm_test_1" },
+        },
+        .{
+            .desc = .{
+                .id = 2,
+                .name = "ignored panic",
+                .source_file = "tests/basic.sa",
+                .line = 9,
+                .col = 1,
+                .ignored = true,
+                .should_panic = true,
+            },
+            .testfn = .{ .selector_name = "_saasm_test_2" },
+        },
+    };
+
+    var out = std.ArrayList(u8).init(std.testing.allocator);
+    defer out.deinit();
+
+    try writeList(out.writer(), tests[0..], .{ .ignored = .include });
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "- simple pass (tests/basic.sa:3:1)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "- ignored panic [ignored] [should_panic] (tests/basic.sa:9:1)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "test count: 2"));
 }
 
 test "formatter writes failure output through test_result" {

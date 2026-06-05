@@ -20,6 +20,7 @@ const pkg_resolver = @import("pkg/resolver.zig");
 const pkg_sum = @import("pkg/sum.zig");
 const referee_call = @import("referee/call.zig");
 const referee = @import("referee.zig");
+const test_formatter = @import("test_formatter.zig");
 const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
@@ -411,6 +412,12 @@ const CompileOptions = struct {
     stdin_reader: ?std.io.AnyReader = null,
     stdin_is_tty: ?bool = null,
     diagnostic_writer: ?std.io.AnyWriter = null,
+};
+
+const TestCommandOptions = struct {
+    selection: test_meta.TestSelection,
+    list: bool = false,
+    compile_only: bool = false,
 };
 
 pub const DiagnosticsMode = enum {
@@ -1101,6 +1108,8 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("usage: sa test <file> [options]\n\n");
             try writer.writeAll("Run @test blocks in a .sa source file.\n\n");
             try writer.writeAll("Options:\n");
+            try writer.writeAll("  --list                         List selected tests without running them\n");
+            try writer.writeAll("  --compile-only                 Compile and link tests without running them\n");
             try writer.writeAll("  --filter <pattern>             Include only matching tests (repeatable)\n");
             try writer.writeAll("  --skip <pattern>               Exclude matching tests (repeatable)\n");
             try writer.writeAll("  --exact                        Match test names exactly\n");
@@ -1324,6 +1333,8 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  -h, --help                     Show this help message\n");
     try writer.writeAll("  --version                      Print version and exit\n");
     try writer.writeAll("\nTest flags:\n");
+    try writer.writeAll("  --list                         List selected tests without running them\n");
+    try writer.writeAll("  --compile-only                 Compile and link tests without running them\n");
     try writer.writeAll("  --filter <pattern>             Include only matching tests (repeatable)\n");
     try writer.writeAll("  --skip <pattern>               Exclude matching tests (repeatable)\n");
     try writer.writeAll("  --exact                        Match test names exactly\n");
@@ -3853,7 +3864,7 @@ fn executeTest(
     allocator: std.mem.Allocator,
     source_path: []const u8,
     compile_options: CompileOptions,
-    selection: test_meta.TestSelection,
+    test_options: TestCommandOptions,
     stdout: anytype,
     stderr: anytype,
     diagnostics_mode: DiagnosticsMode,
@@ -3886,6 +3897,13 @@ fn executeTest(
             defer allocator.free(artifact_full_path);
             try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true }, artifact_full_path);
 
+            var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            if (test_options.list) {
+                defer test_list.deinit(allocator);
+                try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
+                return 0;
+            }
+
             const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
             defer allocator.free(exe_full_path);
 
@@ -3903,13 +3921,24 @@ fn executeTest(
                 else => return err,
             };
 
-            var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            if (test_options.compile_only) {
+                defer test_list.deinit(allocator);
+                try stdout.print(
+                    "compiled {d} selected tests ({d} discovered)\n",
+                    .{
+                        test_options.selection.countSelected(test_list.tests),
+                        test_list.tests.len,
+                    },
+                );
+                return 0;
+            }
+
             return try test_runner.run(
                 allocator,
                 exe_full_path,
                 tmp.dir,
                 &test_list,
-                selection,
+                test_options.selection,
                 compile_options.jobs,
                 stdout.any(),
                 stderr.any(),
@@ -4185,9 +4214,19 @@ pub fn executeWithWritersAndOptions(
             defer skip_filters.deinit();
             var exact = false;
             var run_ignored = test_meta.RunIgnored.normal;
+            var list_tests = false;
+            var compile_only = false;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (std.mem.eql(u8, args[i], "--list")) {
+                    list_tests = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--compile-only")) {
+                    compile_only = true;
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "--filter")) {
                     if (i + 1 >= args.len) return error.MissingFilterValue;
                     try include_filters.append(args[i + 1]);
@@ -4220,7 +4259,11 @@ pub fn executeWithWritersAndOptions(
                 .exact = exact,
                 .ignored = run_ignored,
             };
-            return try executeTest(allocator, source_path, compile_options, selection, stdout, stderr, if (json_mode) .json else .human);
+            return try executeTest(allocator, source_path, compile_options, .{
+                .selection = selection,
+                .list = list_tests,
+                .compile_only = compile_only,
+            }, stdout, stderr, if (json_mode) .json else .human);
         },
     }
 }

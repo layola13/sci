@@ -15,4 +15,6 @@ completed demo coverage into a single framework-focused suite.
 | Ignored selection | native unit-test framework behavior | `framework ignored case` |
 
 The sibling `runner.zig` file executes the suite through `sa test` and
-checks default, `--ignored`, and `--include-ignored` behavior end to end.
+checks default, `--ignored`, `--include-ignored`, and assertion diagnostics
+end to end. The repository CLI smoke tests cover `--list` and
+`--compile-only` on smaller fixtures.

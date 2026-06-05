@@ -35,7 +35,7 @@ pub const TestExecutor = struct {
 
         const run_result = std.process.Child.run(.{
             .allocator = self.allocator,
-            .argv = &.{ self.exe_path },
+            .argv = &.{self.exe_path},
             .cwd_dir = self.cwd_dir,
             .env_map = &env_map,
         }) catch |err| {
@@ -54,6 +54,7 @@ pub const TestExecutor = struct {
             outcome.failed.stderr = self.allocator.dupe(u8, run_result.stderr) catch |err| {
                 return launchFailure(test_case, @errorName(err));
             };
+            outcome.failed.assertion = test_result.parseAssertionFailure(outcome.failed.stderr);
         }
         return outcome;
     }
@@ -68,7 +69,7 @@ test "executor skips tests that do not match selection" {
         .exe_path = "unused",
         .cwd_dir = tmp.dir,
         .selection = .{
-            .include_filters = &.{ "match" },
+            .include_filters = &.{"match"},
             .exact = true,
         },
     };
