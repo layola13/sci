@@ -1,0 +1,382 @@
+@import "sa_std/collections/vec_deque.sa"
+
+@test "sa_std vec_deque capacity access macros"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY deque, 3
+    EXPAND VEC_DEQUE_CAPACITY cap0, deque
+    EXPAND VEC_DEQUE_IS_EMPTY empty0, deque
+    EXPAND VEC_DEQUE_TRY_WITH_CAPACITY try_new_ok, try_deque, 0
+    EXPAND VEC_DEQUE_CAPACITY try_cap, try_deque
+    EXPAND VEC_DEQUE_FREE try_deque
+
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 10
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 20
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 30
+    EXPAND VEC_DEQUE_TRY_RESERVE reserve_ok, deque, 2
+    EXPAND VEC_DEQUE_CAPACITY cap_after_reserve, deque
+    EXPAND VEC_DEQUE_TRY_RESERVE_EXACT reserve_exact_ok, deque, 1
+    EXPAND VEC_DEQUE_TRY_POP_FRONT pop_ok, popped, deque
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 40
+
+    EXPAND VEC_DEQUE_LEN len_after_wrap, deque
+    EXPAND VEC_DEQUE_TRY_GET get0_ok, get0, deque, 0
+    EXPAND VEC_DEQUE_TRY_GET_U64 get2_ok, get2, deque, 2
+    EXPAND VEC_DEQUE_TRY_GET miss_ok, miss_value, deque, 9
+    EXPAND VEC_DEQUE_CONTAINS_U64 has_30, deque, 30
+    EXPAND VEC_DEQUE_CONTAINS_U64 has_99, deque, 99
+    EXPAND VEC_DEQUE_TRY_GET_MUT_PTR get_mut_ok, mut_ptr, deque, 1
+    store mut_ptr+0, 33 as u64
+    EXPAND VEC_DEQUE_TRY_GET get1_after_mut_ok, get1_after_mut, deque, 1
+    EXPAND VEC_DEQUE_SET set_ok, deque, 2, 44
+    EXPAND VEC_DEQUE_SET set_miss_ok, deque, 9, 55
+    EXPAND VEC_DEQUE_SWAP swap_ok, deque, 0, 2
+    EXPAND VEC_DEQUE_SWAP swap_miss_ok, deque, 0, 9
+    EXPAND VEC_DEQUE_TRY_FRONT front_ok, front, deque
+    EXPAND VEC_DEQUE_TRY_BACK back_ok, back, deque
+    EXPAND VEC_DEQUE_TRUNCATE deque, 2
+    EXPAND VEC_DEQUE_LEN len_after_truncate, deque
+    EXPAND VEC_DEQUE_SHRINK_TO deque, 1
+    EXPAND VEC_DEQUE_CAPACITY cap_after_shrink_to, deque
+    EXPAND VEC_DEQUE_SHRINK_TO_FIT deque
+    EXPAND VEC_DEQUE_CAPACITY cap_after_shrink_fit, deque
+    EXPAND VEC_DEQUE_TRY_BACK back_after_truncate_ok, back_after_truncate, deque
+
+    ok_cap0 = eq cap0, 3
+    ok_empty0 = eq empty0, 1
+    ok_try_new = eq try_new_ok, 1
+    ok_try_cap = eq try_cap, 0
+    ok_reserve = eq reserve_ok, 1
+    ok_cap_after_reserve = eq cap_after_reserve, 8
+    ok_reserve_exact = eq reserve_exact_ok, 1
+    ok_pop = eq pop_ok, 1
+    ok_popped = eq popped, 10
+    ok_len_after_wrap = eq len_after_wrap, 3
+    ok_get0_flag = eq get0_ok, 1
+    ok_get0 = eq get0, 20
+    ok_get2_flag = eq get2_ok, 1
+    ok_get2 = eq get2, 40
+    ok_miss_flag = eq miss_ok, 0
+    ok_miss_value = eq miss_value, 0
+    ok_has_30 = eq has_30, 1
+    ok_has_99 = eq has_99, 0
+    ok_get_mut = eq get_mut_ok, 1
+    ok_get1_after_mut_flag = eq get1_after_mut_ok, 1
+    ok_get1_after_mut = eq get1_after_mut, 33
+    ok_set = eq set_ok, 1
+    ok_set_miss = eq set_miss_ok, 0
+    ok_swap = eq swap_ok, 1
+    ok_swap_miss = eq swap_miss_ok, 0
+    ok_front_flag = eq front_ok, 1
+    ok_front = eq front, 44
+    ok_back_flag = eq back_ok, 1
+    ok_back = eq back, 20
+    ok_len_after_truncate = eq len_after_truncate, 2
+    ok_cap_after_shrink_to = eq cap_after_shrink_to, 2
+    ok_cap_after_shrink_fit = eq cap_after_shrink_fit, 2
+    ok_back_after_truncate_flag = eq back_after_truncate_ok, 1
+    ok_back_after_truncate = eq back_after_truncate, 33
+
+    ok01 = and ok_cap0, ok_empty0
+    ok02 = and ok01, ok_try_new
+    ok03 = and ok02, ok_try_cap
+    ok04 = and ok03, ok_reserve
+    ok05 = and ok04, ok_cap_after_reserve
+    ok06 = and ok05, ok_reserve_exact
+    ok07 = and ok06, ok_pop
+    ok08 = and ok07, ok_popped
+    ok09 = and ok08, ok_len_after_wrap
+    ok10 = and ok09, ok_get0_flag
+    ok11 = and ok10, ok_get0
+    ok12 = and ok11, ok_get2_flag
+    ok13 = and ok12, ok_get2
+    ok14 = and ok13, ok_miss_flag
+    ok15 = and ok14, ok_miss_value
+    ok16 = and ok15, ok_has_30
+    ok17 = and ok16, ok_has_99
+    ok18 = and ok17, ok_get_mut
+    ok19 = and ok18, ok_get1_after_mut_flag
+    ok20 = and ok19, ok_get1_after_mut
+    ok21 = and ok20, ok_set
+    ok22 = and ok21, ok_set_miss
+    ok23 = and ok22, ok_swap
+    ok24 = and ok23, ok_swap_miss
+    ok25 = and ok24, ok_front_flag
+    ok26 = and ok25, ok_front
+    ok27 = and ok26, ok_back_flag
+    ok28 = and ok27, ok_back
+    ok29 = and ok28, ok_len_after_truncate
+    ok30 = and ok29, ok_cap_after_shrink_to
+    ok31 = and ok30, ok_cap_after_shrink_fit
+    ok32 = and ok31, ok_back_after_truncate_flag
+    ok = and ok32, ok_back_after_truncate
+
+    !cap0
+    !empty0
+    !try_new_ok
+    !try_cap
+    !reserve_ok
+    !cap_after_reserve
+    !reserve_exact_ok
+    !pop_ok
+    !popped
+    !len_after_wrap
+    !get0_ok
+    !get0
+    !get2_ok
+    !get2
+    !miss_ok
+    !miss_value
+    !has_30
+    !has_99
+    !get_mut_ok
+    !mut_ptr
+    !get1_after_mut_ok
+    !get1_after_mut
+    !set_ok
+    !set_miss_ok
+    !swap_ok
+    !swap_miss_ok
+    !front_ok
+    !front
+    !back_ok
+    !back
+    !len_after_truncate
+    !cap_after_shrink_to
+    !cap_after_shrink_fit
+    !back_after_truncate_ok
+    !back_after_truncate
+    !ok_cap0
+    !ok_empty0
+    !ok_try_new
+    !ok_try_cap
+    !ok_reserve
+    !ok_cap_after_reserve
+    !ok_reserve_exact
+    !ok_pop
+    !ok_popped
+    !ok_len_after_wrap
+    !ok_get0_flag
+    !ok_get0
+    !ok_get2_flag
+    !ok_get2
+    !ok_miss_flag
+    !ok_miss_value
+    !ok_has_30
+    !ok_has_99
+    !ok_get_mut
+    !ok_get1_after_mut_flag
+    !ok_get1_after_mut
+    !ok_set
+    !ok_set_miss
+    !ok_swap
+    !ok_swap_miss
+    !ok_front_flag
+    !ok_front
+    !ok_back_flag
+    !ok_back
+    !ok_len_after_truncate
+    !ok_cap_after_shrink_to
+    !ok_cap_after_shrink_fit
+    !ok_back_after_truncate_flag
+    !ok_back_after_truncate
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    EXPAND VEC_DEQUE_FREE deque
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(910)
+
+L_OK:
+    !ok
+    return
+
+@test "sa_std vec_deque split append macros"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY left, 2
+    EXPAND VEC_DEQUE_PUSH_BACK left, 1
+    EXPAND VEC_DEQUE_PUSH_BACK left, 2
+    EXPAND VEC_DEQUE_PUSH_BACK left, 3
+    EXPAND VEC_DEQUE_TRY_POP_FRONT pop_ok, popped, left
+    EXPAND VEC_DEQUE_PUSH_BACK left, 4
+    EXPAND VEC_DEQUE_TRY_SPLIT_OFF split_ok, tail, left, 1
+    EXPAND VEC_DEQUE_TRY_SPLIT_OFF split_miss_ok, split_miss, left, 9
+    EXPAND VEC_DEQUE_LEN left_len_after_split, left
+    EXPAND VEC_DEQUE_LEN tail_len_after_split, tail
+    EXPAND VEC_DEQUE_TRY_GET left_first_ok, left_first, left, 0
+    EXPAND VEC_DEQUE_TRY_GET tail_first_ok, tail_first, tail, 0
+    EXPAND VEC_DEQUE_TRY_GET tail_last_ok, tail_last, tail, 1
+
+    EXPAND VEC_DEQUE_NEW other
+    EXPAND VEC_DEQUE_PUSH_BACK other, 5
+    EXPAND VEC_DEQUE_PUSH_BACK other, 6
+    EXPAND VEC_DEQUE_APPEND tail, other
+    EXPAND VEC_DEQUE_LEN tail_len_after_append, tail
+    EXPAND VEC_DEQUE_LEN other_len_after_append, other
+    EXPAND VEC_DEQUE_TRY_BACK tail_back_ok, tail_back, tail
+
+    EXPAND VEC_DEQUE_APPEND left, tail
+    EXPAND VEC_DEQUE_LEN left_len_after_append, left
+    EXPAND VEC_DEQUE_LEN tail_len_after_move, tail
+    EXPAND VEC_DEQUE_TRY_GET left0_ok, left0, left, 0
+    EXPAND VEC_DEQUE_TRY_GET left4_ok, left4, left, 4
+    EXPAND VEC_DEQUE_CAPACITY left_cap_after_append, left
+
+    ok_pop = eq pop_ok, 1
+    ok_popped = eq popped, 1
+    ok_split = eq split_ok, 1
+    ok_split_miss = eq split_miss_ok, 0
+    ok_left_len_after_split = eq left_len_after_split, 1
+    ok_tail_len_after_split = eq tail_len_after_split, 2
+    ok_left_first_flag = eq left_first_ok, 1
+    ok_left_first = eq left_first, 2
+    ok_tail_first_flag = eq tail_first_ok, 1
+    ok_tail_first = eq tail_first, 3
+    ok_tail_last_flag = eq tail_last_ok, 1
+    ok_tail_last = eq tail_last, 4
+    ok_tail_len_after_append = eq tail_len_after_append, 4
+    ok_other_len_after_append = eq other_len_after_append, 0
+    ok_tail_back_flag = eq tail_back_ok, 1
+    ok_tail_back = eq tail_back, 6
+    ok_left_len_after_append = eq left_len_after_append, 5
+    ok_tail_len_after_move = eq tail_len_after_move, 0
+    ok_left0_flag = eq left0_ok, 1
+    ok_left0 = eq left0, 2
+    ok_left4_flag = eq left4_ok, 1
+    ok_left4 = eq left4, 6
+    ok_left_cap_after_append = eq left_cap_after_append, 8
+
+    ok01 = and ok_pop, ok_popped
+    ok02 = and ok01, ok_split
+    ok03 = and ok02, ok_split_miss
+    ok04 = and ok03, ok_left_len_after_split
+    ok05 = and ok04, ok_tail_len_after_split
+    ok06 = and ok05, ok_left_first_flag
+    ok07 = and ok06, ok_left_first
+    ok08 = and ok07, ok_tail_first_flag
+    ok09 = and ok08, ok_tail_first
+    ok10 = and ok09, ok_tail_last_flag
+    ok11 = and ok10, ok_tail_last
+    ok12 = and ok11, ok_tail_len_after_append
+    ok13 = and ok12, ok_other_len_after_append
+    ok14 = and ok13, ok_tail_back_flag
+    ok15 = and ok14, ok_tail_back
+    ok16 = and ok15, ok_left_len_after_append
+    ok17 = and ok16, ok_tail_len_after_move
+    ok18 = and ok17, ok_left0_flag
+    ok19 = and ok18, ok_left0
+    ok20 = and ok19, ok_left4_flag
+    ok21 = and ok20, ok_left4
+    ok = and ok21, ok_left_cap_after_append
+
+    !pop_ok
+    !popped
+    !split_ok
+    !split_miss_ok
+    !split_miss
+    !left_len_after_split
+    !tail_len_after_split
+    !left_first_ok
+    !left_first
+    !tail_first_ok
+    !tail_first
+    !tail_last_ok
+    !tail_last
+    !tail_len_after_append
+    !other_len_after_append
+    !tail_back_ok
+    !tail_back
+    !left_len_after_append
+    !tail_len_after_move
+    !left0_ok
+    !left0
+    !left4_ok
+    !left4
+    !left_cap_after_append
+    !ok_pop
+    !ok_popped
+    !ok_split
+    !ok_split_miss
+    !ok_left_len_after_split
+    !ok_tail_len_after_split
+    !ok_left_first_flag
+    !ok_left_first
+    !ok_tail_first_flag
+    !ok_tail_first
+    !ok_tail_last_flag
+    !ok_tail_last
+    !ok_tail_len_after_append
+    !ok_other_len_after_append
+    !ok_tail_back_flag
+    !ok_tail_back
+    !ok_left_len_after_append
+    !ok_tail_len_after_move
+    !ok_left0_flag
+    !ok_left0
+    !ok_left4_flag
+    !ok_left4
+    !ok_left_cap_after_append
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    EXPAND VEC_DEQUE_FREE other
+    EXPAND VEC_DEQUE_FREE tail
+    EXPAND VEC_DEQUE_FREE left
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(911)
+
+L_OK:
+    !ok
+    return

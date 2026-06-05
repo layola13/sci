@@ -17,6 +17,36 @@ L_ENTRY:
     !initial_bytes
     return deque
 
+@export sa_vec_deque_with_capacity(capacity: u64) -> ^ptr:
+L_ENTRY:
+    deque = alloc VecDeque_SIZE
+    bytes = mul capacity, VecDeque_SLOT_SIZE
+    has_bytes = ne bytes, 0
+    br has_bytes -> L_WITH_CAP_ALLOC, L_WITH_CAP_EMPTY
+
+L_WITH_CAP_ALLOC:
+    buf = alloc bytes
+    call @sa_mem_set(&buf, 0, bytes)
+    store deque+VecDeque_buf, buf as ptr
+    store deque+VecDeque_cap, capacity as u64
+    store deque+VecDeque_head, 0 as u64
+    store deque+VecDeque_len, 0 as u64
+    ^buf
+    !has_bytes
+    !bytes
+    !capacity
+    return deque
+
+L_WITH_CAP_EMPTY:
+    store deque+VecDeque_buf, 0 as ptr
+    store deque+VecDeque_cap, 0 as u64
+    store deque+VecDeque_head, 0 as u64
+    store deque+VecDeque_len, 0 as u64
+    !has_bytes
+    !bytes
+    !capacity
+    return deque
+
 @export sa_vec_deque_free(^deque: ptr) -> void:
 L_ENTRY:
     buf = load deque+VecDeque_buf as ptr
@@ -44,6 +74,224 @@ L_ENTRY:
     !len
     !deque
     return result
+
+@vec_deque_next_capacity(needed: u64) -> u64:
+L_ENTRY:
+    cap_slot = stack_alloc 8
+    store cap_slot+0, VecDeque_INITIAL_CAP as u64
+    jmp L_NEXT_CAP_HEAD
+
+L_NEXT_CAP_HEAD:
+    cap = load cap_slot+0 as u64
+    enough = uge cap, needed
+    br enough -> L_NEXT_CAP_DONE, L_NEXT_CAP_GROW
+
+L_NEXT_CAP_GROW:
+    next_cap = add cap, cap
+    store cap_slot+0, next_cap as u64
+    !next_cap
+    !enough
+    !cap
+    jmp L_NEXT_CAP_HEAD
+
+L_NEXT_CAP_DONE:
+    !enough
+    !needed
+    return cap
+
+@vec_deque_realloc(&deque: ptr, target_cap: u64) -> void:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    target_zero = eq target_cap, 0
+    br target_zero -> L_DEQUE_REALLOC_ZERO, L_DEQUE_REALLOC_ALLOC
+
+L_DEQUE_REALLOC_ZERO:
+    old_buf_zero = take deque+VecDeque_buf
+    !old_buf_zero
+    store deque+VecDeque_buf, 0 as ptr
+    store deque+VecDeque_cap, 0 as u64
+    store deque+VecDeque_head, 0 as u64
+    store deque+VecDeque_len, 0 as u64
+    !target_zero
+    !len
+    !target_cap
+    !deque
+    return
+
+L_DEQUE_REALLOC_ALLOC:
+    old_buf = take deque+VecDeque_buf
+    old_cap = load deque+VecDeque_cap as u64
+    head = load deque+VecDeque_head as u64
+    new_bytes = mul target_cap, VecDeque_SLOT_SIZE
+    new_buf = alloc new_bytes
+    call @sa_mem_set(&new_buf, 0, new_bytes)
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_DEQUE_REALLOC_COPY_HEAD
+
+L_DEQUE_REALLOC_COPY_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_DEQUE_REALLOC_COPY_DONE, L_DEQUE_REALLOC_COPY_BODY
+
+L_DEQUE_REALLOC_COPY_BODY:
+    old_sum = add head, idx
+    old_phys = urem old_sum, old_cap
+    old_off = mul old_phys, VecDeque_SLOT_SIZE
+    old_ptr = ptr_add old_buf, old_off
+    new_off = mul idx, VecDeque_SLOT_SIZE
+    new_ptr = ptr_add new_buf, new_off
+    value = load old_ptr+0 as u64
+    store new_ptr+0, value as u64
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !value
+    !new_ptr
+    !new_off
+    !old_ptr
+    !old_off
+    !old_phys
+    !old_sum
+    !done
+    !idx
+    jmp L_DEQUE_REALLOC_COPY_HEAD
+
+L_DEQUE_REALLOC_COPY_DONE:
+    store deque+VecDeque_buf, new_buf as ptr
+    store deque+VecDeque_cap, target_cap as u64
+    store deque+VecDeque_head, 0 as u64
+    store deque+VecDeque_len, len as u64
+    !done
+    !idx
+    !new_bytes
+    !head
+    !old_cap
+    !old_buf
+    ^new_buf
+    !target_zero
+    !len
+    !target_cap
+    !deque
+    return
+
+@export sa_vec_deque_reserve(&deque: ptr, additional: u64) -> void:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    cap = load deque+VecDeque_cap as u64
+    needed = add len, additional
+    has_room = uge cap, needed
+    br has_room -> L_DEQUE_RESERVE_DONE, L_DEQUE_RESERVE_GROW
+
+L_DEQUE_RESERVE_GROW:
+    target_cap = call @vec_deque_next_capacity(needed)
+    call @vec_deque_realloc(&deque, target_cap)
+    !target_cap
+    !has_room
+    !needed
+    !cap
+    !len
+    !additional
+    !deque
+    return
+
+L_DEQUE_RESERVE_DONE:
+    !has_room
+    !needed
+    !cap
+    !len
+    !additional
+    !deque
+    return
+
+@export sa_vec_deque_reserve_exact(&deque: ptr, additional: u64) -> void:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    cap = load deque+VecDeque_cap as u64
+    needed = add len, additional
+    has_room = uge cap, needed
+    br has_room -> L_DEQUE_RESERVE_EXACT_DONE, L_DEQUE_RESERVE_EXACT_GROW
+
+L_DEQUE_RESERVE_EXACT_GROW:
+    call @vec_deque_realloc(&deque, needed)
+    !has_room
+    !needed
+    !cap
+    !len
+    !additional
+    !deque
+    return
+
+L_DEQUE_RESERVE_EXACT_DONE:
+    !has_room
+    !needed
+    !cap
+    !len
+    !additional
+    !deque
+    return
+
+@export sa_vec_deque_try_reserve(&deque: ptr, additional: u64) -> i32:
+L_ENTRY:
+    call @sa_vec_deque_reserve(&deque, additional)
+    !additional
+    !deque
+    return 1
+
+@export sa_vec_deque_try_reserve_exact(&deque: ptr, additional: u64) -> i32:
+L_ENTRY:
+    call @sa_vec_deque_reserve_exact(&deque, additional)
+    !additional
+    !deque
+    return 1
+
+@export sa_vec_deque_shrink_to(&deque: ptr, min_capacity: u64) -> void:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    cap = load deque+VecDeque_cap as u64
+    keep_len = uge len, min_capacity
+    br keep_len -> L_DEQUE_SHRINK_TARGET_LEN, L_DEQUE_SHRINK_TARGET_MIN
+
+L_DEQUE_SHRINK_TARGET_LEN:
+    target_cap = add len, 0
+    jmp L_DEQUE_SHRINK_CHECK
+
+L_DEQUE_SHRINK_TARGET_MIN:
+    target_cap = add min_capacity, 0
+    jmp L_DEQUE_SHRINK_CHECK
+
+L_DEQUE_SHRINK_CHECK:
+    needs_shrink = ult target_cap, cap
+    br needs_shrink -> L_DEQUE_SHRINK_RUN, L_DEQUE_SHRINK_DONE
+
+L_DEQUE_SHRINK_RUN:
+    call @vec_deque_realloc(&deque, target_cap)
+    !needs_shrink
+    !target_cap
+    !keep_len
+    !cap
+    !len
+    !min_capacity
+    !deque
+    return
+
+L_DEQUE_SHRINK_DONE:
+    !needs_shrink
+    !target_cap
+    !keep_len
+    !cap
+    !len
+    !min_capacity
+    !deque
+    return
+
+@export sa_vec_deque_shrink_to_fit(&deque: ptr) -> void:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    call @sa_vec_deque_shrink_to(&deque, len)
+    !len
+    !deque
+    return
 
 @export sa_vec_deque_get(&deque: ptr, index: u64) -> u64:
 L_ENTRY:
@@ -78,6 +326,243 @@ L_GET_MISS:
     !deque
     return 0
 
+@export sa_vec_deque_try_get(&deque: ptr, index: u64, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    in_range = ult index, len
+    br in_range -> L_TRY_GET_HIT, L_TRY_GET_MISS
+
+L_TRY_GET_HIT:
+    buf = load deque+VecDeque_buf as ptr
+    head = load deque+VecDeque_head as u64
+    cap = load deque+VecDeque_cap as u64
+    head_plus = add head, index
+    phys_index = urem head_plus, cap
+    off = mul phys_index, VecDeque_SLOT_SIZE
+    slot = ptr_add buf, off
+    value = load slot+0 as u64
+    store out_value_slot+0, value as u64
+    !value
+    !slot
+    !off
+    !phys_index
+    !head_plus
+    !cap
+    !head
+    !buf
+    !in_range
+    !len
+    !index
+    !out_value_slot
+    !deque
+    return 1
+
+L_TRY_GET_MISS:
+    store out_value_slot+0, 0 as u64
+    !in_range
+    !len
+    !index
+    !out_value_slot
+    !deque
+    return 0
+
+@export sa_vec_deque_try_get_mut_ptr(&deque: ptr, index: u64, &out_ptr_slot: ptr) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    in_range = ult index, len
+    br in_range -> L_GET_MUT_HIT, L_GET_MUT_MISS
+
+L_GET_MUT_HIT:
+    buf = load deque+VecDeque_buf as ptr
+    head = load deque+VecDeque_head as u64
+    cap = load deque+VecDeque_cap as u64
+    head_plus = add head, index
+    phys_index = urem head_plus, cap
+    off = mul phys_index, VecDeque_SLOT_SIZE
+    slot = ptr_add buf, off
+    store out_ptr_slot+0, slot as ptr
+    !slot
+    !off
+    !phys_index
+    !head_plus
+    !cap
+    !head
+    !buf
+    !in_range
+    !len
+    !index
+    !out_ptr_slot
+    !deque
+    return 1
+
+L_GET_MUT_MISS:
+    store out_ptr_slot+0, 0 as ptr
+    !in_range
+    !len
+    !index
+    !out_ptr_slot
+    !deque
+    return 0
+
+@export sa_vec_deque_set(&deque: ptr, index: u64, value: u64) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    in_range = ult index, len
+    br in_range -> L_SET_HIT, L_SET_MISS
+
+L_SET_HIT:
+    buf = load deque+VecDeque_buf as ptr
+    head = load deque+VecDeque_head as u64
+    cap = load deque+VecDeque_cap as u64
+    head_plus = add head, index
+    phys_index = urem head_plus, cap
+    off = mul phys_index, VecDeque_SLOT_SIZE
+    slot = ptr_add buf, off
+    store slot+0, value as u64
+    !slot
+    !off
+    !phys_index
+    !head_plus
+    !cap
+    !head
+    !buf
+    !in_range
+    !len
+    !value
+    !index
+    !deque
+    return 1
+
+L_SET_MISS:
+    !in_range
+    !len
+    !value
+    !index
+    !deque
+    return 0
+
+@export sa_vec_deque_contains(&deque: ptr, needle: u64) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    buf = load deque+VecDeque_buf as ptr
+    head = load deque+VecDeque_head as u64
+    cap = load deque+VecDeque_cap as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_CONTAINS_HEAD
+
+L_CONTAINS_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_CONTAINS_MISS, L_CONTAINS_BODY
+
+L_CONTAINS_BODY:
+    head_plus = add head, idx
+    phys_index = urem head_plus, cap
+    off = mul phys_index, VecDeque_SLOT_SIZE
+    slot = ptr_add buf, off
+    value = load slot+0 as u64
+    matched = eq value, needle
+    br matched -> L_CONTAINS_HIT, L_CONTAINS_NEXT
+
+L_CONTAINS_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !matched
+    !value
+    !slot
+    !off
+    !phys_index
+    !head_plus
+    !done
+    !idx
+    jmp L_CONTAINS_HEAD
+
+L_CONTAINS_HIT:
+    !matched
+    !value
+    !slot
+    !off
+    !phys_index
+    !head_plus
+    !done
+    !idx
+    !cap
+    !head
+    !buf
+    !len
+    !needle
+    !deque
+    return 1
+
+L_CONTAINS_MISS:
+    !done
+    !idx
+    !cap
+    !head
+    !buf
+    !len
+    !needle
+    !deque
+    return 0
+
+@export sa_vec_deque_swap(&deque: ptr, left: u64, right: u64) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    left_ok = ult left, len
+    right_ok = ult right, len
+    both_ok = and left_ok, right_ok
+    br both_ok -> L_SWAP_READY, L_SWAP_MISS
+
+L_SWAP_READY:
+    buf = load deque+VecDeque_buf as ptr
+    head = load deque+VecDeque_head as u64
+    cap = load deque+VecDeque_cap as u64
+    left_sum = add head, left
+    left_phys = urem left_sum, cap
+    left_off = mul left_phys, VecDeque_SLOT_SIZE
+    left_ptr = ptr_add buf, left_off
+    right_sum = add head, right
+    right_phys = urem right_sum, cap
+    right_off = mul right_phys, VecDeque_SLOT_SIZE
+    right_ptr = ptr_add buf, right_off
+    left_value = load left_ptr+0 as u64
+    right_value = load right_ptr+0 as u64
+    store left_ptr+0, right_value as u64
+    store right_ptr+0, left_value as u64
+    !right_value
+    !left_value
+    !right_ptr
+    !right_off
+    !right_phys
+    !right_sum
+    !left_ptr
+    !left_off
+    !left_phys
+    !left_sum
+    !cap
+    !head
+    !buf
+    !both_ok
+    !right_ok
+    !left_ok
+    !len
+    !right
+    !left
+    !deque
+    return 1
+
+L_SWAP_MISS:
+    !both_ok
+    !right_ok
+    !left_ok
+    !len
+    !right
+    !left
+    !deque
+    return 0
+
 @export sa_vec_deque_push_back(&deque: ptr, value: u64) -> void:
 L_ENTRY:
     len = load deque+VecDeque_len as u64
@@ -108,12 +593,11 @@ L_PUSH_BACK_OK:
     !deque
     return
 L_PUSH_BACK_FULL:
+    call @sa_vec_deque_reserve(&deque, 1)
     !room
     !cap
     !len
-    !value
-    !deque
-    return
+    jmp L_ENTRY
 
 @export sa_vec_deque_push_front(&deque: ptr, value: u64) -> void:
 L_ENTRY:
@@ -148,12 +632,11 @@ L_PUSH_FRONT_OK:
     !deque
     return
 L_PUSH_FRONT_FULL:
+    call @sa_vec_deque_reserve(&deque, 1)
     !room
     !cap
     !len
-    !value
-    !deque
-    return
+    jmp L_ENTRY
 
 @export sa_vec_deque_try_pop_front(&deque: ptr, &out_value_slot: ptr) -> i32:
 L_ENTRY:
@@ -295,6 +778,37 @@ L_BACK_EMPTY:
     !deque
     return 0
 
+@export sa_vec_deque_try_front(&deque: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    ok = call @sa_vec_deque_try_get(&deque, 0, &out_value_slot)
+    !out_value_slot
+    !deque
+    return ok
+
+@export sa_vec_deque_try_back(&deque: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    empty = eq len, 0
+    br empty -> L_TRY_BACK_EMPTY, L_TRY_BACK_READY
+
+L_TRY_BACK_READY:
+    last = sub len, 1
+    ok = call @sa_vec_deque_try_get(&deque, last, &out_value_slot)
+    !last
+    !empty
+    !len
+    !out_value_slot
+    !deque
+    return ok
+
+L_TRY_BACK_EMPTY:
+    store out_value_slot+0, 0 as u64
+    !empty
+    !len
+    !out_value_slot
+    !deque
+    return 0
+
 @export sa_vec_deque_clear(&deque: ptr) -> void:
 L_ENTRY:
     buf = load deque+VecDeque_buf as ptr
@@ -407,8 +921,117 @@ L_ROTATE_RIGHT_DONE_RUN:
     !deque
     return
 
+@export sa_vec_deque_truncate(&deque: ptr, new_len: u64) -> void:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    should_shrink = ult new_len, len
+    br should_shrink -> L_TRUNCATE_RUN, L_TRUNCATE_DONE
+
+L_TRUNCATE_RUN:
+    store deque+VecDeque_len, new_len as u64
+    !should_shrink
+    !len
+    !new_len
+    !deque
+    return
+
+L_TRUNCATE_DONE:
+    !should_shrink
+    !len
+    !new_len
+    !deque
+    return
+
+@export sa_vec_deque_try_split_off(&deque: ptr, index: u64, &out_deque_slot: ptr) -> i32:
+L_ENTRY:
+    len = load deque+VecDeque_len as u64
+    in_bounds = ule index, len
+    br in_bounds -> L_SPLIT_READY, L_SPLIT_MISS
+
+L_SPLIT_READY:
+    tail_len = sub len, index
+    out_deque = call @sa_vec_deque_with_capacity(tail_len)
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_SPLIT_COPY_HEAD
+
+L_SPLIT_COPY_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, tail_len
+    br done -> L_SPLIT_STORE, L_SPLIT_COPY_BODY
+
+L_SPLIT_COPY_BODY:
+    src_index = add index, idx
+    value = call @sa_vec_deque_get(&deque, src_index)
+    call @sa_vec_deque_push_back(&out_deque, value)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !value
+    !src_index
+    !done
+    !idx
+    jmp L_SPLIT_COPY_HEAD
+
+L_SPLIT_STORE:
+    store deque+VecDeque_len, index as u64
+    store out_deque_slot+0, out_deque as ptr
+    !out_deque
+    !done
+    !idx
+    !tail_len
+    !in_bounds
+    !len
+    !index
+    !out_deque_slot
+    !deque
+    return 1
+
+L_SPLIT_MISS:
+    store out_deque_slot+0, 0 as ptr
+    !in_bounds
+    !len
+    !index
+    !out_deque_slot
+    !deque
+    return 0
+
+@export sa_vec_deque_append(&deque: ptr, &other: ptr) -> void:
+L_ENTRY:
+    other_len = load other+VecDeque_len as u64
+    call @sa_vec_deque_reserve(&deque, other_len)
+    value_slot = stack_alloc 8
+    !other_len
+    jmp L_APPEND_LOOP
+
+L_APPEND_LOOP:
+    ok = call @sa_vec_deque_try_pop_front(&other, &value_slot)
+    br ok -> L_APPEND_PUSH, L_APPEND_DONE
+
+L_APPEND_PUSH:
+    value = load value_slot+0 as u64
+    call @sa_vec_deque_push_back(&deque, value)
+    !value
+    !ok
+    jmp L_APPEND_LOOP
+
+L_APPEND_DONE:
+    !ok
+    !other
+    !deque
+    return
+
 [MACRO] VEC_DEQUE_NEW %out_deque
     %out_deque = call @sa_vec_deque_new()
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_WITH_CAPACITY %out_deque, %capacity
+    %out_deque = call @sa_vec_deque_with_capacity(%capacity)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_WITH_CAPACITY %out_ok, %out_deque, %capacity
+    EXPAND VEC_DEQUE_WITH_CAPACITY %out_deque, %capacity
+    %out_ok = ne %out_deque, 0
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_FREE %deque_reg
@@ -429,6 +1052,36 @@ L_ROTATE_RIGHT_DONE_RUN:
 
 [MACRO] VEC_DEQUE_GET %out_value, %deque_reg, %index
     %out_value = call @sa_vec_deque_get(&%deque_reg, %index)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_GET %out_ok, %out_value, %deque_reg, %index
+    __vec_deque_get_slot_%out_ok = stack_alloc 8
+    __vec_deque_get_ok_%out_ok = call @sa_vec_deque_try_get(&%deque_reg, %index, &__vec_deque_get_slot_%out_ok)
+    %out_value = load __vec_deque_get_slot_%out_ok+0 as u64
+    %out_ok = __vec_deque_get_ok_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_GET_U64 %out_ok, %out_value, %deque_reg, %index
+    EXPAND VEC_DEQUE_TRY_GET %out_ok, %out_value, %deque_reg, %index
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_GET_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index
+    __vec_deque_get_mut_slot_%out_ok = stack_alloc 8
+    __vec_deque_get_mut_ok_%out_ok = call @sa_vec_deque_try_get_mut_ptr(&%deque_reg, %index, &__vec_deque_get_mut_slot_%out_ok)
+    %out_ptr = load __vec_deque_get_mut_slot_%out_ok+0 as ptr
+    %out_ok = __vec_deque_get_mut_ok_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_SET %out_ok, %deque_reg, %index, %value
+    %out_ok = call @sa_vec_deque_set(&%deque_reg, %index, %value)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_CONTAINS_U64 %out_bool, %deque_reg, %needle
+    %out_bool = call @sa_vec_deque_contains(&%deque_reg, %needle)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_SWAP %out_ok, %deque_reg, %left, %right
+    %out_ok = call @sa_vec_deque_swap(&%deque_reg, %left, %right)
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_PUSH_BACK %deque_reg, %value
@@ -465,10 +1118,63 @@ L_ROTATE_RIGHT_DONE_RUN:
     %out_value = call @sa_vec_deque_front(&%deque_reg)
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_TRY_FRONT %out_ok, %out_value, %deque_reg
+    __vec_deque_front_slot_%out_ok = stack_alloc 8
+    __vec_deque_front_ok_%out_ok = call @sa_vec_deque_try_front(&%deque_reg, &__vec_deque_front_slot_%out_ok)
+    %out_value = load __vec_deque_front_slot_%out_ok+0 as u64
+    %out_ok = __vec_deque_front_ok_%out_ok
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_BACK %out_value, %deque_reg
     %out_value = call @sa_vec_deque_back(&%deque_reg)
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_TRY_BACK %out_ok, %out_value, %deque_reg
+    __vec_deque_back_slot_%out_ok = stack_alloc 8
+    __vec_deque_back_ok_%out_ok = call @sa_vec_deque_try_back(&%deque_reg, &__vec_deque_back_slot_%out_ok)
+    %out_value = load __vec_deque_back_slot_%out_ok+0 as u64
+    %out_ok = __vec_deque_back_ok_%out_ok
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_CLEAR %deque_reg
     call @sa_vec_deque_clear(&%deque_reg)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_RESERVE %deque_reg, %additional
+    call @sa_vec_deque_reserve(&%deque_reg, %additional)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_RESERVE_EXACT %deque_reg, %additional
+    call @sa_vec_deque_reserve_exact(&%deque_reg, %additional)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_RESERVE %out_ok, %deque_reg, %additional
+    %out_ok = call @sa_vec_deque_try_reserve(&%deque_reg, %additional)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_RESERVE_EXACT %out_ok, %deque_reg, %additional
+    %out_ok = call @sa_vec_deque_try_reserve_exact(&%deque_reg, %additional)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_SHRINK_TO %deque_reg, %min_capacity
+    call @sa_vec_deque_shrink_to(&%deque_reg, %min_capacity)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_SHRINK_TO_FIT %deque_reg
+    call @sa_vec_deque_shrink_to_fit(&%deque_reg)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRUNCATE %deque_reg, %new_len
+    call @sa_vec_deque_truncate(&%deque_reg, %new_len)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_APPEND %deque_reg, %other_deque_reg
+    call @sa_vec_deque_append(&%deque_reg, &%other_deque_reg)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_SPLIT_OFF %out_ok, %out_deque, %deque_reg, %index
+    __vec_deque_split_slot_%out_ok = stack_alloc 8
+    __vec_deque_split_ok_%out_ok = call @sa_vec_deque_try_split_off(&%deque_reg, %index, &__vec_deque_split_slot_%out_ok)
+    %out_deque = load __vec_deque_split_slot_%out_ok+0 as ptr
+    %out_ok = __vec_deque_split_ok_%out_ok
 [END_MACRO]

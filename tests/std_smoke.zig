@@ -2563,26 +2563,58 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     defer std.testing.allocator.free(deque_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_is_empty"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_reserve"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_reserve_exact"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_reserve"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_reserve_exact"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_shrink_to"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_shrink_to_fit"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_push_back"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_push_front"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_get_mut_ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_set"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_contains"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_swap"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_pop_front"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_pop_back"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_front"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_back"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_front"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_back"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_rotate_left"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_rotate_right"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_truncate"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_try_split_off"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_append"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_WITH_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_WITH_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_GET_MUT_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_SET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_CONTAINS_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_SWAP"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_FRONT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_BACK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_FRONT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_FRONT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_BACK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_BACK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_CLEAR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_RESERVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_RESERVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_SHRINK_TO_FIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRUNCATE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_APPEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_SPLIT_OFF"));
 
     var deque_error_ctx = saasm.flattener.ErrorContext{};
     var deque_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec_deque.sa", deque_src, &deque_error_ctx) catch |err| {
@@ -2592,14 +2624,14 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     };
     defer deque_flat.deinit(std.testing.allocator);
     try std.testing.expect(deque_flat.instructions.len > 0);
-    try std.testing.expect(deque_flat.function_sigs.len >= 15);
+    try std.testing.expect(deque_flat.function_sigs.len >= 30);
 
     const deque_verified = try saasm.referee.verify(std.testing.allocator, deque_flat.instructions, deque_flat.const_decls);
     switch (deque_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 15);
+            try std.testing.expect(owned.function_sigs.len >= 30);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
