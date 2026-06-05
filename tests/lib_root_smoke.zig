@@ -141,3 +141,13 @@ test "cli command help covers built-in commands" {
 
     for (cases) |case| try expectCliHelp(case.argv, case.expected);
 }
+
+test "release packager defaults to latest git tag" {
+    const release_script = try std.fs.cwd().readFileAlloc(std.testing.allocator, "tools/release.sh", 1024 * 1024);
+    defer std.testing.allocator.free(release_script);
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, release_script, 1, "latest_source_tag()"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, release_script, 1, "git -C \"$REPO_ROOT\" tag --sort=-v:refname"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, release_script, 1, "VERSION=\"$(latest_source_tag)\""));
+    try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, release_script, "describe --tags --exact-match"));
+}

@@ -25,6 +25,8 @@ zig version
 zig build
 ```
 
+未显式传入 `-Dversion=...` 时，本地构建、安装脚本和 release 打包脚本都会使用仓库中的最新 git tag 作为 `sa version`；只有仓库没有任何 tag 时才回退到 `0.0.1`。
+
 编译完成后，可以直接运行：
 
 ```bash

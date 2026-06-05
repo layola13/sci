@@ -45,9 +45,22 @@ fi
 # Root directory of the repository
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$REPO_ROOT/dist"
+
+latest_source_tag() {
+    if command -v git >/dev/null 2>&1; then
+        GIT_TAG="$(git -C "$REPO_ROOT" tag --sort=-v:refname 2>/dev/null | sed -n '1p')"
+        if [ -n "$GIT_TAG" ]; then
+            printf "%s" "$GIT_TAG"
+            return 0
+        fi
+    fi
+
+    printf "0.0.1"
+}
+
 VERSION="${SA_VERSION:-}"
 if [ -z "$VERSION" ]; then
-    VERSION="$(git -C "$REPO_ROOT" describe --tags --exact-match 2>/dev/null || printf "0.0.1")"
+    VERSION="$(latest_source_tag)"
 fi
 VERSION="${VERSION#v}"
 LLVM_INCLUDE_DIR="${LLVM_INCLUDE_DIR:-/usr/lib/llvm-14/include}"
