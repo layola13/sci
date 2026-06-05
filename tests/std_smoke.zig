@@ -118,6 +118,9 @@ test "sa_std core primitives are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_FIRST_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_LAST_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRIM_PREFIX_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRIM_SUFFIX_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_SPLIT_AT_U64"));
 
     var slice_flat = try saasm.flattener.flatten(std.testing.allocator, slice_src);
     defer slice_flat.deinit(std.testing.allocator);
@@ -577,6 +580,8 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_AS_SLICE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_GET_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_FRONT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_BACK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_PUSH"));
@@ -668,6 +673,9 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_FROM_PARTS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRIM_PREFIX"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRIM_SUFFIX"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRY_SPLIT_AT"));
 
     const string_fixture =
         \\@import "sa_std/core/slice.sal"
@@ -2045,12 +2053,14 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_contains_key"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_len"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_capacity"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_reserve"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_WITH_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_RESERVE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CONTAINS_KEY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CLEAR"));
@@ -2068,14 +2078,14 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     };
     defer hashmap_flat.deinit(std.testing.allocator);
     try std.testing.expect(hashmap_flat.instructions.len > 0);
-    try std.testing.expect(hashmap_flat.function_sigs.len >= 13);
+    try std.testing.expect(hashmap_flat.function_sigs.len >= 14);
 
     const hashmap_verified = try saasm.referee.verify(std.testing.allocator, hashmap_flat.instructions, hashmap_flat.const_decls);
     switch (hashmap_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 13);
+            try std.testing.expect(owned.function_sigs.len >= 14);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -2114,6 +2124,8 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         \\    EXPAND MAP_PUT map, key, value
         \\    EXPAND MAP_LEN len1, map
         \\    EXPAND MAP_CAPACITY cap1, map
+        \\    EXPAND MAP_RESERVE map, 20
+        \\    EXPAND MAP_CAPACITY cap_after_reserve, map
         \\    EXPAND MAP_IS_EMPTY empty1, map
         \\    EXPAND MAP_CONTAINS_KEY has1, map, key
         \\    EXPAND MAP_GET got1, map, key
@@ -2128,6 +2140,7 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         \\    ok_has0 = eq has0, 0
         \\    ok_len1 = eq len1, 1
         \\    ok_cap1 = eq cap1, 16
+        \\    ok_cap_after_reserve = eq cap_after_reserve, 32
         \\    ok_empty1 = eq empty1, 0
         \\    ok_has1 = eq has1, 1
         \\    ok_got1 = eq got1, value
@@ -2140,13 +2153,14 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         \\    ok03 = and ok02, ok_has0
         \\    ok04 = and ok03, ok_len1
         \\    ok05 = and ok04, ok_cap1
-        \\    ok06 = and ok05, ok_empty1
-        \\    ok07 = and ok06, ok_has1
-        \\    ok08 = and ok07, ok_got1
-        \\    ok09 = and ok08, ok_len2
-        \\    ok10 = and ok09, ok_empty2
-        \\    ok11 = and ok10, ok_has2
-        \\    ok = and ok11, ok_got2
+        \\    ok06 = and ok05, ok_cap_after_reserve
+        \\    ok07 = and ok06, ok_empty1
+        \\    ok08 = and ok07, ok_has1
+        \\    ok09 = and ok08, ok_got1
+        \\    ok10 = and ok09, ok_len2
+        \\    ok11 = and ok10, ok_empty2
+        \\    ok12 = and ok11, ok_has2
+        \\    ok = and ok12, ok_got2
         \\    !got2
         \\    !has2
         \\    !empty2
@@ -2154,6 +2168,7 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         \\    !got1
         \\    !has1
         \\    !empty1
+        \\    !cap_after_reserve
         \\    !len1
         \\    !has0
         \\    !empty0
@@ -2162,6 +2177,32 @@ test "sa_std hashmap helpers are concrete and verifiable" {
         \\    !len0
         \\    !value
         \\    !key
+        \\    !ok_len0
+        \\    !ok_cap0
+        \\    !ok_empty0
+        \\    !ok_has0
+        \\    !ok_len1
+        \\    !ok_cap1
+        \\    !ok_cap_after_reserve
+        \\    !ok_empty1
+        \\    !ok_has1
+        \\    !ok_got1
+        \\    !ok_len2
+        \\    !ok_empty2
+        \\    !ok_has2
+        \\    !ok_got2
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    !ok06
+        \\    !ok07
+        \\    !ok08
+        \\    !ok09
+        \\    !ok10
+        \\    !ok11
+        \\    !ok12
         \\    EXPAND MAP_FREE map
         \\    br ok -> L_OK, L_ERR
         \\
@@ -2212,11 +2253,13 @@ test "sa_std hashset helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_remove"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_len"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_capacity"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_reserve"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_RESERVE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_CLEAR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_INSERT"));
@@ -2233,14 +2276,14 @@ test "sa_std hashset helpers are concrete and verifiable" {
     };
     defer hashset_flat.deinit(std.testing.allocator);
     try std.testing.expect(hashset_flat.instructions.len > 0);
-    try std.testing.expect(hashset_flat.function_sigs.len >= 18);
+    try std.testing.expect(hashset_flat.function_sigs.len >= 20);
 
     const hashset_verified = try saasm.referee.verify(std.testing.allocator, hashset_flat.instructions, hashset_flat.const_decls);
     switch (hashset_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 18);
+            try std.testing.expect(owned.function_sigs.len >= 20);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -2279,6 +2322,8 @@ test "sa_std hashset helpers are concrete and verifiable" {
         \\    EXPAND SET_INSERT ins_b, set, key_b
         \\    EXPAND SET_LEN len1, set
         \\    EXPAND SET_CAPACITY cap1, set
+        \\    EXPAND SET_RESERVE set, 20
+        \\    EXPAND SET_CAPACITY cap_after_reserve, set
         \\    EXPAND SET_IS_EMPTY empty1, set
         \\    EXPAND SET_CONTAINS has_a, set, key_a
         \\    EXPAND SET_CLEAR set
@@ -2292,6 +2337,7 @@ test "sa_std hashset helpers are concrete and verifiable" {
         \\    ok_ins_b = eq ins_b, 1
         \\    ok_len1 = eq len1, 2
         \\    ok_cap1 = eq cap1, 8
+        \\    ok_cap_after_reserve = eq cap_after_reserve, 32
         \\    ok_empty1 = eq empty1, 0
         \\    ok_has_a = eq has_a, 1
         \\    ok_len2 = eq len2, 0
@@ -2303,16 +2349,18 @@ test "sa_std hashset helpers are concrete and verifiable" {
         \\    ok04 = and ok03, ok_ins_b
         \\    ok05 = and ok04, ok_len1
         \\    ok06 = and ok05, ok_cap1
-        \\    ok07 = and ok06, ok_empty1
-        \\    ok08 = and ok07, ok_has_a
-        \\    ok09 = and ok08, ok_len2
-        \\    ok10 = and ok09, ok_empty2
-        \\    ok = and ok10, ok_has_a_after
+        \\    ok07 = and ok06, ok_cap_after_reserve
+        \\    ok08 = and ok07, ok_empty1
+        \\    ok09 = and ok08, ok_has_a
+        \\    ok10 = and ok09, ok_len2
+        \\    ok11 = and ok10, ok_empty2
+        \\    ok = and ok11, ok_has_a_after
         \\    !has_a_after
         \\    !len2
         \\    !has_a
         \\    !empty2
         \\    !empty1
+        \\    !cap_after_reserve
         \\    !cap1
         \\    !len1
         \\    !ins_b
@@ -2322,6 +2370,8 @@ test "sa_std hashset helpers are concrete and verifiable" {
         \\    !len0
         \\    !key_b
         \\    !key_a
+        \\    !ok_cap_after_reserve
+        \\    !ok11
         \\    EXPAND SET_FREE set
         \\    br ok -> L_OK, L_ERR
         \\
@@ -2340,7 +2390,7 @@ test "sa_std hashset helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 18);
+            try std.testing.expect(owned.function_sigs.len >= 20);
         },
         .trap => |report| {
             std.debug.print("hashset fixture verifier trap: {s}\n", .{report.message});
