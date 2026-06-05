@@ -724,6 +724,17 @@ test "native unit framework covers sa_std macro surface suites" {
         binary_heap_expected[0..],
         "test result: ok. 2 passed; 0 failed; 0 skipped",
     );
+
+    const future_task_expected = [_][]const u8{
+        "[PASS] sa_std future poll macros",
+        "[PASS] sa_std future join select macros",
+        "[PASS] sa_std task poll macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_future_task_macro_surface.sa",
+        future_task_expected[0..],
+        "test result: ok. 3 passed; 0 failed; 0 skipped",
+    );
 }
 
 test "native unit framework exposes standard mock io buffer" {

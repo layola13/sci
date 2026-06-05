@@ -1,0 +1,324 @@
+@import "sa_std/future.sa"
+@import "sa_std/task.sa"
+
+@const TEST_READY_VT = vtable { poll = @future_unit_poll_ready }
+@const TEST_PENDING_ONCE_VT = vtable { poll = @future_unit_poll_pending_once }
+@const TEST_WAKER_VT = vtable { clone = @future_unit_waker_clone, wake = @future_unit_waker_wake, wake_by_ref = @future_unit_waker_wake_by_ref, drop = @future_unit_waker_drop }
+
+#def TestFuture_SIZE = 16
+#def TestFuture_state = +0
+#def TestFuture_value = +8
+#def TestWaker_SIZE = 8
+#def TestWaker_value = +0
+
+@future_unit_waker_clone(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestWaker_value as i32
+    !self
+    return value
+
+@future_unit_waker_wake(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestWaker_value as i32
+    result = add value, 1
+    !value
+    !self
+    return result
+
+@future_unit_waker_wake_by_ref(&self: ptr) -> i32:
+L_ENTRY:
+    value = load self+TestWaker_value as i32
+    result = add value, 2
+    !value
+    !self
+    return result
+
+@future_unit_waker_drop(&self: ptr) -> i32:
+L_ENTRY:
+    !self
+    return 0
+
+@future_unit_poll_ready(&self: ptr, &ctx: ptr, &out_poll: ptr) -> void:
+L_ENTRY:
+    value = load self+TestFuture_value as u64
+    EXPAND POLL_SET_READY out_poll, value
+    !value
+    !out_poll
+    !ctx
+    !self
+    return
+
+@future_unit_poll_pending_once(&self: ptr, &ctx: ptr, &out_poll: ptr) -> void:
+L_ENTRY:
+    state = load self+TestFuture_state as u64
+    is_ready = eq state, 1
+    br is_ready -> L_READY, L_PENDING
+
+L_PENDING:
+    store self+TestFuture_state, 1 as u64
+    EXPAND POLL_SET_PENDING out_poll
+    !is_ready
+    !state
+    !out_poll
+    !ctx
+    !self
+    return
+
+L_READY:
+    value = load self+TestFuture_value as u64
+    EXPAND POLL_SET_READY out_poll, value
+    !value
+    !is_ready
+    !state
+    !out_poll
+    !ctx
+    !self
+    return
+
+@test "sa_std future poll macros"():
+L_ENTRY:
+    waker_data = alloc TestWaker_SIZE
+    store waker_data+TestWaker_value, 3 as i32
+    EXPAND WAKER_NEW waker, waker_data, &TEST_WAKER_VT
+    EXPAND CONTEXT_NEW ctx, waker, waker_data
+    future_data = alloc TestFuture_SIZE
+    store future_data+TestFuture_state, 0 as u64
+    store future_data+TestFuture_value, 11 as u64
+    EXPAND FUTURE_NEW future, future_data, &TEST_READY_VT
+    EXPAND FUTURE_GET_DATA got_data, future
+    EXPAND FUTURE_GET_VTABLE got_vtable, future
+    EXPAND CONTEXT_WAKER got_waker, ctx
+    EXPAND CONTEXT_DATA got_ctx_data, ctx
+    EXPAND FUTURE_POLL poll, future, ctx
+    EXPAND POLL_IS_READY is_ready, poll
+    EXPAND POLL_IS_PENDING is_pending, poll
+    EXPAND POLL_VALUE poll_value, poll
+    EXPAND FUTURE_POLL_BRANCH branch_poll, future, ctx, L_FUTURE_POLL_BRANCH_READY, L_FUTURE_POLL_BRANCH_PENDING
+
+L_FUTURE_POLL_BRANCH_READY:
+    EXPAND POLL_VALUE branch_value, branch_poll
+    branch_hit = add 1, 0
+    jmp L_FUTURE_POLL_BRANCH_DONE
+
+L_FUTURE_POLL_BRANCH_PENDING:
+    branch_value = add 0, 0
+    branch_hit = add 0, 0
+
+L_FUTURE_POLL_BRANCH_DONE:
+    ok_ready = eq is_ready, 1
+    ok_pending = eq is_pending, 0
+    ok_value = eq poll_value, 11
+    ok_data = eq got_data, future_data
+    ok_waker = eq got_waker, waker
+    ok_ctx_data = eq got_ctx_data, waker_data
+    ok_branch_value = eq branch_value, 11
+    ok_branch_hit = eq branch_hit, 1
+    ok01 = and ok_ready, ok_pending
+    ok02 = and ok01, ok_value
+    ok03 = and ok02, ok_data
+    ok04 = and ok03, ok_waker
+    ok05 = and ok04, ok_ctx_data
+    ok06 = and ok05, ok_branch_value
+    ok = and ok06, ok_branch_hit
+    !poll
+    !branch_poll
+    !future
+    !future_data
+    !ctx
+    !waker
+    !waker_data
+    !got_data
+    !got_vtable
+    !got_waker
+    !got_ctx_data
+    !is_ready
+    !is_pending
+    !poll_value
+    !branch_value
+    !branch_hit
+    !ok_ready
+    !ok_pending
+    !ok_value
+    !ok_data
+    !ok_waker
+    !ok_ctx_data
+    !ok_branch_value
+    !ok_branch_hit
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(930)
+
+L_OK:
+    !ok
+    return
+
+@test "sa_std future join select macros"():
+L_ENTRY:
+    waker_data = alloc TestWaker_SIZE
+    store waker_data+TestWaker_value, 5 as i32
+    EXPAND WAKER_NEW waker, waker_data, &TEST_WAKER_VT
+    EXPAND CONTEXT_NEW ctx, waker, waker_data
+    left_data = alloc TestFuture_SIZE
+    store left_data+TestFuture_state, 0 as u64
+    store left_data+TestFuture_value, 5 as u64
+    right_data = alloc TestFuture_SIZE
+    store right_data+TestFuture_state, 0 as u64
+    store right_data+TestFuture_value, 7 as u64
+    pending_data = alloc TestFuture_SIZE
+    store pending_data+TestFuture_state, 0 as u64
+    store pending_data+TestFuture_value, 13 as u64
+    EXPAND FUTURE_NEW left, left_data, &TEST_READY_VT
+    EXPAND FUTURE_NEW right, right_data, &TEST_READY_VT
+    EXPAND FUTURE_NEW pending_once, pending_data, &TEST_PENDING_ONCE_VT
+    EXPAND FUTURE_JOIN2_POLL join_poll, left, right, ctx
+    EXPAND POLL_IS_READY join_ready, join_poll
+    EXPAND POLL_VALUE join_value, join_poll
+    EXPAND FUTURE_SELECT2_POLL select_right_poll, pending_once, right, ctx, select_right_side
+    EXPAND POLL_IS_READY select_right_ready, select_right_poll
+    EXPAND POLL_VALUE select_right_value, select_right_poll
+    EXPAND FUTURE_SELECT2_POLL select_left_poll, pending_once, right, ctx, select_left_side
+    EXPAND POLL_IS_READY select_left_ready, select_left_poll
+    EXPAND POLL_VALUE select_left_value, select_left_poll
+    ok_join_ready = eq join_ready, 1
+    ok_join_value = eq join_value, 12
+    ok_select_right_ready = eq select_right_ready, 1
+    ok_select_right_value = eq select_right_value, 7
+    ok_select_right_side = eq select_right_side, FutureSelect_RIGHT
+    ok_select_left_ready = eq select_left_ready, 1
+    ok_select_left_value = eq select_left_value, 13
+    ok_select_left_side = eq select_left_side, FutureSelect_LEFT
+    ok01 = and ok_join_ready, ok_join_value
+    ok02 = and ok01, ok_select_right_ready
+    ok03 = and ok02, ok_select_right_value
+    ok04 = and ok03, ok_select_right_side
+    ok05 = and ok04, ok_select_left_ready
+    ok06 = and ok05, ok_select_left_value
+    ok = and ok06, ok_select_left_side
+    !join_poll
+    !select_right_poll
+    !select_left_poll
+    !left
+    !right
+    !pending_once
+    !left_data
+    !right_data
+    !pending_data
+    !ctx
+    !waker
+    !waker_data
+    !join_ready
+    !join_value
+    !select_right_ready
+    !select_right_value
+    !select_right_side
+    !select_left_ready
+    !select_left_value
+    !select_left_side
+    !ok_join_ready
+    !ok_join_value
+    !ok_select_right_ready
+    !ok_select_right_value
+    !ok_select_right_side
+    !ok_select_left_ready
+    !ok_select_left_value
+    !ok_select_left_side
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(931)
+
+L_OK:
+    !ok
+    return
+
+@test "sa_std task poll macros"():
+L_ENTRY:
+    waker_data = alloc TestWaker_SIZE
+    store waker_data+TestWaker_value, 8 as i32
+    EXPAND WAKER_NEW waker, waker_data, &TEST_WAKER_VT
+    EXPAND CONTEXT_NEW ctx, waker, waker_data
+    future_data = alloc TestFuture_SIZE
+    store future_data+TestFuture_state, 0 as u64
+    store future_data+TestFuture_value, 42 as u64
+    EXPAND FUTURE_NEW future, future_data, &TEST_PENDING_ONCE_VT
+    EXPAND TASK_NEW task, future, ctx
+    EXPAND TASK_POLL first_poll, task
+    EXPAND POLL_IS_PENDING first_pending, first_poll
+    EXPAND TASK_IS_READY ready0, task
+    EXPAND TASK_POLL second_poll, task
+    EXPAND POLL_IS_READY second_ready, second_poll
+    EXPAND TASK_IS_READY ready1, task
+    EXPAND TASK_RESULT task_result, task
+    slots = alloc 8
+    store slots+0, task as ptr
+    EXPAND EXECUTOR_NEW executor, slots, 1
+    EXPAND EXECUTOR_POLL_ONE executor_poll, executor, 0
+    EXPAND POLL_IS_READY executor_ready, executor_poll
+    EXPAND POLL_VALUE executor_value, executor_poll
+    ok_first_pending = eq first_pending, 1
+    ok_ready0 = eq ready0, 0
+    ok_second_ready = eq second_ready, 1
+    ok_ready1 = eq ready1, 1
+    ok_task_result = eq task_result, 42
+    ok_executor_ready = eq executor_ready, 1
+    ok_executor_value = eq executor_value, 42
+    ok01 = and ok_first_pending, ok_ready0
+    ok02 = and ok01, ok_second_ready
+    ok03 = and ok02, ok_ready1
+    ok04 = and ok03, ok_task_result
+    ok05 = and ok04, ok_executor_ready
+    ok = and ok05, ok_executor_value
+    !first_poll
+    !second_poll
+    !executor_poll
+    !executor
+    !slots
+    !task
+    !future
+    !future_data
+    !ctx
+    !waker
+    !waker_data
+    !first_pending
+    !ready0
+    !second_ready
+    !ready1
+    !task_result
+    !executor_ready
+    !executor_value
+    !ok_first_pending
+    !ok_ready0
+    !ok_second_ready
+    !ok_ready1
+    !ok_task_result
+    !ok_executor_ready
+    !ok_executor_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(932)
+
+L_OK:
+    !ok
+    return

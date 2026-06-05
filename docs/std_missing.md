@@ -107,14 +107,14 @@ Current external capability buckets that should stay outside this report's `sa_s
 
 ---
 
-## 2. Completely Missing Modules (0% Coverage)
+## 2. Missing Full Rust Module Parity
 
-The following Rust `std` modules have no corresponding implementation or mapping in `sa_std`:
+The following Rust `std` modules still lack full Rust-level parity in `sa_std`:
 
 1.  **Memory & Data Abstraction**: `std::any`, `std::array`, `std::ascii`, `std::char`, `std::ptr` (`NonNull`), `std::pin`. `Box`, `Cell`, `RefCell`, `Rc`, `Arc`, and `Weak` have macro-level SA subsets under `sa_std/core/*`, but not full Rust module parity.
 2.  **Core Trait Paradigm**: `std::convert` (`From`/`Into`), `std::default`, `std::error`, `std::iter` (`Iterator` system), `std::marker` (`Send`/`Sync`/`Copy`), `std::ops` (Operator overloading/`Drop`), `std::cmp`.
 3.  **FFI & Platform Specific**: `std::ffi` (`CString`, `OsString`), `std::os` (Unix/Windows extensions).
-4.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`), full `std::future` / `std::task` type-system parity and executor APIs. `sa_std/libsa_async.sa` already provides macro-level CPS/state-machine helpers (`ASYNC_CTX_DEF`, `ASYNC_AWAIT_POINT`, etc.), and `sa_std/core/waker.sa` provides `WAKER_*` layout/vtable macros, but SA intentionally does not provide native `async` / `await` syntax or a bundled async runtime.
+4.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`) and a bundled async runtime/reactor. `sa_std/core/future.*` and `sa_std/core/task.*` now provide macro-level `Poll`, `Context`, `Future::poll` vtable, `join2`, `select2`, `Task`, and single-task executor contracts; `sa_std/libsa_async.sa` provides CPS/state-machine helpers (`ASYNC_CTX_DEF`, `ASYNC_AWAIT_POINT`, etc.); and `sa_std/core/waker.sa` provides `WAKER_*` layout/vtable macros. SA intentionally does not provide native `async` / `await` syntax or hidden scheduling.
 
 ## 4. Rust Core Minimal Closed Loop
 
@@ -124,6 +124,7 @@ The project now treats the following Rust core items as a **SA layout + macro co
 - `Result<T, E>`: represented by a tag + ok/err payload memory contract and helper macros in `sa_std/core/result.sa`.
 - `panic` / `panic_msg`: represented by wrapper macros in `sa_std/core/panic.sa` and lowered as builtin termination paths.
 - `iter` / iterator-like traversal: represented by slice-backed cursor helpers in `sa_std/core/iter.sa`.
+- `Future` / `Poll` / `Context` / `Task`: represented by concrete layout contracts and vtable/helper macros in `sa_std/core/future.sa` and `sa_std/core/task.sa`.
 
 These helpers intentionally stop short of native Rust `trait` / `generic` semantics. In SA, those remain a frontend lowering concern: monomorphization, concrete ABI selection, and call-site rewriting belong in the compiler frontend, not in SA source.
 
@@ -133,8 +134,11 @@ This closed loop is already backed by concrete files and smoke coverage:
 - `sa_std/core/result.sa` / `.sal`
 - `sa_std/core/panic.sa`
 - `sa_std/core/iter.sa` / `.sal`
+- `sa_std/core/future.sa` / `.sal`
+- `sa_std/core/task.sa` / `.sal`
 - `sa_std/rust_core.sa` / `.sal`
 - `tests/rust_core_fixture.sa`
+- `tests/unit_framework/std_future_task_macro_surface.sa`
 
 ---
 

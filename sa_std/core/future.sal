@@ -1,0 +1,18 @@
+#def Poll_SIZE = 16
+#def Poll_tag = +0
+#def Poll_value = +8
+#def Poll_PENDING = 0
+#def Poll_READY = 1
+
+#def Context_SIZE = 16
+#def Context_waker = +0
+#def Context_data = +8
+
+#def Future_SIZE = 16
+#def Future_data = +0
+#def Future_vtable = +8
+#def FuturePollSlot = +0
+
+#def FutureSelect_NONE = 0
+#def FutureSelect_LEFT = 1
+#def FutureSelect_RIGHT = 2

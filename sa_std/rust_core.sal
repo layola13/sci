@@ -4,6 +4,8 @@
 @import "core/weak.sal"
 @import "core/trait_object.sal"
 @import "core/waker.sal"
+@import "core/future.sal"
+@import "core/task.sal"
 @import "core/option.sal"
 @import "core/result.sal"
 @import "core/iter.sal"
@@ -19,3 +21,5 @@
 #def RustCore_SUPPORTS_WEAK = 1
 #def RustCore_SUPPORTS_TRAIT_OBJECT = 1
 #def RustCore_SUPPORTS_WAKER = 1
+#def RustCore_SUPPORTS_FUTURE = 1
+#def RustCore_SUPPORTS_TASK = 1

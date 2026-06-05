@@ -1,0 +1,12 @@
+#def Task_SIZE = 32
+#def Task_future = +0
+#def Task_context = +8
+#def Task_result = +16
+#def Task_state = +24
+
+#def Task_PENDING = 0
+#def Task_READY = 1
+
+#def Executor_SIZE = 16
+#def Executor_tasks = +0
+#def Executor_len = +8

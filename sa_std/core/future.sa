@@ -1,0 +1,164 @@
+@import "future.sal"
+@import "waker.sal"
+@import "waker.sa"
+
+[MACRO] POLL_PENDING %out_poll
+    %out_poll = alloc Poll_SIZE
+    store %out_poll+Poll_tag, Poll_PENDING as u64
+    store %out_poll+Poll_value, 0 as u64
+[END_MACRO]
+
+[MACRO] POLL_READY %out_poll, %value
+    %out_poll = alloc Poll_SIZE
+    store %out_poll+Poll_tag, Poll_READY as u64
+    store %out_poll+Poll_value, %value as u64
+[END_MACRO]
+
+[MACRO] POLL_SET_PENDING %poll_reg
+    store %poll_reg+Poll_tag, Poll_PENDING as u64
+    store %poll_reg+Poll_value, 0 as u64
+[END_MACRO]
+
+[MACRO] POLL_SET_READY %poll_reg, %value
+    store %poll_reg+Poll_tag, Poll_READY as u64
+    store %poll_reg+Poll_value, %value as u64
+[END_MACRO]
+
+[MACRO] POLL_IS_READY %out_bool, %poll_reg
+    __poll_tag_%out_bool = load %poll_reg+Poll_tag as u64
+    %out_bool = eq __poll_tag_%out_bool, Poll_READY
+    !__poll_tag_%out_bool
+[END_MACRO]
+
+[MACRO] POLL_IS_PENDING %out_bool, %poll_reg
+    __poll_tag_%out_bool = load %poll_reg+Poll_tag as u64
+    %out_bool = eq __poll_tag_%out_bool, Poll_PENDING
+    !__poll_tag_%out_bool
+[END_MACRO]
+
+[MACRO] POLL_VALUE %out_value, %poll_reg
+    %out_value = load %poll_reg+Poll_value as u64
+[END_MACRO]
+
+[MACRO] POLL_BRANCH %poll_reg, %ready_label, %pending_label
+    __poll_tag_%poll_reg = load %poll_reg+Poll_tag as u64
+    __poll_is_ready_%poll_reg = eq __poll_tag_%poll_reg, Poll_READY
+    br __poll_is_ready_%poll_reg -> L_POLL_BRANCH_READY_%poll_reg, L_POLL_BRANCH_PENDING_%poll_reg
+L_POLL_BRANCH_READY_%poll_reg:
+    !__poll_is_ready_%poll_reg
+    !__poll_tag_%poll_reg
+    jmp %ready_label
+L_POLL_BRANCH_PENDING_%poll_reg:
+    !__poll_is_ready_%poll_reg
+    !__poll_tag_%poll_reg
+    jmp %pending_label
+[END_MACRO]
+
+[MACRO] CONTEXT_NEW %out_ctx, %waker_reg, %data_ptr
+    %out_ctx = alloc Context_SIZE
+    store %out_ctx+Context_waker, %waker_reg as ptr
+    store %out_ctx+Context_data, %data_ptr as ptr
+[END_MACRO]
+
+[MACRO] CONTEXT_WAKER %out_waker, %ctx_reg
+    %out_waker = load %ctx_reg+Context_waker as ptr
+[END_MACRO]
+
+[MACRO] CONTEXT_DATA %out_data, %ctx_reg
+    %out_data = load %ctx_reg+Context_data as ptr
+[END_MACRO]
+
+[MACRO] FUTURE_NEW %out_future, %data_ptr, %vtable_ptr
+    %out_future = alloc Future_SIZE
+    store %out_future+Future_data, %data_ptr as ptr
+    store %out_future+Future_vtable, %vtable_ptr as ptr
+[END_MACRO]
+
+[MACRO] FUTURE_GET_DATA %out_data, %future_reg
+    %out_data = load %future_reg+Future_data as ptr
+[END_MACRO]
+
+[MACRO] FUTURE_GET_VTABLE %out_vtable, %future_reg
+    %out_vtable = load %future_reg+Future_vtable as ptr
+[END_MACRO]
+
+[MACRO] FUTURE_POLL %out_poll, %future_reg, %ctx_reg
+    __future_data_%out_poll = load %future_reg+Future_data as ptr
+    __future_vtable_%out_poll = load %future_reg+Future_vtable as ptr
+    __future_poll_fn_%out_poll = load __future_vtable_%out_poll+FuturePollSlot as ptr
+    %out_poll = alloc Poll_SIZE
+    call_indirect __future_poll_fn_%out_poll(&__future_data_%out_poll, &%ctx_reg, &%out_poll)
+    !__future_poll_fn_%out_poll
+    !__future_vtable_%out_poll
+    !__future_data_%out_poll
+[END_MACRO]
+
+[MACRO] FUTURE_POLL_BRANCH %out_poll, %future_reg, %ctx_reg, %ready_label, %pending_label
+    EXPAND FUTURE_POLL %out_poll, %future_reg, %ctx_reg
+    EXPAND POLL_BRANCH %out_poll, %ready_label, %pending_label
+[END_MACRO]
+
+[MACRO] FUTURE_JOIN2_POLL %out_poll, %left_future, %right_future, %ctx_reg
+    EXPAND FUTURE_POLL __future_join_left_%out_poll, %left_future, %ctx_reg
+    EXPAND FUTURE_POLL __future_join_right_%out_poll, %right_future, %ctx_reg
+    __future_join_left_ready_%out_poll = load __future_join_left_%out_poll+Poll_tag as u64
+    __future_join_right_ready_%out_poll = load __future_join_right_%out_poll+Poll_tag as u64
+    __future_join_left_ok_%out_poll = eq __future_join_left_ready_%out_poll, Poll_READY
+    __future_join_right_ok_%out_poll = eq __future_join_right_ready_%out_poll, Poll_READY
+    __future_join_ready_%out_poll = and __future_join_left_ok_%out_poll, __future_join_right_ok_%out_poll
+    br __future_join_ready_%out_poll -> L_FUTURE_JOIN2_READY_%out_poll, L_FUTURE_JOIN2_PENDING_%out_poll
+L_FUTURE_JOIN2_READY_%out_poll:
+    __future_join_left_value_%out_poll = load __future_join_left_%out_poll+Poll_value as u64
+    __future_join_right_value_%out_poll = load __future_join_right_%out_poll+Poll_value as u64
+    __future_join_value_%out_poll = add __future_join_left_value_%out_poll, __future_join_right_value_%out_poll
+    EXPAND POLL_READY %out_poll, __future_join_value_%out_poll
+    !__future_join_value_%out_poll
+    !__future_join_right_value_%out_poll
+    !__future_join_left_value_%out_poll
+    jmp L_FUTURE_JOIN2_DONE_%out_poll
+L_FUTURE_JOIN2_PENDING_%out_poll:
+    EXPAND POLL_PENDING %out_poll
+L_FUTURE_JOIN2_DONE_%out_poll:
+    !__future_join_ready_%out_poll
+    !__future_join_right_ok_%out_poll
+    !__future_join_left_ok_%out_poll
+    !__future_join_right_ready_%out_poll
+    !__future_join_left_ready_%out_poll
+    !__future_join_right_%out_poll
+    !__future_join_left_%out_poll
+[END_MACRO]
+
+[MACRO] FUTURE_SELECT2_POLL %out_poll, %left_future, %right_future, %ctx_reg, %out_side
+    EXPAND FUTURE_POLL __future_select_left_%out_poll, %left_future, %ctx_reg
+    __future_select_left_tag_%out_poll = load __future_select_left_%out_poll+Poll_tag as u64
+    __future_select_left_ready_%out_poll = eq __future_select_left_tag_%out_poll, Poll_READY
+    br __future_select_left_ready_%out_poll -> L_FUTURE_SELECT2_LEFT_%out_poll, L_FUTURE_SELECT2_TRY_RIGHT_%out_poll
+L_FUTURE_SELECT2_LEFT_%out_poll:
+    __future_select_left_value_%out_poll = load __future_select_left_%out_poll+Poll_value as u64
+    EXPAND POLL_READY %out_poll, __future_select_left_value_%out_poll
+    %out_side = add FutureSelect_LEFT, 0
+    !__future_select_left_value_%out_poll
+    jmp L_FUTURE_SELECT2_DONE_LEFT_%out_poll
+L_FUTURE_SELECT2_TRY_RIGHT_%out_poll:
+    EXPAND FUTURE_POLL __future_select_right_%out_poll, %right_future, %ctx_reg
+    __future_select_right_tag_%out_poll = load __future_select_right_%out_poll+Poll_tag as u64
+    __future_select_right_ready_%out_poll = eq __future_select_right_tag_%out_poll, Poll_READY
+    br __future_select_right_ready_%out_poll -> L_FUTURE_SELECT2_RIGHT_%out_poll, L_FUTURE_SELECT2_PENDING_%out_poll
+L_FUTURE_SELECT2_RIGHT_%out_poll:
+    __future_select_right_value_%out_poll = load __future_select_right_%out_poll+Poll_value as u64
+    EXPAND POLL_READY %out_poll, __future_select_right_value_%out_poll
+    %out_side = add FutureSelect_RIGHT, 0
+    !__future_select_right_value_%out_poll
+    jmp L_FUTURE_SELECT2_DONE_RIGHT_%out_poll
+L_FUTURE_SELECT2_PENDING_%out_poll:
+    EXPAND POLL_PENDING %out_poll
+    %out_side = add FutureSelect_NONE, 0
+L_FUTURE_SELECT2_DONE_RIGHT_%out_poll:
+    !__future_select_right_ready_%out_poll
+    !__future_select_right_tag_%out_poll
+    !__future_select_right_%out_poll
+L_FUTURE_SELECT2_DONE_LEFT_%out_poll:
+    !__future_select_left_ready_%out_poll
+    !__future_select_left_tag_%out_poll
+    !__future_select_left_%out_poll
+[END_MACRO]

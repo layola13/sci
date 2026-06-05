@@ -337,6 +337,8 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/box.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/dispatch.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/arc.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/future.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/task.sa\""));
 
     const cell_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/cell.sal");
     defer std.testing.allocator.free(cell_layout);
@@ -345,6 +347,18 @@ test "sa_std rust core helpers are concrete and verifiable" {
     const refcell_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/refcell.sal");
     defer std.testing.allocator.free(refcell_layout);
     try std.testing.expectEqualStrings("#def RefCell_SIZE = 8\n#def RefCell_value = +0\n#def RefCell_borrows = +4\n", refcell_layout);
+
+    const future_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/future.sal");
+    defer std.testing.allocator.free(future_layout);
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_layout, 1, "#def Poll_SIZE = 16"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_layout, 1, "#def Context_SIZE = 16"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_layout, 1, "#def Future_SIZE = 16"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_layout, 1, "#def FuturePollSlot = +0"));
+
+    const task_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/task.sal");
+    defer std.testing.allocator.free(task_layout);
+    try std.testing.expect(std.mem.containsAtLeast(u8, task_layout, 1, "#def Task_SIZE = 32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, task_layout, 1, "#def Executor_SIZE = 16"));
 
     const rc_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/rc.sal");
     defer std.testing.allocator.free(rc_layout);
@@ -395,6 +409,39 @@ test "sa_std rust core helpers are concrete and verifiable" {
     defer box_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), box_flat.instructions.len);
 
+    const future_src = try readFileAlloc(std.testing.allocator, "sa_std/core/future.sa");
+    defer std.testing.allocator.free(future_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_PENDING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_READY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] CONTEXT_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_POLL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_JOIN2_POLL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_SELECT2_POLL"));
+
+    const task_src = try readFileAlloc(std.testing.allocator, "sa_std/core/task.sa");
+    defer std.testing.allocator.free(task_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] TASK_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] TASK_POLL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] EXECUTOR_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] EXECUTOR_POLL_ONE"));
+
+    const future_facade_src = try readFileAlloc(std.testing.allocator, "sa_std/future.sa");
+    defer std.testing.allocator.free(future_facade_src);
+    try std.testing.expectEqualStrings("@import \"core/future.sal\"\n@import \"core/future.sa\"\n", future_facade_src);
+
+    const future_facade_layout = try readFileAlloc(std.testing.allocator, "sa_std/future.sal");
+    defer std.testing.allocator.free(future_facade_layout);
+    try std.testing.expectEqualStrings("@import \"core/future.sal\"\n", future_facade_layout);
+
+    const task_facade_src = try readFileAlloc(std.testing.allocator, "sa_std/task.sa");
+    defer std.testing.allocator.free(task_facade_src);
+    try std.testing.expectEqualStrings("@import \"core/task.sal\"\n@import \"core/task.sa\"\n", task_facade_src);
+
+    const task_facade_layout = try readFileAlloc(std.testing.allocator, "sa_std/task.sal");
+    defer std.testing.allocator.free(task_facade_layout);
+    try std.testing.expectEqualStrings("@import \"core/task.sal\"\n", task_facade_layout);
+
     var option_flat = try flattenFixture(std.testing.allocator, "sa_std/core/option.sa", option_src);
     defer option_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), option_flat.instructions.len);
@@ -414,6 +461,16 @@ test "sa_std rust core helpers are concrete and verifiable" {
     defer iter_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), iter_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), iter_flat.function_sigs.len);
+
+    var future_flat = try flattenFixture(std.testing.allocator, "sa_std/core/future.sa", future_src);
+    defer future_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), future_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), future_flat.function_sigs.len);
+
+    var task_flat = try flattenFixture(std.testing.allocator, "sa_std/core/task.sa", task_src);
+    defer task_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), task_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), task_flat.function_sigs.len);
 
     var rust_core_flat = try flattenFixture(std.testing.allocator, "sa_std/rust_core.sa", rust_core_src);
     defer rust_core_flat.deinit(std.testing.allocator);

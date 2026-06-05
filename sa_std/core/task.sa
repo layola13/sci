@@ -1,0 +1,65 @@
+@import "task.sal"
+@import "future.sal"
+@import "future.sa"
+
+[MACRO] TASK_NEW %out_task, %future_reg, %ctx_reg
+    %out_task = alloc Task_SIZE
+    store %out_task+Task_future, %future_reg as ptr
+    store %out_task+Task_context, %ctx_reg as ptr
+    store %out_task+Task_result, 0 as u64
+    store %out_task+Task_state, Task_PENDING as u64
+[END_MACRO]
+
+[MACRO] TASK_STATE %out_state, %task_reg
+    %out_state = load %task_reg+Task_state as u64
+[END_MACRO]
+
+[MACRO] TASK_RESULT %out_value, %task_reg
+    %out_value = load %task_reg+Task_result as u64
+[END_MACRO]
+
+[MACRO] TASK_IS_READY %out_bool, %task_reg
+    __task_state_%out_bool = load %task_reg+Task_state as u64
+    %out_bool = eq __task_state_%out_bool, Task_READY
+    !__task_state_%out_bool
+[END_MACRO]
+
+[MACRO] TASK_POLL %out_poll, %task_reg
+    __task_future_%out_poll = load %task_reg+Task_future as ptr
+    __task_context_%out_poll = load %task_reg+Task_context as ptr
+    EXPAND FUTURE_POLL %out_poll, __task_future_%out_poll, __task_context_%out_poll
+    __task_poll_tag_%out_poll = load %out_poll+Poll_tag as u64
+    __task_poll_ready_%out_poll = eq __task_poll_tag_%out_poll, Poll_READY
+    br __task_poll_ready_%out_poll -> L_TASK_POLL_READY_%out_poll, L_TASK_POLL_PENDING_%out_poll
+L_TASK_POLL_READY_%out_poll:
+    __task_poll_value_%out_poll = load %out_poll+Poll_value as u64
+    store %task_reg+Task_result, __task_poll_value_%out_poll as u64
+    store %task_reg+Task_state, Task_READY as u64
+    !__task_poll_value_%out_poll
+    jmp L_TASK_POLL_DONE_%out_poll
+L_TASK_POLL_PENDING_%out_poll:
+    store %task_reg+Task_state, Task_PENDING as u64
+L_TASK_POLL_DONE_%out_poll:
+    !__task_poll_ready_%out_poll
+    !__task_poll_tag_%out_poll
+    !__task_context_%out_poll
+    !__task_future_%out_poll
+[END_MACRO]
+
+[MACRO] EXECUTOR_NEW %out_executor, %tasks_ptr, %len
+    %out_executor = alloc Executor_SIZE
+    store %out_executor+Executor_tasks, %tasks_ptr as ptr
+    store %out_executor+Executor_len, %len as u64
+[END_MACRO]
+
+[MACRO] EXECUTOR_POLL_ONE %out_poll, %executor_reg, %index
+    __executor_tasks_%out_poll = load %executor_reg+Executor_tasks as ptr
+    __executor_off_%out_poll = mul %index, 8
+    __executor_slot_%out_poll = ptr_add __executor_tasks_%out_poll, __executor_off_%out_poll
+    __executor_task_%out_poll = load __executor_slot_%out_poll+0 as ptr
+    EXPAND TASK_POLL %out_poll, __executor_task_%out_poll
+    !__executor_task_%out_poll
+    !__executor_slot_%out_poll
+    !__executor_off_%out_poll
+    !__executor_tasks_%out_poll
+[END_MACRO]
