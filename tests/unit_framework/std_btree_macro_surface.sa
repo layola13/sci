@@ -1,11 +1,13 @@
 @import "sa_std/core/slice.sal"
 @import "sa_std/core/slice.sa"
+@import "sa_std/vec.sa"
 @import "sa_std/collections/btree_map.sa"
 @import "sa_std/collections/btree_set.sa"
 
 @const KEY_ALPHA = utf8:"alpha"
 @const KEY_BRAVO = utf8:"bravo"
 @const KEY_CHARLIE = utf8:"charlie"
+@const KEY_DELTA = utf8:"delta"
 
 @test "sa_std btree_map rust parity macros"():
 L_ENTRY:
@@ -292,6 +294,254 @@ L_MAP_OK:
     !ok
     return
 
+@test "sa_std btree_map collection view macros"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    charlie = alloc Slice_SIZE
+    delta = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+    EXPAND SLICE_NEW charlie, &KEY_CHARLIE, 7
+    EXPAND SLICE_NEW delta, &KEY_DELTA, 5
+
+    EXPAND BTREE_MAP_NEW map
+    EXPAND BTREE_MAP_INSERT map, alpha, 10
+    EXPAND BTREE_MAP_INSERT map, bravo, 20
+    EXPAND BTREE_MAP_TRY_INSERT try_insert_new_ok, try_insert_new_ptr, map, charlie, 30
+    try_insert_new_value = load try_insert_new_ptr+0 as u64
+    EXPAND BTREE_MAP_TRY_INSERT try_insert_existing_ok, try_insert_existing_ptr, map, alpha, 99
+    try_insert_existing_value = load try_insert_existing_ptr+0 as u64
+
+    EXPAND BTREE_MAP_FIRST_ENTRY_MUT_PTR first_entry_ok, first_entry_key, first_entry_ptr, map
+    first_entry_key_len = load first_entry_key+Slice_len as u64
+    store first_entry_ptr+0, 12 as u64
+    EXPAND BTREE_MAP_LAST_ENTRY_MUT_PTR last_entry_ok, last_entry_key, last_entry_ptr, map
+    last_entry_key_len = load last_entry_key+Slice_len as u64
+    store last_entry_ptr+0, 33 as u64
+    EXPAND BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS disjoint_ok, disjoint_alpha_ptr, disjoint_bravo_ptr, map, alpha, bravo
+    store disjoint_alpha_ptr+0, 13 as u64
+    store disjoint_bravo_ptr+0, 21 as u64
+    EXPAND BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS same_key_ok, same_alpha_ptr, same_alpha_ptr2, map, alpha, alpha
+
+    EXPAND BTREE_MAP_GET alpha_value, map, alpha
+    EXPAND BTREE_MAP_GET bravo_value, map, bravo
+    EXPAND BTREE_MAP_GET charlie_value, map, charlie
+    EXPAND BTREE_MAP_KEYS key_set, map
+    EXPAND BTREE_SET_LEN key_set_len, key_set
+    EXPAND BTREE_SET_CONTAINS key_set_has_alpha, key_set, alpha
+    EXPAND BTREE_SET_CONTAINS key_set_has_bravo, key_set, bravo
+    EXPAND BTREE_SET_CONTAINS key_set_has_charlie, key_set, charlie
+    EXPAND BTREE_MAP_VALUES values_vec, map
+    EXPAND VEC_LEN values_len, values_vec
+    EXPAND VEC_CONTAINS_U64 values_has_alpha, values_vec, 13
+    EXPAND VEC_CONTAINS_U64 values_has_bravo, values_vec, 21
+    EXPAND VEC_CONTAINS_U64 values_has_charlie, values_vec, 33
+    EXPAND BTREE_MAP_VALUES_MUT_PTRS value_ptrs_vec, map
+    EXPAND VEC_LEN value_ptrs_len, value_ptrs_vec
+    disjoint_alpha_ptr_bits = bitcast disjoint_alpha_ptr as u64
+    disjoint_bravo_ptr_bits = bitcast disjoint_bravo_ptr as u64
+    last_entry_ptr_bits = bitcast last_entry_ptr as u64
+    EXPAND VEC_CONTAINS_U64 ptrs_has_alpha, value_ptrs_vec, disjoint_alpha_ptr_bits
+    EXPAND VEC_CONTAINS_U64 ptrs_has_bravo, value_ptrs_vec, disjoint_bravo_ptr_bits
+    EXPAND VEC_CONTAINS_U64 ptrs_has_charlie, value_ptrs_vec, last_entry_ptr_bits
+
+    EXPAND BTREE_MAP_RANGE range_map, map, bravo, delta
+    EXPAND BTREE_MAP_LEN range_len, range_map
+    EXPAND BTREE_MAP_CONTAINS_KEY range_has_alpha, range_map, alpha
+    EXPAND BTREE_MAP_CONTAINS_KEY range_has_bravo, range_map, bravo
+    EXPAND BTREE_MAP_CONTAINS_KEY range_has_charlie, range_map, charlie
+    EXPAND BTREE_MAP_CONTAINS_KEY range_has_delta, range_map, delta
+
+    ok_try_insert_new = eq try_insert_new_ok, 1
+    ok_try_insert_new_value = eq try_insert_new_value, 30
+    ok_try_insert_existing_flag = eq try_insert_existing_ok, 0
+    ok_try_insert_existing_value = eq try_insert_existing_value, 10
+    ok_first_entry = eq first_entry_ok, 1
+    ok_first_entry_len = eq first_entry_key_len, 5
+    ok_last_entry = eq last_entry_ok, 1
+    ok_last_entry_len = eq last_entry_key_len, 7
+    ok_disjoint = eq disjoint_ok, 1
+    ok_same_key = eq same_key_ok, 0
+    ok_same_alpha_ptr = eq same_alpha_ptr, 0
+    ok_same_alpha_ptr2 = eq same_alpha_ptr2, 0
+    ok_alpha_value = eq alpha_value, 13
+    ok_bravo_value = eq bravo_value, 21
+    ok_charlie_value = eq charlie_value, 33
+    ok_key_set_len = eq key_set_len, 3
+    ok_key_set_has_alpha = eq key_set_has_alpha, 1
+    ok_key_set_has_bravo = eq key_set_has_bravo, 1
+    ok_key_set_has_charlie = eq key_set_has_charlie, 1
+    ok_values_len = eq values_len, 3
+    ok_values_has_alpha = eq values_has_alpha, 1
+    ok_values_has_bravo = eq values_has_bravo, 1
+    ok_values_has_charlie = eq values_has_charlie, 1
+    ok_value_ptrs_len = eq value_ptrs_len, 3
+    ok_ptrs_has_alpha = eq ptrs_has_alpha, 1
+    ok_ptrs_has_bravo = eq ptrs_has_bravo, 1
+    ok_ptrs_has_charlie = eq ptrs_has_charlie, 1
+    ok_range_len = eq range_len, 2
+    ok_range_has_alpha = eq range_has_alpha, 0
+    ok_range_has_bravo = eq range_has_bravo, 1
+    ok_range_has_charlie = eq range_has_charlie, 1
+    ok_range_has_delta = eq range_has_delta, 0
+
+    ok01 = and ok_try_insert_new, ok_try_insert_new_value
+    ok02 = and ok01, ok_try_insert_existing_flag
+    ok03 = and ok02, ok_try_insert_existing_value
+    ok04 = and ok03, ok_first_entry
+    ok05 = and ok04, ok_first_entry_len
+    ok06 = and ok05, ok_last_entry
+    ok07 = and ok06, ok_last_entry_len
+    ok08 = and ok07, ok_disjoint
+    ok09 = and ok08, ok_same_key
+    ok10 = and ok09, ok_same_alpha_ptr
+    ok11 = and ok10, ok_same_alpha_ptr2
+    ok12 = and ok11, ok_alpha_value
+    ok13 = and ok12, ok_bravo_value
+    ok14 = and ok13, ok_charlie_value
+    ok15 = and ok14, ok_key_set_len
+    ok16 = and ok15, ok_key_set_has_alpha
+    ok17 = and ok16, ok_key_set_has_bravo
+    ok18 = and ok17, ok_key_set_has_charlie
+    ok19 = and ok18, ok_values_len
+    ok20 = and ok19, ok_values_has_alpha
+    ok21 = and ok20, ok_values_has_bravo
+    ok22 = and ok21, ok_values_has_charlie
+    ok23 = and ok22, ok_value_ptrs_len
+    ok24 = and ok23, ok_ptrs_has_alpha
+    ok25 = and ok24, ok_ptrs_has_bravo
+    ok26 = and ok25, ok_ptrs_has_charlie
+    ok27 = and ok26, ok_range_len
+    ok28 = and ok27, ok_range_has_alpha
+    ok29 = and ok28, ok_range_has_bravo
+    ok30 = and ok29, ok_range_has_charlie
+    ok = and ok30, ok_range_has_delta
+
+    !try_insert_new_ok
+    !try_insert_new_ptr
+    !try_insert_new_value
+    !try_insert_existing_ok
+    !try_insert_existing_ptr
+    !try_insert_existing_value
+    !first_entry_ok
+    !first_entry_key_len
+    !first_entry_ptr
+    !last_entry_ok
+    !last_entry_key_len
+    !last_entry_ptr
+    !disjoint_ok
+    !disjoint_alpha_ptr
+    !disjoint_bravo_ptr
+    !same_key_ok
+    !same_alpha_ptr
+    !same_alpha_ptr2
+    !alpha_value
+    !bravo_value
+    !charlie_value
+    !key_set_len
+    !key_set_has_alpha
+    !key_set_has_bravo
+    !key_set_has_charlie
+    !values_len
+    !values_has_alpha
+    !values_has_bravo
+    !values_has_charlie
+    !value_ptrs_len
+    !disjoint_alpha_ptr_bits
+    !disjoint_bravo_ptr_bits
+    !last_entry_ptr_bits
+    !ptrs_has_alpha
+    !ptrs_has_bravo
+    !ptrs_has_charlie
+    !range_len
+    !range_has_alpha
+    !range_has_bravo
+    !range_has_charlie
+    !range_has_delta
+    !ok_try_insert_new
+    !ok_try_insert_new_value
+    !ok_try_insert_existing_flag
+    !ok_try_insert_existing_value
+    !ok_first_entry
+    !ok_first_entry_len
+    !ok_last_entry
+    !ok_last_entry_len
+    !ok_disjoint
+    !ok_same_key
+    !ok_same_alpha_ptr
+    !ok_same_alpha_ptr2
+    !ok_alpha_value
+    !ok_bravo_value
+    !ok_charlie_value
+    !ok_key_set_len
+    !ok_key_set_has_alpha
+    !ok_key_set_has_bravo
+    !ok_key_set_has_charlie
+    !ok_values_len
+    !ok_values_has_alpha
+    !ok_values_has_bravo
+    !ok_values_has_charlie
+    !ok_value_ptrs_len
+    !ok_ptrs_has_alpha
+    !ok_ptrs_has_bravo
+    !ok_ptrs_has_charlie
+    !ok_range_len
+    !ok_range_has_alpha
+    !ok_range_has_bravo
+    !ok_range_has_charlie
+    !ok_range_has_delta
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !last_entry_key
+    !first_entry_key
+    !delta
+    !charlie
+    !bravo
+    !alpha
+    EXPAND BTREE_MAP_FREE range_map
+    EXPAND VEC_FREE value_ptrs_vec
+    EXPAND VEC_FREE values_vec
+    EXPAND BTREE_SET_FREE key_set
+    EXPAND BTREE_MAP_FREE map
+    br ok -> L_MAP_VIEW_OK, L_MAP_VIEW_FAIL
+
+L_MAP_VIEW_FAIL:
+    !ok
+    panic(922)
+
+L_MAP_VIEW_OK:
+    !ok
+    return
+
 @test "sa_std btree_set rust parity macros"():
 L_ENTRY:
     alpha = alloc Slice_SIZE
@@ -516,5 +766,230 @@ L_SET_FAIL:
     panic(921)
 
 L_SET_OK:
+    !ok
+    return
+
+@test "sa_std btree_set range and algebra macros"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    charlie = alloc Slice_SIZE
+    delta = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+    EXPAND SLICE_NEW charlie, &KEY_CHARLIE, 7
+    EXPAND SLICE_NEW delta, &KEY_DELTA, 5
+
+    EXPAND BTREE_SET_NEW left
+    EXPAND BTREE_SET_NEW right
+    EXPAND BTREE_SET_INSERT left_ins_alpha, left, alpha
+    EXPAND BTREE_SET_INSERT left_ins_bravo, left, bravo
+    EXPAND BTREE_SET_INSERT left_ins_charlie, left, charlie
+    EXPAND BTREE_SET_INSERT right_ins_bravo, right, bravo
+    EXPAND BTREE_SET_INSERT right_ins_delta, right, delta
+
+    EXPAND BTREE_SET_RANGE range_set, left, bravo, delta
+    EXPAND BTREE_SET_UNION union_set, left, right
+    EXPAND BTREE_SET_INTERSECTION intersection_set, left, right
+    EXPAND BTREE_SET_DIFFERENCE difference_set, left, right
+    EXPAND BTREE_SET_SYMMETRIC_DIFFERENCE symmetric_set, left, right
+
+    EXPAND BTREE_SET_LEN range_len, range_set
+    EXPAND BTREE_SET_CONTAINS range_has_alpha, range_set, alpha
+    EXPAND BTREE_SET_CONTAINS range_has_bravo, range_set, bravo
+    EXPAND BTREE_SET_CONTAINS range_has_charlie, range_set, charlie
+    EXPAND BTREE_SET_CONTAINS range_has_delta, range_set, delta
+
+    EXPAND BTREE_SET_LEN union_len, union_set
+    EXPAND BTREE_SET_CONTAINS union_has_alpha, union_set, alpha
+    EXPAND BTREE_SET_CONTAINS union_has_bravo, union_set, bravo
+    EXPAND BTREE_SET_CONTAINS union_has_charlie, union_set, charlie
+    EXPAND BTREE_SET_CONTAINS union_has_delta, union_set, delta
+
+    EXPAND BTREE_SET_LEN intersection_len, intersection_set
+    EXPAND BTREE_SET_CONTAINS intersection_has_alpha, intersection_set, alpha
+    EXPAND BTREE_SET_CONTAINS intersection_has_bravo, intersection_set, bravo
+    EXPAND BTREE_SET_CONTAINS intersection_has_charlie, intersection_set, charlie
+    EXPAND BTREE_SET_CONTAINS intersection_has_delta, intersection_set, delta
+
+    EXPAND BTREE_SET_LEN difference_len, difference_set
+    EXPAND BTREE_SET_CONTAINS difference_has_alpha, difference_set, alpha
+    EXPAND BTREE_SET_CONTAINS difference_has_bravo, difference_set, bravo
+    EXPAND BTREE_SET_CONTAINS difference_has_charlie, difference_set, charlie
+    EXPAND BTREE_SET_CONTAINS difference_has_delta, difference_set, delta
+
+    EXPAND BTREE_SET_LEN symmetric_len, symmetric_set
+    EXPAND BTREE_SET_CONTAINS symmetric_has_alpha, symmetric_set, alpha
+    EXPAND BTREE_SET_CONTAINS symmetric_has_bravo, symmetric_set, bravo
+    EXPAND BTREE_SET_CONTAINS symmetric_has_charlie, symmetric_set, charlie
+    EXPAND BTREE_SET_CONTAINS symmetric_has_delta, symmetric_set, delta
+
+    ok_left_ins_alpha = eq left_ins_alpha, 1
+    ok_left_ins_bravo = eq left_ins_bravo, 1
+    ok_left_ins_charlie = eq left_ins_charlie, 1
+    ok_right_ins_bravo = eq right_ins_bravo, 1
+    ok_right_ins_delta = eq right_ins_delta, 1
+    ok_range_len = eq range_len, 2
+    ok_range_has_alpha = eq range_has_alpha, 0
+    ok_range_has_bravo = eq range_has_bravo, 1
+    ok_range_has_charlie = eq range_has_charlie, 1
+    ok_range_has_delta = eq range_has_delta, 0
+    ok_union_len = eq union_len, 4
+    ok_union_has_alpha = eq union_has_alpha, 1
+    ok_union_has_bravo = eq union_has_bravo, 1
+    ok_union_has_charlie = eq union_has_charlie, 1
+    ok_union_has_delta = eq union_has_delta, 1
+    ok_intersection_len = eq intersection_len, 1
+    ok_intersection_has_alpha = eq intersection_has_alpha, 0
+    ok_intersection_has_bravo = eq intersection_has_bravo, 1
+    ok_intersection_has_charlie = eq intersection_has_charlie, 0
+    ok_intersection_has_delta = eq intersection_has_delta, 0
+    ok_difference_len = eq difference_len, 2
+    ok_difference_has_alpha = eq difference_has_alpha, 1
+    ok_difference_has_bravo = eq difference_has_bravo, 0
+    ok_difference_has_charlie = eq difference_has_charlie, 1
+    ok_difference_has_delta = eq difference_has_delta, 0
+    ok_symmetric_len = eq symmetric_len, 3
+    ok_symmetric_has_alpha = eq symmetric_has_alpha, 1
+    ok_symmetric_has_bravo = eq symmetric_has_bravo, 0
+    ok_symmetric_has_charlie = eq symmetric_has_charlie, 1
+    ok_symmetric_has_delta = eq symmetric_has_delta, 1
+
+    ok01 = and ok_left_ins_alpha, ok_left_ins_bravo
+    ok02 = and ok01, ok_left_ins_charlie
+    ok03 = and ok02, ok_right_ins_bravo
+    ok04 = and ok03, ok_right_ins_delta
+    ok05 = and ok04, ok_range_len
+    ok06 = and ok05, ok_range_has_alpha
+    ok07 = and ok06, ok_range_has_bravo
+    ok08 = and ok07, ok_range_has_charlie
+    ok09 = and ok08, ok_range_has_delta
+    ok10 = and ok09, ok_union_len
+    ok11 = and ok10, ok_union_has_alpha
+    ok12 = and ok11, ok_union_has_bravo
+    ok13 = and ok12, ok_union_has_charlie
+    ok14 = and ok13, ok_union_has_delta
+    ok15 = and ok14, ok_intersection_len
+    ok16 = and ok15, ok_intersection_has_alpha
+    ok17 = and ok16, ok_intersection_has_bravo
+    ok18 = and ok17, ok_intersection_has_charlie
+    ok19 = and ok18, ok_intersection_has_delta
+    ok20 = and ok19, ok_difference_len
+    ok21 = and ok20, ok_difference_has_alpha
+    ok22 = and ok21, ok_difference_has_bravo
+    ok23 = and ok22, ok_difference_has_charlie
+    ok24 = and ok23, ok_difference_has_delta
+    ok25 = and ok24, ok_symmetric_len
+    ok26 = and ok25, ok_symmetric_has_alpha
+    ok27 = and ok26, ok_symmetric_has_bravo
+    ok28 = and ok27, ok_symmetric_has_charlie
+    ok = and ok28, ok_symmetric_has_delta
+
+    !left_ins_alpha
+    !left_ins_bravo
+    !left_ins_charlie
+    !right_ins_bravo
+    !right_ins_delta
+    !range_len
+    !range_has_alpha
+    !range_has_bravo
+    !range_has_charlie
+    !range_has_delta
+    !union_len
+    !union_has_alpha
+    !union_has_bravo
+    !union_has_charlie
+    !union_has_delta
+    !intersection_len
+    !intersection_has_alpha
+    !intersection_has_bravo
+    !intersection_has_charlie
+    !intersection_has_delta
+    !difference_len
+    !difference_has_alpha
+    !difference_has_bravo
+    !difference_has_charlie
+    !difference_has_delta
+    !symmetric_len
+    !symmetric_has_alpha
+    !symmetric_has_bravo
+    !symmetric_has_charlie
+    !symmetric_has_delta
+    !ok_left_ins_alpha
+    !ok_left_ins_bravo
+    !ok_left_ins_charlie
+    !ok_right_ins_bravo
+    !ok_right_ins_delta
+    !ok_range_len
+    !ok_range_has_alpha
+    !ok_range_has_bravo
+    !ok_range_has_charlie
+    !ok_range_has_delta
+    !ok_union_len
+    !ok_union_has_alpha
+    !ok_union_has_bravo
+    !ok_union_has_charlie
+    !ok_union_has_delta
+    !ok_intersection_len
+    !ok_intersection_has_alpha
+    !ok_intersection_has_bravo
+    !ok_intersection_has_charlie
+    !ok_intersection_has_delta
+    !ok_difference_len
+    !ok_difference_has_alpha
+    !ok_difference_has_bravo
+    !ok_difference_has_charlie
+    !ok_difference_has_delta
+    !ok_symmetric_len
+    !ok_symmetric_has_alpha
+    !ok_symmetric_has_bravo
+    !ok_symmetric_has_charlie
+    !ok_symmetric_has_delta
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !delta
+    !charlie
+    !bravo
+    !alpha
+    EXPAND BTREE_SET_FREE symmetric_set
+    EXPAND BTREE_SET_FREE difference_set
+    EXPAND BTREE_SET_FREE intersection_set
+    EXPAND BTREE_SET_FREE union_set
+    EXPAND BTREE_SET_FREE range_set
+    EXPAND BTREE_SET_FREE right
+    EXPAND BTREE_SET_FREE left
+    br ok -> L_SET_ALGEBRA_OK, L_SET_ALGEBRA_FAIL
+
+L_SET_ALGEBRA_FAIL:
+    !ok
+    panic(923)
+
+L_SET_ALGEBRA_OK:
     !ok
     return

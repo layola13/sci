@@ -3,6 +3,146 @@
 
 #def BTreeSet_VALUE_SENTINEL = 1
 
+@btree_set_insert_all(&dst: ptr, &src: ptr) -> void:
+L_ENTRY:
+    entries = load src+BTreeSet_entries as ptr
+    len = load src+BTreeSet_len as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_SET_INSERT_ALL_HEAD
+
+L_BTREE_SET_INSERT_ALL_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_SET_INSERT_ALL_DONE, L_BTREE_SET_INSERT_ALL_BODY
+
+L_BTREE_SET_INSERT_ALL_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    inserted = call @sa_btree_set_insert(&dst, &entry)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !inserted
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_SET_INSERT_ALL_HEAD
+
+L_BTREE_SET_INSERT_ALL_DONE:
+    !done
+    !idx
+    !len
+    !entries
+    !src
+    !dst
+    return
+
+@btree_set_insert_intersection(&dst: ptr, &src: ptr, &other: ptr) -> void:
+L_ENTRY:
+    entries = load src+BTreeSet_entries as ptr
+    len = load src+BTreeSet_len as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_SET_INTERSECTION_HEAD
+
+L_BTREE_SET_INTERSECTION_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_SET_INTERSECTION_DONE, L_BTREE_SET_INTERSECTION_BODY
+
+L_BTREE_SET_INTERSECTION_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    contains = call @sa_btree_set_contains(&other, &entry)
+    keep = ne contains, 0
+    br keep -> L_BTREE_SET_INTERSECTION_KEEP, L_BTREE_SET_INTERSECTION_SKIP
+
+L_BTREE_SET_INTERSECTION_KEEP:
+    inserted = call @sa_btree_set_insert(&dst, &entry)
+    !inserted
+    !keep
+    !contains
+    jmp L_BTREE_SET_INTERSECTION_NEXT
+
+L_BTREE_SET_INTERSECTION_SKIP:
+    !keep
+    !contains
+    jmp L_BTREE_SET_INTERSECTION_NEXT
+
+L_BTREE_SET_INTERSECTION_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_SET_INTERSECTION_HEAD
+
+L_BTREE_SET_INTERSECTION_DONE:
+    !done
+    !idx
+    !len
+    !entries
+    !other
+    !src
+    !dst
+    return
+
+@btree_set_insert_difference(&dst: ptr, &src: ptr, &other: ptr) -> void:
+L_ENTRY:
+    entries = load src+BTreeSet_entries as ptr
+    len = load src+BTreeSet_len as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_SET_DIFFERENCE_HEAD
+
+L_BTREE_SET_DIFFERENCE_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_SET_DIFFERENCE_DONE, L_BTREE_SET_DIFFERENCE_BODY
+
+L_BTREE_SET_DIFFERENCE_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    contains = call @sa_btree_set_contains(&other, &entry)
+    keep = eq contains, 0
+    br keep -> L_BTREE_SET_DIFFERENCE_KEEP, L_BTREE_SET_DIFFERENCE_SKIP
+
+L_BTREE_SET_DIFFERENCE_KEEP:
+    inserted = call @sa_btree_set_insert(&dst, &entry)
+    !inserted
+    !keep
+    !contains
+    jmp L_BTREE_SET_DIFFERENCE_NEXT
+
+L_BTREE_SET_DIFFERENCE_SKIP:
+    !keep
+    !contains
+    jmp L_BTREE_SET_DIFFERENCE_NEXT
+
+L_BTREE_SET_DIFFERENCE_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_SET_DIFFERENCE_HEAD
+
+L_BTREE_SET_DIFFERENCE_DONE:
+    !done
+    !idx
+    !len
+    !entries
+    !other
+    !src
+    !dst
+    return
+
 @export sa_btree_set_new() -> ^ptr:
 L_ENTRY:
     set = call @sa_btree_map_new()
@@ -237,6 +377,14 @@ L_ENTRY:
     !set
     return tail
 
+@export sa_btree_set_range(&set: ptr, &start_key: ptr, &end_key: ptr) -> ^ptr:
+L_ENTRY:
+    out_set = call @sa_btree_map_range(&set, &start_key, &end_key)
+    !end_key
+    !start_key
+    !set
+    return out_set
+
 @export sa_btree_set_clear(&set: ptr) -> void:
 L_ENTRY:
     call @sa_btree_map_clear(&set)
@@ -265,6 +413,59 @@ L_ENTRY:
     !key
     !set
     return result
+
+@export sa_btree_set_union(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    out_set = call @sa_btree_set_new()
+    call @btree_set_insert_all(&out_set, &set)
+    call @btree_set_insert_all(&out_set, &other)
+    !other
+    !set
+    return out_set
+
+@export sa_btree_set_intersection(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    len = load set+BTreeSet_len as u64
+    other_len = load other+BTreeSet_len as u64
+    left_smaller = ule len, other_len
+    br left_smaller -> L_BTREE_SET_INTERSECTION_LEFT, L_BTREE_SET_INTERSECTION_RIGHT
+
+L_BTREE_SET_INTERSECTION_LEFT:
+    out_set = call @sa_btree_set_new()
+    call @btree_set_insert_intersection(&out_set, &set, &other)
+    !left_smaller
+    !other_len
+    !len
+    !other
+    !set
+    return out_set
+
+L_BTREE_SET_INTERSECTION_RIGHT:
+    out_set = call @sa_btree_set_new()
+    call @btree_set_insert_intersection(&out_set, &other, &set)
+    !left_smaller
+    !other_len
+    !len
+    !other
+    !set
+    return out_set
+
+@export sa_btree_set_difference(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    out_set = call @sa_btree_set_new()
+    call @btree_set_insert_difference(&out_set, &set, &other)
+    !other
+    !set
+    return out_set
+
+@export sa_btree_set_symmetric_difference(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    out_set = call @sa_btree_set_new()
+    call @btree_set_insert_difference(&out_set, &set, &other)
+    call @btree_set_insert_difference(&out_set, &other, &set)
+    !other
+    !set
+    return out_set
 
 [MACRO] BTREE_SET_NEW %out_set
     %out_set = call @sa_btree_set_new()
@@ -351,6 +552,26 @@ L_ENTRY:
 
 [MACRO] BTREE_SET_SPLIT_OFF %out_set, %set_reg, %key_reg
     %out_set = call @sa_btree_set_split_off(&%set_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_RANGE %out_set, %set_reg, %start_key, %end_key
+    %out_set = call @sa_btree_set_range(&%set_reg, &%start_key, &%end_key)
+[END_MACRO]
+
+[MACRO] BTREE_SET_UNION %out_set, %set_reg, %other_set
+    %out_set = call @sa_btree_set_union(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_INTERSECTION %out_set, %set_reg, %other_set
+    %out_set = call @sa_btree_set_intersection(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_DIFFERENCE %out_set, %set_reg, %other_set
+    %out_set = call @sa_btree_set_difference(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_SYMMETRIC_DIFFERENCE %out_set, %set_reg, %other_set
+    %out_set = call @sa_btree_set_symmetric_difference(&%set_reg, &%other_set)
 [END_MACRO]
 
 [MACRO] BTREE_SET_LIT2 %out_set, %key1, %key2

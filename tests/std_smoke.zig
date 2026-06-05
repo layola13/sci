@@ -2985,6 +2985,7 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     defer std.testing.allocator.free(btree_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"core/slice.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@import \"alloc/vec.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_len"));
@@ -2993,6 +2994,9 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_try_get"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_try_get_key_value"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_get_mut_ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_first_entry_mut_ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_last_entry_mut_ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_try_get_disjoint_mut_ptrs"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_first_key_value"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_last_key_value"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_contains_key"));
@@ -3001,10 +3005,15 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_remove_entry"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_insert"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_insert_old"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_try_insert"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_keys_set"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_values_vec"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_value_mut_ptrs_vec"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_pop_first"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_pop_last"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_append"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_split_off"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "@export sa_btree_map_range"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_IS_EMPTY"));
@@ -3012,6 +3021,9 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_TRY_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_GET_KEY_VALUE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_GET_MUT_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_FIRST_ENTRY_MUT_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_LAST_ENTRY_MUT_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_FIRST_KEY_VALUE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_LAST_KEY_VALUE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_CONTAINS_KEY"));
@@ -3020,14 +3032,24 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_REMOVE_ENTRY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_INSERT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_INSERT_OLD"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_TRY_INSERT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_KEYS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_VALUES"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_VALUES_MUT_PTRS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_POP_FIRST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_POP_LAST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_APPEND"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_SPLIT_OFF"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_RANGE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_src, 1, "[MACRO] BTREE_MAP_FREE"));
 
     const btree_set_src = try readFileAlloc(std.testing.allocator, "sa_std/btree_set.sa");
     defer std.testing.allocator.free(btree_set_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_range"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_union"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_intersection"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_difference"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_symmetric_difference"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_FIRST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LAST"));
@@ -3040,6 +3062,11 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_IS_SUPERSET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_APPEND"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_SPLIT_OFF"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_RANGE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_UNION"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_INTERSECTION"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_DIFFERENCE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_SYMMETRIC_DIFFERENCE"));
 
     var btree_error_ctx = saasm.flattener.ErrorContext{};
     var btree_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/btree_map.sa", btree_src, &btree_error_ctx) catch |err| {
@@ -3049,14 +3076,14 @@ test "sa_std btree_map helpers are concrete and verifiable" {
     };
     defer btree_flat.deinit(std.testing.allocator);
     try std.testing.expect(btree_flat.instructions.len > 0);
-    try std.testing.expect(btree_flat.function_sigs.len >= 27);
+    try std.testing.expect(btree_flat.function_sigs.len >= 35);
 
     const btree_verified = try saasm.referee.verify(std.testing.allocator, btree_flat.instructions, btree_flat.const_decls);
     switch (btree_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 27);
+            try std.testing.expect(owned.function_sigs.len >= 35);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {

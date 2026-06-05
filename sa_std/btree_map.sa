@@ -1,6 +1,7 @@
 // Concrete ordered map backed by a sorted entry array.
 @import "core/mem.sa"
 @import "core/slice.sal"
+@import "alloc/vec.sa"
 @import "btree_map.sal"
 
 @btree_map_entry_cmp(&lhs: ptr, &rhs: ptr) -> i32:
@@ -566,6 +567,158 @@ L_GET_MUT_MISS:
     !map
     return 0
 
+@export sa_btree_map_first_entry_mut_ptr(&map: ptr, &out_key: ptr, &out_ptr_slot: ptr) -> i32:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    empty = eq len, 0
+    br empty -> L_FIRST_ENTRY_MUT_MISS, L_FIRST_ENTRY_MUT_HIT
+
+L_FIRST_ENTRY_MUT_HIT:
+    entries = load map+BTreeMap_entries as ptr
+    entry = ptr_add entries, 0
+    key_ptr = load entry+BTreeMapEntry_key_ptr as ptr
+    key_len = load entry+BTreeMapEntry_key_len as u64
+    value_ptr = ptr_add entry, BTreeMapEntry_value
+    store out_key+Slice_ptr, key_ptr as ptr
+    store out_key+Slice_len, key_len as u64
+    store out_ptr_slot+0, value_ptr as ptr
+    !value_ptr
+    !key_len
+    !key_ptr
+    !entry
+    !entries
+    !empty
+    !len
+    !out_ptr_slot
+    !out_key
+    !map
+    return 1
+
+L_FIRST_ENTRY_MUT_MISS:
+    store out_key+Slice_ptr, 0 as ptr
+    store out_key+Slice_len, 0 as u64
+    store out_ptr_slot+0, 0 as ptr
+    !empty
+    !len
+    !out_ptr_slot
+    !out_key
+    !map
+    return 0
+
+@export sa_btree_map_last_entry_mut_ptr(&map: ptr, &out_key: ptr, &out_ptr_slot: ptr) -> i32:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    empty = eq len, 0
+    br empty -> L_LAST_ENTRY_MUT_MISS, L_LAST_ENTRY_MUT_HIT
+
+L_LAST_ENTRY_MUT_HIT:
+    entries = load map+BTreeMap_entries as ptr
+    last_index = sub len, 1
+    entry_off = mul last_index, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    key_ptr = load entry+BTreeMapEntry_key_ptr as ptr
+    key_len = load entry+BTreeMapEntry_key_len as u64
+    value_ptr = ptr_add entry, BTreeMapEntry_value
+    store out_key+Slice_ptr, key_ptr as ptr
+    store out_key+Slice_len, key_len as u64
+    store out_ptr_slot+0, value_ptr as ptr
+    !value_ptr
+    !key_len
+    !key_ptr
+    !entry
+    !entry_off
+    !last_index
+    !entries
+    !empty
+    !len
+    !out_ptr_slot
+    !out_key
+    !map
+    return 1
+
+L_LAST_ENTRY_MUT_MISS:
+    store out_key+Slice_ptr, 0 as ptr
+    store out_key+Slice_len, 0 as u64
+    store out_ptr_slot+0, 0 as ptr
+    !empty
+    !len
+    !out_ptr_slot
+    !out_key
+    !map
+    return 0
+
+@export sa_btree_map_try_get_disjoint_mut_ptrs(&map: ptr, &key_a: ptr, &key_b: ptr, &out_ptr_a_slot: ptr, &out_ptr_b_slot: ptr) -> i32:
+L_ENTRY:
+    key_cmp = call @btree_map_entry_cmp(&key_a, &key_b)
+    same_key = eq key_cmp, 0
+    br same_key -> L_BTREE_DISJOINT_MUT_SAME, L_BTREE_DISJOINT_MUT_LOOKUP_A
+
+L_BTREE_DISJOINT_MUT_LOOKUP_A:
+    found_a = call @sa_btree_map_get_mut_ptr(&map, &key_a, &out_ptr_a_slot)
+    has_a = ne found_a, 0
+    br has_a -> L_BTREE_DISJOINT_MUT_LOOKUP_B, L_BTREE_DISJOINT_MUT_MISS_A
+
+L_BTREE_DISJOINT_MUT_LOOKUP_B:
+    found_b = call @sa_btree_map_get_mut_ptr(&map, &key_b, &out_ptr_b_slot)
+    has_b = ne found_b, 0
+    br has_b -> L_BTREE_DISJOINT_MUT_HIT, L_BTREE_DISJOINT_MUT_MISS_B
+
+L_BTREE_DISJOINT_MUT_HIT:
+    !has_b
+    !found_b
+    !has_a
+    !found_a
+    !same_key
+    !key_cmp
+    !out_ptr_b_slot
+    !out_ptr_a_slot
+    !key_b
+    !key_a
+    !map
+    return 1
+
+L_BTREE_DISJOINT_MUT_MISS_B:
+    store out_ptr_a_slot+0, 0 as ptr
+    store out_ptr_b_slot+0, 0 as ptr
+    !has_b
+    !found_b
+    !has_a
+    !found_a
+    !same_key
+    !key_cmp
+    !out_ptr_b_slot
+    !out_ptr_a_slot
+    !key_b
+    !key_a
+    !map
+    return 0
+
+L_BTREE_DISJOINT_MUT_MISS_A:
+    store out_ptr_a_slot+0, 0 as ptr
+    store out_ptr_b_slot+0, 0 as ptr
+    !has_a
+    !found_a
+    !same_key
+    !key_cmp
+    !out_ptr_b_slot
+    !out_ptr_a_slot
+    !key_b
+    !key_a
+    !map
+    return 0
+
+L_BTREE_DISJOINT_MUT_SAME:
+    store out_ptr_a_slot+0, 0 as ptr
+    store out_ptr_b_slot+0, 0 as ptr
+    !same_key
+    !key_cmp
+    !out_ptr_b_slot
+    !out_ptr_a_slot
+    !key_b
+    !key_a
+    !map
+    return 0
+
 @export sa_btree_map_first_key_value(&map: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:
 L_ENTRY:
     len = load map+BTreeMap_len as u64
@@ -763,6 +916,151 @@ L_ENTRY:
     !map
     return replaced
 
+@export sa_btree_map_try_insert(&map: ptr, &key: ptr, value: u64, &out_value_ptr_slot: ptr) -> i32:
+L_ENTRY:
+    existing_ptr_slot = stack_alloc 8
+    found = call @sa_btree_map_get_mut_ptr(&map, &key, &existing_ptr_slot)
+    exists = ne found, 0
+    br exists -> L_BTREE_TRY_INSERT_EXISTS, L_BTREE_TRY_INSERT_NEW
+
+L_BTREE_TRY_INSERT_EXISTS:
+    existing_ptr = load existing_ptr_slot+0 as ptr
+    store out_value_ptr_slot+0, existing_ptr as ptr
+    !existing_ptr
+    !exists
+    !found
+    !out_value_ptr_slot
+    !value
+    !key
+    !map
+    return 0
+
+L_BTREE_TRY_INSERT_NEW:
+    call @sa_btree_map_insert(&map, &key, value)
+    inserted_found = call @sa_btree_map_get_mut_ptr(&map, &key, &existing_ptr_slot)
+    inserted_ptr = load existing_ptr_slot+0 as ptr
+    store out_value_ptr_slot+0, inserted_ptr as ptr
+    !inserted_ptr
+    !inserted_found
+    !exists
+    !found
+    !out_value_ptr_slot
+    !value
+    !key
+    !map
+    return 1
+
+@export sa_btree_map_keys_set(&map: ptr) -> ^ptr:
+L_ENTRY:
+    out_set = call @sa_btree_map_new()
+    entries = load map+BTreeMap_entries as ptr
+    len = load map+BTreeMap_len as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_KEYS_HEAD
+
+L_BTREE_KEYS_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_KEYS_DONE, L_BTREE_KEYS_BODY
+
+L_BTREE_KEYS_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    call @sa_btree_map_insert(&out_set, &entry, 1)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_KEYS_HEAD
+
+L_BTREE_KEYS_DONE:
+    !done
+    !idx
+    !len
+    !entries
+    !map
+    return out_set
+
+@export sa_btree_map_values_vec(&map: ptr) -> ^ptr:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    out_vec = call @sa_vec_with_capacity(len, 8)
+    entries = load map+BTreeMap_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_VALUES_HEAD
+
+L_BTREE_VALUES_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_VALUES_DONE, L_BTREE_VALUES_BODY
+
+L_BTREE_VALUES_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    value = load entry+BTreeMapEntry_value as u64
+    out_vec = call @sa_vec_push(^out_vec, value, 8)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !value
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_VALUES_HEAD
+
+L_BTREE_VALUES_DONE:
+    !done
+    !idx
+    !entries
+    !len
+    !map
+    return out_vec
+
+@export sa_btree_map_value_mut_ptrs_vec(&map: ptr) -> ^ptr:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    out_vec = call @sa_vec_with_capacity(len, 8)
+    entries = load map+BTreeMap_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_VALUE_PTRS_HEAD
+
+L_BTREE_VALUE_PTRS_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_VALUE_PTRS_DONE, L_BTREE_VALUE_PTRS_BODY
+
+L_BTREE_VALUE_PTRS_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    value_ptr = ptr_add entry, BTreeMapEntry_value
+    value_ptr_bits = bitcast value_ptr as u64
+    out_vec = call @sa_vec_push(^out_vec, value_ptr_bits, 8)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !value_ptr_bits
+    !value_ptr
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_VALUE_PTRS_HEAD
+
+L_BTREE_VALUE_PTRS_DONE:
+    !done
+    !idx
+    !entries
+    !len
+    !map
+    return out_vec
+
 @export sa_btree_map_remove_entry(&map: ptr, &key: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:
 L_ENTRY:
     found = call @sa_btree_map_try_get_key_value(&map, &key, &out_key, &out_value_slot)
@@ -922,6 +1220,74 @@ L_SPLIT_DONE:
     !map
     return out_map
 
+@export sa_btree_map_range(&map: ptr, &start_key: ptr, &end_key: ptr) -> ^ptr:
+L_ENTRY:
+    out_map = call @sa_btree_map_new()
+    entries = load map+BTreeMap_entries as ptr
+    len = load map+BTreeMap_len as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_RANGE_HEAD
+
+L_BTREE_RANGE_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_RANGE_DONE, L_BTREE_RANGE_BODY
+
+L_BTREE_RANGE_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    cmp_start = call @btree_map_entry_cmp(&entry, &start_key)
+    in_lower = sge cmp_start, 0
+    br in_lower -> L_BTREE_RANGE_CHECK_END, L_BTREE_RANGE_NEXT_SKIP
+
+L_BTREE_RANGE_CHECK_END:
+    cmp_end = call @btree_map_entry_cmp(&entry, &end_key)
+    before_end = slt cmp_end, 0
+    br before_end -> L_BTREE_RANGE_KEEP, L_BTREE_RANGE_SKIP_END
+
+L_BTREE_RANGE_KEEP:
+    value = load entry+BTreeMapEntry_value as u64
+    call @sa_btree_map_insert(&out_map, &entry, value)
+    !value
+    !before_end
+    !cmp_end
+    !in_lower
+    !cmp_start
+    jmp L_BTREE_RANGE_NEXT
+
+L_BTREE_RANGE_SKIP_END:
+    !before_end
+    !cmp_end
+    !in_lower
+    !cmp_start
+    jmp L_BTREE_RANGE_NEXT
+
+L_BTREE_RANGE_NEXT_SKIP:
+    !in_lower
+    !cmp_start
+    jmp L_BTREE_RANGE_NEXT
+
+L_BTREE_RANGE_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_RANGE_HEAD
+
+L_BTREE_RANGE_DONE:
+    !done
+    !idx
+    !len
+    !entries
+    !end_key
+    !start_key
+    !map
+    return out_map
+
 [MACRO] BTREE_MAP_NEW %out_map
     %out_map = call @sa_btree_map_new()
 [END_MACRO]
@@ -959,6 +1325,28 @@ L_SPLIT_DONE:
     __btree_map_mut_slot_%out_ok = stack_alloc 8
     %out_ok = call @sa_btree_map_get_mut_ptr(&%map_reg, &%key_reg, &__btree_map_mut_slot_%out_ok)
     %out_ptr = load __btree_map_mut_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] BTREE_MAP_FIRST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg
+    %out_key = alloc Slice_SIZE
+    __btree_map_first_entry_mut_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_btree_map_first_entry_mut_ptr(&%map_reg, &%out_key, &__btree_map_first_entry_mut_slot_%out_ok)
+    %out_ptr = load __btree_map_first_entry_mut_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] BTREE_MAP_LAST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg
+    %out_key = alloc Slice_SIZE
+    __btree_map_last_entry_mut_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_btree_map_last_entry_mut_ptr(&%map_reg, &%out_key, &__btree_map_last_entry_mut_slot_%out_ok)
+    %out_ptr = load __btree_map_last_entry_mut_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+    __btree_map_disjoint_a_slot_%out_ok = stack_alloc 8
+    __btree_map_disjoint_b_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_btree_map_try_get_disjoint_mut_ptrs(&%map_reg, &%key_a, &%key_b, &__btree_map_disjoint_a_slot_%out_ok, &__btree_map_disjoint_b_slot_%out_ok)
+    %out_ptr_a = load __btree_map_disjoint_a_slot_%out_ok+0 as ptr
+    %out_ptr_b = load __btree_map_disjoint_b_slot_%out_ok+0 as ptr
 [END_MACRO]
 
 [MACRO] BTREE_MAP_FIRST_KEY_VALUE %out_ok, %out_key, %out_value, %map_reg
@@ -1004,6 +1392,24 @@ L_SPLIT_DONE:
     %out_old_value = load __btree_map_insert_old_slot_%out_replaced+0 as u64
 [END_MACRO]
 
+[MACRO] BTREE_MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
+    __btree_map_try_insert_ptr_slot_%out_inserted = stack_alloc 8
+    %out_inserted = call @sa_btree_map_try_insert(&%map_reg, &%key_reg, %value, &__btree_map_try_insert_ptr_slot_%out_inserted)
+    %out_value_ptr = load __btree_map_try_insert_ptr_slot_%out_inserted+0 as ptr
+[END_MACRO]
+
+[MACRO] BTREE_MAP_KEYS %out_set, %map_reg
+    %out_set = call @sa_btree_map_keys_set(&%map_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_VALUES %out_vec, %map_reg
+    %out_vec = call @sa_btree_map_values_vec(&%map_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_VALUES_MUT_PTRS %out_vec, %map_reg
+    %out_vec = call @sa_btree_map_value_mut_ptrs_vec(&%map_reg)
+[END_MACRO]
+
 [MACRO] BTREE_MAP_POP_FIRST %out_ok, %out_key, %out_value, %map_reg
     %out_key = alloc Slice_SIZE
     __btree_map_pop_first_value_slot_%out_ok = stack_alloc 8
@@ -1024,4 +1430,8 @@ L_SPLIT_DONE:
 
 [MACRO] BTREE_MAP_SPLIT_OFF %out_map, %map_reg, %key_reg
     %out_map = call @sa_btree_map_split_off(&%map_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_RANGE %out_map, %map_reg, %start_key, %end_key
+    %out_map = call @sa_btree_map_range(&%map_reg, &%start_key, &%end_key)
 [END_MACRO]
