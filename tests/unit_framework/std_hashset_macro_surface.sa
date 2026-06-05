@@ -2,6 +2,7 @@
 
 @const KEY_A = utf8:"alpha"
 @const KEY_B = utf8:"bravo"
+@const KEY_C = utf8:"charlie"
 
 @test "sa_std hashset convenience macros"():
 L_ENTRY:
@@ -146,5 +147,175 @@ L_FAIL:
     panic(904)
 
 L_OK:
+    !ok
+    return
+
+@test "sa_std hashset rust parity macros"():
+L_ENTRY:
+    EXPAND SET_TRY_WITH_CAPACITY try_new_ok, set, 2
+    EXPAND SET_NEW other
+    key_a = &KEY_A
+    key_b = &KEY_B
+    key_c = &KEY_C
+
+    EXPAND SET_TRY_RESERVE reserve_ok, set, 4
+    EXPAND SET_INSERT ins_a, set, key_a
+    EXPAND SET_INSERT ins_b, set, key_b
+    EXPAND SET_GET get_a_ok, get_a_key, set, key_a
+    EXPAND SET_GET get_c_ok, get_c_key, set, key_c
+    EXPAND SET_REPLACE replace_a_ok, replace_a_key, set, key_a
+    EXPAND SET_INSERT other_ins_a, other, key_a
+    EXPAND SET_INSERT other_ins_b, other, key_b
+    EXPAND SET_IS_SUBSET subset0, set, other
+    EXPAND SET_IS_SUPERSET superset0, other, set
+    EXPAND SET_IS_DISJOINT disjoint0, set, other
+    EXPAND SET_TAKE take_a_ok, take_a_key, set, key_a
+    EXPAND SET_TAKE take_a_miss_ok, take_a_miss_key, set, key_a
+    EXPAND SET_IS_SUBSET subset1, set, other
+    EXPAND SET_IS_SUPERSET superset1, set, other
+    EXPAND SET_NEW disjoint_set
+    EXPAND SET_INSERT disjoint_insert_c, disjoint_set, key_c
+    EXPAND SET_IS_DISJOINT disjoint1, set, disjoint_set
+    EXPAND SET_SHRINK_TO set, 1
+    EXPAND SET_CAPACITY cap_after_shrink_to, set
+    EXPAND SET_LEN len_after_take, set
+
+    ok_try_new = eq try_new_ok, 1
+    ok_reserve = eq reserve_ok, 1
+    ok_ins_a = eq ins_a, 1
+    ok_ins_b = eq ins_b, 1
+    ok_get_a_flag = eq get_a_ok, 1
+    ok_get_a_key = eq get_a_key, key_a
+    ok_get_c_flag = eq get_c_ok, 0
+    ok_get_c_key = eq get_c_key, 0
+    ok_replace_a_flag = eq replace_a_ok, 1
+    ok_replace_a_key = eq replace_a_key, key_a
+    ok_other_ins_a = eq other_ins_a, 1
+    ok_other_ins_b = eq other_ins_b, 1
+    ok_subset0 = eq subset0, 1
+    ok_superset0 = eq superset0, 1
+    ok_disjoint0 = eq disjoint0, 0
+    ok_take_a_flag = eq take_a_ok, 1
+    ok_take_a_key = eq take_a_key, key_a
+    ok_take_a_miss_flag = eq take_a_miss_ok, 0
+    ok_take_a_miss_key = eq take_a_miss_key, 0
+    ok_subset1 = eq subset1, 1
+    ok_superset1 = eq superset1, 0
+    ok_disjoint_insert_c = eq disjoint_insert_c, 1
+    ok_disjoint1 = eq disjoint1, 1
+    ok_cap_after_shrink_to = eq cap_after_shrink_to, 8
+    ok_len_after_take = eq len_after_take, 1
+
+    ok01 = and ok_try_new, ok_reserve
+    ok02 = and ok01, ok_ins_a
+    ok03 = and ok02, ok_ins_b
+    ok04 = and ok03, ok_get_a_flag
+    ok05 = and ok04, ok_get_a_key
+    ok06 = and ok05, ok_get_c_flag
+    ok07 = and ok06, ok_get_c_key
+    ok08 = and ok07, ok_replace_a_flag
+    ok09 = and ok08, ok_replace_a_key
+    ok10 = and ok09, ok_other_ins_a
+    ok11 = and ok10, ok_other_ins_b
+    ok12 = and ok11, ok_subset0
+    ok13 = and ok12, ok_superset0
+    ok14 = and ok13, ok_disjoint0
+    ok15 = and ok14, ok_take_a_flag
+    ok16 = and ok15, ok_take_a_key
+    ok17 = and ok16, ok_take_a_miss_flag
+    ok18 = and ok17, ok_take_a_miss_key
+    ok19 = and ok18, ok_subset1
+    ok20 = and ok19, ok_superset1
+    ok21 = and ok20, ok_disjoint_insert_c
+    ok22 = and ok21, ok_disjoint1
+    ok23 = and ok22, ok_cap_after_shrink_to
+    ok = and ok23, ok_len_after_take
+
+    !try_new_ok
+    !reserve_ok
+    !ins_a
+    !ins_b
+    !get_a_ok
+    !get_a_key
+    !get_c_ok
+    !get_c_key
+    !replace_a_ok
+    !replace_a_key
+    !other_ins_a
+    !other_ins_b
+    !subset0
+    !superset0
+    !disjoint0
+    !take_a_ok
+    !take_a_key
+    !take_a_miss_ok
+    !take_a_miss_key
+    !subset1
+    !superset1
+    !disjoint_insert_c
+    !disjoint1
+    !cap_after_shrink_to
+    !len_after_take
+    !key_c
+    !key_b
+    !key_a
+    !ok_try_new
+    !ok_reserve
+    !ok_ins_a
+    !ok_ins_b
+    !ok_get_a_flag
+    !ok_get_a_key
+    !ok_get_c_flag
+    !ok_get_c_key
+    !ok_replace_a_flag
+    !ok_replace_a_key
+    !ok_other_ins_a
+    !ok_other_ins_b
+    !ok_subset0
+    !ok_superset0
+    !ok_disjoint0
+    !ok_take_a_flag
+    !ok_take_a_key
+    !ok_take_a_miss_flag
+    !ok_take_a_miss_key
+    !ok_subset1
+    !ok_superset1
+    !ok_disjoint_insert_c
+    !ok_disjoint1
+    !ok_cap_after_shrink_to
+    !ok_len_after_take
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    EXPAND SET_FREE disjoint_set
+    EXPAND SET_FREE other
+    EXPAND SET_FREE set
+    br ok -> L_PARITY_OK, L_PARITY_FAIL
+
+L_PARITY_FAIL:
+    !ok
+    panic(907)
+
+L_PARITY_OK:
     !ok
     return

@@ -43,12 +43,14 @@ Current external capability buckets that should stay outside this report's `sa_s
 *   **Scope note**: The SA deque remains a concrete `u64` circular-buffer facade. `TRY_GET_MUT_PTR` returns a raw slot pointer for verifier-friendly in-place updates, while Rust's borrow-scoped reference and iterator semantics remain frontend or future library work.
 
 ### 1.3 Hash Map (`std::collections::HashMap` vs `sa_std/hashmap.sa`)
-*   **Implemented in `sa_std`**: `MAP_NEW`, `MAP_WITH_CAPACITY`, `MAP_FREE`, `MAP_LEN`, `MAP_CAPACITY`, `MAP_RESERVE`, `MAP_SHRINK_TO_FIT`, `MAP_IS_EMPTY`, `MAP_CONTAINS_KEY`, `MAP_CLEAR`, `MAP_PUT`, `MAP_GET`, `MAP_DEL`, `MAP_LIT2`.
-*   **Missing from Rust**: `try_reserve`, `keys`, `values`, `values_mut`, `iter`, `iter_mut`, `drain`, `retain`, `get_mut`, `get_key_value`, `insert` (with old value return), `remove_entry`, `entry` API (Vacant/Occupied).
+*   **Implemented in `sa_std`**: `MAP_NEW`, `MAP_WITH_CAPACITY`, `MAP_TRY_WITH_CAPACITY`, `MAP_FREE`, `MAP_LEN`, `MAP_CAPACITY`, `MAP_RESERVE`, `MAP_TRY_RESERVE`, `MAP_SHRINK_TO`, `MAP_SHRINK_TO_FIT`, `MAP_IS_EMPTY`, `MAP_CONTAINS_KEY`, `MAP_CLEAR`, `MAP_PUT`, `MAP_GET`, `MAP_TRY_GET`, `MAP_GET_KEY_VALUE`, `MAP_GET_MUT_PTR`, `MAP_INSERT`, `MAP_DEL`, `MAP_REMOVE_ENTRY`, `MAP_LIT2`.
+*   **Missing from Rust**: `keys`, `values`, `values_mut`, `iter`, `iter_mut`, `drain`, `retain`, `extract_if`, `entry` API (Vacant/Occupied), `try_insert`, `get_disjoint_mut`, owned `into_keys` / `into_values`, generic hash/build-hasher support, and allocator-aware constructors.
+*   **Scope note**: The SA map remains a concrete pointer-key / pointer-value open-addressing map. `MAP_INSERT` returns an old-value flag plus old value, `MAP_REMOVE_ENTRY` returns stored key/value pointers, and `MAP_GET_MUT_PTR` returns the slot pointer containing the stored value pointer. This is a verifier-friendly pointer ABI subset, not Rust's scoped borrow, generic `K/V`, `Borrow<Q>`, or iterator model.
 
 ### 1.4 Hash Set (`std::collections::HashSet` vs `sa_std/hashset.sa`)
-*   **Implemented in `sa_std`**: `SET_NEW`, `SET_WITH_CAPACITY`, `SET_FREE`, `SET_LEN`, `SET_CAPACITY`, `SET_RESERVE`, `SET_SHRINK_TO_FIT`, `SET_IS_EMPTY`, `SET_CLEAR`, `SET_INSERT`, `SET_CONTAINS`, `SET_REMOVE`, `SET_LIT2`.
-*   **Missing from Rust**: `iter`, `drain`, `retain`, `intersection`, `union`, `difference`, `symmetric_difference`, `is_disjoint`, `is_subset`, `is_superset`, `replace`, `get`, `take`.
+*   **Implemented in `sa_std`**: `SET_NEW`, `SET_WITH_CAPACITY`, `SET_TRY_WITH_CAPACITY`, `SET_FREE`, `SET_LEN`, `SET_CAPACITY`, `SET_RESERVE`, `SET_TRY_RESERVE`, `SET_SHRINK_TO`, `SET_SHRINK_TO_FIT`, `SET_IS_EMPTY`, `SET_CLEAR`, `SET_INSERT`, `SET_CONTAINS`, `SET_GET`, `SET_REPLACE`, `SET_TAKE`, `SET_REMOVE`, `SET_IS_DISJOINT`, `SET_IS_SUBSET`, `SET_IS_SUPERSET`, `SET_LIT2`.
+*   **Missing from Rust**: `iter`, `drain`, `retain`, `extract_if`, `intersection`, `union`, `difference`, `symmetric_difference`, entry/get-or-insert APIs, bit-operator set algebra adapters, generic hash/build-hasher support, and allocator-aware constructors.
+*   **Scope note**: The SA set is the pointer-key subset implemented over `sa_std/hashmap.sa` with a sentinel value. `SET_GET`, `SET_TAKE`, and `SET_REPLACE` return stored key pointers; equality is pointer identity. Set relation helpers scan the current slot table and call `SET_CONTAINS` on the opposite set.
 
 ### 1.5 B-Tree Map (`std::collections::BTreeMap` vs `sa_std/btree_map.sa`)
 *   **Implemented in `sa_std`**: `BTREE_MAP_NEW`, `BTREE_MAP_FREE`, `BTREE_MAP_LEN`, `BTREE_MAP_IS_EMPTY`, `BTREE_MAP_GET`, `BTREE_MAP_CONTAINS_KEY`, `BTREE_MAP_CLEAR`, `BTREE_MAP_REMOVE`, `BTREE_MAP_INSERT`.

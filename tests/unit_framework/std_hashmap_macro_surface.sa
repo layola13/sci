@@ -1,7 +1,10 @@
 @import "sa_std/collections/hashmap.sa"
 
 @const KEY = utf8:"alpha"
+@const KEY_B = utf8:"bravo"
 @const VALUE = utf8:"A\n"
+@const VALUE_B = utf8:"B\n"
+@const VALUE_C = utf8:"C\n"
 
 @test "sa_std hashmap convenience macros"():
 L_ENTRY:
@@ -142,5 +145,190 @@ L_FAIL:
     panic(905)
 
 L_OK:
+    !ok
+    return
+
+@test "sa_std hashmap rust parity macros"():
+L_ENTRY:
+    EXPAND MAP_TRY_WITH_CAPACITY try_new_ok, map, 4
+    EXPAND MAP_LEN len0, map
+    key_a = &KEY
+    key_b = &KEY_B
+    value_a = &VALUE
+    value_b = &VALUE_B
+    value_c = &VALUE_C
+
+    EXPAND MAP_TRY_GET miss_get_ok, miss_get_value, map, key_a
+    EXPAND MAP_TRY_RESERVE reserve_ok, map, 4
+    EXPAND MAP_INSERT insert_a_old_ok, insert_a_old_value, map, key_a, value_a
+    EXPAND MAP_INSERT insert_a_replace_ok, insert_a_replace_value, map, key_a, value_b
+    EXPAND MAP_TRY_GET get_a_ok, get_a_value, map, key_a
+    EXPAND MAP_GET_KEY_VALUE kv_ok, kv_key, kv_value, map, key_a
+    EXPAND MAP_GET_MUT_PTR mut_ok, mut_ptr, map, key_a
+    store mut_ptr+0, value_c as ptr
+    EXPAND MAP_GET after_mut_value, map, key_a
+    EXPAND MAP_PUT map, key_b, value_b
+    EXPAND MAP_LEN len_after_insert, map
+    EXPAND MAP_CAPACITY cap_after_insert, map
+    EXPAND MAP_SHRINK_TO map, 1
+    EXPAND MAP_CAPACITY cap_after_shrink_to, map
+    EXPAND MAP_REMOVE_ENTRY rem_ok, rem_key, rem_value, map, key_a
+    EXPAND MAP_REMOVE_ENTRY rem_miss_ok, rem_miss_key, rem_miss_value, map, key_a
+    EXPAND MAP_LEN len_after_remove, map
+    EXPAND MAP_TRY_GET get_after_remove_ok, get_after_remove_value, map, key_a
+
+    ok_try_new = eq try_new_ok, 1
+    ok_len0 = eq len0, 0
+    ok_miss_get_flag = eq miss_get_ok, 0
+    ok_miss_get_value = eq miss_get_value, 0
+    ok_reserve = eq reserve_ok, 1
+    ok_insert_new_flag = eq insert_a_old_ok, 0
+    ok_insert_new_old = eq insert_a_old_value, 0
+    ok_insert_replace_flag = eq insert_a_replace_ok, 1
+    ok_insert_replace_old = eq insert_a_replace_value, value_a
+    ok_get_a_flag = eq get_a_ok, 1
+    ok_get_a_value = eq get_a_value, value_b
+    ok_kv_flag = eq kv_ok, 1
+    ok_kv_key = eq kv_key, key_a
+    ok_kv_value = eq kv_value, value_b
+    ok_mut = eq mut_ok, 1
+    ok_after_mut_value = eq after_mut_value, value_c
+    ok_len_after_insert = eq len_after_insert, 2
+    ok_cap_after_insert = uge cap_after_insert, 4
+    ok_cap_after_shrink_to = eq cap_after_shrink_to, 8
+    ok_rem_flag = eq rem_ok, 1
+    ok_rem_key = eq rem_key, key_a
+    ok_rem_value = eq rem_value, value_c
+    ok_rem_miss_flag = eq rem_miss_ok, 0
+    ok_rem_miss_key = eq rem_miss_key, 0
+    ok_rem_miss_value = eq rem_miss_value, 0
+    ok_len_after_remove = eq len_after_remove, 1
+    ok_get_after_remove_flag = eq get_after_remove_ok, 0
+    ok_get_after_remove_value = eq get_after_remove_value, 0
+
+    ok01 = and ok_try_new, ok_len0
+    ok02 = and ok01, ok_miss_get_flag
+    ok03 = and ok02, ok_miss_get_value
+    ok04 = and ok03, ok_reserve
+    ok05 = and ok04, ok_insert_new_flag
+    ok06 = and ok05, ok_insert_new_old
+    ok07 = and ok06, ok_insert_replace_flag
+    ok08 = and ok07, ok_insert_replace_old
+    ok09 = and ok08, ok_get_a_flag
+    ok10 = and ok09, ok_get_a_value
+    ok11 = and ok10, ok_kv_flag
+    ok12 = and ok11, ok_kv_key
+    ok13 = and ok12, ok_kv_value
+    ok14 = and ok13, ok_mut
+    ok15 = and ok14, ok_after_mut_value
+    ok16 = and ok15, ok_len_after_insert
+    ok17 = and ok16, ok_cap_after_insert
+    ok18 = and ok17, ok_cap_after_shrink_to
+    ok19 = and ok18, ok_rem_flag
+    ok20 = and ok19, ok_rem_key
+    ok21 = and ok20, ok_rem_value
+    ok22 = and ok21, ok_rem_miss_flag
+    ok23 = and ok22, ok_rem_miss_key
+    ok24 = and ok23, ok_rem_miss_value
+    ok25 = and ok24, ok_len_after_remove
+    ok26 = and ok25, ok_get_after_remove_flag
+    ok = and ok26, ok_get_after_remove_value
+
+    !try_new_ok
+    !len0
+    !miss_get_ok
+    !miss_get_value
+    !reserve_ok
+    !insert_a_old_ok
+    !insert_a_old_value
+    !insert_a_replace_ok
+    !insert_a_replace_value
+    !get_a_ok
+    !get_a_value
+    !kv_ok
+    !kv_key
+    !kv_value
+    !mut_ok
+    !mut_ptr
+    !after_mut_value
+    !len_after_insert
+    !cap_after_insert
+    !cap_after_shrink_to
+    !rem_ok
+    !rem_key
+    !rem_value
+    !rem_miss_ok
+    !rem_miss_key
+    !rem_miss_value
+    !len_after_remove
+    !get_after_remove_ok
+    !get_after_remove_value
+    !value_c
+    !value_b
+    !value_a
+    !key_b
+    !key_a
+    !ok_try_new
+    !ok_len0
+    !ok_miss_get_flag
+    !ok_miss_get_value
+    !ok_reserve
+    !ok_insert_new_flag
+    !ok_insert_new_old
+    !ok_insert_replace_flag
+    !ok_insert_replace_old
+    !ok_get_a_flag
+    !ok_get_a_value
+    !ok_kv_flag
+    !ok_kv_key
+    !ok_kv_value
+    !ok_mut
+    !ok_after_mut_value
+    !ok_len_after_insert
+    !ok_cap_after_insert
+    !ok_cap_after_shrink_to
+    !ok_rem_flag
+    !ok_rem_key
+    !ok_rem_value
+    !ok_rem_miss_flag
+    !ok_rem_miss_key
+    !ok_rem_miss_value
+    !ok_len_after_remove
+    !ok_get_after_remove_flag
+    !ok_get_after_remove_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    EXPAND MAP_FREE map
+    br ok -> L_PARITY_OK, L_PARITY_FAIL
+
+L_PARITY_FAIL:
+    !ok
+    panic(906)
+
+L_PARITY_OK:
     !ok
     return

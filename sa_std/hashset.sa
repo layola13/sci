@@ -14,6 +14,15 @@ L_ENTRY:
     !cap
     return set
 
+@export sa_set_try_with_capacity(cap: u64, &out_set_slot: ptr) -> i32:
+L_ENTRY:
+    set = call @sa_set_with_capacity(cap)
+    store out_set_slot+0, set as ptr
+    !set
+    !out_set_slot
+    !cap
+    return 1
+
 @export sa_set_len(&set: ptr) -> u64:
 L_ENTRY:
     len = load set+HashSet_len as u64
@@ -30,6 +39,20 @@ L_ENTRY:
 L_ENTRY:
     call @sa_map_reserve(&set, additional)
     !additional
+    !set
+    return
+
+@export sa_set_try_reserve(&set: ptr, additional: u64) -> i32:
+L_ENTRY:
+    ok = call @sa_map_try_reserve(&set, additional)
+    !additional
+    !set
+    return ok
+
+@export sa_set_shrink_to(&set: ptr, min_capacity: u64) -> void:
+L_ENTRY:
+    call @sa_map_shrink_to(&set, min_capacity)
+    !min_capacity
     !set
     return
 
@@ -84,6 +107,201 @@ L_ENTRY:
     !set
     return result
 
+@export sa_set_get(&set: ptr, &key: ptr, &out_key_slot: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_map_try_get_key_value(&set, &key, &out_key_slot, &value_slot)
+    !out_key_slot
+    !key
+    !set
+    return found
+
+
+@export sa_set_take(&set: ptr, &key: ptr, &out_key_slot: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_map_remove_entry(&set, &key, &out_key_slot, &value_slot)
+    !out_key_slot
+    !key
+    !set
+    return found
+
+@export sa_set_replace(&set: ptr, &key: ptr, &out_old_key_slot: ptr) -> i32:
+L_ENTRY:
+    removed = call @sa_set_take(&set, &key, &out_old_key_slot)
+    sentinel = &HASHSET_SENTINEL
+    call @sa_map_put(&set, &key, &sentinel)
+    !sentinel
+    !out_old_key_slot
+    !key
+    !set
+    return removed
+
+@export sa_set_is_subset(&set: ptr, &other: ptr) -> i32:
+L_ENTRY:
+    len = load set+HashSet_len as u64
+    other_len = load other+HashSet_len as u64
+    too_large = ugt len, other_len
+    br too_large -> L_SUBSET_FALSE_FAST, L_SUBSET_SCAN_INIT
+
+L_SUBSET_SCAN_INIT:
+    slots = load set+HashSet_slots as ptr
+    cap = load set+HashSet_cap as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_SUBSET_SCAN_HEAD
+
+L_SUBSET_SCAN_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, cap
+    br done -> L_SUBSET_TRUE, L_SUBSET_SCAN_BODY
+
+L_SUBSET_SCAN_BODY:
+    slot_off = mul idx, HashSetSlot_SIZE
+    slot = ptr_add slots, slot_off
+    state = load slot+HashSetSlot_state as u8
+    filled = eq state, HashSet_STATE_FILLED
+    br filled -> L_SUBSET_CHECK_KEY, L_SUBSET_NEXT
+
+L_SUBSET_CHECK_KEY:
+    key = load slot+HashSetSlot_key as ptr
+    contains = call @sa_set_contains(&other, &key)
+    has_key = ne contains, 0
+    br has_key -> L_SUBSET_KEY_OK, L_SUBSET_FALSE
+
+L_SUBSET_KEY_OK:
+    !has_key
+    !contains
+    !key
+    jmp L_SUBSET_NEXT
+
+L_SUBSET_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !filled
+    !state
+    !slot
+    !slot_off
+    !done
+    !idx
+    jmp L_SUBSET_SCAN_HEAD
+
+L_SUBSET_TRUE:
+    !done
+    !idx
+    !cap
+    !slots
+    !too_large
+    !other_len
+    !len
+    !other
+    !set
+    return 1
+
+L_SUBSET_FALSE:
+    !has_key
+    !contains
+    !key
+    !filled
+    !state
+    !slot
+    !slot_off
+    !done
+    !idx
+    !cap
+    !slots
+    !too_large
+    !other_len
+    !len
+    !other
+    !set
+    return 0
+
+L_SUBSET_FALSE_FAST:
+    !too_large
+    !other_len
+    !len
+    !other
+    !set
+    return 0
+
+@export sa_set_is_superset(&set: ptr, &other: ptr) -> i32:
+L_ENTRY:
+    result = call @sa_set_is_subset(&other, &set)
+    !other
+    !set
+    return result
+
+@export sa_set_is_disjoint(&set: ptr, &other: ptr) -> i32:
+L_ENTRY:
+    slots = load set+HashSet_slots as ptr
+    cap = load set+HashSet_cap as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_DISJOINT_SCAN_HEAD
+
+L_DISJOINT_SCAN_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, cap
+    br done -> L_DISJOINT_TRUE, L_DISJOINT_SCAN_BODY
+
+L_DISJOINT_SCAN_BODY:
+    slot_off = mul idx, HashSetSlot_SIZE
+    slot = ptr_add slots, slot_off
+    state = load slot+HashSetSlot_state as u8
+    filled = eq state, HashSet_STATE_FILLED
+    br filled -> L_DISJOINT_CHECK_KEY, L_DISJOINT_NEXT
+
+L_DISJOINT_CHECK_KEY:
+    key = load slot+HashSetSlot_key as ptr
+    contains = call @sa_set_contains(&other, &key)
+    overlaps = ne contains, 0
+    br overlaps -> L_DISJOINT_FALSE, L_DISJOINT_KEY_OK
+
+L_DISJOINT_KEY_OK:
+    !overlaps
+    !contains
+    !key
+    jmp L_DISJOINT_NEXT
+
+L_DISJOINT_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !filled
+    !state
+    !slot
+    !slot_off
+    !done
+    !idx
+    jmp L_DISJOINT_SCAN_HEAD
+
+L_DISJOINT_TRUE:
+    !done
+    !idx
+    !cap
+    !slots
+    !other
+    !set
+    return 1
+
+L_DISJOINT_FALSE:
+    !overlaps
+    !contains
+    !key
+    !filled
+    !state
+    !slot
+    !slot_off
+    !done
+    !idx
+    !cap
+    !slots
+    !other
+    !set
+    return 0
+
 @export sa_set_remove(&set: ptr, &key: ptr) -> i32:
 L_ENTRY:
     len_before = load set+HashSet_len as u64
@@ -106,6 +324,12 @@ L_ENTRY:
     %out_set = call @sa_set_with_capacity(%cap)
 [END_MACRO]
 
+[MACRO] SET_TRY_WITH_CAPACITY %out_ok, %out_set, %cap
+    __set_try_new_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_set_try_with_capacity(%cap, &__set_try_new_slot_%out_ok)
+    %out_set = load __set_try_new_slot_%out_ok+0 as ptr
+[END_MACRO]
+
 [MACRO] SET_LEN %out_len, %set_reg
     %out_len = call @sa_set_len(&%set_reg)
 [END_MACRO]
@@ -116,6 +340,14 @@ L_ENTRY:
 
 [MACRO] SET_RESERVE %set_reg, %additional
     call @sa_set_reserve(&%set_reg, %additional)
+[END_MACRO]
+
+[MACRO] SET_TRY_RESERVE %out_ok, %set_reg, %additional
+    %out_ok = call @sa_set_try_reserve(&%set_reg, %additional)
+[END_MACRO]
+
+[MACRO] SET_SHRINK_TO %set_reg, %min_capacity
+    call @sa_set_shrink_to(&%set_reg, %min_capacity)
 [END_MACRO]
 
 [MACRO] SET_SHRINK_TO_FIT %set_reg
@@ -136,6 +368,36 @@ L_ENTRY:
 
 [MACRO] SET_CONTAINS %out_ok, %set_reg, %key
     %out_ok = call @sa_set_contains(&%set_reg, &%key)
+[END_MACRO]
+
+[MACRO] SET_GET %out_ok, %out_key, %set_reg, %key
+    __set_get_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_set_get(&%set_reg, &%key, &__set_get_slot_%out_ok)
+    %out_key = load __set_get_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] SET_TAKE %out_ok, %out_key, %set_reg, %key
+    __set_take_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_set_take(&%set_reg, &%key, &__set_take_slot_%out_ok)
+    %out_key = load __set_take_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] SET_REPLACE %out_replaced, %out_old_key, %set_reg, %key
+    __set_replace_slot_%out_replaced = stack_alloc 8
+    %out_replaced = call @sa_set_replace(&%set_reg, &%key, &__set_replace_slot_%out_replaced)
+    %out_old_key = load __set_replace_slot_%out_replaced+0 as ptr
+[END_MACRO]
+
+[MACRO] SET_IS_DISJOINT %out_ok, %set_reg, %other_set
+    %out_ok = call @sa_set_is_disjoint(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] SET_IS_SUBSET %out_ok, %set_reg, %other_set
+    %out_ok = call @sa_set_is_subset(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] SET_IS_SUPERSET %out_ok, %set_reg, %other_set
+    %out_ok = call @sa_set_is_superset(&%set_reg, &%other_set)
 [END_MACRO]
 
 [MACRO] SET_REMOVE %out_ok, %set_reg, %key

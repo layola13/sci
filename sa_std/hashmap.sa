@@ -266,6 +266,64 @@ L_REHASH_END_ZERO:
     !old_cap_is_zero
     return
 
+@map_probe_existing(&map: ptr, &key: ptr, &out_slot: ptr) -> i32:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_PROBE_EXISTING_ZERO, L_PROBE_EXISTING_RUN
+
+L_PROBE_EXISTING_RUN:
+    hash = call @map_hash_ptr(&key)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    br found -> L_PROBE_EXISTING_HIT, L_PROBE_EXISTING_MISS
+
+L_PROBE_EXISTING_HIT:
+    probe_index = load probe_index_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    store out_slot+0, slot as ptr
+    !slot
+    !slot_off
+    !probe_index
+    !found
+    !probe_found
+    !hash
+    !cap_is_zero
+    !cap
+    !slots
+    !out_slot
+    !key
+    !map
+    return 1
+
+L_PROBE_EXISTING_MISS:
+    store out_slot+0, 0 as ptr
+    !found
+    !probe_found
+    !hash
+    !cap_is_zero
+    !cap
+    !slots
+    !out_slot
+    !key
+    !map
+    return 0
+
+L_PROBE_EXISTING_ZERO:
+    store out_slot+0, 0 as ptr
+    !cap_is_zero
+    !cap
+    !slots
+    !out_slot
+    !key
+    !map
+    return 0
+
 @export sa_map_new() -> ^ptr:
 L_ENTRY:
     map = alloc HashMap_SIZE
@@ -296,6 +354,15 @@ L_WITH_CAP_ZERO:
     !cap_is_zero
     !cap
     return map
+
+@export sa_map_try_with_capacity(cap: u64, &out_map_slot: ptr) -> i32:
+L_ENTRY:
+    map = call @sa_map_with_capacity(cap)
+    store out_map_slot+0, map as ptr
+    !map
+    !out_map_slot
+    !cap
+    return 1
 
 @export sa_map_len(&map: ptr) -> u64:
 L_ENTRY:
@@ -335,6 +402,73 @@ L_RESERVE_DONE:
     !cap
     !len
     !additional
+    !map
+    return
+
+@export sa_map_try_reserve(&map: ptr, additional: u64) -> i32:
+L_ENTRY:
+    call @sa_map_reserve(&map, additional)
+    !additional
+    !map
+    return 1
+
+@export sa_map_shrink_to(&map: ptr, min_capacity: u64) -> void:
+L_ENTRY:
+    len = load map+HashMap_len as u64
+    cap = load map+HashMap_cap as u64
+    keep_len = uge len, min_capacity
+    br keep_len -> L_SHRINK_TO_TARGET_LEN, L_SHRINK_TO_TARGET_MIN
+
+L_SHRINK_TO_TARGET_LEN:
+    requested = add len, 0
+    jmp L_SHRINK_TO_PLAN
+
+L_SHRINK_TO_TARGET_MIN:
+    requested = add min_capacity, 0
+
+L_SHRINK_TO_PLAN:
+    target_cap = call @map_next_capacity(requested)
+    target_zero = eq target_cap, 0
+    br target_zero -> L_SHRINK_TO_ZERO, L_SHRINK_TO_CHECK
+
+L_SHRINK_TO_ZERO:
+    call @sa_map_shrink_to_fit(&map)
+    !target_zero
+    !target_cap
+    !requested
+    !keep_len
+    !cap
+    !len
+    !min_capacity
+    !map
+    return
+
+L_SHRINK_TO_CHECK:
+    should_shrink = ult target_cap, cap
+    br should_shrink -> L_SHRINK_TO_REHASH, L_SHRINK_TO_DONE
+
+L_SHRINK_TO_REHASH:
+    call @map_rehash(&map, target_cap)
+    !should_shrink
+    !target_zero
+    !target_cap
+    !requested
+    !keep_len
+    !cap
+    !len
+    !min_capacity
+    !map
+    return
+
+L_SHRINK_TO_DONE:
+    !should_shrink
+    !target_zero
+    !target_cap
+    !requested
+    !keep_len
+    !cap
+    !len
+    !min_capacity
     !map
     return
 
@@ -639,6 +773,135 @@ L_GET_MISS_ZERO:
     !slots
     return 0
 
+@export sa_map_try_get(&map: ptr, &key: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    slot_slot = stack_alloc 8
+    found = call @map_probe_existing(&map, &key, &slot_slot)
+    found_nonzero = ne found, 0
+    br found_nonzero -> L_TRY_GET_HIT, L_TRY_GET_MISS
+
+L_TRY_GET_HIT:
+    slot = load slot_slot+0 as ptr
+    value = load slot+HashMapSlot_value as ptr
+    store out_value_slot+0, value as ptr
+    !value
+    !slot
+    !found_nonzero
+    !found
+    !out_value_slot
+    !key
+    !map
+    return 1
+
+L_TRY_GET_MISS:
+    store out_value_slot+0, 0 as ptr
+    !found_nonzero
+    !found
+    !out_value_slot
+    !key
+    !map
+    return 0
+
+@export sa_map_try_get_key_value(&map: ptr, &key: ptr, &out_key_slot: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    slot_slot = stack_alloc 8
+    found = call @map_probe_existing(&map, &key, &slot_slot)
+    found_nonzero = ne found, 0
+    br found_nonzero -> L_GET_KEY_VALUE_HIT, L_GET_KEY_VALUE_MISS
+
+L_GET_KEY_VALUE_HIT:
+    slot = load slot_slot+0 as ptr
+    stored_key = load slot+HashMapSlot_key as ptr
+    stored_value = load slot+HashMapSlot_value as ptr
+    store out_key_slot+0, stored_key as ptr
+    store out_value_slot+0, stored_value as ptr
+    !stored_value
+    !stored_key
+    !slot
+    !found_nonzero
+    !found
+    !out_value_slot
+    !out_key_slot
+    !key
+    !map
+    return 1
+
+L_GET_KEY_VALUE_MISS:
+    store out_key_slot+0, 0 as ptr
+    store out_value_slot+0, 0 as ptr
+    !found_nonzero
+    !found
+    !out_value_slot
+    !out_key_slot
+    !key
+    !map
+    return 0
+
+@export sa_map_get_mut_ptr(&map: ptr, &key: ptr, &out_ptr_slot: ptr) -> i32:
+L_ENTRY:
+    slot_slot = stack_alloc 8
+    found = call @map_probe_existing(&map, &key, &slot_slot)
+    found_nonzero = ne found, 0
+    br found_nonzero -> L_GET_MUT_HIT, L_GET_MUT_MISS
+
+L_GET_MUT_HIT:
+    slot = load slot_slot+0 as ptr
+    value_ptr = ptr_add slot, HashMapSlot_value
+    store out_ptr_slot+0, value_ptr as ptr
+    !value_ptr
+    !slot
+    !found_nonzero
+    !found
+    !out_ptr_slot
+    !key
+    !map
+    return 1
+
+L_GET_MUT_MISS:
+    store out_ptr_slot+0, 0 as ptr
+    !found_nonzero
+    !found
+    !out_ptr_slot
+    !key
+    !map
+    return 0
+
+@export sa_map_insert(&map: ptr, &key: ptr, &value: ptr, &out_old_value_slot: ptr) -> i32:
+L_ENTRY:
+    replaced = call @sa_map_try_get(&map, &key, &out_old_value_slot)
+    call @sa_map_put(&map, &key, &value)
+    !out_old_value_slot
+    !value
+    !key
+    !map
+    return replaced
+
+@export sa_map_remove_entry(&map: ptr, &key: ptr, &out_key_slot: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    found = call @sa_map_try_get_key_value(&map, &key, &out_key_slot, &out_value_slot)
+    found_nonzero = ne found, 0
+    br found_nonzero -> L_REMOVE_ENTRY_HIT, L_REMOVE_ENTRY_MISS
+
+L_REMOVE_ENTRY_HIT:
+    removed = call @sa_map_del(&map, &key)
+    !removed
+    !found_nonzero
+    !found
+    !out_value_slot
+    !out_key_slot
+    !key
+    !map
+    return 1
+
+L_REMOVE_ENTRY_MISS:
+    !found_nonzero
+    !found
+    !out_value_slot
+    !out_key_slot
+    !key
+    !map
+    return 0
+
 @export sa_map_del(&map: ptr, &key: ptr) -> &ptr:
 L_ENTRY:
     slots = load map+HashMap_slots as ptr
@@ -716,6 +979,12 @@ L_DEL_MISS_ZERO:
     %out_map = call @sa_map_with_capacity(%cap)
 [END_MACRO]
 
+[MACRO] MAP_TRY_WITH_CAPACITY %out_ok, %out_map, %cap
+    __map_try_new_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_map_try_with_capacity(%cap, &__map_try_new_slot_%out_ok)
+    %out_map = load __map_try_new_slot_%out_ok+0 as ptr
+[END_MACRO]
+
 [MACRO] MAP_LEN %out_len, %map_reg
     %out_len = call @sa_map_len(&%map_reg)
 [END_MACRO]
@@ -726,6 +995,14 @@ L_DEL_MISS_ZERO:
 
 [MACRO] MAP_RESERVE %map_reg, %additional
     call @sa_map_reserve(&%map_reg, %additional)
+[END_MACRO]
+
+[MACRO] MAP_TRY_RESERVE %out_ok, %map_reg, %additional
+    %out_ok = call @sa_map_try_reserve(&%map_reg, %additional)
+[END_MACRO]
+
+[MACRO] MAP_SHRINK_TO %map_reg, %min_capacity
+    call @sa_map_shrink_to(&%map_reg, %min_capacity)
 [END_MACRO]
 
 [MACRO] MAP_SHRINK_TO_FIT %map_reg
@@ -750,6 +1027,40 @@ L_DEL_MISS_ZERO:
 
 [MACRO] MAP_GET %out_value, %map_reg, %key
     %out_value = call @sa_map_get(&%map_reg, &%key)
+[END_MACRO]
+
+[MACRO] MAP_TRY_GET %out_ok, %out_value, %map_reg, %key
+    __map_try_get_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_map_try_get(&%map_reg, &%key, &__map_try_get_slot_%out_ok)
+    %out_value = load __map_try_get_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] MAP_GET_KEY_VALUE %out_ok, %out_key, %out_value, %map_reg, %key
+    __map_kv_key_slot_%out_ok = stack_alloc 8
+    __map_kv_value_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_map_try_get_key_value(&%map_reg, &%key, &__map_kv_key_slot_%out_ok, &__map_kv_value_slot_%out_ok)
+    %out_key = load __map_kv_key_slot_%out_ok+0 as ptr
+    %out_value = load __map_kv_value_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] MAP_GET_MUT_PTR %out_ok, %out_ptr, %map_reg, %key
+    __map_mut_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_map_get_mut_ptr(&%map_reg, &%key, &__map_mut_slot_%out_ok)
+    %out_ptr = load __map_mut_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+[MACRO] MAP_INSERT %out_replaced, %out_old_value, %map_reg, %key, %value
+    __map_insert_old_slot_%out_replaced = stack_alloc 8
+    %out_replaced = call @sa_map_insert(&%map_reg, &%key, &%value, &__map_insert_old_slot_%out_replaced)
+    %out_old_value = load __map_insert_old_slot_%out_replaced+0 as ptr
+[END_MACRO]
+
+[MACRO] MAP_REMOVE_ENTRY %out_ok, %out_key, %out_value, %map_reg, %key
+    __map_remove_key_slot_%out_ok = stack_alloc 8
+    __map_remove_value_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_map_remove_entry(&%map_reg, &%key, &__map_remove_key_slot_%out_ok, &__map_remove_value_slot_%out_ok)
+    %out_key = load __map_remove_key_slot_%out_ok+0 as ptr
+    %out_value = load __map_remove_value_slot_%out_ok+0 as ptr
 [END_MACRO]
 
 [MACRO] MAP_DEL %out_value, %map_reg, %key
