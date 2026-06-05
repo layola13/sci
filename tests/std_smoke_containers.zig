@@ -350,7 +350,12 @@ test "sa_std alloc helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 1), owned.function_sigs.len);
+            try std.testing.expect(owned.function_sigs.len >= 1);
+            var saw_concat = false;
+            for (owned.function_sigs) |sig| {
+                if (std.mem.eql(u8, sig.name, "sa_string_concat")) saw_concat = true;
+            }
+            try std.testing.expect(saw_concat);
         },
         .trap => |report| {
             std.debug.print("string macro verifier trap: {s}\n", .{report.message});

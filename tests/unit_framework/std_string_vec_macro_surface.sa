@@ -3,11 +3,22 @@
 @import "sa_std/core/slice.sa"
 
 @const WORD = utf8:"rust"
+@const TITLE_WORD = utf8:"Rust"
 @const PREFIX = utf8:"ru"
 @const SUFFIX = utf8:"st"
 @const INFIX = utf8:"us"
 @const REPEATED = utf8:"ana"
 @const MISS = utf8:"zz"
+@const PATHISH = utf8:"a:b:c"
+@const COLON = utf8:":"
+@const PATH_LEFT = utf8:"a"
+@const PATH_RIGHT = utf8:"b:c"
+@const PATH_RLEFT = utf8:"a:b"
+@const PATH_RRIGHT = utf8:"c"
+@const MIXED_WORD = utf8:"RuSt"
+@const SPACED_WORD = utf8:"  Rust  "
+@const WORD_TRAILING = utf8:"Rust  "
+@const WORD_LEADING = utf8:"  Rust"
 
 @test "sa_std string convenience macros"():
 L_ENTRY:
@@ -263,6 +274,138 @@ L_FIND_FAIL:
     panic(906)
 
 L_FIND_OK:
+    !ok
+    return
+
+@test "sa_std string ascii and split once macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS title_word, &TITLE_WORD, 4
+    EXPAND STR_FROM_PARTS mixed, &MIXED_WORD, 4
+    EXPAND STR_FROM_PARTS spaced, &SPACED_WORD, 8
+    EXPAND STR_FROM_PARTS trailing, &WORD_TRAILING, 6
+    EXPAND STR_FROM_PARTS leading, &WORD_LEADING, 6
+    EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
+    EXPAND STR_FROM_PARTS colon, &COLON, 1
+    EXPAND STR_FROM_PARTS expected_left, &PATH_LEFT, 1
+    EXPAND STR_FROM_PARTS expected_right, &PATH_RIGHT, 3
+    EXPAND STR_FROM_PARTS expected_rleft, &PATH_RLEFT, 3
+    EXPAND STR_FROM_PARTS expected_rright, &PATH_RRIGHT, 1
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_IS_ASCII is_ascii, word
+    EXPAND STR_EQ_IGNORE_ASCII_CASE ascii_case_eq, word, mixed
+    EXPAND STR_TRIM_ASCII trim_both, spaced
+    EXPAND STR_TRIM_ASCII_START trim_start, leading
+    EXPAND STR_TRIM_ASCII_END trim_end, trailing
+    EXPAND STR_TRY_SPLIT_ONCE split_once_ok, split_once_left, split_once_right, pathish, colon
+    EXPAND STRING_TRY_RSPLIT_ONCE rsplit_once_ok, rsplit_once_left, rsplit_once_right, pathish, colon
+    EXPAND STR_TRY_SPLIT_ONCE split_once_miss_ok, split_once_miss_left, split_once_miss_right, pathish, miss
+    EXPAND STR_EQ trim_both_eq, trim_both, title_word
+    EXPAND STR_EQ trim_start_eq, trim_start, title_word
+    EXPAND STR_EQ trim_end_eq, trim_end, title_word
+    EXPAND STR_EQ split_once_left_eq, split_once_left, expected_left
+    EXPAND STR_EQ split_once_right_eq, split_once_right, expected_right
+    EXPAND STR_EQ rsplit_once_left_eq, rsplit_once_left, expected_rleft
+    EXPAND STR_EQ rsplit_once_right_eq, rsplit_once_right, expected_rright
+    EXPAND STR_IS_EMPTY split_once_miss_left_empty, split_once_miss_left
+    EXPAND STR_IS_EMPTY split_once_miss_right_empty, split_once_miss_right
+
+    ascii_ok = eq is_ascii, 1
+    ascii_case_ok = eq ascii_case_eq, 1
+    trim_both_ok = eq trim_both_eq, 1
+    trim_start_ok = eq trim_start_eq, 1
+    trim_end_ok = eq trim_end_eq, 1
+    split_once_flag_ok = eq split_once_ok, 1
+    split_once_left_ok = eq split_once_left_eq, 1
+    split_once_right_ok = eq split_once_right_eq, 1
+    rsplit_once_flag_ok = eq rsplit_once_ok, 1
+    rsplit_once_left_ok = eq rsplit_once_left_eq, 1
+    rsplit_once_right_ok = eq rsplit_once_right_eq, 1
+    split_once_miss_flag_ok = eq split_once_miss_ok, 0
+    split_once_miss_left_ok = eq split_once_miss_left_empty, 1
+    split_once_miss_right_ok = eq split_once_miss_right_empty, 1
+    ok01 = and ascii_ok, ascii_case_ok
+    ok02 = and ok01, trim_both_ok
+    ok03 = and ok02, trim_start_ok
+    ok04 = and ok03, trim_end_ok
+    ok05 = and ok04, split_once_flag_ok
+    ok06 = and ok05, split_once_left_ok
+    ok07 = and ok06, split_once_right_ok
+    ok08 = and ok07, rsplit_once_flag_ok
+    ok09 = and ok08, rsplit_once_left_ok
+    ok10 = and ok09, rsplit_once_right_ok
+    ok11 = and ok10, split_once_miss_flag_ok
+    ok12 = and ok11, split_once_miss_left_ok
+    ok = and ok12, split_once_miss_right_ok
+    !word
+    !title_word
+    !mixed
+    !spaced
+    !trailing
+    !leading
+    !pathish
+    !colon
+    !expected_left
+    !expected_right
+    !expected_rleft
+    !expected_rright
+    !miss
+    !is_ascii
+    !ascii_case_eq
+    !trim_both
+    !trim_start
+    !trim_end
+    !split_once_ok
+    !split_once_left
+    !split_once_right
+    !rsplit_once_ok
+    !rsplit_once_left
+    !rsplit_once_right
+    !split_once_miss_ok
+    !split_once_miss_left
+    !split_once_miss_right
+    !trim_both_eq
+    !trim_start_eq
+    !trim_end_eq
+    !split_once_left_eq
+    !split_once_right_eq
+    !rsplit_once_left_eq
+    !rsplit_once_right_eq
+    !split_once_miss_left_empty
+    !split_once_miss_right_empty
+    !ascii_ok
+    !ascii_case_ok
+    !trim_both_ok
+    !trim_start_ok
+    !trim_end_ok
+    !split_once_flag_ok
+    !split_once_left_ok
+    !split_once_right_ok
+    !rsplit_once_flag_ok
+    !rsplit_once_left_ok
+    !rsplit_once_right_ok
+    !split_once_miss_flag_ok
+    !split_once_miss_left_ok
+    !split_once_miss_right_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    br ok -> L_ASCII_OK, L_ASCII_FAIL
+
+L_ASCII_FAIL:
+    !ok
+    panic(908)
+
+L_ASCII_OK:
     !ok
     return
 
@@ -1340,5 +1483,237 @@ L_VEC_CAP_FAIL:
     panic(907)
 
 L_VEC_CAP_OK:
+    !ok
+    return
+
+@test "sa_std slice mutation and search macros"():
+L_ENTRY:
+    src_data = alloc 24
+    dst_data = alloc 24
+    store src_data+0, 10 as u64
+    store src_data+8, 20 as u64
+    store src_data+16, 30 as u64
+    store dst_data+0, 1 as u64
+    store dst_data+8, 2 as u64
+    store dst_data+16, 3 as u64
+    src = alloc Slice_SIZE
+    dst = alloc Slice_SIZE
+    EXPAND SLICE_NEW src, src_data, 3
+    EXPAND SLICE_NEW dst, dst_data, 3
+    EXPAND SLICE_COPY_FROM_SLICE_U64 copy_ok, dst, src
+    EXPAND SLICE_GET_U64 copied_mid, dst, 1
+    EXPAND SLICE_REVERSE_U64 dst
+    EXPAND SLICE_GET_U64 reversed_first, dst, 0
+    EXPAND SLICE_GET_U64 reversed_last, dst, 2
+    EXPAND SLICE_FILL_U64 dst, 7
+    EXPAND SLICE_GET_U64 filled_first, dst, 0
+    EXPAND SLICE_GET_U64 filled_last, dst, 2
+    sorted_data = alloc 32
+    store sorted_data+0, 5 as u64
+    store sorted_data+8, 10 as u64
+    store sorted_data+16, 20 as u64
+    store sorted_data+24, 40 as u64
+    sorted = alloc Slice_SIZE
+    EXPAND SLICE_NEW sorted, sorted_data, 4
+    EXPAND SLICE_TRY_BINARY_SEARCH_U64 bs_hit_ok, bs_hit_idx, sorted, 20
+    EXPAND SLICE_TRY_BINARY_SEARCH_U64 bs_miss_ok, bs_miss_idx, sorted, 30
+    short_dst = alloc Slice_SIZE
+    EXPAND SLICE_NEW short_dst, dst_data, 2
+    EXPAND SLICE_COPY_FROM_SLICE_U64 copy_miss_ok, short_dst, src
+
+    copy_flag_ok = eq copy_ok, 1
+    copied_mid_ok = eq copied_mid, 20
+    reversed_first_ok = eq reversed_first, 30
+    reversed_last_ok = eq reversed_last, 10
+    filled_first_ok = eq filled_first, 7
+    filled_last_ok = eq filled_last, 7
+    bs_hit_flag_ok = eq bs_hit_ok, 1
+    bs_hit_idx_ok = eq bs_hit_idx, 2
+    bs_miss_flag_ok = eq bs_miss_ok, 0
+    bs_miss_idx_ok = eq bs_miss_idx, 3
+    copy_miss_flag_ok = eq copy_miss_ok, 0
+    ok01 = and copy_flag_ok, copied_mid_ok
+    ok02 = and ok01, reversed_first_ok
+    ok03 = and ok02, reversed_last_ok
+    ok04 = and ok03, filled_first_ok
+    ok05 = and ok04, filled_last_ok
+    ok06 = and ok05, bs_hit_flag_ok
+    ok07 = and ok06, bs_hit_idx_ok
+    ok08 = and ok07, bs_miss_flag_ok
+    ok09 = and ok08, bs_miss_idx_ok
+    ok = and ok09, copy_miss_flag_ok
+    !src_data
+    !dst_data
+    !src
+    !dst
+    !copy_ok
+    !copied_mid
+    !reversed_first
+    !reversed_last
+    !filled_first
+    !filled_last
+    !sorted_data
+    !sorted
+    !bs_hit_ok
+    !bs_hit_idx
+    !bs_miss_ok
+    !bs_miss_idx
+    !short_dst
+    !copy_miss_ok
+    !copy_flag_ok
+    !copied_mid_ok
+    !reversed_first_ok
+    !reversed_last_ok
+    !filled_first_ok
+    !filled_last_ok
+    !bs_hit_flag_ok
+    !bs_hit_idx_ok
+    !bs_miss_flag_ok
+    !bs_miss_idx_ok
+    !copy_miss_flag_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    br ok -> L_SLICE_MUT_OK, L_SLICE_MUT_FAIL
+
+L_SLICE_MUT_FAIL:
+    !ok
+    panic(909)
+
+L_SLICE_MUT_OK:
+    !ok
+    return
+
+@test "sa_std vec insert and dedup macros"():
+L_ENTRY:
+    EXPAND VEC_TRY_WITH_CAPACITY_U64 with_cap_ok, vec, 6
+    EXPAND VEC_PUSH_WITHIN_CAPACITY_U64 pwc1_ok, vec, 10
+    EXPAND VEC_PUSH_WITHIN_CAPACITY_U64 pwc2_ok, vec, 30
+    EXPAND VEC_TRY_INSERT_U64 insert_mid_ok, vec, 1, 20
+    EXPAND VEC_TRY_GET_U64 inserted_mid_ok, inserted_mid, vec, 1
+    EXPAND VEC_TRY_INSERT_U64 insert_end_ok, vec, 3, 30
+    EXPAND VEC_TRY_INSERT_U64 insert_miss_ok, vec, 9, 99
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_PUSH_U64 vec, 40
+    EXPAND VEC_DEDUP_U64 dedup_len, vec
+    EXPAND VEC_LEN len_after_dedup, vec
+    EXPAND VEC_TRY_GET_U64 dedup_first_ok, dedup_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 dedup_second_ok, dedup_second, vec, 1
+    EXPAND VEC_TRY_GET_U64 dedup_third_ok, dedup_third, vec, 2
+    EXPAND VEC_TRY_GET_U64 dedup_fourth_ok, dedup_fourth, vec, 3
+    EXPAND VEC_CAPACITY cap_after, vec
+    EXPAND VEC_PUSH_WITHIN_CAPACITY_U64 pwc_full_ok, vec, 50
+
+    with_cap_flag_ok = eq with_cap_ok, 1
+    pwc1_flag_ok = eq pwc1_ok, 1
+    pwc2_flag_ok = eq pwc2_ok, 1
+    insert_mid_flag_ok = eq insert_mid_ok, 1
+    inserted_mid_flag_ok = eq inserted_mid_ok, 1
+    inserted_mid_value_ok = eq inserted_mid, 20
+    insert_end_flag_ok = eq insert_end_ok, 1
+    insert_miss_flag_ok = eq insert_miss_ok, 0
+    dedup_len_ok = eq dedup_len, 4
+    len_after_dedup_ok = eq len_after_dedup, 4
+    dedup_first_flag_ok = eq dedup_first_ok, 1
+    dedup_first_value_ok = eq dedup_first, 10
+    dedup_second_flag_ok = eq dedup_second_ok, 1
+    dedup_second_value_ok = eq dedup_second, 20
+    dedup_third_flag_ok = eq dedup_third_ok, 1
+    dedup_third_value_ok = eq dedup_third, 30
+    dedup_fourth_flag_ok = eq dedup_fourth_ok, 1
+    dedup_fourth_value_ok = eq dedup_fourth, 40
+    cap_after_ok = eq cap_after, 6
+    pwc_full_flag_ok = eq pwc_full_ok, 1
+    ok01 = and with_cap_flag_ok, pwc1_flag_ok
+    ok02 = and ok01, pwc2_flag_ok
+    ok03 = and ok02, insert_mid_flag_ok
+    ok04 = and ok03, inserted_mid_flag_ok
+    ok05 = and ok04, inserted_mid_value_ok
+    ok06 = and ok05, insert_end_flag_ok
+    ok07 = and ok06, insert_miss_flag_ok
+    ok08 = and ok07, dedup_len_ok
+    ok09 = and ok08, len_after_dedup_ok
+    ok10 = and ok09, dedup_first_flag_ok
+    ok11 = and ok10, dedup_first_value_ok
+    ok12 = and ok11, dedup_second_flag_ok
+    ok13 = and ok12, dedup_second_value_ok
+    ok14 = and ok13, dedup_third_flag_ok
+    ok15 = and ok14, dedup_third_value_ok
+    ok16 = and ok15, dedup_fourth_flag_ok
+    ok17 = and ok16, dedup_fourth_value_ok
+    ok18 = and ok17, cap_after_ok
+    ok = and ok18, pwc_full_flag_ok
+    !with_cap_ok
+    !pwc1_ok
+    !pwc2_ok
+    !insert_mid_ok
+    !inserted_mid_ok
+    !inserted_mid
+    !insert_end_ok
+    !insert_miss_ok
+    !dedup_len
+    !len_after_dedup
+    !dedup_first_ok
+    !dedup_first
+    !dedup_second_ok
+    !dedup_second
+    !dedup_third_ok
+    !dedup_third
+    !dedup_fourth_ok
+    !dedup_fourth
+    !cap_after
+    !pwc_full_ok
+    !with_cap_flag_ok
+    !pwc1_flag_ok
+    !pwc2_flag_ok
+    !insert_mid_flag_ok
+    !inserted_mid_flag_ok
+    !inserted_mid_value_ok
+    !insert_end_flag_ok
+    !insert_miss_flag_ok
+    !dedup_len_ok
+    !len_after_dedup_ok
+    !dedup_first_flag_ok
+    !dedup_first_value_ok
+    !dedup_second_flag_ok
+    !dedup_second_value_ok
+    !dedup_third_flag_ok
+    !dedup_third_value_ok
+    !dedup_fourth_flag_ok
+    !dedup_fourth_value_ok
+    !cap_after_ok
+    !pwc_full_flag_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_INSERT_OK, L_VEC_INSERT_FAIL
+
+L_VEC_INSERT_FAIL:
+    !ok
+    panic(910)
+
+L_VEC_INSERT_OK:
     !ok
     return

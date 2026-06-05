@@ -1,0 +1,5 @@
+@extern sa_str_is_ascii(ptr: ptr, len: u64) -> i32
+@extern sa_str_eq_ignore_ascii_case(left: ptr, left_len: u64, right: ptr, right_len: u64) -> i32
+@extern sa_str_trim_ascii_start_index(ptr: ptr, len: u64) -> u64
+@extern sa_str_trim_ascii_end_len(ptr: ptr, len: u64) -> u64
+@extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> u64

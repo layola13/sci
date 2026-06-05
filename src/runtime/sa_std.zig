@@ -6788,6 +6788,42 @@ pub export fn sa_string_concat(left_ptr: ?[*]const u8, left_len: u64, right_ptr:
     return openOwnedBuffer(owned) catch return 0;
 }
 
+pub export fn sa_str_is_ascii(ptr: ?[*]const u8, len: u64) i32 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    for (bytes) |byte| {
+        if (byte > 0x7f) return 0;
+    }
+    return 1;
+}
+
+pub export fn sa_str_eq_ignore_ascii_case(left_ptr: ?[*]const u8, left_len: u64, right_ptr: ?[*]const u8, right_len: u64) i32 {
+    const left = constBytes(left_ptr, left_len) catch return 0;
+    const right = constBytes(right_ptr, right_len) catch return 0;
+    if (left.len != right.len) return 0;
+    return if (std.ascii.eqlIgnoreCase(left, right)) 1 else 0;
+}
+
+fn isAsciiWhitespace(byte: u8) bool {
+    return switch (byte) {
+        ' ', '\t', '\n', '\r', 0x0b, 0x0c => true,
+        else => false,
+    };
+}
+
+pub export fn sa_str_trim_ascii_start_index(ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    var index: usize = 0;
+    while (index < bytes.len and isAsciiWhitespace(bytes[index])) : (index += 1) {}
+    return @as(u64, @intCast(index));
+}
+
+pub export fn sa_str_trim_ascii_end_len(ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    var end = bytes.len;
+    while (end > 0 and isAsciiWhitespace(bytes[end - 1])) : (end -= 1) {}
+    return @as(u64, @intCast(end));
+}
+
 pub export fn sa_fmt_buffer_data(buffer: u64) ?[*]u8 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
