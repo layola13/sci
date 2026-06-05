@@ -169,6 +169,23 @@ verify_std_payload() {
     [ -f "$STD_ROOT/libsa_std.a" ] || error "Installed std payload is incomplete: missing std/libsa_std.a"
 }
 
+detect_source_version() {
+    if [ -n "${RELEASE_TAG:-}" ]; then
+        printf "%s" "$RELEASE_TAG"
+        return 0
+    fi
+
+    if command -v git >/dev/null 2>&1; then
+        GIT_TAG="$(git tag --sort=-v:refname 2>/dev/null | sed -n '1p')"
+        if [ -n "$GIT_TAG" ]; then
+            printf "%s" "$GIT_TAG"
+            return 0
+        fi
+    fi
+
+    printf "0.0.1"
+}
+
 # ── Shell Profile Integration ───────────────────────────────────────────────
 
 configure_shell() {
@@ -327,8 +344,10 @@ main() {
         step "Would extract to: $SA_BIN_DIR and $SA_STD_DIR"
     elif [ -f "build.zig" ] && command -v zig >/dev/null 2>&1; then
         info "Source tree detected and Zig is available. Building from source directly."
-        step "Building via 'zig build -Doptimize=ReleaseFast'"
-        if zig build -Doptimize=ReleaseFast; then
+        SOURCE_VERSION="$(detect_source_version)"
+        info "Source version: ${BOLD}$SOURCE_VERSION${RESET}"
+        step "Building via 'zig build -Doptimize=ReleaseFast -Dversion=$SOURCE_VERSION'"
+        if zig build -Doptimize=ReleaseFast -Dversion="$SOURCE_VERSION"; then
             cp -f zig-out/bin/sa "$SA_BIN_DIR/sa"
             mkdir -p "$SA_STD_DIR"
             if [ -d sa_std ]; then
@@ -356,8 +375,10 @@ main() {
 
             if command -v zig >/dev/null 2>&1; then
                 info "Zig compiler detected — attempting to build from source..."
-                step "Building via 'zig build -Doptimize=ReleaseFast'"
-                if zig build -Doptimize=ReleaseFast; then
+                SOURCE_VERSION="$(detect_source_version)"
+                info "Source version: ${BOLD}$SOURCE_VERSION${RESET}"
+                step "Building via 'zig build -Doptimize=ReleaseFast -Dversion=$SOURCE_VERSION'"
+                if zig build -Doptimize=ReleaseFast -Dversion="$SOURCE_VERSION"; then
                     cp -f zig-out/bin/sa "$SA_BIN_DIR/sa"
                     mkdir -p "$SA_STD_DIR"
                     if [ -d sa_std ]; then

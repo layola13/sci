@@ -1,9 +1,42 @@
 const std = @import("std");
 
+fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
+    const argv = [_][]const u8{ "git", "tag", "--sort=-v:refname" };
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv[0..],
+    }) catch return null;
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(result.stdout);
+            return null;
+        },
+    }
+
+    const trimmed = std.mem.trim(u8, result.stdout, " \t\r\n");
+    if (trimmed.len == 0) {
+        allocator.free(result.stdout);
+        return null;
+    }
+    const first_line = if (std.mem.indexOfScalar(u8, trimmed, '\n')) |idx| trimmed[0..idx] else trimmed;
+    const owned = allocator.dupe(u8, first_line) catch {
+        allocator.free(result.stdout);
+        return null;
+    };
+    allocator.free(result.stdout);
+    return owned;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const release_small = b.option(bool, "release-small", "Build all artifacts with ReleaseSmall optimization.") orelse false;
-    const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse "0.0.1";
+    const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse latestGitTag(b.allocator) orelse "0.0.1";
     const llvm_include_dir = b.option([]const u8, "llvm-include-dir", "LLVM C API include directory.") orelse "/usr/lib/llvm-14/include";
     const llvm_lib_dir = b.option([]const u8, "llvm-lib-dir", "LLVM library directory.") orelse "/usr/lib/llvm-14/lib";
     const llvm_lib_name = b.option([]const u8, "llvm-lib-name", "LLVM system library name.") orelse "LLVM-14";
