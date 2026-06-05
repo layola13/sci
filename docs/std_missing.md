@@ -63,9 +63,9 @@ Current external capability buckets that should stay outside this report's `sa_s
 *   **Scope note**: The SA facade reuses `BTreeMap` storage and comparison; it is a concrete string-slice-key subset, not Rust's generic `Ord`-driven implementation. Set relation helpers scan stored ordered entries and call `BTREE_SET_CONTAINS` on the opposite set.
 
 ### 1.6 Binary Heap (`std::collections::BinaryHeap` vs `sa_std/binary_heap.sa`)
-*   **Implemented in `sa_std`**: `BINARY_HEAP_NEW`, `BINARY_HEAP_WITH_CAPACITY`, `BINARY_HEAP_FREE`, `BINARY_HEAP_LEN`, `BINARY_HEAP_CAPACITY`, `BINARY_HEAP_RESERVE`, `BINARY_HEAP_RESERVE_EXACT`, `BINARY_HEAP_SHRINK_TO_FIT`, `BINARY_HEAP_IS_EMPTY`, `BINARY_HEAP_PEEK`, `BINARY_HEAP_PUSH`, `BINARY_HEAP_TRY_POP`, `BINARY_HEAP_CLEAR`, `BINARY_HEAP_APPEND`.
-*   **Missing from Rust**: `try_reserve`, `try_reserve_exact`, `shrink_to`, `peek_mut`, `into_vec`, `into_sorted_vec`, `as_slice`, `into_iter`, `iter`, `drain`, `retain`.
-*   **Scope note**: The SA facade is a concrete `u64` max-heap. It covers the core capacity and append surface but not Rust's generic ordering, allocator, iterator, or mutable peek APIs.
+*   **Implemented in `sa_std`**: `BINARY_HEAP_NEW`, `BINARY_HEAP_WITH_CAPACITY`, `BINARY_HEAP_TRY_WITH_CAPACITY`, `BINARY_HEAP_FREE`, `BINARY_HEAP_LEN`, `BINARY_HEAP_CAPACITY`, `BINARY_HEAP_RESERVE`, `BINARY_HEAP_RESERVE_EXACT`, `BINARY_HEAP_TRY_RESERVE`, `BINARY_HEAP_TRY_RESERVE_EXACT`, `BINARY_HEAP_SHRINK_TO`, `BINARY_HEAP_SHRINK_TO_FIT`, `BINARY_HEAP_AS_SLICE`, `BINARY_HEAP_AS_MUT_SLICE`, `BINARY_HEAP_INTO_VEC`, `BINARY_HEAP_INTO_SORTED_VEC`, `BINARY_HEAP_IS_EMPTY`, `BINARY_HEAP_PEEK`, `BINARY_HEAP_PUSH`, `BINARY_HEAP_TRY_POP`, `BINARY_HEAP_CLEAR`, `BINARY_HEAP_APPEND`.
+*   **Missing from Rust**: `peek_mut`, `into_iter`, `iter`, `drain`, `retain`, generic ordering support, allocator-aware constructors, and true allocation-failure reporting for `try_reserve*`.
+*   **Scope note**: The SA facade is a concrete `u64` max-heap. `AS_SLICE` / `AS_MUT_SLICE` expose the internal heap array order, `INTO_VEC` reinterprets the owned heap storage as a `Vec`-layout object, and `INTO_SORTED_VEC` consumes the heap and returns ascending `u64` values. It does not implement Rust's generic ordering, iterator, mutable peek, or allocator error semantics.
 
 ### 1.7 Environment (`std::env` vs `sa_std/env.sa`)
 *   **Implemented in `sa_std`**: `ENV_GET`, `ENV_HAS`, `ENV_BUFFER_DATA`, `ENV_BUFFER_LEN`, `ENV_BUFFER_FREE`.

@@ -1,5 +1,8 @@
 // Concrete u64 max-heap with grow-on-demand storage.
 @import "core/mem.sa"
+@import "core/slice.sal"
+@import "core/slice.sa"
+@import "alloc/vec.sal"
 @import "binary_heap.sal"
 
 @binary_heap_swap(&heap: ptr, lhs: u64, rhs: u64) -> void:
@@ -94,6 +97,15 @@ L_WITH_CAP_EMPTY:
     !target_cap
     !cap
     return heap
+
+@export sa_binary_heap_try_with_capacity(cap: u64, &out_heap_slot: ptr) -> i32:
+L_ENTRY:
+    heap = call @sa_binary_heap_with_capacity(cap)
+    store out_heap_slot+0, heap as ptr
+    !heap
+    !out_heap_slot
+    !cap
+    return 1
 
 @export sa_binary_heap_free(^heap: ptr) -> void:
 L_ENTRY:
@@ -484,6 +496,59 @@ L_RESERVE_EXACT_DONE:
     !heap
     return
 
+@export sa_binary_heap_try_reserve(&heap: ptr, additional: u64) -> i32:
+L_ENTRY:
+    call @sa_binary_heap_reserve(&heap, additional)
+    !additional
+    !heap
+    return 1
+
+@export sa_binary_heap_try_reserve_exact(&heap: ptr, additional: u64) -> i32:
+L_ENTRY:
+    call @sa_binary_heap_reserve_exact(&heap, additional)
+    !additional
+    !heap
+    return 1
+
+@export sa_binary_heap_shrink_to(&heap: ptr, min_capacity: u64) -> void:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    cap = load heap+BinaryHeap_cap as u64
+    keep_len = uge len, min_capacity
+    br keep_len -> L_SHRINK_TO_LEN, L_SHRINK_TO_MIN
+
+L_SHRINK_TO_LEN:
+    target_cap = add len, 0
+    jmp L_SHRINK_TO_CHECK
+
+L_SHRINK_TO_MIN:
+    target_cap = add min_capacity, 0
+
+L_SHRINK_TO_CHECK:
+    needs_shrink = ult target_cap, cap
+    br needs_shrink -> L_SHRINK_TO_APPLY, L_SHRINK_TO_DONE
+
+L_SHRINK_TO_APPLY:
+    call @binary_heap_realloc(&heap, target_cap)
+    !needs_shrink
+    !target_cap
+    !keep_len
+    !cap
+    !len
+    !min_capacity
+    !heap
+    return
+
+L_SHRINK_TO_DONE:
+    !needs_shrink
+    !target_cap
+    !keep_len
+    !cap
+    !len
+    !min_capacity
+    !heap
+    return
+
 @export sa_binary_heap_shrink_to_fit(&heap: ptr) -> void:
 L_ENTRY:
     len = load heap+BinaryHeap_len as u64
@@ -505,6 +570,89 @@ L_SHRINK_DONE:
     !len
     !heap
     return
+
+@export sa_binary_heap_as_slice(&heap: ptr, &out_slice: ptr) -> void:
+L_ENTRY:
+    buf = load heap+BinaryHeap_buf as ptr
+    len = load heap+BinaryHeap_len as u64
+    store out_slice+Slice_ptr, buf as ptr
+    store out_slice+Slice_len, len as u64
+    !len
+    !buf
+    !out_slice
+    !heap
+    return
+
+@export sa_binary_heap_as_mut_slice(&heap: ptr, &out_slice: ptr) -> void:
+L_ENTRY:
+    call @sa_binary_heap_as_slice(&heap, &out_slice)
+    !out_slice
+    !heap
+    return
+
+@export sa_binary_heap_into_vec(^heap: ptr) -> ^ptr:
+L_ENTRY:
+    return heap
+
+@export sa_binary_heap_into_sorted_vec(^heap: ptr) -> ^ptr:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    out_vec = alloc Vec_SIZE
+    bytes = mul len, BinaryHeap_SLOT_SIZE
+    has_bytes = ne bytes, 0
+    br has_bytes -> L_SORT_ALLOC, L_SORT_EMPTY
+
+L_SORT_ALLOC:
+    out_buf = alloc bytes
+    call @sa_mem_set(&out_buf, 0, bytes)
+    store out_vec+Vec_ptr, out_buf as ptr
+    ^out_buf
+    jmp L_SORT_INIT
+
+L_SORT_EMPTY:
+    store out_vec+Vec_ptr, 0 as ptr
+    jmp L_SORT_INIT
+
+L_SORT_INIT:
+    store out_vec+Vec_cap, len as u64
+    store out_vec+Vec_len, len as u64
+    idx_slot = stack_alloc 8
+    value_slot = stack_alloc 8
+    store idx_slot+0, len as u64
+    jmp L_SORT_HEAD
+
+L_SORT_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, 0
+    br done -> L_SORT_DONE, L_SORT_BODY
+
+L_SORT_BODY:
+    next_idx = sub idx, 1
+    ok = call @sa_binary_heap_try_pop(&heap, &value_slot)
+    value = load value_slot+0 as u64
+    out_buf2 = load out_vec+Vec_ptr as ptr
+    off = mul next_idx, BinaryHeap_SLOT_SIZE
+    slot = ptr_add out_buf2, off
+    store slot+0, value as u64
+    store idx_slot+0, next_idx as u64
+    !slot
+    !off
+    !out_buf2
+    !value
+    !ok
+    !next_idx
+    !done
+    !idx
+    jmp L_SORT_HEAD
+
+L_SORT_DONE:
+    call @sa_binary_heap_free(^heap)
+    !done
+    !idx
+    !has_bytes
+    !bytes
+    !len
+    return out_vec
 
 @export sa_binary_heap_push(&heap: ptr, value: u64) -> void:
 L_ENTRY:
@@ -640,6 +788,12 @@ L_APPEND_DONE:
     %out_heap = call @sa_binary_heap_with_capacity(%cap)
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_TRY_WITH_CAPACITY %out_ok, %out_heap, %cap
+    __binary_heap_try_new_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_binary_heap_try_with_capacity(%cap, &__binary_heap_try_new_slot_%out_ok)
+    %out_heap = load __binary_heap_try_new_slot_%out_ok+0 as ptr
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_FREE %heap_reg
     call @sa_binary_heap_free(^%heap_reg)
 [END_MACRO]
@@ -660,8 +814,38 @@ L_APPEND_DONE:
     call @sa_binary_heap_reserve_exact(&%heap_reg, %additional)
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_TRY_RESERVE %out_ok, %heap_reg, %additional
+    %out_ok = call @sa_binary_heap_try_reserve(&%heap_reg, %additional)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_TRY_RESERVE_EXACT %out_ok, %heap_reg, %additional
+    %out_ok = call @sa_binary_heap_try_reserve_exact(&%heap_reg, %additional)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_SHRINK_TO %heap_reg, %min_capacity
+    call @sa_binary_heap_shrink_to(&%heap_reg, %min_capacity)
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_SHRINK_TO_FIT %heap_reg
     call @sa_binary_heap_shrink_to_fit(&%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_AS_SLICE %out_slice, %heap_reg
+    %out_slice = alloc Slice_SIZE
+    call @sa_binary_heap_as_slice(&%heap_reg, &%out_slice)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_AS_MUT_SLICE %out_slice, %heap_reg
+    %out_slice = alloc Slice_SIZE
+    call @sa_binary_heap_as_mut_slice(&%heap_reg, &%out_slice)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_VEC %out_vec, %heap_reg
+    %out_vec = call @sa_binary_heap_into_vec(^%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_SORTED_VEC %out_vec, %heap_reg
+    %out_vec = call @sa_binary_heap_into_sorted_vec(^%heap_reg)
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg

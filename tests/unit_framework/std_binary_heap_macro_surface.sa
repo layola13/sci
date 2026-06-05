@@ -1,4 +1,5 @@
 @import "sa_std/collections/binary_heap.sa"
+@import "sa_std/vec.sa"
 
 @test "sa_std binary_heap capacity macros"():
 L_ENTRY:
@@ -8,12 +9,23 @@ L_ENTRY:
     EXPAND BINARY_HEAP_IS_EMPTY empty0, heap
     EXPAND BINARY_HEAP_RESERVE heap, 20
     EXPAND BINARY_HEAP_CAPACITY cap_after_reserve, heap
+    EXPAND BINARY_HEAP_TRY_RESERVE try_reserve_ok, heap, 4
     EXPAND BINARY_HEAP_RESERVE_EXACT heap, 40
     EXPAND BINARY_HEAP_CAPACITY cap_after_reserve_exact, heap
+    EXPAND BINARY_HEAP_TRY_RESERVE_EXACT try_reserve_exact_ok, heap, 5
     EXPAND BINARY_HEAP_PUSH heap, 4
     EXPAND BINARY_HEAP_PUSH heap, 9
     EXPAND BINARY_HEAP_PUSH heap, 1
     EXPAND BINARY_HEAP_LEN len1, heap
+    EXPAND BINARY_HEAP_AS_SLICE heap_slice, heap
+    EXPAND SLICE_GET_LEN heap_slice_len, heap_slice
+    EXPAND BINARY_HEAP_AS_MUT_SLICE heap_mut_slice, heap
+    EXPAND SLICE_GET_LEN heap_mut_slice_len, heap_mut_slice
+    EXPAND BINARY_HEAP_SHRINK_TO heap, 2
+    EXPAND BINARY_HEAP_CAPACITY cap_after_shrink_to_len, heap
+    EXPAND BINARY_HEAP_RESERVE_EXACT heap, 10
+    EXPAND BINARY_HEAP_SHRINK_TO heap, 5
+    EXPAND BINARY_HEAP_CAPACITY cap_after_shrink_to_min, heap
     EXPAND BINARY_HEAP_SHRINK_TO_FIT heap
     EXPAND BINARY_HEAP_CAPACITY cap_after_shrink, heap
     EXPAND BINARY_HEAP_PEEK peek0, heap
@@ -32,13 +44,22 @@ L_ENTRY:
     EXPAND BINARY_HEAP_CAPACITY zero_cap, zero_heap
     EXPAND BINARY_HEAP_IS_EMPTY zero_empty, zero_heap
     EXPAND BINARY_HEAP_FREE zero_heap
+    EXPAND BINARY_HEAP_TRY_WITH_CAPACITY try_new_ok, try_new_heap, 2
+    EXPAND BINARY_HEAP_CAPACITY try_new_cap, try_new_heap
+    EXPAND BINARY_HEAP_FREE try_new_heap
 
     ok_cap0 = eq cap0, 8
     ok_len0 = eq len0, 0
     ok_empty0 = eq empty0, 1
     ok_cap_after_reserve = eq cap_after_reserve, 32
+    ok_try_reserve = eq try_reserve_ok, 1
     ok_cap_after_reserve_exact = eq cap_after_reserve_exact, 40
+    ok_try_reserve_exact = eq try_reserve_exact_ok, 1
     ok_len1 = eq len1, 3
+    ok_heap_slice_len = eq heap_slice_len, 3
+    ok_heap_mut_slice_len = eq heap_mut_slice_len, 3
+    ok_cap_after_shrink_to_len = eq cap_after_shrink_to_len, 3
+    ok_cap_after_shrink_to_min = eq cap_after_shrink_to_min, 5
     ok_cap_after_shrink = eq cap_after_shrink, 3
     ok_peek0 = eq peek0, 9
     ok_ok0 = eq ok0, 1
@@ -56,34 +77,50 @@ L_ENTRY:
     ok_pop3 = eq pop3, 2
     ok_zero_cap = eq zero_cap, 0
     ok_zero_empty = eq zero_empty, 1
+    ok_try_new = eq try_new_ok, 1
+    ok_try_new_cap = eq try_new_cap, 8
     ok01 = and ok_cap0, ok_len0
     ok02 = and ok01, ok_empty0
     ok03 = and ok02, ok_cap_after_reserve
-    ok04 = and ok03, ok_cap_after_reserve_exact
-    ok05 = and ok04, ok_len1
-    ok06 = and ok05, ok_cap_after_shrink
-    ok07 = and ok06, ok_peek0
-    ok08 = and ok07, ok_ok0
-    ok09 = and ok08, ok_pop0
-    ok10 = and ok09, ok_ok1
-    ok11 = and ok10, ok_pop1
-    ok12 = and ok11, ok_ok2
-    ok13 = and ok12, ok_pop2
-    ok14 = and ok13, ok_empty_ok
-    ok15 = and ok14, ok_empty_value
-    ok16 = and ok15, ok_len2
-    ok17 = and ok16, ok_cap_after_empty_shrink
-    ok18 = and ok17, ok_cap_after_reinsert
-    ok19 = and ok18, ok_ok3
-    ok20 = and ok19, ok_pop3
-    ok21 = and ok20, ok_zero_cap
-    ok = and ok21, ok_zero_empty
+    ok04 = and ok03, ok_try_reserve
+    ok05 = and ok04, ok_cap_after_reserve_exact
+    ok06 = and ok05, ok_try_reserve_exact
+    ok07 = and ok06, ok_len1
+    ok08 = and ok07, ok_heap_slice_len
+    ok09 = and ok08, ok_heap_mut_slice_len
+    ok10 = and ok09, ok_cap_after_shrink_to_len
+    ok11 = and ok10, ok_cap_after_shrink_to_min
+    ok12 = and ok11, ok_cap_after_shrink
+    ok13 = and ok12, ok_peek0
+    ok14 = and ok13, ok_ok0
+    ok15 = and ok14, ok_pop0
+    ok16 = and ok15, ok_ok1
+    ok17 = and ok16, ok_pop1
+    ok18 = and ok17, ok_ok2
+    ok19 = and ok18, ok_pop2
+    ok20 = and ok19, ok_empty_ok
+    ok21 = and ok20, ok_empty_value
+    ok22 = and ok21, ok_len2
+    ok23 = and ok22, ok_cap_after_empty_shrink
+    ok24 = and ok23, ok_cap_after_reinsert
+    ok25 = and ok24, ok_ok3
+    ok26 = and ok25, ok_pop3
+    ok27 = and ok26, ok_zero_cap
+    ok28 = and ok27, ok_zero_empty
+    ok29 = and ok28, ok_try_new
+    ok = and ok29, ok_try_new_cap
     !cap0
     !len0
     !empty0
     !cap_after_reserve
+    !try_reserve_ok
     !cap_after_reserve_exact
+    !try_reserve_exact_ok
     !len1
+    !heap_slice_len
+    !heap_mut_slice_len
+    !cap_after_shrink_to_len
+    !cap_after_shrink_to_min
     !cap_after_shrink
     !peek0
     !ok0
@@ -101,12 +138,20 @@ L_ENTRY:
     !pop3
     !zero_cap
     !zero_empty
+    !try_new_ok
+    !try_new_cap
     !ok_cap0
     !ok_len0
     !ok_empty0
     !ok_cap_after_reserve
+    !ok_try_reserve
     !ok_cap_after_reserve_exact
+    !ok_try_reserve_exact
     !ok_len1
+    !ok_heap_slice_len
+    !ok_heap_mut_slice_len
+    !ok_cap_after_shrink_to_len
+    !ok_cap_after_shrink_to_min
     !ok_cap_after_shrink
     !ok_peek0
     !ok_ok0
@@ -124,6 +169,8 @@ L_ENTRY:
     !ok_pop3
     !ok_zero_cap
     !ok_zero_empty
+    !ok_try_new
+    !ok_try_new_cap
     !ok01
     !ok02
     !ok03
@@ -145,6 +192,16 @@ L_ENTRY:
     !ok19
     !ok20
     !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !heap_mut_slice
+    !heap_slice
     br ok -> L_OK, L_FAIL
 
 L_FAIL:
@@ -256,5 +313,81 @@ L_APPEND_FAIL:
     panic(907)
 
 L_APPEND_OK:
+    !ok
+    return
+
+@test "sa_std binary_heap vec conversion macros"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_NEW raw_heap
+    EXPAND BINARY_HEAP_PUSH raw_heap, 6
+    EXPAND BINARY_HEAP_PUSH raw_heap, 2
+    EXPAND BINARY_HEAP_INTO_VEC raw_vec, raw_heap
+    EXPAND VEC_LEN raw_vec_len, raw_vec
+    EXPAND VEC_CAPACITY raw_vec_cap, raw_vec
+    EXPAND VEC_TRY_GET_U64 raw_first_ok, raw_first, raw_vec, 0
+    EXPAND VEC_FREE raw_vec
+
+    EXPAND BINARY_HEAP_NEW sorted_heap
+    EXPAND BINARY_HEAP_PUSH sorted_heap, 4
+    EXPAND BINARY_HEAP_PUSH sorted_heap, 9
+    EXPAND BINARY_HEAP_PUSH sorted_heap, 1
+    EXPAND BINARY_HEAP_PUSH sorted_heap, 7
+    EXPAND BINARY_HEAP_INTO_SORTED_VEC sorted_vec, sorted_heap
+    EXPAND VEC_LEN sorted_len, sorted_vec
+    EXPAND VEC_GET_U64 sorted0, sorted_vec, 0
+    EXPAND VEC_GET_U64 sorted1, sorted_vec, 1
+    EXPAND VEC_GET_U64 sorted2, sorted_vec, 2
+    EXPAND VEC_GET_U64 sorted3, sorted_vec, 3
+    EXPAND VEC_FREE sorted_vec
+
+    ok_raw_len = eq raw_vec_len, 2
+    ok_raw_cap = eq raw_vec_cap, 8
+    ok_raw_first_ok = eq raw_first_ok, 1
+    ok_raw_first = eq raw_first, 6
+    ok_sorted_len = eq sorted_len, 4
+    ok_sorted0 = eq sorted0, 1
+    ok_sorted1 = eq sorted1, 4
+    ok_sorted2 = eq sorted2, 7
+    ok_sorted3 = eq sorted3, 9
+    ok01 = and ok_raw_len, ok_raw_cap
+    ok02 = and ok01, ok_raw_first_ok
+    ok03 = and ok02, ok_raw_first
+    ok04 = and ok03, ok_sorted_len
+    ok05 = and ok04, ok_sorted0
+    ok06 = and ok05, ok_sorted1
+    ok07 = and ok06, ok_sorted2
+    ok = and ok07, ok_sorted3
+    !raw_vec_len
+    !raw_vec_cap
+    !raw_first_ok
+    !raw_first
+    !sorted_len
+    !sorted0
+    !sorted1
+    !sorted2
+    !sorted3
+    !ok_raw_len
+    !ok_raw_cap
+    !ok_raw_first_ok
+    !ok_raw_first
+    !ok_sorted_len
+    !ok_sorted0
+    !ok_sorted1
+    !ok_sorted2
+    !ok_sorted3
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    br ok -> L_VEC_OK, L_VEC_FAIL
+
+L_VEC_FAIL:
+    !ok
+    panic(908)
+
+L_VEC_OK:
     !ok
     return
