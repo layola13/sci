@@ -16,6 +16,34 @@ fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     try file.writeAll(source);
 }
 
+fn runSaTestFile(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
+    const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(suite_path);
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1", "--trace-panic" };
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    if (code != 0) {
+        std.debug.print("stdout: {s}\n", .{stdout_buffer.items});
+        std.debug.print("stderr: {s}\n", .{stderr_buffer.items});
+    }
+    try std.testing.expectEqual(@as(u8, 0), code);
+    for (expected_passes) |expected_pass| {
+        try expectContains(stdout_buffer.items, expected_pass);
+    }
+    try expectContains(stdout_buffer.items, expected_summary);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+}
+
 test "native unit framework suite covers the demo-derived feature matrix" {
     const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "tests/unit_framework/feature_suite.sa");
     defer std.testing.allocator.free(suite_path);
@@ -652,6 +680,29 @@ test "native unit assertions surface file line expected and got details" {
     try expectContains(stderr_buffer.items, "tests/assert_diag.sa:");
     try expectContains(stderr_buffer.items, "expected 7");
     try expectContains(stderr_buffer.items, "got 3");
+}
+
+test "native unit framework covers sa_std macro surface suites" {
+    const string_vec_expected = [_][]const u8{
+        "[PASS] sa_std string convenience macros",
+        "[PASS] sa_std rust parity checked view macros",
+        "[PASS] sa_std vec convenience macros",
+        "[PASS] sa_std slice convenience macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_string_vec_macro_surface.sa",
+        string_vec_expected[0..],
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
+    );
+
+    const hashset_expected = [_][]const u8{
+        "[PASS] sa_std hashset convenience macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_hashset_macro_surface.sa",
+        hashset_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
 }
 
 test "native unit framework exposes standard mock io buffer" {

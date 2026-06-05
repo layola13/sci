@@ -6,18 +6,34 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 
 `sa_std` uses a hybrid paradigm of `@extern` / `@export` functions and `[MACRO]` assembly macros, whereas Rust uses a high-level Trait, Struct, and Module system.
 
+## Scope and Plugin Boundary
+
+This report counts only the compiler-shipped standard library surface under `sa_std/` and the in-tree runtime ABI that those files import directly. External `sa_plugin_*` projects are intentionally excluded from `sa_std` parity, even when they expose familiar std-like APIs through `.sai` / `.sal` files.
+
+Plugin capabilities are installable and uninstallable at any time, so they must not be used as evidence that a Rust `std` API is implemented by compiler std. When a capability has moved to a plugin, this document records it as a **plugin alternative** or **plugin-only** surface and keeps the corresponding Rust `std` gap open for `sa_std` unless an in-tree `sa_std/` module provides that API.
+
+Current external capability buckets that should stay outside this report's `sa_std` implemented counts:
+
+- `sa_plugin_deno`: Deno compatibility facade for env/args, fs, io, net, process, time, JSON/text/base64, and Responses/Chat compatibility helpers.
+- `sa_plugin_http_client` / `sa_plugin_http_server`: HTTP request/response/client/server facade; Rust `std` has no high-level HTTP module, so these are ecosystem capabilities, not std parity.
+- `sa_plugin_db`, `sa_plugin_sax`, `sa_plugin_wgpu`, `sa_plugin_3dengines`: database, XML/SAX, GPU, and 3D engine native capabilities; these are plugin domains, not compiler std.
+- `sa_plugin_pkg`, `sa_plugin_bc2sa`, `sa_plugin_node`, `sa_plugin_ts`, `sa_plugin_vm`: package/toolchain/runtime integration plugins; these are host or ecosystem extensions, not `sa_std` APIs.
+
+`sa_std` tests should therefore avoid reading `../sa_plugins/...` or depending on `$SA_PLUGINS_HOME` state. Plugin smoke coverage belongs with the plugin or plugin-host test suite.
+
 ---
 
 ## 1. Partially Implemented Modules
 
 ### 1.1 Vector (`std::vec::Vec` vs `sa_std/vec.sa`)
-*   **Implemented in `sa_std`**: `VEC_NEW` / `sa_vec_new`, `VEC_WITH_CAPACITY`, `VEC_FREE` / `sa_vec_free`, `VEC_LEN`, `VEC_CAPACITY`, `VEC_IS_EMPTY`, `VEC_AS_PTR`, `VEC_AS_SLICE`, `VEC_GET`, `VEC_GET_U64`, `VEC_FRONT`, `VEC_BACK`, `VEC_PUSH`, `VEC_PUSH_U64`, `VEC_RESERVE`, `VEC_RESERVE_U64`, `VEC_TRY_POP`, `VEC_POP`, `VEC_CLEAR`, `VEC_TRUNCATE`, `VEC_CONTAINS_U64`, `VEC_STARTS_WITH_U64`, `VEC_ENDS_WITH_U64`.
-*   **Missing from Rust**: `reserve_exact`, `shrink_to_fit`, `shrink_to`, `as_mut_slice`, `set_len`, `swap_remove`, `insert`, `remove`, `retain`, `retain_mut`, `dedup`, `dedup_by`, `append`, `drain`, `split_off`, `resize`, `extend_from_slice`.
+*   **Implemented in `sa_std`**: `VEC_NEW` / `sa_vec_new`, `VEC_WITH_CAPACITY`, `VEC_FREE` / `sa_vec_free`, `VEC_LEN`, `VEC_CAPACITY`, `VEC_IS_EMPTY`, `VEC_AS_PTR`, `VEC_AS_SLICE`, `VEC_GET`, `VEC_GET_U64`, `VEC_TRY_GET`, `VEC_TRY_GET_U64`, `VEC_FRONT`, `VEC_BACK`, `VEC_TRY_FRONT`, `VEC_TRY_FRONT_U64`, `VEC_TRY_BACK`, `VEC_TRY_BACK_U64`, `VEC_PUSH`, `VEC_PUSH_U64`, `VEC_RESERVE`, `VEC_RESERVE_U64`, `VEC_RESERVE_EXACT`, `VEC_RESERVE_EXACT_U64`, `VEC_TRY_POP`, `VEC_POP`, `VEC_CLEAR`, `VEC_TRUNCATE`, `VEC_CONTAINS_U64`, `VEC_STARTS_WITH_U64`, `VEC_ENDS_WITH_U64`, `VEC_TRY_STRIP_PREFIX_U64`, `VEC_TRY_STRIP_SUFFIX_U64`, `VEC_TRIM_PREFIX_U64`, `VEC_TRIM_SUFFIX_U64`, `VEC_TRY_SPLIT_AT_U64`.
+*   **Missing from Rust**: `shrink_to_fit`, `shrink_to`, `as_mut_slice`, `set_len`, `swap_remove`, `insert`, `remove`, `retain`, `retain_mut`, `dedup`, `dedup_by`, `append`, `drain`, `split_off`, `resize`, `extend_from_slice`.
 *   **Missing Infrastructure**: Iterator support (`IntoIterator`, `iter()`, `iter_mut()`).
+*   **Scope note**: `VEC_RESERVE_EXACT*` maps to the current exact-growth reserve implementation; the allocator may still choose physical allocation details outside the SA surface. The strip helpers return `u64` slice views over the vector data rather than allocating or copying.
 
 ### 1.1a Slice (`core::slice` vs `sa_std/core/slice.sa`)
-*   **Implemented in `sa_std`**: `SLICE_NEW`, `SLICE_GET_PTR`, `SLICE_AS_PTR`, `SLICE_GET_LEN`, `SLICE_IS_EMPTY`, `SLICE_GET_U64`, `SLICE_FIRST_U64`, `SLICE_LAST_U64`, `SLICE_TRY_FIRST_U64`, `SLICE_TRY_LAST_U64`, `SLICE_TRY_GET_U64`, `SLICE_CONTAINS_U64`, `SLICE_STARTS_WITH_U64`, `SLICE_ENDS_WITH_U64`.
-*   **Missing from Rust**: generic element support, `first_mut`, `last_mut`, range-based `get`, split/chunk/window iterators, `split_at`, `copy_from_slice`, `fill`, `reverse`, sorting, binary search, and borrowed sub-slice return APIs.
+*   **Implemented in `sa_std`**: `SLICE_NEW`, `SLICE_GET_PTR`, `SLICE_AS_PTR`, `SLICE_GET_LEN`, `SLICE_IS_EMPTY`, `SLICE_GET_U64`, `SLICE_FIRST_U64`, `SLICE_LAST_U64`, `SLICE_TRY_FIRST_U64`, `SLICE_TRY_LAST_U64`, `SLICE_TRY_GET_U64`, `SLICE_CONTAINS_U64`, `SLICE_STARTS_WITH_U64`, `SLICE_ENDS_WITH_U64`, `SLICE_TRY_STRIP_PREFIX_U64`, `SLICE_TRY_STRIP_SUFFIX_U64`, `SLICE_TRIM_PREFIX_U64`, `SLICE_TRIM_SUFFIX_U64`, `SLICE_TRY_SPLIT_AT_U64`.
+*   **Missing from Rust**: generic element support, `first_mut`, `last_mut`, range-based `get`, split/chunk/window iterators, unchecked/mutable `split_at` variants, `copy_from_slice`, `fill`, `reverse`, sorting, and binary search.
 *   **Scope note**: Current slice comparison helpers are concrete `u64` helpers. They intentionally do not pretend to be Rust's generic `[T]` trait surface.
 
 ### 1.2 Deque (`std::collections::VecDeque` vs `sa_std/vec_deque.sa`)
@@ -25,12 +41,12 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 *   **Missing from Rust**: `with_capacity`, `get_mut`, `swap`, `capacity`, `reserve`, `shrink_to_fit`, `truncate`, `iter`, `iter_mut`, `as_slices`, `as_mut_slices`, `is_empty`, `drain`, `clear`, `contains`, `front`, `front_mut`, `back`, `back_mut`, `pop_front`, `pop_back`, `swap_remove_front`, `swap_remove_back`, `insert`, `remove`, `split_off`, `append`, `retain`.
 
 ### 1.3 Hash Map (`std::collections::HashMap` vs `sa_std/hashmap.sa`)
-*   **Implemented in `sa_std`**: `MAP_NEW`, `MAP_FREE`, `MAP_PUT`, `MAP_GET`, `MAP_DEL`.
-*   **Missing from Rust**: `with_capacity`, `capacity`, `reserve`, `try_reserve`, `shrink_to_fit`, `keys`, `values`, `values_mut`, `iter`, `iter_mut`, `len`, `is_empty`, `drain`, `retain`, `clear`, `contains_key`, `get_mut`, `get_key_value`, `insert` (with old value return), `remove`, `remove_entry`, `entry` API (Vacant/Occupied).
+*   **Implemented in `sa_std`**: `MAP_NEW`, `MAP_WITH_CAPACITY`, `MAP_FREE`, `MAP_LEN`, `MAP_CAPACITY`, `MAP_RESERVE`, `MAP_IS_EMPTY`, `MAP_CONTAINS_KEY`, `MAP_CLEAR`, `MAP_PUT`, `MAP_GET`, `MAP_DEL`, `MAP_LIT2`.
+*   **Missing from Rust**: `try_reserve`, `shrink_to_fit`, `keys`, `values`, `values_mut`, `iter`, `iter_mut`, `drain`, `retain`, `get_mut`, `get_key_value`, `insert` (with old value return), `remove_entry`, `entry` API (Vacant/Occupied).
 
 ### 1.4 Hash Set (`std::collections::HashSet` vs `sa_std/hashset.sa`)
-*   **Implemented in `sa_std`**: `SET_NEW`, `SET_FREE`, `SET_INSERT`, `SET_CONTAINS`, `SET_REMOVE`.
-*   **Missing from Rust**: `with_capacity`, `capacity`, `reserve`, `shrink_to_fit`, `iter`, `len`, `is_empty`, `drain`, `retain`, `clear`, `intersection`, `union`, `difference`, `symmetric_difference`, `is_disjoint`, `is_subset`, `is_superset`, `replace`, `get`, `take`.
+*   **Implemented in `sa_std`**: `SET_NEW`, `SET_WITH_CAPACITY`, `SET_FREE`, `SET_LEN`, `SET_CAPACITY`, `SET_RESERVE`, `SET_IS_EMPTY`, `SET_CLEAR`, `SET_INSERT`, `SET_CONTAINS`, `SET_REMOVE`, `SET_LIT2`.
+*   **Missing from Rust**: `shrink_to_fit`, `iter`, `drain`, `retain`, `intersection`, `union`, `difference`, `symmetric_difference`, `is_disjoint`, `is_subset`, `is_superset`, `replace`, `get`, `take`.
 
 ### 1.5 B-Tree Map (`std::collections::BTreeMap` vs `sa_std/btree_map.sa`)
 *   **Implemented in `sa_std`**: `BTREE_MAP_NEW`, `BTREE_MAP_FREE`, `BTREE_MAP_LEN`, `BTREE_MAP_IS_EMPTY`, `BTREE_MAP_GET`, `BTREE_MAP_CONTAINS_KEY`, `BTREE_MAP_CLEAR`, `BTREE_MAP_REMOVE`, `BTREE_MAP_INSERT`.
@@ -47,32 +63,33 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 
 ### 1.7 Environment (`std::env` vs `sa_std/env.sa`)
 *   **Implemented in `sa_std`**: `ENV_GET`, `ENV_HAS`, `ENV_BUFFER_DATA`, `ENV_BUFFER_LEN`, `ENV_BUFFER_FREE`.
-*   **Implemented in Deno facade**: `DENO_ARGS_JSON`, `DENO_ENV_GET`, `DENO_ENV_HAS`, `DENO_ENV_SET`, `DENO_ENV_DELETE`, `DENO_CWD`, `DENO_CHDIR`, `DENO_RANDOM_UUID`.
+*   **Plugin alternative, not `sa_std`**: Deno facade env/args helpers live in `sa_plugin_deno`; they are intentionally not counted as compiler std coverage because plugins can be installed and removed independently.
 *   **Missing from Rust**: `args_os`, `vars`, `vars_os`, `join_paths`, `split_paths`, `current_exe`, `temp_dir`.
 
 ### 1.8 Formatting & String (`std::fmt` & `std::string` vs `sa_std/fmt.sa`, `sa_std/string.sa`)
-*   **Implemented in `sa_std`**: `STRFMT_I64`, `U64`, `F64`, `BOOL`, `BYTES`, `STR_FROM_CONST`, `STR_LEN`, `STRING_LEN`, `STR_PTR`, `STR_AS_PTR`, `STRING_AS_PTR`, `STR_AS_BYTES`, `STRING_AS_BYTES`, `STRING_AS_STR`, `STR_IS_EMPTY`, `STRING_IS_EMPTY`, `STRING_NEW`, `STR_EMPTY`, `STR_FROM_PARTS`, `STRING_FROM_PARTS`, `STR_SLICE`, `STR_EQ`, `STR_CONTAINS`, `STRING_CONTAINS`, `STR_STARTS_WITH`, `STRING_STARTS_WITH`, `STR_ENDS_WITH`, `STRING_ENDS_WITH`, `STR_CONCAT`, plus the macro-level formatting scaffold around `PRINTLN` / `PRINT` / `FORMAT`.
+*   **Implemented in `sa_std`**: `STRFMT_I64`, `U64`, `F64`, `BOOL`, `BYTES`, `STR_FROM_CONST`, `STR_LEN`, `STRING_LEN`, `STR_PTR`, `STR_AS_PTR`, `STRING_AS_PTR`, `STR_AS_BYTES`, `STRING_AS_BYTES`, `STRING_AS_STR`, `STR_IS_EMPTY`, `STRING_IS_EMPTY`, `STRING_NEW`, `STR_EMPTY`, `STR_FROM_PARTS`, `STRING_FROM_PARTS`, `STR_SLICE`, `STR_EQ`, `STR_CONTAINS`, `STRING_CONTAINS`, `STR_STARTS_WITH`, `STRING_STARTS_WITH`, `STR_ENDS_WITH`, `STRING_ENDS_WITH`, `STR_TRY_STRIP_PREFIX`, `STRING_TRY_STRIP_PREFIX`, `STR_TRY_STRIP_SUFFIX`, `STRING_TRY_STRIP_SUFFIX`, `STR_TRIM_PREFIX`, `STRING_TRIM_PREFIX`, `STR_TRIM_SUFFIX`, `STRING_TRIM_SUFFIX`, `STR_TRY_SPLIT_AT`, `STRING_TRY_SPLIT_AT`, `STR_CONCAT`, plus the macro-level formatting scaffold around `PRINTLN` / `PRINT` / `FORMAT`.
 *   **Missing Infrastructure**: `Display`, `Debug`, `Formatter` traits; `format!` macro interpolation.
-*   **Missing Methods**: `String::push_str`, `String::pop`, `String::insert`, `String::split_off`, `String::replace_range`; `str` methods like `chars`, `bytes`, `split`, `lines`, `trim`, `find`, `rfind`, `strip_prefix`, `strip_suffix`, `replace`.
+*   **Missing Methods**: `String::push_str`, `String::pop`, `String::insert`, `String::split_off`, `String::replace_range`; `str` methods like `chars`, `bytes`, iterator-based `split`, `lines`, Unicode whitespace `trim`, `find`, `rfind`, `replace`.
+*   **Scope note**: `STR_TRY_STRIP_PREFIX/SUFFIX`, `STR_TRIM_PREFIX/SUFFIX`, and `STR_TRY_SPLIT_AT` implement byte-slice view subsets. They do not implement Rust's full `Pattern` machinery or UTF-8 boundary validation beyond the caller-provided slice contract.
 
 ### 1.9 File System (`std::fs` vs `sa_std/fs.sa`)
 *   **Implemented in `sa_std`**: Handles (`open`, `create`, `close`, `read`, `read_exact`, `write`, `write_all`, `flush`, `seek`), Full-file IO (`read_file`, `write_file`), Metadata (`metadata`, `remove_file`, `rename`, `make_dir`, `remove_dir`).
-*   **Implemented in Deno facade**: `DENO_READ_TEXT_FILE`, `DENO_WRITE_TEXT_FILE`, `DENO_READ_FILE_BASE64`, `DENO_WRITE_FILE_BASE64`, `DENO_MKDIR`, `DENO_READ_DIR_JSON`, `DENO_LSTAT_JSON`, `DENO_REMOVE`, `DENO_COPY_FILE`.
+*   **Plugin alternative, not `sa_std`**: Deno facade file helpers live in `sa_plugin_deno` and are not part of compiler std coverage.
 *   **Missing from Rust**: `sync_all`, `sync_data`, `set_len`, `set_permissions`, fine-grained `OpenOptions`, expanded `Metadata` (`is_dir`, `modified`, etc.), `Permissions`, `FileType`, `DirBuilder`, `ReadDir` / `read_dir`, `copy`, `create_dir_all`, `hard_link`, `read_link`, `remove_dir_all`.
 
 ### 1.10 Input/Output (`std::io` vs `sa_std/io.sa`)
 *   **Implemented in `sa_std`**: `stdin`, `stdout`, `stderr`, `PRINTLN`, `READ_LINE`, `read`, `write`, etc.
-*   **Implemented in Deno facade**: `DENO_STDIN`, `DENO_STDOUT`, `DENO_STDERR`, `DENO_STDOUT_WRITE`, `DENO_STDERR_WRITE`.
+*   **Plugin alternative, not `sa_std`**: Deno facade stdio helpers live in `sa_plugin_deno` and are not part of compiler std coverage.
 *   **Missing Infrastructure**: `Read`, `Write`, `Seek`, `BufRead` traits; `Cursor`, `Error`/`ErrorKind` system, `copy`, `empty`, `repeat`, `sink`, `read_to_end`, `read_to_string`, `bytes`, `chain`, `take`.
 
 ### 1.11 Networking (`std::net` vs `sa_std/net.sa`)
 *   **Implemented in `sa_std`**: TCP Connect/Bind/Accept/IO, UDP Bind/SendTo/RecvFrom, Async Reactor macros.
-*   **Implemented in Deno facade**: `DENO_LISTEN_TCP`, `DENO_ACCEPT_TCP`, `DENO_CONNECT_TCP`, `DENO_CLOSE_TCP_LISTENER`, `DENO_CLOSE_TCP_STREAM`.
+*   **Plugin alternative, not `sa_std`**: Deno facade networking helpers live in `sa_plugin_deno`; HTTP client/server live in `sa_plugin_http_client` and `sa_plugin_http_server`. None of these count as compiler std coverage.
 *   **Missing from Rust**: `set_read_timeout`, `set_write_timeout`, `peek`, `set_nodelay`, `set_ttl`, `set_nonblocking`; `TcpListener::incoming` iterator; `UdpSocket::connect`, `set_broadcast`, multicast control; `Ipv4Addr`, `Ipv6Addr`, `SocketAddr` structs and parsing.
 
 ### 1.12 Process (`std::process` vs `sa_std/process.sa`)
 *   **Implemented in `sa_std`**: `run`, `spawn`, `spawn_stream`, `wait`, `close`.
-*   **Implemented in Deno facade**: `DENO_COMMAND_RUN`, `DENO_COMMAND_SPAWN`, `DENO_COMMAND_SPAWN_STREAM`, `DENO_COMMAND_WAIT`, `DENO_COMMAND_READ_STDOUT`, `DENO_COMMAND_READ_STDERR`, `DENO_COMMAND_CLOSE`, `DENO_EXIT`.
+*   **Plugin alternative, not `sa_std`**: Deno facade process helpers live in `sa_plugin_deno` and are not part of compiler std coverage.
 *   **Missing from Rust**: `Command` builder (`env`, `current_dir`, pipe redirection), `Output` struct, `Child::id()`, `kill()`, `try_wait()`, `process::abort`, `process::id`.
 
 ### 1.13 Path (`std::path` vs `sa_std/path.sa`)
@@ -81,7 +98,7 @@ This document provides a 1:1 interface comparison between the current `sa_std` i
 
 ### 1.14 Time & Sync (`std::time`, `std::sync` vs `sa_std/time.sa`, `sa_std/sync/*`)
 *   **Implemented in `sa_std`**: `Instant` / `Unix` timestamps, `Sleep`, `MPSC` channels, `Mutex` (spin), `Once`, `RwLock`, `Arc`, `RefCell` shared/exclusive borrow helpers, and the matching core macros in `sa_std/core/*`.
-*   **Implemented in Deno facade**: `DENO_NOW_MS`, `DENO_NOW_NS`, `DENO_SLEEP_MS`.
+*   **Plugin alternative, not `sa_std`**: Deno facade time helpers live in `sa_plugin_deno` and are not part of compiler std coverage.
 *   **Missing from Rust (Time)**: `duration_since`, `elapsed`, `checked_add/sub`, `subsec_nanos` and rigorous duration arithmetic.
 *   **Missing from Rust (Sync)**: `Condvar`, `Barrier`, Atomic variables (`AtomicI32`, `AtomicBool`, etc.), RAII `MutexGuard`, `PoisonError`.
 

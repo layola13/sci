@@ -22,10 +22,14 @@ L_ENTRY:
     EXPAND VEC_CAPACITY cap2, vec1
     EXPAND VEC_LEN len4, vec1
     EXPAND VEC_IS_EMPTY empty2, vec1
+    EXPAND VEC_RESERVE_EXACT_U64 vec1, 3
+    EXPAND VEC_CAPACITY cap_exact, vec1
     EXPAND VEC_RESERVE_U64 vec1, 5
     EXPAND VEC_CAPACITY cap3, vec1
     EXPAND VEC_PUSH_U64 vec1, 44
     EXPAND VEC_PUSH_U64 vec1, 55
+    EXPAND VEC_TRY_FRONT_U64 front_ok0, front0, vec1
+    EXPAND VEC_TRY_BACK_U64 back_ok0, back0, vec1
     prefix_data = alloc 8
     suffix_data = alloc 8
     miss_prefix_data = alloc 8
@@ -50,6 +54,17 @@ L_ENTRY:
     EXPAND VEC_ENDS_WITH_U64 ends_ok, vec1, suffix
     EXPAND VEC_STARTS_WITH_U64 starts_miss, vec1, miss_prefix
     EXPAND VEC_ENDS_WITH_U64 ends_long_miss, vec1, long_suffix
+    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, vec1, prefix
+    EXPAND VEC_TRY_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, vec1, suffix
+    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, vec1, miss_prefix
+    EXPAND SLICE_GET_LEN strip_prefix_tail_len, strip_prefix_tail
+    EXPAND SLICE_FIRST_U64 strip_prefix_tail_first, strip_prefix_tail
+    EXPAND SLICE_GET_LEN strip_suffix_head_len, strip_suffix_head
+    EXPAND SLICE_FIRST_U64 strip_suffix_head_first, strip_suffix_head
+    EXPAND SLICE_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
+    EXPAND VEC_CLEAR vec1
+    EXPAND VEC_TRY_FRONT_U64 empty_front_ok, empty_front, vec1
+    EXPAND VEC_TRY_BACK_U64 empty_back_ok, empty_back, vec1
     ok_cap0 = eq cap0, 0
     ok_empty0 = eq empty0, 1
     ok_len0 = eq len0, 3
@@ -64,13 +79,30 @@ L_ENTRY:
     ok_cap2 = eq cap2, 4
     ok_len4 = eq len4, 0
     ok_empty2 = eq empty2, 1
+    ok_cap_exact = eq cap_exact, 4
     ok_cap3 = eq cap3, 5
+    ok_front_flag = eq front_ok0, 1
+    ok_front = eq front0, 44
+    ok_back_flag = eq back_ok0, 1
+    ok_back = eq back0, 55
     ok_contains_44 = eq contains_44, 1
     ok_contains_99 = eq contains_99, 0
     ok_starts = eq starts_ok, 1
     ok_ends = eq ends_ok, 1
     ok_starts_miss = eq starts_miss, 0
     ok_ends_long_miss = eq ends_long_miss, 0
+    ok_strip_prefix_flag = eq strip_prefix_ok, 1
+    ok_strip_suffix_flag = eq strip_suffix_ok, 1
+    ok_strip_prefix_miss_flag = eq strip_prefix_miss_ok, 0
+    ok_strip_prefix_tail_len = eq strip_prefix_tail_len, 1
+    ok_strip_prefix_tail_first = eq strip_prefix_tail_first, 55
+    ok_strip_suffix_head_len = eq strip_suffix_head_len, 1
+    ok_strip_suffix_head_first = eq strip_suffix_head_first, 44
+    ok_strip_prefix_miss_empty = eq strip_prefix_miss_empty, 1
+    ok_empty_front_flag = eq empty_front_ok, 0
+    ok_empty_front = eq empty_front, 0
+    ok_empty_back_flag = eq empty_back_ok, 0
+    ok_empty_back = eq empty_back, 0
     ok01 = and ok_cap0, ok_empty0
     ok02 = and ok01, ok_len0
     ok03 = and ok02, ok_cap1
@@ -84,13 +116,30 @@ L_ENTRY:
     ok11 = and ok10, ok_cap2
     ok12 = and ok11, ok_len4
     ok13 = and ok12, ok_empty2
-    ok14 = and ok13, ok_cap3
-    ok15 = and ok14, ok_contains_44
-    ok16 = and ok15, ok_contains_99
-    ok17 = and ok16, ok_starts
-    ok18 = and ok17, ok_ends
-    ok19 = and ok18, ok_starts_miss
-    ok = and ok19, ok_ends_long_miss
+    ok14 = and ok13, ok_cap_exact
+    ok15 = and ok14, ok_cap3
+    ok16 = and ok15, ok_front_flag
+    ok17 = and ok16, ok_front
+    ok18 = and ok17, ok_back_flag
+    ok19 = and ok18, ok_back
+    ok20 = and ok19, ok_contains_44
+    ok21 = and ok20, ok_contains_99
+    ok22 = and ok21, ok_starts
+    ok23 = and ok22, ok_ends
+    ok24 = and ok23, ok_starts_miss
+    ok25 = and ok24, ok_ends_long_miss
+    ok26 = and ok25, ok_strip_prefix_flag
+    ok27 = and ok26, ok_strip_suffix_flag
+    ok28 = and ok27, ok_strip_prefix_miss_flag
+    ok29 = and ok28, ok_strip_prefix_tail_len
+    ok30 = and ok29, ok_strip_prefix_tail_first
+    ok31 = and ok30, ok_strip_suffix_head_len
+    ok32 = and ok31, ok_strip_suffix_head_first
+    ok33 = and ok32, ok_strip_prefix_miss_empty
+    ok34 = and ok33, ok_empty_front_flag
+    ok35 = and ok34, ok_empty_front
+    ok36 = and ok35, ok_empty_back_flag
+    ok = and ok36, ok_empty_back
     !cap0
     !empty0
     !len0
@@ -105,13 +154,33 @@ L_ENTRY:
     !cap2
     !len4
     !empty2
+    !cap_exact
     !cap3
+    !front_ok0
+    !front0
+    !back_ok0
+    !back0
     !contains_44
     !contains_99
     !starts_ok
     !ends_ok
     !starts_miss
     !ends_long_miss
+    !strip_prefix_ok
+    !strip_prefix_tail
+    !strip_suffix_ok
+    !strip_suffix_head
+    !strip_prefix_miss_ok
+    !strip_prefix_miss
+    !strip_prefix_tail_len
+    !strip_prefix_tail_first
+    !strip_suffix_head_len
+    !strip_suffix_head_first
+    !strip_prefix_miss_empty
+    !empty_front_ok
+    !empty_front
+    !empty_back_ok
+    !empty_back
     !ok_cap0
     !ok_empty0
     !ok_len0
@@ -126,13 +195,30 @@ L_ENTRY:
     !ok_cap2
     !ok_len4
     !ok_empty2
+    !ok_cap_exact
     !ok_cap3
+    !ok_front_flag
+    !ok_front
+    !ok_back_flag
+    !ok_back
     !ok_contains_44
     !ok_contains_99
     !ok_starts
     !ok_ends
     !ok_starts_miss
     !ok_ends_long_miss
+    !ok_strip_prefix_flag
+    !ok_strip_suffix_flag
+    !ok_strip_prefix_miss_flag
+    !ok_strip_prefix_tail_len
+    !ok_strip_prefix_tail_first
+    !ok_strip_suffix_head_len
+    !ok_strip_suffix_head_first
+    !ok_strip_prefix_miss_empty
+    !ok_empty_front_flag
+    !ok_empty_front
+    !ok_empty_back_flag
+    !ok_empty_back
     !ok01
     !ok02
     !ok03
@@ -152,6 +238,23 @@ L_ENTRY:
     !ok17
     !ok18
     !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
     !prefix
     !suffix
     !miss_prefix

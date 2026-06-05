@@ -309,6 +309,35 @@ L_ENTRY:
     !map
     return cap
 
+@export sa_map_reserve(&map: ptr, additional: u64) -> void:
+L_ENTRY:
+    len = load map+HashMap_len as u64
+    cap = load map+HashMap_cap as u64
+    needed = add len, additional
+    has_room = uge cap, needed
+    br has_room -> L_RESERVE_DONE, L_RESERVE_GROW
+
+L_RESERVE_GROW:
+    next_cap = call @map_next_capacity(needed)
+    call @map_rehash(&map, next_cap)
+    !next_cap
+    !has_room
+    !needed
+    !cap
+    !len
+    !additional
+    !map
+    return
+
+L_RESERVE_DONE:
+    !has_room
+    !needed
+    !cap
+    !len
+    !additional
+    !map
+    return
+
 @export sa_map_is_empty(&map: ptr) -> i32:
 L_ENTRY:
     len = load map+HashMap_len as u64
@@ -631,6 +660,10 @@ L_DEL_MISS_ZERO:
 
 [MACRO] MAP_CAPACITY %out_cap, %map_reg
     %out_cap = call @sa_map_capacity(&%map_reg)
+[END_MACRO]
+
+[MACRO] MAP_RESERVE %map_reg, %additional
+    call @sa_map_reserve(&%map_reg, %additional)
 [END_MACRO]
 
 [MACRO] MAP_IS_EMPTY %out_flag, %map_reg

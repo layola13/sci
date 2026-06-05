@@ -32,6 +32,14 @@ L_ENTRY:
     EXPAND STR_STARTS_WITH starts_miss, word, miss
     EXPAND STRING_ENDS_WITH ends_miss, word, miss
     EXPAND STR_CONTAINS contains_miss, word, miss
+    EXPAND STR_TRY_STRIP_PREFIX strip_prefix_ok, strip_prefix_tail, word, prefix
+    EXPAND STRING_TRY_STRIP_SUFFIX strip_suffix_ok, strip_suffix_head, word, suffix
+    EXPAND STR_TRY_STRIP_PREFIX strip_prefix_miss_ok, strip_prefix_miss, word, miss
+    EXPAND STRING_TRY_STRIP_SUFFIX strip_suffix_miss_ok, strip_suffix_miss, word, miss
+    EXPAND STR_EQ strip_prefix_tail_eq, strip_prefix_tail, suffix
+    EXPAND STR_EQ strip_suffix_head_eq, strip_suffix_head, prefix
+    EXPAND STR_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
+    EXPAND STR_IS_EMPTY strip_suffix_miss_empty, strip_suffix_miss
 
     len_ok = eq len, 4
     ptr_ok = ne as_ptr, 0
@@ -44,6 +52,14 @@ L_ENTRY:
     starts_miss_ok = eq starts_miss, 0
     ends_miss_ok = eq ends_miss, 0
     contains_miss_ok = eq contains_miss, 0
+    strip_prefix_flag_ok = eq strip_prefix_ok, 1
+    strip_suffix_flag_ok = eq strip_suffix_ok, 1
+    strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
+    strip_suffix_miss_flag_ok = eq strip_suffix_miss_ok, 0
+    strip_prefix_tail_ok = eq strip_prefix_tail_eq, 1
+    strip_suffix_head_ok = eq strip_suffix_head_eq, 1
+    strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
+    strip_suffix_miss_empty_ok = eq strip_suffix_miss_empty, 1
     ok01 = and len_ok, ptr_ok
     ok02 = and ok01, bytes_len_ok
     ok03 = and ok02, str_len_ok
@@ -55,7 +71,15 @@ L_ENTRY:
     ok09 = and ok08, contains_empty_match_ok
     ok10 = and ok09, starts_miss_ok
     ok11 = and ok10, ends_miss_ok
-    ok = and ok11, contains_miss_ok
+    ok12 = and ok11, contains_miss_ok
+    ok13 = and ok12, strip_prefix_flag_ok
+    ok14 = and ok13, strip_suffix_flag_ok
+    ok15 = and ok14, strip_prefix_miss_flag_ok
+    ok16 = and ok15, strip_suffix_miss_flag_ok
+    ok17 = and ok16, strip_prefix_tail_ok
+    ok18 = and ok17, strip_suffix_head_ok
+    ok19 = and ok18, strip_prefix_miss_empty_ok
+    ok = and ok19, strip_suffix_miss_empty_ok
     !len
     !as_ptr
     !bytes
@@ -71,6 +95,18 @@ L_ENTRY:
     !starts_miss
     !ends_miss
     !contains_miss
+    !strip_prefix_ok
+    !strip_prefix_tail
+    !strip_suffix_ok
+    !strip_suffix_head
+    !strip_prefix_miss_ok
+    !strip_prefix_miss
+    !strip_suffix_miss_ok
+    !strip_suffix_miss
+    !strip_prefix_tail_eq
+    !strip_suffix_head_eq
+    !strip_prefix_miss_empty
+    !strip_suffix_miss_empty
     !len_ok
     !ptr_ok
     !bytes_len_ok
@@ -82,6 +118,14 @@ L_ENTRY:
     !starts_miss_ok
     !ends_miss_ok
     !contains_miss_ok
+    !strip_prefix_flag_ok
+    !strip_suffix_flag_ok
+    !strip_prefix_miss_flag_ok
+    !strip_suffix_miss_flag_ok
+    !strip_prefix_tail_ok
+    !strip_suffix_head_ok
+    !strip_prefix_miss_empty_ok
+    !strip_suffix_miss_empty_ok
     !ok01
     !ok02
     !ok03
@@ -93,6 +137,14 @@ L_ENTRY:
     !ok09
     !ok10
     !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
     !word
     !prefix
     !suffix
@@ -107,6 +159,340 @@ L_FAIL:
     panic(901)
 
 L_OK:
+    !ok
+    return
+
+@test "sa_std rust parity checked view macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word_s, &WORD, 4
+    EXPAND STR_FROM_PARTS prefix_s, &PREFIX, 2
+    EXPAND STR_FROM_PARTS suffix_s, &SUFFIX, 2
+    EXPAND STR_FROM_PARTS miss_s, &MISS, 2
+    EXPAND STR_TRIM_PREFIX trim_prefix_s, word_s, prefix_s
+    EXPAND STRING_TRIM_SUFFIX trim_suffix_s, word_s, suffix_s
+    EXPAND STR_TRIM_PREFIX trim_prefix_miss_s, word_s, miss_s
+    EXPAND STRING_TRIM_SUFFIX trim_suffix_miss_s, word_s, miss_s
+    EXPAND STR_TRY_SPLIT_AT str_split_ok, str_split_left, str_split_right, word_s, 2
+    EXPAND STRING_TRY_SPLIT_AT str_split_miss_ok, str_split_miss_left, str_split_miss_right, word_s, 9
+    EXPAND STR_EQ trim_prefix_eq, trim_prefix_s, suffix_s
+    EXPAND STR_EQ trim_suffix_eq, trim_suffix_s, prefix_s
+    EXPAND STR_EQ trim_prefix_miss_eq, trim_prefix_miss_s, word_s
+    EXPAND STR_EQ trim_suffix_miss_eq, trim_suffix_miss_s, word_s
+    EXPAND STR_EQ str_split_left_eq, str_split_left, prefix_s
+    EXPAND STR_EQ str_split_right_eq, str_split_right, suffix_s
+    EXPAND STR_IS_EMPTY str_split_miss_left_empty, str_split_miss_left
+    EXPAND STR_IS_EMPTY str_split_miss_right_empty, str_split_miss_right
+
+    data = alloc 24
+    store data+0, 11 as u64
+    store data+8, 22 as u64
+    store data+16, 33 as u64
+    suffix_ptr = ptr_add data, 16
+    miss_data = alloc 8
+    store miss_data+0, 44 as u64
+    slice = alloc Slice_SIZE
+    slice_prefix = alloc Slice_SIZE
+    slice_suffix = alloc Slice_SIZE
+    slice_miss = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, data, 3
+    EXPAND SLICE_NEW slice_prefix, data, 1
+    EXPAND SLICE_NEW slice_suffix, suffix_ptr, 1
+    EXPAND SLICE_NEW slice_miss, miss_data, 1
+    !suffix_ptr
+    EXPAND SLICE_TRIM_PREFIX_U64 slice_trim_prefix, slice, slice_prefix
+    EXPAND SLICE_TRIM_SUFFIX_U64 slice_trim_suffix, slice, slice_suffix
+    EXPAND SLICE_TRIM_PREFIX_U64 slice_trim_prefix_miss, slice, slice_miss
+    EXPAND SLICE_TRY_SPLIT_AT_U64 slice_split_ok, slice_split_left, slice_split_right, slice, 1
+    EXPAND SLICE_TRY_SPLIT_AT_U64 slice_split_miss_ok, slice_split_miss_left, slice_split_miss_right, slice, 9
+    EXPAND SLICE_GET_LEN slice_trim_prefix_len, slice_trim_prefix
+    EXPAND SLICE_FIRST_U64 slice_trim_prefix_first, slice_trim_prefix
+    EXPAND SLICE_GET_LEN slice_trim_suffix_len, slice_trim_suffix
+    EXPAND SLICE_LAST_U64 slice_trim_suffix_last, slice_trim_suffix
+    EXPAND SLICE_GET_LEN slice_trim_prefix_miss_len, slice_trim_prefix_miss
+    EXPAND SLICE_GET_LEN slice_split_left_len, slice_split_left
+    EXPAND SLICE_FIRST_U64 slice_split_left_first, slice_split_left
+    EXPAND SLICE_GET_LEN slice_split_right_len, slice_split_right
+    EXPAND SLICE_FIRST_U64 slice_split_right_first, slice_split_right
+    EXPAND SLICE_IS_EMPTY slice_split_miss_left_empty, slice_split_miss_left
+    EXPAND SLICE_IS_EMPTY slice_split_miss_right_empty, slice_split_miss_right
+
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 44
+    EXPAND VEC_PUSH_U64 vec, 55
+    vec_prefix_data = alloc 8
+    vec_suffix_data = alloc 8
+    vec_miss_data = alloc 8
+    store vec_prefix_data+0, 44 as u64
+    store vec_suffix_data+0, 55 as u64
+    store vec_miss_data+0, 66 as u64
+    vec_prefix = alloc Slice_SIZE
+    vec_suffix = alloc Slice_SIZE
+    vec_miss = alloc Slice_SIZE
+    EXPAND SLICE_NEW vec_prefix, vec_prefix_data, 1
+    EXPAND SLICE_NEW vec_suffix, vec_suffix_data, 1
+    EXPAND SLICE_NEW vec_miss, vec_miss_data, 1
+    EXPAND VEC_TRY_GET_U64 vec_get_ok, vec_get, vec, 1
+    EXPAND VEC_TRY_GET_U64 vec_get_miss_ok, vec_get_miss, vec, 9
+    EXPAND VEC_TRIM_PREFIX_U64 vec_trim_prefix, vec, vec_prefix
+    EXPAND VEC_TRIM_SUFFIX_U64 vec_trim_suffix, vec, vec_suffix
+    EXPAND VEC_TRIM_PREFIX_U64 vec_trim_prefix_miss, vec, vec_miss
+    EXPAND VEC_TRY_SPLIT_AT_U64 vec_split_ok, vec_split_left, vec_split_right, vec, 1
+    EXPAND VEC_TRY_SPLIT_AT_U64 vec_split_miss_ok, vec_split_miss_left, vec_split_miss_right, vec, 9
+    EXPAND SLICE_GET_LEN vec_trim_prefix_len, vec_trim_prefix
+    EXPAND SLICE_FIRST_U64 vec_trim_prefix_first, vec_trim_prefix
+    EXPAND SLICE_GET_LEN vec_trim_suffix_len, vec_trim_suffix
+    EXPAND SLICE_FIRST_U64 vec_trim_suffix_first, vec_trim_suffix
+    EXPAND SLICE_GET_LEN vec_trim_prefix_miss_len, vec_trim_prefix_miss
+    EXPAND SLICE_GET_LEN vec_split_left_len, vec_split_left
+    EXPAND SLICE_FIRST_U64 vec_split_left_first, vec_split_left
+    EXPAND SLICE_GET_LEN vec_split_right_len, vec_split_right
+    EXPAND SLICE_FIRST_U64 vec_split_right_first, vec_split_right
+    EXPAND SLICE_IS_EMPTY vec_split_miss_left_empty, vec_split_miss_left
+    EXPAND SLICE_IS_EMPTY vec_split_miss_right_empty, vec_split_miss_right
+
+    str_trim_prefix_ok = eq trim_prefix_eq, 1
+    str_trim_suffix_ok = eq trim_suffix_eq, 1
+    str_trim_prefix_miss_ok = eq trim_prefix_miss_eq, 1
+    str_trim_suffix_miss_ok = eq trim_suffix_miss_eq, 1
+    str_split_flag_ok = eq str_split_ok, 1
+    str_split_left_ok = eq str_split_left_eq, 1
+    str_split_right_ok = eq str_split_right_eq, 1
+    str_split_miss_flag_ok = eq str_split_miss_ok, 0
+    str_split_miss_left_ok = eq str_split_miss_left_empty, 1
+    str_split_miss_right_ok = eq str_split_miss_right_empty, 1
+    slice_trim_prefix_len_ok = eq slice_trim_prefix_len, 2
+    slice_trim_prefix_first_ok = eq slice_trim_prefix_first, 22
+    slice_trim_suffix_len_ok = eq slice_trim_suffix_len, 2
+    slice_trim_suffix_last_ok = eq slice_trim_suffix_last, 22
+    slice_trim_prefix_miss_len_ok = eq slice_trim_prefix_miss_len, 3
+    slice_split_flag_ok = eq slice_split_ok, 1
+    slice_split_left_len_ok = eq slice_split_left_len, 1
+    slice_split_left_first_ok = eq slice_split_left_first, 11
+    slice_split_right_len_ok = eq slice_split_right_len, 2
+    slice_split_right_first_ok = eq slice_split_right_first, 22
+    slice_split_miss_flag_ok = eq slice_split_miss_ok, 0
+    slice_split_miss_left_ok = eq slice_split_miss_left_empty, 1
+    slice_split_miss_right_ok = eq slice_split_miss_right_empty, 1
+    vec_get_flag_ok = eq vec_get_ok, 1
+    vec_get_value_ok = eq vec_get, 55
+    vec_get_miss_flag_ok = eq vec_get_miss_ok, 0
+    vec_get_miss_value_ok = eq vec_get_miss, 0
+    vec_trim_prefix_len_ok = eq vec_trim_prefix_len, 1
+    vec_trim_prefix_first_ok = eq vec_trim_prefix_first, 55
+    vec_trim_suffix_len_ok = eq vec_trim_suffix_len, 1
+    vec_trim_suffix_first_ok = eq vec_trim_suffix_first, 44
+    vec_trim_prefix_miss_len_ok = eq vec_trim_prefix_miss_len, 2
+    vec_split_flag_ok = eq vec_split_ok, 1
+    vec_split_left_len_ok = eq vec_split_left_len, 1
+    vec_split_left_first_ok = eq vec_split_left_first, 44
+    vec_split_right_len_ok = eq vec_split_right_len, 1
+    vec_split_right_first_ok = eq vec_split_right_first, 55
+    vec_split_miss_flag_ok = eq vec_split_miss_ok, 0
+    vec_split_miss_left_ok = eq vec_split_miss_left_empty, 1
+    vec_split_miss_right_ok = eq vec_split_miss_right_empty, 1
+    ok01 = and str_trim_prefix_ok, str_trim_suffix_ok
+    ok02 = and ok01, str_trim_prefix_miss_ok
+    ok03 = and ok02, str_trim_suffix_miss_ok
+    ok04 = and ok03, str_split_flag_ok
+    ok05 = and ok04, str_split_left_ok
+    ok06 = and ok05, str_split_right_ok
+    ok07 = and ok06, str_split_miss_flag_ok
+    ok08 = and ok07, str_split_miss_left_ok
+    ok09 = and ok08, str_split_miss_right_ok
+    ok10 = and ok09, slice_trim_prefix_len_ok
+    ok11 = and ok10, slice_trim_prefix_first_ok
+    ok12 = and ok11, slice_trim_suffix_len_ok
+    ok13 = and ok12, slice_trim_suffix_last_ok
+    ok14 = and ok13, slice_trim_prefix_miss_len_ok
+    ok15 = and ok14, slice_split_flag_ok
+    ok16 = and ok15, slice_split_left_len_ok
+    ok17 = and ok16, slice_split_left_first_ok
+    ok18 = and ok17, slice_split_right_len_ok
+    ok19 = and ok18, slice_split_right_first_ok
+    ok20 = and ok19, slice_split_miss_flag_ok
+    ok21 = and ok20, slice_split_miss_left_ok
+    ok22 = and ok21, slice_split_miss_right_ok
+    ok23 = and ok22, vec_get_flag_ok
+    ok24 = and ok23, vec_get_value_ok
+    ok25 = and ok24, vec_get_miss_flag_ok
+    ok26 = and ok25, vec_get_miss_value_ok
+    ok27 = and ok26, vec_trim_prefix_len_ok
+    ok28 = and ok27, vec_trim_prefix_first_ok
+    ok29 = and ok28, vec_trim_suffix_len_ok
+    ok30 = and ok29, vec_trim_suffix_first_ok
+    ok31 = and ok30, vec_trim_prefix_miss_len_ok
+    ok32 = and ok31, vec_split_flag_ok
+    ok33 = and ok32, vec_split_left_len_ok
+    ok34 = and ok33, vec_split_left_first_ok
+    ok35 = and ok34, vec_split_right_len_ok
+    ok36 = and ok35, vec_split_right_first_ok
+    ok37 = and ok36, vec_split_miss_flag_ok
+    ok38 = and ok37, vec_split_miss_left_ok
+    ok = and ok38, vec_split_miss_right_ok
+    !word_s
+    !prefix_s
+    !suffix_s
+    !miss_s
+    !trim_prefix_s
+    !trim_suffix_s
+    !trim_prefix_miss_s
+    !trim_suffix_miss_s
+    !str_split_ok
+    !str_split_left
+    !str_split_right
+    !str_split_miss_ok
+    !str_split_miss_left
+    !str_split_miss_right
+    !trim_prefix_eq
+    !trim_suffix_eq
+    !trim_prefix_miss_eq
+    !trim_suffix_miss_eq
+    !str_split_left_eq
+    !str_split_right_eq
+    !str_split_miss_left_empty
+    !str_split_miss_right_empty
+    !data
+    !miss_data
+    !slice
+    !slice_prefix
+    !slice_suffix
+    !slice_miss
+    !slice_trim_prefix
+    !slice_trim_suffix
+    !slice_trim_prefix_miss
+    !slice_split_ok
+    !slice_split_left
+    !slice_split_right
+    !slice_split_miss_ok
+    !slice_split_miss_left
+    !slice_split_miss_right
+    !slice_trim_prefix_len
+    !slice_trim_prefix_first
+    !slice_trim_suffix_len
+    !slice_trim_suffix_last
+    !slice_trim_prefix_miss_len
+    !slice_split_left_len
+    !slice_split_left_first
+    !slice_split_right_len
+    !slice_split_right_first
+    !slice_split_miss_left_empty
+    !slice_split_miss_right_empty
+    !vec_get_ok
+    !vec_get
+    !vec_get_miss_ok
+    !vec_get_miss
+    !vec_trim_prefix
+    !vec_trim_suffix
+    !vec_trim_prefix_miss
+    !vec_split_ok
+    !vec_split_left
+    !vec_split_right
+    !vec_split_miss_ok
+    !vec_split_miss_left
+    !vec_split_miss_right
+    !vec_trim_prefix_len
+    !vec_trim_prefix_first
+    !vec_trim_suffix_len
+    !vec_trim_suffix_first
+    !vec_trim_prefix_miss_len
+    !vec_split_left_len
+    !vec_split_left_first
+    !vec_split_right_len
+    !vec_split_right_first
+    !vec_split_miss_left_empty
+    !vec_split_miss_right_empty
+    !str_trim_prefix_ok
+    !str_trim_suffix_ok
+    !str_trim_prefix_miss_ok
+    !str_trim_suffix_miss_ok
+    !str_split_flag_ok
+    !str_split_left_ok
+    !str_split_right_ok
+    !str_split_miss_flag_ok
+    !str_split_miss_left_ok
+    !str_split_miss_right_ok
+    !slice_trim_prefix_len_ok
+    !slice_trim_prefix_first_ok
+    !slice_trim_suffix_len_ok
+    !slice_trim_suffix_last_ok
+    !slice_trim_prefix_miss_len_ok
+    !slice_split_flag_ok
+    !slice_split_left_len_ok
+    !slice_split_left_first_ok
+    !slice_split_right_len_ok
+    !slice_split_right_first_ok
+    !slice_split_miss_flag_ok
+    !slice_split_miss_left_ok
+    !slice_split_miss_right_ok
+    !vec_get_flag_ok
+    !vec_get_value_ok
+    !vec_get_miss_flag_ok
+    !vec_get_miss_value_ok
+    !vec_trim_prefix_len_ok
+    !vec_trim_prefix_first_ok
+    !vec_trim_suffix_len_ok
+    !vec_trim_suffix_first_ok
+    !vec_trim_prefix_miss_len_ok
+    !vec_split_flag_ok
+    !vec_split_left_len_ok
+    !vec_split_left_first_ok
+    !vec_split_right_len_ok
+    !vec_split_right_first_ok
+    !vec_split_miss_flag_ok
+    !vec_split_miss_left_ok
+    !vec_split_miss_right_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !vec_prefix
+    !vec_suffix
+    !vec_miss
+    !vec_prefix_data
+    !vec_suffix_data
+    !vec_miss_data
+    EXPAND VEC_FREE vec
+    br ok -> L_PARITY_OK, L_PARITY_FAIL
+
+L_PARITY_FAIL:
+    !ok
+    panic(905)
+
+L_PARITY_OK:
     !ok
     return
 
@@ -133,34 +519,61 @@ L_ENTRY:
     EXPAND SLICE_NEW suffix, suffix_data, 1
     EXPAND SLICE_NEW miss_prefix, miss_prefix_data, 1
     EXPAND SLICE_NEW long_suffix, long_suffix_data, 3
+    EXPAND VEC_RESERVE_EXACT_U64 vec, 4
+    EXPAND VEC_CAPACITY cap_exact, vec
     EXPAND VEC_RESERVE_U64 vec, 5
     EXPAND VEC_CAPACITY cap, vec
     EXPAND VEC_GET_U64 got, vec, 1
     EXPAND VEC_FRONT front, vec
     EXPAND VEC_BACK back, vec
+    EXPAND VEC_TRY_FRONT_U64 front_try_ok, front_try, vec
+    EXPAND VEC_TRY_BACK_U64 back_try_ok, back_try, vec
     EXPAND VEC_CONTAINS_U64 contains_55, vec, 55
     EXPAND VEC_CONTAINS_U64 contains_99, vec, 99
     EXPAND VEC_STARTS_WITH_U64 starts_ok, vec, prefix
     EXPAND VEC_ENDS_WITH_U64 ends_ok, vec, suffix
     EXPAND VEC_STARTS_WITH_U64 starts_miss, vec, miss_prefix
     EXPAND VEC_ENDS_WITH_U64 ends_long_miss, vec, long_suffix
+    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, vec, prefix
+    EXPAND VEC_TRY_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, vec, suffix
+    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, vec, miss_prefix
+    EXPAND SLICE_GET_LEN strip_prefix_tail_len, strip_prefix_tail
+    EXPAND SLICE_FIRST_U64 strip_prefix_tail_first, strip_prefix_tail
+    EXPAND SLICE_GET_LEN strip_suffix_head_len, strip_suffix_head
+    EXPAND SLICE_FIRST_U64 strip_suffix_head_first, strip_suffix_head
+    EXPAND SLICE_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
     EXPAND VEC_TRY_POP_U64 pop_ok, popped, vec
     EXPAND VEC_AS_PTR data_ptr, vec
     EXPAND VEC_AS_SLICE slice, vec
     EXPAND SLICE_GET_LEN slice_len, slice
     EXPAND VEC_POP_U64 pop2_ok, popped2, vec
     EXPAND VEC_LEN len, vec
+    EXPAND VEC_TRY_FRONT_U64 empty_front_ok, empty_front, vec
+    EXPAND VEC_TRY_BACK_U64 empty_back_ok, empty_back, vec
 
     got_ok = eq got, 55
+    cap_exact_ok = eq cap_exact, 6
     cap_ok = eq cap, 7
     front_ok = eq front, 44
     back_ok = eq back, 55
+    front_try_flag_ok = eq front_try_ok, 1
+    front_try_value_ok = eq front_try, 44
+    back_try_flag_ok = eq back_try_ok, 1
+    back_try_value_ok = eq back_try, 55
     contains_55_ok = eq contains_55, 1
     contains_99_ok = eq contains_99, 0
     starts_match_ok = eq starts_ok, 1
     ends_match_ok = eq ends_ok, 1
     starts_miss_ok = eq starts_miss, 0
     ends_long_miss_ok = eq ends_long_miss, 0
+    strip_prefix_flag_ok = eq strip_prefix_ok, 1
+    strip_suffix_flag_ok = eq strip_suffix_ok, 1
+    strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
+    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 1
+    strip_prefix_tail_first_ok = eq strip_prefix_tail_first, 55
+    strip_suffix_head_len_ok = eq strip_suffix_head_len, 1
+    strip_suffix_head_first_ok = eq strip_suffix_head_first, 44
+    strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
     pop_ok_flag = eq pop_ok, 1
     pop_ok_value = eq popped, 55
     ptr_ok = ne data_ptr, 0
@@ -168,32 +581,69 @@ L_ENTRY:
     pop2_ok_flag = eq pop2_ok, 1
     pop2_ok_value = eq popped2, 44
     len_ok = eq len, 0
-    ok01 = and got_ok, cap_ok
-    ok02 = and ok01, front_ok
-    ok03 = and ok02, back_ok
-    ok04 = and ok03, contains_55_ok
-    ok05 = and ok04, contains_99_ok
+    empty_front_flag_ok = eq empty_front_ok, 0
+    empty_front_value_ok = eq empty_front, 0
+    empty_back_flag_ok = eq empty_back_ok, 0
+    empty_back_value_ok = eq empty_back, 0
+    ok01 = and got_ok, cap_exact_ok
+    ok02 = and ok01, cap_ok
+    ok03 = and ok02, front_ok
+    ok04 = and ok03, back_ok
+    ok05 = and ok04, front_try_flag_ok
+    ok06 = and ok05, front_try_value_ok
+    ok07 = and ok06, back_try_flag_ok
+    ok08 = and ok07, back_try_value_ok
+    ok09 = and ok08, contains_55_ok
+    ok10 = and ok09, contains_99_ok
     pattern01 = and starts_match_ok, ends_match_ok
     pattern02 = and pattern01, starts_miss_ok
     pattern_ok = and pattern02, ends_long_miss_ok
-    ok06 = and ok05, pattern_ok
-    ok07 = and ok06, pop_ok_flag
-    ok08 = and ok07, pop_ok_value
-    ok09 = and ok08, ptr_ok
-    ok10 = and ok09, slice_len_ok
-    ok11 = and ok10, pop2_ok_flag
-    ok12 = and ok11, pop2_ok_value
-    ok = and ok12, len_ok
+    strip01 = and strip_prefix_flag_ok, strip_suffix_flag_ok
+    strip02 = and strip01, strip_prefix_miss_flag_ok
+    strip03 = and strip02, strip_prefix_tail_len_ok
+    strip04 = and strip03, strip_prefix_tail_first_ok
+    strip05 = and strip04, strip_suffix_head_len_ok
+    strip06 = and strip05, strip_suffix_head_first_ok
+    strip_ok = and strip06, strip_prefix_miss_empty_ok
+    ok11 = and ok10, pattern_ok
+    ok12 = and ok11, strip_ok
+    ok13 = and ok12, pop_ok_flag
+    ok14 = and ok13, pop_ok_value
+    ok15 = and ok14, ptr_ok
+    ok16 = and ok15, slice_len_ok
+    ok17 = and ok16, pop2_ok_flag
+    ok18 = and ok17, pop2_ok_value
+    ok19 = and ok18, len_ok
+    ok20 = and ok19, empty_front_flag_ok
+    ok21 = and ok20, empty_front_value_ok
+    ok22 = and ok21, empty_back_flag_ok
+    ok = and ok22, empty_back_value_ok
     !got
+    !cap_exact
     !cap
     !front
     !back
+    !front_try_ok
+    !front_try
+    !back_try_ok
+    !back_try
     !contains_55
     !contains_99
     !starts_ok
     !ends_ok
     !starts_miss
     !ends_long_miss
+    !strip_prefix_ok
+    !strip_prefix_tail
+    !strip_suffix_ok
+    !strip_suffix_head
+    !strip_prefix_miss_ok
+    !strip_prefix_miss
+    !strip_prefix_tail_len
+    !strip_prefix_tail_first
+    !strip_suffix_head_len
+    !strip_suffix_head_first
+    !strip_prefix_miss_empty
     !pop_ok
     !popped
     !data_ptr
@@ -202,16 +652,33 @@ L_ENTRY:
     !pop2_ok
     !popped2
     !len
+    !empty_front_ok
+    !empty_front
+    !empty_back_ok
+    !empty_back
     !got_ok
+    !cap_exact_ok
     !cap_ok
     !front_ok
     !back_ok
+    !front_try_flag_ok
+    !front_try_value_ok
+    !back_try_flag_ok
+    !back_try_value_ok
     !contains_55_ok
     !contains_99_ok
     !starts_match_ok
     !ends_match_ok
     !starts_miss_ok
     !ends_long_miss_ok
+    !strip_prefix_flag_ok
+    !strip_suffix_flag_ok
+    !strip_prefix_miss_flag_ok
+    !strip_prefix_tail_len_ok
+    !strip_prefix_tail_first_ok
+    !strip_suffix_head_len_ok
+    !strip_suffix_head_first_ok
+    !strip_prefix_miss_empty_ok
     !pop_ok_flag
     !pop_ok_value
     !ptr_ok
@@ -219,6 +686,10 @@ L_ENTRY:
     !pop2_ok_flag
     !pop2_ok_value
     !len_ok
+    !empty_front_flag_ok
+    !empty_front_value_ok
+    !empty_back_flag_ok
+    !empty_back_value_ok
     !ok01
     !ok02
     !ok03
@@ -231,9 +702,26 @@ L_ENTRY:
     !ok10
     !ok11
     !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
     !pattern01
     !pattern02
     !pattern_ok
+    !strip01
+    !strip02
+    !strip03
+    !strip04
+    !strip05
+    !strip06
+    !strip_ok
     !prefix
     !suffix
     !miss_prefix
@@ -297,6 +785,14 @@ L_ENTRY:
     EXPAND SLICE_ENDS_WITH_U64 ends_empty_ok, slice, empty_slice
     EXPAND SLICE_STARTS_WITH_U64 starts_miss, slice, miss_prefix_slice
     EXPAND SLICE_ENDS_WITH_U64 ends_long_miss, slice, long_suffix_slice
+    EXPAND SLICE_TRY_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, slice, prefix_slice
+    EXPAND SLICE_TRY_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, slice, suffix_slice
+    EXPAND SLICE_TRY_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, slice, miss_prefix_slice
+    EXPAND SLICE_GET_LEN strip_prefix_tail_len, strip_prefix_tail
+    EXPAND SLICE_FIRST_U64 strip_prefix_tail_first, strip_prefix_tail
+    EXPAND SLICE_GET_LEN strip_suffix_head_len, strip_suffix_head
+    EXPAND SLICE_FIRST_U64 strip_suffix_head_first, strip_suffix_head
+    EXPAND SLICE_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
     EXPAND SLICE_TRY_FIRST_U64 empty_first_ok, empty_first, empty_slice
     EXPAND SLICE_TRY_LAST_U64 empty_last_ok, empty_last, empty_slice
 
@@ -320,6 +816,14 @@ L_ENTRY:
     ends_empty_match_ok = eq ends_empty_ok, 1
     starts_miss_ok = eq starts_miss, 0
     ends_long_miss_ok = eq ends_long_miss, 0
+    strip_prefix_flag_ok = eq strip_prefix_ok, 1
+    strip_suffix_flag_ok = eq strip_suffix_ok, 1
+    strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
+    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 1
+    strip_prefix_tail_first_ok = eq strip_prefix_tail_first, 33
+    strip_suffix_head_len_ok = eq strip_suffix_head_len, 1
+    strip_suffix_head_first_ok = eq strip_suffix_head_first, 11
+    strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
     empty_first_flag_ok = eq empty_first_ok, 0
     empty_first_value_ok = eq empty_first, 0
     empty_last_flag_ok = eq empty_last_ok, 0
@@ -343,10 +847,18 @@ L_ENTRY:
     ok17 = and ok16, ends_empty_match_ok
     ok18 = and ok17, starts_miss_ok
     ok19 = and ok18, ends_long_miss_ok
-    ok20 = and ok19, empty_first_flag_ok
-    ok21 = and ok20, empty_first_value_ok
-    ok22 = and ok21, empty_last_flag_ok
-    ok = and ok22, empty_last_value_ok
+    ok20 = and ok19, strip_prefix_flag_ok
+    ok21 = and ok20, strip_suffix_flag_ok
+    ok22 = and ok21, strip_prefix_miss_flag_ok
+    ok23 = and ok22, strip_prefix_tail_len_ok
+    ok24 = and ok23, strip_prefix_tail_first_ok
+    ok25 = and ok24, strip_suffix_head_len_ok
+    ok26 = and ok25, strip_suffix_head_first_ok
+    ok27 = and ok26, strip_prefix_miss_empty_ok
+    ok28 = and ok27, empty_first_flag_ok
+    ok29 = and ok28, empty_first_value_ok
+    ok30 = and ok29, empty_last_flag_ok
+    ok = and ok30, empty_last_value_ok
     !ptr
     !empty
     !first
@@ -367,6 +879,17 @@ L_ENTRY:
     !ends_empty_ok
     !starts_miss
     !ends_long_miss
+    !strip_prefix_ok
+    !strip_prefix_tail
+    !strip_suffix_ok
+    !strip_suffix_head
+    !strip_prefix_miss_ok
+    !strip_prefix_miss
+    !strip_prefix_tail_len
+    !strip_prefix_tail_first
+    !strip_suffix_head_len
+    !strip_suffix_head_first
+    !strip_prefix_miss_empty
     !empty_first_ok
     !empty_first
     !empty_last_ok
@@ -391,6 +914,14 @@ L_ENTRY:
     !ends_empty_match_ok
     !starts_miss_ok
     !ends_long_miss_ok
+    !strip_prefix_flag_ok
+    !strip_suffix_flag_ok
+    !strip_prefix_miss_flag_ok
+    !strip_prefix_tail_len_ok
+    !strip_prefix_tail_first_ok
+    !strip_suffix_head_len_ok
+    !strip_suffix_head_first_ok
+    !strip_prefix_miss_empty_ok
     !empty_first_flag_ok
     !empty_first_value_ok
     !empty_last_flag_ok
@@ -417,6 +948,14 @@ L_ENTRY:
     !ok20
     !ok21
     !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
     !long_suffix_slice
     !miss_prefix_slice
     !suffix_slice

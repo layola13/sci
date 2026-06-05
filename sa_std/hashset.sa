@@ -8,6 +8,12 @@ L_ENTRY:
     set = call @sa_map_new()
     return set
 
+@export sa_set_with_capacity(cap: u64) -> ^ptr:
+L_ENTRY:
+    set = call @sa_map_with_capacity(cap)
+    !cap
+    return set
+
 @export sa_set_len(&set: ptr) -> u64:
 L_ENTRY:
     len = load set+HashSet_len as u64
@@ -19,6 +25,13 @@ L_ENTRY:
     cap = load set+HashSet_cap as u64
     !set
     return cap
+
+@export sa_set_reserve(&set: ptr, additional: u64) -> void:
+L_ENTRY:
+    call @sa_map_reserve(&set, additional)
+    !additional
+    !set
+    return
 
 @export sa_set_is_empty(&set: ptr) -> i32:
 L_ENTRY:
@@ -83,12 +96,20 @@ L_ENTRY:
     %out_set = call @sa_set_new()
 [END_MACRO]
 
+[MACRO] SET_WITH_CAPACITY %out_set, %cap
+    %out_set = call @sa_set_with_capacity(%cap)
+[END_MACRO]
+
 [MACRO] SET_LEN %out_len, %set_reg
     %out_len = call @sa_set_len(&%set_reg)
 [END_MACRO]
 
 [MACRO] SET_CAPACITY %out_cap, %set_reg
     %out_cap = call @sa_set_capacity(&%set_reg)
+[END_MACRO]
+
+[MACRO] SET_RESERVE %set_reg, %additional
+    call @sa_set_reserve(&%set_reg, %additional)
 [END_MACRO]
 
 [MACRO] SET_IS_EMPTY %out_flag, %set_reg

@@ -30,6 +30,11 @@ test "sa_std core primitives are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_CONTAINS_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_STARTS_WITH_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_ENDS_WITH_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_STRIP_PREFIX_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_STRIP_SUFFIX_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRIM_PREFIX_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRIM_SUFFIX_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_SPLIT_AT_U64"));
 
     var slice_flat = try saasm.flattener.flatten(std.testing.allocator, slice_src);
     defer slice_flat.deinit(std.testing.allocator);
@@ -60,6 +65,25 @@ test "sa_std core primitives are concrete and verifiable" {
         \\    EXPAND SLICE_TRY_GET_U64 miss_ok, miss, slice, 9
         \\    EXPAND SLICE_CONTAINS_U64 contains_22, slice, 22
         \\    EXPAND SLICE_CONTAINS_U64 contains_44, slice, 44
+        \\    suffix_ptr = ptr_add data, 8
+        \\    miss_prefix_data = alloc 16
+        \\    store miss_prefix_data+0, 11 as u64
+        \\    store miss_prefix_data+8, 44 as u64
+        \\    prefix_slice = alloc Slice_SIZE
+        \\    suffix_slice = alloc Slice_SIZE
+        \\    miss_prefix_slice = alloc Slice_SIZE
+        \\    EXPAND SLICE_NEW prefix_slice, data, 2
+        \\    EXPAND SLICE_NEW suffix_slice, suffix_ptr, 2
+        \\    EXPAND SLICE_NEW miss_prefix_slice, miss_prefix_data, 2
+        \\    !suffix_ptr
+        \\    EXPAND SLICE_TRY_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, slice, prefix_slice
+        \\    EXPAND SLICE_TRY_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, slice, suffix_slice
+        \\    EXPAND SLICE_TRY_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, slice, miss_prefix_slice
+        \\    EXPAND SLICE_GET_LEN strip_prefix_tail_len, strip_prefix_tail
+        \\    EXPAND SLICE_FIRST_U64 strip_prefix_tail_first, strip_prefix_tail
+        \\    EXPAND SLICE_GET_LEN strip_suffix_head_len, strip_suffix_head
+        \\    EXPAND SLICE_FIRST_U64 strip_suffix_head_first, strip_suffix_head
+        \\    EXPAND SLICE_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
         \\    EXPAND SLICE_TRY_FIRST_U64 empty_first_ok, empty_first, empty_slice
         \\    EXPAND SLICE_TRY_LAST_U64 empty_last_ok, empty_last, empty_slice
         \\    ptr_ok = ne ptr, 0
@@ -76,6 +100,14 @@ test "sa_std core primitives are concrete and verifiable" {
         \\    miss_value_ok = eq miss, 0
         \\    contains_22_ok = eq contains_22, 1
         \\    contains_44_ok = eq contains_44, 0
+        \\    strip_prefix_flag_ok = eq strip_prefix_ok, 1
+        \\    strip_suffix_flag_ok = eq strip_suffix_ok, 1
+        \\    strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
+        \\    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 1
+        \\    strip_prefix_tail_first_ok = eq strip_prefix_tail_first, 33
+        \\    strip_suffix_head_len_ok = eq strip_suffix_head_len, 1
+        \\    strip_suffix_head_first_ok = eq strip_suffix_head_first, 11
+        \\    strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
         \\    empty_first_flag_ok = eq empty_first_ok, 0
         \\    empty_first_value_ok = eq empty_first, 0
         \\    empty_last_flag_ok = eq empty_last_ok, 0
@@ -93,10 +125,18 @@ test "sa_std core primitives are concrete and verifiable" {
         \\    ok11 = and ok10, miss_value_ok
         \\    ok12 = and ok11, contains_22_ok
         \\    ok13 = and ok12, contains_44_ok
-        \\    ok14 = and ok13, empty_first_flag_ok
-        \\    ok15 = and ok14, empty_first_value_ok
-        \\    ok16 = and ok15, empty_last_flag_ok
-        \\    ok = and ok16, empty_last_value_ok
+        \\    ok14 = and ok13, strip_prefix_flag_ok
+        \\    ok15 = and ok14, strip_suffix_flag_ok
+        \\    ok16 = and ok15, strip_prefix_miss_flag_ok
+        \\    ok17 = and ok16, strip_prefix_tail_len_ok
+        \\    ok18 = and ok17, strip_prefix_tail_first_ok
+        \\    ok19 = and ok18, strip_suffix_head_len_ok
+        \\    ok20 = and ok19, strip_suffix_head_first_ok
+        \\    ok21 = and ok20, strip_prefix_miss_empty_ok
+        \\    ok22 = and ok21, empty_first_flag_ok
+        \\    ok23 = and ok22, empty_first_value_ok
+        \\    ok24 = and ok23, empty_last_flag_ok
+        \\    ok = and ok24, empty_last_value_ok
         \\    !ptr
         \\    !empty
         \\    !first
@@ -111,6 +151,17 @@ test "sa_std core primitives are concrete and verifiable" {
         \\    !miss
         \\    !contains_22
         \\    !contains_44
+        \\    !strip_prefix_ok
+        \\    !strip_prefix_tail
+        \\    !strip_suffix_ok
+        \\    !strip_suffix_head
+        \\    !strip_prefix_miss_ok
+        \\    !strip_prefix_miss
+        \\    !strip_prefix_tail_len
+        \\    !strip_prefix_tail_first
+        \\    !strip_suffix_head_len
+        \\    !strip_suffix_head_first
+        \\    !strip_prefix_miss_empty
         \\    !empty_first_ok
         \\    !empty_first
         \\    !empty_last_ok
@@ -129,6 +180,14 @@ test "sa_std core primitives are concrete and verifiable" {
         \\    !miss_value_ok
         \\    !contains_22_ok
         \\    !contains_44_ok
+        \\    !strip_prefix_flag_ok
+        \\    !strip_suffix_flag_ok
+        \\    !strip_prefix_miss_flag_ok
+        \\    !strip_prefix_tail_len_ok
+        \\    !strip_prefix_tail_first_ok
+        \\    !strip_suffix_head_len_ok
+        \\    !strip_suffix_head_first_ok
+        \\    !strip_prefix_miss_empty_ok
         \\    !empty_first_flag_ok
         \\    !empty_first_value_ok
         \\    !empty_last_flag_ok
@@ -149,6 +208,18 @@ test "sa_std core primitives are concrete and verifiable" {
         \\    !ok14
         \\    !ok15
         \\    !ok16
+        \\    !ok17
+        \\    !ok18
+        \\    !ok19
+        \\    !ok20
+        \\    !ok21
+        \\    !ok22
+        \\    !ok23
+        \\    !ok24
+        \\    !miss_prefix_slice
+        \\    !suffix_slice
+        \\    !prefix_slice
+        \\    !miss_prefix_data
         \\    !empty_slice
         \\    !slice
         \\    !data
@@ -263,136 +334,6 @@ test "sa_std io and process interfaces match native resource ABI" {
     var buf_writer_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buf_writer.sa", buf_writer_src);
     defer buf_writer_flat.deinit(std.testing.allocator);
     try std.testing.expect(buf_writer_flat.function_sigs.len > 0);
-}
-
-test "sa_std Deno compatibility facade covers HubProxy porting surface" {
-    const deno_sai = try common.readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sai");
-    defer std.testing.allocator.free(deno_sai);
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_cwd"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_env_set"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_random_uuid"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_args_json"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_btoa"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_atob"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_text_encode"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_text_decode"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_chat_sse_to_responses"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_chat_json_to_responses"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_responses_sse_normalize"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_responses_request_normalize"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_responses_chat_fallback_request"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_jsonrpc_params_string_literal"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_version_json"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_build_json"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_version_deno"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_build_os"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_build_platform_family"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_deno_plugin_date_now_iso"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "DENO_HTTP_METHOD_POST"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_req_send"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_resp_get_header"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_client_resp_body_slice"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_req_get_method"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_set_content_type"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_stream_write"));
-
-    const deno_src = try common.readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
-    defer std.testing.allocator.free(deno_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ARGS_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ENV_GET"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ENV_SET"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CWD"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RANDOM_UUID"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CRYPTO_RANDOM_UUID"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BTOA"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ATOB"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_TEXT_ENCODE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_TEXT_DECODE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_NEW_TEXT_ENCODER_ENCODE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_NEW_TEXT_DECODER_DECODE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CHAT_SSE_TO_RESPONSES"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSES_SSE_NORMALIZE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSES_REQUEST_NORMALIZE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_VERSION_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_VERSION_DENO"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BUILD_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BUILD_OS"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_BUILD_PLATFORM_FAMILY"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_DATE_NOW_ISO"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_DATE_TO_ISO_STRING"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_PARSE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_PARSE_TEXT"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_STRINGIFY"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_STRINGIFY_NODE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_BUFFER_SLICE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_BUFFER_FREE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSON_FREE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_FREE_BUFFER"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STDOUT_WRITE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STDERR_WRITE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_TEXT_FILE_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_TEXT_FILE_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_FILE_BASE64"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_WRITE_FILE_BASE64"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MKDIR_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_SYNC_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_READ_DIR_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_SYNC_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LSTAT_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STAT_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STAT_SYNC_JSON"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STAT"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_STAT_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_DIR"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_DIR_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_FILE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_MAKE_TEMP_FILE_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_REMOVE_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COPY_FILE_SYNC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_RUN"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_EXEC"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_SPAWN_STREAM"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_COMMAND_READ_STDOUT"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_NOW_MS"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_LISTEN_TCP"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_CONNECT_TCP"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_CLIENT_NEW"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_REQUEST_NEW"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_REQUEST_SEND"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_RESPONSE_GET_HEADER"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_RESPONSE_BODY_SLICE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HTTP_RESPONSE_READ_CHUNK"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_NEW"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_REQUEST_METHOD"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_RESPONSE_SET_CONTENT_TYPE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_STREAM_WRITE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_FETCH_CLIENT_NEW"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_FETCH_SEND"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HEADERS_APPEND"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HEADERS_GET"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_HEADERS_HAS"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_REQUEST_SET_BODY"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_REQUEST_SEND"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_REQUEST_FREE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSE_STATUS"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSE_TEXT"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSE_JSON_PARSE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_RESPONSES_CHAT_FALLBACK_REQUEST"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_JSONRPC_PARAMS_STRING_LITERAL"));
-
-    var deno_flat = try flattenFixture(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal", deno_src);
-    defer deno_flat.deinit(std.testing.allocator);
-    try std.testing.expect(deno_flat.function_sigs.len >= 60);
 }
 
 test "sa_std Deno JSON-RPC params string literal preserves escaped strings" {
@@ -1231,51 +1172,6 @@ test "sa_std Deno responses chat fallback request builds chat body from Response
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno responses chat fallback request ok\n", run_result.stdout);
-}
-
-extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-extern "c" fn unsetenv(name: [*:0]const u8) c_int;
-
-test "sa_std Deno response text facade links through installed HTTP plugin" {
-    const env_name = "SA_PLUGINS_HOME";
-    const env_val = "/home/vscode/.local/share/sa_plugins";
-    if (setenv(env_name, env_val, 1) != 0) return error.SetEnvFailed;
-    defer _ = unsetenv(env_name);
-
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    const deno_sal = try common.readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
-    defer std.testing.allocator.free(deno_sal);
-    const deno_sai = try common.readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sai");
-    defer std.testing.allocator.free(deno_sai);
-
-    try common.writeSource(tmp.dir, "deno.sal", deno_sal);
-    try common.writeSource(tmp.dir, "deno.sai", deno_sai);
-
-    const source =
-        \\@import "deno.sal"
-        \\
-        \\@main() -> i32:
-        \\L_ENTRY:
-        \\    response = 0 as ptr
-        \\    EXPAND DENO_RESPONSE_TEXT text_status, text_ptr, text_len, response
-        \\    !text_status
-        \\    !text_ptr
-        \\    !text_len
-        \\    !response
-        \\    return 0
-    ;
-    try common.writeSource(tmp.dir, "deno_response_text_link.sa", source);
-
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
-    defer original_cwd.close();
-    try tmp.dir.setAsCwd();
-    defer original_cwd.setAsCwd() catch {};
-
-    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "deno_response_text_link.sa", "-o", "deno_response_text_link" };
-    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
-    try std.testing.expectEqual(@as(u8, 0), exe_code);
 }
 
 test "sa_std rust core helpers are concrete and verifiable" {

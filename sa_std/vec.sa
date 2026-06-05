@@ -44,6 +44,16 @@
     EXPAND VEC_GET %out_value, %vec_reg, %index
 [END_MACRO]
 
+[MACRO] VEC_TRY_GET %out_ok, %out_value, %vec_reg, %index
+    EXPAND VEC_AS_SLICE __vec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_U64 %out_ok, %out_value, __vec_get_slice_%out_ok, %index
+    !__vec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_GET_U64 %out_ok, %out_value, %vec_reg, %index
+    EXPAND VEC_TRY_GET %out_ok, %out_value, %vec_reg, %index
+[END_MACRO]
+
 [MACRO] VEC_FRONT %out_value, %vec_reg
     EXPAND VEC_GET %out_value, %vec_reg, 0
 [END_MACRO]
@@ -54,6 +64,26 @@
     EXPAND VEC_GET %out_value, %vec_reg, __vec_last_%out_value
     !__vec_last_%out_value
     !__vec_len_%out_value
+[END_MACRO]
+
+[MACRO] VEC_TRY_FRONT %out_ok, %out_value, %vec_reg
+    EXPAND VEC_AS_SLICE __vec_front_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_FIRST_U64 %out_ok, %out_value, __vec_front_slice_%out_ok
+    !__vec_front_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_FRONT_U64 %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_FRONT %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_TRY_BACK %out_ok, %out_value, %vec_reg
+    EXPAND VEC_AS_SLICE __vec_back_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_LAST_U64 %out_ok, %out_value, __vec_back_slice_%out_ok
+    !__vec_back_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_BACK_U64 %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_BACK %out_ok, %out_value, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_PUSH %vec_reg, %value, %elem_size
@@ -78,6 +108,14 @@
 
 [MACRO] VEC_RESERVE_U64 %vec_reg, %additional
     EXPAND VEC_RESERVE %vec_reg, %additional, 8
+[END_MACRO]
+
+[MACRO] VEC_RESERVE_EXACT %vec_reg, %additional, %elem_size
+    EXPAND VEC_RESERVE %vec_reg, %additional, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_RESERVE_EXACT_U64 %vec_reg, %additional
+    EXPAND VEC_RESERVE_EXACT %vec_reg, %additional, 8
 [END_MACRO]
 
 [MACRO] VEC_IS_EMPTY %out_flag, %vec_reg
@@ -135,4 +173,34 @@
     EXPAND VEC_AS_SLICE __vec_ends_slice_%out_bool, %vec_reg
     EXPAND SLICE_ENDS_WITH_U64 %out_bool, __vec_ends_slice_%out_bool, %suffix_slice
     !__vec_ends_slice_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
+    EXPAND VEC_AS_SLICE __vec_strip_prefix_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, __vec_strip_prefix_slice_%out_ok, %prefix_slice
+    !__vec_strip_prefix_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
+    EXPAND VEC_AS_SLICE __vec_strip_suffix_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, __vec_strip_suffix_slice_%out_ok, %suffix_slice
+    !__vec_strip_suffix_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRIM_PREFIX_U64 %out_slice, %vec_reg, %prefix_slice
+    EXPAND VEC_AS_SLICE __vec_trim_prefix_slice_%out_slice, %vec_reg
+    EXPAND SLICE_TRIM_PREFIX_U64 %out_slice, __vec_trim_prefix_slice_%out_slice, %prefix_slice
+    !__vec_trim_prefix_slice_%out_slice
+[END_MACRO]
+
+[MACRO] VEC_TRIM_SUFFIX_U64 %out_slice, %vec_reg, %suffix_slice
+    EXPAND VEC_AS_SLICE __vec_trim_suffix_slice_%out_slice, %vec_reg
+    EXPAND SLICE_TRIM_SUFFIX_U64 %out_slice, __vec_trim_suffix_slice_%out_slice, %suffix_slice
+    !__vec_trim_suffix_slice_%out_slice
+[END_MACRO]
+
+[MACRO] VEC_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_AS_SLICE __vec_split_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, __vec_split_slice_%out_ok, %mid
+    !__vec_split_slice_%out_ok
 [END_MACRO]

@@ -3,7 +3,7 @@
 @const KEY_A = utf8:"alpha"
 @const KEY_B = utf8:"bravo"
 
-@main() -> i32:
+@test "sa_std hashset convenience macros"():
 L_ENTRY:
     EXPAND SET_WITH_CAPACITY set, 9
     EXPAND SET_LEN len0, set
@@ -19,10 +19,13 @@ L_ENTRY:
     EXPAND SET_CAPACITY cap_after_reserve, set
     EXPAND SET_IS_EMPTY empty1, set
     EXPAND SET_CONTAINS has_a, set, key_a
+    EXPAND SET_REMOVE rem_a, set, key_a
+    EXPAND SET_CONTAINS has_a_after_remove, set, key_a
     EXPAND SET_CLEAR set
     EXPAND SET_LEN len2, set
     EXPAND SET_IS_EMPTY empty2, set
-    EXPAND SET_CONTAINS has_a_after, set, key_a
+    EXPAND SET_CONTAINS has_b_after_clear, set, key_b
+
     ok_len0 = eq len0, 0
     ok_cap0 = eq cap0, 16
     ok_empty0 = eq empty0, 1
@@ -33,9 +36,11 @@ L_ENTRY:
     ok_cap_after_reserve = eq cap_after_reserve, 32
     ok_empty1 = eq empty1, 0
     ok_has_a = eq has_a, 1
+    ok_rem_a = eq rem_a, 1
+    ok_has_a_after_remove = eq has_a_after_remove, 0
     ok_len2 = eq len2, 0
     ok_empty2 = eq empty2, 1
-    ok_has_a_after = eq has_a_after, 0
+    ok_has_b_after_clear = eq has_b_after_clear, 0
     ok01 = and ok_len0, ok_cap0
     ok02 = and ok01, ok_empty0
     ok03 = and ok02, ok_ins_a
@@ -45,24 +50,28 @@ L_ENTRY:
     ok07 = and ok06, ok_cap_after_reserve
     ok08 = and ok07, ok_empty1
     ok09 = and ok08, ok_has_a
-    ok10 = and ok09, ok_len2
-    ok11 = and ok10, ok_empty2
-    ok = and ok11, ok_has_a_after
-    !has_a_after
-    !len2
-    !has_a
-    !empty2
-    !empty1
-    !cap_after_reserve
-    !cap1
-    !len1
-    !ins_b
-    !ins_a
-    !empty0
-    !cap0
+    ok10 = and ok09, ok_rem_a
+    ok11 = and ok10, ok_has_a_after_remove
+    ok12 = and ok11, ok_len2
+    ok13 = and ok12, ok_empty2
+    ok = and ok13, ok_has_b_after_clear
     !len0
-    !key_b
+    !cap0
+    !empty0
+    !ins_a
+    !ins_b
+    !len1
+    !cap1
+    !cap_after_reserve
+    !empty1
+    !has_a
+    !rem_a
+    !has_a_after_remove
+    !len2
+    !empty2
+    !has_b_after_clear
     !key_a
+    !key_b
     !ok_len0
     !ok_cap0
     !ok_empty0
@@ -73,9 +82,11 @@ L_ENTRY:
     !ok_cap_after_reserve
     !ok_empty1
     !ok_has_a
+    !ok_rem_a
+    !ok_has_a_after_remove
     !ok_len2
     !ok_empty2
-    !ok_has_a_after
+    !ok_has_b_after_clear
     !ok01
     !ok02
     !ok03
@@ -87,13 +98,15 @@ L_ENTRY:
     !ok09
     !ok10
     !ok11
+    !ok12
+    !ok13
     EXPAND SET_FREE set
-    br ok -> L_OK, L_ERR
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(904)
 
 L_OK:
     !ok
-    return 0
-
-L_ERR:
-    !ok
-    return 1
+    return

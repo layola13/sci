@@ -310,3 +310,166 @@ L_SLICE_ENDS_FALSE_%out_bool:
 
 L_SLICE_ENDS_END_%out_bool:
 [END_MACRO]
+
+[MACRO] SLICE_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %slice_reg, %prefix_slice
+    %out_slice = alloc Slice_SIZE
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_prefix_len_%out_ok = load %prefix_slice+Slice_len as u64
+    EXPAND SLICE_STARTS_WITH_U64 __slice_strip_match_%out_ok, %slice_reg, %prefix_slice
+    br __slice_strip_match_%out_ok -> L_SLICE_STRIP_PREFIX_HIT_%out_ok, L_SLICE_STRIP_PREFIX_MISS_%out_ok
+
+L_SLICE_STRIP_PREFIX_HIT_%out_ok:
+    __slice_rest_len_%out_ok = sub __slice_len_%out_ok, __slice_prefix_len_%out_ok
+    __slice_src_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_prefix_bytes_%out_ok = mul __slice_prefix_len_%out_ok, 8
+    __slice_rest_ptr_%out_ok = ptr_add __slice_src_ptr_%out_ok, __slice_prefix_bytes_%out_ok
+    EXPAND SLICE_NEW %out_slice, __slice_rest_ptr_%out_ok, __slice_rest_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_rest_ptr_%out_ok
+    !__slice_prefix_bytes_%out_ok
+    !__slice_src_ptr_%out_ok
+    !__slice_rest_len_%out_ok
+    !__slice_strip_match_%out_ok
+    !__slice_prefix_len_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_STRIP_PREFIX_END_%out_ok
+
+L_SLICE_STRIP_PREFIX_MISS_%out_ok:
+    __slice_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_empty_ptr_%out_ok
+    !__slice_strip_match_%out_ok
+    !__slice_prefix_len_%out_ok
+    !__slice_len_%out_ok
+
+L_SLICE_STRIP_PREFIX_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %slice_reg, %suffix_slice
+    %out_slice = alloc Slice_SIZE
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_suffix_len_%out_ok = load %suffix_slice+Slice_len as u64
+    EXPAND SLICE_ENDS_WITH_U64 __slice_strip_match_%out_ok, %slice_reg, %suffix_slice
+    br __slice_strip_match_%out_ok -> L_SLICE_STRIP_SUFFIX_HIT_%out_ok, L_SLICE_STRIP_SUFFIX_MISS_%out_ok
+
+L_SLICE_STRIP_SUFFIX_HIT_%out_ok:
+    __slice_rest_len_%out_ok = sub __slice_len_%out_ok, __slice_suffix_len_%out_ok
+    __slice_src_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_src_ptr_%out_ok, __slice_rest_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_src_ptr_%out_ok
+    !__slice_rest_len_%out_ok
+    !__slice_strip_match_%out_ok
+    !__slice_suffix_len_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_STRIP_SUFFIX_END_%out_ok
+
+L_SLICE_STRIP_SUFFIX_MISS_%out_ok:
+    __slice_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_empty_ptr_%out_ok
+    !__slice_strip_match_%out_ok
+    !__slice_suffix_len_%out_ok
+    !__slice_len_%out_ok
+
+L_SLICE_STRIP_SUFFIX_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRIM_PREFIX_U64 %out_slice, %slice_reg, %prefix_slice
+    %out_slice = alloc Slice_SIZE
+    __slice_len_%out_slice = load %slice_reg+Slice_len as u64
+    __slice_prefix_len_%out_slice = load %prefix_slice+Slice_len as u64
+    EXPAND SLICE_STARTS_WITH_U64 __slice_trim_match_%out_slice, %slice_reg, %prefix_slice
+    br __slice_trim_match_%out_slice -> L_SLICE_TRIM_PREFIX_HIT_%out_slice, L_SLICE_TRIM_PREFIX_MISS_%out_slice
+
+L_SLICE_TRIM_PREFIX_HIT_%out_slice:
+    __slice_rest_len_%out_slice = sub __slice_len_%out_slice, __slice_prefix_len_%out_slice
+    __slice_src_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __slice_prefix_bytes_%out_slice = mul __slice_prefix_len_%out_slice, 8
+    __slice_rest_ptr_%out_slice = ptr_add __slice_src_ptr_%out_slice, __slice_prefix_bytes_%out_slice
+    EXPAND SLICE_NEW %out_slice, __slice_rest_ptr_%out_slice, __slice_rest_len_%out_slice
+    !__slice_rest_ptr_%out_slice
+    !__slice_prefix_bytes_%out_slice
+    !__slice_src_ptr_%out_slice
+    !__slice_rest_len_%out_slice
+    !__slice_trim_match_%out_slice
+    !__slice_prefix_len_%out_slice
+    !__slice_len_%out_slice
+    jmp L_SLICE_TRIM_PREFIX_END_%out_slice
+
+L_SLICE_TRIM_PREFIX_MISS_%out_slice:
+    __slice_src_ptr_miss_%out_slice = load %slice_reg+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_src_ptr_miss_%out_slice, __slice_len_%out_slice
+    !__slice_src_ptr_miss_%out_slice
+    !__slice_trim_match_%out_slice
+    !__slice_prefix_len_%out_slice
+    !__slice_len_%out_slice
+
+L_SLICE_TRIM_PREFIX_END_%out_slice:
+[END_MACRO]
+
+[MACRO] SLICE_TRIM_SUFFIX_U64 %out_slice, %slice_reg, %suffix_slice
+    %out_slice = alloc Slice_SIZE
+    __slice_len_%out_slice = load %slice_reg+Slice_len as u64
+    __slice_suffix_len_%out_slice = load %suffix_slice+Slice_len as u64
+    EXPAND SLICE_ENDS_WITH_U64 __slice_trim_match_%out_slice, %slice_reg, %suffix_slice
+    br __slice_trim_match_%out_slice -> L_SLICE_TRIM_SUFFIX_HIT_%out_slice, L_SLICE_TRIM_SUFFIX_MISS_%out_slice
+
+L_SLICE_TRIM_SUFFIX_HIT_%out_slice:
+    __slice_rest_len_%out_slice = sub __slice_len_%out_slice, __slice_suffix_len_%out_slice
+    __slice_src_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_src_ptr_%out_slice, __slice_rest_len_%out_slice
+    !__slice_src_ptr_%out_slice
+    !__slice_rest_len_%out_slice
+    !__slice_trim_match_%out_slice
+    !__slice_suffix_len_%out_slice
+    !__slice_len_%out_slice
+    jmp L_SLICE_TRIM_SUFFIX_END_%out_slice
+
+L_SLICE_TRIM_SUFFIX_MISS_%out_slice:
+    __slice_src_ptr_miss_%out_slice = load %slice_reg+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_src_ptr_miss_%out_slice, __slice_len_%out_slice
+    !__slice_src_ptr_miss_%out_slice
+    !__slice_trim_match_%out_slice
+    !__slice_suffix_len_%out_slice
+    !__slice_len_%out_slice
+
+L_SLICE_TRIM_SUFFIX_END_%out_slice:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+    %out_left = alloc Slice_SIZE
+    %out_right = alloc Slice_SIZE
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ule %mid, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_SPLIT_AT_HIT_%out_ok, L_SLICE_SPLIT_AT_MISS_%out_ok
+
+L_SLICE_SPLIT_AT_HIT_%out_ok:
+    __slice_src_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_right_len_%out_ok = sub __slice_len_%out_ok, %mid
+    __slice_mid_bytes_%out_ok = mul %mid, 8
+    __slice_right_ptr_%out_ok = ptr_add __slice_src_ptr_%out_ok, __slice_mid_bytes_%out_ok
+    EXPAND SLICE_NEW %out_left, __slice_src_ptr_%out_ok, %mid
+    EXPAND SLICE_NEW %out_right, __slice_right_ptr_%out_ok, __slice_right_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_right_ptr_%out_ok
+    !__slice_mid_bytes_%out_ok
+    !__slice_right_len_%out_ok
+    !__slice_src_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_SPLIT_AT_END_%out_ok
+
+L_SLICE_SPLIT_AT_MISS_%out_ok:
+    __slice_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_left, __slice_empty_ptr_%out_ok, 0
+    EXPAND SLICE_NEW %out_right, __slice_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_empty_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+
+L_SLICE_SPLIT_AT_END_%out_ok:
+[END_MACRO]
