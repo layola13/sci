@@ -726,6 +726,7 @@ test "native unit framework covers sa_std macro surface suites" {
     );
 
     const future_task_expected = [_][]const u8{
+        "[PASS] sa_std waker context poll result macros",
         "[PASS] sa_std future poll macros",
         "[PASS] sa_std future join select macros",
         "[PASS] sa_std task poll macros",
@@ -733,7 +734,7 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_future_task_macro_surface.sa",
         future_task_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
     );
 }
 

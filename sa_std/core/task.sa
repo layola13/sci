@@ -63,3 +63,50 @@ L_TASK_POLL_DONE_%out_poll:
     !__executor_off_%out_poll
     !__executor_tasks_%out_poll
 [END_MACRO]
+
+[MACRO] EXECUTOR_POLL_READY_COUNT %out_count, %executor_reg
+    __executor_tasks_%out_count = load %executor_reg+Executor_tasks as ptr
+    __executor_len_%out_count = load %executor_reg+Executor_len as u64
+    __executor_index_slot_%out_count = stack_alloc 8
+    store __executor_index_slot_%out_count+0, 0 as u64
+    __executor_count_slot_%out_count = stack_alloc 8
+    store __executor_count_slot_%out_count+0, 0 as u64
+    jmp L_EXECUTOR_POLL_ALL_COND_%out_count
+L_EXECUTOR_POLL_ALL_COND_%out_count:
+    __executor_index_%out_count = load __executor_index_slot_%out_count+0 as u64
+    __executor_done_%out_count = eq __executor_index_%out_count, __executor_len_%out_count
+    br __executor_done_%out_count -> L_EXECUTOR_POLL_ALL_DONE_%out_count, L_EXECUTOR_POLL_ALL_BODY_%out_count
+L_EXECUTOR_POLL_ALL_BODY_%out_count:
+    __executor_off_%out_count = mul __executor_index_%out_count, 8
+    __executor_slot_%out_count = ptr_add __executor_tasks_%out_count, __executor_off_%out_count
+    __executor_task_%out_count = load __executor_slot_%out_count+0 as ptr
+    EXPAND TASK_POLL __executor_poll_%out_count, __executor_task_%out_count
+    __executor_poll_tag_%out_count = load __executor_poll_%out_count+Poll_tag as u64
+    __executor_poll_ready_%out_count = eq __executor_poll_tag_%out_count, Poll_READY
+    br __executor_poll_ready_%out_count -> L_EXECUTOR_POLL_ALL_READY_%out_count, L_EXECUTOR_POLL_ALL_NEXT_%out_count
+L_EXECUTOR_POLL_ALL_READY_%out_count:
+    __executor_count_%out_count = load __executor_count_slot_%out_count+0 as u64
+    __executor_next_count_%out_count = add __executor_count_%out_count, 1
+    store __executor_count_slot_%out_count+0, __executor_next_count_%out_count as u64
+    !__executor_next_count_%out_count
+    !__executor_count_%out_count
+L_EXECUTOR_POLL_ALL_NEXT_%out_count:
+    __executor_next_index_%out_count = add __executor_index_%out_count, 1
+    store __executor_index_slot_%out_count+0, __executor_next_index_%out_count as u64
+    !__executor_next_index_%out_count
+    !__executor_poll_ready_%out_count
+    !__executor_poll_tag_%out_count
+    !__executor_poll_%out_count
+    !__executor_task_%out_count
+    !__executor_slot_%out_count
+    !__executor_off_%out_count
+    !__executor_done_%out_count
+    !__executor_index_%out_count
+    jmp L_EXECUTOR_POLL_ALL_COND_%out_count
+L_EXECUTOR_POLL_ALL_DONE_%out_count:
+    %out_count = load __executor_count_slot_%out_count+0 as u64
+    !__executor_done_%out_count
+    !__executor_index_%out_count
+    !__executor_len_%out_count
+    !__executor_tasks_%out_count
+[END_MACRO]

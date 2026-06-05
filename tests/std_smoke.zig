@@ -413,11 +413,32 @@ test "sa_std rust core helpers are concrete and verifiable" {
     defer std.testing.allocator.free(future_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_PENDING"));
     try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_READY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_MAP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_RESULT_MAP_OK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_RESULT_MAP_ERR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] POLL_OPTION_RESULT_MAP_OK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] CONTEXT_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] CONTEXT_FROM_WAKER"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] CONTEXT_BUILDER_BUILD"));
     try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_POLL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_READY_STATE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_PENDING_STATE_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_JOIN2_POLL"));
     try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_SELECT2_POLL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_JOIN2_STATE_POLL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, future_src, 1, "[MACRO] FUTURE_SELECT2_STATE_POLL"));
+
+    const waker_src = try readFileAlloc(std.testing.allocator, "sa_std/core/waker.sa");
+    defer std.testing.allocator.free(waker_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] RAW_WAKER_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] RAW_WAKER_CLONE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] WAKER_FROM_RAW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] WAKER_CLONE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] WAKER_WILL_WAKE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] LOCAL_WAKER_FROM_RAW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] LOCAL_WAKER_WILL_WAKE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, waker_src, 1, "[MACRO] WAKE_NEW"));
 
     const task_src = try readFileAlloc(std.testing.allocator, "sa_std/core/task.sa");
     defer std.testing.allocator.free(task_src);
@@ -425,6 +446,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] TASK_POLL"));
     try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] EXECUTOR_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] EXECUTOR_POLL_ONE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, task_src, 1, "[MACRO] EXECUTOR_POLL_READY_COUNT"));
 
     const future_facade_src = try readFileAlloc(std.testing.allocator, "sa_std/future.sa");
     defer std.testing.allocator.free(future_facade_src);

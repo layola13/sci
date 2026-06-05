@@ -1,4 +1,16 @@
+#def RawWaker_SIZE = 16
+#def RawWaker_data = +0
+#def RawWaker_vtable = +8
+
+#def RawWakerVTable_SIZE = 32
+#def RawWakerVTable_clone = +0
+#def RawWakerVTable_wake = +8
+#def RawWakerVTable_wake_by_ref = +16
+#def RawWakerVTable_drop = +24
+
 #def Waker_SIZE = 16
+#def Waker_raw_data = +0
+#def Waker_raw_vtable = +8
 #def Waker_data = +0
 #def Waker_vtable = +8
 #def WakerCloneSlot = +0
@@ -6,3 +18,14 @@
 #def WakerWakeByRefSlot = +16
 #def WakerDropSlot = +24
 
+#def LocalWaker_SIZE = 16
+#def LocalWaker_raw_data = +0
+#def LocalWaker_raw_vtable = +8
+#def LocalWaker_data = +0
+#def LocalWaker_vtable = +8
+
+#def Wake_SIZE = 16
+#def Wake_data = +0
+#def Wake_vtable = +8
+#def WakeWakeSlot = +0
+#def WakeWakeByRefSlot = +8

@@ -114,7 +114,7 @@ The following Rust `std` modules still lack full Rust-level parity in `sa_std`:
 1.  **Memory & Data Abstraction**: `std::any`, `std::array`, `std::ascii`, `std::char`, `std::ptr` (`NonNull`), `std::pin`. `Box`, `Cell`, `RefCell`, `Rc`, `Arc`, and `Weak` have macro-level SA subsets under `sa_std/core/*`, but not full Rust module parity.
 2.  **Core Trait Paradigm**: `std::convert` (`From`/`Into`), `std::default`, `std::error`, `std::iter` (`Iterator` system), `std::marker` (`Send`/`Sync`/`Copy`), `std::ops` (Operator overloading/`Drop`), `std::cmp`.
 3.  **FFI & Platform Specific**: `std::ffi` (`CString`, `OsString`), `std::os` (Unix/Windows extensions).
-4.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`) and a bundled async runtime/reactor. `sa_std/core/future.*` and `sa_std/core/task.*` now provide macro-level `Poll`, `Context`, `Future::poll` vtable, `join2`, `select2`, `Task`, and single-task executor contracts; `sa_std/libsa_async.sa` provides CPS/state-machine helpers (`ASYNC_CTX_DEF`, `ASYNC_AWAIT_POINT`, etc.); and `sa_std/core/waker.sa` provides `WAKER_*` layout/vtable macros. SA intentionally does not provide native `async` / `await` syntax or hidden scheduling.
+4.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`) and a bundled async runtime/reactor. `sa_std/core/waker.*` now models the Rust `std::task` waker ABI subset with `RawWaker`, `RawWakerVTable`, `Waker`, `LocalWaker`, and `Wake` layout/vtable helper macros. `sa_std/core/future.*` models `Poll`, `Poll<Result<..>>`, `Poll<Option<Result<..>>>`, `Context`, `ContextBuilder`, `Future::poll` vtable calls, ready/pending futures, poll_fn-style state, stateful `join2` pairs, and biased `select2` either results. `sa_std/core/task.*` provides `Task`, single-task executor polling, and ready-count batch polling. `sa_std/libsa_async.sa` remains the CPS/state-machine helper layer (`ASYNC_CTX_DEF`, `ASYNC_AWAIT_POINT`, etc.). SA intentionally does not provide native `async` / `await` syntax, Rust generics/traits/pin semantics, a hidden executor, or a bundled reactor.
 
 ## 4. Rust Core Minimal Closed Loop
 
@@ -124,7 +124,9 @@ The project now treats the following Rust core items as a **SA layout + macro co
 - `Result<T, E>`: represented by a tag + ok/err payload memory contract and helper macros in `sa_std/core/result.sa`.
 - `panic` / `panic_msg`: represented by wrapper macros in `sa_std/core/panic.sa` and lowered as builtin termination paths.
 - `iter` / iterator-like traversal: represented by slice-backed cursor helpers in `sa_std/core/iter.sa`.
-- `Future` / `Poll` / `Context` / `Task`: represented by concrete layout contracts and vtable/helper macros in `sa_std/core/future.sa` and `sa_std/core/task.sa`.
+- `Future` / `Poll` / `Context` / `Task`: represented by concrete layout contracts and vtable/helper macros in `sa_std/core/future.sa`, `sa_std/core/waker.sa`, and `sa_std/core/task.sa`. The covered async contract includes `RawWaker` / `RawWakerVTable` / `LocalWaker` / `Wake`, `ContextBuilder`, `Poll::map`, `Poll<Result>::map_ok/map_err`, `Poll<Option<Result>>::map_ok/map_err`, `ready` / `pending` state futures, `Future::poll` out-param ABI, stateful two-way `join` / `select` helpers, and executor ready-count polling.
+
+The async coverage is deliberately a layout and macro contract. It is not native Rust `async fn` lowering, `.await` syntax, `Pin<&mut T>` enforcement, Rust trait objects/generics, or a scheduler/reactor implementation. Frontends should lower those higher-level semantics into the concrete SA ABI described above.
 
 These helpers intentionally stop short of native Rust `trait` / `generic` semantics. In SA, those remain a frontend lowering concern: monomorphization, concrete ABI selection, and call-site rewriting belong in the compiler frontend, not in SA source.
 

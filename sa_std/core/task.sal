@@ -10,3 +10,6 @@
 #def Executor_SIZE = 16
 #def Executor_tasks = +0
 #def Executor_len = +8
+
+#def ExecutorPoll_PENDING = 0
+#def ExecutorPoll_READY = 1
