@@ -714,6 +714,16 @@ test "native unit framework covers sa_std macro surface suites" {
         hashmap_expected[0..],
         "test result: ok. 1 passed; 0 failed; 0 skipped",
     );
+
+    const binary_heap_expected = [_][]const u8{
+        "[PASS] sa_std binary_heap capacity macros",
+        "[PASS] sa_std binary_heap append macro",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_binary_heap_macro_surface.sa",
+        binary_heap_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
 }
 
 test "native unit framework exposes standard mock io buffer" {

@@ -1,0 +1,260 @@
+@import "sa_std/collections/binary_heap.sa"
+
+@test "sa_std binary_heap capacity macros"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_WITH_CAPACITY heap, 3
+    EXPAND BINARY_HEAP_CAPACITY cap0, heap
+    EXPAND BINARY_HEAP_LEN len0, heap
+    EXPAND BINARY_HEAP_IS_EMPTY empty0, heap
+    EXPAND BINARY_HEAP_RESERVE heap, 20
+    EXPAND BINARY_HEAP_CAPACITY cap_after_reserve, heap
+    EXPAND BINARY_HEAP_RESERVE_EXACT heap, 40
+    EXPAND BINARY_HEAP_CAPACITY cap_after_reserve_exact, heap
+    EXPAND BINARY_HEAP_PUSH heap, 4
+    EXPAND BINARY_HEAP_PUSH heap, 9
+    EXPAND BINARY_HEAP_PUSH heap, 1
+    EXPAND BINARY_HEAP_LEN len1, heap
+    EXPAND BINARY_HEAP_SHRINK_TO_FIT heap
+    EXPAND BINARY_HEAP_CAPACITY cap_after_shrink, heap
+    EXPAND BINARY_HEAP_PEEK peek0, heap
+    EXPAND BINARY_HEAP_TRY_POP ok0, pop0, heap
+    EXPAND BINARY_HEAP_TRY_POP ok1, pop1, heap
+    EXPAND BINARY_HEAP_TRY_POP ok2, pop2, heap
+    EXPAND BINARY_HEAP_TRY_POP ok_empty, empty_value, heap
+    EXPAND BINARY_HEAP_LEN len2, heap
+    EXPAND BINARY_HEAP_SHRINK_TO_FIT heap
+    EXPAND BINARY_HEAP_CAPACITY cap_after_empty_shrink, heap
+    EXPAND BINARY_HEAP_PUSH heap, 2
+    EXPAND BINARY_HEAP_CAPACITY cap_after_reinsert, heap
+    EXPAND BINARY_HEAP_TRY_POP ok3, pop3, heap
+    EXPAND BINARY_HEAP_FREE heap
+    EXPAND BINARY_HEAP_WITH_CAPACITY zero_heap, 0
+    EXPAND BINARY_HEAP_CAPACITY zero_cap, zero_heap
+    EXPAND BINARY_HEAP_IS_EMPTY zero_empty, zero_heap
+    EXPAND BINARY_HEAP_FREE zero_heap
+
+    ok_cap0 = eq cap0, 8
+    ok_len0 = eq len0, 0
+    ok_empty0 = eq empty0, 1
+    ok_cap_after_reserve = eq cap_after_reserve, 32
+    ok_cap_after_reserve_exact = eq cap_after_reserve_exact, 40
+    ok_len1 = eq len1, 3
+    ok_cap_after_shrink = eq cap_after_shrink, 3
+    ok_peek0 = eq peek0, 9
+    ok_ok0 = eq ok0, 1
+    ok_pop0 = eq pop0, 9
+    ok_ok1 = eq ok1, 1
+    ok_pop1 = eq pop1, 4
+    ok_ok2 = eq ok2, 1
+    ok_pop2 = eq pop2, 1
+    ok_empty_ok = eq ok_empty, 0
+    ok_empty_value = eq empty_value, 0
+    ok_len2 = eq len2, 0
+    ok_cap_after_empty_shrink = eq cap_after_empty_shrink, 0
+    ok_cap_after_reinsert = eq cap_after_reinsert, 8
+    ok_ok3 = eq ok3, 1
+    ok_pop3 = eq pop3, 2
+    ok_zero_cap = eq zero_cap, 0
+    ok_zero_empty = eq zero_empty, 1
+    ok01 = and ok_cap0, ok_len0
+    ok02 = and ok01, ok_empty0
+    ok03 = and ok02, ok_cap_after_reserve
+    ok04 = and ok03, ok_cap_after_reserve_exact
+    ok05 = and ok04, ok_len1
+    ok06 = and ok05, ok_cap_after_shrink
+    ok07 = and ok06, ok_peek0
+    ok08 = and ok07, ok_ok0
+    ok09 = and ok08, ok_pop0
+    ok10 = and ok09, ok_ok1
+    ok11 = and ok10, ok_pop1
+    ok12 = and ok11, ok_ok2
+    ok13 = and ok12, ok_pop2
+    ok14 = and ok13, ok_empty_ok
+    ok15 = and ok14, ok_empty_value
+    ok16 = and ok15, ok_len2
+    ok17 = and ok16, ok_cap_after_empty_shrink
+    ok18 = and ok17, ok_cap_after_reinsert
+    ok19 = and ok18, ok_ok3
+    ok20 = and ok19, ok_pop3
+    ok21 = and ok20, ok_zero_cap
+    ok = and ok21, ok_zero_empty
+    !cap0
+    !len0
+    !empty0
+    !cap_after_reserve
+    !cap_after_reserve_exact
+    !len1
+    !cap_after_shrink
+    !peek0
+    !ok0
+    !pop0
+    !ok1
+    !pop1
+    !ok2
+    !pop2
+    !ok_empty
+    !empty_value
+    !len2
+    !cap_after_empty_shrink
+    !cap_after_reinsert
+    !ok3
+    !pop3
+    !zero_cap
+    !zero_empty
+    !ok_cap0
+    !ok_len0
+    !ok_empty0
+    !ok_cap_after_reserve
+    !ok_cap_after_reserve_exact
+    !ok_len1
+    !ok_cap_after_shrink
+    !ok_peek0
+    !ok_ok0
+    !ok_pop0
+    !ok_ok1
+    !ok_pop1
+    !ok_ok2
+    !ok_pop2
+    !ok_empty_ok
+    !ok_empty_value
+    !ok_len2
+    !ok_cap_after_empty_shrink
+    !ok_cap_after_reinsert
+    !ok_ok3
+    !ok_pop3
+    !ok_zero_cap
+    !ok_zero_empty
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(906)
+
+L_OK:
+    !ok
+    return
+
+@test "sa_std binary_heap append macro"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_NEW heap
+    EXPAND BINARY_HEAP_NEW other
+    EXPAND BINARY_HEAP_PUSH heap, 4
+    EXPAND BINARY_HEAP_PUSH heap, 9
+    EXPAND BINARY_HEAP_PUSH heap, 1
+    EXPAND BINARY_HEAP_PUSH other, 7
+    EXPAND BINARY_HEAP_PUSH other, 5
+    EXPAND BINARY_HEAP_APPEND heap, other
+    EXPAND BINARY_HEAP_LEN len_heap, heap
+    EXPAND BINARY_HEAP_LEN len_other, other
+    EXPAND BINARY_HEAP_IS_EMPTY other_empty, other
+    EXPAND BINARY_HEAP_TRY_POP ok0, pop0, heap
+    EXPAND BINARY_HEAP_TRY_POP ok1, pop1, heap
+    EXPAND BINARY_HEAP_TRY_POP ok2, pop2, heap
+    EXPAND BINARY_HEAP_TRY_POP ok3, pop3, heap
+    EXPAND BINARY_HEAP_TRY_POP ok4, pop4, heap
+    EXPAND BINARY_HEAP_TRY_POP ok_empty, empty_value, heap
+    EXPAND BINARY_HEAP_FREE other
+    EXPAND BINARY_HEAP_FREE heap
+
+    ok_len_heap = eq len_heap, 5
+    ok_len_other = eq len_other, 0
+    ok_other_empty = eq other_empty, 1
+    ok_ok0 = eq ok0, 1
+    ok_pop0 = eq pop0, 9
+    ok_ok1 = eq ok1, 1
+    ok_pop1 = eq pop1, 7
+    ok_ok2 = eq ok2, 1
+    ok_pop2 = eq pop2, 5
+    ok_ok3 = eq ok3, 1
+    ok_pop3 = eq pop3, 4
+    ok_ok4 = eq ok4, 1
+    ok_pop4 = eq pop4, 1
+    ok_empty_ok = eq ok_empty, 0
+    ok_empty_value = eq empty_value, 0
+    ok01 = and ok_len_heap, ok_len_other
+    ok02 = and ok01, ok_other_empty
+    ok03 = and ok02, ok_ok0
+    ok04 = and ok03, ok_pop0
+    ok05 = and ok04, ok_ok1
+    ok06 = and ok05, ok_pop1
+    ok07 = and ok06, ok_ok2
+    ok08 = and ok07, ok_pop2
+    ok09 = and ok08, ok_ok3
+    ok10 = and ok09, ok_pop3
+    ok11 = and ok10, ok_ok4
+    ok12 = and ok11, ok_pop4
+    ok13 = and ok12, ok_empty_ok
+    ok = and ok13, ok_empty_value
+    !len_heap
+    !len_other
+    !other_empty
+    !ok0
+    !pop0
+    !ok1
+    !pop1
+    !ok2
+    !pop2
+    !ok3
+    !pop3
+    !ok4
+    !pop4
+    !ok_empty
+    !empty_value
+    !ok_len_heap
+    !ok_len_other
+    !ok_other_empty
+    !ok_ok0
+    !ok_pop0
+    !ok_ok1
+    !ok_pop1
+    !ok_ok2
+    !ok_pop2
+    !ok_ok3
+    !ok_pop3
+    !ok_ok4
+    !ok_pop4
+    !ok_empty_ok
+    !ok_empty_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    br ok -> L_APPEND_OK, L_APPEND_FAIL
+
+L_APPEND_FAIL:
+    !ok
+    panic(907)
+
+L_APPEND_OK:
+    !ok
+    return

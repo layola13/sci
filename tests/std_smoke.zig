@@ -2576,21 +2576,33 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     defer std.testing.allocator.free(heap_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_new"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_len"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_capacity"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_reserve"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_reserve_exact"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_shrink_to_fit"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_peek"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_push"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_try_pop"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_clear"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_append"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_WITH_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_FREE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_RESERVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_RESERVE_EXACT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_SHRINK_TO_FIT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PEEK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PUSH"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_TRY_POP"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_CLEAR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_APPEND"));
 
     var heap_error_ctx = saasm.flattener.ErrorContext{};
     var heap_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/binary_heap.sa", heap_src, &heap_error_ctx) catch |err| {
@@ -2600,14 +2612,14 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     };
     defer heap_flat.deinit(std.testing.allocator);
     try std.testing.expect(heap_flat.instructions.len > 0);
-    try std.testing.expect(heap_flat.function_sigs.len >= 13);
+    try std.testing.expect(heap_flat.function_sigs.len >= 20);
 
     const heap_verified = try saasm.referee.verify(std.testing.allocator, heap_flat.instructions, heap_flat.const_decls);
     switch (heap_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 13);
+            try std.testing.expect(owned.function_sigs.len >= 20);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -2755,7 +2767,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expect(owned.function_sigs.len >= 16);
+            try std.testing.expect(owned.function_sigs.len >= 23);
         },
         .trap => |report| {
             std.debug.print("binary_heap fixture verifier trap: {s}\n", .{report.message});
