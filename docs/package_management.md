@@ -89,7 +89,8 @@ SA **不建造** crates.io / npm registry / PyPI 这类中心化仓库。理由�
 require github.com/xiaoming/sa-ecs  @v1.2.0  sha256:8f4e2d...
 require github.com/org/sa-net       @main    sha256:c3a1b9...
 require gitlab.corp.local/team/util @v0.3.1  sha256:abc123...
-require_plugin sa_plugin_http_client @0.1.0 abi 1
+require_plugin http-client @0.1.0 abi 1
+require_plugin github.com/layol13/http-client @0.1.0 abi 1
 
 permissions {
   fs []
@@ -111,8 +112,10 @@ permissions {
 
 | 字段 | 含义 |
 |---|---|
-| `require_plugin <name> @<version> abi <n>` | 声明本项目/包需要某个已安装插件；安装仍由 `sap.json` 和 `sa plugin install` 负责 |
+| `require_plugin <plugin-id> @<version> abi <n>` | 声明本项目/包需要某个已安装插件；安装仍由 `sap.json` 和 `sa plugin install` 负责 |
 | `permissions { ... }` | 项目或包请求的权限，使用与 `sap.json.permissions` 相同的 fs/net/env/process 词汇 |
+
+`plugin-id` 是 canonical plugin id。裸名只属于 SA 官方顶级插件，例如 `deno`、`http-client`、`http-server`；第三方或组织插件必须带作者/组织 namespace，例如 `github.com/layol13/http-client`。同名短名可以存在于不同 namespace，但 `require_plugin deno` 不能自动匹配 `github.com/layol13/deno`。
 
 `sa.mod` 的 `permissions` 与 `sap.json.permissions` 共享格式和安全语义：
 
@@ -150,7 +153,7 @@ sa install
 1. **源码包 resolver**：处理 `require ... sha256:...`，下载或同步到 `sa_vendor/`，更新 `sa.sum/sa.lock`。
 2. **插件 resolver**：处理 `require_plugin ...`，定位对应插件的 `sap.json`，执行 `sa plugin install`，再递归解析 `sap.json.dependencies`。
 
-边界：`sa.mod` 是项目声明；`sap.json` 是插件自身声明。项目可以说“我需要 `sa_plugin_http_client`”，但插件的 native artifact、permissions、interfaces、插件间依赖必须由该插件自己的 `sap.json` 负责。
+边界：`sa.mod` 是项目声明；`sap.json` 是插件自身声明。项目可以说“我需要 `http-client`”或“我需要 `github.com/layol13/http-client`”，但插件的 native artifact、permissions、interfaces、插件间依赖必须由该插件自己的 `sap.json` 负责。
 
 ### 2.4 Deno-like `--allow-*` 运行授权
 
@@ -280,7 +283,8 @@ sa install --ci
 ```text
 allow_source github.com/org/* permissions []
 allow_net https://api.company.com
-allow_plugin sa_plugin_http_client @0.1.0 abi 1
+allow_plugin http-client @0.1.0 abi 1
+allow_plugin github.com/layol13/http-client @0.1.0 abi 1
 deny_net https://*
 deny_process_spawn *
 ```

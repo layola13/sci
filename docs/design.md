@@ -147,6 +147,7 @@ sa_plugin_<name>/
 
 强约束：
 - 插件依赖插件必须通过 `sap.json` 声明，不能靠 README 或安装脚本隐式约定加载顺序。`sap` 表示 SA Plugin manifest，推荐文件名为 `sap.json`，不是 `sa.mod` 的替代品。
+- 插件身份必须使用 canonical plugin id：裸短名只属于 SA 官方顶级空间，例如 `deno`、`http-client`；第三方或组织插件必须带作者/组织 namespace，例如 `github.com/layol13/deno`。同名短名可以在不同 namespace 下并存，但不能用短名做全局唯一判断。
 - `.sai` 是插件的公开 ABI，不允许只把接口藏在 `tests/` 或文档里；每个 `@extern` 必须有 `.so` 导出符号。
 - `.sal` 用于常量、布局和宏 facade；复杂对象通过不透明 handle、显式 `*_free`、`poll/take` 或 JSON/bytes 记录表达，不把 Promise、事件对象、类实例直接塞进 SA ABI。
 - 插件不得静默调用被替代的外部运行时。例如 Deno 兼容插件的目标是 native replacement，不是 shell out 到 `deno`。
@@ -155,7 +156,7 @@ sa_plugin_<name>/
 
 `sap.json` 最小契约：
 - `schema`: 当前主版本，例如 `sa.plugin/1`。
-- `name` / `version`: 与 descriptor name、安装目录和导出符号前缀交叉核验。
+- `name` / `namespace` / `version`: `name` 是短名；`namespace` 是作者/组织命名空间，缺省只允许 SA 官方顶级插件使用。canonical plugin id 为 `name` 或 `namespace/name`，并与 descriptor、安装目录和导出符号前缀交叉核验。canonical id 可能包含 `/`，安装目录必须使用可逆的 `<plugin-id-path>`，锁文件和权限确认文本保存原始 canonical id。
 - `abi`: 插件 descriptor ABI version、宿主 SAASM 版本范围、symbol smoke 来源。
 - `artifacts`: target triple 到动态库路径与 `sha256` 的映射。
 - `interfaces`: `.sai` / `.sal` 路径与 `sha256`。
@@ -193,7 +194,7 @@ Deno-like `--allow-*` 作为运行/构建时用户授权上限：支持 `--allow
 
 项目级权限预设：`sa.mod` 可定义 `permission_set <name> { env/read/write/net/run [...] }`，借鉴 Deno `deno.json` permission sets 的体验，但不自动生效。用户必须在命令行显式 `-P=<name>` / `--permission-set=<name>` 选择；CI 中缺少显式选择应失败。权限集只是 CLI 授权预设，最终仍与 `sa.mod.permissions` / `sap.json.permissions` 取交集。
 
-宿主或 plugin-manager 应先解析全部 `sap.json`，校验权限声明，构建依赖 DAG，按拓扑顺序加载动态库。缺少必要权限声明、必需依赖缺失、ABI 主版本不匹配、环形依赖、同名插件多版本并存、重复导出同名 SA extern symbol，都必须拒绝加载。可选依赖缺失时插件可以加载，但 descriptor skills 必须降级，不能向 Agent 广告不可用能力。后续可由 `sap.lock` 固化 artifact `sha256`、interface `sha256`、权限账本 hash 和依赖图 `sha256`，服务 CI 与部署复现。
+宿主或 plugin-manager 应先解析全部 `sap.json`，校验权限声明，构建依赖 DAG，按拓扑顺序加载动态库。缺少必要权限声明、必需依赖缺失、ABI 主版本不匹配、环形依赖、同 canonical plugin id 多版本/多来源并存、重复导出同名 SA extern symbol，都必须拒绝加载。短名冲突只有在 canonical id 不同且调用方显式写 namespace 时才允许。可选依赖缺失时插件可以加载，但 descriptor skills 必须降级，不能向 Agent 广告不可用能力。后续可由 `sap.lock` 固化 artifact `sha256`、interface `sha256`、权限账本 hash 和依赖图 `sha256`，服务 CI 与部署复现。
 
 SA 文件后缀与清单边界：
 - `.sa`: SA-ASM 源码，包含实现、宏调用、`@import` 和可验证指令。
@@ -1206,7 +1207,7 @@ assume_borrow  = IDENT "=" "assume_borrow" IDENT [ "," "mut" ] ;
 | SIMD/浮点/原子 ISA | 未定义 | 首轮就定义 | AutoBevy 这类后续场景必备 |
 | 前端合约 | 隐含 | R20 显式合约 + `libsa_scope` helper | 避免"机械映射"误导，划清责任 |
 | 名称 | SA-ASM | SA | 命名简化 |
-| **包管理 registry** | crates.io / npm 中心化 | URL 即命名空间，去中心化（v0.5） | 去中心化消灭抢注 + 单点故障 |
+| **包管理 registry** | crates.io / npm 中心化 | 源码包 URL 即命名空间；插件为 name 或 namespace/name（v0.5） | 去中心化消灭抢注 + 单点故障 |
 | **依赖求解** | SemVer SAT | 绝对哈希钉版（无 SAT 求解） | 杜绝依赖地狱、保证编译可重复性 |
 | **包默认权限** | 进程级 `--allow-net` | 模块级零权限 + 显式 `grants`（v0.5） | 主程序联网不等于第三方包能联网 |
 | **生命周期钩子** | npm `postinstall` | `sa fetch` 图灵不完备（v0.5） | 物理消除投毒温床 |

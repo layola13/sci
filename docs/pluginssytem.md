@@ -31,8 +31,8 @@ sa_plugin_<name>/
 
 硬性规则：
 
-- `sap.json` 是插件工程清单，声明插件名、版本、动态库产物、`.sa/.sai/.sal`、skills、permissions、依赖和 ABI 约束。
-- `src/plugin.zig` 必须导出 `saasm_plugin_descriptor_v1`，并填写 ABI version、descriptor size、name、skills。
+- `sap.json` 是插件工程清单，声明 canonical plugin id、版本、动态库产物、`.sa/.sai/.sal`、skills、permissions、依赖和 ABI 约束。
+- `src/plugin.zig` 必须导出 `saasm_plugin_descriptor_v1`，并填写 ABI version、descriptor size、canonical identity、skills。
 - 所有 SA 可调用 C-ABI 函数必须在 `<name>.sai` 中声明；不得只存在于测试目录或文档示例。
 - `<name>.sal` 负责宏、布局、常量和 slot 装配；复杂对象用 opaque handle、JSON/bytes record 或 `poll/take/free` 模式表达。
 - 每个 `@extern sa_<name>_*` 必须能在 `nm -D zig-out/lib/lib<name>.so` 中找到同名导出符号。
@@ -49,7 +49,7 @@ SA 生态分两类 manifest：
 
 | 能力 | `sa.mod` | `sap.json` |
 | --- | --- | --- |
-| 身份 | 包 URL/name、ref/version | 插件 name/version/source |
+| 身份 | 包 URL/name、ref/version | 插件 name 或 namespace/name、version/source |
 | 依赖 | `require` 源码包；可声明 `require_plugin` | `dependencies` 插件依赖 |
 | 完整性 | 源码 `sha256`，写入 `sa.lock/sa.sum` | artifact/interface `sha256`，写入 `sap.lock` |
 | 权限 | `permissions`，同一套 fs/net/env/process 词汇 | `permissions`，同一套 fs/net/env/process 词汇 |
@@ -72,10 +72,11 @@ SA 生态分两类 manifest：
 
 ```text
 require github.com/acme/http_helpers @v0.2.0 sha256:...
-require_plugin sa_plugin_http_client @0.1.0 abi 1
+require_plugin http-client @0.1.0 abi 1
+require_plugin github.com/layol13/http-client @0.1.0 abi 1
 ```
 
-编译时规则：`require_plugin` 只检查插件是否已安装、ABI 是否匹配、接口 hash 是否匹配。真正安装插件仍走 `sap.json` 和 `sa plugin install`。
+插件身份规则：`require_plugin` 里的身份是 canonical plugin id。裸名如 `http-client`、`deno` 只表示 SA 官方顶级插件；第三方或组织插件必须带作者/组织命名空间，例如 `github.com/layol13/http-client`。同一个短名可以被不同 namespace 复用，但不能在同一 canonical id 下多源并存。编译时规则：`require_plugin` 只检查插件是否已安装、ABI 是否匹配、接口 hash 是否匹配。真正安装插件仍走 `sap.json` 和 `sa plugin install`。
 
 `permissions` 词汇必须一致：同样的 `fs/net/env/process` 规则用于 `sa.mod` 和 `sap.json`。区别是 `sa.mod` 的权限可以对透明源码做静态审计；`sap.json` 的权限还必须交给 native sandbox/runtime enforcement。
 
@@ -102,7 +103,7 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 ```json
 {
   "schema": "sa.plugin/1",
-  "name": "sa_plugin_deno",
+  "name": "deno",
   "version": "0.1.0",
   "source": {
     "type": "git",
@@ -162,7 +163,7 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
     }
   },
   "dependencies": {
-    "sa_plugin_http_client": {
+    "http-client": {
       "version": ">=0.1.0",
       "abi": 1,
       "optional": true,
@@ -175,14 +176,17 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 字段规则：
 
 - `schema` 必须固定为当前主版本，例如 `sa.plugin/1`。宿主不认识主版本时必须拒绝加载。
-- `name` 必须与 descriptor name、动态库导出前缀和安装目录一致，避免 `libfoo.so` 冒充 `sa_plugin_bar`。
+- `name` 是插件短名，只能在自己的 namespace 内唯一。裸短名身份保留给 SA 官方顶级插件；非官方插件必须声明 `namespace`，例如 `github.com/layol13`、`github.com/acme` 或组织内网域名。canonical plugin id 为 `name`（官方顶级）或 `namespace/name`（第三方/组织），例如 `deno`、`http-client`、`github.com/layol13/deno`。
+- `namespace` 缺省时必须被视为 SA 官方顶级空间；安装器不得让远程第三方插件以缺省 namespace 安装。namespace 必须是可追溯作者空间，优先使用 Git host URL 前缀或组织域名，不能是普通 display name。
+- descriptor name、`sap.json.name`、安装目录和导出符号前缀要交叉核验。对于带 namespace 的插件，descriptor 可以暴露 canonical id 或 `{namespace, name}`，但不能只用短名参与唯一性判断，避免两个作者都发布 `deno` 时冲突。
+- canonical plugin id 可能包含 `/`，例如 `github.com/layol13/http-client`。锁文件和权限确认文本必须保存原始 canonical id；文件系统安装目录必须使用可逆的 `<plugin-id-path>` 表示，可以是转义后的单目录名，也可以是受控的嵌套目录，但不能退化成短名。
 - `source` 记录插件来源，可以是本地路径、Git URL、GitHub shorthand 或 release archive；远程来源必须固定 tag/commit/release digest，不能只信浮动分支。
 - `abi.plugin` 对应 `saasm_plugin_descriptor_v1` 的 ABI version；`abi.saasm` 表示需要的宿主能力范围。
 - `artifacts` 按 target triple 指向构建产物路径，当前 Linux 路径先落地 `.so`。正式安装不得下载或接收预编译二进制；artifact 必须由安装器从文本源工程构建出来。
 - `interfaces.sa/sai/sal` 是 SA-facing native 入口；`.sa` 是可选 facade，实现用户可 import 的薄封装；`.sai/.sal` 是 ABI 与布局合约；native `.sai` 会参与 symbol smoke。
 - `interfaces.wasm_imports` 用于 SAX/WASM browser sidecar 这类接口：文件会被复制到插件 `sa/` 目录供编译期使用，但其中的 `@extern` 是浏览器/WASM import，不要求 native `.so` 导出同名符号。
-- `assets.share` 用于声明插件运行所需的静态 sidecar 文件，例如 browser airlock JS、demo 源文件或其他 share 资源；安装器复制到 `installed/<plugin>/current/share/`。
-- `dependencies` 只声明插件依赖插件，不声明普通源码包。普通业务依赖仍归 `sa.mod` / `sa.lock`。
+- `assets.share` 用于声明插件运行所需的静态 sidecar 文件，例如 browser airlock JS、demo 源文件或其他 share 资源；安装器复制到 `installed/<plugin-id-path>/current/share/`。
+- `dependencies` 只声明插件依赖插件，不声明普通源码包。依赖 key 同样使用 canonical plugin id；依赖第三方插件时必须写完整 namespace，例如 `github.com/layol13/http-client`。普通业务依赖仍归 `sa.mod` / `sa.lock`。
 - `permissions` 是插件整体可能使用的宿主能力声明。缺少权限声明却需要文件、网络、环境或进程能力的插件，安装器必须拒绝安装；真实阻断仍依赖宿主 sandbox/syscall 层补齐。
 - `sha256` 是 artifact 和 interface 的完整性字段。不要用 MD5 做安全判断；MD5 已不适合作为防篡改哈希。若未来需要更快校验，可额外支持 `blake3`，但 `sha256` 仍应作为默认兼容字段。
 
@@ -325,24 +329,26 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 依赖解析规则：
 
 - 宿主或 plugin-manager 先读取所有候选 `sap.json`，按 `dependencies` 做 DAG 拓扑排序，再加载动态库。
-- 必需依赖缺失、ABI 主版本不匹配、环形依赖、同名插件多版本并存时必须报结构化错误并拒绝加载。
+- 必需依赖缺失、ABI 主版本不匹配、环形依赖、同 canonical plugin id 多版本/多来源并存时必须报结构化错误并拒绝加载。短名相同但 namespace 不同的插件可以并存，前提是所有引用点都显式写 canonical plugin id。
 - `optional: true` 的依赖缺失时允许加载，但插件必须在 descriptor skills 中降级暴露能力，不能把不可用能力继续广告给 Agent。
 - 依赖插件之间的内存所有权不能跨插件释放：A 插件分配的 buffer/handle 必须由 A 的 `free/close` 释放，B 只能保存 opaque handle 或复制 bytes。
 - 若两个插件导出同名 `@extern` 符号，宿主必须拒绝链接，除非未来在 `sap.json` 中引入显式 namespace/alias 机制。
 
-推荐增加 `sap.lock`，由 plugin-manager 生成，记录解析后的插件名、版本、artifact `sha256`、接口 `sha256`、依赖图 `sha256`。`sap.lock` 不手写，用于 CI 和部署复现。
+推荐增加 `sap.lock`，由 plugin-manager 生成，记录解析后的 canonical plugin id、版本、artifact `sha256`、接口 `sha256`、依赖图 `sha256`。`sap.lock` 不手写，用于 CI 和部署复现。
 
 ## 5. 安装模型
 
 用户下载 SA 编译器后，插件安装不应要求改编译器源码。推荐命令模型：
 
 ```sh
-sa plugin install ./sa_plugin_http_client
-sa plugin install /opt/sa_plugins/sa_plugin_http_client/sap.json
-sa plugin install github:sa-plugins/sa_plugin_http_client#v0.1.0
+sa plugin install ./plugins/http-client
+sa plugin install /opt/sa_plugins/github.com%2Flayol13%2Fhttp-client/sap.json
+sa plugin install github:layol13/http-client#v0.1.0
 sa plugin install https://github.com/sa-plugins/sa_plugin_deno.git#<commit>
 sa plugin install https://github.com/sa-plugins/releases/download/deno-v0.1.0/sa_plugin_deno-linux-x86_64.tar.zst
 ```
+
+命令参数是插件来源，不是最终身份。安装器必须读取 `sap.json.name` / `sap.json.namespace` 得到 canonical plugin id，并用它做权限确认、依赖解析、安装目录和锁文件记录。
 
 安装流程：
 
@@ -357,7 +363,7 @@ sa plugin install https://github.com/sa-plugins/releases/download/deno-v0.1.0/sa
 9. **Build from source**：安装器从文本源工程执行受控构建，产出 `sap.json.artifacts` 指向的 artifact。不能直接 unpack 远程预编译 `.so/.dll/.dylib` 当作正式安装。
 10. **Symbol smoke**：用 `.sai` 中的 `@extern` 与 `.so` 导出符号做双向检查。
 11. **Resolve deps**：递归安装 `sap.json.dependencies`，构建 DAG，拒绝环、ABI 不兼容和重复 extern symbol。
-12. **Install**：复制或硬链接到 `$SA_PLUGINS_HOME/installed/<name>/<version>/`，更新 `current` 指向，并生成 `sap.lock`。
+12. **Install**：复制或硬链接到 `$SA_PLUGINS_HOME/installed/<plugin-id-path>/<version>/`，更新 `current` 指向，并生成 `sap.lock`。`<plugin-id-path>` 必须由 canonical plugin id 可逆得到，不能只使用 `name`。
 
 默认安装目录：
 
@@ -365,7 +371,7 @@ sa plugin install https://github.com/sa-plugins/releases/download/deno-v0.1.0/sa
 $SA_PLUGINS_HOME/
   cache/
   installed/
-    sa_plugin_deno/
+    deno/
       0.1.0/
         sap.json
         sap.lock
@@ -375,21 +381,31 @@ $SA_PLUGINS_HOME/
         sa/deno.sai
         sa/deno.sal
       current -> 0.1.0
+    github.com%2Flayol13%2Fhttp-client/
+      0.1.0/
+        sap.json
+        sap.lock
+        permissions.lock
+        lib/libsa_plugin_http_client.so
+        sa/http_client.sa
+        sa/http_client.sai
+        sa/http_client.sal
+      current -> 0.1.0
 ```
 
 SA 侧 import 规则：
 
-- 插件安装后，宿主应把 `installed/<name>/current/sa/` 加入 SA import search path。
+- 插件安装后，宿主应把已声明插件的 `installed/<plugin-id-path>/current/sa/` 加入 SA import search path。
 - 用户业务代码只 import 插件声明过的 `.sa/.sai/.sal`，例如 `@import "deno.sai"` 或 `@import "deno.sa"`。
-- `.sa` facade 可以依赖同插件的 `.sai/.sal`，但不能假设其他插件已存在；跨插件依赖必须写进 `sap.json.dependencies`。
+- `.sa` facade 可以依赖同插件的 `.sai/.sal`，但不能通过相对路径直接引用其他插件源码；跨插件依赖必须写进 `sap.json.dependencies`，调用方必须在 `sa.mod` 中用 `require_plugin <plugin-id>` 声明后，由宿主 resolver 加入对应 import search path。
 
-当前实现状态：`sci` 已能通过 `SA_PLUGINS_PATH` 直接加载 `.so`，也会扫描 `$SA_PLUGINS_HOME/installed/<plugin>/current` 下的 `.so`。本地 `sa plugin install` 已支持目录或 `sap.json`、拒绝裸 `.so/.dll/.dylib`、要求文本工程、从源码构建、做基础 `sap.json`/权限/URL 校验、校验接口路径与可选 `sha256`、执行 `.sai` 到 `.so` 的 symbol smoke、做 artifact 轻量静态导入扫描、拒绝跨插件重复 extern symbol、生成版本目录、`sap.lock`、`permissions.lock` 和依赖图 hash，并能递归安装带 `path` 的本地插件依赖且检测本地依赖环。远程源方面，GitHub/Git clone 和带 `#sha256:` pin 的 release archive 文本源码安装都已支持。宿主 `sa skills` 也会在 optional 依赖缺失或关键符号不满足时自动隐藏对应插件技能。运行时 sandbox/broker enforcement 仍是需要补齐的 plugin-manager/宿主工作。
+当前实现状态：`sci` 已能通过 `SA_PLUGINS_PATH` 直接加载 `.so`，也会扫描 `$SA_PLUGINS_HOME/installed/<plugin-id-path>/current` 下的 `.so`。本地 `sa plugin install` 已支持目录或 `sap.json`、拒绝裸 `.so/.dll/.dylib`、要求文本工程、从源码构建、做基础 `sap.json`/权限/URL 校验、校验接口路径与可选 `sha256`、执行 `.sai` 到 `.so` 的 symbol smoke、做 artifact 轻量静态导入扫描、拒绝跨插件重复 extern symbol、生成版本目录、`sap.lock`、`permissions.lock` 和依赖图 hash，并能递归安装带 `path` 的本地插件依赖且检测本地依赖环。远程源方面，GitHub/Git clone 和带 `#sha256:` pin 的 release archive 文本源码安装都已支持。宿主 `sa skills` 也会在 optional 依赖缺失或关键符号不满足时自动隐藏对应插件技能。运行时 sandbox/broker enforcement 仍是需要补齐的 plugin-manager/宿主工作。
 
 ## 6. 生命周期
 
 当前宿主支持的真实路径：
 
-1. **Discover**：`SA_PLUGINS_PATH` 指向单个 `.so`、单个 `sap.json`、插件目录或冒号分隔路径；或 `SA_PLUGINS_HOME/installed/<plugin>/current` 由 plugin-manager 维护。
+1. **Discover**：`SA_PLUGINS_PATH` 指向单个 `.so`、单个 `sap.json`、插件目录或冒号分隔路径；或 `SA_PLUGINS_HOME/installed/<plugin-id-path>/current` 由 plugin-manager 维护。
 2. **Resolve**：若发现 `sap.json`，先解析依赖图、ABI 约束和 artifact 路径；直接传 `.so` 时退化为单库加载模式。
 3. **Load**：宿主按依赖拓扑顺序用 `std.DynLib.open` 加载 `.so`。
 4. **Handshake**：宿主查找 `saasm_plugin_descriptor_v1` 或 `saasm_plugin_descriptor_v1_fn`，校验 ABI version、descriptor size、name，并与 `sap.json` 交叉核验。
