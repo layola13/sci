@@ -239,3 +239,41 @@
 [MACRO] VEC_SWAP_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
     EXPAND VEC_TRY_SWAP_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
 [END_MACRO]
+
+[MACRO] VEC_TRY_REMOVE %out_ok, %out_value, %vec_reg, %index, %elem_size
+    __vec_remove_slot_%out_ok = stack_alloc 8
+    __vec_remove_ok_%out_ok = call @sa_vec_try_remove(&%vec_reg, %index, &__vec_remove_slot_%out_ok, %elem_size)
+    %out_value = load __vec_remove_slot_%out_ok+0 as u64
+    %out_ok = __vec_remove_ok_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
+    EXPAND VEC_TRY_REMOVE %out_ok, %out_value, %vec_reg, %index, 8
+[END_MACRO]
+
+[MACRO] VEC_REMOVE %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND VEC_TRY_REMOVE %out_ok, %out_value, %vec_reg, %index, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
+    EXPAND VEC_TRY_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] VEC_TRY_SPLIT_OFF %out_ok, %out_vec, %vec_reg, %index, %elem_size
+    __vec_split_off_slot_%out_ok = stack_alloc 8
+    %vec_reg = call @sa_vec_try_split_off(^%vec_reg, %index, %elem_size, &__vec_split_off_slot_%out_ok)
+    %out_vec = load __vec_split_off_slot_%out_ok+0 as ptr
+    %out_ok = ne %out_vec, 0
+[END_MACRO]
+
+[MACRO] VEC_TRY_SPLIT_OFF_U64 %out_ok, %out_vec, %vec_reg, %index
+    EXPAND VEC_TRY_SPLIT_OFF %out_ok, %out_vec, %vec_reg, %index, 8
+[END_MACRO]
+
+[MACRO] VEC_RESIZE %vec_reg, %new_len, %fill_value, %elem_size
+    %vec_reg = call @sa_vec_resize(^%vec_reg, %new_len, %fill_value, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_RESIZE_U64 %vec_reg, %new_len, %fill_value
+    EXPAND VEC_RESIZE %vec_reg, %new_len, %fill_value, 8
+[END_MACRO]

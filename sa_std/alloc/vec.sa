@@ -324,6 +324,175 @@ L_MISS:
     !vec
     return 0
 
+@export sa_vec_try_remove(&vec: ptr, index: u64, &out_value_slot: ptr, elem_size: u64) -> i32:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    in_bounds = ult index, len
+    br in_bounds -> L_READY, L_MISS
+
+L_READY:
+    buf = load vec+Vec_ptr as ptr
+    remove_off = mul index, elem_size
+    remove_ptr = ptr_add buf, remove_off
+    removed = load remove_ptr+0 as u64
+    trailing = sub len, index
+    trailing_after = sub trailing, 1
+    move_bytes = mul trailing_after, elem_size
+    move_zero = eq move_bytes, 0
+    br move_zero -> L_STORE_RESULT, L_SHIFT_INIT
+
+L_SHIFT_INIT:
+    src_ptr = ptr_add remove_ptr, elem_size
+    move_off_slot = stack_alloc 8
+    store move_off_slot+0, 0 as u64
+    jmp L_SHIFT_HEAD
+
+L_SHIFT_HEAD:
+    move_off = load move_off_slot+0 as u64
+    done = eq move_off, move_bytes
+    br done -> L_STORE_RESULT, L_SHIFT_BODY
+
+L_SHIFT_BODY:
+    src_byte_ptr = ptr_add src_ptr, move_off
+    dst_byte_ptr = ptr_add remove_ptr, move_off
+    byte = load src_byte_ptr+0 as u8
+    store dst_byte_ptr+0, byte as u8
+    next_move_off = add move_off, 1
+    store move_off_slot+0, next_move_off as u64
+    !next_move_off
+    !byte
+    !dst_byte_ptr
+    !src_byte_ptr
+    !done
+    !move_off
+    jmp L_SHIFT_HEAD
+
+L_STORE_RESULT:
+    next_len = sub len, 1
+    store out_value_slot+0, removed as u64
+    store vec+Vec_len, next_len as u64
+    !next_len
+    !move_zero
+    !move_bytes
+    !trailing_after
+    !trailing
+    !removed
+    !remove_ptr
+    !remove_off
+    !buf
+    !in_bounds
+    !len
+    !elem_size
+    !index
+    !out_value_slot
+    !vec
+    return 1
+
+L_MISS:
+    store out_value_slot+0, 0 as ptr
+    !in_bounds
+    !len
+    !elem_size
+    !index
+    !out_value_slot
+    !vec
+    return 0
+
+@export sa_vec_try_split_off(^vec: ptr, index: u64, elem_size: u64, &out_vec_slot: ptr) -> ^ptr:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    in_bounds = ule index, len
+    br in_bounds -> L_READY, L_MISS
+
+L_READY:
+    tail_len = sub len, index
+    out_vec = call @sa_vec_with_capacity(tail_len, elem_size)
+    tail_zero = eq tail_len, 0
+    br tail_zero -> L_STORE_VEC, L_COPY_TAIL
+
+L_COPY_TAIL:
+    src_buf = load vec+Vec_ptr as ptr
+    src_off = mul index, elem_size
+    src_ptr = ptr_add src_buf, src_off
+    dst_buf = load out_vec+Vec_ptr as ptr
+    copy_bytes = mul tail_len, elem_size
+    call @sa_mem_copy(&dst_buf, &src_ptr, copy_bytes)
+    !copy_bytes
+    !dst_buf
+    !src_ptr
+    !src_off
+    !src_buf
+
+L_STORE_VEC:
+    store out_vec+Vec_len, tail_len as u64
+    store vec+Vec_len, index as u64
+    store out_vec_slot+0, out_vec as ptr
+    !tail_zero
+    !tail_len
+    !out_vec
+    !in_bounds
+    !len
+    !elem_size
+    !index
+    !out_vec_slot
+    return vec
+
+L_MISS:
+    store out_vec_slot+0, 0 as ptr
+    !in_bounds
+    !len
+    !elem_size
+    !index
+    !out_vec_slot
+    return vec
+
+@export sa_vec_resize(^vec: ptr, new_len: u64, fill_value: u64, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    should_shrink = ule new_len, len
+    br should_shrink -> L_SHRINK, L_GROW
+
+L_SHRINK:
+    store vec+Vec_len, new_len as u64
+    !should_shrink
+    !len
+    !fill_value
+    !elem_size
+    !new_len
+    return vec
+
+L_GROW:
+    additional = sub new_len, len
+    vec = call @sa_vec_reserve(^vec, additional, elem_size)
+    remaining_slot = stack_alloc 8
+    store remaining_slot+0, additional as u64
+    jmp L_GROW_HEAD
+
+L_GROW_HEAD:
+    remaining = load remaining_slot+0 as u64
+    done = eq remaining, 0
+    br done -> L_GROW_DONE, L_GROW_BODY
+
+L_GROW_BODY:
+    vec = call @sa_vec_push(^vec, fill_value, elem_size)
+    next_remaining = sub remaining, 1
+    store remaining_slot+0, next_remaining as u64
+    !next_remaining
+    !done
+    !remaining
+    jmp L_GROW_HEAD
+
+L_GROW_DONE:
+    !done
+    !remaining
+    !should_shrink
+    !additional
+    !len
+    !fill_value
+    !elem_size
+    !new_len
+    return vec
+
 @export sa_vec_free(^vec: ptr) -> void:
     inner_ptr = take vec+Vec_ptr
     !inner_ptr

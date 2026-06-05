@@ -667,7 +667,23 @@ L_ENTRY:
     EXPAND VEC_TRY_GET_U64 swap_slot_ok, swap_slot, vec, 1
     EXPAND VEC_TRY_SWAP_REMOVE_U64 swap_remove_miss_ok, swap_remove_miss, vec, 9
     EXPAND VEC_POP_U64 pop2_ok, popped2, vec
+    EXPAND VEC_TRY_REMOVE_U64 remove_ok, removed, vec, 1
+    EXPAND VEC_TRY_GET_U64 remove_slot_ok, remove_slot, vec, 1
+    EXPAND VEC_TRY_REMOVE_U64 remove_miss_ok, remove_miss, vec, 9
     EXPAND VEC_LEN len, vec
+    EXPAND VEC_RESIZE_U64 vec, 5, 123
+    EXPAND VEC_LEN len_after_resize, vec
+    EXPAND VEC_TRY_GET_U64 resize_fill1_ok, resize_fill1, vec, 3
+    EXPAND VEC_TRY_GET_U64 resize_fill2_ok, resize_fill2, vec, 4
+    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_ok, split_off_vec, vec, 2
+    EXPAND VEC_LEN len_after_split_off, vec
+    EXPAND VEC_LEN split_off_len, split_off_vec
+    EXPAND VEC_TRY_GET_U64 split_off_first_ok, split_off_first, split_off_vec, 0
+    EXPAND VEC_TRY_GET_U64 split_off_last_ok, split_off_last, split_off_vec, 2
+    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_empty_ok, split_off_empty_vec, vec, 2
+    EXPAND VEC_LEN len_after_empty_split_off, vec
+    EXPAND VEC_LEN split_off_empty_len, split_off_empty_vec
+    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_miss_ok, split_off_miss, vec, 9
     EXPAND VEC_TRY_FRONT_U64 front_after_ok, front_after, vec
     EXPAND VEC_TRY_BACK_U64 back_after_ok, back_after, vec
 
@@ -711,7 +727,29 @@ L_ENTRY:
     swap_remove_miss_value_ok = eq swap_remove_miss, 0
     pop2_ok_flag = eq pop2_ok, 1
     pop2_ok_value = eq popped2, 77
-    len_ok = eq len, 3
+    remove_flag_ok = eq remove_ok, 1
+    remove_value_ok = eq removed, 88
+    remove_slot_flag_ok = eq remove_slot_ok, 1
+    remove_slot_value_ok = eq remove_slot, 66
+    remove_miss_flag_ok = eq remove_miss_ok, 0
+    remove_miss_value_ok = eq remove_miss, 0
+    len_ok = eq len, 2
+    len_after_resize_ok = eq len_after_resize, 5
+    resize_fill1_flag_ok = eq resize_fill1_ok, 1
+    resize_fill1_value_ok = eq resize_fill1, 123
+    resize_fill2_flag_ok = eq resize_fill2_ok, 1
+    resize_fill2_value_ok = eq resize_fill2, 123
+    split_off_flag_ok = eq split_off_ok, 1
+    len_after_split_off_ok = eq len_after_split_off, 2
+    split_off_len_ok = eq split_off_len, 3
+    split_off_first_flag_ok = eq split_off_first_ok, 1
+    split_off_first_value_ok = eq split_off_first, 123
+    split_off_last_flag_ok = eq split_off_last_ok, 1
+    split_off_last_value_ok = eq split_off_last, 123
+    split_off_empty_flag_ok = eq split_off_empty_ok, 1
+    len_after_empty_split_off_ok = eq len_after_empty_split_off, 2
+    split_off_empty_len_ok = eq split_off_empty_len, 0
+    split_off_miss_flag_ok = eq split_off_miss_ok, 0
     front_after_flag_ok = eq front_after_ok, 1
     front_after_value_ok = eq front_after, 44
     back_after_flag_ok = eq back_after_ok, 1
@@ -755,11 +793,33 @@ L_ENTRY:
     ok27 = and ok26, swap_remove_miss_value_ok
     ok28 = and ok27, pop2_ok_flag
     ok29 = and ok28, pop2_ok_value
-    ok30 = and ok29, len_ok
-    ok31 = and ok30, front_after_flag_ok
-    ok32 = and ok31, front_after_value_ok
-    ok33 = and ok32, back_after_flag_ok
-    ok = and ok33, back_after_value_ok
+    ok30 = and ok29, remove_flag_ok
+    ok31 = and ok30, remove_value_ok
+    ok32 = and ok31, remove_slot_flag_ok
+    ok33 = and ok32, remove_slot_value_ok
+    ok34 = and ok33, remove_miss_flag_ok
+    ok35 = and ok34, remove_miss_value_ok
+    ok36 = and ok35, len_ok
+    ok37 = and ok36, len_after_resize_ok
+    ok38 = and ok37, resize_fill1_flag_ok
+    ok39 = and ok38, resize_fill1_value_ok
+    ok40 = and ok39, resize_fill2_flag_ok
+    ok41 = and ok40, resize_fill2_value_ok
+    ok42 = and ok41, split_off_flag_ok
+    ok43 = and ok42, len_after_split_off_ok
+    ok44 = and ok43, split_off_len_ok
+    ok45 = and ok44, split_off_first_flag_ok
+    ok46 = and ok45, split_off_first_value_ok
+    ok47 = and ok46, split_off_last_flag_ok
+    ok48 = and ok47, split_off_last_value_ok
+    ok49 = and ok48, split_off_empty_flag_ok
+    ok50 = and ok49, len_after_empty_split_off_ok
+    ok51 = and ok50, split_off_empty_len_ok
+    ok52 = and ok51, split_off_miss_flag_ok
+    ok53 = and ok52, front_after_flag_ok
+    ok54 = and ok53, front_after_value_ok
+    ok55 = and ok54, back_after_flag_ok
+    ok = and ok55, back_after_value_ok
     !got
     !after_extend_ok
     !after_extend
@@ -805,6 +865,31 @@ L_ENTRY:
     !pop2_ok
     !popped2
     !len
+    !remove_ok
+    !removed
+    !remove_slot_ok
+    !remove_slot
+    !remove_miss_ok
+    !remove_miss
+    !len_after_resize
+    !resize_fill1_ok
+    !resize_fill1
+    !resize_fill2_ok
+    !resize_fill2
+    !split_off_ok
+    !split_off_vec
+    !len_after_split_off
+    !split_off_len
+    !split_off_first_ok
+    !split_off_first
+    !split_off_last_ok
+    !split_off_last
+    !split_off_empty_ok
+    !split_off_empty_vec
+    !len_after_empty_split_off
+    !split_off_empty_len
+    !split_off_miss_ok
+    !split_off_miss
     !front_after_ok
     !front_after
     !back_after_ok
@@ -852,7 +937,29 @@ L_ENTRY:
     !swap_remove_miss_value_ok
     !pop2_ok_flag
     !pop2_ok_value
+    !remove_flag_ok
+    !remove_value_ok
+    !remove_slot_flag_ok
+    !remove_slot_value_ok
+    !remove_miss_flag_ok
+    !remove_miss_value_ok
     !len_ok
+    !len_after_resize_ok
+    !resize_fill1_flag_ok
+    !resize_fill1_value_ok
+    !resize_fill2_flag_ok
+    !resize_fill2_value_ok
+    !split_off_flag_ok
+    !len_after_split_off_ok
+    !split_off_len_ok
+    !split_off_first_flag_ok
+    !split_off_first_value_ok
+    !split_off_last_flag_ok
+    !split_off_last_value_ok
+    !split_off_empty_flag_ok
+    !len_after_empty_split_off_ok
+    !split_off_empty_len_ok
+    !split_off_miss_flag_ok
     !front_after_flag_ok
     !front_after_value_ok
     !back_after_flag_ok
@@ -890,6 +997,28 @@ L_ENTRY:
     !ok31
     !ok32
     !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
+    !ok40
+    !ok41
+    !ok42
+    !ok43
+    !ok44
+    !ok45
+    !ok46
+    !ok47
+    !ok48
+    !ok49
+    !ok50
+    !ok51
+    !ok52
+    !ok53
+    !ok54
+    !ok55
     !pattern01
     !pattern02
     !pattern_ok
