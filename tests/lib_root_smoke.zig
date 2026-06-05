@@ -1,6 +1,23 @@
 const std = @import("std");
 const saasm = @import("saasm");
 
+fn expectCliHelp(argv: []const []const u8, expected: []const u8) !void {
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv, stdout_buffer.writer(), stderr_buffer.writer());
+    if (code != 0 or stderr_buffer.items.len != 0 or std.mem.indexOf(u8, stdout_buffer.items, expected) == null) {
+        std.debug.print("help command failed: ", .{});
+        for (argv) |arg| std.debug.print("{s} ", .{arg});
+        std.debug.print("\ncode: {d}\nstdout:\n{s}\nstderr:\n{s}\n", .{ code, stdout_buffer.items, stderr_buffer.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, expected) != null);
+}
+
 test "root module imports common types" {
     _ = saasm.common.instruction.InstKind.alloc;
     _ = saasm.common.capability.CapabilityMask.active;
@@ -84,4 +101,43 @@ test "root module imports common types" {
     defer layout_result.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(u32, 16), layout_result.size);
     try std.testing.expectEqual(@as(u32, 8), layout_result.fields[1].offset);
+}
+
+test "cli command help covers built-in commands" {
+    const cases = [_]struct {
+        argv: []const []const u8,
+        expected: []const u8,
+    }{
+        .{ .argv = &.{ "sa", "init", "--help" }, .expected = "usage: sa init [path]" },
+        .{ .argv = &.{ "sa", "install", "--help" }, .expected = "usage: sa install [options] [identity]" },
+        .{ .argv = &.{ "sa", "plugin", "--help" }, .expected = "usage: sa plugin <install|list> [options]" },
+        .{ .argv = &.{ "sa", "plugin", "install", "--help" }, .expected = "usage: sa plugin install [--dev] [--review] <path|sap.json>" },
+        .{ .argv = &.{ "sa", "plugin", "list", "--help" }, .expected = "usage: sa plugin list" },
+        .{ .argv = &.{ "sa", "pkg", "--help" }, .expected = "usage: sa pkg <install|fetch|audit> [options]" },
+        .{ .argv = &.{ "sa", "pkg", "install", "--help" }, .expected = "usage: sa pkg install [options] [identity]" },
+        .{ .argv = &.{ "sa", "pkg", "fetch", "--help" }, .expected = "usage: sa pkg fetch [options] <identity>" },
+        .{ .argv = &.{ "sa", "pkg", "audit", "--help" }, .expected = "usage: sa pkg audit [options] <identity>" },
+        .{ .argv = &.{ "sa", "build", "--help" }, .expected = "usage: sa build <file> [options]" },
+        .{ .argv = &.{ "sa", "build-exe", "--help" }, .expected = "usage: sa build-exe <file> [options]" },
+        .{ .argv = &.{ "sa", "build-obj", "--help" }, .expected = "usage: sa build-obj <file> [options]" },
+        .{ .argv = &.{ "sa", "build-wasm", "--help" }, .expected = "usage: sa build-wasm <file> [options]" },
+        .{ .argv = &.{ "sa", "run", "--help" }, .expected = "usage: sa run <file> [compile-options] [args...]" },
+        .{ .argv = &.{ "sa", "fetch", "--help" }, .expected = "usage: sa fetch <identity>" },
+        .{ .argv = &.{ "sa", "audit", "--help" }, .expected = "usage: sa audit <identity>" },
+        .{ .argv = &.{ "sa", "graph", "--help" }, .expected = "usage: sa graph [path] [options]" },
+        .{ .argv = &.{ "sa", "layout", "--help" }, .expected = "usage: sa layout --name <TypeName> --fields <name:ty,...> [options]" },
+        .{ .argv = &.{ "sa", "size", "--help" }, .expected = "usage: sa size [path] [options]" },
+        .{ .argv = &.{ "sa", "test", "--help" }, .expected = "usage: sa test <file> [options]" },
+        .{ .argv = &.{ "sa", "test", "-h" }, .expected = "--filter <pattern>" },
+        .{ .argv = &.{ "sa", "bc2sa", "--help" }, .expected = "usage: sa bc2sa <file.bc>" },
+        .{ .argv = &.{ "sa", "explain", "--help" }, .expected = "usage: sa explain <code>" },
+        .{ .argv = &.{ "sa", "fix", "--help" }, .expected = "usage: sa fix [--plan] <code>" },
+        .{ .argv = &.{ "sa", "skills", "--help" }, .expected = "usage: sa skills [--json]" },
+        .{ .argv = &.{ "sa", "help", "--help" }, .expected = "usage: sa help [command]" },
+        .{ .argv = &.{ "sa", "version", "--help" }, .expected = "usage: sa version" },
+        .{ .argv = &.{ "sa", "help", "test" }, .expected = "usage: sa test <file> [options]" },
+        .{ .argv = &.{ "sa", "help", "pkg", "audit" }, .expected = "usage: sa pkg audit [options] <identity>" },
+    };
+
+    for (cases) |case| try expectCliHelp(case.argv, case.expected);
 }

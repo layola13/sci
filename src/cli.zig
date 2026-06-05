@@ -883,8 +883,293 @@ fn commandName(cmd: Command) []const u8 {
     };
 }
 
+fn commandFromName(name: []const u8) ?Command {
+    inline for (std.meta.fields(Command)) |field| {
+        const cmd: Command = @enumFromInt(field.value);
+        if (std.mem.eql(u8, name, commandName(cmd))) return cmd;
+    }
+    return null;
+}
+
 fn commandSupported(name: []const u8) bool {
-    return std.mem.eql(u8, name, "build") or std.mem.eql(u8, name, "run") or std.mem.eql(u8, name, "init") or std.mem.eql(u8, name, "install") or std.mem.eql(u8, name, "plugin") or std.mem.eql(u8, name, "pkg") or std.mem.eql(u8, name, "build-exe") or std.mem.eql(u8, name, "build-wasm") or std.mem.eql(u8, name, "build-obj") or std.mem.eql(u8, name, "audit") or std.mem.eql(u8, name, "graph") or std.mem.eql(u8, name, "layout") or std.mem.eql(u8, name, "size") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "explain") or std.mem.eql(u8, name, "fix") or std.mem.eql(u8, name, "skills") or std.mem.eql(u8, name, "bc2sa") or std.mem.eql(u8, name, "fetch");
+    return commandFromName(name) != null;
+}
+
+fn isHelpFlag(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h");
+}
+
+fn commandHelpRequested(cmd: Command, args: []const []const u8) bool {
+    if (args.len < 3) return false;
+    if (isHelpFlag(args[2])) return true;
+    return switch (cmd) {
+        .pkg, .plugin => args.len >= 4 and isHelpFlag(args[3]),
+        else => false,
+    };
+}
+
+fn writeCompileOptionsHelp(writer: anytype) !void {
+    try writer.writeAll("  --jobs auto|N                  Set parallel compile jobs\n");
+    try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
+    try writer.writeAll("  --offline                      Use local package cache only\n");
+    try writer.writeAll("  --ci                           Use CI package preflight behavior\n");
+    try writer.writeAll("  --allow-unaudited-risks        Allow high-risk package audit findings\n");
+    try writer.writeAll("  --yes, --auto-approve          Approve package review prompts when allowed\n");
+    try writer.writeAll("  -P, --permission-set <name>    Select a named permission set\n");
+    try writer.writeAll("  --allow-env[=list]             Allow environment access for reviewed packages\n");
+    try writer.writeAll("  --allow-net[=list]             Allow network access for reviewed packages\n");
+    try writer.writeAll("  --allow-read[=list]            Allow filesystem reads for reviewed packages\n");
+    try writer.writeAll("  --allow-write[=list]           Allow filesystem writes for reviewed packages\n");
+    try writer.writeAll("  --allow-run[=list]             Allow process execution for reviewed packages\n");
+}
+
+fn writeBuildOptionsHelp(writer: anytype, artifact: []const u8) !void {
+    try writer.print("  -o <path>                      Write {s} to path\n", .{artifact});
+    try writer.writeAll("  -g                             Include debug information\n");
+    try writer.writeAll("  --no-debug                     Disable debug information\n");
+    try writer.writeAll("  --release-small                Optimize for small release output\n");
+    try writer.writeAll("  --release-fast                 Optimize for fast release output\n");
+    try writeCompileOptionsHelp(writer);
+}
+
+fn printPkgHelp(writer: anytype, args: []const []const u8) !void {
+    const sub = if (args.len != 0 and !isHelpFlag(args[0])) args[0] else "";
+    if (std.mem.eql(u8, sub, "install")) {
+        try writer.writeAll("usage: sa pkg install [options] [identity]\n\n");
+        try writer.writeAll("Fetch project dependencies from sa.mod, or fetch one package identity.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --offline                      Use local package cache only\n");
+        try writer.writeAll("  -g                             Install into the global package cache\n");
+        try writer.writeAll("  --ref <ref>                    Fetch a specific package ref\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+    if (std.mem.eql(u8, sub, "fetch")) {
+        try writer.writeAll("usage: sa pkg fetch [options] <identity>\n\n");
+        try writer.writeAll("Fetch and cache one package identity.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --offline                      Use local package cache only\n");
+        try writer.writeAll("  -g                             Install into the global package cache\n");
+        try writer.writeAll("  --ref <ref>                    Fetch a specific package ref\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+    if (std.mem.eql(u8, sub, "audit")) {
+        try writer.writeAll("usage: sa pkg audit [options] <identity>\n\n");
+        try writer.writeAll("Audit a package source tree and report required capabilities.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --format text|json             Select report format\n");
+        try writer.writeAll("  --json                         Emit JSON report\n");
+        try writer.writeAll("  --ci                           Fail on CI policy violations\n");
+        try writer.writeAll("  --allow-unaudited-risks        Allow high-risk audit findings\n");
+        try writer.writeAll("  --update-lock                  Update project package lock metadata\n");
+        try writer.writeAll("  --ref <ref>                    Audit a specific package ref\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+
+    try writer.writeAll("usage: sa pkg <install|fetch|audit> [options]\n\n");
+    try writer.writeAll("Package fetch, audit, install, and lock commands.\n\n");
+    try writer.writeAll("Subcommands:\n");
+    try writer.writeAll("  install                        Fetch project dependencies or one identity\n");
+    try writer.writeAll("  fetch                          Fetch and cache one identity\n");
+    try writer.writeAll("  audit                          Audit package capabilities and risk\n");
+    try writer.writeAll("\nUse `sa pkg <subcommand> --help` for subcommand options.\n");
+}
+
+fn printPluginHelp(writer: anytype, args: []const []const u8) !void {
+    const sub = if (args.len != 0 and !isHelpFlag(args[0])) args[0] else "";
+    if (std.mem.eql(u8, sub, "install")) {
+        try writer.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json>\n\n");
+        try writer.writeAll("Build, verify, and install a native SA plugin project.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --dev                          Allow development-mode install checks\n");
+        try writer.writeAll("  --review                       Force review output before install\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+    if (std.mem.eql(u8, sub, "list")) {
+        try writer.writeAll("usage: sa plugin list\n\n");
+        try writer.writeAll("List installed native SA plugins.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+
+    try writer.writeAll("usage: sa plugin <install|list> [options]\n\n");
+    try writer.writeAll("Install and list native SA plugins.\n\n");
+    try writer.writeAll("Subcommands:\n");
+    try writer.writeAll("  install                        Install a plugin project or sap.json\n");
+    try writer.writeAll("  list                           List installed plugins\n");
+    try writer.writeAll("\nUse `sa plugin <subcommand> --help` for subcommand options.\n");
+}
+
+fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !void {
+    switch (cmd) {
+        .init => {
+            try writer.writeAll("usage: sa init [path]\n\n");
+            try writer.writeAll("Create a new SA binary project.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .install => {
+            try writer.writeAll("usage: sa install [options] [identity]\n\n");
+            try writer.writeAll("Install project dependencies or one package identity. This is a compatibility alias for package install behavior.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --offline                      Use local package cache only\n");
+            try writer.writeAll("  -g                             Install into the global package cache\n");
+            try writer.writeAll("  --ref <ref>                    Fetch a specific package ref\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .plugin => try printPluginHelp(writer, args),
+        .pkg => try printPkgHelp(writer, args),
+        .build => {
+            try writer.writeAll("usage: sa build <file> [options]\n\n");
+            try writer.writeAll("Compile a .sa source file to a native executable.\n\n");
+            try writer.writeAll("Options:\n");
+            try writeBuildOptionsHelp(writer, "the executable");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .build_exe => {
+            try writer.writeAll("usage: sa build-exe <file> [options]\n\n");
+            try writer.writeAll("Build a standalone native executable. This is an alias for `sa build`.\n\n");
+            try writer.writeAll("Options:\n");
+            try writeBuildOptionsHelp(writer, "the executable");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .build_obj => {
+            try writer.writeAll("usage: sa build-obj <file> [options]\n\n");
+            try writer.writeAll("Build a native object file from a .sa source file.\n\n");
+            try writer.writeAll("Options:\n");
+            try writeBuildOptionsHelp(writer, "the object file");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .build_wasm => {
+            try writer.writeAll("usage: sa build-wasm <file> [options]\n\n");
+            try writer.writeAll("Build a WebAssembly module from a .sa source file.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --target wasm32|wasm64         Select the WebAssembly target\n");
+            try writeBuildOptionsHelp(writer, "the wasm module");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .run => {
+            try writer.writeAll("usage: sa run <file> [compile-options] [args...]\n\n");
+            try writer.writeAll("Compile and execute a .sa source file.\n\n");
+            try writer.writeAll("Options:\n");
+            try writeCompileOptionsHelp(writer);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .fetch => {
+            try writer.writeAll("usage: sa fetch <identity>\n\n");
+            try writer.writeAll("Fetch and cache a remote package. This is a compatibility alias; prefer `sa pkg fetch`.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .audit => {
+            try writer.writeAll("usage: sa audit <identity>\n\n");
+            try writer.writeAll("Compatibility alias for package audit. Prefer `sa pkg audit <identity>`.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .graph => {
+            try writer.writeAll("usage: sa graph [path] [options]\n\n");
+            try writer.writeAll("Output a dependency and call graph for a source file or project.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --json                         Emit graph JSON\n");
+            try writeCompileOptionsHelp(writer);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .layout => {
+            try writer.writeAll("usage: sa layout --name <TypeName> --fields <name:ty,...> [options]\n\n");
+            try writer.writeAll("Compute and print struct layout information.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --name <TypeName>              Struct/type name to display\n");
+            try writer.writeAll("  --fields <name:ty,...>         Comma-separated field list\n");
+            try writer.writeAll("  --format text|json|debug|dict  Select output format\n");
+            try writer.writeAll("  --target 32|64                 Select pointer width\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .size => {
+            try writer.writeAll("usage: sa size [path] [options]\n\n");
+            try writer.writeAll("Print function size statistics for a source file or project.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --json                         Emit size data as JSON\n");
+            try writeCompileOptionsHelp(writer);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .test_cmd => {
+            try writer.writeAll("usage: sa test <file> [options]\n\n");
+            try writer.writeAll("Run @test blocks in a .sa source file.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --filter <pattern>             Include only matching tests (repeatable)\n");
+            try writer.writeAll("  --skip <pattern>               Exclude matching tests (repeatable)\n");
+            try writer.writeAll("  --exact                        Match test names exactly\n");
+            try writer.writeAll("  --ignored                      Run only ignored tests\n");
+            try writer.writeAll("  --include-ignored              Run all tests including ignored\n");
+            try writeCompileOptionsHelp(writer);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .bc2sa => {
+            try writer.writeAll("usage: sa bc2sa <file.bc>\n\n");
+            try writer.writeAll("Translate LLVM bitcode to SA assembly.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .explain => {
+            try writer.writeAll("usage: sa explain <code>\n\n");
+            try writer.writeAll("Explain a diagnostic error code.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --json                         Emit explanation as JSON\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .fix => {
+            try writer.writeAll("usage: sa fix [--plan] <code>\n\n");
+            try writer.writeAll("Suggest fixes for diagnostics.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --plan                         Print a deterministic fix plan\n");
+            try writer.writeAll("  --json                         Emit fix plan as JSON\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .skills => {
+            try writer.writeAll("usage: sa skills [--json]\n\n");
+            try writer.writeAll("List compiler and plugin skills/capabilities.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --json                         Emit skills as JSON\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .help => {
+            try writer.writeAll("usage: sa help [command]\n\n");
+            try writer.writeAll("Show global help or help for one command.\n\n");
+            try writer.writeAll("Examples:\n");
+            try writer.writeAll("  sa help test\n");
+            try writer.writeAll("  sa help pkg audit\n");
+            try writer.writeAll("  sa test --help\n");
+        },
+        .version => {
+            try writer.writeAll("usage: sa version\n\n");
+            try writer.writeAll("Print the SA toolchain version.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --version                      Print version and exit\n");
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+    }
+}
+
+fn printHelpTopic(writer: anytype, args: []const []const u8) !u8 {
+    if (args.len == 0) {
+        try printUsage(writer);
+        return 0;
+    }
+    if (isHelpFlag(args[0])) {
+        try printCommandHelp(writer, .help, &.{});
+        return 0;
+    }
+    const cmd = commandFromName(args[0]) orelse {
+        try writer.print("unknown help topic: {s}\n", .{args[0]});
+        return 1;
+    };
+    try printCommandHelp(writer, cmd, args[1..]);
+    return 0;
 }
 
 fn explainEntries() []const ExplainEntry {
@@ -3648,7 +3933,7 @@ pub fn executeWithWritersAndOptions(
 
     // Global flags: --help / -h / --version (checked before command dispatch)
     if (args.len >= 2) {
-        if (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h")) {
+        if (isHelpFlag(args[1])) {
             try printUsage(stdout);
             return 0;
         }
@@ -3663,28 +3948,7 @@ pub fn executeWithWritersAndOptions(
         return 1;
     }
 
-    const cmd: Command = blk: {
-        if (std.mem.eql(u8, args[1], commandName(.build))) break :blk .build;
-        if (std.mem.eql(u8, args[1], commandName(.run))) break :blk .run;
-        if (std.mem.eql(u8, args[1], commandName(.init))) break :blk .init;
-        if (std.mem.eql(u8, args[1], commandName(.install))) break :blk .install;
-        if (std.mem.eql(u8, args[1], commandName(.plugin))) break :blk .plugin;
-        if (std.mem.eql(u8, args[1], commandName(.pkg))) break :blk .pkg;
-        if (std.mem.eql(u8, args[1], commandName(.build_exe))) break :blk .build_exe;
-        if (std.mem.eql(u8, args[1], commandName(.build_wasm))) break :blk .build_wasm;
-        if (std.mem.eql(u8, args[1], commandName(.build_obj))) break :blk .build_obj;
-        if (std.mem.eql(u8, args[1], commandName(.bc2sa))) break :blk .bc2sa;
-        if (std.mem.eql(u8, args[1], commandName(.audit))) break :blk .audit;
-        if (std.mem.eql(u8, args[1], commandName(.graph))) break :blk .graph;
-        if (std.mem.eql(u8, args[1], commandName(.layout))) break :blk .layout;
-        if (std.mem.eql(u8, args[1], commandName(.fetch))) break :blk .fetch;
-        if (std.mem.eql(u8, args[1], commandName(.size))) break :blk .size;
-        if (std.mem.eql(u8, args[1], commandName(.test_cmd))) break :blk .test_cmd;
-        if (std.mem.eql(u8, args[1], commandName(.explain))) break :blk .explain;
-        if (std.mem.eql(u8, args[1], commandName(.fix))) break :blk .fix;
-        if (std.mem.eql(u8, args[1], commandName(.skills))) break :blk .skills;
-        if (std.mem.eql(u8, args[1], commandName(.help))) break :blk .help;
-        if (std.mem.eql(u8, args[1], commandName(.version))) break :blk .version;
+    const cmd: Command = if (commandFromName(args[1])) |known| known else {
         var plugin_auth = try buildPluginRuntimeAuthorization(allocator, args);
         defer plugin_auth.deinit(allocator);
         var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
@@ -3693,10 +3957,14 @@ pub fn executeWithWritersAndOptions(
         return error.UnknownCommand;
     };
 
+    if (commandHelpRequested(cmd, args)) {
+        try printCommandHelp(stdout, cmd, args[2..]);
+        return 0;
+    }
+
     switch (cmd) {
         .help => {
-            try printUsage(stdout);
-            return 0;
+            return try printHelpTopic(stdout, args[2..]);
         },
         .version => {
             try printVersion(stdout);
