@@ -32,6 +32,211 @@ L_ENTRY:
     !set
     return contains
 
+@export sa_btree_set_get(&set: ptr, &key: ptr, &out_key: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_btree_map_try_get_key_value(&set, &key, &out_key, &value_slot)
+    !out_key
+    !key
+    !set
+    return found
+
+@export sa_btree_set_first(&set: ptr, &out_key: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_btree_map_first_key_value(&set, &out_key, &value_slot)
+    !out_key
+    !set
+    return found
+
+@export sa_btree_set_last(&set: ptr, &out_key: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_btree_map_last_key_value(&set, &out_key, &value_slot)
+    !out_key
+    !set
+    return found
+
+@export sa_btree_set_take(&set: ptr, &key: ptr, &out_key: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_btree_map_remove_entry(&set, &key, &out_key, &value_slot)
+    !out_key
+    !key
+    !set
+    return found
+
+@export sa_btree_set_replace(&set: ptr, &key: ptr, &out_old_key: ptr) -> i32:
+L_ENTRY:
+    replaced = call @sa_btree_set_take(&set, &key, &out_old_key)
+    call @sa_btree_map_insert(&set, &key, BTreeSet_VALUE_SENTINEL)
+    !out_old_key
+    !key
+    !set
+    return replaced
+
+@export sa_btree_set_pop_first(&set: ptr, &out_key: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_btree_map_pop_first(&set, &out_key, &value_slot)
+    !out_key
+    !set
+    return found
+
+@export sa_btree_set_pop_last(&set: ptr, &out_key: ptr) -> i32:
+L_ENTRY:
+    value_slot = stack_alloc 8
+    found = call @sa_btree_map_pop_last(&set, &out_key, &value_slot)
+    !out_key
+    !set
+    return found
+
+@export sa_btree_set_is_subset(&set: ptr, &other: ptr) -> i32:
+L_ENTRY:
+    len = load set+BTreeSet_len as u64
+    other_len = load other+BTreeSet_len as u64
+    too_large = ugt len, other_len
+    br too_large -> L_SUBSET_FALSE_FAST, L_SUBSET_SCAN_INIT
+
+L_SUBSET_SCAN_INIT:
+    entries = load set+BTreeSet_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_SUBSET_HEAD
+
+L_SUBSET_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_SUBSET_TRUE, L_SUBSET_BODY
+
+L_SUBSET_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    contains = call @sa_btree_set_contains(&other, &entry)
+    has_key = ne contains, 0
+    br has_key -> L_SUBSET_NEXT, L_SUBSET_FALSE
+
+L_SUBSET_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !has_key
+    !contains
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_SUBSET_HEAD
+
+L_SUBSET_TRUE:
+    !done
+    !idx
+    !entries
+    !too_large
+    !other_len
+    !len
+    !other
+    !set
+    return 1
+
+L_SUBSET_FALSE:
+    !has_key
+    !contains
+    !entry
+    !entry_off
+    !done
+    !idx
+    !entries
+    !too_large
+    !other_len
+    !len
+    !other
+    !set
+    return 0
+
+L_SUBSET_FALSE_FAST:
+    !too_large
+    !other_len
+    !len
+    !other
+    !set
+    return 0
+
+@export sa_btree_set_is_superset(&set: ptr, &other: ptr) -> i32:
+L_ENTRY:
+    result = call @sa_btree_set_is_subset(&other, &set)
+    !other
+    !set
+    return result
+
+@export sa_btree_set_is_disjoint(&set: ptr, &other: ptr) -> i32:
+L_ENTRY:
+    entries = load set+BTreeSet_entries as ptr
+    len = load set+BTreeSet_len as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_DISJOINT_HEAD
+
+L_DISJOINT_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_DISJOINT_TRUE, L_DISJOINT_BODY
+
+L_DISJOINT_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    contains = call @sa_btree_set_contains(&other, &entry)
+    overlaps = ne contains, 0
+    br overlaps -> L_DISJOINT_FALSE, L_DISJOINT_NEXT
+
+L_DISJOINT_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !overlaps
+    !contains
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_DISJOINT_HEAD
+
+L_DISJOINT_TRUE:
+    !done
+    !idx
+    !len
+    !entries
+    !other
+    !set
+    return 1
+
+L_DISJOINT_FALSE:
+    !overlaps
+    !contains
+    !entry
+    !entry_off
+    !done
+    !idx
+    !len
+    !entries
+    !other
+    !set
+    return 0
+
+@export sa_btree_set_append(&set: ptr, &other: ptr) -> void:
+L_ENTRY:
+    call @sa_btree_map_append(&set, &other)
+    !other
+    !set
+    return
+
+@export sa_btree_set_split_off(&set: ptr, &key: ptr) -> ^ptr:
+L_ENTRY:
+    tail = call @sa_btree_map_split_off(&set, &key)
+    !key
+    !set
+    return tail
+
 @export sa_btree_set_clear(&set: ptr) -> void:
 L_ENTRY:
     call @sa_btree_map_clear(&set)
@@ -81,6 +286,21 @@ L_ENTRY:
     %out_flag = call @sa_btree_set_contains(&%set_reg, &%key_reg)
 [END_MACRO]
 
+[MACRO] BTREE_SET_GET %out_ok, %out_key, %set_reg, %key_reg
+    %out_key = alloc Slice_SIZE
+    %out_ok = call @sa_btree_set_get(&%set_reg, &%key_reg, &%out_key)
+[END_MACRO]
+
+[MACRO] BTREE_SET_FIRST %out_ok, %out_key, %set_reg
+    %out_key = alloc Slice_SIZE
+    %out_ok = call @sa_btree_set_first(&%set_reg, &%out_key)
+[END_MACRO]
+
+[MACRO] BTREE_SET_LAST %out_ok, %out_key, %set_reg
+    %out_key = alloc Slice_SIZE
+    %out_ok = call @sa_btree_set_last(&%set_reg, &%out_key)
+[END_MACRO]
+
 [MACRO] BTREE_SET_CLEAR %set_reg
     call @sa_btree_set_clear(&%set_reg)
 [END_MACRO]
@@ -91,6 +311,46 @@ L_ENTRY:
 
 [MACRO] BTREE_SET_REMOVE %out_ok, %set_reg, %key_reg
     %out_ok = call @sa_btree_set_remove(&%set_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_TAKE %out_ok, %out_key, %set_reg, %key_reg
+    %out_key = alloc Slice_SIZE
+    %out_ok = call @sa_btree_set_take(&%set_reg, &%key_reg, &%out_key)
+[END_MACRO]
+
+[MACRO] BTREE_SET_REPLACE %out_replaced, %out_old_key, %set_reg, %key_reg
+    %out_old_key = alloc Slice_SIZE
+    %out_replaced = call @sa_btree_set_replace(&%set_reg, &%key_reg, &%out_old_key)
+[END_MACRO]
+
+[MACRO] BTREE_SET_POP_FIRST %out_ok, %out_key, %set_reg
+    %out_key = alloc Slice_SIZE
+    %out_ok = call @sa_btree_set_pop_first(&%set_reg, &%out_key)
+[END_MACRO]
+
+[MACRO] BTREE_SET_POP_LAST %out_ok, %out_key, %set_reg
+    %out_key = alloc Slice_SIZE
+    %out_ok = call @sa_btree_set_pop_last(&%set_reg, &%out_key)
+[END_MACRO]
+
+[MACRO] BTREE_SET_IS_DISJOINT %out_ok, %set_reg, %other_set
+    %out_ok = call @sa_btree_set_is_disjoint(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_IS_SUBSET %out_ok, %set_reg, %other_set
+    %out_ok = call @sa_btree_set_is_subset(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_IS_SUPERSET %out_ok, %set_reg, %other_set
+    %out_ok = call @sa_btree_set_is_superset(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_APPEND %set_reg, %other_set
+    call @sa_btree_set_append(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_SPLIT_OFF %out_set, %set_reg, %key_reg
+    %out_set = call @sa_btree_set_split_off(&%set_reg, &%key_reg)
 [END_MACRO]
 
 [MACRO] BTREE_SET_LIT2 %out_set, %key1, %key2

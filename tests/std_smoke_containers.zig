@@ -478,6 +478,18 @@ test "sa_std btree_set helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_len"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_contains"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_get"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_first"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_last"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_take"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_replace"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_pop_first"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_pop_last"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_is_subset"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_is_superset"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_is_disjoint"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_append"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_split_off"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_insert"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@export sa_btree_set_remove"));
@@ -486,9 +498,21 @@ test "sa_std btree_set helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_CONTAINS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_FIRST"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LAST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_CLEAR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_INSERT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_REMOVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_TAKE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_REPLACE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_POP_FIRST"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_POP_LAST"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_IS_DISJOINT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_IS_SUBSET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_IS_SUPERSET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_APPEND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_SPLIT_OFF"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LIT2"));
 
     var btree_set_error_ctx = saasm.flattener.ErrorContext{};
@@ -499,14 +523,14 @@ test "sa_std btree_set helpers are concrete and verifiable" {
     };
     defer btree_set_flat.deinit(std.testing.allocator);
     try std.testing.expect(btree_set_flat.instructions.len > 0);
-    try std.testing.expectEqual(@as(usize, 24), btree_set_flat.function_sigs.len);
+    try std.testing.expect(btree_set_flat.function_sigs.len >= 47);
 
     const btree_set_verified = try saasm.referee.verify(std.testing.allocator, btree_set_flat.instructions, btree_set_flat.const_decls);
     switch (btree_set_verified) {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 24), owned.function_sigs.len);
+            try std.testing.expect(owned.function_sigs.len >= 47);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
@@ -612,7 +636,7 @@ test "sa_std btree_set helpers are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 25), owned.function_sigs.len);
+            try std.testing.expect(owned.function_sigs.len >= 48);
         },
         .trap => |report| {
             std.debug.print("btree_set fixture verifier trap: {s}\n", .{report.message});

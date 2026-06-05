@@ -740,6 +740,16 @@ test "native unit framework covers sa_std macro surface suites" {
         "test result: ok. 2 passed; 0 failed; 0 skipped",
     );
 
+    const btree_expected = [_][]const u8{
+        "[PASS] sa_std btree_map rust parity macros",
+        "[PASS] sa_std btree_set rust parity macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_btree_macro_surface.sa",
+        btree_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
+
     const future_task_expected = [_][]const u8{
         "[PASS] sa_std waker context poll result macros",
         "[PASS] sa_std future poll macros",

@@ -1,0 +1,520 @@
+@import "sa_std/core/slice.sal"
+@import "sa_std/core/slice.sa"
+@import "sa_std/collections/btree_map.sa"
+@import "sa_std/collections/btree_set.sa"
+
+@const KEY_ALPHA = utf8:"alpha"
+@const KEY_BRAVO = utf8:"bravo"
+@const KEY_CHARLIE = utf8:"charlie"
+
+@test "sa_std btree_map rust parity macros"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    charlie = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+    EXPAND SLICE_NEW charlie, &KEY_CHARLIE, 7
+
+    EXPAND BTREE_MAP_NEW map
+    EXPAND BTREE_MAP_TRY_GET miss_ok, miss_value, map, alpha
+    EXPAND BTREE_MAP_INSERT_OLD insert_alpha_old_ok, insert_alpha_old_value, map, alpha, 10
+    EXPAND BTREE_MAP_INSERT_OLD insert_bravo_old_ok, insert_bravo_old_value, map, bravo, 20
+    EXPAND BTREE_MAP_INSERT map, charlie, 30
+    EXPAND BTREE_MAP_INSERT_OLD replace_alpha_ok, replace_alpha_old_value, map, alpha, 11
+    EXPAND BTREE_MAP_TRY_GET get_alpha_ok, get_alpha_value, map, alpha
+    EXPAND BTREE_MAP_GET_KEY_VALUE kv_ok, kv_key, kv_value, map, alpha
+    kv_key_ptr = load kv_key+Slice_ptr as ptr
+    kv_key_len = load kv_key+Slice_len as u64
+    alpha_ptr = load alpha+Slice_ptr as ptr
+    EXPAND BTREE_MAP_GET_MUT_PTR mut_ok, mut_ptr, map, alpha
+    store mut_ptr+0, 12 as u64
+    EXPAND BTREE_MAP_GET after_mut_value, map, alpha
+    EXPAND BTREE_MAP_FIRST_KEY_VALUE first_ok, first_key, first_value, map
+    first_key_ptr = load first_key+Slice_ptr as ptr
+    first_key_len = load first_key+Slice_len as u64
+    EXPAND BTREE_MAP_LAST_KEY_VALUE last_ok, last_key, last_value, map
+    last_key_ptr = load last_key+Slice_ptr as ptr
+    last_key_len = load last_key+Slice_len as u64
+    charlie_ptr = load charlie+Slice_ptr as ptr
+    EXPAND BTREE_MAP_REMOVE_ENTRY remove_bravo_ok, remove_bravo_key, remove_bravo_value, map, bravo
+    remove_bravo_key_len = load remove_bravo_key+Slice_len as u64
+    EXPAND BTREE_MAP_LEN len_after_remove, map
+    EXPAND BTREE_MAP_SPLIT_OFF tail, map, charlie
+    EXPAND BTREE_MAP_LEN map_len_after_split, map
+    EXPAND BTREE_MAP_LEN tail_len_after_split, tail
+    EXPAND BTREE_MAP_TRY_GET split_tail_get_ok, split_tail_get_value, tail, charlie
+    EXPAND BTREE_MAP_TRY_GET split_map_get_ok, split_map_get_value, map, charlie
+    EXPAND BTREE_MAP_APPEND map, tail
+    EXPAND BTREE_MAP_LEN map_len_after_append, map
+    EXPAND BTREE_MAP_LEN tail_len_after_append, tail
+    EXPAND BTREE_MAP_POP_FIRST pop_first_ok, pop_first_key, pop_first_value, map
+    pop_first_key_len = load pop_first_key+Slice_len as u64
+    EXPAND BTREE_MAP_POP_LAST pop_last_ok, pop_last_key, pop_last_value, map
+    pop_last_key_len = load pop_last_key+Slice_len as u64
+    EXPAND BTREE_MAP_LEN final_len, map
+
+    ok_miss_flag = eq miss_ok, 0
+    ok_miss_value = eq miss_value, 0
+    ok_insert_alpha_flag = eq insert_alpha_old_ok, 0
+    ok_insert_alpha_value = eq insert_alpha_old_value, 0
+    ok_insert_bravo_flag = eq insert_bravo_old_ok, 0
+    ok_insert_bravo_value = eq insert_bravo_old_value, 0
+    ok_replace_alpha_flag = eq replace_alpha_ok, 1
+    ok_replace_alpha_value = eq replace_alpha_old_value, 10
+    ok_get_alpha_flag = eq get_alpha_ok, 1
+    ok_get_alpha_value = eq get_alpha_value, 11
+    ok_kv_flag = eq kv_ok, 1
+    ok_kv_key_ptr = eq kv_key_ptr, alpha_ptr
+    ok_kv_key_len = eq kv_key_len, 5
+    ok_kv_value = eq kv_value, 11
+    ok_mut = eq mut_ok, 1
+    ok_after_mut = eq after_mut_value, 12
+    ok_first_flag = eq first_ok, 1
+    ok_first_key_ptr = eq first_key_ptr, alpha_ptr
+    ok_first_key_len = eq first_key_len, 5
+    ok_first_value = eq first_value, 12
+    ok_last_flag = eq last_ok, 1
+    ok_last_key_ptr = eq last_key_ptr, charlie_ptr
+    ok_last_key_len = eq last_key_len, 7
+    ok_last_value = eq last_value, 30
+    ok_remove_flag = eq remove_bravo_ok, 1
+    ok_remove_key_len = eq remove_bravo_key_len, 5
+    ok_remove_value = eq remove_bravo_value, 20
+    ok_len_after_remove = eq len_after_remove, 2
+    ok_map_len_after_split = eq map_len_after_split, 1
+    ok_tail_len_after_split = eq tail_len_after_split, 1
+    ok_split_tail_get_flag = eq split_tail_get_ok, 1
+    ok_split_tail_get_value = eq split_tail_get_value, 30
+    ok_split_map_get_flag = eq split_map_get_ok, 0
+    ok_split_map_get_value = eq split_map_get_value, 0
+    ok_map_len_after_append = eq map_len_after_append, 2
+    ok_tail_len_after_append = eq tail_len_after_append, 0
+    ok_pop_first_flag = eq pop_first_ok, 1
+    ok_pop_first_key_len = eq pop_first_key_len, 5
+    ok_pop_first_value = eq pop_first_value, 12
+    ok_pop_last_flag = eq pop_last_ok, 1
+    ok_pop_last_key_len = eq pop_last_key_len, 7
+    ok_pop_last_value = eq pop_last_value, 30
+    ok_final_len = eq final_len, 0
+
+    ok01 = and ok_miss_flag, ok_miss_value
+    ok02 = and ok01, ok_insert_alpha_flag
+    ok03 = and ok02, ok_insert_alpha_value
+    ok04 = and ok03, ok_insert_bravo_flag
+    ok05 = and ok04, ok_insert_bravo_value
+    ok06 = and ok05, ok_replace_alpha_flag
+    ok07 = and ok06, ok_replace_alpha_value
+    ok08 = and ok07, ok_get_alpha_flag
+    ok09 = and ok08, ok_get_alpha_value
+    ok10 = and ok09, ok_kv_flag
+    ok11 = and ok10, ok_kv_key_ptr
+    ok12 = and ok11, ok_kv_key_len
+    ok13 = and ok12, ok_kv_value
+    ok14 = and ok13, ok_mut
+    ok15 = and ok14, ok_after_mut
+    ok16 = and ok15, ok_first_flag
+    ok17 = and ok16, ok_first_key_ptr
+    ok18 = and ok17, ok_first_key_len
+    ok19 = and ok18, ok_first_value
+    ok20 = and ok19, ok_last_flag
+    ok21 = and ok20, ok_last_key_ptr
+    ok22 = and ok21, ok_last_key_len
+    ok23 = and ok22, ok_last_value
+    ok24 = and ok23, ok_remove_flag
+    ok25 = and ok24, ok_remove_key_len
+    ok26 = and ok25, ok_remove_value
+    ok27 = and ok26, ok_len_after_remove
+    ok28 = and ok27, ok_map_len_after_split
+    ok29 = and ok28, ok_tail_len_after_split
+    ok30 = and ok29, ok_split_tail_get_flag
+    ok31 = and ok30, ok_split_tail_get_value
+    ok32 = and ok31, ok_split_map_get_flag
+    ok33 = and ok32, ok_split_map_get_value
+    ok34 = and ok33, ok_map_len_after_append
+    ok35 = and ok34, ok_tail_len_after_append
+    ok36 = and ok35, ok_pop_first_flag
+    ok37 = and ok36, ok_pop_first_key_len
+    ok38 = and ok37, ok_pop_first_value
+    ok39 = and ok38, ok_pop_last_flag
+    ok40 = and ok39, ok_pop_last_key_len
+    ok41 = and ok40, ok_pop_last_value
+    ok = and ok41, ok_final_len
+
+    !miss_ok
+    !miss_value
+    !insert_alpha_old_ok
+    !insert_alpha_old_value
+    !insert_bravo_old_ok
+    !insert_bravo_old_value
+    !replace_alpha_ok
+    !replace_alpha_old_value
+    !get_alpha_ok
+    !get_alpha_value
+    !kv_ok
+    !kv_key_ptr
+    !kv_key_len
+    !kv_value
+    !alpha_ptr
+    !mut_ok
+    !mut_ptr
+    !after_mut_value
+    !first_ok
+    !first_key_ptr
+    !first_key_len
+    !first_value
+    !last_ok
+    !last_key_ptr
+    !last_key_len
+    !last_value
+    !charlie_ptr
+    !remove_bravo_ok
+    !remove_bravo_key_len
+    !remove_bravo_value
+    !len_after_remove
+    !map_len_after_split
+    !tail_len_after_split
+    !split_tail_get_ok
+    !split_tail_get_value
+    !split_map_get_ok
+    !split_map_get_value
+    !map_len_after_append
+    !tail_len_after_append
+    !pop_first_ok
+    !pop_first_key_len
+    !pop_first_value
+    !pop_last_ok
+    !pop_last_key_len
+    !pop_last_value
+    !final_len
+    !ok_miss_flag
+    !ok_miss_value
+    !ok_insert_alpha_flag
+    !ok_insert_alpha_value
+    !ok_insert_bravo_flag
+    !ok_insert_bravo_value
+    !ok_replace_alpha_flag
+    !ok_replace_alpha_value
+    !ok_get_alpha_flag
+    !ok_get_alpha_value
+    !ok_kv_flag
+    !ok_kv_key_ptr
+    !ok_kv_key_len
+    !ok_kv_value
+    !ok_mut
+    !ok_after_mut
+    !ok_first_flag
+    !ok_first_key_ptr
+    !ok_first_key_len
+    !ok_first_value
+    !ok_last_flag
+    !ok_last_key_ptr
+    !ok_last_key_len
+    !ok_last_value
+    !ok_remove_flag
+    !ok_remove_key_len
+    !ok_remove_value
+    !ok_len_after_remove
+    !ok_map_len_after_split
+    !ok_tail_len_after_split
+    !ok_split_tail_get_flag
+    !ok_split_tail_get_value
+    !ok_split_map_get_flag
+    !ok_split_map_get_value
+    !ok_map_len_after_append
+    !ok_tail_len_after_append
+    !ok_pop_first_flag
+    !ok_pop_first_key_len
+    !ok_pop_first_value
+    !ok_pop_last_flag
+    !ok_pop_last_key_len
+    !ok_pop_last_value
+    !ok_final_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
+    !ok40
+    !ok41
+    !pop_last_key
+    !pop_first_key
+    !remove_bravo_key
+    !last_key
+    !first_key
+    !kv_key
+    !charlie
+    !bravo
+    !alpha
+    EXPAND BTREE_MAP_FREE tail
+    EXPAND BTREE_MAP_FREE map
+    br ok -> L_MAP_OK, L_MAP_FAIL
+
+L_MAP_FAIL:
+    !ok
+    panic(920)
+
+L_MAP_OK:
+    !ok
+    return
+
+@test "sa_std btree_set rust parity macros"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    charlie = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+    EXPAND SLICE_NEW charlie, &KEY_CHARLIE, 7
+
+    EXPAND BTREE_SET_NEW set
+    EXPAND BTREE_SET_NEW other
+    EXPAND BTREE_SET_NEW disjoint
+    EXPAND BTREE_SET_INSERT ins_alpha, set, alpha
+    EXPAND BTREE_SET_INSERT ins_bravo, set, bravo
+    EXPAND BTREE_SET_GET get_alpha_ok, get_alpha_key, set, alpha
+    get_alpha_key_len = load get_alpha_key+Slice_len as u64
+    EXPAND BTREE_SET_GET get_charlie_ok, get_charlie_key, set, charlie
+    get_charlie_key_ptr = load get_charlie_key+Slice_ptr as ptr
+    EXPAND BTREE_SET_FIRST first_ok, first_key, set
+    first_key_len = load first_key+Slice_len as u64
+    EXPAND BTREE_SET_LAST last_ok, last_key, set
+    last_key_len = load last_key+Slice_len as u64
+    EXPAND BTREE_SET_REPLACE replace_alpha_ok, replace_alpha_key, set, alpha
+    replace_alpha_key_len = load replace_alpha_key+Slice_len as u64
+    EXPAND BTREE_SET_TAKE take_alpha_ok, take_alpha_key, set, alpha
+    take_alpha_key_len = load take_alpha_key+Slice_len as u64
+    EXPAND BTREE_SET_TAKE take_alpha_miss_ok, take_alpha_miss_key, set, alpha
+    take_alpha_miss_key_ptr = load take_alpha_miss_key+Slice_ptr as ptr
+
+    EXPAND BTREE_SET_INSERT other_ins_bravo, other, bravo
+    EXPAND BTREE_SET_INSERT other_ins_charlie, other, charlie
+    EXPAND BTREE_SET_IS_SUBSET subset0, set, other
+    EXPAND BTREE_SET_IS_SUPERSET superset0, set, other
+    EXPAND BTREE_SET_IS_DISJOINT disjoint0, set, other
+    EXPAND BTREE_SET_INSERT disjoint_ins_charlie, disjoint, charlie
+    EXPAND BTREE_SET_IS_DISJOINT disjoint1, set, disjoint
+    EXPAND BTREE_SET_APPEND set, disjoint
+    EXPAND BTREE_SET_LEN set_len_after_append, set
+    EXPAND BTREE_SET_LEN disjoint_len_after_append, disjoint
+    EXPAND BTREE_SET_SPLIT_OFF tail, set, charlie
+    EXPAND BTREE_SET_LEN set_len_after_split, set
+    EXPAND BTREE_SET_LEN tail_len_after_split, tail
+    EXPAND BTREE_SET_POP_FIRST pop_first_ok, pop_first_key, set
+    pop_first_key_len = load pop_first_key+Slice_len as u64
+    EXPAND BTREE_SET_POP_LAST pop_last_ok, pop_last_key, tail
+    pop_last_key_len = load pop_last_key+Slice_len as u64
+
+    ok_ins_alpha = eq ins_alpha, 1
+    ok_ins_bravo = eq ins_bravo, 1
+    ok_get_alpha_flag = eq get_alpha_ok, 1
+    ok_get_alpha_len = eq get_alpha_key_len, 5
+    ok_get_charlie_flag = eq get_charlie_ok, 0
+    ok_get_charlie_ptr = eq get_charlie_key_ptr, 0
+    ok_first_flag = eq first_ok, 1
+    ok_first_len = eq first_key_len, 5
+    ok_last_flag = eq last_ok, 1
+    ok_last_len = eq last_key_len, 5
+    ok_replace_flag = eq replace_alpha_ok, 1
+    ok_replace_len = eq replace_alpha_key_len, 5
+    ok_take_flag = eq take_alpha_ok, 1
+    ok_take_len = eq take_alpha_key_len, 5
+    ok_take_miss_flag = eq take_alpha_miss_ok, 0
+    ok_take_miss_ptr = eq take_alpha_miss_key_ptr, 0
+    ok_other_ins_bravo = eq other_ins_bravo, 1
+    ok_other_ins_charlie = eq other_ins_charlie, 1
+    ok_subset0 = eq subset0, 1
+    ok_superset0 = eq superset0, 0
+    ok_disjoint0 = eq disjoint0, 0
+    ok_disjoint_insert = eq disjoint_ins_charlie, 1
+    ok_disjoint1 = eq disjoint1, 1
+    ok_set_len_after_append = eq set_len_after_append, 2
+    ok_disjoint_len_after_append = eq disjoint_len_after_append, 0
+    ok_set_len_after_split = eq set_len_after_split, 1
+    ok_tail_len_after_split = eq tail_len_after_split, 1
+    ok_pop_first_flag = eq pop_first_ok, 1
+    ok_pop_first_len = eq pop_first_key_len, 5
+    ok_pop_last_flag = eq pop_last_ok, 1
+    ok_pop_last_len = eq pop_last_key_len, 7
+
+    ok01 = and ok_ins_alpha, ok_ins_bravo
+    ok02 = and ok01, ok_get_alpha_flag
+    ok03 = and ok02, ok_get_alpha_len
+    ok04 = and ok03, ok_get_charlie_flag
+    ok05 = and ok04, ok_get_charlie_ptr
+    ok06 = and ok05, ok_first_flag
+    ok07 = and ok06, ok_first_len
+    ok08 = and ok07, ok_last_flag
+    ok09 = and ok08, ok_last_len
+    ok10 = and ok09, ok_replace_flag
+    ok11 = and ok10, ok_replace_len
+    ok12 = and ok11, ok_take_flag
+    ok13 = and ok12, ok_take_len
+    ok14 = and ok13, ok_take_miss_flag
+    ok15 = and ok14, ok_take_miss_ptr
+    ok16 = and ok15, ok_other_ins_bravo
+    ok17 = and ok16, ok_other_ins_charlie
+    ok18 = and ok17, ok_subset0
+    ok19 = and ok18, ok_superset0
+    ok20 = and ok19, ok_disjoint0
+    ok21 = and ok20, ok_disjoint_insert
+    ok22 = and ok21, ok_disjoint1
+    ok23 = and ok22, ok_set_len_after_append
+    ok24 = and ok23, ok_disjoint_len_after_append
+    ok25 = and ok24, ok_set_len_after_split
+    ok26 = and ok25, ok_tail_len_after_split
+    ok27 = and ok26, ok_pop_first_flag
+    ok28 = and ok27, ok_pop_first_len
+    ok29 = and ok28, ok_pop_last_flag
+    ok = and ok29, ok_pop_last_len
+
+    !ins_alpha
+    !ins_bravo
+    !get_alpha_ok
+    !get_alpha_key_len
+    !get_charlie_ok
+    !get_charlie_key_ptr
+    !first_ok
+    !first_key_len
+    !last_ok
+    !last_key_len
+    !replace_alpha_ok
+    !replace_alpha_key_len
+    !take_alpha_ok
+    !take_alpha_key_len
+    !take_alpha_miss_ok
+    !take_alpha_miss_key_ptr
+    !other_ins_bravo
+    !other_ins_charlie
+    !subset0
+    !superset0
+    !disjoint0
+    !disjoint_ins_charlie
+    !disjoint1
+    !set_len_after_append
+    !disjoint_len_after_append
+    !set_len_after_split
+    !tail_len_after_split
+    !pop_first_ok
+    !pop_first_key_len
+    !pop_last_ok
+    !pop_last_key_len
+    !ok_ins_alpha
+    !ok_ins_bravo
+    !ok_get_alpha_flag
+    !ok_get_alpha_len
+    !ok_get_charlie_flag
+    !ok_get_charlie_ptr
+    !ok_first_flag
+    !ok_first_len
+    !ok_last_flag
+    !ok_last_len
+    !ok_replace_flag
+    !ok_replace_len
+    !ok_take_flag
+    !ok_take_len
+    !ok_take_miss_flag
+    !ok_take_miss_ptr
+    !ok_other_ins_bravo
+    !ok_other_ins_charlie
+    !ok_subset0
+    !ok_superset0
+    !ok_disjoint0
+    !ok_disjoint_insert
+    !ok_disjoint1
+    !ok_set_len_after_append
+    !ok_disjoint_len_after_append
+    !ok_set_len_after_split
+    !ok_tail_len_after_split
+    !ok_pop_first_flag
+    !ok_pop_first_len
+    !ok_pop_last_flag
+    !ok_pop_last_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !pop_last_key
+    !pop_first_key
+    !take_alpha_miss_key
+    !take_alpha_key
+    !replace_alpha_key
+    !last_key
+    !first_key
+    !get_charlie_key
+    !get_alpha_key
+    !charlie
+    !bravo
+    !alpha
+    EXPAND BTREE_SET_FREE tail
+    EXPAND BTREE_SET_FREE disjoint
+    EXPAND BTREE_SET_FREE other
+    EXPAND BTREE_SET_FREE set
+    br ok -> L_SET_OK, L_SET_FAIL
+
+L_SET_FAIL:
+    !ok
+    panic(921)
+
+L_SET_OK:
+    !ok
+    return
