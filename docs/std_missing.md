@@ -42,12 +42,12 @@ Current external capability buckets that should stay outside this report's `sa_s
 *   **Missing from Rust**: `with_capacity`, `get_mut`, `swap`, `capacity`, `reserve`, `shrink_to_fit`, `truncate`, `iter`, `iter_mut`, `as_slices`, `as_mut_slices`, `is_empty`, `drain`, `clear`, `contains`, `front`, `front_mut`, `back`, `back_mut`, `pop_front`, `pop_back`, `swap_remove_front`, `swap_remove_back`, `insert`, `remove`, `split_off`, `append`, `retain`.
 
 ### 1.3 Hash Map (`std::collections::HashMap` vs `sa_std/hashmap.sa`)
-*   **Implemented in `sa_std`**: `MAP_NEW`, `MAP_WITH_CAPACITY`, `MAP_FREE`, `MAP_LEN`, `MAP_CAPACITY`, `MAP_RESERVE`, `MAP_IS_EMPTY`, `MAP_CONTAINS_KEY`, `MAP_CLEAR`, `MAP_PUT`, `MAP_GET`, `MAP_DEL`, `MAP_LIT2`.
-*   **Missing from Rust**: `try_reserve`, `shrink_to_fit`, `keys`, `values`, `values_mut`, `iter`, `iter_mut`, `drain`, `retain`, `get_mut`, `get_key_value`, `insert` (with old value return), `remove_entry`, `entry` API (Vacant/Occupied).
+*   **Implemented in `sa_std`**: `MAP_NEW`, `MAP_WITH_CAPACITY`, `MAP_FREE`, `MAP_LEN`, `MAP_CAPACITY`, `MAP_RESERVE`, `MAP_SHRINK_TO_FIT`, `MAP_IS_EMPTY`, `MAP_CONTAINS_KEY`, `MAP_CLEAR`, `MAP_PUT`, `MAP_GET`, `MAP_DEL`, `MAP_LIT2`.
+*   **Missing from Rust**: `try_reserve`, `keys`, `values`, `values_mut`, `iter`, `iter_mut`, `drain`, `retain`, `get_mut`, `get_key_value`, `insert` (with old value return), `remove_entry`, `entry` API (Vacant/Occupied).
 
 ### 1.4 Hash Set (`std::collections::HashSet` vs `sa_std/hashset.sa`)
-*   **Implemented in `sa_std`**: `SET_NEW`, `SET_WITH_CAPACITY`, `SET_FREE`, `SET_LEN`, `SET_CAPACITY`, `SET_RESERVE`, `SET_IS_EMPTY`, `SET_CLEAR`, `SET_INSERT`, `SET_CONTAINS`, `SET_REMOVE`, `SET_LIT2`.
-*   **Missing from Rust**: `shrink_to_fit`, `iter`, `drain`, `retain`, `intersection`, `union`, `difference`, `symmetric_difference`, `is_disjoint`, `is_subset`, `is_superset`, `replace`, `get`, `take`.
+*   **Implemented in `sa_std`**: `SET_NEW`, `SET_WITH_CAPACITY`, `SET_FREE`, `SET_LEN`, `SET_CAPACITY`, `SET_RESERVE`, `SET_SHRINK_TO_FIT`, `SET_IS_EMPTY`, `SET_CLEAR`, `SET_INSERT`, `SET_CONTAINS`, `SET_REMOVE`, `SET_LIT2`.
+*   **Missing from Rust**: `iter`, `drain`, `retain`, `intersection`, `union`, `difference`, `symmetric_difference`, `is_disjoint`, `is_subset`, `is_superset`, `replace`, `get`, `take`.
 
 ### 1.5 B-Tree Map (`std::collections::BTreeMap` vs `sa_std/btree_map.sa`)
 *   **Implemented in `sa_std`**: `BTREE_MAP_NEW`, `BTREE_MAP_FREE`, `BTREE_MAP_LEN`, `BTREE_MAP_IS_EMPTY`, `BTREE_MAP_GET`, `BTREE_MAP_CONTAINS_KEY`, `BTREE_MAP_CLEAR`, `BTREE_MAP_REMOVE`, `BTREE_MAP_INSERT`.

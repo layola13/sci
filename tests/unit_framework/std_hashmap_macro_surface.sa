@@ -1,0 +1,146 @@
+@import "sa_std/collections/hashmap.sa"
+
+@const KEY = utf8:"alpha"
+@const VALUE = utf8:"A\n"
+
+@test "sa_std hashmap convenience macros"():
+L_ENTRY:
+    EXPAND MAP_WITH_CAPACITY map, 9
+    EXPAND MAP_LEN len0, map
+    EXPAND MAP_CAPACITY cap0, map
+    EXPAND MAP_IS_EMPTY empty0, map
+    key = &KEY
+    value = &VALUE
+    EXPAND MAP_CONTAINS_KEY has0, map, key
+    EXPAND MAP_PUT map, key, value
+    EXPAND MAP_LEN len1, map
+    EXPAND MAP_CAPACITY cap1, map
+    EXPAND MAP_RESERVE map, 20
+    EXPAND MAP_CAPACITY cap_after_reserve, map
+    EXPAND MAP_SHRINK_TO_FIT map
+    EXPAND MAP_CAPACITY cap_after_shrink, map
+    EXPAND MAP_IS_EMPTY empty1, map
+    EXPAND MAP_CONTAINS_KEY has1, map, key
+    EXPAND MAP_GET got1, map, key
+    EXPAND MAP_CLEAR map
+    EXPAND MAP_SHRINK_TO_FIT map
+    EXPAND MAP_CAPACITY cap_after_clear_shrink, map
+    EXPAND MAP_LEN len2, map
+    EXPAND MAP_IS_EMPTY empty2, map
+    EXPAND MAP_CONTAINS_KEY has2, map, key
+    EXPAND MAP_GET got2, map, key
+    EXPAND MAP_PUT map, key, value
+    EXPAND MAP_LEN len3, map
+    EXPAND MAP_CAPACITY cap_after_reinsert, map
+    EXPAND MAP_CONTAINS_KEY has3, map, key
+    EXPAND MAP_GET got3, map, key
+
+    ok_len0 = eq len0, 0
+    ok_cap0 = eq cap0, 16
+    ok_empty0 = eq empty0, 1
+    ok_has0 = eq has0, 0
+    ok_len1 = eq len1, 1
+    ok_cap1 = eq cap1, 16
+    ok_cap_after_reserve = eq cap_after_reserve, 32
+    ok_cap_after_shrink = eq cap_after_shrink, 8
+    ok_empty1 = eq empty1, 0
+    ok_has1 = eq has1, 1
+    ok_got1 = eq got1, value
+    ok_cap_after_clear_shrink = eq cap_after_clear_shrink, 0
+    ok_len2 = eq len2, 0
+    ok_empty2 = eq empty2, 1
+    ok_has2 = eq has2, 0
+    ok_got2 = eq got2, 0
+    ok_len3 = eq len3, 1
+    ok_cap_after_reinsert = eq cap_after_reinsert, 8
+    ok_has3 = eq has3, 1
+    ok_got3 = eq got3, value
+    ok01 = and ok_len0, ok_cap0
+    ok02 = and ok01, ok_empty0
+    ok03 = and ok02, ok_has0
+    ok04 = and ok03, ok_len1
+    ok05 = and ok04, ok_cap1
+    ok06 = and ok05, ok_cap_after_reserve
+    ok07 = and ok06, ok_cap_after_shrink
+    ok08 = and ok07, ok_empty1
+    ok09 = and ok08, ok_has1
+    ok10 = and ok09, ok_got1
+    ok11 = and ok10, ok_cap_after_clear_shrink
+    ok12 = and ok11, ok_len2
+    ok13 = and ok12, ok_empty2
+    ok14 = and ok13, ok_has2
+    ok15 = and ok14, ok_got2
+    ok16 = and ok15, ok_len3
+    ok17 = and ok16, ok_cap_after_reinsert
+    ok18 = and ok17, ok_has3
+    ok = and ok18, ok_got3
+    !got3
+    !has3
+    !cap_after_reinsert
+    !len3
+    !got2
+    !has2
+    !empty2
+    !len2
+    !cap_after_clear_shrink
+    !got1
+    !has1
+    !empty1
+    !cap_after_shrink
+    !cap_after_reserve
+    !len1
+    !has0
+    !empty0
+    !cap1
+    !cap0
+    !len0
+    !value
+    !key
+    !ok_len0
+    !ok_cap0
+    !ok_empty0
+    !ok_has0
+    !ok_len1
+    !ok_cap1
+    !ok_cap_after_reserve
+    !ok_cap_after_shrink
+    !ok_empty1
+    !ok_has1
+    !ok_got1
+    !ok_cap_after_clear_shrink
+    !ok_len2
+    !ok_empty2
+    !ok_has2
+    !ok_got2
+    !ok_len3
+    !ok_cap_after_reinsert
+    !ok_has3
+    !ok_got3
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    EXPAND MAP_FREE map
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(905)
+
+L_OK:
+    !ok
+    return

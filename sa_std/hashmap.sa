@@ -338,6 +338,68 @@ L_RESERVE_DONE:
     !map
     return
 
+@export sa_map_shrink_to_fit(&map: ptr) -> void:
+L_ENTRY:
+    len = load map+HashMap_len as u64
+    cap = load map+HashMap_cap as u64
+    is_empty = eq len, 0
+    br is_empty -> L_SHRINK_EMPTY, L_SHRINK_NONEMPTY
+
+L_SHRINK_NONEMPTY:
+    next_cap = call @map_next_capacity(len)
+    needs_rehash = ne cap, next_cap
+    br needs_rehash -> L_SHRINK_REHASH, L_SHRINK_DONE
+
+L_SHRINK_REHASH:
+    call @map_rehash(&map, next_cap)
+    !needs_rehash
+    !next_cap
+    !is_empty
+    !cap
+    !len
+    !map
+    return
+
+L_SHRINK_DONE:
+    !needs_rehash
+    !next_cap
+    !is_empty
+    !cap
+    !len
+    !map
+    return
+
+L_SHRINK_EMPTY:
+    slots = take map+HashMap_slots
+    has_slots = ne slots, 0
+    br has_slots -> L_SHRINK_FREE, L_SHRINK_RESET
+
+L_SHRINK_FREE:
+    !slots
+    store map+HashMap_slots, 0 as ptr
+    store map+HashMap_cap, 0 as u64
+    store map+HashMap_len, 0 as u64
+    store map+HashMap_tombs, 0 as u64
+    !has_slots
+    !is_empty
+    !cap
+    !len
+    !map
+    return
+
+L_SHRINK_RESET:
+    store map+HashMap_slots, 0 as ptr
+    store map+HashMap_cap, 0 as u64
+    store map+HashMap_len, 0 as u64
+    store map+HashMap_tombs, 0 as u64
+    !has_slots
+    !slots
+    !is_empty
+    !cap
+    !len
+    !map
+    return
+
 @export sa_map_is_empty(&map: ptr) -> i32:
 L_ENTRY:
     len = load map+HashMap_len as u64
@@ -664,6 +726,10 @@ L_DEL_MISS_ZERO:
 
 [MACRO] MAP_RESERVE %map_reg, %additional
     call @sa_map_reserve(&%map_reg, %additional)
+[END_MACRO]
+
+[MACRO] MAP_SHRINK_TO_FIT %map_reg
+    call @sa_map_shrink_to_fit(&%map_reg)
 [END_MACRO]
 
 [MACRO] MAP_IS_EMPTY %out_flag, %map_reg

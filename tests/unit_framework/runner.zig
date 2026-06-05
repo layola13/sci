@@ -705,6 +705,15 @@ test "native unit framework covers sa_std macro surface suites" {
         hashset_expected[0..],
         "test result: ok. 1 passed; 0 failed; 0 skipped",
     );
+
+    const hashmap_expected = [_][]const u8{
+        "[PASS] sa_std hashmap convenience macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_hashmap_macro_surface.sa",
+        hashmap_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
 }
 
 test "native unit framework exposes standard mock io buffer" {

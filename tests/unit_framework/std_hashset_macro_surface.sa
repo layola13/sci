@@ -17,14 +17,22 @@ L_ENTRY:
     EXPAND SET_CAPACITY cap1, set
     EXPAND SET_RESERVE set, 20
     EXPAND SET_CAPACITY cap_after_reserve, set
+    EXPAND SET_SHRINK_TO_FIT set
+    EXPAND SET_CAPACITY cap_after_shrink, set
     EXPAND SET_IS_EMPTY empty1, set
     EXPAND SET_CONTAINS has_a, set, key_a
     EXPAND SET_REMOVE rem_a, set, key_a
     EXPAND SET_CONTAINS has_a_after_remove, set, key_a
     EXPAND SET_CLEAR set
+    EXPAND SET_SHRINK_TO_FIT set
+    EXPAND SET_CAPACITY cap_after_clear_shrink, set
     EXPAND SET_LEN len2, set
     EXPAND SET_IS_EMPTY empty2, set
     EXPAND SET_CONTAINS has_b_after_clear, set, key_b
+    EXPAND SET_INSERT ins_after_clear, set, key_b
+    EXPAND SET_LEN len3, set
+    EXPAND SET_CAPACITY cap_after_reinsert, set
+    EXPAND SET_CONTAINS has_b_after_reinsert, set, key_b
 
     ok_len0 = eq len0, 0
     ok_cap0 = eq cap0, 16
@@ -34,13 +42,19 @@ L_ENTRY:
     ok_len1 = eq len1, 2
     ok_cap1 = eq cap1, 16
     ok_cap_after_reserve = eq cap_after_reserve, 32
+    ok_cap_after_shrink = eq cap_after_shrink, 8
     ok_empty1 = eq empty1, 0
     ok_has_a = eq has_a, 1
     ok_rem_a = eq rem_a, 1
     ok_has_a_after_remove = eq has_a_after_remove, 0
+    ok_cap_after_clear_shrink = eq cap_after_clear_shrink, 0
     ok_len2 = eq len2, 0
     ok_empty2 = eq empty2, 1
     ok_has_b_after_clear = eq has_b_after_clear, 0
+    ok_ins_after_clear = eq ins_after_clear, 1
+    ok_len3 = eq len3, 1
+    ok_cap_after_reinsert = eq cap_after_reinsert, 8
+    ok_has_b_after_reinsert = eq has_b_after_reinsert, 1
     ok01 = and ok_len0, ok_cap0
     ok02 = and ok01, ok_empty0
     ok03 = and ok02, ok_ins_a
@@ -48,13 +62,19 @@ L_ENTRY:
     ok05 = and ok04, ok_len1
     ok06 = and ok05, ok_cap1
     ok07 = and ok06, ok_cap_after_reserve
-    ok08 = and ok07, ok_empty1
-    ok09 = and ok08, ok_has_a
-    ok10 = and ok09, ok_rem_a
-    ok11 = and ok10, ok_has_a_after_remove
-    ok12 = and ok11, ok_len2
-    ok13 = and ok12, ok_empty2
-    ok = and ok13, ok_has_b_after_clear
+    ok08 = and ok07, ok_cap_after_shrink
+    ok09 = and ok08, ok_empty1
+    ok10 = and ok09, ok_has_a
+    ok11 = and ok10, ok_rem_a
+    ok12 = and ok11, ok_has_a_after_remove
+    ok13 = and ok12, ok_cap_after_clear_shrink
+    ok14 = and ok13, ok_len2
+    ok15 = and ok14, ok_empty2
+    ok16 = and ok15, ok_has_b_after_clear
+    ok17 = and ok16, ok_ins_after_clear
+    ok18 = and ok17, ok_len3
+    ok19 = and ok18, ok_cap_after_reinsert
+    ok = and ok19, ok_has_b_after_reinsert
     !len0
     !cap0
     !empty0
@@ -63,13 +83,19 @@ L_ENTRY:
     !len1
     !cap1
     !cap_after_reserve
+    !cap_after_shrink
     !empty1
     !has_a
     !rem_a
     !has_a_after_remove
+    !cap_after_clear_shrink
     !len2
     !empty2
     !has_b_after_clear
+    !ins_after_clear
+    !len3
+    !cap_after_reinsert
+    !has_b_after_reinsert
     !key_a
     !key_b
     !ok_len0
@@ -80,13 +106,19 @@ L_ENTRY:
     !ok_len1
     !ok_cap1
     !ok_cap_after_reserve
+    !ok_cap_after_shrink
     !ok_empty1
     !ok_has_a
     !ok_rem_a
     !ok_has_a_after_remove
+    !ok_cap_after_clear_shrink
     !ok_len2
     !ok_empty2
     !ok_has_b_after_clear
+    !ok_ins_after_clear
+    !ok_len3
+    !ok_cap_after_reinsert
+    !ok_has_b_after_reinsert
     !ok01
     !ok02
     !ok03
@@ -100,6 +132,12 @@ L_ENTRY:
     !ok11
     !ok12
     !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
     EXPAND SET_FREE set
     br ok -> L_OK, L_FAIL
 
