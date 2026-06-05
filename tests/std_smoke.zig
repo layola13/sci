@@ -485,15 +485,25 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "@import \"alloc/vec.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_AS_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_AS_SLICE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_FRONT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_BACK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_PUSH"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_PUSH_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_FREE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_CLEAR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRUNCATE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_POP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_POP_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_POP"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_POP_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_WITH_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_WITH_CAPACITY_U64"));
 
     var vec_macro_error_ctx = saasm.flattener.ErrorContext{};
     var vec_macro_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec.sa", vec_macro_src, &vec_macro_error_ctx) catch |err| {
@@ -553,6 +563,24 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "[MACRO] STR_FROM_CONST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "EXPAND SLICE_NEW"));
 
+    const string_macro_src = try readFileAlloc(std.testing.allocator, "sa_std/string.sa");
+    defer std.testing.allocator.free(string_macro_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_AS_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_AS_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_AS_BYTES"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_AS_BYTES"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_AS_STR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_IS_EMPTY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_FROM_PARTS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_FROM_PARTS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_EMPTY"));
+
     const string_fixture =
         \\@import "sa_std/core/slice.sal"
         \\@import "sa_std/core/slice.sa"
@@ -589,6 +617,96 @@ test "sa_std alloc helpers are concrete and verifiable" {
         },
         .trap => |report| {
             std.debug.print("string smoke verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const string_macro_fixture =
+        \\@import "sa_std/string.sa"
+        \\
+        \\@const WORD = utf8:"rust"
+        \\@const EMPTY = utf8:""
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND STR_FROM_PARTS word, &WORD, 4
+        \\    EXPAND STRING_LEN len, word
+        \\    EXPAND STR_PTR ptr, word
+        \\    EXPAND STR_AS_PTR as_ptr, word
+        \\    EXPAND STRING_AS_BYTES bytes, word
+        \\    EXPAND STRING_AS_STR str_view, word
+        \\    EXPAND STR_LEN bytes_len, bytes
+        \\    EXPAND STRING_LEN str_len, str_view
+        \\    EXPAND STRING_FROM_PARTS empty, &EMPTY, 0
+        \\    EXPAND STRING_NEW new_empty
+        \\    EXPAND STR_EMPTY str_empty
+        \\    EXPAND STR_IS_EMPTY word_empty, word
+        \\    EXPAND STRING_IS_EMPTY empty_ok, empty
+        \\    EXPAND STRING_IS_EMPTY new_empty_ok, new_empty
+        \\    EXPAND STR_IS_EMPTY str_empty_ok, str_empty
+        \\    len_ok = eq len, 4
+        \\    ptr_ok = ne ptr, 0
+        \\    as_ptr_ok = ne as_ptr, 0
+        \\    bytes_len_ok = eq bytes_len, 4
+        \\    str_len_ok = eq str_len, 4
+        \\    word_not_empty = eq word_empty, 0
+        \\    ok01 = and len_ok, ptr_ok
+        \\    ok02 = and ok01, as_ptr_ok
+        \\    ok03 = and ok02, bytes_len_ok
+        \\    ok04 = and ok03, str_len_ok
+        \\    ok05 = and ok04, word_not_empty
+        \\    ok06 = and ok05, empty_ok
+        \\    ok07 = and ok06, new_empty_ok
+        \\    ok = and ok07, str_empty_ok
+        \\    !len
+        \\    !ptr
+        \\    !as_ptr
+        \\    !bytes
+        \\    !str_view
+        \\    !bytes_len
+        \\    !str_len
+        \\    !word_empty
+        \\    !empty_ok
+        \\    !new_empty_ok
+        \\    !str_empty_ok
+        \\    !len_ok
+        \\    !ptr_ok
+        \\    !as_ptr_ok
+        \\    !bytes_len_ok
+        \\    !str_len_ok
+        \\    !word_not_empty
+        \\    !ok01
+        \\    !ok02
+        \\    !ok03
+        \\    !ok04
+        \\    !ok05
+        \\    !ok06
+        \\    !ok07
+        \\    !word
+        \\    !empty
+        \\    !new_empty
+        \\    !str_empty
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return 0
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    return 1
+    ;
+    var string_macro_flat = try flattenFixture(std.testing.allocator, "tests/string_macro_fixture.sa", string_macro_fixture);
+    defer string_macro_flat.deinit(std.testing.allocator);
+    const string_macro_verified = try saasm.referee.verify(std.testing.allocator, string_macro_flat.instructions, string_macro_flat.const_decls);
+    switch (string_macro_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 1), owned.function_sigs.len);
+        },
+        .trap => |report| {
+            std.debug.print("string macro verifier trap: {s}\n", .{report.message});
             return error.TestUnexpectedResult;
         },
     }
@@ -2645,7 +2763,7 @@ test "sa_std Deno compatibility facade covers HubProxy porting surface" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_req_get_method"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_set_content_type"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_sai, 1, "sa_http_server_resp_stream_write"));
- 
+
     const deno_src = try readFileAlloc(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal");
     defer std.testing.allocator.free(deno_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_ARGS_JSON"));
@@ -2726,7 +2844,7 @@ test "sa_std Deno compatibility facade covers HubProxy porting surface" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_REQUEST_METHOD"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_RESPONSE_SET_CONTENT_TYPE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deno_src, 1, "[MACRO] DENO_SERVE_STREAM_WRITE"));
- 
+
     var deno_flat = try flattenFixture(std.testing.allocator, "../sa_plugins/sa_plugin_deno/deno.sal", deno_src);
     defer deno_flat.deinit(std.testing.allocator);
     try std.testing.expect(deno_flat.function_sigs.len >= 60);

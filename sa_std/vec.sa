@@ -1,5 +1,7 @@
 @import "alloc/vec.sal"
 @import "alloc/vec.sa"
+@import "core/slice.sal"
+@import "core/slice.sa"
 
 [MACRO] VEC_NEW %out_vec
     %out_vec = call @sa_vec_new()
@@ -9,20 +11,57 @@
     %out_len = call @sa_vec_len(&%vec_reg)
 [END_MACRO]
 
+[MACRO] VEC_AS_PTR %out_ptr, %vec_reg
+    __vec_view_%out_ptr = & %vec_reg
+    %out_ptr = load __vec_view_%out_ptr+Vec_ptr as ptr
+    !__vec_view_%out_ptr
+[END_MACRO]
+
+[MACRO] VEC_AS_SLICE %out_slice, %vec_reg
+    __vec_view_%out_slice = & %vec_reg
+    __vec_ptr_%out_slice = load __vec_view_%out_slice+Vec_ptr as ptr
+    __vec_len_%out_slice = load __vec_view_%out_slice+Vec_len as u64
+    %out_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW %out_slice, __vec_ptr_%out_slice, __vec_len_%out_slice
+    !__vec_ptr_%out_slice
+    !__vec_len_%out_slice
+    !__vec_view_%out_slice
+[END_MACRO]
+
 [MACRO] VEC_GET %out_ptr, %vec_reg, %index
     __vec_view_%out_ptr = & %vec_reg
-    vec_ptr = load __vec_view_%out_ptr+Vec_ptr as ptr
-    elem_off = mul %index, 8
-    elem_ptr = ptr_add vec_ptr, elem_off
-    %out_ptr = load elem_ptr+0 as u64
-    !elem_off
-    !elem_ptr
-    !vec_ptr
+    __vec_ptr_%out_ptr = load __vec_view_%out_ptr+Vec_ptr as ptr
+    __vec_elem_off_%out_ptr = mul %index, 8
+    __vec_elem_ptr_%out_ptr = ptr_add __vec_ptr_%out_ptr, __vec_elem_off_%out_ptr
+    %out_ptr = load __vec_elem_ptr_%out_ptr+0 as u64
+    !__vec_elem_off_%out_ptr
+    !__vec_elem_ptr_%out_ptr
+    !__vec_ptr_%out_ptr
     !__vec_view_%out_ptr
+[END_MACRO]
+
+[MACRO] VEC_GET_U64 %out_value, %vec_reg, %index
+    EXPAND VEC_GET %out_value, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] VEC_FRONT %out_value, %vec_reg
+    EXPAND VEC_GET %out_value, %vec_reg, 0
+[END_MACRO]
+
+[MACRO] VEC_BACK %out_value, %vec_reg
+    __vec_len_%out_value = call @sa_vec_len(&%vec_reg)
+    __vec_last_%out_value = sub __vec_len_%out_value, 1
+    EXPAND VEC_GET %out_value, %vec_reg, __vec_last_%out_value
+    !__vec_last_%out_value
+    !__vec_len_%out_value
 [END_MACRO]
 
 [MACRO] VEC_PUSH %vec_reg, %value, %elem_size
     %vec_reg = call @sa_vec_push(^%vec_reg, %value, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_PUSH_U64 %vec_reg, %value
+    EXPAND VEC_PUSH %vec_reg, %value, 8
 [END_MACRO]
 
 [MACRO] VEC_FREE %vec_reg
@@ -52,6 +91,22 @@
     %out_ok = __vec_ok_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_TRY_POP_U64 %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_POP %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_POP %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_POP %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_POP_U64 %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_POP_U64 %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_WITH_CAPACITY %out_vec, %cap, %elem_size
     %out_vec = call @sa_vec_with_capacity(%cap, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_WITH_CAPACITY_U64 %out_vec, %cap
+    EXPAND VEC_WITH_CAPACITY %out_vec, %cap, 8
 [END_MACRO]

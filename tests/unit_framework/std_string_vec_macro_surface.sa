@@ -1,0 +1,130 @@
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+
+@const WORD = utf8:"rust"
+
+@test "sa_std string convenience macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STRING_LEN len, word
+    EXPAND STR_AS_PTR as_ptr, word
+    EXPAND STRING_AS_BYTES bytes, word
+    EXPAND STRING_AS_STR str_view, word
+    EXPAND STR_LEN bytes_len, bytes
+    EXPAND STRING_LEN str_len, str_view
+    EXPAND STRING_NEW new_empty
+    EXPAND STR_EMPTY str_empty
+    EXPAND STRING_IS_EMPTY new_empty_ok, new_empty
+    EXPAND STR_IS_EMPTY str_empty_ok, str_empty
+
+    len_ok = eq len, 4
+    ptr_ok = ne as_ptr, 0
+    bytes_len_ok = eq bytes_len, 4
+    str_len_ok = eq str_len, 4
+    ok01 = and len_ok, ptr_ok
+    ok02 = and ok01, bytes_len_ok
+    ok03 = and ok02, str_len_ok
+    ok04 = and ok03, new_empty_ok
+    ok = and ok04, str_empty_ok
+    !len
+    !as_ptr
+    !bytes
+    !str_view
+    !bytes_len
+    !str_len
+    !new_empty_ok
+    !str_empty_ok
+    !len_ok
+    !ptr_ok
+    !bytes_len_ok
+    !str_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !word
+    !new_empty
+    !str_empty
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(901)
+
+L_OK:
+    !ok
+    return
+
+@test "sa_std vec convenience macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 44
+    EXPAND VEC_PUSH_U64 vec, 55
+    EXPAND VEC_GET_U64 got, vec, 1
+    EXPAND VEC_FRONT front, vec
+    EXPAND VEC_BACK back, vec
+    EXPAND VEC_TRY_POP_U64 pop_ok, popped, vec
+    EXPAND VEC_AS_PTR data_ptr, vec
+    EXPAND VEC_AS_SLICE slice, vec
+    EXPAND SLICE_GET_LEN slice_len, slice
+    EXPAND VEC_POP_U64 pop2_ok, popped2, vec
+    EXPAND VEC_LEN len, vec
+
+    got_ok = eq got, 55
+    front_ok = eq front, 44
+    back_ok = eq back, 55
+    pop_ok_flag = eq pop_ok, 1
+    pop_ok_value = eq popped, 55
+    ptr_ok = ne data_ptr, 0
+    slice_len_ok = eq slice_len, 1
+    pop2_ok_flag = eq pop2_ok, 1
+    pop2_ok_value = eq popped2, 44
+    len_ok = eq len, 0
+    ok01 = and got_ok, front_ok
+    ok02 = and ok01, back_ok
+    ok03 = and ok02, pop_ok_flag
+    ok04 = and ok03, pop_ok_value
+    ok05 = and ok04, ptr_ok
+    ok06 = and ok05, slice_len_ok
+    ok07 = and ok06, pop2_ok_flag
+    ok08 = and ok07, pop2_ok_value
+    ok = and ok08, len_ok
+    !got
+    !front
+    !back
+    !pop_ok
+    !popped
+    !data_ptr
+    !slice
+    !slice_len
+    !pop2_ok
+    !popped2
+    !len
+    !got_ok
+    !front_ok
+    !back_ok
+    !pop_ok_flag
+    !pop_ok_value
+    !ptr_ok
+    !slice_len_ok
+    !pop2_ok_flag
+    !pop2_ok_value
+    !len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND VEC_FREE vec
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(902)
+
+L_OK:
+    !ok
+    return

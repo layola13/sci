@@ -62,6 +62,18 @@ L_ENTRY:
     EXPAND VEC_CAPACITY cap2, vec1
     EXPAND VEC_LEN len4, vec1
     EXPAND VEC_IS_EMPTY empty2, vec1
+    EXPAND VEC_WITH_CAPACITY_U64 vec2, 2
+    EXPAND VEC_PUSH_U64 vec2, 44
+    EXPAND VEC_PUSH_U64 vec2, 55
+    EXPAND VEC_GET_U64 get_u64, vec2, 1
+    EXPAND VEC_FRONT front_u64, vec2
+    EXPAND VEC_BACK back_u64, vec2
+    EXPAND VEC_TRY_POP_U64 ok_pop_u64, pop_u64, vec2
+    EXPAND VEC_AS_PTR vec2_ptr, vec2
+    EXPAND VEC_AS_SLICE vec2_slice, vec2
+    EXPAND SLICE_GET_LEN vec2_slice_len, vec2_slice
+    EXPAND VEC_POP_U64 ok_pop_alias, pop_alias, vec2
+    EXPAND VEC_LEN len5, vec2
 
     ok_cap0 = eq cap0, 0
     ok_empty0 = eq empty0, 1
@@ -77,6 +89,16 @@ L_ENTRY:
     ok_cap2 = eq cap2, 4
     ok_len4 = eq len4, 0
     ok_empty2 = eq empty2, 1
+    ok_get_u64 = eq get_u64, 55
+    ok_front_u64 = eq front_u64, 44
+    ok_back_u64 = eq back_u64, 55
+    ok_pop_u64_flag = eq ok_pop_u64, 1
+    ok_pop_u64_value = eq pop_u64, 55
+    ok_vec2_ptr = ne vec2_ptr, 0
+    ok_vec2_slice_len = eq vec2_slice_len, 1
+    ok_pop_alias_flag = eq ok_pop_alias, 1
+    ok_pop_alias_value = eq pop_alias, 44
+    ok_len5 = eq len5, 0
     ok01 = and ok_cap0, ok_empty0
     ok02 = and ok01, ok_len0
     ok03 = and ok02, ok_cap1
@@ -89,7 +111,17 @@ L_ENTRY:
     ok10 = and ok09, ok_empty1
     ok11 = and ok10, ok_cap2
     ok12 = and ok11, ok_len4
-    ok = and ok12, ok_empty2
+    ok13 = and ok12, ok_empty2
+    ok14 = and ok13, ok_get_u64
+    ok15 = and ok14, ok_front_u64
+    ok16 = and ok15, ok_back_u64
+    ok17 = and ok16, ok_pop_u64_flag
+    ok18 = and ok17, ok_pop_u64_value
+    ok19 = and ok18, ok_vec2_ptr
+    ok20 = and ok19, ok_vec2_slice_len
+    ok21 = and ok20, ok_pop_alias_flag
+    ok22 = and ok21, ok_pop_alias_value
+    ok = and ok22, ok_len5
     !cap0
     !empty0
     !len0
@@ -104,6 +136,17 @@ L_ENTRY:
     !cap2
     !len4
     !empty2
+    !get_u64
+    !front_u64
+    !back_u64
+    !ok_pop_u64
+    !pop_u64
+    !vec2_ptr
+    !vec2_slice
+    !vec2_slice_len
+    !ok_pop_alias
+    !pop_alias
+    !len5
     !ok_cap0
     !ok_empty0
     !ok_len0
@@ -118,6 +161,16 @@ L_ENTRY:
     !ok_cap2
     !ok_len4
     !ok_empty2
+    !ok_get_u64
+    !ok_front_u64
+    !ok_back_u64
+    !ok_pop_u64_flag
+    !ok_pop_u64_value
+    !ok_vec2_ptr
+    !ok_vec2_slice_len
+    !ok_pop_alias_flag
+    !ok_pop_alias_value
+    !ok_len5
     !ok01
     !ok02
     !ok03
@@ -130,8 +183,19 @@ L_ENTRY:
     !ok10
     !ok11
     !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
     EXPAND VEC_FREE vec0
     EXPAND VEC_FREE vec1
+    EXPAND VEC_FREE vec2
     br ok -> L_OK, L_FAIL
 
 L_FAIL:
@@ -212,6 +276,21 @@ L_ENTRY:
     EXPAND STR_EQ same_match, left, same
     EXPAND STR_EQ diff_match, left, diff
     EXPAND STR_EQ sub_match, sub_slice, sub_expected
+    EXPAND STRING_LEN left_len, left
+    EXPAND STR_PTR left_ptr, left
+    EXPAND STR_AS_PTR left_as_ptr, left
+    EXPAND STRING_AS_PTR left_string_ptr, left
+    EXPAND STR_AS_BYTES left_bytes, left
+    EXPAND STRING_AS_STR left_str, left
+    EXPAND STR_LEN left_bytes_len, left_bytes
+    EXPAND STRING_LEN left_str_len, left_str
+    EXPAND STRING_FROM_PARTS empty, &STR_JOINED, 0
+    EXPAND STRING_NEW new_empty
+    EXPAND STR_EMPTY str_empty
+    EXPAND STR_IS_EMPTY left_empty, left
+    EXPAND STRING_IS_EMPTY empty_ok, empty
+    EXPAND STRING_IS_EMPTY new_empty_ok, new_empty
+    EXPAND STR_IS_EMPTY str_empty_ok, str_empty
     concat = call @sa_string_concat(&STR_JOIN_LEFT, STR_JOIN_LEFT_LEN, &STR_JOIN_RIGHT, STR_JOIN_RIGHT_LEN)
     concat_ok = ne concat, 0
     br concat_ok -> L_CONCAT, L_FAIL_CONCAT
@@ -243,12 +322,32 @@ L_CONCAT:
     same_ok = eq same_match, 1
     diff_ok = eq diff_match, 0
     sub_ok = eq sub_match, 1
+    left_len_ok = eq left_len, STR_EQ_LEFT_LEN
+    left_ptr_ok = ne left_ptr, 0
+    left_as_ptr_ok = ne left_as_ptr, 0
+    left_string_ptr_ok = ne left_string_ptr, 0
+    left_bytes_len_ok = eq left_bytes_len, STR_EQ_LEFT_LEN
+    left_str_len_ok = eq left_str_len, STR_EQ_LEFT_LEN
+    left_not_empty = eq left_empty, 0
+    empty_is_empty = eq empty_ok, 1
+    new_empty_is_empty = eq new_empty_ok, 1
+    str_empty_is_empty = eq str_empty_ok, 1
     concat_match_ok = eq concat_match, 1
     ok01 = and same_ok, diff_ok
     ok02 = and ok01, sub_ok
-    ok03 = and ok02, concat_data_ok
-    ok04 = and ok03, concat_len_ok
-    ok = and ok04, concat_match_ok
+    ok03 = and ok02, left_len_ok
+    ok04 = and ok03, left_ptr_ok
+    ok05 = and ok04, left_as_ptr_ok
+    ok06 = and ok05, left_string_ptr_ok
+    ok07 = and ok06, left_bytes_len_ok
+    ok08 = and ok07, left_str_len_ok
+    ok09 = and ok08, left_not_empty
+    ok10 = and ok09, empty_is_empty
+    ok11 = and ok10, new_empty_is_empty
+    ok12 = and ok11, str_empty_is_empty
+    ok13 = and ok12, concat_data_ok
+    ok14 = and ok13, concat_len_ok
+    ok = and ok14, concat_match_ok
     concat_free_status = call @sa_fmt_buffer_free(^concat)
     concat_free_ok = eq concat_free_status, 0
     ok = and ok, concat_free_ok
@@ -259,19 +358,54 @@ L_CONCAT:
     !same_ok
     !diff_ok
     !sub_ok
+    !left_len_ok
+    !left_ptr_ok
+    !left_as_ptr_ok
+    !left_string_ptr_ok
+    !left_bytes_len_ok
+    !left_str_len_ok
+    !left_not_empty
+    !empty_is_empty
+    !new_empty_is_empty
+    !str_empty_is_empty
     !concat_match_ok
     !ok01
     !ok02
     !ok03
     !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
     !concat_data_ok
     !concat_len_ok
     !concat_free_status
     !concat_free_ok
     !concat_data
     !concat_len
+    !left_len
+    !left_ptr
+    !left_as_ptr
+    !left_string_ptr
+    !left_bytes_len
+    !left_str_len
+    !left_empty
+    !empty_ok
+    !new_empty_ok
+    !str_empty_ok
     !sub_slice
     !left
+    !left_bytes
+    !left_str
+    !empty
+    !new_empty
+    !str_empty
     !same
     !diff
     !sub_expected
