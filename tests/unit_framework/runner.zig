@@ -703,11 +703,12 @@ test "native unit framework covers sa_std macro surface suites" {
     const hashset_expected = [_][]const u8{
         "[PASS] sa_std hashset convenience macros",
         "[PASS] sa_std hashset rust parity macros",
+        "[PASS] sa_std hashset set algebra macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_hashset_macro_surface.sa",
         hashset_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
+        "test result: ok. 3 passed; 0 failed; 0 skipped",
     );
 
     const vec_deque_expected = [_][]const u8{
@@ -724,11 +725,12 @@ test "native unit framework covers sa_std macro surface suites" {
     const hashmap_expected = [_][]const u8{
         "[PASS] sa_std hashmap convenience macros",
         "[PASS] sa_std hashmap rust parity macros",
+        "[PASS] sa_std hashmap collection view macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_hashmap_macro_surface.sa",
         hashmap_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
+        "test result: ok. 3 passed; 0 failed; 0 skipped",
     );
 
     const binary_heap_expected = [_][]const u8{

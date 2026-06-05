@@ -319,3 +319,158 @@ L_PARITY_FAIL:
 L_PARITY_OK:
     !ok
     return
+
+@test "sa_std hashset set algebra macros"():
+L_ENTRY:
+    EXPAND SET_NEW left
+    EXPAND SET_NEW right
+    key_a = &KEY_A
+    key_b = &KEY_B
+    key_c = &KEY_C
+    EXPAND SET_INSERT left_ins_a, left, key_a
+    EXPAND SET_INSERT left_ins_b, left, key_b
+    EXPAND SET_INSERT right_ins_b, right, key_b
+    EXPAND SET_INSERT right_ins_c, right, key_c
+
+    EXPAND SET_UNION union_set, left, right
+    EXPAND SET_INTERSECTION intersection_set, left, right
+    EXPAND SET_DIFFERENCE difference_set, left, right
+    EXPAND SET_SYMMETRIC_DIFFERENCE symmetric_set, left, right
+
+    EXPAND SET_LEN union_len, union_set
+    EXPAND SET_CONTAINS union_has_a, union_set, key_a
+    EXPAND SET_CONTAINS union_has_b, union_set, key_b
+    EXPAND SET_CONTAINS union_has_c, union_set, key_c
+
+    EXPAND SET_LEN intersection_len, intersection_set
+    EXPAND SET_CONTAINS intersection_has_a, intersection_set, key_a
+    EXPAND SET_CONTAINS intersection_has_b, intersection_set, key_b
+    EXPAND SET_CONTAINS intersection_has_c, intersection_set, key_c
+
+    EXPAND SET_LEN difference_len, difference_set
+    EXPAND SET_CONTAINS difference_has_a, difference_set, key_a
+    EXPAND SET_CONTAINS difference_has_b, difference_set, key_b
+    EXPAND SET_CONTAINS difference_has_c, difference_set, key_c
+
+    EXPAND SET_LEN symmetric_len, symmetric_set
+    EXPAND SET_CONTAINS symmetric_has_a, symmetric_set, key_a
+    EXPAND SET_CONTAINS symmetric_has_b, symmetric_set, key_b
+    EXPAND SET_CONTAINS symmetric_has_c, symmetric_set, key_c
+
+    ok_left_ins_a = eq left_ins_a, 1
+    ok_left_ins_b = eq left_ins_b, 1
+    ok_right_ins_b = eq right_ins_b, 1
+    ok_right_ins_c = eq right_ins_c, 1
+    ok_union_len = eq union_len, 3
+    ok_union_has_a = eq union_has_a, 1
+    ok_union_has_b = eq union_has_b, 1
+    ok_union_has_c = eq union_has_c, 1
+    ok_intersection_len = eq intersection_len, 1
+    ok_intersection_has_a = eq intersection_has_a, 0
+    ok_intersection_has_b = eq intersection_has_b, 1
+    ok_intersection_has_c = eq intersection_has_c, 0
+    ok_difference_len = eq difference_len, 1
+    ok_difference_has_a = eq difference_has_a, 1
+    ok_difference_has_b = eq difference_has_b, 0
+    ok_difference_has_c = eq difference_has_c, 0
+    ok_symmetric_len = eq symmetric_len, 2
+    ok_symmetric_has_a = eq symmetric_has_a, 1
+    ok_symmetric_has_b = eq symmetric_has_b, 0
+    ok_symmetric_has_c = eq symmetric_has_c, 1
+
+    ok01 = and ok_left_ins_a, ok_left_ins_b
+    ok02 = and ok01, ok_right_ins_b
+    ok03 = and ok02, ok_right_ins_c
+    ok04 = and ok03, ok_union_len
+    ok05 = and ok04, ok_union_has_a
+    ok06 = and ok05, ok_union_has_b
+    ok07 = and ok06, ok_union_has_c
+    ok08 = and ok07, ok_intersection_len
+    ok09 = and ok08, ok_intersection_has_a
+    ok10 = and ok09, ok_intersection_has_b
+    ok11 = and ok10, ok_intersection_has_c
+    ok12 = and ok11, ok_difference_len
+    ok13 = and ok12, ok_difference_has_a
+    ok14 = and ok13, ok_difference_has_b
+    ok15 = and ok14, ok_difference_has_c
+    ok16 = and ok15, ok_symmetric_len
+    ok17 = and ok16, ok_symmetric_has_a
+    ok18 = and ok17, ok_symmetric_has_b
+    ok = and ok18, ok_symmetric_has_c
+
+    !left_ins_a
+    !left_ins_b
+    !right_ins_b
+    !right_ins_c
+    !union_len
+    !union_has_a
+    !union_has_b
+    !union_has_c
+    !intersection_len
+    !intersection_has_a
+    !intersection_has_b
+    !intersection_has_c
+    !difference_len
+    !difference_has_a
+    !difference_has_b
+    !difference_has_c
+    !symmetric_len
+    !symmetric_has_a
+    !symmetric_has_b
+    !symmetric_has_c
+    !key_c
+    !key_b
+    !key_a
+    !ok_left_ins_a
+    !ok_left_ins_b
+    !ok_right_ins_b
+    !ok_right_ins_c
+    !ok_union_len
+    !ok_union_has_a
+    !ok_union_has_b
+    !ok_union_has_c
+    !ok_intersection_len
+    !ok_intersection_has_a
+    !ok_intersection_has_b
+    !ok_intersection_has_c
+    !ok_difference_len
+    !ok_difference_has_a
+    !ok_difference_has_b
+    !ok_difference_has_c
+    !ok_symmetric_len
+    !ok_symmetric_has_a
+    !ok_symmetric_has_b
+    !ok_symmetric_has_c
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    EXPAND SET_FREE symmetric_set
+    EXPAND SET_FREE difference_set
+    EXPAND SET_FREE intersection_set
+    EXPAND SET_FREE union_set
+    EXPAND SET_FREE right
+    EXPAND SET_FREE left
+    br ok -> L_ALGEBRA_OK, L_ALGEBRA_FAIL
+
+L_ALGEBRA_FAIL:
+    !ok
+    panic(917)
+
+L_ALGEBRA_OK:
+    !ok
+    return

@@ -1,7 +1,9 @@
 @import "sa_std/collections/hashmap.sa"
+@import "sa_std/vec.sa"
 
 @const KEY = utf8:"alpha"
 @const KEY_B = utf8:"bravo"
+@const KEY_C = utf8:"charlie"
 @const VALUE = utf8:"A\n"
 @const VALUE_B = utf8:"B\n"
 @const VALUE_C = utf8:"C\n"
@@ -330,5 +332,188 @@ L_PARITY_FAIL:
     panic(906)
 
 L_PARITY_OK:
+    !ok
+    return
+
+@test "sa_std hashmap collection view macros"():
+L_ENTRY:
+    EXPAND MAP_WITH_CAPACITY map, 4
+    key_a = &KEY
+    key_b = &KEY_B
+    key_c = &KEY_C
+    value_a = &VALUE
+    value_b = &VALUE_B
+    value_c = &VALUE_C
+
+    EXPAND MAP_PUT map, key_a, value_a
+    EXPAND MAP_PUT map, key_b, value_b
+    EXPAND MAP_TRY_INSERT try_insert_new_ok, try_insert_new_ptr, map, key_c, value_c
+    try_insert_new_value = load try_insert_new_ptr+0 as ptr
+    EXPAND MAP_TRY_INSERT try_insert_existing_ok, try_insert_existing_ptr, map, key_a, value_c
+    try_insert_existing_value = load try_insert_existing_ptr+0 as ptr
+
+    EXPAND MAP_TRY_GET_DISJOINT_MUT_PTRS disjoint_ok, disjoint_a_ptr, disjoint_b_ptr, map, key_a, key_b
+    store disjoint_a_ptr+0, value_c as ptr
+    store disjoint_b_ptr+0, value_a as ptr
+    EXPAND MAP_GET after_disjoint_a, map, key_a
+    EXPAND MAP_GET after_disjoint_b, map, key_b
+    EXPAND MAP_TRY_GET_DISJOINT_MUT_PTRS same_key_ok, same_key_a_ptr, same_key_b_ptr, map, key_a, key_a
+
+    EXPAND MAP_KEYS key_vec, map
+    EXPAND MAP_VALUES value_vec, map
+    EXPAND MAP_VALUES_MUT_PTRS value_ptr_vec, map
+    EXPAND VEC_LEN key_vec_len, key_vec
+    EXPAND VEC_LEN value_vec_len, value_vec
+    EXPAND VEC_LEN value_ptr_vec_len, value_ptr_vec
+    key_a_bits = bitcast key_a as u64
+    key_b_bits = bitcast key_b as u64
+    key_c_bits = bitcast key_c as u64
+    value_a_bits = bitcast value_a as u64
+    value_c_bits = bitcast value_c as u64
+    disjoint_a_ptr_bits = bitcast disjoint_a_ptr as u64
+    disjoint_b_ptr_bits = bitcast disjoint_b_ptr as u64
+    try_insert_new_ptr_bits = bitcast try_insert_new_ptr as u64
+    EXPAND VEC_CONTAINS_U64 has_key_a, key_vec, key_a_bits
+    EXPAND VEC_CONTAINS_U64 has_key_b, key_vec, key_b_bits
+    EXPAND VEC_CONTAINS_U64 has_key_c, key_vec, key_c_bits
+    EXPAND VEC_CONTAINS_U64 has_value_a, value_vec, value_a_bits
+    EXPAND VEC_CONTAINS_U64 has_value_c, value_vec, value_c_bits
+    EXPAND VEC_CONTAINS_U64 has_mut_ptr_a, value_ptr_vec, disjoint_a_ptr_bits
+    EXPAND VEC_CONTAINS_U64 has_mut_ptr_b, value_ptr_vec, disjoint_b_ptr_bits
+    EXPAND VEC_CONTAINS_U64 has_mut_ptr_c, value_ptr_vec, try_insert_new_ptr_bits
+
+    ok_try_insert_new = eq try_insert_new_ok, 1
+    ok_try_insert_new_value = eq try_insert_new_value, value_c
+    ok_try_insert_existing_flag = eq try_insert_existing_ok, 0
+    ok_try_insert_existing_value = eq try_insert_existing_value, value_a
+    ok_disjoint = eq disjoint_ok, 1
+    ok_after_disjoint_a = eq after_disjoint_a, value_c
+    ok_after_disjoint_b = eq after_disjoint_b, value_a
+    ok_same_key = eq same_key_ok, 0
+    ok_same_key_a_ptr = eq same_key_a_ptr, 0
+    ok_same_key_b_ptr = eq same_key_b_ptr, 0
+    ok_key_vec_len = eq key_vec_len, 3
+    ok_value_vec_len = eq value_vec_len, 3
+    ok_value_ptr_vec_len = eq value_ptr_vec_len, 3
+    ok_has_key_a = eq has_key_a, 1
+    ok_has_key_b = eq has_key_b, 1
+    ok_has_key_c = eq has_key_c, 1
+    ok_has_value_a = eq has_value_a, 1
+    ok_has_value_c = eq has_value_c, 1
+    ok_has_mut_ptr_a = eq has_mut_ptr_a, 1
+    ok_has_mut_ptr_b = eq has_mut_ptr_b, 1
+    ok_has_mut_ptr_c = eq has_mut_ptr_c, 1
+
+    ok01 = and ok_try_insert_new, ok_try_insert_new_value
+    ok02 = and ok01, ok_try_insert_existing_flag
+    ok03 = and ok02, ok_try_insert_existing_value
+    ok04 = and ok03, ok_disjoint
+    ok05 = and ok04, ok_after_disjoint_a
+    ok06 = and ok05, ok_after_disjoint_b
+    ok07 = and ok06, ok_same_key
+    ok08 = and ok07, ok_same_key_a_ptr
+    ok09 = and ok08, ok_same_key_b_ptr
+    ok10 = and ok09, ok_key_vec_len
+    ok11 = and ok10, ok_value_vec_len
+    ok12 = and ok11, ok_value_ptr_vec_len
+    ok13 = and ok12, ok_has_key_a
+    ok14 = and ok13, ok_has_key_b
+    ok15 = and ok14, ok_has_key_c
+    ok16 = and ok15, ok_has_value_a
+    ok17 = and ok16, ok_has_value_c
+    ok18 = and ok17, ok_has_mut_ptr_a
+    ok19 = and ok18, ok_has_mut_ptr_b
+    ok = and ok19, ok_has_mut_ptr_c
+
+    !try_insert_new_ok
+    !try_insert_new_ptr
+    !try_insert_new_value
+    !try_insert_existing_ok
+    !try_insert_existing_ptr
+    !try_insert_existing_value
+    !disjoint_ok
+    !disjoint_a_ptr
+    !disjoint_b_ptr
+    !after_disjoint_a
+    !after_disjoint_b
+    !same_key_ok
+    !same_key_a_ptr
+    !same_key_b_ptr
+    !key_vec_len
+    !value_vec_len
+    !value_ptr_vec_len
+    !key_a_bits
+    !key_b_bits
+    !key_c_bits
+    !value_a_bits
+    !value_c_bits
+    !disjoint_a_ptr_bits
+    !disjoint_b_ptr_bits
+    !try_insert_new_ptr_bits
+    !has_key_a
+    !has_key_b
+    !has_key_c
+    !has_value_a
+    !has_value_c
+    !has_mut_ptr_a
+    !has_mut_ptr_b
+    !has_mut_ptr_c
+    !value_c
+    !value_b
+    !value_a
+    !key_c
+    !key_b
+    !key_a
+    !ok_try_insert_new
+    !ok_try_insert_new_value
+    !ok_try_insert_existing_flag
+    !ok_try_insert_existing_value
+    !ok_disjoint
+    !ok_after_disjoint_a
+    !ok_after_disjoint_b
+    !ok_same_key
+    !ok_same_key_a_ptr
+    !ok_same_key_b_ptr
+    !ok_key_vec_len
+    !ok_value_vec_len
+    !ok_value_ptr_vec_len
+    !ok_has_key_a
+    !ok_has_key_b
+    !ok_has_key_c
+    !ok_has_value_a
+    !ok_has_value_c
+    !ok_has_mut_ptr_a
+    !ok_has_mut_ptr_b
+    !ok_has_mut_ptr_c
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    EXPAND VEC_FREE value_ptr_vec
+    EXPAND VEC_FREE value_vec
+    EXPAND VEC_FREE key_vec
+    EXPAND MAP_FREE map
+    br ok -> L_VIEW_OK, L_VIEW_FAIL
+
+L_VIEW_FAIL:
+    !ok
+    panic(916)
+
+L_VIEW_OK:
     !ok
     return

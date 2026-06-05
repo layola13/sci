@@ -3,6 +3,178 @@
 
 @const HASHSET_SENTINEL = utf8:"hashset"
 
+@set_insert_all(&dst: ptr, &src: ptr) -> void:
+L_ENTRY:
+    slots = load src+HashSet_slots as ptr
+    cap = load src+HashSet_cap as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_INSERT_ALL_HEAD
+
+L_INSERT_ALL_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, cap
+    br done -> L_INSERT_ALL_DONE, L_INSERT_ALL_BODY
+
+L_INSERT_ALL_BODY:
+    slot_off = mul idx, HashSetSlot_SIZE
+    slot = ptr_add slots, slot_off
+    state = load slot+HashSetSlot_state as u8
+    filled = eq state, HashSet_STATE_FILLED
+    br filled -> L_INSERT_ALL_KEY, L_INSERT_ALL_NEXT
+
+L_INSERT_ALL_KEY:
+    key = load slot+HashSetSlot_key as ptr
+    inserted = call @sa_set_insert(&dst, &key)
+    !inserted
+    !key
+    jmp L_INSERT_ALL_NEXT
+
+L_INSERT_ALL_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !filled
+    !state
+    !slot
+    !slot_off
+    !done
+    !idx
+    jmp L_INSERT_ALL_HEAD
+
+L_INSERT_ALL_DONE:
+    !done
+    !idx
+    !cap
+    !slots
+    !src
+    !dst
+    return
+
+@set_insert_intersection(&dst: ptr, &src: ptr, &other: ptr) -> void:
+L_ENTRY:
+    slots = load src+HashSet_slots as ptr
+    cap = load src+HashSet_cap as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_INSERT_INTERSECTION_HEAD
+
+L_INSERT_INTERSECTION_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, cap
+    br done -> L_INSERT_INTERSECTION_DONE, L_INSERT_INTERSECTION_BODY
+
+L_INSERT_INTERSECTION_BODY:
+    slot_off = mul idx, HashSetSlot_SIZE
+    slot = ptr_add slots, slot_off
+    state = load slot+HashSetSlot_state as u8
+    filled = eq state, HashSet_STATE_FILLED
+    br filled -> L_INSERT_INTERSECTION_KEY, L_INSERT_INTERSECTION_NEXT
+
+L_INSERT_INTERSECTION_KEY:
+    key = load slot+HashSetSlot_key as ptr
+    contains = call @sa_set_contains(&other, &key)
+    keep = ne contains, 0
+    br keep -> L_INSERT_INTERSECTION_KEEP, L_INSERT_INTERSECTION_SKIP
+
+L_INSERT_INTERSECTION_KEEP:
+    inserted = call @sa_set_insert(&dst, &key)
+    !inserted
+    !keep
+    !contains
+    !key
+    jmp L_INSERT_INTERSECTION_NEXT
+
+L_INSERT_INTERSECTION_SKIP:
+    !keep
+    !contains
+    !key
+    jmp L_INSERT_INTERSECTION_NEXT
+
+L_INSERT_INTERSECTION_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !filled
+    !state
+    !slot
+    !slot_off
+    !done
+    !idx
+    jmp L_INSERT_INTERSECTION_HEAD
+
+L_INSERT_INTERSECTION_DONE:
+    !done
+    !idx
+    !cap
+    !slots
+    !other
+    !src
+    !dst
+    return
+
+@set_insert_difference(&dst: ptr, &src: ptr, &other: ptr) -> void:
+L_ENTRY:
+    slots = load src+HashSet_slots as ptr
+    cap = load src+HashSet_cap as u64
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_INSERT_DIFFERENCE_HEAD
+
+L_INSERT_DIFFERENCE_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, cap
+    br done -> L_INSERT_DIFFERENCE_DONE, L_INSERT_DIFFERENCE_BODY
+
+L_INSERT_DIFFERENCE_BODY:
+    slot_off = mul idx, HashSetSlot_SIZE
+    slot = ptr_add slots, slot_off
+    state = load slot+HashSetSlot_state as u8
+    filled = eq state, HashSet_STATE_FILLED
+    br filled -> L_INSERT_DIFFERENCE_KEY, L_INSERT_DIFFERENCE_NEXT
+
+L_INSERT_DIFFERENCE_KEY:
+    key = load slot+HashSetSlot_key as ptr
+    contains = call @sa_set_contains(&other, &key)
+    keep = eq contains, 0
+    br keep -> L_INSERT_DIFFERENCE_KEEP, L_INSERT_DIFFERENCE_SKIP
+
+L_INSERT_DIFFERENCE_KEEP:
+    inserted = call @sa_set_insert(&dst, &key)
+    !inserted
+    !keep
+    !contains
+    !key
+    jmp L_INSERT_DIFFERENCE_NEXT
+
+L_INSERT_DIFFERENCE_SKIP:
+    !keep
+    !contains
+    !key
+    jmp L_INSERT_DIFFERENCE_NEXT
+
+L_INSERT_DIFFERENCE_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !filled
+    !state
+    !slot
+    !slot_off
+    !done
+    !idx
+    jmp L_INSERT_DIFFERENCE_HEAD
+
+L_INSERT_DIFFERENCE_DONE:
+    !done
+    !idx
+    !cap
+    !slots
+    !other
+    !src
+    !dst
+    return
+
 @export sa_set_new() -> ^ptr:
 L_ENTRY:
     set = call @sa_map_new()
@@ -316,6 +488,73 @@ L_ENTRY:
     !set
     return result
 
+@export sa_set_union(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    len = load set+HashSet_len as u64
+    other_len = load other+HashSet_len as u64
+    cap_hint = add len, other_len
+    out_set = call @sa_set_with_capacity(cap_hint)
+    call @set_insert_all(&out_set, &set)
+    call @set_insert_all(&out_set, &other)
+    !cap_hint
+    !other_len
+    !len
+    !other
+    !set
+    return out_set
+
+@export sa_set_intersection(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    len = load set+HashSet_len as u64
+    other_len = load other+HashSet_len as u64
+    left_smaller = ule len, other_len
+    br left_smaller -> L_INTERSECTION_LEFT, L_INTERSECTION_RIGHT
+
+L_INTERSECTION_LEFT:
+    out_set = call @sa_set_with_capacity(len)
+    call @set_insert_intersection(&out_set, &set, &other)
+    !left_smaller
+    !other_len
+    !len
+    !other
+    !set
+    return out_set
+
+L_INTERSECTION_RIGHT:
+    out_set = call @sa_set_with_capacity(other_len)
+    call @set_insert_intersection(&out_set, &other, &set)
+    !left_smaller
+    !other_len
+    !len
+    !other
+    !set
+    return out_set
+
+@export sa_set_difference(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    len = load set+HashSet_len as u64
+    out_set = call @sa_set_with_capacity(len)
+    call @set_insert_difference(&out_set, &set, &other)
+    !len
+    !other
+    !set
+    return out_set
+
+@export sa_set_symmetric_difference(&set: ptr, &other: ptr) -> ^ptr:
+L_ENTRY:
+    len = load set+HashSet_len as u64
+    other_len = load other+HashSet_len as u64
+    cap_hint = add len, other_len
+    out_set = call @sa_set_with_capacity(cap_hint)
+    call @set_insert_difference(&out_set, &set, &other)
+    call @set_insert_difference(&out_set, &other, &set)
+    !cap_hint
+    !other_len
+    !len
+    !other
+    !set
+    return out_set
+
 [MACRO] SET_NEW %out_set
     %out_set = call @sa_set_new()
 [END_MACRO]
@@ -402,6 +641,22 @@ L_ENTRY:
 
 [MACRO] SET_REMOVE %out_ok, %set_reg, %key
     %out_ok = call @sa_set_remove(&%set_reg, &%key)
+[END_MACRO]
+
+[MACRO] SET_UNION %out_set, %set_reg, %other_set
+    %out_set = call @sa_set_union(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] SET_INTERSECTION %out_set, %set_reg, %other_set
+    %out_set = call @sa_set_intersection(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] SET_DIFFERENCE %out_set, %set_reg, %other_set
+    %out_set = call @sa_set_difference(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] SET_SYMMETRIC_DIFFERENCE %out_set, %set_reg, %other_set
+    %out_set = call @sa_set_symmetric_difference(&%set_reg, &%other_set)
 [END_MACRO]
 
 [MACRO] SET_FREE %set_reg
