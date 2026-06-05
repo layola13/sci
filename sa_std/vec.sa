@@ -28,6 +28,10 @@
     !__vec_view_%out_slice
 [END_MACRO]
 
+[MACRO] VEC_AS_MUT_SLICE %out_slice, %vec_reg
+    EXPAND VEC_AS_SLICE %out_slice, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_GET %out_ptr, %vec_reg, %index
     __vec_view_%out_ptr = & %vec_reg
     __vec_ptr_%out_ptr = load __vec_view_%out_ptr+Vec_ptr as ptr
@@ -127,6 +131,10 @@
 [END_MACRO]
 
 [MACRO] VEC_TRUNCATE %vec_reg, %new_len
+    call @sa_vec_truncate(&%vec_reg, %new_len)
+[END_MACRO]
+
+[MACRO] VEC_SET_LEN %vec_reg, %new_len
     call @sa_vec_truncate(&%vec_reg, %new_len)
 [END_MACRO]
 
@@ -276,4 +284,20 @@
 
 [MACRO] VEC_RESIZE_U64 %vec_reg, %new_len, %fill_value
     EXPAND VEC_RESIZE %vec_reg, %new_len, %fill_value, 8
+[END_MACRO]
+
+[MACRO] VEC_SHRINK_TO %vec_reg, %min_cap, %elem_size
+    %vec_reg = call @sa_vec_shrink_to(^%vec_reg, %min_cap, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_SHRINK_TO_U64 %vec_reg, %min_cap
+    EXPAND VEC_SHRINK_TO %vec_reg, %min_cap, 8
+[END_MACRO]
+
+[MACRO] VEC_SHRINK_TO_FIT %vec_reg, %elem_size
+    %vec_reg = call @sa_vec_shrink_to_fit(^%vec_reg, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_SHRINK_TO_FIT_U64 %vec_reg
+    EXPAND VEC_SHRINK_TO_FIT %vec_reg, 8
 [END_MACRO]

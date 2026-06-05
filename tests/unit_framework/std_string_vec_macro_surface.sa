@@ -1281,3 +1281,64 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+@test "sa_std vec capacity/view macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_RESIZE_U64 vec, 5, 30
+    EXPAND VEC_CAPACITY cap_after_resize, vec
+    EXPAND VEC_AS_MUT_SLICE mut_slice, vec
+    EXPAND SLICE_GET_LEN mut_slice_len, mut_slice
+    EXPAND VEC_SET_LEN vec, 3
+    EXPAND VEC_LEN len_after_set_len, vec
+    EXPAND VEC_SHRINK_TO_U64 vec, 2
+    EXPAND VEC_CAPACITY cap_after_shrink_to, vec
+    EXPAND VEC_SHRINK_TO_FIT_U64 vec
+    EXPAND VEC_CAPACITY cap_after_shrink_to_fit, vec
+    EXPAND VEC_TRY_GET_U64 tail_ok, tail_value, vec, 2
+
+    resize_cap_ok = eq cap_after_resize, 5
+    mut_slice_len_ok = eq mut_slice_len, 5
+    set_len_ok = eq len_after_set_len, 3
+    shrink_to_ok = eq cap_after_shrink_to, 3
+    shrink_to_fit_ok = eq cap_after_shrink_to_fit, 3
+    tail_flag_ok = eq tail_ok, 1
+    tail_value_ok = eq tail_value, 30
+    ok01 = and resize_cap_ok, mut_slice_len_ok
+    ok02 = and ok01, set_len_ok
+    ok03 = and ok02, shrink_to_ok
+    ok04 = and ok03, shrink_to_fit_ok
+    ok05 = and ok04, tail_flag_ok
+    ok = and ok05, tail_value_ok
+    !cap_after_resize
+    !mut_slice
+    !mut_slice_len
+    !len_after_set_len
+    !cap_after_shrink_to
+    !cap_after_shrink_to_fit
+    !tail_ok
+    !tail_value
+    !resize_cap_ok
+    !mut_slice_len_ok
+    !set_len_ok
+    !shrink_to_ok
+    !shrink_to_fit_ok
+    !tail_flag_ok
+    !tail_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_CAP_OK, L_VEC_CAP_FAIL
+
+L_VEC_CAP_FAIL:
+    !ok
+    panic(907)
+
+L_VEC_CAP_OK:
+    !ok
+    return

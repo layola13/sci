@@ -446,6 +446,81 @@ L_MISS:
     !out_vec_slot
     return vec
 
+@export sa_vec_shrink_to(^vec: ptr, min_cap: u64, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    cap = load vec+Vec_cap as u64
+    keep_len = uge len, min_cap
+    br keep_len -> L_TARGET_LEN, L_TARGET_MIN
+
+L_TARGET_LEN:
+    target_cap = add len, 0
+    jmp L_CHECK
+
+L_TARGET_MIN:
+    target_cap = add min_cap, 0
+
+L_CHECK:
+    needs_shrink = ult target_cap, cap
+    br needs_shrink -> L_SHRINK, L_DONE
+
+L_SHRINK:
+    target_zero = eq target_cap, 0
+    br target_zero -> L_ZERO, L_ALLOC
+
+L_ZERO:
+    store vec+Vec_ptr, 0 as ptr
+    store vec+Vec_cap, 0 as u64
+    !target_zero
+    !needs_shrink
+    !target_cap
+    !keep_len
+    !cap
+    !len
+    !elem_size
+    !min_cap
+    return vec
+
+L_ALLOC:
+    old_buf = take vec+Vec_ptr
+    new_bytes = mul target_cap, elem_size
+    new_buf = alloc new_bytes
+    call @sa_mem_set(&new_buf, 0, new_bytes)
+    copy_bytes = mul len, elem_size
+    call @sa_mem_copy(&new_buf, &old_buf, copy_bytes)
+    store vec+Vec_ptr, new_buf as ptr
+    store vec+Vec_cap, target_cap as u64
+    !copy_bytes
+    !new_bytes
+    !old_buf
+    ^new_buf
+    !target_zero
+    !needs_shrink
+    !target_cap
+    !keep_len
+    !cap
+    !len
+    !elem_size
+    !min_cap
+    return vec
+
+L_DONE:
+    !needs_shrink
+    !target_cap
+    !keep_len
+    !cap
+    !len
+    !elem_size
+    !min_cap
+    return vec
+
+@export sa_vec_shrink_to_fit(^vec: ptr, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    vec = call @sa_vec_shrink_to(^vec, len, elem_size)
+    !len
+    return vec
+
 @export sa_vec_resize(^vec: ptr, new_len: u64, fill_value: u64, elem_size: u64) -> ^ptr:
 L_ENTRY:
     len = load vec+Vec_len as u64
