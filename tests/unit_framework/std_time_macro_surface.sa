@@ -23,6 +23,13 @@ L_ENTRY:
     EXPAND TIME_CHECKED_ADD_NS add_overflow_ok, add_overflow_value, max_ns, 1
     EXPAND TIME_CHECKED_SUB_NS sub_ok, sub_value, 40, 2
     EXPAND TIME_CHECKED_SUB_NS sub_underflow_ok, sub_underflow_value, 2, 40
+    EXPAND TIME_SATURATING_ADD_NS sat_add_value, max_ns, 1
+    EXPAND TIME_SATURATING_SUB_NS sat_sub_value, 2, 40
+    EXPAND TIME_CHECKED_MUL_NS mul_ok, mul_value, 7, 6
+    EXPAND TIME_CHECKED_MUL_NS mul_zero_ok, mul_zero_value, 7, 0
+    EXPAND TIME_CHECKED_MUL_NS mul_overflow_ok, mul_overflow_value, max_ns, 2
+    EXPAND TIME_CHECKED_DIV_NS div_ok, div_value, 42, 6
+    EXPAND TIME_CHECKED_DIV_NS div_zero_ok, div_zero_value, 42, 0
     EXPAND TIME_CHECKED_DURATION_SINCE since_ok, since_value, 90, 40
     EXPAND TIME_CHECKED_DURATION_SINCE since_underflow_ok, since_underflow_value, 40, 90
     EXPAND TIME_DURATION_SINCE saturating_since, 40, 90
@@ -50,6 +57,18 @@ L_ENTRY:
     ok_sub_value = eq sub_value, 38
     ok_sub_underflow_flag = eq sub_underflow_ok, 0
     ok_sub_underflow_value = eq sub_underflow_value, 0
+    ok_sat_add_value = eq sat_add_value, max_ns
+    ok_sat_sub_value = eq sat_sub_value, 0
+    ok_mul_flag = eq mul_ok, 1
+    ok_mul_value = eq mul_value, 42
+    ok_mul_zero_flag = eq mul_zero_ok, 1
+    ok_mul_zero_value = eq mul_zero_value, 0
+    ok_mul_overflow_flag = eq mul_overflow_ok, 0
+    ok_mul_overflow_value = eq mul_overflow_value, 0
+    ok_div_flag = eq div_ok, 1
+    ok_div_value = eq div_value, 7
+    ok_div_zero_flag = eq div_zero_ok, 0
+    ok_div_zero_value = eq div_zero_value, 0
     ok_since_flag = eq since_ok, 1
     ok_since_value = eq since_value, 50
     ok_since_underflow_flag = eq since_underflow_ok, 0
@@ -81,18 +100,30 @@ L_ENTRY:
     ok16 = and ok15, ok_sub_value
     ok17 = and ok16, ok_sub_underflow_flag
     ok18 = and ok17, ok_sub_underflow_value
-    ok19 = and ok18, ok_since_flag
-    ok20 = and ok19, ok_since_value
-    ok21 = and ok20, ok_since_underflow_flag
-    ok22 = and ok21, ok_since_underflow_value
-    ok23 = and ok22, ok_saturating_since
-    ok24 = and ok23, ok_instant_add_flag
-    ok25 = and ok24, ok_instant_add_value
-    ok26 = and ok25, ok_instant_sub_flag
-    ok27 = and ok26, ok_instant_sub_value
-    ok28 = and ok27, ok_instant_since_flag
-    ok29 = and ok28, ok_instant_since_value
-    ok = and ok29, ok_instant_since_value2
+    ok19 = and ok18, ok_sat_add_value
+    ok20 = and ok19, ok_sat_sub_value
+    ok21 = and ok20, ok_mul_flag
+    ok22 = and ok21, ok_mul_value
+    ok23 = and ok22, ok_mul_zero_flag
+    ok24 = and ok23, ok_mul_zero_value
+    ok25 = and ok24, ok_mul_overflow_flag
+    ok26 = and ok25, ok_mul_overflow_value
+    ok27 = and ok26, ok_div_flag
+    ok28 = and ok27, ok_div_value
+    ok29 = and ok28, ok_div_zero_flag
+    ok30 = and ok29, ok_div_zero_value
+    ok31 = and ok30, ok_since_flag
+    ok32 = and ok31, ok_since_value
+    ok33 = and ok32, ok_since_underflow_flag
+    ok34 = and ok33, ok_since_underflow_value
+    ok35 = and ok34, ok_saturating_since
+    ok36 = and ok35, ok_instant_add_flag
+    ok37 = and ok36, ok_instant_add_value
+    ok38 = and ok37, ok_instant_sub_flag
+    ok39 = and ok38, ok_instant_sub_value
+    ok40 = and ok39, ok_instant_since_flag
+    ok41 = and ok40, ok_instant_since_value
+    ok = and ok41, ok_instant_since_value2
 
     !one_s
     !one_ms
@@ -115,6 +146,18 @@ L_ENTRY:
     !sub_value
     !sub_underflow_ok
     !sub_underflow_value
+    !sat_add_value
+    !sat_sub_value
+    !mul_ok
+    !mul_value
+    !mul_zero_ok
+    !mul_zero_value
+    !mul_overflow_ok
+    !mul_overflow_value
+    !div_ok
+    !div_value
+    !div_zero_ok
+    !div_zero_value
     !since_ok
     !since_value
     !since_underflow_ok
@@ -146,6 +189,18 @@ L_ENTRY:
     !ok_sub_value
     !ok_sub_underflow_flag
     !ok_sub_underflow_value
+    !ok_sat_add_value
+    !ok_sat_sub_value
+    !ok_mul_flag
+    !ok_mul_value
+    !ok_mul_zero_flag
+    !ok_mul_zero_value
+    !ok_mul_overflow_flag
+    !ok_mul_overflow_value
+    !ok_div_flag
+    !ok_div_value
+    !ok_div_zero_flag
+    !ok_div_zero_value
     !ok_since_flag
     !ok_since_value
     !ok_since_underflow_flag
@@ -187,6 +242,18 @@ L_ENTRY:
     !ok27
     !ok28
     !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
+    !ok40
+    !ok41
     br ok -> L_OK, L_FAIL
 
 L_FAIL:

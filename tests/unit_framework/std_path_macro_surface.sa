@@ -12,12 +12,15 @@
 @const PATH_CHILD = utf8:"child"
 @const PATH_ABS_CHILD = utf8:"/var/log"
 @const PATH_NEW_FILE = utf8:"other.bin"
+@const PATH_NEW_EXT = utf8:"md"
+@const PATH_NO_EXT = utf8:"/tmp/demo/file"
 @const EXPECT_BASE = utf8:"file.txt"
 @const EXPECT_DIR = utf8:"/tmp/demo"
 @const EXPECT_STEM = utf8:"file"
 @const EXPECT_EXT = utf8:"txt"
 @const EXPECT_JOINED = utf8:"/tmp/demo/child"
 @const EXPECT_RENAMED = utf8:"/tmp/demo/other.bin"
+@const EXPECT_WITH_EXT = utf8:"/tmp/demo/file.md"
 
 @test "sa_std path rust parity macros"():
 L_ENTRY:
@@ -32,12 +35,15 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS child, &PATH_CHILD, 5
     EXPAND STR_FROM_PARTS abs_child, &PATH_ABS_CHILD, 8
     EXPAND STR_FROM_PARTS new_file, &PATH_NEW_FILE, 9
+    EXPAND STR_FROM_PARTS new_ext, &PATH_NEW_EXT, 2
+    EXPAND STR_FROM_PARTS no_ext, &PATH_NO_EXT, 14
     EXPAND STR_FROM_PARTS expect_base, &EXPECT_BASE, 8
     EXPAND STR_FROM_PARTS expect_dir, &EXPECT_DIR, 9
     EXPAND STR_FROM_PARTS expect_stem, &EXPECT_STEM, 4
     EXPAND STR_FROM_PARTS expect_ext, &EXPECT_EXT, 3
     EXPAND STR_FROM_PARTS expect_joined, &EXPECT_JOINED, 15
     EXPAND STR_FROM_PARTS expect_renamed, &EXPECT_RENAMED, 19
+    EXPAND STR_FROM_PARTS expect_with_ext, &EXPECT_WITH_EXT, 17
 
     EXPAND PATH_BASENAME base, full
     EXPAND PATH_DIRNAME dir, full
@@ -64,6 +70,14 @@ L_ENTRY:
     EXPAND PATH_JOIN joined_abs, prefix, abs_child
     EXPAND PATH_JOIN joined_empty_base, stripped_bad, child
     EXPAND PATH_WITH_FILE_NAME renamed, full, new_file
+    EXPAND PATH_FILE_NAME file_name, full
+    EXPAND PATH_STRIP_EXTENSION stripped_ext, full
+    EXPAND PATH_WITH_EXTENSION with_ext, full, new_ext
+    EXPAND PATH_WITH_EXTENSION with_empty_ext, full, stripped_bad
+    EXPAND PATH_COMPONENT_COUNT full_components, full
+    EXPAND PATH_COMPONENT_COUNT prefix_slash_components, prefix_slash
+    EXPAND PATH_COMPONENT_COUNT root_components, root
+    EXPAND PATH_COMPONENT_COUNT empty_components, stripped_bad
 
     EXPAND STR_EQ base_eq, base, expect_base
     EXPAND STR_EQ dir_eq, dir, expect_dir
@@ -80,6 +94,10 @@ L_ENTRY:
     EXPAND STR_EQ joined_abs_eq, joined_abs, abs_child
     EXPAND STR_EQ joined_empty_base_eq, joined_empty_base, child
     EXPAND STR_EQ renamed_eq, renamed, expect_renamed
+    EXPAND STR_EQ file_name_eq, file_name, expect_base
+    EXPAND STR_EQ stripped_ext_eq, stripped_ext, no_ext
+    EXPAND STR_EQ with_ext_eq, with_ext, expect_with_ext
+    EXPAND STR_EQ with_empty_ext_eq, with_empty_ext, no_ext
 
     ok_full_abs = eq full_abs, 1
     ok_rel_abs = eq rel_abs, 0
@@ -94,6 +112,10 @@ L_ENTRY:
     ok_strip = eq strip_ok, 1
     ok_strip_slash = eq strip_slash_ok, 1
     ok_strip_bad = eq strip_bad_ok, 0
+    full_components_ok = eq full_components, 3
+    prefix_slash_components_ok = eq prefix_slash_components, 2
+    root_components_ok = eq root_components, 0
+    empty_components_ok = eq empty_components, 0
 
     ok01 = and base_eq, dir_eq
     ok02 = and ok01, parent_eq
@@ -121,7 +143,15 @@ L_ENTRY:
     ok24 = and ok23, joined_slash_eq
     ok25 = and ok24, joined_abs_eq
     ok26 = and ok25, joined_empty_base_eq
-    ok = and ok26, renamed_eq
+    ok27 = and ok26, renamed_eq
+    ok28 = and ok27, file_name_eq
+    ok29 = and ok28, stripped_ext_eq
+    ok30 = and ok29, with_ext_eq
+    ok31 = and ok30, with_empty_ext_eq
+    ok32 = and ok31, full_components_ok
+    ok33 = and ok32, prefix_slash_components_ok
+    ok34 = and ok33, root_components_ok
+    ok = and ok34, empty_components_ok
 
     !base_eq
     !dir_eq
@@ -138,6 +168,10 @@ L_ENTRY:
     !joined_abs_eq
     !joined_empty_base_eq
     !renamed_eq
+    !file_name_eq
+    !stripped_ext_eq
+    !with_ext_eq
+    !with_empty_ext_eq
     !full_abs
     !rel_abs
     !root_has_root
@@ -164,6 +198,14 @@ L_ENTRY:
     !ok_strip
     !ok_strip_slash
     !ok_strip_bad
+    !full_components
+    !prefix_slash_components
+    !root_components
+    !empty_components
+    !full_components_ok
+    !prefix_slash_components_ok
+    !root_components_ok
+    !empty_components_ok
     !ok01
     !ok02
     !ok03
@@ -190,6 +232,18 @@ L_ENTRY:
     !ok24
     !ok25
     !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !with_empty_ext
+    !with_ext
+    !stripped_ext
+    !file_name
     !renamed
     !joined_empty_base
     !joined_abs
@@ -206,12 +260,15 @@ L_ENTRY:
     !dir
     !base
     !expect_renamed
+    !expect_with_ext
     !expect_joined
     !expect_ext
     !expect_stem
     !expect_dir
     !expect_base
     !new_file
+    !no_ext
+    !new_ext
     !abs_child
     !child
     !prefix_bad

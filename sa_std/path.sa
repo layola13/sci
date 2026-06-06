@@ -778,12 +778,115 @@ L_PATH_JOIN_END:
     EXPAND PATH_STEM %out_slice, %path_slice
 [END_MACRO]
 
+[MACRO] PATH_FILE_NAME %out_slice, %path_slice
+    EXPAND PATH_BASENAME %out_slice, %path_slice
+[END_MACRO]
+
 [MACRO] PATH_EXTENSION %out_slice, %path_slice
     EXPAND PATH_EXT %out_slice, %path_slice
+[END_MACRO]
+
+[MACRO] PATH_STRIP_EXTENSION %out_slice, %path_slice
+    EXPAND PATH_PARENT __path_strip_ext_parent_%out_slice, %path_slice
+    EXPAND PATH_FILE_STEM __path_strip_ext_stem_%out_slice, %path_slice
+    EXPAND PATH_JOIN %out_slice, __path_strip_ext_parent_%out_slice, __path_strip_ext_stem_%out_slice
+    !__path_strip_ext_stem_%out_slice
+    !__path_strip_ext_parent_%out_slice
 [END_MACRO]
 
 [MACRO] PATH_WITH_FILE_NAME %out_slice, %path_slice, %file_name_slice
     EXPAND PATH_PARENT __path_parent_%out_slice, %path_slice
     EXPAND PATH_JOIN %out_slice, __path_parent_%out_slice, %file_name_slice
     !__path_parent_%out_slice
+[END_MACRO]
+
+[MACRO] PATH_WITH_EXTENSION %out_slice, %path_slice, %extension_slice
+    EXPAND PATH_STRIP_EXTENSION __path_no_ext_%out_slice, %path_slice
+    __path_ext_len_%out_slice = load %extension_slice+Slice_len as u64
+    __path_ext_empty_%out_slice = eq __path_ext_len_%out_slice, 0
+    br __path_ext_empty_%out_slice -> L_PATH_WITH_EXTENSION_NO_EXT_%out_slice, L_PATH_WITH_EXTENSION_JOIN_%out_slice
+
+L_PATH_WITH_EXTENSION_JOIN_%out_slice:
+    __path_dot_ptr_%out_slice = stack_alloc 1
+    store __path_dot_ptr_%out_slice+0, 46 as u8
+    __path_dot_slice_%out_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW __path_dot_slice_%out_slice, __path_dot_ptr_%out_slice, 1
+    EXPAND STR_CONCAT __path_dot_ext_%out_slice, __path_dot_slice_%out_slice, %extension_slice
+    EXPAND STR_CONCAT %out_slice, __path_no_ext_%out_slice, __path_dot_ext_%out_slice
+    !__path_dot_ext_%out_slice
+    !__path_dot_slice_%out_slice
+    !__path_ext_empty_%out_slice
+    !__path_ext_len_%out_slice
+    !__path_no_ext_%out_slice
+    jmp L_PATH_WITH_EXTENSION_END_%out_slice
+
+L_PATH_WITH_EXTENSION_NO_EXT_%out_slice:
+    __path_no_ext_len_%out_slice = load __path_no_ext_%out_slice+Slice_len as u64
+    EXPAND STR_SLICE %out_slice, __path_no_ext_%out_slice, 0, __path_no_ext_len_%out_slice
+    !__path_no_ext_len_%out_slice
+    !__path_ext_empty_%out_slice
+    !__path_ext_len_%out_slice
+    !__path_no_ext_%out_slice
+
+L_PATH_WITH_EXTENSION_END_%out_slice:
+[END_MACRO]
+
+[MACRO] PATH_COMPONENT_COUNT %out_count, %path_slice
+    __path_comp_ptr_%out_count = load %path_slice+Slice_ptr as ptr
+    __path_comp_len_%out_count = load %path_slice+Slice_len as u64
+    __path_comp_idx_slot_%out_count = stack_alloc 8
+    __path_comp_in_slot_%out_count = stack_alloc 8
+    store __path_comp_idx_slot_%out_count+0, 0 as u64
+    store __path_comp_in_slot_%out_count+0, 0 as u64
+    %out_count = add 0, 0
+    jmp L_PATH_COMPONENT_COUNT_HEAD_%out_count
+
+L_PATH_COMPONENT_COUNT_HEAD_%out_count:
+    __path_comp_idx_%out_count = load __path_comp_idx_slot_%out_count+0 as u64
+    __path_comp_done_%out_count = eq __path_comp_idx_%out_count, __path_comp_len_%out_count
+    br __path_comp_done_%out_count -> L_PATH_COMPONENT_COUNT_DONE_%out_count, L_PATH_COMPONENT_COUNT_BODY_%out_count
+
+L_PATH_COMPONENT_COUNT_BODY_%out_count:
+    __path_comp_ch_ptr_%out_count = ptr_add __path_comp_ptr_%out_count, __path_comp_idx_%out_count
+    __path_comp_ch_%out_count = load __path_comp_ch_ptr_%out_count+0 as u8
+    __path_comp_is_sep_%out_count = eq __path_comp_ch_%out_count, 47
+    br __path_comp_is_sep_%out_count -> L_PATH_COMPONENT_COUNT_SEP_%out_count, L_PATH_COMPONENT_COUNT_NON_SEP_%out_count
+
+L_PATH_COMPONENT_COUNT_NON_SEP_%out_count:
+    __path_comp_in_%out_count = load __path_comp_in_slot_%out_count+0 as u64
+    __path_comp_was_out_%out_count = eq __path_comp_in_%out_count, 0
+    br __path_comp_was_out_%out_count -> L_PATH_COMPONENT_COUNT_START_%out_count, L_PATH_COMPONENT_COUNT_NEXT_NON_SEP_%out_count
+
+L_PATH_COMPONENT_COUNT_START_%out_count:
+    %out_count = add %out_count, 1
+    store __path_comp_in_slot_%out_count+0, 1 as u64
+    !__path_comp_was_out_%out_count
+    !__path_comp_in_%out_count
+    jmp L_PATH_COMPONENT_COUNT_NEXT_%out_count
+
+L_PATH_COMPONENT_COUNT_NEXT_NON_SEP_%out_count:
+    !__path_comp_was_out_%out_count
+    !__path_comp_in_%out_count
+    jmp L_PATH_COMPONENT_COUNT_NEXT_%out_count
+
+L_PATH_COMPONENT_COUNT_SEP_%out_count:
+    store __path_comp_in_slot_%out_count+0, 0 as u64
+    jmp L_PATH_COMPONENT_COUNT_NEXT_%out_count
+
+L_PATH_COMPONENT_COUNT_NEXT_%out_count:
+    __path_comp_next_%out_count = add __path_comp_idx_%out_count, 1
+    store __path_comp_idx_slot_%out_count+0, __path_comp_next_%out_count as u64
+    !__path_comp_next_%out_count
+    !__path_comp_is_sep_%out_count
+    !__path_comp_ch_%out_count
+    !__path_comp_ch_ptr_%out_count
+    !__path_comp_done_%out_count
+    !__path_comp_idx_%out_count
+    jmp L_PATH_COMPONENT_COUNT_HEAD_%out_count
+
+L_PATH_COMPONENT_COUNT_DONE_%out_count:
+    !__path_comp_done_%out_count
+    !__path_comp_idx_%out_count
+    !__path_comp_len_%out_count
+    !__path_comp_ptr_%out_count
 [END_MACRO]

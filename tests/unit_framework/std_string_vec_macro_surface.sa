@@ -44,6 +44,14 @@ L_ENTRY:
     !value
     return is_match
 
+@vec_retain_even(value: u64) -> u64:
+L_ENTRY:
+    rem = urem value, 2
+    is_even = eq rem, 0
+    !rem
+    !value
+    return is_even
+
 @test "sa_std string convenience macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
@@ -2319,5 +2327,79 @@ L_VEC_INSERT_FAIL:
     panic(910)
 
 L_VEC_INSERT_OK:
+    !ok
+    return
+
+@test "sa_std vec retain macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 6
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 5
+    EXPAND VEC_PUSH_U64 vec, 6
+    EXPAND VEC_RETAIN_U64 retain_len, vec, @vec_retain_even
+    EXPAND VEC_LEN len_after_retain, vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+
+    retain_len_ok = eq retain_len, 3
+    len_after_retain_ok = eq len_after_retain, 3
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 2
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 4
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 6
+    fourth_flag_ok = eq fourth_ok, 0
+    fourth_value_ok = eq fourth, 0
+    ok01 = and retain_len_ok, len_after_retain_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_flag_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_flag_ok
+    ok07 = and ok06, third_value_ok
+    ok08 = and ok07, fourth_flag_ok
+    ok = and ok08, fourth_value_ok
+    !retain_len
+    !len_after_retain
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !retain_len_ok
+    !len_after_retain_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_RETAIN_OK, L_VEC_RETAIN_FAIL
+
+L_VEC_RETAIN_FAIL:
+    !ok
+    panic(912)
+
+L_VEC_RETAIN_OK:
     !ok
     return

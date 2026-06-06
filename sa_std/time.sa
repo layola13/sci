@@ -125,6 +125,96 @@ L_TIME_CHECKED_SUB_UNDERFLOW_%out_ok:
 L_TIME_CHECKED_SUB_END_%out_ok:
 [END_MACRO]
 
+[MACRO] TIME_SATURATING_ADD_NS %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_CHECKED_ADD_NS __time_sat_add_ok_%out_ns, __time_sat_add_value_%out_ns, %base_ns, %duration_ns
+    br __time_sat_add_ok_%out_ns -> L_TIME_SAT_ADD_OK_%out_ns, L_TIME_SAT_ADD_MAX_%out_ns
+
+L_TIME_SAT_ADD_OK_%out_ns:
+    %out_ns = add __time_sat_add_value_%out_ns, 0
+    !__time_sat_add_value_%out_ns
+    !__time_sat_add_ok_%out_ns
+    jmp L_TIME_SAT_ADD_END_%out_ns
+
+L_TIME_SAT_ADD_MAX_%out_ns:
+    %out_ns = sub 0, 1
+    !__time_sat_add_value_%out_ns
+    !__time_sat_add_ok_%out_ns
+
+L_TIME_SAT_ADD_END_%out_ns:
+[END_MACRO]
+
+[MACRO] TIME_SATURATING_SUB_NS %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_CHECKED_SUB_NS __time_sat_sub_ok_%out_ns, __time_sat_sub_value_%out_ns, %base_ns, %duration_ns
+    br __time_sat_sub_ok_%out_ns -> L_TIME_SAT_SUB_OK_%out_ns, L_TIME_SAT_SUB_ZERO_%out_ns
+
+L_TIME_SAT_SUB_OK_%out_ns:
+    %out_ns = add __time_sat_sub_value_%out_ns, 0
+    !__time_sat_sub_value_%out_ns
+    !__time_sat_sub_ok_%out_ns
+    jmp L_TIME_SAT_SUB_END_%out_ns
+
+L_TIME_SAT_SUB_ZERO_%out_ns:
+    %out_ns = add 0, 0
+    !__time_sat_sub_value_%out_ns
+    !__time_sat_sub_ok_%out_ns
+
+L_TIME_SAT_SUB_END_%out_ns:
+[END_MACRO]
+
+[MACRO] TIME_CHECKED_MUL_NS %out_ok, %out_ns, %duration_ns, %factor
+    __time_mul_zero_factor_%out_ok = eq %factor, 0
+    br __time_mul_zero_factor_%out_ok -> L_TIME_CHECKED_MUL_ZERO_FACTOR_%out_ok, L_TIME_CHECKED_MUL_COMPUTE_%out_ok
+
+L_TIME_CHECKED_MUL_COMPUTE_%out_ok:
+    __time_mul_product_%out_ok = mul %duration_ns, %factor
+    __time_mul_roundtrip_%out_ok = udiv __time_mul_product_%out_ok, %factor
+    __time_mul_ok_%out_ok = eq __time_mul_roundtrip_%out_ok, %duration_ns
+    br __time_mul_ok_%out_ok -> L_TIME_CHECKED_MUL_OK_%out_ok, L_TIME_CHECKED_MUL_OVERFLOW_%out_ok
+
+L_TIME_CHECKED_MUL_OK_%out_ok:
+    %out_ns = add __time_mul_product_%out_ok, 0
+    %out_ok = add 0, 1
+    !__time_mul_ok_%out_ok
+    !__time_mul_roundtrip_%out_ok
+    !__time_mul_product_%out_ok
+    !__time_mul_zero_factor_%out_ok
+    jmp L_TIME_CHECKED_MUL_END_%out_ok
+
+L_TIME_CHECKED_MUL_OVERFLOW_%out_ok:
+    %out_ns = add 0, 0
+    %out_ok = add 0, 0
+    !__time_mul_ok_%out_ok
+    !__time_mul_roundtrip_%out_ok
+    !__time_mul_product_%out_ok
+    !__time_mul_zero_factor_%out_ok
+    jmp L_TIME_CHECKED_MUL_END_%out_ok
+
+L_TIME_CHECKED_MUL_ZERO_FACTOR_%out_ok:
+    %out_ns = add 0, 0
+    %out_ok = add 0, 1
+    !__time_mul_zero_factor_%out_ok
+
+L_TIME_CHECKED_MUL_END_%out_ok:
+[END_MACRO]
+
+[MACRO] TIME_CHECKED_DIV_NS %out_ok, %out_ns, %duration_ns, %divisor
+    __time_div_zero_%out_ok = eq %divisor, 0
+    br __time_div_zero_%out_ok -> L_TIME_CHECKED_DIV_ZERO_%out_ok, L_TIME_CHECKED_DIV_OK_%out_ok
+
+L_TIME_CHECKED_DIV_OK_%out_ok:
+    %out_ns = udiv %duration_ns, %divisor
+    %out_ok = add 0, 1
+    !__time_div_zero_%out_ok
+    jmp L_TIME_CHECKED_DIV_END_%out_ok
+
+L_TIME_CHECKED_DIV_ZERO_%out_ok:
+    %out_ns = add 0, 0
+    %out_ok = add 0, 0
+    !__time_div_zero_%out_ok
+
+L_TIME_CHECKED_DIV_END_%out_ok:
+[END_MACRO]
+
 [MACRO] TIME_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
     EXPAND TIME_CHECKED_SUB_NS %out_ok, %out_ns, %later_ns, %earlier_ns
 [END_MACRO]

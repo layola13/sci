@@ -550,6 +550,68 @@ L_VEC_DEDUP_SMALL_%out_len:
 L_VEC_DEDUP_END_%out_len:
 [END_MACRO]
 
+[MACRO] VEC_RETAIN_U64 %out_len, %vec_reg, %pred_fn
+    __vec_retain_view_%out_len = & %vec_reg
+    __vec_retain_ptr_%out_len = load __vec_retain_view_%out_len+Vec_ptr as ptr
+    __vec_retain_len_%out_len = load __vec_retain_view_%out_len+Vec_len as u64
+    __vec_retain_read_slot_%out_len = stack_alloc 8
+    __vec_retain_write_slot_%out_len = stack_alloc 8
+    store __vec_retain_read_slot_%out_len+0, 0 as u64
+    store __vec_retain_write_slot_%out_len+0, 0 as u64
+    jmp L_VEC_RETAIN_HEAD_%out_len
+
+L_VEC_RETAIN_HEAD_%out_len:
+    __vec_retain_read_%out_len = load __vec_retain_read_slot_%out_len+0 as u64
+    __vec_retain_done_%out_len = eq __vec_retain_read_%out_len, __vec_retain_len_%out_len
+    br __vec_retain_done_%out_len -> L_VEC_RETAIN_DONE_%out_len, L_VEC_RETAIN_BODY_%out_len
+
+L_VEC_RETAIN_BODY_%out_len:
+    __vec_retain_read_off_%out_len = mul __vec_retain_read_%out_len, 8
+    __vec_retain_read_ptr_%out_len = ptr_add __vec_retain_ptr_%out_len, __vec_retain_read_off_%out_len
+    __vec_retain_value_%out_len = load __vec_retain_read_ptr_%out_len+0 as u64
+    __vec_retain_pred_%out_len = call %pred_fn(__vec_retain_value_%out_len)
+    __vec_retain_keep_%out_len = ne __vec_retain_pred_%out_len, 0
+    br __vec_retain_keep_%out_len -> L_VEC_RETAIN_KEEP_%out_len, L_VEC_RETAIN_SKIP_%out_len
+
+L_VEC_RETAIN_KEEP_%out_len:
+    __vec_retain_write_%out_len = load __vec_retain_write_slot_%out_len+0 as u64
+    __vec_retain_write_off_%out_len = mul __vec_retain_write_%out_len, 8
+    __vec_retain_write_ptr_%out_len = ptr_add __vec_retain_ptr_%out_len, __vec_retain_write_off_%out_len
+    store __vec_retain_write_ptr_%out_len+0, __vec_retain_value_%out_len as u64
+    __vec_retain_next_write_%out_len = add __vec_retain_write_%out_len, 1
+    store __vec_retain_write_slot_%out_len+0, __vec_retain_next_write_%out_len as u64
+    !__vec_retain_next_write_%out_len
+    !__vec_retain_write_ptr_%out_len
+    !__vec_retain_write_off_%out_len
+    !__vec_retain_write_%out_len
+    jmp L_VEC_RETAIN_NEXT_%out_len
+
+L_VEC_RETAIN_SKIP_%out_len:
+    jmp L_VEC_RETAIN_NEXT_%out_len
+
+L_VEC_RETAIN_NEXT_%out_len:
+    __vec_retain_next_read_%out_len = add __vec_retain_read_%out_len, 1
+    store __vec_retain_read_slot_%out_len+0, __vec_retain_next_read_%out_len as u64
+    !__vec_retain_next_read_%out_len
+    !__vec_retain_keep_%out_len
+    !__vec_retain_pred_%out_len
+    !__vec_retain_value_%out_len
+    !__vec_retain_read_ptr_%out_len
+    !__vec_retain_read_off_%out_len
+    !__vec_retain_done_%out_len
+    !__vec_retain_read_%out_len
+    jmp L_VEC_RETAIN_HEAD_%out_len
+
+L_VEC_RETAIN_DONE_%out_len:
+    %out_len = load __vec_retain_write_slot_%out_len+0 as u64
+    store __vec_retain_view_%out_len+Vec_len, %out_len as u64
+    !__vec_retain_done_%out_len
+    !__vec_retain_read_%out_len
+    !__vec_retain_len_%out_len
+    !__vec_retain_ptr_%out_len
+    !__vec_retain_view_%out_len
+[END_MACRO]
+
 [MACRO] VEC_TRY_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index
     __vec_swap_remove_slot_%out_ok = stack_alloc 8
     __vec_swap_remove_ok_%out_ok = call @sa_vec_try_swap_remove(&%vec_reg, %index, &__vec_swap_remove_slot_%out_ok)
