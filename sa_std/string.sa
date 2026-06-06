@@ -1941,6 +1941,66 @@ L_STR_RSPLIT_ONCE_END_%out_ok:
     EXPAND STR_IS_ASCII %out_bool, %slice_reg
 [END_MACRO]
 
+[MACRO] STR_IS_CHAR_BOUNDARY %out_bool, %slice_reg, %index
+    __str_boundary_len_%out_bool = load %slice_reg+Slice_len as u64
+    __str_boundary_at_start_%out_bool = eq %index, 0
+    br __str_boundary_at_start_%out_bool -> L_STR_BOUNDARY_TRUE_START_%out_bool, L_STR_BOUNDARY_CHECK_END_%out_bool
+
+L_STR_BOUNDARY_CHECK_END_%out_bool:
+    __str_boundary_at_end_%out_bool = eq %index, __str_boundary_len_%out_bool
+    br __str_boundary_at_end_%out_bool -> L_STR_BOUNDARY_TRUE_END_%out_bool, L_STR_BOUNDARY_CHECK_BOUNDS_%out_bool
+
+L_STR_BOUNDARY_CHECK_BOUNDS_%out_bool:
+    __str_boundary_in_bounds_%out_bool = ult %index, __str_boundary_len_%out_bool
+    br __str_boundary_in_bounds_%out_bool -> L_STR_BOUNDARY_CHECK_BYTE_%out_bool, L_STR_BOUNDARY_FALSE_BOUNDS_%out_bool
+
+L_STR_BOUNDARY_CHECK_BYTE_%out_bool:
+    __str_boundary_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
+    __str_boundary_ip_%out_bool = ptr_add __str_boundary_ptr_%out_bool, %index
+    __str_boundary_byte_%out_bool = load __str_boundary_ip_%out_bool+0 as u8
+    __str_boundary_ge_cont_%out_bool = uge __str_boundary_byte_%out_bool, 128
+    __str_boundary_lt_after_cont_%out_bool = ult __str_boundary_byte_%out_bool, 192
+    __str_boundary_is_cont_%out_bool = and __str_boundary_ge_cont_%out_bool, __str_boundary_lt_after_cont_%out_bool
+    %out_bool = eq __str_boundary_is_cont_%out_bool, 0
+    !__str_boundary_is_cont_%out_bool
+    !__str_boundary_lt_after_cont_%out_bool
+    !__str_boundary_ge_cont_%out_bool
+    !__str_boundary_byte_%out_bool
+    !__str_boundary_ip_%out_bool
+    !__str_boundary_ptr_%out_bool
+    !__str_boundary_in_bounds_%out_bool
+    !__str_boundary_at_end_%out_bool
+    !__str_boundary_at_start_%out_bool
+    !__str_boundary_len_%out_bool
+    jmp L_STR_BOUNDARY_END_%out_bool
+
+L_STR_BOUNDARY_FALSE_BOUNDS_%out_bool:
+    %out_bool = add 0, 0
+    !__str_boundary_in_bounds_%out_bool
+    !__str_boundary_at_end_%out_bool
+    !__str_boundary_at_start_%out_bool
+    !__str_boundary_len_%out_bool
+    jmp L_STR_BOUNDARY_END_%out_bool
+
+L_STR_BOUNDARY_TRUE_END_%out_bool:
+    %out_bool = add 0, 1
+    !__str_boundary_at_end_%out_bool
+    !__str_boundary_at_start_%out_bool
+    !__str_boundary_len_%out_bool
+    jmp L_STR_BOUNDARY_END_%out_bool
+
+L_STR_BOUNDARY_TRUE_START_%out_bool:
+    %out_bool = add 0, 1
+    !__str_boundary_at_start_%out_bool
+    !__str_boundary_len_%out_bool
+
+L_STR_BOUNDARY_END_%out_bool:
+[END_MACRO]
+
+[MACRO] STRING_IS_CHAR_BOUNDARY %out_bool, %slice_reg, %index
+    EXPAND STR_IS_CHAR_BOUNDARY %out_bool, %slice_reg, %index
+[END_MACRO]
+
 [MACRO] STR_EQ_IGNORE_ASCII_CASE %out_bool, %left_slice, %right_slice
     __str_left_ptr_%out_bool = load %left_slice+Slice_ptr as ptr
     __str_right_ptr_%out_bool = load %right_slice+Slice_ptr as ptr

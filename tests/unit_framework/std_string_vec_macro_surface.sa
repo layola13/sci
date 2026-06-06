@@ -60,6 +60,7 @@
 @const SPLIT_TEXT = utf8:":a::b:"
 @const SPLIT_A = utf8:"a"
 @const SPLIT_B = utf8:"b"
+@const UTF8_BOUNDARY_TEXT = utf8:"aé🙂z"
 
 @vec_pop_if_is_99(value: u64) -> u64:
 L_ENTRY:
@@ -1331,6 +1332,7 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS leading, &WORD_LEADING, 6
     EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
     EXPAND STR_FROM_PARTS colon, &COLON, 1
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
     EXPAND STR_FROM_PARTS expected_left, &PATH_LEFT, 1
     EXPAND STR_FROM_PARTS expected_right, &PATH_RIGHT, 3
     EXPAND STR_FROM_PARTS expected_rleft, &PATH_RLEFT, 3
@@ -1338,6 +1340,14 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS miss, &MISS, 2
     EXPAND STR_IS_ASCII is_ascii, word
     EXPAND STR_EQ_IGNORE_ASCII_CASE ascii_case_eq, word, mixed
+    EXPAND STR_IS_CHAR_BOUNDARY boundary0, utf8_boundary, 0
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary1, utf8_boundary, 1
+    EXPAND STR_IS_CHAR_BOUNDARY boundary2, utf8_boundary, 2
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary3, utf8_boundary, 3
+    EXPAND STR_IS_CHAR_BOUNDARY boundary4, utf8_boundary, 4
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary7, utf8_boundary, 7
+    EXPAND STR_IS_CHAR_BOUNDARY boundary8, utf8_boundary, 8
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary9, utf8_boundary, 9
     EXPAND STR_TRIM_ASCII trim_both, spaced
     EXPAND STR_TRIM_ASCII_START trim_start, leading
     EXPAND STR_TRIM_ASCII_END trim_end, trailing
@@ -1356,6 +1366,14 @@ L_ENTRY:
 
     ascii_ok = eq is_ascii, 1
     ascii_case_ok = eq ascii_case_eq, 1
+    boundary0_ok = eq boundary0, 1
+    boundary1_ok = eq boundary1, 1
+    boundary2_ok = eq boundary2, 0
+    boundary3_ok = eq boundary3, 1
+    boundary4_ok = eq boundary4, 0
+    boundary7_ok = eq boundary7, 1
+    boundary8_ok = eq boundary8, 1
+    boundary9_ok = eq boundary9, 0
     trim_both_ok = eq trim_both_eq, 1
     trim_start_ok = eq trim_start_eq, 1
     trim_end_ok = eq trim_end_eq, 1
@@ -1369,18 +1387,26 @@ L_ENTRY:
     split_once_miss_left_ok = eq split_once_miss_left_empty, 1
     split_once_miss_right_ok = eq split_once_miss_right_empty, 1
     ok01 = and ascii_ok, ascii_case_ok
-    ok02 = and ok01, trim_both_ok
-    ok03 = and ok02, trim_start_ok
-    ok04 = and ok03, trim_end_ok
-    ok05 = and ok04, split_once_flag_ok
-    ok06 = and ok05, split_once_left_ok
-    ok07 = and ok06, split_once_right_ok
-    ok08 = and ok07, rsplit_once_flag_ok
-    ok09 = and ok08, rsplit_once_left_ok
-    ok10 = and ok09, rsplit_once_right_ok
-    ok11 = and ok10, split_once_miss_flag_ok
-    ok12 = and ok11, split_once_miss_left_ok
-    ok = and ok12, split_once_miss_right_ok
+    ok02 = and ok01, boundary0_ok
+    ok03 = and ok02, boundary1_ok
+    ok04 = and ok03, boundary2_ok
+    ok05 = and ok04, boundary3_ok
+    ok06 = and ok05, boundary4_ok
+    ok07 = and ok06, boundary7_ok
+    ok08 = and ok07, boundary8_ok
+    ok09 = and ok08, boundary9_ok
+    ok10 = and ok09, trim_both_ok
+    ok11 = and ok10, trim_start_ok
+    ok12 = and ok11, trim_end_ok
+    ok13 = and ok12, split_once_flag_ok
+    ok14 = and ok13, split_once_left_ok
+    ok15 = and ok14, split_once_right_ok
+    ok16 = and ok15, rsplit_once_flag_ok
+    ok17 = and ok16, rsplit_once_left_ok
+    ok18 = and ok17, rsplit_once_right_ok
+    ok19 = and ok18, split_once_miss_flag_ok
+    ok20 = and ok19, split_once_miss_left_ok
+    ok = and ok20, split_once_miss_right_ok
     !word
     !title_word
     !mixed
@@ -1389,6 +1415,7 @@ L_ENTRY:
     !leading
     !pathish
     !colon
+    !utf8_boundary
     !expected_left
     !expected_right
     !expected_rleft
@@ -1396,6 +1423,14 @@ L_ENTRY:
     !miss
     !is_ascii
     !ascii_case_eq
+    !boundary0
+    !boundary1
+    !boundary2
+    !boundary3
+    !boundary4
+    !boundary7
+    !boundary8
+    !boundary9
     !trim_both
     !trim_start
     !trim_end
@@ -1419,6 +1454,14 @@ L_ENTRY:
     !split_once_miss_right_empty
     !ascii_ok
     !ascii_case_ok
+    !boundary0_ok
+    !boundary1_ok
+    !boundary2_ok
+    !boundary3_ok
+    !boundary4_ok
+    !boundary7_ok
+    !boundary8_ok
+    !boundary9_ok
     !trim_both_ok
     !trim_start_ok
     !trim_end_ok
@@ -1443,6 +1486,14 @@ L_ENTRY:
     !ok10
     !ok11
     !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
     br ok -> L_ASCII_OK, L_ASCII_FAIL
 
 L_ASCII_FAIL:
