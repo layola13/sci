@@ -1516,6 +1516,100 @@ L_APPEND_DONE:
     %out_ok = __vec_deque_ok_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_TRY_POP_FRONT_IF_U64 %out_ok, %out_value, %deque_reg, %pred_fn
+    __vec_deque_pop_front_if_pop_slot_%out_ok = stack_alloc 8
+    __vec_deque_pop_front_if_ok_slot_%out_ok = stack_alloc 8
+    store __vec_deque_pop_front_if_pop_slot_%out_ok+0, 0 as u64
+    store __vec_deque_pop_front_if_ok_slot_%out_ok+0, 0 as u64
+    EXPAND VEC_DEQUE_TRY_FRONT __vec_deque_pop_front_if_has_%out_ok, __vec_deque_pop_front_if_value_%out_ok, %deque_reg
+    br __vec_deque_pop_front_if_has_%out_ok -> L_VEC_DEQUE_POP_FRONT_IF_CHECK_%out_ok, L_VEC_DEQUE_POP_FRONT_IF_EMPTY_%out_ok
+
+L_VEC_DEQUE_POP_FRONT_IF_CHECK_%out_ok:
+    __vec_deque_pop_front_if_pred_%out_ok = call %pred_fn(__vec_deque_pop_front_if_value_%out_ok)
+    __vec_deque_pop_front_if_take_%out_ok = ne __vec_deque_pop_front_if_pred_%out_ok, 0
+    br __vec_deque_pop_front_if_take_%out_ok -> L_VEC_DEQUE_POP_FRONT_IF_TAKE_%out_ok, L_VEC_DEQUE_POP_FRONT_IF_KEEP_%out_ok
+
+L_VEC_DEQUE_POP_FRONT_IF_TAKE_%out_ok:
+    __vec_deque_pop_front_if_pop_ok_%out_ok = call @sa_vec_deque_try_pop_front(&%deque_reg, &__vec_deque_pop_front_if_pop_slot_%out_ok)
+    store __vec_deque_pop_front_if_ok_slot_%out_ok+0, __vec_deque_pop_front_if_pop_ok_%out_ok as u64
+    !__vec_deque_pop_front_if_pop_ok_%out_ok
+    !__vec_deque_pop_front_if_take_%out_ok
+    !__vec_deque_pop_front_if_pred_%out_ok
+    !__vec_deque_pop_front_if_value_%out_ok
+    !__vec_deque_pop_front_if_has_%out_ok
+    jmp L_VEC_DEQUE_POP_FRONT_IF_END_%out_ok
+
+L_VEC_DEQUE_POP_FRONT_IF_KEEP_%out_ok:
+    store __vec_deque_pop_front_if_ok_slot_%out_ok+0, 0 as u64
+    store __vec_deque_pop_front_if_pop_slot_%out_ok+0, 0 as u64
+    !__vec_deque_pop_front_if_take_%out_ok
+    !__vec_deque_pop_front_if_pred_%out_ok
+    !__vec_deque_pop_front_if_value_%out_ok
+    !__vec_deque_pop_front_if_has_%out_ok
+    jmp L_VEC_DEQUE_POP_FRONT_IF_END_%out_ok
+
+L_VEC_DEQUE_POP_FRONT_IF_EMPTY_%out_ok:
+    store __vec_deque_pop_front_if_ok_slot_%out_ok+0, 0 as u64
+    store __vec_deque_pop_front_if_pop_slot_%out_ok+0, 0 as u64
+    !__vec_deque_pop_front_if_value_%out_ok
+    !__vec_deque_pop_front_if_has_%out_ok
+
+L_VEC_DEQUE_POP_FRONT_IF_END_%out_ok:
+    %out_value = load __vec_deque_pop_front_if_pop_slot_%out_ok+0 as u64
+    %out_ok = load __vec_deque_pop_front_if_ok_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_POP_FRONT_IF_U64 %out_ok, %out_value, %deque_reg, %pred_fn
+    EXPAND VEC_DEQUE_TRY_POP_FRONT_IF_U64 %out_ok, %out_value, %deque_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_POP_BACK_IF_U64 %out_ok, %out_value, %deque_reg, %pred_fn
+    __vec_deque_pop_back_if_pop_slot_%out_ok = stack_alloc 8
+    __vec_deque_pop_back_if_ok_slot_%out_ok = stack_alloc 8
+    store __vec_deque_pop_back_if_pop_slot_%out_ok+0, 0 as u64
+    store __vec_deque_pop_back_if_ok_slot_%out_ok+0, 0 as u64
+    EXPAND VEC_DEQUE_TRY_BACK __vec_deque_pop_back_if_has_%out_ok, __vec_deque_pop_back_if_value_%out_ok, %deque_reg
+    br __vec_deque_pop_back_if_has_%out_ok -> L_VEC_DEQUE_POP_BACK_IF_CHECK_%out_ok, L_VEC_DEQUE_POP_BACK_IF_EMPTY_%out_ok
+
+L_VEC_DEQUE_POP_BACK_IF_CHECK_%out_ok:
+    __vec_deque_pop_back_if_pred_%out_ok = call %pred_fn(__vec_deque_pop_back_if_value_%out_ok)
+    __vec_deque_pop_back_if_take_%out_ok = ne __vec_deque_pop_back_if_pred_%out_ok, 0
+    br __vec_deque_pop_back_if_take_%out_ok -> L_VEC_DEQUE_POP_BACK_IF_TAKE_%out_ok, L_VEC_DEQUE_POP_BACK_IF_KEEP_%out_ok
+
+L_VEC_DEQUE_POP_BACK_IF_TAKE_%out_ok:
+    __vec_deque_pop_back_if_pop_ok_%out_ok = call @sa_vec_deque_try_pop_back(&%deque_reg, &__vec_deque_pop_back_if_pop_slot_%out_ok)
+    store __vec_deque_pop_back_if_ok_slot_%out_ok+0, __vec_deque_pop_back_if_pop_ok_%out_ok as u64
+    !__vec_deque_pop_back_if_pop_ok_%out_ok
+    !__vec_deque_pop_back_if_take_%out_ok
+    !__vec_deque_pop_back_if_pred_%out_ok
+    !__vec_deque_pop_back_if_value_%out_ok
+    !__vec_deque_pop_back_if_has_%out_ok
+    jmp L_VEC_DEQUE_POP_BACK_IF_END_%out_ok
+
+L_VEC_DEQUE_POP_BACK_IF_KEEP_%out_ok:
+    store __vec_deque_pop_back_if_ok_slot_%out_ok+0, 0 as u64
+    store __vec_deque_pop_back_if_pop_slot_%out_ok+0, 0 as u64
+    !__vec_deque_pop_back_if_take_%out_ok
+    !__vec_deque_pop_back_if_pred_%out_ok
+    !__vec_deque_pop_back_if_value_%out_ok
+    !__vec_deque_pop_back_if_has_%out_ok
+    jmp L_VEC_DEQUE_POP_BACK_IF_END_%out_ok
+
+L_VEC_DEQUE_POP_BACK_IF_EMPTY_%out_ok:
+    store __vec_deque_pop_back_if_ok_slot_%out_ok+0, 0 as u64
+    store __vec_deque_pop_back_if_pop_slot_%out_ok+0, 0 as u64
+    !__vec_deque_pop_back_if_value_%out_ok
+    !__vec_deque_pop_back_if_has_%out_ok
+
+L_VEC_DEQUE_POP_BACK_IF_END_%out_ok:
+    %out_value = load __vec_deque_pop_back_if_pop_slot_%out_ok+0 as u64
+    %out_ok = load __vec_deque_pop_back_if_ok_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_POP_BACK_IF_U64 %out_ok, %out_value, %deque_reg, %pred_fn
+    EXPAND VEC_DEQUE_TRY_POP_BACK_IF_U64 %out_ok, %out_value, %deque_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_ROTATE_LEFT %deque_reg, %count
     call @sa_vec_deque_rotate_left(&%deque_reg, %count)
 [END_MACRO]
@@ -1597,6 +1691,70 @@ L_APPEND_DONE:
 [MACRO] VEC_DEQUE_MAKE_CONTIGUOUS %out_slice, %deque_reg
     %out_slice = alloc Slice_SIZE
     call @sa_vec_deque_make_contiguous(&%deque_reg, &%out_slice)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_RETAIN_U64 %out_len, %deque_reg, %pred_fn
+    call @vec_deque_force_contiguous(&%deque_reg)
+    __vec_deque_retain_view_%out_len = & %deque_reg
+    __vec_deque_retain_ptr_%out_len = load __vec_deque_retain_view_%out_len+VecDeque_buf as ptr
+    __vec_deque_retain_len_%out_len = load __vec_deque_retain_view_%out_len+VecDeque_len as u64
+    __vec_deque_retain_read_slot_%out_len = stack_alloc 8
+    __vec_deque_retain_write_slot_%out_len = stack_alloc 8
+    store __vec_deque_retain_read_slot_%out_len+0, 0 as u64
+    store __vec_deque_retain_write_slot_%out_len+0, 0 as u64
+    jmp L_VEC_DEQUE_RETAIN_HEAD_%out_len
+
+L_VEC_DEQUE_RETAIN_HEAD_%out_len:
+    __vec_deque_retain_read_%out_len = load __vec_deque_retain_read_slot_%out_len+0 as u64
+    __vec_deque_retain_done_%out_len = eq __vec_deque_retain_read_%out_len, __vec_deque_retain_len_%out_len
+    br __vec_deque_retain_done_%out_len -> L_VEC_DEQUE_RETAIN_DONE_%out_len, L_VEC_DEQUE_RETAIN_BODY_%out_len
+
+L_VEC_DEQUE_RETAIN_BODY_%out_len:
+    __vec_deque_retain_read_off_%out_len = mul __vec_deque_retain_read_%out_len, VecDeque_SLOT_SIZE
+    __vec_deque_retain_read_ptr_%out_len = ptr_add __vec_deque_retain_ptr_%out_len, __vec_deque_retain_read_off_%out_len
+    __vec_deque_retain_value_%out_len = load __vec_deque_retain_read_ptr_%out_len+0 as u64
+    __vec_deque_retain_pred_%out_len = call %pred_fn(__vec_deque_retain_value_%out_len)
+    __vec_deque_retain_keep_%out_len = ne __vec_deque_retain_pred_%out_len, 0
+    br __vec_deque_retain_keep_%out_len -> L_VEC_DEQUE_RETAIN_KEEP_%out_len, L_VEC_DEQUE_RETAIN_SKIP_%out_len
+
+L_VEC_DEQUE_RETAIN_KEEP_%out_len:
+    __vec_deque_retain_write_%out_len = load __vec_deque_retain_write_slot_%out_len+0 as u64
+    __vec_deque_retain_write_off_%out_len = mul __vec_deque_retain_write_%out_len, VecDeque_SLOT_SIZE
+    __vec_deque_retain_write_ptr_%out_len = ptr_add __vec_deque_retain_ptr_%out_len, __vec_deque_retain_write_off_%out_len
+    store __vec_deque_retain_write_ptr_%out_len+0, __vec_deque_retain_value_%out_len as u64
+    __vec_deque_retain_next_write_%out_len = add __vec_deque_retain_write_%out_len, 1
+    store __vec_deque_retain_write_slot_%out_len+0, __vec_deque_retain_next_write_%out_len as u64
+    !__vec_deque_retain_next_write_%out_len
+    !__vec_deque_retain_write_ptr_%out_len
+    !__vec_deque_retain_write_off_%out_len
+    !__vec_deque_retain_write_%out_len
+    jmp L_VEC_DEQUE_RETAIN_NEXT_%out_len
+
+L_VEC_DEQUE_RETAIN_SKIP_%out_len:
+    jmp L_VEC_DEQUE_RETAIN_NEXT_%out_len
+
+L_VEC_DEQUE_RETAIN_NEXT_%out_len:
+    __vec_deque_retain_next_read_%out_len = add __vec_deque_retain_read_%out_len, 1
+    store __vec_deque_retain_read_slot_%out_len+0, __vec_deque_retain_next_read_%out_len as u64
+    !__vec_deque_retain_next_read_%out_len
+    !__vec_deque_retain_keep_%out_len
+    !__vec_deque_retain_pred_%out_len
+    !__vec_deque_retain_value_%out_len
+    !__vec_deque_retain_read_ptr_%out_len
+    !__vec_deque_retain_read_off_%out_len
+    !__vec_deque_retain_done_%out_len
+    !__vec_deque_retain_read_%out_len
+    jmp L_VEC_DEQUE_RETAIN_HEAD_%out_len
+
+L_VEC_DEQUE_RETAIN_DONE_%out_len:
+    %out_len = load __vec_deque_retain_write_slot_%out_len+0 as u64
+    store __vec_deque_retain_view_%out_len+VecDeque_len, %out_len as u64
+    store __vec_deque_retain_view_%out_len+VecDeque_head, 0 as u64
+    !__vec_deque_retain_done_%out_len
+    !__vec_deque_retain_read_%out_len
+    !__vec_deque_retain_len_%out_len
+    !__vec_deque_retain_ptr_%out_len
+    !__vec_deque_retain_view_%out_len
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_TRY_FRONT_MUT_PTR %out_ok, %out_ptr, %deque_reg

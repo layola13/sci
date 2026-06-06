@@ -1,5 +1,25 @@
 @import "sa_std/collections/vec_deque.sa"
 
+@deque_is_20(value: u64) -> u64:
+L_ENTRY:
+    is_match = eq value, 20
+    !value
+    return is_match
+
+@deque_is_50(value: u64) -> u64:
+L_ENTRY:
+    is_match = eq value, 50
+    !value
+    return is_match
+
+@deque_is_even(value: u64) -> u64:
+L_ENTRY:
+    rem = urem value, 2
+    is_even = eq rem, 0
+    !rem
+    !value
+    return is_even
+
 @test "sa_std vec_deque capacity access macros"():
 L_ENTRY:
     EXPAND VEC_DEQUE_WITH_CAPACITY deque, 3
@@ -559,6 +579,196 @@ L_PARITY_FAIL:
     panic(912)
 
 L_PARITY_OK:
+    !ok
+    return
+
+@test "sa_std vec_deque retain and conditional pop macros"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY deque, 4
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 10
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 20
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 30
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 40
+    EXPAND VEC_DEQUE_TRY_POP_FRONT wrap_pop_ok, wrap_pop, deque
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 50
+
+    EXPAND VEC_DEQUE_TRY_POP_FRONT_IF_U64 front_miss_ok, front_miss, deque, @deque_is_50
+    EXPAND VEC_DEQUE_TRY_FRONT front_after_miss_ok, front_after_miss, deque
+    EXPAND VEC_DEQUE_TRY_POP_FRONT_IF_U64 front_hit_ok, front_hit, deque, @deque_is_20
+    EXPAND VEC_DEQUE_TRY_POP_BACK_IF_U64 back_hit_ok, back_hit, deque, @deque_is_50
+    EXPAND VEC_DEQUE_TRY_POP_BACK_IF_U64 back_miss_ok, back_miss, deque, @deque_is_50
+    EXPAND VEC_DEQUE_LEN len_after_cond, deque
+    EXPAND VEC_DEQUE_RETAIN_U64 retain_len, deque, @deque_is_even
+    EXPAND VEC_DEQUE_LEN len_after_retain, deque
+    EXPAND VEC_DEQUE_TRY_GET first_ok, first, deque, 0
+    EXPAND VEC_DEQUE_TRY_GET second_ok, second, deque, 1
+    EXPAND VEC_DEQUE_TRY_GET third_ok, third, deque, 2
+    EXPAND VEC_DEQUE_TRY_FRONT front_after_retain_ok, front_after_retain, deque
+    EXPAND VEC_DEQUE_TRY_BACK back_after_retain_ok, back_after_retain, deque
+
+    EXPAND VEC_DEQUE_NEW empty
+    EXPAND VEC_DEQUE_TRY_POP_FRONT_IF_U64 empty_front_ok, empty_front, empty, @deque_is_20
+    EXPAND VEC_DEQUE_TRY_POP_BACK_IF_U64 empty_back_ok, empty_back, empty, @deque_is_50
+    EXPAND VEC_DEQUE_RETAIN_U64 empty_retain_len, empty, @deque_is_even
+
+    ok_wrap_pop = eq wrap_pop_ok, 1
+    ok_wrap_value = eq wrap_pop, 10
+    ok_front_miss_flag = eq front_miss_ok, 0
+    ok_front_miss_value = eq front_miss, 0
+    ok_front_after_miss_flag = eq front_after_miss_ok, 1
+    ok_front_after_miss = eq front_after_miss, 20
+    ok_front_hit_flag = eq front_hit_ok, 1
+    ok_front_hit = eq front_hit, 20
+    ok_back_hit_flag = eq back_hit_ok, 1
+    ok_back_hit = eq back_hit, 50
+    ok_back_miss_flag = eq back_miss_ok, 0
+    ok_back_miss_value = eq back_miss, 0
+    ok_len_after_cond = eq len_after_cond, 2
+    ok_retain_len = eq retain_len, 2
+    ok_len_after_retain = eq len_after_retain, 2
+    ok_first_flag = eq first_ok, 1
+    ok_first = eq first, 30
+    ok_second_flag = eq second_ok, 1
+    ok_second = eq second, 40
+    ok_third_flag = eq third_ok, 0
+    ok_third = eq third, 0
+    ok_front_after_retain_flag = eq front_after_retain_ok, 1
+    ok_front_after_retain = eq front_after_retain, 30
+    ok_back_after_retain_flag = eq back_after_retain_ok, 1
+    ok_back_after_retain = eq back_after_retain, 40
+    ok_empty_front_flag = eq empty_front_ok, 0
+    ok_empty_front_value = eq empty_front, 0
+    ok_empty_back_flag = eq empty_back_ok, 0
+    ok_empty_back_value = eq empty_back, 0
+    ok_empty_retain_len = eq empty_retain_len, 0
+
+    ok01 = and ok_wrap_pop, ok_wrap_value
+    ok02 = and ok01, ok_front_miss_flag
+    ok03 = and ok02, ok_front_miss_value
+    ok04 = and ok03, ok_front_after_miss_flag
+    ok05 = and ok04, ok_front_after_miss
+    ok06 = and ok05, ok_front_hit_flag
+    ok07 = and ok06, ok_front_hit
+    ok08 = and ok07, ok_back_hit_flag
+    ok09 = and ok08, ok_back_hit
+    ok10 = and ok09, ok_back_miss_flag
+    ok11 = and ok10, ok_back_miss_value
+    ok12 = and ok11, ok_len_after_cond
+    ok13 = and ok12, ok_retain_len
+    ok14 = and ok13, ok_len_after_retain
+    ok15 = and ok14, ok_first_flag
+    ok16 = and ok15, ok_first
+    ok17 = and ok16, ok_second_flag
+    ok18 = and ok17, ok_second
+    ok19 = and ok18, ok_third_flag
+    ok20 = and ok19, ok_third
+    ok21 = and ok20, ok_front_after_retain_flag
+    ok22 = and ok21, ok_front_after_retain
+    ok23 = and ok22, ok_back_after_retain_flag
+    ok24 = and ok23, ok_back_after_retain
+    ok25 = and ok24, ok_empty_front_flag
+    ok26 = and ok25, ok_empty_front_value
+    ok27 = and ok26, ok_empty_back_flag
+    ok28 = and ok27, ok_empty_back_value
+    ok = and ok28, ok_empty_retain_len
+
+    !wrap_pop_ok
+    !wrap_pop
+    !front_miss_ok
+    !front_miss
+    !front_after_miss_ok
+    !front_after_miss
+    !front_hit_ok
+    !front_hit
+    !back_hit_ok
+    !back_hit
+    !back_miss_ok
+    !back_miss
+    !len_after_cond
+    !retain_len
+    !len_after_retain
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !front_after_retain_ok
+    !front_after_retain
+    !back_after_retain_ok
+    !back_after_retain
+    !empty_front_ok
+    !empty_front
+    !empty_back_ok
+    !empty_back
+    !empty_retain_len
+    !ok_wrap_pop
+    !ok_wrap_value
+    !ok_front_miss_flag
+    !ok_front_miss_value
+    !ok_front_after_miss_flag
+    !ok_front_after_miss
+    !ok_front_hit_flag
+    !ok_front_hit
+    !ok_back_hit_flag
+    !ok_back_hit
+    !ok_back_miss_flag
+    !ok_back_miss_value
+    !ok_len_after_cond
+    !ok_retain_len
+    !ok_len_after_retain
+    !ok_first_flag
+    !ok_first
+    !ok_second_flag
+    !ok_second
+    !ok_third_flag
+    !ok_third
+    !ok_front_after_retain_flag
+    !ok_front_after_retain
+    !ok_back_after_retain_flag
+    !ok_back_after_retain
+    !ok_empty_front_flag
+    !ok_empty_front_value
+    !ok_empty_back_flag
+    !ok_empty_back_value
+    !ok_empty_retain_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    EXPAND VEC_DEQUE_FREE empty
+    EXPAND VEC_DEQUE_FREE deque
+    br ok -> L_RETAIN_OK, L_RETAIN_FAIL
+
+L_RETAIN_FAIL:
+    !ok
+    panic(913)
+
+L_RETAIN_OK:
     !ok
     return
 

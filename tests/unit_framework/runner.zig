@@ -747,12 +747,13 @@ test "native unit framework covers sa_std macro surface suites" {
     const vec_deque_expected = [_][]const u8{
         "[PASS] sa_std vec_deque capacity access macros",
         "[PASS] sa_std vec_deque rust parity macros",
+        "[PASS] sa_std vec_deque retain and conditional pop macros",
         "[PASS] sa_std vec_deque split append macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_vec_deque_macro_surface.sa",
         vec_deque_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
     );
 
     const hashmap_expected = [_][]const u8{

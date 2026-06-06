@@ -2739,6 +2739,10 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_SWAP_REMOVE_BACK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_FRONT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_BACK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_FRONT_IF_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_POP_FRONT_IF_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_POP_BACK_IF_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_POP_BACK_IF_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_FRONT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_FRONT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_BACK"));
@@ -2749,6 +2753,7 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_AS_SLICES"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_AS_MUT_SLICES"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_MAKE_CONTIGUOUS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_RETAIN_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_SHRINK_TO"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_SHRINK_TO_FIT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_SHRINK_TO_FIT"));
