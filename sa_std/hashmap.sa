@@ -1280,6 +1280,92 @@ L_DEL_MISS_ZERO:
     call @sa_map_clear(&%map_reg)
 [END_MACRO]
 
+[MACRO] MAP_RETAIN %out_len, %map_reg, %pred_fn
+    __map_retain_slots_%out_len = load %map_reg+HashMap_slots as ptr
+    __map_retain_cap_%out_len = load %map_reg+HashMap_cap as u64
+    __map_retain_len_%out_len = load %map_reg+HashMap_len as u64
+    __map_retain_tombs_start_%out_len = load %map_reg+HashMap_tombs as u64
+    __map_retain_len_slot_%out_len = stack_alloc 8
+    __map_retain_tombs_slot_%out_len = stack_alloc 8
+    store __map_retain_len_slot_%out_len+0, __map_retain_len_%out_len as u64
+    store __map_retain_tombs_slot_%out_len+0, __map_retain_tombs_start_%out_len as u64
+    __map_retain_idx_slot_%out_len = stack_alloc 8
+    store __map_retain_idx_slot_%out_len+0, 0 as u64
+    jmp L_MAP_RETAIN_HEAD_%out_len
+
+L_MAP_RETAIN_HEAD_%out_len:
+    __map_retain_idx_%out_len = load __map_retain_idx_slot_%out_len+0 as u64
+    __map_retain_done_%out_len = eq __map_retain_idx_%out_len, __map_retain_cap_%out_len
+    br __map_retain_done_%out_len -> L_MAP_RETAIN_DONE_%out_len, L_MAP_RETAIN_BODY_%out_len
+
+L_MAP_RETAIN_BODY_%out_len:
+    __map_retain_slot_off_%out_len = mul __map_retain_idx_%out_len, HashMapSlot_SIZE
+    __map_retain_slot_%out_len = ptr_add __map_retain_slots_%out_len, __map_retain_slot_off_%out_len
+    __map_retain_state_%out_len = load __map_retain_slot_%out_len+HashMapSlot_state as u8
+    __map_retain_filled_%out_len = eq __map_retain_state_%out_len, HashMap_STATE_FILLED
+    br __map_retain_filled_%out_len -> L_MAP_RETAIN_CHECK_%out_len, L_MAP_RETAIN_NEXT_%out_len
+
+L_MAP_RETAIN_CHECK_%out_len:
+    __map_retain_key_%out_len = load __map_retain_slot_%out_len+HashMapSlot_key as ptr
+    __map_retain_value_%out_len = load __map_retain_slot_%out_len+HashMapSlot_value as ptr
+    __map_retain_pred_%out_len = call %pred_fn(__map_retain_key_%out_len, __map_retain_value_%out_len)
+    __map_retain_keep_%out_len = ne __map_retain_pred_%out_len, 0
+    br __map_retain_keep_%out_len -> L_MAP_RETAIN_KEEP_%out_len, L_MAP_RETAIN_DROP_%out_len
+
+L_MAP_RETAIN_KEEP_%out_len:
+    !__map_retain_keep_%out_len
+    !__map_retain_pred_%out_len
+    !__map_retain_value_%out_len
+    !__map_retain_key_%out_len
+    jmp L_MAP_RETAIN_NEXT_%out_len
+
+L_MAP_RETAIN_DROP_%out_len:
+    __map_retain_cur_len_%out_len = load __map_retain_len_slot_%out_len+0 as u64
+    __map_retain_cur_tombs_%out_len = load __map_retain_tombs_slot_%out_len+0 as u64
+    __map_retain_next_len_%out_len = sub __map_retain_cur_len_%out_len, 1
+    __map_retain_next_tombs_%out_len = add __map_retain_cur_tombs_%out_len, 1
+    store __map_retain_len_slot_%out_len+0, __map_retain_next_len_%out_len as u64
+    store __map_retain_tombs_slot_%out_len+0, __map_retain_next_tombs_%out_len as u64
+    store __map_retain_slot_%out_len+HashMapSlot_hash, 0 as u64
+    store __map_retain_slot_%out_len+HashMapSlot_key, 0 as ptr
+    store __map_retain_slot_%out_len+HashMapSlot_value, 0 as ptr
+    store __map_retain_slot_%out_len+HashMapSlot_state, HashMap_STATE_TOMB as u8
+    !__map_retain_next_tombs_%out_len
+    !__map_retain_next_len_%out_len
+    !__map_retain_cur_tombs_%out_len
+    !__map_retain_cur_len_%out_len
+    !__map_retain_keep_%out_len
+    !__map_retain_pred_%out_len
+    !__map_retain_value_%out_len
+    !__map_retain_key_%out_len
+    jmp L_MAP_RETAIN_NEXT_%out_len
+
+L_MAP_RETAIN_NEXT_%out_len:
+    __map_retain_next_idx_%out_len = add __map_retain_idx_%out_len, 1
+    store __map_retain_idx_slot_%out_len+0, __map_retain_next_idx_%out_len as u64
+    !__map_retain_next_idx_%out_len
+    !__map_retain_filled_%out_len
+    !__map_retain_state_%out_len
+    !__map_retain_slot_%out_len
+    !__map_retain_slot_off_%out_len
+    !__map_retain_done_%out_len
+    !__map_retain_idx_%out_len
+    jmp L_MAP_RETAIN_HEAD_%out_len
+
+L_MAP_RETAIN_DONE_%out_len:
+    %out_len = load __map_retain_len_slot_%out_len+0 as u64
+    __map_retain_tombs_%out_len = load __map_retain_tombs_slot_%out_len+0 as u64
+    store %map_reg+HashMap_len, %out_len as u64
+    store %map_reg+HashMap_tombs, __map_retain_tombs_%out_len as u64
+    !__map_retain_done_%out_len
+    !__map_retain_idx_%out_len
+    !__map_retain_tombs_%out_len
+    !__map_retain_tombs_start_%out_len
+    !__map_retain_len_%out_len
+    !__map_retain_cap_%out_len
+    !__map_retain_slots_%out_len
+[END_MACRO]
+
 [MACRO] MAP_PUT %map_reg, %key, %value
     call @sa_map_put(&%map_reg, &%key, &%value)
 [END_MACRO]

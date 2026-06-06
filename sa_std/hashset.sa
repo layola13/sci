@@ -601,6 +601,89 @@ L_ENTRY:
     call @sa_set_clear(&%set_reg)
 [END_MACRO]
 
+[MACRO] SET_RETAIN %out_len, %set_reg, %pred_fn
+    __set_retain_slots_%out_len = load %set_reg+HashSet_slots as ptr
+    __set_retain_cap_%out_len = load %set_reg+HashSet_cap as u64
+    __set_retain_len_%out_len = load %set_reg+HashSet_len as u64
+    __set_retain_tombs_start_%out_len = load %set_reg+HashSet_tombs as u64
+    __set_retain_len_slot_%out_len = stack_alloc 8
+    __set_retain_tombs_slot_%out_len = stack_alloc 8
+    store __set_retain_len_slot_%out_len+0, __set_retain_len_%out_len as u64
+    store __set_retain_tombs_slot_%out_len+0, __set_retain_tombs_start_%out_len as u64
+    __set_retain_idx_slot_%out_len = stack_alloc 8
+    store __set_retain_idx_slot_%out_len+0, 0 as u64
+    jmp L_SET_RETAIN_HEAD_%out_len
+
+L_SET_RETAIN_HEAD_%out_len:
+    __set_retain_idx_%out_len = load __set_retain_idx_slot_%out_len+0 as u64
+    __set_retain_done_%out_len = eq __set_retain_idx_%out_len, __set_retain_cap_%out_len
+    br __set_retain_done_%out_len -> L_SET_RETAIN_DONE_%out_len, L_SET_RETAIN_BODY_%out_len
+
+L_SET_RETAIN_BODY_%out_len:
+    __set_retain_slot_off_%out_len = mul __set_retain_idx_%out_len, HashSetSlot_SIZE
+    __set_retain_slot_%out_len = ptr_add __set_retain_slots_%out_len, __set_retain_slot_off_%out_len
+    __set_retain_state_%out_len = load __set_retain_slot_%out_len+HashSetSlot_state as u8
+    __set_retain_filled_%out_len = eq __set_retain_state_%out_len, HashSet_STATE_FILLED
+    br __set_retain_filled_%out_len -> L_SET_RETAIN_CHECK_%out_len, L_SET_RETAIN_NEXT_%out_len
+
+L_SET_RETAIN_CHECK_%out_len:
+    __set_retain_key_%out_len = load __set_retain_slot_%out_len+HashSetSlot_key as ptr
+    __set_retain_pred_%out_len = call %pred_fn(__set_retain_key_%out_len)
+    __set_retain_keep_%out_len = ne __set_retain_pred_%out_len, 0
+    br __set_retain_keep_%out_len -> L_SET_RETAIN_KEEP_%out_len, L_SET_RETAIN_DROP_%out_len
+
+L_SET_RETAIN_KEEP_%out_len:
+    !__set_retain_keep_%out_len
+    !__set_retain_pred_%out_len
+    !__set_retain_key_%out_len
+    jmp L_SET_RETAIN_NEXT_%out_len
+
+L_SET_RETAIN_DROP_%out_len:
+    __set_retain_cur_len_%out_len = load __set_retain_len_slot_%out_len+0 as u64
+    __set_retain_cur_tombs_%out_len = load __set_retain_tombs_slot_%out_len+0 as u64
+    __set_retain_next_len_%out_len = sub __set_retain_cur_len_%out_len, 1
+    __set_retain_next_tombs_%out_len = add __set_retain_cur_tombs_%out_len, 1
+    store __set_retain_len_slot_%out_len+0, __set_retain_next_len_%out_len as u64
+    store __set_retain_tombs_slot_%out_len+0, __set_retain_next_tombs_%out_len as u64
+    store __set_retain_slot_%out_len+HashSetSlot_hash, 0 as u64
+    store __set_retain_slot_%out_len+HashSetSlot_key, 0 as ptr
+    store __set_retain_slot_%out_len+HashSetSlot_value, 0 as ptr
+    store __set_retain_slot_%out_len+HashSetSlot_state, HashSet_STATE_TOMB as u8
+    !__set_retain_next_tombs_%out_len
+    !__set_retain_next_len_%out_len
+    !__set_retain_cur_tombs_%out_len
+    !__set_retain_cur_len_%out_len
+    !__set_retain_keep_%out_len
+    !__set_retain_pred_%out_len
+    !__set_retain_key_%out_len
+    jmp L_SET_RETAIN_NEXT_%out_len
+
+L_SET_RETAIN_NEXT_%out_len:
+    __set_retain_next_idx_%out_len = add __set_retain_idx_%out_len, 1
+    store __set_retain_idx_slot_%out_len+0, __set_retain_next_idx_%out_len as u64
+    !__set_retain_next_idx_%out_len
+    !__set_retain_filled_%out_len
+    !__set_retain_state_%out_len
+    !__set_retain_slot_%out_len
+    !__set_retain_slot_off_%out_len
+    !__set_retain_done_%out_len
+    !__set_retain_idx_%out_len
+    jmp L_SET_RETAIN_HEAD_%out_len
+
+L_SET_RETAIN_DONE_%out_len:
+    %out_len = load __set_retain_len_slot_%out_len+0 as u64
+    __set_retain_tombs_%out_len = load __set_retain_tombs_slot_%out_len+0 as u64
+    store %set_reg+HashSet_len, %out_len as u64
+    store %set_reg+HashSet_tombs, __set_retain_tombs_%out_len as u64
+    !__set_retain_done_%out_len
+    !__set_retain_idx_%out_len
+    !__set_retain_tombs_%out_len
+    !__set_retain_tombs_start_%out_len
+    !__set_retain_len_%out_len
+    !__set_retain_cap_%out_len
+    !__set_retain_slots_%out_len
+[END_MACRO]
+
 [MACRO] SET_INSERT %out_ok, %set_reg, %key
     %out_ok = call @sa_set_insert(&%set_reg, &%key)
 [END_MACRO]

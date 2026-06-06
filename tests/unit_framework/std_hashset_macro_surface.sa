@@ -4,6 +4,16 @@
 @const KEY_B = utf8:"bravo"
 @const KEY_C = utf8:"charlie"
 
+@set_retain_not_bravo(key: ptr) -> u64:
+L_ENTRY:
+    bravo = &KEY_B
+    is_bravo = eq key, bravo
+    keep = eq is_bravo, 0
+    !is_bravo
+    !bravo
+    !key
+    return keep
+
 @test "sa_std hashset convenience macros"():
 L_ENTRY:
     EXPAND SET_WITH_CAPACITY set, 9
@@ -317,6 +327,92 @@ L_PARITY_FAIL:
     panic(907)
 
 L_PARITY_OK:
+    !ok
+    return
+
+@test "sa_std hashset retain macro"():
+L_ENTRY:
+    EXPAND SET_WITH_CAPACITY set, 4
+    key_a = &KEY_A
+    key_b = &KEY_B
+    key_c = &KEY_C
+
+    EXPAND SET_INSERT ins_a, set, key_a
+    EXPAND SET_INSERT ins_b, set, key_b
+    EXPAND SET_INSERT ins_c, set, key_c
+    EXPAND SET_RETAIN retain_len, set, @set_retain_not_bravo
+    EXPAND SET_LEN len_after_retain, set
+    EXPAND SET_CONTAINS has_a, set, key_a
+    EXPAND SET_CONTAINS has_b, set, key_b
+    EXPAND SET_CONTAINS has_c, set, key_c
+    EXPAND SET_INSERT reinsert_b, set, key_b
+    EXPAND SET_LEN len_after_reinsert, set
+    EXPAND SET_CONTAINS has_b_after_reinsert, set, key_b
+
+    ins_a_ok = eq ins_a, 1
+    ins_b_ok = eq ins_b, 1
+    ins_c_ok = eq ins_c, 1
+    retain_len_ok = eq retain_len, 2
+    len_after_retain_ok = eq len_after_retain, 2
+    has_a_ok = eq has_a, 1
+    has_b_ok = eq has_b, 0
+    has_c_ok = eq has_c, 1
+    reinsert_b_ok = eq reinsert_b, 1
+    len_after_reinsert_ok = eq len_after_reinsert, 3
+    has_b_after_reinsert_ok = eq has_b_after_reinsert, 1
+    ok01 = and ins_a_ok, ins_b_ok
+    ok02 = and ok01, ins_c_ok
+    ok03 = and ok02, retain_len_ok
+    ok04 = and ok03, len_after_retain_ok
+    ok05 = and ok04, has_a_ok
+    ok06 = and ok05, has_b_ok
+    ok07 = and ok06, has_c_ok
+    ok08 = and ok07, reinsert_b_ok
+    ok09 = and ok08, len_after_reinsert_ok
+    ok = and ok09, has_b_after_reinsert_ok
+
+    !ins_a
+    !ins_b
+    !ins_c
+    !retain_len
+    !len_after_retain
+    !has_a
+    !has_b
+    !has_c
+    !reinsert_b
+    !len_after_reinsert
+    !has_b_after_reinsert
+    !key_c
+    !key_b
+    !key_a
+    !ins_a_ok
+    !ins_b_ok
+    !ins_c_ok
+    !retain_len_ok
+    !len_after_retain_ok
+    !has_a_ok
+    !has_b_ok
+    !has_c_ok
+    !reinsert_b_ok
+    !len_after_reinsert_ok
+    !has_b_after_reinsert_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    EXPAND SET_FREE set
+    br ok -> L_RETAIN_OK, L_RETAIN_FAIL
+
+L_RETAIN_FAIL:
+    !ok
+    panic(918)
+
+L_RETAIN_OK:
     !ok
     return
 

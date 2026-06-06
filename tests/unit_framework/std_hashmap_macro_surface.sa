@@ -8,6 +8,17 @@
 @const VALUE_B = utf8:"B\n"
 @const VALUE_C = utf8:"C\n"
 
+@map_retain_not_bravo(key: ptr, value: ptr) -> u64:
+L_ENTRY:
+    bravo = &KEY_B
+    is_bravo = eq key, bravo
+    keep = eq is_bravo, 0
+    !is_bravo
+    !bravo
+    !value
+    !key
+    return keep
+
 @test "sa_std hashmap convenience macros"():
 L_ENTRY:
     EXPAND MAP_WITH_CAPACITY map, 9
@@ -515,5 +526,95 @@ L_VIEW_FAIL:
     panic(916)
 
 L_VIEW_OK:
+    !ok
+    return
+
+@test "sa_std hashmap retain macro"():
+L_ENTRY:
+    EXPAND MAP_WITH_CAPACITY map, 4
+    key_a = &KEY
+    key_b = &KEY_B
+    key_c = &KEY_C
+    value_a = &VALUE
+    value_b = &VALUE_B
+    value_c = &VALUE_C
+
+    EXPAND MAP_PUT map, key_a, value_a
+    EXPAND MAP_PUT map, key_b, value_b
+    EXPAND MAP_PUT map, key_c, value_c
+    EXPAND MAP_RETAIN retain_len, map, @map_retain_not_bravo
+    EXPAND MAP_LEN len_after_retain, map
+    EXPAND MAP_CONTAINS_KEY has_a, map, key_a
+    EXPAND MAP_CONTAINS_KEY has_b, map, key_b
+    EXPAND MAP_CONTAINS_KEY has_c, map, key_c
+    EXPAND MAP_GET get_a, map, key_a
+    EXPAND MAP_GET get_b, map, key_b
+    EXPAND MAP_GET get_c, map, key_c
+    EXPAND MAP_PUT map, key_b, value_b
+    EXPAND MAP_LEN len_after_reinsert, map
+    EXPAND MAP_GET get_b_after_reinsert, map, key_b
+
+    retain_len_ok = eq retain_len, 2
+    len_after_retain_ok = eq len_after_retain, 2
+    has_a_ok = eq has_a, 1
+    has_b_ok = eq has_b, 0
+    has_c_ok = eq has_c, 1
+    get_a_ok = eq get_a, value_a
+    get_b_ok = eq get_b, 0
+    get_c_ok = eq get_c, value_c
+    len_after_reinsert_ok = eq len_after_reinsert, 3
+    get_b_after_reinsert_ok = eq get_b_after_reinsert, value_b
+    ok01 = and retain_len_ok, len_after_retain_ok
+    ok02 = and ok01, has_a_ok
+    ok03 = and ok02, has_b_ok
+    ok04 = and ok03, has_c_ok
+    ok05 = and ok04, get_a_ok
+    ok06 = and ok05, get_b_ok
+    ok07 = and ok06, get_c_ok
+    ok08 = and ok07, len_after_reinsert_ok
+    ok = and ok08, get_b_after_reinsert_ok
+
+    !retain_len
+    !len_after_retain
+    !has_a
+    !has_b
+    !has_c
+    !get_a
+    !get_b
+    !get_c
+    !len_after_reinsert
+    !get_b_after_reinsert
+    !value_c
+    !value_b
+    !value_a
+    !key_c
+    !key_b
+    !key_a
+    !retain_len_ok
+    !len_after_retain_ok
+    !has_a_ok
+    !has_b_ok
+    !has_c_ok
+    !get_a_ok
+    !get_b_ok
+    !get_c_ok
+    !len_after_reinsert_ok
+    !get_b_after_reinsert_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND MAP_FREE map
+    br ok -> L_RETAIN_OK, L_RETAIN_FAIL
+
+L_RETAIN_FAIL:
+    !ok
+    panic(917)
+
+L_RETAIN_OK:
     !ok
     return
