@@ -6,4 +6,5 @@ pub const EmitOptions = struct {
     opt_level: u8 = 0,
     codegen_unit_index: ?usize = null,
     codegen_unit_count: usize = 1,
+    function_task_index: ?usize = null,
 };

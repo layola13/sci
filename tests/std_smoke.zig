@@ -2852,6 +2852,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_into_sorted_vec"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_peek"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_try_peek_mut_ptr"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_push"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_try_pop"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_clear"));
@@ -2874,6 +2875,8 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_INTO_SORTED_VEC"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PEEK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_TRY_PEEK_MUT_PTR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PEEK_MUT_PTR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PUSH"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_TRY_POP"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_CLEAR"));

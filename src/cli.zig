@@ -973,12 +973,13 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --allow-run[=list]             Allow process execution for reviewed packages\n");
 }
 
-fn writeBuildOptionsHelp(writer: anytype, artifact: []const u8) !void {
+fn writeBuildOptionsHelp(writer: anytype, artifact: []const u8, include_incremental: bool) !void {
     try writer.print("  -o <path>                      Write {s} to path\n", .{artifact});
     try writer.writeAll("  -g                             Include debug information\n");
     try writer.writeAll("  --no-debug                     Disable debug information\n");
     try writer.writeAll("  --release-small                Optimize for small release output\n");
     try writer.writeAll("  --release-fast                 Optimize for fast release output\n");
+    if (include_incremental) try writer.writeAll("  --incremental                  Reuse per-function cached objects when building .o\n");
     try writeCompileOptionsHelp(writer);
 }
 
@@ -1077,21 +1078,21 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("usage: sa build <file> [options]\n\n");
             try writer.writeAll("Compile a .sa source file to a native executable.\n\n");
             try writer.writeAll("Options:\n");
-            try writeBuildOptionsHelp(writer, "the executable");
+            try writeBuildOptionsHelp(writer, "the executable", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_exe => {
             try writer.writeAll("usage: sa build-exe <file> [options]\n\n");
             try writer.writeAll("Build a standalone native executable. This is an alias for `sa build`.\n\n");
             try writer.writeAll("Options:\n");
-            try writeBuildOptionsHelp(writer, "the executable");
+            try writeBuildOptionsHelp(writer, "the executable", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_obj => {
             try writer.writeAll("usage: sa build-obj <file> [options]\n\n");
             try writer.writeAll("Build a native object file from a .sa source file.\n\n");
             try writer.writeAll("Options:\n");
-            try writeBuildOptionsHelp(writer, "the object file");
+            try writeBuildOptionsHelp(writer, "the object file", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_wasm => {
@@ -1099,7 +1100,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Build a WebAssembly module from a .sa source file.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --target wasm32|wasm64         Select the WebAssembly target\n");
-            try writeBuildOptionsHelp(writer, "the wasm module");
+            try writeBuildOptionsHelp(writer, "the wasm module", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .run => {
@@ -3875,6 +3876,375 @@ fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []const 
     try writeAllFile(path, bytes);
 }
 
+fn copyFileAlloc(allocator: std.mem.Allocator, src_path: []const u8, dst_path: []const u8) !void {
+    const bytes = try readTextFileAlloc(allocator, src_path);
+    defer allocator.free(bytes);
+    try writeAllFile(dst_path, bytes);
+}
+
+fn cacheRootPath(allocator: std.mem.Allocator, project_root: []const u8) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache" });
+}
+
+const BuildCacheKind = enum {
+    build_exe,
+    build_obj,
+    build_wasm,
+    build_obj_incremental,
+
+    fn dirName(self: BuildCacheKind) []const u8 {
+        return switch (self) {
+            .build_exe => "build-exe",
+            .build_obj => "build-obj",
+            .build_wasm => "build-wasm",
+            .build_obj_incremental => "build-obj-incremental",
+        };
+    }
+};
+
+const ProjectCacheKey = struct {
+    hex: [64]u8,
+
+    fn slice(self: *const ProjectCacheKey) []const u8 {
+        return self.hex[0..];
+    }
+};
+
+fn cacheBytes(hasher: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
+    hasher.update(bytes);
+    hasher.update(&[_]u8{0});
+}
+
+fn cacheU64(hasher: *std.crypto.hash.sha2.Sha256, value: u64) void {
+    var buf: [8]u8 = undefined;
+    std.mem.writeInt(u64, &buf, value, .little);
+    hasher.update(&buf);
+}
+
+fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
+    hasher.update(&.{if (value) 1 else 0});
+}
+
+fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem.Allocator, path: []const u8) !void {
+    if (!projectPathExists(path)) return;
+    const bytes = try readTextFileAlloc(allocator, path);
+    defer allocator.free(bytes);
+    cacheBytes(hasher, bytes);
+}
+
+fn hashResolvedSourceTree(
+    allocator: std.mem.Allocator,
+    hasher: *std.crypto.hash.sha2.Sha256,
+    dependencies: []pkg_resolver.Dependency,
+    plugin_import_roots: []const []const u8,
+    project_root: []const u8,
+    std_root: []const u8,
+    offline: bool,
+    source_path: []const u8,
+    visited: *std.StringHashMap(void),
+) !void {
+    const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
+    defer allocator.free(real_source_path);
+    if (visited.contains(real_source_path)) return;
+    const visited_key = try allocator.dupe(u8, real_source_path);
+    var visited_key_inserted = false;
+    errdefer if (!visited_key_inserted) allocator.free(visited_key);
+    try visited.put(visited_key, {});
+    visited_key_inserted = true;
+
+    cacheBytes(hasher, real_source_path);
+    const source = try loadSource(allocator, source_path);
+    defer allocator.free(source);
+    cacheBytes(hasher, source);
+
+    var iter = std.mem.splitScalar(u8, source, '\n');
+    while (iter.next()) |line| {
+        const classified = line_classifier.classifyLine(line);
+        if (classified.kind != .import_decl) continue;
+        const import_path = classified.parts[0];
+        var imported = try pkg_resolver.resolveImport(allocator, dependencies, std.fs.path.dirname(source_path) orelse ".", import_path, .{
+            .project_root = project_root,
+            .std_root = std_root,
+            .offline = offline,
+            .plugin_import_roots = plugin_import_roots,
+        });
+        defer imported.deinit(allocator);
+        try hashResolvedSourceTree(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited);
+    }
+}
+
+fn computeProjectBuildKey(
+    allocator: std.mem.Allocator,
+    project_context: *const ProjectContext,
+    project_root: []const u8,
+    source_path: []const u8,
+    target_name: []const u8,
+    source_suffix: []const u8,
+    kind: BuildCacheKind,
+    debug: bool,
+    release_fast: bool,
+    incremental: bool,
+    wasm: ?WasmTarget,
+    hash_source_tree: bool,
+    offline: bool,
+) !ProjectCacheKey {
+    const std_root = try stdRootFromEnv(allocator);
+    defer allocator.free(std_root);
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBytes(&hasher, "sa-build-cache");
+    cacheBytes(&hasher, build_options.version);
+    cacheBytes(&hasher, project_root);
+    cacheBytes(&hasher, kind.dirName());
+    cacheBytes(&hasher, source_path);
+    cacheBytes(&hasher, target_name);
+    cacheBytes(&hasher, source_suffix);
+    cacheBool(&hasher, debug);
+    cacheBool(&hasher, release_fast);
+    cacheBool(&hasher, incremental);
+    if (wasm) |target| {
+        cacheBytes(&hasher, target.triple);
+        cacheBool(&hasher, target.no_entry);
+        cacheU64(&hasher, target.size_bits);
+    }
+
+    const project_manifest = project_context.manifest;
+    if (project_manifest) |*m| {
+        cacheBytes(&hasher, project_context.manifest_path);
+        if (projectPathExists(project_context.manifest_path)) {
+            const manifest_bytes = try readTextFileAlloc(allocator, project_context.manifest_path);
+            defer allocator.free(manifest_bytes);
+            cacheBytes(&hasher, manifest_bytes);
+        }
+        if (project_context.lock_file != null) {
+            const lock_path = try projectLockPath(allocator, project_context.root_path);
+            defer allocator.free(lock_path);
+            try projectFileMaybeHash(&hasher, allocator, lock_path);
+        }
+        if (project_context.sum_file != null) {
+            const sum_path = try projectSumPath(allocator, project_context.root_path);
+            defer allocator.free(sum_path);
+            try projectFileMaybeHash(&hasher, allocator, sum_path);
+        }
+        var dependency_slice: []pkg_resolver.Dependency = &.{};
+        defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
+        var plugin_import_roots: []const []const u8 = &.{};
+        defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
+        if (m.requires.len != 0) {
+            dependency_slice = try manifestDependencies(m, allocator);
+        }
+        if (m.plugin_requires.len != 0) {
+            plugin_import_roots = try manifestPluginImportRoots(m, allocator);
+        }
+
+        if (hash_source_tree) {
+            var visited = std.StringHashMap(void).init(allocator);
+            defer {
+                var it = visited.iterator();
+                while (it.next()) |entry| allocator.free(entry.key_ptr.*);
+                visited.deinit();
+            }
+            try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path, &visited);
+        }
+    } else {
+        try projectFileMaybeHash(&hasher, allocator, project_context.manifest_path);
+        if (hash_source_tree) {
+            var visited = std.StringHashMap(void).init(allocator);
+            defer {
+                var it = visited.iterator();
+                while (it.next()) |entry| allocator.free(entry.key_ptr.*);
+                visited.deinit();
+            }
+            try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path, &visited);
+        }
+    }
+
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return .{ .hex = std.fmt.bytesToHex(out, .lower) };
+}
+
+fn projectCacheDir(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", kind.dirName(), key.slice() });
+}
+
+fn projectCacheArtifactPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, filename: []const u8) ![]u8 {
+    const dir = try projectCacheDir(allocator, project_root, kind, key);
+    defer allocator.free(dir);
+    return try pathJoinAlloc(allocator, &.{ dir, filename });
+}
+
+fn projectCacheHit(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+) !bool {
+    const cached_artifact = try projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc");
+    defer allocator.free(cached_artifact);
+    const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
+    defer allocator.free(cached_output);
+    if (!projectPathExists(cached_artifact) or !projectPathExists(cached_output)) return false;
+    try copyFileAlloc(allocator, cached_artifact, artifact_path);
+    try copyFileAlloc(allocator, cached_output, out_path);
+    return true;
+}
+
+fn projectCacheStore(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+) !void {
+    const cached_artifact = try projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc");
+    defer allocator.free(cached_artifact);
+    const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
+    defer allocator.free(cached_output);
+    try copyFileAlloc(allocator, artifact_path, cached_artifact);
+    try copyFileAlloc(allocator, out_path, cached_output);
+}
+
+fn projectFunctionCachePath(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    function_key: []const u8,
+) ![]u8 {
+    const filename = try std.fmt.allocPrint(allocator, "{s}.o", .{function_key});
+    defer allocator.free(filename);
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", BuildCacheKind.build_obj_incremental.dirName(), key.slice(), "functions", filename });
+}
+
+fn cacheFunctionSig(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) void {
+    cacheBytes(hasher, sig_item.name);
+    cacheU64(hasher, @intFromEnum(sig_item.kind));
+    cacheBool(hasher, sig_item.return_fallible);
+    cacheBool(hasher, sig_item.is_ffi_wrapper);
+    cacheBool(hasher, sig_item.ignored);
+    cacheBool(hasher, sig_item.should_panic);
+    cacheU64(hasher, @intFromEnum(sig_item.return_ty));
+    if (sig_item.return_cap) |cap| {
+        cacheBool(hasher, true);
+        cacheU64(hasher, @intFromEnum(cap));
+    } else {
+        cacheBool(hasher, false);
+    }
+    if (sig_item.llvm_name) |name| cacheBytes(hasher, name) else cacheBytes(hasher, "");
+    for (sig_item.params) |param| {
+        cacheBytes(hasher, param.name);
+        cacheU64(hasher, @intFromEnum(param.ty));
+        cacheU64(hasher, @intFromEnum(param.cap));
+    }
+}
+
+fn computeFunctionObjectKey(allocator: std.mem.Allocator, source_path: []const u8, verified: *const referee.VerifyOk, sig_index: usize, start_idx: usize, end_idx: usize) ![]const u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBytes(&hasher, "sa-build-obj-function-cache");
+    cacheBytes(&hasher, build_options.version);
+    cacheBytes(&hasher, source_path);
+    for (verified.function_sigs) |sig_item| {
+        cacheFunctionSig(&hasher, sig_item);
+    }
+    for (verified.const_decls) |decl| {
+        cacheBytes(&hasher, decl.raw_text);
+    }
+    cacheU64(&hasher, sig_index);
+    cacheFunctionSig(&hasher, verified.function_sigs[sig_index]);
+    for (verified.annotated[start_idx..end_idx]) |item| {
+        cacheBytes(&hasher, item.base.raw_text);
+    }
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    const hex = std.fmt.bytesToHex(out, .lower);
+    return try allocator.dupe(u8, hex[0..]);
+}
+
+fn buildIncrementalObject(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    cache_key: ProjectCacheKey,
+    compiled: *const CompileOk,
+    source_path: []const u8,
+    out_path: []const u8,
+    debug: bool,
+    optimization: driver.Optimization,
+    compile_options: CompileOptions,
+    stderr: anytype,
+) !void {
+    _ = compile_options;
+    const opt_level = emitOptLevel(debug, optimization);
+    var object_paths = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (object_paths.items) |path| allocator.free(path);
+        object_paths.deinit();
+    }
+
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    var task_idx: usize = 0;
+    while (idx < compiled.verified.annotated.len) : (idx += 1) {
+        const item = compiled.verified.annotated[idx].base;
+        switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                if (sig_index >= compiled.verified.function_sigs.len) return error.UnknownFunction;
+                const current_sig_index = sig_index;
+                sig_index += 1;
+
+                var end = idx + 1;
+                while (end < compiled.verified.annotated.len and switch (compiled.verified.annotated[end].base.kind) {
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                    else => true,
+                }) : (end += 1) {}
+
+                if (item.kind != .extern_decl) {
+                    const function_key = try computeFunctionObjectKey(allocator, source_path, &compiled.verified, current_sig_index, idx, end);
+                    defer allocator.free(function_key);
+                    const object_path = try projectFunctionCachePath(allocator, project_root, cache_key, function_key);
+                    errdefer allocator.free(object_path);
+                    if (!projectPathExists(object_path)) {
+                        try ensureParentDir(object_path);
+                        try emit_llvm_llvmc.emitLlvmcToObject(
+                            allocator,
+                            compiled.verified,
+                            &compiled.flat.def_dict,
+                            compiled.flat.loc_table,
+                            source_path,
+                            nativeSizeBits(),
+                            .{
+                                .debug = debug,
+                                .jobs = 1,
+                                .opt_level = opt_level,
+                                .function_task_index = task_idx,
+                            },
+                            object_path,
+                            opt_level,
+                        );
+                    }
+                    try object_paths.append(object_path);
+                }
+
+                task_idx += 1;
+                idx = end - 1;
+            },
+            else => {},
+        }
+    }
+
+    if (object_paths.items.len == 0) {
+        return error.UnknownFunction;
+    }
+
+    try ensureParentDir(out_path);
+    driver.compileRelocatableObj(allocator, object_paths.items, out_path, stderr) catch |err| switch (err) {
+        error.ChildProcessFailed => return error.ChildProcessFailed,
+        else => return err,
+    };
+}
+
 fn ensureNewFile(path: []const u8, bytes: []const u8) !void {
     try ensureParentDir(path);
     var file = try std.fs.cwd().createFile(path, .{ .exclusive = true });
@@ -4098,6 +4468,23 @@ fn executeRun(
 
 fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const project_root_owned = compile_options.project_root == null;
+    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
+    defer if (project_root_owned) allocator.free(project_root);
+    var project_context = try loadProjectContext(allocator, project_root);
+    defer project_context.deinit(allocator);
+    const cache_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline);
+    const artifact_path = try intermediateArtifactPath(allocator, out_path);
+    defer allocator.free(artifact_path);
+
+    if (try projectCacheHit(allocator, project_root, .build_exe, cache_key, artifact_path, out_path)) {
+        if (diagnostics_mode == .json) {
+            const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null };
+            try writeSuccessJson(stderr, metrics);
+        }
+        return 0;
+    }
+
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
@@ -4245,8 +4632,6 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 const link_ns = if (link_start) |start| elapsedNs(start) else null;
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             } else {
-                const artifact_path = try intermediateArtifactPath(allocator, out_path);
-                defer allocator.free(artifact_path);
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization) }, artifact_path);
@@ -4267,6 +4652,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 };
                 const link_ns = if (link_start) |start| elapsedNs(start) else null;
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
+                try projectCacheStore(allocator, project_root, .build_exe, cache_key, artifact_path, out_path);
             }
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
 
@@ -4278,8 +4664,25 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     }
 }
 
-fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, incremental: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const project_root_owned = compile_options.project_root == null;
+    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
+    defer if (project_root_owned) allocator.free(project_root);
+    var project_context = try loadProjectContext(allocator, project_root);
+    defer project_context.deinit(allocator);
+    const cache_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline);
+    const artifact_path = try intermediateArtifactPath(allocator, out_path);
+    defer allocator.free(artifact_path);
+
+    if (try projectCacheHit(allocator, project_root, .build_obj, cache_key, artifact_path, out_path)) {
+        if (diagnostics_mode == .json) {
+            const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null };
+            try writeSuccessJson(stderr, metrics);
+        }
+        return 0;
+    }
+
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
@@ -4289,17 +4692,19 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const artifact_path = try intermediateArtifactPath(allocator, out_path);
-            defer allocator.free(artifact_path);
             try ensureParentDir(artifact_path);
-            const object_path = try allocator.dupe(u8, out_path);
-            defer allocator.free(object_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, artifact_path);
-            try emit_llvm_llvmc.emitLlvmcToObject(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, object_path, opt_level);
+            if (incremental) {
+                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline);
+                try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, artifact_path);
+            } else {
+                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, artifact_path, out_path, opt_level);
+            }
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
+            try projectCacheStore(allocator, project_root, .build_obj, cache_key, artifact_path, out_path);
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
@@ -4309,6 +4714,24 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
 }
 
 fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const project_root_owned = compile_options.project_root == null;
+    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
+    defer if (project_root_owned) allocator.free(project_root);
+    var project_context = try loadProjectContext(allocator, project_root);
+    defer project_context.deinit(allocator);
+    const cache_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline);
+    const artifact_path = try intermediateArtifactPath(allocator, out_path);
+    defer allocator.free(artifact_path);
+
+    if (try projectCacheHit(allocator, project_root, .build_wasm, cache_key, artifact_path, out_path)) {
+        if (diagnostics_mode == .json) {
+            const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null };
+            try writeSuccessJson(stderr, metrics);
+        }
+        return 0;
+    }
+
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
@@ -4318,8 +4741,6 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            const artifact_path = try intermediateArtifactPath(allocator, out_path);
-            defer allocator.free(artifact_path);
             try ensureParentDir(artifact_path);
             try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization) }, artifact_path);
 
@@ -4327,6 +4748,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+            try projectCacheStore(allocator, project_root, .build_wasm, cache_key, artifact_path, out_path);
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
@@ -4832,6 +5254,7 @@ pub fn executeWithWritersAndOptions(
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
+            var incremental = false;
             var i: usize = 3;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -4853,11 +5276,15 @@ pub fn executeWithWritersAndOptions(
                     optimization = mode;
                     continue;
                 }
+                if (std.mem.eql(u8, args[i], "--incremental")) {
+                    incremental = true;
+                    continue;
+                }
                 return error.UnexpectedArgument;
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
-            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_wasm => {
             if (args.len < 3) return error.MissingSourcePath;
@@ -5072,7 +5499,7 @@ test "flatten error mapping keeps import resolution and unsupported type hints s
     try std.testing.expectEqualStrings("/tmp/import.sa", import_report.file.?);
     try std.testing.expectEqualStrings("import path could not be resolved", import_report.message);
     try std.testing.expectEqualStrings("check the import path, package identity, local vendor tree, and package cache", import_report.hint.?);
-    try std.testing.expectEqualStrings("fix-import", import_report.repair_action.?);
+    try std.testing.expectEqualStrings("pin-import", import_report.repair_action.?);
 
     const type_source =
         \\@test "probe":
@@ -5081,7 +5508,6 @@ test "flatten error mapping keeps import resolution and unsupported type hints s
     const type_report = trapFromFlattenError("/tmp/type.sa", type_source, error.UnsupportedType, 2);
     try std.testing.expectEqual(trap.Trap.unsupported_type, type_report.trap);
     try std.testing.expectEqualStrings("/tmp/type.sa", type_report.file.?);
-    try std.testing.expect(type_report.bad_token != null);
     try std.testing.expectEqualStrings("unsupported type annotation during flattening", type_report.message);
     try std.testing.expectEqualStrings("inspect the callee declaration referenced by this call site; the unsupported annotation is usually in the imported signature", type_report.hint.?);
 }

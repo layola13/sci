@@ -85,6 +85,24 @@ pub fn argvForObj(
     return argv;
 }
 
+pub fn argvForRelocatableObj(
+    allocator: std.mem.Allocator,
+    out_path: []const u8,
+    input_objects: []const []const u8,
+) !Argv {
+    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    errdefer argv.deinit();
+    try argv.items.append("zig");
+    try argv.items.append("cc");
+    try argv.items.append("-r");
+    for (input_objects) |input| {
+        try argv.items.append(input);
+    }
+    try argv.items.append("-o");
+    try argv.items.append(out_path);
+    return argv;
+}
+
 pub fn argvForWasm(
     allocator: std.mem.Allocator,
     artifact_path: []const u8,
@@ -226,6 +244,36 @@ pub fn compileObj(
         defer allocator.free(result.stdout);
         defer allocator.free(result.stderr);
         try printCompilerFailure(stderr, argv_slice, "compiling object", artifact_path, out_path, result);
+        return CompileError.ChildProcessFailed;
+    }
+}
+
+pub fn compileRelocatableObj(
+    allocator: std.mem.Allocator,
+    input_objects: []const []const u8,
+    out_path: []const u8,
+    stderr: anytype,
+) !void {
+    var argv = try argvForRelocatableObj(allocator, out_path, input_objects);
+    defer argv.deinit();
+    const argv_slice = argv.slice();
+    const term = runProcessFast(allocator, argv_slice) catch |err| {
+        try printCompilerLaunchFailure(stderr, argv_slice, "linking relocatable object", input_objects[0], out_path, err);
+        return CompileError.ChildProcessFailed;
+    };
+
+    const failed = switch (term) {
+        .Exited => |code| code != 0,
+        else => true,
+    };
+    if (failed) {
+        const result = runProcess(allocator, argv_slice) catch |err| {
+            try printCompilerLaunchFailure(stderr, argv_slice, "linking relocatable object", input_objects[0], out_path, err);
+            return CompileError.ChildProcessFailed;
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+        try printCompilerFailure(stderr, argv_slice, "linking relocatable object", input_objects[0], out_path, result);
         return CompileError.ChildProcessFailed;
     }
 }

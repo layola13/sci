@@ -1006,7 +1006,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null;
+    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
         try collectNormalBuildReachability(a, verified, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
@@ -1048,6 +1048,31 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                 else => {},
             }
         }
+    } else if (options.function_task_index) |wanted_task_idx| {
+        var sig_index: usize = 0;
+        var idx: usize = 0;
+        var task_idx: usize = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        else => true,
+                    }) : (end += 1) {}
+
+                    if (task_idx == wanted_task_idx) {
+                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
+                    }
+                    task_idx += 1;
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
     }
 
     var tasks = std.ArrayList(ParallelEmitTask).init(a);
@@ -1077,7 +1102,16 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                 var emit_wrapper = !options.test_mode and fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0;
 
                 var should_include = true;
-                if (options.codegen_unit_index) |cgu_idx| {
+                if (options.function_task_index) |wanted_task_idx| {
+                    if (task_idx == wanted_task_idx) {
+                        // This task is emitted as a cached incremental object.
+                    } else if (item.kind == .extern_decl or referenced_functions.contains(fsig.name)) {
+                        c_kind = .external;
+                        emit_wrapper = false;
+                    } else {
+                        should_include = false;
+                    }
+                } else if (options.codegen_unit_index) |cgu_idx| {
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
                         // Belongs to this CGU, define it!
                     } else if (item.kind == .extern_decl or referenced_functions.contains(fsig.name)) {
@@ -1250,7 +1284,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null;
+    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
         try collectNormalBuildReachability(a, verified, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
@@ -1290,6 +1324,31 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                 else => {},
             }
         }
+    } else if (options.function_task_index) |wanted_task_idx| {
+        var sig_index: usize = 0;
+        var idx: usize = 0;
+        var task_idx: usize = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        else => true,
+                    }) : (end += 1) {}
+
+                    if (task_idx == wanted_task_idx) {
+                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
+                    }
+                    task_idx += 1;
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
     }
 
     var tasks = std.ArrayList(ParallelEmitTask).init(a);
@@ -1319,7 +1378,14 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                 var emit_wrapper = !options.test_mode and fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0;
 
                 var should_include = true;
-                if (options.codegen_unit_index) |cgu_idx| {
+                if (options.function_task_index) |wanted_task_idx| {
+                    if (task_idx == wanted_task_idx) {} else if (item.kind == .extern_decl or referenced_functions.contains(fsig.name)) {
+                        c_kind = .external;
+                        emit_wrapper = false;
+                    } else {
+                        should_include = false;
+                    }
+                } else if (options.codegen_unit_index) |cgu_idx| {
                     if (task_idx % options.codegen_unit_count == cgu_idx) {} else if (item.kind == .extern_decl or referenced_functions.contains(fsig.name)) {
                         c_kind = .external;
                         emit_wrapper = false;

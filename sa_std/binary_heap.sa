@@ -156,6 +156,30 @@ L_EMPTY:
     !heap
     return 0
 
+@export sa_binary_heap_try_peek_mut_ptr(&heap: ptr, &out_ptr_slot: ptr) -> i32:
+L_ENTRY:
+    len = load heap+BinaryHeap_len as u64
+    empty = eq len, 0
+    br empty -> L_PEEK_MUT_EMPTY, L_PEEK_MUT_READY
+
+L_PEEK_MUT_READY:
+    buf = load heap+BinaryHeap_buf as ptr
+    store out_ptr_slot+0, buf as ptr
+    !buf
+    !empty
+    !len
+    !heap
+    !out_ptr_slot
+    return 1
+
+L_PEEK_MUT_EMPTY:
+    store out_ptr_slot+0, 0 as ptr
+    !empty
+    !len
+    !heap
+    !out_ptr_slot
+    return 0
+
 @binary_heap_sift_up(&heap: ptr, index: u64) -> void:
 L_ENTRY:
     is_root = eq index, 0
@@ -854,6 +878,17 @@ L_APPEND_DONE:
 
 [MACRO] BINARY_HEAP_PEEK %out_value, %heap_reg
     %out_value = call @sa_binary_heap_peek(&%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_TRY_PEEK_MUT_PTR %out_ok, %out_ptr, %heap_reg
+    __binary_heap_peek_mut_slot_%out_ok = stack_alloc 8
+    __binary_heap_peek_mut_ok_%out_ok = call @sa_binary_heap_try_peek_mut_ptr(&%heap_reg, &__binary_heap_peek_mut_slot_%out_ok)
+    %out_ptr = load __binary_heap_peek_mut_slot_%out_ok+0 as ptr
+    %out_ok = __binary_heap_peek_mut_ok_%out_ok
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_PEEK_MUT_PTR %out_ptr, %heap_reg
+    EXPAND BINARY_HEAP_TRY_PEEK_MUT_PTR __binary_heap_peek_mut_ok_%out_ptr, %out_ptr, %heap_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_PUSH %heap_reg, %value

@@ -29,6 +29,9 @@ L_ENTRY:
     EXPAND BINARY_HEAP_SHRINK_TO_FIT heap
     EXPAND BINARY_HEAP_CAPACITY cap_after_shrink, heap
     EXPAND BINARY_HEAP_PEEK peek0, heap
+    EXPAND BINARY_HEAP_TRY_PEEK_MUT_PTR peek_mut_ok, peek_mut_ptr, heap
+    store peek_mut_ptr+0, 11 as u64
+    EXPAND BINARY_HEAP_PEEK peek_after_mut, heap
     EXPAND BINARY_HEAP_TRY_POP ok0, pop0, heap
     EXPAND BINARY_HEAP_TRY_POP ok1, pop1, heap
     EXPAND BINARY_HEAP_TRY_POP ok2, pop2, heap
@@ -62,8 +65,10 @@ L_ENTRY:
     ok_cap_after_shrink_to_min = eq cap_after_shrink_to_min, 5
     ok_cap_after_shrink = eq cap_after_shrink, 3
     ok_peek0 = eq peek0, 9
+    ok_peek_mut = eq peek_mut_ok, 1
+    ok_peek_after_mut = eq peek_after_mut, 11
     ok_ok0 = eq ok0, 1
-    ok_pop0 = eq pop0, 9
+    ok_pop0 = eq pop0, 11
     ok_ok1 = eq ok1, 1
     ok_pop1 = eq pop1, 4
     ok_ok2 = eq ok2, 1
@@ -92,23 +97,25 @@ L_ENTRY:
     ok11 = and ok10, ok_cap_after_shrink_to_min
     ok12 = and ok11, ok_cap_after_shrink
     ok13 = and ok12, ok_peek0
-    ok14 = and ok13, ok_ok0
-    ok15 = and ok14, ok_pop0
-    ok16 = and ok15, ok_ok1
-    ok17 = and ok16, ok_pop1
-    ok18 = and ok17, ok_ok2
-    ok19 = and ok18, ok_pop2
-    ok20 = and ok19, ok_empty_ok
-    ok21 = and ok20, ok_empty_value
-    ok22 = and ok21, ok_len2
-    ok23 = and ok22, ok_cap_after_empty_shrink
-    ok24 = and ok23, ok_cap_after_reinsert
-    ok25 = and ok24, ok_ok3
-    ok26 = and ok25, ok_pop3
-    ok27 = and ok26, ok_zero_cap
-    ok28 = and ok27, ok_zero_empty
-    ok29 = and ok28, ok_try_new
-    ok = and ok29, ok_try_new_cap
+    ok14 = and ok13, ok_peek_mut
+    ok15 = and ok14, ok_peek_after_mut
+    ok16 = and ok15, ok_ok0
+    ok17 = and ok16, ok_pop0
+    ok18 = and ok17, ok_ok1
+    ok19 = and ok18, ok_pop1
+    ok20 = and ok19, ok_ok2
+    ok21 = and ok20, ok_pop2
+    ok22 = and ok21, ok_empty_ok
+    ok23 = and ok22, ok_empty_value
+    ok24 = and ok23, ok_len2
+    ok25 = and ok24, ok_cap_after_empty_shrink
+    ok26 = and ok25, ok_cap_after_reinsert
+    ok27 = and ok26, ok_ok3
+    ok28 = and ok27, ok_pop3
+    ok29 = and ok28, ok_zero_cap
+    ok30 = and ok29, ok_zero_empty
+    ok31 = and ok30, ok_try_new
+    ok = and ok31, ok_try_new_cap
     !cap0
     !len0
     !empty0
@@ -123,6 +130,9 @@ L_ENTRY:
     !cap_after_shrink_to_min
     !cap_after_shrink
     !peek0
+    !peek_mut_ok
+    !peek_mut_ptr
+    !peek_after_mut
     !ok0
     !pop0
     !ok1
@@ -154,6 +164,8 @@ L_ENTRY:
     !ok_cap_after_shrink_to_min
     !ok_cap_after_shrink
     !ok_peek0
+    !ok_peek_mut
+    !ok_peek_after_mut
     !ok_ok0
     !ok_pop0
     !ok_ok1
@@ -200,6 +212,8 @@ L_ENTRY:
     !ok27
     !ok28
     !ok29
+    !ok30
+    !ok31
     !heap_mut_slice
     !heap_slice
     br ok -> L_OK, L_FAIL

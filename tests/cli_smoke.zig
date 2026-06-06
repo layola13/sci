@@ -500,6 +500,59 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
 }
 
+test "cli build-obj incremental reuses local cache layout" {
+    const source =
+        \\@helper(value: i32) -> i32:
+        \\return value + 1
+        \\
+        \\@main() -> i32:
+        \\value = call @helper(6)
+        \\return value
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "incremental.sa", source);
+
+    const build_argv = [_][]const u8{ "sa", "build-obj", "incremental.sa", "--incremental", "-o", "incremental.o" };
+    const first_code = try saasm.cli.execute(std.testing.allocator, build_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    const second_code = try saasm.cli.execute(std.testing.allocator, build_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+
+    const obj_file = try tmp.dir.openFile("incremental.o", .{});
+    defer obj_file.close();
+    const obj_bytes = try obj_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(obj_bytes);
+    try std.testing.expect(obj_bytes.len > 0);
+
+    const bc_file = try tmp.dir.openFile("incremental.o.sa.bc", .{});
+    defer bc_file.close();
+    const bc_bytes = try bc_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(bc_bytes);
+    try std.testing.expect(bc_bytes.len > 0);
+
+    var cache_dir = try tmp.dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
+    defer cache_dir.close();
+    var cache_iter = cache_dir.iterate();
+    try std.testing.expect((try cache_iter.next()) != null);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+    const help_argv = [_][]const u8{ "sa", "build-obj", "--help" };
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), help_code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--incremental") != null);
+}
+
 test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {
     const source =
         \\@helper(value: i32) -> i32:

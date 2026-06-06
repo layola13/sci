@@ -2009,3 +2009,68 @@ int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt
     dispose_emit_ctx(&e);
     return 0;
 }
+
+int sa_llvmc_emit_module_artifacts(const SaModule *m, const char *out_bitcode_path, const char *out_object_path, int opt_level, char **out_error) {
+    if (m == NULL || out_bitcode_path == NULL || out_object_path == NULL) return set_error(out_error, "invalid pointers");
+    EmitCtx e;
+    if (build_sa_llvm_module(m, &e, out_error) != 0) return 1;
+
+    char *triple = LLVMGetDefaultTargetTriple();
+    LLVMTargetRef target;
+    char *err_msg = NULL;
+    if (LLVMGetTargetFromTriple(triple, &target, &err_msg)) {
+        int s = set_error(out_error, err_msg ? err_msg : "target lookup failed");
+        if (err_msg) LLVMDisposeMessage(err_msg);
+        LLVMDisposeMessage(triple);
+        dispose_emit_ctx(&e);
+        return s;
+    }
+
+    LLVMCodeGenOptLevel cg_opt;
+    switch (opt_level) {
+        case 0:  cg_opt = LLVMCodeGenLevelNone;        break;
+        case 1:  cg_opt = LLVMCodeGenLevelLess;        break;
+        case 2:  cg_opt = LLVMCodeGenLevelDefault;     break;
+        default: cg_opt = LLVMCodeGenLevelAggressive;  break;
+    }
+
+    char *cpu      = LLVMGetHostCPUName();
+    char *features = LLVMGetHostCPUFeatures();
+    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
+        target, triple, cpu, features,
+        cg_opt, LLVMRelocDefault, LLVMCodeModelDefault
+    );
+    LLVMDisposeMessage(cpu);
+    LLVMDisposeMessage(features);
+    LLVMDisposeMessage(triple);
+
+    if (tm == NULL) {
+        dispose_emit_ctx(&e);
+        return set_error(out_error, "TargetMachine creation failed");
+    }
+
+    optimize_module_ir(&e, opt_level);
+    if (verify_emit_module(&e, out_error) != 0) {
+        LLVMDisposeTargetMachine(tm);
+        dispose_emit_ctx(&e);
+        return 1;
+    }
+
+    if (LLVMWriteBitcodeToFile(e.module, out_bitcode_path) != 0) {
+        LLVMDisposeTargetMachine(tm);
+        dispose_emit_ctx(&e);
+        return set_error(out_error, "writing bitcode failed");
+    }
+
+    if (LLVMTargetMachineEmitToFile(tm, e.module, (char *)out_object_path, LLVMObjectFile, &err_msg)) {
+        int s = set_error(out_error, err_msg ? err_msg : "emit object failed");
+        if (err_msg) LLVMDisposeMessage(err_msg);
+        LLVMDisposeTargetMachine(tm);
+        dispose_emit_ctx(&e);
+        return s;
+    }
+
+    LLVMDisposeTargetMachine(tm);
+    dispose_emit_ctx(&e);
+    return 0;
+}
