@@ -3086,3 +3086,206 @@ L_VEC_DEDUP_KEY_EXTRACT_FAIL:
 L_VEC_DEDUP_KEY_EXTRACT_OK:
     !ok
     return
+
+@test "sa_std vec drain and splice macros"():
+L_ENTRY:
+    repl_mem = stack_alloc 16
+    store repl_mem+0, 77 as u64
+    store repl_mem+8, 88 as u64
+    repl_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW repl_slice, repl_mem, 2
+
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 8
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 5
+    EXPAND VEC_DRAIN_U64 drain_ok, drained, vec, 1, 2
+    EXPAND VEC_LEN vec_len_after_drain, vec
+    EXPAND VEC_LEN drained_len, drained
+    EXPAND VEC_TRY_GET_U64 vec_first_ok, vec_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 vec_second_ok, vec_second, vec, 1
+    EXPAND VEC_TRY_GET_U64 vec_third_ok, vec_third, vec, 2
+    EXPAND VEC_TRY_GET_U64 drained_first_ok, drained_first, drained, 0
+    EXPAND VEC_TRY_GET_U64 drained_second_ok, drained_second, drained, 1
+    EXPAND VEC_DRAIN_U64 drain_miss_ok, drain_miss, vec, 9, 1
+    EXPAND VEC_LEN drain_miss_len, drain_miss
+
+    EXPAND VEC_WITH_CAPACITY_U64 splice_vec, 8
+    EXPAND VEC_PUSH_U64 splice_vec, 10
+    EXPAND VEC_PUSH_U64 splice_vec, 20
+    EXPAND VEC_PUSH_U64 splice_vec, 30
+    EXPAND VEC_PUSH_U64 splice_vec, 40
+    EXPAND VEC_SPLICE_U64 splice_ok, spliced, splice_vec, 1, 2, repl_slice
+    EXPAND VEC_LEN splice_vec_len, splice_vec
+    EXPAND VEC_LEN spliced_len, spliced
+    EXPAND VEC_TRY_GET_U64 splice_first_ok, splice_first, splice_vec, 0
+    EXPAND VEC_TRY_GET_U64 splice_second_ok, splice_second, splice_vec, 1
+    EXPAND VEC_TRY_GET_U64 splice_third_ok, splice_third, splice_vec, 2
+    EXPAND VEC_TRY_GET_U64 splice_fourth_ok, splice_fourth, splice_vec, 3
+    EXPAND VEC_TRY_GET_U64 spliced_first_ok, spliced_first, spliced, 0
+    EXPAND VEC_TRY_GET_U64 spliced_second_ok, spliced_second, spliced, 1
+
+    drain_flag_ok = eq drain_ok, 1
+    vec_len_after_drain_ok = eq vec_len_after_drain, 3
+    drained_len_ok = eq drained_len, 2
+    vec_first_flag_ok = eq vec_first_ok, 1
+    vec_first_value_ok = eq vec_first, 1
+    vec_second_flag_ok = eq vec_second_ok, 1
+    vec_second_value_ok = eq vec_second, 4
+    vec_third_flag_ok = eq vec_third_ok, 1
+    vec_third_value_ok = eq vec_third, 5
+    drained_first_flag_ok = eq drained_first_ok, 1
+    drained_first_value_ok = eq drained_first, 2
+    drained_second_flag_ok = eq drained_second_ok, 1
+    drained_second_value_ok = eq drained_second, 3
+    drain_miss_flag_ok = eq drain_miss_ok, 0
+    drain_miss_len_ok = eq drain_miss_len, 0
+    splice_flag_ok = eq splice_ok, 1
+    splice_vec_len_ok = eq splice_vec_len, 4
+    spliced_len_ok = eq spliced_len, 2
+    splice_first_flag_ok = eq splice_first_ok, 1
+    splice_first_value_ok = eq splice_first, 10
+    splice_second_flag_ok = eq splice_second_ok, 1
+    splice_second_value_ok = eq splice_second, 77
+    splice_third_flag_ok = eq splice_third_ok, 1
+    splice_third_value_ok = eq splice_third, 88
+    splice_fourth_flag_ok = eq splice_fourth_ok, 1
+    splice_fourth_value_ok = eq splice_fourth, 40
+    spliced_first_flag_ok = eq spliced_first_ok, 1
+    spliced_first_value_ok = eq spliced_first, 20
+    spliced_second_flag_ok = eq spliced_second_ok, 1
+    spliced_second_value_ok = eq spliced_second, 30
+    ok01 = and drain_flag_ok, vec_len_after_drain_ok
+    ok02 = and ok01, drained_len_ok
+    ok03 = and ok02, vec_first_flag_ok
+    ok04 = and ok03, vec_first_value_ok
+    ok05 = and ok04, vec_second_flag_ok
+    ok06 = and ok05, vec_second_value_ok
+    ok07 = and ok06, vec_third_flag_ok
+    ok08 = and ok07, vec_third_value_ok
+    ok09 = and ok08, drained_first_flag_ok
+    ok10 = and ok09, drained_first_value_ok
+    ok11 = and ok10, drained_second_flag_ok
+    ok12 = and ok11, drained_second_value_ok
+    ok13 = and ok12, drain_miss_flag_ok
+    ok14 = and ok13, drain_miss_len_ok
+    ok15 = and ok14, splice_flag_ok
+    ok16 = and ok15, splice_vec_len_ok
+    ok17 = and ok16, spliced_len_ok
+    ok18 = and ok17, splice_first_flag_ok
+    ok19 = and ok18, splice_first_value_ok
+    ok20 = and ok19, splice_second_flag_ok
+    ok21 = and ok20, splice_second_value_ok
+    ok22 = and ok21, splice_third_flag_ok
+    ok23 = and ok22, splice_third_value_ok
+    ok24 = and ok23, splice_fourth_flag_ok
+    ok25 = and ok24, splice_fourth_value_ok
+    ok26 = and ok25, spliced_first_flag_ok
+    ok27 = and ok26, spliced_first_value_ok
+    ok28 = and ok27, spliced_second_flag_ok
+    ok = and ok28, spliced_second_value_ok
+    !repl_slice
+    !drain_ok
+    !vec_len_after_drain
+    !drained_len
+    !vec_first_ok
+    !vec_first
+    !vec_second_ok
+    !vec_second
+    !vec_third_ok
+    !vec_third
+    !drained_first_ok
+    !drained_first
+    !drained_second_ok
+    !drained_second
+    !drain_miss_ok
+    !drain_miss_len
+    !splice_ok
+    !splice_vec_len
+    !spliced_len
+    !splice_first_ok
+    !splice_first
+    !splice_second_ok
+    !splice_second
+    !splice_third_ok
+    !splice_third
+    !splice_fourth_ok
+    !splice_fourth
+    !spliced_first_ok
+    !spliced_first
+    !spliced_second_ok
+    !spliced_second
+    !drain_flag_ok
+    !vec_len_after_drain_ok
+    !drained_len_ok
+    !vec_first_flag_ok
+    !vec_first_value_ok
+    !vec_second_flag_ok
+    !vec_second_value_ok
+    !vec_third_flag_ok
+    !vec_third_value_ok
+    !drained_first_flag_ok
+    !drained_first_value_ok
+    !drained_second_flag_ok
+    !drained_second_value_ok
+    !drain_miss_flag_ok
+    !drain_miss_len_ok
+    !splice_flag_ok
+    !splice_vec_len_ok
+    !spliced_len_ok
+    !splice_first_flag_ok
+    !splice_first_value_ok
+    !splice_second_flag_ok
+    !splice_second_value_ok
+    !splice_third_flag_ok
+    !splice_third_value_ok
+    !splice_fourth_flag_ok
+    !splice_fourth_value_ok
+    !spliced_first_flag_ok
+    !spliced_first_value_ok
+    !spliced_second_flag_ok
+    !spliced_second_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    EXPAND VEC_FREE spliced
+    EXPAND VEC_FREE splice_vec
+    EXPAND VEC_FREE drain_miss
+    EXPAND VEC_FREE drained
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_DRAIN_SPLICE_OK, L_VEC_DRAIN_SPLICE_FAIL
+
+L_VEC_DRAIN_SPLICE_FAIL:
+    !ok
+    panic(917)
+
+L_VEC_DRAIN_SPLICE_OK:
+    !ok
+    return

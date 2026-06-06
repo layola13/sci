@@ -712,11 +712,12 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std vec retain macros",
         "[PASS] sa_std vec resize_with and dedup_by macros",
         "[PASS] sa_std vec dedup_by_key and extract_if macros",
+        "[PASS] sa_std vec drain and splice macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_string_vec_macro_surface.sa",
         string_vec_expected[0..],
-        "test result: ok. 17 passed; 0 failed; 0 skipped",
+        "test result: ok. 18 passed; 0 failed; 0 skipped",
     );
 
     const path_expected = [_][]const u8{
