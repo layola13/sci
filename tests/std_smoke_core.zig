@@ -1218,6 +1218,8 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_UNWRAP_OR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_UNWRAP_OR_RETURN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] TRY_OPTION"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] TRY_OPTION_RETURN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_UNWRAP"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_MAP_OR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, option_src, 1, "[MACRO] OPTION_MAP_OR_ELSE"));
@@ -1238,6 +1240,8 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_GET_ERR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_UNWRAP_OR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_RETURN_ERR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] TRY_RESULT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] TRY_RESULT_RETURN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_MAP_OK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_UNWRAP"));
     try std.testing.expect(std.mem.containsAtLeast(u8, result_src, 1, "[MACRO] RESULT_UNWRAP_ERR"));

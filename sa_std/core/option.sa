@@ -58,6 +58,26 @@ L_OPTION_UNWRAP_OR_RETURN_NONE_%out_value:
 L_OPTION_UNWRAP_OR_RETURN_END_%out_value:
 [END_MACRO]
 
+[MACRO] TRY_OPTION %out_value, %opt_reg
+    __try_option_tag_%out_value = load %opt_reg+Option_tag as u64
+    __try_option_is_some_%out_value = eq __try_option_tag_%out_value, Option_SOME
+    br __try_option_is_some_%out_value -> L_TRY_OPTION_SOME_%out_value, L_TRY_OPTION_NONE_%out_value
+L_TRY_OPTION_SOME_%out_value:
+    %out_value = load %opt_reg+Option_value as u64
+    !__try_option_is_some_%out_value
+    !__try_option_tag_%out_value
+    jmp L_TRY_OPTION_END_%out_value
+L_TRY_OPTION_NONE_%out_value:
+    !__try_option_is_some_%out_value
+    !__try_option_tag_%out_value
+    return %opt_reg
+L_TRY_OPTION_END_%out_value:
+[END_MACRO]
+
+[MACRO] TRY_OPTION_RETURN %out_value, %opt_reg
+    EXPAND TRY_OPTION %out_value, %opt_reg
+[END_MACRO]
+
 [MACRO] OPTION_UNWRAP %out_value, %opt_reg
     __option_tag_%out_value = load %opt_reg+Option_tag as u64
     br __option_tag_%out_value -> L_OPTION_UNWRAP_SOME_%out_value, L_OPTION_UNWRAP_NONE_%out_value

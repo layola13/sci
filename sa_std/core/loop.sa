@@ -16,7 +16,6 @@
     %out_index = add %start_value, 0
     __for_range_take_%out_index = ult %out_index, %end_value
     br __for_range_take_%out_index -> %body_label, %done_label
-    !__for_range_take_%out_index
 [END_MACRO]
 
 [MACRO] INDEX_LOOP %out_index, %start_value, %end_value, %body_label, %done_label
@@ -28,8 +27,6 @@
     %out_index = add 0, 0
     __array_has_item_%out_index = ult %out_index, __array_len_%out_index
     br __array_has_item_%out_index -> %body_label, %done_label
-    !__array_has_item_%out_index
-    !__array_len_%out_index
 [END_MACRO]
 
 [MACRO] ARRAY_SCAN_MIN %out_value, %current_value, %next_value

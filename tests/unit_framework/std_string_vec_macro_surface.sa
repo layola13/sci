@@ -787,11 +787,16 @@ L_ENTRY:
     EXPAND SLICE_NEW append_src_slice, append_src_data, 2
     EXPAND VEC_EXTEND_FROM_SLICE_U64 vec, append_src_slice
     EXPAND VEC_TRY_GET_U64 after_extend_ok, after_extend, vec, 3
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_U64 extend_within_ok, vec, 1, 2
+    EXPAND VEC_TRY_GET_U64 extend_within_first_ok, extend_within_first, vec, 4
+    EXPAND VEC_TRY_GET_U64 extend_within_second_ok, extend_within_second, vec, 5
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_U64 extend_within_miss_ok, vec, 9, 1
+    EXPAND VEC_LEN len_after_extend_within, vec
     EXPAND VEC_WITH_CAPACITY_U64 append_src_vec, 2
     EXPAND VEC_PUSH_U64 append_src_vec, 88
     EXPAND VEC_PUSH_U64 append_src_vec, 99
     EXPAND VEC_APPEND_U64 vec, append_src_vec
-    EXPAND VEC_TRY_GET_U64 after_append_ok, after_append, vec, 5
+    EXPAND VEC_TRY_GET_U64 after_append_ok, after_append, vec, 7
     EXPAND VEC_LEN append_src_len_after, append_src_vec
     prefix_data = alloc 8
     suffix_data = alloc 8
@@ -865,11 +870,18 @@ L_ENTRY:
     got_ok = eq got, 55
     after_extend_flag_ok = eq after_extend_ok, 1
     after_extend_value_ok = eq after_extend, 77
+    extend_within_flag_ok = eq extend_within_ok, 1
+    extend_within_first_flag_ok = eq extend_within_first_ok, 1
+    extend_within_first_value_ok = eq extend_within_first, 55
+    extend_within_second_flag_ok = eq extend_within_second_ok, 1
+    extend_within_second_value_ok = eq extend_within_second, 66
+    extend_within_miss_flag_ok = eq extend_within_miss_ok, 0
+    len_after_extend_within_ok = eq len_after_extend_within, 6
     after_append_flag_ok = eq after_append_ok, 1
     after_append_value_ok = eq after_append, 99
     append_src_len_after_ok = eq append_src_len_after, 0
-    cap_exact_ok = eq cap_exact, 8
-    cap_ok = eq cap, 8
+    cap_exact_ok = eq cap_exact, 10
+    cap_ok = eq cap, 10
     front_ok = eq front, 44
     back_ok = eq back, 99
     front_try_flag_ok = eq front_try_ok, 1
@@ -885,15 +897,15 @@ L_ENTRY:
     strip_prefix_flag_ok = eq strip_prefix_ok, 1
     strip_suffix_flag_ok = eq strip_suffix_ok, 1
     strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
-    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 5
+    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 7
     strip_prefix_tail_first_ok = eq strip_prefix_tail_first, 55
-    strip_suffix_head_len_ok = eq strip_suffix_head_len, 5
+    strip_suffix_head_len_ok = eq strip_suffix_head_len, 7
     strip_suffix_head_first_ok = eq strip_suffix_head_first, 44
     strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
     pop_ok_flag = eq pop_ok, 1
     pop_ok_value = eq popped, 99
     ptr_ok = ne data_ptr, 0
-    slice_len_ok = eq slice_len, 5
+    slice_len_ok = eq slice_len, 7
     swap_remove_flag_ok = eq swap_remove_ok, 1
     swap_remove_value_ok = eq swap_removed, 55
     swap_slot_flag_ok = eq swap_slot_ok, 1
@@ -901,24 +913,24 @@ L_ENTRY:
     swap_remove_miss_flag_ok = eq swap_remove_miss_ok, 0
     swap_remove_miss_value_ok = eq swap_remove_miss, 0
     pop2_ok_flag = eq pop2_ok, 1
-    pop2_ok_value = eq popped2, 77
+    pop2_ok_value = eq popped2, 66
     remove_flag_ok = eq remove_ok, 1
     remove_value_ok = eq removed, 88
     remove_slot_flag_ok = eq remove_slot_ok, 1
     remove_slot_value_ok = eq remove_slot, 66
     remove_miss_flag_ok = eq remove_miss_ok, 0
     remove_miss_value_ok = eq remove_miss, 0
-    len_ok = eq len, 2
+    len_ok = eq len, 4
     len_after_resize_ok = eq len_after_resize, 5
     resize_fill1_flag_ok = eq resize_fill1_ok, 1
-    resize_fill1_value_ok = eq resize_fill1, 123
+    resize_fill1_value_ok = eq resize_fill1, 55
     resize_fill2_flag_ok = eq resize_fill2_ok, 1
     resize_fill2_value_ok = eq resize_fill2, 123
     split_off_flag_ok = eq split_off_ok, 1
     len_after_split_off_ok = eq len_after_split_off, 2
     split_off_len_ok = eq split_off_len, 3
     split_off_first_flag_ok = eq split_off_first_ok, 1
-    split_off_first_value_ok = eq split_off_first, 123
+    split_off_first_value_ok = eq split_off_first, 77
     split_off_last_flag_ok = eq split_off_last_ok, 1
     split_off_last_value_ok = eq split_off_last, 123
     split_off_empty_flag_ok = eq split_off_empty_ok, 1
@@ -931,19 +943,26 @@ L_ENTRY:
     back_after_value_ok = eq back_after, 66
     ok01 = and got_ok, after_extend_flag_ok
     ok02 = and ok01, after_extend_value_ok
-    ok03 = and ok02, after_append_flag_ok
-    ok04 = and ok03, after_append_value_ok
-    ok05 = and ok04, append_src_len_after_ok
-    ok06 = and ok05, cap_exact_ok
-    ok07 = and ok06, cap_ok
-    ok08 = and ok07, front_ok
-    ok09 = and ok08, back_ok
-    ok10 = and ok09, front_try_flag_ok
-    ok11 = and ok10, front_try_value_ok
-    ok12 = and ok11, back_try_flag_ok
-    ok13 = and ok12, back_try_value_ok
-    ok14 = and ok13, contains_55_ok
-    ok15 = and ok14, contains_123_ok
+    ok03 = and ok02, extend_within_flag_ok
+    ok04 = and ok03, extend_within_first_flag_ok
+    ok05 = and ok04, extend_within_first_value_ok
+    ok06 = and ok05, extend_within_second_flag_ok
+    ok07 = and ok06, extend_within_second_value_ok
+    ok08 = and ok07, extend_within_miss_flag_ok
+    ok09 = and ok08, len_after_extend_within_ok
+    ok10 = and ok09, after_append_flag_ok
+    ok11 = and ok10, after_append_value_ok
+    ok12 = and ok11, append_src_len_after_ok
+    ok13 = and ok12, cap_exact_ok
+    ok14 = and ok13, cap_ok
+    ok15 = and ok14, front_ok
+    ok16 = and ok15, back_ok
+    ok17 = and ok16, front_try_flag_ok
+    ok18 = and ok17, front_try_value_ok
+    ok19 = and ok18, back_try_flag_ok
+    ok20 = and ok19, back_try_value_ok
+    ok21 = and ok20, contains_55_ok
+    ok22 = and ok21, contains_123_ok
     pattern01 = and starts_match_ok, ends_match_ok
     pattern02 = and pattern01, starts_miss_ok
     pattern_ok = and pattern02, ends_long_miss_ok
@@ -954,50 +973,57 @@ L_ENTRY:
     strip05 = and strip04, strip_suffix_head_len_ok
     strip06 = and strip05, strip_suffix_head_first_ok
     strip_ok = and strip06, strip_prefix_miss_empty_ok
-    ok16 = and ok15, pattern_ok
-    ok17 = and ok16, strip_ok
-    ok18 = and ok17, pop_ok_flag
-    ok19 = and ok18, pop_ok_value
-    ok20 = and ok19, ptr_ok
-    ok21 = and ok20, slice_len_ok
-    ok22 = and ok21, swap_remove_flag_ok
-    ok23 = and ok22, swap_remove_value_ok
-    ok24 = and ok23, swap_slot_flag_ok
-    ok25 = and ok24, swap_slot_value_ok
-    ok26 = and ok25, swap_remove_miss_flag_ok
-    ok27 = and ok26, swap_remove_miss_value_ok
-    ok28 = and ok27, pop2_ok_flag
-    ok29 = and ok28, pop2_ok_value
-    ok30 = and ok29, remove_flag_ok
-    ok31 = and ok30, remove_value_ok
-    ok32 = and ok31, remove_slot_flag_ok
-    ok33 = and ok32, remove_slot_value_ok
-    ok34 = and ok33, remove_miss_flag_ok
-    ok35 = and ok34, remove_miss_value_ok
-    ok36 = and ok35, len_ok
-    ok37 = and ok36, len_after_resize_ok
-    ok38 = and ok37, resize_fill1_flag_ok
-    ok39 = and ok38, resize_fill1_value_ok
-    ok40 = and ok39, resize_fill2_flag_ok
-    ok41 = and ok40, resize_fill2_value_ok
-    ok42 = and ok41, split_off_flag_ok
-    ok43 = and ok42, len_after_split_off_ok
-    ok44 = and ok43, split_off_len_ok
-    ok45 = and ok44, split_off_first_flag_ok
-    ok46 = and ok45, split_off_first_value_ok
-    ok47 = and ok46, split_off_last_flag_ok
-    ok48 = and ok47, split_off_last_value_ok
-    ok49 = and ok48, split_off_empty_flag_ok
-    ok50 = and ok49, len_after_empty_split_off_ok
-    ok51 = and ok50, split_off_empty_len_ok
-    ok52 = and ok51, split_off_miss_flag_ok
-    ok53 = and ok52, front_after_flag_ok
-    ok54 = and ok53, front_after_value_ok
-    ok55 = and ok54, back_after_flag_ok
-    ok = and ok55, back_after_value_ok
+    ok23 = and ok22, pattern_ok
+    ok24 = and ok23, strip_ok
+    ok25 = and ok24, pop_ok_flag
+    ok26 = and ok25, pop_ok_value
+    ok27 = and ok26, ptr_ok
+    ok28 = and ok27, slice_len_ok
+    ok29 = and ok28, swap_remove_flag_ok
+    ok30 = and ok29, swap_remove_value_ok
+    ok31 = and ok30, swap_slot_flag_ok
+    ok32 = and ok31, swap_slot_value_ok
+    ok33 = and ok32, swap_remove_miss_flag_ok
+    ok34 = and ok33, swap_remove_miss_value_ok
+    ok35 = and ok34, pop2_ok_flag
+    ok36 = and ok35, pop2_ok_value
+    ok37 = and ok36, remove_flag_ok
+    ok38 = and ok37, remove_value_ok
+    ok39 = and ok38, remove_slot_flag_ok
+    ok40 = and ok39, remove_slot_value_ok
+    ok41 = and ok40, remove_miss_flag_ok
+    ok42 = and ok41, remove_miss_value_ok
+    ok43 = and ok42, len_ok
+    ok44 = and ok43, len_after_resize_ok
+    ok45 = and ok44, resize_fill1_flag_ok
+    ok46 = and ok45, resize_fill1_value_ok
+    ok47 = and ok46, resize_fill2_flag_ok
+    ok48 = and ok47, resize_fill2_value_ok
+    ok49 = and ok48, split_off_flag_ok
+    ok50 = and ok49, len_after_split_off_ok
+    ok51 = and ok50, split_off_len_ok
+    ok52 = and ok51, split_off_first_flag_ok
+    ok53 = and ok52, split_off_first_value_ok
+    ok54 = and ok53, split_off_last_flag_ok
+    ok55 = and ok54, split_off_last_value_ok
+    ok56 = and ok55, split_off_empty_flag_ok
+    ok57 = and ok56, len_after_empty_split_off_ok
+    ok58 = and ok57, split_off_empty_len_ok
+    ok59 = and ok58, split_off_miss_flag_ok
+    ok60 = and ok59, front_after_flag_ok
+    ok61 = and ok60, front_after_value_ok
+    ok62 = and ok61, back_after_flag_ok
+    ok = and ok62, back_after_value_ok
     !got
     !after_extend_ok
     !after_extend
+    !extend_within_ok
+    !extend_within_first_ok
+    !extend_within_first
+    !extend_within_second_ok
+    !extend_within_second
+    !extend_within_miss_ok
+    !len_after_extend_within
     !after_append_ok
     !after_append
     !append_src_len_after
@@ -1075,6 +1101,13 @@ L_ENTRY:
     !got_ok
     !after_extend_flag_ok
     !after_extend_value_ok
+    !extend_within_flag_ok
+    !extend_within_first_flag_ok
+    !extend_within_first_value_ok
+    !extend_within_second_flag_ok
+    !extend_within_second_value_ok
+    !extend_within_miss_flag_ok
+    !len_after_extend_within_ok
     !after_append_flag_ok
     !after_append_value_ok
     !append_src_len_after_ok
@@ -1194,6 +1227,13 @@ L_ENTRY:
     !ok53
     !ok54
     !ok55
+    !ok56
+    !ok57
+    !ok58
+    !ok59
+    !ok60
+    !ok61
+    !ok62
     !pattern01
     !pattern02
     !pattern_ok
@@ -1470,36 +1510,56 @@ L_ENTRY:
     EXPAND VEC_LEN len_after_set_len, vec
     EXPAND VEC_SHRINK_TO_U64 vec, 2
     EXPAND VEC_CAPACITY cap_after_shrink_to, vec
+    EXPAND VEC_TRY_SHRINK_TO_U64 try_shrink_to_ok, vec, 2
+    EXPAND VEC_CAPACITY cap_after_try_shrink_to, vec
     EXPAND VEC_SHRINK_TO_FIT_U64 vec
     EXPAND VEC_CAPACITY cap_after_shrink_to_fit, vec
+    EXPAND VEC_TRY_SHRINK_TO_FIT_U64 try_shrink_to_fit_ok, vec
+    EXPAND VEC_CAPACITY cap_after_try_shrink_to_fit, vec
     EXPAND VEC_TRY_GET_U64 tail_ok, tail_value, vec, 2
 
     resize_cap_ok = eq cap_after_resize, 5
     mut_slice_len_ok = eq mut_slice_len, 5
     set_len_ok = eq len_after_set_len, 3
     shrink_to_ok = eq cap_after_shrink_to, 3
+    try_shrink_to_flag_ok = eq try_shrink_to_ok, 1
+    try_shrink_to_cap_ok = eq cap_after_try_shrink_to, 3
     shrink_to_fit_ok = eq cap_after_shrink_to_fit, 3
+    try_shrink_to_fit_flag_ok = eq try_shrink_to_fit_ok, 1
+    try_shrink_to_fit_cap_ok = eq cap_after_try_shrink_to_fit, 3
     tail_flag_ok = eq tail_ok, 1
     tail_value_ok = eq tail_value, 30
     ok01 = and resize_cap_ok, mut_slice_len_ok
     ok02 = and ok01, set_len_ok
     ok03 = and ok02, shrink_to_ok
-    ok04 = and ok03, shrink_to_fit_ok
-    ok05 = and ok04, tail_flag_ok
-    ok = and ok05, tail_value_ok
+    ok04 = and ok03, try_shrink_to_flag_ok
+    ok05 = and ok04, try_shrink_to_cap_ok
+    ok06 = and ok05, shrink_to_fit_ok
+    ok07 = and ok06, try_shrink_to_fit_flag_ok
+    ok08 = and ok07, try_shrink_to_fit_cap_ok
+    ok09 = and ok08, tail_flag_ok
+    ok = and ok09, tail_value_ok
     !cap_after_resize
     !mut_slice
     !mut_slice_len
     !len_after_set_len
     !cap_after_shrink_to
+    !try_shrink_to_ok
+    !cap_after_try_shrink_to
     !cap_after_shrink_to_fit
+    !try_shrink_to_fit_ok
+    !cap_after_try_shrink_to_fit
     !tail_ok
     !tail_value
     !resize_cap_ok
     !mut_slice_len_ok
     !set_len_ok
     !shrink_to_ok
+    !try_shrink_to_flag_ok
+    !try_shrink_to_cap_ok
     !shrink_to_fit_ok
+    !try_shrink_to_fit_flag_ok
+    !try_shrink_to_fit_cap_ok
     !tail_flag_ok
     !tail_value_ok
     !ok01
@@ -1507,6 +1567,10 @@ L_ENTRY:
     !ok03
     !ok04
     !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
     EXPAND VEC_FREE vec
     br ok -> L_VEC_CAP_OK, L_VEC_CAP_FAIL
 

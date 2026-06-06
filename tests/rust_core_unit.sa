@@ -64,7 +64,6 @@ L_ENTRY:
 L_ENTRY:
     y = add x, x
     !x
-    !y
     return y
 
 @option_unwrap_or_return_probe(opt: ptr) -> u64:
@@ -83,6 +82,22 @@ L_ENTRY:
 L_ENTRY:
     res = alloc Result_SIZE
     EXPAND RESULT_RETURN_ERR res, err
+
+@try_result_probe(res: ptr) -> ptr:
+L_ENTRY:
+    EXPAND TRY_RESULT value, res
+    out = alloc Result_SIZE
+    EXPAND RESULT_SET_OK out, value
+    !res
+    return out
+
+@try_option_probe(opt: ptr) -> ptr:
+L_ENTRY:
+    EXPAND TRY_OPTION value, opt
+    out = alloc Option_SIZE
+    EXPAND OPTION_SET_SOME out, value
+    !opt
+    return out
 
 @drop_probe(&self: ptr) -> i32:
 L_ENTRY:
@@ -294,8 +309,46 @@ L_ERR_ERR:
     returned_res = call @result_return_err_probe(99)
     returned_tag = load returned_res+Result_tag as u64
     returned_err = load returned_res+Result_err as u64
+    try_ok_res = call @try_result_probe(ok_res)
+    try_err_res = call @try_result_probe(err_res)
+    try_ok_tag = load try_ok_res+Result_tag as u64
+    try_ok_value = load try_ok_res+Result_ok as u64
+    try_err_tag = load try_err_res+Result_tag as u64
+    try_err_value = load try_err_res+Result_err as u64
+    try_some_opt = call @try_option_probe(some_opt)
+    try_none_opt = call @try_option_probe(none_opt)
+    try_some_tag = load try_some_opt+Option_tag as u64
+    try_some_value = load try_some_opt+Option_value as u64
+    try_none_tag = load try_none_opt+Option_tag as u64
     returned_ok = eq returned_tag, Result_ERR
     returned_err_ok = eq returned_err, 99
+    try_ok_tag_ok = eq try_ok_tag, Result_OK
+    try_ok_value_ok = eq try_ok_value, 13
+    try_err_tag_ok = eq try_err_tag, Result_ERR
+    try_err_value_ok = eq try_err_value, 17
+    try_some_tag_ok = eq try_some_tag, Option_SOME
+    try_some_value_ok = eq try_some_value, 11
+    try_none_tag_ok = eq try_none_tag, Option_NONE
+    result_try01 = and some_ok, none_ok
+    result_try02 = and result_try01, ok_match
+    result_try03 = and result_try02, err_match
+    result_try04 = and result_try03, mapped_ok_ok
+    result_try05 = and result_try04, mapped_err_ok
+    result_try06 = and result_try05, returned_ok
+    result_try07 = and result_try06, returned_err_ok
+    result_try08 = and result_try07, try_ok_tag_ok
+    result_try09 = and result_try08, try_ok_value_ok
+    result_try10 = and result_try09, try_err_tag_ok
+    result_try11 = and result_try10, try_err_value_ok
+    result_try12 = and result_try11, try_some_tag_ok
+    result_try13 = and result_try12, try_some_value_ok
+    result_try_ok = and result_try13, try_none_tag_ok
+    br result_try_ok -> L_OPTION_RESULT_TRY_OK, L_OPTION_RESULT_TRY_FAIL
+
+L_OPTION_RESULT_TRY_FAIL:
+    panic(906)
+
+L_OPTION_RESULT_TRY_OK:
     !some_value
     !none_value
     !ok_value
@@ -307,6 +360,17 @@ L_ERR_ERR:
     !returned_res
     !returned_tag
     !returned_err
+    !try_ok_res
+    !try_err_res
+    !try_ok_tag
+    !try_ok_value
+    !try_err_tag
+    !try_err_value
+    !try_some_opt
+    !try_none_opt
+    !try_some_tag
+    !try_some_value
+    !try_none_tag
     !some_ok
     !none_ok
     !ok_match
@@ -315,6 +379,59 @@ L_ERR_ERR:
     !mapped_err_ok
     !returned_ok
     !returned_err_ok
+    !try_ok_tag_ok
+    !try_ok_value_ok
+    !try_err_tag_ok
+    !try_err_value_ok
+    !try_some_tag_ok
+    !try_some_value_ok
+    !try_none_tag_ok
+    !result_try01
+    !result_try02
+    !result_try03
+    !result_try04
+    !result_try05
+    !result_try06
+    !result_try07
+    !result_try08
+    !result_try09
+    !result_try10
+    !result_try11
+    !result_try12
+    !result_try13
+    !result_try_ok
+    !some_opt
+    !none_opt
+    !ok_res
+    !err_res
+    return
+
+L_NONE:
+    trap_some = add 0, 0
+    !trap_some
+    !some_opt
+    !none_opt
+    return
+
+L_NONE_FAIL:
+    trap_none = add 0, 0
+    !trap_none
+    !some_opt
+    !none_opt
+    return
+
+L_ERR:
+    trap_ok = add 0, 0
+    !trap_ok
+    !some_opt
+    !none_opt
+    !ok_res
+    !err_res
+    return
+
+L_ERR_OK:
+    trap_err = add 0, 0
+    !trap_err
     !some_opt
     !none_opt
     !ok_res
@@ -331,7 +448,6 @@ L_ENTRY:
     slice = alloc Slice_SIZE
     EXPAND SLICE_NEW slice, data, 4
     EXPAND SLICE_GET_U64 second, slice, 1
-    iter = alloc Iter_SIZE
     EXPAND ITER_FROM_SLICE iter, slice
     EXPAND ITER_IS_EMPTY is_empty, iter
     EXPAND ITER_HAS_NEXT has_next, iter
@@ -388,6 +504,11 @@ L_FOR_BODY:
     !ok1
     !ok2
     !ok3
+    return
+
+L_FOR_DONE:
+    trap = add 0, 0
+    !trap
     return
 
 @test "control flow helper macros branch and label correctly"():
@@ -526,7 +647,6 @@ L_ENTRY:
     ok2 = eq got2, value2
     ok3 = ult 0, key_hash
     EXPAND MAP_FREE map
-    !map
     !key
     !value1
     !value2
@@ -590,7 +710,6 @@ L_LOOP_BODY:
     ok1 = ult 0, first_item
     ok2 = ult probe_start, 8
     ok3 = ult probe_next, 8
-    !bytes
     !slice
     !idx
     !first_item
@@ -610,43 +729,6 @@ L_LOOP_DONE:
 L_LOOP_FAIL:
     trap_fail = add 0, 0
     !trap_fail
-    return
-
-L_FOR_DONE:
-    trap = add 0, 0
-    !trap
-    return
-
-L_NONE:
-    trap_some = add 0, 0
-    !trap_some
-    !some_opt
-    !none_opt
-    return
-
-L_NONE_FAIL:
-    trap_none = add 0, 0
-    !trap_none
-    !some_opt
-    !none_opt
-    return
-
-L_ERR:
-    trap_ok = add 0, 0
-    !trap_ok
-    !some_opt
-    !none_opt
-    !ok_res
-    !err_res
-    return
-
-L_ERR_OK:
-    trap_err = add 0, 0
-    !trap_err
-    !some_opt
-    !none_opt
-    !ok_res
-    !err_res
     return
 
 @test "cell set get replace"():

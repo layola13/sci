@@ -21,7 +21,6 @@
     __iter_index_%out_bool = load %iter_reg+Iter_index as u64
     __iter_done_%out_bool = eq __iter_index_%out_bool, __iter_len_%out_bool
     %out_bool = __iter_done_%out_bool
-    !__iter_done_%out_bool
     !__iter_index_%out_bool
     !__iter_len_%out_bool
 [END_MACRO]
