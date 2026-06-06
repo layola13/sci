@@ -26,9 +26,9 @@ Current external capability buckets that should stay outside this report's `sa_s
 ## 1. Partially Implemented Modules
 
 ### 1.1 Vector (`std::vec::Vec` vs `sa_std/vec.sa`)
-*   **Implemented in `sa_std`**: `VEC_NEW` / `sa_vec_new`, `VEC_WITH_CAPACITY`, `VEC_TRY_WITH_CAPACITY`, `VEC_FREE` / `sa_vec_free`, `VEC_LEN`, `VEC_CAPACITY`, `VEC_IS_EMPTY`, `VEC_AS_PTR`, `VEC_AS_MUT_PTR`, `VEC_AS_SLICE`, `VEC_AS_MUT_SLICE`, `VEC_GET`, `VEC_GET_U64`, `VEC_TRY_GET`, `VEC_TRY_GET_U64`, `VEC_FRONT`, `VEC_BACK`, `VEC_TRY_FRONT`, `VEC_TRY_FRONT_U64`, `VEC_TRY_BACK`, `VEC_TRY_BACK_U64`, `VEC_PUSH`, `VEC_PUSH_U64`, `VEC_PUSH_WITHIN_CAPACITY`, `VEC_PUSH_WITHIN_CAPACITY_U64`, `VEC_RESERVE`, `VEC_RESERVE_U64`, `VEC_RESERVE_EXACT`, `VEC_RESERVE_EXACT_U64`, `VEC_TRY_RESERVE`, `VEC_TRY_RESERVE_U64`, `VEC_TRY_RESERVE_EXACT`, `VEC_TRY_RESERVE_EXACT_U64`, `VEC_SHRINK_TO`, `VEC_SHRINK_TO_U64`, `VEC_TRY_SHRINK_TO`, `VEC_TRY_SHRINK_TO_U64`, `VEC_SHRINK_TO_FIT`, `VEC_SHRINK_TO_FIT_U64`, `VEC_TRY_SHRINK_TO_FIT`, `VEC_TRY_SHRINK_TO_FIT_U64`, `VEC_TRY_POP`, `VEC_POP`, `VEC_CLEAR`, `VEC_TRUNCATE`, `VEC_SET_LEN`, `VEC_CONTAINS_U64`, `VEC_STARTS_WITH_U64`, `VEC_ENDS_WITH_U64`, `VEC_TRY_STRIP_PREFIX_U64`, `VEC_TRY_STRIP_SUFFIX_U64`, `VEC_TRIM_PREFIX_U64`, `VEC_TRIM_SUFFIX_U64`, `VEC_TRY_SPLIT_AT_U64`, `VEC_EXTEND_FROM_SLICE`, `VEC_EXTEND_FROM_SLICE_U64`, `VEC_TRY_EXTEND_FROM_WITHIN_U64`, `VEC_EXTEND_FROM_WITHIN_U64`, `VEC_APPEND`, `VEC_APPEND_U64`, `VEC_TRY_INSERT`, `VEC_TRY_INSERT_U64`, `VEC_INSERT`, `VEC_INSERT_U64`, `VEC_TRY_SWAP_REMOVE`, `VEC_TRY_SWAP_REMOVE_U64`, `VEC_SWAP_REMOVE`, `VEC_SWAP_REMOVE_U64`, `VEC_TRY_REMOVE`, `VEC_TRY_REMOVE_U64`, `VEC_REMOVE`, `VEC_REMOVE_U64`, `VEC_TRY_SPLIT_OFF`, `VEC_TRY_SPLIT_OFF_U64`, `VEC_RESIZE`, `VEC_RESIZE_U64`, `VEC_DEDUP_U64`.
-*   **Missing from Rust**: `retain`, `retain_mut`, `dedup_by`, `dedup_by_key`, `drain`, `splice`, `extract_if`, `resize_with`, and `pop_if`.
-*   **Scope note**: `VEC_APPEND*` appends by copying the source vector's current slice view into the destination and then clearing the source length. `VEC_EXTEND_FROM_SLICE*` copies from a caller-provided slice view. `VEC_TRY_EXTEND_FROM_WITHIN_U64` checks a concrete `(start, length)` range, reserves capacity before re-reading the source slice, and copies the in-range `u64` window. `VEC_SWAP_REMOVE*`, `VEC_TRY_INSERT*`, and `VEC_DEDUP_U64` currently target the concrete `u64`/8-byte element layout used by this SA vec surface.
+*   **Implemented in `sa_std`**: `VEC_NEW` / `sa_vec_new`, `VEC_WITH_CAPACITY`, `VEC_TRY_WITH_CAPACITY`, `VEC_FREE` / `sa_vec_free`, `VEC_LEN`, `VEC_CAPACITY`, `VEC_IS_EMPTY`, `VEC_AS_PTR`, `VEC_AS_MUT_PTR`, `VEC_AS_SLICE`, `VEC_AS_MUT_SLICE`, `VEC_GET`, `VEC_GET_U64`, `VEC_TRY_GET`, `VEC_TRY_GET_U64`, `VEC_FRONT`, `VEC_BACK`, `VEC_TRY_FRONT`, `VEC_TRY_FRONT_U64`, `VEC_TRY_BACK`, `VEC_TRY_BACK_U64`, `VEC_PUSH`, `VEC_PUSH_U64`, `VEC_PUSH_WITHIN_CAPACITY`, `VEC_PUSH_WITHIN_CAPACITY_U64`, `VEC_RESERVE`, `VEC_RESERVE_U64`, `VEC_RESERVE_EXACT`, `VEC_RESERVE_EXACT_U64`, `VEC_TRY_RESERVE`, `VEC_TRY_RESERVE_U64`, `VEC_TRY_RESERVE_EXACT`, `VEC_TRY_RESERVE_EXACT_U64`, `VEC_SHRINK_TO`, `VEC_SHRINK_TO_U64`, `VEC_TRY_SHRINK_TO`, `VEC_TRY_SHRINK_TO_U64`, `VEC_SHRINK_TO_FIT`, `VEC_SHRINK_TO_FIT_U64`, `VEC_TRY_SHRINK_TO_FIT`, `VEC_TRY_SHRINK_TO_FIT_U64`, `VEC_TRY_POP`, `VEC_TRY_POP_IF_U64`, `VEC_POP_IF_U64`, `VEC_POP`, `VEC_CLEAR`, `VEC_TRUNCATE`, `VEC_SET_LEN`, `VEC_CONTAINS_U64`, `VEC_STARTS_WITH_U64`, `VEC_ENDS_WITH_U64`, `VEC_TRY_STRIP_PREFIX_U64`, `VEC_TRY_STRIP_SUFFIX_U64`, `VEC_TRIM_PREFIX_U64`, `VEC_TRIM_SUFFIX_U64`, `VEC_TRY_SPLIT_AT_U64`, `VEC_EXTEND_FROM_SLICE`, `VEC_EXTEND_FROM_SLICE_U64`, `VEC_TRY_EXTEND_FROM_WITHIN_U64`, `VEC_EXTEND_FROM_WITHIN_U64`, `VEC_APPEND`, `VEC_APPEND_U64`, `VEC_TRY_INSERT`, `VEC_TRY_INSERT_U64`, `VEC_INSERT`, `VEC_INSERT_U64`, `VEC_TRY_SWAP_REMOVE`, `VEC_TRY_SWAP_REMOVE_U64`, `VEC_SWAP_REMOVE`, `VEC_SWAP_REMOVE_U64`, `VEC_TRY_REMOVE`, `VEC_TRY_REMOVE_U64`, `VEC_REMOVE`, `VEC_REMOVE_U64`, `VEC_TRY_SPLIT_OFF`, `VEC_TRY_SPLIT_OFF_U64`, `VEC_RESIZE`, `VEC_RESIZE_U64`, `VEC_DEDUP_U64`.
+*   **Missing from Rust**: `retain`, `retain_mut`, `dedup_by`, `dedup_by_key`, `drain`, `splice`, `extract_if`, and `resize_with`.
+*   **Scope note**: `VEC_APPEND*` appends by copying the source vector's current slice view into the destination and then clearing the source length. `VEC_EXTEND_FROM_SLICE*` copies from a caller-provided slice view. `VEC_TRY_EXTEND_FROM_WITHIN_U64` checks a concrete `(start, length)` range, reserves capacity before re-reading the source slice, and copies the in-range `u64` window. `VEC_TRY_POP_IF_U64` checks the current last `u64` with a caller-supplied predicate function and only pops when it returns nonzero. `VEC_SWAP_REMOVE*`, `VEC_TRY_INSERT*`, and `VEC_DEDUP_U64` currently target the concrete `u64`/8-byte element layout used by this SA vec surface.
 *   **Missing Infrastructure**: Iterator support (`IntoIterator`, `iter()`, `iter_mut()`).
 *   **Scope note**: `VEC_RESERVE_EXACT*` maps to the current exact-growth reserve implementation; the allocator may still choose physical allocation details outside the SA surface. The strip helpers return `u64` slice views over the vector data rather than allocating or copying.
 
@@ -163,12 +163,14 @@ Rust relies heavily on declarative and procedural macros. `sa_std` provides func
 ### 3.1 Implemented in `sa_std` (Macro Parity)
 | Rust Macro | `sa_std` Equivalent | Note |
 | :--- | :--- | :--- |
-| `println!` | `PRINTLN` | Limited to string/bytes, no complex interpolation. |
+| `print!` / `println!` | `PRINT` / `PRINTLN` | Limited to string/bytes, no complex interpolation. |
+| `eprint!` / `eprintln!` | `EPRINT` / `EPRINTLN` | Limited to string/bytes through stderr. |
 | `assert!` | `ASSERT_TRUE` | Basic boolean check. |
 | `assert_eq!` | `ASSERT_EQ` | Basic equality check. |
 | `assert_ne!` | `ASSERT_NE` | Basic inequality check. |
 | `vec!` | `VEC_NEW` / `VEC_PUSH` | No literal initialization like `vec![1, 2, 3]`. |
 | `concat!` | `STR_CONCAT` | Concatenates two slices. |
+| `stringify!` | `STRINGIFY!` | Flattener macro emits a source-text slice. |
 
 ### 3.1a Newly landed base macros
 These are now implemented as first-wave portability helpers rather than missing gaps:
@@ -182,13 +184,11 @@ These are now implemented as first-wave portability helpers rather than missing 
 - Control-flow sugar: `MATCH_BOOL`, `ELIF`, `WHILE_LET`, `BREAK_IF`, `CONTINUE_IF`
 
 ### 3.2 Missing or Partially Implemented (Gaps)
-*   **Formatting & Printing**: 
-    *   Missing `print!`, `eprint!`, `eprintln!`.
+*   **Formatting & Printing**:
     *   Missing `format!` (No dynamic string interpolation/formatting macro).
-    *   Missing `write!`, `writeln!` (No macro to write formatted data to a buffer/stream).
+    *   `WRITE` / `WRITELN` cover raw byte writes to a handle, but Rust-style formatted `write!` / `writeln!` interpolation is still missing.
 *   **Error Handling & Control Flow**:
-    *   Missing `panic!` as a Rust macro surface; runtime panic behavior is available through `sa_std/core/panic.sa`.
-    *   Missing `todo!`, `unimplemented!`, `unreachable!`.
+    *   `PANIC`, `PANIC_MSG`, `TODO`, `UNIMPLEMENTED`, and `UNREACHABLE` cover the basic panic-style macro paths, but not Rust's full formatting payload surface.
     *   `MATCHES_OPTION` / `MATCHES_RESULT` cover the tag-checking subset of Rust `matches!` for `Option` / `Result` layouts.
     *   `TRY_OPTION` and `TRY_RESULT` provide Zig-style explicit early-return helpers over SA's concrete `Option` / `Result` memory layouts. SA still does not provide Rust's generic `Try` trait, `FromResidual` conversion, or a fully generic `try!` macro surface.
 *   **Compile-time & Metaprogramming**:
@@ -198,6 +198,6 @@ These are now implemented as first-wave portability helpers rather than missing 
     *   `include!` is now covered by SA flattener macro expansion tests.
     *   `line!`, `file!`, `column!` are now covered by SA flattener macro expansion tests.
     *   `module_path!` is now covered by SA flattener macro expansion tests.
-    *   Missing `stringify!` (Convert expression to string literal).
+    *   `stringify!` is now covered by SA flattener macro expansion tests.
 *   **Collection Initializers**:
     *   Missing literal initializers for all collections (e.g., no `hashmap!{...}`, `set!{...}`).

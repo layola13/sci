@@ -23,6 +23,18 @@
 @const JOIN_RIGHT = utf8:"-std"
 @const JOINED = utf8:"rust-std"
 
+@vec_pop_if_is_99(value: u64) -> u64:
+L_ENTRY:
+    is_match = eq value, 99
+    !value
+    return is_match
+
+@vec_pop_if_is_88(value: u64) -> u64:
+L_ENTRY:
+    is_match = eq value, 88
+    !value
+    return is_match
+
 @test "sa_std string convenience macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
@@ -798,12 +810,18 @@ L_ENTRY:
     EXPAND VEC_APPEND_U64 vec, append_src_vec
     EXPAND VEC_TRY_GET_U64 after_append_ok, after_append, vec, 7
     EXPAND VEC_LEN append_src_len_after, append_src_vec
+    EXPAND VEC_TRY_POP_IF_U64 pop_if_miss_ok, pop_if_miss, vec, @vec_pop_if_is_88
+    EXPAND VEC_LEN len_after_pop_if_miss, vec
+    EXPAND VEC_TRY_POP_IF_U64 pop_if_hit_ok, pop_if_hit, vec, @vec_pop_if_is_99
+    EXPAND VEC_LEN len_after_pop_if_hit, vec
+    EXPAND VEC_WITH_CAPACITY_U64 pop_if_empty_vec, 0
+    EXPAND VEC_TRY_POP_IF_U64 pop_if_empty_ok, pop_if_empty, pop_if_empty_vec, @vec_pop_if_is_99
     prefix_data = alloc 8
     suffix_data = alloc 8
     miss_prefix_data = alloc 8
     long_suffix_data = alloc 24
     store prefix_data+0, 44 as u64
-    store suffix_data+0, 99 as u64
+    store suffix_data+0, 88 as u64
     store miss_prefix_data+0, 66 as u64
     store long_suffix_data+0, 44 as u64
     store long_suffix_data+8, 55 as u64
@@ -880,14 +898,22 @@ L_ENTRY:
     after_append_flag_ok = eq after_append_ok, 1
     after_append_value_ok = eq after_append, 99
     append_src_len_after_ok = eq append_src_len_after, 0
-    cap_exact_ok = eq cap_exact, 10
-    cap_ok = eq cap, 10
+    pop_if_miss_flag_ok = eq pop_if_miss_ok, 0
+    pop_if_miss_value_ok = eq pop_if_miss, 0
+    len_after_pop_if_miss_ok = eq len_after_pop_if_miss, 8
+    pop_if_hit_flag_ok = eq pop_if_hit_ok, 1
+    pop_if_hit_value_ok = eq pop_if_hit, 99
+    len_after_pop_if_hit_ok = eq len_after_pop_if_hit, 7
+    pop_if_empty_flag_ok = eq pop_if_empty_ok, 0
+    pop_if_empty_value_ok = eq pop_if_empty, 0
+    cap_exact_ok = eq cap_exact, 9
+    cap_ok = eq cap, 9
     front_ok = eq front, 44
-    back_ok = eq back, 99
+    back_ok = eq back, 88
     front_try_flag_ok = eq front_try_ok, 1
     front_try_value_ok = eq front_try, 44
     back_try_flag_ok = eq back_try_ok, 1
-    back_try_value_ok = eq back_try, 99
+    back_try_value_ok = eq back_try, 88
     contains_55_ok = eq contains_55, 1
     contains_123_ok = eq contains_123, 0
     starts_match_ok = eq starts_ok, 1
@@ -897,33 +923,33 @@ L_ENTRY:
     strip_prefix_flag_ok = eq strip_prefix_ok, 1
     strip_suffix_flag_ok = eq strip_suffix_ok, 1
     strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
-    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 7
+    strip_prefix_tail_len_ok = eq strip_prefix_tail_len, 6
     strip_prefix_tail_first_ok = eq strip_prefix_tail_first, 55
-    strip_suffix_head_len_ok = eq strip_suffix_head_len, 7
+    strip_suffix_head_len_ok = eq strip_suffix_head_len, 6
     strip_suffix_head_first_ok = eq strip_suffix_head_first, 44
     strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
     pop_ok_flag = eq pop_ok, 1
-    pop_ok_value = eq popped, 99
+    pop_ok_value = eq popped, 88
     ptr_ok = ne data_ptr, 0
-    slice_len_ok = eq slice_len, 7
+    slice_len_ok = eq slice_len, 6
     swap_remove_flag_ok = eq swap_remove_ok, 1
     swap_remove_value_ok = eq swap_removed, 55
     swap_slot_flag_ok = eq swap_slot_ok, 1
-    swap_slot_value_ok = eq swap_slot, 88
+    swap_slot_value_ok = eq swap_slot, 66
     swap_remove_miss_flag_ok = eq swap_remove_miss_ok, 0
     swap_remove_miss_value_ok = eq swap_remove_miss, 0
     pop2_ok_flag = eq pop2_ok, 1
-    pop2_ok_value = eq popped2, 66
+    pop2_ok_value = eq popped2, 55
     remove_flag_ok = eq remove_ok, 1
-    remove_value_ok = eq removed, 88
+    remove_value_ok = eq removed, 66
     remove_slot_flag_ok = eq remove_slot_ok, 1
     remove_slot_value_ok = eq remove_slot, 66
     remove_miss_flag_ok = eq remove_miss_ok, 0
     remove_miss_value_ok = eq remove_miss, 0
-    len_ok = eq len, 4
+    len_ok = eq len, 3
     len_after_resize_ok = eq len_after_resize, 5
     resize_fill1_flag_ok = eq resize_fill1_ok, 1
-    resize_fill1_value_ok = eq resize_fill1, 55
+    resize_fill1_value_ok = eq resize_fill1, 123
     resize_fill2_flag_ok = eq resize_fill2_ok, 1
     resize_fill2_value_ok = eq resize_fill2, 123
     split_off_flag_ok = eq split_off_ok, 1
@@ -953,16 +979,24 @@ L_ENTRY:
     ok10 = and ok09, after_append_flag_ok
     ok11 = and ok10, after_append_value_ok
     ok12 = and ok11, append_src_len_after_ok
-    ok13 = and ok12, cap_exact_ok
-    ok14 = and ok13, cap_ok
-    ok15 = and ok14, front_ok
-    ok16 = and ok15, back_ok
-    ok17 = and ok16, front_try_flag_ok
-    ok18 = and ok17, front_try_value_ok
-    ok19 = and ok18, back_try_flag_ok
-    ok20 = and ok19, back_try_value_ok
-    ok21 = and ok20, contains_55_ok
-    ok22 = and ok21, contains_123_ok
+    ok13 = and ok12, pop_if_miss_flag_ok
+    ok14 = and ok13, pop_if_miss_value_ok
+    ok15 = and ok14, len_after_pop_if_miss_ok
+    ok16 = and ok15, pop_if_hit_flag_ok
+    ok17 = and ok16, pop_if_hit_value_ok
+    ok18 = and ok17, len_after_pop_if_hit_ok
+    ok19 = and ok18, pop_if_empty_flag_ok
+    ok20 = and ok19, pop_if_empty_value_ok
+    ok21 = and ok20, cap_exact_ok
+    ok22 = and ok21, cap_ok
+    ok23 = and ok22, front_ok
+    ok24 = and ok23, back_ok
+    ok25 = and ok24, front_try_flag_ok
+    ok26 = and ok25, front_try_value_ok
+    ok27 = and ok26, back_try_flag_ok
+    ok28 = and ok27, back_try_value_ok
+    ok29 = and ok28, contains_55_ok
+    ok30 = and ok29, contains_123_ok
     pattern01 = and starts_match_ok, ends_match_ok
     pattern02 = and pattern01, starts_miss_ok
     pattern_ok = and pattern02, ends_long_miss_ok
@@ -973,47 +1007,47 @@ L_ENTRY:
     strip05 = and strip04, strip_suffix_head_len_ok
     strip06 = and strip05, strip_suffix_head_first_ok
     strip_ok = and strip06, strip_prefix_miss_empty_ok
-    ok23 = and ok22, pattern_ok
-    ok24 = and ok23, strip_ok
-    ok25 = and ok24, pop_ok_flag
-    ok26 = and ok25, pop_ok_value
-    ok27 = and ok26, ptr_ok
-    ok28 = and ok27, slice_len_ok
-    ok29 = and ok28, swap_remove_flag_ok
-    ok30 = and ok29, swap_remove_value_ok
-    ok31 = and ok30, swap_slot_flag_ok
-    ok32 = and ok31, swap_slot_value_ok
-    ok33 = and ok32, swap_remove_miss_flag_ok
-    ok34 = and ok33, swap_remove_miss_value_ok
-    ok35 = and ok34, pop2_ok_flag
-    ok36 = and ok35, pop2_ok_value
-    ok37 = and ok36, remove_flag_ok
-    ok38 = and ok37, remove_value_ok
-    ok39 = and ok38, remove_slot_flag_ok
-    ok40 = and ok39, remove_slot_value_ok
-    ok41 = and ok40, remove_miss_flag_ok
-    ok42 = and ok41, remove_miss_value_ok
-    ok43 = and ok42, len_ok
-    ok44 = and ok43, len_after_resize_ok
-    ok45 = and ok44, resize_fill1_flag_ok
-    ok46 = and ok45, resize_fill1_value_ok
-    ok47 = and ok46, resize_fill2_flag_ok
-    ok48 = and ok47, resize_fill2_value_ok
-    ok49 = and ok48, split_off_flag_ok
-    ok50 = and ok49, len_after_split_off_ok
-    ok51 = and ok50, split_off_len_ok
-    ok52 = and ok51, split_off_first_flag_ok
-    ok53 = and ok52, split_off_first_value_ok
-    ok54 = and ok53, split_off_last_flag_ok
-    ok55 = and ok54, split_off_last_value_ok
-    ok56 = and ok55, split_off_empty_flag_ok
-    ok57 = and ok56, len_after_empty_split_off_ok
-    ok58 = and ok57, split_off_empty_len_ok
-    ok59 = and ok58, split_off_miss_flag_ok
-    ok60 = and ok59, front_after_flag_ok
-    ok61 = and ok60, front_after_value_ok
-    ok62 = and ok61, back_after_flag_ok
-    ok = and ok62, back_after_value_ok
+    ok31 = and ok30, pattern_ok
+    ok32 = and ok31, strip_ok
+    ok33 = and ok32, pop_ok_flag
+    ok34 = and ok33, pop_ok_value
+    ok35 = and ok34, ptr_ok
+    ok36 = and ok35, slice_len_ok
+    ok37 = and ok36, swap_remove_flag_ok
+    ok38 = and ok37, swap_remove_value_ok
+    ok39 = and ok38, swap_slot_flag_ok
+    ok40 = and ok39, swap_slot_value_ok
+    ok41 = and ok40, swap_remove_miss_flag_ok
+    ok42 = and ok41, swap_remove_miss_value_ok
+    ok43 = and ok42, pop2_ok_flag
+    ok44 = and ok43, pop2_ok_value
+    ok45 = and ok44, remove_flag_ok
+    ok46 = and ok45, remove_value_ok
+    ok47 = and ok46, remove_slot_flag_ok
+    ok48 = and ok47, remove_slot_value_ok
+    ok49 = and ok48, remove_miss_flag_ok
+    ok50 = and ok49, remove_miss_value_ok
+    ok51 = and ok50, len_ok
+    ok52 = and ok51, len_after_resize_ok
+    ok53 = and ok52, resize_fill1_flag_ok
+    ok54 = and ok53, resize_fill1_value_ok
+    ok55 = and ok54, resize_fill2_flag_ok
+    ok56 = and ok55, resize_fill2_value_ok
+    ok57 = and ok56, split_off_flag_ok
+    ok58 = and ok57, len_after_split_off_ok
+    ok59 = and ok58, split_off_len_ok
+    ok60 = and ok59, split_off_first_flag_ok
+    ok61 = and ok60, split_off_first_value_ok
+    ok62 = and ok61, split_off_last_flag_ok
+    ok63 = and ok62, split_off_last_value_ok
+    ok64 = and ok63, split_off_empty_flag_ok
+    ok65 = and ok64, len_after_empty_split_off_ok
+    ok66 = and ok65, split_off_empty_len_ok
+    ok67 = and ok66, split_off_miss_flag_ok
+    ok68 = and ok67, front_after_flag_ok
+    ok69 = and ok68, front_after_value_ok
+    ok70 = and ok69, back_after_flag_ok
+    ok = and ok70, back_after_value_ok
     !got
     !after_extend_ok
     !after_extend
@@ -1027,6 +1061,15 @@ L_ENTRY:
     !after_append_ok
     !after_append
     !append_src_len_after
+    !pop_if_miss_ok
+    !pop_if_miss
+    !len_after_pop_if_miss
+    !pop_if_hit_ok
+    !pop_if_hit
+    !len_after_pop_if_hit
+    !pop_if_empty_vec
+    !pop_if_empty_ok
+    !pop_if_empty
     !cap_exact
     !cap
     !front
@@ -1111,6 +1154,14 @@ L_ENTRY:
     !after_append_flag_ok
     !after_append_value_ok
     !append_src_len_after_ok
+    !pop_if_miss_flag_ok
+    !pop_if_miss_value_ok
+    !len_after_pop_if_miss_ok
+    !pop_if_hit_flag_ok
+    !pop_if_hit_value_ok
+    !len_after_pop_if_hit_ok
+    !pop_if_empty_flag_ok
+    !pop_if_empty_value_ok
     !cap_exact_ok
     !cap_ok
     !front_ok
@@ -1234,6 +1285,14 @@ L_ENTRY:
     !ok60
     !ok61
     !ok62
+    !ok63
+    !ok64
+    !ok65
+    !ok66
+    !ok67
+    !ok68
+    !ok69
+    !ok70
     !pattern01
     !pattern02
     !pattern_ok
