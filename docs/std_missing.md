@@ -37,6 +37,11 @@ Current external capability buckets that should stay outside this report's `sa_s
 *   **Missing from Rust**: generic element support, `first_mut`, `last_mut`, range-based `get`, split/chunk/window iterators, unchecked/mutable `split_at` variants, `copy_within`, `clone_from_slice`, sorting, mutable swap helpers, and iterator APIs.
 *   **Scope note**: Current slice comparison, mutation, copy, and search helpers are concrete `u64` helpers. They intentionally do not pretend to be Rust's generic `[T]` trait surface.
 
+### 1.1b ASCII (`std::ascii` / `u8` ASCII methods vs `sa_std/ascii.sa`)
+*   **Implemented in `sa_std`**: `ASCII_IS_ASCII`, `ASCII_IS_UPPERCASE`, `ASCII_IS_LOWERCASE`, `ASCII_IS_ALPHABETIC`, `ASCII_IS_ALPHANUMERIC`, `ASCII_IS_DIGIT`, `ASCII_IS_OCTDIGIT`, `ASCII_IS_HEXDIGIT`, `ASCII_IS_PUNCTUATION`, `ASCII_IS_GRAPHIC`, `ASCII_IS_WHITESPACE`, `ASCII_IS_CONTROL`, `ASCII_TO_UPPERCASE`, `ASCII_TO_LOWERCASE`, `ASCII_EQ_IGNORE_CASE`, `ASCII_BYTE_MAKE_UPPERCASE`, `ASCII_BYTE_MAKE_LOWERCASE`, `ASCII_SLICE_MAKE_UPPERCASE`, `ASCII_SLICE_MAKE_LOWERCASE`, `ASCII_SLICE_EQ_IGNORE_CASE`.
+*   **Missing from Rust**: `std::ascii::Char` enum API, `escape_default` / `EscapeDefault` iterator, array/slice `as_ascii` typed views, Rust trait impls, char/str/OsStr owned allocation-returning conversions, and Unicode-aware non-ASCII case mapping.
+*   **Scope note**: The SA ASCII facade is a byte-level contract over `u8` values and mutable `Slice` bytes. It follows Rust's ASCII ranges, including WhatWG ASCII whitespace (`TAB`, `LF`, `FF`, `CR`, `SPACE`) and no vertical tab. In-place slice helpers mutate caller-owned bytes and do not allocate owned `String` / `Vec` results.
+
 ### 1.2 Deque (`std::collections::VecDeque` vs `sa_std/vec_deque.sa`)
 *   **Implemented in `sa_std`**: `VEC_DEQUE_NEW`, `VEC_DEQUE_WITH_CAPACITY`, `VEC_DEQUE_TRY_WITH_CAPACITY`, `VEC_DEQUE_FREE`, `VEC_DEQUE_LEN`, `VEC_DEQUE_CAPACITY`, `VEC_DEQUE_IS_EMPTY`, `VEC_DEQUE_GET`, `VEC_DEQUE_TRY_GET`, `VEC_DEQUE_TRY_GET_U64`, `VEC_DEQUE_TRY_GET_MUT_PTR`, `VEC_DEQUE_TRY_FRONT_MUT_PTR`, `VEC_DEQUE_TRY_BACK_MUT_PTR`, `VEC_DEQUE_SET`, `VEC_DEQUE_CONTAINS_U64`, `VEC_DEQUE_SWAP`, `VEC_DEQUE_TRY_INSERT`, `VEC_DEQUE_INSERT`, `VEC_DEQUE_TRY_REMOVE`, `VEC_DEQUE_REMOVE`, `VEC_DEQUE_TRY_SWAP_REMOVE_FRONT`, `VEC_DEQUE_SWAP_REMOVE_FRONT`, `VEC_DEQUE_TRY_SWAP_REMOVE_BACK`, `VEC_DEQUE_SWAP_REMOVE_BACK`, `VEC_DEQUE_PUSH_BACK`, `VEC_DEQUE_PUSH_FRONT`, `VEC_DEQUE_TRY_POP_FRONT`, `VEC_DEQUE_TRY_POP_BACK`, `VEC_DEQUE_FRONT`, `VEC_DEQUE_TRY_FRONT`, `VEC_DEQUE_BACK`, `VEC_DEQUE_TRY_BACK`, `VEC_DEQUE_CLEAR`, `VEC_DEQUE_RESERVE`, `VEC_DEQUE_RESERVE_EXACT`, `VEC_DEQUE_TRY_RESERVE`, `VEC_DEQUE_TRY_RESERVE_EXACT`, `VEC_DEQUE_SHRINK_TO`, `VEC_DEQUE_SHRINK_TO_FIT`, `VEC_DEQUE_TRY_SHRINK_TO`, `VEC_DEQUE_TRY_SHRINK_TO_FIT`, `VEC_DEQUE_AS_SLICES`, `VEC_DEQUE_AS_MUT_SLICES`, `VEC_DEQUE_MAKE_CONTIGUOUS`, `VEC_DEQUE_TRUNCATE`, `VEC_DEQUE_ROTATE_LEFT`, `VEC_DEQUE_ROTATE_RIGHT`, `VEC_DEQUE_TRY_SPLIT_OFF`, `VEC_DEQUE_APPEND`.
 *   **Missing from Rust**: generic element support, allocator-aware constructors, iterator APIs (`iter`, `iter_mut`, `into_iter`, `drain`, `splice`), `front_mut` / `back_mut` as scoped Rust references, `pop_front_if`, `pop_back_if`, `push_front_mut`, `push_back_mut`, `insert_mut`, `retain`, `retain_mut`, and true allocation-failure reporting for `try_*` capacity helpers.
@@ -116,7 +121,7 @@ Current external capability buckets that should stay outside this report's `sa_s
 
 The following Rust `std` modules still lack full Rust-level parity in `sa_std`:
 
-1.  **Memory & Data Abstraction**: `std::any`, `std::array`, `std::ascii`, `std::char`, `std::ptr` (`NonNull`), `std::pin`. `Box`, `Cell`, `RefCell`, `Rc`, `Arc`, and `Weak` have macro-level SA subsets under `sa_std/core/*`, but not full Rust module parity.
+1.  **Memory & Data Abstraction**: `std::any`, `std::array`, full `std::ascii::Char` / escaping iterator APIs, `std::char`, `std::ptr` (`NonNull`), `std::pin`. `Box`, `Cell`, `RefCell`, `Rc`, `Arc`, `Weak`, and byte-level ASCII helpers have macro-level SA subsets under `sa_std/core/*`, but not full Rust module parity.
 2.  **Core Trait Paradigm**: `std::convert` (`From`/`Into`), `std::default`, `std::error`, `std::iter` (`Iterator` system), `std::marker` (`Send`/`Sync`/`Copy`), `std::ops` (Operator overloading/`Drop`), `std::cmp`.
 3.  **FFI & Platform Specific**: `std::ffi` (`CString`, `OsString`), `std::os` (Unix/Windows extensions).
 4.  **Concurrency Infrastructure**: `std::thread` (System thread management, `JoinHandle`) and a bundled async runtime/reactor. `sa_std/core/waker.*` now models the Rust `std::task` waker ABI subset with `RawWaker`, `RawWakerVTable`, `Waker`, `LocalWaker`, and `Wake` layout/vtable helper macros. `sa_std/core/future.*` models `Poll`, `Poll<Result<..>>`, `Poll<Option<Result<..>>>`, `Context`, `ContextBuilder`, `Future::poll` vtable calls, ready/pending futures, poll_fn-style state, stateful `join2` pairs, and biased `select2` either results. `sa_std/core/task.*` provides `Task`, single-task executor polling, and ready-count batch polling. `sa_std/libsa_async.sa` remains the CPS/state-machine helper layer (`ASYNC_CTX_DEF`, `ASYNC_AWAIT_POINT`, etc.). SA intentionally does not provide native `async` / `await` syntax, Rust generics/traits/pin semantics, a hidden executor, or a bundled reactor.
@@ -129,6 +134,7 @@ The project now treats the following Rust core items as a **SA layout + macro co
 - `Result<T, E>`: represented by a tag + ok/err payload memory contract and helper macros in `sa_std/core/result.sa`.
 - `panic` / `panic_msg`: represented by wrapper macros in `sa_std/core/panic.sa` and lowered as builtin termination paths.
 - `iter` / iterator-like traversal: represented by slice-backed cursor helpers in `sa_std/core/iter.sa`.
+- ASCII byte classification and conversion: represented by byte/slice helper macros in `sa_std/core/ascii.sa` / `.sal` and re-exported through `sa_std/ascii.sa`.
 - `Future` / `Poll` / `Context` / `Task`: represented by concrete layout contracts and vtable/helper macros in `sa_std/core/future.sa`, `sa_std/core/waker.sa`, and `sa_std/core/task.sa`. The covered async contract includes `RawWaker` / `RawWakerVTable` / `LocalWaker` / `Wake`, `ContextBuilder`, `Poll::map`, `Poll<Result>::map_ok/map_err`, `Poll<Option<Result>>::map_ok/map_err`, `ready` / `pending` state futures, `Future::poll` out-param ABI, stateful two-way `join` / `select` helpers, and executor ready-count polling.
 
 The async coverage is deliberately a layout and macro contract. It is not native Rust `async fn` lowering, `.await` syntax, `Pin<&mut T>` enforcement, Rust trait objects/generics, or a scheduler/reactor implementation. Frontends should lower those higher-level semantics into the concrete SA ABI described above.
@@ -141,6 +147,7 @@ This closed loop is already backed by concrete files and smoke coverage:
 - `sa_std/core/result.sa` / `.sal`
 - `sa_std/core/panic.sa`
 - `sa_std/core/iter.sa` / `.sal`
+- `sa_std/core/ascii.sa` / `.sal`
 - `sa_std/core/future.sa` / `.sal`
 - `sa_std/core/task.sa` / `.sal`
 - `sa_std/rust_core.sa` / `.sal`

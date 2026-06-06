@@ -683,6 +683,17 @@ test "native unit assertions surface file line expected and got details" {
 }
 
 test "native unit framework covers sa_std macro surface suites" {
+    const ascii_expected = [_][]const u8{
+        "[PASS] sa_std ascii byte classifier macros",
+        "[PASS] sa_std ascii case conversion macros",
+        "[PASS] sa_std ascii slice case macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_ascii_macro_surface.sa",
+        ascii_expected[0..],
+        "test result: ok. 3 passed; 0 failed; 0 skipped",
+    );
+
     const string_vec_expected = [_][]const u8{
         "[PASS] sa_std string convenience macros",
         "[PASS] sa_std string concat macro",

@@ -1,0 +1,347 @@
+@import "ascii.sal"
+@import "slice.sal"
+
+[MACRO] ASCII_IS_ASCII %out_bool, %byte
+    %out_bool = ule %byte, ASCII_MAX
+[END_MACRO]
+
+[MACRO] ASCII_IS_UPPERCASE %out_bool, %byte
+    __ascii_ge_%out_bool = uge %byte, ASCII_UPPER_A
+    __ascii_le_%out_bool = ule %byte, ASCII_UPPER_Z
+    %out_bool = and __ascii_ge_%out_bool, __ascii_le_%out_bool
+    !__ascii_ge_%out_bool
+    !__ascii_le_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_LOWERCASE %out_bool, %byte
+    __ascii_ge_%out_bool = uge %byte, ASCII_LOWER_A
+    __ascii_le_%out_bool = ule %byte, ASCII_LOWER_Z
+    %out_bool = and __ascii_ge_%out_bool, __ascii_le_%out_bool
+    !__ascii_ge_%out_bool
+    !__ascii_le_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_ALPHABETIC %out_bool, %byte
+    EXPAND ASCII_IS_UPPERCASE __ascii_upper_%out_bool, %byte
+    EXPAND ASCII_IS_LOWERCASE __ascii_lower_%out_bool, %byte
+    %out_bool = or __ascii_upper_%out_bool, __ascii_lower_%out_bool
+    !__ascii_upper_%out_bool
+    !__ascii_lower_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_DIGIT %out_bool, %byte
+    __ascii_ge_%out_bool = uge %byte, ASCII_DIGIT_0
+    __ascii_le_%out_bool = ule %byte, ASCII_DIGIT_9
+    %out_bool = and __ascii_ge_%out_bool, __ascii_le_%out_bool
+    !__ascii_ge_%out_bool
+    !__ascii_le_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_OCTDIGIT %out_bool, %byte
+    __ascii_ge_%out_bool = uge %byte, ASCII_DIGIT_0
+    __ascii_le_%out_bool = ule %byte, ASCII_DIGIT_7
+    %out_bool = and __ascii_ge_%out_bool, __ascii_le_%out_bool
+    !__ascii_ge_%out_bool
+    !__ascii_le_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_HEXDIGIT %out_bool, %byte
+    EXPAND ASCII_IS_DIGIT __ascii_digit_%out_bool, %byte
+    __ascii_ge_upper_%out_bool = uge %byte, ASCII_UPPER_A
+    __ascii_le_upper_%out_bool = ule %byte, ASCII_UPPER_F
+    __ascii_upper_%out_bool = and __ascii_ge_upper_%out_bool, __ascii_le_upper_%out_bool
+    __ascii_ge_lower_%out_bool = uge %byte, ASCII_LOWER_A
+    __ascii_le_lower_%out_bool = ule %byte, ASCII_LOWER_F
+    __ascii_lower_%out_bool = and __ascii_ge_lower_%out_bool, __ascii_le_lower_%out_bool
+    __ascii_letter_%out_bool = or __ascii_upper_%out_bool, __ascii_lower_%out_bool
+    %out_bool = or __ascii_digit_%out_bool, __ascii_letter_%out_bool
+    !__ascii_digit_%out_bool
+    !__ascii_ge_upper_%out_bool
+    !__ascii_le_upper_%out_bool
+    !__ascii_upper_%out_bool
+    !__ascii_ge_lower_%out_bool
+    !__ascii_le_lower_%out_bool
+    !__ascii_lower_%out_bool
+    !__ascii_letter_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_ALPHANUMERIC %out_bool, %byte
+    EXPAND ASCII_IS_ALPHABETIC __ascii_alpha_%out_bool, %byte
+    EXPAND ASCII_IS_DIGIT __ascii_digit_%out_bool, %byte
+    %out_bool = or __ascii_alpha_%out_bool, __ascii_digit_%out_bool
+    !__ascii_alpha_%out_bool
+    !__ascii_digit_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_PUNCTUATION %out_bool, %byte
+    __ascii_r1_ge_%out_bool = uge %byte, 33
+    __ascii_r1_le_%out_bool = ule %byte, 47
+    __ascii_r1_%out_bool = and __ascii_r1_ge_%out_bool, __ascii_r1_le_%out_bool
+    __ascii_r2_ge_%out_bool = uge %byte, 58
+    __ascii_r2_le_%out_bool = ule %byte, 64
+    __ascii_r2_%out_bool = and __ascii_r2_ge_%out_bool, __ascii_r2_le_%out_bool
+    __ascii_r3_ge_%out_bool = uge %byte, 91
+    __ascii_r3_le_%out_bool = ule %byte, 96
+    __ascii_r3_%out_bool = and __ascii_r3_ge_%out_bool, __ascii_r3_le_%out_bool
+    __ascii_r4_ge_%out_bool = uge %byte, 123
+    __ascii_r4_le_%out_bool = ule %byte, 126
+    __ascii_r4_%out_bool = and __ascii_r4_ge_%out_bool, __ascii_r4_le_%out_bool
+    __ascii_r12_%out_bool = or __ascii_r1_%out_bool, __ascii_r2_%out_bool
+    __ascii_r34_%out_bool = or __ascii_r3_%out_bool, __ascii_r4_%out_bool
+    %out_bool = or __ascii_r12_%out_bool, __ascii_r34_%out_bool
+    !__ascii_r1_ge_%out_bool
+    !__ascii_r1_le_%out_bool
+    !__ascii_r1_%out_bool
+    !__ascii_r2_ge_%out_bool
+    !__ascii_r2_le_%out_bool
+    !__ascii_r2_%out_bool
+    !__ascii_r3_ge_%out_bool
+    !__ascii_r3_le_%out_bool
+    !__ascii_r3_%out_bool
+    !__ascii_r4_ge_%out_bool
+    !__ascii_r4_le_%out_bool
+    !__ascii_r4_%out_bool
+    !__ascii_r12_%out_bool
+    !__ascii_r34_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_GRAPHIC %out_bool, %byte
+    __ascii_ge_%out_bool = uge %byte, ASCII_GRAPHIC_MIN
+    __ascii_le_%out_bool = ule %byte, ASCII_GRAPHIC_MAX
+    %out_bool = and __ascii_ge_%out_bool, __ascii_le_%out_bool
+    !__ascii_ge_%out_bool
+    !__ascii_le_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_WHITESPACE %out_bool, %byte
+    __ascii_tab_%out_bool = eq %byte, ASCII_TAB
+    __ascii_lf_%out_bool = eq %byte, ASCII_LF
+    __ascii_ff_%out_bool = eq %byte, ASCII_FF
+    __ascii_cr_%out_bool = eq %byte, ASCII_CR
+    __ascii_space_%out_bool = eq %byte, ASCII_SPACE
+    __ascii_tl_%out_bool = or __ascii_tab_%out_bool, __ascii_lf_%out_bool
+    __ascii_fc_%out_bool = or __ascii_ff_%out_bool, __ascii_cr_%out_bool
+    __ascii_control_space_%out_bool = or __ascii_tl_%out_bool, __ascii_fc_%out_bool
+    %out_bool = or __ascii_control_space_%out_bool, __ascii_space_%out_bool
+    !__ascii_tab_%out_bool
+    !__ascii_lf_%out_bool
+    !__ascii_ff_%out_bool
+    !__ascii_cr_%out_bool
+    !__ascii_space_%out_bool
+    !__ascii_tl_%out_bool
+    !__ascii_fc_%out_bool
+    !__ascii_control_space_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_IS_CONTROL %out_bool, %byte
+    __ascii_low_control_%out_bool = ule %byte, 31
+    __ascii_delete_%out_bool = eq %byte, ASCII_DELETE
+    %out_bool = or __ascii_low_control_%out_bool, __ascii_delete_%out_bool
+    !__ascii_low_control_%out_bool
+    !__ascii_delete_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_TO_UPPERCASE %out_byte, %byte
+    EXPAND ASCII_IS_LOWERCASE __ascii_lower_%out_byte, %byte
+    br __ascii_lower_%out_byte -> L_ASCII_TO_UPPERCASE_LOWER_%out_byte, L_ASCII_TO_UPPERCASE_KEEP_%out_byte
+
+L_ASCII_TO_UPPERCASE_LOWER_%out_byte:
+    %out_byte = sub %byte, ASCII_CASE_MASK
+    !__ascii_lower_%out_byte
+    jmp L_ASCII_TO_UPPERCASE_END_%out_byte
+
+L_ASCII_TO_UPPERCASE_KEEP_%out_byte:
+    %out_byte = add %byte, 0
+    !__ascii_lower_%out_byte
+
+L_ASCII_TO_UPPERCASE_END_%out_byte:
+[END_MACRO]
+
+[MACRO] ASCII_TO_LOWERCASE %out_byte, %byte
+    EXPAND ASCII_IS_UPPERCASE __ascii_upper_%out_byte, %byte
+    br __ascii_upper_%out_byte -> L_ASCII_TO_LOWERCASE_UPPER_%out_byte, L_ASCII_TO_LOWERCASE_KEEP_%out_byte
+
+L_ASCII_TO_LOWERCASE_UPPER_%out_byte:
+    %out_byte = add %byte, ASCII_CASE_MASK
+    !__ascii_upper_%out_byte
+    jmp L_ASCII_TO_LOWERCASE_END_%out_byte
+
+L_ASCII_TO_LOWERCASE_KEEP_%out_byte:
+    %out_byte = add %byte, 0
+    !__ascii_upper_%out_byte
+
+L_ASCII_TO_LOWERCASE_END_%out_byte:
+[END_MACRO]
+
+[MACRO] ASCII_EQ_IGNORE_CASE %out_bool, %left_byte, %right_byte
+    EXPAND ASCII_TO_LOWERCASE __ascii_left_%out_bool, %left_byte
+    EXPAND ASCII_TO_LOWERCASE __ascii_right_%out_bool, %right_byte
+    %out_bool = eq __ascii_left_%out_bool, __ascii_right_%out_bool
+    !__ascii_left_%out_bool
+    !__ascii_right_%out_bool
+[END_MACRO]
+
+[MACRO] ASCII_BYTE_MAKE_UPPERCASE %out_ok, %byte_ptr
+    __ascii_byte_%out_ok = load %byte_ptr+0 as u8
+    EXPAND ASCII_TO_UPPERCASE __ascii_upper_%out_ok, __ascii_byte_%out_ok
+    store %byte_ptr+0, __ascii_upper_%out_ok as u8
+    %out_ok = add 0, 1
+    !__ascii_upper_%out_ok
+    !__ascii_byte_%out_ok
+[END_MACRO]
+
+[MACRO] ASCII_BYTE_MAKE_LOWERCASE %out_ok, %byte_ptr
+    __ascii_byte_%out_ok = load %byte_ptr+0 as u8
+    EXPAND ASCII_TO_LOWERCASE __ascii_lower_%out_ok, __ascii_byte_%out_ok
+    store %byte_ptr+0, __ascii_lower_%out_ok as u8
+    %out_ok = add 0, 1
+    !__ascii_lower_%out_ok
+    !__ascii_byte_%out_ok
+[END_MACRO]
+
+[MACRO] ASCII_SLICE_MAKE_UPPERCASE %out_ok, %slice_reg
+    __ascii_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __ascii_len_%out_ok = load %slice_reg+Slice_len as u64
+    __ascii_idx_slot_%out_ok = stack_alloc 8
+    store __ascii_idx_slot_%out_ok+0, 0 as u64
+    jmp L_ASCII_SLICE_UPPER_HEAD_%out_ok
+
+L_ASCII_SLICE_UPPER_HEAD_%out_ok:
+    __ascii_idx_%out_ok = load __ascii_idx_slot_%out_ok+0 as u64
+    __ascii_done_%out_ok = eq __ascii_idx_%out_ok, __ascii_len_%out_ok
+    br __ascii_done_%out_ok -> L_ASCII_SLICE_UPPER_DONE_%out_ok, L_ASCII_SLICE_UPPER_BODY_%out_ok
+
+L_ASCII_SLICE_UPPER_BODY_%out_ok:
+    __ascii_byte_ptr_%out_ok = ptr_add __ascii_ptr_%out_ok, __ascii_idx_%out_ok
+    __ascii_byte_%out_ok = load __ascii_byte_ptr_%out_ok+0 as u8
+    EXPAND ASCII_TO_UPPERCASE __ascii_upper_%out_ok, __ascii_byte_%out_ok
+    store __ascii_byte_ptr_%out_ok+0, __ascii_upper_%out_ok as u8
+    __ascii_next_%out_ok = add __ascii_idx_%out_ok, 1
+    store __ascii_idx_slot_%out_ok+0, __ascii_next_%out_ok as u64
+    !__ascii_next_%out_ok
+    !__ascii_upper_%out_ok
+    !__ascii_byte_%out_ok
+    !__ascii_byte_ptr_%out_ok
+    !__ascii_done_%out_ok
+    !__ascii_idx_%out_ok
+    jmp L_ASCII_SLICE_UPPER_HEAD_%out_ok
+
+L_ASCII_SLICE_UPPER_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__ascii_done_%out_ok
+    !__ascii_idx_%out_ok
+    !__ascii_len_%out_ok
+    !__ascii_ptr_%out_ok
+[END_MACRO]
+
+[MACRO] ASCII_SLICE_MAKE_LOWERCASE %out_ok, %slice_reg
+    __ascii_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __ascii_len_%out_ok = load %slice_reg+Slice_len as u64
+    __ascii_idx_slot_%out_ok = stack_alloc 8
+    store __ascii_idx_slot_%out_ok+0, 0 as u64
+    jmp L_ASCII_SLICE_LOWER_HEAD_%out_ok
+
+L_ASCII_SLICE_LOWER_HEAD_%out_ok:
+    __ascii_idx_%out_ok = load __ascii_idx_slot_%out_ok+0 as u64
+    __ascii_done_%out_ok = eq __ascii_idx_%out_ok, __ascii_len_%out_ok
+    br __ascii_done_%out_ok -> L_ASCII_SLICE_LOWER_DONE_%out_ok, L_ASCII_SLICE_LOWER_BODY_%out_ok
+
+L_ASCII_SLICE_LOWER_BODY_%out_ok:
+    __ascii_byte_ptr_%out_ok = ptr_add __ascii_ptr_%out_ok, __ascii_idx_%out_ok
+    __ascii_byte_%out_ok = load __ascii_byte_ptr_%out_ok+0 as u8
+    EXPAND ASCII_TO_LOWERCASE __ascii_lower_%out_ok, __ascii_byte_%out_ok
+    store __ascii_byte_ptr_%out_ok+0, __ascii_lower_%out_ok as u8
+    __ascii_next_%out_ok = add __ascii_idx_%out_ok, 1
+    store __ascii_idx_slot_%out_ok+0, __ascii_next_%out_ok as u64
+    !__ascii_next_%out_ok
+    !__ascii_lower_%out_ok
+    !__ascii_byte_%out_ok
+    !__ascii_byte_ptr_%out_ok
+    !__ascii_done_%out_ok
+    !__ascii_idx_%out_ok
+    jmp L_ASCII_SLICE_LOWER_HEAD_%out_ok
+
+L_ASCII_SLICE_LOWER_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__ascii_done_%out_ok
+    !__ascii_idx_%out_ok
+    !__ascii_len_%out_ok
+    !__ascii_ptr_%out_ok
+[END_MACRO]
+
+[MACRO] ASCII_SLICE_EQ_IGNORE_CASE %out_bool, %left_slice, %right_slice
+    __ascii_left_ptr_%out_bool = load %left_slice+Slice_ptr as ptr
+    __ascii_right_ptr_%out_bool = load %right_slice+Slice_ptr as ptr
+    __ascii_left_len_%out_bool = load %left_slice+Slice_len as u64
+    __ascii_right_len_%out_bool = load %right_slice+Slice_len as u64
+    __ascii_same_len_%out_bool = eq __ascii_left_len_%out_bool, __ascii_right_len_%out_bool
+    br __ascii_same_len_%out_bool -> L_ASCII_SLICE_EQ_INIT_%out_bool, L_ASCII_SLICE_EQ_FALSE_LEN_%out_bool
+
+L_ASCII_SLICE_EQ_INIT_%out_bool:
+    __ascii_idx_slot_%out_bool = stack_alloc 8
+    store __ascii_idx_slot_%out_bool+0, 0 as u64
+    jmp L_ASCII_SLICE_EQ_HEAD_%out_bool
+
+L_ASCII_SLICE_EQ_HEAD_%out_bool:
+    __ascii_idx_%out_bool = load __ascii_idx_slot_%out_bool+0 as u64
+    __ascii_done_%out_bool = eq __ascii_idx_%out_bool, __ascii_left_len_%out_bool
+    br __ascii_done_%out_bool -> L_ASCII_SLICE_EQ_TRUE_%out_bool, L_ASCII_SLICE_EQ_BODY_%out_bool
+
+L_ASCII_SLICE_EQ_BODY_%out_bool:
+    __ascii_left_byte_ptr_%out_bool = ptr_add __ascii_left_ptr_%out_bool, __ascii_idx_%out_bool
+    __ascii_right_byte_ptr_%out_bool = ptr_add __ascii_right_ptr_%out_bool, __ascii_idx_%out_bool
+    __ascii_left_byte_%out_bool = load __ascii_left_byte_ptr_%out_bool+0 as u8
+    __ascii_right_byte_%out_bool = load __ascii_right_byte_ptr_%out_bool+0 as u8
+    EXPAND ASCII_EQ_IGNORE_CASE __ascii_eq_%out_bool, __ascii_left_byte_%out_bool, __ascii_right_byte_%out_bool
+    br __ascii_eq_%out_bool -> L_ASCII_SLICE_EQ_NEXT_%out_bool, L_ASCII_SLICE_EQ_FALSE_BYTE_%out_bool
+
+L_ASCII_SLICE_EQ_NEXT_%out_bool:
+    __ascii_next_%out_bool = add __ascii_idx_%out_bool, 1
+    store __ascii_idx_slot_%out_bool+0, __ascii_next_%out_bool as u64
+    !__ascii_next_%out_bool
+    !__ascii_eq_%out_bool
+    !__ascii_right_byte_%out_bool
+    !__ascii_left_byte_%out_bool
+    !__ascii_right_byte_ptr_%out_bool
+    !__ascii_left_byte_ptr_%out_bool
+    !__ascii_done_%out_bool
+    !__ascii_idx_%out_bool
+    jmp L_ASCII_SLICE_EQ_HEAD_%out_bool
+
+L_ASCII_SLICE_EQ_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__ascii_done_%out_bool
+    !__ascii_idx_%out_bool
+    !__ascii_same_len_%out_bool
+    !__ascii_right_len_%out_bool
+    !__ascii_left_len_%out_bool
+    !__ascii_right_ptr_%out_bool
+    !__ascii_left_ptr_%out_bool
+    jmp L_ASCII_SLICE_EQ_END_%out_bool
+
+L_ASCII_SLICE_EQ_FALSE_BYTE_%out_bool:
+    %out_bool = add 0, 0
+    !__ascii_eq_%out_bool
+    !__ascii_right_byte_%out_bool
+    !__ascii_left_byte_%out_bool
+    !__ascii_right_byte_ptr_%out_bool
+    !__ascii_left_byte_ptr_%out_bool
+    !__ascii_done_%out_bool
+    !__ascii_idx_%out_bool
+    !__ascii_same_len_%out_bool
+    !__ascii_right_len_%out_bool
+    !__ascii_left_len_%out_bool
+    !__ascii_right_ptr_%out_bool
+    !__ascii_left_ptr_%out_bool
+    jmp L_ASCII_SLICE_EQ_END_%out_bool
+
+L_ASCII_SLICE_EQ_FALSE_LEN_%out_bool:
+    %out_bool = add 0, 0
+    !__ascii_same_len_%out_bool
+    !__ascii_right_len_%out_bool
+    !__ascii_left_len_%out_bool
+    !__ascii_right_ptr_%out_bool
+    !__ascii_left_ptr_%out_bool
+
+L_ASCII_SLICE_EQ_END_%out_bool:
+[END_MACRO]

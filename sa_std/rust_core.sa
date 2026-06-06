@@ -37,3 +37,5 @@
 @import "core/control.sa"
 @import "core/hash.sa"
 @import "core/cleanup.sa"
+@import "core/ascii.sal"
+@import "core/ascii.sa"

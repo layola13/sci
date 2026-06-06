@@ -339,6 +339,35 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/arc.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/future.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/task.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/ascii.sa\""));
+
+    const ascii_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/ascii.sal");
+    defer std.testing.allocator.free(ascii_layout);
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_layout, 1, "#def ASCII_CASE_MASK = 32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_layout, 1, "#def ASCII_MAX = 127"));
+
+    const ascii_src = try readFileAlloc(std.testing.allocator, "sa_std/core/ascii.sa");
+    defer std.testing.allocator.free(ascii_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_ASCII"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_ALPHABETIC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_ALPHANUMERIC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_DIGIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_OCTDIGIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_HEXDIGIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_PUNCTUATION"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_GRAPHIC"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_WHITESPACE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_IS_CONTROL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_TO_UPPERCASE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_TO_LOWERCASE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_EQ_IGNORE_CASE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_SLICE_MAKE_UPPERCASE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_SLICE_MAKE_LOWERCASE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, ascii_src, 1, "[MACRO] ASCII_SLICE_EQ_IGNORE_CASE"));
+
+    const ascii_facade_src = try readFileAlloc(std.testing.allocator, "sa_std/ascii.sa");
+    defer std.testing.allocator.free(ascii_facade_src);
+    try std.testing.expectEqualStrings("@import \"core/ascii.sal\"\n@import \"core/ascii.sa\"\n", ascii_facade_src);
 
     const cell_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/cell.sal");
     defer std.testing.allocator.free(cell_layout);
@@ -483,6 +512,11 @@ test "sa_std rust core helpers are concrete and verifiable" {
     defer iter_flat.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), iter_flat.instructions.len);
     try std.testing.expectEqual(@as(usize, 0), iter_flat.function_sigs.len);
+
+    var ascii_flat = try flattenFixture(std.testing.allocator, "sa_std/core/ascii.sa", ascii_src);
+    defer ascii_flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), ascii_flat.instructions.len);
+    try std.testing.expectEqual(@as(usize, 0), ascii_flat.function_sigs.len);
 
     var future_flat = try flattenFixture(std.testing.allocator, "sa_std/core/future.sa", future_src);
     defer future_flat.deinit(std.testing.allocator);
