@@ -50,6 +50,13 @@
 @const BUF_REPLACE_MULTI_WITH = utf8:"*"
 @const BUF_REPLACE_MULTI_EXPECTED = utf8:"b*na *"
 @const BUF_REPLACE_LONG_NEEDLE = utf8:"banana split"
+@const LINES_TEXT = utf8:"alpha\nbeta\r\ngamma\n"
+@const LINES_ALPHA = utf8:"alpha"
+@const LINES_BETA = utf8:"beta"
+@const LINES_GAMMA = utf8:"gamma"
+@const LINES_NO_TRAIL = utf8:"one\ntwo"
+@const LINES_ONE = utf8:"one"
+@const LINES_TWO = utf8:"two"
 
 @vec_pop_if_is_99(value: u64) -> u64:
 L_ENTRY:
@@ -1048,6 +1055,143 @@ L_BYTE_SCAN_FAIL:
     panic(913)
 
 L_BYTE_SCAN_OK:
+    !ok
+    return
+
+@test "sa_std string line view macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS lines_text, &LINES_TEXT, 18
+    EXPAND STR_FROM_PARTS expected_alpha, &LINES_ALPHA, 5
+    EXPAND STR_FROM_PARTS expected_beta, &LINES_BETA, 4
+    EXPAND STR_FROM_PARTS expected_gamma, &LINES_GAMMA, 5
+    EXPAND STR_FROM_PARTS no_trail, &LINES_NO_TRAIL, 7
+    EXPAND STR_FROM_PARTS expected_one, &LINES_ONE, 3
+    EXPAND STR_FROM_PARTS expected_two, &LINES_TWO, 3
+    EXPAND STR_EMPTY empty
+
+    EXPAND STR_LINE_COUNT line_count, lines_text
+    EXPAND STRING_TRY_LINE_AT line0_ok, line0, lines_text, 0
+    EXPAND STR_TRY_LINE_AT line1_ok, line1, lines_text, 1
+    EXPAND STRING_TRY_LINE_AT line2_ok, line2, lines_text, 2
+    EXPAND STR_TRY_LINE_AT line3_ok, line3, lines_text, 3
+    EXPAND STR_LINE_COUNT no_trail_count, no_trail
+    EXPAND STR_TRY_LINE_AT no_trail_0_ok, no_trail_0, no_trail, 0
+    EXPAND STRING_TRY_LINE_AT no_trail_1_ok, no_trail_1, no_trail, 1
+    EXPAND STRING_LINE_COUNT empty_count, empty
+    EXPAND STR_TRY_LINE_AT empty_line_ok, empty_line, empty, 0
+
+    EXPAND STR_EQ line0_eq, line0, expected_alpha
+    EXPAND STR_EQ line1_eq, line1, expected_beta
+    EXPAND STR_EQ line2_eq, line2, expected_gamma
+    EXPAND STR_IS_EMPTY line3_empty, line3
+    EXPAND STR_EQ no_trail_0_eq, no_trail_0, expected_one
+    EXPAND STR_EQ no_trail_1_eq, no_trail_1, expected_two
+    EXPAND STR_IS_EMPTY empty_line_empty, empty_line
+
+    line_count_ok = eq line_count, 3
+    line0_flag_ok = eq line0_ok, 1
+    line0_value_ok = eq line0_eq, 1
+    line1_flag_ok = eq line1_ok, 1
+    line1_value_ok = eq line1_eq, 1
+    line2_flag_ok = eq line2_ok, 1
+    line2_value_ok = eq line2_eq, 1
+    line3_flag_ok = eq line3_ok, 0
+    line3_value_ok = eq line3_empty, 1
+    no_trail_count_ok = eq no_trail_count, 2
+    no_trail_0_flag_ok = eq no_trail_0_ok, 1
+    no_trail_0_value_ok = eq no_trail_0_eq, 1
+    no_trail_1_flag_ok = eq no_trail_1_ok, 1
+    no_trail_1_value_ok = eq no_trail_1_eq, 1
+    empty_count_ok = eq empty_count, 0
+    empty_line_flag_ok = eq empty_line_ok, 0
+    empty_line_value_ok = eq empty_line_empty, 1
+    ok01 = and line_count_ok, line0_flag_ok
+    ok02 = and ok01, line0_value_ok
+    ok03 = and ok02, line1_flag_ok
+    ok04 = and ok03, line1_value_ok
+    ok05 = and ok04, line2_flag_ok
+    ok06 = and ok05, line2_value_ok
+    ok07 = and ok06, line3_flag_ok
+    ok08 = and ok07, line3_value_ok
+    ok09 = and ok08, no_trail_count_ok
+    ok10 = and ok09, no_trail_0_flag_ok
+    ok11 = and ok10, no_trail_0_value_ok
+    ok12 = and ok11, no_trail_1_flag_ok
+    ok13 = and ok12, no_trail_1_value_ok
+    ok14 = and ok13, empty_count_ok
+    ok15 = and ok14, empty_line_flag_ok
+    ok = and ok15, empty_line_value_ok
+    !lines_text
+    !expected_alpha
+    !expected_beta
+    !expected_gamma
+    !no_trail
+    !expected_one
+    !expected_two
+    !empty
+    !line_count
+    !line0_ok
+    !line0
+    !line1_ok
+    !line1
+    !line2_ok
+    !line2
+    !line3_ok
+    !line3
+    !no_trail_count
+    !no_trail_0_ok
+    !no_trail_0
+    !no_trail_1_ok
+    !no_trail_1
+    !empty_count
+    !empty_line_ok
+    !empty_line
+    !line0_eq
+    !line1_eq
+    !line2_eq
+    !line3_empty
+    !no_trail_0_eq
+    !no_trail_1_eq
+    !empty_line_empty
+    !line_count_ok
+    !line0_flag_ok
+    !line0_value_ok
+    !line1_flag_ok
+    !line1_value_ok
+    !line2_flag_ok
+    !line2_value_ok
+    !line3_flag_ok
+    !line3_value_ok
+    !no_trail_count_ok
+    !no_trail_0_flag_ok
+    !no_trail_0_value_ok
+    !no_trail_1_flag_ok
+    !no_trail_1_value_ok
+    !empty_count_ok
+    !empty_line_flag_ok
+    !empty_line_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    br ok -> L_LINE_VIEW_OK, L_LINE_VIEW_FAIL
+
+L_LINE_VIEW_FAIL:
+    !ok
+    panic(916)
+
+L_LINE_VIEW_OK:
     !ok
     return
 
