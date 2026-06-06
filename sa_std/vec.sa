@@ -635,6 +635,93 @@ L_VEC_DEDUP_BY_SMALL_%out_len:
 L_VEC_DEDUP_BY_END_%out_len:
 [END_MACRO]
 
+[MACRO] VEC_DEDUP_BY_KEY_U64 %out_len, %vec_reg, %key_fn
+    __vec_dedup_key_view_%out_len = & %vec_reg
+    __vec_dedup_key_ptr_%out_len = load __vec_dedup_key_view_%out_len+Vec_ptr as ptr
+    __vec_dedup_key_len_%out_len = load __vec_dedup_key_view_%out_len+Vec_len as u64
+    __vec_dedup_key_small_%out_len = ule __vec_dedup_key_len_%out_len, 1
+    br __vec_dedup_key_small_%out_len -> L_VEC_DEDUP_KEY_SMALL_%out_len, L_VEC_DEDUP_KEY_INIT_%out_len
+
+L_VEC_DEDUP_KEY_INIT_%out_len:
+    __vec_dedup_key_read_slot_%out_len = stack_alloc 8
+    __vec_dedup_key_write_slot_%out_len = stack_alloc 8
+    store __vec_dedup_key_read_slot_%out_len+0, 1 as u64
+    store __vec_dedup_key_write_slot_%out_len+0, 1 as u64
+    jmp L_VEC_DEDUP_KEY_HEAD_%out_len
+
+L_VEC_DEDUP_KEY_HEAD_%out_len:
+    __vec_dedup_key_read_%out_len = load __vec_dedup_key_read_slot_%out_len+0 as u64
+    __vec_dedup_key_done_%out_len = eq __vec_dedup_key_read_%out_len, __vec_dedup_key_len_%out_len
+    br __vec_dedup_key_done_%out_len -> L_VEC_DEDUP_KEY_DONE_%out_len, L_VEC_DEDUP_KEY_BODY_%out_len
+
+L_VEC_DEDUP_KEY_BODY_%out_len:
+    __vec_dedup_key_write_%out_len = load __vec_dedup_key_write_slot_%out_len+0 as u64
+    __vec_dedup_key_prev_%out_len = sub __vec_dedup_key_write_%out_len, 1
+    __vec_dedup_key_read_off_%out_len = mul __vec_dedup_key_read_%out_len, 8
+    __vec_dedup_key_prev_off_%out_len = mul __vec_dedup_key_prev_%out_len, 8
+    __vec_dedup_key_read_ptr_%out_len = ptr_add __vec_dedup_key_ptr_%out_len, __vec_dedup_key_read_off_%out_len
+    __vec_dedup_key_prev_ptr_%out_len = ptr_add __vec_dedup_key_ptr_%out_len, __vec_dedup_key_prev_off_%out_len
+    __vec_dedup_key_read_value_%out_len = load __vec_dedup_key_read_ptr_%out_len+0 as u64
+    __vec_dedup_key_prev_value_%out_len = load __vec_dedup_key_prev_ptr_%out_len+0 as u64
+    __vec_dedup_key_read_key_%out_len = call %key_fn(__vec_dedup_key_read_value_%out_len)
+    __vec_dedup_key_prev_key_%out_len = call %key_fn(__vec_dedup_key_prev_value_%out_len)
+    __vec_dedup_key_same_%out_len = eq __vec_dedup_key_read_key_%out_len, __vec_dedup_key_prev_key_%out_len
+    br __vec_dedup_key_same_%out_len -> L_VEC_DEDUP_KEY_SKIP_%out_len, L_VEC_DEDUP_KEY_KEEP_%out_len
+
+L_VEC_DEDUP_KEY_KEEP_%out_len:
+    __vec_dedup_key_write_off_%out_len = mul __vec_dedup_key_write_%out_len, 8
+    __vec_dedup_key_write_ptr_%out_len = ptr_add __vec_dedup_key_ptr_%out_len, __vec_dedup_key_write_off_%out_len
+    store __vec_dedup_key_write_ptr_%out_len+0, __vec_dedup_key_read_value_%out_len as u64
+    __vec_dedup_key_next_write_%out_len = add __vec_dedup_key_write_%out_len, 1
+    store __vec_dedup_key_write_slot_%out_len+0, __vec_dedup_key_next_write_%out_len as u64
+    !__vec_dedup_key_next_write_%out_len
+    !__vec_dedup_key_write_ptr_%out_len
+    !__vec_dedup_key_write_off_%out_len
+    jmp L_VEC_DEDUP_KEY_NEXT_%out_len
+
+L_VEC_DEDUP_KEY_SKIP_%out_len:
+    jmp L_VEC_DEDUP_KEY_NEXT_%out_len
+
+L_VEC_DEDUP_KEY_NEXT_%out_len:
+    __vec_dedup_key_next_read_%out_len = add __vec_dedup_key_read_%out_len, 1
+    store __vec_dedup_key_read_slot_%out_len+0, __vec_dedup_key_next_read_%out_len as u64
+    !__vec_dedup_key_next_read_%out_len
+    !__vec_dedup_key_same_%out_len
+    !__vec_dedup_key_prev_key_%out_len
+    !__vec_dedup_key_read_key_%out_len
+    !__vec_dedup_key_prev_value_%out_len
+    !__vec_dedup_key_read_value_%out_len
+    !__vec_dedup_key_prev_ptr_%out_len
+    !__vec_dedup_key_read_ptr_%out_len
+    !__vec_dedup_key_prev_off_%out_len
+    !__vec_dedup_key_read_off_%out_len
+    !__vec_dedup_key_prev_%out_len
+    !__vec_dedup_key_write_%out_len
+    !__vec_dedup_key_done_%out_len
+    !__vec_dedup_key_read_%out_len
+    jmp L_VEC_DEDUP_KEY_HEAD_%out_len
+
+L_VEC_DEDUP_KEY_DONE_%out_len:
+    %out_len = load __vec_dedup_key_write_slot_%out_len+0 as u64
+    store __vec_dedup_key_view_%out_len+Vec_len, %out_len as u64
+    !__vec_dedup_key_done_%out_len
+    !__vec_dedup_key_read_%out_len
+    !__vec_dedup_key_small_%out_len
+    !__vec_dedup_key_len_%out_len
+    !__vec_dedup_key_ptr_%out_len
+    !__vec_dedup_key_view_%out_len
+    jmp L_VEC_DEDUP_KEY_END_%out_len
+
+L_VEC_DEDUP_KEY_SMALL_%out_len:
+    %out_len = add __vec_dedup_key_len_%out_len, 0
+    !__vec_dedup_key_small_%out_len
+    !__vec_dedup_key_len_%out_len
+    !__vec_dedup_key_ptr_%out_len
+    !__vec_dedup_key_view_%out_len
+
+L_VEC_DEDUP_KEY_END_%out_len:
+[END_MACRO]
+
 [MACRO] VEC_RETAIN_U64 %out_len, %vec_reg, %pred_fn
     __vec_retain_view_%out_len = & %vec_reg
     __vec_retain_ptr_%out_len = load __vec_retain_view_%out_len+Vec_ptr as ptr
@@ -695,6 +782,70 @@ L_VEC_RETAIN_DONE_%out_len:
     !__vec_retain_len_%out_len
     !__vec_retain_ptr_%out_len
     !__vec_retain_view_%out_len
+[END_MACRO]
+
+[MACRO] VEC_EXTRACT_IF_U64 %out_len, %out_vec, %vec_reg, %pred_fn
+    __vec_extract_view_%out_len = & %vec_reg
+    __vec_extract_ptr_%out_len = load __vec_extract_view_%out_len+Vec_ptr as ptr
+    __vec_extract_len_%out_len = load __vec_extract_view_%out_len+Vec_len as u64
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __vec_extract_len_%out_len
+    __vec_extract_read_slot_%out_len = stack_alloc 8
+    __vec_extract_write_slot_%out_len = stack_alloc 8
+    store __vec_extract_read_slot_%out_len+0, 0 as u64
+    store __vec_extract_write_slot_%out_len+0, 0 as u64
+    jmp L_VEC_EXTRACT_HEAD_%out_len
+
+L_VEC_EXTRACT_HEAD_%out_len:
+    __vec_extract_read_%out_len = load __vec_extract_read_slot_%out_len+0 as u64
+    __vec_extract_done_%out_len = eq __vec_extract_read_%out_len, __vec_extract_len_%out_len
+    br __vec_extract_done_%out_len -> L_VEC_EXTRACT_DONE_%out_len, L_VEC_EXTRACT_BODY_%out_len
+
+L_VEC_EXTRACT_BODY_%out_len:
+    __vec_extract_read_off_%out_len = mul __vec_extract_read_%out_len, 8
+    __vec_extract_read_ptr_%out_len = ptr_add __vec_extract_ptr_%out_len, __vec_extract_read_off_%out_len
+    __vec_extract_value_%out_len = load __vec_extract_read_ptr_%out_len+0 as u64
+    __vec_extract_pred_%out_len = call %pred_fn(__vec_extract_value_%out_len)
+    __vec_extract_take_%out_len = ne __vec_extract_pred_%out_len, 0
+    br __vec_extract_take_%out_len -> L_VEC_EXTRACT_TAKE_%out_len, L_VEC_EXTRACT_KEEP_%out_len
+
+L_VEC_EXTRACT_TAKE_%out_len:
+    EXPAND VEC_PUSH_U64 %out_vec, __vec_extract_value_%out_len
+    jmp L_VEC_EXTRACT_NEXT_%out_len
+
+L_VEC_EXTRACT_KEEP_%out_len:
+    __vec_extract_write_%out_len = load __vec_extract_write_slot_%out_len+0 as u64
+    __vec_extract_write_off_%out_len = mul __vec_extract_write_%out_len, 8
+    __vec_extract_write_ptr_%out_len = ptr_add __vec_extract_ptr_%out_len, __vec_extract_write_off_%out_len
+    store __vec_extract_write_ptr_%out_len+0, __vec_extract_value_%out_len as u64
+    __vec_extract_next_write_%out_len = add __vec_extract_write_%out_len, 1
+    store __vec_extract_write_slot_%out_len+0, __vec_extract_next_write_%out_len as u64
+    !__vec_extract_next_write_%out_len
+    !__vec_extract_write_ptr_%out_len
+    !__vec_extract_write_off_%out_len
+    !__vec_extract_write_%out_len
+    jmp L_VEC_EXTRACT_NEXT_%out_len
+
+L_VEC_EXTRACT_NEXT_%out_len:
+    __vec_extract_next_read_%out_len = add __vec_extract_read_%out_len, 1
+    store __vec_extract_read_slot_%out_len+0, __vec_extract_next_read_%out_len as u64
+    !__vec_extract_next_read_%out_len
+    !__vec_extract_take_%out_len
+    !__vec_extract_pred_%out_len
+    !__vec_extract_value_%out_len
+    !__vec_extract_read_ptr_%out_len
+    !__vec_extract_read_off_%out_len
+    !__vec_extract_done_%out_len
+    !__vec_extract_read_%out_len
+    jmp L_VEC_EXTRACT_HEAD_%out_len
+
+L_VEC_EXTRACT_DONE_%out_len:
+    %out_len = load __vec_extract_write_slot_%out_len+0 as u64
+    store __vec_extract_view_%out_len+Vec_len, %out_len as u64
+    !__vec_extract_done_%out_len
+    !__vec_extract_read_%out_len
+    !__vec_extract_len_%out_len
+    !__vec_extract_ptr_%out_len
+    !__vec_extract_view_%out_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index

@@ -76,6 +76,18 @@ L_ENTRY:
     !right
     return same
 
+@vec_key_tens(value: u64) -> u64:
+L_ENTRY:
+    key = udiv value, 10
+    !value
+    return key
+
+@vec_extract_if_gt_30(value: u64) -> u64:
+L_ENTRY:
+    take = ugt value, 30
+    !value
+    return take
+
 @test "sa_std string convenience macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
@@ -2924,5 +2936,153 @@ L_VEC_RESIZE_WITH_FAIL:
     panic(915)
 
 L_VEC_RESIZE_WITH_OK:
+    !ok
+    return
+
+@test "sa_std vec dedup_by_key and extract_if macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 8
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 11
+    EXPAND VEC_PUSH_U64 vec, 21
+    EXPAND VEC_PUSH_U64 vec, 29
+    EXPAND VEC_PUSH_U64 vec, 31
+    EXPAND VEC_PUSH_U64 vec, 32
+    EXPAND VEC_DEDUP_BY_KEY_U64 dedup_key_len, vec, @vec_key_tens
+    EXPAND VEC_LEN len_after_dedup_key, vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    EXPAND VEC_EXTRACT_IF_U64 remain_len, extracted, vec, @vec_extract_if_gt_30
+    EXPAND VEC_LEN vec_len_after_extract, vec
+    EXPAND VEC_LEN extracted_len, extracted
+    EXPAND VEC_TRY_GET_U64 remain_first_ok, remain_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 remain_second_ok, remain_second, vec, 1
+    EXPAND VEC_TRY_GET_U64 remain_third_ok, remain_third, vec, 2
+    EXPAND VEC_TRY_GET_U64 extracted_first_ok, extracted_first, extracted, 0
+    EXPAND VEC_TRY_GET_U64 extracted_second_ok, extracted_second, extracted, 1
+
+    dedup_key_len_ok = eq dedup_key_len, 3
+    len_after_dedup_key_ok = eq len_after_dedup_key, 3
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 10
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 21
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 31
+    fourth_flag_ok = eq fourth_ok, 0
+    fourth_value_ok = eq fourth, 0
+    remain_len_ok = eq remain_len, 2
+    vec_len_after_extract_ok = eq vec_len_after_extract, 2
+    extracted_len_ok = eq extracted_len, 1
+    remain_first_flag_ok = eq remain_first_ok, 1
+    remain_first_value_ok = eq remain_first, 10
+    remain_second_flag_ok = eq remain_second_ok, 1
+    remain_second_value_ok = eq remain_second, 21
+    remain_third_flag_ok = eq remain_third_ok, 0
+    remain_third_value_ok = eq remain_third, 0
+    extracted_first_flag_ok = eq extracted_first_ok, 1
+    extracted_first_value_ok = eq extracted_first, 31
+    extracted_second_flag_ok = eq extracted_second_ok, 0
+    extracted_second_value_ok = eq extracted_second, 0
+    ok01 = and dedup_key_len_ok, len_after_dedup_key_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_flag_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_flag_ok
+    ok07 = and ok06, third_value_ok
+    ok08 = and ok07, fourth_flag_ok
+    ok09 = and ok08, fourth_value_ok
+    ok10 = and ok09, remain_len_ok
+    ok11 = and ok10, vec_len_after_extract_ok
+    ok12 = and ok11, extracted_len_ok
+    ok13 = and ok12, remain_first_flag_ok
+    ok14 = and ok13, remain_first_value_ok
+    ok15 = and ok14, remain_second_flag_ok
+    ok16 = and ok15, remain_second_value_ok
+    ok17 = and ok16, remain_third_flag_ok
+    ok18 = and ok17, remain_third_value_ok
+    ok19 = and ok18, extracted_first_flag_ok
+    ok20 = and ok19, extracted_first_value_ok
+    ok21 = and ok20, extracted_second_flag_ok
+    ok = and ok21, extracted_second_value_ok
+    !dedup_key_len
+    !len_after_dedup_key
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !remain_len
+    !vec_len_after_extract
+    !extracted_len
+    !remain_first_ok
+    !remain_first
+    !remain_second_ok
+    !remain_second
+    !remain_third_ok
+    !remain_third
+    !extracted_first_ok
+    !extracted_first
+    !extracted_second_ok
+    !extracted_second
+    !dedup_key_len_ok
+    !len_after_dedup_key_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !remain_len_ok
+    !vec_len_after_extract_ok
+    !extracted_len_ok
+    !remain_first_flag_ok
+    !remain_first_value_ok
+    !remain_second_flag_ok
+    !remain_second_value_ok
+    !remain_third_flag_ok
+    !remain_third_value_ok
+    !extracted_first_flag_ok
+    !extracted_first_value_ok
+    !extracted_second_flag_ok
+    !extracted_second_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    EXPAND VEC_FREE extracted
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_DEDUP_KEY_EXTRACT_OK, L_VEC_DEDUP_KEY_EXTRACT_FAIL
+
+L_VEC_DEDUP_KEY_EXTRACT_FAIL:
+    !ok
+    panic(916)
+
+L_VEC_DEDUP_KEY_EXTRACT_OK:
     !ok
     return
