@@ -210,6 +210,229 @@ L_STRING_BUF_PUSH_WRITE_%string_reg:
     !__string_buf_suffix_len_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_POP_BYTE %out_ok, %out_byte, %string_reg
+    __string_buf_pop_view_%out_ok = & %string_reg
+    __string_buf_pop_len_%out_ok = load __string_buf_pop_view_%out_ok+Vec_len as u64
+    __string_buf_pop_empty_%out_ok = eq __string_buf_pop_len_%out_ok, 0
+    br __string_buf_pop_empty_%out_ok -> L_STRING_BUF_POP_EMPTY_%out_ok, L_STRING_BUF_POP_HIT_%out_ok
+
+L_STRING_BUF_POP_HIT_%out_ok:
+    __string_buf_pop_ptr_%out_ok = load __string_buf_pop_view_%out_ok+Vec_ptr as ptr
+    __string_buf_pop_last_%out_ok = sub __string_buf_pop_len_%out_ok, 1
+    __string_buf_pop_byte_ptr_%out_ok = ptr_add __string_buf_pop_ptr_%out_ok, __string_buf_pop_last_%out_ok
+    %out_byte = load __string_buf_pop_byte_ptr_%out_ok+0 as u8
+    store __string_buf_pop_view_%out_ok+Vec_len, __string_buf_pop_last_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_buf_pop_byte_ptr_%out_ok
+    !__string_buf_pop_last_%out_ok
+    !__string_buf_pop_ptr_%out_ok
+    !__string_buf_pop_empty_%out_ok
+    !__string_buf_pop_len_%out_ok
+    !__string_buf_pop_view_%out_ok
+    jmp L_STRING_BUF_POP_END_%out_ok
+
+L_STRING_BUF_POP_EMPTY_%out_ok:
+    %out_byte = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pop_empty_%out_ok
+    !__string_buf_pop_len_%out_ok
+    !__string_buf_pop_view_%out_ok
+
+L_STRING_BUF_POP_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_POP_BYTE %out_ok, %out_byte, %string_reg
+    EXPAND STRING_BUF_TRY_POP_BYTE %out_ok, %out_byte, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
+    EXPAND VEC_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
+    EXPAND STRING_BUF_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_INSERT_BYTE %out_ok, %string_reg, %index, %byte_value
+    __string_buf_insert_view_%out_ok = & %string_reg
+    __string_buf_insert_len_%out_ok = load __string_buf_insert_view_%out_ok+Vec_len as u64
+    __string_buf_insert_in_bounds_%out_ok = ule %index, __string_buf_insert_len_%out_ok
+    !__string_buf_insert_view_%out_ok
+    br __string_buf_insert_in_bounds_%out_ok -> L_STRING_BUF_INSERT_GROW_%out_ok, L_STRING_BUF_INSERT_MISS_%out_ok
+
+L_STRING_BUF_INSERT_GROW_%out_ok:
+    EXPAND STRING_BUF_RESERVE %string_reg, 1
+    __string_buf_insert_view2_%out_ok = & %string_reg
+    __string_buf_insert_ptr_%out_ok = load __string_buf_insert_view2_%out_ok+Vec_ptr as ptr
+    __string_buf_insert_pos_slot_%out_ok = stack_alloc 8
+    store __string_buf_insert_pos_slot_%out_ok+0, __string_buf_insert_len_%out_ok as u64
+    jmp L_STRING_BUF_INSERT_SHIFT_HEAD_%out_ok
+
+L_STRING_BUF_INSERT_SHIFT_HEAD_%out_ok:
+    __string_buf_insert_pos_%out_ok = load __string_buf_insert_pos_slot_%out_ok+0 as u64
+    __string_buf_insert_more_%out_ok = ugt __string_buf_insert_pos_%out_ok, %index
+    br __string_buf_insert_more_%out_ok -> L_STRING_BUF_INSERT_SHIFT_BODY_%out_ok, L_STRING_BUF_INSERT_STORE_%out_ok
+
+L_STRING_BUF_INSERT_SHIFT_BODY_%out_ok:
+    __string_buf_insert_prev_%out_ok = sub __string_buf_insert_pos_%out_ok, 1
+    __string_buf_insert_prev_ptr_%out_ok = ptr_add __string_buf_insert_ptr_%out_ok, __string_buf_insert_prev_%out_ok
+    __string_buf_insert_pos_ptr_%out_ok = ptr_add __string_buf_insert_ptr_%out_ok, __string_buf_insert_pos_%out_ok
+    __string_buf_insert_move_byte_%out_ok = load __string_buf_insert_prev_ptr_%out_ok+0 as u8
+    store __string_buf_insert_pos_ptr_%out_ok+0, __string_buf_insert_move_byte_%out_ok as u8
+    store __string_buf_insert_pos_slot_%out_ok+0, __string_buf_insert_prev_%out_ok as u64
+    !__string_buf_insert_move_byte_%out_ok
+    !__string_buf_insert_pos_ptr_%out_ok
+    !__string_buf_insert_prev_ptr_%out_ok
+    !__string_buf_insert_prev_%out_ok
+    !__string_buf_insert_more_%out_ok
+    !__string_buf_insert_pos_%out_ok
+    jmp L_STRING_BUF_INSERT_SHIFT_HEAD_%out_ok
+
+L_STRING_BUF_INSERT_STORE_%out_ok:
+    __string_buf_insert_dst_%out_ok = ptr_add __string_buf_insert_ptr_%out_ok, %index
+    store __string_buf_insert_dst_%out_ok+0, %byte_value as u8
+    __string_buf_insert_next_len_%out_ok = add __string_buf_insert_len_%out_ok, 1
+    store __string_buf_insert_view2_%out_ok+Vec_len, __string_buf_insert_next_len_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_buf_insert_next_len_%out_ok
+    !__string_buf_insert_dst_%out_ok
+    !__string_buf_insert_more_%out_ok
+    !__string_buf_insert_pos_%out_ok
+    !__string_buf_insert_ptr_%out_ok
+    !__string_buf_insert_view2_%out_ok
+    !__string_buf_insert_in_bounds_%out_ok
+    !__string_buf_insert_len_%out_ok
+    jmp L_STRING_BUF_INSERT_END_%out_ok
+
+L_STRING_BUF_INSERT_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_insert_in_bounds_%out_ok
+    !__string_buf_insert_len_%out_ok
+
+L_STRING_BUF_INSERT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_INSERT_BYTE %out_ok, %string_reg, %index, %byte_value
+    EXPAND STRING_BUF_TRY_INSERT_BYTE %out_ok, %string_reg, %index, %byte_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_INSERT_STR %out_ok, %string_reg, %index, %insert_slice
+    __string_buf_insert_str_len_%out_ok = load %insert_slice+Slice_len as u64
+    __string_buf_insert_str_view_%out_ok = & %string_reg
+    __string_buf_insert_str_old_len_%out_ok = load __string_buf_insert_str_view_%out_ok+Vec_len as u64
+    __string_buf_insert_str_in_bounds_%out_ok = ule %index, __string_buf_insert_str_old_len_%out_ok
+    br __string_buf_insert_str_in_bounds_%out_ok -> L_STRING_BUF_INSERT_STR_HIT_%out_ok, L_STRING_BUF_INSERT_STR_MISS_%out_ok
+
+L_STRING_BUF_INSERT_STR_HIT_%out_ok:
+    __string_buf_insert_str_old_ptr_%out_ok = load __string_buf_insert_str_view_%out_ok+Vec_ptr as ptr
+    __string_buf_insert_str_suffix_len_%out_ok = sub __string_buf_insert_str_old_len_%out_ok, %index
+    __string_buf_insert_str_new_len_%out_ok = add __string_buf_insert_str_old_len_%out_ok, __string_buf_insert_str_len_%out_ok
+    EXPAND STRING_BUF_WITH_CAPACITY __string_buf_insert_str_new_%out_ok, __string_buf_insert_str_new_len_%out_ok
+    __string_buf_insert_str_prefix_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_insert_str_prefix_%out_ok, __string_buf_insert_str_old_ptr_%out_ok, %index
+    __string_buf_insert_str_suffix_ptr_%out_ok = ptr_add __string_buf_insert_str_old_ptr_%out_ok, %index
+    __string_buf_insert_str_suffix_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_insert_str_suffix_%out_ok, __string_buf_insert_str_suffix_ptr_%out_ok, __string_buf_insert_str_suffix_len_%out_ok
+    EXPAND STRING_BUF_PUSH_STR __string_buf_insert_str_new_%out_ok, __string_buf_insert_str_prefix_%out_ok
+    EXPAND STRING_BUF_PUSH_STR __string_buf_insert_str_new_%out_ok, %insert_slice
+    EXPAND STRING_BUF_PUSH_STR __string_buf_insert_str_new_%out_ok, __string_buf_insert_str_suffix_%out_ok
+    EXPAND VEC_FREE %string_reg
+    %string_reg = __string_buf_insert_str_new_%out_ok
+    %out_ok = add 0, 1
+    !__string_buf_insert_str_suffix_%out_ok
+    !__string_buf_insert_str_suffix_ptr_%out_ok
+    !__string_buf_insert_str_prefix_%out_ok
+    !__string_buf_insert_str_new_len_%out_ok
+    !__string_buf_insert_str_suffix_len_%out_ok
+    !__string_buf_insert_str_old_ptr_%out_ok
+    !__string_buf_insert_str_in_bounds_%out_ok
+    !__string_buf_insert_str_old_len_%out_ok
+    !__string_buf_insert_str_view_%out_ok
+    !__string_buf_insert_str_len_%out_ok
+    jmp L_STRING_BUF_INSERT_STR_END_%out_ok
+
+L_STRING_BUF_INSERT_STR_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_insert_str_in_bounds_%out_ok
+    !__string_buf_insert_str_old_len_%out_ok
+    !__string_buf_insert_str_view_%out_ok
+    !__string_buf_insert_str_len_%out_ok
+
+L_STRING_BUF_INSERT_STR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_INSERT_STR %out_ok, %string_reg, %index, %insert_slice
+    EXPAND STRING_BUF_TRY_INSERT_STR %out_ok, %string_reg, %index, %insert_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
+    __string_buf_replace_view_%out_ok = & %string_reg
+    __string_buf_replace_old_len_%out_ok = load __string_buf_replace_view_%out_ok+Vec_len as u64
+    __string_buf_replace_start_ok_%out_ok = ule %start, __string_buf_replace_old_len_%out_ok
+    br __string_buf_replace_start_ok_%out_ok -> L_STRING_BUF_REPLACE_LEN_CHECK_%out_ok, L_STRING_BUF_REPLACE_MISS_START_%out_ok
+
+L_STRING_BUF_REPLACE_LEN_CHECK_%out_ok:
+    __string_buf_replace_remaining_%out_ok = sub __string_buf_replace_old_len_%out_ok, %start
+    __string_buf_replace_len_ok_%out_ok = ule %length, __string_buf_replace_remaining_%out_ok
+    br __string_buf_replace_len_ok_%out_ok -> L_STRING_BUF_REPLACE_HIT_%out_ok, L_STRING_BUF_REPLACE_MISS_LEN_%out_ok
+
+L_STRING_BUF_REPLACE_HIT_%out_ok:
+    __string_buf_replace_old_ptr_%out_ok = load __string_buf_replace_view_%out_ok+Vec_ptr as ptr
+    __string_buf_replace_text_len_%out_ok = load %replace_slice+Slice_len as u64
+    __string_buf_replace_suffix_start_%out_ok = add %start, %length
+    __string_buf_replace_suffix_len_%out_ok = sub __string_buf_replace_old_len_%out_ok, __string_buf_replace_suffix_start_%out_ok
+    __string_buf_replace_prefix_plus_%out_ok = add %start, __string_buf_replace_text_len_%out_ok
+    __string_buf_replace_new_len_%out_ok = add __string_buf_replace_prefix_plus_%out_ok, __string_buf_replace_suffix_len_%out_ok
+    EXPAND STRING_BUF_WITH_CAPACITY __string_buf_replace_new_%out_ok, __string_buf_replace_new_len_%out_ok
+    __string_buf_replace_prefix_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_replace_prefix_%out_ok, __string_buf_replace_old_ptr_%out_ok, %start
+    __string_buf_replace_suffix_ptr_%out_ok = ptr_add __string_buf_replace_old_ptr_%out_ok, __string_buf_replace_suffix_start_%out_ok
+    __string_buf_replace_suffix_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_replace_suffix_%out_ok, __string_buf_replace_suffix_ptr_%out_ok, __string_buf_replace_suffix_len_%out_ok
+    EXPAND STRING_BUF_PUSH_STR __string_buf_replace_new_%out_ok, __string_buf_replace_prefix_%out_ok
+    EXPAND STRING_BUF_PUSH_STR __string_buf_replace_new_%out_ok, %replace_slice
+    EXPAND STRING_BUF_PUSH_STR __string_buf_replace_new_%out_ok, __string_buf_replace_suffix_%out_ok
+    EXPAND VEC_FREE %string_reg
+    %string_reg = __string_buf_replace_new_%out_ok
+    %out_ok = add 0, 1
+    !__string_buf_replace_suffix_%out_ok
+    !__string_buf_replace_suffix_ptr_%out_ok
+    !__string_buf_replace_prefix_%out_ok
+    !__string_buf_replace_new_len_%out_ok
+    !__string_buf_replace_prefix_plus_%out_ok
+    !__string_buf_replace_suffix_len_%out_ok
+    !__string_buf_replace_suffix_start_%out_ok
+    !__string_buf_replace_text_len_%out_ok
+    !__string_buf_replace_old_ptr_%out_ok
+    !__string_buf_replace_len_ok_%out_ok
+    !__string_buf_replace_remaining_%out_ok
+    !__string_buf_replace_start_ok_%out_ok
+    !__string_buf_replace_old_len_%out_ok
+    !__string_buf_replace_view_%out_ok
+    jmp L_STRING_BUF_REPLACE_END_%out_ok
+
+L_STRING_BUF_REPLACE_MISS_LEN_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_replace_len_ok_%out_ok
+    !__string_buf_replace_remaining_%out_ok
+    !__string_buf_replace_start_ok_%out_ok
+    !__string_buf_replace_old_len_%out_ok
+    !__string_buf_replace_view_%out_ok
+    jmp L_STRING_BUF_REPLACE_END_%out_ok
+
+L_STRING_BUF_REPLACE_MISS_START_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_replace_start_ok_%out_ok
+    !__string_buf_replace_old_len_%out_ok
+    !__string_buf_replace_view_%out_ok
+
+L_STRING_BUF_REPLACE_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
+[END_MACRO]
+
 [MACRO] STR_EMPTY %out_slice
     __str_empty_ptr_%out_slice = 0 as ptr
     EXPAND STR_FROM_PARTS %out_slice, __str_empty_ptr_%out_slice, 0
