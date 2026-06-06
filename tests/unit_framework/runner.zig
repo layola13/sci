@@ -774,12 +774,13 @@ test "native unit framework covers sa_std macro surface suites" {
     const binary_heap_expected = [_][]const u8{
         "[PASS] sa_std binary_heap capacity macros",
         "[PASS] sa_std binary_heap append macro",
+        "[PASS] sa_std binary_heap retain macro",
         "[PASS] sa_std binary_heap vec conversion macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_binary_heap_macro_surface.sa",
         binary_heap_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
     );
 
     const btree_expected = [_][]const u8{

@@ -906,6 +906,134 @@ L_APPEND_DONE:
     call @sa_binary_heap_clear(&%heap_reg)
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_RETAIN_U64 %out_len, %heap_reg, %pred_fn
+    __binary_heap_retain_buf_%out_len = load %heap_reg+BinaryHeap_buf as ptr
+    __binary_heap_retain_len_%out_len = load %heap_reg+BinaryHeap_len as u64
+    __binary_heap_retain_read_slot_%out_len = stack_alloc 8
+    __binary_heap_retain_write_slot_%out_len = stack_alloc 8
+    store __binary_heap_retain_read_slot_%out_len+0, 0 as u64
+    store __binary_heap_retain_write_slot_%out_len+0, 0 as u64
+    jmp L_BINARY_HEAP_RETAIN_HEAD_%out_len
+
+L_BINARY_HEAP_RETAIN_HEAD_%out_len:
+    __binary_heap_retain_read_%out_len = load __binary_heap_retain_read_slot_%out_len+0 as u64
+    __binary_heap_retain_done_%out_len = eq __binary_heap_retain_read_%out_len, __binary_heap_retain_len_%out_len
+    br __binary_heap_retain_done_%out_len -> L_BINARY_HEAP_RETAIN_CLEAR_HEAD_%out_len, L_BINARY_HEAP_RETAIN_BODY_%out_len
+
+L_BINARY_HEAP_RETAIN_BODY_%out_len:
+    __binary_heap_retain_read_off_%out_len = mul __binary_heap_retain_read_%out_len, BinaryHeap_SLOT_SIZE
+    __binary_heap_retain_read_ptr_%out_len = ptr_add __binary_heap_retain_buf_%out_len, __binary_heap_retain_read_off_%out_len
+    __binary_heap_retain_value_%out_len = load __binary_heap_retain_read_ptr_%out_len+0 as u64
+    __binary_heap_retain_pred_%out_len = call %pred_fn(__binary_heap_retain_value_%out_len)
+    __binary_heap_retain_keep_%out_len = ne __binary_heap_retain_pred_%out_len, 0
+    br __binary_heap_retain_keep_%out_len -> L_BINARY_HEAP_RETAIN_KEEP_%out_len, L_BINARY_HEAP_RETAIN_SKIP_%out_len
+
+L_BINARY_HEAP_RETAIN_KEEP_%out_len:
+    __binary_heap_retain_write_%out_len = load __binary_heap_retain_write_slot_%out_len+0 as u64
+    __binary_heap_retain_same_slot_%out_len = eq __binary_heap_retain_write_%out_len, __binary_heap_retain_read_%out_len
+    br __binary_heap_retain_same_slot_%out_len -> L_BINARY_HEAP_RETAIN_KEEP_ADVANCE_%out_len, L_BINARY_HEAP_RETAIN_COPY_%out_len
+
+L_BINARY_HEAP_RETAIN_COPY_%out_len:
+    __binary_heap_retain_write_off_%out_len = mul __binary_heap_retain_write_%out_len, BinaryHeap_SLOT_SIZE
+    __binary_heap_retain_write_ptr_%out_len = ptr_add __binary_heap_retain_buf_%out_len, __binary_heap_retain_write_off_%out_len
+    store __binary_heap_retain_write_ptr_%out_len+0, __binary_heap_retain_value_%out_len as u64
+    !__binary_heap_retain_write_ptr_%out_len
+    !__binary_heap_retain_write_off_%out_len
+    jmp L_BINARY_HEAP_RETAIN_KEEP_ADVANCE_%out_len
+
+L_BINARY_HEAP_RETAIN_KEEP_ADVANCE_%out_len:
+    __binary_heap_retain_next_write_%out_len = add __binary_heap_retain_write_%out_len, 1
+    store __binary_heap_retain_write_slot_%out_len+0, __binary_heap_retain_next_write_%out_len as u64
+    !__binary_heap_retain_next_write_%out_len
+    !__binary_heap_retain_same_slot_%out_len
+    !__binary_heap_retain_write_%out_len
+    jmp L_BINARY_HEAP_RETAIN_NEXT_%out_len
+
+L_BINARY_HEAP_RETAIN_SKIP_%out_len:
+    jmp L_BINARY_HEAP_RETAIN_NEXT_%out_len
+
+L_BINARY_HEAP_RETAIN_NEXT_%out_len:
+    __binary_heap_retain_next_read_%out_len = add __binary_heap_retain_read_%out_len, 1
+    store __binary_heap_retain_read_slot_%out_len+0, __binary_heap_retain_next_read_%out_len as u64
+    !__binary_heap_retain_next_read_%out_len
+    !__binary_heap_retain_keep_%out_len
+    !__binary_heap_retain_pred_%out_len
+    !__binary_heap_retain_value_%out_len
+    !__binary_heap_retain_read_ptr_%out_len
+    !__binary_heap_retain_read_off_%out_len
+    !__binary_heap_retain_done_%out_len
+    !__binary_heap_retain_read_%out_len
+    jmp L_BINARY_HEAP_RETAIN_HEAD_%out_len
+
+L_BINARY_HEAP_RETAIN_CLEAR_HEAD_%out_len:
+    __binary_heap_retain_clear_slot_%out_len = stack_alloc 8
+    __binary_heap_retain_kept_len_%out_len = load __binary_heap_retain_write_slot_%out_len+0 as u64
+    store __binary_heap_retain_clear_slot_%out_len+0, __binary_heap_retain_kept_len_%out_len as u64
+    jmp L_BINARY_HEAP_RETAIN_CLEAR_LOOP_%out_len
+
+L_BINARY_HEAP_RETAIN_CLEAR_LOOP_%out_len:
+    __binary_heap_retain_clear_idx_%out_len = load __binary_heap_retain_clear_slot_%out_len+0 as u64
+    __binary_heap_retain_clear_done_%out_len = eq __binary_heap_retain_clear_idx_%out_len, __binary_heap_retain_len_%out_len
+    br __binary_heap_retain_clear_done_%out_len -> L_BINARY_HEAP_RETAIN_HEAPIFY_INIT_%out_len, L_BINARY_HEAP_RETAIN_CLEAR_BODY_%out_len
+
+L_BINARY_HEAP_RETAIN_CLEAR_BODY_%out_len:
+    __binary_heap_retain_clear_off_%out_len = mul __binary_heap_retain_clear_idx_%out_len, BinaryHeap_SLOT_SIZE
+    __binary_heap_retain_clear_ptr_%out_len = ptr_add __binary_heap_retain_buf_%out_len, __binary_heap_retain_clear_off_%out_len
+    store __binary_heap_retain_clear_ptr_%out_len+0, 0 as u64
+    __binary_heap_retain_next_clear_%out_len = add __binary_heap_retain_clear_idx_%out_len, 1
+    store __binary_heap_retain_clear_slot_%out_len+0, __binary_heap_retain_next_clear_%out_len as u64
+    !__binary_heap_retain_next_clear_%out_len
+    !__binary_heap_retain_clear_ptr_%out_len
+    !__binary_heap_retain_clear_off_%out_len
+    !__binary_heap_retain_clear_done_%out_len
+    !__binary_heap_retain_clear_idx_%out_len
+    jmp L_BINARY_HEAP_RETAIN_CLEAR_LOOP_%out_len
+
+L_BINARY_HEAP_RETAIN_HEAPIFY_INIT_%out_len:
+    store %heap_reg+BinaryHeap_len, __binary_heap_retain_kept_len_%out_len as u64
+    __binary_heap_retain_too_small_%out_len = ule __binary_heap_retain_kept_len_%out_len, 1
+    br __binary_heap_retain_too_small_%out_len -> L_BINARY_HEAP_RETAIN_DONE_%out_len, L_BINARY_HEAP_RETAIN_HEAPIFY_START_%out_len
+
+L_BINARY_HEAP_RETAIN_HEAPIFY_START_%out_len:
+    __binary_heap_retain_last_%out_len = sub __binary_heap_retain_kept_len_%out_len, 2
+    __binary_heap_retain_parent_%out_len = udiv __binary_heap_retain_last_%out_len, 2
+    __binary_heap_retain_heapify_slot_%out_len = stack_alloc 8
+    store __binary_heap_retain_heapify_slot_%out_len+0, __binary_heap_retain_parent_%out_len as u64
+    jmp L_BINARY_HEAP_RETAIN_HEAPIFY_LOOP_%out_len
+
+L_BINARY_HEAP_RETAIN_HEAPIFY_LOOP_%out_len:
+    __binary_heap_retain_heapify_idx_%out_len = load __binary_heap_retain_heapify_slot_%out_len+0 as u64
+    call @binary_heap_sift_down(&%heap_reg, __binary_heap_retain_heapify_idx_%out_len)
+    __binary_heap_retain_heapify_zero_%out_len = eq __binary_heap_retain_heapify_idx_%out_len, 0
+    br __binary_heap_retain_heapify_zero_%out_len -> L_BINARY_HEAP_RETAIN_DONE_FROM_HEAPIFY_%out_len, L_BINARY_HEAP_RETAIN_HEAPIFY_NEXT_%out_len
+
+L_BINARY_HEAP_RETAIN_HEAPIFY_NEXT_%out_len:
+    __binary_heap_retain_prev_heapify_%out_len = sub __binary_heap_retain_heapify_idx_%out_len, 1
+    store __binary_heap_retain_heapify_slot_%out_len+0, __binary_heap_retain_prev_heapify_%out_len as u64
+    !__binary_heap_retain_prev_heapify_%out_len
+    !__binary_heap_retain_heapify_zero_%out_len
+    !__binary_heap_retain_heapify_idx_%out_len
+    jmp L_BINARY_HEAP_RETAIN_HEAPIFY_LOOP_%out_len
+
+L_BINARY_HEAP_RETAIN_DONE_FROM_HEAPIFY_%out_len:
+    !__binary_heap_retain_heapify_zero_%out_len
+    !__binary_heap_retain_heapify_idx_%out_len
+    !__binary_heap_retain_parent_%out_len
+    !__binary_heap_retain_last_%out_len
+    jmp L_BINARY_HEAP_RETAIN_DONE_%out_len
+
+L_BINARY_HEAP_RETAIN_DONE_%out_len:
+    %out_len = load %heap_reg+BinaryHeap_len as u64
+    !__binary_heap_retain_too_small_%out_len
+    !__binary_heap_retain_clear_done_%out_len
+    !__binary_heap_retain_clear_idx_%out_len
+    !__binary_heap_retain_kept_len_%out_len
+    !__binary_heap_retain_done_%out_len
+    !__binary_heap_retain_read_%out_len
+    !__binary_heap_retain_len_%out_len
+    !__binary_heap_retain_buf_%out_len
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_APPEND %heap_reg, %other_heap_reg
     call @sa_binary_heap_append(&%heap_reg, &%other_heap_reg)
 [END_MACRO]

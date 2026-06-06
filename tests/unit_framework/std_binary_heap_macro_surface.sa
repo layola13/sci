@@ -1,6 +1,14 @@
 @import "sa_std/collections/binary_heap.sa"
 @import "sa_std/vec.sa"
 
+@binary_heap_keep_even(value: u64) -> u64:
+L_ENTRY:
+    low = and value, 1
+    keep = eq low, 0
+    !low
+    !value
+    return keep
+
 @test "sa_std binary_heap capacity macros"():
 L_ENTRY:
     EXPAND BINARY_HEAP_WITH_CAPACITY heap, 3
@@ -327,6 +335,100 @@ L_APPEND_FAIL:
     panic(907)
 
 L_APPEND_OK:
+    !ok
+    return
+
+@test "sa_std binary_heap retain macro"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_NEW heap
+    EXPAND BINARY_HEAP_PUSH heap, 4
+    EXPAND BINARY_HEAP_PUSH heap, 9
+    EXPAND BINARY_HEAP_PUSH heap, 1
+    EXPAND BINARY_HEAP_PUSH heap, 8
+    EXPAND BINARY_HEAP_PUSH heap, 2
+    EXPAND BINARY_HEAP_RETAIN_U64 retain_len, heap, @binary_heap_keep_even
+    EXPAND BINARY_HEAP_LEN len_after_retain, heap
+    EXPAND BINARY_HEAP_PEEK peek_after_retain, heap
+    EXPAND BINARY_HEAP_TRY_POP ok0, pop0, heap
+    EXPAND BINARY_HEAP_TRY_POP ok1, pop1, heap
+    EXPAND BINARY_HEAP_TRY_POP ok2, pop2, heap
+    EXPAND BINARY_HEAP_TRY_POP ok_empty, pop_empty, heap
+    EXPAND BINARY_HEAP_FREE heap
+
+    EXPAND BINARY_HEAP_NEW empty_heap
+    EXPAND BINARY_HEAP_RETAIN_U64 empty_retain_len, empty_heap, @binary_heap_keep_even
+    EXPAND BINARY_HEAP_LEN empty_len, empty_heap
+    EXPAND BINARY_HEAP_FREE empty_heap
+
+    ok_retain_len = eq retain_len, 3
+    ok_len_after_retain = eq len_after_retain, 3
+    ok_peek_after_retain = eq peek_after_retain, 8
+    ok_ok0 = eq ok0, 1
+    ok_pop0 = eq pop0, 8
+    ok_ok1 = eq ok1, 1
+    ok_pop1 = eq pop1, 4
+    ok_ok2 = eq ok2, 1
+    ok_pop2 = eq pop2, 2
+    ok_empty_ok = eq ok_empty, 0
+    ok_pop_empty = eq pop_empty, 0
+    ok_empty_retain_len = eq empty_retain_len, 0
+    ok_empty_len = eq empty_len, 0
+    ok01 = and ok_retain_len, ok_len_after_retain
+    ok02 = and ok01, ok_peek_after_retain
+    ok03 = and ok02, ok_ok0
+    ok04 = and ok03, ok_pop0
+    ok05 = and ok04, ok_ok1
+    ok06 = and ok05, ok_pop1
+    ok07 = and ok06, ok_ok2
+    ok08 = and ok07, ok_pop2
+    ok09 = and ok08, ok_empty_ok
+    ok10 = and ok09, ok_pop_empty
+    ok11 = and ok10, ok_empty_retain_len
+    ok = and ok11, ok_empty_len
+    !retain_len
+    !len_after_retain
+    !peek_after_retain
+    !ok0
+    !pop0
+    !ok1
+    !pop1
+    !ok2
+    !pop2
+    !ok_empty
+    !pop_empty
+    !empty_retain_len
+    !empty_len
+    !ok_retain_len
+    !ok_len_after_retain
+    !ok_peek_after_retain
+    !ok_ok0
+    !ok_pop0
+    !ok_ok1
+    !ok_pop1
+    !ok_ok2
+    !ok_pop2
+    !ok_empty_ok
+    !ok_pop_empty
+    !ok_empty_retain_len
+    !ok_empty_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    br ok -> L_RETAIN_OK, L_RETAIN_FAIL
+
+L_RETAIN_FAIL:
+    !ok
+    panic(909)
+
+L_RETAIN_OK:
     !ok
     return
 
