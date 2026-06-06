@@ -3877,9 +3877,16 @@ fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []const 
 }
 
 fn copyFileAlloc(allocator: std.mem.Allocator, src_path: []const u8, dst_path: []const u8) !void {
-    const bytes = try readTextFileAlloc(allocator, src_path);
-    defer allocator.free(bytes);
-    try writeAllFile(dst_path, bytes);
+    _ = allocator;
+    try ensureParentDir(dst_path);
+    try std.fs.cwd().copyFile(src_path, std.fs.cwd(), dst_path, .{});
+}
+
+fn makeExecutable(path: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+    var file = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
+    defer file.close();
+    try file.chmod(0o755);
 }
 
 fn cacheRootPath(allocator: std.mem.Allocator, project_root: []const u8) ![]u8 {
@@ -4280,6 +4287,7 @@ fn executeInit(allocator: std.mem.Allocator, args: []const []const u8, stdout: a
     );
     try ensureNewFile(gitignore_path,
         \\.zig-cache/
+        \\.sa_cache/
         \\zig-out/
         \\*.out
         \\*.sa.bc
@@ -4478,6 +4486,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     defer allocator.free(artifact_path);
 
     if (try projectCacheHit(allocator, project_root, .build_exe, cache_key, artifact_path, out_path)) {
+        try makeExecutable(out_path);
         if (diagnostics_mode == .json) {
             const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null };
             try writeSuccessJson(stderr, metrics);

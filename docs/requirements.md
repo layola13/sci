@@ -605,7 +605,7 @@
 2. WHEN 源文件中某个函数未修改（通过函数体哈希比对）THEN 增量模式 SHALL 跳过该函数的 Emitter + zig cc 阶段，直接复用上次的 `.o`
 3. WHEN 增量模式被启用 THEN 最终链接 SHALL 把所有函数的 `.o` 合并为单一产物
 4. WHEN 函数之间无跨函数分析依赖（SA 的设计保证）THEN 增量编译的正确性 SHALL 不依赖编译顺序
-5. WHEN 增量缓存目录 THEN 其 SHALL 位于 `.sa-cache/` 下，按函数名哈希组织
+5. WHEN 增量缓存目录 THEN 其 SHALL 位于当前项目 `.sa_cache/` 下，按函数名哈希组织，不共享到全局状态
 6. WHEN `--incremental` 与 `--debug-san` 同时启用 THEN 每个函数的 `.o` SHALL 独立包含 sanitizer 簿记入口（不依赖全局状态）
 
 ---

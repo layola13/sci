@@ -40,6 +40,38 @@ fn writeBytes(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
+fn freeStringMtimeMap(allocator: std.mem.Allocator, map: *std.StringHashMap(i128)) void {
+    var iter = map.iterator();
+    while (iter.next()) |entry| allocator.free(entry.key_ptr.*);
+    map.deinit();
+}
+
+fn cachedFunctionObjectMtimes(allocator: std.mem.Allocator, dir: std.fs.Dir) !std.StringHashMap(i128) {
+    var result = std.StringHashMap(i128).init(allocator);
+    errdefer freeStringMtimeMap(allocator, &result);
+
+    var cache_root = try dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
+    defer cache_root.close();
+    var cache_iter = cache_root.iterate();
+    while (try cache_iter.next()) |cache_entry| {
+        if (cache_entry.kind != .directory) continue;
+        var functions_dir = cache_root.openDir(cache_entry.name, .{ .iterate = true }) catch continue;
+        defer functions_dir.close();
+        var object_dir = functions_dir.openDir("functions", .{ .iterate = true }) catch continue;
+        defer object_dir.close();
+
+        var object_iter = object_dir.iterate();
+        while (try object_iter.next()) |object_entry| {
+            if (object_entry.kind != .file or !std.mem.endsWith(u8, object_entry.name, ".o")) continue;
+            const key = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ cache_entry.name, object_entry.name });
+            errdefer allocator.free(key);
+            const stat = try object_dir.statFile(object_entry.name);
+            try result.put(key, stat.mtime);
+        }
+    }
+    return result;
+}
+
 fn writeManifestForPackage(
     dir: std.fs.Dir,
     project_root: []const u8,
@@ -463,17 +495,33 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
     const exe = try tmp.dir.openFile(exe_path, .{});
-    defer exe.close();
     const exe_bytes = try exe.readToEndAlloc(std.testing.allocator, 1 << 20);
+    exe.close();
     defer std.testing.allocator.free(exe_bytes);
     try std.testing.expect(exe_bytes.len > 0);
 
     const artifact_path = "sample.out.sa.bc";
     const artifact = try tmp.dir.openFile(artifact_path, .{});
-    defer artifact.close();
     const artifact_bytes = try artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
+    artifact.close();
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
+
+    try tmp.dir.deleteFile(exe_path);
+    try tmp.dir.deleteFile(artifact_path);
+    const cached_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), cached_exe_code);
+    const cached_artifact = try tmp.dir.openFile(artifact_path, .{});
+    cached_artifact.close();
+    if (builtin.os.tag != .windows) {
+        const cached_exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./sample.out"});
+        defer std.testing.allocator.free(cached_exe_result.stdout);
+        defer std.testing.allocator.free(cached_exe_result.stderr);
+        switch (cached_exe_result.term) {
+            .Exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
+            else => return error.TestUnexpectedResult,
+        }
+    }
 
     const obj_path = "sample.o";
     const build_obj_argv = [_][]const u8{ "sa", "build-obj", "sample.sa", "--jobs", "auto", "-o", obj_path };
@@ -525,6 +573,35 @@ test "cli build-obj incremental reuses local cache layout" {
     try std.testing.expectEqual(@as(u8, 0), first_code);
     const second_code = try saasm.cli.execute(std.testing.allocator, build_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), second_code);
+
+    var before_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
+    defer freeStringMtimeMap(std.testing.allocator, &before_mtimes);
+    try std.testing.expectEqual(@as(u32, 2), before_mtimes.count());
+
+    const modified_source =
+        \\@helper(value: i32) -> i32:
+        \\return value + 2
+        \\
+        \\@main() -> i32:
+        \\value = call @helper(6)
+        \\return value
+    ;
+    try writeSource(tmp.dir, "incremental.sa", modified_source);
+    const modified_code = try saasm.cli.execute(std.testing.allocator, build_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), modified_code);
+
+    var after_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
+    defer freeStringMtimeMap(std.testing.allocator, &after_mtimes);
+    try std.testing.expect(after_mtimes.count() >= 3);
+
+    var reused_count: usize = 0;
+    var before_iter = before_mtimes.iterator();
+    while (before_iter.next()) |entry| {
+        if (after_mtimes.get(entry.key_ptr.*)) |mtime| {
+            if (mtime == entry.value_ptr.*) reused_count += 1;
+        }
+    }
+    try std.testing.expect(reused_count >= 1);
 
     const obj_file = try tmp.dir.openFile("incremental.o", .{});
     defer obj_file.close();
