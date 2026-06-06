@@ -1,0 +1,233 @@
+@import "sa_std/string.sa"
+@import "sa_std/path.sa"
+
+@const PATH_FULL = utf8:"/tmp/demo/file.txt"
+@const PATH_REL = utf8:"tmp/demo"
+@const PATH_ROOT = utf8:"/"
+@const PATH_PREFIX = utf8:"/tmp/demo"
+@const PATH_PREFIX_SLASH = utf8:"/tmp/demo/"
+@const PATH_PREFIX_PARENT = utf8:"/tmp"
+@const PATH_PREFIX_PARTIAL = utf8:"/tmp/de"
+@const PATH_PREFIX_BAD = utf8:"/var"
+@const PATH_CHILD = utf8:"child"
+@const PATH_ABS_CHILD = utf8:"/var/log"
+@const PATH_NEW_FILE = utf8:"other.bin"
+@const EXPECT_BASE = utf8:"file.txt"
+@const EXPECT_DIR = utf8:"/tmp/demo"
+@const EXPECT_STEM = utf8:"file"
+@const EXPECT_EXT = utf8:"txt"
+@const EXPECT_JOINED = utf8:"/tmp/demo/child"
+@const EXPECT_RENAMED = utf8:"/tmp/demo/other.bin"
+
+@test "sa_std path rust parity macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS full, &PATH_FULL, 18
+    EXPAND STR_FROM_PARTS rel, &PATH_REL, 8
+    EXPAND STR_FROM_PARTS root, &PATH_ROOT, 1
+    EXPAND STR_FROM_PARTS prefix, &PATH_PREFIX, 9
+    EXPAND STR_FROM_PARTS prefix_slash, &PATH_PREFIX_SLASH, 10
+    EXPAND STR_FROM_PARTS prefix_parent, &PATH_PREFIX_PARENT, 4
+    EXPAND STR_FROM_PARTS prefix_partial, &PATH_PREFIX_PARTIAL, 7
+    EXPAND STR_FROM_PARTS prefix_bad, &PATH_PREFIX_BAD, 4
+    EXPAND STR_FROM_PARTS child, &PATH_CHILD, 5
+    EXPAND STR_FROM_PARTS abs_child, &PATH_ABS_CHILD, 8
+    EXPAND STR_FROM_PARTS new_file, &PATH_NEW_FILE, 9
+    EXPAND STR_FROM_PARTS expect_base, &EXPECT_BASE, 8
+    EXPAND STR_FROM_PARTS expect_dir, &EXPECT_DIR, 9
+    EXPAND STR_FROM_PARTS expect_stem, &EXPECT_STEM, 4
+    EXPAND STR_FROM_PARTS expect_ext, &EXPECT_EXT, 3
+    EXPAND STR_FROM_PARTS expect_joined, &EXPECT_JOINED, 15
+    EXPAND STR_FROM_PARTS expect_renamed, &EXPECT_RENAMED, 19
+
+    EXPAND PATH_BASENAME base, full
+    EXPAND PATH_DIRNAME dir, full
+    EXPAND PATH_PARENT parent, full
+    EXPAND PATH_STEM stem, full
+    EXPAND PATH_FILE_STEM file_stem, full
+    EXPAND PATH_EXT ext, full
+    EXPAND PATH_EXTENSION extension, full
+    EXPAND PATH_IS_ABSOLUTE full_abs, full
+    EXPAND PATH_IS_ABSOLUTE rel_abs, rel
+    EXPAND PATH_HAS_ROOT root_has_root, root
+    EXPAND PATH_ENDS_WITH_SEPARATOR prefix_has_sep, prefix
+    EXPAND PATH_ENDS_WITH_SEPARATOR prefix_slash_has_sep, prefix_slash
+    EXPAND PATH_STARTS_WITH starts_prefix, full, prefix
+    EXPAND PATH_STARTS_WITH starts_prefix_slash, full, prefix_slash
+    EXPAND PATH_STARTS_WITH starts_parent, full, prefix_parent
+    EXPAND PATH_STARTS_WITH starts_partial, full, prefix_partial
+    EXPAND PATH_STARTS_WITH starts_bad, full, prefix_bad
+    EXPAND PATH_TRY_STRIP_PREFIX strip_ok, stripped, full, prefix
+    EXPAND PATH_TRY_STRIP_PREFIX strip_slash_ok, stripped_slash, full, prefix_slash
+    EXPAND PATH_TRY_STRIP_PREFIX strip_bad_ok, stripped_bad, full, prefix_bad
+    EXPAND PATH_JOIN joined, prefix, child
+    EXPAND PATH_JOIN joined_slash, prefix_slash, child
+    EXPAND PATH_JOIN joined_abs, prefix, abs_child
+    EXPAND PATH_JOIN joined_empty_base, stripped_bad, child
+    EXPAND PATH_WITH_FILE_NAME renamed, full, new_file
+
+    EXPAND STR_EQ base_eq, base, expect_base
+    EXPAND STR_EQ dir_eq, dir, expect_dir
+    EXPAND STR_EQ parent_eq, parent, expect_dir
+    EXPAND STR_EQ stem_eq, stem, expect_stem
+    EXPAND STR_EQ file_stem_eq, file_stem, expect_stem
+    EXPAND STR_EQ ext_eq, ext, expect_ext
+    EXPAND STR_EQ extension_eq, extension, expect_ext
+    EXPAND STR_EQ stripped_eq, stripped, expect_base
+    EXPAND STR_EQ stripped_slash_eq, stripped_slash, expect_base
+    EXPAND STR_IS_EMPTY stripped_bad_empty, stripped_bad
+    EXPAND STR_EQ joined_eq, joined, expect_joined
+    EXPAND STR_EQ joined_slash_eq, joined_slash, expect_joined
+    EXPAND STR_EQ joined_abs_eq, joined_abs, abs_child
+    EXPAND STR_EQ joined_empty_base_eq, joined_empty_base, child
+    EXPAND STR_EQ renamed_eq, renamed, expect_renamed
+
+    ok_full_abs = eq full_abs, 1
+    ok_rel_abs = eq rel_abs, 0
+    ok_root = eq root_has_root, 1
+    ok_prefix_sep = eq prefix_has_sep, 0
+    ok_prefix_slash_sep = eq prefix_slash_has_sep, 1
+    ok_starts_prefix = eq starts_prefix, 1
+    ok_starts_prefix_slash = eq starts_prefix_slash, 1
+    ok_starts_parent = eq starts_parent, 1
+    ok_starts_partial = eq starts_partial, 0
+    ok_starts_bad = eq starts_bad, 0
+    ok_strip = eq strip_ok, 1
+    ok_strip_slash = eq strip_slash_ok, 1
+    ok_strip_bad = eq strip_bad_ok, 0
+
+    ok01 = and base_eq, dir_eq
+    ok02 = and ok01, parent_eq
+    ok03 = and ok02, stem_eq
+    ok04 = and ok03, file_stem_eq
+    ok05 = and ok04, ext_eq
+    ok06 = and ok05, extension_eq
+    ok07 = and ok06, ok_full_abs
+    ok08 = and ok07, ok_rel_abs
+    ok09 = and ok08, ok_root
+    ok10 = and ok09, ok_prefix_sep
+    ok11 = and ok10, ok_prefix_slash_sep
+    ok12 = and ok11, ok_starts_prefix
+    ok13 = and ok12, ok_starts_prefix_slash
+    ok14 = and ok13, ok_starts_parent
+    ok15 = and ok14, ok_starts_partial
+    ok16 = and ok15, ok_starts_bad
+    ok17 = and ok16, ok_strip
+    ok18 = and ok17, stripped_eq
+    ok19 = and ok18, ok_strip_slash
+    ok20 = and ok19, stripped_slash_eq
+    ok21 = and ok20, ok_strip_bad
+    ok22 = and ok21, stripped_bad_empty
+    ok23 = and ok22, joined_eq
+    ok24 = and ok23, joined_slash_eq
+    ok25 = and ok24, joined_abs_eq
+    ok26 = and ok25, joined_empty_base_eq
+    ok = and ok26, renamed_eq
+
+    !base_eq
+    !dir_eq
+    !parent_eq
+    !stem_eq
+    !file_stem_eq
+    !ext_eq
+    !extension_eq
+    !stripped_eq
+    !stripped_slash_eq
+    !stripped_bad_empty
+    !joined_eq
+    !joined_slash_eq
+    !joined_abs_eq
+    !joined_empty_base_eq
+    !renamed_eq
+    !full_abs
+    !rel_abs
+    !root_has_root
+    !prefix_has_sep
+    !prefix_slash_has_sep
+    !starts_prefix
+    !starts_prefix_slash
+    !starts_parent
+    !starts_partial
+    !starts_bad
+    !strip_ok
+    !strip_slash_ok
+    !strip_bad_ok
+    !ok_full_abs
+    !ok_rel_abs
+    !ok_root
+    !ok_prefix_sep
+    !ok_prefix_slash_sep
+    !ok_starts_prefix
+    !ok_starts_prefix_slash
+    !ok_starts_parent
+    !ok_starts_partial
+    !ok_starts_bad
+    !ok_strip
+    !ok_strip_slash
+    !ok_strip_bad
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !renamed
+    !joined_empty_base
+    !joined_abs
+    !joined_slash
+    !joined
+    !stripped_bad
+    !stripped_slash
+    !stripped
+    !extension
+    !ext
+    !file_stem
+    !stem
+    !parent
+    !dir
+    !base
+    !expect_renamed
+    !expect_joined
+    !expect_ext
+    !expect_stem
+    !expect_dir
+    !expect_base
+    !new_file
+    !abs_child
+    !child
+    !prefix_bad
+    !prefix_partial
+    !prefix_parent
+    !prefix_slash
+    !prefix
+    !root
+    !rel
+    !full
+    br ok -> L_PATH_OK, L_PATH_FAIL
+
+L_PATH_FAIL:
+    !ok
+    panic(941)
+
+L_PATH_OK:
+    !ok
+    return

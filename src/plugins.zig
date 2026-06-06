@@ -2252,6 +2252,10 @@ pub fn defaultPluginsHome(allocator: std.mem.Allocator) ![]u8 {
     return try std.fs.path.join(allocator, &.{ home, ".local", "share", "sa_plugins" });
 }
 
+pub fn pluginsHomePath(allocator: std.mem.Allocator) ![]u8 {
+    return try pluginsHome(allocator);
+}
+
 fn pluginsHome(allocator: std.mem.Allocator) ![]u8 {
     const configured = std.process.getEnvVarOwned(allocator, "SA_PLUGINS_HOME") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return try defaultPluginsHome(allocator),

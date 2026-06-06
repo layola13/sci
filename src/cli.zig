@@ -200,6 +200,7 @@ const GraphBuildContext = struct {
     nodes: *std.ArrayList(GraphNode),
     edges: *std.ArrayList(GraphEdge),
     dependencies: []const pkg_resolver.Dependency,
+    plugin_import_roots: []const []const u8,
     project_root: []const u8,
     offline: bool,
 };
@@ -267,6 +268,7 @@ fn collectSourceGraph(ctx: *GraphBuildContext, source_path: []const u8) !usize {
         var imported = try pkg_resolver.resolveImport(ctx.allocator, ctx.dependencies, std.fs.path.dirname(source_path) orelse ".", import_path, .{
             .project_root = ctx.project_root,
             .offline = ctx.offline,
+            .plugin_import_roots = ctx.plugin_import_roots,
         });
         defer imported.deinit(ctx.allocator);
 
@@ -3028,6 +3030,30 @@ fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.
     return try deps.toOwnedSlice();
 }
 
+fn freeOwnedStringSlice(allocator: std.mem.Allocator, items: []const []const u8) void {
+    for (items) |item| allocator.free(item);
+    allocator.free(items);
+}
+
+fn manifestPluginImportRoots(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]const []const u8 {
+    var roots = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (roots.items) |root| allocator.free(root);
+        roots.deinit();
+    }
+
+    if (manifest_file.plugin_requires.len == 0) return try roots.toOwnedSlice();
+
+    const home = try plugins.pluginsHomePath(allocator);
+    defer allocator.free(home);
+
+    for (manifest_file.plugin_requires) |entry| {
+        try roots.append(try std.fs.path.join(allocator, &.{ home, "installed", entry.identity, "current", "sa" }));
+    }
+
+    return try roots.toOwnedSlice();
+}
+
 fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
     const total_start = if (options.profile) std.time.Instant.now() catch null else null;
     const load_start = if (options.profile) std.time.Instant.now() catch null else null;
@@ -3048,6 +3074,9 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     var dependency_slice: []pkg_resolver.Dependency = &.{};
     defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
 
+    var plugin_import_roots: []const []const u8 = &.{};
+    defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
+
     if (project_manifest) |*m| {
         verifyProjectPackageState(allocator, project_root, m.*, options) catch |err| {
             if (trapFromPackagePreflightError(err)) |report| {
@@ -3056,6 +3085,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             return err;
         };
         dependency_slice = try manifestDependencies(m, allocator);
+        plugin_import_roots = try manifestPluginImportRoots(m, allocator);
     }
 
     const package_grants: []const manifest.RequireEntry = if (project_manifest) |*m| m.requires else &.{};
@@ -3067,6 +3097,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             .project_root = project_root,
             .std_root = std_root,
             .offline = options.offline,
+            .plugin_import_roots = plugin_import_roots,
         },
     };
     const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
@@ -3751,8 +3782,11 @@ fn executeGraph(
 
             var dependencies: []pkg_resolver.Dependency = &.{};
             defer if (dependencies.len != 0) allocator.free(dependencies);
+            var plugin_import_roots: []const []const u8 = &.{};
+            defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
             if (project_manifest) |*m| {
                 dependencies = try manifestDependencies(m, allocator);
+                plugin_import_roots = try manifestPluginImportRoots(m, allocator);
             }
 
             var node_map = std.StringHashMap(usize).init(allocator);
@@ -3778,6 +3812,7 @@ fn executeGraph(
                 .nodes = &nodes,
                 .edges = &edges,
                 .dependencies = dependencies,
+                .plugin_import_roots = plugin_import_roots,
                 .project_root = resolved_project_root,
                 .offline = compile_options.offline,
             };

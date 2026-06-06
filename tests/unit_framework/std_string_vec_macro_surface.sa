@@ -19,6 +19,9 @@
 @const SPACED_WORD = utf8:"  Rust  "
 @const WORD_TRAILING = utf8:"Rust  "
 @const WORD_LEADING = utf8:"  Rust"
+@const JOIN_LEFT = utf8:"rust"
+@const JOIN_RIGHT = utf8:"-std"
+@const JOINED = utf8:"rust-std"
 
 @test "sa_std string convenience macros"():
 L_ENTRY:
@@ -215,6 +218,35 @@ L_FAIL:
     panic(901)
 
 L_OK:
+    !ok
+    return
+
+@test "sa_std string concat macro"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS right, &JOIN_RIGHT, 4
+    EXPAND STR_FROM_PARTS expected, &JOINED, 8
+    EXPAND STR_CONCAT joined, left, right
+    EXPAND STR_LEN joined_len, joined
+    EXPAND STR_EQ joined_eq, joined, expected
+    len_ok = eq joined_len, 8
+    eq_ok = eq joined_eq, 1
+    ok = and len_ok, eq_ok
+    !joined_len
+    !joined_eq
+    !len_ok
+    !eq_ok
+    !joined
+    !expected
+    !right
+    !left
+    br ok -> L_CONCAT_OK, L_CONCAT_FAIL
+
+L_CONCAT_FAIL:
+    !ok
+    panic(905)
+
+L_CONCAT_OK:
     !ok
     return
 

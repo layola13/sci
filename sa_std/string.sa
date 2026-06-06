@@ -2,6 +2,7 @@
 @import "core/slice.sa"
 @import "vec.sal"
 @import "string.sai"
+@import "fmt.sai"
 
 [MACRO] STR_LEN %out_len, %slice_reg
     EXPAND SLICE_GET_LEN %out_len, %slice_reg
@@ -929,14 +930,16 @@ L_STR_RSPLIT_ONCE_END_%out_ok:
     __str_right_ptr_%out_slice = load %right_slice+Slice_ptr as ptr
     __str_left_len_%out_slice = load %left_slice+Slice_len as u64
     __str_right_len_%out_slice = load %right_slice+Slice_len as u64
-    __str_total_len_%out_slice = add __str_left_len_%out_slice, __str_right_len_%out_slice
     __str_out_buf_%out_slice = call @sa_string_concat(__str_left_ptr_%out_slice, __str_left_len_%out_slice, __str_right_ptr_%out_slice, __str_right_len_%out_slice)
+    __str_out_ptr_%out_slice = call @sa_fmt_buffer_data(__str_out_buf_%out_slice)
+    __str_out_len_%out_slice = call @sa_fmt_buffer_len(__str_out_buf_%out_slice)
     %out_slice = alloc Slice_SIZE
-    EXPAND SLICE_NEW %out_slice, __str_out_buf_%out_slice, __str_total_len_%out_slice
+    EXPAND SLICE_NEW %out_slice, __str_out_ptr_%out_slice, __str_out_len_%out_slice
     !__str_left_ptr_%out_slice
     !__str_right_ptr_%out_slice
     !__str_left_len_%out_slice
     !__str_right_len_%out_slice
-    !__str_total_len_%out_slice
+    !__str_out_ptr_%out_slice
+    !__str_out_len_%out_slice
     !__str_out_buf_%out_slice
 [END_MACRO]

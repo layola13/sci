@@ -140,6 +140,7 @@ pub const ResolveOptions = struct {
     offline: bool = false,
     entry_candidates: []const []const u8 = &.{ "index.sa", "main.sa" },
     std_root: ?[]const u8 = null,
+    plugin_import_roots: []const []const u8 = &.{},
     max_local_file_bytes: usize = 16 * 1024 * 1024,
 };
 
@@ -203,6 +204,30 @@ fn isPackageIdentity(import_path: []const u8) bool {
     return !std.mem.endsWith(u8, trimmed, ".sa") and
         !std.mem.endsWith(u8, trimmed, ".sai") and
         !std.mem.endsWith(u8, trimmed, ".sal");
+}
+
+fn isPluginInterfaceImportPath(import_path: []const u8) bool {
+    const trimmed = trim(import_path);
+    if (trimmed.len == 0) return false;
+    if (std.fs.path.isAbsolute(trimmed)) return false;
+    if (std.mem.startsWith(u8, trimmed, "./") or std.mem.startsWith(u8, trimmed, "../")) return false;
+    if (!std.mem.endsWith(u8, trimmed, ".sa") and
+        !std.mem.endsWith(u8, trimmed, ".sai") and
+        !std.mem.endsWith(u8, trimmed, ".sal")) return false;
+
+    var parts = std.mem.splitScalar(u8, trimmed, '/');
+    while (parts.next()) |part| {
+        if (part.len == 0) return false;
+        if (std.mem.eql(u8, part, ".") or std.mem.eql(u8, part, "..")) return false;
+    }
+    return true;
+}
+
+fn pathWithinRoot(root_dir: []const u8, entry_path: []const u8) bool {
+    if (std.mem.eql(u8, root_dir, entry_path)) return true;
+    if (!std.mem.startsWith(u8, entry_path, root_dir)) return false;
+    if (entry_path.len <= root_dir.len) return false;
+    return std.fs.path.isSep(entry_path[root_dir.len]);
 }
 
 fn projectRootPath(allocator: std.mem.Allocator, options: ResolveOptions) ResolveError![]u8 {
@@ -374,6 +399,53 @@ fn resolveFromPackageRoot(
     return null;
 }
 
+fn resolveFromPluginImportRoot(
+    allocator: std.mem.Allocator,
+    root_dir: []const u8,
+    import_path: []const u8,
+    max_bytes: usize,
+) ResolveError!?ResolvedImport {
+    const canonical_root = std.fs.cwd().realpathAlloc(allocator, root_dir) catch return null;
+    errdefer allocator.free(canonical_root);
+
+    const candidate = try pathJoin(allocator, &.{ canonical_root, import_path });
+    defer allocator.free(candidate);
+
+    const canonical_entry = std.fs.cwd().realpathAlloc(allocator, candidate) catch {
+        allocator.free(canonical_root);
+        return null;
+    };
+    errdefer allocator.free(canonical_entry);
+    if (!pathWithinRoot(canonical_root, canonical_entry)) return error.InvalidImportPath;
+
+    const source = try readFileAlloc(allocator, canonical_entry, max_bytes);
+    errdefer allocator.free(source);
+    const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);
+
+    return .{
+        .entry_path = canonical_entry,
+        .root_dir = canonical_root,
+        .source = source,
+        .owned_source = source,
+        .source_sha256 = source_hash,
+        .is_global = true,
+    };
+}
+
+fn resolveFromPluginImportRoots(
+    allocator: std.mem.Allocator,
+    import_path: []const u8,
+    options: ResolveOptions,
+) ResolveError!?ResolvedImport {
+    if (!isPluginInterfaceImportPath(import_path)) return null;
+    for (options.plugin_import_roots) |root_dir| {
+        if (try resolveFromPluginImportRoot(allocator, root_dir, import_path, options.max_local_file_bytes)) |resolved| {
+            return resolved;
+        }
+    }
+    return null;
+}
+
 fn localVendorRoot(allocator: std.mem.Allocator, project_root: []const u8, identity: []const u8) ResolveError![]u8 {
     return pathJoin(allocator, &.{ project_root, "sa_vendor", identity });
 }
@@ -475,6 +547,10 @@ pub fn resolveImport(
     try validateImportPath(import_path);
 
     if (try resolveRelativeImport(allocator, base_dir, import_path, options.max_local_file_bytes)) |resolved| {
+        return resolved;
+    }
+
+    if (try resolveFromPluginImportRoots(allocator, import_path, options)) |resolved| {
         return resolved;
     }
 
@@ -622,4 +698,35 @@ test "resolveImport returns PackageNotResolved when cache misses" {
             .{ .project_root = root, .offline = true },
         ),
     );
+}
+
+test "resolveImport falls back to declared plugin interface roots" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("plugins/installed/deno/current/sa");
+    var layout = try tmp.dir.createFile("plugins/installed/deno/current/sa/deno.sal", .{ .truncate = true });
+    defer layout.close();
+    try layout.writeAll("@const DENO_OK: u64 = 1\n");
+
+    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root);
+    const plugin_root = try tmp.dir.realpathAlloc(std.testing.allocator, "plugins/installed/deno/current/sa");
+    defer std.testing.allocator.free(plugin_root);
+
+    const resolved = try resolveImport(
+        std.testing.allocator,
+        &.{},
+        root,
+        "deno.sal",
+        .{ .project_root = root, .plugin_import_roots = &.{plugin_root} },
+    );
+    defer {
+        var owned = resolved;
+        owned.deinit(std.testing.allocator);
+    }
+
+    try std.testing.expect(resolved.is_global);
+    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "plugins/installed/deno/current/sa/deno.sal"));
+    try std.testing.expectEqualStrings("@const DENO_OK: u64 = 1\n", resolved.source);
 }

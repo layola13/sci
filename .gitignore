@@ -32,3 +32,6 @@ demos/**/*.wasm
 demos/**/*.o
 demos/**/*.bc
 
+# Ignored developer symlinks
+sa_plugin_rust
+sa_plugin_matmul

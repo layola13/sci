@@ -151,6 +151,7 @@ test "sa_std alloc helpers are concrete and verifiable" {
 
     const string_macro_src = try common.readFileAlloc(std.testing.allocator, "sa_std/string.sa");
     defer std.testing.allocator.free(string_macro_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "@import \"fmt.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_AS_PTR"));
@@ -172,6 +173,9 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_TRIM_SUFFIX"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_TRY_SPLIT_AT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_TRY_SPLIT_AT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_CONCAT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "sa_fmt_buffer_data"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "sa_fmt_buffer_len"));
 
     const string_fixture =
         \\@import "sa_std/core/slice.sal"

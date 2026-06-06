@@ -100,8 +100,9 @@ Current external capability buckets that should stay outside this report's `sa_s
 *   **Missing from Rust**: `Command` builder (`env`, `current_dir`, pipe redirection), `Output` struct, `Child::id()`, `kill()`, `try_wait()`, `process::abort`, `process::id`.
 
 ### 1.13 Path (`std::path` vs `sa_std/path.sa`)
-*   **Implemented in `sa_std`**: `PATH_MAKE_EMPTY`, `PATH_BASENAME`, `PATH_DIRNAME`, `PATH_STEM`, `PATH_EXT`.
-*   **Missing from Rust**: Type-safe `Path` / `PathBuf` system; methods like `is_absolute`, `has_root`, `parent`, `strip_prefix`, `starts_with`, `join`, `with_file_name`, `components` iterator, `exists`, `is_file`, `is_dir`, `canonicalize`.
+*   **Implemented in `sa_std`**: `PATH_MAKE_EMPTY`, `PATH_BASENAME`, `PATH_DIRNAME`, `PATH_STEM`, `PATH_EXT`, `PATH_IS_ABSOLUTE`, `PATH_HAS_ROOT`, `PATH_STARTS_WITH`, `PATH_TRY_STRIP_PREFIX`, `PATH_JOIN`, `PATH_PARENT`, `PATH_FILE_STEM`, `PATH_EXTENSION`, `PATH_WITH_FILE_NAME`.
+*   **Missing from Rust**: Type-safe `Path` / `PathBuf` system, component iterator APIs (`components`, `iter`, `ancestors`), mutation APIs beyond `with_file_name`, filesystem-backed predicates (`exists`, `is_file`, `is_dir`), `canonicalize`, symlink handling, Windows prefix/root semantics, and owned `PathBuf` capacity/mutation behavior.
+*   **Scope note**: The SA path facade is a POSIX-style byte-slice subset over `Slice`. `STARTS_WITH` and `TRY_STRIP_PREFIX` enforce a simple slash boundary, `JOIN` materializes a concatenated string slice through existing `STR_CONCAT`, and `PARENT` / `FILE_STEM` / `EXTENSION` are aliases over the concrete basename/dirname/stem/ext helpers. It does not model Rust's platform-specific `OsStr`, `PathBuf`, or component iterator semantics.
 
 ### 1.14 Time & Sync (`std::time`, `std::sync` vs `sa_std/time.sa`, `sa_std/sync/*`)
 *   **Implemented in `sa_std`**: `Instant` / `Unix` timestamps, `Sleep`, `MPSC` channels, `Mutex` (spin), `Once`, `RwLock`, `Arc`, `RefCell` shared/exclusive borrow helpers, and the matching core macros in `sa_std/core/*`.
