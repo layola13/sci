@@ -3,12 +3,16 @@
 zig-out/
 dist/
 .code_index
-# code-index generated artifacts
+# generated skill artifacts
 .code_index
 .claude/skills/code-index
+.claude/skills/sa
+.claude/skills/sa_plugins
 .codex/skills/code-index
+.codex/skills/sa
+.codex/skills/sa_plugins
 .opencode/skills/code-index
-# end code-index generated artifacts
+# end generated skill artifacts
 bin/
 tmp_*
 *.ll

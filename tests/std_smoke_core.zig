@@ -22,11 +22,17 @@ test "sa_std core primitives are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_MUT_PTR_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_FIRST_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_FIRST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_FIRST_MUT_PTR_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_FIRST_MUT_PTR_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_LAST_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_LAST_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_LAST_MUT_PTR_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_LAST_MUT_PTR_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_GET_MUT_PTR_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_CONTAINS_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_STARTS_WITH_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_ENDS_WITH_U64"));
@@ -35,6 +41,13 @@ test "sa_std core primitives are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRIM_PREFIX_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRIM_SUFFIX_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_SPLIT_AT_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_SPLIT_AT_MUT_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_RANGE_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_GET_RANGE_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_SWAP_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_TRY_SWAP_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_CLONE_FROM_SLICE_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_COPY_WITHIN_U64"));
 
     var slice_flat = try saasm.flattener.flatten(std.testing.allocator, slice_src);
     defer slice_flat.deinit(std.testing.allocator);

@@ -1540,6 +1540,64 @@ L_ENTRY:
     EXPAND SLICE_FILL_U64 dst, 7
     EXPAND SLICE_GET_U64 filled_first, dst, 0
     EXPAND SLICE_GET_U64 filled_last, dst, 2
+    EXPAND SLICE_TRY_FIRST_MUT_PTR_U64 first_mut_ok, first_mut_ptr, dst
+    store first_mut_ptr+0, 70 as u64
+    !first_mut_ptr
+    EXPAND SLICE_TRY_LAST_MUT_PTR_U64 last_mut_ok, last_mut_ptr, dst
+    store last_mut_ptr+0, 90 as u64
+    !last_mut_ptr
+    EXPAND SLICE_TRY_GET_MUT_PTR_U64 mid_mut_ok, mid_mut_ptr, dst, 1
+    store mid_mut_ptr+0, 80 as u64
+    !mid_mut_ptr
+    EXPAND SLICE_TRY_GET_MUT_PTR_U64 mut_miss_ok, mut_miss_ptr, dst, 9
+    mut_miss_ptr_ok = eq mut_miss_ptr, 0
+    !mut_miss_ptr
+    EXPAND SLICE_FIRST_MUT_PTR_U64 first_direct_ptr, dst
+    first_direct_value = load first_direct_ptr+0 as u64
+    !first_direct_ptr
+    EXPAND SLICE_LAST_MUT_PTR_U64 last_direct_ptr, dst
+    last_direct_value = load last_direct_ptr+0 as u64
+    !last_direct_ptr
+    EXPAND SLICE_GET_U64 mutated_mid, dst, 1
+    EXPAND SLICE_TRY_RANGE_U64 range_ok, range_slice, dst, 1, 2
+    EXPAND SLICE_GET_LEN range_len, range_slice
+    EXPAND SLICE_FIRST_U64 range_first, range_slice
+    EXPAND SLICE_LAST_U64 range_last, range_slice
+    EXPAND SLICE_TRY_GET_RANGE_U64 range_alias_ok, range_alias_slice, dst, 0, 2
+    EXPAND SLICE_GET_LEN range_alias_len, range_alias_slice
+    EXPAND SLICE_TRY_RANGE_U64 range_miss_ok, range_miss_slice, dst, 2, 5
+    EXPAND SLICE_GET_LEN range_miss_len, range_miss_slice
+    EXPAND SLICE_TRY_SPLIT_AT_MUT_U64 split_mut_ok, split_left, split_right, dst, 2
+    EXPAND SLICE_GET_LEN split_left_len, split_left
+    EXPAND SLICE_GET_LEN split_right_len, split_right
+    EXPAND SLICE_FIRST_MUT_PTR_U64 split_right_ptr, split_right
+    store split_right_ptr+0, 99 as u64
+    !split_right_ptr
+    EXPAND SLICE_GET_U64 split_view_value, dst, 2
+    EXPAND SLICE_TRY_SWAP_U64 swap_ok, dst, 0, 2
+    EXPAND SLICE_GET_U64 swap_first, dst, 0
+    EXPAND SLICE_GET_U64 swap_last, dst, 2
+    EXPAND SLICE_TRY_SWAP_U64 swap_miss_ok, dst, 0, 9
+    EXPAND SLICE_SWAP_U64 dst, 0, 1
+    EXPAND SLICE_GET_U64 swap_direct_first, dst, 0
+    EXPAND SLICE_GET_U64 swap_direct_mid, dst, 1
+    EXPAND SLICE_CLONE_FROM_SLICE_U64 clone_ok, dst, src
+    EXPAND SLICE_GET_U64 clone_last, dst, 2
+    cw_data = alloc 40
+    store cw_data+0, 1 as u64
+    store cw_data+8, 2 as u64
+    store cw_data+16, 3 as u64
+    store cw_data+24, 4 as u64
+    store cw_data+32, 5 as u64
+    cw = alloc Slice_SIZE
+    EXPAND SLICE_NEW cw, cw_data, 5
+    EXPAND SLICE_COPY_WITHIN_U64 cw_back_ok, cw, 0, 3, 2
+    EXPAND SLICE_GET_U64 cw_back_two, cw, 2
+    EXPAND SLICE_GET_U64 cw_back_four, cw, 4
+    EXPAND SLICE_COPY_WITHIN_U64 cw_fwd_ok, cw, 3, 2, 0
+    EXPAND SLICE_GET_U64 cw_fwd_zero, cw, 0
+    EXPAND SLICE_GET_U64 cw_fwd_one, cw, 1
+    EXPAND SLICE_COPY_WITHIN_U64 cw_miss_ok, cw, 4, 2, 0
     sorted_data = alloc 32
     store sorted_data+0, 5 as u64
     store sorted_data+8, 10 as u64
@@ -1559,6 +1617,40 @@ L_ENTRY:
     reversed_last_ok = eq reversed_last, 10
     filled_first_ok = eq filled_first, 7
     filled_last_ok = eq filled_last, 7
+    first_mut_flag_ok = eq first_mut_ok, 1
+    last_mut_flag_ok = eq last_mut_ok, 1
+    mid_mut_flag_ok = eq mid_mut_ok, 1
+    mut_miss_flag_ok = eq mut_miss_ok, 0
+    first_direct_ok = eq first_direct_value, 70
+    last_direct_ok = eq last_direct_value, 90
+    mutated_mid_ok = eq mutated_mid, 80
+    range_flag_ok = eq range_ok, 1
+    range_len_ok = eq range_len, 2
+    range_first_ok = eq range_first, 80
+    range_last_ok = eq range_last, 90
+    range_alias_flag_ok = eq range_alias_ok, 1
+    range_alias_len_ok = eq range_alias_len, 2
+    range_miss_flag_ok = eq range_miss_ok, 0
+    range_miss_len_ok = eq range_miss_len, 0
+    split_mut_flag_ok = eq split_mut_ok, 1
+    split_left_len_ok = eq split_left_len, 2
+    split_right_len_ok = eq split_right_len, 1
+    split_view_value_ok = eq split_view_value, 99
+    swap_flag_ok = eq swap_ok, 1
+    swap_first_ok = eq swap_first, 99
+    swap_last_ok = eq swap_last, 70
+    swap_miss_flag_ok = eq swap_miss_ok, 0
+    swap_direct_first_ok = eq swap_direct_first, 80
+    swap_direct_mid_ok = eq swap_direct_mid, 99
+    clone_flag_ok = eq clone_ok, 1
+    clone_last_ok = eq clone_last, 30
+    cw_back_flag_ok = eq cw_back_ok, 1
+    cw_back_two_ok = eq cw_back_two, 1
+    cw_back_four_ok = eq cw_back_four, 3
+    cw_fwd_flag_ok = eq cw_fwd_ok, 1
+    cw_fwd_zero_ok = eq cw_fwd_zero, 2
+    cw_fwd_one_ok = eq cw_fwd_one, 3
+    cw_miss_flag_ok = eq cw_miss_ok, 0
     bs_hit_flag_ok = eq bs_hit_ok, 1
     bs_hit_idx_ok = eq bs_hit_idx, 2
     bs_miss_flag_ok = eq bs_miss_ok, 0
@@ -1569,11 +1661,46 @@ L_ENTRY:
     ok03 = and ok02, reversed_last_ok
     ok04 = and ok03, filled_first_ok
     ok05 = and ok04, filled_last_ok
-    ok06 = and ok05, bs_hit_flag_ok
-    ok07 = and ok06, bs_hit_idx_ok
-    ok08 = and ok07, bs_miss_flag_ok
-    ok09 = and ok08, bs_miss_idx_ok
-    ok = and ok09, copy_miss_flag_ok
+    ok06 = and ok05, first_mut_flag_ok
+    ok07 = and ok06, last_mut_flag_ok
+    ok08 = and ok07, mid_mut_flag_ok
+    ok09 = and ok08, mut_miss_flag_ok
+    ok10 = and ok09, mut_miss_ptr_ok
+    ok11 = and ok10, first_direct_ok
+    ok12 = and ok11, last_direct_ok
+    ok13 = and ok12, mutated_mid_ok
+    ok14 = and ok13, range_flag_ok
+    ok15 = and ok14, range_len_ok
+    ok16 = and ok15, range_first_ok
+    ok17 = and ok16, range_last_ok
+    ok18 = and ok17, range_alias_flag_ok
+    ok19 = and ok18, range_alias_len_ok
+    ok20 = and ok19, range_miss_flag_ok
+    ok21 = and ok20, range_miss_len_ok
+    ok22 = and ok21, split_mut_flag_ok
+    ok23 = and ok22, split_left_len_ok
+    ok24 = and ok23, split_right_len_ok
+    ok25 = and ok24, split_view_value_ok
+    ok26 = and ok25, swap_flag_ok
+    ok27 = and ok26, swap_first_ok
+    ok28 = and ok27, swap_last_ok
+    ok29 = and ok28, swap_miss_flag_ok
+    ok30 = and ok29, swap_direct_first_ok
+    ok31 = and ok30, swap_direct_mid_ok
+    ok32 = and ok31, clone_flag_ok
+    ok33 = and ok32, clone_last_ok
+    ok34 = and ok33, cw_back_flag_ok
+    ok35 = and ok34, cw_back_two_ok
+    ok36 = and ok35, cw_back_four_ok
+    ok37 = and ok36, cw_fwd_flag_ok
+    ok38 = and ok37, cw_fwd_zero_ok
+    ok39 = and ok38, cw_fwd_one_ok
+    ok40 = and ok39, cw_miss_flag_ok
+    ok41 = and ok40, bs_hit_flag_ok
+    ok42 = and ok41, bs_hit_idx_ok
+    ok43 = and ok42, bs_miss_flag_ok
+    ok44 = and ok43, bs_miss_idx_ok
+    ok = and ok44, copy_miss_flag_ok
     !src_data
     !dst_data
     !src
@@ -1584,6 +1711,48 @@ L_ENTRY:
     !reversed_last
     !filled_first
     !filled_last
+    !first_mut_ok
+    !last_mut_ok
+    !mid_mut_ok
+    !mut_miss_ok
+    !mut_miss_ptr_ok
+    !first_direct_value
+    !last_direct_value
+    !mutated_mid
+    !range_ok
+    !range_slice
+    !range_len
+    !range_first
+    !range_last
+    !range_alias_ok
+    !range_alias_slice
+    !range_alias_len
+    !range_miss_ok
+    !range_miss_slice
+    !range_miss_len
+    !split_mut_ok
+    !split_left
+    !split_right
+    !split_left_len
+    !split_right_len
+    !split_view_value
+    !swap_ok
+    !swap_first
+    !swap_last
+    !swap_miss_ok
+    !swap_direct_first
+    !swap_direct_mid
+    !clone_ok
+    !clone_last
+    !cw_data
+    !cw
+    !cw_back_ok
+    !cw_back_two
+    !cw_back_four
+    !cw_fwd_ok
+    !cw_fwd_zero
+    !cw_fwd_one
+    !cw_miss_ok
     !sorted_data
     !sorted
     !bs_hit_ok
@@ -1598,6 +1767,40 @@ L_ENTRY:
     !reversed_last_ok
     !filled_first_ok
     !filled_last_ok
+    !first_mut_flag_ok
+    !last_mut_flag_ok
+    !mid_mut_flag_ok
+    !mut_miss_flag_ok
+    !first_direct_ok
+    !last_direct_ok
+    !mutated_mid_ok
+    !range_flag_ok
+    !range_len_ok
+    !range_first_ok
+    !range_last_ok
+    !range_alias_flag_ok
+    !range_alias_len_ok
+    !range_miss_flag_ok
+    !range_miss_len_ok
+    !split_mut_flag_ok
+    !split_left_len_ok
+    !split_right_len_ok
+    !split_view_value_ok
+    !swap_flag_ok
+    !swap_first_ok
+    !swap_last_ok
+    !swap_miss_flag_ok
+    !swap_direct_first_ok
+    !swap_direct_mid_ok
+    !clone_flag_ok
+    !clone_last_ok
+    !cw_back_flag_ok
+    !cw_back_two_ok
+    !cw_back_four_ok
+    !cw_fwd_flag_ok
+    !cw_fwd_zero_ok
+    !cw_fwd_one_ok
+    !cw_miss_flag_ok
     !bs_hit_flag_ok
     !bs_hit_idx_ok
     !bs_miss_flag_ok
@@ -1612,6 +1815,41 @@ L_ENTRY:
     !ok07
     !ok08
     !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
+    !ok40
+    !ok41
+    !ok42
+    !ok43
+    !ok44
     br ok -> L_SLICE_MUT_OK, L_SLICE_MUT_FAIL
 
 L_SLICE_MUT_FAIL:

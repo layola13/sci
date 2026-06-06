@@ -67,6 +67,7 @@
 1. 遍历当前启用的所有 Plugin 的外置描述符。
 2. 聚合它们在独立工程里导出的 EBNF 语法、宏说明、内置原语和 API 契约。
 3. 动态生成一份完整的 Markdown/JSON 指导文档直接吐给 Agent。
+4. 在文本模式下刷新当前工作目录的 `.codex/skills/sa/SKILL.md` 和 `.claude/skills/sa/SKILL.md`，内容包括基础编译/测试命令、当前 `sa_std` 文件清单、宏清单和 `@extern` / `@export` 清单；同时刷新 `.codex/skills/sa_plugins/SKILL.md` 和 `.claude/skills/sa_plugins/SKILL.md`，作为常用官方插件的可选目录索引。插件 skill 只提示能力、接口文件和安装命令，不假设插件已安装；使用前仍要通过 `sa plugin list` 或 `sa skills --json` 确认当前环境已启用。`--json` 模式保持只输出机器可读 capabilities，不写文件。
 *效果：Agent 接手任何一个定制版本的 `sci` 编译器，只需一句 `sci skills`，就能获得完全对齐当前版本的“开发手册”，杜绝幻觉。*
 
 ## 3. 分析与图谱导出 (Graph & Inspection)

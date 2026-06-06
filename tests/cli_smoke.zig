@@ -3467,6 +3467,109 @@ test "agent-first cli commands print explain fix and skills outputs" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"install [identity]\""));
 }
 
+test "sa skills writes Codex and Claude skill files for current project" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_plugins/sa_plugin_deno");
+    try writeSource(tmp.dir, "sa_plugins/sa_plugin_deno/sap.json",
+        \\{
+        \\  "schema": "sa.plugin/1",
+        \\  "name": "deno",
+        \\  "version": "0.1.0",
+        \\  "source": { "type": "local", "path": "." },
+        \\  "abi": { "plugin": 1, "saasm": ">=0.4.0" },
+        \\  "artifacts": { "linux-x86_64": { "path": "zig-out/lib/libdeno.so" } },
+        \\  "interfaces": { "sai": { "path": "deno.sai" }, "sal": { "path": "deno.sal" } },
+        \\  "skills": ["deno.sys", "deno.env"],
+        \\  "permissions": {
+        \\    "fs": [{ "op": "read", "path": "$PROJECT/**" }],
+        \\    "net": [{ "url": "https://*", "methods": ["GET"] }],
+        \\    "env": ["HOME", "SA_*"],
+        \\    "process": { "spawn": false, "exec": [] }
+        \\  },
+        \\  "dependencies": {}
+        \\}
+        \\
+    );
+    try writeSource(tmp.dir, "sa_plugins/sa_plugin_deno/README.md",
+        \\Deno compatibility facade for env, fs, process, and HTTP bridge workflows.
+        \\
+    );
+    try writeSource(tmp.dir, "sa_plugins/sa_plugin_deno/deno.sai",
+        \\@extern sa_deno_plugin_hostname(&out_ptr: ptr, &out_len: ptr) -> u32
+        \\
+    );
+    try writeSource(tmp.dir, "sa_plugins/sa_plugin_deno/deno.sal",
+        \\[MACRO] DENO_HOSTNAME %out_ptr, %out_len
+        \\    %out_status = call @sa_deno_plugin_hostname(&%out_ptr, &%out_len)
+        \\[END_MACRO]
+        \\
+    );
+    try tmp.dir.makePath("sa_plugins/sa_plugin_3dengines");
+    try writeSource(tmp.dir, "sa_plugins/sa_plugin_3dengines/README.md",
+        \\Experimental 3D engine plugin should not be included in the common catalog.
+        \\
+    );
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        &.{ "sa", "skills" },
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "generated agent skills:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, ".codex/skills/sa/SKILL.md"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, ".claude/skills/sa/SKILL.md"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, ".codex/skills/sa_plugins/SKILL.md"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, ".claude/skills/sa_plugins/SKILL.md"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "std surface:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "official plugin catalog:"));
+
+    const codex_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".codex/skills/sa/SKILL.md", 16 * 1024 * 1024);
+    defer std.testing.allocator.free(codex_skill);
+    const claude_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".claude/skills/sa/SKILL.md", 16 * 1024 * 1024);
+    defer std.testing.allocator.free(claude_skill);
+    const codex_plugins_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".codex/skills/sa_plugins/SKILL.md", 16 * 1024 * 1024);
+    defer std.testing.allocator.free(codex_plugins_skill);
+    const claude_plugins_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".claude/skills/sa_plugins/SKILL.md", 16 * 1024 * 1024);
+    defer std.testing.allocator.free(claude_plugins_skill);
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "name: \"sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "# SA Toolchain"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "`sa build <file>`"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "`sa test <file> --list`"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "## sa_std Surface"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "sa.mod"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "core/slice.sa: [MACRO] SLICE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "io.sai: @extern"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "../sa_plugins/SKILL.md"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, claude_skill, 1, "Use the installed SA compiler"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, claude_skill, 1, "## CLI Skill Sections"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "name: \"sa_plugins\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "# SA Optional Plugins"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "not proof that any plugin is installed"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "sa plugin list"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "deno (0.1.0)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "Optional plugin: install before use"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_hostname"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HOSTNAME"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, codex_plugins_skill, 1, "3dengines"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, claude_plugins_skill, 1, "Use the optional official SA plugin catalog"));
+}
+
 test "cli audit dispatches through runtime package plugin" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
