@@ -943,3 +943,203 @@ L_STR_RSPLIT_ONCE_END_%out_ok:
     !__str_out_len_%out_slice
     !__str_out_buf_%out_slice
 [END_MACRO]
+
+[MACRO] STRING_SET_SLICE %string_reg, %slice_reg
+    __string_set_ptr_%string_reg = load %slice_reg+Slice_ptr as ptr
+    __string_set_len_%string_reg = load %slice_reg+Slice_len as u64
+    store %string_reg+Slice_ptr, __string_set_ptr_%string_reg as ptr
+    store %string_reg+Slice_len, __string_set_len_%string_reg as u64
+    !__string_set_ptr_%string_reg
+    !__string_set_len_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_CLEAR %string_reg
+    store %string_reg+Slice_len, 0 as u64
+[END_MACRO]
+
+[MACRO] STRING_TRUNCATE %string_reg, %new_len
+    __string_truncate_len_%string_reg = load %string_reg+Slice_len as u64
+    __string_truncate_ok_%string_reg = ule %new_len, __string_truncate_len_%string_reg
+    br __string_truncate_ok_%string_reg -> L_STRING_TRUNCATE_SET_%string_reg, L_STRING_TRUNCATE_END_%string_reg
+
+L_STRING_TRUNCATE_SET_%string_reg:
+    store %string_reg+Slice_len, %new_len as u64
+    !__string_truncate_ok_%string_reg
+    !__string_truncate_len_%string_reg
+    jmp L_STRING_TRUNCATE_DONE_%string_reg
+
+L_STRING_TRUNCATE_END_%string_reg:
+    !__string_truncate_ok_%string_reg
+    !__string_truncate_len_%string_reg
+
+L_STRING_TRUNCATE_DONE_%string_reg:
+[END_MACRO]
+
+[MACRO] STRING_PUSH_STR %string_reg, %suffix_slice
+    EXPAND STR_CONCAT __string_push_joined_%string_reg, %string_reg, %suffix_slice
+    EXPAND STRING_SET_SLICE %string_reg, __string_push_joined_%string_reg
+    !__string_push_joined_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_PUSH %string_reg, %byte_value
+    __string_push_byte_ptr_%string_reg = stack_alloc 1
+    store __string_push_byte_ptr_%string_reg+0, %byte_value as u8
+    __string_push_byte_slice_%string_reg = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_push_byte_slice_%string_reg, __string_push_byte_ptr_%string_reg, 1
+    EXPAND STRING_PUSH_STR %string_reg, __string_push_byte_slice_%string_reg
+    !__string_push_byte_slice_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_POP %out_ok, %out_byte, %string_reg
+    __string_pop_len_%out_ok = load %string_reg+Slice_len as u64
+    __string_pop_empty_%out_ok = eq __string_pop_len_%out_ok, 0
+    br __string_pop_empty_%out_ok -> L_STRING_POP_EMPTY_%out_ok, L_STRING_POP_HIT_%out_ok
+
+L_STRING_POP_HIT_%out_ok:
+    __string_pop_ptr_%out_ok = load %string_reg+Slice_ptr as ptr
+    __string_pop_last_%out_ok = sub __string_pop_len_%out_ok, 1
+    __string_pop_byte_ptr_%out_ok = ptr_add __string_pop_ptr_%out_ok, __string_pop_last_%out_ok
+    %out_byte = load __string_pop_byte_ptr_%out_ok+0 as u8
+    store %string_reg+Slice_len, __string_pop_last_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_pop_byte_ptr_%out_ok
+    !__string_pop_last_%out_ok
+    !__string_pop_ptr_%out_ok
+    !__string_pop_empty_%out_ok
+    !__string_pop_len_%out_ok
+    jmp L_STRING_POP_END_%out_ok
+
+L_STRING_POP_EMPTY_%out_ok:
+    %out_byte = add 0, 0
+    %out_ok = add 0, 0
+    !__string_pop_empty_%out_ok
+    !__string_pop_len_%out_ok
+
+L_STRING_POP_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
+    __string_split_len_%out_ok = load %string_reg+Slice_len as u64
+    __string_split_in_bounds_%out_ok = ule %index, __string_split_len_%out_ok
+    br __string_split_in_bounds_%out_ok -> L_STRING_SPLIT_OFF_HIT_%out_ok, L_STRING_SPLIT_OFF_MISS_%out_ok
+
+L_STRING_SPLIT_OFF_HIT_%out_ok:
+    __string_split_tail_len_%out_ok = sub __string_split_len_%out_ok, %index
+    EXPAND STR_SLICE %out_tail, %string_reg, %index, __string_split_tail_len_%out_ok
+    store %string_reg+Slice_len, %index as u64
+    %out_ok = add 0, 1
+    !__string_split_tail_len_%out_ok
+    !__string_split_in_bounds_%out_ok
+    !__string_split_len_%out_ok
+    jmp L_STRING_SPLIT_OFF_END_%out_ok
+
+L_STRING_SPLIT_OFF_MISS_%out_ok:
+    EXPAND STR_EMPTY %out_tail
+    %out_ok = add 0, 0
+    !__string_split_in_bounds_%out_ok
+    !__string_split_len_%out_ok
+
+L_STRING_SPLIT_OFF_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
+    EXPAND STRING_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
+[END_MACRO]
+
+[MACRO] STRING_TRY_INSERT_STR %out_ok, %string_reg, %index, %insert_slice
+    __string_insert_len_%out_ok = load %string_reg+Slice_len as u64
+    __string_insert_in_bounds_%out_ok = ule %index, __string_insert_len_%out_ok
+    br __string_insert_in_bounds_%out_ok -> L_STRING_INSERT_STR_HIT_%out_ok, L_STRING_INSERT_STR_MISS_%out_ok
+
+L_STRING_INSERT_STR_HIT_%out_ok:
+    __string_insert_right_len_%out_ok = sub __string_insert_len_%out_ok, %index
+    EXPAND STR_SLICE __string_insert_left_%out_ok, %string_reg, 0, %index
+    EXPAND STR_SLICE __string_insert_right_%out_ok, %string_reg, %index, __string_insert_right_len_%out_ok
+    EXPAND STR_CONCAT __string_insert_joined1_%out_ok, __string_insert_left_%out_ok, %insert_slice
+    EXPAND STR_CONCAT __string_insert_joined2_%out_ok, __string_insert_joined1_%out_ok, __string_insert_right_%out_ok
+    EXPAND STRING_SET_SLICE %string_reg, __string_insert_joined2_%out_ok
+    %out_ok = add 0, 1
+    !__string_insert_joined2_%out_ok
+    !__string_insert_joined1_%out_ok
+    !__string_insert_right_%out_ok
+    !__string_insert_left_%out_ok
+    !__string_insert_right_len_%out_ok
+    !__string_insert_in_bounds_%out_ok
+    !__string_insert_len_%out_ok
+    jmp L_STRING_INSERT_STR_END_%out_ok
+
+L_STRING_INSERT_STR_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_insert_in_bounds_%out_ok
+    !__string_insert_len_%out_ok
+
+L_STRING_INSERT_STR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_INSERT_STR %out_ok, %string_reg, %index, %insert_slice
+    EXPAND STRING_TRY_INSERT_STR %out_ok, %string_reg, %index, %insert_slice
+[END_MACRO]
+
+[MACRO] STRING_TRY_INSERT %out_ok, %string_reg, %index, %byte_value
+    __string_insert_byte_ptr_%out_ok = stack_alloc 1
+    store __string_insert_byte_ptr_%out_ok+0, %byte_value as u8
+    __string_insert_byte_slice_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_insert_byte_slice_%out_ok, __string_insert_byte_ptr_%out_ok, 1
+    EXPAND STRING_TRY_INSERT_STR %out_ok, %string_reg, %index, __string_insert_byte_slice_%out_ok
+    !__string_insert_byte_slice_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_INSERT %out_ok, %string_reg, %index, %byte_value
+    EXPAND STRING_TRY_INSERT %out_ok, %string_reg, %index, %byte_value
+[END_MACRO]
+
+[MACRO] STRING_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
+    __string_replace_len_%out_ok = load %string_reg+Slice_len as u64
+    __string_replace_start_ok_%out_ok = ule %start, __string_replace_len_%out_ok
+    br __string_replace_start_ok_%out_ok -> L_STRING_REPLACE_LEN_CHECK_%out_ok, L_STRING_REPLACE_MISS_START_%out_ok
+
+L_STRING_REPLACE_LEN_CHECK_%out_ok:
+    __string_replace_remaining_%out_ok = sub __string_replace_len_%out_ok, %start
+    __string_replace_len_ok_%out_ok = ule %length, __string_replace_remaining_%out_ok
+    br __string_replace_len_ok_%out_ok -> L_STRING_REPLACE_HIT_%out_ok, L_STRING_REPLACE_MISS_LEN_%out_ok
+
+L_STRING_REPLACE_HIT_%out_ok:
+    __string_replace_suffix_start_%out_ok = add %start, %length
+    __string_replace_suffix_len_%out_ok = sub __string_replace_len_%out_ok, __string_replace_suffix_start_%out_ok
+    EXPAND STR_SLICE __string_replace_left_%out_ok, %string_reg, 0, %start
+    EXPAND STR_SLICE __string_replace_right_%out_ok, %string_reg, __string_replace_suffix_start_%out_ok, __string_replace_suffix_len_%out_ok
+    EXPAND STR_CONCAT __string_replace_joined1_%out_ok, __string_replace_left_%out_ok, %replace_slice
+    EXPAND STR_CONCAT __string_replace_joined2_%out_ok, __string_replace_joined1_%out_ok, __string_replace_right_%out_ok
+    EXPAND STRING_SET_SLICE %string_reg, __string_replace_joined2_%out_ok
+    %out_ok = add 0, 1
+    !__string_replace_joined2_%out_ok
+    !__string_replace_joined1_%out_ok
+    !__string_replace_right_%out_ok
+    !__string_replace_left_%out_ok
+    !__string_replace_suffix_len_%out_ok
+    !__string_replace_suffix_start_%out_ok
+    !__string_replace_len_ok_%out_ok
+    !__string_replace_remaining_%out_ok
+    !__string_replace_start_ok_%out_ok
+    !__string_replace_len_%out_ok
+    jmp L_STRING_REPLACE_END_%out_ok
+
+L_STRING_REPLACE_MISS_LEN_%out_ok:
+    %out_ok = add 0, 0
+    !__string_replace_len_ok_%out_ok
+    !__string_replace_remaining_%out_ok
+    !__string_replace_start_ok_%out_ok
+    !__string_replace_len_%out_ok
+    jmp L_STRING_REPLACE_END_%out_ok
+
+L_STRING_REPLACE_MISS_START_%out_ok:
+    %out_ok = add 0, 0
+    !__string_replace_start_ok_%out_ok
+    !__string_replace_len_%out_ok
+
+L_STRING_REPLACE_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
+    EXPAND STRING_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
+[END_MACRO]
