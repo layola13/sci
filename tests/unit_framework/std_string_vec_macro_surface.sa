@@ -40,6 +40,11 @@
 @const BUF_SPLIT_TAIL_EXPECTED = utf8:"-std"
 @const BUF_LANG = utf8:"lang-"
 @const BUF_CORE = utf8:"core"
+@const BUF_REPLACE_SOURCE = utf8:"a-b-a-b"
+@const BUF_REPLACE_NEEDLE = utf8:"-"
+@const BUF_REPLACE_WITH = utf8:"::"
+@const BUF_REPLACE_ALL_EXPECTED = utf8:"a::b::a::b"
+@const BUF_REPLACE_EMPTY_EXPECTED = utf8:"a-b-a-b"
 
 @vec_pop_if_is_99(value: u64) -> u64:
 L_ENTRY:
@@ -559,6 +564,115 @@ L_STRING_BUF_MUT_FAIL:
     panic(914)
 
 L_STRING_BUF_MUT_OK:
+    !ok
+    return
+
+@test "sa_std string owned buffer utf8 and replace macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS replace_source, &BUF_REPLACE_SOURCE, 7
+    EXPAND STR_FROM_PARTS replace_needle, &BUF_REPLACE_NEEDLE, 1
+    EXPAND STR_FROM_PARTS replace_with, &BUF_REPLACE_WITH, 2
+    EXPAND STR_FROM_PARTS replace_expected, &BUF_REPLACE_ALL_EXPECTED, 10
+    EXPAND STR_FROM_PARTS replace_empty_expected, &BUF_REPLACE_EMPTY_EXPECTED, 7
+    EXPAND STR_EMPTY empty_needle
+
+    bad_ptr = stack_alloc 3
+    store bad_ptr+0, 114 as u8
+    bad_ptr_1 = ptr_add bad_ptr, 1
+    store bad_ptr_1+0, 255 as u8
+    bad_ptr_2 = ptr_add bad_ptr, 2
+    store bad_ptr_2+0, 115 as u8
+    EXPAND STR_FROM_PARTS bad_bytes, bad_ptr, 3
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED unchecked_buf, left
+    EXPAND STRING_BUF_AS_STR unchecked_view, unchecked_buf
+    EXPAND STR_EQ unchecked_eq, unchecked_view, left
+    EXPAND STRING_BUF_TRY_FROM_UTF8_ASCII ascii_ok, ascii_buf, left
+    EXPAND STRING_BUF_AS_STR ascii_view, ascii_buf
+    EXPAND STR_EQ ascii_eq, ascii_view, left
+    EXPAND STRING_BUF_TRY_FROM_UTF8_ASCII ascii_bad_ok, ascii_bad_buf, bad_bytes
+    EXPAND STRING_BUF_LEN ascii_bad_len, ascii_bad_buf
+    EXPAND STRING_BUF_REPLACE replaced_buf, replace_source, replace_needle, replace_with
+    EXPAND STRING_BUF_AS_STR replaced_view, replaced_buf
+    EXPAND STR_EQ replaced_eq, replaced_view, replace_expected
+    EXPAND STRING_BUF_REPLACE replace_empty_buf, replace_source, empty_needle, replace_with
+    EXPAND STRING_BUF_AS_STR replace_empty_view, replace_empty_buf
+    EXPAND STR_EQ replace_empty_eq, replace_empty_view, replace_empty_expected
+    EXPAND STRING_BUF_INTO_BYTES bytes_vec, unchecked_buf
+    EXPAND VEC_LEN bytes_len, bytes_vec
+    EXPAND VEC_AS_PTR bytes_ptr, bytes_vec
+    first_byte = load bytes_ptr+0 as u8
+
+    unchecked_ok = eq unchecked_eq, 1
+    ascii_flag_ok = eq ascii_ok, 1
+    ascii_value_ok = eq ascii_eq, 1
+    ascii_bad_flag_ok = eq ascii_bad_ok, 0
+    ascii_bad_empty_ok = eq ascii_bad_len, 0
+    replace_value_ok = eq replaced_eq, 1
+    replace_empty_value_ok = eq replace_empty_eq, 1
+    bytes_len_ok = eq bytes_len, 4
+    first_byte_ok = eq first_byte, 114
+    ok01 = and unchecked_ok, ascii_flag_ok
+    ok02 = and ok01, ascii_value_ok
+    ok03 = and ok02, ascii_bad_flag_ok
+    ok04 = and ok03, ascii_bad_empty_ok
+    ok05 = and ok04, replace_value_ok
+    ok06 = and ok05, replace_empty_value_ok
+    ok07 = and ok06, bytes_len_ok
+    ok = and ok07, first_byte_ok
+    !left
+    !replace_source
+    !replace_needle
+    !replace_with
+    !replace_expected
+    !replace_empty_expected
+    !empty_needle
+    !bad_ptr_1
+    !bad_ptr_2
+    !bad_bytes
+    !unchecked_view
+    !unchecked_eq
+    !ascii_ok
+    !ascii_view
+    !ascii_eq
+    !ascii_bad_ok
+    !ascii_bad_len
+    !replaced_view
+    !replaced_eq
+    !replace_empty_view
+    !replace_empty_eq
+    !bytes_len
+    !bytes_ptr
+    !first_byte
+    !unchecked_ok
+    !ascii_flag_ok
+    !ascii_value_ok
+    !ascii_bad_flag_ok
+    !ascii_bad_empty_ok
+    !replace_value_ok
+    !replace_empty_value_ok
+    !bytes_len_ok
+    !first_byte_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    EXPAND STRING_BUF_FREE bytes_vec
+    EXPAND STRING_BUF_FREE ascii_buf
+    EXPAND STRING_BUF_FREE ascii_bad_buf
+    EXPAND STRING_BUF_FREE replaced_buf
+    EXPAND STRING_BUF_FREE replace_empty_buf
+    br ok -> L_STRING_BUF_UTF8_OK, L_STRING_BUF_UTF8_FAIL
+
+L_STRING_BUF_UTF8_FAIL:
+    !ok
+    panic(915)
+
+L_STRING_BUF_UTF8_OK:
     !ok
     return
 
