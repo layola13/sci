@@ -78,6 +78,138 @@
     !__string_empty_ptr_%out_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_NEW %out_string
+    EXPAND VEC_WITH_CAPACITY %out_string, 0, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_WITH_CAPACITY %out_string, %capacity
+    EXPAND VEC_WITH_CAPACITY %out_string, %capacity, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_WITH_CAPACITY %out_ok, %out_string, %capacity
+    EXPAND VEC_TRY_WITH_CAPACITY %out_ok, %out_string, %capacity, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_FREE %string_reg
+    EXPAND VEC_FREE %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_LEN %out_len, %string_reg
+    EXPAND VEC_LEN %out_len, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_CAPACITY %out_cap, %string_reg
+    EXPAND VEC_CAPACITY %out_cap, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_IS_EMPTY %out_bool, %string_reg
+    EXPAND VEC_IS_EMPTY %out_bool, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_PTR %out_ptr, %string_reg
+    EXPAND VEC_AS_PTR %out_ptr, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_MUT_PTR %out_ptr, %string_reg
+    EXPAND VEC_AS_MUT_PTR %out_ptr, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_STR %out_slice, %string_reg
+    EXPAND VEC_AS_SLICE %out_slice, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_BYTES %out_slice, %string_reg
+    EXPAND VEC_AS_SLICE %out_slice, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_RESERVE %string_reg, %additional
+    EXPAND VEC_RESERVE %string_reg, %additional, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_RESERVE_EXACT %string_reg, %additional
+    EXPAND VEC_RESERVE_EXACT %string_reg, %additional, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RESERVE %out_ok, %string_reg, %additional
+    EXPAND VEC_TRY_RESERVE %out_ok, %string_reg, %additional, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RESERVE_EXACT %out_ok, %string_reg, %additional
+    EXPAND VEC_TRY_RESERVE_EXACT %out_ok, %string_reg, %additional, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_SHRINK_TO %string_reg, %min_capacity
+    EXPAND VEC_SHRINK_TO %string_reg, %min_capacity, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_SHRINK_TO_FIT %string_reg
+    EXPAND VEC_SHRINK_TO_FIT %string_reg, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SHRINK_TO %out_ok, %string_reg, %min_capacity
+    EXPAND VEC_TRY_SHRINK_TO %out_ok, %string_reg, %min_capacity, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SHRINK_TO_FIT %out_ok, %string_reg
+    EXPAND VEC_TRY_SHRINK_TO_FIT %out_ok, %string_reg, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_CLEAR %string_reg
+    EXPAND VEC_CLEAR %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRUNCATE %string_reg, %new_len
+    EXPAND VEC_TRUNCATE %string_reg, %new_len
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_BYTE %string_reg, %byte_value
+    __string_buf_push_view_%string_reg = & %string_reg
+    __string_buf_push_len_%string_reg = load __string_buf_push_view_%string_reg+Vec_len as u64
+    __string_buf_push_cap_%string_reg = load __string_buf_push_view_%string_reg+Vec_cap as u64
+    __string_buf_push_needs_grow_%string_reg = eq __string_buf_push_len_%string_reg, __string_buf_push_cap_%string_reg
+    !__string_buf_push_view_%string_reg
+    br __string_buf_push_needs_grow_%string_reg -> L_STRING_BUF_PUSH_GROW_%string_reg, L_STRING_BUF_PUSH_WRITE_%string_reg
+
+L_STRING_BUF_PUSH_GROW_%string_reg:
+    EXPAND STRING_BUF_RESERVE %string_reg, 1
+    jmp L_STRING_BUF_PUSH_WRITE_%string_reg
+
+L_STRING_BUF_PUSH_WRITE_%string_reg:
+    __string_buf_push_view2_%string_reg = & %string_reg
+    __string_buf_push_ptr_%string_reg = load __string_buf_push_view2_%string_reg+Vec_ptr as ptr
+    __string_buf_push_dst_%string_reg = ptr_add __string_buf_push_ptr_%string_reg, __string_buf_push_len_%string_reg
+    store __string_buf_push_dst_%string_reg+0, %byte_value as u8
+    __string_buf_push_next_len_%string_reg = add __string_buf_push_len_%string_reg, 1
+    store __string_buf_push_view2_%string_reg+Vec_len, __string_buf_push_next_len_%string_reg as u64
+    !__string_buf_push_next_len_%string_reg
+    !__string_buf_push_dst_%string_reg
+    !__string_buf_push_ptr_%string_reg
+    !__string_buf_push_view2_%string_reg
+    !__string_buf_push_needs_grow_%string_reg
+    !__string_buf_push_cap_%string_reg
+    !__string_buf_push_len_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_STR %string_reg, %suffix_slice
+    __string_buf_suffix_len_%string_reg = load %suffix_slice+Slice_len as u64
+    EXPAND STRING_BUF_RESERVE %string_reg, __string_buf_suffix_len_%string_reg
+    __string_buf_push_str_view_%string_reg = & %string_reg
+    __string_buf_dst_buf_%string_reg = load __string_buf_push_str_view_%string_reg+Vec_ptr as ptr
+    __string_buf_dst_len_%string_reg = load __string_buf_push_str_view_%string_reg+Vec_len as u64
+    __string_buf_dst_ptr_%string_reg = ptr_add __string_buf_dst_buf_%string_reg, __string_buf_dst_len_%string_reg
+    __string_buf_src_ptr_%string_reg = load %suffix_slice+Slice_ptr as ptr
+    call @sa_mem_copy(&__string_buf_dst_ptr_%string_reg, &__string_buf_src_ptr_%string_reg, __string_buf_suffix_len_%string_reg)
+    __string_buf_next_len_%string_reg = add __string_buf_dst_len_%string_reg, __string_buf_suffix_len_%string_reg
+    store __string_buf_push_str_view_%string_reg+Vec_len, __string_buf_next_len_%string_reg as u64
+    !__string_buf_next_len_%string_reg
+    !__string_buf_src_ptr_%string_reg
+    !__string_buf_dst_ptr_%string_reg
+    !__string_buf_dst_len_%string_reg
+    !__string_buf_dst_buf_%string_reg
+    !__string_buf_push_str_view_%string_reg
+    !__string_buf_suffix_len_%string_reg
+[END_MACRO]
+
 [MACRO] STR_EMPTY %out_slice
     __str_empty_ptr_%out_slice = 0 as ptr
     EXPAND STR_FROM_PARTS %out_slice, __str_empty_ptr_%out_slice, 0

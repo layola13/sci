@@ -31,6 +31,8 @@
 @const MUT_AFTER_REPLACE = utf8:"rustlang-std"
 @const MUT_SPLIT_LEFT = utf8:"rustlang"
 @const MUT_AFTER_INSERT_BYTE = utf8:"rust-lang"
+@const BUF_SUFFIX = utf8:"std"
+@const BUF_EXPECTED = utf8:"rust-std"
 
 @vec_pop_if_is_99(value: u64) -> u64:
 L_ENTRY:
@@ -276,6 +278,100 @@ L_CONCAT_FAIL:
     panic(905)
 
 L_CONCAT_OK:
+    !ok
+    return
+
+@test "sa_std string owned buffer capacity macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS suffix, &BUF_SUFFIX, 3
+    EXPAND STR_FROM_PARTS expected, &BUF_EXPECTED, 8
+
+    EXPAND STRING_BUF_WITH_CAPACITY string_buf, 8
+    EXPAND STRING_BUF_LEN initial_len, string_buf
+    EXPAND STRING_BUF_CAPACITY initial_cap, string_buf
+    EXPAND STRING_BUF_IS_EMPTY initial_empty, string_buf
+    EXPAND STRING_BUF_PUSH_STR string_buf, left
+    EXPAND STRING_BUF_PUSH_BYTE string_buf, 45
+    EXPAND STRING_BUF_PUSH_STR string_buf, suffix
+    EXPAND STRING_BUF_LEN pushed_len, string_buf
+    EXPAND STRING_BUF_AS_STR pushed_view, string_buf
+    EXPAND STR_EQ pushed_eq, pushed_view, expected
+    EXPAND STRING_BUF_TRY_RESERVE reserve_ok, string_buf, 10
+    EXPAND STRING_BUF_CAPACITY reserved_cap, string_buf
+    EXPAND STRING_BUF_SHRINK_TO string_buf, 10
+    EXPAND STRING_BUF_CAPACITY shrink_to_cap, string_buf
+    EXPAND STRING_BUF_SHRINK_TO_FIT string_buf
+    EXPAND STRING_BUF_CAPACITY shrink_fit_cap, string_buf
+    EXPAND STRING_BUF_TRUNCATE string_buf, 4
+    EXPAND STRING_BUF_LEN truncate_len, string_buf
+    EXPAND STRING_BUF_CLEAR string_buf
+    EXPAND STRING_BUF_LEN clear_len, string_buf
+
+    initial_len_ok = eq initial_len, 0
+    initial_cap_ok = uge initial_cap, 8
+    initial_empty_ok = eq initial_empty, 1
+    pushed_len_ok = eq pushed_len, 8
+    pushed_eq_ok = eq pushed_eq, 1
+    reserve_flag_ok = eq reserve_ok, 1
+    reserved_cap_ok = uge reserved_cap, 18
+    shrink_to_cap_ok = eq shrink_to_cap, 10
+    shrink_fit_cap_ok = eq shrink_fit_cap, 8
+    truncate_len_ok = eq truncate_len, 4
+    clear_len_ok = eq clear_len, 0
+    ok01 = and initial_len_ok, initial_cap_ok
+    ok02 = and ok01, initial_empty_ok
+    ok03 = and ok02, pushed_len_ok
+    ok04 = and ok03, pushed_eq_ok
+    ok05 = and ok04, reserve_flag_ok
+    ok06 = and ok05, reserved_cap_ok
+    ok07 = and ok06, shrink_to_cap_ok
+    ok08 = and ok07, shrink_fit_cap_ok
+    ok09 = and ok08, truncate_len_ok
+    ok = and ok09, clear_len_ok
+    !initial_len
+    !initial_cap
+    !initial_empty
+    !pushed_len
+    !pushed_view
+    !pushed_eq
+    !reserve_ok
+    !reserved_cap
+    !shrink_to_cap
+    !shrink_fit_cap
+    !truncate_len
+    !clear_len
+    !initial_len_ok
+    !initial_cap_ok
+    !initial_empty_ok
+    !pushed_len_ok
+    !pushed_eq_ok
+    !reserve_flag_ok
+    !reserved_cap_ok
+    !shrink_to_cap_ok
+    !shrink_fit_cap_ok
+    !truncate_len_ok
+    !clear_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    EXPAND STRING_BUF_FREE string_buf
+    !left
+    !suffix
+    !expected
+    br ok -> L_STRING_BUF_OK, L_STRING_BUF_FAIL
+
+L_STRING_BUF_FAIL:
+    !ok
+    panic(906)
+
+L_STRING_BUF_OK:
     !ok
     return
 
