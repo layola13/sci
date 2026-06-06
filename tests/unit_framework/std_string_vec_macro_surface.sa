@@ -505,6 +505,120 @@ L_FIND_OK:
     !ok
     return
 
+@test "sa_std string byte scan macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
+    EXPAND STR_EMPTY empty
+    EXPAND STR_BYTES str_bytes, pathish
+    EXPAND STRING_BYTES string_bytes, pathish
+    EXPAND STR_LEN str_bytes_len, str_bytes
+    EXPAND STRING_LEN string_bytes_len, string_bytes
+    EXPAND STR_TRY_FIND_BYTE find_ok, find_idx, pathish, 58
+    EXPAND STRING_TRY_RFIND_BYTE rfind_ok, rfind_idx, pathish, 58
+    EXPAND STR_TRY_FIND_BYTE miss_find_ok, miss_find_idx, pathish, 47
+    EXPAND STRING_TRY_RFIND_BYTE miss_rfind_ok, miss_rfind_idx, pathish, 47
+    EXPAND STR_COUNT_BYTE count_colon, pathish, 58
+    EXPAND STRING_COUNT_BYTE count_miss, pathish, 47
+    EXPAND STR_TRY_FIND_BYTE empty_find_ok, empty_find_idx, empty, 58
+    EXPAND STRING_TRY_RFIND_BYTE empty_rfind_ok, empty_rfind_idx, empty, 58
+    EXPAND STR_COUNT_BYTE empty_count, empty, 58
+
+    str_bytes_len_ok = eq str_bytes_len, 5
+    string_bytes_len_ok = eq string_bytes_len, 5
+    find_flag_ok = eq find_ok, 1
+    find_idx_ok = eq find_idx, 1
+    rfind_flag_ok = eq rfind_ok, 1
+    rfind_idx_ok = eq rfind_idx, 3
+    miss_find_flag_ok = eq miss_find_ok, 0
+    miss_find_idx_ok = eq miss_find_idx, 0
+    miss_rfind_flag_ok = eq miss_rfind_ok, 0
+    miss_rfind_idx_ok = eq miss_rfind_idx, 0
+    count_colon_ok = eq count_colon, 2
+    count_miss_ok = eq count_miss, 0
+    empty_find_flag_ok = eq empty_find_ok, 0
+    empty_find_idx_ok = eq empty_find_idx, 0
+    empty_rfind_flag_ok = eq empty_rfind_ok, 0
+    empty_rfind_idx_ok = eq empty_rfind_idx, 0
+    empty_count_ok = eq empty_count, 0
+    ok01 = and str_bytes_len_ok, string_bytes_len_ok
+    ok02 = and ok01, find_flag_ok
+    ok03 = and ok02, find_idx_ok
+    ok04 = and ok03, rfind_flag_ok
+    ok05 = and ok04, rfind_idx_ok
+    ok06 = and ok05, miss_find_flag_ok
+    ok07 = and ok06, miss_find_idx_ok
+    ok08 = and ok07, miss_rfind_flag_ok
+    ok09 = and ok08, miss_rfind_idx_ok
+    ok10 = and ok09, count_colon_ok
+    ok11 = and ok10, count_miss_ok
+    ok12 = and ok11, empty_find_flag_ok
+    ok13 = and ok12, empty_find_idx_ok
+    ok14 = and ok13, empty_rfind_flag_ok
+    ok15 = and ok14, empty_rfind_idx_ok
+    ok = and ok15, empty_count_ok
+    !pathish
+    !empty
+    !str_bytes
+    !string_bytes
+    !str_bytes_len
+    !string_bytes_len
+    !find_ok
+    !find_idx
+    !rfind_ok
+    !rfind_idx
+    !miss_find_ok
+    !miss_find_idx
+    !miss_rfind_ok
+    !miss_rfind_idx
+    !count_colon
+    !count_miss
+    !empty_find_ok
+    !empty_find_idx
+    !empty_rfind_ok
+    !empty_rfind_idx
+    !empty_count
+    !str_bytes_len_ok
+    !string_bytes_len_ok
+    !find_flag_ok
+    !find_idx_ok
+    !rfind_flag_ok
+    !rfind_idx_ok
+    !miss_find_flag_ok
+    !miss_find_idx_ok
+    !miss_rfind_flag_ok
+    !miss_rfind_idx_ok
+    !count_colon_ok
+    !count_miss_ok
+    !empty_find_flag_ok
+    !empty_find_idx_ok
+    !empty_rfind_flag_ok
+    !empty_rfind_idx_ok
+    !empty_count_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    br ok -> L_BYTE_SCAN_OK, L_BYTE_SCAN_FAIL
+
+L_BYTE_SCAN_FAIL:
+    !ok
+    panic(913)
+
+L_BYTE_SCAN_OK:
+    !ok
+    return
+
 @test "sa_std string ascii and split once macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
