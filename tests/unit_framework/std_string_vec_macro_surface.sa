@@ -804,16 +804,21 @@ L_ENTRY:
     EXPAND VEC_TRY_GET_U64 extend_within_second_ok, extend_within_second, vec, 5
     EXPAND VEC_TRY_EXTEND_FROM_WITHIN_U64 extend_within_miss_ok, vec, 9, 1
     EXPAND VEC_LEN len_after_extend_within, vec
+    EXPAND VEC_EXTEND_FROM_WITHIN_U64 vec, 0, 1
+    EXPAND VEC_TRY_GET_U64 extend_within_alias_ok, extend_within_alias, vec, 6
+    EXPAND VEC_LEN len_after_extend_within_alias, vec
     EXPAND VEC_WITH_CAPACITY_U64 append_src_vec, 2
     EXPAND VEC_PUSH_U64 append_src_vec, 88
     EXPAND VEC_PUSH_U64 append_src_vec, 99
     EXPAND VEC_APPEND_U64 vec, append_src_vec
-    EXPAND VEC_TRY_GET_U64 after_append_ok, after_append, vec, 7
+    EXPAND VEC_TRY_GET_U64 after_append_ok, after_append, vec, 8
     EXPAND VEC_LEN append_src_len_after, append_src_vec
     EXPAND VEC_TRY_POP_IF_U64 pop_if_miss_ok, pop_if_miss, vec, @vec_pop_if_is_88
     EXPAND VEC_LEN len_after_pop_if_miss, vec
     EXPAND VEC_TRY_POP_IF_U64 pop_if_hit_ok, pop_if_hit, vec, @vec_pop_if_is_99
     EXPAND VEC_LEN len_after_pop_if_hit, vec
+    EXPAND VEC_POP_IF_U64 pop_if_alias_ok, pop_if_alias, vec, @vec_pop_if_is_88
+    EXPAND VEC_LEN len_after_pop_if_alias, vec
     EXPAND VEC_WITH_CAPACITY_U64 pop_if_empty_vec, 0
     EXPAND VEC_TRY_POP_IF_U64 pop_if_empty_ok, pop_if_empty, pop_if_empty_vec, @vec_pop_if_is_99
     prefix_data = alloc 8
@@ -821,7 +826,7 @@ L_ENTRY:
     miss_prefix_data = alloc 8
     long_suffix_data = alloc 24
     store prefix_data+0, 44 as u64
-    store suffix_data+0, 88 as u64
+    store suffix_data+0, 44 as u64
     store miss_prefix_data+0, 66 as u64
     store long_suffix_data+0, 44 as u64
     store long_suffix_data+8, 55 as u64
@@ -895,25 +900,31 @@ L_ENTRY:
     extend_within_second_value_ok = eq extend_within_second, 66
     extend_within_miss_flag_ok = eq extend_within_miss_ok, 0
     len_after_extend_within_ok = eq len_after_extend_within, 6
+    extend_within_alias_flag_ok = eq extend_within_alias_ok, 1
+    extend_within_alias_value_ok = eq extend_within_alias, 44
+    len_after_extend_within_alias_ok = eq len_after_extend_within_alias, 7
     after_append_flag_ok = eq after_append_ok, 1
     after_append_value_ok = eq after_append, 99
     append_src_len_after_ok = eq append_src_len_after, 0
     pop_if_miss_flag_ok = eq pop_if_miss_ok, 0
     pop_if_miss_value_ok = eq pop_if_miss, 0
-    len_after_pop_if_miss_ok = eq len_after_pop_if_miss, 8
+    len_after_pop_if_miss_ok = eq len_after_pop_if_miss, 9
     pop_if_hit_flag_ok = eq pop_if_hit_ok, 1
     pop_if_hit_value_ok = eq pop_if_hit, 99
-    len_after_pop_if_hit_ok = eq len_after_pop_if_hit, 7
+    len_after_pop_if_hit_ok = eq len_after_pop_if_hit, 8
+    pop_if_alias_flag_ok = eq pop_if_alias_ok, 1
+    pop_if_alias_value_ok = eq pop_if_alias, 88
+    len_after_pop_if_alias_ok = eq len_after_pop_if_alias, 7
     pop_if_empty_flag_ok = eq pop_if_empty_ok, 0
     pop_if_empty_value_ok = eq pop_if_empty, 0
     cap_exact_ok = eq cap_exact, 9
     cap_ok = eq cap, 9
     front_ok = eq front, 44
-    back_ok = eq back, 88
+    back_ok = eq back, 44
     front_try_flag_ok = eq front_try_ok, 1
     front_try_value_ok = eq front_try, 44
     back_try_flag_ok = eq back_try_ok, 1
-    back_try_value_ok = eq back_try, 88
+    back_try_value_ok = eq back_try, 44
     contains_55_ok = eq contains_55, 1
     contains_123_ok = eq contains_123, 0
     starts_match_ok = eq starts_ok, 1
@@ -929,7 +940,7 @@ L_ENTRY:
     strip_suffix_head_first_ok = eq strip_suffix_head_first, 44
     strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
     pop_ok_flag = eq pop_ok, 1
-    pop_ok_value = eq popped, 88
+    pop_ok_value = eq popped, 44
     ptr_ok = ne data_ptr, 0
     slice_len_ok = eq slice_len, 6
     swap_remove_flag_ok = eq swap_remove_ok, 1
@@ -1575,6 +1586,10 @@ L_ENTRY:
     EXPAND VEC_CAPACITY cap_after_shrink_to_fit, vec
     EXPAND VEC_TRY_SHRINK_TO_FIT_U64 try_shrink_to_fit_ok, vec
     EXPAND VEC_CAPACITY cap_after_try_shrink_to_fit, vec
+    EXPAND VEC_TRY_SHRINK_TO try_shrink_to_generic_ok, vec, 2, 8
+    EXPAND VEC_CAPACITY cap_after_try_shrink_to_generic, vec
+    EXPAND VEC_TRY_SHRINK_TO_FIT try_shrink_to_fit_generic_ok, vec, 8
+    EXPAND VEC_CAPACITY cap_after_try_shrink_to_fit_generic, vec
     EXPAND VEC_TRY_GET_U64 tail_ok, tail_value, vec, 2
 
     resize_cap_ok = eq cap_after_resize, 5
@@ -1586,6 +1601,10 @@ L_ENTRY:
     shrink_to_fit_ok = eq cap_after_shrink_to_fit, 3
     try_shrink_to_fit_flag_ok = eq try_shrink_to_fit_ok, 1
     try_shrink_to_fit_cap_ok = eq cap_after_try_shrink_to_fit, 3
+    try_shrink_to_generic_flag_ok = eq try_shrink_to_generic_ok, 1
+    try_shrink_to_generic_cap_ok = eq cap_after_try_shrink_to_generic, 3
+    try_shrink_to_fit_generic_flag_ok = eq try_shrink_to_fit_generic_ok, 1
+    try_shrink_to_fit_generic_cap_ok = eq cap_after_try_shrink_to_fit_generic, 3
     tail_flag_ok = eq tail_ok, 1
     tail_value_ok = eq tail_value, 30
     ok01 = and resize_cap_ok, mut_slice_len_ok
@@ -1596,8 +1615,12 @@ L_ENTRY:
     ok06 = and ok05, shrink_to_fit_ok
     ok07 = and ok06, try_shrink_to_fit_flag_ok
     ok08 = and ok07, try_shrink_to_fit_cap_ok
-    ok09 = and ok08, tail_flag_ok
-    ok = and ok09, tail_value_ok
+    ok09 = and ok08, try_shrink_to_generic_flag_ok
+    ok10 = and ok09, try_shrink_to_generic_cap_ok
+    ok11 = and ok10, try_shrink_to_fit_generic_flag_ok
+    ok12 = and ok11, try_shrink_to_fit_generic_cap_ok
+    ok13 = and ok12, tail_flag_ok
+    ok = and ok13, tail_value_ok
     !cap_after_resize
     !mut_slice
     !mut_slice_len
@@ -1608,6 +1631,10 @@ L_ENTRY:
     !cap_after_shrink_to_fit
     !try_shrink_to_fit_ok
     !cap_after_try_shrink_to_fit
+    !try_shrink_to_generic_ok
+    !cap_after_try_shrink_to_generic
+    !try_shrink_to_fit_generic_ok
+    !cap_after_try_shrink_to_fit_generic
     !tail_ok
     !tail_value
     !resize_cap_ok
@@ -1619,6 +1646,10 @@ L_ENTRY:
     !shrink_to_fit_ok
     !try_shrink_to_fit_flag_ok
     !try_shrink_to_fit_cap_ok
+    !try_shrink_to_generic_flag_ok
+    !try_shrink_to_generic_cap_ok
+    !try_shrink_to_fit_generic_flag_ok
+    !try_shrink_to_fit_generic_cap_ok
     !tail_flag_ok
     !tail_value_ok
     !ok01
@@ -1630,6 +1661,10 @@ L_ENTRY:
     !ok07
     !ok08
     !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
     EXPAND VEC_FREE vec
     br ok -> L_VEC_CAP_OK, L_VEC_CAP_FAIL
 

@@ -91,9 +91,25 @@ L_ENTRY:
     !res
     return out
 
+@try_result_return_probe(res: ptr) -> ptr:
+L_ENTRY:
+    EXPAND TRY_RESULT_RETURN value, res
+    out = alloc Result_SIZE
+    EXPAND RESULT_SET_OK out, value
+    !res
+    return out
+
 @try_option_probe(opt: ptr) -> ptr:
 L_ENTRY:
     EXPAND TRY_OPTION value, opt
+    out = alloc Option_SIZE
+    EXPAND OPTION_SET_SOME out, value
+    !opt
+    return out
+
+@try_option_return_probe(opt: ptr) -> ptr:
+L_ENTRY:
+    EXPAND TRY_OPTION_RETURN value, opt
     out = alloc Option_SIZE
     EXPAND OPTION_SET_SOME out, value
     !opt
@@ -283,6 +299,20 @@ L_ENTRY:
     store err_res+Result_tag, Result_ERR as u64
     store err_res+Result_ok, 0 as u64
     store err_res+Result_err, 17 as u64
+    ok_res_alias = alloc Result_SIZE
+    store ok_res_alias+Result_tag, Result_OK as u64
+    store ok_res_alias+Result_ok, 19 as u64
+    store ok_res_alias+Result_err, 0 as u64
+    err_res_alias = alloc Result_SIZE
+    store err_res_alias+Result_tag, Result_ERR as u64
+    store err_res_alias+Result_ok, 0 as u64
+    store err_res_alias+Result_err, 23 as u64
+    some_opt_alias = alloc Option_SIZE
+    store some_opt_alias+Option_tag, Option_SOME as u64
+    store some_opt_alias+Option_value, 29 as u64
+    none_opt_alias = alloc Option_SIZE
+    store none_opt_alias+Option_tag, Option_NONE as u64
+    store none_opt_alias+Option_value, 0 as u64
 
     EXPAND OPTION_MATCH_SOME_NONE some_value, some_opt, L_SOME, L_NONE
 
@@ -320,6 +350,17 @@ L_ERR_ERR:
     try_some_tag = load try_some_opt+Option_tag as u64
     try_some_value = load try_some_opt+Option_value as u64
     try_none_tag = load try_none_opt+Option_tag as u64
+    try_return_ok_res = call @try_result_return_probe(ok_res_alias)
+    try_return_err_res = call @try_result_return_probe(err_res_alias)
+    try_return_ok_tag = load try_return_ok_res+Result_tag as u64
+    try_return_ok_value = load try_return_ok_res+Result_ok as u64
+    try_return_err_tag = load try_return_err_res+Result_tag as u64
+    try_return_err_value = load try_return_err_res+Result_err as u64
+    try_return_some_opt = call @try_option_return_probe(some_opt_alias)
+    try_return_none_opt = call @try_option_return_probe(none_opt_alias)
+    try_return_some_tag = load try_return_some_opt+Option_tag as u64
+    try_return_some_value = load try_return_some_opt+Option_value as u64
+    try_return_none_tag = load try_return_none_opt+Option_tag as u64
     returned_ok = eq returned_tag, Result_ERR
     returned_err_ok = eq returned_err, 99
     try_ok_tag_ok = eq try_ok_tag, Result_OK
@@ -329,6 +370,13 @@ L_ERR_ERR:
     try_some_tag_ok = eq try_some_tag, Option_SOME
     try_some_value_ok = eq try_some_value, 11
     try_none_tag_ok = eq try_none_tag, Option_NONE
+    try_return_ok_tag_ok = eq try_return_ok_tag, Result_OK
+    try_return_ok_value_ok = eq try_return_ok_value, 19
+    try_return_err_tag_ok = eq try_return_err_tag, Result_ERR
+    try_return_err_value_ok = eq try_return_err_value, 23
+    try_return_some_tag_ok = eq try_return_some_tag, Option_SOME
+    try_return_some_value_ok = eq try_return_some_value, 29
+    try_return_none_tag_ok = eq try_return_none_tag, Option_NONE
     result_try01 = and some_ok, none_ok
     result_try02 = and result_try01, ok_match
     result_try03 = and result_try02, err_match
@@ -342,7 +390,14 @@ L_ERR_ERR:
     result_try11 = and result_try10, try_err_value_ok
     result_try12 = and result_try11, try_some_tag_ok
     result_try13 = and result_try12, try_some_value_ok
-    result_try_ok = and result_try13, try_none_tag_ok
+    result_try14 = and result_try13, try_none_tag_ok
+    result_try15 = and result_try14, try_return_ok_tag_ok
+    result_try16 = and result_try15, try_return_ok_value_ok
+    result_try17 = and result_try16, try_return_err_tag_ok
+    result_try18 = and result_try17, try_return_err_value_ok
+    result_try19 = and result_try18, try_return_some_tag_ok
+    result_try20 = and result_try19, try_return_some_value_ok
+    result_try_ok = and result_try20, try_return_none_tag_ok
     br result_try_ok -> L_OPTION_RESULT_TRY_OK, L_OPTION_RESULT_TRY_FAIL
 
 L_OPTION_RESULT_TRY_FAIL:
@@ -371,6 +426,17 @@ L_OPTION_RESULT_TRY_OK:
     !try_some_tag
     !try_some_value
     !try_none_tag
+    !try_return_ok_res
+    !try_return_err_res
+    !try_return_ok_tag
+    !try_return_ok_value
+    !try_return_err_tag
+    !try_return_err_value
+    !try_return_some_opt
+    !try_return_none_opt
+    !try_return_some_tag
+    !try_return_some_value
+    !try_return_none_tag
     !some_ok
     !none_ok
     !ok_match
@@ -386,6 +452,13 @@ L_OPTION_RESULT_TRY_OK:
     !try_some_tag_ok
     !try_some_value_ok
     !try_none_tag_ok
+    !try_return_ok_tag_ok
+    !try_return_ok_value_ok
+    !try_return_err_tag_ok
+    !try_return_err_value_ok
+    !try_return_some_tag_ok
+    !try_return_some_value_ok
+    !try_return_none_tag_ok
     !result_try01
     !result_try02
     !result_try03
@@ -399,11 +472,22 @@ L_OPTION_RESULT_TRY_OK:
     !result_try11
     !result_try12
     !result_try13
+    !result_try14
+    !result_try15
+    !result_try16
+    !result_try17
+    !result_try18
+    !result_try19
+    !result_try20
     !result_try_ok
     !some_opt
     !none_opt
     !ok_res
     !err_res
+    !ok_res_alias
+    !err_res_alias
+    !some_opt_alias
+    !none_opt_alias
     return
 
 L_NONE:
