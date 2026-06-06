@@ -57,6 +57,9 @@
 @const LINES_NO_TRAIL = utf8:"one\ntwo"
 @const LINES_ONE = utf8:"one"
 @const LINES_TWO = utf8:"two"
+@const SPLIT_TEXT = utf8:":a::b:"
+@const SPLIT_A = utf8:"a"
+@const SPLIT_B = utf8:"b"
 
 @vec_pop_if_is_99(value: u64) -> u64:
 L_ENTRY:
@@ -1055,6 +1058,129 @@ L_BYTE_SCAN_FAIL:
     panic(913)
 
 L_BYTE_SCAN_OK:
+    !ok
+    return
+
+@test "sa_std string split byte view macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_text, &SPLIT_TEXT, 6
+    EXPAND STR_FROM_PARTS expected_a, &SPLIT_A, 1
+    EXPAND STR_FROM_PARTS expected_b, &SPLIT_B, 1
+    EXPAND STR_EMPTY empty
+
+    EXPAND STR_SPLIT_BYTE_COUNT split_count, split_text, 58
+    EXPAND STRING_TRY_SPLIT_BYTE_AT part0_ok, part0, split_text, 58, 0
+    EXPAND STR_TRY_SPLIT_BYTE_AT part1_ok, part1, split_text, 58, 1
+    EXPAND STRING_TRY_SPLIT_BYTE_AT part2_ok, part2, split_text, 58, 2
+    EXPAND STR_TRY_SPLIT_BYTE_AT part3_ok, part3, split_text, 58, 3
+    EXPAND STRING_TRY_SPLIT_BYTE_AT part4_ok, part4, split_text, 58, 4
+    EXPAND STR_TRY_SPLIT_BYTE_AT part5_ok, part5, split_text, 58, 5
+    EXPAND STRING_SPLIT_BYTE_COUNT empty_count, empty, 58
+    EXPAND STR_TRY_SPLIT_BYTE_AT empty_part_ok, empty_part, empty, 58, 0
+
+    EXPAND STR_IS_EMPTY part0_empty, part0
+    EXPAND STR_EQ part1_eq, part1, expected_a
+    EXPAND STR_IS_EMPTY part2_empty, part2
+    EXPAND STR_EQ part3_eq, part3, expected_b
+    EXPAND STR_IS_EMPTY part4_empty, part4
+    EXPAND STR_IS_EMPTY part5_empty, part5
+    EXPAND STR_IS_EMPTY empty_part_empty, empty_part
+
+    split_count_ok = eq split_count, 5
+    part0_flag_ok = eq part0_ok, 1
+    part0_value_ok = eq part0_empty, 1
+    part1_flag_ok = eq part1_ok, 1
+    part1_value_ok = eq part1_eq, 1
+    part2_flag_ok = eq part2_ok, 1
+    part2_value_ok = eq part2_empty, 1
+    part3_flag_ok = eq part3_ok, 1
+    part3_value_ok = eq part3_eq, 1
+    part4_flag_ok = eq part4_ok, 1
+    part4_value_ok = eq part4_empty, 1
+    part5_flag_ok = eq part5_ok, 0
+    part5_value_ok = eq part5_empty, 1
+    empty_count_ok = eq empty_count, 1
+    empty_part_flag_ok = eq empty_part_ok, 1
+    empty_part_value_ok = eq empty_part_empty, 1
+    ok01 = and split_count_ok, part0_flag_ok
+    ok02 = and ok01, part0_value_ok
+    ok03 = and ok02, part1_flag_ok
+    ok04 = and ok03, part1_value_ok
+    ok05 = and ok04, part2_flag_ok
+    ok06 = and ok05, part2_value_ok
+    ok07 = and ok06, part3_flag_ok
+    ok08 = and ok07, part3_value_ok
+    ok09 = and ok08, part4_flag_ok
+    ok10 = and ok09, part4_value_ok
+    ok11 = and ok10, part5_flag_ok
+    ok12 = and ok11, part5_value_ok
+    ok13 = and ok12, empty_count_ok
+    ok14 = and ok13, empty_part_flag_ok
+    ok = and ok14, empty_part_value_ok
+    !split_text
+    !expected_a
+    !expected_b
+    !empty
+    !split_count
+    !part0_ok
+    !part0
+    !part1_ok
+    !part1
+    !part2_ok
+    !part2
+    !part3_ok
+    !part3
+    !part4_ok
+    !part4
+    !part5_ok
+    !part5
+    !empty_count
+    !empty_part_ok
+    !empty_part
+    !part0_empty
+    !part1_eq
+    !part2_empty
+    !part3_eq
+    !part4_empty
+    !part5_empty
+    !empty_part_empty
+    !split_count_ok
+    !part0_flag_ok
+    !part0_value_ok
+    !part1_flag_ok
+    !part1_value_ok
+    !part2_flag_ok
+    !part2_value_ok
+    !part3_flag_ok
+    !part3_value_ok
+    !part4_flag_ok
+    !part4_value_ok
+    !part5_flag_ok
+    !part5_value_ok
+    !empty_count_ok
+    !empty_part_flag_ok
+    !empty_part_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    br ok -> L_SPLIT_BYTE_OK, L_SPLIT_BYTE_FAIL
+
+L_SPLIT_BYTE_FAIL:
+    !ok
+    panic(914)
+
+L_SPLIT_BYTE_OK:
     !ok
     return
 
