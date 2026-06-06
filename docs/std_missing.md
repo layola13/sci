@@ -110,9 +110,9 @@ Current external capability buckets that should stay outside this report's `sa_s
 *   **Scope note**: The SA path facade is a POSIX-style byte-slice subset over `Slice`. `STARTS_WITH` and `TRY_STRIP_PREFIX` enforce a simple slash boundary, `JOIN` materializes a concatenated string slice through existing `STR_CONCAT`, and `PARENT` / `FILE_STEM` / `EXTENSION` are aliases over the concrete basename/dirname/stem/ext helpers. It does not model Rust's platform-specific `OsStr`, `PathBuf`, or component iterator semantics.
 
 ### 1.14 Time & Sync (`std::time`, `std::sync` vs `sa_std/time.sa`, `sa_std/sync/*`)
-*   **Implemented in `sa_std`**: `Instant` / `Unix` timestamps, `Sleep`, `MPSC` channels, `Mutex` (spin), `Once`, `RwLock`, `Arc`, `RefCell` shared/exclusive borrow helpers, and the matching core macros in `sa_std/core/*`.
+*   **Implemented in `sa_std`**: `Instant` / `Unix` timestamps, `Sleep`, `Duration` nanosecond construction and conversion helpers, `duration_since` / `checked_duration_since` / `elapsed` macro subsets, checked add/sub helpers, `subsec_nanos` / `subsec_micros` / `subsec_millis`, MPSC channels, `Mutex` (spin), `Once`, `RwLock`, `Arc`, `RefCell` shared/exclusive borrow helpers, and the matching core macros in `sa_std/core/*`.
 *   **Plugin alternative, not `sa_std`**: Deno facade time helpers live in `sa_plugin_deno` and are not part of compiler std coverage.
-*   **Missing from Rust (Time)**: `duration_since`, `elapsed`, `checked_add/sub`, `subsec_nanos` and rigorous duration arithmetic.
+*   **Missing from Rust (Time)**: Rust's typed `Duration` / `Instant` / `SystemTime` structs, signed/float duration conversions, saturating arithmetic family, `SystemTimeError`, checked multiplication/division, platform-specific clock semantics, and rigorous overflow/error semantics beyond the current `(ok, value)` nanosecond macro subset.
 *   **Missing from Rust (Sync)**: `Condvar`, `Barrier`, Atomic variables (`AtomicI32`, `AtomicBool`, etc.), RAII `MutexGuard`, `PoisonError`.
 
 ---

@@ -1,0 +1,198 @@
+@import "sa_std/time.sa"
+
+@test "sa_std time duration and instant macros"():
+L_ENTRY:
+    EXPAND TIME_DURATION_FROM_S one_s, 2
+    EXPAND TIME_DURATION_FROM_MS one_ms, 3
+    EXPAND TIME_DURATION_FROM_US one_us, 4
+    EXPAND TIME_DURATION_FROM_NS one_ns, 5
+    EXPAND TIME_DURATION_AS_S as_s, one_s
+    EXPAND TIME_DURATION_AS_MS as_ms, one_s
+    EXPAND TIME_DURATION_AS_US as_us, one_ms
+    EXPAND TIME_DURATION_AS_NS as_ns, one_us
+
+    mixed = add one_s, one_ms
+    mixed = add mixed, one_us
+    mixed = add mixed, 567
+    EXPAND TIME_DURATION_SUBSEC_NANOS subsec_ns, mixed
+    EXPAND TIME_DURATION_SUBSEC_MICROS subsec_us, mixed
+    EXPAND TIME_DURATION_SUBSEC_MILLIS subsec_ms, mixed
+
+    EXPAND TIME_CHECKED_ADD_NS add_ok, add_value, 40, 2
+    max_ns = sub 0, 1
+    EXPAND TIME_CHECKED_ADD_NS add_overflow_ok, add_overflow_value, max_ns, 1
+    EXPAND TIME_CHECKED_SUB_NS sub_ok, sub_value, 40, 2
+    EXPAND TIME_CHECKED_SUB_NS sub_underflow_ok, sub_underflow_value, 2, 40
+    EXPAND TIME_CHECKED_DURATION_SINCE since_ok, since_value, 90, 40
+    EXPAND TIME_CHECKED_DURATION_SINCE since_underflow_ok, since_underflow_value, 40, 90
+    EXPAND TIME_DURATION_SINCE saturating_since, 40, 90
+    EXPAND TIME_INSTANT_CHECKED_ADD instant_add_ok, instant_add_value, 100, 25
+    EXPAND TIME_INSTANT_CHECKED_SUB instant_sub_ok, instant_sub_value, 100, 25
+    EXPAND TIME_INSTANT_CHECKED_DURATION_SINCE instant_since_ok, instant_since_value, 125, 100
+    EXPAND TIME_INSTANT_DURATION_SINCE instant_since_value2, 125, 100
+
+    ok_one_s = eq one_s, 2000000000
+    ok_one_ms = eq one_ms, 3000000
+    ok_one_us = eq one_us, 4000
+    ok_one_ns = eq one_ns, 5
+    ok_as_s = eq as_s, 2
+    ok_as_ms = eq as_ms, 2000
+    ok_as_us = eq as_us, 3000
+    ok_as_ns = eq as_ns, 4000
+    ok_subsec_ns = eq subsec_ns, 3004567
+    ok_subsec_us = eq subsec_us, 3004
+    ok_subsec_ms = eq subsec_ms, 3
+    ok_add_flag = eq add_ok, 1
+    ok_add_value = eq add_value, 42
+    ok_add_overflow_flag = eq add_overflow_ok, 0
+    ok_add_overflow_value = eq add_overflow_value, 0
+    ok_sub_flag = eq sub_ok, 1
+    ok_sub_value = eq sub_value, 38
+    ok_sub_underflow_flag = eq sub_underflow_ok, 0
+    ok_sub_underflow_value = eq sub_underflow_value, 0
+    ok_since_flag = eq since_ok, 1
+    ok_since_value = eq since_value, 50
+    ok_since_underflow_flag = eq since_underflow_ok, 0
+    ok_since_underflow_value = eq since_underflow_value, 0
+    ok_saturating_since = eq saturating_since, 0
+    ok_instant_add_flag = eq instant_add_ok, 1
+    ok_instant_add_value = eq instant_add_value, 125
+    ok_instant_sub_flag = eq instant_sub_ok, 1
+    ok_instant_sub_value = eq instant_sub_value, 75
+    ok_instant_since_flag = eq instant_since_ok, 1
+    ok_instant_since_value = eq instant_since_value, 25
+    ok_instant_since_value2 = eq instant_since_value2, 25
+
+    ok01 = and ok_one_s, ok_one_ms
+    ok02 = and ok01, ok_one_us
+    ok03 = and ok02, ok_one_ns
+    ok04 = and ok03, ok_as_s
+    ok05 = and ok04, ok_as_ms
+    ok06 = and ok05, ok_as_us
+    ok07 = and ok06, ok_as_ns
+    ok08 = and ok07, ok_subsec_ns
+    ok09 = and ok08, ok_subsec_us
+    ok10 = and ok09, ok_subsec_ms
+    ok11 = and ok10, ok_add_flag
+    ok12 = and ok11, ok_add_value
+    ok13 = and ok12, ok_add_overflow_flag
+    ok14 = and ok13, ok_add_overflow_value
+    ok15 = and ok14, ok_sub_flag
+    ok16 = and ok15, ok_sub_value
+    ok17 = and ok16, ok_sub_underflow_flag
+    ok18 = and ok17, ok_sub_underflow_value
+    ok19 = and ok18, ok_since_flag
+    ok20 = and ok19, ok_since_value
+    ok21 = and ok20, ok_since_underflow_flag
+    ok22 = and ok21, ok_since_underflow_value
+    ok23 = and ok22, ok_saturating_since
+    ok24 = and ok23, ok_instant_add_flag
+    ok25 = and ok24, ok_instant_add_value
+    ok26 = and ok25, ok_instant_sub_flag
+    ok27 = and ok26, ok_instant_sub_value
+    ok28 = and ok27, ok_instant_since_flag
+    ok29 = and ok28, ok_instant_since_value
+    ok = and ok29, ok_instant_since_value2
+
+    !one_s
+    !one_ms
+    !one_us
+    !one_ns
+    !as_s
+    !as_ms
+    !as_us
+    !as_ns
+    !mixed
+    !subsec_ns
+    !subsec_us
+    !subsec_ms
+    !add_ok
+    !add_value
+    !max_ns
+    !add_overflow_ok
+    !add_overflow_value
+    !sub_ok
+    !sub_value
+    !sub_underflow_ok
+    !sub_underflow_value
+    !since_ok
+    !since_value
+    !since_underflow_ok
+    !since_underflow_value
+    !saturating_since
+    !instant_add_ok
+    !instant_add_value
+    !instant_sub_ok
+    !instant_sub_value
+    !instant_since_ok
+    !instant_since_value
+    !instant_since_value2
+    !ok_one_s
+    !ok_one_ms
+    !ok_one_us
+    !ok_one_ns
+    !ok_as_s
+    !ok_as_ms
+    !ok_as_us
+    !ok_as_ns
+    !ok_subsec_ns
+    !ok_subsec_us
+    !ok_subsec_ms
+    !ok_add_flag
+    !ok_add_value
+    !ok_add_overflow_flag
+    !ok_add_overflow_value
+    !ok_sub_flag
+    !ok_sub_value
+    !ok_sub_underflow_flag
+    !ok_sub_underflow_value
+    !ok_since_flag
+    !ok_since_value
+    !ok_since_underflow_flag
+    !ok_since_underflow_value
+    !ok_saturating_since
+    !ok_instant_add_flag
+    !ok_instant_add_value
+    !ok_instant_sub_flag
+    !ok_instant_sub_value
+    !ok_instant_since_flag
+    !ok_instant_since_value
+    !ok_instant_since_value2
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(940)
+
+L_OK:
+    !ok
+    return

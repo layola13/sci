@@ -721,6 +721,15 @@ test "native unit framework covers sa_std macro surface suites" {
         "test result: ok. 1 passed; 0 failed; 0 skipped",
     );
 
+    const time_expected = [_][]const u8{
+        "[PASS] sa_std time duration and instant macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_time_macro_surface.sa",
+        time_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
     const hashset_expected = [_][]const u8{
         "[PASS] sa_std hashset convenience macros",
         "[PASS] sa_std hashset rust parity macros",

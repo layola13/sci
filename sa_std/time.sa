@@ -42,14 +42,116 @@
     %out_ns = mul %ms, Time_NS_PER_MS
 [END_MACRO]
 
+[MACRO] TIME_DURATION_FROM_US %out_ns, %us
+    %out_ns = mul %us, Time_NS_PER_US
+[END_MACRO]
+
 [MACRO] TIME_DURATION_FROM_S %out_ns, %secs
     %out_ns = mul %secs, Time_NS_PER_S
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_NS %out_ns, %ns
+    %out_ns = add %ns, 0
 [END_MACRO]
 
 [MACRO] TIME_DURATION_AS_MS %out_ms, %ns
     %out_ms = udiv %ns, Time_NS_PER_MS
 [END_MACRO]
 
+[MACRO] TIME_DURATION_AS_US %out_us, %ns
+    %out_us = udiv %ns, Time_NS_PER_US
+[END_MACRO]
+
 [MACRO] TIME_DURATION_AS_S %out_secs, %ns
     %out_secs = udiv %ns, Time_NS_PER_S
+[END_MACRO]
+
+[MACRO] TIME_DURATION_AS_NS %out_ns, %duration_ns
+    %out_ns = add %duration_ns, 0
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SUBSEC_NANOS %out_ns, %duration_ns
+    %out_ns = urem %duration_ns, Time_NS_PER_S
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SUBSEC_MICROS %out_us, %duration_ns
+    __time_subsec_ns_%out_us = urem %duration_ns, Time_NS_PER_S
+    %out_us = udiv __time_subsec_ns_%out_us, Time_NS_PER_US
+    !__time_subsec_ns_%out_us
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SUBSEC_MILLIS %out_ms, %duration_ns
+    __time_subsec_ns_%out_ms = urem %duration_ns, Time_NS_PER_S
+    %out_ms = udiv __time_subsec_ns_%out_ms, Time_NS_PER_MS
+    !__time_subsec_ns_%out_ms
+[END_MACRO]
+
+[MACRO] TIME_CHECKED_ADD_NS %out_ok, %out_ns, %base_ns, %duration_ns
+    __time_add_sum_%out_ok = add %base_ns, %duration_ns
+    __time_add_overflow_%out_ok = ult __time_add_sum_%out_ok, %base_ns
+    br __time_add_overflow_%out_ok -> L_TIME_CHECKED_ADD_OVERFLOW_%out_ok, L_TIME_CHECKED_ADD_OK_%out_ok
+
+L_TIME_CHECKED_ADD_OK_%out_ok:
+    %out_ns = add __time_add_sum_%out_ok, 0
+    %out_ok = add 0, 1
+    !__time_add_overflow_%out_ok
+    !__time_add_sum_%out_ok
+    jmp L_TIME_CHECKED_ADD_END_%out_ok
+
+L_TIME_CHECKED_ADD_OVERFLOW_%out_ok:
+    %out_ns = add 0, 0
+    %out_ok = add 0, 0
+    !__time_add_overflow_%out_ok
+    !__time_add_sum_%out_ok
+
+L_TIME_CHECKED_ADD_END_%out_ok:
+[END_MACRO]
+
+[MACRO] TIME_CHECKED_SUB_NS %out_ok, %out_ns, %base_ns, %duration_ns
+    __time_sub_ok_%out_ok = ule %duration_ns, %base_ns
+    br __time_sub_ok_%out_ok -> L_TIME_CHECKED_SUB_OK_%out_ok, L_TIME_CHECKED_SUB_UNDERFLOW_%out_ok
+
+L_TIME_CHECKED_SUB_OK_%out_ok:
+    %out_ns = sub %base_ns, %duration_ns
+    %out_ok = add 0, 1
+    !__time_sub_ok_%out_ok
+    jmp L_TIME_CHECKED_SUB_END_%out_ok
+
+L_TIME_CHECKED_SUB_UNDERFLOW_%out_ok:
+    %out_ns = add 0, 0
+    %out_ok = add 0, 0
+    !__time_sub_ok_%out_ok
+
+L_TIME_CHECKED_SUB_END_%out_ok:
+[END_MACRO]
+
+[MACRO] TIME_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_CHECKED_SUB_NS %out_ok, %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_CHECKED_DURATION_SINCE __time_since_ok_%out_ns, %out_ns, %later_ns, %earlier_ns
+    !__time_since_ok_%out_ns
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_CHECKED_ADD %out_ok, %out_instant_ns, %instant_ns, %duration_ns
+    EXPAND TIME_CHECKED_ADD_NS %out_ok, %out_instant_ns, %instant_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_CHECKED_SUB %out_ok, %out_instant_ns, %instant_ns, %duration_ns
+    EXPAND TIME_CHECKED_SUB_NS %out_ok, %out_instant_ns, %instant_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_ELAPSED %out_ns, %instant_ns
+    EXPAND TIME_NOW_NS __time_elapsed_now_%out_ns
+    EXPAND TIME_DURATION_SINCE %out_ns, __time_elapsed_now_%out_ns, %instant_ns
+    !__time_elapsed_now_%out_ns
 [END_MACRO]

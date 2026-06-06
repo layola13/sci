@@ -1199,6 +1199,13 @@ test "sa_std time helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_UTC_NOW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_SLEEP_MS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_DURATION_FROM_MS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_DURATION_FROM_US"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_DURATION_FROM_NS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_DURATION_SUBSEC_NANOS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_CHECKED_ADD_NS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_CHECKED_SUB_NS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_CHECKED_DURATION_SINCE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, time_src, 1, "[MACRO] TIME_INSTANT_ELAPSED"));
 
     var time_flat = try flattenFixture(std.testing.allocator, "sa_std/time.sa", time_src);
     defer time_flat.deinit(std.testing.allocator);
