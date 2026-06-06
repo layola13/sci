@@ -9,6 +9,31 @@
 @const KEY_CHARLIE = utf8:"charlie"
 @const KEY_DELTA = utf8:"delta"
 
+@btree_map_retain_not_bravo(&key: ptr, value: u64) -> u64:
+L_ENTRY:
+    key_ptr = load key+Slice_ptr as ptr
+    bravo_ptr = &KEY_BRAVO
+    is_bravo = eq key_ptr, bravo_ptr
+    keep = eq is_bravo, 0
+    !is_bravo
+    !bravo_ptr
+    !key_ptr
+    !value
+    !key
+    return keep
+
+@btree_set_retain_not_bravo(&key: ptr) -> u64:
+L_ENTRY:
+    key_ptr = load key+Slice_ptr as ptr
+    bravo_ptr = &KEY_BRAVO
+    is_bravo = eq key_ptr, bravo_ptr
+    keep = eq is_bravo, 0
+    !is_bravo
+    !bravo_ptr
+    !key_ptr
+    !key
+    return keep
+
 @test "sa_std btree_map rust parity macros"():
 L_ENTRY:
     alpha = alloc Slice_SIZE
@@ -542,6 +567,115 @@ L_MAP_VIEW_OK:
     !ok
     return
 
+@test "sa_std btree_map retain macro"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    charlie = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+    EXPAND SLICE_NEW charlie, &KEY_CHARLIE, 7
+
+    EXPAND BTREE_MAP_NEW map
+    EXPAND BTREE_MAP_INSERT map, alpha, 10
+    EXPAND BTREE_MAP_INSERT map, bravo, 20
+    EXPAND BTREE_MAP_INSERT map, charlie, 30
+    EXPAND BTREE_MAP_RETAIN retain_len, map, @btree_map_retain_not_bravo
+    EXPAND BTREE_MAP_LEN len_after_retain, map
+    EXPAND BTREE_MAP_CONTAINS_KEY has_alpha, map, alpha
+    EXPAND BTREE_MAP_CONTAINS_KEY has_bravo, map, bravo
+    EXPAND BTREE_MAP_CONTAINS_KEY has_charlie, map, charlie
+    EXPAND BTREE_MAP_GET alpha_value, map, alpha
+    EXPAND BTREE_MAP_GET charlie_value, map, charlie
+    EXPAND BTREE_MAP_FIRST_KEY_VALUE first_ok, first_key, first_value, map
+    EXPAND BTREE_MAP_LAST_KEY_VALUE last_ok, last_key, last_value, map
+    first_key_ptr = load first_key+Slice_ptr as ptr
+    last_key_ptr = load last_key+Slice_ptr as ptr
+    alpha_ptr = load alpha+Slice_ptr as ptr
+    charlie_ptr = load charlie+Slice_ptr as ptr
+
+    ok_retain_len = eq retain_len, 2
+    ok_len = eq len_after_retain, 2
+    ok_has_alpha = eq has_alpha, 1
+    ok_has_bravo = eq has_bravo, 0
+    ok_has_charlie = eq has_charlie, 1
+    ok_alpha_value = eq alpha_value, 10
+    ok_charlie_value = eq charlie_value, 30
+    ok_first = eq first_ok, 1
+    ok_first_key = eq first_key_ptr, alpha_ptr
+    ok_first_value = eq first_value, 10
+    ok_last = eq last_ok, 1
+    ok_last_key = eq last_key_ptr, charlie_ptr
+    ok_last_value = eq last_value, 30
+
+    ok01 = and ok_retain_len, ok_len
+    ok02 = and ok01, ok_has_alpha
+    ok03 = and ok02, ok_has_bravo
+    ok04 = and ok03, ok_has_charlie
+    ok05 = and ok04, ok_alpha_value
+    ok06 = and ok05, ok_charlie_value
+    ok07 = and ok06, ok_first
+    ok08 = and ok07, ok_first_key
+    ok09 = and ok08, ok_first_value
+    ok10 = and ok09, ok_last
+    ok11 = and ok10, ok_last_key
+    ok = and ok11, ok_last_value
+
+    !retain_len
+    !len_after_retain
+    !has_alpha
+    !has_bravo
+    !has_charlie
+    !alpha_value
+    !charlie_value
+    !first_ok
+    !first_key
+    !first_value
+    !last_ok
+    !last_key
+    !last_value
+    !first_key_ptr
+    !last_key_ptr
+    !alpha_ptr
+    !charlie_ptr
+    !ok_retain_len
+    !ok_len
+    !ok_has_alpha
+    !ok_has_bravo
+    !ok_has_charlie
+    !ok_alpha_value
+    !ok_charlie_value
+    !ok_first
+    !ok_first_key
+    !ok_first_value
+    !ok_last
+    !ok_last_key
+    !ok_last_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !charlie
+    !bravo
+    !alpha
+    EXPAND BTREE_MAP_FREE map
+    br ok -> L_MAP_RETAIN_OK, L_MAP_RETAIN_FAIL
+
+L_MAP_RETAIN_FAIL:
+    !ok
+    panic(923)
+
+L_MAP_RETAIN_OK:
+    !ok
+    return
+
 @test "sa_std btree_set rust parity macros"():
 L_ENTRY:
     alpha = alloc Slice_SIZE
@@ -766,6 +900,108 @@ L_SET_FAIL:
     panic(921)
 
 L_SET_OK:
+    !ok
+    return
+
+@test "sa_std btree_set retain macro"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    charlie = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+    EXPAND SLICE_NEW charlie, &KEY_CHARLIE, 7
+
+    EXPAND BTREE_SET_NEW set
+    EXPAND BTREE_SET_INSERT ins_alpha, set, alpha
+    EXPAND BTREE_SET_INSERT ins_bravo, set, bravo
+    EXPAND BTREE_SET_INSERT ins_charlie, set, charlie
+    EXPAND BTREE_SET_RETAIN retain_len, set, @btree_set_retain_not_bravo
+    EXPAND BTREE_SET_LEN len_after_retain, set
+    EXPAND BTREE_SET_CONTAINS has_alpha, set, alpha
+    EXPAND BTREE_SET_CONTAINS has_bravo, set, bravo
+    EXPAND BTREE_SET_CONTAINS has_charlie, set, charlie
+    EXPAND BTREE_SET_FIRST first_ok, first_key, set
+    EXPAND BTREE_SET_LAST last_ok, last_key, set
+    first_key_ptr = load first_key+Slice_ptr as ptr
+    last_key_ptr = load last_key+Slice_ptr as ptr
+    alpha_ptr = load alpha+Slice_ptr as ptr
+    charlie_ptr = load charlie+Slice_ptr as ptr
+
+    ok_ins_alpha = eq ins_alpha, 1
+    ok_ins_bravo = eq ins_bravo, 1
+    ok_ins_charlie = eq ins_charlie, 1
+    ok_retain_len = eq retain_len, 2
+    ok_len = eq len_after_retain, 2
+    ok_has_alpha = eq has_alpha, 1
+    ok_has_bravo = eq has_bravo, 0
+    ok_has_charlie = eq has_charlie, 1
+    ok_first = eq first_ok, 1
+    ok_first_key = eq first_key_ptr, alpha_ptr
+    ok_last = eq last_ok, 1
+    ok_last_key = eq last_key_ptr, charlie_ptr
+
+    ok01 = and ok_ins_alpha, ok_ins_bravo
+    ok02 = and ok01, ok_ins_charlie
+    ok03 = and ok02, ok_retain_len
+    ok04 = and ok03, ok_len
+    ok05 = and ok04, ok_has_alpha
+    ok06 = and ok05, ok_has_bravo
+    ok07 = and ok06, ok_has_charlie
+    ok08 = and ok07, ok_first
+    ok09 = and ok08, ok_first_key
+    ok10 = and ok09, ok_last
+    ok = and ok10, ok_last_key
+
+    !ins_alpha
+    !ins_bravo
+    !ins_charlie
+    !retain_len
+    !len_after_retain
+    !has_alpha
+    !has_bravo
+    !has_charlie
+    !first_ok
+    !first_key
+    !last_ok
+    !last_key
+    !first_key_ptr
+    !last_key_ptr
+    !alpha_ptr
+    !charlie_ptr
+    !ok_ins_alpha
+    !ok_ins_bravo
+    !ok_ins_charlie
+    !ok_retain_len
+    !ok_len
+    !ok_has_alpha
+    !ok_has_bravo
+    !ok_has_charlie
+    !ok_first
+    !ok_first_key
+    !ok_last
+    !ok_last_key
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !charlie
+    !bravo
+    !alpha
+    EXPAND BTREE_SET_FREE set
+    br ok -> L_SET_RETAIN_OK, L_SET_RETAIN_FAIL
+
+L_SET_RETAIN_FAIL:
+    !ok
+    panic(924)
+
+L_SET_RETAIN_OK:
     !ok
     return
 
