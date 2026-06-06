@@ -190,9 +190,11 @@ L_STRING_BUF_ASCII_END_%out_ok:
     __string_buf_replace_all_needle_ptr_%out_string = load %needle_slice+Slice_ptr as ptr
     __string_buf_replace_all_needle_len_%out_string = load %needle_slice+Slice_len as u64
     __string_buf_replace_all_idx_slot_%out_string = stack_alloc 8
+    __string_buf_replace_all_inner_slot_%out_string = stack_alloc 8
     store __string_buf_replace_all_idx_slot_%out_string+0, 0 as u64
+    store __string_buf_replace_all_inner_slot_%out_string+0, 0 as u64
     __string_buf_replace_all_empty_%out_string = eq __string_buf_replace_all_needle_len_%out_string, 0
-    br __string_buf_replace_all_empty_%out_string -> L_STRING_BUF_REPLACE_ALL_COPY_%out_string, L_STRING_BUF_REPLACE_ALL_LEN_CHECK_%out_string
+    br __string_buf_replace_all_empty_%out_string -> L_STRING_BUF_REPLACE_ALL_COPY_%out_string, L_STRING_BUF_REPLACE_ALL_HEAD_%out_string
 
 L_STRING_BUF_REPLACE_ALL_COPY_%out_string:
     EXPAND STRING_BUF_PUSH_STR %out_string, %source_slice
@@ -203,56 +205,86 @@ L_STRING_BUF_REPLACE_ALL_COPY_%out_string:
     !__string_buf_replace_all_ptr_%out_string
     jmp L_STRING_BUF_REPLACE_ALL_END_%out_string
 
-L_STRING_BUF_REPLACE_ALL_LEN_CHECK_%out_string:
-    __string_buf_replace_all_single_%out_string = eq __string_buf_replace_all_needle_len_%out_string, 1
-    br __string_buf_replace_all_single_%out_string -> L_STRING_BUF_REPLACE_ALL_INIT_%out_string, L_STRING_BUF_REPLACE_ALL_COPY_NON_SINGLE_%out_string
-
-L_STRING_BUF_REPLACE_ALL_COPY_NON_SINGLE_%out_string:
-    EXPAND STRING_BUF_PUSH_STR %out_string, %source_slice
-    !__string_buf_replace_all_single_%out_string
-    !__string_buf_replace_all_empty_%out_string
-    !__string_buf_replace_all_needle_len_%out_string
-    !__string_buf_replace_all_needle_ptr_%out_string
-    !__string_buf_replace_all_len_%out_string
-    !__string_buf_replace_all_ptr_%out_string
-    jmp L_STRING_BUF_REPLACE_ALL_END_%out_string
-
-L_STRING_BUF_REPLACE_ALL_INIT_%out_string:
-    __string_buf_replace_all_needle_byte_%out_string = load __string_buf_replace_all_needle_ptr_%out_string+0 as u8
-    !__string_buf_replace_all_single_%out_string
-    jmp L_STRING_BUF_REPLACE_ALL_HEAD_%out_string
-
 L_STRING_BUF_REPLACE_ALL_HEAD_%out_string:
     __string_buf_replace_all_idx_%out_string = load __string_buf_replace_all_idx_slot_%out_string+0 as u64
     __string_buf_replace_all_done_%out_string = eq __string_buf_replace_all_idx_%out_string, __string_buf_replace_all_len_%out_string
-    br __string_buf_replace_all_done_%out_string -> L_STRING_BUF_REPLACE_ALL_DONE_%out_string, L_STRING_BUF_REPLACE_ALL_BODY_%out_string
+    br __string_buf_replace_all_done_%out_string -> L_STRING_BUF_REPLACE_ALL_DONE_%out_string, L_STRING_BUF_REPLACE_ALL_RANGE_%out_string
 
-L_STRING_BUF_REPLACE_ALL_BODY_%out_string:
+L_STRING_BUF_REPLACE_ALL_RANGE_%out_string:
+    __string_buf_replace_all_remaining_%out_string = sub __string_buf_replace_all_len_%out_string, __string_buf_replace_all_idx_%out_string
+    __string_buf_replace_all_can_match_%out_string = uge __string_buf_replace_all_remaining_%out_string, __string_buf_replace_all_needle_len_%out_string
+    br __string_buf_replace_all_can_match_%out_string -> L_STRING_BUF_REPLACE_ALL_MATCH_INIT_%out_string, L_STRING_BUF_REPLACE_ALL_KEEP_RANGE_%out_string
+
+L_STRING_BUF_REPLACE_ALL_MATCH_INIT_%out_string:
+    store __string_buf_replace_all_inner_slot_%out_string+0, 0 as u64
+    !__string_buf_replace_all_can_match_%out_string
+    !__string_buf_replace_all_remaining_%out_string
+    jmp L_STRING_BUF_REPLACE_ALL_MATCH_HEAD_%out_string
+
+L_STRING_BUF_REPLACE_ALL_MATCH_HEAD_%out_string:
+    __string_buf_replace_all_inner_%out_string = load __string_buf_replace_all_inner_slot_%out_string+0 as u64
+    __string_buf_replace_all_inner_done_%out_string = eq __string_buf_replace_all_inner_%out_string, __string_buf_replace_all_needle_len_%out_string
+    br __string_buf_replace_all_inner_done_%out_string -> L_STRING_BUF_REPLACE_ALL_HIT_%out_string, L_STRING_BUF_REPLACE_ALL_MATCH_BODY_%out_string
+
+L_STRING_BUF_REPLACE_ALL_MATCH_BODY_%out_string:
+    __string_buf_replace_all_hay_off_%out_string = add __string_buf_replace_all_idx_%out_string, __string_buf_replace_all_inner_%out_string
+    __string_buf_replace_all_hay_ip_%out_string = ptr_add __string_buf_replace_all_ptr_%out_string, __string_buf_replace_all_hay_off_%out_string
+    __string_buf_replace_all_needle_ip_%out_string = ptr_add __string_buf_replace_all_needle_ptr_%out_string, __string_buf_replace_all_inner_%out_string
+    __string_buf_replace_all_hay_byte_%out_string = load __string_buf_replace_all_hay_ip_%out_string+0 as u8
+    __string_buf_replace_all_needle_byte_%out_string = load __string_buf_replace_all_needle_ip_%out_string+0 as u8
+    __string_buf_replace_all_match_%out_string = eq __string_buf_replace_all_hay_byte_%out_string, __string_buf_replace_all_needle_byte_%out_string
+    br __string_buf_replace_all_match_%out_string -> L_STRING_BUF_REPLACE_ALL_MATCH_NEXT_%out_string, L_STRING_BUF_REPLACE_ALL_KEEP_MATCH_%out_string
+
+L_STRING_BUF_REPLACE_ALL_MATCH_NEXT_%out_string:
+    __string_buf_replace_all_inner_next_%out_string = add __string_buf_replace_all_inner_%out_string, 1
+    store __string_buf_replace_all_inner_slot_%out_string+0, __string_buf_replace_all_inner_next_%out_string as u64
+    !__string_buf_replace_all_inner_next_%out_string
+    !__string_buf_replace_all_match_%out_string
+    !__string_buf_replace_all_needle_byte_%out_string
+    !__string_buf_replace_all_hay_byte_%out_string
+    !__string_buf_replace_all_needle_ip_%out_string
+    !__string_buf_replace_all_hay_ip_%out_string
+    !__string_buf_replace_all_hay_off_%out_string
+    !__string_buf_replace_all_inner_done_%out_string
+    !__string_buf_replace_all_inner_%out_string
+    jmp L_STRING_BUF_REPLACE_ALL_MATCH_HEAD_%out_string
+
+L_STRING_BUF_REPLACE_ALL_KEEP_MATCH_%out_string:
+    !__string_buf_replace_all_match_%out_string
+    !__string_buf_replace_all_needle_byte_%out_string
+    !__string_buf_replace_all_hay_byte_%out_string
+    !__string_buf_replace_all_needle_ip_%out_string
+    !__string_buf_replace_all_hay_ip_%out_string
+    !__string_buf_replace_all_hay_off_%out_string
+    !__string_buf_replace_all_inner_done_%out_string
+    !__string_buf_replace_all_inner_%out_string
+    jmp L_STRING_BUF_REPLACE_ALL_KEEP_%out_string
+
+L_STRING_BUF_REPLACE_ALL_KEEP_RANGE_%out_string:
+    !__string_buf_replace_all_can_match_%out_string
+    !__string_buf_replace_all_remaining_%out_string
+    jmp L_STRING_BUF_REPLACE_ALL_KEEP_%out_string
+
+L_STRING_BUF_REPLACE_ALL_KEEP_%out_string:
     __string_buf_replace_all_ip_%out_string = ptr_add __string_buf_replace_all_ptr_%out_string, __string_buf_replace_all_idx_%out_string
     __string_buf_replace_all_byte_%out_string = load __string_buf_replace_all_ip_%out_string+0 as u8
-    __string_buf_replace_all_match_%out_string = eq __string_buf_replace_all_byte_%out_string, __string_buf_replace_all_needle_byte_%out_string
-    br __string_buf_replace_all_match_%out_string -> L_STRING_BUF_REPLACE_ALL_HIT_%out_string, L_STRING_BUF_REPLACE_ALL_KEEP_%out_string
-
-L_STRING_BUF_REPLACE_ALL_HIT_%out_string:
-    EXPAND STRING_BUF_PUSH_STR %out_string, %replacement_slice
-    __string_buf_replace_all_next_idx_%out_string = add __string_buf_replace_all_idx_%out_string, 1
-    store __string_buf_replace_all_idx_slot_%out_string+0, __string_buf_replace_all_next_idx_%out_string as u64
-    !__string_buf_replace_all_next_idx_%out_string
-    !__string_buf_replace_all_match_%out_string
+    EXPAND STRING_BUF_PUSH_BYTE %out_string, __string_buf_replace_all_byte_%out_string
+    __string_buf_replace_all_keep_next_%out_string = add __string_buf_replace_all_idx_%out_string, 1
+    store __string_buf_replace_all_idx_slot_%out_string+0, __string_buf_replace_all_keep_next_%out_string as u64
+    !__string_buf_replace_all_keep_next_%out_string
     !__string_buf_replace_all_byte_%out_string
     !__string_buf_replace_all_ip_%out_string
     !__string_buf_replace_all_done_%out_string
     !__string_buf_replace_all_idx_%out_string
     jmp L_STRING_BUF_REPLACE_ALL_HEAD_%out_string
 
-L_STRING_BUF_REPLACE_ALL_KEEP_%out_string:
-    EXPAND STRING_BUF_PUSH_BYTE %out_string, __string_buf_replace_all_byte_%out_string
-    __string_buf_replace_all_keep_next_%out_string = add __string_buf_replace_all_idx_%out_string, 1
-    store __string_buf_replace_all_idx_slot_%out_string+0, __string_buf_replace_all_keep_next_%out_string as u64
-    !__string_buf_replace_all_keep_next_%out_string
-    !__string_buf_replace_all_match_%out_string
-    !__string_buf_replace_all_byte_%out_string
-    !__string_buf_replace_all_ip_%out_string
+L_STRING_BUF_REPLACE_ALL_HIT_%out_string:
+    EXPAND STRING_BUF_PUSH_STR %out_string, %replacement_slice
+    __string_buf_replace_all_next_idx_%out_string = add __string_buf_replace_all_idx_%out_string, __string_buf_replace_all_needle_len_%out_string
+    store __string_buf_replace_all_idx_slot_%out_string+0, __string_buf_replace_all_next_idx_%out_string as u64
+    !__string_buf_replace_all_next_idx_%out_string
+    !__string_buf_replace_all_inner_done_%out_string
+    !__string_buf_replace_all_inner_%out_string
     !__string_buf_replace_all_done_%out_string
     !__string_buf_replace_all_idx_%out_string
     jmp L_STRING_BUF_REPLACE_ALL_HEAD_%out_string
@@ -260,7 +292,6 @@ L_STRING_BUF_REPLACE_ALL_KEEP_%out_string:
 L_STRING_BUF_REPLACE_ALL_DONE_%out_string:
     !__string_buf_replace_all_done_%out_string
     !__string_buf_replace_all_idx_%out_string
-    !__string_buf_replace_all_needle_byte_%out_string
     !__string_buf_replace_all_empty_%out_string
     !__string_buf_replace_all_needle_len_%out_string
     !__string_buf_replace_all_needle_ptr_%out_string
