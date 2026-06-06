@@ -710,6 +710,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std slice convenience macros",
         "[PASS] sa_std vec capacity/view macros",
         "[PASS] sa_std slice mutation and search macros",
+        "[PASS] sa_std slice and vec chunk window macros",
         "[PASS] sa_std vec insert and dedup macros",
         "[PASS] sa_std string mutable byte macros",
         "[PASS] sa_std vec retain macros",
@@ -720,7 +721,7 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_string_vec_macro_surface.sa",
         string_vec_expected[0..],
-        "test result: ok. 21 passed; 0 failed; 0 skipped",
+        "test result: ok. 22 passed; 0 failed; 0 skipped",
     );
 
     const path_expected = [_][]const u8{

@@ -296,6 +296,30 @@ L_VEC_POP_IF_END_%out_ok:
     !__vec_split_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_CHUNK_COUNT_U64 %out_count, %vec_reg, %chunk_size
+    EXPAND VEC_AS_SLICE __vec_chunk_slice_%out_count, %vec_reg
+    EXPAND SLICE_CHUNK_COUNT_U64 %out_count, __vec_chunk_slice_%out_count, %chunk_size
+    !__vec_chunk_slice_%out_count
+[END_MACRO]
+
+[MACRO] VEC_TRY_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_AS_SLICE __vec_chunk_at_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_CHUNK_AT_U64 %out_ok, %out_slice, __vec_chunk_at_slice_%out_ok, %chunk_size, %chunk_index
+    !__vec_chunk_at_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_WINDOW_COUNT_U64 %out_count, %vec_reg, %window_size
+    EXPAND VEC_AS_SLICE __vec_window_slice_%out_count, %vec_reg
+    EXPAND SLICE_WINDOW_COUNT_U64 %out_count, __vec_window_slice_%out_count, %window_size
+    !__vec_window_slice_%out_count
+[END_MACRO]
+
+[MACRO] VEC_TRY_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
+    EXPAND VEC_AS_SLICE __vec_window_at_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_WINDOW_AT_U64 %out_ok, %out_slice, __vec_window_at_slice_%out_ok, %window_size, %window_index
+    !__vec_window_at_slice_%out_ok
+[END_MACRO]
+
 [MACRO] VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, %elem_size
     %vec_reg = call @sa_vec_extend_from_slice(^%vec_reg, &%slice_reg, %elem_size)
 [END_MACRO]
