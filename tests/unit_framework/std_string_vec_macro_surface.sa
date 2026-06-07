@@ -112,6 +112,12 @@ L_ENTRY:
     !value
     return take
 
+@slice_partition_lt_30(value: u64) -> u64:
+L_ENTRY:
+    keep = ult value, 30
+    !value
+    return keep
+
 @test "sa_std string convenience macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
@@ -3102,6 +3108,23 @@ L_ENTRY:
     EXPAND SLICE_NEW sorted, sorted_data, 4
     EXPAND SLICE_TRY_BINARY_SEARCH_U64 bs_hit_ok, bs_hit_idx, sorted, 20
     EXPAND SLICE_TRY_BINARY_SEARCH_U64 bs_miss_ok, bs_miss_idx, sorted, 30
+    EXPAND SLICE_PARTITION_POINT_U64 partition_idx, sorted, @slice_partition_lt_30
+    EXPAND SLICE_LOWER_BOUND_U64 lower_20_idx, sorted, 20
+    EXPAND SLICE_LOWER_BOUND_U64 lower_30_idx, sorted, 30
+    EXPAND SLICE_UPPER_BOUND_U64 upper_20_idx, sorted, 20
+    EXPAND SLICE_UPPER_BOUND_U64 upper_4_idx, sorted, 4
+    dup_data = alloc 48
+    store dup_data+0, 5 as u64
+    store dup_data+8, 10 as u64
+    store dup_data+16, 20 as u64
+    store dup_data+24, 20 as u64
+    store dup_data+32, 20 as u64
+    store dup_data+40, 40 as u64
+    dup = alloc Slice_SIZE
+    EXPAND SLICE_NEW dup, dup_data, 6
+    EXPAND SLICE_EQUAL_RANGE_U64 eq20_start, eq20_end, dup, 20
+    EXPAND SLICE_EQUAL_RANGE_U64 eq30_start, eq30_end, dup, 30
+    EXPAND SLICE_PARTITION_POINT_U64 dup_partition_idx, dup, @slice_partition_lt_30
     short_dst = alloc Slice_SIZE
     EXPAND SLICE_NEW short_dst, dst_data, 2
     EXPAND SLICE_COPY_FROM_SLICE_U64 copy_miss_ok, short_dst, src
@@ -3150,6 +3173,16 @@ L_ENTRY:
     bs_hit_idx_ok = eq bs_hit_idx, 2
     bs_miss_flag_ok = eq bs_miss_ok, 0
     bs_miss_idx_ok = eq bs_miss_idx, 3
+    partition_idx_ok = eq partition_idx, 3
+    lower_20_idx_ok = eq lower_20_idx, 2
+    lower_30_idx_ok = eq lower_30_idx, 3
+    upper_20_idx_ok = eq upper_20_idx, 3
+    upper_4_idx_ok = eq upper_4_idx, 0
+    eq20_start_ok = eq eq20_start, 2
+    eq20_end_ok = eq eq20_end, 5
+    eq30_start_ok = eq eq30_start, 5
+    eq30_end_ok = eq eq30_end, 5
+    dup_partition_idx_ok = eq dup_partition_idx, 5
     copy_miss_flag_ok = eq copy_miss_ok, 0
     ok01 = and copy_flag_ok, copied_mid_ok
     ok02 = and ok01, reversed_first_ok
@@ -3195,7 +3228,17 @@ L_ENTRY:
     ok42 = and ok41, bs_hit_idx_ok
     ok43 = and ok42, bs_miss_flag_ok
     ok44 = and ok43, bs_miss_idx_ok
-    ok = and ok44, copy_miss_flag_ok
+    ok45 = and ok44, partition_idx_ok
+    ok46 = and ok45, lower_20_idx_ok
+    ok47 = and ok46, lower_30_idx_ok
+    ok48 = and ok47, upper_20_idx_ok
+    ok49 = and ok48, upper_4_idx_ok
+    ok50 = and ok49, eq20_start_ok
+    ok51 = and ok50, eq20_end_ok
+    ok52 = and ok51, eq30_start_ok
+    ok53 = and ok52, eq30_end_ok
+    ok54 = and ok53, dup_partition_idx_ok
+    ok = and ok54, copy_miss_flag_ok
     !src_data
     !dst_data
     !src
@@ -3254,6 +3297,18 @@ L_ENTRY:
     !bs_hit_idx
     !bs_miss_ok
     !bs_miss_idx
+    !partition_idx
+    !lower_20_idx
+    !lower_30_idx
+    !upper_20_idx
+    !upper_4_idx
+    !dup_data
+    !dup
+    !eq20_start
+    !eq20_end
+    !eq30_start
+    !eq30_end
+    !dup_partition_idx
     !short_dst
     !copy_miss_ok
     !copy_flag_ok
@@ -3300,6 +3355,16 @@ L_ENTRY:
     !bs_hit_idx_ok
     !bs_miss_flag_ok
     !bs_miss_idx_ok
+    !partition_idx_ok
+    !lower_20_idx_ok
+    !lower_30_idx_ok
+    !upper_20_idx_ok
+    !upper_4_idx_ok
+    !eq20_start_ok
+    !eq20_end_ok
+    !eq30_start_ok
+    !eq30_end_ok
+    !dup_partition_idx_ok
     !copy_miss_flag_ok
     !ok01
     !ok02
@@ -3345,6 +3410,16 @@ L_ENTRY:
     !ok42
     !ok43
     !ok44
+    !ok45
+    !ok46
+    !ok47
+    !ok48
+    !ok49
+    !ok50
+    !ok51
+    !ok52
+    !ok53
+    !ok54
     br ok -> L_SLICE_MUT_OK, L_SLICE_MUT_FAIL
 
 L_SLICE_MUT_FAIL:

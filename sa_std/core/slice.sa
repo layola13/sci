@@ -1299,3 +1299,203 @@ L_SLICE_BS_MISS_%out_ok:
 
 L_SLICE_BS_END_%out_ok:
 [END_MACRO]
+
+[MACRO] SLICE_PARTITION_POINT_U64 %out_index, %slice_reg, %pred_fn
+    __slice_pp_ptr_%out_index = load %slice_reg+Slice_ptr as ptr
+    __slice_pp_len_%out_index = load %slice_reg+Slice_len as u64
+    __slice_pp_left_slot_%out_index = stack_alloc 8
+    __slice_pp_right_slot_%out_index = stack_alloc 8
+    store __slice_pp_left_slot_%out_index+0, 0 as u64
+    store __slice_pp_right_slot_%out_index+0, __slice_pp_len_%out_index as u64
+    jmp L_SLICE_PP_HEAD_%out_index
+
+L_SLICE_PP_HEAD_%out_index:
+    __slice_pp_left_%out_index = load __slice_pp_left_slot_%out_index+0 as u64
+    __slice_pp_right_%out_index = load __slice_pp_right_slot_%out_index+0 as u64
+    __slice_pp_continue_%out_index = ult __slice_pp_left_%out_index, __slice_pp_right_%out_index
+    br __slice_pp_continue_%out_index -> L_SLICE_PP_BODY_%out_index, L_SLICE_PP_DONE_%out_index
+
+L_SLICE_PP_BODY_%out_index:
+    __slice_pp_span_%out_index = sub __slice_pp_right_%out_index, __slice_pp_left_%out_index
+    __slice_pp_half_%out_index = udiv __slice_pp_span_%out_index, 2
+    __slice_pp_mid_%out_index = add __slice_pp_left_%out_index, __slice_pp_half_%out_index
+    __slice_pp_mid_off_%out_index = mul __slice_pp_mid_%out_index, 8
+    __slice_pp_mid_ptr_%out_index = ptr_add __slice_pp_ptr_%out_index, __slice_pp_mid_off_%out_index
+    __slice_pp_value_%out_index = load __slice_pp_mid_ptr_%out_index+0 as u64
+    __slice_pp_pred_%out_index = call %pred_fn(__slice_pp_value_%out_index)
+    __slice_pp_keep_left_%out_index = ne __slice_pp_pred_%out_index, 0
+    br __slice_pp_keep_left_%out_index -> L_SLICE_PP_MOVE_RIGHT_%out_index, L_SLICE_PP_MOVE_LEFT_%out_index
+
+L_SLICE_PP_MOVE_RIGHT_%out_index:
+    __slice_pp_next_left_%out_index = add __slice_pp_mid_%out_index, 1
+    store __slice_pp_left_slot_%out_index+0, __slice_pp_next_left_%out_index as u64
+    !__slice_pp_next_left_%out_index
+    !__slice_pp_keep_left_%out_index
+    !__slice_pp_pred_%out_index
+    !__slice_pp_value_%out_index
+    !__slice_pp_mid_ptr_%out_index
+    !__slice_pp_mid_off_%out_index
+    !__slice_pp_mid_%out_index
+    !__slice_pp_half_%out_index
+    !__slice_pp_span_%out_index
+    !__slice_pp_continue_%out_index
+    !__slice_pp_right_%out_index
+    !__slice_pp_left_%out_index
+    jmp L_SLICE_PP_HEAD_%out_index
+
+L_SLICE_PP_MOVE_LEFT_%out_index:
+    store __slice_pp_right_slot_%out_index+0, __slice_pp_mid_%out_index as u64
+    !__slice_pp_keep_left_%out_index
+    !__slice_pp_pred_%out_index
+    !__slice_pp_value_%out_index
+    !__slice_pp_mid_ptr_%out_index
+    !__slice_pp_mid_off_%out_index
+    !__slice_pp_mid_%out_index
+    !__slice_pp_half_%out_index
+    !__slice_pp_span_%out_index
+    !__slice_pp_continue_%out_index
+    !__slice_pp_right_%out_index
+    !__slice_pp_left_%out_index
+    jmp L_SLICE_PP_HEAD_%out_index
+
+L_SLICE_PP_DONE_%out_index:
+    %out_index = add __slice_pp_left_%out_index, 0
+    !__slice_pp_continue_%out_index
+    !__slice_pp_right_%out_index
+    !__slice_pp_left_%out_index
+    !__slice_pp_len_%out_index
+    !__slice_pp_ptr_%out_index
+[END_MACRO]
+
+[MACRO] SLICE_LOWER_BOUND_U64 %out_index, %slice_reg, %needle
+    __slice_lb_ptr_%out_index = load %slice_reg+Slice_ptr as ptr
+    __slice_lb_len_%out_index = load %slice_reg+Slice_len as u64
+    __slice_lb_left_slot_%out_index = stack_alloc 8
+    __slice_lb_right_slot_%out_index = stack_alloc 8
+    store __slice_lb_left_slot_%out_index+0, 0 as u64
+    store __slice_lb_right_slot_%out_index+0, __slice_lb_len_%out_index as u64
+    jmp L_SLICE_LB_HEAD_%out_index
+
+L_SLICE_LB_HEAD_%out_index:
+    __slice_lb_left_%out_index = load __slice_lb_left_slot_%out_index+0 as u64
+    __slice_lb_right_%out_index = load __slice_lb_right_slot_%out_index+0 as u64
+    __slice_lb_continue_%out_index = ult __slice_lb_left_%out_index, __slice_lb_right_%out_index
+    br __slice_lb_continue_%out_index -> L_SLICE_LB_BODY_%out_index, L_SLICE_LB_DONE_%out_index
+
+L_SLICE_LB_BODY_%out_index:
+    __slice_lb_span_%out_index = sub __slice_lb_right_%out_index, __slice_lb_left_%out_index
+    __slice_lb_half_%out_index = udiv __slice_lb_span_%out_index, 2
+    __slice_lb_mid_%out_index = add __slice_lb_left_%out_index, __slice_lb_half_%out_index
+    __slice_lb_mid_off_%out_index = mul __slice_lb_mid_%out_index, 8
+    __slice_lb_mid_ptr_%out_index = ptr_add __slice_lb_ptr_%out_index, __slice_lb_mid_off_%out_index
+    __slice_lb_value_%out_index = load __slice_lb_mid_ptr_%out_index+0 as u64
+    __slice_lb_less_%out_index = ult __slice_lb_value_%out_index, %needle
+    br __slice_lb_less_%out_index -> L_SLICE_LB_MOVE_RIGHT_%out_index, L_SLICE_LB_MOVE_LEFT_%out_index
+
+L_SLICE_LB_MOVE_RIGHT_%out_index:
+    __slice_lb_next_left_%out_index = add __slice_lb_mid_%out_index, 1
+    store __slice_lb_left_slot_%out_index+0, __slice_lb_next_left_%out_index as u64
+    !__slice_lb_next_left_%out_index
+    !__slice_lb_less_%out_index
+    !__slice_lb_value_%out_index
+    !__slice_lb_mid_ptr_%out_index
+    !__slice_lb_mid_off_%out_index
+    !__slice_lb_mid_%out_index
+    !__slice_lb_half_%out_index
+    !__slice_lb_span_%out_index
+    !__slice_lb_continue_%out_index
+    !__slice_lb_right_%out_index
+    !__slice_lb_left_%out_index
+    jmp L_SLICE_LB_HEAD_%out_index
+
+L_SLICE_LB_MOVE_LEFT_%out_index:
+    store __slice_lb_right_slot_%out_index+0, __slice_lb_mid_%out_index as u64
+    !__slice_lb_less_%out_index
+    !__slice_lb_value_%out_index
+    !__slice_lb_mid_ptr_%out_index
+    !__slice_lb_mid_off_%out_index
+    !__slice_lb_mid_%out_index
+    !__slice_lb_half_%out_index
+    !__slice_lb_span_%out_index
+    !__slice_lb_continue_%out_index
+    !__slice_lb_right_%out_index
+    !__slice_lb_left_%out_index
+    jmp L_SLICE_LB_HEAD_%out_index
+
+L_SLICE_LB_DONE_%out_index:
+    %out_index = add __slice_lb_left_%out_index, 0
+    !__slice_lb_continue_%out_index
+    !__slice_lb_right_%out_index
+    !__slice_lb_left_%out_index
+    !__slice_lb_len_%out_index
+    !__slice_lb_ptr_%out_index
+[END_MACRO]
+
+[MACRO] SLICE_UPPER_BOUND_U64 %out_index, %slice_reg, %needle
+    __slice_ub_ptr_%out_index = load %slice_reg+Slice_ptr as ptr
+    __slice_ub_len_%out_index = load %slice_reg+Slice_len as u64
+    __slice_ub_left_slot_%out_index = stack_alloc 8
+    __slice_ub_right_slot_%out_index = stack_alloc 8
+    store __slice_ub_left_slot_%out_index+0, 0 as u64
+    store __slice_ub_right_slot_%out_index+0, __slice_ub_len_%out_index as u64
+    jmp L_SLICE_UB_HEAD_%out_index
+
+L_SLICE_UB_HEAD_%out_index:
+    __slice_ub_left_%out_index = load __slice_ub_left_slot_%out_index+0 as u64
+    __slice_ub_right_%out_index = load __slice_ub_right_slot_%out_index+0 as u64
+    __slice_ub_continue_%out_index = ult __slice_ub_left_%out_index, __slice_ub_right_%out_index
+    br __slice_ub_continue_%out_index -> L_SLICE_UB_BODY_%out_index, L_SLICE_UB_DONE_%out_index
+
+L_SLICE_UB_BODY_%out_index:
+    __slice_ub_span_%out_index = sub __slice_ub_right_%out_index, __slice_ub_left_%out_index
+    __slice_ub_half_%out_index = udiv __slice_ub_span_%out_index, 2
+    __slice_ub_mid_%out_index = add __slice_ub_left_%out_index, __slice_ub_half_%out_index
+    __slice_ub_mid_off_%out_index = mul __slice_ub_mid_%out_index, 8
+    __slice_ub_mid_ptr_%out_index = ptr_add __slice_ub_ptr_%out_index, __slice_ub_mid_off_%out_index
+    __slice_ub_value_%out_index = load __slice_ub_mid_ptr_%out_index+0 as u64
+    __slice_ub_le_%out_index = ule __slice_ub_value_%out_index, %needle
+    br __slice_ub_le_%out_index -> L_SLICE_UB_MOVE_RIGHT_%out_index, L_SLICE_UB_MOVE_LEFT_%out_index
+
+L_SLICE_UB_MOVE_RIGHT_%out_index:
+    __slice_ub_next_left_%out_index = add __slice_ub_mid_%out_index, 1
+    store __slice_ub_left_slot_%out_index+0, __slice_ub_next_left_%out_index as u64
+    !__slice_ub_next_left_%out_index
+    !__slice_ub_le_%out_index
+    !__slice_ub_value_%out_index
+    !__slice_ub_mid_ptr_%out_index
+    !__slice_ub_mid_off_%out_index
+    !__slice_ub_mid_%out_index
+    !__slice_ub_half_%out_index
+    !__slice_ub_span_%out_index
+    !__slice_ub_continue_%out_index
+    !__slice_ub_right_%out_index
+    !__slice_ub_left_%out_index
+    jmp L_SLICE_UB_HEAD_%out_index
+
+L_SLICE_UB_MOVE_LEFT_%out_index:
+    store __slice_ub_right_slot_%out_index+0, __slice_ub_mid_%out_index as u64
+    !__slice_ub_le_%out_index
+    !__slice_ub_value_%out_index
+    !__slice_ub_mid_ptr_%out_index
+    !__slice_ub_mid_off_%out_index
+    !__slice_ub_mid_%out_index
+    !__slice_ub_half_%out_index
+    !__slice_ub_span_%out_index
+    !__slice_ub_continue_%out_index
+    !__slice_ub_right_%out_index
+    !__slice_ub_left_%out_index
+    jmp L_SLICE_UB_HEAD_%out_index
+
+L_SLICE_UB_DONE_%out_index:
+    %out_index = add __slice_ub_left_%out_index, 0
+    !__slice_ub_continue_%out_index
+    !__slice_ub_right_%out_index
+    !__slice_ub_left_%out_index
+    !__slice_ub_len_%out_index
+    !__slice_ub_ptr_%out_index
+[END_MACRO]
+
+[MACRO] SLICE_EQUAL_RANGE_U64 %out_start, %out_end, %slice_reg, %needle
+    EXPAND SLICE_LOWER_BOUND_U64 %out_start, %slice_reg, %needle
+    EXPAND SLICE_UPPER_BOUND_U64 %out_end, %slice_reg, %needle
+[END_MACRO]
