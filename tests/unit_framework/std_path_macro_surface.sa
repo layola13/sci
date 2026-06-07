@@ -27,6 +27,13 @@
 @const EXPECT_COMPONENT_FILE = utf8:"file.txt"
 @const EXPECT_PREFIX_TMP = utf8:"/tmp"
 @const EXPECT_PREFIX_DEMO = utf8:"/tmp/demo"
+@const PATH_ETC = utf8:"/etc/resolv.conf"
+@const PATH_RESOLV = utf8:"resolv.conf"
+@const PATH_ETC_RESOLV = utf8:"etc/resolv.conf"
+@const PATH_ABS_RESOLV = utf8:"/resolv.conf"
+@const PATH_CONF = utf8:"conf"
+@const PATH_HIDDEN = utf8:".config.toml"
+@const EXPECT_HIDDEN_PREFIX = utf8:".config"
 
 @test "sa_std path rust parity macros"():
 L_ENTRY:
@@ -398,5 +405,222 @@ L_PATH_FAIL:
     panic(941)
 
 L_PATH_OK:
+    !ok
+    return
+
+@test "sa_std path query and ancestor macros"():
+L_PATH_QUERY_ENTRY:
+    EXPAND STR_FROM_PARTS full, &PATH_FULL, 18
+    EXPAND STR_FROM_PARTS rel, &PATH_REL, 8
+    EXPAND STR_FROM_PARTS root, &PATH_ROOT, 1
+    EXPAND STR_FROM_PARTS empty, &PATH_ROOT, 0
+    EXPAND STR_FROM_PARTS etc, &PATH_ETC, 16
+    EXPAND STR_FROM_PARTS resolv, &PATH_RESOLV, 11
+    EXPAND STR_FROM_PARTS etc_resolv, &PATH_ETC_RESOLV, 15
+    EXPAND STR_FROM_PARTS abs_resolv, &PATH_ABS_RESOLV, 12
+    EXPAND STR_FROM_PARTS conf, &PATH_CONF, 4
+    EXPAND STR_FROM_PARTS hidden, &PATH_HIDDEN, 12
+    EXPAND STR_FROM_PARTS expect_stem, &EXPECT_STEM, 4
+    EXPAND STR_FROM_PARTS expect_hidden_prefix, &EXPECT_HIDDEN_PREFIX, 7
+    EXPAND STR_FROM_PARTS expect_full_parent, &EXPECT_PREFIX_DEMO, 9
+    EXPAND STR_FROM_PARTS expect_full_grandparent, &EXPECT_PREFIX_TMP, 4
+    EXPAND STR_FROM_PARTS expect_rel_parent, &EXPECT_COMPONENT_TMP, 3
+
+    EXPAND PATH_IS_RELATIVE full_rel, full
+    EXPAND PATH_IS_RELATIVE rel_rel, rel
+    EXPAND PATH_IS_EMPTY full_empty, full
+    EXPAND PATH_IS_EMPTY empty_empty, empty
+    EXPAND PATH_ENDS_WITH ends_resolv, etc, resolv
+    EXPAND PATH_ENDS_WITH ends_etc_resolv, etc, etc_resolv
+    EXPAND PATH_ENDS_WITH ends_abs_self, etc, etc
+    EXPAND PATH_ENDS_WITH ends_abs_resolv, etc, abs_resolv
+    EXPAND PATH_ENDS_WITH ends_conf, etc, conf
+    EXPAND PATH_ENDS_WITH ends_empty, etc, empty
+    EXPAND PATH_FILE_PREFIX full_prefix, full
+    EXPAND PATH_FILE_PREFIX hidden_prefix, hidden
+    EXPAND PATH_ANCESTOR_COUNT full_ancestor_count, full
+    EXPAND PATH_ANCESTOR_COUNT rel_ancestor_count, rel
+    EXPAND PATH_ANCESTOR_COUNT root_ancestor_count, root
+    EXPAND PATH_ANCESTOR_COUNT empty_ancestor_count, empty
+    EXPAND PATH_TRY_ANCESTOR_AT full_a0_ok, full_a0, full, 0
+    EXPAND PATH_TRY_ANCESTOR_AT full_a1_ok, full_a1, full, 1
+    EXPAND PATH_TRY_ANCESTOR_AT full_a2_ok, full_a2, full, 2
+    EXPAND PATH_TRY_ANCESTOR_AT full_a3_ok, full_a3, full, 3
+    EXPAND PATH_TRY_ANCESTOR_AT full_a4_ok, full_a4, full, 4
+    EXPAND PATH_TRY_ANCESTOR_AT rel_a1_ok, rel_a1, rel, 1
+    EXPAND PATH_TRY_ANCESTOR_AT rel_a2_ok, rel_a2, rel, 2
+
+    EXPAND STR_EQ full_prefix_eq, full_prefix, expect_stem
+    EXPAND STR_EQ hidden_prefix_eq, hidden_prefix, expect_hidden_prefix
+    EXPAND STR_EQ full_a0_eq, full_a0, full
+    EXPAND STR_EQ full_a1_eq, full_a1, expect_full_parent
+    EXPAND STR_EQ full_a2_eq, full_a2, expect_full_grandparent
+    EXPAND STR_EQ full_a3_eq, full_a3, root
+    EXPAND STR_IS_EMPTY full_a4_empty, full_a4
+    EXPAND STR_EQ rel_a1_eq, rel_a1, expect_rel_parent
+    EXPAND STR_IS_EMPTY rel_a2_empty, rel_a2
+
+    ok_full_rel = eq full_rel, 0
+    ok_rel_rel = eq rel_rel, 1
+    ok_full_empty = eq full_empty, 0
+    ok_empty_empty = eq empty_empty, 1
+    ok_ends_resolv = eq ends_resolv, 1
+    ok_ends_etc_resolv = eq ends_etc_resolv, 1
+    ok_ends_abs_self = eq ends_abs_self, 1
+    ok_ends_abs_resolv = eq ends_abs_resolv, 0
+    ok_ends_conf = eq ends_conf, 0
+    ok_ends_empty = eq ends_empty, 1
+    ok_full_ancestor_count = eq full_ancestor_count, 4
+    ok_rel_ancestor_count = eq rel_ancestor_count, 3
+    ok_root_ancestor_count = eq root_ancestor_count, 1
+    ok_empty_ancestor_count = eq empty_ancestor_count, 1
+    ok_full_a0_status = eq full_a0_ok, 1
+    ok_full_a1_status = eq full_a1_ok, 1
+    ok_full_a2_status = eq full_a2_ok, 1
+    ok_full_a3_status = eq full_a3_ok, 1
+    ok_full_a4_status = eq full_a4_ok, 0
+    ok_rel_a1_status = eq rel_a1_ok, 1
+    ok_rel_a2_status = eq rel_a2_ok, 1
+
+    q01 = and ok_full_rel, ok_rel_rel
+    q02 = and q01, ok_full_empty
+    q03 = and q02, ok_empty_empty
+    q04 = and q03, ok_ends_resolv
+    q05 = and q04, ok_ends_etc_resolv
+    q06 = and q05, ok_ends_abs_self
+    q07 = and q06, ok_ends_abs_resolv
+    q08 = and q07, ok_ends_conf
+    q09 = and q08, ok_ends_empty
+    q10 = and q09, full_prefix_eq
+    q11 = and q10, hidden_prefix_eq
+    q12 = and q11, ok_full_ancestor_count
+    q13 = and q12, ok_rel_ancestor_count
+    q14 = and q13, ok_root_ancestor_count
+    q15 = and q14, ok_empty_ancestor_count
+    q16 = and q15, ok_full_a0_status
+    q17 = and q16, full_a0_eq
+    q18 = and q17, ok_full_a1_status
+    q19 = and q18, full_a1_eq
+    q20 = and q19, ok_full_a2_status
+    q21 = and q20, full_a2_eq
+    q22 = and q21, ok_full_a3_status
+    q23 = and q22, full_a3_eq
+    q24 = and q23, ok_full_a4_status
+    q25 = and q24, full_a4_empty
+    q26 = and q25, ok_rel_a1_status
+    q27 = and q26, rel_a1_eq
+    q28 = and q27, ok_rel_a2_status
+    ok = and q28, rel_a2_empty
+
+    !full_rel
+    !rel_rel
+    !full_empty
+    !empty_empty
+    !ends_resolv
+    !ends_etc_resolv
+    !ends_abs_self
+    !ends_abs_resolv
+    !ends_conf
+    !ends_empty
+    !full_ancestor_count
+    !rel_ancestor_count
+    !root_ancestor_count
+    !empty_ancestor_count
+    !full_a0_ok
+    !full_a1_ok
+    !full_a2_ok
+    !full_a3_ok
+    !full_a4_ok
+    !rel_a1_ok
+    !rel_a2_ok
+    !full_prefix_eq
+    !hidden_prefix_eq
+    !full_a0_eq
+    !full_a1_eq
+    !full_a2_eq
+    !full_a3_eq
+    !full_a4_empty
+    !rel_a1_eq
+    !rel_a2_empty
+    !ok_full_rel
+    !ok_rel_rel
+    !ok_full_empty
+    !ok_empty_empty
+    !ok_ends_resolv
+    !ok_ends_etc_resolv
+    !ok_ends_abs_self
+    !ok_ends_abs_resolv
+    !ok_ends_conf
+    !ok_ends_empty
+    !ok_full_ancestor_count
+    !ok_rel_ancestor_count
+    !ok_root_ancestor_count
+    !ok_empty_ancestor_count
+    !ok_full_a0_status
+    !ok_full_a1_status
+    !ok_full_a2_status
+    !ok_full_a3_status
+    !ok_full_a4_status
+    !ok_rel_a1_status
+    !ok_rel_a2_status
+    !q01
+    !q02
+    !q03
+    !q04
+    !q05
+    !q06
+    !q07
+    !q08
+    !q09
+    !q10
+    !q11
+    !q12
+    !q13
+    !q14
+    !q15
+    !q16
+    !q17
+    !q18
+    !q19
+    !q20
+    !q21
+    !q22
+    !q23
+    !q24
+    !q25
+    !q26
+    !q27
+    !q28
+    !rel_a2
+    !rel_a1
+    !full_a4
+    !full_a3
+    !full_a2
+    !full_a1
+    !full_a0
+    !hidden_prefix
+    !full_prefix
+    !expect_rel_parent
+    !expect_full_grandparent
+    !expect_full_parent
+    !expect_hidden_prefix
+    !expect_stem
+    !hidden
+    !conf
+    !abs_resolv
+    !etc_resolv
+    !resolv
+    !etc
+    !empty
+    !root
+    !rel
+    !full
+    br ok -> L_PATH_QUERY_OK, L_PATH_QUERY_FAIL
+
+L_PATH_QUERY_FAIL:
+    !ok
+    panic(942)
+
+L_PATH_QUERY_OK:
     !ok
     return

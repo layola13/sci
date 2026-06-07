@@ -444,6 +444,18 @@ L_PATH_IS_ABSOLUTE_END:
     EXPAND PATH_IS_ABSOLUTE %out_bool, %path_slice
 [END_MACRO]
 
+[MACRO] PATH_IS_RELATIVE %out_bool, %path_slice
+    EXPAND PATH_IS_ABSOLUTE __path_abs_%out_bool, %path_slice
+    %out_bool = eq __path_abs_%out_bool, 0
+    !__path_abs_%out_bool
+[END_MACRO]
+
+[MACRO] PATH_IS_EMPTY %out_bool, %path_slice
+    __path_len_%out_bool = load %path_slice+Slice_len as u64
+    %out_bool = eq __path_len_%out_bool, 0
+    !__path_len_%out_bool
+[END_MACRO]
+
 [MACRO] PATH_ENDS_WITH_SEPARATOR %out_bool, %path_slice
     __path_len_%out_bool = load %path_slice+Slice_len as u64
     __path_empty_%out_bool = eq __path_len_%out_bool, 0
@@ -700,6 +712,168 @@ L_PATH_STRIP_MISS:
 L_PATH_STRIP_END:
 [END_MACRO]
 
+[MACRO] PATH_ENDS_WITH %out_bool, %path_slice, %child_slice
+    __path_end_path_len_%out_bool = load %path_slice+Slice_len as u64
+    __path_end_child_len_%out_bool = load %child_slice+Slice_len as u64
+    __path_end_idx_slot_%out_bool = stack_alloc 8
+    __path_end_child_empty_%out_bool = eq __path_end_child_len_%out_bool, 0
+    br __path_end_child_empty_%out_bool -> L_PATH_ENDS_WITH_TRUE_EMPTY_%out_bool, L_PATH_ENDS_WITH_CHECK_ABS_%out_bool
+
+L_PATH_ENDS_WITH_CHECK_ABS_%out_bool:
+    EXPAND PATH_IS_ABSOLUTE __path_end_child_abs_%out_bool, %child_slice
+    br __path_end_child_abs_%out_bool -> L_PATH_ENDS_WITH_ABS_CHILD_%out_bool, L_PATH_ENDS_WITH_REL_CHILD_%out_bool
+
+L_PATH_ENDS_WITH_ABS_CHILD_%out_bool:
+    __path_end_abs_same_len_%out_bool = eq __path_end_path_len_%out_bool, __path_end_child_len_%out_bool
+    br __path_end_abs_same_len_%out_bool -> L_PATH_ENDS_WITH_COMPARE_ZERO_%out_bool, L_PATH_ENDS_WITH_FALSE_ABS_%out_bool
+
+L_PATH_ENDS_WITH_REL_CHILD_%out_bool:
+    __path_end_child_fits_%out_bool = ule __path_end_child_len_%out_bool, __path_end_path_len_%out_bool
+    br __path_end_child_fits_%out_bool -> L_PATH_ENDS_WITH_REL_START_%out_bool, L_PATH_ENDS_WITH_FALSE_SHORT_%out_bool
+
+L_PATH_ENDS_WITH_REL_START_%out_bool:
+    __path_end_start_%out_bool = sub __path_end_path_len_%out_bool, __path_end_child_len_%out_bool
+    __path_end_at_start_%out_bool = eq __path_end_start_%out_bool, 0
+    br __path_end_at_start_%out_bool -> L_PATH_ENDS_WITH_COMPARE_INIT_AFTER_REL_START_%out_bool, L_PATH_ENDS_WITH_CHECK_BOUNDARY_%out_bool
+
+L_PATH_ENDS_WITH_COMPARE_INIT_AFTER_REL_START_%out_bool:
+    !__path_end_at_start_%out_bool
+    !__path_end_child_fits_%out_bool
+    jmp L_PATH_ENDS_WITH_COMPARE_INIT_%out_bool
+
+L_PATH_ENDS_WITH_CHECK_BOUNDARY_%out_bool:
+    __path_end_path_ptr_%out_bool = load %path_slice+Slice_ptr as ptr
+    __path_end_prev_idx_%out_bool = sub __path_end_start_%out_bool, 1
+    __path_end_prev_ptr_%out_bool = ptr_add __path_end_path_ptr_%out_bool, __path_end_prev_idx_%out_bool
+    __path_end_prev_%out_bool = load __path_end_prev_ptr_%out_bool+0 as u8
+    __path_end_boundary_%out_bool = eq __path_end_prev_%out_bool, 47
+    br __path_end_boundary_%out_bool -> L_PATH_ENDS_WITH_COMPARE_INIT_AFTER_BOUNDARY_%out_bool, L_PATH_ENDS_WITH_FALSE_BOUNDARY_%out_bool
+
+L_PATH_ENDS_WITH_COMPARE_INIT_AFTER_BOUNDARY_%out_bool:
+    !__path_end_boundary_%out_bool
+    !__path_end_prev_%out_bool
+    !__path_end_prev_ptr_%out_bool
+    !__path_end_prev_idx_%out_bool
+    !__path_end_path_ptr_%out_bool
+    !__path_end_at_start_%out_bool
+    !__path_end_child_fits_%out_bool
+    jmp L_PATH_ENDS_WITH_COMPARE_INIT_%out_bool
+
+L_PATH_ENDS_WITH_COMPARE_ZERO_%out_bool:
+    __path_end_start_%out_bool = add 0, 0
+    !__path_end_abs_same_len_%out_bool
+    jmp L_PATH_ENDS_WITH_COMPARE_INIT_%out_bool
+
+L_PATH_ENDS_WITH_COMPARE_INIT_%out_bool:
+    store __path_end_idx_slot_%out_bool+0, 0 as u64
+    __path_end_path_ptr_%out_bool = load %path_slice+Slice_ptr as ptr
+    __path_end_child_ptr_%out_bool = load %child_slice+Slice_ptr as ptr
+    jmp L_PATH_ENDS_WITH_COMPARE_HEAD_%out_bool
+
+L_PATH_ENDS_WITH_COMPARE_HEAD_%out_bool:
+    __path_end_idx_%out_bool = load __path_end_idx_slot_%out_bool+0 as u64
+    __path_end_done_%out_bool = eq __path_end_idx_%out_bool, __path_end_child_len_%out_bool
+    br __path_end_done_%out_bool -> L_PATH_ENDS_WITH_TRUE_DONE_%out_bool, L_PATH_ENDS_WITH_COMPARE_BODY_%out_bool
+
+L_PATH_ENDS_WITH_COMPARE_BODY_%out_bool:
+    __path_end_path_idx_%out_bool = add __path_end_start_%out_bool, __path_end_idx_%out_bool
+    __path_end_path_byte_ptr_%out_bool = ptr_add __path_end_path_ptr_%out_bool, __path_end_path_idx_%out_bool
+    __path_end_child_byte_ptr_%out_bool = ptr_add __path_end_child_ptr_%out_bool, __path_end_idx_%out_bool
+    __path_end_path_byte_%out_bool = load __path_end_path_byte_ptr_%out_bool+0 as u8
+    __path_end_child_byte_%out_bool = load __path_end_child_byte_ptr_%out_bool+0 as u8
+    __path_end_bytes_eq_%out_bool = eq __path_end_path_byte_%out_bool, __path_end_child_byte_%out_bool
+    br __path_end_bytes_eq_%out_bool -> L_PATH_ENDS_WITH_COMPARE_NEXT_%out_bool, L_PATH_ENDS_WITH_FALSE_COMPARE_%out_bool
+
+L_PATH_ENDS_WITH_COMPARE_NEXT_%out_bool:
+    __path_end_next_idx_%out_bool = add __path_end_idx_%out_bool, 1
+    store __path_end_idx_slot_%out_bool+0, __path_end_next_idx_%out_bool as u64
+    !__path_end_next_idx_%out_bool
+    !__path_end_bytes_eq_%out_bool
+    !__path_end_child_byte_%out_bool
+    !__path_end_path_byte_%out_bool
+    !__path_end_child_byte_ptr_%out_bool
+    !__path_end_path_byte_ptr_%out_bool
+    !__path_end_path_idx_%out_bool
+    !__path_end_done_%out_bool
+    !__path_end_idx_%out_bool
+    jmp L_PATH_ENDS_WITH_COMPARE_HEAD_%out_bool
+
+L_PATH_ENDS_WITH_TRUE_DONE_%out_bool:
+    %out_bool = add 0, 1
+    !__path_end_done_%out_bool
+    !__path_end_idx_%out_bool
+    !__path_end_child_ptr_%out_bool
+    !__path_end_path_ptr_%out_bool
+    !__path_end_start_%out_bool
+    !__path_end_child_abs_%out_bool
+    !__path_end_child_empty_%out_bool
+    !__path_end_child_len_%out_bool
+    !__path_end_path_len_%out_bool
+    jmp L_PATH_ENDS_WITH_END_%out_bool
+
+L_PATH_ENDS_WITH_FALSE_COMPARE_%out_bool:
+    %out_bool = add 0, 0
+    !__path_end_bytes_eq_%out_bool
+    !__path_end_child_byte_%out_bool
+    !__path_end_path_byte_%out_bool
+    !__path_end_child_byte_ptr_%out_bool
+    !__path_end_path_byte_ptr_%out_bool
+    !__path_end_path_idx_%out_bool
+    !__path_end_done_%out_bool
+    !__path_end_idx_%out_bool
+    !__path_end_child_ptr_%out_bool
+    !__path_end_path_ptr_%out_bool
+    !__path_end_start_%out_bool
+    !__path_end_child_abs_%out_bool
+    !__path_end_child_empty_%out_bool
+    !__path_end_child_len_%out_bool
+    !__path_end_path_len_%out_bool
+    jmp L_PATH_ENDS_WITH_END_%out_bool
+
+L_PATH_ENDS_WITH_FALSE_BOUNDARY_%out_bool:
+    %out_bool = add 0, 0
+    !__path_end_boundary_%out_bool
+    !__path_end_prev_%out_bool
+    !__path_end_prev_ptr_%out_bool
+    !__path_end_prev_idx_%out_bool
+    !__path_end_path_ptr_%out_bool
+    !__path_end_at_start_%out_bool
+    !__path_end_start_%out_bool
+    !__path_end_child_fits_%out_bool
+    !__path_end_child_abs_%out_bool
+    !__path_end_child_empty_%out_bool
+    !__path_end_child_len_%out_bool
+    !__path_end_path_len_%out_bool
+    jmp L_PATH_ENDS_WITH_END_%out_bool
+
+L_PATH_ENDS_WITH_FALSE_ABS_%out_bool:
+    %out_bool = add 0, 0
+    !__path_end_abs_same_len_%out_bool
+    !__path_end_child_abs_%out_bool
+    !__path_end_child_empty_%out_bool
+    !__path_end_child_len_%out_bool
+    !__path_end_path_len_%out_bool
+    jmp L_PATH_ENDS_WITH_END_%out_bool
+
+L_PATH_ENDS_WITH_FALSE_SHORT_%out_bool:
+    %out_bool = add 0, 0
+    !__path_end_child_fits_%out_bool
+    !__path_end_child_abs_%out_bool
+    !__path_end_child_empty_%out_bool
+    !__path_end_child_len_%out_bool
+    !__path_end_path_len_%out_bool
+    jmp L_PATH_ENDS_WITH_END_%out_bool
+
+L_PATH_ENDS_WITH_TRUE_EMPTY_%out_bool:
+    %out_bool = add 0, 1
+    !__path_end_child_empty_%out_bool
+    !__path_end_child_len_%out_bool
+    !__path_end_path_len_%out_bool
+    jmp L_PATH_ENDS_WITH_END_%out_bool
+
+L_PATH_ENDS_WITH_END_%out_bool:
+[END_MACRO]
+
 [MACRO] PATH_JOIN %out_slice, %base_slice, %child_slice
     EXPAND PATH_IS_ABSOLUTE __path_join_child_abs_%out_slice, %child_slice
     br __path_join_child_abs_%out_slice -> L_PATH_JOIN_CHILD_VIEW, L_PATH_JOIN_CHECK_BASE
@@ -776,6 +950,87 @@ L_PATH_JOIN_END:
 
 [MACRO] PATH_FILE_STEM %out_slice, %path_slice
     EXPAND PATH_STEM %out_slice, %path_slice
+[END_MACRO]
+
+[MACRO] PATH_FILE_PREFIX %out_slice, %path_slice
+    EXPAND PATH_BASENAME __path_prefix_base_%out_slice, %path_slice
+    __path_prefix_base_ptr_%out_slice = load __path_prefix_base_%out_slice+Slice_ptr as ptr
+    __path_prefix_base_len_%out_slice = load __path_prefix_base_%out_slice+Slice_len as u64
+    __path_prefix_scan_slot_%out_slice = stack_alloc 8
+    __path_prefix_empty_%out_slice = eq __path_prefix_base_len_%out_slice, 0
+    br __path_prefix_empty_%out_slice -> L_PATH_FILE_PREFIX_EMPTY_%out_slice, L_PATH_FILE_PREFIX_INIT_%out_slice
+
+L_PATH_FILE_PREFIX_INIT_%out_slice:
+    __path_prefix_first_%out_slice = load __path_prefix_base_ptr_%out_slice+0 as u8
+    __path_prefix_starts_dot_%out_slice = eq __path_prefix_first_%out_slice, 46
+    br __path_prefix_starts_dot_%out_slice -> L_PATH_FILE_PREFIX_INIT_HIDDEN_%out_slice, L_PATH_FILE_PREFIX_INIT_NORMAL_%out_slice
+
+L_PATH_FILE_PREFIX_INIT_HIDDEN_%out_slice:
+    store __path_prefix_scan_slot_%out_slice+0, 1 as u64
+    !__path_prefix_starts_dot_%out_slice
+    !__path_prefix_first_%out_slice
+    jmp L_PATH_FILE_PREFIX_SCAN_%out_slice
+
+L_PATH_FILE_PREFIX_INIT_NORMAL_%out_slice:
+    store __path_prefix_scan_slot_%out_slice+0, 0 as u64
+    !__path_prefix_starts_dot_%out_slice
+    !__path_prefix_first_%out_slice
+    jmp L_PATH_FILE_PREFIX_SCAN_%out_slice
+
+L_PATH_FILE_PREFIX_SCAN_%out_slice:
+    __path_prefix_idx_%out_slice = load __path_prefix_scan_slot_%out_slice+0 as u64
+    __path_prefix_done_%out_slice = eq __path_prefix_idx_%out_slice, __path_prefix_base_len_%out_slice
+    br __path_prefix_done_%out_slice -> L_PATH_FILE_PREFIX_NO_DOT_%out_slice, L_PATH_FILE_PREFIX_CHECK_%out_slice
+
+L_PATH_FILE_PREFIX_CHECK_%out_slice:
+    __path_prefix_ch_ptr_%out_slice = ptr_add __path_prefix_base_ptr_%out_slice, __path_prefix_idx_%out_slice
+    __path_prefix_ch_%out_slice = load __path_prefix_ch_ptr_%out_slice+0 as u8
+    __path_prefix_is_dot_%out_slice = eq __path_prefix_ch_%out_slice, 46
+    br __path_prefix_is_dot_%out_slice -> L_PATH_FILE_PREFIX_FOUND_%out_slice, L_PATH_FILE_PREFIX_NEXT_%out_slice
+
+L_PATH_FILE_PREFIX_NEXT_%out_slice:
+    __path_prefix_next_%out_slice = add __path_prefix_idx_%out_slice, 1
+    store __path_prefix_scan_slot_%out_slice+0, __path_prefix_next_%out_slice as u64
+    !__path_prefix_next_%out_slice
+    !__path_prefix_is_dot_%out_slice
+    !__path_prefix_ch_%out_slice
+    !__path_prefix_ch_ptr_%out_slice
+    !__path_prefix_done_%out_slice
+    !__path_prefix_idx_%out_slice
+    jmp L_PATH_FILE_PREFIX_SCAN_%out_slice
+
+L_PATH_FILE_PREFIX_FOUND_%out_slice:
+    EXPAND STR_SLICE %out_slice, __path_prefix_base_%out_slice, 0, __path_prefix_idx_%out_slice
+    !__path_prefix_is_dot_%out_slice
+    !__path_prefix_ch_%out_slice
+    !__path_prefix_ch_ptr_%out_slice
+    !__path_prefix_done_%out_slice
+    !__path_prefix_idx_%out_slice
+    !__path_prefix_empty_%out_slice
+    !__path_prefix_base_len_%out_slice
+    !__path_prefix_base_ptr_%out_slice
+    !__path_prefix_base_%out_slice
+    jmp L_PATH_FILE_PREFIX_END_%out_slice
+
+L_PATH_FILE_PREFIX_NO_DOT_%out_slice:
+    EXPAND STR_SLICE %out_slice, __path_prefix_base_%out_slice, 0, __path_prefix_base_len_%out_slice
+    !__path_prefix_done_%out_slice
+    !__path_prefix_idx_%out_slice
+    !__path_prefix_empty_%out_slice
+    !__path_prefix_base_len_%out_slice
+    !__path_prefix_base_ptr_%out_slice
+    !__path_prefix_base_%out_slice
+    jmp L_PATH_FILE_PREFIX_END_%out_slice
+
+L_PATH_FILE_PREFIX_EMPTY_%out_slice:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    !__path_prefix_empty_%out_slice
+    !__path_prefix_base_len_%out_slice
+    !__path_prefix_base_ptr_%out_slice
+    !__path_prefix_base_%out_slice
+    jmp L_PATH_FILE_PREFIX_END_%out_slice
+
+L_PATH_FILE_PREFIX_END_%out_slice:
 [END_MACRO]
 
 [MACRO] PATH_FILE_NAME %out_slice, %path_slice
@@ -1096,4 +1351,213 @@ L_PATH_COMPONENT_PREFIX_MISS_%out_ok:
     !__path_prefix_component_%out_ok
 
 L_PATH_COMPONENT_PREFIX_END_%out_ok:
+[END_MACRO]
+
+[MACRO] PATH_ANCESTOR_COUNT %out_count, %path_slice
+    EXPAND PATH_COMPONENT_COUNT __path_ancestor_components_%out_count, %path_slice
+    %out_count = add __path_ancestor_components_%out_count, 1
+    !__path_ancestor_components_%out_count
+[END_MACRO]
+
+[MACRO] PATH_TRY_ANCESTOR_AT %out_ok, %out_slice, %path_slice, %ancestor_index
+    EXPAND PATH_COMPONENT_COUNT __path_ancestor_components_%out_ok, %path_slice
+    __path_ancestor_len_%out_ok = load %path_slice+Slice_len as u64
+    __path_ancestor_scan_slot_%out_ok = stack_alloc 8
+    __path_ancestor_current_slot_%out_ok = stack_alloc 8
+    __path_ancestor_in_slot_%out_ok = stack_alloc 8
+    store __path_ancestor_scan_slot_%out_ok+0, 0 as u64
+    store __path_ancestor_current_slot_%out_ok+0, 0 as u64
+    store __path_ancestor_in_slot_%out_ok+0, 0 as u64
+    __path_ancestor_is_self_%out_ok = eq %ancestor_index, 0
+    br __path_ancestor_is_self_%out_ok -> L_PATH_ANCESTOR_SELF_%out_ok, L_PATH_ANCESTOR_CHECK_FITS_%out_ok
+
+L_PATH_ANCESTOR_CHECK_FITS_%out_ok:
+    __path_ancestor_fits_%out_ok = ule %ancestor_index, __path_ancestor_components_%out_ok
+    br __path_ancestor_fits_%out_ok -> L_PATH_ANCESTOR_CHECK_TERMINAL_%out_ok, L_PATH_ANCESTOR_MISS_%out_ok
+
+L_PATH_ANCESTOR_CHECK_TERMINAL_%out_ok:
+    __path_ancestor_terminal_%out_ok = eq %ancestor_index, __path_ancestor_components_%out_ok
+    br __path_ancestor_terminal_%out_ok -> L_PATH_ANCESTOR_TERMINAL_%out_ok, L_PATH_ANCESTOR_PREFIX_%out_ok
+
+L_PATH_ANCESTOR_PREFIX_%out_ok:
+    __path_ancestor_remaining_%out_ok = sub __path_ancestor_components_%out_ok, %ancestor_index
+    __path_ancestor_target_%out_ok = sub __path_ancestor_remaining_%out_ok, 1
+    __path_ancestor_ptr_%out_ok = load %path_slice+Slice_ptr as ptr
+    !__path_ancestor_remaining_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_HEAD_%out_ok
+
+L_PATH_ANCESTOR_SCAN_HEAD_%out_ok:
+    __path_ancestor_scan_%out_ok = load __path_ancestor_scan_slot_%out_ok+0 as u64
+    __path_ancestor_done_%out_ok = eq __path_ancestor_scan_%out_ok, __path_ancestor_len_%out_ok
+    br __path_ancestor_done_%out_ok -> L_PATH_ANCESTOR_SCAN_EOF_%out_ok, L_PATH_ANCESTOR_SCAN_BODY_%out_ok
+
+L_PATH_ANCESTOR_SCAN_BODY_%out_ok:
+    __path_ancestor_ch_ptr_%out_ok = ptr_add __path_ancestor_ptr_%out_ok, __path_ancestor_scan_%out_ok
+    __path_ancestor_ch_%out_ok = load __path_ancestor_ch_ptr_%out_ok+0 as u8
+    __path_ancestor_is_sep_%out_ok = eq __path_ancestor_ch_%out_ok, 47
+    br __path_ancestor_is_sep_%out_ok -> L_PATH_ANCESTOR_SCAN_SEP_%out_ok, L_PATH_ANCESTOR_SCAN_NON_SEP_%out_ok
+
+L_PATH_ANCESTOR_SCAN_NON_SEP_%out_ok:
+    __path_ancestor_in_%out_ok = load __path_ancestor_in_slot_%out_ok+0 as u64
+    __path_ancestor_was_out_%out_ok = eq __path_ancestor_in_%out_ok, 0
+    br __path_ancestor_was_out_%out_ok -> L_PATH_ANCESTOR_SCAN_START_%out_ok, L_PATH_ANCESTOR_SCAN_NEXT_NON_SEP_%out_ok
+
+L_PATH_ANCESTOR_SCAN_START_%out_ok:
+    store __path_ancestor_in_slot_%out_ok+0, 1 as u64
+    !__path_ancestor_was_out_%out_ok
+    !__path_ancestor_in_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_NEXT_%out_ok
+
+L_PATH_ANCESTOR_SCAN_NEXT_NON_SEP_%out_ok:
+    !__path_ancestor_was_out_%out_ok
+    !__path_ancestor_in_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_NEXT_%out_ok
+
+L_PATH_ANCESTOR_SCAN_SEP_%out_ok:
+    __path_ancestor_in_%out_ok = load __path_ancestor_in_slot_%out_ok+0 as u64
+    br __path_ancestor_in_%out_ok -> L_PATH_ANCESTOR_SCAN_COMPONENT_END_%out_ok, L_PATH_ANCESTOR_SCAN_NEXT_SEP_%out_ok
+
+L_PATH_ANCESTOR_SCAN_COMPONENT_END_%out_ok:
+    __path_ancestor_current_%out_ok = load __path_ancestor_current_slot_%out_ok+0 as u64
+    __path_ancestor_target_hit_%out_ok = eq __path_ancestor_current_%out_ok, __path_ancestor_target_%out_ok
+    br __path_ancestor_target_hit_%out_ok -> L_PATH_ANCESTOR_SCAN_HIT_%out_ok, L_PATH_ANCESTOR_SCAN_ADVANCE_%out_ok
+
+L_PATH_ANCESTOR_SCAN_ADVANCE_%out_ok:
+    __path_ancestor_next_current_%out_ok = add __path_ancestor_current_%out_ok, 1
+    store __path_ancestor_current_slot_%out_ok+0, __path_ancestor_next_current_%out_ok as u64
+    store __path_ancestor_in_slot_%out_ok+0, 0 as u64
+    !__path_ancestor_next_current_%out_ok
+    !__path_ancestor_target_hit_%out_ok
+    !__path_ancestor_current_%out_ok
+    !__path_ancestor_in_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_NEXT_%out_ok
+
+L_PATH_ANCESTOR_SCAN_NEXT_SEP_%out_ok:
+    !__path_ancestor_in_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_NEXT_%out_ok
+
+L_PATH_ANCESTOR_SCAN_NEXT_%out_ok:
+    __path_ancestor_next_scan_%out_ok = add __path_ancestor_scan_%out_ok, 1
+    store __path_ancestor_scan_slot_%out_ok+0, __path_ancestor_next_scan_%out_ok as u64
+    !__path_ancestor_next_scan_%out_ok
+    !__path_ancestor_is_sep_%out_ok
+    !__path_ancestor_ch_%out_ok
+    !__path_ancestor_ch_ptr_%out_ok
+    !__path_ancestor_done_%out_ok
+    !__path_ancestor_scan_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_HEAD_%out_ok
+
+L_PATH_ANCESTOR_SCAN_HIT_%out_ok:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_ancestor_scan_%out_ok
+    %out_ok = add 0, 1
+    !__path_ancestor_target_hit_%out_ok
+    !__path_ancestor_current_%out_ok
+    !__path_ancestor_in_%out_ok
+    !__path_ancestor_is_sep_%out_ok
+    !__path_ancestor_ch_%out_ok
+    !__path_ancestor_ch_ptr_%out_ok
+    !__path_ancestor_done_%out_ok
+    !__path_ancestor_scan_%out_ok
+    !__path_ancestor_ptr_%out_ok
+    !__path_ancestor_target_%out_ok
+    !__path_ancestor_terminal_%out_ok
+    !__path_ancestor_fits_%out_ok
+    !__path_ancestor_is_self_%out_ok
+    !__path_ancestor_len_%out_ok
+    !__path_ancestor_components_%out_ok
+    jmp L_PATH_ANCESTOR_END_%out_ok
+
+L_PATH_ANCESTOR_SCAN_EOF_%out_ok:
+    __path_ancestor_in_%out_ok = load __path_ancestor_in_slot_%out_ok+0 as u64
+    br __path_ancestor_in_%out_ok -> L_PATH_ANCESTOR_SCAN_EOF_COMPONENT_%out_ok, L_PATH_ANCESTOR_SCAN_MISS_%out_ok
+
+L_PATH_ANCESTOR_SCAN_EOF_COMPONENT_%out_ok:
+    __path_ancestor_current_%out_ok = load __path_ancestor_current_slot_%out_ok+0 as u64
+    __path_ancestor_target_hit_%out_ok = eq __path_ancestor_current_%out_ok, __path_ancestor_target_%out_ok
+    br __path_ancestor_target_hit_%out_ok -> L_PATH_ANCESTOR_SCAN_EOF_HIT_%out_ok, L_PATH_ANCESTOR_SCAN_EOF_MISS_%out_ok
+
+L_PATH_ANCESTOR_SCAN_EOF_HIT_%out_ok:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_ancestor_len_%out_ok
+    %out_ok = add 0, 1
+    !__path_ancestor_target_hit_%out_ok
+    !__path_ancestor_current_%out_ok
+    !__path_ancestor_in_%out_ok
+    !__path_ancestor_done_%out_ok
+    !__path_ancestor_scan_%out_ok
+    !__path_ancestor_ptr_%out_ok
+    !__path_ancestor_target_%out_ok
+    !__path_ancestor_terminal_%out_ok
+    !__path_ancestor_fits_%out_ok
+    !__path_ancestor_is_self_%out_ok
+    !__path_ancestor_len_%out_ok
+    !__path_ancestor_components_%out_ok
+    jmp L_PATH_ANCESTOR_END_%out_ok
+
+L_PATH_ANCESTOR_SCAN_EOF_MISS_%out_ok:
+    !__path_ancestor_target_hit_%out_ok
+    !__path_ancestor_current_%out_ok
+    !__path_ancestor_in_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_MISS_AFTER_EOF_%out_ok
+
+L_PATH_ANCESTOR_SCAN_MISS_%out_ok:
+    !__path_ancestor_in_%out_ok
+    jmp L_PATH_ANCESTOR_SCAN_MISS_AFTER_EOF_%out_ok
+
+L_PATH_ANCESTOR_SCAN_MISS_AFTER_EOF_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 0
+    !__path_ancestor_done_%out_ok
+    !__path_ancestor_scan_%out_ok
+    !__path_ancestor_ptr_%out_ok
+    !__path_ancestor_target_%out_ok
+    !__path_ancestor_terminal_%out_ok
+    !__path_ancestor_fits_%out_ok
+    !__path_ancestor_is_self_%out_ok
+    !__path_ancestor_len_%out_ok
+    !__path_ancestor_components_%out_ok
+    jmp L_PATH_ANCESTOR_END_%out_ok
+
+L_PATH_ANCESTOR_TERMINAL_%out_ok:
+    EXPAND PATH_IS_ABSOLUTE __path_ancestor_abs_%out_ok, %path_slice
+    br __path_ancestor_abs_%out_ok -> L_PATH_ANCESTOR_ROOT_%out_ok, L_PATH_ANCESTOR_EMPTY_%out_ok
+
+L_PATH_ANCESTOR_ROOT_%out_ok:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, 1
+    %out_ok = add 0, 1
+    !__path_ancestor_abs_%out_ok
+    !__path_ancestor_terminal_%out_ok
+    !__path_ancestor_fits_%out_ok
+    !__path_ancestor_is_self_%out_ok
+    !__path_ancestor_len_%out_ok
+    !__path_ancestor_components_%out_ok
+    jmp L_PATH_ANCESTOR_END_%out_ok
+
+L_PATH_ANCESTOR_EMPTY_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 1
+    !__path_ancestor_abs_%out_ok
+    !__path_ancestor_terminal_%out_ok
+    !__path_ancestor_fits_%out_ok
+    !__path_ancestor_is_self_%out_ok
+    !__path_ancestor_len_%out_ok
+    !__path_ancestor_components_%out_ok
+    jmp L_PATH_ANCESTOR_END_%out_ok
+
+L_PATH_ANCESTOR_SELF_%out_ok:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_ancestor_len_%out_ok
+    %out_ok = add 0, 1
+    !__path_ancestor_len_%out_ok
+    !__path_ancestor_is_self_%out_ok
+    !__path_ancestor_components_%out_ok
+    jmp L_PATH_ANCESTOR_END_%out_ok
+
+L_PATH_ANCESTOR_MISS_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 0
+    !__path_ancestor_fits_%out_ok
+    !__path_ancestor_is_self_%out_ok
+    !__path_ancestor_len_%out_ok
+    !__path_ancestor_components_%out_ok
+
+L_PATH_ANCESTOR_END_%out_ok:
 [END_MACRO]

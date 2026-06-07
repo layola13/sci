@@ -1617,13 +1617,19 @@ test "sa_std path helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_EXT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_IS_ABSOLUTE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_HAS_ROOT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_IS_RELATIVE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_IS_EMPTY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_STARTS_WITH"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_TRY_STRIP_PREFIX"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_ENDS_WITH"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_JOIN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_PARENT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_FILE_PREFIX"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_FILE_STEM"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_EXTENSION"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_WITH_FILE_NAME"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_ANCESTOR_COUNT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_TRY_ANCESTOR_AT"));
 
     var path_flat = try flattenFixture(std.testing.allocator, "sa_std/path.sa", path_src);
     defer path_flat.deinit(std.testing.allocator);

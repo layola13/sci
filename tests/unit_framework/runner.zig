@@ -728,11 +728,12 @@ test "native unit framework covers sa_std macro surface suites" {
 
     const path_expected = [_][]const u8{
         "[PASS] sa_std path rust parity macros",
+        "[PASS] sa_std path query and ancestor macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_path_macro_surface.sa",
         path_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
     );
 
     const time_expected = [_][]const u8{
