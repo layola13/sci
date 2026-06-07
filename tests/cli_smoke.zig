@@ -14,6 +14,21 @@ fn jsonObjectGet(parsed: *const std.json.Parsed(std.json.Value), key: []const u8
     return root.get(key) orelse return error.TestUnexpectedResult;
 }
 
+fn jsonObjectGetValue(value: std.json.Value, key: []const u8) !std.json.Value {
+    const object = switch (value) {
+        .object => |object| object,
+        else => return error.TestUnexpectedResult,
+    };
+    return object.get(key) orelse return error.TestUnexpectedResult;
+}
+
+fn jsonBoolValue(value: std.json.Value) !bool {
+    return switch (value) {
+        .bool => |v| v,
+        else => error.TestUnexpectedResult,
+    };
+}
+
 fn jsonArrayCount(value: std.json.Value) !usize {
     return switch (value) {
         .array => |array| array.items.len,
@@ -70,6 +85,22 @@ fn cachedFunctionObjectMtimes(allocator: std.mem.Allocator, dir: std.fs.Dir) !st
         }
     }
     return result;
+}
+
+fn cachedFunctionManifestCount(dir: std.fs.Dir) !usize {
+    var count: usize = 0;
+    var cache_root = try dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
+    defer cache_root.close();
+    var cache_iter = cache_root.iterate();
+    while (try cache_iter.next()) |cache_entry| {
+        if (cache_entry.kind != .directory) continue;
+        var entry_dir = cache_root.openDir(cache_entry.name, .{ .iterate = true }) catch continue;
+        defer entry_dir.close();
+        const manifest = entry_dir.openFile("manifest.json", .{}) catch continue;
+        manifest.close();
+        count += 1;
+    }
+    return count;
 }
 
 fn writeManifestForPackage(
@@ -619,6 +650,7 @@ test "cli build-obj incremental reuses local cache layout" {
     defer cache_dir.close();
     var cache_iter = cache_dir.iterate();
     try std.testing.expect((try cache_iter.next()) != null);
+    try std.testing.expect(try cachedFunctionManifestCount(tmp.dir) >= 1);
 
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
@@ -628,6 +660,66 @@ test "cli build-obj incremental reuses local cache layout" {
     const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--incremental") != null);
+}
+
+test "cli build project cache is default and can be disabled" {
+    const source =
+        \\@main() -> i32:
+        \\return 9
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "cached.sa", source);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const build_argv = [_][]const u8{ "sa", "build-exe", "cached.sa", "-o", "cached.out", "--json", "--profile" };
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    var first_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer first_json.deinit();
+    const first_metrics = try jsonObjectGet(&first_json, "metrics");
+    const first_cache = try jsonObjectGetValue(first_metrics, "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+
+    try tmp.dir.deleteFile("cached.out");
+    try tmp.dir.deleteFile("cached.out.sa.bc");
+    stderr_buf.clearRetainingCapacity();
+    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+    var second_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer second_json.deinit();
+    const second_metrics = try jsonObjectGet(&second_json, "metrics");
+    const second_cache = try jsonObjectGetValue(second_metrics, "cache");
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
+
+    stderr_buf.clearRetainingCapacity();
+    const no_cache_argv = [_][]const u8{ "sa", "build-exe", "cached.sa", "-o", "cached_no_cache.out", "--json", "--profile", "--no-incremental" };
+    const no_cache_code = try saasm.cli.executeWithWriters(std.testing.allocator, no_cache_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), no_cache_code);
+    var no_cache_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer no_cache_json.deinit();
+    const no_cache_metrics = try jsonObjectGet(&no_cache_json, "metrics");
+    try std.testing.expectError(error.TestUnexpectedResult, jsonObjectGetValue(no_cache_metrics, "cache"));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const help_argv = [_][]const u8{ "sa", "build-exe", "--help" };
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), help_code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--no-incremental") != null);
 }
 
 test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {

@@ -1078,21 +1078,21 @@ sa/
 
 - [ ] 33. 函数粒度增量编译（R30）
 
-  - [ ] 33.1 `--incremental` 模式骨架
+  - [x] 33.1 `--incremental` 模式骨架
     - 按函数粒度产出独立 `.o`（每个函数一个）
     - _Requirements: R30.1_
 
-  - [ ] 33.2 函数体哈希比对与缓存复用
+  - [x] 33.2 函数体哈希比对与缓存复用
     - 未修改的函数跳过 Emitter + zig cc，复用 `.sa-cache/` 中的 `.o`
     - _Requirements: R30.2_
 
-  - [ ] 33.3 增量链接
+  - [x] 33.3 增量链接
     - 所有函数 `.o` 合并为单一产物
     - 验证与非增量模式产物行为等价
     - _Requirements: R30.3_
 
-  - [ ] 33.4 缓存目录结构
-    - `.sa-cache/<func_name_hash>.o` + `.sa-cache/manifest.json`
+  - [x] 33.4 缓存目录结构
+    - `.sa_cache/build-obj-incremental/<project_hash>/functions/<function_hash>.o` + `manifest.json`
     - _Requirements: R30.5_
 
   - [ ] 33.5 增量 + sanitizer 兼容

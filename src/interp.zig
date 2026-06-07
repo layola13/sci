@@ -512,6 +512,7 @@ const Interpreter = struct {
     allocator: std.mem.Allocator,
     program: *const referee.VerifyOk,
     ranges: []FunctionRange,
+    function_index_by_name: std.StringHashMap(usize),
     argv: [][]const u8,
     argv_storage: [][]u8,
     stdout: std.io.AnyWriter,
@@ -558,6 +559,14 @@ const Interpreter = struct {
             ranges[i] = .{ .start = start, .end = end };
         }
 
+        var function_index_by_name = std.StringHashMap(usize).init(allocator);
+        errdefer function_index_by_name.deinit();
+        for (program.function_sigs, 0..) |fsig, idx| {
+            if (!function_index_by_name.contains(fsig.name)) {
+                try function_index_by_name.put(fsig.name, idx);
+            }
+        }
+
         var argv_storage = try allocator.alloc([]u8, argv.len);
         errdefer allocator.free(argv_storage);
         for (argv, 0..) |arg, i| {
@@ -574,6 +583,7 @@ const Interpreter = struct {
             .allocator = allocator,
             .program = program,
             .ranges = ranges,
+            .function_index_by_name = function_index_by_name,
             .argv = argv_view,
             .argv_storage = argv_storage,
             .stdout = stdout,
@@ -597,6 +607,7 @@ const Interpreter = struct {
         self.anon_const_keys.deinit();
         self.anon_const_addrs.deinit();
         self.const_addrs.deinit();
+        self.function_index_by_name.deinit();
         self.memory.deinit();
         for (self.argv_storage) |arg| self.allocator.free(arg);
         self.allocator.free(self.argv_storage);
@@ -1203,10 +1214,7 @@ const Interpreter = struct {
     }
 
     fn findFunctionIndex(self: *Interpreter, name: []const u8) ?usize {
-        for (self.program.function_sigs, 0..) |fsig, idx| {
-            if (std.mem.eql(u8, fsig.name, name)) return idx;
-        }
-        return null;
+        return self.function_index_by_name.get(name);
     }
 
     fn resolveTextOperand(self: *Interpreter, fsig: *const sig.FunctionSig, regs: *FrameRegs, text: []const u8) !RegValue {

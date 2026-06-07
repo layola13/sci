@@ -132,7 +132,7 @@
 
 - 收口复查再次确认没有遗漏的可安全勾选项。复查范围包括 layout tag、函数粒度增量编译、formal/FPGA、LLM pilot、AutoBevy、手写 WASM 后端与 DWARF-in-WASM 等剩余高风险簇。
 - `#tag NAME` / `TagMismatch` / `MissingTag` 只在需求、白皮书、FAQ 等文档中出现；主仓源码没有发现 `#tag` 声明解析、`alloc N tag NAME` 语法、函数签名 `tag NAME` 校验或对应 Trap 测试，因此 36.x 保持未勾。
-- `--incremental` / `.sa-cache` / 函数级 `.o` 的任务要求没有找到匹配实现。当前命中的 cache/hash 证据主要来自 package manager、demo cache、plugin cache 或普通 source hash，不等同于 v0.4 的函数粒度增量编译。
+- `sa build-exe` / `sa build-obj` / `sa build-wasm` 现在默认使用项目级 `.sa_cache/<kind>/<hash>` 产物缓存，并可用 `--no-incremental` 强制绕过；`--json --profile` 会报告 `metrics.cache.kind` 和 `metrics.cache.hit`。`sa build-obj --incremental` 另有函数级对象缓存：按函数签名、常量和函数体哈希写入 `.sa_cache/build-obj-incremental/<project_hash>/functions/<function_hash>.o`，未变函数会复用对象文件并最终合并为单一 `.o`。剩余缺口是 `--incremental --debug-san` 兼容还没有实现/测试证据，因此 R30 父项仍不能整体关闭。
 - formal/FPGA/LLM/AutoBevy 相关命中集中在设计文档、FAQ、路线图和任务描述，未找到 `formal/referee_spec.lean`、Coq/Lean 可检查证明、硬件 Referee 原型、pilot 30 题执行归档或 AutoBevy 1K/1M 验收脚本的可运行证据。
 - 手写 WASM 后端继续存在明确缺口：`src/emit_wasm/opcodes.zig` 对 atomics/SIMD/WASI import 返回 unsupported；`wasmtime` / `wasm-validate` / `wasm-objdump` 也未作为可用工具链证据出现，不能补勾 DWARF-in-WASM、debug breakpoint 或完整 v0.2 验收。
 - 本报告最终状态：`tasks.md` 301 个未勾选项、376 个已勾选项；评估文档已写入 [docs/progress.md](/home/vscode/projects/sci/docs/progress.md)。

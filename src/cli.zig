@@ -100,6 +100,12 @@ const CompileMetrics = struct {
     instruction_count: u64,
     phases: ?CompilePhaseMetrics = null,
     backend_ir: ?BackendIrMetrics = null,
+    cache: ?BuildCacheMetrics = null,
+};
+
+const BuildCacheMetrics = struct {
+    kind: []const u8,
+    hit: bool,
 };
 
 fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics) CompileMetrics {
@@ -399,6 +405,7 @@ fn writeSizeText(writer: anytype, metrics: CompileMetrics, entries: []const Func
 const CompileOptions = struct {
     jobs: ?usize = null,
     jobs_explicit: bool = false,
+    incremental_cache: bool = true,
     offline: bool = false,
     ci: bool = false,
     allow_unaudited_risks: bool = false,
@@ -960,6 +967,7 @@ fn commandHelpRequested(cmd: Command, args: []const []const u8) bool {
 
 fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --jobs auto|N                  Set parallel compile jobs\n");
+    try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --offline                      Use local package cache only\n");
     try writer.writeAll("  --ci                           Use CI package preflight behavior\n");
@@ -1376,6 +1384,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  --json                         Output diagnostics in JSON format\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --jobs auto|N                  Set the number of parallel compile jobs\n");
+    try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
     try writer.writeAll("  -h, --help                     Show this help message\n");
     try writer.writeAll("  --version                      Print version and exit\n");
     try writer.writeAll("\nTest flags:\n");
@@ -1846,6 +1855,14 @@ fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
         try writer.writeAll(",\"stores\":");
         try writer.print("{d}", .{ir.stores});
         try writer.writeAll("}}");
+    }
+    if (metrics.cache) |cache| {
+        try writer.writeAll(",\"cache\":{");
+        try writer.writeAll("\"kind\":");
+        try writeJsonString(writer, cache.kind);
+        try writer.writeAll(",\"hit\":");
+        try writer.writeAll(if (cache.hit) "true" else "false");
+        try writer.writeByte('}');
     }
     try writer.writeByte('}');
 }
@@ -2528,7 +2545,7 @@ fn writeSaAgentSkillMarkdown(
     try writer.writeAll("# SA Toolchain\n\n");
     try writer.writeAll("## Core Workflow\n");
     try writer.writeAll("- Run `sa version` to confirm the installed compiler version.\n");
-    try writer.writeAll("- Use `sa build <file>` to compile and verify SA source without running it.\n");
+    try writer.writeAll("- Use `sa build <file>` to compile and verify SA source without running it; project build caching is on by default and `--no-incremental` forces a clean rebuild.\n");
     try writer.writeAll("- Use `sa run <file> [args...]` for compile-and-run workflows.\n");
     try writer.writeAll("- Use `sa build-exe <file> -o <path>`, `sa build-obj <file> -o <path>`, or `sa build-wasm <file> -o <path>` for artifacts.\n");
     try writer.writeAll("- Use `sa test <file> --list`, `sa test <file> --filter <pattern>`, `sa test <file> --compile-only`, and `sa test <file> --trace-panic` for unit tests.\n");
@@ -3290,6 +3307,10 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     if (consumeAllowOption(arg, options)) return true;
     if (std.mem.eql(u8, arg, "--offline")) {
         options.offline = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--no-incremental")) {
+        options.incremental_cache = false;
         return true;
     }
     if (std.mem.eql(u8, arg, "--ci")) {
@@ -4126,6 +4147,10 @@ fn projectFunctionCachePath(
     return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", BuildCacheKind.build_obj_incremental.dirName(), key.slice(), "functions", filename });
 }
 
+fn projectFunctionCacheManifestPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", BuildCacheKind.build_obj_incremental.dirName(), key.slice(), "manifest.json" });
+}
+
 fn cacheFunctionSig(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) void {
     cacheBytes(hasher, sig_item.name);
     cacheU64(hasher, @intFromEnum(sig_item.kind));
@@ -4189,6 +4214,11 @@ fn buildIncrementalObject(
         for (object_paths.items) |path| allocator.free(path);
         object_paths.deinit();
     }
+    var function_keys = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (function_keys.items) |key| allocator.free(key);
+        function_keys.deinit();
+    }
 
     var sig_index: usize = 0;
     var idx: usize = 0;
@@ -4209,9 +4239,11 @@ fn buildIncrementalObject(
 
                 if (item.kind != .extern_decl) {
                     const function_key = try computeFunctionObjectKey(allocator, source_path, &compiled.verified, current_sig_index, idx, end);
-                    defer allocator.free(function_key);
+                    var function_key_owned = true;
+                    errdefer if (function_key_owned) allocator.free(function_key);
                     const object_path = try projectFunctionCachePath(allocator, project_root, cache_key, function_key);
-                    errdefer allocator.free(object_path);
+                    var object_path_owned = true;
+                    errdefer if (object_path_owned) allocator.free(object_path);
                     if (!projectPathExists(object_path)) {
                         try ensureParentDir(object_path);
                         try emit_llvm_llvmc.emitLlvmcToObject(
@@ -4231,7 +4263,10 @@ fn buildIncrementalObject(
                             opt_level,
                         );
                     }
+                    try function_keys.append(function_key);
+                    function_key_owned = false;
                     try object_paths.append(object_path);
+                    object_path_owned = false;
                 }
 
                 task_idx += 1;
@@ -4250,6 +4285,27 @@ fn buildIncrementalObject(
         error.ChildProcessFailed => return error.ChildProcessFailed,
         else => return err,
     };
+
+    const manifest_path = try projectFunctionCacheManifestPath(allocator, project_root, cache_key);
+    defer allocator.free(manifest_path);
+    try ensureParentDir(manifest_path);
+    var manifest_file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
+    defer manifest_file.close();
+    const writer = manifest_file.writer();
+    try writer.writeAll("{\"version\":1,\"kind\":\"build-obj-incremental\",\"source\":");
+    try writeJsonString(writer, source_path);
+    try writer.writeAll(",\"cache_key\":");
+    try writeJsonString(writer, cache_key.slice());
+    try writer.writeAll(",\"functions\":[");
+    for (function_keys.items, object_paths.items, 0..) |function_key, object_path, i| {
+        if (i != 0) try writer.writeByte(',');
+        try writer.writeAll("{\"key\":");
+        try writeJsonString(writer, function_key);
+        try writer.writeAll(",\"object\":");
+        try writeJsonString(writer, object_path);
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
 }
 
 fn ensureNewFile(path: []const u8, bytes: []const u8) !void {
@@ -4481,17 +4537,22 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     defer if (project_root_owned) allocator.free(project_root);
     var project_context = try loadProjectContext(allocator, project_root);
     defer project_context.deinit(allocator);
-    const cache_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline);
+    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline)
+    else
+        null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
 
-    if (try projectCacheHit(allocator, project_root, .build_exe, cache_key, artifact_path, out_path)) {
-        try makeExecutable(out_path);
-        if (diagnostics_mode == .json) {
-            const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null };
-            try writeSuccessJson(stderr, metrics);
+    if (cache_key) |key| {
+        if (try projectCacheHit(allocator, project_root, .build_exe, key, artifact_path, out_path)) {
+            try makeExecutable(out_path);
+            if (diagnostics_mode == .json) {
+                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
+                try writeSuccessJson(stderr, metrics);
+            }
+            return 0;
         }
-        return 0;
     }
 
     const compiled = try compileSource(allocator, source_path, compile_options);
@@ -4661,9 +4722,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 };
                 const link_ns = if (link_start) |start| elapsedNs(start) else null;
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                try projectCacheStore(allocator, project_root, .build_exe, cache_key, artifact_path, out_path);
+                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, artifact_path, out_path);
             }
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
+            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
 
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
@@ -4680,16 +4742,21 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     defer if (project_root_owned) allocator.free(project_root);
     var project_context = try loadProjectContext(allocator, project_root);
     defer project_context.deinit(allocator);
-    const cache_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline);
+    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline)
+    else
+        null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
 
-    if (try projectCacheHit(allocator, project_root, .build_obj, cache_key, artifact_path, out_path)) {
-        if (diagnostics_mode == .json) {
-            const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null };
-            try writeSuccessJson(stderr, metrics);
+    if (cache_key) |key| {
+        if (try projectCacheHit(allocator, project_root, .build_obj, key, artifact_path, out_path)) {
+            if (diagnostics_mode == .json) {
+                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
+                try writeSuccessJson(stderr, metrics);
+            }
+            return 0;
         }
-        return 0;
     }
 
     const compiled = try compileSource(allocator, source_path, compile_options);
@@ -4713,7 +4780,8 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             }
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            try projectCacheStore(allocator, project_root, .build_obj, cache_key, artifact_path, out_path);
+            if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_obj, key, artifact_path, out_path);
+            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false };
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
@@ -4729,16 +4797,21 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     defer if (project_root_owned) allocator.free(project_root);
     var project_context = try loadProjectContext(allocator, project_root);
     defer project_context.deinit(allocator);
-    const cache_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline);
+    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline)
+    else
+        null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
 
-    if (try projectCacheHit(allocator, project_root, .build_wasm, cache_key, artifact_path, out_path)) {
-        if (diagnostics_mode == .json) {
-            const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null };
-            try writeSuccessJson(stderr, metrics);
+    if (cache_key) |key| {
+        if (try projectCacheHit(allocator, project_root, .build_wasm, key, artifact_path, out_path)) {
+            if (diagnostics_mode == .json) {
+                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
+                try writeSuccessJson(stderr, metrics);
+            }
+            return 0;
         }
-        return 0;
     }
 
     const compiled = try compileSource(allocator, source_path, compile_options);
@@ -4757,7 +4830,8 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
-            try projectCacheStore(allocator, project_root, .build_wasm, cache_key, artifact_path, out_path);
+            if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_wasm, key, artifact_path, out_path);
+            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
             if (diagnostics_mode == .json) {
                 try writeSuccessJson(stderr, owned.metrics);
             }
