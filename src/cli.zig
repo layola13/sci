@@ -1160,7 +1160,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("usage: sa test <file> [options]\n\n");
             try writer.writeAll("Run @test blocks in a .sa source file.\n\n");
             try writer.writeAll("Options:\n");
-            try writer.writeAll("  --list                         List selected tests without running them\n");
+            try writer.writeAll("  --list                         List selected tests after frontend checks only\n");
             try writer.writeAll("  --compile-only                 Compile and link tests without running them\n");
             try writer.writeAll("  --trace-panic                  Include panic diagnostics on failed tests\n");
             try writer.writeAll("  --test-debug                   Alias for --trace-panic\n");
@@ -1388,7 +1388,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  -h, --help                     Show this help message\n");
     try writer.writeAll("  --version                      Print version and exit\n");
     try writer.writeAll("\nTest flags:\n");
-    try writer.writeAll("  --list                         List selected tests without running them\n");
+    try writer.writeAll("  --list                         List selected tests after frontend checks only\n");
     try writer.writeAll("  --compile-only                 Compile and link tests without running them\n");
     try writer.writeAll("  --trace-panic                  Include panic diagnostics on failed tests\n");
     try writer.writeAll("  --test-debug                   Alias for --trace-panic\n");
@@ -5090,6 +5090,14 @@ fn executeTest(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+
+            var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            if (test_options.list) {
+                defer test_list.deinit(allocator);
+                try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
+                return 0;
+            }
+
             const std_archive_path = try saStdArchivePath(allocator);
             defer allocator.free(std_archive_path);
 
@@ -5108,13 +5116,6 @@ fn executeTest(
             const artifact_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, artifact_name });
             defer allocator.free(artifact_full_path);
             try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true }, artifact_full_path);
-
-            var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
-            if (test_options.list) {
-                defer test_list.deinit(allocator);
-                try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
-                return 0;
-            }
 
             const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
             defer allocator.free(exe_full_path);

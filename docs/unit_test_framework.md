@@ -43,7 +43,7 @@ sa test ./
 # 模糊匹配测试名 (只运行带有 "addition" 的测试)
 sa test ./ --filter "addition"
 
-# 列出会被选择的测试，不执行子进程
+# 列出会被选择的测试，只做前端检查和元数据收集，不发射或链接测试二进制
 sa test ./ --list
 
 # 只完成编译和链接，确认测试可构建但不运行
@@ -85,7 +85,7 @@ recent scalars:
   raw_mask=7
 ```
 
-`--list` 输出受 `--filter` / `--skip` / `--exact` / `--ignored` / `--include-ignored` 影响，并包含测试标记与源码位置：
+`--list` 输出受 `--filter` / `--skip` / `--exact` / `--ignored` / `--include-ignored` 影响，并包含测试标记与源码位置。它只需要前端编译/验证通过，不会生成 LLVM bitcode、链接测试可执行文件或运行子进程；需要验证后端发射和链接时使用 `--compile-only`。
 
 ```text
 tests:

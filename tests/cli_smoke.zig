@@ -1948,6 +1948,30 @@ test "sa test runs isolated native tests with filterable names" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
+    const list_only_source =
+        \\@extern missing_runtime_probe() -> void
+        \\
+        \\@test "list avoids backend link"():
+        \\L_ENTRY:
+        \\    call @missing_runtime_probe()
+        \\    return
+    ;
+    try writeSource(tmp.dir, "list_only.sa", list_only_source);
+    const list_only_argv = [_][]const u8{ "sa", "test", "list_only.sa", "--list" };
+    const list_only_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        list_only_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), list_only_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "list avoids backend link"));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "[PASS]") == null);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
     const filter_argv = [_][]const u8{ "sa", "test", source_path, "--filter", "another" };
     const filter_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
