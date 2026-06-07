@@ -14,6 +14,7 @@
 @const PATH_NEW_FILE = utf8:"other.bin"
 @const PATH_NEW_EXT = utf8:"md"
 @const PATH_NO_EXT = utf8:"/tmp/demo/file"
+@const PATH_MULTI_SEP = utf8:"//tmp//demo/"
 @const EXPECT_BASE = utf8:"file.txt"
 @const EXPECT_DIR = utf8:"/tmp/demo"
 @const EXPECT_STEM = utf8:"file"
@@ -21,6 +22,11 @@
 @const EXPECT_JOINED = utf8:"/tmp/demo/child"
 @const EXPECT_RENAMED = utf8:"/tmp/demo/other.bin"
 @const EXPECT_WITH_EXT = utf8:"/tmp/demo/file.md"
+@const EXPECT_COMPONENT_TMP = utf8:"tmp"
+@const EXPECT_COMPONENT_DEMO = utf8:"demo"
+@const EXPECT_COMPONENT_FILE = utf8:"file.txt"
+@const EXPECT_PREFIX_TMP = utf8:"/tmp"
+@const EXPECT_PREFIX_DEMO = utf8:"/tmp/demo"
 
 @test "sa_std path rust parity macros"():
 L_ENTRY:
@@ -37,6 +43,7 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS new_file, &PATH_NEW_FILE, 9
     EXPAND STR_FROM_PARTS new_ext, &PATH_NEW_EXT, 2
     EXPAND STR_FROM_PARTS no_ext, &PATH_NO_EXT, 14
+    EXPAND STR_FROM_PARTS multi_sep, &PATH_MULTI_SEP, 12
     EXPAND STR_FROM_PARTS expect_base, &EXPECT_BASE, 8
     EXPAND STR_FROM_PARTS expect_dir, &EXPECT_DIR, 9
     EXPAND STR_FROM_PARTS expect_stem, &EXPECT_STEM, 4
@@ -44,6 +51,11 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS expect_joined, &EXPECT_JOINED, 15
     EXPAND STR_FROM_PARTS expect_renamed, &EXPECT_RENAMED, 19
     EXPAND STR_FROM_PARTS expect_with_ext, &EXPECT_WITH_EXT, 17
+    EXPAND STR_FROM_PARTS expect_component_tmp, &EXPECT_COMPONENT_TMP, 3
+    EXPAND STR_FROM_PARTS expect_component_demo, &EXPECT_COMPONENT_DEMO, 4
+    EXPAND STR_FROM_PARTS expect_component_file, &EXPECT_COMPONENT_FILE, 8
+    EXPAND STR_FROM_PARTS expect_prefix_tmp, &EXPECT_PREFIX_TMP, 4
+    EXPAND STR_FROM_PARTS expect_prefix_demo, &EXPECT_PREFIX_DEMO, 9
 
     EXPAND PATH_BASENAME base, full
     EXPAND PATH_DIRNAME dir, full
@@ -78,6 +90,15 @@ L_ENTRY:
     EXPAND PATH_COMPONENT_COUNT prefix_slash_components, prefix_slash
     EXPAND PATH_COMPONENT_COUNT root_components, root
     EXPAND PATH_COMPONENT_COUNT empty_components, stripped_bad
+    EXPAND PATH_COMPONENT_COUNT multi_sep_components, multi_sep
+    EXPAND PATH_TRY_COMPONENT_AT comp0_ok, comp0, full, 0
+    EXPAND PATH_TRY_COMPONENT_AT comp1_ok, comp1, full, 1
+    EXPAND PATH_TRY_COMPONENT_AT comp2_ok, comp2, full, 2
+    EXPAND PATH_TRY_COMPONENT_AT comp3_ok, comp3, full, 3
+    EXPAND PATH_TRY_COMPONENT_AT multi_comp1_ok, multi_comp1, multi_sep, 1
+    EXPAND PATH_TRY_COMPONENT_PREFIX_AT prefix0_ok, prefix0, full, 0
+    EXPAND PATH_TRY_COMPONENT_PREFIX_AT prefix1_ok, prefix1, full, 1
+    EXPAND PATH_TRY_COMPONENT_PREFIX_AT prefix3_ok, prefix3, full, 3
 
     EXPAND STR_EQ base_eq, base, expect_base
     EXPAND STR_EQ dir_eq, dir, expect_dir
@@ -98,6 +119,14 @@ L_ENTRY:
     EXPAND STR_EQ stripped_ext_eq, stripped_ext, no_ext
     EXPAND STR_EQ with_ext_eq, with_ext, expect_with_ext
     EXPAND STR_EQ with_empty_ext_eq, with_empty_ext, no_ext
+    EXPAND STR_EQ comp0_eq, comp0, expect_component_tmp
+    EXPAND STR_EQ comp1_eq, comp1, expect_component_demo
+    EXPAND STR_EQ comp2_eq, comp2, expect_component_file
+    EXPAND STR_IS_EMPTY comp3_empty, comp3
+    EXPAND STR_EQ multi_comp1_eq, multi_comp1, expect_component_demo
+    EXPAND STR_EQ prefix0_eq, prefix0, expect_prefix_tmp
+    EXPAND STR_EQ prefix1_eq, prefix1, expect_prefix_demo
+    EXPAND STR_IS_EMPTY prefix3_empty, prefix3
 
     ok_full_abs = eq full_abs, 1
     ok_rel_abs = eq rel_abs, 0
@@ -116,6 +145,15 @@ L_ENTRY:
     prefix_slash_components_ok = eq prefix_slash_components, 2
     root_components_ok = eq root_components, 0
     empty_components_ok = eq empty_components, 0
+    multi_sep_components_ok = eq multi_sep_components, 2
+    comp0_status_ok = eq comp0_ok, 1
+    comp1_status_ok = eq comp1_ok, 1
+    comp2_status_ok = eq comp2_ok, 1
+    comp3_status_ok = eq comp3_ok, 0
+    multi_comp1_status_ok = eq multi_comp1_ok, 1
+    prefix0_status_ok = eq prefix0_ok, 1
+    prefix1_status_ok = eq prefix1_ok, 1
+    prefix3_status_ok = eq prefix3_ok, 0
 
     ok01 = and base_eq, dir_eq
     ok02 = and ok01, parent_eq
@@ -151,7 +189,24 @@ L_ENTRY:
     ok32 = and ok31, full_components_ok
     ok33 = and ok32, prefix_slash_components_ok
     ok34 = and ok33, root_components_ok
-    ok = and ok34, empty_components_ok
+    ok35 = and ok34, empty_components_ok
+    ok36 = and ok35, multi_sep_components_ok
+    ok37 = and ok36, comp0_status_ok
+    ok38 = and ok37, comp0_eq
+    ok39 = and ok38, comp1_status_ok
+    ok40 = and ok39, comp1_eq
+    ok41 = and ok40, comp2_status_ok
+    ok42 = and ok41, comp2_eq
+    ok43 = and ok42, comp3_status_ok
+    ok44 = and ok43, comp3_empty
+    ok45 = and ok44, multi_comp1_status_ok
+    ok46 = and ok45, multi_comp1_eq
+    ok47 = and ok46, prefix0_status_ok
+    ok48 = and ok47, prefix0_eq
+    ok49 = and ok48, prefix1_status_ok
+    ok50 = and ok49, prefix1_eq
+    ok51 = and ok50, prefix3_status_ok
+    ok = and ok51, prefix3_empty
 
     !base_eq
     !dir_eq
@@ -172,6 +227,14 @@ L_ENTRY:
     !stripped_ext_eq
     !with_ext_eq
     !with_empty_ext_eq
+    !comp0_eq
+    !comp1_eq
+    !comp2_eq
+    !comp3_empty
+    !multi_comp1_eq
+    !prefix0_eq
+    !prefix1_eq
+    !prefix3_empty
     !full_abs
     !rel_abs
     !root_has_root
@@ -202,10 +265,28 @@ L_ENTRY:
     !prefix_slash_components
     !root_components
     !empty_components
+    !multi_sep_components
+    !comp0_ok
+    !comp1_ok
+    !comp2_ok
+    !comp3_ok
+    !multi_comp1_ok
+    !prefix0_ok
+    !prefix1_ok
+    !prefix3_ok
     !full_components_ok
     !prefix_slash_components_ok
     !root_components_ok
     !empty_components_ok
+    !multi_sep_components_ok
+    !comp0_status_ok
+    !comp1_status_ok
+    !comp2_status_ok
+    !comp3_status_ok
+    !multi_comp1_status_ok
+    !prefix0_status_ok
+    !prefix1_status_ok
+    !prefix3_status_ok
     !ok01
     !ok02
     !ok03
@@ -240,6 +321,31 @@ L_ENTRY:
     !ok32
     !ok33
     !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
+    !ok40
+    !ok41
+    !ok42
+    !ok43
+    !ok44
+    !ok45
+    !ok46
+    !ok47
+    !ok48
+    !ok49
+    !ok50
+    !ok51
+    !prefix3
+    !prefix1
+    !prefix0
+    !multi_comp1
+    !comp3
+    !comp2
+    !comp1
+    !comp0
     !with_empty_ext
     !with_ext
     !stripped_ext
@@ -261,6 +367,11 @@ L_ENTRY:
     !base
     !expect_renamed
     !expect_with_ext
+    !expect_prefix_demo
+    !expect_prefix_tmp
+    !expect_component_file
+    !expect_component_demo
+    !expect_component_tmp
     !expect_joined
     !expect_ext
     !expect_stem
@@ -269,6 +380,7 @@ L_ENTRY:
     !new_file
     !no_ext
     !new_ext
+    !multi_sep
     !abs_child
     !child
     !prefix_bad
