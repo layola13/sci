@@ -1,5 +1,6 @@
 @import "core/mem.sa"
 @import "alloc/vec.sa"
+@import "vec.sa"
 @import "hashmap.sal"
 
 @map_hash_ptr(&key: ptr) -> u64:
@@ -1364,6 +1365,174 @@ L_MAP_RETAIN_DONE_%out_len:
     !__map_retain_len_%out_len
     !__map_retain_cap_%out_len
     !__map_retain_slots_%out_len
+[END_MACRO]
+
+[MACRO] MAP_DRAIN %out_vec, %map_reg
+    __map_drain_len_%out_vec = load %map_reg+HashMap_len as u64
+    __map_drain_cap_hint_%out_vec = mul __map_drain_len_%out_vec, 2
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __map_drain_cap_hint_%out_vec
+    __map_drain_slots_%out_vec = load %map_reg+HashMap_slots as ptr
+    __map_drain_cap_%out_vec = load %map_reg+HashMap_cap as u64
+    __map_drain_idx_slot_%out_vec = stack_alloc 8
+    store __map_drain_idx_slot_%out_vec+0, 0 as u64
+    jmp L_MAP_DRAIN_HEAD_%out_vec
+
+L_MAP_DRAIN_HEAD_%out_vec:
+    __map_drain_idx_%out_vec = load __map_drain_idx_slot_%out_vec+0 as u64
+    __map_drain_done_%out_vec = eq __map_drain_idx_%out_vec, __map_drain_cap_%out_vec
+    br __map_drain_done_%out_vec -> L_MAP_DRAIN_DONE_%out_vec, L_MAP_DRAIN_BODY_%out_vec
+
+L_MAP_DRAIN_BODY_%out_vec:
+    __map_drain_slot_off_%out_vec = mul __map_drain_idx_%out_vec, HashMapSlot_SIZE
+    __map_drain_slot_%out_vec = ptr_add __map_drain_slots_%out_vec, __map_drain_slot_off_%out_vec
+    __map_drain_state_%out_vec = load __map_drain_slot_%out_vec+HashMapSlot_state as u8
+    __map_drain_filled_%out_vec = eq __map_drain_state_%out_vec, HashMap_STATE_FILLED
+    br __map_drain_filled_%out_vec -> L_MAP_DRAIN_PUSH_%out_vec, L_MAP_DRAIN_NEXT_%out_vec
+
+L_MAP_DRAIN_PUSH_%out_vec:
+    __map_drain_key_%out_vec = load __map_drain_slot_%out_vec+HashMapSlot_key as ptr
+    __map_drain_value_%out_vec = load __map_drain_slot_%out_vec+HashMapSlot_value as ptr
+    __map_drain_key_bits_%out_vec = bitcast __map_drain_key_%out_vec as u64
+    __map_drain_value_bits_%out_vec = bitcast __map_drain_value_%out_vec as u64
+    EXPAND VEC_PUSH_U64 %out_vec, __map_drain_key_bits_%out_vec
+    EXPAND VEC_PUSH_U64 %out_vec, __map_drain_value_bits_%out_vec
+    store __map_drain_slot_%out_vec+HashMapSlot_hash, 0 as u64
+    store __map_drain_slot_%out_vec+HashMapSlot_key, 0 as ptr
+    store __map_drain_slot_%out_vec+HashMapSlot_value, 0 as ptr
+    store __map_drain_slot_%out_vec+HashMapSlot_state, HashMap_STATE_EMPTY as u8
+    !__map_drain_value_bits_%out_vec
+    !__map_drain_key_bits_%out_vec
+    !__map_drain_value_%out_vec
+    !__map_drain_key_%out_vec
+    jmp L_MAP_DRAIN_NEXT_%out_vec
+
+L_MAP_DRAIN_NEXT_%out_vec:
+    __map_drain_next_idx_%out_vec = add __map_drain_idx_%out_vec, 1
+    store __map_drain_idx_slot_%out_vec+0, __map_drain_next_idx_%out_vec as u64
+    !__map_drain_next_idx_%out_vec
+    !__map_drain_filled_%out_vec
+    !__map_drain_state_%out_vec
+    !__map_drain_slot_%out_vec
+    !__map_drain_slot_off_%out_vec
+    !__map_drain_done_%out_vec
+    !__map_drain_idx_%out_vec
+    jmp L_MAP_DRAIN_HEAD_%out_vec
+
+L_MAP_DRAIN_DONE_%out_vec:
+    __map_drain_bytes_%out_vec = mul __map_drain_cap_%out_vec, HashMapSlot_SIZE
+    __map_drain_has_slots_%out_vec = ne __map_drain_slots_%out_vec, 0
+    br __map_drain_has_slots_%out_vec -> L_MAP_DRAIN_CLEAR_SLOTS_%out_vec, L_MAP_DRAIN_FINISH_%out_vec
+
+L_MAP_DRAIN_CLEAR_SLOTS_%out_vec:
+    call @sa_mem_set(&__map_drain_slots_%out_vec, 0, __map_drain_bytes_%out_vec)
+    jmp L_MAP_DRAIN_FINISH_%out_vec
+
+L_MAP_DRAIN_FINISH_%out_vec:
+    store %map_reg+HashMap_len, 0 as u64
+    store %map_reg+HashMap_tombs, 0 as u64
+    !__map_drain_has_slots_%out_vec
+    !__map_drain_bytes_%out_vec
+    !__map_drain_done_%out_vec
+    !__map_drain_idx_%out_vec
+    !__map_drain_cap_%out_vec
+    !__map_drain_slots_%out_vec
+    !__map_drain_cap_hint_%out_vec
+    !__map_drain_len_%out_vec
+[END_MACRO]
+
+[MACRO] MAP_EXTRACT_IF %out_len, %out_vec, %map_reg, %pred_fn
+    __map_extract_slots_%out_len = load %map_reg+HashMap_slots as ptr
+    __map_extract_cap_%out_len = load %map_reg+HashMap_cap as u64
+    __map_extract_len_%out_len = load %map_reg+HashMap_len as u64
+    __map_extract_tombs_start_%out_len = load %map_reg+HashMap_tombs as u64
+    __map_extract_cap_hint_%out_len = mul __map_extract_len_%out_len, 2
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __map_extract_cap_hint_%out_len
+    __map_extract_len_slot_%out_len = stack_alloc 8
+    __map_extract_tombs_slot_%out_len = stack_alloc 8
+    store __map_extract_len_slot_%out_len+0, __map_extract_len_%out_len as u64
+    store __map_extract_tombs_slot_%out_len+0, __map_extract_tombs_start_%out_len as u64
+    __map_extract_idx_slot_%out_len = stack_alloc 8
+    store __map_extract_idx_slot_%out_len+0, 0 as u64
+    jmp L_MAP_EXTRACT_HEAD_%out_len
+
+L_MAP_EXTRACT_HEAD_%out_len:
+    __map_extract_idx_%out_len = load __map_extract_idx_slot_%out_len+0 as u64
+    __map_extract_done_%out_len = eq __map_extract_idx_%out_len, __map_extract_cap_%out_len
+    br __map_extract_done_%out_len -> L_MAP_EXTRACT_DONE_%out_len, L_MAP_EXTRACT_BODY_%out_len
+
+L_MAP_EXTRACT_BODY_%out_len:
+    __map_extract_slot_off_%out_len = mul __map_extract_idx_%out_len, HashMapSlot_SIZE
+    __map_extract_slot_%out_len = ptr_add __map_extract_slots_%out_len, __map_extract_slot_off_%out_len
+    __map_extract_state_%out_len = load __map_extract_slot_%out_len+HashMapSlot_state as u8
+    __map_extract_filled_%out_len = eq __map_extract_state_%out_len, HashMap_STATE_FILLED
+    br __map_extract_filled_%out_len -> L_MAP_EXTRACT_CHECK_%out_len, L_MAP_EXTRACT_NEXT_%out_len
+
+L_MAP_EXTRACT_CHECK_%out_len:
+    __map_extract_key_%out_len = load __map_extract_slot_%out_len+HashMapSlot_key as ptr
+    __map_extract_value_%out_len = load __map_extract_slot_%out_len+HashMapSlot_value as ptr
+    __map_extract_pred_%out_len = call %pred_fn(__map_extract_key_%out_len, __map_extract_value_%out_len)
+    __map_extract_take_%out_len = ne __map_extract_pred_%out_len, 0
+    br __map_extract_take_%out_len -> L_MAP_EXTRACT_TAKE_%out_len, L_MAP_EXTRACT_KEEP_%out_len
+
+L_MAP_EXTRACT_KEEP_%out_len:
+    !__map_extract_take_%out_len
+    !__map_extract_pred_%out_len
+    !__map_extract_value_%out_len
+    !__map_extract_key_%out_len
+    jmp L_MAP_EXTRACT_NEXT_%out_len
+
+L_MAP_EXTRACT_TAKE_%out_len:
+    __map_extract_key_bits_%out_len = bitcast __map_extract_key_%out_len as u64
+    __map_extract_value_bits_%out_len = bitcast __map_extract_value_%out_len as u64
+    EXPAND VEC_PUSH_U64 %out_vec, __map_extract_key_bits_%out_len
+    EXPAND VEC_PUSH_U64 %out_vec, __map_extract_value_bits_%out_len
+    __map_extract_cur_len_%out_len = load __map_extract_len_slot_%out_len+0 as u64
+    __map_extract_cur_tombs_%out_len = load __map_extract_tombs_slot_%out_len+0 as u64
+    __map_extract_next_len_%out_len = sub __map_extract_cur_len_%out_len, 1
+    __map_extract_next_tombs_%out_len = add __map_extract_cur_tombs_%out_len, 1
+    store __map_extract_len_slot_%out_len+0, __map_extract_next_len_%out_len as u64
+    store __map_extract_tombs_slot_%out_len+0, __map_extract_next_tombs_%out_len as u64
+    store __map_extract_slot_%out_len+HashMapSlot_hash, 0 as u64
+    store __map_extract_slot_%out_len+HashMapSlot_key, 0 as ptr
+    store __map_extract_slot_%out_len+HashMapSlot_value, 0 as ptr
+    store __map_extract_slot_%out_len+HashMapSlot_state, HashMap_STATE_TOMB as u8
+    !__map_extract_next_tombs_%out_len
+    !__map_extract_next_len_%out_len
+    !__map_extract_cur_tombs_%out_len
+    !__map_extract_cur_len_%out_len
+    !__map_extract_value_bits_%out_len
+    !__map_extract_key_bits_%out_len
+    !__map_extract_take_%out_len
+    !__map_extract_pred_%out_len
+    !__map_extract_value_%out_len
+    !__map_extract_key_%out_len
+    jmp L_MAP_EXTRACT_NEXT_%out_len
+
+L_MAP_EXTRACT_NEXT_%out_len:
+    __map_extract_next_idx_%out_len = add __map_extract_idx_%out_len, 1
+    store __map_extract_idx_slot_%out_len+0, __map_extract_next_idx_%out_len as u64
+    !__map_extract_next_idx_%out_len
+    !__map_extract_filled_%out_len
+    !__map_extract_state_%out_len
+    !__map_extract_slot_%out_len
+    !__map_extract_slot_off_%out_len
+    !__map_extract_done_%out_len
+    !__map_extract_idx_%out_len
+    jmp L_MAP_EXTRACT_HEAD_%out_len
+
+L_MAP_EXTRACT_DONE_%out_len:
+    %out_len = load __map_extract_len_slot_%out_len+0 as u64
+    __map_extract_tombs_%out_len = load __map_extract_tombs_slot_%out_len+0 as u64
+    store %map_reg+HashMap_len, %out_len as u64
+    store %map_reg+HashMap_tombs, __map_extract_tombs_%out_len as u64
+    !__map_extract_done_%out_len
+    !__map_extract_idx_%out_len
+    !__map_extract_tombs_%out_len
+    !__map_extract_tombs_start_%out_len
+    !__map_extract_cap_hint_%out_len
+    !__map_extract_len_%out_len
+    !__map_extract_cap_%out_len
+    !__map_extract_slots_%out_len
 [END_MACRO]
 
 [MACRO] MAP_PUT %map_reg, %key, %value

@@ -1,5 +1,6 @@
 @import "hashset.sal"
 @import "hashmap.sa"
+@import "vec.sa"
 
 @const HASHSET_SENTINEL = utf8:"hashset"
 
@@ -682,6 +683,159 @@ L_SET_RETAIN_DONE_%out_len:
     !__set_retain_len_%out_len
     !__set_retain_cap_%out_len
     !__set_retain_slots_%out_len
+[END_MACRO]
+
+[MACRO] SET_DRAIN %out_vec, %set_reg
+    __set_drain_len_%out_vec = load %set_reg+HashSet_len as u64
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __set_drain_len_%out_vec
+    __set_drain_slots_%out_vec = load %set_reg+HashSet_slots as ptr
+    __set_drain_cap_%out_vec = load %set_reg+HashSet_cap as u64
+    __set_drain_idx_slot_%out_vec = stack_alloc 8
+    store __set_drain_idx_slot_%out_vec+0, 0 as u64
+    jmp L_SET_DRAIN_HEAD_%out_vec
+
+L_SET_DRAIN_HEAD_%out_vec:
+    __set_drain_idx_%out_vec = load __set_drain_idx_slot_%out_vec+0 as u64
+    __set_drain_done_%out_vec = eq __set_drain_idx_%out_vec, __set_drain_cap_%out_vec
+    br __set_drain_done_%out_vec -> L_SET_DRAIN_DONE_%out_vec, L_SET_DRAIN_BODY_%out_vec
+
+L_SET_DRAIN_BODY_%out_vec:
+    __set_drain_slot_off_%out_vec = mul __set_drain_idx_%out_vec, HashSetSlot_SIZE
+    __set_drain_slot_%out_vec = ptr_add __set_drain_slots_%out_vec, __set_drain_slot_off_%out_vec
+    __set_drain_state_%out_vec = load __set_drain_slot_%out_vec+HashSetSlot_state as u8
+    __set_drain_filled_%out_vec = eq __set_drain_state_%out_vec, HashSet_STATE_FILLED
+    br __set_drain_filled_%out_vec -> L_SET_DRAIN_PUSH_%out_vec, L_SET_DRAIN_NEXT_%out_vec
+
+L_SET_DRAIN_PUSH_%out_vec:
+    __set_drain_key_%out_vec = load __set_drain_slot_%out_vec+HashSetSlot_key as ptr
+    __set_drain_key_bits_%out_vec = bitcast __set_drain_key_%out_vec as u64
+    EXPAND VEC_PUSH_U64 %out_vec, __set_drain_key_bits_%out_vec
+    store __set_drain_slot_%out_vec+HashSetSlot_hash, 0 as u64
+    store __set_drain_slot_%out_vec+HashSetSlot_key, 0 as ptr
+    store __set_drain_slot_%out_vec+HashSetSlot_value, 0 as ptr
+    store __set_drain_slot_%out_vec+HashSetSlot_state, HashSet_STATE_EMPTY as u8
+    !__set_drain_key_bits_%out_vec
+    !__set_drain_key_%out_vec
+    jmp L_SET_DRAIN_NEXT_%out_vec
+
+L_SET_DRAIN_NEXT_%out_vec:
+    __set_drain_next_idx_%out_vec = add __set_drain_idx_%out_vec, 1
+    store __set_drain_idx_slot_%out_vec+0, __set_drain_next_idx_%out_vec as u64
+    !__set_drain_next_idx_%out_vec
+    !__set_drain_filled_%out_vec
+    !__set_drain_state_%out_vec
+    !__set_drain_slot_%out_vec
+    !__set_drain_slot_off_%out_vec
+    !__set_drain_done_%out_vec
+    !__set_drain_idx_%out_vec
+    jmp L_SET_DRAIN_HEAD_%out_vec
+
+L_SET_DRAIN_DONE_%out_vec:
+    __set_drain_bytes_%out_vec = mul __set_drain_cap_%out_vec, HashSetSlot_SIZE
+    __set_drain_has_slots_%out_vec = ne __set_drain_slots_%out_vec, 0
+    br __set_drain_has_slots_%out_vec -> L_SET_DRAIN_CLEAR_SLOTS_%out_vec, L_SET_DRAIN_FINISH_%out_vec
+
+L_SET_DRAIN_CLEAR_SLOTS_%out_vec:
+    call @sa_mem_set(&__set_drain_slots_%out_vec, 0, __set_drain_bytes_%out_vec)
+    jmp L_SET_DRAIN_FINISH_%out_vec
+
+L_SET_DRAIN_FINISH_%out_vec:
+    store %set_reg+HashSet_len, 0 as u64
+    store %set_reg+HashSet_tombs, 0 as u64
+    !__set_drain_has_slots_%out_vec
+    !__set_drain_bytes_%out_vec
+    !__set_drain_done_%out_vec
+    !__set_drain_idx_%out_vec
+    !__set_drain_cap_%out_vec
+    !__set_drain_slots_%out_vec
+    !__set_drain_len_%out_vec
+[END_MACRO]
+
+[MACRO] SET_EXTRACT_IF %out_len, %out_vec, %set_reg, %pred_fn
+    __set_extract_slots_%out_len = load %set_reg+HashSet_slots as ptr
+    __set_extract_cap_%out_len = load %set_reg+HashSet_cap as u64
+    __set_extract_len_%out_len = load %set_reg+HashSet_len as u64
+    __set_extract_tombs_start_%out_len = load %set_reg+HashSet_tombs as u64
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __set_extract_len_%out_len
+    __set_extract_len_slot_%out_len = stack_alloc 8
+    __set_extract_tombs_slot_%out_len = stack_alloc 8
+    store __set_extract_len_slot_%out_len+0, __set_extract_len_%out_len as u64
+    store __set_extract_tombs_slot_%out_len+0, __set_extract_tombs_start_%out_len as u64
+    __set_extract_idx_slot_%out_len = stack_alloc 8
+    store __set_extract_idx_slot_%out_len+0, 0 as u64
+    jmp L_SET_EXTRACT_HEAD_%out_len
+
+L_SET_EXTRACT_HEAD_%out_len:
+    __set_extract_idx_%out_len = load __set_extract_idx_slot_%out_len+0 as u64
+    __set_extract_done_%out_len = eq __set_extract_idx_%out_len, __set_extract_cap_%out_len
+    br __set_extract_done_%out_len -> L_SET_EXTRACT_DONE_%out_len, L_SET_EXTRACT_BODY_%out_len
+
+L_SET_EXTRACT_BODY_%out_len:
+    __set_extract_slot_off_%out_len = mul __set_extract_idx_%out_len, HashSetSlot_SIZE
+    __set_extract_slot_%out_len = ptr_add __set_extract_slots_%out_len, __set_extract_slot_off_%out_len
+    __set_extract_state_%out_len = load __set_extract_slot_%out_len+HashSetSlot_state as u8
+    __set_extract_filled_%out_len = eq __set_extract_state_%out_len, HashSet_STATE_FILLED
+    br __set_extract_filled_%out_len -> L_SET_EXTRACT_CHECK_%out_len, L_SET_EXTRACT_NEXT_%out_len
+
+L_SET_EXTRACT_CHECK_%out_len:
+    __set_extract_key_%out_len = load __set_extract_slot_%out_len+HashSetSlot_key as ptr
+    __set_extract_pred_%out_len = call %pred_fn(__set_extract_key_%out_len)
+    __set_extract_take_%out_len = ne __set_extract_pred_%out_len, 0
+    br __set_extract_take_%out_len -> L_SET_EXTRACT_TAKE_%out_len, L_SET_EXTRACT_KEEP_%out_len
+
+L_SET_EXTRACT_KEEP_%out_len:
+    !__set_extract_take_%out_len
+    !__set_extract_pred_%out_len
+    !__set_extract_key_%out_len
+    jmp L_SET_EXTRACT_NEXT_%out_len
+
+L_SET_EXTRACT_TAKE_%out_len:
+    __set_extract_key_bits_%out_len = bitcast __set_extract_key_%out_len as u64
+    EXPAND VEC_PUSH_U64 %out_vec, __set_extract_key_bits_%out_len
+    __set_extract_cur_len_%out_len = load __set_extract_len_slot_%out_len+0 as u64
+    __set_extract_cur_tombs_%out_len = load __set_extract_tombs_slot_%out_len+0 as u64
+    __set_extract_next_len_%out_len = sub __set_extract_cur_len_%out_len, 1
+    __set_extract_next_tombs_%out_len = add __set_extract_cur_tombs_%out_len, 1
+    store __set_extract_len_slot_%out_len+0, __set_extract_next_len_%out_len as u64
+    store __set_extract_tombs_slot_%out_len+0, __set_extract_next_tombs_%out_len as u64
+    store __set_extract_slot_%out_len+HashSetSlot_hash, 0 as u64
+    store __set_extract_slot_%out_len+HashSetSlot_key, 0 as ptr
+    store __set_extract_slot_%out_len+HashSetSlot_value, 0 as ptr
+    store __set_extract_slot_%out_len+HashSetSlot_state, HashSet_STATE_TOMB as u8
+    !__set_extract_next_tombs_%out_len
+    !__set_extract_next_len_%out_len
+    !__set_extract_cur_tombs_%out_len
+    !__set_extract_cur_len_%out_len
+    !__set_extract_key_bits_%out_len
+    !__set_extract_take_%out_len
+    !__set_extract_pred_%out_len
+    !__set_extract_key_%out_len
+    jmp L_SET_EXTRACT_NEXT_%out_len
+
+L_SET_EXTRACT_NEXT_%out_len:
+    __set_extract_next_idx_%out_len = add __set_extract_idx_%out_len, 1
+    store __set_extract_idx_slot_%out_len+0, __set_extract_next_idx_%out_len as u64
+    !__set_extract_next_idx_%out_len
+    !__set_extract_filled_%out_len
+    !__set_extract_state_%out_len
+    !__set_extract_slot_%out_len
+    !__set_extract_slot_off_%out_len
+    !__set_extract_done_%out_len
+    !__set_extract_idx_%out_len
+    jmp L_SET_EXTRACT_HEAD_%out_len
+
+L_SET_EXTRACT_DONE_%out_len:
+    %out_len = load __set_extract_len_slot_%out_len+0 as u64
+    __set_extract_tombs_%out_len = load __set_extract_tombs_slot_%out_len+0 as u64
+    store %set_reg+HashSet_len, %out_len as u64
+    store %set_reg+HashSet_tombs, __set_extract_tombs_%out_len as u64
+    !__set_extract_done_%out_len
+    !__set_extract_idx_%out_len
+    !__set_extract_tombs_%out_len
+    !__set_extract_tombs_start_%out_len
+    !__set_extract_len_%out_len
+    !__set_extract_cap_%out_len
+    !__set_extract_slots_%out_len
 [END_MACRO]
 
 [MACRO] SET_INSERT %out_ok, %set_reg, %key

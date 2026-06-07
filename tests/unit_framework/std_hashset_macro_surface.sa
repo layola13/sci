@@ -14,6 +14,14 @@ L_ENTRY:
     !key
     return keep
 
+@set_extract_bravo(key: ptr) -> u64:
+L_ENTRY:
+    bravo = &KEY_B
+    take = eq key, bravo
+    !bravo
+    !key
+    return take
+
 @test "sa_std hashset convenience macros"():
 L_ENTRY:
     EXPAND SET_WITH_CAPACITY set, 9
@@ -413,6 +421,144 @@ L_RETAIN_FAIL:
     panic(918)
 
 L_RETAIN_OK:
+    !ok
+    return
+
+@test "sa_std hashset drain and extract macros"():
+L_ENTRY:
+    EXPAND SET_WITH_CAPACITY set, 4
+    key_a = &KEY_A
+    key_b = &KEY_B
+    key_c = &KEY_C
+
+    EXPAND SET_INSERT ins_a, set, key_a
+    EXPAND SET_INSERT ins_b, set, key_b
+    EXPAND SET_INSERT ins_c, set, key_c
+    EXPAND SET_EXTRACT_IF extract_len, extract_vec, set, @set_extract_bravo
+    EXPAND VEC_LEN extract_vec_len, extract_vec
+    key_a_bits = bitcast key_a as u64
+    key_b_bits = bitcast key_b as u64
+    key_c_bits = bitcast key_c as u64
+    EXPAND VEC_CONTAINS_U64 extract_has_b, extract_vec, key_b_bits
+    EXPAND SET_LEN len_after_extract, set
+    EXPAND SET_CONTAINS has_a_after_extract, set, key_a
+    EXPAND SET_CONTAINS has_b_after_extract, set, key_b
+    EXPAND SET_CONTAINS has_c_after_extract, set, key_c
+
+    EXPAND SET_DRAIN drain_vec, set
+    EXPAND VEC_LEN drain_vec_len, drain_vec
+    EXPAND VEC_CONTAINS_U64 drain_has_a, drain_vec, key_a_bits
+    EXPAND VEC_CONTAINS_U64 drain_has_c, drain_vec, key_c_bits
+    EXPAND SET_LEN len_after_drain, set
+    EXPAND SET_CONTAINS has_a_after_drain, set, key_a
+    EXPAND SET_INSERT reinsert_b, set, key_b
+    EXPAND SET_LEN len_after_reinsert, set
+    EXPAND SET_CONTAINS has_b_after_reinsert, set, key_b
+
+    ins_a_ok = eq ins_a, 1
+    ins_b_ok = eq ins_b, 1
+    ins_c_ok = eq ins_c, 1
+    extract_len_ok = eq extract_len, 2
+    extract_vec_len_ok = eq extract_vec_len, 1
+    extract_has_b_ok = eq extract_has_b, 1
+    len_after_extract_ok = eq len_after_extract, 2
+    has_a_after_extract_ok = eq has_a_after_extract, 1
+    has_b_after_extract_ok = eq has_b_after_extract, 0
+    has_c_after_extract_ok = eq has_c_after_extract, 1
+    drain_vec_len_ok = eq drain_vec_len, 2
+    drain_has_a_ok = eq drain_has_a, 1
+    drain_has_c_ok = eq drain_has_c, 1
+    len_after_drain_ok = eq len_after_drain, 0
+    has_a_after_drain_ok = eq has_a_after_drain, 0
+    reinsert_b_ok = eq reinsert_b, 1
+    len_after_reinsert_ok = eq len_after_reinsert, 1
+    has_b_after_reinsert_ok = eq has_b_after_reinsert, 1
+    ok01 = and ins_a_ok, ins_b_ok
+    ok02 = and ok01, ins_c_ok
+    ok03 = and ok02, extract_len_ok
+    ok04 = and ok03, extract_vec_len_ok
+    ok05 = and ok04, extract_has_b_ok
+    ok06 = and ok05, len_after_extract_ok
+    ok07 = and ok06, has_a_after_extract_ok
+    ok08 = and ok07, has_b_after_extract_ok
+    ok09 = and ok08, has_c_after_extract_ok
+    ok10 = and ok09, drain_vec_len_ok
+    ok11 = and ok10, drain_has_a_ok
+    ok12 = and ok11, drain_has_c_ok
+    ok13 = and ok12, len_after_drain_ok
+    ok14 = and ok13, has_a_after_drain_ok
+    ok15 = and ok14, reinsert_b_ok
+    ok16 = and ok15, len_after_reinsert_ok
+    ok = and ok16, has_b_after_reinsert_ok
+
+    !ins_a
+    !ins_b
+    !ins_c
+    !extract_len
+    !extract_vec_len
+    !key_a_bits
+    !key_b_bits
+    !key_c_bits
+    !extract_has_b
+    !len_after_extract
+    !has_a_after_extract
+    !has_b_after_extract
+    !has_c_after_extract
+    !drain_vec_len
+    !drain_has_a
+    !drain_has_c
+    !len_after_drain
+    !has_a_after_drain
+    !reinsert_b
+    !len_after_reinsert
+    !has_b_after_reinsert
+    !key_c
+    !key_b
+    !key_a
+    !ins_a_ok
+    !ins_b_ok
+    !ins_c_ok
+    !extract_len_ok
+    !extract_vec_len_ok
+    !extract_has_b_ok
+    !len_after_extract_ok
+    !has_a_after_extract_ok
+    !has_b_after_extract_ok
+    !has_c_after_extract_ok
+    !drain_vec_len_ok
+    !drain_has_a_ok
+    !drain_has_c_ok
+    !len_after_drain_ok
+    !has_a_after_drain_ok
+    !reinsert_b_ok
+    !len_after_reinsert_ok
+    !has_b_after_reinsert_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    EXPAND VEC_FREE drain_vec
+    EXPAND VEC_FREE extract_vec
+    EXPAND SET_FREE set
+    br ok -> L_DRAIN_EXTRACT_OK, L_DRAIN_EXTRACT_FAIL
+
+L_DRAIN_EXTRACT_FAIL:
+    !ok
+    panic(920)
+
+L_DRAIN_EXTRACT_OK:
     !ok
     return
 

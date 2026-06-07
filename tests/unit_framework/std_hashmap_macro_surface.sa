@@ -19,6 +19,15 @@ L_ENTRY:
     !key
     return keep
 
+@map_extract_bravo(key: ptr, value: ptr) -> u64:
+L_ENTRY:
+    bravo = &KEY_B
+    take = eq key, bravo
+    !bravo
+    !value
+    !key
+    return take
+
 @test "sa_std hashmap convenience macros"():
 L_ENTRY:
     EXPAND MAP_WITH_CAPACITY map, 9
@@ -616,5 +625,153 @@ L_RETAIN_FAIL:
     panic(917)
 
 L_RETAIN_OK:
+    !ok
+    return
+
+@test "sa_std hashmap drain and extract macros"():
+L_ENTRY:
+    EXPAND MAP_WITH_CAPACITY map, 4
+    key_a = &KEY
+    key_b = &KEY_B
+    key_c = &KEY_C
+    value_a = &VALUE
+    value_b = &VALUE_B
+    value_c = &VALUE_C
+
+    EXPAND MAP_PUT map, key_a, value_a
+    EXPAND MAP_PUT map, key_b, value_b
+    EXPAND MAP_PUT map, key_c, value_c
+    EXPAND MAP_EXTRACT_IF extract_len, extract_vec, map, @map_extract_bravo
+    EXPAND VEC_LEN extract_vec_len, extract_vec
+    key_a_bits = bitcast key_a as u64
+    key_b_bits = bitcast key_b as u64
+    key_c_bits = bitcast key_c as u64
+    value_a_bits = bitcast value_a as u64
+    value_b_bits = bitcast value_b as u64
+    value_c_bits = bitcast value_c as u64
+    EXPAND VEC_CONTAINS_U64 extract_has_key_b, extract_vec, key_b_bits
+    EXPAND VEC_CONTAINS_U64 extract_has_value_b, extract_vec, value_b_bits
+    EXPAND MAP_LEN len_after_extract, map
+    EXPAND MAP_CONTAINS_KEY has_a_after_extract, map, key_a
+    EXPAND MAP_CONTAINS_KEY has_b_after_extract, map, key_b
+    EXPAND MAP_CONTAINS_KEY has_c_after_extract, map, key_c
+
+    EXPAND MAP_DRAIN drain_vec, map
+    EXPAND VEC_LEN drain_vec_len, drain_vec
+    EXPAND VEC_CONTAINS_U64 drain_has_key_a, drain_vec, key_a_bits
+    EXPAND VEC_CONTAINS_U64 drain_has_value_a, drain_vec, value_a_bits
+    EXPAND VEC_CONTAINS_U64 drain_has_key_c, drain_vec, key_c_bits
+    EXPAND VEC_CONTAINS_U64 drain_has_value_c, drain_vec, value_c_bits
+    EXPAND MAP_LEN len_after_drain, map
+    EXPAND MAP_CONTAINS_KEY has_a_after_drain, map, key_a
+    EXPAND MAP_PUT map, key_b, value_b
+    EXPAND MAP_LEN len_after_reinsert, map
+    EXPAND MAP_GET get_b_after_reinsert, map, key_b
+
+    extract_len_ok = eq extract_len, 2
+    extract_vec_len_ok = eq extract_vec_len, 2
+    extract_has_key_b_ok = eq extract_has_key_b, 1
+    extract_has_value_b_ok = eq extract_has_value_b, 1
+    len_after_extract_ok = eq len_after_extract, 2
+    has_a_after_extract_ok = eq has_a_after_extract, 1
+    has_b_after_extract_ok = eq has_b_after_extract, 0
+    has_c_after_extract_ok = eq has_c_after_extract, 1
+    drain_vec_len_ok = eq drain_vec_len, 4
+    drain_has_key_a_ok = eq drain_has_key_a, 1
+    drain_has_value_a_ok = eq drain_has_value_a, 1
+    drain_has_key_c_ok = eq drain_has_key_c, 1
+    drain_has_value_c_ok = eq drain_has_value_c, 1
+    len_after_drain_ok = eq len_after_drain, 0
+    has_a_after_drain_ok = eq has_a_after_drain, 0
+    len_after_reinsert_ok = eq len_after_reinsert, 1
+    get_b_after_reinsert_ok = eq get_b_after_reinsert, value_b
+    ok01 = and extract_len_ok, extract_vec_len_ok
+    ok02 = and ok01, extract_has_key_b_ok
+    ok03 = and ok02, extract_has_value_b_ok
+    ok04 = and ok03, len_after_extract_ok
+    ok05 = and ok04, has_a_after_extract_ok
+    ok06 = and ok05, has_b_after_extract_ok
+    ok07 = and ok06, has_c_after_extract_ok
+    ok08 = and ok07, drain_vec_len_ok
+    ok09 = and ok08, drain_has_key_a_ok
+    ok10 = and ok09, drain_has_value_a_ok
+    ok11 = and ok10, drain_has_key_c_ok
+    ok12 = and ok11, drain_has_value_c_ok
+    ok13 = and ok12, len_after_drain_ok
+    ok14 = and ok13, has_a_after_drain_ok
+    ok15 = and ok14, len_after_reinsert_ok
+    ok = and ok15, get_b_after_reinsert_ok
+
+    !extract_len
+    !extract_vec_len
+    !key_a_bits
+    !key_b_bits
+    !key_c_bits
+    !value_a_bits
+    !value_b_bits
+    !value_c_bits
+    !extract_has_key_b
+    !extract_has_value_b
+    !len_after_extract
+    !has_a_after_extract
+    !has_b_after_extract
+    !has_c_after_extract
+    !drain_vec_len
+    !drain_has_key_a
+    !drain_has_value_a
+    !drain_has_key_c
+    !drain_has_value_c
+    !len_after_drain
+    !has_a_after_drain
+    !len_after_reinsert
+    !get_b_after_reinsert
+    !value_c
+    !value_b
+    !value_a
+    !key_c
+    !key_b
+    !key_a
+    !extract_len_ok
+    !extract_vec_len_ok
+    !extract_has_key_b_ok
+    !extract_has_value_b_ok
+    !len_after_extract_ok
+    !has_a_after_extract_ok
+    !has_b_after_extract_ok
+    !has_c_after_extract_ok
+    !drain_vec_len_ok
+    !drain_has_key_a_ok
+    !drain_has_value_a_ok
+    !drain_has_key_c_ok
+    !drain_has_value_c_ok
+    !len_after_drain_ok
+    !has_a_after_drain_ok
+    !len_after_reinsert_ok
+    !get_b_after_reinsert_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    EXPAND VEC_FREE drain_vec
+    EXPAND VEC_FREE extract_vec
+    EXPAND MAP_FREE map
+    br ok -> L_DRAIN_EXTRACT_OK, L_DRAIN_EXTRACT_FAIL
+
+L_DRAIN_EXTRACT_FAIL:
+    !ok
+    panic(919)
+
+L_DRAIN_EXTRACT_OK:
     !ok
     return
