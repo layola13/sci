@@ -84,6 +84,9 @@ pub fn build(b: *std.Build) void {
     });
     const install_sa_std_static = b.addInstallArtifact(sa_std_static, .{});
     b.getInstallStep().dependOn(&install_sa_std_static.step);
+    const sync_sa_std_artifact = b.addUpdateSourceFiles();
+    sync_sa_std_artifact.addCopyFileToSource(sa_std_static.getEmittedBin(), "artifacts/sa_std/libsa_std.a");
+    b.getInstallStep().dependOn(&sync_sa_std_artifact.step);
 
     const sa_std_shared_module = b.createModule(.{
         .root_source_file = b.path("src/runtime/sa_std.zig"),
@@ -104,6 +107,7 @@ pub fn build(b: *std.Build) void {
 
     const sa_std_static_step = b.step("sa-std-static", "Build and install the static SA standard runtime library");
     sa_std_static_step.dependOn(&install_sa_std_static.step);
+    sa_std_static_step.dependOn(&sync_sa_std_artifact.step);
     sa_std_static_step.dependOn(&install_sa_std_header.step);
 
     const sa_std_shared_step = b.step("sa-std-shared", "Build and install the shared SA standard runtime library");

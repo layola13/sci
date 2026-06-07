@@ -6150,13 +6150,18 @@ pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u3
     return ok(u64, handle);
 }
 
+pub export fn sa_std_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    return sa_std_read(stream, out, cap, out_read);
+}
 pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) {
     var read: u64 = 0;
-    const status = sa_std_read(stream, out, cap, &read);
+    const status = sa_std_net_tcp_stream_read(stream, out, cap, &read);
     if (status != SA_STD_OK) return fail(u64, status);
     return ok(u64, read);
 }
-pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
+pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
 
     registry_mutex.lock();
@@ -6176,10 +6181,23 @@ pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
     registry_mutex.unlock();
 
     const read = std.posix.recv(fd, buffer, std.posix.MSG.PEEK) catch |err| return finishErr(err);
+    read_ptr.* = @as(u64, @intCast(read));
+    return finish(SA_STD_OK);
+}
+pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_tcp_stream_peek(stream, out, cap, &read);
+    if (status != SA_STD_OK) return status;
     return finish(@as(i32, @intCast(read)));
 }
+pub export fn sa_std_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    return sa_std_write(stream, out, len, out_written);
+}
 pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 {
-    return sa_io_write_all(stream, out, len);
+    var written: u64 = 0;
+    const status = sa_std_net_tcp_stream_write(stream, out, len, &written);
+    if (status != SA_STD_OK) return status;
+    return finish(@as(i32, @intCast(written)));
 }
 pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) Fallible(i32) {
     const status = sa_io_write_all(stream, out, len);
@@ -6190,7 +6208,9 @@ pub export fn sa_net_tcp_stream_flush(stream: u64) i32 {
     _ = stream;
     return finish(SA_STD_OK);
 }
-pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
+pub export fn sa_std_net_tcp_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -6204,10 +6224,17 @@ pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
                 net_addr.deinit();
                 return finishErr(err);
             };
-            return finish(@as(i32, @intCast(handle)));
+            handle_ptr.* = handle;
+            return finish(SA_STD_OK);
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
+}
+pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_stream_peer_addr(stream, &handle);
+    if (status != SA_STD_OK) return status;
+    return finish(@as(i32, @intCast(handle)));
 }
 pub export fn sa_net_tcp_stream_shutdown(stream: u64, how: u32) i32 {
     registry_mutex.lock();
@@ -6264,23 +6291,10 @@ pub export fn sa_net_tcp_listener_accept(listener: u64) Fallible(u64) {
     return ok(u64, handle);
 }
 pub export fn sa_net_tcp_listener_local_addr(listener: u64) Fallible(u64) {
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(listener) orelse return fail(u64, SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_listener => |server| {
-            var addr: std.net.Address = undefined;
-            var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
-            std.posix.getsockname(server.stream.handle, &addr.any, &addr_len) catch |err| return fail(u64, mapError(err));
-            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return fail(u64, mapError(err));
-            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                net_addr.deinit();
-                return fail(u64, mapError(err));
-            };
-            return ok(u64, handle);
-        },
-        else => fail(u64, SA_STD_ERR_INVALID_HANDLE),
-    };
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_listener_local_addr(listener, &handle);
+    if (status != SA_STD_OK) return fail(u64, status);
+    return ok(u64, handle);
 }
 pub export fn sa_net_tcp_listener_close(listener: u64) Fallible(i32) {
     const status = sa_std_close(listener);
@@ -6912,6 +6926,29 @@ pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32
     registry_mutex.unlock();
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_listener_local_addr(listener_handle: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(listener_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .tcp_listener => |server| {
+            var addr: std.net.Address = undefined;
+            var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+            std.posix.getsockname(server.stream.handle, &addr.any, &addr_len) catch |err| return finishErr(err);
+            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
+            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                net_addr.deinit();
+                return finishErr(err);
+            };
+            handle_ptr.* = handle;
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
 }
 
 pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {

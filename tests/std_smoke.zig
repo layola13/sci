@@ -1246,6 +1246,35 @@ test "sa_std time helpers are concrete and verifiable" {
     try std.testing.expectEqual(@as(usize, 7), time_flat.function_sigs.len);
 }
 
+test "sa_std net helpers are concrete and verifiable" {
+    const net_layout = try readFileAlloc(std.testing.allocator, "sa_std/net.sal");
+    defer std.testing.allocator.free(net_layout);
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_layout, 1, "SA_NET_OK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_layout, 1, "SA_NET_AF_INET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_layout, 1, "SA_NET_SOCKET_OPTION_ENABLE"));
+
+    const net_iface = try readFileAlloc(std.testing.allocator, "sa_std/net.sai");
+    defer std.testing.allocator.free(net_iface);
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_stream_peek"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_stream_peer_addr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_local_addr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_recv_from"));
+
+    const net_src = try readFileAlloc(std.testing.allocator, "sa_std/net.sa");
+    defer std.testing.allocator.free(net_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_CONNECT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_LISTENER_BIND_PORT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_STREAM_PEEK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_STREAM_SET_NODELAY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_BIND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_RECV_FROM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_ADDR_IS_IPV4"));
+
+    var net_flat = try flattenFixture(std.testing.allocator, "sa_std/net.sa", net_src);
+    defer net_flat.deinit(std.testing.allocator);
+    try std.testing.expect(net_flat.function_sigs.len >= 60);
+}
+
 test "sa_std mutex helpers are concrete and verifiable" {
     const mutex_layout = try readFileAlloc(std.testing.allocator, "sa_std/sync/mutex.sal");
     defer std.testing.allocator.free(mutex_layout);

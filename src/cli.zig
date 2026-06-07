@@ -4478,6 +4478,9 @@ fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
         .windows => "sa_std.lib",
         else => "libsa_std.a",
     };
+    if (builtin.is_test) {
+        return try allocator.dupe(u8, build_options.sa_std_archive_path);
+    }
     const env_root: ?[]u8 = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => null,
         else => return err,

@@ -823,6 +823,16 @@ test "native unit framework covers sa_std macro surface suites" {
         future_task_expected[0..],
         "test result: ok. 4 passed; 0 failed; 0 skipped",
     );
+
+    const net_expected = [_][]const u8{
+        "[PASS] sa_std net tcp macro surface",
+        "[PASS] sa_std net udp macro surface",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_net_macro_surface.sa",
+        net_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
 }
 
 test "native unit framework exposes standard mock io buffer" {

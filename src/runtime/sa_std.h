@@ -326,6 +326,11 @@ int32_t sa_fs_copy_file(const uint8_t *from_path, uint64_t from_len, const uint8
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_tcp_listener_local_addr(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_tcp_stream_read(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
+int32_t sa_std_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
+int32_t sa_std_net_tcp_stream_write(uint64_t stream_handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+int32_t sa_std_net_tcp_stream_peer_addr(uint64_t stream_handle, uint64_t *out_handle);
 int32_t sa_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap);
 int32_t sa_std_net_tcp_stream_set_read_timeout(uint64_t stream_handle, uint64_t timeout_ns);
 int32_t sa_std_net_tcp_stream_set_write_timeout(uint64_t stream_handle, uint64_t timeout_ns);
@@ -362,7 +367,7 @@ int32_t sa_net_udp_close(uint64_t socket_handle);
 
 uint8_t *sa_net_addr_host(uint64_t addr_handle);
 uint64_t sa_net_addr_host_len(uint64_t addr_handle);
-uint16_t sa_net_addr_port(uint64_t addr_handle);
+uint32_t sa_net_addr_port(uint64_t addr_handle);
 uint32_t sa_net_addr_family(uint64_t addr_handle);
 int32_t sa_net_addr_free(uint64_t addr_handle);
 
