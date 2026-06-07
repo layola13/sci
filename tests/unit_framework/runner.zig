@@ -763,12 +763,13 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std vec_deque capacity access macros",
         "[PASS] sa_std vec_deque rust parity macros",
         "[PASS] sa_std vec_deque retain and conditional pop macros",
+        "[PASS] sa_std vec_deque drain macro",
         "[PASS] sa_std vec_deque split append macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_vec_deque_macro_surface.sa",
         vec_deque_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
+        "test result: ok. 5 passed; 0 failed; 0 skipped",
     );
 
     const hashmap_expected = [_][]const u8{
@@ -788,12 +789,13 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std binary_heap capacity macros",
         "[PASS] sa_std binary_heap append macro",
         "[PASS] sa_std binary_heap retain macro",
+        "[PASS] sa_std binary_heap drain macro",
         "[PASS] sa_std binary_heap vec conversion macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_binary_heap_macro_surface.sa",
         binary_heap_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
+        "test result: ok. 5 passed; 0 failed; 0 skipped",
     );
 
     const btree_expected = [_][]const u8{

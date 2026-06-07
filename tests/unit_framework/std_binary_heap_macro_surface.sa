@@ -432,6 +432,94 @@ L_RETAIN_OK:
     !ok
     return
 
+@test "sa_std binary_heap drain macro"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_NEW heap
+    EXPAND BINARY_HEAP_PUSH heap, 4
+    EXPAND BINARY_HEAP_PUSH heap, 9
+    EXPAND BINARY_HEAP_PUSH heap, 1
+    EXPAND BINARY_HEAP_DRAIN drain_vec, heap
+    EXPAND VEC_LEN drain_len, drain_vec
+    EXPAND VEC_CONTAINS_U64 has_9, drain_vec, 9
+    EXPAND VEC_CONTAINS_U64 has_4, drain_vec, 4
+    EXPAND VEC_CONTAINS_U64 has_1, drain_vec, 1
+    EXPAND BINARY_HEAP_LEN len_after_drain, heap
+    EXPAND BINARY_HEAP_IS_EMPTY empty_after_drain, heap
+    EXPAND BINARY_HEAP_PUSH heap, 6
+    EXPAND BINARY_HEAP_LEN len_after_reuse, heap
+    EXPAND BINARY_HEAP_TRY_POP reuse_ok, reuse_value, heap
+    EXPAND VEC_FREE drain_vec
+    EXPAND BINARY_HEAP_FREE heap
+
+    EXPAND BINARY_HEAP_NEW empty_heap
+    EXPAND BINARY_HEAP_DRAIN empty_vec, empty_heap
+    EXPAND VEC_LEN empty_vec_len, empty_vec
+    EXPAND BINARY_HEAP_LEN empty_heap_len, empty_heap
+    EXPAND VEC_FREE empty_vec
+    EXPAND BINARY_HEAP_FREE empty_heap
+
+    ok_drain_len = eq drain_len, 3
+    ok_has_9 = eq has_9, 1
+    ok_has_4 = eq has_4, 1
+    ok_has_1 = eq has_1, 1
+    ok_len_after_drain = eq len_after_drain, 0
+    ok_empty_after_drain = eq empty_after_drain, 1
+    ok_len_after_reuse = eq len_after_reuse, 1
+    ok_reuse_ok = eq reuse_ok, 1
+    ok_reuse_value = eq reuse_value, 6
+    ok_empty_vec_len = eq empty_vec_len, 0
+    ok_empty_heap_len = eq empty_heap_len, 0
+    ok01 = and ok_drain_len, ok_has_9
+    ok02 = and ok01, ok_has_4
+    ok03 = and ok02, ok_has_1
+    ok04 = and ok03, ok_len_after_drain
+    ok05 = and ok04, ok_empty_after_drain
+    ok06 = and ok05, ok_len_after_reuse
+    ok07 = and ok06, ok_reuse_ok
+    ok08 = and ok07, ok_reuse_value
+    ok09 = and ok08, ok_empty_vec_len
+    ok = and ok09, ok_empty_heap_len
+    !drain_len
+    !has_9
+    !has_4
+    !has_1
+    !len_after_drain
+    !empty_after_drain
+    !len_after_reuse
+    !reuse_ok
+    !reuse_value
+    !empty_vec_len
+    !empty_heap_len
+    !ok_drain_len
+    !ok_has_9
+    !ok_has_4
+    !ok_has_1
+    !ok_len_after_drain
+    !ok_empty_after_drain
+    !ok_len_after_reuse
+    !ok_reuse_ok
+    !ok_reuse_value
+    !ok_empty_vec_len
+    !ok_empty_heap_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    br ok -> L_DRAIN_OK, L_DRAIN_FAIL
+
+L_DRAIN_FAIL:
+    !ok
+    panic(914)
+
+L_DRAIN_OK:
+    !ok
+    return
+
 @test "sa_std binary_heap vec conversion macros"():
 L_ENTRY:
     EXPAND BINARY_HEAP_NEW raw_heap

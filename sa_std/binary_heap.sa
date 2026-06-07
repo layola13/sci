@@ -3,6 +3,7 @@
 @import "core/slice.sal"
 @import "core/slice.sa"
 @import "alloc/vec.sal"
+@import "vec.sa"
 @import "binary_heap.sal"
 
 @binary_heap_swap(&heap: ptr, lhs: u64, rhs: u64) -> void:
@@ -904,6 +905,42 @@ L_APPEND_DONE:
 
 [MACRO] BINARY_HEAP_CLEAR %heap_reg
     call @sa_binary_heap_clear(&%heap_reg)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_DRAIN %out_vec, %heap_reg
+    __binary_heap_drain_buf_%out_vec = load %heap_reg+BinaryHeap_buf as ptr
+    __binary_heap_drain_len_%out_vec = load %heap_reg+BinaryHeap_len as u64
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __binary_heap_drain_len_%out_vec
+    __binary_heap_drain_idx_slot_%out_vec = stack_alloc 8
+    store __binary_heap_drain_idx_slot_%out_vec+0, 0 as u64
+    jmp L_BINARY_HEAP_DRAIN_HEAD_%out_vec
+
+L_BINARY_HEAP_DRAIN_HEAD_%out_vec:
+    __binary_heap_drain_idx_%out_vec = load __binary_heap_drain_idx_slot_%out_vec+0 as u64
+    __binary_heap_drain_done_%out_vec = eq __binary_heap_drain_idx_%out_vec, __binary_heap_drain_len_%out_vec
+    br __binary_heap_drain_done_%out_vec -> L_BINARY_HEAP_DRAIN_DONE_%out_vec, L_BINARY_HEAP_DRAIN_BODY_%out_vec
+
+L_BINARY_HEAP_DRAIN_BODY_%out_vec:
+    __binary_heap_drain_off_%out_vec = mul __binary_heap_drain_idx_%out_vec, BinaryHeap_SLOT_SIZE
+    __binary_heap_drain_ptr_%out_vec = ptr_add __binary_heap_drain_buf_%out_vec, __binary_heap_drain_off_%out_vec
+    __binary_heap_drain_value_%out_vec = load __binary_heap_drain_ptr_%out_vec+0 as u64
+    EXPAND VEC_PUSH_U64 %out_vec, __binary_heap_drain_value_%out_vec
+    __binary_heap_drain_next_%out_vec = add __binary_heap_drain_idx_%out_vec, 1
+    store __binary_heap_drain_idx_slot_%out_vec+0, __binary_heap_drain_next_%out_vec as u64
+    !__binary_heap_drain_next_%out_vec
+    !__binary_heap_drain_value_%out_vec
+    !__binary_heap_drain_ptr_%out_vec
+    !__binary_heap_drain_off_%out_vec
+    !__binary_heap_drain_done_%out_vec
+    !__binary_heap_drain_idx_%out_vec
+    jmp L_BINARY_HEAP_DRAIN_HEAD_%out_vec
+
+L_BINARY_HEAP_DRAIN_DONE_%out_vec:
+    call @sa_binary_heap_clear(&%heap_reg)
+    !__binary_heap_drain_done_%out_vec
+    !__binary_heap_drain_idx_%out_vec
+    !__binary_heap_drain_len_%out_vec
+    !__binary_heap_drain_buf_%out_vec
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_RETAIN_U64 %out_len, %heap_reg, %pred_fn

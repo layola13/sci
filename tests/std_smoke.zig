@@ -2715,6 +2715,7 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/slice.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"core/slice.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"vec.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@export sa_vec_deque_free"));
@@ -2785,6 +2786,7 @@ test "sa_std vec_deque helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_BACK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_BACK"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_CLEAR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_DRAIN_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_RESERVE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_TRY_RESERVE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "[MACRO] VEC_DEQUE_AS_SLICES"));
@@ -2871,6 +2873,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"core/slice.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"core/slice.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"alloc/vec.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"vec.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@export sa_binary_heap_try_with_capacity"));
@@ -2917,6 +2920,7 @@ test "sa_std binary_heap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_PUSH"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_TRY_POP"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_CLEAR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_DRAIN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "[MACRO] BINARY_HEAP_APPEND"));
 
     var heap_error_ctx = saasm.flattener.ErrorContext{};

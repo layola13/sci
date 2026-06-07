@@ -772,6 +772,115 @@ L_RETAIN_OK:
     !ok
     return
 
+@test "sa_std vec_deque drain macro"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY deque, 4
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 10
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 20
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 30
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 40
+    EXPAND VEC_DEQUE_TRY_POP_FRONT wrap_pop_ok, wrap_pop, deque
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 50
+
+    EXPAND VEC_DEQUE_DRAIN_U64 drain_vec, deque
+    EXPAND VEC_LEN drain_len, drain_vec
+    EXPAND VEC_GET_U64 drain0, drain_vec, 0
+    EXPAND VEC_GET_U64 drain1, drain_vec, 1
+    EXPAND VEC_GET_U64 drain2, drain_vec, 2
+    EXPAND VEC_GET_U64 drain3, drain_vec, 3
+    EXPAND VEC_DEQUE_LEN len_after_drain, deque
+    EXPAND VEC_DEQUE_IS_EMPTY empty_after_drain, deque
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 60
+    EXPAND VEC_DEQUE_TRY_FRONT reuse_front_ok, reuse_front, deque
+    EXPAND VEC_LEN drain_len_after_reuse, drain_vec
+    EXPAND VEC_FREE drain_vec
+    EXPAND VEC_DEQUE_FREE deque
+
+    EXPAND VEC_DEQUE_NEW empty
+    EXPAND VEC_DEQUE_DRAIN_U64 empty_vec, empty
+    EXPAND VEC_LEN empty_vec_len, empty_vec
+    EXPAND VEC_DEQUE_LEN empty_len, empty
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_DEQUE_FREE empty
+
+    ok_wrap_pop = eq wrap_pop_ok, 1
+    ok_wrap_value = eq wrap_pop, 10
+    ok_drain_len = eq drain_len, 4
+    ok_drain0 = eq drain0, 20
+    ok_drain1 = eq drain1, 30
+    ok_drain2 = eq drain2, 40
+    ok_drain3 = eq drain3, 50
+    ok_len_after_drain = eq len_after_drain, 0
+    ok_empty_after_drain = eq empty_after_drain, 1
+    ok_reuse_front_flag = eq reuse_front_ok, 1
+    ok_reuse_front = eq reuse_front, 60
+    ok_drain_len_after_reuse = eq drain_len_after_reuse, 4
+    ok_empty_vec_len = eq empty_vec_len, 0
+    ok_empty_len = eq empty_len, 0
+    ok01 = and ok_wrap_pop, ok_wrap_value
+    ok02 = and ok01, ok_drain_len
+    ok03 = and ok02, ok_drain0
+    ok04 = and ok03, ok_drain1
+    ok05 = and ok04, ok_drain2
+    ok06 = and ok05, ok_drain3
+    ok07 = and ok06, ok_len_after_drain
+    ok08 = and ok07, ok_empty_after_drain
+    ok09 = and ok08, ok_reuse_front_flag
+    ok10 = and ok09, ok_reuse_front
+    ok11 = and ok10, ok_drain_len_after_reuse
+    ok12 = and ok11, ok_empty_vec_len
+    ok = and ok12, ok_empty_len
+
+    !wrap_pop_ok
+    !wrap_pop
+    !drain_len
+    !drain0
+    !drain1
+    !drain2
+    !drain3
+    !len_after_drain
+    !empty_after_drain
+    !reuse_front_ok
+    !reuse_front
+    !drain_len_after_reuse
+    !empty_vec_len
+    !empty_len
+    !ok_wrap_pop
+    !ok_wrap_value
+    !ok_drain_len
+    !ok_drain0
+    !ok_drain1
+    !ok_drain2
+    !ok_drain3
+    !ok_len_after_drain
+    !ok_empty_after_drain
+    !ok_reuse_front_flag
+    !ok_reuse_front
+    !ok_drain_len_after_reuse
+    !ok_empty_vec_len
+    !ok_empty_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    br ok -> L_DRAIN_OK, L_DRAIN_FAIL
+
+L_DRAIN_FAIL:
+    !ok
+    panic(915)
+
+L_DRAIN_OK:
+    !ok
+    return
+
 @test "sa_std vec_deque split append macros"():
 L_ENTRY:
     EXPAND VEC_DEQUE_WITH_CAPACITY left, 2

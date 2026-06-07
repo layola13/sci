@@ -3,6 +3,7 @@
 @import "core/mem.sa"
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "vec.sa"
 @import "vec_deque.sal"
 
 @export sa_vec_deque_new() -> ^ptr:
@@ -1642,6 +1643,36 @@ L_VEC_DEQUE_POP_BACK_IF_END_%out_ok:
 
 [MACRO] VEC_DEQUE_CLEAR %deque_reg
     call @sa_vec_deque_clear(&%deque_reg)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_DRAIN_U64 %out_vec, %deque_reg
+    __vec_deque_drain_len_%out_vec = load %deque_reg+VecDeque_len as u64
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __vec_deque_drain_len_%out_vec
+    __vec_deque_drain_idx_slot_%out_vec = stack_alloc 8
+    store __vec_deque_drain_idx_slot_%out_vec+0, 0 as u64
+    jmp L_VEC_DEQUE_DRAIN_HEAD_%out_vec
+
+L_VEC_DEQUE_DRAIN_HEAD_%out_vec:
+    __vec_deque_drain_idx_%out_vec = load __vec_deque_drain_idx_slot_%out_vec+0 as u64
+    __vec_deque_drain_done_%out_vec = eq __vec_deque_drain_idx_%out_vec, __vec_deque_drain_len_%out_vec
+    br __vec_deque_drain_done_%out_vec -> L_VEC_DEQUE_DRAIN_DONE_%out_vec, L_VEC_DEQUE_DRAIN_BODY_%out_vec
+
+L_VEC_DEQUE_DRAIN_BODY_%out_vec:
+    __vec_deque_drain_value_%out_vec = call @sa_vec_deque_get(&%deque_reg, __vec_deque_drain_idx_%out_vec)
+    EXPAND VEC_PUSH_U64 %out_vec, __vec_deque_drain_value_%out_vec
+    __vec_deque_drain_next_%out_vec = add __vec_deque_drain_idx_%out_vec, 1
+    store __vec_deque_drain_idx_slot_%out_vec+0, __vec_deque_drain_next_%out_vec as u64
+    !__vec_deque_drain_next_%out_vec
+    !__vec_deque_drain_value_%out_vec
+    !__vec_deque_drain_done_%out_vec
+    !__vec_deque_drain_idx_%out_vec
+    jmp L_VEC_DEQUE_DRAIN_HEAD_%out_vec
+
+L_VEC_DEQUE_DRAIN_DONE_%out_vec:
+    call @sa_vec_deque_clear(&%deque_reg)
+    !__vec_deque_drain_done_%out_vec
+    !__vec_deque_drain_idx_%out_vec
+    !__vec_deque_drain_len_%out_vec
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_RESERVE %deque_reg, %additional
