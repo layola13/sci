@@ -94,6 +94,42 @@
     EXPAND VEC_TRY_BACK %out_ok, %out_value, %vec_reg
 [END_MACRO]
 
+[MACRO] VEC_FIRST %out_value, %vec_reg
+    EXPAND VEC_FRONT %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_LAST %out_value, %vec_reg
+    EXPAND VEC_BACK %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_TRY_FIRST %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_FRONT %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_TRY_FIRST_U64 %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_FRONT_U64 %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_TRY_LAST %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_BACK %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_TRY_LAST_U64 %out_ok, %out_value, %vec_reg
+    EXPAND VEC_TRY_BACK_U64 %out_ok, %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_AS_SLICE __vec_split_first_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, __vec_split_first_slice_%out_ok
+    !__vec_split_first_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_AS_SLICE __vec_split_last_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, __vec_split_last_slice_%out_ok
+    !__vec_split_last_slice_%out_ok
+[END_MACRO]
+
 [MACRO] VEC_PUSH %vec_reg, %value, %elem_size
     %vec_reg = call @sa_vec_push(^%vec_reg, %value, %elem_size)
 [END_MACRO]

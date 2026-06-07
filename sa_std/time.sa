@@ -54,6 +54,18 @@
     %out_ns = add %ns, 0
 [END_MACRO]
 
+[MACRO] TIME_DURATION_ZERO %out_ns
+    %out_ns = add 0, 0
+[END_MACRO]
+
+[MACRO] TIME_DURATION_MAX %out_ns
+    %out_ns = sub 0, 1
+[END_MACRO]
+
+[MACRO] TIME_DURATION_IS_ZERO %out_bool, %duration_ns
+    %out_bool = eq %duration_ns, 0
+[END_MACRO]
+
 [MACRO] TIME_DURATION_AS_MS %out_ms, %ns
     %out_ms = udiv %ns, Time_NS_PER_MS
 [END_MACRO]
@@ -213,6 +225,90 @@ L_TIME_CHECKED_DIV_ZERO_%out_ok:
     !__time_div_zero_%out_ok
 
 L_TIME_CHECKED_DIV_END_%out_ok:
+[END_MACRO]
+
+[MACRO] TIME_SATURATING_MUL_NS %out_ns, %duration_ns, %factor
+    EXPAND TIME_CHECKED_MUL_NS __time_sat_mul_ok_%out_ns, __time_sat_mul_value_%out_ns, %duration_ns, %factor
+    br __time_sat_mul_ok_%out_ns -> L_TIME_SAT_MUL_OK_%out_ns, L_TIME_SAT_MUL_MAX_%out_ns
+
+L_TIME_SAT_MUL_OK_%out_ns:
+    %out_ns = add __time_sat_mul_value_%out_ns, 0
+    !__time_sat_mul_value_%out_ns
+    !__time_sat_mul_ok_%out_ns
+    jmp L_TIME_SAT_MUL_END_%out_ns
+
+L_TIME_SAT_MUL_MAX_%out_ns:
+    %out_ns = sub 0, 1
+    !__time_sat_mul_value_%out_ns
+    !__time_sat_mul_ok_%out_ns
+
+L_TIME_SAT_MUL_END_%out_ns:
+[END_MACRO]
+
+[MACRO] TIME_SATURATING_DIV_NS %out_ns, %duration_ns, %divisor
+    EXPAND TIME_CHECKED_DIV_NS __time_sat_div_ok_%out_ns, __time_sat_div_value_%out_ns, %duration_ns, %divisor
+    br __time_sat_div_ok_%out_ns -> L_TIME_SAT_DIV_OK_%out_ns, L_TIME_SAT_DIV_MAX_%out_ns
+
+L_TIME_SAT_DIV_OK_%out_ns:
+    %out_ns = add __time_sat_div_value_%out_ns, 0
+    !__time_sat_div_value_%out_ns
+    !__time_sat_div_ok_%out_ns
+    jmp L_TIME_SAT_DIV_END_%out_ns
+
+L_TIME_SAT_DIV_MAX_%out_ns:
+    %out_ns = sub 0, 1
+    !__time_sat_div_value_%out_ns
+    !__time_sat_div_ok_%out_ns
+
+L_TIME_SAT_DIV_END_%out_ns:
+[END_MACRO]
+
+[MACRO] TIME_DURATION_CHECKED_ADD_NS %out_ok, %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_CHECKED_ADD_NS %out_ok, %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_CHECKED_SUB_NS %out_ok, %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_CHECKED_SUB_NS %out_ok, %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_CHECKED_MUL_NS %out_ok, %out_ns, %duration_ns, %factor
+    EXPAND TIME_CHECKED_MUL_NS %out_ok, %out_ns, %duration_ns, %factor
+[END_MACRO]
+
+[MACRO] TIME_DURATION_CHECKED_DIV_NS %out_ok, %out_ns, %duration_ns, %divisor
+    EXPAND TIME_CHECKED_DIV_NS %out_ok, %out_ns, %duration_ns, %divisor
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SATURATING_ADD_NS %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_SATURATING_ADD_NS %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SATURATING_SUB_NS %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_SATURATING_SUB_NS %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SATURATING_MUL_NS %out_ns, %duration_ns, %factor
+    EXPAND TIME_SATURATING_MUL_NS %out_ns, %duration_ns, %factor
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SATURATING_DIV_NS %out_ns, %duration_ns, %divisor
+    EXPAND TIME_SATURATING_DIV_NS %out_ns, %duration_ns, %divisor
+[END_MACRO]
+
+[MACRO] TIME_DURATION_ABS_DIFF_NS %out_ns, %left_ns, %right_ns
+    __time_abs_left_ge_%out_ns = uge %left_ns, %right_ns
+    br __time_abs_left_ge_%out_ns -> L_TIME_ABS_DIFF_LEFT_%out_ns, L_TIME_ABS_DIFF_RIGHT_%out_ns
+
+L_TIME_ABS_DIFF_LEFT_%out_ns:
+    %out_ns = sub %left_ns, %right_ns
+    !__time_abs_left_ge_%out_ns
+    jmp L_TIME_ABS_DIFF_END_%out_ns
+
+L_TIME_ABS_DIFF_RIGHT_%out_ns:
+    %out_ns = sub %right_ns, %left_ns
+    !__time_abs_left_ge_%out_ns
+
+L_TIME_ABS_DIFF_END_%out_ns:
 [END_MACRO]
 
 [MACRO] TIME_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns

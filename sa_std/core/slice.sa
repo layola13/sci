@@ -160,6 +160,72 @@ L_SLICE_TRY_LAST_MUT_MISS_%out_ok:
 L_SLICE_TRY_LAST_MUT_END_%out_ok:
 [END_MACRO]
 
+[MACRO] SLICE_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %slice_reg
+    %out_rest = alloc Slice_SIZE
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_empty_%out_ok = eq __slice_len_%out_ok, 0
+    br __slice_empty_%out_ok -> L_SLICE_SPLIT_FIRST_MISS_%out_ok, L_SLICE_SPLIT_FIRST_HIT_%out_ok
+
+L_SLICE_SPLIT_FIRST_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    %out_value = load __slice_ptr_%out_ok+0 as u64
+    __slice_rest_ptr_%out_ok = ptr_add __slice_ptr_%out_ok, 8
+    __slice_rest_len_%out_ok = sub __slice_len_%out_ok, 1
+    EXPAND SLICE_NEW %out_rest, __slice_rest_ptr_%out_ok, __slice_rest_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_rest_len_%out_ok
+    !__slice_rest_ptr_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_empty_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_SPLIT_FIRST_END_%out_ok
+
+L_SLICE_SPLIT_FIRST_MISS_%out_ok:
+    __slice_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_rest, __slice_empty_ptr_%out_ok, 0
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_empty_ptr_%out_ok
+    !__slice_empty_%out_ok
+    !__slice_len_%out_ok
+
+L_SLICE_SPLIT_FIRST_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %slice_reg
+    %out_rest = alloc Slice_SIZE
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_empty_%out_ok = eq __slice_len_%out_ok, 0
+    br __slice_empty_%out_ok -> L_SLICE_SPLIT_LAST_MISS_%out_ok, L_SLICE_SPLIT_LAST_HIT_%out_ok
+
+L_SLICE_SPLIT_LAST_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_last_%out_ok = sub __slice_len_%out_ok, 1
+    __slice_last_off_%out_ok = mul __slice_last_%out_ok, 8
+    __slice_last_ptr_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_last_off_%out_ok
+    %out_value = load __slice_last_ptr_%out_ok+0 as u64
+    EXPAND SLICE_NEW %out_rest, __slice_ptr_%out_ok, __slice_last_%out_ok
+    %out_ok = add 0, 1
+    !__slice_last_ptr_%out_ok
+    !__slice_last_off_%out_ok
+    !__slice_last_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_empty_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_SPLIT_LAST_END_%out_ok
+
+L_SLICE_SPLIT_LAST_MISS_%out_ok:
+    __slice_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_rest, __slice_empty_ptr_%out_ok, 0
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_empty_ptr_%out_ok
+    !__slice_empty_%out_ok
+    !__slice_len_%out_ok
+
+L_SLICE_SPLIT_LAST_END_%out_ok:
+[END_MACRO]
+
 [MACRO] SLICE_CONTAINS_U64 %out_bool, %slice_reg, %needle
     __slice_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
     __slice_len_%out_bool = load %slice_reg+Slice_len as u64

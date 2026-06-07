@@ -369,6 +369,52 @@ L_STRING_BUF_PUSH_WRITE_%string_reg:
     !__string_buf_push_len_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_PUSH_CHAR %out_ok, %string_reg, %char_value
+    __string_buf_push_char_ascii_%out_ok = ult %char_value, 128
+    br __string_buf_push_char_ascii_%out_ok -> L_STRING_BUF_PUSH_CHAR_HIT_%out_ok, L_STRING_BUF_PUSH_CHAR_MISS_%out_ok
+
+L_STRING_BUF_PUSH_CHAR_HIT_%out_ok:
+    __string_buf_push_char_view_%out_ok = & %string_reg
+    __string_buf_push_char_len_%out_ok = load __string_buf_push_char_view_%out_ok+Vec_len as u64
+    __string_buf_push_char_cap_%out_ok = load __string_buf_push_char_view_%out_ok+Vec_cap as u64
+    __string_buf_push_char_needs_grow_%out_ok = eq __string_buf_push_char_len_%out_ok, __string_buf_push_char_cap_%out_ok
+    !__string_buf_push_char_view_%out_ok
+    br __string_buf_push_char_needs_grow_%out_ok -> L_STRING_BUF_PUSH_CHAR_GROW_%out_ok, L_STRING_BUF_PUSH_CHAR_WRITE_%out_ok
+
+L_STRING_BUF_PUSH_CHAR_GROW_%out_ok:
+    EXPAND STRING_BUF_RESERVE %string_reg, 1
+    jmp L_STRING_BUF_PUSH_CHAR_WRITE_%out_ok
+
+L_STRING_BUF_PUSH_CHAR_WRITE_%out_ok:
+    __string_buf_push_char_view2_%out_ok = & %string_reg
+    __string_buf_push_char_ptr_%out_ok = load __string_buf_push_char_view2_%out_ok+Vec_ptr as ptr
+    __string_buf_push_char_dst_%out_ok = ptr_add __string_buf_push_char_ptr_%out_ok, __string_buf_push_char_len_%out_ok
+    store __string_buf_push_char_dst_%out_ok+0, %char_value as u8
+    __string_buf_push_char_next_len_%out_ok = add __string_buf_push_char_len_%out_ok, 1
+    store __string_buf_push_char_view2_%out_ok+Vec_len, __string_buf_push_char_next_len_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_buf_push_char_next_len_%out_ok
+    !__string_buf_push_char_dst_%out_ok
+    !__string_buf_push_char_ptr_%out_ok
+    !__string_buf_push_char_view2_%out_ok
+    !__string_buf_push_char_needs_grow_%out_ok
+    !__string_buf_push_char_cap_%out_ok
+    !__string_buf_push_char_len_%out_ok
+    !__string_buf_push_char_ascii_%out_ok
+    jmp L_STRING_BUF_PUSH_CHAR_END_%out_ok
+
+L_STRING_BUF_PUSH_CHAR_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_push_char_ascii_%out_ok
+
+L_STRING_BUF_PUSH_CHAR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_CHAR %string_reg, %char_value
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_push_char_ok_%string_reg, %string_reg, %char_value
+    !__string_buf_push_char_ok_%string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_PUSH_STR %string_reg, %suffix_slice
     __string_buf_suffix_len_%string_reg = load %suffix_slice+Slice_len as u64
     EXPAND STRING_BUF_RESERVE %string_reg, __string_buf_suffix_len_%string_reg
@@ -489,6 +535,26 @@ L_STRING_BUF_INSERT_MISS_%out_ok:
     !__string_buf_insert_len_%out_ok
 
 L_STRING_BUF_INSERT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_INSERT_CHAR %out_ok, %string_reg, %index, %char_value
+    __string_buf_insert_char_ascii_%out_ok = ult %char_value, 128
+    br __string_buf_insert_char_ascii_%out_ok -> L_STRING_BUF_INSERT_CHAR_HIT_%out_ok, L_STRING_BUF_INSERT_CHAR_MISS_%out_ok
+
+L_STRING_BUF_INSERT_CHAR_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_INSERT_BYTE %out_ok, %string_reg, %index, %char_value
+    !__string_buf_insert_char_ascii_%out_ok
+    jmp L_STRING_BUF_INSERT_CHAR_END_%out_ok
+
+L_STRING_BUF_INSERT_CHAR_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_insert_char_ascii_%out_ok
+
+L_STRING_BUF_INSERT_CHAR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_INSERT_CHAR %out_ok, %string_reg, %index, %char_value
+    EXPAND STRING_BUF_TRY_INSERT_CHAR %out_ok, %string_reg, %index, %char_value
 [END_MACRO]
 
 [MACRO] STRING_BUF_INSERT_BYTE %out_ok, %string_reg, %index, %byte_value

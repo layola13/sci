@@ -700,12 +700,14 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std string owned buffer utf8 and replace macros",
         "[PASS] sa_std string owned buffer capacity macros",
         "[PASS] sa_std string owned buffer mutation macros",
+        "[PASS] sa_std string owned buffer ascii char macros",
         "[PASS] sa_std string find macros",
         "[PASS] sa_std string byte scan macros",
         "[PASS] sa_std string split byte view macros",
         "[PASS] sa_std string line view macros",
         "[PASS] sa_std string ascii and split once macros",
         "[PASS] sa_std rust parity checked view macros",
+        "[PASS] sa_std slice and vec split first last macros",
         "[PASS] sa_std vec convenience macros",
         "[PASS] sa_std slice convenience macros",
         "[PASS] sa_std vec capacity/view macros",
@@ -721,7 +723,7 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_string_vec_macro_surface.sa",
         string_vec_expected[0..],
-        "test result: ok. 22 passed; 0 failed; 0 skipped",
+        "test result: ok. 24 passed; 0 failed; 0 skipped",
     );
 
     const path_expected = [_][]const u8{
@@ -735,11 +737,12 @@ test "native unit framework covers sa_std macro surface suites" {
 
     const time_expected = [_][]const u8{
         "[PASS] sa_std time duration and instant macros",
+        "[PASS] sa_std time duration rust-style aliases",
     };
     try runSaTestFile(
         "tests/unit_framework/std_time_macro_surface.sa",
         time_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
     );
 
     const hashset_expected = [_][]const u8{

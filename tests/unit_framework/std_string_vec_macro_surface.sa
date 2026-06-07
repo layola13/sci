@@ -50,6 +50,9 @@
 @const BUF_REPLACE_MULTI_WITH = utf8:"*"
 @const BUF_REPLACE_MULTI_EXPECTED = utf8:"b*na *"
 @const BUF_REPLACE_LONG_NEEDLE = utf8:"banana split"
+@const BUF_CHAR_EXPECTED = utf8:"r!"
+@const BUF_INSERT_CHAR_EXPECTED = utf8:"r!?"
+@const BUF_INSERT_CHAR_ALIAS_EXPECTED = utf8:"r-!?"
 @const LINES_TEXT = utf8:"alpha\nbeta\r\ngamma\n"
 @const LINES_ALPHA = utf8:"alpha"
 @const LINES_BETA = utf8:"beta"
@@ -886,6 +889,91 @@ L_STRING_MUT_FAIL:
     panic(911)
 
 L_STRING_MUT_OK:
+    !ok
+    return
+
+@test "sa_std string owned buffer ascii char macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS expected_push, &BUF_CHAR_EXPECTED, 2
+    EXPAND STR_FROM_PARTS expected_insert, &BUF_INSERT_CHAR_EXPECTED, 3
+    EXPAND STR_FROM_PARTS expected_alias, &BUF_INSERT_CHAR_ALIAS_EXPECTED, 4
+
+    EXPAND STRING_BUF_NEW string_buf
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_char_ok, string_buf, 114
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_char_ok2, string_buf, 33
+    EXPAND STRING_BUF_AS_STR after_push, string_buf
+    EXPAND STR_EQ after_push_eq, after_push, expected_push
+    EXPAND STRING_BUF_TRY_INSERT_CHAR insert_char_ok, string_buf, 2, 63
+    EXPAND STRING_BUF_AS_STR after_insert, string_buf
+    EXPAND STR_EQ after_insert_eq, after_insert, expected_insert
+    EXPAND STRING_BUF_INSERT_CHAR insert_char_alias_ok, string_buf, 1, 45
+    EXPAND STRING_BUF_AS_STR after_alias, string_buf
+    EXPAND STR_EQ after_alias_eq, after_alias, expected_alias
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_non_ascii_ok, string_buf, 233
+    EXPAND STRING_BUF_TRY_INSERT_CHAR insert_non_ascii_ok, string_buf, 1, 233
+    EXPAND STRING_BUF_LEN final_len, string_buf
+
+    push_flag_ok = eq push_char_ok, 1
+    push_flag2_ok = eq push_char_ok2, 1
+    push_value_ok = eq after_push_eq, 1
+    insert_flag_ok = eq insert_char_ok, 1
+    insert_value_ok = eq after_insert_eq, 1
+    alias_flag_ok = eq insert_char_alias_ok, 1
+    alias_value_ok = eq after_alias_eq, 1
+    push_non_ascii_flag_ok = eq push_non_ascii_ok, 0
+    insert_non_ascii_flag_ok = eq insert_non_ascii_ok, 0
+    final_len_ok = eq final_len, 4
+    ok00 = and push_flag_ok, push_flag2_ok
+    ok01 = and ok00, push_value_ok
+    ok02 = and ok01, insert_flag_ok
+    ok03 = and ok02, insert_value_ok
+    ok04 = and ok03, alias_flag_ok
+    ok05 = and ok04, alias_value_ok
+    ok06 = and ok05, push_non_ascii_flag_ok
+    ok07 = and ok06, insert_non_ascii_flag_ok
+    ok = and ok07, final_len_ok
+    !expected_push
+    !expected_insert
+    !expected_alias
+    !push_char_ok
+    !push_char_ok2
+    !after_push
+    !after_push_eq
+    !insert_char_ok
+    !after_insert
+    !after_insert_eq
+    !insert_char_alias_ok
+    !after_alias
+    !after_alias_eq
+    !push_non_ascii_ok
+    !insert_non_ascii_ok
+    !final_len
+    !push_flag_ok
+    !push_flag2_ok
+    !push_value_ok
+    !insert_flag_ok
+    !insert_value_ok
+    !alias_flag_ok
+    !alias_value_ok
+    !push_non_ascii_flag_ok
+    !insert_non_ascii_flag_ok
+    !final_len_ok
+    !ok00
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    EXPAND STRING_BUF_FREE string_buf
+    br ok -> L_STRING_BUF_CHAR_OK, L_STRING_BUF_CHAR_FAIL
+
+L_STRING_BUF_CHAR_FAIL:
+    !ok
+    panic(917)
+
+L_STRING_BUF_CHAR_OK:
     !ok
     return
 
@@ -1835,6 +1923,204 @@ L_PARITY_FAIL:
     panic(905)
 
 L_PARITY_OK:
+    !ok
+    return
+
+@test "sa_std slice and vec split first last macros"():
+L_ENTRY:
+    data = alloc 24
+    store data+0, 10 as u64
+    store data+8, 20 as u64
+    store data+16, 30 as u64
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, data, 3
+    empty_slice = alloc Slice_SIZE
+    empty_ptr = 0 as ptr
+    EXPAND SLICE_NEW empty_slice, empty_ptr, 0
+
+    EXPAND SLICE_TRY_SPLIT_FIRST_U64 slice_first_ok, slice_first, slice_rest, slice
+    EXPAND SLICE_GET_LEN slice_rest_len, slice_rest
+    EXPAND SLICE_FIRST_U64 slice_rest_first, slice_rest
+    EXPAND SLICE_TRY_SPLIT_LAST_U64 slice_last_ok, slice_last, slice_head, slice
+    EXPAND SLICE_GET_LEN slice_head_len, slice_head
+    EXPAND SLICE_LAST_U64 slice_head_last, slice_head
+    EXPAND SLICE_TRY_SPLIT_FIRST_U64 empty_first_ok, empty_first, empty_first_rest, empty_slice
+    EXPAND SLICE_IS_EMPTY empty_first_rest_empty, empty_first_rest
+    EXPAND SLICE_TRY_SPLIT_LAST_U64 empty_last_ok, empty_last, empty_last_rest, empty_slice
+    EXPAND SLICE_IS_EMPTY empty_last_rest_empty, empty_last_rest
+
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_FIRST vec_first, vec
+    EXPAND VEC_LAST vec_last, vec
+    EXPAND VEC_TRY_FIRST_U64 vec_try_first_ok, vec_try_first, vec
+    EXPAND VEC_TRY_LAST_U64 vec_try_last_ok, vec_try_last, vec
+    EXPAND VEC_TRY_SPLIT_FIRST_U64 vec_split_first_ok, vec_split_first, vec_split_rest, vec
+    EXPAND SLICE_GET_LEN vec_split_rest_len, vec_split_rest
+    EXPAND SLICE_FIRST_U64 vec_split_rest_first, vec_split_rest
+    EXPAND VEC_TRY_SPLIT_LAST_U64 vec_split_last_ok, vec_split_last, vec_split_head, vec
+    EXPAND SLICE_GET_LEN vec_split_head_len, vec_split_head
+    EXPAND SLICE_LAST_U64 vec_split_head_last, vec_split_head
+
+    slice_first_flag_ok = eq slice_first_ok, 1
+    slice_first_value_ok = eq slice_first, 10
+    slice_rest_len_ok = eq slice_rest_len, 2
+    slice_rest_first_ok = eq slice_rest_first, 20
+    slice_last_flag_ok = eq slice_last_ok, 1
+    slice_last_value_ok = eq slice_last, 30
+    slice_head_len_ok = eq slice_head_len, 2
+    slice_head_last_ok = eq slice_head_last, 20
+    empty_first_flag_ok = eq empty_first_ok, 0
+    empty_first_value_ok = eq empty_first, 0
+    empty_first_rest_ok = eq empty_first_rest_empty, 1
+    empty_last_flag_ok = eq empty_last_ok, 0
+    empty_last_value_ok = eq empty_last, 0
+    empty_last_rest_ok = eq empty_last_rest_empty, 1
+    vec_first_ok = eq vec_first, 10
+    vec_last_ok = eq vec_last, 30
+    vec_try_first_flag_ok = eq vec_try_first_ok, 1
+    vec_try_first_value_ok = eq vec_try_first, 10
+    vec_try_last_flag_ok = eq vec_try_last_ok, 1
+    vec_try_last_value_ok = eq vec_try_last, 30
+    vec_split_first_flag_ok = eq vec_split_first_ok, 1
+    vec_split_first_value_ok = eq vec_split_first, 10
+    vec_split_rest_len_ok = eq vec_split_rest_len, 2
+    vec_split_rest_first_ok = eq vec_split_rest_first, 20
+    vec_split_last_flag_ok = eq vec_split_last_ok, 1
+    vec_split_last_value_ok = eq vec_split_last, 30
+    vec_split_head_len_ok = eq vec_split_head_len, 2
+    vec_split_head_last_ok = eq vec_split_head_last, 20
+
+    ok01 = and slice_first_flag_ok, slice_first_value_ok
+    ok02 = and ok01, slice_rest_len_ok
+    ok03 = and ok02, slice_rest_first_ok
+    ok04 = and ok03, slice_last_flag_ok
+    ok05 = and ok04, slice_last_value_ok
+    ok06 = and ok05, slice_head_len_ok
+    ok07 = and ok06, slice_head_last_ok
+    ok08 = and ok07, empty_first_flag_ok
+    ok09 = and ok08, empty_first_value_ok
+    ok10 = and ok09, empty_first_rest_ok
+    ok11 = and ok10, empty_last_flag_ok
+    ok12 = and ok11, empty_last_value_ok
+    ok13 = and ok12, empty_last_rest_ok
+    ok14 = and ok13, vec_first_ok
+    ok15 = and ok14, vec_last_ok
+    ok16 = and ok15, vec_try_first_flag_ok
+    ok17 = and ok16, vec_try_first_value_ok
+    ok18 = and ok17, vec_try_last_flag_ok
+    ok19 = and ok18, vec_try_last_value_ok
+    ok20 = and ok19, vec_split_first_flag_ok
+    ok21 = and ok20, vec_split_first_value_ok
+    ok22 = and ok21, vec_split_rest_len_ok
+    ok23 = and ok22, vec_split_rest_first_ok
+    ok24 = and ok23, vec_split_last_flag_ok
+    ok25 = and ok24, vec_split_last_value_ok
+    ok26 = and ok25, vec_split_head_len_ok
+    ok = and ok26, vec_split_head_last_ok
+
+    !data
+    !slice
+    !empty_slice
+    !empty_ptr
+    !slice_first_ok
+    !slice_first
+    !slice_rest
+    !slice_rest_len
+    !slice_rest_first
+    !slice_last_ok
+    !slice_last
+    !slice_head
+    !slice_head_len
+    !slice_head_last
+    !empty_first_ok
+    !empty_first
+    !empty_first_rest
+    !empty_first_rest_empty
+    !empty_last_ok
+    !empty_last
+    !empty_last_rest
+    !empty_last_rest_empty
+    !vec_first
+    !vec_last
+    !vec_try_first_ok
+    !vec_try_first
+    !vec_try_last_ok
+    !vec_try_last
+    !vec_split_first_ok
+    !vec_split_first
+    !vec_split_rest
+    !vec_split_rest_len
+    !vec_split_rest_first
+    !vec_split_last_ok
+    !vec_split_last
+    !vec_split_head
+    !vec_split_head_len
+    !vec_split_head_last
+    !slice_first_flag_ok
+    !slice_first_value_ok
+    !slice_rest_len_ok
+    !slice_rest_first_ok
+    !slice_last_flag_ok
+    !slice_last_value_ok
+    !slice_head_len_ok
+    !slice_head_last_ok
+    !empty_first_flag_ok
+    !empty_first_value_ok
+    !empty_first_rest_ok
+    !empty_last_flag_ok
+    !empty_last_value_ok
+    !empty_last_rest_ok
+    !vec_first_ok
+    !vec_last_ok
+    !vec_try_first_flag_ok
+    !vec_try_first_value_ok
+    !vec_try_last_flag_ok
+    !vec_try_last_value_ok
+    !vec_split_first_flag_ok
+    !vec_split_first_value_ok
+    !vec_split_rest_len_ok
+    !vec_split_rest_first_ok
+    !vec_split_last_flag_ok
+    !vec_split_last_value_ok
+    !vec_split_head_len_ok
+    !vec_split_head_last_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    EXPAND VEC_FREE vec
+    br ok -> L_SLICE_VEC_SPLIT_FIRST_LAST_OK, L_SLICE_VEC_SPLIT_FIRST_LAST_FAIL
+
+L_SLICE_VEC_SPLIT_FIRST_LAST_FAIL:
+    !ok
+    panic(918)
+
+L_SLICE_VEC_SPLIT_FIRST_LAST_OK:
     !ok
     return
 
