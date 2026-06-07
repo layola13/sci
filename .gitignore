@@ -39,3 +39,4 @@ demos/**/*.bc
 # Ignored developer symlinks
 sa_plugin_rust
 sa_plugin_matmul
+.sa_cache

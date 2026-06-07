@@ -1257,7 +1257,15 @@ test "sa_std net helpers are concrete and verifiable" {
     defer std.testing.allocator.free(net_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_stream_peek"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_stream_peer_addr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_stream_local_addr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_stream_read_timeout"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_stream_take_error"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_tcp_listener_ttl"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_local_addr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_peer_addr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_peek"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_peek_from"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_take_error"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_iface, 1, "sa_std_net_udp_recv_from"));
 
     const net_src = try readFileAlloc(std.testing.allocator, "sa_std/net.sa");
@@ -1265,8 +1273,17 @@ test "sa_std net helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_CONNECT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_LISTENER_BIND_PORT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_STREAM_PEEK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_STREAM_LOCAL_ADDR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_STREAM_SET_NODELAY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_STREAM_NODELAY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_STREAM_TAKE_ERROR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_LISTENER_SET_NONBLOCKING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_TCP_LISTENER_TAKE_ERROR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_BIND"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_PEER_ADDR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_PEEK"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_PEEK_FROM"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_TAKE_ERROR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_UDP_RECV_FROM"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_src, 1, "[MACRO] NET_ADDR_IS_IPV4"));
 
@@ -1966,18 +1983,36 @@ test "sa_std env runtime helper is usable from C" {
 test "sa_std fs helper declarations stay aligned" {
     const fs_iface = try readFileAlloc(std.testing.allocator, "sa_std/fs.sai");
     defer std.testing.allocator.free(fs_iface);
+    const fs_src = try readFileAlloc(std.testing.allocator, "sa_std/fs.sa");
+    defer std.testing.allocator.free(fs_src);
     const c_header = try readFileAlloc(std.testing.allocator, "src/runtime/sa_std.h");
     defer std.testing.allocator.free(c_header);
 
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_std_fs_open_read(&path: ptr, path_len: u64, &out_handle: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_std_fs_file_read(file: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_std_fs_file_seek(file: u64, whence: u32, offset: i64, &out_pos: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_std_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_std_fs_metadata(&path: ptr, path_len: u64, &out_handle: ptr) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64) -> u64!"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64) -> u64!"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_metadata(&path: ptr, path_len: u64) -> u64!"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_metadata_json(&path: ptr, path_len: u64) -> u64!"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32!"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, fs_iface, 1, "@extern sa_fs_copy_file(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32"));
 
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_src, 1, "[MACRO] FS_OPEN_READ"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_src, 1, "[MACRO] FS_READ"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_src, 1, "[MACRO] FS_SYNC_ALL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_src, 1, "[MACRO] FS_SET_LEN"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_src, 1, "[MACRO] FS_METADATA_IS_DIR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_src, 1, "[MACRO] FS_READ_DIR_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, fs_src, 1, "[MACRO] FS_COPY"));
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_std_fs_read_file(const uint8_t *path, uint64_t path_len, uint64_t max_bytes, uint64_t *out_handle);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_std_fs_file_seek(uint64_t handle, uint32_t whence, int64_t offset, uint64_t *out_pos);"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_std_fs_metadata(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);"));
     try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_read_file_base64(const uint8_t *path, uint64_t path_len, uint64_t max_bytes);"));
     try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "int32_t sa_fs_write_file_base64(const uint8_t *path, uint64_t path_len, const uint8_t *data_base64, uint64_t data_base64_len);"));
     try std.testing.expect(std.mem.containsAtLeast(u8, c_header, 1, "sa_std_fallible_u64 sa_fs_read_dir_json(const uint8_t *path, uint64_t path_len, uint64_t max_entries);"));

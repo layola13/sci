@@ -1,0 +1,622 @@
+@import "sa_std/fs.sa"
+@import "sa_std/string.sa"
+@import "sa_std/testing/assert.sai"
+
+@const FS_TEST_PATH = utf8:"_tmp_fs_macro_surface.txt"
+@const FS_TEST_COPY_PATH = utf8:"_tmp_fs_macro_surface_copy.txt"
+@const FS_TEST_RENAMED_PATH = utf8:"_tmp_fs_macro_surface_renamed.txt"
+@const FS_TEST_DIR = utf8:"_tmp_fs_macro_surface_dir"
+@const FS_TEST_HELLO = utf8:"hello"
+@const FS_TEST_HEY = utf8:"hey"
+@const FS_TEST_HEY_B64 = utf8:"aGV5"
+@const FS_DBG_WRITE_STATUS = utf8:"write_status"
+@const FS_DBG_EXISTS = utf8:"exists"
+@const FS_DBG_LEN_STATUS = utf8:"len_status"
+@const FS_DBG_FILE_LEN = utf8:"file_len"
+@const FS_DBG_OPEN_STATUS = utf8:"open_status"
+@const FS_DBG_READ_STATUS = utf8:"read_status"
+@const FS_DBG_READ_LEN = utf8:"read_len"
+@const FS_DBG_CLOSE_STATUS = utf8:"close_status"
+@const FS_DBG_READ_EQ = utf8:"read_eq"
+@const FS_DBG_CREATE_STATUS = utf8:"create_status"
+@const FS_DBG_WRITTEN_LEN = utf8:"written_len"
+@const FS_DBG_FLUSH_STATUS = utf8:"flush_status"
+@const FS_DBG_SYNC_STATUS = utf8:"sync_status"
+@const FS_DBG_SET_LEN_STATUS = utf8:"set_len_status"
+@const FS_DBG_SEEK_STATUS = utf8:"seek_status"
+@const FS_DBG_SEEK_POS = utf8:"seek_pos"
+@const FS_DBG_EXACT_STATUS = utf8:"exact_status"
+@const FS_DBG_LEN2_STATUS = utf8:"len2_status"
+@const FS_DBG_FILE_LEN2 = utf8:"file_len2"
+@const FS_DBG_EXACT_EQ = utf8:"exact_eq"
+@const FS_DBG_READ_FILE_STATUS = utf8:"read_file_status"
+@const FS_DBG_B64_STATUS = utf8:"b64_status"
+@const FS_DBG_B64_LEN = utf8:"b64_len"
+@const FS_DBG_COPY_STATUS = utf8:"copy_status"
+@const FS_DBG_RENAME_STATUS = utf8:"rename_status"
+@const FS_DBG_RENAMED = utf8:"renamed"
+@const FS_DBG_METADATA_STATUS = utf8:"metadata_status"
+@const FS_DBG_IS_FILE = utf8:"is_file"
+@const FS_DBG_IS_DIR = utf8:"is_dir"
+@const FS_DBG_IS_SYMLINK = utf8:"is_symlink"
+@const FS_DBG_METADATA_JSON = utf8:"metadata_json"
+@const FS_DBG_METADATA_JSON_LEN_NAME = utf8:"metadata_json_len"
+@const FS_DBG_MKDIR_STATUS = utf8:"mkdir_status"
+@const FS_DBG_DIR_STATUS = utf8:"dir_status"
+@const FS_DBG_DIR_LEN = utf8:"dir_len"
+@const FS_DBG_REMOVE_STATUS = utf8:"remove_status"
+
+#def FS_TEST_PATH_LEN = 25
+#def FS_TEST_COPY_PATH_LEN = 30
+#def FS_TEST_RENAMED_PATH_LEN = 33
+#def FS_TEST_DIR_LEN = 25
+#def FS_TEST_HELLO_LEN = 5
+#def FS_TEST_HEY_LEN = 3
+#def FS_TEST_HEY_B64_LEN = 4
+#def FS_DBG_WRITE_STATUS_LEN = 12
+#def FS_DBG_EXISTS_LEN = 6
+#def FS_DBG_LEN_STATUS_LEN = 10
+#def FS_DBG_FILE_LEN_LEN = 8
+#def FS_DBG_OPEN_STATUS_LEN = 11
+#def FS_DBG_READ_STATUS_LEN = 11
+#def FS_DBG_READ_LEN_LEN = 8
+#def FS_DBG_CLOSE_STATUS_LEN = 12
+#def FS_DBG_READ_EQ_LEN = 7
+#def FS_DBG_CREATE_STATUS_LEN = 13
+#def FS_DBG_WRITTEN_LEN_LEN = 11
+#def FS_DBG_FLUSH_STATUS_LEN = 12
+#def FS_DBG_SYNC_STATUS_LEN = 11
+#def FS_DBG_SET_LEN_STATUS_LEN = 14
+#def FS_DBG_SEEK_STATUS_LEN = 11
+#def FS_DBG_SEEK_POS_LEN = 8
+#def FS_DBG_EXACT_STATUS_LEN = 12
+#def FS_DBG_LEN2_STATUS_LEN = 11
+#def FS_DBG_FILE_LEN2_LEN = 9
+#def FS_DBG_EXACT_EQ_LEN = 8
+#def FS_DBG_READ_FILE_STATUS_LEN = 16
+#def FS_DBG_B64_STATUS_LEN = 10
+#def FS_DBG_B64_LEN_LEN = 7
+#def FS_DBG_COPY_STATUS_LEN = 11
+#def FS_DBG_RENAME_STATUS_LEN = 13
+#def FS_DBG_RENAMED_LEN = 7
+#def FS_DBG_METADATA_STATUS_LEN = 15
+#def FS_DBG_IS_FILE_LEN = 7
+#def FS_DBG_IS_DIR_LEN = 6
+#def FS_DBG_IS_SYMLINK_LEN = 10
+#def FS_DBG_METADATA_JSON_LEN = 13
+#def FS_DBG_METADATA_JSON_LEN_NAME_LEN = 17
+#def FS_DBG_MKDIR_STATUS_LEN = 12
+#def FS_DBG_DIR_STATUS_LEN = 10
+#def FS_DBG_DIR_LEN_LEN = 7
+#def FS_DBG_REMOVE_STATUS_LEN = 13
+
+@test "sa_std fs file io macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_copy_status, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+
+    EXPAND FS_WRITE_FILE write_file_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HELLO, FS_TEST_HELLO_LEN
+    EXPAND FS_EXISTS exists_after_write, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_LEN len_status, file_len, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_OPEN_READ open_read_status, read_file, FS_TEST_PATH, FS_TEST_PATH_LEN
+    read_buf = alloc 8
+    EXPAND FS_READ read_status, read_len, read_file, read_buf, 8
+    EXPAND FS_CLOSE close_read_status, read_file
+    EXPAND STR_FROM_PARTS read_view, read_buf, read_len
+    EXPAND STR_FROM_PARTS hello_view, &FS_TEST_HELLO, FS_TEST_HELLO_LEN
+    EXPAND STR_EQ read_eq, read_view, hello_view
+
+    write_file_ok = eq write_file_status, SA_FS_OK
+    exists_ok = eq exists_after_write, 1
+    len_status_ok = eq len_status, SA_FS_OK
+    len_value_ok = eq file_len, FS_TEST_HELLO_LEN
+    open_read_ok = eq open_read_status, SA_FS_OK
+    read_status_ok = eq read_status, SA_FS_OK
+    read_len_ok = eq read_len, FS_TEST_HELLO_LEN
+    close_read_ok = eq close_read_status, SA_FS_OK
+    read_eq_ok = eq read_eq, 1
+    ok01 = and write_file_ok, exists_ok
+    ok02 = and ok01, len_status_ok
+    ok03 = and ok02, len_value_ok
+    ok04 = and ok03, open_read_ok
+    ok05 = and ok04, read_status_ok
+    ok06 = and ok05, read_len_ok
+    ok07 = and ok06, close_read_ok
+    read_phase_ok = and ok07, read_eq_ok
+    br read_phase_ok -> L_TRUNCATE, L_FAIL_READ
+
+L_FAIL_READ:
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_file_status)
+    call @sa_test_debug_i64(&FS_DBG_EXISTS, FS_DBG_EXISTS_LEN, exists_after_write)
+    call @sa_test_debug_i64(&FS_DBG_LEN_STATUS, FS_DBG_LEN_STATUS_LEN, len_status)
+    call @sa_test_debug_i64(&FS_DBG_FILE_LEN, FS_DBG_FILE_LEN_LEN, file_len)
+    call @sa_test_debug_i64(&FS_DBG_OPEN_STATUS, FS_DBG_OPEN_STATUS_LEN, open_read_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_STATUS, FS_DBG_READ_STATUS_LEN, read_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_LEN, FS_DBG_READ_LEN_LEN, read_len)
+    call @sa_test_debug_i64(&FS_DBG_CLOSE_STATUS, FS_DBG_CLOSE_STATUS_LEN, close_read_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_EQ, FS_DBG_READ_EQ_LEN, read_eq)
+    call @sa_assert_eq_i64(write_file_status, SA_FS_OK, 940)
+    call @sa_assert_eq_i64(exists_after_write, 1, 940)
+    call @sa_assert_eq_i64(len_status, SA_FS_OK, 940)
+    call @sa_assert_eq_i64(file_len, FS_TEST_HELLO_LEN, 940)
+    call @sa_assert_eq_i64(open_read_status, SA_FS_OK, 940)
+    call @sa_assert_eq_i64(read_status, SA_FS_OK, 940)
+    call @sa_assert_eq_i64(read_len, FS_TEST_HELLO_LEN, 940)
+    call @sa_assert_eq_i64(close_read_status, SA_FS_OK, 940)
+    call @sa_assert_eq_i64(read_eq, 1, 940)
+    !read_phase_ok
+    !read_eq_ok
+    !close_read_ok
+    !read_len_ok
+    !read_status_ok
+    !open_read_ok
+    !len_value_ok
+    !len_status_ok
+    !exists_ok
+    !write_file_ok
+    !read_eq
+    !hello_view
+    !read_view
+    !close_read_status
+    !read_len
+    !read_status
+    !read_file
+    !file_len
+    !len_status
+    !exists_after_write
+    !write_file_status
+    !cleanup_renamed_status
+    !cleanup_copy_status
+    !cleanup_path_status
+    panic(940)
+
+L_TRUNCATE:
+    !read_phase_ok
+    !read_eq_ok
+    !close_read_ok
+    !read_len_ok
+    !read_status_ok
+    !open_read_ok
+    !len_value_ok
+    !len_status_ok
+    !exists_ok
+    !write_file_ok
+    !read_eq
+    !hello_view
+    !read_view
+    !close_read_status
+    !read_len
+    !read_status
+    !read_file
+    !file_len
+    !len_status
+    !exists_after_write
+    !write_file_status
+    EXPAND FS_CREATE create_status, write_file, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_WRITE write_status, written_len, write_file, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_FLUSH flush_status, write_file
+    EXPAND FS_SYNC_ALL sync_status, write_file
+    EXPAND FS_SET_LEN set_len_status, write_file, FS_TEST_HEY_LEN
+    EXPAND FS_SEEK seek_status, seek_pos, write_file, SA_FS_SEEK_START, 0
+    exact_buf = alloc 4
+    EXPAND FS_READ_EXACT exact_status, write_file, exact_buf, FS_TEST_HEY_LEN
+    EXPAND FS_CLOSE close_write_status, write_file
+    EXPAND FS_LEN len2_status, file_len2, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND STR_FROM_PARTS exact_view, exact_buf, FS_TEST_HEY_LEN
+    EXPAND STR_FROM_PARTS hey_view, &FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND STR_EQ exact_eq, exact_view, hey_view
+
+    create_ok = eq create_status, SA_FS_OK
+    write_ok = eq write_status, SA_FS_OK
+    written_len_ok = eq written_len, FS_TEST_HEY_LEN
+    flush_ok = eq flush_status, SA_FS_OK
+    sync_ok = eq sync_status, SA_FS_OK
+    set_len_ok = eq set_len_status, SA_FS_OK
+    seek_status_ok = eq seek_status, SA_FS_OK
+    seek_pos_ok = eq seek_pos, 0
+    exact_ok = eq exact_status, SA_FS_OK
+    close_write_ok = eq close_write_status, SA_FS_OK
+    len2_status_ok = eq len2_status, SA_FS_OK
+    len2_value_ok = eq file_len2, FS_TEST_HEY_LEN
+    exact_eq_ok = eq exact_eq, 1
+    ok11 = and create_ok, write_ok
+    ok12 = and ok11, written_len_ok
+    ok13 = and ok12, flush_ok
+    ok14 = and ok13, sync_ok
+    ok15 = and ok14, set_len_ok
+    ok16 = and ok15, seek_status_ok
+    ok17 = and ok16, seek_pos_ok
+    ok18 = and ok17, exact_ok
+    ok19 = and ok18, close_write_ok
+    ok20 = and ok19, len2_status_ok
+    ok21 = and ok20, len2_value_ok
+    ok = and ok21, exact_eq_ok
+    br ok -> L_OK, L_FAIL_TRUNCATE
+
+L_FAIL_TRUNCATE:
+    call @sa_test_debug_i64(&FS_DBG_CREATE_STATUS, FS_DBG_CREATE_STATUS_LEN, create_status)
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_status)
+    call @sa_test_debug_i64(&FS_DBG_WRITTEN_LEN, FS_DBG_WRITTEN_LEN_LEN, written_len)
+    call @sa_test_debug_i64(&FS_DBG_FLUSH_STATUS, FS_DBG_FLUSH_STATUS_LEN, flush_status)
+    call @sa_test_debug_i64(&FS_DBG_SYNC_STATUS, FS_DBG_SYNC_STATUS_LEN, sync_status)
+    call @sa_test_debug_i64(&FS_DBG_SET_LEN_STATUS, FS_DBG_SET_LEN_STATUS_LEN, set_len_status)
+    call @sa_test_debug_i64(&FS_DBG_SEEK_STATUS, FS_DBG_SEEK_STATUS_LEN, seek_status)
+    call @sa_test_debug_i64(&FS_DBG_SEEK_POS, FS_DBG_SEEK_POS_LEN, seek_pos)
+    call @sa_test_debug_i64(&FS_DBG_EXACT_STATUS, FS_DBG_EXACT_STATUS_LEN, exact_status)
+    call @sa_test_debug_i64(&FS_DBG_CLOSE_STATUS, FS_DBG_CLOSE_STATUS_LEN, close_write_status)
+    call @sa_test_debug_i64(&FS_DBG_LEN2_STATUS, FS_DBG_LEN2_STATUS_LEN, len2_status)
+    call @sa_test_debug_i64(&FS_DBG_FILE_LEN2, FS_DBG_FILE_LEN2_LEN, file_len2)
+    call @sa_test_debug_i64(&FS_DBG_EXACT_EQ, FS_DBG_EXACT_EQ_LEN, exact_eq)
+    call @sa_assert_eq_i64(create_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(write_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(written_len, FS_TEST_HEY_LEN, 941)
+    call @sa_assert_eq_i64(flush_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(sync_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(set_len_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(seek_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(seek_pos, 0, 941)
+    call @sa_assert_eq_i64(exact_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(close_write_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(len2_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(file_len2, FS_TEST_HEY_LEN, 941)
+    call @sa_assert_eq_i64(exact_eq, 1, 941)
+    !ok
+    !exact_eq_ok
+    !len2_value_ok
+    !len2_status_ok
+    !close_write_ok
+    !exact_ok
+    !seek_pos_ok
+    !seek_status_ok
+    !set_len_ok
+    !sync_ok
+    !flush_ok
+    !written_len_ok
+    !write_ok
+    !create_ok
+    !exact_eq
+    !hey_view
+    !exact_view
+    !file_len2
+    !len2_status
+    !close_write_status
+    !exact_status
+    !seek_pos
+    !seek_status
+    !set_len_status
+    !sync_status
+    !flush_status
+    !written_len
+    !write_status
+    !write_file
+    !cleanup_renamed_status
+    !cleanup_copy_status
+    !cleanup_path_status
+    panic(941)
+
+L_OK:
+    !ok
+    !exact_eq_ok
+    !len2_value_ok
+    !len2_status_ok
+    !close_write_ok
+    !exact_ok
+    !seek_pos_ok
+    !seek_status_ok
+    !set_len_ok
+    !sync_ok
+    !flush_ok
+    !written_len_ok
+    !write_ok
+    !create_ok
+    !exact_eq
+    !hey_view
+    !exact_view
+    !file_len2
+    !len2_status
+    !close_write_status
+    !exact_status
+    !seek_pos
+    !seek_status
+    !set_len_status
+    !sync_status
+    !flush_status
+    !written_len
+    !write_status
+    !write_file
+    EXPAND FS_REMOVE_PATH cleanup_end_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    !cleanup_end_status
+    !cleanup_renamed_status
+    !cleanup_copy_status
+    !cleanup_path_status
+    return
+
+@test "sa_std fs metadata copy dir macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_copy_status, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_dir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
+
+    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_READ_FILE read_file_status, read_buffer, FS_TEST_PATH, FS_TEST_PATH_LEN, 64
+    EXPAND FS_READ_BUFFER_DATA read_data, read_buffer
+    EXPAND FS_READ_BUFFER_LEN read_len, read_buffer
+    EXPAND STR_FROM_PARTS read_view, read_data, read_len
+    EXPAND STR_FROM_PARTS hey_view, &FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND STR_EQ read_eq, read_view, hey_view
+    EXPAND FS_READ_BUFFER_FREE read_free_status, read_buffer
+
+    EXPAND FS_READ_FILE_BASE64 b64_status, b64_buffer, FS_TEST_PATH, FS_TEST_PATH_LEN, 64
+    EXPAND FS_READ_BUFFER_DATA b64_data, b64_buffer
+    EXPAND FS_READ_BUFFER_LEN b64_len, b64_buffer
+    EXPAND STR_FROM_PARTS b64_view, b64_data, b64_len
+    EXPAND STR_FROM_PARTS b64_expected, &FS_TEST_HEY_B64, FS_TEST_HEY_B64_LEN
+    EXPAND STR_EQ b64_eq, b64_view, b64_expected
+    EXPAND FS_READ_BUFFER_FREE b64_free_status, b64_buffer
+
+    EXPAND FS_COPY copy_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN
+    EXPAND FS_RENAME rename_status, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_EXISTS renamed_exists, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_METADATA metadata_status, metadata, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_METADATA_IS_FILE metadata_is_file, metadata
+    EXPAND FS_METADATA_IS_DIR metadata_is_dir, metadata
+    EXPAND FS_METADATA_IS_SYMLINK metadata_is_symlink, metadata
+    EXPAND FS_METADATA_MODIFIED_MS metadata_modified_ms, metadata
+    EXPAND FS_METADATA_CREATED_MS metadata_created_ms, metadata
+    EXPAND FS_METADATA_FREE metadata_free_status, metadata
+    EXPAND FS_METADATA_JSON metadata_json_status, metadata_json, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_READ_BUFFER_LEN metadata_json_len, metadata_json
+    EXPAND FS_READ_BUFFER_FREE metadata_json_free_status, metadata_json
+
+    EXPAND FS_CREATE_DIR_ALL mkdir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
+    EXPAND FS_READ_DIR_JSON dir_status, dir_buffer, FS_TEST_DIR, FS_TEST_DIR_LEN, 16
+    EXPAND FS_DIR_BUFFER_LEN dir_len, dir_buffer
+    EXPAND FS_DIR_BUFFER_FREE dir_free_status, dir_buffer
+    EXPAND FS_REMOVE_FILE remove_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_DIR remove_dir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
+
+    write_ok = eq write_status, SA_FS_OK
+    read_file_ok = eq read_file_status, SA_FS_OK
+    read_len_ok = eq read_len, FS_TEST_HEY_LEN
+    read_eq_ok = eq read_eq, 1
+    read_free_ok = eq read_free_status, SA_FS_OK
+    b64_ok = eq b64_status, SA_FS_OK
+    b64_len_ok = eq b64_len, FS_TEST_HEY_B64_LEN
+    b64_eq_ok = eq b64_eq, 1
+    b64_free_ok = eq b64_free_status, SA_FS_OK
+    copy_ok = eq copy_status, SA_FS_OK
+    rename_ok = eq rename_status, SA_FS_OK
+    renamed_ok = eq renamed_exists, 1
+    metadata_status_ok = eq metadata_status, SA_FS_OK
+    metadata_file_ok = eq metadata_is_file, 1
+    metadata_dir_ok = eq metadata_is_dir, 0
+    metadata_symlink_ok = eq metadata_is_symlink, 0
+    metadata_free_ok = eq metadata_free_status, SA_FS_OK
+    metadata_json_ok = eq metadata_json_status, SA_FS_OK
+    metadata_json_len_ok = ne metadata_json_len, 0
+    metadata_json_free_ok = eq metadata_json_free_status, SA_FS_OK
+    mkdir_ok = eq mkdir_status, SA_FS_OK
+    dir_ok = eq dir_status, SA_FS_OK
+    dir_len_ok = ne dir_len, 0
+    dir_free_ok = eq dir_free_status, SA_FS_OK
+    remove_renamed_ok = eq remove_renamed_status, SA_FS_OK
+    remove_path_ok = eq remove_path_status, SA_FS_OK
+    remove_dir_ok = eq remove_dir_status, SA_FS_OK
+
+    ok01 = and write_ok, read_file_ok
+    ok02 = and ok01, read_len_ok
+    ok03 = and ok02, read_eq_ok
+    ok04 = and ok03, read_free_ok
+    ok05 = and ok04, b64_ok
+    ok06 = and ok05, b64_len_ok
+    ok07 = and ok06, b64_eq_ok
+    ok08 = and ok07, b64_free_ok
+    ok09 = and ok08, copy_ok
+    ok10 = and ok09, rename_ok
+    ok11 = and ok10, renamed_ok
+    ok12 = and ok11, metadata_status_ok
+    ok13 = and ok12, metadata_file_ok
+    ok14 = and ok13, metadata_dir_ok
+    ok15 = and ok14, metadata_symlink_ok
+    ok16 = and ok15, metadata_free_ok
+    ok17 = and ok16, metadata_json_ok
+    ok18 = and ok17, metadata_json_len_ok
+    ok19 = and ok18, metadata_json_free_ok
+    ok20 = and ok19, mkdir_ok
+    ok21 = and ok20, dir_ok
+    ok22 = and ok21, dir_len_ok
+    ok23 = and ok22, dir_free_ok
+    ok24 = and ok23, remove_renamed_ok
+    ok25 = and ok24, remove_path_ok
+    ok = and ok25, remove_dir_ok
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_FILE_STATUS, FS_DBG_READ_FILE_STATUS_LEN, read_file_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_LEN, FS_DBG_READ_LEN_LEN, read_len)
+    call @sa_test_debug_i64(&FS_DBG_READ_EQ, FS_DBG_READ_EQ_LEN, read_eq)
+    call @sa_test_debug_i64(&FS_DBG_B64_STATUS, FS_DBG_B64_STATUS_LEN, b64_status)
+    call @sa_test_debug_i64(&FS_DBG_B64_LEN, FS_DBG_B64_LEN_LEN, b64_len)
+    call @sa_test_debug_i64(&FS_DBG_COPY_STATUS, FS_DBG_COPY_STATUS_LEN, copy_status)
+    call @sa_test_debug_i64(&FS_DBG_RENAME_STATUS, FS_DBG_RENAME_STATUS_LEN, rename_status)
+    call @sa_test_debug_i64(&FS_DBG_RENAMED, FS_DBG_RENAMED_LEN, renamed_exists)
+    call @sa_test_debug_i64(&FS_DBG_METADATA_STATUS, FS_DBG_METADATA_STATUS_LEN, metadata_status)
+    call @sa_test_debug_i64(&FS_DBG_IS_FILE, FS_DBG_IS_FILE_LEN, metadata_is_file)
+    call @sa_test_debug_i64(&FS_DBG_IS_DIR, FS_DBG_IS_DIR_LEN, metadata_is_dir)
+    call @sa_test_debug_i64(&FS_DBG_IS_SYMLINK, FS_DBG_IS_SYMLINK_LEN, metadata_is_symlink)
+    call @sa_test_debug_i64(&FS_DBG_METADATA_JSON, FS_DBG_METADATA_JSON_LEN, metadata_json_status)
+    call @sa_test_debug_i64(&FS_DBG_METADATA_JSON_LEN_NAME, FS_DBG_METADATA_JSON_LEN_NAME_LEN, metadata_json_len)
+    call @sa_test_debug_i64(&FS_DBG_DIR_STATUS, FS_DBG_DIR_STATUS_LEN, dir_status)
+    call @sa_assert_eq_i64(write_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(read_file_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(read_len, FS_TEST_HEY_LEN, 942)
+    call @sa_assert_eq_i64(read_eq, 1, 942)
+    call @sa_assert_eq_i64(read_free_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(b64_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(b64_len, FS_TEST_HEY_B64_LEN, 942)
+    call @sa_assert_eq_i64(b64_eq, 1, 942)
+    call @sa_assert_eq_i64(b64_free_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(copy_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(rename_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(renamed_exists, 1, 942)
+    call @sa_assert_eq_i64(metadata_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(metadata_is_file, 1, 942)
+    call @sa_assert_eq_i64(metadata_is_dir, 0, 942)
+    call @sa_assert_eq_i64(metadata_is_symlink, 0, 942)
+    call @sa_assert_eq_i64(metadata_free_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(metadata_json_status, SA_FS_OK, 942)
+    metadata_json_len_nonzero = ne metadata_json_len, 0
+    call @sa_assert_eq_i64(metadata_json_len_nonzero, 1, 942)
+    call @sa_assert_eq_i64(metadata_json_free_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(mkdir_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(dir_status, SA_FS_OK, 942)
+    dir_len_nonzero = ne dir_len, 0
+    call @sa_assert_eq_i64(dir_len_nonzero, 1, 942)
+    call @sa_assert_eq_i64(dir_free_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(remove_renamed_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(remove_path_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(remove_dir_status, SA_FS_OK, 942)
+    !dir_len_nonzero
+    !metadata_json_len_nonzero
+    !ok
+    !remove_dir_ok
+    !remove_path_ok
+    !remove_renamed_ok
+    !dir_free_ok
+    !dir_len_ok
+    !dir_ok
+    !mkdir_ok
+    !metadata_json_free_ok
+    !metadata_json_len_ok
+    !metadata_json_ok
+    !metadata_free_ok
+    !metadata_symlink_ok
+    !metadata_dir_ok
+    !metadata_file_ok
+    !metadata_status_ok
+    !renamed_ok
+    !rename_ok
+    !copy_ok
+    !b64_free_ok
+    !b64_eq_ok
+    !b64_len_ok
+    !b64_ok
+    !read_free_ok
+    !read_eq_ok
+    !read_len_ok
+    !read_file_ok
+    !write_ok
+    !remove_dir_status
+    !remove_path_status
+    !remove_renamed_status
+    !dir_free_status
+    !dir_len
+    !dir_status
+    !mkdir_status
+    !metadata_json_free_status
+    !metadata_json_len
+    !metadata_json_status
+    !metadata_created_ms
+    !metadata_modified_ms
+    !metadata_free_status
+    !metadata_is_symlink
+    !metadata_is_dir
+    !metadata_is_file
+    !metadata_status
+    !renamed_exists
+    !rename_status
+    !copy_status
+    !b64_free_status
+    !b64_eq
+    !b64_expected
+    !b64_view
+    !b64_len
+    !b64_data
+    !b64_status
+    !read_free_status
+    !read_eq
+    !hey_view
+    !read_view
+    !read_len
+    !read_data
+    !read_file_status
+    !write_status
+    !cleanup_dir_status
+    !cleanup_renamed_status
+    !cleanup_copy_status
+    !cleanup_path_status
+    panic(942)
+
+L_OK:
+    !ok
+    !remove_dir_ok
+    !remove_path_ok
+    !remove_renamed_ok
+    !dir_free_ok
+    !dir_len_ok
+    !dir_ok
+    !mkdir_ok
+    !metadata_json_free_ok
+    !metadata_json_len_ok
+    !metadata_json_ok
+    !metadata_free_ok
+    !metadata_symlink_ok
+    !metadata_dir_ok
+    !metadata_file_ok
+    !metadata_status_ok
+    !renamed_ok
+    !rename_ok
+    !copy_ok
+    !b64_free_ok
+    !b64_eq_ok
+    !b64_len_ok
+    !b64_ok
+    !read_free_ok
+    !read_eq_ok
+    !read_len_ok
+    !read_file_ok
+    !write_ok
+    !remove_dir_status
+    !remove_path_status
+    !remove_renamed_status
+    !dir_free_status
+    !dir_len
+    !dir_status
+    !mkdir_status
+    !metadata_json_free_status
+    !metadata_json_len
+    !metadata_json_status
+    !metadata_created_ms
+    !metadata_modified_ms
+    !metadata_free_status
+    !metadata_is_symlink
+    !metadata_is_dir
+    !metadata_is_file
+    !metadata_status
+    !renamed_exists
+    !rename_status
+    !copy_status
+    !b64_free_status
+    !b64_eq
+    !b64_expected
+    !b64_view
+    !b64_len
+    !b64_data
+    !b64_status
+    !read_free_status
+    !read_eq
+    !hey_view
+    !read_view
+    !read_len
+    !read_data
+    !read_file_status
+    !write_status
+    !cleanup_dir_status
+    !cleanup_renamed_status
+    !cleanup_copy_status
+    !cleanup_path_status
+    return

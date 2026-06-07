@@ -1,24 +1,42 @@
 // SA-facing contracts for the Zig-backed sa_std.fs module.
 // File handles are opaque owned ptr values and must be closed explicitly.
-@extern sa_fs_file_open(&path: ptr, path_len: u64, flags: u32) -> ^ptr!
-@extern sa_fs_file_create(&path: ptr, path_len: u64) -> ^ptr!
-@extern sa_fs_file_close(^file: ptr) -> i32!
+@extern sa_fs_file_open(&path: ptr, path_len: u64, flags: u32) -> i32
+@extern sa_fs_file_create(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_file_close(file: u64) -> i32
 
-@extern sa_fs_file_read(file: ptr, &buf: ptr, cap: u64) -> u64!
-@extern sa_fs_file_read_exact(file: ptr, &buf: ptr, len: u64) -> u64!
-@extern sa_fs_file_write(file: ptr, &buf: ptr, len: u64) -> u64!
-@extern sa_fs_file_write_all(file: ptr, &buf: ptr, len: u64) -> i32!
-@extern sa_fs_file_flush(file: ptr) -> i32!
-@extern sa_fs_file_seek(file: ptr, whence: u32, offset: i64) -> u64!
+@extern sa_fs_file_read(file: u64, &buf: ptr, cap: u64) -> i32
+@extern sa_fs_file_read_exact(file: u64, &buf: ptr, len: u64) -> i32
+@extern sa_fs_file_write(file: u64, &buf: ptr, len: u64) -> i32
+@extern sa_fs_file_write_all(file: u64, &buf: ptr, len: u64) -> i32
+@extern sa_fs_file_flush(file: u64) -> i32
+@extern sa_fs_file_sync(file: u64) -> i32
+@extern sa_fs_file_truncate(file: u64, new_size: u64) -> i32
+@extern sa_fs_file_seek(file: u64, whence: u32, offset: i64) -> i32
+
+@extern sa_std_fs_open_read(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_open_write(&path: ptr, path_len: u64, truncate: u32, &out_handle: ptr) -> i32
+@extern sa_std_fs_file_read(file: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_std_fs_file_write(file: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
+@extern sa_std_fs_file_seek(file: u64, whence: u32, offset: i64, &out_pos: ptr) -> i32
+@extern sa_std_fs_remove(&path: ptr, path_len: u64) -> i32
+@extern sa_std_fs_exists(&path: ptr, path_len: u64) -> i32
+@extern sa_std_fs_len(&path: ptr, path_len: u64, &out_len: ptr) -> i32
+@extern sa_std_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_metadata(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_metadata_json(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_metadata_free(metadata: u64) -> i32
+@extern sa_std_close(handle: u64) -> i32
 
 // Whole-file reads return an owned buffer handle. Free it with sa_fs_read_buffer_free.
 @extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
-@extern sa_fs_write_file(&path: ptr, path_len: u64, &buf: ptr, len: u64) -> i32!
+@extern sa_fs_write_file(&path: ptr, path_len: u64, &buf: ptr, len: u64) -> i32
 @extern sa_fs_read_buffer_data(buffer: u64) -> &ptr
 @extern sa_fs_read_buffer_len(buffer: u64) -> u64
 @extern sa_fs_read_buffer_free(^buffer: u64) -> i32
 @extern sa_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
-@extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32!
+@extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32
 @extern sa_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64) -> u64!
 @extern sa_fs_dir_buffer_data(buffer: u64) -> &ptr
 @extern sa_fs_dir_buffer_len(buffer: u64) -> u64
@@ -32,9 +50,9 @@
 @extern sa_fs_metadata_modified_ms(metadata: u64) -> i64
 @extern sa_fs_metadata_created_ms(metadata: u64) -> i64
 @extern sa_fs_metadata_free(metadata: u64) -> i32!
-@extern sa_fs_remove_file(&path: ptr, path_len: u64) -> i32!
-@extern sa_fs_rename(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32!
-@extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32!
-@extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32!
+@extern sa_fs_remove_file(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_rename(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32
+@extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_copy_file(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32

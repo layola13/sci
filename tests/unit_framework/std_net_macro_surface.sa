@@ -712,3 +712,943 @@ L_UDP_FAIL_DONE:
 L_UDP_OK:
     !ok
     return
+
+@test "sa_std net local peer address macros"():
+L_ENTRY:
+    EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    bind_status_ok = eq bind_status, 0
+    listener_ok = ne listener, 0
+    bound_port_ok = ne bound_port, 0
+    bind_ok01 = and bind_status_ok, listener_ok
+    bind_ok = and bind_ok01, bound_port_ok
+    br bind_ok -> L_TCP_CONNECT, L_FAIL_TCP_BIND
+
+L_FAIL_TCP_BIND:
+    !bind_ok
+    !bind_ok01
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(943)
+
+L_TCP_CONNECT:
+    !bind_ok
+    !bind_ok01
+    EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
+    connect_status_ok = eq connect_status, 0
+    client_ok = ne client, 0
+    connect_ok = and connect_status_ok, client_ok
+    br connect_ok -> L_TCP_ACCEPT, L_FAIL_TCP_CONNECT
+
+L_FAIL_TCP_CONNECT:
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_a, listener
+    !close_listener_status_a
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(944)
+
+L_TCP_ACCEPT:
+    EXPAND NET_TCP_LISTENER_ACCEPT accept_status, server, listener
+    accept_status_ok = eq accept_status, 0
+    server_ok = ne server, 0
+    accept_ok = and accept_status_ok, server_ok
+    br accept_ok -> L_TCP_ADDR, L_FAIL_TCP_ACCEPT
+
+L_FAIL_TCP_ACCEPT:
+    !accept_ok
+    !server_ok
+    !accept_status_ok
+    !server
+    !accept_status
+    EXPAND NET_TCP_STREAM_CLOSE close_client_status_a, client
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_b, listener
+    !close_client_status_a
+    !close_listener_status_b
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(945)
+
+L_TCP_ADDR:
+    EXPAND NET_TCP_STREAM_LOCAL_ADDR local_status, local_addr, client
+    local_status_ok = eq local_status, 0
+    local_addr_ok = ne local_addr, 0
+    local_addr_handle_ok = and local_status_ok, local_addr_ok
+    br local_addr_handle_ok -> L_TCP_ADDR_CHECK, L_FAIL_TCP_ADDR
+
+L_FAIL_TCP_ADDR:
+    !local_addr_handle_ok
+    !local_addr_ok
+    !local_status_ok
+    !local_addr
+    !local_status
+    EXPAND NET_TCP_STREAM_CLOSE close_server_status_b, server
+    EXPAND NET_TCP_STREAM_CLOSE close_client_status_b, client
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_c, listener
+    !close_server_status_b
+    !close_client_status_b
+    !close_listener_status_c
+    !accept_ok
+    !server_ok
+    !accept_status_ok
+    !server
+    !accept_status
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(946)
+
+L_TCP_ADDR_CHECK:
+    EXPAND NET_ADDR_PORT local_port, local_addr
+    EXPAND NET_ADDR_IS_IPV4 local_ipv4, local_addr
+    local_port_ok = ne local_port, 0
+    local_ipv4_ok = eq local_ipv4, 1
+    EXPAND NET_ADDR_FREE local_free_status, local_addr
+    local_free_ok = eq local_free_status, 0
+    local_check01 = and local_port_ok, local_ipv4_ok
+    local_check_ok = and local_check01, local_free_ok
+    EXPAND NET_TCP_STREAM_CLOSE close_server_status, server
+    EXPAND NET_TCP_STREAM_CLOSE close_client_status, client
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status, listener
+    close_server_ok = eq close_server_status, 0
+    close_client_ok = eq close_client_status, 0
+    close_listener_ok = eq close_listener_status, 0
+    close_ok01 = and close_server_ok, close_client_ok
+    close_ok = and close_ok01, close_listener_ok
+    tcp_ok = and local_check_ok, close_ok
+    br tcp_ok -> L_UDP_BIND, L_FAIL_TCP_DONE
+
+L_FAIL_TCP_DONE:
+    !tcp_ok
+    !close_ok
+    !close_ok01
+    !close_listener_ok
+    !close_client_ok
+    !close_server_ok
+    !close_listener_status
+    !close_client_status
+    !close_server_status
+    !local_check_ok
+    !local_check01
+    !local_free_ok
+    !local_free_status
+    !local_ipv4_ok
+    !local_port_ok
+    !local_ipv4
+    !local_port
+    !local_addr_handle_ok
+    !local_addr_ok
+    !local_status_ok
+    !local_addr
+    !local_status
+    !accept_ok
+    !server_ok
+    !accept_status_ok
+    !server
+    !accept_status
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(947)
+
+L_UDP_BIND:
+    !close_ok
+    !close_ok01
+    !close_listener_ok
+    !close_client_ok
+    !close_server_ok
+    !close_listener_status
+    !close_client_status
+    !close_server_status
+    !local_check_ok
+    !local_check01
+    !local_free_ok
+    !local_free_status
+    !local_ipv4_ok
+    !local_port_ok
+    !local_ipv4
+    !local_port
+    !local_addr_handle_ok
+    !local_addr_ok
+    !local_status_ok
+    !local_addr
+    !local_status
+    !accept_ok
+    !server_ok
+    !accept_status_ok
+    !server
+    !accept_status
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    EXPAND NET_UDP_BIND udp_bind_status, udp_socket, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    udp_bind_status_ok = eq udp_bind_status, 0
+    udp_socket_ok = ne udp_socket, 0
+    udp_bind_ok = and udp_bind_status_ok, udp_socket_ok
+    br udp_bind_ok -> L_UDP_LOCAL, L_FAIL_UDP_BIND
+
+L_FAIL_UDP_BIND:
+    !udp_bind_ok
+    !udp_socket_ok
+    !udp_bind_status_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(948)
+
+L_UDP_LOCAL:
+    EXPAND NET_UDP_LOCAL_ADDR udp_local_status, udp_local_addr, udp_socket
+    udp_local_status_ok = eq udp_local_status, 0
+    udp_local_addr_ok = ne udp_local_addr, 0
+    udp_local_handle_ok = and udp_local_status_ok, udp_local_addr_ok
+    br udp_local_handle_ok -> L_UDP_CONNECT, L_FAIL_UDP_LOCAL
+
+L_FAIL_UDP_LOCAL:
+    !udp_local_handle_ok
+    !udp_local_addr_ok
+    !udp_local_status_ok
+    !udp_local_addr
+    !udp_local_status
+    EXPAND NET_UDP_CLOSE close_udp_status_a, udp_socket
+    !close_udp_status_a
+    !udp_bind_ok
+    !udp_socket_ok
+    !udp_bind_status_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(949)
+
+L_UDP_CONNECT:
+    EXPAND NET_ADDR_PORT udp_local_port, udp_local_addr
+    EXPAND NET_ADDR_FREE udp_local_free_status, udp_local_addr
+    udp_local_port_ok = ne udp_local_port, 0
+    udp_local_free_ok = eq udp_local_free_status, 0
+    EXPAND NET_UDP_CONNECT udp_connect_status, udp_socket, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, udp_local_port
+    udp_connect_ok = eq udp_connect_status, 0
+    udp_connect_phase01 = and udp_local_port_ok, udp_local_free_ok
+    udp_connect_phase_ok = and udp_connect_phase01, udp_connect_ok
+    br udp_connect_phase_ok -> L_UDP_PEER, L_FAIL_UDP_CONNECT
+
+L_FAIL_UDP_CONNECT:
+    !udp_connect_phase_ok
+    !udp_connect_phase01
+    !udp_connect_ok
+    !udp_connect_status
+    !udp_local_free_ok
+    !udp_local_port_ok
+    !udp_local_free_status
+    !udp_local_port
+    !udp_local_handle_ok
+    !udp_local_addr_ok
+    !udp_local_status_ok
+    !udp_local_addr
+    !udp_local_status
+    EXPAND NET_UDP_CLOSE close_udp_status_b, udp_socket
+    !close_udp_status_b
+    !udp_bind_ok
+    !udp_socket_ok
+    !udp_bind_status_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(950)
+
+L_UDP_PEER:
+    EXPAND NET_UDP_PEER_ADDR udp_peer_status, udp_peer_addr, udp_socket
+    udp_peer_status_ok = eq udp_peer_status, 0
+    udp_peer_addr_ok = ne udp_peer_addr, 0
+    EXPAND NET_ADDR_PORT udp_peer_port, udp_peer_addr
+    EXPAND NET_ADDR_IS_IPV4 udp_peer_ipv4, udp_peer_addr
+    udp_peer_port_ok = eq udp_peer_port, udp_local_port
+    udp_peer_ipv4_ok = eq udp_peer_ipv4, 1
+    EXPAND NET_ADDR_FREE udp_peer_free_status, udp_peer_addr
+    udp_peer_free_ok = eq udp_peer_free_status, 0
+    udp_peer_ok01 = and udp_peer_status_ok, udp_peer_addr_ok
+    udp_peer_ok02 = and udp_peer_ok01, udp_peer_port_ok
+    udp_peer_ok03 = and udp_peer_ok02, udp_peer_ipv4_ok
+    udp_peer_ok = and udp_peer_ok03, udp_peer_free_ok
+    EXPAND NET_UDP_CLOSE close_udp_status, udp_socket
+    close_udp_ok = eq close_udp_status, 0
+    udp_ok = and udp_peer_ok, close_udp_ok
+    ok = and tcp_ok, udp_ok
+    br ok -> L_OK, L_FAIL_DONE
+
+L_FAIL_DONE:
+    !ok
+    !udp_ok
+    !close_udp_ok
+    !close_udp_status
+    !udp_peer_ok
+    !udp_peer_ok03
+    !udp_peer_ok02
+    !udp_peer_ok01
+    !udp_peer_free_ok
+    !udp_peer_free_status
+    !udp_peer_ipv4_ok
+    !udp_peer_port_ok
+    !udp_peer_ipv4
+    !udp_peer_port
+    !udp_peer_addr_ok
+    !udp_peer_status_ok
+    !udp_peer_addr
+    !udp_peer_status
+    !udp_connect_phase_ok
+    !udp_connect_phase01
+    !udp_connect_ok
+    !udp_connect_status
+    !udp_local_free_ok
+    !udp_local_port_ok
+    !udp_local_free_status
+    !udp_local_port
+    !udp_local_handle_ok
+    !udp_local_addr_ok
+    !udp_local_status_ok
+    !udp_local_addr
+    !udp_local_status
+    !udp_bind_ok
+    !udp_socket_ok
+    !udp_bind_status_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(951)
+
+L_OK:
+    !ok
+    !udp_ok
+    !close_udp_ok
+    !close_udp_status
+    !udp_peer_ok
+    !udp_peer_ok03
+    !udp_peer_ok02
+    !udp_peer_ok01
+    !udp_peer_free_ok
+    !udp_peer_free_status
+    !udp_peer_ipv4_ok
+    !udp_peer_port_ok
+    !udp_peer_ipv4
+    !udp_peer_port
+    !udp_peer_addr_ok
+    !udp_peer_status_ok
+    !udp_peer_addr
+    !udp_peer_status
+    !udp_connect_phase_ok
+    !udp_connect_phase01
+    !udp_connect_ok
+    !udp_connect_status
+    !udp_local_free_ok
+    !udp_local_port_ok
+    !udp_local_free_status
+    !udp_local_port
+    !udp_local_handle_ok
+    !udp_local_addr_ok
+    !udp_local_status_ok
+    !udp_local_addr
+    !udp_local_status
+    !udp_bind_ok
+    !udp_socket_ok
+    !udp_bind_status_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    return
+
+@test "sa_std net option getter and udp peek macros"():
+L_ENTRY:
+    EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    bind_status_ok = eq bind_status, 0
+    listener_ok = ne listener, 0
+    bound_port_ok = ne bound_port, 0
+    bind_ok01 = and bind_status_ok, listener_ok
+    bind_ok = and bind_ok01, bound_port_ok
+    br bind_ok -> L_LISTENER_OPTIONS, L_FAIL_BIND
+
+L_FAIL_BIND:
+    !bind_ok
+    !bind_ok01
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(952)
+
+L_LISTENER_OPTIONS:
+    EXPAND NET_TCP_LISTENER_SET_NONBLOCKING listener_nonblock_status, listener, SA_NET_SOCKET_OPTION_DISABLE
+    EXPAND NET_TCP_LISTENER_SET_TTL listener_set_ttl_status, listener, 64
+    EXPAND NET_TCP_LISTENER_TTL listener_ttl_status, listener_ttl, listener
+    EXPAND NET_TCP_LISTENER_TAKE_ERROR listener_error_status, listener_error, listener
+    listener_nonblock_ok = eq listener_nonblock_status, 0
+    listener_set_ttl_ok = eq listener_set_ttl_status, 0
+    listener_ttl_status_ok = eq listener_ttl_status, 0
+    listener_ttl_ok = eq listener_ttl, 64
+    listener_error_status_ok = eq listener_error_status, 0
+    listener_error_ok = eq listener_error, 0
+    listener_opt_ok01 = and listener_nonblock_ok, listener_set_ttl_ok
+    listener_opt_ok02 = and listener_opt_ok01, listener_ttl_status_ok
+    listener_opt_ok03 = and listener_opt_ok02, listener_ttl_ok
+    listener_opt_ok04 = and listener_opt_ok03, listener_error_status_ok
+    listener_options_ok = and listener_opt_ok04, listener_error_ok
+    br listener_options_ok -> L_CONNECT, L_FAIL_LISTENER_OPTIONS
+
+L_FAIL_LISTENER_OPTIONS:
+    !listener_options_ok
+    !listener_opt_ok04
+    !listener_opt_ok03
+    !listener_opt_ok02
+    !listener_opt_ok01
+    !listener_error_ok
+    !listener_error_status_ok
+    !listener_ttl_ok
+    !listener_ttl_status_ok
+    !listener_set_ttl_ok
+    !listener_nonblock_ok
+    !listener_error
+    !listener_error_status
+    !listener_ttl
+    !listener_ttl_status
+    !listener_set_ttl_status
+    !listener_nonblock_status
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_a, listener
+    !close_listener_status_a
+    !bind_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(953)
+
+L_CONNECT:
+    EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
+    connect_status_ok = eq connect_status, 0
+    client_ok = ne client, 0
+    connect_ok = and connect_status_ok, client_ok
+    br connect_ok -> L_ACCEPT, L_FAIL_CONNECT
+
+L_FAIL_CONNECT:
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_b, listener
+    !close_listener_status_b
+    !listener_options_ok
+    !bind_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(954)
+
+L_ACCEPT:
+    EXPAND NET_TCP_LISTENER_ACCEPT accept_status, server, listener
+    accept_status_ok = eq accept_status, 0
+    server_ok = ne server, 0
+    accept_ok = and accept_status_ok, server_ok
+    br accept_ok -> L_STREAM_OPTIONS, L_FAIL_ACCEPT
+
+L_FAIL_ACCEPT:
+    !accept_ok
+    !server_ok
+    !accept_status_ok
+    !server
+    !accept_status
+    EXPAND NET_TCP_STREAM_CLOSE close_client_status_a, client
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_c, listener
+    !close_client_status_a
+    !close_listener_status_c
+    !connect_ok
+    !client
+    !connect_status
+    !listener_options_ok
+    !bind_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(955)
+
+L_STREAM_OPTIONS:
+    EXPAND NET_TCP_STREAM_SET_NODELAY set_nodelay_status, client, SA_NET_SOCKET_OPTION_ENABLE
+    EXPAND NET_TCP_STREAM_SET_TTL set_ttl_status, client, 64
+    EXPAND NET_TCP_STREAM_SET_READ_TIMEOUT set_read_timeout_status, server, NET_TEST_TIMEOUT_NS
+    EXPAND NET_TCP_STREAM_SET_WRITE_TIMEOUT set_write_timeout_status, client, NET_TEST_TIMEOUT_NS
+    EXPAND NET_TCP_STREAM_NODELAY nodelay_status, nodelay_enabled, client
+    EXPAND NET_TCP_STREAM_TTL ttl_status, stream_ttl, client
+    EXPAND NET_TCP_STREAM_READ_TIMEOUT read_timeout_status, read_timeout_ns, server
+    EXPAND NET_TCP_STREAM_WRITE_TIMEOUT write_timeout_status, write_timeout_ns, client
+    EXPAND NET_TCP_STREAM_TAKE_ERROR stream_error_status, stream_error, client
+    set_nodelay_ok = eq set_nodelay_status, 0
+    set_ttl_ok = eq set_ttl_status, 0
+    set_read_timeout_ok = eq set_read_timeout_status, 0
+    set_write_timeout_ok = eq set_write_timeout_status, 0
+    nodelay_status_ok = eq nodelay_status, 0
+    nodelay_value_ok = eq nodelay_enabled, 1
+    ttl_status_ok = eq ttl_status, 0
+    stream_ttl_ok = eq stream_ttl, 64
+    read_timeout_status_ok = eq read_timeout_status, 0
+    read_timeout_ok = eq read_timeout_ns, NET_TEST_TIMEOUT_NS
+    write_timeout_status_ok = eq write_timeout_status, 0
+    write_timeout_ok = eq write_timeout_ns, NET_TEST_TIMEOUT_NS
+    stream_error_status_ok = eq stream_error_status, 0
+    stream_error_ok = eq stream_error, 0
+    stream_ok01 = and set_nodelay_ok, set_ttl_ok
+    stream_ok02 = and stream_ok01, set_read_timeout_ok
+    stream_ok03 = and stream_ok02, set_write_timeout_ok
+    stream_ok04 = and stream_ok03, nodelay_status_ok
+    stream_ok05 = and stream_ok04, nodelay_value_ok
+    stream_ok06 = and stream_ok05, ttl_status_ok
+    stream_ok07 = and stream_ok06, stream_ttl_ok
+    stream_ok08 = and stream_ok07, read_timeout_status_ok
+    stream_ok09 = and stream_ok08, read_timeout_ok
+    stream_ok10 = and stream_ok09, write_timeout_status_ok
+    stream_ok11 = and stream_ok10, write_timeout_ok
+    stream_ok12 = and stream_ok11, stream_error_status_ok
+    stream_options_ok = and stream_ok12, stream_error_ok
+    EXPAND NET_TCP_STREAM_CLOSE close_server_status, server
+    EXPAND NET_TCP_STREAM_CLOSE close_client_status, client
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status, listener
+    close_server_ok = eq close_server_status, 0
+    close_client_ok = eq close_client_status, 0
+    close_listener_ok = eq close_listener_status, 0
+    close_ok01 = and close_server_ok, close_client_ok
+    close_ok = and close_ok01, close_listener_ok
+    tcp_ok = and stream_options_ok, close_ok
+    br tcp_ok -> L_UDP_BIND, L_FAIL_STREAM_OPTIONS
+
+L_FAIL_STREAM_OPTIONS:
+    !tcp_ok
+    !close_ok
+    !close_ok01
+    !close_listener_ok
+    !close_client_ok
+    !close_server_ok
+    !close_listener_status
+    !close_client_status
+    !close_server_status
+    !stream_options_ok
+    !stream_ok12
+    !stream_ok11
+    !stream_ok10
+    !stream_ok09
+    !stream_ok08
+    !stream_ok07
+    !stream_ok06
+    !stream_ok05
+    !stream_ok04
+    !stream_ok03
+    !stream_ok02
+    !stream_ok01
+    !stream_error_ok
+    !stream_error_status_ok
+    !write_timeout_ok
+    !write_timeout_status_ok
+    !read_timeout_ok
+    !read_timeout_status_ok
+    !stream_ttl_ok
+    !ttl_status_ok
+    !nodelay_value_ok
+    !nodelay_status_ok
+    !set_write_timeout_ok
+    !set_read_timeout_ok
+    !set_ttl_ok
+    !set_nodelay_ok
+    !stream_error
+    !stream_error_status
+    !write_timeout_ns
+    !write_timeout_status
+    !read_timeout_ns
+    !read_timeout_status
+    !stream_ttl
+    !ttl_status
+    !nodelay_enabled
+    !nodelay_status
+    !set_write_timeout_status
+    !set_read_timeout_status
+    !set_ttl_status
+    !set_nodelay_status
+    !accept_ok
+    !server
+    !accept_status
+    !connect_ok
+    !client
+    !connect_status
+    !listener_options_ok
+    !bind_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(956)
+
+L_UDP_BIND:
+    !close_ok
+    !stream_options_ok
+    !accept_ok
+    !connect_ok
+    !listener_options_ok
+    !bind_ok
+    EXPAND NET_UDP_BIND udp_bind_status, udp_socket, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    udp_bind_status_ok = eq udp_bind_status, 0
+    udp_socket_ok = ne udp_socket, 0
+    udp_bind_ok = and udp_bind_status_ok, udp_socket_ok
+    br udp_bind_ok -> L_UDP_ADDR, L_FAIL_UDP_BIND
+
+L_FAIL_UDP_BIND:
+    !udp_bind_ok
+    !udp_socket_ok
+    !udp_bind_status_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(957)
+
+L_UDP_ADDR:
+    EXPAND NET_UDP_LOCAL_ADDR udp_addr_status, udp_addr, udp_socket
+    udp_addr_status_ok = eq udp_addr_status, 0
+    udp_addr_ok = ne udp_addr, 0
+    udp_addr_all_ok = and udp_addr_status_ok, udp_addr_ok
+    br udp_addr_all_ok -> L_UDP_OPTIONS, L_FAIL_UDP_ADDR
+
+L_FAIL_UDP_ADDR:
+    !udp_addr_all_ok
+    !udp_addr_ok
+    !udp_addr_status_ok
+    !udp_addr
+    !udp_addr_status
+    EXPAND NET_UDP_CLOSE close_udp_status_a, udp_socket
+    !close_udp_status_a
+    !udp_bind_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(958)
+
+L_UDP_OPTIONS:
+    EXPAND NET_ADDR_PORT udp_port, udp_addr
+    EXPAND NET_ADDR_FREE udp_addr_free_status, udp_addr
+    udp_port_ok = ne udp_port, 0
+    udp_addr_free_ok = eq udp_addr_free_status, 0
+    EXPAND NET_UDP_SET_TTL udp_set_ttl_status, udp_socket, 64
+    EXPAND NET_UDP_SET_BROADCAST udp_set_broadcast_status, udp_socket, SA_NET_SOCKET_OPTION_DISABLE
+    EXPAND NET_UDP_SET_READ_TIMEOUT udp_set_read_timeout_status, udp_socket, NET_TEST_TIMEOUT_NS
+    EXPAND NET_UDP_SET_WRITE_TIMEOUT udp_set_write_timeout_status, udp_socket, NET_TEST_TIMEOUT_NS
+    EXPAND NET_UDP_TTL udp_ttl_status, udp_ttl, udp_socket
+    EXPAND NET_UDP_BROADCAST udp_broadcast_status, udp_broadcast_enabled, udp_socket
+    EXPAND NET_UDP_READ_TIMEOUT udp_read_timeout_status, udp_read_timeout_ns, udp_socket
+    EXPAND NET_UDP_WRITE_TIMEOUT udp_write_timeout_status, udp_write_timeout_ns, udp_socket
+    EXPAND NET_UDP_TAKE_ERROR udp_error_status, udp_error, udp_socket
+    udp_set_ttl_ok = eq udp_set_ttl_status, 0
+    udp_set_broadcast_ok = eq udp_set_broadcast_status, 0
+    udp_set_read_timeout_ok = eq udp_set_read_timeout_status, 0
+    udp_set_write_timeout_ok = eq udp_set_write_timeout_status, 0
+    udp_ttl_status_ok = eq udp_ttl_status, 0
+    udp_ttl_ok = eq udp_ttl, 64
+    udp_broadcast_status_ok = eq udp_broadcast_status, 0
+    udp_broadcast_ok = eq udp_broadcast_enabled, 0
+    udp_read_timeout_status_ok = eq udp_read_timeout_status, 0
+    udp_read_timeout_ok = eq udp_read_timeout_ns, NET_TEST_TIMEOUT_NS
+    udp_write_timeout_status_ok = eq udp_write_timeout_status, 0
+    udp_write_timeout_ok = eq udp_write_timeout_ns, NET_TEST_TIMEOUT_NS
+    udp_error_status_ok = eq udp_error_status, 0
+    udp_error_ok = eq udp_error, 0
+    udp_opt_ok01 = and udp_port_ok, udp_addr_free_ok
+    udp_opt_ok02 = and udp_opt_ok01, udp_set_ttl_ok
+    udp_opt_ok03 = and udp_opt_ok02, udp_set_broadcast_ok
+    udp_opt_ok04 = and udp_opt_ok03, udp_set_read_timeout_ok
+    udp_opt_ok05 = and udp_opt_ok04, udp_set_write_timeout_ok
+    udp_opt_ok06 = and udp_opt_ok05, udp_ttl_status_ok
+    udp_opt_ok07 = and udp_opt_ok06, udp_ttl_ok
+    udp_opt_ok08 = and udp_opt_ok07, udp_broadcast_status_ok
+    udp_opt_ok09 = and udp_opt_ok08, udp_broadcast_ok
+    udp_opt_ok10 = and udp_opt_ok09, udp_read_timeout_status_ok
+    udp_opt_ok11 = and udp_opt_ok10, udp_read_timeout_ok
+    udp_opt_ok12 = and udp_opt_ok11, udp_write_timeout_status_ok
+    udp_opt_ok13 = and udp_opt_ok12, udp_write_timeout_ok
+    udp_opt_ok14 = and udp_opt_ok13, udp_error_status_ok
+    udp_options_ok = and udp_opt_ok14, udp_error_ok
+    br udp_options_ok -> L_UDP_SEND, L_FAIL_UDP_OPTIONS
+
+L_FAIL_UDP_OPTIONS:
+    !udp_options_ok
+    !udp_opt_ok14
+    !udp_opt_ok13
+    !udp_opt_ok12
+    !udp_opt_ok11
+    !udp_opt_ok10
+    !udp_opt_ok09
+    !udp_opt_ok08
+    !udp_opt_ok07
+    !udp_opt_ok06
+    !udp_opt_ok05
+    !udp_opt_ok04
+    !udp_opt_ok03
+    !udp_opt_ok02
+    !udp_opt_ok01
+    !udp_error_ok
+    !udp_error_status_ok
+    !udp_write_timeout_ok
+    !udp_write_timeout_status_ok
+    !udp_read_timeout_ok
+    !udp_read_timeout_status_ok
+    !udp_broadcast_ok
+    !udp_broadcast_status_ok
+    !udp_ttl_ok
+    !udp_ttl_status_ok
+    !udp_set_write_timeout_ok
+    !udp_set_read_timeout_ok
+    !udp_set_broadcast_ok
+    !udp_set_ttl_ok
+    !udp_error
+    !udp_error_status
+    !udp_write_timeout_ns
+    !udp_write_timeout_status
+    !udp_read_timeout_ns
+    !udp_read_timeout_status
+    !udp_broadcast_enabled
+    !udp_broadcast_status
+    !udp_ttl
+    !udp_ttl_status
+    !udp_set_write_timeout_status
+    !udp_set_read_timeout_status
+    !udp_set_broadcast_status
+    !udp_set_ttl_status
+    !udp_addr_free_ok
+    !udp_addr_free_status
+    !udp_port_ok
+    !udp_port
+    EXPAND NET_UDP_CLOSE close_udp_status_b, udp_socket
+    !close_udp_status_b
+    !udp_addr_all_ok
+    !udp_addr
+    !udp_addr_status
+    !udp_bind_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(959)
+
+L_UDP_SEND:
+    EXPAND NET_UDP_SEND_TO udp_send_status, udp_send_len, udp_socket, NET_TEST_UDP_MESSAGE, NET_TEST_MESSAGE_LEN, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, udp_port
+    udp_send_status_ok = eq udp_send_status, 0
+    udp_send_len_ok = eq udp_send_len, NET_TEST_MESSAGE_LEN
+    udp_send_ok = and udp_send_status_ok, udp_send_len_ok
+    br udp_send_ok -> L_UDP_PEEK, L_FAIL_UDP_SEND
+
+L_FAIL_UDP_SEND:
+    !udp_send_ok
+    !udp_send_len_ok
+    !udp_send_status_ok
+    !udp_send_len
+    !udp_send_status
+    EXPAND NET_UDP_CLOSE close_udp_status_c, udp_socket
+    !close_udp_status_c
+    !udp_options_ok
+    !udp_bind_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(960)
+
+L_UDP_PEEK:
+    udp_plain_peek_buf = alloc NET_TEST_MESSAGE_LEN
+    udp_peek_buf = alloc NET_TEST_MESSAGE_LEN
+    udp_recv_buf = alloc NET_TEST_MESSAGE_LEN
+    EXPAND NET_UDP_PEEK udp_plain_peek_status, udp_plain_peek_len, udp_socket, udp_plain_peek_buf, NET_TEST_MESSAGE_LEN
+    EXPAND NET_UDP_PEEK_FROM udp_peek_status, udp_peek_len, udp_peek_addr, udp_socket, udp_peek_buf, NET_TEST_MESSAGE_LEN
+    udp_plain_peek_status_ok = eq udp_plain_peek_status, 0
+    udp_plain_peek_len_ok = eq udp_plain_peek_len, NET_TEST_MESSAGE_LEN
+    udp_plain_peek0 = load udp_plain_peek_buf+0 as u8
+    udp_plain_peek1 = load udp_plain_peek_buf+1 as u8
+    udp_plain_peek2 = load udp_plain_peek_buf+2 as u8
+    udp_plain_peek3 = load udp_plain_peek_buf+3 as u8
+    udp_plain_peek_byte0_ok = eq udp_plain_peek0, 112
+    udp_plain_peek_byte1_ok = eq udp_plain_peek1, 111
+    udp_plain_peek_byte2_ok = eq udp_plain_peek2, 110
+    udp_plain_peek_byte3_ok = eq udp_plain_peek3, 103
+    udp_peek_status_ok = eq udp_peek_status, 0
+    udp_peek_len_ok = eq udp_peek_len, NET_TEST_MESSAGE_LEN
+    udp_peek_addr_ok = ne udp_peek_addr, 0
+    EXPAND NET_ADDR_FREE udp_peek_addr_free_status, udp_peek_addr
+    udp_peek_addr_free_ok = eq udp_peek_addr_free_status, 0
+    udp_peek0 = load udp_peek_buf+0 as u8
+    udp_peek1 = load udp_peek_buf+1 as u8
+    udp_peek2 = load udp_peek_buf+2 as u8
+    udp_peek3 = load udp_peek_buf+3 as u8
+    udp_peek_byte0_ok = eq udp_peek0, 112
+    udp_peek_byte1_ok = eq udp_peek1, 111
+    udp_peek_byte2_ok = eq udp_peek2, 110
+    udp_peek_byte3_ok = eq udp_peek3, 103
+    EXPAND NET_UDP_RECV_FROM udp_recv_status, udp_recv_len, udp_recv_addr, udp_socket, udp_recv_buf, NET_TEST_MESSAGE_LEN
+    udp_recv_status_ok = eq udp_recv_status, 0
+    udp_recv_len_ok = eq udp_recv_len, NET_TEST_MESSAGE_LEN
+    udp_recv_addr_ok = ne udp_recv_addr, 0
+    EXPAND NET_ADDR_FREE udp_recv_addr_free_status, udp_recv_addr
+    udp_recv_addr_free_ok = eq udp_recv_addr_free_status, 0
+    udp_recv0 = load udp_recv_buf+0 as u8
+    udp_recv1 = load udp_recv_buf+1 as u8
+    udp_recv2 = load udp_recv_buf+2 as u8
+    udp_recv3 = load udp_recv_buf+3 as u8
+    udp_recv_byte0_ok = eq udp_recv0, 112
+    udp_recv_byte1_ok = eq udp_recv1, 111
+    udp_recv_byte2_ok = eq udp_recv2, 110
+    udp_recv_byte3_ok = eq udp_recv3, 103
+    udp_plain_peek_ok01 = and udp_plain_peek_status_ok, udp_plain_peek_len_ok
+    udp_plain_peek_ok02 = and udp_plain_peek_ok01, udp_plain_peek_byte0_ok
+    udp_plain_peek_ok03 = and udp_plain_peek_ok02, udp_plain_peek_byte1_ok
+    udp_plain_peek_ok04 = and udp_plain_peek_ok03, udp_plain_peek_byte2_ok
+    udp_plain_peek_ok = and udp_plain_peek_ok04, udp_plain_peek_byte3_ok
+    udp_peek_ok01 = and udp_plain_peek_ok, udp_peek_status_ok
+    udp_peek_ok02 = and udp_peek_ok01, udp_peek_len_ok
+    udp_peek_ok03 = and udp_peek_ok02, udp_peek_addr_ok
+    udp_peek_ok04 = and udp_peek_ok03, udp_peek_addr_free_ok
+    udp_peek_ok05 = and udp_peek_ok04, udp_peek_byte0_ok
+    udp_peek_ok06 = and udp_peek_ok05, udp_peek_byte1_ok
+    udp_peek_ok07 = and udp_peek_ok06, udp_peek_byte2_ok
+    udp_peek_ok = and udp_peek_ok07, udp_peek_byte3_ok
+    udp_recv_ok01 = and udp_recv_status_ok, udp_recv_len_ok
+    udp_recv_ok02 = and udp_recv_ok01, udp_recv_addr_ok
+    udp_recv_ok03 = and udp_recv_ok02, udp_recv_addr_free_ok
+    udp_recv_ok04 = and udp_recv_ok03, udp_recv_byte0_ok
+    udp_recv_ok05 = and udp_recv_ok04, udp_recv_byte1_ok
+    udp_recv_ok06 = and udp_recv_ok05, udp_recv_byte2_ok
+    udp_recv_ok = and udp_recv_ok06, udp_recv_byte3_ok
+    udp_peek_recv_ok = and udp_peek_ok, udp_recv_ok
+    EXPAND NET_UDP_CLOSE close_udp_status, udp_socket
+    close_udp_ok = eq close_udp_status, 0
+    udp_ok = and udp_peek_recv_ok, close_udp_ok
+    ok = and tcp_ok, udp_ok
+    !udp_plain_peek_buf
+    !udp_peek_buf
+    !udp_recv_buf
+    br ok -> L_OK, L_FAIL_DONE
+
+L_FAIL_DONE:
+    !ok
+    !udp_ok
+    !close_udp_ok
+    !close_udp_status
+    !udp_peek_recv_ok
+    !udp_recv_ok
+    !udp_recv_ok06
+    !udp_recv_ok05
+    !udp_recv_ok04
+    !udp_recv_ok03
+    !udp_recv_ok02
+    !udp_recv_ok01
+    !udp_recv_byte3_ok
+    !udp_recv_byte2_ok
+    !udp_recv_byte1_ok
+    !udp_recv_byte0_ok
+    !udp_recv3
+    !udp_recv2
+    !udp_recv1
+    !udp_recv0
+    !udp_recv_addr_free_ok
+    !udp_recv_addr_free_status
+    !udp_recv_addr_ok
+    !udp_recv_len_ok
+    !udp_recv_status_ok
+    !udp_recv_addr
+    !udp_recv_len
+    !udp_recv_status
+    !udp_peek_ok
+    !udp_peek_ok07
+    !udp_peek_ok06
+    !udp_peek_ok05
+    !udp_peek_ok04
+    !udp_peek_ok03
+    !udp_peek_ok02
+    !udp_peek_ok01
+    !udp_peek_byte3_ok
+    !udp_peek_byte2_ok
+    !udp_peek_byte1_ok
+    !udp_peek_byte0_ok
+    !udp_peek3
+    !udp_peek2
+    !udp_peek1
+    !udp_peek0
+    !udp_peek_addr_free_ok
+    !udp_peek_addr_free_status
+    !udp_peek_addr_ok
+    !udp_peek_len_ok
+    !udp_peek_status_ok
+    !udp_peek_addr
+    !udp_peek_len
+    !udp_peek_status
+    !udp_plain_peek_ok
+    !udp_plain_peek_ok04
+    !udp_plain_peek_ok03
+    !udp_plain_peek_ok02
+    !udp_plain_peek_ok01
+    !udp_plain_peek_byte3_ok
+    !udp_plain_peek_byte2_ok
+    !udp_plain_peek_byte1_ok
+    !udp_plain_peek_byte0_ok
+    !udp_plain_peek3
+    !udp_plain_peek2
+    !udp_plain_peek1
+    !udp_plain_peek0
+    !udp_plain_peek_len_ok
+    !udp_plain_peek_status_ok
+    !udp_plain_peek_len
+    !udp_plain_peek_status
+    !udp_send_ok
+    !udp_send_len
+    !udp_send_status
+    !udp_options_ok
+    !udp_port
+    !udp_bind_ok
+    !udp_socket
+    !udp_bind_status
+    !tcp_ok
+    panic(961)
+
+L_OK:
+    !ok
+    !udp_ok
+    !tcp_ok
+    return
