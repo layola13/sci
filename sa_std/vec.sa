@@ -574,6 +574,24 @@ L_VEC_POP_IF_END_%out_ok:
     EXPAND VEC_SORT_BY_KEY_U64 %vec_reg, %key_fn
 [END_MACRO]
 
+[MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
+    EXPAND VEC_AS_MUT_SLICE __vec_select_nth_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, __vec_select_nth_slice_%out_ok, %nth
+    !__vec_select_nth_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
+    EXPAND VEC_AS_MUT_SLICE __vec_select_nth_by_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, __vec_select_nth_by_slice_%out_ok, %nth, %compare_fn
+    !__vec_select_nth_by_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
+    EXPAND VEC_AS_MUT_SLICE __vec_select_nth_key_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, __vec_select_nth_key_slice_%out_ok, %nth, %key_fn
+    !__vec_select_nth_key_slice_%out_ok
+[END_MACRO]
+
 [MACRO] VEC_FILL_WITH_U64 %vec_reg, %gen_fn
     EXPAND VEC_AS_MUT_SLICE __vec_fill_with_slice_%vec_reg, %vec_reg
     EXPAND SLICE_FILL_WITH_U64 __vec_fill_with_slice_%vec_reg, %gen_fn

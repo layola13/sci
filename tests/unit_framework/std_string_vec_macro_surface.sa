@@ -6236,6 +6236,288 @@ L_SLICE_VEC_SORT_UNSTABLE_OK:
     !ok
     return
 
+@test "sa_std slice and vec select_nth_unstable macros"():
+L_ENTRY:
+    select_data = alloc 40
+    select_by_data = alloc 32
+    select_key_data = alloc 32
+    store select_data+0, 9 as u64
+    store select_data+8, 1 as u64
+    store select_data+16, 7 as u64
+    store select_data+24, 3 as u64
+    store select_data+32, 5 as u64
+    store select_by_data+0, 2 as u64
+    store select_by_data+8, 8 as u64
+    store select_by_data+16, 4 as u64
+    store select_by_data+24, 6 as u64
+    store select_key_data+0, 31 as u64
+    store select_key_data+8, 12 as u64
+    store select_key_data+16, 29 as u64
+    store select_key_data+24, 21 as u64
+    select_slice = alloc Slice_SIZE
+    select_by_slice = alloc Slice_SIZE
+    select_key_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW select_slice, select_data, 5
+    EXPAND SLICE_NEW select_by_slice, select_by_data, 4
+    EXPAND SLICE_NEW select_key_slice, select_key_data, 4
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_U64 select_ok, select_left, select_pivot_ptr, select_right, select_slice, 2
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_BY_U64 select_by_ok, select_by_left, select_by_pivot_ptr, select_by_right, select_by_slice, 1, @slice_sorted_ge
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 select_key_ok, select_key_left, select_key_pivot_ptr, select_key_right, select_key_slice, 2, @slice_sorted_key_tens
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_U64 select_miss_ok, select_miss_left, select_miss_pivot_ptr, select_miss_right, select_slice, 9
+
+    select_left_len = load select_left+Slice_len as u64
+    select_pivot = load select_pivot_ptr+0 as u64
+    select_right_len = load select_right+Slice_len as u64
+    EXPAND SLICE_GET_U64 select_left0, select_left, 0
+    EXPAND SLICE_GET_U64 select_right0, select_right, 0
+    select_by_left_len = load select_by_left+Slice_len as u64
+    select_by_pivot = load select_by_pivot_ptr+0 as u64
+    select_by_right_len = load select_by_right+Slice_len as u64
+    EXPAND SLICE_GET_U64 select_by_left0, select_by_left, 0
+    EXPAND SLICE_GET_U64 select_by_right0, select_by_right, 0
+    select_key_left_len = load select_key_left+Slice_len as u64
+    select_key_pivot = load select_key_pivot_ptr+0 as u64
+    select_key_right_len = load select_key_right+Slice_len as u64
+    EXPAND SLICE_GET_U64 select_key_left0, select_key_left, 0
+    EXPAND SLICE_GET_U64 select_key_right0, select_key_right, 0
+    select_miss_left_len = load select_miss_left+Slice_len as u64
+    select_miss_right_len = load select_miss_right+Slice_len as u64
+    select_miss_pivot_null = eq select_miss_pivot_ptr, 0
+
+    EXPAND VEC_NEW vec_select
+    EXPAND VEC_PUSH_U64 vec_select, 4
+    EXPAND VEC_PUSH_U64 vec_select, 2
+    EXPAND VEC_PUSH_U64 vec_select, 8
+    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_U64 vec_select_ok, vec_select_left, vec_select_pivot_ptr, vec_select_right, vec_select, 1
+    vec_select_pivot = load vec_select_pivot_ptr+0 as u64
+    vec_select_left_len = load vec_select_left+Slice_len as u64
+    vec_select_right_len = load vec_select_right+Slice_len as u64
+
+    EXPAND VEC_NEW vec_select_by
+    EXPAND VEC_PUSH_U64 vec_select_by, 1
+    EXPAND VEC_PUSH_U64 vec_select_by, 7
+    EXPAND VEC_PUSH_U64 vec_select_by, 5
+    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_U64 vec_select_by_ok, vec_select_by_left, vec_select_by_pivot_ptr, vec_select_by_right, vec_select_by, 1, @slice_sorted_ge
+    vec_select_by_pivot = load vec_select_by_pivot_ptr+0 as u64
+    vec_select_by_left_len = load vec_select_by_left+Slice_len as u64
+    vec_select_by_right_len = load vec_select_by_right+Slice_len as u64
+
+    EXPAND VEC_NEW vec_select_key
+    EXPAND VEC_PUSH_U64 vec_select_key, 32
+    EXPAND VEC_PUSH_U64 vec_select_key, 11
+    EXPAND VEC_PUSH_U64 vec_select_key, 24
+    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 vec_select_key_ok, vec_select_key_left, vec_select_key_pivot_ptr, vec_select_key_right, vec_select_key, 2, @slice_sorted_key_tens
+    vec_select_key_pivot = load vec_select_key_pivot_ptr+0 as u64
+    vec_select_key_left_len = load vec_select_key_left+Slice_len as u64
+    vec_select_key_right_len = load vec_select_key_right+Slice_len as u64
+
+    ok_select = eq select_ok, 1
+    ok_select_left_len = eq select_left_len, 2
+    ok_select_pivot = eq select_pivot, 5
+    ok_select_right_len = eq select_right_len, 2
+    ok_select_left0 = eq select_left0, 1
+    ok_select_right0 = eq select_right0, 7
+    ok_select_by = eq select_by_ok, 1
+    ok_select_by_left_len = eq select_by_left_len, 1
+    ok_select_by_pivot = eq select_by_pivot, 6
+    ok_select_by_right_len = eq select_by_right_len, 2
+    ok_select_by_left0 = eq select_by_left0, 8
+    ok_select_by_right0 = eq select_by_right0, 4
+    ok_select_key = eq select_key_ok, 1
+    ok_select_key_left_len = eq select_key_left_len, 2
+    ok_select_key_pivot = eq select_key_pivot, 21
+    ok_select_key_right_len = eq select_key_right_len, 1
+    ok_select_key_left0 = eq select_key_left0, 12
+    ok_select_key_right0 = eq select_key_right0, 31
+    ok_select_miss = eq select_miss_ok, 0
+    ok_select_miss_left = eq select_miss_left_len, 0
+    ok_select_miss_right = eq select_miss_right_len, 0
+    ok_vec_select = eq vec_select_ok, 1
+    ok_vec_select_pivot = eq vec_select_pivot, 4
+    ok_vec_select_left_len = eq vec_select_left_len, 1
+    ok_vec_select_right_len = eq vec_select_right_len, 1
+    ok_vec_select_by = eq vec_select_by_ok, 1
+    ok_vec_select_by_pivot = eq vec_select_by_pivot, 5
+    ok_vec_select_by_left_len = eq vec_select_by_left_len, 1
+    ok_vec_select_by_right_len = eq vec_select_by_right_len, 1
+    ok_vec_select_key = eq vec_select_key_ok, 1
+    ok_vec_select_key_pivot = eq vec_select_key_pivot, 32
+    ok_vec_select_key_left_len = eq vec_select_key_left_len, 2
+    ok_vec_select_key_right_len = eq vec_select_key_right_len, 0
+
+    ok01 = and ok_select, ok_select_left_len
+    ok02 = and ok01, ok_select_pivot
+    ok03 = and ok02, ok_select_right_len
+    ok04 = and ok03, ok_select_left0
+    ok05 = and ok04, ok_select_right0
+    ok06 = and ok05, ok_select_by
+    ok07 = and ok06, ok_select_by_left_len
+    ok08 = and ok07, ok_select_by_pivot
+    ok09 = and ok08, ok_select_by_right_len
+    ok10 = and ok09, ok_select_by_left0
+    ok11 = and ok10, ok_select_by_right0
+    ok12 = and ok11, ok_select_key
+    ok13 = and ok12, ok_select_key_left_len
+    ok14 = and ok13, ok_select_key_pivot
+    ok15 = and ok14, ok_select_key_right_len
+    ok16 = and ok15, ok_select_key_left0
+    ok17 = and ok16, ok_select_key_right0
+    ok18 = and ok17, ok_select_miss
+    ok19 = and ok18, ok_select_miss_left
+    ok20 = and ok19, ok_select_miss_right
+    ok21 = and ok20, select_miss_pivot_null
+    ok22 = and ok21, ok_vec_select
+    ok23 = and ok22, ok_vec_select_pivot
+    ok24 = and ok23, ok_vec_select_left_len
+    ok25 = and ok24, ok_vec_select_right_len
+    ok26 = and ok25, ok_vec_select_by
+    ok27 = and ok26, ok_vec_select_by_pivot
+    ok28 = and ok27, ok_vec_select_by_left_len
+    ok29 = and ok28, ok_vec_select_by_right_len
+    ok30 = and ok29, ok_vec_select_key
+    ok31 = and ok30, ok_vec_select_key_pivot
+    ok32 = and ok31, ok_vec_select_key_left_len
+    ok = and ok32, ok_vec_select_key_right_len
+
+    !select_data
+    !select_by_data
+    !select_key_data
+    !select_slice
+    !select_by_slice
+    !select_key_slice
+    !select_ok
+    !select_left
+    !select_pivot_ptr
+    !select_right
+    !select_by_ok
+    !select_by_left
+    !select_by_pivot_ptr
+    !select_by_right
+    !select_key_ok
+    !select_key_left
+    !select_key_pivot_ptr
+    !select_key_right
+    !select_miss_ok
+    !select_miss_left
+    !select_miss_pivot_ptr
+    !select_miss_right
+    !select_left_len
+    !select_pivot
+    !select_right_len
+    !select_left0
+    !select_right0
+    !select_by_left_len
+    !select_by_pivot
+    !select_by_right_len
+    !select_by_left0
+    !select_by_right0
+    !select_key_left_len
+    !select_key_pivot
+    !select_key_right_len
+    !select_key_left0
+    !select_key_right0
+    !select_miss_left_len
+    !select_miss_right_len
+    !select_miss_pivot_null
+    !vec_select_ok
+    !vec_select_left
+    !vec_select_pivot_ptr
+    !vec_select_right
+    !vec_select_pivot
+    !vec_select_left_len
+    !vec_select_right_len
+    !vec_select_by_ok
+    !vec_select_by_left
+    !vec_select_by_pivot_ptr
+    !vec_select_by_right
+    !vec_select_by_pivot
+    !vec_select_by_left_len
+    !vec_select_by_right_len
+    !vec_select_key_ok
+    !vec_select_key_left
+    !vec_select_key_pivot_ptr
+    !vec_select_key_right
+    !vec_select_key_pivot
+    !vec_select_key_left_len
+    !vec_select_key_right_len
+    !ok_select
+    !ok_select_left_len
+    !ok_select_pivot
+    !ok_select_right_len
+    !ok_select_left0
+    !ok_select_right0
+    !ok_select_by
+    !ok_select_by_left_len
+    !ok_select_by_pivot
+    !ok_select_by_right_len
+    !ok_select_by_left0
+    !ok_select_by_right0
+    !ok_select_key
+    !ok_select_key_left_len
+    !ok_select_key_pivot
+    !ok_select_key_right_len
+    !ok_select_key_left0
+    !ok_select_key_right0
+    !ok_select_miss
+    !ok_select_miss_left
+    !ok_select_miss_right
+    !ok_vec_select
+    !ok_vec_select_pivot
+    !ok_vec_select_left_len
+    !ok_vec_select_right_len
+    !ok_vec_select_by
+    !ok_vec_select_by_pivot
+    !ok_vec_select_by_left_len
+    !ok_vec_select_by_right_len
+    !ok_vec_select_key
+    !ok_vec_select_key_pivot
+    !ok_vec_select_key_left_len
+    !ok_vec_select_key_right_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    EXPAND VEC_FREE vec_select
+    EXPAND VEC_FREE vec_select_by
+    EXPAND VEC_FREE vec_select_key
+    br ok -> L_SLICE_VEC_SELECT_NTH_OK, L_SLICE_VEC_SELECT_NTH_FAIL
+
+L_SLICE_VEC_SELECT_NTH_FAIL:
+    !ok
+    panic(946)
+
+L_SLICE_VEC_SELECT_NTH_OK:
+    !ok
+    return
+
 @test "sa_std slice and vec fill_with macros"():
 L_ENTRY:
     data = alloc 24

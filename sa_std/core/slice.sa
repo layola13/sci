@@ -2290,6 +2290,144 @@ L_SLICE_SORT_KEY_END_%slice_reg:
     EXPAND SLICE_SORT_BY_KEY_U64 %slice_reg, %key_fn
 [END_MACRO]
 
+[MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth
+    %out_left = alloc Slice_SIZE
+    %out_right = alloc Slice_SIZE
+    __slice_select_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_select_in_bounds_%out_ok = ult %nth, __slice_select_len_%out_ok
+    br __slice_select_in_bounds_%out_ok -> L_SLICE_SELECT_NTH_HIT_%out_ok, L_SLICE_SELECT_NTH_MISS_%out_ok
+
+L_SLICE_SELECT_NTH_HIT_%out_ok:
+    !__slice_select_in_bounds_%out_ok
+    !__slice_select_len_%out_ok
+    __slice_select_sort_view_%out_ok = ptr_add %slice_reg, 0
+    EXPAND SLICE_SORT_UNSTABLE_U64 __slice_select_sort_view_%out_ok
+    __slice_select_len2_%out_ok = load __slice_select_sort_view_%out_ok+Slice_len as u64
+    __slice_select_ptr_%out_ok = load __slice_select_sort_view_%out_ok+Slice_ptr as ptr
+    __slice_select_pivot_off_%out_ok = mul %nth, 8
+    %out_pivot_ptr = ptr_add __slice_select_ptr_%out_ok, __slice_select_pivot_off_%out_ok
+    __slice_select_right_off_%out_ok = add __slice_select_pivot_off_%out_ok, 8
+    __slice_select_right_ptr_%out_ok = ptr_add __slice_select_ptr_%out_ok, __slice_select_right_off_%out_ok
+    __slice_select_after_pivot_%out_ok = add %nth, 1
+    __slice_select_right_len_%out_ok = sub __slice_select_len2_%out_ok, __slice_select_after_pivot_%out_ok
+    EXPAND SLICE_NEW %out_left, __slice_select_ptr_%out_ok, %nth
+    EXPAND SLICE_NEW %out_right, __slice_select_right_ptr_%out_ok, __slice_select_right_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_select_right_len_%out_ok
+    !__slice_select_after_pivot_%out_ok
+    !__slice_select_right_ptr_%out_ok
+    !__slice_select_right_off_%out_ok
+    !__slice_select_pivot_off_%out_ok
+    !__slice_select_ptr_%out_ok
+    !__slice_select_len2_%out_ok
+    !__slice_select_sort_view_%out_ok
+    jmp L_SLICE_SELECT_NTH_END_%out_ok
+
+L_SLICE_SELECT_NTH_MISS_%out_ok:
+    __slice_select_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_left, __slice_select_empty_ptr_%out_ok, 0
+    EXPAND SLICE_NEW %out_right, __slice_select_empty_ptr_%out_ok, 0
+    %out_pivot_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__slice_select_empty_ptr_%out_ok
+    !__slice_select_in_bounds_%out_ok
+    !__slice_select_len_%out_ok
+
+L_SLICE_SELECT_NTH_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %compare_fn
+    %out_left = alloc Slice_SIZE
+    %out_right = alloc Slice_SIZE
+    __slice_select_by_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_select_by_in_bounds_%out_ok = ult %nth, __slice_select_by_len_%out_ok
+    br __slice_select_by_in_bounds_%out_ok -> L_SLICE_SELECT_NTH_BY_HIT_%out_ok, L_SLICE_SELECT_NTH_BY_MISS_%out_ok
+
+L_SLICE_SELECT_NTH_BY_HIT_%out_ok:
+    !__slice_select_by_in_bounds_%out_ok
+    !__slice_select_by_len_%out_ok
+    __slice_select_by_sort_view_%out_ok = ptr_add %slice_reg, 0
+    EXPAND SLICE_SORT_UNSTABLE_BY_U64 __slice_select_by_sort_view_%out_ok, %compare_fn
+    __slice_select_by_len2_%out_ok = load __slice_select_by_sort_view_%out_ok+Slice_len as u64
+    __slice_select_by_ptr_%out_ok = load __slice_select_by_sort_view_%out_ok+Slice_ptr as ptr
+    __slice_select_by_pivot_off_%out_ok = mul %nth, 8
+    %out_pivot_ptr = ptr_add __slice_select_by_ptr_%out_ok, __slice_select_by_pivot_off_%out_ok
+    __slice_select_by_right_off_%out_ok = add __slice_select_by_pivot_off_%out_ok, 8
+    __slice_select_by_right_ptr_%out_ok = ptr_add __slice_select_by_ptr_%out_ok, __slice_select_by_right_off_%out_ok
+    __slice_select_by_after_pivot_%out_ok = add %nth, 1
+    __slice_select_by_right_len_%out_ok = sub __slice_select_by_len2_%out_ok, __slice_select_by_after_pivot_%out_ok
+    EXPAND SLICE_NEW %out_left, __slice_select_by_ptr_%out_ok, %nth
+    EXPAND SLICE_NEW %out_right, __slice_select_by_right_ptr_%out_ok, __slice_select_by_right_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_select_by_right_len_%out_ok
+    !__slice_select_by_after_pivot_%out_ok
+    !__slice_select_by_right_ptr_%out_ok
+    !__slice_select_by_right_off_%out_ok
+    !__slice_select_by_pivot_off_%out_ok
+    !__slice_select_by_ptr_%out_ok
+    !__slice_select_by_len2_%out_ok
+    !__slice_select_by_sort_view_%out_ok
+    jmp L_SLICE_SELECT_NTH_BY_END_%out_ok
+
+L_SLICE_SELECT_NTH_BY_MISS_%out_ok:
+    __slice_select_by_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_left, __slice_select_by_empty_ptr_%out_ok, 0
+    EXPAND SLICE_NEW %out_right, __slice_select_by_empty_ptr_%out_ok, 0
+    %out_pivot_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__slice_select_by_empty_ptr_%out_ok
+    !__slice_select_by_in_bounds_%out_ok
+    !__slice_select_by_len_%out_ok
+
+L_SLICE_SELECT_NTH_BY_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %key_fn
+    %out_left = alloc Slice_SIZE
+    %out_right = alloc Slice_SIZE
+    __slice_select_key_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_select_key_in_bounds_%out_ok = ult %nth, __slice_select_key_len_%out_ok
+    br __slice_select_key_in_bounds_%out_ok -> L_SLICE_SELECT_NTH_KEY_HIT_%out_ok, L_SLICE_SELECT_NTH_KEY_MISS_%out_ok
+
+L_SLICE_SELECT_NTH_KEY_HIT_%out_ok:
+    !__slice_select_key_in_bounds_%out_ok
+    !__slice_select_key_len_%out_ok
+    __slice_select_key_sort_view_%out_ok = ptr_add %slice_reg, 0
+    EXPAND SLICE_SORT_UNSTABLE_BY_KEY_U64 __slice_select_key_sort_view_%out_ok, %key_fn
+    __slice_select_key_len2_%out_ok = load __slice_select_key_sort_view_%out_ok+Slice_len as u64
+    __slice_select_key_ptr_%out_ok = load __slice_select_key_sort_view_%out_ok+Slice_ptr as ptr
+    __slice_select_key_pivot_off_%out_ok = mul %nth, 8
+    %out_pivot_ptr = ptr_add __slice_select_key_ptr_%out_ok, __slice_select_key_pivot_off_%out_ok
+    __slice_select_key_right_off_%out_ok = add __slice_select_key_pivot_off_%out_ok, 8
+    __slice_select_key_right_ptr_%out_ok = ptr_add __slice_select_key_ptr_%out_ok, __slice_select_key_right_off_%out_ok
+    __slice_select_key_after_pivot_%out_ok = add %nth, 1
+    __slice_select_key_right_len_%out_ok = sub __slice_select_key_len2_%out_ok, __slice_select_key_after_pivot_%out_ok
+    EXPAND SLICE_NEW %out_left, __slice_select_key_ptr_%out_ok, %nth
+    EXPAND SLICE_NEW %out_right, __slice_select_key_right_ptr_%out_ok, __slice_select_key_right_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_select_key_right_len_%out_ok
+    !__slice_select_key_after_pivot_%out_ok
+    !__slice_select_key_right_ptr_%out_ok
+    !__slice_select_key_right_off_%out_ok
+    !__slice_select_key_pivot_off_%out_ok
+    !__slice_select_key_ptr_%out_ok
+    !__slice_select_key_len2_%out_ok
+    !__slice_select_key_sort_view_%out_ok
+    jmp L_SLICE_SELECT_NTH_KEY_END_%out_ok
+
+L_SLICE_SELECT_NTH_KEY_MISS_%out_ok:
+    __slice_select_key_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_left, __slice_select_key_empty_ptr_%out_ok, 0
+    EXPAND SLICE_NEW %out_right, __slice_select_key_empty_ptr_%out_ok, 0
+    %out_pivot_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__slice_select_key_empty_ptr_%out_ok
+    !__slice_select_key_in_bounds_%out_ok
+    !__slice_select_key_len_%out_ok
+
+L_SLICE_SELECT_NTH_KEY_END_%out_ok:
+[END_MACRO]
+
 [MACRO] SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
     __slice_copy_dst_len_%out_ok = load %dst_slice+Slice_len as u64
     __slice_copy_src_len_%out_ok = load %src_slice+Slice_len as u64
