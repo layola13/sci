@@ -6087,6 +6087,92 @@ L_SLICE_VEC_SORT_OK:
     !ok
     return
 
+@test "sa_std slice and vec sort_by_cached_key aliases"():
+L_ENTRY:
+    cached_data = alloc 32
+    store cached_data+0, 31 as u64
+    store cached_data+8, 12 as u64
+    store cached_data+16, 29 as u64
+    store cached_data+24, 21 as u64
+    cached_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW cached_slice, cached_data, 4
+    EXPAND SLICE_SORT_BY_CACHED_KEY_U64 cached_slice, @slice_sorted_key_tens
+    EXPAND SLICE_GET_U64 cached0, cached_slice, 0
+    EXPAND SLICE_GET_U64 cached1, cached_slice, 1
+    EXPAND SLICE_GET_U64 cached2, cached_slice, 2
+    EXPAND SLICE_GET_U64 cached3, cached_slice, 3
+
+    EXPAND VEC_NEW vec_cached
+    EXPAND VEC_PUSH_U64 vec_cached, 44
+    EXPAND VEC_PUSH_U64 vec_cached, 13
+    EXPAND VEC_PUSH_U64 vec_cached, 27
+    EXPAND VEC_SORT_BY_CACHED_KEY_U64 vec_cached, @slice_sorted_key_tens
+    EXPAND VEC_TRY_GET_U64 vec_cached0_ok, vec_cached0, vec_cached, 0
+    EXPAND VEC_TRY_GET_U64 vec_cached1_ok, vec_cached1, vec_cached, 1
+    EXPAND VEC_TRY_GET_U64 vec_cached2_ok, vec_cached2, vec_cached, 2
+
+    cached0_ok = eq cached0, 12
+    cached1_ok = eq cached1, 29
+    cached2_ok = eq cached2, 21
+    cached3_ok = eq cached3, 31
+    vec_cached0_flag_ok = eq vec_cached0_ok, 1
+    vec_cached0_value_ok = eq vec_cached0, 13
+    vec_cached1_flag_ok = eq vec_cached1_ok, 1
+    vec_cached1_value_ok = eq vec_cached1, 27
+    vec_cached2_flag_ok = eq vec_cached2_ok, 1
+    vec_cached2_value_ok = eq vec_cached2, 44
+
+    ok01 = and cached0_ok, cached1_ok
+    ok02 = and ok01, cached2_ok
+    ok03 = and ok02, cached3_ok
+    ok04 = and ok03, vec_cached0_flag_ok
+    ok05 = and ok04, vec_cached0_value_ok
+    ok06 = and ok05, vec_cached1_flag_ok
+    ok07 = and ok06, vec_cached1_value_ok
+    ok08 = and ok07, vec_cached2_flag_ok
+    ok = and ok08, vec_cached2_value_ok
+
+    !cached_data
+    !cached_slice
+    !cached0
+    !cached1
+    !cached2
+    !cached3
+    !vec_cached0_ok
+    !vec_cached0
+    !vec_cached1_ok
+    !vec_cached1
+    !vec_cached2_ok
+    !vec_cached2
+    !cached0_ok
+    !cached1_ok
+    !cached2_ok
+    !cached3_ok
+    !vec_cached0_flag_ok
+    !vec_cached0_value_ok
+    !vec_cached1_flag_ok
+    !vec_cached1_value_ok
+    !vec_cached2_flag_ok
+    !vec_cached2_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND VEC_FREE vec_cached
+    br ok -> L_SLICE_VEC_SORT_CACHED_KEY_OK, L_SLICE_VEC_SORT_CACHED_KEY_FAIL
+
+L_SLICE_VEC_SORT_CACHED_KEY_FAIL:
+    !ok
+    panic(947)
+
+L_SLICE_VEC_SORT_CACHED_KEY_OK:
+    !ok
+    return
+
 @test "sa_std slice and vec sort_unstable aliases"():
 L_ENTRY:
     unstable_data = alloc 24

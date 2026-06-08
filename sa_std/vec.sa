@@ -562,6 +562,12 @@ L_VEC_POP_IF_END_%out_ok:
     !__vec_sort_key_slice_%vec_reg
 [END_MACRO]
 
+[MACRO] VEC_SORT_BY_CACHED_KEY_U64 %vec_reg, %key_fn
+    EXPAND VEC_AS_MUT_SLICE __vec_sort_cached_key_slice_%vec_reg, %vec_reg
+    EXPAND SLICE_SORT_BY_CACHED_KEY_U64 __vec_sort_cached_key_slice_%vec_reg, %key_fn
+    !__vec_sort_cached_key_slice_%vec_reg
+[END_MACRO]
+
 [MACRO] VEC_SORT_UNSTABLE_U64 %vec_reg
     EXPAND VEC_SORT_U64 %vec_reg
 [END_MACRO]
