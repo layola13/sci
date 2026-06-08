@@ -1620,6 +1620,22 @@ L_NUM_I64_ABS_POS_%out_value:
 L_NUM_I64_ABS_END_%out_value:
 [END_MACRO]
 
+[MACRO] NUM_I64_UNSIGNED_ABS %out_value, %value
+    __num_uabs_neg_%out_value = slt %value, 0
+    br __num_uabs_neg_%out_value -> L_NUM_I64_UNSIGNED_ABS_NEG_%out_value, L_NUM_I64_UNSIGNED_ABS_POS_%out_value
+
+L_NUM_I64_UNSIGNED_ABS_NEG_%out_value:
+    %out_value = sub 0, %value
+    !__num_uabs_neg_%out_value
+    jmp L_NUM_I64_UNSIGNED_ABS_END_%out_value
+
+L_NUM_I64_UNSIGNED_ABS_POS_%out_value:
+    %out_value = add %value, 0
+    !__num_uabs_neg_%out_value
+
+L_NUM_I64_UNSIGNED_ABS_END_%out_value:
+[END_MACRO]
+
 [MACRO] NUM_I64_ABS_DIFF %out_value, %lhs, %rhs
     __num_iabsdiff_left_%out_value = sge %lhs, %rhs
     br __num_iabsdiff_left_%out_value -> L_NUM_I64_ABS_DIFF_LHS_%out_value, L_NUM_I64_ABS_DIFF_RHS_%out_value
@@ -2607,6 +2623,24 @@ L_NUM_I32_SIGN_EXTEND_END_%out_value:
 
 [MACRO] NUM_I32_ABS %out_value, %value
     EXPAND NUM_I64_ABS %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_UNSIGNED_ABS %out_value, %value
+    EXPAND NUM_I64_UNSIGNED_ABS __num_i8_uabs_raw_%out_value, %value
+    %out_value = and __num_i8_uabs_raw_%out_value, NUM_U8_MAX
+    !__num_i8_uabs_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_UNSIGNED_ABS %out_value, %value
+    EXPAND NUM_I64_UNSIGNED_ABS __num_i16_uabs_raw_%out_value, %value
+    %out_value = and __num_i16_uabs_raw_%out_value, NUM_U16_MAX
+    !__num_i16_uabs_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_UNSIGNED_ABS %out_value, %value
+    EXPAND NUM_I64_UNSIGNED_ABS __num_i32_uabs_raw_%out_value, %value
+    %out_value = and __num_i32_uabs_raw_%out_value, NUM_U32_MAX
+    !__num_i32_uabs_raw_%out_value
 [END_MACRO]
 
 [MACRO] NUM_I8_ABS_DIFF %out_value, %lhs, %rhs
@@ -4413,6 +4447,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I64_ABS %out_value, %value
 [END_MACRO]
 
+[MACRO] NUM_ISIZE_UNSIGNED_ABS %out_value, %value
+    EXPAND NUM_I64_UNSIGNED_ABS %out_value, %value
+[END_MACRO]
+
 [MACRO] NUM_ISIZE_ABS_DIFF %out_value, %lhs, %rhs
     EXPAND NUM_I64_ABS_DIFF %out_value, %lhs, %rhs
 [END_MACRO]
@@ -4681,6 +4719,12 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I64_SATURATING_ABS __nonzero_i64_sat_abs_value_%nz, %value
     store %nz+NonZeroI64_value, __nonzero_i64_sat_abs_value_%nz as i64
     !__nonzero_i64_sat_abs_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I64_UNSIGNED_ABS %nz, %value
+    EXPAND NUM_I64_UNSIGNED_ABS __nonzero_i64_unsigned_abs_value_%nz, %value
+    store %nz+NonZeroU64_value, __nonzero_i64_unsigned_abs_value_%nz as u64
+    !__nonzero_i64_unsigned_abs_value_%nz
 [END_MACRO]
 
 [MACRO] NONZERO_I64_SATURATING_NEG %nz, %value
@@ -5117,6 +5161,12 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i8_sat_abs_value_%nz
 [END_MACRO]
 
+[MACRO] NONZERO_I8_UNSIGNED_ABS %nz, %value
+    EXPAND NUM_I8_UNSIGNED_ABS __nonzero_i8_unsigned_abs_value_%nz, %value
+    store %nz+NonZeroU8_value, __nonzero_i8_unsigned_abs_value_%nz as u64
+    !__nonzero_i8_unsigned_abs_value_%nz
+[END_MACRO]
+
 [MACRO] NONZERO_I8_SATURATING_NEG %nz, %value
     EXPAND NUM_I8_SATURATING_NEG __nonzero_i8_sat_neg_value_%nz, %value
     store %nz+NonZeroI8_value, __nonzero_i8_sat_neg_value_%nz as i64
@@ -5238,6 +5288,12 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I16_SATURATING_ABS __nonzero_i16_sat_abs_value_%nz, %value
     store %nz+NonZeroI16_value, __nonzero_i16_sat_abs_value_%nz as i64
     !__nonzero_i16_sat_abs_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I16_UNSIGNED_ABS %nz, %value
+    EXPAND NUM_I16_UNSIGNED_ABS __nonzero_i16_unsigned_abs_value_%nz, %value
+    store %nz+NonZeroU16_value, __nonzero_i16_unsigned_abs_value_%nz as u64
+    !__nonzero_i16_unsigned_abs_value_%nz
 [END_MACRO]
 
 [MACRO] NONZERO_I16_SATURATING_NEG %nz, %value
@@ -5363,6 +5419,12 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i32_sat_abs_value_%nz
 [END_MACRO]
 
+[MACRO] NONZERO_I32_UNSIGNED_ABS %nz, %value
+    EXPAND NUM_I32_UNSIGNED_ABS __nonzero_i32_unsigned_abs_value_%nz, %value
+    store %nz+NonZeroU32_value, __nonzero_i32_unsigned_abs_value_%nz as u64
+    !__nonzero_i32_unsigned_abs_value_%nz
+[END_MACRO]
+
 [MACRO] NONZERO_I32_SATURATING_NEG %nz, %value
     EXPAND NUM_I32_SATURATING_NEG __nonzero_i32_sat_neg_value_%nz, %value
     store %nz+NonZeroI32_value, __nonzero_i32_sat_neg_value_%nz as i64
@@ -5423,6 +5485,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_ISIZE_SATURATING_ABS %nz, %value
     EXPAND NONZERO_I64_SATURATING_ABS %nz, %value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_UNSIGNED_ABS %nz, %value
+    EXPAND NONZERO_I64_UNSIGNED_ABS %nz, %value
 [END_MACRO]
 
 [MACRO] NONZERO_ISIZE_SATURATING_NEG %nz, %value

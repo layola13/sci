@@ -895,6 +895,75 @@ L_FAIL:
 L_PASS:
     return 0
 
+@test "sa_std num signed unsigned_abs macros"():
+L_ENTRY:
+    nz_i8_uabs = stack_alloc NonZeroU8_SIZE
+    nz_i16_uabs = stack_alloc NonZeroU16_SIZE
+    nz_i32_uabs = stack_alloc NonZeroU32_SIZE
+    nz_i64_uabs = stack_alloc NonZeroU64_SIZE
+    nz_isize_uabs = stack_alloc NonZeroUsize_SIZE
+
+    EXPAND NUM_I8_UNSIGNED_ABS i8_uabs_neg, -7
+    EXPAND NUM_I8_UNSIGNED_ABS i8_uabs_min, NUM_I8_MIN
+    EXPAND NUM_I16_UNSIGNED_ABS i16_uabs_neg, -70
+    EXPAND NUM_I16_UNSIGNED_ABS i16_uabs_min, NUM_I16_MIN
+    EXPAND NUM_I32_UNSIGNED_ABS i32_uabs_neg, -700
+    EXPAND NUM_I32_UNSIGNED_ABS i32_uabs_min, NUM_I32_MIN
+    EXPAND NUM_I64_UNSIGNED_ABS i64_uabs_neg, -7000
+    EXPAND NUM_I64_UNSIGNED_ABS i64_uabs_min, NUM_I64_MIN
+    EXPAND NUM_ISIZE_UNSIGNED_ABS isize_uabs_neg, -9000
+    EXPAND NUM_ISIZE_UNSIGNED_ABS isize_uabs_min, NUM_ISIZE_MIN
+
+    EXPAND NONZERO_I8_UNSIGNED_ABS nz_i8_uabs, NUM_I8_MIN
+    EXPAND NONZERO_U8_GET nz_i8_uabs_value, nz_i8_uabs
+    EXPAND NONZERO_I16_UNSIGNED_ABS nz_i16_uabs, NUM_I16_MIN
+    EXPAND NONZERO_U16_GET nz_i16_uabs_value, nz_i16_uabs
+    EXPAND NONZERO_I32_UNSIGNED_ABS nz_i32_uabs, NUM_I32_MIN
+    EXPAND NONZERO_U32_GET nz_i32_uabs_value, nz_i32_uabs
+    EXPAND NONZERO_I64_UNSIGNED_ABS nz_i64_uabs, -7000
+    EXPAND NONZERO_U64_GET nz_i64_uabs_value, nz_i64_uabs
+    EXPAND NONZERO_ISIZE_UNSIGNED_ABS nz_isize_uabs, -9000
+    EXPAND NONZERO_USIZE_GET nz_isize_uabs_value, nz_isize_uabs
+
+    ok01 = eq i8_uabs_neg, 7
+    ok02 = eq i8_uabs_min, 128
+    ok03 = eq i16_uabs_neg, 70
+    ok04 = eq i16_uabs_min, 32768
+    ok05 = eq i32_uabs_neg, 700
+    ok06 = eq i32_uabs_min, 2147483648
+    ok07 = eq i64_uabs_neg, 7000
+    ok08 = eq i64_uabs_min, NUM_I64_MIN
+    ok09 = eq isize_uabs_neg, 9000
+    ok10 = eq isize_uabs_min, NUM_ISIZE_MIN
+    ok11 = eq nz_i8_uabs_value, 128
+    ok12 = eq nz_i16_uabs_value, 32768
+    ok13 = eq nz_i32_uabs_value, 2147483648
+    ok14 = eq nz_i64_uabs_value, 7000
+    ok15 = eq nz_isize_uabs_value, 9000
+
+    chain02 = and ok01, ok02
+    chain03 = and chain02, ok03
+    chain04 = and chain03, ok04
+    chain05 = and chain04, ok05
+    chain06 = and chain05, ok06
+    chain07 = and chain06, ok07
+    chain08 = and chain07, ok08
+    chain09 = and chain08, ok09
+    chain10 = and chain09, ok10
+    chain11 = and chain10, ok11
+    chain12 = and chain11, ok12
+    chain13 = and chain12, ok13
+    chain14 = and chain13, ok14
+    ok = and chain14, ok15
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(969)
+
+L_PASS:
+    return 0
+
 @test "sa_std num nonzero signed neg macros"():
 L_ENTRY:
     nz_i8_neg = stack_alloc NonZeroI8_SIZE

@@ -1,6 +1,6 @@
 @import "iter.sal"
 @import "slice.sal"
-@import "../vec.sa"
+@import "../vec_runtime_macros.sa"
 
 [MACRO] ITER_NEW %out_iter, %slice_reg
     %out_iter = alloc Iter_SIZE
@@ -807,13 +807,13 @@ L_ITER_TRY_FOR_EACH_END_%out_ok:
 [END_MACRO]
 
 [MACRO] ITER_COLLECT_U64 %out_vec, %iter_reg
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_COLLECT_HEAD_%out_vec
 L_ITER_COLLECT_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_collect_has_%out_vec, __iter_collect_value_%out_vec, %iter_reg
     br __iter_collect_has_%out_vec -> L_ITER_COLLECT_PUSH_%out_vec, L_ITER_COLLECT_DONE_%out_vec
 L_ITER_COLLECT_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_collect_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_collect_value_%out_vec
     !__iter_collect_value_%out_vec
     !__iter_collect_has_%out_vec
     jmp L_ITER_COLLECT_HEAD_%out_vec
@@ -823,7 +823,7 @@ L_ITER_COLLECT_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     __iter_take_collect_taken_%out_vec = add 0, 0
     jmp L_ITER_TAKE_COLLECT_HEAD_%out_vec
 L_ITER_TAKE_COLLECT_HEAD_%out_vec:
@@ -833,7 +833,7 @@ L_ITER_TAKE_COLLECT_NEXT_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_take_collect_has_%out_vec, __iter_take_collect_value_%out_vec, %iter_reg
     br __iter_take_collect_has_%out_vec -> L_ITER_TAKE_COLLECT_PUSH_%out_vec, L_ITER_TAKE_COLLECT_STOP_%out_vec
 L_ITER_TAKE_COLLECT_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_take_collect_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_take_collect_value_%out_vec
     __iter_take_collect_next_taken_%out_vec = add __iter_take_collect_taken_%out_vec, 1
     !__iter_take_collect_taken_%out_vec
     __iter_take_collect_taken_%out_vec = add __iter_take_collect_next_taken_%out_vec, 0
@@ -862,13 +862,13 @@ L_ITER_TAKE_COLLECT_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_REV_COLLECT_U64 %out_vec, %iter_reg
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_REV_COLLECT_HEAD_%out_vec
 L_ITER_REV_COLLECT_HEAD_%out_vec:
     EXPAND ITER_NEXT_BACK_U64 __iter_rev_collect_has_%out_vec, __iter_rev_collect_value_%out_vec, %iter_reg
     br __iter_rev_collect_has_%out_vec -> L_ITER_REV_COLLECT_PUSH_%out_vec, L_ITER_REV_COLLECT_DONE_%out_vec
 L_ITER_REV_COLLECT_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_rev_collect_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_rev_collect_value_%out_vec
     !__iter_rev_collect_value_%out_vec
     !__iter_rev_collect_has_%out_vec
     jmp L_ITER_REV_COLLECT_HEAD_%out_vec
@@ -878,7 +878,7 @@ L_ITER_REV_COLLECT_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_TAKE_WHILE_HEAD_%out_vec
 L_ITER_TAKE_WHILE_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_take_while_has_%out_vec, __iter_take_while_value_%out_vec, %iter_reg
@@ -888,7 +888,7 @@ L_ITER_TAKE_WHILE_CHECK_%out_vec:
     __iter_take_while_keep_%out_vec = ne __iter_take_while_pred_%out_vec, 0
     br __iter_take_while_keep_%out_vec -> L_ITER_TAKE_WHILE_PUSH_%out_vec, L_ITER_TAKE_WHILE_STOP_%out_vec
 L_ITER_TAKE_WHILE_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_take_while_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_take_while_value_%out_vec
     !__iter_take_while_keep_%out_vec
     !__iter_take_while_pred_%out_vec
     !__iter_take_while_value_%out_vec
@@ -908,7 +908,7 @@ L_ITER_TAKE_WHILE_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_SKIP_WHILE_HEAD_%out_vec
 L_ITER_SKIP_WHILE_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_skip_while_has_%out_vec, __iter_skip_while_value_%out_vec, %iter_reg
@@ -924,7 +924,7 @@ L_ITER_SKIP_WHILE_DROP_%out_vec:
     !__iter_skip_while_has_%out_vec
     jmp L_ITER_SKIP_WHILE_HEAD_%out_vec
 L_ITER_SKIP_WHILE_FIRST_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_skip_while_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_skip_while_value_%out_vec
     !__iter_skip_while_drop_%out_vec
     !__iter_skip_while_pred_%out_vec
     !__iter_skip_while_value_%out_vec
@@ -934,7 +934,7 @@ L_ITER_SKIP_WHILE_TAIL_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_skip_tail_has_%out_vec, __iter_skip_tail_value_%out_vec, %iter_reg
     br __iter_skip_tail_has_%out_vec -> L_ITER_SKIP_WHILE_TAIL_PUSH_%out_vec, L_ITER_SKIP_WHILE_TAIL_DONE_%out_vec
 L_ITER_SKIP_WHILE_TAIL_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_skip_tail_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_skip_tail_value_%out_vec
     !__iter_skip_tail_value_%out_vec
     !__iter_skip_tail_has_%out_vec
     jmp L_ITER_SKIP_WHILE_TAIL_HEAD_%out_vec
@@ -950,15 +950,15 @@ L_ITER_SKIP_WHILE_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     __iter_enumerate_index_%out_vec = add 0, 0
     jmp L_ITER_ENUMERATE_HEAD_%out_vec
 L_ITER_ENUMERATE_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_enumerate_has_%out_vec, __iter_enumerate_value_%out_vec, %iter_reg
     br __iter_enumerate_has_%out_vec -> L_ITER_ENUMERATE_PUSH_%out_vec, L_ITER_ENUMERATE_DONE_%out_vec
 L_ITER_ENUMERATE_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_enumerate_index_%out_vec
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_enumerate_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_enumerate_index_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_enumerate_value_%out_vec
     __iter_enumerate_next_index_%out_vec = add __iter_enumerate_index_%out_vec, 1
     !__iter_enumerate_index_%out_vec
     __iter_enumerate_index_%out_vec = add __iter_enumerate_next_index_%out_vec, 0
@@ -973,7 +973,7 @@ L_ITER_ENUMERATE_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_ZIP_HEAD_%out_vec
 L_ITER_ZIP_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_zip_left_has_%out_vec, __iter_zip_left_value_%out_vec, %left_iter
@@ -982,8 +982,8 @@ L_ITER_ZIP_RIGHT_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_zip_right_has_%out_vec, __iter_zip_right_value_%out_vec, %right_iter
     br __iter_zip_right_has_%out_vec -> L_ITER_ZIP_PUSH_%out_vec, L_ITER_ZIP_DONE_RIGHT_%out_vec
 L_ITER_ZIP_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_zip_left_value_%out_vec
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_zip_right_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_zip_left_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_zip_right_value_%out_vec
     !__iter_zip_right_value_%out_vec
     !__iter_zip_right_has_%out_vec
     !__iter_zip_left_value_%out_vec
@@ -1003,13 +1003,13 @@ L_ITER_ZIP_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_CHAIN_LEFT_HEAD_%out_vec
 L_ITER_CHAIN_LEFT_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_chain_left_has_%out_vec, __iter_chain_left_value_%out_vec, %left_iter
     br __iter_chain_left_has_%out_vec -> L_ITER_CHAIN_LEFT_PUSH_%out_vec, L_ITER_CHAIN_RIGHT_HEAD_%out_vec
 L_ITER_CHAIN_LEFT_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_chain_left_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_chain_left_value_%out_vec
     !__iter_chain_left_value_%out_vec
     !__iter_chain_left_has_%out_vec
     jmp L_ITER_CHAIN_LEFT_HEAD_%out_vec
@@ -1021,7 +1021,7 @@ L_ITER_CHAIN_RIGHT_NEXT_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_chain_right_has_%out_vec, __iter_chain_right_value_%out_vec, %right_iter
     br __iter_chain_right_has_%out_vec -> L_ITER_CHAIN_RIGHT_PUSH_%out_vec, L_ITER_CHAIN_DONE_%out_vec
 L_ITER_CHAIN_RIGHT_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_chain_right_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_chain_right_value_%out_vec
     !__iter_chain_right_value_%out_vec
     !__iter_chain_right_has_%out_vec
     jmp L_ITER_CHAIN_RIGHT_NEXT_%out_vec
@@ -1031,14 +1031,14 @@ L_ITER_CHAIN_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_MAP_COLLECT_HEAD_%out_vec
 L_ITER_MAP_COLLECT_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_map_collect_has_%out_vec, __iter_map_collect_value_%out_vec, %iter_reg
     br __iter_map_collect_has_%out_vec -> L_ITER_MAP_COLLECT_PUSH_%out_vec, L_ITER_MAP_COLLECT_DONE_%out_vec
 L_ITER_MAP_COLLECT_PUSH_%out_vec:
     __iter_map_collect_mapped_%out_vec = call %map_fn(__iter_map_collect_value_%out_vec)
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_map_collect_mapped_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_map_collect_mapped_%out_vec
     !__iter_map_collect_mapped_%out_vec
     !__iter_map_collect_value_%out_vec
     !__iter_map_collect_has_%out_vec
@@ -1049,7 +1049,7 @@ L_ITER_MAP_COLLECT_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_FILTER_COLLECT_HEAD_%out_vec
 L_ITER_FILTER_COLLECT_HEAD_%out_vec:
     EXPAND ITER_NEXT_U64 __iter_filter_collect_has_%out_vec, __iter_filter_collect_value_%out_vec, %iter_reg
@@ -1059,7 +1059,7 @@ L_ITER_FILTER_COLLECT_CHECK_%out_vec:
     __iter_filter_collect_keep_%out_vec = ne __iter_filter_collect_pred_%out_vec, 0
     br __iter_filter_collect_keep_%out_vec -> L_ITER_FILTER_COLLECT_PUSH_%out_vec, L_ITER_FILTER_COLLECT_NEXT_%out_vec
 L_ITER_FILTER_COLLECT_PUSH_%out_vec:
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_filter_collect_value_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_filter_collect_value_%out_vec
     !__iter_filter_collect_keep_%out_vec
     !__iter_filter_collect_pred_%out_vec
     !__iter_filter_collect_value_%out_vec
@@ -1077,7 +1077,7 @@ L_ITER_FILTER_COLLECT_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
-    EXPAND VEC_NEW %out_vec
+    EXPAND ITER_VEC_NEW %out_vec
     __iter_filter_map_slot_%out_vec = stack_alloc 8
     jmp L_ITER_FILTER_MAP_HEAD_%out_vec
 L_ITER_FILTER_MAP_HEAD_%out_vec:
@@ -1089,7 +1089,7 @@ L_ITER_FILTER_MAP_CHECK_%out_vec:
     br __iter_filter_map_match_%out_vec -> L_ITER_FILTER_MAP_PUSH_%out_vec, L_ITER_FILTER_MAP_NEXT_%out_vec
 L_ITER_FILTER_MAP_PUSH_%out_vec:
     __iter_filter_map_mapped_%out_vec = load __iter_filter_map_slot_%out_vec+0 as u64
-    EXPAND VEC_PUSH_U64 %out_vec, __iter_filter_map_mapped_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_filter_map_mapped_%out_vec
     !__iter_filter_map_mapped_%out_vec
     !__iter_filter_map_match_%out_vec
     !__iter_filter_map_found_%out_vec
@@ -1108,8 +1108,8 @@ L_ITER_FILTER_MAP_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
-    EXPAND VEC_NEW %out_true_vec
-    EXPAND VEC_NEW %out_false_vec
+    EXPAND ITER_VEC_NEW %out_true_vec
+    EXPAND ITER_VEC_NEW %out_false_vec
     jmp L_ITER_PARTITION_HEAD_%out_true_vec
 L_ITER_PARTITION_HEAD_%out_true_vec:
     EXPAND ITER_NEXT_U64 __iter_partition_has_%out_true_vec, __iter_partition_value_%out_true_vec, %iter_reg
@@ -1119,14 +1119,14 @@ L_ITER_PARTITION_CHECK_%out_true_vec:
     __iter_partition_take_true_%out_true_vec = ne __iter_partition_pred_%out_true_vec, 0
     br __iter_partition_take_true_%out_true_vec -> L_ITER_PARTITION_PUSH_TRUE_%out_true_vec, L_ITER_PARTITION_PUSH_FALSE_%out_true_vec
 L_ITER_PARTITION_PUSH_TRUE_%out_true_vec:
-    EXPAND VEC_PUSH_U64 %out_true_vec, __iter_partition_value_%out_true_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_true_vec, __iter_partition_value_%out_true_vec
     !__iter_partition_take_true_%out_true_vec
     !__iter_partition_pred_%out_true_vec
     !__iter_partition_value_%out_true_vec
     !__iter_partition_has_%out_true_vec
     jmp L_ITER_PARTITION_HEAD_%out_true_vec
 L_ITER_PARTITION_PUSH_FALSE_%out_true_vec:
-    EXPAND VEC_PUSH_U64 %out_false_vec, __iter_partition_value_%out_true_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_false_vec, __iter_partition_value_%out_true_vec
     !__iter_partition_take_true_%out_true_vec
     !__iter_partition_pred_%out_true_vec
     !__iter_partition_value_%out_true_vec
