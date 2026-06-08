@@ -9,6 +9,7 @@
 @extern sa_fs_file_write(file: u64, &buf: ptr, len: u64) -> i32
 @extern sa_fs_file_write_all(file: u64, &buf: ptr, len: u64) -> i32
 @extern sa_fs_file_flush(file: u64) -> i32
+@extern sa_fs_file_sync_data(file: u64) -> i32
 @extern sa_fs_file_sync(file: u64) -> i32
 @extern sa_fs_file_truncate(file: u64, new_size: u64) -> i32
 @extern sa_fs_file_seek(file: u64, whence: u32, offset: i64) -> i32
@@ -20,17 +21,21 @@
 @extern sa_std_fs_file_seek(file: u64, whence: u32, offset: i64, &out_pos: ptr) -> i32
 @extern sa_std_fs_remove(&path: ptr, path_len: u64) -> i32
 @extern sa_std_fs_exists(&path: ptr, path_len: u64) -> i32
+@extern sa_std_fs_try_exists(&path: ptr, path_len: u64, &out_exists: ptr) -> i32
 @extern sa_std_fs_len(&path: ptr, path_len: u64, &out_len: ptr) -> i32
 @extern sa_std_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_read_to_string(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_metadata(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_metadata_json(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_metadata_free(metadata: u64) -> i32
+@extern sa_std_fs_canonicalize(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_close(handle: u64) -> i32
 
 // Whole-file reads return an owned buffer handle. Free it with sa_fs_read_buffer_free.
 @extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
+@extern sa_fs_read_to_string(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
 @extern sa_fs_write_file(&path: ptr, path_len: u64, &buf: ptr, len: u64) -> i32
 @extern sa_fs_read_buffer_data(buffer: u64) -> &ptr
 @extern sa_fs_read_buffer_len(buffer: u64) -> u64
@@ -53,6 +58,13 @@
 @extern sa_fs_remove_file(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_rename(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32
 @extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_create_dir(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_remove_dir_all(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_copy_file(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32
+@extern sa_fs_set_permissions(&path: ptr, path_len: u64, mode: u32) -> i32
+@extern sa_fs_set_times_ms(&path: ptr, path_len: u64, accessed_ms: i64, modified_ms: i64) -> i32
+@extern sa_fs_hard_link(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32
+@extern sa_fs_symlink(&target_path: ptr, target_len: u64, &link_path: ptr, link_len: u64) -> i32
+@extern sa_std_fs_read_link(&path: ptr, path_len: u64, &out_handle: ptr) -> i32

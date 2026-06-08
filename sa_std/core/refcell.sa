@@ -74,3 +74,196 @@ L_REFCELL_RELEASE_END_%cell_reg:
 [MACRO] REFCELL_SET %cell_reg, %value
     store %cell_reg+RefCell_value, %value as u64
 [END_MACRO]
+
+[MACRO] REFCELL_U64_NEW %out_cell, %value
+    %out_cell = alloc RefCellU64_SIZE
+    store %out_cell+RefCellU64_value, %value as u64
+    store %out_cell+RefCellU64_borrows, 0 as i64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_BORROW_COUNT %out_count, %cell_reg
+    %out_count = load %cell_reg+RefCellU64_borrows as i64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_IS_BORROWED %out_bool, %cell_reg
+    __refcell_u64_count_%out_bool = load %cell_reg+RefCellU64_borrows as i64
+    %out_bool = ne __refcell_u64_count_%out_bool, 0
+    !__refcell_u64_count_%out_bool
+[END_MACRO]
+
+[MACRO] REFCELL_U64_TRY_BORROW %out_ok, %out_ptr, %cell_reg
+    __refcell_u64_borrows_%out_ok = load %cell_reg+RefCellU64_borrows as i64
+    __refcell_u64_can_share_%out_ok = sge __refcell_u64_borrows_%out_ok, 0
+    br __refcell_u64_can_share_%out_ok -> L_REFCELL_U64_BORROW_OK_%out_ok, L_REFCELL_U64_BORROW_FAIL_%out_ok
+L_REFCELL_U64_BORROW_OK_%out_ok:
+    __refcell_u64_next_%out_ok = add __refcell_u64_borrows_%out_ok, 1
+    store %cell_reg+RefCellU64_borrows, __refcell_u64_next_%out_ok as i64
+    %out_ptr = ptr_add %cell_reg, RefCellU64_value
+    %out_ok = add 0, 1
+    !__refcell_u64_next_%out_ok
+    !__refcell_u64_can_share_%out_ok
+    !__refcell_u64_borrows_%out_ok
+    jmp L_REFCELL_U64_BORROW_END_%out_ok
+L_REFCELL_U64_BORROW_FAIL_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__refcell_u64_can_share_%out_ok
+    !__refcell_u64_borrows_%out_ok
+L_REFCELL_U64_BORROW_END_%out_ok:
+[END_MACRO]
+
+[MACRO] REFCELL_U64_TRY_BORROW_MUT %out_ok, %out_ptr, %cell_reg
+    __refcell_u64_mut_borrows_%out_ok = load %cell_reg+RefCellU64_borrows as i64
+    __refcell_u64_mut_free_%out_ok = eq __refcell_u64_mut_borrows_%out_ok, 0
+    br __refcell_u64_mut_free_%out_ok -> L_REFCELL_U64_BORROW_MUT_OK_%out_ok, L_REFCELL_U64_BORROW_MUT_FAIL_%out_ok
+L_REFCELL_U64_BORROW_MUT_OK_%out_ok:
+    store %cell_reg+RefCellU64_borrows, -1 as i64
+    %out_ptr = ptr_add %cell_reg, RefCellU64_value
+    %out_ok = add 0, 1
+    !__refcell_u64_mut_free_%out_ok
+    !__refcell_u64_mut_borrows_%out_ok
+    jmp L_REFCELL_U64_BORROW_MUT_END_%out_ok
+L_REFCELL_U64_BORROW_MUT_FAIL_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__refcell_u64_mut_free_%out_ok
+    !__refcell_u64_mut_borrows_%out_ok
+L_REFCELL_U64_BORROW_MUT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] REFCELL_U64_RELEASE_SHARED %cell_reg
+    __refcell_u64_shared_%cell_reg = load %cell_reg+RefCellU64_borrows as i64
+    __refcell_u64_next_%cell_reg = sub __refcell_u64_shared_%cell_reg, 1
+    store %cell_reg+RefCellU64_borrows, __refcell_u64_next_%cell_reg as i64
+    !__refcell_u64_next_%cell_reg
+    !__refcell_u64_shared_%cell_reg
+[END_MACRO]
+
+[MACRO] REFCELL_U64_RELEASE_MUT %cell_reg
+    store %cell_reg+RefCellU64_borrows, 0 as i64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_GET %out_value, %cell_reg
+    %out_value = load %cell_reg+RefCellU64_value as u64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_SET %cell_reg, %value
+    store %cell_reg+RefCellU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_REPLACE %out_old, %cell_reg, %value
+    %out_old = load %cell_reg+RefCellU64_value as u64
+    store %cell_reg+RefCellU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_TRY_REPLACE %out_ok, %out_old, %cell_reg, %value
+    __refcell_u64_replace_borrows_%out_ok = load %cell_reg+RefCellU64_borrows as i64
+    __refcell_u64_replace_free_%out_ok = eq __refcell_u64_replace_borrows_%out_ok, 0
+    br __refcell_u64_replace_free_%out_ok -> L_REFCELL_U64_REPLACE_OK_%out_ok, L_REFCELL_U64_REPLACE_FAIL_%out_ok
+
+L_REFCELL_U64_REPLACE_OK_%out_ok:
+    EXPAND REFCELL_U64_REPLACE %out_old, %cell_reg, %value
+    %out_ok = add 0, 1
+    !__refcell_u64_replace_free_%out_ok
+    !__refcell_u64_replace_borrows_%out_ok
+    jmp L_REFCELL_U64_REPLACE_END_%out_ok
+
+L_REFCELL_U64_REPLACE_FAIL_%out_ok:
+    %out_old = add 0, 0
+    %out_ok = add 0, 0
+    !__refcell_u64_replace_free_%out_ok
+    !__refcell_u64_replace_borrows_%out_ok
+
+L_REFCELL_U64_REPLACE_END_%out_ok:
+[END_MACRO]
+
+[MACRO] REFCELL_U64_TAKE %out_old, %cell_reg
+    %out_old = load %cell_reg+RefCellU64_value as u64
+    store %cell_reg+RefCellU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_TRY_TAKE %out_ok, %out_old, %cell_reg
+    EXPAND REFCELL_U64_TRY_REPLACE %out_ok, %out_old, %cell_reg, 0
+[END_MACRO]
+
+[MACRO] REFCELL_U64_SWAP %left_cell, %right_cell
+    __refcell_u64_swap_left_%left_cell = load %left_cell+RefCellU64_value as u64
+    __refcell_u64_swap_right_%left_cell = load %right_cell+RefCellU64_value as u64
+    store %left_cell+RefCellU64_value, __refcell_u64_swap_right_%left_cell as u64
+    store %right_cell+RefCellU64_value, __refcell_u64_swap_left_%left_cell as u64
+    !__refcell_u64_swap_right_%left_cell
+    !__refcell_u64_swap_left_%left_cell
+[END_MACRO]
+
+[MACRO] REFCELL_U64_TRY_SWAP %out_ok, %left_cell, %right_cell
+    __refcell_u64_swap_left_borrows_%out_ok = load %left_cell+RefCellU64_borrows as i64
+    __refcell_u64_swap_right_borrows_%out_ok = load %right_cell+RefCellU64_borrows as i64
+    __refcell_u64_swap_left_free_%out_ok = eq __refcell_u64_swap_left_borrows_%out_ok, 0
+    __refcell_u64_swap_right_free_%out_ok = eq __refcell_u64_swap_right_borrows_%out_ok, 0
+    __refcell_u64_swap_can_%out_ok = and __refcell_u64_swap_left_free_%out_ok, __refcell_u64_swap_right_free_%out_ok
+    br __refcell_u64_swap_can_%out_ok -> L_REFCELL_U64_SWAP_OK_%out_ok, L_REFCELL_U64_SWAP_FAIL_%out_ok
+
+L_REFCELL_U64_SWAP_OK_%out_ok:
+    EXPAND REFCELL_U64_SWAP %left_cell, %right_cell
+    %out_ok = add 0, 1
+    !__refcell_u64_swap_can_%out_ok
+    !__refcell_u64_swap_right_free_%out_ok
+    !__refcell_u64_swap_left_free_%out_ok
+    !__refcell_u64_swap_right_borrows_%out_ok
+    !__refcell_u64_swap_left_borrows_%out_ok
+    jmp L_REFCELL_U64_SWAP_END_%out_ok
+
+L_REFCELL_U64_SWAP_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__refcell_u64_swap_can_%out_ok
+    !__refcell_u64_swap_right_free_%out_ok
+    !__refcell_u64_swap_left_free_%out_ok
+    !__refcell_u64_swap_right_borrows_%out_ok
+    !__refcell_u64_swap_left_borrows_%out_ok
+
+L_REFCELL_U64_SWAP_END_%out_ok:
+[END_MACRO]
+
+[MACRO] REFCELL_U64_UPDATE %out_old, %out_new, %cell_reg, %update_fn
+    %out_old = load %cell_reg+RefCellU64_value as u64
+    %out_new = call %update_fn(%out_old)
+    store %cell_reg+RefCellU64_value, %out_new as u64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_REPLACE_WITH %out_old, %out_new, %cell_reg, %update_fn
+    EXPAND REFCELL_U64_UPDATE %out_old, %out_new, %cell_reg, %update_fn
+[END_MACRO]
+
+[MACRO] REFCELL_U64_TRY_REPLACE_WITH %out_ok, %out_old, %out_new, %cell_reg, %update_fn
+    __refcell_u64_replace_with_borrows_%out_ok = load %cell_reg+RefCellU64_borrows as i64
+    __refcell_u64_replace_with_free_%out_ok = eq __refcell_u64_replace_with_borrows_%out_ok, 0
+    br __refcell_u64_replace_with_free_%out_ok -> L_REFCELL_U64_REPLACE_WITH_OK_%out_ok, L_REFCELL_U64_REPLACE_WITH_FAIL_%out_ok
+
+L_REFCELL_U64_REPLACE_WITH_OK_%out_ok:
+    EXPAND REFCELL_U64_REPLACE_WITH %out_old, %out_new, %cell_reg, %update_fn
+    %out_ok = add 0, 1
+    !__refcell_u64_replace_with_free_%out_ok
+    !__refcell_u64_replace_with_borrows_%out_ok
+    jmp L_REFCELL_U64_REPLACE_WITH_END_%out_ok
+
+L_REFCELL_U64_REPLACE_WITH_FAIL_%out_ok:
+    %out_old = add 0, 0
+    %out_new = add 0, 0
+    %out_ok = add 0, 0
+    !__refcell_u64_replace_with_free_%out_ok
+    !__refcell_u64_replace_with_borrows_%out_ok
+
+L_REFCELL_U64_REPLACE_WITH_END_%out_ok:
+[END_MACRO]
+
+[MACRO] REFCELL_U64_INTO_INNER %out_value, %cell_reg
+    %out_value = load %cell_reg+RefCellU64_value as u64
+[END_MACRO]
+
+[MACRO] REFCELL_U64_AS_PTR %out_ptr, %cell_reg
+    %out_ptr = ptr_add %cell_reg, RefCellU64_value
+[END_MACRO]
+
+[MACRO] REFCELL_U64_GET_MUT_PTR %out_ptr, %cell_reg
+    %out_ptr = ptr_add %cell_reg, RefCellU64_value
+[END_MACRO]

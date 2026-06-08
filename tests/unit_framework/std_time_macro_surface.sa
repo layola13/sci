@@ -311,6 +311,24 @@ L_ENTRY:
     EXPAND TIME_DURATION_SATURATING_DIV_NS sat_div_value, 42, 0
     EXPAND TIME_DURATION_ABS_DIFF_NS abs_diff_left, 90, 40
     EXPAND TIME_DURATION_ABS_DIFF_NS abs_diff_right, 40, 90
+    EXPAND TIME_DURATION_NEW new_value, 2, 345
+    EXPAND TIME_DURATION_FROM_SECS secs_value, 3
+    EXPAND TIME_DURATION_FROM_MILLIS millis_value, 4
+    EXPAND TIME_DURATION_FROM_MICROS micros_value, 5
+    EXPAND TIME_DURATION_FROM_NANOS nanos_value, 6
+    EXPAND TIME_DURATION_FROM_MINS mins_value, 2
+    EXPAND TIME_DURATION_FROM_HOURS hours_value, 1
+    EXPAND TIME_DURATION_FROM_DAYS days_value, 1
+    EXPAND TIME_DURATION_FROM_WEEKS weeks_value, 1
+    EXPAND TIME_DURATION_AS_SECS as_secs_value, weeks_value
+    EXPAND TIME_DURATION_AS_MILLIS as_millis_value, secs_value
+    EXPAND TIME_DURATION_AS_MICROS as_micros_value, millis_value
+    EXPAND TIME_DURATION_AS_NANOS as_nanos_value, micros_value
+    EXPAND TIME_DURATION_DIV_DURATION_FLOOR floor_ok, floor_value, 10, 3
+    EXPAND TIME_DURATION_DIV_DURATION_CEIL ceil_ok, ceil_value, 10, 3
+    EXPAND TIME_DURATION_DIV_DURATION_CEIL ceil_exact_ok, ceil_exact_value, 12, 3
+    EXPAND TIME_DURATION_DIV_DURATION_FLOOR floor_zero_ok, floor_zero_value, 10, 0
+    EXPAND TIME_DURATION_DIV_DURATION_CEIL ceil_zero_ok, ceil_zero_value, 10, 0
 
     zero_ok = eq zero_ns, 0
     max_ok = eq max_ns, expected_max
@@ -330,6 +348,29 @@ L_ENTRY:
     sat_div_ok = eq sat_div_value, max_ns
     abs_diff_left_ok = eq abs_diff_left, 50
     abs_diff_right_ok = eq abs_diff_right, 50
+    new_ok = eq new_value, 2000000345
+    secs_ok = eq secs_value, 3000000000
+    millis_ok = eq millis_value, 4000000
+    micros_ok = eq micros_value, 5000
+    nanos_ok = eq nanos_value, 6
+    mins_ok = eq mins_value, 120000000000
+    hours_ok = eq hours_value, 3600000000000
+    days_ok = eq days_value, 86400000000000
+    weeks_ok = eq weeks_value, 604800000000000
+    as_secs_ok = eq as_secs_value, 604800
+    as_millis_ok = eq as_millis_value, 3000
+    as_micros_ok = eq as_micros_value, 4000
+    as_nanos_ok = eq as_nanos_value, 5000
+    floor_flag_ok = eq floor_ok, 1
+    floor_value_ok = eq floor_value, 3
+    ceil_flag_ok = eq ceil_ok, 1
+    ceil_value_ok = eq ceil_value, 4
+    ceil_exact_flag_ok = eq ceil_exact_ok, 1
+    ceil_exact_value_ok = eq ceil_exact_value, 4
+    floor_zero_flag_ok = eq floor_zero_ok, 0
+    floor_zero_value_ok = eq floor_zero_value, 0
+    ceil_zero_flag_ok = eq ceil_zero_ok, 0
+    ceil_zero_value_ok = eq ceil_zero_value, 0
 
     ok01 = and zero_ok, max_ok
     ok02 = and ok01, zero_is_zero_ok
@@ -347,7 +388,30 @@ L_ENTRY:
     ok14 = and ok13, sat_mul_ok
     ok15 = and ok14, sat_div_ok
     ok16 = and ok15, abs_diff_left_ok
-    ok = and ok16, abs_diff_right_ok
+    ok17 = and ok16, abs_diff_right_ok
+    ok18 = and ok17, new_ok
+    ok19 = and ok18, secs_ok
+    ok20 = and ok19, millis_ok
+    ok21 = and ok20, micros_ok
+    ok22 = and ok21, nanos_ok
+    ok23 = and ok22, mins_ok
+    ok24 = and ok23, hours_ok
+    ok25 = and ok24, days_ok
+    ok26 = and ok25, weeks_ok
+    ok27 = and ok26, as_secs_ok
+    ok28 = and ok27, as_millis_ok
+    ok29 = and ok28, as_micros_ok
+    ok30 = and ok29, as_nanos_ok
+    ok31 = and ok30, floor_flag_ok
+    ok32 = and ok31, floor_value_ok
+    ok33 = and ok32, ceil_flag_ok
+    ok34 = and ok33, ceil_value_ok
+    ok35 = and ok34, ceil_exact_flag_ok
+    ok36 = and ok35, ceil_exact_value_ok
+    ok37 = and ok36, floor_zero_flag_ok
+    ok38 = and ok37, floor_zero_value_ok
+    ok39 = and ok38, ceil_zero_flag_ok
+    ok = and ok39, ceil_zero_value_ok
 
     !zero_ns
     !max_ns
@@ -368,6 +432,29 @@ L_ENTRY:
     !sat_div_value
     !abs_diff_left
     !abs_diff_right
+    !new_value
+    !secs_value
+    !millis_value
+    !micros_value
+    !nanos_value
+    !mins_value
+    !hours_value
+    !days_value
+    !weeks_value
+    !as_secs_value
+    !as_millis_value
+    !as_micros_value
+    !as_nanos_value
+    !floor_ok
+    !floor_value
+    !ceil_ok
+    !ceil_value
+    !ceil_exact_ok
+    !ceil_exact_value
+    !floor_zero_ok
+    !floor_zero_value
+    !ceil_zero_ok
+    !ceil_zero_value
     !zero_ok
     !max_ok
     !zero_is_zero_ok
@@ -386,6 +473,29 @@ L_ENTRY:
     !sat_div_ok
     !abs_diff_left_ok
     !abs_diff_right_ok
+    !new_ok
+    !secs_ok
+    !millis_ok
+    !micros_ok
+    !nanos_ok
+    !mins_ok
+    !hours_ok
+    !days_ok
+    !weeks_ok
+    !as_secs_ok
+    !as_millis_ok
+    !as_micros_ok
+    !as_nanos_ok
+    !floor_flag_ok
+    !floor_value_ok
+    !ceil_flag_ok
+    !ceil_value_ok
+    !ceil_exact_flag_ok
+    !ceil_exact_value_ok
+    !floor_zero_flag_ok
+    !floor_zero_value_ok
+    !ceil_zero_flag_ok
+    !ceil_zero_value_ok
     !ok01
     !ok02
     !ok03
@@ -402,6 +512,29 @@ L_ENTRY:
     !ok14
     !ok15
     !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
     br ok -> L_TIME_ALIAS_OK, L_TIME_ALIAS_FAIL
 
 L_TIME_ALIAS_FAIL:

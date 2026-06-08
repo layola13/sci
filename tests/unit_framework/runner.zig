@@ -687,11 +687,299 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std ascii byte classifier macros",
         "[PASS] sa_std ascii case conversion macros",
         "[PASS] sa_std ascii slice case macros",
+        "[PASS] sa_std ascii escape_default macro",
+        "[PASS] sa_std ascii Char primitive macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_ascii_macro_surface.sa",
         ascii_expected[0..],
+        "test result: ok. 5 passed; 0 failed; 0 skipped",
+    );
+
+    const cmp_expected = [_][]const u8{
+        "[PASS] sa_std cmp ordering and primitive macros",
+        "[PASS] sa_std cmp reverse primitive macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_cmp_macro_surface.sa",
+        cmp_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
+
+    const default_convert_expected = [_][]const u8{
+        "[PASS] sa_std default primitive macros",
+        "[PASS] sa_std convert extended primitive macros",
+        "[PASS] sa_std convert primitive macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_default_convert_macro_surface.sa",
+        default_convert_expected[0..],
         "test result: ok. 3 passed; 0 failed; 0 skipped",
+    );
+
+    const option_result_expected = [_][]const u8{
+        "[PASS] sa_std option rust-style combinator macros",
+        "[PASS] sa_std result rust-style combinator macros",
+        "[PASS] sa_std option result nested rust-style macros",
+        "[PASS] sa_std option result reference copy macros",
+        "[PASS] sa_std option result expect unchecked macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_option_result_macro_surface.sa",
+        option_result_expected[0..],
+        "test result: ok. 5 passed; 0 failed; 0 skipped",
+    );
+
+    const cell_expected = [_][]const u8{
+        "[PASS] sa_std cell primitive i32 compatibility macros",
+        "[PASS] sa_std cell u64 rust-style macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_cell_macro_surface.sa",
+        cell_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
+
+    const refcell_expected = [_][]const u8{
+        "[PASS] sa_std refcell u64 borrow and mutation macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_refcell_macro_surface.sa",
+        refcell_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const rc_weak_expected = [_][]const u8{
+        "[PASS] sa_std rc and weak primitive macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_rc_weak_macro_surface.sa",
+        rc_weak_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const arc_weak_expected = [_][]const u8{
+        "[PASS] sa_std arc and weak primitive macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_arc_weak_macro_surface.sa",
+        arc_weak_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const box_expected = [_][]const u8{
+        "[PASS] sa_std box u64 rust-style macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_box_macro_surface.sa",
+        box_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const mem_expected = [_][]const u8{
+        "[PASS] sa_std mem primitive layout macros",
+        "[PASS] sa_std mem maybe-uninit and manually-drop u64 macros",
+        "[PASS] sa_std mem swap replace take macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_mem_macro_surface.sa",
+        mem_expected[0..],
+        "test result: ok. 3 passed; 0 failed; 0 skipped",
+    );
+
+    const ptr_expected = [_][]const u8{
+        "[PASS] sa_std ptr primitive macros",
+        "[PASS] sa_std ptr NonNull primitive macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_ptr_macro_surface.sa",
+        ptr_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
+
+    const array_expected = [_][]const u8{
+        "[PASS] sa_std array primitive u64 macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_array_macro_surface.sa",
+        array_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const num_expected = [_][]const u8{
+        "[PASS] sa_std num u64 primitive macros",
+        "[PASS] sa_std num narrow byte conversion macros",
+        "[PASS] sa_std num endian value transform macros",
+        "[PASS] sa_std num signed rust named parity macros",
+        "[PASS] sa_std num unsigned narrow primitive macros",
+        "[PASS] sa_std num nonzero primitive macros",
+        "[PASS] sa_std num nonzero bit and byte macros",
+        "[PASS] sa_std num nonzero endian value transform macros",
+        "[PASS] sa_std num nonzero narrow and platform macros",
+        "[PASS] sa_std num platform sized macros",
+        "[PASS] sa_std num i64 arithmetic parity macros",
+        "[PASS] sa_std num i64 primitive macros",
+        "[PASS] sa_std num signed narrow primitive macros",
+        "[PASS] sa_std num unsigned rust named parity macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_num_macro_surface.sa",
+        num_expected[0..],
+        "test result: ok. 14 passed; 0 failed; 0 skipped",
+    );
+
+    const ops_expected = [_][]const u8{
+        "[PASS] sa_std ops range and bound u64 macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_ops_range_macro_surface.sa",
+        ops_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const char_expected = [_][]const u8{
+        "[PASS] sa_std char scalar and encoding macros",
+        "[PASS] sa_std char escape_unicode write macro",
+        "[PASS] sa_std char escape_default write macro",
+        "[PASS] sa_std char ascii and radix macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_char_macro_surface.sa",
+        char_expected[0..],
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
+    );
+
+    const ffi_expected = [_][]const u8{
+        "[PASS] sa_std ffi cstr borrowed view macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_ffi_cstr_macro_surface.sa",
+        ffi_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const error_expected = [_][]const u8{
+        "[PASS] sa_std error primitive reference macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_error_macro_surface.sa",
+        error_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const atomic_expected = [_][]const u8{
+        "[PASS] sa_std sync atomic primitive macros",
+        "[PASS] sa_std sync atomic compare_exchange_weak macros",
+        "[PASS] sa_std sync atomic layout view macros",
+        "[PASS] sa_std sync atomic narrow signed macros",
+        "[PASS] sa_std sync atomic extended type macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_atomic_macro_surface.sa",
+        atomic_expected[0..],
+        "test result: ok. 5 passed; 0 failed; 0 skipped",
+    );
+
+    const once_expected = [_][]const u8{
+        "[PASS] sa_std sync once and once-lock macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_once_macro_surface.sa",
+        once_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const mutex_expected = [_][]const u8{
+        "[PASS] sa_std sync mutex try-lock state macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_mutex_macro_surface.sa",
+        mutex_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const rwlock_expected = [_][]const u8{
+        "[PASS] sa_std sync rwlock noerr state macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_rwlock_macro_surface.sa",
+        rwlock_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const mpsc_expected = [_][]const u8{
+        "[PASS] sa_std sync mpsc capacity and state macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_mpsc_macro_surface.sa",
+        mpsc_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const process_expected = [_][]const u8{
+        "[PASS] sa_std process argv and run macros",
+        "[PASS] sa_std process exit status and output wrapper macros",
+        "[PASS] sa_std process try_wait and kill macros",
+        "[PASS] sa_std process abort macro surface",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_process_macro_surface.sa",
+        process_expected[0..],
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
+    );
+
+    const env_expected = [_][]const u8{
+        "[PASS] sa_std env buffer and slice macros",
+        "[PASS] sa_std env try macros return none for missing key",
+        "[PASS] sa_std env path query macros",
+        "[PASS] sa_std env cwd mutation and home query macros",
+        "[PASS] sa_std env set and remove var macros",
+        "[PASS] sa_std env args JSON macro",
+        "[PASS] sa_std env vars JSON macro",
+        "[PASS] sa_std env split paths JSON macros",
+        "[PASS] sa_std env join paths JSON macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_env_macro_surface.sa",
+        env_expected[0..],
+        "test result: ok. 9 passed; 0 failed; 0 skipped",
+    );
+
+    const marker_expected = [_][]const u8{
+        "[PASS] sa_std marker phantom and primitive macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_marker_macro_surface.sa",
+        marker_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const pin_expected = [_][]const u8{
+        "[PASS] sa_std pin transparent pointer macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_pin_macro_surface.sa",
+        pin_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
+    );
+
+    const any_borrow_expected = [_][]const u8{
+        "[PASS] sa_std any type id and any ref macros",
+        "[PASS] sa_std borrow and cow slice macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_any_borrow_macro_surface.sa",
+        any_borrow_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
+
+    const hash_expected = [_][]const u8{
+        "[PASS] sa_std hash default hasher macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_hash_macro_surface.sa",
+        hash_expected[0..],
+        "test result: ok. 1 passed; 0 failed; 0 skipped",
     );
 
     const string_vec_expected = [_][]const u8{
@@ -713,6 +1001,14 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std vec capacity/view macros",
         "[PASS] sa_std slice mutation and search macros",
         "[PASS] sa_std slice and vec chunk window macros",
+        "[PASS] sa_std slice and vec rchunk macros",
+        "[PASS] sa_std slice and vec split chunk macros",
+        "[PASS] sa_std slice and vec first last chunk macros",
+        "[PASS] sa_std slice and vec checked range aliases",
+        "[PASS] sa_std slice and vec rotate swap sorted macros",
+        "[PASS] sa_std slice and vec sorted callback macros",
+        "[PASS] sa_std slice and vec fill_with macros",
+        "[PASS] sa_std slice and vec exact chunk macros",
         "[PASS] sa_std vec insert and dedup macros",
         "[PASS] sa_std string mutable byte macros",
         "[PASS] sa_std vec retain macros",
@@ -723,17 +1019,19 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_string_vec_macro_surface.sa",
         string_vec_expected[0..],
-        "test result: ok. 24 passed; 0 failed; 0 skipped",
+        "test result: ok. 32 passed; 0 failed; 0 skipped",
     );
 
     const path_expected = [_][]const u8{
         "[PASS] sa_std path rust parity macros",
         "[PASS] sa_std path query and ancestor macros",
+        "[PASS] sa_std path try option-style query macros",
+        "[PASS] sa_std path filesystem query macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_path_macro_surface.sa",
         path_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
     );
 
     const time_expected = [_][]const u8{
@@ -824,18 +1122,48 @@ test "native unit framework covers sa_std macro surface suites" {
         "test result: ok. 4 passed; 0 failed; 0 skipped",
     );
 
+    const io_utility_expected = [_][]const u8{
+        "[PASS] sa_std io error and slice utility macros",
+        "[PASS] sa_std io cursor empty repeat sink macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_io_utility_macro_surface.sa",
+        io_utility_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
+    );
+
+    const iter_expected = [_][]const u8{
+        "[PASS] sa_std iter cursor double-ended macros",
+        "[PASS] sa_std iter comparison and callback macros",
+        "[PASS] sa_std iter consuming adaptor macros",
+        "[PASS] sa_std iter extended cursor macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_iter_macro_surface.sa",
+        iter_expected[0..],
+        "test result: ok. 4 passed; 0 failed; 0 skipped",
+    );
+
     const fs_expected = [_][]const u8{
         "[PASS] sa_std fs file io macro surface",
         "[PASS] sa_std fs metadata copy dir macro surface",
+        "[PASS] sa_std fs hard link macro surface",
+        "[PASS] sa_std fs symlink and read_link macro surface",
+        "[PASS] sa_std fs canonicalize macro surface",
+        "[PASS] sa_std fs remove_dir_all macro surface",
+        "[PASS] sa_std fs read_to_string macro surface",
+        "[PASS] sa_std fs try_exists macro surface",
     };
     try runSaTestFile(
         "tests/unit_framework/std_fs_macro_surface.sa",
         fs_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
+        "test result: ok. 8 passed; 0 failed; 0 skipped",
     );
 
     const net_expected = [_][]const u8{
+        "[PASS] sa_std net to_socket_addrs first macro surface",
         "[PASS] sa_std net tcp macro surface",
+        "[PASS] sa_std net tcp incoming macro surface",
         "[PASS] sa_std net udp macro surface",
         "[PASS] sa_std net local peer address macros",
         "[PASS] sa_std net option getter and udp peek macros",
@@ -843,7 +1171,28 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_net_macro_surface.sa",
         net_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
+        "test result: ok. 6 passed; 0 failed; 0 skipped",
+    );
+
+    const net_addr_expected = [_][]const u8{
+        "[PASS] sa_std net typed address macro surface",
+        "[PASS] sa_std net address equality and octet helper macros",
+        "[PASS] sa_std net rust parity address macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_net_addr_macro_surface.sa",
+        net_addr_expected[0..],
+        "test result: ok. 3 passed; 0 failed; 0 skipped",
+    );
+
+    const net_multicast_expected = [_][]const u8{
+        "[PASS] sa_std net udp multicast v4 macro surface",
+        "[PASS] sa_std net udp multicast v6 macro surface",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_net_multicast_macro_surface.sa",
+        net_multicast_expected[0..],
+        "test result: ok. 2 passed; 0 failed; 0 skipped",
     );
 }
 

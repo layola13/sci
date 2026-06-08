@@ -1,0 +1,35 @@
+#def AtomicBool_SIZE = 1
+#def AtomicBool_value = +0
+
+#def AtomicU8_SIZE = 1
+#def AtomicU8_value = +0
+
+#def AtomicI8_SIZE = 1
+#def AtomicI8_value = +0
+
+#def AtomicU16_SIZE = 2
+#def AtomicU16_value = +0
+
+#def AtomicI16_SIZE = 2
+#def AtomicI16_value = +0
+
+#def AtomicU32_SIZE = 4
+#def AtomicU32_value = +0
+
+#def AtomicI32_SIZE = 4
+#def AtomicI32_value = +0
+
+#def AtomicU64_SIZE = 8
+#def AtomicU64_value = +0
+
+#def AtomicI64_SIZE = 8
+#def AtomicI64_value = +0
+
+#def AtomicUsize_SIZE = 8
+#def AtomicUsize_value = +0
+
+#def AtomicIsize_SIZE = 8
+#def AtomicIsize_value = +0
+
+#def AtomicPtr_SIZE = 8
+#def AtomicPtr_value = +0

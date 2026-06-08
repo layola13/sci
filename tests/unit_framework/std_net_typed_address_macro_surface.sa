@@ -1,0 +1,109 @@
+@import "sa_std/net.sa"
+
+@test "sa_std net typed address octet helpers"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    ip6 = stack_alloc NetIpAddr_SIZE
+    out = stack_alloc 16
+
+    EXPAND NET_IPV4_NEW ipv4, 18, 52, 86, 120
+    EXPAND NET_IPV4_AS_OCTETS_PTR ipv4_oct_ptr, ipv4
+    ipv4_ptr_b0 = load ipv4_oct_ptr+0 as u8
+    ipv4_ptr_b1 = load ipv4_oct_ptr+1 as u8
+    ipv4_ptr_b2 = load ipv4_oct_ptr+2 as u8
+    ipv4_ptr_b3 = load ipv4_oct_ptr+3 as u8
+    EXPAND NET_IPV4_WRITE_OCTETS ipv4_write_ok, out, 16, ipv4
+    ipv4_out_b0 = load out+0 as u8
+    ipv4_out_b1 = load out+1 as u8
+    ipv4_out_b2 = load out+2 as u8
+    ipv4_out_b3 = load out+3 as u8
+    EXPAND NET_IPV4_WRITE_OCTETS ipv4_short_ok, out, 3, ipv4
+
+    EXPAND NET_IPV6_NEW ipv6, 4386, 13124, 21862, 30600, 39612, 48350, 57072, 3855
+    EXPAND NET_IPV6_WRITE_OCTETS ipv6_write_ok, out, 16, ipv6
+    ipv6_b0 = load out+0 as u8
+    ipv6_b1 = load out+1 as u8
+    ipv6_b2 = load out+2 as u8
+    ipv6_b3 = load out+3 as u8
+    ipv6_b14 = load out+14 as u8
+    ipv6_b15 = load out+15 as u8
+    EXPAND NET_IPV6_WRITE_OCTETS ipv6_short_ok, out, 15, ipv6
+
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_IP_ADDR_OCTET_LEN ip4_len, ip4
+    EXPAND NET_IP_ADDR_WRITE_OCTETS ip4_write_ok, out, 16, ip4
+    ip4_b0 = load out+0 as u8
+    ip4_b3 = load out+3 as u8
+
+    EXPAND NET_IP_ADDR_V6_NEW ip6, ipv6
+    EXPAND NET_IP_ADDR_OCTET_LEN ip6_len, ip6
+    EXPAND NET_IP_ADDR_WRITE_OCTETS ip6_write_ok, out, 16, ip6
+    ip6_b0 = load out+0 as u8
+    ip6_b15 = load out+15 as u8
+    EXPAND NET_IP_ADDR_WRITE_OCTETS ip6_short_ok, out, 15, ip6
+
+    ok_ipv4_ptr_b0 = eq ipv4_ptr_b0, 18
+    ok_ipv4_ptr_b1 = eq ipv4_ptr_b1, 52
+    ok_ipv4_ptr_b2 = eq ipv4_ptr_b2, 86
+    ok_ipv4_ptr_b3 = eq ipv4_ptr_b3, 120
+    ok_ipv4_write = eq ipv4_write_ok, 1
+    ok_ipv4_out_b0 = eq ipv4_out_b0, 18
+    ok_ipv4_out_b1 = eq ipv4_out_b1, 52
+    ok_ipv4_out_b2 = eq ipv4_out_b2, 86
+    ok_ipv4_out_b3 = eq ipv4_out_b3, 120
+    ok_ipv4_short = eq ipv4_short_ok, 0
+    ok_ipv6_write = eq ipv6_write_ok, 1
+    ok_ipv6_b0 = eq ipv6_b0, 17
+    ok_ipv6_b1 = eq ipv6_b1, 34
+    ok_ipv6_b2 = eq ipv6_b2, 51
+    ok_ipv6_b3 = eq ipv6_b3, 68
+    ok_ipv6_b14 = eq ipv6_b14, 15
+    ok_ipv6_b15 = eq ipv6_b15, 15
+    ok_ipv6_short = eq ipv6_short_ok, 0
+    ok_ip4_len = eq ip4_len, 4
+    ok_ip4_write = eq ip4_write_ok, 1
+    ok_ip4_b0 = eq ip4_b0, 18
+    ok_ip4_b3 = eq ip4_b3, 120
+    ok_ip6_len = eq ip6_len, 16
+    ok_ip6_write = eq ip6_write_ok, 1
+    ok_ip6_b0 = eq ip6_b0, 17
+    ok_ip6_b15 = eq ip6_b15, 15
+    ok_ip6_short = eq ip6_short_ok, 0
+
+    ok01 = and ok_ipv4_ptr_b0, ok_ipv4_ptr_b1
+    ok02 = and ok01, ok_ipv4_ptr_b2
+    ok03 = and ok02, ok_ipv4_ptr_b3
+    ok04 = and ok03, ok_ipv4_write
+    ok05 = and ok04, ok_ipv4_out_b0
+    ok06 = and ok05, ok_ipv4_out_b1
+    ok07 = and ok06, ok_ipv4_out_b2
+    ok08 = and ok07, ok_ipv4_out_b3
+    ok09 = and ok08, ok_ipv4_short
+    ok10 = and ok09, ok_ipv6_write
+    ok11 = and ok10, ok_ipv6_b0
+    ok12 = and ok11, ok_ipv6_b1
+    ok13 = and ok12, ok_ipv6_b2
+    ok14 = and ok13, ok_ipv6_b3
+    ok15 = and ok14, ok_ipv6_b14
+    ok16 = and ok15, ok_ipv6_b15
+    ok17 = and ok16, ok_ipv6_short
+    ok18 = and ok17, ok_ip4_len
+    ok19 = and ok18, ok_ip4_write
+    ok20 = and ok19, ok_ip4_b0
+    ok21 = and ok20, ok_ip4_b3
+    ok22 = and ok21, ok_ip6_len
+    ok23 = and ok22, ok_ip6_write
+    ok24 = and ok23, ok_ip6_b0
+    ok25 = and ok24, ok_ip6_b15
+    ok = and ok25, ok_ip6_short
+
+    !ipv4_oct_ptr
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(980)
+
+L_PASS:
+    return 0

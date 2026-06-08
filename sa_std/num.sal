@@ -1,0 +1,55 @@
+#def NUM_U64_BITS = 64
+#def NUM_U32_BITS = 32
+#def NUM_U16_BITS = 16
+#def NUM_U8_BITS = 8
+#def NUM_I64_BITS = 64
+#def NUM_I32_BITS = 32
+#def NUM_I16_BITS = 16
+#def NUM_I8_BITS = 8
+#def NUM_USIZE_BITS = 64
+#def NUM_ISIZE_BITS = 64
+#def NUM_U64_MAX = -1
+#def NUM_U32_MAX = 4294967295
+#def NUM_U16_MAX = 65535
+#def NUM_U8_MAX = 255
+#def NUM_USIZE_MAX = -1
+#def NUM_I64_MAX = 9223372036854775807
+#def NUM_I64_MIN = -9223372036854775807 - 1
+#def NUM_I32_MAX = 2147483647
+#def NUM_I32_MIN = -2147483648
+#def NUM_I16_MAX = 32767
+#def NUM_I16_MIN = -32768
+#def NUM_I8_MAX = 127
+#def NUM_I8_MIN = -128
+#def NUM_ISIZE_MAX = 9223372036854775807
+#def NUM_ISIZE_MIN = -9223372036854775807 - 1
+
+#def NonZeroU64_SIZE = 8
+#def NonZeroU64_value = +0
+
+#def NonZeroU32_SIZE = 8
+#def NonZeroU32_value = +0
+
+#def NonZeroU16_SIZE = 8
+#def NonZeroU16_value = +0
+
+#def NonZeroU8_SIZE = 8
+#def NonZeroU8_value = +0
+
+#def NonZeroUsize_SIZE = 8
+#def NonZeroUsize_value = +0
+
+#def NonZeroI64_SIZE = 8
+#def NonZeroI64_value = +0
+
+#def NonZeroI32_SIZE = 8
+#def NonZeroI32_value = +0
+
+#def NonZeroI16_SIZE = 8
+#def NonZeroI16_value = +0
+
+#def NonZeroI8_SIZE = 8
+#def NonZeroI8_value = +0
+
+#def NonZeroIsize_SIZE = 8
+#def NonZeroIsize_value = +0

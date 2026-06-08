@@ -8,6 +8,102 @@
 #def NET_TEST_MESSAGE_LEN = 4
 #def NET_TEST_TIMEOUT_NS = 100000000
 
+@test "sa_std net to_socket_addrs first macro surface"():
+L_ENTRY:
+    EXPAND NET_TO_SOCKET_ADDR_FIRST resolve_status, resolved_addr, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 80
+    resolve_status_ok = eq resolve_status, 0
+    resolved_addr_ok = ne resolved_addr, 0
+    resolve_ok = and resolve_status_ok, resolved_addr_ok
+    br resolve_ok -> L_CHECK, L_FAIL_RESOLVE
+
+L_FAIL_RESOLVE:
+    !resolve_ok
+    !resolved_addr_ok
+    !resolve_status_ok
+    !resolved_addr
+    !resolve_status
+    panic(929)
+
+L_CHECK:
+    fmt_buf = stack_alloc 32
+    EXPAND NET_ADDR_HOST resolved_host_ptr, resolved_addr
+    EXPAND NET_ADDR_HOST_LEN resolved_host_len, resolved_addr
+    EXPAND NET_ADDR_PORT resolved_port, resolved_addr
+    EXPAND NET_ADDR_FAMILY resolved_family, resolved_addr
+    EXPAND NET_ADDR_IS_IPV4 resolved_is_ipv4, resolved_addr
+    EXPAND NET_ADDR_FORMAT format_status, format_len, resolved_addr, fmt_buf, 32
+    fmt_first = load fmt_buf+0 as u8
+    fmt_colon = load fmt_buf+9 as u8
+    fmt_eight = load fmt_buf+10 as u8
+    host_ptr_ok = ne resolved_host_ptr, 0
+    host_len_ok = eq resolved_host_len, NET_TEST_LOOPBACK_LEN
+    port_ok = eq resolved_port, 80
+    family_ok = eq resolved_family, SA_NET_AF_INET
+    ipv4_ok = eq resolved_is_ipv4, 1
+    format_status_ok = eq format_status, 0
+    format_len_ok = eq format_len, 12
+    format_first_ok = eq fmt_first, 49
+    format_colon_ok = eq fmt_colon, 58
+    format_eight_ok = eq fmt_eight, 56
+    ok01 = and host_ptr_ok, host_len_ok
+    ok02 = and ok01, port_ok
+    ok03 = and ok02, family_ok
+    ok04 = and ok03, ipv4_ok
+    ok05 = and ok04, format_status_ok
+    ok06 = and ok05, format_len_ok
+    ok07 = and ok06, format_first_ok
+    ok08 = and ok07, format_colon_ok
+    fields_ok = and ok08, format_eight_ok
+    EXPAND NET_ADDR_FREE free_status, resolved_addr
+    free_ok = eq free_status, 0
+    ok = and fields_ok, free_ok
+    !resolved_host_ptr
+    !resolved_host_len
+    !resolved_port
+    !resolved_family
+    !resolved_is_ipv4
+    !format_status
+    !format_len
+    !fmt_first
+    !fmt_colon
+    !fmt_eight
+    !host_ptr_ok
+    !host_len_ok
+    !port_ok
+    !family_ok
+    !ipv4_ok
+    !format_status_ok
+    !format_len_ok
+    !format_first_ok
+    !format_colon_ok
+    !format_eight_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !fields_ok
+    !free_status
+    !resolve_ok
+    !resolved_addr_ok
+    !resolve_status_ok
+    !resolved_addr
+    !resolve_status
+    br ok -> L_PASS, L_FAIL_FIELDS
+
+L_FAIL_FIELDS:
+    !ok
+    !free_ok
+    panic(928)
+
+L_PASS:
+    !ok
+    !free_ok
+    return 0
+
 @test "sa_std net tcp macro surface"():
 L_ENTRY:
     EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
@@ -448,6 +544,172 @@ L_FAIL_DONE:
     panic(937)
 
 L_OK:
+    !ok
+    return
+
+@test "sa_std net tcp incoming macro surface"():
+L_INCOMING_ENTRY:
+    EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    bind_status_ok = eq bind_status, 0
+    listener_ok = ne listener, 0
+    bound_port_ok = ne bound_port, 0
+    bind_ok0 = and bind_status_ok, listener_ok
+    bind_ok = and bind_ok0, bound_port_ok
+    br bind_ok -> L_INCOMING_WRAP, L_INCOMING_FAIL_BIND
+
+L_INCOMING_FAIL_BIND:
+    !bind_ok
+    !bind_ok0
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(962)
+
+L_INCOMING_WRAP:
+    incoming = stack_alloc NetTcpIncoming_SIZE
+    EXPAND NET_TCP_LISTENER_INCOMING incoming, listener
+    EXPAND NET_TCP_INCOMING_LISTENER incoming_listener, incoming
+    incoming_listener_ok = eq incoming_listener, listener
+    br incoming_listener_ok -> L_INCOMING_CONNECT, L_INCOMING_FAIL_WRAP
+
+L_INCOMING_FAIL_WRAP:
+    !incoming_listener_ok
+    !incoming_listener
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_a, listener
+    !close_listener_status_a
+    !bind_ok
+    !bind_ok0
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(963)
+
+L_INCOMING_CONNECT:
+    EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
+    connect_status_ok = eq connect_status, 0
+    client_ok = ne client, 0
+    connect_ok = and connect_status_ok, client_ok
+    br connect_ok -> L_INCOMING_ACCEPT, L_INCOMING_FAIL_CONNECT
+
+L_INCOMING_FAIL_CONNECT:
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_b, listener
+    !close_listener_status_b
+    !incoming_listener_ok
+    !incoming_listener
+    !bind_ok
+    !bind_ok0
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(964)
+
+L_INCOMING_ACCEPT:
+    EXPAND NET_TCP_INCOMING_NEXT accept_status, accept_flag, server, incoming
+    accept_status_ok = eq accept_status, 0
+    accept_flag_ok = eq accept_flag, 1
+    server_ok = ne server, 0
+    accept_ok0 = and accept_status_ok, accept_flag_ok
+    accept_ok = and accept_ok0, server_ok
+    br accept_ok -> L_INCOMING_CLOSE, L_INCOMING_FAIL_ACCEPT
+
+L_INCOMING_FAIL_ACCEPT:
+    !accept_ok
+    !accept_ok0
+    !server_ok
+    !accept_flag_ok
+    !accept_status_ok
+    !server
+    !accept_flag
+    !accept_status
+    EXPAND NET_TCP_STREAM_CLOSE close_client_status_a, client
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status_c, listener
+    !close_client_status_a
+    !close_listener_status_c
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    !incoming_listener_ok
+    !incoming_listener
+    !bind_ok
+    !bind_ok0
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    panic(965)
+
+L_INCOMING_CLOSE:
+    EXPAND NET_TCP_STREAM_CLOSE close_server_status, server
+    EXPAND NET_TCP_STREAM_CLOSE close_client_status, client
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener_status, listener
+    close_server_ok = eq close_server_status, 0
+    close_client_ok = eq close_client_status, 0
+    close_listener_ok = eq close_listener_status, 0
+    ok0 = and bind_ok, incoming_listener_ok
+    ok1 = and ok0, connect_ok
+    ok2 = and ok1, accept_ok
+    ok3 = and ok2, close_server_ok
+    ok4 = and ok3, close_client_ok
+    ok = and ok4, close_listener_ok
+    !close_server_status
+    !close_client_status
+    !close_listener_status
+    !close_server_ok
+    !close_client_ok
+    !close_listener_ok
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !accept_ok
+    !accept_ok0
+    !server_ok
+    !accept_flag_ok
+    !accept_status_ok
+    !server
+    !accept_flag
+    !accept_status
+    !connect_ok
+    !client_ok
+    !connect_status_ok
+    !client
+    !connect_status
+    !incoming_listener_ok
+    !incoming_listener
+    !bind_ok
+    !bind_ok0
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !bound_port
+    !listener
+    !bind_status
+    br ok -> L_INCOMING_OK, L_INCOMING_FAIL_DONE
+
+L_INCOMING_FAIL_DONE:
+    !ok
+    panic(966)
+
+L_INCOMING_OK:
     !ok
     return
 

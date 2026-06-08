@@ -1,0 +1,105 @@
+@import "marker.sal"
+
+[MACRO] MARKER_ZST_SIZE %out_size
+    %out_size = add 0, 0
+[END_MACRO]
+
+[MACRO] MARKER_ZST_ALIGN %out_align
+    %out_align = add 0, 1
+[END_MACRO]
+
+[MACRO] MARKER_IS_ZST %out_bool, %size
+    %out_bool = eq %size, 0
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_DEFAULT %out_token
+    %out_token = add 0, 0
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_CLONE %out_token, %phantom_token
+    %out_token = add 0, 0
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_EQ %out_bool, %left_token, %right_token
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_CMP %out_ordering, %left_token, %right_token
+    %out_ordering = add 0, 0
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_IS_COPY %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_IS_SEND %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_IS_SYNC %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_IS_UNPIN %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_DEFAULT %out_token
+    %out_token = add 0, 0
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_CLONE %out_token, %pinned_token
+    %out_token = add 0, 0
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_EQ %out_bool, %left_token, %right_token
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_CMP %out_ordering, %left_token, %right_token
+    %out_ordering = add 0, 0
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_IS_COPY %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_IS_SEND %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_IS_SYNC %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_IS_UNPIN %out_bool
+    %out_bool = add 0, 0
+[END_MACRO]
+
+[MACRO] MARKER_PRIMITIVE_IS_SIZED %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] MARKER_PRIMITIVE_IS_COPY %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] MARKER_PRIMITIVE_IS_SEND %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] MARKER_PRIMITIVE_IS_SYNC %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] MARKER_PRIMITIVE_IS_UNPIN %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] MARKER_PRIMITIVE_IS_FREEZE %out_bool
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] MARKER_CAPABILITY %out_bool, %enabled
+    %out_bool = ne %enabled, 0
+[END_MACRO]

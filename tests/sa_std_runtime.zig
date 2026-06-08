@@ -136,8 +136,11 @@ test "sa_std udp loopback and address accessors are usable from C" {
         \\#include "sa_std.h"
         \\
         \\#include <stdint.h>
+        \\#include <signal.h>
         \\#include <stdio.h>
         \\#include <string.h>
+        \\#include <sys/wait.h>
+        \\#include <unistd.h>
         \\
         \\int main(void) {
         \\    const uint8_t *bind_host = (const uint8_t *)"127.0.0.1";
@@ -218,6 +221,110 @@ test "sa_std udp loopback and address accessors are usable from C" {
     defer std.testing.allocator.free(run_result.stderr);
     try expectSuccess(run_result);
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std udp ok"));
+}
+
+test "sa_std udp multicast helpers and scope id are usable from C" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    defer std.testing.allocator.free(runtime_source);
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+        \\#include "sa_std.h"
+        \\
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\
+        \\int main(void) {
+        \\    const uint8_t *bind_host = (const uint8_t *)"127.0.0.1";
+        \\    const uint8_t *iface_host = (const uint8_t *)"0.0.0.0";
+        \\    const uint8_t *group_host = (const uint8_t *)"224.0.0.251";
+        \\    const uint8_t *bind_host_v6 = (const uint8_t *)"::1";
+        \\    const uint8_t *group_host_v6 = (const uint8_t *)"ff01::114";
+        \\    uint64_t socket_handle = 0;
+        \\    uint64_t socket_handle_v6 = 0;
+        \\    uint64_t local_addr_handle = 0;
+        \\    uint64_t local_addr_handle_v6 = 0;
+        \\    int32_t loop_enabled = -1;
+        \\    uint32_t ttl = 0;
+        \\
+        \\    if (sa_std_net_udp_bind(bind_host, 9, 0, &socket_handle) != SA_STD_OK) return 2;
+        \\    if (socket_handle == 0) return 3;
+        \\    if (sa_std_net_udp_local_addr(socket_handle, &local_addr_handle) != SA_STD_OK) return 4;
+        \\    if (local_addr_handle == 0) return 5;
+        \\    if (sa_net_addr_scope_id(local_addr_handle) != 0) return 6;
+        \\    if (sa_std_net_udp_set_multicast_loop_v4(socket_handle, 0) != SA_STD_OK) return 7;
+        \\    if (sa_std_net_udp_multicast_loop_v4(socket_handle, &loop_enabled) != SA_STD_OK) return 8;
+        \\    if (loop_enabled != 0) return 9;
+        \\    if (sa_std_net_udp_set_multicast_loop_v4(socket_handle, 1) != SA_STD_OK) return 10;
+        \\    if (sa_std_net_udp_multicast_loop_v4(socket_handle, &loop_enabled) != SA_STD_OK) return 11;
+        \\    if (loop_enabled != 1) return 12;
+        \\    if (sa_std_net_udp_set_multicast_ttl_v4(socket_handle, 7) != SA_STD_OK) return 13;
+        \\    if (sa_std_net_udp_multicast_ttl_v4(socket_handle, &ttl) != SA_STD_OK) return 14;
+        \\    if (ttl != 7) return 15;
+        \\    if (sa_std_net_udp_join_multicast_v4(socket_handle, group_host, 11, iface_host, 7) != SA_STD_OK) return 16;
+        \\    if (sa_std_net_udp_leave_multicast_v4(socket_handle, group_host, 11, iface_host, 7) != SA_STD_OK) return 17;
+        \\    if (sa_std_net_udp_bind(bind_host_v6, 3, 0, &socket_handle_v6) != SA_STD_OK) return 18;
+        \\    if (socket_handle_v6 == 0) return 19;
+        \\    if (sa_std_net_udp_local_addr(socket_handle_v6, &local_addr_handle_v6) != SA_STD_OK) return 20;
+        \\    if (local_addr_handle_v6 == 0) return 21;
+        \\    if (sa_net_addr_scope_id(local_addr_handle_v6) != 0) return 22;
+        \\    if (sa_std_net_udp_join_multicast_v6(socket_handle_v6, group_host_v6, 9, 0) != SA_STD_OK) return 23;
+        \\    if (sa_std_net_udp_leave_multicast_v6(socket_handle_v6, group_host_v6, 9, 0) != SA_STD_OK) return 24;
+        \\    if (sa_net_addr_free(local_addr_handle_v6) != SA_STD_OK) return 25;
+        \\    if (sa_net_udp_close(socket_handle_v6) != SA_STD_OK) return 26;
+        \\    if (sa_net_addr_free(local_addr_handle) != SA_STD_OK) return 27;
+        \\    if (sa_net_udp_close(socket_handle) != SA_STD_OK) return 28;
+        \\    puts("sa_std udp multicast ok");
+        \\    return 0;
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "udp_multicast.c", c_source);
+
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        runtime_source,
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
+    defer std.testing.allocator.free(build_lib_result.stdout);
+    defer std.testing.allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "udp_multicast.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_udp_multicast_demo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_udp_multicast_demo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std udp multicast ok"));
 }
 
 test "sa_std udp connected send and recv are usable from C" {
@@ -542,8 +649,11 @@ test "sa_std fmt and process exports are usable from C" {
     const c_source =
         \\#include "sa_std.h"
         \\#include <stdint.h>
+        \\#include <signal.h>
         \\#include <stdio.h>
         \\#include <string.h>
+        \\#include <sys/wait.h>
+        \\#include <unistd.h>
         \\
         \\int main(void) {
         \\    uint64_t fmt_handle = sa_fmt_i64(42, 10);
@@ -577,6 +687,7 @@ test "sa_std fmt and process exports are usable from C" {
         \\    argv[2].len = 46;
         \\    uint64_t process = 0;
         \\    uint32_t code = 0;
+        \\    if (sa_std_process_id() == 0) return 28;
         \\    if (sa_std_process_run(argv, 3, &process) != SA_STD_OK) return 7;
         \\    if (process == 0) return 8;
         \\    if (sa_std_process_wait(process, &code) != SA_STD_OK) return 9;
@@ -591,6 +702,38 @@ test "sa_std fmt and process exports are usable from C" {
         \\    if (sa_io_read(process, (uint8_t *)buffer, sizeof(buffer), &out_len) != SA_STD_OK) return 24;
         \\    if (out_len != 0) return 25;
         \\    if (sa_std_process_close(process) != SA_STD_OK) return 11;
+        \\
+        \\    argv[0].data = (const uint8_t *)"/bin/sh";
+        \\    argv[0].len = 7;
+        \\    argv[1].data = (const uint8_t *)"-c";
+        \\    argv[1].len = 2;
+        \\    argv[2].data = (const uint8_t *)"sleep 5";
+        \\    argv[2].len = 7;
+        \\    process = 0;
+        \\    code = 0;
+        \\    int32_t ready = -1;
+        \\    uint32_t child_pid = 0;
+        \\    if (sa_std_process_spawn(argv, 3, &process) != SA_STD_OK) return 29;
+        \\    if (process == 0) return 30;
+        \\    if (sa_std_process_child_id(process, &child_pid) != SA_STD_OK) return 37;
+        \\    if (child_pid == 0) return 38;
+        \\    if (sa_std_process_try_wait(process, &ready, &code) != SA_STD_OK) return 31;
+        \\    if (ready != 0 || code != 0) return 32;
+        \\    if (sa_std_process_kill(process) != SA_STD_OK) return 33;
+        \\    ready = 0;
+        \\    code = 0;
+        \\    if (sa_std_process_try_wait(process, &ready, &code) != SA_STD_OK) return 34;
+        \\    if (ready != 1 || code == 0) return 35;
+        \\    if (sa_std_process_close(process) != SA_STD_OK) return 36;
+        \\    pid_t abort_pid = fork();
+        \\    if (abort_pid < 0) return 39;
+        \\    if (abort_pid == 0) {
+        \\        sa_std_process_abort();
+        \\        _exit(40);
+        \\    }
+        \\    int abort_status = 0;
+        \\    if (waitpid(abort_pid, &abort_status, 0) != abort_pid) return 41;
+        \\    if (!WIFSIGNALED(abort_status) || WTERMSIG(abort_status) != SIGABRT) return 42;
         \\    puts("sa_std fmt/process ok");
         \\    return 0;
         \\}

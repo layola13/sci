@@ -1,3 +1,4 @@
+@import "sa_std/fs.sa"
 @import "sa_std/string.sa"
 @import "sa_std/path.sa"
 
@@ -22,6 +23,7 @@
 @const EXPECT_JOINED = utf8:"/tmp/demo/child"
 @const EXPECT_RENAMED = utf8:"/tmp/demo/other.bin"
 @const EXPECT_WITH_EXT = utf8:"/tmp/demo/file.md"
+@const EXPECT_ADDED_EXT = utf8:"/tmp/demo/file.txt.md"
 @const EXPECT_COMPONENT_TMP = utf8:"tmp"
 @const EXPECT_COMPONENT_DEMO = utf8:"demo"
 @const EXPECT_COMPONENT_FILE = utf8:"file.txt"
@@ -34,6 +36,15 @@
 @const PATH_CONF = utf8:"conf"
 @const PATH_HIDDEN = utf8:".config.toml"
 @const EXPECT_HIDDEN_PREFIX = utf8:".config"
+@const PATH_TEST_FILE = utf8:"_tmp_path_macro_surface.txt"
+@const PATH_TEST_DIR = utf8:"_tmp_path_macro_surface_dir"
+@const PATH_TEST_MISSING = utf8:"_tmp_path_macro_surface_missing"
+@const PATH_TEST_DATA = utf8:"path"
+
+#def PATH_TEST_FILE_LEN = 27
+#def PATH_TEST_DIR_LEN = 27
+#def PATH_TEST_MISSING_LEN = 30
+#def PATH_TEST_DATA_LEN = 4
 
 @test "sa_std path rust parity macros"():
 L_ENTRY:
@@ -58,6 +69,7 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS expect_joined, &EXPECT_JOINED, 15
     EXPAND STR_FROM_PARTS expect_renamed, &EXPECT_RENAMED, 19
     EXPAND STR_FROM_PARTS expect_with_ext, &EXPECT_WITH_EXT, 17
+    EXPAND STR_FROM_PARTS expect_added_ext, &EXPECT_ADDED_EXT, 21
     EXPAND STR_FROM_PARTS expect_component_tmp, &EXPECT_COMPONENT_TMP, 3
     EXPAND STR_FROM_PARTS expect_component_demo, &EXPECT_COMPONENT_DEMO, 4
     EXPAND STR_FROM_PARTS expect_component_file, &EXPECT_COMPONENT_FILE, 8
@@ -93,6 +105,14 @@ L_ENTRY:
     EXPAND PATH_STRIP_EXTENSION stripped_ext, full
     EXPAND PATH_WITH_EXTENSION with_ext, full, new_ext
     EXPAND PATH_WITH_EXTENSION with_empty_ext, full, stripped_bad
+    EXPAND PATH_TRIM_PREFIX trim_prefix_hit, full, prefix
+    EXPAND PATH_TRIM_PREFIX trim_prefix_miss, full, prefix_bad
+    EXPAND PATH_TRIM_TRAILING_SEPARATOR trim_sep, prefix_slash
+    EXPAND PATH_TRIM_TRAILING_SEPARATOR trim_root, root
+    EXPAND PATH_WITH_TRAILING_SEPARATOR with_sep, prefix
+    EXPAND PATH_WITH_TRAILING_SEPARATOR with_sep_existing, prefix_slash
+    EXPAND PATH_WITH_ADDED_EXTENSION added_ext, full, new_ext
+    EXPAND PATH_WITH_ADDED_EXTENSION added_empty_ext, full, stripped_bad
     EXPAND PATH_COMPONENT_COUNT full_components, full
     EXPAND PATH_COMPONENT_COUNT prefix_slash_components, prefix_slash
     EXPAND PATH_COMPONENT_COUNT root_components, root
@@ -126,6 +146,14 @@ L_ENTRY:
     EXPAND STR_EQ stripped_ext_eq, stripped_ext, no_ext
     EXPAND STR_EQ with_ext_eq, with_ext, expect_with_ext
     EXPAND STR_EQ with_empty_ext_eq, with_empty_ext, no_ext
+    EXPAND STR_EQ trim_prefix_hit_eq, trim_prefix_hit, expect_base
+    EXPAND STR_EQ trim_prefix_miss_eq, trim_prefix_miss, full
+    EXPAND STR_EQ trim_sep_eq, trim_sep, prefix
+    EXPAND STR_EQ trim_root_eq, trim_root, root
+    EXPAND STR_EQ with_sep_eq, with_sep, prefix_slash
+    EXPAND STR_EQ with_sep_existing_eq, with_sep_existing, prefix_slash
+    EXPAND STR_EQ added_ext_eq, added_ext, expect_added_ext
+    EXPAND STR_EQ added_empty_ext_eq, added_empty_ext, full
     EXPAND STR_EQ comp0_eq, comp0, expect_component_tmp
     EXPAND STR_EQ comp1_eq, comp1, expect_component_demo
     EXPAND STR_EQ comp2_eq, comp2, expect_component_file
@@ -213,7 +241,15 @@ L_ENTRY:
     ok49 = and ok48, prefix1_status_ok
     ok50 = and ok49, prefix1_eq
     ok51 = and ok50, prefix3_status_ok
-    ok = and ok51, prefix3_empty
+    ok52 = and ok51, prefix3_empty
+    ok53 = and ok52, trim_prefix_hit_eq
+    ok54 = and ok53, trim_prefix_miss_eq
+    ok55 = and ok54, trim_sep_eq
+    ok56 = and ok55, trim_root_eq
+    ok57 = and ok56, with_sep_eq
+    ok58 = and ok57, with_sep_existing_eq
+    ok59 = and ok58, added_ext_eq
+    ok = and ok59, added_empty_ext_eq
 
     !base_eq
     !dir_eq
@@ -234,6 +270,14 @@ L_ENTRY:
     !stripped_ext_eq
     !with_ext_eq
     !with_empty_ext_eq
+    !trim_prefix_hit_eq
+    !trim_prefix_miss_eq
+    !trim_sep_eq
+    !trim_root_eq
+    !with_sep_eq
+    !with_sep_existing_eq
+    !added_ext_eq
+    !added_empty_ext_eq
     !comp0_eq
     !comp1_eq
     !comp2_eq
@@ -345,6 +389,14 @@ L_ENTRY:
     !ok49
     !ok50
     !ok51
+    !ok52
+    !ok53
+    !ok54
+    !ok55
+    !ok56
+    !ok57
+    !ok58
+    !ok59
     !prefix3
     !prefix1
     !prefix0
@@ -355,6 +407,14 @@ L_ENTRY:
     !comp0
     !with_empty_ext
     !with_ext
+    !added_empty_ext
+    !added_ext
+    !with_sep_existing
+    !with_sep
+    !trim_root
+    !trim_sep
+    !trim_prefix_miss
+    !trim_prefix_hit
     !stripped_ext
     !file_name
     !renamed
@@ -374,6 +434,7 @@ L_ENTRY:
     !base
     !expect_renamed
     !expect_with_ext
+    !expect_added_ext
     !expect_prefix_demo
     !expect_prefix_tmp
     !expect_component_file
@@ -622,5 +683,272 @@ L_PATH_QUERY_FAIL:
     panic(942)
 
 L_PATH_QUERY_OK:
+    !ok
+    return
+
+@test "sa_std path try option-style query macros"():
+L_PATH_TRY_ENTRY:
+    EXPAND STR_FROM_PARTS full, &PATH_FULL, 18
+    EXPAND STR_FROM_PARTS root, &PATH_ROOT, 1
+    EXPAND STR_FROM_PARTS empty, &PATH_ROOT, 0
+    EXPAND STR_FROM_PARTS child, &PATH_CHILD, 5
+    EXPAND STR_FROM_PARTS no_ext, &PATH_NO_EXT, 14
+    EXPAND STR_FROM_PARTS expect_base, &EXPECT_BASE, 8
+    EXPAND STR_FROM_PARTS expect_ext, &EXPECT_EXT, 3
+    EXPAND STR_FROM_PARTS expect_stem, &EXPECT_STEM, 4
+    EXPAND STR_FROM_PARTS expect_dir, &EXPECT_DIR, 9
+
+    EXPAND PATH_TRY_FILE_NAME full_name_ok, full_name, full
+    EXPAND PATH_TRY_EXTENSION full_ext_ok, full_ext, full
+    EXPAND PATH_TRY_FILE_STEM full_stem_ok, full_stem, full
+    EXPAND PATH_TRY_PARENT full_parent_ok, full_parent, full
+    EXPAND PATH_TRY_FILE_NAME root_name_ok, root_name, root
+    EXPAND PATH_TRY_PARENT root_parent_ok, root_parent, root
+    EXPAND PATH_TRY_FILE_NAME empty_name_ok, empty_name, empty
+    EXPAND PATH_TRY_PARENT empty_parent_ok, empty_parent, empty
+    EXPAND PATH_TRY_EXTENSION no_ext_ok, no_ext_value, no_ext
+    EXPAND PATH_TRY_FILE_STEM no_ext_stem_ok, no_ext_stem, no_ext
+    EXPAND PATH_TRY_PARENT child_parent_ok, child_parent, child
+
+    EXPAND STR_EQ full_name_eq, full_name, expect_base
+    EXPAND STR_EQ full_ext_eq, full_ext, expect_ext
+    EXPAND STR_EQ full_stem_eq, full_stem, expect_stem
+    EXPAND STR_EQ full_parent_eq, full_parent, expect_dir
+    EXPAND STR_IS_EMPTY root_name_empty, root_name
+    EXPAND STR_IS_EMPTY root_parent_empty, root_parent
+    EXPAND STR_IS_EMPTY empty_name_empty, empty_name
+    EXPAND STR_IS_EMPTY empty_parent_empty, empty_parent
+    EXPAND STR_IS_EMPTY no_ext_empty, no_ext_value
+    EXPAND STR_EQ no_ext_stem_eq, no_ext_stem, expect_stem
+    EXPAND STR_IS_EMPTY child_parent_empty, child_parent
+
+    ok_full_name_flag = eq full_name_ok, 1
+    ok_full_ext_flag = eq full_ext_ok, 1
+    ok_full_stem_flag = eq full_stem_ok, 1
+    ok_full_parent_flag = eq full_parent_ok, 1
+    ok_root_name_flag = eq root_name_ok, 0
+    ok_root_parent_flag = eq root_parent_ok, 0
+    ok_empty_name_flag = eq empty_name_ok, 0
+    ok_empty_parent_flag = eq empty_parent_ok, 0
+    ok_no_ext_flag = eq no_ext_ok, 0
+    ok_no_ext_stem_flag = eq no_ext_stem_ok, 1
+    ok_child_parent_flag = eq child_parent_ok, 1
+
+    q01 = and ok_full_name_flag, full_name_eq
+    q02 = and q01, ok_full_ext_flag
+    q03 = and q02, full_ext_eq
+    q04 = and q03, ok_full_stem_flag
+    q05 = and q04, full_stem_eq
+    q06 = and q05, ok_full_parent_flag
+    q07 = and q06, full_parent_eq
+    q08 = and q07, ok_root_name_flag
+    q09 = and q08, root_name_empty
+    q10 = and q09, ok_root_parent_flag
+    q11 = and q10, root_parent_empty
+    q12 = and q11, ok_empty_name_flag
+    q13 = and q12, empty_name_empty
+    q14 = and q13, ok_empty_parent_flag
+    q15 = and q14, empty_parent_empty
+    q16 = and q15, ok_no_ext_flag
+    q17 = and q16, no_ext_empty
+    q18 = and q17, ok_no_ext_stem_flag
+    q19 = and q18, no_ext_stem_eq
+    q20 = and q19, ok_child_parent_flag
+    ok = and q20, child_parent_empty
+
+    !full_name_ok
+    !full_ext_ok
+    !full_stem_ok
+    !full_parent_ok
+    !root_name_ok
+    !root_parent_ok
+    !empty_name_ok
+    !empty_parent_ok
+    !no_ext_ok
+    !no_ext_stem_ok
+    !child_parent_ok
+    !full_name_eq
+    !full_ext_eq
+    !full_stem_eq
+    !full_parent_eq
+    !root_name_empty
+    !root_parent_empty
+    !empty_name_empty
+    !empty_parent_empty
+    !no_ext_empty
+    !no_ext_stem_eq
+    !child_parent_empty
+    !ok_full_name_flag
+    !ok_full_ext_flag
+    !ok_full_stem_flag
+    !ok_full_parent_flag
+    !ok_root_name_flag
+    !ok_root_parent_flag
+    !ok_empty_name_flag
+    !ok_empty_parent_flag
+    !ok_no_ext_flag
+    !ok_no_ext_stem_flag
+    !ok_child_parent_flag
+    !q01
+    !q02
+    !q03
+    !q04
+    !q05
+    !q06
+    !q07
+    !q08
+    !q09
+    !q10
+    !q11
+    !q12
+    !q13
+    !q14
+    !q15
+    !q16
+    !q17
+    !q18
+    !q19
+    !q20
+    !child_parent
+    !no_ext_stem
+    !no_ext_value
+    !empty_parent
+    !empty_name
+    !root_parent
+    !root_name
+    !full_parent
+    !full_stem
+    !full_ext
+    !full_name
+    !expect_dir
+    !expect_stem
+    !expect_ext
+    !expect_base
+    !no_ext
+    !child
+    !empty
+    !root
+    !full
+    br ok -> L_PATH_TRY_OK, L_PATH_TRY_FAIL
+
+L_PATH_TRY_FAIL:
+    !ok
+    panic(943)
+
+L_PATH_TRY_OK:
+    !ok
+    return
+
+@test "sa_std path filesystem query macros"():
+L_PATH_FS_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_file_status, PATH_TEST_FILE, PATH_TEST_FILE_LEN
+    EXPAND FS_REMOVE_PATH cleanup_dir_status, PATH_TEST_DIR, PATH_TEST_DIR_LEN
+
+    EXPAND FS_WRITE_FILE write_status, PATH_TEST_FILE, PATH_TEST_FILE_LEN, PATH_TEST_DATA, PATH_TEST_DATA_LEN
+    EXPAND FS_MAKE_DIR mkdir_status, PATH_TEST_DIR, PATH_TEST_DIR_LEN
+
+    EXPAND STR_FROM_PARTS file_path, &PATH_TEST_FILE, PATH_TEST_FILE_LEN
+    EXPAND STR_FROM_PARTS dir_path, &PATH_TEST_DIR, PATH_TEST_DIR_LEN
+    EXPAND STR_FROM_PARTS missing_path, &PATH_TEST_MISSING, PATH_TEST_MISSING_LEN
+
+    EXPAND PATH_EXISTS file_exists, file_path
+    EXPAND PATH_EXISTS dir_exists, dir_path
+    EXPAND PATH_EXISTS missing_exists, missing_path
+    EXPAND PATH_IS_FILE file_is_file, file_path
+    EXPAND PATH_IS_DIR file_is_dir, file_path
+    EXPAND PATH_IS_SYMLINK file_is_symlink, file_path
+    EXPAND PATH_IS_FILE dir_is_file, dir_path
+    EXPAND PATH_IS_DIR dir_is_dir, dir_path
+    EXPAND PATH_IS_SYMLINK dir_is_symlink, dir_path
+    EXPAND PATH_IS_FILE missing_is_file, missing_path
+    EXPAND PATH_IS_DIR missing_is_dir, missing_path
+    EXPAND PATH_IS_SYMLINK missing_is_symlink, missing_path
+
+    ok_write_status = eq write_status, 0
+    ok_mkdir_status = eq mkdir_status, 0
+    ok_file_exists = eq file_exists, 1
+    ok_dir_exists = eq dir_exists, 1
+    ok_missing_exists = eq missing_exists, 0
+    ok_file_is_file = eq file_is_file, 1
+    ok_file_is_dir = eq file_is_dir, 0
+    ok_file_is_symlink = eq file_is_symlink, 0
+    ok_dir_is_file = eq dir_is_file, 0
+    ok_dir_is_dir = eq dir_is_dir, 1
+    ok_dir_is_symlink = eq dir_is_symlink, 0
+    ok_missing_is_file = eq missing_is_file, 0
+    ok_missing_is_dir = eq missing_is_dir, 0
+    ok_missing_is_symlink = eq missing_is_symlink, 0
+
+    q01 = and ok_write_status, ok_mkdir_status
+    q02 = and q01, ok_file_exists
+    q03 = and q02, ok_dir_exists
+    q04 = and q03, ok_missing_exists
+    q05 = and q04, ok_file_is_file
+    q06 = and q05, ok_file_is_dir
+    q07 = and q06, ok_file_is_symlink
+    q08 = and q07, ok_dir_is_file
+    q09 = and q08, ok_dir_is_dir
+    q10 = and q09, ok_dir_is_symlink
+    q11 = and q10, ok_missing_is_file
+    q12 = and q11, ok_missing_is_dir
+    ok = and q12, ok_missing_is_symlink
+
+    EXPAND FS_REMOVE_PATH remove_file_status, PATH_TEST_FILE, PATH_TEST_FILE_LEN
+    EXPAND FS_REMOVE_PATH remove_dir_status, PATH_TEST_DIR, PATH_TEST_DIR_LEN
+
+    !cleanup_file_status
+    !cleanup_dir_status
+    !write_status
+    !mkdir_status
+    !file_exists
+    !dir_exists
+    !missing_exists
+    !file_is_file
+    !file_is_dir
+    !file_is_symlink
+    !dir_is_file
+    !dir_is_dir
+    !dir_is_symlink
+    !missing_is_file
+    !missing_is_dir
+    !missing_is_symlink
+    !ok_write_status
+    !ok_mkdir_status
+    !ok_file_exists
+    !ok_dir_exists
+    !ok_missing_exists
+    !ok_file_is_file
+    !ok_file_is_dir
+    !ok_file_is_symlink
+    !ok_dir_is_file
+    !ok_dir_is_dir
+    !ok_dir_is_symlink
+    !ok_missing_is_file
+    !ok_missing_is_dir
+    !ok_missing_is_symlink
+    !q01
+    !q02
+    !q03
+    !q04
+    !q05
+    !q06
+    !q07
+    !q08
+    !q09
+    !q10
+    !q11
+    !q12
+    !remove_file_status
+    !remove_dir_status
+    !missing_path
+    !dir_path
+    !file_path
+    br ok -> L_PATH_FS_OK, L_PATH_FS_FAIL
+
+L_PATH_FS_FAIL:
+    !ok
+    panic(944)
+
+L_PATH_FS_OK:
     !ok
     return

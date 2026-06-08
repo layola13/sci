@@ -1,3 +1,7 @@
 #def RefCell_SIZE = 8
 #def RefCell_value = +0
 #def RefCell_borrows = +4
+
+#def RefCellU64_SIZE = 16
+#def RefCellU64_value = +0
+#def RefCellU64_borrows = +8

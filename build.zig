@@ -266,6 +266,25 @@ pub fn build(b: *std.Build) void {
     const cli_smoke_step = b.step("bc2sa-smoke", "Run the bc2sa real bitcode smoke tests");
     cli_smoke_step.dependOn(&run_cli_smoke.step);
 
+    const cli_skills_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cli_skills_smoke_module.addImport("saasm", lib_module);
+    cli_skills_smoke_module.addOptions("build_options", build_options);
+    const cli_skills_smoke = b.addTest(.{
+        .root_module = cli_skills_smoke_module,
+        .filters = &.{
+            "agent-first cli commands print explain fix and skills outputs",
+            "sa skills writes Codex and Claude skill files for current project",
+        },
+    });
+    const run_cli_skills_smoke = b.addRunArtifact(cli_skills_smoke);
+    run_cli_skills_smoke.setCwd(repo_root_lazy);
+    const cli_skills_smoke_step = b.step("cli-skills-smoke", "Run the sa skills focused CLI smoke tests");
+    cli_skills_smoke_step.dependOn(&run_cli_skills_smoke.step);
+
     const trap_baseline_module = b.createModule(.{
         .root_source_file = b.path("tests/golden/trap_baseline.zig"),
         .target = target,

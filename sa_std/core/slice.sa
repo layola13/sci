@@ -40,6 +40,14 @@
     !__slice_ptr_%out_ptr
 [END_MACRO]
 
+[MACRO] SLICE_GET_UNCHECKED_U64 %out_value, %slice_reg, %index
+    EXPAND SLICE_GET_U64 %out_value, %slice_reg, %index
+[END_MACRO]
+
+[MACRO] SLICE_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %slice_reg, %index
+    EXPAND SLICE_GET_MUT_PTR_U64 %out_ptr, %slice_reg, %index
+[END_MACRO]
+
 [MACRO] SLICE_FIRST_U64 %out_value, %slice_reg
     EXPAND SLICE_GET_U64 %out_value, %slice_reg, 0
 [END_MACRO]
@@ -192,6 +200,38 @@ L_SLICE_SPLIT_FIRST_MISS_%out_ok:
 L_SLICE_SPLIT_FIRST_END_%out_ok:
 [END_MACRO]
 
+[MACRO] SLICE_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %slice_reg
+    %out_rest = alloc Slice_SIZE
+    __slice_mut_first_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_mut_first_empty_%out_ok = eq __slice_mut_first_len_%out_ok, 0
+    br __slice_mut_first_empty_%out_ok -> L_SLICE_SPLIT_FIRST_MUT_MISS_%out_ok, L_SLICE_SPLIT_FIRST_MUT_HIT_%out_ok
+
+L_SLICE_SPLIT_FIRST_MUT_HIT_%out_ok:
+    __slice_mut_first_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    %out_ptr = ptr_add __slice_mut_first_ptr_%out_ok, 0
+    __slice_mut_first_rest_ptr_%out_ok = ptr_add __slice_mut_first_ptr_%out_ok, 8
+    __slice_mut_first_rest_len_%out_ok = sub __slice_mut_first_len_%out_ok, 1
+    EXPAND SLICE_NEW %out_rest, __slice_mut_first_rest_ptr_%out_ok, __slice_mut_first_rest_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_mut_first_rest_len_%out_ok
+    !__slice_mut_first_rest_ptr_%out_ok
+    !__slice_mut_first_ptr_%out_ok
+    !__slice_mut_first_empty_%out_ok
+    !__slice_mut_first_len_%out_ok
+    jmp L_SLICE_SPLIT_FIRST_MUT_END_%out_ok
+
+L_SLICE_SPLIT_FIRST_MUT_MISS_%out_ok:
+    __slice_mut_first_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_rest, __slice_mut_first_empty_ptr_%out_ok, 0
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__slice_mut_first_empty_ptr_%out_ok
+    !__slice_mut_first_empty_%out_ok
+    !__slice_mut_first_len_%out_ok
+
+L_SLICE_SPLIT_FIRST_MUT_END_%out_ok:
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %slice_reg
     %out_rest = alloc Slice_SIZE
     __slice_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -224,6 +264,38 @@ L_SLICE_SPLIT_LAST_MISS_%out_ok:
     !__slice_len_%out_ok
 
 L_SLICE_SPLIT_LAST_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %slice_reg
+    %out_rest = alloc Slice_SIZE
+    __slice_mut_last_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_mut_last_empty_%out_ok = eq __slice_mut_last_len_%out_ok, 0
+    br __slice_mut_last_empty_%out_ok -> L_SLICE_SPLIT_LAST_MUT_MISS_%out_ok, L_SLICE_SPLIT_LAST_MUT_HIT_%out_ok
+
+L_SLICE_SPLIT_LAST_MUT_HIT_%out_ok:
+    __slice_mut_last_base_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_mut_last_idx_%out_ok = sub __slice_mut_last_len_%out_ok, 1
+    __slice_mut_last_off_%out_ok = mul __slice_mut_last_idx_%out_ok, 8
+    %out_ptr = ptr_add __slice_mut_last_base_%out_ok, __slice_mut_last_off_%out_ok
+    EXPAND SLICE_NEW %out_rest, __slice_mut_last_base_%out_ok, __slice_mut_last_idx_%out_ok
+    %out_ok = add 0, 1
+    !__slice_mut_last_off_%out_ok
+    !__slice_mut_last_idx_%out_ok
+    !__slice_mut_last_base_%out_ok
+    !__slice_mut_last_empty_%out_ok
+    !__slice_mut_last_len_%out_ok
+    jmp L_SLICE_SPLIT_LAST_MUT_END_%out_ok
+
+L_SLICE_SPLIT_LAST_MUT_MISS_%out_ok:
+    __slice_mut_last_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_rest, __slice_mut_last_empty_ptr_%out_ok, 0
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__slice_mut_last_empty_ptr_%out_ok
+    !__slice_mut_last_empty_%out_ok
+    !__slice_mut_last_len_%out_ok
+
+L_SLICE_SPLIT_LAST_MUT_END_%out_ok:
 [END_MACRO]
 
 [MACRO] SLICE_CONTAINS_U64 %out_bool, %slice_reg, %needle
@@ -612,6 +684,100 @@ L_SLICE_SPLIT_AT_END_%out_ok:
     EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
 [END_MACRO]
 
+[MACRO] SLICE_TRY_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+[MACRO] SLICE_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
+    %out_left = alloc Slice_SIZE
+    %out_right = alloc Slice_SIZE
+    __slice_split_unchecked_len_%out_left = load %slice_reg+Slice_len as u64
+    __slice_split_unchecked_src_%out_left = load %slice_reg+Slice_ptr as ptr
+    __slice_split_unchecked_right_len_%out_left = sub __slice_split_unchecked_len_%out_left, %mid
+    __slice_split_unchecked_mid_bytes_%out_left = mul %mid, 8
+    __slice_split_unchecked_right_ptr_%out_left = ptr_add __slice_split_unchecked_src_%out_left, __slice_split_unchecked_mid_bytes_%out_left
+    EXPAND SLICE_NEW %out_left, __slice_split_unchecked_src_%out_left, %mid
+    EXPAND SLICE_NEW %out_right, __slice_split_unchecked_right_ptr_%out_left, __slice_split_unchecked_right_len_%out_left
+    !__slice_split_unchecked_right_ptr_%out_left
+    !__slice_split_unchecked_mid_bytes_%out_left
+    !__slice_split_unchecked_right_len_%out_left
+    !__slice_split_unchecked_src_%out_left
+    !__slice_split_unchecked_len_%out_left
+[END_MACRO]
+
+[MACRO] SLICE_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+[END_MACRO]
+
+[MACRO] SLICE_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, __slice_first_chunk_rest_%out_ok, %slice_reg, %chunk_len
+    !__slice_first_chunk_rest_%out_ok
+[END_MACRO]
+
+[MACRO] SLICE_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
+    %out_rest = alloc Slice_SIZE
+    %out_chunk = alloc Slice_SIZE
+    __slice_last_chunk_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_last_chunk_fits_%out_ok = ule %chunk_len, __slice_last_chunk_len_%out_ok
+    br __slice_last_chunk_fits_%out_ok -> L_SLICE_SPLIT_LAST_CHUNK_HIT_%out_ok, L_SLICE_SPLIT_LAST_CHUNK_MISS_%out_ok
+
+L_SLICE_SPLIT_LAST_CHUNK_HIT_%out_ok:
+    __slice_last_chunk_mid_%out_ok = sub __slice_last_chunk_len_%out_ok, %chunk_len
+    __slice_last_chunk_base_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_last_chunk_off_%out_ok = mul __slice_last_chunk_mid_%out_ok, 8
+    __slice_last_chunk_ptr_%out_ok = ptr_add __slice_last_chunk_base_%out_ok, __slice_last_chunk_off_%out_ok
+    EXPAND SLICE_NEW %out_rest, __slice_last_chunk_base_%out_ok, __slice_last_chunk_mid_%out_ok
+    EXPAND SLICE_NEW %out_chunk, __slice_last_chunk_ptr_%out_ok, %chunk_len
+    %out_ok = add 0, 1
+    !__slice_last_chunk_ptr_%out_ok
+    !__slice_last_chunk_off_%out_ok
+    !__slice_last_chunk_base_%out_ok
+    !__slice_last_chunk_mid_%out_ok
+    !__slice_last_chunk_fits_%out_ok
+    !__slice_last_chunk_len_%out_ok
+    jmp L_SLICE_SPLIT_LAST_CHUNK_END_%out_ok
+
+L_SLICE_SPLIT_LAST_CHUNK_MISS_%out_ok:
+    __slice_last_chunk_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_rest, __slice_last_chunk_empty_ptr_%out_ok, 0
+    EXPAND SLICE_NEW %out_chunk, __slice_last_chunk_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_last_chunk_empty_ptr_%out_ok
+    !__slice_last_chunk_fits_%out_ok
+    !__slice_last_chunk_len_%out_ok
+
+L_SLICE_SPLIT_LAST_CHUNK_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
+[MACRO] SLICE_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, __slice_last_chunk_rest_%out_ok, %out_chunk, %slice_reg, %chunk_len
+    !__slice_last_chunk_rest_%out_ok
+[END_MACRO]
+
+[MACRO] SLICE_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
     %out_slice = alloc Slice_SIZE
     __slice_range_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -662,6 +828,29 @@ L_SLICE_RANGE_END_%out_ok:
 
 [MACRO] SLICE_TRY_GET_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
     EXPAND SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
+[MACRO] SLICE_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
+    %out_slice = alloc Slice_SIZE
+    __slice_range_unchecked_src_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __slice_range_unchecked_bytes_%out_slice = mul %start, 8
+    __slice_range_unchecked_ptr_%out_slice = ptr_add __slice_range_unchecked_src_%out_slice, __slice_range_unchecked_bytes_%out_slice
+    EXPAND SLICE_NEW %out_slice, __slice_range_unchecked_ptr_%out_slice, %length
+    !__slice_range_unchecked_ptr_%out_slice
+    !__slice_range_unchecked_bytes_%out_slice
+    !__slice_range_unchecked_src_%out_slice
+[END_MACRO]
+
+[MACRO] SLICE_GET_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
+[MACRO] SLICE_GET_RANGE_MUT_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
 [END_MACRO]
 
 [MACRO] SLICE_CHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
@@ -757,6 +946,298 @@ L_SLICE_CHUNK_AT_MISS_ZERO_%out_ok:
     !__slice_chunk_len_%out_ok
 
 L_SLICE_CHUNK_AT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_RCHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
+    EXPAND SLICE_CHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
+[END_MACRO]
+
+[MACRO] SLICE_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    %out_slice = alloc Slice_SIZE
+    __slice_rchunk_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_rchunk_zero_%out_ok = eq %chunk_size, 0
+    br __slice_rchunk_zero_%out_ok -> L_SLICE_RCHUNK_AT_MISS_ZERO_%out_ok, L_SLICE_RCHUNK_AT_COUNT_%out_ok
+
+L_SLICE_RCHUNK_AT_COUNT_%out_ok:
+    __slice_rchunk_adjusted_%out_ok = add __slice_rchunk_len_%out_ok, %chunk_size
+    __slice_rchunk_adjusted2_%out_ok = sub __slice_rchunk_adjusted_%out_ok, 1
+    __slice_rchunk_count_%out_ok = udiv __slice_rchunk_adjusted2_%out_ok, %chunk_size
+    __slice_rchunk_in_bounds_%out_ok = ult %chunk_index, __slice_rchunk_count_%out_ok
+    br __slice_rchunk_in_bounds_%out_ok -> L_SLICE_RCHUNK_AT_LEN_%out_ok, L_SLICE_RCHUNK_AT_MISS_BOUNDS_%out_ok
+
+L_SLICE_RCHUNK_AT_LEN_%out_ok:
+    __slice_rchunk_from_end_%out_ok = add %chunk_index, 1
+    __slice_rchunk_tail_len_%out_ok = mul __slice_rchunk_from_end_%out_ok, %chunk_size
+    __slice_rchunk_full_%out_ok = ule __slice_rchunk_tail_len_%out_ok, __slice_rchunk_len_%out_ok
+    br __slice_rchunk_full_%out_ok -> L_SLICE_RCHUNK_AT_FULL_%out_ok, L_SLICE_RCHUNK_AT_PREFIX_%out_ok
+
+L_SLICE_RCHUNK_AT_FULL_%out_ok:
+    __slice_rchunk_start_full_%out_ok = sub __slice_rchunk_len_%out_ok, __slice_rchunk_tail_len_%out_ok
+    __slice_rchunk_start_bytes_full_%out_ok = mul __slice_rchunk_start_full_%out_ok, 8
+    __slice_rchunk_base_full_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_rchunk_ptr_full_%out_ok = ptr_add __slice_rchunk_base_full_%out_ok, __slice_rchunk_start_bytes_full_%out_ok
+    EXPAND SLICE_NEW %out_slice, __slice_rchunk_ptr_full_%out_ok, %chunk_size
+    %out_ok = add 0, 1
+    !__slice_rchunk_ptr_full_%out_ok
+    !__slice_rchunk_base_full_%out_ok
+    !__slice_rchunk_start_bytes_full_%out_ok
+    !__slice_rchunk_start_full_%out_ok
+    !__slice_rchunk_full_%out_ok
+    !__slice_rchunk_tail_len_%out_ok
+    !__slice_rchunk_from_end_%out_ok
+    !__slice_rchunk_in_bounds_%out_ok
+    !__slice_rchunk_count_%out_ok
+    !__slice_rchunk_adjusted2_%out_ok
+    !__slice_rchunk_adjusted_%out_ok
+    !__slice_rchunk_zero_%out_ok
+    !__slice_rchunk_len_%out_ok
+    jmp L_SLICE_RCHUNK_AT_END_%out_ok
+
+L_SLICE_RCHUNK_AT_PREFIX_%out_ok:
+    __slice_rchunk_prior_tail_%out_ok = mul %chunk_index, %chunk_size
+    __slice_rchunk_prefix_len_%out_ok = sub __slice_rchunk_len_%out_ok, __slice_rchunk_prior_tail_%out_ok
+    __slice_rchunk_base_prefix_%out_ok = load %slice_reg+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_rchunk_base_prefix_%out_ok, __slice_rchunk_prefix_len_%out_ok
+    %out_ok = add 0, 1
+    !__slice_rchunk_base_prefix_%out_ok
+    !__slice_rchunk_prefix_len_%out_ok
+    !__slice_rchunk_prior_tail_%out_ok
+    !__slice_rchunk_full_%out_ok
+    !__slice_rchunk_tail_len_%out_ok
+    !__slice_rchunk_from_end_%out_ok
+    !__slice_rchunk_in_bounds_%out_ok
+    !__slice_rchunk_count_%out_ok
+    !__slice_rchunk_adjusted2_%out_ok
+    !__slice_rchunk_adjusted_%out_ok
+    !__slice_rchunk_zero_%out_ok
+    !__slice_rchunk_len_%out_ok
+    jmp L_SLICE_RCHUNK_AT_END_%out_ok
+
+L_SLICE_RCHUNK_AT_MISS_BOUNDS_%out_ok:
+    __slice_rchunk_empty_ptr_bounds_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_rchunk_empty_ptr_bounds_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_rchunk_empty_ptr_bounds_%out_ok
+    !__slice_rchunk_in_bounds_%out_ok
+    !__slice_rchunk_count_%out_ok
+    !__slice_rchunk_adjusted2_%out_ok
+    !__slice_rchunk_adjusted_%out_ok
+    !__slice_rchunk_zero_%out_ok
+    !__slice_rchunk_len_%out_ok
+    jmp L_SLICE_RCHUNK_AT_END_%out_ok
+
+L_SLICE_RCHUNK_AT_MISS_ZERO_%out_ok:
+    __slice_rchunk_empty_ptr_zero_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_rchunk_empty_ptr_zero_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_rchunk_empty_ptr_zero_%out_ok
+    !__slice_rchunk_zero_%out_ok
+    !__slice_rchunk_len_%out_ok
+
+L_SLICE_RCHUNK_AT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+[MACRO] SLICE_CHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
+    __slice_chunks_exact_len_%out_count = load %slice_reg+Slice_len as u64
+    __slice_chunks_exact_zero_%out_count = eq %chunk_size, 0
+    br __slice_chunks_exact_zero_%out_count -> L_SLICE_CHUNKS_EXACT_COUNT_ZERO_%out_count, L_SLICE_CHUNKS_EXACT_COUNT_CALC_%out_count
+
+L_SLICE_CHUNKS_EXACT_COUNT_CALC_%out_count:
+    %out_count = udiv __slice_chunks_exact_len_%out_count, %chunk_size
+    !__slice_chunks_exact_zero_%out_count
+    !__slice_chunks_exact_len_%out_count
+    jmp L_SLICE_CHUNKS_EXACT_COUNT_END_%out_count
+
+L_SLICE_CHUNKS_EXACT_COUNT_ZERO_%out_count:
+    %out_count = add 0, 0
+    !__slice_chunks_exact_zero_%out_count
+    !__slice_chunks_exact_len_%out_count
+
+L_SLICE_CHUNKS_EXACT_COUNT_END_%out_count:
+[END_MACRO]
+
+[MACRO] SLICE_CHUNKS_EXACT_REMAINDER_U64 %out_slice, %slice_reg, %chunk_size
+    %out_slice = alloc Slice_SIZE
+    __slice_chunks_exact_rem_len_%out_slice = load %slice_reg+Slice_len as u64
+    __slice_chunks_exact_rem_zero_%out_slice = eq %chunk_size, 0
+    br __slice_chunks_exact_rem_zero_%out_slice -> L_SLICE_CHUNKS_EXACT_REMAINDER_ZERO_%out_slice, L_SLICE_CHUNKS_EXACT_REMAINDER_CALC_%out_slice
+
+L_SLICE_CHUNKS_EXACT_REMAINDER_CALC_%out_slice:
+    __slice_chunks_exact_rem_count_%out_slice = udiv __slice_chunks_exact_rem_len_%out_slice, %chunk_size
+    __slice_chunks_exact_rem_prefix_len_%out_slice = mul __slice_chunks_exact_rem_count_%out_slice, %chunk_size
+    __slice_chunks_exact_rem_tail_len_%out_slice = sub __slice_chunks_exact_rem_len_%out_slice, __slice_chunks_exact_rem_prefix_len_%out_slice
+    __slice_chunks_exact_rem_base_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __slice_chunks_exact_rem_prefix_bytes_%out_slice = mul __slice_chunks_exact_rem_prefix_len_%out_slice, 8
+    __slice_chunks_exact_rem_ptr_%out_slice = ptr_add __slice_chunks_exact_rem_base_%out_slice, __slice_chunks_exact_rem_prefix_bytes_%out_slice
+    EXPAND SLICE_NEW %out_slice, __slice_chunks_exact_rem_ptr_%out_slice, __slice_chunks_exact_rem_tail_len_%out_slice
+    !__slice_chunks_exact_rem_ptr_%out_slice
+    !__slice_chunks_exact_rem_prefix_bytes_%out_slice
+    !__slice_chunks_exact_rem_base_%out_slice
+    !__slice_chunks_exact_rem_tail_len_%out_slice
+    !__slice_chunks_exact_rem_prefix_len_%out_slice
+    !__slice_chunks_exact_rem_count_%out_slice
+    !__slice_chunks_exact_rem_zero_%out_slice
+    !__slice_chunks_exact_rem_len_%out_slice
+    jmp L_SLICE_CHUNKS_EXACT_REMAINDER_END_%out_slice
+
+L_SLICE_CHUNKS_EXACT_REMAINDER_ZERO_%out_slice:
+    __slice_chunks_exact_rem_empty_ptr_%out_slice = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_chunks_exact_rem_empty_ptr_%out_slice, 0
+    !__slice_chunks_exact_rem_empty_ptr_%out_slice
+    !__slice_chunks_exact_rem_zero_%out_slice
+    !__slice_chunks_exact_rem_len_%out_slice
+
+L_SLICE_CHUNKS_EXACT_REMAINDER_END_%out_slice:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    %out_slice = alloc Slice_SIZE
+    __slice_chunk_exact_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_chunk_exact_zero_%out_ok = eq %chunk_size, 0
+    br __slice_chunk_exact_zero_%out_ok -> L_SLICE_CHUNK_EXACT_AT_MISS_ZERO_%out_ok, L_SLICE_CHUNK_EXACT_AT_COUNT_%out_ok
+
+L_SLICE_CHUNK_EXACT_AT_COUNT_%out_ok:
+    __slice_chunk_exact_count_%out_ok = udiv __slice_chunk_exact_len_%out_ok, %chunk_size
+    __slice_chunk_exact_in_bounds_%out_ok = ult %chunk_index, __slice_chunk_exact_count_%out_ok
+    br __slice_chunk_exact_in_bounds_%out_ok -> L_SLICE_CHUNK_EXACT_AT_HIT_%out_ok, L_SLICE_CHUNK_EXACT_AT_MISS_BOUNDS_%out_ok
+
+L_SLICE_CHUNK_EXACT_AT_HIT_%out_ok:
+    __slice_chunk_exact_start_%out_ok = mul %chunk_index, %chunk_size
+    __slice_chunk_exact_start_bytes_%out_ok = mul __slice_chunk_exact_start_%out_ok, 8
+    __slice_chunk_exact_base_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_chunk_exact_ptr_%out_ok = ptr_add __slice_chunk_exact_base_%out_ok, __slice_chunk_exact_start_bytes_%out_ok
+    EXPAND SLICE_NEW %out_slice, __slice_chunk_exact_ptr_%out_ok, %chunk_size
+    %out_ok = add 0, 1
+    !__slice_chunk_exact_ptr_%out_ok
+    !__slice_chunk_exact_base_%out_ok
+    !__slice_chunk_exact_start_bytes_%out_ok
+    !__slice_chunk_exact_start_%out_ok
+    !__slice_chunk_exact_in_bounds_%out_ok
+    !__slice_chunk_exact_count_%out_ok
+    !__slice_chunk_exact_zero_%out_ok
+    !__slice_chunk_exact_len_%out_ok
+    jmp L_SLICE_CHUNK_EXACT_AT_END_%out_ok
+
+L_SLICE_CHUNK_EXACT_AT_MISS_BOUNDS_%out_ok:
+    __slice_chunk_exact_empty_ptr_bounds_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_chunk_exact_empty_ptr_bounds_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_chunk_exact_empty_ptr_bounds_%out_ok
+    !__slice_chunk_exact_in_bounds_%out_ok
+    !__slice_chunk_exact_count_%out_ok
+    !__slice_chunk_exact_zero_%out_ok
+    !__slice_chunk_exact_len_%out_ok
+    jmp L_SLICE_CHUNK_EXACT_AT_END_%out_ok
+
+L_SLICE_CHUNK_EXACT_AT_MISS_ZERO_%out_ok:
+    __slice_chunk_exact_empty_ptr_zero_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_chunk_exact_empty_ptr_zero_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_chunk_exact_empty_ptr_zero_%out_ok
+    !__slice_chunk_exact_zero_%out_ok
+    !__slice_chunk_exact_len_%out_ok
+
+L_SLICE_CHUNK_EXACT_AT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+[MACRO] SLICE_RCHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
+    EXPAND SLICE_CHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
+[END_MACRO]
+
+[MACRO] SLICE_RCHUNKS_EXACT_REMAINDER_U64 %out_slice, %slice_reg, %chunk_size
+    %out_slice = alloc Slice_SIZE
+    __slice_rchunks_exact_rem_len_%out_slice = load %slice_reg+Slice_len as u64
+    __slice_rchunks_exact_rem_zero_%out_slice = eq %chunk_size, 0
+    br __slice_rchunks_exact_rem_zero_%out_slice -> L_SLICE_RCHUNKS_EXACT_REMAINDER_ZERO_%out_slice, L_SLICE_RCHUNKS_EXACT_REMAINDER_CALC_%out_slice
+
+L_SLICE_RCHUNKS_EXACT_REMAINDER_CALC_%out_slice:
+    __slice_rchunks_exact_rem_count_%out_slice = udiv __slice_rchunks_exact_rem_len_%out_slice, %chunk_size
+    __slice_rchunks_exact_rem_chunked_len_%out_slice = mul __slice_rchunks_exact_rem_count_%out_slice, %chunk_size
+    __slice_rchunks_exact_rem_prefix_len_%out_slice = sub __slice_rchunks_exact_rem_len_%out_slice, __slice_rchunks_exact_rem_chunked_len_%out_slice
+    __slice_rchunks_exact_rem_base_%out_slice = load %slice_reg+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_rchunks_exact_rem_base_%out_slice, __slice_rchunks_exact_rem_prefix_len_%out_slice
+    !__slice_rchunks_exact_rem_base_%out_slice
+    !__slice_rchunks_exact_rem_prefix_len_%out_slice
+    !__slice_rchunks_exact_rem_chunked_len_%out_slice
+    !__slice_rchunks_exact_rem_count_%out_slice
+    !__slice_rchunks_exact_rem_zero_%out_slice
+    !__slice_rchunks_exact_rem_len_%out_slice
+    jmp L_SLICE_RCHUNKS_EXACT_REMAINDER_END_%out_slice
+
+L_SLICE_RCHUNKS_EXACT_REMAINDER_ZERO_%out_slice:
+    __slice_rchunks_exact_rem_empty_ptr_%out_slice = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_rchunks_exact_rem_empty_ptr_%out_slice, 0
+    !__slice_rchunks_exact_rem_empty_ptr_%out_slice
+    !__slice_rchunks_exact_rem_zero_%out_slice
+    !__slice_rchunks_exact_rem_len_%out_slice
+
+L_SLICE_RCHUNKS_EXACT_REMAINDER_END_%out_slice:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    %out_slice = alloc Slice_SIZE
+    __slice_rchunk_exact_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_rchunk_exact_zero_%out_ok = eq %chunk_size, 0
+    br __slice_rchunk_exact_zero_%out_ok -> L_SLICE_RCHUNK_EXACT_AT_MISS_ZERO_%out_ok, L_SLICE_RCHUNK_EXACT_AT_COUNT_%out_ok
+
+L_SLICE_RCHUNK_EXACT_AT_COUNT_%out_ok:
+    __slice_rchunk_exact_count_%out_ok = udiv __slice_rchunk_exact_len_%out_ok, %chunk_size
+    __slice_rchunk_exact_in_bounds_%out_ok = ult %chunk_index, __slice_rchunk_exact_count_%out_ok
+    br __slice_rchunk_exact_in_bounds_%out_ok -> L_SLICE_RCHUNK_EXACT_AT_HIT_%out_ok, L_SLICE_RCHUNK_EXACT_AT_MISS_BOUNDS_%out_ok
+
+L_SLICE_RCHUNK_EXACT_AT_HIT_%out_ok:
+    __slice_rchunk_exact_from_end_%out_ok = add %chunk_index, 1
+    __slice_rchunk_exact_tail_len_%out_ok = mul __slice_rchunk_exact_from_end_%out_ok, %chunk_size
+    __slice_rchunk_exact_start_%out_ok = sub __slice_rchunk_exact_len_%out_ok, __slice_rchunk_exact_tail_len_%out_ok
+    __slice_rchunk_exact_start_bytes_%out_ok = mul __slice_rchunk_exact_start_%out_ok, 8
+    __slice_rchunk_exact_base_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_rchunk_exact_ptr_%out_ok = ptr_add __slice_rchunk_exact_base_%out_ok, __slice_rchunk_exact_start_bytes_%out_ok
+    EXPAND SLICE_NEW %out_slice, __slice_rchunk_exact_ptr_%out_ok, %chunk_size
+    %out_ok = add 0, 1
+    !__slice_rchunk_exact_ptr_%out_ok
+    !__slice_rchunk_exact_base_%out_ok
+    !__slice_rchunk_exact_start_bytes_%out_ok
+    !__slice_rchunk_exact_start_%out_ok
+    !__slice_rchunk_exact_tail_len_%out_ok
+    !__slice_rchunk_exact_from_end_%out_ok
+    !__slice_rchunk_exact_in_bounds_%out_ok
+    !__slice_rchunk_exact_count_%out_ok
+    !__slice_rchunk_exact_zero_%out_ok
+    !__slice_rchunk_exact_len_%out_ok
+    jmp L_SLICE_RCHUNK_EXACT_AT_END_%out_ok
+
+L_SLICE_RCHUNK_EXACT_AT_MISS_BOUNDS_%out_ok:
+    __slice_rchunk_exact_empty_ptr_bounds_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_rchunk_exact_empty_ptr_bounds_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_rchunk_exact_empty_ptr_bounds_%out_ok
+    !__slice_rchunk_exact_in_bounds_%out_ok
+    !__slice_rchunk_exact_count_%out_ok
+    !__slice_rchunk_exact_zero_%out_ok
+    !__slice_rchunk_exact_len_%out_ok
+    jmp L_SLICE_RCHUNK_EXACT_AT_END_%out_ok
+
+L_SLICE_RCHUNK_EXACT_AT_MISS_ZERO_%out_ok:
+    __slice_rchunk_exact_empty_ptr_zero_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __slice_rchunk_exact_empty_ptr_zero_%out_ok, 0
+    %out_ok = add 0, 0
+    !__slice_rchunk_exact_empty_ptr_zero_%out_ok
+    !__slice_rchunk_exact_zero_%out_ok
+    !__slice_rchunk_exact_len_%out_ok
+
+L_SLICE_RCHUNK_EXACT_AT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] SLICE_WINDOW_COUNT_U64 %out_count, %slice_reg, %window_size
@@ -933,6 +1414,40 @@ L_SLICE_FILL_END_%slice_reg:
     !__slice_fill_ptr_%slice_reg
 [END_MACRO]
 
+[MACRO] SLICE_FILL_WITH_U64 %slice_reg, %gen_fn
+    __slice_fill_with_ptr_%slice_reg = load %slice_reg+Slice_ptr as ptr
+    __slice_fill_with_len_%slice_reg = load %slice_reg+Slice_len as u64
+    __slice_fill_with_idx_slot_%slice_reg = stack_alloc 8
+    store __slice_fill_with_idx_slot_%slice_reg+0, 0 as u64
+    jmp L_SLICE_FILL_WITH_HEAD_%slice_reg
+
+L_SLICE_FILL_WITH_HEAD_%slice_reg:
+    __slice_fill_with_idx_%slice_reg = load __slice_fill_with_idx_slot_%slice_reg+0 as u64
+    __slice_fill_with_done_%slice_reg = eq __slice_fill_with_idx_%slice_reg, __slice_fill_with_len_%slice_reg
+    br __slice_fill_with_done_%slice_reg -> L_SLICE_FILL_WITH_END_%slice_reg, L_SLICE_FILL_WITH_BODY_%slice_reg
+
+L_SLICE_FILL_WITH_BODY_%slice_reg:
+    __slice_fill_with_off_%slice_reg = mul __slice_fill_with_idx_%slice_reg, 8
+    __slice_fill_with_item_%slice_reg = ptr_add __slice_fill_with_ptr_%slice_reg, __slice_fill_with_off_%slice_reg
+    __slice_fill_with_value_%slice_reg = call %gen_fn()
+    store __slice_fill_with_item_%slice_reg+0, __slice_fill_with_value_%slice_reg as u64
+    __slice_fill_with_next_%slice_reg = add __slice_fill_with_idx_%slice_reg, 1
+    store __slice_fill_with_idx_slot_%slice_reg+0, __slice_fill_with_next_%slice_reg as u64
+    !__slice_fill_with_next_%slice_reg
+    !__slice_fill_with_value_%slice_reg
+    !__slice_fill_with_item_%slice_reg
+    !__slice_fill_with_off_%slice_reg
+    !__slice_fill_with_done_%slice_reg
+    !__slice_fill_with_idx_%slice_reg
+    jmp L_SLICE_FILL_WITH_HEAD_%slice_reg
+
+L_SLICE_FILL_WITH_END_%slice_reg:
+    !__slice_fill_with_done_%slice_reg
+    !__slice_fill_with_idx_%slice_reg
+    !__slice_fill_with_len_%slice_reg
+    !__slice_fill_with_ptr_%slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_REVERSE_U64 %slice_reg
     __slice_rev_len_%slice_reg = load %slice_reg+Slice_len as u64
     __slice_rev_small_%slice_reg = ule __slice_rev_len_%slice_reg, 1
@@ -994,6 +1509,506 @@ L_SLICE_REV_DONE_SMALL_%slice_reg:
     !__slice_rev_len_%slice_reg
 
 L_SLICE_REV_END_%slice_reg:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_ROTATE_LEFT_U64 %out_ok, %slice_reg, %count
+    __slice_rot_left_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_rot_left_round_slot_%out_ok = stack_alloc 8
+    __slice_rot_left_idx_slot_%out_ok = stack_alloc 8
+    __slice_rot_left_in_bounds_%out_ok = ule %count, __slice_rot_left_len_%out_ok
+    br __slice_rot_left_in_bounds_%out_ok -> L_SLICE_ROT_LEFT_HIT_%out_ok, L_SLICE_ROT_LEFT_MISS_%out_ok
+
+L_SLICE_ROT_LEFT_HIT_%out_ok:
+    __slice_rot_left_noop_empty_%out_ok = eq __slice_rot_left_len_%out_ok, 0
+    __slice_rot_left_noop_count_%out_ok = eq %count, 0
+    __slice_rot_left_noop_%out_ok = or __slice_rot_left_noop_empty_%out_ok, __slice_rot_left_noop_count_%out_ok
+    br __slice_rot_left_noop_%out_ok -> L_SLICE_ROT_LEFT_DONE_NOOP_%out_ok, L_SLICE_ROT_LEFT_INIT_%out_ok
+
+L_SLICE_ROT_LEFT_INIT_%out_ok:
+    __slice_rot_left_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    store __slice_rot_left_round_slot_%out_ok+0, 0 as u64
+    jmp L_SLICE_ROT_LEFT_ROUND_HEAD_%out_ok
+
+L_SLICE_ROT_LEFT_ROUND_HEAD_%out_ok:
+    __slice_rot_left_round_%out_ok = load __slice_rot_left_round_slot_%out_ok+0 as u64
+    __slice_rot_left_round_done_%out_ok = eq __slice_rot_left_round_%out_ok, %count
+    br __slice_rot_left_round_done_%out_ok -> L_SLICE_ROT_LEFT_DONE_%out_ok, L_SLICE_ROT_LEFT_SHIFT_INIT_%out_ok
+
+L_SLICE_ROT_LEFT_SHIFT_INIT_%out_ok:
+    __slice_rot_left_first_%out_ok = load __slice_rot_left_ptr_%out_ok+0 as u64
+    store __slice_rot_left_idx_slot_%out_ok+0, 0 as u64
+    jmp L_SLICE_ROT_LEFT_SHIFT_HEAD_%out_ok
+
+L_SLICE_ROT_LEFT_SHIFT_HEAD_%out_ok:
+    __slice_rot_left_idx_%out_ok = load __slice_rot_left_idx_slot_%out_ok+0 as u64
+    __slice_rot_left_next_idx_%out_ok = add __slice_rot_left_idx_%out_ok, 1
+    __slice_rot_left_shift_done_%out_ok = eq __slice_rot_left_next_idx_%out_ok, __slice_rot_left_len_%out_ok
+    br __slice_rot_left_shift_done_%out_ok -> L_SLICE_ROT_LEFT_STORE_LAST_%out_ok, L_SLICE_ROT_LEFT_SHIFT_BODY_%out_ok
+
+L_SLICE_ROT_LEFT_SHIFT_BODY_%out_ok:
+    __slice_rot_left_dst_off_%out_ok = mul __slice_rot_left_idx_%out_ok, 8
+    __slice_rot_left_src_off_%out_ok = mul __slice_rot_left_next_idx_%out_ok, 8
+    __slice_rot_left_dst_ptr_%out_ok = ptr_add __slice_rot_left_ptr_%out_ok, __slice_rot_left_dst_off_%out_ok
+    __slice_rot_left_src_ptr_%out_ok = ptr_add __slice_rot_left_ptr_%out_ok, __slice_rot_left_src_off_%out_ok
+    __slice_rot_left_value_%out_ok = load __slice_rot_left_src_ptr_%out_ok+0 as u64
+    store __slice_rot_left_dst_ptr_%out_ok+0, __slice_rot_left_value_%out_ok as u64
+    store __slice_rot_left_idx_slot_%out_ok+0, __slice_rot_left_next_idx_%out_ok as u64
+    !__slice_rot_left_value_%out_ok
+    !__slice_rot_left_src_ptr_%out_ok
+    !__slice_rot_left_dst_ptr_%out_ok
+    !__slice_rot_left_src_off_%out_ok
+    !__slice_rot_left_dst_off_%out_ok
+    !__slice_rot_left_shift_done_%out_ok
+    !__slice_rot_left_next_idx_%out_ok
+    !__slice_rot_left_idx_%out_ok
+    jmp L_SLICE_ROT_LEFT_SHIFT_HEAD_%out_ok
+
+L_SLICE_ROT_LEFT_STORE_LAST_%out_ok:
+    __slice_rot_left_last_idx_%out_ok = sub __slice_rot_left_len_%out_ok, 1
+    __slice_rot_left_last_off_%out_ok = mul __slice_rot_left_last_idx_%out_ok, 8
+    __slice_rot_left_last_ptr_%out_ok = ptr_add __slice_rot_left_ptr_%out_ok, __slice_rot_left_last_off_%out_ok
+    store __slice_rot_left_last_ptr_%out_ok+0, __slice_rot_left_first_%out_ok as u64
+    __slice_rot_left_next_round_%out_ok = add __slice_rot_left_round_%out_ok, 1
+    store __slice_rot_left_round_slot_%out_ok+0, __slice_rot_left_next_round_%out_ok as u64
+    !__slice_rot_left_next_round_%out_ok
+    !__slice_rot_left_last_ptr_%out_ok
+    !__slice_rot_left_last_off_%out_ok
+    !__slice_rot_left_last_idx_%out_ok
+    !__slice_rot_left_shift_done_%out_ok
+    !__slice_rot_left_next_idx_%out_ok
+    !__slice_rot_left_idx_%out_ok
+    !__slice_rot_left_first_%out_ok
+    !__slice_rot_left_round_done_%out_ok
+    !__slice_rot_left_round_%out_ok
+    jmp L_SLICE_ROT_LEFT_ROUND_HEAD_%out_ok
+
+L_SLICE_ROT_LEFT_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__slice_rot_left_round_done_%out_ok
+    !__slice_rot_left_round_%out_ok
+    !__slice_rot_left_ptr_%out_ok
+    !__slice_rot_left_noop_%out_ok
+    !__slice_rot_left_noop_count_%out_ok
+    !__slice_rot_left_noop_empty_%out_ok
+    !__slice_rot_left_in_bounds_%out_ok
+    !__slice_rot_left_len_%out_ok
+    jmp L_SLICE_ROT_LEFT_END_%out_ok
+
+L_SLICE_ROT_LEFT_DONE_NOOP_%out_ok:
+    %out_ok = add 0, 1
+    !__slice_rot_left_noop_%out_ok
+    !__slice_rot_left_noop_count_%out_ok
+    !__slice_rot_left_noop_empty_%out_ok
+    !__slice_rot_left_in_bounds_%out_ok
+    !__slice_rot_left_len_%out_ok
+    jmp L_SLICE_ROT_LEFT_END_%out_ok
+
+L_SLICE_ROT_LEFT_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__slice_rot_left_in_bounds_%out_ok
+    !__slice_rot_left_len_%out_ok
+
+L_SLICE_ROT_LEFT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_ROTATE_RIGHT_U64 %out_ok, %slice_reg, %count
+    __slice_rot_right_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_rot_right_round_slot_%out_ok = stack_alloc 8
+    __slice_rot_right_idx_slot_%out_ok = stack_alloc 8
+    __slice_rot_right_in_bounds_%out_ok = ule %count, __slice_rot_right_len_%out_ok
+    br __slice_rot_right_in_bounds_%out_ok -> L_SLICE_ROT_RIGHT_HIT_%out_ok, L_SLICE_ROT_RIGHT_MISS_%out_ok
+
+L_SLICE_ROT_RIGHT_HIT_%out_ok:
+    __slice_rot_right_noop_empty_%out_ok = eq __slice_rot_right_len_%out_ok, 0
+    __slice_rot_right_noop_count_%out_ok = eq %count, 0
+    __slice_rot_right_noop_%out_ok = or __slice_rot_right_noop_empty_%out_ok, __slice_rot_right_noop_count_%out_ok
+    br __slice_rot_right_noop_%out_ok -> L_SLICE_ROT_RIGHT_DONE_NOOP_%out_ok, L_SLICE_ROT_RIGHT_INIT_%out_ok
+
+L_SLICE_ROT_RIGHT_INIT_%out_ok:
+    __slice_rot_right_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    store __slice_rot_right_round_slot_%out_ok+0, 0 as u64
+    jmp L_SLICE_ROT_RIGHT_ROUND_HEAD_%out_ok
+
+L_SLICE_ROT_RIGHT_ROUND_HEAD_%out_ok:
+    __slice_rot_right_round_%out_ok = load __slice_rot_right_round_slot_%out_ok+0 as u64
+    __slice_rot_right_round_done_%out_ok = eq __slice_rot_right_round_%out_ok, %count
+    br __slice_rot_right_round_done_%out_ok -> L_SLICE_ROT_RIGHT_DONE_%out_ok, L_SLICE_ROT_RIGHT_SHIFT_INIT_%out_ok
+
+L_SLICE_ROT_RIGHT_SHIFT_INIT_%out_ok:
+    __slice_rot_right_last_idx_%out_ok = sub __slice_rot_right_len_%out_ok, 1
+    __slice_rot_right_last_off_%out_ok = mul __slice_rot_right_last_idx_%out_ok, 8
+    __slice_rot_right_last_ptr_%out_ok = ptr_add __slice_rot_right_ptr_%out_ok, __slice_rot_right_last_off_%out_ok
+    __slice_rot_right_last_%out_ok = load __slice_rot_right_last_ptr_%out_ok+0 as u64
+    store __slice_rot_right_idx_slot_%out_ok+0, __slice_rot_right_last_idx_%out_ok as u64
+    !__slice_rot_right_last_ptr_%out_ok
+    !__slice_rot_right_last_off_%out_ok
+    jmp L_SLICE_ROT_RIGHT_SHIFT_HEAD_%out_ok
+
+L_SLICE_ROT_RIGHT_SHIFT_HEAD_%out_ok:
+    __slice_rot_right_idx_%out_ok = load __slice_rot_right_idx_slot_%out_ok+0 as u64
+    __slice_rot_right_shift_done_%out_ok = eq __slice_rot_right_idx_%out_ok, 0
+    br __slice_rot_right_shift_done_%out_ok -> L_SLICE_ROT_RIGHT_STORE_FIRST_%out_ok, L_SLICE_ROT_RIGHT_SHIFT_BODY_%out_ok
+
+L_SLICE_ROT_RIGHT_SHIFT_BODY_%out_ok:
+    __slice_rot_right_prev_idx_%out_ok = sub __slice_rot_right_idx_%out_ok, 1
+    __slice_rot_right_dst_off_%out_ok = mul __slice_rot_right_idx_%out_ok, 8
+    __slice_rot_right_src_off_%out_ok = mul __slice_rot_right_prev_idx_%out_ok, 8
+    __slice_rot_right_dst_ptr_%out_ok = ptr_add __slice_rot_right_ptr_%out_ok, __slice_rot_right_dst_off_%out_ok
+    __slice_rot_right_src_ptr_%out_ok = ptr_add __slice_rot_right_ptr_%out_ok, __slice_rot_right_src_off_%out_ok
+    __slice_rot_right_value_%out_ok = load __slice_rot_right_src_ptr_%out_ok+0 as u64
+    store __slice_rot_right_dst_ptr_%out_ok+0, __slice_rot_right_value_%out_ok as u64
+    store __slice_rot_right_idx_slot_%out_ok+0, __slice_rot_right_prev_idx_%out_ok as u64
+    !__slice_rot_right_value_%out_ok
+    !__slice_rot_right_src_ptr_%out_ok
+    !__slice_rot_right_dst_ptr_%out_ok
+    !__slice_rot_right_src_off_%out_ok
+    !__slice_rot_right_dst_off_%out_ok
+    !__slice_rot_right_prev_idx_%out_ok
+    !__slice_rot_right_shift_done_%out_ok
+    !__slice_rot_right_idx_%out_ok
+    jmp L_SLICE_ROT_RIGHT_SHIFT_HEAD_%out_ok
+
+L_SLICE_ROT_RIGHT_STORE_FIRST_%out_ok:
+    store __slice_rot_right_ptr_%out_ok+0, __slice_rot_right_last_%out_ok as u64
+    __slice_rot_right_next_round_%out_ok = add __slice_rot_right_round_%out_ok, 1
+    store __slice_rot_right_round_slot_%out_ok+0, __slice_rot_right_next_round_%out_ok as u64
+    !__slice_rot_right_next_round_%out_ok
+    !__slice_rot_right_shift_done_%out_ok
+    !__slice_rot_right_idx_%out_ok
+    !__slice_rot_right_last_%out_ok
+    !__slice_rot_right_last_idx_%out_ok
+    !__slice_rot_right_round_done_%out_ok
+    !__slice_rot_right_round_%out_ok
+    jmp L_SLICE_ROT_RIGHT_ROUND_HEAD_%out_ok
+
+L_SLICE_ROT_RIGHT_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__slice_rot_right_round_done_%out_ok
+    !__slice_rot_right_round_%out_ok
+    !__slice_rot_right_ptr_%out_ok
+    !__slice_rot_right_noop_%out_ok
+    !__slice_rot_right_noop_count_%out_ok
+    !__slice_rot_right_noop_empty_%out_ok
+    !__slice_rot_right_in_bounds_%out_ok
+    !__slice_rot_right_len_%out_ok
+    jmp L_SLICE_ROT_RIGHT_END_%out_ok
+
+L_SLICE_ROT_RIGHT_DONE_NOOP_%out_ok:
+    %out_ok = add 0, 1
+    !__slice_rot_right_noop_%out_ok
+    !__slice_rot_right_noop_count_%out_ok
+    !__slice_rot_right_noop_empty_%out_ok
+    !__slice_rot_right_in_bounds_%out_ok
+    !__slice_rot_right_len_%out_ok
+    jmp L_SLICE_ROT_RIGHT_END_%out_ok
+
+L_SLICE_ROT_RIGHT_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__slice_rot_right_in_bounds_%out_ok
+    !__slice_rot_right_len_%out_ok
+
+L_SLICE_ROT_RIGHT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_SWAP_WITH_SLICE_U64 %out_ok, %left_slice, %right_slice
+    __slice_sws_left_len_%out_ok = load %left_slice+Slice_len as u64
+    __slice_sws_right_len_%out_ok = load %right_slice+Slice_len as u64
+    __slice_sws_same_len_%out_ok = eq __slice_sws_left_len_%out_ok, __slice_sws_right_len_%out_ok
+    br __slice_sws_same_len_%out_ok -> L_SLICE_SWS_INIT_%out_ok, L_SLICE_SWS_MISS_%out_ok
+
+L_SLICE_SWS_INIT_%out_ok:
+    __slice_sws_left_ptr_%out_ok = load %left_slice+Slice_ptr as ptr
+    __slice_sws_right_ptr_%out_ok = load %right_slice+Slice_ptr as ptr
+    __slice_sws_idx_slot_%out_ok = stack_alloc 8
+    store __slice_sws_idx_slot_%out_ok+0, 0 as u64
+    jmp L_SLICE_SWS_HEAD_%out_ok
+
+L_SLICE_SWS_HEAD_%out_ok:
+    __slice_sws_idx_%out_ok = load __slice_sws_idx_slot_%out_ok+0 as u64
+    __slice_sws_done_%out_ok = eq __slice_sws_idx_%out_ok, __slice_sws_left_len_%out_ok
+    br __slice_sws_done_%out_ok -> L_SLICE_SWS_HIT_%out_ok, L_SLICE_SWS_BODY_%out_ok
+
+L_SLICE_SWS_BODY_%out_ok:
+    __slice_sws_off_%out_ok = mul __slice_sws_idx_%out_ok, 8
+    __slice_sws_left_item_%out_ok = ptr_add __slice_sws_left_ptr_%out_ok, __slice_sws_off_%out_ok
+    __slice_sws_right_item_%out_ok = ptr_add __slice_sws_right_ptr_%out_ok, __slice_sws_off_%out_ok
+    __slice_sws_left_value_%out_ok = load __slice_sws_left_item_%out_ok+0 as u64
+    __slice_sws_right_value_%out_ok = load __slice_sws_right_item_%out_ok+0 as u64
+    store __slice_sws_left_item_%out_ok+0, __slice_sws_right_value_%out_ok as u64
+    store __slice_sws_right_item_%out_ok+0, __slice_sws_left_value_%out_ok as u64
+    __slice_sws_next_%out_ok = add __slice_sws_idx_%out_ok, 1
+    store __slice_sws_idx_slot_%out_ok+0, __slice_sws_next_%out_ok as u64
+    !__slice_sws_next_%out_ok
+    !__slice_sws_right_value_%out_ok
+    !__slice_sws_left_value_%out_ok
+    !__slice_sws_right_item_%out_ok
+    !__slice_sws_left_item_%out_ok
+    !__slice_sws_off_%out_ok
+    !__slice_sws_done_%out_ok
+    !__slice_sws_idx_%out_ok
+    jmp L_SLICE_SWS_HEAD_%out_ok
+
+L_SLICE_SWS_HIT_%out_ok:
+    %out_ok = add 0, 1
+    !__slice_sws_done_%out_ok
+    !__slice_sws_idx_%out_ok
+    !__slice_sws_right_ptr_%out_ok
+    !__slice_sws_left_ptr_%out_ok
+    !__slice_sws_same_len_%out_ok
+    !__slice_sws_right_len_%out_ok
+    !__slice_sws_left_len_%out_ok
+    jmp L_SLICE_SWS_END_%out_ok
+
+L_SLICE_SWS_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__slice_sws_same_len_%out_ok
+    !__slice_sws_right_len_%out_ok
+    !__slice_sws_left_len_%out_ok
+
+L_SLICE_SWS_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_IS_SORTED_U64 %out_bool, %slice_reg
+    __slice_sorted_len_%out_bool = load %slice_reg+Slice_len as u64
+    __slice_sorted_small_%out_bool = ule __slice_sorted_len_%out_bool, 1
+    br __slice_sorted_small_%out_bool -> L_SLICE_SORTED_TRUE_SMALL_%out_bool, L_SLICE_SORTED_INIT_%out_bool
+
+L_SLICE_SORTED_INIT_%out_bool:
+    __slice_sorted_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
+    __slice_sorted_last_idx_%out_bool = sub __slice_sorted_len_%out_bool, 1
+    __slice_sorted_idx_slot_%out_bool = stack_alloc 8
+    store __slice_sorted_idx_slot_%out_bool+0, 0 as u64
+    jmp L_SLICE_SORTED_HEAD_%out_bool
+
+L_SLICE_SORTED_HEAD_%out_bool:
+    __slice_sorted_idx_%out_bool = load __slice_sorted_idx_slot_%out_bool+0 as u64
+    __slice_sorted_done_%out_bool = eq __slice_sorted_idx_%out_bool, __slice_sorted_last_idx_%out_bool
+    br __slice_sorted_done_%out_bool -> L_SLICE_SORTED_TRUE_%out_bool, L_SLICE_SORTED_BODY_%out_bool
+
+L_SLICE_SORTED_BODY_%out_bool:
+    __slice_sorted_next_idx_%out_bool = add __slice_sorted_idx_%out_bool, 1
+    __slice_sorted_off_%out_bool = mul __slice_sorted_idx_%out_bool, 8
+    __slice_sorted_next_off_%out_bool = mul __slice_sorted_next_idx_%out_bool, 8
+    __slice_sorted_left_ptr_%out_bool = ptr_add __slice_sorted_ptr_%out_bool, __slice_sorted_off_%out_bool
+    __slice_sorted_right_ptr_%out_bool = ptr_add __slice_sorted_ptr_%out_bool, __slice_sorted_next_off_%out_bool
+    __slice_sorted_left_%out_bool = load __slice_sorted_left_ptr_%out_bool+0 as u64
+    __slice_sorted_right_%out_bool = load __slice_sorted_right_ptr_%out_bool+0 as u64
+    __slice_sorted_pair_ok_%out_bool = ule __slice_sorted_left_%out_bool, __slice_sorted_right_%out_bool
+    br __slice_sorted_pair_ok_%out_bool -> L_SLICE_SORTED_NEXT_%out_bool, L_SLICE_SORTED_FALSE_%out_bool
+
+L_SLICE_SORTED_NEXT_%out_bool:
+    store __slice_sorted_idx_slot_%out_bool+0, __slice_sorted_next_idx_%out_bool as u64
+    !__slice_sorted_pair_ok_%out_bool
+    !__slice_sorted_right_%out_bool
+    !__slice_sorted_left_%out_bool
+    !__slice_sorted_right_ptr_%out_bool
+    !__slice_sorted_left_ptr_%out_bool
+    !__slice_sorted_next_off_%out_bool
+    !__slice_sorted_off_%out_bool
+    !__slice_sorted_next_idx_%out_bool
+    !__slice_sorted_done_%out_bool
+    !__slice_sorted_idx_%out_bool
+    jmp L_SLICE_SORTED_HEAD_%out_bool
+
+L_SLICE_SORTED_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__slice_sorted_done_%out_bool
+    !__slice_sorted_idx_%out_bool
+    !__slice_sorted_last_idx_%out_bool
+    !__slice_sorted_ptr_%out_bool
+    !__slice_sorted_small_%out_bool
+    !__slice_sorted_len_%out_bool
+    jmp L_SLICE_SORTED_END_%out_bool
+
+L_SLICE_SORTED_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__slice_sorted_pair_ok_%out_bool
+    !__slice_sorted_right_%out_bool
+    !__slice_sorted_left_%out_bool
+    !__slice_sorted_right_ptr_%out_bool
+    !__slice_sorted_left_ptr_%out_bool
+    !__slice_sorted_next_off_%out_bool
+    !__slice_sorted_off_%out_bool
+    !__slice_sorted_next_idx_%out_bool
+    !__slice_sorted_done_%out_bool
+    !__slice_sorted_idx_%out_bool
+    !__slice_sorted_last_idx_%out_bool
+    !__slice_sorted_ptr_%out_bool
+    !__slice_sorted_small_%out_bool
+    !__slice_sorted_len_%out_bool
+    jmp L_SLICE_SORTED_END_%out_bool
+
+L_SLICE_SORTED_TRUE_SMALL_%out_bool:
+    %out_bool = add 0, 1
+    !__slice_sorted_small_%out_bool
+    !__slice_sorted_len_%out_bool
+
+L_SLICE_SORTED_END_%out_bool:
+[END_MACRO]
+
+[MACRO] SLICE_IS_SORTED_BY_U64 %out_bool, %slice_reg, %compare_fn
+    __slice_sorted_by_len_%out_bool = load %slice_reg+Slice_len as u64
+    __slice_sorted_by_small_%out_bool = ule __slice_sorted_by_len_%out_bool, 1
+    br __slice_sorted_by_small_%out_bool -> L_SLICE_SORTED_BY_TRUE_SMALL_%out_bool, L_SLICE_SORTED_BY_INIT_%out_bool
+
+L_SLICE_SORTED_BY_INIT_%out_bool:
+    __slice_sorted_by_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
+    __slice_sorted_by_last_idx_%out_bool = sub __slice_sorted_by_len_%out_bool, 1
+    __slice_sorted_by_idx_slot_%out_bool = stack_alloc 8
+    store __slice_sorted_by_idx_slot_%out_bool+0, 0 as u64
+    jmp L_SLICE_SORTED_BY_HEAD_%out_bool
+
+L_SLICE_SORTED_BY_HEAD_%out_bool:
+    __slice_sorted_by_idx_%out_bool = load __slice_sorted_by_idx_slot_%out_bool+0 as u64
+    __slice_sorted_by_done_%out_bool = eq __slice_sorted_by_idx_%out_bool, __slice_sorted_by_last_idx_%out_bool
+    br __slice_sorted_by_done_%out_bool -> L_SLICE_SORTED_BY_TRUE_%out_bool, L_SLICE_SORTED_BY_BODY_%out_bool
+
+L_SLICE_SORTED_BY_BODY_%out_bool:
+    __slice_sorted_by_next_idx_%out_bool = add __slice_sorted_by_idx_%out_bool, 1
+    __slice_sorted_by_off_%out_bool = mul __slice_sorted_by_idx_%out_bool, 8
+    __slice_sorted_by_next_off_%out_bool = mul __slice_sorted_by_next_idx_%out_bool, 8
+    __slice_sorted_by_left_ptr_%out_bool = ptr_add __slice_sorted_by_ptr_%out_bool, __slice_sorted_by_off_%out_bool
+    __slice_sorted_by_right_ptr_%out_bool = ptr_add __slice_sorted_by_ptr_%out_bool, __slice_sorted_by_next_off_%out_bool
+    __slice_sorted_by_left_%out_bool = load __slice_sorted_by_left_ptr_%out_bool+0 as u64
+    __slice_sorted_by_right_%out_bool = load __slice_sorted_by_right_ptr_%out_bool+0 as u64
+    __slice_sorted_by_pair_ok_%out_bool = call %compare_fn(__slice_sorted_by_left_%out_bool, __slice_sorted_by_right_%out_bool)
+    __slice_sorted_by_pair_bool_%out_bool = ne __slice_sorted_by_pair_ok_%out_bool, 0
+    br __slice_sorted_by_pair_bool_%out_bool -> L_SLICE_SORTED_BY_NEXT_%out_bool, L_SLICE_SORTED_BY_FALSE_%out_bool
+
+L_SLICE_SORTED_BY_NEXT_%out_bool:
+    store __slice_sorted_by_idx_slot_%out_bool+0, __slice_sorted_by_next_idx_%out_bool as u64
+    !__slice_sorted_by_pair_bool_%out_bool
+    !__slice_sorted_by_pair_ok_%out_bool
+    !__slice_sorted_by_right_%out_bool
+    !__slice_sorted_by_left_%out_bool
+    !__slice_sorted_by_right_ptr_%out_bool
+    !__slice_sorted_by_left_ptr_%out_bool
+    !__slice_sorted_by_next_off_%out_bool
+    !__slice_sorted_by_off_%out_bool
+    !__slice_sorted_by_next_idx_%out_bool
+    !__slice_sorted_by_done_%out_bool
+    !__slice_sorted_by_idx_%out_bool
+    jmp L_SLICE_SORTED_BY_HEAD_%out_bool
+
+L_SLICE_SORTED_BY_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__slice_sorted_by_done_%out_bool
+    !__slice_sorted_by_idx_%out_bool
+    !__slice_sorted_by_last_idx_%out_bool
+    !__slice_sorted_by_ptr_%out_bool
+    !__slice_sorted_by_small_%out_bool
+    !__slice_sorted_by_len_%out_bool
+    jmp L_SLICE_SORTED_BY_END_%out_bool
+
+L_SLICE_SORTED_BY_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__slice_sorted_by_pair_bool_%out_bool
+    !__slice_sorted_by_pair_ok_%out_bool
+    !__slice_sorted_by_right_%out_bool
+    !__slice_sorted_by_left_%out_bool
+    !__slice_sorted_by_right_ptr_%out_bool
+    !__slice_sorted_by_left_ptr_%out_bool
+    !__slice_sorted_by_next_off_%out_bool
+    !__slice_sorted_by_off_%out_bool
+    !__slice_sorted_by_next_idx_%out_bool
+    !__slice_sorted_by_done_%out_bool
+    !__slice_sorted_by_idx_%out_bool
+    !__slice_sorted_by_last_idx_%out_bool
+    !__slice_sorted_by_ptr_%out_bool
+    !__slice_sorted_by_small_%out_bool
+    !__slice_sorted_by_len_%out_bool
+    jmp L_SLICE_SORTED_BY_END_%out_bool
+
+L_SLICE_SORTED_BY_TRUE_SMALL_%out_bool:
+    %out_bool = add 0, 1
+    !__slice_sorted_by_small_%out_bool
+    !__slice_sorted_by_len_%out_bool
+
+L_SLICE_SORTED_BY_END_%out_bool:
+[END_MACRO]
+
+[MACRO] SLICE_IS_SORTED_BY_KEY_U64 %out_bool, %slice_reg, %key_fn
+    __slice_sorted_key_len_%out_bool = load %slice_reg+Slice_len as u64
+    __slice_sorted_key_small_%out_bool = ule __slice_sorted_key_len_%out_bool, 1
+    br __slice_sorted_key_small_%out_bool -> L_SLICE_SORTED_KEY_TRUE_SMALL_%out_bool, L_SLICE_SORTED_KEY_INIT_%out_bool
+
+L_SLICE_SORTED_KEY_INIT_%out_bool:
+    __slice_sorted_key_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
+    __slice_sorted_key_last_idx_%out_bool = sub __slice_sorted_key_len_%out_bool, 1
+    __slice_sorted_key_idx_slot_%out_bool = stack_alloc 8
+    store __slice_sorted_key_idx_slot_%out_bool+0, 0 as u64
+    jmp L_SLICE_SORTED_KEY_HEAD_%out_bool
+
+L_SLICE_SORTED_KEY_HEAD_%out_bool:
+    __slice_sorted_key_idx_%out_bool = load __slice_sorted_key_idx_slot_%out_bool+0 as u64
+    __slice_sorted_key_done_%out_bool = eq __slice_sorted_key_idx_%out_bool, __slice_sorted_key_last_idx_%out_bool
+    br __slice_sorted_key_done_%out_bool -> L_SLICE_SORTED_KEY_TRUE_%out_bool, L_SLICE_SORTED_KEY_BODY_%out_bool
+
+L_SLICE_SORTED_KEY_BODY_%out_bool:
+    __slice_sorted_key_next_idx_%out_bool = add __slice_sorted_key_idx_%out_bool, 1
+    __slice_sorted_key_off_%out_bool = mul __slice_sorted_key_idx_%out_bool, 8
+    __slice_sorted_key_next_off_%out_bool = mul __slice_sorted_key_next_idx_%out_bool, 8
+    __slice_sorted_key_left_ptr_%out_bool = ptr_add __slice_sorted_key_ptr_%out_bool, __slice_sorted_key_off_%out_bool
+    __slice_sorted_key_right_ptr_%out_bool = ptr_add __slice_sorted_key_ptr_%out_bool, __slice_sorted_key_next_off_%out_bool
+    __slice_sorted_key_left_value_%out_bool = load __slice_sorted_key_left_ptr_%out_bool+0 as u64
+    __slice_sorted_key_right_value_%out_bool = load __slice_sorted_key_right_ptr_%out_bool+0 as u64
+    __slice_sorted_key_left_%out_bool = call %key_fn(__slice_sorted_key_left_value_%out_bool)
+    __slice_sorted_key_right_%out_bool = call %key_fn(__slice_sorted_key_right_value_%out_bool)
+    __slice_sorted_key_pair_ok_%out_bool = ule __slice_sorted_key_left_%out_bool, __slice_sorted_key_right_%out_bool
+    br __slice_sorted_key_pair_ok_%out_bool -> L_SLICE_SORTED_KEY_NEXT_%out_bool, L_SLICE_SORTED_KEY_FALSE_%out_bool
+
+L_SLICE_SORTED_KEY_NEXT_%out_bool:
+    store __slice_sorted_key_idx_slot_%out_bool+0, __slice_sorted_key_next_idx_%out_bool as u64
+    !__slice_sorted_key_pair_ok_%out_bool
+    !__slice_sorted_key_right_%out_bool
+    !__slice_sorted_key_left_%out_bool
+    !__slice_sorted_key_right_value_%out_bool
+    !__slice_sorted_key_left_value_%out_bool
+    !__slice_sorted_key_right_ptr_%out_bool
+    !__slice_sorted_key_left_ptr_%out_bool
+    !__slice_sorted_key_next_off_%out_bool
+    !__slice_sorted_key_off_%out_bool
+    !__slice_sorted_key_next_idx_%out_bool
+    !__slice_sorted_key_done_%out_bool
+    !__slice_sorted_key_idx_%out_bool
+    jmp L_SLICE_SORTED_KEY_HEAD_%out_bool
+
+L_SLICE_SORTED_KEY_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__slice_sorted_key_done_%out_bool
+    !__slice_sorted_key_idx_%out_bool
+    !__slice_sorted_key_last_idx_%out_bool
+    !__slice_sorted_key_ptr_%out_bool
+    !__slice_sorted_key_small_%out_bool
+    !__slice_sorted_key_len_%out_bool
+    jmp L_SLICE_SORTED_KEY_END_%out_bool
+
+L_SLICE_SORTED_KEY_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__slice_sorted_key_pair_ok_%out_bool
+    !__slice_sorted_key_right_%out_bool
+    !__slice_sorted_key_left_%out_bool
+    !__slice_sorted_key_right_value_%out_bool
+    !__slice_sorted_key_left_value_%out_bool
+    !__slice_sorted_key_right_ptr_%out_bool
+    !__slice_sorted_key_left_ptr_%out_bool
+    !__slice_sorted_key_next_off_%out_bool
+    !__slice_sorted_key_off_%out_bool
+    !__slice_sorted_key_next_idx_%out_bool
+    !__slice_sorted_key_done_%out_bool
+    !__slice_sorted_key_idx_%out_bool
+    !__slice_sorted_key_last_idx_%out_bool
+    !__slice_sorted_key_ptr_%out_bool
+    !__slice_sorted_key_small_%out_bool
+    !__slice_sorted_key_len_%out_bool
+    jmp L_SLICE_SORTED_KEY_END_%out_bool
+
+L_SLICE_SORTED_KEY_TRUE_SMALL_%out_bool:
+    %out_bool = add 0, 1
+    !__slice_sorted_key_small_%out_bool
+    !__slice_sorted_key_len_%out_bool
+
+L_SLICE_SORTED_KEY_END_%out_bool:
 [END_MACRO]
 
 [MACRO] SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice

@@ -1,0 +1,25 @@
+#def ErrorRef_SIZE = 48
+#def ErrorRef_type_lo = +0
+#def ErrorRef_type_hi = +8
+#def ErrorRef_code = +16
+#def ErrorRef_msg_ptr = +24
+#def ErrorRef_msg_len = +32
+#def ErrorRef_source = +40
+
+#def ERROR_TYPE_GENERIC_LO = 1000
+#def ERROR_TYPE_IO_LO = 1001
+#def ERROR_TYPE_PARSE_LO = 1002
+#def ERROR_TYPE_UTF8_LO = 1003
+#def ERROR_TYPE_FMT_LO = 1004
+#def ERROR_TYPE_ID_HI = 0
+
+#def ERROR_CODE_NONE = 0
+#def ERROR_CODE_OTHER = 1
+#def ERROR_CODE_NOT_FOUND = 2
+#def ERROR_CODE_PERMISSION_DENIED = 3
+#def ERROR_CODE_INVALID_INPUT = 4
+#def ERROR_CODE_INVALID_DATA = 5
+#def ERROR_CODE_TIMED_OUT = 6
+#def ERROR_CODE_INTERRUPTED = 7
+#def ERROR_CODE_UNSUPPORTED = 8
+#def ERROR_CODE_UNEXPECTED_EOF = 9

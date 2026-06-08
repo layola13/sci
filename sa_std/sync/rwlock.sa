@@ -6,6 +6,82 @@
     store %out_lock+RwLock_writing, 0 as i32
 [END_MACRO]
 
+[MACRO] RWLOCK_READER_COUNT %out_count, %lock_reg
+    %out_count = load %lock_reg+RwLock_readers as i32
+[END_MACRO]
+
+[MACRO] RWLOCK_IS_WRITING %out_bool, %lock_reg
+    __rwlock_writing_state_%out_bool = load %lock_reg+RwLock_writing as i32
+    %out_bool = ne __rwlock_writing_state_%out_bool, 0
+    !__rwlock_writing_state_%out_bool
+[END_MACRO]
+
+[MACRO] RWLOCK_IS_UNLOCKED %out_bool, %lock_reg
+    __rwlock_readers_state_%out_bool = load %lock_reg+RwLock_readers as i32
+    __rwlock_writing_state_%out_bool = load %lock_reg+RwLock_writing as i32
+    __rwlock_no_readers_%out_bool = eq __rwlock_readers_state_%out_bool, 0
+    __rwlock_no_writer_%out_bool = eq __rwlock_writing_state_%out_bool, 0
+    %out_bool = and __rwlock_no_readers_%out_bool, __rwlock_no_writer_%out_bool
+    !__rwlock_no_writer_%out_bool
+    !__rwlock_no_readers_%out_bool
+    !__rwlock_writing_state_%out_bool
+    !__rwlock_readers_state_%out_bool
+[END_MACRO]
+
+[MACRO] RWLOCK_TRY_READ_NOERR %out_ok, %out_guard, %lock_reg
+    __rwlock_read_ok_slot_%out_ok = stack_alloc 8
+    __rwlock_read_guard_slot_%out_ok = stack_alloc 8
+    __rwlock_read_writing_%out_ok = load %lock_reg+RwLock_writing as i32
+    __rwlock_read_can_read_%out_ok = eq __rwlock_read_writing_%out_ok, 0
+    br __rwlock_read_can_read_%out_ok -> L_RWLOCK_READ_NOERR_OK_%out_ok, L_RWLOCK_READ_NOERR_FAIL_%out_ok
+L_RWLOCK_READ_NOERR_OK_%out_ok:
+    __rwlock_read_readers_%out_ok = load %lock_reg+RwLock_readers as i32
+    __rwlock_read_next_%out_ok = add __rwlock_read_readers_%out_ok, 1
+    store %lock_reg+RwLock_readers, __rwlock_read_next_%out_ok as i32
+    store __rwlock_read_guard_slot_%out_ok+0, %lock_reg as ptr
+    store __rwlock_read_ok_slot_%out_ok+0, 1 as u64
+    !__rwlock_read_next_%out_ok
+    !__rwlock_read_readers_%out_ok
+    jmp L_RWLOCK_READ_NOERR_DONE_%out_ok
+L_RWLOCK_READ_NOERR_FAIL_%out_ok:
+    store __rwlock_read_guard_slot_%out_ok+0, 0 as ptr
+    store __rwlock_read_ok_slot_%out_ok+0, 0 as u64
+    jmp L_RWLOCK_READ_NOERR_DONE_%out_ok
+L_RWLOCK_READ_NOERR_DONE_%out_ok:
+    %out_guard = load __rwlock_read_guard_slot_%out_ok+0 as ptr
+    %out_ok = load __rwlock_read_ok_slot_%out_ok+0 as u64
+    !__rwlock_read_can_read_%out_ok
+    !__rwlock_read_writing_%out_ok
+[END_MACRO]
+
+[MACRO] RWLOCK_TRY_WRITE_NOERR %out_ok, %out_guard, %lock_reg
+    __rwlock_write_ok_slot_%out_ok = stack_alloc 8
+    __rwlock_write_guard_slot_%out_ok = stack_alloc 8
+    __rwlock_write_writing_%out_ok = load %lock_reg+RwLock_writing as i32
+    __rwlock_write_readers_%out_ok = load %lock_reg+RwLock_readers as i32
+    __rwlock_write_no_writer_%out_ok = eq __rwlock_write_writing_%out_ok, 0
+    __rwlock_write_no_readers_%out_ok = eq __rwlock_write_readers_%out_ok, 0
+    __rwlock_write_can_write_%out_ok = and __rwlock_write_no_writer_%out_ok, __rwlock_write_no_readers_%out_ok
+    br __rwlock_write_can_write_%out_ok -> L_RWLOCK_WRITE_NOERR_OK_%out_ok, L_RWLOCK_WRITE_NOERR_FAIL_%out_ok
+L_RWLOCK_WRITE_NOERR_OK_%out_ok:
+    store %lock_reg+RwLock_writing, 1 as i32
+    store __rwlock_write_guard_slot_%out_ok+0, %lock_reg as ptr
+    store __rwlock_write_ok_slot_%out_ok+0, 1 as u64
+    jmp L_RWLOCK_WRITE_NOERR_DONE_%out_ok
+L_RWLOCK_WRITE_NOERR_FAIL_%out_ok:
+    store __rwlock_write_guard_slot_%out_ok+0, 0 as ptr
+    store __rwlock_write_ok_slot_%out_ok+0, 0 as u64
+    jmp L_RWLOCK_WRITE_NOERR_DONE_%out_ok
+L_RWLOCK_WRITE_NOERR_DONE_%out_ok:
+    %out_guard = load __rwlock_write_guard_slot_%out_ok+0 as ptr
+    %out_ok = load __rwlock_write_ok_slot_%out_ok+0 as u64
+    !__rwlock_write_can_write_%out_ok
+    !__rwlock_write_no_readers_%out_ok
+    !__rwlock_write_no_writer_%out_ok
+    !__rwlock_write_readers_%out_ok
+    !__rwlock_write_writing_%out_ok
+[END_MACRO]
+
 [MACRO] RWLOCK_TRY_READ %out_ok, %out_guard, %lock_reg, %err_label
     __rwlock_writing_%out_ok = load %lock_reg+RwLock_writing as i32
     __rwlock_can_read_%out_ok = eq __rwlock_writing_%out_ok, 0
@@ -68,5 +144,10 @@ L_RWLOCK_TRY_WRITE_END_%out_ok:
 [END_MACRO]
 
 [MACRO] RWLOCK_RELEASE_WRITE %lock_reg
+    store %lock_reg+RwLock_writing, 0 as i32
+[END_MACRO]
+
+[MACRO] RWLOCK_FORCE_UNLOCKED %lock_reg
+    store %lock_reg+RwLock_readers, 0 as i32
     store %lock_reg+RwLock_writing, 0 as i32
 [END_MACRO]

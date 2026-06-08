@@ -95,3 +95,888 @@ L_ITER_NEXT_END_%out_has:
 [MACRO] ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT %out_has, %out_value, %iter_reg, 8
 [END_MACRO]
+
+[MACRO] ITER_CLONE %out_iter, %iter_reg
+    %out_iter = alloc Iter_SIZE
+    __iter_clone_ptr_%out_iter = load %iter_reg+Iter_ptr as ptr
+    __iter_clone_len_%out_iter = load %iter_reg+Iter_len as u64
+    __iter_clone_index_%out_iter = load %iter_reg+Iter_index as u64
+    store %out_iter+Iter_ptr, __iter_clone_ptr_%out_iter as ptr
+    store %out_iter+Iter_len, __iter_clone_len_%out_iter as u64
+    store %out_iter+Iter_index, __iter_clone_index_%out_iter as u64
+    !__iter_clone_index_%out_iter
+    !__iter_clone_len_%out_iter
+    !__iter_clone_ptr_%out_iter
+[END_MACRO]
+
+[MACRO] ITER_AS_SLICE_U64 %out_slice, %iter_reg
+    __iter_slice_ptr_%out_slice = load %iter_reg+Iter_ptr as ptr
+    __iter_slice_len_%out_slice = load %iter_reg+Iter_len as u64
+    __iter_slice_index_%out_slice = load %iter_reg+Iter_index as u64
+    __iter_slice_off_%out_slice = mul __iter_slice_index_%out_slice, 8
+    __iter_slice_data_%out_slice = ptr_add __iter_slice_ptr_%out_slice, __iter_slice_off_%out_slice
+    __iter_slice_rem_%out_slice = sub __iter_slice_len_%out_slice, __iter_slice_index_%out_slice
+    store %out_slice+Slice_ptr, __iter_slice_data_%out_slice as ptr
+    store %out_slice+Slice_len, __iter_slice_rem_%out_slice as u64
+    !__iter_slice_rem_%out_slice
+    !__iter_slice_data_%out_slice
+    !__iter_slice_off_%out_slice
+    !__iter_slice_index_%out_slice
+    !__iter_slice_len_%out_slice
+    !__iter_slice_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+    __iter_back_ptr_%out_has = load %iter_reg+Iter_ptr as ptr
+    __iter_back_len_%out_has = load %iter_reg+Iter_len as u64
+    __iter_back_index_%out_has = load %iter_reg+Iter_index as u64
+    __iter_back_has_%out_has = ult __iter_back_index_%out_has, __iter_back_len_%out_has
+    br __iter_back_has_%out_has -> L_ITER_NEXT_BACK_SOME_%out_has, L_ITER_NEXT_BACK_NONE_%out_has
+L_ITER_NEXT_BACK_SOME_%out_has:
+    __iter_back_next_len_%out_has = sub __iter_back_len_%out_has, 1
+    __iter_back_off_%out_has = mul __iter_back_next_len_%out_has, 8
+    __iter_back_item_%out_has = ptr_add __iter_back_ptr_%out_has, __iter_back_off_%out_has
+    %out_value = load __iter_back_item_%out_has+0 as u64
+    store %iter_reg+Iter_len, __iter_back_next_len_%out_has as u64
+    %out_has = add 0, 1
+    !__iter_back_item_%out_has
+    !__iter_back_off_%out_has
+    !__iter_back_next_len_%out_has
+    !__iter_back_has_%out_has
+    !__iter_back_index_%out_has
+    !__iter_back_len_%out_has
+    !__iter_back_ptr_%out_has
+    jmp L_ITER_NEXT_BACK_END_%out_has
+L_ITER_NEXT_BACK_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_back_has_%out_has
+    !__iter_back_index_%out_has
+    !__iter_back_len_%out_has
+    !__iter_back_ptr_%out_has
+L_ITER_NEXT_BACK_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+    __iter_nth_len_%out_has = load %iter_reg+Iter_len as u64
+    __iter_nth_index_%out_has = load %iter_reg+Iter_index as u64
+    __iter_nth_remaining_%out_has = sub __iter_nth_len_%out_has, __iter_nth_index_%out_has
+    __iter_nth_ok_%out_has = ult %nth, __iter_nth_remaining_%out_has
+    br __iter_nth_ok_%out_has -> L_ITER_NTH_SOME_%out_has, L_ITER_NTH_NONE_%out_has
+L_ITER_NTH_SOME_%out_has:
+    __iter_nth_target_%out_has = add __iter_nth_index_%out_has, %nth
+    __iter_nth_ptr_%out_has = load %iter_reg+Iter_ptr as ptr
+    __iter_nth_off_%out_has = mul __iter_nth_target_%out_has, 8
+    __iter_nth_item_%out_has = ptr_add __iter_nth_ptr_%out_has, __iter_nth_off_%out_has
+    %out_value = load __iter_nth_item_%out_has+0 as u64
+    __iter_nth_next_%out_has = add __iter_nth_target_%out_has, 1
+    store %iter_reg+Iter_index, __iter_nth_next_%out_has as u64
+    %out_has = add 0, 1
+    !__iter_nth_next_%out_has
+    !__iter_nth_item_%out_has
+    !__iter_nth_off_%out_has
+    !__iter_nth_ptr_%out_has
+    !__iter_nth_target_%out_has
+    !__iter_nth_ok_%out_has
+    !__iter_nth_remaining_%out_has
+    !__iter_nth_index_%out_has
+    !__iter_nth_len_%out_has
+    jmp L_ITER_NTH_END_%out_has
+L_ITER_NTH_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    store %iter_reg+Iter_index, __iter_nth_len_%out_has as u64
+    !__iter_nth_ok_%out_has
+    !__iter_nth_remaining_%out_has
+    !__iter_nth_index_%out_has
+    !__iter_nth_len_%out_has
+L_ITER_NTH_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_COUNT %out_count, %iter_reg
+    __iter_count_len_%out_count = load %iter_reg+Iter_len as u64
+    __iter_count_index_%out_count = load %iter_reg+Iter_index as u64
+    %out_count = sub __iter_count_len_%out_count, __iter_count_index_%out_count
+    store %iter_reg+Iter_index, __iter_count_len_%out_count as u64
+    !__iter_count_index_%out_count
+    !__iter_count_len_%out_count
+[END_MACRO]
+
+[MACRO] ITER_LAST_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+    __iter_last_len_%out_has = load %iter_reg+Iter_len as u64
+    store %iter_reg+Iter_index, __iter_last_len_%out_has as u64
+    !__iter_last_len_%out_has
+[END_MACRO]
+
+[MACRO] ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+    jmp L_ITER_FIND_HEAD_%out_has
+L_ITER_FIND_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_find_has_%out_has, __iter_find_value_%out_has, %iter_reg
+    br __iter_find_has_%out_has -> L_ITER_FIND_CHECK_%out_has, L_ITER_FIND_NONE_%out_has
+L_ITER_FIND_CHECK_%out_has:
+    __iter_find_pred_%out_has = call %pred_fn(__iter_find_value_%out_has)
+    __iter_find_match_%out_has = ne __iter_find_pred_%out_has, 0
+    br __iter_find_match_%out_has -> L_ITER_FIND_SOME_%out_has, L_ITER_FIND_NEXT_%out_has
+L_ITER_FIND_NEXT_%out_has:
+    !__iter_find_match_%out_has
+    !__iter_find_pred_%out_has
+    !__iter_find_value_%out_has
+    !__iter_find_has_%out_has
+    jmp L_ITER_FIND_HEAD_%out_has
+L_ITER_FIND_SOME_%out_has:
+    %out_value = add __iter_find_value_%out_has, 0
+    %out_has = add 0, 1
+    !__iter_find_match_%out_has
+    !__iter_find_pred_%out_has
+    !__iter_find_value_%out_has
+    !__iter_find_has_%out_has
+    jmp L_ITER_FIND_END_%out_has
+L_ITER_FIND_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_find_value_%out_has
+    !__iter_find_has_%out_has
+L_ITER_FIND_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+    __iter_pos_base_%out_has = load %iter_reg+Iter_index as u64
+    jmp L_ITER_POSITION_HEAD_%out_has
+L_ITER_POSITION_HEAD_%out_has:
+    __iter_pos_before_%out_has = load %iter_reg+Iter_index as u64
+    EXPAND ITER_NEXT_U64 __iter_pos_has_%out_has, __iter_pos_value_%out_has, %iter_reg
+    br __iter_pos_has_%out_has -> L_ITER_POSITION_CHECK_%out_has, L_ITER_POSITION_NONE_%out_has
+L_ITER_POSITION_CHECK_%out_has:
+    __iter_pos_pred_%out_has = call %pred_fn(__iter_pos_value_%out_has)
+    __iter_pos_match_%out_has = ne __iter_pos_pred_%out_has, 0
+    br __iter_pos_match_%out_has -> L_ITER_POSITION_SOME_%out_has, L_ITER_POSITION_NEXT_%out_has
+L_ITER_POSITION_NEXT_%out_has:
+    !__iter_pos_match_%out_has
+    !__iter_pos_pred_%out_has
+    !__iter_pos_value_%out_has
+    !__iter_pos_has_%out_has
+    !__iter_pos_before_%out_has
+    jmp L_ITER_POSITION_HEAD_%out_has
+L_ITER_POSITION_SOME_%out_has:
+    %out_index = sub __iter_pos_before_%out_has, __iter_pos_base_%out_has
+    %out_has = add 0, 1
+    !__iter_pos_match_%out_has
+    !__iter_pos_pred_%out_has
+    !__iter_pos_value_%out_has
+    !__iter_pos_has_%out_has
+    !__iter_pos_before_%out_has
+    !__iter_pos_base_%out_has
+    jmp L_ITER_POSITION_END_%out_has
+L_ITER_POSITION_NONE_%out_has:
+    %out_index = add 0, 0
+    %out_has = add 0, 0
+    !__iter_pos_value_%out_has
+    !__iter_pos_has_%out_has
+    !__iter_pos_before_%out_has
+    !__iter_pos_base_%out_has
+L_ITER_POSITION_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+    __iter_rpos_base_%out_has = load %iter_reg+Iter_index as u64
+    jmp L_ITER_RPOSITION_HEAD_%out_has
+L_ITER_RPOSITION_HEAD_%out_has:
+    __iter_rpos_len_before_%out_has = load %iter_reg+Iter_len as u64
+    EXPAND ITER_NEXT_BACK_U64 __iter_rpos_has_%out_has, __iter_rpos_value_%out_has, %iter_reg
+    br __iter_rpos_has_%out_has -> L_ITER_RPOSITION_CHECK_%out_has, L_ITER_RPOSITION_NONE_%out_has
+L_ITER_RPOSITION_CHECK_%out_has:
+    __iter_rpos_pred_%out_has = call %pred_fn(__iter_rpos_value_%out_has)
+    __iter_rpos_match_%out_has = ne __iter_rpos_pred_%out_has, 0
+    br __iter_rpos_match_%out_has -> L_ITER_RPOSITION_SOME_%out_has, L_ITER_RPOSITION_NEXT_%out_has
+L_ITER_RPOSITION_NEXT_%out_has:
+    !__iter_rpos_match_%out_has
+    !__iter_rpos_pred_%out_has
+    !__iter_rpos_value_%out_has
+    !__iter_rpos_has_%out_has
+    !__iter_rpos_len_before_%out_has
+    jmp L_ITER_RPOSITION_HEAD_%out_has
+L_ITER_RPOSITION_SOME_%out_has:
+    __iter_rpos_match_index_%out_has = sub __iter_rpos_len_before_%out_has, 1
+    %out_index = sub __iter_rpos_match_index_%out_has, __iter_rpos_base_%out_has
+    %out_has = add 0, 1
+    !__iter_rpos_match_index_%out_has
+    !__iter_rpos_match_%out_has
+    !__iter_rpos_pred_%out_has
+    !__iter_rpos_value_%out_has
+    !__iter_rpos_has_%out_has
+    !__iter_rpos_len_before_%out_has
+    !__iter_rpos_base_%out_has
+    jmp L_ITER_RPOSITION_END_%out_has
+L_ITER_RPOSITION_NONE_%out_has:
+    %out_index = add 0, 0
+    %out_has = add 0, 0
+    !__iter_rpos_value_%out_has
+    !__iter_rpos_has_%out_has
+    !__iter_rpos_len_before_%out_has
+    !__iter_rpos_base_%out_has
+L_ITER_RPOSITION_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+    jmp L_ITER_ANY_HEAD_%out_bool
+L_ITER_ANY_HEAD_%out_bool:
+    EXPAND ITER_NEXT_U64 __iter_any_has_%out_bool, __iter_any_value_%out_bool, %iter_reg
+    br __iter_any_has_%out_bool -> L_ITER_ANY_CHECK_%out_bool, L_ITER_ANY_FALSE_%out_bool
+L_ITER_ANY_CHECK_%out_bool:
+    __iter_any_pred_%out_bool = call %pred_fn(__iter_any_value_%out_bool)
+    __iter_any_match_%out_bool = ne __iter_any_pred_%out_bool, 0
+    br __iter_any_match_%out_bool -> L_ITER_ANY_TRUE_%out_bool, L_ITER_ANY_NEXT_%out_bool
+L_ITER_ANY_NEXT_%out_bool:
+    !__iter_any_match_%out_bool
+    !__iter_any_pred_%out_bool
+    !__iter_any_value_%out_bool
+    !__iter_any_has_%out_bool
+    jmp L_ITER_ANY_HEAD_%out_bool
+L_ITER_ANY_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__iter_any_match_%out_bool
+    !__iter_any_pred_%out_bool
+    !__iter_any_value_%out_bool
+    !__iter_any_has_%out_bool
+    jmp L_ITER_ANY_END_%out_bool
+L_ITER_ANY_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__iter_any_value_%out_bool
+    !__iter_any_has_%out_bool
+L_ITER_ANY_END_%out_bool:
+[END_MACRO]
+
+[MACRO] ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+    jmp L_ITER_ALL_HEAD_%out_bool
+L_ITER_ALL_HEAD_%out_bool:
+    EXPAND ITER_NEXT_U64 __iter_all_has_%out_bool, __iter_all_value_%out_bool, %iter_reg
+    br __iter_all_has_%out_bool -> L_ITER_ALL_CHECK_%out_bool, L_ITER_ALL_TRUE_%out_bool
+L_ITER_ALL_CHECK_%out_bool:
+    __iter_all_pred_%out_bool = call %pred_fn(__iter_all_value_%out_bool)
+    __iter_all_match_%out_bool = ne __iter_all_pred_%out_bool, 0
+    br __iter_all_match_%out_bool -> L_ITER_ALL_NEXT_%out_bool, L_ITER_ALL_FALSE_%out_bool
+L_ITER_ALL_NEXT_%out_bool:
+    !__iter_all_match_%out_bool
+    !__iter_all_pred_%out_bool
+    !__iter_all_value_%out_bool
+    !__iter_all_has_%out_bool
+    jmp L_ITER_ALL_HEAD_%out_bool
+L_ITER_ALL_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__iter_all_match_%out_bool
+    !__iter_all_pred_%out_bool
+    !__iter_all_value_%out_bool
+    !__iter_all_has_%out_bool
+    jmp L_ITER_ALL_END_%out_bool
+L_ITER_ALL_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__iter_all_value_%out_bool
+    !__iter_all_has_%out_bool
+L_ITER_ALL_END_%out_bool:
+[END_MACRO]
+
+[MACRO] ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    __iter_fold_acc_slot_%out_value = stack_alloc 8
+    store __iter_fold_acc_slot_%out_value+0, %init_value as u64
+    jmp L_ITER_FOLD_HEAD_%out_value
+L_ITER_FOLD_HEAD_%out_value:
+    EXPAND ITER_NEXT_U64 __iter_fold_has_%out_value, __iter_fold_value_%out_value, %iter_reg
+    br __iter_fold_has_%out_value -> L_ITER_FOLD_BODY_%out_value, L_ITER_FOLD_DONE_%out_value
+L_ITER_FOLD_BODY_%out_value:
+    __iter_fold_acc_%out_value = load __iter_fold_acc_slot_%out_value+0 as u64
+    __iter_fold_next_%out_value = call %fold_fn(__iter_fold_acc_%out_value, __iter_fold_value_%out_value)
+    store __iter_fold_acc_slot_%out_value+0, __iter_fold_next_%out_value as u64
+    !__iter_fold_next_%out_value
+    !__iter_fold_acc_%out_value
+    !__iter_fold_value_%out_value
+    !__iter_fold_has_%out_value
+    jmp L_ITER_FOLD_HEAD_%out_value
+L_ITER_FOLD_DONE_%out_value:
+    %out_value = load __iter_fold_acc_slot_%out_value+0 as u64
+    !__iter_fold_value_%out_value
+    !__iter_fold_has_%out_value
+[END_MACRO]
+
+[MACRO] ITER_SUM_U64 %out_value, %iter_reg
+    __iter_sum_slot_%out_value = stack_alloc 8
+    store __iter_sum_slot_%out_value+0, 0 as u64
+    jmp L_ITER_SUM_HEAD_%out_value
+L_ITER_SUM_HEAD_%out_value:
+    EXPAND ITER_NEXT_U64 __iter_sum_has_%out_value, __iter_sum_value_%out_value, %iter_reg
+    br __iter_sum_has_%out_value -> L_ITER_SUM_BODY_%out_value, L_ITER_SUM_DONE_%out_value
+L_ITER_SUM_BODY_%out_value:
+    __iter_sum_acc_%out_value = load __iter_sum_slot_%out_value+0 as u64
+    __iter_sum_next_%out_value = add __iter_sum_acc_%out_value, __iter_sum_value_%out_value
+    store __iter_sum_slot_%out_value+0, __iter_sum_next_%out_value as u64
+    !__iter_sum_next_%out_value
+    !__iter_sum_acc_%out_value
+    !__iter_sum_value_%out_value
+    !__iter_sum_has_%out_value
+    jmp L_ITER_SUM_HEAD_%out_value
+L_ITER_SUM_DONE_%out_value:
+    %out_value = load __iter_sum_slot_%out_value+0 as u64
+    !__iter_sum_value_%out_value
+    !__iter_sum_has_%out_value
+[END_MACRO]
+
+[MACRO] ITER_PRODUCT_U64 %out_value, %iter_reg
+    __iter_product_slot_%out_value = stack_alloc 8
+    store __iter_product_slot_%out_value+0, 1 as u64
+    jmp L_ITER_PRODUCT_HEAD_%out_value
+L_ITER_PRODUCT_HEAD_%out_value:
+    EXPAND ITER_NEXT_U64 __iter_product_has_%out_value, __iter_product_value_%out_value, %iter_reg
+    br __iter_product_has_%out_value -> L_ITER_PRODUCT_BODY_%out_value, L_ITER_PRODUCT_DONE_%out_value
+L_ITER_PRODUCT_BODY_%out_value:
+    __iter_product_acc_%out_value = load __iter_product_slot_%out_value+0 as u64
+    __iter_product_next_%out_value = mul __iter_product_acc_%out_value, __iter_product_value_%out_value
+    store __iter_product_slot_%out_value+0, __iter_product_next_%out_value as u64
+    !__iter_product_next_%out_value
+    !__iter_product_acc_%out_value
+    !__iter_product_value_%out_value
+    !__iter_product_has_%out_value
+    jmp L_ITER_PRODUCT_HEAD_%out_value
+L_ITER_PRODUCT_DONE_%out_value:
+    %out_value = load __iter_product_slot_%out_value+0 as u64
+    !__iter_product_value_%out_value
+    !__iter_product_has_%out_value
+[END_MACRO]
+
+[MACRO] ITER_MIN_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_U64 __iter_min_has_%out_has, __iter_min_value_%out_has, %iter_reg
+    br __iter_min_has_%out_has -> L_ITER_MIN_INIT_%out_has, L_ITER_MIN_NONE_%out_has
+L_ITER_MIN_INIT_%out_has:
+    __iter_min_slot_%out_has = stack_alloc 8
+    store __iter_min_slot_%out_has+0, __iter_min_value_%out_has as u64
+    !__iter_min_value_%out_has
+    !__iter_min_has_%out_has
+    jmp L_ITER_MIN_HEAD_%out_has
+L_ITER_MIN_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_min_next_has_%out_has, __iter_min_next_value_%out_has, %iter_reg
+    br __iter_min_next_has_%out_has -> L_ITER_MIN_BODY_%out_has, L_ITER_MIN_DONE_%out_has
+L_ITER_MIN_BODY_%out_has:
+    __iter_min_current_%out_has = load __iter_min_slot_%out_has+0 as u64
+    __iter_min_less_%out_has = ult __iter_min_next_value_%out_has, __iter_min_current_%out_has
+    br __iter_min_less_%out_has -> L_ITER_MIN_STORE_%out_has, L_ITER_MIN_KEEP_%out_has
+L_ITER_MIN_STORE_%out_has:
+    store __iter_min_slot_%out_has+0, __iter_min_next_value_%out_has as u64
+    jmp L_ITER_MIN_NEXT_%out_has
+L_ITER_MIN_KEEP_%out_has:
+    jmp L_ITER_MIN_NEXT_%out_has
+L_ITER_MIN_NEXT_%out_has:
+    !__iter_min_less_%out_has
+    !__iter_min_current_%out_has
+    !__iter_min_next_value_%out_has
+    !__iter_min_next_has_%out_has
+    jmp L_ITER_MIN_HEAD_%out_has
+L_ITER_MIN_DONE_%out_has:
+    %out_value = load __iter_min_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_min_next_value_%out_has
+    !__iter_min_next_has_%out_has
+    jmp L_ITER_MIN_END_%out_has
+L_ITER_MIN_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_min_value_%out_has
+    !__iter_min_has_%out_has
+L_ITER_MIN_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_MAX_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_U64 __iter_max_has_%out_has, __iter_max_value_%out_has, %iter_reg
+    br __iter_max_has_%out_has -> L_ITER_MAX_INIT_%out_has, L_ITER_MAX_NONE_%out_has
+L_ITER_MAX_INIT_%out_has:
+    __iter_max_slot_%out_has = stack_alloc 8
+    store __iter_max_slot_%out_has+0, __iter_max_value_%out_has as u64
+    !__iter_max_value_%out_has
+    !__iter_max_has_%out_has
+    jmp L_ITER_MAX_HEAD_%out_has
+L_ITER_MAX_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_max_next_has_%out_has, __iter_max_next_value_%out_has, %iter_reg
+    br __iter_max_next_has_%out_has -> L_ITER_MAX_BODY_%out_has, L_ITER_MAX_DONE_%out_has
+L_ITER_MAX_BODY_%out_has:
+    __iter_max_current_%out_has = load __iter_max_slot_%out_has+0 as u64
+    __iter_max_greater_%out_has = ugt __iter_max_next_value_%out_has, __iter_max_current_%out_has
+    br __iter_max_greater_%out_has -> L_ITER_MAX_STORE_%out_has, L_ITER_MAX_KEEP_%out_has
+L_ITER_MAX_STORE_%out_has:
+    store __iter_max_slot_%out_has+0, __iter_max_next_value_%out_has as u64
+    jmp L_ITER_MAX_NEXT_%out_has
+L_ITER_MAX_KEEP_%out_has:
+    jmp L_ITER_MAX_NEXT_%out_has
+L_ITER_MAX_NEXT_%out_has:
+    !__iter_max_greater_%out_has
+    !__iter_max_current_%out_has
+    !__iter_max_next_value_%out_has
+    !__iter_max_next_has_%out_has
+    jmp L_ITER_MAX_HEAD_%out_has
+L_ITER_MAX_DONE_%out_has:
+    %out_value = load __iter_max_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_max_next_value_%out_has
+    !__iter_max_next_has_%out_has
+    jmp L_ITER_MAX_END_%out_has
+L_ITER_MAX_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_max_value_%out_has
+    !__iter_max_has_%out_has
+L_ITER_MAX_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND ITER_LEN %out_lower, %iter_reg
+    %out_upper = add %out_lower, 0
+[END_MACRO]
+
+[MACRO] ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
+    __iter_adv_len_%out_ok = load %iter_reg+Iter_len as u64
+    __iter_adv_index_%out_ok = load %iter_reg+Iter_index as u64
+    __iter_adv_remaining_%out_ok = sub __iter_adv_len_%out_ok, __iter_adv_index_%out_ok
+    __iter_adv_can_%out_ok = ule %count, __iter_adv_remaining_%out_ok
+    br __iter_adv_can_%out_ok -> L_ITER_ADVANCE_BY_OK_%out_ok, L_ITER_ADVANCE_BY_SHORT_%out_ok
+L_ITER_ADVANCE_BY_OK_%out_ok:
+    __iter_adv_next_%out_ok = add __iter_adv_index_%out_ok, %count
+    store %iter_reg+Iter_index, __iter_adv_next_%out_ok as u64
+    %out_remaining = add 0, 0
+    %out_ok = add 0, 1
+    !__iter_adv_next_%out_ok
+    !__iter_adv_can_%out_ok
+    !__iter_adv_remaining_%out_ok
+    !__iter_adv_index_%out_ok
+    !__iter_adv_len_%out_ok
+    jmp L_ITER_ADVANCE_BY_END_%out_ok
+L_ITER_ADVANCE_BY_SHORT_%out_ok:
+    %out_remaining = sub %count, __iter_adv_remaining_%out_ok
+    store %iter_reg+Iter_index, __iter_adv_len_%out_ok as u64
+    %out_ok = add 0, 0
+    !__iter_adv_can_%out_ok
+    !__iter_adv_remaining_%out_ok
+    !__iter_adv_index_%out_ok
+    !__iter_adv_len_%out_ok
+L_ITER_ADVANCE_BY_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ITER_ADVANCE_BACK_BY %out_ok, %out_remaining, %iter_reg, %count
+    __iter_adv_back_len_%out_ok = load %iter_reg+Iter_len as u64
+    __iter_adv_back_index_%out_ok = load %iter_reg+Iter_index as u64
+    __iter_adv_back_remaining_%out_ok = sub __iter_adv_back_len_%out_ok, __iter_adv_back_index_%out_ok
+    __iter_adv_back_can_%out_ok = ule %count, __iter_adv_back_remaining_%out_ok
+    br __iter_adv_back_can_%out_ok -> L_ITER_ADVANCE_BACK_BY_OK_%out_ok, L_ITER_ADVANCE_BACK_BY_SHORT_%out_ok
+L_ITER_ADVANCE_BACK_BY_OK_%out_ok:
+    __iter_adv_back_next_len_%out_ok = sub __iter_adv_back_len_%out_ok, %count
+    store %iter_reg+Iter_len, __iter_adv_back_next_len_%out_ok as u64
+    %out_remaining = add 0, 0
+    %out_ok = add 0, 1
+    !__iter_adv_back_next_len_%out_ok
+    !__iter_adv_back_can_%out_ok
+    !__iter_adv_back_remaining_%out_ok
+    !__iter_adv_back_index_%out_ok
+    !__iter_adv_back_len_%out_ok
+    jmp L_ITER_ADVANCE_BACK_BY_END_%out_ok
+L_ITER_ADVANCE_BACK_BY_SHORT_%out_ok:
+    %out_remaining = sub %count, __iter_adv_back_remaining_%out_ok
+    store %iter_reg+Iter_len, __iter_adv_back_index_%out_ok as u64
+    %out_ok = add 0, 0
+    !__iter_adv_back_can_%out_ok
+    !__iter_adv_back_remaining_%out_ok
+    !__iter_adv_back_index_%out_ok
+    !__iter_adv_back_len_%out_ok
+L_ITER_ADVANCE_BACK_BY_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
+    __iter_nth_back_len_%out_has = load %iter_reg+Iter_len as u64
+    __iter_nth_back_index_%out_has = load %iter_reg+Iter_index as u64
+    __iter_nth_back_remaining_%out_has = sub __iter_nth_back_len_%out_has, __iter_nth_back_index_%out_has
+    __iter_nth_back_ok_%out_has = ult %nth, __iter_nth_back_remaining_%out_has
+    br __iter_nth_back_ok_%out_has -> L_ITER_NTH_BACK_SOME_%out_has, L_ITER_NTH_BACK_NONE_%out_has
+L_ITER_NTH_BACK_SOME_%out_has:
+    __iter_nth_back_skip_%out_has = add %nth, 1
+    __iter_nth_back_target_%out_has = sub __iter_nth_back_len_%out_has, __iter_nth_back_skip_%out_has
+    __iter_nth_back_ptr_%out_has = load %iter_reg+Iter_ptr as ptr
+    __iter_nth_back_off_%out_has = mul __iter_nth_back_target_%out_has, 8
+    __iter_nth_back_item_%out_has = ptr_add __iter_nth_back_ptr_%out_has, __iter_nth_back_off_%out_has
+    %out_value = load __iter_nth_back_item_%out_has+0 as u64
+    store %iter_reg+Iter_len, __iter_nth_back_target_%out_has as u64
+    %out_has = add 0, 1
+    !__iter_nth_back_item_%out_has
+    !__iter_nth_back_off_%out_has
+    !__iter_nth_back_ptr_%out_has
+    !__iter_nth_back_target_%out_has
+    !__iter_nth_back_skip_%out_has
+    !__iter_nth_back_ok_%out_has
+    !__iter_nth_back_remaining_%out_has
+    !__iter_nth_back_index_%out_has
+    !__iter_nth_back_len_%out_has
+    jmp L_ITER_NTH_BACK_END_%out_has
+L_ITER_NTH_BACK_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    store %iter_reg+Iter_len, __iter_nth_back_index_%out_has as u64
+    !__iter_nth_back_ok_%out_has
+    !__iter_nth_back_remaining_%out_has
+    !__iter_nth_back_index_%out_has
+    !__iter_nth_back_len_%out_has
+L_ITER_NTH_BACK_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+    jmp L_ITER_RFIND_HEAD_%out_has
+L_ITER_RFIND_HEAD_%out_has:
+    EXPAND ITER_NEXT_BACK_U64 __iter_rfind_has_%out_has, __iter_rfind_value_%out_has, %iter_reg
+    br __iter_rfind_has_%out_has -> L_ITER_RFIND_CHECK_%out_has, L_ITER_RFIND_NONE_%out_has
+L_ITER_RFIND_CHECK_%out_has:
+    __iter_rfind_pred_%out_has = call %pred_fn(__iter_rfind_value_%out_has)
+    __iter_rfind_match_%out_has = ne __iter_rfind_pred_%out_has, 0
+    br __iter_rfind_match_%out_has -> L_ITER_RFIND_SOME_%out_has, L_ITER_RFIND_NEXT_%out_has
+L_ITER_RFIND_NEXT_%out_has:
+    !__iter_rfind_match_%out_has
+    !__iter_rfind_pred_%out_has
+    !__iter_rfind_value_%out_has
+    !__iter_rfind_has_%out_has
+    jmp L_ITER_RFIND_HEAD_%out_has
+L_ITER_RFIND_SOME_%out_has:
+    %out_value = add __iter_rfind_value_%out_has, 0
+    %out_has = add 0, 1
+    !__iter_rfind_match_%out_has
+    !__iter_rfind_pred_%out_has
+    !__iter_rfind_value_%out_has
+    !__iter_rfind_has_%out_has
+    jmp L_ITER_RFIND_END_%out_has
+L_ITER_RFIND_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_rfind_value_%out_has
+    !__iter_rfind_has_%out_has
+L_ITER_RFIND_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND ITER_NEXT_U64 __iter_reduce_has_%out_has, __iter_reduce_first_%out_has, %iter_reg
+    br __iter_reduce_has_%out_has -> L_ITER_REDUCE_INIT_%out_has, L_ITER_REDUCE_NONE_%out_has
+L_ITER_REDUCE_INIT_%out_has:
+    __iter_reduce_slot_%out_has = stack_alloc 8
+    store __iter_reduce_slot_%out_has+0, __iter_reduce_first_%out_has as u64
+    !__iter_reduce_first_%out_has
+    !__iter_reduce_has_%out_has
+    jmp L_ITER_REDUCE_HEAD_%out_has
+L_ITER_REDUCE_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_reduce_next_has_%out_has, __iter_reduce_next_value_%out_has, %iter_reg
+    br __iter_reduce_next_has_%out_has -> L_ITER_REDUCE_BODY_%out_has, L_ITER_REDUCE_DONE_%out_has
+L_ITER_REDUCE_BODY_%out_has:
+    __iter_reduce_acc_%out_has = load __iter_reduce_slot_%out_has+0 as u64
+    __iter_reduce_next_acc_%out_has = call %reduce_fn(__iter_reduce_acc_%out_has, __iter_reduce_next_value_%out_has)
+    store __iter_reduce_slot_%out_has+0, __iter_reduce_next_acc_%out_has as u64
+    !__iter_reduce_next_acc_%out_has
+    !__iter_reduce_acc_%out_has
+    !__iter_reduce_next_value_%out_has
+    !__iter_reduce_next_has_%out_has
+    jmp L_ITER_REDUCE_HEAD_%out_has
+L_ITER_REDUCE_DONE_%out_has:
+    %out_value = load __iter_reduce_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_reduce_next_value_%out_has
+    !__iter_reduce_next_has_%out_has
+    jmp L_ITER_REDUCE_END_%out_has
+L_ITER_REDUCE_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_reduce_first_%out_has
+    !__iter_reduce_has_%out_has
+L_ITER_REDUCE_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_FOR_EACH_U64 %iter_reg, %each_fn
+    jmp L_ITER_FOR_EACH_HEAD_%iter_reg
+L_ITER_FOR_EACH_HEAD_%iter_reg:
+    EXPAND ITER_NEXT_U64 __iter_each_has_%iter_reg, __iter_each_value_%iter_reg, %iter_reg
+    br __iter_each_has_%iter_reg -> L_ITER_FOR_EACH_BODY_%iter_reg, L_ITER_FOR_EACH_DONE_%iter_reg
+L_ITER_FOR_EACH_BODY_%iter_reg:
+    __iter_each_result_%iter_reg = call %each_fn(__iter_each_value_%iter_reg)
+    !__iter_each_result_%iter_reg
+    !__iter_each_value_%iter_reg
+    !__iter_each_has_%iter_reg
+    jmp L_ITER_FOR_EACH_HEAD_%iter_reg
+L_ITER_FOR_EACH_DONE_%iter_reg:
+    !__iter_each_value_%iter_reg
+    !__iter_each_has_%iter_reg
+[END_MACRO]
+
+[MACRO] ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND ITER_NEXT_U64 __iter_min_by_has_%out_has, __iter_min_by_value_%out_has, %iter_reg
+    br __iter_min_by_has_%out_has -> L_ITER_MIN_BY_INIT_%out_has, L_ITER_MIN_BY_NONE_%out_has
+L_ITER_MIN_BY_INIT_%out_has:
+    __iter_min_by_slot_%out_has = stack_alloc 8
+    store __iter_min_by_slot_%out_has+0, __iter_min_by_value_%out_has as u64
+    !__iter_min_by_value_%out_has
+    !__iter_min_by_has_%out_has
+    jmp L_ITER_MIN_BY_HEAD_%out_has
+L_ITER_MIN_BY_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_min_by_next_has_%out_has, __iter_min_by_next_value_%out_has, %iter_reg
+    br __iter_min_by_next_has_%out_has -> L_ITER_MIN_BY_BODY_%out_has, L_ITER_MIN_BY_DONE_%out_has
+L_ITER_MIN_BY_BODY_%out_has:
+    __iter_min_by_current_%out_has = load __iter_min_by_slot_%out_has+0 as u64
+    __iter_min_by_order_%out_has = call %compare_fn(__iter_min_by_next_value_%out_has, __iter_min_by_current_%out_has)
+    __iter_min_by_take_%out_has = slt __iter_min_by_order_%out_has, 0
+    br __iter_min_by_take_%out_has -> L_ITER_MIN_BY_STORE_%out_has, L_ITER_MIN_BY_KEEP_%out_has
+L_ITER_MIN_BY_STORE_%out_has:
+    store __iter_min_by_slot_%out_has+0, __iter_min_by_next_value_%out_has as u64
+    jmp L_ITER_MIN_BY_NEXT_%out_has
+L_ITER_MIN_BY_KEEP_%out_has:
+    jmp L_ITER_MIN_BY_NEXT_%out_has
+L_ITER_MIN_BY_NEXT_%out_has:
+    !__iter_min_by_take_%out_has
+    !__iter_min_by_order_%out_has
+    !__iter_min_by_current_%out_has
+    !__iter_min_by_next_value_%out_has
+    !__iter_min_by_next_has_%out_has
+    jmp L_ITER_MIN_BY_HEAD_%out_has
+L_ITER_MIN_BY_DONE_%out_has:
+    %out_value = load __iter_min_by_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_min_by_next_value_%out_has
+    !__iter_min_by_next_has_%out_has
+    jmp L_ITER_MIN_BY_END_%out_has
+L_ITER_MIN_BY_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_min_by_value_%out_has
+    !__iter_min_by_has_%out_has
+L_ITER_MIN_BY_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND ITER_NEXT_U64 __iter_max_by_has_%out_has, __iter_max_by_value_%out_has, %iter_reg
+    br __iter_max_by_has_%out_has -> L_ITER_MAX_BY_INIT_%out_has, L_ITER_MAX_BY_NONE_%out_has
+L_ITER_MAX_BY_INIT_%out_has:
+    __iter_max_by_slot_%out_has = stack_alloc 8
+    store __iter_max_by_slot_%out_has+0, __iter_max_by_value_%out_has as u64
+    !__iter_max_by_value_%out_has
+    !__iter_max_by_has_%out_has
+    jmp L_ITER_MAX_BY_HEAD_%out_has
+L_ITER_MAX_BY_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_max_by_next_has_%out_has, __iter_max_by_next_value_%out_has, %iter_reg
+    br __iter_max_by_next_has_%out_has -> L_ITER_MAX_BY_BODY_%out_has, L_ITER_MAX_BY_DONE_%out_has
+L_ITER_MAX_BY_BODY_%out_has:
+    __iter_max_by_current_%out_has = load __iter_max_by_slot_%out_has+0 as u64
+    __iter_max_by_order_%out_has = call %compare_fn(__iter_max_by_next_value_%out_has, __iter_max_by_current_%out_has)
+    __iter_max_by_take_%out_has = sgt __iter_max_by_order_%out_has, 0
+    br __iter_max_by_take_%out_has -> L_ITER_MAX_BY_STORE_%out_has, L_ITER_MAX_BY_KEEP_%out_has
+L_ITER_MAX_BY_STORE_%out_has:
+    store __iter_max_by_slot_%out_has+0, __iter_max_by_next_value_%out_has as u64
+    jmp L_ITER_MAX_BY_NEXT_%out_has
+L_ITER_MAX_BY_KEEP_%out_has:
+    jmp L_ITER_MAX_BY_NEXT_%out_has
+L_ITER_MAX_BY_NEXT_%out_has:
+    !__iter_max_by_take_%out_has
+    !__iter_max_by_order_%out_has
+    !__iter_max_by_current_%out_has
+    !__iter_max_by_next_value_%out_has
+    !__iter_max_by_next_has_%out_has
+    jmp L_ITER_MAX_BY_HEAD_%out_has
+L_ITER_MAX_BY_DONE_%out_has:
+    %out_value = load __iter_max_by_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_max_by_next_value_%out_has
+    !__iter_max_by_next_has_%out_has
+    jmp L_ITER_MAX_BY_END_%out_has
+L_ITER_MAX_BY_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_max_by_value_%out_has
+    !__iter_max_by_has_%out_has
+L_ITER_MAX_BY_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND ITER_NEXT_U64 __iter_min_key_has_%out_has, __iter_min_key_value_%out_has, %iter_reg
+    br __iter_min_key_has_%out_has -> L_ITER_MIN_KEY_INIT_%out_has, L_ITER_MIN_KEY_NONE_%out_has
+L_ITER_MIN_KEY_INIT_%out_has:
+    __iter_min_key_slot_%out_has = stack_alloc 8
+    store __iter_min_key_slot_%out_has+0, __iter_min_key_value_%out_has as u64
+    !__iter_min_key_value_%out_has
+    !__iter_min_key_has_%out_has
+    jmp L_ITER_MIN_KEY_HEAD_%out_has
+L_ITER_MIN_KEY_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_min_key_next_has_%out_has, __iter_min_key_next_value_%out_has, %iter_reg
+    br __iter_min_key_next_has_%out_has -> L_ITER_MIN_KEY_BODY_%out_has, L_ITER_MIN_KEY_DONE_%out_has
+L_ITER_MIN_KEY_BODY_%out_has:
+    __iter_min_key_current_%out_has = load __iter_min_key_slot_%out_has+0 as u64
+    __iter_min_key_current_key_%out_has = call %key_fn(__iter_min_key_current_%out_has)
+    __iter_min_key_next_key_%out_has = call %key_fn(__iter_min_key_next_value_%out_has)
+    __iter_min_key_take_%out_has = ult __iter_min_key_next_key_%out_has, __iter_min_key_current_key_%out_has
+    br __iter_min_key_take_%out_has -> L_ITER_MIN_KEY_STORE_%out_has, L_ITER_MIN_KEY_KEEP_%out_has
+L_ITER_MIN_KEY_STORE_%out_has:
+    store __iter_min_key_slot_%out_has+0, __iter_min_key_next_value_%out_has as u64
+    jmp L_ITER_MIN_KEY_NEXT_%out_has
+L_ITER_MIN_KEY_KEEP_%out_has:
+    jmp L_ITER_MIN_KEY_NEXT_%out_has
+L_ITER_MIN_KEY_NEXT_%out_has:
+    !__iter_min_key_take_%out_has
+    !__iter_min_key_next_key_%out_has
+    !__iter_min_key_current_key_%out_has
+    !__iter_min_key_current_%out_has
+    !__iter_min_key_next_value_%out_has
+    !__iter_min_key_next_has_%out_has
+    jmp L_ITER_MIN_KEY_HEAD_%out_has
+L_ITER_MIN_KEY_DONE_%out_has:
+    %out_value = load __iter_min_key_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_min_key_next_value_%out_has
+    !__iter_min_key_next_has_%out_has
+    jmp L_ITER_MIN_KEY_END_%out_has
+L_ITER_MIN_KEY_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_min_key_value_%out_has
+    !__iter_min_key_has_%out_has
+L_ITER_MIN_KEY_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND ITER_NEXT_U64 __iter_max_key_has_%out_has, __iter_max_key_value_%out_has, %iter_reg
+    br __iter_max_key_has_%out_has -> L_ITER_MAX_KEY_INIT_%out_has, L_ITER_MAX_KEY_NONE_%out_has
+L_ITER_MAX_KEY_INIT_%out_has:
+    __iter_max_key_slot_%out_has = stack_alloc 8
+    store __iter_max_key_slot_%out_has+0, __iter_max_key_value_%out_has as u64
+    !__iter_max_key_value_%out_has
+    !__iter_max_key_has_%out_has
+    jmp L_ITER_MAX_KEY_HEAD_%out_has
+L_ITER_MAX_KEY_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_max_key_next_has_%out_has, __iter_max_key_next_value_%out_has, %iter_reg
+    br __iter_max_key_next_has_%out_has -> L_ITER_MAX_KEY_BODY_%out_has, L_ITER_MAX_KEY_DONE_%out_has
+L_ITER_MAX_KEY_BODY_%out_has:
+    __iter_max_key_current_%out_has = load __iter_max_key_slot_%out_has+0 as u64
+    __iter_max_key_current_key_%out_has = call %key_fn(__iter_max_key_current_%out_has)
+    __iter_max_key_next_key_%out_has = call %key_fn(__iter_max_key_next_value_%out_has)
+    __iter_max_key_take_%out_has = ugt __iter_max_key_next_key_%out_has, __iter_max_key_current_key_%out_has
+    br __iter_max_key_take_%out_has -> L_ITER_MAX_KEY_STORE_%out_has, L_ITER_MAX_KEY_KEEP_%out_has
+L_ITER_MAX_KEY_STORE_%out_has:
+    store __iter_max_key_slot_%out_has+0, __iter_max_key_next_value_%out_has as u64
+    jmp L_ITER_MAX_KEY_NEXT_%out_has
+L_ITER_MAX_KEY_KEEP_%out_has:
+    jmp L_ITER_MAX_KEY_NEXT_%out_has
+L_ITER_MAX_KEY_NEXT_%out_has:
+    !__iter_max_key_take_%out_has
+    !__iter_max_key_next_key_%out_has
+    !__iter_max_key_current_key_%out_has
+    !__iter_max_key_current_%out_has
+    !__iter_max_key_next_value_%out_has
+    !__iter_max_key_next_has_%out_has
+    jmp L_ITER_MAX_KEY_HEAD_%out_has
+L_ITER_MAX_KEY_DONE_%out_has:
+    %out_value = load __iter_max_key_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_max_key_next_value_%out_has
+    !__iter_max_key_next_has_%out_has
+    jmp L_ITER_MAX_KEY_END_%out_has
+L_ITER_MAX_KEY_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_max_key_value_%out_has
+    !__iter_max_key_has_%out_has
+L_ITER_MAX_KEY_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+    jmp L_ITER_CMP_HEAD_%out_ordering
+L_ITER_CMP_HEAD_%out_ordering:
+    EXPAND ITER_NEXT_U64 __iter_cmp_left_has_%out_ordering, __iter_cmp_left_value_%out_ordering, %left_iter
+    EXPAND ITER_NEXT_U64 __iter_cmp_right_has_%out_ordering, __iter_cmp_right_value_%out_ordering, %right_iter
+    br __iter_cmp_left_has_%out_ordering -> L_ITER_CMP_LEFT_SOME_%out_ordering, L_ITER_CMP_LEFT_NONE_%out_ordering
+L_ITER_CMP_LEFT_SOME_%out_ordering:
+    br __iter_cmp_right_has_%out_ordering -> L_ITER_CMP_BOTH_SOME_%out_ordering, L_ITER_CMP_RIGHT_NONE_%out_ordering
+L_ITER_CMP_BOTH_SOME_%out_ordering:
+    __iter_cmp_less_%out_ordering = ult __iter_cmp_left_value_%out_ordering, __iter_cmp_right_value_%out_ordering
+    br __iter_cmp_less_%out_ordering -> L_ITER_CMP_LESS_%out_ordering, L_ITER_CMP_CHECK_GREATER_%out_ordering
+L_ITER_CMP_CHECK_GREATER_%out_ordering:
+    __iter_cmp_greater_%out_ordering = ugt __iter_cmp_left_value_%out_ordering, __iter_cmp_right_value_%out_ordering
+    br __iter_cmp_greater_%out_ordering -> L_ITER_CMP_GREATER_%out_ordering, L_ITER_CMP_EQUAL_ITEM_%out_ordering
+L_ITER_CMP_EQUAL_ITEM_%out_ordering:
+    !__iter_cmp_greater_%out_ordering
+    !__iter_cmp_less_%out_ordering
+    !__iter_cmp_right_value_%out_ordering
+    !__iter_cmp_right_has_%out_ordering
+    !__iter_cmp_left_value_%out_ordering
+    !__iter_cmp_left_has_%out_ordering
+    jmp L_ITER_CMP_HEAD_%out_ordering
+L_ITER_CMP_LESS_%out_ordering:
+    %out_ordering = sub 0, 1
+    !__iter_cmp_less_%out_ordering
+    !__iter_cmp_right_value_%out_ordering
+    !__iter_cmp_right_has_%out_ordering
+    !__iter_cmp_left_value_%out_ordering
+    !__iter_cmp_left_has_%out_ordering
+    jmp L_ITER_CMP_END_%out_ordering
+L_ITER_CMP_GREATER_%out_ordering:
+    %out_ordering = add 0, 1
+    !__iter_cmp_greater_%out_ordering
+    !__iter_cmp_less_%out_ordering
+    !__iter_cmp_right_value_%out_ordering
+    !__iter_cmp_right_has_%out_ordering
+    !__iter_cmp_left_value_%out_ordering
+    !__iter_cmp_left_has_%out_ordering
+    jmp L_ITER_CMP_END_%out_ordering
+L_ITER_CMP_RIGHT_NONE_%out_ordering:
+    %out_ordering = add 0, 1
+    !__iter_cmp_right_value_%out_ordering
+    !__iter_cmp_right_has_%out_ordering
+    !__iter_cmp_left_value_%out_ordering
+    !__iter_cmp_left_has_%out_ordering
+    jmp L_ITER_CMP_END_%out_ordering
+L_ITER_CMP_LEFT_NONE_%out_ordering:
+    br __iter_cmp_right_has_%out_ordering -> L_ITER_CMP_LEFT_SHORT_%out_ordering, L_ITER_CMP_BOTH_DONE_%out_ordering
+L_ITER_CMP_LEFT_SHORT_%out_ordering:
+    %out_ordering = sub 0, 1
+    !__iter_cmp_right_value_%out_ordering
+    !__iter_cmp_right_has_%out_ordering
+    !__iter_cmp_left_value_%out_ordering
+    !__iter_cmp_left_has_%out_ordering
+    jmp L_ITER_CMP_END_%out_ordering
+L_ITER_CMP_BOTH_DONE_%out_ordering:
+    %out_ordering = add 0, 0
+    !__iter_cmp_right_value_%out_ordering
+    !__iter_cmp_right_has_%out_ordering
+    !__iter_cmp_left_value_%out_ordering
+    !__iter_cmp_left_has_%out_ordering
+L_ITER_CMP_END_%out_ordering:
+[END_MACRO]
+
+[MACRO] ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 __iter_eq_order_%out_bool, %left_iter, %right_iter
+    %out_bool = eq __iter_eq_order_%out_bool, 0
+    !__iter_eq_order_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_NE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 __iter_ne_order_%out_bool, %left_iter, %right_iter
+    __iter_ne_is_eq_%out_bool = eq __iter_ne_order_%out_bool, 0
+    %out_bool = eq __iter_ne_is_eq_%out_bool, 0
+    !__iter_ne_is_eq_%out_bool
+    !__iter_ne_order_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_LT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 __iter_lt_order_%out_bool, %left_iter, %right_iter
+    %out_bool = slt __iter_lt_order_%out_bool, 0
+    !__iter_lt_order_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_LE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 __iter_le_order_%out_bool, %left_iter, %right_iter
+    %out_bool = sle __iter_le_order_%out_bool, 0
+    !__iter_le_order_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_GT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 __iter_gt_order_%out_bool, %left_iter, %right_iter
+    %out_bool = sgt __iter_gt_order_%out_bool, 0
+    !__iter_gt_order_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_GE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 __iter_ge_order_%out_bool, %left_iter, %right_iter
+    %out_bool = sge __iter_ge_order_%out_bool, 0
+    !__iter_ge_order_%out_bool
+[END_MACRO]

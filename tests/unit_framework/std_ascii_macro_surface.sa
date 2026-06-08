@@ -486,3 +486,407 @@ L_SLICE_FAIL:
 L_SLICE_OK:
     !ok
     return
+
+@test "sa_std ascii escape_default macro"():
+L_ENTRY:
+    out = stack_alloc 8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE raw_ok, raw_len, out, 8, 65
+    raw0 = load out+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE space_ok, space_len, out, 8, 32
+    space0 = load out+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE lf_ok, lf_len, out, 8, 10
+    lf0 = load out+0 as u8
+    lf_p1 = ptr_add out, 1
+    lf1 = load lf_p1+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE tab_ok, tab_len, out, 8, 9
+    tab0 = load out+0 as u8
+    tab_p1 = ptr_add out, 1
+    tab1 = load tab_p1+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE cr_ok, cr_len, out, 8, 13
+    cr0 = load out+0 as u8
+    cr_p1 = ptr_add out, 1
+    cr1 = load cr_p1+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE backslash_ok, backslash_len, out, 8, 92
+    backslash0 = load out+0 as u8
+    backslash_p1 = ptr_add out, 1
+    backslash1 = load backslash_p1+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE single_ok, single_len, out, 8, 39
+    single0 = load out+0 as u8
+    single_p1 = ptr_add out, 1
+    single1 = load single_p1+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE double_ok, double_len, out, 8, 34
+    double0 = load out+0 as u8
+    double_p1 = ptr_add out, 1
+    double1 = load double_p1+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE nul_ok, nul_len, out, 8, 0
+    nul0 = load out+0 as u8
+    nul_p1 = ptr_add out, 1
+    nul_p2 = ptr_add out, 2
+    nul_p3 = ptr_add out, 3
+    nul1 = load nul_p1+0 as u8
+    nul2 = load nul_p2+0 as u8
+    nul3 = load nul_p3+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE esc_ok, esc_len, out, 8, 27
+    esc0 = load out+0 as u8
+    esc_p1 = ptr_add out, 1
+    esc_p2 = ptr_add out, 2
+    esc_p3 = ptr_add out, 3
+    esc1 = load esc_p1+0 as u8
+    esc2 = load esc_p2+0 as u8
+    esc3 = load esc_p3+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE del_ok, del_len, out, 8, 127
+    del0 = load out+0 as u8
+    del_p1 = ptr_add out, 1
+    del_p2 = ptr_add out, 2
+    del_p3 = ptr_add out, 3
+    del1 = load del_p1+0 as u8
+    del2 = load del_p2+0 as u8
+    del3 = load del_p3+0 as u8
+
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE short_pair_ok, short_pair_len, out, 1, 10
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE short_hex_ok, short_hex_len, out, 3, 0
+
+    ok01 = eq raw_ok, 1
+    ok02 = eq raw_len, 1
+    ok03 = eq raw0, 65
+    ok04 = eq space_ok, 1
+    ok05 = eq space_len, 1
+    ok06 = eq space0, 32
+    ok07 = eq lf_ok, 1
+    ok08 = eq lf_len, 2
+    ok09 = eq lf0, 92
+    ok10 = eq lf1, 110
+    ok11 = eq tab_ok, 1
+    ok12 = eq tab_len, 2
+    ok13 = eq tab0, 92
+    ok14 = eq tab1, 116
+    ok15 = eq cr_ok, 1
+    ok16 = eq cr_len, 2
+    ok17 = eq cr0, 92
+    ok18 = eq cr1, 114
+    ok19 = eq backslash_ok, 1
+    ok20 = eq backslash_len, 2
+    ok21 = eq backslash0, 92
+    ok22 = eq backslash1, 92
+    ok23 = eq single_ok, 1
+    ok24 = eq single_len, 2
+    ok25 = eq single0, 92
+    ok26 = eq single1, 39
+    ok27 = eq double_ok, 1
+    ok28 = eq double_len, 2
+    ok29 = eq double0, 92
+    ok30 = eq double1, 34
+    ok31 = eq nul_ok, 1
+    ok32 = eq nul_len, 4
+    ok33 = eq nul0, 92
+    ok34 = eq nul1, 120
+    ok35 = eq nul2, 48
+    ok36 = eq nul3, 48
+    ok37 = eq esc_ok, 1
+    ok38 = eq esc_len, 4
+    ok39 = eq esc0, 92
+    ok40 = eq esc1, 120
+    ok41 = eq esc2, 49
+    ok42 = eq esc3, 98
+    ok43 = eq del_ok, 1
+    ok44 = eq del_len, 4
+    ok45 = eq del0, 92
+    ok46 = eq del1, 120
+    ok47 = eq del2, 55
+    ok48 = eq del3, 102
+    ok49 = eq short_pair_ok, 0
+    ok50 = eq short_pair_len, 0
+    ok51 = eq short_hex_ok, 0
+    ok52 = eq short_hex_len, 0
+
+    all01 = and ok01, ok02
+    all02 = and all01, ok03
+    all03 = and all02, ok04
+    all04 = and all03, ok05
+    all05 = and all04, ok06
+    all06 = and all05, ok07
+    all07 = and all06, ok08
+    all08 = and all07, ok09
+    all09 = and all08, ok10
+    all10 = and all09, ok11
+    all11 = and all10, ok12
+    all12 = and all11, ok13
+    all13 = and all12, ok14
+    all14 = and all13, ok15
+    all15 = and all14, ok16
+    all16 = and all15, ok17
+    all17 = and all16, ok18
+    all18 = and all17, ok19
+    all19 = and all18, ok20
+    all20 = and all19, ok21
+    all21 = and all20, ok22
+    all22 = and all21, ok23
+    all23 = and all22, ok24
+    all24 = and all23, ok25
+    all25 = and all24, ok26
+    all26 = and all25, ok27
+    all27 = and all26, ok28
+    all28 = and all27, ok29
+    all29 = and all28, ok30
+    all30 = and all29, ok31
+    all31 = and all30, ok32
+    all32 = and all31, ok33
+    all33 = and all32, ok34
+    all34 = and all33, ok35
+    all35 = and all34, ok36
+    all36 = and all35, ok37
+    all37 = and all36, ok38
+    all38 = and all37, ok39
+    all39 = and all38, ok40
+    all40 = and all39, ok41
+    all41 = and all40, ok42
+    all42 = and all41, ok43
+    all43 = and all42, ok44
+    all44 = and all43, ok45
+    all45 = and all44, ok46
+    all46 = and all45, ok47
+    all47 = and all46, ok48
+    all48 = and all47, ok49
+    all49 = and all48, ok50
+    all50 = and all49, ok51
+    ok = and all50, ok52
+
+    !del_p3
+    !del_p2
+    !del_p1
+    !esc_p3
+    !esc_p2
+    !esc_p1
+    !nul_p3
+    !nul_p2
+    !nul_p1
+    !double_p1
+    !single_p1
+    !backslash_p1
+    !cr_p1
+    !tab_p1
+    !lf_p1
+    br ok -> L_ESCAPE_OK, L_ESCAPE_FAIL
+
+L_ESCAPE_FAIL:
+    !ok
+    panic(934)
+
+L_ESCAPE_OK:
+    !ok
+    return
+
+@test "sa_std ascii Char primitive macros"():
+L_ENTRY:
+    char_a = stack_alloc AsciiChar_SIZE
+    char_upper = stack_alloc AsciiChar_SIZE
+    char_lower = stack_alloc AsciiChar_SIZE
+    char_digit = stack_alloc AsciiChar_SIZE
+    char_digit_bad = stack_alloc AsciiChar_SIZE
+    char_percent = stack_alloc AsciiChar_SIZE
+    char_space = stack_alloc AsciiChar_SIZE
+    char_lf = stack_alloc AsciiChar_SIZE
+    bytes = stack_alloc Slice_SIZE
+
+    EXPAND ASCII_CHAR_FROM_U8 from_ok, char_a, 97
+    EXPAND ASCII_CHAR_FROM_U8 from_bad_ok, char_digit_bad, 200
+    EXPAND ASCII_CHAR_FROM_U8_UNCHECKED char_percent, 37
+    EXPAND ASCII_CHAR_FROM_U8_UNCHECKED char_space, 32
+    EXPAND ASCII_CHAR_FROM_U8_UNCHECKED char_lf, 10
+    EXPAND ASCII_CHAR_DIGIT digit_ok, char_digit, 7
+    EXPAND ASCII_CHAR_DIGIT digit_bad_ok, char_digit_bad, 12
+    EXPAND ASCII_CHAR_TO_U8 a_byte, char_a
+    EXPAND ASCII_CHAR_TO_CHAR a_scalar, char_a
+    EXPAND ASCII_CHAR_AS_BYTES bytes, char_a
+    bytes_ptr = load bytes+Slice_ptr as ptr
+    bytes_len = load bytes+Slice_len as u64
+    bytes0 = load bytes_ptr+0 as u8
+
+    EXPAND ASCII_CHAR_TO_UPPERCASE char_upper, char_a
+    EXPAND ASCII_CHAR_TO_LOWERCASE char_lower, char_upper
+    EXPAND ASCII_CHAR_TO_U8 upper_byte, char_upper
+    EXPAND ASCII_CHAR_TO_U8 lower_byte, char_lower
+    EXPAND ASCII_CHAR_MAKE_UPPERCASE char_a
+    EXPAND ASCII_CHAR_TO_U8 made_upper_byte, char_a
+    EXPAND ASCII_CHAR_MAKE_LOWERCASE char_a
+    EXPAND ASCII_CHAR_TO_U8 made_lower_byte, char_a
+    EXPAND ASCII_CHAR_EQ_IGNORE_CASE eq_ignore, char_a, char_upper
+
+    EXPAND ASCII_CHAR_IS_ALPHABETIC is_alpha, char_a
+    EXPAND ASCII_CHAR_IS_UPPERCASE is_upper_after_lower, char_a
+    EXPAND ASCII_CHAR_IS_LOWERCASE is_lower_after_lower, char_a
+    EXPAND ASCII_CHAR_IS_ALPHANUMERIC is_alnum, char_digit
+    EXPAND ASCII_CHAR_IS_DIGIT is_digit, char_digit
+    EXPAND ASCII_CHAR_IS_OCTDIGIT is_octdigit, char_digit
+    EXPAND ASCII_CHAR_IS_HEXDIGIT is_hexdigit, char_upper
+    EXPAND ASCII_CHAR_IS_PUNCTUATION is_punctuation, char_percent
+    EXPAND ASCII_CHAR_IS_GRAPHIC is_graphic, char_percent
+    EXPAND ASCII_CHAR_IS_WHITESPACE is_whitespace, char_space
+    EXPAND ASCII_CHAR_IS_CONTROL is_control, char_lf
+    esc_buf = stack_alloc 4
+    EXPAND ASCII_CHAR_ESCAPE_DEFAULT_WRITE char_escape_ok, char_escape_len, esc_buf, 4, char_lf
+    char_escape0 = load esc_buf+0 as u8
+    char_escape_p1 = ptr_add esc_buf, 1
+    char_escape1 = load char_escape_p1+0 as u8
+
+    ok_from = eq from_ok, 1
+    ok_from_bad = eq from_bad_ok, 0
+    ok_digit = eq digit_ok, 1
+    ok_digit_bad = eq digit_bad_ok, 0
+    ok_a_byte = eq a_byte, 97
+    ok_a_scalar = eq a_scalar, 97
+    ok_bytes_len = eq bytes_len, 1
+    ok_bytes0 = eq bytes0, 97
+    ok_upper = eq upper_byte, 65
+    ok_lower = eq lower_byte, 97
+    ok_made_upper = eq made_upper_byte, 65
+    ok_made_lower = eq made_lower_byte, 97
+    ok_eq_ignore = eq eq_ignore, 1
+    ok_alpha = eq is_alpha, 1
+    ok_not_upper = eq is_upper_after_lower, 0
+    ok_lowercase = eq is_lower_after_lower, 1
+    ok_alnum = eq is_alnum, 1
+    ok_digit_class = eq is_digit, 1
+    ok_octdigit = eq is_octdigit, 1
+    ok_hexdigit = eq is_hexdigit, 1
+    ok_punctuation = eq is_punctuation, 1
+    ok_graphic = eq is_graphic, 1
+    ok_whitespace = eq is_whitespace, 1
+    ok_control = eq is_control, 1
+    ok_char_escape_flag = eq char_escape_ok, 1
+    ok_char_escape_len = eq char_escape_len, 2
+    ok_char_escape0 = eq char_escape0, 92
+    ok_char_escape1 = eq char_escape1, 110
+
+    ok01 = and ok_from, ok_from_bad
+    ok02 = and ok01, ok_digit
+    ok03 = and ok02, ok_digit_bad
+    ok04 = and ok03, ok_a_byte
+    ok05 = and ok04, ok_a_scalar
+    ok06 = and ok05, ok_bytes_len
+    ok07 = and ok06, ok_bytes0
+    ok08 = and ok07, ok_upper
+    ok09 = and ok08, ok_lower
+    ok10 = and ok09, ok_made_upper
+    ok11 = and ok10, ok_made_lower
+    ok12 = and ok11, ok_eq_ignore
+    ok13 = and ok12, ok_alpha
+    ok14 = and ok13, ok_not_upper
+    ok15 = and ok14, ok_lowercase
+    ok16 = and ok15, ok_alnum
+    ok17 = and ok16, ok_digit_class
+    ok18 = and ok17, ok_octdigit
+    ok19 = and ok18, ok_hexdigit
+    ok20 = and ok19, ok_punctuation
+    ok21 = and ok20, ok_graphic
+    ok22 = and ok21, ok_whitespace
+    ok23 = and ok22, ok_control
+    ok24 = and ok23, ok_char_escape_flag
+    ok25 = and ok24, ok_char_escape_len
+    ok26 = and ok25, ok_char_escape0
+    ok = and ok26, ok_char_escape1
+
+    !char_escape_p1
+    !char_escape0
+    !char_escape1
+    !char_escape_ok
+    !char_escape_len
+    !bytes_ptr
+    !bytes_len
+    !bytes0
+    !a_byte
+    !a_scalar
+    !upper_byte
+    !lower_byte
+    !made_upper_byte
+    !made_lower_byte
+    !eq_ignore
+    !is_alpha
+    !is_upper_after_lower
+    !is_lower_after_lower
+    !is_alnum
+    !is_digit
+    !is_octdigit
+    !is_hexdigit
+    !is_punctuation
+    !is_graphic
+    !is_whitespace
+    !is_control
+    !from_ok
+    !from_bad_ok
+    !digit_ok
+    !digit_bad_ok
+    !ok_from
+    !ok_from_bad
+    !ok_digit
+    !ok_digit_bad
+    !ok_a_byte
+    !ok_a_scalar
+    !ok_bytes_len
+    !ok_bytes0
+    !ok_upper
+    !ok_lower
+    !ok_made_upper
+    !ok_made_lower
+    !ok_eq_ignore
+    !ok_alpha
+    !ok_not_upper
+    !ok_lowercase
+    !ok_alnum
+    !ok_digit_class
+    !ok_octdigit
+    !ok_hexdigit
+    !ok_punctuation
+    !ok_graphic
+    !ok_whitespace
+    !ok_control
+    !ok_char_escape_flag
+    !ok_char_escape_len
+    !ok_char_escape0
+    !ok_char_escape1
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    br ok -> L_ASCII_CHAR_OK, L_ASCII_CHAR_FAIL
+
+L_ASCII_CHAR_FAIL:
+    !ok
+    panic(933)
+
+L_ASCII_CHAR_OK:
+    !ok
+    return

@@ -1,0 +1,5 @@
+#def Pin_SIZE = 8
+#def Pin_ptr = +0
+
+#def PinMut_SIZE = 8
+#def PinMut_ptr = +0

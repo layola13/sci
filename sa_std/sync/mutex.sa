@@ -28,6 +28,22 @@ L_MUTEX_LOCK_DONE:
     call @__mutex_lock_spin(%lock_ptr)
 [END_MACRO]
 
+[MACRO] MUTEX_TRY_LOCK %out_ok, %lock_ptr
+    __mutex_try_prev_%out_ok = atomic_rmw_xchg %lock_ptr+Mutex_lock, 1 as u64 acquire
+    %out_ok = eq __mutex_try_prev_%out_ok, 0
+    !__mutex_try_prev_%out_ok
+[END_MACRO]
+
+[MACRO] MUTEX_IS_LOCKED %out_bool, %lock_ptr
+    __mutex_state_%out_bool = atomic_load %lock_ptr+Mutex_lock as u64 acquire
+    %out_bool = ne __mutex_state_%out_bool, 0
+    !__mutex_state_%out_bool
+[END_MACRO]
+
 [MACRO] MUTEX_UNLOCK %lock_ptr
     atomic_store %lock_ptr+Mutex_lock, 0 as u64 release
+[END_MACRO]
+
+[MACRO] MUTEX_FORCE_UNLOCKED %lock_ptr
+    store %lock_ptr+Mutex_lock, 0 as u64
 [END_MACRO]

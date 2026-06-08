@@ -1,2 +1,5 @@
 #def Cell_SIZE = 4
 #def Cell_value = +0
+
+#def CellU64_SIZE = 8
+#def CellU64_value = +0

@@ -1,0 +1,589 @@
+@import "atomic.sal"
+
+[MACRO] ATOMIC_FENCE %ordering
+    fence %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicBool_value, %value as u8
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicBool_value
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicBool_value as u8
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicBool_value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicBool_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicBool_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicBool_value, %expected, %new_value as u8 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_BOOL_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_BOOL_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicU8_value, %value as u8
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicU8_value
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicU8_value as u8
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicU8_value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicU8_value, %expected, %new_value as u8 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_U8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicI8_value, %value as i8
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicI8_value
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicI8_value as i8
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicI8_value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI8_value, %expected, %new_value as i8 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_I8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicU16_value, %value as u16
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicU16_value
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicU16_value as u16
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicU16_value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicU16_value, %expected, %new_value as u16 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_U16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicI16_value, %value as i16
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicI16_value
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicI16_value as i16
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicI16_value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI16_value, %expected, %new_value as i16 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_I16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicU32_value, %value as u32
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicU32_value
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicU32_value as u32
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicU32_value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicU32_value, %expected, %new_value as u32 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_U32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicI32_value, %value as i32
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicI32_value
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicI32_value as i32
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicI32_value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI32_value, %expected, %new_value as i32 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_I32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicU64_value
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicU64_value as u64
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicU64_value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_UMIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umin %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FETCH_UMAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umax %atomic_ptr+AtomicU64_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicU64_value, %expected, %new_value as u64 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_U64_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicI64_value, %value as i64
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicI64_value
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicI64_value as i64
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicI64_value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI64_value, %expected, %new_value as i64 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_I64_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicUsize_value, %value as u64
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicUsize_value
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicUsize_value as u64
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicUsize_value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicUsize_value, %expected, %new_value as u64 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_USIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_INIT %atomic_ptr, %value
+    store %atomic_ptr+AtomicIsize_value, %value as i64
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicIsize_value
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_INTO_INNER %out_value, %atomic_ptr
+    %out_value = load %atomic_ptr+AtomicIsize_value as i64
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_LOAD %out_value, %atomic_ptr, %ordering
+    %out_value = atomic_load %atomic_ptr+AtomicIsize_value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_STORE %atomic_ptr, %value, %ordering
+    atomic_store %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_SWAP %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xchg %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FETCH_ADD %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_add %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FETCH_SUB %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_sub %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicIsize_value, %expected, %new_value as i64 %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_ISIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_INIT %atomic_ptr, %value_ptr
+    store %atomic_ptr+AtomicPtr_value, %value_ptr as ptr
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_GET_MUT_PTR %out_ptr, %atomic_ptr
+    %out_ptr = ptr_add %atomic_ptr, AtomicPtr_value
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+    %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_INTO_INNER %out_ptr, %atomic_ptr
+    %out_ptr = load %atomic_ptr+AtomicPtr_value as ptr
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_LOAD %out_ptr, %atomic_ptr, %ordering
+    %out_ptr = atomic_load %atomic_ptr+AtomicPtr_value as ptr %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_STORE %atomic_ptr, %value_ptr, %ordering
+    atomic_store %atomic_ptr+AtomicPtr_value, %value_ptr as ptr %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_COMPARE_EXCHANGE %out_old_ptr, %out_ok, %atomic_ptr, %expected_ptr, %new_ptr, %success_ordering, %failure_ordering
+    %out_old_ptr, %out_ok = cmpxchg %atomic_ptr+AtomicPtr_value, %expected_ptr, %new_ptr as ptr %success_ordering %failure_ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_COMPARE_EXCHANGE_WEAK %out_old_ptr, %out_ok, %atomic_ptr, %expected_ptr, %new_ptr, %success_ordering, %failure_ordering
+    EXPAND ATOMIC_PTR_COMPARE_EXCHANGE %out_old_ptr, %out_ok, %atomic_ptr, %expected_ptr, %new_ptr, %success_ordering, %failure_ordering
+[END_MACRO]

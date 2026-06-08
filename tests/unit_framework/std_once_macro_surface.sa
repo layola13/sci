@@ -1,0 +1,155 @@
+@import "sa_std/sync/once.sa"
+
+@init_once_value() -> u64:
+L_ENTRY:
+    return 77
+
+@test "sa_std sync once and once-lock macros"():
+L_ENTRY:
+    EXPAND ONCE_NEW once
+    EXPAND ONCE_STATE state0, once
+    EXPAND ONCE_IS_UNINIT is_uninit0, once
+    EXPAND ONCE_TRY_GET try_get0_ok, try_get0_value, once
+    EXPAND ONCE_SET set0_ok, once, 42
+    EXPAND ONCE_IS_READY ready0, once
+    EXPAND ONCE_GET got0, once
+    EXPAND ONCE_TRY_GET try_get1_ok, try_get1_value, once
+    EXPAND ONCE_GET_UNCHECKED unchecked0, once
+    EXPAND ONCE_GET_MUT get_mut_ok, get_mut_ptr, once
+    store get_mut_ptr+0, 43 as u64
+    EXPAND ONCE_GET got_after_mut, once
+    EXPAND ONCE_SET set_again_ok, once, 99
+    EXPAND ONCE_TAKE take_ok, take_value, once
+    EXPAND ONCE_IS_UNINIT is_uninit_after_take, once
+    EXPAND ONCE_TRY_GET try_get_after_take_ok, try_get_after_take_value, once
+    EXPAND ONCE_GET_OR_INIT init_value, once, @init_once_value
+    EXPAND ONCE_GET_OR_INIT init_value_again, once, @init_once_value
+    EXPAND ONCE_INTO_INNER inner_ok, inner_value, once
+
+    EXPAND ONCE_NEW once_empty
+    EXPAND ONCE_INTO_INNER empty_inner_ok, empty_inner_value, once_empty
+
+    ok_state0 = eq state0, Once_STATE_UNINIT
+    ok_try_get0_flag = eq try_get0_ok, 0
+    ok_try_get0_value = eq try_get0_value, 0
+    ok_set0 = eq set0_ok, 1
+    ok_got0 = eq got0, 42
+    ok_try_get1_flag = eq try_get1_ok, 1
+    ok_try_get1_value = eq try_get1_value, 42
+    ok_unchecked0 = eq unchecked0, 42
+    ok_get_mut = eq get_mut_ok, 1
+    ok_after_mut = eq got_after_mut, 43
+    ok_set_again = eq set_again_ok, 0
+    ok_take = eq take_ok, 1
+    ok_take_value = eq take_value, 43
+    ok_try_after_take_flag = eq try_get_after_take_ok, 0
+    ok_try_after_take_value = eq try_get_after_take_value, 0
+    ok_init_value = eq init_value, 77
+    ok_init_again = eq init_value_again, 77
+    ok_inner = eq inner_ok, 1
+    ok_inner_value = eq inner_value, 77
+    ok_empty_inner = eq empty_inner_ok, 0
+    ok_empty_inner_value = eq empty_inner_value, 0
+
+    ok01 = and ok_state0, is_uninit0
+    ok02 = and ok01, ok_try_get0_flag
+    ok03 = and ok02, ok_try_get0_value
+    ok04 = and ok03, ok_set0
+    ok05 = and ok04, ready0
+    ok06 = and ok05, ok_got0
+    ok07 = and ok06, ok_try_get1_flag
+    ok08 = and ok07, ok_try_get1_value
+    ok09 = and ok08, ok_unchecked0
+    ok10 = and ok09, ok_get_mut
+    ok11 = and ok10, ok_after_mut
+    ok12 = and ok11, ok_set_again
+    ok13 = and ok12, ok_take
+    ok14 = and ok13, ok_take_value
+    ok15 = and ok14, is_uninit_after_take
+    ok16 = and ok15, ok_try_after_take_flag
+    ok17 = and ok16, ok_try_after_take_value
+    ok18 = and ok17, ok_init_value
+    ok19 = and ok18, ok_init_again
+    ok20 = and ok19, ok_inner
+    ok21 = and ok20, ok_inner_value
+    ok22 = and ok21, ok_empty_inner
+    ok = and ok22, ok_empty_inner_value
+
+    !state0
+    !is_uninit0
+    !try_get0_ok
+    !try_get0_value
+    !set0_ok
+    !ready0
+    !got0
+    !try_get1_ok
+    !try_get1_value
+    !unchecked0
+    !get_mut_ok
+    !get_mut_ptr
+    !got_after_mut
+    !set_again_ok
+    !take_ok
+    !take_value
+    !is_uninit_after_take
+    !try_get_after_take_ok
+    !try_get_after_take_value
+    !init_value
+    !init_value_again
+    !inner_ok
+    !inner_value
+    !empty_inner_ok
+    !empty_inner_value
+    !ok_state0
+    !ok_try_get0_flag
+    !ok_try_get0_value
+    !ok_set0
+    !ok_got0
+    !ok_try_get1_flag
+    !ok_try_get1_value
+    !ok_unchecked0
+    !ok_get_mut
+    !ok_after_mut
+    !ok_set_again
+    !ok_take
+    !ok_take_value
+    !ok_try_after_take_flag
+    !ok_try_after_take_value
+    !ok_init_value
+    !ok_init_again
+    !ok_inner
+    !ok_inner_value
+    !ok_empty_inner
+    !ok_empty_inner_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(997)
+
+L_PASS:
+    !ok
+    return 0

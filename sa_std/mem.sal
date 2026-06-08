@@ -1,0 +1,29 @@
+#def MEM_SIZE_BOOL = 1
+#def MEM_SIZE_U8 = 1
+#def MEM_SIZE_I8 = 1
+#def MEM_SIZE_U16 = 2
+#def MEM_SIZE_I16 = 2
+#def MEM_SIZE_U32 = 4
+#def MEM_SIZE_I32 = 4
+#def MEM_SIZE_U64 = 8
+#def MEM_SIZE_I64 = 8
+#def MEM_SIZE_USIZE = 8
+#def MEM_SIZE_ISIZE = 8
+
+#def MEM_ALIGN_BOOL = 1
+#def MEM_ALIGN_U8 = 1
+#def MEM_ALIGN_I8 = 1
+#def MEM_ALIGN_U16 = 2
+#def MEM_ALIGN_I16 = 2
+#def MEM_ALIGN_U32 = 4
+#def MEM_ALIGN_I32 = 4
+#def MEM_ALIGN_U64 = 8
+#def MEM_ALIGN_I64 = 8
+#def MEM_ALIGN_USIZE = 8
+#def MEM_ALIGN_ISIZE = 8
+
+#def MaybeUninitU64_SIZE = 8
+#def MaybeUninitU64_value = +0
+
+#def ManuallyDropU64_SIZE = 8
+#def ManuallyDropU64_value = +0

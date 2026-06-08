@@ -54,6 +54,52 @@
     %out_ns = add %ns, 0
 [END_MACRO]
 
+[MACRO] TIME_DURATION_NEW %out_ns, %secs, %nanos
+    __time_new_secs_ns_%out_ns = mul %secs, Time_NS_PER_S
+    %out_ns = add __time_new_secs_ns_%out_ns, %nanos
+    !__time_new_secs_ns_%out_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_SECS %out_ns, %secs
+    EXPAND TIME_DURATION_FROM_S %out_ns, %secs
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_MILLIS %out_ns, %millis
+    EXPAND TIME_DURATION_FROM_MS %out_ns, %millis
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_MICROS %out_ns, %micros
+    EXPAND TIME_DURATION_FROM_US %out_ns, %micros
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_NANOS %out_ns, %nanos
+    EXPAND TIME_DURATION_FROM_NS %out_ns, %nanos
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_MINS %out_ns, %mins
+    __time_mins_secs_%out_ns = mul %mins, Time_S_PER_MIN
+    EXPAND TIME_DURATION_FROM_S %out_ns, __time_mins_secs_%out_ns
+    !__time_mins_secs_%out_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_HOURS %out_ns, %hours
+    __time_hours_secs_%out_ns = mul %hours, Time_S_PER_HOUR
+    EXPAND TIME_DURATION_FROM_S %out_ns, __time_hours_secs_%out_ns
+    !__time_hours_secs_%out_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_DAYS %out_ns, %days
+    __time_days_secs_%out_ns = mul %days, Time_S_PER_DAY
+    EXPAND TIME_DURATION_FROM_S %out_ns, __time_days_secs_%out_ns
+    !__time_days_secs_%out_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_FROM_WEEKS %out_ns, %weeks
+    __time_weeks_secs_%out_ns = mul %weeks, Time_S_PER_WEEK
+    EXPAND TIME_DURATION_FROM_S %out_ns, __time_weeks_secs_%out_ns
+    !__time_weeks_secs_%out_ns
+[END_MACRO]
+
 [MACRO] TIME_DURATION_ZERO %out_ns
     %out_ns = add 0, 0
 [END_MACRO]
@@ -80,6 +126,76 @@
 
 [MACRO] TIME_DURATION_AS_NS %out_ns, %duration_ns
     %out_ns = add %duration_ns, 0
+[END_MACRO]
+
+[MACRO] TIME_DURATION_AS_SECS %out_secs, %duration_ns
+    EXPAND TIME_DURATION_AS_S %out_secs, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_AS_MILLIS %out_ms, %duration_ns
+    EXPAND TIME_DURATION_AS_MS %out_ms, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_AS_MICROS %out_us, %duration_ns
+    EXPAND TIME_DURATION_AS_US %out_us, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_AS_NANOS %out_ns, %duration_ns
+    EXPAND TIME_DURATION_AS_NS %out_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_DIV_DURATION_FLOOR %out_ok, %out_ratio, %duration_ns, %rhs_ns
+    __time_div_dur_zero_%out_ok = eq %rhs_ns, 0
+    br __time_div_dur_zero_%out_ok -> L_TIME_DIV_DUR_FLOOR_ZERO_%out_ok, L_TIME_DIV_DUR_FLOOR_OK_%out_ok
+
+L_TIME_DIV_DUR_FLOOR_OK_%out_ok:
+    %out_ratio = udiv %duration_ns, %rhs_ns
+    %out_ok = add 0, 1
+    !__time_div_dur_zero_%out_ok
+    jmp L_TIME_DIV_DUR_FLOOR_END_%out_ok
+
+L_TIME_DIV_DUR_FLOOR_ZERO_%out_ok:
+    %out_ratio = add 0, 0
+    %out_ok = add 0, 0
+    !__time_div_dur_zero_%out_ok
+
+L_TIME_DIV_DUR_FLOOR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] TIME_DURATION_DIV_DURATION_CEIL %out_ok, %out_ratio, %duration_ns, %rhs_ns
+    __time_div_ceil_zero_%out_ok = eq %rhs_ns, 0
+    br __time_div_ceil_zero_%out_ok -> L_TIME_DIV_DUR_CEIL_ZERO_%out_ok, L_TIME_DIV_DUR_CEIL_COMPUTE_%out_ok
+
+L_TIME_DIV_DUR_CEIL_COMPUTE_%out_ok:
+    __time_div_ceil_q_%out_ok = udiv %duration_ns, %rhs_ns
+    __time_div_ceil_r_%out_ok = urem %duration_ns, %rhs_ns
+    __time_div_ceil_has_rem_%out_ok = ne __time_div_ceil_r_%out_ok, 0
+    br __time_div_ceil_has_rem_%out_ok -> L_TIME_DIV_DUR_CEIL_ADD_%out_ok, L_TIME_DIV_DUR_CEIL_EXACT_%out_ok
+
+L_TIME_DIV_DUR_CEIL_ADD_%out_ok:
+    %out_ratio = add __time_div_ceil_q_%out_ok, 1
+    %out_ok = add 0, 1
+    !__time_div_ceil_has_rem_%out_ok
+    !__time_div_ceil_r_%out_ok
+    !__time_div_ceil_q_%out_ok
+    !__time_div_ceil_zero_%out_ok
+    jmp L_TIME_DIV_DUR_CEIL_END_%out_ok
+
+L_TIME_DIV_DUR_CEIL_EXACT_%out_ok:
+    %out_ratio = add __time_div_ceil_q_%out_ok, 0
+    %out_ok = add 0, 1
+    !__time_div_ceil_has_rem_%out_ok
+    !__time_div_ceil_r_%out_ok
+    !__time_div_ceil_q_%out_ok
+    !__time_div_ceil_zero_%out_ok
+    jmp L_TIME_DIV_DUR_CEIL_END_%out_ok
+
+L_TIME_DIV_DUR_CEIL_ZERO_%out_ok:
+    %out_ratio = add 0, 0
+    %out_ok = add 0, 0
+    !__time_div_ceil_zero_%out_ok
+
+L_TIME_DIV_DUR_CEIL_END_%out_ok:
 [END_MACRO]
 
 [MACRO] TIME_DURATION_SUBSEC_NANOS %out_ns, %duration_ns

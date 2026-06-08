@@ -317,12 +317,25 @@ test "sa_std io and process interfaces match native resource ABI" {
     const process_iface = try common.readFileAlloc(std.testing.allocator, "sa_std/process.sai");
     defer std.testing.allocator.free(process_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_run(&argv: ptr, argv_len: u64, &out_handle: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_id() -> u32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_abort() -> void"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_child_id(handle: u64, &out_pid: ptr) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_wait(handle: u64, &out_code: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_try_wait(handle: u64, &out_ready: ptr, &out_code: ptr) -> i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_kill(handle: u64) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_read_stdout(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_read_stderr(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_close(handle: u64) -> i32"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, process_iface, 1, "sa_std_process_wait(handle: ptr"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, process_iface, 1, "sa_std_process_close(^handle: ptr"));
+
+    const process_src = try common.readFileAlloc(std.testing.allocator, "sa_std/process.sa");
+    defer std.testing.allocator.free(process_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_ABORT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_CHILD_ID %out_status, %out_pid, %process"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_TRY_WAIT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_TRY_WAIT_EXIT_STATUS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_KILL"));
 
     const io_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io.sa");
     defer std.testing.allocator.free(io_src);
@@ -1372,11 +1385,17 @@ test "sa_std rust core helpers are concrete and verifiable" {
 
     const cell_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/cell.sal");
     defer std.testing.allocator.free(cell_layout);
-    try std.testing.expectEqualStrings("#def Cell_SIZE = 4\n#def Cell_value = +0\n", cell_layout);
+    try std.testing.expectEqualStrings(
+        "#def Cell_SIZE = 4\n#def Cell_value = +0\n\n#def CellU64_SIZE = 8\n#def CellU64_value = +0\n",
+        cell_layout,
+    );
 
     const refcell_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/refcell.sal");
     defer std.testing.allocator.free(refcell_layout);
-    try std.testing.expectEqualStrings("#def RefCell_SIZE = 8\n#def RefCell_value = +0\n#def RefCell_borrows = +4\n", refcell_layout);
+    try std.testing.expectEqualStrings(
+        "#def RefCell_SIZE = 8\n#def RefCell_value = +0\n#def RefCell_borrows = +4\n\n#def RefCellU64_SIZE = 16\n#def RefCellU64_value = +0\n#def RefCellU64_borrows = +8\n",
+        refcell_layout,
+    );
 
     const rc_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/rc.sal");
     defer std.testing.allocator.free(rc_layout);

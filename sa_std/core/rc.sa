@@ -15,6 +15,102 @@
     !__rc_strong_%rc_reg
 [END_MACRO]
 
+[MACRO] RC_GET %out_value, %rc_reg
+    %out_value = load %rc_reg+RcBox_data as u64
+[END_MACRO]
+
+[MACRO] RC_AS_PTR %out_ptr, %rc_reg
+    %out_ptr = ptr_add %rc_reg, RcBox_data
+[END_MACRO]
+
+[MACRO] RC_INTO_RAW %out_ptr, %rc_reg
+    %out_ptr = ptr_add %rc_reg, RcBox_data
+[END_MACRO]
+
+[MACRO] RC_FROM_RAW %out_rc, %raw_ptr
+    %out_rc = sub %raw_ptr, RcBox_data
+[END_MACRO]
+
+[MACRO] RC_INCREMENT_STRONG_COUNT %raw_ptr
+    __rc_inc_box_%raw_ptr = sub %raw_ptr, RcBox_data
+    __rc_inc_count_%raw_ptr = load __rc_inc_box_%raw_ptr+RcBox_strong as u64
+    __rc_inc_next_%raw_ptr = add __rc_inc_count_%raw_ptr, 1
+    store __rc_inc_box_%raw_ptr+RcBox_strong, __rc_inc_next_%raw_ptr as u64
+    !__rc_inc_next_%raw_ptr
+    !__rc_inc_count_%raw_ptr
+    !__rc_inc_box_%raw_ptr
+[END_MACRO]
+
+[MACRO] RC_DECREMENT_STRONG_COUNT %raw_ptr
+    __rc_dec_box_%raw_ptr = sub %raw_ptr, RcBox_data
+    __rc_dec_count_%raw_ptr = load __rc_dec_box_%raw_ptr+RcBox_strong as u64
+    __rc_dec_next_%raw_ptr = sub __rc_dec_count_%raw_ptr, 1
+    store __rc_dec_box_%raw_ptr+RcBox_strong, __rc_dec_next_%raw_ptr as u64
+    !__rc_dec_next_%raw_ptr
+    !__rc_dec_count_%raw_ptr
+    !__rc_dec_box_%raw_ptr
+[END_MACRO]
+
+[MACRO] RC_STRONG_COUNT %out_count, %rc_reg
+    %out_count = load %rc_reg+RcBox_strong as u64
+[END_MACRO]
+
+[MACRO] RC_WEAK_COUNT %out_count, %rc_reg
+    __rc_weak_total_%out_count = load %rc_reg+RcBox_weak as u64
+    %out_count = sub __rc_weak_total_%out_count, 1
+    !__rc_weak_total_%out_count
+[END_MACRO]
+
+[MACRO] RC_PTR_EQ %out_bool, %left_rc, %right_rc
+    %out_bool = eq %left_rc, %right_rc
+[END_MACRO]
+
+[MACRO] RC_GET_MUT %out_ok, %out_ptr, %rc_reg
+    __rc_mut_strong_%out_ok = load %rc_reg+RcBox_strong as u64
+    __rc_mut_weak_%out_ok = load %rc_reg+RcBox_weak as u64
+    __rc_mut_strong_one_%out_ok = eq __rc_mut_strong_%out_ok, 1
+    __rc_mut_weak_one_%out_ok = eq __rc_mut_weak_%out_ok, 1
+    __rc_mut_unique_%out_ok = and __rc_mut_strong_one_%out_ok, __rc_mut_weak_one_%out_ok
+    br __rc_mut_unique_%out_ok -> L_RC_GET_MUT_OK_%out_ok, L_RC_GET_MUT_FAIL_%out_ok
+L_RC_GET_MUT_OK_%out_ok:
+    %out_ptr = ptr_add %rc_reg, RcBox_data
+    %out_ok = add 0, 1
+    jmp L_RC_GET_MUT_DONE_%out_ok
+L_RC_GET_MUT_FAIL_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+L_RC_GET_MUT_DONE_%out_ok:
+    !__rc_mut_unique_%out_ok
+    !__rc_mut_weak_one_%out_ok
+    !__rc_mut_strong_one_%out_ok
+    !__rc_mut_weak_%out_ok
+    !__rc_mut_strong_%out_ok
+[END_MACRO]
+
+[MACRO] RC_TRY_UNWRAP %out_ok, %out_value, %rc_reg
+    __rc_unwrap_strong_%out_ok = load %rc_reg+RcBox_strong as u64
+    __rc_unwrap_unique_%out_ok = eq __rc_unwrap_strong_%out_ok, 1
+    br __rc_unwrap_unique_%out_ok -> L_RC_TRY_UNWRAP_OK_%out_ok, L_RC_TRY_UNWRAP_FAIL_%out_ok
+L_RC_TRY_UNWRAP_OK_%out_ok:
+    %out_value = load %rc_reg+RcBox_data as u64
+    %out_ok = add 0, 1
+    jmp L_RC_TRY_UNWRAP_DONE_%out_ok
+L_RC_TRY_UNWRAP_FAIL_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+L_RC_TRY_UNWRAP_DONE_%out_ok:
+    !__rc_unwrap_unique_%out_ok
+    !__rc_unwrap_strong_%out_ok
+[END_MACRO]
+
+[MACRO] RC_MAKE_MUT_U64 %out_ptr, %rc_reg
+    %out_ptr = ptr_add %rc_reg, RcBox_data
+[END_MACRO]
+
+[MACRO] RC_UNWRAP_OR_CLONE_U64 %out_value, %rc_reg
+    %out_value = load %rc_reg+RcBox_data as u64
+[END_MACRO]
+
 [MACRO] RC_DROP %rc_reg, %cleanup_label
     __rc_strong_%rc_reg = load %rc_reg+RcBox_strong as u64
     __rc_next_strong_%rc_reg = sub __rc_strong_%rc_reg, 1
@@ -37,11 +133,32 @@ L_RC_DROP_DONE_%rc_reg:
 [END_MACRO]
 
 [MACRO] WEAK_CLONE %weak_reg
-    __weak_strong_%weak_reg = load %weak_reg+RcBox_strong as u64
-    __weak_next_%weak_reg = add __weak_strong_%weak_reg, 0
-    store %weak_reg+RcBox_strong, __weak_next_%weak_reg as u64
+    __weak_count_%weak_reg = load %weak_reg+RcBox_weak as u64
+    __weak_next_%weak_reg = add __weak_count_%weak_reg, 1
+    store %weak_reg+RcBox_weak, __weak_next_%weak_reg as u64
     !__weak_next_%weak_reg
-    !__weak_strong_%weak_reg
+    !__weak_count_%weak_reg
+[END_MACRO]
+
+[MACRO] WEAK_NEW %out_weak
+    %out_weak = alloc RcBox_SIZE
+    store %out_weak+RcBox_strong, 0 as u64
+    store %out_weak+RcBox_weak, 1 as u64
+    store %out_weak+RcBox_data, 0 as u64
+[END_MACRO]
+
+[MACRO] WEAK_STRONG_COUNT %out_count, %weak_reg
+    %out_count = load %weak_reg+RcBox_strong as u64
+[END_MACRO]
+
+[MACRO] WEAK_WEAK_COUNT %out_count, %weak_reg
+    __weak_total_%out_count = load %weak_reg+RcBox_weak as u64
+    %out_count = sub __weak_total_%out_count, 1
+    !__weak_total_%out_count
+[END_MACRO]
+
+[MACRO] WEAK_PTR_EQ %out_bool, %left_weak, %right_weak
+    %out_bool = eq %left_weak, %right_weak
 [END_MACRO]
 
 [MACRO] WEAK_DROP %weak_reg, %free_label

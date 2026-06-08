@@ -3710,7 +3710,22 @@ test "agent-first cli commands print explain fix and skills outputs" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"core diagnostics\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"std runtime\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"init [path]\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"install [identity]\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"pkg install [identity]\""));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const skills_help_argv = [_][]const u8{ "sa", "skills", "--help" };
+    const skills_help_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        skills_help_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), skills_help_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "usage: sa skills [--json]"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "scans the current sa_std root"));
 }
 
 test "sa skills writes Codex and Claude skill files for current project" {
@@ -3783,6 +3798,8 @@ test "sa skills writes Codex and Claude skill files for current project" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, ".claude/skills/sa_plugins/SKILL.md"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "std surface:"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "official plugin catalog:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Rust-style string/vec/slice/option/result/core helper macros"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "optional deno/http/node/db/plugin APIs stay outside compiler std"));
 
     const codex_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".codex/skills/sa/SKILL.md", 16 * 1024 * 1024);
     defer std.testing.allocator.free(codex_skill);
@@ -3797,9 +3814,24 @@ test "sa skills writes Codex and Claude skill files for current project" {
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "# SA Toolchain"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "`sa build <file>`"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "`sa test <file> --list`"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "Treat the `sa_std Surface` section below as authoritative"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "## Std Coverage Guide"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "Core macro families include string, vec, slice"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "Rust-style fs coverage includes create_dir"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "Rust-style net coverage includes owned address handles"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "Rust's full std::future/std::task poll"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "## sa_std Surface"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "sa.mod"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "core/slice.sa: [MACRO] SLICE_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "fs.sa: [MACRO] FS_CREATE_DIR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "fs.sa: [MACRO] FS_READ_TO_STRING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "fs.sa: [MACRO] FS_TRY_EXISTS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "net.sa: [MACRO] NET_TO_SOCKET_ADDR_FIRST"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "env.sa: [MACRO] ENV_ARGS_JSON"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "process.sa: [MACRO] PROCESS_CHILD_ID"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "ptr.sa: [MACRO] PTR_NULL"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "num.sa: [MACRO] NUM_U64_CHECKED_ADD"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "any.sa: [MACRO] ANY_REF_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "io.sai: @extern"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "../sa_plugins/SKILL.md"));
     try std.testing.expect(std.mem.containsAtLeast(u8, claude_skill, 1, "Use the installed SA compiler"));

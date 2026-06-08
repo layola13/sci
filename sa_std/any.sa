@@ -1,0 +1,125 @@
+@import "any.sal"
+
+[MACRO] TYPE_ID_NEW %type_id, %lo, %hi
+    store %type_id+TypeId_lo, %lo as u64
+    store %type_id+TypeId_hi, %hi as u64
+[END_MACRO]
+
+[MACRO] TYPE_ID_LO %out_lo, %type_id
+    %out_lo = load %type_id+TypeId_lo as u64
+[END_MACRO]
+
+[MACRO] TYPE_ID_HI %out_hi, %type_id
+    %out_hi = load %type_id+TypeId_hi as u64
+[END_MACRO]
+
+[MACRO] TYPE_ID_EQ %out_bool, %left, %right
+    __type_id_left_lo_%out_bool = load %left+TypeId_lo as u64
+    __type_id_left_hi_%out_bool = load %left+TypeId_hi as u64
+    __type_id_right_lo_%out_bool = load %right+TypeId_lo as u64
+    __type_id_right_hi_%out_bool = load %right+TypeId_hi as u64
+    __type_id_lo_eq_%out_bool = eq __type_id_left_lo_%out_bool, __type_id_right_lo_%out_bool
+    __type_id_hi_eq_%out_bool = eq __type_id_left_hi_%out_bool, __type_id_right_hi_%out_bool
+    %out_bool = and __type_id_lo_eq_%out_bool, __type_id_hi_eq_%out_bool
+    !__type_id_hi_eq_%out_bool
+    !__type_id_lo_eq_%out_bool
+    !__type_id_right_hi_%out_bool
+    !__type_id_right_lo_%out_bool
+    !__type_id_left_hi_%out_bool
+    !__type_id_left_lo_%out_bool
+[END_MACRO]
+
+[MACRO] TYPE_ID_BOOL %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_BOOL_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_U8 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_U8_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_U16 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_U16_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_U32 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_U32_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_U64 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_U64_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_I8 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_I8_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_I16 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_I16_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_I32 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_I32_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_I64 %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_I64_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_PTR %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_PTR_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_SLICE %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_SLICE_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_STRING %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_STRING_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] TYPE_ID_VEC %type_id
+    EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_VEC_LO, ANY_TYPE_ID_HI
+[END_MACRO]
+
+[MACRO] ANY_REF_NEW %any_ref, %type_id, %value_ptr
+    __any_new_lo_%any_ref = load %type_id+TypeId_lo as u64
+    __any_new_hi_%any_ref = load %type_id+TypeId_hi as u64
+    store %any_ref+AnyRef_type_lo, __any_new_lo_%any_ref as u64
+    store %any_ref+AnyRef_type_hi, __any_new_hi_%any_ref as u64
+    store %any_ref+AnyRef_ptr, %value_ptr as ptr
+    !__any_new_hi_%any_ref
+    !__any_new_lo_%any_ref
+[END_MACRO]
+
+[MACRO] ANY_REF_TYPE_ID %type_id, %any_ref
+    __any_type_lo_%type_id = load %any_ref+AnyRef_type_lo as u64
+    __any_type_hi_%type_id = load %any_ref+AnyRef_type_hi as u64
+    store %type_id+TypeId_lo, __any_type_lo_%type_id as u64
+    store %type_id+TypeId_hi, __any_type_hi_%type_id as u64
+    !__any_type_hi_%type_id
+    !__any_type_lo_%type_id
+[END_MACRO]
+
+[MACRO] ANY_REF_IS %out_bool, %any_ref, %type_id
+    __any_is_current_%out_bool = stack_alloc TypeId_SIZE
+    EXPAND ANY_REF_TYPE_ID __any_is_current_%out_bool, %any_ref
+    EXPAND TYPE_ID_EQ %out_bool, __any_is_current_%out_bool, %type_id
+[END_MACRO]
+
+[MACRO] ANY_REF_DOWNCAST_PTR %out_ok, %out_ptr, %any_ref, %type_id
+    EXPAND ANY_REF_IS __any_downcast_ok_%out_ok, %any_ref, %type_id
+    br __any_downcast_ok_%out_ok -> L_ANY_DOWNCAST_HIT_%out_ok, L_ANY_DOWNCAST_MISS_%out_ok
+
+L_ANY_DOWNCAST_HIT_%out_ok:
+    %out_ptr = load %any_ref+AnyRef_ptr as ptr
+    %out_ok = add 0, 1
+    !__any_downcast_ok_%out_ok
+    jmp L_ANY_DOWNCAST_END_%out_ok
+
+L_ANY_DOWNCAST_MISS_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__any_downcast_ok_%out_ok
+
+L_ANY_DOWNCAST_END_%out_ok:
+[END_MACRO]

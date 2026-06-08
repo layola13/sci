@@ -1,0 +1,161 @@
+@import "error.sal"
+@import "any.sal"
+@import "core/slice.sal"
+
+[MACRO] ERROR_TYPE_ID_GENERIC %type_id
+    store %type_id+TypeId_lo, ERROR_TYPE_GENERIC_LO as u64
+    store %type_id+TypeId_hi, ERROR_TYPE_ID_HI as u64
+[END_MACRO]
+
+[MACRO] ERROR_TYPE_ID_IO %type_id
+    store %type_id+TypeId_lo, ERROR_TYPE_IO_LO as u64
+    store %type_id+TypeId_hi, ERROR_TYPE_ID_HI as u64
+[END_MACRO]
+
+[MACRO] ERROR_TYPE_ID_PARSE %type_id
+    store %type_id+TypeId_lo, ERROR_TYPE_PARSE_LO as u64
+    store %type_id+TypeId_hi, ERROR_TYPE_ID_HI as u64
+[END_MACRO]
+
+[MACRO] ERROR_TYPE_ID_UTF8 %type_id
+    store %type_id+TypeId_lo, ERROR_TYPE_UTF8_LO as u64
+    store %type_id+TypeId_hi, ERROR_TYPE_ID_HI as u64
+[END_MACRO]
+
+[MACRO] ERROR_TYPE_ID_FMT %type_id
+    store %type_id+TypeId_lo, ERROR_TYPE_FMT_LO as u64
+    store %type_id+TypeId_hi, ERROR_TYPE_ID_HI as u64
+[END_MACRO]
+
+[MACRO] ERROR_REF_NEW %error_ref, %type_id, %code, %msg_ptr, %msg_len, %source_ptr
+    __error_new_type_lo_%error_ref = load %type_id+TypeId_lo as u64
+    __error_new_type_hi_%error_ref = load %type_id+TypeId_hi as u64
+    store %error_ref+ErrorRef_type_lo, __error_new_type_lo_%error_ref as u64
+    store %error_ref+ErrorRef_type_hi, __error_new_type_hi_%error_ref as u64
+    store %error_ref+ErrorRef_code, %code as u64
+    store %error_ref+ErrorRef_msg_ptr, %msg_ptr as ptr
+    store %error_ref+ErrorRef_msg_len, %msg_len as u64
+    store %error_ref+ErrorRef_source, %source_ptr as ptr
+    !__error_new_type_hi_%error_ref
+    !__error_new_type_lo_%error_ref
+[END_MACRO]
+
+[MACRO] ERROR_REF_STATIC %error_ref, %type_lo, %code, %msg_ptr, %msg_len
+    store %error_ref+ErrorRef_type_lo, %type_lo as u64
+    store %error_ref+ErrorRef_type_hi, ERROR_TYPE_ID_HI as u64
+    store %error_ref+ErrorRef_code, %code as u64
+    store %error_ref+ErrorRef_msg_ptr, %msg_ptr as ptr
+    store %error_ref+ErrorRef_msg_len, %msg_len as u64
+    store %error_ref+ErrorRef_source, 0 as ptr
+[END_MACRO]
+
+[MACRO] ERROR_REF_STATIC_WITH_SOURCE %error_ref, %type_lo, %code, %msg_ptr, %msg_len, %source_ptr
+    store %error_ref+ErrorRef_type_lo, %type_lo as u64
+    store %error_ref+ErrorRef_type_hi, ERROR_TYPE_ID_HI as u64
+    store %error_ref+ErrorRef_code, %code as u64
+    store %error_ref+ErrorRef_msg_ptr, %msg_ptr as ptr
+    store %error_ref+ErrorRef_msg_len, %msg_len as u64
+    store %error_ref+ErrorRef_source, %source_ptr as ptr
+[END_MACRO]
+
+[MACRO] ERROR_REF_TYPE_ID %type_id, %error_ref
+    __error_type_lo_%type_id = load %error_ref+ErrorRef_type_lo as u64
+    __error_type_hi_%type_id = load %error_ref+ErrorRef_type_hi as u64
+    store %type_id+TypeId_lo, __error_type_lo_%type_id as u64
+    store %type_id+TypeId_hi, __error_type_hi_%type_id as u64
+    !__error_type_hi_%type_id
+    !__error_type_lo_%type_id
+[END_MACRO]
+
+[MACRO] ERROR_REF_CODE %out_code, %error_ref
+    %out_code = load %error_ref+ErrorRef_code as u64
+[END_MACRO]
+
+[MACRO] ERROR_REF_MESSAGE %out_slice, %error_ref
+    __error_msg_ptr_%out_slice = load %error_ref+ErrorRef_msg_ptr as ptr
+    __error_msg_len_%out_slice = load %error_ref+ErrorRef_msg_len as u64
+    store %out_slice+Slice_ptr, __error_msg_ptr_%out_slice as ptr
+    store %out_slice+Slice_len, __error_msg_len_%out_slice as u64
+    !__error_msg_len_%out_slice
+    !__error_msg_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] ERROR_REF_MESSAGE_PTR %out_ptr, %error_ref
+    %out_ptr = load %error_ref+ErrorRef_msg_ptr as ptr
+[END_MACRO]
+
+[MACRO] ERROR_REF_MESSAGE_LEN %out_len, %error_ref
+    %out_len = load %error_ref+ErrorRef_msg_len as u64
+[END_MACRO]
+
+[MACRO] ERROR_REF_SOURCE %out_has, %out_source, %error_ref
+    %out_source = load %error_ref+ErrorRef_source as ptr
+    %out_has = ne %out_source, 0
+[END_MACRO]
+
+[MACRO] ERROR_REF_HAS_SOURCE %out_bool, %error_ref
+    __error_source_%out_bool = load %error_ref+ErrorRef_source as ptr
+    %out_bool = ne __error_source_%out_bool, 0
+    !__error_source_%out_bool
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS %out_bool, %error_ref, %type_id
+    __error_is_lo_%out_bool = load %error_ref+ErrorRef_type_lo as u64
+    __error_is_hi_%out_bool = load %error_ref+ErrorRef_type_hi as u64
+    __error_is_expected_lo_%out_bool = load %type_id+TypeId_lo as u64
+    __error_is_expected_hi_%out_bool = load %type_id+TypeId_hi as u64
+    __error_is_lo_eq_%out_bool = eq __error_is_lo_%out_bool, __error_is_expected_lo_%out_bool
+    __error_is_hi_eq_%out_bool = eq __error_is_hi_%out_bool, __error_is_expected_hi_%out_bool
+    %out_bool = and __error_is_lo_eq_%out_bool, __error_is_hi_eq_%out_bool
+    !__error_is_hi_eq_%out_bool
+    !__error_is_lo_eq_%out_bool
+    !__error_is_expected_hi_%out_bool
+    !__error_is_expected_lo_%out_bool
+    !__error_is_hi_%out_bool
+    !__error_is_lo_%out_bool
+[END_MACRO]
+
+[MACRO] ERROR_REF_DOWNCAST_PTR %out_ok, %out_ptr, %error_ref, %type_id
+    EXPAND ERROR_REF_IS __error_downcast_ok_%out_ok, %error_ref, %type_id
+    br __error_downcast_ok_%out_ok -> L_ERROR_DOWNCAST_HIT_%out_ok, L_ERROR_DOWNCAST_MISS_%out_ok
+L_ERROR_DOWNCAST_HIT_%out_ok:
+    %out_ptr = & %error_ref
+    %out_ok = add 0, 1
+    !__error_downcast_ok_%out_ok
+    jmp L_ERROR_DOWNCAST_END_%out_ok
+L_ERROR_DOWNCAST_MISS_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__error_downcast_ok_%out_ok
+L_ERROR_DOWNCAST_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ERROR_REF_CODE_EQ %out_bool, %error_ref, %code
+    __error_code_%out_bool = load %error_ref+ErrorRef_code as u64
+    %out_bool = eq __error_code_%out_bool, %code
+    !__error_code_%out_bool
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_NOT_FOUND %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_NOT_FOUND
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_PERMISSION_DENIED %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_PERMISSION_DENIED
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_INVALID_INPUT %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_INVALID_INPUT
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_INVALID_DATA %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_INVALID_DATA
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_TIMED_OUT %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_TIMED_OUT
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_INTERRUPTED %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_INTERRUPTED
+[END_MACRO]

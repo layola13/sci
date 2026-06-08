@@ -1,0 +1,27 @@
+#def RangeU64_SIZE = 16
+#def RangeU64_start = +0
+#def RangeU64_end = +8
+
+#def RangeFromU64_SIZE = 8
+#def RangeFromU64_start = +0
+
+#def RangeToU64_SIZE = 8
+#def RangeToU64_end = +0
+
+#def RangeInclusiveU64_SIZE = 24
+#def RangeInclusiveU64_start = +0
+#def RangeInclusiveU64_end = +8
+#def RangeInclusiveU64_exhausted = +16
+
+#def RangeToInclusiveU64_SIZE = 8
+#def RangeToInclusiveU64_end = +0
+
+#def RangeFull_SIZE = 0
+
+#def BoundU64_SIZE = 16
+#def BoundU64_tag = +0
+#def BoundU64_value = +8
+
+#def BOUND_U64_UNBOUNDED = 0
+#def BOUND_U64_INCLUDED = 1
+#def BOUND_U64_EXCLUDED = 2

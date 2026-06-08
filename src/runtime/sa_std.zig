@@ -23,6 +23,20 @@ extern fn regfree(preg: ?*RegexC) void;
 extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern fn unsetenv(name: [*:0]const u8) c_int;
 
+const InAddrC = extern struct {
+    s_addr: u32,
+};
+
+const IpMreqC = extern struct {
+    imr_multiaddr: InAddrC,
+    imr_interface: InAddrC,
+};
+
+const Ipv6MreqC = extern struct {
+    ipv6mr_multiaddr: [16]u8,
+    ipv6mr_interface: u32,
+};
+
 extern "c" var environ: [*:null]?[*:0]u8;
 
 comptime {
@@ -52,6 +66,13 @@ pub const SA_STD_ERR_UNKNOWN: i32 = 127;
 pub const SA_STD_STDIN: u64 = 1;
 pub const SA_STD_STDOUT: u64 = 2;
 pub const SA_STD_STDERR: u64 = 3;
+
+const IP_MULTICAST_TTL_OPT: u32 = 33;
+const IP_MULTICAST_LOOP_OPT: u32 = 34;
+const IP_ADD_MEMBERSHIP_OPT: u32 = 35;
+const IP_DROP_MEMBERSHIP_OPT: u32 = 36;
+const IPV6_JOIN_GROUP_OPT: u32 = 20;
+const IPV6_LEAVE_GROUP_OPT: u32 = 21;
 
 pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
 
@@ -795,6 +816,9 @@ const SaNetAddr = extern struct {
 const Timeval = std.posix.timeval;
 const TimevalSec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).sec);
 const TimevalUsec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).usec);
+const Timespec = std.posix.timespec;
+const TimespecSec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).sec);
+const TimespecNsec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).nsec);
 
 const OwnedFdHandle = struct {
     fd: std.posix.fd_t,
@@ -1023,7 +1047,7 @@ fn mapError(err: anyerror) i32 {
         error.UnreachableAddress,
         error.NetworkSubsystemFailed,
         => SA_STD_ERR_NET,
-        error.MessageTooBig => SA_STD_ERR_TRUNCATED,
+        error.MessageTooBig, error.NoSpaceLeft => SA_STD_ERR_TRUNCATED,
         error.Unsupported, error.SystemResources, error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded => SA_STD_ERR_UNSUPPORTED,
         error.ProcessNotFound, error.AlreadyTerminated => SA_STD_ERR_INVALID_HANDLE,
         error.NameTooLong,
@@ -1165,6 +1189,15 @@ fn setSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32, ns: u64) !v
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&tv));
 }
 
+fn setSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32, value: u8) !void {
+    var mutable = value;
+    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
+}
+
+fn setSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, bytes: []const u8) !void {
+    try std.posix.setsockopt(fd, level, optname, bytes);
+}
+
 fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
     var value: i32 = 0;
     var len: std.posix.socklen_t = @sizeOf(i32);
@@ -1202,6 +1235,58 @@ fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
         },
         else => return error.InvalidArgument,
     }
+}
+
+fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
+    var value: u8 = 0;
+    var len: std.posix.socklen_t = @sizeOf(u8);
+    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            std.debug.assert(len == @sizeOf(u8));
+            return value;
+        },
+        else => return error.InvalidArgument,
+    }
+}
+
+fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
+    const host = constBytes(host_ptr, host_len) catch |err| return err;
+    const port16 = portFromU32(port) catch |err| return err;
+    const address = try std.net.Address.resolveIp(host, port16);
+    if (address.any.family != std.posix.AF.INET) return error.InvalidArgument;
+    return address;
+}
+
+fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
+    const host = constBytes(host_ptr, host_len) catch |err| return err;
+    const port16 = portFromU32(port) catch |err| return err;
+    const address = try std.net.Address.resolveIp(host, port16);
+    if (address.any.family != std.posix.AF.INET6) return error.InvalidArgument;
+    return address;
+}
+
+fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
+    const host = constBytes(host_ptr, host_len) catch |err| return err;
+    const port16 = portFromU32(port) catch |err| return err;
+    const list = try std.net.getAddressList(std.heap.page_allocator, host, port16);
+    defer list.deinit();
+    if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
+    return list.addrs[0];
+}
+
+fn makeIpv4Membership(multicast_addr: std.net.Address, interface_addr: std.net.Address) IpMreqC {
+    return .{
+        .imr_multiaddr = .{ .s_addr = multicast_addr.in.sa.addr },
+        .imr_interface = .{ .s_addr = interface_addr.in.sa.addr },
+    };
+}
+
+fn makeIpv6Membership(multicast_addr: std.net.Address, interface_index: u32) Ipv6MreqC {
+    return .{
+        .ipv6mr_multiaddr = multicast_addr.in6.sa.addr,
+        .ipv6mr_interface = interface_index,
+    };
 }
 
 fn socketFdFromHandle(handle: u64) !std.posix.fd_t {
@@ -1488,6 +1573,27 @@ fn statusFromWaitStatus(status: u32) u32 {
     if (std.posix.W.IFSIGNALED(status)) return 128 + @as(u32, @intCast(std.posix.W.TERMSIG(status)));
     if (std.posix.W.IFSTOPPED(status)) return 130;
     return 127;
+}
+
+fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
+    proc.code = statusFromWaitStatus(status);
+    proc.exited = true;
+    if (proc.capture_output) {
+        if (proc.stdout_fd) |fd| {
+            const captured = try capture_fd_to_owned(std.heap.page_allocator, fd);
+            proc.stdout_buf = captured;
+            std.posix.close(fd);
+            proc.stdout_fd = null;
+        }
+        if (proc.stderr_fd) |fd| {
+            const captured = try capture_fd_to_owned(std.heap.page_allocator, fd);
+            proc.stderr_buf = captured;
+            std.posix.close(fd);
+            proc.stderr_fd = null;
+        }
+    }
+    proc.stdout_pos = 0;
+    proc.stderr_pos = 0;
 }
 
 fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8) !SpawnResult {
@@ -3632,6 +3738,85 @@ fn envGetOwned(key: []const u8) ![]u8 {
     return std.heap.page_allocator.dupe(u8, value);
 }
 
+const EnvVarJson = struct {
+    key: []const u8,
+    value: []const u8,
+};
+
+fn appendEnvVarJson(pairs: *std.ArrayList(EnvVarJson), entry: []const u8) !void {
+    const eq = std.mem.indexOfScalar(u8, entry, '=') orelse return;
+    if (eq == 0) return;
+    try pairs.append(.{ .key = entry[0..eq], .value = entry[eq + 1 ..] });
+}
+
+fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
+    var pairs = std.ArrayList(EnvVarJson).init(allocator);
+    defer pairs.deinit();
+
+    if (builtin.is_test) {
+        for (std.os.environ) |line| {
+            try appendEnvVarJson(&pairs, std.mem.span(line));
+        }
+    } else {
+        var i: usize = 0;
+        while (environ[i] != null) : (i += 1) {
+            try appendEnvVarJson(&pairs, std.mem.span(environ[i].?));
+        }
+    }
+
+    return std.json.stringifyAlloc(allocator, pairs.items, .{});
+}
+
+fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
+    if (builtin.os.tag == .linux) {
+        const file = std.fs.openFileAbsolute("/proc/self/cmdline", .{}) catch |err| switch (err) {
+            error.FileNotFound, error.AccessDenied => null,
+            else => return err,
+        };
+        if (file) |cmdline_file| {
+            defer cmdline_file.close();
+            const cmdline = try cmdline_file.readToEndAlloc(allocator, 1024 * 1024);
+            defer allocator.free(cmdline);
+
+            var args = std.ArrayList([]const u8).init(allocator);
+            defer args.deinit();
+            var it = std.mem.splitScalar(u8, cmdline, 0);
+            while (it.next()) |arg| {
+                if (arg.len == 0) continue;
+                try args.append(arg);
+            }
+            return std.json.stringifyAlloc(allocator, args.items, .{});
+        }
+    }
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+    return std.json.stringifyAlloc(allocator, args, .{});
+}
+
+fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
+    var parts = std.ArrayList([]const u8).init(allocator);
+    defer parts.deinit();
+
+    var it = std.mem.splitScalar(u8, path_list, ':');
+    while (it.next()) |part| {
+        try parts.append(part);
+    }
+
+    return std.json.stringifyAlloc(allocator, parts.items, .{});
+}
+
+fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u8) ![]u8 {
+    const parsed = try std.json.parseFromSlice([]const []const u8, allocator, paths_json, .{});
+    defer parsed.deinit();
+
+    for (parsed.value) |path| {
+        if (std.mem.indexOfScalar(u8, path, 0) != null) return error.InvalidArgument;
+    }
+
+    return std.mem.join(allocator, ":", parsed.value);
+}
+
 pub fn Fallible(comptime T: type) type {
     return extern struct {
         status: i32,
@@ -5382,6 +5567,18 @@ pub export fn sa_std_fs_exists(path_ptr: ?[*]const u8, path_len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_fs_try_exists(path_ptr: ?[*]const u8, path_len: u64, out_exists: ?*u8) i32 {
+    const exists_ptr = out_exists orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    exists_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return finish(SA_STD_OK),
+        else => return finishErr(err),
+    };
+    exists_ptr.* = 1;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_fs_len(path_ptr: ?[*]const u8, path_len: u64, out_len: ?*u64) i32 {
     const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     len_ptr.* = 0;
@@ -5466,6 +5663,29 @@ pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv,
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_process_id() u32 {
+    return @intCast(getpid());
+}
+
+pub export fn sa_std_process_abort() noreturn {
+    std.posix.abort();
+}
+
+pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
+    const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    pid_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            pid_ptr.* = @intCast(proc.pid);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
 pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     code_ptr.* = 0;
@@ -5476,26 +5696,52 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
         .process => |*proc| {
             if (!proc.exited) {
                 const waited = std.posix.waitpid(proc.pid, 0);
-                proc.code = statusFromWaitStatus(waited.status);
-                proc.exited = true;
-                if (proc.capture_output) {
-                    if (proc.stdout_fd) |fd| {
-                        const captured = capture_fd_to_owned(std.heap.page_allocator, fd) catch |err| return finishErr(err);
-                        proc.stdout_buf = captured;
-                        std.posix.close(fd);
-                        proc.stdout_fd = null;
-                    }
-                    if (proc.stderr_fd) |fd| {
-                        const captured = capture_fd_to_owned(std.heap.page_allocator, fd) catch |err| return finishErr(err);
-                        proc.stderr_buf = captured;
-                        std.posix.close(fd);
-                        proc.stderr_fd = null;
-                    }
-                }
-                proc.stdout_pos = 0;
-                proc.stderr_pos = 0;
+                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
             }
             code_ptr.* = proc.code;
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
+    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ready_ptr.* = 0;
+    code_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (!proc.exited) {
+                const waited = std.posix.waitpid(proc.pid, std.posix.W.NOHANG);
+                if (waited.pid == 0) return finish(SA_STD_OK);
+                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+            }
+            ready_ptr.* = 1;
+            code_ptr.* = proc.code;
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_kill(handle: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (!proc.exited) {
+                std.posix.kill(proc.pid, std.posix.SIG.KILL) catch |err| switch (err) {
+                    error.ProcessNotFound => {},
+                    else => return finishErr(err),
+                };
+                const waited = std.posix.waitpid(proc.pid, 0);
+                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+            }
             return finish(SA_STD_OK);
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
@@ -5840,6 +6086,20 @@ pub export fn sa_fs_file_flush(handle: u64) i32 {
     _ = handle;
     return finish(SA_STD_OK);
 }
+
+pub export fn sa_fs_file_sync_data(handle: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .file => |f| {
+            std.posix.fdatasync(f.handle) catch |err| return finishErr(err);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
 pub export fn sa_fs_file_sync(handle: u64) i32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -5924,6 +6184,29 @@ pub export fn sa_std_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_byt
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const result = sa_fs_read_file(path_ptr, path_len, max_bytes);
+    if (result.status != SA_STD_OK) return finish(result.status);
+    handle_ptr.* = result.value;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_read_to_string(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) Fallible(u64) {
+    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
+    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return fail(u64, mapError(err));
+    defer file.close();
+    const cap = lenAsUsize(max_bytes) catch |err| return fail(u64, mapError(err));
+    const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return fail(u64, mapError(err));
+    if (!std.unicode.utf8ValidateSlice(bytes)) {
+        std.heap.page_allocator.free(bytes);
+        return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
+    }
+    const handle = openOwnedByteBuffer(bytes) catch |err| return fail(u64, mapError(err));
+    return ok(u64, handle);
+}
+
+pub export fn sa_std_fs_read_to_string(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const result = sa_fs_read_to_string(path_ptr, path_len, max_bytes);
     if (result.status != SA_STD_OK) return finish(result.status);
     handle_ptr.* = result.value;
     return finish(SA_STD_OK);
@@ -6194,6 +6477,19 @@ pub export fn sa_std_fs_metadata_free(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
+pub export fn sa_std_fs_canonicalize(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const bytes = std.fs.cwd().realpathAlloc(std.heap.page_allocator, path) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_fs_remove_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
     return sa_std_fs_remove(path_ptr, path_len);
 }
@@ -6211,7 +6507,19 @@ pub export fn sa_fs_make_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_fs_create_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.fs.cwd().makeDir(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_fs_remove_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.fs.cwd().deleteDir(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_remove_dir_all(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     std.fs.cwd().deleteTree(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6230,11 +6538,78 @@ pub export fn sa_fs_copy_file(from_path: ?[*]const u8, from_len: u64, to_path: ?
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_fs_set_permissions(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.posix.fchmodat(std.posix.AT.FDCWD, path, @as(std.posix.mode_t, @intCast(mode)), 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+fn timespecFromUnixMs(unix_ms: i64) !Timespec {
+    const sec = @divFloor(unix_ms, 1000);
+    const rem_ms = @mod(unix_ms, 1000);
+    const sec_value = std.math.cast(TimespecSec, sec) orelse return error.InvalidArgument;
+    const nsec_value = std.math.cast(TimespecNsec, rem_ms * 1_000_000) orelse return error.InvalidArgument;
+    return .{ .sec = sec_value, .nsec = nsec_value };
+}
+
+pub export fn sa_fs_set_times_ms(path_ptr: ?[*]const u8, path_len: u64, accessed_ms: i64, modified_ms: i64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const atime = timespecFromUnixMs(accessed_ms) catch |err| return finishErr(err);
+    const mtime = timespecFromUnixMs(modified_ms) catch |err| return finishErr(err);
+    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return finishErr(err);
+    defer file.close();
+    var times = [2]Timespec{ atime, mtime };
+    std.posix.futimens(file.handle, &times) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_hard_link(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
+    const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
+    const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
+    std.posix.link(from, to) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_symlink(target_path: ?[*]const u8, target_len: u64, link_path: ?[*]const u8, link_len: u64) i32 {
+    const target = pathBytes(target_path, target_len) catch |err| return finishErr(err);
+    const link = pathBytes(link_path, link_len) catch |err| return finishErr(err);
+    std.fs.cwd().symLink(target, link, .{}) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    var stack_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const target = std.fs.cwd().readLink(path, stack_buf[0..]) catch |err| return finishErr(err);
+    const bytes = std.heap.page_allocator.dupe(u8, target) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32) Fallible(u64) {
     var handle: u64 = 0;
     const status = sa_std_net_tcp_connect(host_ptr, host_len, port, &handle);
     if (status != SA_STD_OK) return fail(u64, status);
     return ok(u64, handle);
+}
+
+pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const address = resolveFirstSocketAddress(host_ptr, host_len, port) catch |err| return finishErr(err);
+    var net_addr = NetAddrHandle.init(std.heap.page_allocator, address) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
+        net_addr.deinit();
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
@@ -6627,6 +7002,30 @@ pub export fn sa_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
     return sa_std_net_udp_set_ttl(socket, ttl);
 }
 
+pub export fn sa_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    return sa_std_net_udp_set_multicast_loop_v4(socket, enabled);
+}
+
+pub export fn sa_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    return sa_std_net_udp_set_multicast_ttl_v4(socket, ttl);
+}
+
+pub export fn sa_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    return sa_std_net_udp_join_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
+}
+
+pub export fn sa_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    return sa_std_net_udp_leave_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
+}
+
+pub export fn sa_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    return sa_std_net_udp_join_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
+}
+
+pub export fn sa_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    return sa_std_net_udp_leave_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
+}
+
 pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -6692,6 +7091,77 @@ pub export fn sa_std_net_udp_broadcast(socket: u64, out_enabled: ?*i32) i32 {
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (ttl > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_TTL_OPT, @as(u8, @intCast(ttl))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_multicast_loop_v4(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = if ((getSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = @as(u32, getSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_TTL_OPT) catch |err| return finishErr(err));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const multicast_addr = parseIp4Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
+    const interface_addr = parseIp4Address(interface_host_ptr, interface_host_len, 0) catch |err| return finishErr(err);
+    var membership = makeIpv4Membership(multicast_addr, interface_addr);
+    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_ADD_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const multicast_addr = parseIp4Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
+    const interface_addr = parseIp4Address(interface_host_ptr, interface_host_len, 0) catch |err| return finishErr(err);
+    var membership = makeIpv4Membership(multicast_addr, interface_addr);
+    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_DROP_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const multicast_addr = parseIp6Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
+    var membership = makeIpv6Membership(multicast_addr, interface_index);
+    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IPV6, IPV6_JOIN_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const multicast_addr = parseIp6Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
+    var membership = makeIpv6Membership(multicast_addr, interface_index);
+    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IPV6, IPV6_LEAVE_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -6940,6 +7410,43 @@ pub export fn sa_net_addr_family(addr: u64) u32 {
         },
     };
 }
+
+pub export fn sa_net_addr_scope_id(addr: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| switch (net_addr.addr.any.family) {
+            std.posix.AF.INET6 => @as(u64, @intCast(net_addr.addr.in6.sa.scope_id)),
+            else => 0,
+        },
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
+
+pub export fn sa_std_net_addr_format(addr: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_ptr.* = 0;
+    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .net_addr => |net_addr| {
+            const text = std.fmt.bufPrint(buffer, "{}", .{net_addr.addr}) catch |err| return finishErr(err);
+            len_ptr.* = @as(u64, @intCast(text.len));
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
 pub export fn sa_net_addr_free(addr: u64) Fallible(i32) {
     const status = sa_std_close(addr);
     if (status != SA_STD_OK) return fail(i32, status);
@@ -7073,10 +7580,78 @@ pub export fn sa_env_get(key_ptr: ?[*]const u8, key_len: u64) u64 {
     return openOwnedEnvBuffer(owned) catch return 0;
 }
 
+pub export fn sa_env_current_dir() u64 {
+    const cwd = std.process.getCwdAlloc(std.heap.page_allocator) catch return 0;
+    return openOwnedEnvBuffer(cwd) catch return 0;
+}
+
+pub export fn sa_env_set_current_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.process.changeCurDir(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_env_temp_dir() u64 {
+    const path = tempRootAlloc(std.heap.page_allocator) catch return 0;
+    return openOwnedEnvBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_current_exe() u64 {
+    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch return 0;
+    return openOwnedEnvBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_home_dir() u64 {
+    const owned = envGetOwned("HOME") catch return 0;
+    return openOwnedEnvBuffer(owned) catch return 0;
+}
+
+pub export fn sa_env_args_json() u64 {
+    const json = processArgsJsonAlloc(std.heap.page_allocator) catch return 0;
+    return openOwnedEnvBuffer(json) catch return 0;
+}
+
+pub export fn sa_env_vars_json() u64 {
+    const json = envVarsJsonAlloc(std.heap.page_allocator) catch return 0;
+    return openOwnedEnvBuffer(json) catch return 0;
+}
+
+pub export fn sa_env_split_paths_json(path_list_ptr: ?[*]const u8, path_list_len: u64) u64 {
+    const path_list = constBytes(path_list_ptr, path_list_len) catch return 0;
+    const json = envSplitPathsJsonAlloc(std.heap.page_allocator, path_list) catch return 0;
+    return openOwnedEnvBuffer(json) catch return 0;
+}
+
+pub export fn sa_env_join_paths_json(paths_json_ptr: ?[*]const u8, paths_json_len: u64) u64 {
+    const paths_json = constBytes(paths_json_ptr, paths_json_len) catch return 0;
+    const joined = envJoinPathsJsonAlloc(std.heap.page_allocator, paths_json) catch return 0;
+    return openOwnedEnvBuffer(joined) catch return 0;
+}
+
 pub export fn sa_env_has(key_ptr: ?[*]const u8, key_len: u64) i32 {
     const key = envKeyBytes(key_ptr, key_len) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const present = envValueFromCurrentProcess(key) != null;
     return finish(if (present) SA_STD_OK else SA_STD_ERR_NOT_FOUND);
+}
+
+pub export fn sa_env_set_var(key_ptr: ?[*]const u8, key_len: u64, value_ptr: ?[*]const u8, value_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const value = constBytes(value_ptr, value_len) catch |err| return finishErr(err);
+    if (std.mem.indexOfScalar(u8, value, 0) != null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(key_z);
+    const value_z = std.heap.page_allocator.dupeZ(u8, value) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(value_z);
+    if (setenv(key_z.ptr, value_z.ptr, 1) != 0) return finish(SA_STD_ERR_IO);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_env_remove_var(key_ptr: ?[*]const u8, key_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(key_z);
+    if (unsetenv(key_z.ptr) != 0) return finish(SA_STD_ERR_IO);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_env_buffer_data(buffer: u64) ?[*]u8 {

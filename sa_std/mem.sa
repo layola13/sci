@@ -1,0 +1,174 @@
+@import "mem.sal"
+
+[MACRO] MEM_SIZE_OF_BOOL %out_size
+    %out_size = add 0, MEM_SIZE_BOOL
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_U8 %out_size
+    %out_size = add 0, MEM_SIZE_U8
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_U16 %out_size
+    %out_size = add 0, MEM_SIZE_U16
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_U32 %out_size
+    %out_size = add 0, MEM_SIZE_U32
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_U64 %out_size
+    %out_size = add 0, MEM_SIZE_U64
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_USIZE %out_size
+    %out_size = add 0, MEM_SIZE_USIZE
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_I8 %out_size
+    %out_size = add 0, MEM_SIZE_I8
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_I16 %out_size
+    %out_size = add 0, MEM_SIZE_I16
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_I32 %out_size
+    %out_size = add 0, MEM_SIZE_I32
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_I64 %out_size
+    %out_size = add 0, MEM_SIZE_I64
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_ISIZE %out_size
+    %out_size = add 0, MEM_SIZE_ISIZE
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_BOOL %out_align
+    %out_align = add 0, MEM_ALIGN_BOOL
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_U8 %out_align
+    %out_align = add 0, MEM_ALIGN_U8
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_U16 %out_align
+    %out_align = add 0, MEM_ALIGN_U16
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_U32 %out_align
+    %out_align = add 0, MEM_ALIGN_U32
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_U64 %out_align
+    %out_align = add 0, MEM_ALIGN_U64
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_USIZE %out_align
+    %out_align = add 0, MEM_ALIGN_USIZE
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_I8 %out_align
+    %out_align = add 0, MEM_ALIGN_I8
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_I16 %out_align
+    %out_align = add 0, MEM_ALIGN_I16
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_I32 %out_align
+    %out_align = add 0, MEM_ALIGN_I32
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_I64 %out_align
+    %out_align = add 0, MEM_ALIGN_I64
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_ISIZE %out_align
+    %out_align = add 0, MEM_ALIGN_ISIZE
+[END_MACRO]
+
+[MACRO] MEM_SWAP_U64 %lhs_ptr, %rhs_ptr
+    __mem_swap_lhs_%lhs_ptr = load %lhs_ptr+0 as u64
+    __mem_swap_rhs_%lhs_ptr = load %rhs_ptr+0 as u64
+    store %lhs_ptr+0, __mem_swap_rhs_%lhs_ptr as u64
+    store %rhs_ptr+0, __mem_swap_lhs_%lhs_ptr as u64
+    !__mem_swap_rhs_%lhs_ptr
+    !__mem_swap_lhs_%lhs_ptr
+[END_MACRO]
+
+[MACRO] MEM_REPLACE_U64 %out_old, %slot_ptr, %new_value
+    %out_old = load %slot_ptr+0 as u64
+    store %slot_ptr+0, %new_value as u64
+[END_MACRO]
+
+[MACRO] MEM_TAKE_U64 %out_old, %slot_ptr
+    %out_old = load %slot_ptr+0 as u64
+    store %slot_ptr+0, 0 as u64
+[END_MACRO]
+
+[MACRO] MEM_FORGET_U64 %value
+    __mem_forget_sink_%value = add %value, 0
+    !__mem_forget_sink_%value
+[END_MACRO]
+
+[MACRO] MEM_NEEDS_DROP_PRIMITIVE %out_bool
+    %out_bool = add 0, 0
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_UNINIT %slot_ptr
+    store %slot_ptr+MaybeUninitU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_NEW %slot_ptr, %value
+    store %slot_ptr+MaybeUninitU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_WRITE %slot_ptr, %value
+    store %slot_ptr+MaybeUninitU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_AS_PTR %out_ptr, %slot_ptr
+    %out_ptr = ptr_add %slot_ptr, MaybeUninitU64_value
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_AS_MUT_PTR %out_ptr, %slot_ptr
+    %out_ptr = ptr_add %slot_ptr, MaybeUninitU64_value
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_ASSUME_INIT %out_value, %slot_ptr
+    %out_value = load %slot_ptr+MaybeUninitU64_value as u64
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_ASSUME_INIT_READ %out_value, %slot_ptr
+    %out_value = load %slot_ptr+MaybeUninitU64_value as u64
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_ZEROED %slot_ptr
+    store %slot_ptr+MaybeUninitU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_NEW %slot_ptr, %value
+    store %slot_ptr+ManuallyDropU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_INTO_INNER %out_value, %slot_ptr
+    %out_value = load %slot_ptr+ManuallyDropU64_value as u64
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_TAKE %out_value, %slot_ptr
+    %out_value = load %slot_ptr+ManuallyDropU64_value as u64
+    store %slot_ptr+ManuallyDropU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_DROP %slot_ptr
+    store %slot_ptr+ManuallyDropU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_AS_PTR %out_ptr, %slot_ptr
+    %out_ptr = ptr_add %slot_ptr, ManuallyDropU64_value
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_AS_MUT_PTR %out_ptr, %slot_ptr
+    %out_ptr = ptr_add %slot_ptr, ManuallyDropU64_value
+[END_MACRO]

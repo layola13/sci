@@ -137,6 +137,50 @@ L_MPSC_TRY_RECV_COMMIT:
     !%chan
 [END_MACRO]
 
+[MACRO] MPSC_CAPACITY %out_cap, %chan
+    %out_cap = atomic_load %chan+Mpsc_cap as u64 acquire
+[END_MACRO]
+
+[MACRO] MPSC_LEN %out_len, %chan
+    __mpsc_len_head_%out_len = atomic_load %chan+Mpsc_head as u64 acquire
+    __mpsc_len_tail_%out_len = atomic_load %chan+Mpsc_tail as u64 acquire
+    %out_len = sub __mpsc_len_tail_%out_len, __mpsc_len_head_%out_len
+    !__mpsc_len_tail_%out_len
+    !__mpsc_len_head_%out_len
+[END_MACRO]
+
+[MACRO] MPSC_AVAILABLE %out_slots, %chan
+    __mpsc_avail_cap_%out_slots = atomic_load %chan+Mpsc_cap as u64 acquire
+    __mpsc_avail_head_%out_slots = atomic_load %chan+Mpsc_head as u64 acquire
+    __mpsc_avail_tail_%out_slots = atomic_load %chan+Mpsc_tail as u64 acquire
+    __mpsc_avail_used_%out_slots = sub __mpsc_avail_tail_%out_slots, __mpsc_avail_head_%out_slots
+    %out_slots = sub __mpsc_avail_cap_%out_slots, __mpsc_avail_used_%out_slots
+    !__mpsc_avail_used_%out_slots
+    !__mpsc_avail_tail_%out_slots
+    !__mpsc_avail_head_%out_slots
+    !__mpsc_avail_cap_%out_slots
+[END_MACRO]
+
+[MACRO] MPSC_IS_EMPTY %out_bool, %chan
+    __mpsc_empty_head_%out_bool = atomic_load %chan+Mpsc_head as u64 acquire
+    __mpsc_empty_tail_%out_bool = atomic_load %chan+Mpsc_tail as u64 acquire
+    %out_bool = eq __mpsc_empty_head_%out_bool, __mpsc_empty_tail_%out_bool
+    !__mpsc_empty_tail_%out_bool
+    !__mpsc_empty_head_%out_bool
+[END_MACRO]
+
+[MACRO] MPSC_IS_FULL %out_bool, %chan
+    __mpsc_full_cap_%out_bool = atomic_load %chan+Mpsc_cap as u64 acquire
+    __mpsc_full_head_%out_bool = atomic_load %chan+Mpsc_head as u64 acquire
+    __mpsc_full_tail_%out_bool = atomic_load %chan+Mpsc_tail as u64 acquire
+    __mpsc_full_used_%out_bool = sub __mpsc_full_tail_%out_bool, __mpsc_full_head_%out_bool
+    %out_bool = uge __mpsc_full_used_%out_bool, __mpsc_full_cap_%out_bool
+    !__mpsc_full_used_%out_bool
+    !__mpsc_full_tail_%out_bool
+    !__mpsc_full_head_%out_bool
+    !__mpsc_full_cap_%out_bool
+[END_MACRO]
+
 [MACRO] MPSC_TRY_SEND %out_ok, %chan, %value
     __mpsc_value_slot_%out_ok = stack_alloc 8
     store __mpsc_value_slot_%out_ok+0, %value as u64

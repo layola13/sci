@@ -27,3 +27,44 @@
 #def SaNetAddr_host_ptr = +8
 #def SaNetAddr_host_len = +16
 #def SaNetAddr_scope_id = +24
+
+#def NetIpv4Addr_SIZE = 4
+#def NET_IPV4_BITS_VALUE = 32
+#def NetIpv4Addr_a = +0
+#def NetIpv4Addr_b = +1
+#def NetIpv4Addr_c = +2
+#def NetIpv4Addr_d = +3
+
+#def NetIpv6Addr_SIZE = 16
+#def NET_IPV6_BITS_VALUE = 128
+#def NetIpv6Addr_s0 = +0
+#def NetIpv6Addr_s1 = +2
+#def NetIpv6Addr_s2 = +4
+#def NetIpv6Addr_s3 = +6
+#def NetIpv6Addr_s4 = +8
+#def NetIpv6Addr_s5 = +10
+#def NetIpv6Addr_s6 = +12
+#def NetIpv6Addr_s7 = +14
+
+#def NetIpAddr_SIZE = 24
+#def NetIpAddr_tag = +0
+#def NetIpAddr_payload = +8
+#def NET_IP_ADDR_V4 = 4
+#def NET_IP_ADDR_V6 = 6
+
+#def NetSocketAddrV4_SIZE = 8
+#def NetSocketAddrV4_ip = +0
+#def NetSocketAddrV4_port = +4
+
+#def NetSocketAddrV6_SIZE = 32
+#def NetSocketAddrV6_ip = +0
+#def NetSocketAddrV6_port = +16
+#def NetSocketAddrV6_flowinfo = +20
+#def NetSocketAddrV6_scope_id = +24
+
+#def NetSocketAddr_SIZE = 40
+#def NetSocketAddr_tag = +0
+#def NetSocketAddr_payload = +8
+
+#def NetTcpIncoming_SIZE = 8
+#def NetTcpIncoming_listener = +0

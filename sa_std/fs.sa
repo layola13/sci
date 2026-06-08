@@ -45,6 +45,10 @@
     %out_status = call @sa_fs_file_flush(%file)
 [END_MACRO]
 
+[MACRO] FS_SYNC_DATA %out_status, %file
+    %out_status = call @sa_fs_file_sync_data(%file)
+[END_MACRO]
+
 [MACRO] FS_SYNC_ALL %out_status, %file
     %out_status = call @sa_fs_file_sync(%file)
 [END_MACRO]
@@ -68,6 +72,12 @@
     __fs_read_file_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_fs_read_file(&%path, %path_len, %max_bytes, &__fs_read_file_handle_%out_status)
     %out_buffer = load __fs_read_file_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] FS_READ_TO_STRING %out_status, %out_buffer, %path, %path_len, %max_bytes
+    __fs_read_to_string_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_fs_read_to_string(&%path, %path_len, %max_bytes, &__fs_read_to_string_handle_%out_status)
+    %out_buffer = load __fs_read_to_string_handle_%out_status+0 as u64
 [END_MACRO]
 
 [MACRO] FS_WRITE_FILE %out_status, %path, %path_len, %buf, %len
@@ -150,10 +160,22 @@
     %out_status = call @sa_std_fs_metadata_free(%metadata)
 [END_MACRO]
 
+[MACRO] FS_CANONICALIZE %out_status, %out_buffer, %path, %path_len
+    __fs_canonical_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_fs_canonicalize(&%path, %path_len, &__fs_canonical_handle_%out_status)
+    %out_buffer = load __fs_canonical_handle_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] FS_EXISTS %out_flag, %path, %path_len
     __fs_exists_status_%out_flag = call @sa_std_fs_exists(&%path, %path_len)
     %out_flag = eq __fs_exists_status_%out_flag, SA_FS_OK
     !__fs_exists_status_%out_flag
+[END_MACRO]
+
+[MACRO] FS_TRY_EXISTS %out_status, %out_flag, %path, %path_len
+    __fs_try_exists_slot_%out_status = stack_alloc 1
+    %out_status = call @sa_std_fs_try_exists(&%path, %path_len, &__fs_try_exists_slot_%out_status)
+    %out_flag = load __fs_try_exists_slot_%out_status+0 as u8
 [END_MACRO]
 
 [MACRO] FS_LEN %out_status, %out_len, %path, %path_len
@@ -174,6 +196,10 @@
     %out_status = call @sa_fs_remove_dir(&%path, %path_len)
 [END_MACRO]
 
+[MACRO] FS_REMOVE_DIR_ALL %out_status, %path, %path_len
+    %out_status = call @sa_fs_remove_dir_all(&%path, %path_len)
+[END_MACRO]
+
 [MACRO] FS_REMOVE_PATH %out_status, %path, %path_len
     %out_status = call @sa_fs_remove_path(&%path, %path_len)
 [END_MACRO]
@@ -186,10 +212,36 @@
     %out_status = call @sa_fs_make_dir(&%path, %path_len)
 [END_MACRO]
 
+[MACRO] FS_CREATE_DIR %out_status, %path, %path_len
+    %out_status = call @sa_fs_create_dir(&%path, %path_len)
+[END_MACRO]
+
 [MACRO] FS_CREATE_DIR_ALL %out_status, %path, %path_len
     EXPAND FS_MAKE_DIR %out_status, %path, %path_len
 [END_MACRO]
 
 [MACRO] FS_COPY %out_status, %from_path, %from_len, %to_path, %to_len
     %out_status = call @sa_fs_copy_file(&%from_path, %from_len, &%to_path, %to_len)
+[END_MACRO]
+
+[MACRO] FS_SET_PERMISSIONS %out_status, %path, %path_len, %mode
+    %out_status = call @sa_fs_set_permissions(&%path, %path_len, %mode)
+[END_MACRO]
+
+[MACRO] FS_SET_TIMES_MS %out_status, %path, %path_len, %accessed_ms, %modified_ms
+    %out_status = call @sa_fs_set_times_ms(&%path, %path_len, %accessed_ms, %modified_ms)
+[END_MACRO]
+
+[MACRO] FS_HARD_LINK %out_status, %from_path, %from_len, %to_path, %to_len
+    %out_status = call @sa_fs_hard_link(&%from_path, %from_len, &%to_path, %to_len)
+[END_MACRO]
+
+[MACRO] FS_SYMLINK %out_status, %target_path, %target_len, %link_path, %link_len
+    %out_status = call @sa_fs_symlink(&%target_path, %target_len, &%link_path, %link_len)
+[END_MACRO]
+
+[MACRO] FS_READ_LINK %out_status, %out_buffer, %path, %path_len
+    __fs_read_link_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_fs_read_link(&%path, %path_len, &__fs_read_link_handle_%out_status)
+    %out_buffer = load __fs_read_link_handle_%out_status+0 as u64
 [END_MACRO]

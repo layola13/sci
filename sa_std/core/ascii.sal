@@ -7,6 +7,14 @@
 #def ASCII_FF = 12
 #def ASCII_CR = 13
 #def ASCII_SPACE = 32
+#def ASCII_SINGLE_QUOTE = 39
+#def ASCII_DOUBLE_QUOTE = 34
+#def ASCII_BACKSLASH = 92
+
+#def ASCII_ESCAPE_N = 110
+#def ASCII_ESCAPE_R = 114
+#def ASCII_ESCAPE_T = 116
+#def ASCII_ESCAPE_X = 120
 
 #def ASCII_DIGIT_0 = 48
 #def ASCII_DIGIT_7 = 55
@@ -21,3 +29,6 @@
 
 #def ASCII_GRAPHIC_MIN = 33
 #def ASCII_GRAPHIC_MAX = 126
+
+#def AsciiChar_SIZE = 1
+#def AsciiChar_value = +0

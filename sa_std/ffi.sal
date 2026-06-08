@@ -1,0 +1,11 @@
+@import "core/slice.sal"
+
+#def CStr_SIZE = Slice_SIZE
+#def CStr_ptr = Slice_ptr
+#def CStr_len = Slice_len
+
+#def CSTR_FROM_BYTES_OK = 0
+#def CSTR_FROM_BYTES_NOT_NUL_TERMINATED = 1
+#def CSTR_FROM_BYTES_INTERIOR_NUL = 2
+
+#def CSTR_ERROR_POS_NONE = -1

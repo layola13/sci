@@ -1,6 +1,7 @@
 @import "io.sal"
 @import "fmt.sai"
 @import "io.sai"
+@import "core/mem.sa"
 
 @const IO_NEWLINE = utf8:"\n"
 
@@ -56,4 +57,386 @@
 
 [MACRO] FORMAT_INT %out_buf, %value, %base
     %out_buf = call @sa_fmt_i64(%value, %base)
+[END_MACRO]
+
+[MACRO] IO_ERROR_KIND_FROM_STATUS %out_kind, %status
+    __io_kind_eof_%out_kind = eq %status, SA_IO_ERR_EOF
+    br __io_kind_eof_%out_kind -> L_IO_KIND_EOF_%out_kind, L_IO_KIND_WOULD_BLOCK_CHECK_%out_kind
+
+L_IO_KIND_EOF_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_UNEXPECTED_EOF
+    !__io_kind_eof_%out_kind
+    jmp L_IO_KIND_END_%out_kind
+
+L_IO_KIND_WOULD_BLOCK_CHECK_%out_kind:
+    __io_kind_would_block_%out_kind = eq %status, SA_IO_ERR_WOULD_BLOCK
+    br __io_kind_would_block_%out_kind -> L_IO_KIND_WOULD_BLOCK_%out_kind, L_IO_KIND_INTERRUPTED_CHECK_%out_kind
+
+L_IO_KIND_WOULD_BLOCK_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_WOULD_BLOCK
+    !__io_kind_would_block_%out_kind
+    !__io_kind_eof_%out_kind
+    jmp L_IO_KIND_END_%out_kind
+
+L_IO_KIND_INTERRUPTED_CHECK_%out_kind:
+    __io_kind_interrupted_%out_kind = eq %status, SA_IO_ERR_INTERRUPTED
+    br __io_kind_interrupted_%out_kind -> L_IO_KIND_INTERRUPTED_%out_kind, L_IO_KIND_INVALID_CHECK_%out_kind
+
+L_IO_KIND_INTERRUPTED_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_INTERRUPTED
+    !__io_kind_interrupted_%out_kind
+    !__io_kind_would_block_%out_kind
+    !__io_kind_eof_%out_kind
+    jmp L_IO_KIND_END_%out_kind
+
+L_IO_KIND_INVALID_CHECK_%out_kind:
+    __io_kind_invalid_%out_kind = eq %status, SA_IO_ERR_INVALID_HANDLE
+    br __io_kind_invalid_%out_kind -> L_IO_KIND_INVALID_%out_kind, L_IO_KIND_OTHER_%out_kind
+
+L_IO_KIND_INVALID_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_INVALID_INPUT
+    !__io_kind_invalid_%out_kind
+    !__io_kind_interrupted_%out_kind
+    !__io_kind_would_block_%out_kind
+    !__io_kind_eof_%out_kind
+    jmp L_IO_KIND_END_%out_kind
+
+L_IO_KIND_OTHER_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_OTHER
+    !__io_kind_invalid_%out_kind
+    !__io_kind_interrupted_%out_kind
+    !__io_kind_would_block_%out_kind
+    !__io_kind_eof_%out_kind
+
+L_IO_KIND_END_%out_kind:
+[END_MACRO]
+
+[MACRO] IO_ERROR_KIND_IS_RETRYABLE %out_bool, %kind
+    __io_retry_would_block_%out_bool = eq %kind, IO_ERROR_KIND_WOULD_BLOCK
+    __io_retry_interrupted_%out_bool = eq %kind, IO_ERROR_KIND_INTERRUPTED
+    %out_bool = or __io_retry_would_block_%out_bool, __io_retry_interrupted_%out_bool
+    !__io_retry_interrupted_%out_bool
+    !__io_retry_would_block_%out_bool
+[END_MACRO]
+
+[MACRO] IO_SLICE_NEW %io_slice, %ptr, %len
+    store %io_slice+IoSlice_ptr, %ptr as ptr
+    store %io_slice+IoSlice_len, %len as u64
+[END_MACRO]
+
+[MACRO] IO_SLICE_AS_PTR %out_ptr, %io_slice
+    %out_ptr = load %io_slice+IoSlice_ptr as ptr
+[END_MACRO]
+
+[MACRO] IO_SLICE_LEN %out_len, %io_slice
+    %out_len = load %io_slice+IoSlice_len as u64
+[END_MACRO]
+
+[MACRO] IO_SLICE_IS_EMPTY %out_bool, %io_slice
+    __io_slice_len_%out_bool = load %io_slice+IoSlice_len as u64
+    %out_bool = eq __io_slice_len_%out_bool, 0
+    !__io_slice_len_%out_bool
+[END_MACRO]
+
+[MACRO] IO_SLICE_MUT_NEW %io_slice, %ptr, %len
+    store %io_slice+IoSliceMut_ptr, %ptr as ptr
+    store %io_slice+IoSliceMut_len, %len as u64
+[END_MACRO]
+
+[MACRO] IO_SLICE_MUT_AS_PTR %out_ptr, %io_slice
+    %out_ptr = load %io_slice+IoSliceMut_ptr as ptr
+[END_MACRO]
+
+[MACRO] IO_SLICE_MUT_LEN %out_len, %io_slice
+    %out_len = load %io_slice+IoSliceMut_len as u64
+[END_MACRO]
+
+[MACRO] IO_SLICE_MUT_IS_EMPTY %out_bool, %io_slice
+    __io_slice_mut_len_%out_bool = load %io_slice+IoSliceMut_len as u64
+    %out_bool = eq __io_slice_mut_len_%out_bool, 0
+    !__io_slice_mut_len_%out_bool
+[END_MACRO]
+
+[MACRO] IO_CURSOR_NEW %cursor, %ptr, %len
+    store %cursor+IoCursor_ptr, %ptr as ptr
+    store %cursor+IoCursor_len, %len as u64
+    store %cursor+IoCursor_pos, 0 as u64
+[END_MACRO]
+
+[MACRO] IO_CURSOR_AS_PTR %out_ptr, %cursor
+    %out_ptr = load %cursor+IoCursor_ptr as ptr
+[END_MACRO]
+
+[MACRO] IO_CURSOR_LEN %out_len, %cursor
+    %out_len = load %cursor+IoCursor_len as u64
+[END_MACRO]
+
+[MACRO] IO_CURSOR_IS_EMPTY %out_bool, %cursor
+    __io_cursor_len_%out_bool = load %cursor+IoCursor_len as u64
+    %out_bool = eq __io_cursor_len_%out_bool, 0
+    !__io_cursor_len_%out_bool
+[END_MACRO]
+
+[MACRO] IO_CURSOR_AS_SLICE %out_slice, %cursor
+    __io_cursor_ptr_%out_slice = load %cursor+IoCursor_ptr as ptr
+    __io_cursor_len_%out_slice = load %cursor+IoCursor_len as u64
+    store %out_slice+IoSlice_ptr, __io_cursor_ptr_%out_slice as ptr
+    store %out_slice+IoSlice_len, __io_cursor_len_%out_slice as u64
+    !__io_cursor_len_%out_slice
+    !__io_cursor_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] IO_CURSOR_AS_MUT_SLICE %out_slice, %cursor
+    __io_cursor_ptr_%out_slice = load %cursor+IoCursor_ptr as ptr
+    __io_cursor_len_%out_slice = load %cursor+IoCursor_len as u64
+    store %out_slice+IoSliceMut_ptr, __io_cursor_ptr_%out_slice as ptr
+    store %out_slice+IoSliceMut_len, __io_cursor_len_%out_slice as u64
+    !__io_cursor_len_%out_slice
+    !__io_cursor_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] IO_CURSOR_INTO_INNER %out_ptr, %out_len, %cursor
+    %out_ptr = load %cursor+IoCursor_ptr as ptr
+    %out_len = load %cursor+IoCursor_len as u64
+[END_MACRO]
+
+[MACRO] IO_CURSOR_POSITION %out_pos, %cursor
+    %out_pos = load %cursor+IoCursor_pos as u64
+[END_MACRO]
+
+[MACRO] IO_CURSOR_SET_POSITION %cursor, %pos
+    store %cursor+IoCursor_pos, %pos as u64
+[END_MACRO]
+
+[MACRO] IO_CURSOR_REMAINING %out_len, %cursor
+    __io_cursor_len_%out_len = load %cursor+IoCursor_len as u64
+    __io_cursor_pos_%out_len = load %cursor+IoCursor_pos as u64
+    __io_cursor_past_end_%out_len = uge __io_cursor_pos_%out_len, __io_cursor_len_%out_len
+    br __io_cursor_past_end_%out_len -> L_IO_CURSOR_REMAINING_ZERO_%out_len, L_IO_CURSOR_REMAINING_SUB_%out_len
+
+L_IO_CURSOR_REMAINING_ZERO_%out_len:
+    %out_len = add 0, 0
+    !__io_cursor_past_end_%out_len
+    !__io_cursor_pos_%out_len
+    !__io_cursor_len_%out_len
+    jmp L_IO_CURSOR_REMAINING_END_%out_len
+
+L_IO_CURSOR_REMAINING_SUB_%out_len:
+    %out_len = sub __io_cursor_len_%out_len, __io_cursor_pos_%out_len
+    !__io_cursor_past_end_%out_len
+    !__io_cursor_pos_%out_len
+    !__io_cursor_len_%out_len
+
+L_IO_CURSOR_REMAINING_END_%out_len:
+[END_MACRO]
+
+[MACRO] IO_CURSOR_READ %out_len, %cursor, %dst_ptr, %cap
+    EXPAND IO_CURSOR_REMAINING __io_cursor_rem_%out_len, %cursor
+    __io_cursor_take_cap_%out_len = ule %cap, __io_cursor_rem_%out_len
+    br __io_cursor_take_cap_%out_len -> L_IO_CURSOR_READ_CAP_%out_len, L_IO_CURSOR_READ_REM_%out_len
+
+L_IO_CURSOR_READ_CAP_%out_len:
+    %out_len = add %cap, 0
+    jmp L_IO_CURSOR_READ_COPY_%out_len
+
+L_IO_CURSOR_READ_REM_%out_len:
+    %out_len = add __io_cursor_rem_%out_len, 0
+
+L_IO_CURSOR_READ_COPY_%out_len:
+    __io_cursor_base_%out_len = load %cursor+IoCursor_ptr as ptr
+    __io_cursor_pos_%out_len = load %cursor+IoCursor_pos as u64
+    __io_cursor_src_%out_len = ptr_add __io_cursor_base_%out_len, __io_cursor_pos_%out_len
+    call @sa_mem_copy(&%dst_ptr, &__io_cursor_src_%out_len, %out_len)
+    __io_cursor_next_%out_len = add __io_cursor_pos_%out_len, %out_len
+    store %cursor+IoCursor_pos, __io_cursor_next_%out_len as u64
+    !__io_cursor_next_%out_len
+    !__io_cursor_src_%out_len
+    !__io_cursor_pos_%out_len
+    !__io_cursor_base_%out_len
+    !__io_cursor_take_cap_%out_len
+    !__io_cursor_rem_%out_len
+[END_MACRO]
+
+[MACRO] IO_CURSOR_WRITE %out_len, %cursor, %src_ptr, %len
+    EXPAND IO_CURSOR_REMAINING __io_cursor_rem_%out_len, %cursor
+    __io_cursor_take_len_%out_len = ule %len, __io_cursor_rem_%out_len
+    br __io_cursor_take_len_%out_len -> L_IO_CURSOR_WRITE_LEN_%out_len, L_IO_CURSOR_WRITE_REM_%out_len
+
+L_IO_CURSOR_WRITE_LEN_%out_len:
+    %out_len = add %len, 0
+    jmp L_IO_CURSOR_WRITE_COPY_%out_len
+
+L_IO_CURSOR_WRITE_REM_%out_len:
+    %out_len = add __io_cursor_rem_%out_len, 0
+
+L_IO_CURSOR_WRITE_COPY_%out_len:
+    __io_cursor_base_%out_len = load %cursor+IoCursor_ptr as ptr
+    __io_cursor_pos_%out_len = load %cursor+IoCursor_pos as u64
+    __io_cursor_dst_%out_len = ptr_add __io_cursor_base_%out_len, __io_cursor_pos_%out_len
+    call @sa_mem_copy(&__io_cursor_dst_%out_len, &%src_ptr, %out_len)
+    __io_cursor_next_%out_len = add __io_cursor_pos_%out_len, %out_len
+    store %cursor+IoCursor_pos, __io_cursor_next_%out_len as u64
+    !__io_cursor_next_%out_len
+    !__io_cursor_dst_%out_len
+    !__io_cursor_pos_%out_len
+    !__io_cursor_base_%out_len
+    !__io_cursor_take_len_%out_len
+    !__io_cursor_rem_%out_len
+[END_MACRO]
+
+[MACRO] IO_CURSOR_SEEK_START %out_pos, %cursor, %pos
+    store %cursor+IoCursor_pos, %pos as u64
+    %out_pos = add %pos, 0
+[END_MACRO]
+
+[MACRO] IO_CURSOR_SEEK_CURRENT %out_pos, %cursor, %offset
+    __io_cursor_seek_pos_%out_pos = load %cursor+IoCursor_pos as u64
+    __io_cursor_seek_forward_%out_pos = sge %offset, 0
+    br __io_cursor_seek_forward_%out_pos -> L_IO_CURSOR_SEEK_CURRENT_FORWARD_%out_pos, L_IO_CURSOR_SEEK_CURRENT_BACK_%out_pos
+
+L_IO_CURSOR_SEEK_CURRENT_FORWARD_%out_pos:
+    %out_pos = add __io_cursor_seek_pos_%out_pos, %offset
+    store %cursor+IoCursor_pos, %out_pos as u64
+    jmp L_IO_CURSOR_SEEK_CURRENT_DONE_%out_pos
+
+L_IO_CURSOR_SEEK_CURRENT_BACK_%out_pos:
+    __io_cursor_seek_back_%out_pos = sub 0, %offset
+    __io_cursor_seek_can_sub_%out_pos = uge __io_cursor_seek_pos_%out_pos, __io_cursor_seek_back_%out_pos
+    br __io_cursor_seek_can_sub_%out_pos -> L_IO_CURSOR_SEEK_CURRENT_SUB_%out_pos, L_IO_CURSOR_SEEK_CURRENT_ZERO_%out_pos
+
+L_IO_CURSOR_SEEK_CURRENT_SUB_%out_pos:
+    %out_pos = sub __io_cursor_seek_pos_%out_pos, __io_cursor_seek_back_%out_pos
+    store %cursor+IoCursor_pos, %out_pos as u64
+    !__io_cursor_seek_can_sub_%out_pos
+    !__io_cursor_seek_back_%out_pos
+    jmp L_IO_CURSOR_SEEK_CURRENT_DONE_%out_pos
+
+L_IO_CURSOR_SEEK_CURRENT_ZERO_%out_pos:
+    %out_pos = add 0, 0
+    store %cursor+IoCursor_pos, %out_pos as u64
+    !__io_cursor_seek_can_sub_%out_pos
+    !__io_cursor_seek_back_%out_pos
+    jmp L_IO_CURSOR_SEEK_CURRENT_DONE_%out_pos
+
+L_IO_CURSOR_SEEK_CURRENT_DONE_%out_pos:
+    !__io_cursor_seek_forward_%out_pos
+    !__io_cursor_seek_pos_%out_pos
+[END_MACRO]
+
+[MACRO] IO_CURSOR_SEEK_END %out_pos, %cursor, %offset
+    __io_cursor_seek_len_%out_pos = load %cursor+IoCursor_len as u64
+    __io_cursor_seek_forward_%out_pos = sge %offset, 0
+    br __io_cursor_seek_forward_%out_pos -> L_IO_CURSOR_SEEK_END_FORWARD_%out_pos, L_IO_CURSOR_SEEK_END_BACK_%out_pos
+
+L_IO_CURSOR_SEEK_END_FORWARD_%out_pos:
+    %out_pos = add __io_cursor_seek_len_%out_pos, %offset
+    store %cursor+IoCursor_pos, %out_pos as u64
+    jmp L_IO_CURSOR_SEEK_END_DONE_%out_pos
+
+L_IO_CURSOR_SEEK_END_BACK_%out_pos:
+    __io_cursor_seek_back_%out_pos = sub 0, %offset
+    __io_cursor_seek_can_sub_%out_pos = uge __io_cursor_seek_len_%out_pos, __io_cursor_seek_back_%out_pos
+    br __io_cursor_seek_can_sub_%out_pos -> L_IO_CURSOR_SEEK_END_SUB_%out_pos, L_IO_CURSOR_SEEK_END_ZERO_%out_pos
+
+L_IO_CURSOR_SEEK_END_SUB_%out_pos:
+    %out_pos = sub __io_cursor_seek_len_%out_pos, __io_cursor_seek_back_%out_pos
+    store %cursor+IoCursor_pos, %out_pos as u64
+    !__io_cursor_seek_can_sub_%out_pos
+    !__io_cursor_seek_back_%out_pos
+    jmp L_IO_CURSOR_SEEK_END_DONE_%out_pos
+
+L_IO_CURSOR_SEEK_END_ZERO_%out_pos:
+    %out_pos = add 0, 0
+    store %cursor+IoCursor_pos, %out_pos as u64
+    !__io_cursor_seek_can_sub_%out_pos
+    !__io_cursor_seek_back_%out_pos
+    jmp L_IO_CURSOR_SEEK_END_DONE_%out_pos
+
+L_IO_CURSOR_SEEK_END_DONE_%out_pos:
+    !__io_cursor_seek_forward_%out_pos
+    !__io_cursor_seek_len_%out_pos
+[END_MACRO]
+
+[MACRO] IO_EMPTY_READ %out_len, %dst_ptr, %cap
+    %out_len = add 0, 0
+[END_MACRO]
+
+[MACRO] IO_EMPTY_SEEK %out_pos
+    %out_pos = add 0, 0
+[END_MACRO]
+
+[MACRO] IO_TAKE_NEW %take, %cursor, %limit
+    store %take+IoTake_cursor, %cursor as ptr
+    store %take+IoTake_limit, %limit as u64
+[END_MACRO]
+
+[MACRO] IO_TAKE_LIMIT %out_limit, %take
+    %out_limit = load %take+IoTake_limit as u64
+[END_MACRO]
+
+[MACRO] IO_TAKE_INTO_INNER %out_cursor, %take
+    %out_cursor = load %take+IoTake_cursor as ptr
+[END_MACRO]
+
+[MACRO] IO_TAKE_READ %out_len, %take, %dst_ptr, %cap
+    __io_take_limit_%out_len = load %take+IoTake_limit as u64
+    __io_take_cursor_%out_len = load %take+IoTake_cursor as ptr
+    __io_take_limit_zero_%out_len = eq __io_take_limit_%out_len, 0
+    br __io_take_limit_zero_%out_len -> L_IO_TAKE_READ_ZERO_%out_len, L_IO_TAKE_READ_HAS_LIMIT_%out_len
+
+L_IO_TAKE_READ_ZERO_%out_len:
+    %out_len = add 0, 0
+    !__io_take_limit_zero_%out_len
+    !__io_take_cursor_%out_len
+    !__io_take_limit_%out_len
+    jmp L_IO_TAKE_READ_DONE_%out_len
+
+L_IO_TAKE_READ_HAS_LIMIT_%out_len:
+    __io_take_cap_within_%out_len = ule %cap, __io_take_limit_%out_len
+    br __io_take_cap_within_%out_len -> L_IO_TAKE_READ_CAP_%out_len, L_IO_TAKE_READ_LIMIT_%out_len
+
+L_IO_TAKE_READ_CAP_%out_len:
+    __io_take_request_%out_len = add %cap, 0
+    jmp L_IO_TAKE_READ_DO_%out_len
+
+L_IO_TAKE_READ_LIMIT_%out_len:
+    __io_take_request_%out_len = add __io_take_limit_%out_len, 0
+    jmp L_IO_TAKE_READ_DO_%out_len
+
+L_IO_TAKE_READ_DO_%out_len:
+    EXPAND IO_CURSOR_READ %out_len, __io_take_cursor_%out_len, %dst_ptr, __io_take_request_%out_len
+    __io_take_next_limit_%out_len = sub __io_take_limit_%out_len, %out_len
+    store %take+IoTake_limit, __io_take_next_limit_%out_len as u64
+    !__io_take_next_limit_%out_len
+    !__io_take_request_%out_len
+    !__io_take_cap_within_%out_len
+    !__io_take_limit_zero_%out_len
+    !__io_take_cursor_%out_len
+    !__io_take_limit_%out_len
+
+L_IO_TAKE_READ_DONE_%out_len:
+[END_MACRO]
+
+[MACRO] IO_REPEAT_NEW %repeat, %byte
+    store %repeat+IoRepeat_byte, %byte as u8
+[END_MACRO]
+
+[MACRO] IO_REPEAT_READ %out_len, %repeat, %dst_ptr, %cap
+    __io_repeat_byte_%out_len = load %repeat+IoRepeat_byte as u8
+    call @sa_mem_set(&%dst_ptr, __io_repeat_byte_%out_len, %cap)
+    %out_len = add %cap, 0
+    !__io_repeat_byte_%out_len
+[END_MACRO]
+
+[MACRO] IO_SINK_WRITE %out_len, %src_ptr, %len
+    %out_len = add %len, 0
+[END_MACRO]
+
+[MACRO] IO_COPY_SLICE %out_len, %dst_ptr, %src_slice
+    __io_copy_src_ptr_%out_len = load %src_slice+IoSlice_ptr as ptr
+    __io_copy_src_len_%out_len = load %src_slice+IoSlice_len as u64
+    call @sa_mem_copy(&%dst_ptr, &__io_copy_src_ptr_%out_len, __io_copy_src_len_%out_len)
+    %out_len = add __io_copy_src_len_%out_len, 0
+    !__io_copy_src_len_%out_len
+    !__io_copy_src_ptr_%out_len
 [END_MACRO]

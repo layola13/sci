@@ -60,6 +60,25 @@
     !__net_tcp_listener_close_%out_status
 [END_MACRO]
 
+[MACRO] NET_TCP_INCOMING_NEW %incoming_ptr, %listener
+    store %incoming_ptr+NetTcpIncoming_listener, %listener as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_INCOMING_LISTENER %out_listener, %incoming_ptr
+    %out_listener = load %incoming_ptr+NetTcpIncoming_listener as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_INCOMING_NEXT %out_status, %out_ok, %out_stream, %incoming_ptr
+    __net_tcp_incoming_listener_%out_status = load %incoming_ptr+NetTcpIncoming_listener as u64
+    EXPAND NET_TCP_LISTENER_ACCEPT %out_status, %out_stream, __net_tcp_incoming_listener_%out_status
+    %out_ok = eq %out_status, SA_NET_OK
+    !__net_tcp_incoming_listener_%out_status
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_INCOMING %incoming_ptr, %listener
+    EXPAND NET_TCP_INCOMING_NEW %incoming_ptr, %listener
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_READ %out_status, %out_len, %stream, %buf, %cap
     __net_tcp_read_len_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_tcp_stream_read(%stream, &%buf, %cap, &__net_tcp_read_len_%out_status)
@@ -202,6 +221,14 @@
     %out_status = call @sa_std_net_udp_set_ttl(%socket, %ttl)
 [END_MACRO]
 
+[MACRO] NET_UDP_SET_MULTICAST_LOOP_V4 %out_status, %socket, %enabled
+    %out_status = call @sa_std_net_udp_set_multicast_loop_v4(%socket, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_MULTICAST_TTL_V4 %out_status, %socket, %ttl
+    %out_status = call @sa_std_net_udp_set_multicast_ttl_v4(%socket, %ttl)
+[END_MACRO]
+
 [MACRO] NET_UDP_READ_TIMEOUT %out_status, %out_timeout_ns, %socket
     __net_udp_read_timeout_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_udp_read_timeout(%socket, &__net_udp_read_timeout_%out_status)
@@ -226,10 +253,38 @@
     %out_ttl = load __net_udp_ttl_%out_status+0 as u32
 [END_MACRO]
 
+[MACRO] NET_UDP_MULTICAST_LOOP_V4 %out_status, %out_enabled, %socket
+    __net_udp_multicast_loop_v4_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_loop_v4(%socket, &__net_udp_multicast_loop_v4_%out_status)
+    %out_enabled = load __net_udp_multicast_loop_v4_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_TTL_V4 %out_status, %out_ttl, %socket
+    __net_udp_multicast_ttl_v4_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_ttl_v4(%socket, &__net_udp_multicast_ttl_v4_%out_status)
+    %out_ttl = load __net_udp_multicast_ttl_v4_%out_status+0 as u32
+[END_MACRO]
+
 [MACRO] NET_UDP_TAKE_ERROR %out_status, %out_error, %socket
     __net_udp_error_%out_status = stack_alloc 4
     %out_status = call @sa_std_net_udp_take_error(%socket, &__net_udp_error_%out_status)
     %out_error = load __net_udp_error_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UDP_JOIN_MULTICAST_V4 %out_status, %socket, %multi_host, %multi_host_len, %interface_host, %interface_host_len
+    %out_status = call @sa_std_net_udp_join_multicast_v4(%socket, &%multi_host, %multi_host_len, &%interface_host, %interface_host_len)
+[END_MACRO]
+
+[MACRO] NET_UDP_LEAVE_MULTICAST_V4 %out_status, %socket, %multi_host, %multi_host_len, %interface_host, %interface_host_len
+    %out_status = call @sa_std_net_udp_leave_multicast_v4(%socket, &%multi_host, %multi_host_len, &%interface_host, %interface_host_len)
+[END_MACRO]
+
+[MACRO] NET_UDP_JOIN_MULTICAST_V6 %out_status, %socket, %multi_host, %multi_host_len, %interface_index
+    %out_status = call @sa_std_net_udp_join_multicast_v6(%socket, &%multi_host, %multi_host_len, %interface_index)
+[END_MACRO]
+
+[MACRO] NET_UDP_LEAVE_MULTICAST_V6 %out_status, %socket, %multi_host, %multi_host_len, %interface_index
+    %out_status = call @sa_std_net_udp_leave_multicast_v6(%socket, &%multi_host, %multi_host_len, %interface_index)
 [END_MACRO]
 
 [MACRO] NET_UDP_SEND %out_status, %out_len, %socket, %buf, %len
@@ -276,6 +331,12 @@
     %out_status = call @sa_net_udp_close(%socket)
 [END_MACRO]
 
+[MACRO] NET_TO_SOCKET_ADDR_FIRST %out_status, %out_addr, %host, %host_len, %port
+    __net_to_socket_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_to_socket_addr_first(&%host, %host_len, %port, &__net_to_socket_addr_%out_status)
+    %out_addr = load __net_to_socket_addr_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_ADDR_HOST %out_ptr, %addr
     %out_ptr = call @sa_net_addr_host(%addr)
 [END_MACRO]
@@ -290,6 +351,16 @@
 
 [MACRO] NET_ADDR_FAMILY %out_family, %addr
     %out_family = call @sa_net_addr_family(%addr)
+[END_MACRO]
+
+[MACRO] NET_ADDR_SCOPE_ID %out_scope_id, %addr
+    %out_scope_id = call @sa_net_addr_scope_id(%addr)
+[END_MACRO]
+
+[MACRO] NET_ADDR_FORMAT %out_status, %out_len, %addr, %buf, %cap
+    __net_addr_format_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_addr_format(%addr, &%buf, %cap, &__net_addr_format_len_%out_status)
+    %out_len = load __net_addr_format_len_%out_status+0 as u64
 [END_MACRO]
 
 [MACRO] NET_ADDR_IS_IPV4 %out_flag, %addr
@@ -308,4 +379,1989 @@
     __net_addr_free_%out_status = call @sa_net_addr_free(%addr)
     %out_status = load __net_addr_free_%out_status+0 as i32
     !__net_addr_free_%out_status
+[END_MACRO]
+
+[MACRO] NET_IPV4_NEW %addr, %a, %b, %c, %d
+    store %addr+NetIpv4Addr_a, %a as u8
+    store %addr+NetIpv4Addr_b, %b as u8
+    store %addr+NetIpv4Addr_c, %c as u8
+    store %addr+NetIpv4Addr_d, %d as u8
+[END_MACRO]
+
+[MACRO] NET_IPV4_UNSPECIFIED %addr
+    EXPAND NET_IPV4_NEW %addr, 0, 0, 0, 0
+[END_MACRO]
+
+[MACRO] NET_IPV4_LOCALHOST %addr
+    EXPAND NET_IPV4_NEW %addr, 127, 0, 0, 1
+[END_MACRO]
+
+[MACRO] NET_IPV4_BROADCAST %addr
+    EXPAND NET_IPV4_NEW %addr, 255, 255, 255, 255
+[END_MACRO]
+
+[MACRO] NET_IPV4_BITS %out_bits
+    %out_bits = add 0, NET_IPV4_BITS_VALUE
+[END_MACRO]
+
+[MACRO] NET_IPV4_OCTETS %out_a, %out_b, %out_c, %out_d, %addr
+    %out_a = load %addr+NetIpv4Addr_a as u8
+    %out_b = load %addr+NetIpv4Addr_b as u8
+    %out_c = load %addr+NetIpv4Addr_c as u8
+    %out_d = load %addr+NetIpv4Addr_d as u8
+[END_MACRO]
+
+[MACRO] NET_IPV4_AS_OCTETS_PTR %out_ptr, %addr
+    %out_ptr = ptr_add %addr, 0
+[END_MACRO]
+
+[MACRO] NET_IPV4_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, %addr
+    __net_ipv4_write_fits_%out_ok = uge %dst_len, 4
+    br __net_ipv4_write_fits_%out_ok -> L_NET_IPV4_WRITE_OCTETS_OK_%out_ok, L_NET_IPV4_WRITE_OCTETS_FAIL_%out_ok
+
+L_NET_IPV4_WRITE_OCTETS_OK_%out_ok:
+    __net_ipv4_write_a_%out_ok = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_write_b_%out_ok = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_write_c_%out_ok = load %addr+NetIpv4Addr_c as u8
+    __net_ipv4_write_d_%out_ok = load %addr+NetIpv4Addr_d as u8
+    store %dst_ptr+0, __net_ipv4_write_a_%out_ok as u8
+    __net_ipv4_write_p1_%out_ok = ptr_add %dst_ptr, 1
+    __net_ipv4_write_p2_%out_ok = ptr_add %dst_ptr, 2
+    __net_ipv4_write_p3_%out_ok = ptr_add %dst_ptr, 3
+    store __net_ipv4_write_p1_%out_ok+0, __net_ipv4_write_b_%out_ok as u8
+    store __net_ipv4_write_p2_%out_ok+0, __net_ipv4_write_c_%out_ok as u8
+    store __net_ipv4_write_p3_%out_ok+0, __net_ipv4_write_d_%out_ok as u8
+    %out_ok = add 0, 1
+    !__net_ipv4_write_p3_%out_ok
+    !__net_ipv4_write_p2_%out_ok
+    !__net_ipv4_write_p1_%out_ok
+    !__net_ipv4_write_d_%out_ok
+    !__net_ipv4_write_c_%out_ok
+    !__net_ipv4_write_b_%out_ok
+    !__net_ipv4_write_a_%out_ok
+    !__net_ipv4_write_fits_%out_ok
+    jmp L_NET_IPV4_WRITE_OCTETS_END_%out_ok
+
+L_NET_IPV4_WRITE_OCTETS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__net_ipv4_write_fits_%out_ok
+
+L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NET_IPV4_FROM_OCTETS %addr, %a, %b, %c, %d
+    EXPAND NET_IPV4_NEW %addr, %a, %b, %c, %d
+[END_MACRO]
+
+[MACRO] NET_IPV4_COPY %dst_addr, %src_addr
+    __net_ipv4_copy_a_%dst_addr = load %src_addr+NetIpv4Addr_a as u8
+    __net_ipv4_copy_b_%dst_addr = load %src_addr+NetIpv4Addr_b as u8
+    __net_ipv4_copy_c_%dst_addr = load %src_addr+NetIpv4Addr_c as u8
+    __net_ipv4_copy_d_%dst_addr = load %src_addr+NetIpv4Addr_d as u8
+    EXPAND NET_IPV4_NEW %dst_addr, __net_ipv4_copy_a_%dst_addr, __net_ipv4_copy_b_%dst_addr, __net_ipv4_copy_c_%dst_addr, __net_ipv4_copy_d_%dst_addr
+    !__net_ipv4_copy_d_%dst_addr
+    !__net_ipv4_copy_c_%dst_addr
+    !__net_ipv4_copy_b_%dst_addr
+    !__net_ipv4_copy_a_%dst_addr
+[END_MACRO]
+
+[MACRO] NET_IPV4_TO_BITS %out_bits, %addr
+    __net_ipv4_bits_a_%out_bits = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_bits_b_%out_bits = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_bits_c_%out_bits = load %addr+NetIpv4Addr_c as u8
+    __net_ipv4_bits_d_%out_bits = load %addr+NetIpv4Addr_d as u8
+    __net_ipv4_bits_a_shift_%out_bits = shl __net_ipv4_bits_a_%out_bits, 24
+    __net_ipv4_bits_b_shift_%out_bits = shl __net_ipv4_bits_b_%out_bits, 16
+    __net_ipv4_bits_c_shift_%out_bits = shl __net_ipv4_bits_c_%out_bits, 8
+    __net_ipv4_bits_ab_%out_bits = or __net_ipv4_bits_a_shift_%out_bits, __net_ipv4_bits_b_shift_%out_bits
+    __net_ipv4_bits_cd_%out_bits = or __net_ipv4_bits_c_shift_%out_bits, __net_ipv4_bits_d_%out_bits
+    %out_bits = or __net_ipv4_bits_ab_%out_bits, __net_ipv4_bits_cd_%out_bits
+    !__net_ipv4_bits_cd_%out_bits
+    !__net_ipv4_bits_ab_%out_bits
+    !__net_ipv4_bits_c_shift_%out_bits
+    !__net_ipv4_bits_b_shift_%out_bits
+    !__net_ipv4_bits_a_shift_%out_bits
+    !__net_ipv4_bits_d_%out_bits
+    !__net_ipv4_bits_c_%out_bits
+    !__net_ipv4_bits_b_%out_bits
+    !__net_ipv4_bits_a_%out_bits
+[END_MACRO]
+
+[MACRO] NET_IPV4_FROM_BITS %addr, %bits
+    __net_ipv4_from_a_%addr = lshr %bits, 24
+    __net_ipv4_from_b_raw_%addr = lshr %bits, 16
+    __net_ipv4_from_b_%addr = and __net_ipv4_from_b_raw_%addr, 255
+    __net_ipv4_from_c_raw_%addr = lshr %bits, 8
+    __net_ipv4_from_c_%addr = and __net_ipv4_from_c_raw_%addr, 255
+    __net_ipv4_from_d_%addr = and %bits, 255
+    EXPAND NET_IPV4_NEW %addr, __net_ipv4_from_a_%addr, __net_ipv4_from_b_%addr, __net_ipv4_from_c_%addr, __net_ipv4_from_d_%addr
+    !__net_ipv4_from_d_%addr
+    !__net_ipv4_from_c_%addr
+    !__net_ipv4_from_c_raw_%addr
+    !__net_ipv4_from_b_%addr
+    !__net_ipv4_from_b_raw_%addr
+    !__net_ipv4_from_a_%addr
+[END_MACRO]
+
+[MACRO] NET_IPV4_EQ %out_bool, %left, %right
+    __net_ipv4_la_%out_bool = load %left+NetIpv4Addr_a as u8
+    __net_ipv4_lb_%out_bool = load %left+NetIpv4Addr_b as u8
+    __net_ipv4_lc_%out_bool = load %left+NetIpv4Addr_c as u8
+    __net_ipv4_ld_%out_bool = load %left+NetIpv4Addr_d as u8
+    __net_ipv4_ra_%out_bool = load %right+NetIpv4Addr_a as u8
+    __net_ipv4_rb_%out_bool = load %right+NetIpv4Addr_b as u8
+    __net_ipv4_rc_%out_bool = load %right+NetIpv4Addr_c as u8
+    __net_ipv4_rd_%out_bool = load %right+NetIpv4Addr_d as u8
+    __net_ipv4_ea_%out_bool = eq __net_ipv4_la_%out_bool, __net_ipv4_ra_%out_bool
+    __net_ipv4_eb_%out_bool = eq __net_ipv4_lb_%out_bool, __net_ipv4_rb_%out_bool
+    __net_ipv4_ec_%out_bool = eq __net_ipv4_lc_%out_bool, __net_ipv4_rc_%out_bool
+    __net_ipv4_ed_%out_bool = eq __net_ipv4_ld_%out_bool, __net_ipv4_rd_%out_bool
+    __net_ipv4_eab_%out_bool = and __net_ipv4_ea_%out_bool, __net_ipv4_eb_%out_bool
+    __net_ipv4_ecd_%out_bool = and __net_ipv4_ec_%out_bool, __net_ipv4_ed_%out_bool
+    %out_bool = and __net_ipv4_eab_%out_bool, __net_ipv4_ecd_%out_bool
+    !__net_ipv4_ecd_%out_bool
+    !__net_ipv4_eab_%out_bool
+    !__net_ipv4_ed_%out_bool
+    !__net_ipv4_ec_%out_bool
+    !__net_ipv4_eb_%out_bool
+    !__net_ipv4_ea_%out_bool
+    !__net_ipv4_rd_%out_bool
+    !__net_ipv4_rc_%out_bool
+    !__net_ipv4_rb_%out_bool
+    !__net_ipv4_ra_%out_bool
+    !__net_ipv4_ld_%out_bool
+    !__net_ipv4_lc_%out_bool
+    !__net_ipv4_lb_%out_bool
+    !__net_ipv4_la_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_UNSPECIFIED %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_c_%out_bool = load %addr+NetIpv4Addr_c as u8
+    __net_ipv4_d_%out_bool = load %addr+NetIpv4Addr_d as u8
+    __net_ipv4_ab_%out_bool = or __net_ipv4_a_%out_bool, __net_ipv4_b_%out_bool
+    __net_ipv4_cd_%out_bool = or __net_ipv4_c_%out_bool, __net_ipv4_d_%out_bool
+    __net_ipv4_any_%out_bool = or __net_ipv4_ab_%out_bool, __net_ipv4_cd_%out_bool
+    %out_bool = eq __net_ipv4_any_%out_bool, 0
+    !__net_ipv4_any_%out_bool
+    !__net_ipv4_cd_%out_bool
+    !__net_ipv4_ab_%out_bool
+    !__net_ipv4_d_%out_bool
+    !__net_ipv4_c_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_LOOPBACK %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    %out_bool = eq __net_ipv4_a_%out_bool, 127
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_PRIVATE %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_is_10_%out_bool = eq __net_ipv4_a_%out_bool, 10
+    __net_ipv4_is_172_%out_bool = eq __net_ipv4_a_%out_bool, 172
+    __net_ipv4_172_lo_%out_bool = uge __net_ipv4_b_%out_bool, 16
+    __net_ipv4_172_hi_%out_bool = ule __net_ipv4_b_%out_bool, 31
+    __net_ipv4_172_range_%out_bool = and __net_ipv4_172_lo_%out_bool, __net_ipv4_172_hi_%out_bool
+    __net_ipv4_172_private_%out_bool = and __net_ipv4_is_172_%out_bool, __net_ipv4_172_range_%out_bool
+    __net_ipv4_is_192_%out_bool = eq __net_ipv4_a_%out_bool, 192
+    __net_ipv4_is_168_%out_bool = eq __net_ipv4_b_%out_bool, 168
+    __net_ipv4_192_private_%out_bool = and __net_ipv4_is_192_%out_bool, __net_ipv4_is_168_%out_bool
+    __net_ipv4_left_%out_bool = or __net_ipv4_is_10_%out_bool, __net_ipv4_172_private_%out_bool
+    %out_bool = or __net_ipv4_left_%out_bool, __net_ipv4_192_private_%out_bool
+    !__net_ipv4_left_%out_bool
+    !__net_ipv4_192_private_%out_bool
+    !__net_ipv4_is_168_%out_bool
+    !__net_ipv4_is_192_%out_bool
+    !__net_ipv4_172_private_%out_bool
+    !__net_ipv4_172_range_%out_bool
+    !__net_ipv4_172_hi_%out_bool
+    !__net_ipv4_172_lo_%out_bool
+    !__net_ipv4_is_172_%out_bool
+    !__net_ipv4_is_10_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_LINK_LOCAL %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_a_ok_%out_bool = eq __net_ipv4_a_%out_bool, 169
+    __net_ipv4_b_ok_%out_bool = eq __net_ipv4_b_%out_bool, 254
+    %out_bool = and __net_ipv4_a_ok_%out_bool, __net_ipv4_b_ok_%out_bool
+    !__net_ipv4_b_ok_%out_bool
+    !__net_ipv4_a_ok_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_SHARED %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_is_100_%out_bool = eq __net_ipv4_a_%out_bool, 100
+    __net_ipv4_b_mask_%out_bool = and __net_ipv4_b_%out_bool, 192
+    __net_ipv4_b_range_%out_bool = eq __net_ipv4_b_mask_%out_bool, 64
+    %out_bool = and __net_ipv4_is_100_%out_bool, __net_ipv4_b_range_%out_bool
+    !__net_ipv4_b_range_%out_bool
+    !__net_ipv4_b_mask_%out_bool
+    !__net_ipv4_is_100_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_BENCHMARKING %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_is_198_%out_bool = eq __net_ipv4_a_%out_bool, 198
+    __net_ipv4_b_mask_%out_bool = and __net_ipv4_b_%out_bool, 254
+    __net_ipv4_b_range_%out_bool = eq __net_ipv4_b_mask_%out_bool, 18
+    %out_bool = and __net_ipv4_is_198_%out_bool, __net_ipv4_b_range_%out_bool
+    !__net_ipv4_b_range_%out_bool
+    !__net_ipv4_b_mask_%out_bool
+    !__net_ipv4_is_198_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_RESERVED %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_mask_%out_bool = and __net_ipv4_a_%out_bool, 240
+    __net_ipv4_reserved_range_%out_bool = eq __net_ipv4_mask_%out_bool, 240
+    EXPAND NET_IPV4_IS_BROADCAST __net_ipv4_broadcast_%out_bool, %addr
+    __net_ipv4_not_broadcast_%out_bool = eq __net_ipv4_broadcast_%out_bool, 0
+    %out_bool = and __net_ipv4_reserved_range_%out_bool, __net_ipv4_not_broadcast_%out_bool
+    !__net_ipv4_not_broadcast_%out_bool
+    !__net_ipv4_broadcast_%out_bool
+    !__net_ipv4_reserved_range_%out_bool
+    !__net_ipv4_mask_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_MULTICAST %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_lo_%out_bool = uge __net_ipv4_a_%out_bool, 224
+    __net_ipv4_hi_%out_bool = ule __net_ipv4_a_%out_bool, 239
+    %out_bool = and __net_ipv4_lo_%out_bool, __net_ipv4_hi_%out_bool
+    !__net_ipv4_hi_%out_bool
+    !__net_ipv4_lo_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_BROADCAST %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_c_%out_bool = load %addr+NetIpv4Addr_c as u8
+    __net_ipv4_d_%out_bool = load %addr+NetIpv4Addr_d as u8
+    __net_ipv4_ea_%out_bool = eq __net_ipv4_a_%out_bool, 255
+    __net_ipv4_eb_%out_bool = eq __net_ipv4_b_%out_bool, 255
+    __net_ipv4_ec_%out_bool = eq __net_ipv4_c_%out_bool, 255
+    __net_ipv4_ed_%out_bool = eq __net_ipv4_d_%out_bool, 255
+    __net_ipv4_eab_%out_bool = and __net_ipv4_ea_%out_bool, __net_ipv4_eb_%out_bool
+    __net_ipv4_ecd_%out_bool = and __net_ipv4_ec_%out_bool, __net_ipv4_ed_%out_bool
+    %out_bool = and __net_ipv4_eab_%out_bool, __net_ipv4_ecd_%out_bool
+    !__net_ipv4_ecd_%out_bool
+    !__net_ipv4_eab_%out_bool
+    !__net_ipv4_ed_%out_bool
+    !__net_ipv4_ec_%out_bool
+    !__net_ipv4_eb_%out_bool
+    !__net_ipv4_ea_%out_bool
+    !__net_ipv4_d_%out_bool
+    !__net_ipv4_c_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_DOCUMENTATION %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_c_%out_bool = load %addr+NetIpv4Addr_c as u8
+    __net_ipv4_192_%out_bool = eq __net_ipv4_a_%out_bool, 192
+    __net_ipv4_0_%out_bool = eq __net_ipv4_b_%out_bool, 0
+    __net_ipv4_2_%out_bool = eq __net_ipv4_c_%out_bool, 2
+    __net_ipv4_doc1a_%out_bool = and __net_ipv4_192_%out_bool, __net_ipv4_0_%out_bool
+    __net_ipv4_doc1_%out_bool = and __net_ipv4_doc1a_%out_bool, __net_ipv4_2_%out_bool
+    __net_ipv4_198_%out_bool = eq __net_ipv4_a_%out_bool, 198
+    __net_ipv4_51_%out_bool = eq __net_ipv4_b_%out_bool, 51
+    __net_ipv4_100_%out_bool = eq __net_ipv4_c_%out_bool, 100
+    __net_ipv4_doc2a_%out_bool = and __net_ipv4_198_%out_bool, __net_ipv4_51_%out_bool
+    __net_ipv4_doc2_%out_bool = and __net_ipv4_doc2a_%out_bool, __net_ipv4_100_%out_bool
+    __net_ipv4_203_%out_bool = eq __net_ipv4_a_%out_bool, 203
+    __net_ipv4_113_%out_bool = eq __net_ipv4_c_%out_bool, 113
+    __net_ipv4_doc3a_%out_bool = and __net_ipv4_203_%out_bool, __net_ipv4_0_%out_bool
+    __net_ipv4_doc3_%out_bool = and __net_ipv4_doc3a_%out_bool, __net_ipv4_113_%out_bool
+    __net_ipv4_left_%out_bool = or __net_ipv4_doc1_%out_bool, __net_ipv4_doc2_%out_bool
+    %out_bool = or __net_ipv4_left_%out_bool, __net_ipv4_doc3_%out_bool
+    !__net_ipv4_left_%out_bool
+    !__net_ipv4_doc3_%out_bool
+    !__net_ipv4_doc3a_%out_bool
+    !__net_ipv4_113_%out_bool
+    !__net_ipv4_203_%out_bool
+    !__net_ipv4_doc2_%out_bool
+    !__net_ipv4_doc2a_%out_bool
+    !__net_ipv4_100_%out_bool
+    !__net_ipv4_51_%out_bool
+    !__net_ipv4_198_%out_bool
+    !__net_ipv4_doc1_%out_bool
+    !__net_ipv4_doc1a_%out_bool
+    !__net_ipv4_2_%out_bool
+    !__net_ipv4_0_%out_bool
+    !__net_ipv4_192_%out_bool
+    !__net_ipv4_c_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_IS_GLOBAL %out_bool, %addr
+    __net_ipv4_a_%out_bool = load %addr+NetIpv4Addr_a as u8
+    __net_ipv4_b_%out_bool = load %addr+NetIpv4Addr_b as u8
+    __net_ipv4_c_%out_bool = load %addr+NetIpv4Addr_c as u8
+    __net_ipv4_d_%out_bool = load %addr+NetIpv4Addr_d as u8
+    __net_ipv4_this_network_%out_bool = eq __net_ipv4_a_%out_bool, 0
+    EXPAND NET_IPV4_IS_PRIVATE __net_ipv4_private_%out_bool, %addr
+    EXPAND NET_IPV4_IS_SHARED __net_ipv4_shared_%out_bool, %addr
+    EXPAND NET_IPV4_IS_LOOPBACK __net_ipv4_loopback_%out_bool, %addr
+    EXPAND NET_IPV4_IS_LINK_LOCAL __net_ipv4_link_%out_bool, %addr
+    __net_ipv4_192_%out_bool = eq __net_ipv4_a_%out_bool, 192
+    __net_ipv4_0_%out_bool = eq __net_ipv4_b_%out_bool, 0
+    __net_ipv4_0c_%out_bool = eq __net_ipv4_c_%out_bool, 0
+    __net_ipv4_d_not_9_%out_bool = ne __net_ipv4_d_%out_bool, 9
+    __net_ipv4_d_not_10_%out_bool = ne __net_ipv4_d_%out_bool, 10
+    __net_ipv4_d_excluded_%out_bool = and __net_ipv4_d_not_9_%out_bool, __net_ipv4_d_not_10_%out_bool
+    __net_ipv4_proto0a_%out_bool = and __net_ipv4_192_%out_bool, __net_ipv4_0_%out_bool
+    __net_ipv4_proto0b_%out_bool = and __net_ipv4_proto0a_%out_bool, __net_ipv4_0c_%out_bool
+    __net_ipv4_proto0_%out_bool = and __net_ipv4_proto0b_%out_bool, __net_ipv4_d_excluded_%out_bool
+    EXPAND NET_IPV4_IS_DOCUMENTATION __net_ipv4_doc_%out_bool, %addr
+    EXPAND NET_IPV4_IS_BENCHMARKING __net_ipv4_bench_%out_bool, %addr
+    EXPAND NET_IPV4_IS_RESERVED __net_ipv4_reserved_%out_bool, %addr
+    EXPAND NET_IPV4_IS_BROADCAST __net_ipv4_broadcast_%out_bool, %addr
+    __net_ipv4_ng01_%out_bool = or __net_ipv4_this_network_%out_bool, __net_ipv4_private_%out_bool
+    __net_ipv4_ng02_%out_bool = or __net_ipv4_ng01_%out_bool, __net_ipv4_shared_%out_bool
+    __net_ipv4_ng03_%out_bool = or __net_ipv4_ng02_%out_bool, __net_ipv4_loopback_%out_bool
+    __net_ipv4_ng04_%out_bool = or __net_ipv4_ng03_%out_bool, __net_ipv4_link_%out_bool
+    __net_ipv4_ng05_%out_bool = or __net_ipv4_ng04_%out_bool, __net_ipv4_proto0_%out_bool
+    __net_ipv4_ng06_%out_bool = or __net_ipv4_ng05_%out_bool, __net_ipv4_doc_%out_bool
+    __net_ipv4_ng07_%out_bool = or __net_ipv4_ng06_%out_bool, __net_ipv4_bench_%out_bool
+    __net_ipv4_ng08_%out_bool = or __net_ipv4_ng07_%out_bool, __net_ipv4_reserved_%out_bool
+    __net_ipv4_not_global_%out_bool = or __net_ipv4_ng08_%out_bool, __net_ipv4_broadcast_%out_bool
+    %out_bool = eq __net_ipv4_not_global_%out_bool, 0
+    !__net_ipv4_not_global_%out_bool
+    !__net_ipv4_ng08_%out_bool
+    !__net_ipv4_ng07_%out_bool
+    !__net_ipv4_ng06_%out_bool
+    !__net_ipv4_ng05_%out_bool
+    !__net_ipv4_ng04_%out_bool
+    !__net_ipv4_ng03_%out_bool
+    !__net_ipv4_ng02_%out_bool
+    !__net_ipv4_ng01_%out_bool
+    !__net_ipv4_broadcast_%out_bool
+    !__net_ipv4_reserved_%out_bool
+    !__net_ipv4_bench_%out_bool
+    !__net_ipv4_doc_%out_bool
+    !__net_ipv4_proto0_%out_bool
+    !__net_ipv4_proto0b_%out_bool
+    !__net_ipv4_proto0a_%out_bool
+    !__net_ipv4_d_excluded_%out_bool
+    !__net_ipv4_d_not_10_%out_bool
+    !__net_ipv4_d_not_9_%out_bool
+    !__net_ipv4_0c_%out_bool
+    !__net_ipv4_0_%out_bool
+    !__net_ipv4_192_%out_bool
+    !__net_ipv4_link_%out_bool
+    !__net_ipv4_loopback_%out_bool
+    !__net_ipv4_shared_%out_bool
+    !__net_ipv4_private_%out_bool
+    !__net_ipv4_this_network_%out_bool
+    !__net_ipv4_d_%out_bool
+    !__net_ipv4_c_%out_bool
+    !__net_ipv4_b_%out_bool
+    !__net_ipv4_a_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV4_TO_IPV6_COMPATIBLE %ipv6, %ipv4
+    __net_ipv4_compat_a_%ipv6 = load %ipv4+NetIpv4Addr_a as u8
+    __net_ipv4_compat_b_%ipv6 = load %ipv4+NetIpv4Addr_b as u8
+    __net_ipv4_compat_c_%ipv6 = load %ipv4+NetIpv4Addr_c as u8
+    __net_ipv4_compat_d_%ipv6 = load %ipv4+NetIpv4Addr_d as u8
+    __net_ipv4_compat_ab_%ipv6 = shl __net_ipv4_compat_a_%ipv6, 8
+    __net_ipv4_compat_s6_%ipv6 = or __net_ipv4_compat_ab_%ipv6, __net_ipv4_compat_b_%ipv6
+    __net_ipv4_compat_cd_%ipv6 = shl __net_ipv4_compat_c_%ipv6, 8
+    __net_ipv4_compat_s7_%ipv6 = or __net_ipv4_compat_cd_%ipv6, __net_ipv4_compat_d_%ipv6
+    EXPAND NET_IPV6_NEW %ipv6, 0, 0, 0, 0, 0, 0, __net_ipv4_compat_s6_%ipv6, __net_ipv4_compat_s7_%ipv6
+    !__net_ipv4_compat_s7_%ipv6
+    !__net_ipv4_compat_cd_%ipv6
+    !__net_ipv4_compat_s6_%ipv6
+    !__net_ipv4_compat_ab_%ipv6
+    !__net_ipv4_compat_d_%ipv6
+    !__net_ipv4_compat_c_%ipv6
+    !__net_ipv4_compat_b_%ipv6
+    !__net_ipv4_compat_a_%ipv6
+[END_MACRO]
+
+[MACRO] NET_IPV4_TO_IPV6_MAPPED %ipv6, %ipv4
+    __net_ipv4_mapped_a_%ipv6 = load %ipv4+NetIpv4Addr_a as u8
+    __net_ipv4_mapped_b_%ipv6 = load %ipv4+NetIpv4Addr_b as u8
+    __net_ipv4_mapped_c_%ipv6 = load %ipv4+NetIpv4Addr_c as u8
+    __net_ipv4_mapped_d_%ipv6 = load %ipv4+NetIpv4Addr_d as u8
+    __net_ipv4_mapped_ab_%ipv6 = shl __net_ipv4_mapped_a_%ipv6, 8
+    __net_ipv4_mapped_s6_%ipv6 = or __net_ipv4_mapped_ab_%ipv6, __net_ipv4_mapped_b_%ipv6
+    __net_ipv4_mapped_cd_%ipv6 = shl __net_ipv4_mapped_c_%ipv6, 8
+    __net_ipv4_mapped_s7_%ipv6 = or __net_ipv4_mapped_cd_%ipv6, __net_ipv4_mapped_d_%ipv6
+    EXPAND NET_IPV6_NEW %ipv6, 0, 0, 0, 0, 0, 65535, __net_ipv4_mapped_s6_%ipv6, __net_ipv4_mapped_s7_%ipv6
+    !__net_ipv4_mapped_s7_%ipv6
+    !__net_ipv4_mapped_cd_%ipv6
+    !__net_ipv4_mapped_s6_%ipv6
+    !__net_ipv4_mapped_ab_%ipv6
+    !__net_ipv4_mapped_d_%ipv6
+    !__net_ipv4_mapped_c_%ipv6
+    !__net_ipv4_mapped_b_%ipv6
+    !__net_ipv4_mapped_a_%ipv6
+[END_MACRO]
+
+[MACRO] NET_IPV6_NEW %addr, %s0, %s1, %s2, %s3, %s4, %s5, %s6, %s7
+    store %addr+NetIpv6Addr_s0, %s0 as u16
+    store %addr+NetIpv6Addr_s1, %s1 as u16
+    store %addr+NetIpv6Addr_s2, %s2 as u16
+    store %addr+NetIpv6Addr_s3, %s3 as u16
+    store %addr+NetIpv6Addr_s4, %s4 as u16
+    store %addr+NetIpv6Addr_s5, %s5 as u16
+    store %addr+NetIpv6Addr_s6, %s6 as u16
+    store %addr+NetIpv6Addr_s7, %s7 as u16
+[END_MACRO]
+
+[MACRO] NET_IPV6_SEGMENTS %out_s0, %out_s1, %out_s2, %out_s3, %out_s4, %out_s5, %out_s6, %out_s7, %addr
+    %out_s0 = load %addr+NetIpv6Addr_s0 as u16
+    %out_s1 = load %addr+NetIpv6Addr_s1 as u16
+    %out_s2 = load %addr+NetIpv6Addr_s2 as u16
+    %out_s3 = load %addr+NetIpv6Addr_s3 as u16
+    %out_s4 = load %addr+NetIpv6Addr_s4 as u16
+    %out_s5 = load %addr+NetIpv6Addr_s5 as u16
+    %out_s6 = load %addr+NetIpv6Addr_s6 as u16
+    %out_s7 = load %addr+NetIpv6Addr_s7 as u16
+[END_MACRO]
+
+[MACRO] NET_IPV6_FROM_SEGMENTS %addr, %s0, %s1, %s2, %s3, %s4, %s5, %s6, %s7
+    EXPAND NET_IPV6_NEW %addr, %s0, %s1, %s2, %s3, %s4, %s5, %s6, %s7
+[END_MACRO]
+
+[MACRO] NET_IPV6_UNSPECIFIED %addr
+    EXPAND NET_IPV6_NEW %addr, 0, 0, 0, 0, 0, 0, 0, 0
+[END_MACRO]
+
+[MACRO] NET_IPV6_LOCALHOST %addr
+    EXPAND NET_IPV6_NEW %addr, 0, 0, 0, 0, 0, 0, 0, 1
+[END_MACRO]
+
+[MACRO] NET_IPV6_BITS %out_bits
+    %out_bits = add 0, NET_IPV6_BITS_VALUE
+[END_MACRO]
+
+[MACRO] NET_IPV6_OCTETS %out_b0, %out_b1, %out_b2, %out_b3, %out_b4, %out_b5, %out_b6, %out_b7, %out_b8, %out_b9, %out_b10, %out_b11, %out_b12, %out_b13, %out_b14, %out_b15, %addr
+    __net_ipv6_oct_s0_%out_b0 = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_oct_s1_%out_b0 = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_oct_s2_%out_b0 = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_oct_s3_%out_b0 = load %addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_oct_s4_%out_b0 = load %addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_oct_s5_%out_b0 = load %addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_oct_s6_%out_b0 = load %addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_oct_s7_%out_b0 = load %addr+NetIpv6Addr_s7 as u16
+    %out_b0 = lshr __net_ipv6_oct_s0_%out_b0, 8
+    %out_b1 = and __net_ipv6_oct_s0_%out_b0, 255
+    %out_b2 = lshr __net_ipv6_oct_s1_%out_b0, 8
+    %out_b3 = and __net_ipv6_oct_s1_%out_b0, 255
+    %out_b4 = lshr __net_ipv6_oct_s2_%out_b0, 8
+    %out_b5 = and __net_ipv6_oct_s2_%out_b0, 255
+    %out_b6 = lshr __net_ipv6_oct_s3_%out_b0, 8
+    %out_b7 = and __net_ipv6_oct_s3_%out_b0, 255
+    %out_b8 = lshr __net_ipv6_oct_s4_%out_b0, 8
+    %out_b9 = and __net_ipv6_oct_s4_%out_b0, 255
+    %out_b10 = lshr __net_ipv6_oct_s5_%out_b0, 8
+    %out_b11 = and __net_ipv6_oct_s5_%out_b0, 255
+    %out_b12 = lshr __net_ipv6_oct_s6_%out_b0, 8
+    %out_b13 = and __net_ipv6_oct_s6_%out_b0, 255
+    %out_b14 = lshr __net_ipv6_oct_s7_%out_b0, 8
+    %out_b15 = and __net_ipv6_oct_s7_%out_b0, 255
+    !__net_ipv6_oct_s7_%out_b0
+    !__net_ipv6_oct_s6_%out_b0
+    !__net_ipv6_oct_s5_%out_b0
+    !__net_ipv6_oct_s4_%out_b0
+    !__net_ipv6_oct_s3_%out_b0
+    !__net_ipv6_oct_s2_%out_b0
+    !__net_ipv6_oct_s1_%out_b0
+    !__net_ipv6_oct_s0_%out_b0
+[END_MACRO]
+
+[MACRO] NET_IPV6_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, %addr
+    __net_ipv6_write_fits_%out_ok = uge %dst_len, 16
+    br __net_ipv6_write_fits_%out_ok -> L_NET_IPV6_WRITE_OCTETS_OK_%out_ok, L_NET_IPV6_WRITE_OCTETS_FAIL_%out_ok
+
+L_NET_IPV6_WRITE_OCTETS_OK_%out_ok:
+    EXPAND NET_IPV6_OCTETS __net_ipv6_write_b0_%out_ok, __net_ipv6_write_b1_%out_ok, __net_ipv6_write_b2_%out_ok, __net_ipv6_write_b3_%out_ok, __net_ipv6_write_b4_%out_ok, __net_ipv6_write_b5_%out_ok, __net_ipv6_write_b6_%out_ok, __net_ipv6_write_b7_%out_ok, __net_ipv6_write_b8_%out_ok, __net_ipv6_write_b9_%out_ok, __net_ipv6_write_b10_%out_ok, __net_ipv6_write_b11_%out_ok, __net_ipv6_write_b12_%out_ok, __net_ipv6_write_b13_%out_ok, __net_ipv6_write_b14_%out_ok, __net_ipv6_write_b15_%out_ok, %addr
+    store %dst_ptr+0, __net_ipv6_write_b0_%out_ok as u8
+    __net_ipv6_write_p1_%out_ok = ptr_add %dst_ptr, 1
+    __net_ipv6_write_p2_%out_ok = ptr_add %dst_ptr, 2
+    __net_ipv6_write_p3_%out_ok = ptr_add %dst_ptr, 3
+    __net_ipv6_write_p4_%out_ok = ptr_add %dst_ptr, 4
+    __net_ipv6_write_p5_%out_ok = ptr_add %dst_ptr, 5
+    __net_ipv6_write_p6_%out_ok = ptr_add %dst_ptr, 6
+    __net_ipv6_write_p7_%out_ok = ptr_add %dst_ptr, 7
+    __net_ipv6_write_p8_%out_ok = ptr_add %dst_ptr, 8
+    __net_ipv6_write_p9_%out_ok = ptr_add %dst_ptr, 9
+    __net_ipv6_write_p10_%out_ok = ptr_add %dst_ptr, 10
+    __net_ipv6_write_p11_%out_ok = ptr_add %dst_ptr, 11
+    __net_ipv6_write_p12_%out_ok = ptr_add %dst_ptr, 12
+    __net_ipv6_write_p13_%out_ok = ptr_add %dst_ptr, 13
+    __net_ipv6_write_p14_%out_ok = ptr_add %dst_ptr, 14
+    __net_ipv6_write_p15_%out_ok = ptr_add %dst_ptr, 15
+    store __net_ipv6_write_p1_%out_ok+0, __net_ipv6_write_b1_%out_ok as u8
+    store __net_ipv6_write_p2_%out_ok+0, __net_ipv6_write_b2_%out_ok as u8
+    store __net_ipv6_write_p3_%out_ok+0, __net_ipv6_write_b3_%out_ok as u8
+    store __net_ipv6_write_p4_%out_ok+0, __net_ipv6_write_b4_%out_ok as u8
+    store __net_ipv6_write_p5_%out_ok+0, __net_ipv6_write_b5_%out_ok as u8
+    store __net_ipv6_write_p6_%out_ok+0, __net_ipv6_write_b6_%out_ok as u8
+    store __net_ipv6_write_p7_%out_ok+0, __net_ipv6_write_b7_%out_ok as u8
+    store __net_ipv6_write_p8_%out_ok+0, __net_ipv6_write_b8_%out_ok as u8
+    store __net_ipv6_write_p9_%out_ok+0, __net_ipv6_write_b9_%out_ok as u8
+    store __net_ipv6_write_p10_%out_ok+0, __net_ipv6_write_b10_%out_ok as u8
+    store __net_ipv6_write_p11_%out_ok+0, __net_ipv6_write_b11_%out_ok as u8
+    store __net_ipv6_write_p12_%out_ok+0, __net_ipv6_write_b12_%out_ok as u8
+    store __net_ipv6_write_p13_%out_ok+0, __net_ipv6_write_b13_%out_ok as u8
+    store __net_ipv6_write_p14_%out_ok+0, __net_ipv6_write_b14_%out_ok as u8
+    store __net_ipv6_write_p15_%out_ok+0, __net_ipv6_write_b15_%out_ok as u8
+    %out_ok = add 0, 1
+    !__net_ipv6_write_p15_%out_ok
+    !__net_ipv6_write_p14_%out_ok
+    !__net_ipv6_write_p13_%out_ok
+    !__net_ipv6_write_p12_%out_ok
+    !__net_ipv6_write_p11_%out_ok
+    !__net_ipv6_write_p10_%out_ok
+    !__net_ipv6_write_p9_%out_ok
+    !__net_ipv6_write_p8_%out_ok
+    !__net_ipv6_write_p7_%out_ok
+    !__net_ipv6_write_p6_%out_ok
+    !__net_ipv6_write_p5_%out_ok
+    !__net_ipv6_write_p4_%out_ok
+    !__net_ipv6_write_p3_%out_ok
+    !__net_ipv6_write_p2_%out_ok
+    !__net_ipv6_write_p1_%out_ok
+    !__net_ipv6_write_b15_%out_ok
+    !__net_ipv6_write_b14_%out_ok
+    !__net_ipv6_write_b13_%out_ok
+    !__net_ipv6_write_b12_%out_ok
+    !__net_ipv6_write_b11_%out_ok
+    !__net_ipv6_write_b10_%out_ok
+    !__net_ipv6_write_b9_%out_ok
+    !__net_ipv6_write_b8_%out_ok
+    !__net_ipv6_write_b7_%out_ok
+    !__net_ipv6_write_b6_%out_ok
+    !__net_ipv6_write_b5_%out_ok
+    !__net_ipv6_write_b4_%out_ok
+    !__net_ipv6_write_b3_%out_ok
+    !__net_ipv6_write_b2_%out_ok
+    !__net_ipv6_write_b1_%out_ok
+    !__net_ipv6_write_b0_%out_ok
+    !__net_ipv6_write_fits_%out_ok
+    jmp L_NET_IPV6_WRITE_OCTETS_END_%out_ok
+
+L_NET_IPV6_WRITE_OCTETS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__net_ipv6_write_fits_%out_ok
+
+L_NET_IPV6_WRITE_OCTETS_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NET_IPV6_FROM_OCTETS %addr, %b0, %b1, %b2, %b3, %b4, %b5, %b6, %b7, %b8, %b9, %b10, %b11, %b12, %b13, %b14, %b15
+    __net_ipv6_from_oct_s0_hi_%addr = shl %b0, 8
+    __net_ipv6_from_oct_s0_%addr = or __net_ipv6_from_oct_s0_hi_%addr, %b1
+    __net_ipv6_from_oct_s1_hi_%addr = shl %b2, 8
+    __net_ipv6_from_oct_s1_%addr = or __net_ipv6_from_oct_s1_hi_%addr, %b3
+    __net_ipv6_from_oct_s2_hi_%addr = shl %b4, 8
+    __net_ipv6_from_oct_s2_%addr = or __net_ipv6_from_oct_s2_hi_%addr, %b5
+    __net_ipv6_from_oct_s3_hi_%addr = shl %b6, 8
+    __net_ipv6_from_oct_s3_%addr = or __net_ipv6_from_oct_s3_hi_%addr, %b7
+    __net_ipv6_from_oct_s4_hi_%addr = shl %b8, 8
+    __net_ipv6_from_oct_s4_%addr = or __net_ipv6_from_oct_s4_hi_%addr, %b9
+    __net_ipv6_from_oct_s5_hi_%addr = shl %b10, 8
+    __net_ipv6_from_oct_s5_%addr = or __net_ipv6_from_oct_s5_hi_%addr, %b11
+    __net_ipv6_from_oct_s6_hi_%addr = shl %b12, 8
+    __net_ipv6_from_oct_s6_%addr = or __net_ipv6_from_oct_s6_hi_%addr, %b13
+    __net_ipv6_from_oct_s7_hi_%addr = shl %b14, 8
+    __net_ipv6_from_oct_s7_%addr = or __net_ipv6_from_oct_s7_hi_%addr, %b15
+    EXPAND NET_IPV6_NEW %addr, __net_ipv6_from_oct_s0_%addr, __net_ipv6_from_oct_s1_%addr, __net_ipv6_from_oct_s2_%addr, __net_ipv6_from_oct_s3_%addr, __net_ipv6_from_oct_s4_%addr, __net_ipv6_from_oct_s5_%addr, __net_ipv6_from_oct_s6_%addr, __net_ipv6_from_oct_s7_%addr
+    !__net_ipv6_from_oct_s7_%addr
+    !__net_ipv6_from_oct_s7_hi_%addr
+    !__net_ipv6_from_oct_s6_%addr
+    !__net_ipv6_from_oct_s6_hi_%addr
+    !__net_ipv6_from_oct_s5_%addr
+    !__net_ipv6_from_oct_s5_hi_%addr
+    !__net_ipv6_from_oct_s4_%addr
+    !__net_ipv6_from_oct_s4_hi_%addr
+    !__net_ipv6_from_oct_s3_%addr
+    !__net_ipv6_from_oct_s3_hi_%addr
+    !__net_ipv6_from_oct_s2_%addr
+    !__net_ipv6_from_oct_s2_hi_%addr
+    !__net_ipv6_from_oct_s1_%addr
+    !__net_ipv6_from_oct_s1_hi_%addr
+    !__net_ipv6_from_oct_s0_%addr
+    !__net_ipv6_from_oct_s0_hi_%addr
+[END_MACRO]
+
+[MACRO] NET_IPV6_COPY %dst_addr, %src_addr
+    __net_ipv6_copy_s0_%dst_addr = load %src_addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_copy_s1_%dst_addr = load %src_addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_copy_s2_%dst_addr = load %src_addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_copy_s3_%dst_addr = load %src_addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_copy_s4_%dst_addr = load %src_addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_copy_s5_%dst_addr = load %src_addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_copy_s6_%dst_addr = load %src_addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_copy_s7_%dst_addr = load %src_addr+NetIpv6Addr_s7 as u16
+    EXPAND NET_IPV6_NEW %dst_addr, __net_ipv6_copy_s0_%dst_addr, __net_ipv6_copy_s1_%dst_addr, __net_ipv6_copy_s2_%dst_addr, __net_ipv6_copy_s3_%dst_addr, __net_ipv6_copy_s4_%dst_addr, __net_ipv6_copy_s5_%dst_addr, __net_ipv6_copy_s6_%dst_addr, __net_ipv6_copy_s7_%dst_addr
+    !__net_ipv6_copy_s7_%dst_addr
+    !__net_ipv6_copy_s6_%dst_addr
+    !__net_ipv6_copy_s5_%dst_addr
+    !__net_ipv6_copy_s4_%dst_addr
+    !__net_ipv6_copy_s3_%dst_addr
+    !__net_ipv6_copy_s2_%dst_addr
+    !__net_ipv6_copy_s1_%dst_addr
+    !__net_ipv6_copy_s0_%dst_addr
+[END_MACRO]
+
+[MACRO] NET_IPV6_TO_BITS64 %out_hi, %out_lo, %addr
+    __net_ipv6_bits_s0_%out_hi = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_bits_s1_%out_hi = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_bits_s2_%out_hi = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_bits_s3_%out_hi = load %addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_bits_s4_%out_hi = load %addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_bits_s5_%out_hi = load %addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_bits_s6_%out_hi = load %addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_bits_s7_%out_hi = load %addr+NetIpv6Addr_s7 as u16
+    __net_ipv6_bits_s0_shift_%out_hi = shl __net_ipv6_bits_s0_%out_hi, 48
+    __net_ipv6_bits_s1_shift_%out_hi = shl __net_ipv6_bits_s1_%out_hi, 32
+    __net_ipv6_bits_s2_shift_%out_hi = shl __net_ipv6_bits_s2_%out_hi, 16
+    __net_ipv6_bits_hi01_%out_hi = or __net_ipv6_bits_s0_shift_%out_hi, __net_ipv6_bits_s1_shift_%out_hi
+    __net_ipv6_bits_hi23_%out_hi = or __net_ipv6_bits_s2_shift_%out_hi, __net_ipv6_bits_s3_%out_hi
+    %out_hi = or __net_ipv6_bits_hi01_%out_hi, __net_ipv6_bits_hi23_%out_hi
+    __net_ipv6_bits_s4_shift_%out_hi = shl __net_ipv6_bits_s4_%out_hi, 48
+    __net_ipv6_bits_s5_shift_%out_hi = shl __net_ipv6_bits_s5_%out_hi, 32
+    __net_ipv6_bits_s6_shift_%out_hi = shl __net_ipv6_bits_s6_%out_hi, 16
+    __net_ipv6_bits_lo45_%out_hi = or __net_ipv6_bits_s4_shift_%out_hi, __net_ipv6_bits_s5_shift_%out_hi
+    __net_ipv6_bits_lo67_%out_hi = or __net_ipv6_bits_s6_shift_%out_hi, __net_ipv6_bits_s7_%out_hi
+    %out_lo = or __net_ipv6_bits_lo45_%out_hi, __net_ipv6_bits_lo67_%out_hi
+    !__net_ipv6_bits_lo67_%out_hi
+    !__net_ipv6_bits_lo45_%out_hi
+    !__net_ipv6_bits_s6_shift_%out_hi
+    !__net_ipv6_bits_s5_shift_%out_hi
+    !__net_ipv6_bits_s4_shift_%out_hi
+    !__net_ipv6_bits_hi23_%out_hi
+    !__net_ipv6_bits_hi01_%out_hi
+    !__net_ipv6_bits_s2_shift_%out_hi
+    !__net_ipv6_bits_s1_shift_%out_hi
+    !__net_ipv6_bits_s0_shift_%out_hi
+    !__net_ipv6_bits_s7_%out_hi
+    !__net_ipv6_bits_s6_%out_hi
+    !__net_ipv6_bits_s5_%out_hi
+    !__net_ipv6_bits_s4_%out_hi
+    !__net_ipv6_bits_s3_%out_hi
+    !__net_ipv6_bits_s2_%out_hi
+    !__net_ipv6_bits_s1_%out_hi
+    !__net_ipv6_bits_s0_%out_hi
+[END_MACRO]
+
+[MACRO] NET_IPV6_FROM_BITS64 %addr, %hi, %lo
+    __net_ipv6_from_s0_%addr = lshr %hi, 48
+    __net_ipv6_from_s1_raw_%addr = lshr %hi, 32
+    __net_ipv6_from_s1_%addr = and __net_ipv6_from_s1_raw_%addr, 65535
+    __net_ipv6_from_s2_raw_%addr = lshr %hi, 16
+    __net_ipv6_from_s2_%addr = and __net_ipv6_from_s2_raw_%addr, 65535
+    __net_ipv6_from_s3_%addr = and %hi, 65535
+    __net_ipv6_from_s4_%addr = lshr %lo, 48
+    __net_ipv6_from_s5_raw_%addr = lshr %lo, 32
+    __net_ipv6_from_s5_%addr = and __net_ipv6_from_s5_raw_%addr, 65535
+    __net_ipv6_from_s6_raw_%addr = lshr %lo, 16
+    __net_ipv6_from_s6_%addr = and __net_ipv6_from_s6_raw_%addr, 65535
+    __net_ipv6_from_s7_%addr = and %lo, 65535
+    EXPAND NET_IPV6_NEW %addr, __net_ipv6_from_s0_%addr, __net_ipv6_from_s1_%addr, __net_ipv6_from_s2_%addr, __net_ipv6_from_s3_%addr, __net_ipv6_from_s4_%addr, __net_ipv6_from_s5_%addr, __net_ipv6_from_s6_%addr, __net_ipv6_from_s7_%addr
+    !__net_ipv6_from_s7_%addr
+    !__net_ipv6_from_s6_%addr
+    !__net_ipv6_from_s6_raw_%addr
+    !__net_ipv6_from_s5_%addr
+    !__net_ipv6_from_s5_raw_%addr
+    !__net_ipv6_from_s4_%addr
+    !__net_ipv6_from_s3_%addr
+    !__net_ipv6_from_s2_%addr
+    !__net_ipv6_from_s2_raw_%addr
+    !__net_ipv6_from_s1_%addr
+    !__net_ipv6_from_s1_raw_%addr
+    !__net_ipv6_from_s0_%addr
+[END_MACRO]
+
+[MACRO] NET_IPV6_EQ %out_bool, %left, %right
+    __net_ipv6_l0_%out_bool = load %left+NetIpv6Addr_s0 as u16
+    __net_ipv6_l1_%out_bool = load %left+NetIpv6Addr_s1 as u16
+    __net_ipv6_l2_%out_bool = load %left+NetIpv6Addr_s2 as u16
+    __net_ipv6_l3_%out_bool = load %left+NetIpv6Addr_s3 as u16
+    __net_ipv6_l4_%out_bool = load %left+NetIpv6Addr_s4 as u16
+    __net_ipv6_l5_%out_bool = load %left+NetIpv6Addr_s5 as u16
+    __net_ipv6_l6_%out_bool = load %left+NetIpv6Addr_s6 as u16
+    __net_ipv6_l7_%out_bool = load %left+NetIpv6Addr_s7 as u16
+    __net_ipv6_r0_%out_bool = load %right+NetIpv6Addr_s0 as u16
+    __net_ipv6_r1_%out_bool = load %right+NetIpv6Addr_s1 as u16
+    __net_ipv6_r2_%out_bool = load %right+NetIpv6Addr_s2 as u16
+    __net_ipv6_r3_%out_bool = load %right+NetIpv6Addr_s3 as u16
+    __net_ipv6_r4_%out_bool = load %right+NetIpv6Addr_s4 as u16
+    __net_ipv6_r5_%out_bool = load %right+NetIpv6Addr_s5 as u16
+    __net_ipv6_r6_%out_bool = load %right+NetIpv6Addr_s6 as u16
+    __net_ipv6_r7_%out_bool = load %right+NetIpv6Addr_s7 as u16
+    __net_ipv6_e0_%out_bool = eq __net_ipv6_l0_%out_bool, __net_ipv6_r0_%out_bool
+    __net_ipv6_e1_%out_bool = eq __net_ipv6_l1_%out_bool, __net_ipv6_r1_%out_bool
+    __net_ipv6_e2_%out_bool = eq __net_ipv6_l2_%out_bool, __net_ipv6_r2_%out_bool
+    __net_ipv6_e3_%out_bool = eq __net_ipv6_l3_%out_bool, __net_ipv6_r3_%out_bool
+    __net_ipv6_e4_%out_bool = eq __net_ipv6_l4_%out_bool, __net_ipv6_r4_%out_bool
+    __net_ipv6_e5_%out_bool = eq __net_ipv6_l5_%out_bool, __net_ipv6_r5_%out_bool
+    __net_ipv6_e6_%out_bool = eq __net_ipv6_l6_%out_bool, __net_ipv6_r6_%out_bool
+    __net_ipv6_e7_%out_bool = eq __net_ipv6_l7_%out_bool, __net_ipv6_r7_%out_bool
+    __net_ipv6_e01_%out_bool = and __net_ipv6_e0_%out_bool, __net_ipv6_e1_%out_bool
+    __net_ipv6_e23_%out_bool = and __net_ipv6_e2_%out_bool, __net_ipv6_e3_%out_bool
+    __net_ipv6_e45_%out_bool = and __net_ipv6_e4_%out_bool, __net_ipv6_e5_%out_bool
+    __net_ipv6_e67_%out_bool = and __net_ipv6_e6_%out_bool, __net_ipv6_e7_%out_bool
+    __net_ipv6_e03_%out_bool = and __net_ipv6_e01_%out_bool, __net_ipv6_e23_%out_bool
+    __net_ipv6_e47_%out_bool = and __net_ipv6_e45_%out_bool, __net_ipv6_e67_%out_bool
+    %out_bool = and __net_ipv6_e03_%out_bool, __net_ipv6_e47_%out_bool
+    !__net_ipv6_e47_%out_bool
+    !__net_ipv6_e03_%out_bool
+    !__net_ipv6_e67_%out_bool
+    !__net_ipv6_e45_%out_bool
+    !__net_ipv6_e23_%out_bool
+    !__net_ipv6_e01_%out_bool
+    !__net_ipv6_e7_%out_bool
+    !__net_ipv6_e6_%out_bool
+    !__net_ipv6_e5_%out_bool
+    !__net_ipv6_e4_%out_bool
+    !__net_ipv6_e3_%out_bool
+    !__net_ipv6_e2_%out_bool
+    !__net_ipv6_e1_%out_bool
+    !__net_ipv6_e0_%out_bool
+    !__net_ipv6_r7_%out_bool
+    !__net_ipv6_r6_%out_bool
+    !__net_ipv6_r5_%out_bool
+    !__net_ipv6_r4_%out_bool
+    !__net_ipv6_r3_%out_bool
+    !__net_ipv6_r2_%out_bool
+    !__net_ipv6_r1_%out_bool
+    !__net_ipv6_r0_%out_bool
+    !__net_ipv6_l7_%out_bool
+    !__net_ipv6_l6_%out_bool
+    !__net_ipv6_l5_%out_bool
+    !__net_ipv6_l4_%out_bool
+    !__net_ipv6_l3_%out_bool
+    !__net_ipv6_l2_%out_bool
+    !__net_ipv6_l1_%out_bool
+    !__net_ipv6_l0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_UNSPECIFIED %out_bool, %addr
+    __net_ipv6_zero_%out_bool = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_NEW __net_ipv6_zero_%out_bool, 0, 0, 0, 0, 0, 0, 0, 0
+    EXPAND NET_IPV6_EQ %out_bool, %addr, __net_ipv6_zero_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_LOOPBACK %out_bool, %addr
+    __net_ipv6_loop_%out_bool = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_NEW __net_ipv6_loop_%out_bool, 0, 0, 0, 0, 0, 0, 0, 1
+    EXPAND NET_IPV6_EQ %out_bool, %addr, __net_ipv6_loop_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_MULTICAST %out_bool, %addr
+    __net_ipv6_s0_%out_bool = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_masked_%out_bool = and __net_ipv6_s0_%out_bool, 65280
+    %out_bool = eq __net_ipv6_masked_%out_bool, 65280
+    !__net_ipv6_masked_%out_bool
+    !__net_ipv6_s0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_UNIQUE_LOCAL %out_bool, %addr
+    __net_ipv6_s0_%out_bool = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_masked_%out_bool = and __net_ipv6_s0_%out_bool, 65024
+    %out_bool = eq __net_ipv6_masked_%out_bool, 64512
+    !__net_ipv6_masked_%out_bool
+    !__net_ipv6_s0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_UNICAST_LINK_LOCAL %out_bool, %addr
+    __net_ipv6_s0_%out_bool = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_masked_%out_bool = and __net_ipv6_s0_%out_bool, 65472
+    %out_bool = eq __net_ipv6_masked_%out_bool, 65152
+    !__net_ipv6_masked_%out_bool
+    !__net_ipv6_s0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_UNICAST %out_bool, %addr
+    EXPAND NET_IPV6_IS_MULTICAST __net_ipv6_multicast_%out_bool, %addr
+    %out_bool = eq __net_ipv6_multicast_%out_bool, 0
+    !__net_ipv6_multicast_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_DOCUMENTATION %out_bool, %addr
+    __net_ipv6_s0_%out_bool = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_s1_%out_bool = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_doc2001_%out_bool = eq __net_ipv6_s0_%out_bool, 8193
+    __net_ipv6_doc0db8_%out_bool = eq __net_ipv6_s1_%out_bool, 3512
+    __net_ipv6_doc1_%out_bool = and __net_ipv6_doc2001_%out_bool, __net_ipv6_doc0db8_%out_bool
+    __net_ipv6_doc3fff_%out_bool = eq __net_ipv6_s0_%out_bool, 16383
+    __net_ipv6_doc3fff_range_%out_bool = ule __net_ipv6_s1_%out_bool, 4095
+    __net_ipv6_doc2_%out_bool = and __net_ipv6_doc3fff_%out_bool, __net_ipv6_doc3fff_range_%out_bool
+    %out_bool = or __net_ipv6_doc1_%out_bool, __net_ipv6_doc2_%out_bool
+    !__net_ipv6_doc2_%out_bool
+    !__net_ipv6_doc3fff_range_%out_bool
+    !__net_ipv6_doc3fff_%out_bool
+    !__net_ipv6_doc1_%out_bool
+    !__net_ipv6_doc0db8_%out_bool
+    !__net_ipv6_doc2001_%out_bool
+    !__net_ipv6_s1_%out_bool
+    !__net_ipv6_s0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_BENCHMARKING %out_bool, %addr
+    __net_ipv6_s0_%out_bool = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_s1_%out_bool = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_s2_%out_bool = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_2001_%out_bool = eq __net_ipv6_s0_%out_bool, 8193
+    __net_ipv6_0002_%out_bool = eq __net_ipv6_s1_%out_bool, 2
+    __net_ipv6_0000_%out_bool = eq __net_ipv6_s2_%out_bool, 0
+    __net_ipv6_left_%out_bool = and __net_ipv6_2001_%out_bool, __net_ipv6_0002_%out_bool
+    %out_bool = and __net_ipv6_left_%out_bool, __net_ipv6_0000_%out_bool
+    !__net_ipv6_left_%out_bool
+    !__net_ipv6_0000_%out_bool
+    !__net_ipv6_0002_%out_bool
+    !__net_ipv6_2001_%out_bool
+    !__net_ipv6_s2_%out_bool
+    !__net_ipv6_s1_%out_bool
+    !__net_ipv6_s0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_GLOBAL %out_bool, %addr
+    __net_ipv6_global_s0_%out_bool = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_global_s1_%out_bool = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_global_s2_%out_bool = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_global_s3_%out_bool = load %addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_global_s4_%out_bool = load %addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_global_s5_%out_bool = load %addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_global_s6_%out_bool = load %addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_global_s7_%out_bool = load %addr+NetIpv6Addr_s7 as u16
+    EXPAND NET_IPV6_IS_UNSPECIFIED __net_ipv6_global_unspec_%out_bool, %addr
+    EXPAND NET_IPV6_IS_LOOPBACK __net_ipv6_global_loop_%out_bool, %addr
+    EXPAND NET_IPV6_IS_IPV4_MAPPED __net_ipv6_global_mapped_%out_bool, %addr
+    EXPAND NET_IPV6_IS_DOCUMENTATION __net_ipv6_global_doc_%out_bool, %addr
+    EXPAND NET_IPV6_IS_UNIQUE_LOCAL __net_ipv6_global_unique_%out_bool, %addr
+    EXPAND NET_IPV6_IS_UNICAST_LINK_LOCAL __net_ipv6_global_link_%out_bool, %addr
+
+    __net_ipv6_global_trans_s0_%out_bool = eq __net_ipv6_global_s0_%out_bool, 100
+    __net_ipv6_global_trans_s1_%out_bool = eq __net_ipv6_global_s1_%out_bool, 65435
+    __net_ipv6_global_trans_s2_%out_bool = eq __net_ipv6_global_s2_%out_bool, 1
+    __net_ipv6_global_trans_01_%out_bool = and __net_ipv6_global_trans_s0_%out_bool, __net_ipv6_global_trans_s1_%out_bool
+    __net_ipv6_global_translate_%out_bool = and __net_ipv6_global_trans_01_%out_bool, __net_ipv6_global_trans_s2_%out_bool
+
+    __net_ipv6_global_discard_s0_%out_bool = eq __net_ipv6_global_s0_%out_bool, 256
+    __net_ipv6_global_discard_s1_%out_bool = eq __net_ipv6_global_s1_%out_bool, 0
+    __net_ipv6_global_discard_s2_%out_bool = eq __net_ipv6_global_s2_%out_bool, 0
+    __net_ipv6_global_discard_s3_%out_bool = eq __net_ipv6_global_s3_%out_bool, 0
+    __net_ipv6_global_discard_01_%out_bool = and __net_ipv6_global_discard_s0_%out_bool, __net_ipv6_global_discard_s1_%out_bool
+    __net_ipv6_global_discard_23_%out_bool = and __net_ipv6_global_discard_s2_%out_bool, __net_ipv6_global_discard_s3_%out_bool
+    __net_ipv6_global_discard_%out_bool = and __net_ipv6_global_discard_01_%out_bool, __net_ipv6_global_discard_23_%out_bool
+
+    __net_ipv6_global_2001_%out_bool = eq __net_ipv6_global_s0_%out_bool, 8193
+    __net_ipv6_global_proto_s1_%out_bool = ult __net_ipv6_global_s1_%out_bool, 512
+    __net_ipv6_global_proto_range_%out_bool = and __net_ipv6_global_2001_%out_bool, __net_ipv6_global_proto_s1_%out_bool
+    __net_ipv6_global_s1_1_%out_bool = eq __net_ipv6_global_s1_%out_bool, 1
+    __net_ipv6_global_s2_zero_%out_bool = eq __net_ipv6_global_s2_%out_bool, 0
+    __net_ipv6_global_s3_zero_%out_bool = eq __net_ipv6_global_s3_%out_bool, 0
+    __net_ipv6_global_s4_zero_%out_bool = eq __net_ipv6_global_s4_%out_bool, 0
+    __net_ipv6_global_s5_zero_%out_bool = eq __net_ipv6_global_s5_%out_bool, 0
+    __net_ipv6_global_s6_zero_%out_bool = eq __net_ipv6_global_s6_%out_bool, 0
+    __net_ipv6_global_tail_23_%out_bool = and __net_ipv6_global_s2_zero_%out_bool, __net_ipv6_global_s3_zero_%out_bool
+    __net_ipv6_global_tail_45_%out_bool = and __net_ipv6_global_s4_zero_%out_bool, __net_ipv6_global_s5_zero_%out_bool
+    __net_ipv6_global_tail_26a_%out_bool = and __net_ipv6_global_tail_23_%out_bool, __net_ipv6_global_tail_45_%out_bool
+    __net_ipv6_global_tail_26_%out_bool = and __net_ipv6_global_tail_26a_%out_bool, __net_ipv6_global_s6_zero_%out_bool
+    __net_ipv6_global_s7_1_%out_bool = eq __net_ipv6_global_s7_%out_bool, 1
+    __net_ipv6_global_s7_2_%out_bool = eq __net_ipv6_global_s7_%out_bool, 2
+    __net_ipv6_global_anycast_tail_%out_bool = or __net_ipv6_global_s7_1_%out_bool, __net_ipv6_global_s7_2_%out_bool
+    __net_ipv6_global_anycast_a_%out_bool = and __net_ipv6_global_2001_%out_bool, __net_ipv6_global_s1_1_%out_bool
+    __net_ipv6_global_anycast_b_%out_bool = and __net_ipv6_global_anycast_a_%out_bool, __net_ipv6_global_tail_26_%out_bool
+    __net_ipv6_global_anycast_%out_bool = and __net_ipv6_global_anycast_b_%out_bool, __net_ipv6_global_anycast_tail_%out_bool
+    __net_ipv6_global_amt_%out_bool = eq __net_ipv6_global_s1_%out_bool, 3
+    __net_ipv6_global_as112_s1_%out_bool = eq __net_ipv6_global_s1_%out_bool, 4
+    __net_ipv6_global_as112_s2_%out_bool = eq __net_ipv6_global_s2_%out_bool, 274
+    __net_ipv6_global_as112_%out_bool = and __net_ipv6_global_as112_s1_%out_bool, __net_ipv6_global_as112_s2_%out_bool
+    __net_ipv6_global_orchid_lo_%out_bool = uge __net_ipv6_global_s1_%out_bool, 32
+    __net_ipv6_global_orchid_hi_%out_bool = ule __net_ipv6_global_s1_%out_bool, 63
+    __net_ipv6_global_orchid_%out_bool = and __net_ipv6_global_orchid_lo_%out_bool, __net_ipv6_global_orchid_hi_%out_bool
+    __net_ipv6_global_proto_allow01_%out_bool = or __net_ipv6_global_anycast_%out_bool, __net_ipv6_global_amt_%out_bool
+    __net_ipv6_global_proto_allow02_%out_bool = or __net_ipv6_global_proto_allow01_%out_bool, __net_ipv6_global_as112_%out_bool
+    __net_ipv6_global_proto_allowed_%out_bool = or __net_ipv6_global_proto_allow02_%out_bool, __net_ipv6_global_orchid_%out_bool
+    __net_ipv6_global_proto_block_%out_bool = eq __net_ipv6_global_proto_allowed_%out_bool, 0
+    __net_ipv6_global_proto_%out_bool = and __net_ipv6_global_proto_range_%out_bool, __net_ipv6_global_proto_block_%out_bool
+
+    __net_ipv6_global_6to4_%out_bool = eq __net_ipv6_global_s0_%out_bool, 8194
+    __net_ipv6_global_srv6_%out_bool = eq __net_ipv6_global_s0_%out_bool, 24320
+    __net_ipv6_global_ex01_%out_bool = or __net_ipv6_global_unspec_%out_bool, __net_ipv6_global_loop_%out_bool
+    __net_ipv6_global_ex02_%out_bool = or __net_ipv6_global_ex01_%out_bool, __net_ipv6_global_mapped_%out_bool
+    __net_ipv6_global_ex03_%out_bool = or __net_ipv6_global_ex02_%out_bool, __net_ipv6_global_translate_%out_bool
+    __net_ipv6_global_ex04_%out_bool = or __net_ipv6_global_ex03_%out_bool, __net_ipv6_global_discard_%out_bool
+    __net_ipv6_global_ex05_%out_bool = or __net_ipv6_global_ex04_%out_bool, __net_ipv6_global_proto_%out_bool
+    __net_ipv6_global_ex06_%out_bool = or __net_ipv6_global_ex05_%out_bool, __net_ipv6_global_6to4_%out_bool
+    __net_ipv6_global_ex07_%out_bool = or __net_ipv6_global_ex06_%out_bool, __net_ipv6_global_doc_%out_bool
+    __net_ipv6_global_ex08_%out_bool = or __net_ipv6_global_ex07_%out_bool, __net_ipv6_global_srv6_%out_bool
+    __net_ipv6_global_ex09_%out_bool = or __net_ipv6_global_ex08_%out_bool, __net_ipv6_global_unique_%out_bool
+    __net_ipv6_global_excluded_%out_bool = or __net_ipv6_global_ex09_%out_bool, __net_ipv6_global_link_%out_bool
+    %out_bool = eq __net_ipv6_global_excluded_%out_bool, 0
+    !__net_ipv6_global_excluded_%out_bool
+    !__net_ipv6_global_ex09_%out_bool
+    !__net_ipv6_global_ex08_%out_bool
+    !__net_ipv6_global_ex07_%out_bool
+    !__net_ipv6_global_ex06_%out_bool
+    !__net_ipv6_global_ex05_%out_bool
+    !__net_ipv6_global_ex04_%out_bool
+    !__net_ipv6_global_ex03_%out_bool
+    !__net_ipv6_global_ex02_%out_bool
+    !__net_ipv6_global_ex01_%out_bool
+    !__net_ipv6_global_srv6_%out_bool
+    !__net_ipv6_global_6to4_%out_bool
+    !__net_ipv6_global_proto_%out_bool
+    !__net_ipv6_global_proto_block_%out_bool
+    !__net_ipv6_global_proto_allowed_%out_bool
+    !__net_ipv6_global_proto_allow02_%out_bool
+    !__net_ipv6_global_proto_allow01_%out_bool
+    !__net_ipv6_global_orchid_%out_bool
+    !__net_ipv6_global_orchid_hi_%out_bool
+    !__net_ipv6_global_orchid_lo_%out_bool
+    !__net_ipv6_global_as112_%out_bool
+    !__net_ipv6_global_as112_s2_%out_bool
+    !__net_ipv6_global_as112_s1_%out_bool
+    !__net_ipv6_global_amt_%out_bool
+    !__net_ipv6_global_anycast_%out_bool
+    !__net_ipv6_global_anycast_b_%out_bool
+    !__net_ipv6_global_anycast_a_%out_bool
+    !__net_ipv6_global_anycast_tail_%out_bool
+    !__net_ipv6_global_s7_2_%out_bool
+    !__net_ipv6_global_s7_1_%out_bool
+    !__net_ipv6_global_tail_26_%out_bool
+    !__net_ipv6_global_tail_26a_%out_bool
+    !__net_ipv6_global_tail_45_%out_bool
+    !__net_ipv6_global_tail_23_%out_bool
+    !__net_ipv6_global_s6_zero_%out_bool
+    !__net_ipv6_global_s5_zero_%out_bool
+    !__net_ipv6_global_s4_zero_%out_bool
+    !__net_ipv6_global_s3_zero_%out_bool
+    !__net_ipv6_global_s2_zero_%out_bool
+    !__net_ipv6_global_s1_1_%out_bool
+    !__net_ipv6_global_proto_range_%out_bool
+    !__net_ipv6_global_proto_s1_%out_bool
+    !__net_ipv6_global_2001_%out_bool
+    !__net_ipv6_global_discard_%out_bool
+    !__net_ipv6_global_discard_23_%out_bool
+    !__net_ipv6_global_discard_01_%out_bool
+    !__net_ipv6_global_discard_s3_%out_bool
+    !__net_ipv6_global_discard_s2_%out_bool
+    !__net_ipv6_global_discard_s1_%out_bool
+    !__net_ipv6_global_discard_s0_%out_bool
+    !__net_ipv6_global_translate_%out_bool
+    !__net_ipv6_global_trans_01_%out_bool
+    !__net_ipv6_global_trans_s2_%out_bool
+    !__net_ipv6_global_trans_s1_%out_bool
+    !__net_ipv6_global_trans_s0_%out_bool
+    !__net_ipv6_global_link_%out_bool
+    !__net_ipv6_global_unique_%out_bool
+    !__net_ipv6_global_doc_%out_bool
+    !__net_ipv6_global_mapped_%out_bool
+    !__net_ipv6_global_loop_%out_bool
+    !__net_ipv6_global_unspec_%out_bool
+    !__net_ipv6_global_s7_%out_bool
+    !__net_ipv6_global_s6_%out_bool
+    !__net_ipv6_global_s5_%out_bool
+    !__net_ipv6_global_s4_%out_bool
+    !__net_ipv6_global_s3_%out_bool
+    !__net_ipv6_global_s2_%out_bool
+    !__net_ipv6_global_s1_%out_bool
+    !__net_ipv6_global_s0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_IPV4_MAPPED %out_bool, %addr
+    __net_ipv6_s0_%out_bool = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_s1_%out_bool = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_s2_%out_bool = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_s3_%out_bool = load %addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_s4_%out_bool = load %addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_s5_%out_bool = load %addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_e0_%out_bool = eq __net_ipv6_s0_%out_bool, 0
+    __net_ipv6_e1_%out_bool = eq __net_ipv6_s1_%out_bool, 0
+    __net_ipv6_e2_%out_bool = eq __net_ipv6_s2_%out_bool, 0
+    __net_ipv6_e3_%out_bool = eq __net_ipv6_s3_%out_bool, 0
+    __net_ipv6_e4_%out_bool = eq __net_ipv6_s4_%out_bool, 0
+    __net_ipv6_e5_%out_bool = eq __net_ipv6_s5_%out_bool, 65535
+    __net_ipv6_e01_%out_bool = and __net_ipv6_e0_%out_bool, __net_ipv6_e1_%out_bool
+    __net_ipv6_e23_%out_bool = and __net_ipv6_e2_%out_bool, __net_ipv6_e3_%out_bool
+    __net_ipv6_e45_%out_bool = and __net_ipv6_e4_%out_bool, __net_ipv6_e5_%out_bool
+    __net_ipv6_e03_%out_bool = and __net_ipv6_e01_%out_bool, __net_ipv6_e23_%out_bool
+    %out_bool = and __net_ipv6_e03_%out_bool, __net_ipv6_e45_%out_bool
+    !__net_ipv6_e03_%out_bool
+    !__net_ipv6_e45_%out_bool
+    !__net_ipv6_e23_%out_bool
+    !__net_ipv6_e01_%out_bool
+    !__net_ipv6_e5_%out_bool
+    !__net_ipv6_e4_%out_bool
+    !__net_ipv6_e3_%out_bool
+    !__net_ipv6_e2_%out_bool
+    !__net_ipv6_e1_%out_bool
+    !__net_ipv6_e0_%out_bool
+    !__net_ipv6_s5_%out_bool
+    !__net_ipv6_s4_%out_bool
+    !__net_ipv6_s3_%out_bool
+    !__net_ipv6_s2_%out_bool
+    !__net_ipv6_s1_%out_bool
+    !__net_ipv6_s0_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE %out_ok, %out_scope, %addr
+    EXPAND NET_IPV6_IS_MULTICAST %out_ok, %addr
+    __net_ipv6_scope_s0_%out_scope = load %addr+NetIpv6Addr_s0 as u16
+    %out_scope = and __net_ipv6_scope_s0_%out_scope, 15
+    !__net_ipv6_scope_s0_%out_scope
+[END_MACRO]
+
+[MACRO] NET_IPV6_TO_IPV4_MAPPED %out_ok, %ipv4, %addr
+    EXPAND NET_IPV6_IS_IPV4_MAPPED %out_ok, %addr
+    __net_ipv6_map_s6_%ipv4 = load %addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_map_s7_%ipv4 = load %addr+NetIpv6Addr_s7 as u16
+    __net_ipv6_map_a_%ipv4 = lshr __net_ipv6_map_s6_%ipv4, 8
+    __net_ipv6_map_b_%ipv4 = and __net_ipv6_map_s6_%ipv4, 255
+    __net_ipv6_map_c_%ipv4 = lshr __net_ipv6_map_s7_%ipv4, 8
+    __net_ipv6_map_d_%ipv4 = and __net_ipv6_map_s7_%ipv4, 255
+    EXPAND NET_IPV4_NEW %ipv4, __net_ipv6_map_a_%ipv4, __net_ipv6_map_b_%ipv4, __net_ipv6_map_c_%ipv4, __net_ipv6_map_d_%ipv4
+    !__net_ipv6_map_d_%ipv4
+    !__net_ipv6_map_c_%ipv4
+    !__net_ipv6_map_b_%ipv4
+    !__net_ipv6_map_a_%ipv4
+    !__net_ipv6_map_s7_%ipv4
+    !__net_ipv6_map_s6_%ipv4
+[END_MACRO]
+
+[MACRO] NET_IPV6_TO_IPV4 %out_ok, %ipv4, %addr
+    __net_ipv6_to4_s0_%ipv4 = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_to4_s1_%ipv4 = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_to4_s2_%ipv4 = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_to4_s3_%ipv4 = load %addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_to4_s4_%ipv4 = load %addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_to4_s5_%ipv4 = load %addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_to4_s6_%ipv4 = load %addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_to4_s7_%ipv4 = load %addr+NetIpv6Addr_s7 as u16
+    __net_ipv6_to4_e0_%ipv4 = eq __net_ipv6_to4_s0_%ipv4, 0
+    __net_ipv6_to4_e1_%ipv4 = eq __net_ipv6_to4_s1_%ipv4, 0
+    __net_ipv6_to4_e2_%ipv4 = eq __net_ipv6_to4_s2_%ipv4, 0
+    __net_ipv6_to4_e3_%ipv4 = eq __net_ipv6_to4_s3_%ipv4, 0
+    __net_ipv6_to4_e4_%ipv4 = eq __net_ipv6_to4_s4_%ipv4, 0
+    __net_ipv6_to4_s5_zero_%ipv4 = eq __net_ipv6_to4_s5_%ipv4, 0
+    __net_ipv6_to4_s5_ffff_%ipv4 = eq __net_ipv6_to4_s5_%ipv4, 65535
+    __net_ipv6_to4_s5_ok_%ipv4 = or __net_ipv6_to4_s5_zero_%ipv4, __net_ipv6_to4_s5_ffff_%ipv4
+    __net_ipv6_to4_e01_%ipv4 = and __net_ipv6_to4_e0_%ipv4, __net_ipv6_to4_e1_%ipv4
+    __net_ipv6_to4_e23_%ipv4 = and __net_ipv6_to4_e2_%ipv4, __net_ipv6_to4_e3_%ipv4
+    __net_ipv6_to4_e04_%ipv4 = and __net_ipv6_to4_e01_%ipv4, __net_ipv6_to4_e23_%ipv4
+    __net_ipv6_to4_e05_%ipv4 = and __net_ipv6_to4_e04_%ipv4, __net_ipv6_to4_e4_%ipv4
+    %out_ok = and __net_ipv6_to4_e05_%ipv4, __net_ipv6_to4_s5_ok_%ipv4
+    __net_ipv6_to4_a_%ipv4 = lshr __net_ipv6_to4_s6_%ipv4, 8
+    __net_ipv6_to4_b_%ipv4 = and __net_ipv6_to4_s6_%ipv4, 255
+    __net_ipv6_to4_c_%ipv4 = lshr __net_ipv6_to4_s7_%ipv4, 8
+    __net_ipv6_to4_d_%ipv4 = and __net_ipv6_to4_s7_%ipv4, 255
+    EXPAND NET_IPV4_NEW %ipv4, __net_ipv6_to4_a_%ipv4, __net_ipv6_to4_b_%ipv4, __net_ipv6_to4_c_%ipv4, __net_ipv6_to4_d_%ipv4
+    !__net_ipv6_to4_d_%ipv4
+    !__net_ipv6_to4_c_%ipv4
+    !__net_ipv6_to4_b_%ipv4
+    !__net_ipv6_to4_a_%ipv4
+    !__net_ipv6_to4_e05_%ipv4
+    !__net_ipv6_to4_e04_%ipv4
+    !__net_ipv6_to4_e23_%ipv4
+    !__net_ipv6_to4_e01_%ipv4
+    !__net_ipv6_to4_s5_ok_%ipv4
+    !__net_ipv6_to4_s5_ffff_%ipv4
+    !__net_ipv6_to4_s5_zero_%ipv4
+    !__net_ipv6_to4_e4_%ipv4
+    !__net_ipv6_to4_e3_%ipv4
+    !__net_ipv6_to4_e2_%ipv4
+    !__net_ipv6_to4_e1_%ipv4
+    !__net_ipv6_to4_e0_%ipv4
+    !__net_ipv6_to4_s7_%ipv4
+    !__net_ipv6_to4_s6_%ipv4
+    !__net_ipv6_to4_s5_%ipv4
+    !__net_ipv6_to4_s4_%ipv4
+    !__net_ipv6_to4_s3_%ipv4
+    !__net_ipv6_to4_s2_%ipv4
+    !__net_ipv6_to4_s1_%ipv4
+    !__net_ipv6_to4_s0_%ipv4
+[END_MACRO]
+
+[MACRO] NET_IPV6_IS_UNICAST_GLOBAL %out_bool, %addr
+    EXPAND NET_IPV6_IS_UNICAST __net_ipv6_unicast_%out_bool, %addr
+    EXPAND NET_IPV6_IS_LOOPBACK __net_ipv6_loopback_%out_bool, %addr
+    EXPAND NET_IPV6_IS_UNICAST_LINK_LOCAL __net_ipv6_link_%out_bool, %addr
+    EXPAND NET_IPV6_IS_UNIQUE_LOCAL __net_ipv6_unique_%out_bool, %addr
+    EXPAND NET_IPV6_IS_UNSPECIFIED __net_ipv6_unspec_%out_bool, %addr
+    EXPAND NET_IPV6_IS_DOCUMENTATION __net_ipv6_doc_%out_bool, %addr
+    EXPAND NET_IPV6_IS_BENCHMARKING __net_ipv6_bench_%out_bool, %addr
+    __net_ipv6_ng01_%out_bool = or __net_ipv6_loopback_%out_bool, __net_ipv6_link_%out_bool
+    __net_ipv6_ng02_%out_bool = or __net_ipv6_ng01_%out_bool, __net_ipv6_unique_%out_bool
+    __net_ipv6_ng03_%out_bool = or __net_ipv6_ng02_%out_bool, __net_ipv6_unspec_%out_bool
+    __net_ipv6_ng04_%out_bool = or __net_ipv6_ng03_%out_bool, __net_ipv6_doc_%out_bool
+    __net_ipv6_not_global_%out_bool = or __net_ipv6_ng04_%out_bool, __net_ipv6_bench_%out_bool
+    __net_ipv6_no_exclusion_%out_bool = eq __net_ipv6_not_global_%out_bool, 0
+    %out_bool = and __net_ipv6_unicast_%out_bool, __net_ipv6_no_exclusion_%out_bool
+    !__net_ipv6_no_exclusion_%out_bool
+    !__net_ipv6_not_global_%out_bool
+    !__net_ipv6_ng04_%out_bool
+    !__net_ipv6_ng03_%out_bool
+    !__net_ipv6_ng02_%out_bool
+    !__net_ipv6_ng01_%out_bool
+    !__net_ipv6_bench_%out_bool
+    !__net_ipv6_doc_%out_bool
+    !__net_ipv6_unspec_%out_bool
+    !__net_ipv6_unique_%out_bool
+    !__net_ipv6_link_%out_bool
+    !__net_ipv6_loopback_%out_bool
+    !__net_ipv6_unicast_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_TO_CANONICAL %out_ipaddr, %addr
+    __net_ipv6_canon_v4_%out_ipaddr = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV6_TO_IPV4_MAPPED __net_ipv6_canon_mapped_%out_ipaddr, __net_ipv6_canon_v4_%out_ipaddr, %addr
+    br __net_ipv6_canon_mapped_%out_ipaddr -> L_NET_IPV6_CANON_V4_%out_ipaddr, L_NET_IPV6_CANON_V6_%out_ipaddr
+
+L_NET_IPV6_CANON_V4_%out_ipaddr:
+    EXPAND NET_IP_ADDR_V4_NEW %out_ipaddr, __net_ipv6_canon_v4_%out_ipaddr
+    !__net_ipv6_canon_mapped_%out_ipaddr
+    jmp L_NET_IPV6_CANON_DONE_%out_ipaddr
+
+L_NET_IPV6_CANON_V6_%out_ipaddr:
+    EXPAND NET_IP_ADDR_V6_NEW %out_ipaddr, %addr
+    !__net_ipv6_canon_mapped_%out_ipaddr
+
+L_NET_IPV6_CANON_DONE_%out_ipaddr:
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_V4_NEW %ipaddr, %ipv4
+    store %ipaddr+NetIpAddr_tag, NET_IP_ADDR_V4 as u64
+    __net_ip_v4_payload_%ipaddr = ptr_add %ipaddr, 8
+    __net_ip_v4_a_%ipaddr = load %ipv4+NetIpv4Addr_a as u8
+    __net_ip_v4_b_%ipaddr = load %ipv4+NetIpv4Addr_b as u8
+    __net_ip_v4_c_%ipaddr = load %ipv4+NetIpv4Addr_c as u8
+    __net_ip_v4_d_%ipaddr = load %ipv4+NetIpv4Addr_d as u8
+    store __net_ip_v4_payload_%ipaddr+NetIpv4Addr_a, __net_ip_v4_a_%ipaddr as u8
+    store __net_ip_v4_payload_%ipaddr+NetIpv4Addr_b, __net_ip_v4_b_%ipaddr as u8
+    store __net_ip_v4_payload_%ipaddr+NetIpv4Addr_c, __net_ip_v4_c_%ipaddr as u8
+    store __net_ip_v4_payload_%ipaddr+NetIpv4Addr_d, __net_ip_v4_d_%ipaddr as u8
+    !__net_ip_v4_d_%ipaddr
+    !__net_ip_v4_c_%ipaddr
+    !__net_ip_v4_b_%ipaddr
+    !__net_ip_v4_a_%ipaddr
+    !__net_ip_v4_payload_%ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_V6_NEW %ipaddr, %ipv6
+    store %ipaddr+NetIpAddr_tag, NET_IP_ADDR_V6 as u64
+    __net_ip_v6_payload_%ipaddr = ptr_add %ipaddr, 8
+    __net_ip_v6_s0_%ipaddr = load %ipv6+NetIpv6Addr_s0 as u16
+    __net_ip_v6_s1_%ipaddr = load %ipv6+NetIpv6Addr_s1 as u16
+    __net_ip_v6_s2_%ipaddr = load %ipv6+NetIpv6Addr_s2 as u16
+    __net_ip_v6_s3_%ipaddr = load %ipv6+NetIpv6Addr_s3 as u16
+    __net_ip_v6_s4_%ipaddr = load %ipv6+NetIpv6Addr_s4 as u16
+    __net_ip_v6_s5_%ipaddr = load %ipv6+NetIpv6Addr_s5 as u16
+    __net_ip_v6_s6_%ipaddr = load %ipv6+NetIpv6Addr_s6 as u16
+    __net_ip_v6_s7_%ipaddr = load %ipv6+NetIpv6Addr_s7 as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s0, __net_ip_v6_s0_%ipaddr as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s1, __net_ip_v6_s1_%ipaddr as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s2, __net_ip_v6_s2_%ipaddr as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s3, __net_ip_v6_s3_%ipaddr as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s4, __net_ip_v6_s4_%ipaddr as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s5, __net_ip_v6_s5_%ipaddr as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s6, __net_ip_v6_s6_%ipaddr as u16
+    store __net_ip_v6_payload_%ipaddr+NetIpv6Addr_s7, __net_ip_v6_s7_%ipaddr as u16
+    !__net_ip_v6_s7_%ipaddr
+    !__net_ip_v6_s6_%ipaddr
+    !__net_ip_v6_s5_%ipaddr
+    !__net_ip_v6_s4_%ipaddr
+    !__net_ip_v6_s3_%ipaddr
+    !__net_ip_v6_s2_%ipaddr
+    !__net_ip_v6_s1_%ipaddr
+    !__net_ip_v6_s0_%ipaddr
+    !__net_ip_v6_payload_%ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_V4_UNSPECIFIED %ipaddr
+    __net_ip_v4_unspec_%ipaddr = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV4_UNSPECIFIED __net_ip_v4_unspec_%ipaddr
+    EXPAND NET_IP_ADDR_V4_NEW %ipaddr, __net_ip_v4_unspec_%ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_V4_LOCALHOST %ipaddr
+    __net_ip_v4_local_%ipaddr = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV4_LOCALHOST __net_ip_v4_local_%ipaddr
+    EXPAND NET_IP_ADDR_V4_NEW %ipaddr, __net_ip_v4_local_%ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_V4_BROADCAST %ipaddr
+    __net_ip_v4_bcast_%ipaddr = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV4_BROADCAST __net_ip_v4_bcast_%ipaddr
+    EXPAND NET_IP_ADDR_V4_NEW %ipaddr, __net_ip_v4_bcast_%ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_V6_UNSPECIFIED %ipaddr
+    __net_ip_v6_unspec_%ipaddr = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_UNSPECIFIED __net_ip_v6_unspec_%ipaddr
+    EXPAND NET_IP_ADDR_V6_NEW %ipaddr, __net_ip_v6_unspec_%ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_V6_LOCALHOST %ipaddr
+    __net_ip_v6_local_%ipaddr = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_LOCALHOST __net_ip_v6_local_%ipaddr
+    EXPAND NET_IP_ADDR_V6_NEW %ipaddr, __net_ip_v6_local_%ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_COPY %dst_ipaddr, %src_ipaddr
+    __net_ip_copy_tag_%dst_ipaddr = load %src_ipaddr+NetIpAddr_tag as u64
+    __net_ip_copy_src_%dst_ipaddr = ptr_add %src_ipaddr, 8
+    __net_ip_copy_dst_%dst_ipaddr = ptr_add %dst_ipaddr, 8
+    store %dst_ipaddr+NetIpAddr_tag, __net_ip_copy_tag_%dst_ipaddr as u64
+    __net_ip_copy_is_v4_%dst_ipaddr = eq __net_ip_copy_tag_%dst_ipaddr, NET_IP_ADDR_V4
+    br __net_ip_copy_is_v4_%dst_ipaddr -> L_NET_IP_COPY_V4_%dst_ipaddr, L_NET_IP_COPY_V6_%dst_ipaddr
+L_NET_IP_COPY_V4_%dst_ipaddr:
+    EXPAND NET_IPV4_COPY __net_ip_copy_dst_%dst_ipaddr, __net_ip_copy_src_%dst_ipaddr
+    jmp L_NET_IP_COPY_DONE_%dst_ipaddr
+L_NET_IP_COPY_V6_%dst_ipaddr:
+    EXPAND NET_IPV6_COPY __net_ip_copy_dst_%dst_ipaddr, __net_ip_copy_src_%dst_ipaddr
+    jmp L_NET_IP_COPY_DONE_%dst_ipaddr
+L_NET_IP_COPY_DONE_%dst_ipaddr:
+    !__net_ip_copy_is_v4_%dst_ipaddr
+    !__net_ip_copy_dst_%dst_ipaddr
+    !__net_ip_copy_src_%dst_ipaddr
+    !__net_ip_copy_tag_%dst_ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_IPV4 %out_bool, %ipaddr
+    __net_ip_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    %out_bool = eq __net_ip_tag_%out_bool, NET_IP_ADDR_V4
+    !__net_ip_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_IPV6 %out_bool, %ipaddr
+    __net_ip_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    %out_bool = eq __net_ip_tag_%out_bool, NET_IP_ADDR_V6
+    !__net_ip_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_PAYLOAD_PTR %out_ptr, %ipaddr
+    %out_ptr = ptr_add %ipaddr, 8
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_FAMILY %out_family, %ipaddr
+    __net_ip_family_tag_%out_family = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_family_is_v4_%out_family = eq __net_ip_family_tag_%out_family, NET_IP_ADDR_V4
+    br __net_ip_family_is_v4_%out_family -> L_NET_IP_FAMILY_V4_%out_family, L_NET_IP_FAMILY_V6_%out_family
+L_NET_IP_FAMILY_V4_%out_family:
+    %out_family = add 0, SA_NET_AF_INET
+    jmp L_NET_IP_FAMILY_DONE_%out_family
+L_NET_IP_FAMILY_V6_%out_family:
+    %out_family = add 0, SA_NET_AF_INET6
+    jmp L_NET_IP_FAMILY_DONE_%out_family
+L_NET_IP_FAMILY_DONE_%out_family:
+    !__net_ip_family_is_v4_%out_family
+    !__net_ip_family_tag_%out_family
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_OCTET_LEN %out_len, %ipaddr
+    __net_ip_octet_len_tag_%out_len = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_octet_len_v4_%out_len = eq __net_ip_octet_len_tag_%out_len, NET_IP_ADDR_V4
+    br __net_ip_octet_len_v4_%out_len -> L_NET_IP_OCTET_LEN_V4_%out_len, L_NET_IP_OCTET_LEN_V6_%out_len
+L_NET_IP_OCTET_LEN_V4_%out_len:
+    %out_len = add 0, 4
+    jmp L_NET_IP_OCTET_LEN_DONE_%out_len
+L_NET_IP_OCTET_LEN_V6_%out_len:
+    %out_len = add 0, 16
+    jmp L_NET_IP_OCTET_LEN_DONE_%out_len
+L_NET_IP_OCTET_LEN_DONE_%out_len:
+    !__net_ip_octet_len_v4_%out_len
+    !__net_ip_octet_len_tag_%out_len
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, %ipaddr
+    __net_ip_write_tag_%out_ok = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_write_payload_%out_ok = ptr_add %ipaddr, 8
+    __net_ip_write_v4_%out_ok = eq __net_ip_write_tag_%out_ok, NET_IP_ADDR_V4
+    br __net_ip_write_v4_%out_ok -> L_NET_IP_WRITE_OCTETS_V4_%out_ok, L_NET_IP_WRITE_OCTETS_V6_%out_ok
+
+L_NET_IP_WRITE_OCTETS_V4_%out_ok:
+    EXPAND NET_IPV4_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, __net_ip_write_payload_%out_ok
+    jmp L_NET_IP_WRITE_OCTETS_DONE_%out_ok
+
+L_NET_IP_WRITE_OCTETS_V6_%out_ok:
+    EXPAND NET_IPV6_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, __net_ip_write_payload_%out_ok
+    jmp L_NET_IP_WRITE_OCTETS_DONE_%out_ok
+
+L_NET_IP_WRITE_OCTETS_DONE_%out_ok:
+    !__net_ip_write_v4_%out_ok
+    !__net_ip_write_payload_%out_ok
+    !__net_ip_write_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_EQ %out_bool, %left, %right
+    __net_ip_eq_ltag_%out_bool = load %left+NetIpAddr_tag as u64
+    __net_ip_eq_rtag_%out_bool = load %right+NetIpAddr_tag as u64
+    __net_ip_eq_same_tag_%out_bool = eq __net_ip_eq_ltag_%out_bool, __net_ip_eq_rtag_%out_bool
+    br __net_ip_eq_same_tag_%out_bool -> L_NET_IP_EQ_SAME_%out_bool, L_NET_IP_EQ_DIFF_%out_bool
+L_NET_IP_EQ_DIFF_%out_bool:
+    %out_bool = add 0, 0
+    jmp L_NET_IP_EQ_DONE_%out_bool
+L_NET_IP_EQ_SAME_%out_bool:
+    __net_ip_eq_lpayload_%out_bool = ptr_add %left, 8
+    __net_ip_eq_rpayload_%out_bool = ptr_add %right, 8
+    __net_ip_eq_is_v4_%out_bool = eq __net_ip_eq_ltag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_eq_is_v4_%out_bool -> L_NET_IP_EQ_V4_%out_bool, L_NET_IP_EQ_V6_%out_bool
+L_NET_IP_EQ_V4_%out_bool:
+    EXPAND NET_IPV4_EQ %out_bool, __net_ip_eq_lpayload_%out_bool, __net_ip_eq_rpayload_%out_bool
+    jmp L_NET_IP_EQ_SAME_DONE_%out_bool
+L_NET_IP_EQ_V6_%out_bool:
+    EXPAND NET_IPV6_EQ %out_bool, __net_ip_eq_lpayload_%out_bool, __net_ip_eq_rpayload_%out_bool
+    jmp L_NET_IP_EQ_SAME_DONE_%out_bool
+L_NET_IP_EQ_SAME_DONE_%out_bool:
+    !__net_ip_eq_is_v4_%out_bool
+    !__net_ip_eq_rpayload_%out_bool
+    !__net_ip_eq_lpayload_%out_bool
+    jmp L_NET_IP_EQ_DONE_%out_bool
+L_NET_IP_EQ_DONE_%out_bool:
+    !__net_ip_eq_same_tag_%out_bool
+    !__net_ip_eq_rtag_%out_bool
+    !__net_ip_eq_ltag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_UNSPECIFIED %out_bool, %ipaddr
+    __net_ip_unspec_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_unspec_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_unspec_is_v4_%out_bool = eq __net_ip_unspec_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_unspec_is_v4_%out_bool -> L_NET_IP_UNSPEC_V4_%out_bool, L_NET_IP_UNSPEC_V6_%out_bool
+L_NET_IP_UNSPEC_V4_%out_bool:
+    EXPAND NET_IPV4_IS_UNSPECIFIED %out_bool, __net_ip_unspec_payload_%out_bool
+    jmp L_NET_IP_UNSPEC_DONE_%out_bool
+L_NET_IP_UNSPEC_V6_%out_bool:
+    EXPAND NET_IPV6_IS_UNSPECIFIED %out_bool, __net_ip_unspec_payload_%out_bool
+    jmp L_NET_IP_UNSPEC_DONE_%out_bool
+L_NET_IP_UNSPEC_DONE_%out_bool:
+    !__net_ip_unspec_is_v4_%out_bool
+    !__net_ip_unspec_payload_%out_bool
+    !__net_ip_unspec_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_LOOPBACK %out_bool, %ipaddr
+    __net_ip_loop_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_loop_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_loop_is_v4_%out_bool = eq __net_ip_loop_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_loop_is_v4_%out_bool -> L_NET_IP_LOOP_V4_%out_bool, L_NET_IP_LOOP_V6_%out_bool
+L_NET_IP_LOOP_V4_%out_bool:
+    EXPAND NET_IPV4_IS_LOOPBACK %out_bool, __net_ip_loop_payload_%out_bool
+    jmp L_NET_IP_LOOP_DONE_%out_bool
+L_NET_IP_LOOP_V6_%out_bool:
+    EXPAND NET_IPV6_IS_LOOPBACK %out_bool, __net_ip_loop_payload_%out_bool
+    jmp L_NET_IP_LOOP_DONE_%out_bool
+L_NET_IP_LOOP_DONE_%out_bool:
+    !__net_ip_loop_is_v4_%out_bool
+    !__net_ip_loop_payload_%out_bool
+    !__net_ip_loop_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_MULTICAST %out_bool, %ipaddr
+    __net_ip_multi_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_multi_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_multi_is_v4_%out_bool = eq __net_ip_multi_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_multi_is_v4_%out_bool -> L_NET_IP_MULTI_V4_%out_bool, L_NET_IP_MULTI_V6_%out_bool
+L_NET_IP_MULTI_V4_%out_bool:
+    EXPAND NET_IPV4_IS_MULTICAST %out_bool, __net_ip_multi_payload_%out_bool
+    jmp L_NET_IP_MULTI_DONE_%out_bool
+L_NET_IP_MULTI_V6_%out_bool:
+    EXPAND NET_IPV6_IS_MULTICAST %out_bool, __net_ip_multi_payload_%out_bool
+    jmp L_NET_IP_MULTI_DONE_%out_bool
+L_NET_IP_MULTI_DONE_%out_bool:
+    !__net_ip_multi_is_v4_%out_bool
+    !__net_ip_multi_payload_%out_bool
+    !__net_ip_multi_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_DOCUMENTATION %out_bool, %ipaddr
+    __net_ip_doc_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_doc_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_doc_is_v4_%out_bool = eq __net_ip_doc_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_doc_is_v4_%out_bool -> L_NET_IP_DOC_V4_%out_bool, L_NET_IP_DOC_V6_%out_bool
+L_NET_IP_DOC_V4_%out_bool:
+    EXPAND NET_IPV4_IS_DOCUMENTATION %out_bool, __net_ip_doc_payload_%out_bool
+    jmp L_NET_IP_DOC_DONE_%out_bool
+L_NET_IP_DOC_V6_%out_bool:
+    EXPAND NET_IPV6_IS_DOCUMENTATION %out_bool, __net_ip_doc_payload_%out_bool
+    jmp L_NET_IP_DOC_DONE_%out_bool
+L_NET_IP_DOC_DONE_%out_bool:
+    !__net_ip_doc_is_v4_%out_bool
+    !__net_ip_doc_payload_%out_bool
+    !__net_ip_doc_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_BENCHMARKING %out_bool, %ipaddr
+    __net_ip_bench_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_bench_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_bench_is_v4_%out_bool = eq __net_ip_bench_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_bench_is_v4_%out_bool -> L_NET_IP_BENCH_V4_%out_bool, L_NET_IP_BENCH_V6_%out_bool
+L_NET_IP_BENCH_V4_%out_bool:
+    EXPAND NET_IPV4_IS_BENCHMARKING %out_bool, __net_ip_bench_payload_%out_bool
+    jmp L_NET_IP_BENCH_DONE_%out_bool
+L_NET_IP_BENCH_V6_%out_bool:
+    EXPAND NET_IPV6_IS_BENCHMARKING %out_bool, __net_ip_bench_payload_%out_bool
+    jmp L_NET_IP_BENCH_DONE_%out_bool
+L_NET_IP_BENCH_DONE_%out_bool:
+    !__net_ip_bench_is_v4_%out_bool
+    !__net_ip_bench_payload_%out_bool
+    !__net_ip_bench_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_GLOBAL %out_bool, %ipaddr
+    __net_ip_global_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_global_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_global_is_v4_%out_bool = eq __net_ip_global_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_global_is_v4_%out_bool -> L_NET_IP_GLOBAL_V4_%out_bool, L_NET_IP_GLOBAL_V6_%out_bool
+L_NET_IP_GLOBAL_V4_%out_bool:
+    EXPAND NET_IPV4_IS_GLOBAL %out_bool, __net_ip_global_payload_%out_bool
+    jmp L_NET_IP_GLOBAL_DONE_%out_bool
+L_NET_IP_GLOBAL_V6_%out_bool:
+    EXPAND NET_IPV6_IS_GLOBAL %out_bool, __net_ip_global_payload_%out_bool
+    jmp L_NET_IP_GLOBAL_DONE_%out_bool
+L_NET_IP_GLOBAL_DONE_%out_bool:
+    !__net_ip_global_is_v4_%out_bool
+    !__net_ip_global_payload_%out_bool
+    !__net_ip_global_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_PRIVATE %out_bool, %ipaddr
+    __net_ip_private_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_private_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_private_is_v4_%out_bool = eq __net_ip_private_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_private_is_v4_%out_bool -> L_NET_IP_PRIVATE_V4_%out_bool, L_NET_IP_PRIVATE_V6_%out_bool
+L_NET_IP_PRIVATE_V4_%out_bool:
+    EXPAND NET_IPV4_IS_PRIVATE %out_bool, __net_ip_private_payload_%out_bool
+    jmp L_NET_IP_PRIVATE_DONE_%out_bool
+L_NET_IP_PRIVATE_V6_%out_bool:
+    EXPAND NET_IPV6_IS_UNIQUE_LOCAL %out_bool, __net_ip_private_payload_%out_bool
+    jmp L_NET_IP_PRIVATE_DONE_%out_bool
+L_NET_IP_PRIVATE_DONE_%out_bool:
+    !__net_ip_private_is_v4_%out_bool
+    !__net_ip_private_payload_%out_bool
+    !__net_ip_private_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_LINK_LOCAL %out_bool, %ipaddr
+    __net_ip_link_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_link_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_link_is_v4_%out_bool = eq __net_ip_link_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_link_is_v4_%out_bool -> L_NET_IP_LINK_V4_%out_bool, L_NET_IP_LINK_V6_%out_bool
+L_NET_IP_LINK_V4_%out_bool:
+    EXPAND NET_IPV4_IS_LINK_LOCAL %out_bool, __net_ip_link_payload_%out_bool
+    jmp L_NET_IP_LINK_DONE_%out_bool
+L_NET_IP_LINK_V6_%out_bool:
+    EXPAND NET_IPV6_IS_UNICAST_LINK_LOCAL %out_bool, __net_ip_link_payload_%out_bool
+    jmp L_NET_IP_LINK_DONE_%out_bool
+L_NET_IP_LINK_DONE_%out_bool:
+    !__net_ip_link_is_v4_%out_bool
+    !__net_ip_link_payload_%out_bool
+    !__net_ip_link_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_SHARED %out_bool, %ipaddr
+    __net_ip_shared_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_shared_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_shared_is_v4_%out_bool = eq __net_ip_shared_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_shared_is_v4_%out_bool -> L_NET_IP_SHARED_V4_%out_bool, L_NET_IP_SHARED_V6_%out_bool
+L_NET_IP_SHARED_V4_%out_bool:
+    EXPAND NET_IPV4_IS_SHARED %out_bool, __net_ip_shared_payload_%out_bool
+    jmp L_NET_IP_SHARED_DONE_%out_bool
+L_NET_IP_SHARED_V6_%out_bool:
+    %out_bool = add 0, 0
+    jmp L_NET_IP_SHARED_DONE_%out_bool
+L_NET_IP_SHARED_DONE_%out_bool:
+    !__net_ip_shared_is_v4_%out_bool
+    !__net_ip_shared_payload_%out_bool
+    !__net_ip_shared_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_RESERVED %out_bool, %ipaddr
+    __net_ip_reserved_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_reserved_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_reserved_is_v4_%out_bool = eq __net_ip_reserved_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_reserved_is_v4_%out_bool -> L_NET_IP_RESERVED_V4_%out_bool, L_NET_IP_RESERVED_V6_%out_bool
+L_NET_IP_RESERVED_V4_%out_bool:
+    EXPAND NET_IPV4_IS_RESERVED %out_bool, __net_ip_reserved_payload_%out_bool
+    jmp L_NET_IP_RESERVED_DONE_%out_bool
+L_NET_IP_RESERVED_V6_%out_bool:
+    %out_bool = add 0, 0
+    jmp L_NET_IP_RESERVED_DONE_%out_bool
+L_NET_IP_RESERVED_DONE_%out_bool:
+    !__net_ip_reserved_is_v4_%out_bool
+    !__net_ip_reserved_payload_%out_bool
+    !__net_ip_reserved_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_UNICAST %out_bool, %ipaddr
+    __net_ip_unicast_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_unicast_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_unicast_is_v4_%out_bool = eq __net_ip_unicast_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_unicast_is_v4_%out_bool -> L_NET_IP_UNICAST_V4_%out_bool, L_NET_IP_UNICAST_V6_%out_bool
+L_NET_IP_UNICAST_V4_%out_bool:
+    EXPAND NET_IPV4_IS_MULTICAST __net_ip_unicast_multi_%out_bool, __net_ip_unicast_payload_%out_bool
+    EXPAND NET_IPV4_IS_BROADCAST __net_ip_unicast_broadcast_%out_bool, __net_ip_unicast_payload_%out_bool
+    __net_ip_unicast_not_multi_%out_bool = eq __net_ip_unicast_multi_%out_bool, 0
+    __net_ip_unicast_not_broadcast_%out_bool = eq __net_ip_unicast_broadcast_%out_bool, 0
+    %out_bool = and __net_ip_unicast_not_multi_%out_bool, __net_ip_unicast_not_broadcast_%out_bool
+    !__net_ip_unicast_not_broadcast_%out_bool
+    !__net_ip_unicast_not_multi_%out_bool
+    !__net_ip_unicast_broadcast_%out_bool
+    !__net_ip_unicast_multi_%out_bool
+    jmp L_NET_IP_UNICAST_DONE_%out_bool
+L_NET_IP_UNICAST_V6_%out_bool:
+    EXPAND NET_IPV6_IS_UNICAST %out_bool, __net_ip_unicast_payload_%out_bool
+    jmp L_NET_IP_UNICAST_DONE_%out_bool
+L_NET_IP_UNICAST_DONE_%out_bool:
+    !__net_ip_unicast_is_v4_%out_bool
+    !__net_ip_unicast_payload_%out_bool
+    !__net_ip_unicast_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_UNICAST_LINK_LOCAL %out_bool, %ipaddr
+    EXPAND NET_IP_ADDR_IS_LINK_LOCAL %out_bool, %ipaddr
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_UNIQUE_LOCAL %out_bool, %ipaddr
+    __net_ip_unique_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_unique_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_unique_is_v4_%out_bool = eq __net_ip_unique_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_unique_is_v4_%out_bool -> L_NET_IP_UNIQUE_V4_%out_bool, L_NET_IP_UNIQUE_V6_%out_bool
+L_NET_IP_UNIQUE_V4_%out_bool:
+    %out_bool = add 0, 0
+    jmp L_NET_IP_UNIQUE_DONE_%out_bool
+L_NET_IP_UNIQUE_V6_%out_bool:
+    EXPAND NET_IPV6_IS_UNIQUE_LOCAL %out_bool, __net_ip_unique_payload_%out_bool
+    jmp L_NET_IP_UNIQUE_DONE_%out_bool
+L_NET_IP_UNIQUE_DONE_%out_bool:
+    !__net_ip_unique_is_v4_%out_bool
+    !__net_ip_unique_payload_%out_bool
+    !__net_ip_unique_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_IS_IPV4_MAPPED %out_bool, %ipaddr
+    __net_ip_mapped_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_mapped_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_mapped_is_v4_%out_bool = eq __net_ip_mapped_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_mapped_is_v4_%out_bool -> L_NET_IP_MAPPED_V4_%out_bool, L_NET_IP_MAPPED_V6_%out_bool
+L_NET_IP_MAPPED_V4_%out_bool:
+    %out_bool = add 0, 0
+    jmp L_NET_IP_MAPPED_DONE_%out_bool
+L_NET_IP_MAPPED_V6_%out_bool:
+    EXPAND NET_IPV6_IS_IPV4_MAPPED %out_bool, __net_ip_mapped_payload_%out_bool
+    jmp L_NET_IP_MAPPED_DONE_%out_bool
+L_NET_IP_MAPPED_DONE_%out_bool:
+    !__net_ip_mapped_is_v4_%out_bool
+    !__net_ip_mapped_payload_%out_bool
+    !__net_ip_mapped_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_MULTICAST_SCOPE %out_ok, %out_scope, %ipaddr
+    __net_ip_scope_tag_%out_scope = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_scope_payload_%out_scope = ptr_add %ipaddr, 8
+    __net_ip_scope_is_v4_%out_scope = eq __net_ip_scope_tag_%out_scope, NET_IP_ADDR_V4
+    br __net_ip_scope_is_v4_%out_scope -> L_NET_IP_SCOPE_V4_%out_scope, L_NET_IP_SCOPE_V6_%out_scope
+L_NET_IP_SCOPE_V4_%out_scope:
+    %out_ok = add 0, 0
+    %out_scope = add 0, 0
+    jmp L_NET_IP_SCOPE_DONE_%out_scope
+L_NET_IP_SCOPE_V6_%out_scope:
+    EXPAND NET_IPV6_MULTICAST_SCOPE %out_ok, %out_scope, __net_ip_scope_payload_%out_scope
+    jmp L_NET_IP_SCOPE_DONE_%out_scope
+L_NET_IP_SCOPE_DONE_%out_scope:
+    !__net_ip_scope_is_v4_%out_scope
+    !__net_ip_scope_payload_%out_scope
+    !__net_ip_scope_tag_%out_scope
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_TO_IPV4 %out_ok, %ipv4, %ipaddr
+    __net_ip_to4_tag_%ipv4 = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_to4_payload_%ipv4 = ptr_add %ipaddr, 8
+    __net_ip_to4_is_v4_%ipv4 = eq __net_ip_to4_tag_%ipv4, NET_IP_ADDR_V4
+    br __net_ip_to4_is_v4_%ipv4 -> L_NET_IP_TO4_V4_%ipv4, L_NET_IP_TO4_V6_%ipv4
+L_NET_IP_TO4_V4_%ipv4:
+    %out_ok = add 0, 1
+    EXPAND NET_IPV4_COPY %ipv4, __net_ip_to4_payload_%ipv4
+    jmp L_NET_IP_TO4_DONE_%ipv4
+L_NET_IP_TO4_V6_%ipv4:
+    EXPAND NET_IPV6_TO_IPV4 %out_ok, %ipv4, __net_ip_to4_payload_%ipv4
+    jmp L_NET_IP_TO4_DONE_%ipv4
+L_NET_IP_TO4_DONE_%ipv4:
+    !__net_ip_to4_is_v4_%ipv4
+    !__net_ip_to4_payload_%ipv4
+    !__net_ip_to4_tag_%ipv4
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_TO_CANONICAL %out_ipaddr, %ipaddr
+    __net_ip_canon_tag_%out_ipaddr = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_canon_payload_%out_ipaddr = ptr_add %ipaddr, 8
+    __net_ip_canon_is_v4_%out_ipaddr = eq __net_ip_canon_tag_%out_ipaddr, NET_IP_ADDR_V4
+    br __net_ip_canon_is_v4_%out_ipaddr -> L_NET_IP_CANON_V4_%out_ipaddr, L_NET_IP_CANON_V6_%out_ipaddr
+L_NET_IP_CANON_V4_%out_ipaddr:
+    EXPAND NET_IP_ADDR_V4_NEW %out_ipaddr, __net_ip_canon_payload_%out_ipaddr
+    jmp L_NET_IP_CANON_DONE_%out_ipaddr
+L_NET_IP_CANON_V6_%out_ipaddr:
+    __net_ip_canon_v4_%out_ipaddr = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV6_TO_IPV4_MAPPED __net_ip_canon_mapped_%out_ipaddr, __net_ip_canon_v4_%out_ipaddr, __net_ip_canon_payload_%out_ipaddr
+    br __net_ip_canon_mapped_%out_ipaddr -> L_NET_IP_CANON_MAPPED_%out_ipaddr, L_NET_IP_CANON_KEEP_V6_%out_ipaddr
+L_NET_IP_CANON_MAPPED_%out_ipaddr:
+    EXPAND NET_IP_ADDR_V4_NEW %out_ipaddr, __net_ip_canon_v4_%out_ipaddr
+    jmp L_NET_IP_CANON_DONE_%out_ipaddr
+L_NET_IP_CANON_KEEP_V6_%out_ipaddr:
+    EXPAND NET_IP_ADDR_V6_NEW %out_ipaddr, __net_ip_canon_payload_%out_ipaddr
+    jmp L_NET_IP_CANON_DONE_%out_ipaddr
+L_NET_IP_CANON_DONE_%out_ipaddr:
+    !__net_ip_canon_is_v4_%out_ipaddr
+    !__net_ip_canon_payload_%out_ipaddr
+    !__net_ip_canon_tag_%out_ipaddr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_NEW %socket_addr, %ipv4, %port
+    __net_sock_v4_ip_%socket_addr = ptr_add %socket_addr, 0
+    __net_sock_v4_a_%socket_addr = load %ipv4+NetIpv4Addr_a as u8
+    __net_sock_v4_b_%socket_addr = load %ipv4+NetIpv4Addr_b as u8
+    __net_sock_v4_c_%socket_addr = load %ipv4+NetIpv4Addr_c as u8
+    __net_sock_v4_d_%socket_addr = load %ipv4+NetIpv4Addr_d as u8
+    store __net_sock_v4_ip_%socket_addr+NetIpv4Addr_a, __net_sock_v4_a_%socket_addr as u8
+    store __net_sock_v4_ip_%socket_addr+NetIpv4Addr_b, __net_sock_v4_b_%socket_addr as u8
+    store __net_sock_v4_ip_%socket_addr+NetIpv4Addr_c, __net_sock_v4_c_%socket_addr as u8
+    store __net_sock_v4_ip_%socket_addr+NetIpv4Addr_d, __net_sock_v4_d_%socket_addr as u8
+    store %socket_addr+NetSocketAddrV4_port, %port as u16
+    !__net_sock_v4_d_%socket_addr
+    !__net_sock_v4_c_%socket_addr
+    !__net_sock_v4_b_%socket_addr
+    !__net_sock_v4_a_%socket_addr
+    !__net_sock_v4_ip_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_IP_PTR %out_ptr, %socket_addr
+    %out_ptr = ptr_add %socket_addr, 0
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_IP %out_ipv4, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR __net_sock_v4_ip_src_%out_ipv4, %socket_addr
+    EXPAND NET_IPV4_COPY %out_ipv4, __net_sock_v4_ip_src_%out_ipv4
+    !__net_sock_v4_ip_src_%out_ipv4
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_SET_IP %socket_addr, %ipv4
+    __net_sock_v4_set_ip_%socket_addr = ptr_add %socket_addr, 0
+    EXPAND NET_IPV4_COPY __net_sock_v4_set_ip_%socket_addr, %ipv4
+    !__net_sock_v4_set_ip_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_PORT %out_port, %socket_addr
+    %out_port = load %socket_addr+NetSocketAddrV4_port as u16
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_SET_PORT %socket_addr, %port
+    store %socket_addr+NetSocketAddrV4_port, %port as u16
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_EQ %out_bool, %left, %right
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR __net_sock_v4_eq_lip_%out_bool, %left
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR __net_sock_v4_eq_rip_%out_bool, %right
+    EXPAND NET_IPV4_EQ __net_sock_v4_eq_ip_%out_bool, __net_sock_v4_eq_lip_%out_bool, __net_sock_v4_eq_rip_%out_bool
+    __net_sock_v4_eq_lport_%out_bool = load %left+NetSocketAddrV4_port as u16
+    __net_sock_v4_eq_rport_%out_bool = load %right+NetSocketAddrV4_port as u16
+    __net_sock_v4_eq_port_%out_bool = eq __net_sock_v4_eq_lport_%out_bool, __net_sock_v4_eq_rport_%out_bool
+    %out_bool = and __net_sock_v4_eq_ip_%out_bool, __net_sock_v4_eq_port_%out_bool
+    !__net_sock_v4_eq_port_%out_bool
+    !__net_sock_v4_eq_rport_%out_bool
+    !__net_sock_v4_eq_lport_%out_bool
+    !__net_sock_v4_eq_ip_%out_bool
+    !__net_sock_v4_eq_rip_%out_bool
+    !__net_sock_v4_eq_lip_%out_bool
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_NEW %socket_addr, %ipv6, %port, %flowinfo, %scope_id
+    __net_sock_v6_ip_%socket_addr = ptr_add %socket_addr, 0
+    __net_sock_v6_s0_%socket_addr = load %ipv6+NetIpv6Addr_s0 as u16
+    __net_sock_v6_s1_%socket_addr = load %ipv6+NetIpv6Addr_s1 as u16
+    __net_sock_v6_s2_%socket_addr = load %ipv6+NetIpv6Addr_s2 as u16
+    __net_sock_v6_s3_%socket_addr = load %ipv6+NetIpv6Addr_s3 as u16
+    __net_sock_v6_s4_%socket_addr = load %ipv6+NetIpv6Addr_s4 as u16
+    __net_sock_v6_s5_%socket_addr = load %ipv6+NetIpv6Addr_s5 as u16
+    __net_sock_v6_s6_%socket_addr = load %ipv6+NetIpv6Addr_s6 as u16
+    __net_sock_v6_s7_%socket_addr = load %ipv6+NetIpv6Addr_s7 as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s0, __net_sock_v6_s0_%socket_addr as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s1, __net_sock_v6_s1_%socket_addr as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s2, __net_sock_v6_s2_%socket_addr as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s3, __net_sock_v6_s3_%socket_addr as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s4, __net_sock_v6_s4_%socket_addr as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s5, __net_sock_v6_s5_%socket_addr as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s6, __net_sock_v6_s6_%socket_addr as u16
+    store __net_sock_v6_ip_%socket_addr+NetIpv6Addr_s7, __net_sock_v6_s7_%socket_addr as u16
+    store %socket_addr+NetSocketAddrV6_port, %port as u16
+    store %socket_addr+NetSocketAddrV6_flowinfo, %flowinfo as u32
+    store %socket_addr+NetSocketAddrV6_scope_id, %scope_id as u32
+    !__net_sock_v6_s7_%socket_addr
+    !__net_sock_v6_s6_%socket_addr
+    !__net_sock_v6_s5_%socket_addr
+    !__net_sock_v6_s4_%socket_addr
+    !__net_sock_v6_s3_%socket_addr
+    !__net_sock_v6_s2_%socket_addr
+    !__net_sock_v6_s1_%socket_addr
+    !__net_sock_v6_s0_%socket_addr
+    !__net_sock_v6_ip_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_IP_PTR %out_ptr, %socket_addr
+    %out_ptr = ptr_add %socket_addr, 0
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_IP %out_ipv6, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_v6_ip_src_%out_ipv6, %socket_addr
+    EXPAND NET_IPV6_COPY %out_ipv6, __net_sock_v6_ip_src_%out_ipv6
+    !__net_sock_v6_ip_src_%out_ipv6
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_SET_IP %socket_addr, %ipv6
+    __net_sock_v6_set_ip_%socket_addr = ptr_add %socket_addr, 0
+    EXPAND NET_IPV6_COPY __net_sock_v6_set_ip_%socket_addr, %ipv6
+    !__net_sock_v6_set_ip_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_PORT %out_port, %socket_addr
+    %out_port = load %socket_addr+NetSocketAddrV6_port as u16
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_SET_PORT %socket_addr, %port
+    store %socket_addr+NetSocketAddrV6_port, %port as u16
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_FLOWINFO %out_flowinfo, %socket_addr
+    %out_flowinfo = load %socket_addr+NetSocketAddrV6_flowinfo as u32
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_SET_FLOWINFO %socket_addr, %flowinfo
+    store %socket_addr+NetSocketAddrV6_flowinfo, %flowinfo as u32
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_SCOPE_ID %out_scope_id, %socket_addr
+    %out_scope_id = load %socket_addr+NetSocketAddrV6_scope_id as u32
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_SET_SCOPE_ID %socket_addr, %scope_id
+    store %socket_addr+NetSocketAddrV6_scope_id, %scope_id as u32
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_EQ %out_bool, %left, %right
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_v6_eq_lip_%out_bool, %left
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_v6_eq_rip_%out_bool, %right
+    EXPAND NET_IPV6_EQ __net_sock_v6_eq_ip_%out_bool, __net_sock_v6_eq_lip_%out_bool, __net_sock_v6_eq_rip_%out_bool
+    __net_sock_v6_eq_lport_%out_bool = load %left+NetSocketAddrV6_port as u16
+    __net_sock_v6_eq_rport_%out_bool = load %right+NetSocketAddrV6_port as u16
+    __net_sock_v6_eq_lflow_%out_bool = load %left+NetSocketAddrV6_flowinfo as u32
+    __net_sock_v6_eq_rflow_%out_bool = load %right+NetSocketAddrV6_flowinfo as u32
+    __net_sock_v6_eq_lscope_%out_bool = load %left+NetSocketAddrV6_scope_id as u32
+    __net_sock_v6_eq_rscope_%out_bool = load %right+NetSocketAddrV6_scope_id as u32
+    __net_sock_v6_eq_port_%out_bool = eq __net_sock_v6_eq_lport_%out_bool, __net_sock_v6_eq_rport_%out_bool
+    __net_sock_v6_eq_flow_%out_bool = eq __net_sock_v6_eq_lflow_%out_bool, __net_sock_v6_eq_rflow_%out_bool
+    __net_sock_v6_eq_scope_%out_bool = eq __net_sock_v6_eq_lscope_%out_bool, __net_sock_v6_eq_rscope_%out_bool
+    __net_sock_v6_eq_meta1_%out_bool = and __net_sock_v6_eq_port_%out_bool, __net_sock_v6_eq_flow_%out_bool
+    __net_sock_v6_eq_meta_%out_bool = and __net_sock_v6_eq_meta1_%out_bool, __net_sock_v6_eq_scope_%out_bool
+    %out_bool = and __net_sock_v6_eq_ip_%out_bool, __net_sock_v6_eq_meta_%out_bool
+    !__net_sock_v6_eq_meta_%out_bool
+    !__net_sock_v6_eq_meta1_%out_bool
+    !__net_sock_v6_eq_scope_%out_bool
+    !__net_sock_v6_eq_flow_%out_bool
+    !__net_sock_v6_eq_port_%out_bool
+    !__net_sock_v6_eq_rscope_%out_bool
+    !__net_sock_v6_eq_lscope_%out_bool
+    !__net_sock_v6_eq_rflow_%out_bool
+    !__net_sock_v6_eq_lflow_%out_bool
+    !__net_sock_v6_eq_rport_%out_bool
+    !__net_sock_v6_eq_lport_%out_bool
+    !__net_sock_v6_eq_ip_%out_bool
+    !__net_sock_v6_eq_rip_%out_bool
+    !__net_sock_v6_eq_lip_%out_bool
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_FROM_V4 %socket_addr, %socket_v4
+    store %socket_addr+NetSocketAddr_tag, NET_IP_ADDR_V4 as u64
+    __net_sock_from_v4_ip_%socket_addr = ptr_add %socket_addr, 8
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR __net_sock_from_v4_src_%socket_addr, %socket_v4
+    EXPAND NET_SOCKET_ADDR_V4_NEW __net_sock_from_v4_ip_%socket_addr, __net_sock_from_v4_src_%socket_addr, 0
+    __net_sock_from_v4_port_%socket_addr = load %socket_v4+NetSocketAddrV4_port as u16
+    store __net_sock_from_v4_ip_%socket_addr+NetSocketAddrV4_port, __net_sock_from_v4_port_%socket_addr as u16
+    !__net_sock_from_v4_port_%socket_addr
+    !__net_sock_from_v4_src_%socket_addr
+    !__net_sock_from_v4_ip_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_FROM_V6 %socket_addr, %socket_v6
+    store %socket_addr+NetSocketAddr_tag, NET_IP_ADDR_V6 as u64
+    __net_sock_from_v6_dst_%socket_addr = ptr_add %socket_addr, 8
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_from_v6_src_ip_%socket_addr, %socket_v6
+    __net_sock_from_v6_port_%socket_addr = load %socket_v6+NetSocketAddrV6_port as u16
+    __net_sock_from_v6_flow_%socket_addr = load %socket_v6+NetSocketAddrV6_flowinfo as u32
+    __net_sock_from_v6_scope_%socket_addr = load %socket_v6+NetSocketAddrV6_scope_id as u32
+    EXPAND NET_SOCKET_ADDR_V6_NEW __net_sock_from_v6_dst_%socket_addr, __net_sock_from_v6_src_ip_%socket_addr, __net_sock_from_v6_port_%socket_addr, __net_sock_from_v6_flow_%socket_addr, __net_sock_from_v6_scope_%socket_addr
+    !__net_sock_from_v6_scope_%socket_addr
+    !__net_sock_from_v6_flow_%socket_addr
+    !__net_sock_from_v6_port_%socket_addr
+    !__net_sock_from_v6_src_ip_%socket_addr
+    !__net_sock_from_v6_dst_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_IS_IPV4 %out_bool, %socket_addr
+    __net_sock_tag_%out_bool = load %socket_addr+NetSocketAddr_tag as u64
+    %out_bool = eq __net_sock_tag_%out_bool, NET_IP_ADDR_V4
+    !__net_sock_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_IS_IPV6 %out_bool, %socket_addr
+    __net_sock_tag_%out_bool = load %socket_addr+NetSocketAddr_tag as u64
+    %out_bool = eq __net_sock_tag_%out_bool, NET_IP_ADDR_V6
+    !__net_sock_tag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_PAYLOAD_PTR %out_ptr, %socket_addr
+    %out_ptr = ptr_add %socket_addr, 8
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_FAMILY %out_family, %socket_addr
+    __net_sock_family_tag_%out_family = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_family_is_v4_%out_family = eq __net_sock_family_tag_%out_family, NET_IP_ADDR_V4
+    br __net_sock_family_is_v4_%out_family -> L_NET_SOCKET_FAMILY_V4_%out_family, L_NET_SOCKET_FAMILY_V6_%out_family
+L_NET_SOCKET_FAMILY_V4_%out_family:
+    %out_family = add 0, SA_NET_AF_INET
+    jmp L_NET_SOCKET_FAMILY_DONE_%out_family
+L_NET_SOCKET_FAMILY_V6_%out_family:
+    %out_family = add 0, SA_NET_AF_INET6
+    jmp L_NET_SOCKET_FAMILY_DONE_%out_family
+L_NET_SOCKET_FAMILY_DONE_%out_family:
+    !__net_sock_family_is_v4_%out_family
+    !__net_sock_family_tag_%out_family
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_EQ %out_bool, %left, %right
+    __net_sock_eq_ltag_%out_bool = load %left+NetSocketAddr_tag as u64
+    __net_sock_eq_rtag_%out_bool = load %right+NetSocketAddr_tag as u64
+    __net_sock_eq_same_tag_%out_bool = eq __net_sock_eq_ltag_%out_bool, __net_sock_eq_rtag_%out_bool
+    br __net_sock_eq_same_tag_%out_bool -> L_NET_SOCKET_EQ_SAME_%out_bool, L_NET_SOCKET_EQ_DIFF_%out_bool
+L_NET_SOCKET_EQ_DIFF_%out_bool:
+    %out_bool = add 0, 0
+    jmp L_NET_SOCKET_EQ_DONE_%out_bool
+L_NET_SOCKET_EQ_SAME_%out_bool:
+    __net_sock_eq_lpayload_%out_bool = ptr_add %left, 8
+    __net_sock_eq_rpayload_%out_bool = ptr_add %right, 8
+    __net_sock_eq_is_v4_%out_bool = eq __net_sock_eq_ltag_%out_bool, NET_IP_ADDR_V4
+    br __net_sock_eq_is_v4_%out_bool -> L_NET_SOCKET_EQ_V4_%out_bool, L_NET_SOCKET_EQ_V6_%out_bool
+L_NET_SOCKET_EQ_V4_%out_bool:
+    EXPAND NET_SOCKET_ADDR_V4_EQ %out_bool, __net_sock_eq_lpayload_%out_bool, __net_sock_eq_rpayload_%out_bool
+    jmp L_NET_SOCKET_EQ_SAME_DONE_%out_bool
+L_NET_SOCKET_EQ_V6_%out_bool:
+    EXPAND NET_SOCKET_ADDR_V6_EQ %out_bool, __net_sock_eq_lpayload_%out_bool, __net_sock_eq_rpayload_%out_bool
+    jmp L_NET_SOCKET_EQ_SAME_DONE_%out_bool
+L_NET_SOCKET_EQ_SAME_DONE_%out_bool:
+    !__net_sock_eq_is_v4_%out_bool
+    !__net_sock_eq_rpayload_%out_bool
+    !__net_sock_eq_lpayload_%out_bool
+    jmp L_NET_SOCKET_EQ_DONE_%out_bool
+L_NET_SOCKET_EQ_DONE_%out_bool:
+    !__net_sock_eq_same_tag_%out_bool
+    !__net_sock_eq_rtag_%out_bool
+    !__net_sock_eq_ltag_%out_bool
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_NEW %socket_addr, %ipaddr, %port
+    __net_sock_new_tag_%socket_addr = load %ipaddr+NetIpAddr_tag as u64
+    __net_sock_new_payload_%socket_addr = ptr_add %socket_addr, 8
+    __net_sock_new_ip_payload_%socket_addr = ptr_add %ipaddr, 8
+    store %socket_addr+NetSocketAddr_tag, __net_sock_new_tag_%socket_addr as u64
+    __net_sock_new_is_v4_%socket_addr = eq __net_sock_new_tag_%socket_addr, NET_IP_ADDR_V4
+    br __net_sock_new_is_v4_%socket_addr -> L_NET_SOCKET_NEW_V4_%socket_addr_%ipaddr, L_NET_SOCKET_NEW_V6_%socket_addr_%ipaddr
+L_NET_SOCKET_NEW_V4_%socket_addr_%ipaddr:
+    EXPAND NET_SOCKET_ADDR_V4_NEW __net_sock_new_payload_%socket_addr, __net_sock_new_ip_payload_%socket_addr, %port
+    jmp L_NET_SOCKET_NEW_DONE_%socket_addr_%ipaddr
+L_NET_SOCKET_NEW_V6_%socket_addr_%ipaddr:
+    EXPAND NET_SOCKET_ADDR_V6_NEW __net_sock_new_payload_%socket_addr, __net_sock_new_ip_payload_%socket_addr, %port, 0, 0
+    jmp L_NET_SOCKET_NEW_DONE_%socket_addr_%ipaddr
+L_NET_SOCKET_NEW_DONE_%socket_addr_%ipaddr:
+    !__net_sock_new_is_v4_%socket_addr
+    !__net_sock_new_ip_payload_%socket_addr
+    !__net_sock_new_payload_%socket_addr
+    !__net_sock_new_tag_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_IP %out_ipaddr, %socket_addr
+    __net_sock_ip_tag_%out_ipaddr = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_ip_payload_%out_ipaddr = ptr_add %socket_addr, 8
+    __net_sock_ip_is_v4_%out_ipaddr = eq __net_sock_ip_tag_%out_ipaddr, NET_IP_ADDR_V4
+    br __net_sock_ip_is_v4_%out_ipaddr -> L_NET_SOCKET_IP_V4_%out_ipaddr, L_NET_SOCKET_IP_V6_%out_ipaddr
+L_NET_SOCKET_IP_V4_%out_ipaddr:
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR __net_sock_ip_v4_%out_ipaddr, __net_sock_ip_payload_%out_ipaddr
+    EXPAND NET_IP_ADDR_V4_NEW %out_ipaddr, __net_sock_ip_v4_%out_ipaddr
+    !__net_sock_ip_v4_%out_ipaddr
+    jmp L_NET_SOCKET_IP_DONE_%out_ipaddr
+L_NET_SOCKET_IP_V6_%out_ipaddr:
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_ip_v6_%out_ipaddr, __net_sock_ip_payload_%out_ipaddr
+    EXPAND NET_IP_ADDR_V6_NEW %out_ipaddr, __net_sock_ip_v6_%out_ipaddr
+    !__net_sock_ip_v6_%out_ipaddr
+    jmp L_NET_SOCKET_IP_DONE_%out_ipaddr
+L_NET_SOCKET_IP_DONE_%out_ipaddr:
+    !__net_sock_ip_is_v4_%out_ipaddr
+    !__net_sock_ip_payload_%out_ipaddr
+    !__net_sock_ip_tag_%out_ipaddr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_PORT %out_port, %socket_addr
+    __net_sock_port_tag_%out_port = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_port_payload_%out_port = ptr_add %socket_addr, 8
+    __net_sock_port_is_v4_%out_port = eq __net_sock_port_tag_%out_port, NET_IP_ADDR_V4
+    br __net_sock_port_is_v4_%out_port -> L_NET_SOCKET_PORT_V4_%out_port, L_NET_SOCKET_PORT_V6_%out_port
+L_NET_SOCKET_PORT_V4_%out_port:
+    EXPAND NET_SOCKET_ADDR_V4_PORT %out_port, __net_sock_port_payload_%out_port
+    jmp L_NET_SOCKET_PORT_DONE_%out_port
+L_NET_SOCKET_PORT_V6_%out_port:
+    EXPAND NET_SOCKET_ADDR_V6_PORT %out_port, __net_sock_port_payload_%out_port
+    jmp L_NET_SOCKET_PORT_DONE_%out_port
+L_NET_SOCKET_PORT_DONE_%out_port:
+    !__net_sock_port_is_v4_%out_port
+    !__net_sock_port_payload_%out_port
+    !__net_sock_port_tag_%out_port
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SET_PORT %socket_addr, %port
+    __net_sock_set_port_tag_%socket_addr = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_set_port_payload_%socket_addr = ptr_add %socket_addr, 8
+    __net_sock_set_port_is_v4_%socket_addr = eq __net_sock_set_port_tag_%socket_addr, NET_IP_ADDR_V4
+    br __net_sock_set_port_is_v4_%socket_addr -> L_NET_SOCKET_SET_PORT_V4_%socket_addr, L_NET_SOCKET_SET_PORT_V6_%socket_addr
+L_NET_SOCKET_SET_PORT_V4_%socket_addr:
+    EXPAND NET_SOCKET_ADDR_V4_SET_PORT __net_sock_set_port_payload_%socket_addr, %port
+    jmp L_NET_SOCKET_SET_PORT_DONE_%socket_addr
+L_NET_SOCKET_SET_PORT_V6_%socket_addr:
+    EXPAND NET_SOCKET_ADDR_V6_SET_PORT __net_sock_set_port_payload_%socket_addr, %port
+    jmp L_NET_SOCKET_SET_PORT_DONE_%socket_addr
+L_NET_SOCKET_SET_PORT_DONE_%socket_addr:
+    !__net_sock_set_port_is_v4_%socket_addr
+    !__net_sock_set_port_payload_%socket_addr
+    !__net_sock_set_port_tag_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SET_IP %socket_addr, %ipaddr
+    EXPAND NET_SOCKET_ADDR_PORT __net_sock_set_ip_port_%socket_addr, %socket_addr
+    EXPAND NET_SOCKET_ADDR_NEW %socket_addr, %ipaddr, __net_sock_set_ip_port_%socket_addr
+    !__net_sock_set_ip_port_%socket_addr
 [END_MACRO]

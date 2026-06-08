@@ -3,6 +3,11 @@
 @import "../core/slice.sa"
 @import "vec.sal"
 
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+@const MSG_RESERVE = utf8:"[DEBUG] sa_vec_reserve called\n"
+@const MSG_GROW = utf8:"[DEBUG] L_RESERVE_GROW called\n"
+@const MSG_COPY = utf8:"[DEBUG] calling sa_mem_copy\n"
+
 @export sa_vec_new() -> ^ptr:
     vec = alloc Vec_SIZE
     store vec+Vec_ptr, 0 as ptr
@@ -84,6 +89,7 @@ L_DONE:
 
 @export sa_vec_reserve(^vec: ptr, additional: u64, elem_size: u64) -> ^ptr:
 L_ENTRY:
+    call @sa_print_bytes(&MSG_RESERVE, 30)
     len = load vec+Vec_len as u64
     cap = load vec+Vec_cap as u64
     needed = add len, additional
@@ -91,11 +97,13 @@ L_ENTRY:
     br has_room -> L_RESERVE_DONE, L_RESERVE_GROW
 
 L_RESERVE_GROW:
+    call @sa_print_bytes(&MSG_GROW, 30)
     old_buf = take vec+Vec_ptr
     new_bytes = mul needed, elem_size
     new_buf = alloc new_bytes
     call @sa_mem_set(&new_buf, 0, new_bytes)
     copy_bytes = mul len, elem_size
+    call @sa_print_bytes(&MSG_COPY, 28)
     call @sa_mem_copy(&new_buf, &old_buf, copy_bytes)
     store vec+Vec_ptr, new_buf as ptr
     store vec+Vec_cap, needed as u64

@@ -1,0 +1,7 @@
+#def DefaultHasher_SIZE = 8
+#def DefaultHasher_state = +0
+
+#def BuildHasherDefault_SIZE = 0
+
+#def HASHER_DEFAULT_SEED = 1469598103934665603
+#def HASHER_MIX_PRIME = 1099511628211

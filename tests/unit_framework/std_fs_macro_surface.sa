@@ -5,11 +5,19 @@
 @const FS_TEST_PATH = utf8:"_tmp_fs_macro_surface.txt"
 @const FS_TEST_COPY_PATH = utf8:"_tmp_fs_macro_surface_copy.txt"
 @const FS_TEST_RENAMED_PATH = utf8:"_tmp_fs_macro_surface_renamed.txt"
+@const FS_TEST_LINK_PATH = utf8:"_tmp_fs_macro_surface_link.txt"
+@const FS_TEST_SYMLINK_PATH = utf8:"_tmp_fs_macro_surface_symlink.txt"
 @const FS_TEST_DIR = utf8:"_tmp_fs_macro_surface_dir"
+@const FS_TEST_CREATE_DIR = utf8:"_tmp_fs_macro_surface_create_dir"
+@const FS_TEST_REMOVE_ALL_DIR = utf8:"_tmp_fs_macro_surface_remove_all"
+@const FS_TEST_REMOVE_ALL_CHILD = utf8:"_tmp_fs_macro_surface_remove_all/child"
+@const FS_TEST_UTF8_PATH = utf8:"_tmp_fs_macro_surface_utf8.txt"
 @const FS_TEST_HELLO = utf8:"hello"
 @const FS_TEST_HEY = utf8:"hey"
 @const FS_TEST_HEY_B64 = utf8:"aGV5"
 @const FS_DBG_WRITE_STATUS = utf8:"write_status"
+@const FS_DBG_PERM_STATUS = utf8:"perm_status"
+@const FS_DBG_TIMES_STATUS = utf8:"times_status"
 @const FS_DBG_EXISTS = utf8:"exists"
 @const FS_DBG_LEN_STATUS = utf8:"len_status"
 @const FS_DBG_FILE_LEN = utf8:"file_len"
@@ -21,6 +29,7 @@
 @const FS_DBG_CREATE_STATUS = utf8:"create_status"
 @const FS_DBG_WRITTEN_LEN = utf8:"written_len"
 @const FS_DBG_FLUSH_STATUS = utf8:"flush_status"
+@const FS_DBG_SYNC_DATA_STATUS = utf8:"sync_data_status"
 @const FS_DBG_SYNC_STATUS = utf8:"sync_status"
 @const FS_DBG_SET_LEN_STATUS = utf8:"set_len_status"
 @const FS_DBG_SEEK_STATUS = utf8:"seek_status"
@@ -30,9 +39,21 @@
 @const FS_DBG_FILE_LEN2 = utf8:"file_len2"
 @const FS_DBG_EXACT_EQ = utf8:"exact_eq"
 @const FS_DBG_READ_FILE_STATUS = utf8:"read_file_status"
+@const FS_DBG_READ_TO_STRING_STATUS = utf8:"read_to_string_status"
+@const FS_DBG_READ_TO_STRING_EQ = utf8:"read_to_string_eq"
+@const FS_DBG_INVALID_UTF8_STATUS = utf8:"invalid_utf8_status"
+@const FS_DBG_TRY_EXISTS_STATUS = utf8:"try_exists_status"
 @const FS_DBG_B64_STATUS = utf8:"b64_status"
 @const FS_DBG_B64_LEN = utf8:"b64_len"
 @const FS_DBG_COPY_STATUS = utf8:"copy_status"
+@const FS_DBG_LINK_STATUS = utf8:"link_status"
+@const FS_DBG_LINK_EXISTS = utf8:"link_exists"
+@const FS_DBG_LINK_LEN = utf8:"link_len"
+@const FS_DBG_SYMLINK_STATUS = utf8:"symlink_status"
+@const FS_DBG_READ_LINK_STATUS = utf8:"read_link_status"
+@const FS_DBG_READ_LINK_EQ = utf8:"read_link_eq"
+@const FS_DBG_CANON_STATUS = utf8:"canon_status"
+@const FS_DBG_CANON_LEN = utf8:"canon_len"
 @const FS_DBG_RENAME_STATUS = utf8:"rename_status"
 @const FS_DBG_RENAMED = utf8:"renamed"
 @const FS_DBG_METADATA_STATUS = utf8:"metadata_status"
@@ -42,6 +63,10 @@
 @const FS_DBG_METADATA_JSON = utf8:"metadata_json"
 @const FS_DBG_METADATA_JSON_LEN_NAME = utf8:"metadata_json_len"
 @const FS_DBG_MKDIR_STATUS = utf8:"mkdir_status"
+@const FS_DBG_CREATE_DIR_STATUS = utf8:"create_dir_status"
+@const FS_DBG_REMOVE_NONEMPTY_STATUS = utf8:"remove_nonempty_status"
+@const FS_DBG_REMOVE_DIR_ALL_STATUS = utf8:"remove_dir_all_status"
+@const FS_DBG_GONE_AFTER_REMOVE_ALL = utf8:"gone_after_remove_all"
 @const FS_DBG_DIR_STATUS = utf8:"dir_status"
 @const FS_DBG_DIR_LEN = utf8:"dir_len"
 @const FS_DBG_REMOVE_STATUS = utf8:"remove_status"
@@ -49,11 +74,19 @@
 #def FS_TEST_PATH_LEN = 25
 #def FS_TEST_COPY_PATH_LEN = 30
 #def FS_TEST_RENAMED_PATH_LEN = 33
+#def FS_TEST_LINK_PATH_LEN = 30
+#def FS_TEST_SYMLINK_PATH_LEN = 33
 #def FS_TEST_DIR_LEN = 25
+#def FS_TEST_CREATE_DIR_LEN = 32
+#def FS_TEST_REMOVE_ALL_DIR_LEN = 32
+#def FS_TEST_REMOVE_ALL_CHILD_LEN = 38
+#def FS_TEST_UTF8_PATH_LEN = 30
 #def FS_TEST_HELLO_LEN = 5
 #def FS_TEST_HEY_LEN = 3
 #def FS_TEST_HEY_B64_LEN = 4
 #def FS_DBG_WRITE_STATUS_LEN = 12
+#def FS_DBG_PERM_STATUS_LEN = 11
+#def FS_DBG_TIMES_STATUS_LEN = 12
 #def FS_DBG_EXISTS_LEN = 6
 #def FS_DBG_LEN_STATUS_LEN = 10
 #def FS_DBG_FILE_LEN_LEN = 8
@@ -65,6 +98,7 @@
 #def FS_DBG_CREATE_STATUS_LEN = 13
 #def FS_DBG_WRITTEN_LEN_LEN = 11
 #def FS_DBG_FLUSH_STATUS_LEN = 12
+#def FS_DBG_SYNC_DATA_STATUS_LEN = 16
 #def FS_DBG_SYNC_STATUS_LEN = 11
 #def FS_DBG_SET_LEN_STATUS_LEN = 14
 #def FS_DBG_SEEK_STATUS_LEN = 11
@@ -74,9 +108,21 @@
 #def FS_DBG_FILE_LEN2_LEN = 9
 #def FS_DBG_EXACT_EQ_LEN = 8
 #def FS_DBG_READ_FILE_STATUS_LEN = 16
+#def FS_DBG_READ_TO_STRING_STATUS_LEN = 21
+#def FS_DBG_READ_TO_STRING_EQ_LEN = 17
+#def FS_DBG_INVALID_UTF8_STATUS_LEN = 19
+#def FS_DBG_TRY_EXISTS_STATUS_LEN = 17
 #def FS_DBG_B64_STATUS_LEN = 10
 #def FS_DBG_B64_LEN_LEN = 7
 #def FS_DBG_COPY_STATUS_LEN = 11
+#def FS_DBG_LINK_STATUS_LEN = 11
+#def FS_DBG_LINK_EXISTS_LEN = 11
+#def FS_DBG_LINK_LEN_LEN = 8
+#def FS_DBG_SYMLINK_STATUS_LEN = 14
+#def FS_DBG_READ_LINK_STATUS_LEN = 16
+#def FS_DBG_READ_LINK_EQ_LEN = 12
+#def FS_DBG_CANON_STATUS_LEN = 12
+#def FS_DBG_CANON_LEN_LEN = 9
 #def FS_DBG_RENAME_STATUS_LEN = 13
 #def FS_DBG_RENAMED_LEN = 7
 #def FS_DBG_METADATA_STATUS_LEN = 15
@@ -86,6 +132,10 @@
 #def FS_DBG_METADATA_JSON_LEN = 13
 #def FS_DBG_METADATA_JSON_LEN_NAME_LEN = 17
 #def FS_DBG_MKDIR_STATUS_LEN = 12
+#def FS_DBG_CREATE_DIR_STATUS_LEN = 17
+#def FS_DBG_REMOVE_NONEMPTY_STATUS_LEN = 22
+#def FS_DBG_REMOVE_DIR_ALL_STATUS_LEN = 21
+#def FS_DBG_GONE_AFTER_REMOVE_ALL_LEN = 21
 #def FS_DBG_DIR_STATUS_LEN = 10
 #def FS_DBG_DIR_LEN_LEN = 7
 #def FS_DBG_REMOVE_STATUS_LEN = 13
@@ -97,6 +147,8 @@ L_ENTRY:
     EXPAND FS_REMOVE_PATH cleanup_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
 
     EXPAND FS_WRITE_FILE write_file_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HELLO, FS_TEST_HELLO_LEN
+    EXPAND FS_SET_PERMISSIONS perm_status, FS_TEST_PATH, FS_TEST_PATH_LEN, 420
+    EXPAND FS_SET_TIMES_MS times_status, FS_TEST_PATH, FS_TEST_PATH_LEN, 1700000000000, 1700000000000
     EXPAND FS_EXISTS exists_after_write, FS_TEST_PATH, FS_TEST_PATH_LEN
     EXPAND FS_LEN len_status, file_len, FS_TEST_PATH, FS_TEST_PATH_LEN
     EXPAND FS_OPEN_READ open_read_status, read_file, FS_TEST_PATH, FS_TEST_PATH_LEN
@@ -117,8 +169,12 @@ L_ENTRY:
     close_read_ok = eq close_read_status, SA_FS_OK
     read_eq_ok = eq read_eq, 1
     ok01 = and write_file_ok, exists_ok
-    ok02 = and ok01, len_status_ok
-    ok03 = and ok02, len_value_ok
+    perm_ok = eq perm_status, SA_FS_OK
+    times_ok = eq times_status, SA_FS_OK
+    ok02a = and ok01, perm_ok
+    ok02 = and ok02a, times_ok
+    ok02b = and ok02, len_status_ok
+    ok03 = and ok02b, len_value_ok
     ok04 = and ok03, open_read_ok
     ok05 = and ok04, read_status_ok
     ok06 = and ok05, read_len_ok
@@ -128,6 +184,8 @@ L_ENTRY:
 
 L_FAIL_READ:
     call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_file_status)
+    call @sa_test_debug_i64(&FS_DBG_PERM_STATUS, FS_DBG_PERM_STATUS_LEN, perm_status)
+    call @sa_test_debug_i64(&FS_DBG_TIMES_STATUS, FS_DBG_TIMES_STATUS_LEN, times_status)
     call @sa_test_debug_i64(&FS_DBG_EXISTS, FS_DBG_EXISTS_LEN, exists_after_write)
     call @sa_test_debug_i64(&FS_DBG_LEN_STATUS, FS_DBG_LEN_STATUS_LEN, len_status)
     call @sa_test_debug_i64(&FS_DBG_FILE_LEN, FS_DBG_FILE_LEN_LEN, file_len)
@@ -137,6 +195,8 @@ L_FAIL_READ:
     call @sa_test_debug_i64(&FS_DBG_CLOSE_STATUS, FS_DBG_CLOSE_STATUS_LEN, close_read_status)
     call @sa_test_debug_i64(&FS_DBG_READ_EQ, FS_DBG_READ_EQ_LEN, read_eq)
     call @sa_assert_eq_i64(write_file_status, SA_FS_OK, 940)
+    call @sa_assert_eq_i64(perm_status, SA_FS_OK, 940)
+    call @sa_assert_eq_i64(times_status, SA_FS_OK, 940)
     call @sa_assert_eq_i64(exists_after_write, 1, 940)
     call @sa_assert_eq_i64(len_status, SA_FS_OK, 940)
     call @sa_assert_eq_i64(file_len, FS_TEST_HELLO_LEN, 940)
@@ -153,6 +213,10 @@ L_FAIL_READ:
     !open_read_ok
     !len_value_ok
     !len_status_ok
+    !ok02b
+    !ok02a
+    !times_ok
+    !perm_ok
     !exists_ok
     !write_file_ok
     !read_eq
@@ -165,6 +229,8 @@ L_FAIL_READ:
     !file_len
     !len_status
     !exists_after_write
+    !perm_status
+    !times_status
     !write_file_status
     !cleanup_renamed_status
     !cleanup_copy_status
@@ -180,6 +246,10 @@ L_TRUNCATE:
     !open_read_ok
     !len_value_ok
     !len_status_ok
+    !ok02b
+    !ok02a
+    !times_ok
+    !perm_ok
     !exists_ok
     !write_file_ok
     !read_eq
@@ -192,10 +262,13 @@ L_TRUNCATE:
     !file_len
     !len_status
     !exists_after_write
+    !perm_status
+    !times_status
     !write_file_status
     EXPAND FS_CREATE create_status, write_file, FS_TEST_PATH, FS_TEST_PATH_LEN
     EXPAND FS_WRITE write_status, written_len, write_file, FS_TEST_HEY, FS_TEST_HEY_LEN
     EXPAND FS_FLUSH flush_status, write_file
+    EXPAND FS_SYNC_DATA sync_data_status, write_file
     EXPAND FS_SYNC_ALL sync_status, write_file
     EXPAND FS_SET_LEN set_len_status, write_file, FS_TEST_HEY_LEN
     EXPAND FS_SEEK seek_status, seek_pos, write_file, SA_FS_SEEK_START, 0
@@ -211,6 +284,7 @@ L_TRUNCATE:
     write_ok = eq write_status, SA_FS_OK
     written_len_ok = eq written_len, FS_TEST_HEY_LEN
     flush_ok = eq flush_status, SA_FS_OK
+    sync_data_ok = eq sync_data_status, SA_FS_OK
     sync_ok = eq sync_status, SA_FS_OK
     set_len_ok = eq set_len_status, SA_FS_OK
     seek_status_ok = eq seek_status, SA_FS_OK
@@ -223,15 +297,16 @@ L_TRUNCATE:
     ok11 = and create_ok, write_ok
     ok12 = and ok11, written_len_ok
     ok13 = and ok12, flush_ok
-    ok14 = and ok13, sync_ok
-    ok15 = and ok14, set_len_ok
-    ok16 = and ok15, seek_status_ok
-    ok17 = and ok16, seek_pos_ok
-    ok18 = and ok17, exact_ok
-    ok19 = and ok18, close_write_ok
-    ok20 = and ok19, len2_status_ok
-    ok21 = and ok20, len2_value_ok
-    ok = and ok21, exact_eq_ok
+    ok14 = and ok13, sync_data_ok
+    ok15 = and ok14, sync_ok
+    ok16 = and ok15, set_len_ok
+    ok17 = and ok16, seek_status_ok
+    ok18 = and ok17, seek_pos_ok
+    ok19 = and ok18, exact_ok
+    ok20 = and ok19, close_write_ok
+    ok21 = and ok20, len2_status_ok
+    ok22 = and ok21, len2_value_ok
+    ok = and ok22, exact_eq_ok
     br ok -> L_OK, L_FAIL_TRUNCATE
 
 L_FAIL_TRUNCATE:
@@ -239,6 +314,7 @@ L_FAIL_TRUNCATE:
     call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_status)
     call @sa_test_debug_i64(&FS_DBG_WRITTEN_LEN, FS_DBG_WRITTEN_LEN_LEN, written_len)
     call @sa_test_debug_i64(&FS_DBG_FLUSH_STATUS, FS_DBG_FLUSH_STATUS_LEN, flush_status)
+    call @sa_test_debug_i64(&FS_DBG_SYNC_DATA_STATUS, FS_DBG_SYNC_DATA_STATUS_LEN, sync_data_status)
     call @sa_test_debug_i64(&FS_DBG_SYNC_STATUS, FS_DBG_SYNC_STATUS_LEN, sync_status)
     call @sa_test_debug_i64(&FS_DBG_SET_LEN_STATUS, FS_DBG_SET_LEN_STATUS_LEN, set_len_status)
     call @sa_test_debug_i64(&FS_DBG_SEEK_STATUS, FS_DBG_SEEK_STATUS_LEN, seek_status)
@@ -252,6 +328,7 @@ L_FAIL_TRUNCATE:
     call @sa_assert_eq_i64(write_status, SA_FS_OK, 941)
     call @sa_assert_eq_i64(written_len, FS_TEST_HEY_LEN, 941)
     call @sa_assert_eq_i64(flush_status, SA_FS_OK, 941)
+    call @sa_assert_eq_i64(sync_data_status, SA_FS_OK, 941)
     call @sa_assert_eq_i64(sync_status, SA_FS_OK, 941)
     call @sa_assert_eq_i64(set_len_status, SA_FS_OK, 941)
     call @sa_assert_eq_i64(seek_status, SA_FS_OK, 941)
@@ -263,6 +340,7 @@ L_FAIL_TRUNCATE:
     call @sa_assert_eq_i64(exact_eq, 1, 941)
     !ok
     !exact_eq_ok
+    !ok22
     !len2_value_ok
     !len2_status_ok
     !close_write_ok
@@ -271,6 +349,7 @@ L_FAIL_TRUNCATE:
     !seek_status_ok
     !set_len_ok
     !sync_ok
+    !sync_data_ok
     !flush_ok
     !written_len_ok
     !write_ok
@@ -286,6 +365,7 @@ L_FAIL_TRUNCATE:
     !seek_status
     !set_len_status
     !sync_status
+    !sync_data_status
     !flush_status
     !written_len
     !write_status
@@ -298,6 +378,7 @@ L_FAIL_TRUNCATE:
 L_OK:
     !ok
     !exact_eq_ok
+    !ok22
     !len2_value_ok
     !len2_status_ok
     !close_write_ok
@@ -306,6 +387,7 @@ L_OK:
     !seek_status_ok
     !set_len_ok
     !sync_ok
+    !sync_data_ok
     !flush_ok
     !written_len_ok
     !write_ok
@@ -321,6 +403,7 @@ L_OK:
     !seek_status
     !set_len_status
     !sync_status
+    !sync_data_status
     !flush_status
     !written_len
     !write_status
@@ -332,12 +415,278 @@ L_OK:
     !cleanup_path_status
     return
 
+@test "sa_std fs hard link macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_link_status, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
+
+    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_HARD_LINK link_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
+    EXPAND FS_EXISTS link_exists, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
+    EXPAND FS_LEN link_len_status, link_len, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
+    EXPAND FS_REMOVE_FILE remove_link_status, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+
+    write_ok = eq write_status, SA_FS_OK
+    link_ok = eq link_status, SA_FS_OK
+    link_exists_ok = eq link_exists, 1
+    link_len_status_ok = eq link_len_status, SA_FS_OK
+    link_len_ok = eq link_len, FS_TEST_HEY_LEN
+    remove_link_ok = eq remove_link_status, SA_FS_OK
+    remove_path_ok = eq remove_path_status, SA_FS_OK
+    ok0 = and write_ok, link_ok
+    ok1 = and ok0, link_exists_ok
+    ok2 = and ok1, link_len_status_ok
+    ok3 = and ok2, link_len_ok
+    ok4 = and ok3, remove_link_ok
+    ok = and ok4, remove_path_ok
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_status)
+    call @sa_test_debug_i64(&FS_DBG_LINK_STATUS, FS_DBG_LINK_STATUS_LEN, link_status)
+    call @sa_test_debug_i64(&FS_DBG_LINK_EXISTS, FS_DBG_LINK_EXISTS_LEN, link_exists)
+    call @sa_test_debug_i64(&FS_DBG_LEN_STATUS, FS_DBG_LEN_STATUS_LEN, link_len_status)
+    call @sa_test_debug_i64(&FS_DBG_LINK_LEN, FS_DBG_LINK_LEN_LEN, link_len)
+    call @sa_assert_eq_i64(write_status, SA_FS_OK, 943)
+    call @sa_assert_eq_i64(link_status, SA_FS_OK, 943)
+    call @sa_assert_eq_i64(link_exists, 1, 943)
+    call @sa_assert_eq_i64(link_len_status, SA_FS_OK, 943)
+    call @sa_assert_eq_i64(link_len, FS_TEST_HEY_LEN, 943)
+    call @sa_assert_eq_i64(remove_link_status, SA_FS_OK, 943)
+    call @sa_assert_eq_i64(remove_path_status, SA_FS_OK, 943)
+    !ok
+    !ok4
+    !ok3
+    !ok2
+    !ok1
+    !ok0
+    !remove_path_ok
+    !remove_link_ok
+    !link_len_ok
+    !link_len_status_ok
+    !link_exists_ok
+    !link_ok
+    !write_ok
+    !remove_path_status
+    !remove_link_status
+    !link_len
+    !link_len_status
+    !link_exists
+    !link_status
+    !write_status
+    !cleanup_link_status
+    !cleanup_path_status
+    panic(943)
+
+L_PASS:
+    !ok
+    !ok4
+    !ok3
+    !ok2
+    !ok1
+    !ok0
+    !remove_path_ok
+    !remove_link_ok
+    !link_len_ok
+    !link_len_status_ok
+    !link_exists_ok
+    !link_ok
+    !write_ok
+    !remove_path_status
+    !remove_link_status
+    !link_len
+    !link_len_status
+    !link_exists
+    !link_status
+    !write_status
+    !cleanup_link_status
+    !cleanup_path_status
+    return
+
+@test "sa_std fs symlink and read_link macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_symlink_status, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
+
+    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_SYMLINK symlink_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
+    EXPAND FS_READ_LINK read_link_status, read_link_buffer, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
+    EXPAND FS_READ_BUFFER_DATA read_link_data, read_link_buffer
+    EXPAND FS_READ_BUFFER_LEN read_link_len, read_link_buffer
+    EXPAND STR_FROM_PARTS read_link_view, read_link_data, read_link_len
+    EXPAND STR_FROM_PARTS target_view, &FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND STR_EQ read_link_eq, read_link_view, target_view
+    EXPAND FS_READ_BUFFER_FREE read_link_free_status, read_link_buffer
+    EXPAND FS_REMOVE_FILE remove_symlink_status, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+
+    write_ok = eq write_status, SA_FS_OK
+    symlink_ok = eq symlink_status, SA_FS_OK
+    read_link_ok = eq read_link_status, SA_FS_OK
+    read_link_len_ok = eq read_link_len, FS_TEST_PATH_LEN
+    read_link_eq_ok = eq read_link_eq, 1
+    read_link_free_ok = eq read_link_free_status, SA_FS_OK
+    remove_symlink_ok = eq remove_symlink_status, SA_FS_OK
+    remove_path_ok = eq remove_path_status, SA_FS_OK
+    ok0 = and write_ok, symlink_ok
+    ok1 = and ok0, read_link_ok
+    ok2 = and ok1, read_link_len_ok
+    ok3 = and ok2, read_link_eq_ok
+    ok4 = and ok3, read_link_free_ok
+    ok5 = and ok4, remove_symlink_ok
+    ok = and ok5, remove_path_ok
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_status)
+    call @sa_test_debug_i64(&FS_DBG_SYMLINK_STATUS, FS_DBG_SYMLINK_STATUS_LEN, symlink_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_LINK_STATUS, FS_DBG_READ_LINK_STATUS_LEN, read_link_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_LEN, FS_DBG_READ_LEN_LEN, read_link_len)
+    call @sa_test_debug_i64(&FS_DBG_READ_LINK_EQ, FS_DBG_READ_LINK_EQ_LEN, read_link_eq)
+    call @sa_assert_eq_i64(write_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(symlink_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(read_link_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(read_link_len, FS_TEST_PATH_LEN, 944)
+    call @sa_assert_eq_i64(read_link_eq, 1, 944)
+    call @sa_assert_eq_i64(read_link_free_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(remove_symlink_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(remove_path_status, SA_FS_OK, 944)
+    !ok
+    !ok5
+    !ok4
+    !ok3
+    !ok2
+    !ok1
+    !ok0
+    !remove_path_ok
+    !remove_symlink_ok
+    !read_link_free_ok
+    !read_link_eq_ok
+    !read_link_len_ok
+    !read_link_ok
+    !symlink_ok
+    !write_ok
+    !remove_path_status
+    !remove_symlink_status
+    !read_link_free_status
+    !read_link_eq
+    !target_view
+    !read_link_view
+    !read_link_len
+    !read_link_data
+    !read_link_status
+    !symlink_status
+    !write_status
+    !cleanup_symlink_status
+    !cleanup_path_status
+    panic(944)
+
+L_PASS:
+    !ok
+    !ok5
+    !ok4
+    !ok3
+    !ok2
+    !ok1
+    !ok0
+    !remove_path_ok
+    !remove_symlink_ok
+    !read_link_free_ok
+    !read_link_eq_ok
+    !read_link_len_ok
+    !read_link_ok
+    !symlink_ok
+    !write_ok
+    !remove_path_status
+    !remove_symlink_status
+    !read_link_free_status
+    !read_link_eq
+    !target_view
+    !read_link_view
+    !read_link_len
+    !read_link_data
+    !read_link_status
+    !symlink_status
+    !write_status
+    !cleanup_symlink_status
+    !cleanup_path_status
+    return
+
+@test "sa_std fs canonicalize macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+
+    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_CANONICALIZE canon_status, canon_buffer, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_READ_BUFFER_LEN canon_len, canon_buffer
+    EXPAND FS_READ_BUFFER_FREE canon_free_status, canon_buffer
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+
+    write_ok = eq write_status, SA_FS_OK
+    canon_ok = eq canon_status, SA_FS_OK
+    canon_len_ok = ne canon_len, 0
+    canon_free_ok = eq canon_free_status, SA_FS_OK
+    remove_path_ok = eq remove_path_status, SA_FS_OK
+    ok0 = and write_ok, canon_ok
+    ok1 = and ok0, canon_len_ok
+    ok2 = and ok1, canon_free_ok
+    ok = and ok2, remove_path_ok
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_status)
+    call @sa_test_debug_i64(&FS_DBG_CANON_STATUS, FS_DBG_CANON_STATUS_LEN, canon_status)
+    call @sa_test_debug_i64(&FS_DBG_CANON_LEN, FS_DBG_CANON_LEN_LEN, canon_len)
+    call @sa_assert_eq_i64(write_status, SA_FS_OK, 945)
+    call @sa_assert_eq_i64(canon_status, SA_FS_OK, 945)
+    canon_len_nonzero = ne canon_len, 0
+    call @sa_assert_eq_i64(canon_len_nonzero, 1, 945)
+    call @sa_assert_eq_i64(canon_free_status, SA_FS_OK, 945)
+    call @sa_assert_eq_i64(remove_path_status, SA_FS_OK, 945)
+    !canon_len_nonzero
+    !ok
+    !ok2
+    !ok1
+    !ok0
+    !remove_path_ok
+    !canon_free_ok
+    !canon_len_ok
+    !canon_ok
+    !write_ok
+    !remove_path_status
+    !canon_free_status
+    !canon_len
+    !canon_status
+    !write_status
+    !cleanup_path_status
+    panic(945)
+
+L_PASS:
+    !ok
+    !ok2
+    !ok1
+    !ok0
+    !remove_path_ok
+    !canon_free_ok
+    !canon_len_ok
+    !canon_ok
+    !write_ok
+    !remove_path_status
+    !canon_free_status
+    !canon_len
+    !canon_status
+    !write_status
+    !cleanup_path_status
+    return
+
 @test "sa_std fs metadata copy dir macro surface"():
 L_ENTRY:
     EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
     EXPAND FS_REMOVE_PATH cleanup_copy_status, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN
     EXPAND FS_REMOVE_PATH cleanup_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
     EXPAND FS_REMOVE_PATH cleanup_dir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
+    EXPAND FS_REMOVE_PATH cleanup_create_dir_status, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
 
     EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
     EXPAND FS_READ_FILE read_file_status, read_buffer, FS_TEST_PATH, FS_TEST_PATH_LEN, 64
@@ -371,11 +720,14 @@ L_ENTRY:
     EXPAND FS_READ_BUFFER_FREE metadata_json_free_status, metadata_json
 
     EXPAND FS_CREATE_DIR_ALL mkdir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
+    EXPAND FS_CREATE_DIR create_dir_status, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
+    EXPAND FS_EXISTS create_dir_exists, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
     EXPAND FS_READ_DIR_JSON dir_status, dir_buffer, FS_TEST_DIR, FS_TEST_DIR_LEN, 16
     EXPAND FS_DIR_BUFFER_LEN dir_len, dir_buffer
     EXPAND FS_DIR_BUFFER_FREE dir_free_status, dir_buffer
     EXPAND FS_REMOVE_FILE remove_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
     EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_DIR remove_create_dir_status, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
     EXPAND FS_REMOVE_DIR remove_dir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
 
     write_ok = eq write_status, SA_FS_OK
@@ -399,11 +751,14 @@ L_ENTRY:
     metadata_json_len_ok = ne metadata_json_len, 0
     metadata_json_free_ok = eq metadata_json_free_status, SA_FS_OK
     mkdir_ok = eq mkdir_status, SA_FS_OK
+    create_dir_ok = eq create_dir_status, SA_FS_OK
+    create_dir_exists_ok = eq create_dir_exists, 1
     dir_ok = eq dir_status, SA_FS_OK
     dir_len_ok = ne dir_len, 0
     dir_free_ok = eq dir_free_status, SA_FS_OK
     remove_renamed_ok = eq remove_renamed_status, SA_FS_OK
     remove_path_ok = eq remove_path_status, SA_FS_OK
+    remove_create_dir_ok = eq remove_create_dir_status, SA_FS_OK
     remove_dir_ok = eq remove_dir_status, SA_FS_OK
 
     ok01 = and write_ok, read_file_ok
@@ -426,12 +781,15 @@ L_ENTRY:
     ok18 = and ok17, metadata_json_len_ok
     ok19 = and ok18, metadata_json_free_ok
     ok20 = and ok19, mkdir_ok
-    ok21 = and ok20, dir_ok
-    ok22 = and ok21, dir_len_ok
-    ok23 = and ok22, dir_free_ok
-    ok24 = and ok23, remove_renamed_ok
-    ok25 = and ok24, remove_path_ok
-    ok = and ok25, remove_dir_ok
+    ok21 = and ok20, create_dir_ok
+    ok22 = and ok21, create_dir_exists_ok
+    ok23 = and ok22, dir_ok
+    ok24 = and ok23, dir_len_ok
+    ok25 = and ok24, dir_free_ok
+    ok26 = and ok25, remove_renamed_ok
+    ok27 = and ok26, remove_path_ok
+    ok28 = and ok27, remove_create_dir_ok
+    ok = and ok28, remove_dir_ok
     br ok -> L_OK, L_FAIL
 
 L_FAIL:
@@ -450,6 +808,8 @@ L_FAIL:
     call @sa_test_debug_i64(&FS_DBG_IS_SYMLINK, FS_DBG_IS_SYMLINK_LEN, metadata_is_symlink)
     call @sa_test_debug_i64(&FS_DBG_METADATA_JSON, FS_DBG_METADATA_JSON_LEN, metadata_json_status)
     call @sa_test_debug_i64(&FS_DBG_METADATA_JSON_LEN_NAME, FS_DBG_METADATA_JSON_LEN_NAME_LEN, metadata_json_len)
+    call @sa_test_debug_i64(&FS_DBG_CREATE_DIR_STATUS, FS_DBG_CREATE_DIR_STATUS_LEN, create_dir_status)
+    call @sa_test_debug_i64(&FS_DBG_EXISTS, FS_DBG_EXISTS_LEN, create_dir_exists)
     call @sa_test_debug_i64(&FS_DBG_DIR_STATUS, FS_DBG_DIR_STATUS_LEN, dir_status)
     call @sa_assert_eq_i64(write_status, SA_FS_OK, 942)
     call @sa_assert_eq_i64(read_file_status, SA_FS_OK, 942)
@@ -473,22 +833,28 @@ L_FAIL:
     call @sa_assert_eq_i64(metadata_json_len_nonzero, 1, 942)
     call @sa_assert_eq_i64(metadata_json_free_status, SA_FS_OK, 942)
     call @sa_assert_eq_i64(mkdir_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(create_dir_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(create_dir_exists, 1, 942)
     call @sa_assert_eq_i64(dir_status, SA_FS_OK, 942)
     dir_len_nonzero = ne dir_len, 0
     call @sa_assert_eq_i64(dir_len_nonzero, 1, 942)
     call @sa_assert_eq_i64(dir_free_status, SA_FS_OK, 942)
     call @sa_assert_eq_i64(remove_renamed_status, SA_FS_OK, 942)
     call @sa_assert_eq_i64(remove_path_status, SA_FS_OK, 942)
+    call @sa_assert_eq_i64(remove_create_dir_status, SA_FS_OK, 942)
     call @sa_assert_eq_i64(remove_dir_status, SA_FS_OK, 942)
     !dir_len_nonzero
     !metadata_json_len_nonzero
     !ok
     !remove_dir_ok
+    !remove_create_dir_ok
     !remove_path_ok
     !remove_renamed_ok
     !dir_free_ok
     !dir_len_ok
     !dir_ok
+    !create_dir_exists_ok
+    !create_dir_ok
     !mkdir_ok
     !metadata_json_free_ok
     !metadata_json_len_ok
@@ -511,11 +877,14 @@ L_FAIL:
     !read_file_ok
     !write_ok
     !remove_dir_status
+    !remove_create_dir_status
     !remove_path_status
     !remove_renamed_status
     !dir_free_status
     !dir_len
     !dir_status
+    !create_dir_exists
+    !create_dir_status
     !mkdir_status
     !metadata_json_free_status
     !metadata_json_len
@@ -546,6 +915,7 @@ L_FAIL:
     !read_file_status
     !write_status
     !cleanup_dir_status
+    !cleanup_create_dir_status
     !cleanup_renamed_status
     !cleanup_copy_status
     !cleanup_path_status
@@ -554,11 +924,14 @@ L_FAIL:
 L_OK:
     !ok
     !remove_dir_ok
+    !remove_create_dir_ok
     !remove_path_ok
     !remove_renamed_ok
     !dir_free_ok
     !dir_len_ok
     !dir_ok
+    !create_dir_exists_ok
+    !create_dir_ok
     !mkdir_ok
     !metadata_json_free_ok
     !metadata_json_len_ok
@@ -581,11 +954,14 @@ L_OK:
     !read_file_ok
     !write_ok
     !remove_dir_status
+    !remove_create_dir_status
     !remove_path_status
     !remove_renamed_status
     !dir_free_status
     !dir_len
     !dir_status
+    !create_dir_exists
+    !create_dir_status
     !mkdir_status
     !metadata_json_free_status
     !metadata_json_len
@@ -616,7 +992,251 @@ L_OK:
     !read_file_status
     !write_status
     !cleanup_dir_status
+    !cleanup_create_dir_status
     !cleanup_renamed_status
     !cleanup_copy_status
+    !cleanup_path_status
+    return
+
+@test "sa_std fs remove_dir_all macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_remove_all_status, FS_TEST_REMOVE_ALL_DIR, FS_TEST_REMOVE_ALL_DIR_LEN
+    EXPAND FS_CREATE_DIR_ALL create_nested_status, FS_TEST_REMOVE_ALL_CHILD, FS_TEST_REMOVE_ALL_CHILD_LEN
+    EXPAND FS_REMOVE_DIR remove_nonempty_status, FS_TEST_REMOVE_ALL_DIR, FS_TEST_REMOVE_ALL_DIR_LEN
+    EXPAND FS_REMOVE_DIR_ALL remove_all_status, FS_TEST_REMOVE_ALL_DIR, FS_TEST_REMOVE_ALL_DIR_LEN
+    EXPAND FS_EXISTS gone_after_remove_all, FS_TEST_REMOVE_ALL_DIR, FS_TEST_REMOVE_ALL_DIR_LEN
+
+    create_nested_ok = eq create_nested_status, SA_FS_OK
+    nonempty_failed = ne remove_nonempty_status, SA_FS_OK
+    remove_all_ok = eq remove_all_status, SA_FS_OK
+    gone_ok = eq gone_after_remove_all, 0
+    ok01 = and create_nested_ok, nonempty_failed
+    ok02 = and ok01, remove_all_ok
+    ok = and ok02, gone_ok
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    call @sa_test_debug_i64(&FS_DBG_MKDIR_STATUS, FS_DBG_MKDIR_STATUS_LEN, create_nested_status)
+    call @sa_test_debug_i64(&FS_DBG_REMOVE_NONEMPTY_STATUS, FS_DBG_REMOVE_NONEMPTY_STATUS_LEN, remove_nonempty_status)
+    call @sa_test_debug_i64(&FS_DBG_REMOVE_DIR_ALL_STATUS, FS_DBG_REMOVE_DIR_ALL_STATUS_LEN, remove_all_status)
+    call @sa_test_debug_i64(&FS_DBG_GONE_AFTER_REMOVE_ALL, FS_DBG_GONE_AFTER_REMOVE_ALL_LEN, gone_after_remove_all)
+    call @sa_assert_eq_i64(create_nested_status, SA_FS_OK, 943)
+    call @sa_assert_eq_i64(nonempty_failed, 1, 943)
+    call @sa_assert_eq_i64(remove_all_status, SA_FS_OK, 943)
+    call @sa_assert_eq_i64(gone_after_remove_all, 0, 943)
+    !ok
+    !ok02
+    !ok01
+    !gone_ok
+    !remove_all_ok
+    !nonempty_failed
+    !create_nested_ok
+    !gone_after_remove_all
+    !remove_all_status
+    !remove_nonempty_status
+    !create_nested_status
+    !cleanup_remove_all_status
+    panic(943)
+
+L_OK:
+    !ok
+    !ok02
+    !ok01
+    !gone_ok
+    !remove_all_ok
+    !nonempty_failed
+    !create_nested_ok
+    !gone_after_remove_all
+    !remove_all_status
+    !remove_nonempty_status
+    !create_nested_status
+    !cleanup_remove_all_status
+    return
+
+@test "sa_std fs read_to_string macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_utf8_status, FS_TEST_UTF8_PATH, FS_TEST_UTF8_PATH_LEN
+    EXPAND FS_WRITE_FILE write_utf8_status, FS_TEST_UTF8_PATH, FS_TEST_UTF8_PATH_LEN, FS_TEST_HELLO, FS_TEST_HELLO_LEN
+    EXPAND FS_READ_TO_STRING read_string_status, string_buffer, FS_TEST_UTF8_PATH, FS_TEST_UTF8_PATH_LEN, 64
+    EXPAND FS_READ_BUFFER_DATA string_data, string_buffer
+    EXPAND FS_READ_BUFFER_LEN string_len, string_buffer
+    EXPAND STR_FROM_PARTS string_view, string_data, string_len
+    EXPAND STR_FROM_PARTS hello_view, &FS_TEST_HELLO, FS_TEST_HELLO_LEN
+    EXPAND STR_EQ string_eq, string_view, hello_view
+    EXPAND FS_READ_BUFFER_FREE string_free_status, string_buffer
+
+    invalid_buf = alloc 1
+    store invalid_buf+0, 255 as u8
+    EXPAND FS_WRITE_FILE write_invalid_status, FS_TEST_UTF8_PATH, FS_TEST_UTF8_PATH_LEN, invalid_buf, 1
+    EXPAND FS_READ_TO_STRING invalid_utf8_status, invalid_string_buffer, FS_TEST_UTF8_PATH, FS_TEST_UTF8_PATH_LEN, 64
+    EXPAND FS_REMOVE_PATH cleanup_end_status, FS_TEST_UTF8_PATH, FS_TEST_UTF8_PATH_LEN
+
+    write_ok = eq write_utf8_status, SA_FS_OK
+    read_ok = eq read_string_status, SA_FS_OK
+    len_ok = eq string_len, FS_TEST_HELLO_LEN
+    eq_ok = eq string_eq, 1
+    free_ok = eq string_free_status, SA_FS_OK
+    write_invalid_ok = eq write_invalid_status, SA_FS_OK
+    invalid_failed = ne invalid_utf8_status, SA_FS_OK
+    cleanup_ok = eq cleanup_end_status, SA_FS_OK
+    ok01 = and write_ok, read_ok
+    ok02 = and ok01, len_ok
+    ok03 = and ok02, eq_ok
+    ok04 = and ok03, free_ok
+    ok05 = and ok04, write_invalid_ok
+    ok06 = and ok05, invalid_failed
+    ok = and ok06, cleanup_ok
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_utf8_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_TO_STRING_STATUS, FS_DBG_READ_TO_STRING_STATUS_LEN, read_string_status)
+    call @sa_test_debug_i64(&FS_DBG_READ_LEN, FS_DBG_READ_LEN_LEN, string_len)
+    call @sa_test_debug_i64(&FS_DBG_READ_TO_STRING_EQ, FS_DBG_READ_TO_STRING_EQ_LEN, string_eq)
+    call @sa_test_debug_i64(&FS_DBG_INVALID_UTF8_STATUS, FS_DBG_INVALID_UTF8_STATUS_LEN, invalid_utf8_status)
+    call @sa_test_debug_i64(&FS_DBG_REMOVE_STATUS, FS_DBG_REMOVE_STATUS_LEN, cleanup_end_status)
+    call @sa_assert_eq_i64(write_utf8_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(read_string_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(string_len, FS_TEST_HELLO_LEN, 944)
+    call @sa_assert_eq_i64(string_eq, 1, 944)
+    call @sa_assert_eq_i64(string_free_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(write_invalid_status, SA_FS_OK, 944)
+    call @sa_assert_eq_i64(invalid_failed, 1, 944)
+    call @sa_assert_eq_i64(cleanup_end_status, SA_FS_OK, 944)
+    !ok
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !cleanup_ok
+    !invalid_failed
+    !write_invalid_ok
+    !free_ok
+    !eq_ok
+    !len_ok
+    !read_ok
+    !write_ok
+    !cleanup_end_status
+    !invalid_string_buffer
+    !invalid_utf8_status
+    !write_invalid_status
+    !invalid_buf
+    !string_free_status
+    !string_eq
+    !hello_view
+    !string_view
+    !string_len
+    !string_data
+    !read_string_status
+    !write_utf8_status
+    !cleanup_utf8_status
+    panic(944)
+
+L_OK:
+    !ok
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !cleanup_ok
+    !invalid_failed
+    !write_invalid_ok
+    !free_ok
+    !eq_ok
+    !len_ok
+    !read_ok
+    !write_ok
+    !cleanup_end_status
+    !invalid_string_buffer
+    !invalid_utf8_status
+    !write_invalid_status
+    !invalid_buf
+    !string_free_status
+    !string_eq
+    !hello_view
+    !string_view
+    !string_len
+    !string_data
+    !read_string_status
+    !write_utf8_status
+    !cleanup_utf8_status
+    return
+
+@test "sa_std fs try_exists macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_TRY_EXISTS missing_status, missing_exists, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HELLO, FS_TEST_HELLO_LEN
+    EXPAND FS_TRY_EXISTS present_status, present_exists, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_end_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+
+    missing_status_ok = eq missing_status, SA_FS_OK
+    missing_value_ok = eq missing_exists, 0
+    write_ok = eq write_status, SA_FS_OK
+    present_status_ok = eq present_status, SA_FS_OK
+    present_value_ok = eq present_exists, 1
+    cleanup_ok = eq cleanup_end_status, SA_FS_OK
+    ok01 = and missing_status_ok, missing_value_ok
+    ok02 = and ok01, write_ok
+    ok03 = and ok02, present_status_ok
+    ok04 = and ok03, present_value_ok
+    ok = and ok04, cleanup_ok
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    call @sa_test_debug_i64(&FS_DBG_TRY_EXISTS_STATUS, FS_DBG_TRY_EXISTS_STATUS_LEN, missing_status)
+    call @sa_test_debug_i64(&FS_DBG_EXISTS, FS_DBG_EXISTS_LEN, missing_exists)
+    call @sa_test_debug_i64(&FS_DBG_WRITE_STATUS, FS_DBG_WRITE_STATUS_LEN, write_status)
+    call @sa_test_debug_i64(&FS_DBG_TRY_EXISTS_STATUS, FS_DBG_TRY_EXISTS_STATUS_LEN, present_status)
+    call @sa_test_debug_i64(&FS_DBG_EXISTS, FS_DBG_EXISTS_LEN, present_exists)
+    call @sa_test_debug_i64(&FS_DBG_REMOVE_STATUS, FS_DBG_REMOVE_STATUS_LEN, cleanup_end_status)
+    call @sa_assert_eq_i64(missing_status, SA_FS_OK, 945)
+    call @sa_assert_eq_i64(missing_exists, 0, 945)
+    call @sa_assert_eq_i64(write_status, SA_FS_OK, 945)
+    call @sa_assert_eq_i64(present_status, SA_FS_OK, 945)
+    call @sa_assert_eq_i64(present_exists, 1, 945)
+    call @sa_assert_eq_i64(cleanup_end_status, SA_FS_OK, 945)
+    !ok
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !cleanup_ok
+    !present_value_ok
+    !present_status_ok
+    !write_ok
+    !missing_value_ok
+    !missing_status_ok
+    !cleanup_end_status
+    !present_exists
+    !present_status
+    !write_status
+    !missing_exists
+    !missing_status
+    !cleanup_path_status
+    panic(945)
+
+L_OK:
+    !ok
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !cleanup_ok
+    !present_value_ok
+    !present_status_ok
+    !write_ok
+    !missing_value_ok
+    !missing_status_ok
+    !cleanup_end_status
+    !present_exists
+    !present_status
+    !write_status
+    !missing_exists
+    !missing_status
     !cleanup_path_status
     return

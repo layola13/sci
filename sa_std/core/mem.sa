@@ -93,6 +93,63 @@ L_END:
     store %out_box+Box_value, %value as u64
 [END_MACRO]
 
+[MACRO] BOX_DEFAULT_U64 %out_box
+    EXPAND BOX_NEW %out_box, 0
+[END_MACRO]
+
+[MACRO] BOX_GET_U64 %out_value, %box_reg
+    %out_value = load %box_reg+Box_value as u64
+[END_MACRO]
+
+[MACRO] BOX_SET_U64 %box_reg, %value
+    store %box_reg+Box_value, %value as u64
+[END_MACRO]
+
+[MACRO] BOX_AS_PTR %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
+[MACRO] BOX_AS_MUT_PTR %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
+[MACRO] BOX_PTR_EQ %out_bool, %left_box, %right_box
+    %out_bool = eq %left_box, %right_box
+[END_MACRO]
+
+[MACRO] BOX_REPLACE_U64 %out_old, %box_reg, %new_value
+    %out_old = load %box_reg+Box_value as u64
+    store %box_reg+Box_value, %new_value as u64
+[END_MACRO]
+
+[MACRO] BOX_TAKE_U64 %out_old, %box_reg
+    %out_old = load %box_reg+Box_value as u64
+    store %box_reg+Box_value, 0 as u64
+[END_MACRO]
+
+[MACRO] BOX_CLONE_U64 %out_box, %box_reg
+    __box_clone_value_%out_box = load %box_reg+Box_value as u64
+    EXPAND BOX_NEW %out_box, __box_clone_value_%out_box
+    !__box_clone_value_%out_box
+[END_MACRO]
+
+[MACRO] BOX_INTO_INNER_U64 %out_value, %box_reg
+    %out_value = load %box_reg+Box_value as u64
+    !%box_reg
+[END_MACRO]
+
+[MACRO] BOX_INTO_RAW %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
+[MACRO] BOX_FROM_RAW %out_box, %raw_ptr
+    %out_box = ptr_add %raw_ptr, 0
+[END_MACRO]
+
+[MACRO] BOX_LEAK %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
 [MACRO] BOX_FREE %box_reg
     !%box_reg
 [END_MACRO]

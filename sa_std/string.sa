@@ -2067,6 +2067,279 @@ L_STR_BOUNDARY_END_%out_bool:
     EXPAND STR_IS_CHAR_BOUNDARY %out_bool, %slice_reg, %index
 [END_MACRO]
 
+[MACRO] STR_FLOOR_CHAR_BOUNDARY %out_index, %slice_reg, %index
+    __str_floor_len_%out_index = load %slice_reg+Slice_len as u64
+    __str_floor_past_end_%out_index = uge %index, __str_floor_len_%out_index
+    br __str_floor_past_end_%out_index -> L_STR_FLOOR_END_CLAMP_%out_index, L_STR_FLOOR_INIT_%out_index
+
+L_STR_FLOOR_END_CLAMP_%out_index:
+    %out_index = add __str_floor_len_%out_index, 0
+    !__str_floor_past_end_%out_index
+    !__str_floor_len_%out_index
+    jmp L_STR_FLOOR_DONE_%out_index
+
+L_STR_FLOOR_INIT_%out_index:
+    __str_floor_slot_%out_index = stack_alloc 8
+    store __str_floor_slot_%out_index+0, %index as u64
+    jmp L_STR_FLOOR_HEAD_%out_index
+
+L_STR_FLOOR_HEAD_%out_index:
+    __str_floor_current_%out_index = load __str_floor_slot_%out_index+0 as u64
+    EXPAND STR_IS_CHAR_BOUNDARY __str_floor_boundary_%out_index, %slice_reg, __str_floor_current_%out_index
+    br __str_floor_boundary_%out_index -> L_STR_FLOOR_HIT_%out_index, L_STR_FLOOR_DECIDE_%out_index
+
+L_STR_FLOOR_DECIDE_%out_index:
+    __str_floor_at_zero_%out_index = eq __str_floor_current_%out_index, 0
+    br __str_floor_at_zero_%out_index -> L_STR_FLOOR_ZERO_%out_index, L_STR_FLOOR_STEP_%out_index
+
+L_STR_FLOOR_STEP_%out_index:
+    __str_floor_next_%out_index = sub __str_floor_current_%out_index, 1
+    store __str_floor_slot_%out_index+0, __str_floor_next_%out_index as u64
+    !__str_floor_next_%out_index
+    !__str_floor_at_zero_%out_index
+    !__str_floor_boundary_%out_index
+    !__str_floor_current_%out_index
+    jmp L_STR_FLOOR_HEAD_%out_index
+
+L_STR_FLOOR_ZERO_%out_index:
+    %out_index = add 0, 0
+    !__str_floor_at_zero_%out_index
+    !__str_floor_boundary_%out_index
+    !__str_floor_current_%out_index
+    !__str_floor_past_end_%out_index
+    !__str_floor_len_%out_index
+    jmp L_STR_FLOOR_DONE_%out_index
+
+L_STR_FLOOR_HIT_%out_index:
+    %out_index = add __str_floor_current_%out_index, 0
+    !__str_floor_boundary_%out_index
+    !__str_floor_current_%out_index
+    !__str_floor_past_end_%out_index
+    !__str_floor_len_%out_index
+
+L_STR_FLOOR_DONE_%out_index:
+[END_MACRO]
+
+[MACRO] STRING_FLOOR_CHAR_BOUNDARY %out_index, %slice_reg, %index
+    EXPAND STR_FLOOR_CHAR_BOUNDARY %out_index, %slice_reg, %index
+[END_MACRO]
+
+[MACRO] STR_CEIL_CHAR_BOUNDARY %out_index, %slice_reg, %index
+    __str_ceil_len_%out_index = load %slice_reg+Slice_len as u64
+    __str_ceil_past_end_%out_index = uge %index, __str_ceil_len_%out_index
+    br __str_ceil_past_end_%out_index -> L_STR_CEIL_END_CLAMP_%out_index, L_STR_CEIL_INIT_%out_index
+
+L_STR_CEIL_END_CLAMP_%out_index:
+    %out_index = add __str_ceil_len_%out_index, 0
+    !__str_ceil_past_end_%out_index
+    !__str_ceil_len_%out_index
+    jmp L_STR_CEIL_DONE_%out_index
+
+L_STR_CEIL_INIT_%out_index:
+    __str_ceil_slot_%out_index = stack_alloc 8
+    store __str_ceil_slot_%out_index+0, %index as u64
+    jmp L_STR_CEIL_HEAD_%out_index
+
+L_STR_CEIL_HEAD_%out_index:
+    __str_ceil_current_%out_index = load __str_ceil_slot_%out_index+0 as u64
+    EXPAND STR_IS_CHAR_BOUNDARY __str_ceil_boundary_%out_index, %slice_reg, __str_ceil_current_%out_index
+    br __str_ceil_boundary_%out_index -> L_STR_CEIL_HIT_%out_index, L_STR_CEIL_STEP_%out_index
+
+L_STR_CEIL_STEP_%out_index:
+    __str_ceil_next_%out_index = add __str_ceil_current_%out_index, 1
+    store __str_ceil_slot_%out_index+0, __str_ceil_next_%out_index as u64
+    !__str_ceil_next_%out_index
+    !__str_ceil_boundary_%out_index
+    !__str_ceil_current_%out_index
+    jmp L_STR_CEIL_HEAD_%out_index
+
+L_STR_CEIL_HIT_%out_index:
+    %out_index = add __str_ceil_current_%out_index, 0
+    !__str_ceil_boundary_%out_index
+    !__str_ceil_current_%out_index
+    !__str_ceil_past_end_%out_index
+    !__str_ceil_len_%out_index
+
+L_STR_CEIL_DONE_%out_index:
+[END_MACRO]
+
+[MACRO] STRING_CEIL_CHAR_BOUNDARY %out_index, %slice_reg, %index
+    EXPAND STR_CEIL_CHAR_BOUNDARY %out_index, %slice_reg, %index
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+    %out_slice = alloc Slice_SIZE
+    __str_get_range_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_get_range_start_ok_%out_ok = ule %start, __str_get_range_len_%out_ok
+    __str_get_range_remaining_%out_ok = sub __str_get_range_len_%out_ok, %start
+    __str_get_range_len_ok_%out_ok = ule %length, __str_get_range_remaining_%out_ok
+    __str_get_range_bounds_ok_%out_ok = and __str_get_range_start_ok_%out_ok, __str_get_range_len_ok_%out_ok
+    br __str_get_range_bounds_ok_%out_ok -> L_STR_GET_RANGE_CHECK_BOUNDARY_%out_ok, L_STR_GET_RANGE_MISS_%out_ok
+
+L_STR_GET_RANGE_CHECK_BOUNDARY_%out_ok:
+    __str_get_range_end_%out_ok = add %start, %length
+    EXPAND STR_IS_CHAR_BOUNDARY __str_get_range_start_boundary_%out_ok, %slice_reg, %start
+    EXPAND STR_IS_CHAR_BOUNDARY __str_get_range_end_boundary_%out_ok, %slice_reg, __str_get_range_end_%out_ok
+    __str_get_range_boundaries_ok_%out_ok = and __str_get_range_start_boundary_%out_ok, __str_get_range_end_boundary_%out_ok
+    br __str_get_range_boundaries_ok_%out_ok -> L_STR_GET_RANGE_HIT_%out_ok, L_STR_GET_RANGE_MISS_AFTER_BOUNDARY_%out_ok
+
+L_STR_GET_RANGE_HIT_%out_ok:
+    __str_get_range_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_get_range_part_ptr_%out_ok = ptr_add __str_get_range_ptr_%out_ok, %start
+    EXPAND SLICE_NEW %out_slice, __str_get_range_part_ptr_%out_ok, %length
+    %out_ok = add 0, 1
+    !__str_get_range_part_ptr_%out_ok
+    !__str_get_range_ptr_%out_ok
+    !__str_get_range_boundaries_ok_%out_ok
+    !__str_get_range_end_boundary_%out_ok
+    !__str_get_range_start_boundary_%out_ok
+    !__str_get_range_end_%out_ok
+    !__str_get_range_bounds_ok_%out_ok
+    !__str_get_range_len_ok_%out_ok
+    !__str_get_range_remaining_%out_ok
+    !__str_get_range_start_ok_%out_ok
+    !__str_get_range_len_%out_ok
+    jmp L_STR_GET_RANGE_DONE_%out_ok
+
+L_STR_GET_RANGE_MISS_AFTER_BOUNDARY_%out_ok:
+    __str_get_range_empty_ptr_b_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_get_range_empty_ptr_b_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_get_range_empty_ptr_b_%out_ok
+    !__str_get_range_boundaries_ok_%out_ok
+    !__str_get_range_end_boundary_%out_ok
+    !__str_get_range_start_boundary_%out_ok
+    !__str_get_range_end_%out_ok
+    !__str_get_range_bounds_ok_%out_ok
+    !__str_get_range_len_ok_%out_ok
+    !__str_get_range_remaining_%out_ok
+    !__str_get_range_start_ok_%out_ok
+    !__str_get_range_len_%out_ok
+    jmp L_STR_GET_RANGE_DONE_%out_ok
+
+L_STR_GET_RANGE_MISS_%out_ok:
+    __str_get_range_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_get_range_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_get_range_empty_ptr_%out_ok
+    !__str_get_range_bounds_ok_%out_ok
+    !__str_get_range_len_ok_%out_ok
+    !__str_get_range_remaining_%out_ok
+    !__str_get_range_start_ok_%out_ok
+    !__str_get_range_len_%out_ok
+
+L_STR_GET_RANGE_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+    EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, 0, %end
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+    __str_get_suffix_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_get_suffix_start_ok_%out_ok = ule %start, __str_get_suffix_len_%out_ok
+    br __str_get_suffix_start_ok_%out_ok -> L_STR_GET_SUFFIX_RANGE_%out_ok, L_STR_GET_SUFFIX_MISS_%out_ok
+
+L_STR_GET_SUFFIX_RANGE_%out_ok:
+    __str_get_suffix_length_%out_ok = sub __str_get_suffix_len_%out_ok, %start
+    EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, __str_get_suffix_length_%out_ok
+    !__str_get_suffix_length_%out_ok
+    !__str_get_suffix_start_ok_%out_ok
+    !__str_get_suffix_len_%out_ok
+    jmp L_STR_GET_SUFFIX_DONE_%out_ok
+
+L_STR_GET_SUFFIX_MISS_%out_ok:
+    %out_slice = alloc Slice_SIZE
+    __str_get_suffix_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_get_suffix_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_get_suffix_empty_ptr_%out_ok
+    !__str_get_suffix_start_ok_%out_ok
+    !__str_get_suffix_len_%out_ok
+
+L_STR_GET_SUFFIX_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+    __str_get_between_order_ok_%out_ok = uge %end, %start
+    br __str_get_between_order_ok_%out_ok -> L_STR_GET_BETWEEN_RANGE_%out_ok, L_STR_GET_BETWEEN_MISS_%out_ok
+
+L_STR_GET_BETWEEN_RANGE_%out_ok:
+    __str_get_between_length_%out_ok = sub %end, %start
+    EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, __str_get_between_length_%out_ok
+    !__str_get_between_length_%out_ok
+    !__str_get_between_order_ok_%out_ok
+    jmp L_STR_GET_BETWEEN_DONE_%out_ok
+
+L_STR_GET_BETWEEN_MISS_%out_ok:
+    %out_slice = alloc Slice_SIZE
+    __str_get_between_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_get_between_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_get_between_empty_ptr_%out_ok
+    !__str_get_between_order_ok_%out_ok
+
+L_STR_GET_BETWEEN_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND STR_TRY_GET_PREFIX __str_split_checked_left_ok_%out_ok, %out_left, %slice_reg, %mid
+    br __str_split_checked_left_ok_%out_ok -> L_STR_SPLIT_CHECKED_RIGHT_%out_ok, L_STR_SPLIT_CHECKED_MISS_%out_ok
+
+L_STR_SPLIT_CHECKED_RIGHT_%out_ok:
+    EXPAND STR_TRY_GET_SUFFIX __str_split_checked_right_ok_%out_ok, %out_right, %slice_reg, %mid
+    %out_ok = and __str_split_checked_left_ok_%out_ok, __str_split_checked_right_ok_%out_ok
+    !__str_split_checked_right_ok_%out_ok
+    !__str_split_checked_left_ok_%out_ok
+    jmp L_STR_SPLIT_CHECKED_DONE_%out_ok
+
+L_STR_SPLIT_CHECKED_MISS_%out_ok:
+    %out_right = alloc Slice_SIZE
+    __str_split_checked_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_right, __str_split_checked_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_checked_empty_ptr_%out_ok
+    !__str_split_checked_left_ok_%out_ok
+
+L_STR_SPLIT_CHECKED_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND STR_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
 [MACRO] STR_EQ_IGNORE_ASCII_CASE %out_bool, %left_slice, %right_slice
     __str_left_ptr_%out_bool = load %left_slice+Slice_ptr as ptr
     __str_right_ptr_%out_bool = load %right_slice+Slice_ptr as ptr

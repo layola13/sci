@@ -2,6 +2,7 @@
 // Trailing separators are ignored; callers own the returned Slice and must ! it.
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "fs.sa"
 @import "string.sa"
 
 @const PATH_SEPARATOR = utf8:"/"
@@ -712,6 +713,28 @@ L_PATH_STRIP_MISS:
 L_PATH_STRIP_END:
 [END_MACRO]
 
+[MACRO] PATH_TRIM_PREFIX %out_slice, %path_slice, %prefix_slice
+    EXPAND PATH_TRY_STRIP_PREFIX __path_trim_ok_%out_slice, __path_trim_value_%out_slice, %path_slice, %prefix_slice
+    br __path_trim_ok_%out_slice -> L_PATH_TRIM_PREFIX_HIT_%out_slice, L_PATH_TRIM_PREFIX_MISS_%out_slice
+
+L_PATH_TRIM_PREFIX_HIT_%out_slice:
+    __path_trim_value_len_%out_slice = load __path_trim_value_%out_slice+Slice_len as u64
+    EXPAND STR_SLICE %out_slice, __path_trim_value_%out_slice, 0, __path_trim_value_len_%out_slice
+    !__path_trim_value_len_%out_slice
+    !__path_trim_value_%out_slice
+    !__path_trim_ok_%out_slice
+    jmp L_PATH_TRIM_PREFIX_END_%out_slice
+
+L_PATH_TRIM_PREFIX_MISS_%out_slice:
+    __path_trim_len_%out_slice = load %path_slice+Slice_len as u64
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_trim_len_%out_slice
+    !__path_trim_len_%out_slice
+    !__path_trim_value_%out_slice
+    !__path_trim_ok_%out_slice
+
+L_PATH_TRIM_PREFIX_END_%out_slice:
+[END_MACRO]
+
 [MACRO] PATH_ENDS_WITH %out_bool, %path_slice, %child_slice
     __path_end_path_len_%out_bool = load %path_slice+Slice_len as u64
     __path_end_child_len_%out_bool = load %child_slice+Slice_len as u64
@@ -1037,8 +1060,228 @@ L_PATH_FILE_PREFIX_END_%out_slice:
     EXPAND PATH_BASENAME %out_slice, %path_slice
 [END_MACRO]
 
+[MACRO] PATH_TRY_FILE_NAME %out_ok, %out_slice, %path_slice
+    EXPAND PATH_BASENAME __path_try_file_name_base_%out_ok, %path_slice
+    __path_try_file_name_len_%out_ok = load __path_try_file_name_base_%out_ok+Slice_len as u64
+    __path_try_file_name_empty_%out_ok = eq __path_try_file_name_len_%out_ok, 0
+    br __path_try_file_name_empty_%out_ok -> L_PATH_TRY_FILE_NAME_NONE_%out_ok, L_PATH_TRY_FILE_NAME_CHECK_ROOT_%out_ok
+
+L_PATH_TRY_FILE_NAME_CHECK_ROOT_%out_ok:
+    __path_try_file_name_ptr_%out_ok = load __path_try_file_name_base_%out_ok+Slice_ptr as ptr
+    __path_try_file_name_one_%out_ok = eq __path_try_file_name_len_%out_ok, 1
+    __path_try_file_name_first_%out_ok = load __path_try_file_name_ptr_%out_ok+0 as u8
+    __path_try_file_name_slash_%out_ok = eq __path_try_file_name_first_%out_ok, 47
+    __path_try_file_name_root_%out_ok = and __path_try_file_name_one_%out_ok, __path_try_file_name_slash_%out_ok
+    br __path_try_file_name_root_%out_ok -> L_PATH_TRY_FILE_NAME_NONE_AFTER_ROOT_%out_ok, L_PATH_TRY_FILE_NAME_SOME_%out_ok
+
+L_PATH_TRY_FILE_NAME_SOME_%out_ok:
+    EXPAND STR_SLICE %out_slice, __path_try_file_name_base_%out_ok, 0, __path_try_file_name_len_%out_ok
+    %out_ok = add 0, 1
+    !__path_try_file_name_root_%out_ok
+    !__path_try_file_name_slash_%out_ok
+    !__path_try_file_name_first_%out_ok
+    !__path_try_file_name_one_%out_ok
+    !__path_try_file_name_ptr_%out_ok
+    !__path_try_file_name_empty_%out_ok
+    !__path_try_file_name_len_%out_ok
+    !__path_try_file_name_base_%out_ok
+    jmp L_PATH_TRY_FILE_NAME_END_%out_ok
+
+L_PATH_TRY_FILE_NAME_NONE_AFTER_ROOT_%out_ok:
+    !__path_try_file_name_root_%out_ok
+    !__path_try_file_name_slash_%out_ok
+    !__path_try_file_name_first_%out_ok
+    !__path_try_file_name_one_%out_ok
+    !__path_try_file_name_ptr_%out_ok
+    !__path_try_file_name_empty_%out_ok
+    jmp L_PATH_TRY_FILE_NAME_NONE_AFTER_CHECK_%out_ok
+
+L_PATH_TRY_FILE_NAME_NONE_%out_ok:
+    !__path_try_file_name_empty_%out_ok
+    jmp L_PATH_TRY_FILE_NAME_NONE_AFTER_CHECK_%out_ok
+
+L_PATH_TRY_FILE_NAME_NONE_AFTER_CHECK_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 0
+    !__path_try_file_name_len_%out_ok
+    !__path_try_file_name_base_%out_ok
+
+L_PATH_TRY_FILE_NAME_END_%out_ok:
+[END_MACRO]
+
 [MACRO] PATH_EXTENSION %out_slice, %path_slice
     EXPAND PATH_EXT %out_slice, %path_slice
+[END_MACRO]
+
+[MACRO] PATH_TRY_EXTENSION %out_ok, %out_slice, %path_slice
+    EXPAND PATH_EXTENSION %out_slice, %path_slice
+    __path_try_ext_len_%out_ok = load %out_slice+Slice_len as u64
+    %out_ok = ne __path_try_ext_len_%out_ok, 0
+    !__path_try_ext_len_%out_ok
+[END_MACRO]
+
+[MACRO] PATH_TRY_FILE_STEM %out_ok, %out_slice, %path_slice
+    EXPAND PATH_TRY_FILE_NAME __path_try_stem_name_ok_%out_ok, __path_try_stem_name_%out_ok, %path_slice
+    br __path_try_stem_name_ok_%out_ok -> L_PATH_TRY_FILE_STEM_SOME_%out_ok, L_PATH_TRY_FILE_STEM_NONE_%out_ok
+
+L_PATH_TRY_FILE_STEM_SOME_%out_ok:
+    EXPAND PATH_FILE_STEM %out_slice, %path_slice
+    %out_ok = add 0, 1
+    !__path_try_stem_name_%out_ok
+    !__path_try_stem_name_ok_%out_ok
+    jmp L_PATH_TRY_FILE_STEM_END_%out_ok
+
+L_PATH_TRY_FILE_STEM_NONE_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 0
+    !__path_try_stem_name_%out_ok
+    !__path_try_stem_name_ok_%out_ok
+
+L_PATH_TRY_FILE_STEM_END_%out_ok:
+[END_MACRO]
+
+[MACRO] PATH_TRY_PARENT %out_ok, %out_slice, %path_slice
+    EXPAND PATH_TRIM_TRAILING_SEPARATOR __path_try_parent_trim_%out_ok, %path_slice
+    __path_try_parent_len_%out_ok = load __path_try_parent_trim_%out_ok+Slice_len as u64
+    __path_try_parent_empty_%out_ok = eq __path_try_parent_len_%out_ok, 0
+    br __path_try_parent_empty_%out_ok -> L_PATH_TRY_PARENT_NONE_%out_ok, L_PATH_TRY_PARENT_CHECK_ROOT_%out_ok
+
+L_PATH_TRY_PARENT_CHECK_ROOT_%out_ok:
+    __path_try_parent_ptr_%out_ok = load __path_try_parent_trim_%out_ok+Slice_ptr as ptr
+    __path_try_parent_one_%out_ok = eq __path_try_parent_len_%out_ok, 1
+    __path_try_parent_first_%out_ok = load __path_try_parent_ptr_%out_ok+0 as u8
+    __path_try_parent_slash_%out_ok = eq __path_try_parent_first_%out_ok, 47
+    __path_try_parent_root_%out_ok = and __path_try_parent_one_%out_ok, __path_try_parent_slash_%out_ok
+    br __path_try_parent_root_%out_ok -> L_PATH_TRY_PARENT_NONE_AFTER_ROOT_%out_ok, L_PATH_TRY_PARENT_SOME_%out_ok
+
+L_PATH_TRY_PARENT_SOME_%out_ok:
+    EXPAND PATH_PARENT %out_slice, __path_try_parent_trim_%out_ok
+    %out_ok = add 0, 1
+    !__path_try_parent_root_%out_ok
+    !__path_try_parent_slash_%out_ok
+    !__path_try_parent_first_%out_ok
+    !__path_try_parent_one_%out_ok
+    !__path_try_parent_ptr_%out_ok
+    !__path_try_parent_empty_%out_ok
+    !__path_try_parent_len_%out_ok
+    !__path_try_parent_trim_%out_ok
+    jmp L_PATH_TRY_PARENT_END_%out_ok
+
+L_PATH_TRY_PARENT_NONE_AFTER_ROOT_%out_ok:
+    !__path_try_parent_root_%out_ok
+    !__path_try_parent_slash_%out_ok
+    !__path_try_parent_first_%out_ok
+    !__path_try_parent_one_%out_ok
+    !__path_try_parent_ptr_%out_ok
+    !__path_try_parent_empty_%out_ok
+    jmp L_PATH_TRY_PARENT_NONE_AFTER_CHECK_%out_ok
+
+L_PATH_TRY_PARENT_NONE_%out_ok:
+    !__path_try_parent_empty_%out_ok
+    jmp L_PATH_TRY_PARENT_NONE_AFTER_CHECK_%out_ok
+
+L_PATH_TRY_PARENT_NONE_AFTER_CHECK_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 0
+    !__path_try_parent_len_%out_ok
+    !__path_try_parent_trim_%out_ok
+
+L_PATH_TRY_PARENT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] PATH_EXISTS %out_flag, %path_slice
+    __path_exists_ptr_%out_flag = load %path_slice+Slice_ptr as ptr
+    __path_exists_len_%out_flag = load %path_slice+Slice_len as u64
+    EXPAND FS_EXISTS %out_flag, __path_exists_ptr_%out_flag, __path_exists_len_%out_flag
+    !__path_exists_len_%out_flag
+    !__path_exists_ptr_%out_flag
+[END_MACRO]
+
+[MACRO] PATH_IS_FILE %out_flag, %path_slice
+    __path_is_file_ptr_%out_flag = load %path_slice+Slice_ptr as ptr
+    __path_is_file_len_%out_flag = load %path_slice+Slice_len as u64
+    EXPAND FS_METADATA __path_is_file_status_%out_flag, __path_is_file_metadata_%out_flag, __path_is_file_ptr_%out_flag, __path_is_file_len_%out_flag
+    __path_is_file_ok_%out_flag = eq __path_is_file_status_%out_flag, SA_FS_OK
+    br __path_is_file_ok_%out_flag -> L_PATH_IS_FILE_OK_%out_flag, L_PATH_IS_FILE_MISS_%out_flag
+
+L_PATH_IS_FILE_OK_%out_flag:
+    EXPAND FS_METADATA_IS_FILE %out_flag, __path_is_file_metadata_%out_flag
+    EXPAND FS_METADATA_FREE __path_is_file_free_status_%out_flag, __path_is_file_metadata_%out_flag
+    !__path_is_file_free_status_%out_flag
+    !__path_is_file_ok_%out_flag
+    !__path_is_file_status_%out_flag
+    !__path_is_file_metadata_%out_flag
+    !__path_is_file_len_%out_flag
+    !__path_is_file_ptr_%out_flag
+    jmp L_PATH_IS_FILE_END_%out_flag
+
+L_PATH_IS_FILE_MISS_%out_flag:
+    %out_flag = add 0, 0
+    !__path_is_file_ok_%out_flag
+    !__path_is_file_status_%out_flag
+    !__path_is_file_metadata_%out_flag
+    !__path_is_file_len_%out_flag
+    !__path_is_file_ptr_%out_flag
+
+L_PATH_IS_FILE_END_%out_flag:
+[END_MACRO]
+
+[MACRO] PATH_IS_DIR %out_flag, %path_slice
+    __path_is_dir_ptr_%out_flag = load %path_slice+Slice_ptr as ptr
+    __path_is_dir_len_%out_flag = load %path_slice+Slice_len as u64
+    EXPAND FS_METADATA __path_is_dir_status_%out_flag, __path_is_dir_metadata_%out_flag, __path_is_dir_ptr_%out_flag, __path_is_dir_len_%out_flag
+    __path_is_dir_ok_%out_flag = eq __path_is_dir_status_%out_flag, SA_FS_OK
+    br __path_is_dir_ok_%out_flag -> L_PATH_IS_DIR_OK_%out_flag, L_PATH_IS_DIR_MISS_%out_flag
+
+L_PATH_IS_DIR_OK_%out_flag:
+    EXPAND FS_METADATA_IS_DIR %out_flag, __path_is_dir_metadata_%out_flag
+    EXPAND FS_METADATA_FREE __path_is_dir_free_status_%out_flag, __path_is_dir_metadata_%out_flag
+    !__path_is_dir_free_status_%out_flag
+    !__path_is_dir_ok_%out_flag
+    !__path_is_dir_status_%out_flag
+    !__path_is_dir_metadata_%out_flag
+    !__path_is_dir_len_%out_flag
+    !__path_is_dir_ptr_%out_flag
+    jmp L_PATH_IS_DIR_END_%out_flag
+
+L_PATH_IS_DIR_MISS_%out_flag:
+    %out_flag = add 0, 0
+    !__path_is_dir_ok_%out_flag
+    !__path_is_dir_status_%out_flag
+    !__path_is_dir_metadata_%out_flag
+    !__path_is_dir_len_%out_flag
+    !__path_is_dir_ptr_%out_flag
+
+L_PATH_IS_DIR_END_%out_flag:
+[END_MACRO]
+
+[MACRO] PATH_IS_SYMLINK %out_flag, %path_slice
+    __path_is_symlink_ptr_%out_flag = load %path_slice+Slice_ptr as ptr
+    __path_is_symlink_len_%out_flag = load %path_slice+Slice_len as u64
+    EXPAND FS_METADATA __path_is_symlink_status_%out_flag, __path_is_symlink_metadata_%out_flag, __path_is_symlink_ptr_%out_flag, __path_is_symlink_len_%out_flag
+    __path_is_symlink_ok_%out_flag = eq __path_is_symlink_status_%out_flag, SA_FS_OK
+    br __path_is_symlink_ok_%out_flag -> L_PATH_IS_SYMLINK_OK_%out_flag, L_PATH_IS_SYMLINK_MISS_%out_flag
+
+L_PATH_IS_SYMLINK_OK_%out_flag:
+    EXPAND FS_METADATA_IS_SYMLINK %out_flag, __path_is_symlink_metadata_%out_flag
+    EXPAND FS_METADATA_FREE __path_is_symlink_free_status_%out_flag, __path_is_symlink_metadata_%out_flag
+    !__path_is_symlink_free_status_%out_flag
+    !__path_is_symlink_ok_%out_flag
+    !__path_is_symlink_status_%out_flag
+    !__path_is_symlink_metadata_%out_flag
+    !__path_is_symlink_len_%out_flag
+    !__path_is_symlink_ptr_%out_flag
+    jmp L_PATH_IS_SYMLINK_END_%out_flag
+
+L_PATH_IS_SYMLINK_MISS_%out_flag:
+    %out_flag = add 0, 0
+    !__path_is_symlink_ok_%out_flag
+    !__path_is_symlink_status_%out_flag
+    !__path_is_symlink_metadata_%out_flag
+    !__path_is_symlink_len_%out_flag
+    !__path_is_symlink_ptr_%out_flag
+
+L_PATH_IS_SYMLINK_END_%out_flag:
 [END_MACRO]
 
 [MACRO] PATH_STRIP_EXTENSION %out_slice, %path_slice
@@ -1084,6 +1327,117 @@ L_PATH_WITH_EXTENSION_NO_EXT_%out_slice:
     !__path_no_ext_%out_slice
 
 L_PATH_WITH_EXTENSION_END_%out_slice:
+[END_MACRO]
+
+[MACRO] PATH_WITH_ADDED_EXTENSION %out_slice, %path_slice, %extension_slice
+    __path_add_ext_len_%out_slice = load %extension_slice+Slice_len as u64
+    __path_add_ext_empty_%out_slice = eq __path_add_ext_len_%out_slice, 0
+    br __path_add_ext_empty_%out_slice -> L_PATH_ADD_EXTENSION_COPY_%out_slice, L_PATH_ADD_EXTENSION_JOIN_%out_slice
+
+L_PATH_ADD_EXTENSION_JOIN_%out_slice:
+    __path_add_dot_ptr_%out_slice = stack_alloc 1
+    store __path_add_dot_ptr_%out_slice+0, 46 as u8
+    __path_add_dot_slice_%out_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW __path_add_dot_slice_%out_slice, __path_add_dot_ptr_%out_slice, 1
+    EXPAND STR_CONCAT __path_add_dot_ext_%out_slice, __path_add_dot_slice_%out_slice, %extension_slice
+    EXPAND STR_CONCAT %out_slice, %path_slice, __path_add_dot_ext_%out_slice
+    !__path_add_dot_ext_%out_slice
+    !__path_add_dot_slice_%out_slice
+    !__path_add_ext_empty_%out_slice
+    !__path_add_ext_len_%out_slice
+    jmp L_PATH_ADD_EXTENSION_END_%out_slice
+
+L_PATH_ADD_EXTENSION_COPY_%out_slice:
+    __path_add_copy_len_%out_slice = load %path_slice+Slice_len as u64
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_add_copy_len_%out_slice
+    !__path_add_copy_len_%out_slice
+    !__path_add_ext_empty_%out_slice
+    !__path_add_ext_len_%out_slice
+
+L_PATH_ADD_EXTENSION_END_%out_slice:
+[END_MACRO]
+
+[MACRO] PATH_TRIM_TRAILING_SEPARATOR %out_slice, %path_slice
+    __path_trim_sep_len_%out_slice = load %path_slice+Slice_len as u64
+    __path_trim_sep_empty_%out_slice = eq __path_trim_sep_len_%out_slice, 0
+    br __path_trim_sep_empty_%out_slice -> L_PATH_TRIM_SEP_EMPTY_%out_slice, L_PATH_TRIM_SEP_INIT_%out_slice
+
+L_PATH_TRIM_SEP_INIT_%out_slice:
+    __path_trim_sep_end_slot_%out_slice = stack_alloc 8
+    store __path_trim_sep_end_slot_%out_slice+0, __path_trim_sep_len_%out_slice as u64
+    jmp L_PATH_TRIM_SEP_HEAD_%out_slice
+
+L_PATH_TRIM_SEP_HEAD_%out_slice:
+    __path_trim_sep_end_%out_slice = load __path_trim_sep_end_slot_%out_slice+0 as u64
+    __path_trim_sep_keep_root_%out_slice = ule __path_trim_sep_end_%out_slice, 1
+    br __path_trim_sep_keep_root_%out_slice -> L_PATH_TRIM_SEP_COPY_CURRENT_%out_slice, L_PATH_TRIM_SEP_CHECK_LAST_%out_slice
+
+L_PATH_TRIM_SEP_CHECK_LAST_%out_slice:
+    __path_trim_sep_ptr_%out_slice = load %path_slice+Slice_ptr as ptr
+    __path_trim_sep_prev_%out_slice = sub __path_trim_sep_end_%out_slice, 1
+    __path_trim_sep_last_ptr_%out_slice = ptr_add __path_trim_sep_ptr_%out_slice, __path_trim_sep_prev_%out_slice
+    __path_trim_sep_last_%out_slice = load __path_trim_sep_last_ptr_%out_slice+0 as u8
+    __path_trim_sep_is_sep_%out_slice = eq __path_trim_sep_last_%out_slice, 47
+    br __path_trim_sep_is_sep_%out_slice -> L_PATH_TRIM_SEP_DROP_%out_slice, L_PATH_TRIM_SEP_COPY_AFTER_CHECK_%out_slice
+
+L_PATH_TRIM_SEP_DROP_%out_slice:
+    store __path_trim_sep_end_slot_%out_slice+0, __path_trim_sep_prev_%out_slice as u64
+    !__path_trim_sep_is_sep_%out_slice
+    !__path_trim_sep_last_%out_slice
+    !__path_trim_sep_last_ptr_%out_slice
+    !__path_trim_sep_prev_%out_slice
+    !__path_trim_sep_ptr_%out_slice
+    !__path_trim_sep_keep_root_%out_slice
+    !__path_trim_sep_end_%out_slice
+    jmp L_PATH_TRIM_SEP_HEAD_%out_slice
+
+L_PATH_TRIM_SEP_COPY_AFTER_CHECK_%out_slice:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_trim_sep_end_%out_slice
+    !__path_trim_sep_is_sep_%out_slice
+    !__path_trim_sep_last_%out_slice
+    !__path_trim_sep_last_ptr_%out_slice
+    !__path_trim_sep_prev_%out_slice
+    !__path_trim_sep_ptr_%out_slice
+    !__path_trim_sep_keep_root_%out_slice
+    !__path_trim_sep_end_%out_slice
+    !__path_trim_sep_empty_%out_slice
+    !__path_trim_sep_len_%out_slice
+    jmp L_PATH_TRIM_SEP_END_%out_slice
+
+L_PATH_TRIM_SEP_COPY_CURRENT_%out_slice:
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_trim_sep_end_%out_slice
+    !__path_trim_sep_keep_root_%out_slice
+    !__path_trim_sep_end_%out_slice
+    !__path_trim_sep_empty_%out_slice
+    !__path_trim_sep_len_%out_slice
+    jmp L_PATH_TRIM_SEP_END_%out_slice
+
+L_PATH_TRIM_SEP_EMPTY_%out_slice:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    !__path_trim_sep_empty_%out_slice
+    !__path_trim_sep_len_%out_slice
+
+L_PATH_TRIM_SEP_END_%out_slice:
+[END_MACRO]
+
+[MACRO] PATH_WITH_TRAILING_SEPARATOR %out_slice, %path_slice
+    EXPAND PATH_ENDS_WITH_SEPARATOR __path_with_sep_has_%out_slice, %path_slice
+    br __path_with_sep_has_%out_slice -> L_PATH_WITH_SEP_COPY_%out_slice, L_PATH_WITH_SEP_APPEND_%out_slice
+
+L_PATH_WITH_SEP_APPEND_%out_slice:
+    EXPAND STR_FROM_PARTS __path_with_sep_sep_slice_%out_slice, &PATH_SEPARATOR, 1
+    EXPAND STR_CONCAT %out_slice, %path_slice, __path_with_sep_sep_slice_%out_slice
+    !__path_with_sep_sep_slice_%out_slice
+    !__path_with_sep_has_%out_slice
+    jmp L_PATH_WITH_SEP_END_%out_slice
+
+L_PATH_WITH_SEP_COPY_%out_slice:
+    __path_with_sep_len_%out_slice = load %path_slice+Slice_len as u64
+    EXPAND STR_SLICE %out_slice, %path_slice, 0, __path_with_sep_len_%out_slice
+    !__path_with_sep_len_%out_slice
+    !__path_with_sep_has_%out_slice
+
+L_PATH_WITH_SEP_END_%out_slice:
 [END_MACRO]
 
 [MACRO] PATH_COMPONENT_COUNT %out_count, %path_slice

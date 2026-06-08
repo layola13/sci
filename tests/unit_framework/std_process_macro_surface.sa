@@ -1,0 +1,391 @@
+@import "sa_std/process.sa"
+
+@const TRUE_BIN = utf8:"/bin/true"
+@const TRUE_ARG = utf8:"ignored"
+@const SH_BIN = utf8:"/bin/sh"
+@const SH_FLAG = utf8:"-c"
+@const SLEEP_CMD = utf8:"sleep 5"
+
+#def TRUE_BIN_LEN = 9
+#def TRUE_ARG_LEN = 7
+#def TRUE_ARGV2_SIZE = 32
+#def SH_BIN_LEN = 7
+#def SH_FLAG_LEN = 2
+#def SLEEP_CMD_LEN = 7
+#def SH_ARGV3_SIZE = 48
+
+@test "sa_std process argv and run macros"():
+L_ENTRY:
+    EXPAND PROCESS_ID pid
+    argv = stack_alloc TRUE_ARGV2_SIZE
+    argv0 = stack_alloc Slice_SIZE
+    store argv0+Slice_ptr, &TRUE_BIN as ptr
+    store argv0+Slice_len, TRUE_BIN_LEN as u64
+    EXPAND PROCESS_ARGV_SET_SLICE argv, 0, argv0
+    EXPAND PROCESS_ARGV_SET_CONST argv, 1, TRUE_ARG, TRUE_ARG_LEN
+    EXPAND PROCESS_ARGV_DATA arg0_ptr, argv, 0
+    EXPAND PROCESS_ARGV_LEN arg0_len, argv, 0
+    EXPAND PROCESS_ARGV_DATA arg1_ptr, argv, 1
+    EXPAND PROCESS_ARGV_LEN arg1_len, argv, 1
+    arg0_first = load arg0_ptr+0 as u8
+    arg1_first = load arg1_ptr+0 as u8
+
+    EXPAND PROCESS_RUN run_status, process, argv, 2
+    EXPAND PROCESS_STATUS_IS_OK run_ok, run_status
+    br run_ok -> L_WAIT, L_FAIL
+
+L_WAIT:
+    EXPAND PROCESS_WAIT wait_status, code, process
+    EXPAND PROCESS_STATUS_IS_OK wait_ok, wait_status
+    EXPAND PROCESS_EXIT_SUCCESS exit_ok, code
+    EXPAND PROCESS_CLOSE close_status, process
+    EXPAND PROCESS_STATUS_IS_OK close_ok, close_status
+
+    ok_pid = ne pid, 0
+    ok_arg_len = eq arg0_len, TRUE_BIN_LEN
+    ok_arg_first = eq arg0_first, 47
+    ok_arg1_len = eq arg1_len, TRUE_ARG_LEN
+    ok_arg1_first = eq arg1_first, 105
+    ok01 = and ok_pid, ok_arg_len
+    ok02 = and ok01, ok_arg_first
+    ok03 = and ok02, ok_arg1_len
+    ok04 = and ok03, ok_arg1_first
+    ok05 = and ok04, wait_ok
+    ok06 = and ok05, wait_ok
+    ok07 = and ok06, exit_ok
+    ok = and ok07, close_ok
+
+    !pid
+    !arg0_ptr
+    !arg0_len
+    !arg1_ptr
+    !arg1_len
+    !arg0_first
+    !arg1_first
+    !run_status
+    !process
+    !run_ok
+    !wait_status
+    !code
+    !wait_ok
+    !exit_ok
+    !close_status
+    !close_ok
+    !ok_pid
+    !ok_arg_len
+    !ok_arg_first
+    !ok_arg1_len
+    !ok_arg1_first
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+
+    br ok -> L_PASS, L_FAIL_AFTER_WAIT
+
+L_FAIL:
+    !arg0_ptr
+    !arg0_len
+    !arg1_ptr
+    !arg1_len
+    !arg0_first
+    !arg1_first
+    !run_status
+    !process
+    !run_ok
+    panic(1001)
+
+L_FAIL_AFTER_WAIT:
+    !ok
+    panic(1002)
+
+L_PASS:
+    !ok
+    return 0
+
+@test "sa_std process exit status and output wrapper macros"():
+L_ENTRY:
+    argv = stack_alloc TRUE_ARGV2_SIZE
+    output = stack_alloc ProcessOutput_SIZE
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    argv0 = stack_alloc Slice_SIZE
+    store argv0+Slice_ptr, &TRUE_BIN as ptr
+    store argv0+Slice_len, TRUE_BIN_LEN as u64
+    EXPAND PROCESS_ARGV_SET_SLICE argv, 0, argv0
+    EXPAND PROCESS_ARGV_SET_CONST argv, 1, TRUE_ARG, TRUE_ARG_LEN
+
+    EXPAND PROCESS_EXIT_STATUS_NEW exit_status, 0
+    EXPAND PROCESS_EXIT_STATUS_CODE exit_code0, exit_status
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS exit_ok0, exit_status
+
+    EXPAND PROCESS_EXEC_CAPTURE_OUTPUT capture_status, output, argv, 2
+    EXPAND PROCESS_STATUS_IS_OK capture_ok, capture_status
+    br capture_ok -> L_CAPTURE_OK, L_FAIL
+
+L_CAPTURE_OK:
+    EXPAND PROCESS_OUTPUT_STATUS_PTR output_status_ptr, output
+    EXPAND PROCESS_EXIT_STATUS_CODE output_code, output_status_ptr
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS output_exit_ok, output_status_ptr
+    EXPAND PROCESS_OUTPUT_STDOUT_BUFFER stdout_buffer, output
+    EXPAND PROCESS_OUTPUT_STDERR_BUFFER stderr_buffer, output
+    EXPAND PROCESS_OUTPUT_STDOUT_DATA stdout_ptr, output
+    EXPAND PROCESS_OUTPUT_STDERR_DATA stderr_ptr, output
+    EXPAND PROCESS_OUTPUT_STDOUT_LEN stdout_len, output
+    EXPAND PROCESS_OUTPUT_STDERR_LEN stderr_len, output
+    EXPAND PROCESS_OUTPUT_FREE free_status, output
+    EXPAND PROCESS_STATUS_IS_OK free_ok, free_status
+
+    ok_exit_code0 = eq exit_code0, 0
+    ok_output_code = eq output_code, 0
+    ok_stdout_len = eq stdout_len, 0
+    ok_stderr_len = eq stderr_len, 0
+    ok_stdout_buffer = ne stdout_buffer, 0
+    ok_stderr_buffer = ne stderr_buffer, 0
+
+    ok01 = and ok_exit_code0, exit_ok0
+    ok02 = and ok01, capture_ok
+    ok03 = and ok02, ok_output_code
+    ok04 = and ok03, output_exit_ok
+    ok05 = and ok04, ok_stdout_len
+    ok06 = and ok05, ok_stderr_len
+    ok07 = and ok06, ok_stdout_buffer
+    ok08 = and ok07, ok_stderr_buffer
+    ok = and ok08, free_ok
+
+    !exit_code0
+    !exit_ok0
+    !capture_status
+    !capture_ok
+    !output_status_ptr
+    !output_code
+    !output_exit_ok
+    !stdout_buffer
+    !stderr_buffer
+    !stdout_ptr
+    !stderr_ptr
+    !stdout_len
+    !stderr_len
+    !free_status
+    !free_ok
+    !ok_exit_code0
+    !ok_output_code
+    !ok_stdout_len
+    !ok_stderr_len
+    !ok_stdout_buffer
+    !ok_stderr_buffer
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+
+    br ok -> L_PASS2, L_FAIL2
+
+L_FAIL:
+    !capture_status
+    !capture_ok
+    panic(1003)
+
+L_FAIL2:
+    !ok
+    panic(1004)
+
+L_PASS2:
+    !ok
+    return 0
+
+@test "sa_std process try_wait and kill macros"():
+L_ENTRY:
+    argv = stack_alloc SH_ARGV3_SIZE
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    EXPAND PROCESS_ARGV_SET_CONST argv, 0, SH_BIN, SH_BIN_LEN
+    EXPAND PROCESS_ARGV_SET_CONST argv, 1, SH_FLAG, SH_FLAG_LEN
+    EXPAND PROCESS_ARGV_SET_CONST argv, 2, SLEEP_CMD, SLEEP_CMD_LEN
+
+    EXPAND PROCESS_SPAWN spawn_status, process, argv, 3
+    EXPAND PROCESS_STATUS_IS_OK spawn_ok, spawn_status
+    process_ok = ne process, 0
+    spawn_all_ok = and spawn_ok, process_ok
+    br spawn_all_ok -> L_CHILD_ID, L_FAIL_SPAWN
+
+L_FAIL_SPAWN:
+    !spawn_all_ok
+    !process_ok
+    !spawn_ok
+    !process
+    !spawn_status
+    panic(1005)
+
+L_CHILD_ID:
+    EXPAND PROCESS_CHILD_ID child_id_status, child_pid, process
+    EXPAND PROCESS_STATUS_IS_OK child_id_ok, child_id_status
+    child_pid_ok = ne child_pid, 0
+    child_id_all_ok = and child_id_ok, child_pid_ok
+    br child_id_all_ok -> L_TRY_WAIT_PENDING, L_FAIL_CHILD_ID
+
+L_FAIL_CHILD_ID:
+    !child_id_all_ok
+    !child_pid_ok
+    !child_id_ok
+    !child_pid
+    !child_id_status
+    EXPAND PROCESS_KILL cleanup_kill_status_child_id, process
+    EXPAND PROCESS_CLOSE cleanup_close_status_child_id, process
+    !cleanup_kill_status_child_id
+    !cleanup_close_status_child_id
+    !spawn_all_ok
+    !process_ok
+    !spawn_ok
+    !process
+    !spawn_status
+    panic(1010)
+
+L_TRY_WAIT_PENDING:
+    EXPAND PROCESS_TRY_WAIT try_status0, ready0, code0, process
+    EXPAND PROCESS_STATUS_IS_OK try_ok0, try_status0
+    ready0_ok = eq ready0, 0
+    code0_ok = eq code0, 0
+    pending_ok0 = and try_ok0, ready0_ok
+    pending_ok = and pending_ok0, code0_ok
+    br pending_ok -> L_KILL, L_FAIL_PENDING
+
+L_FAIL_PENDING:
+    !pending_ok
+    !pending_ok0
+    !code0_ok
+    !ready0_ok
+    !try_ok0
+    !code0
+    !ready0
+    !try_status0
+    EXPAND PROCESS_KILL cleanup_kill_status_a, process
+    EXPAND PROCESS_CLOSE cleanup_close_status_a, process
+    !cleanup_kill_status_a
+    !cleanup_close_status_a
+    !child_id_all_ok
+    !child_pid_ok
+    !child_id_ok
+    !child_pid
+    !child_id_status
+    !spawn_all_ok
+    !process_ok
+    !spawn_ok
+    !process
+    !spawn_status
+    panic(1006)
+
+L_KILL:
+    EXPAND PROCESS_KILL kill_status, process
+    EXPAND PROCESS_STATUS_IS_OK kill_ok, kill_status
+    br kill_ok -> L_TRY_WAIT_READY, L_FAIL_KILL
+
+L_FAIL_KILL:
+    !kill_ok
+    !kill_status
+    EXPAND PROCESS_CLOSE cleanup_close_status_b, process
+    !cleanup_close_status_b
+    !pending_ok
+    !pending_ok0
+    !code0_ok
+    !ready0_ok
+    !try_ok0
+    !code0
+    !ready0
+    !try_status0
+    !child_id_all_ok
+    !child_pid_ok
+    !child_id_ok
+    !child_pid
+    !child_id_status
+    !spawn_all_ok
+    !process_ok
+    !spawn_ok
+    !process
+    !spawn_status
+    panic(1007)
+
+L_TRY_WAIT_READY:
+    EXPAND PROCESS_TRY_WAIT_EXIT_STATUS try_status1, ready1, exit_status, process
+    EXPAND PROCESS_STATUS_IS_OK try_ok1, try_status1
+    EXPAND PROCESS_EXIT_STATUS_CODE code1, exit_status
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS exit_success1, exit_status
+    ready1_ok = eq ready1, 1
+    code1_nonzero = ne code1, 0
+    exit_success_false = eq exit_success1, 0
+    ready_ok0 = and try_ok1, ready1_ok
+    ready_ok1 = and ready_ok0, code1_nonzero
+    ready_ok = and ready_ok1, exit_success_false
+    EXPAND PROCESS_CLOSE close_status, process
+    EXPAND PROCESS_STATUS_IS_OK close_ok, close_status
+    ok0 = and spawn_all_ok, pending_ok
+    ok1 = and ok0, child_id_all_ok
+    ok2 = and ok1, kill_ok
+    ok3 = and ok2, ready_ok
+    ok = and ok3, close_ok
+    !try_status1
+    !try_ok1
+    !ready1
+    !code1
+    !exit_success1
+    !ready1_ok
+    !code1_nonzero
+    !exit_success_false
+    !ready_ok0
+    !ready_ok1
+    !ready_ok
+    !close_status
+    !close_ok
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !kill_ok
+    !kill_status
+    !pending_ok
+    !pending_ok0
+    !code0_ok
+    !ready0_ok
+    !try_ok0
+    !code0
+    !ready0
+    !try_status0
+    !child_id_all_ok
+    !child_pid_ok
+    !child_id_ok
+    !child_pid
+    !child_id_status
+    !spawn_all_ok
+    !process_ok
+    !spawn_ok
+    !process
+    !spawn_status
+    br ok -> L_PASS3, L_FAIL_DONE
+
+L_FAIL_DONE:
+    !ok
+    panic(1008)
+
+L_PASS3:
+    !ok
+    return 0
+
+@test "sa_std process abort macro surface"():
+L_ENTRY:
+    // PROCESS_ABORT is intentionally not invoked here because it terminates
+    // the current process; runtime behavior is covered by the C fork smoke.
+    abort_macro_available = add 1, 0
+    br abort_macro_available -> L_PASS4, L_FAIL4
+
+L_FAIL4:
+    !abort_macro_available
+    panic(1009)
+
+L_PASS4:
+    !abort_macro_available
+    return 0

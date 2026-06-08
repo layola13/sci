@@ -9,3 +9,11 @@
 #def SaProcessArgv_SIZE = 16
 #def SaProcessArgv_data = +0
 #def SaProcessArgv_len = +8
+
+#def ProcessExitStatus_SIZE = 4
+#def ProcessExitStatus_code = +0
+
+#def ProcessOutput_SIZE = 24
+#def ProcessOutput_status = +0
+#def ProcessOutput_stdout = +8
+#def ProcessOutput_stderr = +16

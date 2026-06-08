@@ -1,0 +1,9 @@
+#def CMP_ORDERING_LESS = -1
+#def CMP_ORDERING_EQUAL = 0
+#def CMP_ORDERING_GREATER = 1
+
+#def CmpReverseU64_SIZE = 8
+#def CmpReverseU64_value = +0
+
+#def CmpReverseI64_SIZE = 8
+#def CmpReverseI64_value = +0

@@ -1,0 +1,300 @@
+@import "ffi.sal"
+@import "core/slice.sa"
+
+[MACRO] CSTR_FROM_PARTS_UNCHECKED %cstr_reg, %ptr_reg, %len_with_nul
+    EXPAND SLICE_NEW %cstr_reg, %ptr_reg, %len_with_nul
+[END_MACRO]
+
+[MACRO] CSTR_FROM_PTR %cstr_reg, %ptr_reg
+    EXPAND CSTR_LEN __cstr_from_ptr_len_%cstr_reg, %ptr_reg
+    __cstr_from_ptr_len_nul_%cstr_reg = add __cstr_from_ptr_len_%cstr_reg, 1
+    EXPAND SLICE_NEW %cstr_reg, %ptr_reg, __cstr_from_ptr_len_nul_%cstr_reg
+    !__cstr_from_ptr_len_nul_%cstr_reg
+    !__cstr_from_ptr_len_%cstr_reg
+[END_MACRO]
+
+[MACRO] CSTR_LEN %out_len, %ptr_reg
+    __cstr_len_slot_%out_len = stack_alloc 8
+    store __cstr_len_slot_%out_len+0, 0 as u64
+    jmp L_CSTR_LEN_HEAD_%out_len
+
+L_CSTR_LEN_HEAD_%out_len:
+    __cstr_len_i_%out_len = load __cstr_len_slot_%out_len+0 as u64
+    __cstr_len_p_%out_len = ptr_add %ptr_reg, __cstr_len_i_%out_len
+    __cstr_len_b_%out_len = load __cstr_len_p_%out_len+0 as u8
+    __cstr_len_done_%out_len = eq __cstr_len_b_%out_len, 0
+    br __cstr_len_done_%out_len -> L_CSTR_LEN_DONE_%out_len, L_CSTR_LEN_NEXT_%out_len
+
+L_CSTR_LEN_NEXT_%out_len:
+    __cstr_len_next_%out_len = add __cstr_len_i_%out_len, 1
+    store __cstr_len_slot_%out_len+0, __cstr_len_next_%out_len as u64
+    !__cstr_len_next_%out_len
+    !__cstr_len_done_%out_len
+    !__cstr_len_b_%out_len
+    !__cstr_len_p_%out_len
+    !__cstr_len_i_%out_len
+    jmp L_CSTR_LEN_HEAD_%out_len
+
+L_CSTR_LEN_DONE_%out_len:
+    %out_len = load __cstr_len_slot_%out_len+0 as u64
+    !__cstr_len_done_%out_len
+    !__cstr_len_b_%out_len
+    !__cstr_len_p_%out_len
+    !__cstr_len_i_%out_len
+[END_MACRO]
+
+[MACRO] CSTR_FROM_BYTES_WITH_NUL %out_status, %cstr_reg, %slice_reg
+    __cstr_bytes_ptr_%out_status = load %slice_reg+Slice_ptr as ptr
+    __cstr_bytes_len_%out_status = load %slice_reg+Slice_len as u64
+    __cstr_bytes_empty_%out_status = eq __cstr_bytes_len_%out_status, 0
+    br __cstr_bytes_empty_%out_status -> L_CSTR_BYTES_NOT_TERM_%out_status, L_CSTR_BYTES_SCAN_INIT_%out_status
+
+L_CSTR_BYTES_SCAN_INIT_%out_status:
+    __cstr_bytes_idx_slot_%out_status = stack_alloc 8
+    store __cstr_bytes_idx_slot_%out_status+0, 0 as u64
+    jmp L_CSTR_BYTES_SCAN_HEAD_%out_status
+
+L_CSTR_BYTES_SCAN_HEAD_%out_status:
+    __cstr_bytes_idx_%out_status = load __cstr_bytes_idx_slot_%out_status+0 as u64
+    __cstr_bytes_done_scan_%out_status = eq __cstr_bytes_idx_%out_status, __cstr_bytes_len_%out_status
+    br __cstr_bytes_done_scan_%out_status -> L_CSTR_BYTES_NOT_TERM_SCAN_%out_status, L_CSTR_BYTES_SCAN_BODY_%out_status
+
+L_CSTR_BYTES_SCAN_BODY_%out_status:
+    __cstr_bytes_p_%out_status = ptr_add __cstr_bytes_ptr_%out_status, __cstr_bytes_idx_%out_status
+    __cstr_bytes_b_%out_status = load __cstr_bytes_p_%out_status+0 as u8
+    __cstr_bytes_is_nul_%out_status = eq __cstr_bytes_b_%out_status, 0
+    br __cstr_bytes_is_nul_%out_status -> L_CSTR_BYTES_FOUND_NUL_%out_status, L_CSTR_BYTES_SCAN_NEXT_%out_status
+
+L_CSTR_BYTES_SCAN_NEXT_%out_status:
+    __cstr_bytes_next_%out_status = add __cstr_bytes_idx_%out_status, 1
+    store __cstr_bytes_idx_slot_%out_status+0, __cstr_bytes_next_%out_status as u64
+    !__cstr_bytes_next_%out_status
+    !__cstr_bytes_is_nul_%out_status
+    !__cstr_bytes_b_%out_status
+    !__cstr_bytes_p_%out_status
+    !__cstr_bytes_done_scan_%out_status
+    !__cstr_bytes_idx_%out_status
+    jmp L_CSTR_BYTES_SCAN_HEAD_%out_status
+
+L_CSTR_BYTES_FOUND_NUL_%out_status:
+    __cstr_bytes_last_index_%out_status = sub __cstr_bytes_len_%out_status, 1
+    __cstr_bytes_at_end_%out_status = eq __cstr_bytes_idx_%out_status, __cstr_bytes_last_index_%out_status
+    br __cstr_bytes_at_end_%out_status -> L_CSTR_BYTES_OK_%out_status, L_CSTR_BYTES_INTERIOR_%out_status
+
+L_CSTR_BYTES_OK_%out_status:
+    EXPAND SLICE_NEW %cstr_reg, __cstr_bytes_ptr_%out_status, __cstr_bytes_len_%out_status
+    %out_status = add 0, CSTR_FROM_BYTES_OK
+    !__cstr_bytes_at_end_%out_status
+    !__cstr_bytes_last_index_%out_status
+    !__cstr_bytes_is_nul_%out_status
+    !__cstr_bytes_b_%out_status
+    !__cstr_bytes_p_%out_status
+    !__cstr_bytes_done_scan_%out_status
+    !__cstr_bytes_idx_%out_status
+    !__cstr_bytes_empty_%out_status
+    !__cstr_bytes_len_%out_status
+    !__cstr_bytes_ptr_%out_status
+    jmp L_CSTR_BYTES_END_%out_status
+
+L_CSTR_BYTES_INTERIOR_%out_status:
+    %out_status = add 0, CSTR_FROM_BYTES_INTERIOR_NUL
+    __cstr_bytes_null_%out_status = 0 as ptr
+    EXPAND SLICE_NEW %cstr_reg, __cstr_bytes_null_%out_status, 0
+    !__cstr_bytes_null_%out_status
+    !__cstr_bytes_at_end_%out_status
+    !__cstr_bytes_last_index_%out_status
+    !__cstr_bytes_is_nul_%out_status
+    !__cstr_bytes_b_%out_status
+    !__cstr_bytes_p_%out_status
+    !__cstr_bytes_done_scan_%out_status
+    !__cstr_bytes_idx_%out_status
+    !__cstr_bytes_empty_%out_status
+    !__cstr_bytes_len_%out_status
+    !__cstr_bytes_ptr_%out_status
+    jmp L_CSTR_BYTES_END_%out_status
+
+L_CSTR_BYTES_NOT_TERM_SCAN_%out_status:
+    !__cstr_bytes_done_scan_%out_status
+    !__cstr_bytes_idx_%out_status
+    jmp L_CSTR_BYTES_NOT_TERM_%out_status
+
+L_CSTR_BYTES_NOT_TERM_%out_status:
+    %out_status = add 0, CSTR_FROM_BYTES_NOT_NUL_TERMINATED
+    __cstr_bytes_null2_%out_status = 0 as ptr
+    EXPAND SLICE_NEW %cstr_reg, __cstr_bytes_null2_%out_status, 0
+    !__cstr_bytes_null2_%out_status
+    !__cstr_bytes_empty_%out_status
+    !__cstr_bytes_len_%out_status
+    !__cstr_bytes_ptr_%out_status
+
+L_CSTR_BYTES_END_%out_status:
+[END_MACRO]
+
+[MACRO] CSTR_VALIDATE_WITH_NUL_DETAIL %out_status, %out_pos, %slice_reg
+    __cstr_detail_ptr_%out_status = load %slice_reg+Slice_ptr as ptr
+    __cstr_detail_len_%out_status = load %slice_reg+Slice_len as u64
+    __cstr_detail_empty_%out_status = eq __cstr_detail_len_%out_status, 0
+    br __cstr_detail_empty_%out_status -> L_CSTR_DETAIL_NOT_TERM_%out_status, L_CSTR_DETAIL_SCAN_INIT_%out_status
+
+L_CSTR_DETAIL_SCAN_INIT_%out_status:
+    __cstr_detail_idx_slot_%out_status = stack_alloc 8
+    store __cstr_detail_idx_slot_%out_status+0, 0 as u64
+    jmp L_CSTR_DETAIL_SCAN_HEAD_%out_status
+
+L_CSTR_DETAIL_SCAN_HEAD_%out_status:
+    __cstr_detail_idx_%out_status = load __cstr_detail_idx_slot_%out_status+0 as u64
+    __cstr_detail_done_scan_%out_status = eq __cstr_detail_idx_%out_status, __cstr_detail_len_%out_status
+    br __cstr_detail_done_scan_%out_status -> L_CSTR_DETAIL_NOT_TERM_SCAN_%out_status, L_CSTR_DETAIL_SCAN_BODY_%out_status
+
+L_CSTR_DETAIL_SCAN_BODY_%out_status:
+    __cstr_detail_p_%out_status = ptr_add __cstr_detail_ptr_%out_status, __cstr_detail_idx_%out_status
+    __cstr_detail_b_%out_status = load __cstr_detail_p_%out_status+0 as u8
+    __cstr_detail_is_nul_%out_status = eq __cstr_detail_b_%out_status, 0
+    br __cstr_detail_is_nul_%out_status -> L_CSTR_DETAIL_FOUND_NUL_%out_status, L_CSTR_DETAIL_SCAN_NEXT_%out_status
+
+L_CSTR_DETAIL_SCAN_NEXT_%out_status:
+    __cstr_detail_next_%out_status = add __cstr_detail_idx_%out_status, 1
+    store __cstr_detail_idx_slot_%out_status+0, __cstr_detail_next_%out_status as u64
+    !__cstr_detail_next_%out_status
+    !__cstr_detail_is_nul_%out_status
+    !__cstr_detail_b_%out_status
+    !__cstr_detail_p_%out_status
+    !__cstr_detail_done_scan_%out_status
+    !__cstr_detail_idx_%out_status
+    jmp L_CSTR_DETAIL_SCAN_HEAD_%out_status
+
+L_CSTR_DETAIL_FOUND_NUL_%out_status:
+    __cstr_detail_last_index_%out_status = sub __cstr_detail_len_%out_status, 1
+    __cstr_detail_at_end_%out_status = eq __cstr_detail_idx_%out_status, __cstr_detail_last_index_%out_status
+    br __cstr_detail_at_end_%out_status -> L_CSTR_DETAIL_OK_%out_status, L_CSTR_DETAIL_INTERIOR_%out_status
+
+L_CSTR_DETAIL_OK_%out_status:
+    %out_status = add 0, CSTR_FROM_BYTES_OK
+    %out_pos = add 0, CSTR_ERROR_POS_NONE
+    !__cstr_detail_at_end_%out_status
+    !__cstr_detail_last_index_%out_status
+    !__cstr_detail_is_nul_%out_status
+    !__cstr_detail_b_%out_status
+    !__cstr_detail_p_%out_status
+    !__cstr_detail_done_scan_%out_status
+    !__cstr_detail_idx_%out_status
+    !__cstr_detail_empty_%out_status
+    !__cstr_detail_len_%out_status
+    !__cstr_detail_ptr_%out_status
+    jmp L_CSTR_DETAIL_END_%out_status
+
+L_CSTR_DETAIL_INTERIOR_%out_status:
+    %out_status = add 0, CSTR_FROM_BYTES_INTERIOR_NUL
+    %out_pos = add 0, __cstr_detail_idx_%out_status
+    !__cstr_detail_at_end_%out_status
+    !__cstr_detail_last_index_%out_status
+    !__cstr_detail_is_nul_%out_status
+    !__cstr_detail_b_%out_status
+    !__cstr_detail_p_%out_status
+    !__cstr_detail_done_scan_%out_status
+    !__cstr_detail_idx_%out_status
+    !__cstr_detail_empty_%out_status
+    !__cstr_detail_len_%out_status
+    !__cstr_detail_ptr_%out_status
+    jmp L_CSTR_DETAIL_END_%out_status
+
+L_CSTR_DETAIL_NOT_TERM_SCAN_%out_status:
+    !__cstr_detail_done_scan_%out_status
+    !__cstr_detail_idx_%out_status
+    jmp L_CSTR_DETAIL_NOT_TERM_%out_status
+
+L_CSTR_DETAIL_NOT_TERM_%out_status:
+    %out_status = add 0, CSTR_FROM_BYTES_NOT_NUL_TERMINATED
+    %out_pos = add 0, __cstr_detail_len_%out_status
+    !__cstr_detail_empty_%out_status
+    !__cstr_detail_len_%out_status
+    !__cstr_detail_ptr_%out_status
+
+L_CSTR_DETAIL_END_%out_status:
+[END_MACRO]
+
+[MACRO] CSTR_FROM_BYTES_UNTIL_NUL %out_ok, %cstr_reg, %slice_reg
+    __cstr_until_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __cstr_until_len_%out_ok = load %slice_reg+Slice_len as u64
+    __cstr_until_idx_slot_%out_ok = stack_alloc 8
+    store __cstr_until_idx_slot_%out_ok+0, 0 as u64
+    jmp L_CSTR_UNTIL_HEAD_%out_ok
+
+L_CSTR_UNTIL_HEAD_%out_ok:
+    __cstr_until_idx_%out_ok = load __cstr_until_idx_slot_%out_ok+0 as u64
+    __cstr_until_done_%out_ok = eq __cstr_until_idx_%out_ok, __cstr_until_len_%out_ok
+    br __cstr_until_done_%out_ok -> L_CSTR_UNTIL_MISS_%out_ok, L_CSTR_UNTIL_BODY_%out_ok
+
+L_CSTR_UNTIL_BODY_%out_ok:
+    __cstr_until_p_%out_ok = ptr_add __cstr_until_ptr_%out_ok, __cstr_until_idx_%out_ok
+    __cstr_until_b_%out_ok = load __cstr_until_p_%out_ok+0 as u8
+    __cstr_until_nul_%out_ok = eq __cstr_until_b_%out_ok, 0
+    br __cstr_until_nul_%out_ok -> L_CSTR_UNTIL_HIT_%out_ok, L_CSTR_UNTIL_NEXT_%out_ok
+
+L_CSTR_UNTIL_NEXT_%out_ok:
+    __cstr_until_next_%out_ok = add __cstr_until_idx_%out_ok, 1
+    store __cstr_until_idx_slot_%out_ok+0, __cstr_until_next_%out_ok as u64
+    !__cstr_until_next_%out_ok
+    !__cstr_until_nul_%out_ok
+    !__cstr_until_b_%out_ok
+    !__cstr_until_p_%out_ok
+    !__cstr_until_done_%out_ok
+    !__cstr_until_idx_%out_ok
+    jmp L_CSTR_UNTIL_HEAD_%out_ok
+
+L_CSTR_UNTIL_HIT_%out_ok:
+    __cstr_until_view_len_%out_ok = add __cstr_until_idx_%out_ok, 1
+    EXPAND SLICE_NEW %cstr_reg, __cstr_until_ptr_%out_ok, __cstr_until_view_len_%out_ok
+    %out_ok = add 0, 1
+    !__cstr_until_view_len_%out_ok
+    !__cstr_until_nul_%out_ok
+    !__cstr_until_b_%out_ok
+    !__cstr_until_p_%out_ok
+    !__cstr_until_done_%out_ok
+    !__cstr_until_idx_%out_ok
+    !__cstr_until_len_%out_ok
+    !__cstr_until_ptr_%out_ok
+    jmp L_CSTR_UNTIL_END_%out_ok
+
+L_CSTR_UNTIL_MISS_%out_ok:
+    __cstr_until_null_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %cstr_reg, __cstr_until_null_%out_ok, 0
+    %out_ok = add 0, 0
+    !__cstr_until_null_%out_ok
+    !__cstr_until_done_%out_ok
+    !__cstr_until_idx_%out_ok
+    !__cstr_until_len_%out_ok
+    !__cstr_until_ptr_%out_ok
+
+L_CSTR_UNTIL_END_%out_ok:
+[END_MACRO]
+
+[MACRO] CSTR_COUNT_BYTES %out_len, %cstr_reg
+    __cstr_count_len_%out_len = load %cstr_reg+CStr_len as u64
+    %out_len = sub __cstr_count_len_%out_len, 1
+    !__cstr_count_len_%out_len
+[END_MACRO]
+
+[MACRO] CSTR_IS_EMPTY %out_bool, %cstr_reg
+    EXPAND CSTR_COUNT_BYTES __cstr_empty_len_%out_bool, %cstr_reg
+    %out_bool = eq __cstr_empty_len_%out_bool, 0
+    !__cstr_empty_len_%out_bool
+[END_MACRO]
+
+[MACRO] CSTR_TO_BYTES_WITH_NUL %out_slice, %cstr_reg
+    __cstr_bytes_ptr_%out_slice = load %cstr_reg+CStr_ptr as ptr
+    __cstr_bytes_len_%out_slice = load %cstr_reg+CStr_len as u64
+    EXPAND SLICE_NEW %out_slice, __cstr_bytes_ptr_%out_slice, __cstr_bytes_len_%out_slice
+    !__cstr_bytes_len_%out_slice
+    !__cstr_bytes_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] CSTR_TO_BYTES %out_slice, %cstr_reg
+    __cstr_no_nul_ptr_%out_slice = load %cstr_reg+CStr_ptr as ptr
+    __cstr_no_nul_len_with_%out_slice = load %cstr_reg+CStr_len as u64
+    __cstr_no_nul_len_%out_slice = sub __cstr_no_nul_len_with_%out_slice, 1
+    EXPAND SLICE_NEW %out_slice, __cstr_no_nul_ptr_%out_slice, __cstr_no_nul_len_%out_slice
+    !__cstr_no_nul_len_%out_slice
+    !__cstr_no_nul_len_with_%out_slice
+    !__cstr_no_nul_ptr_%out_slice
+[END_MACRO]

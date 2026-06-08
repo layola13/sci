@@ -13,7 +13,37 @@
 #def SA_IO_SEEK_CURRENT = 1
 #def SA_IO_SEEK_END = 2
 
+#def IO_ERROR_KIND_OTHER = 0
+#def IO_ERROR_KIND_UNEXPECTED_EOF = 1
+#def IO_ERROR_KIND_WOULD_BLOCK = 2
+#def IO_ERROR_KIND_INTERRUPTED = 3
+#def IO_ERROR_KIND_INVALID_INPUT = 4
+#def IO_ERROR_KIND_WRITE_ZERO = 5
+
 #def SaIoBuffer_SIZE = 24
 #def SaIoBuffer_ptr = +0
 #def SaIoBuffer_len = +8
 #def SaIoBuffer_cap = +16
+
+#def IoSlice_SIZE = 16
+#def IoSlice_ptr = +0
+#def IoSlice_len = +8
+
+#def IoSliceMut_SIZE = 16
+#def IoSliceMut_ptr = +0
+#def IoSliceMut_len = +8
+
+#def IoCursor_SIZE = 24
+#def IoCursor_ptr = +0
+#def IoCursor_len = +8
+#def IoCursor_pos = +16
+
+#def IoEmpty_SIZE = 0
+#def IoSink_SIZE = 0
+
+#def IoRepeat_SIZE = 8
+#def IoRepeat_byte = +0
+
+#def IoTake_SIZE = 16
+#def IoTake_cursor = +0
+#def IoTake_limit = +8

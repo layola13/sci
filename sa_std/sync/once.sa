@@ -79,6 +79,22 @@ L_ONCE_TRY_READY:
     !__once_state
 [END_MACRO]
 
+[MACRO] ONCE_STATE %out_state, %once_reg
+    %out_state = atomic_load %once_reg+Once_state as u32 acquire
+[END_MACRO]
+
+[MACRO] ONCE_IS_UNINIT %out_bool, %once_reg
+    __once_uninit_state_%out_bool = atomic_load %once_reg+Once_state as u32 acquire
+    %out_bool = eq __once_uninit_state_%out_bool, Once_STATE_UNINIT
+    !__once_uninit_state_%out_bool
+[END_MACRO]
+
+[MACRO] ONCE_IS_RUNNING %out_bool, %once_reg
+    __once_running_state_%out_bool = atomic_load %once_reg+Once_state as u32 acquire
+    %out_bool = eq __once_running_state_%out_bool, Once_STATE_RUNNING
+    !__once_running_state_%out_bool
+[END_MACRO]
+
 [MACRO] ONCE_TRY_CLAIM %out_owned, %once_reg
     __once_owned = call @__once_try_claim(&%once_reg)
     %out_owned = __once_owned
@@ -94,9 +110,125 @@ L_ONCE_TRY_READY:
     atomic_store %once_reg+Once_state, Once_STATE_READY as u32 release
 [END_MACRO]
 
+[MACRO] ONCE_SET %out_ok, %once_reg, %value
+    __once_set_ok_slot_%out_ok = stack_alloc 8
+    __once_set_owner_%out_ok = call @__once_try_claim(&%once_reg)
+    br __once_set_owner_%out_ok -> L_ONCE_SET_STORE_%out_ok, L_ONCE_SET_READY_%out_ok
+L_ONCE_SET_STORE_%out_ok:
+    EXPAND ONCE_PUBLISH %once_reg, %value
+    store __once_set_ok_slot_%out_ok+0, 1 as u64
+    !__once_set_owner_%out_ok
+    jmp L_ONCE_SET_DONE_%out_ok
+L_ONCE_SET_READY_%out_ok:
+    store __once_set_ok_slot_%out_ok+0, 0 as u64
+    !__once_set_owner_%out_ok
+    jmp L_ONCE_SET_DONE_%out_ok
+L_ONCE_SET_DONE_%out_ok:
+    %out_ok = load __once_set_ok_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] ONCE_TRY_GET %out_ok, %out_value, %once_reg
+    __once_try_get_ok_slot_%out_ok = stack_alloc 8
+    __once_try_get_value_slot_%out_ok = stack_alloc 8
+    __once_try_get_state_%out_ok = atomic_load %once_reg+Once_state as u32 acquire
+    __once_try_get_ready_%out_ok = eq __once_try_get_state_%out_ok, Once_STATE_READY
+    br __once_try_get_ready_%out_ok -> L_ONCE_TRY_GET_READY_%out_ok, L_ONCE_TRY_GET_EMPTY_%out_ok
+L_ONCE_TRY_GET_READY_%out_ok:
+    __once_try_get_value_%out_ok = load %once_reg+Once_value as u64
+    store __once_try_get_value_slot_%out_ok+0, __once_try_get_value_%out_ok as u64
+    store __once_try_get_ok_slot_%out_ok+0, 1 as u64
+    !__once_try_get_value_%out_ok
+    jmp L_ONCE_TRY_GET_DONE_%out_ok
+L_ONCE_TRY_GET_EMPTY_%out_ok:
+    store __once_try_get_value_slot_%out_ok+0, 0 as u64
+    store __once_try_get_ok_slot_%out_ok+0, 0 as u64
+    jmp L_ONCE_TRY_GET_DONE_%out_ok
+L_ONCE_TRY_GET_DONE_%out_ok:
+    %out_value = load __once_try_get_value_slot_%out_ok+0 as u64
+    %out_ok = load __once_try_get_ok_slot_%out_ok+0 as u64
+    !__once_try_get_ready_%out_ok
+    !__once_try_get_state_%out_ok
+[END_MACRO]
+
+[MACRO] ONCE_GET_UNCHECKED %out_value, %once_reg
+    %out_value = load %once_reg+Once_value as u64
+[END_MACRO]
+
+[MACRO] ONCE_GET_MUT %out_ok, %out_ptr, %once_reg
+    __once_get_mut_ok_slot_%out_ok = stack_alloc 8
+    __once_get_mut_ptr_slot_%out_ok = stack_alloc 8
+    __once_get_mut_state_%out_ok = atomic_load %once_reg+Once_state as u32 acquire
+    __once_get_mut_ready_%out_ok = eq __once_get_mut_state_%out_ok, Once_STATE_READY
+    br __once_get_mut_ready_%out_ok -> L_ONCE_GET_MUT_READY_%out_ok, L_ONCE_GET_MUT_EMPTY_%out_ok
+L_ONCE_GET_MUT_READY_%out_ok:
+    __once_get_mut_ptr_%out_ok = ptr_add %once_reg, Once_value
+    store __once_get_mut_ptr_slot_%out_ok+0, __once_get_mut_ptr_%out_ok as ptr
+    store __once_get_mut_ok_slot_%out_ok+0, 1 as u64
+    !__once_get_mut_ptr_%out_ok
+    jmp L_ONCE_GET_MUT_DONE_%out_ok
+L_ONCE_GET_MUT_EMPTY_%out_ok:
+    store __once_get_mut_ptr_slot_%out_ok+0, 0 as ptr
+    store __once_get_mut_ok_slot_%out_ok+0, 0 as u64
+    jmp L_ONCE_GET_MUT_DONE_%out_ok
+L_ONCE_GET_MUT_DONE_%out_ok:
+    %out_ptr = load __once_get_mut_ptr_slot_%out_ok+0 as ptr
+    %out_ok = load __once_get_mut_ok_slot_%out_ok+0 as u64
+    !__once_get_mut_ready_%out_ok
+    !__once_get_mut_state_%out_ok
+[END_MACRO]
+
 [MACRO] ONCE_GET %out_value, %once_reg
     EXPAND ONCE_WAIT_READY %once_reg
     %out_value = load %once_reg+Once_value as u64
+[END_MACRO]
+
+[MACRO] ONCE_TAKE %out_ok, %out_value, %once_reg
+    __once_take_ok_slot_%out_ok = stack_alloc 8
+    __once_take_value_slot_%out_ok = stack_alloc 8
+    __once_take_state_%out_ok = atomic_load %once_reg+Once_state as u32 acquire
+    __once_take_ready_%out_ok = eq __once_take_state_%out_ok, Once_STATE_READY
+    br __once_take_ready_%out_ok -> L_ONCE_TAKE_READY_%out_ok, L_ONCE_TAKE_EMPTY_%out_ok
+L_ONCE_TAKE_READY_%out_ok:
+    __once_take_value_%out_ok = load %once_reg+Once_value as u64
+    store __once_take_value_slot_%out_ok+0, __once_take_value_%out_ok as u64
+    store %once_reg+Once_value, 0 as u64
+    atomic_store %once_reg+Once_state, Once_STATE_UNINIT as u32 release
+    store __once_take_ok_slot_%out_ok+0, 1 as u64
+    !__once_take_value_%out_ok
+    jmp L_ONCE_TAKE_DONE_%out_ok
+L_ONCE_TAKE_EMPTY_%out_ok:
+    store __once_take_value_slot_%out_ok+0, 0 as u64
+    store __once_take_ok_slot_%out_ok+0, 0 as u64
+    jmp L_ONCE_TAKE_DONE_%out_ok
+L_ONCE_TAKE_DONE_%out_ok:
+    %out_value = load __once_take_value_slot_%out_ok+0 as u64
+    %out_ok = load __once_take_ok_slot_%out_ok+0 as u64
+    !__once_take_ready_%out_ok
+    !__once_take_state_%out_ok
+[END_MACRO]
+
+[MACRO] ONCE_INTO_INNER %out_ok, %out_value, %once_reg
+    __once_inner_ok_slot_%out_ok = stack_alloc 8
+    __once_inner_value_slot_%out_ok = stack_alloc 8
+    __once_inner_state_%out_ok = atomic_load %once_reg+Once_state as u32 acquire
+    __once_inner_ready_%out_ok = eq __once_inner_state_%out_ok, Once_STATE_READY
+    br __once_inner_ready_%out_ok -> L_ONCE_INNER_READY_%out_ok, L_ONCE_INNER_EMPTY_%out_ok
+L_ONCE_INNER_READY_%out_ok:
+    __once_inner_value_%out_ok = load %once_reg+Once_value as u64
+    store __once_inner_value_slot_%out_ok+0, __once_inner_value_%out_ok as u64
+    store __once_inner_ok_slot_%out_ok+0, 1 as u64
+    !__once_inner_value_%out_ok
+    jmp L_ONCE_INNER_DONE_%out_ok
+L_ONCE_INNER_EMPTY_%out_ok:
+    store __once_inner_value_slot_%out_ok+0, 0 as u64
+    store __once_inner_ok_slot_%out_ok+0, 0 as u64
+    jmp L_ONCE_INNER_DONE_%out_ok
+L_ONCE_INNER_DONE_%out_ok:
+    %out_value = load __once_inner_value_slot_%out_ok+0 as u64
+    %out_ok = load __once_inner_ok_slot_%out_ok+0 as u64
+    !__once_inner_ready_%out_ok
+    !__once_inner_state_%out_ok
+    !%once_reg
 [END_MACRO]
 
 [MACRO] ONCE_GET_OR_INIT %out_value, %once_reg, %init_fn

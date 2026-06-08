@@ -1,0 +1,340 @@
+@import "core/slice.sal"
+@import "core/slice.sa"
+@import "core/mem.sa"
+
+[MACRO] ARRAY_LEN %out_len, %length
+    %out_len = add %length, 0
+[END_MACRO]
+
+[MACRO] ARRAY_IS_EMPTY %out_bool, %length
+    %out_bool = eq %length, 0
+[END_MACRO]
+
+[MACRO] ARRAY_AS_SLICE_U64 %out_slice, %array_ptr, %length
+    EXPAND SLICE_NEW %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_AS_MUT_SLICE_U64 %out_slice, %array_ptr, %length
+    EXPAND SLICE_NEW %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_FROM_REF_U64 %out_slice, %value_ptr
+    EXPAND SLICE_NEW %out_slice, %value_ptr, 1
+[END_MACRO]
+
+[MACRO] ARRAY_FROM_MUT_U64 %out_slice, %value_ptr
+    EXPAND SLICE_NEW %out_slice, %value_ptr, 1
+[END_MACRO]
+
+[MACRO] ARRAY_EACH_REF_U64 %out_slice, %array_ptr, %length
+    EXPAND SLICE_NEW %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_EACH_MUT_U64 %out_slice, %array_ptr, %length
+    EXPAND SLICE_NEW %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_GET_U64 %out_value, %array_ptr, %index
+    __array_get_off_%out_value = mul %index, 8
+    __array_get_ptr_%out_value = ptr_add %array_ptr, __array_get_off_%out_value
+    %out_value = load __array_get_ptr_%out_value+0 as u64
+    !__array_get_ptr_%out_value
+    !__array_get_off_%out_value
+[END_MACRO]
+
+[MACRO] ARRAY_GET_MUT_PTR_U64 %out_ptr, %array_ptr, %index
+    __array_mut_off_%out_ptr = mul %index, 8
+    %out_ptr = ptr_add %array_ptr, __array_mut_off_%out_ptr
+    !__array_mut_off_%out_ptr
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_GET_U64 %out_ok, %out_value, %array_ptr, %length, %index
+    __array_get_in_bounds_%out_ok = ult %index, %length
+    br __array_get_in_bounds_%out_ok -> L_ARRAY_TRY_GET_HIT_%out_ok, L_ARRAY_TRY_GET_MISS_%out_ok
+
+L_ARRAY_TRY_GET_HIT_%out_ok:
+    EXPAND ARRAY_GET_U64 %out_value, %array_ptr, %index
+    %out_ok = add 0, 1
+    !__array_get_in_bounds_%out_ok
+    jmp L_ARRAY_TRY_GET_END_%out_ok
+
+L_ARRAY_TRY_GET_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__array_get_in_bounds_%out_ok
+
+L_ARRAY_TRY_GET_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %array_ptr, %length, %index
+    __array_mut_in_bounds_%out_ok = ult %index, %length
+    br __array_mut_in_bounds_%out_ok -> L_ARRAY_TRY_MUT_HIT_%out_ok, L_ARRAY_TRY_MUT_MISS_%out_ok
+
+L_ARRAY_TRY_MUT_HIT_%out_ok:
+    EXPAND ARRAY_GET_MUT_PTR_U64 %out_ptr, %array_ptr, %index
+    %out_ok = add 0, 1
+    !__array_mut_in_bounds_%out_ok
+    jmp L_ARRAY_TRY_MUT_END_%out_ok
+
+L_ARRAY_TRY_MUT_MISS_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__array_mut_in_bounds_%out_ok
+
+L_ARRAY_TRY_MUT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ARRAY_FIRST_U64 %out_value, %array_ptr
+    EXPAND ARRAY_GET_U64 %out_value, %array_ptr, 0
+[END_MACRO]
+
+[MACRO] ARRAY_LAST_U64 %out_value, %array_ptr, %length
+    __array_last_idx_%out_value = sub %length, 1
+    EXPAND ARRAY_GET_U64 %out_value, %array_ptr, __array_last_idx_%out_value
+    !__array_last_idx_%out_value
+[END_MACRO]
+
+[MACRO] ARRAY_FILL_U64 %array_ptr, %length, %value
+    __array_fill_idx_slot_%array_ptr = stack_alloc 8
+    store __array_fill_idx_slot_%array_ptr+0, 0 as u64
+    jmp L_ARRAY_FILL_HEAD_%array_ptr
+
+L_ARRAY_FILL_HEAD_%array_ptr:
+    __array_fill_idx_%array_ptr = load __array_fill_idx_slot_%array_ptr+0 as u64
+    __array_fill_done_%array_ptr = eq __array_fill_idx_%array_ptr, %length
+    br __array_fill_done_%array_ptr -> L_ARRAY_FILL_DONE_%array_ptr, L_ARRAY_FILL_BODY_%array_ptr
+
+L_ARRAY_FILL_BODY_%array_ptr:
+    __array_fill_off_%array_ptr = mul __array_fill_idx_%array_ptr, 8
+    __array_fill_ptr_%array_ptr = ptr_add %array_ptr, __array_fill_off_%array_ptr
+    store __array_fill_ptr_%array_ptr+0, %value as u64
+    __array_fill_next_%array_ptr = add __array_fill_idx_%array_ptr, 1
+    store __array_fill_idx_slot_%array_ptr+0, __array_fill_next_%array_ptr as u64
+    !__array_fill_next_%array_ptr
+    !__array_fill_ptr_%array_ptr
+    !__array_fill_off_%array_ptr
+    !__array_fill_done_%array_ptr
+    !__array_fill_idx_%array_ptr
+    jmp L_ARRAY_FILL_HEAD_%array_ptr
+
+L_ARRAY_FILL_DONE_%array_ptr:
+    !__array_fill_done_%array_ptr
+    !__array_fill_idx_%array_ptr
+[END_MACRO]
+
+[MACRO] ARRAY_REPEAT_U64 %array_ptr, %length, %value
+    EXPAND ARRAY_FILL_U64 %array_ptr, %length, %value
+[END_MACRO]
+
+[MACRO] ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
+    __array_copy_bytes_%dst_ptr = mul %length, 8
+    call @sa_mem_copy(&%dst_ptr, &%src_ptr, __array_copy_bytes_%dst_ptr)
+    !__array_copy_bytes_%dst_ptr
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+    __array_copy_src_len_%out_ok = load %src_slice+Slice_len as u64
+    __array_copy_same_len_%out_ok = eq %length, __array_copy_src_len_%out_ok
+    br __array_copy_same_len_%out_ok -> L_ARRAY_COPY_SLICE_HIT_%out_ok, L_ARRAY_COPY_SLICE_MISS_%out_ok
+
+L_ARRAY_COPY_SLICE_HIT_%out_ok:
+    __array_copy_src_ptr_%out_ok = load %src_slice+Slice_ptr as ptr
+    EXPAND ARRAY_COPY_U64 %dst_ptr, __array_copy_src_ptr_%out_ok, %length
+    %out_ok = add 0, 1
+    !__array_copy_src_ptr_%out_ok
+    !__array_copy_same_len_%out_ok
+    !__array_copy_src_len_%out_ok
+    jmp L_ARRAY_COPY_SLICE_END_%out_ok
+
+L_ARRAY_COPY_SLICE_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__array_copy_same_len_%out_ok
+    !__array_copy_src_len_%out_ok
+
+L_ARRAY_COPY_SLICE_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_SPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
+    __array_split_ref_ok_%out_ok = ule %prefix_len, %length
+    br __array_split_ref_ok_%out_ok -> L_ARRAY_SPLIT_REF_OK_%out_ok, L_ARRAY_SPLIT_REF_MISS_%out_ok
+
+L_ARRAY_SPLIT_REF_OK_%out_ok:
+    __array_split_ref_suffix_len_%out_ok = sub %length, %prefix_len
+    __array_split_ref_suffix_off_%out_ok = mul %prefix_len, 8
+    __array_split_ref_suffix_ptr_%out_ok = ptr_add %array_ptr, __array_split_ref_suffix_off_%out_ok
+    EXPAND SLICE_NEW %out_prefix, %array_ptr, %prefix_len
+    EXPAND SLICE_NEW %out_suffix, __array_split_ref_suffix_ptr_%out_ok, __array_split_ref_suffix_len_%out_ok
+    %out_ok = add 0, 1
+    !__array_split_ref_suffix_ptr_%out_ok
+    !__array_split_ref_suffix_off_%out_ok
+    !__array_split_ref_suffix_len_%out_ok
+    !__array_split_ref_ok_%out_ok
+    jmp L_ARRAY_SPLIT_REF_END_%out_ok
+
+L_ARRAY_SPLIT_REF_MISS_%out_ok:
+    EXPAND SLICE_NEW %out_prefix, %array_ptr, 0
+    EXPAND SLICE_NEW %out_suffix, %array_ptr, 0
+    %out_ok = add 0, 0
+    !__array_split_ref_ok_%out_ok
+
+L_ARRAY_SPLIT_REF_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_SPLIT_ARRAY_MUT_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
+    EXPAND ARRAY_TRY_SPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
+    __array_as_ref_len_%out_ok = load %slice+Slice_len as u64
+    __array_as_ref_ok_%out_ok = eq __array_as_ref_len_%out_ok, %length
+    br __array_as_ref_ok_%out_ok -> L_ARRAY_AS_REF_OK_%out_ok, L_ARRAY_AS_REF_MISS_%out_ok
+
+L_ARRAY_AS_REF_OK_%out_ok:
+    __array_as_ref_ptr_%out_ok = load %slice+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __array_as_ref_ptr_%out_ok, %length
+    %out_ok = add 0, 1
+    !__array_as_ref_ptr_%out_ok
+    !__array_as_ref_ok_%out_ok
+    !__array_as_ref_len_%out_ok
+    jmp L_ARRAY_AS_REF_END_%out_ok
+
+L_ARRAY_AS_REF_MISS_%out_ok:
+    __array_as_ref_miss_ptr_%out_ok = load %slice+Slice_ptr as ptr
+    EXPAND SLICE_NEW %out_slice, __array_as_ref_miss_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__array_as_ref_miss_ptr_%out_ok
+    !__array_as_ref_ok_%out_ok
+    !__array_as_ref_len_%out_ok
+
+L_ARRAY_AS_REF_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_AS_ARRAY_MUT_U64 %out_ok, %out_slice, %slice, %length
+    EXPAND ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
+[END_MACRO]
+
+[MACRO] ARRAY_SWAP_U64 %array_ptr, %left_index, %right_index
+    __array_swap_left_off_%array_ptr = mul %left_index, 8
+    __array_swap_right_off_%array_ptr = mul %right_index, 8
+    __array_swap_left_ptr_%array_ptr = ptr_add %array_ptr, __array_swap_left_off_%array_ptr
+    __array_swap_right_ptr_%array_ptr = ptr_add %array_ptr, __array_swap_right_off_%array_ptr
+    __array_swap_left_value_%array_ptr = load __array_swap_left_ptr_%array_ptr+0 as u64
+    __array_swap_right_value_%array_ptr = load __array_swap_right_ptr_%array_ptr+0 as u64
+    store __array_swap_left_ptr_%array_ptr+0, __array_swap_right_value_%array_ptr as u64
+    store __array_swap_right_ptr_%array_ptr+0, __array_swap_left_value_%array_ptr as u64
+    !__array_swap_right_value_%array_ptr
+    !__array_swap_left_value_%array_ptr
+    !__array_swap_right_ptr_%array_ptr
+    !__array_swap_left_ptr_%array_ptr
+    !__array_swap_right_off_%array_ptr
+    !__array_swap_left_off_%array_ptr
+[END_MACRO]
+
+[MACRO] ARRAY_REVERSE_U64 %array_ptr, %length
+    __array_rev_small_%array_ptr = ule %length, 1
+    br __array_rev_small_%array_ptr -> L_ARRAY_REV_DONE_SMALL_%array_ptr, L_ARRAY_REV_INIT_%array_ptr
+
+L_ARRAY_REV_INIT_%array_ptr:
+    __array_rev_left_slot_%array_ptr = stack_alloc 8
+    __array_rev_right_slot_%array_ptr = stack_alloc 8
+    __array_rev_last_%array_ptr = sub %length, 1
+    store __array_rev_left_slot_%array_ptr+0, 0 as u64
+    store __array_rev_right_slot_%array_ptr+0, __array_rev_last_%array_ptr as u64
+    !__array_rev_last_%array_ptr
+    jmp L_ARRAY_REV_HEAD_%array_ptr
+
+L_ARRAY_REV_HEAD_%array_ptr:
+    __array_rev_left_%array_ptr = load __array_rev_left_slot_%array_ptr+0 as u64
+    __array_rev_right_%array_ptr = load __array_rev_right_slot_%array_ptr+0 as u64
+    __array_rev_continue_%array_ptr = ult __array_rev_left_%array_ptr, __array_rev_right_%array_ptr
+    br __array_rev_continue_%array_ptr -> L_ARRAY_REV_BODY_%array_ptr, L_ARRAY_REV_DONE_%array_ptr
+
+L_ARRAY_REV_BODY_%array_ptr:
+    EXPAND ARRAY_SWAP_U64 %array_ptr, __array_rev_left_%array_ptr, __array_rev_right_%array_ptr
+    __array_rev_next_left_%array_ptr = add __array_rev_left_%array_ptr, 1
+    __array_rev_next_right_%array_ptr = sub __array_rev_right_%array_ptr, 1
+    store __array_rev_left_slot_%array_ptr+0, __array_rev_next_left_%array_ptr as u64
+    store __array_rev_right_slot_%array_ptr+0, __array_rev_next_right_%array_ptr as u64
+    !__array_rev_next_right_%array_ptr
+    !__array_rev_next_left_%array_ptr
+    !__array_rev_continue_%array_ptr
+    !__array_rev_right_%array_ptr
+    !__array_rev_left_%array_ptr
+    jmp L_ARRAY_REV_HEAD_%array_ptr
+
+L_ARRAY_REV_DONE_%array_ptr:
+    !__array_rev_continue_%array_ptr
+    !__array_rev_right_%array_ptr
+    !__array_rev_left_%array_ptr
+    !__array_rev_small_%array_ptr
+    jmp L_ARRAY_REV_END_%array_ptr
+
+L_ARRAY_REV_DONE_SMALL_%array_ptr:
+    !__array_rev_small_%array_ptr
+
+L_ARRAY_REV_END_%array_ptr:
+[END_MACRO]
+
+[MACRO] ARRAY_FROM_FN_U64 %array_ptr, %length, %gen_fn
+    __array_fn_idx_slot_%array_ptr = stack_alloc 8
+    store __array_fn_idx_slot_%array_ptr+0, 0 as u64
+    jmp L_ARRAY_FROM_FN_HEAD_%array_ptr
+
+L_ARRAY_FROM_FN_HEAD_%array_ptr:
+    __array_fn_idx_%array_ptr = load __array_fn_idx_slot_%array_ptr+0 as u64
+    __array_fn_done_%array_ptr = eq __array_fn_idx_%array_ptr, %length
+    br __array_fn_done_%array_ptr -> L_ARRAY_FROM_FN_DONE_%array_ptr, L_ARRAY_FROM_FN_BODY_%array_ptr
+
+L_ARRAY_FROM_FN_BODY_%array_ptr:
+    __array_fn_value_%array_ptr = call %gen_fn(__array_fn_idx_%array_ptr)
+    __array_fn_off_%array_ptr = mul __array_fn_idx_%array_ptr, 8
+    __array_fn_ptr_%array_ptr = ptr_add %array_ptr, __array_fn_off_%array_ptr
+    store __array_fn_ptr_%array_ptr+0, __array_fn_value_%array_ptr as u64
+    __array_fn_next_%array_ptr = add __array_fn_idx_%array_ptr, 1
+    store __array_fn_idx_slot_%array_ptr+0, __array_fn_next_%array_ptr as u64
+    !__array_fn_next_%array_ptr
+    !__array_fn_ptr_%array_ptr
+    !__array_fn_off_%array_ptr
+    !__array_fn_value_%array_ptr
+    !__array_fn_done_%array_ptr
+    !__array_fn_idx_%array_ptr
+    jmp L_ARRAY_FROM_FN_HEAD_%array_ptr
+
+L_ARRAY_FROM_FN_DONE_%array_ptr:
+    !__array_fn_done_%array_ptr
+    !__array_fn_idx_%array_ptr
+[END_MACRO]
+
+[MACRO] ARRAY_MAP_U64 %dst_ptr, %src_ptr, %length, %map_fn
+    __array_map_idx_slot_%dst_ptr = stack_alloc 8
+    store __array_map_idx_slot_%dst_ptr+0, 0 as u64
+    jmp L_ARRAY_MAP_HEAD_%dst_ptr
+
+L_ARRAY_MAP_HEAD_%dst_ptr:
+    __array_map_idx_%dst_ptr = load __array_map_idx_slot_%dst_ptr+0 as u64
+    __array_map_done_%dst_ptr = eq __array_map_idx_%dst_ptr, %length
+    br __array_map_done_%dst_ptr -> L_ARRAY_MAP_DONE_%dst_ptr, L_ARRAY_MAP_BODY_%dst_ptr
+
+L_ARRAY_MAP_BODY_%dst_ptr:
+    __array_map_off_%dst_ptr = mul __array_map_idx_%dst_ptr, 8
+    __array_map_src_ptr_%dst_ptr = ptr_add %src_ptr, __array_map_off_%dst_ptr
+    __array_map_dst_ptr_%dst_ptr = ptr_add %dst_ptr, __array_map_off_%dst_ptr
+    __array_map_src_value_%dst_ptr = load __array_map_src_ptr_%dst_ptr+0 as u64
+    __array_map_dst_value_%dst_ptr = call %map_fn(__array_map_src_value_%dst_ptr)
+    store __array_map_dst_ptr_%dst_ptr+0, __array_map_dst_value_%dst_ptr as u64
+    __array_map_next_%dst_ptr = add __array_map_idx_%dst_ptr, 1
+    store __array_map_idx_slot_%dst_ptr+0, __array_map_next_%dst_ptr as u64
+    !__array_map_next_%dst_ptr
+    !__array_map_dst_value_%dst_ptr
+    !__array_map_src_value_%dst_ptr
+    !__array_map_dst_ptr_%dst_ptr
+    !__array_map_src_ptr_%dst_ptr
+    !__array_map_off_%dst_ptr
+    !__array_map_done_%dst_ptr
+    !__array_map_idx_%dst_ptr
+    jmp L_ARRAY_MAP_HEAD_%dst_ptr
+
+L_ARRAY_MAP_DONE_%dst_ptr:
+    !__array_map_done_%dst_ptr
+    !__array_map_idx_%dst_ptr
+[END_MACRO]

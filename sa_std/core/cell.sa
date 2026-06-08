@@ -17,3 +17,66 @@
     %out_old = load %cell_reg+Cell_value as i32
     store %cell_reg+Cell_value, %value as i32
 [END_MACRO]
+
+[MACRO] CELL_U64_NEW %out_cell, %value
+    %out_cell = alloc CellU64_SIZE
+    store %out_cell+CellU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_DEFAULT %out_cell
+    %out_cell = alloc CellU64_SIZE
+    store %out_cell+CellU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_GET %out_value, %cell_reg
+    %out_value = load %cell_reg+CellU64_value as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_SET %cell_reg, %value
+    store %cell_reg+CellU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_REPLACE %out_old, %cell_reg, %value
+    %out_old = load %cell_reg+CellU64_value as u64
+    store %cell_reg+CellU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_TAKE %out_old, %cell_reg
+    %out_old = load %cell_reg+CellU64_value as u64
+    store %cell_reg+CellU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_SWAP %left_cell, %right_cell
+    __cell_swap_left_%left_cell = load %left_cell+CellU64_value as u64
+    __cell_swap_right_%left_cell = load %right_cell+CellU64_value as u64
+    store %left_cell+CellU64_value, __cell_swap_right_%left_cell as u64
+    store %right_cell+CellU64_value, __cell_swap_left_%left_cell as u64
+    !__cell_swap_right_%left_cell
+    !__cell_swap_left_%left_cell
+[END_MACRO]
+
+[MACRO] CELL_U64_UPDATE %out_old, %out_new, %cell_reg, %update_fn
+    %out_old = load %cell_reg+CellU64_value as u64
+    %out_new = call %update_fn(%out_old)
+    store %cell_reg+CellU64_value, %out_new as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_REPLACE_WITH %out_old, %out_new, %cell_reg, %update_fn
+    EXPAND CELL_U64_UPDATE %out_old, %out_new, %cell_reg, %update_fn
+[END_MACRO]
+
+[MACRO] CELL_U64_INTO_INNER %out_value, %cell_reg
+    %out_value = load %cell_reg+CellU64_value as u64
+[END_MACRO]
+
+[MACRO] CELL_U64_AS_PTR %out_ptr, %cell_reg
+    %out_ptr = ptr_add %cell_reg, CellU64_value
+[END_MACRO]
+
+[MACRO] CELL_U64_GET_MUT_PTR %out_ptr, %cell_reg
+    %out_ptr = ptr_add %cell_reg, CellU64_value
+[END_MACRO]
+
+[MACRO] CELL_U64_FROM_MUT_PTR %out_cell, %value_ptr
+    %out_cell = add %value_ptr, 0
+[END_MACRO]

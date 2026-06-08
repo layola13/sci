@@ -1,0 +1,535 @@
+@import "convert.sal"
+
+[MACRO] CONVERT_BOOL_TO_U64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_BOOL_TO_I32 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U64_TO_BOOL %out_value, %value
+    %out_value = ne %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I64_TO_BOOL %out_value, %value
+    %out_value = ne %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U8_TO_U64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U8_TO_U16 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U8_TO_U32 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U8_TO_USIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U16_TO_U64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U16_TO_U32 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U16_TO_USIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U32_TO_U64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U32_TO_USIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_U64_TO_USIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_USIZE_TO_U64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I8_TO_I16 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I8_TO_I32 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I8_TO_I64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I8_TO_ISIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I16_TO_I32 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I16_TO_I64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I16_TO_ISIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I32_TO_I64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I32_TO_ISIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_I64_TO_ISIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_ISIZE_TO_I64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_U8 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = ule %value, CONVERT_U8_MAX
+    br __convert_ok_%out_ok -> L_CONVERT_U64_TO_U8_HIT_%out_ok, L_CONVERT_U64_TO_U8_MISS_%out_ok
+L_CONVERT_U64_TO_U8_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_U64_TO_U8_END_%out_ok
+L_CONVERT_U64_TO_U8_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_U64_TO_U8_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_I8 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = ule %value, CONVERT_I8_MAX
+    br __convert_ok_%out_ok -> L_CONVERT_U64_TO_I8_HIT_%out_ok, L_CONVERT_U64_TO_I8_MISS_%out_ok
+L_CONVERT_U64_TO_I8_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_U64_TO_I8_END_%out_ok
+L_CONVERT_U64_TO_I8_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_U64_TO_I8_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_U16 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = ule %value, CONVERT_U16_MAX
+    br __convert_ok_%out_ok -> L_CONVERT_U64_TO_U16_HIT_%out_ok, L_CONVERT_U64_TO_U16_MISS_%out_ok
+L_CONVERT_U64_TO_U16_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_U64_TO_U16_END_%out_ok
+L_CONVERT_U64_TO_U16_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_U64_TO_U16_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_I16 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = ule %value, CONVERT_I16_MAX
+    br __convert_ok_%out_ok -> L_CONVERT_U64_TO_I16_HIT_%out_ok, L_CONVERT_U64_TO_I16_MISS_%out_ok
+L_CONVERT_U64_TO_I16_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_U64_TO_I16_END_%out_ok
+L_CONVERT_U64_TO_I16_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_U64_TO_I16_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_U32 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = ule %value, CONVERT_U32_MAX
+    br __convert_ok_%out_ok -> L_CONVERT_U64_TO_U32_HIT_%out_ok, L_CONVERT_U64_TO_U32_MISS_%out_ok
+L_CONVERT_U64_TO_U32_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_U64_TO_U32_END_%out_ok
+L_CONVERT_U64_TO_U32_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_U64_TO_U32_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_I32 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = ule %value, CONVERT_I32_MAX
+    br __convert_ok_%out_ok -> L_CONVERT_U64_TO_I32_HIT_%out_ok, L_CONVERT_U64_TO_I32_MISS_%out_ok
+L_CONVERT_U64_TO_I32_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_U64_TO_I32_END_%out_ok
+L_CONVERT_U64_TO_I32_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_U64_TO_I32_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_USIZE %out_ok, %out_value, %value
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_I64 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = ule %value, CONVERT_I64_MAX
+    br __convert_ok_%out_ok -> L_CONVERT_U64_TO_I64_HIT_%out_ok, L_CONVERT_U64_TO_I64_MISS_%out_ok
+L_CONVERT_U64_TO_I64_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_U64_TO_I64_END_%out_ok
+L_CONVERT_U64_TO_I64_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_U64_TO_I64_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_U64_TO_ISIZE %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_I64 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_U64 %out_ok, %out_value, %value
+    __convert_ok_%out_ok = sge %value, 0
+    br __convert_ok_%out_ok -> L_CONVERT_I64_TO_U64_HIT_%out_ok, L_CONVERT_I64_TO_U64_MISS_%out_ok
+L_CONVERT_I64_TO_U64_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_I64_TO_U64_END_%out_ok
+L_CONVERT_I64_TO_U64_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_I64_TO_U64_END_%out_ok:
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_USIZE %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_U64 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_U8 %out_ok, %out_value, %value
+    __convert_ge_%out_ok = sge %value, 0
+    __convert_le_%out_ok = sle %value, CONVERT_U8_MAX
+    __convert_ok_%out_ok = and __convert_ge_%out_ok, __convert_le_%out_ok
+    br __convert_ok_%out_ok -> L_CONVERT_I64_TO_U8_HIT_%out_ok, L_CONVERT_I64_TO_U8_MISS_%out_ok
+L_CONVERT_I64_TO_U8_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_I64_TO_U8_END_%out_ok
+L_CONVERT_I64_TO_U8_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_I64_TO_U8_END_%out_ok:
+    !__convert_ge_%out_ok
+    !__convert_le_%out_ok
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_U16 %out_ok, %out_value, %value
+    __convert_ge_%out_ok = sge %value, 0
+    __convert_le_%out_ok = sle %value, CONVERT_U16_MAX
+    __convert_ok_%out_ok = and __convert_ge_%out_ok, __convert_le_%out_ok
+    br __convert_ok_%out_ok -> L_CONVERT_I64_TO_U16_HIT_%out_ok, L_CONVERT_I64_TO_U16_MISS_%out_ok
+L_CONVERT_I64_TO_U16_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_I64_TO_U16_END_%out_ok
+L_CONVERT_I64_TO_U16_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_I64_TO_U16_END_%out_ok:
+    !__convert_ge_%out_ok
+    !__convert_le_%out_ok
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_U32 %out_ok, %out_value, %value
+    __convert_ge_%out_ok = sge %value, 0
+    __convert_le_%out_ok = sle %value, CONVERT_U32_MAX
+    __convert_ok_%out_ok = and __convert_ge_%out_ok, __convert_le_%out_ok
+    br __convert_ok_%out_ok -> L_CONVERT_I64_TO_U32_HIT_%out_ok, L_CONVERT_I64_TO_U32_MISS_%out_ok
+L_CONVERT_I64_TO_U32_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_I64_TO_U32_END_%out_ok
+L_CONVERT_I64_TO_U32_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_I64_TO_U32_END_%out_ok:
+    !__convert_ge_%out_ok
+    !__convert_le_%out_ok
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_I8 %out_ok, %out_value, %value
+    __convert_ge_%out_ok = sge %value, CONVERT_I8_MIN
+    __convert_le_%out_ok = sle %value, CONVERT_I8_MAX
+    __convert_ok_%out_ok = and __convert_ge_%out_ok, __convert_le_%out_ok
+    br __convert_ok_%out_ok -> L_CONVERT_I64_TO_I8_HIT_%out_ok, L_CONVERT_I64_TO_I8_MISS_%out_ok
+L_CONVERT_I64_TO_I8_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_I64_TO_I8_END_%out_ok
+L_CONVERT_I64_TO_I8_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_I64_TO_I8_END_%out_ok:
+    !__convert_ge_%out_ok
+    !__convert_le_%out_ok
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_I16 %out_ok, %out_value, %value
+    __convert_ge_%out_ok = sge %value, CONVERT_I16_MIN
+    __convert_le_%out_ok = sle %value, CONVERT_I16_MAX
+    __convert_ok_%out_ok = and __convert_ge_%out_ok, __convert_le_%out_ok
+    br __convert_ok_%out_ok -> L_CONVERT_I64_TO_I16_HIT_%out_ok, L_CONVERT_I64_TO_I16_MISS_%out_ok
+L_CONVERT_I64_TO_I16_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_I64_TO_I16_END_%out_ok
+L_CONVERT_I64_TO_I16_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_I64_TO_I16_END_%out_ok:
+    !__convert_ge_%out_ok
+    !__convert_le_%out_ok
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_I32 %out_ok, %out_value, %value
+    __convert_ge_%out_ok = sge %value, CONVERT_I32_MIN
+    __convert_le_%out_ok = sle %value, CONVERT_I32_MAX
+    __convert_ok_%out_ok = and __convert_ge_%out_ok, __convert_le_%out_ok
+    br __convert_ok_%out_ok -> L_CONVERT_I64_TO_I32_HIT_%out_ok, L_CONVERT_I64_TO_I32_MISS_%out_ok
+L_CONVERT_I64_TO_I32_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+    jmp L_CONVERT_I64_TO_I32_END_%out_ok
+L_CONVERT_I64_TO_I32_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_CONVERT_I64_TO_I32_END_%out_ok:
+    !__convert_ge_%out_ok
+    !__convert_le_%out_ok
+    !__convert_ok_%out_ok
+[END_MACRO]
+
+[MACRO] CONVERT_TRY_I64_TO_ISIZE %out_ok, %out_value, %value
+    %out_ok = add 0, 1
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_U64_TO_U8 %out_value, %value
+    __convert_over_%out_value = ugt %value, CONVERT_U8_MAX
+    br __convert_over_%out_value -> L_CONVERT_SAT_U64_TO_U8_MAX_%out_value, L_CONVERT_SAT_U64_TO_U8_VALUE_%out_value
+L_CONVERT_SAT_U64_TO_U8_MAX_%out_value:
+    %out_value = add 0, CONVERT_U8_MAX
+    jmp L_CONVERT_SAT_U64_TO_U8_END_%out_value
+L_CONVERT_SAT_U64_TO_U8_VALUE_%out_value:
+    %out_value = add %value, 0
+L_CONVERT_SAT_U64_TO_U8_END_%out_value:
+    !__convert_over_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_U64_TO_I8 %out_value, %value
+    __convert_over_%out_value = ugt %value, CONVERT_I8_MAX
+    br __convert_over_%out_value -> L_CONVERT_SAT_U64_TO_I8_MAX_%out_value, L_CONVERT_SAT_U64_TO_I8_VALUE_%out_value
+L_CONVERT_SAT_U64_TO_I8_MAX_%out_value:
+    %out_value = add 0, CONVERT_I8_MAX
+    jmp L_CONVERT_SAT_U64_TO_I8_END_%out_value
+L_CONVERT_SAT_U64_TO_I8_VALUE_%out_value:
+    %out_value = add %value, 0
+L_CONVERT_SAT_U64_TO_I8_END_%out_value:
+    !__convert_over_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_U64_TO_U16 %out_value, %value
+    __convert_over_%out_value = ugt %value, CONVERT_U16_MAX
+    br __convert_over_%out_value -> L_CONVERT_SAT_U64_TO_U16_MAX_%out_value, L_CONVERT_SAT_U64_TO_U16_VALUE_%out_value
+L_CONVERT_SAT_U64_TO_U16_MAX_%out_value:
+    %out_value = add 0, CONVERT_U16_MAX
+    jmp L_CONVERT_SAT_U64_TO_U16_END_%out_value
+L_CONVERT_SAT_U64_TO_U16_VALUE_%out_value:
+    %out_value = add %value, 0
+L_CONVERT_SAT_U64_TO_U16_END_%out_value:
+    !__convert_over_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_U64_TO_I16 %out_value, %value
+    __convert_over_%out_value = ugt %value, CONVERT_I16_MAX
+    br __convert_over_%out_value -> L_CONVERT_SAT_U64_TO_I16_MAX_%out_value, L_CONVERT_SAT_U64_TO_I16_VALUE_%out_value
+L_CONVERT_SAT_U64_TO_I16_MAX_%out_value:
+    %out_value = add 0, CONVERT_I16_MAX
+    jmp L_CONVERT_SAT_U64_TO_I16_END_%out_value
+L_CONVERT_SAT_U64_TO_I16_VALUE_%out_value:
+    %out_value = add %value, 0
+L_CONVERT_SAT_U64_TO_I16_END_%out_value:
+    !__convert_over_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_U64_TO_U32 %out_value, %value
+    __convert_over_%out_value = ugt %value, CONVERT_U32_MAX
+    br __convert_over_%out_value -> L_CONVERT_SAT_U64_TO_U32_MAX_%out_value, L_CONVERT_SAT_U64_TO_U32_VALUE_%out_value
+L_CONVERT_SAT_U64_TO_U32_MAX_%out_value:
+    %out_value = add 0, CONVERT_U32_MAX
+    jmp L_CONVERT_SAT_U64_TO_U32_END_%out_value
+L_CONVERT_SAT_U64_TO_U32_VALUE_%out_value:
+    %out_value = add %value, 0
+L_CONVERT_SAT_U64_TO_U32_END_%out_value:
+    !__convert_over_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_U64_TO_I32 %out_value, %value
+    __convert_over_%out_value = ugt %value, CONVERT_I32_MAX
+    br __convert_over_%out_value -> L_CONVERT_SAT_U64_TO_I32_MAX_%out_value, L_CONVERT_SAT_U64_TO_I32_VALUE_%out_value
+L_CONVERT_SAT_U64_TO_I32_MAX_%out_value:
+    %out_value = add 0, CONVERT_I32_MAX
+    jmp L_CONVERT_SAT_U64_TO_I32_END_%out_value
+L_CONVERT_SAT_U64_TO_I32_VALUE_%out_value:
+    %out_value = add %value, 0
+L_CONVERT_SAT_U64_TO_I32_END_%out_value:
+    !__convert_over_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_I64_TO_U8 %out_value, %value
+    __convert_low_%out_value = slt %value, 0
+    br __convert_low_%out_value -> L_CONVERT_SAT_I64_TO_U8_MIN_%out_value, L_CONVERT_SAT_I64_TO_U8_CHECK_HIGH_%out_value
+L_CONVERT_SAT_I64_TO_U8_MIN_%out_value:
+    %out_value = add 0, 0
+    jmp L_CONVERT_SAT_I64_TO_U8_END_%out_value
+L_CONVERT_SAT_I64_TO_U8_CHECK_HIGH_%out_value:
+    __convert_high_%out_value = sgt %value, CONVERT_U8_MAX
+    br __convert_high_%out_value -> L_CONVERT_SAT_I64_TO_U8_MAX_%out_value, L_CONVERT_SAT_I64_TO_U8_VALUE_%out_value
+L_CONVERT_SAT_I64_TO_U8_MAX_%out_value:
+    %out_value = add 0, CONVERT_U8_MAX
+    !__convert_high_%out_value
+    jmp L_CONVERT_SAT_I64_TO_U8_END_%out_value
+L_CONVERT_SAT_I64_TO_U8_VALUE_%out_value:
+    %out_value = add %value, 0
+    !__convert_high_%out_value
+L_CONVERT_SAT_I64_TO_U8_END_%out_value:
+    !__convert_low_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_I64_TO_U16 %out_value, %value
+    __convert_low_%out_value = slt %value, 0
+    br __convert_low_%out_value -> L_CONVERT_SAT_I64_TO_U16_MIN_%out_value, L_CONVERT_SAT_I64_TO_U16_CHECK_HIGH_%out_value
+L_CONVERT_SAT_I64_TO_U16_MIN_%out_value:
+    %out_value = add 0, 0
+    jmp L_CONVERT_SAT_I64_TO_U16_END_%out_value
+L_CONVERT_SAT_I64_TO_U16_CHECK_HIGH_%out_value:
+    __convert_high_%out_value = sgt %value, CONVERT_U16_MAX
+    br __convert_high_%out_value -> L_CONVERT_SAT_I64_TO_U16_MAX_%out_value, L_CONVERT_SAT_I64_TO_U16_VALUE_%out_value
+L_CONVERT_SAT_I64_TO_U16_MAX_%out_value:
+    %out_value = add 0, CONVERT_U16_MAX
+    !__convert_high_%out_value
+    jmp L_CONVERT_SAT_I64_TO_U16_END_%out_value
+L_CONVERT_SAT_I64_TO_U16_VALUE_%out_value:
+    %out_value = add %value, 0
+    !__convert_high_%out_value
+L_CONVERT_SAT_I64_TO_U16_END_%out_value:
+    !__convert_low_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_I64_TO_U32 %out_value, %value
+    __convert_low_%out_value = slt %value, 0
+    br __convert_low_%out_value -> L_CONVERT_SAT_I64_TO_U32_MIN_%out_value, L_CONVERT_SAT_I64_TO_U32_CHECK_HIGH_%out_value
+L_CONVERT_SAT_I64_TO_U32_MIN_%out_value:
+    %out_value = add 0, 0
+    jmp L_CONVERT_SAT_I64_TO_U32_END_%out_value
+L_CONVERT_SAT_I64_TO_U32_CHECK_HIGH_%out_value:
+    __convert_high_%out_value = sgt %value, CONVERT_U32_MAX
+    br __convert_high_%out_value -> L_CONVERT_SAT_I64_TO_U32_MAX_%out_value, L_CONVERT_SAT_I64_TO_U32_VALUE_%out_value
+L_CONVERT_SAT_I64_TO_U32_MAX_%out_value:
+    %out_value = add 0, CONVERT_U32_MAX
+    !__convert_high_%out_value
+    jmp L_CONVERT_SAT_I64_TO_U32_END_%out_value
+L_CONVERT_SAT_I64_TO_U32_VALUE_%out_value:
+    %out_value = add %value, 0
+    !__convert_high_%out_value
+L_CONVERT_SAT_I64_TO_U32_END_%out_value:
+    !__convert_low_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_I64_TO_I8 %out_value, %value
+    __convert_low_%out_value = slt %value, CONVERT_I8_MIN
+    br __convert_low_%out_value -> L_CONVERT_SAT_I64_TO_I8_MIN_%out_value, L_CONVERT_SAT_I64_TO_I8_CHECK_HIGH_%out_value
+L_CONVERT_SAT_I64_TO_I8_MIN_%out_value:
+    %out_value = add 0, CONVERT_I8_MIN
+    jmp L_CONVERT_SAT_I64_TO_I8_END_%out_value
+L_CONVERT_SAT_I64_TO_I8_CHECK_HIGH_%out_value:
+    __convert_high_%out_value = sgt %value, CONVERT_I8_MAX
+    br __convert_high_%out_value -> L_CONVERT_SAT_I64_TO_I8_MAX_%out_value, L_CONVERT_SAT_I64_TO_I8_VALUE_%out_value
+L_CONVERT_SAT_I64_TO_I8_MAX_%out_value:
+    %out_value = add 0, CONVERT_I8_MAX
+    !__convert_high_%out_value
+    jmp L_CONVERT_SAT_I64_TO_I8_END_%out_value
+L_CONVERT_SAT_I64_TO_I8_VALUE_%out_value:
+    %out_value = add %value, 0
+    !__convert_high_%out_value
+L_CONVERT_SAT_I64_TO_I8_END_%out_value:
+    !__convert_low_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_I64_TO_I16 %out_value, %value
+    __convert_low_%out_value = slt %value, CONVERT_I16_MIN
+    br __convert_low_%out_value -> L_CONVERT_SAT_I64_TO_I16_MIN_%out_value, L_CONVERT_SAT_I64_TO_I16_CHECK_HIGH_%out_value
+L_CONVERT_SAT_I64_TO_I16_MIN_%out_value:
+    %out_value = add 0, CONVERT_I16_MIN
+    jmp L_CONVERT_SAT_I64_TO_I16_END_%out_value
+L_CONVERT_SAT_I64_TO_I16_CHECK_HIGH_%out_value:
+    __convert_high_%out_value = sgt %value, CONVERT_I16_MAX
+    br __convert_high_%out_value -> L_CONVERT_SAT_I64_TO_I16_MAX_%out_value, L_CONVERT_SAT_I64_TO_I16_VALUE_%out_value
+L_CONVERT_SAT_I64_TO_I16_MAX_%out_value:
+    %out_value = add 0, CONVERT_I16_MAX
+    !__convert_high_%out_value
+    jmp L_CONVERT_SAT_I64_TO_I16_END_%out_value
+L_CONVERT_SAT_I64_TO_I16_VALUE_%out_value:
+    %out_value = add %value, 0
+    !__convert_high_%out_value
+L_CONVERT_SAT_I64_TO_I16_END_%out_value:
+    !__convert_low_%out_value
+[END_MACRO]
+
+[MACRO] CONVERT_SAT_I64_TO_I32 %out_value, %value
+    __convert_low_%out_value = slt %value, CONVERT_I32_MIN
+    br __convert_low_%out_value -> L_CONVERT_SAT_I64_TO_I32_MIN_%out_value, L_CONVERT_SAT_I64_TO_I32_CHECK_HIGH_%out_value
+L_CONVERT_SAT_I64_TO_I32_MIN_%out_value:
+    %out_value = add 0, CONVERT_I32_MIN
+    jmp L_CONVERT_SAT_I64_TO_I32_END_%out_value
+L_CONVERT_SAT_I64_TO_I32_CHECK_HIGH_%out_value:
+    __convert_high_%out_value = sgt %value, CONVERT_I32_MAX
+    br __convert_high_%out_value -> L_CONVERT_SAT_I64_TO_I32_MAX_%out_value, L_CONVERT_SAT_I64_TO_I32_VALUE_%out_value
+L_CONVERT_SAT_I64_TO_I32_MAX_%out_value:
+    %out_value = add 0, CONVERT_I32_MAX
+    !__convert_high_%out_value
+    jmp L_CONVERT_SAT_I64_TO_I32_END_%out_value
+L_CONVERT_SAT_I64_TO_I32_VALUE_%out_value:
+    %out_value = add %value, 0
+    !__convert_high_%out_value
+L_CONVERT_SAT_I64_TO_I32_END_%out_value:
+    !__convert_low_%out_value
+[END_MACRO]

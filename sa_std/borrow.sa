@@ -1,0 +1,98 @@
+@import "borrow.sal"
+@import "core/slice.sal"
+
+[MACRO] BORROW_REF_NEW %borrow_ref, %ptr
+    store %borrow_ref+BorrowRef_ptr, %ptr as ptr
+[END_MACRO]
+
+[MACRO] BORROW_REF_GET %out_ptr, %borrow_ref
+    %out_ptr = load %borrow_ref+BorrowRef_ptr as ptr
+[END_MACRO]
+
+[MACRO] BORROW_MUT_NEW %borrow_mut, %ptr
+    store %borrow_mut+BorrowMut_ptr, %ptr as ptr
+[END_MACRO]
+
+[MACRO] BORROW_MUT_GET %out_ptr, %borrow_mut
+    %out_ptr = load %borrow_mut+BorrowMut_ptr as ptr
+[END_MACRO]
+
+[MACRO] BORROW_PTR %out_ptr, %ptr
+    %out_ptr = ptr_add %ptr, 0
+[END_MACRO]
+
+[MACRO] BORROW_MUT_PTR %out_ptr, %ptr
+    %out_ptr = ptr_add %ptr, 0
+[END_MACRO]
+
+[MACRO] COW_SLICE_BORROWED %cow, %slice
+    __cow_borrowed_ptr_%cow = load %slice+Slice_ptr as ptr
+    __cow_borrowed_len_%cow = load %slice+Slice_len as u64
+    store %cow+CowSlice_tag, COW_BORROWED as u64
+    store %cow+CowSlice_ptr, __cow_borrowed_ptr_%cow as ptr
+    store %cow+CowSlice_len, __cow_borrowed_len_%cow as u64
+    !__cow_borrowed_len_%cow
+    !__cow_borrowed_ptr_%cow
+[END_MACRO]
+
+[MACRO] COW_SLICE_OWNED %cow, %slice
+    __cow_owned_ptr_%cow = load %slice+Slice_ptr as ptr
+    __cow_owned_len_%cow = load %slice+Slice_len as u64
+    store %cow+CowSlice_tag, COW_OWNED as u64
+    store %cow+CowSlice_ptr, __cow_owned_ptr_%cow as ptr
+    store %cow+CowSlice_len, __cow_owned_len_%cow as u64
+    !__cow_owned_len_%cow
+    !__cow_owned_ptr_%cow
+[END_MACRO]
+
+[MACRO] COW_SLICE_IS_BORROWED %out_bool, %cow
+    __cow_tag_%out_bool = load %cow+CowSlice_tag as u64
+    %out_bool = eq __cow_tag_%out_bool, COW_BORROWED
+    !__cow_tag_%out_bool
+[END_MACRO]
+
+[MACRO] COW_SLICE_IS_OWNED %out_bool, %cow
+    __cow_tag_%out_bool = load %cow+CowSlice_tag as u64
+    %out_bool = eq __cow_tag_%out_bool, COW_OWNED
+    !__cow_tag_%out_bool
+[END_MACRO]
+
+[MACRO] COW_SLICE_AS_SLICE %out_slice, %cow
+    __cow_slice_ptr_%out_slice = load %cow+CowSlice_ptr as ptr
+    __cow_slice_len_%out_slice = load %cow+CowSlice_len as u64
+    store %out_slice+Slice_ptr, __cow_slice_ptr_%out_slice as ptr
+    store %out_slice+Slice_len, __cow_slice_len_%out_slice as u64
+    !__cow_slice_len_%out_slice
+    !__cow_slice_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] COW_SLICE_TO_MUT %out_ok, %out_slice, %cow
+    EXPAND COW_SLICE_IS_OWNED __cow_to_mut_owned_%out_ok, %cow
+    br __cow_to_mut_owned_%out_ok -> L_COW_TO_MUT_OWNED_%out_ok, L_COW_TO_MUT_BORROWED_%out_ok
+
+L_COW_TO_MUT_OWNED_%out_ok:
+    EXPAND COW_SLICE_AS_SLICE %out_slice, %cow
+    %out_ok = add 0, 1
+    !__cow_to_mut_owned_%out_ok
+    jmp L_COW_TO_MUT_END_%out_ok
+
+L_COW_TO_MUT_BORROWED_%out_ok:
+    store %out_slice+Slice_ptr, 0 as ptr
+    store %out_slice+Slice_len, 0 as u64
+    %out_ok = add 0, 0
+    !__cow_to_mut_owned_%out_ok
+
+L_COW_TO_MUT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] COW_SLICE_INTO_OWNED %out_ok, %out_slice, %cow
+    EXPAND COW_SLICE_TO_MUT %out_ok, %out_slice, %cow
+[END_MACRO]
+
+[MACRO] COW_SLICE_LEN %out_len, %cow
+    %out_len = load %cow+CowSlice_len as u64
+[END_MACRO]
+
+[MACRO] COW_SLICE_PTR %out_ptr, %cow
+    %out_ptr = load %cow+CowSlice_ptr as ptr
+[END_MACRO]
