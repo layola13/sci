@@ -194,6 +194,41 @@ L_ITER_NTH_NONE_%out_has:
 L_ITER_NTH_END_%out_has:
 [END_MACRO]
 
+[MACRO] ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    %out_filled = add 0, 0
+    jmp L_ITER_NEXT_CHUNK_HEAD_%out_ok
+L_ITER_NEXT_CHUNK_HEAD_%out_ok:
+    __iter_chunk_more_%out_ok = ult %out_filled, %count
+    br __iter_chunk_more_%out_ok -> L_ITER_NEXT_CHUNK_NEXT_%out_ok, L_ITER_NEXT_CHUNK_DONE_%out_ok
+L_ITER_NEXT_CHUNK_NEXT_%out_ok:
+    EXPAND ITER_NEXT_U64 __iter_chunk_has_%out_ok, __iter_chunk_value_%out_ok, %iter_reg
+    br __iter_chunk_has_%out_ok -> L_ITER_NEXT_CHUNK_STORE_%out_ok, L_ITER_NEXT_CHUNK_SHORT_%out_ok
+L_ITER_NEXT_CHUNK_STORE_%out_ok:
+    __iter_chunk_off_%out_ok = mul %out_filled, 8
+    __iter_chunk_slot_%out_ok = ptr_add %dst_ptr, __iter_chunk_off_%out_ok
+    store __iter_chunk_slot_%out_ok+0, __iter_chunk_value_%out_ok as u64
+    __iter_chunk_next_filled_%out_ok = add %out_filled, 1
+    !%out_filled
+    %out_filled = add __iter_chunk_next_filled_%out_ok, 0
+    !__iter_chunk_next_filled_%out_ok
+    !__iter_chunk_slot_%out_ok
+    !__iter_chunk_off_%out_ok
+    !__iter_chunk_value_%out_ok
+    !__iter_chunk_has_%out_ok
+    !__iter_chunk_more_%out_ok
+    jmp L_ITER_NEXT_CHUNK_HEAD_%out_ok
+L_ITER_NEXT_CHUNK_SHORT_%out_ok:
+    %out_ok = add 0, 0
+    !__iter_chunk_value_%out_ok
+    !__iter_chunk_has_%out_ok
+    !__iter_chunk_more_%out_ok
+    jmp L_ITER_NEXT_CHUNK_END_%out_ok
+L_ITER_NEXT_CHUNK_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__iter_chunk_more_%out_ok
+L_ITER_NEXT_CHUNK_END_%out_ok:
+[END_MACRO]
+
 [MACRO] ITER_COUNT %out_count, %iter_reg
     __iter_count_len_%out_count = load %iter_reg+Iter_len as u64
     __iter_count_index_%out_count = load %iter_reg+Iter_index as u64

@@ -1856,6 +1856,28 @@ L_ENTRY:
     EXPAND ITER_FROM_SLICE reduce_iter, slice
     EXPAND ITER_REDUCE_U64 reduce_ok, reduce_value, reduce_iter, @iter_accumulate_tens
 
+    chunk_buf = stack_alloc 24
+    EXPAND ITER_FROM_SLICE chunk_iter, slice
+    EXPAND ITER_TRY_NEXT_CHUNK_U64 chunk_ok, chunk_filled, chunk_iter, chunk_buf, 3
+    chunk0 = load chunk_buf+0 as u64
+    chunk1 = load chunk_buf+8 as u64
+    chunk2 = load chunk_buf+16 as u64
+    EXPAND ITER_LEN chunk_remaining, chunk_iter
+
+    short_chunk_buf = stack_alloc 32
+    EXPAND ITER_FROM_SLICE short_chunk_iter, slice
+    EXPAND ITER_ADVANCE_BY short_chunk_skip_ok, short_chunk_skip_remaining, short_chunk_iter, 3
+    EXPAND ITER_TRY_NEXT_CHUNK_U64 short_chunk_ok, short_chunk_filled, short_chunk_iter, short_chunk_buf, 4
+    short_chunk0 = load short_chunk_buf+0 as u64
+    short_chunk1 = load short_chunk_buf+8 as u64
+    EXPAND ITER_IS_EMPTY short_chunk_empty, short_chunk_iter
+
+    zero_chunk_buf = stack_alloc 8
+    EXPAND ITER_FROM_SLICE zero_chunk_iter, slice
+    EXPAND ITER_NEXT_U64 zero_chunk_skip_ok, zero_chunk_skip_value, zero_chunk_iter
+    EXPAND ITER_TRY_NEXT_CHUNK_U64 zero_chunk_ok, zero_chunk_filled, zero_chunk_iter, zero_chunk_buf, 0
+    EXPAND ITER_NEXT_U64 zero_chunk_next_ok, zero_chunk_next_value, zero_chunk_iter
+
     empty_slice = alloc Slice_SIZE
     EXPAND SLICE_NEW empty_slice, values, 0
     EXPAND ITER_FROM_SLICE empty_reduce_iter, empty_slice
@@ -1894,6 +1916,25 @@ L_ENTRY:
     ok31 = eq reduce_value, 141
     ok32 = eq empty_reduce_ok, 0
     ok33 = eq empty_reduce_value, 0
+    ok34 = eq chunk_ok, 1
+    ok35 = eq chunk_filled, 3
+    ok36 = eq chunk0, 1
+    ok37 = eq chunk1, 2
+    ok38 = eq chunk2, 3
+    ok39 = eq chunk_remaining, 2
+    ok40 = eq short_chunk_skip_ok, 1
+    ok41 = eq short_chunk_skip_remaining, 0
+    ok42 = eq short_chunk_ok, 0
+    ok43 = eq short_chunk_filled, 2
+    ok44 = eq short_chunk0, 4
+    ok45 = eq short_chunk1, 5
+    ok46 = eq short_chunk_empty, 1
+    ok47 = eq zero_chunk_skip_ok, 1
+    ok48 = eq zero_chunk_skip_value, 1
+    ok49 = eq zero_chunk_ok, 1
+    ok50 = eq zero_chunk_filled, 0
+    ok51 = eq zero_chunk_next_ok, 1
+    ok52 = eq zero_chunk_next_value, 2
 
     all01 = and ok01, ok02
     all02 = and all01, ok03
@@ -1926,7 +1967,26 @@ L_ENTRY:
     all29 = and all28, ok30
     all30 = and all29, ok31
     all31 = and all30, ok32
-    all = and all31, ok33
+    all32 = and all31, ok33
+    all33 = and all32, ok34
+    all34 = and all33, ok35
+    all35 = and all34, ok36
+    all36 = and all35, ok37
+    all37 = and all36, ok38
+    all38 = and all37, ok39
+    all39 = and all38, ok40
+    all40 = and all39, ok41
+    all41 = and all40, ok42
+    all42 = and all41, ok43
+    all43 = and all42, ok44
+    all44 = and all43, ok45
+    all45 = and all44, ok46
+    all46 = and all45, ok47
+    all47 = and all46, ok48
+    all48 = and all47, ok49
+    all49 = and all48, ok50
+    all50 = and all49, ok51
+    all = and all50, ok52
 
     !hint_lower
     !hint_upper
@@ -1961,6 +2021,25 @@ L_ENTRY:
     !reduce_value
     !empty_reduce_ok
     !empty_reduce_value
+    !chunk_ok
+    !chunk_filled
+    !chunk0
+    !chunk1
+    !chunk2
+    !chunk_remaining
+    !short_chunk_skip_ok
+    !short_chunk_skip_remaining
+    !short_chunk_ok
+    !short_chunk_filled
+    !short_chunk0
+    !short_chunk1
+    !short_chunk_empty
+    !zero_chunk_skip_ok
+    !zero_chunk_skip_value
+    !zero_chunk_ok
+    !zero_chunk_filled
+    !zero_chunk_next_ok
+    !zero_chunk_next_value
     !ok01
     !ok02
     !ok03
@@ -1994,6 +2073,25 @@ L_ENTRY:
     !ok31
     !ok32
     !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
+    !ok40
+    !ok41
+    !ok42
+    !ok43
+    !ok44
+    !ok45
+    !ok46
+    !ok47
+    !ok48
+    !ok49
+    !ok50
+    !ok51
+    !ok52
     !all01
     !all02
     !all03
@@ -2025,6 +2123,28 @@ L_ENTRY:
     !all29
     !all30
     !all31
+    !all32
+    !all33
+    !all34
+    !all35
+    !all36
+    !all37
+    !all38
+    !all39
+    !all40
+    !all41
+    !all42
+    !all43
+    !all44
+    !all45
+    !all46
+    !all47
+    !all48
+    !all49
+    !all50
+    !zero_chunk_iter
+    !short_chunk_iter
+    !chunk_iter
     !empty_reduce_iter
     !empty_slice
     !reduce_iter
