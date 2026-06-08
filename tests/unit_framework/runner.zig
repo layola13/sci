@@ -1173,12 +1173,13 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std iter cursor double-ended macros",
         "[PASS] sa_std iter comparison and callback macros",
         "[PASS] sa_std iter consuming adaptor macros",
+        "[PASS] sa_std iter try adaptor macros",
         "[PASS] sa_std iter extended cursor macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_iter_macro_surface.sa",
         iter_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
+        "test result: ok. 5 passed; 0 failed; 0 skipped",
     );
 
     const fs_expected = [_][]const u8{

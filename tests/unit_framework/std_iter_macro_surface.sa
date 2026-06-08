@@ -25,6 +25,39 @@ L_ENTRY:
     !scaled
     return out
 
+@iter_try_accumulate_tens_lt_four(acc: u64, value: u64, &out_next: ptr) -> u64:
+L_ENTRY:
+    keep = ult value, 4
+    br keep -> L_TRY_ACC_KEEP, L_TRY_ACC_STOP
+L_TRY_ACC_KEEP:
+    scaled = mul value, 10
+    next = add acc, scaled
+    store out_next+0, next as u64
+    !next
+    !scaled
+    !out_next
+    !value
+    !acc
+    return keep
+L_TRY_ACC_STOP:
+    !out_next
+    !value
+    !acc
+    return keep
+
+@iter_try_accumulate_tens_lt_ten(acc: u64, value: u64, &out_next: ptr) -> u64:
+L_ENTRY:
+    keep = ult value, 10
+    scaled = mul value, 10
+    next = add acc, scaled
+    store out_next+0, next as u64
+    !next
+    !scaled
+    !out_next
+    !value
+    !acc
+    return keep
+
 @iter_compare_u64(left: u64, right: u64) -> i64:
 L_ENTRY:
     is_less = ult left, right
@@ -63,6 +96,18 @@ L_ENTRY:
 L_ENTRY:
     !value
     return 0
+
+@iter_try_each_lt_four(value: u64) -> u64:
+L_ENTRY:
+    out = ult value, 4
+    !value
+    return out
+
+@iter_try_each_lt_ten(value: u64) -> u64:
+L_ENTRY:
+    out = ult value, 10
+    !value
+    return out
 
 @test "sa_std iter cursor double-ended macros"():
 L_ENTRY:
@@ -708,6 +753,115 @@ L_FAIL:
     panic(941)
 
 L_PASS:
+    !all
+    return 0
+
+@test "sa_std iter try adaptor macros"():
+L_ENTRY:
+    values = stack_alloc 40
+    store values+0, 1 as u64
+    store values+8, 2 as u64
+    store values+16, 3 as u64
+    store values+24, 4 as u64
+    store values+32, 5 as u64
+
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, values, 5
+
+    EXPAND ITER_FROM_SLICE try_fold_stop_iter, slice
+    EXPAND ITER_TRY_FOLD_U64 try_fold_stop_ok, try_fold_stop_value, try_fold_stop_iter, 1, @iter_try_accumulate_tens_lt_four
+    EXPAND ITER_LEN try_fold_stop_remaining, try_fold_stop_iter
+
+    EXPAND ITER_FROM_SLICE try_fold_all_iter, slice
+    EXPAND ITER_TRY_FOLD_U64 try_fold_all_ok, try_fold_all_value, try_fold_all_iter, 1, @iter_try_accumulate_tens_lt_ten
+    EXPAND ITER_IS_EMPTY try_fold_all_empty, try_fold_all_iter
+
+    EXPAND ITER_FROM_SLICE try_each_stop_iter, slice
+    EXPAND ITER_TRY_FOR_EACH_U64 try_each_stop_ok, try_each_stop_iter, @iter_try_each_lt_four
+    EXPAND ITER_LEN try_each_stop_remaining, try_each_stop_iter
+
+    EXPAND ITER_FROM_SLICE try_each_all_iter, slice
+    EXPAND ITER_TRY_FOR_EACH_U64 try_each_all_ok, try_each_all_iter, @iter_try_each_lt_ten
+    EXPAND ITER_IS_EMPTY try_each_all_empty, try_each_all_iter
+
+    empty_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW empty_slice, values, 0
+    EXPAND ITER_FROM_SLICE empty_try_iter, empty_slice
+    EXPAND ITER_TRY_FOLD_U64 empty_try_ok, empty_try_value, empty_try_iter, 7, @iter_try_accumulate_tens_lt_four
+
+    ok01 = eq try_fold_stop_ok, 0
+    ok02 = eq try_fold_stop_value, 61
+    ok03 = eq try_fold_stop_remaining, 1
+    ok04 = eq try_fold_all_ok, 1
+    ok05 = eq try_fold_all_value, 151
+    ok06 = eq try_fold_all_empty, 1
+    ok07 = eq try_each_stop_ok, 0
+    ok08 = eq try_each_stop_remaining, 1
+    ok09 = eq try_each_all_ok, 1
+    ok10 = eq try_each_all_empty, 1
+    ok11 = eq empty_try_ok, 1
+    ok12 = eq empty_try_value, 7
+
+    all01 = and ok01, ok02
+    all02 = and all01, ok03
+    all03 = and all02, ok04
+    all04 = and all03, ok05
+    all05 = and all04, ok06
+    all06 = and all05, ok07
+    all07 = and all06, ok08
+    all08 = and all07, ok09
+    all09 = and all08, ok10
+    all10 = and all09, ok11
+    all = and all10, ok12
+
+    !try_fold_stop_ok
+    !try_fold_stop_value
+    !try_fold_stop_remaining
+    !try_fold_all_ok
+    !try_fold_all_value
+    !try_fold_all_empty
+    !try_each_stop_ok
+    !try_each_stop_remaining
+    !try_each_all_ok
+    !try_each_all_empty
+    !empty_try_ok
+    !empty_try_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !all01
+    !all02
+    !all03
+    !all04
+    !all05
+    !all06
+    !all07
+    !all08
+    !all09
+    !all10
+    !empty_try_iter
+    !empty_slice
+    !try_each_all_iter
+    !try_each_stop_iter
+    !try_fold_all_iter
+    !try_fold_stop_iter
+    !slice
+    br all -> L_TRY_ADAPTORS_PASS, L_TRY_ADAPTORS_FAIL
+
+L_TRY_ADAPTORS_FAIL:
+    !all
+    panic(945)
+
+L_TRY_ADAPTORS_PASS:
     !all
     return 0
 
