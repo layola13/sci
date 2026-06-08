@@ -818,7 +818,8 @@ L_ENTRY:
     EXPAND ATOMIC_PTR_INIT ptr_slot, ptr_a
     EXPAND ATOMIC_PTR_LOAD ptr_initial, ptr_slot, seq_cst
     EXPAND ATOMIC_PTR_STORE ptr_slot, ptr_b, seq_cst
-    EXPAND ATOMIC_PTR_COMPARE_EXCHANGE ptr_cmp_old, ptr_cmp_ok, ptr_slot, ptr_b, ptr_a, seq_cst, acquire
+    EXPAND ATOMIC_PTR_SWAP ptr_swap_old, ptr_slot, ptr_c, seq_cst
+    EXPAND ATOMIC_PTR_COMPARE_EXCHANGE ptr_cmp_old, ptr_cmp_ok, ptr_slot, ptr_c, ptr_a, seq_cst, acquire
     EXPAND ATOMIC_PTR_LOAD ptr_final, ptr_slot, seq_cst
 
     ok_u8_initial = eq u8_initial, 5
@@ -863,7 +864,8 @@ L_ENTRY:
     ok_isize_final = eq isize_final, -3
 
     ok_ptr_initial = eq ptr_initial, ptr_a
-    ok_ptr_cmp_old = eq ptr_cmp_old, ptr_b
+    ok_ptr_swap_old = eq ptr_swap_old, ptr_b
+    ok_ptr_cmp_old = eq ptr_cmp_old, ptr_c
     ok_ptr_cmp = eq ptr_cmp_ok, 1
     ok_ptr_final = eq ptr_final, ptr_a
 
@@ -904,9 +906,10 @@ L_ENTRY:
     ok35 = and ok34, ok_isize_cmp
     ok36 = and ok35, ok_isize_final
     ok37 = and ok36, ok_ptr_initial
-    ok38 = and ok37, ok_ptr_cmp_old
-    ok39 = and ok38, ok_ptr_cmp
-    ok = and ok39, ok_ptr_final
+    ok38 = and ok37, ok_ptr_swap_old
+    ok39 = and ok38, ok_ptr_cmp_old
+    ok40 = and ok39, ok_ptr_cmp
+    ok = and ok40, ok_ptr_final
 
     !u8_initial
     !u8_add_old
@@ -946,6 +949,7 @@ L_ENTRY:
     !isize_cmp_ok
     !isize_final
     !ptr_initial
+    !ptr_swap_old
     !ptr_cmp_old
     !ptr_cmp_ok
     !ptr_final
@@ -987,6 +991,7 @@ L_ENTRY:
     !ok_isize_cmp
     !ok_isize_final
     !ok_ptr_initial
+    !ok_ptr_swap_old
     !ok_ptr_cmp_old
     !ok_ptr_cmp
     !ok_ptr_final
@@ -1029,6 +1034,7 @@ L_ENTRY:
     !ok37
     !ok38
     !ok39
+    !ok40
 
     br ok -> L_PASS, L_FAIL
 

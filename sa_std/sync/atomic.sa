@@ -580,6 +580,25 @@
     atomic_store %atomic_ptr+AtomicPtr_value, %value_ptr as ptr %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_PTR_SWAP %out_old_ptr, %atomic_ptr, %value_ptr, %ordering
+    jmp L_ATOMIC_PTR_SWAP_HEAD_%out_old_ptr
+
+L_ATOMIC_PTR_SWAP_HEAD_%out_old_ptr:
+    __atomic_ptr_swap_expected_%out_old_ptr = atomic_load %atomic_ptr+AtomicPtr_value as ptr relaxed
+    %out_old_ptr, __atomic_ptr_swap_ok_%out_old_ptr = cmpxchg %atomic_ptr+AtomicPtr_value, __atomic_ptr_swap_expected_%out_old_ptr, %value_ptr as ptr %ordering relaxed
+    br __atomic_ptr_swap_ok_%out_old_ptr -> L_ATOMIC_PTR_SWAP_DONE_%out_old_ptr, L_ATOMIC_PTR_SWAP_RETRY_%out_old_ptr
+
+L_ATOMIC_PTR_SWAP_RETRY_%out_old_ptr:
+    !__atomic_ptr_swap_ok_%out_old_ptr
+    !__atomic_ptr_swap_expected_%out_old_ptr
+    !%out_old_ptr
+    jmp L_ATOMIC_PTR_SWAP_HEAD_%out_old_ptr
+
+L_ATOMIC_PTR_SWAP_DONE_%out_old_ptr:
+    !__atomic_ptr_swap_ok_%out_old_ptr
+    !__atomic_ptr_swap_expected_%out_old_ptr
+[END_MACRO]
+
 [MACRO] ATOMIC_PTR_COMPARE_EXCHANGE %out_old_ptr, %out_ok, %atomic_ptr, %expected_ptr, %new_ptr, %success_ordering, %failure_ordering
     %out_old_ptr, %out_ok = cmpxchg %atomic_ptr+AtomicPtr_value, %expected_ptr, %new_ptr as ptr %success_ordering %failure_ordering
 [END_MACRO]
