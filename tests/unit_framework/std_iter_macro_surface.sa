@@ -1,5 +1,6 @@
 @import "sa_std/core/slice.sa"
 @import "sa_std/iter.sa"
+@import "sa_std/vec.sa"
 
 @iter_is_even(value: u64) -> u64:
 L_ENTRY:
@@ -57,6 +58,45 @@ L_ENTRY:
     !value
     !acc
     return keep
+
+@iter_map_even_tens(value: u64, &out_mapped: ptr) -> u64:
+L_ENTRY:
+    rem = urem value, 2
+    is_even = eq rem, 0
+    br is_even -> L_MAP_EVEN, L_MAP_SKIP
+L_MAP_EVEN:
+    mapped = mul value, 10
+    store out_mapped+0, mapped as u64
+    !mapped
+    !is_even
+    !rem
+    !out_mapped
+    !value
+    return 1
+L_MAP_SKIP:
+    !is_even
+    !rem
+    !out_mapped
+    !value
+    return 0
+
+@iter_map_gt_ten_tens(value: u64, &out_mapped: ptr) -> u64:
+L_ENTRY:
+    is_gt = ugt value, 10
+    br is_gt -> L_MAP_GT, L_MAP_GT_SKIP
+L_MAP_GT:
+    mapped = mul value, 10
+    store out_mapped+0, mapped as u64
+    !mapped
+    !is_gt
+    !out_mapped
+    !value
+    return 1
+L_MAP_GT_SKIP:
+    !is_gt
+    !out_mapped
+    !value
+    return 0
 
 @iter_compare_u64(left: u64, right: u64) -> i64:
 L_ENTRY:
@@ -753,6 +793,118 @@ L_FAIL:
     panic(941)
 
 L_PASS:
+    !all
+    return 0
+
+@test "sa_std iter find_map and filter_map collect macros"():
+L_ENTRY:
+    values = stack_alloc 40
+    store values+0, 1 as u64
+    store values+8, 2 as u64
+    store values+16, 3 as u64
+    store values+24, 4 as u64
+    store values+32, 5 as u64
+
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, values, 5
+
+    EXPAND ITER_FROM_SLICE find_map_iter, slice
+    EXPAND ITER_FIND_MAP_U64 find_map_ok, find_map_value, find_map_iter, @iter_map_even_tens
+    EXPAND ITER_LEN find_map_remaining, find_map_iter
+
+    EXPAND ITER_FROM_SLICE find_map_miss_iter, slice
+    EXPAND ITER_FIND_MAP_U64 find_map_miss_ok, find_map_miss_value, find_map_miss_iter, @iter_map_gt_ten_tens
+    EXPAND ITER_IS_EMPTY find_map_miss_empty, find_map_miss_iter
+
+    EXPAND ITER_FROM_SLICE filter_map_iter, slice
+    EXPAND ITER_FILTER_MAP_COLLECT_U64 filter_map_vec, filter_map_iter, @iter_map_even_tens
+    EXPAND ITER_IS_EMPTY filter_map_empty, filter_map_iter
+    EXPAND VEC_LEN filter_map_len, filter_map_vec
+    EXPAND VEC_TRY_GET_U64 filter_map_get0_ok, filter_map_get0, filter_map_vec, 0
+    EXPAND VEC_TRY_GET_U64 filter_map_get1_ok, filter_map_get1, filter_map_vec, 1
+    EXPAND VEC_TRY_GET_U64 filter_map_get2_ok, filter_map_get2, filter_map_vec, 2
+
+    ok01 = eq find_map_ok, 1
+    ok02 = eq find_map_value, 20
+    ok03 = eq find_map_remaining, 3
+    ok04 = eq find_map_miss_ok, 0
+    ok05 = eq find_map_miss_value, 0
+    ok06 = eq find_map_miss_empty, 1
+    ok07 = eq filter_map_empty, 1
+    ok08 = eq filter_map_len, 2
+    ok09 = eq filter_map_get0_ok, 1
+    ok10 = eq filter_map_get0, 20
+    ok11 = eq filter_map_get1_ok, 1
+    ok12 = eq filter_map_get1, 40
+    ok13 = eq filter_map_get2_ok, 0
+    ok14 = eq filter_map_get2, 0
+
+    all01 = and ok01, ok02
+    all02 = and all01, ok03
+    all03 = and all02, ok04
+    all04 = and all03, ok05
+    all05 = and all04, ok06
+    all06 = and all05, ok07
+    all07 = and all06, ok08
+    all08 = and all07, ok09
+    all09 = and all08, ok10
+    all10 = and all09, ok11
+    all11 = and all10, ok12
+    all12 = and all11, ok13
+    all = and all12, ok14
+
+    !find_map_ok
+    !find_map_value
+    !find_map_remaining
+    !find_map_miss_ok
+    !find_map_miss_value
+    !find_map_miss_empty
+    !filter_map_empty
+    !filter_map_len
+    !filter_map_get0_ok
+    !filter_map_get0
+    !filter_map_get1_ok
+    !filter_map_get1
+    !filter_map_get2_ok
+    !filter_map_get2
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !all01
+    !all02
+    !all03
+    !all04
+    !all05
+    !all06
+    !all07
+    !all08
+    !all09
+    !all10
+    !all11
+    !all12
+    !filter_map_iter
+    !find_map_miss_iter
+    !find_map_iter
+    !slice
+    EXPAND VEC_FREE filter_map_vec
+    br all -> L_FIND_MAP_PASS, L_FIND_MAP_FAIL
+
+L_FIND_MAP_FAIL:
+    !all
+    panic(946)
+
+L_FIND_MAP_PASS:
     !all
     return 0
 

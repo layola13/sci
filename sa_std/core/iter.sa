@@ -1,5 +1,6 @@
 @import "iter.sal"
 @import "slice.sal"
+@import "../vec.sa"
 
 [MACRO] ITER_NEW %out_iter, %slice_reg
     %out_iter = alloc Iter_SIZE
@@ -238,6 +239,38 @@ L_ITER_FIND_NONE_%out_has:
     !__iter_find_value_%out_has
     !__iter_find_has_%out_has
 L_ITER_FIND_END_%out_has:
+[END_MACRO]
+
+[MACRO] ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+    __iter_find_map_slot_%out_has = stack_alloc 8
+    jmp L_ITER_FIND_MAP_HEAD_%out_has
+L_ITER_FIND_MAP_HEAD_%out_has:
+    EXPAND ITER_NEXT_U64 __iter_find_map_has_%out_has, __iter_find_map_value_%out_has, %iter_reg
+    br __iter_find_map_has_%out_has -> L_ITER_FIND_MAP_CHECK_%out_has, L_ITER_FIND_MAP_NONE_%out_has
+L_ITER_FIND_MAP_CHECK_%out_has:
+    __iter_find_map_found_%out_has = call %map_fn(__iter_find_map_value_%out_has, &__iter_find_map_slot_%out_has)
+    __iter_find_map_match_%out_has = ne __iter_find_map_found_%out_has, 0
+    br __iter_find_map_match_%out_has -> L_ITER_FIND_MAP_SOME_%out_has, L_ITER_FIND_MAP_NEXT_%out_has
+L_ITER_FIND_MAP_NEXT_%out_has:
+    !__iter_find_map_match_%out_has
+    !__iter_find_map_found_%out_has
+    !__iter_find_map_value_%out_has
+    !__iter_find_map_has_%out_has
+    jmp L_ITER_FIND_MAP_HEAD_%out_has
+L_ITER_FIND_MAP_SOME_%out_has:
+    %out_value = load __iter_find_map_slot_%out_has+0 as u64
+    %out_has = add 0, 1
+    !__iter_find_map_match_%out_has
+    !__iter_find_map_found_%out_has
+    !__iter_find_map_value_%out_has
+    !__iter_find_map_has_%out_has
+    jmp L_ITER_FIND_MAP_END_%out_has
+L_ITER_FIND_MAP_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_find_map_value_%out_has
+    !__iter_find_map_has_%out_has
+L_ITER_FIND_MAP_END_%out_has:
 [END_MACRO]
 
 [MACRO] ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
@@ -771,6 +804,37 @@ L_ITER_TRY_FOR_EACH_DONE_%out_ok:
     !__iter_try_each_value_%out_ok
     !__iter_try_each_has_%out_ok
 L_ITER_TRY_FOR_EACH_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_NEW %out_vec
+    __iter_filter_map_slot_%out_vec = stack_alloc 8
+    jmp L_ITER_FILTER_MAP_HEAD_%out_vec
+L_ITER_FILTER_MAP_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_filter_map_has_%out_vec, __iter_filter_map_value_%out_vec, %iter_reg
+    br __iter_filter_map_has_%out_vec -> L_ITER_FILTER_MAP_CHECK_%out_vec, L_ITER_FILTER_MAP_DONE_%out_vec
+L_ITER_FILTER_MAP_CHECK_%out_vec:
+    __iter_filter_map_found_%out_vec = call %map_fn(__iter_filter_map_value_%out_vec, &__iter_filter_map_slot_%out_vec)
+    __iter_filter_map_match_%out_vec = ne __iter_filter_map_found_%out_vec, 0
+    br __iter_filter_map_match_%out_vec -> L_ITER_FILTER_MAP_PUSH_%out_vec, L_ITER_FILTER_MAP_NEXT_%out_vec
+L_ITER_FILTER_MAP_PUSH_%out_vec:
+    __iter_filter_map_mapped_%out_vec = load __iter_filter_map_slot_%out_vec+0 as u64
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_filter_map_mapped_%out_vec
+    !__iter_filter_map_mapped_%out_vec
+    !__iter_filter_map_match_%out_vec
+    !__iter_filter_map_found_%out_vec
+    !__iter_filter_map_value_%out_vec
+    !__iter_filter_map_has_%out_vec
+    jmp L_ITER_FILTER_MAP_HEAD_%out_vec
+L_ITER_FILTER_MAP_NEXT_%out_vec:
+    !__iter_filter_map_match_%out_vec
+    !__iter_filter_map_found_%out_vec
+    !__iter_filter_map_value_%out_vec
+    !__iter_filter_map_has_%out_vec
+    jmp L_ITER_FILTER_MAP_HEAD_%out_vec
+L_ITER_FILTER_MAP_DONE_%out_vec:
+    !__iter_filter_map_value_%out_vec
+    !__iter_filter_map_has_%out_vec
 [END_MACRO]
 
 [MACRO] ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
