@@ -1583,6 +1583,10 @@ L_MAP_EXTRACT_DONE_%out_len:
     %out_value_ptr = load __map_try_insert_ptr_slot_%out_inserted+0 as ptr
 [END_MACRO]
 
+[MACRO] MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
+    EXPAND MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
+[END_MACRO]
+
 [MACRO] MAP_KEYS %out_vec, %map_reg
     %out_vec = call @sa_map_keys_vec(&%map_reg)
 [END_MACRO]

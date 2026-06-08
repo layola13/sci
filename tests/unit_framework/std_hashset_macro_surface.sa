@@ -197,6 +197,9 @@ L_ENTRY:
     EXPAND SET_SHRINK_TO set, 1
     EXPAND SET_CAPACITY cap_after_shrink_to, set
     EXPAND SET_LEN len_after_take, set
+    EXPAND SET_GET_OR_INSERT get_or_insert_existing, get_or_insert_existing_key, set, key_b
+    EXPAND SET_GET_OR_INSERT get_or_insert_new, get_or_insert_new_key, set, key_c
+    EXPAND SET_LEN len_after_get_or_insert, set
 
     ok_try_new = eq try_new_ok, 1
     ok_reserve = eq reserve_ok, 1
@@ -223,6 +226,11 @@ L_ENTRY:
     ok_disjoint1 = eq disjoint1, 1
     ok_cap_after_shrink_to = eq cap_after_shrink_to, 8
     ok_len_after_take = eq len_after_take, 1
+    ok_get_or_insert_existing = eq get_or_insert_existing, 0
+    ok_get_or_insert_existing_key = eq get_or_insert_existing_key, key_b
+    ok_get_or_insert_new = eq get_or_insert_new, 1
+    ok_get_or_insert_new_key = eq get_or_insert_new_key, key_c
+    ok_len_after_get_or_insert = eq len_after_get_or_insert, 2
 
     ok01 = and ok_try_new, ok_reserve
     ok02 = and ok01, ok_ins_a
@@ -247,7 +255,12 @@ L_ENTRY:
     ok21 = and ok20, ok_disjoint_insert_c
     ok22 = and ok21, ok_disjoint1
     ok23 = and ok22, ok_cap_after_shrink_to
-    ok = and ok23, ok_len_after_take
+    ok24 = and ok23, ok_len_after_take
+    ok25 = and ok24, ok_get_or_insert_existing
+    ok26 = and ok25, ok_get_or_insert_existing_key
+    ok27 = and ok26, ok_get_or_insert_new
+    ok28 = and ok27, ok_get_or_insert_new_key
+    ok = and ok28, ok_len_after_get_or_insert
 
     !try_new_ok
     !reserve_ok
@@ -274,6 +287,11 @@ L_ENTRY:
     !disjoint1
     !cap_after_shrink_to
     !len_after_take
+    !get_or_insert_existing
+    !get_or_insert_existing_key
+    !get_or_insert_new
+    !get_or_insert_new_key
+    !len_after_get_or_insert
     !key_c
     !key_b
     !key_a
@@ -302,6 +320,11 @@ L_ENTRY:
     !ok_disjoint1
     !ok_cap_after_shrink_to
     !ok_len_after_take
+    !ok_get_or_insert_existing
+    !ok_get_or_insert_existing_key
+    !ok_get_or_insert_new
+    !ok_get_or_insert_new_key
+    !ok_len_after_get_or_insert
     !ok01
     !ok02
     !ok03
@@ -325,6 +348,11 @@ L_ENTRY:
     !ok21
     !ok22
     !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
     EXPAND SET_FREE disjoint_set
     EXPAND SET_FREE other
     EXPAND SET_FREE set

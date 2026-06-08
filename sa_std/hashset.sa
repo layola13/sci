@@ -852,6 +852,14 @@ L_SET_EXTRACT_DONE_%out_len:
     %out_key = load __set_get_slot_%out_ok+0 as ptr
 [END_MACRO]
 
+[MACRO] SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
+    %out_inserted = call @sa_set_insert(&%set_reg, &%key)
+    __set_get_or_insert_slot_%out_inserted = stack_alloc 8
+    __set_get_or_insert_ok_%out_inserted = call @sa_set_get(&%set_reg, &%key, &__set_get_or_insert_slot_%out_inserted)
+    %out_key = load __set_get_or_insert_slot_%out_inserted+0 as ptr
+    !__set_get_or_insert_ok_%out_inserted
+[END_MACRO]
+
 [MACRO] SET_TAKE %out_ok, %out_key, %set_reg, %key
     __set_take_slot_%out_ok = stack_alloc 8
     %out_ok = call @sa_set_take(&%set_reg, &%key, &__set_take_slot_%out_ok)
