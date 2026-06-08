@@ -206,11 +206,16 @@ L_ENTRY:
     EXPAND CSTRING_AS_PTR owned_ptr, owned
     EXPAND CSTRING_COUNT_BYTES owned_count_direct, owned
     EXPAND CSTRING_IS_EMPTY owned_is_empty, owned
+    owned_str = stack_alloc Slice_SIZE
+    EXPAND CSTRING_TO_STR owned_str_status, owned_str, owned
     owned_bytes_len = load owned_bytes+Slice_len as u64
     owned_bytes_nul_len = load owned_bytes_nul+Slice_len as u64
+    owned_str_len = load owned_str+Slice_len as u64
+    owned_str_ptr = load owned_str+Slice_ptr as ptr
     owned_bytes_ptr = load owned_bytes+Slice_ptr as ptr
     owned_b0 = load owned_bytes_ptr+0 as u8
     owned_b2 = load owned_bytes_ptr+2 as u8
+    owned_str_b1 = load owned_str_ptr+1 as u8
     owned_bytes_nul_ptr = load owned_bytes_nul+Slice_ptr as ptr
     owned_nul = load owned_bytes_nul_ptr+3 as u8
 
@@ -275,10 +280,23 @@ L_ENTRY:
     EXPAND CSTRING_FROM_BYTES_WITH_NUL missing_nul_status, missing_nul, bytes_slice
     missing_nul_len = load missing_nul+CString_len as u64
 
+    invalid_utf8_buf = stack_alloc 2
+    store invalid_utf8_buf+0, 255 as u8
+    store invalid_utf8_buf+1, 0 as u8
+    invalid_utf8_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW invalid_utf8_slice, invalid_utf8_buf, 2
+    invalid_utf8_owned = stack_alloc CString_SIZE
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL invalid_utf8_status, invalid_utf8_owned, invalid_utf8_slice
+    invalid_utf8_str = stack_alloc Slice_SIZE
+    EXPAND CSTRING_TO_STR invalid_utf8_str_status, invalid_utf8_str, invalid_utf8_owned
+
     ok_owned_status = eq owned_status, CSTRING_NEW_OK
     ok_owned_count = eq owned_count, 3
     ok_owned_count_direct = eq owned_count_direct, 3
     ok_owned_is_empty = eq owned_is_empty, 0
+    ok_owned_str_status = eq owned_str_status, CSTR_FROM_BYTES_OK
+    ok_owned_str_len = eq owned_str_len, 3
+    ok_owned_str_b1 = eq owned_str_b1, 97
     ok_owned_bytes_len = eq owned_bytes_len, 3
     ok_owned_bytes_nul_len = eq owned_bytes_nul_len, 4
     ok_owned_ptr = eq owned_ptr, owned_bytes_ptr
@@ -303,41 +321,50 @@ L_ENTRY:
     ok_bad_with_nul_len = eq bad_with_nul_len, 0
     ok_missing_nul_status = eq missing_nul_status, CSTR_FROM_BYTES_NOT_NUL_TERMINATED
     ok_missing_nul_len = eq missing_nul_len, 0
+    ok_invalid_utf8_status = eq invalid_utf8_status, CSTR_FROM_BYTES_OK
+    ok_invalid_utf8_str_status = eq invalid_utf8_str_status, CSTR_TO_STR_INVALID_UTF8
 
     ok01 = and ok_owned_status, ok_owned_count
     ok02 = and ok01, ok_owned_count_direct
     ok03 = and ok02, ok_owned_is_empty
-    ok04 = and ok03, ok_owned_bytes_len
-    ok05 = and ok04, ok_owned_bytes_nul_len
-    ok06 = and ok05, ok_owned_ptr
-    ok07 = and ok06, ok_owned_b0
-    ok08 = and ok07, ok_owned_b2
-    ok09 = and ok08, ok_owned_nul
-    ok10 = and ok09, ok_raw_status
-    ok11 = and ok10, ok_raw_len_after
-    ok12 = and ok11, ok_raw_roundtrip_count
-    ok13 = and ok12, ok_with_nul_status
-    ok14 = and ok13, ok_with_nul_count
-    ok15 = and ok14, ok_with_nul_b2
-    ok16 = and ok15, ok_unchecked_count
-    ok17 = and ok16, ok_empty_status
-    ok18 = and ok17, ok_empty_count
-    ok19 = and ok18, ok_empty_is_empty
-    ok20 = and ok19, ok_empty_bytes_nul_len
-    ok21 = and ok20, ok_empty_nul
-    ok22 = and ok21, ok_bad_status
-    ok23 = and ok22, ok_bad_len
-    ok24 = and ok23, ok_bad_with_nul_status
-    ok25 = and ok24, ok_bad_with_nul_len
-    ok26 = and ok25, ok_missing_nul_status
-    ok = and ok26, ok_missing_nul_len
+    ok04 = and ok03, ok_owned_str_status
+    ok05 = and ok04, ok_owned_str_len
+    ok06 = and ok05, ok_owned_str_b1
+    ok07 = and ok06, ok_owned_bytes_len
+    ok08 = and ok07, ok_owned_bytes_nul_len
+    ok09 = and ok08, ok_owned_ptr
+    ok10 = and ok09, ok_owned_b0
+    ok11 = and ok10, ok_owned_b2
+    ok12 = and ok11, ok_owned_nul
+    ok13 = and ok12, ok_raw_status
+    ok14 = and ok13, ok_raw_len_after
+    ok15 = and ok14, ok_raw_roundtrip_count
+    ok16 = and ok15, ok_with_nul_status
+    ok17 = and ok16, ok_with_nul_count
+    ok18 = and ok17, ok_with_nul_b2
+    ok19 = and ok18, ok_unchecked_count
+    ok20 = and ok19, ok_empty_status
+    ok21 = and ok20, ok_empty_count
+    ok22 = and ok21, ok_empty_is_empty
+    ok23 = and ok22, ok_empty_bytes_nul_len
+    ok24 = and ok23, ok_empty_nul
+    ok25 = and ok24, ok_bad_status
+    ok26 = and ok25, ok_bad_len
+    ok27 = and ok26, ok_bad_with_nul_status
+    ok28 = and ok27, ok_bad_with_nul_len
+    ok29 = and ok28, ok_missing_nul_status
+    ok30 = and ok29, ok_missing_nul_len
+    ok31 = and ok30, ok_invalid_utf8_status
+    ok = and ok31, ok_invalid_utf8_str_status
 
     EXPAND CSTRING_FREE owned
     EXPAND CSTRING_FREE raw_roundtrip
     EXPAND CSTRING_FREE with_nul_owned
     EXPAND CSTRING_FREE unchecked_owned
     EXPAND CSTRING_FREE empty_owned
+    EXPAND CSTRING_FREE invalid_utf8_owned
 
+    !owned_str_ptr
     !owned_bytes_ptr
     !owned_bytes_nul_ptr
     !owned_ptr

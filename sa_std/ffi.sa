@@ -443,6 +443,12 @@ L_CSTRING_FROM_NUL_END_%out_status:
     EXPAND CSTR_TO_BYTES %out_slice, __cstring_no_nul_cstr_%out_slice
 [END_MACRO]
 
+[MACRO] CSTRING_TO_STR %out_status, %out_slice, %cstring_reg
+    __cstring_to_str_cstr_%out_status = stack_alloc CStr_SIZE
+    EXPAND CSTRING_AS_CSTR __cstring_to_str_cstr_%out_status, %cstring_reg
+    EXPAND CSTR_TO_STR %out_status, %out_slice, __cstring_to_str_cstr_%out_status
+[END_MACRO]
+
 [MACRO] CSTRING_AS_PTR %out_ptr, %cstring_reg
     %out_ptr = load %cstring_reg+CString_ptr as ptr
 [END_MACRO]
