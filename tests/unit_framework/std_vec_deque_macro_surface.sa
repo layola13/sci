@@ -298,6 +298,21 @@ L_ENTRY:
     EXPAND SLICE_GET_LEN final_front_len, final_front_slice
     EXPAND SLICE_GET_LEN final_back_len, final_back_slice
 
+    EXPAND VEC_DEQUE_PUSH_BACK_MUT_PTR push_back_mut_ptr, deque, 70
+    store push_back_mut_ptr+0, 71 as u64
+    EXPAND VEC_DEQUE_PUSH_FRONT_MUT_PTR push_front_mut_ptr, deque, 40
+    store push_front_mut_ptr+0, 41 as u64
+    EXPAND VEC_DEQUE_TRY_INSERT_MUT_PTR insert_mut_ok, insert_mut_ptr, deque, 2, 60
+    store insert_mut_ptr+0, 61 as u64
+    EXPAND VEC_DEQUE_TRY_INSERT_MUT_PTR insert_mut_miss_ok, insert_mut_miss_ptr, deque, 99, 99
+    insert_mut_miss_null = 0 as ptr
+    EXPAND VEC_DEQUE_LEN len_after_mut_inserts, deque
+    EXPAND VEC_DEQUE_TRY_GET mut_insert0_ok, mut_insert0, deque, 0
+    EXPAND VEC_DEQUE_TRY_GET mut_insert1_ok, mut_insert1, deque, 1
+    EXPAND VEC_DEQUE_TRY_GET mut_insert2_ok, mut_insert2, deque, 2
+    EXPAND VEC_DEQUE_TRY_GET mut_insert3_ok, mut_insert3, deque, 3
+    EXPAND VEC_DEQUE_TRY_GET mut_insert4_ok, mut_insert4, deque, 4
+
     ok_pop0 = eq pop0_ok, 1
     ok_pop0_value = eq pop0, 10
     ok_front_slice_len = eq front_slice_len, 3
@@ -351,6 +366,22 @@ L_ENTRY:
     ok_cap_after_try_shrink_fit = eq cap_after_try_shrink_fit, 2
     ok_final_front_len = eq final_front_len, 2
     ok_final_back_len = eq final_back_len, 0
+    ok_push_back_mut = ne push_back_mut_ptr, insert_mut_miss_null
+    ok_push_front_mut = ne push_front_mut_ptr, insert_mut_miss_null
+    ok_insert_mut = eq insert_mut_ok, 1
+    ok_insert_mut_miss = eq insert_mut_miss_ok, 0
+    ok_insert_mut_miss_ptr = eq insert_mut_miss_ptr, insert_mut_miss_null
+    ok_len_after_mut_inserts = eq len_after_mut_inserts, 5
+    ok_mut_insert0_flag = eq mut_insert0_ok, 1
+    ok_mut_insert0 = eq mut_insert0, 41
+    ok_mut_insert1_flag = eq mut_insert1_ok, 1
+    ok_mut_insert1 = eq mut_insert1, 55
+    ok_mut_insert2_flag = eq mut_insert2_ok, 1
+    ok_mut_insert2 = eq mut_insert2, 61
+    ok_mut_insert3_flag = eq mut_insert3_ok, 1
+    ok_mut_insert3 = eq mut_insert3, 21
+    ok_mut_insert4_flag = eq mut_insert4_ok, 1
+    ok_mut_insert4 = eq mut_insert4, 71
 
     ok01 = and ok_pop0, ok_pop0_value
     ok02 = and ok01, ok_front_slice_len
@@ -403,7 +434,23 @@ L_ENTRY:
     ok49 = and ok48, ok_shrink_fit
     ok50 = and ok49, ok_cap_after_try_shrink_fit
     ok51 = and ok50, ok_final_front_len
-    ok = and ok51, ok_final_back_len
+    ok52 = and ok51, ok_final_back_len
+    ok53 = and ok52, ok_push_back_mut
+    ok54 = and ok53, ok_push_front_mut
+    ok55 = and ok54, ok_insert_mut
+    ok56 = and ok55, ok_insert_mut_miss
+    ok57 = and ok56, ok_insert_mut_miss_ptr
+    ok58 = and ok57, ok_len_after_mut_inserts
+    ok59 = and ok58, ok_mut_insert0_flag
+    ok60 = and ok59, ok_mut_insert0
+    ok61 = and ok60, ok_mut_insert1_flag
+    ok62 = and ok61, ok_mut_insert1
+    ok63 = and ok62, ok_mut_insert2_flag
+    ok64 = and ok63, ok_mut_insert2
+    ok65 = and ok64, ok_mut_insert3_flag
+    ok66 = and ok65, ok_mut_insert3
+    ok67 = and ok66, ok_mut_insert4_flag
+    ok = and ok67, ok_mut_insert4
 
     !pop0_ok
     !pop0
@@ -460,6 +507,24 @@ L_ENTRY:
     !cap_after_try_shrink_fit
     !final_front_len
     !final_back_len
+    !push_back_mut_ptr
+    !push_front_mut_ptr
+    !insert_mut_ok
+    !insert_mut_ptr
+    !insert_mut_miss_ok
+    !insert_mut_miss_ptr
+    !insert_mut_miss_null
+    !len_after_mut_inserts
+    !mut_insert0_ok
+    !mut_insert0
+    !mut_insert1_ok
+    !mut_insert1
+    !mut_insert2_ok
+    !mut_insert2
+    !mut_insert3_ok
+    !mut_insert3
+    !mut_insert4_ok
+    !mut_insert4
     !ok_pop0
     !ok_pop0_value
     !ok_front_slice_len
@@ -513,6 +578,22 @@ L_ENTRY:
     !ok_cap_after_try_shrink_fit
     !ok_final_front_len
     !ok_final_back_len
+    !ok_push_back_mut
+    !ok_push_front_mut
+    !ok_insert_mut
+    !ok_insert_mut_miss
+    !ok_insert_mut_miss_ptr
+    !ok_len_after_mut_inserts
+    !ok_mut_insert0_flag
+    !ok_mut_insert0
+    !ok_mut_insert1_flag
+    !ok_mut_insert1
+    !ok_mut_insert2_flag
+    !ok_mut_insert2
+    !ok_mut_insert3_flag
+    !ok_mut_insert3
+    !ok_mut_insert4_flag
+    !ok_mut_insert4
     !ok01
     !ok02
     !ok03
@@ -564,6 +645,22 @@ L_ENTRY:
     !ok49
     !ok50
     !ok51
+    !ok52
+    !ok53
+    !ok54
+    !ok55
+    !ok56
+    !ok57
+    !ok58
+    !ok59
+    !ok60
+    !ok61
+    !ok62
+    !ok63
+    !ok64
+    !ok65
+    !ok66
+    !ok67
     !final_back_slice
     !final_front_slice
     !contiguous_slice

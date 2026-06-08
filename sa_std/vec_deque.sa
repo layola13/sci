@@ -1499,8 +1499,26 @@ L_APPEND_DONE:
     call @sa_vec_deque_push_back(&%deque_reg, %value)
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_PUSH_BACK_MUT_PTR %out_ptr, %deque_reg, %value
+    __vec_deque_push_back_mut_len_%out_ptr = call @sa_vec_deque_len(&%deque_reg)
+    call @sa_vec_deque_push_back(&%deque_reg, %value)
+    __vec_deque_push_back_mut_slot_%out_ptr = stack_alloc 8
+    __vec_deque_push_back_mut_ok_%out_ptr = call @sa_vec_deque_try_get_mut_ptr(&%deque_reg, __vec_deque_push_back_mut_len_%out_ptr, &__vec_deque_push_back_mut_slot_%out_ptr)
+    %out_ptr = load __vec_deque_push_back_mut_slot_%out_ptr+0 as ptr
+    !__vec_deque_push_back_mut_ok_%out_ptr
+    !__vec_deque_push_back_mut_len_%out_ptr
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_PUSH_FRONT %deque_reg, %value
     call @sa_vec_deque_push_front(&%deque_reg, %value)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_PUSH_FRONT_MUT_PTR %out_ptr, %deque_reg, %value
+    call @sa_vec_deque_push_front(&%deque_reg, %value)
+    __vec_deque_push_front_mut_slot_%out_ptr = stack_alloc 8
+    __vec_deque_push_front_mut_ok_%out_ptr = call @sa_vec_deque_try_front_mut_ptr(&%deque_reg, &__vec_deque_push_front_mut_slot_%out_ptr)
+    %out_ptr = load __vec_deque_push_front_mut_slot_%out_ptr+0 as ptr
+    !__vec_deque_push_front_mut_ok_%out_ptr
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_TRY_POP_FRONT %out_ok, %out_value, %deque_reg
@@ -1804,6 +1822,27 @@ L_VEC_DEQUE_RETAIN_DONE_%out_len:
 
 [MACRO] VEC_DEQUE_TRY_INSERT %out_ok, %deque_reg, %index, %value
     %out_ok = call @sa_vec_deque_try_insert(&%deque_reg, %index, %value)
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_INSERT_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index, %value
+    __vec_deque_insert_mut_ok_%out_ok = call @sa_vec_deque_try_insert(&%deque_reg, %index, %value)
+    br __vec_deque_insert_mut_ok_%out_ok -> L_VEC_DEQUE_INSERT_MUT_PTR_OK_%out_ok, L_VEC_DEQUE_INSERT_MUT_PTR_MISS_%out_ok
+L_VEC_DEQUE_INSERT_MUT_PTR_OK_%out_ok:
+    __vec_deque_insert_mut_slot_%out_ok = stack_alloc 8
+    __vec_deque_insert_mut_get_ok_%out_ok = call @sa_vec_deque_try_get_mut_ptr(&%deque_reg, %index, &__vec_deque_insert_mut_slot_%out_ok)
+    %out_ptr = load __vec_deque_insert_mut_slot_%out_ok+0 as ptr
+    %out_ok = __vec_deque_insert_mut_get_ok_%out_ok
+    !__vec_deque_insert_mut_ok_%out_ok
+    jmp L_VEC_DEQUE_INSERT_MUT_PTR_END_%out_ok
+L_VEC_DEQUE_INSERT_MUT_PTR_MISS_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__vec_deque_insert_mut_ok_%out_ok
+L_VEC_DEQUE_INSERT_MUT_PTR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INSERT_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index, %value
+    EXPAND VEC_DEQUE_TRY_INSERT_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index, %value
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_INSERT %out_ok, %deque_reg, %index, %value
