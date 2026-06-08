@@ -1,8 +1,91 @@
 @import "ascii.sal"
 @import "slice.sal"
+@import "slice.sa"
 
 [MACRO] ASCII_IS_ASCII %out_bool, %byte
     %out_bool = ule %byte, ASCII_MAX
+[END_MACRO]
+
+[MACRO] ASCII_SLICE_IS_ASCII %out_bool, %slice_reg
+    __ascii_slice_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
+    __ascii_slice_len_%out_bool = load %slice_reg+Slice_len as u64
+    __ascii_slice_idx_slot_%out_bool = stack_alloc 8
+    store __ascii_slice_idx_slot_%out_bool+0, 0 as u64
+    jmp L_ASCII_SLICE_IS_HEAD_%out_bool
+
+L_ASCII_SLICE_IS_HEAD_%out_bool:
+    __ascii_slice_idx_%out_bool = load __ascii_slice_idx_slot_%out_bool+0 as u64
+    __ascii_slice_done_%out_bool = eq __ascii_slice_idx_%out_bool, __ascii_slice_len_%out_bool
+    br __ascii_slice_done_%out_bool -> L_ASCII_SLICE_IS_TRUE_%out_bool, L_ASCII_SLICE_IS_BODY_%out_bool
+
+L_ASCII_SLICE_IS_BODY_%out_bool:
+    __ascii_slice_byte_ptr_%out_bool = ptr_add __ascii_slice_ptr_%out_bool, __ascii_slice_idx_%out_bool
+    __ascii_slice_byte_%out_bool = load __ascii_slice_byte_ptr_%out_bool+0 as u8
+    EXPAND ASCII_IS_ASCII __ascii_slice_byte_ok_%out_bool, __ascii_slice_byte_%out_bool
+    br __ascii_slice_byte_ok_%out_bool -> L_ASCII_SLICE_IS_NEXT_%out_bool, L_ASCII_SLICE_IS_FALSE_%out_bool
+
+L_ASCII_SLICE_IS_NEXT_%out_bool:
+    __ascii_slice_next_%out_bool = add __ascii_slice_idx_%out_bool, 1
+    store __ascii_slice_idx_slot_%out_bool+0, __ascii_slice_next_%out_bool as u64
+    !__ascii_slice_next_%out_bool
+    !__ascii_slice_byte_ok_%out_bool
+    !__ascii_slice_byte_%out_bool
+    !__ascii_slice_byte_ptr_%out_bool
+    !__ascii_slice_done_%out_bool
+    !__ascii_slice_idx_%out_bool
+    jmp L_ASCII_SLICE_IS_HEAD_%out_bool
+
+L_ASCII_SLICE_IS_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__ascii_slice_done_%out_bool
+    !__ascii_slice_idx_%out_bool
+    !__ascii_slice_len_%out_bool
+    !__ascii_slice_ptr_%out_bool
+    jmp L_ASCII_SLICE_IS_END_%out_bool
+
+L_ASCII_SLICE_IS_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__ascii_slice_byte_ok_%out_bool
+    !__ascii_slice_byte_%out_bool
+    !__ascii_slice_byte_ptr_%out_bool
+    !__ascii_slice_done_%out_bool
+    !__ascii_slice_idx_%out_bool
+    !__ascii_slice_len_%out_bool
+    !__ascii_slice_ptr_%out_bool
+
+L_ASCII_SLICE_IS_END_%out_bool:
+[END_MACRO]
+
+[MACRO] ASCII_SLICE_AS_ASCII %out_ok, %out_slice, %slice_reg
+    EXPAND ASCII_SLICE_IS_ASCII __ascii_as_ok_%out_ok, %slice_reg
+    br __ascii_as_ok_%out_ok -> L_ASCII_SLICE_AS_OK_%out_ok, L_ASCII_SLICE_AS_BAD_%out_ok
+
+L_ASCII_SLICE_AS_OK_%out_ok:
+    EXPAND ASCII_SLICE_AS_ASCII_UNCHECKED %out_slice, %slice_reg
+    %out_ok = add 0, 1
+    !__ascii_as_ok_%out_ok
+    jmp L_ASCII_SLICE_AS_END_%out_ok
+
+L_ASCII_SLICE_AS_BAD_%out_ok:
+    __ascii_as_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __ascii_as_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__ascii_as_empty_ptr_%out_ok
+    !__ascii_as_ok_%out_ok
+
+L_ASCII_SLICE_AS_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ASCII_SLICE_AS_ASCII_UNCHECKED %out_slice, %slice_reg
+    __ascii_unchecked_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __ascii_unchecked_len_%out_slice = load %slice_reg+Slice_len as u64
+    EXPAND SLICE_NEW %out_slice, __ascii_unchecked_ptr_%out_slice, __ascii_unchecked_len_%out_slice
+    !__ascii_unchecked_len_%out_slice
+    !__ascii_unchecked_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] ASCII_SLICE_AS_ASCII_MUT %out_ok, %out_slice, %slice_reg
+    EXPAND ASCII_SLICE_AS_ASCII %out_ok, %out_slice, %slice_reg
 [END_MACRO]
 
 [MACRO] ASCII_IS_UPPERCASE %out_bool, %byte

@@ -487,6 +487,123 @@ L_SLICE_OK:
     !ok
     return
 
+@test "sa_std ascii slice as_ascii view macros"():
+L_ENTRY:
+    good = alloc Slice_SIZE
+    bad = alloc Slice_SIZE
+    good_view = alloc Slice_SIZE
+    bad_view = alloc Slice_SIZE
+    unchecked_view = alloc Slice_SIZE
+    mut_view = alloc Slice_SIZE
+
+    bad_buf = alloc 3
+    store bad_buf+0, 65 as u8
+    store bad_buf+1, 128 as u8
+    store bad_buf+2, 90 as u8
+
+    EXPAND SLICE_NEW good, &MIXED, 6
+    EXPAND SLICE_NEW bad, bad_buf, 3
+    EXPAND ASCII_SLICE_IS_ASCII good_is_ascii, good
+    EXPAND ASCII_SLICE_IS_ASCII bad_is_ascii, bad
+    EXPAND ASCII_SLICE_AS_ASCII good_ok, good_view, good
+    EXPAND ASCII_SLICE_AS_ASCII bad_ok, bad_view, bad
+    EXPAND ASCII_SLICE_AS_ASCII_UNCHECKED unchecked_view, bad
+    EXPAND ASCII_SLICE_AS_ASCII_MUT mut_ok, mut_view, good
+
+    good_ptr = load good_view+Slice_ptr as ptr
+    good_len = load good_view+Slice_len as u64
+    bad_ptr = load bad_view+Slice_ptr as ptr
+    bad_len = load bad_view+Slice_len as u64
+    unchecked_ptr = load unchecked_view+Slice_ptr as ptr
+    unchecked_len = load unchecked_view+Slice_len as u64
+    mut_ptr = load mut_view+Slice_ptr as ptr
+    mut_len = load mut_view+Slice_len as u64
+    source_ptr = load good+Slice_ptr as ptr
+    null_ptr = 0 as ptr
+
+    good_is_ok = eq good_is_ascii, 1
+    bad_is_ok = eq bad_is_ascii, 0
+    good_ok_ok = eq good_ok, 1
+    bad_ok_ok = eq bad_ok, 0
+    mut_ok_ok = eq mut_ok, 1
+    good_ptr_ok = eq good_ptr, source_ptr
+    good_len_ok = eq good_len, 6
+    bad_ptr_ok = eq bad_ptr, null_ptr
+    bad_len_ok = eq bad_len, 0
+    unchecked_ptr_ok = eq unchecked_ptr, bad_buf
+    unchecked_len_ok = eq unchecked_len, 3
+    mut_ptr_ok = eq mut_ptr, source_ptr
+    mut_len_ok = eq mut_len, 6
+
+    ok01 = and good_is_ok, bad_is_ok
+    ok02 = and ok01, good_ok_ok
+    ok03 = and ok02, bad_ok_ok
+    ok04 = and ok03, mut_ok_ok
+    ok05 = and ok04, good_ptr_ok
+    ok06 = and ok05, good_len_ok
+    ok07 = and ok06, bad_ptr_ok
+    ok08 = and ok07, bad_len_ok
+    ok09 = and ok08, unchecked_ptr_ok
+    ok10 = and ok09, unchecked_len_ok
+    ok11 = and ok10, mut_ptr_ok
+    ok = and ok11, mut_len_ok
+
+    !good_is_ascii
+    !bad_is_ascii
+    !good_ok
+    !bad_ok
+    !mut_ok
+    !good_ptr
+    !good_len
+    !bad_ptr
+    !bad_len
+    !unchecked_ptr
+    !unchecked_len
+    !mut_ptr
+    !mut_len
+    !source_ptr
+    !null_ptr
+    !good_is_ok
+    !bad_is_ok
+    !good_ok_ok
+    !bad_ok_ok
+    !mut_ok_ok
+    !good_ptr_ok
+    !good_len_ok
+    !bad_ptr_ok
+    !bad_len_ok
+    !unchecked_ptr_ok
+    !unchecked_len_ok
+    !mut_ptr_ok
+    !mut_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !mut_view
+    !unchecked_view
+    !bad_view
+    !good_view
+    !bad
+    !good
+    !bad_buf
+    br ok -> L_ASCII_VIEW_OK, L_ASCII_VIEW_FAIL
+
+L_ASCII_VIEW_FAIL:
+    !ok
+    panic(936)
+
+L_ASCII_VIEW_OK:
+    !ok
+    return
+
 @test "sa_std ascii escape_default macro"():
 L_ENTRY:
     out = stack_alloc 8

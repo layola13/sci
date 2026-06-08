@@ -721,13 +721,14 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std ascii byte classifier macros",
         "[PASS] sa_std ascii case conversion macros",
         "[PASS] sa_std ascii slice case macros",
+        "[PASS] sa_std ascii slice as_ascii view macros",
         "[PASS] sa_std ascii escape_default macro",
         "[PASS] sa_std ascii Char primitive macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_ascii_macro_surface.sa",
         ascii_expected[0..],
-        "test result: ok. 5 passed; 0 failed; 0 skipped",
+        "test result: ok. 6 passed; 0 failed; 0 skipped",
     );
 
     const cmp_expected = [_][]const u8{
