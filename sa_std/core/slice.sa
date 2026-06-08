@@ -2011,6 +2011,273 @@ L_SLICE_SORTED_KEY_TRUE_SMALL_%out_bool:
 L_SLICE_SORTED_KEY_END_%out_bool:
 [END_MACRO]
 
+[MACRO] SLICE_SORT_U64 %slice_reg
+    __slice_sort_len_%slice_reg = load %slice_reg+Slice_len as u64
+    __slice_sort_small_%slice_reg = ule __slice_sort_len_%slice_reg, 1
+    br __slice_sort_small_%slice_reg -> L_SLICE_SORT_DONE_SMALL_%slice_reg, L_SLICE_SORT_INIT_%slice_reg
+
+L_SLICE_SORT_INIT_%slice_reg:
+    __slice_sort_ptr_%slice_reg = load %slice_reg+Slice_ptr as ptr
+    __slice_sort_i_slot_%slice_reg = stack_alloc 8
+    __slice_sort_j_slot_%slice_reg = stack_alloc 8
+    store __slice_sort_i_slot_%slice_reg+0, 0 as u64
+    jmp L_SLICE_SORT_OUTER_HEAD_%slice_reg
+
+L_SLICE_SORT_OUTER_HEAD_%slice_reg:
+    __slice_sort_i_%slice_reg = load __slice_sort_i_slot_%slice_reg+0 as u64
+    __slice_sort_done_%slice_reg = eq __slice_sort_i_%slice_reg, __slice_sort_len_%slice_reg
+    br __slice_sort_done_%slice_reg -> L_SLICE_SORT_DONE_%slice_reg, L_SLICE_SORT_OUTER_BODY_%slice_reg
+
+L_SLICE_SORT_OUTER_BODY_%slice_reg:
+    store __slice_sort_j_slot_%slice_reg+0, 0 as u64
+    jmp L_SLICE_SORT_INNER_HEAD_%slice_reg
+
+L_SLICE_SORT_INNER_HEAD_%slice_reg:
+    __slice_sort_j_%slice_reg = load __slice_sort_j_slot_%slice_reg+0 as u64
+    __slice_sort_rem_%slice_reg = sub __slice_sort_len_%slice_reg, __slice_sort_i_%slice_reg
+    __slice_sort_last_%slice_reg = sub __slice_sort_rem_%slice_reg, 1
+    __slice_sort_inner_done_%slice_reg = uge __slice_sort_j_%slice_reg, __slice_sort_last_%slice_reg
+    br __slice_sort_inner_done_%slice_reg -> L_SLICE_SORT_OUTER_NEXT_%slice_reg, L_SLICE_SORT_COMPARE_%slice_reg
+
+L_SLICE_SORT_COMPARE_%slice_reg:
+    __slice_sort_next_j_%slice_reg = add __slice_sort_j_%slice_reg, 1
+    __slice_sort_left_off_%slice_reg = mul __slice_sort_j_%slice_reg, 8
+    __slice_sort_right_off_%slice_reg = mul __slice_sort_next_j_%slice_reg, 8
+    __slice_sort_left_ptr_%slice_reg = ptr_add __slice_sort_ptr_%slice_reg, __slice_sort_left_off_%slice_reg
+    __slice_sort_right_ptr_%slice_reg = ptr_add __slice_sort_ptr_%slice_reg, __slice_sort_right_off_%slice_reg
+    __slice_sort_left_%slice_reg = load __slice_sort_left_ptr_%slice_reg+0 as u64
+    __slice_sort_right_%slice_reg = load __slice_sort_right_ptr_%slice_reg+0 as u64
+    __slice_sort_swap_%slice_reg = ugt __slice_sort_left_%slice_reg, __slice_sort_right_%slice_reg
+    br __slice_sort_swap_%slice_reg -> L_SLICE_SORT_SWAP_%slice_reg, L_SLICE_SORT_INNER_NEXT_%slice_reg
+
+L_SLICE_SORT_SWAP_%slice_reg:
+    store __slice_sort_left_ptr_%slice_reg+0, __slice_sort_right_%slice_reg as u64
+    store __slice_sort_right_ptr_%slice_reg+0, __slice_sort_left_%slice_reg as u64
+    jmp L_SLICE_SORT_INNER_NEXT_%slice_reg
+
+L_SLICE_SORT_INNER_NEXT_%slice_reg:
+    store __slice_sort_j_slot_%slice_reg+0, __slice_sort_next_j_%slice_reg as u64
+    !__slice_sort_swap_%slice_reg
+    !__slice_sort_right_%slice_reg
+    !__slice_sort_left_%slice_reg
+    !__slice_sort_right_ptr_%slice_reg
+    !__slice_sort_left_ptr_%slice_reg
+    !__slice_sort_right_off_%slice_reg
+    !__slice_sort_left_off_%slice_reg
+    !__slice_sort_next_j_%slice_reg
+    !__slice_sort_inner_done_%slice_reg
+    !__slice_sort_last_%slice_reg
+    !__slice_sort_rem_%slice_reg
+    !__slice_sort_j_%slice_reg
+    jmp L_SLICE_SORT_INNER_HEAD_%slice_reg
+
+L_SLICE_SORT_OUTER_NEXT_%slice_reg:
+    __slice_sort_next_i_%slice_reg = add __slice_sort_i_%slice_reg, 1
+    store __slice_sort_i_slot_%slice_reg+0, __slice_sort_next_i_%slice_reg as u64
+    !__slice_sort_next_i_%slice_reg
+    !__slice_sort_inner_done_%slice_reg
+    !__slice_sort_last_%slice_reg
+    !__slice_sort_rem_%slice_reg
+    !__slice_sort_j_%slice_reg
+    !__slice_sort_done_%slice_reg
+    !__slice_sort_i_%slice_reg
+    jmp L_SLICE_SORT_OUTER_HEAD_%slice_reg
+
+L_SLICE_SORT_DONE_%slice_reg:
+    !__slice_sort_done_%slice_reg
+    !__slice_sort_i_%slice_reg
+    !__slice_sort_ptr_%slice_reg
+    !__slice_sort_small_%slice_reg
+    !__slice_sort_len_%slice_reg
+    jmp L_SLICE_SORT_END_%slice_reg
+
+L_SLICE_SORT_DONE_SMALL_%slice_reg:
+    !__slice_sort_small_%slice_reg
+    !__slice_sort_len_%slice_reg
+
+L_SLICE_SORT_END_%slice_reg:
+[END_MACRO]
+
+[MACRO] SLICE_SORT_BY_U64 %slice_reg, %compare_fn
+    __slice_sort_by_len_%slice_reg = load %slice_reg+Slice_len as u64
+    __slice_sort_by_small_%slice_reg = ule __slice_sort_by_len_%slice_reg, 1
+    br __slice_sort_by_small_%slice_reg -> L_SLICE_SORT_BY_DONE_SMALL_%slice_reg, L_SLICE_SORT_BY_INIT_%slice_reg
+
+L_SLICE_SORT_BY_INIT_%slice_reg:
+    __slice_sort_by_ptr_%slice_reg = load %slice_reg+Slice_ptr as ptr
+    __slice_sort_by_i_slot_%slice_reg = stack_alloc 8
+    __slice_sort_by_j_slot_%slice_reg = stack_alloc 8
+    store __slice_sort_by_i_slot_%slice_reg+0, 0 as u64
+    jmp L_SLICE_SORT_BY_OUTER_HEAD_%slice_reg
+
+L_SLICE_SORT_BY_OUTER_HEAD_%slice_reg:
+    __slice_sort_by_i_%slice_reg = load __slice_sort_by_i_slot_%slice_reg+0 as u64
+    __slice_sort_by_done_%slice_reg = eq __slice_sort_by_i_%slice_reg, __slice_sort_by_len_%slice_reg
+    br __slice_sort_by_done_%slice_reg -> L_SLICE_SORT_BY_DONE_%slice_reg, L_SLICE_SORT_BY_OUTER_BODY_%slice_reg
+
+L_SLICE_SORT_BY_OUTER_BODY_%slice_reg:
+    store __slice_sort_by_j_slot_%slice_reg+0, 0 as u64
+    jmp L_SLICE_SORT_BY_INNER_HEAD_%slice_reg
+
+L_SLICE_SORT_BY_INNER_HEAD_%slice_reg:
+    __slice_sort_by_j_%slice_reg = load __slice_sort_by_j_slot_%slice_reg+0 as u64
+    __slice_sort_by_rem_%slice_reg = sub __slice_sort_by_len_%slice_reg, __slice_sort_by_i_%slice_reg
+    __slice_sort_by_last_%slice_reg = sub __slice_sort_by_rem_%slice_reg, 1
+    __slice_sort_by_inner_done_%slice_reg = uge __slice_sort_by_j_%slice_reg, __slice_sort_by_last_%slice_reg
+    br __slice_sort_by_inner_done_%slice_reg -> L_SLICE_SORT_BY_OUTER_NEXT_%slice_reg, L_SLICE_SORT_BY_COMPARE_%slice_reg
+
+L_SLICE_SORT_BY_COMPARE_%slice_reg:
+    __slice_sort_by_next_j_%slice_reg = add __slice_sort_by_j_%slice_reg, 1
+    __slice_sort_by_left_off_%slice_reg = mul __slice_sort_by_j_%slice_reg, 8
+    __slice_sort_by_right_off_%slice_reg = mul __slice_sort_by_next_j_%slice_reg, 8
+    __slice_sort_by_left_ptr_%slice_reg = ptr_add __slice_sort_by_ptr_%slice_reg, __slice_sort_by_left_off_%slice_reg
+    __slice_sort_by_right_ptr_%slice_reg = ptr_add __slice_sort_by_ptr_%slice_reg, __slice_sort_by_right_off_%slice_reg
+    __slice_sort_by_left_%slice_reg = load __slice_sort_by_left_ptr_%slice_reg+0 as u64
+    __slice_sort_by_right_%slice_reg = load __slice_sort_by_right_ptr_%slice_reg+0 as u64
+    __slice_sort_by_order_ok_%slice_reg = call %compare_fn(__slice_sort_by_left_%slice_reg, __slice_sort_by_right_%slice_reg)
+    __slice_sort_by_swap_%slice_reg = eq __slice_sort_by_order_ok_%slice_reg, 0
+    br __slice_sort_by_swap_%slice_reg -> L_SLICE_SORT_BY_SWAP_%slice_reg, L_SLICE_SORT_BY_INNER_NEXT_%slice_reg
+
+L_SLICE_SORT_BY_SWAP_%slice_reg:
+    store __slice_sort_by_left_ptr_%slice_reg+0, __slice_sort_by_right_%slice_reg as u64
+    store __slice_sort_by_right_ptr_%slice_reg+0, __slice_sort_by_left_%slice_reg as u64
+    jmp L_SLICE_SORT_BY_INNER_NEXT_%slice_reg
+
+L_SLICE_SORT_BY_INNER_NEXT_%slice_reg:
+    store __slice_sort_by_j_slot_%slice_reg+0, __slice_sort_by_next_j_%slice_reg as u64
+    !__slice_sort_by_swap_%slice_reg
+    !__slice_sort_by_order_ok_%slice_reg
+    !__slice_sort_by_right_%slice_reg
+    !__slice_sort_by_left_%slice_reg
+    !__slice_sort_by_right_ptr_%slice_reg
+    !__slice_sort_by_left_ptr_%slice_reg
+    !__slice_sort_by_right_off_%slice_reg
+    !__slice_sort_by_left_off_%slice_reg
+    !__slice_sort_by_next_j_%slice_reg
+    !__slice_sort_by_inner_done_%slice_reg
+    !__slice_sort_by_last_%slice_reg
+    !__slice_sort_by_rem_%slice_reg
+    !__slice_sort_by_j_%slice_reg
+    jmp L_SLICE_SORT_BY_INNER_HEAD_%slice_reg
+
+L_SLICE_SORT_BY_OUTER_NEXT_%slice_reg:
+    __slice_sort_by_next_i_%slice_reg = add __slice_sort_by_i_%slice_reg, 1
+    store __slice_sort_by_i_slot_%slice_reg+0, __slice_sort_by_next_i_%slice_reg as u64
+    !__slice_sort_by_next_i_%slice_reg
+    !__slice_sort_by_inner_done_%slice_reg
+    !__slice_sort_by_last_%slice_reg
+    !__slice_sort_by_rem_%slice_reg
+    !__slice_sort_by_j_%slice_reg
+    !__slice_sort_by_done_%slice_reg
+    !__slice_sort_by_i_%slice_reg
+    jmp L_SLICE_SORT_BY_OUTER_HEAD_%slice_reg
+
+L_SLICE_SORT_BY_DONE_%slice_reg:
+    !__slice_sort_by_done_%slice_reg
+    !__slice_sort_by_i_%slice_reg
+    !__slice_sort_by_ptr_%slice_reg
+    !__slice_sort_by_small_%slice_reg
+    !__slice_sort_by_len_%slice_reg
+    jmp L_SLICE_SORT_BY_END_%slice_reg
+
+L_SLICE_SORT_BY_DONE_SMALL_%slice_reg:
+    !__slice_sort_by_small_%slice_reg
+    !__slice_sort_by_len_%slice_reg
+
+L_SLICE_SORT_BY_END_%slice_reg:
+[END_MACRO]
+
+[MACRO] SLICE_SORT_BY_KEY_U64 %slice_reg, %key_fn
+    __slice_sort_key_len_%slice_reg = load %slice_reg+Slice_len as u64
+    __slice_sort_key_small_%slice_reg = ule __slice_sort_key_len_%slice_reg, 1
+    br __slice_sort_key_small_%slice_reg -> L_SLICE_SORT_KEY_DONE_SMALL_%slice_reg, L_SLICE_SORT_KEY_INIT_%slice_reg
+
+L_SLICE_SORT_KEY_INIT_%slice_reg:
+    __slice_sort_key_ptr_%slice_reg = load %slice_reg+Slice_ptr as ptr
+    __slice_sort_key_i_slot_%slice_reg = stack_alloc 8
+    __slice_sort_key_j_slot_%slice_reg = stack_alloc 8
+    store __slice_sort_key_i_slot_%slice_reg+0, 0 as u64
+    jmp L_SLICE_SORT_KEY_OUTER_HEAD_%slice_reg
+
+L_SLICE_SORT_KEY_OUTER_HEAD_%slice_reg:
+    __slice_sort_key_i_%slice_reg = load __slice_sort_key_i_slot_%slice_reg+0 as u64
+    __slice_sort_key_done_%slice_reg = eq __slice_sort_key_i_%slice_reg, __slice_sort_key_len_%slice_reg
+    br __slice_sort_key_done_%slice_reg -> L_SLICE_SORT_KEY_DONE_%slice_reg, L_SLICE_SORT_KEY_OUTER_BODY_%slice_reg
+
+L_SLICE_SORT_KEY_OUTER_BODY_%slice_reg:
+    store __slice_sort_key_j_slot_%slice_reg+0, 0 as u64
+    jmp L_SLICE_SORT_KEY_INNER_HEAD_%slice_reg
+
+L_SLICE_SORT_KEY_INNER_HEAD_%slice_reg:
+    __slice_sort_key_j_%slice_reg = load __slice_sort_key_j_slot_%slice_reg+0 as u64
+    __slice_sort_key_rem_%slice_reg = sub __slice_sort_key_len_%slice_reg, __slice_sort_key_i_%slice_reg
+    __slice_sort_key_last_%slice_reg = sub __slice_sort_key_rem_%slice_reg, 1
+    __slice_sort_key_inner_done_%slice_reg = uge __slice_sort_key_j_%slice_reg, __slice_sort_key_last_%slice_reg
+    br __slice_sort_key_inner_done_%slice_reg -> L_SLICE_SORT_KEY_OUTER_NEXT_%slice_reg, L_SLICE_SORT_KEY_COMPARE_%slice_reg
+
+L_SLICE_SORT_KEY_COMPARE_%slice_reg:
+    __slice_sort_key_next_j_%slice_reg = add __slice_sort_key_j_%slice_reg, 1
+    __slice_sort_key_left_off_%slice_reg = mul __slice_sort_key_j_%slice_reg, 8
+    __slice_sort_key_right_off_%slice_reg = mul __slice_sort_key_next_j_%slice_reg, 8
+    __slice_sort_key_left_ptr_%slice_reg = ptr_add __slice_sort_key_ptr_%slice_reg, __slice_sort_key_left_off_%slice_reg
+    __slice_sort_key_right_ptr_%slice_reg = ptr_add __slice_sort_key_ptr_%slice_reg, __slice_sort_key_right_off_%slice_reg
+    __slice_sort_key_left_value_%slice_reg = load __slice_sort_key_left_ptr_%slice_reg+0 as u64
+    __slice_sort_key_right_value_%slice_reg = load __slice_sort_key_right_ptr_%slice_reg+0 as u64
+    __slice_sort_key_left_%slice_reg = call %key_fn(__slice_sort_key_left_value_%slice_reg)
+    __slice_sort_key_right_%slice_reg = call %key_fn(__slice_sort_key_right_value_%slice_reg)
+    __slice_sort_key_swap_%slice_reg = ugt __slice_sort_key_left_%slice_reg, __slice_sort_key_right_%slice_reg
+    br __slice_sort_key_swap_%slice_reg -> L_SLICE_SORT_KEY_SWAP_%slice_reg, L_SLICE_SORT_KEY_INNER_NEXT_%slice_reg
+
+L_SLICE_SORT_KEY_SWAP_%slice_reg:
+    store __slice_sort_key_left_ptr_%slice_reg+0, __slice_sort_key_right_value_%slice_reg as u64
+    store __slice_sort_key_right_ptr_%slice_reg+0, __slice_sort_key_left_value_%slice_reg as u64
+    jmp L_SLICE_SORT_KEY_INNER_NEXT_%slice_reg
+
+L_SLICE_SORT_KEY_INNER_NEXT_%slice_reg:
+    store __slice_sort_key_j_slot_%slice_reg+0, __slice_sort_key_next_j_%slice_reg as u64
+    !__slice_sort_key_swap_%slice_reg
+    !__slice_sort_key_right_%slice_reg
+    !__slice_sort_key_left_%slice_reg
+    !__slice_sort_key_right_value_%slice_reg
+    !__slice_sort_key_left_value_%slice_reg
+    !__slice_sort_key_right_ptr_%slice_reg
+    !__slice_sort_key_left_ptr_%slice_reg
+    !__slice_sort_key_right_off_%slice_reg
+    !__slice_sort_key_left_off_%slice_reg
+    !__slice_sort_key_next_j_%slice_reg
+    !__slice_sort_key_inner_done_%slice_reg
+    !__slice_sort_key_last_%slice_reg
+    !__slice_sort_key_rem_%slice_reg
+    !__slice_sort_key_j_%slice_reg
+    jmp L_SLICE_SORT_KEY_INNER_HEAD_%slice_reg
+
+L_SLICE_SORT_KEY_OUTER_NEXT_%slice_reg:
+    __slice_sort_key_next_i_%slice_reg = add __slice_sort_key_i_%slice_reg, 1
+    store __slice_sort_key_i_slot_%slice_reg+0, __slice_sort_key_next_i_%slice_reg as u64
+    !__slice_sort_key_next_i_%slice_reg
+    !__slice_sort_key_inner_done_%slice_reg
+    !__slice_sort_key_last_%slice_reg
+    !__slice_sort_key_rem_%slice_reg
+    !__slice_sort_key_j_%slice_reg
+    !__slice_sort_key_done_%slice_reg
+    !__slice_sort_key_i_%slice_reg
+    jmp L_SLICE_SORT_KEY_OUTER_HEAD_%slice_reg
+
+L_SLICE_SORT_KEY_DONE_%slice_reg:
+    !__slice_sort_key_done_%slice_reg
+    !__slice_sort_key_i_%slice_reg
+    !__slice_sort_key_ptr_%slice_reg
+    !__slice_sort_key_small_%slice_reg
+    !__slice_sort_key_len_%slice_reg
+    jmp L_SLICE_SORT_KEY_END_%slice_reg
+
+L_SLICE_SORT_KEY_DONE_SMALL_%slice_reg:
+    !__slice_sort_key_small_%slice_reg
+    !__slice_sort_key_len_%slice_reg
+
+L_SLICE_SORT_KEY_END_%slice_reg:
+[END_MACRO]
+
 [MACRO] SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
     __slice_copy_dst_len_%out_ok = load %dst_slice+Slice_len as u64
     __slice_copy_src_len_%out_ok = load %src_slice+Slice_len as u64

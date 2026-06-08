@@ -137,6 +137,13 @@ L_ENTRY:
     !right
     return ok
 
+@slice_sorted_ge(left: u64, right: u64) -> u64:
+L_ENTRY:
+    ok = uge left, right
+    !left
+    !right
+    return ok
+
 @slice_sorted_key_tens(value: u64) -> u64:
 L_ENTRY:
     key = udiv value, 10
@@ -5814,6 +5821,269 @@ L_SLICE_VEC_SORTED_CALLBACK_FAIL:
     panic(923)
 
 L_SLICE_VEC_SORTED_CALLBACK_OK:
+    !ok
+    return
+
+@test "sa_std slice and vec sort macros"():
+L_ENTRY:
+    sort_data = alloc 40
+    sort_by_data = alloc 32
+    sort_key_data = alloc 40
+    empty_data = alloc 8
+    store sort_data+0, 9 as u64
+    store sort_data+8, 3 as u64
+    store sort_data+16, 7 as u64
+    store sort_data+24, 3 as u64
+    store sort_data+32, 1 as u64
+    store sort_by_data+0, 2 as u64
+    store sort_by_data+8, 9 as u64
+    store sort_by_data+16, 4 as u64
+    store sort_by_data+24, 7 as u64
+    store sort_key_data+0, 31 as u64
+    store sort_key_data+8, 12 as u64
+    store sort_key_data+16, 29 as u64
+    store sort_key_data+24, 11 as u64
+    store sort_key_data+32, 21 as u64
+
+    sort_slice = alloc Slice_SIZE
+    sort_by_slice = alloc Slice_SIZE
+    sort_key_slice = alloc Slice_SIZE
+    empty_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW sort_slice, sort_data, 5
+    EXPAND SLICE_NEW sort_by_slice, sort_by_data, 4
+    EXPAND SLICE_NEW sort_key_slice, sort_key_data, 5
+    EXPAND SLICE_NEW empty_slice, empty_data, 0
+
+    EXPAND SLICE_SORT_U64 sort_slice
+    EXPAND SLICE_SORT_BY_U64 sort_by_slice, @slice_sorted_ge
+    EXPAND SLICE_SORT_BY_KEY_U64 sort_key_slice, @slice_sorted_key_tens
+    EXPAND SLICE_SORT_U64 empty_slice
+
+    EXPAND SLICE_GET_U64 sort0, sort_slice, 0
+    EXPAND SLICE_GET_U64 sort1, sort_slice, 1
+    EXPAND SLICE_GET_U64 sort2, sort_slice, 2
+    EXPAND SLICE_GET_U64 sort3, sort_slice, 3
+    EXPAND SLICE_GET_U64 sort4, sort_slice, 4
+    EXPAND SLICE_GET_U64 sort_by0, sort_by_slice, 0
+    EXPAND SLICE_GET_U64 sort_by1, sort_by_slice, 1
+    EXPAND SLICE_GET_U64 sort_by2, sort_by_slice, 2
+    EXPAND SLICE_GET_U64 sort_by3, sort_by_slice, 3
+    EXPAND SLICE_GET_U64 sort_key0, sort_key_slice, 0
+    EXPAND SLICE_GET_U64 sort_key1, sort_key_slice, 1
+    EXPAND SLICE_GET_U64 sort_key2, sort_key_slice, 2
+    EXPAND SLICE_GET_U64 sort_key3, sort_key_slice, 3
+    EXPAND SLICE_GET_U64 sort_key4, sort_key_slice, 4
+    EXPAND SLICE_GET_LEN empty_len, empty_slice
+
+    EXPAND VEC_NEW vec_sort
+    EXPAND VEC_PUSH_U64 vec_sort, 6
+    EXPAND VEC_PUSH_U64 vec_sort, 2
+    EXPAND VEC_PUSH_U64 vec_sort, 8
+    EXPAND VEC_SORT_U64 vec_sort
+    EXPAND VEC_TRY_GET_U64 vec_sort0_ok, vec_sort0, vec_sort, 0
+    EXPAND VEC_TRY_GET_U64 vec_sort1_ok, vec_sort1, vec_sort, 1
+    EXPAND VEC_TRY_GET_U64 vec_sort2_ok, vec_sort2, vec_sort, 2
+
+    EXPAND VEC_NEW vec_sort_by
+    EXPAND VEC_PUSH_U64 vec_sort_by, 1
+    EXPAND VEC_PUSH_U64 vec_sort_by, 5
+    EXPAND VEC_PUSH_U64 vec_sort_by, 3
+    EXPAND VEC_SORT_BY_U64 vec_sort_by, @slice_sorted_ge
+    EXPAND VEC_TRY_GET_U64 vec_sort_by0_ok, vec_sort_by0, vec_sort_by, 0
+    EXPAND VEC_TRY_GET_U64 vec_sort_by1_ok, vec_sort_by1, vec_sort_by, 1
+    EXPAND VEC_TRY_GET_U64 vec_sort_by2_ok, vec_sort_by2, vec_sort_by, 2
+
+    EXPAND VEC_NEW vec_sort_key
+    EXPAND VEC_PUSH_U64 vec_sort_key, 42
+    EXPAND VEC_PUSH_U64 vec_sort_key, 11
+    EXPAND VEC_PUSH_U64 vec_sort_key, 25
+    EXPAND VEC_SORT_BY_KEY_U64 vec_sort_key, @slice_sorted_key_tens
+    EXPAND VEC_TRY_GET_U64 vec_sort_key0_ok, vec_sort_key0, vec_sort_key, 0
+    EXPAND VEC_TRY_GET_U64 vec_sort_key1_ok, vec_sort_key1, vec_sort_key, 1
+    EXPAND VEC_TRY_GET_U64 vec_sort_key2_ok, vec_sort_key2, vec_sort_key, 2
+
+    sort0_ok = eq sort0, 1
+    sort1_ok = eq sort1, 3
+    sort2_ok = eq sort2, 3
+    sort3_ok = eq sort3, 7
+    sort4_ok = eq sort4, 9
+    sort_by0_ok = eq sort_by0, 9
+    sort_by1_ok = eq sort_by1, 7
+    sort_by2_ok = eq sort_by2, 4
+    sort_by3_ok = eq sort_by3, 2
+    sort_key0_ok = eq sort_key0, 12
+    sort_key1_ok = eq sort_key1, 11
+    sort_key2_ok = eq sort_key2, 29
+    sort_key3_ok = eq sort_key3, 21
+    sort_key4_ok = eq sort_key4, 31
+    empty_len_ok = eq empty_len, 0
+    vec_sort0_flag_ok = eq vec_sort0_ok, 1
+    vec_sort0_value_ok = eq vec_sort0, 2
+    vec_sort1_flag_ok = eq vec_sort1_ok, 1
+    vec_sort1_value_ok = eq vec_sort1, 6
+    vec_sort2_flag_ok = eq vec_sort2_ok, 1
+    vec_sort2_value_ok = eq vec_sort2, 8
+    vec_sort_by0_flag_ok = eq vec_sort_by0_ok, 1
+    vec_sort_by0_value_ok = eq vec_sort_by0, 5
+    vec_sort_by1_flag_ok = eq vec_sort_by1_ok, 1
+    vec_sort_by1_value_ok = eq vec_sort_by1, 3
+    vec_sort_by2_flag_ok = eq vec_sort_by2_ok, 1
+    vec_sort_by2_value_ok = eq vec_sort_by2, 1
+    vec_sort_key0_flag_ok = eq vec_sort_key0_ok, 1
+    vec_sort_key0_value_ok = eq vec_sort_key0, 11
+    vec_sort_key1_flag_ok = eq vec_sort_key1_ok, 1
+    vec_sort_key1_value_ok = eq vec_sort_key1, 25
+    vec_sort_key2_flag_ok = eq vec_sort_key2_ok, 1
+    vec_sort_key2_value_ok = eq vec_sort_key2, 42
+
+    ok01 = and sort0_ok, sort1_ok
+    ok02 = and ok01, sort2_ok
+    ok03 = and ok02, sort3_ok
+    ok04 = and ok03, sort4_ok
+    ok05 = and ok04, sort_by0_ok
+    ok06 = and ok05, sort_by1_ok
+    ok07 = and ok06, sort_by2_ok
+    ok08 = and ok07, sort_by3_ok
+    ok09 = and ok08, sort_key0_ok
+    ok10 = and ok09, sort_key1_ok
+    ok11 = and ok10, sort_key2_ok
+    ok12 = and ok11, sort_key3_ok
+    ok13 = and ok12, sort_key4_ok
+    ok14 = and ok13, empty_len_ok
+    ok15 = and ok14, vec_sort0_flag_ok
+    ok16 = and ok15, vec_sort0_value_ok
+    ok17 = and ok16, vec_sort1_flag_ok
+    ok18 = and ok17, vec_sort1_value_ok
+    ok19 = and ok18, vec_sort2_flag_ok
+    ok20 = and ok19, vec_sort2_value_ok
+    ok21 = and ok20, vec_sort_by0_flag_ok
+    ok22 = and ok21, vec_sort_by0_value_ok
+    ok23 = and ok22, vec_sort_by1_flag_ok
+    ok24 = and ok23, vec_sort_by1_value_ok
+    ok25 = and ok24, vec_sort_by2_flag_ok
+    ok26 = and ok25, vec_sort_by2_value_ok
+    ok27 = and ok26, vec_sort_key0_flag_ok
+    ok28 = and ok27, vec_sort_key0_value_ok
+    ok29 = and ok28, vec_sort_key1_flag_ok
+    ok30 = and ok29, vec_sort_key1_value_ok
+    ok31 = and ok30, vec_sort_key2_flag_ok
+    ok = and ok31, vec_sort_key2_value_ok
+
+    !sort_data
+    !sort_by_data
+    !sort_key_data
+    !empty_data
+    !sort_slice
+    !sort_by_slice
+    !sort_key_slice
+    !empty_slice
+    !sort0
+    !sort1
+    !sort2
+    !sort3
+    !sort4
+    !sort_by0
+    !sort_by1
+    !sort_by2
+    !sort_by3
+    !sort_key0
+    !sort_key1
+    !sort_key2
+    !sort_key3
+    !sort_key4
+    !empty_len
+    !vec_sort0_ok
+    !vec_sort0
+    !vec_sort1_ok
+    !vec_sort1
+    !vec_sort2_ok
+    !vec_sort2
+    !vec_sort_by0_ok
+    !vec_sort_by0
+    !vec_sort_by1_ok
+    !vec_sort_by1
+    !vec_sort_by2_ok
+    !vec_sort_by2
+    !vec_sort_key0_ok
+    !vec_sort_key0
+    !vec_sort_key1_ok
+    !vec_sort_key1
+    !vec_sort_key2_ok
+    !vec_sort_key2
+    !sort0_ok
+    !sort1_ok
+    !sort2_ok
+    !sort3_ok
+    !sort4_ok
+    !sort_by0_ok
+    !sort_by1_ok
+    !sort_by2_ok
+    !sort_by3_ok
+    !sort_key0_ok
+    !sort_key1_ok
+    !sort_key2_ok
+    !sort_key3_ok
+    !sort_key4_ok
+    !empty_len_ok
+    !vec_sort0_flag_ok
+    !vec_sort0_value_ok
+    !vec_sort1_flag_ok
+    !vec_sort1_value_ok
+    !vec_sort2_flag_ok
+    !vec_sort2_value_ok
+    !vec_sort_by0_flag_ok
+    !vec_sort_by0_value_ok
+    !vec_sort_by1_flag_ok
+    !vec_sort_by1_value_ok
+    !vec_sort_by2_flag_ok
+    !vec_sort_by2_value_ok
+    !vec_sort_key0_flag_ok
+    !vec_sort_key0_value_ok
+    !vec_sort_key1_flag_ok
+    !vec_sort_key1_value_ok
+    !vec_sort_key2_flag_ok
+    !vec_sort_key2_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    EXPAND VEC_FREE vec_sort
+    EXPAND VEC_FREE vec_sort_by
+    EXPAND VEC_FREE vec_sort_key
+    br ok -> L_SLICE_VEC_SORT_OK, L_SLICE_VEC_SORT_FAIL
+
+L_SLICE_VEC_SORT_FAIL:
+    !ok
+    panic(924)
+
+L_SLICE_VEC_SORT_OK:
     !ok
     return
 
