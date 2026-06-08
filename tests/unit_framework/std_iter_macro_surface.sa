@@ -1093,6 +1093,190 @@ L_EAGER_COLLECT_PASS:
     !all
     return 0
 
+@test "sa_std iter collect take skip macros"():
+L_ENTRY:
+    values = stack_alloc 40
+    store values+0, 1 as u64
+    store values+8, 2 as u64
+    store values+16, 3 as u64
+    store values+24, 4 as u64
+    store values+32, 5 as u64
+
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, values, 5
+
+    EXPAND ITER_FROM_SLICE collect_iter, slice
+    EXPAND ITER_NEXT_U64 collect_skip_ok, collect_skip_value, collect_iter
+    EXPAND ITER_COLLECT_U64 collect_vec, collect_iter
+    EXPAND ITER_IS_EMPTY collect_empty, collect_iter
+    EXPAND VEC_LEN collect_len, collect_vec
+    EXPAND VEC_TRY_GET_U64 collect_get0_ok, collect_get0, collect_vec, 0
+    EXPAND VEC_TRY_GET_U64 collect_get3_ok, collect_get3, collect_vec, 3
+
+    EXPAND ITER_FROM_SLICE take_iter, slice
+    EXPAND ITER_TAKE_COLLECT_U64 take_vec, take_iter, 3
+    EXPAND ITER_LEN take_remaining, take_iter
+    EXPAND VEC_LEN take_len, take_vec
+    EXPAND VEC_TRY_GET_U64 take_get0_ok, take_get0, take_vec, 0
+    EXPAND VEC_TRY_GET_U64 take_get2_ok, take_get2, take_vec, 2
+
+    EXPAND ITER_FROM_SLICE take_short_iter, slice
+    EXPAND ITER_TAKE_COLLECT_U64 take_short_vec, take_short_iter, 9
+    EXPAND ITER_IS_EMPTY take_short_empty, take_short_iter
+    EXPAND VEC_LEN take_short_len, take_short_vec
+
+    EXPAND ITER_FROM_SLICE skip_iter, slice
+    EXPAND ITER_SKIP_COLLECT_U64 skip_vec, skip_iter, 2
+    EXPAND ITER_IS_EMPTY skip_empty, skip_iter
+    EXPAND VEC_LEN skip_len, skip_vec
+    EXPAND VEC_TRY_GET_U64 skip_get0_ok, skip_get0, skip_vec, 0
+    EXPAND VEC_TRY_GET_U64 skip_get2_ok, skip_get2, skip_vec, 2
+
+    EXPAND ITER_FROM_SLICE skip_all_iter, slice
+    EXPAND ITER_SKIP_COLLECT_U64 skip_all_vec, skip_all_iter, 99
+    EXPAND ITER_IS_EMPTY skip_all_empty, skip_all_iter
+    EXPAND VEC_LEN skip_all_len, skip_all_vec
+
+    ok01 = eq collect_skip_ok, 1
+    ok02 = eq collect_skip_value, 1
+    ok03 = eq collect_empty, 1
+    ok04 = eq collect_len, 4
+    ok05 = eq collect_get0_ok, 1
+    ok06 = eq collect_get0, 2
+    ok07 = eq collect_get3_ok, 1
+    ok08 = eq collect_get3, 5
+    ok09 = eq take_remaining, 2
+    ok10 = eq take_len, 3
+    ok11 = eq take_get0_ok, 1
+    ok12 = eq take_get0, 1
+    ok13 = eq take_get2_ok, 1
+    ok14 = eq take_get2, 3
+    ok15 = eq take_short_empty, 1
+    ok16 = eq take_short_len, 5
+    ok17 = eq skip_empty, 1
+    ok18 = eq skip_len, 3
+    ok19 = eq skip_get0_ok, 1
+    ok20 = eq skip_get0, 3
+    ok21 = eq skip_get2_ok, 1
+    ok22 = eq skip_get2, 5
+    ok23 = eq skip_all_empty, 1
+    ok24 = eq skip_all_len, 0
+
+    all01 = and ok01, ok02
+    all02 = and all01, ok03
+    all03 = and all02, ok04
+    all04 = and all03, ok05
+    all05 = and all04, ok06
+    all06 = and all05, ok07
+    all07 = and all06, ok08
+    all08 = and all07, ok09
+    all09 = and all08, ok10
+    all10 = and all09, ok11
+    all11 = and all10, ok12
+    all12 = and all11, ok13
+    all13 = and all12, ok14
+    all14 = and all13, ok15
+    all15 = and all14, ok16
+    all16 = and all15, ok17
+    all17 = and all16, ok18
+    all18 = and all17, ok19
+    all19 = and all18, ok20
+    all20 = and all19, ok21
+    all21 = and all20, ok22
+    all22 = and all21, ok23
+    all = and all22, ok24
+
+    !collect_skip_ok
+    !collect_skip_value
+    !collect_empty
+    !collect_len
+    !collect_get0_ok
+    !collect_get0
+    !collect_get3_ok
+    !collect_get3
+    !take_remaining
+    !take_len
+    !take_get0_ok
+    !take_get0
+    !take_get2_ok
+    !take_get2
+    !take_short_empty
+    !take_short_len
+    !skip_empty
+    !skip_len
+    !skip_get0_ok
+    !skip_get0
+    !skip_get2_ok
+    !skip_get2
+    !skip_all_empty
+    !skip_all_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !all01
+    !all02
+    !all03
+    !all04
+    !all05
+    !all06
+    !all07
+    !all08
+    !all09
+    !all10
+    !all11
+    !all12
+    !all13
+    !all14
+    !all15
+    !all16
+    !all17
+    !all18
+    !all19
+    !all20
+    !all21
+    !all22
+    !skip_all_iter
+    !skip_iter
+    !take_short_iter
+    !take_iter
+    !collect_iter
+    !slice
+    EXPAND VEC_FREE skip_all_vec
+    EXPAND VEC_FREE skip_vec
+    EXPAND VEC_FREE take_short_vec
+    EXPAND VEC_FREE take_vec
+    EXPAND VEC_FREE collect_vec
+    br all -> L_COLLECT_PASS, L_COLLECT_FAIL
+
+L_COLLECT_FAIL:
+    !all
+    panic(948)
+
+L_COLLECT_PASS:
+    !all
+    return 0
+
 @test "sa_std iter try adaptor macros"():
 L_ENTRY:
     values = stack_alloc 40

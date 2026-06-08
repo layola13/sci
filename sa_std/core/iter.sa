@@ -806,6 +806,61 @@ L_ITER_TRY_FOR_EACH_DONE_%out_ok:
 L_ITER_TRY_FOR_EACH_END_%out_ok:
 [END_MACRO]
 
+[MACRO] ITER_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND VEC_NEW %out_vec
+    jmp L_ITER_COLLECT_HEAD_%out_vec
+L_ITER_COLLECT_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_collect_has_%out_vec, __iter_collect_value_%out_vec, %iter_reg
+    br __iter_collect_has_%out_vec -> L_ITER_COLLECT_PUSH_%out_vec, L_ITER_COLLECT_DONE_%out_vec
+L_ITER_COLLECT_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_collect_value_%out_vec
+    !__iter_collect_value_%out_vec
+    !__iter_collect_has_%out_vec
+    jmp L_ITER_COLLECT_HEAD_%out_vec
+L_ITER_COLLECT_DONE_%out_vec:
+    !__iter_collect_value_%out_vec
+    !__iter_collect_has_%out_vec
+[END_MACRO]
+
+[MACRO] ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND VEC_NEW %out_vec
+    __iter_take_collect_taken_%out_vec = add 0, 0
+    jmp L_ITER_TAKE_COLLECT_HEAD_%out_vec
+L_ITER_TAKE_COLLECT_HEAD_%out_vec:
+    __iter_take_collect_more_%out_vec = ult __iter_take_collect_taken_%out_vec, %count
+    br __iter_take_collect_more_%out_vec -> L_ITER_TAKE_COLLECT_NEXT_%out_vec, L_ITER_TAKE_COLLECT_COUNT_DONE_%out_vec
+L_ITER_TAKE_COLLECT_NEXT_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_take_collect_has_%out_vec, __iter_take_collect_value_%out_vec, %iter_reg
+    br __iter_take_collect_has_%out_vec -> L_ITER_TAKE_COLLECT_PUSH_%out_vec, L_ITER_TAKE_COLLECT_STOP_%out_vec
+L_ITER_TAKE_COLLECT_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_take_collect_value_%out_vec
+    __iter_take_collect_next_taken_%out_vec = add __iter_take_collect_taken_%out_vec, 1
+    !__iter_take_collect_taken_%out_vec
+    __iter_take_collect_taken_%out_vec = add __iter_take_collect_next_taken_%out_vec, 0
+    !__iter_take_collect_next_taken_%out_vec
+    !__iter_take_collect_value_%out_vec
+    !__iter_take_collect_has_%out_vec
+    !__iter_take_collect_more_%out_vec
+    jmp L_ITER_TAKE_COLLECT_HEAD_%out_vec
+L_ITER_TAKE_COLLECT_STOP_%out_vec:
+    !__iter_take_collect_value_%out_vec
+    !__iter_take_collect_has_%out_vec
+    !__iter_take_collect_more_%out_vec
+    jmp L_ITER_TAKE_COLLECT_DONE_%out_vec
+L_ITER_TAKE_COLLECT_COUNT_DONE_%out_vec:
+    !__iter_take_collect_more_%out_vec
+    jmp L_ITER_TAKE_COLLECT_DONE_%out_vec
+L_ITER_TAKE_COLLECT_DONE_%out_vec:
+    !__iter_take_collect_taken_%out_vec
+[END_MACRO]
+
+[MACRO] ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND ITER_ADVANCE_BY __iter_skip_collect_ok_%out_vec, __iter_skip_collect_remaining_%out_vec, %iter_reg, %count
+    !__iter_skip_collect_remaining_%out_vec
+    !__iter_skip_collect_ok_%out_vec
+    EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND VEC_NEW %out_vec
     jmp L_ITER_MAP_COLLECT_HEAD_%out_vec
