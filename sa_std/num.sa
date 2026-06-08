@@ -4667,10 +4667,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i64_abs_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I64_CHECKED_NEG %out_ok, %nz, %value
+    EXPAND NUM_I64_CHECKED_NEG __nonzero_i64_neg_ok_%out_ok, __nonzero_i64_neg_value_%out_ok, %value
+    __nonzero_i64_neg_valid_%out_ok = ne __nonzero_i64_neg_value_%out_ok, 0
+    %out_ok = and __nonzero_i64_neg_ok_%out_ok, __nonzero_i64_neg_valid_%out_ok
+    store %nz+NonZeroI64_value, __nonzero_i64_neg_value_%out_ok as i64
+    !__nonzero_i64_neg_valid_%out_ok
+    !__nonzero_i64_neg_value_%out_ok
+    !__nonzero_i64_neg_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_I64_SATURATING_ABS %nz, %value
     EXPAND NUM_I64_SATURATING_ABS __nonzero_i64_sat_abs_value_%nz, %value
     store %nz+NonZeroI64_value, __nonzero_i64_sat_abs_value_%nz as i64
     !__nonzero_i64_sat_abs_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I64_SATURATING_NEG %nz, %value
+    EXPAND NUM_I64_SATURATING_NEG __nonzero_i64_sat_neg_value_%nz, %value
+    store %nz+NonZeroI64_value, __nonzero_i64_sat_neg_value_%nz as i64
+    !__nonzero_i64_sat_neg_value_%nz
 [END_MACRO]
 
 [MACRO] NONZERO_I64_IS_POSITIVE %out_bool, %nz
@@ -5085,10 +5101,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i8_abs_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I8_CHECKED_NEG %out_ok, %nz, %value
+    EXPAND NUM_I8_CHECKED_NEG __nonzero_i8_neg_ok_%out_ok, __nonzero_i8_neg_value_%out_ok, %value
+    __nonzero_i8_neg_valid_%out_ok = ne __nonzero_i8_neg_value_%out_ok, 0
+    %out_ok = and __nonzero_i8_neg_ok_%out_ok, __nonzero_i8_neg_valid_%out_ok
+    store %nz+NonZeroI8_value, __nonzero_i8_neg_value_%out_ok as i64
+    !__nonzero_i8_neg_valid_%out_ok
+    !__nonzero_i8_neg_value_%out_ok
+    !__nonzero_i8_neg_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_I8_SATURATING_ABS %nz, %value
     EXPAND NUM_I8_SATURATING_ABS __nonzero_i8_sat_abs_value_%nz, %value
     store %nz+NonZeroI8_value, __nonzero_i8_sat_abs_value_%nz as i64
     !__nonzero_i8_sat_abs_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I8_SATURATING_NEG %nz, %value
+    EXPAND NUM_I8_SATURATING_NEG __nonzero_i8_sat_neg_value_%nz, %value
+    store %nz+NonZeroI8_value, __nonzero_i8_sat_neg_value_%nz as i64
+    !__nonzero_i8_sat_neg_value_%nz
 [END_MACRO]
 
 [MACRO] NONZERO_I8_IS_POSITIVE %out_bool, %nz
@@ -5192,10 +5224,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i16_abs_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I16_CHECKED_NEG %out_ok, %nz, %value
+    EXPAND NUM_I16_CHECKED_NEG __nonzero_i16_neg_ok_%out_ok, __nonzero_i16_neg_value_%out_ok, %value
+    __nonzero_i16_neg_valid_%out_ok = ne __nonzero_i16_neg_value_%out_ok, 0
+    %out_ok = and __nonzero_i16_neg_ok_%out_ok, __nonzero_i16_neg_valid_%out_ok
+    store %nz+NonZeroI16_value, __nonzero_i16_neg_value_%out_ok as i64
+    !__nonzero_i16_neg_valid_%out_ok
+    !__nonzero_i16_neg_value_%out_ok
+    !__nonzero_i16_neg_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_I16_SATURATING_ABS %nz, %value
     EXPAND NUM_I16_SATURATING_ABS __nonzero_i16_sat_abs_value_%nz, %value
     store %nz+NonZeroI16_value, __nonzero_i16_sat_abs_value_%nz as i64
     !__nonzero_i16_sat_abs_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I16_SATURATING_NEG %nz, %value
+    EXPAND NUM_I16_SATURATING_NEG __nonzero_i16_sat_neg_value_%nz, %value
+    store %nz+NonZeroI16_value, __nonzero_i16_sat_neg_value_%nz as i64
+    !__nonzero_i16_sat_neg_value_%nz
 [END_MACRO]
 
 [MACRO] NONZERO_I16_IS_POSITIVE %out_bool, %nz
@@ -5299,10 +5347,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i32_abs_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I32_CHECKED_NEG %out_ok, %nz, %value
+    EXPAND NUM_I32_CHECKED_NEG __nonzero_i32_neg_ok_%out_ok, __nonzero_i32_neg_value_%out_ok, %value
+    __nonzero_i32_neg_valid_%out_ok = ne __nonzero_i32_neg_value_%out_ok, 0
+    %out_ok = and __nonzero_i32_neg_ok_%out_ok, __nonzero_i32_neg_valid_%out_ok
+    store %nz+NonZeroI32_value, __nonzero_i32_neg_value_%out_ok as i64
+    !__nonzero_i32_neg_valid_%out_ok
+    !__nonzero_i32_neg_value_%out_ok
+    !__nonzero_i32_neg_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_I32_SATURATING_ABS %nz, %value
     EXPAND NUM_I32_SATURATING_ABS __nonzero_i32_sat_abs_value_%nz, %value
     store %nz+NonZeroI32_value, __nonzero_i32_sat_abs_value_%nz as i64
     !__nonzero_i32_sat_abs_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I32_SATURATING_NEG %nz, %value
+    EXPAND NUM_I32_SATURATING_NEG __nonzero_i32_sat_neg_value_%nz, %value
+    store %nz+NonZeroI32_value, __nonzero_i32_sat_neg_value_%nz as i64
+    !__nonzero_i32_sat_neg_value_%nz
 [END_MACRO]
 
 [MACRO] NONZERO_I32_IS_POSITIVE %out_bool, %nz
@@ -5353,8 +5417,16 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_I64_CHECKED_ABS %out_ok, %nz, %value
 [END_MACRO]
 
+[MACRO] NONZERO_ISIZE_CHECKED_NEG %out_ok, %nz, %value
+    EXPAND NONZERO_I64_CHECKED_NEG %out_ok, %nz, %value
+[END_MACRO]
+
 [MACRO] NONZERO_ISIZE_SATURATING_ABS %nz, %value
     EXPAND NONZERO_I64_SATURATING_ABS %nz, %value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_SATURATING_NEG %nz, %value
+    EXPAND NONZERO_I64_SATURATING_NEG %nz, %value
 [END_MACRO]
 
 [MACRO] NONZERO_ISIZE_IS_POSITIVE %out_bool, %nz

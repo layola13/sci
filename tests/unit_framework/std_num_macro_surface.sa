@@ -895,6 +895,98 @@ L_FAIL:
 L_PASS:
     return 0
 
+@test "sa_std num nonzero signed neg macros"():
+L_ENTRY:
+    nz_i8_neg = stack_alloc NonZeroI8_SIZE
+    nz_i8_sat_neg = stack_alloc NonZeroI8_SIZE
+    nz_i16_neg = stack_alloc NonZeroI16_SIZE
+    nz_i16_sat_neg = stack_alloc NonZeroI16_SIZE
+    nz_i32_neg = stack_alloc NonZeroI32_SIZE
+    nz_i32_sat_neg = stack_alloc NonZeroI32_SIZE
+    nz_i64_neg = stack_alloc NonZeroI64_SIZE
+    nz_i64_sat_neg = stack_alloc NonZeroI64_SIZE
+    nz_isize_neg = stack_alloc NonZeroIsize_SIZE
+    nz_isize_sat_neg = stack_alloc NonZeroIsize_SIZE
+
+    EXPAND NONZERO_I8_CHECKED_NEG i8_neg_ok, nz_i8_neg, -7
+    EXPAND NONZERO_I8_GET i8_neg_value, nz_i8_neg
+    EXPAND NONZERO_I8_CHECKED_NEG i8_min_ok, nz_i8_neg, NUM_I8_MIN
+    EXPAND NONZERO_I8_SATURATING_NEG nz_i8_sat_neg, NUM_I8_MIN
+    EXPAND NONZERO_I8_GET i8_sat_neg_value, nz_i8_sat_neg
+
+    EXPAND NONZERO_I16_CHECKED_NEG i16_neg_ok, nz_i16_neg, -70
+    EXPAND NONZERO_I16_GET i16_neg_value, nz_i16_neg
+    EXPAND NONZERO_I16_CHECKED_NEG i16_min_ok, nz_i16_neg, NUM_I16_MIN
+    EXPAND NONZERO_I16_SATURATING_NEG nz_i16_sat_neg, NUM_I16_MIN
+    EXPAND NONZERO_I16_GET i16_sat_neg_value, nz_i16_sat_neg
+
+    EXPAND NONZERO_I32_CHECKED_NEG i32_neg_ok, nz_i32_neg, -700
+    EXPAND NONZERO_I32_GET i32_neg_value, nz_i32_neg
+    EXPAND NONZERO_I32_CHECKED_NEG i32_min_ok, nz_i32_neg, NUM_I32_MIN
+    EXPAND NONZERO_I32_SATURATING_NEG nz_i32_sat_neg, NUM_I32_MIN
+    EXPAND NONZERO_I32_GET i32_sat_neg_value, nz_i32_sat_neg
+
+    EXPAND NONZERO_I64_CHECKED_NEG i64_neg_ok, nz_i64_neg, -7000
+    EXPAND NONZERO_I64_GET i64_neg_value, nz_i64_neg
+    EXPAND NONZERO_I64_CHECKED_NEG i64_min_ok, nz_i64_neg, NUM_I64_MIN
+    EXPAND NONZERO_I64_SATURATING_NEG nz_i64_sat_neg, NUM_I64_MIN
+    EXPAND NONZERO_I64_GET i64_sat_neg_value, nz_i64_sat_neg
+
+    EXPAND NONZERO_ISIZE_CHECKED_NEG isize_neg_ok, nz_isize_neg, -9000
+    EXPAND NONZERO_ISIZE_GET isize_neg_value, nz_isize_neg
+    EXPAND NONZERO_ISIZE_CHECKED_NEG isize_min_ok, nz_isize_neg, NUM_I64_MIN
+    EXPAND NONZERO_ISIZE_SATURATING_NEG nz_isize_sat_neg, NUM_I64_MIN
+    EXPAND NONZERO_ISIZE_GET isize_sat_neg_value, nz_isize_sat_neg
+
+    ok01 = eq i8_neg_ok, 1
+    ok02 = eq i8_neg_value, 7
+    ok03 = eq i8_min_ok, 0
+    ok04 = eq i8_sat_neg_value, NUM_I8_MAX
+    ok05 = eq i16_neg_ok, 1
+    ok06 = eq i16_neg_value, 70
+    ok07 = eq i16_min_ok, 0
+    ok08 = eq i16_sat_neg_value, NUM_I16_MAX
+    ok09 = eq i32_neg_ok, 1
+    ok10 = eq i32_neg_value, 700
+    ok11 = eq i32_min_ok, 0
+    ok12 = eq i32_sat_neg_value, NUM_I32_MAX
+    ok13 = eq i64_neg_ok, 1
+    ok14 = eq i64_neg_value, 7000
+    ok15 = eq i64_min_ok, 0
+    ok16 = eq i64_sat_neg_value, NUM_I64_MAX
+    ok17 = eq isize_neg_ok, 1
+    ok18 = eq isize_neg_value, 9000
+    ok19 = eq isize_min_ok, 0
+    ok20 = eq isize_sat_neg_value, NUM_I64_MAX
+
+    chain02 = and ok01, ok02
+    chain03 = and chain02, ok03
+    chain04 = and chain03, ok04
+    chain05 = and chain04, ok05
+    chain06 = and chain05, ok06
+    chain07 = and chain06, ok07
+    chain08 = and chain07, ok08
+    chain09 = and chain08, ok09
+    chain10 = and chain09, ok10
+    chain11 = and chain10, ok11
+    chain12 = and chain11, ok12
+    chain13 = and chain12, ok13
+    chain14 = and chain13, ok14
+    chain15 = and chain14, ok15
+    chain16 = and chain15, ok16
+    chain17 = and chain16, ok17
+    chain18 = and chain17, ok18
+    chain19 = and chain18, ok19
+    ok = and chain19, ok20
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(968)
+
+L_PASS:
+    return 0
+
 @test "sa_std num unsigned narrow primitive macros"():
 L_ENTRY:
     EXPAND NUM_U8_CHECKED_ADD u8_add_ok, u8_add_value, 250, 5
