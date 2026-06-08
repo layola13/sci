@@ -619,6 +619,98 @@ L_MAP_VIEW_OK:
     !ok
     return
 
+@test "sa_std btree_map into key value macros"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+
+    EXPAND BTREE_MAP_NEW keys_map
+    EXPAND BTREE_MAP_INSERT keys_map, alpha, 10
+    EXPAND BTREE_MAP_INSERT keys_map, bravo, 20
+    EXPAND BTREE_MAP_INTO_KEYS into_key_set, keys_map
+    EXPAND BTREE_SET_LEN into_key_len, into_key_set
+    EXPAND BTREE_SET_CONTAINS into_key_has_alpha, into_key_set, alpha
+    EXPAND BTREE_SET_CONTAINS into_key_has_bravo, into_key_set, bravo
+    EXPAND BTREE_MAP_LEN keys_map_len_after, keys_map
+    EXPAND BTREE_MAP_IS_EMPTY keys_map_empty_after, keys_map
+
+    EXPAND BTREE_MAP_NEW values_map
+    EXPAND BTREE_MAP_INSERT values_map, alpha, 11
+    EXPAND BTREE_MAP_INSERT values_map, bravo, 22
+    EXPAND BTREE_MAP_INTO_VALUES into_values_vec, values_map
+    EXPAND VEC_LEN into_values_len, into_values_vec
+    EXPAND VEC_CONTAINS_U64 into_values_has_alpha, into_values_vec, 11
+    EXPAND VEC_CONTAINS_U64 into_values_has_bravo, into_values_vec, 22
+    EXPAND BTREE_MAP_LEN values_map_len_after, values_map
+    EXPAND BTREE_MAP_IS_EMPTY values_map_empty_after, values_map
+
+    ok_key_len = eq into_key_len, 2
+    ok_key_alpha = eq into_key_has_alpha, 1
+    ok_key_bravo = eq into_key_has_bravo, 1
+    ok_key_map_len = eq keys_map_len_after, 0
+    ok_key_map_empty = eq keys_map_empty_after, 1
+    ok_values_len = eq into_values_len, 2
+    ok_values_alpha = eq into_values_has_alpha, 1
+    ok_values_bravo = eq into_values_has_bravo, 1
+    ok_values_map_len = eq values_map_len_after, 0
+    ok_values_map_empty = eq values_map_empty_after, 1
+
+    ok01 = and ok_key_len, ok_key_alpha
+    ok02 = and ok01, ok_key_bravo
+    ok03 = and ok02, ok_key_map_len
+    ok04 = and ok03, ok_key_map_empty
+    ok05 = and ok04, ok_values_len
+    ok06 = and ok05, ok_values_alpha
+    ok07 = and ok06, ok_values_bravo
+    ok08 = and ok07, ok_values_map_len
+    ok = and ok08, ok_values_map_empty
+
+    !ok_key_len
+    !ok_key_alpha
+    !ok_key_bravo
+    !ok_key_map_len
+    !ok_key_map_empty
+    !ok_values_len
+    !ok_values_alpha
+    !ok_values_bravo
+    !ok_values_map_len
+    !ok_values_map_empty
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !into_key_len
+    !into_key_has_alpha
+    !into_key_has_bravo
+    !keys_map_len_after
+    !keys_map_empty_after
+    !into_values_len
+    !into_values_has_alpha
+    !into_values_has_bravo
+    !values_map_len_after
+    !values_map_empty_after
+    !bravo
+    !alpha
+    EXPAND VEC_FREE into_values_vec
+    EXPAND BTREE_MAP_FREE values_map
+    EXPAND BTREE_SET_FREE into_key_set
+    EXPAND BTREE_MAP_FREE keys_map
+    br ok -> L_MAP_INTO_OK, L_MAP_INTO_FAIL
+
+L_MAP_INTO_FAIL:
+    !ok
+    panic(923)
+
+L_MAP_INTO_OK:
+    !ok
+    return
+
 @test "sa_std btree_map retain macro"():
 L_ENTRY:
     alpha = alloc Slice_SIZE

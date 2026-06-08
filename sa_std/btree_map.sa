@@ -1513,6 +1513,16 @@ L_BTREE_MAP_RETAIN_DONE_%out_len:
     %out_vec = call @sa_btree_map_values_vec(&%map_reg)
 [END_MACRO]
 
+[MACRO] BTREE_MAP_INTO_KEYS %out_set, %map_reg
+    EXPAND BTREE_MAP_KEYS %out_set, %map_reg
+    EXPAND BTREE_MAP_CLEAR %map_reg
+[END_MACRO]
+
+[MACRO] BTREE_MAP_INTO_VALUES %out_vec, %map_reg
+    EXPAND BTREE_MAP_VALUES %out_vec, %map_reg
+    EXPAND BTREE_MAP_CLEAR %map_reg
+[END_MACRO]
+
 [MACRO] BTREE_MAP_VALUES_MUT_PTRS %out_vec, %map_reg
     %out_vec = call @sa_btree_map_value_mut_ptrs_vec(&%map_reg)
 [END_MACRO]
