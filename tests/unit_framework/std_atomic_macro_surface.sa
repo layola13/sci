@@ -822,6 +822,18 @@ L_ENTRY:
     EXPAND ATOMIC_PTR_COMPARE_EXCHANGE ptr_cmp_old, ptr_cmp_ok, ptr_slot, ptr_c, ptr_a, seq_cst, acquire
     EXPAND ATOMIC_PTR_LOAD ptr_final, ptr_slot, seq_cst
 
+    ptr_block = stack_alloc 32
+    ptr_block_8 = ptr_add ptr_block, 8
+    ptr_block_16 = ptr_add ptr_block, 16
+    ptr_block_24 = ptr_add ptr_block, 24
+    ptr_math_slot = stack_alloc AtomicPtr_SIZE
+    EXPAND ATOMIC_PTR_INIT ptr_math_slot, ptr_block
+    EXPAND ATOMIC_PTR_FETCH_BYTE_ADD ptr_byte_add_old, ptr_math_slot, 8, seq_cst
+    EXPAND ATOMIC_PTR_FETCH_U64_ADD ptr_u64_add_old, ptr_math_slot, 2, seq_cst
+    EXPAND ATOMIC_PTR_FETCH_BYTE_SUB ptr_byte_sub_old, ptr_math_slot, 8, seq_cst
+    EXPAND ATOMIC_PTR_FETCH_U64_SUB ptr_u64_sub_old, ptr_math_slot, 2, seq_cst
+    EXPAND ATOMIC_PTR_LOAD ptr_math_final, ptr_math_slot, seq_cst
+
     ok_u8_initial = eq u8_initial, 5
     ok_u8_add_old = eq u8_add_old, 5
     ok_u8_sub_old = eq u8_sub_old, 8
@@ -868,6 +880,11 @@ L_ENTRY:
     ok_ptr_cmp_old = eq ptr_cmp_old, ptr_c
     ok_ptr_cmp = eq ptr_cmp_ok, 1
     ok_ptr_final = eq ptr_final, ptr_a
+    ok_ptr_byte_add_old = eq ptr_byte_add_old, ptr_block
+    ok_ptr_u64_add_old = eq ptr_u64_add_old, ptr_block_8
+    ok_ptr_byte_sub_old = eq ptr_byte_sub_old, ptr_block_24
+    ok_ptr_u64_sub_old = eq ptr_u64_sub_old, ptr_block_16
+    ok_ptr_math_final = eq ptr_math_final, ptr_block
 
     ok01 = and ok_u8_initial, ok_u8_add_old
     ok02 = and ok01, ok_u8_sub_old
@@ -909,7 +926,12 @@ L_ENTRY:
     ok38 = and ok37, ok_ptr_swap_old
     ok39 = and ok38, ok_ptr_cmp_old
     ok40 = and ok39, ok_ptr_cmp
-    ok = and ok40, ok_ptr_final
+    ok41 = and ok40, ok_ptr_final
+    ok42 = and ok41, ok_ptr_byte_add_old
+    ok43 = and ok42, ok_ptr_u64_add_old
+    ok44 = and ok43, ok_ptr_byte_sub_old
+    ok45 = and ok44, ok_ptr_u64_sub_old
+    ok = and ok45, ok_ptr_math_final
 
     !u8_initial
     !u8_add_old
@@ -953,6 +975,14 @@ L_ENTRY:
     !ptr_cmp_old
     !ptr_cmp_ok
     !ptr_final
+    !ptr_block_8
+    !ptr_block_16
+    !ptr_block_24
+    !ptr_byte_add_old
+    !ptr_u64_add_old
+    !ptr_byte_sub_old
+    !ptr_u64_sub_old
+    !ptr_math_final
     !ok_u8_initial
     !ok_u8_add_old
     !ok_u8_sub_old
@@ -995,6 +1025,11 @@ L_ENTRY:
     !ok_ptr_cmp_old
     !ok_ptr_cmp
     !ok_ptr_final
+    !ok_ptr_byte_add_old
+    !ok_ptr_u64_add_old
+    !ok_ptr_byte_sub_old
+    !ok_ptr_u64_sub_old
+    !ok_ptr_math_final
     !ok01
     !ok02
     !ok03
@@ -1035,6 +1070,11 @@ L_ENTRY:
     !ok38
     !ok39
     !ok40
+    !ok41
+    !ok42
+    !ok43
+    !ok44
+    !ok45
 
     br ok -> L_PASS, L_FAIL
 

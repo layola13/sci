@@ -599,6 +599,65 @@ L_ATOMIC_PTR_SWAP_DONE_%out_old_ptr:
     !__atomic_ptr_swap_expected_%out_old_ptr
 [END_MACRO]
 
+[MACRO] ATOMIC_PTR_FETCH_BYTE_ADD %out_old_ptr, %atomic_ptr, %byte_offset, %ordering
+    jmp L_ATOMIC_PTR_BYTE_ADD_HEAD_%out_old_ptr
+
+L_ATOMIC_PTR_BYTE_ADD_HEAD_%out_old_ptr:
+    __atomic_ptr_byte_add_expected_%out_old_ptr = atomic_load %atomic_ptr+AtomicPtr_value as ptr relaxed
+    __atomic_ptr_byte_add_new_%out_old_ptr = ptr_add __atomic_ptr_byte_add_expected_%out_old_ptr, %byte_offset
+    %out_old_ptr, __atomic_ptr_byte_add_ok_%out_old_ptr = cmpxchg %atomic_ptr+AtomicPtr_value, __atomic_ptr_byte_add_expected_%out_old_ptr, __atomic_ptr_byte_add_new_%out_old_ptr as ptr %ordering relaxed
+    br __atomic_ptr_byte_add_ok_%out_old_ptr -> L_ATOMIC_PTR_BYTE_ADD_DONE_%out_old_ptr, L_ATOMIC_PTR_BYTE_ADD_RETRY_%out_old_ptr
+
+L_ATOMIC_PTR_BYTE_ADD_RETRY_%out_old_ptr:
+    !__atomic_ptr_byte_add_ok_%out_old_ptr
+    !__atomic_ptr_byte_add_new_%out_old_ptr
+    !__atomic_ptr_byte_add_expected_%out_old_ptr
+    !%out_old_ptr
+    jmp L_ATOMIC_PTR_BYTE_ADD_HEAD_%out_old_ptr
+
+L_ATOMIC_PTR_BYTE_ADD_DONE_%out_old_ptr:
+    !__atomic_ptr_byte_add_ok_%out_old_ptr
+    !__atomic_ptr_byte_add_new_%out_old_ptr
+    !__atomic_ptr_byte_add_expected_%out_old_ptr
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_FETCH_BYTE_SUB %out_old_ptr, %atomic_ptr, %byte_offset, %ordering
+    jmp L_ATOMIC_PTR_BYTE_SUB_HEAD_%out_old_ptr
+
+L_ATOMIC_PTR_BYTE_SUB_HEAD_%out_old_ptr:
+    __atomic_ptr_byte_sub_expected_%out_old_ptr = atomic_load %atomic_ptr+AtomicPtr_value as ptr relaxed
+    __atomic_ptr_byte_sub_offset_%out_old_ptr = sub 0, %byte_offset
+    __atomic_ptr_byte_sub_new_%out_old_ptr = ptr_add __atomic_ptr_byte_sub_expected_%out_old_ptr, __atomic_ptr_byte_sub_offset_%out_old_ptr
+    %out_old_ptr, __atomic_ptr_byte_sub_ok_%out_old_ptr = cmpxchg %atomic_ptr+AtomicPtr_value, __atomic_ptr_byte_sub_expected_%out_old_ptr, __atomic_ptr_byte_sub_new_%out_old_ptr as ptr %ordering relaxed
+    br __atomic_ptr_byte_sub_ok_%out_old_ptr -> L_ATOMIC_PTR_BYTE_SUB_DONE_%out_old_ptr, L_ATOMIC_PTR_BYTE_SUB_RETRY_%out_old_ptr
+
+L_ATOMIC_PTR_BYTE_SUB_RETRY_%out_old_ptr:
+    !__atomic_ptr_byte_sub_ok_%out_old_ptr
+    !__atomic_ptr_byte_sub_new_%out_old_ptr
+    !__atomic_ptr_byte_sub_offset_%out_old_ptr
+    !__atomic_ptr_byte_sub_expected_%out_old_ptr
+    !%out_old_ptr
+    jmp L_ATOMIC_PTR_BYTE_SUB_HEAD_%out_old_ptr
+
+L_ATOMIC_PTR_BYTE_SUB_DONE_%out_old_ptr:
+    !__atomic_ptr_byte_sub_ok_%out_old_ptr
+    !__atomic_ptr_byte_sub_new_%out_old_ptr
+    !__atomic_ptr_byte_sub_offset_%out_old_ptr
+    !__atomic_ptr_byte_sub_expected_%out_old_ptr
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_FETCH_U64_ADD %out_old_ptr, %atomic_ptr, %count, %ordering
+    __atomic_ptr_u64_add_bytes_%out_old_ptr = mul %count, 8
+    EXPAND ATOMIC_PTR_FETCH_BYTE_ADD %out_old_ptr, %atomic_ptr, __atomic_ptr_u64_add_bytes_%out_old_ptr, %ordering
+    !__atomic_ptr_u64_add_bytes_%out_old_ptr
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_FETCH_U64_SUB %out_old_ptr, %atomic_ptr, %count, %ordering
+    __atomic_ptr_u64_sub_bytes_%out_old_ptr = mul %count, 8
+    EXPAND ATOMIC_PTR_FETCH_BYTE_SUB %out_old_ptr, %atomic_ptr, __atomic_ptr_u64_sub_bytes_%out_old_ptr, %ordering
+    !__atomic_ptr_u64_sub_bytes_%out_old_ptr
+[END_MACRO]
+
 [MACRO] ATOMIC_PTR_COMPARE_EXCHANGE %out_old_ptr, %out_ok, %atomic_ptr, %expected_ptr, %new_ptr, %success_ordering, %failure_ordering
     %out_old_ptr, %out_ok = cmpxchg %atomic_ptr+AtomicPtr_value, %expected_ptr, %new_ptr as ptr %success_ordering %failure_ordering
 [END_MACRO]
