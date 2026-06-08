@@ -392,6 +392,37 @@ L_CSTRING_NEW_INTERIOR_%out_status:
 L_CSTRING_NEW_END_%out_status:
 [END_MACRO]
 
+[MACRO] CSTRING_FROM_BYTES_WITH_NUL %out_status, %cstring_reg, %slice_reg
+    __cstring_from_nul_cstr_%out_status = stack_alloc CStr_SIZE
+    EXPAND CSTR_FROM_BYTES_WITH_NUL %out_status, __cstring_from_nul_cstr_%out_status, %slice_reg
+    __cstring_from_nul_ok_%out_status = eq %out_status, CSTR_FROM_BYTES_OK
+    br __cstring_from_nul_ok_%out_status -> L_CSTRING_FROM_NUL_OK_%out_status, L_CSTRING_FROM_NUL_BAD_%out_status
+
+L_CSTRING_FROM_NUL_OK_%out_status:
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL_UNCHECKED %cstring_reg, %slice_reg
+    !__cstring_from_nul_ok_%out_status
+    jmp L_CSTRING_FROM_NUL_END_%out_status
+
+L_CSTRING_FROM_NUL_BAD_%out_status:
+    __cstring_from_nul_null_%out_status = 0 as ptr
+    EXPAND SLICE_NEW %cstring_reg, __cstring_from_nul_null_%out_status, 0
+    !__cstring_from_nul_null_%out_status
+    !__cstring_from_nul_ok_%out_status
+
+L_CSTRING_FROM_NUL_END_%out_status:
+[END_MACRO]
+
+[MACRO] CSTRING_FROM_BYTES_WITH_NUL_UNCHECKED %cstring_reg, %slice_reg
+    __cstring_from_nul_src_ptr_%cstring_reg = load %slice_reg+Slice_ptr as ptr
+    __cstring_from_nul_len_%cstring_reg = load %slice_reg+Slice_len as u64
+    __cstring_from_nul_dst_%cstring_reg = alloc __cstring_from_nul_len_%cstring_reg
+    call @sa_mem_copy(&__cstring_from_nul_dst_%cstring_reg, &__cstring_from_nul_src_ptr_%cstring_reg, __cstring_from_nul_len_%cstring_reg)
+    EXPAND SLICE_NEW %cstring_reg, __cstring_from_nul_dst_%cstring_reg, __cstring_from_nul_len_%cstring_reg
+    ^__cstring_from_nul_dst_%cstring_reg
+    !__cstring_from_nul_len_%cstring_reg
+    !__cstring_from_nul_src_ptr_%cstring_reg
+[END_MACRO]
+
 [MACRO] CSTRING_AS_CSTR %out_cstr, %cstring_reg
     __cstring_as_ptr_%out_cstr = load %cstring_reg+CString_ptr as ptr
     __cstring_as_len_%out_cstr = load %cstring_reg+CString_len as u64
@@ -410,6 +441,22 @@ L_CSTRING_NEW_END_%out_status:
     __cstring_no_nul_cstr_%out_slice = stack_alloc CStr_SIZE
     EXPAND CSTRING_AS_CSTR __cstring_no_nul_cstr_%out_slice, %cstring_reg
     EXPAND CSTR_TO_BYTES %out_slice, __cstring_no_nul_cstr_%out_slice
+[END_MACRO]
+
+[MACRO] CSTRING_AS_PTR %out_ptr, %cstring_reg
+    %out_ptr = load %cstring_reg+CString_ptr as ptr
+[END_MACRO]
+
+[MACRO] CSTRING_COUNT_BYTES %out_len, %cstring_reg
+    __cstring_count_cstr_%out_len = stack_alloc CStr_SIZE
+    EXPAND CSTRING_AS_CSTR __cstring_count_cstr_%out_len, %cstring_reg
+    EXPAND CSTR_COUNT_BYTES %out_len, __cstring_count_cstr_%out_len
+[END_MACRO]
+
+[MACRO] CSTRING_IS_EMPTY %out_bool, %cstring_reg
+    EXPAND CSTRING_COUNT_BYTES __cstring_empty_len_%out_bool, %cstring_reg
+    %out_bool = eq __cstring_empty_len_%out_bool, 0
+    !__cstring_empty_len_%out_bool
 [END_MACRO]
 
 [MACRO] CSTRING_INTO_RAW %out_ptr, %cstring_reg

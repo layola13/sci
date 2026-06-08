@@ -203,6 +203,9 @@ L_ENTRY:
     owned_bytes_nul = stack_alloc Slice_SIZE
     EXPAND CSTRING_AS_BYTES owned_bytes, owned
     EXPAND CSTRING_AS_BYTES_WITH_NUL owned_bytes_nul, owned
+    EXPAND CSTRING_AS_PTR owned_ptr, owned
+    EXPAND CSTRING_COUNT_BYTES owned_count_direct, owned
+    EXPAND CSTRING_IS_EMPTY owned_is_empty, owned
     owned_bytes_len = load owned_bytes+Slice_len as u64
     owned_bytes_nul_len = load owned_bytes_nul+Slice_len as u64
     owned_bytes_ptr = load owned_bytes+Slice_ptr as ptr
@@ -221,6 +224,25 @@ L_ENTRY:
     EXPAND CSTRING_AS_CSTR raw_roundtrip_cstr, raw_roundtrip
     EXPAND CSTR_COUNT_BYTES raw_roundtrip_count, raw_roundtrip_cstr
 
+    with_nul_buf = stack_alloc 4
+    store with_nul_buf+0, 98 as u8
+    store with_nul_buf+1, 97 as u8
+    store with_nul_buf+2, 122 as u8
+    store with_nul_buf+3, 0 as u8
+    with_nul_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW with_nul_slice, with_nul_buf, 4
+    with_nul_owned = stack_alloc CString_SIZE
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL with_nul_status, with_nul_owned, with_nul_slice
+    EXPAND CSTRING_COUNT_BYTES with_nul_count, with_nul_owned
+    with_nul_bytes = stack_alloc Slice_SIZE
+    EXPAND CSTRING_AS_BYTES with_nul_bytes, with_nul_owned
+    with_nul_bytes_ptr = load with_nul_bytes+Slice_ptr as ptr
+    with_nul_b2 = load with_nul_bytes_ptr+2 as u8
+
+    unchecked_owned = stack_alloc CString_SIZE
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL_UNCHECKED unchecked_owned, with_nul_slice
+    EXPAND CSTRING_COUNT_BYTES unchecked_count, unchecked_owned
+
     empty_src = stack_alloc Slice_SIZE
     EXPAND SLICE_NEW empty_src, bytes, 0
     empty_owned = stack_alloc CString_SIZE
@@ -230,6 +252,7 @@ L_ENTRY:
     EXPAND CSTR_COUNT_BYTES empty_count, empty_cstr
     empty_bytes_nul = stack_alloc Slice_SIZE
     EXPAND CSTRING_AS_BYTES_WITH_NUL empty_bytes_nul, empty_owned
+    EXPAND CSTRING_IS_EMPTY empty_is_empty, empty_owned
     empty_bytes_nul_len = load empty_bytes_nul+Slice_len as u64
     empty_bytes_nul_ptr = load empty_bytes_nul+Slice_ptr as ptr
     empty_nul = load empty_bytes_nul_ptr+0 as u8
@@ -244,46 +267,82 @@ L_ENTRY:
     EXPAND CSTRING_NEW bad_status, bad_owned, bad_slice
     bad_len = load bad_owned+CString_len as u64
 
+    bad_with_nul = stack_alloc CString_SIZE
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL bad_with_nul_status, bad_with_nul, bad_slice
+    bad_with_nul_len = load bad_with_nul+CString_len as u64
+
+    missing_nul = stack_alloc CString_SIZE
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL missing_nul_status, missing_nul, bytes_slice
+    missing_nul_len = load missing_nul+CString_len as u64
+
     ok_owned_status = eq owned_status, CSTRING_NEW_OK
     ok_owned_count = eq owned_count, 3
+    ok_owned_count_direct = eq owned_count_direct, 3
+    ok_owned_is_empty = eq owned_is_empty, 0
     ok_owned_bytes_len = eq owned_bytes_len, 3
     ok_owned_bytes_nul_len = eq owned_bytes_nul_len, 4
+    ok_owned_ptr = eq owned_ptr, owned_bytes_ptr
     ok_owned_b0 = eq owned_b0, 98
     ok_owned_b2 = eq owned_b2, 114
     ok_owned_nul = eq owned_nul, 0
     ok_raw_status = eq raw_status, CSTRING_NEW_OK
     ok_raw_len_after = eq raw_len_after, 0
     ok_raw_roundtrip_count = eq raw_roundtrip_count, 3
+    ok_with_nul_status = eq with_nul_status, CSTR_FROM_BYTES_OK
+    ok_with_nul_count = eq with_nul_count, 3
+    ok_with_nul_b2 = eq with_nul_b2, 122
+    ok_unchecked_count = eq unchecked_count, 3
     ok_empty_status = eq empty_status, CSTRING_NEW_OK
     ok_empty_count = eq empty_count, 0
+    ok_empty_is_empty = eq empty_is_empty, 1
     ok_empty_bytes_nul_len = eq empty_bytes_nul_len, 1
     ok_empty_nul = eq empty_nul, 0
     ok_bad_status = eq bad_status, CSTRING_NEW_INTERIOR_NUL
     ok_bad_len = eq bad_len, 0
+    ok_bad_with_nul_status = eq bad_with_nul_status, CSTR_FROM_BYTES_INTERIOR_NUL
+    ok_bad_with_nul_len = eq bad_with_nul_len, 0
+    ok_missing_nul_status = eq missing_nul_status, CSTR_FROM_BYTES_NOT_NUL_TERMINATED
+    ok_missing_nul_len = eq missing_nul_len, 0
 
     ok01 = and ok_owned_status, ok_owned_count
-    ok02 = and ok01, ok_owned_bytes_len
-    ok03 = and ok02, ok_owned_bytes_nul_len
-    ok04 = and ok03, ok_owned_b0
-    ok05 = and ok04, ok_owned_b2
-    ok06 = and ok05, ok_owned_nul
-    ok07 = and ok06, ok_raw_status
-    ok08 = and ok07, ok_raw_len_after
-    ok09 = and ok08, ok_raw_roundtrip_count
-    ok10 = and ok09, ok_empty_status
-    ok11 = and ok10, ok_empty_count
-    ok12 = and ok11, ok_empty_bytes_nul_len
-    ok13 = and ok12, ok_empty_nul
-    ok14 = and ok13, ok_bad_status
-    ok = and ok14, ok_bad_len
+    ok02 = and ok01, ok_owned_count_direct
+    ok03 = and ok02, ok_owned_is_empty
+    ok04 = and ok03, ok_owned_bytes_len
+    ok05 = and ok04, ok_owned_bytes_nul_len
+    ok06 = and ok05, ok_owned_ptr
+    ok07 = and ok06, ok_owned_b0
+    ok08 = and ok07, ok_owned_b2
+    ok09 = and ok08, ok_owned_nul
+    ok10 = and ok09, ok_raw_status
+    ok11 = and ok10, ok_raw_len_after
+    ok12 = and ok11, ok_raw_roundtrip_count
+    ok13 = and ok12, ok_with_nul_status
+    ok14 = and ok13, ok_with_nul_count
+    ok15 = and ok14, ok_with_nul_b2
+    ok16 = and ok15, ok_unchecked_count
+    ok17 = and ok16, ok_empty_status
+    ok18 = and ok17, ok_empty_count
+    ok19 = and ok18, ok_empty_is_empty
+    ok20 = and ok19, ok_empty_bytes_nul_len
+    ok21 = and ok20, ok_empty_nul
+    ok22 = and ok21, ok_bad_status
+    ok23 = and ok22, ok_bad_len
+    ok24 = and ok23, ok_bad_with_nul_status
+    ok25 = and ok24, ok_bad_with_nul_len
+    ok26 = and ok25, ok_missing_nul_status
+    ok = and ok26, ok_missing_nul_len
 
     EXPAND CSTRING_FREE owned
     EXPAND CSTRING_FREE raw_roundtrip
+    EXPAND CSTRING_FREE with_nul_owned
+    EXPAND CSTRING_FREE unchecked_owned
     EXPAND CSTRING_FREE empty_owned
 
     !owned_bytes_ptr
     !owned_bytes_nul_ptr
+    !owned_ptr
     !raw_ptr
+    !with_nul_bytes_ptr
     !empty_bytes_nul_ptr
 
     br ok -> L_CSTRING_PASS, L_CSTRING_FAIL
