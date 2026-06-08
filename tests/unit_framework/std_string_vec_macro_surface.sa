@@ -4045,6 +4045,101 @@ L_SLICE_MUT_OK:
     !ok
     return
 
+@test "sa_std vec search wrappers"():
+L_ENTRY:
+    EXPAND VEC_NEW search_vec
+    EXPAND VEC_PUSH_U64 search_vec, 5
+    EXPAND VEC_PUSH_U64 search_vec, 10
+    EXPAND VEC_PUSH_U64 search_vec, 20
+    EXPAND VEC_PUSH_U64 search_vec, 20
+    EXPAND VEC_PUSH_U64 search_vec, 20
+    EXPAND VEC_PUSH_U64 search_vec, 40
+
+    EXPAND VEC_TRY_BINARY_SEARCH_U64 vec_bs_hit_ok, vec_bs_hit_idx, search_vec, 20
+    EXPAND VEC_TRY_BINARY_SEARCH_U64 vec_bs_miss_ok, vec_bs_miss_idx, search_vec, 30
+    EXPAND VEC_PARTITION_POINT_U64 vec_partition_idx, search_vec, @slice_partition_lt_30
+    EXPAND VEC_LOWER_BOUND_U64 vec_lower_20_idx, search_vec, 20
+    EXPAND VEC_LOWER_BOUND_U64 vec_lower_30_idx, search_vec, 30
+    EXPAND VEC_UPPER_BOUND_U64 vec_upper_20_idx, search_vec, 20
+    EXPAND VEC_UPPER_BOUND_U64 vec_upper_4_idx, search_vec, 4
+    EXPAND VEC_EQUAL_RANGE_U64 vec_eq20_start, vec_eq20_end, search_vec, 20
+    EXPAND VEC_EQUAL_RANGE_U64 vec_eq30_start, vec_eq30_end, search_vec, 30
+
+    vec_bs_hit_flag_ok = eq vec_bs_hit_ok, 1
+    vec_bs_hit_idx_ok = eq vec_bs_hit_idx, 3
+    vec_bs_miss_flag_ok = eq vec_bs_miss_ok, 0
+    vec_bs_miss_idx_ok = eq vec_bs_miss_idx, 5
+    vec_partition_idx_ok = eq vec_partition_idx, 5
+    vec_lower_20_idx_ok = eq vec_lower_20_idx, 2
+    vec_lower_30_idx_ok = eq vec_lower_30_idx, 5
+    vec_upper_20_idx_ok = eq vec_upper_20_idx, 5
+    vec_upper_4_idx_ok = eq vec_upper_4_idx, 0
+    vec_eq20_start_ok = eq vec_eq20_start, 2
+    vec_eq20_end_ok = eq vec_eq20_end, 5
+    vec_eq30_start_ok = eq vec_eq30_start, 5
+    vec_eq30_end_ok = eq vec_eq30_end, 5
+
+    ok01 = and vec_bs_hit_flag_ok, vec_bs_hit_idx_ok
+    ok02 = and ok01, vec_bs_miss_flag_ok
+    ok03 = and ok02, vec_bs_miss_idx_ok
+    ok04 = and ok03, vec_partition_idx_ok
+    ok05 = and ok04, vec_lower_20_idx_ok
+    ok06 = and ok05, vec_lower_30_idx_ok
+    ok07 = and ok06, vec_upper_20_idx_ok
+    ok08 = and ok07, vec_upper_4_idx_ok
+    ok09 = and ok08, vec_eq20_start_ok
+    ok10 = and ok09, vec_eq20_end_ok
+    ok11 = and ok10, vec_eq30_start_ok
+    ok = and ok11, vec_eq30_end_ok
+
+    !vec_bs_hit_ok
+    !vec_bs_hit_idx
+    !vec_bs_miss_ok
+    !vec_bs_miss_idx
+    !vec_partition_idx
+    !vec_lower_20_idx
+    !vec_lower_30_idx
+    !vec_upper_20_idx
+    !vec_upper_4_idx
+    !vec_eq20_start
+    !vec_eq20_end
+    !vec_eq30_start
+    !vec_eq30_end
+    !vec_bs_hit_flag_ok
+    !vec_bs_hit_idx_ok
+    !vec_bs_miss_flag_ok
+    !vec_bs_miss_idx_ok
+    !vec_partition_idx_ok
+    !vec_lower_20_idx_ok
+    !vec_lower_30_idx_ok
+    !vec_upper_20_idx_ok
+    !vec_upper_4_idx_ok
+    !vec_eq20_start_ok
+    !vec_eq20_end_ok
+    !vec_eq30_start_ok
+    !vec_eq30_end_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    EXPAND VEC_FREE search_vec
+    br ok -> L_VEC_SEARCH_OK, L_VEC_SEARCH_FAIL
+
+L_VEC_SEARCH_FAIL:
+    !ok
+    panic(948)
+
+L_VEC_SEARCH_OK:
+    !ok
+    return
+
 @test "sa_std slice and vec chunk window macros"():
 L_ENTRY:
     data = alloc 40

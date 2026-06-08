@@ -526,6 +526,36 @@ L_VEC_POP_IF_END_%out_ok:
     !__vec_swap_with_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
+    EXPAND VEC_AS_SLICE __vec_binary_search_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, __vec_binary_search_slice_%out_ok, %needle
+    !__vec_binary_search_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_PARTITION_POINT_U64 %out_index, %vec_reg, %pred_fn
+    EXPAND VEC_AS_SLICE __vec_partition_point_slice_%out_index, %vec_reg
+    EXPAND SLICE_PARTITION_POINT_U64 %out_index, __vec_partition_point_slice_%out_index, %pred_fn
+    !__vec_partition_point_slice_%out_index
+[END_MACRO]
+
+[MACRO] VEC_LOWER_BOUND_U64 %out_index, %vec_reg, %needle
+    EXPAND VEC_AS_SLICE __vec_lower_bound_slice_%out_index, %vec_reg
+    EXPAND SLICE_LOWER_BOUND_U64 %out_index, __vec_lower_bound_slice_%out_index, %needle
+    !__vec_lower_bound_slice_%out_index
+[END_MACRO]
+
+[MACRO] VEC_UPPER_BOUND_U64 %out_index, %vec_reg, %needle
+    EXPAND VEC_AS_SLICE __vec_upper_bound_slice_%out_index, %vec_reg
+    EXPAND SLICE_UPPER_BOUND_U64 %out_index, __vec_upper_bound_slice_%out_index, %needle
+    !__vec_upper_bound_slice_%out_index
+[END_MACRO]
+
+[MACRO] VEC_EQUAL_RANGE_U64 %out_start, %out_end, %vec_reg, %needle
+    EXPAND VEC_AS_SLICE __vec_equal_range_slice_%out_start, %vec_reg
+    EXPAND SLICE_EQUAL_RANGE_U64 %out_start, %out_end, __vec_equal_range_slice_%out_start, %needle
+    !__vec_equal_range_slice_%out_start
+[END_MACRO]
+
 [MACRO] VEC_IS_SORTED_U64 %out_bool, %vec_reg
     EXPAND VEC_AS_SLICE __vec_sorted_slice_%out_bool, %vec_reg
     EXPAND SLICE_IS_SORTED_U64 %out_bool, __vec_sorted_slice_%out_bool
