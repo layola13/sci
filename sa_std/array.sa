@@ -305,6 +305,55 @@ L_ARRAY_FROM_FN_DONE_%array_ptr:
     !__array_fn_idx_%array_ptr
 [END_MACRO]
 
+[MACRO] ARRAY_TRY_FROM_FN_U64 %out_ok, %array_ptr, %length, %gen_fn
+    __array_try_fn_idx_slot_%out_ok = stack_alloc 8
+    __array_try_fn_value_slot_%out_ok = stack_alloc 8
+    store __array_try_fn_idx_slot_%out_ok+0, 0 as u64
+    jmp L_ARRAY_TRY_FROM_FN_HEAD_%out_ok
+
+L_ARRAY_TRY_FROM_FN_HEAD_%out_ok:
+    __array_try_fn_idx_%out_ok = load __array_try_fn_idx_slot_%out_ok+0 as u64
+    __array_try_fn_done_%out_ok = eq __array_try_fn_idx_%out_ok, %length
+    br __array_try_fn_done_%out_ok -> L_ARRAY_TRY_FROM_FN_DONE_%out_ok, L_ARRAY_TRY_FROM_FN_BODY_%out_ok
+
+L_ARRAY_TRY_FROM_FN_BODY_%out_ok:
+    __array_try_fn_item_ok_%out_ok = call %gen_fn(__array_try_fn_idx_%out_ok, &__array_try_fn_value_slot_%out_ok)
+    __array_try_fn_keep_%out_ok = ne __array_try_fn_item_ok_%out_ok, 0
+    br __array_try_fn_keep_%out_ok -> L_ARRAY_TRY_FROM_FN_STORE_%out_ok, L_ARRAY_TRY_FROM_FN_FAIL_%out_ok
+
+L_ARRAY_TRY_FROM_FN_STORE_%out_ok:
+    __array_try_fn_value_%out_ok = load __array_try_fn_value_slot_%out_ok+0 as u64
+    __array_try_fn_off_%out_ok = mul __array_try_fn_idx_%out_ok, 8
+    __array_try_fn_ptr_%out_ok = ptr_add %array_ptr, __array_try_fn_off_%out_ok
+    store __array_try_fn_ptr_%out_ok+0, __array_try_fn_value_%out_ok as u64
+    __array_try_fn_next_%out_ok = add __array_try_fn_idx_%out_ok, 1
+    store __array_try_fn_idx_slot_%out_ok+0, __array_try_fn_next_%out_ok as u64
+    !__array_try_fn_next_%out_ok
+    !__array_try_fn_ptr_%out_ok
+    !__array_try_fn_off_%out_ok
+    !__array_try_fn_value_%out_ok
+    !__array_try_fn_keep_%out_ok
+    !__array_try_fn_item_ok_%out_ok
+    !__array_try_fn_done_%out_ok
+    !__array_try_fn_idx_%out_ok
+    jmp L_ARRAY_TRY_FROM_FN_HEAD_%out_ok
+
+L_ARRAY_TRY_FROM_FN_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__array_try_fn_keep_%out_ok
+    !__array_try_fn_item_ok_%out_ok
+    !__array_try_fn_done_%out_ok
+    !__array_try_fn_idx_%out_ok
+    jmp L_ARRAY_TRY_FROM_FN_END_%out_ok
+
+L_ARRAY_TRY_FROM_FN_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__array_try_fn_done_%out_ok
+    !__array_try_fn_idx_%out_ok
+
+L_ARRAY_TRY_FROM_FN_END_%out_ok:
+[END_MACRO]
+
 [MACRO] ARRAY_MAP_U64 %dst_ptr, %src_ptr, %length, %map_fn
     __array_map_idx_slot_%dst_ptr = stack_alloc 8
     store __array_map_idx_slot_%dst_ptr+0, 0 as u64
@@ -337,4 +386,60 @@ L_ARRAY_MAP_BODY_%dst_ptr:
 L_ARRAY_MAP_DONE_%dst_ptr:
     !__array_map_done_%dst_ptr
     !__array_map_idx_%dst_ptr
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_MAP_U64 %out_ok, %dst_ptr, %src_ptr, %length, %map_fn
+    __array_try_map_idx_slot_%out_ok = stack_alloc 8
+    __array_try_map_value_slot_%out_ok = stack_alloc 8
+    store __array_try_map_idx_slot_%out_ok+0, 0 as u64
+    jmp L_ARRAY_TRY_MAP_HEAD_%out_ok
+
+L_ARRAY_TRY_MAP_HEAD_%out_ok:
+    __array_try_map_idx_%out_ok = load __array_try_map_idx_slot_%out_ok+0 as u64
+    __array_try_map_done_%out_ok = eq __array_try_map_idx_%out_ok, %length
+    br __array_try_map_done_%out_ok -> L_ARRAY_TRY_MAP_DONE_%out_ok, L_ARRAY_TRY_MAP_BODY_%out_ok
+
+L_ARRAY_TRY_MAP_BODY_%out_ok:
+    __array_try_map_off_%out_ok = mul __array_try_map_idx_%out_ok, 8
+    __array_try_map_src_ptr_%out_ok = ptr_add %src_ptr, __array_try_map_off_%out_ok
+    __array_try_map_src_value_%out_ok = load __array_try_map_src_ptr_%out_ok+0 as u64
+    __array_try_map_item_ok_%out_ok = call %map_fn(__array_try_map_src_value_%out_ok, &__array_try_map_value_slot_%out_ok)
+    __array_try_map_keep_%out_ok = ne __array_try_map_item_ok_%out_ok, 0
+    br __array_try_map_keep_%out_ok -> L_ARRAY_TRY_MAP_STORE_%out_ok, L_ARRAY_TRY_MAP_FAIL_%out_ok
+
+L_ARRAY_TRY_MAP_STORE_%out_ok:
+    __array_try_map_dst_value_%out_ok = load __array_try_map_value_slot_%out_ok+0 as u64
+    __array_try_map_dst_ptr_%out_ok = ptr_add %dst_ptr, __array_try_map_off_%out_ok
+    store __array_try_map_dst_ptr_%out_ok+0, __array_try_map_dst_value_%out_ok as u64
+    __array_try_map_next_%out_ok = add __array_try_map_idx_%out_ok, 1
+    store __array_try_map_idx_slot_%out_ok+0, __array_try_map_next_%out_ok as u64
+    !__array_try_map_next_%out_ok
+    !__array_try_map_dst_ptr_%out_ok
+    !__array_try_map_dst_value_%out_ok
+    !__array_try_map_keep_%out_ok
+    !__array_try_map_item_ok_%out_ok
+    !__array_try_map_src_value_%out_ok
+    !__array_try_map_src_ptr_%out_ok
+    !__array_try_map_off_%out_ok
+    !__array_try_map_done_%out_ok
+    !__array_try_map_idx_%out_ok
+    jmp L_ARRAY_TRY_MAP_HEAD_%out_ok
+
+L_ARRAY_TRY_MAP_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__array_try_map_keep_%out_ok
+    !__array_try_map_item_ok_%out_ok
+    !__array_try_map_src_value_%out_ok
+    !__array_try_map_src_ptr_%out_ok
+    !__array_try_map_off_%out_ok
+    !__array_try_map_done_%out_ok
+    !__array_try_map_idx_%out_ok
+    jmp L_ARRAY_TRY_MAP_END_%out_ok
+
+L_ARRAY_TRY_MAP_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__array_try_map_done_%out_ok
+    !__array_try_map_idx_%out_ok
+
+L_ARRAY_TRY_MAP_END_%out_ok:
 [END_MACRO]

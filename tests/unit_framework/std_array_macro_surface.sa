@@ -10,6 +10,54 @@ L_ENTRY:
     out = add value, 10
     return out
 
+@array_try_from_fn_until_three(index: u64, &out_value: ptr) -> u64:
+L_ENTRY:
+    keep = ult index, 3
+    br keep -> L_STORE, L_FAIL
+L_STORE:
+    value = mul index, 5
+    store out_value+0, value as u64
+    !value
+    !out_value
+    !keep
+    return 1
+L_FAIL:
+    !out_value
+    !keep
+    return 0
+
+@array_try_from_fn_all(index: u64, &out_value: ptr) -> u64:
+L_ENTRY:
+    value = add index, 11
+    store out_value+0, value as u64
+    !value
+    !out_value
+    return 1
+
+@array_try_map_below_forty(value: u64, &out_value: ptr) -> u64:
+L_ENTRY:
+    keep = ult value, 40
+    br keep -> L_STORE, L_FAIL
+L_STORE:
+    mapped = add value, 100
+    store out_value+0, mapped as u64
+    !mapped
+    !out_value
+    !keep
+    return 1
+L_FAIL:
+    !out_value
+    !keep
+    return 0
+
+@array_try_map_all(value: u64, &out_value: ptr) -> u64:
+L_ENTRY:
+    mapped = add value, 200
+    store out_value+0, mapped as u64
+    !mapped
+    !out_value
+    return 1
+
 @test "sa_std array primitive u64 macros"():
 L_ENTRY:
     arr = stack_alloc 32
@@ -112,6 +160,20 @@ L_ENTRY:
     EXPAND ARRAY_MAP_U64 mapped, src, 4, @array_map_plus_ten
     mapped0 = load mapped+0 as u64
     mapped3 = load mapped+24 as u64
+    try_generated = stack_alloc 32
+    EXPAND ARRAY_TRY_FROM_FN_U64 try_gen_ok, try_generated, 4, @array_try_from_fn_all
+    try_gen0 = load try_generated+0 as u64
+    try_gen3 = load try_generated+24 as u64
+    EXPAND ARRAY_TRY_FROM_FN_U64 try_gen_miss, try_generated, 4, @array_try_from_fn_until_three
+    try_gen_after_miss2 = load try_generated+16 as u64
+    try_mapped = stack_alloc 32
+    EXPAND ARRAY_TRY_MAP_U64 try_map_ok, try_mapped, src, 3, @array_try_map_below_forty
+    try_map0 = load try_mapped+0 as u64
+    try_map2 = load try_mapped+16 as u64
+    EXPAND ARRAY_TRY_MAP_U64 try_map_miss, try_mapped, src, 4, @array_try_map_below_forty
+    try_map_after_miss2 = load try_mapped+16 as u64
+    EXPAND ARRAY_TRY_MAP_U64 try_map_all_ok, try_mapped, src, 4, @array_try_map_all
+    try_map_all3 = load try_mapped+24 as u64
 
     ok_len = eq len4, 4
     ok_empty0 = eq empty0, 1
@@ -167,6 +229,18 @@ L_ENTRY:
     ok_repeat3 = eq repeat3, 99
     ok_mapped0 = eq mapped0, 20
     ok_mapped3 = eq mapped3, 50
+    ok_try_gen = eq try_gen_ok, 1
+    ok_try_gen0 = eq try_gen0, 11
+    ok_try_gen3 = eq try_gen3, 14
+    ok_try_gen_miss = eq try_gen_miss, 0
+    ok_try_gen_after_miss2 = eq try_gen_after_miss2, 10
+    ok_try_map = eq try_map_ok, 1
+    ok_try_map0 = eq try_map0, 110
+    ok_try_map2 = eq try_map2, 130
+    ok_try_map_miss = eq try_map_miss, 0
+    ok_try_map_after_miss2 = eq try_map_after_miss2, 130
+    ok_try_map_all = eq try_map_all_ok, 1
+    ok_try_map_all3 = eq try_map_all3, 240
 
     ok01 = and ok_len, ok_empty0
     ok02 = and ok01, ok_empty4
@@ -219,7 +293,19 @@ L_ENTRY:
     ok49 = and ok48, ok_repeat0
     ok50 = and ok49, ok_repeat3
     ok51 = and ok50, ok_mapped0
-    ok = and ok51, ok_mapped3
+    ok52 = and ok51, ok_mapped3
+    ok53 = and ok52, ok_try_gen
+    ok54 = and ok53, ok_try_gen0
+    ok55 = and ok54, ok_try_gen3
+    ok56 = and ok55, ok_try_gen_miss
+    ok57 = and ok56, ok_try_gen_after_miss2
+    ok58 = and ok57, ok_try_map
+    ok59 = and ok58, ok_try_map0
+    ok60 = and ok59, ok_try_map2
+    ok61 = and ok60, ok_try_map_miss
+    ok62 = and ok61, ok_try_map_after_miss2
+    ok63 = and ok62, ok_try_map_all
+    ok = and ok63, ok_try_map_all3
 
     !null_ptr
     !mut_miss_ptr
