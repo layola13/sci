@@ -7453,6 +7453,44 @@ pub export fn sa_net_addr_free(addr: u64) Fallible(i32) {
     return ok(i32, 0);
 }
 
+fn parseIpv4Ascii(text: []const u8) ?[4]u8 {
+    var parts: [4]u8 = undefined;
+    var index: usize = 0;
+    var part_index: usize = 0;
+
+    while (part_index < 4) : (part_index += 1) {
+        if (index >= text.len) return null;
+        var value: u32 = 0;
+        var digits: usize = 0;
+        while (index < text.len and text[index] != '.') : (index += 1) {
+            const byte = text[index];
+            if (byte < '0' or byte > '9') return null;
+            value = value * 10 + @as(u32, byte - '0');
+            if (value > 255) return null;
+            digits += 1;
+        }
+        if (digits == 0) return null;
+        parts[part_index] = @as(u8, @intCast(value));
+        if (part_index < 3) {
+            if (index >= text.len or text[index] != '.') return null;
+            index += 1;
+        }
+    }
+    if (index != text.len) return null;
+    return parts;
+}
+
+fn parsePortAscii(text: []const u8) ?u16 {
+    if (text.len == 0) return null;
+    var value: u32 = 0;
+    for (text) |byte| {
+        if (byte < '0' or byte > '9') return null;
+        value = value * 10 + @as(u32, byte - '0');
+        if (value > std.math.maxInt(u16)) return null;
+    }
+    return @as(u16, @intCast(value));
+}
+
 pub export fn sa_net_ipv4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
     const out = out_addr orelse return 0;
     out[0] = 0;
@@ -7461,34 +7499,29 @@ pub export fn sa_net_ipv4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out
     out[3] = 0;
 
     const text = constBytes(text_ptr, text_len) catch return 0;
-    var parts: [4]u8 = undefined;
-    var index: usize = 0;
-    var part_index: usize = 0;
-
-    while (part_index < 4) : (part_index += 1) {
-        if (index >= text.len) return 0;
-        var value: u32 = 0;
-        var digits: usize = 0;
-        while (index < text.len and text[index] != '.') : (index += 1) {
-            const byte = text[index];
-            if (byte < '0' or byte > '9') return 0;
-            value = value * 10 + @as(u32, byte - '0');
-            if (value > 255) return 0;
-            digits += 1;
-        }
-        if (digits == 0) return 0;
-        parts[part_index] = @as(u8, @intCast(value));
-        if (part_index < 3) {
-            if (index >= text.len or text[index] != '.') return 0;
-            index += 1;
-        }
-    }
-    if (index != text.len) return 0;
+    const parts = parseIpv4Ascii(text) orelse return 0;
 
     out[0] = parts[0];
     out[1] = parts[1];
     out[2] = parts[2];
     out[3] = parts[3];
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
+    const out = out_socket_addr orelse return 0;
+    for (out[0..8]) |*byte| byte.* = 0;
+
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return 0;
+    const ip = parseIpv4Ascii(text[0..colon]) orelse return 0;
+    const port = parsePortAscii(text[colon + 1 ..]) orelse return 0;
+
+    out[0] = ip[0];
+    out[1] = ip[1];
+    out[2] = ip[2];
+    out[3] = ip[3];
+    std.mem.writeInt(u16, out[4..6], port, .little);
     return 1;
 }
 

@@ -427,6 +427,7 @@ uint64_t sa_net_addr_scope_id(uint64_t addr_handle);
 int32_t sa_std_net_addr_format(uint64_t addr_handle, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_net_addr_free(uint64_t addr_handle);
 int32_t sa_net_ipv4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_addr);
+int32_t sa_net_socket_addr_v4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_socket_addr);
 
 int32_t sa_std_process_run(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);
 int32_t sa_std_process_spawn(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);

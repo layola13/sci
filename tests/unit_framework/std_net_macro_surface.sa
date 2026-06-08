@@ -5,6 +5,11 @@
 @const NET_TEST_IPV4_BAD_RANGE = utf8:"256.0.0.1"
 @const NET_TEST_IPV4_BAD_EMPTY = utf8:"127..0.1"
 @const NET_TEST_IPV4_BAD_TRAIL = utf8:"127.0.0.1x"
+@const NET_TEST_SOCKET_V4 = utf8:"192.168.1.42:8080"
+@const NET_TEST_SOCKET_V4_MAX = utf8:"127.0.0.1:65535"
+@const NET_TEST_SOCKET_V4_BAD_PORT = utf8:"127.0.0.1:65536"
+@const NET_TEST_SOCKET_V4_BAD_EMPTY_PORT = utf8:"127.0.0.1:"
+@const NET_TEST_SOCKET_V4_BAD_IPV6 = utf8:"[::1]:8080"
 @const NET_TEST_MESSAGE = utf8:"ping"
 @const NET_TEST_UDP_MESSAGE = utf8:"pong"
 
@@ -13,6 +18,11 @@
 #def NET_TEST_IPV4_BAD_RANGE_LEN = 9
 #def NET_TEST_IPV4_BAD_EMPTY_LEN = 8
 #def NET_TEST_IPV4_BAD_TRAIL_LEN = 10
+#def NET_TEST_SOCKET_V4_LEN = 17
+#def NET_TEST_SOCKET_V4_MAX_LEN = 15
+#def NET_TEST_SOCKET_V4_BAD_PORT_LEN = 15
+#def NET_TEST_SOCKET_V4_BAD_EMPTY_PORT_LEN = 10
+#def NET_TEST_SOCKET_V4_BAD_IPV6_LEN = 10
 #def NET_TEST_MESSAGE_LEN = 4
 #def NET_TEST_TIMEOUT_NS = 100000000
 
@@ -203,6 +213,95 @@ L_IPV4_PARSE_FAIL:
     panic(927)
 
 L_IPV4_PARSE_PASS:
+    !ok
+    return 0
+
+@test "sa_std net socketaddr v4 parse_ascii macro surface"():
+L_ENTRY:
+    socket_addr = alloc NetSocketAddrV4_SIZE
+    socket_ip = alloc NetIpv4Addr_SIZE
+    socket_max_addr = alloc NetSocketAddrV4_SIZE
+    bad_port_addr = alloc NetSocketAddrV4_SIZE
+    bad_empty_port_addr = alloc NetSocketAddrV4_SIZE
+    bad_ipv6_addr = alloc NetSocketAddrV4_SIZE
+
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII socket_ok, socket_addr, NET_TEST_SOCKET_V4, NET_TEST_SOCKET_V4_LEN
+    EXPAND NET_SOCKET_ADDR_V4_IP socket_ip, socket_addr
+    EXPAND NET_IPV4_OCTETS socket_a, socket_b, socket_c, socket_d, socket_ip
+    EXPAND NET_SOCKET_ADDR_V4_PORT socket_port, socket_addr
+    EXPAND NET_SOCKET_ADDR_V4_PARSE_ASCII max_ok, socket_max_addr, NET_TEST_SOCKET_V4_MAX, NET_TEST_SOCKET_V4_MAX_LEN
+    EXPAND NET_SOCKET_ADDR_V4_PORT max_port, socket_max_addr
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII bad_port_ok, bad_port_addr, NET_TEST_SOCKET_V4_BAD_PORT, NET_TEST_SOCKET_V4_BAD_PORT_LEN
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII bad_empty_port_ok, bad_empty_port_addr, NET_TEST_SOCKET_V4_BAD_EMPTY_PORT, NET_TEST_SOCKET_V4_BAD_EMPTY_PORT_LEN
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII bad_ipv6_ok, bad_ipv6_addr, NET_TEST_SOCKET_V4_BAD_IPV6, NET_TEST_SOCKET_V4_BAD_IPV6_LEN
+
+    ok_socket = eq socket_ok, 1
+    ok_a = eq socket_a, 192
+    ok_b = eq socket_b, 168
+    ok_c = eq socket_c, 1
+    ok_d = eq socket_d, 42
+    ok_port = eq socket_port, 8080
+    ok_max = eq max_ok, 1
+    ok_max_port = eq max_port, 65535
+    ok_bad_port = eq bad_port_ok, 0
+    ok_bad_empty_port = eq bad_empty_port_ok, 0
+    ok_bad_ipv6 = eq bad_ipv6_ok, 0
+
+    ok01 = and ok_socket, ok_a
+    ok02 = and ok01, ok_b
+    ok03 = and ok02, ok_c
+    ok04 = and ok03, ok_d
+    ok05 = and ok04, ok_port
+    ok06 = and ok05, ok_max
+    ok07 = and ok06, ok_max_port
+    ok08 = and ok07, ok_bad_port
+    ok09 = and ok08, ok_bad_empty_port
+    ok = and ok09, ok_bad_ipv6
+
+    !ok_socket
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    !ok_port
+    !ok_max
+    !ok_max_port
+    !ok_bad_port
+    !ok_bad_empty_port
+    !ok_bad_ipv6
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !socket_ok
+    !socket_a
+    !socket_b
+    !socket_c
+    !socket_d
+    !socket_port
+    !max_ok
+    !max_port
+    !bad_port_ok
+    !bad_empty_port_ok
+    !bad_ipv6_ok
+    !bad_ipv6_addr
+    !bad_empty_port_addr
+    !bad_port_addr
+    !socket_max_addr
+    !socket_ip
+    !socket_addr
+    br ok -> L_SOCKET_V4_PARSE_PASS, L_SOCKET_V4_PARSE_FAIL
+
+L_SOCKET_V4_PARSE_FAIL:
+    !ok
+    panic(926)
+
+L_SOCKET_V4_PARSE_PASS:
     !ok
     return 0
 
