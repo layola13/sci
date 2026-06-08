@@ -575,6 +575,108 @@ L_VIEW_OK:
     !ok
     return
 
+@test "sa_std hashmap into key value view macros"():
+L_ENTRY:
+    key_a = &KEY
+    key_b = &KEY_B
+    value_a = &VALUE
+    value_b = &VALUE_B
+    key_a_bits = bitcast key_a as u64
+    key_b_bits = bitcast key_b as u64
+    value_a_bits = bitcast value_a as u64
+    value_b_bits = bitcast value_b as u64
+
+    EXPAND MAP_WITH_CAPACITY keys_map, 4
+    EXPAND MAP_PUT keys_map, key_a, value_a
+    EXPAND MAP_PUT keys_map, key_b, value_b
+    EXPAND MAP_INTO_KEYS into_keys_vec, keys_map
+    EXPAND VEC_LEN into_keys_len, into_keys_vec
+    EXPAND VEC_CONTAINS_U64 into_keys_has_a, into_keys_vec, key_a_bits
+    EXPAND VEC_CONTAINS_U64 into_keys_has_b, into_keys_vec, key_b_bits
+    EXPAND MAP_LEN keys_map_len_after, keys_map
+    EXPAND MAP_IS_EMPTY keys_map_empty_after, keys_map
+
+    EXPAND MAP_WITH_CAPACITY values_map, 4
+    EXPAND MAP_PUT values_map, key_a, value_a
+    EXPAND MAP_PUT values_map, key_b, value_b
+    EXPAND MAP_INTO_VALUES into_values_vec, values_map
+    EXPAND VEC_LEN into_values_len, into_values_vec
+    EXPAND VEC_CONTAINS_U64 into_values_has_a, into_values_vec, value_a_bits
+    EXPAND VEC_CONTAINS_U64 into_values_has_b, into_values_vec, value_b_bits
+    EXPAND MAP_LEN values_map_len_after, values_map
+    EXPAND MAP_IS_EMPTY values_map_empty_after, values_map
+
+    ok_keys_len = eq into_keys_len, 2
+    ok_keys_has_a = eq into_keys_has_a, 1
+    ok_keys_has_b = eq into_keys_has_b, 1
+    ok_keys_map_len = eq keys_map_len_after, 0
+    ok_keys_map_empty = eq keys_map_empty_after, 1
+    ok_values_len = eq into_values_len, 2
+    ok_values_has_a = eq into_values_has_a, 1
+    ok_values_has_b = eq into_values_has_b, 1
+    ok_values_map_len = eq values_map_len_after, 0
+    ok_values_map_empty = eq values_map_empty_after, 1
+
+    ok01 = and ok_keys_len, ok_keys_has_a
+    ok02 = and ok01, ok_keys_has_b
+    ok03 = and ok02, ok_keys_map_len
+    ok04 = and ok03, ok_keys_map_empty
+    ok05 = and ok04, ok_values_len
+    ok06 = and ok05, ok_values_has_a
+    ok07 = and ok06, ok_values_has_b
+    ok08 = and ok07, ok_values_map_len
+    ok = and ok08, ok_values_map_empty
+
+    !key_a
+    !key_b
+    !value_a
+    !value_b
+    !key_a_bits
+    !key_b_bits
+    !value_a_bits
+    !value_b_bits
+    !into_keys_len
+    !into_keys_has_a
+    !into_keys_has_b
+    !keys_map_len_after
+    !keys_map_empty_after
+    !into_values_len
+    !into_values_has_a
+    !into_values_has_b
+    !values_map_len_after
+    !values_map_empty_after
+    !ok_keys_len
+    !ok_keys_has_a
+    !ok_keys_has_b
+    !ok_keys_map_len
+    !ok_keys_map_empty
+    !ok_values_len
+    !ok_values_has_a
+    !ok_values_has_b
+    !ok_values_map_len
+    !ok_values_map_empty
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND VEC_FREE into_values_vec
+    EXPAND VEC_FREE into_keys_vec
+    EXPAND MAP_FREE values_map
+    EXPAND MAP_FREE keys_map
+    br ok -> L_INTO_VIEW_OK, L_INTO_VIEW_FAIL
+
+L_INTO_VIEW_FAIL:
+    !ok
+    panic(917)
+
+L_INTO_VIEW_OK:
+    !ok
+    return
+
 @test "sa_std hashmap retain macro"():
 L_ENTRY:
     EXPAND MAP_WITH_CAPACITY map, 4

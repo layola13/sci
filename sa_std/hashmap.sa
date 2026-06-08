@@ -1595,6 +1595,16 @@ L_MAP_EXTRACT_DONE_%out_len:
     %out_vec = call @sa_map_values_vec(&%map_reg)
 [END_MACRO]
 
+[MACRO] MAP_INTO_KEYS %out_vec, %map_reg
+    EXPAND MAP_KEYS %out_vec, %map_reg
+    EXPAND MAP_CLEAR %map_reg
+[END_MACRO]
+
+[MACRO] MAP_INTO_VALUES %out_vec, %map_reg
+    EXPAND MAP_VALUES %out_vec, %map_reg
+    EXPAND MAP_CLEAR %map_reg
+[END_MACRO]
+
 [MACRO] MAP_VALUES_MUT_PTRS %out_vec, %map_reg
     %out_vec = call @sa_map_value_mut_ptrs_vec(&%map_reg)
 [END_MACRO]
