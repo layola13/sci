@@ -806,6 +806,52 @@ L_ITER_TRY_FOR_EACH_DONE_%out_ok:
 L_ITER_TRY_FOR_EACH_END_%out_ok:
 [END_MACRO]
 
+[MACRO] ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_NEW %out_vec
+    jmp L_ITER_MAP_COLLECT_HEAD_%out_vec
+L_ITER_MAP_COLLECT_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_map_collect_has_%out_vec, __iter_map_collect_value_%out_vec, %iter_reg
+    br __iter_map_collect_has_%out_vec -> L_ITER_MAP_COLLECT_PUSH_%out_vec, L_ITER_MAP_COLLECT_DONE_%out_vec
+L_ITER_MAP_COLLECT_PUSH_%out_vec:
+    __iter_map_collect_mapped_%out_vec = call %map_fn(__iter_map_collect_value_%out_vec)
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_map_collect_mapped_%out_vec
+    !__iter_map_collect_mapped_%out_vec
+    !__iter_map_collect_value_%out_vec
+    !__iter_map_collect_has_%out_vec
+    jmp L_ITER_MAP_COLLECT_HEAD_%out_vec
+L_ITER_MAP_COLLECT_DONE_%out_vec:
+    !__iter_map_collect_value_%out_vec
+    !__iter_map_collect_has_%out_vec
+[END_MACRO]
+
+[MACRO] ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_NEW %out_vec
+    jmp L_ITER_FILTER_COLLECT_HEAD_%out_vec
+L_ITER_FILTER_COLLECT_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_filter_collect_has_%out_vec, __iter_filter_collect_value_%out_vec, %iter_reg
+    br __iter_filter_collect_has_%out_vec -> L_ITER_FILTER_COLLECT_CHECK_%out_vec, L_ITER_FILTER_COLLECT_DONE_%out_vec
+L_ITER_FILTER_COLLECT_CHECK_%out_vec:
+    __iter_filter_collect_pred_%out_vec = call %pred_fn(__iter_filter_collect_value_%out_vec)
+    __iter_filter_collect_keep_%out_vec = ne __iter_filter_collect_pred_%out_vec, 0
+    br __iter_filter_collect_keep_%out_vec -> L_ITER_FILTER_COLLECT_PUSH_%out_vec, L_ITER_FILTER_COLLECT_NEXT_%out_vec
+L_ITER_FILTER_COLLECT_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_filter_collect_value_%out_vec
+    !__iter_filter_collect_keep_%out_vec
+    !__iter_filter_collect_pred_%out_vec
+    !__iter_filter_collect_value_%out_vec
+    !__iter_filter_collect_has_%out_vec
+    jmp L_ITER_FILTER_COLLECT_HEAD_%out_vec
+L_ITER_FILTER_COLLECT_NEXT_%out_vec:
+    !__iter_filter_collect_keep_%out_vec
+    !__iter_filter_collect_pred_%out_vec
+    !__iter_filter_collect_value_%out_vec
+    !__iter_filter_collect_has_%out_vec
+    jmp L_ITER_FILTER_COLLECT_HEAD_%out_vec
+L_ITER_FILTER_COLLECT_DONE_%out_vec:
+    !__iter_filter_collect_value_%out_vec
+    !__iter_filter_collect_has_%out_vec
+[END_MACRO]
+
 [MACRO] ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND VEC_NEW %out_vec
     __iter_filter_map_slot_%out_vec = stack_alloc 8
@@ -835,6 +881,36 @@ L_ITER_FILTER_MAP_NEXT_%out_vec:
 L_ITER_FILTER_MAP_DONE_%out_vec:
     !__iter_filter_map_value_%out_vec
     !__iter_filter_map_has_%out_vec
+[END_MACRO]
+
+[MACRO] ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+    EXPAND VEC_NEW %out_true_vec
+    EXPAND VEC_NEW %out_false_vec
+    jmp L_ITER_PARTITION_HEAD_%out_true_vec
+L_ITER_PARTITION_HEAD_%out_true_vec:
+    EXPAND ITER_NEXT_U64 __iter_partition_has_%out_true_vec, __iter_partition_value_%out_true_vec, %iter_reg
+    br __iter_partition_has_%out_true_vec -> L_ITER_PARTITION_CHECK_%out_true_vec, L_ITER_PARTITION_DONE_%out_true_vec
+L_ITER_PARTITION_CHECK_%out_true_vec:
+    __iter_partition_pred_%out_true_vec = call %pred_fn(__iter_partition_value_%out_true_vec)
+    __iter_partition_take_true_%out_true_vec = ne __iter_partition_pred_%out_true_vec, 0
+    br __iter_partition_take_true_%out_true_vec -> L_ITER_PARTITION_PUSH_TRUE_%out_true_vec, L_ITER_PARTITION_PUSH_FALSE_%out_true_vec
+L_ITER_PARTITION_PUSH_TRUE_%out_true_vec:
+    EXPAND VEC_PUSH_U64 %out_true_vec, __iter_partition_value_%out_true_vec
+    !__iter_partition_take_true_%out_true_vec
+    !__iter_partition_pred_%out_true_vec
+    !__iter_partition_value_%out_true_vec
+    !__iter_partition_has_%out_true_vec
+    jmp L_ITER_PARTITION_HEAD_%out_true_vec
+L_ITER_PARTITION_PUSH_FALSE_%out_true_vec:
+    EXPAND VEC_PUSH_U64 %out_false_vec, __iter_partition_value_%out_true_vec
+    !__iter_partition_take_true_%out_true_vec
+    !__iter_partition_pred_%out_true_vec
+    !__iter_partition_value_%out_true_vec
+    !__iter_partition_has_%out_true_vec
+    jmp L_ITER_PARTITION_HEAD_%out_true_vec
+L_ITER_PARTITION_DONE_%out_true_vec:
+    !__iter_partition_value_%out_true_vec
+    !__iter_partition_has_%out_true_vec
 [END_MACRO]
 
 [MACRO] ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn

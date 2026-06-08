@@ -26,6 +26,12 @@ L_ENTRY:
     !scaled
     return out
 
+@iter_times_ten(value: u64) -> u64:
+L_ENTRY:
+    out = mul value, 10
+    !value
+    return out
+
 @iter_try_accumulate_tens_lt_four(acc: u64, value: u64, &out_next: ptr) -> u64:
 L_ENTRY:
     keep = ult value, 4
@@ -905,6 +911,185 @@ L_FIND_MAP_FAIL:
     panic(946)
 
 L_FIND_MAP_PASS:
+    !all
+    return 0
+
+@test "sa_std iter eager map filter partition collect macros"():
+L_ENTRY:
+    values = stack_alloc 40
+    store values+0, 1 as u64
+    store values+8, 2 as u64
+    store values+16, 3 as u64
+    store values+24, 4 as u64
+    store values+32, 5 as u64
+
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, values, 5
+
+    EXPAND ITER_FROM_SLICE map_iter, slice
+    EXPAND ITER_MAP_COLLECT_U64 map_vec, map_iter, @iter_times_ten
+    EXPAND ITER_IS_EMPTY map_empty, map_iter
+    EXPAND VEC_LEN map_len, map_vec
+    EXPAND VEC_TRY_GET_U64 map_get0_ok, map_get0, map_vec, 0
+    EXPAND VEC_TRY_GET_U64 map_get4_ok, map_get4, map_vec, 4
+
+    EXPAND ITER_FROM_SLICE filter_iter, slice
+    EXPAND ITER_FILTER_COLLECT_U64 filter_vec, filter_iter, @iter_is_even
+    EXPAND ITER_IS_EMPTY filter_empty, filter_iter
+    EXPAND VEC_LEN filter_len, filter_vec
+    EXPAND VEC_TRY_GET_U64 filter_get0_ok, filter_get0, filter_vec, 0
+    EXPAND VEC_TRY_GET_U64 filter_get1_ok, filter_get1, filter_vec, 1
+    EXPAND VEC_TRY_GET_U64 filter_get2_ok, filter_get2, filter_vec, 2
+
+    EXPAND ITER_FROM_SLICE partition_iter, slice
+    EXPAND ITER_PARTITION_U64 partition_true_vec, partition_false_vec, partition_iter, @iter_is_even
+    EXPAND ITER_IS_EMPTY partition_empty, partition_iter
+    EXPAND VEC_LEN partition_true_len, partition_true_vec
+    EXPAND VEC_LEN partition_false_len, partition_false_vec
+    EXPAND VEC_TRY_GET_U64 partition_true0_ok, partition_true0, partition_true_vec, 0
+    EXPAND VEC_TRY_GET_U64 partition_true1_ok, partition_true1, partition_true_vec, 1
+    EXPAND VEC_TRY_GET_U64 partition_false0_ok, partition_false0, partition_false_vec, 0
+    EXPAND VEC_TRY_GET_U64 partition_false2_ok, partition_false2, partition_false_vec, 2
+
+    ok01 = eq map_empty, 1
+    ok02 = eq map_len, 5
+    ok03 = eq map_get0_ok, 1
+    ok04 = eq map_get0, 10
+    ok05 = eq map_get4_ok, 1
+    ok06 = eq map_get4, 50
+    ok07 = eq filter_empty, 1
+    ok08 = eq filter_len, 2
+    ok09 = eq filter_get0_ok, 1
+    ok10 = eq filter_get0, 2
+    ok11 = eq filter_get1_ok, 1
+    ok12 = eq filter_get1, 4
+    ok13 = eq filter_get2_ok, 0
+    ok14 = eq filter_get2, 0
+    ok15 = eq partition_empty, 1
+    ok16 = eq partition_true_len, 2
+    ok17 = eq partition_false_len, 3
+    ok18 = eq partition_true0_ok, 1
+    ok19 = eq partition_true0, 2
+    ok20 = eq partition_true1_ok, 1
+    ok21 = eq partition_true1, 4
+    ok22 = eq partition_false0_ok, 1
+    ok23 = eq partition_false0, 1
+    ok24 = eq partition_false2_ok, 1
+    ok25 = eq partition_false2, 5
+
+    all01 = and ok01, ok02
+    all02 = and all01, ok03
+    all03 = and all02, ok04
+    all04 = and all03, ok05
+    all05 = and all04, ok06
+    all06 = and all05, ok07
+    all07 = and all06, ok08
+    all08 = and all07, ok09
+    all09 = and all08, ok10
+    all10 = and all09, ok11
+    all11 = and all10, ok12
+    all12 = and all11, ok13
+    all13 = and all12, ok14
+    all14 = and all13, ok15
+    all15 = and all14, ok16
+    all16 = and all15, ok17
+    all17 = and all16, ok18
+    all18 = and all17, ok19
+    all19 = and all18, ok20
+    all20 = and all19, ok21
+    all21 = and all20, ok22
+    all22 = and all21, ok23
+    all23 = and all22, ok24
+    all = and all23, ok25
+
+    !map_empty
+    !map_len
+    !map_get0_ok
+    !map_get0
+    !map_get4_ok
+    !map_get4
+    !filter_empty
+    !filter_len
+    !filter_get0_ok
+    !filter_get0
+    !filter_get1_ok
+    !filter_get1
+    !filter_get2_ok
+    !filter_get2
+    !partition_empty
+    !partition_true_len
+    !partition_false_len
+    !partition_true0_ok
+    !partition_true0
+    !partition_true1_ok
+    !partition_true1
+    !partition_false0_ok
+    !partition_false0
+    !partition_false2_ok
+    !partition_false2
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !all01
+    !all02
+    !all03
+    !all04
+    !all05
+    !all06
+    !all07
+    !all08
+    !all09
+    !all10
+    !all11
+    !all12
+    !all13
+    !all14
+    !all15
+    !all16
+    !all17
+    !all18
+    !all19
+    !all20
+    !all21
+    !all22
+    !all23
+    !partition_iter
+    !filter_iter
+    !map_iter
+    !slice
+    EXPAND VEC_FREE partition_false_vec
+    EXPAND VEC_FREE partition_true_vec
+    EXPAND VEC_FREE filter_vec
+    EXPAND VEC_FREE map_vec
+    br all -> L_EAGER_COLLECT_PASS, L_EAGER_COLLECT_FAIL
+
+L_EAGER_COLLECT_FAIL:
+    !all
+    panic(947)
+
+L_EAGER_COLLECT_PASS:
     !all
     return 0
 
