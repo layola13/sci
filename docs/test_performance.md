@@ -139,3 +139,27 @@ The current remaining cost is not Zig compilation. It is mostly repeated SA impo
 - For runtime ABI changes: add `sa-std-runtime` and `sa-std-unit`.
 - For CLI/plugin changes: add `plugin-host-smoke` and `cli-skills-smoke`.
 - For release or install-before-commit boundaries: run the full timed script once.
+
+## 2026-06-08 Pre-push Timing Follow-up
+
+`tools/pre_push_timed.sh` now defaults to `SA_PRE_PUSH_PROFILE=auto` and prints a slowest-stage ranking at the end of successful or failed runs. The explicit profiles are still available through `SA_PRE_PUSH_PROFILE=full|fast|legacy`.
+
+`auto` inspects changed files against the upstream branch plus the current working tree:
+
+- If the changes are limited to `sa_std/`, `tests/unit_framework/`, docs/progress files, generated skill files, or the pre-push script itself, it resolves to `fast`.
+- If the changes include compiler/runtime/build/plugin/wasm/source files, it resolves to `full`.
+- If no changed files can be detected, it resolves to `full`.
+
+This keeps ordinary standard-library macro work out of unrelated wasm/plugin/system smoke stages while preserving the full gate for broad compiler or runtime changes. The slowest-stage summary avoids digging through long Zig output after a failed hook run.
+
+The unit framework had one stale expected summary after the owned `CString` test was added: `std_ffi_cstr_macro_surface.sa` now reports 2 tests, and `tests/unit_framework/runner.zig` was updated accordingly. Without that fix, pre-push timing runs failed before reaching the later slow std surface suites.
+
+Focused verification after this change:
+
+```sh
+SA_TEST_JOBS=auto zig build unit-framework --summary all
+```
+
+Result: `4/4 tests passed`, run step about `3m`. The slowest visible SA files were still `feature_suite.sa` at about `53.7s`, `std_string_vec_macro_surface.sa` at about `30.8s`, `std_path_macro_surface.sa` at about `18.1s`, and `std_net_addr_macro_surface.sa` at about `12.7s`.
+
+Conclusion: hook-level filtering and ranking reduce avoidable local pre-push work and improve diagnostics, but the remaining large win must come from unit-framework sharding or SA test artifact/import reuse. Shell-level changes alone cannot remove the repeated SA compile/import cost inside those large suites.
