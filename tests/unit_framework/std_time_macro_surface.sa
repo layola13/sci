@@ -320,6 +320,23 @@ L_ENTRY:
     EXPAND TIME_DURATION_FROM_HOURS hours_value, 1
     EXPAND TIME_DURATION_FROM_DAYS days_value, 1
     EXPAND TIME_DURATION_FROM_WEEKS weeks_value, 1
+    EXPAND TIME_DURATION_CHECKED_NEW checked_new_ok, checked_new_value, 2, 345
+    EXPAND TIME_DURATION_CHECKED_NEW checked_new_over_ok, checked_new_over_value, 1, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_SECS checked_secs_ok, checked_secs_value, 3
+    EXPAND TIME_DURATION_CHECKED_FROM_SECS checked_secs_fail_ok, checked_secs_fail_value, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_MILLIS checked_millis_ok, checked_millis_value, 4
+    EXPAND TIME_DURATION_CHECKED_FROM_MILLIS checked_millis_fail_ok, checked_millis_fail_value, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_MICROS checked_micros_ok, checked_micros_value, 5
+    EXPAND TIME_DURATION_CHECKED_FROM_MICROS checked_micros_fail_ok, checked_micros_fail_value, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_NANOS checked_nanos_ok, checked_nanos_value, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_MINS checked_mins_ok, checked_mins_value, 2
+    EXPAND TIME_DURATION_CHECKED_FROM_MINS checked_mins_fail_ok, checked_mins_fail_value, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_HOURS checked_hours_ok, checked_hours_value, 1
+    EXPAND TIME_DURATION_CHECKED_FROM_HOURS checked_hours_fail_ok, checked_hours_fail_value, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_DAYS checked_days_ok, checked_days_value, 1
+    EXPAND TIME_DURATION_CHECKED_FROM_DAYS checked_days_fail_ok, checked_days_fail_value, max_ns
+    EXPAND TIME_DURATION_CHECKED_FROM_WEEKS checked_weeks_ok, checked_weeks_value, 1
+    EXPAND TIME_DURATION_CHECKED_FROM_WEEKS checked_weeks_fail_ok, checked_weeks_fail_value, max_ns
     EXPAND TIME_DURATION_AS_SECS as_secs_value, weeks_value
     EXPAND TIME_DURATION_AS_MILLIS as_millis_value, secs_value
     EXPAND TIME_DURATION_AS_MICROS as_micros_value, millis_value
@@ -357,6 +374,40 @@ L_ENTRY:
     hours_ok = eq hours_value, 3600000000000
     days_ok = eq days_value, 86400000000000
     weeks_ok = eq weeks_value, 604800000000000
+    checked_new_flag_ok = eq checked_new_ok, 1
+    checked_new_value_ok = eq checked_new_value, 2000000345
+    checked_new_over_flag_ok = eq checked_new_over_ok, 0
+    checked_new_over_value_ok = eq checked_new_over_value, 0
+    checked_secs_flag_ok = eq checked_secs_ok, 1
+    checked_secs_value_ok = eq checked_secs_value, 3000000000
+    checked_secs_fail_flag_ok = eq checked_secs_fail_ok, 0
+    checked_secs_fail_value_ok = eq checked_secs_fail_value, 0
+    checked_millis_flag_ok = eq checked_millis_ok, 1
+    checked_millis_value_ok = eq checked_millis_value, 4000000
+    checked_millis_fail_flag_ok = eq checked_millis_fail_ok, 0
+    checked_millis_fail_value_ok = eq checked_millis_fail_value, 0
+    checked_micros_flag_ok = eq checked_micros_ok, 1
+    checked_micros_value_ok = eq checked_micros_value, 5000
+    checked_micros_fail_flag_ok = eq checked_micros_fail_ok, 0
+    checked_micros_fail_value_ok = eq checked_micros_fail_value, 0
+    checked_nanos_flag_ok = eq checked_nanos_ok, 1
+    checked_nanos_value_ok = eq checked_nanos_value, max_ns
+    checked_mins_flag_ok = eq checked_mins_ok, 1
+    checked_mins_value_ok = eq checked_mins_value, 120000000000
+    checked_mins_fail_flag_ok = eq checked_mins_fail_ok, 0
+    checked_mins_fail_value_ok = eq checked_mins_fail_value, 0
+    checked_hours_flag_ok = eq checked_hours_ok, 1
+    checked_hours_value_ok = eq checked_hours_value, 3600000000000
+    checked_hours_fail_flag_ok = eq checked_hours_fail_ok, 0
+    checked_hours_fail_value_ok = eq checked_hours_fail_value, 0
+    checked_days_flag_ok = eq checked_days_ok, 1
+    checked_days_value_ok = eq checked_days_value, 86400000000000
+    checked_days_fail_flag_ok = eq checked_days_fail_ok, 0
+    checked_days_fail_value_ok = eq checked_days_fail_value, 0
+    checked_weeks_flag_ok = eq checked_weeks_ok, 1
+    checked_weeks_value_ok = eq checked_weeks_value, 604800000000000
+    checked_weeks_fail_flag_ok = eq checked_weeks_fail_ok, 0
+    checked_weeks_fail_value_ok = eq checked_weeks_fail_value, 0
     as_secs_ok = eq as_secs_value, 604800
     as_millis_ok = eq as_millis_value, 3000
     as_micros_ok = eq as_micros_value, 4000
@@ -398,20 +449,54 @@ L_ENTRY:
     ok24 = and ok23, hours_ok
     ok25 = and ok24, days_ok
     ok26 = and ok25, weeks_ok
-    ok27 = and ok26, as_secs_ok
-    ok28 = and ok27, as_millis_ok
-    ok29 = and ok28, as_micros_ok
-    ok30 = and ok29, as_nanos_ok
-    ok31 = and ok30, floor_flag_ok
-    ok32 = and ok31, floor_value_ok
-    ok33 = and ok32, ceil_flag_ok
-    ok34 = and ok33, ceil_value_ok
-    ok35 = and ok34, ceil_exact_flag_ok
-    ok36 = and ok35, ceil_exact_value_ok
-    ok37 = and ok36, floor_zero_flag_ok
-    ok38 = and ok37, floor_zero_value_ok
-    ok39 = and ok38, ceil_zero_flag_ok
-    ok = and ok39, ceil_zero_value_ok
+    ok27 = and ok26, checked_new_flag_ok
+    ok28 = and ok27, checked_new_value_ok
+    ok29 = and ok28, checked_new_over_flag_ok
+    ok30 = and ok29, checked_new_over_value_ok
+    ok31 = and ok30, checked_secs_flag_ok
+    ok32 = and ok31, checked_secs_value_ok
+    ok33 = and ok32, checked_secs_fail_flag_ok
+    ok34 = and ok33, checked_secs_fail_value_ok
+    ok35 = and ok34, checked_millis_flag_ok
+    ok36 = and ok35, checked_millis_value_ok
+    ok37 = and ok36, checked_millis_fail_flag_ok
+    ok38 = and ok37, checked_millis_fail_value_ok
+    ok39 = and ok38, checked_micros_flag_ok
+    ok40 = and ok39, checked_micros_value_ok
+    ok41 = and ok40, checked_micros_fail_flag_ok
+    ok42 = and ok41, checked_micros_fail_value_ok
+    ok43 = and ok42, checked_nanos_flag_ok
+    ok44 = and ok43, checked_nanos_value_ok
+    ok45 = and ok44, checked_mins_flag_ok
+    ok46 = and ok45, checked_mins_value_ok
+    ok47 = and ok46, checked_mins_fail_flag_ok
+    ok48 = and ok47, checked_mins_fail_value_ok
+    ok49 = and ok48, checked_hours_flag_ok
+    ok50 = and ok49, checked_hours_value_ok
+    ok51 = and ok50, checked_hours_fail_flag_ok
+    ok52 = and ok51, checked_hours_fail_value_ok
+    ok53 = and ok52, checked_days_flag_ok
+    ok54 = and ok53, checked_days_value_ok
+    ok55 = and ok54, checked_days_fail_flag_ok
+    ok56 = and ok55, checked_days_fail_value_ok
+    ok57 = and ok56, checked_weeks_flag_ok
+    ok58 = and ok57, checked_weeks_value_ok
+    ok59 = and ok58, checked_weeks_fail_flag_ok
+    ok60 = and ok59, checked_weeks_fail_value_ok
+    ok61 = and ok60, as_secs_ok
+    ok62 = and ok61, as_millis_ok
+    ok63 = and ok62, as_micros_ok
+    ok64 = and ok63, as_nanos_ok
+    ok65 = and ok64, floor_flag_ok
+    ok66 = and ok65, floor_value_ok
+    ok67 = and ok66, ceil_flag_ok
+    ok68 = and ok67, ceil_value_ok
+    ok69 = and ok68, ceil_exact_flag_ok
+    ok70 = and ok69, ceil_exact_value_ok
+    ok71 = and ok70, floor_zero_flag_ok
+    ok72 = and ok71, floor_zero_value_ok
+    ok73 = and ok72, ceil_zero_flag_ok
+    ok = and ok73, ceil_zero_value_ok
 
     !zero_ns
     !max_ns
@@ -441,6 +526,40 @@ L_ENTRY:
     !hours_value
     !days_value
     !weeks_value
+    !checked_new_ok
+    !checked_new_value
+    !checked_new_over_ok
+    !checked_new_over_value
+    !checked_secs_ok
+    !checked_secs_value
+    !checked_secs_fail_ok
+    !checked_secs_fail_value
+    !checked_millis_ok
+    !checked_millis_value
+    !checked_millis_fail_ok
+    !checked_millis_fail_value
+    !checked_micros_ok
+    !checked_micros_value
+    !checked_micros_fail_ok
+    !checked_micros_fail_value
+    !checked_nanos_ok
+    !checked_nanos_value
+    !checked_mins_ok
+    !checked_mins_value
+    !checked_mins_fail_ok
+    !checked_mins_fail_value
+    !checked_hours_ok
+    !checked_hours_value
+    !checked_hours_fail_ok
+    !checked_hours_fail_value
+    !checked_days_ok
+    !checked_days_value
+    !checked_days_fail_ok
+    !checked_days_fail_value
+    !checked_weeks_ok
+    !checked_weeks_value
+    !checked_weeks_fail_ok
+    !checked_weeks_fail_value
     !as_secs_value
     !as_millis_value
     !as_micros_value
@@ -482,6 +601,40 @@ L_ENTRY:
     !hours_ok
     !days_ok
     !weeks_ok
+    !checked_new_flag_ok
+    !checked_new_value_ok
+    !checked_new_over_flag_ok
+    !checked_new_over_value_ok
+    !checked_secs_flag_ok
+    !checked_secs_value_ok
+    !checked_secs_fail_flag_ok
+    !checked_secs_fail_value_ok
+    !checked_millis_flag_ok
+    !checked_millis_value_ok
+    !checked_millis_fail_flag_ok
+    !checked_millis_fail_value_ok
+    !checked_micros_flag_ok
+    !checked_micros_value_ok
+    !checked_micros_fail_flag_ok
+    !checked_micros_fail_value_ok
+    !checked_nanos_flag_ok
+    !checked_nanos_value_ok
+    !checked_mins_flag_ok
+    !checked_mins_value_ok
+    !checked_mins_fail_flag_ok
+    !checked_mins_fail_value_ok
+    !checked_hours_flag_ok
+    !checked_hours_value_ok
+    !checked_hours_fail_flag_ok
+    !checked_hours_fail_value_ok
+    !checked_days_flag_ok
+    !checked_days_value_ok
+    !checked_days_fail_flag_ok
+    !checked_days_fail_value_ok
+    !checked_weeks_flag_ok
+    !checked_weeks_value_ok
+    !checked_weeks_fail_flag_ok
+    !checked_weeks_fail_value_ok
     !as_secs_ok
     !as_millis_ok
     !as_micros_ok
@@ -535,6 +688,40 @@ L_ENTRY:
     !ok37
     !ok38
     !ok39
+    !ok40
+    !ok41
+    !ok42
+    !ok43
+    !ok44
+    !ok45
+    !ok46
+    !ok47
+    !ok48
+    !ok49
+    !ok50
+    !ok51
+    !ok52
+    !ok53
+    !ok54
+    !ok55
+    !ok56
+    !ok57
+    !ok58
+    !ok59
+    !ok60
+    !ok61
+    !ok62
+    !ok63
+    !ok64
+    !ok65
+    !ok66
+    !ok67
+    !ok68
+    !ok69
+    !ok70
+    !ok71
+    !ok72
+    !ok73
     br ok -> L_TIME_ALIAS_OK, L_TIME_ALIAS_FAIL
 
 L_TIME_ALIAS_FAIL:
