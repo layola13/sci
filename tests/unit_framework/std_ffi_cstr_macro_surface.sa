@@ -184,3 +184,112 @@ L_FAIL:
 
 L_PASS:
     return 0
+
+@test "sa_std ffi owned cstring macros"():
+L_ENTRY:
+    bytes = stack_alloc 3
+    store bytes+0, 98 as u8
+    store bytes+1, 97 as u8
+    store bytes+2, 114 as u8
+    bytes_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW bytes_slice, bytes, 3
+
+    owned = stack_alloc CString_SIZE
+    EXPAND CSTRING_NEW owned_status, owned, bytes_slice
+    owned_cstr = stack_alloc CStr_SIZE
+    EXPAND CSTRING_AS_CSTR owned_cstr, owned
+    EXPAND CSTR_COUNT_BYTES owned_count, owned_cstr
+    owned_bytes = stack_alloc Slice_SIZE
+    owned_bytes_nul = stack_alloc Slice_SIZE
+    EXPAND CSTRING_AS_BYTES owned_bytes, owned
+    EXPAND CSTRING_AS_BYTES_WITH_NUL owned_bytes_nul, owned
+    owned_bytes_len = load owned_bytes+Slice_len as u64
+    owned_bytes_nul_len = load owned_bytes_nul+Slice_len as u64
+    owned_bytes_ptr = load owned_bytes+Slice_ptr as ptr
+    owned_b0 = load owned_bytes_ptr+0 as u8
+    owned_b2 = load owned_bytes_ptr+2 as u8
+    owned_bytes_nul_ptr = load owned_bytes_nul+Slice_ptr as ptr
+    owned_nul = load owned_bytes_nul_ptr+3 as u8
+
+    raw = stack_alloc CString_SIZE
+    EXPAND CSTRING_NEW raw_status, raw, bytes_slice
+    EXPAND CSTRING_INTO_RAW raw_ptr, raw
+    raw_len_after = load raw+CString_len as u64
+    raw_roundtrip = stack_alloc CString_SIZE
+    EXPAND CSTRING_FROM_RAW raw_roundtrip, raw_ptr
+    raw_roundtrip_cstr = stack_alloc CStr_SIZE
+    EXPAND CSTRING_AS_CSTR raw_roundtrip_cstr, raw_roundtrip
+    EXPAND CSTR_COUNT_BYTES raw_roundtrip_count, raw_roundtrip_cstr
+
+    empty_src = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW empty_src, bytes, 0
+    empty_owned = stack_alloc CString_SIZE
+    EXPAND CSTRING_NEW empty_status, empty_owned, empty_src
+    empty_cstr = stack_alloc CStr_SIZE
+    EXPAND CSTRING_AS_CSTR empty_cstr, empty_owned
+    EXPAND CSTR_COUNT_BYTES empty_count, empty_cstr
+    empty_bytes_nul = stack_alloc Slice_SIZE
+    EXPAND CSTRING_AS_BYTES_WITH_NUL empty_bytes_nul, empty_owned
+    empty_bytes_nul_len = load empty_bytes_nul+Slice_len as u64
+    empty_bytes_nul_ptr = load empty_bytes_nul+Slice_ptr as ptr
+    empty_nul = load empty_bytes_nul_ptr+0 as u8
+
+    bad = stack_alloc 3
+    store bad+0, 97 as u8
+    store bad+1, 0 as u8
+    store bad+2, 98 as u8
+    bad_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW bad_slice, bad, 3
+    bad_owned = stack_alloc CString_SIZE
+    EXPAND CSTRING_NEW bad_status, bad_owned, bad_slice
+    bad_len = load bad_owned+CString_len as u64
+
+    ok_owned_status = eq owned_status, CSTRING_NEW_OK
+    ok_owned_count = eq owned_count, 3
+    ok_owned_bytes_len = eq owned_bytes_len, 3
+    ok_owned_bytes_nul_len = eq owned_bytes_nul_len, 4
+    ok_owned_b0 = eq owned_b0, 98
+    ok_owned_b2 = eq owned_b2, 114
+    ok_owned_nul = eq owned_nul, 0
+    ok_raw_status = eq raw_status, CSTRING_NEW_OK
+    ok_raw_len_after = eq raw_len_after, 0
+    ok_raw_roundtrip_count = eq raw_roundtrip_count, 3
+    ok_empty_status = eq empty_status, CSTRING_NEW_OK
+    ok_empty_count = eq empty_count, 0
+    ok_empty_bytes_nul_len = eq empty_bytes_nul_len, 1
+    ok_empty_nul = eq empty_nul, 0
+    ok_bad_status = eq bad_status, CSTRING_NEW_INTERIOR_NUL
+    ok_bad_len = eq bad_len, 0
+
+    ok01 = and ok_owned_status, ok_owned_count
+    ok02 = and ok01, ok_owned_bytes_len
+    ok03 = and ok02, ok_owned_bytes_nul_len
+    ok04 = and ok03, ok_owned_b0
+    ok05 = and ok04, ok_owned_b2
+    ok06 = and ok05, ok_owned_nul
+    ok07 = and ok06, ok_raw_status
+    ok08 = and ok07, ok_raw_len_after
+    ok09 = and ok08, ok_raw_roundtrip_count
+    ok10 = and ok09, ok_empty_status
+    ok11 = and ok10, ok_empty_count
+    ok12 = and ok11, ok_empty_bytes_nul_len
+    ok13 = and ok12, ok_empty_nul
+    ok14 = and ok13, ok_bad_status
+    ok = and ok14, ok_bad_len
+
+    EXPAND CSTRING_FREE owned
+    EXPAND CSTRING_FREE raw_roundtrip
+    EXPAND CSTRING_FREE empty_owned
+
+    !owned_bytes_ptr
+    !owned_bytes_nul_ptr
+    !raw_ptr
+    !empty_bytes_nul_ptr
+
+    br ok -> L_CSTRING_PASS, L_CSTRING_FAIL
+
+L_CSTRING_FAIL:
+    panic(981)
+
+L_CSTRING_PASS:
+    return 0

@@ -4,9 +4,16 @@
 #def CStr_ptr = Slice_ptr
 #def CStr_len = Slice_len
 
+#def CString_SIZE = Slice_SIZE
+#def CString_ptr = Slice_ptr
+#def CString_len = Slice_len
+
 #def CSTR_FROM_BYTES_OK = 0
 #def CSTR_FROM_BYTES_NOT_NUL_TERMINATED = 1
 #def CSTR_FROM_BYTES_INTERIOR_NUL = 2
 #def CSTR_TO_STR_INVALID_UTF8 = 3
+
+#def CSTRING_NEW_OK = CSTR_FROM_BYTES_OK
+#def CSTRING_NEW_INTERIOR_NUL = CSTR_FROM_BYTES_INTERIOR_NUL
 
 #def CSTR_ERROR_POS_NONE = -1

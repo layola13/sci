@@ -1,4 +1,5 @@
 @import "ffi.sal"
+@import "core/mem.sa"
 @import "core/slice.sa"
 @import "string.sai"
 
@@ -327,4 +328,116 @@ L_CSTR_TO_STR_BAD_%out_status:
     !__cstr_to_str_ptr_%out_status
 
 L_CSTR_TO_STR_END_%out_status:
+[END_MACRO]
+
+[MACRO] CSTRING_NEW %out_status, %cstring_reg, %slice_reg
+    __cstring_new_src_ptr_%out_status = load %slice_reg+Slice_ptr as ptr
+    __cstring_new_src_len_%out_status = load %slice_reg+Slice_len as u64
+    __cstring_new_idx_slot_%out_status = stack_alloc 8
+    store __cstring_new_idx_slot_%out_status+0, 0 as u64
+    jmp L_CSTRING_NEW_SCAN_HEAD_%out_status
+
+L_CSTRING_NEW_SCAN_HEAD_%out_status:
+    __cstring_new_idx_%out_status = load __cstring_new_idx_slot_%out_status+0 as u64
+    __cstring_new_done_%out_status = eq __cstring_new_idx_%out_status, __cstring_new_src_len_%out_status
+    br __cstring_new_done_%out_status -> L_CSTRING_NEW_ALLOC_%out_status, L_CSTRING_NEW_SCAN_BODY_%out_status
+
+L_CSTRING_NEW_SCAN_BODY_%out_status:
+    __cstring_new_p_%out_status = ptr_add __cstring_new_src_ptr_%out_status, __cstring_new_idx_%out_status
+    __cstring_new_b_%out_status = load __cstring_new_p_%out_status+0 as u8
+    __cstring_new_is_nul_%out_status = eq __cstring_new_b_%out_status, 0
+    br __cstring_new_is_nul_%out_status -> L_CSTRING_NEW_INTERIOR_%out_status, L_CSTRING_NEW_SCAN_NEXT_%out_status
+
+L_CSTRING_NEW_SCAN_NEXT_%out_status:
+    __cstring_new_next_%out_status = add __cstring_new_idx_%out_status, 1
+    store __cstring_new_idx_slot_%out_status+0, __cstring_new_next_%out_status as u64
+    !__cstring_new_next_%out_status
+    !__cstring_new_is_nul_%out_status
+    !__cstring_new_b_%out_status
+    !__cstring_new_p_%out_status
+    !__cstring_new_done_%out_status
+    !__cstring_new_idx_%out_status
+    jmp L_CSTRING_NEW_SCAN_HEAD_%out_status
+
+L_CSTRING_NEW_ALLOC_%out_status:
+    __cstring_new_len_with_%out_status = add __cstring_new_src_len_%out_status, 1
+    __cstring_new_dst_%out_status = alloc __cstring_new_len_with_%out_status
+    call @sa_mem_copy(&__cstring_new_dst_%out_status, &__cstring_new_src_ptr_%out_status, __cstring_new_src_len_%out_status)
+    __cstring_new_nul_p_%out_status = ptr_add __cstring_new_dst_%out_status, __cstring_new_src_len_%out_status
+    store __cstring_new_nul_p_%out_status+0, 0 as u8
+    EXPAND SLICE_NEW %cstring_reg, __cstring_new_dst_%out_status, __cstring_new_len_with_%out_status
+    %out_status = add 0, CSTRING_NEW_OK
+    ^__cstring_new_dst_%out_status
+    !__cstring_new_nul_p_%out_status
+    !__cstring_new_len_with_%out_status
+    !__cstring_new_done_%out_status
+    !__cstring_new_idx_%out_status
+    !__cstring_new_src_len_%out_status
+    !__cstring_new_src_ptr_%out_status
+    jmp L_CSTRING_NEW_END_%out_status
+
+L_CSTRING_NEW_INTERIOR_%out_status:
+    __cstring_new_null_%out_status = 0 as ptr
+    EXPAND SLICE_NEW %cstring_reg, __cstring_new_null_%out_status, 0
+    %out_status = add 0, CSTRING_NEW_INTERIOR_NUL
+    !__cstring_new_null_%out_status
+    !__cstring_new_is_nul_%out_status
+    !__cstring_new_b_%out_status
+    !__cstring_new_p_%out_status
+    !__cstring_new_done_%out_status
+    !__cstring_new_idx_%out_status
+    !__cstring_new_src_len_%out_status
+    !__cstring_new_src_ptr_%out_status
+
+L_CSTRING_NEW_END_%out_status:
+[END_MACRO]
+
+[MACRO] CSTRING_AS_CSTR %out_cstr, %cstring_reg
+    __cstring_as_ptr_%out_cstr = load %cstring_reg+CString_ptr as ptr
+    __cstring_as_len_%out_cstr = load %cstring_reg+CString_len as u64
+    EXPAND CSTR_FROM_PARTS_UNCHECKED %out_cstr, __cstring_as_ptr_%out_cstr, __cstring_as_len_%out_cstr
+    !__cstring_as_len_%out_cstr
+    !__cstring_as_ptr_%out_cstr
+[END_MACRO]
+
+[MACRO] CSTRING_AS_BYTES_WITH_NUL %out_slice, %cstring_reg
+    __cstring_bytes_cstr_%out_slice = stack_alloc CStr_SIZE
+    EXPAND CSTRING_AS_CSTR __cstring_bytes_cstr_%out_slice, %cstring_reg
+    EXPAND CSTR_TO_BYTES_WITH_NUL %out_slice, __cstring_bytes_cstr_%out_slice
+[END_MACRO]
+
+[MACRO] CSTRING_AS_BYTES %out_slice, %cstring_reg
+    __cstring_no_nul_cstr_%out_slice = stack_alloc CStr_SIZE
+    EXPAND CSTRING_AS_CSTR __cstring_no_nul_cstr_%out_slice, %cstring_reg
+    EXPAND CSTR_TO_BYTES %out_slice, __cstring_no_nul_cstr_%out_slice
+[END_MACRO]
+
+[MACRO] CSTRING_INTO_RAW %out_ptr, %cstring_reg
+    %out_ptr = load %cstring_reg+CString_ptr as ptr
+    store %cstring_reg+CString_ptr, 0 as ptr
+    store %cstring_reg+CString_len, 0 as u64
+[END_MACRO]
+
+[MACRO] CSTRING_FROM_RAW %cstring_reg, %ptr_reg
+    EXPAND CSTR_FROM_PTR %cstring_reg, %ptr_reg
+[END_MACRO]
+
+[MACRO] CSTRING_FREE %cstring_reg
+    __cstring_free_ptr_%cstring_reg = load %cstring_reg+CString_ptr as ptr
+    __cstring_free_null_%cstring_reg = 0 as ptr
+    __cstring_free_has_%cstring_reg = ne __cstring_free_ptr_%cstring_reg, __cstring_free_null_%cstring_reg
+    br __cstring_free_has_%cstring_reg -> L_CSTRING_FREE_DO_%cstring_reg, L_CSTRING_FREE_DONE_%cstring_reg
+
+L_CSTRING_FREE_DO_%cstring_reg:
+    !__cstring_free_ptr_%cstring_reg
+    jmp L_CSTRING_FREE_AFTER_%cstring_reg
+
+L_CSTRING_FREE_DONE_%cstring_reg:
+    !__cstring_free_ptr_%cstring_reg
+
+L_CSTRING_FREE_AFTER_%cstring_reg:
+    store %cstring_reg+CString_ptr, 0 as ptr
+    store %cstring_reg+CString_len, 0 as u64
+    !__cstring_free_has_%cstring_reg
+    !__cstring_free_null_%cstring_reg
 [END_MACRO]
