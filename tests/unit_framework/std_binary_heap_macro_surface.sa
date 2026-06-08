@@ -432,6 +432,111 @@ L_RETAIN_OK:
     !ok
     return
 
+@test "sa_std binary_heap peek mut set macro"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_NEW heap
+    EXPAND BINARY_HEAP_TRY_PEEK_MUT_SET_U64 empty_ok, empty_old, heap, 5
+    EXPAND BINARY_HEAP_PUSH heap, 9
+    EXPAND BINARY_HEAP_PUSH heap, 7
+    EXPAND BINARY_HEAP_PUSH heap, 5
+    EXPAND BINARY_HEAP_PUSH heap, 1
+    EXPAND BINARY_HEAP_TRY_PEEK_MUT_SET_U64 set_ok, old_top, heap, 3
+    EXPAND BINARY_HEAP_PEEK peek_after_low_set, heap
+    EXPAND BINARY_HEAP_TRY_POP pop_ok0, pop0, heap
+    EXPAND BINARY_HEAP_TRY_POP pop_ok1, pop1, heap
+    EXPAND BINARY_HEAP_PEEK_MUT_SET_U64 old_top2, heap, 12
+    EXPAND BINARY_HEAP_TRY_POP pop_ok2, pop2, heap
+    EXPAND BINARY_HEAP_TRY_POP pop_ok3, pop3, heap
+    EXPAND BINARY_HEAP_TRY_POP pop_empty_ok, pop_empty, heap
+    EXPAND BINARY_HEAP_FREE heap
+
+    ok_empty_ok = eq empty_ok, 0
+    ok_empty_old = eq empty_old, 0
+    ok_set_ok = eq set_ok, 1
+    ok_old_top = eq old_top, 9
+    ok_peek_after_low_set = eq peek_after_low_set, 7
+    ok_pop_ok0 = eq pop_ok0, 1
+    ok_pop0 = eq pop0, 7
+    ok_pop_ok1 = eq pop_ok1, 1
+    ok_pop1 = eq pop1, 5
+    ok_old_top2 = eq old_top2, 3
+    ok_pop_ok2 = eq pop_ok2, 1
+    ok_pop2 = eq pop2, 12
+    ok_pop_ok3 = eq pop_ok3, 1
+    ok_pop3 = eq pop3, 1
+    ok_pop_empty_ok = eq pop_empty_ok, 0
+    ok_pop_empty = eq pop_empty, 0
+    ok01 = and ok_empty_ok, ok_empty_old
+    ok02 = and ok01, ok_set_ok
+    ok03 = and ok02, ok_old_top
+    ok04 = and ok03, ok_peek_after_low_set
+    ok05 = and ok04, ok_pop_ok0
+    ok06 = and ok05, ok_pop0
+    ok07 = and ok06, ok_pop_ok1
+    ok08 = and ok07, ok_pop1
+    ok09 = and ok08, ok_old_top2
+    ok10 = and ok09, ok_pop_ok2
+    ok11 = and ok10, ok_pop2
+    ok12 = and ok11, ok_pop_ok3
+    ok13 = and ok12, ok_pop3
+    ok14 = and ok13, ok_pop_empty_ok
+    ok = and ok14, ok_pop_empty
+    !empty_ok
+    !empty_old
+    !set_ok
+    !old_top
+    !peek_after_low_set
+    !pop_ok0
+    !pop0
+    !pop_ok1
+    !pop1
+    !old_top2
+    !pop_ok2
+    !pop2
+    !pop_ok3
+    !pop3
+    !pop_empty_ok
+    !pop_empty
+    !ok_empty_ok
+    !ok_empty_old
+    !ok_set_ok
+    !ok_old_top
+    !ok_peek_after_low_set
+    !ok_pop_ok0
+    !ok_pop0
+    !ok_pop_ok1
+    !ok_pop1
+    !ok_old_top2
+    !ok_pop_ok2
+    !ok_pop2
+    !ok_pop_ok3
+    !ok_pop3
+    !ok_pop_empty_ok
+    !ok_pop_empty
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    br ok -> L_PEEK_SET_OK, L_PEEK_SET_FAIL
+
+L_PEEK_SET_FAIL:
+    !ok
+    panic(915)
+
+L_PEEK_SET_OK:
+    !ok
+    return
+
 @test "sa_std binary_heap drain macro"():
 L_ENTRY:
     EXPAND BINARY_HEAP_NEW heap
