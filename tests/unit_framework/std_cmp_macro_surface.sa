@@ -67,6 +67,8 @@ L_ENTRY:
     EXPAND CMP_CLAMP_U64 clamp_u64_low, 2, 5, 10
     EXPAND CMP_CLAMP_U64 clamp_u64_mid, 7, 5, 10
     EXPAND CMP_CLAMP_U64 clamp_u64_high, 12, 5, 10
+    EXPAND CMP_TRY_CLAMP_U64 try_clamp_u64_ok, try_clamp_u64_value, 12, 5, 10
+    EXPAND CMP_TRY_CLAMP_U64 try_clamp_u64_bad_ok, try_clamp_u64_bad_value, 7, 10, 5
 
     neg_seven = sub 0, 7
     neg_two = sub 0, 2
@@ -78,6 +80,8 @@ L_ENTRY:
     EXPAND CMP_CLAMP_I64 clamp_i64_low, neg_seven, neg_two, 5
     EXPAND CMP_CLAMP_I64 clamp_i64_mid, 4, neg_two, 5
     EXPAND CMP_CLAMP_I64 clamp_i64_high, 9, neg_two, 5
+    EXPAND CMP_TRY_CLAMP_I64 try_clamp_i64_ok, try_clamp_i64_value, neg_seven, neg_two, 5
+    EXPAND CMP_TRY_CLAMP_I64 try_clamp_i64_bad_ok, try_clamp_i64_bad_value, 4, 5, neg_two
 
     ok_u64_less = eq u64_less, CMP_ORDERING_LESS
     ok_u64_equal = eq u64_equal, CMP_ORDERING_EQUAL
@@ -104,6 +108,10 @@ L_ENTRY:
     ok_clamp_u64_low = eq clamp_u64_low, 5
     ok_clamp_u64_mid = eq clamp_u64_mid, 7
     ok_clamp_u64_high = eq clamp_u64_high, 10
+    ok_try_clamp_u64_ok = eq try_clamp_u64_ok, 1
+    ok_try_clamp_u64_value = eq try_clamp_u64_value, 10
+    ok_try_clamp_u64_bad_ok = eq try_clamp_u64_bad_ok, 0
+    ok_try_clamp_u64_bad_value = eq try_clamp_u64_bad_value, 0
     ok_i64_less = eq i64_less, CMP_ORDERING_LESS
     ok_i64_equal = eq i64_equal, CMP_ORDERING_EQUAL
     ok_i64_greater = eq i64_greater, CMP_ORDERING_GREATER
@@ -112,6 +120,10 @@ L_ENTRY:
     ok_clamp_i64_low = eq clamp_i64_low, neg_two
     ok_clamp_i64_mid = eq clamp_i64_mid, 4
     ok_clamp_i64_high = eq clamp_i64_high, 5
+    ok_try_clamp_i64_ok = eq try_clamp_i64_ok, 1
+    ok_try_clamp_i64_value = eq try_clamp_i64_value, neg_two
+    ok_try_clamp_i64_bad_ok = eq try_clamp_i64_bad_ok, 0
+    ok_try_clamp_i64_bad_value = eq try_clamp_i64_bad_value, 0
 
     ok01 = and ok_u64_less, ok_u64_equal
     ok02 = and ok01, ok_u64_greater
@@ -137,14 +149,22 @@ L_ENTRY:
     ok11 = and ok10e, ok_clamp_u64_low
     ok12 = and ok11, ok_clamp_u64_mid
     ok13 = and ok12, ok_clamp_u64_high
-    ok14 = and ok13, ok_i64_less
+    ok13a = and ok13, ok_try_clamp_u64_ok
+    ok13b = and ok13a, ok_try_clamp_u64_value
+    ok13c = and ok13b, ok_try_clamp_u64_bad_ok
+    ok13d = and ok13c, ok_try_clamp_u64_bad_value
+    ok14 = and ok13d, ok_i64_less
     ok15 = and ok14, ok_i64_equal
     ok16 = and ok15, ok_i64_greater
     ok17 = and ok16, ok_min_i64
     ok18 = and ok17, ok_max_i64
     ok19 = and ok18, ok_clamp_i64_low
     ok20 = and ok19, ok_clamp_i64_mid
-    ok = and ok20, ok_clamp_i64_high
+    ok21 = and ok20, ok_clamp_i64_high
+    ok22 = and ok21, ok_try_clamp_i64_ok
+    ok23 = and ok22, ok_try_clamp_i64_value
+    ok24 = and ok23, ok_try_clamp_i64_bad_ok
+    ok = and ok24, ok_try_clamp_i64_bad_value
 
     !u64_less
     !u64_equal
@@ -171,6 +191,10 @@ L_ENTRY:
     !clamp_u64_low
     !clamp_u64_mid
     !clamp_u64_high
+    !try_clamp_u64_ok
+    !try_clamp_u64_value
+    !try_clamp_u64_bad_ok
+    !try_clamp_u64_bad_value
     !neg_seven
     !neg_two
     !i64_less
@@ -181,6 +205,10 @@ L_ENTRY:
     !clamp_i64_low
     !clamp_i64_mid
     !clamp_i64_high
+    !try_clamp_i64_ok
+    !try_clamp_i64_value
+    !try_clamp_i64_bad_ok
+    !try_clamp_i64_bad_value
     !ok_u64_less
     !ok_u64_equal
     !ok_u64_greater
@@ -206,6 +234,10 @@ L_ENTRY:
     !ok_clamp_u64_low
     !ok_clamp_u64_mid
     !ok_clamp_u64_high
+    !ok_try_clamp_u64_ok
+    !ok_try_clamp_u64_value
+    !ok_try_clamp_u64_bad_ok
+    !ok_try_clamp_u64_bad_value
     !ok_i64_less
     !ok_i64_equal
     !ok_i64_greater
@@ -214,6 +246,10 @@ L_ENTRY:
     !ok_clamp_i64_low
     !ok_clamp_i64_mid
     !ok_clamp_i64_high
+    !ok_try_clamp_i64_ok
+    !ok_try_clamp_i64_value
+    !ok_try_clamp_i64_bad_ok
+    !ok_try_clamp_i64_bad_value
     !ok01
     !ok02
     !ok03
@@ -238,6 +274,10 @@ L_ENTRY:
     !ok11
     !ok12
     !ok13
+    !ok13a
+    !ok13b
+    !ok13c
+    !ok13d
     !ok14
     !ok15
     !ok16
@@ -245,6 +285,10 @@ L_ENTRY:
     !ok18
     !ok19
     !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
 
     br ok -> L_PASS, L_FAIL
 
