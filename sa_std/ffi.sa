@@ -1,5 +1,6 @@
 @import "ffi.sal"
 @import "core/slice.sa"
+@import "string.sai"
 
 [MACRO] CSTR_FROM_PARTS_UNCHECKED %cstr_reg, %ptr_reg, %len_with_nul
     EXPAND SLICE_NEW %cstr_reg, %ptr_reg, %len_with_nul
@@ -297,4 +298,33 @@ L_CSTR_UNTIL_END_%out_ok:
     !__cstr_no_nul_len_%out_slice
     !__cstr_no_nul_len_with_%out_slice
     !__cstr_no_nul_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] CSTR_TO_STR %out_status, %out_slice, %cstr_reg
+    EXPAND CSTR_TO_BYTES %out_slice, %cstr_reg
+    __cstr_to_str_ptr_%out_status = load %out_slice+Slice_ptr as ptr
+    __cstr_to_str_len_%out_status = load %out_slice+Slice_len as u64
+    __cstr_to_str_status_%out_status = call @sa_str_utf8_validate(__cstr_to_str_ptr_%out_status, __cstr_to_str_len_%out_status)
+    __cstr_to_str_ok_%out_status = eq __cstr_to_str_status_%out_status, 0
+    br __cstr_to_str_ok_%out_status -> L_CSTR_TO_STR_OK_%out_status, L_CSTR_TO_STR_BAD_%out_status
+
+L_CSTR_TO_STR_OK_%out_status:
+    %out_status = add 0, CSTR_FROM_BYTES_OK
+    !__cstr_to_str_ok_%out_status
+    !__cstr_to_str_status_%out_status
+    !__cstr_to_str_len_%out_status
+    !__cstr_to_str_ptr_%out_status
+    jmp L_CSTR_TO_STR_END_%out_status
+
+L_CSTR_TO_STR_BAD_%out_status:
+    %out_status = add 0, CSTR_TO_STR_INVALID_UTF8
+    __cstr_to_str_null_%out_status = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __cstr_to_str_null_%out_status, 0
+    !__cstr_to_str_null_%out_status
+    !__cstr_to_str_ok_%out_status
+    !__cstr_to_str_status_%out_status
+    !__cstr_to_str_len_%out_status
+    !__cstr_to_str_ptr_%out_status
+
+L_CSTR_TO_STR_END_%out_status:
 [END_MACRO]

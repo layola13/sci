@@ -1056,6 +1056,26 @@ L_PATH_FILE_PREFIX_EMPTY_%out_slice:
 L_PATH_FILE_PREFIX_END_%out_slice:
 [END_MACRO]
 
+[MACRO] PATH_TRY_FILE_PREFIX %out_ok, %out_slice, %path_slice
+    EXPAND PATH_TRY_FILE_NAME __path_try_prefix_name_ok_%out_ok, __path_try_prefix_name_%out_ok, %path_slice
+    br __path_try_prefix_name_ok_%out_ok -> L_PATH_TRY_FILE_PREFIX_SOME_%out_ok, L_PATH_TRY_FILE_PREFIX_NONE_%out_ok
+
+L_PATH_TRY_FILE_PREFIX_SOME_%out_ok:
+    EXPAND PATH_FILE_PREFIX %out_slice, %path_slice
+    %out_ok = add 0, 1
+    !__path_try_prefix_name_%out_ok
+    !__path_try_prefix_name_ok_%out_ok
+    jmp L_PATH_TRY_FILE_PREFIX_END_%out_ok
+
+L_PATH_TRY_FILE_PREFIX_NONE_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 0
+    !__path_try_prefix_name_%out_ok
+    !__path_try_prefix_name_ok_%out_ok
+
+L_PATH_TRY_FILE_PREFIX_END_%out_ok:
+[END_MACRO]
+
 [MACRO] PATH_FILE_NAME %out_slice, %path_slice
     EXPAND PATH_BASENAME %out_slice, %path_slice
 [END_MACRO]
@@ -1187,6 +1207,29 @@ L_PATH_TRY_PARENT_NONE_AFTER_CHECK_%out_ok:
     !__path_try_parent_trim_%out_ok
 
 L_PATH_TRY_PARENT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] PATH_TRY_TO_STR %out_ok, %out_slice, %path_slice
+    __path_to_str_ptr_%out_ok = load %path_slice+Slice_ptr as ptr
+    __path_to_str_len_%out_ok = load %path_slice+Slice_len as u64
+    __path_to_str_status_%out_ok = call @sa_str_utf8_validate(__path_to_str_ptr_%out_ok, __path_to_str_len_%out_ok)
+    __path_to_str_valid_%out_ok = eq __path_to_str_status_%out_ok, 0
+    br __path_to_str_valid_%out_ok -> L_PATH_TO_STR_VALID_%out_ok, L_PATH_TO_STR_INVALID_%out_ok
+
+L_PATH_TO_STR_VALID_%out_ok:
+    EXPAND STR_FROM_PARTS %out_slice, __path_to_str_ptr_%out_ok, __path_to_str_len_%out_ok
+    %out_ok = add 0, 1
+    jmp L_PATH_TO_STR_END_%out_ok
+
+L_PATH_TO_STR_INVALID_%out_ok:
+    EXPAND PATH_MAKE_EMPTY %out_slice
+    %out_ok = add 0, 0
+
+L_PATH_TO_STR_END_%out_ok:
+    !__path_to_str_valid_%out_ok
+    !__path_to_str_status_%out_ok
+    !__path_to_str_len_%out_ok
+    !__path_to_str_ptr_%out_ok
 [END_MACRO]
 
 [MACRO] PATH_EXISTS %out_flag, %path_slice

@@ -3829,6 +3829,18 @@ test "sa skills writes Codex and Claude skill files for current project" {
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "net.sa: [MACRO] NET_TO_SOCKET_ADDR_FIRST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "env.sa: [MACRO] ENV_ARGS_JSON"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "process.sa: [MACRO] PROCESS_CHILD_ID"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "string.sa: [MACRO] STR_CHAR_COUNT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "string.sa: [MACRO] STR_TRY_CHAR_AT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "string.sa: [MACRO] STR_IS_UTF8"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "string.sai: @extern sa_str_utf8_char_at"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "string.sai: @extern sa_str_utf8_validate"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "ffi.sa: [MACRO] CSTR_TO_STR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "io.sa: [MACRO] IO_CURSOR_READ_TO_END"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "io.sa: [MACRO] IO_CURSOR_READ_TO_STRING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "io.sa: [MACRO] IO_TAKE_READ_TO_END"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "io.sa: [MACRO] IO_TAKE_READ_TO_STRING"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "path.sa: [MACRO] PATH_TRY_FILE_PREFIX"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "path.sa: [MACRO] PATH_TRY_TO_STR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "ptr.sa: [MACRO] PTR_NULL"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "num.sa: [MACRO] NUM_U64_CHECKED_ADD"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "any.sa: [MACRO] ANY_REF_NEW"));

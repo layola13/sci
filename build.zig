@@ -129,6 +129,8 @@ pub fn build(b: *std.Build) void {
     const run_lib_root_smoke = b.addRunArtifact(lib_root_smoke);
     run_lib_root_smoke.setCwd(repo_root_lazy);
     test_step.dependOn(&run_lib_root_smoke.step);
+    const lib_root_smoke_step = b.step("lib-root-smoke", "Run public library root and CLI help smoke tests");
+    lib_root_smoke_step.dependOn(&run_lib_root_smoke.step);
 
     const plugin_host_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/plugin_host_smoke.zig"),
@@ -298,6 +300,8 @@ pub fn build(b: *std.Build) void {
     const run_trap_baseline = b.addRunArtifact(trap_baseline);
     run_trap_baseline.setCwd(repo_root_lazy);
     test_step.dependOn(&run_trap_baseline.step);
+    const trap_baseline_step = b.step("trap-baseline", "Run golden trap diagnostic baseline tests");
+    trap_baseline_step.dependOn(&run_trap_baseline.step);
 
     const std_smoke_core_module = b.createModule(.{
         .root_source_file = b.path("tests/std_smoke_core.zig"),
@@ -344,6 +348,8 @@ pub fn build(b: *std.Build) void {
     const run_unit_framework = b.addRunArtifact(unit_framework);
     run_unit_framework.setCwd(repo_root_lazy);
     test_step.dependOn(&run_unit_framework.step);
+    const unit_framework_step = b.step("unit-framework", "Run native SA unit framework suites");
+    unit_framework_step.dependOn(&run_unit_framework.step);
 
     const sa_std_unit_module = b.createModule(.{
         .root_source_file = b.path("src/runtime/sa_std.zig"),
@@ -358,6 +364,8 @@ pub fn build(b: *std.Build) void {
     const run_sa_std_unit = b.addRunArtifact(sa_std_unit);
     run_sa_std_unit.setCwd(repo_root_lazy);
     test_step.dependOn(&run_sa_std_unit.step);
+    const sa_std_unit_step = b.step("sa-std-unit", "Run Zig unit tests for the SA standard runtime");
+    sa_std_unit_step.dependOn(&run_sa_std_unit.step);
 
     const sa_std_runtime_module = b.createModule(.{
         .root_source_file = b.path("tests/sa_std_runtime.zig"),
@@ -371,6 +379,8 @@ pub fn build(b: *std.Build) void {
     const run_sa_std_runtime = b.addRunArtifact(sa_std_runtime);
     run_sa_std_runtime.setCwd(repo_root_lazy);
     test_step.dependOn(&run_sa_std_runtime.step);
+    const sa_std_runtime_step = b.step("sa-std-runtime", "Run SA standard runtime integration tests");
+    sa_std_runtime_step.dependOn(&run_sa_std_runtime.step);
 
     const sa_net_uring_module = b.createModule(.{
         .root_source_file = b.path("src/runtime/sa_net_uring.zig"),
@@ -385,6 +395,8 @@ pub fn build(b: *std.Build) void {
     const run_sa_net_uring_tests = b.addRunArtifact(sa_net_uring_tests);
     run_sa_net_uring_tests.setCwd(repo_root_lazy);
     test_step.dependOn(&run_sa_net_uring_tests.step);
+    const sa_net_uring_test_step = b.step("sa-net-uring-test", "Run io_uring network runtime tests");
+    sa_net_uring_test_step.dependOn(&run_sa_net_uring_tests.step);
 
     const sa_term_runtime_module = b.createModule(.{
         .root_source_file = b.path("tests/sa_term_runtime.zig"),
@@ -398,6 +410,8 @@ pub fn build(b: *std.Build) void {
     const run_sa_term_runtime = b.addRunArtifact(sa_term_runtime);
     run_sa_term_runtime.setCwd(repo_root_lazy);
     test_step.dependOn(&run_sa_term_runtime.step);
+    const sa_term_runtime_step = b.step("sa-term-runtime", "Run terminal runtime tests");
+    sa_term_runtime_step.dependOn(&run_sa_term_runtime.step);
 
     const native_sys_runtime_module = b.createModule(.{
         .root_source_file = b.path("tests/native_sys_runtime.zig"),
@@ -411,6 +425,8 @@ pub fn build(b: *std.Build) void {
     const run_native_sys_runtime = b.addRunArtifact(native_sys_runtime);
     run_native_sys_runtime.setCwd(repo_root_lazy);
     test_step.dependOn(&run_native_sys_runtime.step);
+    const native_sys_runtime_step = b.step("native-sys-runtime", "Run native system runtime tests");
+    native_sys_runtime_step.dependOn(&run_native_sys_runtime.step);
 
     const std_smoke_step = b.step("std-smoke", "Run the SA standard library smoke tests");
     std_smoke_step.dependOn(&run_std_smoke_core.step);
@@ -439,6 +455,9 @@ pub fn build(b: *std.Build) void {
     smoke_step.dependOn(&run_std_smoke_containers.step);
     test_step.dependOn(&run_smoke.step);
 
+    const whitepaper_lint_step = b.step("whitepaper-lint", "Run whitepaper smoke lint without std smoke reruns");
+    whitepaper_lint_step.dependOn(&run_smoke.step);
+
     const scope_demo = b.addTest(.{
         .root_source_file = b.path("tests/libsa_scope_demo.zig"),
         .target = target,
@@ -448,6 +467,8 @@ pub fn build(b: *std.Build) void {
     const run_scope_demo = b.addRunArtifact(scope_demo);
     run_scope_demo.setCwd(repo_root_lazy);
     test_step.dependOn(&run_scope_demo.step);
+    const scope_demo_step = b.step("scope-demo", "Run libsa scope demo tests");
+    scope_demo_step.dependOn(&run_scope_demo.step);
 
     const ffi_handle_demo_module = b.createModule(.{
         .root_source_file = b.path("tests/integration/ffi_handle_demo.zig"),
@@ -462,6 +483,8 @@ pub fn build(b: *std.Build) void {
     const run_ffi_handle_demo = b.addRunArtifact(ffi_handle_demo);
     run_ffi_handle_demo.setCwd(repo_root_lazy);
     test_step.dependOn(&run_ffi_handle_demo.step);
+    const ffi_handle_demo_step = b.step("ffi-handle-demo", "Run FFI handle integration demo tests");
+    ffi_handle_demo_step.dependOn(&run_ffi_handle_demo.step);
 
     const hubproxy_module = b.createModule(.{
         .root_source_file = b.path("examples/hubproxy/main.zig"),
@@ -477,6 +500,8 @@ pub fn build(b: *std.Build) void {
     const run_hubproxy_tests = b.addRunArtifact(hubproxy_tests);
     run_hubproxy_tests.setCwd(repo_root_lazy);
     test_step.dependOn(&run_hubproxy_tests.step);
+    const hubproxy_test_step = b.step("hubproxy-test", "Run hubproxy example tests");
+    hubproxy_test_step.dependOn(&run_hubproxy_tests.step);
 
     const hubproxy_exe = b.addExecutable(.{
         .name = "hubproxy",
@@ -487,6 +512,8 @@ pub fn build(b: *std.Build) void {
 
     const referee_loc_lint = b.addSystemCommand(&.{ "zig", "run", "tools/referee_loc_lint.zig" });
     referee_loc_lint.setCwd(repo_root_lazy);
+    const referee_loc_lint_step = b.step("referee-loc-lint", "Run referee line-count lint");
+    referee_loc_lint_step.dependOn(&referee_loc_lint.step);
     const ci_step = b.step("ci", "Run the v0.1 CI gate");
     ci_step.dependOn(&run_trap_baseline.step);
     ci_step.dependOn(&run_std_smoke_core.step);

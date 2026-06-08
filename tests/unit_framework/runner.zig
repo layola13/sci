@@ -16,16 +16,42 @@ fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     try file.writeAll(source);
 }
 
+fn saTestJobsArg(allocator: std.mem.Allocator) ![]const u8 {
+    const env_names = [_][]const u8{ "SA_TEST_JOBS", "SA_ZIG_JOBS", "ZIG_BUILD_JOBS" };
+    for (env_names) |name| {
+        if (std.process.getEnvVarOwned(allocator, name)) |value| {
+            if (value.len != 0) return value;
+            allocator.free(value);
+        } else |_| {}
+    }
+    return allocator.dupe(u8, "auto");
+}
+
+fn saTestJobsArgForPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    if (std.mem.endsWith(u8, path, "std_fs_macro_surface.sa")) {
+        return allocator.dupe(u8, "1");
+    }
+    return saTestJobsArg(allocator);
+}
+
+fn elapsedMs(start_ns: i128) i128 {
+    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+}
+
 fn runSaTestFile(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
     const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(suite_path);
+    const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
+    defer std.testing.allocator.free(jobs_arg);
+    const start_ns = std.time.nanoTimestamp();
+    defer std.debug.print("[unit-framework] {s} elapsed={}ms jobs={s}\n", .{ path, elapsedMs(start_ns), jobs_arg });
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1", "--trace-panic" };
+    const argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", jobs_arg, "--trace-panic" };
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         argv[0..],
@@ -47,13 +73,17 @@ fn runSaTestFile(path: []const u8, expected_passes: []const []const u8, expected
 test "native unit framework suite covers the demo-derived feature matrix" {
     const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "tests/unit_framework/feature_suite.sa");
     defer std.testing.allocator.free(suite_path);
+    const jobs_arg = try saTestJobsArg(std.testing.allocator);
+    defer std.testing.allocator.free(jobs_arg);
+    const start_ns = std.time.nanoTimestamp();
+    defer std.debug.print("[unit-framework] feature_suite.sa all modes elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const default_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1" };
+    const default_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", jobs_arg };
     const default_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         default_argv[0..],
@@ -337,7 +367,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const ignored_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1", "--ignored" };
+    const ignored_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", jobs_arg, "--ignored" };
     const ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ignored_argv[0..],
@@ -353,7 +383,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const include_ignored_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", "1", "--include-ignored" };
+    const include_ignored_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", jobs_arg, "--include-ignored" };
     const include_ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         include_ignored_argv[0..],
@@ -665,8 +695,12 @@ test "native unit assertions surface file line expected and got details" {
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
+    const jobs_arg = try saTestJobsArg(std.testing.allocator);
+    defer std.testing.allocator.free(jobs_arg);
+    const start_ns = std.time.nanoTimestamp();
+    defer std.debug.print("[unit-framework] assert_diag.sa elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
 
-    const argv = [_][]const u8{ "sa", "test", "assert_diag.sa", "--jobs", "1" };
+    const argv = [_][]const u8{ "sa", "test", "assert_diag.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         argv[0..],
@@ -994,6 +1028,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std string split byte view macros",
         "[PASS] sa_std string line view macros",
         "[PASS] sa_std string ascii and split once macros",
+        "[PASS] sa_std string utf8 byte and char view macros",
         "[PASS] sa_std rust parity checked view macros",
         "[PASS] sa_std slice and vec split first last macros",
         "[PASS] sa_std vec convenience macros",
@@ -1019,7 +1054,7 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_string_vec_macro_surface.sa",
         string_vec_expected[0..],
-        "test result: ok. 32 passed; 0 failed; 0 skipped",
+        "test result: ok. 33 passed; 0 failed; 0 skipped",
     );
 
     const path_expected = [_][]const u8{
@@ -1125,11 +1160,12 @@ test "native unit framework covers sa_std macro surface suites" {
     const io_utility_expected = [_][]const u8{
         "[PASS] sa_std io error and slice utility macros",
         "[PASS] sa_std io cursor empty repeat sink macros",
+        "[PASS] sa_std io cursor read to end macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_io_utility_macro_surface.sa",
         io_utility_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
+        "test result: ok. 3 passed; 0 failed; 0 skipped",
     );
 
     const iter_expected = [_][]const u8{
@@ -1301,8 +1337,12 @@ test "native unit framework exposes standard mock io buffer" {
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
+    const jobs_arg = try saTestJobsArg(std.testing.allocator);
+    defer std.testing.allocator.free(jobs_arg);
+    const start_ns = std.time.nanoTimestamp();
+    defer std.debug.print("[unit-framework] mock_io_test.sa elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
 
-    const argv = [_][]const u8{ "sa", "test", "mock_io_test.sa", "--jobs", "1" };
+    const argv = [_][]const u8{ "sa", "test", "mock_io_test.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         argv[0..],

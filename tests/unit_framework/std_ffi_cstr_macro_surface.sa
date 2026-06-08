@@ -40,6 +40,11 @@ L_ENTRY:
     good_bytes = stack_alloc Slice_SIZE
     EXPAND CSTR_TO_BYTES good_bytes, good_cstr
     good_bytes_len = load good_bytes+Slice_len as u64
+    good_str = stack_alloc Slice_SIZE
+    EXPAND CSTR_TO_STR good_str_status, good_str, good_cstr
+    good_str_len = load good_str+Slice_len as u64
+    good_str_ptr = load good_str+Slice_ptr as ptr
+    good_str_b0 = load good_str_ptr+0 as u8
     EXPAND CSTR_VALIDATE_WITH_NUL_DETAIL good_detail_status, good_detail_pos, good_slice
 
     interior = stack_alloc 5
@@ -88,6 +93,18 @@ L_ENTRY:
     EXPAND CSTR_FROM_BYTES_UNTIL_NUL no_nul_ok, no_nul_cstr, no_nul_slice
     no_nul_len = load no_nul_cstr+CStr_len as u64
 
+    invalid_utf8 = stack_alloc 3
+    store invalid_utf8+0, 195 as u8
+    store invalid_utf8+1, 40 as u8
+    store invalid_utf8+2, 0 as u8
+    invalid_utf8_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW invalid_utf8_slice, invalid_utf8, 3
+    invalid_utf8_cstr = stack_alloc CStr_SIZE
+    EXPAND CSTR_FROM_BYTES_WITH_NUL invalid_utf8_cstr_status, invalid_utf8_cstr, invalid_utf8_slice
+    invalid_utf8_str = stack_alloc Slice_SIZE
+    EXPAND CSTR_TO_STR invalid_utf8_str_status, invalid_utf8_str, invalid_utf8_cstr
+    invalid_utf8_str_len = load invalid_utf8_str+Slice_len as u64
+
     ok_ptr_len = eq ptr_len, 3
     ok_from_ptr_count = eq from_ptr_count, 3
     ok_from_ptr_empty = eq from_ptr_empty, 0
@@ -101,6 +118,9 @@ L_ENTRY:
     ok_good_status = eq good_status, CSTR_FROM_BYTES_OK
     ok_good_count = eq good_count, 3
     ok_good_bytes_len = eq good_bytes_len, 3
+    ok_good_str_status = eq good_str_status, CSTR_FROM_BYTES_OK
+    ok_good_str_len = eq good_str_len, 3
+    ok_good_str_b0 = eq good_str_b0, 102
     ok_good_detail_status = eq good_detail_status, CSTR_FROM_BYTES_OK
     ok_good_detail_pos = eq good_detail_pos, CSTR_ERROR_POS_NONE
     ok_interior_status = eq interior_status, CSTR_FROM_BYTES_INTERIOR_NUL
@@ -116,6 +136,9 @@ L_ENTRY:
     ok_until_bytes_len = eq until_bytes_len, 2
     ok_no_nul_flag = eq no_nul_ok, 0
     ok_no_nul_len = eq no_nul_len, 0
+    ok_invalid_utf8_cstr_status = eq invalid_utf8_cstr_status, CSTR_FROM_BYTES_OK
+    ok_invalid_utf8_str_status = eq invalid_utf8_str_status, CSTR_TO_STR_INVALID_UTF8
+    ok_invalid_utf8_str_len = eq invalid_utf8_str_len, 0
 
     ok01 = and ok_ptr_len, ok_from_ptr_count
     ok02 = and ok01, ok_from_ptr_empty
@@ -129,23 +152,30 @@ L_ENTRY:
     ok10 = and ok09, ok_good_status
     ok11 = and ok10, ok_good_count
     ok12 = and ok11, ok_good_bytes_len
-    ok13 = and ok12, ok_good_detail_status
-    ok14 = and ok13, ok_good_detail_pos
-    ok15 = and ok14, ok_interior_status
-    ok16 = and ok15, ok_interior_len
-    ok17 = and ok16, ok_interior_detail_status
-    ok18 = and ok17, ok_interior_detail_pos
-    ok19 = and ok18, ok_unterminated_status
-    ok20 = and ok19, ok_unterminated_len
-    ok21 = and ok20, ok_unterminated_detail_status
-    ok22 = and ok21, ok_unterminated_detail_pos
-    ok23 = and ok22, ok_until_flag
-    ok24 = and ok23, ok_until_len
-    ok25 = and ok24, ok_until_bytes_len
-    ok26 = and ok25, ok_no_nul_flag
-    ok = and ok26, ok_no_nul_len
+    ok13 = and ok12, ok_good_str_status
+    ok14 = and ok13, ok_good_str_len
+    ok15 = and ok14, ok_good_str_b0
+    ok16 = and ok15, ok_good_detail_status
+    ok17 = and ok16, ok_good_detail_pos
+    ok18 = and ok17, ok_interior_status
+    ok19 = and ok18, ok_interior_len
+    ok20 = and ok19, ok_interior_detail_status
+    ok21 = and ok20, ok_interior_detail_pos
+    ok22 = and ok21, ok_unterminated_status
+    ok23 = and ok22, ok_unterminated_len
+    ok24 = and ok23, ok_unterminated_detail_status
+    ok25 = and ok24, ok_unterminated_detail_pos
+    ok26 = and ok25, ok_until_flag
+    ok27 = and ok26, ok_until_len
+    ok28 = and ok27, ok_until_bytes_len
+    ok29 = and ok28, ok_no_nul_flag
+    ok30 = and ok29, ok_no_nul_len
+    ok31 = and ok30, ok_invalid_utf8_cstr_status
+    ok32 = and ok31, ok_invalid_utf8_str_status
+    ok = and ok32, ok_invalid_utf8_str_len
 
     !from_ptr_bytes_ptr
+    !good_str_ptr
 
     br ok -> L_PASS, L_FAIL
 

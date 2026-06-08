@@ -7700,6 +7700,88 @@ pub export fn sa_str_eq_ignore_ascii_case(left_ptr: ?[*]const u8, left_len: u64,
     return if (std.ascii.eqlIgnoreCase(left, right)) 1 else 0;
 }
 
+fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: usize } {
+    if (index >= bytes.len) return error.FileNotFound;
+    const b0 = bytes[index];
+    if (b0 < 0x80) return .{ .scalar = b0, .width = 1 };
+
+    const width: usize = if (b0 >= 0xc2 and b0 <= 0xdf) 2 else if (b0 >= 0xe0 and b0 <= 0xef) 3 else if (b0 >= 0xf0 and b0 <= 0xf4) 4 else return error.InvalidArgument;
+    if (index + width > bytes.len) return error.InvalidArgument;
+
+    const b1 = bytes[index + 1];
+    if (b1 < 0x80 or b1 > 0xbf) return error.InvalidArgument;
+    if (width == 2) return .{ .scalar = ((@as(u32, b0) & 0x1f) << 6) | (@as(u32, b1) & 0x3f), .width = 2 };
+
+    const b2 = bytes[index + 2];
+    if (b2 < 0x80 or b2 > 0xbf) return error.InvalidArgument;
+    if (width == 3) {
+        if (b0 == 0xe0 and b1 < 0xa0) return error.InvalidArgument;
+        if (b0 == 0xed and b1 >= 0xa0) return error.InvalidArgument;
+        return .{ .scalar = ((@as(u32, b0) & 0x0f) << 12) | ((@as(u32, b1) & 0x3f) << 6) | (@as(u32, b2) & 0x3f), .width = 3 };
+    }
+
+    const b3 = bytes[index + 3];
+    if (b3 < 0x80 or b3 > 0xbf) return error.InvalidArgument;
+    if (b0 == 0xf0 and b1 < 0x90) return error.InvalidArgument;
+    if (b0 == 0xf4 and b1 >= 0x90) return error.InvalidArgument;
+    return .{ .scalar = ((@as(u32, b0) & 0x07) << 18) | ((@as(u32, b1) & 0x3f) << 12) | ((@as(u32, b2) & 0x3f) << 6) | (@as(u32, b3) & 0x3f), .width = 4 };
+}
+
+fn utf8CharRangeAt(bytes: []const u8, char_index: u64) !struct { start: usize, len: usize, scalar: u32 } {
+    var byte_index: usize = 0;
+    var current: u64 = 0;
+    while (byte_index < bytes.len) {
+        const decoded = try utf8ScalarAt(bytes, byte_index);
+        if (current == char_index) return .{ .start = byte_index, .len = decoded.width, .scalar = decoded.scalar };
+        byte_index += decoded.width;
+        current += 1;
+    }
+    return error.FileNotFound;
+}
+
+pub export fn sa_str_utf8_char_count(ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    var byte_index: usize = 0;
+    var count: u64 = 0;
+    while (byte_index < bytes.len) {
+        const decoded = utf8ScalarAt(bytes, byte_index) catch return 0;
+        byte_index += decoded.width;
+        count += 1;
+    }
+    return count;
+}
+
+pub export fn sa_str_utf8_validate(ptr: ?[*]const u8, len: u64) i32 {
+    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
+    var byte_index: usize = 0;
+    while (byte_index < bytes.len) {
+        const decoded = utf8ScalarAt(bytes, byte_index) catch |err| return finishErr(err);
+        byte_index += decoded.width;
+    }
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_str_utf8_char_at(ptr: ?[*]const u8, len: u64, char_index: u64, out_codepoint: ?*u64) i32 {
+    const out = out_codepoint orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
+    const range = utf8CharRangeAt(bytes, char_index) catch |err| return finishErr(err);
+    out.* = range.scalar;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_str_utf8_char_range_at(ptr: ?[*]const u8, len: u64, char_index: u64, out_start: ?*u64, out_len: ?*u64) i32 {
+    const start_ptr = out_start orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    start_ptr.* = 0;
+    len_ptr.* = 0;
+    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
+    const range = utf8CharRangeAt(bytes, char_index) catch |err| return finishErr(err);
+    start_ptr.* = @as(u64, @intCast(range.start));
+    len_ptr.* = @as(u64, @intCast(range.len));
+    return finish(SA_STD_OK);
+}
+
 fn isAsciiWhitespace(byte: u8) bool {
     return switch (byte) {
         ' ', '\t', '\n', '\r', 0x0b, 0x0c => true,

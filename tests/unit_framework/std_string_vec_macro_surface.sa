@@ -1854,6 +1854,166 @@ L_ASCII_OK:
     !ok
     return
 
+@test "sa_std string utf8 byte and char view macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_e, &UTF8_E_ACUTE, 2
+    EXPAND STR_FROM_PARTS utf8_smile, &UTF8_SMILE, 4
+    invalid_utf8_data = stack_alloc 2
+    store invalid_utf8_data+0, 195 as u8
+    store invalid_utf8_data+1, 40 as u8
+    EXPAND STR_FROM_PARTS invalid_utf8, invalid_utf8_data, 2
+    EXPAND STR_BYTE_LEN byte_len, utf8_boundary
+    EXPAND STR_IS_UTF8 utf8_valid, utf8_boundary
+    EXPAND STRING_IS_UTF8 utf8_invalid, invalid_utf8
+    EXPAND STRING_TRY_BYTE_AT byte0_ok, byte0, utf8_boundary, 0
+    EXPAND STR_TRY_BYTE_AT byte3_ok, byte3, utf8_boundary, 3
+    EXPAND STRING_TRY_BYTE_AT byte_bad_ok, byte_bad, utf8_boundary, 99
+    EXPAND STR_CHAR_COUNT char_count, utf8_boundary
+    EXPAND STR_TRY_CHAR_AT char0_ok, char0, utf8_boundary, 0
+    EXPAND STRING_TRY_CHAR_AT char1_ok, char1, utf8_boundary, 1
+    EXPAND STR_TRY_CHAR_AT char2_ok, char2, utf8_boundary, 2
+    EXPAND STRING_TRY_CHAR_AT char_bad_ok, char_bad, utf8_boundary, 4
+    EXPAND STR_TRY_CHAR_RANGE_AT range_e_ok, range_e, utf8_boundary, 1
+    EXPAND STRING_TRY_CHAR_RANGE_AT range_smile_ok, range_smile, utf8_boundary, 2
+    EXPAND STR_TRY_CHAR_RANGE_AT range_bad_ok, range_bad, utf8_boundary, 4
+    EXPAND STR_EQ range_e_eq, range_e, utf8_e
+    EXPAND STR_EQ range_smile_eq, range_smile, utf8_smile
+    EXPAND STR_IS_EMPTY range_bad_empty, range_bad
+    byte_len_ok = eq byte_len, 8
+    byte0_flag_ok = eq byte0_ok, 1
+    byte0_value_ok = eq byte0, 97
+    byte3_flag_ok = eq byte3_ok, 1
+    byte3_value_ok = eq byte3, 240
+    byte_bad_flag_ok = eq byte_bad_ok, 0
+    byte_bad_value_ok = eq byte_bad, 0
+    char_count_ok = eq char_count, 4
+    char0_flag_ok = eq char0_ok, 1
+    char0_value_ok = eq char0, 97
+    char1_flag_ok = eq char1_ok, 1
+    char1_value_ok = eq char1, 233
+    char2_flag_ok = eq char2_ok, 1
+    char2_value_ok = eq char2, 128578
+    char_bad_flag_ok = eq char_bad_ok, 0
+    char_bad_value_ok = eq char_bad, 0
+    range_e_flag_ok = eq range_e_ok, 1
+    range_smile_flag_ok = eq range_smile_ok, 1
+    range_bad_flag_ok = eq range_bad_ok, 0
+    range_e_value_ok = eq range_e_eq, 1
+    range_smile_value_ok = eq range_smile_eq, 1
+    range_bad_empty_ok = eq range_bad_empty, 1
+    utf8_valid_ok = eq utf8_valid, 1
+    utf8_invalid_ok = eq utf8_invalid, 0
+    ok01 = and byte_len_ok, byte0_flag_ok
+    ok02 = and ok01, byte0_value_ok
+    ok03 = and ok02, byte3_flag_ok
+    ok04 = and ok03, byte3_value_ok
+    ok05 = and ok04, byte_bad_flag_ok
+    ok06 = and ok05, byte_bad_value_ok
+    ok07 = and ok06, char_count_ok
+    ok08 = and ok07, char0_flag_ok
+    ok09 = and ok08, char0_value_ok
+    ok10 = and ok09, char1_flag_ok
+    ok11 = and ok10, char1_value_ok
+    ok12 = and ok11, char2_flag_ok
+    ok13 = and ok12, char2_value_ok
+    ok14 = and ok13, char_bad_flag_ok
+    ok15 = and ok14, char_bad_value_ok
+    ok16 = and ok15, range_e_flag_ok
+    ok17 = and ok16, range_smile_flag_ok
+    ok18 = and ok17, range_bad_flag_ok
+    ok19 = and ok18, range_e_value_ok
+    ok20 = and ok19, range_smile_value_ok
+    ok21 = and ok20, range_bad_empty_ok
+    ok22 = and ok21, utf8_valid_ok
+    ok = and ok22, utf8_invalid_ok
+    !utf8_boundary
+    !utf8_e
+    !utf8_smile
+    !invalid_utf8
+    !byte_len
+    !utf8_valid
+    !utf8_invalid
+    !byte0_ok
+    !byte0
+    !byte3_ok
+    !byte3
+    !byte_bad_ok
+    !byte_bad
+    !char_count
+    !char0_ok
+    !char0
+    !char1_ok
+    !char1
+    !char2_ok
+    !char2
+    !char_bad_ok
+    !char_bad
+    !range_e_ok
+    !range_e
+    !range_smile_ok
+    !range_smile
+    !range_bad_ok
+    !range_bad
+    !range_e_eq
+    !range_smile_eq
+    !range_bad_empty
+    !byte_len_ok
+    !byte0_flag_ok
+    !byte0_value_ok
+    !byte3_flag_ok
+    !byte3_value_ok
+    !byte_bad_flag_ok
+    !byte_bad_value_ok
+    !char_count_ok
+    !char0_flag_ok
+    !char0_value_ok
+    !char1_flag_ok
+    !char1_value_ok
+    !char2_flag_ok
+    !char2_value_ok
+    !char_bad_flag_ok
+    !char_bad_value_ok
+    !range_e_flag_ok
+    !range_smile_flag_ok
+    !range_bad_flag_ok
+    !range_e_value_ok
+    !range_smile_value_ok
+    !range_bad_empty_ok
+    !utf8_valid_ok
+    !utf8_invalid_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    br ok -> L_UTF8_VIEW_OK, L_UTF8_VIEW_FAIL
+
+L_UTF8_VIEW_FAIL:
+    !ok
+    panic(909)
+
+L_UTF8_VIEW_OK:
+    !ok
+    return
+
 @test "sa_std rust parity checked view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word_s, &WORD, 4

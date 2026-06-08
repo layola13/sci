@@ -693,10 +693,16 @@ L_PATH_TRY_ENTRY:
     EXPAND STR_FROM_PARTS empty, &PATH_ROOT, 0
     EXPAND STR_FROM_PARTS child, &PATH_CHILD, 5
     EXPAND STR_FROM_PARTS no_ext, &PATH_NO_EXT, 14
+    EXPAND STR_FROM_PARTS hidden, &PATH_HIDDEN, 12
+    invalid_path_data = stack_alloc 2
+    store invalid_path_data+0, 195 as u8
+    store invalid_path_data+1, 40 as u8
+    EXPAND STR_FROM_PARTS invalid_path, invalid_path_data, 2
     EXPAND STR_FROM_PARTS expect_base, &EXPECT_BASE, 8
     EXPAND STR_FROM_PARTS expect_ext, &EXPECT_EXT, 3
     EXPAND STR_FROM_PARTS expect_stem, &EXPECT_STEM, 4
     EXPAND STR_FROM_PARTS expect_dir, &EXPECT_DIR, 9
+    EXPAND STR_FROM_PARTS expect_hidden_prefix, &EXPECT_HIDDEN_PREFIX, 7
 
     EXPAND PATH_TRY_FILE_NAME full_name_ok, full_name, full
     EXPAND PATH_TRY_EXTENSION full_ext_ok, full_ext, full
@@ -709,6 +715,12 @@ L_PATH_TRY_ENTRY:
     EXPAND PATH_TRY_EXTENSION no_ext_ok, no_ext_value, no_ext
     EXPAND PATH_TRY_FILE_STEM no_ext_stem_ok, no_ext_stem, no_ext
     EXPAND PATH_TRY_PARENT child_parent_ok, child_parent, child
+    EXPAND PATH_TRY_FILE_PREFIX full_prefix_ok, full_prefix, full
+    EXPAND PATH_TRY_FILE_PREFIX hidden_prefix_ok, hidden_prefix, hidden
+    EXPAND PATH_TRY_FILE_PREFIX root_prefix_ok, root_prefix, root
+    EXPAND PATH_TRY_TO_STR full_to_str_ok, full_to_str, full
+    EXPAND PATH_TRY_TO_STR empty_to_str_ok, empty_to_str, empty
+    EXPAND PATH_TRY_TO_STR invalid_to_str_ok, invalid_to_str, invalid_path
 
     EXPAND STR_EQ full_name_eq, full_name, expect_base
     EXPAND STR_EQ full_ext_eq, full_ext, expect_ext
@@ -721,6 +733,12 @@ L_PATH_TRY_ENTRY:
     EXPAND STR_IS_EMPTY no_ext_empty, no_ext_value
     EXPAND STR_EQ no_ext_stem_eq, no_ext_stem, expect_stem
     EXPAND STR_IS_EMPTY child_parent_empty, child_parent
+    EXPAND STR_EQ full_prefix_eq, full_prefix, expect_stem
+    EXPAND STR_EQ hidden_prefix_eq, hidden_prefix, expect_hidden_prefix
+    EXPAND STR_IS_EMPTY root_prefix_empty, root_prefix
+    EXPAND STR_EQ full_to_str_eq, full_to_str, full
+    EXPAND STR_IS_EMPTY empty_to_str_empty, empty_to_str
+    EXPAND STR_IS_EMPTY invalid_to_str_empty, invalid_to_str
 
     ok_full_name_flag = eq full_name_ok, 1
     ok_full_ext_flag = eq full_ext_ok, 1
@@ -733,6 +751,12 @@ L_PATH_TRY_ENTRY:
     ok_no_ext_flag = eq no_ext_ok, 0
     ok_no_ext_stem_flag = eq no_ext_stem_ok, 1
     ok_child_parent_flag = eq child_parent_ok, 1
+    ok_full_prefix_flag = eq full_prefix_ok, 1
+    ok_hidden_prefix_flag = eq hidden_prefix_ok, 1
+    ok_root_prefix_flag = eq root_prefix_ok, 0
+    ok_full_to_str_flag = eq full_to_str_ok, 1
+    ok_empty_to_str_flag = eq empty_to_str_ok, 1
+    ok_invalid_to_str_flag = eq invalid_to_str_ok, 0
 
     q01 = and ok_full_name_flag, full_name_eq
     q02 = and q01, ok_full_ext_flag
@@ -754,7 +778,19 @@ L_PATH_TRY_ENTRY:
     q18 = and q17, ok_no_ext_stem_flag
     q19 = and q18, no_ext_stem_eq
     q20 = and q19, ok_child_parent_flag
-    ok = and q20, child_parent_empty
+    q21 = and q20, child_parent_empty
+    q22 = and q21, ok_full_prefix_flag
+    q23 = and q22, full_prefix_eq
+    q24 = and q23, ok_hidden_prefix_flag
+    q25 = and q24, hidden_prefix_eq
+    q26 = and q25, ok_root_prefix_flag
+    q27 = and q26, root_prefix_empty
+    q28 = and q27, ok_full_to_str_flag
+    q29 = and q28, full_to_str_eq
+    q30 = and q29, ok_empty_to_str_flag
+    q31 = and q30, empty_to_str_empty
+    q32 = and q31, ok_invalid_to_str_flag
+    ok = and q32, invalid_to_str_empty
 
     !full_name_ok
     !full_ext_ok
@@ -767,6 +803,12 @@ L_PATH_TRY_ENTRY:
     !no_ext_ok
     !no_ext_stem_ok
     !child_parent_ok
+    !full_prefix_ok
+    !hidden_prefix_ok
+    !root_prefix_ok
+    !full_to_str_ok
+    !empty_to_str_ok
+    !invalid_to_str_ok
     !full_name_eq
     !full_ext_eq
     !full_stem_eq
@@ -778,6 +820,12 @@ L_PATH_TRY_ENTRY:
     !no_ext_empty
     !no_ext_stem_eq
     !child_parent_empty
+    !full_prefix_eq
+    !hidden_prefix_eq
+    !root_prefix_empty
+    !full_to_str_eq
+    !empty_to_str_empty
+    !invalid_to_str_empty
     !ok_full_name_flag
     !ok_full_ext_flag
     !ok_full_stem_flag
@@ -789,6 +837,12 @@ L_PATH_TRY_ENTRY:
     !ok_no_ext_flag
     !ok_no_ext_stem_flag
     !ok_child_parent_flag
+    !ok_full_prefix_flag
+    !ok_hidden_prefix_flag
+    !ok_root_prefix_flag
+    !ok_full_to_str_flag
+    !ok_empty_to_str_flag
+    !ok_invalid_to_str_flag
     !q01
     !q02
     !q03
@@ -809,6 +863,24 @@ L_PATH_TRY_ENTRY:
     !q18
     !q19
     !q20
+    !q21
+    !q22
+    !q23
+    !q24
+    !q25
+    !q26
+    !q27
+    !q28
+    !q29
+    !q30
+    !q31
+    !q32
+    !invalid_to_str
+    !empty_to_str
+    !full_to_str
+    !root_prefix
+    !hidden_prefix
+    !full_prefix
     !child_parent
     !no_ext_stem
     !no_ext_value
@@ -824,6 +896,9 @@ L_PATH_TRY_ENTRY:
     !expect_stem
     !expect_ext
     !expect_base
+    !expect_hidden_prefix
+    !invalid_path
+    !hidden
     !no_ext
     !child
     !empty

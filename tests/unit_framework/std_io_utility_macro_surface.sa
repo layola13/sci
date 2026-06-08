@@ -7,6 +7,7 @@ L_ENTRY:
     EXPAND IO_ERROR_KIND_FROM_STATUS kind_would_block, SA_IO_ERR_WOULD_BLOCK
     EXPAND IO_ERROR_KIND_FROM_STATUS kind_interrupted, SA_IO_ERR_INTERRUPTED
     EXPAND IO_ERROR_KIND_FROM_STATUS kind_invalid, SA_IO_ERR_INVALID_HANDLE
+    EXPAND IO_ERROR_KIND_FROM_STATUS kind_invalid_data, SA_IO_ERR_INVALID_DATA
     EXPAND IO_ERROR_KIND_FROM_STATUS kind_other, SA_IO_ERR_UNKNOWN
     EXPAND IO_ERROR_KIND_IS_RETRYABLE retry_would_block, kind_would_block
     EXPAND IO_ERROR_KIND_IS_RETRYABLE retry_interrupted, kind_interrupted
@@ -34,6 +35,7 @@ L_ENTRY:
     ok_kind_wb = eq kind_would_block, IO_ERROR_KIND_WOULD_BLOCK
     ok_kind_int = eq kind_interrupted, IO_ERROR_KIND_INTERRUPTED
     ok_kind_invalid = eq kind_invalid, IO_ERROR_KIND_INVALID_INPUT
+    ok_kind_invalid_data = eq kind_invalid_data, IO_ERROR_KIND_INVALID_DATA
     ok_kind_other = eq kind_other, IO_ERROR_KIND_OTHER
     ok_retry_wb = eq retry_would_block, 1
     ok_retry_int = eq retry_interrupted, 1
@@ -48,8 +50,9 @@ L_ENTRY:
     ok01 = and ok_kind_eof, ok_kind_wb
     ok02 = and ok01, ok_kind_int
     ok03 = and ok02, ok_kind_invalid
-    ok04 = and ok03, ok_kind_other
-    ok05 = and ok04, ok_retry_wb
+    ok04 = and ok03, ok_kind_invalid_data
+    ok04a = and ok04, ok_kind_other
+    ok05 = and ok04a, ok_retry_wb
     ok06 = and ok05, ok_retry_int
     ok07 = and ok06, ok_retry_eof
     ok08 = and ok07, ok_slice_ptr
@@ -64,6 +67,7 @@ L_ENTRY:
     !kind_would_block
     !kind_interrupted
     !kind_invalid
+    !kind_invalid_data
     !kind_other
     !retry_would_block
     !retry_interrupted
@@ -79,6 +83,7 @@ L_ENTRY:
     !ok_kind_wb
     !ok_kind_int
     !ok_kind_invalid
+    !ok_kind_invalid_data
     !ok_kind_other
     !ok_retry_wb
     !ok_retry_int
@@ -94,6 +99,7 @@ L_ENTRY:
     !ok02
     !ok03
     !ok04
+    !ok04a
     !ok05
     !ok06
     !ok07
@@ -110,6 +116,165 @@ L_FAIL:
     panic(997)
 
 L_PASS:
+    return 0
+
+@test "sa_std io cursor read to end macros"():
+L_ENTRY:
+    data = stack_alloc 8
+    store data+0, 10 as u8
+    store data+1, 11 as u8
+    store data+2, 12 as u8
+    store data+3, 13 as u8
+    store data+4, 14 as u8
+    store data+5, 15 as u8
+
+    cursor = stack_alloc IoCursor_SIZE
+    rem_slice = stack_alloc IoSlice_SIZE
+    dst = stack_alloc 8
+    EXPAND IO_CURSOR_NEW cursor, data, 6
+    EXPAND IO_CURSOR_SEEK_START seed_pos, cursor, 2
+    EXPAND IO_CURSOR_REMAINING_SLICE rem_slice, cursor
+    EXPAND IO_SLICE_AS_PTR rem_ptr, rem_slice
+    EXPAND IO_SLICE_LEN rem_len, rem_slice
+    rem0 = load rem_ptr+0 as u8
+    rem3 = load rem_ptr+3 as u8
+    EXPAND IO_CURSOR_READ_TO_END read_all, cursor, dst, 8
+    EXPAND IO_CURSOR_POSITION pos_after_all, cursor
+    all0 = load dst+0 as u8
+    all3 = load dst+3 as u8
+    EXPAND IO_CURSOR_READ_TO_END read_empty, cursor, dst, 8
+
+    cursor_small = stack_alloc IoCursor_SIZE
+    small_dst = stack_alloc 2
+    EXPAND IO_CURSOR_NEW cursor_small, data, 6
+    EXPAND IO_CURSOR_SEEK_START small_seed, cursor_small, 1
+    EXPAND IO_CURSOR_READ_TO_END read_small, cursor_small, small_dst, 2
+    EXPAND IO_CURSOR_POSITION pos_after_small, cursor_small
+    EXPAND IO_CURSOR_REMAINING rem_after_small, cursor_small
+    small0 = load small_dst+0 as u8
+    small1 = load small_dst+1 as u8
+
+    take_cursor = stack_alloc IoCursor_SIZE
+    take = stack_alloc IoTake_SIZE
+    take_dst = stack_alloc 8
+    EXPAND IO_CURSOR_NEW take_cursor, data, 6
+    EXPAND IO_CURSOR_SEEK_START take_seed, take_cursor, 1
+    EXPAND IO_TAKE_NEW take, take_cursor, 3
+    EXPAND IO_TAKE_READ_TO_END take_read, take, take_dst, 8
+    EXPAND IO_TAKE_LIMIT take_limit_after, take
+    EXPAND IO_CURSOR_POSITION take_pos_after, take_cursor
+    take0 = load take_dst+0 as u8
+    take2 = load take_dst+2 as u8
+
+    utf8_data = stack_alloc 4
+    store utf8_data+0, 97 as u8
+    store utf8_data+1, 195 as u8
+    store utf8_data+2, 169 as u8
+    store utf8_data+3, 122 as u8
+    utf8_cursor = stack_alloc IoCursor_SIZE
+    utf8_dst = stack_alloc 8
+    utf8_slice = stack_alloc IoSlice_SIZE
+    EXPAND IO_CURSOR_NEW utf8_cursor, utf8_data, 4
+    EXPAND IO_CURSOR_READ_TO_STRING utf8_status, utf8_slice, utf8_cursor, utf8_dst, 8
+    EXPAND IO_SLICE_LEN utf8_len, utf8_slice
+    EXPAND IO_CURSOR_POSITION utf8_pos, utf8_cursor
+    utf8_b0 = load utf8_dst+0 as u8
+    utf8_b1 = load utf8_dst+1 as u8
+    utf8_b3 = load utf8_dst+3 as u8
+
+    invalid_utf8_data = stack_alloc 3
+    store invalid_utf8_data+0, 195 as u8
+    store invalid_utf8_data+1, 40 as u8
+    store invalid_utf8_data+2, 120 as u8
+    invalid_utf8_cursor = stack_alloc IoCursor_SIZE
+    invalid_utf8_dst = stack_alloc 8
+    invalid_utf8_slice = stack_alloc IoSlice_SIZE
+    EXPAND IO_CURSOR_NEW invalid_utf8_cursor, invalid_utf8_data, 3
+    EXPAND IO_CURSOR_READ_TO_STRING invalid_utf8_status, invalid_utf8_slice, invalid_utf8_cursor, invalid_utf8_dst, 8
+    EXPAND IO_SLICE_LEN invalid_utf8_len, invalid_utf8_slice
+    EXPAND IO_ERROR_KIND_FROM_STATUS invalid_utf8_kind, invalid_utf8_status
+
+    take_string_cursor = stack_alloc IoCursor_SIZE
+    take_string = stack_alloc IoTake_SIZE
+    take_string_dst = stack_alloc 8
+    take_string_slice = stack_alloc IoSlice_SIZE
+    EXPAND IO_CURSOR_NEW take_string_cursor, utf8_data, 4
+    EXPAND IO_TAKE_NEW take_string, take_string_cursor, 3
+    EXPAND IO_TAKE_READ_TO_STRING take_string_status, take_string_slice, take_string, take_string_dst, 8
+    EXPAND IO_SLICE_LEN take_string_len, take_string_slice
+    EXPAND IO_TAKE_LIMIT take_string_limit, take_string
+    EXPAND IO_CURSOR_POSITION take_string_pos, take_string_cursor
+
+    call @sa_assert_eq_i64(seed_pos, 2, 9991)
+    call @sa_assert_eq_i64(rem_len, 4, 9992)
+    call @sa_assert_eq_i64(rem0, 12, 9993)
+    call @sa_assert_eq_i64(rem3, 15, 9994)
+    call @sa_assert_eq_i64(read_all, 4, 9995)
+    call @sa_assert_eq_i64(pos_after_all, 6, 9996)
+    call @sa_assert_eq_i64(all0, 12, 9997)
+    call @sa_assert_eq_i64(all3, 15, 9998)
+    call @sa_assert_eq_i64(read_empty, 0, 9999)
+    call @sa_assert_eq_i64(small_seed, 1, 10000)
+    call @sa_assert_eq_i64(read_small, 2, 10001)
+    call @sa_assert_eq_i64(pos_after_small, 3, 10002)
+    call @sa_assert_eq_i64(rem_after_small, 3, 10003)
+    call @sa_assert_eq_i64(small0, 11, 10004)
+    call @sa_assert_eq_i64(small1, 12, 10005)
+    call @sa_assert_eq_i64(take_seed, 1, 10006)
+    call @sa_assert_eq_i64(take_read, 3, 10007)
+    call @sa_assert_eq_i64(take_limit_after, 0, 10008)
+    call @sa_assert_eq_i64(take_pos_after, 4, 10009)
+    call @sa_assert_eq_i64(take0, 11, 10010)
+    call @sa_assert_eq_i64(take2, 13, 10011)
+    call @sa_assert_eq_i64(utf8_status, SA_IO_OK, 10012)
+    call @sa_assert_eq_i64(utf8_len, 4, 10013)
+    call @sa_assert_eq_i64(utf8_pos, 4, 10014)
+    call @sa_assert_eq_i64(utf8_b0, 97, 10015)
+    call @sa_assert_eq_i64(utf8_b1, 195, 10016)
+    call @sa_assert_eq_i64(utf8_b3, 122, 10017)
+    call @sa_assert_eq_i64(invalid_utf8_status, SA_IO_ERR_INVALID_DATA, 10018)
+    call @sa_assert_eq_i64(invalid_utf8_len, 0, 10019)
+    call @sa_assert_eq_i64(invalid_utf8_kind, IO_ERROR_KIND_INVALID_DATA, 10020)
+    call @sa_assert_eq_i64(take_string_status, SA_IO_OK, 10021)
+    call @sa_assert_eq_i64(take_string_len, 3, 10022)
+    call @sa_assert_eq_i64(take_string_limit, 0, 10023)
+    call @sa_assert_eq_i64(take_string_pos, 3, 10024)
+
+    !seed_pos
+    !rem_ptr
+    !rem_len
+    !rem0
+    !rem3
+    !read_all
+    !pos_after_all
+    !all0
+    !all3
+    !read_empty
+    !small_seed
+    !read_small
+    !pos_after_small
+    !rem_after_small
+    !small0
+    !small1
+    !take_seed
+    !take_read
+    !take_limit_after
+    !take_pos_after
+    !take0
+    !take2
+    !utf8_status
+    !utf8_len
+    !utf8_pos
+    !utf8_b0
+    !utf8_b1
+    !utf8_b3
+    !invalid_utf8_status
+    !invalid_utf8_len
+    !invalid_utf8_kind
+    !take_string_status
+    !take_string_len
+    !take_string_limit
+    !take_string_pos
     return 0
 
 @test "sa_std io cursor empty repeat sink macros"():

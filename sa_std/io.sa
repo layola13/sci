@@ -2,6 +2,7 @@
 @import "fmt.sai"
 @import "io.sai"
 @import "core/mem.sa"
+@import "string.sai"
 
 @const IO_NEWLINE = utf8:"\n"
 
@@ -91,7 +92,7 @@ L_IO_KIND_INTERRUPTED_%out_kind:
 
 L_IO_KIND_INVALID_CHECK_%out_kind:
     __io_kind_invalid_%out_kind = eq %status, SA_IO_ERR_INVALID_HANDLE
-    br __io_kind_invalid_%out_kind -> L_IO_KIND_INVALID_%out_kind, L_IO_KIND_OTHER_%out_kind
+    br __io_kind_invalid_%out_kind -> L_IO_KIND_INVALID_%out_kind, L_IO_KIND_INVALID_DATA_CHECK_%out_kind
 
 L_IO_KIND_INVALID_%out_kind:
     %out_kind = add 0, IO_ERROR_KIND_INVALID_INPUT
@@ -101,8 +102,22 @@ L_IO_KIND_INVALID_%out_kind:
     !__io_kind_eof_%out_kind
     jmp L_IO_KIND_END_%out_kind
 
+L_IO_KIND_INVALID_DATA_CHECK_%out_kind:
+    __io_kind_invalid_data_%out_kind = eq %status, SA_IO_ERR_INVALID_DATA
+    br __io_kind_invalid_data_%out_kind -> L_IO_KIND_INVALID_DATA_%out_kind, L_IO_KIND_OTHER_%out_kind
+
+L_IO_KIND_INVALID_DATA_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_INVALID_DATA
+    !__io_kind_invalid_data_%out_kind
+    !__io_kind_invalid_%out_kind
+    !__io_kind_interrupted_%out_kind
+    !__io_kind_would_block_%out_kind
+    !__io_kind_eof_%out_kind
+    jmp L_IO_KIND_END_%out_kind
+
 L_IO_KIND_OTHER_%out_kind:
     %out_kind = add 0, IO_ERROR_KIND_OTHER
+    !__io_kind_invalid_data_%out_kind
     !__io_kind_invalid_%out_kind
     !__io_kind_interrupted_%out_kind
     !__io_kind_would_block_%out_kind
@@ -230,6 +245,19 @@ L_IO_CURSOR_REMAINING_SUB_%out_len:
 L_IO_CURSOR_REMAINING_END_%out_len:
 [END_MACRO]
 
+[MACRO] IO_CURSOR_REMAINING_SLICE %out_slice, %cursor
+    EXPAND IO_CURSOR_REMAINING __io_cursor_remaining_slice_len_%out_slice, %cursor
+    __io_cursor_remaining_slice_base_%out_slice = load %cursor+IoCursor_ptr as ptr
+    __io_cursor_remaining_slice_pos_%out_slice = load %cursor+IoCursor_pos as u64
+    __io_cursor_remaining_slice_ptr_%out_slice = ptr_add __io_cursor_remaining_slice_base_%out_slice, __io_cursor_remaining_slice_pos_%out_slice
+    store %out_slice+IoSlice_ptr, __io_cursor_remaining_slice_ptr_%out_slice as ptr
+    store %out_slice+IoSlice_len, __io_cursor_remaining_slice_len_%out_slice as u64
+    !__io_cursor_remaining_slice_ptr_%out_slice
+    !__io_cursor_remaining_slice_pos_%out_slice
+    !__io_cursor_remaining_slice_base_%out_slice
+    !__io_cursor_remaining_slice_len_%out_slice
+[END_MACRO]
+
 [MACRO] IO_CURSOR_READ %out_len, %cursor, %dst_ptr, %cap
     EXPAND IO_CURSOR_REMAINING __io_cursor_rem_%out_len, %cursor
     __io_cursor_take_cap_%out_len = ule %cap, __io_cursor_rem_%out_len
@@ -255,6 +283,61 @@ L_IO_CURSOR_READ_COPY_%out_len:
     !__io_cursor_base_%out_len
     !__io_cursor_take_cap_%out_len
     !__io_cursor_rem_%out_len
+[END_MACRO]
+
+[MACRO] IO_CURSOR_READ_TO_END %out_len, %cursor, %dst_ptr, %cap
+    EXPAND IO_CURSOR_REMAINING __io_cursor_read_to_end_rem_%out_len, %cursor
+    __io_cursor_read_to_end_cap_%out_len = ule %cap, __io_cursor_read_to_end_rem_%out_len
+    br __io_cursor_read_to_end_cap_%out_len -> L_IO_CURSOR_READ_TO_END_CAP_%out_len, L_IO_CURSOR_READ_TO_END_REM_%out_len
+
+L_IO_CURSOR_READ_TO_END_CAP_%out_len:
+    %out_len = add %cap, 0
+    jmp L_IO_CURSOR_READ_TO_END_COPY_%out_len
+
+L_IO_CURSOR_READ_TO_END_REM_%out_len:
+    %out_len = add __io_cursor_read_to_end_rem_%out_len, 0
+
+L_IO_CURSOR_READ_TO_END_COPY_%out_len:
+    __io_cursor_read_to_end_base_%out_len = load %cursor+IoCursor_ptr as ptr
+    __io_cursor_read_to_end_pos_%out_len = load %cursor+IoCursor_pos as u64
+    __io_cursor_read_to_end_src_%out_len = ptr_add __io_cursor_read_to_end_base_%out_len, __io_cursor_read_to_end_pos_%out_len
+    call @sa_mem_copy(&%dst_ptr, &__io_cursor_read_to_end_src_%out_len, %out_len)
+    __io_cursor_read_to_end_next_%out_len = add __io_cursor_read_to_end_pos_%out_len, %out_len
+    store %cursor+IoCursor_pos, __io_cursor_read_to_end_next_%out_len as u64
+    !__io_cursor_read_to_end_next_%out_len
+    !__io_cursor_read_to_end_src_%out_len
+    !__io_cursor_read_to_end_pos_%out_len
+    !__io_cursor_read_to_end_base_%out_len
+
+L_IO_CURSOR_READ_TO_END_DONE_%out_len:
+    !__io_cursor_read_to_end_cap_%out_len
+    !__io_cursor_read_to_end_rem_%out_len
+[END_MACRO]
+
+[MACRO] IO_CURSOR_READ_TO_STRING %out_status, %out_slice, %cursor, %dst_ptr, %cap
+    EXPAND IO_CURSOR_READ_TO_END __io_cursor_read_to_string_len_%out_status, %cursor, %dst_ptr, %cap
+    EXPAND IO_SLICE_NEW %out_slice, %dst_ptr, __io_cursor_read_to_string_len_%out_status
+    __io_cursor_read_to_string_status_%out_status = call @sa_str_utf8_validate(&%dst_ptr, __io_cursor_read_to_string_len_%out_status)
+    __io_cursor_read_to_string_ok_%out_status = eq __io_cursor_read_to_string_status_%out_status, 0
+    br __io_cursor_read_to_string_ok_%out_status -> L_IO_CURSOR_READ_TO_STRING_OK_%out_status, L_IO_CURSOR_READ_TO_STRING_BAD_%out_status
+
+L_IO_CURSOR_READ_TO_STRING_OK_%out_status:
+    %out_status = add 0, SA_IO_OK
+    !__io_cursor_read_to_string_ok_%out_status
+    !__io_cursor_read_to_string_status_%out_status
+    !__io_cursor_read_to_string_len_%out_status
+    jmp L_IO_CURSOR_READ_TO_STRING_END_%out_status
+
+L_IO_CURSOR_READ_TO_STRING_BAD_%out_status:
+    %out_status = add 0, SA_IO_ERR_INVALID_DATA
+    __io_cursor_read_to_string_null_%out_status = 0 as ptr
+    EXPAND IO_SLICE_NEW %out_slice, __io_cursor_read_to_string_null_%out_status, 0
+    !__io_cursor_read_to_string_null_%out_status
+    !__io_cursor_read_to_string_ok_%out_status
+    !__io_cursor_read_to_string_status_%out_status
+    !__io_cursor_read_to_string_len_%out_status
+
+L_IO_CURSOR_READ_TO_STRING_END_%out_status:
 [END_MACRO]
 
 [MACRO] IO_CURSOR_WRITE %out_len, %cursor, %src_ptr, %len
@@ -415,6 +498,36 @@ L_IO_TAKE_READ_DO_%out_len:
     !__io_take_limit_%out_len
 
 L_IO_TAKE_READ_DONE_%out_len:
+[END_MACRO]
+
+[MACRO] IO_TAKE_READ_TO_END %out_len, %take, %dst_ptr, %cap
+    EXPAND IO_TAKE_READ %out_len, %take, %dst_ptr, %cap
+[END_MACRO]
+
+[MACRO] IO_TAKE_READ_TO_STRING %out_status, %out_slice, %take, %dst_ptr, %cap
+    EXPAND IO_TAKE_READ_TO_END __io_take_read_to_string_len_%out_status, %take, %dst_ptr, %cap
+    EXPAND IO_SLICE_NEW %out_slice, %dst_ptr, __io_take_read_to_string_len_%out_status
+    __io_take_read_to_string_status_%out_status = call @sa_str_utf8_validate(&%dst_ptr, __io_take_read_to_string_len_%out_status)
+    __io_take_read_to_string_ok_%out_status = eq __io_take_read_to_string_status_%out_status, 0
+    br __io_take_read_to_string_ok_%out_status -> L_IO_TAKE_READ_TO_STRING_OK_%out_status, L_IO_TAKE_READ_TO_STRING_BAD_%out_status
+
+L_IO_TAKE_READ_TO_STRING_OK_%out_status:
+    %out_status = add 0, SA_IO_OK
+    !__io_take_read_to_string_ok_%out_status
+    !__io_take_read_to_string_status_%out_status
+    !__io_take_read_to_string_len_%out_status
+    jmp L_IO_TAKE_READ_TO_STRING_END_%out_status
+
+L_IO_TAKE_READ_TO_STRING_BAD_%out_status:
+    %out_status = add 0, SA_IO_ERR_INVALID_DATA
+    __io_take_read_to_string_null_%out_status = 0 as ptr
+    EXPAND IO_SLICE_NEW %out_slice, __io_take_read_to_string_null_%out_status, 0
+    !__io_take_read_to_string_null_%out_status
+    !__io_take_read_to_string_ok_%out_status
+    !__io_take_read_to_string_status_%out_status
+    !__io_take_read_to_string_len_%out_status
+
+L_IO_TAKE_READ_TO_STRING_END_%out_status:
 [END_MACRO]
 
 [MACRO] IO_REPEAT_NEW %repeat, %byte
