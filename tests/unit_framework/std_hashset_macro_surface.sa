@@ -366,6 +366,114 @@ L_PARITY_OK:
     !ok
     return
 
+@test "sa_std hashset key view macros"():
+L_ENTRY:
+    key_a = &KEY_A
+    key_b = &KEY_B
+    key_a_bits = bitcast key_a as u64
+    key_b_bits = bitcast key_b as u64
+
+    EXPAND SET_WITH_CAPACITY keys_set, 4
+    EXPAND SET_INSERT keys_ins_a, keys_set, key_a
+    EXPAND SET_INSERT keys_ins_b, keys_set, key_b
+    EXPAND SET_KEYS keys_vec, keys_set
+    EXPAND VEC_LEN keys_len, keys_vec
+    EXPAND VEC_CONTAINS_U64 keys_has_a, keys_vec, key_a_bits
+    EXPAND VEC_CONTAINS_U64 keys_has_b, keys_vec, key_b_bits
+    EXPAND SET_LEN keys_set_len_after, keys_set
+
+    EXPAND SET_WITH_CAPACITY into_set, 4
+    EXPAND SET_INSERT into_ins_a, into_set, key_a
+    EXPAND SET_INSERT into_ins_b, into_set, key_b
+    EXPAND SET_INTO_KEYS into_keys_vec, into_set
+    EXPAND VEC_LEN into_keys_len, into_keys_vec
+    EXPAND VEC_CONTAINS_U64 into_keys_has_a, into_keys_vec, key_a_bits
+    EXPAND VEC_CONTAINS_U64 into_keys_has_b, into_keys_vec, key_b_bits
+    EXPAND SET_LEN into_set_len_after, into_set
+    EXPAND SET_IS_EMPTY into_set_empty_after, into_set
+
+    ok_keys_ins_a = eq keys_ins_a, 1
+    ok_keys_ins_b = eq keys_ins_b, 1
+    ok_keys_len = eq keys_len, 2
+    ok_keys_has_a = eq keys_has_a, 1
+    ok_keys_has_b = eq keys_has_b, 1
+    ok_keys_set_len_after = eq keys_set_len_after, 2
+    ok_into_ins_a = eq into_ins_a, 1
+    ok_into_ins_b = eq into_ins_b, 1
+    ok_into_keys_len = eq into_keys_len, 2
+    ok_into_keys_has_a = eq into_keys_has_a, 1
+    ok_into_keys_has_b = eq into_keys_has_b, 1
+    ok_into_set_len_after = eq into_set_len_after, 0
+    ok_into_set_empty_after = eq into_set_empty_after, 1
+
+    ok01 = and ok_keys_ins_a, ok_keys_ins_b
+    ok02 = and ok01, ok_keys_len
+    ok03 = and ok02, ok_keys_has_a
+    ok04 = and ok03, ok_keys_has_b
+    ok05 = and ok04, ok_keys_set_len_after
+    ok06 = and ok05, ok_into_ins_a
+    ok07 = and ok06, ok_into_ins_b
+    ok08 = and ok07, ok_into_keys_len
+    ok09 = and ok08, ok_into_keys_has_a
+    ok10 = and ok09, ok_into_keys_has_b
+    ok11 = and ok10, ok_into_set_len_after
+    ok = and ok11, ok_into_set_empty_after
+
+    !key_a
+    !key_b
+    !key_a_bits
+    !key_b_bits
+    !keys_ins_a
+    !keys_ins_b
+    !keys_len
+    !keys_has_a
+    !keys_has_b
+    !keys_set_len_after
+    !into_ins_a
+    !into_ins_b
+    !into_keys_len
+    !into_keys_has_a
+    !into_keys_has_b
+    !into_set_len_after
+    !into_set_empty_after
+    !ok_keys_ins_a
+    !ok_keys_ins_b
+    !ok_keys_len
+    !ok_keys_has_a
+    !ok_keys_has_b
+    !ok_keys_set_len_after
+    !ok_into_ins_a
+    !ok_into_ins_b
+    !ok_into_keys_len
+    !ok_into_keys_has_a
+    !ok_into_keys_has_b
+    !ok_into_set_len_after
+    !ok_into_set_empty_after
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    EXPAND VEC_FREE into_keys_vec
+    EXPAND VEC_FREE keys_vec
+    EXPAND SET_FREE into_set
+    EXPAND SET_FREE keys_set
+    br ok -> L_SET_KEYS_OK, L_SET_KEYS_FAIL
+
+L_SET_KEYS_FAIL:
+    !ok
+    panic(908)
+
+L_SET_KEYS_OK:
+    !ok
+    return
+
 @test "sa_std hashset retain macro"():
 L_ENTRY:
     EXPAND SET_WITH_CAPACITY set, 4
