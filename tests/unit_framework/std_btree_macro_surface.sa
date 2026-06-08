@@ -337,6 +337,10 @@ L_ENTRY:
     try_insert_new_value = load try_insert_new_ptr+0 as u64
     EXPAND BTREE_MAP_TRY_INSERT try_insert_existing_ok, try_insert_existing_ptr, map, alpha, 99
     try_insert_existing_value = load try_insert_existing_ptr+0 as u64
+    EXPAND BTREE_MAP_ENTRY_OR_INSERT entry_new_inserted, entry_new_ptr, map, delta, 40
+    entry_new_value = load entry_new_ptr+0 as u64
+    EXPAND BTREE_MAP_ENTRY_OR_INSERT entry_existing_inserted, entry_existing_ptr, map, bravo, 77
+    entry_existing_value = load entry_existing_ptr+0 as u64
 
     EXPAND BTREE_MAP_FIRST_ENTRY_MUT_PTR first_entry_ok, first_entry_key, first_entry_ptr, map
     first_entry_key_len = load first_entry_key+Slice_len as u64
@@ -352,24 +356,29 @@ L_ENTRY:
     EXPAND BTREE_MAP_GET alpha_value, map, alpha
     EXPAND BTREE_MAP_GET bravo_value, map, bravo
     EXPAND BTREE_MAP_GET charlie_value, map, charlie
+    EXPAND BTREE_MAP_GET delta_value, map, delta
     EXPAND BTREE_MAP_KEYS key_set, map
     EXPAND BTREE_SET_LEN key_set_len, key_set
     EXPAND BTREE_SET_CONTAINS key_set_has_alpha, key_set, alpha
     EXPAND BTREE_SET_CONTAINS key_set_has_bravo, key_set, bravo
     EXPAND BTREE_SET_CONTAINS key_set_has_charlie, key_set, charlie
+    EXPAND BTREE_SET_CONTAINS key_set_has_delta, key_set, delta
     EXPAND BTREE_MAP_VALUES values_vec, map
     EXPAND VEC_LEN values_len, values_vec
     EXPAND VEC_CONTAINS_U64 values_has_alpha, values_vec, 13
     EXPAND VEC_CONTAINS_U64 values_has_bravo, values_vec, 21
-    EXPAND VEC_CONTAINS_U64 values_has_charlie, values_vec, 33
+    EXPAND VEC_CONTAINS_U64 values_has_charlie, values_vec, 30
+    EXPAND VEC_CONTAINS_U64 values_has_delta, values_vec, 33
     EXPAND BTREE_MAP_VALUES_MUT_PTRS value_ptrs_vec, map
     EXPAND VEC_LEN value_ptrs_len, value_ptrs_vec
     disjoint_alpha_ptr_bits = bitcast disjoint_alpha_ptr as u64
     disjoint_bravo_ptr_bits = bitcast disjoint_bravo_ptr as u64
+    try_insert_new_ptr_bits = bitcast try_insert_new_ptr as u64
     last_entry_ptr_bits = bitcast last_entry_ptr as u64
     EXPAND VEC_CONTAINS_U64 ptrs_has_alpha, value_ptrs_vec, disjoint_alpha_ptr_bits
     EXPAND VEC_CONTAINS_U64 ptrs_has_bravo, value_ptrs_vec, disjoint_bravo_ptr_bits
-    EXPAND VEC_CONTAINS_U64 ptrs_has_charlie, value_ptrs_vec, last_entry_ptr_bits
+    EXPAND VEC_CONTAINS_U64 ptrs_has_charlie, value_ptrs_vec, try_insert_new_ptr_bits
+    EXPAND VEC_CONTAINS_U64 ptrs_has_delta, value_ptrs_vec, last_entry_ptr_bits
 
     EXPAND BTREE_MAP_RANGE range_map, map, bravo, delta
     EXPAND BTREE_MAP_LEN range_len, range_map
@@ -382,29 +391,37 @@ L_ENTRY:
     ok_try_insert_new_value = eq try_insert_new_value, 30
     ok_try_insert_existing_flag = eq try_insert_existing_ok, 0
     ok_try_insert_existing_value = eq try_insert_existing_value, 10
+    ok_entry_new_inserted = eq entry_new_inserted, 1
+    ok_entry_new_value = eq entry_new_value, 40
+    ok_entry_existing_inserted = eq entry_existing_inserted, 0
+    ok_entry_existing_value = eq entry_existing_value, 20
     ok_first_entry = eq first_entry_ok, 1
     ok_first_entry_len = eq first_entry_key_len, 5
     ok_last_entry = eq last_entry_ok, 1
-    ok_last_entry_len = eq last_entry_key_len, 7
+    ok_last_entry_len = eq last_entry_key_len, 5
     ok_disjoint = eq disjoint_ok, 1
     ok_same_key = eq same_key_ok, 0
     ok_same_alpha_ptr = eq same_alpha_ptr, 0
     ok_same_alpha_ptr2 = eq same_alpha_ptr2, 0
     ok_alpha_value = eq alpha_value, 13
     ok_bravo_value = eq bravo_value, 21
-    ok_charlie_value = eq charlie_value, 33
-    ok_key_set_len = eq key_set_len, 3
+    ok_charlie_value = eq charlie_value, 30
+    ok_delta_value = eq delta_value, 33
+    ok_key_set_len = eq key_set_len, 4
     ok_key_set_has_alpha = eq key_set_has_alpha, 1
     ok_key_set_has_bravo = eq key_set_has_bravo, 1
     ok_key_set_has_charlie = eq key_set_has_charlie, 1
-    ok_values_len = eq values_len, 3
+    ok_key_set_has_delta = eq key_set_has_delta, 1
+    ok_values_len = eq values_len, 4
     ok_values_has_alpha = eq values_has_alpha, 1
     ok_values_has_bravo = eq values_has_bravo, 1
     ok_values_has_charlie = eq values_has_charlie, 1
-    ok_value_ptrs_len = eq value_ptrs_len, 3
+    ok_values_has_delta = eq values_has_delta, 1
+    ok_value_ptrs_len = eq value_ptrs_len, 4
     ok_ptrs_has_alpha = eq ptrs_has_alpha, 1
     ok_ptrs_has_bravo = eq ptrs_has_bravo, 1
     ok_ptrs_has_charlie = eq ptrs_has_charlie, 1
+    ok_ptrs_has_delta = eq ptrs_has_delta, 1
     ok_range_len = eq range_len, 2
     ok_range_has_alpha = eq range_has_alpha, 0
     ok_range_has_bravo = eq range_has_bravo, 1
@@ -414,34 +431,42 @@ L_ENTRY:
     ok01 = and ok_try_insert_new, ok_try_insert_new_value
     ok02 = and ok01, ok_try_insert_existing_flag
     ok03 = and ok02, ok_try_insert_existing_value
-    ok04 = and ok03, ok_first_entry
-    ok05 = and ok04, ok_first_entry_len
-    ok06 = and ok05, ok_last_entry
-    ok07 = and ok06, ok_last_entry_len
-    ok08 = and ok07, ok_disjoint
-    ok09 = and ok08, ok_same_key
-    ok10 = and ok09, ok_same_alpha_ptr
-    ok11 = and ok10, ok_same_alpha_ptr2
-    ok12 = and ok11, ok_alpha_value
-    ok13 = and ok12, ok_bravo_value
-    ok14 = and ok13, ok_charlie_value
-    ok15 = and ok14, ok_key_set_len
-    ok16 = and ok15, ok_key_set_has_alpha
-    ok17 = and ok16, ok_key_set_has_bravo
-    ok18 = and ok17, ok_key_set_has_charlie
-    ok19 = and ok18, ok_values_len
-    ok20 = and ok19, ok_values_has_alpha
-    ok21 = and ok20, ok_values_has_bravo
-    ok22 = and ok21, ok_values_has_charlie
-    ok23 = and ok22, ok_value_ptrs_len
-    ok24 = and ok23, ok_ptrs_has_alpha
-    ok25 = and ok24, ok_ptrs_has_bravo
-    ok26 = and ok25, ok_ptrs_has_charlie
-    ok27 = and ok26, ok_range_len
-    ok28 = and ok27, ok_range_has_alpha
-    ok29 = and ok28, ok_range_has_bravo
-    ok30 = and ok29, ok_range_has_charlie
-    ok = and ok30, ok_range_has_delta
+    ok04 = and ok03, ok_entry_new_inserted
+    ok05 = and ok04, ok_entry_new_value
+    ok06 = and ok05, ok_entry_existing_inserted
+    ok07 = and ok06, ok_entry_existing_value
+    ok08 = and ok07, ok_first_entry
+    ok09 = and ok08, ok_first_entry_len
+    ok10 = and ok09, ok_last_entry
+    ok11 = and ok10, ok_last_entry_len
+    ok12 = and ok11, ok_disjoint
+    ok13 = and ok12, ok_same_key
+    ok14 = and ok13, ok_same_alpha_ptr
+    ok15 = and ok14, ok_same_alpha_ptr2
+    ok16 = and ok15, ok_alpha_value
+    ok17 = and ok16, ok_bravo_value
+    ok18 = and ok17, ok_charlie_value
+    ok19 = and ok18, ok_delta_value
+    ok20 = and ok19, ok_key_set_len
+    ok21 = and ok20, ok_key_set_has_alpha
+    ok22 = and ok21, ok_key_set_has_bravo
+    ok23 = and ok22, ok_key_set_has_charlie
+    ok24 = and ok23, ok_key_set_has_delta
+    ok25 = and ok24, ok_values_len
+    ok26 = and ok25, ok_values_has_alpha
+    ok27 = and ok26, ok_values_has_bravo
+    ok28 = and ok27, ok_values_has_charlie
+    ok29 = and ok28, ok_values_has_delta
+    ok30 = and ok29, ok_value_ptrs_len
+    ok31 = and ok30, ok_ptrs_has_alpha
+    ok32 = and ok31, ok_ptrs_has_bravo
+    ok33 = and ok32, ok_ptrs_has_charlie
+    ok34 = and ok33, ok_ptrs_has_delta
+    ok35 = and ok34, ok_range_len
+    ok36 = and ok35, ok_range_has_alpha
+    ok37 = and ok36, ok_range_has_bravo
+    ok38 = and ok37, ok_range_has_charlie
+    ok = and ok38, ok_range_has_delta
 
     !try_insert_new_ok
     !try_insert_new_ptr
@@ -449,6 +474,12 @@ L_ENTRY:
     !try_insert_existing_ok
     !try_insert_existing_ptr
     !try_insert_existing_value
+    !entry_new_inserted
+    !entry_new_ptr
+    !entry_new_value
+    !entry_existing_inserted
+    !entry_existing_ptr
+    !entry_existing_value
     !first_entry_ok
     !first_entry_key_len
     !first_entry_ptr
@@ -464,21 +495,26 @@ L_ENTRY:
     !alpha_value
     !bravo_value
     !charlie_value
+    !delta_value
     !key_set_len
     !key_set_has_alpha
     !key_set_has_bravo
     !key_set_has_charlie
+    !key_set_has_delta
     !values_len
     !values_has_alpha
     !values_has_bravo
     !values_has_charlie
+    !values_has_delta
     !value_ptrs_len
     !disjoint_alpha_ptr_bits
     !disjoint_bravo_ptr_bits
     !last_entry_ptr_bits
+    !try_insert_new_ptr_bits
     !ptrs_has_alpha
     !ptrs_has_bravo
     !ptrs_has_charlie
+    !ptrs_has_delta
     !range_len
     !range_has_alpha
     !range_has_bravo
@@ -488,6 +524,10 @@ L_ENTRY:
     !ok_try_insert_new_value
     !ok_try_insert_existing_flag
     !ok_try_insert_existing_value
+    !ok_entry_new_inserted
+    !ok_entry_new_value
+    !ok_entry_existing_inserted
+    !ok_entry_existing_value
     !ok_first_entry
     !ok_first_entry_len
     !ok_last_entry
@@ -499,18 +539,22 @@ L_ENTRY:
     !ok_alpha_value
     !ok_bravo_value
     !ok_charlie_value
+    !ok_delta_value
     !ok_key_set_len
     !ok_key_set_has_alpha
     !ok_key_set_has_bravo
     !ok_key_set_has_charlie
+    !ok_key_set_has_delta
     !ok_values_len
     !ok_values_has_alpha
     !ok_values_has_bravo
     !ok_values_has_charlie
+    !ok_values_has_delta
     !ok_value_ptrs_len
     !ok_ptrs_has_alpha
     !ok_ptrs_has_bravo
     !ok_ptrs_has_charlie
+    !ok_ptrs_has_delta
     !ok_range_len
     !ok_range_has_alpha
     !ok_range_has_bravo
@@ -546,6 +590,14 @@ L_ENTRY:
     !ok28
     !ok29
     !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
     !last_entry_key
     !first_entry_key
     !delta
@@ -723,6 +775,14 @@ L_ENTRY:
     EXPAND BTREE_SET_POP_LAST pop_last_ok, pop_last_key, tail
     pop_last_key_len = load pop_last_key+Slice_len as u64
 
+    EXPAND BTREE_SET_NEW entry_set
+    EXPAND BTREE_SET_INSERT entry_ins_bravo, entry_set, bravo
+    EXPAND BTREE_SET_GET_OR_INSERT get_or_insert_existing, get_or_insert_existing_key, entry_set, bravo
+    get_or_insert_existing_len = load get_or_insert_existing_key+Slice_len as u64
+    EXPAND BTREE_SET_GET_OR_INSERT get_or_insert_new, get_or_insert_new_key, entry_set, charlie
+    get_or_insert_new_len = load get_or_insert_new_key+Slice_len as u64
+    EXPAND BTREE_SET_LEN entry_set_len, entry_set
+
     ok_ins_alpha = eq ins_alpha, 1
     ok_ins_bravo = eq ins_bravo, 1
     ok_get_alpha_flag = eq get_alpha_ok, 1
@@ -754,6 +814,12 @@ L_ENTRY:
     ok_pop_first_len = eq pop_first_key_len, 5
     ok_pop_last_flag = eq pop_last_ok, 1
     ok_pop_last_len = eq pop_last_key_len, 7
+    ok_entry_ins_bravo = eq entry_ins_bravo, 1
+    ok_get_or_insert_existing = eq get_or_insert_existing, 0
+    ok_get_or_insert_existing_len = eq get_or_insert_existing_len, 5
+    ok_get_or_insert_new = eq get_or_insert_new, 1
+    ok_get_or_insert_new_len = eq get_or_insert_new_len, 7
+    ok_entry_set_len = eq entry_set_len, 2
 
     ok01 = and ok_ins_alpha, ok_ins_bravo
     ok02 = and ok01, ok_get_alpha_flag
@@ -784,7 +850,13 @@ L_ENTRY:
     ok27 = and ok26, ok_pop_first_flag
     ok28 = and ok27, ok_pop_first_len
     ok29 = and ok28, ok_pop_last_flag
-    ok = and ok29, ok_pop_last_len
+    ok30 = and ok29, ok_pop_last_len
+    ok31 = and ok30, ok_entry_ins_bravo
+    ok32 = and ok31, ok_get_or_insert_existing
+    ok33 = and ok32, ok_get_or_insert_existing_len
+    ok34 = and ok33, ok_get_or_insert_new
+    ok35 = and ok34, ok_get_or_insert_new_len
+    ok = and ok35, ok_entry_set_len
 
     !ins_alpha
     !ins_bravo
@@ -817,6 +889,12 @@ L_ENTRY:
     !pop_first_key_len
     !pop_last_ok
     !pop_last_key_len
+    !entry_ins_bravo
+    !get_or_insert_existing
+    !get_or_insert_existing_len
+    !get_or_insert_new
+    !get_or_insert_new_len
+    !entry_set_len
     !ok_ins_alpha
     !ok_ins_bravo
     !ok_get_alpha_flag
@@ -848,6 +926,12 @@ L_ENTRY:
     !ok_pop_first_len
     !ok_pop_last_flag
     !ok_pop_last_len
+    !ok_entry_ins_bravo
+    !ok_get_or_insert_existing
+    !ok_get_or_insert_existing_len
+    !ok_get_or_insert_new
+    !ok_get_or_insert_new_len
+    !ok_entry_set_len
     !ok01
     !ok02
     !ok03
@@ -877,6 +961,14 @@ L_ENTRY:
     !ok27
     !ok28
     !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !get_or_insert_new_key
+    !get_or_insert_existing_key
     !pop_last_key
     !pop_first_key
     !take_alpha_miss_key
@@ -889,6 +981,7 @@ L_ENTRY:
     !charlie
     !bravo
     !alpha
+    EXPAND BTREE_SET_FREE entry_set
     EXPAND BTREE_SET_FREE tail
     EXPAND BTREE_SET_FREE disjoint
     EXPAND BTREE_SET_FREE other

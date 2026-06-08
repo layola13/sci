@@ -1501,6 +1501,10 @@ L_BTREE_MAP_RETAIN_DONE_%out_len:
     %out_value_ptr = load __btree_map_try_insert_ptr_slot_%out_inserted+0 as ptr
 [END_MACRO]
 
+[MACRO] BTREE_MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
+    EXPAND BTREE_MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
+[END_MACRO]
+
 [MACRO] BTREE_MAP_KEYS %out_set, %map_reg
     %out_set = call @sa_btree_map_keys_set(&%map_reg)
 [END_MACRO]

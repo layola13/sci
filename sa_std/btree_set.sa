@@ -492,6 +492,13 @@ L_ENTRY:
     %out_ok = call @sa_btree_set_get(&%set_reg, &%key_reg, &%out_key)
 [END_MACRO]
 
+[MACRO] BTREE_SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
+    %out_inserted = call @sa_btree_set_insert(&%set_reg, &%key_reg)
+    %out_key = alloc Slice_SIZE
+    __btree_set_get_or_insert_ok_%out_inserted = call @sa_btree_set_get(&%set_reg, &%key_reg, &%out_key)
+    !__btree_set_get_or_insert_ok_%out_inserted
+[END_MACRO]
+
 [MACRO] BTREE_SET_FIRST %out_ok, %out_key, %set_reg
     %out_key = alloc Slice_SIZE
     %out_ok = call @sa_btree_set_first(&%set_reg, &%out_key)
