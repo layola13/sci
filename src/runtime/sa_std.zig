@@ -7453,6 +7453,45 @@ pub export fn sa_net_addr_free(addr: u64) Fallible(i32) {
     return ok(i32, 0);
 }
 
+pub export fn sa_net_ipv4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
+    const out = out_addr orelse return 0;
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    var parts: [4]u8 = undefined;
+    var index: usize = 0;
+    var part_index: usize = 0;
+
+    while (part_index < 4) : (part_index += 1) {
+        if (index >= text.len) return 0;
+        var value: u32 = 0;
+        var digits: usize = 0;
+        while (index < text.len and text[index] != '.') : (index += 1) {
+            const byte = text[index];
+            if (byte < '0' or byte > '9') return 0;
+            value = value * 10 + @as(u32, byte - '0');
+            if (value > 255) return 0;
+            digits += 1;
+        }
+        if (digits == 0) return 0;
+        parts[part_index] = @as(u8, @intCast(value));
+        if (part_index < 3) {
+            if (index >= text.len or text[index] != '.') return 0;
+            index += 1;
+        }
+    }
+    if (index != text.len) return 0;
+
+    out[0] = parts[0];
+    out[1] = parts[1];
+    out[2] = parts[2];
+    out[3] = parts[3];
+    return 1;
+}
+
 pub export fn sa_fmt_i64(value: i64, base: u32) u64 {
     const bytes = formatInteger(value, base) catch return 0;
     return openOwnedBuffer(bytes) catch return 0;

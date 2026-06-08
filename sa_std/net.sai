@@ -104,3 +104,4 @@
 @extern sa_net_addr_scope_id(addr: u64) -> u64
 @extern sa_std_net_addr_format(addr: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_net_addr_free(addr: u64) -> i32!
+@extern sa_net_ipv4_parse_ascii(&text: ptr, text_len: u64, &out_addr: ptr) -> i32

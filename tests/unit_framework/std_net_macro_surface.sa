@@ -1,10 +1,18 @@
 @import "sa_std/net.sa"
 
 @const NET_TEST_LOOPBACK = utf8:"127.0.0.1"
+@const NET_TEST_IPV4_ALT = utf8:"192.168.1.42"
+@const NET_TEST_IPV4_BAD_RANGE = utf8:"256.0.0.1"
+@const NET_TEST_IPV4_BAD_EMPTY = utf8:"127..0.1"
+@const NET_TEST_IPV4_BAD_TRAIL = utf8:"127.0.0.1x"
 @const NET_TEST_MESSAGE = utf8:"ping"
 @const NET_TEST_UDP_MESSAGE = utf8:"pong"
 
 #def NET_TEST_LOOPBACK_LEN = 9
+#def NET_TEST_IPV4_ALT_LEN = 12
+#def NET_TEST_IPV4_BAD_RANGE_LEN = 9
+#def NET_TEST_IPV4_BAD_EMPTY_LEN = 8
+#def NET_TEST_IPV4_BAD_TRAIL_LEN = 10
 #def NET_TEST_MESSAGE_LEN = 4
 #def NET_TEST_TIMEOUT_NS = 100000000
 
@@ -102,6 +110,100 @@ L_FAIL_FIELDS:
 L_PASS:
     !ok
     !free_ok
+    return 0
+
+@test "sa_std net ipv4 parse_ascii macro surface"():
+L_ENTRY:
+    parsed_addr = alloc NetIpv4Addr_SIZE
+    alias_addr = alloc NetIpv4Addr_SIZE
+    bad_range_addr = alloc NetIpv4Addr_SIZE
+    bad_empty_addr = alloc NetIpv4Addr_SIZE
+    bad_trail_addr = alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV4_TRY_PARSE_ASCII parse_ok, parsed_addr, NET_TEST_IPV4_ALT, NET_TEST_IPV4_ALT_LEN
+    EXPAND NET_IPV4_OCTETS parsed_a, parsed_b, parsed_c, parsed_d, parsed_addr
+    EXPAND NET_IPV4_PARSE_ASCII alias_ok, alias_addr, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN
+    EXPAND NET_IPV4_OCTETS alias_a, alias_b, alias_c, alias_d, alias_addr
+    EXPAND NET_IPV4_TRY_PARSE_ASCII bad_range_ok, bad_range_addr, NET_TEST_IPV4_BAD_RANGE, NET_TEST_IPV4_BAD_RANGE_LEN
+    EXPAND NET_IPV4_TRY_PARSE_ASCII bad_empty_ok, bad_empty_addr, NET_TEST_IPV4_BAD_EMPTY, NET_TEST_IPV4_BAD_EMPTY_LEN
+    EXPAND NET_IPV4_TRY_PARSE_ASCII bad_trail_ok, bad_trail_addr, NET_TEST_IPV4_BAD_TRAIL, NET_TEST_IPV4_BAD_TRAIL_LEN
+
+    ok_parse = eq parse_ok, 1
+    ok_a = eq parsed_a, 192
+    ok_b = eq parsed_b, 168
+    ok_c = eq parsed_c, 1
+    ok_d = eq parsed_d, 42
+    ok_alias = eq alias_ok, 1
+    ok_alias_a = eq alias_a, 127
+    ok_alias_b = eq alias_b, 0
+    ok_alias_c = eq alias_c, 0
+    ok_alias_d = eq alias_d, 1
+    ok_bad_range = eq bad_range_ok, 0
+    ok_bad_empty = eq bad_empty_ok, 0
+    ok_bad_trail = eq bad_trail_ok, 0
+
+    ok01 = and ok_parse, ok_a
+    ok02 = and ok01, ok_b
+    ok03 = and ok02, ok_c
+    ok04 = and ok03, ok_d
+    ok05 = and ok04, ok_alias
+    ok06 = and ok05, ok_alias_a
+    ok07 = and ok06, ok_alias_b
+    ok08 = and ok07, ok_alias_c
+    ok09 = and ok08, ok_alias_d
+    ok10 = and ok09, ok_bad_range
+    ok11 = and ok10, ok_bad_empty
+    ok = and ok11, ok_bad_trail
+
+    !ok_parse
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    !ok_alias
+    !ok_alias_a
+    !ok_alias_b
+    !ok_alias_c
+    !ok_alias_d
+    !ok_bad_range
+    !ok_bad_empty
+    !ok_bad_trail
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !parse_ok
+    !parsed_a
+    !parsed_b
+    !parsed_c
+    !parsed_d
+    !parsed_addr
+    !alias_ok
+    !alias_a
+    !alias_b
+    !alias_c
+    !alias_d
+    !alias_addr
+    !bad_range_ok
+    !bad_range_addr
+    !bad_empty_ok
+    !bad_empty_addr
+    !bad_trail_ok
+    !bad_trail_addr
+    br ok -> L_IPV4_PARSE_PASS, L_IPV4_PARSE_FAIL
+
+L_IPV4_PARSE_FAIL:
+    !ok
+    panic(927)
+
+L_IPV4_PARSE_PASS:
+    !ok
     return 0
 
 @test "sa_std net tcp macro surface"():

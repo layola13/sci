@@ -503,6 +503,14 @@ L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
     !__net_ipv4_from_a_%addr
 [END_MACRO]
 
+[MACRO] NET_IPV4_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+    %out_ok = call @sa_net_ipv4_parse_ascii(&%ptr, %len, &%addr)
+[END_MACRO]
+
+[MACRO] NET_IPV4_PARSE_ASCII %out_ok, %addr, %ptr, %len
+    EXPAND NET_IPV4_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IPV4_EQ %out_bool, %left, %right
     __net_ipv4_la_%out_bool = load %left+NetIpv4Addr_a as u8
     __net_ipv4_lb_%out_bool = load %left+NetIpv4Addr_b as u8
