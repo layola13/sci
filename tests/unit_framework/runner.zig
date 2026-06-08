@@ -843,6 +843,7 @@ test "native unit framework covers sa_std macro surface suites" {
 
     const num_expected = [_][]const u8{
         "[PASS] sa_std num u64 primitive macros",
+        "[PASS] sa_std num checked div rem parity macros",
         "[PASS] sa_std num narrow byte conversion macros",
         "[PASS] sa_std num endian value transform macros",
         "[PASS] sa_std num signed rust named parity macros",
@@ -860,7 +861,7 @@ test "native unit framework covers sa_std macro surface suites" {
     try runSaTestFile(
         "tests/unit_framework/std_num_macro_surface.sa",
         num_expected[0..],
-        "test result: ok. 14 passed; 0 failed; 0 skipped",
+        "test result: ok. 15 passed; 0 failed; 0 skipped",
     );
 
     const ops_expected = [_][]const u8{

@@ -309,6 +309,206 @@ L_FAIL:
 L_PASS:
     return 0
 
+@test "sa_std num checked div rem parity macros"():
+L_ENTRY:
+    nz_u8_div = stack_alloc NonZeroU8_SIZE
+    nz_u8_rem = stack_alloc NonZeroU8_SIZE
+    nz_u16_div = stack_alloc NonZeroU16_SIZE
+    nz_u16_rem = stack_alloc NonZeroU16_SIZE
+    nz_u32_div = stack_alloc NonZeroU32_SIZE
+    nz_u32_rem = stack_alloc NonZeroU32_SIZE
+    nz_u64_div = stack_alloc NonZeroU64_SIZE
+    nz_u64_rem = stack_alloc NonZeroU64_SIZE
+    nz_usize_div = stack_alloc NonZeroUsize_SIZE
+    nz_usize_rem = stack_alloc NonZeroUsize_SIZE
+    nz_i8_div = stack_alloc NonZeroI8_SIZE
+    nz_i8_rem = stack_alloc NonZeroI8_SIZE
+    nz_i16_div = stack_alloc NonZeroI16_SIZE
+    nz_i16_rem = stack_alloc NonZeroI16_SIZE
+    nz_i32_div = stack_alloc NonZeroI32_SIZE
+    nz_i32_rem = stack_alloc NonZeroI32_SIZE
+    nz_i64_div = stack_alloc NonZeroI64_SIZE
+    nz_i64_rem = stack_alloc NonZeroI64_SIZE
+    nz_isize_div = stack_alloc NonZeroIsize_SIZE
+    nz_isize_rem = stack_alloc NonZeroIsize_SIZE
+
+    EXPAND NUM_U8_CHECKED_DIV u8_div_ok, u8_div_value, 12, 3
+    EXPAND NUM_U8_CHECKED_REM u8_rem_ok, u8_rem_value, 14, 5
+    EXPAND NUM_U8_CHECKED_DIV u8_div_zero_ok, u8_div_zero_value, 12, 0
+    EXPAND NUM_U16_CHECKED_DIV u16_div_ok, u16_div_value, 1200, 30
+    EXPAND NUM_U16_CHECKED_REM u16_rem_ok, u16_rem_value, 1207, 30
+    EXPAND NUM_U32_CHECKED_DIV u32_div_ok, u32_div_value, 120000, 300
+    EXPAND NUM_U32_CHECKED_REM u32_rem_ok, u32_rem_value, 120007, 300
+
+    EXPAND NONZERO_U8_CHECKED_DIV nz_u8_div_ok, nz_u8_div, 12, 3
+    EXPAND NONZERO_U8_GET nz_u8_div_value, nz_u8_div
+    EXPAND NONZERO_U8_CHECKED_REM nz_u8_rem_ok, nz_u8_rem, 14, 5
+    EXPAND NONZERO_U8_GET nz_u8_rem_value, nz_u8_rem
+    EXPAND NONZERO_U8_CHECKED_DIV nz_u8_div_zero_result_ok, nz_u8_div, 1, 2
+    EXPAND NONZERO_U16_CHECKED_DIV nz_u16_div_ok, nz_u16_div, 1200, 30
+    EXPAND NONZERO_U16_GET nz_u16_div_value, nz_u16_div
+    EXPAND NONZERO_U16_CHECKED_REM nz_u16_rem_ok, nz_u16_rem, 1207, 30
+    EXPAND NONZERO_U16_GET nz_u16_rem_value, nz_u16_rem
+    EXPAND NONZERO_U32_CHECKED_DIV nz_u32_div_ok, nz_u32_div, 120000, 300
+    EXPAND NONZERO_U32_GET nz_u32_div_value, nz_u32_div
+    EXPAND NONZERO_U32_CHECKED_REM nz_u32_rem_ok, nz_u32_rem, 120007, 300
+    EXPAND NONZERO_U32_GET nz_u32_rem_value, nz_u32_rem
+    EXPAND NONZERO_U64_CHECKED_DIV nz_u64_div_ok, nz_u64_div, 81, 9
+    EXPAND NONZERO_U64_GET nz_u64_div_value, nz_u64_div
+    EXPAND NONZERO_U64_CHECKED_REM nz_u64_rem_ok, nz_u64_rem, 82, 9
+    EXPAND NONZERO_U64_GET nz_u64_rem_value, nz_u64_rem
+    EXPAND NONZERO_U64_CHECKED_REM nz_u64_rem_zero_result_ok, nz_u64_rem, 81, 9
+    EXPAND NONZERO_USIZE_CHECKED_DIV nz_usize_div_ok, nz_usize_div, 100, 10
+    EXPAND NONZERO_USIZE_GET nz_usize_div_value, nz_usize_div
+    EXPAND NONZERO_USIZE_CHECKED_REM nz_usize_rem_ok, nz_usize_rem, 101, 10
+    EXPAND NONZERO_USIZE_GET nz_usize_rem_value, nz_usize_rem
+
+    EXPAND NONZERO_I8_CHECKED_DIV nz_i8_div_ok, nz_i8_div, -12, 3
+    EXPAND NONZERO_I8_GET nz_i8_div_value, nz_i8_div
+    EXPAND NONZERO_I8_CHECKED_REM nz_i8_rem_ok, nz_i8_rem, -14, 5
+    EXPAND NONZERO_I8_GET nz_i8_rem_value, nz_i8_rem
+    EXPAND NONZERO_I8_CHECKED_DIV nz_i8_div_zero_result_ok, nz_i8_div, 1, 2
+    EXPAND NONZERO_I16_CHECKED_DIV nz_i16_div_ok, nz_i16_div, -1200, 30
+    EXPAND NONZERO_I16_GET nz_i16_div_value, nz_i16_div
+    EXPAND NONZERO_I16_CHECKED_REM nz_i16_rem_ok, nz_i16_rem, -1207, 30
+    EXPAND NONZERO_I16_GET nz_i16_rem_value, nz_i16_rem
+    EXPAND NONZERO_I32_CHECKED_DIV nz_i32_div_ok, nz_i32_div, -120000, 300
+    EXPAND NONZERO_I32_GET nz_i32_div_value, nz_i32_div
+    EXPAND NONZERO_I32_CHECKED_REM nz_i32_rem_ok, nz_i32_rem, -120007, 300
+    EXPAND NONZERO_I32_GET nz_i32_rem_value, nz_i32_rem
+    EXPAND NONZERO_I64_CHECKED_DIV nz_i64_div_ok, nz_i64_div, -81, 9
+    EXPAND NONZERO_I64_GET nz_i64_div_value, nz_i64_div
+    EXPAND NONZERO_I64_CHECKED_REM nz_i64_rem_ok, nz_i64_rem, -82, 9
+    EXPAND NONZERO_I64_GET nz_i64_rem_value, nz_i64_rem
+    EXPAND NONZERO_I64_CHECKED_REM nz_i64_rem_zero_result_ok, nz_i64_rem, -81, 9
+    EXPAND NONZERO_ISIZE_CHECKED_DIV nz_isize_div_ok, nz_isize_div, -100, 10
+    EXPAND NONZERO_ISIZE_GET nz_isize_div_value, nz_isize_div
+    EXPAND NONZERO_ISIZE_CHECKED_REM nz_isize_rem_ok, nz_isize_rem, -101, 10
+    EXPAND NONZERO_ISIZE_GET nz_isize_rem_value, nz_isize_rem
+
+    ok01 = eq u8_div_ok, 1
+    ok02 = eq u8_div_value, 4
+    ok03 = eq u8_rem_ok, 1
+    ok04 = eq u8_rem_value, 4
+    ok05 = eq u8_div_zero_ok, 0
+    ok06 = eq u16_div_ok, 1
+    ok07 = eq u16_div_value, 40
+    ok08 = eq u16_rem_ok, 1
+    ok09 = eq u16_rem_value, 7
+    ok10 = eq u32_div_ok, 1
+    ok11 = eq u32_div_value, 400
+    ok12 = eq u32_rem_ok, 1
+    ok13 = eq u32_rem_value, 7
+    ok14 = eq nz_u8_div_ok, 1
+    ok15 = eq nz_u8_div_value, 4
+    ok16 = eq nz_u8_rem_ok, 1
+    ok17 = eq nz_u8_rem_value, 4
+    ok18 = eq nz_u8_div_zero_result_ok, 0
+    ok19 = eq nz_u16_div_ok, 1
+    ok20 = eq nz_u16_div_value, 40
+    ok21 = eq nz_u16_rem_ok, 1
+    ok22 = eq nz_u16_rem_value, 7
+    ok23 = eq nz_u32_div_ok, 1
+    ok24 = eq nz_u32_div_value, 400
+    ok25 = eq nz_u32_rem_ok, 1
+    ok26 = eq nz_u32_rem_value, 7
+    ok27 = eq nz_u64_div_ok, 1
+    ok28 = eq nz_u64_div_value, 9
+    ok29 = eq nz_u64_rem_ok, 1
+    ok30 = eq nz_u64_rem_value, 1
+    ok31 = eq nz_u64_rem_zero_result_ok, 0
+    ok32 = eq nz_usize_div_ok, 1
+    ok33 = eq nz_usize_div_value, 10
+    ok34 = eq nz_usize_rem_ok, 1
+    ok35 = eq nz_usize_rem_value, 1
+    ok36 = eq nz_i8_div_ok, 1
+    ok37 = eq nz_i8_div_value, -4
+    ok38 = eq nz_i8_rem_ok, 1
+    ok39 = eq nz_i8_rem_value, -4
+    ok40 = eq nz_i8_div_zero_result_ok, 0
+    ok41 = eq nz_i16_div_ok, 1
+    ok42 = eq nz_i16_div_value, -40
+    ok43 = eq nz_i16_rem_ok, 1
+    ok44 = eq nz_i16_rem_value, -7
+    ok45 = eq nz_i32_div_ok, 1
+    ok46 = eq nz_i32_div_value, -400
+    ok47 = eq nz_i32_rem_ok, 1
+    ok48 = eq nz_i32_rem_value, -7
+    ok49 = eq nz_i64_div_ok, 1
+    ok50 = eq nz_i64_div_value, -9
+    ok51 = eq nz_i64_rem_ok, 1
+    ok52 = eq nz_i64_rem_value, -1
+    ok53 = eq nz_i64_rem_zero_result_ok, 0
+    ok54 = eq nz_isize_div_ok, 1
+    ok55 = eq nz_isize_div_value, -10
+    ok56 = eq nz_isize_rem_ok, 1
+    ok57 = eq nz_isize_rem_value, -1
+
+    chain02 = and ok01, ok02
+    chain03 = and chain02, ok03
+    chain04 = and chain03, ok04
+    chain05 = and chain04, ok05
+    chain06 = and chain05, ok06
+    chain07 = and chain06, ok07
+    chain08 = and chain07, ok08
+    chain09 = and chain08, ok09
+    chain10 = and chain09, ok10
+    chain11 = and chain10, ok11
+    chain12 = and chain11, ok12
+    chain13 = and chain12, ok13
+    chain14 = and chain13, ok14
+    chain15 = and chain14, ok15
+    chain16 = and chain15, ok16
+    chain17 = and chain16, ok17
+    chain18 = and chain17, ok18
+    chain19 = and chain18, ok19
+    chain20 = and chain19, ok20
+    chain21 = and chain20, ok21
+    chain22 = and chain21, ok22
+    chain23 = and chain22, ok23
+    chain24 = and chain23, ok24
+    chain25 = and chain24, ok25
+    chain26 = and chain25, ok26
+    chain27 = and chain26, ok27
+    chain28 = and chain27, ok28
+    chain29 = and chain28, ok29
+    chain30 = and chain29, ok30
+    chain31 = and chain30, ok31
+    chain32 = and chain31, ok32
+    chain33 = and chain32, ok33
+    chain34 = and chain33, ok34
+    chain35 = and chain34, ok35
+    chain36 = and chain35, ok36
+    chain37 = and chain36, ok37
+    chain38 = and chain37, ok38
+    chain39 = and chain38, ok39
+    chain40 = and chain39, ok40
+    chain41 = and chain40, ok41
+    chain42 = and chain41, ok42
+    chain43 = and chain42, ok43
+    chain44 = and chain43, ok44
+    chain45 = and chain44, ok45
+    chain46 = and chain45, ok46
+    chain47 = and chain46, ok47
+    chain48 = and chain47, ok48
+    chain49 = and chain48, ok49
+    chain50 = and chain49, ok50
+    chain51 = and chain50, ok51
+    chain52 = and chain51, ok52
+    chain53 = and chain52, ok53
+    chain54 = and chain53, ok54
+    chain55 = and chain54, ok55
+    chain56 = and chain55, ok56
+    ok = and chain56, ok57
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(967)
+
+L_PASS:
+    return 0
+
 @test "sa_std num narrow byte conversion macros"():
 L_ENTRY:
     buf = stack_alloc 8

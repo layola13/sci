@@ -3780,6 +3780,78 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__num_u32_mul_product_%out_ok
 [END_MACRO]
 
+[MACRO] NUM_U8_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_DIV __num_u8_div_ok_%out_ok, __num_u8_div_value_%out_ok, %lhs, %rhs
+    __num_u8_div_in_range_%out_ok = ule __num_u8_div_value_%out_ok, NUM_U8_MAX
+    %out_ok = and __num_u8_div_ok_%out_ok, __num_u8_div_in_range_%out_ok
+    __num_u8_div_masked_%out_ok = and __num_u8_div_value_%out_ok, NUM_U8_MAX
+    %out_value = mul %out_ok, __num_u8_div_masked_%out_ok
+    !__num_u8_div_masked_%out_ok
+    !__num_u8_div_in_range_%out_ok
+    !__num_u8_div_value_%out_ok
+    !__num_u8_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_DIV __num_u16_div_ok_%out_ok, __num_u16_div_value_%out_ok, %lhs, %rhs
+    __num_u16_div_in_range_%out_ok = ule __num_u16_div_value_%out_ok, NUM_U16_MAX
+    %out_ok = and __num_u16_div_ok_%out_ok, __num_u16_div_in_range_%out_ok
+    __num_u16_div_masked_%out_ok = and __num_u16_div_value_%out_ok, NUM_U16_MAX
+    %out_value = mul %out_ok, __num_u16_div_masked_%out_ok
+    !__num_u16_div_masked_%out_ok
+    !__num_u16_div_in_range_%out_ok
+    !__num_u16_div_value_%out_ok
+    !__num_u16_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_DIV __num_u32_div_ok_%out_ok, __num_u32_div_value_%out_ok, %lhs, %rhs
+    __num_u32_div_in_range_%out_ok = ule __num_u32_div_value_%out_ok, NUM_U32_MAX
+    %out_ok = and __num_u32_div_ok_%out_ok, __num_u32_div_in_range_%out_ok
+    __num_u32_div_masked_%out_ok = and __num_u32_div_value_%out_ok, NUM_U32_MAX
+    %out_value = mul %out_ok, __num_u32_div_masked_%out_ok
+    !__num_u32_div_masked_%out_ok
+    !__num_u32_div_in_range_%out_ok
+    !__num_u32_div_value_%out_ok
+    !__num_u32_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_CHECKED_REM %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_REM __num_u8_rem_ok_%out_ok, __num_u8_rem_value_%out_ok, %lhs, %rhs
+    __num_u8_rem_in_range_%out_ok = ule __num_u8_rem_value_%out_ok, NUM_U8_MAX
+    %out_ok = and __num_u8_rem_ok_%out_ok, __num_u8_rem_in_range_%out_ok
+    __num_u8_rem_masked_%out_ok = and __num_u8_rem_value_%out_ok, NUM_U8_MAX
+    %out_value = mul %out_ok, __num_u8_rem_masked_%out_ok
+    !__num_u8_rem_masked_%out_ok
+    !__num_u8_rem_in_range_%out_ok
+    !__num_u8_rem_value_%out_ok
+    !__num_u8_rem_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_REM %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_REM __num_u16_rem_ok_%out_ok, __num_u16_rem_value_%out_ok, %lhs, %rhs
+    __num_u16_rem_in_range_%out_ok = ule __num_u16_rem_value_%out_ok, NUM_U16_MAX
+    %out_ok = and __num_u16_rem_ok_%out_ok, __num_u16_rem_in_range_%out_ok
+    __num_u16_rem_masked_%out_ok = and __num_u16_rem_value_%out_ok, NUM_U16_MAX
+    %out_value = mul %out_ok, __num_u16_rem_masked_%out_ok
+    !__num_u16_rem_masked_%out_ok
+    !__num_u16_rem_in_range_%out_ok
+    !__num_u16_rem_value_%out_ok
+    !__num_u16_rem_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_REM %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_REM __num_u32_rem_ok_%out_ok, __num_u32_rem_value_%out_ok, %lhs, %rhs
+    __num_u32_rem_in_range_%out_ok = ule __num_u32_rem_value_%out_ok, NUM_U32_MAX
+    %out_ok = and __num_u32_rem_ok_%out_ok, __num_u32_rem_in_range_%out_ok
+    __num_u32_rem_masked_%out_ok = and __num_u32_rem_value_%out_ok, NUM_U32_MAX
+    %out_value = mul %out_ok, __num_u32_rem_masked_%out_ok
+    !__num_u32_rem_masked_%out_ok
+    !__num_u32_rem_in_range_%out_ok
+    !__num_u32_rem_value_%out_ok
+    !__num_u32_rem_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NUM_U8_SATURATING_ADD %out_value, %lhs, %rhs
     EXPAND NUM_U8_CHECKED_ADD __num_u8_sat_add_ok_%out_value, __num_u8_sat_add_value_%out_value, %lhs, %rhs
     __num_u8_sat_add_over_%out_value = eq __num_u8_sat_add_ok_%out_value, 0
@@ -4484,6 +4556,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u64_mul_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_U64_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U64_CHECKED_DIV __nonzero_u64_div_ok_%out_ok, __nonzero_u64_div_value_%out_ok, %value, %rhs
+    __nonzero_u64_div_valid_%out_ok = ne __nonzero_u64_div_value_%out_ok, 0
+    %out_ok = and __nonzero_u64_div_ok_%out_ok, __nonzero_u64_div_valid_%out_ok
+    store %nz+NonZeroU64_value, __nonzero_u64_div_value_%out_ok as u64
+    !__nonzero_u64_div_valid_%out_ok
+    !__nonzero_u64_div_value_%out_ok
+    !__nonzero_u64_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U64_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U64_CHECKED_REM __nonzero_u64_rem_ok_%out_ok, __nonzero_u64_rem_value_%out_ok, %value, %rhs
+    __nonzero_u64_rem_valid_%out_ok = ne __nonzero_u64_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_u64_rem_ok_%out_ok, __nonzero_u64_rem_valid_%out_ok
+    store %nz+NonZeroU64_value, __nonzero_u64_rem_value_%out_ok as u64
+    !__nonzero_u64_rem_valid_%out_ok
+    !__nonzero_u64_rem_value_%out_ok
+    !__nonzero_u64_rem_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_U64_IS_POWER_OF_TWO %out_bool, %nz
     __nonzero_u64_pow_value_%out_bool = load %nz+NonZeroU64_value as u64
     EXPAND NUM_U64_IS_POWER_OF_TWO %out_bool, __nonzero_u64_pow_value_%out_bool
@@ -4543,6 +4635,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i64_mul_valid_%out_ok
     !__nonzero_i64_mul_value_%out_ok
     !__nonzero_i64_mul_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I64_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I64_CHECKED_DIV __nonzero_i64_div_ok_%out_ok, __nonzero_i64_div_value_%out_ok, %value, %rhs
+    __nonzero_i64_div_valid_%out_ok = ne __nonzero_i64_div_value_%out_ok, 0
+    %out_ok = and __nonzero_i64_div_ok_%out_ok, __nonzero_i64_div_valid_%out_ok
+    store %nz+NonZeroI64_value, __nonzero_i64_div_value_%out_ok as i64
+    !__nonzero_i64_div_valid_%out_ok
+    !__nonzero_i64_div_value_%out_ok
+    !__nonzero_i64_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I64_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I64_CHECKED_REM __nonzero_i64_rem_ok_%out_ok, __nonzero_i64_rem_value_%out_ok, %value, %rhs
+    __nonzero_i64_rem_valid_%out_ok = ne __nonzero_i64_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_i64_rem_ok_%out_ok, __nonzero_i64_rem_valid_%out_ok
+    store %nz+NonZeroI64_value, __nonzero_i64_rem_value_%out_ok as i64
+    !__nonzero_i64_rem_valid_%out_ok
+    !__nonzero_i64_rem_value_%out_ok
+    !__nonzero_i64_rem_ok_%out_ok
 [END_MACRO]
 
 [MACRO] NONZERO_I64_CHECKED_ABS %out_ok, %nz, %value
@@ -4624,6 +4736,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u8_mul_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_U8_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U8_CHECKED_DIV __nonzero_u8_div_ok_%out_ok, __nonzero_u8_div_value_%out_ok, %value, %rhs
+    __nonzero_u8_div_valid_%out_ok = ne __nonzero_u8_div_value_%out_ok, 0
+    %out_ok = and __nonzero_u8_div_ok_%out_ok, __nonzero_u8_div_valid_%out_ok
+    store %nz+NonZeroU8_value, __nonzero_u8_div_value_%out_ok as u64
+    !__nonzero_u8_div_valid_%out_ok
+    !__nonzero_u8_div_value_%out_ok
+    !__nonzero_u8_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U8_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U8_CHECKED_REM __nonzero_u8_rem_ok_%out_ok, __nonzero_u8_rem_value_%out_ok, %value, %rhs
+    __nonzero_u8_rem_valid_%out_ok = ne __nonzero_u8_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_u8_rem_ok_%out_ok, __nonzero_u8_rem_valid_%out_ok
+    store %nz+NonZeroU8_value, __nonzero_u8_rem_value_%out_ok as u64
+    !__nonzero_u8_rem_valid_%out_ok
+    !__nonzero_u8_rem_value_%out_ok
+    !__nonzero_u8_rem_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_U8_IS_POWER_OF_TWO %out_bool, %nz
     __nonzero_u8_pow_value_%out_bool = load %nz+NonZeroU8_value as u64
     EXPAND NUM_U8_IS_POWER_OF_TWO %out_bool, __nonzero_u8_pow_value_%out_bool
@@ -4691,6 +4823,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u16_mul_valid_%out_ok
     !__nonzero_u16_mul_value_%out_ok
     !__nonzero_u16_mul_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U16_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U16_CHECKED_DIV __nonzero_u16_div_ok_%out_ok, __nonzero_u16_div_value_%out_ok, %value, %rhs
+    __nonzero_u16_div_valid_%out_ok = ne __nonzero_u16_div_value_%out_ok, 0
+    %out_ok = and __nonzero_u16_div_ok_%out_ok, __nonzero_u16_div_valid_%out_ok
+    store %nz+NonZeroU16_value, __nonzero_u16_div_value_%out_ok as u64
+    !__nonzero_u16_div_valid_%out_ok
+    !__nonzero_u16_div_value_%out_ok
+    !__nonzero_u16_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U16_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U16_CHECKED_REM __nonzero_u16_rem_ok_%out_ok, __nonzero_u16_rem_value_%out_ok, %value, %rhs
+    __nonzero_u16_rem_valid_%out_ok = ne __nonzero_u16_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_u16_rem_ok_%out_ok, __nonzero_u16_rem_valid_%out_ok
+    store %nz+NonZeroU16_value, __nonzero_u16_rem_value_%out_ok as u64
+    !__nonzero_u16_rem_valid_%out_ok
+    !__nonzero_u16_rem_value_%out_ok
+    !__nonzero_u16_rem_ok_%out_ok
 [END_MACRO]
 
 [MACRO] NONZERO_U16_IS_POWER_OF_TWO %out_bool, %nz
@@ -4762,6 +4914,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u32_mul_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_U32_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U32_CHECKED_DIV __nonzero_u32_div_ok_%out_ok, __nonzero_u32_div_value_%out_ok, %value, %rhs
+    __nonzero_u32_div_valid_%out_ok = ne __nonzero_u32_div_value_%out_ok, 0
+    %out_ok = and __nonzero_u32_div_ok_%out_ok, __nonzero_u32_div_valid_%out_ok
+    store %nz+NonZeroU32_value, __nonzero_u32_div_value_%out_ok as u64
+    !__nonzero_u32_div_valid_%out_ok
+    !__nonzero_u32_div_value_%out_ok
+    !__nonzero_u32_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U32_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_U32_CHECKED_REM __nonzero_u32_rem_ok_%out_ok, __nonzero_u32_rem_value_%out_ok, %value, %rhs
+    __nonzero_u32_rem_valid_%out_ok = ne __nonzero_u32_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_u32_rem_ok_%out_ok, __nonzero_u32_rem_valid_%out_ok
+    store %nz+NonZeroU32_value, __nonzero_u32_rem_value_%out_ok as u64
+    !__nonzero_u32_rem_valid_%out_ok
+    !__nonzero_u32_rem_value_%out_ok
+    !__nonzero_u32_rem_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_U32_IS_POWER_OF_TWO %out_bool, %nz
     __nonzero_u32_pow_value_%out_bool = load %nz+NonZeroU32_value as u64
     EXPAND NUM_U32_IS_POWER_OF_TWO %out_bool, __nonzero_u32_pow_value_%out_bool
@@ -4802,6 +4974,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_USIZE_CHECKED_MUL %out_ok, %nz, %value, %rhs
     EXPAND NONZERO_U64_CHECKED_MUL %out_ok, %nz, %value, %rhs
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NONZERO_U64_CHECKED_DIV %out_ok, %nz, %value, %rhs
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NONZERO_U64_CHECKED_REM %out_ok, %nz, %value, %rhs
 [END_MACRO]
 
 [MACRO] NONZERO_USIZE_IS_POWER_OF_TWO %out_bool, %nz
@@ -4873,6 +5053,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i8_mul_valid_%out_ok
     !__nonzero_i8_mul_value_%out_ok
     !__nonzero_i8_mul_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I8_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I8_CHECKED_DIV __nonzero_i8_div_ok_%out_ok, __nonzero_i8_div_value_%out_ok, %value, %rhs
+    __nonzero_i8_div_valid_%out_ok = ne __nonzero_i8_div_value_%out_ok, 0
+    %out_ok = and __nonzero_i8_div_ok_%out_ok, __nonzero_i8_div_valid_%out_ok
+    store %nz+NonZeroI8_value, __nonzero_i8_div_value_%out_ok as i64
+    !__nonzero_i8_div_valid_%out_ok
+    !__nonzero_i8_div_value_%out_ok
+    !__nonzero_i8_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I8_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I8_CHECKED_REM __nonzero_i8_rem_ok_%out_ok, __nonzero_i8_rem_value_%out_ok, %value, %rhs
+    __nonzero_i8_rem_valid_%out_ok = ne __nonzero_i8_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_i8_rem_ok_%out_ok, __nonzero_i8_rem_valid_%out_ok
+    store %nz+NonZeroI8_value, __nonzero_i8_rem_value_%out_ok as i64
+    !__nonzero_i8_rem_valid_%out_ok
+    !__nonzero_i8_rem_value_%out_ok
+    !__nonzero_i8_rem_ok_%out_ok
 [END_MACRO]
 
 [MACRO] NONZERO_I8_CHECKED_ABS %out_ok, %nz, %value
@@ -4962,6 +5162,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i16_mul_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I16_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I16_CHECKED_DIV __nonzero_i16_div_ok_%out_ok, __nonzero_i16_div_value_%out_ok, %value, %rhs
+    __nonzero_i16_div_valid_%out_ok = ne __nonzero_i16_div_value_%out_ok, 0
+    %out_ok = and __nonzero_i16_div_ok_%out_ok, __nonzero_i16_div_valid_%out_ok
+    store %nz+NonZeroI16_value, __nonzero_i16_div_value_%out_ok as i64
+    !__nonzero_i16_div_valid_%out_ok
+    !__nonzero_i16_div_value_%out_ok
+    !__nonzero_i16_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I16_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I16_CHECKED_REM __nonzero_i16_rem_ok_%out_ok, __nonzero_i16_rem_value_%out_ok, %value, %rhs
+    __nonzero_i16_rem_valid_%out_ok = ne __nonzero_i16_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_i16_rem_ok_%out_ok, __nonzero_i16_rem_valid_%out_ok
+    store %nz+NonZeroI16_value, __nonzero_i16_rem_value_%out_ok as i64
+    !__nonzero_i16_rem_valid_%out_ok
+    !__nonzero_i16_rem_value_%out_ok
+    !__nonzero_i16_rem_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_I16_CHECKED_ABS %out_ok, %nz, %value
     EXPAND NUM_I16_CHECKED_ABS __nonzero_i16_abs_ok_%out_ok, __nonzero_i16_abs_value_%out_ok, %value
     __nonzero_i16_abs_valid_%out_ok = ne __nonzero_i16_abs_value_%out_ok, 0
@@ -5049,6 +5269,26 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i32_mul_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I32_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I32_CHECKED_DIV __nonzero_i32_div_ok_%out_ok, __nonzero_i32_div_value_%out_ok, %value, %rhs
+    __nonzero_i32_div_valid_%out_ok = ne __nonzero_i32_div_value_%out_ok, 0
+    %out_ok = and __nonzero_i32_div_ok_%out_ok, __nonzero_i32_div_valid_%out_ok
+    store %nz+NonZeroI32_value, __nonzero_i32_div_value_%out_ok as i64
+    !__nonzero_i32_div_valid_%out_ok
+    !__nonzero_i32_div_value_%out_ok
+    !__nonzero_i32_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I32_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NUM_I32_CHECKED_REM __nonzero_i32_rem_ok_%out_ok, __nonzero_i32_rem_value_%out_ok, %value, %rhs
+    __nonzero_i32_rem_valid_%out_ok = ne __nonzero_i32_rem_value_%out_ok, 0
+    %out_ok = and __nonzero_i32_rem_ok_%out_ok, __nonzero_i32_rem_valid_%out_ok
+    store %nz+NonZeroI32_value, __nonzero_i32_rem_value_%out_ok as i64
+    !__nonzero_i32_rem_valid_%out_ok
+    !__nonzero_i32_rem_value_%out_ok
+    !__nonzero_i32_rem_ok_%out_ok
+[END_MACRO]
+
 [MACRO] NONZERO_I32_CHECKED_ABS %out_ok, %nz, %value
     EXPAND NUM_I32_CHECKED_ABS __nonzero_i32_abs_ok_%out_ok, __nonzero_i32_abs_value_%out_ok, %value
     __nonzero_i32_abs_valid_%out_ok = ne __nonzero_i32_abs_value_%out_ok, 0
@@ -5099,6 +5339,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_ISIZE_CHECKED_MUL %out_ok, %nz, %value, %rhs
     EXPAND NONZERO_I64_CHECKED_MUL %out_ok, %nz, %value, %rhs
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_CHECKED_DIV %out_ok, %nz, %value, %rhs
+    EXPAND NONZERO_I64_CHECKED_DIV %out_ok, %nz, %value, %rhs
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_CHECKED_REM %out_ok, %nz, %value, %rhs
+    EXPAND NONZERO_I64_CHECKED_REM %out_ok, %nz, %value, %rhs
 [END_MACRO]
 
 [MACRO] NONZERO_ISIZE_CHECKED_ABS %out_ok, %nz, %value
