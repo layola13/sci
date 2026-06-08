@@ -2278,6 +2278,18 @@ L_SLICE_SORT_KEY_DONE_SMALL_%slice_reg:
 L_SLICE_SORT_KEY_END_%slice_reg:
 [END_MACRO]
 
+[MACRO] SLICE_SORT_UNSTABLE_U64 %slice_reg
+    EXPAND SLICE_SORT_U64 %slice_reg
+[END_MACRO]
+
+[MACRO] SLICE_SORT_UNSTABLE_BY_U64 %slice_reg, %compare_fn
+    EXPAND SLICE_SORT_BY_U64 %slice_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] SLICE_SORT_UNSTABLE_BY_KEY_U64 %slice_reg, %key_fn
+    EXPAND SLICE_SORT_BY_KEY_U64 %slice_reg, %key_fn
+[END_MACRO]
+
 [MACRO] SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
     __slice_copy_dst_len_%out_ok = load %dst_slice+Slice_len as u64
     __slice_copy_src_len_%out_ok = load %src_slice+Slice_len as u64

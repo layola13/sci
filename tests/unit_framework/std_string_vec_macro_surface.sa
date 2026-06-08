@@ -6087,6 +6087,155 @@ L_SLICE_VEC_SORT_OK:
     !ok
     return
 
+@test "sa_std slice and vec sort_unstable aliases"():
+L_ENTRY:
+    unstable_data = alloc 24
+    unstable_by_data = alloc 24
+    unstable_key_data = alloc 24
+    store unstable_data+0, 4 as u64
+    store unstable_data+8, 1 as u64
+    store unstable_data+16, 3 as u64
+    store unstable_by_data+0, 2 as u64
+    store unstable_by_data+8, 8 as u64
+    store unstable_by_data+16, 5 as u64
+    store unstable_key_data+0, 41 as u64
+    store unstable_key_data+8, 12 as u64
+    store unstable_key_data+16, 25 as u64
+    unstable_slice = alloc Slice_SIZE
+    unstable_by_slice = alloc Slice_SIZE
+    unstable_key_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW unstable_slice, unstable_data, 3
+    EXPAND SLICE_NEW unstable_by_slice, unstable_by_data, 3
+    EXPAND SLICE_NEW unstable_key_slice, unstable_key_data, 3
+    EXPAND SLICE_SORT_UNSTABLE_U64 unstable_slice
+    EXPAND SLICE_SORT_UNSTABLE_BY_U64 unstable_by_slice, @slice_sorted_ge
+    EXPAND SLICE_SORT_UNSTABLE_BY_KEY_U64 unstable_key_slice, @slice_sorted_key_tens
+    EXPAND SLICE_GET_U64 unstable0, unstable_slice, 0
+    EXPAND SLICE_GET_U64 unstable2, unstable_slice, 2
+    EXPAND SLICE_GET_U64 unstable_by0, unstable_by_slice, 0
+    EXPAND SLICE_GET_U64 unstable_by2, unstable_by_slice, 2
+    EXPAND SLICE_GET_U64 unstable_key0, unstable_key_slice, 0
+    EXPAND SLICE_GET_U64 unstable_key2, unstable_key_slice, 2
+
+    EXPAND VEC_NEW vec_unstable
+    EXPAND VEC_PUSH_U64 vec_unstable, 9
+    EXPAND VEC_PUSH_U64 vec_unstable, 6
+    EXPAND VEC_PUSH_U64 vec_unstable, 7
+    EXPAND VEC_SORT_UNSTABLE_U64 vec_unstable
+    EXPAND VEC_TRY_GET_U64 vec_unstable0_ok, vec_unstable0, vec_unstable, 0
+    EXPAND VEC_TRY_GET_U64 vec_unstable2_ok, vec_unstable2, vec_unstable, 2
+
+    EXPAND VEC_NEW vec_unstable_by
+    EXPAND VEC_PUSH_U64 vec_unstable_by, 3
+    EXPAND VEC_PUSH_U64 vec_unstable_by, 1
+    EXPAND VEC_PUSH_U64 vec_unstable_by, 5
+    EXPAND VEC_SORT_UNSTABLE_BY_U64 vec_unstable_by, @slice_sorted_ge
+    EXPAND VEC_TRY_GET_U64 vec_unstable_by0_ok, vec_unstable_by0, vec_unstable_by, 0
+    EXPAND VEC_TRY_GET_U64 vec_unstable_by2_ok, vec_unstable_by2, vec_unstable_by, 2
+
+    EXPAND VEC_NEW vec_unstable_key
+    EXPAND VEC_PUSH_U64 vec_unstable_key, 34
+    EXPAND VEC_PUSH_U64 vec_unstable_key, 11
+    EXPAND VEC_PUSH_U64 vec_unstable_key, 22
+    EXPAND VEC_SORT_UNSTABLE_BY_KEY_U64 vec_unstable_key, @slice_sorted_key_tens
+    EXPAND VEC_TRY_GET_U64 vec_unstable_key0_ok, vec_unstable_key0, vec_unstable_key, 0
+    EXPAND VEC_TRY_GET_U64 vec_unstable_key2_ok, vec_unstable_key2, vec_unstable_key, 2
+
+    ok_unstable0 = eq unstable0, 1
+    ok_unstable2 = eq unstable2, 4
+    ok_unstable_by0 = eq unstable_by0, 8
+    ok_unstable_by2 = eq unstable_by2, 2
+    ok_unstable_key0 = eq unstable_key0, 12
+    ok_unstable_key2 = eq unstable_key2, 41
+    ok_vec_unstable0 = eq vec_unstable0, 6
+    ok_vec_unstable2 = eq vec_unstable2, 9
+    ok_vec_unstable_by0 = eq vec_unstable_by0, 5
+    ok_vec_unstable_by2 = eq vec_unstable_by2, 1
+    ok_vec_unstable_key0 = eq vec_unstable_key0, 11
+    ok_vec_unstable_key2 = eq vec_unstable_key2, 34
+    ok_vec_flags0 = and vec_unstable0_ok, vec_unstable2_ok
+    ok_vec_flags1 = and ok_vec_flags0, vec_unstable_by0_ok
+    ok_vec_flags2 = and ok_vec_flags1, vec_unstable_by2_ok
+    ok_vec_flags3 = and ok_vec_flags2, vec_unstable_key0_ok
+    ok_vec_flags = and ok_vec_flags3, vec_unstable_key2_ok
+    ok01 = and ok_unstable0, ok_unstable2
+    ok02 = and ok01, ok_unstable_by0
+    ok03 = and ok02, ok_unstable_by2
+    ok04 = and ok03, ok_unstable_key0
+    ok05 = and ok04, ok_unstable_key2
+    ok06 = and ok05, ok_vec_unstable0
+    ok07 = and ok06, ok_vec_unstable2
+    ok08 = and ok07, ok_vec_unstable_by0
+    ok09 = and ok08, ok_vec_unstable_by2
+    ok10 = and ok09, ok_vec_unstable_key0
+    ok11 = and ok10, ok_vec_unstable_key2
+    ok = and ok11, ok_vec_flags
+
+    !unstable_data
+    !unstable_by_data
+    !unstable_key_data
+    !unstable_slice
+    !unstable_by_slice
+    !unstable_key_slice
+    !unstable0
+    !unstable2
+    !unstable_by0
+    !unstable_by2
+    !unstable_key0
+    !unstable_key2
+    !vec_unstable0_ok
+    !vec_unstable0
+    !vec_unstable2_ok
+    !vec_unstable2
+    !vec_unstable_by0_ok
+    !vec_unstable_by0
+    !vec_unstable_by2_ok
+    !vec_unstable_by2
+    !vec_unstable_key0_ok
+    !vec_unstable_key0
+    !vec_unstable_key2_ok
+    !vec_unstable_key2
+    !ok_unstable0
+    !ok_unstable2
+    !ok_unstable_by0
+    !ok_unstable_by2
+    !ok_unstable_key0
+    !ok_unstable_key2
+    !ok_vec_unstable0
+    !ok_vec_unstable2
+    !ok_vec_unstable_by0
+    !ok_vec_unstable_by2
+    !ok_vec_unstable_key0
+    !ok_vec_unstable_key2
+    !ok_vec_flags0
+    !ok_vec_flags1
+    !ok_vec_flags2
+    !ok_vec_flags3
+    !ok_vec_flags
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    EXPAND VEC_FREE vec_unstable
+    EXPAND VEC_FREE vec_unstable_by
+    EXPAND VEC_FREE vec_unstable_key
+    br ok -> L_SLICE_VEC_SORT_UNSTABLE_OK, L_SLICE_VEC_SORT_UNSTABLE_FAIL
+
+L_SLICE_VEC_SORT_UNSTABLE_FAIL:
+    !ok
+    panic(945)
+
+L_SLICE_VEC_SORT_UNSTABLE_OK:
+    !ok
+    return
+
 @test "sa_std slice and vec fill_with macros"():
 L_ENTRY:
     data = alloc 24

@@ -562,6 +562,18 @@ L_VEC_POP_IF_END_%out_ok:
     !__vec_sort_key_slice_%vec_reg
 [END_MACRO]
 
+[MACRO] VEC_SORT_UNSTABLE_U64 %vec_reg
+    EXPAND VEC_SORT_U64 %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_SORT_UNSTABLE_BY_U64 %vec_reg, %compare_fn
+    EXPAND VEC_SORT_BY_U64 %vec_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_SORT_UNSTABLE_BY_KEY_U64 %vec_reg, %key_fn
+    EXPAND VEC_SORT_BY_KEY_U64 %vec_reg, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_FILL_WITH_U64 %vec_reg, %gen_fn
     EXPAND VEC_AS_MUT_SLICE __vec_fill_with_slice_%vec_reg, %vec_reg
     EXPAND SLICE_FILL_WITH_U64 __vec_fill_with_slice_%vec_reg, %gen_fn
