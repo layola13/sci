@@ -1176,13 +1176,14 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std iter find_map and filter_map collect macros",
         "[PASS] sa_std iter eager map filter partition collect macros",
         "[PASS] sa_std iter collect take skip macros",
+        "[PASS] sa_std iter enumerate zip chain collect macros",
         "[PASS] sa_std iter try adaptor macros",
         "[PASS] sa_std iter extended cursor macros",
     };
     try runSaTestFile(
         "tests/unit_framework/std_iter_macro_surface.sa",
         iter_expected[0..],
-        "test result: ok. 8 passed; 0 failed; 0 skipped",
+        "test result: ok. 9 passed; 0 failed; 0 skipped",
     );
 
     const fs_expected = [_][]const u8{

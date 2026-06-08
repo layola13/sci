@@ -1277,6 +1277,249 @@ L_COLLECT_PASS:
     !all
     return 0
 
+@test "sa_std iter enumerate zip chain collect macros"():
+L_ENTRY:
+    values = stack_alloc 40
+    store values+0, 1 as u64
+    store values+8, 2 as u64
+    store values+16, 3 as u64
+    store values+24, 4 as u64
+    store values+32, 5 as u64
+
+    other_values = stack_alloc 24
+    store other_values+0, 10 as u64
+    store other_values+8, 20 as u64
+    store other_values+16, 30 as u64
+
+    slice = alloc Slice_SIZE
+    other_slice = alloc Slice_SIZE
+    short_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, values, 5
+    EXPAND SLICE_NEW other_slice, other_values, 3
+    EXPAND SLICE_NEW short_slice, values, 2
+
+    EXPAND ITER_FROM_SLICE enumerate_iter, slice
+    EXPAND ITER_NEXT_U64 enumerate_skip_ok, enumerate_skip_value, enumerate_iter
+    EXPAND ITER_ENUMERATE_COLLECT_U64 enumerate_vec, enumerate_iter
+    EXPAND ITER_IS_EMPTY enumerate_empty, enumerate_iter
+    EXPAND VEC_LEN enumerate_len, enumerate_vec
+    EXPAND VEC_TRY_GET_U64 enumerate_get0_ok, enumerate_get0, enumerate_vec, 0
+    EXPAND VEC_TRY_GET_U64 enumerate_get1_ok, enumerate_get1, enumerate_vec, 1
+    EXPAND VEC_TRY_GET_U64 enumerate_get6_ok, enumerate_get6, enumerate_vec, 6
+    EXPAND VEC_TRY_GET_U64 enumerate_get7_ok, enumerate_get7, enumerate_vec, 7
+
+    EXPAND ITER_FROM_SLICE zip_left_iter, slice
+    EXPAND ITER_FROM_SLICE zip_right_iter, other_slice
+    EXPAND ITER_ZIP_COLLECT_U64 zip_vec, zip_left_iter, zip_right_iter
+    EXPAND ITER_LEN zip_left_remaining, zip_left_iter
+    EXPAND ITER_IS_EMPTY zip_right_empty, zip_right_iter
+    EXPAND VEC_LEN zip_len, zip_vec
+    EXPAND VEC_TRY_GET_U64 zip_get0_ok, zip_get0, zip_vec, 0
+    EXPAND VEC_TRY_GET_U64 zip_get1_ok, zip_get1, zip_vec, 1
+    EXPAND VEC_TRY_GET_U64 zip_get4_ok, zip_get4, zip_vec, 4
+    EXPAND VEC_TRY_GET_U64 zip_get5_ok, zip_get5, zip_vec, 5
+
+    EXPAND ITER_FROM_SLICE chain_left_iter, short_slice
+    EXPAND ITER_FROM_SLICE chain_right_iter, other_slice
+    EXPAND ITER_CHAIN_COLLECT_U64 chain_vec, chain_left_iter, chain_right_iter
+    EXPAND ITER_IS_EMPTY chain_left_empty, chain_left_iter
+    EXPAND ITER_IS_EMPTY chain_right_empty, chain_right_iter
+    EXPAND VEC_LEN chain_len, chain_vec
+    EXPAND VEC_TRY_GET_U64 chain_get0_ok, chain_get0, chain_vec, 0
+    EXPAND VEC_TRY_GET_U64 chain_get1_ok, chain_get1, chain_vec, 1
+    EXPAND VEC_TRY_GET_U64 chain_get2_ok, chain_get2, chain_vec, 2
+    EXPAND VEC_TRY_GET_U64 chain_get4_ok, chain_get4, chain_vec, 4
+
+    ok01 = eq enumerate_skip_ok, 1
+    ok02 = eq enumerate_skip_value, 1
+    ok03 = eq enumerate_empty, 1
+    ok04 = eq enumerate_len, 8
+    ok05 = eq enumerate_get0_ok, 1
+    ok06 = eq enumerate_get0, 0
+    ok07 = eq enumerate_get1_ok, 1
+    ok08 = eq enumerate_get1, 2
+    ok09 = eq enumerate_get6_ok, 1
+    ok10 = eq enumerate_get6, 3
+    ok11 = eq enumerate_get7_ok, 1
+    ok12 = eq enumerate_get7, 5
+    ok13 = eq zip_left_remaining, 1
+    ok14 = eq zip_right_empty, 1
+    ok15 = eq zip_len, 6
+    ok16 = eq zip_get0_ok, 1
+    ok17 = eq zip_get0, 1
+    ok18 = eq zip_get1_ok, 1
+    ok19 = eq zip_get1, 10
+    ok20 = eq zip_get4_ok, 1
+    ok21 = eq zip_get4, 3
+    ok22 = eq zip_get5_ok, 1
+    ok23 = eq zip_get5, 30
+    ok24 = eq chain_left_empty, 1
+    ok25 = eq chain_right_empty, 1
+    ok26 = eq chain_len, 5
+    ok27 = eq chain_get0_ok, 1
+    ok28 = eq chain_get0, 1
+    ok29 = eq chain_get1_ok, 1
+    ok30 = eq chain_get1, 2
+    ok31 = eq chain_get2_ok, 1
+    ok32 = eq chain_get2, 10
+    ok33 = eq chain_get4_ok, 1
+    ok34 = eq chain_get4, 30
+
+    all01 = and ok01, ok02
+    all02 = and all01, ok03
+    all03 = and all02, ok04
+    all04 = and all03, ok05
+    all05 = and all04, ok06
+    all06 = and all05, ok07
+    all07 = and all06, ok08
+    all08 = and all07, ok09
+    all09 = and all08, ok10
+    all10 = and all09, ok11
+    all11 = and all10, ok12
+    all12 = and all11, ok13
+    all13 = and all12, ok14
+    all14 = and all13, ok15
+    all15 = and all14, ok16
+    all16 = and all15, ok17
+    all17 = and all16, ok18
+    all18 = and all17, ok19
+    all19 = and all18, ok20
+    all20 = and all19, ok21
+    all21 = and all20, ok22
+    all22 = and all21, ok23
+    all23 = and all22, ok24
+    all24 = and all23, ok25
+    all25 = and all24, ok26
+    all26 = and all25, ok27
+    all27 = and all26, ok28
+    all28 = and all27, ok29
+    all29 = and all28, ok30
+    all30 = and all29, ok31
+    all31 = and all30, ok32
+    all32 = and all31, ok33
+    all = and all32, ok34
+
+    !enumerate_skip_ok
+    !enumerate_skip_value
+    !enumerate_empty
+    !enumerate_len
+    !enumerate_get0_ok
+    !enumerate_get0
+    !enumerate_get1_ok
+    !enumerate_get1
+    !enumerate_get6_ok
+    !enumerate_get6
+    !enumerate_get7_ok
+    !enumerate_get7
+    !zip_left_remaining
+    !zip_right_empty
+    !zip_len
+    !zip_get0_ok
+    !zip_get0
+    !zip_get1_ok
+    !zip_get1
+    !zip_get4_ok
+    !zip_get4
+    !zip_get5_ok
+    !zip_get5
+    !chain_left_empty
+    !chain_right_empty
+    !chain_len
+    !chain_get0_ok
+    !chain_get0
+    !chain_get1_ok
+    !chain_get1
+    !chain_get2_ok
+    !chain_get2
+    !chain_get4_ok
+    !chain_get4
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !all01
+    !all02
+    !all03
+    !all04
+    !all05
+    !all06
+    !all07
+    !all08
+    !all09
+    !all10
+    !all11
+    !all12
+    !all13
+    !all14
+    !all15
+    !all16
+    !all17
+    !all18
+    !all19
+    !all20
+    !all21
+    !all22
+    !all23
+    !all24
+    !all25
+    !all26
+    !all27
+    !all28
+    !all29
+    !all30
+    !all31
+    !all32
+    !chain_right_iter
+    !chain_left_iter
+    !zip_right_iter
+    !zip_left_iter
+    !enumerate_iter
+    !short_slice
+    !other_slice
+    !slice
+    EXPAND VEC_FREE chain_vec
+    EXPAND VEC_FREE zip_vec
+    EXPAND VEC_FREE enumerate_vec
+    br all -> L_ENUM_ZIP_CHAIN_PASS, L_ENUM_ZIP_CHAIN_FAIL
+
+L_ENUM_ZIP_CHAIN_FAIL:
+    !all
+    panic(949)
+
+L_ENUM_ZIP_CHAIN_PASS:
+    !all
+    return 0
+
 @test "sa_std iter try adaptor macros"():
 L_ENTRY:
     values = stack_alloc 40
