@@ -861,6 +861,94 @@ L_ITER_TAKE_COLLECT_DONE_%out_vec:
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND VEC_NEW %out_vec
+    jmp L_ITER_REV_COLLECT_HEAD_%out_vec
+L_ITER_REV_COLLECT_HEAD_%out_vec:
+    EXPAND ITER_NEXT_BACK_U64 __iter_rev_collect_has_%out_vec, __iter_rev_collect_value_%out_vec, %iter_reg
+    br __iter_rev_collect_has_%out_vec -> L_ITER_REV_COLLECT_PUSH_%out_vec, L_ITER_REV_COLLECT_DONE_%out_vec
+L_ITER_REV_COLLECT_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_rev_collect_value_%out_vec
+    !__iter_rev_collect_value_%out_vec
+    !__iter_rev_collect_has_%out_vec
+    jmp L_ITER_REV_COLLECT_HEAD_%out_vec
+L_ITER_REV_COLLECT_DONE_%out_vec:
+    !__iter_rev_collect_value_%out_vec
+    !__iter_rev_collect_has_%out_vec
+[END_MACRO]
+
+[MACRO] ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_NEW %out_vec
+    jmp L_ITER_TAKE_WHILE_HEAD_%out_vec
+L_ITER_TAKE_WHILE_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_take_while_has_%out_vec, __iter_take_while_value_%out_vec, %iter_reg
+    br __iter_take_while_has_%out_vec -> L_ITER_TAKE_WHILE_CHECK_%out_vec, L_ITER_TAKE_WHILE_DONE_EMPTY_%out_vec
+L_ITER_TAKE_WHILE_CHECK_%out_vec:
+    __iter_take_while_pred_%out_vec = call %pred_fn(__iter_take_while_value_%out_vec)
+    __iter_take_while_keep_%out_vec = ne __iter_take_while_pred_%out_vec, 0
+    br __iter_take_while_keep_%out_vec -> L_ITER_TAKE_WHILE_PUSH_%out_vec, L_ITER_TAKE_WHILE_STOP_%out_vec
+L_ITER_TAKE_WHILE_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_take_while_value_%out_vec
+    !__iter_take_while_keep_%out_vec
+    !__iter_take_while_pred_%out_vec
+    !__iter_take_while_value_%out_vec
+    !__iter_take_while_has_%out_vec
+    jmp L_ITER_TAKE_WHILE_HEAD_%out_vec
+L_ITER_TAKE_WHILE_STOP_%out_vec:
+    !__iter_take_while_keep_%out_vec
+    !__iter_take_while_pred_%out_vec
+    !__iter_take_while_value_%out_vec
+    !__iter_take_while_has_%out_vec
+    jmp L_ITER_TAKE_WHILE_DONE_%out_vec
+L_ITER_TAKE_WHILE_DONE_EMPTY_%out_vec:
+    !__iter_take_while_value_%out_vec
+    !__iter_take_while_has_%out_vec
+    jmp L_ITER_TAKE_WHILE_DONE_%out_vec
+L_ITER_TAKE_WHILE_DONE_%out_vec:
+[END_MACRO]
+
+[MACRO] ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_NEW %out_vec
+    jmp L_ITER_SKIP_WHILE_HEAD_%out_vec
+L_ITER_SKIP_WHILE_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_skip_while_has_%out_vec, __iter_skip_while_value_%out_vec, %iter_reg
+    br __iter_skip_while_has_%out_vec -> L_ITER_SKIP_WHILE_CHECK_%out_vec, L_ITER_SKIP_WHILE_DONE_EMPTY_%out_vec
+L_ITER_SKIP_WHILE_CHECK_%out_vec:
+    __iter_skip_while_pred_%out_vec = call %pred_fn(__iter_skip_while_value_%out_vec)
+    __iter_skip_while_drop_%out_vec = ne __iter_skip_while_pred_%out_vec, 0
+    br __iter_skip_while_drop_%out_vec -> L_ITER_SKIP_WHILE_DROP_%out_vec, L_ITER_SKIP_WHILE_FIRST_PUSH_%out_vec
+L_ITER_SKIP_WHILE_DROP_%out_vec:
+    !__iter_skip_while_drop_%out_vec
+    !__iter_skip_while_pred_%out_vec
+    !__iter_skip_while_value_%out_vec
+    !__iter_skip_while_has_%out_vec
+    jmp L_ITER_SKIP_WHILE_HEAD_%out_vec
+L_ITER_SKIP_WHILE_FIRST_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_skip_while_value_%out_vec
+    !__iter_skip_while_drop_%out_vec
+    !__iter_skip_while_pred_%out_vec
+    !__iter_skip_while_value_%out_vec
+    !__iter_skip_while_has_%out_vec
+    jmp L_ITER_SKIP_WHILE_TAIL_HEAD_%out_vec
+L_ITER_SKIP_WHILE_TAIL_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_skip_tail_has_%out_vec, __iter_skip_tail_value_%out_vec, %iter_reg
+    br __iter_skip_tail_has_%out_vec -> L_ITER_SKIP_WHILE_TAIL_PUSH_%out_vec, L_ITER_SKIP_WHILE_TAIL_DONE_%out_vec
+L_ITER_SKIP_WHILE_TAIL_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __iter_skip_tail_value_%out_vec
+    !__iter_skip_tail_value_%out_vec
+    !__iter_skip_tail_has_%out_vec
+    jmp L_ITER_SKIP_WHILE_TAIL_HEAD_%out_vec
+L_ITER_SKIP_WHILE_TAIL_DONE_%out_vec:
+    !__iter_skip_tail_value_%out_vec
+    !__iter_skip_tail_has_%out_vec
+    jmp L_ITER_SKIP_WHILE_DONE_%out_vec
+L_ITER_SKIP_WHILE_DONE_EMPTY_%out_vec:
+    !__iter_skip_while_value_%out_vec
+    !__iter_skip_while_has_%out_vec
+    jmp L_ITER_SKIP_WHILE_DONE_%out_vec
+L_ITER_SKIP_WHILE_DONE_%out_vec:
+[END_MACRO]
+
 [MACRO] ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_NEW %out_vec
     __iter_enumerate_index_%out_vec = add 0, 0

@@ -19,6 +19,11 @@ L_ENTRY:
     out = ult value, 10
     return out
 
+@iter_lt_four(value: u64) -> u64:
+L_ENTRY:
+    out = ult value, 4
+    return out
+
 @iter_accumulate_tens(acc: u64, value: u64) -> u64:
 L_ENTRY:
     scaled = mul value, 10
@@ -1274,6 +1279,179 @@ L_COLLECT_FAIL:
     panic(948)
 
 L_COLLECT_PASS:
+    !all
+    return 0
+
+@test "sa_std iter rev take_while skip_while collect macros"():
+L_ENTRY:
+    values = stack_alloc 40
+    store values+0, 1 as u64
+    store values+8, 2 as u64
+    store values+16, 3 as u64
+    store values+24, 4 as u64
+    store values+32, 5 as u64
+
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, values, 5
+
+    EXPAND ITER_FROM_SLICE rev_iter, slice
+    EXPAND ITER_REV_COLLECT_U64 rev_vec, rev_iter
+    EXPAND ITER_IS_EMPTY rev_empty, rev_iter
+    EXPAND VEC_LEN rev_len, rev_vec
+    EXPAND VEC_TRY_GET_U64 rev_get0_ok, rev_get0, rev_vec, 0
+    EXPAND VEC_TRY_GET_U64 rev_get4_ok, rev_get4, rev_vec, 4
+
+    EXPAND ITER_FROM_SLICE take_while_iter, slice
+    EXPAND ITER_TAKE_WHILE_COLLECT_U64 take_while_vec, take_while_iter, @iter_lt_four
+    EXPAND ITER_LEN take_while_remaining, take_while_iter
+    EXPAND VEC_LEN take_while_len, take_while_vec
+    EXPAND VEC_TRY_GET_U64 take_while_get0_ok, take_while_get0, take_while_vec, 0
+    EXPAND VEC_TRY_GET_U64 take_while_get2_ok, take_while_get2, take_while_vec, 2
+
+    EXPAND ITER_FROM_SLICE take_all_iter, slice
+    EXPAND ITER_TAKE_WHILE_COLLECT_U64 take_all_vec, take_all_iter, @iter_lt_ten
+    EXPAND ITER_IS_EMPTY take_all_empty, take_all_iter
+    EXPAND VEC_LEN take_all_len, take_all_vec
+
+    EXPAND ITER_FROM_SLICE skip_while_iter, slice
+    EXPAND ITER_SKIP_WHILE_COLLECT_U64 skip_while_vec, skip_while_iter, @iter_lt_four
+    EXPAND ITER_IS_EMPTY skip_while_empty, skip_while_iter
+    EXPAND VEC_LEN skip_while_len, skip_while_vec
+    EXPAND VEC_TRY_GET_U64 skip_while_get0_ok, skip_while_get0, skip_while_vec, 0
+    EXPAND VEC_TRY_GET_U64 skip_while_get1_ok, skip_while_get1, skip_while_vec, 1
+
+    EXPAND ITER_FROM_SLICE skip_all_iter, slice
+    EXPAND ITER_SKIP_WHILE_COLLECT_U64 skip_all_vec, skip_all_iter, @iter_lt_ten
+    EXPAND ITER_IS_EMPTY skip_all_empty, skip_all_iter
+    EXPAND VEC_LEN skip_all_len, skip_all_vec
+
+    ok01 = eq rev_empty, 1
+    ok02 = eq rev_len, 5
+    ok03 = eq rev_get0_ok, 1
+    ok04 = eq rev_get0, 5
+    ok05 = eq rev_get4_ok, 1
+    ok06 = eq rev_get4, 1
+    ok07 = eq take_while_remaining, 1
+    ok08 = eq take_while_len, 3
+    ok09 = eq take_while_get0_ok, 1
+    ok10 = eq take_while_get0, 1
+    ok11 = eq take_while_get2_ok, 1
+    ok12 = eq take_while_get2, 3
+    ok13 = eq take_all_empty, 1
+    ok14 = eq take_all_len, 5
+    ok15 = eq skip_while_empty, 1
+    ok16 = eq skip_while_len, 2
+    ok17 = eq skip_while_get0_ok, 1
+    ok18 = eq skip_while_get0, 4
+    ok19 = eq skip_while_get1_ok, 1
+    ok20 = eq skip_while_get1, 5
+    ok21 = eq skip_all_empty, 1
+    ok22 = eq skip_all_len, 0
+
+    all01 = and ok01, ok02
+    all02 = and all01, ok03
+    all03 = and all02, ok04
+    all04 = and all03, ok05
+    all05 = and all04, ok06
+    all06 = and all05, ok07
+    all07 = and all06, ok08
+    all08 = and all07, ok09
+    all09 = and all08, ok10
+    all10 = and all09, ok11
+    all11 = and all10, ok12
+    all12 = and all11, ok13
+    all13 = and all12, ok14
+    all14 = and all13, ok15
+    all15 = and all14, ok16
+    all16 = and all15, ok17
+    all17 = and all16, ok18
+    all18 = and all17, ok19
+    all19 = and all18, ok20
+    all20 = and all19, ok21
+    all = and all20, ok22
+
+    !rev_empty
+    !rev_len
+    !rev_get0_ok
+    !rev_get0
+    !rev_get4_ok
+    !rev_get4
+    !take_while_remaining
+    !take_while_len
+    !take_while_get0_ok
+    !take_while_get0
+    !take_while_get2_ok
+    !take_while_get2
+    !take_all_empty
+    !take_all_len
+    !skip_while_empty
+    !skip_while_len
+    !skip_while_get0_ok
+    !skip_while_get0
+    !skip_while_get1_ok
+    !skip_while_get1
+    !skip_all_empty
+    !skip_all_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !all01
+    !all02
+    !all03
+    !all04
+    !all05
+    !all06
+    !all07
+    !all08
+    !all09
+    !all10
+    !all11
+    !all12
+    !all13
+    !all14
+    !all15
+    !all16
+    !all17
+    !all18
+    !all19
+    !all20
+    !skip_all_iter
+    !skip_while_iter
+    !take_all_iter
+    !take_while_iter
+    !rev_iter
+    !slice
+    EXPAND VEC_FREE skip_all_vec
+    EXPAND VEC_FREE skip_while_vec
+    EXPAND VEC_FREE take_all_vec
+    EXPAND VEC_FREE take_while_vec
+    EXPAND VEC_FREE rev_vec
+    br all -> L_REV_WHILE_PASS, L_REV_WHILE_FAIL
+
+L_REV_WHILE_FAIL:
+    !all
+    panic(950)
+
+L_REV_WHILE_PASS:
     !all
     return 0
 
