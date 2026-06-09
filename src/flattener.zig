@@ -3477,6 +3477,53 @@ fn mergeConstDeclsAllowingIdentical(
     }
 }
 
+fn cloneLayoutVersion(allocator: std.mem.Allocator, source: LayoutVersion) !LayoutVersion {
+    return .{
+        .path = try allocator.dupe(u8, source.path),
+        .version = source.version,
+    };
+}
+
+fn mergeLayoutVersionsAllowingIdentical(
+    allocator: std.mem.Allocator,
+    target: *std.ArrayList(LayoutVersion),
+    source: []const LayoutVersion,
+) !void {
+    for (source) |layout_version| {
+        var existing: ?*LayoutVersion = null;
+        for (target.items) |*item| {
+            if (std.mem.eql(u8, item.path, layout_version.path)) {
+                existing = item;
+                break;
+            }
+        }
+        if (existing) |item| {
+            if (item.version != layout_version.version) return error.LayoutVersionConflict;
+            continue;
+        }
+        const cloned = try cloneLayoutVersion(allocator, layout_version);
+        errdefer {
+            var cleanup = cloned;
+            cleanup.deinit(allocator);
+        }
+        try target.append(cloned);
+    }
+}
+
+fn mergePackageIdentities(
+    allocator: std.mem.Allocator,
+    target: *std.StringHashMap(void),
+    source: *const std.StringHashMap(void),
+) !void {
+    var it = source.iterator();
+    while (it.next()) |entry| {
+        if (target.contains(entry.key_ptr.*)) continue;
+        const copy = try allocator.dupe(u8, entry.key_ptr.*);
+        errdefer allocator.free(copy);
+        try target.put(copy, {});
+    }
+}
+
 fn cloneRemappedOperand(
     allocator: std.mem.Allocator,
     owned_text: *std.ArrayList([]const u8),
@@ -4880,6 +4927,62 @@ test "frontend cache clone rebuilds native register name slices" {
     try std.testing.expectEqualStrings("value", cloned.native_reg_names[3]);
     try std.testing.expectEqualStrings("i32", cloned.native_reg_names[4]);
     try std.testing.expect(cloned.native_reg_names[0].ptr != source.native_reg_names[0].ptr);
+}
+
+test "frontend cache merge package identities deep copies new keys" {
+    var target = std.StringHashMap(void).init(std.testing.allocator);
+    defer {
+        var it = target.iterator();
+        while (it.next()) |entry| std.testing.allocator.free(entry.key_ptr.*);
+        target.deinit();
+    }
+    try target.put(try std.testing.allocator.dupe(u8, "pkg/a"), {});
+
+    var source = std.StringHashMap(void).init(std.testing.allocator);
+    defer {
+        var it = source.iterator();
+        while (it.next()) |entry| std.testing.allocator.free(entry.key_ptr.*);
+        source.deinit();
+    }
+    try source.put(try std.testing.allocator.dupe(u8, "pkg/a"), {});
+    try source.put(try std.testing.allocator.dupe(u8, "pkg/b"), {});
+    const source_b_key = source.getKeyPtr("pkg/b").?.*;
+
+    try mergePackageIdentities(std.testing.allocator, &target, &source);
+    try std.testing.expectEqual(@as(u32, 2), target.count());
+    const target_b_key = target.getKeyPtr("pkg/b").?.*;
+    try std.testing.expectEqualStrings("pkg/b", target_b_key);
+    try std.testing.expect(target_b_key.ptr != source_b_key.ptr);
+
+    try mergePackageIdentities(std.testing.allocator, &target, &source);
+    try std.testing.expectEqual(@as(u32, 2), target.count());
+}
+
+test "frontend cache merge layout versions skips identical and rejects conflicts" {
+    var target = std.ArrayList(LayoutVersion).init(std.testing.allocator);
+    defer {
+        for (target.items) |*item| item.deinit(std.testing.allocator);
+        target.deinit();
+    }
+    try target.append(.{ .path = try std.testing.allocator.dupe(u8, "a.sal"), .version = 1 });
+
+    var source = [_]LayoutVersion{
+        .{ .path = try std.testing.allocator.dupe(u8, "a.sal"), .version = 1 },
+        .{ .path = try std.testing.allocator.dupe(u8, "b.sal"), .version = 2 },
+    };
+    defer for (&source) |*item| item.deinit(std.testing.allocator);
+
+    try mergeLayoutVersionsAllowingIdentical(std.testing.allocator, &target, source[0..]);
+    try std.testing.expectEqual(@as(usize, 2), target.items.len);
+    try std.testing.expectEqualStrings("b.sal", target.items[1].path);
+    try std.testing.expectEqual(@as(u64, 2), target.items[1].version);
+    try std.testing.expect(target.items[1].path.ptr != source[1].path.ptr);
+
+    var conflict = [_]LayoutVersion{
+        .{ .path = try std.testing.allocator.dupe(u8, "a.sal"), .version = 99 },
+    };
+    defer for (&conflict) |*item| item.deinit(std.testing.allocator);
+    try std.testing.expectError(error.LayoutVersionConflict, mergeLayoutVersionsAllowingIdentical(std.testing.allocator, &target, conflict[0..]));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {

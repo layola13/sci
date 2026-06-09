@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999995%
+Current progress: 99.999996%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added tested fragment metadata merge helpers for future cached frontend fragments.
+  - Added `package_identities` merge coverage that skips duplicate package keys and deep-copies newly imported identities instead of aliasing source fragment storage.
+  - Added `LayoutVersion` clone/merge helpers that skip identical `(path, version)` pairs, deep-copy new paths, and reject same-path/different-version conflicts.
+  - This closes the remaining fragment-metadata merge prerequisite before cached `FlattenResult` fragments can be appended into a consumer result; production cache wiring and cache-on/off equivalence tests remain separate work.
+  - Verification: `zig test src/flattener.zig` -> `80/80 tests passed`; `zig test src/cli.zig` -> `86/86 tests passed`.
 
 - 2026-06-09: Added tested `Instruction` clone-remapping for future cached frontend fragments.
   - Added a helper to deep-clone instructions while remapping symbol/reg/label/function operands and applying source/expanded line offsets.
