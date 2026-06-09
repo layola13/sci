@@ -1614,6 +1614,10 @@ test "sa_std io helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] PRINTLN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] READ_LINE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] FORMAT_INT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] IO_CURSOR_READ_EXACT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] IO_CURSOR_FILL_BUF"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] IO_CURSOR_CONSUME"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] IO_CURSOR_WRITE_ALL"));
 
     var io_flat = try flattenFixture(std.testing.allocator, "sa_std/io.sa", io_src);
     defer io_flat.deinit(std.testing.allocator);

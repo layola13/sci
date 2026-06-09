@@ -285,6 +285,43 @@ L_IO_CURSOR_READ_COPY_%out_len:
     !__io_cursor_rem_%out_len
 [END_MACRO]
 
+[MACRO] IO_CURSOR_READ_EXACT %out_status, %cursor, %dst_ptr, %len
+    EXPAND IO_CURSOR_REMAINING __io_cursor_exact_rem_%out_status, %cursor
+    __io_cursor_exact_fits_%out_status = ule %len, __io_cursor_exact_rem_%out_status
+    br __io_cursor_exact_fits_%out_status -> L_IO_CURSOR_READ_EXACT_OK_%out_status, L_IO_CURSOR_READ_EXACT_EOF_%out_status
+
+L_IO_CURSOR_READ_EXACT_OK_%out_status:
+    EXPAND IO_CURSOR_READ __io_cursor_exact_read_%out_status, %cursor, %dst_ptr, %len
+    %out_status = add 0, SA_IO_OK
+    !__io_cursor_exact_read_%out_status
+    !__io_cursor_exact_fits_%out_status
+    !__io_cursor_exact_rem_%out_status
+    jmp L_IO_CURSOR_READ_EXACT_END_%out_status
+
+L_IO_CURSOR_READ_EXACT_EOF_%out_status:
+    __io_cursor_exact_len_%out_status = load %cursor+IoCursor_len as u64
+    store %cursor+IoCursor_pos, __io_cursor_exact_len_%out_status as u64
+    %out_status = add 0, SA_IO_ERR_EOF
+    !__io_cursor_exact_len_%out_status
+    !__io_cursor_exact_fits_%out_status
+    !__io_cursor_exact_rem_%out_status
+
+L_IO_CURSOR_READ_EXACT_END_%out_status:
+[END_MACRO]
+
+[MACRO] IO_CURSOR_FILL_BUF %out_status, %out_slice, %cursor
+    EXPAND IO_CURSOR_REMAINING_SLICE %out_slice, %cursor
+    %out_status = add 0, SA_IO_OK
+[END_MACRO]
+
+[MACRO] IO_CURSOR_CONSUME %cursor, %amt
+    __io_cursor_consume_pos_%cursor = load %cursor+IoCursor_pos as u64
+    __io_cursor_consume_next_%cursor = add __io_cursor_consume_pos_%cursor, %amt
+    store %cursor+IoCursor_pos, __io_cursor_consume_next_%cursor as u64
+    !__io_cursor_consume_next_%cursor
+    !__io_cursor_consume_pos_%cursor
+[END_MACRO]
+
 [MACRO] IO_CURSOR_READ_TO_END %out_len, %cursor, %dst_ptr, %cap
     EXPAND IO_CURSOR_REMAINING __io_cursor_read_to_end_rem_%out_len, %cursor
     __io_cursor_read_to_end_cap_%out_len = ule %cap, __io_cursor_read_to_end_rem_%out_len
@@ -365,6 +402,25 @@ L_IO_CURSOR_WRITE_COPY_%out_len:
     !__io_cursor_base_%out_len
     !__io_cursor_take_len_%out_len
     !__io_cursor_rem_%out_len
+[END_MACRO]
+
+[MACRO] IO_CURSOR_WRITE_ALL %out_status, %cursor, %src_ptr, %len
+    EXPAND IO_CURSOR_WRITE __io_cursor_write_all_len_%out_status, %cursor, %src_ptr, %len
+    __io_cursor_write_all_ok_%out_status = eq __io_cursor_write_all_len_%out_status, %len
+    br __io_cursor_write_all_ok_%out_status -> L_IO_CURSOR_WRITE_ALL_OK_%out_status, L_IO_CURSOR_WRITE_ALL_EOF_%out_status
+
+L_IO_CURSOR_WRITE_ALL_OK_%out_status:
+    %out_status = add 0, SA_IO_OK
+    !__io_cursor_write_all_ok_%out_status
+    !__io_cursor_write_all_len_%out_status
+    jmp L_IO_CURSOR_WRITE_ALL_END_%out_status
+
+L_IO_CURSOR_WRITE_ALL_EOF_%out_status:
+    %out_status = add 0, SA_IO_ERR_EOF
+    !__io_cursor_write_all_ok_%out_status
+    !__io_cursor_write_all_len_%out_status
+
+L_IO_CURSOR_WRITE_ALL_END_%out_status:
 [END_MACRO]
 
 [MACRO] IO_CURSOR_SEEK_START %out_pos, %cursor, %pos

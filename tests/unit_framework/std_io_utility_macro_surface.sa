@@ -295,6 +295,7 @@ L_ENTRY:
     EXPAND IO_CURSOR_NEW cursor, data, 4
     cursor_slice = stack_alloc IoSlice_SIZE
     cursor_mut_slice = stack_alloc IoSliceMut_SIZE
+    fill_slice = stack_alloc IoSlice_SIZE
     EXPAND IO_CURSOR_AS_PTR cursor_ptr, cursor
     EXPAND IO_CURSOR_LEN cursor_len, cursor
     EXPAND IO_CURSOR_IS_EMPTY cursor_empty, cursor
@@ -312,9 +313,29 @@ L_ENTRY:
     EXPAND IO_CURSOR_REMAINING rem1, cursor
     read0 = load dst+0 as u8
     read1 = load dst+1 as u8
+    EXPAND IO_CURSOR_SEEK_START exact_seed, cursor, 0
+    EXPAND IO_CURSOR_READ_EXACT exact_status, cursor, dst, 3
+    EXPAND IO_CURSOR_POSITION exact_pos, cursor
+    exact0 = load dst+0 as u8
+    exact2 = load dst+2 as u8
+    EXPAND IO_CURSOR_READ_EXACT exact_eof_status, cursor, dst, 3
+    EXPAND IO_CURSOR_POSITION exact_eof_pos, cursor
+    EXPAND IO_CURSOR_SEEK_START fill_seed, cursor, 1
+    EXPAND IO_CURSOR_FILL_BUF fill_status, fill_slice, cursor
+    EXPAND IO_SLICE_LEN fill_len, fill_slice
+    EXPAND IO_SLICE_AS_PTR fill_ptr, fill_slice
+    fill0 = load fill_ptr+0 as u8
+    EXPAND IO_CURSOR_CONSUME cursor, 2
+    EXPAND IO_CURSOR_POSITION consume_pos, cursor
+    EXPAND IO_CURSOR_REMAINING consume_rem, cursor
     EXPAND IO_CURSOR_SEEK_START seek_pos, cursor, 1
     EXPAND IO_CURSOR_WRITE write_len, cursor, src, 4
     EXPAND IO_CURSOR_POSITION pos2, cursor
+    EXPAND IO_CURSOR_SEEK_START write_all_seed, cursor, 0
+    EXPAND IO_CURSOR_WRITE_ALL write_all_status, cursor, src, 2
+    EXPAND IO_CURSOR_POSITION write_all_pos, cursor
+    EXPAND IO_CURSOR_WRITE_ALL write_all_eof_status, cursor, src, 4
+    EXPAND IO_CURSOR_POSITION write_all_eof_pos, cursor
     EXPAND IO_CURSOR_SEEK_CURRENT seek_current_back, cursor, -2
     EXPAND IO_CURSOR_POSITION pos3, cursor
     EXPAND IO_CURSOR_SEEK_CURRENT seek_current_forward, cursor, 1
@@ -377,17 +398,35 @@ L_ENTRY:
     ok_rem1 = eq rem1, 2
     ok_read0 = eq read0, 1
     ok_read1 = eq read1, 2
+    ok_exact_seed = eq exact_seed, 0
+    ok_exact_status = eq exact_status, SA_IO_OK
+    ok_exact_pos = eq exact_pos, 3
+    ok_exact0 = eq exact0, 1
+    ok_exact2 = eq exact2, 3
+    ok_exact_eof_status = eq exact_eof_status, SA_IO_ERR_EOF
+    ok_exact_eof_pos = eq exact_eof_pos, 4
+    ok_fill_seed = eq fill_seed, 1
+    ok_fill_status = eq fill_status, SA_IO_OK
+    ok_fill_len = eq fill_len, 3
+    ok_fill0 = eq fill0, 2
+    ok_consume_pos = eq consume_pos, 3
+    ok_consume_rem = eq consume_rem, 1
     ok_seek = eq seek_pos, 1
     ok_write_len = eq write_len, 3
     ok_pos2 = eq pos2, 4
+    ok_write_all_seed = eq write_all_seed, 0
+    ok_write_all_status = eq write_all_status, SA_IO_OK
+    ok_write_all_pos = eq write_all_pos, 2
+    ok_write_all_eof_status = eq write_all_eof_status, SA_IO_ERR_EOF
+    ok_write_all_eof_pos = eq write_all_eof_pos, 4
     ok_seek_current_back = eq seek_current_back, 2
     ok_pos3 = eq pos3, 2
     ok_seek_current_forward = eq seek_current_forward, 3
     ok_seek_end_back = eq seek_end_back, 3
     ok_seek_end_forward = eq seek_end_forward, 6
-    ok_d1 = eq d1, 90
-    ok_d2 = eq d2, 91
-    ok_d3 = eq d3, 0
+    ok_d1 = eq d1, 91
+    ok_d2 = eq d2, 90
+    ok_d3 = eq d3, 91
     ok_empty_len = eq empty_len, 0
     ok_empty_pos = eq empty_pos, 0
     ok_take_limit0 = eq take_limit0, 2
@@ -421,35 +460,53 @@ L_ENTRY:
     ok13 = and ok12, ok_rem1
     ok14 = and ok13, ok_read0
     ok15 = and ok14, ok_read1
-    ok16 = and ok15, ok_seek
-    ok17 = and ok16, ok_write_len
-    ok18 = and ok17, ok_pos2
-    ok19 = and ok18, ok_seek_current_back
-    ok20 = and ok19, ok_pos3
-    ok21 = and ok20, ok_seek_current_forward
-    ok22 = and ok21, ok_seek_end_back
-    ok23 = and ok22, ok_seek_end_forward
-    ok24 = and ok23, ok_d1
-    ok25 = and ok24, ok_d2
-    ok26 = and ok25, ok_d3
-    ok27 = and ok26, ok_empty_len
-    ok28 = and ok27, ok_empty_pos
-    ok29 = and ok28, ok_take_limit0
-    ok30 = and ok29, ok_take_inner
-    ok31 = and ok30, ok_take_read_len
-    ok32 = and ok31, ok_take_limit1
-    ok33 = and ok32, ok_take_pos
-    ok34 = and ok33, ok_take_read_len2
-    ok35 = and ok34, ok_take0
-    ok36 = and ok35, ok_take1
-    ok37 = and ok36, ok_repeat_len
-    ok38 = and ok37, ok_repeat0
-    ok39 = and ok38, ok_repeat1
-    ok40 = and ok39, ok_repeat2
-    ok41 = and ok40, ok_sink_len
-    ok42 = and ok41, ok_copy_len
-    ok43 = and ok42, ok_copy0
-    ok = and ok43, ok_copy1
+    ok16 = and ok15, ok_exact_seed
+    ok17 = and ok16, ok_exact_status
+    ok18 = and ok17, ok_exact_pos
+    ok19 = and ok18, ok_exact0
+    ok20 = and ok19, ok_exact2
+    ok21 = and ok20, ok_exact_eof_status
+    ok22 = and ok21, ok_exact_eof_pos
+    ok23 = and ok22, ok_fill_seed
+    ok24 = and ok23, ok_fill_status
+    ok25 = and ok24, ok_fill_len
+    ok26 = and ok25, ok_fill0
+    ok27 = and ok26, ok_consume_pos
+    ok28 = and ok27, ok_consume_rem
+    ok29 = and ok28, ok_seek
+    ok30 = and ok29, ok_write_len
+    ok31 = and ok30, ok_pos2
+    ok32 = and ok31, ok_write_all_seed
+    ok33 = and ok32, ok_write_all_status
+    ok34 = and ok33, ok_write_all_pos
+    ok35 = and ok34, ok_write_all_eof_status
+    ok36 = and ok35, ok_write_all_eof_pos
+    ok37 = and ok36, ok_seek_current_back
+    ok38 = and ok37, ok_pos3
+    ok39 = and ok38, ok_seek_current_forward
+    ok40 = and ok39, ok_seek_end_back
+    ok41 = and ok40, ok_seek_end_forward
+    ok42 = and ok41, ok_d1
+    ok43 = and ok42, ok_d2
+    ok44 = and ok43, ok_d3
+    ok45 = and ok44, ok_empty_len
+    ok46 = and ok45, ok_empty_pos
+    ok47 = and ok46, ok_take_limit0
+    ok48 = and ok47, ok_take_inner
+    ok49 = and ok48, ok_take_read_len
+    ok50 = and ok49, ok_take_limit1
+    ok51 = and ok50, ok_take_pos
+    ok52 = and ok51, ok_take_read_len2
+    ok53 = and ok52, ok_take0
+    ok54 = and ok53, ok_take1
+    ok55 = and ok54, ok_repeat_len
+    ok56 = and ok55, ok_repeat0
+    ok57 = and ok56, ok_repeat1
+    ok58 = and ok57, ok_repeat2
+    ok59 = and ok58, ok_sink_len
+    ok60 = and ok59, ok_copy_len
+    ok61 = and ok60, ok_copy0
+    ok = and ok61, ok_copy1
 
     call @sa_assert_eq_i64(take_limit0, 2, 9981)
     call @sa_assert_eq_i64(ok_take_inner, 1, 9982)
@@ -476,9 +533,28 @@ L_ENTRY:
     !rem1
     !read0
     !read1
+    !exact_seed
+    !exact_status
+    !exact_pos
+    !exact0
+    !exact2
+    !exact_eof_status
+    !exact_eof_pos
+    !fill_seed
+    !fill_status
+    !fill_len
+    !fill_ptr
+    !fill0
+    !consume_pos
+    !consume_rem
     !seek_pos
     !write_len
     !pos2
+    !write_all_seed
+    !write_all_status
+    !write_all_pos
+    !write_all_eof_status
+    !write_all_eof_pos
     !seek_current_back
     !pos3
     !seek_current_forward
@@ -521,9 +597,27 @@ L_ENTRY:
     !ok_rem1
     !ok_read0
     !ok_read1
+    !ok_exact_seed
+    !ok_exact_status
+    !ok_exact_pos
+    !ok_exact0
+    !ok_exact2
+    !ok_exact_eof_status
+    !ok_exact_eof_pos
+    !ok_fill_seed
+    !ok_fill_status
+    !ok_fill_len
+    !ok_fill0
+    !ok_consume_pos
+    !ok_consume_rem
     !ok_seek
     !ok_write_len
     !ok_pos2
+    !ok_write_all_seed
+    !ok_write_all_status
+    !ok_write_all_pos
+    !ok_write_all_eof_status
+    !ok_write_all_eof_pos
     !ok_seek_current_back
     !ok_pos3
     !ok_seek_current_forward
@@ -593,6 +687,24 @@ L_ENTRY:
     !ok41
     !ok42
     !ok43
+    !ok44
+    !ok45
+    !ok46
+    !ok47
+    !ok48
+    !ok49
+    !ok50
+    !ok51
+    !ok52
+    !ok53
+    !ok54
+    !ok55
+    !ok56
+    !ok57
+    !ok58
+    !ok59
+    !ok60
+    !ok61
 
     br ok -> L_PASS, L_FAIL
 
