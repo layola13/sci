@@ -500,6 +500,22 @@ L_IO_CURSOR_SEEK_END_DONE_%out_pos:
     %out_len = add 0, 0
 [END_MACRO]
 
+[MACRO] IO_EMPTY_READ_EXACT %out_status, %dst_ptr, %len
+    __io_empty_exact_zero_%out_status = eq %len, 0
+    br __io_empty_exact_zero_%out_status -> L_IO_EMPTY_READ_EXACT_OK_%out_status, L_IO_EMPTY_READ_EXACT_EOF_%out_status
+
+L_IO_EMPTY_READ_EXACT_OK_%out_status:
+    %out_status = add 0, SA_IO_OK
+    !__io_empty_exact_zero_%out_status
+    jmp L_IO_EMPTY_READ_EXACT_END_%out_status
+
+L_IO_EMPTY_READ_EXACT_EOF_%out_status:
+    %out_status = add 0, SA_IO_ERR_EOF
+    !__io_empty_exact_zero_%out_status
+
+L_IO_EMPTY_READ_EXACT_END_%out_status:
+[END_MACRO]
+
 [MACRO] IO_EMPTY_SEEK %out_pos
     %out_pos = add 0, 0
 [END_MACRO]
@@ -597,8 +613,20 @@ L_IO_TAKE_READ_TO_STRING_END_%out_status:
     !__io_repeat_byte_%out_len
 [END_MACRO]
 
+[MACRO] IO_REPEAT_READ_EXACT %out_status, %repeat, %dst_ptr, %len
+    EXPAND IO_REPEAT_READ __io_repeat_exact_len_%out_status, %repeat, %dst_ptr, %len
+    %out_status = add 0, SA_IO_OK
+    !__io_repeat_exact_len_%out_status
+[END_MACRO]
+
 [MACRO] IO_SINK_WRITE %out_len, %src_ptr, %len
     %out_len = add %len, 0
+[END_MACRO]
+
+[MACRO] IO_SINK_WRITE_ALL %out_status, %src_ptr, %len
+    EXPAND IO_SINK_WRITE __io_sink_write_all_len_%out_status, %src_ptr, %len
+    %out_status = add 0, SA_IO_OK
+    !__io_sink_write_all_len_%out_status
 [END_MACRO]
 
 [MACRO] IO_COPY_SLICE %out_len, %dst_ptr, %src_slice

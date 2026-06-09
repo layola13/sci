@@ -346,6 +346,8 @@ L_ENTRY:
     d3 = load data+3 as u8
 
     EXPAND IO_EMPTY_READ empty_len, dst, 4
+    EXPAND IO_EMPTY_READ_EXACT empty_exact_zero_status, dst, 0
+    EXPAND IO_EMPTY_READ_EXACT empty_exact_eof_status, dst, 1
     EXPAND IO_EMPTY_SEEK empty_pos
 
     take_cursor = stack_alloc IoCursor_SIZE
@@ -370,11 +372,13 @@ L_ENTRY:
     repeat = stack_alloc IoRepeat_SIZE
     EXPAND IO_REPEAT_NEW repeat, 42
     EXPAND IO_REPEAT_READ repeat_len, repeat, dst, 3
+    EXPAND IO_REPEAT_READ_EXACT repeat_exact_status, repeat, dst, 2
     repeat0 = load dst+0 as u8
     repeat1 = load dst+1 as u8
     repeat2 = load dst+2 as u8
 
     EXPAND IO_SINK_WRITE sink_len, src, 2
+    EXPAND IO_SINK_WRITE_ALL sink_all_status, src, 2
     slice = stack_alloc IoSlice_SIZE
     copy_dst = stack_alloc 4
     EXPAND IO_SLICE_NEW slice, src, 2
@@ -428,6 +432,8 @@ L_ENTRY:
     ok_d2 = eq d2, 90
     ok_d3 = eq d3, 91
     ok_empty_len = eq empty_len, 0
+    ok_empty_exact_zero_status = eq empty_exact_zero_status, SA_IO_OK
+    ok_empty_exact_eof_status = eq empty_exact_eof_status, SA_IO_ERR_EOF
     ok_empty_pos = eq empty_pos, 0
     ok_take_limit0 = eq take_limit0, 2
     ok_take_inner = eq take_inner, take_cursor
@@ -438,10 +444,12 @@ L_ENTRY:
     ok_take0 = eq take0, 1
     ok_take1 = eq take1, 2
     ok_repeat_len = eq repeat_len, 3
+    ok_repeat_exact_status = eq repeat_exact_status, SA_IO_OK
     ok_repeat0 = eq repeat0, 42
     ok_repeat1 = eq repeat1, 42
     ok_repeat2 = eq repeat2, 42
     ok_sink_len = eq sink_len, 2
+    ok_sink_all_status = eq sink_all_status, SA_IO_OK
     ok_copy_len = eq copy_len, 2
     ok_copy0 = eq copy0, 90
     ok_copy1 = eq copy1, 91
@@ -490,23 +498,31 @@ L_ENTRY:
     ok43 = and ok42, ok_d2
     ok44 = and ok43, ok_d3
     ok45 = and ok44, ok_empty_len
-    ok46 = and ok45, ok_empty_pos
-    ok47 = and ok46, ok_take_limit0
-    ok48 = and ok47, ok_take_inner
-    ok49 = and ok48, ok_take_read_len
-    ok50 = and ok49, ok_take_limit1
-    ok51 = and ok50, ok_take_pos
-    ok52 = and ok51, ok_take_read_len2
-    ok53 = and ok52, ok_take0
-    ok54 = and ok53, ok_take1
-    ok55 = and ok54, ok_repeat_len
-    ok56 = and ok55, ok_repeat0
-    ok57 = and ok56, ok_repeat1
-    ok58 = and ok57, ok_repeat2
-    ok59 = and ok58, ok_sink_len
-    ok60 = and ok59, ok_copy_len
-    ok61 = and ok60, ok_copy0
-    ok = and ok61, ok_copy1
+    ok46 = and ok45, ok_empty_exact_zero_status
+    ok47 = and ok46, ok_empty_exact_eof_status
+    ok48 = and ok47, ok_empty_pos
+    ok49 = and ok48, ok_take_limit0
+    ok50 = and ok49, ok_take_inner
+    ok51 = and ok50, ok_take_read_len
+    ok52 = and ok51, ok_take_limit1
+    ok53 = and ok52, ok_take_pos
+    ok54 = and ok53, ok_take_read_len2
+    ok55 = and ok54, ok_take0
+    ok56 = and ok55, ok_take1
+    ok57 = and ok56, ok_repeat_len
+    ok58 = and ok57, ok_repeat_exact_status
+    ok59 = and ok58, ok_repeat0
+    ok60 = and ok59, ok_repeat1
+    ok61 = and ok60, ok_repeat2
+    ok62 = and ok61, ok_sink_len
+    ok63 = and ok62, ok_sink_all_status
+    ok64 = and ok63, ok_copy_len
+    ok65 = and ok64, ok_copy0
+    ok = and ok65, ok_copy1
+
+    call @sa_assert_eq_i64(empty_exact_zero_status, SA_IO_OK, 9978)
+    call @sa_assert_eq_i64(empty_exact_eof_status, SA_IO_ERR_EOF, 9979)
+    call @sa_assert_eq_i64(repeat_exact_status, SA_IO_OK, 9980)
 
     call @sa_assert_eq_i64(take_limit0, 2, 9981)
     call @sa_assert_eq_i64(ok_take_inner, 1, 9982)
@@ -516,6 +532,7 @@ L_ENTRY:
     call @sa_assert_eq_i64(take_read_len2, 0, 9986)
     call @sa_assert_eq_i64(take0, 1, 9987)
     call @sa_assert_eq_i64(take1, 2, 9988)
+    call @sa_assert_eq_i64(sink_all_status, SA_IO_OK, 9989)
 
     !pos0
     !cursor_ptr
@@ -564,6 +581,8 @@ L_ENTRY:
     !d2
     !d3
     !empty_len
+    !empty_exact_zero_status
+    !empty_exact_eof_status
     !empty_pos
     !take_limit0
     !take_inner
@@ -574,10 +593,12 @@ L_ENTRY:
     !take0
     !take1
     !repeat_len
+    !repeat_exact_status
     !repeat0
     !repeat1
     !repeat2
     !sink_len
+    !sink_all_status
     !copy_len
     !copy0
     !copy1
@@ -627,6 +648,8 @@ L_ENTRY:
     !ok_d2
     !ok_d3
     !ok_empty_len
+    !ok_empty_exact_zero_status
+    !ok_empty_exact_eof_status
     !ok_empty_pos
     !ok_take_limit0
     !ok_take_inner
@@ -637,10 +660,12 @@ L_ENTRY:
     !ok_take0
     !ok_take1
     !ok_repeat_len
+    !ok_repeat_exact_status
     !ok_repeat0
     !ok_repeat1
     !ok_repeat2
     !ok_sink_len
+    !ok_sink_all_status
     !ok_copy_len
     !ok_copy0
     !ok_copy1
@@ -705,6 +730,10 @@ L_ENTRY:
     !ok59
     !ok60
     !ok61
+    !ok62
+    !ok63
+    !ok64
+    !ok65
 
     br ok -> L_PASS, L_FAIL
 
