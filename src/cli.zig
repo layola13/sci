@@ -3528,9 +3528,7 @@ fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
     const repo_std_root = try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" });
     errdefer allocator.free(repo_std_root);
 
-    if (builtin.is_test) {
-        return repo_std_root;
-    }
+    if (builtin.is_test) return repo_std_root;
 
     const env_root = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return repo_std_root,
@@ -3560,6 +3558,23 @@ fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
 
     allocator.free(repo_std_root);
     return env_root;
+}
+
+fn defaultStableImportRoots(allocator: std.mem.Allocator, project_root: []const u8) ![]const []const u8 {
+    var roots = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (roots.items) |root| allocator.free(root);
+        roots.deinit();
+    }
+
+    const unit_support = try std.fs.path.join(allocator, &.{ project_root, "tests", "unit_framework", "support" });
+    if (dirExistsAbsolute(unit_support)) {
+        try roots.append(unit_support);
+    } else {
+        allocator.free(unit_support);
+    }
+
+    return try roots.toOwnedSlice();
 }
 
 fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
@@ -3831,6 +3846,8 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
 
     var plugin_import_roots: []const []const u8 = &.{};
     defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
+    const stable_import_roots = try defaultStableImportRoots(allocator, project_root);
+    defer freeOwnedStringSlice(allocator, stable_import_roots);
 
     if (project_manifest) |*m| {
         verifyProjectPackageState(allocator, project_root, m.*, options) catch |err| {
@@ -3853,6 +3870,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             .std_root = std_root,
             .offline = options.offline,
             .plugin_import_roots = plugin_import_roots,
+            .stable_import_roots = stable_import_roots,
         },
     };
     const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
@@ -4162,7 +4180,10 @@ fn hashResolvedSourceTreeUncached(
 ) !void {
     const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
     errdefer allocator.free(real_source_path);
-    if (visited.contains(real_source_path)) return;
+    if (visited.contains(real_source_path)) {
+        allocator.free(real_source_path);
+        return;
+    }
     const visited_key = try allocator.dupe(u8, real_source_path);
     var visited_key_inserted = false;
     errdefer if (!visited_key_inserted) allocator.free(visited_key);

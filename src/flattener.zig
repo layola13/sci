@@ -186,6 +186,8 @@ fn buildImportSourceCacheKey(
         try out.append(0);
         for (ctx.options.plugin_import_roots) |root| try appendCacheBytes(&out, root);
         try out.append(0);
+        for (ctx.options.stable_import_roots) |root| try appendCacheBytes(&out, root);
+        try out.append(0);
         for (ctx.dependencies) |dep| {
             try appendCacheBytes(&out, dep.url);
             try appendCacheBytes(&out, dep.ref);
@@ -196,7 +198,32 @@ fn buildImportSourceCacheKey(
     return try out.toOwnedSlice();
 }
 
-fn isStdImportCacheCandidate(base_dir: []const u8, import_path: []const u8, resolve_ctx: ?ResolveContext) bool {
+fn pathWithinRoot(path: []const u8, root: []const u8) bool {
+    if (std.mem.eql(u8, path, root)) return true;
+    return std.mem.startsWith(u8, path, root) and path.len > root.len and std.fs.path.isSep(path[root.len]);
+}
+
+fn isStableImportCacheCandidate(allocator: std.mem.Allocator, base_dir: []const u8, import_path: []const u8, roots: []const []const u8) !bool {
+    if (roots.len == 0) return false;
+    if (std.mem.startsWith(u8, import_path, "sa:") or std.mem.startsWith(u8, import_path, "pkg:")) return false;
+
+    const joined = if (std.fs.path.isAbsolute(import_path))
+        try allocator.dupe(u8, import_path)
+    else
+        try std.fs.path.join(allocator, &.{ base_dir, import_path });
+    defer allocator.free(joined);
+    const real_import = std.fs.cwd().realpathAlloc(allocator, joined) catch return false;
+    defer allocator.free(real_import);
+
+    for (roots) |root| {
+        const real_root = std.fs.cwd().realpathAlloc(allocator, root) catch continue;
+        defer allocator.free(real_root);
+        if (pathWithinRoot(real_import, real_root)) return true;
+    }
+    return false;
+}
+
+fn isImportCacheCandidate(allocator: std.mem.Allocator, base_dir: []const u8, import_path: []const u8, resolve_ctx: ?ResolveContext) !bool {
     if (std.mem.startsWith(u8, import_path, "sa_std/")) return true;
     if (std.mem.startsWith(u8, import_path, "../") or std.mem.startsWith(u8, import_path, "./")) {
         if (std.mem.eql(u8, base_dir, "sa_std") or std.mem.startsWith(u8, base_dir, "sa_std/")) return true;
@@ -208,6 +235,7 @@ fn isStdImportCacheCandidate(base_dir: []const u8, import_path: []const u8, reso
             if (std.mem.eql(u8, base_dir, std_root)) return true;
             if (std.mem.startsWith(u8, base_dir, std_root) and base_dir.len > std_root.len and std.fs.path.isSep(base_dir[std_root.len])) return true;
         }
+        if (try isStableImportCacheCandidate(allocator, base_dir, import_path, ctx.options.stable_import_roots)) return true;
     }
     return false;
 }
@@ -2850,7 +2878,7 @@ fn readImportFile(
     import_path: []const u8,
     resolve_ctx: ?ResolveContext,
 ) !pkg_resolver.ResolvedImport {
-    const use_cache = isStdImportCacheCandidate(base_dir, import_path, resolve_ctx);
+    const use_cache = try isImportCacheCandidate(allocator, base_dir, import_path, resolve_ctx);
     if (!use_cache) {
         const deps = if (resolve_ctx) |ctx| ctx.dependencies else &.{};
         var options: pkg_resolver.ResolveOptions = .{};
@@ -3899,6 +3927,35 @@ test "std import source cache reuses source without cloning on hit" {
     try std.testing.expectEqualStrings("@extern cache_probe() -> i32\n", first.source);
 
     var second = try readImportFile(std.testing.allocator, project_root, "sa_std/core/cache_probe.sai", resolve_ctx);
+    defer second.deinit(std.testing.allocator);
+    try std.testing.expect(second.owned_source == null);
+    try std.testing.expectEqualStrings(first.source, second.source);
+}
+
+test "stable import roots participate in import source cache" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("tests/unit_framework/support");
+    var support = try tmp.dir.createFile("tests/unit_framework/support/index.sa", .{ .truncate = true });
+    try support.writeAll("@support_value() -> i32:\nreturn 42\n");
+    support.close();
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const stable_root = try tmp.dir.realpathAlloc(std.testing.allocator, "tests/unit_framework/support");
+    defer std.testing.allocator.free(stable_root);
+    const base_dir = try tmp.dir.realpathAlloc(std.testing.allocator, "tests/unit_framework");
+    defer std.testing.allocator.free(base_dir);
+    const stable_roots = [_][]const u8{stable_root};
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .stable_import_roots = stable_roots[0..] } };
+
+    var first = try readImportFile(std.testing.allocator, base_dir, "support/index.sa", resolve_ctx);
+    defer first.deinit(std.testing.allocator);
+    try std.testing.expect(first.owned_source != null);
+    try std.testing.expectEqualStrings("@support_value() -> i32:\nreturn 42\n", first.source);
+
+    var second = try readImportFile(std.testing.allocator, base_dir, "support/index.sa", resolve_ctx);
     defer second.deinit(std.testing.allocator);
     try std.testing.expect(second.owned_source == null);
     try std.testing.expectEqualStrings(first.source, second.source);

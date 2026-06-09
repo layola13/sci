@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999981%
+Current progress: 99.999982%
 
 ## Completed SCI Features
+
+- 2026-06-09: Extended flattener import source caching to stable support roots for issue6 IMP-2.
+  - Added `stable_import_roots` to resolver options and included them in the import source cache key.
+  - The flattener now caches local imports whose resolved path is under an explicit stable root, while preserving the existing `sa_std` cache behavior and mtime/size invalidation.
+  - CLI compile paths automatically mark `<project>/tests/unit_framework/support` as a stable import root when present, so shared SA test support files can reuse cached source in process-local test runs.
+  - Verification: `zig test src/flattener.zig` -> `64/64 tests passed`; `zig test src/cli.zig` -> `69/69 tests passed`; `zig build unit-framework --summary all` -> `4/4 tests passed`.
 
 - 2026-06-09: Added a source-tree mtime/size fast path for project build/test cache keys for issue6 CACHE-1.
   - `hashResolvedSourceTree` now computes a per-source-tree digest once, records the participating files' real paths, mtimes, and sizes, and reuses that digest on later same-process key calculations when only stat checks are needed.

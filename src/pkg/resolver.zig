@@ -141,6 +141,7 @@ pub const ResolveOptions = struct {
     entry_candidates: []const []const u8 = &.{ "index.sa", "main.sa" },
     std_root: ?[]const u8 = null,
     plugin_import_roots: []const []const u8 = &.{},
+    stable_import_roots: []const []const u8 = &.{},
     max_local_file_bytes: usize = 16 * 1024 * 1024,
 };
 
