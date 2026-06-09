@@ -6,6 +6,12 @@ Current progress: 99.99993%
 
 ## Completed SCI Features
 
+- 2026-06-09: Verified local plugin artifact hashes before runtime loading for issue5 SEC-2.
+  - Parsed selected `sap.json` artifact sha256 into `SapManifest` and preserved backward compatibility for manifests that omit artifact hashes.
+  - Added a pre-`dlopen` runtime check that compares the declared artifact sha256 against the dynamic library being loaded and records a diagnostic instead of loading mismatched code.
+  - Added plugin-host smoke coverage for both matching and mismatched artifact hashes.
+  - Verification: `zig build plugin-host-smoke --summary all` -> `11/11 tests passed`.
+
 - 2026-06-09: Removed repeated verifier leak-scan passes for issue5 PERF-2.
   - Replaced per-live-register `regConsumedLater` full-function scans with a per-function consumed-register bitset computed once when the function scope is created.
   - Preserved existing structured consumption semantics for `move`, `release`, `assign`, `return`, `try` / `early_return`, and `^reg` call/native text markers while making early-return and exit leak checks O(1) per candidate.

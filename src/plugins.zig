@@ -1335,6 +1335,12 @@ pub const Runtime = struct {
     }
 
     fn loadLibrary(self: *Runtime, path: []const u8) !void {
+        if (try self.runtimeArtifactHashMismatch(path)) |reason| {
+            defer self.allocator.free(reason);
+            try self.addDiagnostic(path, reason);
+            return;
+        }
+
         var lib = std.DynLib.open(path) catch |err| {
             try self.addDiagnostic(path, @errorName(err));
             return;
@@ -1388,6 +1394,34 @@ pub const Runtime = struct {
     fn runtimePolicyDenialForLibrary(self: *Runtime, lib_path: []const u8) !?[]u8 {
         const dir = std.fs.path.dirname(lib_path) orelse return null;
         return try self.runtimePolicyDenialForDirectory(dir);
+    }
+
+    fn runtimeArtifactHashMismatch(self: *Runtime, lib_path: []const u8) !?[]u8 {
+        const dir_path = std.fs.path.dirname(lib_path) orelse return null;
+        const sap_path = try std.fs.path.join(self.allocator, &.{ dir_path, "sap.json" });
+        defer self.allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) return null;
+
+        var manifest = parseSapManifest(self.allocator, sap_path) catch |err| {
+            return try std.fmt.allocPrint(self.allocator, "plugin manifest could not be parsed before load: {s}", .{@errorName(err)});
+        };
+        defer manifest.deinit(self.allocator);
+
+        const expected = manifest.artifact_sha256 orelse return null;
+        if (!std.mem.eql(u8, std.fs.path.basename(lib_path), std.fs.path.basename(manifest.artifact_rel))) return null;
+
+        const actual = sha256File(self.allocator, lib_path) catch |err| {
+            return try std.fmt.allocPrint(self.allocator, "plugin artifact sha256 could not be computed before load: {s}", .{@errorName(err)});
+        };
+        if (std.mem.eql(u8, actual[0..], expected[0..])) return null;
+
+        const actual_hex = std.fmt.bytesToHex(actual, .lower);
+        const expected_hex = std.fmt.bytesToHex(expected, .lower);
+        return try std.fmt.allocPrint(
+            self.allocator,
+            "plugin artifact sha256 mismatch before load: expected {s}, actual {s}",
+            .{ expected_hex, actual_hex },
+        );
     }
 
     fn runtimePolicyDenialForDirectory(self: *Runtime, dir_path: []const u8) !?[]u8 {
@@ -1446,6 +1480,7 @@ const SapManifest = struct {
     version: []u8,
     abi_plugin: u32,
     artifact_rel: []u8,
+    artifact_sha256: ?[32]u8,
     interface_files: []InterfaceFile,
     asset_files: []AssetFile,
     dependencies: []PluginDependency,
@@ -2302,7 +2337,8 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
     const version = try allocator.dupe(u8, try jsonString(object.get("version") orelse return error.InvalidSapManifest));
     errdefer allocator.free(version);
     const abi_plugin = try parseAbiPlugin(object.get("abi"));
-    const artifact_rel = try allocator.dupe(u8, try selectArtifactPath(object.get("artifacts") orelse return error.InvalidSapManifest));
+    const artifact = try selectArtifact(object.get("artifacts") orelse return error.InvalidSapManifest);
+    const artifact_rel = try allocator.dupe(u8, artifact.path);
     errdefer allocator.free(artifact_rel);
     try validateProjectRelativePath(artifact_rel);
     const interface_files = try collectInterfaceFiles(allocator, object.get("interfaces"));
@@ -2328,6 +2364,7 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         .version = version,
         .abi_plugin = abi_plugin,
         .artifact_rel = artifact_rel,
+        .artifact_sha256 = artifact.sha256,
         .interface_files = interface_files,
         .asset_files = asset_files,
         .dependencies = dependencies,
@@ -2371,23 +2408,33 @@ fn parseAbiPlugin(maybe_value: ?std.json.Value) !u32 {
     };
 }
 
-fn selectArtifactPath(value: std.json.Value) ![]const u8 {
+const SelectedArtifact = struct {
+    path: []const u8,
+    sha256: ?[32]u8,
+};
+
+fn selectArtifact(value: std.json.Value) !SelectedArtifact {
     const obj = switch (value) {
         .object => |o| o,
         else => return error.InvalidSapManifest,
     };
     if (obj.get("linux-x86_64")) |target_value| {
-        return try artifactPathFromValue(target_value);
+        return try artifactFromValue(target_value);
     }
     var it = obj.iterator();
-    if (it.next()) |entry| return try artifactPathFromValue(entry.value_ptr.*);
+    if (it.next()) |entry| return try artifactFromValue(entry.value_ptr.*);
     return error.InvalidSapManifest;
 }
 
-fn artifactPathFromValue(value: std.json.Value) ![]const u8 {
+fn artifactFromValue(value: std.json.Value) !SelectedArtifact {
     return switch (value) {
-        .string => |s| s,
-        .object => |o| try jsonString(o.get("path") orelse return error.InvalidSapManifest),
+        .string => |s| .{ .path = s, .sha256 = null },
+        .object => |o| blk: {
+            try rejectUnknownSapKeys(o, &.{ "path", "sha256" });
+            const path = try jsonString(o.get("path") orelse return error.InvalidSapManifest);
+            const hash = if (o.get("sha256")) |hash_value| try parseSha256Json(hash_value) else null;
+            break :blk .{ .path = path, .sha256 = hash };
+        },
         else => error.InvalidSapManifest,
     };
 }

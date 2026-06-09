@@ -375,6 +375,115 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     try std.testing.expectEqual(@as(usize, 0), cli_stderr.items.len);
 }
 
+test "plugin runtime verifies declared artifact sha256 before loading" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "hashed_plugin.zig",
+        \\const SkillSection = extern struct {
+        \\    name: [*:0]const u8,
+        \\    summary: [*:0]const u8,
+        \\    items: [*]const [*:0]const u8,
+        \\    items_len: usize,
+        \\};
+        \\const PluginDescriptor = extern struct {
+        \\    abi_version: u32,
+        \\    descriptor_size: u32,
+        \\    name: [*:0]const u8,
+        \\    init: ?*const fn (?*anyopaque) callconv(.c) u32,
+        \\    prebuild: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) u32,
+        \\    postbuild: ?*const fn (?*anyopaque) callconv(.c) u32,
+        \\    handle_command: ?*const anyopaque,
+        \\    skills_ptr: [*]const SkillSection,
+        \\    skills_len: usize,
+        \\};
+        \\const skills = [_]SkillSection{};
+        \\pub export const saasm_plugin_descriptor_v1: PluginDescriptor = .{
+        \\    .abi_version = 1,
+        \\    .descriptor_size = @as(u32, @intCast(@sizeOf(PluginDescriptor))),
+        \\    .name = "hashed-plugin",
+        \\    .init = null,
+        \\    .prebuild = null,
+        \\    .postbuild = null,
+        \\    .handle_command = null,
+        \\    .skills_ptr = skills[0..].ptr,
+        \\    .skills_len = skills.len,
+        \\};
+        \\
+    );
+
+    const build_plugin = try runCommand(std.testing.allocator, &.{
+        "zig",
+        "build-lib",
+        "hashed_plugin.zig",
+        "-dynamic",
+        "-O",
+        "Debug",
+        "-femit-bin=libhashed_plugin.so",
+    });
+    defer std.testing.allocator.free(build_plugin.stdout);
+    defer std.testing.allocator.free(build_plugin.stderr);
+    try expectSuccess(build_plugin);
+
+    const digest_hex = try sha256HexFileAlloc(std.testing.allocator, "libhashed_plugin.so");
+    defer std.testing.allocator.free(digest_hex);
+    const manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\{{
+        \\  "schema": "sa.plugin/1",
+        \\  "name": "hashed-plugin",
+        \\  "version": "0.1.0",
+        \\  "artifacts": {{
+        \\    "linux-x86_64": {{ "path": "libhashed_plugin.so", "sha256": "{s}" }}
+        \\  }},
+        \\  "interfaces": {{}},
+        \\  "skills": [],
+        \\  "permissions": {{"fs": [], "net": [], "env": [], "process": {{"spawn": false, "exec": []}}}},
+        \\  "dependencies": {{}}
+        \\}}
+        \\
+    , .{digest_hex});
+    defer std.testing.allocator.free(manifest);
+    try writeSource(tmp.dir, "sap.json", manifest);
+
+    var runtime = try saasm.plugins.Runtime.initFromPathList(std.testing.allocator, ".");
+    defer runtime.deinit();
+    try std.testing.expectEqual(@as(usize, 1), runtime.plugins.items.len);
+    try std.testing.expectEqualStrings("hashed-plugin", std.mem.span(runtime.plugins.items[0].descriptor.name));
+
+    const bad_manifest =
+        \\{
+        \\  "schema": "sa.plugin/1",
+        \\  "name": "hashed-plugin",
+        \\  "version": "0.1.0",
+        \\  "artifacts": {
+        \\    "linux-x86_64": { "path": "libhashed_plugin.so", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+        \\  },
+        \\  "interfaces": {},
+        \\  "skills": [],
+        \\  "permissions": {"fs": [], "net": [], "env": [], "process": {"spawn": false, "exec": []}},
+        \\  "dependencies": {}
+        \\}
+        \\
+    ;
+    try writeSource(tmp.dir, "sap.json", bad_manifest);
+
+    var rejected_runtime = try saasm.plugins.Runtime.initFromPathList(std.testing.allocator, ".");
+    defer rejected_runtime.deinit();
+    try std.testing.expectEqual(@as(usize, 0), rejected_runtime.plugins.items.len);
+    try std.testing.expectEqual(@as(usize, 1), rejected_runtime.diagnostics.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(
+        u8,
+        rejected_runtime.diagnostics.items[0].reason,
+        1,
+        "plugin artifact sha256 mismatch before load",
+    ));
+}
+
 test "native build and test link installed plugin exporting referenced extern" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
