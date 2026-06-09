@@ -33,6 +33,22 @@
     EXPAND PTR_ADDR %out_addr, %ptr_reg
 [END_MACRO]
 
+[MACRO] PTR_EXPOSE_PROVENANCE %out_addr, %ptr_reg
+    EXPAND PTR_ADDR %out_addr, %ptr_reg
+[END_MACRO]
+
+[MACRO] PTR_CAST %out_ptr, %ptr_reg
+    %out_ptr = ptr_add %ptr_reg, 0
+[END_MACRO]
+
+[MACRO] PTR_CAST_CONST %out_ptr, %ptr_reg
+    %out_ptr = ptr_add %ptr_reg, 0
+[END_MACRO]
+
+[MACRO] PTR_CAST_MUT %out_ptr, %ptr_reg
+    %out_ptr = ptr_add %ptr_reg, 0
+[END_MACRO]
+
 [MACRO] PTR_OFFSET_BYTES %out_ptr, %ptr_reg, %byte_offset
     %out_ptr = ptr_add %ptr_reg, %byte_offset
 [END_MACRO]
@@ -45,6 +61,14 @@
     __ptr_sub_offset_%out_ptr = sub 0, %byte_offset
     %out_ptr = ptr_add %ptr_reg, __ptr_sub_offset_%out_ptr
     !__ptr_sub_offset_%out_ptr
+[END_MACRO]
+
+[MACRO] PTR_WRAPPING_BYTE_ADD %out_ptr, %ptr_reg, %byte_offset
+    EXPAND PTR_BYTE_ADD %out_ptr, %ptr_reg, %byte_offset
+[END_MACRO]
+
+[MACRO] PTR_WRAPPING_BYTE_SUB %out_ptr, %ptr_reg, %byte_offset
+    EXPAND PTR_BYTE_SUB %out_ptr, %ptr_reg, %byte_offset
 [END_MACRO]
 
 [MACRO] PTR_OFFSET_FROM_BYTES %out_offset, %ptr_reg, %base_ptr
@@ -61,10 +85,38 @@
     !__ptr_offset_bytes_%out_offset
 [END_MACRO]
 
+[MACRO] PTR_BYTE_OFFSET_FROM_UNSIGNED %out_offset, %ptr_reg, %base_ptr
+    EXPAND PTR_OFFSET_FROM_BYTES %out_offset, %ptr_reg, %base_ptr
+[END_MACRO]
+
+[MACRO] PTR_OFFSET_FROM_UNSIGNED_U64 %out_offset, %ptr_reg, %base_ptr
+    EXPAND PTR_OFFSET_FROM_U64 %out_offset, %ptr_reg, %base_ptr
+[END_MACRO]
+
 [MACRO] PTR_OFFSET_U64 %out_ptr, %ptr_reg, %index
     __ptr_u64_off_%out_ptr = mul %index, 8
     %out_ptr = ptr_add %ptr_reg, __ptr_u64_off_%out_ptr
     !__ptr_u64_off_%out_ptr
+[END_MACRO]
+
+[MACRO] PTR_ADD_U64 %out_ptr, %ptr_reg, %index
+    EXPAND PTR_OFFSET_U64 %out_ptr, %ptr_reg, %index
+[END_MACRO]
+
+[MACRO] PTR_SUB_U64 %out_ptr, %ptr_reg, %index
+    __ptr_u64_sub_off_%out_ptr = mul %index, 8
+    __ptr_u64_sub_neg_%out_ptr = sub 0, __ptr_u64_sub_off_%out_ptr
+    %out_ptr = ptr_add %ptr_reg, __ptr_u64_sub_neg_%out_ptr
+    !__ptr_u64_sub_neg_%out_ptr
+    !__ptr_u64_sub_off_%out_ptr
+[END_MACRO]
+
+[MACRO] PTR_WRAPPING_ADD_U64 %out_ptr, %ptr_reg, %index
+    EXPAND PTR_ADD_U64 %out_ptr, %ptr_reg, %index
+[END_MACRO]
+
+[MACRO] PTR_WRAPPING_SUB_U64 %out_ptr, %ptr_reg, %index
+    EXPAND PTR_SUB_U64 %out_ptr, %ptr_reg, %index
 [END_MACRO]
 
 [MACRO] PTR_IS_ALIGNED_TO %out_bool, %ptr_reg, %align
@@ -73,6 +125,16 @@
     %out_bool = eq __ptr_rem_%out_bool, 0
     !__ptr_rem_%out_bool
     !__ptr_addr_%out_bool
+[END_MACRO]
+
+[MACRO] PTR_GUARANTEED_EQ %out_ok, %out_bool, %lhs_ptr, %rhs_ptr
+    %out_bool = eq %lhs_ptr, %rhs_ptr
+    %out_ok = add 0, 1
+[END_MACRO]
+
+[MACRO] PTR_GUARANTEED_NE %out_ok, %out_bool, %lhs_ptr, %rhs_ptr
+    %out_bool = ne %lhs_ptr, %rhs_ptr
+    %out_ok = add 0, 1
 [END_MACRO]
 
 [MACRO] PTR_READ_U64 %out_value, %ptr_reg
@@ -193,6 +255,10 @@
     !__nonnull_addr_ptr_%out_addr
 [END_MACRO]
 
+[MACRO] NONNULL_EXPOSE_PROVENANCE %out_addr, %nonnull_ptr
+    EXPAND NONNULL_ADDR %out_addr, %nonnull_ptr
+[END_MACRO]
+
 [MACRO] NONNULL_BYTE_ADD %out_nonnull, %nonnull_ptr, %byte_offset
     __nonnull_add_ptr_%out_nonnull = load %nonnull_ptr+NonNull_ptr as ptr
     __nonnull_add_next_%out_nonnull = ptr_add __nonnull_add_ptr_%out_nonnull, %byte_offset
@@ -211,6 +277,58 @@
     !__nonnull_sub_ptr_%out_nonnull
 [END_MACRO]
 
+[MACRO] NONNULL_WRAPPING_BYTE_ADD %out_nonnull, %nonnull_ptr, %byte_offset
+    EXPAND NONNULL_BYTE_ADD %out_nonnull, %nonnull_ptr, %byte_offset
+[END_MACRO]
+
+[MACRO] NONNULL_WRAPPING_BYTE_SUB %out_nonnull, %nonnull_ptr, %byte_offset
+    EXPAND NONNULL_BYTE_SUB %out_nonnull, %nonnull_ptr, %byte_offset
+[END_MACRO]
+
+[MACRO] NONNULL_ADD_U64 %out_nonnull, %nonnull_ptr, %index
+    __nonnull_add_u64_bytes_%out_nonnull = mul %index, 8
+    EXPAND NONNULL_BYTE_ADD %out_nonnull, %nonnull_ptr, __nonnull_add_u64_bytes_%out_nonnull
+    !__nonnull_add_u64_bytes_%out_nonnull
+[END_MACRO]
+
+[MACRO] NONNULL_SUB_U64 %out_nonnull, %nonnull_ptr, %index
+    __nonnull_sub_u64_bytes_%out_nonnull = mul %index, 8
+    EXPAND NONNULL_BYTE_SUB %out_nonnull, %nonnull_ptr, __nonnull_sub_u64_bytes_%out_nonnull
+    !__nonnull_sub_u64_bytes_%out_nonnull
+[END_MACRO]
+
+[MACRO] NONNULL_WRAPPING_ADD_U64 %out_nonnull, %nonnull_ptr, %index
+    EXPAND NONNULL_ADD_U64 %out_nonnull, %nonnull_ptr, %index
+[END_MACRO]
+
+[MACRO] NONNULL_WRAPPING_SUB_U64 %out_nonnull, %nonnull_ptr, %index
+    EXPAND NONNULL_SUB_U64 %out_nonnull, %nonnull_ptr, %index
+[END_MACRO]
+
+[MACRO] NONNULL_OFFSET_FROM_BYTES %out_offset, %nonnull_ptr, %base_nonnull
+    __nonnull_offset_ptr_%out_offset = load %nonnull_ptr+NonNull_ptr as ptr
+    __nonnull_offset_base_%out_offset = load %base_nonnull+NonNull_ptr as ptr
+    EXPAND PTR_OFFSET_FROM_BYTES %out_offset, __nonnull_offset_ptr_%out_offset, __nonnull_offset_base_%out_offset
+    !__nonnull_offset_base_%out_offset
+    !__nonnull_offset_ptr_%out_offset
+[END_MACRO]
+
+[MACRO] NONNULL_OFFSET_FROM_U64 %out_offset, %nonnull_ptr, %base_nonnull
+    __nonnull_offset_u64_ptr_%out_offset = load %nonnull_ptr+NonNull_ptr as ptr
+    __nonnull_offset_u64_base_%out_offset = load %base_nonnull+NonNull_ptr as ptr
+    EXPAND PTR_OFFSET_FROM_U64 %out_offset, __nonnull_offset_u64_ptr_%out_offset, __nonnull_offset_u64_base_%out_offset
+    !__nonnull_offset_u64_base_%out_offset
+    !__nonnull_offset_u64_ptr_%out_offset
+[END_MACRO]
+
+[MACRO] NONNULL_BYTE_OFFSET_FROM_UNSIGNED %out_offset, %nonnull_ptr, %base_nonnull
+    EXPAND NONNULL_OFFSET_FROM_BYTES %out_offset, %nonnull_ptr, %base_nonnull
+[END_MACRO]
+
+[MACRO] NONNULL_OFFSET_FROM_UNSIGNED_U64 %out_offset, %nonnull_ptr, %base_nonnull
+    EXPAND NONNULL_OFFSET_FROM_U64 %out_offset, %nonnull_ptr, %base_nonnull
+[END_MACRO]
+
 [MACRO] NONNULL_IS_NONNULL %out_bool, %nonnull_ptr
     __nonnull_ptr_%out_bool = load %nonnull_ptr+NonNull_ptr as ptr
     EXPAND PTR_IS_NONNULL %out_bool, __nonnull_ptr_%out_bool
@@ -221,6 +339,12 @@
     __nonnull_ptr_%out_bool = load %nonnull_ptr+NonNull_ptr as ptr
     EXPAND PTR_IS_NULL %out_bool, __nonnull_ptr_%out_bool
     !__nonnull_ptr_%out_bool
+[END_MACRO]
+
+[MACRO] NONNULL_IS_ALIGNED_TO %out_bool, %nonnull_ptr, %align
+    __nonnull_align_ptr_%out_bool = load %nonnull_ptr+NonNull_ptr as ptr
+    EXPAND PTR_IS_ALIGNED_TO %out_bool, __nonnull_align_ptr_%out_bool, %align
+    !__nonnull_align_ptr_%out_bool
 [END_MACRO]
 
 [MACRO] NONNULL_EQ %out_bool, %lhs_nonnull, %rhs_nonnull
@@ -237,6 +361,16 @@
     %out_bool = ne __nonnull_lhs_%out_bool, __nonnull_rhs_%out_bool
     !__nonnull_rhs_%out_bool
     !__nonnull_lhs_%out_bool
+[END_MACRO]
+
+[MACRO] NONNULL_GUARANTEED_EQ %out_ok, %out_bool, %lhs_nonnull, %rhs_nonnull
+    EXPAND NONNULL_EQ %out_bool, %lhs_nonnull, %rhs_nonnull
+    %out_ok = add 0, 1
+[END_MACRO]
+
+[MACRO] NONNULL_GUARANTEED_NE %out_ok, %out_bool, %lhs_nonnull, %rhs_nonnull
+    EXPAND NONNULL_NE %out_bool, %lhs_nonnull, %rhs_nonnull
+    %out_ok = add 0, 1
 [END_MACRO]
 
 [MACRO] NONNULL_CAST %out_nonnull, %nonnull_ptr
