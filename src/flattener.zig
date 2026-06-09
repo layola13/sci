@@ -4424,6 +4424,137 @@ test "expanded import cache reuses expanded std fragments across flatten calls" 
     try std.testing.expectEqual(first.instructions.len, second.instructions.len);
 }
 
+test "expanded import cache invalidates when transitive import changes" {
+    clearImportSourceCacheForTest();
+    defer clearImportSourceCacheForTest();
+    clearExpandedImportCacheForTest();
+    defer clearExpandedImportCacheForTest();
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_std/core");
+    {
+        var file = try tmp.dir.createFile("sa_std/core/cache_mutable.sai", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll("#def EXPANDED_CACHE_VALUE = 7\n");
+    }
+    const main_source =
+        \\@import "sa_std/core/cache_mutable.sai"
+        \\@main() -> i32:
+        \\return EXPANDED_CACHE_VALUE
+        \\
+    ;
+    {
+        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(main_source);
+    }
+    {
+        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(main_source);
+    }
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
+
+    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    defer std.testing.allocator.free(source_a);
+    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    defer std.testing.allocator.free(source_path_a);
+    var first = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
+    defer first.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("7", first.def_dict.get("EXPANDED_CACHE_VALUE").?);
+
+    {
+        var file = try tmp.dir.createFile("sa_std/core/cache_mutable.sai", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll("#def EXPANDED_CACHE_VALUE = 777\n");
+    }
+    test_expanded_import_cache_hits = 0;
+    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    defer std.testing.allocator.free(source_b);
+    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    defer std.testing.allocator.free(source_path_b);
+    var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
+    defer second.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
+    try std.testing.expectEqualStrings("777", second.def_dict.get("EXPANDED_CACHE_VALUE").?);
+}
+
+test "expanded import cache LRU is opt-in" {
+    clearImportSourceCacheForTest();
+    defer clearImportSourceCacheForTest();
+    clearExpandedImportCacheForTest();
+    defer clearExpandedImportCacheForTest();
+    test_expanded_import_cache_max_entries = 1;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_std/core");
+    {
+        var file = try tmp.dir.createFile("sa_std/core/cache_lru_a.sai", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll("#def EXPANDED_CACHE_VALUE = 11\n");
+    }
+    {
+        var file = try tmp.dir.createFile("sa_std/core/cache_lru_b.sai", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll("#def EXPANDED_CACHE_VALUE = 22\n");
+    }
+    {
+        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "sa_std/core/cache_lru_a.sai"
+            \\@main() -> i32:
+            \\return EXPANDED_CACHE_VALUE
+            \\
+        );
+    }
+    {
+        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "sa_std/core/cache_lru_b.sai"
+            \\@main() -> i32:
+            \\return EXPANDED_CACHE_VALUE
+            \\
+        );
+    }
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
+
+    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    defer std.testing.allocator.free(source_a);
+    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    defer std.testing.allocator.free(source_path_a);
+    var first_a = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
+    defer first_a.deinit(std.testing.allocator);
+
+    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    defer std.testing.allocator.free(source_b);
+    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    defer std.testing.allocator.free(source_path_b);
+    var first_b = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
+    defer first_b.deinit(std.testing.allocator);
+
+    test_expanded_import_cache_hits = 0;
+    var second_a = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
+    defer second_a.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
+    try std.testing.expectEqualStrings("11", second_a.def_dict.get("EXPANDED_CACHE_VALUE").?);
+}
+
 test "import source cache LRU is opt-in and avoids borrowed hits" {
     clearImportSourceCacheForTest();
     defer clearImportSourceCacheForTest();

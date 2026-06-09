@@ -6,12 +6,12 @@ Current progress: 99.999990%
 
 ## Completed SCI Features
 
-- 2026-06-09: Added a conservative expanded-import fragment cache as an issue6 IMP-1 stepping stone.
+- 2026-06-09: Added and hardened a conservative expanded-import fragment cache as an issue6 IMP-1 stepping stone.
   - Added a process-local cache for already expanded import text fragments, including line counts, transitive file mtime/size stats, layout version metadata, and LRU hooks via `SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES=N`.
   - Cache hits append the expanded fragment and mark all transitive files as seen, skipping recursive import expansion across repeated flatten calls while preserving import-cycle and duplicate-import fallback behavior.
   - The cache only stores fragments with null package identity/hash metadata, so package-context imports still use the original expansion path until full frontend IR remapping is implemented.
-  - Added flattener coverage proving two entry files importing the same std fragment store on the first flatten and hit on the second.
-  - Verification: `zig test src/flattener.zig` -> `67/67 tests passed`; `zig test src/cli.zig` -> `73/73 tests passed`; `zig build unit-framework --summary all` -> `6/6 steps succeeded; 4/4 tests passed`; `zig build smoke --summary all` -> `9/9 steps succeeded; 15/15 tests passed`.
+  - Added flattener coverage proving two entry files importing the same std fragment store on the first flatten and hit on the second, changed transitive imports invalidate cached fragments, and the opt-in one-entry LRU evicts older fragments.
+  - Verification: `zig test src/flattener.zig` -> `69/69 tests passed`; `zig test src/cli.zig` -> `75/75 tests passed`; `zig build unit-framework --summary all` -> `6/6 steps succeeded; 4/4 tests passed`; `zig build smoke --summary all` -> `9/9 steps succeeded; 15/15 tests passed`.
 
 - 2026-06-09: Added opt-in LRU bounds for the CLI source-tree hash cache for issue6 cache hygiene.
   - Added `SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES=N` for long-lived consumers that need bounded source-tree digest cache maps; the default CLI path remains unbounded for short-lived command performance.
