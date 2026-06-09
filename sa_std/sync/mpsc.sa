@@ -79,11 +79,23 @@ L_ENTRY:
     cap = atomic_load chan+Mpsc_cap as u64 acquire
     head = atomic_load chan+Mpsc_head as u64 acquire
     tail = atomic_load chan+Mpsc_tail as u64 acquire
+    tail_ok = uge tail, head
+    br tail_ok -> L_MPSC_TRY_RECV_ORDER_OK, L_MPSC_TRY_RECV_CORRUPT
+
+L_MPSC_TRY_RECV_CORRUPT:
+    !tail_ok
+    !tail
+    !head
+    !cap
+    return 0
+
+L_MPSC_TRY_RECV_ORDER_OK:
     empty = eq head, tail
     br empty -> L_MPSC_TRY_RECV_EMPTY, L_MPSC_TRY_RECV_CHECK
 
 L_MPSC_TRY_RECV_EMPTY:
     !empty
+    !tail_ok
     !tail
     !head
     !cap
@@ -105,6 +117,7 @@ L_MPSC_TRY_RECV_WAIT:
     !slot_index
     !slot_off
     !slot_base
+    !tail_ok
     !tail
     !head
     !cap
@@ -124,6 +137,7 @@ L_MPSC_TRY_RECV_COMMIT:
     !slot_index
     !slot_off
     !slot_base
+    !tail_ok
     !tail
     !head
     !cap

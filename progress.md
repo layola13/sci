@@ -2,9 +2,14 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.9998%
+Current progress: 99.99985%
 
 ## Completed SCI Features
+
+- 2026-06-09: Hardened MPSC receive against damaged tail/head state.
+  - Added an explicit `tail >= head` guard to `__mpsc_try_recv`; damaged `tail < head` state now returns failure before slot indexing or head movement can proceed.
+  - Extended `tests/unit_framework/std_mpsc_macro_surface.sa` with a corrupted ring-state receive check and updated std smoke/source assertions.
+  - Updated `docs/std_missing.md` sync safety notes to include receive-side MPSC damaged-state handling.
 
 - 2026-06-09: Gated flattener import trace output.
   - Changed noisy `[IMPORT] resolved ...` debug printing to be disabled by default and enabled only with `SAASM_TRACE_IMPORTS=1`.

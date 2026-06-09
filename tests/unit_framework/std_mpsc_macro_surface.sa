@@ -32,6 +32,11 @@ L_ENTRY:
     EXPAND MPSC_CAPACITY cap_zero, chan_zero
     EXPAND MPSC_FREE chan_zero
 
+    EXPAND MPSC_NEW chan_corrupt, 2
+    store chan_corrupt+Mpsc_head, 2 as u64
+    store chan_corrupt+Mpsc_tail, 1 as u64
+    EXPAND MPSC_TRY_RECV recv_corrupt_ok, recv_corrupt_value, chan_corrupt
+
     ok_cap0 = eq cap0, 2
     ok_len0 = eq len0, 0
     ok_avail0 = eq avail0, 2
@@ -54,6 +59,8 @@ L_ENTRY:
     ok_recv2 = eq recv2_ok, 0
     ok_recv2_value = eq recv2_value, 0
     ok_cap_zero = eq cap_zero, 1
+    ok_corrupt_recv = eq recv_corrupt_ok, 0
+    ok_corrupt_value = eq recv_corrupt_value, 0
 
     ok01 = and ok_cap0, ok_len0
     ok02 = and ok01, ok_avail0
@@ -78,9 +85,12 @@ L_ENTRY:
     ok21 = and ok20, ok_recv2
     ok22 = and ok21, ok_recv2_value
     ok23 = and ok22, empty_final
-    ok = and ok23, ok_cap_zero
+    ok24 = and ok23, ok_cap_zero
+    ok25 = and ok24, ok_corrupt_recv
+    ok = and ok25, ok_corrupt_value
 
     !chan
+    !chan_corrupt
     !cap0
     !len0
     !avail0
@@ -106,6 +116,8 @@ L_ENTRY:
     !recv2_value
     !empty_final
     !cap_zero
+    !recv_corrupt_ok
+    !recv_corrupt_value
     !ok_cap0
     !ok_len0
     !ok_avail0
@@ -128,6 +140,8 @@ L_ENTRY:
     !ok_recv2
     !ok_recv2_value
     !ok_cap_zero
+    !ok_corrupt_recv
+    !ok_corrupt_value
     !ok01
     !ok02
     !ok03
@@ -151,6 +165,8 @@ L_ENTRY:
     !ok21
     !ok22
     !ok23
+    !ok24
+    !ok25
 
     br ok -> L_PASS, L_FAIL
 

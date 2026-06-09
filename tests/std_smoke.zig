@@ -1441,6 +1441,8 @@ test "sa_std mpsc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "EXPAND NUM_U64_CHECKED_MUL __mpsc_data_ok_%out_chan"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "EXPAND NUM_U64_CHECKED_ADD __mpsc_total_ok_%out_chan"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "__mpsc_len_order_ok_%out_len = uge __mpsc_len_tail_%out_len, __mpsc_len_head_%out_len"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "tail_ok = uge tail, head"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "L_MPSC_TRY_RECV_CORRUPT:"));
 
     var mpsc_flat = try flattenFixture(std.testing.allocator, "sa_std/sync/mpsc.sa", mpsc_src);
     defer mpsc_flat.deinit(std.testing.allocator);
