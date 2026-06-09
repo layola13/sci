@@ -3181,6 +3181,37 @@ fn countSourceLines(source: []const u8) usize {
     return std.mem.count(u8, source, "\n") + 1;
 }
 
+fn buildSymbolIdRemap(allocator: std.mem.Allocator, source_symbols: *const SymbolTable, target_symbols: *SymbolTable) ![]u32 {
+    const remap = try allocator.alloc(u32, source_symbols.names.items.len);
+    errdefer allocator.free(remap);
+    for (source_symbols.names.items, 0..) |name, idx| {
+        remap[idx] = try target_symbols.intern(name);
+    }
+    return remap;
+}
+
+fn remapSymbolId(remap: []const u32, old_id: u32) !u32 {
+    const idx: usize = @intCast(old_id);
+    if (idx >= remap.len) return error.InvalidOperand;
+    return remap[idx];
+}
+
+fn remapOperandSymbolIds(operand: *Operand, remap: []const u32) !void {
+    switch (operand.*) {
+        .reg => |old_id| operand.* = .{ .reg = try remapSymbolId(remap, old_id) },
+        .symbol => |old_id| operand.* = .{ .symbol = try remapSymbolId(remap, old_id) },
+        .label => |old_id| operand.* = .{ .label = try remapSymbolId(remap, old_id) },
+        .func => |old_id| operand.* = .{ .func = try remapSymbolId(remap, old_id) },
+        else => {},
+    }
+}
+
+fn remapInstructionSymbolIds(instruction: *Instruction, remap: []const u32) !void {
+    for (&instruction.operands) |*operand| {
+        try remapOperandSymbolIds(operand, remap);
+    }
+}
+
 fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
     if (source.len == 0) return;
     try out.appendSlice(source);
@@ -4140,6 +4171,57 @@ test "countSourceLines matches splitScalar line count" {
     try std.testing.expectEqual(@as(usize, 1), countSourceLines("one"));
     try std.testing.expectEqual(@as(usize, 2), countSourceLines("one\ntwo"));
     try std.testing.expectEqual(@as(usize, 3), countSourceLines("one\ntwo\n"));
+}
+
+test "symbol id remap rewrites instruction symbol operands" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    const reg_id = try source_symbols.intern("value");
+    const label_id = try source_symbols.intern("L_DONE");
+    const func_id = try source_symbols.intern("callee");
+
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    _ = try target_symbols.intern("preexisting");
+
+    const remap = try buildSymbolIdRemap(std.testing.allocator, &source_symbols, &target_symbols);
+    defer std.testing.allocator.free(remap);
+
+    var instruction = common_instruction.makeInstruction(.call, 1, 0, null, "dst = call callee(value)");
+    instruction.operands[0] = .{ .reg = reg_id };
+    instruction.operands[1] = .{ .symbol = label_id };
+    instruction.operands[2] = .{ .label = label_id };
+    instruction.operands[3] = .{ .func = func_id };
+
+    try remapInstructionSymbolIds(&instruction, remap);
+    try std.testing.expectEqual(target_symbols.findId("value").?, instruction.operands[0].reg);
+    try std.testing.expectEqual(target_symbols.findId("L_DONE").?, instruction.operands[1].symbol);
+    try std.testing.expectEqual(target_symbols.findId("L_DONE").?, instruction.operands[2].label);
+    try std.testing.expectEqual(target_symbols.findId("callee").?, instruction.operands[3].func);
+    try std.testing.expect(target_symbols.findId("value").? != reg_id);
+}
+
+test "symbol id remap leaves non-symbol operands unchanged and rejects unknown ids" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    _ = try source_symbols.intern("value");
+
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+
+    const remap = try buildSymbolIdRemap(std.testing.allocator, &source_symbols, &target_symbols);
+    defer std.testing.allocator.free(remap);
+
+    var text_operand = Operand{ .text = "value" };
+    try remapOperandSymbolIds(&text_operand, remap);
+    try std.testing.expectEqualStrings("value", text_operand.text);
+
+    var imm_operand = Operand{ .imm_u64 = 42 };
+    try remapOperandSymbolIds(&imm_operand, remap);
+    try std.testing.expectEqual(@as(u64, 42), imm_operand.imm_u64);
+
+    var invalid_operand = Operand{ .reg = 99 };
+    try std.testing.expectError(error.InvalidOperand, remapOperandSymbolIds(&invalid_operand, remap));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {

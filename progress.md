@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999990%
+Current progress: 99.999991%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added tested symbol-id remap helpers for future per-module `FlattenResult` caching.
+  - Added helper infrastructure to build a source-to-target `SymbolTable` ID map and remap `Instruction` operands of kind `reg`, `symbol`, `label`, and `func` while leaving text/immediate/type operands unchanged.
+  - Added regression coverage proving remapped IDs change when the target symbol table already has entries, non-symbol operands are stable, and invalid old IDs are rejected.
+  - This is a prerequisite for issue6 full IMP-1 `FlattenResult` fragment reuse; function signature ID slice remapping and raw-text/name collision strategy remain separate work.
+  - Verification: `zig test src/flattener.zig` -> `71/71 tests passed`; `zig test src/cli.zig` -> `77/77 tests passed`.
 
 - 2026-06-09: Added and hardened a conservative expanded-import fragment cache as an issue6 IMP-1 stepping stone.
   - Added a process-local cache for already expanded import text fragments, including line counts, transitive file mtime/size stats, layout version metadata, and LRU hooks via `SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES=N`.
