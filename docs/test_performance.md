@@ -214,6 +214,8 @@ The process-local flattener import cache also avoids cloning cached std source t
 
 Routine flattener import tracing is now quiet by default. The previous unconditional `[IMPORT] resolved ...` stderr print can still be enabled with `SAASM_TRACE_IMPORTS=1`, but normal smoke/unit runs no longer pay for or display every resolved import.
 
+Single-worker LLVM emission now backs per-job arenas with the caller allocator instead of always using `std.heap.page_allocator`. Parallel emission deliberately keeps `std.heap.page_allocator`, because the compiler entrypoint allocator is not guaranteed to be thread-safe when several emitter workers allocate concurrently. This trims page allocator churn for common focused builds and tests without changing the safer backing allocator choice for multi-worker emission.
+
 Focused verification:
 
 ```sh

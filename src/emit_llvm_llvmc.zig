@@ -860,6 +860,10 @@ fn chooseEmitWorkerCount(requested_jobs: ?usize, task_count: usize) usize {
     return if (cpu_count <= 1) 1 else @min(cpu_count, task_count);
 }
 
+fn emitJobBackingAllocator(parent_allocator: std.mem.Allocator, worker_count: usize) std.mem.Allocator {
+    return if (worker_count <= 1) parent_allocator else std.heap.page_allocator;
+}
+
 fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
     const context: *ParallelEmitContext(VerifiedType) = @ptrCast(@alignCast(context_ptr));
     while (true) {
@@ -1145,8 +1149,9 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
 
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
+    const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
     for (jobs) |*job| {
-        job.* = .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
+        job.* = .{ .arena = std.heap.ArenaAllocator.init(job_backing_allocator) };
     }
     defer {
         for (jobs) |*job| job.arena.deinit();
@@ -1415,7 +1420,8 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
 
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
-    for (jobs) |*job| job.* = .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
+    const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
+    for (jobs) |*job| job.* = .{ .arena = std.heap.ArenaAllocator.init(job_backing_allocator) };
     defer for (jobs) |*job| job.arena.deinit();
 
     const VerifiedType = @TypeOf(verified);
