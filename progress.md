@@ -2,9 +2,14 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99997%
+Current progress: 99.99998%
 
 ## Completed SCI Features
+
+- 2026-06-09: Aligned referee LOC lint scope with the real verifier core for issue5 ENG-1.
+  - Changed `tools/referee_loc_lint.zig` to measure both `src/referee/` and `src/verifier.zig`, including the builtin fallback path used when `tokei` is unavailable.
+  - Updated `tasks.md` task 6.27 from the old `src/referee/ <= 2500` scope to the honest `src/referee/ + src/verifier.zig <= 6500` scope, currently 5960 code lines by fallback count.
+  - Verification: `zig build referee-loc-lint --summary all` -> PASS `5960 <= 6500`; `zig test src/cli.zig` -> `67/67 tests passed`.
 
 - 2026-06-09: Improved `sa run` diagnostics for unsupported extern/plugin symbols for issue5 SEC-1 without changing plugin repositories.
   - Added a dedicated interpreter `UnsupportedExtern` path when `sa run` reaches an `@extern` declaration, printing the exact symbol name and explaining that native build may work with the providing plugin/library while the interpreter broker/FFI bridge is not implemented.

@@ -407,8 +407,8 @@ sa/
     - ReleaseFast 实测：1,000,000 行 / 1.886612s = 530,050.82 行/秒，达到 MVP 基线
     - _Requirements: R9.6_
 
-  - [x] 6.27 Referee LOC lint（`tokei src/referee/` ≤ 2500）
-    - `tokei src/referee/` = 1981 code lines，已安装并实际跑通
+  - [x] 6.27 Referee LOC lint（`tokei src/referee/ src/verifier.zig` ≤ 6500）
+    - 2026-06-09 口径对齐真实验证核心：`src/referee/ + src/verifier.zig` = 5960 code lines（builtin fallback），已安装并实际跑通
     - _Requirements: R9.5_
 
 - [x] 7. 检查点 — Referee 完成

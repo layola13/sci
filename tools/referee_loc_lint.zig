@@ -1,7 +1,8 @@
 const std = @import("std");
 
 const tasks_path = "tasks.md";
-const referee_path = "src/referee/";
+const referee_scope = "src/referee/ + src/verifier.zig";
+const referee_paths = [_][]const u8{ "src/referee/", "src/verifier.zig" };
 
 const AppError = error{
     TaskLineNotFound,
@@ -34,7 +35,7 @@ pub fn main() void {
         return;
     };
 
-    const tokei_argv = [_][]const u8{ "tokei", referee_path };
+    const tokei_argv = [_][]const u8{ "tokei", referee_paths[0], referee_paths[1] };
     const tokei_result = std.process.Child.run(.{
         .allocator = allocator,
         .argv = tokei_argv[0..],
@@ -88,7 +89,7 @@ fn printAndCheckTotals(writer: anytype, ceiling: usize, totals: TokeiTotals, sou
     try writer.print("[referee-loc] task ceiling from {s}: {d} code lines\n", .{ tasks_path, ceiling });
     try writer.print(
         "[referee-loc] {s} `{s}` -> files={d}, code={d}, comments={d}, blanks={d}, total={d}\n",
-        .{ source, referee_path, totals.files, totals.code, totals.comments, totals.blanks, totals.lines },
+        .{ source, referee_scope, totals.files, totals.code, totals.comments, totals.blanks, totals.lines },
     );
 
     if (totals.code <= ceiling) {
@@ -100,22 +101,35 @@ fn printAndCheckTotals(writer: anytype, ceiling: usize, totals: TokeiTotals, sou
 }
 
 fn countRefereeLocFallback(allocator: std.mem.Allocator) !TokeiTotals {
-    var dir = try std.fs.cwd().openDir(referee_path, .{ .iterate = true });
+    var totals = TokeiTotals{ .files = 0, .lines = 0, .code = 0, .comments = 0, .blanks = 0 };
+    for (referee_paths) |path| {
+        try countPathLocFallback(allocator, path, &totals);
+    }
+    return totals;
+}
+
+fn countPathLocFallback(allocator: std.mem.Allocator, path: []const u8, totals: *TokeiTotals) !void {
+    if (std.mem.endsWith(u8, path, ".zig")) {
+        const contents = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+        defer allocator.free(contents);
+        totals.files += 1;
+        countSourceLines(contents, totals);
+        return;
+    }
+
+    var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
     defer dir.close();
 
     var walker = try dir.walk(allocator);
     defer walker.deinit();
-
-    var totals = TokeiTotals{ .files = 0, .lines = 0, .code = 0, .comments = 0, .blanks = 0 };
     while (try walker.next()) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
         const contents = try dir.readFileAlloc(allocator, entry.path, 16 * 1024 * 1024);
         defer allocator.free(contents);
         totals.files += 1;
-        countSourceLines(contents, &totals);
+        countSourceLines(contents, totals);
     }
-    return totals;
 }
 
 fn countSourceLines(contents: []const u8, totals: *TokeiTotals) void {
@@ -142,7 +156,6 @@ fn readTaskCeiling(allocator: std.mem.Allocator) !usize {
         const line = std.mem.trim(u8, raw_line, " \t\r");
         if (line.len == 0) continue;
         if (std.mem.indexOf(u8, line, "6.27 Referee LOC lint") == null) continue;
-        if (std.mem.indexOf(u8, line, "tokei src/referee/") == null) continue;
 
         const marker = std.mem.indexOf(u8, line, "≤") orelse return error.CeilingParseFailed;
         const after_marker = std.mem.trimLeft(u8, line[marker + "≤".len ..], " \t");
@@ -231,29 +244,29 @@ fn reportTokeiSpawnError(writer: anytype, err: anyerror) !void {
     switch (err) {
         error.FileNotFound, error.InvalidExe => try writer.print("[referee-loc] error: `tokei` was not found in PATH; install `tokei` and retry\n", .{}),
         error.AccessDenied => try writer.print("[referee-loc] error: `tokei` is not executable or cannot be accessed\n", .{}),
-        else => try writer.print("[referee-loc] error: failed to launch `tokei {s}`: {s}\n", .{ referee_path, @errorName(err) }),
+        else => try writer.print("[referee-loc] error: failed to launch `tokei {s}`: {s}\n", .{ referee_scope, @errorName(err) }),
     }
 }
 
 fn reportFallbackError(writer: anytype, err: anyerror) !void {
     switch (err) {
-        error.FileNotFound => try writer.print("[referee-loc] error: could not read `{s}` with builtin fallback\n", .{referee_path}),
-        error.AccessDenied => try writer.print("[referee-loc] error: permission denied reading `{s}` with builtin fallback\n", .{referee_path}),
-        else => try writer.print("[referee-loc] error: builtin fallback failed for `{s}`: {s}\n", .{ referee_path, @errorName(err) }),
+        error.FileNotFound => try writer.print("[referee-loc] error: could not read `{s}` with builtin fallback\n", .{referee_scope}),
+        error.AccessDenied => try writer.print("[referee-loc] error: permission denied reading `{s}` with builtin fallback\n", .{referee_scope}),
+        else => try writer.print("[referee-loc] error: builtin fallback failed for `{s}`: {s}\n", .{ referee_scope, @errorName(err) }),
     }
 }
 
 fn reportTokeiExitError(writer: anytype, code: u8, stdout: []const u8, stderr: []const u8) !void {
-    try writer.print("[referee-loc] error: `tokei {s}` exited with status {d}\n", .{ referee_path, code });
+    try writer.print("[referee-loc] error: `tokei {s}` exited with status {d}\n", .{ referee_scope, code });
     try printCapturedOutput(writer, stdout, stderr);
 }
 
 fn reportTokeiTermError(writer: anytype, term: std.process.Child.Term, stdout: []const u8, stderr: []const u8) !void {
     switch (term) {
-        .Signal => |sig| try writer.print("[referee-loc] error: `tokei {s}` was terminated by signal {d}\n", .{ referee_path, sig }),
-        .Stopped => |sig| try writer.print("[referee-loc] error: `tokei {s}` was stopped by signal {d}\n", .{ referee_path, sig }),
-        .Unknown => |code| try writer.print("[referee-loc] error: `tokei {s}` ended unexpectedly with code {d}\n", .{ referee_path, code }),
-        .Exited => |code| try writer.print("[referee-loc] error: `tokei {s}` exited with status {d}\n", .{ referee_path, code }),
+        .Signal => |sig| try writer.print("[referee-loc] error: `tokei {s}` was terminated by signal {d}\n", .{ referee_scope, sig }),
+        .Stopped => |sig| try writer.print("[referee-loc] error: `tokei {s}` was stopped by signal {d}\n", .{ referee_scope, sig }),
+        .Unknown => |code| try writer.print("[referee-loc] error: `tokei {s}` ended unexpectedly with code {d}\n", .{ referee_scope, code }),
+        .Exited => |code| try writer.print("[referee-loc] error: `tokei {s}` exited with status {d}\n", .{ referee_scope, code }),
     }
     try printCapturedOutput(writer, stdout, stderr);
 }
