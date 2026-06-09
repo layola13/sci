@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999984%
+Current progress: 99.999985%
 
 ## Completed SCI Features
+
+- 2026-06-09: Removed brittle hardcoded unit-framework expected test lists for issue6 TEST-4.
+  - Added an SA test expectation builder in `tests/unit_framework/runner.zig` that parses `@test`, `@test should_panic`, and `@test ignored` declarations from each `.sa` suite, then generates `[PASS] ...` markers and the expected summary line automatically.
+  - Replaced the 271-pass feature-suite hardcoded marker block with generated expectations, including automatic absent-marker checks for ignored tests.
+  - Replaced per-suite std macro surface expected-name arrays and hand-maintained pass counts with a single macro-surface path table plus `runSaTestFileAuto`, so adding/removing `@test` cases in those source files no longer requires runner count/list edits.
+  - Verification: `zig build unit-framework --summary all` -> `4/4 tests passed`; `zig build smoke --summary all` -> `15/15 tests passed`; `git diff --check` -> clean.
 
 - 2026-06-09: Reused flattener import-source cache during project source-tree hashing for issue6 CACHE-2.
   - Exposed a narrow `readImportSourceFile` wrapper so cache-key hashing can resolve imported SA files through the same flattener import source cache used by the real flatten path.

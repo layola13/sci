@@ -70,10 +70,25 @@ fn elapsedMs(start_ns: i128) i128 {
     return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
+const SaTestExpectations = struct {
+    expected_passes: []const []const u8,
+    expected_absent_passes: []const []const u8 = &.{},
+    expected_summary: []const u8,
+    owned: bool = false,
+
+    fn deinit(self: SaTestExpectations, allocator: std.mem.Allocator) void {
+        if (!self.owned) return;
+        freeStringList(allocator, self.expected_passes);
+        freeStringList(allocator, self.expected_absent_passes);
+        allocator.free(self.expected_passes);
+        allocator.free(self.expected_absent_passes);
+        allocator.free(self.expected_summary);
+    }
+};
+
 const SaTestTask = struct {
     path: []const u8,
-    expected_passes: []const []const u8,
-    expected_summary: []const u8,
+    expectations: SaTestExpectations,
     jobs_arg: []const u8,
 };
 
@@ -86,25 +101,140 @@ fn shouldQueueSaTestFile(allocator: std.mem.Allocator) bool {
     return true;
 }
 
-fn enqueueSaTestFile(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
+fn freeStringList(allocator: std.mem.Allocator, items: []const []const u8) void {
+    for (items) |item| allocator.free(item);
+}
+
+fn isSaTestSpace(c: u8) bool {
+    return c == ' ' or c == '\t' or c == '\r';
+}
+
+fn trimSaTestSpace(text: []const u8) []const u8 {
+    return std.mem.trimLeft(u8, text, " \t\r");
+}
+
+fn consumeSaTestKeyword(rest: *[]const u8, keyword: []const u8) bool {
+    const text = rest.*;
+    if (!std.mem.startsWith(u8, text, keyword)) return false;
+    if (text.len > keyword.len and !isSaTestSpace(text[keyword.len])) return false;
+    rest.* = trimSaTestSpace(text[keyword.len..]);
+    return true;
+}
+
+const ParsedSaTestDecl = struct {
+    name: []const u8,
+    ignored: bool,
+};
+
+fn parseSaTestDecl(line: []const u8) ?ParsedSaTestDecl {
+    var rest = trimSaTestSpace(line);
+    if (!std.mem.startsWith(u8, rest, "@test")) return null;
+    if (rest.len > "@test".len and !isSaTestSpace(rest["@test".len])) return null;
+    rest = trimSaTestSpace(rest["@test".len..]);
+
+    var ignored = false;
+    while (true) {
+        if (consumeSaTestKeyword(&rest, "ignored")) {
+            ignored = true;
+            continue;
+        }
+        if (consumeSaTestKeyword(&rest, "should_panic")) continue;
+        break;
+    }
+
+    if (rest.len == 0 or rest[0] != '"') return null;
+    var i: usize = 1;
+    var escaped = false;
+    while (i < rest.len) : (i += 1) {
+        const c = rest[i];
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (c == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (c == '"') return .{ .name = rest[1..i], .ignored = ignored };
+    }
+    return null;
+}
+
+fn appendPassMarker(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), name: []const u8) !void {
+    const marker = try std.fmt.allocPrint(allocator, "[PASS] {s}", .{name});
+    errdefer allocator.free(marker);
+    try list.append(marker);
+}
+
+fn buildSaTestExpectations(allocator: std.mem.Allocator, path: []const u8) !SaTestExpectations {
+    const source = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(source);
+
+    var expected_passes = std.ArrayList([]const u8).init(allocator);
+    defer expected_passes.deinit();
+    errdefer freeStringList(allocator, expected_passes.items);
+
+    var expected_absent_passes = std.ArrayList([]const u8).init(allocator);
+    defer expected_absent_passes.deinit();
+    errdefer freeStringList(allocator, expected_absent_passes.items);
+
+    var passed_count: usize = 0;
+    var ignored_count: usize = 0;
+    var lines = std.mem.splitScalar(u8, source, '\n');
+    while (lines.next()) |line| {
+        const parsed = parseSaTestDecl(line) orelse continue;
+        if (parsed.ignored) {
+            ignored_count += 1;
+            try appendPassMarker(allocator, &expected_absent_passes, parsed.name);
+        } else {
+            passed_count += 1;
+            try appendPassMarker(allocator, &expected_passes, parsed.name);
+        }
+    }
+
+    const summary = if (ignored_count == 0)
+        try std.fmt.allocPrint(allocator, "test result: ok. {} passed; 0 failed; 0 skipped", .{passed_count})
+    else
+        try std.fmt.allocPrint(allocator, "test result: ok. {} passed; 0 failed; 0 skipped; {} ignored", .{ passed_count, ignored_count });
+    errdefer allocator.free(summary);
+
+    return .{
+        .expected_passes = try expected_passes.toOwnedSlice(),
+        .expected_absent_passes = try expected_absent_passes.toOwnedSlice(),
+        .expected_summary = summary,
+        .owned = true,
+    };
+}
+
+fn enqueueSaTestFile(path: []const u8, expectations: SaTestExpectations) !void {
     const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
     errdefer std.testing.allocator.free(jobs_arg);
+    errdefer expectations.deinit(std.testing.allocator);
     try queued_sa_tests.append(std.testing.allocator, .{
         .path = path,
-        .expected_passes = expected_passes,
-        .expected_summary = expected_summary,
+        .expectations = expectations,
         .jobs_arg = jobs_arg,
     });
 }
 
 fn runSaTestFile(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
-    if (shouldQueueSaTestFile(std.testing.allocator)) {
-        return enqueueSaTestFile(path, expected_passes, expected_summary);
-    }
-    return runSaTestFileInProcess(path, expected_passes, expected_summary);
+    return runSaTestFileWithExpectations(path, .{ .expected_passes = expected_passes, .expected_summary = expected_summary });
 }
 
-fn runSaTestFileInProcess(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
+fn runSaTestFileAuto(path: []const u8) !void {
+    const expectations = try buildSaTestExpectations(std.testing.allocator, path);
+    return runSaTestFileWithExpectations(path, expectations);
+}
+
+fn runSaTestFileWithExpectations(path: []const u8, expectations: SaTestExpectations) !void {
+    if (shouldQueueSaTestFile(std.testing.allocator)) {
+        return enqueueSaTestFile(path, expectations);
+    }
+    defer expectations.deinit(std.testing.allocator);
+    return runSaTestFileInProcess(path, expectations);
+}
+
+fn runSaTestFileInProcess(path: []const u8, expectations: SaTestExpectations) !void {
     const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(suite_path);
     const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
@@ -129,10 +259,13 @@ fn runSaTestFileInProcess(path: []const u8, expected_passes: []const []const u8,
         std.debug.print("stderr: {s}\n", .{stderr_buffer.items});
     }
     try std.testing.expectEqual(@as(u8, 0), code);
-    for (expected_passes) |expected_pass| {
+    for (expectations.expected_passes) |expected_pass| {
         try expectContains(stdout_buffer.items, expected_pass);
     }
-    try expectContains(stdout_buffer.items, expected_summary);
+    for (expectations.expected_absent_passes) |absent_pass| {
+        try expectNotContains(stdout_buffer.items, absent_pass);
+    }
+    try expectContains(stdout_buffer.items, expectations.expected_summary);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }
 
@@ -171,14 +304,20 @@ fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask) !void {
         std.debug.print("stderr: {s}\n", .{result.stderr});
         return error.SaTestFailed;
     }
-    for (task.expected_passes) |expected_pass| {
+    for (task.expectations.expected_passes) |expected_pass| {
         if (std.mem.indexOf(u8, result.stdout, expected_pass) == null) {
             std.debug.print("stdout missing expected marker for {s}: {s}\nstdout: {s}\n", .{ task.path, expected_pass, result.stdout });
             return error.SaTestMissingExpectedPass;
         }
     }
-    if (std.mem.indexOf(u8, result.stdout, task.expected_summary) == null) {
-        std.debug.print("stdout missing expected summary for {s}: {s}\nstdout: {s}\n", .{ task.path, task.expected_summary, result.stdout });
+    for (task.expectations.expected_absent_passes) |absent_pass| {
+        if (std.mem.indexOf(u8, result.stdout, absent_pass) != null) {
+            std.debug.print("stdout contains unexpected marker for {s}: {s}\nstdout: {s}\n", .{ task.path, absent_pass, result.stdout });
+            return error.SaTestUnexpectedPass;
+        }
+    }
+    if (std.mem.indexOf(u8, result.stdout, task.expectations.expected_summary) == null) {
+        std.debug.print("stdout missing expected summary for {s}: {s}\nstdout: {s}\n", .{ task.path, task.expectations.expected_summary, result.stdout });
         return error.SaTestMissingSummary;
     }
     if (result.stderr.len != 0) {
@@ -208,7 +347,7 @@ fn runQueuedSaTestFiles() !void {
     }
 
     const sa_bin = saBinaryPath(std.testing.allocator) orelse {
-        for (tasks) |task| try runSaTestFileInProcess(task.path, task.expected_passes, task.expected_summary);
+        for (tasks) |task| try runSaTestFileInProcess(task.path, task.expectations);
         return;
     };
     defer std.testing.allocator.free(sa_bin);
@@ -237,7 +376,10 @@ fn runQueuedSaTestFiles() !void {
 }
 
 fn clearQueuedSaTestFiles() void {
-    for (queued_sa_tests.items) |task| std.testing.allocator.free(task.jobs_arg);
+    for (queued_sa_tests.items) |task| {
+        task.expectations.deinit(std.testing.allocator);
+        std.testing.allocator.free(task.jobs_arg);
+    }
     queued_sa_tests.deinit(std.testing.allocator);
     queued_sa_tests = .empty;
 }
@@ -267,273 +409,15 @@ test "native unit framework suite covers the demo-derived feature matrix" {
         std.debug.print("stderr: {s}\n", .{stderr_buffer.items});
     }
     try std.testing.expectEqual(@as(u8, 0), default_code);
-    try expectContains(stdout_buffer.items, "[PASS] 03_if_else branch path");
-    try expectContains(stdout_buffer.items, "[PASS] 04_loop zero fill");
-    try expectContains(stdout_buffer.items, "[PASS] 04_float_ops native llvm");
-    try expectContains(stdout_buffer.items, "[PASS] 05_struct field layout");
-    try expectContains(stdout_buffer.items, "[PASS] 06_enum_and_match tag dispatch");
-    try expectContains(stdout_buffer.items, "[PASS] 07_trait_vtable dynamic dispatch");
-    try expectContains(stdout_buffer.items, "[PASS] 08_closures captured environment");
-    try expectContains(stdout_buffer.items, "[PASS] 10_generics_monomorph option unwrap_or");
-    try expectContains(stdout_buffer.items, "[PASS] 11_tuples field access");
-    try expectContains(stdout_buffer.items, "[PASS] 12_destructuring pair sum");
-    try expectContains(stdout_buffer.items, "[PASS] 13_array_sum fixed array");
-    try expectContains(stdout_buffer.items, "[PASS] 14_slice_window pointer window");
-    try expectContains(stdout_buffer.items, "[PASS] 17_associated_fn constructor");
-    try expectContains(stdout_buffer.items, "[PASS] 18_option_map map_or");
-    try expectContains(stdout_buffer.items, "[PASS] 21_while_loop sum to fifteen");
-    try expectContains(stdout_buffer.items, "[PASS] 24_factorial recursion");
-    try expectContains(stdout_buffer.items, "[PASS] 25_fibonacci recursion");
-    try expectContains(stdout_buffer.items, "[PASS] 28_borrow_chains repeated load");
-    try expectContains(stdout_buffer.items, "[PASS] 30_manual_guard_branch option guard");
-    try expectContains(stdout_buffer.items, "[PASS] 33_iterator_map arithmetic map");
-    try expectContains(stdout_buffer.items, "[PASS] 34_iterator_filter selected sum");
-    try expectContains(stdout_buffer.items, "[PASS] 35_iterator_fold slice fold");
-    try expectContains(stdout_buffer.items, "[PASS] 37_newtype field load");
-    try expectContains(stdout_buffer.items, "[PASS] 38_generic_struct_i32 wrapper");
-    try expectContains(stdout_buffer.items, "[PASS] 39_generic_enum_i32 value branch");
-    try expectContains(stdout_buffer.items, "[PASS] 40_impl_block_state deposit");
-    try expectContains(stdout_buffer.items, "[PASS] 41_module_imports helper import");
-    try expectContains(stdout_buffer.items, "[PASS] 42_export_visibility function pair");
-    try expectContains(stdout_buffer.items, "[PASS] 45_config_merge override selection");
-    try expectContains(stdout_buffer.items, "[PASS] 46_option_default fallback");
-    try expectContains(stdout_buffer.items, "[PASS] 48_generic_pair sum");
-    try expectContains(stdout_buffer.items, "[PASS] 53_cache_hits lookup");
-    try expectContains(stdout_buffer.items, "[PASS] 54_mem_fill set bytes");
-    try expectContains(stdout_buffer.items, "[PASS] 56_state_machine advance");
-    try expectContains(stdout_buffer.items, "[PASS] 59_method_counter mut borrow");
-    try expectContains(stdout_buffer.items, "[PASS] 60_enum_branch tag dispatch");
-    try expectContains(stdout_buffer.items, "[PASS] 63_router_table lookup");
-    try expectContains(stdout_buffer.items, "[PASS] 68_parser_tokens count");
-    try expectContains(stdout_buffer.items, "[PASS] 69_serializer id builder");
-    try expectContains(stdout_buffer.items, "[PASS] 70_integration_service total");
-    try expectContains(stdout_buffer.items, "[PASS] 71_pipeline_stage flow");
-    try expectContains(stdout_buffer.items, "[PASS] 72_graph_walk total");
-    try expectContains(stdout_buffer.items, "[PASS] 73_scene_nodes sum");
-    try expectContains(stdout_buffer.items, "[PASS] 74_component_store count");
-    try expectContains(stdout_buffer.items, "[PASS] 79_metrics collect");
-    try expectContains(stdout_buffer.items, "[PASS] 80_workflow flow");
-    try expectContains(stdout_buffer.items, "[PASS] 82_sql_scan rows");
-    try expectContains(stdout_buffer.items, "[PASS] 83_blob_chunk count");
-    try expectContains(stdout_buffer.items, "[PASS] 84_sync_gate ready");
-    try expectContains(stdout_buffer.items, "[PASS] 85_scheduler_tree sum");
-    try expectContains(stdout_buffer.items, "[PASS] 87_protocol_frame decode");
-    try expectContains(stdout_buffer.items, "[PASS] 88_text_index words");
-    try expectContains(stdout_buffer.items, "[PASS] 89_job_queue take jobs");
-    try expectContains(stdout_buffer.items, "[PASS] 90_app_shell mode sum");
-    try expectContains(stdout_buffer.items, "[PASS] 91_db_session open");
-    try expectContains(stdout_buffer.items, "[PASS] 92_query_plan total");
-    try expectContains(stdout_buffer.items, "[PASS] 93_log_aggregator total");
-    try expectContains(stdout_buffer.items, "[PASS] 96_task_orchestrator total");
-    try expectContains(stdout_buffer.items, "[PASS] 97_sync_service once");
-    try expectContains(stdout_buffer.items, "[PASS] 98_build_pipeline stage");
-    try expectContains(stdout_buffer.items, "[PASS] 99_release_bundle count");
-    try expectContains(stdout_buffer.items, "[PASS] 100_full_app total");
-    try expectContains(stdout_buffer.items, "[PASS] 101_custom_drop order");
-    try expectContains(stdout_buffer.items, "[PASS] 102_raii_guard unlock");
-    try expectContains(stdout_buffer.items, "[PASS] 103_labeled_break total");
-    try expectContains(stdout_buffer.items, "[PASS] 104_if_let_chains sum");
-    try expectContains(stdout_buffer.items, "[PASS] 105_let_else value");
-    try expectContains(stdout_buffer.items, "[PASS] 106_cell_interior_mut total");
-    try expectContains(stdout_buffer.items, "[PASS] 107_refcell_dynamic_borrow values");
-    try expectContains(stdout_buffer.items, "[PASS] 108_atomic_spin_lock acquire");
-    try expectContains(stdout_buffer.items, "[PASS] 109_atomic_fetch_add total");
-    try expectContains(stdout_buffer.items, "[PASS] 110_trait_super_vtable dispatch");
-    try expectContains(stdout_buffer.items, "[PASS] 111_extern_c_abi exported add");
-    try expectContains(stdout_buffer.items, "[PASS] 112_raw_pointer_arithmetic third lane");
-    try expectContains(stdout_buffer.items, "[PASS] 113_union_ffi_types overlap");
-    try expectContains(stdout_buffer.items, "[PASS] 114_callback_from_c indirect");
-    try expectContains(stdout_buffer.items, "[PASS] 115_opaque_pointers value");
-    try expectContains(stdout_buffer.items, "[PASS] 116_va_list_variadic slice sum");
-    try expectContains(stdout_buffer.items, "[PASS] 118_global_mutable_state counter");
-    try expectContains(stdout_buffer.items, "[PASS] 119_simd_intrinsics lane sum");
-    try expectContains(stdout_buffer.items, "[PASS] 120_volatile_memory_access load");
-    try expectContains(stdout_buffer.items, "[PASS] 121_rwlock_reader_writer total");
-    try expectContains(stdout_buffer.items, "[PASS] 122_condvar_wait_notify ready");
-    try expectContains(stdout_buffer.items, "[PASS] 123_barrier_sync total");
-    try expectContains(stdout_buffer.items, "[PASS] 124_thread_local_storage value");
-    try expectContains(stdout_buffer.items, "[PASS] 125_once_cell_lazy init");
-    try expectContains(stdout_buffer.items, "[PASS] 126_mpmc_channel sum");
-    try expectContains(stdout_buffer.items, "[PASS] 127_hazard_pointers retire");
-    try expectContains(stdout_buffer.items, "[PASS] 128_rcu_read_copy_update value");
-    try expectContains(stdout_buffer.items, "[PASS] 129_seqlock_optimistic stable");
-    try expectContains(stdout_buffer.items, "[PASS] 130_park_unpark_thread wake");
-    try expectContains(stdout_buffer.items, "[PASS] 131_waker_vtable_mechanics wake");
-    try expectContains(stdout_buffer.items, "[PASS] 132_pinning_and_unpin value");
-    try expectContains(stdout_buffer.items, "[PASS] 133_select_macro_race winner");
-    try expectContains(stdout_buffer.items, "[PASS] 134_join_all_futures sum");
-    try expectContains(stdout_buffer.items, "[PASS] 135_async_streams sequence");
-    try expectContains(stdout_buffer.items, "[PASS] 136_executor_task_queue run");
-    try expectContains(stdout_buffer.items, "[PASS] 137_io_uring_submission depth");
-    try expectContains(stdout_buffer.items, "[PASS] 138_epoll_kqueue_event ready");
-    try expectContains(stdout_buffer.items, "[PASS] 139_cancellation_safety value");
-    try expectContains(stdout_buffer.items, "[PASS] 140_yield_now_suspend resume");
-    try expectContains(stdout_buffer.items, "[PASS] 141_dynamically_sized_types len");
-    try expectContains(stdout_buffer.items, "[PASS] 142_zero_sized_types erased");
-    try expectContains(stdout_buffer.items, "[PASS] 143_never_type_diverge safe path");
-    try expectContains(stdout_buffer.items, "[PASS] 144_phantom_data_marker value");
-    try expectContains(stdout_buffer.items, "[PASS] 145_opaque_type_alias value");
-    try expectContains(stdout_buffer.items, "[PASS] 146_never_type_fallback some");
-    try expectContains(stdout_buffer.items, "[PASS] 147_custom_dst_pointers len");
-    try expectContains(stdout_buffer.items, "[PASS] 148_transparent_repr value");
-    try expectContains(stdout_buffer.items, "[PASS] 149_packed_repr sum");
-    try expectContains(stdout_buffer.items, "[PASS] 150_c_repr_alignment sum");
-    try expectContains(stdout_buffer.items, "[PASS] 151_global_alloc_trait value");
-    try expectContains(stdout_buffer.items, "[PASS] 152_memory_layout_struct total");
-    try expectContains(stdout_buffer.items, "[PASS] 153_box_into_raw value");
-    try expectContains(stdout_buffer.items, "[PASS] 154_box_from_raw value");
-    try expectContains(stdout_buffer.items, "[PASS] 155_arena_allocator_bump total");
-    try expectContains(stdout_buffer.items, "[PASS] 156_slab_allocator_freelist total");
-    try expectContains(stdout_buffer.items, "[PASS] 157_aligned_alloc_simd lanes");
-    try expectContains(stdout_buffer.items, "[PASS] 158_custom_dst_alloc len");
-    try expectContains(stdout_buffer.items, "[PASS] 159_mem_forget_leak raw handoff");
-    try expectContains(stdout_buffer.items, "[PASS] 160_manually_drop_union value");
-    try expectContains(stdout_buffer.items, "[PASS] 161_generic_associated_types borrowed get");
-    try expectContains(stdout_buffer.items, "[PASS] 162_auto_traits_send_sync move");
-    try expectContains(stdout_buffer.items, "[PASS] 163_object_safety_rules draw");
-    try expectContains(stdout_buffer.items, "[PASS] 164_trait_upcasting vtable total");
-    try expectContains(stdout_buffer.items, "[PASS] 165_blanket_impl_resolution len");
-    try expectContains(stdout_buffer.items, "[PASS] 166_specialization_fallback dispatch");
-    try expectContains(stdout_buffer.items, "[PASS] 167_const_generics_expansion sum");
-    try expectContains(stdout_buffer.items, "[PASS] 168_type_alias_impl_trait erased");
-    try expectContains(stdout_buffer.items, "[PASS] 169_negative_impls no runtime cost");
-    try expectContains(stdout_buffer.items, "[PASS] 170_marker_traits process");
-    try expectContains(stdout_buffer.items, "[PASS] 171_anyhow_dynamic_error default");
-    try expectContains(stdout_buffer.items, "[PASS] 172_eyre_color_eyre context");
-    try expectContains(stdout_buffer.items, "[PASS] 173_catch_unwind_panic explicit result");
-    try expectContains(stdout_buffer.items, "[PASS] 174_backtrace_capture depth");
-    try expectContains(stdout_buffer.items, "[PASS] 175_thiserror_macro_derive format");
-    try expectContains(stdout_buffer.items, "[PASS] 176_result_flattening value");
-    try expectContains(stdout_buffer.items, "[PASS] 177_result unwrap and unwrap_err");
-    try expectContains(stdout_buffer.items, "[PASS] 178_panic_hook_override count");
-    try expectContains(stdout_buffer.items, "[PASS] 179_assert_macro_expansion pass");
-    try expectContains(stdout_buffer.items, "[PASS] 180_try_trait_v2 combine");
-    try expectContains(stdout_buffer.items, "[PASS] 181_file_descriptor_raii close");
-    try expectContains(stdout_buffer.items, "[PASS] 182_mmap_memory_mapping lifecycle");
-    try expectContains(stdout_buffer.items, "[PASS] 183_signal_handling_setup register");
-    try expectContains(stdout_buffer.items, "[PASS] 184_pthread_spawn_join worker");
-    try expectContains(stdout_buffer.items, "[PASS] 185_dynamic_lib_dlopen handles");
-    try expectContains(stdout_buffer.items, "[PASS] 186_sqlite_c_api_binding row");
-    try expectContains(stdout_buffer.items, "[PASS] 187_opengl_context_swap state");
-    try expectContains(stdout_buffer.items, "[PASS] 188_websocket_frame_parse text");
-    try expectContains(stdout_buffer.items, "[PASS] 189_protobuf_varint_decode value");
-    try expectContains(stdout_buffer.items, "[PASS] 190_base64_encode_simd block");
-    try expectContains(stdout_buffer.items, "[PASS] 191_macro_rules_ast_emit mirror");
-    try expectContains(stdout_buffer.items, "[PASS] 192_proc_macro_derive_ast copy");
-    try expectContains(stdout_buffer.items, "[PASS] 193_attribute_macro_rewrite value");
-    try expectContains(stdout_buffer.items, "[PASS] 194_cfg_conditional_compilation arch");
-    try expectContains(stdout_buffer.items, "[PASS] 195_build_script_codegen output");
-    try expectContains(stdout_buffer.items, "[PASS] 196_lto_link_time_opt total");
-    try expectContains(stdout_buffer.items, "[PASS] 197_profile_guided_opt total");
-    try expectContains(stdout_buffer.items, "[PASS] 198_control_flow_guard_cfi indirect");
-    try expectContains(stdout_buffer.items, "[PASS] 199_address_sanitizer_asan safe sum");
-    try expectContains(stdout_buffer.items, "[PASS] 200_sa_asm_quine source");
-    try expectContains(stdout_buffer.items, "[PASS] 201_pkg_manifest_basic value");
-    try expectContains(stdout_buffer.items, "[PASS] 202_pkg_dependencies_local value");
-    try expectContains(stdout_buffer.items, "[PASS] 203_pkg_dependencies_git value");
-    try expectContains(stdout_buffer.items, "[PASS] 204_pkg_dependencies_registry value");
-    try expectContains(stdout_buffer.items, "[PASS] 205_pkg_cyclic_dependency_reject diagnostic");
-    try expectContains(stdout_buffer.items, "[PASS] 206_pkg_version_resolution value");
-    try expectContains(stdout_buffer.items, "[PASS] 207_pkg_multiple_versions_conflict diagnostic");
-    try expectContains(stdout_buffer.items, "[PASS] 208_pkg_dev_dependencies value");
-    try expectContains(stdout_buffer.items, "[PASS] 209_pkg_build_dependencies value");
-    try expectContains(stdout_buffer.items, "[PASS] 210_pkg_workspace_root total");
-    try expectContains(stdout_buffer.items, "[PASS] 211_pkg_workspace_inheritance total");
-    try expectContains(stdout_buffer.items, "[PASS] 212_pkg_feature_flags value");
-    try expectContains(stdout_buffer.items, "[PASS] 213_pkg_default_features value");
-    try expectContains(stdout_buffer.items, "[PASS] 214_pkg_target_specific_deps value");
-    try expectContains(stdout_buffer.items, "[PASS] 215_pkg_patch_override value");
-    try expectContains(stdout_buffer.items, "[PASS] 216_pkg_profile_release value");
-    try expectContains(stdout_buffer.items, "[PASS] 217_pkg_profile_debug value");
-    try expectContains(stdout_buffer.items, "[PASS] 218_pkg_metadata_custom value");
-    try expectContains(stdout_buffer.items, "[PASS] 219_pkg_bin_multiple total");
-    try expectContains(stdout_buffer.items, "[PASS] 220_pkg_lib_dynamic total");
-    try expectContains(stdout_buffer.items, "[PASS] 221_mod_relative_import value");
-    try expectContains(stdout_buffer.items, "[PASS] 222_mod_absolute_import value");
-    try expectContains(stdout_buffer.items, "[PASS] 223_mod_visibility_private value");
-    try expectContains(stdout_buffer.items, "[PASS] 224_mod_reexport_pub_use value");
-    try expectContains(stdout_buffer.items, "[PASS] 225_mod_namespace_prefix value");
-    try expectContains(stdout_buffer.items, "[PASS] 226_mod_cyclic_import_detect diagnostic");
-    try expectContains(stdout_buffer.items, "[PASS] 227_mod_shadowing_prevention diagnostic");
-    try expectContains(stdout_buffer.items, "[PASS] 228_mod_iface_separation value");
-    try expectContains(stdout_buffer.items, "[PASS] 229_mod_layout_injection value");
-    try expectContains(stdout_buffer.items, "[PASS] 230_mod_std_prelude value");
-    try expectContains(stdout_buffer.items, "[PASS] 231_mod_directory_module value");
-    try expectContains(stdout_buffer.items, "[PASS] 232_mod_conditional_import value");
-    try expectContains(stdout_buffer.items, "[PASS] 233_mod_alias_import value");
-    try expectContains(stdout_buffer.items, "[PASS] 234_mod_unused_import_lint value");
-    try expectContains(stdout_buffer.items, "[PASS] 235_mod_transitive_dependency value");
-    try expectContains(stdout_buffer.items, "[PASS] 236_mod_extern_block_grouping value");
-    try expectContains(stdout_buffer.items, "[PASS] 237_mod_inline_submodule value");
-    try expectContains(stdout_buffer.items, "[PASS] 238_mod_path_resolution_order value");
-    try expectContains(stdout_buffer.items, "[PASS] 239_mod_version_suffix_isolation value");
-    try expectContains(stdout_buffer.items, "[PASS] 240_mod_entry_point_override value");
-    try expectContains(stdout_buffer.items, "[PASS] 241_contract_layout_stability value");
-    try expectContains(stdout_buffer.items, "[PASS] 242_contract_opaque_struct value");
-    try expectContains(stdout_buffer.items, "[PASS] 243_contract_sig_mismatch_link diagnostic");
-    try expectContains(stdout_buffer.items, "[PASS] 244_contract_vtable_export value");
-    try expectContains(stdout_buffer.items, "[PASS] 245_contract_generic_monomorph_share value");
-    try expectContains(stdout_buffer.items, "[PASS] 246_contract_semver_minor_update value");
-    try expectContains(stdout_buffer.items, "[PASS] 247_contract_semver_major_break value");
-    try expectContains(stdout_buffer.items, "[PASS] 248_contract_ffi_boundary_trust value");
-    try expectContains(stdout_buffer.items, "[PASS] 249_contract_macro_export value");
-    try expectContains(stdout_buffer.items, "[PASS] 250_contract_const_export value");
-    try expectContains(stdout_buffer.items, "[PASS] 251_contract_resource_ownership value");
-    try expectContains(stdout_buffer.items, "[PASS] 252_contract_error_code_mapping value");
-    try expectContains(stdout_buffer.items, "[PASS] 253_contract_callback_registration value");
-    try expectContains(stdout_buffer.items, "[PASS] 254_contract_plugin_system value");
-    try expectContains(stdout_buffer.items, "[PASS] 255_contract_memory_allocator_swap value");
-    try expectContains(stdout_buffer.items, "[PASS] 256_contract_panic_handler_propagate value");
-    try expectContains(stdout_buffer.items, "[PASS] 257_contract_log_facade value");
-    try expectContains(stdout_buffer.items, "[PASS] 258_contract_thread_local_isolation value");
-    try expectContains(stdout_buffer.items, "[PASS] 259_contract_static_init_order value");
-    try expectContains(stdout_buffer.items, "[PASS] 260_contract_deprecated_warning value");
-    try expectContains(stdout_buffer.items, "[PASS] 261_build_rs_codegen_saasm value");
-    try expectContains(stdout_buffer.items, "[PASS] 262_build_bindgen_c_header value");
-    try expectContains(stdout_buffer.items, "[PASS] 263_build_asset_bundling value");
-    try expectContains(stdout_buffer.items, "[PASS] 264_build_env_var_injection value");
-    try expectContains(stdout_buffer.items, "[PASS] 265_build_custom_linker_script value");
-    try expectContains(stdout_buffer.items, "[PASS] 266_build_pre_compile_hook value");
-    try expectContains(stdout_buffer.items, "[PASS] 267_build_post_compile_hook value");
-    try expectContains(stdout_buffer.items, "[PASS] 268_build_cross_compile_wasm value");
-    try expectContains(stdout_buffer.items, "[PASS] 269_build_cross_compile_windows value");
-    try expectContains(stdout_buffer.items, "[PASS] 270_build_sysroot_custom value");
-    try expectContains(stdout_buffer.items, "[PASS] 271_build_optimization_passes value");
-    try expectContains(stdout_buffer.items, "[PASS] 272_build_sanitizer_flags value");
-    try expectContains(stdout_buffer.items, "[PASS] 273_build_test_harness value");
-    try expectContains(stdout_buffer.items, "[PASS] 274_build_benchmark_runner value");
-    try expectContains(stdout_buffer.items, "[PASS] 275_build_doc_generator value");
-    try expectContains(stdout_buffer.items, "[PASS] 276_build_incremental_caching value");
-    try expectContains(stdout_buffer.items, "[PASS] 277_build_parallel_compilation value");
-    try expectContains(stdout_buffer.items, "[PASS] 278_build_reproducible_builds value");
-    try expectContains(stdout_buffer.items, "[PASS] 279_build_artifact_caching_remote value");
-    try expectContains(stdout_buffer.items, "[PASS] 280_build_ci_cd_integration value");
-    try expectContains(stdout_buffer.items, "[PASS] 281_ffi_link_system_libc gate");
-    try expectContains(stdout_buffer.items, "[PASS] 282_ffi_link_static_c_lib gate");
-    try expectContains(stdout_buffer.items, "[PASS] 283_ffi_link_dynamic_c_lib gate");
-    try expectContains(stdout_buffer.items, "[PASS] 284_ffi_pkg_config_integration gate");
-    try expectContains(stdout_buffer.items, "[PASS] 285_ffi_objective_c_framework gate");
-    try expectContains(stdout_buffer.items, "[PASS] 286_ffi_rust_staticlib_integration gate");
-    try expectContains(stdout_buffer.items, "[PASS] 287_ffi_zig_export_integration export");
-    try expectContains(stdout_buffer.items, "[PASS] 288_ffi_cxx_name_mangling gate");
-    try expectContains(stdout_buffer.items, "[PASS] 289_ffi_opaque_handle_passing gate");
-    try expectContains(stdout_buffer.items, "[PASS] 290_ffi_callback_thunk vtable");
-    try expectContains(stdout_buffer.items, "[PASS] 291_eco_wasm_host_imports guest");
-    try expectContains(stdout_buffer.items, "[PASS] 292_eco_wasm_memory_export memory");
-    try expectContains(stdout_buffer.items, "[PASS] 293_eco_embedded_no_os startup");
-    try expectContains(stdout_buffer.items, "[PASS] 294_eco_os_kernel_module entry");
-    try expectContains(stdout_buffer.items, "[PASS] 295_eco_bpf_ebpf_bytecode program");
-    try expectContains(stdout_buffer.items, "[PASS] 296_eco_gpu_ptx_shader shader");
-    try expectContains(stdout_buffer.items, "[PASS] 297_eco_game_engine_ecs step");
-    try expectContains(stdout_buffer.items, "[PASS] 298_eco_cryptography_simd hash");
-    try expectContains(stdout_buffer.items, "[PASS] 299_eco_language_server_protocol server");
-    try expectContains(stdout_buffer.items, "[PASS] 300_eco_sa_lang_registry_publish publish");
-    try expectContains(stdout_buffer.items, "[PASS] sa_std json dom roundtrip");
-    try expectContains(stdout_buffer.items, "[PASS] sa_std json stream tokens");
-    try expectContains(stdout_buffer.items, "[PASS] sa_std regex groups");
-    try expectContains(stdout_buffer.items, "[PASS] 178 panic hook path");
-    try expectNotContains(stdout_buffer.items, "[PASS] framework ignored case");
-    try expectContains(stdout_buffer.items, "test result: ok. 271 passed; 0 failed; 0 skipped; 1 ignored");
+    const default_expectations = try buildSaTestExpectations(std.testing.allocator, "tests/unit_framework/feature_suite.sa");
+    defer default_expectations.deinit(std.testing.allocator);
+    for (default_expectations.expected_passes) |expected_pass| {
+        try expectContains(stdout_buffer.items, expected_pass);
+    }
+    for (default_expectations.expected_absent_passes) |absent_pass| {
+        try expectNotContains(stdout_buffer.items, absent_pass);
+    }
+    try expectContains(stdout_buffer.items, default_expectations.expected_summary);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 
     var ignored_tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -642,561 +526,57 @@ test "native unit assertions surface file line expected and got details" {
 test "native unit framework covers sa_std macro surface suites" {
     defer clearQueuedSaTestFiles();
 
-    const ascii_expected = [_][]const u8{
-        "[PASS] sa_std ascii byte classifier macros",
-        "[PASS] sa_std ascii case conversion macros",
-        "[PASS] sa_std ascii slice case macros",
-        "[PASS] sa_std ascii slice as_ascii view macros",
-        "[PASS] sa_std ascii escape_default macro",
-        "[PASS] sa_std ascii Char primitive macros",
-    };
-    try runSaTestFile(
+    const macro_surface_suites = [_][]const u8{
         "tests/unit_framework/std_ascii_macro_surface.sa",
-        ascii_expected[0..],
-        "test result: ok. 6 passed; 0 failed; 0 skipped",
-    );
-
-    const cmp_expected = [_][]const u8{
-        "[PASS] sa_std cmp ordering and primitive macros",
-        "[PASS] sa_std cmp reverse primitive macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_cmp_macro_surface.sa",
-        cmp_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
-    );
-
-    const default_convert_expected = [_][]const u8{
-        "[PASS] sa_std default primitive macros",
-        "[PASS] sa_std convert extended primitive macros",
-        "[PASS] sa_std convert primitive macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_default_convert_macro_surface.sa",
-        default_convert_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
-    );
-
-    const option_result_expected = [_][]const u8{
-        "[PASS] sa_std option rust-style combinator macros",
-        "[PASS] sa_std result rust-style combinator macros",
-        "[PASS] sa_std option result nested rust-style macros",
-        "[PASS] sa_std option result reference copy macros",
-        "[PASS] sa_std option result expect unchecked macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_option_result_macro_surface.sa",
-        option_result_expected[0..],
-        "test result: ok. 5 passed; 0 failed; 0 skipped",
-    );
-
-    const cell_expected = [_][]const u8{
-        "[PASS] sa_std cell primitive i32 compatibility macros",
-        "[PASS] sa_std cell u64 rust-style macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_cell_macro_surface.sa",
-        cell_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
-    );
-
-    const refcell_expected = [_][]const u8{
-        "[PASS] sa_std refcell u64 borrow and mutation macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_refcell_macro_surface.sa",
-        refcell_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const rc_weak_expected = [_][]const u8{
-        "[PASS] sa_std rc and weak primitive macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_rc_weak_macro_surface.sa",
-        rc_weak_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const arc_weak_expected = [_][]const u8{
-        "[PASS] sa_std arc and weak primitive macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_arc_weak_macro_surface.sa",
-        arc_weak_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const box_expected = [_][]const u8{
-        "[PASS] sa_std box u64 rust-style macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_box_macro_surface.sa",
-        box_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const mem_expected = [_][]const u8{
-        "[PASS] sa_std mem primitive layout macros",
-        "[PASS] sa_std mem maybe-uninit and manually-drop u64 macros",
-        "[PASS] sa_std mem swap replace take macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_mem_macro_surface.sa",
-        mem_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
-    );
-
-    const ptr_expected = [_][]const u8{
-        "[PASS] sa_std ptr primitive macros",
-        "[PASS] sa_std ptr NonNull primitive macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_ptr_macro_surface.sa",
-        ptr_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
-    );
-
-    const array_expected = [_][]const u8{
-        "[PASS] sa_std array primitive u64 macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_array_macro_surface.sa",
-        array_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const num_expected = [_][]const u8{
-        "[PASS] sa_std num bit position helper macros",
-        "[PASS] sa_std num u64 primitive macros",
-        "[PASS] sa_std num checked div rem parity macros",
-        "[PASS] sa_std num signed unsigned_abs macros",
-        "[PASS] sa_std num nonzero signed neg macros",
-        "[PASS] sa_std num narrow byte conversion macros",
-        "[PASS] sa_std num endian value transform macros",
-        "[PASS] sa_std num signed rust named parity macros",
-        "[PASS] sa_std num unsigned narrow primitive macros",
-        "[PASS] sa_std num nonzero primitive macros",
-        "[PASS] sa_std num nonzero bit and byte macros",
-        "[PASS] sa_std num nonzero endian value transform macros",
-        "[PASS] sa_std num nonzero narrow and platform macros",
-        "[PASS] sa_std num platform sized macros",
-        "[PASS] sa_std num i64 arithmetic parity macros",
-        "[PASS] sa_std num i64 primitive macros",
-        "[PASS] sa_std num signed narrow primitive macros",
-        "[PASS] sa_std num unsigned rust named parity macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_num_macro_surface.sa",
-        num_expected[0..],
-        "test result: ok. 18 passed; 0 failed; 0 skipped",
-    );
-
-    const ops_expected = [_][]const u8{
-        "[PASS] sa_std ops range and bound u64 macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_ops_range_macro_surface.sa",
-        ops_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const char_expected = [_][]const u8{
-        "[PASS] sa_std char scalar and encoding macros",
-        "[PASS] sa_std char escape_unicode write macro",
-        "[PASS] sa_std char escape_default write macro",
-        "[PASS] sa_std char ascii and radix macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_char_macro_surface.sa",
-        char_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
-    );
-
-    const ffi_expected = [_][]const u8{
-        "[PASS] sa_std ffi cstr borrowed view macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_ffi_cstr_macro_surface.sa",
-        ffi_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
-    );
-
-    const error_expected = [_][]const u8{
-        "[PASS] sa_std error primitive reference macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_error_macro_surface.sa",
-        error_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const atomic_expected = [_][]const u8{
-        "[PASS] sa_std sync atomic primitive macros",
-        "[PASS] sa_std sync atomic compare_exchange_weak macros",
-        "[PASS] sa_std sync atomic layout view macros",
-        "[PASS] sa_std sync atomic narrow signed macros",
-        "[PASS] sa_std sync atomic extended type macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_atomic_macro_surface.sa",
-        atomic_expected[0..],
-        "test result: ok. 5 passed; 0 failed; 0 skipped",
-    );
-
-    const once_expected = [_][]const u8{
-        "[PASS] sa_std sync once and once-lock macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_once_macro_surface.sa",
-        once_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const mutex_expected = [_][]const u8{
-        "[PASS] sa_std sync mutex try-lock state macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_mutex_macro_surface.sa",
-        mutex_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const rwlock_expected = [_][]const u8{
-        "[PASS] sa_std sync rwlock noerr state macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_rwlock_macro_surface.sa",
-        rwlock_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const mpsc_expected = [_][]const u8{
-        "[PASS] sa_std sync mpsc capacity and state macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_mpsc_macro_surface.sa",
-        mpsc_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const process_expected = [_][]const u8{
-        "[PASS] sa_std process argv and run macros",
-        "[PASS] sa_std process exit status and output wrapper macros",
-        "[PASS] sa_std process try_wait and kill macros",
-        "[PASS] sa_std process abort macro surface",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_process_macro_surface.sa",
-        process_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
-    );
-
-    const env_expected = [_][]const u8{
-        "[PASS] sa_std env buffer and slice macros",
-        "[PASS] sa_std env try macros return none for missing key",
-        "[PASS] sa_std env path query macros",
-        "[PASS] sa_std env cwd mutation and home query macros",
-        "[PASS] sa_std env set and remove var macros",
-        "[PASS] sa_std env args JSON macro",
-        "[PASS] sa_std env vars JSON macro",
-        "[PASS] sa_std env split paths JSON macros",
-        "[PASS] sa_std env join paths JSON macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_env_macro_surface.sa",
-        env_expected[0..],
-        "test result: ok. 9 passed; 0 failed; 0 skipped",
-    );
-
-    const marker_expected = [_][]const u8{
-        "[PASS] sa_std marker phantom and primitive macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_marker_macro_surface.sa",
-        marker_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const pin_expected = [_][]const u8{
-        "[PASS] sa_std pin transparent pointer macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_pin_macro_surface.sa",
-        pin_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const any_borrow_expected = [_][]const u8{
-        "[PASS] sa_std any type id and any ref macros",
-        "[PASS] sa_std borrow and cow slice macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_any_borrow_macro_surface.sa",
-        any_borrow_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
-    );
-
-    const hash_expected = [_][]const u8{
-        "[PASS] sa_std hash default hasher macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_hash_macro_surface.sa",
-        hash_expected[0..],
-        "test result: ok. 1 passed; 0 failed; 0 skipped",
-    );
-
-    const string_expected = [_][]const u8{
-        "[PASS] sa_std string convenience macros",
-        "[PASS] sa_std string concat macro",
-        "[PASS] sa_std string owned buffer capacity macros",
-        "[PASS] sa_std string owned buffer mutation macros",
-        "[PASS] sa_std string owned buffer utf8 and replace macros",
-        "[PASS] sa_std string mutable byte macros",
-        "[PASS] sa_std string owned buffer ascii char macros",
-        "[PASS] sa_std string find macros",
-        "[PASS] sa_std string byte scan macros",
-        "[PASS] sa_std string split byte view macros",
-        "[PASS] sa_std string line view macros",
-        "[PASS] sa_std string ascii and split once macros",
-        "[PASS] sa_std string utf8 byte and char view macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_string_macro_surface.sa",
-        string_expected[0..],
-        "test result: ok. 13 passed; 0 failed; 0 skipped",
-    );
-
-    const slice_vec_expected = [_][]const u8{
-        "[PASS] sa_std rust parity checked view macros",
-        "[PASS] sa_std slice and vec split first last macros",
-        "[PASS] sa_std slice convenience macros",
-        "[PASS] sa_std slice mutation and search macros",
-        "[PASS] sa_std slice and vec chunk window macros",
-        "[PASS] sa_std slice and vec rchunk macros",
-        "[PASS] sa_std slice and vec split chunk macros",
-        "[PASS] sa_std slice and vec first last chunk macros",
-        "[PASS] sa_std slice and vec checked range aliases",
-        "[PASS] sa_std slice and vec rotate swap sorted macros",
-        "[PASS] sa_std slice and vec sorted callback macros",
-        "[PASS] sa_std slice and vec sort macros",
-        "[PASS] sa_std slice and vec sort_by_cached_key aliases",
-        "[PASS] sa_std slice and vec sort_unstable aliases",
-        "[PASS] sa_std slice and vec select_nth_unstable macros",
-        "[PASS] sa_std slice and vec fill_with macros",
-        "[PASS] sa_std slice and vec exact chunk macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_slice_vec_macro_surface.sa",
-        slice_vec_expected[0..],
-        "test result: ok. 17 passed; 0 failed; 0 skipped",
-    );
-
-    const vec_expected = [_][]const u8{
-        "[PASS] sa_std vec convenience macros",
-        "[PASS] sa_std vec capacity/view macros",
-        "[PASS] sa_std vec search wrappers",
-        "[PASS] sa_std vec insert and dedup macros",
-        "[PASS] sa_std vec retain macros",
-        "[PASS] sa_std vec resize_with and dedup_by macros",
-        "[PASS] sa_std vec dedup_by_key and extract_if macros",
-        "[PASS] sa_std vec drain and splice macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_vec_macro_surface.sa",
-        vec_expected[0..],
-        "test result: ok. 8 passed; 0 failed; 0 skipped",
-    );
-
-    const path_expected = [_][]const u8{
-        "[PASS] sa_std path rust parity macros",
-        "[PASS] sa_std path query and ancestor macros",
-        "[PASS] sa_std path try option-style query macros",
-        "[PASS] sa_std path filesystem query macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_path_macro_surface.sa",
-        path_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
-    );
-
-    const time_expected = [_][]const u8{
-        "[PASS] sa_std time duration and instant macros",
-        "[PASS] sa_std time duration rust-style aliases",
-        "[PASS] sa_std time duration rust method-name aliases",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_time_macro_surface.sa",
-        time_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
-    );
-
-    const hashset_expected = [_][]const u8{
-        "[PASS] sa_std hashset convenience macros",
-        "[PASS] sa_std hashset rust parity macros",
-        "[PASS] sa_std hashset key view macros",
-        "[PASS] sa_std hashset retain macro",
-        "[PASS] sa_std hashset drain and extract macros",
-        "[PASS] sa_std hashset set algebra macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_hashset_macro_surface.sa",
-        hashset_expected[0..],
-        "test result: ok. 6 passed; 0 failed; 0 skipped",
-    );
-
-    const vec_deque_expected = [_][]const u8{
-        "[PASS] sa_std vec_deque capacity access macros",
-        "[PASS] sa_std vec_deque rust parity macros",
-        "[PASS] sa_std vec_deque retain and conditional pop macros",
-        "[PASS] sa_std vec_deque drain macro",
-        "[PASS] sa_std vec_deque split append macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_vec_deque_macro_surface.sa",
-        vec_deque_expected[0..],
-        "test result: ok. 5 passed; 0 failed; 0 skipped",
-    );
-
-    const hashmap_expected = [_][]const u8{
-        "[PASS] sa_std hashmap convenience macros",
-        "[PASS] sa_std hashmap rust parity macros",
-        "[PASS] sa_std hashmap collection view macros",
-        "[PASS] sa_std hashmap into key value view macros",
-        "[PASS] sa_std hashmap retain macro",
-        "[PASS] sa_std hashmap drain and extract macros",
-        "[PASS] sa_std hashmap seeded constructors",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_hashmap_macro_surface.sa",
-        hashmap_expected[0..],
-        "test result: ok. 7 passed; 0 failed; 0 skipped",
-    );
-
-    const binary_heap_expected = [_][]const u8{
-        "[PASS] sa_std binary_heap capacity macros",
-        "[PASS] sa_std binary_heap append macro",
-        "[PASS] sa_std binary_heap retain macro",
-        "[PASS] sa_std binary_heap peek mut set macro",
-        "[PASS] sa_std binary_heap drain macro",
-        "[PASS] sa_std binary_heap vec conversion macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_binary_heap_macro_surface.sa",
-        binary_heap_expected[0..],
-        "test result: ok. 6 passed; 0 failed; 0 skipped",
-    );
-
-    const btree_expected = [_][]const u8{
-        "[PASS] sa_std btree_map rust parity macros",
-        "[PASS] sa_std btree_map collection view macros",
-        "[PASS] sa_std btree_map into key value macros",
-        "[PASS] sa_std btree_map retain macro",
-        "[PASS] sa_std btree_set rust parity macros",
-        "[PASS] sa_std btree_set retain macro",
-        "[PASS] sa_std btree_set range and algebra macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_btree_macro_surface.sa",
-        btree_expected[0..],
-        "test result: ok. 7 passed; 0 failed; 0 skipped",
-    );
-
-    const future_task_expected = [_][]const u8{
-        "[PASS] sa_std waker context poll result macros",
-        "[PASS] sa_std future poll macros",
-        "[PASS] sa_std future join select macros",
-        "[PASS] sa_std task poll macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_future_task_macro_surface.sa",
-        future_task_expected[0..],
-        "test result: ok. 4 passed; 0 failed; 0 skipped",
-    );
-
-    const io_utility_expected = [_][]const u8{
-        "[PASS] sa_std io error and slice utility macros",
-        "[PASS] sa_std io cursor empty repeat sink macros",
-        "[PASS] sa_std io cursor read to end macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_io_utility_macro_surface.sa",
-        io_utility_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
-    );
-
-    const iter_expected = [_][]const u8{
-        "[PASS] sa_std iter cursor double-ended macros",
-        "[PASS] sa_std iter comparison and callback macros",
-        "[PASS] sa_std iter consuming adaptor macros",
-        "[PASS] sa_std iter find_map and filter_map collect macros",
-        "[PASS] sa_std iter eager map filter partition collect macros",
-        "[PASS] sa_std iter collect take skip macros",
-        "[PASS] sa_std iter rev take_while skip_while collect macros",
-        "[PASS] sa_std iter enumerate zip chain collect macros",
-        "[PASS] sa_std iter try adaptor macros",
-        "[PASS] sa_std iter extended cursor macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_iter_macro_surface.sa",
-        iter_expected[0..],
-        "test result: ok. 10 passed; 0 failed; 0 skipped",
-    );
-
-    const fs_expected = [_][]const u8{
-        "[PASS] sa_std fs file io macro surface",
-        "[PASS] sa_std fs metadata copy dir macro surface",
-        "[PASS] sa_std fs hard link macro surface",
-        "[PASS] sa_std fs symlink and read_link macro surface",
-        "[PASS] sa_std fs canonicalize macro surface",
-        "[PASS] sa_std fs remove_dir_all macro surface",
-        "[PASS] sa_std fs read_to_string macro surface",
-        "[PASS] sa_std fs try_exists macro surface",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_fs_macro_surface.sa",
-        fs_expected[0..],
-        "test result: ok. 8 passed; 0 failed; 0 skipped",
-    );
-
-    const net_expected = [_][]const u8{
-        "[PASS] sa_std net to_socket_addrs first macro surface",
-        "[PASS] sa_std net ipv4 parse_ascii macro surface",
-        "[PASS] sa_std net socketaddr v4 parse_ascii macro surface",
-        "[PASS] sa_std net ipaddr parse_ascii ipv4 subset",
-        "[PASS] sa_std net socketaddr parse_ascii ipv4 subset",
-        "[PASS] sa_std net tcp macro surface",
-        "[PASS] sa_std net tcp incoming macro surface",
-        "[PASS] sa_std net udp macro surface",
-        "[PASS] sa_std net local peer address macros",
-        "[PASS] sa_std net option getter and udp peek macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_net_macro_surface.sa",
-        net_expected[0..],
-        "test result: ok. 10 passed; 0 failed; 0 skipped",
-    );
-
-    const net_addr_expected = [_][]const u8{
-        "[PASS] sa_std net typed address macro surface",
-        "[PASS] sa_std net address equality and octet helper macros",
-        "[PASS] sa_std net rust parity address macros",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_net_addr_macro_surface.sa",
-        net_addr_expected[0..],
-        "test result: ok. 3 passed; 0 failed; 0 skipped",
-    );
-
-    const net_multicast_expected = [_][]const u8{
-        "[PASS] sa_std net udp multicast v4 macro surface",
-        "[PASS] sa_std net udp multicast v6 macro surface",
-    };
-    try runSaTestFile(
         "tests/unit_framework/std_net_multicast_macro_surface.sa",
-        net_multicast_expected[0..],
-        "test result: ok. 2 passed; 0 failed; 0 skipped",
-    );
+    };
+
+    for (macro_surface_suites) |path| {
+        try runSaTestFileAuto(path);
+    }
 
     try runQueuedSaTestFiles();
 }
