@@ -519,6 +519,76 @@ L_NUM_U64_TZ_END_%out_count:
     !__num_to_inv_%out_count
 [END_MACRO]
 
+[MACRO] NUM_U64_BIT_WIDTH %out_width, %value
+    EXPAND NUM_U64_LEADING_ZEROS __num_bit_width_lz_%out_width, %value
+    %out_width = sub NUM_U64_BITS, __num_bit_width_lz_%out_width
+    !__num_bit_width_lz_%out_width
+[END_MACRO]
+
+[MACRO] NUM_U64_ISOLATE_HIGHEST_ONE %out_value, %value
+    __num_iso_high_zero_%out_value = eq %value, 0
+    br __num_iso_high_zero_%out_value -> L_NUM_U64_ISO_HIGH_ZERO_%out_value, L_NUM_U64_ISO_HIGH_VALUE_%out_value
+
+L_NUM_U64_ISO_HIGH_VALUE_%out_value:
+    EXPAND NUM_U64_LEADING_ZEROS __num_iso_high_lz_%out_value, %value
+    __num_iso_high_index_%out_value = sub 63, __num_iso_high_lz_%out_value
+    %out_value = shl 1, __num_iso_high_index_%out_value
+    !__num_iso_high_index_%out_value
+    !__num_iso_high_lz_%out_value
+    !__num_iso_high_zero_%out_value
+    jmp L_NUM_U64_ISO_HIGH_END_%out_value
+
+L_NUM_U64_ISO_HIGH_ZERO_%out_value:
+    %out_value = add 0, 0
+    !__num_iso_high_zero_%out_value
+
+L_NUM_U64_ISO_HIGH_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U64_ISOLATE_LOWEST_ONE %out_value, %value
+    __num_iso_low_neg_%out_value = sub 0, %value
+    %out_value = and %value, __num_iso_low_neg_%out_value
+    !__num_iso_low_neg_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U64_HIGHEST_ONE %out_ok, %out_index, %value
+    __num_high_one_zero_%out_ok = eq %value, 0
+    br __num_high_one_zero_%out_ok -> L_NUM_U64_HIGH_ONE_NONE_%out_ok, L_NUM_U64_HIGH_ONE_SOME_%out_ok
+
+L_NUM_U64_HIGH_ONE_SOME_%out_ok:
+    EXPAND NUM_U64_LEADING_ZEROS __num_high_one_lz_%out_ok, %value
+    %out_index = sub 63, __num_high_one_lz_%out_ok
+    %out_ok = add 0, 1
+    !__num_high_one_lz_%out_ok
+    !__num_high_one_zero_%out_ok
+    jmp L_NUM_U64_HIGH_ONE_END_%out_ok
+
+L_NUM_U64_HIGH_ONE_NONE_%out_ok:
+    %out_index = add 0, 0
+    %out_ok = add 0, 0
+    !__num_high_one_zero_%out_ok
+
+L_NUM_U64_HIGH_ONE_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_U64_LOWEST_ONE %out_ok, %out_index, %value
+    __num_low_one_zero_%out_ok = eq %value, 0
+    br __num_low_one_zero_%out_ok -> L_NUM_U64_LOW_ONE_NONE_%out_ok, L_NUM_U64_LOW_ONE_SOME_%out_ok
+
+L_NUM_U64_LOW_ONE_SOME_%out_ok:
+    EXPAND NUM_U64_TRAILING_ZEROS %out_index, %value
+    %out_ok = add 0, 1
+    !__num_low_one_zero_%out_ok
+    jmp L_NUM_U64_LOW_ONE_END_%out_ok
+
+L_NUM_U64_LOW_ONE_NONE_%out_ok:
+    %out_index = add 0, 0
+    %out_ok = add 0, 0
+    !__num_low_one_zero_%out_ok
+
+L_NUM_U64_LOW_ONE_END_%out_ok:
+[END_MACRO]
+
 [MACRO] NUM_U64_REVERSE_BITS %out_value, %value
     __num_rev_idx_slot_%out_value = stack_alloc 8
     __num_rev_acc_slot_%out_value = stack_alloc 8
@@ -1634,6 +1704,46 @@ L_NUM_I64_UNSIGNED_ABS_POS_%out_value:
     !__num_uabs_neg_%out_value
 
 L_NUM_I64_UNSIGNED_ABS_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I64_COUNT_ONES %out_count, %value
+    EXPAND NUM_U64_COUNT_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U64_COUNT_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_LEADING_ZEROS %out_count, %value
+    EXPAND NUM_U64_LEADING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_TRAILING_ZEROS %out_count, %value
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_LEADING_ONES %out_count, %value
+    EXPAND NUM_U64_LEADING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_TRAILING_ONES %out_count, %value
+    EXPAND NUM_U64_TRAILING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_ISOLATE_HIGHEST_ONE %out_value, %value
+    EXPAND NUM_U64_ISOLATE_HIGHEST_ONE %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_ISOLATE_LOWEST_ONE %out_value, %value
+    EXPAND NUM_U64_ISOLATE_LOWEST_ONE %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_HIGHEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U64_HIGHEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_I64_LOWEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U64_LOWEST_ONE %out_ok, %out_index, %value
 [END_MACRO]
 
 [MACRO] NUM_I64_ABS_DIFF %out_value, %lhs, %rhs

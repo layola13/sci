@@ -1,5 +1,106 @@
 @import "sa_std/num.sa"
 
+@test "sa_std num bit position helper macros"():
+L_ENTRY:
+    high_bit = shl 1, 63
+    mixed = add high_bit, 40
+
+    EXPAND NUM_U64_BIT_WIDTH u64_bw_zero, 0
+    EXPAND NUM_U64_BIT_WIDTH u64_bw_one, 1
+    EXPAND NUM_U64_BIT_WIDTH u64_bw_mixed, mixed
+    EXPAND NUM_U64_ISOLATE_HIGHEST_ONE u64_iso_high_zero, 0
+    EXPAND NUM_U64_ISOLATE_HIGHEST_ONE u64_iso_high_mixed, mixed
+    EXPAND NUM_U64_ISOLATE_LOWEST_ONE u64_iso_low_zero, 0
+    EXPAND NUM_U64_ISOLATE_LOWEST_ONE u64_iso_low_mixed, mixed
+    EXPAND NUM_U64_HIGHEST_ONE u64_high_zero_ok, u64_high_zero_idx, 0
+    EXPAND NUM_U64_HIGHEST_ONE u64_high_mixed_ok, u64_high_mixed_idx, mixed
+    EXPAND NUM_U64_LOWEST_ONE u64_low_zero_ok, u64_low_zero_idx, 0
+    EXPAND NUM_U64_LOWEST_ONE u64_low_mixed_ok, u64_low_mixed_idx, mixed
+
+    EXPAND NUM_I64_COUNT_ONES i64_count_ones_neg1, -1
+    EXPAND NUM_I64_COUNT_ZEROS i64_count_zeros_neg1, -1
+    EXPAND NUM_I64_LEADING_ZEROS i64_lz_neg1, -1
+    EXPAND NUM_I64_TRAILING_ZEROS i64_tz_neg8, -8
+    EXPAND NUM_I64_LEADING_ONES i64_lo_neg1, -1
+    EXPAND NUM_I64_TRAILING_ONES i64_to_neg1, -1
+    EXPAND NUM_I64_ISOLATE_HIGHEST_ONE i64_iso_high_neg8, -8
+    EXPAND NUM_I64_ISOLATE_LOWEST_ONE i64_iso_low_neg8, -8
+    EXPAND NUM_I64_HIGHEST_ONE i64_high_neg8_ok, i64_high_neg8_idx, -8
+    EXPAND NUM_I64_LOWEST_ONE i64_low_neg8_ok, i64_low_neg8_idx, -8
+    EXPAND NUM_I64_HIGHEST_ONE i64_high_zero_ok, i64_high_zero_idx, 0
+    EXPAND NUM_I64_LOWEST_ONE i64_low_zero_ok, i64_low_zero_idx, 0
+
+    ok01 = eq u64_bw_zero, 0
+    ok02 = eq u64_bw_one, 1
+    ok03 = eq u64_bw_mixed, 64
+    ok04 = eq u64_iso_high_zero, 0
+    ok05 = eq u64_iso_high_mixed, high_bit
+    ok06 = eq u64_iso_low_zero, 0
+    ok07 = eq u64_iso_low_mixed, 8
+    ok08 = eq u64_high_zero_ok, 0
+    ok09 = eq u64_high_zero_idx, 0
+    ok10 = eq u64_high_mixed_ok, 1
+    ok11 = eq u64_high_mixed_idx, 63
+    ok12 = eq u64_low_zero_ok, 0
+    ok13 = eq u64_low_zero_idx, 0
+    ok14 = eq u64_low_mixed_ok, 1
+    ok15 = eq u64_low_mixed_idx, 3
+    ok16 = eq i64_count_ones_neg1, 64
+    ok17 = eq i64_count_zeros_neg1, 0
+    ok18 = eq i64_lz_neg1, 0
+    ok19 = eq i64_tz_neg8, 3
+    ok20 = eq i64_lo_neg1, 64
+    ok21 = eq i64_to_neg1, 64
+    ok22 = eq i64_iso_high_neg8, high_bit
+    ok23 = eq i64_iso_low_neg8, 8
+    ok24 = eq i64_high_neg8_ok, 1
+    ok25 = eq i64_high_neg8_idx, 63
+    ok26 = eq i64_low_neg8_ok, 1
+    ok27 = eq i64_low_neg8_idx, 3
+    ok28 = eq i64_high_zero_ok, 0
+    ok29 = eq i64_high_zero_idx, 0
+    ok30 = eq i64_low_zero_ok, 0
+    ok31 = eq i64_low_zero_idx, 0
+
+    chain01 = and ok01, ok02
+    chain02 = and chain01, ok03
+    chain03 = and chain02, ok04
+    chain04 = and chain03, ok05
+    chain05 = and chain04, ok06
+    chain06 = and chain05, ok07
+    chain07 = and chain06, ok08
+    chain08 = and chain07, ok09
+    chain09 = and chain08, ok10
+    chain10 = and chain09, ok11
+    chain11 = and chain10, ok12
+    chain12 = and chain11, ok13
+    chain13 = and chain12, ok14
+    chain14 = and chain13, ok15
+    chain15 = and chain14, ok16
+    chain16 = and chain15, ok17
+    chain17 = and chain16, ok18
+    chain18 = and chain17, ok19
+    chain19 = and chain18, ok20
+    chain20 = and chain19, ok21
+    chain21 = and chain20, ok22
+    chain22 = and chain21, ok23
+    chain23 = and chain22, ok24
+    chain24 = and chain23, ok25
+    chain25 = and chain24, ok26
+    chain26 = and chain25, ok27
+    chain27 = and chain26, ok28
+    chain28 = and chain27, ok29
+    chain29 = and chain28, ok30
+    ok = and chain29, ok31
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(900)
+
+L_PASS:
+    return 0
+
 @test "sa_std num u64 primitive macros"():
 L_ENTRY:
     max = add 0, NUM_U64_MAX
