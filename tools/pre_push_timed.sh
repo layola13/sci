@@ -32,7 +32,7 @@ format_ms() {
 jobs="$(detect_jobs)"
 summary="${SA_ZIG_SUMMARY:-all}"
 requested_profile="${SA_PRE_PUSH_PROFILE:-auto}"
-export SA_TEST_JOBS="${SA_TEST_JOBS:-$jobs}"
+export SA_UNIT_FILE_JOBS="${SA_UNIT_FILE_JOBS:-$jobs}"
 total_start="$(now_ms)"
 list_only=0
 stage_names=()
@@ -137,8 +137,8 @@ else
     profile="$requested_profile"
 fi
 
-printf '[pre-push] repo=%s profile=%s requested_profile=%s jobs=%s sa_test_jobs=%s summary=%s\n' "$repo_root" "$profile" "$requested_profile" "$jobs" "$SA_TEST_JOBS" "$summary"
-printf '[pre-push] override Zig jobs with SA_ZIG_JOBS=<n>; override SA unit jobs with SA_TEST_JOBS=<n|auto>\n'
+printf '[pre-push] repo=%s profile=%s requested_profile=%s jobs=%s sa_unit_file_jobs=%s sa_test_jobs=%s summary=%s\n' "$repo_root" "$profile" "$requested_profile" "$jobs" "$SA_UNIT_FILE_JOBS" "${SA_TEST_JOBS:-auto-per-file}" "$summary"
+printf '[pre-push] override Zig jobs with SA_ZIG_JOBS=<n>; override SA file jobs with SA_UNIT_FILE_JOBS=<n>; override per-file SA test jobs with SA_TEST_JOBS=<n|auto>\n'
 printf '[pre-push] select stage profile with SA_PRE_PUSH_PROFILE=auto|full|fast|legacy\n'
 
 run_zig_step() {

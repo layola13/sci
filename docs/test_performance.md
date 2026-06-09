@@ -216,6 +216,21 @@ Routine flattener import tracing is now quiet by default. The previous unconditi
 
 Single-worker LLVM emission now backs per-job arenas with the caller allocator instead of always using `std.heap.page_allocator`. Parallel emission deliberately keeps `std.heap.page_allocator`, because the compiler entrypoint allocator is not guaranteed to be thread-safe when several emitter workers allocate concurrently. This trims page allocator churn for common focused builds and tests without changing the safer backing allocator choice for multi-worker emission.
 
+## 2026-06-09 Unit Framework File-Level Parallelism
+
+The macro surface portion of `tests/unit_framework/runner.zig` can now run independent SA files in parallel when `SA_UNIT_FILE_JOBS` is greater than 1. Parallel mode launches the freshly built `sa` binary as a child process for each file instead of calling the in-process CLI from several threads, so compiler globals and process-local import caches are not shared across concurrent SA test files.
+
+The pre-push script now exports `SA_UNIT_FILE_JOBS` from the detected host job count. It no longer forces `SA_TEST_JOBS` by default; when file-level parallelism is active and `SA_TEST_JOBS` is unset, each child `sa test` uses `--jobs 1` to avoid oversubscribing CPUs. Callers can still explicitly set `SA_TEST_JOBS=auto` or a fixed value when they want nested per-file test parallelism.
+
+Focused verification:
+
+```sh
+zig build unit-framework --summary all
+SA_UNIT_FILE_JOBS=4 zig build unit-framework --summary all
+```
+
+The default serial-compatible path still passed with `4/4 tests passed` and about `3m` for the run step. With `SA_UNIT_FILE_JOBS=4`, the same gate passed with `4/4 tests passed`; the macro surface files completed in `54.960s`, and the overall run step completed in about `1m`. The remaining fixed cost is now the large `feature_suite.sa` test plus the Zig test binary itself.
+
 Focused verification:
 
 ```sh

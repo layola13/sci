@@ -2,9 +2,14 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99990%
+Current progress: 99.99991%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added process-isolated file-level parallelism for SA macro surface unit tests.
+  - `unit-framework` now can run independent SA macro surface files through the freshly built `sa` binary when `SA_UNIT_FILE_JOBS` is greater than 1, avoiding shared in-process CLI state while allowing file-level concurrency.
+  - The pre-push timing script now exports `SA_UNIT_FILE_JOBS` from the detected host job count and leaves per-file `SA_TEST_JOBS` unset by default; the runner uses `--jobs 1` inside each concurrent file unless the caller explicitly overrides it.
+  - Verification: `zig build unit-framework --summary all` -> `4/4 tests passed`; `SA_UNIT_FILE_JOBS=4 zig build unit-framework --summary all` -> `4/4 tests passed`, run step about `1m` with macro surface files at `54.960s`.
 
 - 2026-06-09: Reduced single-thread LLVM emitter arena page-allocator churn.
   - Added a shared emit-job backing allocator selector in `src/emit_llvm_llvmc.zig` so single-worker LLVM emission backs per-task arenas with the caller allocator instead of forcing `std.heap.page_allocator` for every job.

@@ -29,14 +29,82 @@ fn saTestJobsArg(allocator: std.mem.Allocator) ![]const u8 {
 
 fn saTestJobsArgForPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     _ = path;
+    if (saUnitFileJobs() > 1 and !hasEnvVar(allocator, "SA_TEST_JOBS")) {
+        return allocator.dupe(u8, "1");
+    }
     return saTestJobsArg(allocator);
+}
+
+fn hasEnvVar(allocator: std.mem.Allocator, name: []const u8) bool {
+    const value = std.process.getEnvVarOwned(allocator, name) catch return false;
+    allocator.free(value);
+    return true;
+}
+
+fn parsePositiveUsize(text: []const u8) ?usize {
+    if (text.len == 0 or std.mem.eql(u8, text, "auto")) return null;
+    const parsed = std.fmt.parseUnsigned(usize, text, 10) catch return null;
+    return if (parsed == 0) null else parsed;
+}
+
+fn saUnitFileJobs() usize {
+    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_UNIT_FILE_JOBS") catch return 1;
+    defer std.heap.page_allocator.free(value);
+    if (parsePositiveUsize(value)) |requested| {
+        const cpu_count = std.Thread.getCpuCount() catch 1;
+        return @min(requested, @max(cpu_count, @as(usize, 1)));
+    }
+    return 1;
+}
+
+fn saBinaryPath(allocator: std.mem.Allocator) ?[]u8 {
+    const value = std.process.getEnvVarOwned(allocator, "SA_BIN") catch return null;
+    if (value.len == 0) {
+        allocator.free(value);
+        return null;
+    }
+    return value;
 }
 
 fn elapsedMs(start_ns: i128) i128 {
     return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
+const SaTestTask = struct {
+    path: []const u8,
+    expected_passes: []const []const u8,
+    expected_summary: []const u8,
+    jobs_arg: []const u8,
+};
+
+var queued_sa_tests: std.ArrayListUnmanaged(SaTestTask) = .empty;
+
+fn shouldQueueSaTestFile(allocator: std.mem.Allocator) bool {
+    if (saUnitFileJobs() <= 1) return false;
+    const sa_bin = saBinaryPath(allocator) orelse return false;
+    allocator.free(sa_bin);
+    return true;
+}
+
+fn enqueueSaTestFile(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
+    const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
+    errdefer std.testing.allocator.free(jobs_arg);
+    try queued_sa_tests.append(std.testing.allocator, .{
+        .path = path,
+        .expected_passes = expected_passes,
+        .expected_summary = expected_summary,
+        .jobs_arg = jobs_arg,
+    });
+}
+
 fn runSaTestFile(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
+    if (shouldQueueSaTestFile(std.testing.allocator)) {
+        return enqueueSaTestFile(path, expected_passes, expected_summary);
+    }
+    return runSaTestFileInProcess(path, expected_passes, expected_summary);
+}
+
+fn runSaTestFileInProcess(path: []const u8, expected_passes: []const []const u8, expected_summary: []const u8) !void {
     const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(suite_path);
     const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
@@ -66,6 +134,112 @@ fn runSaTestFile(path: []const u8, expected_passes: []const []const u8, expected
     }
     try expectContains(stdout_buffer.items, expected_summary);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+}
+
+const SaTestWorkerContext = struct {
+    sa_bin: []const u8,
+    tasks: []const SaTestTask,
+    next_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    failed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    output_mutex: std.Thread.Mutex = .{},
+};
+
+fn externalSaTestCode(term: std.process.Child.Term) u8 {
+    return switch (term) {
+        .Exited => |code| code,
+        else => 255,
+    };
+}
+
+fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask) !void {
+    const suite_path = try std.fs.cwd().realpathAlloc(std.heap.page_allocator, task.path);
+    defer std.heap.page_allocator.free(suite_path);
+    const start_ns = std.time.nanoTimestamp();
+    defer std.debug.print("[unit-framework] {s} elapsed={}ms jobs={s} mode=process\n", .{ task.path, elapsedMs(start_ns), task.jobs_arg });
+
+    const argv = [_][]const u8{ sa_bin, "test", suite_path, "--jobs", task.jobs_arg, "--trace-panic" };
+    const result = try std.process.Child.run(.{
+        .allocator = std.heap.page_allocator,
+        .argv = argv[0..],
+        .max_output_bytes = 2 * 1024 * 1024,
+    });
+    defer std.heap.page_allocator.free(result.stdout);
+    defer std.heap.page_allocator.free(result.stderr);
+
+    if (externalSaTestCode(result.term) != 0) {
+        std.debug.print("stdout: {s}\n", .{result.stdout});
+        std.debug.print("stderr: {s}\n", .{result.stderr});
+        return error.SaTestFailed;
+    }
+    for (task.expected_passes) |expected_pass| {
+        if (std.mem.indexOf(u8, result.stdout, expected_pass) == null) {
+            std.debug.print("stdout missing expected marker for {s}: {s}\nstdout: {s}\n", .{ task.path, expected_pass, result.stdout });
+            return error.SaTestMissingExpectedPass;
+        }
+    }
+    if (std.mem.indexOf(u8, result.stdout, task.expected_summary) == null) {
+        std.debug.print("stdout missing expected summary for {s}: {s}\nstdout: {s}\n", .{ task.path, task.expected_summary, result.stdout });
+        return error.SaTestMissingSummary;
+    }
+    if (result.stderr.len != 0) {
+        std.debug.print("unexpected stderr for {s}: {s}\n", .{ task.path, result.stderr });
+        return error.SaTestUnexpectedStderr;
+    }
+}
+
+fn saTestWorkerMain(context: *SaTestWorkerContext) void {
+    while (true) {
+        const index = context.next_index.fetchAdd(1, .monotonic);
+        if (index >= context.tasks.len) return;
+        runSaTestFileExternal(context.sa_bin, context.tasks[index]) catch |err| {
+            context.failed.store(true, .release);
+            context.output_mutex.lock();
+            defer context.output_mutex.unlock();
+            std.debug.print("[unit-framework] FAIL {s}: {s}\n", .{ context.tasks[index].path, @errorName(err) });
+        };
+    }
+}
+
+fn runQueuedSaTestFiles() !void {
+    const tasks = queued_sa_tests.items;
+    if (tasks.len == 0) return;
+    defer {
+        clearQueuedSaTestFiles();
+    }
+
+    const sa_bin = saBinaryPath(std.testing.allocator) orelse {
+        for (tasks) |task| try runSaTestFileInProcess(task.path, task.expected_passes, task.expected_summary);
+        return;
+    };
+    defer std.testing.allocator.free(sa_bin);
+
+    const worker_count = @min(saUnitFileJobs(), tasks.len);
+    if (worker_count <= 1) {
+        for (tasks) |task| try runSaTestFileExternal(sa_bin, task);
+        return;
+    }
+
+    const start_ns = std.time.nanoTimestamp();
+    defer std.debug.print("[unit-framework] macro surface files elapsed={}ms file_jobs={} files={} mode=process\n", .{ elapsedMs(start_ns), worker_count, tasks.len });
+
+    var context = SaTestWorkerContext{ .sa_bin = sa_bin, .tasks = tasks };
+    var threads = try std.testing.allocator.alloc(std.Thread, worker_count);
+    defer std.testing.allocator.free(threads);
+
+    var started: usize = 0;
+    errdefer for (threads[0..started]) |thread| thread.join();
+    while (started < worker_count) : (started += 1) {
+        threads[started] = try std.Thread.spawn(.{}, saTestWorkerMain, .{&context});
+    }
+    for (threads) |thread| thread.join();
+
+    try std.testing.expect(!context.failed.load(.acquire));
+}
+
+fn clearQueuedSaTestFiles() void {
+    for (queued_sa_tests.items) |task| std.testing.allocator.free(task.jobs_arg);
+    queued_sa_tests.deinit(std.testing.allocator);
+    queued_sa_tests = .empty;
 }
 
 test "native unit framework suite covers the demo-derived feature matrix" {
@@ -466,6 +640,8 @@ test "native unit assertions surface file line expected and got details" {
 }
 
 test "native unit framework covers sa_std macro surface suites" {
+    defer clearQueuedSaTestFiles();
+
     const ascii_expected = [_][]const u8{
         "[PASS] sa_std ascii byte classifier macros",
         "[PASS] sa_std ascii case conversion macros",
@@ -1005,6 +1181,8 @@ test "native unit framework covers sa_std macro surface suites" {
         net_multicast_expected[0..],
         "test result: ok. 2 passed; 0 failed; 0 skipped",
     );
+
+    try runQueuedSaTestFiles();
 }
 
 test "native unit framework exposes standard mock io buffer" {

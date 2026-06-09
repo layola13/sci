@@ -230,7 +230,8 @@ pub fn build(b: *std.Build) void {
         .root_module = cli_module,
     });
     linkLLVMToCompile(exe, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
-    b.installArtifact(exe);
+    const install_sa_exe = b.addInstallArtifact(exe, .{});
+    b.getInstallStep().dependOn(&install_sa_exe.step);
 
     const wasm_matrix_module = b.createModule(.{
         .root_source_file = b.path("tests/wasm_matrix_smoke.zig"),
@@ -349,6 +350,8 @@ pub fn build(b: *std.Build) void {
     });
     const run_unit_framework = b.addRunArtifact(unit_framework);
     run_unit_framework.setCwd(repo_root_lazy);
+    run_unit_framework.step.dependOn(&install_sa_exe.step);
+    run_unit_framework.setEnvironmentVariable("SA_BIN", b.getInstallPath(.bin, "sa"));
     test_step.dependOn(&run_unit_framework.step);
     const unit_framework_step = b.step("unit-framework", "Run native SA unit framework suites");
     unit_framework_step.dependOn(&run_unit_framework.step);
