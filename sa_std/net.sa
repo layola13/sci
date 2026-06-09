@@ -1634,6 +1634,25 @@ L_NET_IPV6_CANON_DONE_%out_ipaddr:
     EXPAND NET_IP_ADDR_V6_NEW %ipaddr, __net_ip_v6_local_%ipaddr
 [END_MACRO]
 
+[MACRO] NET_IP_ADDR_TRY_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
+    __net_ip_parse_v4_%out_ok = stack_alloc NetIpv4Addr_SIZE
+    %out_ok = call @sa_net_ipv4_parse_ascii(&%ptr, %len, &__net_ip_parse_v4_%out_ok)
+    br %out_ok -> L_NET_IP_PARSE_V4_OK_%out_ok, L_NET_IP_PARSE_FAIL_%out_ok
+
+L_NET_IP_PARSE_V4_OK_%out_ok:
+    EXPAND NET_IP_ADDR_V4_NEW %ipaddr, __net_ip_parse_v4_%out_ok
+    jmp L_NET_IP_PARSE_DONE_%out_ok
+
+L_NET_IP_PARSE_FAIL_%out_ok:
+    EXPAND NET_IP_ADDR_V4_UNSPECIFIED %ipaddr
+
+L_NET_IP_PARSE_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IP_ADDR_COPY %dst_ipaddr, %src_ipaddr
     __net_ip_copy_tag_%dst_ipaddr = load %src_ipaddr+NetIpAddr_tag as u64
     __net_ip_copy_src_%dst_ipaddr = ptr_add %src_ipaddr, 8

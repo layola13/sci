@@ -305,6 +305,113 @@ L_SOCKET_V4_PARSE_PASS:
     !ok
     return 0
 
+@test "sa_std net ipaddr parse_ascii ipv4 subset"():
+L_ENTRY:
+    ipaddr = alloc NetIpAddr_SIZE
+    alias_ipaddr = alloc NetIpAddr_SIZE
+    bad_ipaddr = alloc NetIpAddr_SIZE
+    payload = alloc NetIpv4Addr_SIZE
+    alias_payload = alloc NetIpv4Addr_SIZE
+
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII parse_ok, ipaddr, NET_TEST_IPV4_ALT, NET_TEST_IPV4_ALT_LEN
+    EXPAND NET_IP_ADDR_IS_IPV4 is_v4, ipaddr
+    EXPAND NET_IP_ADDR_IS_IPV6 is_v6, ipaddr
+    EXPAND NET_IP_ADDR_TO_IPV4 to_v4_ok, payload, ipaddr
+    EXPAND NET_IPV4_OCTETS ip_a, ip_b, ip_c, ip_d, payload
+    EXPAND NET_IP_ADDR_PARSE_ASCII alias_ok, alias_ipaddr, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN
+    EXPAND NET_IP_ADDR_TO_IPV4 alias_to_v4_ok, alias_payload, alias_ipaddr
+    EXPAND NET_IPV4_OCTETS alias_a, alias_b, alias_c, alias_d, alias_payload
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII bad_ok, bad_ipaddr, NET_TEST_SOCKET_V4_BAD_IPV6, NET_TEST_SOCKET_V4_BAD_IPV6_LEN
+
+    ok_parse = eq parse_ok, 1
+    ok_is_v4 = eq is_v4, 1
+    ok_is_v6 = eq is_v6, 0
+    ok_to_v4 = eq to_v4_ok, 1
+    ok_a = eq ip_a, 192
+    ok_b = eq ip_b, 168
+    ok_c = eq ip_c, 1
+    ok_d = eq ip_d, 42
+    ok_alias = eq alias_ok, 1
+    ok_alias_to_v4 = eq alias_to_v4_ok, 1
+    ok_alias_a = eq alias_a, 127
+    ok_alias_b = eq alias_b, 0
+    ok_alias_c = eq alias_c, 0
+    ok_alias_d = eq alias_d, 1
+    ok_bad = eq bad_ok, 0
+
+    ok01 = and ok_parse, ok_is_v4
+    ok02 = and ok01, ok_is_v6
+    ok03 = and ok02, ok_to_v4
+    ok04 = and ok03, ok_a
+    ok05 = and ok04, ok_b
+    ok06 = and ok05, ok_c
+    ok07 = and ok06, ok_d
+    ok08 = and ok07, ok_alias
+    ok09 = and ok08, ok_alias_to_v4
+    ok10 = and ok09, ok_alias_a
+    ok11 = and ok10, ok_alias_b
+    ok12 = and ok11, ok_alias_c
+    ok13 = and ok12, ok_alias_d
+    ok = and ok13, ok_bad
+
+    !ok_parse
+    !ok_is_v4
+    !ok_is_v6
+    !ok_to_v4
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    !ok_alias
+    !ok_alias_to_v4
+    !ok_alias_a
+    !ok_alias_b
+    !ok_alias_c
+    !ok_alias_d
+    !ok_bad
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !parse_ok
+    !is_v4
+    !is_v6
+    !to_v4_ok
+    !ip_a
+    !ip_b
+    !ip_c
+    !ip_d
+    !alias_ok
+    !alias_to_v4_ok
+    !alias_a
+    !alias_b
+    !alias_c
+    !alias_d
+    !bad_ok
+    !alias_payload
+    !payload
+    !bad_ipaddr
+    !alias_ipaddr
+    !ipaddr
+    br ok -> L_IPADDR_PARSE_PASS, L_IPADDR_PARSE_FAIL
+
+L_IPADDR_PARSE_FAIL:
+    !ok
+    panic(925)
+
+L_IPADDR_PARSE_PASS:
+    !ok
+    return 0
+
 @test "sa_std net tcp macro surface"():
 L_ENTRY:
     EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
