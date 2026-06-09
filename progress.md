@@ -2,9 +2,16 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999994%
+Current progress: 99.999995%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added tested `Instruction` clone-remapping for future cached frontend fragments.
+  - Added a helper to deep-clone instructions while remapping symbol/reg/label/function operands and applying source/expanded line offsets.
+  - The clone path preserves and owns package identity, package source hash, upstream locations, raw text, text/native operands, atomic text fields, op/atomic metadata, and native register-name slices through the existing `owned_text` ownership model.
+  - Added regression coverage for call-style symbol remapping, metadata deep-copy ownership, line offsets, and native instruction register-name slice rebuilding.
+  - This closes the instruction-splicing prerequisite before cached `FlattenResult` fragments can be appended into a consumer result; production cache wiring and cache-on/off equivalence tests remain separate work.
+  - Verification: `zig test src/flattener.zig` -> `78/78 tests passed`; `zig test src/cli.zig` -> `84/84 tests passed`.
 
 - 2026-06-09: Added tested def/const merge helpers for future cached frontend fragments.
   - Added helper coverage for merging `DefDict` entries with identical duplicates skipped, new entries deep-copied, and same-name/different-value entries rejected.

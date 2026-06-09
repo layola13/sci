@@ -3477,6 +3477,117 @@ fn mergeConstDeclsAllowingIdentical(
     }
 }
 
+fn cloneRemappedOperand(
+    allocator: std.mem.Allocator,
+    owned_text: *std.ArrayList([]const u8),
+    operand: Operand,
+    remap: []const u32,
+) !Operand {
+    return switch (operand) {
+        .reg => |old_id| .{ .reg = try remapSymbolId(remap, old_id) },
+        .symbol => |old_id| .{ .symbol = try remapSymbolId(remap, old_id) },
+        .label => |old_id| .{ .label = try remapSymbolId(remap, old_id) },
+        .func => |old_id| .{ .func = try remapSymbolId(remap, old_id) },
+        .text => |text| .{ .text = try ownText(allocator, owned_text, text) },
+        .native_text => |text| .{ .native_text = try ownText(allocator, owned_text, text) },
+        else => operand,
+    };
+}
+
+fn cloneNativeRegNames(
+    allocator: std.mem.Allocator,
+    owned_text: *std.ArrayList([]const u8),
+    source: Instruction,
+    cloned_native_text: ?[]const u8,
+) ![]const []const u8 {
+    if (source.native_reg_names.len == 0) return &.{};
+    if (cloned_native_text) |native_text| return try classifier.collectNativeRegisterNames(allocator, native_text);
+
+    const out = try allocator.alloc([]const u8, source.native_reg_names.len);
+    errdefer allocator.free(out);
+    var copied: usize = 0;
+    errdefer {
+        for (out[0..copied]) |name| {
+            for (owned_text.items, 0..) |owned, idx| {
+                if (owned.ptr == name.ptr and owned.len == name.len) {
+                    _ = owned_text.orderedRemove(idx);
+                    allocator.free(owned);
+                    break;
+                }
+            }
+        }
+    }
+    for (source.native_reg_names, 0..) |name, idx| {
+        out[idx] = try ownText(allocator, owned_text, name);
+        copied += 1;
+    }
+    return out;
+}
+
+fn cloneRemappedInstruction(
+    allocator: std.mem.Allocator,
+    owned_text: *std.ArrayList([]const u8),
+    source: Instruction,
+    remap: []const u32,
+    source_line_offset: u32,
+    expanded_line_offset: u32,
+) !Instruction {
+    const owned_start = owned_text.items.len;
+    errdefer {
+        while (owned_text.items.len > owned_start) {
+            const text = owned_text.pop().?;
+            allocator.free(text);
+        }
+    }
+
+    var out = common_instruction.makeInstruction(
+        source.kind,
+        try std.math.add(u32, source.source_line, source_line_offset),
+        try std.math.add(u32, source.expanded_line, expanded_line_offset),
+        null,
+        try ownText(allocator, owned_text, source.raw_text),
+    );
+    errdefer {
+        if (out.package_identity) |identity| allocator.free(identity);
+        if (out.upstream_loc) |loc| allocator.free(loc.file);
+        if (out.native_reg_names.len != 0) allocator.free(out.native_reg_names);
+    }
+
+    if (source.package_identity) |identity| {
+        out.package_identity = try allocator.dupe(u8, identity);
+    }
+    out.package_source_sha256 = source.package_source_sha256;
+    if (source.upstream_loc) |loc| {
+        out.upstream_loc = .{
+            .file = try allocator.dupe(u8, loc.file),
+            .line = loc.line,
+            .col = loc.col,
+        };
+    }
+    out.op_kind = source.op_kind;
+    out.atomic_value_ty = source.atomic_value_ty;
+    out.atomic_ordering = source.atomic_ordering;
+    out.atomic_second_ordering = source.atomic_second_ordering;
+    out.atomic_rmw_op = source.atomic_rmw_op;
+    if (source.atomic_expected_text) |text| {
+        out.atomic_expected_text = try ownText(allocator, owned_text, text);
+    }
+    if (source.atomic_new_text) |text| {
+        out.atomic_new_text = try ownText(allocator, owned_text, text);
+    }
+
+    var cloned_native_text: ?[]const u8 = null;
+    for (&out.operands, source.operands) |*dst, operand| {
+        dst.* = try cloneRemappedOperand(allocator, owned_text, operand, remap);
+        switch (dst.*) {
+            .native_text => |text| cloned_native_text = text,
+            else => {},
+        }
+    }
+    out.native_reg_names = try cloneNativeRegNames(allocator, owned_text, source, cloned_native_text);
+    return out;
+}
+
 fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
     if (source.len == 0) return;
     try out.appendSlice(source);
@@ -4673,6 +4784,102 @@ test "frontend cache merge clones const declarations and rejects conflicts" {
     );
     defer conflict.deinit(std.testing.allocator);
     try std.testing.expectError(error.DuplicateConstDecl, mergeConstDeclsAllowingIdentical(std.testing.allocator, &target, &.{conflict}, 0, 0));
+}
+
+test "frontend cache clone remaps instruction symbols and owned metadata" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    const dst_id = try source_symbols.intern("dst");
+    const callee_id = try source_symbols.intern("callee");
+
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    _ = try target_symbols.intern("occupied");
+    const remap = try buildSymbolIdRemap(std.testing.allocator, &source_symbols, &target_symbols);
+    defer std.testing.allocator.free(remap);
+
+    var source = common_instruction.makeInstruction(
+        .call,
+        7,
+        3,
+        .{ .file = try std.testing.allocator.dupe(u8, "source.sa"), .line = 40, .col = 5 },
+        "dst = call callee(value)",
+    );
+    defer std.testing.allocator.free(source.upstream_loc.?.file);
+    source.package_identity = try std.testing.allocator.dupe(u8, "pkg/core");
+    defer std.testing.allocator.free(source.package_identity.?);
+    source.package_source_sha256 = [_]u8{7} ** 32;
+    source.operands[0] = .{ .reg = dst_id };
+    source.operands[1] = .{ .func = callee_id };
+    source.operands[2] = .{ .text = "borrow" };
+    source.atomic_expected_text = "old";
+    source.atomic_new_text = "new";
+
+    var owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer {
+        for (owned_text.items) |text| std.testing.allocator.free(text);
+        owned_text.deinit();
+    }
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, remap, 10, 20);
+    defer {
+        if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
+        if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
+        if (cloned.native_reg_names.len != 0) std.testing.allocator.free(cloned.native_reg_names);
+    }
+
+    try std.testing.expectEqual(InstKind.call, cloned.kind);
+    try std.testing.expectEqual(@as(u32, 17), cloned.source_line);
+    try std.testing.expectEqual(@as(u32, 23), cloned.expanded_line);
+    try std.testing.expectEqual(target_symbols.findId("dst").?, cloned.operands[0].reg);
+    try std.testing.expectEqual(target_symbols.findId("callee").?, cloned.operands[1].func);
+    try std.testing.expectEqualStrings("borrow", cloned.operands[2].text);
+    try std.testing.expect(cloned.operands[2].text.ptr != source.operands[2].text.ptr);
+    try std.testing.expectEqualStrings("dst = call callee(value)", cloned.raw_text);
+    try std.testing.expect(cloned.raw_text.ptr != source.raw_text.ptr);
+    try std.testing.expectEqualStrings("pkg/core", cloned.package_identity.?);
+    try std.testing.expect(cloned.package_identity.?.ptr != source.package_identity.?.ptr);
+    try std.testing.expectEqual(@as(u8, 7), cloned.package_source_sha256.?[0]);
+    try std.testing.expectEqualStrings("source.sa", cloned.upstream_loc.?.file);
+    try std.testing.expect(cloned.upstream_loc.?.file.ptr != source.upstream_loc.?.file.ptr);
+    try std.testing.expectEqual(@as(u32, 40), cloned.upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 5), cloned.upstream_loc.?.col);
+    try std.testing.expectEqualStrings("old", cloned.atomic_expected_text.?);
+    try std.testing.expectEqualStrings("new", cloned.atomic_new_text.?);
+    try std.testing.expect(cloned.atomic_expected_text.?.ptr != source.atomic_expected_text.?.ptr);
+    try std.testing.expect(cloned.atomic_new_text.?.ptr != source.atomic_new_text.?.ptr);
+}
+
+test "frontend cache clone rebuilds native register name slices" {
+    const native_text = "call side(ptr value, i32 7)";
+    var source = common_instruction.makeInstruction(.native, 2, 1, null, "$call side(ptr value, i32 7)$");
+    source.operands[0] = .{ .native_text = native_text };
+    source.native_reg_names = try classifier.collectNativeRegisterNames(std.testing.allocator, native_text);
+    defer std.testing.allocator.free(source.native_reg_names);
+
+    var owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer {
+        for (owned_text.items) |text| std.testing.allocator.free(text);
+        owned_text.deinit();
+    }
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &.{}, 4, 8);
+    defer {
+        if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
+        if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
+        if (cloned.native_reg_names.len != 0) std.testing.allocator.free(cloned.native_reg_names);
+    }
+
+    try std.testing.expectEqual(InstKind.native, cloned.kind);
+    try std.testing.expectEqual(@as(u32, 6), cloned.source_line);
+    try std.testing.expectEqual(@as(u32, 9), cloned.expanded_line);
+    try std.testing.expectEqualStrings(native_text, cloned.operands[0].native_text);
+    try std.testing.expect(cloned.operands[0].native_text.ptr != source.operands[0].native_text.ptr);
+    try std.testing.expectEqual(@as(usize, 5), cloned.native_reg_names.len);
+    try std.testing.expectEqualStrings("call", cloned.native_reg_names[0]);
+    try std.testing.expectEqualStrings("side", cloned.native_reg_names[1]);
+    try std.testing.expectEqualStrings("ptr", cloned.native_reg_names[2]);
+    try std.testing.expectEqualStrings("value", cloned.native_reg_names[3]);
+    try std.testing.expectEqualStrings("i32", cloned.native_reg_names[4]);
+    try std.testing.expect(cloned.native_reg_names[0].ptr != source.native_reg_names[0].ptr);
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {
