@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99998%
+Current progress: 99.999981%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added a source-tree mtime/size fast path for project build/test cache keys for issue6 CACHE-1.
+  - `hashResolvedSourceTree` now computes a per-source-tree digest once, records the participating files' real paths, mtimes, and sizes, and reuses that digest on later same-process key calculations when only stat checks are needed.
+  - The fallback path still performs the existing content hash, import classification, and import resolution when any participating file changes, preserving cache invalidation correctness.
+  - Added CLI unit coverage proving the second unchanged tree hash does not call `loadSource` again and a dependency edit invalidates the fast path.
+  - Verification: `zig test src/cli.zig` -> `68/68 tests passed`; `zig build smoke --summary all` -> `15/15 tests passed`.
 
 - 2026-06-09: Aligned referee LOC lint scope with the real verifier core for issue5 ENG-1.
   - Changed `tools/referee_loc_lint.zig` to measure both `src/referee/` and `src/verifier.zig`, including the builtin fallback path used when `tokei` is unavailable.

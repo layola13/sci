@@ -3479,10 +3479,13 @@ fn newCompileOptions(exec_options: ExecuteOptions, diagnostic_writer: std.io.Any
 }
 
 fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    if (builtin.is_test) test_source_tree_load_count += 1;
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
+
+var test_source_tree_load_count: usize = 0;
 
 fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
@@ -4029,6 +4032,11 @@ fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
     hasher.update(&.{if (value) 1 else 0});
 }
 
+fn cacheCompilerVersion() []const u8 {
+    if (builtin.is_test) return "test";
+    return build_options.version;
+}
+
 fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem.Allocator, path: []const u8) !void {
     if (!projectPathExists(path)) return;
     const bytes = try readTextFileAlloc(allocator, path);
@@ -4036,7 +4044,111 @@ fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem
     cacheBytes(hasher, bytes);
 }
 
-fn hashResolvedSourceTree(
+const SourceTreeFileStat = struct {
+    path: []u8,
+    mtime: i128,
+    size: u64,
+};
+
+const SourceTreeHashCacheEntry = struct {
+    digest: [32]u8,
+    files: []SourceTreeFileStat,
+};
+
+var source_tree_hash_cache_mutex: std.Thread.Mutex = .{};
+var source_tree_hash_cache: ?std.StringHashMap(SourceTreeHashCacheEntry) = null;
+
+fn sourceTreeHashCacheMap() *std.StringHashMap(SourceTreeHashCacheEntry) {
+    if (source_tree_hash_cache == null) {
+        source_tree_hash_cache = std.StringHashMap(SourceTreeHashCacheEntry).init(std.heap.page_allocator);
+    }
+    return &source_tree_hash_cache.?;
+}
+
+fn freeSourceTreeHashCacheEntry(entry: SourceTreeHashCacheEntry) void {
+    for (entry.files) |file| std.heap.page_allocator.free(file.path);
+    std.heap.page_allocator.free(entry.files);
+}
+
+fn buildSourceTreeHashCacheKey(
+    allocator: std.mem.Allocator,
+    dependencies: []pkg_resolver.Dependency,
+    plugin_import_roots: []const []const u8,
+    project_root: []const u8,
+    std_root: []const u8,
+    offline: bool,
+    real_source_path: []const u8,
+) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    try appendCacheKeyBytes(&out, cacheCompilerVersion());
+    try appendCacheKeyBytes(&out, project_root);
+    try appendCacheKeyBytes(&out, std_root);
+    try appendCacheKeyBytes(&out, real_source_path);
+    try out.writer().print("{}\x00", .{offline});
+    for (plugin_import_roots) |root| try appendCacheKeyBytes(&out, root);
+    try out.append(0);
+    for (dependencies) |dep| {
+        try appendCacheKeyBytes(&out, dep.url);
+        try appendCacheKeyBytes(&out, dep.ref);
+    }
+    return try out.toOwnedSlice();
+}
+
+fn appendCacheKeyBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
+    try out.appendSlice(bytes);
+    try out.append(0);
+}
+
+fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
+    source_tree_hash_cache_mutex.lock();
+    defer source_tree_hash_cache_mutex.unlock();
+    const cache = sourceTreeHashCacheMap();
+    const entry = cache.get(cache_key) orelse return null;
+    for (entry.files) |file| {
+        const stat = std.fs.cwd().statFile(file.path) catch return null;
+        if (stat.mtime != file.mtime or stat.size != file.size) return null;
+    }
+    return entry.digest;
+}
+
+fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, files: []const SourceTreeFileStat) !void {
+    const cache_allocator = std.heap.page_allocator;
+    const owned_key = try cache_allocator.dupe(u8, cache_key);
+    errdefer cache_allocator.free(owned_key);
+    const owned_files = try cache_allocator.alloc(SourceTreeFileStat, files.len);
+    errdefer cache_allocator.free(owned_files);
+    var copied: usize = 0;
+    errdefer {
+        for (owned_files[0..copied]) |file| cache_allocator.free(file.path);
+    }
+    for (files, 0..) |file, idx| {
+        owned_files[idx] = .{
+            .path = try cache_allocator.dupe(u8, file.path),
+            .mtime = file.mtime,
+            .size = file.size,
+        };
+        copied += 1;
+    }
+
+    source_tree_hash_cache_mutex.lock();
+    defer source_tree_hash_cache_mutex.unlock();
+    var cache = sourceTreeHashCacheMap();
+    if (cache.getPtr(cache_key)) |old| {
+        freeSourceTreeHashCacheEntry(old.*);
+        old.* = .{ .digest = digest, .files = owned_files };
+        cache_allocator.free(owned_key);
+        return;
+    }
+    try cache.put(owned_key, .{ .digest = digest, .files = owned_files });
+}
+
+fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, digest: [32]u8) void {
+    cacheBytes(hasher, "source-tree-digest-v1");
+    hasher.update(&digest);
+}
+
+fn hashResolvedSourceTreeUncached(
     allocator: std.mem.Allocator,
     hasher: *std.crypto.hash.sha2.Sha256,
     dependencies: []pkg_resolver.Dependency,
@@ -4046,15 +4158,19 @@ fn hashResolvedSourceTree(
     offline: bool,
     source_path: []const u8,
     visited: *std.StringHashMap(void),
+    files: *std.ArrayList(SourceTreeFileStat),
 ) !void {
     const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
-    defer allocator.free(real_source_path);
+    errdefer allocator.free(real_source_path);
     if (visited.contains(real_source_path)) return;
     const visited_key = try allocator.dupe(u8, real_source_path);
     var visited_key_inserted = false;
     errdefer if (!visited_key_inserted) allocator.free(visited_key);
     try visited.put(visited_key, {});
     visited_key_inserted = true;
+
+    const stat = try std.fs.cwd().statFile(real_source_path);
+    try files.append(.{ .path = real_source_path, .mtime = stat.mtime, .size = stat.size });
 
     cacheBytes(hasher, real_source_path);
     const source = try loadSource(allocator, source_path);
@@ -4073,8 +4189,46 @@ fn hashResolvedSourceTree(
             .plugin_import_roots = plugin_import_roots,
         });
         defer imported.deinit(allocator);
-        try hashResolvedSourceTree(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited);
+        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files);
     }
+}
+
+fn hashResolvedSourceTree(
+    allocator: std.mem.Allocator,
+    hasher: *std.crypto.hash.sha2.Sha256,
+    dependencies: []pkg_resolver.Dependency,
+    plugin_import_roots: []const []const u8,
+    project_root: []const u8,
+    std_root: []const u8,
+    offline: bool,
+    source_path: []const u8,
+) !void {
+    const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
+    defer allocator.free(real_source_path);
+    const cache_key = try buildSourceTreeHashCacheKey(allocator, dependencies, plugin_import_roots, project_root, std_root, offline, real_source_path);
+    defer allocator.free(cache_key);
+    if (sourceTreeHashCacheHit(cache_key)) |digest| {
+        addSourceTreeDigestToHasher(hasher, digest);
+        return;
+    }
+
+    var tree_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    var visited = std.StringHashMap(void).init(allocator);
+    defer {
+        var it = visited.iterator();
+        while (it.next()) |entry| allocator.free(entry.key_ptr.*);
+        visited.deinit();
+    }
+    var files = std.ArrayList(SourceTreeFileStat).init(allocator);
+    defer {
+        for (files.items) |file| allocator.free(file.path);
+        files.deinit();
+    }
+    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files);
+    var digest: [32]u8 = undefined;
+    tree_hasher.final(&digest);
+    try storeSourceTreeHashCacheEntry(cache_key, digest, files.items);
+    addSourceTreeDigestToHasher(hasher, digest);
 }
 
 fn computeProjectBuildKey(
@@ -4097,7 +4251,7 @@ fn computeProjectBuildKey(
 
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     cacheBytes(&hasher, "sa-build-cache");
-    cacheBytes(&hasher, build_options.version);
+    cacheBytes(&hasher, cacheCompilerVersion());
     cacheBytes(&hasher, project_root);
     cacheBytes(&hasher, kind.dirName());
     cacheBytes(&hasher, source_path);
@@ -4142,24 +4296,12 @@ fn computeProjectBuildKey(
         }
 
         if (hash_source_tree) {
-            var visited = std.StringHashMap(void).init(allocator);
-            defer {
-                var it = visited.iterator();
-                while (it.next()) |entry| allocator.free(entry.key_ptr.*);
-                visited.deinit();
-            }
-            try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path, &visited);
+            try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
         }
     } else {
         try projectFileMaybeHash(&hasher, allocator, project_context.manifest_path);
         if (hash_source_tree) {
-            var visited = std.StringHashMap(void).init(allocator);
-            defer {
-                var it = visited.iterator();
-                while (it.next()) |entry| allocator.free(entry.key_ptr.*);
-                visited.deinit();
-            }
-            try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path, &visited);
+            try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
         }
     }
 
@@ -4542,7 +4684,7 @@ fn cacheFunctionSig(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) voi
 fn computeFunctionObjectKey(allocator: std.mem.Allocator, source_path: []const u8, verified: *const referee.VerifyOk, sig_index: usize, start_idx: usize, end_idx: usize) ![]const u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     cacheBytes(&hasher, "sa-build-obj-function-cache");
-    cacheBytes(&hasher, build_options.version);
+    cacheBytes(&hasher, cacheCompilerVersion());
     cacheBytes(&hasher, source_path);
     for (verified.function_sigs) |sig_item| {
         cacheFunctionSig(&hasher, sig_item);
@@ -5980,6 +6122,63 @@ test "cli error printing is detailed and json capable" {
     try std.testing.expect(std.mem.indexOf(u8, json.items, "\"code\":\"SA-CLI-006\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.items, "\"name\":\"InvalidTarget\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.items, "\"message\":\"invalid target\"") != null);
+}
+
+test "source tree hash cache reuses mtime size digest without reloading unchanged files" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    {
+        var file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "dep.sa"
+            \\@main() -> i32:
+            \\return dep_value
+            \\
+        );
+    }
+    {
+        var file = try tmp.dir.createFile("dep.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll("#def dep_value = 7\n");
+    }
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = project_root;
+
+    test_source_tree_load_count = 0;
+    var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    var first_digest: [32]u8 = undefined;
+    first_hasher.final(&first_digest);
+    try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
+
+    var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    var second_digest: [32]u8 = undefined;
+    second_hasher.final(&second_digest);
+    try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
+    try std.testing.expectEqualSlices(u8, first_digest[0..], second_digest[0..]);
+
+    {
+        var file = try tmp.dir.createFile("dep.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll("#def dep_value = 777\n");
+    }
+
+    var third_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try hashResolvedSourceTree(std.testing.allocator, &third_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    var third_digest: [32]u8 = undefined;
+    third_hasher.final(&third_digest);
+    try std.testing.expect(test_source_tree_load_count > 2);
+    try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
 }
 
 test "flatten error mapping keeps import resolution and unsupported type hints specific" {
