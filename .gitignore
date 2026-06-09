@@ -15,6 +15,14 @@ dist/
 # end generated skill artifacts
 bin/
 tmp_*
+/.tmp_*
+/.tmp_plugin_check/
+/.tmp_plugins_test*
+/dummy.zig
+/repro.sa
+/test_*.zig
+/src/dummy.zig
+/tests/dummy.zig
 *.ll
 bin
 tmp/
@@ -23,11 +31,15 @@ repro_*.zig
 *tmp.o
 *.wasm
 *.out
+*.o
+*.so
+*.dll
+*.dylib
+*.a
 .mimir/
 .antigravitycli/
-.o
 .diff
-.exe
+*.exe
 
 # Demos compiled artifacts
 demos/**/bin/

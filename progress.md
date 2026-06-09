@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99995%
+Current progress: 99.99996%
 
 ## Completed SCI Features
+
+- 2026-06-09: Cleaned main-repo generated artifacts for issue5 ENG-2 without touching the external plugin repository.
+  - Removed root-level temporary Zig/SA scaffolding, `.tmp_plugin_check` build outputs, demo compiled binaries, and `tests/unit_framework/feature_suite.o` from Git tracking while leaving local working copies ignored.
+  - Added ignore rules for root temp files and common compiled artifacts (`*.o`, `*.so`, `*.dll`, `*.dylib`, `*.a`, `*.exe`) so future generated outputs do not re-enter the repository.
+  - Kept real source modules such as `src/test_runner.zig` / `src/test_executor.zig` tracked after reference scanning showed they are part of the SA test framework.
+  - Verification: tracked temp/binary scan for the removed classes -> clean; `zig build smoke --summary all` -> `15/15 tests passed`.
 
 - 2026-06-09: Tightened plugin network permission URL validation for issue5 SEC-3.
   - Replaced prefix-only permission URL acceptance with scheme/host parsing for install-time and runtime broker checks.

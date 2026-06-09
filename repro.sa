@@ -1,3 +1,0 @@
-#def FOO = 42
-@main():
-    panic(FOO)
