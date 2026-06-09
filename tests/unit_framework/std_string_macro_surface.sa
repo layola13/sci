@@ -1,0 +1,2023 @@
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+
+@const WORD = utf8:"rust"
+@const TITLE_WORD = utf8:"Rust"
+@const PREFIX = utf8:"ru"
+@const SUFFIX = utf8:"st"
+@const INFIX = utf8:"us"
+@const REPEATED = utf8:"ana"
+@const MISS = utf8:"zz"
+@const PATHISH = utf8:"a:b:c"
+@const COLON = utf8:":"
+@const PATH_LEFT = utf8:"a"
+@const PATH_RIGHT = utf8:"b:c"
+@const PATH_RLEFT = utf8:"a:b"
+@const PATH_RRIGHT = utf8:"c"
+@const MIXED_WORD = utf8:"RuSt"
+@const SPACED_WORD = utf8:"  Rust  "
+@const WORD_TRAILING = utf8:"Rust  "
+@const WORD_LEADING = utf8:"  Rust"
+@const JOIN_LEFT = utf8:"rust"
+@const JOIN_RIGHT = utf8:"-std"
+@const JOINED = utf8:"rust-std"
+@const MUT_BASE = utf8:"rust"
+@const MUT_SUFFIX = utf8:"-std"
+@const MUT_PUSHED = utf8:"rust-std"
+@const MUT_INSERT = utf8:"ace"
+@const MUT_AFTER_INSERT = utf8:"rustace-std"
+@const MUT_REPLACE = utf8:"lang"
+@const MUT_AFTER_REPLACE = utf8:"rustlang-std"
+@const MUT_SPLIT_LEFT = utf8:"rustlang"
+@const MUT_AFTER_INSERT_BYTE = utf8:"rust-lang"
+@const BUF_SUFFIX = utf8:"std"
+@const BUF_EXPECTED = utf8:"rust-std"
+@const BUF_INSERT_BYTE_EXPECTED = utf8:"rust-std!"
+@const BUF_INSERT_STR_EXPECTED = utf8:"rust-lang-std!"
+@const BUF_REPLACE_EXPECTED = utf8:"rust-core-std!"
+@const BUF_SPLIT_LEFT_EXPECTED = utf8:"rust-core"
+@const BUF_SPLIT_TAIL_EXPECTED = utf8:"-std"
+@const BUF_LANG = utf8:"lang-"
+@const BUF_CORE = utf8:"core"
+@const BUF_REPLACE_SOURCE = utf8:"a-b-a-b"
+@const BUF_REPLACE_NEEDLE = utf8:"-"
+@const BUF_REPLACE_WITH = utf8:"::"
+@const BUF_REPLACE_ALL_EXPECTED = utf8:"a::b::a::b"
+@const BUF_REPLACE_EMPTY_EXPECTED = utf8:"a-b-a-b"
+@const BUF_REPLACE_MULTI_SOURCE = utf8:"banana ana"
+@const BUF_REPLACE_MULTI_NEEDLE = utf8:"ana"
+@const BUF_REPLACE_MULTI_WITH = utf8:"*"
+@const BUF_REPLACE_MULTI_EXPECTED = utf8:"b*na *"
+@const BUF_REPLACE_LONG_NEEDLE = utf8:"banana split"
+@const BUF_CHAR_EXPECTED = utf8:"r!"
+@const BUF_INSERT_CHAR_EXPECTED = utf8:"r!?"
+@const BUF_INSERT_CHAR_ALIAS_EXPECTED = utf8:"r-!?"
+@const LINES_TEXT = utf8:"alpha\nbeta\r\ngamma\n"
+@const LINES_ALPHA = utf8:"alpha"
+@const LINES_BETA = utf8:"beta"
+@const LINES_GAMMA = utf8:"gamma"
+@const LINES_NO_TRAIL = utf8:"one\ntwo"
+@const LINES_ONE = utf8:"one"
+@const LINES_TWO = utf8:"two"
+@const SPLIT_TEXT = utf8:":a::b:"
+@const SPLIT_A = utf8:"a"
+@const SPLIT_B = utf8:"b"
+@const UTF8_BOUNDARY_TEXT = utf8:"aé🙂z"
+@const UTF8_A_E = utf8:"aé"
+@const UTF8_E_ACUTE = utf8:"é"
+@const UTF8_SMILE = utf8:"🙂"
+@const UTF8_SMILE_Z = utf8:"🙂z"
+@const UTF8_Z = utf8:"z"
+
+@vec_pop_if_is_99(value: u64) -> u64:
+L_ENTRY:
+    is_match = eq value, 99
+    !value
+    return is_match
+
+@vec_pop_if_is_88(value: u64) -> u64:
+L_ENTRY:
+    is_match = eq value, 88
+    !value
+    return is_match
+
+@vec_retain_even(value: u64) -> u64:
+L_ENTRY:
+    rem = urem value, 2
+    is_even = eq rem, 0
+    !rem
+    !value
+    return is_even
+
+@vec_resize_with_42() -> u64:
+L_ENTRY:
+    return 42
+
+@vec_dedup_by_same_tens(left: u64, right: u64) -> u64:
+L_ENTRY:
+    left_group = udiv left, 10
+    right_group = udiv right, 10
+    same = eq left_group, right_group
+    !left_group
+    !right_group
+    !left
+    !right
+    return same
+
+@vec_key_tens(value: u64) -> u64:
+L_ENTRY:
+    key = udiv value, 10
+    !value
+    return key
+
+@vec_extract_if_gt_30(value: u64) -> u64:
+L_ENTRY:
+    take = ugt value, 30
+    !value
+    return take
+
+@slice_partition_lt_30(value: u64) -> u64:
+L_ENTRY:
+    keep = ult value, 30
+    !value
+    return keep
+
+@slice_sorted_le(left: u64, right: u64) -> u64:
+L_ENTRY:
+    ok = ule left, right
+    !left
+    !right
+    return ok
+
+@slice_sorted_lt(left: u64, right: u64) -> u64:
+L_ENTRY:
+    ok = ult left, right
+    !left
+    !right
+    return ok
+
+@slice_sorted_ge(left: u64, right: u64) -> u64:
+L_ENTRY:
+    ok = uge left, right
+    !left
+    !right
+    return ok
+
+@slice_sorted_key_tens(value: u64) -> u64:
+L_ENTRY:
+    key = udiv value, 10
+    !value
+    return key
+
+@slice_fill_with_77() -> u64:
+L_ENTRY:
+    return 77
+
+@test "sa_std string convenience macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS prefix, &PREFIX, 2
+    EXPAND STR_FROM_PARTS suffix, &SUFFIX, 2
+    EXPAND STR_FROM_PARTS infix, &INFIX, 2
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STRING_LEN len, word
+    EXPAND STR_AS_PTR as_ptr, word
+    EXPAND STRING_AS_BYTES bytes, word
+    EXPAND STRING_AS_STR str_view, word
+    EXPAND STR_LEN bytes_len, bytes
+    EXPAND STRING_LEN str_len, str_view
+    EXPAND STRING_NEW new_empty
+    EXPAND STR_EMPTY str_empty
+    EXPAND STRING_IS_EMPTY new_empty_ok, new_empty
+    EXPAND STR_IS_EMPTY str_empty_ok, str_empty
+    EXPAND STR_STARTS_WITH starts_ok, word, prefix
+    EXPAND STRING_ENDS_WITH ends_ok, word, suffix
+    EXPAND STR_CONTAINS contains_ok, word, infix
+    EXPAND STR_TRY_FIND find_ok, find_idx, word, infix
+    EXPAND STRING_TRY_RFIND rfind_ok, rfind_idx, word, infix
+    EXPAND STRING_CONTAINS contains_empty_ok, word, str_empty
+    EXPAND STR_STARTS_WITH starts_miss, word, miss
+    EXPAND STRING_ENDS_WITH ends_miss, word, miss
+    EXPAND STR_CONTAINS contains_miss, word, miss
+    EXPAND STR_TRY_FIND find_miss_ok, find_miss_idx, word, miss
+    EXPAND STRING_TRY_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
+    EXPAND STR_TRY_STRIP_PREFIX strip_prefix_ok, strip_prefix_tail, word, prefix
+    EXPAND STRING_TRY_STRIP_SUFFIX strip_suffix_ok, strip_suffix_head, word, suffix
+    EXPAND STR_TRY_STRIP_PREFIX strip_prefix_miss_ok, strip_prefix_miss, word, miss
+    EXPAND STRING_TRY_STRIP_SUFFIX strip_suffix_miss_ok, strip_suffix_miss, word, miss
+    EXPAND STR_EQ strip_prefix_tail_eq, strip_prefix_tail, suffix
+    EXPAND STR_EQ strip_suffix_head_eq, strip_suffix_head, prefix
+    EXPAND STR_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
+    EXPAND STR_IS_EMPTY strip_suffix_miss_empty, strip_suffix_miss
+
+    len_ok = eq len, 4
+    ptr_ok = ne as_ptr, 0
+    bytes_len_ok = eq bytes_len, 4
+    str_len_ok = eq str_len, 4
+    starts_match_ok = eq starts_ok, 1
+    ends_match_ok = eq ends_ok, 1
+    contains_match_ok = eq contains_ok, 1
+    find_flag_ok = eq find_ok, 1
+    find_idx_ok = eq find_idx, 1
+    rfind_flag_ok = eq rfind_ok, 1
+    rfind_idx_ok = eq rfind_idx, 1
+    contains_empty_match_ok = eq contains_empty_ok, 1
+    starts_miss_ok = eq starts_miss, 0
+    ends_miss_ok = eq ends_miss, 0
+    contains_miss_ok = eq contains_miss, 0
+    find_miss_flag_ok = eq find_miss_ok, 0
+    find_miss_idx_ok = eq find_miss_idx, 0
+    rfind_miss_flag_ok = eq rfind_miss_ok, 0
+    rfind_miss_idx_ok = eq rfind_miss_idx, 0
+    strip_prefix_flag_ok = eq strip_prefix_ok, 1
+    strip_suffix_flag_ok = eq strip_suffix_ok, 1
+    strip_prefix_miss_flag_ok = eq strip_prefix_miss_ok, 0
+    strip_suffix_miss_flag_ok = eq strip_suffix_miss_ok, 0
+    strip_prefix_tail_ok = eq strip_prefix_tail_eq, 1
+    strip_suffix_head_ok = eq strip_suffix_head_eq, 1
+    strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
+    strip_suffix_miss_empty_ok = eq strip_suffix_miss_empty, 1
+    ok01 = and len_ok, ptr_ok
+    ok02 = and ok01, bytes_len_ok
+    ok03 = and ok02, str_len_ok
+    ok04 = and ok03, new_empty_ok
+    ok05 = and ok04, str_empty_ok
+    ok06 = and ok05, starts_match_ok
+    ok07 = and ok06, ends_match_ok
+    ok08 = and ok07, contains_match_ok
+    ok09 = and ok08, find_flag_ok
+    ok10 = and ok09, find_idx_ok
+    ok11 = and ok10, rfind_flag_ok
+    ok12 = and ok11, rfind_idx_ok
+    ok13 = and ok12, contains_empty_match_ok
+    ok14 = and ok13, starts_miss_ok
+    ok15 = and ok14, ends_miss_ok
+    ok16 = and ok15, contains_miss_ok
+    ok17 = and ok16, find_miss_flag_ok
+    ok18 = and ok17, find_miss_idx_ok
+    ok19 = and ok18, rfind_miss_flag_ok
+    ok20 = and ok19, rfind_miss_idx_ok
+    ok21 = and ok20, strip_prefix_flag_ok
+    ok22 = and ok21, strip_suffix_flag_ok
+    ok23 = and ok22, strip_prefix_miss_flag_ok
+    ok24 = and ok23, strip_suffix_miss_flag_ok
+    ok25 = and ok24, strip_prefix_tail_ok
+    ok26 = and ok25, strip_suffix_head_ok
+    ok27 = and ok26, strip_prefix_miss_empty_ok
+    ok = and ok27, strip_suffix_miss_empty_ok
+    !len
+    !as_ptr
+    !bytes
+    !str_view
+    !bytes_len
+    !str_len
+    !new_empty_ok
+    !str_empty_ok
+    !starts_ok
+    !ends_ok
+    !contains_ok
+    !find_ok
+    !find_idx
+    !rfind_ok
+    !rfind_idx
+    !contains_empty_ok
+    !starts_miss
+    !ends_miss
+    !contains_miss
+    !find_miss_ok
+    !find_miss_idx
+    !rfind_miss_ok
+    !rfind_miss_idx
+    !strip_prefix_ok
+    !strip_prefix_tail
+    !strip_suffix_ok
+    !strip_suffix_head
+    !strip_prefix_miss_ok
+    !strip_prefix_miss
+    !strip_suffix_miss_ok
+    !strip_suffix_miss
+    !strip_prefix_tail_eq
+    !strip_suffix_head_eq
+    !strip_prefix_miss_empty
+    !strip_suffix_miss_empty
+    !len_ok
+    !ptr_ok
+    !bytes_len_ok
+    !str_len_ok
+    !starts_match_ok
+    !ends_match_ok
+    !contains_match_ok
+    !find_flag_ok
+    !find_idx_ok
+    !rfind_flag_ok
+    !rfind_idx_ok
+    !contains_empty_match_ok
+    !starts_miss_ok
+    !ends_miss_ok
+    !contains_miss_ok
+    !find_miss_flag_ok
+    !find_miss_idx_ok
+    !rfind_miss_flag_ok
+    !rfind_miss_idx_ok
+    !strip_prefix_flag_ok
+    !strip_suffix_flag_ok
+    !strip_prefix_miss_flag_ok
+    !strip_suffix_miss_flag_ok
+    !strip_prefix_tail_ok
+    !strip_suffix_head_ok
+    !strip_prefix_miss_empty_ok
+    !strip_suffix_miss_empty_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !word
+    !prefix
+    !suffix
+    !infix
+    !miss
+    !new_empty
+    !str_empty
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(901)
+
+L_OK:
+    !ok
+    return
+
+@test "sa_std string concat macro"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS right, &JOIN_RIGHT, 4
+    EXPAND STR_FROM_PARTS expected, &JOINED, 8
+    EXPAND STR_CONCAT joined, left, right
+    EXPAND STR_LEN joined_len, joined
+    EXPAND STR_EQ joined_eq, joined, expected
+    len_ok = eq joined_len, 8
+    eq_ok = eq joined_eq, 1
+    ok = and len_ok, eq_ok
+    !joined_len
+    !joined_eq
+    !len_ok
+    !eq_ok
+    !joined
+    !expected
+    !right
+    !left
+    br ok -> L_CONCAT_OK, L_CONCAT_FAIL
+
+L_CONCAT_FAIL:
+    !ok
+    panic(905)
+
+L_CONCAT_OK:
+    !ok
+    return
+
+@test "sa_std string owned buffer capacity macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS suffix, &BUF_SUFFIX, 3
+    EXPAND STR_FROM_PARTS expected, &BUF_EXPECTED, 8
+
+    EXPAND STRING_BUF_WITH_CAPACITY string_buf, 8
+    EXPAND STRING_BUF_LEN initial_len, string_buf
+    EXPAND STRING_BUF_CAPACITY initial_cap, string_buf
+    EXPAND STRING_BUF_IS_EMPTY initial_empty, string_buf
+    EXPAND STRING_BUF_PUSH_STR string_buf, left
+    EXPAND STRING_BUF_PUSH_BYTE string_buf, 45
+    EXPAND STRING_BUF_PUSH_STR string_buf, suffix
+    EXPAND STRING_BUF_LEN pushed_len, string_buf
+    EXPAND STRING_BUF_AS_STR pushed_view, string_buf
+    EXPAND STR_EQ pushed_eq, pushed_view, expected
+    EXPAND STRING_BUF_TRY_RESERVE reserve_ok, string_buf, 10
+    EXPAND STRING_BUF_CAPACITY reserved_cap, string_buf
+    EXPAND STRING_BUF_SHRINK_TO string_buf, 10
+    EXPAND STRING_BUF_CAPACITY shrink_to_cap, string_buf
+    EXPAND STRING_BUF_SHRINK_TO_FIT string_buf
+    EXPAND STRING_BUF_CAPACITY shrink_fit_cap, string_buf
+    EXPAND STRING_BUF_TRUNCATE string_buf, 4
+    EXPAND STRING_BUF_LEN truncate_len, string_buf
+    EXPAND STRING_BUF_CLEAR string_buf
+    EXPAND STRING_BUF_LEN clear_len, string_buf
+
+    initial_len_ok = eq initial_len, 0
+    initial_cap_ok = uge initial_cap, 8
+    initial_empty_ok = eq initial_empty, 1
+    pushed_len_ok = eq pushed_len, 8
+    pushed_eq_ok = eq pushed_eq, 1
+    reserve_flag_ok = eq reserve_ok, 1
+    reserved_cap_ok = uge reserved_cap, 18
+    shrink_to_cap_ok = eq shrink_to_cap, 10
+    shrink_fit_cap_ok = eq shrink_fit_cap, 8
+    truncate_len_ok = eq truncate_len, 4
+    clear_len_ok = eq clear_len, 0
+    ok01 = and initial_len_ok, initial_cap_ok
+    ok02 = and ok01, initial_empty_ok
+    ok03 = and ok02, pushed_len_ok
+    ok04 = and ok03, pushed_eq_ok
+    ok05 = and ok04, reserve_flag_ok
+    ok06 = and ok05, reserved_cap_ok
+    ok07 = and ok06, shrink_to_cap_ok
+    ok08 = and ok07, shrink_fit_cap_ok
+    ok09 = and ok08, truncate_len_ok
+    ok = and ok09, clear_len_ok
+    !initial_len
+    !initial_cap
+    !initial_empty
+    !pushed_len
+    !pushed_view
+    !pushed_eq
+    !reserve_ok
+    !reserved_cap
+    !shrink_to_cap
+    !shrink_fit_cap
+    !truncate_len
+    !clear_len
+    !initial_len_ok
+    !initial_cap_ok
+    !initial_empty_ok
+    !pushed_len_ok
+    !pushed_eq_ok
+    !reserve_flag_ok
+    !reserved_cap_ok
+    !shrink_to_cap_ok
+    !shrink_fit_cap_ok
+    !truncate_len_ok
+    !clear_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    EXPAND STRING_BUF_FREE string_buf
+    !left
+    !suffix
+    !expected
+    br ok -> L_STRING_BUF_OK, L_STRING_BUF_FAIL
+
+L_STRING_BUF_FAIL:
+    !ok
+    panic(906)
+
+L_STRING_BUF_OK:
+    !ok
+    return
+
+@test "sa_std string owned buffer mutation macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS suffix, &BUF_SUFFIX, 3
+    EXPAND STR_FROM_PARTS insert_text, &BUF_LANG, 5
+    EXPAND STR_FROM_PARTS replace_text, &BUF_CORE, 4
+    EXPAND STR_FROM_PARTS expected_after_byte, &BUF_INSERT_BYTE_EXPECTED, 9
+    EXPAND STR_FROM_PARTS expected_after_insert, &BUF_INSERT_STR_EXPECTED, 14
+    EXPAND STR_FROM_PARTS expected_after_replace, &BUF_REPLACE_EXPECTED, 14
+    EXPAND STR_FROM_PARTS expected_split_left, &BUF_SPLIT_LEFT_EXPECTED, 9
+    EXPAND STR_FROM_PARTS expected_split_tail, &BUF_SPLIT_TAIL_EXPECTED, 4
+
+    EXPAND STRING_BUF_NEW string_buf
+    EXPAND STRING_BUF_PUSH_STR string_buf, left
+    EXPAND STRING_BUF_PUSH_BYTE string_buf, 45
+    EXPAND STRING_BUF_PUSH_STR string_buf, suffix
+    EXPAND STRING_BUF_TRY_INSERT_BYTE insert_byte_ok, string_buf, 8, 33
+    EXPAND STRING_BUF_AS_STR after_byte, string_buf
+    EXPAND STR_EQ after_byte_eq, after_byte, expected_after_byte
+    EXPAND STRING_BUF_TRY_INSERT_STR insert_str_ok, string_buf, 5, insert_text
+    EXPAND STRING_BUF_AS_STR after_insert, string_buf
+    EXPAND STR_EQ after_insert_eq, after_insert, expected_after_insert
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE replace_ok, string_buf, 5, 4, replace_text
+    EXPAND STRING_BUF_AS_STR after_replace, string_buf
+    EXPAND STR_EQ after_replace_eq, after_replace, expected_after_replace
+    EXPAND STRING_BUF_TRY_POP_BYTE pop_ok, pop_byte, string_buf
+    EXPAND STRING_BUF_TRY_SPLIT_OFF split_ok, split_tail, string_buf, 9
+    EXPAND STRING_BUF_AS_STR split_left, string_buf
+    EXPAND STRING_BUF_AS_STR split_tail_view, split_tail
+    EXPAND STR_EQ split_left_eq, split_left, expected_split_left
+    EXPAND STR_EQ split_tail_eq, split_tail_view, expected_split_tail
+    EXPAND STRING_BUF_TRY_INSERT_BYTE insert_miss_ok, string_buf, 99, 63
+    EXPAND STRING_BUF_TRY_INSERT_STR insert_str_miss_ok, string_buf, 99, insert_text
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE replace_miss_ok, string_buf, 6, 99, replace_text
+    EXPAND STRING_BUF_CLEAR string_buf
+    EXPAND STRING_BUF_TRY_POP_BYTE pop_empty_ok, pop_empty_byte, string_buf
+    EXPAND STRING_BUF_TRY_SPLIT_OFF split_empty_ok, split_empty_tail, string_buf, 0
+    EXPAND STRING_BUF_LEN split_empty_tail_len, split_empty_tail
+
+    insert_byte_flag_ok = eq insert_byte_ok, 1
+    after_byte_ok = eq after_byte_eq, 1
+    insert_str_flag_ok = eq insert_str_ok, 1
+    after_insert_ok = eq after_insert_eq, 1
+    replace_flag_ok = eq replace_ok, 1
+    after_replace_ok = eq after_replace_eq, 1
+    pop_flag_ok = eq pop_ok, 1
+    pop_byte_ok = eq pop_byte, 33
+    split_flag_ok = eq split_ok, 1
+    split_left_ok = eq split_left_eq, 1
+    split_tail_ok = eq split_tail_eq, 1
+    insert_miss_flag_ok = eq insert_miss_ok, 0
+    insert_str_miss_flag_ok = eq insert_str_miss_ok, 0
+    replace_miss_flag_ok = eq replace_miss_ok, 0
+    pop_empty_flag_ok = eq pop_empty_ok, 0
+    pop_empty_byte_ok = eq pop_empty_byte, 0
+    split_empty_flag_ok = eq split_empty_ok, 1
+    split_empty_tail_ok = eq split_empty_tail_len, 0
+    ok01 = and insert_byte_flag_ok, after_byte_ok
+    ok02 = and ok01, insert_str_flag_ok
+    ok03 = and ok02, after_insert_ok
+    ok04 = and ok03, replace_flag_ok
+    ok05 = and ok04, after_replace_ok
+    ok06 = and ok05, pop_flag_ok
+    ok07 = and ok06, pop_byte_ok
+    ok08 = and ok07, split_flag_ok
+    ok09 = and ok08, split_left_ok
+    ok10 = and ok09, split_tail_ok
+    ok11 = and ok10, insert_miss_flag_ok
+    ok12 = and ok11, insert_str_miss_flag_ok
+    ok13 = and ok12, replace_miss_flag_ok
+    ok14 = and ok13, pop_empty_flag_ok
+    ok15 = and ok14, pop_empty_byte_ok
+    ok16 = and ok15, split_empty_flag_ok
+    ok = and ok16, split_empty_tail_ok
+    !left
+    !suffix
+    !insert_text
+    !replace_text
+    !expected_after_byte
+    !expected_after_insert
+    !expected_after_replace
+    !expected_split_left
+    !expected_split_tail
+    !insert_byte_ok
+    !after_byte
+    !after_byte_eq
+    !insert_str_ok
+    !after_insert
+    !after_insert_eq
+    !replace_ok
+    !after_replace
+    !after_replace_eq
+    !pop_ok
+    !pop_byte
+    !split_ok
+    !split_left
+    !split_tail_view
+    !split_left_eq
+    !split_tail_eq
+    !insert_miss_ok
+    !insert_str_miss_ok
+    !replace_miss_ok
+    !pop_empty_ok
+    !pop_empty_byte
+    !split_empty_ok
+    !split_empty_tail_len
+    !insert_byte_flag_ok
+    !after_byte_ok
+    !insert_str_flag_ok
+    !after_insert_ok
+    !replace_flag_ok
+    !after_replace_ok
+    !pop_flag_ok
+    !pop_byte_ok
+    !split_flag_ok
+    !split_left_ok
+    !split_tail_ok
+    !insert_miss_flag_ok
+    !insert_str_miss_flag_ok
+    !replace_miss_flag_ok
+    !pop_empty_flag_ok
+    !pop_empty_byte_ok
+    !split_empty_flag_ok
+    !split_empty_tail_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    EXPAND STRING_BUF_FREE split_empty_tail
+    EXPAND STRING_BUF_FREE split_tail
+    EXPAND STRING_BUF_FREE string_buf
+    br ok -> L_STRING_BUF_MUT_OK, L_STRING_BUF_MUT_FAIL
+
+L_STRING_BUF_MUT_FAIL:
+    !ok
+    panic(914)
+
+L_STRING_BUF_MUT_OK:
+    !ok
+    return
+
+@test "sa_std string owned buffer utf8 and replace macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS replace_source, &BUF_REPLACE_SOURCE, 7
+    EXPAND STR_FROM_PARTS replace_needle, &BUF_REPLACE_NEEDLE, 1
+    EXPAND STR_FROM_PARTS replace_with, &BUF_REPLACE_WITH, 2
+    EXPAND STR_FROM_PARTS replace_expected, &BUF_REPLACE_ALL_EXPECTED, 10
+    EXPAND STR_FROM_PARTS replace_empty_expected, &BUF_REPLACE_EMPTY_EXPECTED, 7
+    EXPAND STR_FROM_PARTS replace_multi_source, &BUF_REPLACE_MULTI_SOURCE, 10
+    EXPAND STR_FROM_PARTS replace_multi_needle, &BUF_REPLACE_MULTI_NEEDLE, 3
+    EXPAND STR_FROM_PARTS replace_multi_with, &BUF_REPLACE_MULTI_WITH, 1
+    EXPAND STR_FROM_PARTS replace_multi_expected, &BUF_REPLACE_MULTI_EXPECTED, 6
+    EXPAND STR_FROM_PARTS replace_long_needle, &BUF_REPLACE_LONG_NEEDLE, 12
+    EXPAND STR_EMPTY empty_needle
+
+    bad_ptr = stack_alloc 3
+    store bad_ptr+0, 114 as u8
+    bad_ptr_1 = ptr_add bad_ptr, 1
+    store bad_ptr_1+0, 255 as u8
+    bad_ptr_2 = ptr_add bad_ptr, 2
+    store bad_ptr_2+0, 115 as u8
+    EXPAND STR_FROM_PARTS bad_bytes, bad_ptr, 3
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED unchecked_buf, left
+    EXPAND STRING_BUF_AS_STR unchecked_view, unchecked_buf
+    EXPAND STR_EQ unchecked_eq, unchecked_view, left
+    EXPAND STRING_BUF_TRY_FROM_UTF8_ASCII ascii_ok, ascii_buf, left
+    EXPAND STRING_BUF_AS_STR ascii_view, ascii_buf
+    EXPAND STR_EQ ascii_eq, ascii_view, left
+    EXPAND STRING_BUF_TRY_FROM_UTF8_ASCII ascii_bad_ok, ascii_bad_buf, bad_bytes
+    EXPAND STRING_BUF_LEN ascii_bad_len, ascii_bad_buf
+    EXPAND STRING_BUF_REPLACE replaced_buf, replace_source, replace_needle, replace_with
+    EXPAND STRING_BUF_AS_STR replaced_view, replaced_buf
+    EXPAND STR_EQ replaced_eq, replaced_view, replace_expected
+    EXPAND STRING_BUF_REPLACE replace_empty_buf, replace_source, empty_needle, replace_with
+    EXPAND STRING_BUF_AS_STR replace_empty_view, replace_empty_buf
+    EXPAND STR_EQ replace_empty_eq, replace_empty_view, replace_empty_expected
+    EXPAND STRING_BUF_REPLACE replace_multi_buf, replace_multi_source, replace_multi_needle, replace_multi_with
+    EXPAND STRING_BUF_AS_STR replace_multi_view, replace_multi_buf
+    EXPAND STR_EQ replace_multi_eq, replace_multi_view, replace_multi_expected
+    EXPAND STRING_BUF_REPLACE replace_long_buf, left, replace_long_needle, replace_multi_with
+    EXPAND STRING_BUF_AS_STR replace_long_view, replace_long_buf
+    EXPAND STR_EQ replace_long_eq, replace_long_view, left
+    EXPAND STRING_BUF_INTO_BYTES bytes_vec, unchecked_buf
+    EXPAND VEC_LEN bytes_len, bytes_vec
+    EXPAND VEC_AS_PTR bytes_ptr, bytes_vec
+    first_byte = load bytes_ptr+0 as u8
+
+    unchecked_ok = eq unchecked_eq, 1
+    ascii_flag_ok = eq ascii_ok, 1
+    ascii_value_ok = eq ascii_eq, 1
+    ascii_bad_flag_ok = eq ascii_bad_ok, 0
+    ascii_bad_empty_ok = eq ascii_bad_len, 0
+    replace_value_ok = eq replaced_eq, 1
+    replace_empty_value_ok = eq replace_empty_eq, 1
+    replace_multi_value_ok = eq replace_multi_eq, 1
+    replace_long_value_ok = eq replace_long_eq, 1
+    bytes_len_ok = eq bytes_len, 4
+    first_byte_ok = eq first_byte, 114
+    ok01 = and unchecked_ok, ascii_flag_ok
+    ok02 = and ok01, ascii_value_ok
+    ok03 = and ok02, ascii_bad_flag_ok
+    ok04 = and ok03, ascii_bad_empty_ok
+    ok05 = and ok04, replace_value_ok
+    ok06 = and ok05, replace_empty_value_ok
+    ok07 = and ok06, replace_multi_value_ok
+    ok08 = and ok07, replace_long_value_ok
+    ok09 = and ok08, bytes_len_ok
+    ok = and ok09, first_byte_ok
+    !left
+    !replace_source
+    !replace_needle
+    !replace_with
+    !replace_expected
+    !replace_empty_expected
+    !replace_multi_source
+    !replace_multi_needle
+    !replace_multi_with
+    !replace_multi_expected
+    !replace_long_needle
+    !empty_needle
+    !bad_ptr_1
+    !bad_ptr_2
+    !bad_bytes
+    !unchecked_view
+    !unchecked_eq
+    !ascii_ok
+    !ascii_view
+    !ascii_eq
+    !ascii_bad_ok
+    !ascii_bad_len
+    !replaced_view
+    !replaced_eq
+    !replace_empty_view
+    !replace_empty_eq
+    !replace_multi_view
+    !replace_multi_eq
+    !replace_long_view
+    !replace_long_eq
+    !bytes_len
+    !bytes_ptr
+    !first_byte
+    !unchecked_ok
+    !ascii_flag_ok
+    !ascii_value_ok
+    !ascii_bad_flag_ok
+    !ascii_bad_empty_ok
+    !replace_value_ok
+    !replace_empty_value_ok
+    !replace_multi_value_ok
+    !replace_long_value_ok
+    !bytes_len_ok
+    !first_byte_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    EXPAND STRING_BUF_FREE bytes_vec
+    EXPAND STRING_BUF_FREE ascii_buf
+    EXPAND STRING_BUF_FREE ascii_bad_buf
+    EXPAND STRING_BUF_FREE replaced_buf
+    EXPAND STRING_BUF_FREE replace_empty_buf
+    EXPAND STRING_BUF_FREE replace_multi_buf
+    EXPAND STRING_BUF_FREE replace_long_buf
+    br ok -> L_STRING_BUF_UTF8_OK, L_STRING_BUF_UTF8_FAIL
+
+L_STRING_BUF_UTF8_FAIL:
+    !ok
+    panic(915)
+
+L_STRING_BUF_UTF8_OK:
+    !ok
+    return
+
+@test "sa_std string mutable byte macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS string, &MUT_BASE, 4
+    EXPAND STR_FROM_PARTS suffix, &MUT_SUFFIX, 4
+    EXPAND STR_FROM_PARTS pushed_expected, &MUT_PUSHED, 8
+    EXPAND STR_FROM_PARTS insert_text, &MUT_INSERT, 3
+    EXPAND STR_FROM_PARTS insert_expected, &MUT_AFTER_INSERT, 11
+    EXPAND STR_FROM_PARTS replace_text, &MUT_REPLACE, 4
+    EXPAND STR_FROM_PARTS replace_expected, &MUT_AFTER_REPLACE, 12
+    EXPAND STR_FROM_PARTS split_left_expected, &MUT_SPLIT_LEFT, 8
+    EXPAND STR_FROM_PARTS split_tail_expected, &MUT_SUFFIX, 4
+    EXPAND STR_FROM_PARTS insert_byte_expected, &MUT_AFTER_INSERT_BYTE, 9
+
+    EXPAND STRING_PUSH_STR string, suffix
+    EXPAND STR_EQ pushed_eq, string, pushed_expected
+    EXPAND STRING_PUSH string, 33
+    EXPAND STRING_LEN len_after_push, string
+    EXPAND STRING_POP pop_ok, pop_byte, string
+    EXPAND STR_EQ pop_rest_eq, string, pushed_expected
+    EXPAND STRING_TRY_INSERT_STR insert_ok, string, 4, insert_text
+    EXPAND STR_EQ insert_eq, string, insert_expected
+    EXPAND STRING_TRY_REPLACE_RANGE replace_ok, string, 4, 3, replace_text
+    EXPAND STR_EQ replace_eq, string, replace_expected
+    EXPAND STRING_TRY_SPLIT_OFF split_ok, split_tail, string, 8
+    EXPAND STR_EQ split_left_eq, string, split_left_expected
+    EXPAND STR_EQ split_tail_eq, split_tail, split_tail_expected
+    EXPAND STRING_TRY_INSERT insert_byte_ok, string, 4, 45
+    EXPAND STR_EQ insert_byte_eq, string, insert_byte_expected
+    EXPAND STRING_TRUNCATE string, 4
+    EXPAND STRING_LEN truncate_len, string
+    EXPAND STRING_CLEAR string
+    EXPAND STRING_LEN clear_len, string
+    EXPAND STRING_POP pop_empty_ok, pop_empty_byte, string
+    EXPAND STRING_TRY_INSERT insert_miss_ok, string, 2, 33
+    EXPAND STRING_TRY_REPLACE_RANGE replace_miss_ok, string, 2, 1, suffix
+    EXPAND STRING_TRY_SPLIT_OFF split_miss_ok, split_miss_tail, string, 2
+    EXPAND STR_IS_EMPTY split_miss_tail_empty, split_miss_tail
+
+    pushed_ok = eq pushed_eq, 1
+    len_after_push_ok = eq len_after_push, 9
+    pop_flag_ok = eq pop_ok, 1
+    pop_byte_ok = eq pop_byte, 33
+    pop_rest_ok = eq pop_rest_eq, 1
+    insert_flag_ok = eq insert_ok, 1
+    insert_value_ok = eq insert_eq, 1
+    replace_flag_ok = eq replace_ok, 1
+    replace_value_ok = eq replace_eq, 1
+    split_flag_ok = eq split_ok, 1
+    split_left_ok = eq split_left_eq, 1
+    split_tail_ok = eq split_tail_eq, 1
+    insert_byte_flag_ok = eq insert_byte_ok, 1
+    insert_byte_noop_ok = eq insert_byte_eq, 1
+    truncate_len_ok = eq truncate_len, 4
+    clear_len_ok = eq clear_len, 0
+    pop_empty_flag_ok = eq pop_empty_ok, 0
+    pop_empty_byte_ok = eq pop_empty_byte, 0
+    insert_miss_flag_ok = eq insert_miss_ok, 0
+    replace_miss_flag_ok = eq replace_miss_ok, 0
+    split_miss_flag_ok = eq split_miss_ok, 0
+    split_miss_tail_ok = eq split_miss_tail_empty, 1
+    ok01 = and pushed_ok, len_after_push_ok
+    ok02 = and ok01, pop_flag_ok
+    ok03 = and ok02, pop_byte_ok
+    ok04 = and ok03, pop_rest_ok
+    ok05 = and ok04, insert_flag_ok
+    ok06 = and ok05, insert_value_ok
+    ok07 = and ok06, replace_flag_ok
+    ok08 = and ok07, replace_value_ok
+    ok09 = and ok08, split_flag_ok
+    ok10 = and ok09, split_left_ok
+    ok11 = and ok10, split_tail_ok
+    ok12 = and ok11, insert_byte_flag_ok
+    ok13 = and ok12, insert_byte_noop_ok
+    ok14 = and ok13, truncate_len_ok
+    ok15 = and ok14, clear_len_ok
+    ok16 = and ok15, pop_empty_flag_ok
+    ok17 = and ok16, pop_empty_byte_ok
+    ok18 = and ok17, insert_miss_flag_ok
+    ok19 = and ok18, replace_miss_flag_ok
+    ok20 = and ok19, split_miss_flag_ok
+    ok = and ok20, split_miss_tail_ok
+    !string
+    !suffix
+    !pushed_expected
+    !insert_text
+    !insert_expected
+    !replace_text
+    !replace_expected
+    !split_left_expected
+    !split_tail_expected
+    !insert_byte_expected
+    !pushed_eq
+    !len_after_push
+    !pop_ok
+    !pop_byte
+    !pop_rest_eq
+    !insert_ok
+    !insert_eq
+    !replace_ok
+    !replace_eq
+    !split_ok
+    !split_tail
+    !split_left_eq
+    !split_tail_eq
+    !insert_byte_ok
+    !insert_byte_eq
+    !truncate_len
+    !clear_len
+    !pop_empty_ok
+    !pop_empty_byte
+    !insert_miss_ok
+    !replace_miss_ok
+    !split_miss_ok
+    !split_miss_tail
+    !split_miss_tail_empty
+    !pushed_ok
+    !len_after_push_ok
+    !pop_flag_ok
+    !pop_byte_ok
+    !pop_rest_ok
+    !insert_flag_ok
+    !insert_value_ok
+    !replace_flag_ok
+    !replace_value_ok
+    !split_flag_ok
+    !split_left_ok
+    !split_tail_ok
+    !insert_byte_flag_ok
+    !insert_byte_noop_ok
+    !truncate_len_ok
+    !clear_len_ok
+    !pop_empty_flag_ok
+    !pop_empty_byte_ok
+    !insert_miss_flag_ok
+    !replace_miss_flag_ok
+    !split_miss_flag_ok
+    !split_miss_tail_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    br ok -> L_STRING_MUT_OK, L_STRING_MUT_FAIL
+
+L_STRING_MUT_FAIL:
+    !ok
+    panic(911)
+
+L_STRING_MUT_OK:
+    !ok
+    return
+
+@test "sa_std string owned buffer ascii char macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS expected_push, &BUF_CHAR_EXPECTED, 2
+    EXPAND STR_FROM_PARTS expected_insert, &BUF_INSERT_CHAR_EXPECTED, 3
+    EXPAND STR_FROM_PARTS expected_alias, &BUF_INSERT_CHAR_ALIAS_EXPECTED, 4
+
+    EXPAND STRING_BUF_NEW string_buf
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_char_ok, string_buf, 114
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_char_ok2, string_buf, 33
+    EXPAND STRING_BUF_AS_STR after_push, string_buf
+    EXPAND STR_EQ after_push_eq, after_push, expected_push
+    EXPAND STRING_BUF_TRY_INSERT_CHAR insert_char_ok, string_buf, 2, 63
+    EXPAND STRING_BUF_AS_STR after_insert, string_buf
+    EXPAND STR_EQ after_insert_eq, after_insert, expected_insert
+    EXPAND STRING_BUF_INSERT_CHAR insert_char_alias_ok, string_buf, 1, 45
+    EXPAND STRING_BUF_AS_STR after_alias, string_buf
+    EXPAND STR_EQ after_alias_eq, after_alias, expected_alias
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_non_ascii_ok, string_buf, 233
+    EXPAND STRING_BUF_TRY_INSERT_CHAR insert_non_ascii_ok, string_buf, 1, 233
+    EXPAND STRING_BUF_LEN final_len, string_buf
+
+    push_flag_ok = eq push_char_ok, 1
+    push_flag2_ok = eq push_char_ok2, 1
+    push_value_ok = eq after_push_eq, 1
+    insert_flag_ok = eq insert_char_ok, 1
+    insert_value_ok = eq after_insert_eq, 1
+    alias_flag_ok = eq insert_char_alias_ok, 1
+    alias_value_ok = eq after_alias_eq, 1
+    push_non_ascii_flag_ok = eq push_non_ascii_ok, 0
+    insert_non_ascii_flag_ok = eq insert_non_ascii_ok, 0
+    final_len_ok = eq final_len, 4
+    ok00 = and push_flag_ok, push_flag2_ok
+    ok01 = and ok00, push_value_ok
+    ok02 = and ok01, insert_flag_ok
+    ok03 = and ok02, insert_value_ok
+    ok04 = and ok03, alias_flag_ok
+    ok05 = and ok04, alias_value_ok
+    ok06 = and ok05, push_non_ascii_flag_ok
+    ok07 = and ok06, insert_non_ascii_flag_ok
+    ok = and ok07, final_len_ok
+    !expected_push
+    !expected_insert
+    !expected_alias
+    !push_char_ok
+    !push_char_ok2
+    !after_push
+    !after_push_eq
+    !insert_char_ok
+    !after_insert
+    !after_insert_eq
+    !insert_char_alias_ok
+    !after_alias
+    !after_alias_eq
+    !push_non_ascii_ok
+    !insert_non_ascii_ok
+    !final_len
+    !push_flag_ok
+    !push_flag2_ok
+    !push_value_ok
+    !insert_flag_ok
+    !insert_value_ok
+    !alias_flag_ok
+    !alias_value_ok
+    !push_non_ascii_flag_ok
+    !insert_non_ascii_flag_ok
+    !final_len_ok
+    !ok00
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    EXPAND STRING_BUF_FREE string_buf
+    br ok -> L_STRING_BUF_CHAR_OK, L_STRING_BUF_CHAR_FAIL
+
+L_STRING_BUF_CHAR_FAIL:
+    !ok
+    panic(917)
+
+L_STRING_BUF_CHAR_OK:
+    !ok
+    return
+
+@test "sa_std string find macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS infix, &INFIX, 2
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_TRY_FIND find_ok, find_idx, word, infix
+    EXPAND STRING_TRY_RFIND rfind_ok, rfind_idx, word, infix
+    EXPAND STR_TRY_FIND find_miss_ok, find_miss_idx, word, miss
+    EXPAND STRING_TRY_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
+    find_flag_ok = eq find_ok, 1
+    find_idx_ok = eq find_idx, 1
+    rfind_flag_ok = eq rfind_ok, 1
+    rfind_idx_ok = eq rfind_idx, 1
+    find_miss_flag_ok = eq find_miss_ok, 0
+    find_miss_idx_ok = eq find_miss_idx, 0
+    rfind_miss_flag_ok = eq rfind_miss_ok, 0
+    rfind_miss_idx_ok = eq rfind_miss_idx, 0
+    ok01 = and find_flag_ok, find_idx_ok
+    ok02 = and ok01, rfind_flag_ok
+    ok03 = and ok02, rfind_idx_ok
+    ok04 = and ok03, find_miss_flag_ok
+    ok05 = and ok04, find_miss_idx_ok
+    ok06 = and ok05, rfind_miss_flag_ok
+    ok = and ok06, rfind_miss_idx_ok
+    !find_ok
+    !find_idx
+    !rfind_ok
+    !rfind_idx
+    !find_miss_ok
+    !find_miss_idx
+    !rfind_miss_ok
+    !rfind_miss_idx
+    !find_flag_ok
+    !find_idx_ok
+    !rfind_flag_ok
+    !rfind_idx_ok
+    !find_miss_flag_ok
+    !find_miss_idx_ok
+    !rfind_miss_flag_ok
+    !rfind_miss_idx_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !word
+    !infix
+    !miss
+    br ok -> L_FIND_OK, L_FIND_FAIL
+
+L_FIND_FAIL:
+    !ok
+    panic(906)
+
+L_FIND_OK:
+    !ok
+    return
+
+@test "sa_std string byte scan macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
+    EXPAND STR_EMPTY empty
+    EXPAND STR_BYTES str_bytes, pathish
+    EXPAND STRING_BYTES string_bytes, pathish
+    EXPAND STR_LEN str_bytes_len, str_bytes
+    EXPAND STRING_LEN string_bytes_len, string_bytes
+    EXPAND STR_TRY_FIND_BYTE find_ok, find_idx, pathish, 58
+    EXPAND STRING_TRY_RFIND_BYTE rfind_ok, rfind_idx, pathish, 58
+    EXPAND STR_TRY_FIND_BYTE miss_find_ok, miss_find_idx, pathish, 47
+    EXPAND STRING_TRY_RFIND_BYTE miss_rfind_ok, miss_rfind_idx, pathish, 47
+    EXPAND STR_COUNT_BYTE count_colon, pathish, 58
+    EXPAND STRING_COUNT_BYTE count_miss, pathish, 47
+    EXPAND STR_TRY_FIND_BYTE empty_find_ok, empty_find_idx, empty, 58
+    EXPAND STRING_TRY_RFIND_BYTE empty_rfind_ok, empty_rfind_idx, empty, 58
+    EXPAND STR_COUNT_BYTE empty_count, empty, 58
+
+    str_bytes_len_ok = eq str_bytes_len, 5
+    string_bytes_len_ok = eq string_bytes_len, 5
+    find_flag_ok = eq find_ok, 1
+    find_idx_ok = eq find_idx, 1
+    rfind_flag_ok = eq rfind_ok, 1
+    rfind_idx_ok = eq rfind_idx, 3
+    miss_find_flag_ok = eq miss_find_ok, 0
+    miss_find_idx_ok = eq miss_find_idx, 0
+    miss_rfind_flag_ok = eq miss_rfind_ok, 0
+    miss_rfind_idx_ok = eq miss_rfind_idx, 0
+    count_colon_ok = eq count_colon, 2
+    count_miss_ok = eq count_miss, 0
+    empty_find_flag_ok = eq empty_find_ok, 0
+    empty_find_idx_ok = eq empty_find_idx, 0
+    empty_rfind_flag_ok = eq empty_rfind_ok, 0
+    empty_rfind_idx_ok = eq empty_rfind_idx, 0
+    empty_count_ok = eq empty_count, 0
+    ok01 = and str_bytes_len_ok, string_bytes_len_ok
+    ok02 = and ok01, find_flag_ok
+    ok03 = and ok02, find_idx_ok
+    ok04 = and ok03, rfind_flag_ok
+    ok05 = and ok04, rfind_idx_ok
+    ok06 = and ok05, miss_find_flag_ok
+    ok07 = and ok06, miss_find_idx_ok
+    ok08 = and ok07, miss_rfind_flag_ok
+    ok09 = and ok08, miss_rfind_idx_ok
+    ok10 = and ok09, count_colon_ok
+    ok11 = and ok10, count_miss_ok
+    ok12 = and ok11, empty_find_flag_ok
+    ok13 = and ok12, empty_find_idx_ok
+    ok14 = and ok13, empty_rfind_flag_ok
+    ok15 = and ok14, empty_rfind_idx_ok
+    ok = and ok15, empty_count_ok
+    !pathish
+    !empty
+    !str_bytes
+    !string_bytes
+    !str_bytes_len
+    !string_bytes_len
+    !find_ok
+    !find_idx
+    !rfind_ok
+    !rfind_idx
+    !miss_find_ok
+    !miss_find_idx
+    !miss_rfind_ok
+    !miss_rfind_idx
+    !count_colon
+    !count_miss
+    !empty_find_ok
+    !empty_find_idx
+    !empty_rfind_ok
+    !empty_rfind_idx
+    !empty_count
+    !str_bytes_len_ok
+    !string_bytes_len_ok
+    !find_flag_ok
+    !find_idx_ok
+    !rfind_flag_ok
+    !rfind_idx_ok
+    !miss_find_flag_ok
+    !miss_find_idx_ok
+    !miss_rfind_flag_ok
+    !miss_rfind_idx_ok
+    !count_colon_ok
+    !count_miss_ok
+    !empty_find_flag_ok
+    !empty_find_idx_ok
+    !empty_rfind_flag_ok
+    !empty_rfind_idx_ok
+    !empty_count_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    br ok -> L_BYTE_SCAN_OK, L_BYTE_SCAN_FAIL
+
+L_BYTE_SCAN_FAIL:
+    !ok
+    panic(913)
+
+L_BYTE_SCAN_OK:
+    !ok
+    return
+
+@test "sa_std string split byte view macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_text, &SPLIT_TEXT, 6
+    EXPAND STR_FROM_PARTS expected_a, &SPLIT_A, 1
+    EXPAND STR_FROM_PARTS expected_b, &SPLIT_B, 1
+    EXPAND STR_EMPTY empty
+
+    EXPAND STR_SPLIT_BYTE_COUNT split_count, split_text, 58
+    EXPAND STRING_TRY_SPLIT_BYTE_AT part0_ok, part0, split_text, 58, 0
+    EXPAND STR_TRY_SPLIT_BYTE_AT part1_ok, part1, split_text, 58, 1
+    EXPAND STRING_TRY_SPLIT_BYTE_AT part2_ok, part2, split_text, 58, 2
+    EXPAND STR_TRY_SPLIT_BYTE_AT part3_ok, part3, split_text, 58, 3
+    EXPAND STRING_TRY_SPLIT_BYTE_AT part4_ok, part4, split_text, 58, 4
+    EXPAND STR_TRY_SPLIT_BYTE_AT part5_ok, part5, split_text, 58, 5
+    EXPAND STRING_SPLIT_BYTE_COUNT empty_count, empty, 58
+    EXPAND STR_TRY_SPLIT_BYTE_AT empty_part_ok, empty_part, empty, 58, 0
+
+    EXPAND STR_IS_EMPTY part0_empty, part0
+    EXPAND STR_EQ part1_eq, part1, expected_a
+    EXPAND STR_IS_EMPTY part2_empty, part2
+    EXPAND STR_EQ part3_eq, part3, expected_b
+    EXPAND STR_IS_EMPTY part4_empty, part4
+    EXPAND STR_IS_EMPTY part5_empty, part5
+    EXPAND STR_IS_EMPTY empty_part_empty, empty_part
+
+    split_count_ok = eq split_count, 5
+    part0_flag_ok = eq part0_ok, 1
+    part0_value_ok = eq part0_empty, 1
+    part1_flag_ok = eq part1_ok, 1
+    part1_value_ok = eq part1_eq, 1
+    part2_flag_ok = eq part2_ok, 1
+    part2_value_ok = eq part2_empty, 1
+    part3_flag_ok = eq part3_ok, 1
+    part3_value_ok = eq part3_eq, 1
+    part4_flag_ok = eq part4_ok, 1
+    part4_value_ok = eq part4_empty, 1
+    part5_flag_ok = eq part5_ok, 0
+    part5_value_ok = eq part5_empty, 1
+    empty_count_ok = eq empty_count, 1
+    empty_part_flag_ok = eq empty_part_ok, 1
+    empty_part_value_ok = eq empty_part_empty, 1
+    ok01 = and split_count_ok, part0_flag_ok
+    ok02 = and ok01, part0_value_ok
+    ok03 = and ok02, part1_flag_ok
+    ok04 = and ok03, part1_value_ok
+    ok05 = and ok04, part2_flag_ok
+    ok06 = and ok05, part2_value_ok
+    ok07 = and ok06, part3_flag_ok
+    ok08 = and ok07, part3_value_ok
+    ok09 = and ok08, part4_flag_ok
+    ok10 = and ok09, part4_value_ok
+    ok11 = and ok10, part5_flag_ok
+    ok12 = and ok11, part5_value_ok
+    ok13 = and ok12, empty_count_ok
+    ok14 = and ok13, empty_part_flag_ok
+    ok = and ok14, empty_part_value_ok
+    !split_text
+    !expected_a
+    !expected_b
+    !empty
+    !split_count
+    !part0_ok
+    !part0
+    !part1_ok
+    !part1
+    !part2_ok
+    !part2
+    !part3_ok
+    !part3
+    !part4_ok
+    !part4
+    !part5_ok
+    !part5
+    !empty_count
+    !empty_part_ok
+    !empty_part
+    !part0_empty
+    !part1_eq
+    !part2_empty
+    !part3_eq
+    !part4_empty
+    !part5_empty
+    !empty_part_empty
+    !split_count_ok
+    !part0_flag_ok
+    !part0_value_ok
+    !part1_flag_ok
+    !part1_value_ok
+    !part2_flag_ok
+    !part2_value_ok
+    !part3_flag_ok
+    !part3_value_ok
+    !part4_flag_ok
+    !part4_value_ok
+    !part5_flag_ok
+    !part5_value_ok
+    !empty_count_ok
+    !empty_part_flag_ok
+    !empty_part_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    br ok -> L_SPLIT_BYTE_OK, L_SPLIT_BYTE_FAIL
+
+L_SPLIT_BYTE_FAIL:
+    !ok
+    panic(914)
+
+L_SPLIT_BYTE_OK:
+    !ok
+    return
+
+@test "sa_std string line view macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS lines_text, &LINES_TEXT, 18
+    EXPAND STR_FROM_PARTS expected_alpha, &LINES_ALPHA, 5
+    EXPAND STR_FROM_PARTS expected_beta, &LINES_BETA, 4
+    EXPAND STR_FROM_PARTS expected_gamma, &LINES_GAMMA, 5
+    EXPAND STR_FROM_PARTS no_trail, &LINES_NO_TRAIL, 7
+    EXPAND STR_FROM_PARTS expected_one, &LINES_ONE, 3
+    EXPAND STR_FROM_PARTS expected_two, &LINES_TWO, 3
+    EXPAND STR_EMPTY empty
+
+    EXPAND STR_LINE_COUNT line_count, lines_text
+    EXPAND STRING_TRY_LINE_AT line0_ok, line0, lines_text, 0
+    EXPAND STR_TRY_LINE_AT line1_ok, line1, lines_text, 1
+    EXPAND STRING_TRY_LINE_AT line2_ok, line2, lines_text, 2
+    EXPAND STR_TRY_LINE_AT line3_ok, line3, lines_text, 3
+    EXPAND STR_LINE_COUNT no_trail_count, no_trail
+    EXPAND STR_TRY_LINE_AT no_trail_0_ok, no_trail_0, no_trail, 0
+    EXPAND STRING_TRY_LINE_AT no_trail_1_ok, no_trail_1, no_trail, 1
+    EXPAND STRING_LINE_COUNT empty_count, empty
+    EXPAND STR_TRY_LINE_AT empty_line_ok, empty_line, empty, 0
+
+    EXPAND STR_EQ line0_eq, line0, expected_alpha
+    EXPAND STR_EQ line1_eq, line1, expected_beta
+    EXPAND STR_EQ line2_eq, line2, expected_gamma
+    EXPAND STR_IS_EMPTY line3_empty, line3
+    EXPAND STR_EQ no_trail_0_eq, no_trail_0, expected_one
+    EXPAND STR_EQ no_trail_1_eq, no_trail_1, expected_two
+    EXPAND STR_IS_EMPTY empty_line_empty, empty_line
+
+    line_count_ok = eq line_count, 3
+    line0_flag_ok = eq line0_ok, 1
+    line0_value_ok = eq line0_eq, 1
+    line1_flag_ok = eq line1_ok, 1
+    line1_value_ok = eq line1_eq, 1
+    line2_flag_ok = eq line2_ok, 1
+    line2_value_ok = eq line2_eq, 1
+    line3_flag_ok = eq line3_ok, 0
+    line3_value_ok = eq line3_empty, 1
+    no_trail_count_ok = eq no_trail_count, 2
+    no_trail_0_flag_ok = eq no_trail_0_ok, 1
+    no_trail_0_value_ok = eq no_trail_0_eq, 1
+    no_trail_1_flag_ok = eq no_trail_1_ok, 1
+    no_trail_1_value_ok = eq no_trail_1_eq, 1
+    empty_count_ok = eq empty_count, 0
+    empty_line_flag_ok = eq empty_line_ok, 0
+    empty_line_value_ok = eq empty_line_empty, 1
+    ok01 = and line_count_ok, line0_flag_ok
+    ok02 = and ok01, line0_value_ok
+    ok03 = and ok02, line1_flag_ok
+    ok04 = and ok03, line1_value_ok
+    ok05 = and ok04, line2_flag_ok
+    ok06 = and ok05, line2_value_ok
+    ok07 = and ok06, line3_flag_ok
+    ok08 = and ok07, line3_value_ok
+    ok09 = and ok08, no_trail_count_ok
+    ok10 = and ok09, no_trail_0_flag_ok
+    ok11 = and ok10, no_trail_0_value_ok
+    ok12 = and ok11, no_trail_1_flag_ok
+    ok13 = and ok12, no_trail_1_value_ok
+    ok14 = and ok13, empty_count_ok
+    ok15 = and ok14, empty_line_flag_ok
+    ok = and ok15, empty_line_value_ok
+    !lines_text
+    !expected_alpha
+    !expected_beta
+    !expected_gamma
+    !no_trail
+    !expected_one
+    !expected_two
+    !empty
+    !line_count
+    !line0_ok
+    !line0
+    !line1_ok
+    !line1
+    !line2_ok
+    !line2
+    !line3_ok
+    !line3
+    !no_trail_count
+    !no_trail_0_ok
+    !no_trail_0
+    !no_trail_1_ok
+    !no_trail_1
+    !empty_count
+    !empty_line_ok
+    !empty_line
+    !line0_eq
+    !line1_eq
+    !line2_eq
+    !line3_empty
+    !no_trail_0_eq
+    !no_trail_1_eq
+    !empty_line_empty
+    !line_count_ok
+    !line0_flag_ok
+    !line0_value_ok
+    !line1_flag_ok
+    !line1_value_ok
+    !line2_flag_ok
+    !line2_value_ok
+    !line3_flag_ok
+    !line3_value_ok
+    !no_trail_count_ok
+    !no_trail_0_flag_ok
+    !no_trail_0_value_ok
+    !no_trail_1_flag_ok
+    !no_trail_1_value_ok
+    !empty_count_ok
+    !empty_line_flag_ok
+    !empty_line_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    br ok -> L_LINE_VIEW_OK, L_LINE_VIEW_FAIL
+
+L_LINE_VIEW_FAIL:
+    !ok
+    panic(916)
+
+L_LINE_VIEW_OK:
+    !ok
+    return
+
+@test "sa_std string ascii and split once macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS title_word, &TITLE_WORD, 4
+    EXPAND STR_FROM_PARTS mixed, &MIXED_WORD, 4
+    EXPAND STR_FROM_PARTS spaced, &SPACED_WORD, 8
+    EXPAND STR_FROM_PARTS trailing, &WORD_TRAILING, 6
+    EXPAND STR_FROM_PARTS leading, &WORD_LEADING, 6
+    EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
+    EXPAND STR_FROM_PARTS colon, &COLON, 1
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_a_e, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS utf8_e, &UTF8_E_ACUTE, 2
+    EXPAND STR_FROM_PARTS utf8_smile, &UTF8_SMILE, 4
+    EXPAND STR_FROM_PARTS utf8_smile_z, &UTF8_SMILE_Z, 5
+    EXPAND STR_FROM_PARTS utf8_z, &UTF8_Z, 1
+    EXPAND STR_FROM_PARTS expected_left, &PATH_LEFT, 1
+    EXPAND STR_FROM_PARTS expected_right, &PATH_RIGHT, 3
+    EXPAND STR_FROM_PARTS expected_rleft, &PATH_RLEFT, 3
+    EXPAND STR_FROM_PARTS expected_rright, &PATH_RRIGHT, 1
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_IS_ASCII is_ascii, word
+    EXPAND STR_EQ_IGNORE_ASCII_CASE ascii_case_eq, word, mixed
+    EXPAND STR_IS_CHAR_BOUNDARY boundary0, utf8_boundary, 0
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary1, utf8_boundary, 1
+    EXPAND STR_IS_CHAR_BOUNDARY boundary2, utf8_boundary, 2
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary3, utf8_boundary, 3
+    EXPAND STR_IS_CHAR_BOUNDARY boundary4, utf8_boundary, 4
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary7, utf8_boundary, 7
+    EXPAND STR_IS_CHAR_BOUNDARY boundary8, utf8_boundary, 8
+    EXPAND STRING_IS_CHAR_BOUNDARY boundary9, utf8_boundary, 9
+    EXPAND STR_FLOOR_CHAR_BOUNDARY floor2, utf8_boundary, 2
+    EXPAND STR_FLOOR_CHAR_BOUNDARY floor6, utf8_boundary, 6
+    EXPAND STRING_FLOOR_CHAR_BOUNDARY floor9, utf8_boundary, 9
+    EXPAND STR_CEIL_CHAR_BOUNDARY ceil2, utf8_boundary, 2
+    EXPAND STRING_CEIL_CHAR_BOUNDARY ceil4, utf8_boundary, 4
+    EXPAND STR_CEIL_CHAR_BOUNDARY ceil9, utf8_boundary, 9
+    EXPAND STR_TRY_GET_RANGE range_e_ok, range_e, utf8_boundary, 1, 2
+    EXPAND STRING_TRY_GET_RANGE range_smile_ok, range_smile, utf8_boundary, 3, 4
+    EXPAND STR_TRY_GET_RANGE range_bad_start_ok, range_bad_start, utf8_boundary, 2, 1
+    EXPAND STRING_TRY_GET_RANGE range_bad_end_ok, range_bad_end, utf8_boundary, 1, 1
+    EXPAND STR_TRY_GET_PREFIX prefix_ae_ok, prefix_ae, utf8_boundary, 3
+    EXPAND STRING_TRY_GET_SUFFIX suffix_smile_z_ok, suffix_smile_z, utf8_boundary, 3
+    EXPAND STR_TRY_GET_SUFFIX suffix_z_ok, suffix_z, utf8_boundary, 7
+    EXPAND STR_TRY_GET_RANGE_TO range_to_ae_ok, range_to_ae, utf8_boundary, 3
+    EXPAND STRING_TRY_GET_RANGE_FROM range_from_smile_z_ok, range_from_smile_z, utf8_boundary, 3
+    EXPAND STR_TRY_GET_RANGE_BETWEEN between_smile_ok, between_smile, utf8_boundary, 3, 7
+    EXPAND STRING_TRY_GET_RANGE_BETWEEN between_bad_order_ok, between_bad_order, utf8_boundary, 7, 3
+    EXPAND STR_TRY_SPLIT_AT_CHECKED split_checked_ok, split_checked_left, split_checked_right, utf8_boundary, 3
+    EXPAND STRING_TRY_SPLIT_AT_CHECKED split_checked_bad_ok, split_checked_bad_left, split_checked_bad_right, utf8_boundary, 4
+    EXPAND STR_EQ range_e_eq, range_e, utf8_e
+    EXPAND STR_EQ range_smile_eq, range_smile, utf8_smile
+    EXPAND STR_IS_EMPTY range_bad_start_empty, range_bad_start
+    EXPAND STR_IS_EMPTY range_bad_end_empty, range_bad_end
+    EXPAND STR_EQ prefix_ae_eq, prefix_ae, utf8_a_e
+    EXPAND STR_EQ suffix_smile_z_eq, suffix_smile_z, utf8_smile_z
+    EXPAND STR_EQ suffix_z_eq, suffix_z, utf8_z
+    EXPAND STR_EQ range_to_ae_eq, range_to_ae, utf8_a_e
+    EXPAND STR_EQ range_from_smile_z_eq, range_from_smile_z, utf8_smile_z
+    EXPAND STR_EQ between_smile_eq, between_smile, utf8_smile
+    EXPAND STR_IS_EMPTY between_bad_order_empty, between_bad_order
+    EXPAND STR_EQ split_checked_left_eq, split_checked_left, utf8_a_e
+    EXPAND STR_EQ split_checked_right_eq, split_checked_right, utf8_smile_z
+    EXPAND STR_IS_EMPTY split_checked_bad_left_empty, split_checked_bad_left
+    EXPAND STR_IS_EMPTY split_checked_bad_right_empty, split_checked_bad_right
+    EXPAND STR_TRIM_ASCII trim_both, spaced
+    EXPAND STR_TRIM_ASCII_START trim_start, leading
+    EXPAND STR_TRIM_ASCII_END trim_end, trailing
+    EXPAND STR_TRY_SPLIT_ONCE split_once_ok, split_once_left, split_once_right, pathish, colon
+    EXPAND STRING_TRY_RSPLIT_ONCE rsplit_once_ok, rsplit_once_left, rsplit_once_right, pathish, colon
+    EXPAND STR_TRY_SPLIT_ONCE split_once_miss_ok, split_once_miss_left, split_once_miss_right, pathish, miss
+    EXPAND STR_EQ trim_both_eq, trim_both, title_word
+    EXPAND STR_EQ trim_start_eq, trim_start, title_word
+    EXPAND STR_EQ trim_end_eq, trim_end, title_word
+    EXPAND STR_EQ split_once_left_eq, split_once_left, expected_left
+    EXPAND STR_EQ split_once_right_eq, split_once_right, expected_right
+    EXPAND STR_EQ rsplit_once_left_eq, rsplit_once_left, expected_rleft
+    EXPAND STR_EQ rsplit_once_right_eq, rsplit_once_right, expected_rright
+    EXPAND STR_IS_EMPTY split_once_miss_left_empty, split_once_miss_left
+    EXPAND STR_IS_EMPTY split_once_miss_right_empty, split_once_miss_right
+
+    ascii_ok = eq is_ascii, 1
+    ascii_case_ok = eq ascii_case_eq, 1
+    boundary0_ok = eq boundary0, 1
+    boundary1_ok = eq boundary1, 1
+    boundary2_ok = eq boundary2, 0
+    boundary3_ok = eq boundary3, 1
+    boundary4_ok = eq boundary4, 0
+    boundary7_ok = eq boundary7, 1
+    boundary8_ok = eq boundary8, 1
+    boundary9_ok = eq boundary9, 0
+    floor2_ok = eq floor2, 1
+    floor6_ok = eq floor6, 3
+    floor9_ok = eq floor9, 8
+    ceil2_ok = eq ceil2, 3
+    ceil4_ok = eq ceil4, 7
+    ceil9_ok = eq ceil9, 8
+    range_e_flag_ok = eq range_e_ok, 1
+    range_smile_flag_ok = eq range_smile_ok, 1
+    range_bad_start_flag_ok = eq range_bad_start_ok, 0
+    range_bad_end_flag_ok = eq range_bad_end_ok, 0
+    range_e_value_ok = eq range_e_eq, 1
+    range_smile_value_ok = eq range_smile_eq, 1
+    range_bad_start_empty_ok = eq range_bad_start_empty, 1
+    range_bad_end_empty_ok = eq range_bad_end_empty, 1
+    prefix_ae_flag_ok = eq prefix_ae_ok, 1
+    suffix_smile_z_flag_ok = eq suffix_smile_z_ok, 1
+    suffix_z_flag_ok = eq suffix_z_ok, 1
+    range_to_ae_flag_ok = eq range_to_ae_ok, 1
+    range_from_smile_z_flag_ok = eq range_from_smile_z_ok, 1
+    between_smile_flag_ok = eq between_smile_ok, 1
+    between_bad_order_flag_ok = eq between_bad_order_ok, 0
+    split_checked_flag_ok = eq split_checked_ok, 1
+    split_checked_bad_flag_ok = eq split_checked_bad_ok, 0
+    prefix_ae_value_ok = eq prefix_ae_eq, 1
+    suffix_smile_z_value_ok = eq suffix_smile_z_eq, 1
+    suffix_z_value_ok = eq suffix_z_eq, 1
+    range_to_ae_value_ok = eq range_to_ae_eq, 1
+    range_from_smile_z_value_ok = eq range_from_smile_z_eq, 1
+    between_smile_value_ok = eq between_smile_eq, 1
+    between_bad_order_empty_ok = eq between_bad_order_empty, 1
+    split_checked_left_ok = eq split_checked_left_eq, 1
+    split_checked_right_ok = eq split_checked_right_eq, 1
+    split_checked_bad_left_ok = eq split_checked_bad_left_empty, 1
+    split_checked_bad_right_ok = eq split_checked_bad_right_empty, 1
+    trim_both_ok = eq trim_both_eq, 1
+    trim_start_ok = eq trim_start_eq, 1
+    trim_end_ok = eq trim_end_eq, 1
+    split_once_flag_ok = eq split_once_ok, 1
+    split_once_left_ok = eq split_once_left_eq, 1
+    split_once_right_ok = eq split_once_right_eq, 1
+    rsplit_once_flag_ok = eq rsplit_once_ok, 1
+    rsplit_once_left_ok = eq rsplit_once_left_eq, 1
+    rsplit_once_right_ok = eq rsplit_once_right_eq, 1
+    split_once_miss_flag_ok = eq split_once_miss_ok, 0
+    split_once_miss_left_ok = eq split_once_miss_left_empty, 1
+    split_once_miss_right_ok = eq split_once_miss_right_empty, 1
+    ok01 = and ascii_ok, ascii_case_ok
+    ok02 = and ok01, boundary0_ok
+    ok03 = and ok02, boundary1_ok
+    ok04 = and ok03, boundary2_ok
+    ok05 = and ok04, boundary3_ok
+    ok06 = and ok05, boundary4_ok
+    ok07 = and ok06, boundary7_ok
+    ok08 = and ok07, boundary8_ok
+    ok09 = and ok08, boundary9_ok
+    ok09a = and ok09, floor2_ok
+    ok09b = and ok09a, floor6_ok
+    ok09c = and ok09b, floor9_ok
+    ok09d = and ok09c, ceil2_ok
+    ok09e = and ok09d, ceil4_ok
+    ok09f = and ok09e, ceil9_ok
+    ok09g = and ok09f, range_e_flag_ok
+    ok09h = and ok09g, range_smile_flag_ok
+    ok09i = and ok09h, range_bad_start_flag_ok
+    ok09j = and ok09i, range_bad_end_flag_ok
+    ok09k = and ok09j, range_e_value_ok
+    ok09l = and ok09k, range_smile_value_ok
+    ok09m = and ok09l, range_bad_start_empty_ok
+    ok09n = and ok09m, range_bad_end_empty_ok
+    ok09o = and ok09n, prefix_ae_flag_ok
+    ok09p = and ok09o, suffix_smile_z_flag_ok
+    ok09q = and ok09p, suffix_z_flag_ok
+    ok09r = and ok09q, range_to_ae_flag_ok
+    ok09s = and ok09r, range_from_smile_z_flag_ok
+    ok09t = and ok09s, between_smile_flag_ok
+    ok09u = and ok09t, between_bad_order_flag_ok
+    ok09v = and ok09u, split_checked_flag_ok
+    ok09w = and ok09v, split_checked_bad_flag_ok
+    ok09x = and ok09w, prefix_ae_value_ok
+    ok09y = and ok09x, suffix_smile_z_value_ok
+    ok09z = and ok09y, suffix_z_value_ok
+    ok09aa = and ok09z, range_to_ae_value_ok
+    ok09ab = and ok09aa, range_from_smile_z_value_ok
+    ok09ac = and ok09ab, between_smile_value_ok
+    ok09ad = and ok09ac, between_bad_order_empty_ok
+    ok09ae = and ok09ad, split_checked_left_ok
+    ok09af = and ok09ae, split_checked_right_ok
+    ok09ag = and ok09af, split_checked_bad_left_ok
+    ok10 = and ok09ag, split_checked_bad_right_ok
+    ok11 = and ok10, trim_start_ok
+    ok12 = and ok11, trim_end_ok
+    ok13 = and ok12, split_once_flag_ok
+    ok14 = and ok13, split_once_left_ok
+    ok15 = and ok14, split_once_right_ok
+    ok16 = and ok15, rsplit_once_flag_ok
+    ok17 = and ok16, rsplit_once_left_ok
+    ok18 = and ok17, rsplit_once_right_ok
+    ok19 = and ok18, split_once_miss_flag_ok
+    ok20 = and ok19, split_once_miss_left_ok
+    ok = and ok20, split_once_miss_right_ok
+    !word
+    !title_word
+    !mixed
+    !spaced
+    !trailing
+    !leading
+    !pathish
+    !colon
+    !utf8_boundary
+    !utf8_a_e
+    !utf8_e
+    !utf8_smile
+    !utf8_smile_z
+    !utf8_z
+    !expected_left
+    !expected_right
+    !expected_rleft
+    !expected_rright
+    !miss
+    !is_ascii
+    !ascii_case_eq
+    !boundary0
+    !boundary1
+    !boundary2
+    !boundary3
+    !boundary4
+    !boundary7
+    !boundary8
+    !boundary9
+    !floor2
+    !floor6
+    !floor9
+    !ceil2
+    !ceil4
+    !ceil9
+    !range_e_ok
+    !range_e
+    !range_smile_ok
+    !range_smile
+    !range_bad_start_ok
+    !range_bad_start
+    !range_bad_end_ok
+    !range_bad_end
+    !prefix_ae_ok
+    !prefix_ae
+    !suffix_smile_z_ok
+    !suffix_smile_z
+    !suffix_z_ok
+    !suffix_z
+    !range_to_ae_ok
+    !range_to_ae
+    !range_from_smile_z_ok
+    !range_from_smile_z
+    !between_smile_ok
+    !between_smile
+    !between_bad_order_ok
+    !between_bad_order
+    !split_checked_ok
+    !split_checked_left
+    !split_checked_right
+    !split_checked_bad_ok
+    !split_checked_bad_left
+    !split_checked_bad_right
+    !range_e_eq
+    !range_smile_eq
+    !range_bad_start_empty
+    !range_bad_end_empty
+    !prefix_ae_eq
+    !suffix_smile_z_eq
+    !suffix_z_eq
+    !range_to_ae_eq
+    !range_from_smile_z_eq
+    !between_smile_eq
+    !between_bad_order_empty
+    !split_checked_left_eq
+    !split_checked_right_eq
+    !split_checked_bad_left_empty
+    !split_checked_bad_right_empty
+    !trim_both
+    !trim_start
+    !trim_end
+    !split_once_ok
+    !split_once_left
+    !split_once_right
+    !rsplit_once_ok
+    !rsplit_once_left
+    !rsplit_once_right
+    !split_once_miss_ok
+    !split_once_miss_left
+    !split_once_miss_right
+    !trim_both_eq
+    !trim_start_eq
+    !trim_end_eq
+    !split_once_left_eq
+    !split_once_right_eq
+    !rsplit_once_left_eq
+    !rsplit_once_right_eq
+    !split_once_miss_left_empty
+    !split_once_miss_right_empty
+    !ascii_ok
+    !ascii_case_ok
+    !boundary0_ok
+    !boundary1_ok
+    !boundary2_ok
+    !boundary3_ok
+    !boundary4_ok
+    !boundary7_ok
+    !boundary8_ok
+    !boundary9_ok
+    !floor2_ok
+    !floor6_ok
+    !floor9_ok
+    !ceil2_ok
+    !ceil4_ok
+    !ceil9_ok
+    !range_e_flag_ok
+    !range_smile_flag_ok
+    !range_bad_start_flag_ok
+    !range_bad_end_flag_ok
+    !range_e_value_ok
+    !range_smile_value_ok
+    !range_bad_start_empty_ok
+    !range_bad_end_empty_ok
+    !prefix_ae_flag_ok
+    !suffix_smile_z_flag_ok
+    !suffix_z_flag_ok
+    !range_to_ae_flag_ok
+    !range_from_smile_z_flag_ok
+    !between_smile_flag_ok
+    !between_bad_order_flag_ok
+    !split_checked_flag_ok
+    !split_checked_bad_flag_ok
+    !prefix_ae_value_ok
+    !suffix_smile_z_value_ok
+    !suffix_z_value_ok
+    !range_to_ae_value_ok
+    !range_from_smile_z_value_ok
+    !between_smile_value_ok
+    !between_bad_order_empty_ok
+    !split_checked_left_ok
+    !split_checked_right_ok
+    !split_checked_bad_left_ok
+    !split_checked_bad_right_ok
+    !trim_both_ok
+    !trim_start_ok
+    !trim_end_ok
+    !split_once_flag_ok
+    !split_once_left_ok
+    !split_once_right_ok
+    !rsplit_once_flag_ok
+    !rsplit_once_left_ok
+    !rsplit_once_right_ok
+    !split_once_miss_flag_ok
+    !split_once_miss_left_ok
+    !split_once_miss_right_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok09a
+    !ok09b
+    !ok09c
+    !ok09d
+    !ok09e
+    !ok09f
+    !ok09g
+    !ok09h
+    !ok09i
+    !ok09j
+    !ok09k
+    !ok09l
+    !ok09m
+    !ok09n
+    !ok09o
+    !ok09p
+    !ok09q
+    !ok09r
+    !ok09s
+    !ok09t
+    !ok09u
+    !ok09v
+    !ok09w
+    !ok09x
+    !ok09y
+    !ok09z
+    !ok09aa
+    !ok09ab
+    !ok09ac
+    !ok09ad
+    !ok09ae
+    !ok09af
+    !ok09ag
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    br ok -> L_ASCII_OK, L_ASCII_FAIL
+
+L_ASCII_FAIL:
+    !ok
+    panic(908)
+
+L_ASCII_OK:
+    !ok
+    return
+
+@test "sa_std string utf8 byte and char view macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_e, &UTF8_E_ACUTE, 2
+    EXPAND STR_FROM_PARTS utf8_smile, &UTF8_SMILE, 4
+    invalid_utf8_data = stack_alloc 2
+    store invalid_utf8_data+0, 195 as u8
+    store invalid_utf8_data+1, 40 as u8
+    EXPAND STR_FROM_PARTS invalid_utf8, invalid_utf8_data, 2
+    EXPAND STR_BYTE_LEN byte_len, utf8_boundary
+    EXPAND STR_IS_UTF8 utf8_valid, utf8_boundary
+    EXPAND STRING_IS_UTF8 utf8_invalid, invalid_utf8
+    EXPAND STRING_TRY_BYTE_AT byte0_ok, byte0, utf8_boundary, 0
+    EXPAND STR_TRY_BYTE_AT byte3_ok, byte3, utf8_boundary, 3
+    EXPAND STRING_TRY_BYTE_AT byte_bad_ok, byte_bad, utf8_boundary, 99
+    EXPAND STR_CHAR_COUNT char_count, utf8_boundary
+    EXPAND STR_TRY_CHAR_AT char0_ok, char0, utf8_boundary, 0
+    EXPAND STRING_TRY_CHAR_AT char1_ok, char1, utf8_boundary, 1
+    EXPAND STR_TRY_CHAR_AT char2_ok, char2, utf8_boundary, 2
+    EXPAND STRING_TRY_CHAR_AT char_bad_ok, char_bad, utf8_boundary, 4
+    EXPAND STR_TRY_CHAR_RANGE_AT range_e_ok, range_e, utf8_boundary, 1
+    EXPAND STRING_TRY_CHAR_RANGE_AT range_smile_ok, range_smile, utf8_boundary, 2
+    EXPAND STR_TRY_CHAR_RANGE_AT range_bad_ok, range_bad, utf8_boundary, 4
+    EXPAND STR_EQ range_e_eq, range_e, utf8_e
+    EXPAND STR_EQ range_smile_eq, range_smile, utf8_smile
+    EXPAND STR_IS_EMPTY range_bad_empty, range_bad
+    byte_len_ok = eq byte_len, 8
+    byte0_flag_ok = eq byte0_ok, 1
+    byte0_value_ok = eq byte0, 97
+    byte3_flag_ok = eq byte3_ok, 1
+    byte3_value_ok = eq byte3, 240
+    byte_bad_flag_ok = eq byte_bad_ok, 0
+    byte_bad_value_ok = eq byte_bad, 0
+    char_count_ok = eq char_count, 4
+    char0_flag_ok = eq char0_ok, 1
+    char0_value_ok = eq char0, 97
+    char1_flag_ok = eq char1_ok, 1
+    char1_value_ok = eq char1, 233
+    char2_flag_ok = eq char2_ok, 1
+    char2_value_ok = eq char2, 128578
+    char_bad_flag_ok = eq char_bad_ok, 0
+    char_bad_value_ok = eq char_bad, 0
+    range_e_flag_ok = eq range_e_ok, 1
+    range_smile_flag_ok = eq range_smile_ok, 1
+    range_bad_flag_ok = eq range_bad_ok, 0
+    range_e_value_ok = eq range_e_eq, 1
+    range_smile_value_ok = eq range_smile_eq, 1
+    range_bad_empty_ok = eq range_bad_empty, 1
+    utf8_valid_ok = eq utf8_valid, 1
+    utf8_invalid_ok = eq utf8_invalid, 0
+    ok01 = and byte_len_ok, byte0_flag_ok
+    ok02 = and ok01, byte0_value_ok
+    ok03 = and ok02, byte3_flag_ok
+    ok04 = and ok03, byte3_value_ok
+    ok05 = and ok04, byte_bad_flag_ok
+    ok06 = and ok05, byte_bad_value_ok
+    ok07 = and ok06, char_count_ok
+    ok08 = and ok07, char0_flag_ok
+    ok09 = and ok08, char0_value_ok
+    ok10 = and ok09, char1_flag_ok
+    ok11 = and ok10, char1_value_ok
+    ok12 = and ok11, char2_flag_ok
+    ok13 = and ok12, char2_value_ok
+    ok14 = and ok13, char_bad_flag_ok
+    ok15 = and ok14, char_bad_value_ok
+    ok16 = and ok15, range_e_flag_ok
+    ok17 = and ok16, range_smile_flag_ok
+    ok18 = and ok17, range_bad_flag_ok
+    ok19 = and ok18, range_e_value_ok
+    ok20 = and ok19, range_smile_value_ok
+    ok21 = and ok20, range_bad_empty_ok
+    ok22 = and ok21, utf8_valid_ok
+    ok = and ok22, utf8_invalid_ok
+    !utf8_boundary
+    !utf8_e
+    !utf8_smile
+    !invalid_utf8
+    !byte_len
+    !utf8_valid
+    !utf8_invalid
+    !byte0_ok
+    !byte0
+    !byte3_ok
+    !byte3
+    !byte_bad_ok
+    !byte_bad
+    !char_count
+    !char0_ok
+    !char0
+    !char1_ok
+    !char1
+    !char2_ok
+    !char2
+    !char_bad_ok
+    !char_bad
+    !range_e_ok
+    !range_e
+    !range_smile_ok
+    !range_smile
+    !range_bad_ok
+    !range_bad
+    !range_e_eq
+    !range_smile_eq
+    !range_bad_empty
+    !byte_len_ok
+    !byte0_flag_ok
+    !byte0_value_ok
+    !byte3_flag_ok
+    !byte3_value_ok
+    !byte_bad_flag_ok
+    !byte_bad_value_ok
+    !char_count_ok
+    !char0_flag_ok
+    !char0_value_ok
+    !char1_flag_ok
+    !char1_value_ok
+    !char2_flag_ok
+    !char2_value_ok
+    !char_bad_flag_ok
+    !char_bad_value_ok
+    !range_e_flag_ok
+    !range_smile_flag_ok
+    !range_bad_flag_ok
+    !range_e_value_ok
+    !range_smile_value_ok
+    !range_bad_empty_ok
+    !utf8_valid_ok
+    !utf8_invalid_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    br ok -> L_UTF8_VIEW_OK, L_UTF8_VIEW_FAIL
+
+L_UTF8_VIEW_FAIL:
+    !ok
+    panic(909)
+
+L_UTF8_VIEW_OK:
+    !ok
+    return
+

@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999982%
+Current progress: 99.999983%
 
 ## Completed SCI Features
+
+- 2026-06-09: Split the large string/vec macro surface suite for issue6 TEST-3.
+  - Replaced the single 38-test `std_string_vec_macro_surface.sa` scheduling unit with `std_string_macro_surface.sa` (13 tests), `std_slice_vec_macro_surface.sa` (17 tests), and `std_vec_macro_surface.sa` (8 tests), preserving the shared imports/constants/helpers in each split file.
+  - Updated the unit-framework runner expectations to keep the same 38 tests covered while enabling file-level parallel scheduling of the former slowest macro surface group.
+  - Updated `docs/test_performance.md` with the split files and latest visible timings: about 18.0s, 18.3s, and 9.8s respectively.
+  - Verification: `zig build unit-framework --summary all` -> `4/4 tests passed`.
 
 - 2026-06-09: Extended flattener import source caching to stable support roots for issue6 IMP-2.
   - Added `stable_import_roots` to resolver options and included them in the import source cache key.

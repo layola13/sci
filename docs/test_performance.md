@@ -192,6 +192,30 @@ Current slowest visible SA unit groups from that pass:
 
 The remaining high-cost work is now concentrated in large std macro surface suites and repeated SA import/test artifact work, not in ignored-mode feature-suite duplication.
 
+## 2026-06-09 String/Vec Surface Split Follow-up
+
+`tests/unit_framework/std_string_vec_macro_surface.sa` has been split into three independent files so file-level unit-framework parallelism can schedule the former single slow group across workers:
+
+- `std_string_macro_surface.sa` covers the 13 string and owned-buffer tests.
+- `std_slice_vec_macro_surface.sa` covers the 17 slice and mixed slice/Vec tests.
+- `std_vec_macro_surface.sa` covers the 8 Vec-only tests.
+
+Focused verification:
+
+```sh
+zig build unit-framework --summary all
+```
+
+Result: `4/4 tests passed`. The visible runner timing for the split group was:
+
+| SA unit group | Elapsed |
+| --- | ---: |
+| `std_string_macro_surface.sa` | 17.973s |
+| `std_slice_vec_macro_surface.sa` | 18.279s |
+| `std_vec_macro_surface.sa` | 9.780s |
+
+The old `std_string_vec_macro_surface.sa` single scheduling unit was removed from the runner. Total coverage remains 38 tests, but the longest former single unit is now split into smaller file jobs.
+
 ## 2026-06-09 Project Cache Follow-up
 
 The project cache now has an explicit cleanup command:

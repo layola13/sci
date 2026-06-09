@@ -946,12 +946,13 @@ test "native unit framework covers sa_std macro surface suites" {
         "test result: ok. 1 passed; 0 failed; 0 skipped",
     );
 
-    const string_vec_expected = [_][]const u8{
+    const string_expected = [_][]const u8{
         "[PASS] sa_std string convenience macros",
         "[PASS] sa_std string concat macro",
-        "[PASS] sa_std string owned buffer utf8 and replace macros",
         "[PASS] sa_std string owned buffer capacity macros",
         "[PASS] sa_std string owned buffer mutation macros",
+        "[PASS] sa_std string owned buffer utf8 and replace macros",
+        "[PASS] sa_std string mutable byte macros",
         "[PASS] sa_std string owned buffer ascii char macros",
         "[PASS] sa_std string find macros",
         "[PASS] sa_std string byte scan macros",
@@ -959,13 +960,18 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std string line view macros",
         "[PASS] sa_std string ascii and split once macros",
         "[PASS] sa_std string utf8 byte and char view macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_string_macro_surface.sa",
+        string_expected[0..],
+        "test result: ok. 13 passed; 0 failed; 0 skipped",
+    );
+
+    const slice_vec_expected = [_][]const u8{
         "[PASS] sa_std rust parity checked view macros",
         "[PASS] sa_std slice and vec split first last macros",
-        "[PASS] sa_std vec convenience macros",
         "[PASS] sa_std slice convenience macros",
-        "[PASS] sa_std vec capacity/view macros",
         "[PASS] sa_std slice mutation and search macros",
-        "[PASS] sa_std vec search wrappers",
         "[PASS] sa_std slice and vec chunk window macros",
         "[PASS] sa_std slice and vec rchunk macros",
         "[PASS] sa_std slice and vec split chunk macros",
@@ -979,17 +985,27 @@ test "native unit framework covers sa_std macro surface suites" {
         "[PASS] sa_std slice and vec select_nth_unstable macros",
         "[PASS] sa_std slice and vec fill_with macros",
         "[PASS] sa_std slice and vec exact chunk macros",
+    };
+    try runSaTestFile(
+        "tests/unit_framework/std_slice_vec_macro_surface.sa",
+        slice_vec_expected[0..],
+        "test result: ok. 17 passed; 0 failed; 0 skipped",
+    );
+
+    const vec_expected = [_][]const u8{
+        "[PASS] sa_std vec convenience macros",
+        "[PASS] sa_std vec capacity/view macros",
+        "[PASS] sa_std vec search wrappers",
         "[PASS] sa_std vec insert and dedup macros",
-        "[PASS] sa_std string mutable byte macros",
         "[PASS] sa_std vec retain macros",
         "[PASS] sa_std vec resize_with and dedup_by macros",
         "[PASS] sa_std vec dedup_by_key and extract_if macros",
         "[PASS] sa_std vec drain and splice macros",
     };
     try runSaTestFile(
-        "tests/unit_framework/std_string_vec_macro_surface.sa",
-        string_vec_expected[0..],
-        "test result: ok. 38 passed; 0 failed; 0 skipped",
+        "tests/unit_framework/std_vec_macro_surface.sa",
+        vec_expected[0..],
+        "test result: ok. 8 passed; 0 failed; 0 skipped",
     );
 
     const path_expected = [_][]const u8{
