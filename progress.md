@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99992%
+Current progress: 99.99993%
 
 ## Completed SCI Features
+
+- 2026-06-09: Removed repeated verifier leak-scan passes for issue5 PERF-2.
+  - Replaced per-live-register `regConsumedLater` full-function scans with a per-function consumed-register bitset computed once when the function scope is created.
+  - Preserved existing structured consumption semantics for `move`, `release`, `assign`, `return`, `try` / `early_return`, and `^reg` call/native text markers while making early-return and exit leak checks O(1) per candidate.
+  - Added a verifier regression test proving an early-return leak still reports `EarlyReturnLeak` and the consumption scan runs once over function bodies rather than once per live leak candidate.
+  - Verification: `zig test src/verifier.zig` -> `128/128 tests passed`.
 
 - 2026-06-09: Reduced verifier line classification work for issue5 PERF-1.
   - `verifyWithOptions` now preclassifies the instruction stream once and shares that `ClassifiedLine` array with metadata collection, serial body verification, and parallel body verification chunks.

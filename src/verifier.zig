@@ -179,6 +179,7 @@ const CollectResult = struct {
 };
 
 var test_classify_line_count: if (builtin.is_test) usize else void = if (builtin.is_test) 0 else {};
+var test_consumed_scan_count: if (builtin.is_test) usize else void = if (builtin.is_test) 0 else {};
 
 fn resetTestClassifyLineCount() void {
     if (builtin.is_test) test_classify_line_count = 0;
@@ -186,6 +187,14 @@ fn resetTestClassifyLineCount() void {
 
 fn readTestClassifyLineCount() usize {
     return if (builtin.is_test) test_classify_line_count else 0;
+}
+
+fn resetTestConsumedScanCount() void {
+    if (builtin.is_test) test_consumed_scan_count = 0;
+}
+
+fn readTestConsumedScanCount() usize {
+    return if (builtin.is_test) test_consumed_scan_count else 0;
 }
 
 fn classifyInstructions(allocator: std.mem.Allocator, instructions: []const inst.Instruction) ![]classifier.ClassifiedLine {
@@ -847,51 +856,53 @@ fn callConsumesByValueArg(callee: []const u8) bool {
         std.mem.endsWith(u8, callee, "_release");
 }
 
-fn callTextMentionsMovedRegister(text: []const u8, reg_name: []const u8) bool {
+fn markConsumedGlobalReg(scope: *const FunctionRegScope, global_reg: u32, consumed_in_function: []bool) void {
+    const slot = scope.slotOf(global_reg) orelse return;
+    consumed_in_function[@intCast(slot)] = true;
+}
+
+fn markCaretConsumedRegs(text: []const u8, symbols: *const symbol.SymbolTable, scope: *const FunctionRegScope, consumed_in_function: []bool) void {
     var search_start: usize = 0;
     while (search_start < text.len) {
-        const caret_idx = std.mem.indexOfPos(u8, text, search_start, "^") orelse return false;
+        const caret_idx = std.mem.indexOfPos(u8, text, search_start, "^") orelse return;
         const name_start = caret_idx + 1;
-        if (name_start + reg_name.len <= text.len and std.mem.startsWith(u8, text[name_start..], reg_name)) {
-            const after = name_start + reg_name.len;
-            if (after == text.len or !(std.ascii.isAlphanumeric(text[after]) or text[after] == '_')) {
-                return true;
+        var name_end = name_start;
+        while (name_end < text.len and (std.ascii.isAlphanumeric(text[name_end]) or text[name_end] == '_')) : (name_end += 1) {}
+        if (name_end > name_start) {
+            if (symbols.findId(text[name_start..name_end])) |global_reg| {
+                markConsumedGlobalReg(scope, global_reg, consumed_in_function);
             }
         }
         search_start = caret_idx + 1;
     }
-    return false;
 }
 
-fn regConsumedLater(
+fn markInstructionConsumedRegs(item: inst.Instruction, symbols: *const symbol.SymbolTable, scope: *const FunctionRegScope, consumed_in_function: []bool) void {
+    switch (item.kind) {
+        .move_, .release => if (item.operands[0] == .reg) markConsumedGlobalReg(scope, item.operands[0].reg, consumed_in_function),
+        .assign => if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function),
+        .return_ => if (item.operands[0] == .reg) markConsumedGlobalReg(scope, item.operands[0].reg, consumed_in_function),
+        .try_, .early_return => if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function),
+        else => {},
+    }
+    markCaretConsumedRegs(item.raw_text, symbols, scope, consumed_in_function);
+}
+
+fn computeFunctionConsumedRegs(
     instructions: []const inst.Instruction,
     function_start_idx: usize,
     symbols: *const symbol.SymbolTable,
-    reg: u32,
-) bool {
-    const reg_name = symbols.lookupName(reg) orelse return false;
+    scope: *const FunctionRegScope,
+    consumed_in_function: []bool,
+) void {
+    @memset(consumed_in_function, false);
     var idx = function_start_idx + 1;
     while (idx < instructions.len) : (idx += 1) {
         const item = instructions[idx];
         if (isDecl(item.kind)) break;
-        switch (item.kind) {
-            .move_, .release => {
-                if (item.operands[0] == .reg and item.operands[0].reg == reg) return true;
-            },
-            .assign => {
-                if (item.operands[1] == .reg and item.operands[1].reg == reg) return true;
-            },
-            .return_ => {
-                if (item.operands[0] == .reg and item.operands[0].reg == reg) return true;
-            },
-            .try_, .early_return => {
-                if (item.operands[1] == .reg and item.operands[1].reg == reg) return true;
-            },
-            else => {},
-        }
-        if (callTextMentionsMovedRegister(item.raw_text, reg_name)) return true;
+        if (builtin.is_test) test_consumed_scan_count += 1;
+        markInstructionConsumedRegs(item, symbols, scope, consumed_in_function);
     }
-    return false;
 }
 
 fn detachInteriorChild(
@@ -2134,10 +2145,14 @@ fn verifyBody(
     var flags: []u8 = &.{};
     var origins: []?u32 = &.{};
     var locks: []u16 = &.{};
+    var consumed_in_function: []bool = &.{};
     var interior_parent: []?u32 = &.{};
     var interior_first_child: []?u32 = &.{};
     var interior_next_sibling: []?u32 = &.{};
-    defer freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
+    defer {
+        if (consumed_in_function.len != 0) allocator.free(consumed_in_function);
+        freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
+    }
     var current_scope: ?FunctionRegScope = null;
     defer {
         if (current_scope) |*scope| scope.deinit();
@@ -2178,7 +2193,6 @@ fn verifyBody(
     var gas_steps: u64 = 0;
     const call_depth: u16 = 0;
     var has_unbounded_loop = false;
-    var current_function_start_idx: usize = 0;
     var last_seen_label: ?u32 = null;
 
     for (instructions, 0..) |raw_item, inst_idx| {
@@ -2192,7 +2206,6 @@ fn verifyBody(
 
             current_function_text = item.raw_text;
             current_is_ffi_wrapper = item.kind == .ffi_wrapper_decl;
-            current_function_start_idx = inst_idx;
             last_seen_label = null;
             terminated = false;
             fatal_terminated = false;
@@ -2208,6 +2221,10 @@ fn verifyBody(
 
             if (current_scope) |*scope| scope.deinit();
             current_scope = null;
+            if (consumed_in_function.len != 0) {
+                allocator.free(consumed_in_function);
+                consumed_in_function = &.{};
+            }
             freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
 
             if (current_sig) |decl_sig| {
@@ -2223,6 +2240,8 @@ fn verifyBody(
                 @memset(origins, null);
                 locks = try allocator.alloc(u16, reg_count);
                 @memset(locks, 0);
+                consumed_in_function = try allocator.alloc(bool, reg_count);
+                @memset(consumed_in_function, false);
                 interior_parent = try allocator.alloc(?u32, reg_count);
                 @memset(interior_parent, null);
                 interior_first_child = try allocator.alloc(?u32, reg_count);
@@ -2236,6 +2255,7 @@ fn verifyBody(
                     .interior_next_sibling = interior_next_sibling,
                 };
                 current_scope = next_scope;
+                computeFunctionConsumedRegs(instructions, inst_idx, &metadata.symbols, &current_scope.?, consumed_in_function);
                 errdefer {
                     if (current_scope) |*scope| scope.deinit();
                     current_scope = null;
@@ -2875,7 +2895,7 @@ fn verifyBody(
                     if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
                     if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
                     if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
-                    if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, current_scope.?.globalId(@intCast(idx)))) continue;
+                    if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
                     const src_name = current_scope.?.nameOf(&metadata.symbols, src_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(src_id)) orelse "";
                     return trapReport(.early_return_leak, item, current_function_text, current_is_ffi_wrapper, src_name, maskOf(.fallible), src_mask, "early return would leak live registers", null);
                 }
@@ -2990,7 +3010,7 @@ fn verifyBody(
             if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
             if ((flags[idx] & regFlagBranchCondition) != 0) continue;
             if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
-            if (regConsumedLater(instructions, current_function_start_idx, &metadata.symbols, current_scope.?.globalId(@intCast(idx)))) continue;
+            if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
             const leak_name = current_scope.?.nameOf(&metadata.symbols, @intCast(idx)) orelse metadata.symbols.lookupName(current_scope.?.globalId(@intCast(idx)));
             if (sax_context) |ctx| {
                 if (current_is_ffi_wrapper and current_function_text != null and std.mem.containsAtLeast(u8, current_function_text.?, 1, "destroy")) {
@@ -3378,6 +3398,40 @@ test "verifier preclassifies each instruction once" {
     };
     try std.testing.expect(verified == .ok);
     try std.testing.expectEqual(program.len, readTestClassifyLineCount());
+}
+
+test "verifier precomputes consumed registers once per function body" {
+    const source =
+        \\@fail() -> i32!:
+        \\return 1
+        \\@main() -> i32!:
+        \\res = call @fail()
+        \\leak_a = alloc 8
+        \\leak_b = alloc 16
+        \\leak_c = alloc 24
+        \\ok = ? res
+        \\return ok
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    resetTestConsumedScanCount();
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.early_return_leak, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    var expected_scanned: usize = 0;
+    for (flat.instructions) |item| {
+        if (!isDecl(item.kind)) expected_scanned += 1;
+    }
+    try std.testing.expectEqual(expected_scanned, readTestConsumedScanCount());
 }
 
 test "panic terminates without forcing a leak trap" {
