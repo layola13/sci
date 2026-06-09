@@ -28,6 +28,7 @@ pub const RunError = error{
     InvalidFunction,
     UnknownFunction,
     MissingIndirectCallProvenance,
+    UnsupportedExtern,
     UnsupportedInstruction,
     UnsupportedSysIntrinsic,
     UserExit,
@@ -1613,6 +1614,16 @@ const Interpreter = struct {
 
     fn execFunction(self: *Interpreter, sig_index: usize, arg_values: []const RegValue) !RegValue {
         const fsig = self.program.function_sigs[sig_index];
+        if (fsig.kind == .external) {
+            self.stderr.print(
+                "sa run unsupported extern: {s}; native build may work if the providing plugin or library is installed, but the interpreter has no broker/FFI bridge for this symbol yet\n",
+                .{fsig.name},
+            ) catch |err| {
+                // Diagnostic emission must not mask the interpreter failure.
+                _ = @errorName(err);
+            };
+            return RunError.UnsupportedExtern;
+        }
         const range = self.ranges[sig_index];
         const body = self.program.annotated[range.start..range.end];
 

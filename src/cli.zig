@@ -4886,6 +4886,7 @@ fn executeRun(
             defer owned.deinit(allocator);
             const code = interp.runWithWriters(allocator, &owned.verified, argv, stdout.any(), stderr.any()) catch |err| switch (err) {
                 error.UserExit => 0,
+                error.UnsupportedExtern => return 1,
                 else => {
                     try printCliError(stderr, err, diagnostics_mode);
                     return 1;

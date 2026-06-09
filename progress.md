@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99996%
+Current progress: 99.99997%
 
 ## Completed SCI Features
+
+- 2026-06-09: Improved `sa run` diagnostics for unsupported extern/plugin symbols for issue5 SEC-1 without changing plugin repositories.
+  - Added a dedicated interpreter `UnsupportedExtern` path when `sa run` reaches an `@extern` declaration, printing the exact symbol name and explaining that native build may work with the providing plugin/library while the interpreter broker/FFI bridge is not implemented.
+  - Suppressed the generic CLI error wrapper for this specific interpreter failure so users see one actionable diagnostic instead of a bare `InvalidInstruction` or duplicate error label.
+  - Added CLI smoke coverage for a minimal extern call under `sa run` to assert the symbol name is reported.
+  - Verification: `zig test src/interp.zig` -> `138/138 tests passed`; `zig test src/cli.zig` -> `67/67 tests passed`; `zig build bc2sa-smoke --summary all` -> `3/3 tests passed`.
 
 - 2026-06-09: Cleaned main-repo generated artifacts for issue5 ENG-2 without touching the external plugin repository.
   - Removed root-level temporary Zig/SA scaffolding, `.tmp_plugin_check` build outputs, demo compiled binaries, and `tests/unit_framework/feature_suite.o` from Git tracking while leaving local working copies ignored.

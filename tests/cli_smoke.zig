@@ -1011,6 +1011,37 @@ test "hello world demo prints through sa run" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
 }
 
+test "sa run reports unsupported extern symbol names" {
+    const source =
+        \\@extern sa_missing_plugin() -> i32
+        \\
+        \\@main() -> i32:
+        \\value = call @sa_missing_plugin()
+        \\return value
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "extern_run.sa", source);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const run_argv = [_][]const u8{ "sa", "run", "extern_run.sa" };
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 1), run_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "sa run unsupported extern: sa_missing_plugin"));
+    try std.testing.expect(std.mem.indexOf(u8, stderr_buf.items, "UnsupportedExtern") == null);
+}
+
 test "hello world demo prints through build-wasm and node wasi" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     const node_probe = std.process.Child.run(.{
