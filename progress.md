@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999986%
+Current progress: 99.999987%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added opt-in LRU bounds for the process-local flattener import source cache for issue6 IMP-3.
+  - Added `SA_IMPORT_CACHE_MAX_ENTRIES=N` for long-lived consumers that need bounded import cache maps; the default CLI path remains unbounded and keeps borrowed source hits for maximum short-lived performance.
+  - When a max-entry limit is enabled, cache hits now return owned source clones instead of borrowed cache slices, making LRU eviction safe because evicted entries can free their source buffers without dangling callers.
+  - Added LRU tick tracking and eviction of the least-recently-used import cache entry after stores exceed the configured limit.
+  - Verification: `zig test src/flattener.zig` -> `65/65 tests passed`; `zig test src/cli.zig` -> `70/70 tests passed`; `zig build smoke --summary all` -> `15/15 tests passed`.
 
 - 2026-06-09: Added source-tree test metadata caching as the first low-risk issue6 IMP-1 frontend-cache slice.
   - `.sa_cache/test/<key>` entries now include `test-metadata.json` with discovered SA test names, selector symbols, source locations, ignored flags, and should-panic flags.

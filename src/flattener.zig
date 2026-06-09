@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const def_dict = @import("flattener/def_dict.zig");
 const classifier = @import("flattener/line_classifier.zig");
@@ -143,10 +144,13 @@ const ImportSourceCacheEntry = struct {
     mtime: i128,
     size: u64,
     is_global: bool,
+    last_used_tick: u64,
 };
 
 var import_source_cache_mutex: std.Thread.Mutex = .{};
 var import_source_cache: ?std.StringHashMap(ImportSourceCacheEntry) = null;
+var import_source_cache_tick: u64 = 0;
+var test_import_source_cache_max_entries: ?usize = null;
 
 fn importSourceCacheMap() *std.StringHashMap(ImportSourceCacheEntry) {
     if (import_source_cache == null) {
@@ -159,6 +163,21 @@ fn traceImportsEnabled() bool {
     const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SAASM_TRACE_IMPORTS") catch return false;
     defer std.heap.page_allocator.free(value);
     return value.len != 0 and !std.mem.eql(u8, value, "0") and !std.mem.eql(u8, value, "false") and !std.mem.eql(u8, value, "False");
+}
+
+fn importSourceCacheMaxEntries() ?usize {
+    if (builtin.is_test) {
+        if (test_import_source_cache_max_entries) |value| return value;
+    }
+    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_IMPORT_CACHE_MAX_ENTRIES") catch return null;
+    defer std.heap.page_allocator.free(value);
+    const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
+    return if (parsed == 0) null else parsed;
+}
+
+fn nextImportSourceCacheTickLocked() u64 {
+    import_source_cache_tick +%= 1;
+    return import_source_cache_tick;
 }
 
 fn appendCacheBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
@@ -240,18 +259,20 @@ fn isImportCacheCandidate(allocator: std.mem.Allocator, base_dir: []const u8, im
     return false;
 }
 
-fn cloneCachedImport(allocator: std.mem.Allocator, cached: ImportSourceCacheEntry) !pkg_resolver.ResolvedImport {
+fn cloneCachedImport(allocator: std.mem.Allocator, cached: ImportSourceCacheEntry, borrow_source: bool) !pkg_resolver.ResolvedImport {
     const entry_path = try allocator.dupe(u8, cached.entry_path);
     errdefer allocator.free(entry_path);
     const root_dir = if (cached.root_dir) |dir| try allocator.dupe(u8, dir) else null;
     errdefer if (root_dir) |dir| allocator.free(dir);
     const package_identity = if (cached.package_identity) |identity| try allocator.dupe(u8, identity) else null;
     errdefer if (package_identity) |identity| allocator.free(identity);
+    const owned_source = if (borrow_source) null else try allocator.dupe(u8, cached.source);
+    errdefer if (owned_source) |source| allocator.free(source);
 
     return .{
         .entry_path = entry_path,
-        .source = cached.source,
-        .owned_source = null,
+        .source = owned_source orelse cached.source,
+        .owned_source = owned_source,
         .root_dir = root_dir,
         .package_identity = package_identity,
         .source_sha256 = cached.source_sha256,
@@ -311,7 +332,31 @@ fn storeImportSourceCacheEntry(key: []const u8, resolved: pkg_resolver.ResolvedI
         .mtime = stat.mtime,
         .size = stat.size,
         .is_global = resolved.is_global,
+        .last_used_tick = nextImportSourceCacheTickLocked(),
     });
+    evictImportSourceCacheIfNeeded(cache, importSourceCacheMaxEntries());
+}
+
+fn evictImportSourceCacheIfNeeded(cache: *std.StringHashMap(ImportSourceCacheEntry), max_entries: ?usize) void {
+    const limit = max_entries orelse return;
+    while (cache.count() > limit) {
+        var oldest_key: ?[]const u8 = null;
+        var oldest_tick: u64 = std.math.maxInt(u64);
+        var it = cache.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.last_used_tick <= oldest_tick) {
+                oldest_key = entry.key_ptr.*;
+                oldest_tick = entry.value_ptr.last_used_tick;
+            }
+        }
+        const key = oldest_key orelse return;
+        if (cache.fetchRemove(key)) |removed| {
+            std.heap.page_allocator.free(removed.key);
+            freeImportSourceCacheEntry(removed.value, true);
+        } else {
+            return;
+        }
+    }
 }
 
 pub const FlattenResult = struct {
@@ -2891,9 +2936,11 @@ fn readImportFile(
 
     import_source_cache_mutex.lock();
     if (import_source_cache) |*cache| {
-        if (cache.get(cache_key)) |cached| {
-            if (cachedImportStillValid(cached)) {
-                const cloned = cloneCachedImport(allocator, cached) catch |err| {
+        if (cache.getPtr(cache_key)) |cached| {
+            if (cachedImportStillValid(cached.*)) {
+                const max_entries = importSourceCacheMaxEntries();
+                cached.last_used_tick = nextImportSourceCacheTickLocked();
+                const cloned = cloneCachedImport(allocator, cached.*, max_entries == null) catch |err| {
                     import_source_cache_mutex.unlock();
                     return err;
                 };
@@ -2902,6 +2949,7 @@ fn readImportFile(
             }
             if (cache.fetchRemove(cache_key)) |removed| {
                 std.heap.page_allocator.free(removed.key);
+                // Default cache hits borrow source slices, so invalidated source buffers stay process-live.
                 freeImportSourceCacheEntry(removed.value, false);
             }
         }
@@ -3939,6 +3987,80 @@ test "std import source cache reuses source without cloning on hit" {
     defer second.deinit(std.testing.allocator);
     try std.testing.expect(second.owned_source == null);
     try std.testing.expectEqualStrings(first.source, second.source);
+}
+
+fn clearImportSourceCacheForTest() void {
+    import_source_cache_mutex.lock();
+    defer import_source_cache_mutex.unlock();
+    if (import_source_cache) |*cache| {
+        var it = cache.iterator();
+        while (it.next()) |entry| {
+            std.heap.page_allocator.free(entry.key_ptr.*);
+            freeImportSourceCacheEntry(entry.value_ptr.*, true);
+        }
+        cache.deinit();
+        import_source_cache = null;
+    }
+    import_source_cache_tick = 0;
+    test_import_source_cache_max_entries = null;
+}
+
+fn importSourceCacheHasEntryPathForTest(path: []const u8) bool {
+    import_source_cache_mutex.lock();
+    defer import_source_cache_mutex.unlock();
+    const cache = if (import_source_cache) |*cache| cache else return false;
+    var it = cache.iterator();
+    while (it.next()) |entry| {
+        if (std.mem.eql(u8, entry.value_ptr.entry_path, path)) return true;
+    }
+    return false;
+}
+
+test "import source cache LRU is opt-in and avoids borrowed hits" {
+    clearImportSourceCacheForTest();
+    defer clearImportSourceCacheForTest();
+    test_import_source_cache_max_entries = 2;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_std/core");
+    var a_file = try tmp.dir.createFile("sa_std/core/cache_a.sai", .{ .truncate = true });
+    try a_file.writeAll("#def CACHE_A = 1\n");
+    a_file.close();
+    var b_file = try tmp.dir.createFile("sa_std/core/cache_b.sai", .{ .truncate = true });
+    try b_file.writeAll("#def CACHE_B = 2\n");
+    b_file.close();
+    var c_file = try tmp.dir.createFile("sa_std/core/cache_c.sai", .{ .truncate = true });
+    try c_file.writeAll("#def CACHE_C = 3\n");
+    c_file.close();
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+    const a_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_a.sai");
+    defer std.testing.allocator.free(a_path);
+    const b_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_b.sai");
+    defer std.testing.allocator.free(b_path);
+    const c_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_c.sai");
+    defer std.testing.allocator.free(c_path);
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
+
+    var first_a = try readImportFile(std.testing.allocator, project_root, "sa_std/core/cache_a.sai", resolve_ctx);
+    defer first_a.deinit(std.testing.allocator);
+    var first_b = try readImportFile(std.testing.allocator, project_root, "sa_std/core/cache_b.sai", resolve_ctx);
+    defer first_b.deinit(std.testing.allocator);
+
+    var second_a = try readImportFile(std.testing.allocator, project_root, "sa_std/core/cache_a.sai", resolve_ctx);
+    defer second_a.deinit(std.testing.allocator);
+    try std.testing.expect(second_a.owned_source != null);
+
+    var first_c = try readImportFile(std.testing.allocator, project_root, "sa_std/core/cache_c.sai", resolve_ctx);
+    defer first_c.deinit(std.testing.allocator);
+    try std.testing.expect(importSourceCacheHasEntryPathForTest(a_path));
+    try std.testing.expect(!importSourceCacheHasEntryPathForTest(b_path));
+    try std.testing.expect(importSourceCacheHasEntryPathForTest(c_path));
 }
 
 test "stable import roots participate in import source cache" {
