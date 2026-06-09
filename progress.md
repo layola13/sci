@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999983%
+Current progress: 99.999984%
 
 ## Completed SCI Features
+
+- 2026-06-09: Reused flattener import-source cache during project source-tree hashing for issue6 CACHE-2.
+  - Exposed a narrow `readImportSourceFile` wrapper so cache-key hashing can resolve imported SA files through the same flattener import source cache used by the real flatten path.
+  - Entry files still use the CLI `loadSource` path, while imported files pass their resolved source into recursive hashing, avoiding a second same-process source read/resolve for cacheable std and stable support imports.
+  - Extended CLI cache coverage to prove the first source-tree hash warms the flattener import cache, the unchanged second hash uses the mtime/size digest fast path without another source load, and a dependency edit invalidates the digest.
+  - Verification: `zig test src/flattener.zig` -> `64/64 tests passed`; `zig test src/cli.zig` -> `69/69 tests passed`; `zig build smoke --summary all` -> `15/15 tests passed`; `zig build unit-framework --summary all` -> `4/4 tests passed`.
 
 - 2026-06-09: Split the large string/vec macro surface suite for issue6 TEST-3.
   - Replaced the single 38-test `std_string_vec_macro_surface.sa` scheduling unit with `std_string_macro_surface.sa` (13 tests), `std_slice_vec_macro_surface.sa` (17 tests), and `std_vec_macro_surface.sa` (8 tests), preserving the shared imports/constants/helpers in each split file.

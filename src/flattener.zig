@@ -2919,6 +2919,15 @@ fn readImportFile(
     return resolved;
 }
 
+pub fn readImportSourceFile(
+    allocator: std.mem.Allocator,
+    base_dir: []const u8,
+    import_path: []const u8,
+    resolve_ctx: ?ResolveContext,
+) !pkg_resolver.ResolvedImport {
+    return try readImportFile(allocator, base_dir, import_path, resolve_ctx);
+}
+
 fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {
     return try std.fs.path.join(allocator, parts);
 }

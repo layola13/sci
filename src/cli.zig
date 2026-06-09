@@ -4177,6 +4177,7 @@ fn hashResolvedSourceTreeUncached(
     source_path: []const u8,
     visited: *std.StringHashMap(void),
     files: *std.ArrayList(SourceTreeFileStat),
+    resolved_source: ?[]const u8,
 ) !void {
     const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
     errdefer allocator.free(real_source_path);
@@ -4194,8 +4195,9 @@ fn hashResolvedSourceTreeUncached(
     try files.append(.{ .path = real_source_path, .mtime = stat.mtime, .size = stat.size });
 
     cacheBytes(hasher, real_source_path);
-    const source = try loadSource(allocator, source_path);
-    defer allocator.free(source);
+    const owned_source = if (resolved_source == null) try loadSource(allocator, source_path) else null;
+    defer if (owned_source) |source| allocator.free(source);
+    const source = resolved_source orelse owned_source.?;
     cacheBytes(hasher, source);
 
     var iter = std.mem.splitScalar(u8, source, '\n');
@@ -4203,14 +4205,15 @@ fn hashResolvedSourceTreeUncached(
         const classified = line_classifier.classifyLine(line);
         if (classified.kind != .import_decl) continue;
         const import_path = classified.parts[0];
-        var imported = try pkg_resolver.resolveImport(allocator, dependencies, std.fs.path.dirname(source_path) orelse ".", import_path, .{
+        const resolve_ctx = flattener.ResolveContext{ .dependencies = dependencies, .options = .{
             .project_root = project_root,
             .std_root = std_root,
             .offline = offline,
             .plugin_import_roots = plugin_import_roots,
-        });
+        } };
+        var imported = try flattener.readImportSourceFile(allocator, std.fs.path.dirname(source_path) orelse ".", import_path, resolve_ctx);
         defer imported.deinit(allocator);
-        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files);
+        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files, imported.source);
     }
 }
 
@@ -4245,7 +4248,7 @@ fn hashResolvedSourceTree(
         for (files.items) |file| allocator.free(file.path);
         files.deinit();
     }
-    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files);
+    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files, null);
     var digest: [32]u8 = undefined;
     tree_hasher.final(&digest);
     try storeSourceTreeHashCacheEntry(cache_key, digest, files.items);
@@ -6154,42 +6157,50 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     try tmp.dir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
+    try tmp.dir.makePath("sa_std/core");
+
     {
         var file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
-            \\@import "dep.sa"
+            \\@import "sa_std/core/cache_probe.sai"
             \\@main() -> i32:
             \\return dep_value
             \\
         );
     }
     {
-        var file = try tmp.dir.createFile("dep.sa", .{ .truncate = true });
+        var file = try tmp.dir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def dep_value = 7\n");
     }
 
     const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = project_root;
+    const std_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
 
     test_source_tree_load_count = 0;
     var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
     try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var first_digest: [32]u8 = undefined;
     first_hasher.final(&first_digest);
-    try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
+    try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
+
+    const resolve_ctx = flattener.ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
+    var warmed_import = try flattener.readImportSourceFile(std.testing.allocator, ".", "sa_std/core/cache_probe.sai", resolve_ctx);
+    defer warmed_import.deinit(std.testing.allocator);
+    try std.testing.expect(warmed_import.owned_source == null);
 
     var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
     try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var second_digest: [32]u8 = undefined;
     second_hasher.final(&second_digest);
-    try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
+    try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
     try std.testing.expectEqualSlices(u8, first_digest[0..], second_digest[0..]);
 
     {
-        var file = try tmp.dir.createFile("dep.sa", .{ .truncate = true });
+        var file = try tmp.dir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def dep_value = 777\n");
     }
@@ -6198,7 +6209,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     try hashResolvedSourceTree(std.testing.allocator, &third_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var third_digest: [32]u8 = undefined;
     third_hasher.final(&third_digest);
-    try std.testing.expect(test_source_tree_load_count > 2);
+    try std.testing.expect(test_source_tree_load_count > 1);
     try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
 }
 
