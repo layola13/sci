@@ -2886,6 +2886,7 @@ pub fn scanSource(
 ) ![]SourceLine {
     var lines = std.ArrayList(SourceLine).init(allocator);
     errdefer lines.deinit();
+    try lines.ensureTotalCapacity(countSourceLines(source));
 
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
@@ -2903,6 +2904,10 @@ pub fn scanSource(
     }
 
     return try lines.toOwnedSlice();
+}
+
+fn countSourceLines(source: []const u8) usize {
+    return std.mem.count(u8, source, "\n") + 1;
 }
 
 fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
@@ -3287,6 +3292,11 @@ fn expandImportsInto(
     current_package_hash: ?[32]u8,
     resolve_ctx: ?ResolveContext,
 ) !void {
+    const estimated_line_count = countSourceLines(source);
+    try out.ensureUnusedCapacity(source.len +| 1);
+    try line_package_identities.ensureUnusedCapacity(estimated_line_count);
+    try line_package_hashes.ensureUnusedCapacity(estimated_line_count);
+
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
     while (iterator.next()) |raw_line| : (line_no += 1) {
@@ -3811,6 +3821,13 @@ test "scanSource preserves line order and classification" {
     try std.testing.expectEqual(LineKind.label, lines[1].classified.kind);
     try std.testing.expectEqual(LineKind.instruction, lines[2].classified.kind);
     try std.testing.expectEqual(InstructionForm.alloc, lines[2].classified.inst_form.?);
+}
+
+test "countSourceLines matches splitScalar line count" {
+    try std.testing.expectEqual(@as(usize, 1), countSourceLines(""));
+    try std.testing.expectEqual(@as(usize, 1), countSourceLines("one"));
+    try std.testing.expectEqual(@as(usize, 2), countSourceLines("one\ntwo"));
+    try std.testing.expectEqual(@as(usize, 3), countSourceLines("one\ntwo\n"));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {

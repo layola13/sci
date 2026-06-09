@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999987%
+Current progress: 99.999988%
 
 ## Completed SCI Features
+
+- 2026-06-09: Reduced flattener hot-path ArrayList growth for issue4 PERF-4.
+  - Added exact source-line counting and preallocated `scanSource` output before classifying lines, avoiding repeated `SourceLine` array growth on large expanded inputs.
+  - Preallocated import expansion output bytes and line metadata arrays per source/import chunk, reducing allocator churn while preserving all returned result ownership under the caller allocator.
+  - Added unit coverage for line-count semantics matching `std.mem.splitScalar`, including empty and trailing-newline sources.
+  - Verification: `zig test src/flattener.zig` -> `66/66 tests passed`; `zig test src/cli.zig` -> `71/71 tests passed`.
 
 - 2026-06-09: Added opt-in LRU bounds for the process-local flattener import source cache for issue6 IMP-3.
   - Added `SA_IMPORT_CACHE_MAX_ENTRIES=N` for long-lived consumers that need bounded import cache maps; the default CLI path remains unbounded and keeps borrowed source hits for maximum short-lived performance.
