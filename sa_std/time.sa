@@ -495,28 +495,56 @@ L_TIME_SAT_DIV_END_%out_ns:
     EXPAND TIME_CHECKED_ADD_NS %out_ok, %out_ns, %base_ns, %duration_ns
 [END_MACRO]
 
+[MACRO] TIME_DURATION_CHECKED_ADD %out_ok, %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_CHECKED_ADD_NS %out_ok, %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
 [MACRO] TIME_DURATION_CHECKED_SUB_NS %out_ok, %out_ns, %base_ns, %duration_ns
     EXPAND TIME_CHECKED_SUB_NS %out_ok, %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_DURATION_CHECKED_SUB %out_ok, %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_CHECKED_SUB_NS %out_ok, %out_ns, %base_ns, %duration_ns
 [END_MACRO]
 
 [MACRO] TIME_DURATION_CHECKED_MUL_NS %out_ok, %out_ns, %duration_ns, %factor
     EXPAND TIME_CHECKED_MUL_NS %out_ok, %out_ns, %duration_ns, %factor
 [END_MACRO]
 
+[MACRO] TIME_DURATION_CHECKED_MUL %out_ok, %out_ns, %duration_ns, %factor
+    EXPAND TIME_DURATION_CHECKED_MUL_NS %out_ok, %out_ns, %duration_ns, %factor
+[END_MACRO]
+
 [MACRO] TIME_DURATION_CHECKED_DIV_NS %out_ok, %out_ns, %duration_ns, %divisor
     EXPAND TIME_CHECKED_DIV_NS %out_ok, %out_ns, %duration_ns, %divisor
+[END_MACRO]
+
+[MACRO] TIME_DURATION_CHECKED_DIV %out_ok, %out_ns, %duration_ns, %divisor
+    EXPAND TIME_DURATION_CHECKED_DIV_NS %out_ok, %out_ns, %duration_ns, %divisor
 [END_MACRO]
 
 [MACRO] TIME_DURATION_SATURATING_ADD_NS %out_ns, %base_ns, %duration_ns
     EXPAND TIME_SATURATING_ADD_NS %out_ns, %base_ns, %duration_ns
 [END_MACRO]
 
+[MACRO] TIME_DURATION_SATURATING_ADD %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_SATURATING_ADD_NS %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
 [MACRO] TIME_DURATION_SATURATING_SUB_NS %out_ns, %base_ns, %duration_ns
     EXPAND TIME_SATURATING_SUB_NS %out_ns, %base_ns, %duration_ns
 [END_MACRO]
 
+[MACRO] TIME_DURATION_SATURATING_SUB %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_SATURATING_SUB_NS %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
 [MACRO] TIME_DURATION_SATURATING_MUL_NS %out_ns, %duration_ns, %factor
     EXPAND TIME_SATURATING_MUL_NS %out_ns, %duration_ns, %factor
+[END_MACRO]
+
+[MACRO] TIME_DURATION_SATURATING_MUL %out_ns, %duration_ns, %factor
+    EXPAND TIME_DURATION_SATURATING_MUL_NS %out_ns, %duration_ns, %factor
 [END_MACRO]
 
 [MACRO] TIME_DURATION_SATURATING_DIV_NS %out_ns, %duration_ns, %divisor
@@ -537,6 +565,10 @@ L_TIME_ABS_DIFF_RIGHT_%out_ns:
     !__time_abs_left_ge_%out_ns
 
 L_TIME_ABS_DIFF_END_%out_ns:
+[END_MACRO]
+
+[MACRO] TIME_DURATION_ABS_DIFF %out_ns, %left_ns, %right_ns
+    EXPAND TIME_DURATION_ABS_DIFF_NS %out_ns, %left_ns, %right_ns
 [END_MACRO]
 
 [MACRO] TIME_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns

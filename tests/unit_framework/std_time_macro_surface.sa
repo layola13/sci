@@ -731,3 +731,96 @@ L_TIME_ALIAS_FAIL:
 L_TIME_ALIAS_OK:
     !ok
     return
+
+@test "sa_std time duration rust method-name aliases"():
+L_ENTRY:
+    EXPAND TIME_DURATION_MAX max_ns
+    EXPAND TIME_DURATION_CHECKED_ADD add_ok, add_value, 40, 2
+    EXPAND TIME_DURATION_CHECKED_SUB sub_ok, sub_value, 40, 2
+    EXPAND TIME_DURATION_CHECKED_MUL mul_ok, mul_value, 7, 6
+    EXPAND TIME_DURATION_CHECKED_DIV div_ok, div_value, 42, 6
+    EXPAND TIME_DURATION_CHECKED_DIV div_zero_ok, div_zero_value, 42, 0
+    EXPAND TIME_DURATION_SATURATING_ADD sat_add_value, max_ns, 1
+    EXPAND TIME_DURATION_SATURATING_SUB sat_sub_value, 2, 40
+    EXPAND TIME_DURATION_SATURATING_MUL sat_mul_value, max_ns, 2
+    EXPAND TIME_DURATION_ABS_DIFF abs_diff_value, 40, 90
+
+    ok_add_flag = eq add_ok, 1
+    ok_add_value = eq add_value, 42
+    ok_sub_flag = eq sub_ok, 1
+    ok_sub_value = eq sub_value, 38
+    ok_mul_flag = eq mul_ok, 1
+    ok_mul_value = eq mul_value, 42
+    ok_div_flag = eq div_ok, 1
+    ok_div_value = eq div_value, 7
+    ok_div_zero_flag = eq div_zero_ok, 0
+    ok_div_zero_value = eq div_zero_value, 0
+    ok_sat_add = eq sat_add_value, max_ns
+    ok_sat_sub = eq sat_sub_value, 0
+    ok_sat_mul = eq sat_mul_value, max_ns
+    ok_abs_diff = eq abs_diff_value, 50
+
+    ok01 = and ok_add_flag, ok_add_value
+    ok02 = and ok01, ok_sub_flag
+    ok03 = and ok02, ok_sub_value
+    ok04 = and ok03, ok_mul_flag
+    ok05 = and ok04, ok_mul_value
+    ok06 = and ok05, ok_div_flag
+    ok07 = and ok06, ok_div_value
+    ok08 = and ok07, ok_div_zero_flag
+    ok09 = and ok08, ok_div_zero_value
+    ok10 = and ok09, ok_sat_add
+    ok11 = and ok10, ok_sat_sub
+    ok12 = and ok11, ok_sat_mul
+    ok = and ok12, ok_abs_diff
+
+    !max_ns
+    !add_ok
+    !add_value
+    !sub_ok
+    !sub_value
+    !mul_ok
+    !mul_value
+    !div_ok
+    !div_value
+    !div_zero_ok
+    !div_zero_value
+    !sat_add_value
+    !sat_sub_value
+    !sat_mul_value
+    !abs_diff_value
+    !ok_add_flag
+    !ok_add_value
+    !ok_sub_flag
+    !ok_sub_value
+    !ok_mul_flag
+    !ok_mul_value
+    !ok_div_flag
+    !ok_div_value
+    !ok_div_zero_flag
+    !ok_div_zero_value
+    !ok_sat_add
+    !ok_sat_sub
+    !ok_sat_mul
+    !ok_abs_diff
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    br ok -> L_TIME_METHOD_ALIAS_OK, L_TIME_METHOD_ALIAS_FAIL
+
+L_TIME_METHOD_ALIAS_FAIL:
+    !ok
+    panic(942)
+
+L_TIME_METHOD_ALIAS_OK:
+    !ok
+    return
