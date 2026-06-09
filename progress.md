@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999988%
+Current progress: 99.999989%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added opt-in LRU bounds for the CLI source-tree hash cache for issue6 cache hygiene.
+  - Added `SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES=N` for long-lived consumers that need bounded source-tree digest cache maps; the default CLI path remains unbounded for short-lived command performance.
+  - Source-tree digest cache hits now refresh LRU state, and stores evict the least-recently-used digest entry when the optional limit is exceeded.
+  - Added CLI unit coverage proving a one-entry cache keeps the most recent tree digest hot and reloads an evicted older tree.
+  - Verification: `zig test src/cli.zig` -> `72/72 tests passed`.
 
 - 2026-06-09: Reduced flattener hot-path ArrayList growth for issue4 PERF-4.
   - Added exact source-line counting and preallocated `scanSource` output before classifying lines, avoiding repeated `SourceLine` array growth on large expanded inputs.

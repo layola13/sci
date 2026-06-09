@@ -4071,10 +4071,13 @@ const SourceTreeFileStat = struct {
 const SourceTreeHashCacheEntry = struct {
     digest: [32]u8,
     files: []SourceTreeFileStat,
+    last_used_tick: u64,
 };
 
 var source_tree_hash_cache_mutex: std.Thread.Mutex = .{};
 var source_tree_hash_cache: ?std.StringHashMap(SourceTreeHashCacheEntry) = null;
+var source_tree_hash_cache_tick: u64 = 0;
+var test_source_tree_hash_cache_max_entries: ?usize = null;
 
 fn sourceTreeHashCacheMap() *std.StringHashMap(SourceTreeHashCacheEntry) {
     if (source_tree_hash_cache == null) {
@@ -4086,6 +4089,21 @@ fn sourceTreeHashCacheMap() *std.StringHashMap(SourceTreeHashCacheEntry) {
 fn freeSourceTreeHashCacheEntry(entry: SourceTreeHashCacheEntry) void {
     for (entry.files) |file| std.heap.page_allocator.free(file.path);
     std.heap.page_allocator.free(entry.files);
+}
+
+fn sourceTreeHashCacheMaxEntries() ?usize {
+    if (builtin.is_test) {
+        if (test_source_tree_hash_cache_max_entries) |value| return value;
+    }
+    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES") catch return null;
+    defer std.heap.page_allocator.free(value);
+    const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
+    return if (parsed == 0) null else parsed;
+}
+
+fn nextSourceTreeHashCacheTickLocked() u64 {
+    source_tree_hash_cache_tick +%= 1;
+    return source_tree_hash_cache_tick;
 }
 
 fn buildSourceTreeHashCacheKey(
@@ -4122,11 +4140,12 @@ fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
     source_tree_hash_cache_mutex.lock();
     defer source_tree_hash_cache_mutex.unlock();
     const cache = sourceTreeHashCacheMap();
-    const entry = cache.get(cache_key) orelse return null;
+    const entry = cache.getPtr(cache_key) orelse return null;
     for (entry.files) |file| {
         const stat = std.fs.cwd().statFile(file.path) catch return null;
         if (stat.mtime != file.mtime or stat.size != file.size) return null;
     }
+    entry.last_used_tick = nextSourceTreeHashCacheTickLocked();
     return entry.digest;
 }
 
@@ -4154,11 +4173,35 @@ fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, files: [
     var cache = sourceTreeHashCacheMap();
     if (cache.getPtr(cache_key)) |old| {
         freeSourceTreeHashCacheEntry(old.*);
-        old.* = .{ .digest = digest, .files = owned_files };
+        old.* = .{ .digest = digest, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() };
         cache_allocator.free(owned_key);
+        evictSourceTreeHashCacheIfNeeded(cache, sourceTreeHashCacheMaxEntries());
         return;
     }
-    try cache.put(owned_key, .{ .digest = digest, .files = owned_files });
+    try cache.put(owned_key, .{ .digest = digest, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() });
+    evictSourceTreeHashCacheIfNeeded(cache, sourceTreeHashCacheMaxEntries());
+}
+
+fn evictSourceTreeHashCacheIfNeeded(cache: *std.StringHashMap(SourceTreeHashCacheEntry), max_entries: ?usize) void {
+    const limit = max_entries orelse return;
+    while (cache.count() > limit) {
+        var oldest_key: ?[]const u8 = null;
+        var oldest_tick: u64 = std.math.maxInt(u64);
+        var it = cache.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.last_used_tick <= oldest_tick) {
+                oldest_key = entry.key_ptr.*;
+                oldest_tick = entry.value_ptr.last_used_tick;
+            }
+        }
+        const key = oldest_key orelse return;
+        if (cache.fetchRemove(key)) |removed| {
+            std.heap.page_allocator.free(removed.key);
+            freeSourceTreeHashCacheEntry(removed.value);
+        } else {
+            return;
+        }
+    }
 }
 
 fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, digest: [32]u8) void {
@@ -6379,6 +6422,59 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     third_hasher.final(&third_digest);
     try std.testing.expect(test_source_tree_load_count > 1);
     try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
+}
+
+test "source tree hash cache LRU is opt-in" {
+    const previous_limit = test_source_tree_hash_cache_max_entries;
+    test_source_tree_hash_cache_max_entries = 1;
+    defer test_source_tree_hash_cache_max_entries = previous_limit;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    {
+        var file = try tmp.dir.createFile("a.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@main() -> i32:
+            \\return 1
+            \\
+        );
+    }
+    {
+        var file = try tmp.dir.createFile("b.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@main() -> i32:
+            \\return 2
+            \\
+        );
+    }
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+
+    test_source_tree_load_count = 0;
+    var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
+    try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
+
+    var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
+    try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
+
+    var second_hit_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try hashResolvedSourceTree(std.testing.allocator, &second_hit_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
+    try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
+
+    var first_again_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try hashResolvedSourceTree(std.testing.allocator, &first_again_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
+    try std.testing.expectEqual(@as(usize, 3), test_source_tree_load_count);
 }
 
 test "flatten error mapping keeps import resolution and unsupported type hints specific" {
