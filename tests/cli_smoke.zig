@@ -3841,6 +3841,8 @@ test "sa skills writes Codex and Claude skill files for current project" {
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "io.sa: [MACRO] IO_TAKE_READ_TO_STRING"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "path.sa: [MACRO] PATH_TRY_FILE_PREFIX"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "path.sa: [MACRO] PATH_TRY_TO_STR"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "mem.sa: [MACRO] MAYBE_UNINIT_U64_AS_BYTES"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "mem.sa: [MACRO] MANUALLY_DROP_U64_DEREF_MUT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "ptr.sa: [MACRO] PTR_NULL"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "ptr.sa: [MACRO] PTR_EXPOSE_PROVENANCE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "ptr.sa: [MACRO] NONNULL_OFFSET_FROM_UNSIGNED_U64"));

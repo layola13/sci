@@ -13,6 +13,10 @@ L_ENTRY:
     EXPAND MEM_SIZE_OF_I32 size_i32
     EXPAND MEM_SIZE_OF_I64 size_i64
     EXPAND MEM_SIZE_OF_ISIZE size_isize
+    value_slot = stack_alloc 8
+    store value_slot+0, 123 as u64
+    EXPAND MEM_SIZE_OF_VAL_U64 size_val_u64, value_slot
+    EXPAND MEM_SIZE_OF_VAL_RAW_U64 size_val_raw_u64, value_slot
 
     EXPAND MEM_ALIGN_OF_BOOL align_bool
     EXPAND MEM_ALIGN_OF_U8 align_u8
@@ -25,6 +29,8 @@ L_ENTRY:
     EXPAND MEM_ALIGN_OF_I32 align_i32
     EXPAND MEM_ALIGN_OF_I64 align_i64
     EXPAND MEM_ALIGN_OF_ISIZE align_isize
+    EXPAND MEM_ALIGN_OF_VAL_U64 align_val_u64, value_slot
+    EXPAND MEM_ALIGN_OF_VAL_RAW_U64 align_val_raw_u64, value_slot
 
     ok_size_bool = eq size_bool, 1
     ok_size_u8 = eq size_u8, 1
@@ -37,6 +43,8 @@ L_ENTRY:
     ok_size_i32 = eq size_i32, 4
     ok_size_i64 = eq size_i64, 8
     ok_size_isize = eq size_isize, 8
+    ok_size_val_u64 = eq size_val_u64, 8
+    ok_size_val_raw_u64 = eq size_val_raw_u64, 8
 
     ok_align_bool = eq align_bool, 1
     ok_align_u8 = eq align_u8, 1
@@ -49,6 +57,8 @@ L_ENTRY:
     ok_align_i32 = eq align_i32, 4
     ok_align_i64 = eq align_i64, 8
     ok_align_isize = eq align_isize, 8
+    ok_align_val_u64 = eq align_val_u64, 8
+    ok_align_val_raw_u64 = eq align_val_raw_u64, 8
 
     ok01 = and ok_size_bool, ok_size_u8
     ok02 = and ok01, ok_size_u16
@@ -60,7 +70,9 @@ L_ENTRY:
     ok08 = and ok07, ok_size_i32
     ok09 = and ok08, ok_size_i64
     ok10 = and ok09, ok_size_isize
-    ok11 = and ok10, ok_align_bool
+    ok10a = and ok10, ok_size_val_u64
+    ok10b = and ok10a, ok_size_val_raw_u64
+    ok11 = and ok10b, ok_align_bool
     ok12 = and ok11, ok_align_u8
     ok13 = and ok12, ok_align_u16
     ok14 = and ok13, ok_align_u32
@@ -70,7 +82,9 @@ L_ENTRY:
     ok18 = and ok17, ok_align_i16
     ok19 = and ok18, ok_align_i32
     ok20 = and ok19, ok_align_i64
-    ok = and ok20, ok_align_isize
+    ok21 = and ok20, ok_align_isize
+    ok22 = and ok21, ok_align_val_u64
+    ok = and ok22, ok_align_val_raw_u64
 
     br ok -> L_PASS, L_FAIL
 
@@ -89,23 +103,44 @@ L_ENTRY:
 
     EXPAND MEM_NEEDS_DROP_PRIMITIVE needs_drop
     EXPAND MEM_FORGET_U64 123
+    EXPAND MEM_DROP_U64 234
 
     EXPAND MAYBE_UNINIT_U64_UNINIT maybe
     EXPAND MAYBE_UNINIT_U64_WRITE maybe, 55
     EXPAND MAYBE_UNINIT_U64_AS_PTR maybe_ptr, maybe
     EXPAND MAYBE_UNINIT_U64_AS_MUT_PTR maybe_mut_ptr, maybe
     store maybe_mut_ptr+0, 66 as u64
+    EXPAND MAYBE_UNINIT_U64_ASSUME_INIT_REF maybe_ref_ptr, maybe
+    maybe_ref_value = load maybe_ref_ptr+0 as u64
+    EXPAND MAYBE_UNINIT_U64_ASSUME_INIT_MUT maybe_init_mut_ptr, maybe
+    store maybe_init_mut_ptr+0, 67 as u64
     EXPAND MAYBE_UNINIT_U64_ASSUME_INIT maybe_value, maybe
     EXPAND MAYBE_UNINIT_U64_ASSUME_INIT_READ maybe_read, maybe
+    maybe_bytes = stack_alloc Slice_SIZE
+    maybe_bytes_mut = stack_alloc Slice_SIZE
+    EXPAND MAYBE_UNINIT_U64_AS_BYTES maybe_bytes, maybe
+    EXPAND MAYBE_UNINIT_U64_AS_BYTES_MUT maybe_bytes_mut, maybe
+    maybe_bytes_ptr = load maybe_bytes+Slice_ptr as ptr
+    maybe_bytes_len = load maybe_bytes+Slice_len as u64
+    maybe_bytes_mut_ptr = load maybe_bytes_mut+Slice_ptr as ptr
+    maybe_bytes_mut_len = load maybe_bytes_mut+Slice_len as u64
+    store maybe_bytes_mut_ptr+0, 68 as u8
+    maybe_byte0 = load maybe+MaybeUninitU64_value as u8
     EXPAND MAYBE_UNINIT_U64_ZEROED maybe_zero
     EXPAND MAYBE_UNINIT_U64_ASSUME_INIT maybe_zero_value, maybe_zero
     EXPAND MAYBE_UNINIT_U64_NEW maybe, 77
     EXPAND MAYBE_UNINIT_U64_ASSUME_INIT maybe_new_value, maybe
+    EXPAND MAYBE_UNINIT_U64_ASSUME_INIT_DROP maybe
+    maybe_after_drop = load maybe+MaybeUninitU64_value as u64
 
     EXPAND MANUALLY_DROP_U64_NEW manual, 88
     EXPAND MANUALLY_DROP_U64_AS_PTR manual_ptr, manual
     EXPAND MANUALLY_DROP_U64_AS_MUT_PTR manual_mut_ptr, manual
     store manual_mut_ptr+0, 99 as u64
+    EXPAND MANUALLY_DROP_U64_DEREF manual_deref_ptr, manual
+    manual_deref_value = load manual_deref_ptr+0 as u64
+    EXPAND MANUALLY_DROP_U64_DEREF_MUT manual_deref_mut_ptr, manual
+    store manual_deref_mut_ptr+0, 100 as u64
     EXPAND MANUALLY_DROP_U64_INTO_INNER manual_inner, manual
     EXPAND MANUALLY_DROP_U64_TAKE manual_taken, manual
     manual_after_take = load manual+ManuallyDropU64_value as u64
@@ -116,26 +151,50 @@ L_ENTRY:
     ok_needs_drop = eq needs_drop, 0
     ok_maybe_ptr = eq maybe_ptr, maybe
     ok_maybe_mut_ptr = eq maybe_mut_ptr, maybe
-    ok_maybe_value = eq maybe_value, 66
-    ok_maybe_read = eq maybe_read, 66
+    ok_maybe_ref_ptr = eq maybe_ref_ptr, maybe
+    ok_maybe_ref_value = eq maybe_ref_value, 66
+    ok_maybe_init_mut_ptr = eq maybe_init_mut_ptr, maybe
+    ok_maybe_value = eq maybe_value, 67
+    ok_maybe_read = eq maybe_read, 67
+    ok_maybe_bytes_ptr = eq maybe_bytes_ptr, maybe
+    ok_maybe_bytes_len = eq maybe_bytes_len, 8
+    ok_maybe_bytes_mut_ptr = eq maybe_bytes_mut_ptr, maybe
+    ok_maybe_bytes_mut_len = eq maybe_bytes_mut_len, 8
+    ok_maybe_byte0 = eq maybe_byte0, 68
     ok_maybe_zero = eq maybe_zero_value, 0
     ok_maybe_new = eq maybe_new_value, 77
+    ok_maybe_after_drop = eq maybe_after_drop, 0
     ok_manual_ptr = eq manual_ptr, manual
     ok_manual_mut_ptr = eq manual_mut_ptr, manual
-    ok_manual_inner = eq manual_inner, 99
-    ok_manual_taken = eq manual_taken, 99
+    ok_manual_deref_ptr = eq manual_deref_ptr, manual
+    ok_manual_deref_value = eq manual_deref_value, 99
+    ok_manual_deref_mut_ptr = eq manual_deref_mut_ptr, manual
+    ok_manual_inner = eq manual_inner, 100
+    ok_manual_taken = eq manual_taken, 100
     ok_manual_after_take = eq manual_after_take, 0
     ok_manual_after_drop = eq manual_after_drop, 0
 
     ok01 = and ok_needs_drop, ok_maybe_ptr
     ok02 = and ok01, ok_maybe_mut_ptr
-    ok03 = and ok02, ok_maybe_value
+    ok02a = and ok02, ok_maybe_ref_ptr
+    ok02b = and ok02a, ok_maybe_ref_value
+    ok02c = and ok02b, ok_maybe_init_mut_ptr
+    ok03 = and ok02c, ok_maybe_value
     ok04 = and ok03, ok_maybe_read
-    ok05 = and ok04, ok_maybe_zero
+    ok04a = and ok04, ok_maybe_bytes_ptr
+    ok04b = and ok04a, ok_maybe_bytes_len
+    ok04c = and ok04b, ok_maybe_bytes_mut_ptr
+    ok04d = and ok04c, ok_maybe_bytes_mut_len
+    ok04e = and ok04d, ok_maybe_byte0
+    ok05 = and ok04e, ok_maybe_zero
     ok06 = and ok05, ok_maybe_new
-    ok07 = and ok06, ok_manual_ptr
+    ok06a = and ok06, ok_maybe_after_drop
+    ok07 = and ok06a, ok_manual_ptr
     ok08 = and ok07, ok_manual_mut_ptr
-    ok09 = and ok08, ok_manual_inner
+    ok08a = and ok08, ok_manual_deref_ptr
+    ok08b = and ok08a, ok_manual_deref_value
+    ok08c = and ok08b, ok_manual_deref_mut_ptr
+    ok09 = and ok08c, ok_manual_inner
     ok10 = and ok09, ok_manual_taken
     ok11 = and ok10, ok_manual_after_take
     ok = and ok11, ok_manual_after_drop

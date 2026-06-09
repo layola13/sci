@@ -1,4 +1,5 @@
 @import "mem.sal"
+@import "core/slice.sal"
 
 [MACRO] MEM_SIZE_OF_BOOL %out_size
     %out_size = add 0, MEM_SIZE_BOOL
@@ -22,6 +23,14 @@
 
 [MACRO] MEM_SIZE_OF_USIZE %out_size
     %out_size = add 0, MEM_SIZE_USIZE
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_VAL_U64 %out_size, %value_ptr
+    %out_size = add 0, MEM_SIZE_U64
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_VAL_RAW_U64 %out_size, %value_ptr
+    %out_size = add 0, MEM_SIZE_U64
 [END_MACRO]
 
 [MACRO] MEM_SIZE_OF_I8 %out_size
@@ -68,6 +77,14 @@
     %out_align = add 0, MEM_ALIGN_USIZE
 [END_MACRO]
 
+[MACRO] MEM_ALIGN_OF_VAL_U64 %out_align, %value_ptr
+    %out_align = add 0, MEM_ALIGN_U64
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_VAL_RAW_U64 %out_align, %value_ptr
+    %out_align = add 0, MEM_ALIGN_U64
+[END_MACRO]
+
 [MACRO] MEM_ALIGN_OF_I8 %out_align
     %out_align = add 0, MEM_ALIGN_I8
 [END_MACRO]
@@ -112,6 +129,15 @@
     !__mem_forget_sink_%value
 [END_MACRO]
 
+[MACRO] MEM_DROP_U64 %value
+    __mem_drop_sink_%value = add %value, 0
+    !__mem_drop_sink_%value
+[END_MACRO]
+
+[MACRO] MEM_COPY_U64 %out_value, %value_ptr
+    %out_value = load %value_ptr+0 as u64
+[END_MACRO]
+
 [MACRO] MEM_NEEDS_DROP_PRIMITIVE %out_bool
     %out_bool = add 0, 0
 [END_MACRO]
@@ -136,12 +162,35 @@
     %out_ptr = ptr_add %slot_ptr, MaybeUninitU64_value
 [END_MACRO]
 
+[MACRO] MAYBE_UNINIT_U64_ASSUME_INIT_REF %out_ptr, %slot_ptr
+    EXPAND MAYBE_UNINIT_U64_AS_PTR %out_ptr, %slot_ptr
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_ASSUME_INIT_MUT %out_ptr, %slot_ptr
+    EXPAND MAYBE_UNINIT_U64_AS_MUT_PTR %out_ptr, %slot_ptr
+[END_MACRO]
+
 [MACRO] MAYBE_UNINIT_U64_ASSUME_INIT %out_value, %slot_ptr
     %out_value = load %slot_ptr+MaybeUninitU64_value as u64
 [END_MACRO]
 
 [MACRO] MAYBE_UNINIT_U64_ASSUME_INIT_READ %out_value, %slot_ptr
     %out_value = load %slot_ptr+MaybeUninitU64_value as u64
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_ASSUME_INIT_DROP %slot_ptr
+    store %slot_ptr+MaybeUninitU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_AS_BYTES %out_slice, %slot_ptr
+    __maybe_bytes_ptr_%out_slice = ptr_add %slot_ptr, MaybeUninitU64_value
+    store %out_slice+Slice_ptr, __maybe_bytes_ptr_%out_slice as ptr
+    store %out_slice+Slice_len, MEM_SIZE_U64 as u64
+    !__maybe_bytes_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] MAYBE_UNINIT_U64_AS_BYTES_MUT %out_slice, %slot_ptr
+    EXPAND MAYBE_UNINIT_U64_AS_BYTES %out_slice, %slot_ptr
 [END_MACRO]
 
 [MACRO] MAYBE_UNINIT_U64_ZEROED %slot_ptr
@@ -171,4 +220,12 @@
 
 [MACRO] MANUALLY_DROP_U64_AS_MUT_PTR %out_ptr, %slot_ptr
     %out_ptr = ptr_add %slot_ptr, ManuallyDropU64_value
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_DEREF %out_ptr, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_AS_PTR %out_ptr, %slot_ptr
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_DEREF_MUT %out_ptr, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_AS_MUT_PTR %out_ptr, %slot_ptr
 [END_MACRO]
