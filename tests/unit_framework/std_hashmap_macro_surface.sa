@@ -914,3 +914,65 @@ L_DRAIN_EXTRACT_FAIL:
 L_DRAIN_EXTRACT_OK:
     !ok
     return
+
+@test "sa_std hashmap seeded constructors"():
+L_ENTRY:
+    seed = 12345 as u64
+    cap = 4 as u64
+    key = &KEY_D
+    value = &VALUE_C
+    EXPAND MAP_WITH_SEED seeded_map, seed
+    EXPAND MAP_PUT seeded_map, key, value
+    EXPAND MAP_GET seeded_get, seeded_map, key
+    EXPAND MAP_DEL seeded_removed, seeded_map, key
+    EXPAND MAP_LEN seeded_len_after_del, seeded_map
+
+    EXPAND MAP_WITH_CAPACITY_SEED seeded_cap_map, cap, seed
+    EXPAND MAP_CAPACITY seeded_cap, seeded_cap_map
+    EXPAND MAP_PUT seeded_cap_map, key, value
+    EXPAND MAP_CONTAINS_KEY seeded_cap_has, seeded_cap_map, key
+    EXPAND MAP_GET seeded_cap_get, seeded_cap_map, key
+
+    seeded_get_ok = eq seeded_get, value
+    seeded_removed_ok = eq seeded_removed, value
+    seeded_len_ok = eq seeded_len_after_del, 0
+    seeded_cap_ok = eq seeded_cap, 8
+    seeded_cap_has_ok = eq seeded_cap_has, 1
+    seeded_cap_get_ok = eq seeded_cap_get, value
+    ok01 = and seeded_get_ok, seeded_removed_ok
+    ok02 = and ok01, seeded_len_ok
+    ok03 = and ok02, seeded_cap_ok
+    ok04 = and ok03, seeded_cap_has_ok
+    ok = and ok04, seeded_cap_get_ok
+
+    !seeded_get
+    !seeded_removed
+    !seeded_len_after_del
+    !seeded_cap
+    !seeded_cap_has
+    !seeded_cap_get
+    !value
+    !key
+    !cap
+    !seed
+    !seeded_get_ok
+    !seeded_removed_ok
+    !seeded_len_ok
+    !seeded_cap_ok
+    !seeded_cap_has_ok
+    !seeded_cap_get_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    EXPAND MAP_FREE seeded_cap_map
+    EXPAND MAP_FREE seeded_map
+    br ok -> L_SEEDED_OK, L_SEEDED_FAIL
+
+L_SEEDED_FAIL:
+    !ok
+    panic(920)
+
+L_SEEDED_OK:
+    !ok
+    return

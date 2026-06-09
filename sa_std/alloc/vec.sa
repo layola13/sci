@@ -1,6 +1,7 @@
 @import "../core/mem.sa"
 @import "../core/slice.sal"
 @import "../core/slice.sa"
+@import "../num.sa"
 @import "vec.sal"
 
 @extern sa_print_bytes(&msg: ptr, len: u64) -> void
@@ -18,7 +19,11 @@
 @export sa_vec_with_capacity(cap: u64, elem_size: u64) -> ^ptr:
 L_ENTRY:
     vec = alloc Vec_SIZE
-    bytes = mul cap, elem_size
+    EXPAND NUM_U64_CHECKED_MUL bytes_ok, bytes, cap, elem_size
+    br bytes_ok -> L_SIZE_OK, L_SIZE_OVERFLOW
+L_SIZE_OVERFLOW:
+    panic(1201)
+L_SIZE_OK:
     has_bytes = ne bytes, 0
     br has_bytes -> L_ALLOC, L_EMPTY
 L_ALLOC:
@@ -29,6 +34,7 @@ L_ALLOC:
     store vec+Vec_len, 0 as u64
     ^buf
     !bytes
+    !bytes_ok
     !has_bytes
     !cap
     return vec
@@ -37,6 +43,7 @@ L_EMPTY:
     store vec+Vec_cap, cap as u64
     store vec+Vec_len, 0 as u64
     !bytes
+    !bytes_ok
     !has_bytes
     !cap
     return vec
@@ -92,27 +99,48 @@ L_ENTRY:
     call @sa_print_bytes(&MSG_RESERVE, 30)
     len = load vec+Vec_len as u64
     cap = load vec+Vec_cap as u64
-    needed = add len, additional
+    EXPAND NUM_U64_CHECKED_ADD needed_ok, needed, len, additional
+    br needed_ok -> L_RESERVE_NEED_OK, L_RESERVE_OVERFLOW
+
+L_RESERVE_OVERFLOW:
+    panic(1202)
+
+L_RESERVE_NEED_OK:
     has_room = uge cap, needed
     br has_room -> L_RESERVE_DONE, L_RESERVE_GROW
 
 L_RESERVE_GROW:
     call @sa_print_bytes(&MSG_GROW, 30)
     old_buf = take vec+Vec_ptr
-    new_bytes = mul needed, elem_size
+    EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, needed, elem_size
+    br new_bytes_ok -> L_RESERVE_ALLOC, L_RESERVE_ALLOC_OVERFLOW
+
+L_RESERVE_ALLOC_OVERFLOW:
+    panic(1203)
+
+L_RESERVE_ALLOC:
     new_buf = alloc new_bytes
     call @sa_mem_set(&new_buf, 0, new_bytes)
-    copy_bytes = mul len, elem_size
+    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, len, elem_size
+    br copy_bytes_ok -> L_RESERVE_COPY, L_RESERVE_COPY_OVERFLOW
+
+L_RESERVE_COPY_OVERFLOW:
+    panic(1204)
+
+L_RESERVE_COPY:
     call @sa_print_bytes(&MSG_COPY, 28)
     call @sa_mem_copy(&new_buf, &old_buf, copy_bytes)
     store vec+Vec_ptr, new_buf as ptr
     store vec+Vec_cap, needed as u64
+    !copy_bytes_ok
     !copy_bytes
+    !new_bytes_ok
     !new_bytes
     !old_buf
     ^new_buf
     !has_room
     !needed
+    !needed_ok
     !cap
     !len
     !elem_size
@@ -122,6 +150,7 @@ L_RESERVE_GROW:
 L_RESERVE_DONE:
     !has_room
     !needed
+    !needed_ok
     !cap
     !len
     !elem_size
@@ -136,10 +165,37 @@ L_ENTRY:
     needs_grow = eq len, cap
     br needs_grow -> L_GROW, L_REUSE
 L_GROW:
-    next_cap = add cap, 1
-    next_cap_bytes = mul next_cap, elem_size
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_GROW_FROM_ZERO, L_GROW_DOUBLE
+
+L_GROW_FROM_ZERO:
+    next_cap = add 0, 1
+    next_cap_ok = add 0, 1
+    jmp L_GROW_ALLOC
+
+L_GROW_DOUBLE:
+    EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, cap, cap
+    br next_cap_ok -> L_GROW_ALLOC, L_GROW_CAP_OVERFLOW
+
+L_GROW_CAP_OVERFLOW:
+    panic(1205)
+
+L_GROW_ALLOC:
+    EXPAND NUM_U64_CHECKED_MUL next_cap_bytes_ok, next_cap_bytes, next_cap, elem_size
+    br next_cap_bytes_ok -> L_GROW_COPY_SIZE, L_GROW_BYTES_OVERFLOW
+
+L_GROW_BYTES_OVERFLOW:
+    panic(1206)
+
+L_GROW_COPY_SIZE:
     next_ptr = alloc next_cap_bytes
-    copy_bytes = mul len, elem_size
+    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, len, elem_size
+    br copy_bytes_ok -> L_GROW_COPY, L_GROW_COPY_OVERFLOW
+
+L_GROW_COPY_OVERFLOW:
+    panic(1207)
+
+L_GROW_COPY:
     call @sa_mem_copy(&next_ptr, &buf, copy_bytes)
     store vec+Vec_ptr, next_ptr as ptr
     store vec+Vec_cap, next_cap as u64
@@ -156,9 +212,13 @@ L_WRITE_GROW:
     !write_ptr
     !write_off
     !next_len
+    !copy_bytes_ok
     !copy_bytes
+    !next_cap_bytes_ok
     !next_cap_bytes
+    !next_cap_ok
     !next_cap
+    !cap_is_zero
     !buf
     !value
     !elem_size
@@ -225,39 +285,74 @@ L_ENTRY:
 L_GROW:
     len = load vec+Vec_len as u64
     cap = load vec+Vec_cap as u64
-    needed = add len, add_len
+    EXPAND NUM_U64_CHECKED_ADD needed_ok, needed, len, add_len
+    br needed_ok -> L_EXTEND_NEEDED_OK, L_EXTEND_NEEDED_OVERFLOW
+
+L_EXTEND_NEEDED_OVERFLOW:
+    panic(1208)
+
+L_EXTEND_NEEDED_OK:
     has_room = uge cap, needed
     br has_room -> L_COPY, L_REALLOC
 
 L_REALLOC:
     old_buf = take vec+Vec_ptr
-    new_bytes = mul needed, elem_size
+    EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, needed, elem_size
+    br new_bytes_ok -> L_EXTEND_ALLOC, L_EXTEND_ALLOC_OVERFLOW
+
+L_EXTEND_ALLOC_OVERFLOW:
+    panic(1209)
+
+L_EXTEND_ALLOC:
     new_buf = alloc new_bytes
     call @sa_mem_set(&new_buf, 0, new_bytes)
-    copy_old_bytes = mul len, elem_size
+    EXPAND NUM_U64_CHECKED_MUL copy_old_bytes_ok, copy_old_bytes, len, elem_size
+    br copy_old_bytes_ok -> L_EXTEND_COPY_OLD, L_EXTEND_COPY_OLD_OVERFLOW
+
+L_EXTEND_COPY_OLD_OVERFLOW:
+    panic(1210)
+
+L_EXTEND_COPY_OLD:
     call @sa_mem_copy(&new_buf, &old_buf, copy_old_bytes)
     store vec+Vec_ptr, new_buf as ptr
     store vec+Vec_cap, needed as u64
     ^new_buf
+    !copy_old_bytes_ok
     !copy_old_bytes
+    !new_bytes_ok
     !new_bytes
     !old_buf
 
 L_COPY:
     dst_buf = load vec+Vec_ptr as ptr
     src_buf = load slice+Slice_ptr as ptr
-    dst_off = mul len, elem_size
+    EXPAND NUM_U64_CHECKED_MUL dst_off_ok, dst_off, len, elem_size
+    br dst_off_ok -> L_EXTEND_COPY_ADD_SIZE, L_EXTEND_DST_OVERFLOW
+
+L_EXTEND_DST_OVERFLOW:
+    panic(1211)
+
+L_EXTEND_COPY_ADD_SIZE:
     dst_ptr = ptr_add dst_buf, dst_off
-    copy_add_bytes = mul add_len, elem_size
+    EXPAND NUM_U64_CHECKED_MUL copy_add_bytes_ok, copy_add_bytes, add_len, elem_size
+    br copy_add_bytes_ok -> L_EXTEND_COPY_ADD, L_EXTEND_COPY_ADD_OVERFLOW
+
+L_EXTEND_COPY_ADD_OVERFLOW:
+    panic(1212)
+
+L_EXTEND_COPY_ADD:
     call @sa_mem_copy(&dst_ptr, &src_buf, copy_add_bytes)
     store vec+Vec_len, needed as u64
+    !copy_add_bytes_ok
     !copy_add_bytes
     !dst_ptr
+    !dst_off_ok
     !dst_off
     !src_buf
     !dst_buf
     !has_room
     !needed
+    !needed_ok
     !cap
     !len
     !add_len
@@ -491,14 +586,28 @@ L_ZERO:
 
 L_ALLOC:
     old_buf = take vec+Vec_ptr
-    new_bytes = mul target_cap, elem_size
+    EXPAND NUM_U64_CHECKED_MUL shrink_new_bytes_ok, new_bytes, target_cap, elem_size
+    br shrink_new_bytes_ok -> L_SHRINK_ALLOC, L_SHRINK_ALLOC_OVERFLOW
+
+L_SHRINK_ALLOC_OVERFLOW:
+    panic(1213)
+
+L_SHRINK_ALLOC:
     new_buf = alloc new_bytes
     call @sa_mem_set(&new_buf, 0, new_bytes)
-    copy_bytes = mul len, elem_size
+    EXPAND NUM_U64_CHECKED_MUL shrink_copy_bytes_ok, copy_bytes, len, elem_size
+    br shrink_copy_bytes_ok -> L_SHRINK_COPY, L_SHRINK_COPY_OVERFLOW
+
+L_SHRINK_COPY_OVERFLOW:
+    panic(1214)
+
+L_SHRINK_COPY:
     call @sa_mem_copy(&new_buf, &old_buf, copy_bytes)
     store vec+Vec_ptr, new_buf as ptr
     store vec+Vec_cap, target_cap as u64
+    !shrink_copy_bytes_ok
     !copy_bytes
+    !shrink_new_bytes_ok
     !new_bytes
     !old_buf
     ^new_buf

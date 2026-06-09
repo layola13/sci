@@ -36,7 +36,7 @@
     EXPAND VEC_AS_SLICE %out_slice, %vec_reg
 [END_MACRO]
 
-[MACRO] VEC_GET %out_ptr, %vec_reg, %index
+[MACRO] VEC_GET_UNCHECKED %out_ptr, %vec_reg, %index
     __vec_view_%out_ptr = & %vec_reg
     __vec_ptr_%out_ptr = load __vec_view_%out_ptr+Vec_ptr as ptr
     __vec_elem_off_%out_ptr = mul %index, 8
@@ -46,6 +46,11 @@
     !__vec_elem_ptr_%out_ptr
     !__vec_ptr_%out_ptr
     !__vec_view_%out_ptr
+[END_MACRO]
+
+[MACRO] VEC_GET %out_ptr, %vec_reg, %index
+    EXPAND VEC_TRY_GET __vec_get_ok_%out_ptr, %out_ptr, %vec_reg, %index
+    !__vec_get_ok_%out_ptr
 [END_MACRO]
 
 [MACRO] VEC_GET_U64 %out_value, %vec_reg, %index
@@ -67,11 +72,10 @@
 [END_MACRO]
 
 [MACRO] VEC_BACK %out_value, %vec_reg
-    __vec_len_%out_value = call @sa_vec_len(&%vec_reg)
-    __vec_last_%out_value = sub __vec_len_%out_value, 1
-    EXPAND VEC_GET %out_value, %vec_reg, __vec_last_%out_value
-    !__vec_last_%out_value
-    !__vec_len_%out_value
+    EXPAND VEC_AS_SLICE __vec_back_slice_%out_value, %vec_reg
+    EXPAND SLICE_TRY_LAST_U64 __vec_back_ok_%out_value, %out_value, __vec_back_slice_%out_value
+    !__vec_back_ok_%out_value
+    !__vec_back_slice_%out_value
 [END_MACRO]
 
 [MACRO] VEC_TRY_FRONT %out_ok, %out_value, %vec_reg

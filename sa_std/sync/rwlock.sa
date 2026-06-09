@@ -1,5 +1,20 @@
 @import "rwlock.sal"
 
+@__rwlock_release_read(lock: ptr) -> void:
+L_ENTRY:
+    old_readers = atomic_rmw_sub lock+RwLock_readers, 1 as i32 acq_rel
+    had_reader = sgt old_readers, 0
+    br had_reader -> L_RELEASE_OK, L_RELEASE_UNDERFLOW
+
+L_RELEASE_UNDERFLOW:
+    panic(1601)
+
+L_RELEASE_OK:
+    !had_reader
+    !old_readers
+    !lock
+    return
+
 [MACRO] RWLOCK_NEW %out_lock
     %out_lock = alloc RwLock_SIZE
     store %out_lock+RwLock_readers, 0 as i32
@@ -7,18 +22,18 @@
 [END_MACRO]
 
 [MACRO] RWLOCK_READER_COUNT %out_count, %lock_reg
-    %out_count = load %lock_reg+RwLock_readers as i32
+    %out_count = atomic_load %lock_reg+RwLock_readers as i32 acquire
 [END_MACRO]
 
 [MACRO] RWLOCK_IS_WRITING %out_bool, %lock_reg
-    __rwlock_writing_state_%out_bool = load %lock_reg+RwLock_writing as i32
+    __rwlock_writing_state_%out_bool = atomic_load %lock_reg+RwLock_writing as i32 acquire
     %out_bool = ne __rwlock_writing_state_%out_bool, 0
     !__rwlock_writing_state_%out_bool
 [END_MACRO]
 
 [MACRO] RWLOCK_IS_UNLOCKED %out_bool, %lock_reg
-    __rwlock_readers_state_%out_bool = load %lock_reg+RwLock_readers as i32
-    __rwlock_writing_state_%out_bool = load %lock_reg+RwLock_writing as i32
+    __rwlock_readers_state_%out_bool = atomic_load %lock_reg+RwLock_readers as i32 acquire
+    __rwlock_writing_state_%out_bool = atomic_load %lock_reg+RwLock_writing as i32 acquire
     __rwlock_no_readers_%out_bool = eq __rwlock_readers_state_%out_bool, 0
     __rwlock_no_writer_%out_bool = eq __rwlock_writing_state_%out_bool, 0
     %out_bool = and __rwlock_no_readers_%out_bool, __rwlock_no_writer_%out_bool
@@ -31,17 +46,29 @@
 [MACRO] RWLOCK_TRY_READ_NOERR %out_ok, %out_guard, %lock_reg
     __rwlock_read_ok_slot_%out_ok = stack_alloc 8
     __rwlock_read_guard_slot_%out_ok = stack_alloc 8
-    __rwlock_read_writing_%out_ok = load %lock_reg+RwLock_writing as i32
+    __rwlock_read_writing_%out_ok = atomic_load %lock_reg+RwLock_writing as i32 acquire
     __rwlock_read_can_read_%out_ok = eq __rwlock_read_writing_%out_ok, 0
     br __rwlock_read_can_read_%out_ok -> L_RWLOCK_READ_NOERR_OK_%out_ok, L_RWLOCK_READ_NOERR_FAIL_%out_ok
 L_RWLOCK_READ_NOERR_OK_%out_ok:
-    __rwlock_read_readers_%out_ok = load %lock_reg+RwLock_readers as i32
-    __rwlock_read_next_%out_ok = add __rwlock_read_readers_%out_ok, 1
-    store %lock_reg+RwLock_readers, __rwlock_read_next_%out_ok as i32
+    __rwlock_read_old_%out_ok = atomic_rmw_add %lock_reg+RwLock_readers, 1 as i32 acq_rel
+    __rwlock_read_after_writing_%out_ok = atomic_load %lock_reg+RwLock_writing as i32 acquire
+    __rwlock_read_still_ok_%out_ok = eq __rwlock_read_after_writing_%out_ok, 0
+    br __rwlock_read_still_ok_%out_ok -> L_RWLOCK_READ_NOERR_COMMIT_%out_ok, L_RWLOCK_READ_NOERR_ROLLBACK_%out_ok
+L_RWLOCK_READ_NOERR_COMMIT_%out_ok:
     store __rwlock_read_guard_slot_%out_ok+0, %lock_reg as ptr
     store __rwlock_read_ok_slot_%out_ok+0, 1 as u64
-    !__rwlock_read_next_%out_ok
-    !__rwlock_read_readers_%out_ok
+    !__rwlock_read_still_ok_%out_ok
+    !__rwlock_read_after_writing_%out_ok
+    !__rwlock_read_old_%out_ok
+    jmp L_RWLOCK_READ_NOERR_DONE_%out_ok
+L_RWLOCK_READ_NOERR_ROLLBACK_%out_ok:
+    __rwlock_read_rollback_%out_ok = atomic_rmw_sub %lock_reg+RwLock_readers, 1 as i32 acq_rel
+    store __rwlock_read_guard_slot_%out_ok+0, 0 as ptr
+    store __rwlock_read_ok_slot_%out_ok+0, 0 as u64
+    !__rwlock_read_rollback_%out_ok
+    !__rwlock_read_still_ok_%out_ok
+    !__rwlock_read_after_writing_%out_ok
+    !__rwlock_read_old_%out_ok
     jmp L_RWLOCK_READ_NOERR_DONE_%out_ok
 L_RWLOCK_READ_NOERR_FAIL_%out_ok:
     store __rwlock_read_guard_slot_%out_ok+0, 0 as ptr
@@ -57,16 +84,24 @@ L_RWLOCK_READ_NOERR_DONE_%out_ok:
 [MACRO] RWLOCK_TRY_WRITE_NOERR %out_ok, %out_guard, %lock_reg
     __rwlock_write_ok_slot_%out_ok = stack_alloc 8
     __rwlock_write_guard_slot_%out_ok = stack_alloc 8
-    __rwlock_write_writing_%out_ok = load %lock_reg+RwLock_writing as i32
-    __rwlock_write_readers_%out_ok = load %lock_reg+RwLock_readers as i32
-    __rwlock_write_no_writer_%out_ok = eq __rwlock_write_writing_%out_ok, 0
+    __rwlock_write_writing_%out_ok, __rwlock_write_claim_ok_%out_ok = cmpxchg %lock_reg+RwLock_writing, 0, 1 as i32 acq_rel acquire
+    br __rwlock_write_claim_ok_%out_ok -> L_RWLOCK_WRITE_NOERR_CLAIMED_%out_ok, L_RWLOCK_WRITE_NOERR_FAIL_%out_ok
+L_RWLOCK_WRITE_NOERR_CLAIMED_%out_ok:
+    __rwlock_write_readers_%out_ok = atomic_load %lock_reg+RwLock_readers as i32 acquire
     __rwlock_write_no_readers_%out_ok = eq __rwlock_write_readers_%out_ok, 0
-    __rwlock_write_can_write_%out_ok = and __rwlock_write_no_writer_%out_ok, __rwlock_write_no_readers_%out_ok
-    br __rwlock_write_can_write_%out_ok -> L_RWLOCK_WRITE_NOERR_OK_%out_ok, L_RWLOCK_WRITE_NOERR_FAIL_%out_ok
+    br __rwlock_write_no_readers_%out_ok -> L_RWLOCK_WRITE_NOERR_OK_%out_ok, L_RWLOCK_WRITE_NOERR_ROLLBACK_%out_ok
 L_RWLOCK_WRITE_NOERR_OK_%out_ok:
-    store %lock_reg+RwLock_writing, 1 as i32
     store __rwlock_write_guard_slot_%out_ok+0, %lock_reg as ptr
     store __rwlock_write_ok_slot_%out_ok+0, 1 as u64
+    !__rwlock_write_no_readers_%out_ok
+    !__rwlock_write_readers_%out_ok
+    jmp L_RWLOCK_WRITE_NOERR_DONE_%out_ok
+L_RWLOCK_WRITE_NOERR_ROLLBACK_%out_ok:
+    atomic_store %lock_reg+RwLock_writing, 0 as i32 release
+    store __rwlock_write_guard_slot_%out_ok+0, 0 as ptr
+    store __rwlock_write_ok_slot_%out_ok+0, 0 as u64
+    !__rwlock_write_no_readers_%out_ok
+    !__rwlock_write_readers_%out_ok
     jmp L_RWLOCK_WRITE_NOERR_DONE_%out_ok
 L_RWLOCK_WRITE_NOERR_FAIL_%out_ok:
     store __rwlock_write_guard_slot_%out_ok+0, 0 as ptr
@@ -75,28 +110,39 @@ L_RWLOCK_WRITE_NOERR_FAIL_%out_ok:
 L_RWLOCK_WRITE_NOERR_DONE_%out_ok:
     %out_guard = load __rwlock_write_guard_slot_%out_ok+0 as ptr
     %out_ok = load __rwlock_write_ok_slot_%out_ok+0 as u64
-    !__rwlock_write_can_write_%out_ok
-    !__rwlock_write_no_readers_%out_ok
-    !__rwlock_write_no_writer_%out_ok
-    !__rwlock_write_readers_%out_ok
+    !__rwlock_write_claim_ok_%out_ok
     !__rwlock_write_writing_%out_ok
 [END_MACRO]
 
 [MACRO] RWLOCK_TRY_READ %out_ok, %out_guard, %lock_reg, %err_label
-    __rwlock_writing_%out_ok = load %lock_reg+RwLock_writing as i32
+    __rwlock_writing_%out_ok = atomic_load %lock_reg+RwLock_writing as i32 acquire
     __rwlock_can_read_%out_ok = eq __rwlock_writing_%out_ok, 0
     br __rwlock_can_read_%out_ok -> L_RWLOCK_TRY_READ_OK_%out_ok, L_RWLOCK_TRY_READ_FAIL_%out_ok
 L_RWLOCK_TRY_READ_OK_%out_ok:
-    __rwlock_readers_%out_ok = load %lock_reg+RwLock_readers as i32
-    __rwlock_next_readers_%out_ok = add __rwlock_readers_%out_ok, 1
-    store %lock_reg+RwLock_readers, __rwlock_next_readers_%out_ok as i32
+    __rwlock_readers_%out_ok = atomic_rmw_add %lock_reg+RwLock_readers, 1 as i32 acq_rel
+    __rwlock_after_writing_%out_ok = atomic_load %lock_reg+RwLock_writing as i32 acquire
+    __rwlock_still_can_read_%out_ok = eq __rwlock_after_writing_%out_ok, 0
+    br __rwlock_still_can_read_%out_ok -> L_RWLOCK_TRY_READ_COMMIT_%out_ok, L_RWLOCK_TRY_READ_ROLLBACK_%out_ok
+L_RWLOCK_TRY_READ_COMMIT_%out_ok:
     %out_guard = add %lock_reg, 0
     %out_ok = add 0, 1
-    !__rwlock_next_readers_%out_ok
+    !__rwlock_still_can_read_%out_ok
+    !__rwlock_after_writing_%out_ok
     !__rwlock_can_read_%out_ok
     !__rwlock_writing_%out_ok
     !__rwlock_readers_%out_ok
     jmp L_RWLOCK_TRY_READ_END_%out_ok
+L_RWLOCK_TRY_READ_ROLLBACK_%out_ok:
+    __rwlock_rollback_%out_ok = atomic_rmw_sub %lock_reg+RwLock_readers, 1 as i32 acq_rel
+    %out_guard = add 0, 0
+    %out_ok = add 0, 0
+    !__rwlock_rollback_%out_ok
+    !__rwlock_still_can_read_%out_ok
+    !__rwlock_after_writing_%out_ok
+    !__rwlock_can_read_%out_ok
+    !__rwlock_writing_%out_ok
+    !__rwlock_readers_%out_ok
+    jmp %err_label
 L_RWLOCK_TRY_READ_FAIL_%out_ok:
     %out_guard = add 0, 0
     %out_ok = add 0, 0
@@ -107,47 +153,47 @@ L_RWLOCK_TRY_READ_END_%out_ok:
 [END_MACRO]
 
 [MACRO] RWLOCK_TRY_WRITE %out_ok, %out_guard, %lock_reg, %err_label
-    __rwlock_writing_%out_ok = load %lock_reg+RwLock_writing as i32
-    __rwlock_readers_%out_ok = load %lock_reg+RwLock_readers as i32
-    __rwlock_is_free_%out_ok = eq __rwlock_writing_%out_ok, 0
+    __rwlock_writing_%out_ok, __rwlock_claim_ok_%out_ok = cmpxchg %lock_reg+RwLock_writing, 0, 1 as i32 acq_rel acquire
+    br __rwlock_claim_ok_%out_ok -> L_RWLOCK_TRY_WRITE_CLAIMED_%out_ok, L_RWLOCK_TRY_WRITE_FAIL_%out_ok
+L_RWLOCK_TRY_WRITE_CLAIMED_%out_ok:
+    __rwlock_readers_%out_ok = atomic_load %lock_reg+RwLock_readers as i32 acquire
     __rwlock_no_readers_%out_ok = eq __rwlock_readers_%out_ok, 0
-    __rwlock_can_write_%out_ok = and __rwlock_is_free_%out_ok, __rwlock_no_readers_%out_ok
-    br __rwlock_can_write_%out_ok -> L_RWLOCK_TRY_WRITE_OK_%out_ok, L_RWLOCK_TRY_WRITE_FAIL_%out_ok
+    br __rwlock_no_readers_%out_ok -> L_RWLOCK_TRY_WRITE_OK_%out_ok, L_RWLOCK_TRY_WRITE_ROLLBACK_%out_ok
 L_RWLOCK_TRY_WRITE_OK_%out_ok:
-    store %lock_reg+RwLock_writing, 1 as i32
     %out_guard = add %lock_reg, 0
     %out_ok = add 0, 1
-    !__rwlock_can_write_%out_ok
     !__rwlock_no_readers_%out_ok
-    !__rwlock_is_free_%out_ok
     !__rwlock_readers_%out_ok
     !__rwlock_writing_%out_ok
+    !__rwlock_claim_ok_%out_ok
     jmp L_RWLOCK_TRY_WRITE_END_%out_ok
+L_RWLOCK_TRY_WRITE_ROLLBACK_%out_ok:
+    atomic_store %lock_reg+RwLock_writing, 0 as i32 release
+    %out_guard = add 0, 0
+    %out_ok = add 0, 0
+    !__rwlock_no_readers_%out_ok
+    !__rwlock_readers_%out_ok
+    !__rwlock_writing_%out_ok
+    !__rwlock_claim_ok_%out_ok
+    jmp %err_label
 L_RWLOCK_TRY_WRITE_FAIL_%out_ok:
     %out_guard = add 0, 0
     %out_ok = add 0, 0
-    !__rwlock_can_write_%out_ok
-    !__rwlock_no_readers_%out_ok
-    !__rwlock_is_free_%out_ok
-    !__rwlock_readers_%out_ok
     !__rwlock_writing_%out_ok
+    !__rwlock_claim_ok_%out_ok
     jmp %err_label
 L_RWLOCK_TRY_WRITE_END_%out_ok:
 [END_MACRO]
 
 [MACRO] RWLOCK_RELEASE_READ %lock_reg
-    __rwlock_readers_%lock_reg = load %lock_reg+RwLock_readers as i32
-    __rwlock_next_readers_%lock_reg = sub __rwlock_readers_%lock_reg, 1
-    store %lock_reg+RwLock_readers, __rwlock_next_readers_%lock_reg as i32
-    !__rwlock_next_readers_%lock_reg
-    !__rwlock_readers_%lock_reg
+    call @__rwlock_release_read(%lock_reg)
 [END_MACRO]
 
 [MACRO] RWLOCK_RELEASE_WRITE %lock_reg
-    store %lock_reg+RwLock_writing, 0 as i32
+    atomic_store %lock_reg+RwLock_writing, 0 as i32 release
 [END_MACRO]
 
 [MACRO] RWLOCK_FORCE_UNLOCKED %lock_reg
-    store %lock_reg+RwLock_readers, 0 as i32
-    store %lock_reg+RwLock_writing, 0 as i32
+    atomic_store %lock_reg+RwLock_readers, 0 as i32 release
+    atomic_store %lock_reg+RwLock_writing, 0 as i32 release
 [END_MACRO]

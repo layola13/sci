@@ -361,6 +361,13 @@ test "sa_std rust core helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/task.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, rust_core_src, 1, "@import \"core/ascii.sa\""));
 
+    const arc_src = try readFileAlloc(std.testing.allocator, "sa_std/core/arc.sa");
+    defer std.testing.allocator.free(arc_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, arc_src, 1, "@import \"../num.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, arc_src, 1, "NUM_U64_MAX"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, arc_src, 1, "panic(1501)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, arc_src, 1, "panic(1505)"));
+
     const ascii_layout = try readFileAlloc(std.testing.allocator, "sa_std/core/ascii.sal");
     defer std.testing.allocator.free(ascii_layout);
     try std.testing.expect(std.mem.containsAtLeast(u8, ascii_layout, 1, "#def ASCII_CASE_MASK = 32"));
@@ -682,9 +689,13 @@ test "sa_std alloc helpers are concrete and verifiable" {
     const vec_src = try readFileAlloc(std.testing.allocator, "sa_std/alloc/vec.sa");
     defer std.testing.allocator.free(vec_src);
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "inttoptr"));
-    try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "add 0, 0"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "假定"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "示例"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "@import \"../num.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "EXPAND NUM_U64_CHECKED_MUL bytes_ok, bytes, cap, elem_size"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, cap, cap"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "EXPAND NUM_U64_CHECKED_MUL shrink_new_bytes_ok, new_bytes, target_cap, elem_size"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "panic(1201)"));
     var vec_flat = try flattenFixture(std.testing.allocator, "sa_std/alloc/vec.sa", vec_src);
     defer vec_flat.deinit(std.testing.allocator);
     const vec_verified = try saasm.referee.verify(std.testing.allocator, vec_flat.instructions, vec_flat.const_decls);
@@ -711,8 +722,10 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_AS_PTR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_AS_SLICE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET_UNCHECKED"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_GET_U64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "EXPAND VEC_TRY_GET __vec_get_ok_%out_ptr"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_GET"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_GET_U64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_EXTEND_FROM_SLICE"));
@@ -1340,7 +1353,8 @@ test "sa_std mutex helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "atomic_rmw_xchg lock+Mutex_lock, 1 as u64 seq_cst"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "atomic_store %lock_ptr+Mutex_lock, 0 as u64 release"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "@__mutex_lock_spin"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "call @sa_time_sleep_ns(1)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "call @sa_time_sleep_ns(backoff_ns)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mutex_src, 1, "next_backoff = shl backoff_ns, 1"));
 
     var mutex_flat = try flattenFixture(std.testing.allocator, "sa_std/sync/mutex.sa", mutex_src);
     defer mutex_flat.deinit(std.testing.allocator);
@@ -1391,13 +1405,16 @@ test "sa_std rwlock helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "[MACRO] RWLOCK_TRY_WRITE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "[MACRO] RWLOCK_RELEASE_READ"));
     try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "[MACRO] RWLOCK_RELEASE_WRITE"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "atomic_store %lock_reg+RwLock_writing, 1 as i32"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "store %lock_reg+RwLock_readers, __rwlock_next_readers_%out_ok as i32"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "cmpxchg %lock_reg+RwLock_writing, 0, 1 as i32 acq_rel acquire"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "atomic_rmw_add %lock_reg+RwLock_readers, 1 as i32 acq_rel"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "@__rwlock_release_read"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "panic(1601)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, rwlock_src, 1, "atomic_store %lock_reg+RwLock_writing, 0 as i32 release"));
 
     var rwlock_flat = try flattenFixture(std.testing.allocator, "sa_std/sync/rwlock.sa", rwlock_src);
     defer rwlock_flat.deinit(std.testing.allocator);
     try std.testing.expect(rwlock_flat.instructions.len > 0);
-    try std.testing.expectEqual(@as(usize, 5), rwlock_flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 6), rwlock_flat.function_sigs.len);
 }
 
 test "sa_std mpsc helpers are concrete and verifiable" {
@@ -1411,6 +1428,7 @@ test "sa_std mpsc helpers are concrete and verifiable" {
     const mpsc_src = try readFileAlloc(std.testing.allocator, "sa_std/sync/mpsc.sa");
     defer std.testing.allocator.free(mpsc_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../core/mem.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../num.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@import \"../time.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_FREE"));
@@ -1420,6 +1438,9 @@ test "sa_std mpsc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "[MACRO] MPSC_RECV"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@__mpsc_try_send"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "@__mpsc_try_recv"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "EXPAND NUM_U64_CHECKED_MUL __mpsc_data_ok_%out_chan"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "EXPAND NUM_U64_CHECKED_ADD __mpsc_total_ok_%out_chan"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mpsc_src, 1, "__mpsc_len_order_ok_%out_len = uge __mpsc_len_tail_%out_len, __mpsc_len_head_%out_len"));
 
     var mpsc_flat = try flattenFixture(std.testing.allocator, "sa_std/sync/mpsc.sa", mpsc_src);
     defer mpsc_flat.deinit(std.testing.allocator);
@@ -2528,7 +2549,7 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     const hashmap_layout = try readFileAlloc(std.testing.allocator, "sa_std/hashmap.sal");
     defer std.testing.allocator.free(hashmap_layout);
     try std.testing.expectEqualStrings(
-        "#def HashMap_SIZE = 32\n#def HashMap_slots = +0\n#def HashMap_cap = +8\n#def HashMap_len = +16\n#def HashMap_tombs = +24\n\n#def HashMapSlot_SIZE = 32\n#def HashMapSlot_hash = +0\n#def HashMapSlot_key = +8\n#def HashMapSlot_value = +16\n#def HashMapSlot_state = +24\n\n#def HashMap_INITIAL_CAP = 8\n#def HashMap_STATE_EMPTY = 0\n#def HashMap_STATE_FILLED = 1\n#def HashMap_STATE_TOMB = 2\n\n#def HashMap_FNV_OFFSET = -3750763034362895579\n#def HashMap_FNV_PRIME = 1099511628211\n",
+        "#def HashMap_SIZE = 40\n#def HashMap_slots = +0\n#def HashMap_cap = +8\n#def HashMap_len = +16\n#def HashMap_tombs = +24\n#def HashMap_seed = +32\n\n#def HashMapSlot_SIZE = 32\n#def HashMapSlot_hash = +0\n#def HashMapSlot_key = +8\n#def HashMapSlot_value = +16\n#def HashMapSlot_state = +24\n\n#def HashMap_INITIAL_CAP = 8\n#def HashMap_STATE_EMPTY = 0\n#def HashMap_STATE_FILLED = 1\n#def HashMap_STATE_TOMB = 2\n\n#def HashMap_FNV_OFFSET = -3750763034362895579\n#def HashMap_FNV_PRIME = 1099511628211\n",
         hashmap_layout,
     );
 
@@ -2541,7 +2562,11 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"core/mem.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"alloc/vec.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"vec.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"num.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"hashmap.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, new_cap, HashMapSlot_SIZE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "EXPAND NUM_U64_CHECKED_ADD needed_ok, needed, len, additional"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "EXPAND NUM_U64_CHECKED_MUL clear_bytes_ok, bytes, cap, HashMapSlot_SIZE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_free"));
@@ -2553,6 +2578,8 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_reserve"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_shrink_to_fit"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_with_seed"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_with_capacity_seed"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_is_empty"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_clear"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_try_get_disjoint_mut_ptrs"));
@@ -2561,7 +2588,9 @@ test "sa_std hashmap helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_values_vec"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@export sa_map_value_mut_ptrs_vec"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_NEW"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_WITH_SEED"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_WITH_CAPACITY"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_WITH_CAPACITY_SEED"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_TRY_WITH_CAPACITY"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "[MACRO] MAP_CAPACITY"));

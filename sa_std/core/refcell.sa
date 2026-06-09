@@ -1,5 +1,8 @@
 @import "refcell.sal"
 
+// RefCell borrow counts are intentionally non-atomic and mirror Rust's !Sync shape.
+// Do not share RefCell storage across threads; use Arc plus atomic or lock-backed state instead.
+
 [MACRO] REFCELL_NEW %out_cell, %value
     %out_cell = alloc RefCell_SIZE
     store %out_cell+RefCell_value, %value as u64

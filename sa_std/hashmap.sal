@@ -1,8 +1,9 @@
-#def HashMap_SIZE = 32
+#def HashMap_SIZE = 40
 #def HashMap_slots = +0
 #def HashMap_cap = +8
 #def HashMap_len = +16
 #def HashMap_tombs = +24
+#def HashMap_seed = +32
 
 #def HashMapSlot_SIZE = 32
 #def HashMapSlot_hash = +0

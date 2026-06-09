@@ -35,12 +35,14 @@ fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
+    const release_safe = b.option(bool, "release-safe", "Build all artifacts with ReleaseSafe optimization.") orelse false;
     const release_small = b.option(bool, "release-small", "Build all artifacts with ReleaseSmall optimization.") orelse false;
     const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse latestGitTag(b.allocator) orelse "0.0.1";
     const llvm_include_dir = b.option([]const u8, "llvm-include-dir", "LLVM C API include directory.") orelse "/usr/lib/llvm-14/include";
     const llvm_lib_dir = b.option([]const u8, "llvm-lib-dir", "LLVM library directory.") orelse "/usr/lib/llvm-14/lib";
     const llvm_lib_name = b.option([]const u8, "llvm-lib-name", "LLVM system library name.") orelse "LLVM-14";
     var optimize = b.standardOptimizeOption(.{});
+    if (release_safe) optimize = .ReleaseSafe;
     if (release_small) optimize = .ReleaseSmall;
     const repo_root = b.pathFromRoot(".");
     const repo_root_lazy = b.path(".");

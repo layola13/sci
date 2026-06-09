@@ -31,6 +31,12 @@ fn validateIdentity(identity: []const u8) FetchError!void {
     if (trimmed.len == 0) return error.InvalidUrl;
     if (std.mem.indexOfScalar(u8, trimmed, '\x00') != null) return error.InvalidUrl;
     if (std.mem.indexOfScalar(u8, trimmed, '\n') != null or std.mem.indexOfScalar(u8, trimmed, '\r') != null) return error.InvalidUrl;
+    if (std.fs.path.isAbsolute(trimmed)) return error.InvalidPath;
+    if (std.mem.indexOfScalar(u8, trimmed, '\\') != null) return error.InvalidPath;
+    var segments = std.mem.splitScalar(u8, trimmed, '/');
+    while (segments.next()) |segment| {
+        if (std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return error.InvalidPath;
+    }
     if (std.mem.containsAtLeast(u8, trimmed, 1, "../") or std.mem.startsWith(u8, trimmed, "../") or std.mem.eql(u8, trimmed, "..")) {
         return error.InvalidPath;
     }
@@ -370,6 +376,13 @@ test "fetch rejects precompiled artifacts" {
     defer old_cwd.setAsCwd() catch {};
 
     try std.testing.expectError(error.PrecompiledArtifactRejected, fetchPackage(std.testing.allocator, "github.com/example/bad", "HEAD", .{}));
+}
+
+test "fetch rejects path traversal identities" {
+    try std.testing.expectError(error.InvalidPath, fetchPackage(std.testing.allocator, "../outside", "HEAD", .{ .offline = true }));
+    try std.testing.expectError(error.InvalidPath, fetchPackage(std.testing.allocator, "github.com/example/..", "HEAD", .{ .offline = true }));
+    try std.testing.expectError(error.InvalidPath, fetchPackage(std.testing.allocator, "/tmp/pkg", "HEAD", .{ .offline = true }));
+    try std.testing.expectError(error.InvalidPath, fetchPackage(std.testing.allocator, "github.com\\example\\pkg", "HEAD", .{ .offline = true }));
 }
 
 test "fetch offline reuses existing vendor without deleting it" {

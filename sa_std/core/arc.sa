@@ -1,3 +1,5 @@
+@import "../num.sal"
+
 [MACRO] ARC_NEW %out_arc, %value
     %out_arc = alloc ArcBox_SIZE
     store %out_arc+ArcBox_strong, 1 as u64
@@ -6,10 +8,14 @@
 [END_MACRO]
 
 [MACRO] ARC_CLONE %arc_reg
-    __arc_strong_%arc_reg = atomic_load %arc_reg+ArcBox_strong as u64 acquire
-    __arc_next_strong_%arc_reg = atomic_rmw_add %arc_reg+ArcBox_strong, 1 as u64 acq_rel
-    !__arc_next_strong_%arc_reg
-    !__arc_strong_%arc_reg
+    __arc_old_strong_%arc_reg = atomic_rmw_add %arc_reg+ArcBox_strong, 1 as u64 acq_rel
+    __arc_strong_overflow_%arc_reg = eq __arc_old_strong_%arc_reg, NUM_U64_MAX
+    br __arc_strong_overflow_%arc_reg -> L_ARC_CLONE_OVERFLOW_%arc_reg, L_ARC_CLONE_OK_%arc_reg
+L_ARC_CLONE_OVERFLOW_%arc_reg:
+    panic(1501)
+L_ARC_CLONE_OK_%arc_reg:
+    !__arc_strong_overflow_%arc_reg
+    !__arc_old_strong_%arc_reg
 [END_MACRO]
 
 [MACRO] ARC_GET %out_value, %arc_reg
@@ -31,6 +37,12 @@
 [MACRO] ARC_INCREMENT_STRONG_COUNT %raw_ptr
     __arc_inc_box_%raw_ptr = sub %raw_ptr, ArcBox_data
     __arc_inc_old_%raw_ptr = atomic_rmw_add __arc_inc_box_%raw_ptr+ArcBox_strong, 1 as u64 acq_rel
+    __arc_inc_overflow_%raw_ptr = eq __arc_inc_old_%raw_ptr, NUM_U64_MAX
+    br __arc_inc_overflow_%raw_ptr -> L_ARC_INC_STRONG_OVERFLOW_%raw_ptr, L_ARC_INC_STRONG_OK_%raw_ptr
+L_ARC_INC_STRONG_OVERFLOW_%raw_ptr:
+    panic(1502)
+L_ARC_INC_STRONG_OK_%raw_ptr:
+    !__arc_inc_overflow_%raw_ptr
     !__arc_inc_old_%raw_ptr
     !__arc_inc_box_%raw_ptr
 [END_MACRO]
@@ -113,15 +125,25 @@ L_ARC_DROP_DONE_%arc_reg:
 
 [MACRO] ARC_DOWNGRADE %out_weak, %arc_reg
     __arc_weak_%out_weak = atomic_rmw_add %arc_reg+ArcBox_weak, 1 as u64 acq_rel
+    __arc_weak_overflow_%out_weak = eq __arc_weak_%out_weak, NUM_U64_MAX
+    br __arc_weak_overflow_%out_weak -> L_ARC_DOWNGRADE_OVERFLOW_%out_weak, L_ARC_DOWNGRADE_OK_%out_weak
+L_ARC_DOWNGRADE_OVERFLOW_%out_weak:
+    panic(1503)
+L_ARC_DOWNGRADE_OK_%out_weak:
     %out_weak = add %arc_reg, 0
+    !__arc_weak_overflow_%out_weak
     !__arc_weak_%out_weak
 [END_MACRO]
 
 [MACRO] ARC_WEAK_CLONE %weak_reg
-    __weak_count_%weak_reg = atomic_load %weak_reg+ArcBox_weak as u64 acquire
-    __weak_next_%weak_reg = atomic_rmw_add %weak_reg+ArcBox_weak, 1 as u64 acq_rel
-    !__weak_next_%weak_reg
-    !__weak_count_%weak_reg
+    __weak_old_%weak_reg = atomic_rmw_add %weak_reg+ArcBox_weak, 1 as u64 acq_rel
+    __weak_overflow_%weak_reg = eq __weak_old_%weak_reg, NUM_U64_MAX
+    br __weak_overflow_%weak_reg -> L_ARC_WEAK_CLONE_OVERFLOW_%weak_reg, L_ARC_WEAK_CLONE_OK_%weak_reg
+L_ARC_WEAK_CLONE_OVERFLOW_%weak_reg:
+    panic(1504)
+L_ARC_WEAK_CLONE_OK_%weak_reg:
+    !__weak_overflow_%weak_reg
+    !__weak_old_%weak_reg
 [END_MACRO]
 
 [MACRO] ARC_WEAK_NEW %out_weak
@@ -160,8 +182,14 @@ L_ARC_WEAK_DROP_DONE_%weak_reg:
     br __weak_is_alive_%out_arc -> L_ARC_WEAK_UPGRADE_OK_%out_arc, L_ARC_WEAK_UPGRADE_NONE_%out_arc
 L_ARC_WEAK_UPGRADE_OK_%out_arc:
     __weak_next_strong_%out_arc = atomic_rmw_add %weak_reg+ArcBox_strong, 1 as u64 acq_rel
+    __weak_upgrade_overflow_%out_arc = eq __weak_next_strong_%out_arc, NUM_U64_MAX
+    br __weak_upgrade_overflow_%out_arc -> L_ARC_WEAK_UPGRADE_OVERFLOW_%out_arc, L_ARC_WEAK_UPGRADE_STORE_%out_arc
+L_ARC_WEAK_UPGRADE_OVERFLOW_%out_arc:
+    panic(1505)
+L_ARC_WEAK_UPGRADE_STORE_%out_arc:
     %out_arc = add %weak_reg, 0
     %out_ok = add 0, 1
+    !__weak_upgrade_overflow_%out_arc
     !__weak_next_strong_%out_arc
     !__weak_is_alive_%out_arc
     !__weak_strong_%out_arc

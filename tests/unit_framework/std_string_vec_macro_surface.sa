@@ -2802,6 +2802,8 @@ L_ENTRY:
     EXPAND VEC_RESERVE_U64 vec, 0
     EXPAND VEC_CAPACITY cap, vec
     EXPAND VEC_GET_U64 got, vec, 1
+    EXPAND VEC_GET_U64 got_miss, vec, 99
+    EXPAND VEC_GET_UNCHECKED got_unchecked, vec, 1
     EXPAND VEC_FRONT front, vec
     EXPAND VEC_BACK back, vec
     EXPAND VEC_TRY_FRONT_U64 front_try_ok, front_try, vec
@@ -2849,6 +2851,10 @@ L_ENTRY:
     EXPAND VEC_TRY_BACK_U64 back_after_ok, back_after, vec
 
     got_ok = eq got, 55
+    got_miss_ok = eq got_miss, 0
+    got_unchecked_ok = eq got_unchecked, 55
+    got_all = and got_ok, got_miss_ok
+    got_all2 = and got_all, got_unchecked_ok
     after_extend_flag_ok = eq after_extend_ok, 1
     after_extend_value_ok = eq after_extend, 77
     extend_within_flag_ok = eq extend_within_ok, 1
@@ -2936,7 +2942,7 @@ L_ENTRY:
     front_after_value_ok = eq front_after, 44
     back_after_flag_ok = eq back_after_ok, 1
     back_after_value_ok = eq back_after, 66
-    ok01 = and got_ok, after_extend_flag_ok
+    ok01 = and got_all2, after_extend_flag_ok
     ok02 = and ok01, after_extend_value_ok
     ok03 = and ok02, extend_within_flag_ok
     ok04 = and ok03, extend_within_first_flag_ok
@@ -3018,6 +3024,8 @@ L_ENTRY:
     ok70 = and ok69, back_after_flag_ok
     ok = and ok70, back_after_value_ok
     !got
+    !got_miss
+    !got_unchecked
     !after_extend_ok
     !after_extend
     !extend_within_ok
@@ -3111,6 +3119,10 @@ L_ENTRY:
     !append_src_slice
     !append_src_vec
     !got_ok
+    !got_miss_ok
+    !got_unchecked_ok
+    !got_all
+    !got_all2
     !after_extend_flag_ok
     !after_extend_value_ok
     !extend_within_flag_ok

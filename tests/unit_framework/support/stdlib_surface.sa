@@ -79,7 +79,7 @@ L_ENTRY:
     ok_cap0 = eq cap0, 0
     ok_empty0 = eq empty0, 1
     ok_len0 = eq len0, 3
-    ok_cap1 = eq cap1, 3
+    ok_cap1 = eq cap1, 4
     ok_mid0 = eq mid0, 22
     ok_pop_ok = eq ok0, 1
     ok_pop0 = eq pop0, 33

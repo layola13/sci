@@ -537,6 +537,7 @@ const Command = enum {
     install,
     plugin,
     pkg,
+    cache,
     build,
     build_exe,
     build_wasm,
@@ -922,6 +923,7 @@ fn commandName(cmd: Command) []const u8 {
         .install => "install",
         .plugin => "plugin",
         .pkg => "pkg",
+        .cache => "cache",
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_obj => "build-obj",
@@ -960,7 +962,7 @@ fn commandHelpRequested(cmd: Command, args: []const []const u8) bool {
     if (args.len < 3) return false;
     if (isHelpFlag(args[2])) return true;
     return switch (cmd) {
-        .pkg, .plugin => args.len >= 4 and isHelpFlag(args[3]),
+        .pkg, .plugin, .cache => args.len >= 4 and isHelpFlag(args[3]),
         else => false,
     };
 }
@@ -1036,6 +1038,25 @@ fn printPkgHelp(writer: anytype, args: []const []const u8) !void {
     try writer.writeAll("\nUse `sa pkg <subcommand> --help` for subcommand options.\n");
 }
 
+fn printCacheHelp(writer: anytype, args: []const []const u8) !void {
+    const sub = if (args.len != 0 and !isHelpFlag(args[0])) args[0] else "";
+    if (std.mem.eql(u8, sub, "clean")) {
+        try writer.writeAll("usage: sa cache clean [options]\n\n");
+        try writer.writeAll("Remove invalid, incomplete, or expired project cache entries from .sa_cache.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --dry-run                      Report removals without deleting files\n");
+        try writer.writeAll("  --max-age-days <n>             Remove complete entries older than n days (default: 30)\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+
+    try writer.writeAll("usage: sa cache <clean> [options]\n\n");
+    try writer.writeAll("Inspect and clean project-local SA build/test caches.\n\n");
+    try writer.writeAll("Subcommands:\n");
+    try writer.writeAll("  clean                          Remove invalid or expired .sa_cache entries\n");
+    try writer.writeAll("\nUse `sa cache <subcommand> --help` for subcommand options.\n");
+}
+
 fn printPluginHelp(writer: anytype, args: []const []const u8) !void {
     const sub = if (args.len != 0 and !isHelpFlag(args[0])) args[0] else "";
     if (std.mem.eql(u8, sub, "install")) {
@@ -1082,6 +1103,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .plugin => try printPluginHelp(writer, args),
         .pkg => try printPkgHelp(writer, args),
+        .cache => try printCacheHelp(writer, args),
         .build => {
             try writer.writeAll("usage: sa build <file> [options]\n\n");
             try writer.writeAll("Compile a .sa source file to a native executable.\n\n");
@@ -1363,6 +1385,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  init         [path]            Create a new SA binary project\n");
     try writer.writeAll("  pkg          <subcommand>      Package fetch, audit, install, and lock commands\n");
     try writer.writeAll("  plugin       <subcommand>      Install and list native SA plugins\n");
+    try writer.writeAll("  cache        <subcommand>      Inspect and clean project-local caches\n");
     try writer.writeAll("  install      [identity]        Install project dependencies or one package (compat)\n");
     try writer.writeAll("  build        <file>            Compile a .sa source to a native executable\n");
     try writer.writeAll("  run          <file>            Compile and immediately execute a .sa file\n");
@@ -1652,7 +1675,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, run, build-exe, build-wasm, build-obj, pkg, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
+            .hint = "use build, run, build-exe, build-wasm, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -3930,6 +3953,7 @@ const BuildCacheKind = enum {
     build_obj,
     build_wasm,
     build_obj_incremental,
+    test_cache,
 
     fn dirName(self: BuildCacheKind) []const u8 {
         return switch (self) {
@@ -3937,8 +3961,20 @@ const BuildCacheKind = enum {
             .build_obj => "build-obj",
             .build_wasm => "build-wasm",
             .build_obj_incremental => "build-obj-incremental",
+            .test_cache => "test",
         };
     }
+};
+
+const CacheCleanStats = struct {
+    scanned: usize = 0,
+    removed: usize = 0,
+    kept: usize = 0,
+};
+
+const CacheCleanOptions = struct {
+    dry_run: bool = false,
+    max_age_days: u64 = 30,
 };
 
 const ProjectCacheKey = struct {
@@ -4113,6 +4149,17 @@ fn projectCacheArtifactPath(allocator: std.mem.Allocator, project_root: []const 
     return try pathJoinAlloc(allocator, &.{ dir, filename });
 }
 
+fn projectCacheRemoveKey(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) void {
+    const dir = projectCacheDir(allocator, project_root, kind, key) catch return;
+    defer allocator.free(dir);
+    std.fs.cwd().deleteTree(dir) catch {};
+}
+
+fn projectCacheArtifactExistsNonEmpty(path: []const u8) bool {
+    const stat = std.fs.cwd().statFile(path) catch return false;
+    return stat.kind == .file and stat.size != 0;
+}
+
 fn projectCacheHit(
     allocator: std.mem.Allocator,
     project_root: []const u8,
@@ -4125,9 +4172,18 @@ fn projectCacheHit(
     defer allocator.free(cached_artifact);
     const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
     defer allocator.free(cached_output);
-    if (!projectPathExists(cached_artifact) or !projectPathExists(cached_output)) return false;
-    try copyFileAlloc(allocator, cached_artifact, artifact_path);
-    try copyFileAlloc(allocator, cached_output, out_path);
+    if (!projectCacheArtifactExistsNonEmpty(cached_artifact) or !projectCacheArtifactExistsNonEmpty(cached_output)) {
+        projectCacheRemoveKey(allocator, project_root, kind, key);
+        return false;
+    }
+    copyFileAlloc(allocator, cached_artifact, artifact_path) catch |err| {
+        projectCacheRemoveKey(allocator, project_root, kind, key);
+        return err;
+    };
+    copyFileAlloc(allocator, cached_output, out_path) catch |err| {
+        projectCacheRemoveKey(allocator, project_root, kind, key);
+        return err;
+    };
     return true;
 }
 
@@ -4145,6 +4201,152 @@ fn projectCacheStore(
     defer allocator.free(cached_output);
     try copyFileAlloc(allocator, artifact_path, cached_artifact);
     try copyFileAlloc(allocator, out_path, cached_output);
+}
+
+fn isHexCacheKey(name: []const u8) bool {
+    if (name.len != 64) return false;
+    for (name) |c| {
+        switch (c) {
+            '0'...'9', 'a'...'f' => {},
+            else => return false,
+        }
+    }
+    return true;
+}
+
+fn cacheEntryExpired(stat: std.fs.File.Stat, max_age_days: u64) bool {
+    if (max_age_days == 0) return false;
+    const now = std.time.nanoTimestamp();
+    if (stat.mtime >= now) return false;
+    const max_age_ns = @as(i128, @intCast(max_age_days)) * 24 * 60 * 60 * std.time.ns_per_s;
+    return now - stat.mtime > max_age_ns;
+}
+
+fn cacheFilePresentNonEmpty(dir: std.fs.Dir, name: []const u8) bool {
+    const stat = dir.statFile(name) catch return false;
+    return stat.kind == .file and stat.size != 0;
+}
+
+fn cacheDirPresent(dir: std.fs.Dir, name: []const u8) bool {
+    const stat = dir.statFile(name) catch return false;
+    return stat.kind == .directory;
+}
+
+fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
+    return switch (kind) {
+        .build_exe, .build_obj, .build_wasm, .test_cache => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin"),
+        .build_obj_incremental => cacheFilePresentNonEmpty(entry_dir, "manifest.json") and cacheDirPresent(entry_dir, "functions"),
+    };
+}
+
+fn cleanCacheKindDir(
+    root_dir: std.fs.Dir,
+    kind: BuildCacheKind,
+    options: CacheCleanOptions,
+    stats: *CacheCleanStats,
+) !void {
+    var kind_dir = root_dir.openDir(kind.dirName(), .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        error.NotDir => {
+            stats.scanned += 1;
+            stats.removed += 1;
+            if (!options.dry_run) root_dir.deleteFile(kind.dirName()) catch {};
+            return;
+        },
+        else => return err,
+    };
+    defer kind_dir.close();
+
+    var iter = kind_dir.iterate();
+    while (try iter.next()) |entry| {
+        stats.scanned += 1;
+        var remove = entry.kind != .directory or !isHexCacheKey(entry.name);
+        if (!remove) {
+            var entry_dir = kind_dir.openDir(entry.name, .{}) catch {
+                remove = true;
+                if (!options.dry_run) kind_dir.deleteTree(entry.name) catch {};
+                stats.removed += 1;
+                continue;
+            };
+            defer entry_dir.close();
+
+            const stat: ?std.fs.File.Stat = kind_dir.statFile(entry.name) catch null;
+            remove = !cacheEntryComplete(kind, entry_dir) or (if (stat) |s| cacheEntryExpired(s, options.max_age_days) else true);
+        }
+
+        if (remove) {
+            stats.removed += 1;
+            if (!options.dry_run) {
+                if (entry.kind == .directory) {
+                    kind_dir.deleteTree(entry.name) catch {};
+                } else {
+                    kind_dir.deleteFile(entry.name) catch {};
+                }
+            }
+        } else {
+            stats.kept += 1;
+        }
+    }
+}
+
+fn cleanProjectCache(allocator: std.mem.Allocator, project_root: []const u8, options: CacheCleanOptions) !CacheCleanStats {
+    const cache_root = try cacheRootPath(allocator, project_root);
+    defer allocator.free(cache_root);
+    var root_dir = std.fs.cwd().openDir(cache_root, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return .{},
+        error.NotDir => {
+            if (!options.dry_run) std.fs.cwd().deleteFile(cache_root) catch {};
+            return .{ .scanned = 1, .removed = 1 };
+        },
+        else => return err,
+    };
+    defer root_dir.close();
+
+    var stats: CacheCleanStats = .{};
+    try cleanCacheKindDir(root_dir, .build_exe, options, &stats);
+    try cleanCacheKindDir(root_dir, .build_obj, options, &stats);
+    try cleanCacheKindDir(root_dir, .build_wasm, options, &stats);
+    try cleanCacheKindDir(root_dir, .build_obj_incremental, options, &stats);
+    try cleanCacheKindDir(root_dir, .test_cache, options, &stats);
+    return stats;
+}
+
+fn executeCacheCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype) !u8 {
+    if (args.len == 0 or isHelpFlag(args[0])) {
+        try printCacheHelp(stdout, args);
+        return 0;
+    }
+    if (!std.mem.eql(u8, args[0], "clean")) return error.UnknownCommand;
+
+    var options: CacheCleanOptions = .{};
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        if (isHelpFlag(args[i])) {
+            try printCacheHelp(stdout, args);
+            return 0;
+        }
+        if (std.mem.eql(u8, args[i], "--dry-run")) {
+            options.dry_run = true;
+            continue;
+        }
+        if (std.mem.eql(u8, args[i], "--max-age-days")) {
+            if (i + 1 >= args.len) return error.MissingArgument;
+            options.max_age_days = try std.fmt.parseInt(u64, args[i + 1], 10);
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, args[i], "--max-age-days=")) {
+            options.max_age_days = try std.fmt.parseInt(u64, args[i]["--max-age-days=".len..], 10);
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+
+    const project_root = try projectRootDir(allocator);
+    defer allocator.free(project_root);
+    const stats = try cleanProjectCache(allocator, project_root, options);
+    try stdout.print("cache clean: scanned={d} removed={d} kept={d} dry_run={} max_age_days={d}\n", .{ stats.scanned, stats.removed, stats.kept, options.dry_run, options.max_age_days });
+    return 0;
 }
 
 fn projectFunctionCachePath(
@@ -5129,8 +5331,6 @@ fn executeTest(
 
             const artifact_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, artifact_name });
             defer allocator.free(artifact_full_path);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true }, artifact_full_path);
-
             const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
             defer allocator.free(exe_full_path);
 
@@ -5143,10 +5343,52 @@ fn executeTest(
             }
             try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
 
+            const project_root_owned = compile_options.project_root == null;
+            const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
+            defer if (project_root_owned) allocator.free(project_root);
+            var project_context = try loadProjectContext(allocator, project_root);
+            defer project_context.deinit(allocator);
+            const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache and link_inputs.items.len == 0)
+                try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline)
+            else
+                null;
+
+            if (cache_key) |key| {
+                if (try projectCacheHit(allocator, project_root, .test_cache, key, artifact_full_path, exe_full_path)) {
+                    try makeExecutable(exe_full_path);
+                    if (test_options.compile_only) {
+                        defer test_list.deinit(allocator);
+                        try stdout.print(
+                            "compiled {d} selected tests ({d} discovered)\n",
+                            .{
+                                test_options.selection.countSelected(test_list.tests),
+                                test_list.tests.len,
+                            },
+                        );
+                        return 0;
+                    }
+                    return try test_runner.run(
+                        allocator,
+                        exe_full_path,
+                        tmp.dir,
+                        &test_list,
+                        test_options.selection,
+                        test_options.trace_panic,
+                        compile_options.jobs,
+                        stdout.any(),
+                        stderr.any(),
+                    );
+                }
+            }
+
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true }, artifact_full_path);
+
             driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+
+            if (cache_key) |key| try projectCacheStore(allocator, project_root, .test_cache, key, artifact_full_path, exe_full_path);
 
             if (test_options.compile_only) {
                 defer test_list.deinit(allocator);
@@ -5241,6 +5483,7 @@ pub fn executeWithWritersAndOptions(
             if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
             return error.UnknownCommand;
         },
+        .cache => return try executeCacheCommand(allocator, args[2..], stdout),
         .audit => return error.UnknownCommand,
         .explain => return try explainCommand(stdout, args, json_mode),
         .fix => return try fixCommand(stdout, args, json_mode),

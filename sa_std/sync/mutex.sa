@@ -3,15 +3,36 @@
 @import "../time.sai"
 
 @__mutex_lock_spin(lock: ptr) -> void:
+L_MUTEX_LOCK_INIT:
+    backoff_slot = stack_alloc 8
+    store backoff_slot+0, 1 as u64
+
 L_MUTEX_LOCK_TRY:
     prev = atomic_rmw_xchg lock+Mutex_lock, 1 as u64 seq_cst
     free = eq prev, 0
     br free -> L_MUTEX_LOCK_DONE, L_MUTEX_LOCK_WAIT
 
 L_MUTEX_LOCK_WAIT:
+    backoff_ns = load backoff_slot+0 as u64
+    call @sa_time_sleep_ns(backoff_ns)
+    backoff_at_limit = uge backoff_ns, 1024
+    br backoff_at_limit -> L_MUTEX_LOCK_KEEP_BACKOFF, L_MUTEX_LOCK_GROW_BACKOFF
+
+L_MUTEX_LOCK_GROW_BACKOFF:
+    next_backoff = shl backoff_ns, 1
+    store backoff_slot+0, next_backoff as u64
+    !next_backoff
+    !backoff_at_limit
+    !backoff_ns
     !free
     !prev
-    call @sa_time_sleep_ns(1)
+    jmp L_MUTEX_LOCK_TRY
+
+L_MUTEX_LOCK_KEEP_BACKOFF:
+    !backoff_at_limit
+    !backoff_ns
+    !free
+    !prev
     jmp L_MUTEX_LOCK_TRY
 
 L_MUTEX_LOCK_DONE:
@@ -45,5 +66,5 @@ L_MUTEX_LOCK_DONE:
 [END_MACRO]
 
 [MACRO] MUTEX_FORCE_UNLOCKED %lock_ptr
-    store %lock_ptr+Mutex_lock, 0 as u64
+    atomic_store %lock_ptr+Mutex_lock, 0 as u64 release
 [END_MACRO]

@@ -129,7 +129,9 @@ Visible per-file timings from that pass:
 | `std_vec_deque_macro_surface.sa` | 3.846s |
 | `std_hashset_macro_surface.sa` | 3.726s |
 
-Important finding: `std_fs_macro_surface.sa` cannot safely run its internal `@test` cases in parallel yet. With `--jobs auto`, the file IO test raced with other filesystem tests and failed with statuses such as `perm_status=3`, `open_status=3`, and `len_status=3`. The runner therefore forces this file to `--jobs 1` while allowing the rest of the SA suites to use the configured parallelism.
+Historical finding: `std_fs_macro_surface.sa` previously could not safely run its internal `@test` cases in parallel. With `--jobs auto`, shared file paths raced across filesystem tests and failed with statuses such as `perm_status=3`, `open_status=3`, and `len_status=3`.
+
+Current status: the filesystem macro tests now use isolated per-test paths and `tests/unit_framework/runner.zig` no longer forces this suite to `--jobs 1`. The 2026-06-09 `zig build unit-framework --summary all` pass ran `std_fs_macro_surface.sa` with `jobs=auto` and completed in about `3.771s`.
 
 The current remaining cost is not Zig compilation. It is mostly repeated SA import expansion, repeated SA test binary compile/link work per file, the very large feature suite being run in three modes, and a few large std macro surface suites. The next meaningful improvements are SA test artifact reuse, splitting giant surface suites into independent build units that Zig can schedule separately, and making filesystem tests use isolated temp paths so they can become parallel-safe.
 
@@ -163,3 +165,61 @@ SA_TEST_JOBS=auto zig build unit-framework --summary all
 Result: `4/4 tests passed`, run step about `3m`. The slowest visible SA files were still `feature_suite.sa` at about `53.7s`, `std_string_vec_macro_surface.sa` at about `30.8s`, `std_path_macro_surface.sa` at about `18.1s`, and `std_net_addr_macro_surface.sa` at about `12.7s`.
 
 Conclusion: hook-level filtering and ranking reduce avoidable local pre-push work and improve diagnostics, but the remaining large win must come from unit-framework sharding or SA test artifact/import reuse. Shell-level changes alone cannot remove the repeated SA compile/import cost inside those large suites.
+
+## 2026-06-09 Unit Framework Duplicate Feature Suite Follow-up
+
+`tests/unit_framework/runner.zig` now keeps the full `feature_suite.sa` matrix in the default mode only and checks `--ignored` / `--include-ignored` with a tiny generated two-test fixture. This preserves coverage for ignored-test CLI behavior without compiling and running the 271-test feature matrix two additional times.
+
+Focused verification command:
+
+```sh
+zig build unit-framework --summary all
+```
+
+Result: `4/4 tests passed`. The visible runner timing showed `feature_suite.sa all modes` at about `23.204s`, down from the previous roughly `53-65s` samples where the large suite was exercised in three modes.
+
+Current slowest visible SA unit groups from that pass:
+
+| SA unit group | Elapsed |
+| --- | ---: |
+| `std_string_vec_macro_surface.sa` | 48.007s |
+| `std_path_macro_surface.sa` | 24.850s |
+| `feature_suite.sa` default matrix plus tiny ignored fixture | 23.204s |
+| `std_net_addr_macro_surface.sa` | 14.801s |
+| `std_iter_macro_surface.sa` | 11.435s |
+| `std_vec_deque_macro_surface.sa` | 8.001s |
+| `std_hashset_macro_surface.sa` | 7.220s |
+
+The remaining high-cost work is now concentrated in large std macro surface suites and repeated SA import/test artifact work, not in ignored-mode feature-suite duplication.
+
+## 2026-06-09 Project Cache Follow-up
+
+The project cache now has an explicit cleanup command:
+
+```sh
+sa cache clean
+sa cache clean --dry-run
+sa cache clean --max-age-days 7
+```
+
+`sa cache clean` is intentionally project-local. It scans only the current directory's `.sa_cache` and does not touch package mirrors, global package caches, or plugin installation caches. The default policy removes malformed cache keys, incomplete entries, empty artifact/output files, and complete entries older than 30 days. `--max-age-days 0` disables age-based expiry and only removes invalid entries.
+
+Build and test cache hits also validate the cached bitcode/output pair before reuse. If either file is missing or empty, the key directory is deleted and the command recompiles normally. This prevents stale partial writes from surviving indefinitely after interrupted builds or manual cache edits.
+
+`sa test` now stores no-plugin test compile/link artifacts under `.sa_cache/test`. This does not bypass frontend compilation, because test discovery and filtering still require current metadata, but it skips repeated LLVM emit/link work for repeated compile-only or repeated runs of the same source. Native plugin-linked tests are deliberately excluded from this cache so plugin install/uninstall state remains outside compiler-core cache assumptions.
+
+Focused verification:
+
+```sh
+zig test -ODebug ... --test-filter "cli cache clean removes invalid project cache entries" --test-filter "sa test compile-only reuses and repairs project test cache"
+zig build bc2sa-smoke --summary all
+```
+
+Result: both focused cache tests passed, and `bc2sa-smoke` completed with `3/3 tests passed`. A broader cache-adjacent pass also completed successfully:
+
+```sh
+zig build std-smoke unit-framework --summary all
+./zig-out/bin/sa cache clean --max-age-days 0
+```
+
+`std-smoke` and `unit-framework` passed (`18/18` tests in the combined build summary). The explicit invalid-only cleanup scanned the newly generated project test cache and reported `scanned=41 removed=0 kept=41`, confirming no incomplete or malformed test cache entries remained after the run.

@@ -134,6 +134,154 @@ const ImportExpansion = struct {
     }
 };
 
+const ImportSourceCacheEntry = struct {
+    entry_path: []u8,
+    root_dir: ?[]u8,
+    package_identity: ?[]u8,
+    source_sha256: ?[32]u8,
+    source: []u8,
+    mtime: i128,
+    size: u64,
+    is_global: bool,
+};
+
+var import_source_cache_mutex: std.Thread.Mutex = .{};
+var import_source_cache: ?std.StringHashMap(ImportSourceCacheEntry) = null;
+
+fn importSourceCacheMap() *std.StringHashMap(ImportSourceCacheEntry) {
+    if (import_source_cache == null) {
+        import_source_cache = std.StringHashMap(ImportSourceCacheEntry).init(std.heap.page_allocator);
+    }
+    return &import_source_cache.?;
+}
+
+fn appendCacheBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
+    try out.appendSlice(bytes);
+    try out.append(0);
+}
+
+fn buildImportSourceCacheKey(
+    allocator: std.mem.Allocator,
+    base_dir: []const u8,
+    import_path: []const u8,
+    resolve_ctx: ?ResolveContext,
+) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    try appendCacheBytes(&out, base_dir);
+    try appendCacheBytes(&out, import_path);
+    if (resolve_ctx) |ctx| {
+        try appendCacheBytes(&out, if (ctx.options.project_root) |path| path else "");
+        try appendCacheBytes(&out, if (ctx.options.home_dir) |path| path else "");
+        try appendCacheBytes(&out, if (ctx.options.std_root) |path| path else "");
+        try out.writer().print("{}\x00{}\x00", .{ ctx.options.offline, ctx.options.max_local_file_bytes });
+        for (ctx.options.entry_candidates) |candidate| try appendCacheBytes(&out, candidate);
+        try out.append(0);
+        for (ctx.options.plugin_import_roots) |root| try appendCacheBytes(&out, root);
+        try out.append(0);
+        for (ctx.dependencies) |dep| {
+            try appendCacheBytes(&out, dep.url);
+            try appendCacheBytes(&out, dep.ref);
+        }
+    } else {
+        try appendCacheBytes(&out, "default");
+    }
+    return try out.toOwnedSlice();
+}
+
+fn isStdImportCacheCandidate(base_dir: []const u8, import_path: []const u8, resolve_ctx: ?ResolveContext) bool {
+    if (std.mem.startsWith(u8, import_path, "sa_std/")) return true;
+    if (std.mem.startsWith(u8, import_path, "../") or std.mem.startsWith(u8, import_path, "./")) {
+        if (std.mem.eql(u8, base_dir, "sa_std") or std.mem.startsWith(u8, base_dir, "sa_std/")) return true;
+        if (std.mem.indexOf(u8, base_dir, "/sa_std/") != null) return true;
+        if (std.mem.endsWith(u8, base_dir, "/sa_std")) return true;
+    }
+    if (resolve_ctx) |ctx| {
+        if (ctx.options.std_root) |std_root| {
+            if (std.mem.eql(u8, base_dir, std_root)) return true;
+            if (std.mem.startsWith(u8, base_dir, std_root) and base_dir.len > std_root.len and std.fs.path.isSep(base_dir[std_root.len])) return true;
+        }
+    }
+    return false;
+}
+
+fn cloneCachedImport(allocator: std.mem.Allocator, cached: ImportSourceCacheEntry) !pkg_resolver.ResolvedImport {
+    const source = try allocator.dupe(u8, cached.source);
+    errdefer allocator.free(source);
+    const entry_path = try allocator.dupe(u8, cached.entry_path);
+    errdefer allocator.free(entry_path);
+    const root_dir = if (cached.root_dir) |dir| try allocator.dupe(u8, dir) else null;
+    errdefer if (root_dir) |dir| allocator.free(dir);
+    const package_identity = if (cached.package_identity) |identity| try allocator.dupe(u8, identity) else null;
+    errdefer if (package_identity) |identity| allocator.free(identity);
+
+    return .{
+        .entry_path = entry_path,
+        .source = source,
+        .owned_source = source,
+        .root_dir = root_dir,
+        .package_identity = package_identity,
+        .source_sha256 = cached.source_sha256,
+        .is_global = cached.is_global,
+    };
+}
+
+fn freeImportSourceCacheEntry(entry: ImportSourceCacheEntry) void {
+    const cache_allocator = std.heap.page_allocator;
+    cache_allocator.free(entry.entry_path);
+    if (entry.root_dir) |root_dir| cache_allocator.free(root_dir);
+    if (entry.package_identity) |package_identity| cache_allocator.free(package_identity);
+    cache_allocator.free(entry.source);
+}
+
+fn statImportSourceCacheEntry(path: []const u8) !struct { mtime: i128, size: u64 } {
+    const stat = try std.fs.cwd().statFile(path);
+    return .{ .mtime = stat.mtime, .size = stat.size };
+}
+
+fn cachedImportStillValid(entry: ImportSourceCacheEntry) bool {
+    const stat = statImportSourceCacheEntry(entry.entry_path) catch return false;
+    return stat.mtime == entry.mtime and stat.size == entry.size;
+}
+
+fn storeImportSourceCacheEntry(key: []const u8, resolved: pkg_resolver.ResolvedImport) !void {
+    const stat = try statImportSourceCacheEntry(resolved.entry_path);
+    const cache_allocator = std.heap.page_allocator;
+    const cache_key = try cache_allocator.dupe(u8, key);
+    errdefer cache_allocator.free(cache_key);
+    const entry_path = try cache_allocator.dupe(u8, resolved.entry_path);
+    errdefer cache_allocator.free(entry_path);
+    const source = try cache_allocator.dupe(u8, resolved.source);
+    errdefer cache_allocator.free(source);
+    const root_dir = if (resolved.root_dir) |dir| try cache_allocator.dupe(u8, dir) else null;
+    errdefer if (root_dir) |dir| cache_allocator.free(dir);
+    const package_identity = if (resolved.package_identity) |identity| try cache_allocator.dupe(u8, identity) else null;
+    errdefer if (package_identity) |identity| cache_allocator.free(identity);
+
+    import_source_cache_mutex.lock();
+    defer import_source_cache_mutex.unlock();
+    var cache = importSourceCacheMap();
+    if (cache.contains(key)) {
+        cache_allocator.free(cache_key);
+        cache_allocator.free(entry_path);
+        cache_allocator.free(source);
+        if (root_dir) |dir| cache_allocator.free(dir);
+        if (package_identity) |identity| cache_allocator.free(identity);
+        return;
+    }
+    try cache.put(cache_key, .{
+        .entry_path = entry_path,
+        .root_dir = root_dir,
+        .package_identity = package_identity,
+        .source_sha256 = resolved.source_sha256,
+        .source = source,
+        .mtime = stat.mtime,
+        .size = stat.size,
+        .is_global = resolved.is_global,
+    });
+}
+
 pub const FlattenResult = struct {
     instructions: []Instruction,
     const_decls: []ConstDecl,
@@ -2698,10 +2846,42 @@ fn readImportFile(
     import_path: []const u8,
     resolve_ctx: ?ResolveContext,
 ) !pkg_resolver.ResolvedImport {
+    const use_cache = isStdImportCacheCandidate(base_dir, import_path, resolve_ctx);
+    if (!use_cache) {
+        const deps = if (resolve_ctx) |ctx| ctx.dependencies else &.{};
+        var options: pkg_resolver.ResolveOptions = .{};
+        if (resolve_ctx) |ctx| options = ctx.options;
+        return try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
+    }
+
+    const cache_key = try buildImportSourceCacheKey(allocator, base_dir, import_path, resolve_ctx);
+    defer allocator.free(cache_key);
+
+    import_source_cache_mutex.lock();
+    if (import_source_cache) |*cache| {
+        if (cache.get(cache_key)) |cached| {
+            if (cachedImportStillValid(cached)) {
+                const cloned = cloneCachedImport(allocator, cached) catch |err| {
+                    import_source_cache_mutex.unlock();
+                    return err;
+                };
+                import_source_cache_mutex.unlock();
+                return cloned;
+            }
+            if (cache.fetchRemove(cache_key)) |removed| {
+                std.heap.page_allocator.free(removed.key);
+                freeImportSourceCacheEntry(removed.value);
+            }
+        }
+    }
+    import_source_cache_mutex.unlock();
+
     const deps = if (resolve_ctx) |ctx| ctx.dependencies else &.{};
     var options: pkg_resolver.ResolveOptions = .{};
     if (resolve_ctx) |ctx| options = ctx.options;
-    return try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
+    const resolved = try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
+    storeImportSourceCacheEntry(cache_key, resolved) catch {};
+    return resolved;
 }
 
 fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {

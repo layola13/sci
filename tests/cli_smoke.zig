@@ -103,6 +103,31 @@ fn cachedFunctionManifestCount(dir: std.fs.Dir) !usize {
     return count;
 }
 
+fn singleCacheEntryName(allocator: std.mem.Allocator, dir: std.fs.Dir, rel_path: []const u8) ![]u8 {
+    var cache_root = try dir.openDir(rel_path, .{ .iterate = true });
+    defer cache_root.close();
+    var cache_iter = cache_root.iterate();
+    var found: ?[]u8 = null;
+    errdefer if (found) |name| allocator.free(name);
+    while (try cache_iter.next()) |entry| {
+        if (entry.kind != .directory) continue;
+        if (found != null) return error.TestUnexpectedResult;
+        found = try allocator.dupe(u8, entry.name);
+    }
+    return found orelse error.FileNotFound;
+}
+
+fn cacheEntryCount(dir: std.fs.Dir, rel_path: []const u8) !usize {
+    var cache_root = try dir.openDir(rel_path, .{ .iterate = true });
+    defer cache_root.close();
+    var cache_iter = cache_root.iterate();
+    var count: usize = 0;
+    while (try cache_iter.next()) |entry| {
+        if (entry.kind == .directory) count += 1;
+    }
+    return count;
+}
+
 fn writeManifestForPackage(
     dir: std.fs.Dir,
     project_root: []const u8,
@@ -720,6 +745,90 @@ test "cli build project cache is default and can be disabled" {
     const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--no-incremental") != null);
+}
+
+test "cli cache clean removes invalid project cache entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const good_key = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const incomplete_key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ good_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/output.bin", "exe");
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ incomplete_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ incomplete_key ++ "/artifact.sa.bc", "bc");
+    try tmp.dir.makePath(".sa_cache/test/not-a-hex-key");
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const clean_argv = [_][]const u8{ "sa", "cache", "clean", "--max-age-days", "0" };
+    const clean_code = try saasm.cli.executeWithWriters(std.testing.allocator, clean_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), clean_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache clean: scanned=3 removed=2 kept=1"));
+
+    try tmp.dir.access(".sa_cache/build-exe/" ++ good_key ++ "/output.bin", .{});
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/build-exe/" ++ incomplete_key, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/test/not-a-hex-key", .{}));
+
+    stdout_buf.clearRetainingCapacity();
+    const help_argv = [_][]const u8{ "sa", "cache", "clean", "--help" };
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), help_code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--max-age-days") != null);
+}
+
+test "sa test compile-only reuses and repairs project test cache" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source =
+        \\@test "cached test compile"():
+        \\L_ENTRY:
+        \\    return
+    ;
+    try writeSource(tmp.dir, "cached_test.sa", source);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const test_argv = [_][]const u8{ "sa", "test", "cached_test.sa", "--compile-only", "--jobs", "1" };
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
+
+    const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/test");
+    defer std.testing.allocator.free(cache_key);
+    const cached_output = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/test/{s}/output.bin", .{cache_key});
+    defer std.testing.allocator.free(cached_output);
+    try tmp.dir.deleteFile(cached_output);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
+    try tmp.dir.access(cached_output, .{});
 }
 
 test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {

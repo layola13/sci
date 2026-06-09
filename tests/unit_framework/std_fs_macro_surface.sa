@@ -7,6 +7,17 @@
 @const FS_TEST_RENAMED_PATH = utf8:"_tmp_fs_macro_surface_renamed.txt"
 @const FS_TEST_LINK_PATH = utf8:"_tmp_fs_macro_surface_link.txt"
 @const FS_TEST_SYMLINK_PATH = utf8:"_tmp_fs_macro_surface_symlink.txt"
+@const FS_HARD_PATH = utf8:"_tmp_fs_macro_hard_a.txt"
+@const FS_HARD_LINK_PATH = utf8:"_tmp_fs_macro_hard_link.txt"
+@const FS_SYMLINK_SRC_PATH = utf8:"_tmp_fs_macro_symb_a.txt"
+@const FS_SYMLINK_LINK_PATH = utf8:"_tmp_fs_macro_symb_link.txt"
+@const FS_CANON_PATH = utf8:"_tmp_fs_macro_cano_a.txt"
+@const FS_META_PATH = utf8:"_tmp_fs_macro_meta_a.txt"
+@const FS_META_COPY_PATH = utf8:"_tmp_fs_macro_meta_copy.txt"
+@const FS_META_RENAMED_PATH = utf8:"_tmp_fs_macro_meta_renamed.txt"
+@const FS_META_DIR = utf8:"_tmp_fs_macro_meta_dir"
+@const FS_META_CREATE_DIR = utf8:"_tmp_fs_macro_meta_create_dir"
+@const FS_EXISTS_PATH = utf8:"_tmp_fs_macro_exists.txt"
 @const FS_TEST_DIR = utf8:"_tmp_fs_macro_surface_dir"
 @const FS_TEST_CREATE_DIR = utf8:"_tmp_fs_macro_surface_create_dir"
 @const FS_TEST_REMOVE_ALL_DIR = utf8:"_tmp_fs_macro_surface_remove_all"
@@ -76,6 +87,17 @@
 #def FS_TEST_RENAMED_PATH_LEN = 33
 #def FS_TEST_LINK_PATH_LEN = 30
 #def FS_TEST_SYMLINK_PATH_LEN = 33
+#def FS_HARD_PATH_LEN = 24
+#def FS_HARD_LINK_PATH_LEN = 27
+#def FS_SYMLINK_SRC_PATH_LEN = 24
+#def FS_SYMLINK_LINK_PATH_LEN = 27
+#def FS_CANON_PATH_LEN = 24
+#def FS_META_PATH_LEN = 24
+#def FS_META_COPY_PATH_LEN = 27
+#def FS_META_RENAMED_PATH_LEN = 30
+#def FS_META_DIR_LEN = 22
+#def FS_META_CREATE_DIR_LEN = 29
+#def FS_EXISTS_PATH_LEN = 24
 #def FS_TEST_DIR_LEN = 25
 #def FS_TEST_CREATE_DIR_LEN = 32
 #def FS_TEST_REMOVE_ALL_DIR_LEN = 32
@@ -417,15 +439,15 @@ L_OK:
 
 @test "sa_std fs hard link macro surface"():
 L_ENTRY:
-    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
-    EXPAND FS_REMOVE_PATH cleanup_link_status, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_HARD_PATH, FS_HARD_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_link_status, FS_HARD_LINK_PATH, FS_HARD_LINK_PATH_LEN
 
-    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
-    EXPAND FS_HARD_LINK link_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
-    EXPAND FS_EXISTS link_exists, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
-    EXPAND FS_LEN link_len_status, link_len, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
-    EXPAND FS_REMOVE_FILE remove_link_status, FS_TEST_LINK_PATH, FS_TEST_LINK_PATH_LEN
-    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FS_HARD_PATH, FS_HARD_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_HARD_LINK link_status, FS_HARD_PATH, FS_HARD_PATH_LEN, FS_HARD_LINK_PATH, FS_HARD_LINK_PATH_LEN
+    EXPAND FS_EXISTS link_exists, FS_HARD_LINK_PATH, FS_HARD_LINK_PATH_LEN
+    EXPAND FS_LEN link_len_status, link_len, FS_HARD_LINK_PATH, FS_HARD_LINK_PATH_LEN
+    EXPAND FS_REMOVE_FILE remove_link_status, FS_HARD_LINK_PATH, FS_HARD_LINK_PATH_LEN
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_HARD_PATH, FS_HARD_PATH_LEN
 
     write_ok = eq write_status, SA_FS_OK
     link_ok = eq link_status, SA_FS_OK
@@ -506,25 +528,25 @@ L_PASS:
 
 @test "sa_std fs symlink and read_link macro surface"():
 L_ENTRY:
-    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
-    EXPAND FS_REMOVE_PATH cleanup_symlink_status, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_SYMLINK_SRC_PATH, FS_SYMLINK_SRC_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_symlink_status, FS_SYMLINK_LINK_PATH, FS_SYMLINK_LINK_PATH_LEN
 
-    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
-    EXPAND FS_SYMLINK symlink_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
-    EXPAND FS_READ_LINK read_link_status, read_link_buffer, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FS_SYMLINK_SRC_PATH, FS_SYMLINK_SRC_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_SYMLINK symlink_status, FS_SYMLINK_SRC_PATH, FS_SYMLINK_SRC_PATH_LEN, FS_SYMLINK_LINK_PATH, FS_SYMLINK_LINK_PATH_LEN
+    EXPAND FS_READ_LINK read_link_status, read_link_buffer, FS_SYMLINK_LINK_PATH, FS_SYMLINK_LINK_PATH_LEN
     EXPAND FS_READ_BUFFER_DATA read_link_data, read_link_buffer
     EXPAND FS_READ_BUFFER_LEN read_link_len, read_link_buffer
     EXPAND STR_FROM_PARTS read_link_view, read_link_data, read_link_len
-    EXPAND STR_FROM_PARTS target_view, &FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND STR_FROM_PARTS target_view, &FS_SYMLINK_SRC_PATH, FS_SYMLINK_SRC_PATH_LEN
     EXPAND STR_EQ read_link_eq, read_link_view, target_view
     EXPAND FS_READ_BUFFER_FREE read_link_free_status, read_link_buffer
-    EXPAND FS_REMOVE_FILE remove_symlink_status, FS_TEST_SYMLINK_PATH, FS_TEST_SYMLINK_PATH_LEN
-    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_FILE remove_symlink_status, FS_SYMLINK_LINK_PATH, FS_SYMLINK_LINK_PATH_LEN
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_SYMLINK_SRC_PATH, FS_SYMLINK_SRC_PATH_LEN
 
     write_ok = eq write_status, SA_FS_OK
     symlink_ok = eq symlink_status, SA_FS_OK
     read_link_ok = eq read_link_status, SA_FS_OK
-    read_link_len_ok = eq read_link_len, FS_TEST_PATH_LEN
+    read_link_len_ok = eq read_link_len, FS_SYMLINK_SRC_PATH_LEN
     read_link_eq_ok = eq read_link_eq, 1
     read_link_free_ok = eq read_link_free_status, SA_FS_OK
     remove_symlink_ok = eq remove_symlink_status, SA_FS_OK
@@ -547,7 +569,7 @@ L_FAIL:
     call @sa_assert_eq_i64(write_status, SA_FS_OK, 944)
     call @sa_assert_eq_i64(symlink_status, SA_FS_OK, 944)
     call @sa_assert_eq_i64(read_link_status, SA_FS_OK, 944)
-    call @sa_assert_eq_i64(read_link_len, FS_TEST_PATH_LEN, 944)
+    call @sa_assert_eq_i64(read_link_len, FS_SYMLINK_SRC_PATH_LEN, 944)
     call @sa_assert_eq_i64(read_link_eq, 1, 944)
     call @sa_assert_eq_i64(read_link_free_status, SA_FS_OK, 944)
     call @sa_assert_eq_i64(remove_symlink_status, SA_FS_OK, 944)
@@ -615,13 +637,13 @@ L_PASS:
 
 @test "sa_std fs canonicalize macro surface"():
 L_ENTRY:
-    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_CANON_PATH, FS_CANON_PATH_LEN
 
-    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
-    EXPAND FS_CANONICALIZE canon_status, canon_buffer, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FS_CANON_PATH, FS_CANON_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_CANONICALIZE canon_status, canon_buffer, FS_CANON_PATH, FS_CANON_PATH_LEN
     EXPAND FS_READ_BUFFER_LEN canon_len, canon_buffer
     EXPAND FS_READ_BUFFER_FREE canon_free_status, canon_buffer
-    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_CANON_PATH, FS_CANON_PATH_LEN
 
     write_ok = eq write_status, SA_FS_OK
     canon_ok = eq canon_status, SA_FS_OK
@@ -682,14 +704,14 @@ L_PASS:
 
 @test "sa_std fs metadata copy dir macro surface"():
 L_ENTRY:
-    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
-    EXPAND FS_REMOVE_PATH cleanup_copy_status, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN
-    EXPAND FS_REMOVE_PATH cleanup_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
-    EXPAND FS_REMOVE_PATH cleanup_dir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
-    EXPAND FS_REMOVE_PATH cleanup_create_dir_status, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_META_PATH, FS_META_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_copy_status, FS_META_COPY_PATH, FS_META_COPY_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_renamed_status, FS_META_RENAMED_PATH, FS_META_RENAMED_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_dir_status, FS_META_DIR, FS_META_DIR_LEN
+    EXPAND FS_REMOVE_PATH cleanup_create_dir_status, FS_META_CREATE_DIR, FS_META_CREATE_DIR_LEN
 
-    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
-    EXPAND FS_READ_FILE read_file_status, read_buffer, FS_TEST_PATH, FS_TEST_PATH_LEN, 64
+    EXPAND FS_WRITE_FILE write_status, FS_META_PATH, FS_META_PATH_LEN, FS_TEST_HEY, FS_TEST_HEY_LEN
+    EXPAND FS_READ_FILE read_file_status, read_buffer, FS_META_PATH, FS_META_PATH_LEN, 64
     EXPAND FS_READ_BUFFER_DATA read_data, read_buffer
     EXPAND FS_READ_BUFFER_LEN read_len, read_buffer
     EXPAND STR_FROM_PARTS read_view, read_data, read_len
@@ -697,7 +719,7 @@ L_ENTRY:
     EXPAND STR_EQ read_eq, read_view, hey_view
     EXPAND FS_READ_BUFFER_FREE read_free_status, read_buffer
 
-    EXPAND FS_READ_FILE_BASE64 b64_status, b64_buffer, FS_TEST_PATH, FS_TEST_PATH_LEN, 64
+    EXPAND FS_READ_FILE_BASE64 b64_status, b64_buffer, FS_META_PATH, FS_META_PATH_LEN, 64
     EXPAND FS_READ_BUFFER_DATA b64_data, b64_buffer
     EXPAND FS_READ_BUFFER_LEN b64_len, b64_buffer
     EXPAND STR_FROM_PARTS b64_view, b64_data, b64_len
@@ -705,30 +727,30 @@ L_ENTRY:
     EXPAND STR_EQ b64_eq, b64_view, b64_expected
     EXPAND FS_READ_BUFFER_FREE b64_free_status, b64_buffer
 
-    EXPAND FS_COPY copy_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN
-    EXPAND FS_RENAME rename_status, FS_TEST_COPY_PATH, FS_TEST_COPY_PATH_LEN, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
-    EXPAND FS_EXISTS renamed_exists, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
-    EXPAND FS_METADATA metadata_status, metadata, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_COPY copy_status, FS_META_PATH, FS_META_PATH_LEN, FS_META_COPY_PATH, FS_META_COPY_PATH_LEN
+    EXPAND FS_RENAME rename_status, FS_META_COPY_PATH, FS_META_COPY_PATH_LEN, FS_META_RENAMED_PATH, FS_META_RENAMED_PATH_LEN
+    EXPAND FS_EXISTS renamed_exists, FS_META_RENAMED_PATH, FS_META_RENAMED_PATH_LEN
+    EXPAND FS_METADATA metadata_status, metadata, FS_META_RENAMED_PATH, FS_META_RENAMED_PATH_LEN
     EXPAND FS_METADATA_IS_FILE metadata_is_file, metadata
     EXPAND FS_METADATA_IS_DIR metadata_is_dir, metadata
     EXPAND FS_METADATA_IS_SYMLINK metadata_is_symlink, metadata
     EXPAND FS_METADATA_MODIFIED_MS metadata_modified_ms, metadata
     EXPAND FS_METADATA_CREATED_MS metadata_created_ms, metadata
     EXPAND FS_METADATA_FREE metadata_free_status, metadata
-    EXPAND FS_METADATA_JSON metadata_json_status, metadata_json, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
+    EXPAND FS_METADATA_JSON metadata_json_status, metadata_json, FS_META_RENAMED_PATH, FS_META_RENAMED_PATH_LEN
     EXPAND FS_READ_BUFFER_LEN metadata_json_len, metadata_json
     EXPAND FS_READ_BUFFER_FREE metadata_json_free_status, metadata_json
 
-    EXPAND FS_CREATE_DIR_ALL mkdir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
-    EXPAND FS_CREATE_DIR create_dir_status, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
-    EXPAND FS_EXISTS create_dir_exists, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
-    EXPAND FS_READ_DIR_JSON dir_status, dir_buffer, FS_TEST_DIR, FS_TEST_DIR_LEN, 16
+    EXPAND FS_CREATE_DIR_ALL mkdir_status, FS_META_DIR, FS_META_DIR_LEN
+    EXPAND FS_CREATE_DIR create_dir_status, FS_META_CREATE_DIR, FS_META_CREATE_DIR_LEN
+    EXPAND FS_EXISTS create_dir_exists, FS_META_CREATE_DIR, FS_META_CREATE_DIR_LEN
+    EXPAND FS_READ_DIR_JSON dir_status, dir_buffer, FS_META_DIR, FS_META_DIR_LEN, 16
     EXPAND FS_DIR_BUFFER_LEN dir_len, dir_buffer
     EXPAND FS_DIR_BUFFER_FREE dir_free_status, dir_buffer
-    EXPAND FS_REMOVE_FILE remove_renamed_status, FS_TEST_RENAMED_PATH, FS_TEST_RENAMED_PATH_LEN
-    EXPAND FS_REMOVE_PATH remove_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
-    EXPAND FS_REMOVE_DIR remove_create_dir_status, FS_TEST_CREATE_DIR, FS_TEST_CREATE_DIR_LEN
-    EXPAND FS_REMOVE_DIR remove_dir_status, FS_TEST_DIR, FS_TEST_DIR_LEN
+    EXPAND FS_REMOVE_FILE remove_renamed_status, FS_META_RENAMED_PATH, FS_META_RENAMED_PATH_LEN
+    EXPAND FS_REMOVE_PATH remove_path_status, FS_META_PATH, FS_META_PATH_LEN
+    EXPAND FS_REMOVE_DIR remove_create_dir_status, FS_META_CREATE_DIR, FS_META_CREATE_DIR_LEN
+    EXPAND FS_REMOVE_DIR remove_dir_status, FS_META_DIR, FS_META_DIR_LEN
 
     write_ok = eq write_status, SA_FS_OK
     read_file_ok = eq read_file_status, SA_FS_OK
@@ -1168,11 +1190,11 @@ L_OK:
 
 @test "sa_std fs try_exists macro surface"():
 L_ENTRY:
-    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_TEST_PATH, FS_TEST_PATH_LEN
-    EXPAND FS_TRY_EXISTS missing_status, missing_exists, FS_TEST_PATH, FS_TEST_PATH_LEN
-    EXPAND FS_WRITE_FILE write_status, FS_TEST_PATH, FS_TEST_PATH_LEN, FS_TEST_HELLO, FS_TEST_HELLO_LEN
-    EXPAND FS_TRY_EXISTS present_status, present_exists, FS_TEST_PATH, FS_TEST_PATH_LEN
-    EXPAND FS_REMOVE_PATH cleanup_end_status, FS_TEST_PATH, FS_TEST_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_path_status, FS_EXISTS_PATH, FS_EXISTS_PATH_LEN
+    EXPAND FS_TRY_EXISTS missing_status, missing_exists, FS_EXISTS_PATH, FS_EXISTS_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FS_EXISTS_PATH, FS_EXISTS_PATH_LEN, FS_TEST_HELLO, FS_TEST_HELLO_LEN
+    EXPAND FS_TRY_EXISTS present_status, present_exists, FS_EXISTS_PATH, FS_EXISTS_PATH_LEN
+    EXPAND FS_REMOVE_PATH cleanup_end_status, FS_EXISTS_PATH, FS_EXISTS_PATH_LEN
 
     missing_status_ok = eq missing_status, SA_FS_OK
     missing_value_ok = eq missing_exists, 0

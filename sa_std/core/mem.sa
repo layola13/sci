@@ -1,5 +1,22 @@
 @export sa_mem_copy(&dst: ptr, &src: ptr, count: u64) -> void:
 L_ENTRY:
+    nonzero = ne count, 0
+    br nonzero -> L_CHECK_DST, L_COPY_INIT
+L_CHECK_DST:
+    dst_null = eq dst, 0
+    br dst_null -> L_NULL_DST, L_CHECK_SRC
+L_NULL_DST:
+    panic(1701)
+L_CHECK_SRC:
+    src_null = eq src, 0
+    br src_null -> L_NULL_SRC, L_COPY_INIT_FROM_CHECK
+L_NULL_SRC:
+    panic(1702)
+L_COPY_INIT_FROM_CHECK:
+    !src_null
+    !dst_null
+    jmp L_COPY_INIT
+L_COPY_INIT:
     zero_slot = stack_alloc 8
     one_slot = stack_alloc 8
     offset_slot = stack_alloc 8
@@ -40,6 +57,7 @@ L_END:
     !remaining
     !one
     !zero
+    !nonzero
     !count
     !src
     !dst

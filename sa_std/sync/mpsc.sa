@@ -2,6 +2,7 @@
 // Payloads are raw u64 bits; callers cast at the boundary explicitly.
 @import "mpsc.sal"
 @import "../core/mem.sa"
+@import "../num.sa"
 @import "../time.sai"
 
 @__mpsc_try_send(&chan: ptr, &value_slot: ptr) -> i32:
@@ -9,13 +10,24 @@ L_ENTRY:
     cap = atomic_load chan+Mpsc_cap as u64 acquire
     head = atomic_load chan+Mpsc_head as u64 acquire
     tail = atomic_load chan+Mpsc_tail as u64 acquire
+    tail_ok = uge tail, head
+    br tail_ok -> L_MPSC_TRY_SEND_USED_OK, L_MPSC_TRY_SEND_CORRUPT
+
+L_MPSC_TRY_SEND_CORRUPT:
+    used = add cap, 0
+    jmp L_MPSC_TRY_SEND_CHECK_FULL
+
+L_MPSC_TRY_SEND_USED_OK:
     used = sub tail, head
+
+L_MPSC_TRY_SEND_CHECK_FULL:
     full = uge used, cap
     br full -> L_MPSC_TRY_SEND_FULL, L_MPSC_TRY_SEND_RESERVE
 
 L_MPSC_TRY_SEND_FULL:
     !full
     !used
+    !tail_ok
     !tail
     !head
     !cap
@@ -32,6 +44,7 @@ L_MPSC_TRY_SEND_RETRY:
     !next_tail
     !full
     !used
+    !tail_ok
     !tail
     !head
     !cap
@@ -55,6 +68,7 @@ L_MPSC_TRY_SEND_COMMIT:
     !next_tail
     !full
     !used
+    !tail_ok
     !tail
     !head
     !cap
@@ -120,14 +134,24 @@ L_MPSC_TRY_RECV_COMMIT:
     // when the cap is a constant and the whole control-flow diamond folds.
     __mpsc_cap_is_zero_%out_chan = eq %cap, 0
     __mpsc_cap_%out_chan = add %cap, __mpsc_cap_is_zero_%out_chan
-    __mpsc_data_bytes_%out_chan = mul __mpsc_cap_%out_chan, Mpsc_SLOT_SIZE
-    __mpsc_total_bytes_%out_chan = add Mpsc_data, __mpsc_data_bytes_%out_chan
+    EXPAND NUM_U64_CHECKED_MUL __mpsc_data_ok_%out_chan, __mpsc_data_bytes_%out_chan, __mpsc_cap_%out_chan, Mpsc_SLOT_SIZE
+    br __mpsc_data_ok_%out_chan -> L_MPSC_NEW_DATA_OK_%out_chan, L_MPSC_NEW_DATA_OVERFLOW_%out_chan
+L_MPSC_NEW_DATA_OVERFLOW_%out_chan:
+    panic(1401)
+L_MPSC_NEW_DATA_OK_%out_chan:
+    EXPAND NUM_U64_CHECKED_ADD __mpsc_total_ok_%out_chan, __mpsc_total_bytes_%out_chan, Mpsc_data, __mpsc_data_bytes_%out_chan
+    br __mpsc_total_ok_%out_chan -> L_MPSC_NEW_ALLOC_%out_chan, L_MPSC_NEW_TOTAL_OVERFLOW_%out_chan
+L_MPSC_NEW_TOTAL_OVERFLOW_%out_chan:
+    panic(1402)
+L_MPSC_NEW_ALLOC_%out_chan:
     %out_chan = alloc __mpsc_total_bytes_%out_chan
     call @sa_mem_set(&%out_chan, 0, __mpsc_total_bytes_%out_chan)
     store %out_chan+Mpsc_cap, __mpsc_cap_%out_chan as u64
     store %out_chan+Mpsc_head, 0 as u64
     store %out_chan+Mpsc_tail, 0 as u64
+    !__mpsc_total_ok_%out_chan
     !__mpsc_total_bytes_%out_chan
+    !__mpsc_data_ok_%out_chan
     !__mpsc_data_bytes_%out_chan
     !__mpsc_cap_%out_chan
     !__mpsc_cap_is_zero_%out_chan
@@ -144,7 +168,16 @@ L_MPSC_TRY_RECV_COMMIT:
 [MACRO] MPSC_LEN %out_len, %chan
     __mpsc_len_head_%out_len = atomic_load %chan+Mpsc_head as u64 acquire
     __mpsc_len_tail_%out_len = atomic_load %chan+Mpsc_tail as u64 acquire
+    __mpsc_len_order_ok_%out_len = uge __mpsc_len_tail_%out_len, __mpsc_len_head_%out_len
+    br __mpsc_len_order_ok_%out_len -> L_MPSC_LEN_OK_%out_len, L_MPSC_LEN_CORRUPT_%out_len
+L_MPSC_LEN_OK_%out_len:
     %out_len = sub __mpsc_len_tail_%out_len, __mpsc_len_head_%out_len
+    !__mpsc_len_order_ok_%out_len
+    jmp L_MPSC_LEN_DONE_%out_len
+L_MPSC_LEN_CORRUPT_%out_len:
+    %out_len = add 0, 0
+    !__mpsc_len_order_ok_%out_len
+L_MPSC_LEN_DONE_%out_len:
     !__mpsc_len_tail_%out_len
     !__mpsc_len_head_%out_len
 [END_MACRO]
@@ -153,9 +186,17 @@ L_MPSC_TRY_RECV_COMMIT:
     __mpsc_avail_cap_%out_slots = atomic_load %chan+Mpsc_cap as u64 acquire
     __mpsc_avail_head_%out_slots = atomic_load %chan+Mpsc_head as u64 acquire
     __mpsc_avail_tail_%out_slots = atomic_load %chan+Mpsc_tail as u64 acquire
+    __mpsc_avail_order_ok_%out_slots = uge __mpsc_avail_tail_%out_slots, __mpsc_avail_head_%out_slots
+    br __mpsc_avail_order_ok_%out_slots -> L_MPSC_AVAIL_USED_OK_%out_slots, L_MPSC_AVAIL_CORRUPT_%out_slots
+L_MPSC_AVAIL_USED_OK_%out_slots:
     __mpsc_avail_used_%out_slots = sub __mpsc_avail_tail_%out_slots, __mpsc_avail_head_%out_slots
+    jmp L_MPSC_AVAIL_CALC_%out_slots
+L_MPSC_AVAIL_CORRUPT_%out_slots:
+    __mpsc_avail_used_%out_slots = add __mpsc_avail_cap_%out_slots, 0
+L_MPSC_AVAIL_CALC_%out_slots:
     %out_slots = sub __mpsc_avail_cap_%out_slots, __mpsc_avail_used_%out_slots
     !__mpsc_avail_used_%out_slots
+    !__mpsc_avail_order_ok_%out_slots
     !__mpsc_avail_tail_%out_slots
     !__mpsc_avail_head_%out_slots
     !__mpsc_avail_cap_%out_slots
@@ -173,9 +214,17 @@ L_MPSC_TRY_RECV_COMMIT:
     __mpsc_full_cap_%out_bool = atomic_load %chan+Mpsc_cap as u64 acquire
     __mpsc_full_head_%out_bool = atomic_load %chan+Mpsc_head as u64 acquire
     __mpsc_full_tail_%out_bool = atomic_load %chan+Mpsc_tail as u64 acquire
+    __mpsc_full_order_ok_%out_bool = uge __mpsc_full_tail_%out_bool, __mpsc_full_head_%out_bool
+    br __mpsc_full_order_ok_%out_bool -> L_MPSC_FULL_USED_OK_%out_bool, L_MPSC_FULL_CORRUPT_%out_bool
+L_MPSC_FULL_USED_OK_%out_bool:
     __mpsc_full_used_%out_bool = sub __mpsc_full_tail_%out_bool, __mpsc_full_head_%out_bool
+    jmp L_MPSC_FULL_CALC_%out_bool
+L_MPSC_FULL_CORRUPT_%out_bool:
+    __mpsc_full_used_%out_bool = add __mpsc_full_cap_%out_bool, 0
+L_MPSC_FULL_CALC_%out_bool:
     %out_bool = uge __mpsc_full_used_%out_bool, __mpsc_full_cap_%out_bool
     !__mpsc_full_used_%out_bool
+    !__mpsc_full_order_ok_%out_bool
     !__mpsc_full_tail_%out_bool
     !__mpsc_full_head_%out_bool
     !__mpsc_full_cap_%out_bool
