@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99993%
+Current progress: 99.99994%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added field-level mutable borrow checks for issue5 FUNC-2.
+  - Extended verifier interior-pointer state with root object and static byte-offset metadata, including label snapshot/restore handling so branch joins preserve field identity.
+  - Mutable borrow conflict checks now allow simultaneous borrows of distinct known static offsets from the same root while preserving conflicts for identical offsets, unknown offsets, and whole-object borrows.
+  - Offset accumulation now uses checked arithmetic and falls back to conservative unknown-offset behavior on overflow.
+  - Verification: `zig test src/verifier.zig` -> `133/133 tests passed`; `zig test src/cli.zig` -> `67/67 tests passed`; `zig build smoke --summary all` -> `15/15 tests passed`.
 
 - 2026-06-09: Verified local plugin artifact hashes before runtime loading for issue5 SEC-2.
   - Parsed selected `sap.json` artifact sha256 into `SapManifest` and preserved backward compatibility for manifests that omit artifact hashes.

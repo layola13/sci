@@ -313,6 +313,9 @@ const InteriorContext = struct {
     interior_parent: []?u32,
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
+    interior_root: []?u32,
+    interior_offset: []u64,
+    interior_offset_known: []bool,
 };
 
 const LabelStateChange = struct {
@@ -324,6 +327,9 @@ const LabelStateChange = struct {
     interior_parent: ?u32 = null,
     interior_first_child: ?u32 = null,
     interior_next_sibling: ?u32 = null,
+    interior_root: ?u32 = null,
+    interior_offset: ?u64 = null,
+    interior_offset_known: ?bool = null,
 };
 
 const LabelSnapshot = struct {
@@ -657,6 +663,9 @@ fn captureLabelSnapshot(
     interior_parent: []const ?u32,
     interior_first_child: []const ?u32,
     interior_next_sibling: []const ?u32,
+    interior_root: []const ?u32,
+    interior_offset: []const u64,
+    interior_offset_known: []const bool,
 ) !LabelSnapshot {
     var changes = std.ArrayList(LabelStateChange).init(allocator);
     errdefer changes.deinit();
@@ -668,7 +677,9 @@ fn captureLabelSnapshot(
         const parent = interior_parent[idx];
         const first_child = interior_first_child[idx];
         const next_sibling = interior_next_sibling[idx];
-        const changed = mask != 0 or origin != null or lock != 0 or flag != 0 or parent != null or first_child != null or next_sibling != null;
+        const root = interior_root[idx];
+        const offset_known = interior_offset_known[idx];
+        const changed = mask != 0 or origin != null or lock != 0 or flag != 0 or parent != null or first_child != null or next_sibling != null or root != null or offset_known;
         if (!changed) continue;
         try changes.append(.{
             .reg = @intCast(idx),
@@ -679,6 +690,9 @@ fn captureLabelSnapshot(
             .interior_parent = parent,
             .interior_first_child = first_child,
             .interior_next_sibling = next_sibling,
+            .interior_root = root,
+            .interior_offset = if (offset_known) interior_offset[idx] else null,
+            .interior_offset_known = if (offset_known) true else null,
         });
     }
 
@@ -694,6 +708,9 @@ fn restoreLabelSnapshot(
     interior_parent: []?u32,
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
+    interior_root: []?u32,
+    interior_offset: []u64,
+    interior_offset_known: []bool,
 ) void {
     @memset(state, 0);
     @memset(origins, null);
@@ -702,6 +719,9 @@ fn restoreLabelSnapshot(
     @memset(interior_parent, null);
     @memset(interior_first_child, null);
     @memset(interior_next_sibling, null);
+    @memset(interior_root, null);
+    @memset(interior_offset, 0);
+    @memset(interior_offset_known, false);
 
     for (snapshot.changes) |change| {
         const idx: usize = @intCast(change.reg);
@@ -712,6 +732,9 @@ fn restoreLabelSnapshot(
         if (change.interior_parent) |value| interior_parent[idx] = value;
         if (change.interior_first_child) |value| interior_first_child[idx] = value;
         if (change.interior_next_sibling) |value| interior_next_sibling[idx] = value;
+        if (change.interior_root) |value| interior_root[idx] = value;
+        if (change.interior_offset) |value| interior_offset[idx] = value;
+        if (change.interior_offset_known) |value| interior_offset_known[idx] = value;
     }
 }
 
@@ -950,6 +973,70 @@ fn attachInteriorChild(
     interior_parent[child_idx] = parent_id;
     interior_next_sibling[child_idx] = interior_first_child[parent_idx];
     interior_first_child[parent_idx] = child_id;
+}
+
+fn clearInteriorOffsetMeta(interior: *InteriorContext, id: u32) void {
+    const idx: usize = @intCast(id);
+    if (idx >= interior.interior_root.len) return;
+    interior.interior_root[idx] = null;
+    interior.interior_offset[idx] = 0;
+    interior.interior_offset_known[idx] = false;
+}
+
+fn staticByteOffset(operand: inst.Operand) ?u64 {
+    return switch (operand) {
+        .imm_u64 => |value| value,
+        .imm_i64 => |value| if (value >= 0) @as(u64, @intCast(value)) else null,
+        else => null,
+    };
+}
+
+fn setInteriorOffsetFromBase(interior: *InteriorContext, base_id: u32, child_id: u32, maybe_offset: ?u64) void {
+    const base_idx: usize = @intCast(base_id);
+    const child_idx: usize = @intCast(child_id);
+    if (child_idx >= interior.interior_root.len or base_idx >= interior.interior_root.len) return;
+
+    const root = interior.interior_root[base_idx] orelse base_id;
+    interior.interior_root[child_idx] = root;
+    if (maybe_offset) |offset| {
+        if (interior.interior_offset_known[base_idx]) {
+            const sum = @addWithOverflow(interior.interior_offset[base_idx], offset);
+            if (sum[1] != 0) {
+                interior.interior_offset[child_idx] = 0;
+                interior.interior_offset_known[child_idx] = false;
+                return;
+            }
+            interior.interior_offset[child_idx] = sum[0];
+        } else {
+            interior.interior_offset[child_idx] = offset;
+        }
+        interior.interior_offset_known[child_idx] = true;
+    } else {
+        interior.interior_offset[child_idx] = 0;
+        interior.interior_offset_known[child_idx] = false;
+    }
+}
+
+fn sameInteriorField(interior: *const InteriorContext, lhs: u32, rhs: u32) bool {
+    const lhs_idx: usize = @intCast(lhs);
+    const rhs_idx: usize = @intCast(rhs);
+    if (lhs_idx >= interior.interior_root.len or rhs_idx >= interior.interior_root.len) return true;
+    const lhs_root = interior.interior_root[lhs_idx] orelse lhs;
+    const rhs_root = interior.interior_root[rhs_idx] orelse rhs;
+    if (lhs_root != rhs_root) return false;
+    if (!interior.interior_offset_known[lhs_idx] or !interior.interior_offset_known[rhs_idx]) return true;
+    return interior.interior_offset[lhs_idx] == interior.interior_offset[rhs_idx];
+}
+
+fn hasOverlappingInteriorBorrow(interior: *const InteriorContext, locks: []const u16, source_id: u32) bool {
+    const source_idx: usize = @intCast(source_id);
+    if (source_idx >= interior.state.len) return true;
+    for (locks, 0..) |lock, idx| {
+        if (idx == source_idx or lock == 0) continue;
+        const other_id: u32 = @intCast(idx);
+        if (sameInteriorField(interior, source_id, other_id)) return true;
+    }
+    return false;
 }
 
 fn clearInteriorNode(
@@ -1855,6 +1942,7 @@ fn assignValueCtx(
     } else {
         clearInteriorNode(interior.state, interior.interior_parent, interior.interior_first_child, interior.interior_next_sibling, id);
     }
+    clearInteriorOffsetMeta(interior, id);
     state[idx] = mask;
     flags[idx] &= ~(regFlagBranchCondition | regFlagEphemeralScalar);
     return null;
@@ -2068,16 +2156,19 @@ fn updateLabel(
     interior_parent: []?u32,
     interior_first_child: []?u32,
     interior_next_sibling: []?u32,
+    interior_root: []?u32,
+    interior_offset: []u64,
+    interior_offset_known: []bool,
     allocator: std.mem.Allocator,
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
 ) ?VerifyBodyResult {
     const label_id = item.operands[1].label;
     if (labels.getPtr(label_id)) |entry| {
-        restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling);
+        restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known);
         return null;
     }
-    var dup = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+    var dup = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     labels.put(label_id, dup) catch {
@@ -2150,6 +2241,9 @@ fn freeVerifierBuffers(
     interior_parent: *[]?u32,
     interior_first_child: *[]?u32,
     interior_next_sibling: *[]?u32,
+    interior_root: *[]?u32,
+    interior_offset: *[]u64,
+    interior_offset_known: *[]bool,
 ) void {
     if (state.*.len != 0) allocator.free(state.*);
     if (flags.*.len != 0) allocator.free(flags.*);
@@ -2158,6 +2252,9 @@ fn freeVerifierBuffers(
     if (interior_parent.*.len != 0) allocator.free(interior_parent.*);
     if (interior_first_child.*.len != 0) allocator.free(interior_first_child.*);
     if (interior_next_sibling.*.len != 0) allocator.free(interior_next_sibling.*);
+    if (interior_root.*.len != 0) allocator.free(interior_root.*);
+    if (interior_offset.*.len != 0) allocator.free(interior_offset.*);
+    if (interior_offset_known.*.len != 0) allocator.free(interior_offset_known.*);
     state.* = &.{};
     flags.* = &.{};
     origins.* = &.{};
@@ -2165,6 +2262,9 @@ fn freeVerifierBuffers(
     interior_parent.* = &.{};
     interior_first_child.* = &.{};
     interior_next_sibling.* = &.{};
+    interior_root.* = &.{};
+    interior_offset.* = &.{};
+    interior_offset_known.* = &.{};
 }
 
 fn verifyBody(
@@ -2188,9 +2288,12 @@ fn verifyBody(
     var interior_parent: []?u32 = &.{};
     var interior_first_child: []?u32 = &.{};
     var interior_next_sibling: []?u32 = &.{};
+    var interior_root: []?u32 = &.{};
+    var interior_offset: []u64 = &.{};
+    var interior_offset_known: []bool = &.{};
     defer {
         if (consumed_in_function.len != 0) allocator.free(consumed_in_function);
-        freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
+        freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling, &interior_root, &interior_offset, &interior_offset_known);
     }
     var current_scope: ?FunctionRegScope = null;
     defer {
@@ -2201,6 +2304,9 @@ fn verifyBody(
         .interior_parent = interior_parent,
         .interior_first_child = interior_first_child,
         .interior_next_sibling = interior_next_sibling,
+        .interior_root = interior_root,
+        .interior_offset = interior_offset,
+        .interior_offset_known = interior_offset_known,
     };
     var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
     defer atomic_history.deinit();
@@ -2264,7 +2370,7 @@ fn verifyBody(
                 allocator.free(consumed_in_function);
                 consumed_in_function = &.{};
             }
-            freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling);
+            freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling, &interior_root, &interior_offset, &interior_offset_known);
 
             if (current_sig) |decl_sig| {
                 var next_scope = try FunctionRegScope.initBorrowed(allocator, decl_sig.reg_ids);
@@ -2287,11 +2393,19 @@ fn verifyBody(
                 @memset(interior_first_child, null);
                 interior_next_sibling = try allocator.alloc(?u32, reg_count);
                 @memset(interior_next_sibling, null);
+                interior_root = try allocator.alloc(?u32, reg_count);
+                @memset(interior_root, null);
+                interior_offset = try zeroed(u64, allocator, reg_count);
+                interior_offset_known = try allocator.alloc(bool, reg_count);
+                @memset(interior_offset_known, false);
                 interior = .{
                     .state = state,
                     .interior_parent = interior_parent,
                     .interior_first_child = interior_first_child,
                     .interior_next_sibling = interior_next_sibling,
+                    .interior_root = interior_root,
+                    .interior_offset = interior_offset,
+                    .interior_offset_known = interior_offset_known,
                 };
                 current_scope = next_scope;
                 computeFunctionConsumedRegs(instructions, inst_idx, &metadata.symbols, &current_scope.?, consumed_in_function);
@@ -2356,7 +2470,7 @@ fn verifyBody(
             if (defined_labels.contains(item.operands[1].label)) {
                 return trapReport(.duplicate_label, item, current_function_text, current_is_ffi_wrapper, null, null, null, "label is already defined", "rename the label or merge the blocks");
             }
-            if (updateLabel(item, &labels, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
+            if (updateLabel(item, &labels, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
                 return tr;
             }
             defined_labels.put(item.operands[1].label, {}) catch {
@@ -2420,6 +2534,7 @@ fn verifyBody(
                 flags[@intCast(item.operands[0].reg)] = if (item.kind == .load and loaded_ty != .ptr) regFlagEphemeralScalar else 0;
                 if (item.kind == .take and ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg))) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
+                    setInteriorOffsetFromBase(&interior, item.operands[1].reg, item.operands[0].reg, staticByteOffset(item.operands[2]));
                 }
             },
             .store => {
@@ -2522,11 +2637,15 @@ fn verifyBody(
                     }
                 }
                 const src_idx: usize = @intCast(item.operands[1].reg);
-                const tracked = (state[src_idx] & (maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
-                const dst_mask: u16 = if (tracked) maskOf(.active) | maskOf(.interior_ptr) else maskOf(.active);
+                const has_field_identity = (state[src_idx] & (maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
+                const has_borrow_lifetime = (state[src_idx] & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg);
+                const dst_mask: u16 = if (has_borrow_lifetime) maskOf(.active) | maskOf(.interior_ptr) else maskOf(.active);
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, dst_mask, &interior)) |tr| return tr;
-                if (tracked) {
+                if (has_borrow_lifetime) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
+                }
+                if (has_field_identity) {
+                    setInteriorOffsetFromBase(&interior, item.operands[1].reg, item.operands[0].reg, staticByteOffset(item.operands[2]));
                 }
                 flags[@intCast(item.operands[0].reg)] = 0;
             },
@@ -2550,6 +2669,9 @@ fn verifyBody(
                     }
                     if ((state[source_idx] & maskOf(.borrow_view)) != 0 or locks[source_idx] != 0) {
                         return trapReport(.read_write_conflict, item, current_function_text, current_is_ffi_wrapper, classified.parts[2], maskOf(.active), state[source_idx], "cannot borrow mut while shared borrows are active", null);
+                    }
+                    if (hasOverlappingInteriorBorrow(&interior, locks, source_reg)) {
+                        return trapReport(.read_write_conflict, item, current_function_text, current_is_ffi_wrapper, classified.parts[2], maskOf(.active), state[source_idx], "cannot borrow mut while overlapping field borrows are active", null);
                     }
                     if ((state[source_idx] & maskOf(.locked_mut)) != 0) {
                         return trapReport(.double_mutable_borrow, item, current_function_text, current_is_ffi_wrapper, classified.parts[2], maskOf(.active), state[source_idx], "cannot borrow mut more than once", null);
@@ -2654,7 +2776,7 @@ fn verifyBody(
                         }
                     }
                 } else {
-                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                     labels.put(target, snapshot) catch {
@@ -2687,7 +2809,7 @@ fn verifyBody(
                             }
                         }
                     } else {
-                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                         labels.put(target, snapshot) catch {
@@ -2722,7 +2844,7 @@ fn verifyBody(
                             }
                         }
                     } else {
-                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling) catch {
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                         labels.put(target, snapshot) catch {
@@ -3998,6 +4120,79 @@ test "borrowed views trap on write when shared" {
     switch (verified) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.read_write_conflict, report.trap),
         .ok => return error.TestUnexpectedResult,
+    }
+}
+
+fn fieldBorrowInstruction(kind: inst.InstKind, source_line: u32, expanded_line: u32, raw_text: []const u8, operands: [4]inst.Operand) inst.Instruction {
+    var item = inst.makeInstruction(kind, source_line, expanded_line, null, raw_text);
+    item.operands = operands;
+    return item;
+}
+
+test "field-level mutable borrows allow distinct static offsets" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 16", .{ .{ .reg = 1 }, .{ .imm_u64 = 16 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 3, 2, "field_a = ptr_add base, 0", .{ .{ .reg = 2 }, .{ .reg = 1 }, .{ .imm_i64 = 0 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 4, 3, "field_b = ptr_add base, 8", .{ .{ .reg = 3 }, .{ .reg = 1 }, .{ .imm_i64 = 8 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 5, 4, "view_a = borrow mut field_a", .{ .{ .reg = 4 }, .{ .text = "mut" }, .{ .reg = 2 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 6, 5, "view_b = borrow mut field_b", .{ .{ .reg = 5 }, .{ .text = "mut" }, .{ .reg = 3 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 7, 6, "!view_b", .{ .{ .reg = 5 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 8, 7, "!view_a", .{ .{ .reg = 4 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 9, 8, "!field_b", .{ .{ .reg = 3 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 10, 9, "!field_a", .{ .{ .reg = 2 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 11, 10, "!base", .{ .{ .reg = 1 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.return_, 12, 11, "return 0", .{ .{ .imm_i64 = 0 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "field-level mutable borrows reject identical static offsets" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 16", .{ .{ .reg = 1 }, .{ .imm_u64 = 16 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 3, 2, "field_a = ptr_add base, 0", .{ .{ .reg = 2 }, .{ .reg = 1 }, .{ .imm_i64 = 0 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 4, 3, "field_b = ptr_add base, 0", .{ .{ .reg = 3 }, .{ .reg = 1 }, .{ .imm_i64 = 0 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 5, 4, "view_a = borrow mut field_a", .{ .{ .reg = 4 }, .{ .text = "mut" }, .{ .reg = 2 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 6, 5, "view_b = borrow mut field_b", .{ .{ .reg = 5 }, .{ .text = "mut" }, .{ .reg = 3 }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.read_write_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "whole-object mutable borrow rejects active field borrow" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 16", .{ .{ .reg = 1 }, .{ .imm_u64 = 16 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 3, 2, "field_a = ptr_add base, 0", .{ .{ .reg = 2 }, .{ .reg = 1 }, .{ .imm_i64 = 0 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 4, 3, "view_a = borrow mut field_a", .{ .{ .reg = 3 }, .{ .text = "mut" }, .{ .reg = 2 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 5, 4, "view_base = borrow mut base", .{ .{ .reg = 4 }, .{ .text = "mut" }, .{ .reg = 1 }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.read_write_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
     }
 }
 
