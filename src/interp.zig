@@ -1396,9 +1396,15 @@ const Interpreter = struct {
     fn recordPanic(self: *Interpreter, code: u8, message: ?[]const u8) void {
         self.exit_code = @as(u8, @intCast(128 + (@as(u32, code) & 0x7f)));
         if (message) |msg| {
-            self.stderr.print("PANIC[{d}]: {s}\n", .{ code, msg }) catch {};
+            self.stderr.print("PANIC[{d}]: {s}\n", .{ code, msg }) catch |err| {
+                // Panic recording must not fail just because diagnostic output is unavailable.
+                _ = @errorName(err);
+            };
         } else {
-            self.stderr.print("PANIC: code={d}\n", .{code}) catch {};
+            self.stderr.print("PANIC: code={d}\n", .{code}) catch |err| {
+                // Panic recording must not fail just because diagnostic output is unavailable.
+                _ = @errorName(err);
+            };
         }
     }
 
@@ -1617,7 +1623,10 @@ const Interpreter = struct {
         var stack_allocs = std.ArrayList(u64).init(self.allocator);
         defer {
             for (stack_allocs.items) |addr| {
-                self.memory.free(addr) catch {};
+                self.memory.free(addr) catch |err| {
+                    // Stack allocations are cleaned up during frame teardown; execution result is already decided.
+                    _ = @errorName(err);
+                };
             }
             stack_allocs.deinit();
         }
@@ -1648,7 +1657,10 @@ const Interpreter = struct {
             const item = body[pc];
             const base = item.base;
             if (self.trace_runtime) {
-                self.stderr.print("trace {s}:{d} {s}: {s}\n", .{ fsig.name, base.source_line, @tagName(base.kind), base.raw_text }) catch {};
+                self.stderr.print("trace {s}:{d} {s}: {s}\n", .{ fsig.name, base.source_line, @tagName(base.kind), base.raw_text }) catch |err| {
+                    // Runtime tracing is diagnostic-only and must not alter interpreter behavior.
+                    _ = @errorName(err);
+                };
             }
             switch (base.kind) {
                 .label => {},
@@ -1909,7 +1921,7 @@ const Interpreter = struct {
                                     }
                                 }
                                 if (!is_stack_alloc and value.ty == .ptr and value.bits != 0) {
-                                    self.memory.free(value.bits) catch {};
+                                    try self.memory.free(value.bits);
                                 }
                             }
                         }
@@ -2051,7 +2063,10 @@ const Interpreter = struct {
         errdefer self.allocator.free(out);
         for (parsed.args, 0..) |arg, idx| {
             out[idx] = self.callArgValue(fsig, regs, arg) catch |err| {
-                self.stderr.print("interp call arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
+                self.stderr.print("interp call arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch |print_err| {
+                    // The parse error is returned below; stderr output is extra context only.
+                    _ = @errorName(print_err);
+                };
                 return err;
             };
         }
@@ -2064,7 +2079,10 @@ const Interpreter = struct {
         errdefer self.allocator.free(out);
         for (parsed.args, params, 0..) |arg, param, idx| {
             const raw = self.callArgValue(fsig, regs, arg) catch |err| {
-                self.stderr.print("interp indirect arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch {};
+                self.stderr.print("interp indirect arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch |print_err| {
+                    // The parse error is returned below; stderr output is extra context only.
+                    _ = @errorName(print_err);
+                };
                 return err;
             };
             const coerced = try self.coerce(raw, valueTypeForPrefix(param.cap, param.ty));

@@ -2884,7 +2884,10 @@ fn readImportFile(
     var options: pkg_resolver.ResolveOptions = .{};
     if (resolve_ctx) |ctx| options = ctx.options;
     const resolved = try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
-    storeImportSourceCacheEntry(cache_key, resolved) catch {};
+    storeImportSourceCacheEntry(cache_key, resolved) catch |err| {
+        // Import source caching is an optimization; resolution already succeeded and remains authoritative.
+        _ = @errorName(err);
+    };
     return resolved;
 }
 

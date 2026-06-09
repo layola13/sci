@@ -1147,7 +1147,10 @@ fn phiStateConflictReport(
         &result.trap.hint_buf,
         "register '{s}' has mismatched path states:\n  - Path via '{s}': {s}\n  - Path via target '{s}': {s}\nSelf-repair hint: {s}",
         .{ mismatch_name, current_block_name, expected_name, target_name, actual_name, advice },
-    ) catch {};
+    ) catch |err| {
+        // Diagnostic buffer formatting is best-effort; the trap kind and core message are already set.
+        _ = @errorName(err);
+    };
 
     return result;
 }
@@ -1725,6 +1728,42 @@ fn collectMetadata(
         .function_starts = function_starts,
     };
 }
+
+fn metadataTrapKind(err: anyerror) trap.Trap {
+    return switch (err) {
+        error.UnsupportedType => .unsupported_type,
+        error.OutOfMemory => .arena_oom,
+        error.TestFuncSignatureMismatch => .test_func_signature_mismatch,
+        error.InvalidAtomicOrdering => .invalid_atomic_ordering,
+        error.InvalidFunctionSig, error.InvalidAtomicSyntax => .forbidden_syntax,
+        else => .import_resolution_failed,
+    };
+}
+
+fn metadataTrapMessage(err: anyerror) []const u8 {
+    return switch (err) {
+        error.UnsupportedType => "unsupported type annotation while rebuilding metadata",
+        error.OutOfMemory => "out of memory while rebuilding metadata",
+        error.TestFuncSignatureMismatch => "@test function must have signature () -> void",
+        error.InvalidAtomicOrdering => "invalid atomic ordering while rebuilding metadata",
+        error.InvalidFunctionSig => "invalid function signature while rebuilding metadata",
+        error.InvalidAtomicSyntax => "invalid atomic syntax while rebuilding metadata",
+        else => "unclassified metadata rebuild error",
+    };
+}
+
+fn metadataTrapHint(err: anyerror) ?[]const u8 {
+    return switch (err) {
+        error.UnsupportedType => "check primitive type names in signatures and atomic suffixes",
+        error.TestFuncSignatureMismatch => "test functions cannot have parameters and must return void",
+        error.InvalidAtomicOrdering => "check success/failure ordering pairs and atomic ordering suffixes",
+        error.InvalidFunctionSig => "check declaration spelling, parentheses, parameters, return arrow, and trailing colon",
+        error.InvalidAtomicSyntax => "check atomic instruction spelling, destination registers, address, value, and ordering fields",
+        error.OutOfMemory => null,
+        else => "metadata collection returned an unclassified error; inspect the declaration or instruction at this source location",
+    };
+}
+
 fn isStackAllocated(flags: []const u8, origins: []const ?u32, state: []const u16, id: u32) bool {
     const idx: usize = @intCast(id);
     if ((flags[idx] & regFlagStackAlloc) != 0) return true;
@@ -3279,23 +3318,14 @@ pub fn verifyWithOptions(
     defer allocator.free(classified_lines);
 
     var metadata = collectMetadata(allocator, instructions, classified_lines, const_decls) catch |err| {
-        const kind: trap.Trap = switch (err) {
-            error.UnsupportedType => .unsupported_type,
-            error.OutOfMemory => .arena_oom,
-            error.TestFuncSignatureMismatch => .test_func_signature_mismatch,
-            else => .forbidden_syntax,
-        };
-        return .{ .trap = trapReportFromText(kind, 1, 1, instructions[0].raw_text, switch (err) {
-            error.UnsupportedType => "unsupported type annotation while rebuilding metadata",
-            error.OutOfMemory => "out of memory while rebuilding metadata",
-            error.TestFuncSignatureMismatch => "@test function must have signature () -> void",
-            else => "failed to rebuild metadata",
-        }, switch (err) {
-            error.UnsupportedType => "check primitive type names in signatures and atomic suffixes",
-            error.OutOfMemory => null,
-            error.TestFuncSignatureMismatch => "test functions cannot have parameters and must return void",
-            else => null,
-        }) };
+        return .{ .trap = trapReportFromText(
+            metadataTrapKind(err),
+            1,
+            1,
+            instructions[0].raw_text,
+            metadataTrapMessage(err),
+            metadataTrapHint(err),
+        ) };
     };
     defer freeSigs(allocator, &metadata.sigs);
     defer freeConstVtables(allocator, &metadata.const_vtables);
@@ -3398,6 +3428,35 @@ test "verifier preclassifies each instruction once" {
     };
     try std.testing.expect(verified == .ok);
     try std.testing.expectEqual(program.len, readTestClassifyLineCount());
+}
+
+test "metadata errors map to explicit trap kinds" {
+    try std.testing.expectEqual(trap.Trap.unsupported_type, metadataTrapKind(error.UnsupportedType));
+    try std.testing.expectEqual(trap.Trap.arena_oom, metadataTrapKind(error.OutOfMemory));
+    try std.testing.expectEqual(trap.Trap.test_func_signature_mismatch, metadataTrapKind(error.TestFuncSignatureMismatch));
+    try std.testing.expectEqual(trap.Trap.invalid_atomic_ordering, metadataTrapKind(error.InvalidAtomicOrdering));
+    try std.testing.expectEqual(trap.Trap.forbidden_syntax, metadataTrapKind(error.InvalidFunctionSig));
+    try std.testing.expectEqual(trap.Trap.forbidden_syntax, metadataTrapKind(error.InvalidAtomicSyntax));
+    try std.testing.expectEqual(trap.Trap.import_resolution_failed, metadataTrapKind(error.InvalidJoinState));
+}
+
+test "metadata atomic ordering failure keeps atomic trap code" {
+    const program = [_]inst.Instruction{
+        inst.makeInstruction(.func_decl, 1, 0, null, "@main() -> i32:"),
+        inst.makeInstruction(.alloc, 2, 1, null, "node = alloc 8"),
+        inst.makeInstruction(.cmpxchg, 3, 2, null, "old, ok = cmpxchg node+0, 0, 1 acquire seq_cst"),
+        inst.makeInstruction(.return_, 4, 3, null, "return 0"),
+    };
+
+    const verified = try verify(std.testing.allocator, &program, &.{});
+    switch (verified) {
+        .trap => |report| {
+            try std.testing.expectEqual(trap.Trap.invalid_atomic_ordering, report.trap);
+            try std.testing.expectEqual(trap.trapCode(.invalid_atomic_ordering), report.trap_code orelse return error.TestUnexpectedResult);
+            try std.testing.expect(std.mem.containsAtLeast(u8, report.message, 1, "invalid atomic ordering"));
+        },
+        .ok => return error.TestUnexpectedResult,
+    }
 }
 
 test "verifier precomputes consumed registers once per function body" {

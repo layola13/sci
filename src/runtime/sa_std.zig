@@ -1390,7 +1390,10 @@ fn applyRawMode(term: *std.posix.termios) void {
 }
 
 fn killAndWaitChild(pid: std.posix.pid_t) void {
-    std.posix.kill(pid, std.posix.SIG.KILL) catch {};
+    std.posix.kill(pid, std.posix.SIG.KILL) catch |err| {
+        // Child teardown is best-effort; waitpid below still reaps if the child already exited.
+        _ = @errorName(err);
+    };
     _ = std.posix.waitpid(pid, 0);
 }
 

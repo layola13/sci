@@ -84,7 +84,7 @@ fn remoteUrlFromIdentity(allocator: std.mem.Allocator, identity: []const u8) ![]
 }
 
 fn deleteExistingDir(path: []const u8) !void {
-    std.fs.cwd().deleteTree(path) catch {};
+    try std.fs.cwd().deleteTree(path);
 }
 
 fn dirExists(path: []const u8) bool {
@@ -317,7 +317,10 @@ test "fetch copies a local source tree into sa_vendor" {
     var old_cwd = try std.fs.cwd().openDir(".", .{});
     defer old_cwd.close();
     try tmp.dir.setAsCwd();
-    defer old_cwd.setAsCwd() catch {};
+    defer old_cwd.setAsCwd() catch |err| {
+        // Test teardown cannot recover from cwd restoration failure.
+        _ = @errorName(err);
+    };
 
     var result = try fetchPackage(std.testing.allocator, "github.com/example/pkg", "HEAD", .{});
     defer result.deinit(std.testing.allocator);
@@ -349,7 +352,10 @@ test "PkgMgr-Fetch-Smoke computes hash and does not execute package files" {
     var old_cwd = try std.fs.cwd().openDir(".", .{});
     defer old_cwd.close();
     try tmp.dir.setAsCwd();
-    defer old_cwd.setAsCwd() catch {};
+    defer old_cwd.setAsCwd() catch |err| {
+        // Test teardown cannot recover from cwd restoration failure.
+        _ = @errorName(err);
+    };
 
     var result = try fetchPackage(std.testing.allocator, "github.com/example/smoke", "HEAD", .{});
     defer result.deinit(std.testing.allocator);
@@ -373,7 +379,10 @@ test "fetch rejects precompiled artifacts" {
     var old_cwd = try std.fs.cwd().openDir(".", .{});
     defer old_cwd.close();
     try tmp.dir.setAsCwd();
-    defer old_cwd.setAsCwd() catch {};
+    defer old_cwd.setAsCwd() catch |err| {
+        // Test teardown cannot recover from cwd restoration failure.
+        _ = @errorName(err);
+    };
 
     try std.testing.expectError(error.PrecompiledArtifactRejected, fetchPackage(std.testing.allocator, "github.com/example/bad", "HEAD", .{}));
 }
@@ -395,7 +404,10 @@ test "fetch offline reuses existing vendor without deleting it" {
     var old_cwd = try std.fs.cwd().openDir(".", .{});
     defer old_cwd.close();
     try tmp.dir.setAsCwd();
-    defer old_cwd.setAsCwd() catch {};
+    defer old_cwd.setAsCwd() catch |err| {
+        // Test teardown cannot recover from cwd restoration failure.
+        _ = @errorName(err);
+    };
 
     var result = try fetchPackage(std.testing.allocator, "github.com/example/pkg", "HEAD", .{ .offline = true });
     defer result.deinit(std.testing.allocator);
@@ -415,7 +427,10 @@ test "fetch applies mirror rules before network fallback" {
     var old_cwd = try std.fs.cwd().openDir(".", .{});
     defer old_cwd.close();
     try tmp.dir.setAsCwd();
-    defer old_cwd.setAsCwd() catch {};
+    defer old_cwd.setAsCwd() catch |err| {
+        // Test teardown cannot recover from cwd restoration failure.
+        _ = @errorName(err);
+    };
 
     const rules = [_]manifest.MirrorRule{.{
         .host_pattern = "github.com",

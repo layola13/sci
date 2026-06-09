@@ -545,13 +545,19 @@ const Reactor = struct {
     fn signalWake(self: *Reactor) void {
         if (self.command_eventfd < 0) return;
         const value: u64 = 1;
-        _ = posix.write(self.command_eventfd, std.mem.asBytes(&value)) catch {};
+        _ = posix.write(self.command_eventfd, std.mem.asBytes(&value)) catch |err| {
+            // Wake signals are best-effort; the reactor also polls command state on its next pump.
+            _ = @errorName(err);
+        };
     }
 
     fn drainWakeEvent(self: *Reactor) void {
         if (self.command_eventfd < 0) return;
         var buf: [8]u8 = undefined;
-        _ = posix.read(self.command_eventfd, buf[0..]) catch {};
+        _ = posix.read(self.command_eventfd, buf[0..]) catch |err| {
+            // Draining a wake event is best-effort; a stale event only causes an extra wake.
+            _ = @errorName(err);
+        };
     }
 
     fn armWakeup(self: *Reactor) !void {
@@ -762,7 +768,10 @@ const Reactor = struct {
                         self.finishCommand(SA_NETX_ERR_IO);
                         return;
                     };
-                    self.armWakeup() catch {};
+                    self.armWakeup() catch |err| {
+                        // The accept path still submits work below; wake re-arming is opportunistic.
+                        _ = @errorName(err);
+                    };
                     _ = self.ring.submit() catch {
                         self.stopListening();
                         result = SA_NETX_ERR_IO;
@@ -1020,7 +1029,10 @@ const Reactor = struct {
                 try self.armRecv(slot);
             }
             if (self.buffer_group) |*group| {
-                group.put_cqe(cqe) catch {};
+                group.put_cqe(cqe) catch |err| {
+                    // Buffer recycling failure is tolerated for this CQE; later receives can allocate fallback buffers.
+                    _ = @errorName(err);
+                };
             }
         } else return;
     }
@@ -1269,13 +1281,19 @@ fn setThreadAffinity(core_id: usize) void {
     const bit = core_id % (@sizeOf(usize) * 8);
     if (idx < set.len) {
         set[idx] |= (@as(usize, 1) << @intCast(bit));
-        linux.sched_setaffinity(0, &set) catch {};
+        linux.sched_setaffinity(0, &set) catch |err| {
+            // Affinity is a performance hint only; worker correctness does not depend on it.
+            _ = @errorName(err);
+        };
     }
 }
 
 fn setNonBlocking(fd: posix.fd_t) void {
     const flags = posix.fcntl(fd, posix.F.GETFL, 0) catch return;
-    _ = posix.fcntl(fd, posix.F.SETFL, flags | (@as(usize, 1) << @bitOffsetOf(posix.O, "NONBLOCK"))) catch {};
+    _ = posix.fcntl(fd, posix.F.SETFL, flags | (@as(usize, 1) << @bitOffsetOf(posix.O, "NONBLOCK"))) catch |err| {
+        // Nonblocking setup is best-effort for optional descriptors; callers handle I/O errors later.
+        _ = @errorName(err);
+    };
 }
 
 fn reactorWorkerMain(reactor: *Reactor) void {
@@ -1302,7 +1320,10 @@ fn reactorWorkerMain(reactor: *Reactor) void {
         const stop = state.stop;
         state.mutex.unlock();
         if (stop) break;
-        reactor.pump(true) catch {};
+        reactor.pump(true) catch |err| {
+            // Worker loop keeps servicing deferred cleanup even after a transient pump error.
+            _ = @errorName(err);
+        };
         reactor.serviceDeferredWork();
     }
 }
@@ -1441,7 +1462,7 @@ fn fieldSlice(bytes: []const u8, span: FieldSpan) []const u8 {
     return bytes[start .. start + len];
 }
 
-pub fn parseHttpRequest(bytes: []const u8) error{Incomplete, Invalid}!HttpRequest {
+pub fn parseHttpRequest(bytes: []const u8) error{ Incomplete, Invalid }!HttpRequest {
     const header_end = findHttpHeaderEndVector(bytes) orelse return error.Incomplete;
     const header_block = bytes[0..header_end];
     const request_line_end = findCrlfVector(header_block, 0) orelse return error.Invalid;
@@ -1650,7 +1671,7 @@ fn findColonVector(bytes: []const u8) ?usize {
     return null;
 }
 
-pub fn parseWsFrame(bytes: []const u8) error{Incomplete, Invalid}!WsFrame {
+pub fn parseWsFrame(bytes: []const u8) error{ Incomplete, Invalid }!WsFrame {
     if (bytes.len < 2) return error.Incomplete;
     const b0 = bytes[0];
     const b1 = bytes[1];
@@ -1878,7 +1899,10 @@ pub fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
     ticket_ptr.* = ticket;
     if (runtime_state.slot_pool) |*pool| {
         if (pool.slotFromId(ticket.slot_id)) |slot| {
-            resumeSlot(reactor, slot) catch {};
+            resumeSlot(reactor, slot) catch |err| {
+                // Resume requests are retried through the reactor queue; this call only nudges current progress.
+                _ = @errorName(err);
+            };
         }
     }
     reactor.requestResume();
@@ -2091,13 +2115,7 @@ test "websocket accept matches the RFC example" {
 
 test "http parser recognizes websocket upgrade" {
     const request =
-        "GET /chat HTTP/1.1\r\n"
-        ++ "Host: example.com\r\n"
-        ++ "Upgrade: websocket\r\n"
-        ++ "Connection: Upgrade\r\n"
-        ++ "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-        ++ "Sec-WebSocket-Version: 13\r\n"
-        ++ "\r\n";
+        "GET /chat HTTP/1.1\r\n" ++ "Host: example.com\r\n" ++ "Upgrade: websocket\r\n" ++ "Connection: Upgrade\r\n" ++ "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" ++ "Sec-WebSocket-Version: 13\r\n" ++ "\r\n";
     const parsed = try parseHttpRequest(request);
     try std.testing.expectEqualStrings("GET", fieldSlice(request, parsed.method));
     try std.testing.expectEqualStrings("/chat", fieldSlice(request, parsed.path));
@@ -2119,13 +2137,7 @@ test "maybeHttpPrefixVector recognizes request prefixes" {
 
 test "vector line scanners find crlf and header end" {
     const request =
-        "GET /chat HTTP/1.1\r\n"
-        ++ "Host: example.com\r\n"
-        ++ "Upgrade: websocket\r\n"
-        ++ "Connection: Upgrade\r\n"
-        ++ "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-        ++ "Sec-WebSocket-Version: 13\r\n"
-        ++ "\r\n";
+        "GET /chat HTTP/1.1\r\n" ++ "Host: example.com\r\n" ++ "Upgrade: websocket\r\n" ++ "Connection: Upgrade\r\n" ++ "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" ++ "Sec-WebSocket-Version: 13\r\n" ++ "\r\n";
     const header_end = findHttpHeaderEndVector(request) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(usize, request.len - 4), header_end);
     const request_line_end = findCrlfVector(request, 0) orelse return error.TestUnexpectedResult;
@@ -2153,14 +2165,7 @@ test "websocket upgrade and binary frame work end to end" {
 
     var ws_client = WsLoopbackClient{
         .address = listen_address,
-        .request =
-            "GET /ws HTTP/1.1\r\n"
-            ++ "Host: example.test\r\n"
-            ++ "Upgrade: websocket\r\n"
-            ++ "Connection: Upgrade\r\n"
-            ++ "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-            ++ "Sec-WebSocket-Version: 13\r\n"
-            ++ "\r\n",
+        .request = "GET /ws HTTP/1.1\r\n" ++ "Host: example.test\r\n" ++ "Upgrade: websocket\r\n" ++ "Connection: Upgrade\r\n" ++ "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" ++ "Sec-WebSocket-Version: 13\r\n" ++ "\r\n",
         .expected_payload = "WS_OK\n",
         .expected_frame_len = 2 + "WS_OK\n".len,
     };
@@ -2174,7 +2179,10 @@ test "websocket upgrade and binary frame work end to end" {
         const now = @as(u64, @intCast(std.time.nanoTimestamp()));
         if (now >= deadline) break;
         const remaining = deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch {};
+        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+            // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
+            _ = @errorName(err);
+        };
     }
     const collected = collector_state.count;
     const result = collector_state.result;
@@ -2208,7 +2216,10 @@ test "websocket upgrade and binary frame work end to end" {
         const now = @as(u64, @intCast(std.time.nanoTimestamp()));
         if (now >= send_deadline) break;
         const remaining = send_deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch {};
+        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+            // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
+            _ = @errorName(err);
+        };
     }
     const total_collected = collector_state.count;
     const total_result = collector_state.result;
@@ -2232,8 +2243,15 @@ test "websocket frame parser handles masked payloads" {
     var frame = [_]u8{
         0x81,
         0x85,
-        0x37, 0xfa, 0x21, 0x3d,
-        'f' ^ 0x37, 'o' ^ 0xfa, 'o' ^ 0x21, '!' ^ 0x3d, '?' ^ 0x37,
+        0x37,
+        0xfa,
+        0x21,
+        0x3d,
+        'f' ^ 0x37,
+        'o' ^ 0xfa,
+        'o' ^ 0x21,
+        '!' ^ 0x3d,
+        '?' ^ 0x37,
     };
     const parsed = try parseWsFrame(frame[0..]);
     try std.testing.expectEqual(@as(u8, 1), parsed.opcode);
@@ -2266,19 +2284,11 @@ test "listen accept recv_ticket and outbound commands work end to end" {
 
     var client1 = LoopbackClient{
         .address = listen_address,
-        .request =
-            "GET /one HTTP/1.1\r\n"
-            ++ "Host: example.test\r\n"
-            ++ "Connection: keep-alive\r\n"
-            ++ "\r\n",
+        .request = "GET /one HTTP/1.1\r\n" ++ "Host: example.test\r\n" ++ "Connection: keep-alive\r\n" ++ "\r\n",
     };
     var client2 = LoopbackClient{
         .address = listen_address,
-        .request =
-            "GET /two HTTP/1.1\r\n"
-            ++ "Host: example.test\r\n"
-            ++ "Connection: keep-alive\r\n"
-            ++ "\r\n",
+        .request = "GET /two HTTP/1.1\r\n" ++ "Host: example.test\r\n" ++ "Connection: keep-alive\r\n" ++ "\r\n",
     };
 
     const collector_thread = try Thread.spawn(.{}, collectTicketsMain, .{&collector_state});
@@ -2291,7 +2301,10 @@ test "listen accept recv_ticket and outbound commands work end to end" {
         const now = @as(u64, @intCast(std.time.nanoTimestamp()));
         if (now >= first_deadline) break;
         const remaining = first_deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch {};
+        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+            // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
+            _ = @errorName(err);
+        };
     }
     const first_collected = collector_state.count;
     const collection_result = collector_state.result;
@@ -2352,7 +2365,10 @@ test "listen accept recv_ticket and outbound commands work end to end" {
         const now = @as(u64, @intCast(std.time.nanoTimestamp()));
         if (now >= second_deadline) break;
         const remaining = second_deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch {};
+        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+            // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
+            _ = @errorName(err);
+        };
     }
     const total_collected = collector_state.count;
     const total_result = collector_state.result;

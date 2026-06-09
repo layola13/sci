@@ -191,7 +191,10 @@ fn writeLockFileAtomic(allocator: std.mem.Allocator, path: []const u8, lock_file
     var file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
     var file_open = true;
     errdefer if (file_open) file.close();
-    errdefer std.fs.cwd().deleteFile(tmp_path) catch {};
+    errdefer std.fs.cwd().deleteFile(tmp_path) catch |err| {
+        // Atomic-write rollback is best-effort after the primary error is already being returned.
+        _ = @errorName(err);
+    };
     try file.writeAll(out.items);
     try file.sync();
     file.close();

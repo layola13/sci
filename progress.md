@@ -12,6 +12,12 @@ Current progress: 99.99993%
   - Added plugin-host smoke coverage for both matching and mismatched artifact hashes.
   - Verification: `zig build plugin-host-smoke --summary all` -> `11/11 tests passed`.
 
+- 2026-06-09: Tightened verifier metadata diagnostics and audited empty catch blocks for issue5 FUNC-1/FUNC-3.
+  - Replaced the metadata rebuild `else => .forbidden_syntax` catch-all with explicit trap mapping for unsupported types, OOM, test signature mismatches, invalid atomic ordering, invalid declaration/atomic syntax, and a non-forbidden unclassified metadata fallback.
+  - Added verifier coverage for metadata error mapping and invalid atomic ordering trap codes.
+  - Removed bare `catch {}` from `src/`; cleanup/diagnostic-only failures now carry explicit best-effort comments, cache clean delete failures propagate, and interpreter release-time memory free errors propagate.
+  - Verification: `zig test src/verifier.zig` -> `130/130 tests passed`; `zig test src/cli.zig` -> `67/67 tests passed`; `zig build pkg-core-test --summary all` -> `33/33 tests passed`; `zig build smoke --summary all` -> `15/15 tests passed`.
+
 - 2026-06-09: Removed repeated verifier leak-scan passes for issue5 PERF-2.
   - Replaced per-live-register `regConsumedLater` full-function scans with a per-function consumed-register bitset computed once when the function scope is created.
   - Preserved existing structured consumption semantics for `move`, `release`, `assign`, `return`, `try` / `early_return`, and `^reg` call/native text markers while making early-return and exit leak checks O(1) per candidate.

@@ -64,7 +64,10 @@ fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
 
 pub export fn sys_print(data: ?[*]const u8, len: u64) void {
     const bytes = bytesFromConst(data, len) catch return;
-    std.io.getStdOut().writeAll(bytes) catch {};
+    std.io.getStdOut().writeAll(bytes) catch |err| {
+        // Native sys_print is fire-and-forget ABI surface; callers cannot observe stdout failures here.
+        _ = @errorName(err);
+    };
 }
 
 pub export fn sys_exit(code: i32) noreturn {

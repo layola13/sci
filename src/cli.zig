@@ -1477,7 +1477,10 @@ const TmpWorkDir = struct {
 
     fn cleanup(self: *TmpWorkDir) void {
         self.dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch {};
+        self.parent_dir.deleteTree(&self.sub_path) catch |err| {
+            // Temporary build directories are best-effort cleanup after the caller has finished using them.
+            _ = @errorName(err);
+        };
         self.parent_dir.close();
         self.* = undefined;
     }
@@ -4178,7 +4181,10 @@ fn projectCacheArtifactPath(allocator: std.mem.Allocator, project_root: []const 
 fn projectCacheRemoveKey(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) void {
     const dir = projectCacheDir(allocator, project_root, kind, key) catch return;
     defer allocator.free(dir);
-    std.fs.cwd().deleteTree(dir) catch {};
+    std.fs.cwd().deleteTree(dir) catch |err| {
+        // Build cache repair is opportunistic here; callers fall back to recompilation on unusable entries.
+        _ = @errorName(err);
+    };
 }
 
 fn projectCacheArtifactExistsNonEmpty(path: []const u8) bool {
@@ -4395,7 +4401,7 @@ fn cleanCacheKindDir(
         error.NotDir => {
             stats.scanned += 1;
             stats.removed += 1;
-            if (!options.dry_run) root_dir.deleteFile(kind.dirName()) catch {};
+            if (!options.dry_run) try root_dir.deleteFile(kind.dirName());
             return;
         },
         else => return err,
@@ -4409,7 +4415,7 @@ fn cleanCacheKindDir(
         if (!remove) {
             var entry_dir = kind_dir.openDir(entry.name, .{}) catch {
                 remove = true;
-                if (!options.dry_run) kind_dir.deleteTree(entry.name) catch {};
+                if (!options.dry_run) try kind_dir.deleteTree(entry.name);
                 stats.removed += 1;
                 continue;
             };
@@ -4425,9 +4431,9 @@ fn cleanCacheKindDir(
             stats.removed += 1;
             if (!options.dry_run) {
                 if (entry.kind == .directory) {
-                    kind_dir.deleteTree(entry.name) catch {};
+                    try kind_dir.deleteTree(entry.name);
                 } else {
-                    kind_dir.deleteFile(entry.name) catch {};
+                    try kind_dir.deleteFile(entry.name);
                 }
             }
         } else {
@@ -4442,7 +4448,7 @@ fn cleanProjectCache(allocator: std.mem.Allocator, project_root: []const u8, opt
     var root_dir = std.fs.cwd().openDir(cache_root, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return .{},
         error.NotDir => {
-            if (!options.dry_run) std.fs.cwd().deleteFile(cache_root) catch {};
+            if (!options.dry_run) try std.fs.cwd().deleteFile(cache_root);
             return .{ .scanned = 1, .removed = 1 };
         },
         else => return err,

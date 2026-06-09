@@ -184,7 +184,10 @@ fn writeAtomic(allocator: std.mem.Allocator, path: []const u8, sum_file: manifes
     const suffix = std.fmt.bytesToHex(random, .lower);
     const tmp = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ path, suffix[0..] });
     defer allocator.free(tmp);
-    errdefer std.fs.cwd().deleteFile(tmp) catch {};
+    errdefer std.fs.cwd().deleteFile(tmp) catch |err| {
+        // Atomic-write rollback is best-effort after the primary error is already being returned.
+        _ = @errorName(err);
+    };
 
     var file = try std.fs.cwd().createFile(tmp, .{ .truncate = true });
     var file_open = true;

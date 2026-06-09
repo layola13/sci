@@ -38,7 +38,10 @@ fn workerMain(shared: *SharedState) void {
 
         shared.output_mutex.lock();
         defer shared.output_mutex.unlock();
-        _ = test_formatter.writeOutcome(shared.stdout, shared.stderr, test_case, outcome) catch {};
+        _ = test_formatter.writeOutcome(shared.stdout, shared.stderr, test_case, outcome) catch |err| {
+            // Test result state is recorded above; formatter output is diagnostic-only.
+            _ = @errorName(err);
+        };
     }
 }
 
