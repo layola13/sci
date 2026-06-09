@@ -66,7 +66,8 @@ fn bytesHashHex(bytes: []const u8) [64]u8 {
 fn writeCacheManifest(dir: std.fs.Dir, cache_dir: []const u8, kind: []const u8, key: []const u8, artifact: []const u8, output: []const u8) !void {
     const artifact_hash = bytesHashHex(artifact);
     const output_hash = bytesHashHex(output);
-    const manifest = try std.fmt.allocPrint(std.testing.allocator,
+    const manifest = try std.fmt.allocPrint(
+        std.testing.allocator,
         "{{\"version\":1,\"kind\":\"{s}\",\"key\":\"{s}\",\"artifact\":{{\"size\":{d},\"sha256\":\"{s}\"}},\"output\":{{\"size\":{d},\"sha256\":\"{s}\"}}}}\n",
         .{ kind, key, artifact.len, artifact_hash[0..], output.len, output_hash[0..] },
     );
@@ -849,7 +850,21 @@ test "sa test compile-only reuses and repairs project test cache" {
     defer std.testing.allocator.free(cached_output);
     const cached_manifest = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/test/{s}/manifest.json", .{cache_key});
     defer std.testing.allocator.free(cached_manifest);
+    const cached_metadata = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/test/{s}/test-metadata.json", .{cache_key});
+    defer std.testing.allocator.free(cached_metadata);
     try tmp.dir.access(cached_manifest, .{});
+    const metadata_bytes = try tmp.dir.readFileAlloc(std.testing.allocator, cached_metadata, 64 * 1024);
+    defer std.testing.allocator.free(metadata_bytes);
+    try std.testing.expect(std.mem.indexOf(u8, metadata_bytes, "cached test compile") != null);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const cached_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), cached_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
+
     try tmp.dir.deleteFile(cached_output);
 
     stdout_buf.clearRetainingCapacity();

@@ -4463,8 +4463,11 @@ fn projectCacheHit(
     defer allocator.free(cached_artifact);
     const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
     defer allocator.free(cached_output);
+    const cached_test_metadata = if (kind == .test_cache) try projectCacheTestMetadataPath(allocator, project_root, key) else null;
+    defer if (cached_test_metadata) |path| allocator.free(path);
     if (!projectCacheArtifactExistsNonEmpty(cached_artifact) or
         !projectCacheArtifactExistsNonEmpty(cached_output) or
+        (if (cached_test_metadata) |path| !projectCacheArtifactExistsNonEmpty(path) else false) or
         !projectCacheManifestValid(allocator, project_root, kind, key, cached_artifact, cached_output))
     {
         projectCacheRemoveKey(allocator, project_root, kind, key);
@@ -4498,6 +4501,151 @@ fn projectCacheStore(
     try projectCacheWriteManifest(allocator, project_root, kind, key, cached_artifact, cached_output);
 }
 
+fn projectCacheTestMetadataPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
+    return try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "test-metadata.json");
+}
+
+fn writeOptionalJsonString(writer: anytype, value: ?[]const u8) !void {
+    if (value) |text| {
+        try writeJsonString(writer, text);
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+fn projectCacheWriteTestMetadata(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    test_list: test_meta.TestList,
+) !void {
+    const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
+    defer allocator.free(metadata_path);
+    try ensureParentDir(metadata_path);
+    var file = try std.fs.cwd().createFile(metadata_path, .{ .truncate = true });
+    defer file.close();
+    var writer = file.writer();
+    try writer.writeAll("{\"version\":1,\"tests\":[");
+    for (test_list.tests, 0..) |test_case, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writer.writeAll("{\"id\":");
+        try writer.print("{d}", .{test_case.desc.id});
+        try writer.writeAll(",\"name\":");
+        try writeJsonString(writer, test_case.desc.name);
+        try writer.writeAll(",\"selector\":");
+        try writeJsonString(writer, test_case.testfn.selector_name);
+        try writer.writeAll(",\"source_file\":");
+        try writeOptionalJsonString(writer, test_case.desc.source_file);
+        try writer.writeAll(",\"line\":");
+        try writer.print("{d}", .{test_case.desc.line});
+        try writer.writeAll(",\"col\":");
+        try writer.print("{d}", .{test_case.desc.col});
+        try writer.writeAll(",\"ignored\":");
+        try writer.writeAll(if (test_case.desc.ignored) "true" else "false");
+        try writer.writeAll(",\"should_panic\":");
+        try writer.writeAll(if (test_case.desc.should_panic) "true" else "false");
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
+}
+
+fn projectCacheStoreTest(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    test_list: test_meta.TestList,
+) !void {
+    const cached_artifact = try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "artifact.sa.bc");
+    defer allocator.free(cached_artifact);
+    const cached_output = try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "output.bin");
+    defer allocator.free(cached_output);
+    try copyFileAlloc(allocator, artifact_path, cached_artifact);
+    try copyFileAlloc(allocator, out_path, cached_output);
+    try projectCacheWriteTestMetadata(allocator, project_root, key, test_list);
+    try projectCacheWriteManifest(allocator, project_root, .test_cache, key, cached_artifact, cached_output);
+}
+
+fn jsonBool(value: std.json.Value) !bool {
+    return switch (value) {
+        .bool => |v| v,
+        else => error.InvalidCacheManifest,
+    };
+}
+
+fn jsonU32(value: std.json.Value) !u32 {
+    return switch (value) {
+        .integer => |v| if (v >= 0 and v <= std.math.maxInt(u32)) @intCast(v) else error.InvalidCacheManifest,
+        else => error.InvalidCacheManifest,
+    };
+}
+
+fn jsonStringDup(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
+    return switch (value) {
+        .string => |text| try allocator.dupe(u8, text),
+        else => error.InvalidCacheManifest,
+    };
+}
+
+fn jsonOptionalStringDup(allocator: std.mem.Allocator, value: std.json.Value) !?[]u8 {
+    return switch (value) {
+        .null => null,
+        .string => |text| try allocator.dupe(u8, text),
+        else => error.InvalidCacheManifest,
+    };
+}
+
+fn projectCacheReadTestMetadata(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+) !test_meta.TestList {
+    const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
+    defer allocator.free(metadata_path);
+    const metadata_bytes = try readTextFileAlloc(allocator, metadata_path);
+    defer allocator.free(metadata_bytes);
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, metadata_bytes, .{});
+    defer parsed.deinit();
+    if (!jsonIntEquals(try jsonGetObject(parsed.value, "version"), 1)) return error.InvalidCacheManifest;
+    const tests_value = try jsonGetObject(parsed.value, "tests");
+    const tests_array = switch (tests_value) {
+        .array => |array| array.items,
+        else => return error.InvalidCacheManifest,
+    };
+
+    var tests = std.ArrayList(test_meta.TestDescAndFn).init(allocator);
+    errdefer {
+        for (tests.items) |*test_case| test_case.deinit(allocator);
+        tests.deinit();
+    }
+    for (tests_array) |item| {
+        switch (item) {
+            .object => {},
+            else => return error.InvalidCacheManifest,
+        }
+        const name = try jsonStringDup(allocator, try jsonGetObject(item, "name"));
+        errdefer allocator.free(name);
+        const selector = try jsonStringDup(allocator, try jsonGetObject(item, "selector"));
+        errdefer allocator.free(selector);
+        const source_file = try jsonOptionalStringDup(allocator, try jsonGetObject(item, "source_file"));
+        errdefer if (source_file) |file| allocator.free(file);
+        try tests.append(.{
+            .desc = .{
+                .id = try jsonU32(try jsonGetObject(item, "id")),
+                .name = name,
+                .source_file = source_file,
+                .line = try jsonU32(try jsonGetObject(item, "line")),
+                .col = try jsonU32(try jsonGetObject(item, "col")),
+                .ignored = try jsonBool(try jsonGetObject(item, "ignored")),
+                .should_panic = try jsonBool(try jsonGetObject(item, "should_panic")),
+            },
+            .testfn = .{ .selector_name = selector },
+        });
+    }
+    return .{ .tests = try tests.toOwnedSlice(), .order = .Unsorted };
+}
+
 fn isHexCacheKey(name: []const u8) bool {
     if (name.len != 64) return false;
     for (name) |c| {
@@ -4529,7 +4677,8 @@ fn cacheDirPresent(dir: std.fs.Dir, name: []const u8) bool {
 
 fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
     return switch (kind) {
-        .build_exe, .build_obj, .build_wasm, .test_cache => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json"),
+        .build_exe, .build_obj, .build_wasm => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json"),
+        .test_cache => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json") and cacheFilePresentNonEmpty(entry_dir, "test-metadata.json"),
         .build_obj_incremental => cacheFilePresentNonEmpty(entry_dir, "manifest.json") and cacheDirPresent(entry_dir, "functions"),
     };
 }
@@ -5617,6 +5766,81 @@ fn executeTest(
     stderr: anytype,
     diagnostics_mode: DiagnosticsMode,
 ) !u8 {
+    const std_archive_path = try saStdArchivePath(allocator);
+    defer allocator.free(std_archive_path);
+
+    var tmp = try TmpWorkDir.init();
+    defer tmp.cleanup();
+
+    const source_stem = sourceStem(source_path);
+    const artifact_name = try std.fmt.allocPrint(allocator, "{s}.test.sa.bc", .{source_stem});
+    defer allocator.free(artifact_name);
+    const exe_name = try std.fmt.allocPrint(allocator, "{s}.test", .{source_stem});
+    defer allocator.free(exe_name);
+
+    const artifact_dir = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(artifact_dir);
+
+    const artifact_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, artifact_name });
+    defer allocator.free(artifact_full_path);
+    const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
+    defer allocator.free(exe_full_path);
+
+    const project_root_owned = compile_options.project_root == null;
+    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
+    defer if (project_root_owned) allocator.free(project_root);
+    var project_context = try loadProjectContext(allocator, project_root);
+    defer project_context.deinit(allocator);
+    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline)
+    else
+        null;
+
+    if (cache_key) |key| cached: {
+        var cached_test_list = projectCacheReadTestMetadata(allocator, project_root, key) catch |err| {
+            _ = @errorName(err);
+            break :cached;
+        };
+        const hit = projectCacheHit(allocator, project_root, .test_cache, key, artifact_full_path, exe_full_path) catch |err| {
+            cached_test_list.deinit(allocator);
+            return err;
+        };
+        if (hit) {
+            makeExecutable(exe_full_path) catch |err| {
+                cached_test_list.deinit(allocator);
+                return err;
+            };
+            if (test_options.list) {
+                defer cached_test_list.deinit(allocator);
+                try test_formatter.writeList(stdout, cached_test_list.tests, test_options.selection);
+                return 0;
+            }
+            if (test_options.compile_only) {
+                defer cached_test_list.deinit(allocator);
+                try stdout.print(
+                    "compiled {d} selected tests ({d} discovered)\n",
+                    .{
+                        test_options.selection.countSelected(cached_test_list.tests),
+                        cached_test_list.tests.len,
+                    },
+                );
+                return 0;
+            }
+            return try test_runner.run(
+                allocator,
+                exe_full_path,
+                tmp.dir,
+                &cached_test_list,
+                test_options.selection,
+                test_options.trace_panic,
+                compile_options.jobs,
+                stdout.any(),
+                stderr.any(),
+            );
+        }
+        cached_test_list.deinit(allocator);
+    }
+
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
@@ -5634,26 +5858,6 @@ fn executeTest(
                 return 0;
             }
 
-            const std_archive_path = try saStdArchivePath(allocator);
-            defer allocator.free(std_archive_path);
-
-            var tmp = try TmpWorkDir.init();
-            defer tmp.cleanup();
-
-            const source_stem = sourceStem(source_path);
-            const artifact_name = try std.fmt.allocPrint(allocator, "{s}.test.sa.bc", .{source_stem});
-            defer allocator.free(artifact_name);
-            const exe_name = try std.fmt.allocPrint(allocator, "{s}.test", .{source_stem});
-            defer allocator.free(exe_name);
-
-            const artifact_dir = try tmp.dir.realpathAlloc(allocator, ".");
-            defer allocator.free(artifact_dir);
-
-            const artifact_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, artifact_name });
-            defer allocator.free(artifact_full_path);
-            const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
-            defer allocator.free(exe_full_path);
-
             var link_inputs = std.ArrayList([]const u8).init(allocator);
             defer link_inputs.deinit();
             var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
@@ -5663,44 +5867,6 @@ fn executeTest(
             }
             try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
 
-            const project_root_owned = compile_options.project_root == null;
-            const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-            defer if (project_root_owned) allocator.free(project_root);
-            var project_context = try loadProjectContext(allocator, project_root);
-            defer project_context.deinit(allocator);
-            const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache and link_inputs.items.len == 0)
-                try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline)
-            else
-                null;
-
-            if (cache_key) |key| {
-                if (try projectCacheHit(allocator, project_root, .test_cache, key, artifact_full_path, exe_full_path)) {
-                    try makeExecutable(exe_full_path);
-                    if (test_options.compile_only) {
-                        defer test_list.deinit(allocator);
-                        try stdout.print(
-                            "compiled {d} selected tests ({d} discovered)\n",
-                            .{
-                                test_options.selection.countSelected(test_list.tests),
-                                test_list.tests.len,
-                            },
-                        );
-                        return 0;
-                    }
-                    return try test_runner.run(
-                        allocator,
-                        exe_full_path,
-                        tmp.dir,
-                        &test_list,
-                        test_options.selection,
-                        test_options.trace_panic,
-                        compile_options.jobs,
-                        stdout.any(),
-                        stderr.any(),
-                    );
-                }
-            }
-
             try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true }, artifact_full_path);
 
             driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
@@ -5708,7 +5874,9 @@ fn executeTest(
                 else => return err,
             };
 
-            if (cache_key) |key| try projectCacheStore(allocator, project_root, .test_cache, key, artifact_full_path, exe_full_path);
+            if (cache_key) |key| {
+                if (link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list);
+            }
 
             if (test_options.compile_only) {
                 defer test_list.deinit(allocator);

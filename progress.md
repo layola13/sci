@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999985%
+Current progress: 99.999986%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added source-tree test metadata caching as the first low-risk issue6 IMP-1 frontend-cache slice.
+  - `.sa_cache/test/<key>` entries now include `test-metadata.json` with discovered SA test names, selector symbols, source locations, ignored flags, and should-panic flags.
+  - `sa test` now computes the project test cache key before `compileSource`; when artifact/output/manifest/metadata are all valid, `--list`, `--compile-only`, and normal test execution reuse cached metadata and skip flatten+verify for discovery/filtering.
+  - Old or incomplete test cache entries without metadata are treated as invalid and repaired through the existing recompilation path; cache clean now requires `test-metadata.json` for test cache completeness.
+  - Verification: `zig test src/cli.zig` -> `69/69 tests passed`; `zig build bc2sa-smoke --summary all` -> `3/3 tests passed`; `zig build smoke --summary all` -> `15/15 tests passed`; `zig build unit-framework --summary all` -> `4/4 tests passed` with `feature_suite.sa all modes` down to about `9.7s` on the cached metadata path.
 
 - 2026-06-09: Removed brittle hardcoded unit-framework expected test lists for issue6 TEST-4.
   - Added an SA test expectation builder in `tests/unit_framework/runner.zig` that parses `@test`, `@test should_panic`, and `@test ignored` declarations from each `.sa` suite, then generates `[PASS] ...` markers and the expected summary line automatically.
