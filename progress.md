@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999992%
+Current progress: 99.999993%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added tested full `FunctionSig` clone-remapping for future cached frontend fragments.
+  - Added a helper to deep-clone function signatures while remapping `id`, `param_ids`, and `reg_ids`, preserving owned names, params, return shape, upstream location, test flags, llvm names, and applying an entry-instruction offset.
+  - Added regression coverage for deep-copy ownership, upstream file/location preservation, entry index offsetting, remapped IDs, and invalid source IDs.
+  - This closes another full IMP-1 prerequisite before cached `FlattenResult` fragments can be spliced into a consumer result.
+  - Verification: `zig test src/flattener.zig` -> `74/74 tests passed`; `zig test src/cli.zig` -> `80/80 tests passed`.
 
 - 2026-06-09: Added tested symbol-id slice remapping for future cached `FunctionSig` reconstruction.
   - Added `cloneRemappedSymbolIdSlice` so immutable `FunctionSig.param_ids` / `reg_ids`-style slices can be rebuilt under the caller allocator instead of mutated in place.

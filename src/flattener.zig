@@ -3222,6 +3222,67 @@ fn cloneRemappedSymbolIdSlice(allocator: std.mem.Allocator, ids: []const u32, re
     return out;
 }
 
+fn cloneParams(allocator: std.mem.Allocator, params: []const common_signature.ParamSpec) ![]const common_signature.ParamSpec {
+    if (params.len == 0) return &.{};
+    const out = try allocator.alloc(common_signature.ParamSpec, params.len);
+    errdefer allocator.free(out);
+    var copied: usize = 0;
+    errdefer {
+        for (out[0..copied]) |param| allocator.free(param.name);
+    }
+    for (params, 0..) |param, idx| {
+        out[idx] = .{
+            .name = try allocator.dupe(u8, param.name),
+            .ty = param.ty,
+            .cap = param.cap,
+        };
+        copied += 1;
+    }
+    return out;
+}
+
+fn cloneRemappedFunctionSig(
+    allocator: std.mem.Allocator,
+    source_sig: FunctionSig,
+    remap: []const u32,
+    entry_inst_offset: u32,
+) !FunctionSig {
+    var out = FunctionSig{
+        .id = try remapSymbolId(remap, source_sig.id),
+        .name = try allocator.dupe(u8, source_sig.name),
+        .params = &.{},
+        .kind = source_sig.kind,
+        .return_cap = source_sig.return_cap,
+        .return_ty = source_sig.return_ty,
+        .return_fallible = source_sig.return_fallible,
+        .entry_inst_idx = try std.math.add(u32, source_sig.entry_inst_idx, entry_inst_offset),
+        .is_ffi_wrapper = source_sig.is_ffi_wrapper,
+        .upstream_file = null,
+        .upstream_loc = null,
+        .param_ids = &.{},
+        .reg_ids = &.{},
+        .llvm_name = null,
+        .ignored = source_sig.ignored,
+        .should_panic = source_sig.should_panic,
+    };
+    errdefer out.deinit(allocator);
+
+    out.params = try cloneParams(allocator, source_sig.params);
+    out.param_ids = try cloneRemappedSymbolIdSlice(allocator, source_sig.param_ids, remap);
+    out.reg_ids = try cloneRemappedSymbolIdSlice(allocator, source_sig.reg_ids, remap);
+    if (source_sig.upstream_loc) |loc| {
+        const file_copy = try allocator.dupe(u8, loc.file);
+        out.upstream_file = file_copy;
+        out.upstream_loc = .{ .file = file_copy, .line = loc.line, .col = loc.col };
+    } else if (source_sig.upstream_file) |file| {
+        out.upstream_file = try allocator.dupe(u8, file);
+    }
+    if (source_sig.llvm_name) |llvm_name| {
+        out.llvm_name = try allocator.dupe(u8, llvm_name);
+    }
+    return out;
+}
+
 fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
     if (source.len == 0) return;
     try out.appendSlice(source);
@@ -4257,6 +4318,92 @@ test "symbol id remap clones function signature id slices" {
     const empty = try cloneRemappedSymbolIdSlice(std.testing.allocator, &.{}, remap);
     try std.testing.expectEqual(@as(usize, 0), empty.len);
     try std.testing.expectError(error.InvalidOperand, cloneRemappedSymbolIdSlice(std.testing.allocator, &.{99}, remap));
+}
+
+test "symbol id remap clones full function signatures" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    const fn_id = try source_symbols.intern("work");
+    const lhs_id = try source_symbols.intern("lhs");
+    const rhs_id = try source_symbols.intern("rhs");
+    const tmp_id = try source_symbols.intern("tmp");
+
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    _ = try target_symbols.intern("occupied");
+    const remap = try buildSymbolIdRemap(std.testing.allocator, &source_symbols, &target_symbols);
+    defer std.testing.allocator.free(remap);
+
+    const source_params = try std.testing.allocator.alloc(common_signature.ParamSpec, 2);
+    source_params[0] = .{ .name = try std.testing.allocator.dupe(u8, "lhs"), .ty = .i64, .cap = .borrow };
+    source_params[1] = .{ .name = try std.testing.allocator.dupe(u8, "rhs"), .ty = .i64, .cap = .move };
+
+    var source_sig = FunctionSig{
+        .id = fn_id,
+        .name = try std.testing.allocator.dupe(u8, "work"),
+        .params = source_params,
+        .kind = .test_func,
+        .return_cap = .move,
+        .return_ty = .i64,
+        .return_fallible = true,
+        .entry_inst_idx = 12,
+        .is_ffi_wrapper = false,
+        .upstream_file = try std.testing.allocator.dupe(u8, "test.sa"),
+        .upstream_loc = null,
+        .param_ids = try std.testing.allocator.dupe(u32, &.{ lhs_id, rhs_id }),
+        .reg_ids = try std.testing.allocator.dupe(u32, &.{ lhs_id, rhs_id, tmp_id }),
+        .llvm_name = try std.testing.allocator.dupe(u8, "_saasm_test_7"),
+        .ignored = true,
+        .should_panic = true,
+    };
+    source_sig.upstream_loc = .{ .file = source_sig.upstream_file.?, .line = 9, .col = 4 };
+    defer source_sig.deinit(std.testing.allocator);
+
+    var cloned = try cloneRemappedFunctionSig(std.testing.allocator, source_sig, remap, 100);
+    defer cloned.deinit(std.testing.allocator);
+    try std.testing.expectEqual(target_symbols.findId("work").?, cloned.id);
+    try std.testing.expectEqual(@as(u32, 112), cloned.entry_inst_idx);
+    try std.testing.expectEqualSlices(u32, &.{ target_symbols.findId("lhs").?, target_symbols.findId("rhs").? }, cloned.param_ids);
+    try std.testing.expectEqualSlices(u32, &.{ target_symbols.findId("lhs").?, target_symbols.findId("rhs").?, target_symbols.findId("tmp").? }, cloned.reg_ids);
+    try std.testing.expectEqualStrings("work", cloned.name);
+    try std.testing.expectEqualStrings("lhs", cloned.params[0].name);
+    try std.testing.expectEqual(common_signature.PrimType.i64, cloned.params[0].ty);
+    try std.testing.expectEqual(common_instruction.CapPrefix.borrow, cloned.params[0].cap);
+    try std.testing.expectEqualStrings("_saasm_test_7", cloned.llvm_name.?);
+    try std.testing.expect(cloned.ignored);
+    try std.testing.expect(cloned.should_panic);
+    try std.testing.expect(cloned.name.ptr != source_sig.name.ptr);
+    try std.testing.expect(cloned.params[0].name.ptr != source_sig.params[0].name.ptr);
+    try std.testing.expect(cloned.param_ids.ptr != source_sig.param_ids.ptr);
+    try std.testing.expect(cloned.reg_ids.ptr != source_sig.reg_ids.ptr);
+    try std.testing.expect(cloned.upstream_file.?.ptr != source_sig.upstream_file.?.ptr);
+    try std.testing.expectEqualStrings("test.sa", cloned.upstream_file.?);
+    try std.testing.expectEqualStrings(cloned.upstream_file.?, cloned.upstream_loc.?.file);
+    try std.testing.expectEqual(@as(u32, 9), cloned.upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 4), cloned.upstream_loc.?.col);
+}
+
+test "symbol id remap rejects function signatures with unknown ids" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    _ = try source_symbols.intern("known");
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    const remap = try buildSymbolIdRemap(std.testing.allocator, &source_symbols, &target_symbols);
+    defer std.testing.allocator.free(remap);
+
+    var source_sig = FunctionSig{
+        .id = 99,
+        .name = try std.testing.allocator.dupe(u8, "missing"),
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .void,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+    };
+    defer source_sig.deinit(std.testing.allocator);
+    try std.testing.expectError(error.InvalidOperand, cloneRemappedFunctionSig(std.testing.allocator, source_sig, remap, 0));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {
