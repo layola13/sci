@@ -2,9 +2,16 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999993%
+Current progress: 99.999994%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added tested def/const merge helpers for future cached frontend fragments.
+  - Added helper coverage for merging `DefDict` entries with identical duplicates skipped, new entries deep-copied, and same-name/different-value entries rejected.
+  - Added deep clone and equality helpers for `ConstDecl` / `ConstValue`, including owned text, upstream locations, bytes literals, struct fields, and vtable slots.
+  - Added const merge coverage proving cloned declarations get source/expanded line offsets, do not share owned buffers with the source fragment, skip identical duplicates, and reject conflicting duplicate names.
+  - This closes the def/const merge prerequisite before cached `FlattenResult` fragments can be safely spliced into a consumer result; production cache wiring and cache-on/off equivalence tests remain separate work.
+  - Verification: `zig test src/flattener.zig` -> `76/76 tests passed`; `zig test src/cli.zig` -> `82/82 tests passed`.
 
 - 2026-06-09: Added tested full `FunctionSig` clone-remapping for future cached frontend fragments.
   - Added a helper to deep-clone function signatures while remapping `id`, `param_ids`, and `reg_ids`, preserving owned names, params, return shape, upstream location, test flags, llvm names, and applying an entry-instruction offset.

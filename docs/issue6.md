@@ -14,13 +14,13 @@ SA 缓存与单元测试框架评估及改进计划（issue6）
 - TEST-4：unit-framework runner 从 `.sa` 源文件自动生成测试预期，去除大段硬编码 pass 列表。
 - IMP-1 低风险切片：`.sa_cache/test` 写入 `test-metadata.json`，`sa test` cache hit 时可跳过前端 discovery/list/filter。
 - IMP-1 进一步切片：新增进程级 expanded-import fragment cache，缓存已展开的 import 文本片段、传递文件 mtime/size、layout metadata，并通过 `SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES=N` 支持 opt-in LRU；当前仅缓存无 package identity/hash 的 std/稳定根片段，尚不是完整 `FlattenResult`/verify IR cache。
-- IMP-1 重定位基础：新增已测试的 symbol-id remap helper，可将 `Instruction` 中的 `reg`/`symbol`/`label`/`func` operand 从缓存片段的 `SymbolTable` ID 映射到消费者 `SymbolTable` ID；另新增 `FunctionSig.param_ids` / `reg_ids` 风格 immutable ID slice 的 clone-remap helper，以及完整 `FunctionSig` 深拷贝+ID remap+entry offset helper。raw_text 名称碰撞策略和 def/const 合并仍待完整设计。
+- IMP-1 重定位基础：新增已测试的 symbol-id remap helper，可将 `Instruction` 中的 `reg`/`symbol`/`label`/`func` operand 从缓存片段的 `SymbolTable` ID 映射到消费者 `SymbolTable` ID；另新增 `FunctionSig.param_ids` / `reg_ids` 风格 immutable ID slice 的 clone-remap helper，以及完整 `FunctionSig` 深拷贝+ID remap+entry offset helper；新增 `DefDict` 与 `ConstDecl` 合并 helper，可跳过同名同值、深拷贝新项并拒绝同名异值。raw_text 名称碰撞策略、生产接线和 cache-on/off 等价测试仍待完成。
 - IMP-3：通过 `SA_IMPORT_CACHE_MAX_ENTRIES=N` 提供 opt-in LRU；默认 CLI 路径保持无界 borrowed source cache 以保短命进程性能。
 - CACHE-HYGIENE：通过 `SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES=N` 提供 opt-in source-tree digest cache LRU；默认 CLI 路径保持无界进程内 digest cache。
 - PERF-ALLOC：`scanSource` 与 import expansion 输出/行元数据已按源大小和行数预分配，减少 flattener 热路径 ArrayList 增长分配。
 
 仍未完成 / 不适合半实现：
-- IMP-1 完整 per-module frontend IR 持久缓存（flatten + 宏展开 + verify 产物复用）。当前代码的 import 展开先合并为全局 source，再统一 scan/emit；完整实现需要模块边界、SymbolTable ID 重定位、def_dict/const 合并和 cache-on/off 等价测试。当前 metadata cache 只是安全切片，不等同于完整 IR cache。
+- IMP-1 完整 per-module frontend IR 持久缓存（flatten + 宏展开 + verify 产物复用）。当前代码的 import 展开先合并为全局 source，再统一 scan/emit；完整实现仍需要模块边界、raw_text 名称碰撞策略、生产接线和 cache-on/off 等价测试。当前 metadata cache 与 expanded-import fragment cache 都只是安全切片，不等同于完整 IR cache。
 
 ---
 
@@ -95,7 +95,7 @@ SA 目前有两层缓存，但**都不缓存 flatten + 宏展开 + verify 的结
   3. 这是 O(指令数 × 操作数) 的一遍线性重映射，远便宜于重新词法+宏展开。
 - 注意点：
   - 标签是函数内可见、按名字 intern 的，需保证不同模块同名标签不串（design §1.10.1 要求「进入每个函数声明时重置寄存器 ID」——确认该重置已实现可降低风险；若寄存器名带函数前缀则天然隔离）。
-  - def_dict（宏字典）与 const_decls 的合并需要同样的去重/冲突检测（同名宏不同体应报错而非静默覆盖）。
+  - def_dict（宏字典）与 const_decls 的合并需要同样的去重/冲突检测（同名同值可跳过，同名异值应报错而非静默覆盖）；当前已有已测试 helper，尚未接入生产 cache 拼接路径。
   - 缓存键必须纳入「影响展开结果的上下文」：被展开时可见的常量、`#def`、`std_root`、编译器版本——否则同源不同上下文会误命中（参考 import 缓存键已包含的上下文项，src/flattener.zig:169-197）。
 
 验收标准：

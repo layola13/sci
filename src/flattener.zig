@@ -3283,6 +3283,200 @@ fn cloneRemappedFunctionSig(
     return out;
 }
 
+fn cloneBytesLiteral(allocator: std.mem.Allocator, source: common_const_decl.BytesLiteral) !common_const_decl.BytesLiteral {
+    return .{
+        .kind = source.kind,
+        .bytes = try allocator.dupe(u8, source.bytes),
+        .repeat_count = source.repeat_count,
+        .repeat_byte = source.repeat_byte,
+    };
+}
+
+fn cloneVTableSlot(allocator: std.mem.Allocator, source: common_const_decl.VTableSlot) !common_const_decl.VTableSlot {
+    var out = common_const_decl.VTableSlot{
+        .name = try allocator.dupe(u8, source.name),
+        .func_name = &.{},
+    };
+    errdefer out.deinit(allocator);
+    out.func_name = try allocator.dupe(u8, source.func_name);
+    return out;
+}
+
+fn cloneStructField(allocator: std.mem.Allocator, source: common_const_decl.StructField) anyerror!common_const_decl.StructField {
+    var out = common_const_decl.StructField{
+        .name = try allocator.dupe(u8, source.name),
+        .size = source.size,
+        .value = undefined,
+    };
+    errdefer allocator.free(out.name);
+    out.value = try cloneConstValue(allocator, source.value);
+    return out;
+}
+
+fn cloneConstValue(allocator: std.mem.Allocator, source: common_const_decl.ConstValue) anyerror!common_const_decl.ConstValue {
+    switch (source) {
+        .hex => |literal| return .{ .hex = try cloneBytesLiteral(allocator, literal) },
+        .utf8 => |literal| return .{ .utf8 = try cloneBytesLiteral(allocator, literal) },
+        .repeat => |literal| return .{ .repeat = try cloneBytesLiteral(allocator, literal) },
+        .struct_ => |literal| {
+            const fields = try allocator.alloc(common_const_decl.StructField, literal.fields.len);
+            errdefer allocator.free(fields);
+            var copied: usize = 0;
+            errdefer {
+                for (fields[0..copied]) |*field| field.deinit(allocator);
+            }
+            for (literal.fields, 0..) |field, idx| {
+                fields[idx] = try cloneStructField(allocator, field);
+                copied += 1;
+            }
+            return .{ .struct_ = .{ .fields = fields } };
+        },
+        .vtable => |literal| {
+            const slots = try allocator.alloc(common_const_decl.VTableSlot, literal.slots.len);
+            errdefer allocator.free(slots);
+            var copied: usize = 0;
+            errdefer {
+                for (slots[0..copied]) |*slot| slot.deinit(allocator);
+            }
+            for (literal.slots, 0..) |slot, idx| {
+                slots[idx] = try cloneVTableSlot(allocator, slot);
+                copied += 1;
+            }
+            return .{ .vtable = .{ .slots = slots } };
+        },
+    }
+}
+
+fn cloneConstDecl(
+    allocator: std.mem.Allocator,
+    source: ConstDecl,
+    source_line_offset: u32,
+    expanded_line_offset: u32,
+) !ConstDecl {
+    const raw_text = try allocator.dupe(u8, source.raw_text);
+    errdefer allocator.free(raw_text);
+    const name = try allocator.dupe(u8, source.name);
+    errdefer allocator.free(name);
+    const literal_text = try allocator.dupe(u8, source.literal_text);
+    errdefer allocator.free(literal_text);
+    var value = try cloneConstValue(allocator, source.value);
+    errdefer value.deinit(allocator);
+
+    var upstream_loc: ?common_upstream.UpstreamLoc = null;
+    if (source.upstream_loc) |loc| {
+        upstream_loc = .{
+            .file = try allocator.dupe(u8, loc.file),
+            .line = loc.line,
+            .col = loc.col,
+        };
+    }
+    errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+
+    return .{
+        .source_line = try std.math.add(u32, source.source_line, source_line_offset),
+        .expanded_line = try std.math.add(u32, source.expanded_line, expanded_line_offset),
+        .upstream_loc = upstream_loc,
+        .raw_text = raw_text,
+        .name = name,
+        .literal_text = literal_text,
+        .value = value,
+    };
+}
+
+fn bytesLiteralEql(a: common_const_decl.BytesLiteral, b: common_const_decl.BytesLiteral) bool {
+    return a.kind == b.kind and
+        std.mem.eql(u8, a.bytes, b.bytes) and
+        a.repeat_count == b.repeat_count and
+        a.repeat_byte == b.repeat_byte;
+}
+
+fn constValueEql(a: common_const_decl.ConstValue, b: common_const_decl.ConstValue) bool {
+    switch (a) {
+        .hex => |a_lit| return switch (b) {
+            .hex => |b_lit| bytesLiteralEql(a_lit, b_lit),
+            else => false,
+        },
+        .utf8 => |a_lit| return switch (b) {
+            .utf8 => |b_lit| bytesLiteralEql(a_lit, b_lit),
+            else => false,
+        },
+        .repeat => |a_lit| return switch (b) {
+            .repeat => |b_lit| bytesLiteralEql(a_lit, b_lit),
+            else => false,
+        },
+        .struct_ => |a_lit| return switch (b) {
+            .struct_ => |b_lit| structLiteralEql(a_lit, b_lit),
+            else => false,
+        },
+        .vtable => |a_lit| return switch (b) {
+            .vtable => |b_lit| vtableLiteralEql(a_lit, b_lit),
+            else => false,
+        },
+    }
+}
+
+fn structLiteralEql(a: common_const_decl.StructLiteral, b: common_const_decl.StructLiteral) bool {
+    if (a.fields.len != b.fields.len) return false;
+    for (a.fields, b.fields) |a_field, b_field| {
+        if (!std.mem.eql(u8, a_field.name, b_field.name)) return false;
+        if (a_field.size != b_field.size) return false;
+        if (!constValueEql(a_field.value, b_field.value)) return false;
+    }
+    return true;
+}
+
+fn vtableLiteralEql(a: common_const_decl.VTableLiteral, b: common_const_decl.VTableLiteral) bool {
+    if (a.slots.len != b.slots.len) return false;
+    for (a.slots, b.slots) |a_slot, b_slot| {
+        if (!std.mem.eql(u8, a_slot.name, b_slot.name)) return false;
+        if (!std.mem.eql(u8, a_slot.func_name, b_slot.func_name)) return false;
+    }
+    return true;
+}
+
+fn mergeDefDictAllowingIdentical(target: *DefDict, source: *const DefDict) !void {
+    var it = source.entries.iterator();
+    while (it.next()) |entry| {
+        if (target.entries.get(entry.key_ptr.*)) |existing| {
+            if (!std.mem.eql(u8, existing, entry.value_ptr.*)) return error.DuplicateDef;
+            continue;
+        }
+        const key_copy = try target.allocator.dupe(u8, entry.key_ptr.*);
+        errdefer target.allocator.free(key_copy);
+        const value_copy = try target.allocator.dupe(u8, entry.value_ptr.*);
+        errdefer target.allocator.free(value_copy);
+        try target.entries.put(key_copy, value_copy);
+    }
+}
+
+fn mergeConstDeclsAllowingIdentical(
+    allocator: std.mem.Allocator,
+    target: *std.ArrayList(ConstDecl),
+    source: []const ConstDecl,
+    source_line_offset: u32,
+    expanded_line_offset: u32,
+) !void {
+    for (source) |decl| {
+        var existing: ?*ConstDecl = null;
+        for (target.items) |*item| {
+            if (std.mem.eql(u8, item.name, decl.name)) {
+                existing = item;
+                break;
+            }
+        }
+        if (existing) |item| {
+            if (!constValueEql(item.value, decl.value)) return error.DuplicateConstDecl;
+            continue;
+        }
+        const cloned = try cloneConstDecl(allocator, decl, source_line_offset, expanded_line_offset);
+        errdefer {
+            var cleanup = cloned;
+            cleanup.deinit(allocator);
+        }
+        try target.append(cloned);
+    }
+}
+
 fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
     if (source.len == 0) return;
     try out.appendSlice(source);
@@ -4404,6 +4598,81 @@ test "symbol id remap rejects function signatures with unknown ids" {
     };
     defer source_sig.deinit(std.testing.allocator);
     try std.testing.expectError(error.InvalidOperand, cloneRemappedFunctionSig(std.testing.allocator, source_sig, remap, 0));
+}
+
+test "frontend cache merge keeps identical defs and rejects conflicts" {
+    var target = DefDict.init(std.testing.allocator);
+    defer target.deinit();
+    try target.putExpression("A", "1");
+
+    var source = DefDict.init(std.testing.allocator);
+    defer source.deinit();
+    try source.putExpression("A", "1");
+    try source.putExpression("B", "A + 1");
+
+    const source_b = source.get("B").?;
+    try mergeDefDictAllowingIdentical(&target, &source);
+    try std.testing.expectEqual(@as(usize, 2), target.entries.count());
+    try std.testing.expectEqualStrings("1", target.get("A").?);
+    try std.testing.expectEqualStrings("2", target.get("B").?);
+    try std.testing.expect(target.get("B").?.ptr != source_b.ptr);
+
+    var conflict = DefDict.init(std.testing.allocator);
+    defer conflict.deinit();
+    try conflict.putExpression("A", "2");
+    try std.testing.expectError(error.DuplicateDef, mergeDefDictAllowingIdentical(&target, &conflict));
+}
+
+test "frontend cache merge clones const declarations and rejects conflicts" {
+    const upstream_file = try std.testing.allocator.dupe(u8, "module.sa");
+    var source_decl = try common_const_decl.parseConstDecl(
+        std.testing.allocator,
+        "@const HELLO = utf8:\"hello\"",
+        3,
+        5,
+        .{ .file = upstream_file, .line = 9, .col = 2 },
+    );
+    defer source_decl.deinit(std.testing.allocator);
+
+    var target = std.ArrayList(ConstDecl).init(std.testing.allocator);
+    defer {
+        for (target.items) |*decl| decl.deinit(std.testing.allocator);
+        target.deinit();
+    }
+
+    try mergeConstDeclsAllowingIdentical(std.testing.allocator, &target, &.{source_decl}, 10, 20);
+    try std.testing.expectEqual(@as(usize, 1), target.items.len);
+    try std.testing.expectEqual(@as(u32, 13), target.items[0].source_line);
+    try std.testing.expectEqual(@as(u32, 25), target.items[0].expanded_line);
+    try std.testing.expectEqualStrings("HELLO", target.items[0].name);
+    try std.testing.expectEqualStrings("utf8:\"hello\"", target.items[0].literal_text);
+    try std.testing.expect(target.items[0].raw_text.ptr != source_decl.raw_text.ptr);
+    try std.testing.expect(target.items[0].name.ptr != source_decl.name.ptr);
+    try std.testing.expect(target.items[0].literal_text.ptr != source_decl.literal_text.ptr);
+    try std.testing.expect(target.items[0].upstream_loc.?.file.ptr != source_decl.upstream_loc.?.file.ptr);
+    switch (target.items[0].value) {
+        .utf8 => |literal| switch (source_decl.value) {
+            .utf8 => |source_literal| {
+                try std.testing.expectEqualStrings("hello", literal.bytes);
+                try std.testing.expect(literal.bytes.ptr != source_literal.bytes.ptr);
+            },
+            else => return error.TestUnexpectedResult,
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    try mergeConstDeclsAllowingIdentical(std.testing.allocator, &target, &.{source_decl}, 100, 100);
+    try std.testing.expectEqual(@as(usize, 1), target.items.len);
+
+    var conflict = try common_const_decl.parseConstDecl(
+        std.testing.allocator,
+        "@const HELLO = utf8:\"bye\"",
+        4,
+        6,
+        null,
+    );
+    defer conflict.deinit(std.testing.allocator);
+    try std.testing.expectError(error.DuplicateConstDecl, mergeConstDeclsAllowingIdentical(std.testing.allocator, &target, &.{conflict}, 0, 0));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {
