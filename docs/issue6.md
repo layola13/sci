@@ -14,7 +14,7 @@ SA 缓存与单元测试框架评估及改进计划（issue6）
 - TEST-4：unit-framework runner 从 `.sa` 源文件自动生成测试预期，去除大段硬编码 pass 列表。
 - IMP-1 低风险切片：`.sa_cache/test` 写入 `test-metadata.json`，`sa test` cache hit 时可跳过前端 discovery/list/filter。
 - IMP-1 进一步切片：新增进程级 expanded-import fragment cache，缓存已展开的 import 文本片段、传递文件 mtime/size、layout metadata，并通过 `SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES=N` 支持 opt-in LRU；当前仅缓存无 package identity/hash 的 std/稳定根片段，尚不是完整 `FlattenResult`/verify IR cache。
-- IMP-1 重定位基础：新增已测试的 symbol-id remap helper，可将 `Instruction` 中的 `reg`/`symbol`/`label`/`func` operand 从缓存片段的 `SymbolTable` ID 映射到消费者 `SymbolTable` ID；另新增 `Instruction` 深拷贝+operand remap+line offset helper，保留 package/upstream/raw/native/atomic metadata 的独立所有权；新增 `FunctionSig.param_ids` / `reg_ids` 风格 immutable ID slice 的 clone-remap helper，以及完整 `FunctionSig` 深拷贝+ID remap+entry offset helper；新增 `DefDict` 与 `ConstDecl` 合并 helper，可跳过同名同值、深拷贝新项并拒绝同名异值；新增 `package_identities` 与 `LayoutVersion` 合并 helper，可深拷贝新元数据并拒绝同路径不同 layout 版本冲突。raw_text 名称碰撞策略、生产接线和 cache-on/off 等价测试仍待完成。
+- IMP-1 重定位基础：新增已测试的 symbol-id remap helper，可将 `Instruction` 中的 `reg`/`symbol`/`label`/`func` operand 从缓存片段的 `SymbolTable` ID 映射到消费者 `SymbolTable` ID；另新增 `Instruction` 深拷贝+operand remap+line offset helper，保留 package/upstream/raw/native/atomic metadata 的独立所有权；新增 `FunctionSig.param_ids` / `reg_ids` 风格 immutable ID slice 的 clone-remap helper，以及完整 `FunctionSig` 深拷贝+offset helper，其中 `FunctionSig.id` 按函数列表序号偏移而非 symbol-id remap，test `llvm_name` 按新 id 重建；新增 `DefDict` 与 `ConstDecl` 合并 helper，可跳过同名同值、深拷贝新项并拒绝同名异值；新增 `package_identities` 与 `LayoutVersion` 合并 helper，可深拷贝新元数据并拒绝同路径不同 layout 版本冲突；新增已测试的 `appendFlattenFragment` 聚合 helper，可一次性把完整 fragment 追加进非空目标容器。raw_text 名称碰撞策略、生产接线和 cache-on/off 等价测试仍待完成。
 - IMP-3：通过 `SA_IMPORT_CACHE_MAX_ENTRIES=N` 提供 opt-in LRU；默认 CLI 路径保持无界 borrowed source cache 以保短命进程性能。
 - CACHE-HYGIENE：通过 `SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES=N` 提供 opt-in source-tree digest cache LRU；默认 CLI 路径保持无界进程内 digest cache。
 - PERF-ALLOC：`scanSource` 与 import expansion 输出/行元数据已按源大小和行数预分配，减少 flattener 热路径 ArrayList 增长分配。
@@ -92,7 +92,8 @@ SA 目前有两层缓存，但**都不缓存 flatten + 宏展开 + verify 的结
 - 直接把缓存模块的指令拼进消费者的指令流会**id 串号**。所以跨文件复用必须做一次**重定位（id remap）**：
   1. 缓存条目同时保存「该模块的 names 表」（id → 名字）。
   2. 拼接时遍历缓存指令的每个 symbol/label/reg/function 操作数，用其名字在消费者 `SymbolTable` 里重新 `intern`，把旧 id 替换成新 id。
-  3. 这是 O(指令数 × 操作数) 的一遍线性重映射，远便宜于重新词法+宏展开；当前已有已测试 helper 能深拷贝 `Instruction` 并重映射 operand，同时复制 raw/text/native/atomic/upstream/package metadata。
+  3. `FunctionSig.param_ids` / `reg_ids` 走同一套 symbol-id remap，但 `FunctionSig.id` 本身是函数列表序号，不是 symbol id，必须按“目标已有函数数”做稳定 offset；test `llvm_name` 也要按新函数 id 重建。
+  4. 这是 O(指令数 × 操作数) 的一遍线性重映射，远便宜于重新词法+宏展开；当前已有已测试 helper 能深拷贝 `Instruction` / `FunctionSig` 并重映射或重编号，同时复制 raw/text/native/atomic/upstream/package metadata。
 - 注意点：
   - 标签是函数内可见、按名字 intern 的，需保证不同模块同名标签不串（design §1.10.1 要求「进入每个函数声明时重置寄存器 ID」——确认该重置已实现可降低风险；若寄存器名带函数前缀则天然隔离）。
   - def_dict（宏字典）与 const_decls 的合并需要同样的去重/冲突检测（同名同值可跳过，同名异值应报错而非静默覆盖）；当前已有已测试 helper，尚未接入生产 cache 拼接路径。

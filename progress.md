@@ -2,9 +2,16 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999996%
+Current progress: 99.999997%
 
 ## Completed SCI Features
+
+- 2026-06-10: Added tested end-to-end fragment append helper and corrected `FunctionSig.id` remap semantics.
+  - Added `appendFlattenFragment` to compose the existing clone/remap/merge helpers into one append step for `instructions`, `const_decls`, `function_sigs`, `test_sigs`, `defs`, `layout_versions`, `package_identities`, and `owned_text`.
+  - Corrected `FunctionSig.id` handling so cached fragment replay treats it as a function-list index offset, not a `SymbolTable` id remap; test `llvm_name` values are regenerated from the new function id.
+  - Made appended `test_sigs` own their own copied signatures instead of aliasing `function_sigs`, avoiding double-free and matching current `FlattenResult.deinit` ownership.
+  - Added end-to-end coverage proving a fragment can be appended into a non-empty target container while preserving symbol remap, line offsets, function-id offsets, test metadata, layout metadata, package identities, and owned text independence.
+  - Verification: `zig test src/flattener.zig` -> `81/81 tests passed`; `zig test src/cli.zig` -> `87/87 tests passed`.
 
 - 2026-06-09: Added tested fragment metadata merge helpers for future cached frontend fragments.
   - Added `package_identities` merge coverage that skips duplicate package keys and deep-copies newly imported identities instead of aliasing source fragment storage.

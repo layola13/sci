@@ -3245,10 +3245,12 @@ fn cloneRemappedFunctionSig(
     allocator: std.mem.Allocator,
     source_sig: FunctionSig,
     remap: []const u32,
+    function_id_offset: u32,
     entry_inst_offset: u32,
 ) !FunctionSig {
+    const cloned_id = try std.math.add(u32, source_sig.id, function_id_offset);
     var out = FunctionSig{
-        .id = try remapSymbolId(remap, source_sig.id),
+        .id = cloned_id,
         .name = try allocator.dupe(u8, source_sig.name),
         .params = &.{},
         .kind = source_sig.kind,
@@ -3270,6 +3272,47 @@ fn cloneRemappedFunctionSig(
     out.params = try cloneParams(allocator, source_sig.params);
     out.param_ids = try cloneRemappedSymbolIdSlice(allocator, source_sig.param_ids, remap);
     out.reg_ids = try cloneRemappedSymbolIdSlice(allocator, source_sig.reg_ids, remap);
+    if (source_sig.upstream_loc) |loc| {
+        const file_copy = try allocator.dupe(u8, loc.file);
+        out.upstream_file = file_copy;
+        out.upstream_loc = .{ .file = file_copy, .line = loc.line, .col = loc.col };
+    } else if (source_sig.upstream_file) |file| {
+        out.upstream_file = try allocator.dupe(u8, file);
+    }
+    if (source_sig.llvm_name) |llvm_name| {
+        if (source_sig.kind == .test_func) {
+            out.llvm_name = try common_signature.testLLVMName(allocator, cloned_id);
+        } else {
+            out.llvm_name = try allocator.dupe(u8, llvm_name);
+        }
+    }
+    return out;
+}
+
+fn cloneExactFunctionSig(allocator: std.mem.Allocator, source_sig: FunctionSig) !FunctionSig {
+    var out = FunctionSig{
+        .id = source_sig.id,
+        .name = try allocator.dupe(u8, source_sig.name),
+        .params = &.{},
+        .kind = source_sig.kind,
+        .return_cap = source_sig.return_cap,
+        .return_ty = source_sig.return_ty,
+        .return_fallible = source_sig.return_fallible,
+        .entry_inst_idx = source_sig.entry_inst_idx,
+        .is_ffi_wrapper = source_sig.is_ffi_wrapper,
+        .upstream_file = null,
+        .upstream_loc = null,
+        .param_ids = &.{},
+        .reg_ids = &.{},
+        .llvm_name = null,
+        .ignored = source_sig.ignored,
+        .should_panic = source_sig.should_panic,
+    };
+    errdefer out.deinit(allocator);
+
+    out.params = try cloneParams(allocator, source_sig.params);
+    out.param_ids = try allocator.dupe(u32, source_sig.param_ids);
+    out.reg_ids = try allocator.dupe(u32, source_sig.reg_ids);
     if (source_sig.upstream_loc) |loc| {
         const file_copy = try allocator.dupe(u8, loc.file);
         out.upstream_file = file_copy;
@@ -3521,6 +3564,64 @@ fn mergePackageIdentities(
         const copy = try allocator.dupe(u8, entry.key_ptr.*);
         errdefer allocator.free(copy);
         try target.put(copy, {});
+    }
+}
+
+fn appendFlattenFragment(
+    allocator: std.mem.Allocator,
+    target_instructions: *std.ArrayList(Instruction),
+    target_const_decls: *std.ArrayList(ConstDecl),
+    target_function_sigs: *std.ArrayList(FunctionSig),
+    target_test_sigs: *std.ArrayList(FunctionSig),
+    target_def_dict: *DefDict,
+    target_symbols: *SymbolTable,
+    target_layout_versions: *std.ArrayList(LayoutVersion),
+    target_package_identities: *std.StringHashMap(void),
+    target_owned_text: *std.ArrayList([]const u8),
+    fragment: *const FlattenResult,
+    source_line_offset: u32,
+    expanded_line_offset: u32,
+) !void {
+    const remap = try buildSymbolIdRemap(allocator, &fragment.symbols, target_symbols);
+    defer allocator.free(remap);
+
+    try mergeDefDictAllowingIdentical(target_def_dict, &fragment.def_dict);
+    try mergeConstDeclsAllowingIdentical(
+        allocator,
+        target_const_decls,
+        fragment.const_decls,
+        source_line_offset,
+        expanded_line_offset,
+    );
+    try mergeLayoutVersionsAllowingIdentical(allocator, target_layout_versions, fragment.layout_versions);
+    try mergePackageIdentities(allocator, target_package_identities, &fragment.package_identities);
+
+    const function_id_offset: u32 = @intCast(target_function_sigs.items.len);
+    const entry_inst_offset: u32 = @intCast(target_instructions.items.len);
+    for (fragment.instructions) |instruction| {
+        const cloned = try cloneRemappedInstruction(
+            allocator,
+            target_owned_text,
+            instruction,
+            remap,
+            source_line_offset,
+            expanded_line_offset,
+        );
+        try target_instructions.append(cloned);
+    }
+
+    for (fragment.function_sigs) |sig| {
+        const cloned = try cloneRemappedFunctionSig(
+            allocator,
+            sig,
+            remap,
+            function_id_offset,
+            entry_inst_offset,
+        );
+        try target_function_sigs.append(cloned);
+        if (cloned.kind == .test_func) {
+            try target_test_sigs.append(try cloneExactFunctionSig(allocator, cloned));
+        }
     }
 }
 
@@ -4675,7 +4776,7 @@ test "symbol id remap clones function signature id slices" {
 test "symbol id remap clones full function signatures" {
     var source_symbols = SymbolTable.init(std.testing.allocator);
     defer source_symbols.deinit();
-    const fn_id = try source_symbols.intern("work");
+    _ = try source_symbols.intern("work");
     const lhs_id = try source_symbols.intern("lhs");
     const rhs_id = try source_symbols.intern("rhs");
     const tmp_id = try source_symbols.intern("tmp");
@@ -4691,7 +4792,7 @@ test "symbol id remap clones full function signatures" {
     source_params[1] = .{ .name = try std.testing.allocator.dupe(u8, "rhs"), .ty = .i64, .cap = .move };
 
     var source_sig = FunctionSig{
-        .id = fn_id,
+        .id = 7,
         .name = try std.testing.allocator.dupe(u8, "work"),
         .params = source_params,
         .kind = .test_func,
@@ -4711,17 +4812,17 @@ test "symbol id remap clones full function signatures" {
     source_sig.upstream_loc = .{ .file = source_sig.upstream_file.?, .line = 9, .col = 4 };
     defer source_sig.deinit(std.testing.allocator);
 
-    var cloned = try cloneRemappedFunctionSig(std.testing.allocator, source_sig, remap, 100);
+    var cloned = try cloneRemappedFunctionSig(std.testing.allocator, source_sig, remap, 100, 200);
     defer cloned.deinit(std.testing.allocator);
-    try std.testing.expectEqual(target_symbols.findId("work").?, cloned.id);
-    try std.testing.expectEqual(@as(u32, 112), cloned.entry_inst_idx);
+    try std.testing.expectEqual(@as(u32, 107), cloned.id);
+    try std.testing.expectEqual(@as(u32, 212), cloned.entry_inst_idx);
     try std.testing.expectEqualSlices(u32, &.{ target_symbols.findId("lhs").?, target_symbols.findId("rhs").? }, cloned.param_ids);
     try std.testing.expectEqualSlices(u32, &.{ target_symbols.findId("lhs").?, target_symbols.findId("rhs").?, target_symbols.findId("tmp").? }, cloned.reg_ids);
     try std.testing.expectEqualStrings("work", cloned.name);
     try std.testing.expectEqualStrings("lhs", cloned.params[0].name);
     try std.testing.expectEqual(common_signature.PrimType.i64, cloned.params[0].ty);
     try std.testing.expectEqual(common_instruction.CapPrefix.borrow, cloned.params[0].cap);
-    try std.testing.expectEqualStrings("_saasm_test_7", cloned.llvm_name.?);
+    try std.testing.expectEqualStrings("_saasm_test_107", cloned.llvm_name.?);
     try std.testing.expect(cloned.ignored);
     try std.testing.expect(cloned.should_panic);
     try std.testing.expect(cloned.name.ptr != source_sig.name.ptr);
@@ -4738,14 +4839,14 @@ test "symbol id remap clones full function signatures" {
 test "symbol id remap rejects function signatures with unknown ids" {
     var source_symbols = SymbolTable.init(std.testing.allocator);
     defer source_symbols.deinit();
-    _ = try source_symbols.intern("known");
+    const known = try source_symbols.intern("known");
     var target_symbols = SymbolTable.init(std.testing.allocator);
     defer target_symbols.deinit();
     const remap = try buildSymbolIdRemap(std.testing.allocator, &source_symbols, &target_symbols);
     defer std.testing.allocator.free(remap);
 
     var source_sig = FunctionSig{
-        .id = 99,
+        .id = 0,
         .name = try std.testing.allocator.dupe(u8, "missing"),
         .params = &.{},
         .kind = .normal,
@@ -4753,9 +4854,11 @@ test "symbol id remap rejects function signatures with unknown ids" {
         .return_ty = .void,
         .entry_inst_idx = 0,
         .is_ffi_wrapper = false,
+        .param_ids = try std.testing.allocator.dupe(u32, &.{known}),
+        .reg_ids = try std.testing.allocator.dupe(u32, &.{99}),
     };
     defer source_sig.deinit(std.testing.allocator);
-    try std.testing.expectError(error.InvalidOperand, cloneRemappedFunctionSig(std.testing.allocator, source_sig, remap, 0));
+    try std.testing.expectError(error.InvalidOperand, cloneRemappedFunctionSig(std.testing.allocator, source_sig, remap, 0, 0));
 }
 
 test "frontend cache merge keeps identical defs and rejects conflicts" {
@@ -4983,6 +5086,142 @@ test "frontend cache merge layout versions skips identical and rejects conflicts
     };
     defer for (&conflict) |*item| item.deinit(std.testing.allocator);
     try std.testing.expectError(error.LayoutVersionConflict, mergeLayoutVersionsAllowingIdentical(std.testing.allocator, &target, conflict[0..]));
+}
+
+test "frontend cache append fragment remaps and merges end to end" {
+    const source =
+        \\#def SIZE = 8
+        \\@const HELLO = utf8:"hello"
+        \\@main() -> i32:
+        \\L_MAIN:
+        \\tmp = alloc SIZE
+        \\return 0
+        \\@test should_panic "panic path"():
+        \\L_TEST:
+        \\panic 32
+    ;
+    var fragment = try flatten(std.testing.allocator, source);
+    defer fragment.deinit(std.testing.allocator);
+
+    std.testing.allocator.free(fragment.layout_versions);
+    fragment.layout_versions = try std.testing.allocator.alloc(LayoutVersion, 1);
+    fragment.layout_versions[0] = .{
+        .path = try std.testing.allocator.dupe(u8, "pkg/layout.sal"),
+        .version = 42,
+    };
+    try fragment.package_identities.put(try std.testing.allocator.dupe(u8, "pkg/core"), {});
+
+    var target_instructions = std.ArrayList(Instruction).init(std.testing.allocator);
+    defer {
+        for (target_instructions.items) |item| {
+            if (item.package_identity) |identity| std.testing.allocator.free(identity);
+            if (item.upstream_loc) |loc| std.testing.allocator.free(loc.file);
+            if (item.native_reg_names.len != 0) std.testing.allocator.free(item.native_reg_names);
+        }
+        target_instructions.deinit();
+    }
+    var target_const_decls = std.ArrayList(ConstDecl).init(std.testing.allocator);
+    defer {
+        for (target_const_decls.items) |*decl| decl.deinit(std.testing.allocator);
+        target_const_decls.deinit();
+    }
+    var target_function_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    defer {
+        for (target_function_sigs.items) |*sig| sig.deinit(std.testing.allocator);
+        target_function_sigs.deinit();
+    }
+    var target_test_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    defer {
+        for (target_test_sigs.items) |*sig| sig.deinit(std.testing.allocator);
+        target_test_sigs.deinit();
+    }
+    var target_def_dict = DefDict.init(std.testing.allocator);
+    defer target_def_dict.deinit();
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    var target_layout_versions = std.ArrayList(LayoutVersion).init(std.testing.allocator);
+    defer {
+        for (target_layout_versions.items) |*item| item.deinit(std.testing.allocator);
+        target_layout_versions.deinit();
+    }
+    var target_package_identities = std.StringHashMap(void).init(std.testing.allocator);
+    defer {
+        var it = target_package_identities.iterator();
+        while (it.next()) |entry| std.testing.allocator.free(entry.key_ptr.*);
+        target_package_identities.deinit();
+    }
+    var target_owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer {
+        for (target_owned_text.items) |text| std.testing.allocator.free(text);
+        target_owned_text.deinit();
+    }
+
+    _ = try target_symbols.intern("occupied");
+    try target_def_dict.putExpression("EXISTING", "1");
+    try target_package_identities.put(try std.testing.allocator.dupe(u8, "pkg/seed"), {});
+    try target_function_sigs.append(.{
+        .id = 99,
+        .name = try std.testing.allocator.dupe(u8, "seed"),
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .void,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+    });
+    try target_instructions.append(common_instruction.makeInstruction(
+        .label,
+        1,
+        0,
+        null,
+        try ownText(std.testing.allocator, &target_owned_text, "L_SEED:"),
+    ));
+
+    try appendFlattenFragment(
+        std.testing.allocator,
+        &target_instructions,
+        &target_const_decls,
+        &target_function_sigs,
+        &target_test_sigs,
+        &target_def_dict,
+        &target_symbols,
+        &target_layout_versions,
+        &target_package_identities,
+        &target_owned_text,
+        &fragment,
+        10,
+        20,
+    );
+
+    try std.testing.expectEqual(@as(usize, 1 + fragment.instructions.len), target_instructions.items.len);
+    try std.testing.expectEqual(@as(usize, 1), target_const_decls.items.len);
+    try std.testing.expectEqual(@as(usize, 1 + fragment.function_sigs.len), target_function_sigs.items.len);
+    try std.testing.expectEqual(@as(usize, fragment.test_sigs.len), target_test_sigs.items.len);
+    try std.testing.expectEqualStrings("8", target_def_dict.get("SIZE").?);
+    try std.testing.expectEqualStrings("1", target_def_dict.get("EXISTING").?);
+    try std.testing.expectEqual(@as(u32, 2), target_package_identities.count());
+    try std.testing.expectEqual(@as(usize, 1), target_layout_versions.items.len);
+    try std.testing.expectEqualStrings("pkg/layout.sal", target_layout_versions.items[0].path);
+    try std.testing.expectEqual(@as(u64, 42), target_layout_versions.items[0].version);
+    try std.testing.expect(target_layout_versions.items[0].path.ptr != fragment.layout_versions[0].path.ptr);
+
+    try std.testing.expectEqualStrings("HELLO", target_const_decls.items[0].name);
+    try std.testing.expectEqual(@as(u32, fragment.const_decls[0].source_line + 10), target_const_decls.items[0].source_line);
+    try std.testing.expectEqual(@as(u32, fragment.const_decls[0].expanded_line + 20), target_const_decls.items[0].expanded_line);
+
+    try std.testing.expectEqual(@as(u32, 99), target_function_sigs.items[0].id);
+    try std.testing.expectEqual(@as(u32, fragment.function_sigs[0].id + 1), target_function_sigs.items[1].id);
+    try std.testing.expectEqual(@as(u32, fragment.function_sigs[1].id + 1), target_function_sigs.items[2].id);
+    try std.testing.expectEqual(@as(u32, fragment.function_sigs[0].entry_inst_idx + 1), target_function_sigs.items[1].entry_inst_idx);
+    try std.testing.expectEqual(@as(u32, fragment.function_sigs[1].entry_inst_idx + 1), target_function_sigs.items[2].entry_inst_idx);
+    try std.testing.expect(target_function_sigs.items[2].should_panic);
+    try std.testing.expectEqualStrings("\"panic path\"", target_test_sigs.items[0].name);
+    try std.testing.expect(target_test_sigs.items[0].name.ptr != target_function_sigs.items[2].name.ptr);
+
+    try std.testing.expectEqual(@as(u32, fragment.instructions[0].source_line + 10), target_instructions.items[1].source_line);
+    try std.testing.expectEqual(@as(u32, fragment.instructions[0].expanded_line + 20), target_instructions.items[1].expanded_line);
+    try std.testing.expectEqualStrings(fragment.instructions[0].raw_text, target_instructions.items[1].raw_text);
+    try std.testing.expect(target_instructions.items[1].raw_text.ptr != fragment.instructions[0].raw_text.ptr);
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {
