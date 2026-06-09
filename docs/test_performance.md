@@ -206,6 +206,8 @@ sa cache clean --max-age-days 7
 
 Build and test cache hits also validate the cached bitcode/output pair before reuse. If either file is missing or empty, the key directory is deleted and the command recompiles normally. This prevents stale partial writes from surviving indefinitely after interrupted builds or manual cache edits.
 
+Cache entries now include a `manifest.json` beside `artifact.sa.bc` and `output.bin`. The manifest records the cache kind, key, artifact byte size, artifact SHA-256, output byte size, and output SHA-256. Cache hits validate the manifest before copying artifacts back to the requested output path; mismatched or malformed entries are deleted and rebuilt. `sa cache clean` applies the same manifest requirement, so old-format entries, tampered files, and hash/size mismatches are removed during explicit cleanup instead of being kept just because both files are non-empty.
+
 `sa test` now stores no-plugin test compile/link artifacts under `.sa_cache/test`. This does not bypass frontend compilation, because test discovery and filtering still require current metadata, but it skips repeated LLVM emit/link work for repeated compile-only or repeated runs of the same source. Native plugin-linked tests are deliberately excluded from this cache so plugin install/uninstall state remains outside compiler-core cache assumptions.
 
 Focused verification:
@@ -215,7 +217,7 @@ zig test -ODebug ... --test-filter "cli cache clean removes invalid project cach
 zig build bc2sa-smoke --summary all
 ```
 
-Result: both focused cache tests passed, and `bc2sa-smoke` completed with `3/3 tests passed`. A broader cache-adjacent pass also completed successfully:
+Result: both focused cache tests passed, and `bc2sa-smoke` completed with `3/3 tests passed`. The cache smoke now also covers manifest-backed cleanup and test-cache manifest repair. A broader cache-adjacent pass also completed successfully:
 
 ```sh
 zig build std-smoke unit-framework --summary all

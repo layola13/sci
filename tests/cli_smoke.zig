@@ -55,6 +55,27 @@ fn writeBytes(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
+fn bytesHashHex(bytes: []const u8) [64]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(bytes);
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    return std.fmt.bytesToHex(digest, .lower);
+}
+
+fn writeCacheManifest(dir: std.fs.Dir, cache_dir: []const u8, kind: []const u8, key: []const u8, artifact: []const u8, output: []const u8) !void {
+    const artifact_hash = bytesHashHex(artifact);
+    const output_hash = bytesHashHex(output);
+    const manifest = try std.fmt.allocPrint(std.testing.allocator,
+        "{{\"version\":1,\"kind\":\"{s}\",\"key\":\"{s}\",\"artifact\":{{\"size\":{d},\"sha256\":\"{s}\"}},\"output\":{{\"size\":{d},\"sha256\":\"{s}\"}}}}\n",
+        .{ kind, key, artifact.len, artifact_hash[0..], output.len, output_hash[0..] },
+    );
+    defer std.testing.allocator.free(manifest);
+    const manifest_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/manifest.json", .{cache_dir});
+    defer std.testing.allocator.free(manifest_path);
+    try writeBytes(dir, manifest_path, manifest);
+}
+
 fn freeStringMtimeMap(allocator: std.mem.Allocator, map: *std.StringHashMap(i128)) void {
     var iter = map.iterator();
     while (iter.next()) |entry| allocator.free(entry.key_ptr.*);
@@ -758,11 +779,17 @@ test "cli cache clean removes invalid project cache entries" {
 
     const good_key = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const incomplete_key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const corrupt_manifest_key = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     try tmp.dir.makePath(".sa_cache/build-exe/" ++ good_key);
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/artifact.sa.bc", "bc");
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/output.bin", "exe");
+    try writeCacheManifest(tmp.dir, ".sa_cache/build-exe/" ++ good_key, "build-exe", good_key, "bc", "exe");
     try tmp.dir.makePath(".sa_cache/build-exe/" ++ incomplete_key);
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ incomplete_key ++ "/artifact.sa.bc", "bc");
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ corrupt_manifest_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_manifest_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_manifest_key ++ "/output.bin", "exe");
+    try writeCacheManifest(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_manifest_key, "build-exe", corrupt_manifest_key, "bc", "wrong-output");
     try tmp.dir.makePath(".sa_cache/test/not-a-hex-key");
 
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
@@ -774,10 +801,11 @@ test "cli cache clean removes invalid project cache entries" {
     const clean_code = try saasm.cli.executeWithWriters(std.testing.allocator, clean_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), clean_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache clean: scanned=3 removed=2 kept=1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache clean: scanned=4 removed=3 kept=1"));
 
     try tmp.dir.access(".sa_cache/build-exe/" ++ good_key ++ "/output.bin", .{});
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/build-exe/" ++ incomplete_key, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/build-exe/" ++ corrupt_manifest_key, .{}));
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/test/not-a-hex-key", .{}));
 
     stdout_buf.clearRetainingCapacity();
@@ -819,6 +847,9 @@ test "sa test compile-only reuses and repairs project test cache" {
     defer std.testing.allocator.free(cache_key);
     const cached_output = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/test/{s}/output.bin", .{cache_key});
     defer std.testing.allocator.free(cached_output);
+    const cached_manifest = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/test/{s}/manifest.json", .{cache_key});
+    defer std.testing.allocator.free(cached_manifest);
+    try tmp.dir.access(cached_manifest, .{});
     try tmp.dir.deleteFile(cached_output);
 
     stdout_buf.clearRetainingCapacity();
@@ -829,6 +860,18 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
     try tmp.dir.access(cached_output, .{});
+
+    try writeBytes(tmp.dir, cached_manifest, "{\"version\":1,\"kind\":\"test\",\"key\":\"bad\"}\n");
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const third_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), third_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
+    const repaired_manifest = try tmp.dir.readFileAlloc(std.testing.allocator, cached_manifest, 64 * 1024);
+    defer std.testing.allocator.free(repaired_manifest);
+    try std.testing.expect(std.mem.indexOf(u8, repaired_manifest, cache_key) != null);
 }
 
 test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {

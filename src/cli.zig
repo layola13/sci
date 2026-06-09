@@ -849,6 +849,32 @@ fn hashBytes(bytes: []const u8) [32]u8 {
     return out;
 }
 
+fn hashFileHex(allocator: std.mem.Allocator, path: []const u8) ![64]u8 {
+    _ = allocator;
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    return try hashOpenFileHex(&file);
+}
+
+fn hashDirFileHex(dir: std.fs.Dir, name: []const u8) ![64]u8 {
+    var file = try dir.openFile(name, .{});
+    defer file.close();
+    return try hashOpenFileHex(&file);
+}
+
+fn hashOpenFileHex(file: *std.fs.File) ![64]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    var buf: [8192]u8 = undefined;
+    while (true) {
+        const n = try file.read(&buf);
+        if (n == 0) break;
+        hasher.update(buf[0..n]);
+    }
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return sourceHashHex(out);
+}
+
 fn sourceStem(path: []const u8) []const u8 {
     const basename = std.fs.path.basename(path);
     const dot = std.mem.lastIndexOfScalar(u8, basename, '.') orelse return basename;
@@ -4160,6 +4186,99 @@ fn projectCacheArtifactExistsNonEmpty(path: []const u8) bool {
     return stat.kind == .file and stat.size != 0;
 }
 
+fn projectCacheManifestPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    return try projectCacheArtifactPath(allocator, project_root, kind, key, "manifest.json");
+}
+
+fn jsonGetObject(value: std.json.Value, key: []const u8) !std.json.Value {
+    const object = switch (value) {
+        .object => |object| object,
+        else => return error.InvalidCacheManifest,
+    };
+    return object.get(key) orelse return error.InvalidCacheManifest;
+}
+
+fn jsonStringEquals(value: std.json.Value, expected: []const u8) bool {
+    return switch (value) {
+        .string => |text| std.mem.eql(u8, text, expected),
+        else => false,
+    };
+}
+
+fn jsonIntEquals(value: std.json.Value, expected: u64) bool {
+    return switch (value) {
+        .integer => |v| v >= 0 and @as(u64, @intCast(v)) == expected,
+        else => false,
+    };
+}
+
+fn projectCacheArtifactMatchesManifest(allocator: std.mem.Allocator, artifact_value: std.json.Value, path: []const u8) !bool {
+    const stat = std.fs.cwd().statFile(path) catch return false;
+    if (stat.kind != .file or stat.size == 0) return false;
+    if (!jsonIntEquals(try jsonGetObject(artifact_value, "size"), stat.size)) return false;
+    const hash_hex = try hashFileHex(allocator, path);
+    return jsonStringEquals(try jsonGetObject(artifact_value, "sha256"), hash_hex[0..]);
+}
+
+fn projectCacheManifestValid(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+) bool {
+    const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return false;
+    defer allocator.free(manifest_path);
+    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return false;
+    defer allocator.free(manifest_bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return false;
+    defer parsed.deinit();
+    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 1)) return false;
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key.slice())) return false;
+    if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "artifact") catch return false, artifact_path) catch return false)) return false;
+    if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "output") catch return false, out_path) catch return false)) return false;
+    return true;
+}
+
+fn writeCacheArtifactManifestEntry(writer: anytype, allocator: std.mem.Allocator, name: []const u8, path: []const u8) !void {
+    const stat = try std.fs.cwd().statFile(path);
+    const hash_hex = try hashFileHex(allocator, path);
+    try writer.writeByte('"');
+    try writer.writeAll(name);
+    try writer.writeAll("\":{\"size\":");
+    try writer.print("{d}", .{stat.size});
+    try writer.writeAll(",\"sha256\":");
+    try writeJsonString(writer, hash_hex[0..]);
+    try writer.writeByte('}');
+}
+
+fn projectCacheWriteManifest(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    cached_artifact: []const u8,
+    cached_output: []const u8,
+) !void {
+    const manifest_path = try projectCacheManifestPath(allocator, project_root, kind, key);
+    defer allocator.free(manifest_path);
+    try ensureParentDir(manifest_path);
+    var file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
+    defer file.close();
+    var writer = file.writer();
+    try writer.writeAll("{\"version\":1,\"kind\":");
+    try writeJsonString(writer, kind.dirName());
+    try writer.writeAll(",\"key\":");
+    try writeJsonString(writer, key.slice());
+    try writer.writeByte(',');
+    try writeCacheArtifactManifestEntry(writer, allocator, "artifact", cached_artifact);
+    try writer.writeByte(',');
+    try writeCacheArtifactManifestEntry(writer, allocator, "output", cached_output);
+    try writer.writeAll("}\n");
+}
+
 fn projectCacheHit(
     allocator: std.mem.Allocator,
     project_root: []const u8,
@@ -4172,7 +4291,10 @@ fn projectCacheHit(
     defer allocator.free(cached_artifact);
     const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
     defer allocator.free(cached_output);
-    if (!projectCacheArtifactExistsNonEmpty(cached_artifact) or !projectCacheArtifactExistsNonEmpty(cached_output)) {
+    if (!projectCacheArtifactExistsNonEmpty(cached_artifact) or
+        !projectCacheArtifactExistsNonEmpty(cached_output) or
+        !projectCacheManifestValid(allocator, project_root, kind, key, cached_artifact, cached_output))
+    {
         projectCacheRemoveKey(allocator, project_root, kind, key);
         return false;
     }
@@ -4201,6 +4323,7 @@ fn projectCacheStore(
     defer allocator.free(cached_output);
     try copyFileAlloc(allocator, artifact_path, cached_artifact);
     try copyFileAlloc(allocator, out_path, cached_output);
+    try projectCacheWriteManifest(allocator, project_root, kind, key, cached_artifact, cached_output);
 }
 
 fn isHexCacheKey(name: []const u8) bool {
@@ -4234,9 +4357,31 @@ fn cacheDirPresent(dir: std.fs.Dir, name: []const u8) bool {
 
 fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
     return switch (kind) {
-        .build_exe, .build_obj, .build_wasm, .test_cache => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin"),
+        .build_exe, .build_obj, .build_wasm, .test_cache => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json"),
         .build_obj_incremental => cacheFilePresentNonEmpty(entry_dir, "manifest.json") and cacheDirPresent(entry_dir, "functions"),
     };
+}
+
+fn cacheEntryArtifactMatchesManifest(entry_dir: std.fs.Dir, artifact_value: std.json.Value, name: []const u8) !bool {
+    const stat = entry_dir.statFile(name) catch return false;
+    if (stat.kind != .file or stat.size == 0) return false;
+    if (!jsonIntEquals(try jsonGetObject(artifact_value, "size"), stat.size)) return false;
+    const hash_hex = try hashDirFileHex(entry_dir, name);
+    return jsonStringEquals(try jsonGetObject(artifact_value, "sha256"), hash_hex[0..]);
+}
+
+fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir: std.fs.Dir) bool {
+    if (kind == .build_obj_incremental) return true;
+    const manifest_bytes = entry_dir.readFileAlloc(std.heap.page_allocator, "manifest.json", 64 * 1024) catch return false;
+    defer std.heap.page_allocator.free(manifest_bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, manifest_bytes, .{}) catch return false;
+    defer parsed.deinit();
+    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 1)) return false;
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key_name)) return false;
+    if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "artifact") catch return false, "artifact.sa.bc") catch return false)) return false;
+    if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "output") catch return false, "output.bin") catch return false)) return false;
+    return true;
 }
 
 fn cleanCacheKindDir(
@@ -4271,7 +4416,9 @@ fn cleanCacheKindDir(
             defer entry_dir.close();
 
             const stat: ?std.fs.File.Stat = kind_dir.statFile(entry.name) catch null;
-            remove = !cacheEntryComplete(kind, entry_dir) or (if (stat) |s| cacheEntryExpired(s, options.max_age_days) else true);
+            remove = !cacheEntryComplete(kind, entry_dir) or
+                !cacheEntryManifestValid(kind, entry.name, entry_dir) or
+                (if (stat) |s| cacheEntryExpired(s, options.max_age_days) else true);
         }
 
         if (remove) {
