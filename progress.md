@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99994%
+Current progress: 99.99995%
 
 ## Completed SCI Features
+
+- 2026-06-09: Tightened plugin network permission URL validation for issue5 SEC-3.
+  - Replaced prefix-only permission URL acceptance with scheme/host parsing for install-time and runtime broker checks.
+  - Remote `http://`, missing schemes, and non-loopback bare IP hosts are now rejected; loopback HTTP remains allowed for local development and HTTPS domain permissions remain allowed.
+  - Kept broad HTTPS wildcard permissions install-compatible but now emits an installer warning so official/plugin manifests can be narrowed without silently granting broad intent.
+  - Verification: `zig test src/plugins.zig` -> `1/1 tests passed`; `zig build plugin-host-smoke --summary all` -> `11/11 tests passed`.
 
 - 2026-06-09: Added field-level mutable borrow checks for issue5 FUNC-2.
   - Extended verifier interior-pointer state with root object and static byte-offset metadata, including label snapshot/restore handling so branch joins preserve field identity.

@@ -1602,6 +1602,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
             return 1;
         }
     }
+    try warnBroadNetPermissions(stdout, manifest);
     const next_ancestors = try allocator.alloc([]const u8, ancestors.len + 1);
     defer allocator.free(next_ancestors);
     @memcpy(next_ancestors[0..ancestors.len], ancestors);
@@ -3252,31 +3253,90 @@ fn parseProcessExecPermission(allocator: std.mem.Allocator, value: std.json.Valu
     };
 }
 
+const PermissionUrlParts = struct {
+    scheme: []const u8,
+    host: []const u8,
+};
+
 fn allowedPermissionUrl(url: []const u8) bool {
-    if (std.mem.startsWith(u8, url, "https://")) return true;
-    if (isLoopbackHttpUrl(url, "localhost")) return true;
-    if (isLoopbackHttpUrl(url, "127.0.0.1")) return true;
-    if (std.mem.startsWith(u8, url, "http://[::1]")) {
-        const rest = url["http://[::1]".len..];
-        return rest.len == 0 or rest[0] == ':' or rest[0] == '/';
-    }
-    return false;
+    const parts = parsePermissionUrlParts(url) orelse return false;
+    if (std.ascii.eqlIgnoreCase(parts.scheme, "http")) return isLoopbackPermissionHost(parts.host);
+    if (!std.ascii.eqlIgnoreCase(parts.scheme, "https")) return false;
+    if (isWildcardPermissionHost(parts.host)) return true;
+    if (isIpLiteralHost(parts.host) and !isLoopbackPermissionHost(parts.host)) return false;
+    return true;
 }
 
 fn allowedExternalUrl(url: []const u8) bool {
-    return std.mem.startsWith(u8, url, "https://") or
-        isLoopbackHttpUrl(url, "localhost") or
-        isLoopbackHttpUrl(url, "127.0.0.1") or
-        std.mem.startsWith(u8, url, "github:");
+    if (std.mem.startsWith(u8, url, "github:")) return true;
+    return allowedPermissionUrl(url);
 }
 
-fn isLoopbackHttpUrl(url: []const u8, host: []const u8) bool {
-    const prefix = "http://";
-    if (!std.mem.startsWith(u8, url, prefix)) return false;
-    const rest = url[prefix.len..];
-    if (!std.mem.startsWith(u8, rest, host)) return false;
-    const suffix = rest[host.len..];
-    return suffix.len == 0 or suffix[0] == ':' or suffix[0] == '/';
+fn parsePermissionUrlParts(url: []const u8) ?PermissionUrlParts {
+    const scheme_end = std.mem.indexOf(u8, url, "://") orelse return null;
+    const scheme = url[0..scheme_end];
+    if (scheme.len == 0) return null;
+    const rest = url[scheme_end + 3 ..];
+    if (rest.len == 0) return null;
+
+    if (rest[0] == '[') {
+        const close_rel = std.mem.indexOfScalar(u8, rest, ']') orelse return null;
+        if (close_rel <= 1) return null;
+        const suffix = rest[close_rel + 1 ..];
+        if (!validUrlHostSuffix(suffix)) return null;
+        return .{ .scheme = scheme, .host = rest[1..close_rel] };
+    }
+
+    var host_end: usize = 0;
+    while (host_end < rest.len and rest[host_end] != ':' and rest[host_end] != '/' and rest[host_end] != '?' and rest[host_end] != '#') : (host_end += 1) {}
+    const host = rest[0..host_end];
+    if (host.len == 0 or std.mem.indexOfScalar(u8, host, '@') != null) return null;
+    return .{ .scheme = scheme, .host = host };
+}
+
+fn validUrlHostSuffix(suffix: []const u8) bool {
+    return suffix.len == 0 or suffix[0] == ':' or suffix[0] == '/' or suffix[0] == '?' or suffix[0] == '#';
+}
+
+fn isWildcardPermissionHost(host: []const u8) bool {
+    return std.mem.indexOfScalar(u8, host, '*') != null;
+}
+
+fn isLoopbackPermissionHost(host: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(host, "localhost") or
+        std.mem.eql(u8, host, "127.0.0.1") or
+        std.mem.eql(u8, host, "::1");
+}
+
+fn isIpLiteralHost(host: []const u8) bool {
+    _ = std.net.Address.parseIp4(host, 0) catch {
+        _ = std.net.Address.parseIp6(host, 0) catch return false;
+        return true;
+    };
+    return true;
+}
+
+fn warnBroadNetPermissions(stdout: anytype, manifest: SapManifest) !void {
+    for (manifest.net_permissions) |permission| {
+        const parts = parsePermissionUrlParts(permission.url) orelse continue;
+        if (isWildcardPermissionHost(parts.host)) {
+            try stdout.print("warning: plugin {s} declares broad network permission: {s}\n", .{ manifest.name, permission.url });
+        }
+    }
+}
+
+test "plugin network permission URLs reject remote http and bare remote IPs" {
+    try std.testing.expect(allowedPermissionUrl("http://127.0.0.1:18094/allowed"));
+    try std.testing.expect(allowedPermissionUrl("http://localhost/allowed"));
+    try std.testing.expect(allowedPermissionUrl("http://[::1]/allowed"));
+    try std.testing.expect(allowedPermissionUrl("https://example.com/api"));
+    try std.testing.expect(allowedPermissionUrl("https://*/api"));
+
+    try std.testing.expect(!allowedPermissionUrl("http://example.com/api"));
+    try std.testing.expect(!allowedPermissionUrl("example.com/api"));
+    try std.testing.expect(!allowedPermissionUrl("https://192.168.1.10/api"));
+    try std.testing.expect(!allowedPermissionUrl("https://[2001:db8::1]/api"));
+    try std.testing.expect(!allowedPermissionUrl("http://localhost.evil.example/api"));
 }
 
 fn pluginDevMode(allocator: std.mem.Allocator) bool {
