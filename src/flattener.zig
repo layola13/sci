@@ -155,6 +155,12 @@ fn importSourceCacheMap() *std.StringHashMap(ImportSourceCacheEntry) {
     return &import_source_cache.?;
 }
 
+fn traceImportsEnabled() bool {
+    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SAASM_TRACE_IMPORTS") catch return false;
+    defer std.heap.page_allocator.free(value);
+    return value.len != 0 and !std.mem.eql(u8, value, "0") and !std.mem.eql(u8, value, "false") and !std.mem.eql(u8, value, "False");
+}
+
 fn appendCacheBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
     try out.appendSlice(bytes);
     try out.append(0);
@@ -3199,7 +3205,9 @@ fn expandImportsInto(
         recordErrorSourceLine(error_ctx, line_no);
         if (parseImportPath(raw_line)) |import_path| {
             var imported = try readImportFile(allocator, base_dir, import_path, resolve_ctx);
-            std.debug.print("\n[IMPORT] resolved '{s}' -> '{s}'\n", .{ import_path, imported.entry_path });
+            if (traceImportsEnabled()) {
+                std.debug.print("\n[IMPORT] resolved '{s}' -> '{s}'\n", .{ import_path, imported.entry_path });
+            }
             const imported_package_identity = if (imported.package_identity) |identity| blk: {
                 break :blk try rememberPackageIdentity(allocator, seen_package_identities, identity);
             } else if (!imported.is_global) blk: {

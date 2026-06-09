@@ -212,6 +212,8 @@ Cache entries now include a `manifest.json` beside `artifact.sa.bc` and `output.
 
 The process-local flattener import cache also avoids cloning cached std source text on hits. The first resolved std import keeps a page-allocator cache copy; later hits borrow that cached source with `owned_source == null` and only duplicate the small path/identity metadata needed by the caller. Invalidated entries remove stale metadata but keep old source buffers alive for the process lifetime, avoiding dangling borrowed text during concurrent or nested import expansion while reducing allocator churn in repeated std imports.
 
+Routine flattener import tracing is now quiet by default. The previous unconditional `[IMPORT] resolved ...` stderr print can still be enabled with `SAASM_TRACE_IMPORTS=1`, but normal smoke/unit runs no longer pay for or display every resolved import.
+
 Focused verification:
 
 ```sh

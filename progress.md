@@ -2,9 +2,14 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.9997%
+Current progress: 99.9998%
 
 ## Completed SCI Features
+
+- 2026-06-09: Gated flattener import trace output.
+  - Changed noisy `[IMPORT] resolved ...` debug printing to be disabled by default and enabled only with `SAASM_TRACE_IMPORTS=1`.
+  - Preserved import resolution diagnostics for explicit tracing while removing routine stderr noise from smoke/unit runs.
+  - Verification: `zig test src/flattener.zig` -> `63/63 tests passed` with no default `[IMPORT]` output.
 
 - 2026-06-09: Reduced std import cache source cloning in the flattener.
   - Changed process-local std import cache hits to return borrowed source text from the cache instead of duplicating the full imported file into the caller allocator on every hit.
