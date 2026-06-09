@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.9996%
+Current progress: 99.9997%
 
 ## Completed SCI Features
+
+- 2026-06-09: Reduced std import cache source cloning in the flattener.
+  - Changed process-local std import cache hits to return borrowed source text from the cache instead of duplicating the full imported file into the caller allocator on every hit.
+  - Kept invalidated cache source buffers alive for the process lifetime so concurrent or nested import expansion cannot observe dangling borrowed text while stale metadata is removed.
+  - Added flattener coverage proving the first std import load owns source text while the second cache hit reuses borrowed source with `owned_source == null`.
+  - Verification: `zig test src/flattener.zig` -> `63/63 tests passed`.
 
 - 2026-06-09: Added manifest-backed project cache validation.
   - Build/test artifact cache entries now write `manifest.json` with cache kind, key, artifact size/hash, and output size/hash.

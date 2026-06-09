@@ -207,8 +207,6 @@ fn isStdImportCacheCandidate(base_dir: []const u8, import_path: []const u8, reso
 }
 
 fn cloneCachedImport(allocator: std.mem.Allocator, cached: ImportSourceCacheEntry) !pkg_resolver.ResolvedImport {
-    const source = try allocator.dupe(u8, cached.source);
-    errdefer allocator.free(source);
     const entry_path = try allocator.dupe(u8, cached.entry_path);
     errdefer allocator.free(entry_path);
     const root_dir = if (cached.root_dir) |dir| try allocator.dupe(u8, dir) else null;
@@ -218,8 +216,8 @@ fn cloneCachedImport(allocator: std.mem.Allocator, cached: ImportSourceCacheEntr
 
     return .{
         .entry_path = entry_path,
-        .source = source,
-        .owned_source = source,
+        .source = cached.source,
+        .owned_source = null,
         .root_dir = root_dir,
         .package_identity = package_identity,
         .source_sha256 = cached.source_sha256,
@@ -227,12 +225,12 @@ fn cloneCachedImport(allocator: std.mem.Allocator, cached: ImportSourceCacheEntr
     };
 }
 
-fn freeImportSourceCacheEntry(entry: ImportSourceCacheEntry) void {
+fn freeImportSourceCacheEntry(entry: ImportSourceCacheEntry, comptime free_source: bool) void {
     const cache_allocator = std.heap.page_allocator;
     cache_allocator.free(entry.entry_path);
     if (entry.root_dir) |root_dir| cache_allocator.free(root_dir);
     if (entry.package_identity) |package_identity| cache_allocator.free(package_identity);
-    cache_allocator.free(entry.source);
+    if (free_source) cache_allocator.free(entry.source);
 }
 
 fn statImportSourceCacheEntry(path: []const u8) !struct { mtime: i128, size: u64 } {
@@ -2870,7 +2868,7 @@ fn readImportFile(
             }
             if (cache.fetchRemove(cache_key)) |removed| {
                 std.heap.page_allocator.free(removed.key);
-                freeImportSourceCacheEntry(removed.value);
+                freeImportSourceCacheEntry(removed.value, false);
             }
         }
     }
@@ -3867,6 +3865,32 @@ test "flattenFile expands relative @import files" {
     try std.testing.expectEqualStrings("sa_print_bytes", result.function_sigs[0].name);
     try std.testing.expectEqual(FunctionKind.normal, result.function_sigs[1].kind);
     try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
+}
+
+test "std import source cache reuses source without cloning on hit" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_std/core");
+    var iface = try tmp.dir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
+    try iface.writeAll("@extern cache_probe() -> i32\n");
+    iface.close();
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
+
+    var first = try readImportFile(std.testing.allocator, project_root, "sa_std/core/cache_probe.sai", resolve_ctx);
+    defer first.deinit(std.testing.allocator);
+    try std.testing.expect(first.owned_source != null);
+    try std.testing.expectEqualStrings("@extern cache_probe() -> i32\n", first.source);
+
+    var second = try readImportFile(std.testing.allocator, project_root, "sa_std/core/cache_probe.sai", resolve_ctx);
+    defer second.deinit(std.testing.allocator);
+    try std.testing.expect(second.owned_source == null);
+    try std.testing.expectEqualStrings(first.source, second.source);
 }
 
 test "flattenFileWithPackages injects package iface and namespaced layout defs once" {

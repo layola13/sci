@@ -210,6 +210,8 @@ Cache entries now include a `manifest.json` beside `artifact.sa.bc` and `output.
 
 `sa test` now stores no-plugin test compile/link artifacts under `.sa_cache/test`. This does not bypass frontend compilation, because test discovery and filtering still require current metadata, but it skips repeated LLVM emit/link work for repeated compile-only or repeated runs of the same source. Native plugin-linked tests are deliberately excluded from this cache so plugin install/uninstall state remains outside compiler-core cache assumptions.
 
+The process-local flattener import cache also avoids cloning cached std source text on hits. The first resolved std import keeps a page-allocator cache copy; later hits borrow that cached source with `owned_source == null` and only duplicate the small path/identity metadata needed by the caller. Invalidated entries remove stale metadata but keep old source buffers alive for the process lifetime, avoiding dangling borrowed text during concurrent or nested import expansion while reducing allocator churn in repeated std imports.
+
 Focused verification:
 
 ```sh
