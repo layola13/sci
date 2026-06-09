@@ -2128,6 +2128,28 @@ L_NET_IP_CANON_DONE_%out_ipaddr:
     EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+    __net_sock_parse_v4_%out_ok = stack_alloc NetSocketAddrV4_SIZE
+    __net_sock_parse_unspec_%out_ok = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, __net_sock_parse_v4_%out_ok, %ptr, %len
+    br %out_ok -> L_NET_SOCKET_PARSE_V4_OK_%out_ok, L_NET_SOCKET_PARSE_FAIL_%out_ok
+
+L_NET_SOCKET_PARSE_V4_OK_%out_ok:
+    EXPAND NET_SOCKET_ADDR_FROM_V4 %socket_addr, __net_sock_parse_v4_%out_ok
+    jmp L_NET_SOCKET_PARSE_DONE_%out_ok
+
+L_NET_SOCKET_PARSE_FAIL_%out_ok:
+    EXPAND NET_IPV4_UNSPECIFIED __net_sock_parse_unspec_%out_ok
+    EXPAND NET_SOCKET_ADDR_V4_NEW __net_sock_parse_v4_%out_ok, __net_sock_parse_unspec_%out_ok, 0
+    EXPAND NET_SOCKET_ADDR_FROM_V4 %socket_addr, __net_sock_parse_v4_%out_ok
+
+L_NET_SOCKET_PARSE_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_SOCKET_ADDR_V6_NEW %socket_addr, %ipv6, %port, %flowinfo, %scope_id
     __net_sock_v6_ip_%socket_addr = ptr_add %socket_addr, 0
     __net_sock_v6_s0_%socket_addr = load %ipv6+NetIpv6Addr_s0 as u16

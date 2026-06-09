@@ -412,6 +412,99 @@ L_IPADDR_PARSE_PASS:
     !ok
     return 0
 
+@test "sa_std net socketaddr parse_ascii ipv4 subset"():
+L_ENTRY:
+    socket_addr = alloc NetSocketAddr_SIZE
+    alias_addr = alloc NetSocketAddr_SIZE
+    bad_addr = alloc NetSocketAddr_SIZE
+    ipaddr = alloc NetIpAddr_SIZE
+    ipv4 = alloc NetIpv4Addr_SIZE
+
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII parse_ok, socket_addr, NET_TEST_SOCKET_V4, NET_TEST_SOCKET_V4_LEN
+    EXPAND NET_SOCKET_ADDR_IS_IPV4 is_v4, socket_addr
+    EXPAND NET_SOCKET_ADDR_IS_IPV6 is_v6, socket_addr
+    EXPAND NET_SOCKET_ADDR_PORT port, socket_addr
+    EXPAND NET_SOCKET_ADDR_IP ipaddr, socket_addr
+    EXPAND NET_IP_ADDR_TO_IPV4 to_v4_ok, ipv4, ipaddr
+    EXPAND NET_IPV4_OCTETS ip_a, ip_b, ip_c, ip_d, ipv4
+    EXPAND NET_SOCKET_ADDR_PARSE_ASCII alias_ok, alias_addr, NET_TEST_SOCKET_V4_MAX, NET_TEST_SOCKET_V4_MAX_LEN
+    EXPAND NET_SOCKET_ADDR_PORT alias_port, alias_addr
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII bad_ok, bad_addr, NET_TEST_SOCKET_V4_BAD_IPV6, NET_TEST_SOCKET_V4_BAD_IPV6_LEN
+
+    ok_parse = eq parse_ok, 1
+    ok_is_v4 = eq is_v4, 1
+    ok_is_v6 = eq is_v6, 0
+    ok_port = eq port, 8080
+    ok_to_v4 = eq to_v4_ok, 1
+    ok_a = eq ip_a, 192
+    ok_b = eq ip_b, 168
+    ok_c = eq ip_c, 1
+    ok_d = eq ip_d, 42
+    ok_alias = eq alias_ok, 1
+    ok_alias_port = eq alias_port, 65535
+    ok_bad = eq bad_ok, 0
+
+    ok01 = and ok_parse, ok_is_v4
+    ok02 = and ok01, ok_is_v6
+    ok03 = and ok02, ok_port
+    ok04 = and ok03, ok_to_v4
+    ok05 = and ok04, ok_a
+    ok06 = and ok05, ok_b
+    ok07 = and ok06, ok_c
+    ok08 = and ok07, ok_d
+    ok09 = and ok08, ok_alias
+    ok10 = and ok09, ok_alias_port
+    ok = and ok10, ok_bad
+
+    !ok_parse
+    !ok_is_v4
+    !ok_is_v6
+    !ok_port
+    !ok_to_v4
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    !ok_alias
+    !ok_alias_port
+    !ok_bad
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !parse_ok
+    !is_v4
+    !is_v6
+    !port
+    !to_v4_ok
+    !ip_a
+    !ip_b
+    !ip_c
+    !ip_d
+    !alias_ok
+    !alias_port
+    !bad_ok
+    !ipv4
+    !ipaddr
+    !bad_addr
+    !alias_addr
+    !socket_addr
+    br ok -> L_SOCKET_ADDR_PARSE_PASS, L_SOCKET_ADDR_PARSE_FAIL
+
+L_SOCKET_ADDR_PARSE_FAIL:
+    !ok
+    panic(924)
+
+L_SOCKET_ADDR_PARSE_PASS:
+    !ok
+    return 0
+
 @test "sa_std net tcp macro surface"():
 L_ENTRY:
     EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
