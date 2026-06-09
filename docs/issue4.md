@@ -8,6 +8,18 @@ SA 项目全面评估与改进计划（性能优先版）
 
  当前处于快速开发阶段，本计划以性能为第一优先级，安全问题列为 P2/P3 供后续跟进。
 
+## 当前实现状态（2026-06-09）
+
+已完成并提交（主仓非插件项）：
+- PERF-2 / Q1：Vec 扩容倍增与容量乘法 checked arithmetic。
+- PERF-3：Mutex 自旋路径加入退避策略。
+- Q2：RwLock reader/writer 状态改为原子路径。
+- Q3：`VEC_GET` 默认检查边界，并提供 `VEC_GET_UNCHECKED`。
+- Q7：release-safe / audit 类 CI gate 已接入核心 workflow。
+- PERF-4 低风险切片：flattener `scanSource` 与 import expansion 输出/行元数据预分配，减少热路径小分配；完整 arena 化重构仍未做。
+
+暂未处理：插件仓库项（按用户要求暂不碰 `/home/vscode/projects/sa_plugins`），以及完整 per-module frontend IR 持久缓存（见 issue6）。
+
  ---
  第一优先级：性能改进（Performance）
 

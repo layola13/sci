@@ -147,16 +147,44 @@ const ImportSourceCacheEntry = struct {
     last_used_tick: u64,
 };
 
+const ExpandedImportCacheFileStat = struct {
+    path: []u8,
+    mtime: i128,
+    size: u64,
+};
+
+const ExpandedImportCacheEntry = struct {
+    source: []u8,
+    line_count: usize,
+    files: []ExpandedImportCacheFileStat,
+    layout_versions: []LayoutVersion,
+    last_used_tick: u64,
+};
+
 var import_source_cache_mutex: std.Thread.Mutex = .{};
 var import_source_cache: ?std.StringHashMap(ImportSourceCacheEntry) = null;
 var import_source_cache_tick: u64 = 0;
 var test_import_source_cache_max_entries: ?usize = null;
+
+var expanded_import_cache_mutex: std.Thread.Mutex = .{};
+var expanded_import_cache: ?std.StringHashMap(ExpandedImportCacheEntry) = null;
+var expanded_import_cache_tick: u64 = 0;
+var test_expanded_import_cache_max_entries: ?usize = null;
+var test_expanded_import_cache_hits: usize = 0;
+var test_expanded_import_cache_stores: usize = 0;
 
 fn importSourceCacheMap() *std.StringHashMap(ImportSourceCacheEntry) {
     if (import_source_cache == null) {
         import_source_cache = std.StringHashMap(ImportSourceCacheEntry).init(std.heap.page_allocator);
     }
     return &import_source_cache.?;
+}
+
+fn expandedImportCacheMap() *std.StringHashMap(ExpandedImportCacheEntry) {
+    if (expanded_import_cache == null) {
+        expanded_import_cache = std.StringHashMap(ExpandedImportCacheEntry).init(std.heap.page_allocator);
+    }
+    return &expanded_import_cache.?;
 }
 
 fn traceImportsEnabled() bool {
@@ -175,9 +203,24 @@ fn importSourceCacheMaxEntries() ?usize {
     return if (parsed == 0) null else parsed;
 }
 
+fn expandedImportCacheMaxEntries() ?usize {
+    if (builtin.is_test) {
+        if (test_expanded_import_cache_max_entries) |value| return value;
+    }
+    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES") catch return null;
+    defer std.heap.page_allocator.free(value);
+    const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
+    return if (parsed == 0) null else parsed;
+}
+
 fn nextImportSourceCacheTickLocked() u64 {
     import_source_cache_tick +%= 1;
     return import_source_cache_tick;
+}
+
+fn nextExpandedImportCacheTickLocked() u64 {
+    expanded_import_cache_tick +%= 1;
+    return expanded_import_cache_tick;
 }
 
 fn appendCacheBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
@@ -288,6 +331,15 @@ fn freeImportSourceCacheEntry(entry: ImportSourceCacheEntry, comptime free_sourc
     if (free_source) cache_allocator.free(entry.source);
 }
 
+fn freeExpandedImportCacheEntry(entry: ExpandedImportCacheEntry) void {
+    const cache_allocator = std.heap.page_allocator;
+    cache_allocator.free(entry.source);
+    for (entry.files) |file| cache_allocator.free(file.path);
+    cache_allocator.free(entry.files);
+    for (entry.layout_versions) |*layout_version| layout_version.deinit(cache_allocator);
+    cache_allocator.free(entry.layout_versions);
+}
+
 fn statImportSourceCacheEntry(path: []const u8) !struct { mtime: i128, size: u64 } {
     const stat = try std.fs.cwd().statFile(path);
     return .{ .mtime = stat.mtime, .size = stat.size };
@@ -296,6 +348,203 @@ fn statImportSourceCacheEntry(path: []const u8) !struct { mtime: i128, size: u64
 fn cachedImportStillValid(entry: ImportSourceCacheEntry) bool {
     const stat = statImportSourceCacheEntry(entry.entry_path) catch return false;
     return stat.mtime == entry.mtime and stat.size == entry.size;
+}
+
+fn cachedExpandedImportStillValid(entry: ExpandedImportCacheEntry) bool {
+    for (entry.files) |file| {
+        const stat = statImportSourceCacheEntry(file.path) catch return false;
+        if (stat.mtime != file.mtime or stat.size != file.size) return false;
+    }
+    return true;
+}
+
+fn expandedImportCacheEligible(imported_package_identity: ?[]const u8, current_package_identity: ?[]const u8, current_package_hash: ?[32]u8) bool {
+    return imported_package_identity == null and current_package_identity == null and current_package_hash == null;
+}
+
+fn lineMetadataCacheable(
+    line_package_identities: []const ?[]const u8,
+    line_package_hashes: []const ?[32]u8,
+) bool {
+    for (line_package_identities) |identity| {
+        if (identity != null) return false;
+    }
+    for (line_package_hashes) |hash| {
+        if (hash != null) return false;
+    }
+    return true;
+}
+
+fn rollbackExpandedImportCacheApply(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    line_package_identities: *std.ArrayList(?[]const u8),
+    line_package_hashes: *std.ArrayList(?[32]u8),
+    seen_paths: *std.StringHashMap(void),
+    owned_paths: *std.ArrayList([]u8),
+    layout_versions: *std.ArrayList(LayoutVersion),
+    out_len: usize,
+    line_len: usize,
+    owned_len: usize,
+    layout_len: usize,
+) void {
+    out.shrinkRetainingCapacity(out_len);
+    line_package_identities.shrinkRetainingCapacity(line_len);
+    line_package_hashes.shrinkRetainingCapacity(line_len);
+    for (owned_paths.items[owned_len..]) |path| {
+        _ = seen_paths.remove(path);
+        allocator.free(path);
+    }
+    owned_paths.shrinkRetainingCapacity(owned_len);
+    for (layout_versions.items[layout_len..]) |*layout_version| layout_version.deinit(allocator);
+    layout_versions.shrinkRetainingCapacity(layout_len);
+}
+
+fn appendExpandedImportCacheHit(
+    allocator: std.mem.Allocator,
+    cache_key: []const u8,
+    out: *std.ArrayList(u8),
+    line_package_identities: *std.ArrayList(?[]const u8),
+    line_package_hashes: *std.ArrayList(?[32]u8),
+    active_paths: *std.StringHashMap(void),
+    seen_paths: *std.StringHashMap(void),
+    owned_paths: *std.ArrayList([]u8),
+    layout_versions: *std.ArrayList(LayoutVersion),
+) !bool {
+    expanded_import_cache_mutex.lock();
+    defer expanded_import_cache_mutex.unlock();
+
+    if (expanded_import_cache == null) return false;
+    var cache = expandedImportCacheMap();
+    const entry = cache.getPtr(cache_key) orelse return false;
+    if (!cachedExpandedImportStillValid(entry.*)) {
+        if (cache.fetchRemove(cache_key)) |removed| {
+            std.heap.page_allocator.free(removed.key);
+            freeExpandedImportCacheEntry(removed.value);
+        }
+        return false;
+    }
+
+    for (entry.files) |file| {
+        if (active_paths.contains(file.path)) return error.ImportCycle;
+        if (seen_paths.contains(file.path)) return false;
+    }
+
+    const out_len = out.items.len;
+    const line_len = line_package_identities.items.len;
+    const owned_len = owned_paths.items.len;
+    const layout_len = layout_versions.items.len;
+    errdefer rollbackExpandedImportCacheApply(
+        allocator,
+        out,
+        line_package_identities,
+        line_package_hashes,
+        seen_paths,
+        owned_paths,
+        layout_versions,
+        out_len,
+        line_len,
+        owned_len,
+        layout_len,
+    );
+
+    try out.appendSlice(entry.source);
+    try line_package_identities.ensureUnusedCapacity(entry.line_count);
+    try line_package_hashes.ensureUnusedCapacity(entry.line_count);
+    for (0..entry.line_count) |_| {
+        line_package_identities.appendAssumeCapacity(null);
+        line_package_hashes.appendAssumeCapacity(null);
+    }
+
+    for (entry.files) |file| {
+        const path_copy = try allocator.dupe(u8, file.path);
+        owned_paths.append(path_copy) catch |err| {
+            allocator.free(path_copy);
+            return err;
+        };
+        seen_paths.put(path_copy, {}) catch |err| {
+            _ = owned_paths.pop();
+            allocator.free(path_copy);
+            return err;
+        };
+    }
+    for (entry.layout_versions) |layout_version| {
+        const path_copy = try allocator.dupe(u8, layout_version.path);
+        layout_versions.append(.{ .path = path_copy, .version = layout_version.version }) catch |err| {
+            allocator.free(path_copy);
+            return err;
+        };
+    }
+
+    entry.last_used_tick = nextExpandedImportCacheTickLocked();
+    if (builtin.is_test) test_expanded_import_cache_hits += 1;
+    return true;
+}
+
+fn storeExpandedImportCacheEntry(
+    cache_key: []const u8,
+    source: []const u8,
+    line_count: usize,
+    files: []const []u8,
+    layout_versions: []const LayoutVersion,
+) !void {
+    if (source.len == 0 and line_count == 0) return;
+    const cache_allocator = std.heap.page_allocator;
+    const cache_key_copy = try cache_allocator.dupe(u8, cache_key);
+    errdefer cache_allocator.free(cache_key_copy);
+    const source_copy = try cache_allocator.dupe(u8, source);
+    errdefer cache_allocator.free(source_copy);
+    const file_stats = try cache_allocator.alloc(ExpandedImportCacheFileStat, files.len);
+    errdefer cache_allocator.free(file_stats);
+    var copied_files: usize = 0;
+    errdefer {
+        for (file_stats[0..copied_files]) |file| cache_allocator.free(file.path);
+    }
+    for (files, 0..) |path, idx| {
+        const stat = try statImportSourceCacheEntry(path);
+        file_stats[idx] = .{
+            .path = try cache_allocator.dupe(u8, path),
+            .mtime = stat.mtime,
+            .size = stat.size,
+        };
+        copied_files += 1;
+    }
+    const layout_copies = try cache_allocator.alloc(LayoutVersion, layout_versions.len);
+    errdefer cache_allocator.free(layout_copies);
+    var copied_layouts: usize = 0;
+    errdefer {
+        for (layout_copies[0..copied_layouts]) |*layout_version| layout_version.deinit(cache_allocator);
+    }
+    for (layout_versions, 0..) |layout_version, idx| {
+        const path_copy = try cache_allocator.dupe(u8, layout_version.path);
+        layout_copies[idx] = .{ .path = path_copy, .version = layout_version.version };
+        copied_layouts += 1;
+    }
+
+    expanded_import_cache_mutex.lock();
+    defer expanded_import_cache_mutex.unlock();
+    var cache = expandedImportCacheMap();
+    if (cache.getPtr(cache_key)) |old| {
+        freeExpandedImportCacheEntry(old.*);
+        old.* = .{
+            .source = source_copy,
+            .line_count = line_count,
+            .files = file_stats,
+            .layout_versions = layout_copies,
+            .last_used_tick = nextExpandedImportCacheTickLocked(),
+        };
+        cache_allocator.free(cache_key_copy);
+    } else {
+        try cache.put(cache_key_copy, .{
+            .source = source_copy,
+            .line_count = line_count,
+            .files = file_stats,
+            .layout_versions = layout_copies,
+            .last_used_tick = nextExpandedImportCacheTickLocked(),
+        });
+    }
+    evictExpandedImportCacheIfNeeded(cache, expandedImportCacheMaxEntries());
+    if (builtin.is_test) test_expanded_import_cache_stores += 1;
 }
 
 fn storeImportSourceCacheEntry(key: []const u8, resolved: pkg_resolver.ResolvedImport) !void {
@@ -353,6 +602,28 @@ fn evictImportSourceCacheIfNeeded(cache: *std.StringHashMap(ImportSourceCacheEnt
         if (cache.fetchRemove(key)) |removed| {
             std.heap.page_allocator.free(removed.key);
             freeImportSourceCacheEntry(removed.value, true);
+        } else {
+            return;
+        }
+    }
+}
+
+fn evictExpandedImportCacheIfNeeded(cache: *std.StringHashMap(ExpandedImportCacheEntry), max_entries: ?usize) void {
+    const limit = max_entries orelse return;
+    while (cache.count() > limit) {
+        var oldest_key: ?[]const u8 = null;
+        var oldest_tick: u64 = std.math.maxInt(u64);
+        var it = cache.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.last_used_tick <= oldest_tick) {
+                oldest_key = entry.key_ptr.*;
+                oldest_tick = entry.value_ptr.last_used_tick;
+            }
+        }
+        const key = oldest_key orelse return;
+        if (cache.fetchRemove(key)) |removed| {
+            std.heap.page_allocator.free(removed.key);
+            freeExpandedImportCacheEntry(removed.value);
         } else {
             return;
         }
@@ -3318,6 +3589,11 @@ fn expandImportsInto(
                 imported.source_sha256 orelse current_package_hash
             else
                 current_package_hash;
+            const expanded_cache_key = if (expandedImportCacheEligible(imported_package_identity, current_package_identity, current_package_hash))
+                try buildImportSourceCacheKey(allocator, base_dir, import_path, resolve_ctx)
+            else
+                null;
+            defer if (expanded_cache_key) |key| allocator.free(key);
 
             if (active_paths.contains(imported.entry_path)) {
                 imported.deinit(allocator);
@@ -3327,6 +3603,26 @@ fn expandImportsInto(
                 imported.deinit(allocator);
                 continue;
             }
+            if (expanded_cache_key) |key| {
+                if (try appendExpandedImportCacheHit(
+                    allocator,
+                    key,
+                    out,
+                    line_package_identities,
+                    line_package_hashes,
+                    active_paths,
+                    seen_paths,
+                    owned_paths,
+                    layout_versions,
+                )) {
+                    imported.deinit(allocator);
+                    continue;
+                }
+            }
+            const fragment_out_start = out.items.len;
+            const fragment_line_start = line_package_identities.items.len;
+            const fragment_owned_start = owned_paths.items.len;
+            const fragment_layout_start = layout_versions.items.len;
             if (std.mem.endsWith(u8, imported.entry_path, ".sal")) {
                 try recordLayoutVersion(allocator, layout_versions, imported.entry_path, imported.source);
             }
@@ -3385,6 +3681,22 @@ fn expandImportsInto(
                 imported_package_hash,
                 resolve_ctx,
             );
+            if (expanded_cache_key) |key| {
+                const fragment_identities = line_package_identities.items[fragment_line_start..];
+                const fragment_hashes = line_package_hashes.items[fragment_line_start..];
+                if (lineMetadataCacheable(fragment_identities, fragment_hashes)) {
+                    storeExpandedImportCacheEntry(
+                        key,
+                        out.items[fragment_out_start..],
+                        fragment_identities.len,
+                        owned_paths.items[fragment_owned_start..],
+                        layout_versions.items[fragment_layout_start..],
+                    ) catch |err| {
+                        // Expanded import caching is an optimization; successful expansion remains authoritative.
+                        _ = @errorName(err);
+                    };
+                }
+            }
             continue;
         }
 
@@ -4031,6 +4343,85 @@ fn importSourceCacheHasEntryPathForTest(path: []const u8) bool {
         if (std.mem.eql(u8, entry.value_ptr.entry_path, path)) return true;
     }
     return false;
+}
+
+fn clearExpandedImportCacheForTest() void {
+    expanded_import_cache_mutex.lock();
+    defer expanded_import_cache_mutex.unlock();
+    if (expanded_import_cache) |*cache| {
+        var it = cache.iterator();
+        while (it.next()) |entry| {
+            std.heap.page_allocator.free(entry.key_ptr.*);
+            freeExpandedImportCacheEntry(entry.value_ptr.*);
+        }
+        cache.deinit();
+        expanded_import_cache = null;
+    }
+    expanded_import_cache_tick = 0;
+    test_expanded_import_cache_max_entries = null;
+    test_expanded_import_cache_hits = 0;
+    test_expanded_import_cache_stores = 0;
+}
+
+test "expanded import cache reuses expanded std fragments across flatten calls" {
+    clearImportSourceCacheForTest();
+    defer clearImportSourceCacheForTest();
+    clearExpandedImportCacheForTest();
+    defer clearExpandedImportCacheForTest();
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_std/core");
+    {
+        var file = try tmp.dir.createFile("sa_std/core/cache_expanded.sai", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll("#def EXPANDED_CACHE_VALUE = 7\n");
+    }
+    {
+        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "sa_std/core/cache_expanded.sai"
+            \\@main() -> i32:
+            \\return EXPANDED_CACHE_VALUE
+            \\
+        );
+    }
+    {
+        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "sa_std/core/cache_expanded.sai"
+            \\@main() -> i32:
+            \\return EXPANDED_CACHE_VALUE
+            \\
+        );
+    }
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
+
+    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    defer std.testing.allocator.free(source_a);
+    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    defer std.testing.allocator.free(source_path_a);
+    var first = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
+    defer first.deinit(std.testing.allocator);
+    try std.testing.expect(test_expanded_import_cache_stores > 0);
+    try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
+
+    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    defer std.testing.allocator.free(source_b);
+    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    defer std.testing.allocator.free(source_path_b);
+    var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
+    defer second.deinit(std.testing.allocator);
+    try std.testing.expect(test_expanded_import_cache_hits > 0);
+    try std.testing.expectEqual(first.instructions.len, second.instructions.len);
 }
 
 test "import source cache LRU is opt-in and avoids borrowed hits" {

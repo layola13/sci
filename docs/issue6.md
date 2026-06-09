@@ -13,7 +13,10 @@ SA 缓存与单元测试框架评估及改进计划（issue6）
 - CACHE-2：source-tree hashing 通过 flattener `readImportSourceFile` 复用同一 import-source cache。
 - TEST-4：unit-framework runner 从 `.sa` 源文件自动生成测试预期，去除大段硬编码 pass 列表。
 - IMP-1 低风险切片：`.sa_cache/test` 写入 `test-metadata.json`，`sa test` cache hit 时可跳过前端 discovery/list/filter。
+- IMP-1 进一步切片：新增进程级 expanded-import fragment cache，缓存已展开的 import 文本片段、传递文件 mtime/size、layout metadata，并通过 `SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES=N` 支持 opt-in LRU；当前仅缓存无 package identity/hash 的 std/稳定根片段，尚不是完整 `FlattenResult`/verify IR cache。
 - IMP-3：通过 `SA_IMPORT_CACHE_MAX_ENTRIES=N` 提供 opt-in LRU；默认 CLI 路径保持无界 borrowed source cache 以保短命进程性能。
+- CACHE-HYGIENE：通过 `SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES=N` 提供 opt-in source-tree digest cache LRU；默认 CLI 路径保持无界进程内 digest cache。
+- PERF-ALLOC：`scanSource` 与 import expansion 输出/行元数据已按源大小和行数预分配，减少 flattener 热路径 ArrayList 增长分配。
 
 仍未完成 / 不适合半实现：
 - IMP-1 完整 per-module frontend IR 持久缓存（flatten + 宏展开 + verify 产物复用）。当前代码的 import 展开先合并为全局 source，再统一 scan/emit；完整实现需要模块边界、SymbolTable ID 重定位、def_dict/const 合并和 cache-on/off 等价测试。当前 metadata cache 只是安全切片，不等同于完整 IR cache。
