@@ -160,6 +160,7 @@ const ParallelVerifyJob = struct {
 const ParallelVerifyContext = struct {
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
+    classified_lines: []const classifier.ClassifiedLine,
     const_decls: []const const_decl.ConstDecl,
     metadata: *const CollectResult,
     package_grants: []const pkg_manifest.RequireEntry,
@@ -176,6 +177,26 @@ const CollectResult = struct {
     const_vtables: std.ArrayList(ConstVTable),
     function_starts: std.ArrayList(usize),
 };
+
+var test_classify_line_count: if (builtin.is_test) usize else void = if (builtin.is_test) 0 else {};
+
+fn resetTestClassifyLineCount() void {
+    if (builtin.is_test) test_classify_line_count = 0;
+}
+
+fn readTestClassifyLineCount() usize {
+    return if (builtin.is_test) test_classify_line_count else 0;
+}
+
+fn classifyInstructions(allocator: std.mem.Allocator, instructions: []const inst.Instruction) ![]classifier.ClassifiedLine {
+    const classified_lines = try allocator.alloc(classifier.ClassifiedLine, instructions.len);
+    errdefer allocator.free(classified_lines);
+    for (instructions, 0..) |item, idx| {
+        if (builtin.is_test) test_classify_line_count += 1;
+        classified_lines[idx] = classifier.classifyLine(item.raw_text);
+    }
+    return classified_lines;
+}
 
 const FunctionRegScope = struct {
     allocator: std.mem.Allocator,
@@ -1468,8 +1489,10 @@ fn resolveScopedRegId(
 fn collectMetadata(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
+    classified_lines: []const classifier.ClassifiedLine,
     const_decls: []const const_decl.ConstDecl,
 ) !CollectResult {
+    std.debug.assert(classified_lines.len == instructions.len);
     var symbols = symbol.SymbolTable.init(allocator);
     errdefer symbols.deinit();
 
@@ -1496,7 +1519,7 @@ fn collectMetadata(
             const_idx += 1;
         }
 
-        const classified = classifier.classifyLine(item.raw_text);
+        const classified = classified_lines[inst_idx];
 
         if (isDecl(item.kind)) {
             const kind = parseDeclKind(item.kind).?;
@@ -2097,6 +2120,7 @@ fn freeVerifierBuffers(
 fn verifyBody(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
+    classified_lines: []const classifier.ClassifiedLine,
     const_decls: []const const_decl.ConstDecl,
     metadata: *const CollectResult,
     sig_index_start: usize,
@@ -2104,6 +2128,7 @@ fn verifyBody(
     package_grants: []const pkg_manifest.RequireEntry,
     sax_context: ?SaxValidationContext,
 ) !VerifyBodyResult {
+    std.debug.assert(classified_lines.len == instructions.len);
     var sig_index = sig_index_start;
     var state: []u16 = &.{};
     var flags: []u8 = &.{};
@@ -2158,7 +2183,7 @@ fn verifyBody(
 
     for (instructions, 0..) |raw_item, inst_idx| {
         var item = raw_item;
-        const classified = classifier.classifyLine(item.raw_text);
+        const classified = classified_lines[inst_idx];
 
         if (isDecl(item.kind)) {
             if (body_seen and !terminated and current_function_text != null) {
@@ -3073,6 +3098,7 @@ fn verifyWorker(context: *ParallelVerifyContext) void {
         const result = verifyBody(
             job.arena.allocator(),
             context.instructions[chunk.start..chunk.end],
+            context.classified_lines[chunk.start..chunk.end],
             context.const_decls,
             context.metadata,
             chunk.sig_index,
@@ -3090,6 +3116,7 @@ fn verifyWorker(context: *ParallelVerifyContext) void {
 fn verifyParallel(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
+    classified_lines: []const classifier.ClassifiedLine,
     const_decls: []const const_decl.ConstDecl,
     metadata: *const CollectResult,
     package_grants: []const pkg_manifest.RequireEntry,
@@ -3099,7 +3126,7 @@ fn verifyParallel(
 ) !VerifyBodyResult {
     const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
     if (worker_count <= 1) {
-        return verifyBody(allocator, instructions, const_decls, metadata, 0, true, package_grants, sax_context);
+        return verifyBody(allocator, instructions, classified_lines, const_decls, metadata, 0, true, package_grants, sax_context);
     }
 
     const jobs = try allocator.alloc(ParallelVerifyJob, chunks.len);
@@ -3114,6 +3141,7 @@ fn verifyParallel(
     var context = ParallelVerifyContext{
         .allocator = allocator,
         .instructions = instructions,
+        .classified_lines = classified_lines,
         .const_decls = const_decls,
         .metadata = metadata,
         .package_grants = package_grants,
@@ -3227,7 +3255,10 @@ pub fn verifyWithOptions(
         } };
     }
 
-    var metadata = collectMetadata(allocator, instructions, const_decls) catch |err| {
+    const classified_lines = try classifyInstructions(allocator, instructions);
+    defer allocator.free(classified_lines);
+
+    var metadata = collectMetadata(allocator, instructions, classified_lines, const_decls) catch |err| {
         const kind: trap.Trap = switch (err) {
             error.UnsupportedType => .unsupported_type,
             error.OutOfMemory => .arena_oom,
@@ -3257,10 +3288,10 @@ pub fn verifyWithOptions(
     const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
 
     const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
-        const parallel = try verifyParallel(allocator, instructions, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs);
+        const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs);
         break :blk parallel;
     } else blk: {
-        break :blk try verifyBody(allocator, instructions, const_decls, &metadata, 0, true, options.package_grants, options.sax_context);
+        break :blk try verifyBody(allocator, instructions, classified_lines, const_decls, &metadata, 0, true, options.package_grants, options.sax_context);
     };
 
     switch (body_result) {
@@ -3294,6 +3325,59 @@ pub fn verify(
     const_decls: []const const_decl.ConstDecl,
 ) !VerifyResult {
     return verifyWithOptions(allocator, instructions, const_decls, .{});
+}
+
+test "verifier preclassifies each instruction once" {
+    const program = [_]inst.Instruction{
+        .{
+            .kind = .func_decl,
+            .source_line = 1,
+            .expanded_line = 0,
+            .operands = .{
+                .{ .symbol = 0 },
+                .{ .func = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "@main() -> i32:",
+        },
+        .{
+            .kind = .assign,
+            .source_line = 2,
+            .expanded_line = 1,
+            .operands = .{
+                .{ .reg = 0 },
+                .{ .imm_i64 = 1 },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "x = 1",
+        },
+        .{
+            .kind = .return_,
+            .source_line = 3,
+            .expanded_line = 2,
+            .operands = .{
+                .{ .reg = 0 },
+                .{ .none = {} },
+                .{ .none = {} },
+                .{ .none = {} },
+            },
+            .raw_text = "return x",
+        },
+    };
+
+    resetTestClassifyLineCount();
+    const verified = try verifyWithOptions(std.testing.allocator, program[0..], &.{}, .{ .jobs = 1 });
+    defer switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+        },
+        .trap => {},
+    };
+    try std.testing.expect(verified == .ok);
+    try std.testing.expectEqual(program.len, readTestClassifyLineCount());
 }
 
 test "panic terminates without forcing a leak trap" {

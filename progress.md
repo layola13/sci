@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.99991%
+Current progress: 99.99992%
 
 ## Completed SCI Features
+
+- 2026-06-09: Reduced verifier line classification work for issue5 PERF-1.
+  - `verifyWithOptions` now preclassifies the instruction stream once and shares that `ClassifiedLine` array with metadata collection, serial body verification, and parallel body verification chunks.
+  - Removed the second per-instruction `classifyLine(item.raw_text)` pass from `verifyBody`; verifier classification now happens in one verifier-owned pass instead of metadata and body passes independently reparsing the same text.
+  - Added a verifier regression test that counts test-build classifier calls and asserts one classification per instruction for a complete verify run.
+  - Verification: `zig test src/verifier.zig` -> `127/127 tests passed`.
 
 - 2026-06-09: Added process-isolated file-level parallelism for SA macro surface unit tests.
   - `unit-framework` now can run independent SA macro surface files through the freshly built `sa` binary when `SA_UNIT_FILE_JOBS` is greater than 1, avoiding shared in-process CLI state while allowing file-level concurrency.
