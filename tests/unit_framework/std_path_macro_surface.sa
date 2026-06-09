@@ -39,11 +39,13 @@
 @const PATH_TEST_FILE = utf8:"_tmp_path_macro_surface.txt"
 @const PATH_TEST_DIR = utf8:"_tmp_path_macro_surface_dir"
 @const PATH_TEST_MISSING = utf8:"_tmp_path_macro_surface_missing"
+@const PATH_TEST_ABSENT = utf8:"_tmp_path_macro_surface_absent"
 @const PATH_TEST_DATA = utf8:"path"
 
 #def PATH_TEST_FILE_LEN = 27
 #def PATH_TEST_DIR_LEN = 27
 #def PATH_TEST_MISSING_LEN = 30
+#def PATH_TEST_ABSENT_LEN = 30
 #def PATH_TEST_DATA_LEN = 4
 
 @test "sa_std path rust parity macros"():
@@ -918,32 +920,61 @@ L_PATH_TRY_OK:
 L_PATH_FS_ENTRY:
     EXPAND FS_REMOVE_PATH cleanup_file_status, PATH_TEST_FILE, PATH_TEST_FILE_LEN
     EXPAND FS_REMOVE_PATH cleanup_dir_status, PATH_TEST_DIR, PATH_TEST_DIR_LEN
+    EXPAND FS_REMOVE_PATH cleanup_link_status, PATH_TEST_MISSING, PATH_TEST_MISSING_LEN
+    EXPAND FS_REMOVE_PATH cleanup_absent_status, PATH_TEST_ABSENT, PATH_TEST_ABSENT_LEN
 
     EXPAND FS_WRITE_FILE write_status, PATH_TEST_FILE, PATH_TEST_FILE_LEN, PATH_TEST_DATA, PATH_TEST_DATA_LEN
     EXPAND FS_MAKE_DIR mkdir_status, PATH_TEST_DIR, PATH_TEST_DIR_LEN
+    EXPAND FS_SYMLINK symlink_status, PATH_TEST_FILE, PATH_TEST_FILE_LEN, PATH_TEST_MISSING, PATH_TEST_MISSING_LEN
 
     EXPAND STR_FROM_PARTS file_path, &PATH_TEST_FILE, PATH_TEST_FILE_LEN
     EXPAND STR_FROM_PARTS dir_path, &PATH_TEST_DIR, PATH_TEST_DIR_LEN
-    EXPAND STR_FROM_PARTS missing_path, &PATH_TEST_MISSING, PATH_TEST_MISSING_LEN
+    EXPAND STR_FROM_PARTS link_path, &PATH_TEST_MISSING, PATH_TEST_MISSING_LEN
+    EXPAND STR_FROM_PARTS absent_path, &PATH_TEST_ABSENT, PATH_TEST_ABSENT_LEN
 
     EXPAND PATH_EXISTS file_exists, file_path
     EXPAND PATH_EXISTS dir_exists, dir_path
-    EXPAND PATH_EXISTS missing_exists, missing_path
+    EXPAND PATH_EXISTS missing_exists, absent_path
+    EXPAND PATH_TRY_EXISTS file_try_status, file_try_exists, file_path
+    EXPAND PATH_TRY_EXISTS missing_try_status, missing_try_exists, absent_path
+    EXPAND PATH_METADATA file_metadata_status, file_metadata, file_path
+    EXPAND FS_METADATA_IS_FILE file_metadata_is_file, file_metadata
+    EXPAND FS_METADATA_FREE file_metadata_free_status, file_metadata
+    EXPAND PATH_CANONICALIZE canonical_status, canonical_buffer, file_path
+    EXPAND FS_READ_BUFFER_LEN canonical_len, canonical_buffer
+    EXPAND FS_READ_BUFFER_FREE canonical_free_status, canonical_buffer
+    EXPAND PATH_READ_LINK read_link_status, read_link_buffer, link_path
+    EXPAND FS_READ_BUFFER_LEN read_link_len, read_link_buffer
+    EXPAND FS_READ_BUFFER_FREE read_link_free_status, read_link_buffer
     EXPAND PATH_IS_FILE file_is_file, file_path
     EXPAND PATH_IS_DIR file_is_dir, file_path
     EXPAND PATH_IS_SYMLINK file_is_symlink, file_path
     EXPAND PATH_IS_FILE dir_is_file, dir_path
     EXPAND PATH_IS_DIR dir_is_dir, dir_path
     EXPAND PATH_IS_SYMLINK dir_is_symlink, dir_path
-    EXPAND PATH_IS_FILE missing_is_file, missing_path
-    EXPAND PATH_IS_DIR missing_is_dir, missing_path
-    EXPAND PATH_IS_SYMLINK missing_is_symlink, missing_path
+    EXPAND PATH_IS_FILE missing_is_file, absent_path
+    EXPAND PATH_IS_DIR missing_is_dir, absent_path
+    EXPAND PATH_IS_SYMLINK missing_is_symlink, absent_path
 
     ok_write_status = eq write_status, 0
     ok_mkdir_status = eq mkdir_status, 0
+    ok_symlink_status = eq symlink_status, 0
     ok_file_exists = eq file_exists, 1
     ok_dir_exists = eq dir_exists, 1
     ok_missing_exists = eq missing_exists, 0
+    ok_file_try_status = eq file_try_status, 0
+    ok_file_try_exists = eq file_try_exists, 1
+    ok_missing_try_status = eq missing_try_status, 0
+    ok_missing_try_exists = eq missing_try_exists, 0
+    ok_file_metadata_status = eq file_metadata_status, 0
+    ok_file_metadata_is_file = eq file_metadata_is_file, 1
+    ok_file_metadata_free_status = eq file_metadata_free_status, 0
+    ok_canonical_status = eq canonical_status, 0
+    ok_canonical_len = ne canonical_len, 0
+    ok_canonical_free_status = eq canonical_free_status, 0
+    ok_read_link_status = eq read_link_status, 0
+    ok_read_link_len = eq read_link_len, PATH_TEST_FILE_LEN
+    ok_read_link_free_status = eq read_link_free_status, 0
     ok_file_is_file = eq file_is_file, 1
     ok_file_is_dir = eq file_is_dir, 0
     ok_file_is_symlink = eq file_is_symlink, 0
@@ -955,29 +986,61 @@ L_PATH_FS_ENTRY:
     ok_missing_is_symlink = eq missing_is_symlink, 0
 
     q01 = and ok_write_status, ok_mkdir_status
-    q02 = and q01, ok_file_exists
-    q03 = and q02, ok_dir_exists
-    q04 = and q03, ok_missing_exists
-    q05 = and q04, ok_file_is_file
-    q06 = and q05, ok_file_is_dir
-    q07 = and q06, ok_file_is_symlink
-    q08 = and q07, ok_dir_is_file
-    q09 = and q08, ok_dir_is_dir
-    q10 = and q09, ok_dir_is_symlink
-    q11 = and q10, ok_missing_is_file
-    q12 = and q11, ok_missing_is_dir
-    ok = and q12, ok_missing_is_symlink
+    q02 = and q01, ok_symlink_status
+    q03 = and q02, ok_file_exists
+    q04 = and q03, ok_dir_exists
+    q05 = and q04, ok_missing_exists
+    q06 = and q05, ok_file_try_status
+    q07 = and q06, ok_file_try_exists
+    q08 = and q07, ok_missing_try_status
+    q09 = and q08, ok_missing_try_exists
+    q10 = and q09, ok_file_metadata_status
+    q11 = and q10, ok_file_metadata_is_file
+    q12 = and q11, ok_file_metadata_free_status
+    q13 = and q12, ok_canonical_status
+    q14 = and q13, ok_canonical_len
+    q15 = and q14, ok_canonical_free_status
+    q16 = and q15, ok_read_link_status
+    q17 = and q16, ok_read_link_len
+    q18 = and q17, ok_read_link_free_status
+    q19 = and q18, ok_file_is_file
+    q20 = and q19, ok_file_is_dir
+    q21 = and q20, ok_file_is_symlink
+    q22 = and q21, ok_dir_is_file
+    q23 = and q22, ok_dir_is_dir
+    q24 = and q23, ok_dir_is_symlink
+    q25 = and q24, ok_missing_is_file
+    q26 = and q25, ok_missing_is_dir
+    ok = and q26, ok_missing_is_symlink
 
     EXPAND FS_REMOVE_PATH remove_file_status, PATH_TEST_FILE, PATH_TEST_FILE_LEN
     EXPAND FS_REMOVE_PATH remove_dir_status, PATH_TEST_DIR, PATH_TEST_DIR_LEN
+    EXPAND FS_REMOVE_PATH remove_link_status, PATH_TEST_MISSING, PATH_TEST_MISSING_LEN
 
     !cleanup_file_status
     !cleanup_dir_status
+    !cleanup_link_status
+    !cleanup_absent_status
     !write_status
     !mkdir_status
+    !symlink_status
     !file_exists
     !dir_exists
     !missing_exists
+    !file_try_status
+    !file_try_exists
+    !missing_try_status
+    !missing_try_exists
+    !file_metadata_status
+    !file_metadata
+    !file_metadata_is_file
+    !file_metadata_free_status
+    !canonical_status
+    !canonical_len
+    !canonical_free_status
+    !read_link_status
+    !read_link_len
+    !read_link_free_status
     !file_is_file
     !file_is_dir
     !file_is_symlink
@@ -989,9 +1052,23 @@ L_PATH_FS_ENTRY:
     !missing_is_symlink
     !ok_write_status
     !ok_mkdir_status
+    !ok_symlink_status
     !ok_file_exists
     !ok_dir_exists
     !ok_missing_exists
+    !ok_file_try_status
+    !ok_file_try_exists
+    !ok_missing_try_status
+    !ok_missing_try_exists
+    !ok_file_metadata_status
+    !ok_file_metadata_is_file
+    !ok_file_metadata_free_status
+    !ok_canonical_status
+    !ok_canonical_len
+    !ok_canonical_free_status
+    !ok_read_link_status
+    !ok_read_link_len
+    !ok_read_link_free_status
     !ok_file_is_file
     !ok_file_is_dir
     !ok_file_is_symlink
@@ -1013,9 +1090,25 @@ L_PATH_FS_ENTRY:
     !q10
     !q11
     !q12
+    !q13
+    !q14
+    !q15
+    !q16
+    !q17
+    !q18
+    !q19
+    !q20
+    !q21
+    !q22
+    !q23
+    !q24
+    !q25
+    !q26
     !remove_file_status
     !remove_dir_status
-    !missing_path
+    !remove_link_status
+    !absent_path
+    !link_path
     !dir_path
     !file_path
     br ok -> L_PATH_FS_OK, L_PATH_FS_FAIL

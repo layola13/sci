@@ -1240,6 +1240,38 @@ L_PATH_TO_STR_END_%out_ok:
     !__path_exists_ptr_%out_flag
 [END_MACRO]
 
+[MACRO] PATH_TRY_EXISTS %out_status, %out_flag, %path_slice
+    __path_try_exists_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_try_exists_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_TRY_EXISTS %out_status, %out_flag, __path_try_exists_ptr_%out_status, __path_try_exists_len_%out_status
+    !__path_try_exists_len_%out_status
+    !__path_try_exists_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_METADATA %out_status, %out_metadata, %path_slice
+    __path_metadata_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_metadata_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_METADATA %out_status, %out_metadata, __path_metadata_ptr_%out_status, __path_metadata_len_%out_status
+    !__path_metadata_len_%out_status
+    !__path_metadata_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_CANONICALIZE %out_status, %out_buffer, %path_slice
+    __path_canonical_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_canonical_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_CANONICALIZE %out_status, %out_buffer, __path_canonical_ptr_%out_status, __path_canonical_len_%out_status
+    !__path_canonical_len_%out_status
+    !__path_canonical_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_READ_LINK %out_status, %out_buffer, %path_slice
+    __path_read_link_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_read_link_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_READ_LINK %out_status, %out_buffer, __path_read_link_ptr_%out_status, __path_read_link_len_%out_status
+    !__path_read_link_len_%out_status
+    !__path_read_link_ptr_%out_status
+[END_MACRO]
+
 [MACRO] PATH_IS_FILE %out_flag, %path_slice
     __path_is_file_ptr_%out_flag = load %path_slice+Slice_ptr as ptr
     __path_is_file_len_%out_flag = load %path_slice+Slice_len as u64

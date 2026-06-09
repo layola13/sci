@@ -1712,6 +1712,10 @@ test "sa_std path helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_WITH_FILE_NAME"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_ANCESTOR_COUNT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_TRY_ANCESTOR_AT"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_TRY_EXISTS"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_METADATA"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_CANONICALIZE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, path_src, 1, "[MACRO] PATH_READ_LINK"));
 
     var path_flat = try flattenFixture(std.testing.allocator, "sa_std/path.sa", path_src);
     defer path_flat.deinit(std.testing.allocator);
