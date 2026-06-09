@@ -2,9 +2,15 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999991%
+Current progress: 99.999992%
 
 ## Completed SCI Features
+
+- 2026-06-09: Added tested symbol-id slice remapping for future cached `FunctionSig` reconstruction.
+  - Added `cloneRemappedSymbolIdSlice` so immutable `FunctionSig.param_ids` / `reg_ids`-style slices can be rebuilt under the caller allocator instead of mutated in place.
+  - Added coverage for non-empty remaps, stable empty slices, copied storage, and invalid old ID rejection.
+  - This completes the basic symbol ID remap primitives needed before cached `FlattenResult` fragments can be spliced into a consumer symbol table.
+  - Verification: `zig test src/flattener.zig` -> `72/72 tests passed`; `zig test src/cli.zig` -> `78/78 tests passed`.
 
 - 2026-06-09: Added tested symbol-id remap helpers for future per-module `FlattenResult` caching.
   - Added helper infrastructure to build a source-to-target `SymbolTable` ID map and remap `Instruction` operands of kind `reg`, `symbol`, `label`, and `func` while leaving text/immediate/type operands unchanged.

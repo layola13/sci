@@ -3212,6 +3212,16 @@ fn remapInstructionSymbolIds(instruction: *Instruction, remap: []const u32) !voi
     }
 }
 
+fn cloneRemappedSymbolIdSlice(allocator: std.mem.Allocator, ids: []const u32, remap: []const u32) ![]const u32 {
+    if (ids.len == 0) return &.{};
+    const out = try allocator.alloc(u32, ids.len);
+    errdefer allocator.free(out);
+    for (ids, 0..) |old_id, idx| {
+        out[idx] = try remapSymbolId(remap, old_id);
+    }
+    return out;
+}
+
 fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
     if (source.len == 0) return;
     try out.appendSlice(source);
@@ -4222,6 +4232,31 @@ test "symbol id remap leaves non-symbol operands unchanged and rejects unknown i
 
     var invalid_operand = Operand{ .reg = 99 };
     try std.testing.expectError(error.InvalidOperand, remapOperandSymbolIds(&invalid_operand, remap));
+}
+
+test "symbol id remap clones function signature id slices" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    const a = try source_symbols.intern("a");
+    const b = try source_symbols.intern("b");
+    const c = try source_symbols.intern("c");
+
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    _ = try target_symbols.intern("occupied");
+
+    const remap = try buildSymbolIdRemap(std.testing.allocator, &source_symbols, &target_symbols);
+    defer std.testing.allocator.free(remap);
+
+    const original = [_]u32{ a, b, c };
+    const cloned = try cloneRemappedSymbolIdSlice(std.testing.allocator, original[0..], remap);
+    defer std.testing.allocator.free(cloned);
+    try std.testing.expectEqualSlices(u32, &.{ target_symbols.findId("a").?, target_symbols.findId("b").?, target_symbols.findId("c").? }, cloned);
+    try std.testing.expect(cloned.ptr != original[0..].ptr);
+
+    const empty = try cloneRemappedSymbolIdSlice(std.testing.allocator, &.{}, remap);
+    try std.testing.expectEqual(@as(usize, 0), empty.len);
+    try std.testing.expectError(error.InvalidOperand, cloneRemappedSymbolIdSlice(std.testing.allocator, &.{99}, remap));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {
