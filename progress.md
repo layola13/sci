@@ -2,9 +2,14 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999%
+Current progress: 99.9995%
 
 ## Completed SCI Features
+
+- 2026-06-09: Reduced verifier state-delta allocation overhead.
+  - Changed verifier state-delta construction to scan for actual register state changes before allocating, returning a shared empty delta for unchanged instructions.
+  - Avoided duplicating empty deltas while merging parallel verifier worker results, reducing hot-path allocator churn without changing annotated instruction semantics.
+  - Verification: `zig test src/verifier.zig` -> `125/125 tests passed`.
 
 - 2026-06-09: Added project cache cleanup and SA test artifact cache repair.
   - Added core CLI support for `sa cache clean`, including `--dry-run` and `--max-age-days`, scoped only to the current project's `.sa_cache` so package/plugin caches remain separate.

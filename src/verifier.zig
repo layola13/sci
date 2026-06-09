@@ -29,6 +29,12 @@ const RegStateDelta = struct {
     }
 };
 
+const empty_reg_state_changes: [0]RegStateChange = .{};
+
+fn emptyRegStateDelta() RegStateDelta {
+    return .{ .changes = @constCast(empty_reg_state_changes[0..]) };
+}
+
 pub const AnnotatedInstruction = struct {
     base: inst.Instruction,
     delta: RegStateDelta,
@@ -1089,7 +1095,8 @@ fn phiStateConflictReport(
                 .{mismatch_name},
             ) catch "";
         } else if ((m1 == active_mask and (m2 == 0 or m2 == consumed_mask)) or
-                   (m2 == active_mask and (m1 == 0 or m1 == consumed_mask))) {
+            (m2 == active_mask and (m1 == 0 or m1 == consumed_mask)))
+        {
             break :blk std.fmt.bufPrint(
                 &advice_buf,
                 "Consume/release '{s}' on all paths (e.g. using '!{s}'), or don't consume it on any path.",
@@ -2030,14 +2037,23 @@ fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(Annotat
 }
 
 fn diffState(allocator: std.mem.Allocator, before: []const u16, after: []const u16) !RegStateDelta {
-    var changes = std.ArrayList(RegStateChange).init(allocator);
-    errdefer changes.deinit();
     if (before.len != after.len) return error.InvalidOperand;
+
+    var change_count: usize = 0;
+    for (before, after) |prev, next| {
+        if (next != prev) change_count += 1;
+    }
+    if (change_count == 0) return emptyRegStateDelta();
+
+    var changes = try allocator.alloc(RegStateChange, change_count);
+    var out_idx: usize = 0;
+    errdefer allocator.free(changes);
     for (before, after, 0..) |prev, next, idx| {
         if (next == prev) continue;
-        try changes.append(.{ .reg = @intCast(idx), .before = prev, .after = next });
+        changes[out_idx] = .{ .reg = @intCast(idx), .before = prev, .after = next };
+        out_idx += 1;
     }
-    return .{ .changes = try changes.toOwnedSlice() };
+    return .{ .changes = changes };
 }
 
 fn applyStateDelta(state: []u16, delta: []const RegStateChange) void {
@@ -3148,9 +3164,12 @@ fn verifyParallel(
             },
             .ok => |ok| {
                 for (ok.annotated) |item| {
-                    const delta_changes = try allocator.dupe(RegStateChange, item.delta.changes);
+                    const delta_changes = if (item.delta.changes.len == 0)
+                        emptyRegStateDelta().changes
+                    else
+                        try allocator.dupe(RegStateChange, item.delta.changes);
                     var delta_owned = false;
-                    defer if (!delta_owned) allocator.free(delta_changes);
+                    defer if (!delta_owned and delta_changes.len != 0) allocator.free(delta_changes);
                     try annotated.append(.{
                         .base = item.base,
                         .delta = .{ .changes = delta_changes },
