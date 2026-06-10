@@ -800,13 +800,13 @@
 5. WHEN 标签未声明（`alloc` 不带 `tag`）THEN 该寄存器 SHALL 被视为"无标签"（untagged），可以传给任何函数（向后兼容）
 6. WHEN 标签校验被启用 THEN 其 SHALL 为**纯编译期**行为，零运行时开销（标签信息不进入产物）
 7. WHEN 标签校验被禁用（`--no-tag-check`）THEN Referee SHALL 跳过所有标签比对（用于性能敏感的场景或向后兼容）
-8. WHEN 用户指定 `--strict-tags` THEN 所有 `alloc` 指令 SHALL 必须携带 `tag NAME`，未标记的 `alloc` 直接 `Trap: MissingTag`；此模式用于高可靠性/军工场景，确保零类型混淆
+8. WHEN 用户指定 `--strict-tags` THEN 所有 `alloc` 指令 SHALL 必须携带 `tag NAME`，未标记的 `alloc` 直接 `Trap: MissingTag`；此模式用于高可靠性/场景，确保零类型混淆
 9. **Non-Goal**：标签不是类型系统。不支持继承、不支持泛型标签、不支持标签上的方法。它只是一个"这块内存的布局是什么"的编译期断言
 
 ### Requirement 33: Referee 形式化验证（v0.6 — 高可靠性认证）
 
 **User Story**
-作为军工/航空/医疗等高可靠性领域的采用者，我需要数学证明 SA 的 Referee 算法本身没有 Bug——不是靠测试覆盖率，而是靠定理证明器（如 Coq / Lean4 / Isabelle）产出的机器可检查证明。
+作为/航空/医疗等高可靠性领域的采用者，我需要数学证明 SA 的 Referee 算法本身没有 Bug——不是靠测试覆盖率，而是靠定理证明器（如 Coq / Lean4 / Isabelle）产出的机器可检查证明。
 
 **Acceptance Criteria**
 1. WHEN Referee 的核心状态机逻辑被提取 THEN 其 SHALL 被翻译为 Coq 或 Lean4 的等价规范（Spec），行数 ≤ 1000 行定理证明代码
