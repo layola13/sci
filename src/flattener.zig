@@ -29,6 +29,8 @@ pub const FunctionKind = common_signature.FunctionKind;
 pub const Trap = common_trap.Trap;
 pub const LocTable = common_upstream.LocTable;
 
+const max_expanded_instructions: usize = 10_000_000;
+
 pub const ResolveContext = struct {
     dependencies: []const pkg_resolver.Dependency = &.{},
     options: pkg_resolver.ResolveOptions = .{},
@@ -862,25 +864,48 @@ fn captureCachedMacroDefs(
         const body_lines = macroDefBodyLines(&def, lines);
         var cached = CachedMacroDef{
             .name = try allocator.dupe(u8, entry.key_ptr.*),
-            .params = try allocator.alloc([]const u8, def.params.len),
+            .params = &.{},
             .variadic_param = null,
-            .body_lines = try allocator.alloc(CachedMacroLine, body_lines.len),
+            .body_lines = &.{},
         };
         errdefer cached.deinit(allocator);
 
+        cached.params = try allocator.alloc([]const u8, def.params.len);
+        var copied_params: usize = 0;
+        errdefer {
+            for (cached.params[0..copied_params]) |param| allocator.free(param);
+            allocator.free(cached.params);
+            cached.params = &.{};
+        }
+
         for (def.params, 0..) |param, idx| {
             cached.params[idx] = try allocator.dupe(u8, param);
+            copied_params += 1;
         }
         if (def.variadic_param) |param| {
             cached.variadic_param = try allocator.dupe(u8, param);
         }
+
+        cached.body_lines = try allocator.alloc(CachedMacroLine, body_lines.len);
+        var copied_body_lines: usize = 0;
+        errdefer {
+            for (cached.body_lines[0..copied_body_lines]) |*line| line.deinit(allocator);
+            allocator.free(cached.body_lines);
+            cached.body_lines = &.{};
+        }
+
         for (body_lines, 0..) |line, idx| {
+            const owned_text = try allocator.dupe(u8, line.text);
+            errdefer allocator.free(owned_text);
+            const owned_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null;
+            errdefer if (owned_identity) |identity| allocator.free(identity);
             cached.body_lines[idx] = .{
                 .line_no = line.line_no,
-                .text = try allocator.dupe(u8, line.text),
-                .package_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null,
+                .text = owned_text,
+                .package_identity = owned_identity,
                 .package_source_sha256 = line.package_source_sha256,
             };
+            copied_body_lines += 1;
         }
 
         defs[copied_defs] = cached;
@@ -904,7 +929,9 @@ fn restoreCachedMacroDefs(
         errdefer deinitOwnedSourceLineItems(allocator, owned_body_lines[0..copied_body_lines]);
         for (cached.body_lines, 0..) |line, idx| {
             const owned_text = try allocator.dupe(u8, line.text);
+            errdefer allocator.free(owned_text);
             const owned_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null;
+            errdefer if (owned_identity) |identity| allocator.free(identity);
             owned_body_lines[idx] = .{
                 .line_no = line.line_no,
                 .text = owned_text,
@@ -1373,6 +1400,7 @@ fn setPendingLoc(
     line: u32,
     col: u32,
 ) !void {
+    if (line == 0 or col == 0) return error.InvalidLocHint;
     if (pending_loc.*) |current| {
         allocator.free(current.file);
         pending_loc.* = null;
@@ -1536,6 +1564,7 @@ fn emitParsedLine(
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
+    if (instructions.items.len >= max_expanded_instructions) return error.MacroExpansionBudget;
     const classified = classifier.classifyLine(raw_line);
     switch (classified.kind) {
         .blank_or_comment, .version => {},
@@ -3362,9 +3391,10 @@ pub fn scanSource(
     try lines.ensureTotalCapacity(countSourceLines(source));
 
     var iterator = std.mem.splitScalar(u8, source, '\n');
-    var line_no: u32 = 1;
-    while (iterator.next()) |raw_line| : (line_no += 1) {
-        const idx: usize = @intCast(line_no - 1);
+    var line_idx: usize = 0;
+    while (iterator.next()) |raw_line| : (line_idx += 1) {
+        const line_no = std.math.cast(u32, line_idx + 1) orelse return error.SourceTooLarge;
+        const idx = line_idx;
         const package_identity = if (idx < line_package_identities.len) line_package_identities[idx] else null;
         const package_source_sha256 = if (idx < line_package_hashes.len) line_package_hashes[idx] else null;
         try lines.append(.{
@@ -3942,8 +3972,10 @@ fn cloneRemappedInstruction(
 
 fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
     if (source.len == 0) return;
+    const needs_newline = source[source.len - 1] != '\n';
+    try out.ensureUnusedCapacity(source.len + @intFromBool(needs_newline));
     try out.appendSlice(source);
-    if (source[source.len - 1] != '\n') try out.append('\n');
+    if (needs_newline) try out.append('\n');
 }
 
 fn parseImportPath(line: []const u8) ?[]const u8 {
@@ -5562,6 +5594,55 @@ test "frontend cache append fragment restores imported macro defs for later expa
     try std.testing.expect(target_symbols.findId("_tmp__sa_hyg1") != null);
 }
 
+test "cached macro helper path survives allocation failure injection" {
+    const Ctx = struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const macro_name = "MAKE_TMP";
+            const macro_params = [_][]const u8{"%out"};
+            const package_identity = "pkg:macro-cache-test";
+            const body_lines = [_]SourceLine{
+                .{
+                    .line_no = 2,
+                    .text = "    _tmp = add 0, 7",
+                    .classified = classifier.classifyLine("    _tmp = add 0, 7"),
+                    .package_identity = package_identity,
+                    .package_source_sha256 = null,
+                },
+                .{
+                    .line_no = 3,
+                    .text = "    %out = add _tmp, 0",
+                    .classified = classifier.classifyLine("    %out = add _tmp, 0"),
+                    .package_identity = package_identity,
+                    .package_source_sha256 = null,
+                },
+            };
+
+            var source_macros = std.StringHashMap(MacroDef).init(allocator);
+            defer source_macros.deinit();
+            try source_macros.put(macro_name, .{
+                .params = macro_params[0..],
+                .body_start = 0,
+                .body_end = body_lines.len,
+            });
+
+            const cached_defs = try captureCachedMacroDefs(allocator, body_lines[0..], &source_macros);
+            defer deinitCachedMacroDefs(allocator, cached_defs);
+
+            var target_macros = std.StringHashMap(MacroDef).init(allocator);
+            defer deinitMacroMap(allocator, &target_macros);
+
+            try restoreCachedMacroDefs(allocator, cached_defs, &target_macros);
+            const restored = target_macros.getPtr("MAKE_TMP") orelse return error.MissingRestoredMacro;
+            try std.testing.expectEqual(@as(usize, 1), restored.params.len);
+            try std.testing.expectEqualStrings("%out", restored.params[0]);
+            try std.testing.expectEqual(@as(usize, 2), restored.owned_body_lines.len);
+            try std.testing.expectEqualStrings(package_identity, restored.owned_body_lines[0].package_identity.?);
+        }
+    };
+
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, Ctx.run, .{});
+}
+
 test "findFirstForbiddenLine skips native blocks and catches keywords" {
     const source =
         \\$if not scanned$
@@ -5676,6 +5757,15 @@ test "flatten attaches loc hint to the next real instruction only" {
     try std.testing.expectEqualStrings("up.rs", result.function_sigs[0].upstream_loc.?.file);
     try std.testing.expectEqual(@as(u32, 12), result.function_sigs[0].upstream_loc.?.line);
     try std.testing.expectEqual(@as(u32, 3), result.function_sigs[0].upstream_loc.?.col);
+}
+
+test "flatten rejects zero loc hint coordinates" {
+    const source =
+        \\#loc "up.rs":0:0
+        \\@entry() -> i32:
+        \\return 0
+    ;
+    try std.testing.expectError(error.InvalidLocHint, flatten(std.testing.allocator, source));
 }
 
 test "flattenFile expands relative @import files" {

@@ -84,8 +84,67 @@ pub const OpKind = enum(u8) {
     insert_lane,
 };
 
+const op_kind_by_name = std.StaticStringMap(OpKind).initComptime(.{
+    .{ "add", .add },
+    .{ "sub", .sub },
+    .{ "mul", .mul },
+    .{ "sdiv", .sdiv },
+    .{ "udiv", .udiv },
+    .{ "srem", .srem },
+    .{ "urem", .urem },
+    .{ "neg", .neg },
+    .{ "and", .@"and" },
+    .{ "or", .@"or" },
+    .{ "xor", .xor },
+    .{ "shl", .shl },
+    .{ "lshr", .lshr },
+    .{ "ashr", .ashr },
+    .{ "not", .not },
+    .{ "eq", .eq },
+    .{ "ne", .ne },
+    .{ "slt", .slt },
+    .{ "sle", .sle },
+    .{ "sgt", .sgt },
+    .{ "sge", .sge },
+    .{ "ult", .ult },
+    .{ "ule", .ule },
+    .{ "ugt", .ugt },
+    .{ "uge", .uge },
+    .{ "div", .div },
+    .{ "rem", .rem },
+    .{ "gt", .gt },
+    .{ "lt", .lt },
+    .{ "shr", .shr },
+    .{ "fadd", .fadd },
+    .{ "fsub", .fsub },
+    .{ "fmul", .fmul },
+    .{ "fdiv", .fdiv },
+    .{ "fneg", .fneg },
+    .{ "fcmp_eq", .fcmp_eq },
+    .{ "fcmp_ne", .fcmp_ne },
+    .{ "fcmp_lt", .fcmp_lt },
+    .{ "fcmp_le", .fcmp_le },
+    .{ "fcmp_gt", .fcmp_gt },
+    .{ "fcmp_ge", .fcmp_ge },
+    .{ "trunc", .trunc },
+    .{ "zext", .zext },
+    .{ "sext", .sext },
+    .{ "fptosi", .fptosi },
+    .{ "sitofp", .sitofp },
+    .{ "uitofp", .uitofp },
+    .{ "fptrunc", .fptrunc },
+    .{ "fpext", .fpext },
+    .{ "bitcast", .bitcast },
+    .{ "add_v128", .add_v128 },
+    .{ "sub_v128", .sub_v128 },
+    .{ "mul_v128", .mul_v128 },
+    .{ "shuffle_v128", .shuffle_v128 },
+    .{ "extract_lane", .extract_lane },
+    .{ "insert_lane", .insert_lane },
+});
+
 pub fn parseOpKind(text: []const u8) ?OpKind {
-    return if (std.mem.eql(u8, text, "add")) .add else if (std.mem.eql(u8, text, "sub")) .sub else if (std.mem.eql(u8, text, "mul")) .mul else if (std.mem.eql(u8, text, "sdiv")) .sdiv else if (std.mem.eql(u8, text, "udiv")) .udiv else if (std.mem.eql(u8, text, "srem")) .srem else if (std.mem.eql(u8, text, "urem")) .urem else if (std.mem.eql(u8, text, "neg")) .neg else if (std.mem.eql(u8, text, "and")) .@"and" else if (std.mem.eql(u8, text, "or")) .@"or" else if (std.mem.eql(u8, text, "xor")) .xor else if (std.mem.eql(u8, text, "shl")) .shl else if (std.mem.eql(u8, text, "lshr")) .lshr else if (std.mem.eql(u8, text, "ashr")) .ashr else if (std.mem.eql(u8, text, "not")) .not else if (std.mem.eql(u8, text, "eq")) .eq else if (std.mem.eql(u8, text, "ne")) .ne else if (std.mem.eql(u8, text, "slt")) .slt else if (std.mem.eql(u8, text, "sle")) .sle else if (std.mem.eql(u8, text, "sgt")) .sgt else if (std.mem.eql(u8, text, "sge")) .sge else if (std.mem.eql(u8, text, "ult")) .ult else if (std.mem.eql(u8, text, "ule")) .ule else if (std.mem.eql(u8, text, "ugt")) .ugt else if (std.mem.eql(u8, text, "uge")) .uge else if (std.mem.eql(u8, text, "div")) .div else if (std.mem.eql(u8, text, "rem")) .rem else if (std.mem.eql(u8, text, "gt")) .gt else if (std.mem.eql(u8, text, "lt")) .lt else if (std.mem.eql(u8, text, "shr")) .shr else if (std.mem.eql(u8, text, "fadd")) .fadd else if (std.mem.eql(u8, text, "fsub")) .fsub else if (std.mem.eql(u8, text, "fmul")) .fmul else if (std.mem.eql(u8, text, "fdiv")) .fdiv else if (std.mem.eql(u8, text, "fneg")) .fneg else if (std.mem.eql(u8, text, "fcmp_eq")) .fcmp_eq else if (std.mem.eql(u8, text, "fcmp_ne")) .fcmp_ne else if (std.mem.eql(u8, text, "fcmp_lt")) .fcmp_lt else if (std.mem.eql(u8, text, "fcmp_le")) .fcmp_le else if (std.mem.eql(u8, text, "fcmp_gt")) .fcmp_gt else if (std.mem.eql(u8, text, "fcmp_ge")) .fcmp_ge else if (std.mem.eql(u8, text, "trunc")) .trunc else if (std.mem.eql(u8, text, "zext")) .zext else if (std.mem.eql(u8, text, "sext")) .sext else if (std.mem.eql(u8, text, "fptosi")) .fptosi else if (std.mem.eql(u8, text, "sitofp")) .sitofp else if (std.mem.eql(u8, text, "uitofp")) .uitofp else if (std.mem.eql(u8, text, "fptrunc")) .fptrunc else if (std.mem.eql(u8, text, "fpext")) .fpext else if (std.mem.eql(u8, text, "bitcast")) .bitcast else if (std.mem.eql(u8, text, "add_v128")) .add_v128 else if (std.mem.eql(u8, text, "sub_v128")) .sub_v128 else if (std.mem.eql(u8, text, "mul_v128")) .mul_v128 else if (std.mem.eql(u8, text, "shuffle_v128")) .shuffle_v128 else if (std.mem.eql(u8, text, "extract_lane")) .extract_lane else if (std.mem.eql(u8, text, "insert_lane")) .insert_lane else null;
+    return op_kind_by_name.get(text);
 }
 
 pub fn isTypeConversionOpKind(kind: OpKind) bool {
@@ -104,10 +163,7 @@ pub fn isUnaryOpKind(kind: OpKind) bool {
 
 pub fn isBinaryOpKind(kind: OpKind) bool {
     return switch (kind) {
-        .add, .sub, .mul, .sdiv, .udiv, .srem, .urem, .div, .rem, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule,
-        .@"and", .@"or", .xor, .shl, .lshr, .ashr, .shr, .eq, .ne, .fadd, .fsub, .fmul, .fdiv, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge,
-        .extract_lane,
-        .add_v128, .sub_v128, .mul_v128 => true,
+        .add, .sub, .mul, .sdiv, .udiv, .srem, .urem, .div, .rem, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule, .@"and", .@"or", .xor, .shl, .lshr, .ashr, .shr, .eq, .ne, .fadd, .fsub, .fmul, .fdiv, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge, .extract_lane, .add_v128, .sub_v128, .mul_v128 => true,
         else => false,
     };
 }
@@ -147,8 +203,36 @@ pub const OpCode = enum(u8) {
     shr,
 };
 
+const op_code_by_name = std.StaticStringMap(OpCode).initComptime(.{
+    .{ "add", .add },
+    .{ "sub", .sub },
+    .{ "mul", .mul },
+    .{ "div", .div },
+    .{ "sdiv", .sdiv },
+    .{ "udiv", .udiv },
+    .{ "rem", .rem },
+    .{ "srem", .srem },
+    .{ "urem", .urem },
+    .{ "gt", .gt },
+    .{ "lt", .lt },
+    .{ "sgt", .sgt },
+    .{ "slt", .slt },
+    .{ "sge", .sge },
+    .{ "sle", .sle },
+    .{ "ugt", .ugt },
+    .{ "ult", .ult },
+    .{ "uge", .uge },
+    .{ "ule", .ule },
+    .{ "eq", .eq },
+    .{ "ne", .ne },
+    .{ "and", .@"and" },
+    .{ "or", .@"or" },
+    .{ "shl", .shl },
+    .{ "shr", .shr },
+});
+
 pub fn parseOpCode(text: []const u8) ?OpCode {
-    return if (std.mem.eql(u8, text, "add")) .add else if (std.mem.eql(u8, text, "sub")) .sub else if (std.mem.eql(u8, text, "mul")) .mul else if (std.mem.eql(u8, text, "div")) .div else if (std.mem.eql(u8, text, "sdiv")) .sdiv else if (std.mem.eql(u8, text, "udiv")) .udiv else if (std.mem.eql(u8, text, "rem")) .rem else if (std.mem.eql(u8, text, "srem")) .srem else if (std.mem.eql(u8, text, "urem")) .urem else if (std.mem.eql(u8, text, "gt")) .gt else if (std.mem.eql(u8, text, "lt")) .lt else if (std.mem.eql(u8, text, "sgt")) .sgt else if (std.mem.eql(u8, text, "slt")) .slt else if (std.mem.eql(u8, text, "sge")) .sge else if (std.mem.eql(u8, text, "sle")) .sle else if (std.mem.eql(u8, text, "ugt")) .ugt else if (std.mem.eql(u8, text, "ult")) .ult else if (std.mem.eql(u8, text, "uge")) .uge else if (std.mem.eql(u8, text, "ule")) .ule else if (std.mem.eql(u8, text, "eq")) .eq else if (std.mem.eql(u8, text, "ne")) .ne else if (std.mem.eql(u8, text, "and")) .@"and" else if (std.mem.eql(u8, text, "or")) .@"or" else if (std.mem.eql(u8, text, "shl")) .shl else if (std.mem.eql(u8, text, "shr")) .shr else null;
+    return op_code_by_name.get(text);
 }
 
 pub const AtomicOrdering = atomic.AtomicOrdering;

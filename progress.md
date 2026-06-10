@@ -2,9 +2,42 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999998%
+Current progress: 100%
 
 ## Completed SCI Features
+
+- 2026-06-10: Closed the remaining low-risk issue7/issue8 core runtime/emitter items found during the final audit.
+  - NetX tickets now copy payload bytes into queue-owned storage before publication, so `Ticket.payload` no longer points directly into mutable/reusable `ConnectionSlot.scratch`; ticket and slot capacity math now uses checked multiplication/power-of-two growth.
+  - LLVM-C emitter lowering now builds one function-signature alias index and reuses it for direct calls, vtable resolution, reachability, and indirect-call signature inference instead of repeated linear scans by function name.
+  - Test panic scalar diagnostics are protected by a mutex and handle oversized C-provided name lengths without `usize` cast traps.
+  - Verification: `zig test src/runtime/sa_net_uring.zig -lc` -> `16/16 tests passed`; `zig test src/runtime/sa_std.zig -lc` -> `4/4 tests passed`; `zig build llvmc-test --summary all` -> `15/15 tests passed`; `zig build test --summary all` -> `116/116 tests passed`; `.git/hooks/pre-push origin https://github.com/layola13/sci.git` -> passed in full profile.
+
+- 2026-06-10: Closed additional issue7 core safety/performance items without touching plugin repositories.
+  - Resolver dependencies now carry manifest pinned `source_sha256`; local/global package resolution rejects mismatched package source with `UpstreamShaMismatch`, and `sa pkg install` checks fetched bytes against the manifest pin before continuing.
+  - Package fetch rejects option-shaped identities/refs, inserts `--` before `git clone` positional args, and runs git with a small allowlisted environment plus noninteractive credential prompts.
+  - Project lock updates now reject silent source-hash drift by default; explicit `allow_source_update` is required before stale target hashes are cleared for a changed package source.
+  - Runtime pthread handles now reuse a free-slot stack instead of scanning the full slot table on each spawn, and network host inputs reject embedded NUL bytes before DNS/IP resolution.
+  - Verification pending in the next batch: focused pkg/runtime tests, then full `zig build test` and pre-push hook.
+
+- 2026-06-10: Implemented issue8 Tier-1 core performance indexes in the compiler kernel.
+  - Replaced `parseOpKind` / `parseOpCode` string cascades with `std.StaticStringMap` lookups, keeping the same opcode and compatibility-alias coverage.
+  - Added a verifier `sig_index_by_name` map during metadata collection so call-site signature checks and function-symbol argument checks stop scanning every function signature.
+  - Moved interpreter per-function label maps and global-register slot maps into cached `FunctionRange` state built at interpreter initialization, removing repeated label-map rebuilds and hot `FunctionSig.slotOf` linear scans during execution.
+  - Kept interpreter memory blocks sorted by base address and changed range lookup to binary search, preserving interior-pointer support while avoiding per-load/store linear scans over all blocks.
+  - Added coverage for sorted/range-aware memory lookup after frees.
+  - Verification: `zig test src/common/instruction.zig` -> `5/5 tests passed`; `zig test src/interp.zig` -> `159/159 tests passed`; `zig test src/verifier.zig` -> `153/153 tests passed`; `zig test src/cli.zig` -> `89/89 tests passed`.
+
+- 2026-06-10: Finished low-risk issue8 compiler-kernel allocation and scan reductions.
+  - Added a `VerifierBufferPool` so verifier per-function register state, flags, origins, lock state, consumed-reg flags, and interior-pointer arrays grow once per `verifyBody` worker and are reused by slicing and clearing on each function.
+  - Removed now-dead verifier per-function buffer allocation/free helpers from the hot declaration path.
+  - Reworked `DefDict.foldText` from a pre-scan plus replacement scan into a single lazy-output pass, preserving the zero-replacement fast path.
+  - Preallocated `appendOwnedSource` capacity for imported source chunks plus the optional newline before appending.
+  - Verification: `zig test src/verifier.zig` -> `153/153 tests passed`; `zig test src/interp.zig` -> `159/159 tests passed`; `zig test src/cli.zig` -> `89/89 tests passed`; `zig test src/flattener/def_dict.zig` -> `5/5 tests passed`; `zig test src/flattener.zig` -> `83/83 tests passed`.
+
+- 2026-06-10: Hardened cached macro helper allocation-failure paths from the core flattener review.
+  - Changed cached macro capture/restore ownership setup to clean up only initialized params/body lines on OOM, avoiding undefined frees and leaks in partially copied macro definitions.
+  - Added allocation-failure injection coverage for the capture/restore helper path.
+  - Verification: covered by `zig test src/interp.zig`, `zig test src/verifier.zig`, and `zig test src/cli.zig` flattener test imports above.
 
 - 2026-06-10: Added tested cached-macro replay support for future frontend fragment reuse.
   - Extended `FlattenResult` ownership with `cached_macro_defs` so a flattened fragment can carry imported macro definitions alongside instructions, defs, consts, signatures, layout metadata, and package identities.

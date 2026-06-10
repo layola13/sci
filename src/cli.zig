@@ -3794,6 +3794,7 @@ fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.
         try deps.append(.{
             .url = entry.url,
             .ref = entry.ref,
+            .source_sha256 = entry.source_sha256,
         });
     }
 
@@ -5130,8 +5131,11 @@ fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.
     fetch_options.mirror_rules = mirror_rules.rules;
 
     for (project_manifest.requires) |entry| {
-        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, fetch_options);
+        var entry_fetch_options = fetch_options;
+        entry_fetch_options.expected_source_sha256 = entry.source_sha256;
+        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, entry_fetch_options);
         defer result.deinit(allocator);
+        if (!hashesEqual(result.source_sha256, entry.source_sha256)) return error.UpstreamShaMismatch;
         try stdout.print("{s}\n", .{result.root});
     }
 

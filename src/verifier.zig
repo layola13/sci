@@ -174,6 +174,7 @@ const ParallelVerifyContext = struct {
 const CollectResult = struct {
     symbols: symbol.SymbolTable,
     sigs: std.ArrayList(sig.FunctionSig),
+    sig_index_by_name: std.StringHashMap(usize),
     const_vtables: std.ArrayList(ConstVTable),
     function_starts: std.ArrayList(usize),
 };
@@ -580,12 +581,6 @@ fn checkAtomicOrdering(
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record atomic ordering history", null);
     };
     return null;
-}
-
-fn zeroed(comptime T: type, allocator: std.mem.Allocator, len: usize) ![]T {
-    const out = try allocator.alloc(T, len);
-    @memset(out, 0);
-    return out;
 }
 
 fn hasInteriorPtr(mask: u16) bool {
@@ -1602,6 +1597,8 @@ fn collectMetadata(
         for (sigs.items) |*item| item.deinit(allocator);
         sigs.deinit();
     }
+    var sig_index_by_name = std.StringHashMap(usize).init(allocator);
+    errdefer sig_index_by_name.deinit();
     var function_starts = std.ArrayList(usize).init(allocator);
     errdefer function_starts.deinit();
     var current_reg_ids = std.ArrayList(u32).init(allocator);
@@ -1668,6 +1665,10 @@ fn collectMetadata(
             }
             _ = try symbols.intern(parsed.name);
             try sigs.append(parsed);
+            const inserted_idx = sigs.items.len - 1;
+            if (!sig_index_by_name.contains(parsed.name)) {
+                try sig_index_by_name.put(parsed.name, inserted_idx);
+            }
             try function_starts.append(inst_idx);
             current_sig_index = sigs.items.len - 1;
             continue;
@@ -1811,6 +1812,7 @@ fn collectMetadata(
     return .{
         .symbols = symbols,
         .sigs = sigs,
+        .sig_index_by_name = sig_index_by_name,
         .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
         .function_starts = function_starts,
     };
@@ -2232,40 +2234,61 @@ fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, Label
     labels.clearRetainingCapacity();
 }
 
-fn freeVerifierBuffers(
+const VerifierBufferPool = struct {
     allocator: std.mem.Allocator,
-    state: *[]u16,
-    flags: *[]u8,
-    origins: *[]?u32,
-    locks: *[]u16,
-    interior_parent: *[]?u32,
-    interior_first_child: *[]?u32,
-    interior_next_sibling: *[]?u32,
-    interior_root: *[]?u32,
-    interior_offset: *[]u64,
-    interior_offset_known: *[]bool,
-) void {
-    if (state.*.len != 0) allocator.free(state.*);
-    if (flags.*.len != 0) allocator.free(flags.*);
-    if (origins.*.len != 0) allocator.free(origins.*);
-    if (locks.*.len != 0) allocator.free(locks.*);
-    if (interior_parent.*.len != 0) allocator.free(interior_parent.*);
-    if (interior_first_child.*.len != 0) allocator.free(interior_first_child.*);
-    if (interior_next_sibling.*.len != 0) allocator.free(interior_next_sibling.*);
-    if (interior_root.*.len != 0) allocator.free(interior_root.*);
-    if (interior_offset.*.len != 0) allocator.free(interior_offset.*);
-    if (interior_offset_known.*.len != 0) allocator.free(interior_offset_known.*);
-    state.* = &.{};
-    flags.* = &.{};
-    origins.* = &.{};
-    locks.* = &.{};
-    interior_parent.* = &.{};
-    interior_first_child.* = &.{};
-    interior_next_sibling.* = &.{};
-    interior_root.* = &.{};
-    interior_offset.* = &.{};
-    interior_offset_known.* = &.{};
-}
+    state: []u16 = &.{},
+    flags: []u8 = &.{},
+    origins: []?u32 = &.{},
+    locks: []u16 = &.{},
+    consumed_in_function: []bool = &.{},
+    interior_parent: []?u32 = &.{},
+    interior_first_child: []?u32 = &.{},
+    interior_next_sibling: []?u32 = &.{},
+    interior_root: []?u32 = &.{},
+    interior_offset: []u64 = &.{},
+    interior_offset_known: []bool = &.{},
+
+    fn init(allocator: std.mem.Allocator) VerifierBufferPool {
+        return .{ .allocator = allocator };
+    }
+
+    fn deinit(self: *VerifierBufferPool) void {
+        const allocator = self.allocator;
+        if (self.state.len != 0) self.allocator.free(self.state);
+        if (self.flags.len != 0) self.allocator.free(self.flags);
+        if (self.origins.len != 0) self.allocator.free(self.origins);
+        if (self.locks.len != 0) self.allocator.free(self.locks);
+        if (self.consumed_in_function.len != 0) self.allocator.free(self.consumed_in_function);
+        if (self.interior_parent.len != 0) self.allocator.free(self.interior_parent);
+        if (self.interior_first_child.len != 0) self.allocator.free(self.interior_first_child);
+        if (self.interior_next_sibling.len != 0) self.allocator.free(self.interior_next_sibling);
+        if (self.interior_root.len != 0) self.allocator.free(self.interior_root);
+        if (self.interior_offset.len != 0) self.allocator.free(self.interior_offset);
+        if (self.interior_offset_known.len != 0) self.allocator.free(self.interior_offset_known);
+        self.* = .{ .allocator = allocator };
+    }
+
+    fn ensureCapacity(self: *VerifierBufferPool, reg_count: usize) !void {
+        if (self.state.len >= reg_count) return;
+
+        var next = VerifierBufferPool.init(self.allocator);
+        errdefer next.deinit();
+        next.state = try self.allocator.alloc(u16, reg_count);
+        next.flags = try self.allocator.alloc(u8, reg_count);
+        next.origins = try self.allocator.alloc(?u32, reg_count);
+        next.locks = try self.allocator.alloc(u16, reg_count);
+        next.consumed_in_function = try self.allocator.alloc(bool, reg_count);
+        next.interior_parent = try self.allocator.alloc(?u32, reg_count);
+        next.interior_first_child = try self.allocator.alloc(?u32, reg_count);
+        next.interior_next_sibling = try self.allocator.alloc(?u32, reg_count);
+        next.interior_root = try self.allocator.alloc(?u32, reg_count);
+        next.interior_offset = try self.allocator.alloc(u64, reg_count);
+        next.interior_offset_known = try self.allocator.alloc(bool, reg_count);
+
+        self.deinit();
+        self.* = next;
+    }
+};
 
 fn verifyBody(
     allocator: std.mem.Allocator,
@@ -2291,10 +2314,8 @@ fn verifyBody(
     var interior_root: []?u32 = &.{};
     var interior_offset: []u64 = &.{};
     var interior_offset_known: []bool = &.{};
-    defer {
-        if (consumed_in_function.len != 0) allocator.free(consumed_in_function);
-        freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling, &interior_root, &interior_offset, &interior_offset_known);
-    }
+    var buffers = VerifierBufferPool.init(allocator);
+    defer buffers.deinit();
     var current_scope: ?FunctionRegScope = null;
     defer {
         if (current_scope) |*scope| scope.deinit();
@@ -2366,37 +2387,47 @@ fn verifyBody(
 
             if (current_scope) |*scope| scope.deinit();
             current_scope = null;
-            if (consumed_in_function.len != 0) {
-                allocator.free(consumed_in_function);
-                consumed_in_function = &.{};
-            }
-            freeVerifierBuffers(allocator, &state, &flags, &origins, &locks, &interior_parent, &interior_first_child, &interior_next_sibling, &interior_root, &interior_offset, &interior_offset_known);
+            state = &.{};
+            flags = &.{};
+            origins = &.{};
+            locks = &.{};
+            consumed_in_function = &.{};
+            interior_parent = &.{};
+            interior_first_child = &.{};
+            interior_next_sibling = &.{};
+            interior_root = &.{};
+            interior_offset = &.{};
+            interior_offset_known = &.{};
 
             if (current_sig) |decl_sig| {
                 var next_scope = try FunctionRegScope.initBorrowed(allocator, decl_sig.reg_ids);
                 errdefer next_scope.deinit();
                 const reg_count = next_scope.reg_ids.len;
-                state = zeroed(u16, allocator, reg_count) catch {
+                buffers.ensureCapacity(reg_count) catch {
                     current_scope = null;
                     return .{ .trap = trapReportFromText(.arena_oom, 1, 1, item.raw_text, "unable to allocate verifier state", null) };
                 };
-                flags = try zeroed(u8, allocator, reg_count);
-                origins = try allocator.alloc(?u32, reg_count);
+                state = buffers.state[0..reg_count];
+                @memset(state, 0);
+                flags = buffers.flags[0..reg_count];
+                @memset(flags, 0);
+                origins = buffers.origins[0..reg_count];
                 @memset(origins, null);
-                locks = try allocator.alloc(u16, reg_count);
+                locks = buffers.locks[0..reg_count];
                 @memset(locks, 0);
-                consumed_in_function = try allocator.alloc(bool, reg_count);
+                consumed_in_function = buffers.consumed_in_function[0..reg_count];
                 @memset(consumed_in_function, false);
-                interior_parent = try allocator.alloc(?u32, reg_count);
+                interior_parent = buffers.interior_parent[0..reg_count];
                 @memset(interior_parent, null);
-                interior_first_child = try allocator.alloc(?u32, reg_count);
+                interior_first_child = buffers.interior_first_child[0..reg_count];
                 @memset(interior_first_child, null);
-                interior_next_sibling = try allocator.alloc(?u32, reg_count);
+                interior_next_sibling = buffers.interior_next_sibling[0..reg_count];
                 @memset(interior_next_sibling, null);
-                interior_root = try allocator.alloc(?u32, reg_count);
+                interior_root = buffers.interior_root[0..reg_count];
                 @memset(interior_root, null);
-                interior_offset = try zeroed(u64, allocator, reg_count);
-                interior_offset_known = try allocator.alloc(bool, reg_count);
+                interior_offset = buffers.interior_offset[0..reg_count];
+                @memset(interior_offset, 0);
+                interior_offset_known = buffers.interior_offset_known[0..reg_count];
                 @memset(interior_offset_known, false);
                 interior = .{
                     .state = state,
@@ -2870,12 +2901,7 @@ fn verifyBody(
                     }
                 }
 
-                const sig_match: ?sig.FunctionSig = blk: {
-                    for (metadata.sigs.items) |one| {
-                        if (std.mem.eql(u8, one.name, parsed.callee)) break :blk one;
-                    }
-                    break :blk null;
-                };
+                const sig_match: ?*const sig.FunctionSig = if (metadata.sig_index_by_name.get(parsed.callee)) |sig_idx| &metadata.sigs.items[sig_idx] else null;
                 const builtin_spec = builtinArgSpec(parsed.callee);
 
                 if (!parsed.is_indirect and sig_match == null and builtin_spec == null and !std.mem.startsWith(u8, parsed.callee, "sys_")) {
@@ -2932,14 +2958,7 @@ fn verifyBody(
                         if (current_scope) |scope| {
                             if (resolveScopedRegId(&scope, &metadata.symbols, arg.text)) |arg_id| {
                                 const arg_reg_idx: usize = @intCast(arg_id);
-                                var is_function_symbol = false;
-                                for (metadata.sigs.items) |one| {
-                                    if (std.mem.eql(u8, one.name, arg.text)) {
-                                        is_function_symbol = true;
-                                        break;
-                                    }
-                                }
-                                if (is_function_symbol) {
+                                if (metadata.sig_index_by_name.contains(arg.text)) {
                                     if (sig_match) |resolved| {
                                         if (arg_idx < resolved.params.len and resolved.params[arg_idx].ty == .ptr) {
                                             continue;
@@ -3450,6 +3469,7 @@ pub fn verifyWithOptions(
         ) };
     };
     defer freeSigs(allocator, &metadata.sigs);
+    defer metadata.sig_index_by_name.deinit();
     defer freeConstVtables(allocator, &metadata.const_vtables);
     defer freeFunctionStarts(&metadata.function_starts);
     var symbols_moved = false;

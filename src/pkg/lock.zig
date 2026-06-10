@@ -7,6 +7,7 @@ const manifest = @import("manifest.zig");
 pub const UpdateOptions = struct {
     target_key: ?[]const u8 = null,
     acknowledged_at_utc: ?i64 = null,
+    allow_source_update: bool = false,
 };
 
 pub const UpdateResult = struct {
@@ -148,9 +149,11 @@ fn updateEntry(
     target_key: []const u8,
     machine_hash: [32]u8,
     acknowledged_at_utc: i64,
+    allow_source_update: bool,
 ) !bool {
     var changed = false;
     if (!std.mem.eql(u8, entry.source_sha256[0..], report.source_sha256[0..])) {
+        if (!allow_source_update) return error.UpstreamShaMismatch;
         entry.source_sha256 = report.source_sha256;
         clearTargetHashes(allocator, &entry.approved_machine_code_hashes);
         changed = true;
@@ -226,7 +229,7 @@ pub fn updateProjectLock(
     var created = false;
     var changed = false;
     if (findEntry(&lock_file, report.package_url, report.ref)) |entry| {
-        changed = try updateEntry(allocator, entry, report, target_key, machine_hash, acknowledged_at_utc);
+        changed = try updateEntry(allocator, entry, report, target_key, machine_hash, acknowledged_at_utc, options.allow_source_update);
     } else {
         var entry = try makeLockEntry(allocator, report, target_key, machine_hash, acknowledged_at_utc);
         errdefer entry.deinit(allocator);
@@ -340,7 +343,9 @@ test "updateProjectLock clears stale target hashes when source changes" {
     try tmp.dir.writeFile(.{ .sub_path = "pkg/index.sa", .data = "call @sys_print(*MSG, 2)\ncall @sys_time_now()\n" });
     var changed_report = try audit.auditPackage(std.testing.allocator, "github.com/example/pkg", "v1", pkg_root, &.{ .io_write, .time_now });
     defer changed_report.deinit(std.testing.allocator);
-    var updated = try updateProjectLock(std.testing.allocator, project_root, changed_report, hashArtifactBytes("native-v2"), .{ .target_key = "native" });
+    try std.testing.expectError(error.UpstreamShaMismatch, updateProjectLock(std.testing.allocator, project_root, changed_report, hashArtifactBytes("native-v2"), .{ .target_key = "native" }));
+
+    var updated = try updateProjectLock(std.testing.allocator, project_root, changed_report, hashArtifactBytes("native-v2"), .{ .target_key = "native", .allow_source_update = true });
     defer updated.deinit(std.testing.allocator);
     try std.testing.expect(updated.changed);
     try std.testing.expectEqual(@as(u8, 1), updated.target_count);

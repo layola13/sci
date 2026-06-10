@@ -85,6 +85,7 @@ const TestDebugScalar = struct {
 var test_debug_scalars: [16]TestDebugScalar = [_]TestDebugScalar{.{}} ** 16;
 var test_debug_next: usize = 0;
 var test_debug_count: usize = 0;
+var test_debug_mutex: std.Thread.Mutex = .{};
 
 pub const SaPluginDescriptor = extern struct {
     abi_version: u32,
@@ -263,14 +264,19 @@ const FmtHandle = struct {
 const JsonDocumentHandle = struct {
     allocator: std.mem.Allocator,
     parsed: std.json.Parsed(std.json.Value),
-    ref_count: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    ref_count: std.atomic.Value(usize) = std.atomic.Value(usize).init(1),
 
     fn retain(self: *JsonDocumentHandle) void {
         _ = self.ref_count.fetchAdd(1, .monotonic);
     }
 
     fn release(self: *JsonDocumentHandle) void {
-        if (self.ref_count.fetchSub(1, .release) == 1) {
+        const previous = self.ref_count.fetchSub(1, .release);
+        if (previous == 0) {
+            _ = self.ref_count.fetchAdd(1, .monotonic);
+            return;
+        }
+        if (previous == 1) {
             _ = self.ref_count.load(.acquire);
             self.parsed.deinit();
             self.allocator.destroy(self);
@@ -942,6 +948,7 @@ var time_mutex: std.Thread.Mutex = .{};
 var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
 var pthread_registry_mutex: std.Thread.Mutex = .{};
 var pthread_slots = std.ArrayList(?*PthreadHandle).init(std.heap.page_allocator);
+var pthread_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
 var monotonic_origin: ?std.time.Instant = null;
 threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
@@ -982,11 +989,11 @@ fn pthreadTaskMain(task: *PthreadTask) void {
 fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
     pthread_registry_mutex.lock();
     defer pthread_registry_mutex.unlock();
-    for (pthread_slots.items, 0..) |slot, idx| {
-        if (slot == null) {
-            pthread_slots.items[idx] = handle;
-            return @intCast(idx + 1);
-        }
+    while (pthread_free_slots.items.len != 0) {
+        const idx = pthread_free_slots.pop().?;
+        if (idx >= pthread_slots.items.len or pthread_slots.items[idx] != null) continue;
+        pthread_slots.items[idx] = handle;
+        return @intCast(idx + 1);
     }
     try pthread_slots.append(handle);
     return @intCast(pthread_slots.items.len);
@@ -1008,8 +1015,33 @@ fn freePthreadHandle(handle: i32) !*PthreadHandle {
     defer pthread_registry_mutex.unlock();
     if (idx >= pthread_slots.items.len) return error.InvalidHandle;
     const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
+    try pthread_free_slots.append(idx);
     pthread_slots.items[idx] = null;
     return slot;
+}
+
+test "pthread handle registry reuses freed slots without a linear scan" {
+    pthread_registry_mutex.lock();
+    pthread_slots.clearRetainingCapacity();
+    pthread_free_slots.clearRetainingCapacity();
+    pthread_registry_mutex.unlock();
+
+    var first: PthreadHandle = undefined;
+    var second: PthreadHandle = undefined;
+    const first_handle = try allocPthreadHandle(&first);
+    const second_handle = try allocPthreadHandle(&second);
+    try std.testing.expectEqual(@as(i32, 1), first_handle);
+    try std.testing.expectEqual(@as(i32, 2), second_handle);
+
+    try std.testing.expectEqual(@as(*PthreadHandle, &first), try freePthreadHandle(first_handle));
+    var replacement: PthreadHandle = undefined;
+    const replacement_handle = try allocPthreadHandle(&replacement);
+    try std.testing.expectEqual(first_handle, replacement_handle);
+
+    pthread_registry_mutex.lock();
+    pthread_slots.clearRetainingCapacity();
+    pthread_free_slots.clearRetainingCapacity();
+    pthread_registry_mutex.unlock();
 }
 
 fn finish(status: i32) i32 {
@@ -1152,6 +1184,19 @@ fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return path;
 }
 
+fn hostBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
+    const host = try constBytes(ptr, len);
+    if (host.len == 0) return error.InvalidArgument;
+    if (std.mem.indexOfScalar(u8, host, 0) != null) return error.InvalidArgument;
+    return host;
+}
+
+test "runtime network host bytes reject embedded nul" {
+    const bad = "127.0.0.1\x00.example";
+    try std.testing.expectError(error.InvalidArgument, hostBytes(bad.ptr, bad.len));
+    try std.testing.expectEqualStrings("127.0.0.1", try hostBytes("127.0.0.1".ptr, "127.0.0.1".len));
+}
+
 fn portFromU32(port: u32) !u16 {
     if (port > std.math.maxInt(u16)) return error.InvalidArgument;
     return @as(u16, @intCast(port));
@@ -1204,7 +1249,7 @@ fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.posix.errno(rc)) {
         .SUCCESS => {
-            std.debug.assert(len == @sizeOf(i32));
+            if (len != @sizeOf(i32)) return error.UnexpectedSize;
             return value != 0;
         },
         else => return error.InvalidArgument,
@@ -1217,7 +1262,7 @@ fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.posix.errno(rc)) {
         .SUCCESS => {
-            std.debug.assert(len == @sizeOf(i32));
+            if (len != @sizeOf(i32)) return error.UnexpectedSize;
             return value;
         },
         else => return error.InvalidArgument,
@@ -1230,7 +1275,7 @@ fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&tv)), &len);
     switch (std.posix.errno(rc)) {
         .SUCCESS => {
-            std.debug.assert(len == @sizeOf(Timeval));
+            if (len != @sizeOf(Timeval)) return error.UnexpectedSize;
             return try nsFromTimeval(tv);
         },
         else => return error.InvalidArgument,
@@ -1243,7 +1288,7 @@ fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.posix.errno(rc)) {
         .SUCCESS => {
-            std.debug.assert(len == @sizeOf(u8));
+            if (len != @sizeOf(u8)) return error.UnexpectedSize;
             return value;
         },
         else => return error.InvalidArgument,
@@ -1251,7 +1296,7 @@ fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
 }
 
 fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
-    const host = constBytes(host_ptr, host_len) catch |err| return err;
+    const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
     const address = try std.net.Address.resolveIp(host, port16);
     if (address.any.family != std.posix.AF.INET) return error.InvalidArgument;
@@ -1259,7 +1304,7 @@ fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Ad
 }
 
 fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
-    const host = constBytes(host_ptr, host_len) catch |err| return err;
+    const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
     const address = try std.net.Address.resolveIp(host, port16);
     if (address.any.family != std.posix.AF.INET6) return error.InvalidArgument;
@@ -1267,7 +1312,7 @@ fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Ad
 }
 
 fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
-    const host = constBytes(host_ptr, host_len) catch |err| return err;
+    const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
     const list = try std.net.getAddressList(std.heap.page_allocator, host, port16);
     defer list.deinit();
@@ -6915,7 +6960,7 @@ pub export fn sa_std_net_tcp_listener_take_error(listener: u64, out_error: ?*i32
 pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
-    const host = constBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
     const fd = std.posix.socket(address.any.family, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP) catch |err| return finishErr(err);
@@ -6970,7 +7015,7 @@ pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
     };
 }
 pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
-    const host = constBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
 
@@ -7245,7 +7290,7 @@ pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, h
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    const host = constBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
     registry_mutex.lock();
@@ -7547,9 +7592,12 @@ pub export fn sa_fmt_i64_into(value: i64, base: u32, out: ?[*]u8, out_cap: u64, 
 
 pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) void {
     const raw_name = name orelse return;
+    test_debug_mutex.lock();
+    defer test_debug_mutex.unlock();
     const slot_index = test_debug_next % test_debug_scalars.len;
     var slot = &test_debug_scalars[slot_index];
-    const copy_len = @min(@as(usize, @intCast(name_len)), slot.name.len);
+    const requested_len = std.math.cast(usize, name_len) orelse slot.name.len;
+    const copy_len = @min(requested_len, slot.name.len);
     @memset(slot.name[0..], 0);
     if (copy_len != 0) @memcpy(slot.name[0..copy_len], raw_name[0..copy_len]);
     slot.name_len = copy_len;
@@ -7564,6 +7612,8 @@ fn testTracePanicEnabled() bool {
 }
 
 fn printRecentTestScalars() void {
+    test_debug_mutex.lock();
+    defer test_debug_mutex.unlock();
     if (test_debug_count == 0) return;
     std.debug.print("recent scalars:\n", .{});
     var index: usize = test_debug_next + test_debug_scalars.len - test_debug_count;

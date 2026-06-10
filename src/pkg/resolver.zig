@@ -127,11 +127,13 @@ pub const ResolveError = error{
     PackageNotResolved,
     AmbiguousPackageVersion,
     PrecompiledArtifactRejected,
+    UpstreamShaMismatch,
 };
 
 pub const Dependency = struct {
     url: []const u8,
     ref: []const u8,
+    source_sha256: ?[32]u8 = null,
 };
 
 pub const ResolveOptions = struct {
@@ -183,6 +185,7 @@ fn validateImportPath(path: []const u8) ResolveError!void {
 fn validateIdentity(identity: []const u8) ResolveError!void {
     const trimmed = trim(identity);
     if (trimmed.len == 0) return error.InvalidImportPath;
+    if (trimmed[0] == '-') return error.InvalidImportPath;
     if (std.mem.indexOfScalar(u8, trimmed, '\x00') != null) return error.InvalidImportPath;
     if (std.mem.indexOfScalar(u8, trimmed, '\n') != null or std.mem.indexOfScalar(u8, trimmed, '\r') != null) return error.InvalidImportPath;
     if (std.mem.startsWith(u8, trimmed, "/") or std.mem.startsWith(u8, trimmed, "./") or std.mem.startsWith(u8, trimmed, "../")) {
@@ -194,6 +197,7 @@ fn validateIdentity(identity: []const u8) ResolveError!void {
 fn validateRef(ref: []const u8) ResolveError!void {
     const trimmed = trim(ref);
     if (trimmed.len == 0) return error.InvalidImportPath;
+    if (trimmed[0] == '-') return error.InvalidImportPath;
     if (std.mem.indexOfAny(u8, trimmed, " \t\r\n\x00") != null) return error.InvalidImportPath;
 }
 
@@ -341,6 +345,17 @@ fn findRequireEntry(entries: []const Dependency, identity: []const u8) ResolveEr
         matched = entry;
     }
     return matched;
+}
+
+fn requireEntryForIdentity(entries: []const Dependency, identity: []const u8) ResolveError!?Dependency {
+    if (entries.len == 0) return null;
+    return try findRequireEntry(entries, identity);
+}
+
+fn verifyPinnedSourceHash(expected: ?[32]u8, actual: ?[32]u8) ResolveError!void {
+    const wanted = expected orelse return;
+    const got = actual orelse return error.UpstreamShaMismatch;
+    if (!std.mem.eql(u8, wanted[0..], got[0..])) return error.UpstreamShaMismatch;
 }
 
 fn resolveFromPackageRoot(
@@ -557,6 +572,12 @@ pub fn resolveImport(
 
     if (!isPackageIdentity(import_path)) return error.PackageNotResolved;
 
+    const pinned_dependency = try requireEntryForIdentity(dependencies, import_path);
+    if (pinned_dependency) |entry| {
+        try validateIdentity(entry.url);
+        try validateRef(entry.ref);
+    }
+
     const project_root = try projectRootPath(allocator, options);
     defer allocator.free(project_root);
 
@@ -564,6 +585,11 @@ pub fn resolveImport(
     defer allocator.free(local_root);
 
     if (try resolveFromPackageRoot(allocator, local_root, import_path, options.entry_candidates, false, options.max_local_file_bytes)) |resolved| {
+        errdefer {
+            var owned = resolved;
+            owned.deinit(allocator);
+        }
+        if (pinned_dependency) |entry| try verifyPinnedSourceHash(entry.source_sha256, resolved.source_sha256);
         return resolved;
     } else {
         // unreachable because it throws
@@ -571,7 +597,7 @@ pub fn resolveImport(
 
     if (options.offline) return error.PackageNotResolved;
 
-    const require_entry = try findRequireEntry(dependencies, import_path) orelse return error.PackageNotResolved;
+    const require_entry = pinned_dependency orelse return error.PackageNotResolved;
     try validateIdentity(require_entry.url);
     try validateRef(require_entry.ref);
 
@@ -582,6 +608,11 @@ pub fn resolveImport(
     defer allocator.free(global_root);
 
     if (try resolveFromPackageRoot(allocator, global_root, import_path, options.entry_candidates, true, options.max_local_file_bytes)) |resolved| {
+        errdefer {
+            var owned = resolved;
+            owned.deinit(allocator);
+        }
+        try verifyPinnedSourceHash(require_entry.source_sha256, resolved.source_sha256);
         return resolved;
     }
 
@@ -680,6 +711,71 @@ test "resolveImport maps global cache entries read-only" {
     try std.testing.expect(resolved.mapped != null);
     try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, ".sa/pkg/github.com/example/pkg@v1/index.sa"));
     try std.testing.expectEqualStrings("@global() -> i32:\n    return 7\n", resolved.source);
+}
+
+test "resolveImport rejects package source when pinned sha mismatches" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath(".sa/pkg/github.com/example/pkg@v1");
+    try tmp.dir.writeFile(.{ .sub_path = ".sa/pkg/github.com/example/pkg@v1/index.sa", .data = "@global() -> i32:\n    return 7\n" });
+
+    const home = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(home);
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".sa/pkg/github.com/example/pkg@v1");
+    defer std.testing.allocator.free(pkg_root);
+
+    var pinned_hash = try packageTreeHash(std.testing.allocator, pkg_root);
+    pinned_hash[0] ^= 0xff;
+    const dependency = Dependency{
+        .url = "github.com/example/pkg",
+        .ref = "v1",
+        .source_sha256 = pinned_hash,
+    };
+
+    try std.testing.expectError(
+        error.UpstreamShaMismatch,
+        resolveImport(
+            std.testing.allocator,
+            &.{dependency},
+            home,
+            "github.com/example/pkg",
+            .{ .project_root = home, .home_dir = home },
+        ),
+    );
+}
+
+test "resolveImport accepts package source matching pinned sha" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath(".sa/pkg/github.com/example/pkg@v1");
+    try tmp.dir.writeFile(.{ .sub_path = ".sa/pkg/github.com/example/pkg@v1/index.sa", .data = "@global() -> i32:\n    return 7\n" });
+
+    const home = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(home);
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".sa/pkg/github.com/example/pkg@v1");
+    defer std.testing.allocator.free(pkg_root);
+
+    const dependency = Dependency{
+        .url = "github.com/example/pkg",
+        .ref = "v1",
+        .source_sha256 = try packageTreeHash(std.testing.allocator, pkg_root),
+    };
+
+    const resolved = try resolveImport(
+        std.testing.allocator,
+        &.{dependency},
+        home,
+        "github.com/example/pkg",
+        .{ .project_root = home, .home_dir = home },
+    );
+    defer {
+        var owned = resolved;
+        owned.deinit(std.testing.allocator);
+    }
+
+    try std.testing.expect(resolved.is_global);
 }
 
 test "resolveImport returns PackageNotResolved when cache misses" {

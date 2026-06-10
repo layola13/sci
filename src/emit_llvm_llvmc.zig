@@ -332,6 +332,7 @@ const BuildState = struct {
     anon_string_names: *const std.StringHashMap([*:0]const u8),
     const_decls: []const const_decl.ConstDecl,
     function_sigs: []const sig.FunctionSig,
+    function_sig_index: *const std.StringHashMap(usize),
 
     fn init(
         allocator: std.mem.Allocator,
@@ -339,12 +340,13 @@ const BuildState = struct {
         fsig: sig.FunctionSig,
         const_decls: []const const_decl.ConstDecl,
         function_sigs: []const sig.FunctionSig,
+        function_sig_index: *const std.StringHashMap(usize),
         anon_string_names: *const std.StringHashMap([*:0]const u8),
     ) !BuildState {
         var const_names = std.StringHashMap(void).init(allocator);
         errdefer const_names.deinit();
         for (const_decls) |decl| try const_names.put(decl.name, {});
-        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs };
+        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index };
     }
 
     fn deinit(self: *BuildState) void {
@@ -352,14 +354,8 @@ const BuildState = struct {
     }
 
     fn calleeSig(self: *BuildState, name: []const u8) ?sig.FunctionSig {
-        for (self.function_sigs) |candidate| {
-            if (std.mem.eql(u8, candidate.name, name)) return candidate;
-            if (candidate.llvm_name) |llvm_name| {
-                if (std.mem.eql(u8, llvm_name, name)) return candidate;
-            }
-            if (std.mem.eql(u8, emittedFunctionName(candidate), name)) return candidate;
-        }
-        return null;
+        const idx = self.function_sig_index.get(name) orelse return null;
+        return self.function_sigs[idx];
     }
 
     fn operand(self: *BuildState, op: inst.Operand) !COperand {
@@ -526,15 +522,33 @@ fn findFunctionSigIndex(sigs: []const sig.FunctionSig, name: []const u8) ?usize 
     return null;
 }
 
-fn markReachableFunctionByName(reachable: *std.StringHashMap(void), sigs: []const sig.FunctionSig, name: []const u8) !bool {
-    const idx = findFunctionSigIndex(sigs, name) orelse return false;
+fn putFunctionSigAlias(index: *std.StringHashMap(usize), name: []const u8, sig_idx: usize) !void {
+    const entry = try index.getOrPut(name);
+    if (!entry.found_existing) entry.value_ptr.* = sig_idx;
+}
+
+fn buildFunctionSigIndex(allocator: std.mem.Allocator, sigs: []const sig.FunctionSig) !std.StringHashMap(usize) {
+    var index = std.StringHashMap(usize).init(allocator);
+    errdefer index.deinit();
+    const max_aliases = std.math.mul(usize, sigs.len, 3) catch sigs.len;
+    try index.ensureTotalCapacity(@intCast(max_aliases));
+    for (sigs, 0..) |candidate, idx| {
+        try putFunctionSigAlias(&index, candidate.name, idx);
+        if (candidate.llvm_name) |llvm_name| try putFunctionSigAlias(&index, llvm_name, idx);
+        try putFunctionSigAlias(&index, emittedFunctionName(candidate), idx);
+    }
+    return index;
+}
+
+fn markReachableFunctionByName(reachable: *std.StringHashMap(void), sigs: []const sig.FunctionSig, sig_index: *const std.StringHashMap(usize), name: []const u8) !bool {
+    const idx = sig_index.get(name) orelse return false;
     const canonical_name = sigs[idx].name;
     if (reachable.contains(canonical_name)) return false;
     try reachable.put(canonical_name, {});
     return true;
 }
 
-fn collectBodyDirectCallees(allocator: std.mem.Allocator, verified: anytype, start_idx: usize, end_idx: usize, reachable: *std.StringHashMap(void)) !bool {
+fn collectBodyDirectCallees(allocator: std.mem.Allocator, verified: anytype, sig_index: *const std.StringHashMap(usize), start_idx: usize, end_idx: usize, reachable: *std.StringHashMap(void)) !bool {
     var changed = false;
     for (verified.annotated[start_idx..end_idx]) |body_item| {
         const base = body_item.base;
@@ -547,17 +561,17 @@ fn collectBodyDirectCallees(allocator: std.mem.Allocator, verified: anytype, sta
         defer parsed.deinit(allocator);
 
         if (parsed.is_indirect) continue;
-        changed = (try markReachableFunctionByName(reachable, verified.function_sigs, parsed.callee)) or changed;
+        changed = (try markReachableFunctionByName(reachable, verified.function_sigs, sig_index, parsed.callee)) or changed;
     }
     return changed;
 }
 
-fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytype, reachable: *std.StringHashMap(void)) !void {
+fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), reachable: *std.StringHashMap(void)) !void {
     for (verified.const_decls) |decl| {
         switch (decl.value) {
             .vtable => |literal| {
                 for (literal.slots) |slot| {
-                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, slot.func_name);
+                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name);
                 }
             },
             else => {},
@@ -603,7 +617,7 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
                     }) : (end += 1) {}
 
                     if (reachable.contains(fsig.name)) {
-                        changed = (try collectBodyDirectCallees(allocator, verified, idx + 1, end, reachable)) or changed;
+                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable)) or changed;
                     }
                     idx = end - 1;
                 },
@@ -656,7 +670,7 @@ fn inferIndirectSigIndexFromSlot(state: *BuildState, slot_name: []const u8) ?usi
             .vtable => |literal| {
                 for (literal.slots) |slot| {
                     if (!std.mem.eql(u8, slot.name, slot_name)) continue;
-                    const idx = findFunctionSigIndex(state.function_sigs, slot.func_name) orelse continue;
+                    const idx = state.function_sig_index.get(slot.func_name) orelse continue;
                     resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
                 }
             },
@@ -674,7 +688,7 @@ fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
         switch (decl.value) {
             .vtable => |literal| {
                 if (slot_index >= literal.slots.len) continue;
-                const idx = findFunctionSigIndex(state.function_sigs, literal.slots[slot_index].func_name) orelse continue;
+                const idx = state.function_sig_index.get(literal.slots[slot_index].func_name) orelse continue;
                 resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
             },
             else => {},
@@ -845,6 +859,7 @@ fn ParallelEmitContext(comptime VerifiedType: type) type {
         source_path: []const u8,
         options: EmitOptions,
         anon_string_names: *const std.StringHashMap([*:0]const u8),
+        function_sig_index: *const std.StringHashMap(usize),
         tasks: []const ParallelEmitTask,
         jobs: []ParallelEmitJob,
         next_task: std.atomic.Value(usize),
@@ -918,7 +933,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
         var debug_locs = std.ArrayList(CDebugLoc).init(a);
 
         if (task.decl_kind != .extern_decl) {
-            var state = BuildState.init(a, &context.verified.symbols, fsig, context.verified.const_decls, context.verified.function_sigs, context.anon_string_names) catch |err| {
+            var state = BuildState.init(a, &context.verified.symbols, fsig, context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.anon_string_names) catch |err| {
                 job.err = err;
                 return;
             };
@@ -982,6 +997,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
 
     const module_source_file = try a.dupeZ(u8, sourceFileName(source_path));
     const module_source_dir = try a.dupeZ(u8, sourceDirName(source_path));
+    var function_sig_index = try buildFunctionSigIndex(a, verified.function_sigs);
 
     var c_consts = std.ArrayList(CConst).init(a);
     var c_vtables = std.ArrayList(CVTable).init(a);
@@ -991,7 +1007,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             .vtable => |literal| {
                 const funcs = try a.alloc([*:0]const u8, literal.slots.len);
                 for (literal.slots, 0..) |slot, slot_idx| {
-                    const sig_idx = findFunctionSigIndex(verified.function_sigs, slot.func_name) orelse return error.UnknownFunction;
+                    const sig_idx = function_sig_index.get(slot.func_name) orelse return error.UnknownFunction;
                     const fname = try a.dupeZ(u8, emittedFunctionName(verified.function_sigs[sig_idx]));
                     funcs[slot_idx] = fname.ptr;
                 }
@@ -1012,7 +1028,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     var referenced_functions = std.StringHashMap(void).init(a);
     var prune_unreachable = !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
-        try collectNormalBuildReachability(a, verified, &referenced_functions);
+        try collectNormalBuildReachability(a, verified, &function_sig_index, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
         // Collect functions referenced in Trait vtables
@@ -1020,7 +1036,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             switch (decl.value) {
                 .vtable => |literal| {
                     for (literal.slots) |slot| {
-                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, slot.func_name);
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name);
                     }
                 },
                 else => {},
@@ -1044,7 +1060,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1069,7 +1085,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                     }) : (end += 1) {}
 
                     if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1165,6 +1181,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .source_path = source_path,
         .options = options,
         .anon_string_names = &anon_string_names,
+        .function_sig_index = &function_sig_index,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1261,6 +1278,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
 
     const module_source_file = try a.dupeZ(u8, sourceFileName(source_path));
     const module_source_dir = try a.dupeZ(u8, sourceDirName(source_path));
+    var function_sig_index = try buildFunctionSigIndex(a, verified.function_sigs);
 
     var c_consts = std.ArrayList(CConst).init(a);
     var c_vtables = std.ArrayList(CVTable).init(a);
@@ -1270,7 +1288,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             .vtable => |literal| {
                 const funcs = try a.alloc([*:0]const u8, literal.slots.len);
                 for (literal.slots, 0..) |slot, slot_idx| {
-                    const sig_idx = findFunctionSigIndex(verified.function_sigs, slot.func_name) orelse return error.UnknownFunction;
+                    const sig_idx = function_sig_index.get(slot.func_name) orelse return error.UnknownFunction;
                     const fname = try a.dupeZ(u8, emittedFunctionName(verified.function_sigs[sig_idx]));
                     funcs[slot_idx] = fname.ptr;
                 }
@@ -1291,14 +1309,14 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     var referenced_functions = std.StringHashMap(void).init(a);
     var prune_unreachable = !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
-        try collectNormalBuildReachability(a, verified, &referenced_functions);
+        try collectNormalBuildReachability(a, verified, &function_sig_index, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
         for (verified.const_decls) |decl| {
             switch (decl.value) {
                 .vtable => |literal| {
                     for (literal.slots) |slot| {
-                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, slot.func_name);
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name);
                     }
                 },
                 else => {},
@@ -1321,7 +1339,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1346,7 +1364,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     }) : (end += 1) {}
 
                     if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1432,6 +1450,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .source_path = source_path,
         .options = options,
         .anon_string_names = &anon_string_names,
+        .function_sig_index = &function_sig_index,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1502,6 +1521,21 @@ pub fn emitLlvmcToFile(allocator: std.mem.Allocator, verified: anytype, def_dict
     var file = if (std.fs.path.isAbsolute(path)) try std.fs.createFileAbsolute(path, .{ .truncate = true }) else try std.fs.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(verified_bitcode);
+}
+
+test "function signature index preserves linear alias precedence" {
+    const sigs = [_]sig.FunctionSig{
+        .{ .id = 0, .name = "one", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false, .llvm_name = "shared" },
+        .{ .id = 1, .name = "shared", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 2, .name = "main", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+    };
+    var index = try buildFunctionSigIndex(std.testing.allocator, sigs[0..]);
+    defer index.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), index.get("one").?);
+    try std.testing.expectEqual(@as(usize, 0), index.get("shared").?);
+    try std.testing.expectEqual(@as(usize, 2), index.get("main").?);
+    try std.testing.expectEqual(@as(usize, 2), index.get("saasm_main").?);
 }
 
 test "llvmc backend can construct and write bitcode in memory" {

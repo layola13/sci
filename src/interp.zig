@@ -27,12 +27,16 @@ pub const RunError = error{
     InvalidInstruction,
     InvalidFunction,
     UnknownFunction,
+    DivByZero,
+    CallStackOverflow,
     MissingIndirectCallProvenance,
     UnsupportedExtern,
     UnsupportedInstruction,
     UnsupportedSysIntrinsic,
     UserExit,
 };
+
+const interpreter_max_call_depth: usize = 1024;
 
 const RegValue = struct {
     ty: sig.PrimType,
@@ -345,13 +349,13 @@ fn stripTextOperandPrefix(text: []const u8) []const u8 {
 
 fn resolveOperandValue(
     self: *Interpreter,
-    fsig: *const sig.FunctionSig,
+    range: *const FunctionRange,
     regs: *FrameRegs,
     operand: inst.Operand,
 ) !RegValue {
     return switch (operand) {
         .reg => |id| try readValue(self, regs, id),
-        .text => |text| try self.resolveTextOperand(fsig, regs, text),
+        .text => |text| try self.resolveTextOperand(range, regs, text),
         .imm_u64 => |v| .{ .ty = .u64, .bits = v },
         .imm_i64 => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
         .imm_int => |v| .{ .ty = .i64, .bits = @as(u64, @bitCast(v)) },
@@ -394,46 +398,75 @@ const Memory = struct {
     fn alloc(self: *Memory, size: usize) !u64 {
         const actual = if (size == 0) @as(usize, 1) else size;
         const data = try self.allocator.alloc(u8, actual);
+        errdefer self.allocator.free(data);
         const ptr_meta = try self.allocator.alloc(?PtrMeta, actual);
+        errdefer self.allocator.free(ptr_meta);
         @memset(ptr_meta, null);
         const addr = @as(u64, @intFromPtr(data.ptr));
-        try self.blocks.append(.{ .addr = addr, .data = data, .ptr_meta = ptr_meta });
+        try self.insertBlock(.{ .addr = addr, .data = data, .ptr_meta = ptr_meta });
         return addr;
     }
 
     fn allocConst(self: *Memory, size: usize, const_name: ?[]const u8, vtable_slot_names: []?[]const u8) !u64 {
         const actual = if (size == 0) @as(usize, 1) else size;
         const data = try self.allocator.alloc(u8, actual);
+        errdefer self.allocator.free(data);
         const ptr_meta = try self.allocator.alloc(?PtrMeta, actual);
+        errdefer self.allocator.free(ptr_meta);
         @memset(ptr_meta, null);
         const slot_copy = if (vtable_slot_names.len != 0)
             try self.allocator.dupe(?[]const u8, vtable_slot_names)
         else
             try self.allocator.alloc(?[]const u8, 0);
+        errdefer if (slot_copy.len != 0) self.allocator.free(slot_copy);
         const addr = @as(u64, @intFromPtr(data.ptr));
-        try self.blocks.append(.{ .addr = addr, .data = data, .ptr_meta = ptr_meta, .const_name = const_name, .vtable_slot_names = slot_copy });
+        try self.insertBlock(.{ .addr = addr, .data = data, .ptr_meta = ptr_meta, .const_name = const_name, .vtable_slot_names = slot_copy });
         return addr;
     }
 
+    fn insertBlock(self: *Memory, block: Block) !void {
+        const idx = self.lowerBoundBlock(block.addr);
+        try self.blocks.insert(idx, block);
+    }
+
     fn free(self: *Memory, addr: u64) !void {
-        for (self.blocks.items, 0..) |blk, idx| {
-            if (blk.addr == addr) {
-                if (blk.ptr_meta.len != 0) self.allocator.free(blk.ptr_meta);
-                if (blk.vtable_slot_names.len != 0) self.allocator.free(blk.vtable_slot_names);
-                self.allocator.free(blk.data);
-                _ = self.blocks.swapRemove(idx);
-                return;
-            }
+        if (self.blockIndexByBase(addr)) |idx| {
+            const blk = self.blocks.items[idx];
+            if (blk.ptr_meta.len != 0) self.allocator.free(blk.ptr_meta);
+            if (blk.vtable_slot_names.len != 0) self.allocator.free(blk.vtable_slot_names);
+            self.allocator.free(blk.data);
+            _ = self.blocks.orderedRemove(idx);
         }
     }
 
-    fn blockIndexAt(self: *const Memory, addr: u64) ?usize {
-        for (self.blocks.items, 0..) |blk, idx| {
-            const start = blk.addr;
-            const end = start + @as(u64, @intCast(blk.data.len));
-            if (addr >= start and addr < end) return idx;
+    fn lowerBoundBlock(self: *const Memory, addr: u64) usize {
+        var lo: usize = 0;
+        var hi: usize = self.blocks.items.len;
+        while (lo < hi) {
+            const mid = lo + (hi - lo) / 2;
+            if (self.blocks.items[mid].addr < addr) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
         }
+        return lo;
+    }
+
+    fn blockIndexByBase(self: *const Memory, addr: u64) ?usize {
+        const idx = self.lowerBoundBlock(addr);
+        if (idx < self.blocks.items.len and self.blocks.items[idx].addr == addr) return idx;
         return null;
+    }
+
+    fn blockIndexAt(self: *const Memory, addr: u64) ?usize {
+        const upper = self.lowerBoundBlock(addr +| 1);
+        if (upper == 0) return null;
+        const idx = upper - 1;
+        const blk = self.blocks.items[idx];
+        const start = blk.addr;
+        const end = start +| @as(u64, @intCast(blk.data.len));
+        return if (addr >= start and addr < end) idx else null;
     }
 
     fn sliceAt(self: *Memory, addr: u64, len: usize) ![]u8 {
@@ -504,9 +537,93 @@ const Memory = struct {
     }
 };
 
+test "interpreter memory keeps block lookup sorted and range aware" {
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+
+    const first = try memory.alloc(8);
+    const second = try memory.alloc(16);
+    const third = try memory.alloc(4);
+
+    for (memory.blocks.items[1..], 1..) |blk, idx| {
+        try std.testing.expect(memory.blocks.items[idx - 1].addr < blk.addr);
+    }
+
+    try std.testing.expect(memory.blockIndexAt(first) != null);
+    try std.testing.expect(memory.blockIndexAt(first + 7) != null);
+    try std.testing.expect(memory.blockIndexAt(second + 15) != null);
+    try std.testing.expect(memory.blockIndexAt(third + 3) != null);
+
+    try memory.free(second);
+    try std.testing.expect(memory.blockIndexAt(second) == null);
+    try std.testing.expect(memory.blockIndexAt(first + 7) != null);
+    try std.testing.expect(memory.blockIndexAt(third + 3) != null);
+}
+
+test "interpreter rejects integer divide and remainder by zero" {
+    var interp: Interpreter = undefined;
+    const lhs = RegValue{ .ty = .i64, .bits = @as(u64, @bitCast(@as(i64, 42))) };
+    const zero = RegValue{ .ty = .i64, .bits = 0 };
+
+    try std.testing.expectError(RunError.DivByZero, interp.opBinary(.sdiv, lhs, zero));
+    try std.testing.expectError(RunError.DivByZero, interp.opBinary(.srem, lhs, zero));
+    try std.testing.expectError(RunError.DivByZero, interp.opBinary(.udiv, .{ .ty = .u64, .bits = 42 }, .{ .ty = .u64, .bits = 0 }));
+    try std.testing.expectError(RunError.DivByZero, interp.opBinary(.urem, .{ .ty = .u64, .bits = 42 }, .{ .ty = .u64, .bits = 0 }));
+}
+
+test "interpreter call depth guard fails before host stack growth" {
+    var interp: Interpreter = undefined;
+    interp.call_depth = interpreter_max_call_depth;
+    try std.testing.expectError(RunError.CallStackOverflow, interp.execFunction(0, &.{}));
+}
+
 const FunctionRange = struct {
     start: usize,
     end: usize,
+    labels: std.AutoHashMap(u32, usize),
+    slot_by_id: std.AutoHashMap(u32, u32),
+
+    fn init(
+        allocator: std.mem.Allocator,
+        program: *const referee.VerifyOk,
+        sig_index: usize,
+        start: usize,
+        end: usize,
+    ) !FunctionRange {
+        var labels = std.AutoHashMap(u32, usize).init(allocator);
+        errdefer labels.deinit();
+        for (program.annotated[start..end], 0..) |item, body_idx| {
+            if (item.base.kind == .label) {
+                const id = item.base.operands[1].label;
+                try labels.put(id, body_idx);
+            }
+        }
+
+        const fsig = program.function_sigs[sig_index];
+        var slot_by_id = std.AutoHashMap(u32, u32).init(allocator);
+        errdefer slot_by_id.deinit();
+        try slot_by_id.ensureTotalCapacity(@intCast(fsig.reg_ids.len));
+        for (fsig.reg_ids, 0..) |reg_id, idx| {
+            slot_by_id.putAssumeCapacity(reg_id, @intCast(idx));
+        }
+
+        return .{
+            .start = start,
+            .end = end,
+            .labels = labels,
+            .slot_by_id = slot_by_id,
+        };
+    }
+
+    fn deinit(self: *FunctionRange) void {
+        self.labels.deinit();
+        self.slot_by_id.deinit();
+        self.* = undefined;
+    }
+
+    fn slotOf(self: *const FunctionRange, global_id: u32) ?u32 {
+        return self.slot_by_id.get(global_id);
+    }
 };
 
 const Interpreter = struct {
@@ -525,6 +642,7 @@ const Interpreter = struct {
     monotonic_origin: ?std.time.Instant = null,
     trace_runtime: bool = false,
     exit_code: ?u8 = null,
+    call_depth: usize = 0,
 
     fn init(
         allocator: std.mem.Allocator,
@@ -534,7 +652,12 @@ const Interpreter = struct {
         stderr: std.io.AnyWriter,
     ) !Interpreter {
         var ranges = try allocator.alloc(FunctionRange, program.function_sigs.len);
-        errdefer allocator.free(ranges);
+        var initialized_ranges: usize = 0;
+        var ranges_owned_by_interp = false;
+        errdefer if (!ranges_owned_by_interp) {
+            for (ranges[0..initialized_ranges]) |*range| range.deinit();
+            allocator.free(ranges);
+        };
 
         var decl_indices = try allocator.alloc(usize, program.function_sigs.len);
         defer allocator.free(decl_indices);
@@ -557,7 +680,8 @@ const Interpreter = struct {
         for (decl_indices, 0..) |decl_idx, i| {
             const start = decl_idx + 1;
             const end = if (i + 1 < decl_indices.len) decl_indices[i + 1] else program.annotated.len;
-            ranges[i] = .{ .start = start, .end = end };
+            ranges[i] = try FunctionRange.init(allocator, program, i, start, end);
+            initialized_ranges += 1;
         }
 
         var function_index_by_name = std.StringHashMap(usize).init(allocator);
@@ -596,7 +720,9 @@ const Interpreter = struct {
             .monotonic_origin = null,
             .trace_runtime = traceRuntime(allocator) catch false,
             .exit_code = null,
+            .call_depth = 0,
         };
+        ranges_owned_by_interp = true;
         errdefer interp.deinit();
         try interp.materializeConsts();
         try interp.materializeAnonStringConsts();
@@ -613,6 +739,7 @@ const Interpreter = struct {
         for (self.argv_storage) |arg| self.allocator.free(arg);
         self.allocator.free(self.argv_storage);
         self.allocator.free(self.argv);
+        for (self.ranges) |*range| range.deinit();
         self.allocator.free(self.ranges);
         self.* = undefined;
     }
@@ -1065,28 +1192,44 @@ const Interpreter = struct {
             },
             .div, .fdiv => return switch (kind) {
                 .float => try valueFromFloat(.f64, floatValue(a) / floatValue(b)),
-                .signed => try valueFromInt(.i64, @as(i64, @intCast(@divTrunc(lhs_signed, rhs_signed)))),
-                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned / rhs_unsigned)) },
+                .signed => blk: {
+                    if (rhs_signed == 0) return RunError.DivByZero;
+                    break :blk try valueFromInt(.i64, @as(i64, @intCast(@divTrunc(lhs_signed, rhs_signed))));
+                },
+                .unsigned => blk: {
+                    if (rhs_unsigned == 0) return RunError.DivByZero;
+                    break :blk .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned / rhs_unsigned)) };
+                },
             },
             .rem => return switch (kind) {
                 .float => RunError.InvalidOperand,
-                .signed => try valueFromInt(.i64, @as(i64, @intCast(@rem(lhs_signed, rhs_signed)))),
-                .unsigned => .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned % rhs_unsigned)) },
+                .signed => blk: {
+                    if (rhs_signed == 0) return RunError.DivByZero;
+                    break :blk try valueFromInt(.i64, @as(i64, @intCast(@rem(lhs_signed, rhs_signed))));
+                },
+                .unsigned => blk: {
+                    if (rhs_unsigned == 0) return RunError.DivByZero;
+                    break :blk .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned % rhs_unsigned)) };
+                },
             },
             .sdiv => {
                 if (kind == .float) return RunError.InvalidOperand;
+                if (rhs_signed == 0) return RunError.DivByZero;
                 return try valueFromInt(.i64, @as(i64, @intCast(@divTrunc(lhs_signed, rhs_signed))));
             },
             .udiv => {
                 if (kind == .float) return RunError.InvalidOperand;
+                if (rhs_unsigned == 0) return RunError.DivByZero;
                 return .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned / rhs_unsigned)) };
             },
             .srem => {
                 if (kind == .float) return RunError.InvalidOperand;
+                if (rhs_signed == 0) return RunError.DivByZero;
                 return try valueFromInt(.i64, @as(i64, @intCast(@rem(lhs_signed, rhs_signed))));
             },
             .urem => {
                 if (kind == .float) return RunError.InvalidOperand;
+                if (rhs_unsigned == 0) return RunError.DivByZero;
                 return .{ .ty = .u64, .bits = @as(u64, @intCast(lhs_unsigned % rhs_unsigned)) };
             },
             .eq, .ne, .gt, .lt => {
@@ -1199,31 +1342,16 @@ const Interpreter = struct {
         }
     }
 
-    fn buildLabelMap(
-        self: *Interpreter,
-        body: []const referee.AnnotatedInstruction,
-    ) !std.AutoHashMap(u32, usize) {
-        var labels = std.AutoHashMap(u32, usize).init(self.allocator);
-        errdefer labels.deinit();
-        for (body, 0..) |item, idx| {
-            if (item.base.kind == .label) {
-                const id = item.base.operands[1].label;
-                try labels.put(id, idx);
-            }
-        }
-        return labels;
-    }
-
     fn findFunctionIndex(self: *Interpreter, name: []const u8) ?usize {
         return self.function_index_by_name.get(name);
     }
 
-    fn resolveTextOperand(self: *Interpreter, fsig: *const sig.FunctionSig, regs: *FrameRegs, text: []const u8) !RegValue {
+    fn resolveTextOperand(self: *Interpreter, range: *const FunctionRange, regs: *FrameRegs, text: []const u8) !RegValue {
         const candidate = stripTextOperandPrefix(text);
         if (candidate.len == 0) return RunError.InvalidOperand;
         if (isIdentLike(candidate)) {
             if (self.program.symbols.findId(candidate)) |id| {
-                if (fsig.slotOf(id)) |slot| {
+                if (range.slotOf(id)) |slot| {
                     return readValue(self, regs, slot);
                 }
                 return self.constPointerValue(id) orelse RunError.InvalidOperand;
@@ -1235,7 +1363,7 @@ const Interpreter = struct {
         return try Interpreter.parseImmediateValue(self.allocator, &self.memory, candidate);
     }
 
-    fn callArgValue(self: *Interpreter, fsig: *const sig.FunctionSig, regs: *FrameRegs, arg: call.ParsedArg) !RegValue {
+    fn callArgValue(self: *Interpreter, range: *const FunctionRange, regs: *FrameRegs, arg: call.ParsedArg) !RegValue {
         if (isRawQuotedStringArg(arg)) {
             const addr = self.anon_const_addrs.get(arg.text) orelse return RunError.InvalidOperand;
             return .{ .ty = .ptr, .bits = addr };
@@ -1243,7 +1371,7 @@ const Interpreter = struct {
         if (arg.prefix == .raw and arg.text.len >= 2 and arg.text[0] == '"' and arg.text[arg.text.len - 1] == '"') {
             return RunError.InvalidOperand;
         }
-        return try self.resolveTextOperand(fsig, regs, arg.text);
+        return try self.resolveTextOperand(range, regs, arg.text);
     }
 
     fn resolveSizeOperand(self: *Interpreter, regs: *FrameRegs, operand: inst.Operand) !u64 {
@@ -1613,6 +1741,10 @@ const Interpreter = struct {
     }
 
     fn execFunction(self: *Interpreter, sig_index: usize, arg_values: []const RegValue) !RegValue {
+        if (self.call_depth >= interpreter_max_call_depth) return RunError.CallStackOverflow;
+        self.call_depth += 1;
+        defer self.call_depth -= 1;
+
         const fsig = self.program.function_sigs[sig_index];
         if (fsig.kind == .external) {
             self.stderr.print(
@@ -1624,13 +1756,11 @@ const Interpreter = struct {
             };
             return RunError.UnsupportedExtern;
         }
-        const range = self.ranges[sig_index];
+        const range = &self.ranges[sig_index];
         const body = self.program.annotated[range.start..range.end];
 
         var regs = try FrameRegs.init(self.allocator, &fsig);
         defer regs.deinit(self.allocator);
-        var labels = try self.buildLabelMap(body);
-        defer labels.deinit();
         var stack_allocs = std.ArrayList(u64).init(self.allocator);
         defer {
             for (stack_allocs.items) |addr| {
@@ -1644,7 +1774,7 @@ const Interpreter = struct {
 
         for (fsig.params, 0..) |param, idx| {
             if (idx >= arg_values.len) return RunError.InvalidOperand;
-            const id = fsig.slotOf(fsig.param_ids[idx]) orelse return RunError.InvalidOperand;
+            const id = range.slotOf(fsig.param_ids[idx]) orelse return RunError.InvalidOperand;
             const target_ty = valueTypeForPrefix(param.cap, param.ty);
             const value = try self.coerce(arg_values[idx], target_ty);
             try regs.put(id, .{
@@ -1753,7 +1883,7 @@ const Interpreter = struct {
                     const ty: sig.PrimType = if (base.operands[3] == .ty) blk: {
                         break :blk sig.primTypeFromTag(base.operands[3].ty) orelse .i64;
                     } else if (base.operands[2] == .reg) (try readValue(self, &regs, base.operands[2].reg)).ty else .i64;
-                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
+                    const value = try resolveOperandValue(self, range, &regs, base.operands[2]);
                     const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
                     // When storing a ptr value into another allocation, mark the
@@ -1791,7 +1921,7 @@ const Interpreter = struct {
                     };
                     const basev = try readValue(self, &regs, base_reg);
                     const ty = atomicValueType(base, .i64);
-                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
+                    const value = try resolveOperandValue(self, range, &regs, base.operands[2]);
                     const coerced = try self.coerce(value, ty);
                     try self.storeToMemory(basev.bits + off, coerced, ty);
                 },
@@ -1810,8 +1940,8 @@ const Interpreter = struct {
                     const ty = atomicValueType(base, .i64);
                     const expected_text = base.atomic_expected_text orelse return RunError.InvalidOperand;
                     const new_text = base.atomic_new_text orelse return RunError.InvalidOperand;
-                    const expected_value = try resolveOperandValue(self, &fsig, &regs, .{ .text = expected_text });
-                    const new_value = try resolveOperandValue(self, &fsig, &regs, .{ .text = new_text });
+                    const expected_value = try resolveOperandValue(self, range, &regs, .{ .text = expected_text });
+                    const new_value = try resolveOperandValue(self, range, &regs, .{ .text = new_text });
                     const expected = try self.coerce(expected_value, ty);
                     const new_coerced = try self.coerce(new_value, ty);
                     const current = try self.loadFromMemory(basev.bits + off, ty);
@@ -1834,7 +1964,7 @@ const Interpreter = struct {
                     };
                     const basev = try readValue(self, &regs, src);
                     const ty = atomicValueType(base, .i64);
-                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[3]);
+                    const value = try resolveOperandValue(self, range, &regs, base.operands[3]);
                     const coerced = try self.coerce(value, ty);
                     const current = try self.loadFromMemory(basev.bits + off, ty);
                     const updated = try atomicRmwApply(base.atomic_rmw_op orelse return RunError.InvalidOperand, current, coerced);
@@ -1847,25 +1977,25 @@ const Interpreter = struct {
                     const op = base.op_kind orelse return RunError.InvalidInstruction;
                     const result = try switch (op) {
                         .neg, .not, .fneg => blk: {
-                            const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
+                            const value = try resolveOperandValue(self, range, &regs, base.operands[1]);
                             break :blk self.opUnary(op, value, null);
                         },
                         .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => blk: {
-                            const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
+                            const value = try resolveOperandValue(self, range, &regs, base.operands[1]);
                             const target = if (base.operands[2] == .ty) sig.primTypeFromTag(base.operands[2].ty) else null;
                             break :blk self.opUnary(op, value, target);
                         },
                         .extract_lane => blk: {
-                            const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
-                            const lane = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
+                            const value = try resolveOperandValue(self, range, &regs, base.operands[1]);
+                            const lane = try resolveOperandValue(self, range, &regs, base.operands[2]);
                             _ = value;
                             _ = lane;
                             break :blk RunError.UnsupportedInstruction;
                         },
                         .shuffle_v128, .insert_lane, .add_v128, .sub_v128, .mul_v128 => RunError.UnsupportedInstruction,
                         else => blk: {
-                            const lhs = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
-                            const rhs = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
+                            const lhs = try resolveOperandValue(self, range, &regs, base.operands[1]);
+                            const rhs = try resolveOperandValue(self, range, &regs, base.operands[2]);
                             break :blk self.opBinary(op, lhs, rhs);
                         },
                     };
@@ -1876,7 +2006,7 @@ const Interpreter = struct {
                     const src = base.operands[1].reg;
                     const basev = try readValue(self, &regs, src);
                     const ptrv = try self.coerce(basev, .ptr);
-                    const offset = try resolveOperandValue(self, &fsig, &regs, base.operands[2]);
+                    const offset = try resolveOperandValue(self, range, &regs, base.operands[2]);
                     const delta = @as(u64, @bitCast(intValueAsOffset(offset)));
                     try regs.put(dst, .{
                         .ty = .ptr,
@@ -1909,7 +2039,7 @@ const Interpreter = struct {
                 },
                 .assign => {
                     const dst = base.operands[0].reg;
-                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[1]);
+                    const value = try resolveOperandValue(self, range, &regs, base.operands[1]);
                     try regs.put(dst, value);
                 },
                 .move_ => {
@@ -1940,21 +2070,21 @@ const Interpreter = struct {
                 },
                 .jmp => {
                     const label_id = base.operands[1].label;
-                    pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
+                    pc = range.labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
                 .br => {
                     const cond = try readValue(self, &regs, base.operands[0].reg);
                     const jump = cond.bits != 0;
                     const label_id = if (jump) base.operands[1].label else base.operands[3].label;
-                    pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
+                    pc = range.labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
                 .br_null => {
                     const cond = try readValue(self, &regs, base.operands[0].reg);
                     const jump = cond.bits == 0;
                     const label_id = if (jump) base.operands[1].label else base.operands[3].label;
-                    pc = labels.get(label_id) orelse return RunError.InvalidInstruction;
+                    pc = range.labels.get(label_id) orelse return RunError.InvalidInstruction;
                     continue;
                 },
                 .call, .call_indirect, .panic, .panic_msg => call_case: {
@@ -1963,7 +2093,7 @@ const Interpreter = struct {
 
                     if (parsed.is_indirect) {
                         const callee_id = self.program.symbols.findId(parsed.callee) orelse return RunError.UnknownFunction;
-                        const callee = if (fsig.slotOf(callee_id)) |slot|
+                        const callee = if (range.slotOf(callee_id)) |slot|
                             try readRawValue(self, &regs, slot)
                         else
                             self.constPointerValue(callee_id) orelse return RunError.UnknownFunction;
@@ -1981,19 +2111,19 @@ const Interpreter = struct {
                         const callee_index = self.findFunctionIndex(target_name) orelse return RunError.UnknownFunction;
                         const target_sig = self.program.function_sigs[callee_index];
                         if (parsed.args.len != target_sig.params.len) return RunError.InvalidOperand;
-                        const args = try self.collectArgs(&fsig, parsed, &regs, target_sig.params);
+                        const args = try self.collectArgs(range, parsed, &regs, target_sig.params);
                         defer self.allocator.free(args);
                         const ret = try self.execFunction(callee_index, args);
                         if (parsed.dest) |dest| {
                             if (self.program.symbols.findId(dest)) |id| {
-                                const slot = fsig.slotOf(id) orelse return RunError.InvalidOperand;
+                                const slot = range.slotOf(id) orelse return RunError.InvalidOperand;
                                 try regs.put(slot, ret);
                             }
                         }
                         break :call_case;
                     }
 
-                    const call_values = try self.collectCallValues(&fsig, parsed, &regs);
+                    const call_values = try self.collectCallValues(range, parsed, &regs);
                     defer self.allocator.free(call_values);
 
                     switch (try self.handleSysCall(parsed.callee, call_values)) {
@@ -2001,7 +2131,7 @@ const Interpreter = struct {
                             if (ret_or_null) |ret| {
                                 if (parsed.dest) |dest| {
                                     if (self.program.symbols.findId(dest)) |id| {
-                                        const slot = fsig.slotOf(id) orelse return RunError.InvalidOperand;
+                                        const slot = range.slotOf(id) orelse return RunError.InvalidOperand;
                                         try regs.put(slot, ret);
                                     }
                                 }
@@ -2010,12 +2140,12 @@ const Interpreter = struct {
                         .not_syscall => {
                             const callee_sig_index = self.findFunctionIndex(parsed.callee) orelse return RunError.UnknownFunction;
                             const callee_sig = self.program.function_sigs[callee_sig_index];
-                            const args = try self.collectArgs(&fsig, parsed, &regs, callee_sig.params);
+                            const args = try self.collectArgs(range, parsed, &regs, callee_sig.params);
                             defer self.allocator.free(args);
                             const ret = try self.execFunction(callee_sig_index, args);
                             if (parsed.dest) |dest| {
                                 if (self.program.symbols.findId(dest)) |id| {
-                                    const slot = fsig.slotOf(id) orelse return RunError.InvalidOperand;
+                                    const slot = range.slotOf(id) orelse return RunError.InvalidOperand;
                                     try regs.put(slot, ret);
                                 }
                             }
@@ -2042,7 +2172,7 @@ const Interpreter = struct {
                     if (fsig.return_fallible) {
                         const ret_ty = returnTypeForSig(fsig.return_cap, fsig.return_ty);
                         if (ret_ty == .void) return RunError.InvalidOperand;
-                        const value = try resolveOperandValue(self, &fsig, &regs, base.operands[0]);
+                        const value = try resolveOperandValue(self, range, &regs, base.operands[0]);
                         if (value.fallible) return value;
                         const coerced = try self.coerce(value, ret_ty);
                         var ret_value = packFallible(0, coerced);
@@ -2053,7 +2183,7 @@ const Interpreter = struct {
                     if (ret_ty == .void) {
                         return .{ .ty = .void, .bits = 0 };
                     }
-                    const value = try resolveOperandValue(self, &fsig, &regs, base.operands[0]);
+                    const value = try resolveOperandValue(self, range, &regs, base.operands[0]);
                     return try self.coerce(value, ret_ty);
                 },
                 .native => {
@@ -2069,11 +2199,11 @@ const Interpreter = struct {
         return RunError.InvalidInstruction;
     }
 
-    fn collectCallValues(self: *Interpreter, fsig: *const sig.FunctionSig, parsed: call.ParsedCall, regs: *FrameRegs) ![]RegValue {
+    fn collectCallValues(self: *Interpreter, range: *const FunctionRange, parsed: call.ParsedCall, regs: *FrameRegs) ![]RegValue {
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, 0..) |arg, idx| {
-            out[idx] = self.callArgValue(fsig, regs, arg) catch |err| {
+            out[idx] = self.callArgValue(range, regs, arg) catch |err| {
                 self.stderr.print("interp call arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch |print_err| {
                     // The parse error is returned below; stderr output is extra context only.
                     _ = @errorName(print_err);
@@ -2084,12 +2214,12 @@ const Interpreter = struct {
         return out;
     }
 
-    fn collectArgs(self: *Interpreter, fsig: *const sig.FunctionSig, parsed: call.ParsedCall, regs: *FrameRegs, params: []const sig.ParamSpec) ![]RegValue {
+    fn collectArgs(self: *Interpreter, range: *const FunctionRange, parsed: call.ParsedCall, regs: *FrameRegs, params: []const sig.ParamSpec) ![]RegValue {
         if (parsed.args.len != params.len) return RunError.InvalidOperand;
         const out = try self.allocator.alloc(RegValue, parsed.args.len);
         errdefer self.allocator.free(out);
         for (parsed.args, params, 0..) |arg, param, idx| {
-            const raw = self.callArgValue(fsig, regs, arg) catch |err| {
+            const raw = self.callArgValue(range, regs, arg) catch |err| {
                 self.stderr.print("interp indirect arg parse failed in {s}: {s} ({})\n", .{ parsed.callee, arg.text, err }) catch |print_err| {
                     // The parse error is returned below; stderr output is extra context only.
                     _ = @errorName(print_err);
@@ -2123,6 +2253,8 @@ fn runPrepared(
 ) !u8 {
     const result = interp.execFunction(sig_index, arg_values) catch |err| switch (err) {
         error.UserExit => return interp.exit_code orelse 0,
+        error.DivByZero => return 100,
+        error.CallStackOverflow => return 108,
         else => return err,
     };
 

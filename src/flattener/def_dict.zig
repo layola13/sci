@@ -57,31 +57,11 @@ pub const DefDict = struct {
             return try allocator.dupe(u8, text);
         }
 
-        // Fast path: check if any key exists in the text.
-        var has_replacement = false;
-        var i_fast: usize = 0;
-        while (i_fast < text.len) {
-            if (std.ascii.isAlphabetic(text[i_fast]) or text[i_fast] == '_') {
-                const start = i_fast;
-                i_fast += 1;
-                while (i_fast < text.len and (std.ascii.isAlphanumeric(text[i_fast]) or text[i_fast] == '_' or text[i_fast] == '.')) : (i_fast += 1) {}
-                const token = text[start..i_fast];
-                if (self.entries.contains(token)) {
-                    has_replacement = true;
-                    break;
-                }
-            } else {
-                i_fast += 1;
-            }
-        }
-
-        if (!has_replacement) {
-            return try allocator.dupe(u8, text);
-        }
-
         var out = std.ArrayList(u8).init(allocator);
         errdefer out.deinit();
 
+        var has_replacement = false;
+        var emitted_until: usize = 0;
         var i: usize = 0;
         while (i < text.len) {
             if (std.ascii.isAlphabetic(text[i]) or text[i] == '_') {
@@ -90,16 +70,24 @@ pub const DefDict = struct {
                 while (i < text.len and (std.ascii.isAlphanumeric(text[i]) or text[i] == '_' or text[i] == '.')) : (i += 1) {}
                 const token = text[start..i];
                 if (self.get(token)) |replacement| {
+                    if (!has_replacement) {
+                        try out.ensureTotalCapacity(text.len);
+                        has_replacement = true;
+                    }
+                    try out.appendSlice(text[emitted_until..start]);
                     try out.appendSlice(replacement);
-                } else {
-                    try out.appendSlice(token);
+                    emitted_until = i;
                 }
             } else {
-                try out.append(text[i]);
                 i += 1;
             }
         }
 
+        if (!has_replacement) {
+            return try allocator.dupe(u8, text);
+        }
+
+        try out.appendSlice(text[emitted_until..]);
         return try out.toOwnedSlice();
     }
 

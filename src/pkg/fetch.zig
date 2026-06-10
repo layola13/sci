@@ -10,6 +10,7 @@ pub const FetchOptions = struct {
     global: bool = false,
     offline: bool = false,
     mirror_rules: []const manifest.MirrorRule = &.{},
+    expected_source_sha256: ?[32]u8 = null,
 };
 
 pub const FetchResult = struct {
@@ -29,6 +30,7 @@ fn trim(text: []const u8) []const u8 {
 fn validateIdentity(identity: []const u8) FetchError!void {
     const trimmed = trim(identity);
     if (trimmed.len == 0) return error.InvalidUrl;
+    if (trimmed[0] == '-') return error.InvalidUrl;
     if (std.mem.indexOfScalar(u8, trimmed, '\x00') != null) return error.InvalidUrl;
     if (std.mem.indexOfScalar(u8, trimmed, '\n') != null or std.mem.indexOfScalar(u8, trimmed, '\r') != null) return error.InvalidUrl;
     if (std.fs.path.isAbsolute(trimmed)) return error.InvalidPath;
@@ -45,7 +47,17 @@ fn validateIdentity(identity: []const u8) FetchError!void {
 fn validateRef(ref: []const u8) FetchError!void {
     const trimmed = trim(ref);
     if (trimmed.len == 0) return error.InvalidUrl;
+    if (trimmed[0] == '-') return error.InvalidUrl;
     if (std.mem.indexOfAny(u8, trimmed, " \t\r\n\x00") != null) return error.InvalidUrl;
+}
+
+fn inheritEnvIfPresent(allocator: std.mem.Allocator, env_map: *std.process.EnvMap, key: []const u8) !void {
+    const value = std.process.getEnvVarOwned(allocator, key) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return,
+        else => return err,
+    };
+    defer allocator.free(value);
+    try env_map.put(key, value);
 }
 
 fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {
@@ -132,6 +144,11 @@ fn inspectFetchedSource(allocator: std.mem.Allocator, target_root: []const u8) !
     return try audit.hashPackageSource(allocator, target_root);
 }
 
+fn validateExpectedSourceHash(expected: ?[32]u8, actual: [32]u8) !void {
+    const wanted = expected orelse return;
+    if (!std.mem.eql(u8, wanted[0..], actual[0..])) return error.UpstreamShaMismatch;
+}
+
 fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Allocator) !void {
     var src_dir = try std.fs.cwd().openDir(src_root, .{ .iterate = true });
     defer src_dir.close();
@@ -197,11 +214,20 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     if (!std.mem.eql(u8, ref, "HEAD")) {
         try argv.appendSlice(&.{ "--branch", ref, "--single-branch" });
     }
+    try argv.append("--");
     try argv.append(remote_url);
     try argv.append(target_root);
 
-    var env_map = try std.process.getEnvMap(allocator);
+    var env_map = std.process.EnvMap.init(allocator);
     defer env_map.deinit();
+    try inheritEnvIfPresent(allocator, &env_map, "PATH");
+    try inheritEnvIfPresent(allocator, &env_map, "HOME");
+    try inheritEnvIfPresent(allocator, &env_map, "USERPROFILE");
+    try inheritEnvIfPresent(allocator, &env_map, "SSL_CERT_FILE");
+    try inheritEnvIfPresent(allocator, &env_map, "SSL_CERT_DIR");
+    try env_map.put("GIT_TERMINAL_PROMPT", "0");
+    try env_map.put("GIT_ASKPASS", "/bin/false");
+    try env_map.put("GCM_INTERACTIVE", "Never");
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
@@ -255,6 +281,7 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
     if (options.offline) {
         if (dirExists(target_root)) {
             const source_sha256 = try inspectFetchedSource(allocator, target_root);
+            try validateExpectedSourceHash(options.expected_source_sha256, source_sha256);
             if (options.global) {
                 try setReadOnlyRecursive(target_root, allocator);
             }
@@ -289,6 +316,15 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
     }
 
     const source_sha256 = try inspectFetchedSource(allocator, target_root);
+    validateExpectedSourceHash(options.expected_source_sha256, source_sha256) catch |err| {
+        if (!options.offline) {
+            deleteExistingDir(target_root) catch |delete_err| {
+                // Cleanup after a primary hash-mismatch error is best-effort.
+                _ = @errorName(delete_err);
+            };
+        }
+        return err;
+    };
 
     if (options.global) {
         try setReadOnlyRecursive(target_root, allocator);
@@ -392,6 +428,34 @@ test "fetch rejects path traversal identities" {
     try std.testing.expectError(error.InvalidPath, fetchPackage(std.testing.allocator, "github.com/example/..", "HEAD", .{ .offline = true }));
     try std.testing.expectError(error.InvalidPath, fetchPackage(std.testing.allocator, "/tmp/pkg", "HEAD", .{ .offline = true }));
     try std.testing.expectError(error.InvalidPath, fetchPackage(std.testing.allocator, "github.com\\example\\pkg", "HEAD", .{ .offline = true }));
+}
+
+test "fetch rejects option-shaped identities and refs before git clone" {
+    try std.testing.expectError(error.InvalidUrl, fetchPackage(std.testing.allocator, "-upload-pack=evil", "HEAD", .{ .offline = true }));
+    try std.testing.expectError(error.InvalidUrl, fetchPackage(std.testing.allocator, "github.com/example/pkg", "--upload-pack=evil", .{ .offline = true }));
+}
+
+test "fetch rejects and removes non-offline packages whose source hash mismatches" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("github.com/example/pkg");
+    try tmp.dir.writeFile(.{ .sub_path = "github.com/example/pkg/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
+    const source_root = try tmp.dir.realpathAlloc(std.testing.allocator, "github.com/example/pkg");
+    defer std.testing.allocator.free(source_root);
+    var wrong_hash = try audit.hashPackageSource(std.testing.allocator, source_root);
+    wrong_hash[0] ^= 0xff;
+
+    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    defer old_cwd.close();
+    try tmp.dir.setAsCwd();
+    defer old_cwd.setAsCwd() catch |err| {
+        // Test teardown cannot recover from cwd restoration failure.
+        _ = @errorName(err);
+    };
+
+    try std.testing.expectError(error.UpstreamShaMismatch, fetchPackage(std.testing.allocator, "github.com/example/pkg", "HEAD", .{ .expected_source_sha256 = wrong_hash }));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("sa_vendor/github.com/example/pkg", .{}));
 }
 
 test "fetch offline reuses existing vendor without deleting it" {

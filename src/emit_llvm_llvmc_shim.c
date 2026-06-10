@@ -1776,7 +1776,7 @@ static void emit_test_harness_main(EmitCtx *e, const SaModule *m) {
     for (size_t i = 0; i < m->function_count; i++) {
         if (m->functions[i].kind != SA_F_TEST) continue;
         char glob_name[64];
-        sprintf(glob_name, ".sa_test_name_%zu", i);
+        if (snprintf(glob_name, sizeof(glob_name), ".sa_test_name_%zu", i) >= (int)sizeof(glob_name)) return;
         LLVMValueRef test_name_ptr = const_c_string(e, glob_name, m->functions[i].name);
         LLVMValueRef strcmp_args[2] = { filter, test_name_ptr };
         LLVMValueRef cmp = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(strcmp_fn), strcmp_fn, strcmp_args, 2, "cmp");
@@ -1812,6 +1812,10 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     if (e->ctx == NULL) return set_error(out_error, "LLVMContextCreate failed");
     e->module = LLVMModuleCreateWithNameInContext("sa_module", e->ctx);
     e->builder = LLVMCreateBuilderInContext(e->ctx);
+    if (e->module == NULL || e->builder == NULL) {
+        dispose_emit_ctx(e);
+        return set_error(out_error, "LLVM module or builder creation failed");
+    }
     e->size_bits = m->size_bits;
     e->is_cgu = m->is_cgu;
     e->wasm_compat = m->wasm_compat;
@@ -1830,7 +1834,9 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     declare_runtime(e);
 
     for (size_t i = 0; i < m->const_count; i++) {
-        LLVMTypeRef arr_ty = LLVMArrayType(e->i8_ty, (unsigned)m->consts[i].len);
+        if (m->consts[i].len > UINT_MAX) { dispose_emit_ctx(e); return set_error(out_error, "const too large"); }
+        const unsigned const_len = (unsigned)m->consts[i].len;
+        LLVMTypeRef arr_ty = LLVMArrayType(e->i8_ty, const_len);
         LLVMValueRef glob = LLVMAddGlobal(e->module, arr_ty, m->consts[i].name);
         LLVMSetGlobalConstant(glob, 1);
         LLVMSetLinkage(glob, LLVMPrivateLinkage);
@@ -1838,7 +1844,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         if (m->consts[i].len != 0) vals = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * m->consts[i].len);
         if (m->consts[i].len != 0 && vals == NULL) { dispose_emit_ctx(e); return set_error(out_error, "alloc const failed"); }
         for (size_t j = 0; j < m->consts[i].len; j++) vals[j] = LLVMConstInt(e->i8_ty, m->consts[i].data[j], 0);
-        LLVMSetInitializer(glob, LLVMConstArray(e->i8_ty, vals, (unsigned)m->consts[i].len));
+        LLVMSetInitializer(glob, LLVMConstArray(e->i8_ty, vals, const_len));
         free(vals);
     }
 
@@ -1871,7 +1877,9 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
 
     for (size_t i = 0; i < m->vtable_count; i++) {
         LLVMTypeRef slot_ty = vtable_slot_type(e);
-        LLVMTypeRef arr_ty  = LLVMArrayType(slot_ty, (unsigned)m->vtables[i].func_count);
+        if (m->vtables[i].func_count > UINT_MAX) { dispose_emit_ctx(e); return set_error(out_error, "vtable too large"); }
+        const unsigned vtable_len = (unsigned)m->vtables[i].func_count;
+        LLVMTypeRef arr_ty  = LLVMArrayType(slot_ty, vtable_len);
         LLVMValueRef glob   = LLVMAddGlobal(e->module, arr_ty, m->vtables[i].name);
         LLVMSetGlobalConstant(glob, 1);
         LLVMSetLinkage(glob, LLVMPrivateLinkage);
@@ -1883,7 +1891,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
             if (fn == NULL) { free(vals); dispose_emit_ctx(e); return set_error(out_error, "vtable function not found"); }
             vals[j] = vtable_slot_value(e, fn);
         }
-        LLVMSetInitializer(glob, LLVMConstArray(slot_ty, vals, (unsigned)m->vtables[i].func_count));
+        LLVMSetInitializer(glob, LLVMConstArray(slot_ty, vals, vtable_len));
         free(vals);
     }
 

@@ -48,6 +48,7 @@ const TicketFlag = struct {
 const HANDSHAKE_TIMEOUT_NS: u64 = 5 * std.time.ns_per_s;
 const IDLE_TIMEOUT_NS: u64 = 60 * std.time.ns_per_s;
 const REACTOR_TIMEOUT_NS: u64 = 250 * std.time.ns_per_ms;
+const ticket_payload_capacity: usize = 4096;
 
 const ReactorUserTag = enum(u8) {
     none,
@@ -92,8 +93,9 @@ const ReactorCommandQueue = struct {
     mmap_bytes: []align(std.heap.page_size_min) u8 = &.{},
 
     fn init(requested_capacity: usize) !ReactorCommandQueue {
-        const cap = ceilPow2(@max(requested_capacity, 64));
-        const bytes_len = cap * @sizeOf(ReactorCommand);
+        const cap = try ceilPow2(@max(requested_capacity, 64));
+        if (cap - 1 > std.math.maxInt(u32)) return error.OutOfMemory;
+        const bytes_len = std.math.mul(usize, cap, @sizeOf(ReactorCommand)) catch return error.OutOfMemory;
         const base_flags = std.posix.MAP{
             .TYPE = .PRIVATE,
             .ANONYMOUS = true,
@@ -290,14 +292,17 @@ comptime {
 
 const TicketQueue = struct {
     storage: []Ticket,
+    payload_storage: []u8,
     head: u32 = 0,
     tail: u32 = 0,
     mask: u32 = 0,
     mmap_bytes: []align(std.heap.page_size_min) u8 = &.{},
 
     fn init(requested_capacity: usize) !TicketQueue {
-        const cap = ceilPow2(@max(requested_capacity, 64));
-        const bytes_len = cap * @sizeOf(Ticket);
+        const cap = try ceilPow2(@max(requested_capacity, 64));
+        if (cap - 1 > std.math.maxInt(u32)) return error.OutOfMemory;
+        const bytes_len = std.math.mul(usize, cap, @sizeOf(Ticket)) catch return error.OutOfMemory;
+        const payload_bytes_len = std.math.mul(usize, cap, ticket_payload_capacity) catch return error.OutOfMemory;
         const base_flags = std.posix.MAP{
             .TYPE = .PRIVATE,
             .ANONYMOUS = true,
@@ -311,10 +316,18 @@ const TicketQueue = struct {
         };
 
         const mapped = std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, huge_flags, -1, 0) catch std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, base_flags, -1, 0) catch return error.OutOfMemory;
+        errdefer {
+            const bytes: []align(std.heap.page_size_min) const u8 = mapped;
+            std.posix.munmap(bytes);
+        }
+        const payload_storage = std.heap.page_allocator.alloc(u8, payload_bytes_len) catch return error.OutOfMemory;
+        errdefer std.heap.page_allocator.free(payload_storage);
         @memset(mapped, 0);
+        @memset(payload_storage, 0);
         const ptr: [*]align(@alignOf(Ticket)) Ticket = @ptrCast(@alignCast(mapped.ptr));
         return .{
             .storage = ptr[0..cap],
+            .payload_storage = payload_storage,
             .mask = @as(u32, @intCast(cap - 1)),
             .mmap_bytes = mapped,
         };
@@ -324,6 +337,9 @@ const TicketQueue = struct {
         if (self.mmap_bytes.len != 0) {
             const bytes: []align(std.heap.page_size_min) const u8 = self.mmap_bytes;
             std.posix.munmap(bytes);
+        }
+        if (self.payload_storage.len != 0) {
+            std.heap.page_allocator.free(self.payload_storage);
         }
         self.* = undefined;
     }
@@ -338,7 +354,18 @@ const TicketQueue = struct {
 
     fn push(self: *TicketQueue, ticket: Ticket) bool {
         if (self.isFull()) return false;
-        self.storage[self.tail & self.mask] = ticket;
+        const payload_len = @as(usize, @intCast(ticket.payload_len));
+        if (payload_len > ticket_payload_capacity) return false;
+        const slot_idx = self.tail & self.mask;
+        const slot_start = @as(usize, @intCast(slot_idx)) * ticket_payload_capacity;
+        const payload_dst = self.payload_storage[slot_start .. slot_start + ticket_payload_capacity];
+        if (payload_len != 0) {
+            const payload_src = @as([*]const u8, @ptrCast(ticket.payload))[0..payload_len];
+            @memcpy(payload_dst[0..payload_len], payload_src);
+        }
+        var queued = ticket;
+        queued.payload = &payload_dst[0];
+        self.storage[slot_idx] = queued;
         self.tail +%= 1;
         return true;
     }
@@ -359,7 +386,8 @@ const SlotPool = struct {
 
     fn init(capacity: usize) !SlotPool {
         if (capacity == 0) return error.InvalidArgument;
-        const bytes_len = capacity * @sizeOf(ConnectionSlot);
+        if (capacity > std.math.maxInt(u32)) return error.InvalidArgument;
+        const bytes_len = std.math.mul(usize, capacity, @sizeOf(ConnectionSlot)) catch return error.OutOfMemory;
         const base_flags = std.posix.MAP{
             .TYPE = .PRIVATE,
             .ANONYMOUS = true,
@@ -1363,8 +1391,9 @@ fn getState() *RuntimeState {
     return &runtime_state;
 }
 
-fn ceilPow2(value: usize) usize {
+fn ceilPow2(value: usize) !usize {
     if (value <= 1) return 1;
+    if (value > (std.math.maxInt(usize) / 2) + 1) return error.Overflow;
     var v = value - 1;
     v |= v >> 1;
     v |= v >> 2;
@@ -1372,7 +1401,11 @@ fn ceilPow2(value: usize) usize {
     v |= v >> 8;
     v |= v >> 16;
     if (@sizeOf(usize) >= 8) v |= v >> 32;
-    return v + 1;
+    return std.math.add(usize, v, 1) catch return error.Overflow;
+}
+
+fn computeTicketCapacity(slot_capacity: usize) !usize {
+    return std.math.mul(usize, slot_capacity, 4) catch error.Overflow;
 }
 
 fn makeTicket(slot: *ConnectionSlot, op: TicketOp, proto: u8, flags: u8, payload: []const u8) Ticket {
@@ -1577,25 +1610,25 @@ fn prefixMaskVector32(prefix_len: usize) @Vector(32, u8) {
 
 fn writeWebSocketFrame(slot: *ConnectionSlot, payload: []const u8) ![]u8 {
     const header_len: usize = if (payload.len < 126) 2 else if (payload.len <= 0xffff) 4 else 10;
-    const total_len = header_len + payload.len;
+    const total_len = std.math.add(usize, header_len, payload.len) catch return error.PayloadTooLarge;
     if (total_len > slot.outbound_scratch.len) return error.NoSpaceLeft;
     var idx: usize = 0;
     slot.outbound_scratch[idx] = 0x82;
     idx += 1;
     if (payload.len < 126) {
-        slot.outbound_scratch[idx] = @as(u8, @intCast(payload.len));
+        slot.outbound_scratch[idx] = std.math.cast(u8, payload.len) orelse return error.PayloadTooLarge;
         idx += 1;
     } else if (payload.len <= 0xffff) {
         slot.outbound_scratch[idx] = 126;
         idx += 1;
-        const len16: u16 = @as(u16, @intCast(payload.len));
+        const len16 = std.math.cast(u16, payload.len) orelse return error.PayloadTooLarge;
         slot.outbound_scratch[idx] = @as(u8, @intCast(len16 >> 8));
         slot.outbound_scratch[idx + 1] = @as(u8, @intCast(len16 & 0xff));
         idx += 2;
     } else {
         slot.outbound_scratch[idx] = 127;
         idx += 1;
-        const len64: u64 = @as(u64, @intCast(payload.len));
+        const len64 = std.math.cast(u64, payload.len) orelse return error.PayloadTooLarge;
         const shifts = [_]u6{ 56, 48, 40, 32, 24, 16, 8, 0 };
         for (shifts, 0..) |shift, b| {
             slot.outbound_scratch[idx + b] = @as(u8, @intCast((len64 >> shift) & 0xff));
@@ -1790,9 +1823,10 @@ pub fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
     if (slot_capacity == 0 or reactor_count == 0) return SA_NETX_ERR_INVALID_ARGUMENT;
     if (runtime_state.initialized) return SA_NETX_ERR_INVALID_ARGUMENT;
 
-    const slot_capacity_usize = @as(usize, @intCast(slot_capacity));
+    const slot_capacity_usize = std.math.cast(usize, slot_capacity) orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    if (slot_capacity_usize > std.math.maxInt(u32)) return SA_NETX_ERR_INVALID_ARGUMENT;
     const reactor_count_usize = @as(usize, @intCast(reactor_count));
-    const ticket_capacity = slot_capacity_usize * 4;
+    const ticket_capacity = computeTicketCapacity(slot_capacity_usize) catch return SA_NETX_ERR_INVALID_ARGUMENT;
 
     const pool = SlotPool.init(slot_capacity_usize) catch return SA_NETX_ERR_NO_MEMORY;
     var reactors = std.heap.page_allocator.alloc(Reactor, reactor_count_usize) catch {
@@ -1847,7 +1881,10 @@ pub fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     if (runtime_state.listened) return SA_NETX_ERR_INVALID_ARGUMENT;
     const host = if (host_len == 0) "0.0.0.0" else blk: {
         const ptr = host_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
-        break :blk ptr[0..@as(usize, @intCast(host_len))];
+        const n = std.math.cast(usize, host_len) orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+        const host_slice = ptr[0..n];
+        if (std.mem.indexOfScalar(u8, host_slice, 0) != null) return SA_NETX_ERR_INVALID_ARGUMENT;
+        break :blk host_slice;
     };
     const address = net.Address.resolveIp(host, port) catch return SA_NETX_ERR_NET;
     if (runtime_state.reactors.len == 0) return SA_NETX_ERR_INVALID_HANDLE;
@@ -2106,6 +2143,46 @@ test "ticket layout is stable" {
     try std.testing.expectEqual(@as(usize, 8), @offsetOf(Ticket, "payload"));
     try std.testing.expectEqual(@as(usize, 16), @offsetOf(Ticket, "payload_len"));
     try std.testing.expectEqual(@as(usize, 20), @offsetOf(Ticket, "pad"));
+}
+
+test "ticket queue owns payload bytes after slot scratch changes" {
+    var queue = try TicketQueue.init(2);
+    defer queue.deinit();
+
+    var slot: ConnectionSlot = .{};
+    slot.initFree(1);
+    slot.slot_id = 1;
+    @memcpy(slot.scratch[0..5], "hello");
+
+    const ticket = makeTicket(&slot, .raw_bytes, NetxProto_RAW, 0, slot.scratch[0..5]);
+    try std.testing.expect(queue.push(ticket));
+    @memset(slot.scratch[0..5], 'x');
+
+    const popped = queue.pop() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqualStrings("hello", ticketPayload(popped));
+}
+
+test "ticket queue rejects oversized payload copies" {
+    var queue = try TicketQueue.init(2);
+    defer queue.deinit();
+
+    var byte: u8 = 0;
+    const ticket = Ticket{
+        .slot_id = 1,
+        .op_code = @intFromEnum(TicketOp.raw_bytes),
+        .proto = NetxProto_RAW,
+        .flags = 0,
+        .payload = &byte,
+        .payload_len = @as(u32, @intCast(ticket_payload_capacity + 1)),
+        .pad = 0,
+    };
+    try std.testing.expect(!queue.push(ticket));
+}
+
+test "netx capacity math rejects overflow" {
+    try std.testing.expectEqual(@as(usize, 64), try ceilPow2(33));
+    try std.testing.expectError(error.Overflow, ceilPow2(std.math.maxInt(usize)));
+    try std.testing.expectError(error.Overflow, computeTicketCapacity((std.math.maxInt(usize) / 4) + 1));
 }
 
 test "websocket accept matches the RFC example" {
