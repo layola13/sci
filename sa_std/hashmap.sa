@@ -1,5 +1,7 @@
 @import "core/mem.sa"
+@import "core/slice.sal"
 @import "alloc/vec.sa"
+@import "alloc/vec.sal"
 @import "vec.sa"
 @import "num.sa"
 @import "hashmap.sal"

@@ -19,6 +19,8 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "inttoptr"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "假定"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "示例"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "[DEBUG]"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, vec_src, 1, "sa_print_bytes"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "@import \"../num.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "EXPAND NUM_U64_CHECKED_MUL bytes_ok, bytes, cap, elem_size"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_src, 1, "EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, cap, cap"));
@@ -392,7 +394,11 @@ test "sa_std hashset helpers are concrete and verifiable" {
     defer std.testing.allocator.free(hashset_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashset.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashmap.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"core/slice.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"alloc/vec.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"vec.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"num.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "EXPAND NUM_U64_CHECKED_MUL __set_drain_bytes_ok_%out_vec"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_with_capacity"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_free"));
@@ -530,6 +536,19 @@ test "sa_std btree_set helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_SPLIT_OFF"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LIT2"));
 
+    const btree_map_src = try common.readFileAlloc(std.testing.allocator, "sa_std/btree_map.sa");
+    defer std.testing.allocator.free(btree_map_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "@import \"num.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, old_cap, old_cap"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, next_cap, BTreeMapEntry_SIZE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "EXPAND NUM_U64_CHECKED_MUL clear_bytes_ok, bytes, cap, BTreeMapEntry_SIZE"));
+
+    const hashmap_src = try common.readFileAlloc(std.testing.allocator, "sa_std/hashmap.sa");
+    defer std.testing.allocator.free(hashmap_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"core/slice.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"alloc/vec.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"vec.sa\""));
+
     var btree_set_error_ctx = saasm.flattener.ErrorContext{};
     var btree_set_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/btree_set.sa", btree_set_src, &btree_set_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&btree_set_error_ctx) orelse 0;
@@ -655,6 +674,58 @@ test "sa_std btree_set helpers are concrete and verifiable" {
         },
         .trap => |report| {
             std.debug.print("btree_set fixture verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "sa_std deque and binary heap capacity arithmetic is checked" {
+    const deque_src = try common.readFileAlloc(std.testing.allocator, "sa_std/vec_deque.sa");
+    defer std.testing.allocator.free(deque_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"alloc/vec.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "@import \"num.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "EXPAND NUM_U64_CHECKED_MUL with_cap_bytes_ok, bytes, capacity, VecDeque_SLOT_SIZE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, cap, cap"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "EXPAND NUM_U64_CHECKED_ADD reserve_needed_ok, needed, len, additional"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, deque_src, 1, "EXPAND NUM_U64_CHECKED_MUL clear_bytes_ok, bytes, cap, VecDeque_SLOT_SIZE"));
+
+    var deque_flat = try flattenFixture(std.testing.allocator, "sa_std/vec_deque.sa", deque_src);
+    defer deque_flat.deinit(std.testing.allocator);
+    try std.testing.expect(deque_flat.instructions.len > 0);
+    const deque_verified = try saasm.referee.verify(std.testing.allocator, deque_flat.instructions, deque_flat.const_decls);
+    switch (deque_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 20);
+        },
+        .trap => |report| {
+            std.debug.print("vec_deque smoke verifier trap: {s}\n", .{report.message});
+            return error.TestUnexpectedResult;
+        },
+    }
+
+    const heap_src = try common.readFileAlloc(std.testing.allocator, "sa_std/binary_heap.sa");
+    defer std.testing.allocator.free(heap_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "@import \"num.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, cap, cap"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "EXPAND NUM_U64_CHECKED_MUL bytes_ok, bytes, target_cap, BinaryHeap_SLOT_SIZE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "EXPAND NUM_U64_CHECKED_ADD reserve_needed_ok, needed, len, additional"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, next_cap, BinaryHeap_SLOT_SIZE"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, heap_src, 1, "EXPAND NUM_U64_CHECKED_MUL clear_bytes_ok, bytes, cap, BinaryHeap_SLOT_SIZE"));
+
+    var heap_flat = try flattenFixture(std.testing.allocator, "sa_std/binary_heap.sa", heap_src);
+    defer heap_flat.deinit(std.testing.allocator);
+    try std.testing.expect(heap_flat.instructions.len > 0);
+    const heap_verified = try saasm.referee.verify(std.testing.allocator, heap_flat.instructions, heap_flat.const_decls);
+    switch (heap_verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.function_sigs.len >= 20);
+        },
+        .trap => |report| {
+            std.debug.print("binary_heap smoke verifier trap: {s}\n", .{report.message});
             return error.TestUnexpectedResult;
         },
     }

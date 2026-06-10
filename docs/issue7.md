@@ -14,8 +14,10 @@ Core/runtime items completed in the main repo, without editing the external plug
 - Manifest allocation hardening: `sa.mod` parsing now rejects sources above 1 MiB and normal project/nested-manifest readers use the same limit before parsing.
 - LLVM-C emitter count hardening: function table size and direct/indirect parameter counts are checked before casting to LLVM-C `unsigned` counts.
 - SA core memory helper hardening: `sa_mem_set` now mirrors `sa_mem_copy` and rejects non-zero writes to a null destination with `panic(1703)`.
+- SA std container hardening: `binary_heap`, `vec_deque`, `btree_map`, and `hashset` now use checked capacity/byte-count arithmetic on reserve, grow, realloc, drain, and clear paths; `Vec.reserve` no longer emits debug stdout during normal runtime.
 - Macro fan-out hardening: `[REP N]` counts that overflow or exceed the total expanded-line budget now fail with `MacroExpansionBudget` before allocating/emitting the expanded body.
 - Package fetch error hygiene: `dirExists` now only treats missing/non-directory paths as absent and propagates unexpected directory errors instead of silently falling through to reclone/copy paths.
+- Package fetch copy hygiene: local-source global fetch can set read-only permissions during the copy walk, and recursive read-only setup opens directories with `no_follow` and skips symlinks.
 - Package resolver path containment: package-root entry candidates are rejected if canonicalization follows a symlink outside the package root.
 - LLVM-C panic diagnostics: native panic code formatting no longer truncates codes above three digits, and minimal module construction checks LLVM module/builder allocation failures before dereference.
 - Previously completed issue7 core items include WebSocket frame length checked casts, socket option length runtime checks, JSON refcount initialization/underflow hardening, package source sha256 pin enforcement, git clone argument/env hardening, interpreter div-by-zero and call-depth traps, interpreter memory block bsearch lookup, pthread handle free-list reuse, and host embedded-NUL rejection.

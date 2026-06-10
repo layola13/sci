@@ -3,7 +3,9 @@
 @import "core/mem.sa"
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "alloc/vec.sal"
 @import "vec.sa"
+@import "num.sa"
 @import "vec_deque.sal"
 
 @export sa_vec_deque_new() -> ^ptr:
@@ -23,7 +25,13 @@ L_ENTRY:
 @export sa_vec_deque_with_capacity(capacity: u64) -> ^ptr:
 L_ENTRY:
     deque = alloc VecDeque_SIZE
-    bytes = mul capacity, VecDeque_SLOT_SIZE
+    EXPAND NUM_U64_CHECKED_MUL with_cap_bytes_ok, bytes, capacity, VecDeque_SLOT_SIZE
+    br with_cap_bytes_ok -> L_WITH_CAP_BYTES_OK, L_WITH_CAP_OVERFLOW
+
+L_WITH_CAP_OVERFLOW:
+    panic(1901)
+
+L_WITH_CAP_BYTES_OK:
     has_bytes = ne bytes, 0
     br has_bytes -> L_WITH_CAP_ALLOC, L_WITH_CAP_EMPTY
 
@@ -35,6 +43,7 @@ L_WITH_CAP_ALLOC:
     store deque+VecDeque_head, 0 as u64
     store deque+VecDeque_len, 0 as u64
     ^buf
+    !with_cap_bytes_ok
     !has_bytes
     !bytes
     !capacity
@@ -45,6 +54,7 @@ L_WITH_CAP_EMPTY:
     store deque+VecDeque_cap, 0 as u64
     store deque+VecDeque_head, 0 as u64
     store deque+VecDeque_len, 0 as u64
+    !with_cap_bytes_ok
     !has_bytes
     !bytes
     !capacity
@@ -90,8 +100,15 @@ L_NEXT_CAP_HEAD:
     br enough -> L_NEXT_CAP_DONE, L_NEXT_CAP_GROW
 
 L_NEXT_CAP_GROW:
-    next_cap = add cap, cap
+    EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, cap, cap
+    br next_cap_ok -> L_NEXT_CAP_GROW_OK, L_NEXT_CAP_OVERFLOW
+
+L_NEXT_CAP_OVERFLOW:
+    panic(1902)
+
+L_NEXT_CAP_GROW_OK:
     store cap_slot+0, next_cap as u64
+    !next_cap_ok
     !next_cap
     !enough
     !cap
@@ -125,7 +142,13 @@ L_DEQUE_REALLOC_ALLOC:
     old_buf = take deque+VecDeque_buf
     old_cap = load deque+VecDeque_cap as u64
     head = load deque+VecDeque_head as u64
-    new_bytes = mul target_cap, VecDeque_SLOT_SIZE
+    EXPAND NUM_U64_CHECKED_MUL realloc_bytes_ok, new_bytes, target_cap, VecDeque_SLOT_SIZE
+    br realloc_bytes_ok -> L_DEQUE_REALLOC_BYTES_OK, L_DEQUE_REALLOC_OVERFLOW
+
+L_DEQUE_REALLOC_OVERFLOW:
+    panic(1903)
+
+L_DEQUE_REALLOC_BYTES_OK:
     new_buf = alloc new_bytes
     call @sa_mem_set(&new_buf, 0, new_bytes)
     idx_slot = stack_alloc 8
@@ -167,6 +190,7 @@ L_DEQUE_REALLOC_COPY_DONE:
     store deque+VecDeque_len, len as u64
     !done
     !idx
+    !realloc_bytes_ok
     !new_bytes
     !head
     !old_cap
@@ -182,7 +206,13 @@ L_DEQUE_REALLOC_COPY_DONE:
 L_ENTRY:
     len = load deque+VecDeque_len as u64
     cap = load deque+VecDeque_cap as u64
-    needed = add len, additional
+    EXPAND NUM_U64_CHECKED_ADD reserve_needed_ok, needed, len, additional
+    br reserve_needed_ok -> L_DEQUE_RESERVE_NEEDED_OK, L_DEQUE_RESERVE_OVERFLOW
+
+L_DEQUE_RESERVE_OVERFLOW:
+    panic(1904)
+
+L_DEQUE_RESERVE_NEEDED_OK:
     has_room = uge cap, needed
     br has_room -> L_DEQUE_RESERVE_DONE, L_DEQUE_RESERVE_GROW
 
@@ -192,6 +222,7 @@ L_DEQUE_RESERVE_GROW:
     !target_cap
     !has_room
     !needed
+    !reserve_needed_ok
     !cap
     !len
     !additional
@@ -201,6 +232,7 @@ L_DEQUE_RESERVE_GROW:
 L_DEQUE_RESERVE_DONE:
     !has_room
     !needed
+    !reserve_needed_ok
     !cap
     !len
     !additional
@@ -211,7 +243,13 @@ L_DEQUE_RESERVE_DONE:
 L_ENTRY:
     len = load deque+VecDeque_len as u64
     cap = load deque+VecDeque_cap as u64
-    needed = add len, additional
+    EXPAND NUM_U64_CHECKED_ADD reserve_exact_needed_ok, needed, len, additional
+    br reserve_exact_needed_ok -> L_DEQUE_RESERVE_EXACT_NEEDED_OK, L_DEQUE_RESERVE_EXACT_OVERFLOW
+
+L_DEQUE_RESERVE_EXACT_OVERFLOW:
+    panic(1905)
+
+L_DEQUE_RESERVE_EXACT_NEEDED_OK:
     has_room = uge cap, needed
     br has_room -> L_DEQUE_RESERVE_EXACT_DONE, L_DEQUE_RESERVE_EXACT_GROW
 
@@ -219,6 +257,7 @@ L_DEQUE_RESERVE_EXACT_GROW:
     call @vec_deque_realloc(&deque, needed)
     !has_room
     !needed
+    !reserve_exact_needed_ok
     !cap
     !len
     !additional
@@ -228,6 +267,7 @@ L_DEQUE_RESERVE_EXACT_GROW:
 L_DEQUE_RESERVE_EXACT_DONE:
     !has_room
     !needed
+    !reserve_exact_needed_ok
     !cap
     !len
     !additional
@@ -1224,12 +1264,19 @@ L_TRY_BACK_EMPTY:
 L_ENTRY:
     buf = load deque+VecDeque_buf as ptr
     cap = load deque+VecDeque_cap as u64
-    bytes = mul cap, VecDeque_SLOT_SIZE
+    EXPAND NUM_U64_CHECKED_MUL clear_bytes_ok, bytes, cap, VecDeque_SLOT_SIZE
+    br clear_bytes_ok -> L_CLEAR_BYTES_OK, L_CLEAR_BYTES_OVERFLOW
+
+L_CLEAR_BYTES_OVERFLOW:
+    panic(1906)
+
+L_CLEAR_BYTES_OK:
     has_buf = ne buf, 0
     br has_buf -> L_CLEAR_BUF, L_CLEAR_SKIP
 L_CLEAR_BUF:
     call @sa_mem_set(&buf, 0, bytes)
     !bytes
+    !clear_bytes_ok
     store deque+VecDeque_head, 0 as u64
     store deque+VecDeque_len, 0 as u64
     !has_buf
@@ -1239,6 +1286,7 @@ L_CLEAR_BUF:
     return
 L_CLEAR_SKIP:
     !bytes
+    !clear_bytes_ok
     store deque+VecDeque_head, 0 as u64
     store deque+VecDeque_len, 0 as u64
     !has_buf

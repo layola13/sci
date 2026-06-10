@@ -1,5 +1,13 @@
 # Progress Assessment
 
+## Core Issue Pass 2026-06-10 C
+
+- Progress: 100% for the current low-risk core std safety/performance slice. Completed container capacity hardening beyond the original Vec/HashMap/MPSC fixes: `binary_heap`, `vec_deque`, `btree_map`, and `hashset` now use checked add/mul on reserve, grow, realloc, drain, and clear byte-count paths before allocation or bulk zeroing.
+- Progress: 100% for the same slice. Removed leftover `sa_vec_reserve` debug stdout hooks from `sa_std/alloc/vec.sa`, eliminating accidental runtime output and syscall overhead on reserve/grow/copy paths.
+- Progress: 100% for the fetch hygiene slice. Local-source global fetch can now set read-only permissions during the copy walk, and `setReadOnlyRecursive` opens directories with `no_follow` while skipping symlinks so package read-only setup does not chmod symlink targets.
+- Progress: 100% for the expanded-import cache correctness slice. The flattener now refuses to store expanded import fragments that skipped imports already seen by the caller, preventing context-dependent cache entries from being reused later without their transitive functions/macros/layouts.
+- Final validation: focused `zig test src/flattener.zig --test-filter "expanded import cache"` passed 4/4; `zig build unit-framework --summary all` passed 4/4; `zig build std-smoke --summary all` passed 15/15; `zig test src/pkg/fetch.zig` passed 23/23; full `zig build test --summary all` passed 41/41 steps and 122/122 tests; `.git/hooks/pre-push origin https://github.com/layola13/sci.git` passed full profile in 561.371s. Plugin security remains intentionally untouched.
+
 ## Core Issue Pass 2026-06-10
 
 - Progress: 33% for the current low-risk core performance/safety slice. Completed verifier P18 cleanup: `computeFunctionConsumedRegs` no longer scans every instruction's full `raw_text` for `^` markers; it now scans structured text operands only, preserving `return ^x` and moved call arguments while reducing byte scanning in the verifier prepass.

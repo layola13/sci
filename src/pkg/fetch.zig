@@ -23,6 +23,10 @@ pub const FetchResult = struct {
     }
 };
 
+const CopyTreeOptions = struct {
+    read_only: bool = false,
+};
+
 fn trim(text: []const u8) []const u8 {
     return std.mem.trim(u8, text, " \t\r\n");
 }
@@ -152,12 +156,30 @@ fn validateExpectedSourceHash(expected: ?[32]u8, actual: [32]u8) !void {
     if (!std.mem.eql(u8, wanted[0..], actual[0..])) return error.UpstreamShaMismatch;
 }
 
-fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Allocator) !void {
+fn chmodFileReadOnly(path: []const u8) !void {
+    var file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
+    defer file.close();
+    try file.chmod(0o444);
+}
+
+fn chmodDirReadOnly(path: []const u8) !void {
+    var dir = try std.fs.cwd().openDir(path, .{ .iterate = true, .no_follow = true });
+    defer dir.close();
+    try dir.chmod(0o555);
+}
+
+fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Allocator, options: CopyTreeOptions) !void {
     var src_dir = try std.fs.cwd().openDir(src_root, .{ .iterate = true });
     defer src_dir.close();
 
     var walker = try src_dir.walk(allocator);
     defer walker.deinit();
+
+    var copied_dirs = std.ArrayList([]u8).init(allocator);
+    defer {
+        for (copied_dirs.items) |path| allocator.free(path);
+        copied_dirs.deinit();
+    }
 
     while (try walker.next()) |entry| {
         if (entry.kind == .directory and isIgnoredTreeDir(entry.basename)) continue;
@@ -167,6 +189,7 @@ fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Alloc
         switch (entry.kind) {
             .directory => {
                 try std.fs.cwd().makePath(dst_path);
+                if (options.read_only) try copied_dirs.append(try allocator.dupe(u8, dst_path));
             },
             .file => {
                 if (pathHasPrecompiledArtifact(entry.basename)) return error.PrecompiledArtifactRejected;
@@ -174,14 +197,25 @@ fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Alloc
                     try std.fs.cwd().makePath(parent);
                 }
                 try std.fs.Dir.copyFile(entry.dir, entry.basename, std.fs.cwd(), dst_path, .{});
+                if (options.read_only) try chmodFileReadOnly(dst_path);
             },
+            .sym_link => continue,
             else => {},
         }
+    }
+
+    if (options.read_only) {
+        var idx = copied_dirs.items.len;
+        while (idx > 0) {
+            idx -= 1;
+            try chmodDirReadOnly(copied_dirs.items[idx]);
+        }
+        try chmodDirReadOnly(dst_root);
     }
 }
 
 fn setReadOnlyRecursive(root_path: []const u8, allocator: std.mem.Allocator) !void {
-    var root_dir = try std.fs.cwd().openDir(root_path, .{ .iterate = true });
+    var root_dir = try std.fs.cwd().openDir(root_path, .{ .iterate = true, .no_follow = true });
     defer root_dir.close();
 
     var walker = try root_dir.walk(allocator);
@@ -195,10 +229,11 @@ fn setReadOnlyRecursive(root_path: []const u8, allocator: std.mem.Allocator) !vo
                 try file.chmod(0o444);
             },
             .directory => {
-                var dir = try entry.dir.openDir(entry.basename, .{ .iterate = true });
+                var dir = try entry.dir.openDir(entry.basename, .{ .iterate = true, .no_follow = true });
                 defer dir.close();
                 try dir.chmod(0o555);
             },
+            .sym_link => continue,
             else => {},
         }
     }
@@ -280,6 +315,7 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
     const mirrored_identity = try mirror.rewriteIdentity(allocator, identity, options.mirror_rules);
     defer allocator.free(mirrored_identity);
     try validateIdentity(mirrored_identity);
+    var copied_read_only = false;
 
     if (options.offline) {
         if (try dirExists(target_root)) {
@@ -295,23 +331,27 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
             if (std.mem.eql(u8, identity, target_root)) return error.InvalidPath;
             try deleteExistingDir(target_root);
             try std.fs.cwd().makePath(target_root);
-            try copyTree(identity, target_root, allocator);
+            try copyTree(identity, target_root, allocator, .{ .read_only = options.global });
+            copied_read_only = options.global;
         } else if (!std.mem.eql(u8, mirrored_identity, identity) and try dirExists(mirrored_identity)) {
             if (std.mem.eql(u8, mirrored_identity, target_root)) return error.InvalidPath;
             try deleteExistingDir(target_root);
             try std.fs.cwd().makePath(target_root);
-            try copyTree(mirrored_identity, target_root, allocator);
+            try copyTree(mirrored_identity, target_root, allocator, .{ .read_only = options.global });
+            copied_read_only = options.global;
         } else {
             return error.SourceNotFound;
         }
     } else if (try dirExists(identity)) {
         try deleteExistingDir(target_root);
         try std.fs.cwd().makePath(target_root);
-        try copyTree(identity, target_root, allocator);
+        try copyTree(identity, target_root, allocator, .{ .read_only = options.global });
+        copied_read_only = options.global;
     } else if (!std.mem.eql(u8, mirrored_identity, identity) and try dirExists(mirrored_identity)) {
         try deleteExistingDir(target_root);
         try std.fs.cwd().makePath(target_root);
-        try copyTree(mirrored_identity, target_root, allocator);
+        try copyTree(mirrored_identity, target_root, allocator, .{ .read_only = options.global });
+        copied_read_only = options.global;
     } else {
         try deleteExistingDir(target_root);
         try std.fs.cwd().makePath(target_root);
@@ -329,7 +369,7 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
         return err;
     };
 
-    if (options.global) {
+    if (options.global and !copied_read_only) {
         try setReadOnlyRecursive(target_root, allocator);
     }
 
@@ -367,6 +407,87 @@ test "fetch copies a local source tree into sa_vendor" {
     var copied = try std.fs.cwd().openDir(result.root, .{ .iterate = true });
     defer copied.close();
     try copied.access("src/main.sa", .{ .mode = .read_only });
+}
+
+test "copyTree can set read-only permissions while skipping symlinks" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("src/nested");
+    try tmp.dir.writeFile(.{ .sub_path = "src/nested/main.sa", .data = "@main() -> i32:\n    return 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "outside.sa", .data = "outside" });
+    try tmp.dir.symLink("../outside.sa", "src/link.sa", .{});
+
+    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    defer old_cwd.close();
+    try tmp.dir.setAsCwd();
+    defer old_cwd.setAsCwd() catch |err| {
+        _ = @errorName(err);
+    };
+    defer {
+        var nested = std.fs.cwd().openDir("dst/nested", .{ .iterate = true, .no_follow = true }) catch null;
+        if (nested) |*dir| {
+            dir.chmod(0o755) catch {};
+            dir.close();
+        }
+        var dst = std.fs.cwd().openDir("dst", .{ .iterate = true, .no_follow = true }) catch null;
+        if (dst) |*dir| {
+            dir.chmod(0o755) catch {};
+            dir.close();
+        }
+    }
+
+    try std.fs.cwd().makePath("dst");
+    try copyTree("src", "dst", std.testing.allocator, .{ .read_only = true });
+
+    try std.fs.cwd().access("dst/nested/main.sa", .{ .mode = .read_only });
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("dst/link.sa", .{}));
+
+    var copied_file = try std.fs.cwd().openFile("dst/nested/main.sa", .{ .mode = .read_only });
+    defer copied_file.close();
+    const file_mode = (try copied_file.stat()).mode & 0o777;
+    try std.testing.expectEqual(@as(u32, 0o444), @as(u32, @intCast(file_mode)));
+
+    var copied_dir = try std.fs.cwd().openDir("dst/nested", .{ .iterate = true, .no_follow = true });
+    defer copied_dir.close();
+    const dir_mode = (try copied_dir.stat()).mode & 0o777;
+    try std.testing.expectEqual(@as(u32, 0o555), @as(u32, @intCast(dir_mode)));
+}
+
+test "setReadOnlyRecursive does not follow symlinked directories" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("root");
+    try tmp.dir.makePath("outside");
+    try tmp.dir.writeFile(.{ .sub_path = "outside/keep.txt", .data = "keep" });
+    try tmp.dir.symLink("../outside", "root/linkdir", .{});
+
+    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    defer old_cwd.close();
+    try tmp.dir.setAsCwd();
+    defer old_cwd.setAsCwd() catch |err| {
+        _ = @errorName(err);
+    };
+    defer {
+        var root = std.fs.cwd().openDir("root", .{ .iterate = true, .no_follow = true }) catch null;
+        if (root) |*dir| {
+            dir.chmod(0o755) catch {};
+            dir.close();
+        }
+        var outside = std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true }) catch null;
+        if (outside) |*dir| {
+            dir.chmod(0o755) catch {};
+            dir.close();
+        }
+    }
+
+    try setReadOnlyRecursive("root", std.testing.allocator);
+
+    var outside = try std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true });
+    defer outside.close();
+    const outside_mode = (try outside.stat()).mode & 0o777;
+    try std.testing.expect((outside_mode & 0o200) != 0);
 }
 
 test "PkgMgr-Fetch-Smoke computes hash and does not execute package files" {

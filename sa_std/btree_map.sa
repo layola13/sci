@@ -2,6 +2,7 @@
 @import "core/mem.sa"
 @import "core/slice.sal"
 @import "alloc/vec.sa"
+@import "num.sa"
 @import "btree_map.sal"
 
 @btree_map_entry_cmp(&lhs: ptr, &rhs: ptr) -> i32:
@@ -211,13 +212,34 @@ L_ENTRY:
     old_entries = take map+BTreeMap_entries
     old_cap = load map+BTreeMap_cap as u64
     old_len = load map+BTreeMap_len as u64
-    next_cap = add old_cap, old_cap
-    copy_bytes = mul old_len, BTreeMapEntry_SIZE
-    new_bytes = mul next_cap, BTreeMapEntry_SIZE
+    EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, old_cap, old_cap
+    br next_cap_ok -> L_GROW_CAP_OK, L_GROW_CAP_OVERFLOW
+
+L_GROW_CAP_OVERFLOW:
+    panic(2001)
+
+L_GROW_CAP_OK:
+    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, old_len, BTreeMapEntry_SIZE
+    br copy_bytes_ok -> L_GROW_COPY_BYTES_OK, L_GROW_COPY_BYTES_OVERFLOW
+
+L_GROW_COPY_BYTES_OVERFLOW:
+    panic(2002)
+
+L_GROW_COPY_BYTES_OK:
+    EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, next_cap, BTreeMapEntry_SIZE
+    br new_bytes_ok -> L_GROW_ALLOC_BYTES_OK, L_GROW_ALLOC_BYTES_OVERFLOW
+
+L_GROW_ALLOC_BYTES_OVERFLOW:
+    panic(2003)
+
+L_GROW_ALLOC_BYTES_OK:
     new_entries = alloc new_bytes
     call @sa_mem_copy(&new_entries, &old_entries, copy_bytes)
     store map+BTreeMap_entries, new_entries as ptr
     store map+BTreeMap_cap, next_cap as u64
+    !new_bytes_ok
+    !copy_bytes_ok
+    !next_cap_ok
     !copy_bytes
     !new_bytes
     !old_len
@@ -284,7 +306,13 @@ L_ENTRY:
 L_ENTRY:
     entries = load map+BTreeMap_entries as ptr
     cap = load map+BTreeMap_cap as u64
-    bytes = mul cap, BTreeMapEntry_SIZE
+    EXPAND NUM_U64_CHECKED_MUL clear_bytes_ok, bytes, cap, BTreeMapEntry_SIZE
+    br clear_bytes_ok -> L_CLEAR_BYTES_OK, L_CLEAR_BYTES_OVERFLOW
+
+L_CLEAR_BYTES_OVERFLOW:
+    panic(2004)
+
+L_CLEAR_BYTES_OK:
     has_entries = ne entries, 0
     br has_entries -> L_CLEAR_ENTRIES, L_CLEAR_DONE
 
@@ -294,6 +322,7 @@ L_CLEAR_ENTRIES:
 
 L_CLEAR_DONE:
     store map+BTreeMap_len, 0 as u64
+    !clear_bytes_ok
     !bytes
     !has_entries
     !cap

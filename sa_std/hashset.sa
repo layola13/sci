@@ -1,6 +1,9 @@
 @import "hashset.sal"
 @import "hashmap.sa"
+@import "core/slice.sal"
+@import "alloc/vec.sal"
 @import "vec.sa"
+@import "num.sa"
 
 @const HASHSET_SENTINEL = utf8:"hashset"
 
@@ -731,7 +734,11 @@ L_SET_DRAIN_NEXT_%out_vec:
     jmp L_SET_DRAIN_HEAD_%out_vec
 
 L_SET_DRAIN_DONE_%out_vec:
-    __set_drain_bytes_%out_vec = mul __set_drain_cap_%out_vec, HashSetSlot_SIZE
+    EXPAND NUM_U64_CHECKED_MUL __set_drain_bytes_ok_%out_vec, __set_drain_bytes_%out_vec, __set_drain_cap_%out_vec, HashSetSlot_SIZE
+    br __set_drain_bytes_ok_%out_vec -> L_SET_DRAIN_BYTES_OK_%out_vec, L_SET_DRAIN_BYTES_OVERFLOW_%out_vec
+L_SET_DRAIN_BYTES_OVERFLOW_%out_vec:
+    panic(2101)
+L_SET_DRAIN_BYTES_OK_%out_vec:
     __set_drain_has_slots_%out_vec = ne __set_drain_slots_%out_vec, 0
     br __set_drain_has_slots_%out_vec -> L_SET_DRAIN_CLEAR_SLOTS_%out_vec, L_SET_DRAIN_FINISH_%out_vec
 
@@ -743,6 +750,7 @@ L_SET_DRAIN_FINISH_%out_vec:
     store %set_reg+HashSet_len, 0 as u64
     store %set_reg+HashSet_tombs, 0 as u64
     !__set_drain_has_slots_%out_vec
+    !__set_drain_bytes_ok_%out_vec
     !__set_drain_bytes_%out_vec
     !__set_drain_done_%out_vec
     !__set_drain_idx_%out_vec

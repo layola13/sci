@@ -4,11 +4,6 @@
 @import "../num.sa"
 @import "vec.sal"
 
-@extern sa_print_bytes(&msg: ptr, len: u64) -> void
-@const MSG_RESERVE = utf8:"[DEBUG] sa_vec_reserve called\n"
-@const MSG_GROW = utf8:"[DEBUG] L_RESERVE_GROW called\n"
-@const MSG_COPY = utf8:"[DEBUG] calling sa_mem_copy\n"
-
 @export sa_vec_new() -> ^ptr:
     vec = alloc Vec_SIZE
     store vec+Vec_ptr, 0 as ptr
@@ -96,7 +91,6 @@ L_DONE:
 
 @export sa_vec_reserve(^vec: ptr, additional: u64, elem_size: u64) -> ^ptr:
 L_ENTRY:
-    call @sa_print_bytes(&MSG_RESERVE, 30)
     len = load vec+Vec_len as u64
     cap = load vec+Vec_cap as u64
     EXPAND NUM_U64_CHECKED_ADD needed_ok, needed, len, additional
@@ -110,7 +104,6 @@ L_RESERVE_NEED_OK:
     br has_room -> L_RESERVE_DONE, L_RESERVE_GROW
 
 L_RESERVE_GROW:
-    call @sa_print_bytes(&MSG_GROW, 30)
     old_buf = take vec+Vec_ptr
     EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, needed, elem_size
     br new_bytes_ok -> L_RESERVE_ALLOC, L_RESERVE_ALLOC_OVERFLOW
@@ -128,7 +121,6 @@ L_RESERVE_COPY_OVERFLOW:
     panic(1204)
 
 L_RESERVE_COPY:
-    call @sa_print_bytes(&MSG_COPY, 28)
     call @sa_mem_copy(&new_buf, &old_buf, copy_bytes)
     store vec+Vec_ptr, new_buf as ptr
     store vec+Vec_cap, needed as u64

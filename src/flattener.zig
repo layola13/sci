@@ -432,6 +432,33 @@ fn lineMetadataCacheable(
     return true;
 }
 
+const ExpandedImportCacheDependency = struct {
+    owned_start: usize,
+    context_dependent: bool = false,
+    parent: ?*ExpandedImportCacheDependency = null,
+};
+
+fn ownedPathSliceContains(paths: []const []u8, path: []const u8) bool {
+    for (paths) |owned_path| {
+        if (std.mem.eql(u8, owned_path, path)) return true;
+    }
+    return false;
+}
+
+fn markSeenImportContextDependency(
+    dependency: ?*ExpandedImportCacheDependency,
+    owned_paths: []const []u8,
+    path: []const u8,
+) void {
+    var current = dependency;
+    while (current) |dep| {
+        if (!ownedPathSliceContains(owned_paths[dep.owned_start..], path)) {
+            dep.context_dependent = true;
+        }
+        current = dep.parent;
+    }
+}
+
 fn rollbackExpandedImportCacheApply(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
@@ -4214,6 +4241,7 @@ fn injectImportedFile(
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
     resolve_ctx: ?ResolveContext,
+    cache_dependency: ?*ExpandedImportCacheDependency,
 ) anyerror!void {
     const entry_path = imported.entry_path;
     if (!std.mem.endsWith(u8, entry_path, ".sa")) return;
@@ -4251,10 +4279,14 @@ fn injectImportedFile(
             current_package_identity2: ?[]const u8,
             current_package_hash2: ?[32]u8,
             resolve_ctx2: ?ResolveContext,
+            cache_dependency2: ?*ExpandedImportCacheDependency,
         ) anyerror!void {
             var injected = try readImportFile(allocator2, base_dir, file_name, resolve_ctx2);
             defer injected.deinit(allocator2);
-            if (active_paths2.contains(injected.entry_path) or seen_paths2.contains(injected.entry_path)) return;
+            if (active_paths2.contains(injected.entry_path) or seen_paths2.contains(injected.entry_path)) {
+                markSeenImportContextDependency(cache_dependency2, owned_paths2.items, injected.entry_path);
+                return;
+            }
             owned_paths2.append(injected.entry_path) catch |err| {
                 injected.deinit(allocator2);
                 return err;
@@ -4302,6 +4334,7 @@ fn injectImportedFile(
                 effective_child_package_identity,
                 current_package_hash2,
                 resolve_ctx2,
+                cache_dependency2,
             );
         }
     }.run;
@@ -4325,6 +4358,7 @@ fn injectImportedFile(
             effective_package_identity,
             current_package_hash,
             resolve_ctx,
+            cache_dependency,
         );
     } else |_| {}
 
@@ -4347,6 +4381,7 @@ fn injectImportedFile(
             effective_package_identity,
             current_package_hash,
             resolve_ctx,
+            cache_dependency,
         );
     } else |_| {}
 }
@@ -4367,6 +4402,7 @@ fn expandImportsInto(
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
     resolve_ctx: ?ResolveContext,
+    cache_dependency: ?*ExpandedImportCacheDependency,
 ) !void {
     const estimated_line_count = countSourceLines(source);
     try out.ensureUnusedCapacity(source.len +| 1);
@@ -4405,6 +4441,7 @@ fn expandImportsInto(
                 return error.ImportCycle;
             }
             if (seen_paths.contains(imported.entry_path)) {
+                markSeenImportContextDependency(cache_dependency, owned_paths.items, imported.entry_path);
                 imported.deinit(allocator);
                 continue;
             }
@@ -4428,6 +4465,10 @@ fn expandImportsInto(
             const fragment_line_start = line_package_identities.items.len;
             const fragment_owned_start = owned_paths.items.len;
             const fragment_layout_start = layout_versions.items.len;
+            var fragment_dependency = ExpandedImportCacheDependency{
+                .owned_start = fragment_owned_start,
+                .parent = cache_dependency,
+            };
             if (std.mem.endsWith(u8, imported.entry_path, ".sal")) {
                 try recordLayoutVersion(allocator, layout_versions, imported.entry_path, imported.source);
             }
@@ -4457,6 +4498,7 @@ fn expandImportsInto(
                 current_package_identity,
                 imported_package_hash,
                 resolve_ctx,
+                &fragment_dependency,
             );
             const is_layout_file = std.mem.endsWith(u8, imported.entry_path, ".sal");
             var rewritten_source: ?[]u8 = null;
@@ -4485,11 +4527,12 @@ fn expandImportsInto(
                 imported_package_identity,
                 imported_package_hash,
                 resolve_ctx,
+                &fragment_dependency,
             );
             if (expanded_cache_key) |key| {
                 const fragment_identities = line_package_identities.items[fragment_line_start..];
                 const fragment_hashes = line_package_hashes.items[fragment_line_start..];
-                if (lineMetadataCacheable(fragment_identities, fragment_hashes)) {
+                if (!fragment_dependency.context_dependent and lineMetadataCacheable(fragment_identities, fragment_hashes)) {
                     storeExpandedImportCacheEntry(
                         key,
                         out.items[fragment_out_start..],
@@ -4590,6 +4633,7 @@ pub fn expandImports(
         current_package_identity,
         null,
         resolve_ctx,
+        null,
     );
 
     return .{
@@ -6008,6 +6052,93 @@ test "expanded import cache invalidates when transitive import changes" {
     defer second.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
     try std.testing.expectEqualStrings("777", second.def_dict.get("EXPANDED_CACHE_VALUE").?);
+}
+
+test "expanded import cache does not store fragments that skipped caller-seen imports" {
+    clearImportSourceCacheForTest();
+    defer clearImportSourceCacheForTest();
+    clearExpandedImportCacheForTest();
+    defer clearExpandedImportCacheForTest();
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("sa_std/core");
+    {
+        var file = try tmp.dir.createFile("sa_std/core/dep.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@dep_value() -> u64:
+            \\L_ENTRY:
+            \\    return 42
+            \\
+        );
+    }
+    {
+        var file = try tmp.dir.createFile("sa_std/core/wrapper.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "dep.sa"
+            \\
+            \\[MACRO] WRAP_CALL %out
+            \\    %out = call @dep_value()
+            \\[END_MACRO]
+            \\
+        );
+    }
+    {
+        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "sa_std/core/dep.sa"
+            \\@import "sa_std/core/wrapper.sa"
+            \\@main() -> i32:
+            \\L_ENTRY:
+            \\    EXPAND WRAP_CALL value
+            \\    !value
+            \\    return 0
+            \\
+        );
+    }
+    {
+        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "sa_std/core/wrapper.sa"
+            \\@main() -> i32:
+            \\L_ENTRY:
+            \\    EXPAND WRAP_CALL value
+            \\    !value
+            \\    return 0
+            \\
+        );
+    }
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
+
+    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    defer std.testing.allocator.free(source_a);
+    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    defer std.testing.allocator.free(source_path_a);
+    var first = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
+    defer first.deinit(std.testing.allocator);
+
+    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    defer std.testing.allocator.free(source_b);
+    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    defer std.testing.allocator.free(source_path_b);
+    var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
+    defer second.deinit(std.testing.allocator);
+
+    var saw_dep = false;
+    for (second.function_sigs) |sig| {
+        if (std.mem.eql(u8, sig.name, "dep_value")) saw_dep = true;
+    }
+    try std.testing.expect(saw_dep);
 }
 
 test "expanded import cache LRU is opt-in" {
