@@ -315,3 +315,25 @@
 - pkg 结论保持保守：外部 pkg 插件通过 25/25，支持 `sa pkg fetch/install/audit/sum/lock/CI helper` 子集；但任务原文中的顶层 `sa fetch` 完整语义、重复导出与版本冲突、NonTransitivePrimitive、审判台生命周期 PBT、lock idempotency 端到端、tainted runtime warning 和全平台 CI matrix 仍未证明。
 - Deno 结论更新为“可构建但无测试入口”：`sa_plugin_deno` 已有 `sap.json`、`deno.sai`、`deno.sal` 和 `libdeno.so` 构建证据，但没有 `zig build test` step。主仓 Deno facade 链接旧阻塞本轮未快速复现为 undefined symbol，但全量主仓测试也未完成，因此仍不能当作最终验收通过。
 - 文档更新范围：`tasks.md` 顶部快照、SAX/NetX 文档登记任务；`docs/std_rfc.md` 新增 NetX/SAX 登记；`docs/sax_design.md`、`docs/sax_whitepaper.md`、`docs/sax_airlock.md`、`docs/sax_syntax.md` 同步外部插件真实路径和后端；本节作为最新评估记录追加到 `docs/progress.md`。
+
+## Core Issue Pass 2026-06-10 B
+
+Progress: 94% for issue1-issue7 non-plugin, low-risk core safety/performance items. Plugin security remains intentionally deferred per user instruction; larger architecture work such as full frontend IR persistent cache, verifier/emitter pipeline overlap, reactor timeout heap, permission-rooted filesystem sandbox, and full interpreter plugin broker parity remains outside this patch.
+
+Completed in this pass:
+- `sa_std/core/mem.sa`: `sa_mem_set` now checks `dst == 0` when `count != 0` and traps with `panic(1703)`, matching the existing `sa_mem_copy` null-pointer guards.
+- `src/flattener.zig`: `[REP N]` now rejects count overflow and expanded fan-out above the 10M line budget with `MacroExpansionBudget`; macro/REP expansion events also have a hard budget.
+- `src/pkg/fetch.zig`: package fetch directory probing now propagates unexpected `openDir` failures instead of treating them as cache misses.
+- `src/pkg/resolver.zig`: package entry candidates now fail if their canonical path escapes the package root through a symlink.
+- `src/emit_llvm_llvmc_shim.c`: native panic-code formatting now handles multi-digit panic codes such as 1701/1702/1703, and minimal LLVM module creation checks module/builder allocation failures.
+
+Targeted verification passed:
+- `zig test src/flattener.zig` — 88/88
+- `zig test src/pkg/fetch.zig` — 21/21
+- `zig test src/pkg/resolver.zig` — 8/8
+- `zig build pkg-core-test --summary all` — 40/40
+- `zig build llvmc-test --summary all` — 15/15
+- `zig build std-smoke --summary all` — 14/14
+- `zig build install --summary all` — 14/14 build/install steps succeeded locally
+- `sh tools/install.sh --no-shell` — installed `sa 0.0.3.3` to `/home/vscode/.sa/bin/sa`
+- Native panic smoke: `panic(1703)` now prints `PANIC: code=1703`

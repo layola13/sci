@@ -265,6 +265,9 @@ test "sa_std core primitives are concrete and verifiable" {
     defer std.testing.allocator.free(mem_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "@export sa_mem_copy"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "@export sa_mem_set"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "panic(1701)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "panic(1702)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "panic(1703)"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "[MACRO] BOX_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "[MACRO] BOX_FREE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "ptr_add"));

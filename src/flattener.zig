@@ -30,6 +30,19 @@ pub const Trap = common_trap.Trap;
 pub const LocTable = common_upstream.LocTable;
 
 const max_expanded_instructions: usize = 10_000_000;
+const max_expanded_macro_lines: usize = 10_000_000;
+const max_macro_expansion_events: u64 = 10_000_000;
+
+fn bumpMacroExpansionCounter(counter: *u64) !u64 {
+    if (counter.* >= max_macro_expansion_events) return error.MacroExpansionBudget;
+    counter.* += 1;
+    return counter.*;
+}
+
+fn ensureRepExpansionBudget(count: usize, body_line_count: usize) !void {
+    if (body_line_count == 0) return;
+    if (count > max_expanded_macro_lines / body_line_count) return error.MacroExpansionBudget;
+}
 
 pub const ResolveContext = struct {
     dependencies: []const pkg_resolver.Dependency = &.{},
@@ -2983,15 +2996,16 @@ fn emitRange(
             .rep_start => {
                 const count_text = try dict.foldText(allocator, line.classified.parts[0]);
                 try owned_text.append(count_text);
-                const count = try std.fmt.parseInt(usize, count_text, 10);
+                const count = std.fmt.parseInt(usize, count_text, 10) catch return error.MacroExpansionBudget;
                 const rep_end = findNestedRepEnd(lines, idx + 1) orelse return error.UnbalancedRep;
+                try ensureRepExpansionBudget(count, rep_end - (idx + 1));
 
                 var rep_index: usize = 0;
                 while (rep_index < count) : (rep_index += 1) {
-                    expansion_counter.* += 1;
+                    const expansion_id = try bumpMacroExpansionCounter(expansion_counter);
                     var rep_defined_names = try collectDefinedNames(allocator, lines, idx + 1, rep_end);
                     defer rep_defined_names.deinit();
-                    var hygiene_replacements = try buildHygieneReplacements(allocator, &rep_defined_names, expansion_counter.*);
+                    var hygiene_replacements = try buildHygieneReplacements(allocator, &rep_defined_names, expansion_id);
                     defer {
                         for (hygiene_replacements.items) |r| allocator.free(r.replacement);
                         hygiene_replacements.deinit();
@@ -3249,10 +3263,10 @@ fn emitRange(
                     if (def.variadic_param) |variadic_param| {
                         if (args.len < def.params.len) return error.InvalidMacroInvocation;
 
-                        expansion_counter.* += 1;
+                        const expansion_id = try bumpMacroExpansionCounter(expansion_counter);
                         var var_defined_names = try collectDefinedNamesFromSlice(allocator, body_lines);
                         defer var_defined_names.deinit();
-                        var var_hygiene = try buildHygieneReplacements(allocator, &var_defined_names, expansion_counter.*);
+                        var var_hygiene = try buildHygieneReplacements(allocator, &var_defined_names, expansion_id);
                         defer {
                             for (var_hygiene.items) |r| allocator.free(r.replacement);
                             var_hygiene.deinit();
@@ -3300,10 +3314,10 @@ fn emitRange(
 
                     if (args.len != def.params.len) return error.InvalidMacroInvocation;
 
-                    expansion_counter.* += 1;
+                    const expansion_id = try bumpMacroExpansionCounter(expansion_counter);
                     var nv_defined_names = try collectDefinedNamesFromSlice(allocator, body_lines);
                     defer nv_defined_names.deinit();
-                    var nv_hygiene = try buildHygieneReplacements(allocator, &nv_defined_names, expansion_counter.*);
+                    var nv_hygiene = try buildHygieneReplacements(allocator, &nv_defined_names, expansion_id);
                     defer {
                         for (nv_hygiene.items) |r| allocator.free(r.replacement);
                         nv_hygiene.deinit();
@@ -6585,6 +6599,30 @@ test "macro PBT rejects invalid definitions and invocations" {
         };
         try std.testing.expectError(expected_error, flatten(std.testing.allocator, source));
     }
+}
+
+test "REP fan-out over the expanded line budget fails before expansion" {
+    const source =
+        \\@main() -> i32:
+        \\[REP 10000001]
+        \\    _tmp%i = add 0, 0
+        \\[END_REP]
+        \\    return 0
+    ;
+
+    try std.testing.expectError(error.MacroExpansionBudget, flatten(std.testing.allocator, source));
+}
+
+test "REP count overflow maps to macro expansion budget" {
+    const source =
+        \\@main() -> i32:
+        \\[REP 999999999999999999999999]
+        \\    _tmp%i = add 0, 0
+        \\[END_REP]
+        \\    return 0
+    ;
+
+    try std.testing.expectError(error.MacroExpansionBudget, flatten(std.testing.allocator, source));
 }
 
 test "def dict PBT folds random arithmetic expressions through flatten" {

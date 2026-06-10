@@ -1426,83 +1426,43 @@ static void emit_panic_msg(EmitCtx *e) {
     LLVMValueRef msg_len = coerce_to_size(e, LLVMGetParam(fn, 2), "panic_msg_len");
     LLVMTypeRef sz_ty = size_type(e);
 
-    // Dynamic formatting of 'code' on the stack
-    LLVMValueRef zero = LLVMConstInt(e->i64_ty, 0, 0);
-    LLVMValueRef one = LLVMConstInt(e->i64_ty, 1, 0);
-    LLVMValueRef two = LLVMConstInt(e->i64_ty, 2, 0);
+    // Dynamic decimal formatting of 'code' on the stack. i32 needs at most 10 unsigned digits.
+    const unsigned max_panic_code_digits = 10;
+    LLVMValueRef zero32 = LLVMConstInt(e->i32_ty, 0, 0);
+    LLVMValueRef one32 = LLVMConstInt(e->i32_ty, 1, 0);
+    LLVMValueRef ten32 = LLVMConstInt(e->i32_ty, 10, 0);
 
-    LLVMValueRef buf = LLVMBuildAlloca(e->builder, LLVMArrayType(e->i8_ty, 4), "buf");
+    LLVMValueRef buf = LLVMBuildAlloca(e->builder, LLVMArrayType(e->i8_ty, max_panic_code_digits), "buf");
     LLVMValueRef buf_ptr = LLVMBuildPointerCast(e->builder, buf, e->ptr_ty, "buf_ptr");
 
-    LLVMBasicBlockRef ge_100_bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "ge_100");
-    LLVMBasicBlockRef lt_100_bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "lt_100");
-    LLVMBasicBlockRef ge_10_bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "ge_10");
-    LLVMBasicBlockRef lt_10_bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "lt_10");
-    LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "merge");
+    LLVMValueRef tmp_slot = LLVMBuildAlloca(e->builder, e->i32_ty, "panic_code_tmp");
+    LLVMValueRef idx_slot = LLVMBuildAlloca(e->builder, e->i32_ty, "panic_code_idx");
+    LLVMBuildStore(e->builder, code, tmp_slot);
+    LLVMBuildStore(e->builder, LLVMConstInt(e->i32_ty, max_panic_code_digits, 0), idx_slot);
 
-    LLVMValueRef cond_100 = LLVMBuildICmp(e->builder, LLVMIntSGE, code, LLVMConstInt(e->i32_ty, 100, 0), "cond_100");
-    LLVMBuildCondBr(e->builder, cond_100, ge_100_bb, lt_100_bb);
+    LLVMBasicBlockRef digits_loop_bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "digits_loop");
+    LLVMBasicBlockRef digits_done_bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "digits_done");
+    LLVMBuildBr(e->builder, digits_loop_bb);
 
-    // Block: ge_100
-    LLVMPositionBuilderAtEnd(e->builder, ge_100_bb);
-    LLVMValueRef d0_100 = LLVMBuildSDiv(e->builder, code, LLVMConstInt(e->i32_ty, 100, 0), "d0");
-    LLVMValueRef c0_100 = LLVMBuildAdd(e->builder, d0_100, LLVMConstInt(e->i32_ty, '0', 0), "c0");
-    LLVMValueRef rem_100 = LLVMBuildSRem(e->builder, code, LLVMConstInt(e->i32_ty, 100, 0), "rem");
-    LLVMValueRef d1_100 = LLVMBuildSDiv(e->builder, rem_100, LLVMConstInt(e->i32_ty, 10, 0), "d1");
-    LLVMValueRef c1_100 = LLVMBuildAdd(e->builder, d1_100, LLVMConstInt(e->i32_ty, '0', 0), "c1");
-    LLVMValueRef d2_100 = LLVMBuildSRem(e->builder, rem_100, LLVMConstInt(e->i32_ty, 10, 0), "d2");
-    LLVMValueRef c2_100 = LLVMBuildAdd(e->builder, d2_100, LLVMConstInt(e->i32_ty, '0', 0), "c2");
+    LLVMPositionBuilderAtEnd(e->builder, digits_loop_bb);
+    LLVMValueRef tmp_value = LLVMBuildLoad2(e->builder, e->i32_ty, tmp_slot, "tmp");
+    LLVMValueRef digit = LLVMBuildURem(e->builder, tmp_value, ten32, "digit");
+    LLVMValueRef next_tmp = LLVMBuildUDiv(e->builder, tmp_value, ten32, "next_tmp");
+    LLVMValueRef idx_value = LLVMBuildLoad2(e->builder, e->i32_ty, idx_slot, "idx");
+    LLVMValueRef next_idx = LLVMBuildSub(e->builder, idx_value, one32, "next_idx");
+    LLVMBuildStore(e->builder, next_idx, idx_slot);
+    LLVMValueRef digit_char = LLVMBuildAdd(e->builder, digit, LLVMConstInt(e->i32_ty, '0', 0), "digit_char");
+    LLVMValueRef digit_ptr = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &next_idx, 1, "digit_ptr");
+    LLVMBuildStore(e->builder, LLVMBuildTrunc(e->builder, digit_char, e->i8_ty, ""), digit_ptr);
+    LLVMBuildStore(e->builder, next_tmp, tmp_slot);
+    LLVMValueRef more_digits = LLVMBuildICmp(e->builder, LLVMIntNE, next_tmp, zero32, "more_digits");
+    LLVMBuildCondBr(e->builder, more_digits, digits_loop_bb, digits_done_bb);
 
-    LLVMValueRef p0_100 = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &zero, 1, "p0");
-    LLVMBuildStore(e->builder, LLVMBuildTrunc(e->builder, c0_100, e->i8_ty, ""), p0_100);
-    LLVMValueRef p1_100 = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &one, 1, "p1");
-    LLVMBuildStore(e->builder, LLVMBuildTrunc(e->builder, c1_100, e->i8_ty, ""), p1_100);
-    LLVMValueRef p2_100 = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &two, 1, "p2");
-    LLVMBuildStore(e->builder, LLVMBuildTrunc(e->builder, c2_100, e->i8_ty, ""), p2_100);
-
-    LLVMBuildBr(e->builder, merge_bb);
-
-    // Block: lt_100
-    LLVMPositionBuilderAtEnd(e->builder, lt_100_bb);
-    LLVMValueRef cond_10 = LLVMBuildICmp(e->builder, LLVMIntSGE, code, LLVMConstInt(e->i32_ty, 10, 0), "cond_10");
-    LLVMBuildCondBr(e->builder, cond_10, ge_10_bb, lt_10_bb);
-
-    // Block: ge_10
-    LLVMPositionBuilderAtEnd(e->builder, ge_10_bb);
-    LLVMValueRef d0_10 = LLVMBuildSDiv(e->builder, code, LLVMConstInt(e->i32_ty, 10, 0), "d0");
-    LLVMValueRef c0_10 = LLVMBuildAdd(e->builder, d0_10, LLVMConstInt(e->i32_ty, '0', 0), "c0");
-    LLVMValueRef d1_10 = LLVMBuildSRem(e->builder, code, LLVMConstInt(e->i32_ty, 10, 0), "d1");
-    LLVMValueRef c1_10 = LLVMBuildAdd(e->builder, d1_10, LLVMConstInt(e->i32_ty, '0', 0), "c1");
-
-    LLVMValueRef p0_10 = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &zero, 1, "p0");
-    LLVMBuildStore(e->builder, LLVMBuildTrunc(e->builder, c0_10, e->i8_ty, ""), p0_10);
-    LLVMValueRef p1_10 = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &one, 1, "p1");
-    LLVMBuildStore(e->builder, LLVMBuildTrunc(e->builder, c1_10, e->i8_ty, ""), p1_10);
-
-    LLVMBuildBr(e->builder, merge_bb);
-
-    // Block: lt_10
-    LLVMPositionBuilderAtEnd(e->builder, lt_10_bb);
-    LLVMValueRef c0_1 = LLVMBuildAdd(e->builder, code, LLVMConstInt(e->i32_ty, '0', 0), "c0");
-    LLVMValueRef p0_1 = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &zero, 1, "p0");
-    LLVMBuildStore(e->builder, LLVMBuildTrunc(e->builder, c0_1, e->i8_ty, ""), p0_1);
-
-    LLVMBuildBr(e->builder, merge_bb);
-
-    // Block: merge
-    LLVMPositionBuilderAtEnd(e->builder, merge_bb);
-    LLVMValueRef formatted_len = LLVMBuildPhi(e->builder, sz_ty, "formatted_len");
-    LLVMValueRef incoming_values[3] = {
-        LLVMConstInt(sz_ty, 3, 0),
-        LLVMConstInt(sz_ty, 2, 0),
-        LLVMConstInt(sz_ty, 1, 0)
-    };
-    LLVMBasicBlockRef incoming_blocks[3] = {
-        ge_100_bb,
-        ge_10_bb,
-        lt_10_bb
-    };
-    LLVMAddIncoming(formatted_len, incoming_values, incoming_blocks, 3);
+    LLVMPositionBuilderAtEnd(e->builder, digits_done_bb);
+    LLVMValueRef start_idx32 = LLVMBuildLoad2(e->builder, e->i32_ty, idx_slot, "start_idx");
+    LLVMValueRef start_idx = coerce_to_size(e, start_idx32, "start_idx_size");
+    LLVMValueRef formatted_ptr = LLVMBuildGEP2(e->builder, e->i8_ty, buf_ptr, &start_idx, 1, "formatted_ptr");
+    LLVMValueRef formatted_len = LLVMBuildSub(e->builder, LLVMConstInt(sz_ty, max_panic_code_digits, 0), start_idx, "formatted_len");
 
     // Branch on msg_len == 0 to determine layout
     LLVMValueRef is_zero_len = LLVMBuildICmp(e->builder, LLVMIntEQ, msg_len, LLVMConstInt(sz_ty, 0, 0), "is_zero_len");
@@ -1523,7 +1483,7 @@ static void emit_panic_msg(EmitCtx *e) {
 
     LLVMValueRef write_args_simple2[3] = {
         LLVMConstInt(e->i32_ty, 2, 0),
-        buf_ptr,
+        formatted_ptr,
         formatted_len
     };
     LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->write_fn), e->write_fn, write_args_simple2, 3, "");
@@ -1542,7 +1502,7 @@ static void emit_panic_msg(EmitCtx *e) {
 
     LLVMValueRef write_args_msg2[3] = {
         LLVMConstInt(e->i32_ty, 2, 0),
-        buf_ptr,
+        formatted_ptr,
         formatted_len
     };
     LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->write_fn), e->write_fn, write_args_msg2, 3, "");
@@ -1713,6 +1673,12 @@ int sa_llvmc_make_minimal_module_bitcode(unsigned char **out_bytes, size_t *out_
     if (context == NULL) return set_error(out_error, "LLVMContextCreate failed");
     LLVMModuleRef module = LLVMModuleCreateWithNameInContext("sa_llvmc_test", context);
     LLVMBuilderRef builder = LLVMCreateBuilderInContext(context);
+    if (module == NULL || builder == NULL) {
+        if (builder != NULL) LLVMDisposeBuilder(builder);
+        if (module != NULL) LLVMDisposeModule(module);
+        LLVMContextDispose(context);
+        return set_error(out_error, "LLVM module or builder creation failed");
+    }
     LLVMTypeRef i32_ty = LLVMInt32TypeInContext(context);
     LLVMTypeRef fn_ty = LLVMFunctionType(i32_ty, NULL, 0, 0);
     LLVMValueRef fn_value = LLVMAddFunction(module, "main", fn_ty);

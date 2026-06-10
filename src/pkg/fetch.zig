@@ -99,8 +99,11 @@ fn deleteExistingDir(path: []const u8) !void {
     try std.fs.cwd().deleteTree(path);
 }
 
-fn dirExists(path: []const u8) bool {
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return false;
+fn dirExists(path: []const u8) !bool {
+    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return false,
+        else => return err,
+    };
     dir.close();
     return true;
 }
@@ -279,7 +282,7 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
     try validateIdentity(mirrored_identity);
 
     if (options.offline) {
-        if (dirExists(target_root)) {
+        if (try dirExists(target_root)) {
             const source_sha256 = try inspectFetchedSource(allocator, target_root);
             try validateExpectedSourceHash(options.expected_source_sha256, source_sha256);
             if (options.global) {
@@ -288,12 +291,12 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
             return .{ .root = target_root, .source_sha256 = source_sha256 };
         }
 
-        if (dirExists(identity)) {
+        if (try dirExists(identity)) {
             if (std.mem.eql(u8, identity, target_root)) return error.InvalidPath;
             try deleteExistingDir(target_root);
             try std.fs.cwd().makePath(target_root);
             try copyTree(identity, target_root, allocator);
-        } else if (!std.mem.eql(u8, mirrored_identity, identity) and dirExists(mirrored_identity)) {
+        } else if (!std.mem.eql(u8, mirrored_identity, identity) and try dirExists(mirrored_identity)) {
             if (std.mem.eql(u8, mirrored_identity, target_root)) return error.InvalidPath;
             try deleteExistingDir(target_root);
             try std.fs.cwd().makePath(target_root);
@@ -301,11 +304,11 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
         } else {
             return error.SourceNotFound;
         }
-    } else if (dirExists(identity)) {
+    } else if (try dirExists(identity)) {
         try deleteExistingDir(target_root);
         try std.fs.cwd().makePath(target_root);
         try copyTree(identity, target_root, allocator);
-    } else if (!std.mem.eql(u8, mirrored_identity, identity) and dirExists(mirrored_identity)) {
+    } else if (!std.mem.eql(u8, mirrored_identity, identity) and try dirExists(mirrored_identity)) {
         try deleteExistingDir(target_root);
         try std.fs.cwd().makePath(target_root);
         try copyTree(mirrored_identity, target_root, allocator);
@@ -433,6 +436,22 @@ test "fetch rejects path traversal identities" {
 test "fetch rejects option-shaped identities and refs before git clone" {
     try std.testing.expectError(error.InvalidUrl, fetchPackage(std.testing.allocator, "-upload-pack=evil", "HEAD", .{ .offline = true }));
     try std.testing.expectError(error.InvalidUrl, fetchPackage(std.testing.allocator, "github.com/example/pkg", "--upload-pack=evil", .{ .offline = true }));
+}
+
+test "dirExists returns false for plain files without swallowing directory errors" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "not_a_dir", .data = "x" });
+    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    defer old_cwd.close();
+    try tmp.dir.setAsCwd();
+    defer old_cwd.setAsCwd() catch |err| {
+        // Test teardown cannot recover from cwd restoration failure.
+        _ = @errorName(err);
+    };
+
+    try std.testing.expect(!try dirExists("not_a_dir"));
 }
 
 test "fetch rejects and removes non-offline packages whose source hash mismatches" {

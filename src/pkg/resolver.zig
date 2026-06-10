@@ -378,6 +378,7 @@ fn resolveFromPackageRoot(
 
         const canonical_entry = std.fs.cwd().realpathAlloc(allocator, candidate) catch continue;
         errdefer allocator.free(canonical_entry);
+        if (!pathWithinRoot(canonical_root, canonical_entry)) return error.InvalidImportPath;
 
         if (global) {
             const mapped = try mapFileReadOnly(canonical_entry);
@@ -776,6 +777,37 @@ test "resolveImport accepts package source matching pinned sha" {
     }
 
     try std.testing.expect(resolved.is_global);
+}
+
+test "resolveImport rejects package entry symlinks escaping the package root" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath(".sa/pkg/github.com/example/pkg@v1");
+    try tmp.dir.writeFile(.{ .sub_path = "outside.sa", .data = "@outside() -> i32:\n    return 9\n" });
+    const outside_abs = try tmp.dir.realpathAlloc(std.testing.allocator, "outside.sa");
+    defer std.testing.allocator.free(outside_abs);
+    try tmp.dir.symLink(outside_abs, ".sa/pkg/github.com/example/pkg@v1/index.sa", .{});
+
+    const home = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(home);
+    const dependency = Dependency{
+        .url = "github.com/example/pkg",
+        .ref = "v1",
+    };
+
+    try std.testing.expectError(
+        error.InvalidImportPath,
+        resolveImport(
+            std.testing.allocator,
+            &.{dependency},
+            home,
+            "github.com/example/pkg",
+            .{ .project_root = home, .home_dir = home },
+        ),
+    );
 }
 
 test "resolveImport returns PackageNotResolved when cache misses" {

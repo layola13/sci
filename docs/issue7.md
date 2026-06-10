@@ -13,6 +13,11 @@ Core/runtime items completed in the main repo, without editing the external plug
 - Runtime diagnostics race: test-debug scalar capture/printing is mutex-protected.
 - Manifest allocation hardening: `sa.mod` parsing now rejects sources above 1 MiB and normal project/nested-manifest readers use the same limit before parsing.
 - LLVM-C emitter count hardening: function table size and direct/indirect parameter counts are checked before casting to LLVM-C `unsigned` counts.
+- SA core memory helper hardening: `sa_mem_set` now mirrors `sa_mem_copy` and rejects non-zero writes to a null destination with `panic(1703)`.
+- Macro fan-out hardening: `[REP N]` counts that overflow or exceed the total expanded-line budget now fail with `MacroExpansionBudget` before allocating/emitting the expanded body.
+- Package fetch error hygiene: `dirExists` now only treats missing/non-directory paths as absent and propagates unexpected directory errors instead of silently falling through to reclone/copy paths.
+- Package resolver path containment: package-root entry candidates are rejected if canonicalization follows a symlink outside the package root.
+- LLVM-C panic diagnostics: native panic code formatting no longer truncates codes above three digits, and minimal module construction checks LLVM module/builder allocation failures before dereference.
 - Previously completed issue7 core items include WebSocket frame length checked casts, socket option length runtime checks, JSON refcount initialization/underflow hardening, package source sha256 pin enforcement, git clone argument/env hardening, interpreter div-by-zero and call-depth traps, interpreter memory block bsearch lookup, pthread handle free-list reuse, and host embedded-NUL rejection.
 
 Plugin-specific findings remain documented but intentionally not changed here per user instruction. Larger architectural items such as reactor timeout min-heaps and a full permission-rooted filesystem sandbox need separate design work because they change runtime contracts rather than being safe kernel patches.
