@@ -50,9 +50,51 @@ const MacroDef = struct {
     variadic_param: ?[]const u8 = null,
     body_start: usize,
     body_end: usize,
+    owned_body_lines: []SourceLine = &.{},
+    owned_name: ?[]u8 = null,
+    owned_params: [][]const u8 = &.{},
+    owned_variadic_param: ?[]u8 = null,
 
     fn deinit(self: *MacroDef, allocator: std.mem.Allocator) void {
+        if (self.owned_body_lines.len != 0) deinitOwnedSourceLines(allocator, self.owned_body_lines);
+        if (self.owned_name) |name| allocator.free(name);
+        if (self.owned_params.len != 0) {
+            for (self.owned_params) |param| allocator.free(param);
+            allocator.free(self.owned_params);
+        } else {
+            allocator.free(self.params);
+        }
+        if (self.owned_variadic_param) |param| allocator.free(param);
+        self.* = undefined;
+    }
+};
+
+const CachedMacroLine = struct {
+    line_no: u32,
+    text: []u8,
+    package_identity: ?[]u8 = null,
+    package_source_sha256: ?[32]u8 = null,
+
+    fn deinit(self: *CachedMacroLine, allocator: std.mem.Allocator) void {
+        allocator.free(self.text);
+        if (self.package_identity) |identity| allocator.free(identity);
+        self.* = undefined;
+    }
+};
+
+const CachedMacroDef = struct {
+    name: []u8,
+    params: [][]const u8,
+    variadic_param: ?[]u8 = null,
+    body_lines: []CachedMacroLine,
+
+    fn deinit(self: *CachedMacroDef, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        for (self.params) |param| allocator.free(param);
         allocator.free(self.params);
+        if (self.variadic_param) |param| allocator.free(param);
+        for (self.body_lines) |*line| line.deinit(allocator);
+        allocator.free(self.body_lines);
         self.* = undefined;
     }
 };
@@ -635,6 +677,7 @@ pub const FlattenResult = struct {
     const_decls: []ConstDecl,
     function_sigs: []FunctionSig,
     test_sigs: []FunctionSig,
+    cached_macro_defs: []CachedMacroDef,
     def_dict: DefDict,
     symbols: SymbolTable,
     loc_table: LocTable,
@@ -665,6 +708,7 @@ pub const FlattenResult = struct {
         for (self.function_sigs) |*sig| sig.deinit(allocator);
         allocator.free(self.function_sigs);
         allocator.free(self.test_sigs);
+        deinitCachedMacroDefs(allocator, self.cached_macro_defs);
         allocator.free(self.instructions);
         self.def_dict.deinit();
         self.symbols.deinit();
@@ -747,9 +791,156 @@ fn joinTokens(allocator: std.mem.Allocator, tokens: []const []const u8) ![]const
 fn deinitMacroMap(allocator: std.mem.Allocator, macros: *std.StringHashMap(MacroDef)) void {
     var it = macros.valueIterator();
     while (it.next()) |macro_def| {
-        allocator.free(macro_def.params);
+        macro_def.deinit(allocator);
     }
     macros.deinit();
+}
+
+fn deinitCachedMacroDefs(allocator: std.mem.Allocator, defs: []CachedMacroDef) void {
+    for (defs) |*def| def.deinit(allocator);
+    allocator.free(defs);
+}
+
+fn deinitCachedMacroDefItems(allocator: std.mem.Allocator, defs: []CachedMacroDef) void {
+    for (defs) |*def| def.deinit(allocator);
+}
+
+fn deinitOwnedSourceLineItems(allocator: std.mem.Allocator, lines: []SourceLine) void {
+    for (lines) |line| {
+        allocator.free(@constCast(line.text));
+        if (line.package_identity) |identity| allocator.free(@constCast(identity));
+    }
+}
+
+fn deinitOwnedSourceLines(allocator: std.mem.Allocator, lines: []SourceLine) void {
+    deinitOwnedSourceLineItems(allocator, lines);
+    allocator.free(lines);
+}
+
+fn cloneOwnedSourceLines(
+    allocator: std.mem.Allocator,
+    lines: []const SourceLine,
+) ![]SourceLine {
+    const owned = try allocator.alloc(SourceLine, lines.len);
+    errdefer allocator.free(owned);
+
+    var copied: usize = 0;
+    errdefer deinitOwnedSourceLineItems(allocator, owned[0..copied]);
+
+    for (lines, 0..) |line, idx| {
+        owned[idx] = .{
+            .line_no = line.line_no,
+            .text = try allocator.dupe(u8, line.text),
+            .classified = line.classified,
+            .package_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null,
+            .package_source_sha256 = line.package_source_sha256,
+        };
+        copied += 1;
+    }
+
+    return owned;
+}
+
+fn macroDefBodyLines(def: *const MacroDef, lines: []const SourceLine) []const SourceLine {
+    if (def.owned_body_lines.len != 0) return def.owned_body_lines;
+    return lines[def.body_start..def.body_end];
+}
+
+fn captureCachedMacroDefs(
+    allocator: std.mem.Allocator,
+    lines: []const SourceLine,
+    macros: *const std.StringHashMap(MacroDef),
+) ![]CachedMacroDef {
+    const defs = try allocator.alloc(CachedMacroDef, macros.count());
+    errdefer allocator.free(defs);
+    var copied_defs: usize = 0;
+    errdefer deinitCachedMacroDefItems(allocator, defs[0..copied_defs]);
+
+    var it = macros.iterator();
+    while (it.next()) |entry| {
+        const def = entry.value_ptr.*;
+        const body_lines = macroDefBodyLines(&def, lines);
+        var cached = CachedMacroDef{
+            .name = try allocator.dupe(u8, entry.key_ptr.*),
+            .params = try allocator.alloc([]const u8, def.params.len),
+            .variadic_param = null,
+            .body_lines = try allocator.alloc(CachedMacroLine, body_lines.len),
+        };
+        errdefer cached.deinit(allocator);
+
+        for (def.params, 0..) |param, idx| {
+            cached.params[idx] = try allocator.dupe(u8, param);
+        }
+        if (def.variadic_param) |param| {
+            cached.variadic_param = try allocator.dupe(u8, param);
+        }
+        for (body_lines, 0..) |line, idx| {
+            cached.body_lines[idx] = .{
+                .line_no = line.line_no,
+                .text = try allocator.dupe(u8, line.text),
+                .package_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null,
+                .package_source_sha256 = line.package_source_sha256,
+            };
+        }
+
+        defs[copied_defs] = cached;
+        copied_defs += 1;
+    }
+
+    return defs[0..copied_defs];
+}
+
+fn restoreCachedMacroDefs(
+    allocator: std.mem.Allocator,
+    defs: []const CachedMacroDef,
+    macros: *std.StringHashMap(MacroDef),
+) !void {
+    for (defs) |cached| {
+        if (macros.contains(cached.name)) return error.DuplicateDef;
+
+        const owned_body_lines = try allocator.alloc(SourceLine, cached.body_lines.len);
+        errdefer allocator.free(owned_body_lines);
+        var copied_body_lines: usize = 0;
+        errdefer deinitOwnedSourceLineItems(allocator, owned_body_lines[0..copied_body_lines]);
+        for (cached.body_lines, 0..) |line, idx| {
+            const owned_text = try allocator.dupe(u8, line.text);
+            const owned_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null;
+            owned_body_lines[idx] = .{
+                .line_no = line.line_no,
+                .text = owned_text,
+                .classified = classifier.classifyLine(owned_text),
+                .package_identity = owned_identity,
+                .package_source_sha256 = line.package_source_sha256,
+            };
+            copied_body_lines += 1;
+        }
+
+        const owned_name = try allocator.dupe(u8, cached.name);
+        errdefer allocator.free(owned_name);
+        const owned_params = try allocator.alloc([]const u8, cached.params.len);
+        errdefer allocator.free(owned_params);
+        var copied_params: usize = 0;
+        errdefer {
+            for (owned_params[0..copied_params]) |param| allocator.free(param);
+        }
+        for (cached.params, 0..) |param, idx| {
+            owned_params[idx] = try allocator.dupe(u8, param);
+            copied_params += 1;
+        }
+        const owned_variadic_param = if (cached.variadic_param) |param| try allocator.dupe(u8, param) else null;
+        errdefer if (owned_variadic_param) |param| allocator.free(param);
+
+        try macros.put(owned_name, .{
+            .params = owned_params,
+            .variadic_param = owned_variadic_param,
+            .body_start = 0,
+            .body_end = owned_body_lines.len,
+            .owned_body_lines = owned_body_lines,
+            .owned_name = owned_name,
+            .owned_params = owned_params,
+            .owned_variadic_param = owned_variadic_param,
+        });
+    }
 }
 
 fn renderWithReplacements(
@@ -935,6 +1126,13 @@ fn collectDefinedNames(
     }
 
     return names;
+}
+
+fn collectDefinedNamesFromSlice(
+    allocator: std.mem.Allocator,
+    lines: []const SourceLine,
+) !std.StringHashMap(void) {
+    return collectDefinedNames(allocator, lines, 0, lines.len);
 }
 
 fn buildHygieneReplacements(
@@ -1883,11 +2081,14 @@ fn collectMacroDefinitions(
                 const parsed_params = try parseMacroParams(allocator, line.classified.parts[1]);
                 errdefer allocator.free(parsed_params.params);
                 if (macros.contains(name)) return error.DuplicateDef;
+                const owned_body_lines = try cloneOwnedSourceLines(allocator, lines[idx + 1 .. end]);
+                errdefer deinitOwnedSourceLines(allocator, owned_body_lines);
                 try macros.put(name, .{
                     .params = parsed_params.params,
                     .variadic_param = parsed_params.variadic_param,
                     .body_start = idx + 1,
                     .body_end = end,
+                    .owned_body_lines = owned_body_lines,
                 });
                 idx = end;
             },
@@ -3013,13 +3214,14 @@ fn emitRange(
                     );
                 } else {
                     const def = macros.get(macro_name) orelse return error.InvalidMacroInvocation;
+                    const body_lines = macroDefBodyLines(&def, lines);
                     const args = try parseTokenList(allocator, rendered_classified.parts[1]);
                     defer allocator.free(args);
                     if (def.variadic_param) |variadic_param| {
                         if (args.len < def.params.len) return error.InvalidMacroInvocation;
 
                         expansion_counter.* += 1;
-                        var var_defined_names = try collectDefinedNames(allocator, lines, def.body_start, def.body_end);
+                        var var_defined_names = try collectDefinedNamesFromSlice(allocator, body_lines);
                         defer var_defined_names.deinit();
                         var var_hygiene = try buildHygieneReplacements(allocator, &var_defined_names, expansion_counter.*);
                         defer {
@@ -3041,9 +3243,9 @@ fn emitRange(
                         defer allocator.free(local_slice);
                         try emitRange(
                             allocator,
-                            lines,
-                            def.body_start,
-                            def.body_end,
+                            body_lines,
+                            0,
+                            body_lines.len,
                             depth + 1,
                             source_line_override orelse line.line_no,
                             source_path,
@@ -3070,7 +3272,7 @@ fn emitRange(
                     if (args.len != def.params.len) return error.InvalidMacroInvocation;
 
                     expansion_counter.* += 1;
-                    var nv_defined_names = try collectDefinedNames(allocator, lines, def.body_start, def.body_end);
+                    var nv_defined_names = try collectDefinedNamesFromSlice(allocator, body_lines);
                     defer nv_defined_names.deinit();
                     var nv_hygiene = try buildHygieneReplacements(allocator, &nv_defined_names, expansion_counter.*);
                     defer {
@@ -3088,9 +3290,9 @@ fn emitRange(
                     defer allocator.free(local_slice);
                     try emitRange(
                         allocator,
-                        lines,
-                        def.body_start,
-                        def.body_end,
+                        body_lines,
+                        0,
+                        body_lines.len,
                         depth + 1,
                         source_line_override orelse line.line_no,
                         source_path,
@@ -3578,6 +3780,7 @@ fn appendFlattenFragment(
     target_layout_versions: *std.ArrayList(LayoutVersion),
     target_package_identities: *std.StringHashMap(void),
     target_owned_text: *std.ArrayList([]const u8),
+    target_macros: *std.StringHashMap(MacroDef),
     fragment: *const FlattenResult,
     source_line_offset: u32,
     expanded_line_offset: u32,
@@ -3595,6 +3798,7 @@ fn appendFlattenFragment(
     );
     try mergeLayoutVersionsAllowingIdentical(allocator, target_layout_versions, fragment.layout_versions);
     try mergePackageIdentities(allocator, target_package_identities, &fragment.package_identities);
+    try restoreCachedMacroDefs(allocator, fragment.cached_macro_defs, target_macros);
 
     const function_id_offset: u32 = @intCast(target_function_sigs.items.len);
     const entry_inst_offset: u32 = @intCast(target_instructions.items.len);
@@ -4423,6 +4627,8 @@ fn flattenInternal(
     defer allocator.free(lines);
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
+    const cached_macro_defs = try captureCachedMacroDefs(allocator, lines, &macros);
+    errdefer deinitCachedMacroDefs(allocator, cached_macro_defs);
     const empty_replacements = [_]Replacement{};
     var expansion_counter: u64 = 0;
     emitRange(
@@ -4477,6 +4683,7 @@ fn flattenInternal(
         .const_decls = try const_decls.toOwnedSlice(),
         .function_sigs = function_sigs_slice,
         .test_sigs = try test_sigs_list.toOwnedSlice(),
+        .cached_macro_defs = cached_macro_defs,
         .def_dict = dict,
         .symbols = symbols,
         .loc_table = loc_table_slice,
@@ -5155,6 +5362,8 @@ test "frontend cache append fragment remaps and merges end to end" {
         for (target_owned_text.items) |text| std.testing.allocator.free(text);
         target_owned_text.deinit();
     }
+    var target_macros = std.StringHashMap(MacroDef).init(std.testing.allocator);
+    defer deinitMacroMap(std.testing.allocator, &target_macros);
 
     _ = try target_symbols.intern("occupied");
     try target_def_dict.putExpression("EXISTING", "1");
@@ -5188,6 +5397,7 @@ test "frontend cache append fragment remaps and merges end to end" {
         &target_layout_versions,
         &target_package_identities,
         &target_owned_text,
+        &target_macros,
         &fragment,
         10,
         20,
@@ -5222,6 +5432,134 @@ test "frontend cache append fragment remaps and merges end to end" {
     try std.testing.expectEqual(@as(u32, fragment.instructions[0].expanded_line + 20), target_instructions.items[1].expanded_line);
     try std.testing.expectEqualStrings(fragment.instructions[0].raw_text, target_instructions.items[1].raw_text);
     try std.testing.expect(target_instructions.items[1].raw_text.ptr != fragment.instructions[0].raw_text.ptr);
+
+    try std.testing.expect(target_macros.contains("SIZE") == false);
+}
+
+test "frontend cache append fragment restores imported macro defs for later expansion" {
+    const imported_source =
+        \\[MACRO] MAKE_TMP %out
+        \\    _tmp = add 0, 7
+        \\    %out = add _tmp, 0
+        \\[END_MACRO]
+    ;
+    var fragment = try flatten(std.testing.allocator, imported_source);
+    defer fragment.deinit(std.testing.allocator);
+
+    var target_instructions = std.ArrayList(Instruction).init(std.testing.allocator);
+    defer {
+        for (target_instructions.items) |item| {
+            if (item.package_identity) |identity| std.testing.allocator.free(identity);
+            if (item.upstream_loc) |loc| std.testing.allocator.free(loc.file);
+            if (item.native_reg_names.len != 0) std.testing.allocator.free(item.native_reg_names);
+        }
+        target_instructions.deinit();
+    }
+    var target_const_decls = std.ArrayList(ConstDecl).init(std.testing.allocator);
+    defer {
+        for (target_const_decls.items) |*decl| decl.deinit(std.testing.allocator);
+        target_const_decls.deinit();
+    }
+    var target_function_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    defer {
+        for (target_function_sigs.items) |*sig| sig.deinit(std.testing.allocator);
+        target_function_sigs.deinit();
+    }
+    var target_test_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    defer {
+        for (target_test_sigs.items) |*sig| sig.deinit(std.testing.allocator);
+        target_test_sigs.deinit();
+    }
+    var target_def_dict = DefDict.init(std.testing.allocator);
+    defer target_def_dict.deinit();
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    var target_layout_versions = std.ArrayList(LayoutVersion).init(std.testing.allocator);
+    defer {
+        for (target_layout_versions.items) |*item| item.deinit(std.testing.allocator);
+        target_layout_versions.deinit();
+    }
+    var target_package_identities = std.StringHashMap(void).init(std.testing.allocator);
+    defer {
+        var it = target_package_identities.iterator();
+        while (it.next()) |entry| std.testing.allocator.free(entry.key_ptr.*);
+        target_package_identities.deinit();
+    }
+    var target_owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer {
+        for (target_owned_text.items) |text| std.testing.allocator.free(text);
+        target_owned_text.deinit();
+    }
+    var target_macros = std.StringHashMap(MacroDef).init(std.testing.allocator);
+    defer deinitMacroMap(std.testing.allocator, &target_macros);
+
+    try appendFlattenFragment(
+        std.testing.allocator,
+        &target_instructions,
+        &target_const_decls,
+        &target_function_sigs,
+        &target_test_sigs,
+        &target_def_dict,
+        &target_symbols,
+        &target_layout_versions,
+        &target_package_identities,
+        &target_owned_text,
+        &target_macros,
+        &fragment,
+        0,
+        0,
+    );
+
+    const source =
+        \\@main() -> i32:
+        \\    EXPAND MAKE_TMP out
+        \\    return out
+    ;
+    const lines = try scanSource(std.testing.allocator, source, &.{}, &.{});
+    defer std.testing.allocator.free(lines);
+
+    const empty_replacements = [_]Replacement{};
+    var pending_loc: ?common_upstream.UpstreamLoc = null;
+    defer if (pending_loc) |loc| std.testing.allocator.free(loc.file);
+    var loc_table = std.ArrayList(?common_upstream.UpstreamLoc).init(std.testing.allocator);
+    defer {
+        for (loc_table.items) |entry| {
+            if (entry) |loc| std.testing.allocator.free(loc.file);
+        }
+        loc_table.deinit();
+    }
+    var include_stack = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer include_stack.deinit();
+    var expansion_counter: u64 = 0;
+
+    try emitRange(
+        std.testing.allocator,
+        lines,
+        0,
+        lines.len,
+        0,
+        null,
+        null,
+        &include_stack,
+        empty_replacements[0..],
+        true,
+        &target_macros,
+        &target_def_dict,
+        &target_symbols,
+        &loc_table,
+        &pending_loc,
+        &target_instructions,
+        &target_const_decls,
+        &target_function_sigs,
+        &target_owned_text,
+        null,
+        null,
+        null,
+        &expansion_counter,
+    );
+
+    try std.testing.expect(target_symbols.findId("out") != null);
+    try std.testing.expect(target_symbols.findId("_tmp__sa_hyg1") != null);
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {

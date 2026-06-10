@@ -2,9 +2,16 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 99.999997%
+Current progress: 99.999998%
 
 ## Completed SCI Features
+
+- 2026-06-10: Added tested cached-macro replay support for future frontend fragment reuse.
+  - Extended `FlattenResult` ownership with `cached_macro_defs` so a flattened fragment can carry imported macro definitions alongside instructions, defs, consts, signatures, layout metadata, and package identities.
+  - Changed macro collection to snapshot each macro body into owned `SourceLine` storage, so later expansion no longer depends on the original parent file `lines[start..end]` slice surviving or matching the same indices.
+  - Updated macro expansion to use `macroDefBodyLines()` for hygiene name collection and recursive `emitRange` calls, fixing cached/imported macro replay and nested expansion under remapped fragment reuse.
+  - Wired `appendFlattenFragment` to restore cached macro definitions into the target macro table and added regression coverage proving an imported macro fragment can still be expanded later in the parent file context.
+  - Verification: `zig test src/flattener.zig` -> `82/82 tests passed`; `zig test src/cli.zig` -> `88/88 tests passed`.
 
 - 2026-06-10: Added tested end-to-end fragment append helper and corrected `FunctionSig.id` remap semantics.
   - Added `appendFlattenFragment` to compose the existing clone/remap/merge helpers into one append step for `instructions`, `const_decls`, `function_sigs`, `test_sigs`, `defs`, `layout_versions`, `package_identities`, and `owned_text`.

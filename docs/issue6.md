@@ -15,6 +15,7 @@ SA 缓存与单元测试框架评估及改进计划（issue6）
 - IMP-1 低风险切片：`.sa_cache/test` 写入 `test-metadata.json`，`sa test` cache hit 时可跳过前端 discovery/list/filter。
 - IMP-1 进一步切片：新增进程级 expanded-import fragment cache，缓存已展开的 import 文本片段、传递文件 mtime/size、layout metadata，并通过 `SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES=N` 支持 opt-in LRU；当前仅缓存无 package identity/hash 的 std/稳定根片段，尚不是完整 `FlattenResult`/verify IR cache。
 - IMP-1 重定位基础：新增已测试的 symbol-id remap helper，可将 `Instruction` 中的 `reg`/`symbol`/`label`/`func` operand 从缓存片段的 `SymbolTable` ID 映射到消费者 `SymbolTable` ID；另新增 `Instruction` 深拷贝+operand remap+line offset helper，保留 package/upstream/raw/native/atomic metadata 的独立所有权；新增 `FunctionSig.param_ids` / `reg_ids` 风格 immutable ID slice 的 clone-remap helper，以及完整 `FunctionSig` 深拷贝+offset helper，其中 `FunctionSig.id` 按函数列表序号偏移而非 symbol-id remap，test `llvm_name` 按新 id 重建；新增 `DefDict` 与 `ConstDecl` 合并 helper，可跳过同名同值、深拷贝新项并拒绝同名异值；新增 `package_identities` 与 `LayoutVersion` 合并 helper，可深拷贝新元数据并拒绝同路径不同 layout 版本冲突；新增已测试的 `appendFlattenFragment` 聚合 helper，可一次性把完整 fragment 追加进非空目标容器。raw_text 名称碰撞策略、生产接线和 cache-on/off 等价测试仍待完成。
+- IMP-1 宏定义状态补齐：`FlattenResult` 现在额外携带 `cached_macro_defs`，宏定义在收集阶段即拥有自己的 `SourceLine` body 副本，不再依赖原始父文件 `lines[start..end]` 切片；`appendFlattenFragment` 会把缓存片段中的宏定义恢复到目标 macro map，`emitRange` 也统一通过 `macroDefBodyLines()` 读取宏体并做 hygiene/递归展开。新增回归测试证明“先导入缓存片段，再在父文件上下文继续 `EXPAND` 该宏”可以稳定工作。完整生产级 frontend IR cache 仍缺模块边界、cache-on/off 等价测试与持久化接线。
 - IMP-3：通过 `SA_IMPORT_CACHE_MAX_ENTRIES=N` 提供 opt-in LRU；默认 CLI 路径保持无界 borrowed source cache 以保短命进程性能。
 - CACHE-HYGIENE：通过 `SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES=N` 提供 opt-in source-tree digest cache LRU；默认 CLI 路径保持无界进程内 digest cache。
 - PERF-ALLOC：`scanSource` 与 import expansion 输出/行元数据已按源大小和行数预分配，减少 flattener 热路径 ArrayList 增长分配。
@@ -187,6 +188,22 @@ SA 目前有两层缓存，但**都不缓存 flatten + 宏展开 + verify 的结
 2. 再做 **CACHE-2 + TEST-4**（清理重复 I/O 与脆性）。
 3. 并行启动 **IMP-1** 的设计与实现（决定性收益，但需先定 id 重定位 + def_dict 合并 + 上下文键三件事）；IMP-1 落地后 TEST-2 的并行/缓存两难自动解决。
 4. IMP-3 等出现长驻消费者（LSP/daemon）再做。
+
+## IMP-1 当前落地边界（2026-06-10）
+
+已落地的 frontend fragment 复用基础：
+- symbol / reg / label / func operand remap
+- immutable `FunctionSig` ID slice remap
+- full `FunctionSig` clone + function-id offset + test llvm name regeneration
+- `DefDict` / `ConstDecl` / `LayoutVersion` / `package_identities` merge helpers
+- `appendFlattenFragment` 聚合追加
+- `cached_macro_defs` 捕获/恢复与宏体 owned-line 化
+
+仍未落地的关键项：
+- 真实生产路径中的 per-module persisted frontend fragment cache
+- fragment cache key 中完整展开上下文建模与验证
+- cache-on / cache-off `FlattenResult` 等价对照测试
+- 完整 verify 结果级复用
 
 ---
 
