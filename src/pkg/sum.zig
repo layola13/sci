@@ -84,7 +84,7 @@ fn appendOrCheckEntry(
 fn readNestedManifest(allocator: std.mem.Allocator, root: []const u8) !?manifest.Manifest {
     const path = try std.fs.path.join(allocator, &.{ root, "sa.mod" });
     defer allocator.free(path);
-    const source = std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024) catch |err| switch (err) {
+    const source = std.fs.cwd().readFileAlloc(allocator, path, manifest.max_manifest_bytes) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };

@@ -15,6 +15,7 @@ The kernel is fundamentally well-shaped (flat arrays, no AST, no graph theory â€
 Completed core/kernel performance slices in this batch:
 - P1/P3/P6: interpreter per-function slot maps, cached label maps, and sorted memory-block lookup.
 - P2/P5/P7/P16/P20: verifier signature-name index, opcode `StaticStringMap`, verifier buffer pool, single-pass `DefDict.foldText`, and flattener owned-source preallocation.
+- P18: verifier consumed-register prepass now scans structured instruction operands for move prefixes instead of every instruction's full `raw_text`.
 - P27 follow-up: LLVM-C emitter call/vtable/reachability lookup now uses one shared function-signature alias index instead of repeated linear scans.
 
 Still intentionally deferred: broad SOA/MultiArrayList rewrites for `Instruction` / `RegValue`, full verifier single-pass consumed-reg redesign, and verify/emitter pipeline overlap. These are larger semantic/performance refactors that should be benchmark-gated rather than mixed into this safety/performance patch.

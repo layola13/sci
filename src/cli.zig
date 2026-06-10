@@ -752,6 +752,12 @@ fn readTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
+fn readManifestTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    return try file.readToEndAlloc(allocator, manifest.max_manifest_bytes);
+}
+
 fn projectManifestPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
     return try pathJoinAlloc(allocator, &.{ root_path, "sa.mod" });
 }
@@ -775,7 +781,7 @@ fn projectSourcePath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 
 }
 
 fn readManifestFile(allocator: std.mem.Allocator, path: []const u8) !manifest.Manifest {
-    const source = try readTextFileAlloc(allocator, path);
+    const source = try readManifestTextFileAlloc(allocator, path);
     defer allocator.free(source);
     return try manifest.parseManifestWithFile(allocator, source, path);
 }
@@ -3587,7 +3593,7 @@ fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !
     };
     defer file.close();
 
-    const source = try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
+    const source = try file.readToEndAlloc(allocator, manifest.max_manifest_bytes);
     defer allocator.free(source);
     return try manifest.parseManifestWithFile(allocator, source, manifest_path);
 }
@@ -5115,7 +5121,7 @@ fn parseInstallArgs(args: []const []const u8) !InstallArgs {
 }
 
 fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.FetchOptions, stdout: anytype) !u8 {
-    const source = try loadSource(allocator, "sa.mod");
+    const source = try readManifestTextFileAlloc(allocator, "sa.mod");
     defer allocator.free(source);
 
     var project_manifest = try manifest.parseManifestWithFile(allocator, source, "sa.mod");

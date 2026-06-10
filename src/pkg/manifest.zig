@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const max_manifest_bytes: usize = 1024 * 1024;
+
 pub const UpstreamLoc = struct {
     file: []const u8,
     line: u32,
@@ -591,6 +593,8 @@ pub fn parseManifestWithFile(
     source: []const u8,
     source_file: []const u8,
 ) ParseError!Manifest {
+    if (source.len > max_manifest_bytes) return ParseError.InvalidFormat;
+
     if (std.mem.startsWith(u8, source_file, "~/.sa/") or std.mem.startsWith(u8, source_file, "/etc/sa/")) {
         return ParseError.ForbiddenGlobalConfig;
     }
@@ -1123,6 +1127,14 @@ test "manifest parser preserves requires and mirrors" {
     defer manifest2.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 2), manifest2.requires.len);
     try std.testing.expectEqualStrings(manifest.requires[1].url, manifest2.requires[1].url);
+}
+
+test "manifest parser rejects oversized source" {
+    const source = try std.testing.allocator.alloc(u8, max_manifest_bytes + 1);
+    defer std.testing.allocator.free(source);
+    @memset(source, ' ');
+
+    try std.testing.expectError(ParseError.InvalidFormat, parseManifestWithFile(std.testing.allocator, source, "pkg/sa.mod"));
 }
 
 test "lock parser preserves dependency blocks and target hashes" {

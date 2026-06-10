@@ -1,5 +1,12 @@
 # Progress Assessment
 
+## Core Issue Pass 2026-06-10
+
+- Progress: 33% for the current low-risk core performance/safety slice. Completed verifier P18 cleanup: `computeFunctionConsumedRegs` no longer scans every instruction's full `raw_text` for `^` markers; it now scans structured text operands only, preserving `return ^x` and moved call arguments while reducing byte scanning in the verifier prepass.
+- Progress: 66% for the current slice. Completed issue7 manifest allocation hardening: `sa.mod` parsing now has a shared 1 MiB source limit in `src/pkg/manifest.zig`, and CLI/sum manifest readers use that limit before parsing so oversized manifests cannot force 16 MiB reads through the normal project paths.
+- Progress: 100% for the current slice. Completed LLVM-C emitter count hardening: function tables, direct function parameter counts, and indirect-call parameter counts now reject values above `UINT_MAX` before casting into LLVM-C APIs, closing another issue7 truncation edge without changing normal emit behavior.
+- Validation: focused tests passed (`zig test src/pkg/manifest.zig`, `zig test src/verifier.zig`, `zig build llvmc-test --summary all`, `zig build pkg-core-test --summary all`); full `zig build test --summary all` passed 117/117; `.git/hooks/pre-push origin https://github.com/layola13/sci.git` passed full profile in 531.260s.
+
 ## Latest DB Result 2026-06-08
 
 - DB Progress: 88%（口径：`sa_plugin_db` 相对 `docs/database.md` / v0.6 DB 目标；已覆盖 schema/table lifecycle、qmod 注册、受限只读执行、受限 `db_write` 执行、受限同表/跨表读写 qmod、受限 `db_atomic_cursor` 执行、atomic cursor 零偏移边界、atomic `u64` 类型边界、显式 atomic cursor 列绑定、locked 写入边界、写提交 stale metadata guard、运行期 schema hash 防漂移、专用 schema mismatch 诊断、专用 snapshot corruption 诊断、snapshot metadata header 防损坏诊断、非法/未知 query hash 分离诊断、注册表元数据防篡改诊断、qmod payload 防篡改诊断、`params.bin` 精确长度校验、专用 params 诊断、注册表 duplicate-register 防重写、入口签名级 Referee grants 绑定和基础 grants/列级 schema/load/store/atomic 基址门槛，未覆盖 mmap 沙箱、Blob/冷热分层和基准）。

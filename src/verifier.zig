@@ -895,6 +895,14 @@ fn markCaretConsumedRegs(text: []const u8, symbols: *const symbol.SymbolTable, s
     }
 }
 
+fn markCaretConsumedOperand(operand: inst.Operand, symbols: *const symbol.SymbolTable, scope: *const FunctionRegScope, consumed_in_function: []bool) void {
+    switch (operand) {
+        .text => |text| markCaretConsumedRegs(text, symbols, scope, consumed_in_function),
+        .native_text => |text| markCaretConsumedRegs(text, symbols, scope, consumed_in_function),
+        else => {},
+    }
+}
+
 fn markInstructionConsumedRegs(item: inst.Instruction, symbols: *const symbol.SymbolTable, scope: *const FunctionRegScope, consumed_in_function: []bool) void {
     switch (item.kind) {
         .move_, .release => if (item.operands[0] == .reg) markConsumedGlobalReg(scope, item.operands[0].reg, consumed_in_function),
@@ -903,7 +911,9 @@ fn markInstructionConsumedRegs(item: inst.Instruction, symbols: *const symbol.Sy
         .try_, .early_return => if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function),
         else => {},
     }
-    markCaretConsumedRegs(item.raw_text, symbols, scope, consumed_in_function);
+    for (item.operands) |operand| {
+        markCaretConsumedOperand(operand, symbols, scope, consumed_in_function);
+    }
 }
 
 fn computeFunctionConsumedRegs(

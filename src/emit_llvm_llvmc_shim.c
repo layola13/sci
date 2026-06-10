@@ -440,6 +440,7 @@ static int type_is_signed_int(SaType ty) {
 }
 
 static LLVMTypeRef fn_type_for(EmitCtx *e, const SaFunction *f) {
+    if (f->param_count > UINT_MAX) return NULL;
     LLVMTypeRef *params = NULL;
     if (f->param_count != 0) {
         params = (LLVMTypeRef *)malloc(sizeof(LLVMTypeRef) * f->param_count);
@@ -492,6 +493,7 @@ static unsigned int infer_indirect_sig_index(EmitCtx *e, const SaInstruction *in
 
 static LLVMTypeRef indirect_fn_type_for(EmitCtx *e, const SaFunction *sig, const SaInstruction *in) {
     size_t param_count = in->indirect_param_count != 0 ? in->indirect_param_count : sig->param_count;
+    if (param_count > UINT_MAX) return NULL;
     LLVMTypeRef *params = NULL;
     if (param_count != 0) {
         params = (LLVMTypeRef *)malloc(sizeof(LLVMTypeRef) * param_count);
@@ -1819,6 +1821,10 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     e->size_bits = m->size_bits;
     e->is_cgu = m->is_cgu;
     e->wasm_compat = m->wasm_compat;
+    if (m->function_count > UINT_MAX) {
+        dispose_emit_ctx(e);
+        return set_error(out_error, "function table too large");
+    }
     e->i8_ty  = LLVMInt8TypeInContext(e->ctx);
     e->i32_ty = LLVMInt32TypeInContext(e->ctx);
     e->i64_ty = LLVMInt64TypeInContext(e->ctx);
