@@ -47,6 +47,8 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.MissingOutputPath => .{ .code = "SA-CLI-002", .message = "missing output path after -o", .hint = "add a path after -o or omit -o to use the default output name" },
         error.MissingJobs => .{ .code = "SA-CLI-003", .message = "missing job count after --jobs", .hint = "use --jobs auto or --jobs <positive integer>" },
         error.InvalidJobs => .{ .code = "SA-CLI-004", .message = "invalid job count", .hint = "use --jobs auto or a positive integer" },
+        error.MissingDceMode => .{ .code = "SA-CLI-020", .message = "missing DCE mode after --dce", .hint = "use --dce no, --dce std, or --dce full" },
+        error.InvalidDceMode => .{ .code = "SA-CLI-021", .message = "invalid DCE mode", .hint = "use --dce no, --dce std, or --dce full" },
         error.MissingTarget => .{ .code = "SA-CLI-005", .message = "missing target after --target", .hint = "use wasm32 or wasm64 after --target" },
         error.InvalidTarget => .{ .code = "SA-CLI-006", .message = "invalid target", .hint = "use wasm32 or wasm64 after --target" },
         error.MissingFilterValue => .{ .code = "SA-CLI-007", .message = "missing filter pattern", .hint = "pass a pattern after --filter or --skip" },

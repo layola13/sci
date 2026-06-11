@@ -13,6 +13,37 @@ SA (Safe Assembly) 的所有权心智模型深受 Rust 的启发，以至于很�
 SA 和 Rust 都在解决同一个核心问题：**如何在没有垃圾回收 (GC) 的情况下，实现绝对的内存安全和并发安全？**
 
 - **所有权与移动语义**：在两个语言中，值都只能有一个唯一的所有者。当你把变量传递给其他函数时，默认发生的是“移动 (Move)”，原作用域将无法再使用该变量。
+
+  **Rust 示例**：
+  ```rust
+  fn consume(data: String) {
+      println!("{}", data);
+  }
+
+  fn main() {
+      let s = String::from("hello");
+      consume(s); // 所有权转移 (Move)
+      // println!("{}", s); // 编译错误：Value used after move
+  }
+  ```
+
+  **SA 示例**：
+  ```sa
+  @consume(^data: ptr):
+  L_ENTRY:
+      // data 的所有权在此处被消费
+      !data
+      return
+
+  @main() -> i32:
+  L_ENTRY:
+      p = alloc 64
+      // 通过 ^ 符号显式将 p 移动给 consume 函数
+      call @consume(^p)
+      // 此处如果再次访问 p，Referee 验证器会报错：Use after move
+      return 0
+  ```
+
 - **无数据竞争 (Data Race Free)**：因为强制要求共享不可变、可变不共享，两者都在编译期/验证期根除了数据竞争。
 - **零开销抽象**：不依赖庞大的运行时，SA 的指令直接映射到 LLVM IR，Rust 则通过 LLVM 编译，两者的运行速度均极度贴近物理硬件。
 - **显式的内存分配**：无论堆或栈，开发者都清楚数据到底分配在哪里。
@@ -25,13 +56,92 @@ SA 和 Rust 都在解决同一个核心问题：**如何在没有垃圾回收 (G
 - **Rust** 是一门高级语言，拥有泛型、Trait (特征)、宏、闭包、`async/await` 等庞大的语言特性集合。
 - **SA** 是低级线性汇编。没有任何隐式代码生成，没有隐藏的控制流。代码是由 `L_ENTRY:` 标签、计算指令、`br` 条件跳转构成的平铺结构。
 
+**Rust 示例（条件判断）**：
+```rust
+fn check_value(x: i32) -> i32 {
+    if x > 10 {
+        1
+    } else {
+        0
+    }
+}
+```
+
+**SA 示例（扁平控制流）**：
+```sa
+@check_value(x: i32) -> i32:
+L_ENTRY:
+    limit = 10
+    is_greater = sgt x, limit
+    br is_greater -> L_TRUE, L_FALSE
+
+L_TRUE:
+    !is_greater
+    !x
+    !limit
+    return 1
+
+L_FALSE:
+    !is_greater
+    !x
+    !limit
+    return 0
+```
+
 ### 数据结构：结构体 vs 内存偏移
-- **Rust** 通过 `struct` 和 `enum` 定义复杂的数据类型。
-- **SA** 视一切为内存块。没有结构体，只有 `#def` 定义的物理字节偏移量。读取结构体成员变成了 `load ptr+8 as u64`。
+- **Rust** 通过 `struct` 和 `enum` 定义复杂的数据类型，并提供高层的方法调用。
+- **SA** 视一切为内存块。没有结构体，只有 `#def` 定义的物理字节偏移量。读取结构体成员变成了 `load ptr+offset as type`。
+
+**Rust 示例**：
+```rust
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn create_point(x: i32, y: i32) -> Point {
+    Point { x, y }
+}
+```
+
+**SA 示例**：
+```sa
+#def Point_SIZE = 8
+#def Point_x = +0
+#def Point_y = +4
+
+@create_point(x: i32, y: i32) -> ptr:
+L_ENTRY:
+    point = alloc Point_SIZE
+    store point+Point_x, x as i32
+    store point+Point_y, y as i32
+    !x
+    !y
+    return point
+```
 
 ### 生命周期的表达：隐式作用域 vs 显式销毁
-- **Rust** 的变量在离开 `{ }` 作用域时自动调用 `Drop`。编译器在后台自动追踪生命周期。
+- **Rust** 的变量在离开 `{ }` 作用域时自动调用 `Drop`。编译器在后台自动追踪生命周期并生成释放代码。
 - **SA** 强制要求你手动、显式地处理生命周期终点：每一个被创建的寄存器，如果没被传递出去，必须用 `!` 操作符当面销毁。
+
+**Rust 示例**：
+```rust
+fn process() {
+    let s = String::from("data");
+    // ...
+    // s 在大括号结束时隐式自动释放
+}
+```
+
+**SA 示例**：
+```sa
+@process():
+L_ENTRY:
+    p = alloc 64
+    // ...
+    !p // 必须在这里显式销毁，否则 Referee 会报错：Variable leaked
+    return
+```
 
 ---
 
@@ -41,16 +151,44 @@ SA 和 Rust 都在解决同一个核心问题：**如何在没有垃圾回收 (G
 
 ### 原因一：“所见即所得”，没有魔法
 在 Rust 中，很多初学者在 `Clone`、`Copy`、`Drop` trait 之间挣扎，常常因为“不知道编译器在背后偷偷做了什么”而与编译器搏斗。
-在 SA 中：
-- 没有隐式的 `Drop`。必须写 `!`。你清楚地看到内存是在哪一行被释放的。
-- 没有隐式的 `Copy`。如果你想复制，你需要明确调用。
-- 这种绝对的**显式**设计，虽然多写了几行代码，但让开发者的大脑不再需要去猜测编译器的行为。
+例如，在 Rust 中整型默认是 `Copy` 的，无需显式释放，而自定义类型需要考虑所有权生命周期。
+在 SA 中，这种“隐式规则魔法”被完全消除了：
+- **没有隐式的 `Drop`**：无论是指针还是基础整型，所有的寄存器生命周期都是完全显式的。
+- **没有隐式的 `Copy`**：即使是基本类型的寄存器，它的整个生存期也受 Referee 严格追踪。在没有使用 `!` 显式释放前，它的生命周期就不会终止。
+
+**SA 示例（完全显式的寄存器生存期管理）**：
+```sa
+@add_values(x: i32, y: i32) -> i32:
+L_ENTRY:
+    sum = add x, y
+    // x, y 和 sum 都是独立的虚拟寄存器，必须显式销毁或返回
+    !x
+    !y
+    return sum // sum 作为返回值被传递出去，无需 !sum
+```
 
 ### 原因二：无需复杂的生命周期标注 (`'a`)
 Rust 学习曲线中最陡峭的一环是生命周期泛型（比如 `&'a str`、`struct Foo<'a, 'b>`）。这要求开发者在脑海中对代码图进行复杂的拓扑连线。
 SA 的验证器 (Referee) 采用的是**线性且块级别的验证**。
 - SA 不要求你写令人眼花缭乱的 `'a` 注解。
-- 借用只需用 `&`，如果需要传递出去并在结束时归还所有权，只需在函数签名上使用 `^` 符号。
+- 借用只需用 `&`。如果需要从函数返回一个被借用的指针，直接在签名中使用 `&` 声明返回类型。
+
+**Rust 示例（复杂的生命周期标注）**：
+```rust
+// 当返回一个引用时，必须标注泛型生命周期参数 'a
+fn choose_left<'a>(left: &'a i32, right: &'a i32) -> &'a i32 {
+    left
+}
+```
+
+**SA 示例（简单直白的借用返回）**：
+```sa
+@choose_left(&left: ptr, &right: ptr) -> &ptr:
+L_ENTRY:
+    !right // right 没有被返回，显式销毁该借用寄存器
+    return left // 直接返回引用的指针，无需任何生命周期标注
+```
+
 - SA 的数据流是单一向前的，逻辑判定简单粗暴，你不会陷入 Rust 那种复杂的结构体嵌套引用的生命周期地狱中。
 
 ### 原因三：极简的语法特性，几天即可掌握

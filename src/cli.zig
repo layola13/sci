@@ -6,6 +6,7 @@ const line_classifier = @import("flattener/line_classifier.zig");
 const interp = @import("interp.zig");
 const build_options = @import("build_options");
 const driver = @import("driver/zigcc.zig");
+const emit_options = @import("emit_options.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
@@ -25,6 +26,8 @@ const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
 const common_upstream = @import("common/upstream_loc.zig");
+
+const DceMode = emit_options.DceMode;
 
 fn intermediateArtifactPath(allocator: std.mem.Allocator, out_path: []const u8) ![]u8 {
     return try std.fmt.allocPrint(allocator, "{s}.sa.bc", .{out_path});
@@ -405,6 +408,7 @@ fn writeSizeText(writer: anytype, metrics: CompileMetrics, entries: []const Func
 const CompileOptions = struct {
     jobs: ?usize = null,
     jobs_explicit: bool = false,
+    dce: DceMode = .std,
     incremental_cache: bool = true,
     offline: bool = false,
     ci: bool = false,
@@ -1001,6 +1005,7 @@ fn commandHelpRequested(cmd: Command, args: []const []const u8) bool {
 
 fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --jobs auto|N                  Set parallel compile jobs\n");
+    try writer.writeAll("  --dce no|std|full              Select dead-code elimination level\n");
     try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --offline                      Use local package cache only\n");
@@ -1440,6 +1445,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  --json                         Output diagnostics in JSON format\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --jobs auto|N                  Set the number of parallel compile jobs\n");
+    try writer.writeAll("  --dce no|std|full              Select dead-code elimination level\n");
     try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
     try writer.writeAll("  -h, --help                     Show this help message\n");
     try writer.writeAll("  --version                      Print version and exit\n");
@@ -1646,6 +1652,16 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
             .code = "SA-CLI-004",
             .message = "invalid job count",
             .hint = "use --jobs auto or a positive integer",
+        },
+        error.MissingDceMode => .{
+            .code = "SA-CLI-020",
+            .message = "missing DCE mode after --dce",
+            .hint = "use --dce no, --dce std, or --dce full",
+        },
+        error.InvalidDceMode => .{
+            .code = "SA-CLI-021",
+            .message = "invalid DCE mode",
+            .hint = "use --dce no, --dce std, or --dce full",
         },
         error.MissingTarget => .{
             .code = "SA-CLI-005",
@@ -3371,6 +3387,7 @@ fn compileOptionsHaveAllowList(options: CompileOptions) bool {
 
 fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
     if (try consumeJobsOption(arg, args, index, options)) return true;
+    if (try consumeDceOption(arg, args, index, options)) return true;
     if (consumeProfileOption(arg, options)) return true;
     if (try consumePermissionSetOption(arg, args, index, options)) return true;
     if (consumeAllowOption(arg, options)) return true;
@@ -3392,6 +3409,28 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--yes") or std.mem.eql(u8, arg, "--auto-approve")) {
         options.auto_approve_requested = true;
+        return true;
+    }
+    return false;
+}
+
+fn parseDceValue(text: []const u8) !DceMode {
+    return DceMode.parse(text) orelse error.InvalidDceMode;
+}
+
+fn consumeDceOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
+    if (std.mem.startsWith(u8, arg, "--dce=")) {
+        options.dce = try parseDceValue(arg["--dce=".len..]);
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--dce")) {
+        if (index.* + 1 >= args.len) return error.MissingDceMode;
+        options.dce = try parseDceValue(args[index.* + 1]);
+        index.* += 1;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--no-dce")) {
+        options.dce = .no;
         return true;
     }
     return false;
@@ -4319,6 +4358,7 @@ fn computeProjectBuildKey(
     wasm: ?WasmTarget,
     hash_source_tree: bool,
     offline: bool,
+    dce: DceMode,
 ) !ProjectCacheKey {
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
@@ -4334,6 +4374,7 @@ fn computeProjectBuildKey(
     cacheBool(&hasher, debug);
     cacheBool(&hasher, release_fast);
     cacheBool(&hasher, incremental);
+    cacheBytes(&hasher, dce.name());
     if (wasm) |target| {
         cacheBytes(&hasher, target.triple);
         cacheBool(&hasher, target.no_entry);
@@ -4938,7 +4979,6 @@ fn buildIncrementalObject(
     compile_options: CompileOptions,
     stderr: anytype,
 ) !void {
-    _ = compile_options;
     const opt_level = emitOptLevel(debug, optimization);
     var object_paths = std.ArrayList([]const u8).init(allocator);
     defer {
@@ -4989,6 +5029,7 @@ fn buildIncrementalObject(
                                 .jobs = 1,
                                 .opt_level = opt_level,
                                 .function_task_index = task_idx,
+                                .dce = compile_options.dce,
                             },
                             object_path,
                             opt_level,
@@ -5276,7 +5317,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -5342,6 +5383,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     size_bits_val: u16,
                     debug_val: bool,
                     jobs_val: ?usize,
+                    dce_val: DceMode,
                     cgu_idx_val: usize,
                     cgu_count_val: usize,
                     object_path_val: []const u8,
@@ -5362,6 +5404,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                                 .opt_level = self.opt_level_val,
                                 .codegen_unit_index = self.cgu_idx_val,
                                 .codegen_unit_count = self.cgu_count_val,
+                                .dce = self.dce_val,
                             },
                             self.object_path_val,
                             self.opt_level_val,
@@ -5384,6 +5427,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .size_bits_val = nativeSizeBits(),
                         .debug_val = debug,
                         .jobs_val = if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
+                        .dce_val = compile_options.dce,
                         .cgu_idx_val = i,
                         .cgu_count_val = cgu_count,
                         .object_path_val = cgu_obj_paths[i],
@@ -5442,7 +5486,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization) }, artifact_path);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce }, artifact_path);
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
@@ -5481,7 +5525,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -5510,11 +5554,11 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (incremental) {
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline);
+                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, artifact_path);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce }, artifact_path);
             } else {
-                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level }, artifact_path, out_path, opt_level);
+                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce }, artifact_path, out_path, opt_level);
             }
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
@@ -5536,7 +5580,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var project_context = try loadProjectContext(allocator, project_root);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -5562,7 +5606,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             var owned = ok;
             defer owned.deinit(allocator);
             try ensureParentDir(artifact_path);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization) }, artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce }, artifact_path);
 
             driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
@@ -5845,7 +5889,7 @@ fn executeTest(
     var project_context = try loadProjectContext(allocator, project_root);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce)
     else
         null;
 
@@ -5920,7 +5964,7 @@ fn executeTest(
             }
             try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
 
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true }, artifact_full_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce }, artifact_full_path);
 
             driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,

@@ -1026,7 +1026,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
+    var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
         try collectNormalBuildReachability(a, verified, &function_sig_index, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
@@ -1307,7 +1307,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
+    var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
         try collectNormalBuildReachability(a, verified, &function_sig_index, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
