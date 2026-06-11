@@ -726,7 +726,7 @@ require github.com/org/sa-net @v1.2.0 sha256:8f4e2d... grants [net_tx]
 
 ### 12.3 解法 2：Zig 全平台交叉编译挂
 
-开高密级场景下，加上：
+开级场景下，加上：
 
 ```bash
 sa build --all-targets --lock-only

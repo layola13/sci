@@ -221,7 +221,7 @@ SA 文件后缀与清单边界：
 
 - **纯汇编基元**：`Vec`, `HashMap`, `String`, `Arc/Mutex` 等极轻量数据结构完全由 `.sa` 宏拼装，零 C 库依赖。
 - **极简格式化打印 (NEW)**：提供 `[MACRO] PRINT!` / `FORMAT!` 高层级宏。采用**编译期静态展开**策略，将格式化字符串拆解为一系列底层的 `STRFMT_*` 调用，通过 Zig 端的 FFI 接口执行高效的类型转字符串（如 `f64` 转换）。
-- **Zig-backed FFI 桥接**：对于高密度计算（JSON 解析、Regex、文件/网络 I/O、事件循环），走 C-ABI 桥接到高效的 Zig 标准库，对外暴露不透明句柄 (Opaque Handle)。
+- **Zig-backed FFI 桥接**：对于度计算（JSON 解析、Regex、文件/网络 I/O、事件循环），走 C-ABI 桥接到高效的 Zig 标准库，对外暴露不透明句柄 (Opaque Handle)。
   - **双模 JSON**：提供 DOM 树解析和 100MB+ 大文件 Streaming 游标零拷贝双模 API。
 - **严格剥离重型 C 库**：YAML、XML、TOML 等格式严禁放入 `sa_std`，将被下放至 Package 生态中，由用户按需引入，以维持编译器体积在几 MB 级别。
 

@@ -256,7 +256,7 @@
 - [ ] `PkgMgr-Mirror-Env` / [x] `PkgMgr-PrecompiledRejected`
 
 ### v0.6+ 待决策议题（来自 talk.md，暂未进入需求文档）
-- [ ] GPG/SSH 私钥签名 `sa.lock`（"军工级"模式 vs "宽容模式"开关）
+- [ ] GPG/SSH 私钥签名 `sa.lock`（"级"模式 vs "宽容模式"开关）
 - [ ] SARIF 输出 + GitHub Security Tab 集成
 - [ ] SA 编译器自签名固件哈希（防御编译器本身被篡改）
 - [ ] `sa fetch` X 光报告归档（默认仅 stdout，是否落盘可选）
