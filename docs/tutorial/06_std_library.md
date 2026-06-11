@@ -17,6 +17,8 @@
 ## 2. 动态数组 (`Vec`)
 `sa_std/vec.sa` 提供了类似 C++ `std::vector` 的功能。
 
+它的扩容和边界检查都经过了深入的底层强化，提供了基于容量倍增策略的高性能扩容，并在越界和溢出时自动 panic。
+
 ```sa
 @import "sa_std/vec.sa"
 
@@ -25,6 +27,11 @@ L_ENTRY:
     EXPAND VEC_NEW v
     EXPAND VEC_PUSH v, 10, 8
     EXPAND VEC_PUSH v, 20, 8
+    
+    // 安全读取: 获取第一项的值
+    EXPAND VEC_GET_U64 val, v, 0
+    !val
+    
     EXPAND VEC_LEN len, v
     !len
     EXPAND VEC_FREE v
@@ -58,6 +65,8 @@ SA 不使用异常，而是使用**结果状态码**。大多数 `sa_std` 函数
     is_err = ne res, 0
     br is_err -> L_HANDLE_ERROR, L_CONTINUE
 ```
+
+另外，对于很多空指针操作，以及内存操作如 `sa_mem_copy`, `sa_mem_set`。它们已被内部防护（比如源或者目标为 null 则 panic），不会导致隐秘的损坏。
 
 ## 为什么 `sa_std` 全是大写宏？
 在 SA 中，很多基础操作（如 `VEC_PUSH`）如果作为普通函数调用，会有频繁的函数头开销。因此，`sa_std` 提供了大量**宏 (Macro)**，它们在编译阶段（Flattener）会被内联展开，从而达到极致性能。
