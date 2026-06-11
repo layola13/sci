@@ -14,6 +14,21 @@
           "name": "gemini-3.1-pro-preview"
         }
       }
+    },
+
+    "grok": {
+      "options": {
+        "apiKey": "sk-PZg7vfJjivuByn2f4uKxyDY7tD5CzxOsEW4ZXZ8UqB7gcFW0",   
+        "baseURL": "https://jiuuij.de5.net/v1"     
+      },
+      "models": {
+        "grok-4.3-high": {
+          "name": "grok-4.3-high"
+        },
+         "grok-4.20-multi-agent-high": {
+          "name": "grok-4.20-multi-agent-high"
+        }
+      }
     }
   },
   "model": "openai/gemini-3.5-flash",
