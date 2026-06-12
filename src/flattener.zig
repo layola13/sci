@@ -161,6 +161,35 @@ fn appendExpandedLine(
     try line_package_hashes.append(package_hash);
 }
 
+fn isFunctionLikeLineKind(kind: LineKind) bool {
+    return switch (kind) {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+        else => false,
+    };
+}
+
+fn consumesPendingLoc(kind: LineKind) bool {
+    return switch (kind) {
+        .const_decl, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .native => true,
+        else => false,
+    };
+}
+
+fn appendGeneratedLocLine(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    line_package_identities: *std.ArrayList(?[]const u8),
+    line_package_hashes: *std.ArrayList(?[32]u8),
+    source_path: []const u8,
+    line_no: u32,
+    package_identity: ?[]const u8,
+    package_hash: ?[32]u8,
+) !void {
+    const loc_line = try std.fmt.allocPrint(allocator, "#loc \"{s}\":{d}:1", .{ source_path, line_no });
+    defer allocator.free(loc_line);
+    try appendExpandedLine(out, line_package_identities, line_package_hashes, loc_line, package_identity, package_hash);
+}
+
 const ImportExpansion = struct {
     source: []u8,
     active_paths: std.StringHashMap(void),
@@ -4325,6 +4354,7 @@ fn injectImportedFile(
                 line_package_hashes2,
                 expanded_source,
                 injected_dir,
+                injected.entry_path,
                 active_paths2,
                 seen_paths2,
                 seen_package_identities2,
@@ -4393,6 +4423,7 @@ fn expandImportsInto(
     line_package_hashes: *std.ArrayList(?[32]u8),
     source: []const u8,
     base_dir: []const u8,
+    current_source_path: ?[]const u8,
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
     seen_package_identities: *std.StringHashMap(void),
@@ -4411,6 +4442,7 @@ fn expandImportsInto(
 
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
+    var explicit_loc_pending = false;
     while (iterator.next()) |raw_line| : (line_no += 1) {
         recordErrorSourceLine(error_ctx, line_no);
         if (parseImportPath(raw_line)) |import_path| {
@@ -4518,6 +4550,7 @@ fn expandImportsInto(
                 line_package_hashes,
                 expanded_source,
                 import_dir,
+                imported.entry_path,
                 active_paths,
                 seen_paths,
                 seen_package_identities,
@@ -4548,7 +4581,18 @@ fn expandImportsInto(
             continue;
         }
 
+        const classified = classifier.classifyLine(raw_line);
+        if (current_source_path) |path| {
+            if (isFunctionLikeLineKind(classified.kind) and !explicit_loc_pending) {
+                try appendGeneratedLocLine(allocator, out, line_package_identities, line_package_hashes, path, line_no, current_package_identity, current_package_hash);
+            }
+        }
         try appendExpandedLine(out, line_package_identities, line_package_hashes, raw_line, current_package_identity, current_package_hash);
+        if (classified.kind == .loc_hint) {
+            explicit_loc_pending = true;
+        } else if (consumesPendingLoc(classified.kind)) {
+            explicit_loc_pending = false;
+        }
     }
 }
 
@@ -4593,6 +4637,7 @@ pub fn expandImports(
     errdefer out.deinit();
 
     const base_dir = if (source_path) |path| std.fs.path.dirname(path) orelse "." else ".";
+    var root_source_path: ?[]const u8 = null;
     if (source_path) |path| {
         const source_full = if (std.fs.path.isAbsolute(path))
             try allocator.dupe(u8, path)
@@ -4602,6 +4647,7 @@ pub fn expandImports(
             allocator.free(source_full);
             return err;
         };
+        root_source_path = source_full;
         try active_paths.put(source_full, {});
         try seen_paths.put(source_full, {});
 
@@ -4624,6 +4670,7 @@ pub fn expandImports(
         &line_package_hashes,
         source,
         base_dir,
+        root_source_path,
         &active_paths,
         &seen_paths,
         &seen_package_identities,
@@ -4681,7 +4728,23 @@ fn flattenInternal(
     var symbols = SymbolTable.init(allocator);
     errdefer symbols.deinit();
     var instructions = std.ArrayList(Instruction).init(allocator);
-    errdefer instructions.deinit();
+    errdefer {
+        for (instructions.items) |*inst| {
+            if (inst.package_identity) |identity| allocator.free(identity);
+            if (inst.upstream_loc) |loc| {
+                const is_func_decl = switch (inst.kind) {
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+                    else => false,
+                };
+                if (is_func_decl) allocator.free(loc.file);
+            }
+            if (inst.atomic_expected_text) |text| allocator.free(text);
+            if (inst.atomic_new_text) |text| allocator.free(text);
+            for (inst.native_reg_names) |name| allocator.free(name);
+            if (inst.native_reg_names.len > 0) allocator.free(inst.native_reg_names);
+        }
+        instructions.deinit();
+    }
     var const_decls = std.ArrayList(ConstDecl).init(allocator);
     errdefer {
         for (const_decls.items) |*decl| decl.deinit(allocator);
@@ -5858,6 +5921,44 @@ test "flattenFile expands relative @import files" {
     try std.testing.expectEqualStrings("sa_print_bytes", result.function_sigs[0].name);
     try std.testing.expectEqual(FunctionKind.normal, result.function_sigs[1].kind);
     try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
+}
+
+test "flattenFile tags imported functions with imported source path" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var module_file = try tmp.dir.createFile("module.sa", .{ .truncate = true });
+    try module_file.writeAll(
+        \\@helper() -> i32:
+        \\L_ENTRY:
+        \\    return 7
+    );
+    module_file.close();
+
+    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "module.sa"
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+    const module_path = try tmp.dir.realpathAlloc(std.testing.allocator, "module.sa");
+    defer std.testing.allocator.free(module_path);
+
+    var result = try flattenFile(std.testing.allocator, source_path, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), result.function_sigs.len);
+    try std.testing.expectEqualStrings("helper", result.function_sigs[0].name);
+    try std.testing.expect(result.function_sigs[0].upstream_loc != null);
+    try std.testing.expectEqualStrings(module_path, result.function_sigs[0].upstream_loc.?.file);
 }
 
 test "std import source cache reuses source without cloning on hit" {

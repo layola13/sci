@@ -627,6 +627,70 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
     }
 }
 
+fn isPathSepByte(byte: u8) bool {
+    return byte == '/' or byte == '\\';
+}
+
+fn trimTrailingPathSeps(path: []const u8) []const u8 {
+    var end = path.len;
+    while (end > 0 and isPathSepByte(path[end - 1])) : (end -= 1) {}
+    return path[0..end];
+}
+
+fn pathIsUnderRoot(path: []const u8, root_path: []const u8) bool {
+    const root = trimTrailingPathSeps(root_path);
+    if (root.len == 0) return false;
+    if (std.mem.eql(u8, path, root)) return true;
+    return path.len > root.len and std.mem.startsWith(u8, path, root) and isPathSepByte(path[root.len]);
+}
+
+fn pathHasSegment(path: []const u8, segment: []const u8) bool {
+    var start: usize = 0;
+    while (start <= path.len) {
+        var end = start;
+        while (end < path.len and !isPathSepByte(path[end])) : (end += 1) {}
+        if (std.mem.eql(u8, path[start..end], segment)) return true;
+        if (end == path.len) break;
+        start = end + 1;
+    }
+    return false;
+}
+
+fn functionSourcePath(fsig: sig.FunctionSig, source_path: []const u8) []const u8 {
+    if (fsig.upstream_loc) |loc| return loc.file;
+    if (fsig.upstream_file) |file| return file;
+    return source_path;
+}
+
+fn functionHasStdOrigin(fsig: sig.FunctionSig, source_path: []const u8, std_root: ?[]const u8) bool {
+    const path = functionSourcePath(fsig, source_path);
+    if (std_root) |root| {
+        if (pathIsUnderRoot(path, root)) return true;
+    }
+    return pathHasSegment(path, "sa_std");
+}
+
+fn markStdDceUserRoots(reachable: *std.StringHashMap(void), sigs: []const sig.FunctionSig, source_path: []const u8, std_root: ?[]const u8) !void {
+    for (sigs) |fsig| {
+        if (!functionHasStdOrigin(fsig, source_path, std_root)) try reachable.put(fsig.name, {});
+    }
+}
+
+fn collectDceReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), source_path: []const u8, options: EmitOptions, reachable: *std.StringHashMap(void)) !void {
+    if (options.dce == .std) {
+        try markStdDceUserRoots(reachable, verified.function_sigs, source_path, options.std_root);
+    }
+    try collectNormalBuildReachability(allocator, verified, sig_index_by_name, reachable);
+}
+
+fn shouldPruneUnreachableFunction(options: EmitOptions, fsig: sig.FunctionSig, source_path: []const u8) bool {
+    return switch (options.dce) {
+        .no => false,
+        .full => true,
+        .std => functionHasStdOrigin(fsig, source_path, options.std_root),
+    };
+}
+
 fn functionSigShapeEqual(lhs: sig.FunctionSig, rhs: sig.FunctionSig) bool {
     if (lhs.return_cap != rhs.return_cap or lhs.return_ty != rhs.return_ty or lhs.return_fallible != rhs.return_fallible) return false;
     if (lhs.params.len != rhs.params.len) return false;
@@ -1028,7 +1092,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     var referenced_functions = std.StringHashMap(void).init(a);
     var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
-        try collectNormalBuildReachability(a, verified, &function_sig_index, &referenced_functions);
+        try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
         // Collect functions referenced in Trait vtables
@@ -1142,7 +1206,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                         // Not needed at all, completely skip!
                         should_include = false;
                     }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name) and shouldPruneUnreachableFunction(options, fsig, source_path)) {
                     should_include = false;
                 }
 
@@ -1309,7 +1373,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     var referenced_functions = std.StringHashMap(void).init(a);
     var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
     if (prune_unreachable) {
-        try collectNormalBuildReachability(a, verified, &function_sig_index, &referenced_functions);
+        try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
         for (verified.const_decls) |decl| {
@@ -1415,7 +1479,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     } else {
                         should_include = false;
                     }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name) and shouldPruneUnreachableFunction(options, fsig, source_path)) {
                     should_include = false;
                 }
 
@@ -1536,6 +1600,37 @@ test "function signature index preserves linear alias precedence" {
     try std.testing.expectEqual(@as(usize, 0), index.get("shared").?);
     try std.testing.expectEqual(@as(usize, 2), index.get("main").?);
     try std.testing.expectEqual(@as(usize, 2), index.get("saasm_main").?);
+}
+
+test "dce modes prune std and user functions at distinct levels" {
+    const std_func = sig.FunctionSig{
+        .id = 0,
+        .name = "std_unused",
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .void,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .upstream_file = "/tmp/app/sa_std/core/unused.sa",
+    };
+    const user_func = sig.FunctionSig{
+        .id = 1,
+        .name = "user_unused",
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .void,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .upstream_file = "/tmp/app/src/user.sa",
+    };
+
+    const source_path = "/tmp/app/src/main.sa";
+    try std.testing.expect(shouldPruneUnreachableFunction(.{ .dce = .std, .std_root = "/tmp/app/sa_std" }, std_func, source_path));
+    try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .std, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
+    try std.testing.expect(shouldPruneUnreachableFunction(.{ .dce = .full, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
+    try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .no, .std_root = "/tmp/app/sa_std" }, std_func, source_path));
 }
 
 test "llvmc backend can construct and write bitcode in memory" {

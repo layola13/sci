@@ -4980,6 +4980,8 @@ fn buildIncrementalObject(
     stderr: anytype,
 ) !void {
     const opt_level = emitOptLevel(debug, optimization);
+    const emit_std_root = try stdRootFromEnv(allocator);
+    defer allocator.free(emit_std_root);
     var object_paths = std.ArrayList([]const u8).init(allocator);
     defer {
         for (object_paths.items) |path| allocator.free(path);
@@ -5030,6 +5032,7 @@ fn buildIncrementalObject(
                                 .opt_level = opt_level,
                                 .function_task_index = task_idx,
                                 .dce = compile_options.dce,
+                                .std_root = emit_std_root,
                             },
                             object_path,
                             opt_level,
@@ -5343,6 +5346,8 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            const emit_std_root = try stdRootFromEnv(allocator);
+            defer allocator.free(emit_std_root);
             const std_archive_path = try saStdArchivePath(allocator);
             defer allocator.free(std_archive_path);
 
@@ -5388,6 +5393,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     cgu_count_val: usize,
                     object_path_val: []const u8,
                     opt_level_val: u8,
+                    std_root_val: []const u8,
                     err: ?anyerror = null,
 
                     pub fn run(self: *@This()) void {
@@ -5405,6 +5411,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                                 .codegen_unit_index = self.cgu_idx_val,
                                 .codegen_unit_count = self.cgu_count_val,
                                 .dce = self.dce_val,
+                                .std_root = self.std_root_val,
                             },
                             self.object_path_val,
                             self.opt_level_val,
@@ -5432,6 +5439,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .cgu_count_val = cgu_count,
                         .object_path_val = cgu_obj_paths[i],
                         .opt_level_val = emitOptLevel(debug, optimization),
+                        .std_root_val = emit_std_root,
                     };
                 }
 
@@ -5486,7 +5494,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce }, artifact_path);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
@@ -5550,15 +5558,17 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            const emit_std_root = try stdRootFromEnv(allocator);
+            defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (incremental) {
                 const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce }, artifact_path);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
             } else {
-                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce }, artifact_path, out_path, opt_level);
+                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path, out_path, opt_level);
             }
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
@@ -5605,8 +5615,10 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            const emit_std_root = try stdRootFromEnv(allocator);
+            defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce }, artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
 
             driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
@@ -5964,7 +5976,9 @@ fn executeTest(
             }
             try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
 
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce }, artifact_full_path);
+            const emit_std_root = try stdRootFromEnv(allocator);
+            defer allocator.free(emit_std_root);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_full_path);
 
             driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,

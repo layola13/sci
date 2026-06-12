@@ -29,6 +29,7 @@ pub const EmitOptions = struct {
     codegen_unit_count: usize = 1,
     function_task_index: ?usize = null,
     dce: DceMode = .std,
+    std_root: ?[]const u8 = null,
 };
 
 const std = @import("std");
