@@ -966,6 +966,10 @@ const DynamicLibHandle = struct {
 
 const PthreadEntryFn = *const fn (?[*]u8) callconv(.c) i32;
 
+extern fn sa_host_pthread_create(thread: *std.c.pthread_t, attr: ?*const std.c.pthread_attr_t, start_routine: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, arg: ?*anyopaque) callconv(.c) c_int;
+extern fn sa_host_pthread_join(thread: std.c.pthread_t, retval: ?*?*anyopaque) callconv(.c) c_int;
+extern fn sa_host_pthread_detach(thread: std.c.pthread_t) callconv(.c) c_int;
+
 const PthreadTask = struct {
     entry: PthreadEntryFn,
     arg: ?[*]u8,
@@ -974,7 +978,7 @@ const PthreadTask = struct {
 };
 
 const PthreadHandle = struct {
-    thread: std.Thread,
+    thread: std.c.pthread_t,
     task: *PthreadTask,
     joined: bool = false,
 };
@@ -984,6 +988,41 @@ fn pthreadTaskMain(task: *PthreadTask) void {
     if (task.destroy_on_finish) {
         std.heap.page_allocator.destroy(task);
     }
+}
+
+fn pthreadTaskMainC(arg: ?*anyopaque) callconv(.c) ?*anyopaque {
+    const task: *PthreadTask = @ptrCast(@alignCast(arg orelse return null));
+    pthreadTaskMain(task);
+    return null;
+}
+
+fn mapPthreadCreateError(err: std.c.E) anyerror {
+    return switch (err) {
+        .AGAIN => error.SystemResources,
+        .INVAL, .PERM => error.InvalidArgument,
+        else => error.Io,
+    };
+}
+
+fn spawnPthread(task: *PthreadTask) !std.c.pthread_t {
+    var attr: std.c.pthread_attr_t = undefined;
+    if (std.c.pthread_attr_init(&attr) != .SUCCESS) return error.SystemResources;
+    defer _ = std.c.pthread_attr_destroy(&attr);
+    if (std.c.pthread_attr_setstacksize(&attr, 2 * 1024 * 1024) != .SUCCESS) return error.InvalidArgument;
+    if (std.c.pthread_attr_setguardsize(&attr, std.heap.pageSize()) != .SUCCESS) return error.InvalidArgument;
+
+    var thread: std.c.pthread_t = undefined;
+    const rc = sa_host_pthread_create(&thread, &attr, pthreadTaskMainC, @ptrCast(task));
+    if (rc == 0) return thread;
+    return mapPthreadCreateError(@enumFromInt(rc));
+}
+
+fn joinPthreadHandle(thread: std.c.pthread_t) !void {
+    return switch (@as(std.c.E, @enumFromInt(sa_host_pthread_join(thread, null)))) {
+        .SUCCESS => {},
+        .INVAL, .SRCH, .DEADLK => error.InvalidHandle,
+        else => error.Io,
+    };
 }
 
 fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
@@ -5379,18 +5418,18 @@ pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
     const entry_fn: PthreadEntryFn = @ptrCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
     const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
     task.* = .{ .entry = entry_fn, .arg = @ptrCast(@constCast(arg)) };
-    const thread = std.Thread.spawn(.{}, pthreadTaskMain, .{task}) catch |err| {
+    const thread = spawnPthread(task) catch |err| {
         std.heap.page_allocator.destroy(task);
         return finish(mapError(err));
     };
     const handle = std.heap.page_allocator.create(PthreadHandle) catch |err| {
-        thread.join();
+        joinPthreadHandle(thread) catch {};
         std.heap.page_allocator.destroy(task);
         return finish(mapError(err));
     };
     handle.* = .{ .thread = thread, .task = task };
     const id = allocPthreadHandle(handle) catch |err| {
-        thread.join();
+        joinPthreadHandle(thread) catch {};
         std.heap.page_allocator.destroy(task);
         std.heap.page_allocator.destroy(handle);
         return finish(mapError(err));
@@ -5407,19 +5446,23 @@ pub fn pthread_spawn_detached(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.
         .arg = @ptrCast(@constCast(arg)),
         .destroy_on_finish = true,
     };
-    const thread = std.Thread.spawn(.{}, pthreadTaskMain, .{task}) catch |err| {
+    const thread = spawnPthread(task) catch |err| {
         std.heap.page_allocator.destroy(task);
         return finish(mapError(err));
     };
-    thread.detach();
+    _ = sa_host_pthread_detach(thread);
     last_error = SA_STD_OK;
     return SA_STD_OK;
 }
 
 pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
     const handle_ptr = freePthreadHandle(handle) catch |err| return finish(mapError(err));
-    handle_ptr.thread.join();
     const out_ptr = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    joinPthreadHandle(handle_ptr.thread) catch |err| {
+        std.heap.page_allocator.destroy(handle_ptr.task);
+        std.heap.page_allocator.destroy(handle_ptr);
+        return finishErr(err);
+    };
     std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&handle_ptr.task.result));
     std.heap.page_allocator.destroy(handle_ptr.task);
     std.heap.page_allocator.destroy(handle_ptr);
@@ -5446,7 +5489,7 @@ pub fn pthread_drop(handle: i32) callconv(.c) void {
     }
     pthread_registry_mutex.unlock();
     if (handle_ptr) |slot| {
-        slot.thread.join();
+        joinPthreadHandle(slot.thread) catch {};
         std.heap.page_allocator.destroy(slot.task);
         std.heap.page_allocator.destroy(slot);
     }

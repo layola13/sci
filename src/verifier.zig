@@ -81,6 +81,16 @@ pub const VerifyOptions = struct {
     jobs: ?usize = null,
     package_grants: []const pkg_manifest.RequireEntry = &.{},
     sax_context: ?SaxValidationContext = null,
+    stage_reporter: ?VerifyStageReporter = null,
+};
+
+pub const VerifyStageReporter = struct {
+    context: *anyopaque,
+    report_fn: *const fn (*anyopaque, []const u8, usize, usize) void,
+
+    fn report(self: VerifyStageReporter, stage: []const u8, completed: usize, total: usize) void {
+        self.report_fn(self.context, stage, completed, total);
+    }
 };
 
 pub const SaxValidationContext = struct {
@@ -147,15 +157,39 @@ fn expectTrapReportUpstreamLoc(report: trap.TrapReport, expected: ?upstream.Upst
 }
 
 const ParallelVerifyJob = struct {
-    arena: std.heap.ArenaAllocator,
     result: ?VerifyBodyResult = null,
     err: ?anyerror = null,
+    worker_index: usize = 0,
+};
 
-    fn deinit(self: *ParallelVerifyJob) void {
-        self.arena.deinit();
-        self.* = undefined;
+const ParallelVerifyWorker = struct {
+    gpa: std.heap.GeneralPurposeAllocator(.{}) = .{},
+
+    fn allocator(self: *ParallelVerifyWorker) std.mem.Allocator {
+        return self.gpa.allocator();
+    }
+
+    fn deinit(self: *ParallelVerifyWorker) void {
+        _ = self.gpa.deinit();
+        self.* = .{};
     }
 };
+
+fn cleanupParallelJobResults(jobs: []ParallelVerifyJob, workers: []ParallelVerifyWorker) void {
+    for (jobs) |*job| {
+        const result = job.result orelse continue;
+        switch (result) {
+            .ok => |ok| {
+                const worker_index = job.worker_index;
+                if (worker_index < workers.len) {
+                    freeAnnotatedSlice(workers[worker_index].allocator(), ok.annotated);
+                }
+            },
+            .trap => {},
+        }
+        job.result = null;
+    }
+}
 
 const ParallelVerifyContext = struct {
     allocator: std.mem.Allocator,
@@ -167,6 +201,7 @@ const ParallelVerifyContext = struct {
     sax_context: ?SaxValidationContext,
     chunks: []const ParallelFunctionChunk,
     jobs: []ParallelVerifyJob,
+    workers: []ParallelVerifyWorker,
     requested_jobs: ?usize,
     next_chunk: std.atomic.Value(usize),
 };
@@ -3298,15 +3333,17 @@ fn chooseVerifyWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
     return if (cpu_count <= 1) 1 else @min(cpu_count, chunk_count);
 }
 
-fn verifyWorker(context: *ParallelVerifyContext) void {
+fn verifyWorker(context: *ParallelVerifyContext, worker_index: usize) void {
+    const worker_allocator = context.workers[worker_index].allocator();
     while (true) {
         const chunk_index = context.next_chunk.fetchAdd(1, .monotonic);
         if (chunk_index >= context.chunks.len) return;
 
         const chunk = context.chunks[chunk_index];
         const job = &context.jobs[chunk_index];
+        job.worker_index = worker_index;
         const result = verifyBody(
-            job.arena.allocator(),
+            worker_allocator,
             context.instructions[chunk.start..chunk.end],
             context.classified_lines[chunk.start..chunk.end],
             context.const_decls,
@@ -3333,20 +3370,31 @@ fn verifyParallel(
     sax_context: ?SaxValidationContext,
     chunks: []const ParallelFunctionChunk,
     requested_jobs: ?usize,
+    stage_reporter: ?VerifyStageReporter,
 ) !VerifyBodyResult {
     const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
     if (worker_count <= 1) {
         return verifyBody(allocator, instructions, classified_lines, const_decls, metadata, 0, true, package_grants, sax_context);
     }
 
+    if (stage_reporter) |reporter| reporter.report("parallel_start", worker_count, chunks.len);
+
     const jobs = try allocator.alloc(ParallelVerifyJob, chunks.len);
     for (jobs) |*job| {
-        job.* = .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
+        job.* = .{};
     }
     defer {
-        for (jobs) |*job| job.deinit();
         allocator.free(jobs);
     }
+
+    const workers = try allocator.alloc(ParallelVerifyWorker, worker_count);
+    for (workers) |*worker| worker.* = .{};
+    defer {
+        for (workers) |*worker| worker.deinit();
+        allocator.free(workers);
+    }
+    defer cleanupParallelJobResults(jobs, workers);
+    if (stage_reporter) |reporter| reporter.report("parallel_after_worker_allocators", worker_count, chunks.len);
 
     var context = ParallelVerifyContext{
         .allocator = allocator,
@@ -3358,6 +3406,7 @@ fn verifyParallel(
         .sax_context = sax_context,
         .chunks = chunks,
         .jobs = jobs,
+        .workers = workers,
         .requested_jobs = requested_jobs,
         .next_chunk = std.atomic.Value(usize).init(0),
     };
@@ -3376,15 +3425,16 @@ fn verifyParallel(
     }
 
     while (started_threads < spawned_count) : (started_threads += 1) {
-        threads[started_threads] = try std.Thread.spawn(.{}, verifyWorker, .{&context});
+        threads[started_threads] = try std.Thread.spawn(.{}, verifyWorker, .{ &context, started_threads + 1 });
     }
 
-    verifyWorker(&context);
+    verifyWorker(&context, 0);
 
     while (started_threads > 0) {
         started_threads -= 1;
         threads[started_threads].join();
     }
+    if (stage_reporter) |reporter| reporter.report("parallel_after_body", chunks.len, chunks.len);
 
     var annotated = std.ArrayList(AnnotatedInstruction).init(allocator);
     errdefer freeAnnotated(allocator, &annotated);
@@ -3392,7 +3442,7 @@ fn verifyParallel(
     var gas_steps: u64 = 0;
     var has_unbounded_loop = false;
 
-    for (jobs) |*job| {
+    for (jobs, 0..) |*job, job_index| {
         if (job.err) |err| return err;
         const result = job.result orelse return error.UnexpectedResult;
         switch (result) {
@@ -3401,6 +3451,10 @@ fn verifyParallel(
                 return .{ .trap = report };
             },
             .ok => |ok| {
+                defer {
+                    freeAnnotatedSlice(workers[job.worker_index].allocator(), ok.annotated);
+                    job.result = null;
+                }
                 for (ok.annotated) |item| {
                     const delta_changes = if (item.delta.changes.len == 0)
                         emptyRegStateDelta().changes
@@ -3428,6 +3482,13 @@ fn verifyParallel(
                 }
             },
         }
+
+        if (stage_reporter) |reporter| {
+            const completed = job_index + 1;
+            if (completed == jobs.len or completed % 128 == 0) {
+                reporter.report("parallel_merge", completed, jobs.len);
+            }
+        }
     }
 
     const annotated_slice = try annotated.toOwnedSlice();
@@ -3449,8 +3510,11 @@ pub fn verifyWithOptions(
     const_decls: []const const_decl.ConstDecl,
     options: VerifyOptions,
 ) !VerifyResult {
+    if (options.stage_reporter) |reporter| reporter.report("start", 0, instructions.len);
+
     if (instructions.len == 0) {
         const symbols = symbol.SymbolTable.init(allocator);
+        if (options.stage_reporter) |reporter| reporter.report("empty", 0, 0);
         return .{ .ok = .{
             .annotated = &.{},
             .function_sigs = &.{},
@@ -3467,6 +3531,7 @@ pub fn verifyWithOptions(
 
     const classified_lines = try classifyInstructions(allocator, instructions);
     defer allocator.free(classified_lines);
+    if (options.stage_reporter) |reporter| reporter.report("after_classify", classified_lines.len, instructions.len);
 
     var metadata = collectMetadata(allocator, instructions, classified_lines, const_decls) catch |err| {
         return .{ .trap = trapReportFromText(
@@ -3484,16 +3549,20 @@ pub fn verifyWithOptions(
     defer freeFunctionStarts(&metadata.function_starts);
     var symbols_moved = false;
     defer if (!symbols_moved) metadata.symbols.deinit();
+    if (options.stage_reporter) |reporter| reporter.report("after_metadata", metadata.sigs.items.len, instructions.len);
 
     const chunks = try buildVerifyChunks(allocator, instructions);
     defer allocator.free(chunks);
+    if (options.stage_reporter) |reporter| reporter.report("after_chunks", chunks.len, instructions.len);
     const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
 
     const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
-        const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs);
+        const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs, options.stage_reporter);
         break :blk parallel;
     } else blk: {
-        break :blk try verifyBody(allocator, instructions, classified_lines, const_decls, &metadata, 0, true, options.package_grants, options.sax_context);
+        const serial = try verifyBody(allocator, instructions, classified_lines, const_decls, &metadata, 0, true, options.package_grants, options.sax_context);
+        if (options.stage_reporter) |reporter| reporter.report("after_body", instructions.len, instructions.len);
+        break :blk serial;
     };
 
     switch (body_result) {
@@ -3510,6 +3579,7 @@ pub fn verifyWithOptions(
 
             symbols_moved = true;
             finalized = true;
+            if (options.stage_reporter) |reporter| reporter.report("after_finalize", owned_body.annotated.len, instructions.len);
             return .{ .ok = .{
                 .annotated = owned_body.annotated,
                 .function_sigs = sigs_slice,

@@ -896,6 +896,60 @@ test "plugin installer rejects duplicate extern symbols across installed plugins
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "alpha"));
 }
 
+test "plugin installer reports duplicate extern symbols inside installed plugin" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("state/installed/bad/current/sa");
+    try writeSource(tmp.dir, "state/installed/bad/current/sa/base.sai",
+        \\@extern sa_bad_dup() -> u32
+        \\
+    );
+    try writeSource(tmp.dir, "state/installed/bad/current/sa/extra.sai",
+        \\@extern sa_bad_dup() -> u64
+        \\
+    );
+
+    try writeInstallablePluginProject(
+        std.testing.allocator,
+        tmp.dir,
+        "probe",
+        "probe",
+        "probe",
+        "sa_probe_unique",
+        "{\"fs\": [], \"net\": [], \"env\": [], \"process\": {\"spawn\": false, \"exec\": []}}",
+        "",
+        "return 0;",
+        false,
+    );
+
+    const env_name: [:0]const u8 = "SA_PLUGINS_HOME";
+    const saved_env = try saveEnvVarZ(std.testing.allocator, env_name);
+    defer {
+        if (saved_env) |value| {
+            setEnvVarZ(env_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            unsetEnvVarZ(env_name);
+        }
+    }
+    try setEnvVarZ(env_name, "state");
+
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
+
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "probe", output.writer(), .{ .dev = true });
+    try std.testing.expectEqual(@as(u8, 1), install_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "installed plugin duplicate extern symbol"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "sa_bad_dup"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "bad"));
+}
+
 test "sa skills hides plugin capabilities until optional dependency is installed" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

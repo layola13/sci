@@ -79,6 +79,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    addPthreadHostShimToModule(b, sa_std_static_module);
     const sa_std_static = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_static_module,
@@ -96,6 +97,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    addPthreadHostShimToModule(b, sa_std_shared_module);
     const sa_std_shared = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_shared_module,
@@ -290,6 +292,23 @@ pub fn build(b: *std.Build) void {
     const cli_skills_smoke_step = b.step("cli-skills-smoke", "Run the sa skills focused CLI smoke tests");
     cli_skills_smoke_step.dependOn(&run_cli_skills_smoke.step);
 
+    const pthread_vtable_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pthread_vtable_smoke_module.addImport("saasm", lib_module);
+    pthread_vtable_smoke_module.addOptions("build_options", build_options);
+    const pthread_vtable_smoke = b.addTest(.{
+        .root_module = pthread_vtable_smoke_module,
+        .filters = &.{"pthread vtable worker stores survive native join"},
+    });
+    const run_pthread_vtable_smoke = b.addRunArtifact(pthread_vtable_smoke);
+    run_pthread_vtable_smoke.setCwd(repo_root_lazy);
+    run_pthread_vtable_smoke.step.dependOn(&sync_sa_std_artifact.step);
+    const pthread_vtable_smoke_step = b.step("pthread-vtable-smoke", "Run pthread vtable native codegen regression test");
+    pthread_vtable_smoke_step.dependOn(&run_pthread_vtable_smoke.step);
+
     const trap_baseline_module = b.createModule(.{
         .root_source_file = b.path("tests/golden/trap_baseline.zig"),
         .target = target,
@@ -316,6 +335,12 @@ pub fn build(b: *std.Build) void {
     std_smoke_core_module.addOptions("test_build_options", test_build_options);
     const std_smoke_core = b.addTest(.{
         .root_module = std_smoke_core_module,
+        .filters = &.{
+            "sa_std core primitives are concrete and verifiable",
+            "sa_std package manifest parses as an empty package boundary",
+            "sa_std io and process interfaces match native resource ABI",
+            "sa_std rust core helpers are concrete and verifiable",
+        },
     });
 
     const std_smoke_containers_module = b.createModule(.{
@@ -571,6 +596,10 @@ pub fn build(b: *std.Build) void {
 
 fn addLlvmcShimToModule(b: *std.Build, module: *std.Build.Module) void {
     module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_shim.c"), .flags = &.{} });
+}
+
+fn addPthreadHostShimToModule(b: *std.Build, module: *std.Build.Module) void {
+    module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{} });
 }
 
 fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {

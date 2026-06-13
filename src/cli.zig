@@ -89,6 +89,115 @@ const CompilePhaseMetrics = struct {
     total_ns: ?u64 = null,
 };
 
+const VerifierMemoryMetrics = struct {
+    start_rss_bytes: ?u64 = null,
+    after_classify_rss_bytes: ?u64 = null,
+    after_metadata_rss_bytes: ?u64 = null,
+    after_chunks_rss_bytes: ?u64 = null,
+    parallel_start_rss_bytes: ?u64 = null,
+    parallel_after_worker_allocators_rss_bytes: ?u64 = null,
+    parallel_after_body_rss_bytes: ?u64 = null,
+    parallel_merge_rss_bytes: ?u64 = null,
+    after_body_rss_bytes: ?u64 = null,
+    after_finalize_rss_bytes: ?u64 = null,
+    empty_rss_bytes: ?u64 = null,
+};
+
+const CompileMemoryMetrics = struct {
+    start_rss_bytes: ?u64 = null,
+    after_load_rss_bytes: ?u64 = null,
+    after_setup_rss_bytes: ?u64 = null,
+    after_flatten_rss_bytes: ?u64 = null,
+    after_verify_rss_bytes: ?u64 = null,
+    after_emit_rss_bytes: ?u64 = null,
+    after_link_rss_bytes: ?u64 = null,
+    end_rss_bytes: ?u64 = null,
+    peak_rss_bytes: ?u64 = null,
+    verifier: VerifierMemoryMetrics = .{},
+
+    fn updatePeak(self: *CompileMemoryMetrics, rss: ?u64) void {
+        const value = rss orelse return;
+        if (self.peak_rss_bytes == null or value > self.peak_rss_bytes.?) {
+            self.peak_rss_bytes = value;
+        }
+    }
+
+    fn recordStart(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.start_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordAfterLoad(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.after_load_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordAfterSetup(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.after_setup_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordAfterFlatten(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.after_flatten_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordAfterVerify(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.after_verify_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordAfterEmit(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.after_emit_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordAfterLink(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.after_link_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordEnd(self: *CompileMemoryMetrics) void {
+        const rss = currentRssBytes();
+        self.end_rss_bytes = rss;
+        self.updatePeak(rss);
+    }
+
+    fn recordVerifierStage(self: *CompileMemoryMetrics, stage: []const u8, rss: ?u64) void {
+        if (std.mem.eql(u8, stage, "start")) {
+            self.verifier.start_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "after_classify")) {
+            self.verifier.after_classify_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "after_metadata")) {
+            self.verifier.after_metadata_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "after_chunks")) {
+            self.verifier.after_chunks_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "parallel_start")) {
+            self.verifier.parallel_start_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "parallel_after_worker_allocators")) {
+            self.verifier.parallel_after_worker_allocators_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "parallel_after_body")) {
+            self.verifier.parallel_after_body_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "parallel_merge")) {
+            self.verifier.parallel_merge_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "after_body")) {
+            self.verifier.after_body_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "after_finalize")) {
+            self.verifier.after_finalize_rss_bytes = rss;
+        } else if (std.mem.eql(u8, stage, "empty")) {
+            self.verifier.empty_rss_bytes = rss;
+        }
+        self.updatePeak(rss);
+    }
+};
+
 const BackendIrMetrics = struct {
     functions: u64 = 0,
     blocks: u64 = 0,
@@ -102,6 +211,7 @@ const CompileMetrics = struct {
     compile_tokens: u64,
     instruction_count: u64,
     phases: ?CompilePhaseMetrics = null,
+    memory: ?CompileMemoryMetrics = null,
     backend_ir: ?BackendIrMetrics = null,
     cache: ?BuildCacheMetrics = null,
 };
@@ -111,13 +221,30 @@ const BuildCacheMetrics = struct {
     hit: bool,
 };
 
-fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics) CompileMetrics {
+fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics, memory: ?CompileMemoryMetrics) CompileMetrics {
     const compile_tokens = @as(u64, flat.instructions.len) + @as(u64, flat.const_decls.len) + @as(u64, flat.function_sigs.len) + @as(u64, flat.test_sigs.len) + @as(u64, verified.annotated.len);
     return .{
         .compile_tokens = compile_tokens,
         .instruction_count = @as(u64, verified.annotated.len),
         .phases = phases,
+        .memory = memory,
     };
+}
+
+fn currentRssBytes() ?u64 {
+    if (builtin.os.tag != .linux) return null;
+
+    var file = std.fs.openFileAbsolute("/proc/self/statm", .{}) catch return null;
+    defer file.close();
+
+    var buf: [128]u8 = undefined;
+    const n = file.readAll(&buf) catch return null;
+    var it = std.mem.tokenizeAny(u8, buf[0..n], " \t\r\n");
+    _ = it.next() orelse return null;
+    const rss_pages_text = it.next() orelse return null;
+    const rss_pages = std.fmt.parseInt(u64, rss_pages_text, 10) catch return null;
+    const page_size: u64 = @intCast(std.heap.pageSize());
+    return rss_pages * page_size;
 }
 
 fn elapsedNs(start: std.time.Instant) u64 {
@@ -137,6 +264,26 @@ fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, 
             .total_ns = total_ns,
         };
     }
+}
+
+fn recordMetricMemoryAfterEmit(metrics: *CompileMetrics) void {
+    if (metrics.memory) |*memory| memory.recordAfterEmit();
+}
+
+fn recordMetricMemoryAfterLink(metrics: *CompileMetrics) void {
+    if (metrics.memory) |*memory| memory.recordAfterLink();
+}
+
+fn recordMetricMemoryEnd(metrics: *CompileMetrics) void {
+    if (metrics.memory) |*memory| memory.recordEnd();
+}
+
+fn cacheHitMemoryMetrics(enabled: bool) ?CompileMemoryMetrics {
+    if (!enabled) return null;
+    var memory = CompileMemoryMetrics{};
+    memory.recordStart();
+    memory.recordEnd();
+    return memory;
 }
 
 fn estimateBackendIrMetrics(verified: *const referee.VerifyOk, debug: bool) BackendIrMetrics {
@@ -422,6 +569,8 @@ const CompileOptions = struct {
     allow_run_requested: bool = false,
     project_root: ?[]const u8 = null,
     profile: bool = false,
+    mem_report: bool = false,
+    mem_report_live: bool = false,
     stdin_reader: ?std.io.AnyReader = null,
     stdin_is_tty: ?bool = null,
     diagnostic_writer: ?std.io.AnyWriter = null,
@@ -1008,6 +1157,7 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --dce no|std|full              Select dead-code elimination level\n");
     try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
+    try writer.writeAll("  --mem-report                   Print compile RSS stage samples; JSON mode includes metrics\n");
     try writer.writeAll("  --offline                      Use local package cache only\n");
     try writer.writeAll("  --ci                           Use CI package preflight behavior\n");
     try writer.writeAll("  --allow-unaudited-risks        Allow high-risk package audit findings\n");
@@ -1444,6 +1594,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("\nGlobal options:\n");
     try writer.writeAll("  --json                         Output diagnostics in JSON format\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
+    try writer.writeAll("  --mem-report                   Print compile RSS stage samples; JSON mode includes metrics\n");
     try writer.writeAll("  --jobs auto|N                  Set the number of parallel compile jobs\n");
     try writer.writeAll("  --dce no|std|full              Select dead-code elimination level\n");
     try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
@@ -1915,6 +2066,35 @@ fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
         }
         try writer.writeByte('}');
     }
+    if (metrics.memory) |memory| {
+        try writer.writeAll(",\"memory\":{");
+        try writer.writeAll("\"rss_bytes\":{");
+        try writeOptionalJsonU64Field(writer, "start", memory.start_rss_bytes, true);
+        try writeOptionalJsonU64Field(writer, "after_load", memory.after_load_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_setup", memory.after_setup_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_flatten", memory.after_flatten_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_verify", memory.after_verify_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_emit", memory.after_emit_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_link", memory.after_link_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "end", memory.end_rss_bytes, false);
+        try writer.writeByte('}');
+        try writer.writeAll(",\"verifier_rss_bytes\":{");
+        try writeOptionalJsonU64Field(writer, "start", memory.verifier.start_rss_bytes, true);
+        try writeOptionalJsonU64Field(writer, "after_classify", memory.verifier.after_classify_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_metadata", memory.verifier.after_metadata_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_chunks", memory.verifier.after_chunks_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_start", memory.verifier.parallel_start_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_after_worker_allocators", memory.verifier.parallel_after_worker_allocators_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_after_body", memory.verifier.parallel_after_body_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_merge", memory.verifier.parallel_merge_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_body", memory.verifier.after_body_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_finalize", memory.verifier.after_finalize_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "empty", memory.verifier.empty_rss_bytes, false);
+        try writer.writeByte('}');
+        try writer.writeAll(",\"peak_rss_bytes\":");
+        try writeOptionalJsonU64(writer, memory.peak_rss_bytes);
+        try writer.writeByte('}');
+    }
     if (metrics.backend_ir) |ir| {
         try writer.writeAll(",\"backend\":{\"ir\":{");
         try writer.writeAll("\"functions\":");
@@ -1942,10 +2122,137 @@ fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
     try writer.writeByte('}');
 }
 
+fn writeOptionalJsonU64(writer: anytype, value: ?u64) !void {
+    if (value) |v| {
+        try writer.print("{d}", .{v});
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+fn writeOptionalJsonU64Field(writer: anytype, name: []const u8, value: ?u64, first: bool) !void {
+    if (!first) try writer.writeByte(',');
+    try writer.writeByte('"');
+    try writer.writeAll(name);
+    try writer.writeAll("\":");
+    try writeOptionalJsonU64(writer, value);
+}
+
 fn writeSuccessJson(writer: anytype, metrics: CompileMetrics) !void {
     try writer.writeAll("{\"status\":\"ok\",\"metrics\":");
     try writeMetricsJson(writer, metrics);
     try writer.writeAll("}\n");
+}
+
+fn writeMemoryAmount(writer: anytype, value: ?u64) !void {
+    const bytes = value orelse {
+        try writer.writeAll("n/a");
+        return;
+    };
+    const bytes_per_mib: u64 = 1024 * 1024;
+    const tenths = (bytes * 10 + bytes_per_mib / 2) / bytes_per_mib;
+    try writer.print("{d}.{d} MiB", .{ tenths / 10, tenths % 10 });
+}
+
+fn writeMemoryDelta(writer: anytype, previous: ?u64, current: ?u64) !void {
+    const prev = previous orelse return;
+    const curr = current orelse return;
+    try writer.writeAll("  delta ");
+    if (curr >= prev) {
+        try writer.writeByte('+');
+        try writeMemoryAmount(writer, curr - prev);
+    } else {
+        try writer.writeByte('-');
+        try writeMemoryAmount(writer, prev - curr);
+    }
+}
+
+fn writeMemoryStageLine(writer: anytype, label: []const u8, value: ?u64, previous: ?u64) !void {
+    try writer.print("  {s}", .{label});
+    try writeMemoryAmount(writer, value);
+    try writeMemoryDelta(writer, previous, value);
+    try writer.writeByte('\n');
+}
+
+fn writeMemoryStageSample(writer: anytype, label: []const u8, value: ?u64, previous: ?u64) !void {
+    try writer.writeAll("memory stage ");
+    try writer.writeAll(label);
+    try writer.writeByte(' ');
+    try writeMemoryAmount(writer, value);
+    try writeMemoryDelta(writer, previous, value);
+    try writer.writeByte('\n');
+}
+
+fn writeMemoryStageSampleForOptions(options: CompileOptions, label: []const u8, value: ?u64, previous: ?u64) !void {
+    if (!options.mem_report_live) return;
+    const writer = options.diagnostic_writer orelse return;
+    try writeMemoryStageSample(writer, label, value, previous);
+}
+
+const MemoryStageReporterContext = struct {
+    writer: std.io.AnyWriter,
+    memory: ?*CompileMemoryMetrics = null,
+    previous_rss_bytes: ?u64 = null,
+    peak_rss_bytes: ?u64 = null,
+    live: bool = false,
+};
+
+fn writeVerifierMemoryStage(context: *MemoryStageReporterContext, stage: []const u8, completed: usize, total: usize) !void {
+    const rss = currentRssBytes();
+    if (context.memory) |memory| memory.recordVerifierStage(stage, rss);
+    if (rss) |value| {
+        if (context.peak_rss_bytes == null or value > context.peak_rss_bytes.?) {
+            context.peak_rss_bytes = value;
+        }
+    }
+
+    if (!context.live) {
+        context.previous_rss_bytes = rss;
+        return;
+    }
+
+    try context.writer.writeAll("memory stage verifier.");
+    try context.writer.writeAll(stage);
+    if (total != 0) {
+        try context.writer.print(" {d}/{d}", .{ completed, total });
+    }
+    try context.writer.writeByte(' ');
+    try writeMemoryAmount(context.writer, rss);
+    try writeMemoryDelta(context.writer, context.previous_rss_bytes, rss);
+    try context.writer.writeByte('\n');
+    context.previous_rss_bytes = rss;
+}
+
+fn reportVerifierMemoryStage(context: *anyopaque, stage: []const u8, completed: usize, total: usize) void {
+    const typed = @as(*MemoryStageReporterContext, @ptrCast(@alignCast(context)));
+    writeVerifierMemoryStage(typed, stage, completed, total) catch {};
+}
+
+fn memoryEndPrevious(memory: CompileMemoryMetrics) ?u64 {
+    return memory.after_link_rss_bytes orelse memory.after_emit_rss_bytes orelse memory.after_verify_rss_bytes;
+}
+
+fn writeMemoryReportText(writer: anytype, metrics: CompileMetrics) !void {
+    const memory = metrics.memory orelse return;
+    try writer.writeAll("memory report (RSS)\n");
+    try writeMemoryStageLine(writer, "start          ", memory.start_rss_bytes, null);
+    try writeMemoryStageLine(writer, "after_load     ", memory.after_load_rss_bytes, memory.start_rss_bytes);
+    try writeMemoryStageLine(writer, "after_setup    ", memory.after_setup_rss_bytes, memory.after_load_rss_bytes);
+    try writeMemoryStageLine(writer, "after_flatten  ", memory.after_flatten_rss_bytes, memory.after_setup_rss_bytes);
+    try writeMemoryStageLine(writer, "after_verify   ", memory.after_verify_rss_bytes, memory.after_flatten_rss_bytes);
+    try writeMemoryStageLine(writer, "after_emit     ", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+    try writeMemoryStageLine(writer, "after_link     ", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
+    try writeMemoryStageLine(writer, "end            ", memory.end_rss_bytes, memoryEndPrevious(memory));
+    try writer.writeAll("  peak           ");
+    try writeMemoryAmount(writer, memory.peak_rss_bytes);
+    try writer.writeByte('\n');
+}
+
+fn writeSuccessDiagnostics(writer: anytype, metrics: CompileMetrics, mode: DiagnosticsMode) !void {
+    switch (mode) {
+        .json => try writeSuccessJson(writer, metrics),
+        .human => try writeMemoryReportText(writer, metrics),
+    }
 }
 
 fn writeJsonStringArray(writer: anytype, items: []const []const u8) !void {
@@ -3389,6 +3696,7 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     if (try consumeJobsOption(arg, args, index, options)) return true;
     if (try consumeDceOption(arg, args, index, options)) return true;
     if (consumeProfileOption(arg, options)) return true;
+    if (consumeMemReportOption(arg, options)) return true;
     if (try consumePermissionSetOption(arg, args, index, options)) return true;
     if (consumeAllowOption(arg, options)) return true;
     if (std.mem.eql(u8, arg, "--offline")) {
@@ -3506,6 +3814,12 @@ fn consumeProfileOption(arg: []const u8, options: *CompileOptions) bool {
     return true;
 }
 
+fn consumeMemReportOption(arg: []const u8, options: *CompileOptions) bool {
+    if (!std.mem.eql(u8, arg, "--mem-report")) return false;
+    options.mem_report = true;
+    return true;
+}
+
 pub const ExecuteOptions = struct {
     stdin_reader: ?std.io.AnyReader = null,
     stdin_is_tty: ?bool = null,
@@ -3521,6 +3835,10 @@ fn newCompileOptions(exec_options: ExecuteOptions, diagnostic_writer: std.io.Any
     var options: CompileOptions = .{};
     applyExecuteOptions(&options, exec_options, diagnostic_writer);
     return options;
+}
+
+fn configureCompileDiagnostics(options: *CompileOptions, json_mode: bool) void {
+    options.mem_report_live = options.mem_report and !json_mode;
 }
 
 fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -3871,11 +4189,21 @@ fn manifestPluginImportRoots(manifest_file: *const manifest.Manifest, allocator:
 }
 
 fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
+    var memory_metrics: ?CompileMemoryMetrics = if (options.mem_report) .{} else null;
+    if (memory_metrics) |*memory| {
+        memory.recordStart();
+        try writeMemoryStageSampleForOptions(options, "start", memory.start_rss_bytes, null);
+    }
+
     const total_start = if (options.profile) std.time.Instant.now() catch null else null;
     const load_start = if (options.profile) std.time.Instant.now() catch null else null;
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
     const load_ns = if (load_start) |start| elapsedNs(start) else 0;
+    if (memory_metrics) |*memory| {
+        memory.recordAfterLoad();
+        try writeMemoryStageSampleForOptions(options, "after_load", memory.after_load_rss_bytes, memory.start_rss_bytes);
+    }
 
     const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
     const project_root_owned = options.project_root == null;
@@ -3920,6 +4248,10 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         },
     };
     const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
+    if (memory_metrics) |*memory| {
+        memory.recordAfterSetup();
+        try writeMemoryStageSampleForOptions(options, "after_setup", memory.after_setup_rss_bytes, memory.after_load_rss_bytes);
+    }
 
     const flatten_start = if (options.profile) std.time.Instant.now() catch null else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
@@ -3927,13 +4259,36 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     };
     errdefer flat.deinit(allocator);
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
+    if (memory_metrics) |*memory| {
+        memory.recordAfterFlatten();
+        try writeMemoryStageSampleForOptions(options, "after_flatten", memory.after_flatten_rss_bytes, memory.after_setup_rss_bytes);
+    }
+
+    var null_writer = std.io.null_writer;
+    var verifier_stage_context = MemoryStageReporterContext{
+        .writer = options.diagnostic_writer orelse null_writer.any(),
+        .memory = if (memory_metrics) |*memory| memory else null,
+        .previous_rss_bytes = if (memory_metrics) |memory| memory.after_flatten_rss_bytes else null,
+        .peak_rss_bytes = if (memory_metrics) |memory| memory.peak_rss_bytes else null,
+        .live = options.mem_report_live,
+    };
+    const verifier_stage_reporter: ?referee.VerifyStageReporter = if (options.mem_report)
+        .{ .context = &verifier_stage_context, .report_fn = reportVerifierMemoryStage }
+    else
+        null;
 
     const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
-    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants });
+    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants, .stage_reporter = verifier_stage_reporter });
     const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
+    if (memory_metrics) |*memory| {
+        memory.updatePeak(verifier_stage_context.peak_rss_bytes);
+        memory.recordAfterVerify();
+        try writeMemoryStageSampleForOptions(options, "after_verify", memory.after_verify_rss_bytes, memory.after_flatten_rss_bytes);
+        memory.recordEnd();
+    }
 
     return switch (verified) {
-        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null) } },
+        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
         .trap => |report| {
             var r = report;
             if (r.file == null) {
@@ -5304,9 +5659,7 @@ fn executeRun(
                     return 1;
                 },
             };
-            if (diagnostics_mode == .json) {
-                try writeSuccessJson(stderr, owned.metrics);
-            }
+            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return code;
         },
     }
@@ -5329,9 +5682,9 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     if (cache_key) |key| {
         if (try projectCacheHit(allocator, project_root, .build_exe, key, artifact_path, out_path)) {
             try makeExecutable(out_path);
-            if (diagnostics_mode == .json) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
-                try writeSuccessJson(stderr, metrics);
+            if (diagnostics_mode == .json or compile_options.mem_report) {
+                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
+                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
             }
             return 0;
         }
@@ -5470,6 +5823,8 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     if (w.err) |err| return err;
                 }
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterEmit(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
                 var link_inputs = std.ArrayList([]const u8).init(allocator);
                 defer link_inputs.deinit();
@@ -5490,12 +5845,18 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     else => return err,
                 };
                 const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterLink(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
+                recordMetricMemoryEnd(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterEmit(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
                 var link_inputs = std.ArrayList([]const u8).init(allocator);
@@ -5511,15 +5872,17 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     else => return err,
                 };
                 const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterLink(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
+                recordMetricMemoryEnd(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
                 if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, artifact_path, out_path);
             }
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
 
-            if (diagnostics_mode == .json) {
-                try writeSuccessJson(stderr, owned.metrics);
-            }
+            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
         },
     }
@@ -5541,9 +5904,9 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
 
     if (cache_key) |key| {
         if (try projectCacheHit(allocator, project_root, .build_obj, key, artifact_path, out_path)) {
-            if (diagnostics_mode == .json) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
-                try writeSuccessJson(stderr, metrics);
+            if (diagnostics_mode == .json or compile_options.mem_report) {
+                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
+                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
             }
             return 0;
         }
@@ -5570,13 +5933,15 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path, out_path, opt_level);
             }
+            recordMetricMemoryAfterEmit(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+            recordMetricMemoryEnd(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_obj, key, artifact_path, out_path);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false };
-            if (diagnostics_mode == .json) {
-                try writeSuccessJson(stderr, owned.metrics);
-            }
+            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
         },
     }
@@ -5598,9 +5963,9 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
 
     if (cache_key) |key| {
         if (try projectCacheHit(allocator, project_root, .build_wasm, key, artifact_path, out_path)) {
-            if (diagnostics_mode == .json) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
-                try writeSuccessJson(stderr, metrics);
+            if (diagnostics_mode == .json or compile_options.mem_report) {
+                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
+                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
             }
             return 0;
         }
@@ -5618,17 +5983,27 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
+            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+            recordMetricMemoryAfterEmit(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
+            const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
+            const link_ns = if (link_start) |start| elapsedNs(start) else null;
+            recordMetricMemoryAfterLink(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
+            recordMetricMemoryEnd(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
+            finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
+            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_wasm, key, artifact_path, out_path);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
-            if (diagnostics_mode == .json) {
-                try writeSuccessJson(stderr, owned.metrics);
-            }
+            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
         },
     }
@@ -5729,6 +6104,7 @@ fn executeGraph(
     defer allocator.free(project_root);
     const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
     defer if (source_arg == null) allocator.free(source_path);
+    configureCompileDiagnostics(&compile_options, json_mode);
 
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
@@ -5823,6 +6199,7 @@ fn executeSize(
     defer allocator.free(project_root);
     const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
     defer if (source_arg == null) allocator.free(source_path);
+    configureCompileDiagnostics(&compile_options, json_mode);
 
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
@@ -6122,6 +6499,7 @@ pub fn executeWithWritersAndOptions(
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .fetch => {
@@ -6151,6 +6529,7 @@ pub fn executeWithWritersAndOptions(
                 try runtime_args.append(args[i]);
             }
             const source = source_path orelse return error.MissingSourcePath;
+            configureCompileDiagnostics(&compile_options, json_mode);
             return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr, if (json_mode) .json else .human);
         },
         .build_exe => {
@@ -6185,6 +6564,7 @@ pub fn executeWithWritersAndOptions(
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_obj => {
@@ -6224,6 +6604,7 @@ pub fn executeWithWritersAndOptions(
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_wasm => {
@@ -6265,6 +6646,7 @@ pub fn executeWithWritersAndOptions(
             }
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .bc2sa => {
@@ -6339,6 +6721,7 @@ pub fn executeWithWritersAndOptions(
                 .exact = exact,
                 .ignored = run_ignored,
             };
+            configureCompileDiagnostics(&compile_options, json_mode);
             return try executeTest(allocator, source_path, compile_options, .{
                 .selection = selection,
                 .list = list_tests,

@@ -1,0 +1,102 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"ok\n"
+@const RESULT_ERR = utf8:"error\n"
+@const WORKER_VT = vtable { call = @worker }
+
+@extern pthread_spawn(*entry: ptr, *arg: ptr) -> i32
+@extern pthread_join(handle: i32, *out: ptr) -> i32
+
+#def Slot_SIZE = 24
+#def Slot_value = +0
+#def Slot_time = +8
+#def Slot_status = +16
+#def Scratch_BYTES = 65536
+
+@worker(&slot: ptr) -> i32:
+L_ENTRY:
+    scratch = stack_alloc Scratch_BYTES
+    scratch_last = ptr_add scratch, 65535
+    store scratch+0, 11 as u8
+    store scratch_last+0, 22 as u8
+    first = load scratch+0 as u8
+    last = load scratch_last+0 as u8
+    store slot+Slot_value, 1234 as u64
+    store slot+Slot_time, 5678 as u64
+    store slot+Slot_status, 77 as u64
+    ok_first = eq first, 11
+    ok_last = eq last, 22
+    ok = and ok_first, ok_last
+    !scratch_last
+    !first
+    !last
+    !ok_first
+    !ok_last
+    !slot
+    br ok -> L_WORKER_OK, L_WORKER_ERR
+
+L_WORKER_OK:
+    !ok
+    return 77
+
+L_WORKER_ERR:
+    !ok
+    return 1
+
+@ffi_wrapper spawn_worker(*slot: ptr) -> i32:
+L_ENTRY:
+    worker_vt = &WORKER_VT
+    worker_fn = load worker_vt+0 as ptr
+    worker_safe = assume_safe worker_fn
+    handle = call @pthread_spawn(*worker_safe, *slot)
+    !slot
+    return handle
+
+@ffi_wrapper join_worker(handle: i32, *slot: ptr) -> i32:
+L_ENTRY:
+    joined = call @pthread_join(handle, *slot)
+    !slot
+    !handle
+    return joined
+
+@main() -> i32:
+L_ENTRY:
+    slot = alloc Slot_SIZE
+    store slot+Slot_value, 0 as u64
+    store slot+Slot_time, 0 as u64
+    store slot+Slot_status, 0 as u64
+    handle = call @spawn_worker(*slot)
+    joined = call @join_worker(handle, *slot)
+    value = load slot+Slot_value as i32
+    time = load slot+Slot_time as u64
+    status = load slot+Slot_status as u64
+    ok_join = eq joined, 0
+    ok_value = eq value, 77
+    ok_time = eq time, 5678
+    ok_status = eq status, 77
+    ok_a = and ok_join, ok_value
+    ok_b = and ok_time, ok_status
+    ok = and ok_a, ok_b
+    !joined
+    !value
+    !time
+    !status
+    !handle
+    !slot
+    !ok_join
+    !ok_value
+    !ok_time
+    !ok_status
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

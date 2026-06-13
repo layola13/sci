@@ -373,6 +373,8 @@ test "sa_std Deno JSON-RPC params string literal preserves escaped strings" {
 
     const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -428,6 +430,7 @@ test "sa_std Deno JSON-RPC params string literal preserves escaped strings" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -476,6 +479,8 @@ test "sa_std Deno chat SSE fallback normalizes Deno proxy edge cases" {
 
     const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -603,6 +608,7 @@ test "sa_std Deno chat SSE fallback normalizes Deno proxy edge cases" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -655,6 +661,8 @@ test "sa_std Deno chat JSON fallback normalizes Deno proxy edge cases" {
 
     const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -729,6 +737,7 @@ test "sa_std Deno chat JSON fallback normalizes Deno proxy edge cases" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -777,6 +786,8 @@ test "sa_std Deno native responses JSON preserves ordinary responses and normali
 
     const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -829,6 +840,7 @@ test "sa_std Deno native responses JSON preserves ordinary responses and normali
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -877,6 +889,8 @@ test "sa_std Deno native responses SSE normalizes MCP events generically" {
 
     const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -934,6 +948,7 @@ test "sa_std Deno native responses SSE normalizes MCP events generically" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -982,6 +997,8 @@ test "sa_std Deno responses request normalizes MCP server aliases generically" {
 
     const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1033,6 +1050,7 @@ test "sa_std Deno responses request normalizes MCP server aliases generically" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1081,6 +1099,8 @@ test "sa_std Deno responses chat fallback request builds chat body from Response
 
     const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1163,6 +1183,7 @@ test "sa_std Deno responses chat fallback request builds chat body from Response
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",

@@ -1780,6 +1780,8 @@ test "sa_std string concat runtime helper is usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1816,6 +1818,7 @@ test "sa_std string concat runtime helper is usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1866,6 +1869,8 @@ test "sa_std no-alloc format helpers write into caller buffers" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1905,6 +1910,7 @@ test "sa_std no-alloc format helpers write into caller buffers" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1978,6 +1984,8 @@ test "sa_std env runtime helper is usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -2085,6 +2093,7 @@ test "sa_std env runtime helper is usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -2212,6 +2221,8 @@ test "sa_std fs base64 and directory helpers are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -2316,6 +2327,7 @@ test "sa_std fs base64 and directory helpers are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -2366,6 +2378,8 @@ test "sa_std Deno chat SSE fallback splits thought tags across chunks" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -2508,6 +2522,7 @@ test "sa_std Deno chat SSE fallback splits thought tags across chunks" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",

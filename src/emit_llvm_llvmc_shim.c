@@ -619,6 +619,16 @@ static LLVMValueRef reg_encode(EmitCtx *e, LLVMValueRef value, SaType ty) {
         LLVMValueRef bits32 = LLVMBuildBitCast(e->builder, value, e->i32_ty, "slot_f32_bits");
         return LLVMBuildZExt(e->builder, bits32, e->i64_ty, "slot_f32_ext");
     }
+    if (LLVMGetTypeKind(LLVMTypeOf(value)) == LLVMDoubleTypeKind) {
+        return LLVMBuildBitCast(e->builder, value, e->i64_ty, "slot_f64_bits");
+    }
+    if (LLVMGetTypeKind(LLVMTypeOf(value)) == LLVMFloatTypeKind) {
+        LLVMValueRef bits32 = LLVMBuildBitCast(e->builder, value, e->i32_ty, "slot_f32_bits");
+        return LLVMBuildZExt(e->builder, bits32, e->i64_ty, "slot_f32_ext");
+    }
+    if (LLVMGetTypeKind(LLVMTypeOf(value)) == LLVMIntegerTypeKind) {
+        return coerce_int_to(e, value, e->i64_ty, "slot_int_bits");
+    }
     return coerce(e, value, ty, SA_T_I64);
 }
 

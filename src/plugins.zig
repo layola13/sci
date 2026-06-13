@@ -2732,10 +2732,17 @@ fn collectInstalledExternProviders(
             try collectExternSymbolsFromSai(allocator, sai_path, &symbols);
             for (symbols.items, 0..) |symbol, idx| {
                 if (findExternProvider(out.items, symbol)) |existing| {
-                    try stdout.print(
-                        "installed plugin extern symbol conflict: {s} is provided by both {s} and {s}\n",
-                        .{ symbol, existing.plugin, entry.name },
-                    );
+                    if (std.mem.eql(u8, existing.plugin, entry.name)) {
+                        try stdout.print(
+                            "installed plugin duplicate extern symbol: {s} is declared more than once by installed plugin {s}\n",
+                            .{ symbol, entry.name },
+                        );
+                    } else {
+                        try stdout.print(
+                            "installed plugin extern symbol conflict: {s} is provided by both {s} and {s}\n",
+                            .{ symbol, existing.plugin, entry.name },
+                        );
+                    }
                     for (symbols.items[idx..]) |owned| allocator.free(owned);
                     return 1;
                 }

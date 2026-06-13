@@ -41,6 +41,8 @@ test "sa_std dynamic loading helpers are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -126,6 +128,8 @@ test "sa_std udp loopback and address accessors are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -190,6 +194,7 @@ test "sa_std udp loopback and address accessors are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -231,6 +236,8 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -294,6 +301,7 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -335,6 +343,8 @@ test "sa_std udp connected send and recv are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -405,6 +415,7 @@ test "sa_std udp connected send and recv are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -446,6 +457,8 @@ test "sa_std static library exposes a usable C ABI" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -494,6 +507,7 @@ test "sa_std static library exposes a usable C ABI" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -535,6 +549,8 @@ test "sa_std tcp stream peek does not consume bytes" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -599,6 +615,7 @@ test "sa_std tcp stream peek does not consume bytes" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -640,6 +657,8 @@ test "sa_std fmt and process exports are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -745,6 +764,7 @@ test "sa_std fmt and process exports are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -786,6 +806,8 @@ test "sa_std detached pthread export runs without join" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -824,6 +846,7 @@ test "sa_std detached pthread export runs without join" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -865,6 +888,8 @@ test "sa_std json exports are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1013,6 +1038,7 @@ test "sa_std json exports are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1054,6 +1080,8 @@ test "sa_std json streaming scanner and writer are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1123,6 +1151,7 @@ test "sa_std json streaming scanner and writer are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1164,6 +1193,8 @@ test "sa_std regex compile match and group access are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1219,6 +1250,7 @@ test "sa_std regex compile match and group access are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1260,6 +1292,8 @@ test "sa_std json streaming handle exposes stable slices from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1320,6 +1354,7 @@ test "sa_std json streaming handle exposes stable slices from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1361,6 +1396,8 @@ test "sa_std time exports are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1426,6 +1463,7 @@ test "sa_std time exports are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -1467,6 +1505,8 @@ test "sa_std Deno facade runtime helpers are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -1549,6 +1589,7 @@ test "sa_std Deno facade runtime helpers are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",

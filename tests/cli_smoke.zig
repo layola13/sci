@@ -304,7 +304,7 @@ fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
     const out_path = try std.fmt.allocPrint(std.testing.allocator, "bin/{s}.out", .{demo_dir});
     defer std.testing.allocator.free(out_path);
 
-    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", out_path };
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", out_path, "--no-incremental" };
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     if (build_exe_code != 0) {
         std.debug.print("build-exe failed: {s}\n", .{path});
@@ -324,7 +324,10 @@ fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
             }
             try std.testing.expectEqual(@as(u8, 0), code);
         },
-        else => return error.TestUnexpectedResult,
+        else => |term| {
+            std.debug.print("native demo terminated unexpectedly: {s}\nterm: {any}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, term, exe_result.stdout, exe_result.stderr });
+            return error.TestUnexpectedResult;
+        },
     }
     try std.testing.expectEqualStrings(expected_stdout, exe_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
@@ -767,6 +770,7 @@ test "cli build project cache is default and can be disabled" {
     const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--no-incremental") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--mem-report") != null);
 }
 
 test "cli cache clean removes invalid project cache entries" {
@@ -1513,6 +1517,10 @@ test "time demo compiles and prints through build-exe" {
 
 test "time demo runs through sa run" {
     try assertRunStdout("demos/support/time_probe.sa", "time ok\n");
+}
+
+test "pthread vtable worker stores survive native join" {
+    try assertBuildExeStdout("demos/support/pthread_vtable_store/main.sa", "ok\n");
 }
 
 test "mutex demo compiles and prints through build-exe" {
@@ -4553,6 +4561,57 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"status\":\"ok\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"compile_tokens\":5"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const build_mem_argv = [_][]const u8{ "sa", "build-exe", "json_success.sa", "-o", "json_success_mem.out", "--json", "--mem-report", "--no-incremental" };
+    const build_mem_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_mem_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), build_mem_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    var mem_json = try parseJsonValue(std.testing.allocator, stderr_buffer.items);
+    defer mem_json.deinit();
+    const mem_metrics = try jsonObjectGet(&mem_json, "metrics");
+    const memory = try jsonObjectGetValue(mem_metrics, "memory");
+    const rss = try jsonObjectGetValue(memory, "rss_bytes");
+    _ = try jsonObjectGetValue(rss, "start");
+    _ = try jsonObjectGetValue(rss, "after_load");
+    _ = try jsonObjectGetValue(rss, "after_setup");
+    _ = try jsonObjectGetValue(rss, "after_flatten");
+    _ = try jsonObjectGetValue(rss, "after_verify");
+    _ = try jsonObjectGetValue(rss, "after_emit");
+    _ = try jsonObjectGetValue(rss, "after_link");
+    _ = try jsonObjectGetValue(rss, "end");
+    const verifier_rss = try jsonObjectGetValue(memory, "verifier_rss_bytes");
+    _ = try jsonObjectGetValue(verifier_rss, "start");
+    _ = try jsonObjectGetValue(verifier_rss, "after_classify");
+    _ = try jsonObjectGetValue(verifier_rss, "after_metadata");
+    _ = try jsonObjectGetValue(verifier_rss, "after_chunks");
+    _ = try jsonObjectGetValue(verifier_rss, "after_finalize");
+    _ = try jsonObjectGetValue(memory, "peak_rss_bytes");
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    const build_mem_text_argv = [_][]const u8{ "sa", "build-exe", "json_success.sa", "-o", "json_success_mem_text.out", "--mem-report", "--no-incremental" };
+    const build_mem_text_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_mem_text_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), build_mem_text_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "memory stage start"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "memory stage verifier.after_classify"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "memory report (RSS)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "after_flatten"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "peak"));
 }
 
 test "graph and size cli emit structured reports for a tiny project" {

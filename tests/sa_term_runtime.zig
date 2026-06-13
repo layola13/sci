@@ -31,6 +31,8 @@ test "sa_term raw mode and winsize are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -119,6 +121,7 @@ test "sa_term raw mode and winsize are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
@@ -160,6 +163,8 @@ test "sa_term epoll and process streaming are usable from C" {
 
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
+    const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    defer std.testing.allocator.free(pthread_host_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -220,6 +225,7 @@ test "sa_term epoll and process streaming are usable from C" {
         "zig",
         "build-lib",
         runtime_source,
+        pthread_host_source,
         "-O",
         "Debug",
         "-lc",
