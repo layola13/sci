@@ -1,5 +1,6 @@
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "vec.sa"
 @import "vec.sal"
 @import "string.sai"
 @import "fmt.sai"
@@ -342,31 +343,7 @@ L_STRING_BUF_REPLACE_ALL_END_%out_string:
 [END_MACRO]
 
 [MACRO] STRING_BUF_PUSH_BYTE %string_reg, %byte_value
-    __string_buf_push_view_%string_reg = & %string_reg
-    __string_buf_push_len_%string_reg = load __string_buf_push_view_%string_reg+Vec_len as u64
-    __string_buf_push_cap_%string_reg = load __string_buf_push_view_%string_reg+Vec_cap as u64
-    __string_buf_push_needs_grow_%string_reg = eq __string_buf_push_len_%string_reg, __string_buf_push_cap_%string_reg
-    !__string_buf_push_view_%string_reg
-    br __string_buf_push_needs_grow_%string_reg -> L_STRING_BUF_PUSH_GROW_%string_reg, L_STRING_BUF_PUSH_WRITE_%string_reg
-
-L_STRING_BUF_PUSH_GROW_%string_reg:
-    EXPAND STRING_BUF_RESERVE %string_reg, 1
-    jmp L_STRING_BUF_PUSH_WRITE_%string_reg
-
-L_STRING_BUF_PUSH_WRITE_%string_reg:
-    __string_buf_push_view2_%string_reg = & %string_reg
-    __string_buf_push_ptr_%string_reg = load __string_buf_push_view2_%string_reg+Vec_ptr as ptr
-    __string_buf_push_dst_%string_reg = ptr_add __string_buf_push_ptr_%string_reg, __string_buf_push_len_%string_reg
-    store __string_buf_push_dst_%string_reg+0, %byte_value as u8
-    __string_buf_push_next_len_%string_reg = add __string_buf_push_len_%string_reg, 1
-    store __string_buf_push_view2_%string_reg+Vec_len, __string_buf_push_next_len_%string_reg as u64
-    !__string_buf_push_next_len_%string_reg
-    !__string_buf_push_dst_%string_reg
-    !__string_buf_push_ptr_%string_reg
-    !__string_buf_push_view2_%string_reg
-    !__string_buf_push_needs_grow_%string_reg
-    !__string_buf_push_cap_%string_reg
-    !__string_buf_push_len_%string_reg
+    EXPAND VEC_PUSH %string_reg, %byte_value, 1
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_PUSH_CHAR %out_ok, %string_reg, %char_value

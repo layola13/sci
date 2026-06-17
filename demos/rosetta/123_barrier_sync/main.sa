@@ -12,18 +12,39 @@ L_ENTRY:
     bar = alloc Barrier_SIZE
     store bar+Barrier_total, 3 as i32
     store bar+Barrier_arrived, 0 as i32
+    jmp L_WORKER_0
+
+L_WORKER_0:
+    arrived0 = load bar+Barrier_arrived as i32
+    next0 = add arrived0, 1
+    store bar+Barrier_arrived, next0 as i32
+    !arrived0
+    !next0
+    jmp L_WORKER_1
+
+L_WORKER_1:
+    arrived1 = load bar+Barrier_arrived as i32
+    next1 = add arrived1, 1
+    store bar+Barrier_arrived, next1 as i32
+    !arrived1
+    !next1
+    jmp L_WORKER_2
+
+L_WORKER_2:
+    arrived2 = load bar+Barrier_arrived as i32
+    next2 = add arrived2, 1
+    store bar+Barrier_arrived, next2 as i32
+    !arrived2
+    !next2
     jmp L_WAIT
 
 L_WAIT:
     arrived = load bar+Barrier_arrived as i32
-    next = add arrived, 1
-    store bar+Barrier_arrived, next as i32
-    complete = eq next, 3
+    complete = eq arrived, 3
     br complete -> L_DONE, L_WAIT_AGAIN
 
 L_WAIT_AGAIN:
     !arrived
-    !next
     !complete
     jmp L_WAIT
 
@@ -31,7 +52,6 @@ L_DONE:
     total = load bar+Barrier_total as i32
     ok = eq total, 3
     !arrived
-    !next
     !complete
     !total
     !bar

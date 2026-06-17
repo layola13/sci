@@ -6,6 +6,12 @@ Current progress: 100%
 
 ## Completed SCI Features
 
+- 2026-06-18: Audited rosetta package/module README provenance after the 188-260 cleanup batches.
+  - Rechecked `demos/rosetta/201_pkg_manifest_basic` through `220_pkg_lib_dynamic`; the copied README template text is no longer present there.
+  - Scanned `demos/rosetta/221_*` through `300_*` for the same stale provenance strings and found no remaining matches.
+  - Remaining `main.rs` mentions in a few package READMEs describe the local reference file role, not the removed copied-from-`sci` boilerplate.
+  - Verification: `rg -n 'This directory pairs the original Rust rosetta reference with a Sla companion|copied from sci|legacy reference translation only|legacy reference only' demos/rosetta -g 'readme.md'` now reports only the intentional `main.rs` reference notes in `201`-`205`.
+
 - 2026-06-10: Closed the remaining low-risk issue7/issue8 core runtime/emitter items found during the final audit.
   - NetX tickets now copy payload bytes into queue-owned storage before publication, so `Ticket.payload` no longer points directly into mutable/reusable `ConnectionSlot.scratch`; ticket and slot capacity math now uses checked multiplication/power-of-two growth.
   - LLVM-C emitter lowering now builds one function-signature alias index and reuses it for direct calls, vtable resolution, reachability, and indirect-call signature inference instead of repeated linear scans by function name.

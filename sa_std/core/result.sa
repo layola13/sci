@@ -450,10 +450,13 @@ L_RESULT_ERR_TO_OPTION_END_%out_opt:
 L_RESULT_UNWRAP_OK_%out_value:
     %out_value = load %res_reg+Result_ok as u64
     !__result_tag_%out_value
+    !__result_is_ok_%out_value
     jmp L_RESULT_UNWRAP_END_%out_value
 L_RESULT_UNWRAP_ERR_%out_value:
     EXPAND PANIC_MSG 17, *RESULT_UNWRAP_PANIC, 39
     %out_value = add 0, 0
+    !__result_is_ok_%out_value
+    !__result_tag_%out_value
 L_RESULT_UNWRAP_END_%out_value:
 [END_MACRO]
 

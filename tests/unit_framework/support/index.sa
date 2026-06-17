@@ -1468,21 +1468,29 @@ L_ENTRY:
 @support_condvar_wait_notify_value() -> i32:
 L_ENTRY:
     cond = alloc SupportCond_SIZE
-    store cond+SupportCond_ready, 1 as i32
+    store cond+SupportCond_ready, 0 as i32
+    store cond+SupportCond_value, 0 as i32
+    jmp L_NOTIFY
+
+L_NOTIFY:
     store cond+SupportCond_value, 4 as i32
+    store cond+SupportCond_ready, 1 as i32
+    jmp L_WAIT
+
+L_WAIT:
     ready = load cond+SupportCond_ready as i32
-    br ready -> L_WAKE, L_WAIT
+    waiting = eq ready, 0
+    br waiting -> L_WAIT_AGAIN, L_WAKE
+
+L_WAIT_AGAIN:
+    !ready
+    !waiting
+    jmp L_WAIT
 
 L_WAKE:
     value = load cond+SupportCond_value as i32
     !ready
-    !cond
-    return value
-
-L_WAIT:
-    store cond+SupportCond_value, 0 as i32
-    value = load cond+SupportCond_value as i32
-    !ready
+    !waiting
     !cond
     return value
 
@@ -1491,25 +1499,45 @@ L_ENTRY:
     bar = alloc SupportBarrier_SIZE
     store bar+SupportBarrier_total, 3 as i32
     store bar+SupportBarrier_arrived, 0 as i32
+    jmp L_WORKER_0
+
+L_WORKER_0:
+    arrived0 = load bar+SupportBarrier_arrived as i32
+    next0 = add arrived0, 1
+    store bar+SupportBarrier_arrived, next0 as i32
+    !arrived0
+    !next0
+    jmp L_WORKER_1
+
+L_WORKER_1:
+    arrived1 = load bar+SupportBarrier_arrived as i32
+    next1 = add arrived1, 1
+    store bar+SupportBarrier_arrived, next1 as i32
+    !arrived1
+    !next1
+    jmp L_WORKER_2
+
+L_WORKER_2:
+    arrived2 = load bar+SupportBarrier_arrived as i32
+    next2 = add arrived2, 1
+    store bar+SupportBarrier_arrived, next2 as i32
+    !arrived2
+    !next2
     jmp L_WAIT
 
 L_WAIT:
     arrived = load bar+SupportBarrier_arrived as i32
-    next = add arrived, 1
-    store bar+SupportBarrier_arrived, next as i32
-    complete = eq next, 3
+    complete = eq arrived, 3
     br complete -> L_DONE, L_WAIT_AGAIN
 
 L_WAIT_AGAIN:
     !arrived
-    !next
     !complete
     jmp L_WAIT
 
 L_DONE:
     total = load bar+SupportBarrier_total as i32
     !arrived
-    !next
     !complete
     !bar
     return total
