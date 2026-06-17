@@ -7,8 +7,9 @@ extern "C" {
 fn main() {
     unsafe {
         let handle = dlopen(b"libdemo.so\0".as_ptr(), 2);
-        let _symbol = dlsym(handle, b"demo_entry\0".as_ptr());
-        let _ = dlclose(handle);
+        let symbol = dlsym(handle, b"demo_entry\0".as_ptr());
+        let closed = dlclose(handle);
+        let ok = !handle.is_null() && !symbol.is_null() && closed == 0;
+        println!("{}", if ok { 1 } else { -1 });
     }
-    println!("{}", 1);
 }

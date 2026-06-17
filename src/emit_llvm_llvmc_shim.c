@@ -16,7 +16,7 @@
 
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
-typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21 } SaOp;
+typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21, SA_OP_RELEASE=22, SA_OP_TAKE=23 } SaOp;
 typedef enum { SA_OPER_NONE=0, SA_OPER_REG=1, SA_OPER_IMM_I64=2, SA_OPER_IMM_U64=3, SA_OPER_CONST_PTR=4, SA_OPER_IMM_F64=5 } SaOperandKind;
 typedef enum { SA_BIN_ADD=0, SA_BIN_SUB=1, SA_BIN_MUL=2, SA_BIN_SDIV=3, SA_BIN_UDIV=4, SA_BIN_SREM=5, SA_BIN_UREM=6, SA_BIN_AND=7, SA_BIN_OR=8, SA_BIN_XOR=9, SA_BIN_SHL=10, SA_BIN_LSHR=11, SA_BIN_ASHR=12, SA_BIN_EQ=13, SA_BIN_NE=14, SA_BIN_SLT=15, SA_BIN_SLE=16, SA_BIN_SGT=17, SA_BIN_SGE=18, SA_BIN_ULT=19, SA_BIN_ULE=20, SA_BIN_UGT=21, SA_BIN_UGE=22, SA_BIN_FADD=23, SA_BIN_FSUB=24, SA_BIN_FMUL=25, SA_BIN_FDIV=26, SA_BIN_FCMP_EQ=27, SA_BIN_FCMP_NE=28, SA_BIN_FCMP_LT=29, SA_BIN_FCMP_LE=30, SA_BIN_FCMP_GT=31, SA_BIN_FCMP_GE=32 } SaBinaryOp;
 typedef enum { SA_ATOMIC_RELAXED=0, SA_ATOMIC_ACQUIRE=1, SA_ATOMIC_RELEASE=2, SA_ATOMIC_ACQ_REL=3, SA_ATOMIC_SEQ_CST=4 } SaAtomicOrdering;
@@ -49,6 +49,7 @@ typedef struct {
     SaAtomicRmwOp atomic_rmw_op;
     unsigned char return_fallible;
     unsigned int indirect_sig_index;
+    unsigned char is_malloc;
 } SaInstruction;
 typedef struct {
     const char *name;
@@ -86,7 +87,7 @@ typedef struct {
 } SaModule;
 
 typedef struct { const char *name; LLVMBasicBlockRef block; } LabelEntry;
-typedef struct { LLVMValueRef slot; LLVMValueRef value; LLVMValueRef fallible_slot; SaType ty; unsigned char fallible; unsigned char initialized; unsigned int indirect_sig_index; } RegValue;
+typedef struct { LLVMValueRef slot; LLVMValueRef value; LLVMValueRef fallible_slot; SaType ty; unsigned char fallible; unsigned char initialized; unsigned int indirect_sig_index; unsigned char is_malloc; } RegValue;
 typedef struct {
     LLVMContextRef ctx;
     LLVMModuleRef module;
@@ -650,6 +651,7 @@ static int reg_store(EmitCtx *e, RegValue *regs, size_t reg_count, unsigned int 
     regs[slot].indirect_sig_index = indirect_sig_index;
     regs[slot].fallible_slot = NULL;
     regs[slot].value = value;
+    regs[slot].is_malloc = 0;
     if (fallible) {
         return 0;
     }
@@ -1030,7 +1032,8 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                 v0 = coerce(e, v0, t0, SA_T_I64);
                 v0 = coerce_to_size(e, v0, "alloc_size");
-                if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->malloc_fn), e->malloc_fn, &v0, 1, "malloced"), SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->malloc_fn), e->malloc_fn, &v0, 1, "malloced"), SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                regs[in->dst].is_malloc = 1;
                 break;
             case SA_OP_STACK_ALLOC:
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
@@ -1038,6 +1041,7 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 v0 = coerce_to_size(e, v0, "stack_size");
                 if (reg_store(e, regs, reg_count, in->dst, LLVMBuildArrayAlloca(e->builder, e->i8_ty, v0, "stack_alloc"), SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
                 break;
+            case SA_OP_TAKE:
             case SA_OP_LOAD:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }
                 v0 = coerce(e, v0, t0, SA_T_PTR); v1 = coerce(e, v1, t1, SA_T_I64);
@@ -1045,6 +1049,9 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 LLVMTypeRef load_ty = type_of(e, in->ty);
                 LLVMValueRef load_ptr = LLVMBuildPointerCast(e->builder, gep, LLVMPointerType(load_ty, 0), "load_ptr");
                 if (reg_store(e, regs, reg_count, in->dst, LLVMBuildLoad2(e->builder, load_ty, load_ptr, "load"), in->ty, 0, in->indirect_sig_index)) { free(regs); free(labels); return 1; }
+                if (in->op == SA_OP_TAKE && in->ty == SA_T_PTR) {
+                    regs[in->dst].is_malloc = 1;
+                }
                 break;
             case SA_OP_STORE:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1) || operand_value(e, &in->operand2, regs, reg_count, &v2, &t2)) { free(regs); free(labels); return 1; }
@@ -1133,15 +1140,18 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 SaType dst_ty = in->ty == SA_T_VOID ? t0 : in->ty;
                 unsigned char dst_fallible = 0;
                 unsigned int dst_indirect = in->indirect_sig_index;
+                unsigned char src_is_malloc = 0;
                 if (in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count) {
                     dst_fallible = regs[in->operand0.reg].fallible;
                     dst_indirect = regs[in->operand0.reg].indirect_sig_index;
+                    if (in->is_malloc) src_is_malloc = regs[in->operand0.reg].is_malloc;
                 }
                 if (dst_fallible) {
                     if (reg_store(e, regs, reg_count, in->dst, v0, t0, dst_fallible, dst_indirect)) { free(regs); free(labels); return 1; }
                 } else {
                     if (reg_store(e, regs, reg_count, in->dst, coerce(e, v0, t0, dst_ty), dst_ty, dst_fallible, dst_indirect)) { free(regs); free(labels); return 1; }
                 }
+                regs[in->dst].is_malloc = (t0 == SA_T_PTR) ? src_is_malloc : 0;
                 break;
             }
             case SA_OP_JMP: {
@@ -1192,6 +1202,7 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 }
                 if (in->has_dst) {
                     if (reg_store(e, regs, reg_count, in->dst, callv, in->ty, in->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
+                    regs[in->dst].is_malloc = (in->ty == SA_T_PTR) ? in->is_malloc : 0;
                 }
                 free(args);
                 break;
@@ -1241,6 +1252,7 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)in->arg_count, in->has_dst ? "call_indirect" : "");
                 if (in->has_dst) {
                     if (reg_store(e, regs, reg_count, in->dst, callv, target_sig->ret_ty, target_sig->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
+                    regs[in->dst].is_malloc = (in->ty == SA_T_PTR) ? in->is_malloc : 0;
                 }
                 free(args);
                 break;
@@ -1248,6 +1260,8 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
             case SA_OP_TRY: {
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                 if (in->operand0.kind != SA_OPER_REG || !regs[in->operand0.reg].fallible) { free(regs); free(labels); return 1; }
+                unsigned int src_reg = in->operand0.reg;
+                unsigned char src_is_malloc = regs[src_reg].is_malloc;
                 LLVMValueRef status = LLVMBuildExtractValue(e->builder, v0, 0, "try_status");
                 LLVMValueRef ok = LLVMBuildICmp(e->builder, LLVMIntEQ, status, LLVMConstInt(e->i32_ty, 0, 0), "try_ok");
                 LLVMBasicBlockRef current = LLVMGetInsertBlock(e->builder);
@@ -1265,6 +1279,7 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 }
                 LLVMPositionBuilderAtEnd(e->builder, ok_bb);
                 if (reg_store(e, regs, reg_count, in->dst, LLVMBuildExtractValue(e->builder, v0, 1, "try_payload"), t0, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                regs[in->dst].is_malloc = (t0 == SA_T_PTR) ? src_is_malloc : 0;
                 break;
             }
             case SA_OP_RET:
@@ -1313,6 +1328,16 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 if (panic_msg_fn == NULL) { free(regs); free(labels); return 1; }
                 LLVMValueRef args[3] = { code, msg_ptr, msg_len };
                 LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(panic_msg_fn), panic_msg_fn, args, 3, "");
+                break;
+            }
+            case SA_OP_RELEASE: {
+                if (in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count && in->ty == SA_T_PTR) {
+                    if (regs[in->operand0.reg].is_malloc) {
+                        if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
+                        v0 = coerce(e, v0, t0, SA_T_PTR);
+                        LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->free_fn), e->free_fn, &v0, 1, "");
+                    }
+                }
                 break;
             }
             default:

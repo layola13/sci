@@ -2,15 +2,17 @@
 @import "fs.sai"
 
 [MACRO] FS_OPEN_READ %out_status, %out_file, %path, %path_len
-    __fs_open_read_handle_%out_status = stack_alloc 8
+    __fs_open_read_handle_%out_status = alloc 8
     %out_status = call @sa_std_fs_open_read(&%path, %path_len, &__fs_open_read_handle_%out_status)
     %out_file = load __fs_open_read_handle_%out_status+0 as u64
+    !__fs_open_read_handle_%out_status
 [END_MACRO]
 
 [MACRO] FS_OPEN_WRITE %out_status, %out_file, %path, %path_len, %truncate
-    __fs_open_write_handle_%out_status = stack_alloc 8
+    __fs_open_write_handle_%out_status = alloc 8
     %out_status = call @sa_std_fs_open_write(&%path, %path_len, %truncate, &__fs_open_write_handle_%out_status)
     %out_file = load __fs_open_write_handle_%out_status+0 as u64
+    !__fs_open_write_handle_%out_status
 [END_MACRO]
 
 [MACRO] FS_CREATE %out_status, %out_file, %path, %path_len

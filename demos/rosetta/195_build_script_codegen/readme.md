@@ -1,9 +1,10 @@
 # 195 - Build Script CodeGen
 
 ## 目标特性 (Target Feature)
-展示 build.rs 生成外部 .sa 依赖的过程。
+展示 build script 生成物被主程序消费之后，最终目标代码里实际保留下来的只是物化常量。
 
-## 降级逻辑预演 (Expected Lowering Logic)
-1. **前端先展开**：macro rules、proc macro、attribute rewrite 和 cfg selection 都发生在 SA 之前；SA 看到的应该是已经材料化的代码，而不是宏语言本身。
-2. **构建链外移**：build script、LTO、PGO、CFI 和 ASAN 属于宿主编译链或运行时防护层，文档应描述它们如何影响最终 SA 形态，而不是伪造新的 SA 语法。
-3. **自举但不自嗨**：quine 只能在“前端已把源码展开成自描述 SA 程序”之后成立；若展开后仍有泄漏、悬挂指针或未收敛的宏递归，就必须在发射前截断。
+## 当前示例 (Current Demo Shape)
+1. Rust 侧用 `include!(concat!(env!("OUT_DIR"), "/generated.rs"))` 表示“构建期注入的符号”。
+2. 当前 SA 产物已经把这个符号物化成 `build output` 这串字节，不再保留构建脚本语义。
+3. 目录重点是构建期边界，而不是在 SA 里重放 `build.rs`。
+

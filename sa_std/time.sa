@@ -38,6 +38,11 @@
     !__time_sleep_ms_ok
 [END_MACRO]
 
+[MACRO] TIME_THREAD_SLEEP_NS %ns
+    __time_thread_sleep_status = call @sa_time_sleep_ns(%ns)
+    !__time_thread_sleep_status
+[END_MACRO]
+
 [MACRO] TIME_DURATION_FROM_MS %out_ns, %ms
     %out_ns = mul %ms, Time_NS_PER_MS
 [END_MACRO]

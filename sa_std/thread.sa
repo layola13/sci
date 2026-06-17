@@ -1,0 +1,17 @@
+@import "thread.sai"
+
+[MACRO] THREAD_SPAWN %out_handle, %entry_ptr, %arg_ptr
+    %out_handle = call @pthread_spawn(%entry_ptr, %arg_ptr)
+[END_MACRO]
+
+[MACRO] THREAD_SPAWN_DETACHED %out_handle, %entry_ptr, %arg_ptr
+    %out_handle = call @pthread_spawn_detached(%entry_ptr, %arg_ptr)
+[END_MACRO]
+
+[MACRO] THREAD_JOIN_STATUS %out_status, %handle, %out_ptr
+    %out_status = call @pthread_join(%handle, %out_ptr)
+[END_MACRO]
+
+[MACRO] THREAD_DROP %handle
+    call @pthread_drop(%handle)
+[END_MACRO]

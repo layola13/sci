@@ -1,5 +1,42 @@
 @import "waker.sal"
 
+[MACRO] RAW_WAKER_VTABLE_NEW %out_vtable, %clone_fn, %wake_fn, %wake_by_ref_fn, %drop_fn
+    __raw_waker_clone_obj_%out_vtable = %clone_fn
+    __raw_waker_clone_vt_%out_vtable = load __raw_waker_clone_obj_%out_vtable+8 as ptr
+    __raw_waker_clone_call_%out_vtable = load __raw_waker_clone_vt_%out_vtable+0 as ptr
+
+    __raw_waker_wake_obj_%out_vtable = %wake_fn
+    __raw_waker_wake_vt_%out_vtable = load __raw_waker_wake_obj_%out_vtable+8 as ptr
+    __raw_waker_wake_call_%out_vtable = load __raw_waker_wake_vt_%out_vtable+0 as ptr
+
+    __raw_waker_ref_obj_%out_vtable = %wake_by_ref_fn
+    __raw_waker_ref_vt_%out_vtable = load __raw_waker_ref_obj_%out_vtable+8 as ptr
+    __raw_waker_ref_call_%out_vtable = load __raw_waker_ref_vt_%out_vtable+0 as ptr
+
+    __raw_waker_drop_obj_%out_vtable = %drop_fn
+    __raw_waker_drop_vt_%out_vtable = load __raw_waker_drop_obj_%out_vtable+8 as ptr
+    __raw_waker_drop_call_%out_vtable = load __raw_waker_drop_vt_%out_vtable+0 as ptr
+
+    %out_vtable = alloc RawWakerVTable_SIZE
+    store %out_vtable+RawWakerVTable_clone, __raw_waker_clone_call_%out_vtable as ptr
+    store %out_vtable+RawWakerVTable_wake, __raw_waker_wake_call_%out_vtable as ptr
+    store %out_vtable+RawWakerVTable_wake_by_ref, __raw_waker_ref_call_%out_vtable as ptr
+    store %out_vtable+RawWakerVTable_drop, __raw_waker_drop_call_%out_vtable as ptr
+
+    !__raw_waker_drop_call_%out_vtable
+    !__raw_waker_drop_vt_%out_vtable
+    !__raw_waker_drop_obj_%out_vtable
+    !__raw_waker_ref_call_%out_vtable
+    !__raw_waker_ref_vt_%out_vtable
+    !__raw_waker_ref_obj_%out_vtable
+    !__raw_waker_wake_call_%out_vtable
+    !__raw_waker_wake_vt_%out_vtable
+    !__raw_waker_wake_obj_%out_vtable
+    !__raw_waker_clone_call_%out_vtable
+    !__raw_waker_clone_vt_%out_vtable
+    !__raw_waker_clone_obj_%out_vtable
+[END_MACRO]
+
 [MACRO] RAW_WAKER_NEW %out_raw, %data_ptr, %vtable_ptr
     %out_raw = alloc RawWaker_SIZE
     store %out_raw+RawWaker_data, %data_ptr as ptr
@@ -18,8 +55,10 @@
     __raw_waker_clone_vt_%out_raw = load %raw_reg+RawWaker_vtable as ptr
     __raw_waker_clone_fn_%out_raw = load __raw_waker_clone_vt_%out_raw+RawWakerVTable_clone as ptr
     __raw_waker_clone_data_%out_raw = load %raw_reg+RawWaker_data as ptr
-    %out_raw = alloc RawWaker_SIZE
-    call_indirect __raw_waker_clone_fn_%out_raw(&__raw_waker_clone_data_%out_raw, &%out_raw)
+    __raw_waker_clone_slot_%out_raw = alloc 8
+    call_indirect __raw_waker_clone_fn_%out_raw(__raw_waker_clone_data_%out_raw, __raw_waker_clone_slot_%out_raw)
+    %out_raw = load __raw_waker_clone_slot_%out_raw+0 as ptr
+    !__raw_waker_clone_slot_%out_raw
     !__raw_waker_clone_data_%out_raw
     !__raw_waker_clone_fn_%out_raw
     !__raw_waker_clone_vt_%out_raw
@@ -29,7 +68,7 @@
     __raw_waker_vt_%out_value = load %raw_reg+RawWaker_vtable as ptr
     __raw_waker_fn_%out_value = load __raw_waker_vt_%out_value+RawWakerVTable_wake as ptr
     __raw_waker_data_%out_value = load %raw_reg+RawWaker_data as ptr
-    %out_value = call_indirect __raw_waker_fn_%out_value(&__raw_waker_data_%out_value)
+    %out_value = call_indirect __raw_waker_fn_%out_value(__raw_waker_data_%out_value)
     !__raw_waker_data_%out_value
     !__raw_waker_fn_%out_value
     !__raw_waker_vt_%out_value
@@ -39,7 +78,7 @@
     __raw_waker_ref_vt_%out_value = load %raw_reg+RawWaker_vtable as ptr
     __raw_waker_ref_fn_%out_value = load __raw_waker_ref_vt_%out_value+RawWakerVTable_wake_by_ref as ptr
     __raw_waker_ref_data_%out_value = load %raw_reg+RawWaker_data as ptr
-    %out_value = call_indirect __raw_waker_ref_fn_%out_value(&__raw_waker_ref_data_%out_value)
+    %out_value = call_indirect __raw_waker_ref_fn_%out_value(__raw_waker_ref_data_%out_value)
     !__raw_waker_ref_data_%out_value
     !__raw_waker_ref_fn_%out_value
     !__raw_waker_ref_vt_%out_value
@@ -49,7 +88,7 @@
     __raw_waker_drop_vt_%raw_reg = load %raw_reg+RawWaker_vtable as ptr
     __raw_waker_drop_fn_%raw_reg = load __raw_waker_drop_vt_%raw_reg+RawWakerVTable_drop as ptr
     __raw_waker_drop_data_%raw_reg = load %raw_reg+RawWaker_data as ptr
-    call_indirect __raw_waker_drop_fn_%raw_reg(&__raw_waker_drop_data_%raw_reg)
+    call_indirect __raw_waker_drop_fn_%raw_reg(__raw_waker_drop_data_%raw_reg)
     !__raw_waker_drop_data_%raw_reg
     !__raw_waker_drop_fn_%raw_reg
     !__raw_waker_drop_vt_%raw_reg
@@ -92,10 +131,12 @@
     __waker_clone_vt_%out_waker = load %waker_reg+Waker_vtable as ptr
     __waker_clone_fn_%out_waker = load __waker_clone_vt_%out_waker+WakerCloneSlot as ptr
     __waker_clone_data_%out_waker = load %waker_reg+Waker_data as ptr
-    __waker_clone_raw_%out_waker = alloc RawWaker_SIZE
-    call_indirect __waker_clone_fn_%out_waker(&__waker_clone_data_%out_waker, &__waker_clone_raw_%out_waker)
+    __waker_clone_slot_%out_waker = alloc 8
+    call_indirect __waker_clone_fn_%out_waker(__waker_clone_data_%out_waker, __waker_clone_slot_%out_waker)
+    __waker_clone_raw_%out_waker = load __waker_clone_slot_%out_waker+0 as ptr
     EXPAND WAKER_FROM_RAW %out_waker, __waker_clone_raw_%out_waker
     !__waker_clone_raw_%out_waker
+    !__waker_clone_slot_%out_waker
     !__waker_clone_data_%out_waker
     !__waker_clone_fn_%out_waker
     !__waker_clone_vt_%out_waker
@@ -105,10 +146,12 @@
     __local_waker_clone_vt_%out_waker = load %waker_reg+LocalWaker_vtable as ptr
     __local_waker_clone_fn_%out_waker = load __local_waker_clone_vt_%out_waker+RawWakerVTable_clone as ptr
     __local_waker_clone_data_%out_waker = load %waker_reg+LocalWaker_data as ptr
-    __local_waker_clone_raw_%out_waker = alloc RawWaker_SIZE
-    call_indirect __local_waker_clone_fn_%out_waker(&__local_waker_clone_data_%out_waker, &__local_waker_clone_raw_%out_waker)
+    __local_waker_clone_slot_%out_waker = alloc 8
+    call_indirect __local_waker_clone_fn_%out_waker(__local_waker_clone_data_%out_waker, __local_waker_clone_slot_%out_waker)
+    __local_waker_clone_raw_%out_waker = load __local_waker_clone_slot_%out_waker+0 as ptr
     EXPAND LOCAL_WAKER_FROM_RAW %out_waker, __local_waker_clone_raw_%out_waker
     !__local_waker_clone_raw_%out_waker
+    !__local_waker_clone_slot_%out_waker
     !__local_waker_clone_data_%out_waker
     !__local_waker_clone_fn_%out_waker
     !__local_waker_clone_vt_%out_waker
@@ -166,7 +209,7 @@
     __waker_vt_%out_value = load %waker_reg+Waker_vtable as ptr
     __waker_fn_%out_value = load __waker_vt_%out_value+WakerWakeSlot as ptr
     __waker_data_%out_value = load %waker_reg+Waker_data as ptr
-    %out_value = call_indirect __waker_fn_%out_value(&__waker_data_%out_value)
+    %out_value = call_indirect __waker_fn_%out_value(__waker_data_%out_value)
     !__waker_data_%out_value
     !__waker_fn_%out_value
     !__waker_vt_%out_value
@@ -176,7 +219,7 @@
     __waker_vt_ref_%out_value = load %waker_reg+Waker_vtable as ptr
     __waker_fn_ref_%out_value = load __waker_vt_ref_%out_value+WakerWakeByRefSlot as ptr
     __waker_data_ref_%out_value = load %waker_reg+Waker_data as ptr
-    %out_value = call_indirect __waker_fn_ref_%out_value(&__waker_data_ref_%out_value)
+    %out_value = call_indirect __waker_fn_ref_%out_value(__waker_data_ref_%out_value)
     !__waker_data_ref_%out_value
     !__waker_fn_ref_%out_value
     !__waker_vt_ref_%out_value
@@ -186,7 +229,7 @@
     __waker_vt_drop_%waker_reg = load %waker_reg+Waker_vtable as ptr
     __waker_drop_fn_%waker_reg = load __waker_vt_drop_%waker_reg+WakerDropSlot as ptr
     __waker_drop_data_%waker_reg = load %waker_reg+Waker_data as ptr
-    call_indirect __waker_drop_fn_%waker_reg(&__waker_drop_data_%waker_reg)
+    call_indirect __waker_drop_fn_%waker_reg(__waker_drop_data_%waker_reg)
     !__waker_drop_data_%waker_reg
     !__waker_drop_fn_%waker_reg
     !__waker_vt_drop_%waker_reg
@@ -197,7 +240,7 @@
     __local_waker_vt_%out_value = load %waker_reg+LocalWaker_vtable as ptr
     __local_waker_fn_%out_value = load __local_waker_vt_%out_value+RawWakerVTable_wake as ptr
     __local_waker_data_%out_value = load %waker_reg+LocalWaker_data as ptr
-    %out_value = call_indirect __local_waker_fn_%out_value(&__local_waker_data_%out_value)
+    %out_value = call_indirect __local_waker_fn_%out_value(__local_waker_data_%out_value)
     !__local_waker_data_%out_value
     !__local_waker_fn_%out_value
     !__local_waker_vt_%out_value
@@ -207,7 +250,7 @@
     __local_waker_vt_ref_%out_value = load %waker_reg+LocalWaker_vtable as ptr
     __local_waker_fn_ref_%out_value = load __local_waker_vt_ref_%out_value+RawWakerVTable_wake_by_ref as ptr
     __local_waker_data_ref_%out_value = load %waker_reg+LocalWaker_data as ptr
-    %out_value = call_indirect __local_waker_fn_ref_%out_value(&__local_waker_data_ref_%out_value)
+    %out_value = call_indirect __local_waker_fn_ref_%out_value(__local_waker_data_ref_%out_value)
     !__local_waker_data_ref_%out_value
     !__local_waker_fn_ref_%out_value
     !__local_waker_vt_ref_%out_value
@@ -217,7 +260,7 @@
     __local_waker_vt_drop_%waker_reg = load %waker_reg+LocalWaker_vtable as ptr
     __local_waker_drop_fn_%waker_reg = load __local_waker_vt_drop_%waker_reg+RawWakerVTable_drop as ptr
     __local_waker_drop_data_%waker_reg = load %waker_reg+LocalWaker_data as ptr
-    call_indirect __local_waker_drop_fn_%waker_reg(&__local_waker_drop_data_%waker_reg)
+    call_indirect __local_waker_drop_fn_%waker_reg(__local_waker_drop_data_%waker_reg)
     !__local_waker_drop_data_%waker_reg
     !__local_waker_drop_fn_%waker_reg
     !__local_waker_vt_drop_%waker_reg

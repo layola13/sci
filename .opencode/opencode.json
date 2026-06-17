@@ -29,6 +29,20 @@
           "name": "grok-4.20-multi-agent-high"
         }
       }
+    },
+    "cf": {
+      "options": {
+        "apiKey": "AIzaSyB6QyDNXcxRDHM7xc0Xj7ceMKKhdNvhrAo",   
+        "baseURL": "http://127.0.0.1:27790/v1"     
+      },
+      "models": {
+        "@cf/moonshotai/kimi-k2.7-code": {
+          "name": "kimi-k2.7-code"
+        },
+         "@cf/openai/gpt-oss-120b": {
+          "name": "gpt-oss-120b"
+        }
+      }
     }
   },
   "model": "openai/gemini-3.5-flash",

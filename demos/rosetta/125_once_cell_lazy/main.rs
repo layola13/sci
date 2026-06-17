@@ -1,4 +1,9 @@
+use std::sync::OnceLock;
+
+static VALUE: OnceLock<i32> = OnceLock::new();
+
 fn main() {
-    let value = 42;
-    println!("{}", value);
+    let first = *VALUE.get_or_init(|| 42);
+    let second = *VALUE.get_or_init(|| 99);
+    println!("{}", first + second);
 }

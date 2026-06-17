@@ -45,6 +45,12 @@ L_MUTEX_LOCK_DONE:
     store %out_mutex+Mutex_lock, 0 as u64
 [END_MACRO]
 
+[MACRO] MUTEX_NEW_I32 %out_mutex, %value
+    %out_mutex = alloc 16
+    store %out_mutex+Mutex_lock, 0 as u64
+    store %out_mutex+Mutex_data, %value as i32
+[END_MACRO]
+
 [MACRO] MUTEX_LOCK %lock_ptr
     call @__mutex_lock_spin(%lock_ptr)
 [END_MACRO]

@@ -1,9 +1,9 @@
 # 200 - SA-ASM Quine
 
 ## 目标特性 (Target Feature)
-展示 SA-ASM 编译器前端自身如何被降级为 SA-ASM (Bootstrapping)。
+展示“程序把自己的源码文本作为数据再次输出”的自举边界。
 
-## 降级逻辑预演 (Expected Lowering Logic)
-1. **前端先展开**：macro rules、proc macro、attribute rewrite 和 cfg selection 都发生在 SA 之前；SA 看到的应该是已经材料化的代码，而不是宏语言本身。
-2. **构建链外移**：build script、LTO、PGO、CFI 和 ASAN 属于宿主编译链或运行时防护层，文档应描述它们如何影响最终 SA 形态，而不是伪造新的 SA 语法。
-3. **自举但不自嗨**：quine 只能在“前端已把源码展开成自描述 SA 程序”之后成立；若展开后仍有泄漏、悬挂指针或未收敛的宏递归，就必须在发射前截断。
+## 当前示例 (Current Demo Shape)
+1. 当前 `main.sa` 直接把一段 SA 源码文本保存在 `SOURCE` 常量里，再把它原样打印出来。
+2. 这意味着当前 quine 讨论的是 SA 文本级自描述，而不是 Rust 前端源码的逐字回显。
+3. 目录重点是“源码作为常量进入程序之后，如何再次被输出”。

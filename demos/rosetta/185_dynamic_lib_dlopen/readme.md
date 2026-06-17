@@ -1,9 +1,10 @@
 # 185 - Dynamic Lib dlopen
 
 ## 目标特性 (Target Feature)
-展示运行时加载动态库并查表获取函数指针的极度不安全操作。
+展示动态库句柄和符号地址如何以“打开、查找、关闭”的顺序流动。
 
-## 降级逻辑预演 (Expected Lowering Logic)
-1. **资源句柄化**：文件描述符、线程句柄、动态库句柄、mmap 区域和数据库连接都应被看成显式 owned handle，生命周期由 `close` / `join` / `unmap` / `free` 控制。
-2. **宿主边界**：`signal`、`pthread`、`dlopen`、SQLite、OpenGL 这类系统或 FFI 入口必须通过 `@extern` / `@ffi_wrapper` 写清楚参数、返回值和所有权，SA 不替宿主猜 ABI。
-3. **解析与编码**：WebSocket、Protobuf 和 Base64 这类缓冲区算法，本质上是循环、位运算和表驱动；如果要用 `v128` 加速，也必须先把数据路径和尾处理写明白。
+## 当前示例 (Current Demo Shape)
+1. 目录里的成功链路固定为 `dlopen("libdemo.so") -> dlsym("demo_entry") -> dlclose(handle)`。
+2. SA 版本把 `dlopen` 和 `dlsym` 的原始返回值都先投影成借用视图，再写入 `Lib` 结构中的 `handle` / `symbol` 槽位。
+3. 成功条件是句柄非空、符号非空且 `dlclose` 返回 0，最终输出 `1`。
+

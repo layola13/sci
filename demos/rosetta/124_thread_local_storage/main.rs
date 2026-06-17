@@ -3,5 +3,8 @@ thread_local! {
 }
 
 fn main() {
-    VALUE.with(|v| println!("{}", v.get()));
+    VALUE.with(|v| {
+        v.set(v.get() + 2);
+        println!("{}", v.get());
+    });
 }

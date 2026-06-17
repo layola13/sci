@@ -1,13 +1,32 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-async fn step_one() -> i32 {
+const DELAY_MS: u64 = 5;
+
+async fn step_one_after_delay(delay_ms: u64) -> i32 {
+    let unix_before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    thread::sleep(Duration::from_millis(delay_ms));
+
+    let unix_after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    assert!(unix_after >= unix_before);
     1
 }
 
 async fn run() -> i32 {
-    let value = step_one().await;
+    let started = Instant::now();
+    let value = step_one_after_delay(DELAY_MS).await;
+    assert!(started.elapsed() >= Duration::from_millis(1));
     value + 1
 }
 

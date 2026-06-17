@@ -1,4 +1,4 @@
-const SOURCE: &str = include_str!("main.rs");
+const SOURCE: &str = include_str!("main.sa");
 
 fn main() {
     print!("{SOURCE}");

@@ -1,9 +1,10 @@
 # 189 - Protobuf Varint Decode
 
 ## 目标特性 (Target Feature)
-展示变长整数解析时的 while 轮询移位。
+展示带 continuation bit 的 varint 解码循环。
 
-## 降级逻辑预演 (Expected Lowering Logic)
-1. **资源句柄化**：文件描述符、线程句柄、动态库句柄、mmap 区域和数据库连接都应被看成显式 owned handle，生命周期由 `close` / `join` / `unmap` / `free` 控制。
-2. **宿主边界**：`signal`、`pthread`、`dlopen`、SQLite、OpenGL 这类系统或 FFI 入口必须通过 `@extern` / `@ffi_wrapper` 写清楚参数、返回值和所有权，SA 不替宿主猜 ABI。
-3. **解析与编码**：WebSocket、Protobuf 和 Base64 这类缓冲区算法，本质上是循环、位运算和表驱动；如果要用 `v128` 加速，也必须先把数据路径和尾处理写明白。
+## 当前示例 (Current Demo Shape)
+1. SA 版本显式维护 `idx`、`shift`、`acc` 三个槽位，每轮读取一个 byte、提取低 7 位并决定是否继续。
+2. 当前输入固定为 `[6, 0, 0]`，因此成功路径解码结果就是 `6`。
+3. 这个 demo 关注 while/loop 形态的位移累加与退出条件，而不是 protobuf 全协议。
+

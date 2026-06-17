@@ -1,0 +1,6 @@
+// SA-facing contracts for the std::thread runtime facade.
+// Handles are opaque i32 slots owned by the Zig-backed sa_std runtime.
+@extern pthread_spawn(*entry: ptr, *arg: ptr) -> i32
+@extern pthread_spawn_detached(*entry: ptr, *arg: ptr) -> i32
+@extern pthread_join(handle: i32, *out: ptr) -> i32
+@extern pthread_drop(handle: i32) -> void

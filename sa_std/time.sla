@@ -1,0 +1,67 @@
+@import "sa_std/time.sa"
+@import "sa_std/core/result.sa"
+
+struct Duration {
+    ns: u64,
+}
+
+impl Duration {
+    fn from_millis(ms: u64) -> Duration {
+        let ns: u64 = TIME_DURATION_FROM_MILLIS(ms);
+        return Duration { ns: ns };
+    }
+
+    fn as_millis(self) -> u64 {
+        let ms: u64 = TIME_DURATION_AS_MILLIS(self.ns);
+        return ms;
+    }
+}
+
+struct Instant {
+    ns: u64,
+}
+
+impl Instant {
+    fn now() -> Instant {
+        let ns: u64 = TIME_NOW_NS();
+        return Instant { ns: ns };
+    }
+
+    fn from_raw_ns(ns: u64) -> Instant {
+        return Instant { ns: ns };
+    }
+
+    fn raw_ns(self) -> u64 {
+        return self.ns;
+    }
+
+    fn elapsed(self) -> Duration {
+        let ns: u64 = TIME_INSTANT_ELAPSED(self.ns);
+        return Duration { ns: ns };
+    }
+}
+
+struct SystemTime {
+    ms: u64,
+}
+
+impl SystemTime {
+    fn now() -> SystemTime {
+        let ms: u64 = TIME_NOW_UNIX_MS();
+        return SystemTime { ms: ms };
+    }
+
+    fn unix_epoch() -> SystemTime {
+        return SystemTime { ms: 0 };
+    }
+
+    fn duration_since(self, earlier: SystemTime) -> Result<Duration, i32> {
+        let elapsed_ms: u64 = self.ms - earlier.ms;
+        let ns: u64 = TIME_DURATION_FROM_MILLIS(elapsed_ms);
+        return Ok(Duration { ns: ns });
+    }
+}
+
+fn thread_sleep(duration: Duration) -> void {
+    TIME_THREAD_SLEEP_NS(duration.ns);
+}

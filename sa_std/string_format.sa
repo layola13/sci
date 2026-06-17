@@ -1,4 +1,7 @@
 @import "fmt.sai"
+@import "vec.sa"
+@import "core/slice.sal"
+@import "core/slice.sa"
 
 [MACRO] STRFMT_I64 %out_buf, %value, %base
     %out_buf = call @sa_fmt_i64(%value, %base)
@@ -54,4 +57,91 @@
 
 [MACRO] STRFMT_FREE %out_ok, %buffer
     %out_ok = call @sa_fmt_buffer_free(^%buffer)
+[END_MACRO]
+
+[MACRO] FORMAT_BEGIN %out_string, %capacity
+    %out_string = call @sa_vec_with_capacity(%capacity, 1)
+[END_MACRO]
+
+[MACRO] FORMAT_PUSH_BYTES %tag, %string_reg, %src_ptr, %src_len
+    %string_reg = call @sa_vec_reserve(^%string_reg, %src_len, 1)
+    __format_view_%tag = & %string_reg
+    __format_dst_buf_%tag = load __format_view_%tag+Vec_ptr as ptr
+    __format_dst_len_%tag = load __format_view_%tag+Vec_len as u64
+    __format_dst_ptr_%tag = ptr_add __format_dst_buf_%tag, __format_dst_len_%tag
+    call @sa_mem_copy(&__format_dst_ptr_%tag, &%src_ptr, %src_len)
+    __format_next_len_%tag = add __format_dst_len_%tag, %src_len
+    store __format_view_%tag+Vec_len, __format_next_len_%tag as u64
+    !__format_next_len_%tag
+    !__format_dst_ptr_%tag
+    !__format_dst_len_%tag
+    !__format_dst_buf_%tag
+    !__format_view_%tag
+[END_MACRO]
+
+[MACRO] FORMAT_PUSH_SLICE %tag, %string_reg, %slice_reg
+    __format_slice_ptr_%tag = load %slice_reg+Slice_ptr as ptr
+    __format_slice_len_%tag = load %slice_reg+Slice_len as u64
+    EXPAND FORMAT_PUSH_BYTES %tag, %string_reg, __format_slice_ptr_%tag, __format_slice_len_%tag
+    !__format_slice_len_%tag
+    !__format_slice_ptr_%tag
+[END_MACRO]
+
+[MACRO] FORMAT_PUSH_I64 %tag, %string_reg, %value
+    EXPAND STRFMT_I64 __format_fmt_buf_%tag, %value, 10
+    EXPAND STRFMT_DATA __format_fmt_ptr_%tag, __format_fmt_buf_%tag
+    EXPAND STRFMT_LEN __format_fmt_len_%tag, __format_fmt_buf_%tag
+    EXPAND FORMAT_PUSH_BYTES %tag, %string_reg, __format_fmt_ptr_%tag, __format_fmt_len_%tag
+    EXPAND STRFMT_FREE __format_fmt_free_ok_%tag, __format_fmt_buf_%tag
+    !__format_fmt_free_ok_%tag
+    !__format_fmt_len_%tag
+    !__format_fmt_ptr_%tag
+[END_MACRO]
+
+[MACRO] FORMAT_PUSH_U64 %tag, %string_reg, %value
+    EXPAND STRFMT_U64 __format_fmt_buf_%tag, %value, 10
+    EXPAND STRFMT_DATA __format_fmt_ptr_%tag, __format_fmt_buf_%tag
+    EXPAND STRFMT_LEN __format_fmt_len_%tag, __format_fmt_buf_%tag
+    EXPAND FORMAT_PUSH_BYTES %tag, %string_reg, __format_fmt_ptr_%tag, __format_fmt_len_%tag
+    EXPAND STRFMT_FREE __format_fmt_free_ok_%tag, __format_fmt_buf_%tag
+    !__format_fmt_free_ok_%tag
+    !__format_fmt_len_%tag
+    !__format_fmt_ptr_%tag
+[END_MACRO]
+
+[MACRO] FORMAT_PUSH_F64 %tag, %string_reg, %value, %precision
+    EXPAND STRFMT_F64 __format_fmt_buf_%tag, %value, %precision
+    EXPAND STRFMT_DATA __format_fmt_ptr_%tag, __format_fmt_buf_%tag
+    EXPAND STRFMT_LEN __format_fmt_len_%tag, __format_fmt_buf_%tag
+    EXPAND FORMAT_PUSH_BYTES %tag, %string_reg, __format_fmt_ptr_%tag, __format_fmt_len_%tag
+    EXPAND STRFMT_FREE __format_fmt_free_ok_%tag, __format_fmt_buf_%tag
+    !__format_fmt_free_ok_%tag
+    !__format_fmt_len_%tag
+    !__format_fmt_ptr_%tag
+[END_MACRO]
+
+[MACRO] FORMAT_PUSH_BOOL %tag, %string_reg, %value
+    EXPAND STRFMT_BOOL __format_fmt_buf_%tag, %value
+    EXPAND STRFMT_DATA __format_fmt_ptr_%tag, __format_fmt_buf_%tag
+    EXPAND STRFMT_LEN __format_fmt_len_%tag, __format_fmt_buf_%tag
+    EXPAND FORMAT_PUSH_BYTES %tag, %string_reg, __format_fmt_ptr_%tag, __format_fmt_len_%tag
+    EXPAND STRFMT_FREE __format_fmt_free_ok_%tag, __format_fmt_buf_%tag
+    !__format_fmt_free_ok_%tag
+    !__format_fmt_len_%tag
+    !__format_fmt_ptr_%tag
+[END_MACRO]
+
+[MACRO] FORMAT_AS_STR %out_slice, %string_reg
+    __format_as_str_view_%out_slice = & %string_reg
+    __format_as_str_ptr_%out_slice = load __format_as_str_view_%out_slice+Vec_ptr as ptr
+    __format_as_str_len_%out_slice = load __format_as_str_view_%out_slice+Vec_len as u64
+    %out_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW %out_slice, __format_as_str_ptr_%out_slice, __format_as_str_len_%out_slice
+    !__format_as_str_len_%out_slice
+    !__format_as_str_ptr_%out_slice
+    !__format_as_str_view_%out_slice
+[END_MACRO]
+
+[MACRO] FORMAT_FREE %string_reg
+    call @sa_vec_free(^%string_reg)
 [END_MACRO]

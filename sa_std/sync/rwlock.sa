@@ -21,6 +21,13 @@ L_RELEASE_OK:
     store %out_lock+RwLock_writing, 0 as i32
 [END_MACRO]
 
+[MACRO] RWLOCK_NEW_I32 %out_lock, %value
+    %out_lock = alloc RwLockI32_SIZE
+    store %out_lock+RwLock_readers, 0 as i32
+    store %out_lock+RwLock_writing, 0 as i32
+    store %out_lock+RwLock_data, %value as i32
+[END_MACRO]
+
 [MACRO] RWLOCK_READER_COUNT %out_count, %lock_reg
     %out_count = atomic_load %lock_reg+RwLock_readers as i32 acquire
 [END_MACRO]
@@ -44,8 +51,8 @@ L_RELEASE_OK:
 [END_MACRO]
 
 [MACRO] RWLOCK_TRY_READ_NOERR %out_ok, %out_guard, %lock_reg
-    __rwlock_read_ok_slot_%out_ok = stack_alloc 8
-    __rwlock_read_guard_slot_%out_ok = stack_alloc 8
+    __rwlock_read_ok_slot_%out_ok = alloc 8
+    __rwlock_read_guard_slot_%out_ok = alloc 8
     __rwlock_read_writing_%out_ok = atomic_load %lock_reg+RwLock_writing as i32 acquire
     __rwlock_read_can_read_%out_ok = eq __rwlock_read_writing_%out_ok, 0
     br __rwlock_read_can_read_%out_ok -> L_RWLOCK_READ_NOERR_OK_%out_ok, L_RWLOCK_READ_NOERR_FAIL_%out_ok
@@ -77,13 +84,15 @@ L_RWLOCK_READ_NOERR_FAIL_%out_ok:
 L_RWLOCK_READ_NOERR_DONE_%out_ok:
     %out_guard = load __rwlock_read_guard_slot_%out_ok+0 as ptr
     %out_ok = load __rwlock_read_ok_slot_%out_ok+0 as u64
+    !__rwlock_read_guard_slot_%out_ok
+    !__rwlock_read_ok_slot_%out_ok
     !__rwlock_read_can_read_%out_ok
     !__rwlock_read_writing_%out_ok
 [END_MACRO]
 
 [MACRO] RWLOCK_TRY_WRITE_NOERR %out_ok, %out_guard, %lock_reg
-    __rwlock_write_ok_slot_%out_ok = stack_alloc 8
-    __rwlock_write_guard_slot_%out_ok = stack_alloc 8
+    __rwlock_write_ok_slot_%out_ok = alloc 8
+    __rwlock_write_guard_slot_%out_ok = alloc 8
     __rwlock_write_writing_%out_ok, __rwlock_write_claim_ok_%out_ok = cmpxchg %lock_reg+RwLock_writing, 0, 1 as i32 acq_rel acquire
     br __rwlock_write_claim_ok_%out_ok -> L_RWLOCK_WRITE_NOERR_CLAIMED_%out_ok, L_RWLOCK_WRITE_NOERR_FAIL_%out_ok
 L_RWLOCK_WRITE_NOERR_CLAIMED_%out_ok:
@@ -110,6 +119,8 @@ L_RWLOCK_WRITE_NOERR_FAIL_%out_ok:
 L_RWLOCK_WRITE_NOERR_DONE_%out_ok:
     %out_guard = load __rwlock_write_guard_slot_%out_ok+0 as ptr
     %out_ok = load __rwlock_write_ok_slot_%out_ok+0 as u64
+    !__rwlock_write_guard_slot_%out_ok
+    !__rwlock_write_ok_slot_%out_ok
     !__rwlock_write_claim_ok_%out_ok
     !__rwlock_write_writing_%out_ok
 [END_MACRO]

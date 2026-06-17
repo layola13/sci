@@ -13,6 +13,7 @@ async fn branch_c() -> i32 {
 #[tokio::main]
 async fn main() {
     let winner = tokio::select! {
+        biased;
         value = branch_a() => value,
         value = branch_b() => value,
         value = branch_c() => value,

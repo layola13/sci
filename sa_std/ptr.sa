@@ -149,6 +149,10 @@
     %out_value = load %ptr_reg+0 as u64
 [END_MACRO]
 
+[MACRO] PTR_READ_VOLATILE_I32 %out_value, %ptr_reg
+    %out_value = load %ptr_reg+0 as i32
+[END_MACRO]
+
 [MACRO] PTR_READ_U8 %out_value, %ptr_reg
     %out_value = load %ptr_reg+0 as u8
 [END_MACRO]

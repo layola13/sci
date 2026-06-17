@@ -1,3 +1,5 @@
 #def RwLock_SIZE = 8
 #def RwLock_readers = +0
 #def RwLock_writing = +4
+#def RwLock_data = +8
+#def RwLockI32_SIZE = 16

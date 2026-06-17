@@ -1,9 +1,10 @@
 # 199 - Address Sanitizer (ASAN)
 
 ## 目标特性 (Target Feature)
-展示 ASAN 和 SA-ASM 静态防线的对比与互补。
+展示边界内读写和边界外探测在建模层面如何被区分出来。
 
-## 降级逻辑预演 (Expected Lowering Logic)
-1. **前端先展开**：macro rules、proc macro、attribute rewrite 和 cfg selection 都发生在 SA 之前；SA 看到的应该是已经材料化的代码，而不是宏语言本身。
-2. **构建链外移**：build script、LTO、PGO、CFI 和 ASAN 属于宿主编译链或运行时防护层，文档应描述它们如何影响最终 SA 形态，而不是伪造新的 SA 语法。
-3. **自举但不自嗨**：quine 只能在“前端已把源码展开成自描述 SA 程序”之后成立；若展开后仍有泄漏、悬挂指针或未收敛的宏递归，就必须在发射前截断。
+## 当前示例 (Current Demo Shape)
+1. 当前有效数据是四个字节 `[1, 2, 3, 4]`，成功值来自首尾相加得到 `5`。
+2. SA 版本额外读取了 `buf+4` 这个守卫位置，并把它当成“未中毒时应为 0”的检查点。
+3. 这个目录讨论的是 sanitizer 风格的边界建模，不是故意制造未定义行为。
+

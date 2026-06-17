@@ -1,9 +1,10 @@
 # 192 - Proc Macro Derive
 
 ## 目标特性 (Target Feature)
-展示前端通过动态库注入生成额外代码。
+展示 derive 类前端生成逻辑被摊平成字段级复制后是什么形状。
 
-## 降级逻辑预演 (Expected Lowering Logic)
-1. **前端先展开**：macro rules、proc macro、attribute rewrite 和 cfg selection 都发生在 SA 之前；SA 看到的应该是已经材料化的代码，而不是宏语言本身。
-2. **构建链外移**：build script、LTO、PGO、CFI 和 ASAN 属于宿主编译链或运行时防护层，文档应描述它们如何影响最终 SA 形态，而不是伪造新的 SA 语法。
-3. **自举但不自嗨**：quine 只能在“前端已把源码展开成自描述 SA 程序”之后成立；若展开后仍有泄漏、悬挂指针或未收敛的宏递归，就必须在发射前截断。
+## 当前示例 (Current Demo Shape)
+1. 当前 SA 版本不是抽象 trait 调用，而是把 `Triple` 的三个字段逐个 load/store 到副本。
+2. 成功条件同时检查 `copied_left == 1`、`copied_mid == 2`、`copied_right == 3` 和总和 `6`。
+3. 这个目录关注的是“derive 产物长什么样”，不是 proc macro 动态加载机制本身。
+

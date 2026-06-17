@@ -1,5 +1,20 @@
+use std::sync::{Arc, RwLock};
+use std::thread;
+
 fn main() {
-    let readers = 2;
-    let writer = 1;
-    println!("{}", readers + writer);
+    let shared = Arc::new(RwLock::new(1i32));
+
+    let first_reader = {
+        let shared = Arc::clone(&shared);
+        thread::spawn(move || *shared.read().unwrap())
+    };
+
+    let first = first_reader.join().unwrap();
+    {
+        let mut writer = shared.write().unwrap();
+        *writer += 2;
+    }
+
+    let second = *shared.read().unwrap();
+    println!("{}", first + second);
 }

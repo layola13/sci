@@ -3,6 +3,7 @@
         "*.sa": "cpp",
         "*.sal": "cpp",
         "*.sai": "cpp",
+        "*.sla":"rs"
        
     }
 }
