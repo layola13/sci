@@ -376,6 +376,7 @@ pub fn build(b: *std.Build) void {
     const run_unit_framework = b.addRunArtifact(unit_framework);
     run_unit_framework.setCwd(repo_root_lazy);
     run_unit_framework.step.dependOn(&install_sa_exe.step);
+    run_unit_framework.setEnvironmentVariable("SA_STD_DIR", b.pathFromRoot("sa_std"));
     run_unit_framework.setEnvironmentVariable("SA_BIN", b.getInstallPath(.bin, "sa"));
     test_step.dependOn(&run_unit_framework.step);
     const unit_framework_step = b.step("unit-framework", "Run native SA unit framework suites");
