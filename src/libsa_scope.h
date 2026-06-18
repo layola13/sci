@@ -10,6 +10,8 @@ void scope_drop(void *tracker);
 void scope_enter(void *tracker);
 void scope_exit(void *tracker);
 void scope_bind(void *tracker, const char *reg_name);
+void scope_bind_owned(void *tracker, const char *reg_name);
+void scope_bind_plain(void *tracker, const char *reg_name);
 void scope_move(void *tracker, const char *reg_name);
 void scope_release(void *tracker, const char *reg_name);
 void scope_branch_begin(void *tracker);

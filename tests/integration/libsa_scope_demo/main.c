@@ -8,9 +8,9 @@ int main(void) {
         return 91;
     }
 
-    scope_bind(scope, "root");
+    scope_bind_owned(scope, "root");
     scope_enter(scope);
-    scope_bind(scope, "temp");
+    scope_bind_plain(scope, "temp");
     scope_exit(scope);
     fputs(scope_emit_releases(scope), stdout);
 

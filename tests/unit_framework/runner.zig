@@ -2,6 +2,9 @@ const std = @import("std");
 
 const saasm = @import("saasm");
 
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+
 fn expectContains(text: []const u8, needle: []const u8) !void {
     try std.testing.expect(std.mem.indexOf(u8, text, needle) != null);
 }
@@ -14,6 +17,31 @@ fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(source);
+}
+
+fn setEnvVarZ(name: [:0]const u8, value: [:0]const u8) !void {
+    if (setenv(name.ptr, value.ptr, 1) != 0) return error.SetEnvFailed;
+}
+
+fn unsetEnvVarZ(name: [:0]const u8) void {
+    _ = unsetenv(name.ptr);
+}
+
+fn saveEnvVarZ(allocator: std.mem.Allocator, name: []const u8) !?[:0]u8 {
+    const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(value);
+    return try allocator.dupeZ(u8, value);
+}
+
+fn restoreEnvVarZ(name: [:0]const u8, value: ?[:0]const u8) !void {
+    if (value) |saved| {
+        try setEnvVarZ(name, saved);
+    } else {
+        unsetEnvVarZ(name);
+    }
 }
 
 fn saTestJobsArg(allocator: std.mem.Allocator) ![]const u8 {
@@ -366,11 +394,16 @@ fn runQueuedSaTestFiles() !void {
     defer std.testing.allocator.free(threads);
 
     var started: usize = 0;
-    errdefer for (threads[0..started]) |thread| thread.join();
+    var joined: usize = 0;
+    errdefer {
+        for (threads[joined..started]) |thread| thread.join();
+    }
     while (started < worker_count) : (started += 1) {
         threads[started] = try std.Thread.spawn(.{}, saTestWorkerMain, .{&context});
     }
-    for (threads) |thread| thread.join();
+    while (joined < started) : (joined += 1) {
+        threads[joined].join();
+    }
 
     try std.testing.expect(!context.failed.load(.acquire));
 }
@@ -579,6 +612,58 @@ test "native unit framework covers sa_std macro surface suites" {
     }
 
     try runQueuedSaTestFiles();
+}
+
+test "queued sa test worker failure returns test error without crashing" {
+    defer clearQueuedSaTestFiles();
+
+    const sa_bin_name: [:0]const u8 = "SA_BIN";
+    const sa_bin_value: [:0]const u8 = "sa";
+    const file_jobs_name: [:0]const u8 = "SA_UNIT_FILE_JOBS";
+    const file_jobs_value: [:0]const u8 = "2";
+
+    const saved_sa_bin = try saveEnvVarZ(std.testing.allocator, "SA_BIN");
+    defer if (saved_sa_bin) |value| std.testing.allocator.free(value);
+    const saved_file_jobs = try saveEnvVarZ(std.testing.allocator, "SA_UNIT_FILE_JOBS");
+    defer if (saved_file_jobs) |value| std.testing.allocator.free(value);
+
+    try setEnvVarZ(sa_bin_name, sa_bin_value);
+    defer restoreEnvVarZ(sa_bin_name, saved_sa_bin) catch unreachable;
+    try setEnvVarZ(file_jobs_name, file_jobs_value);
+    defer restoreEnvVarZ(file_jobs_name, saved_file_jobs) catch unreachable;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try writeSource(tmp.dir, "queued_pass.sa",
+        \\@test "queued pass"():
+        \\L_ENTRY:
+        \\    return
+        \\
+    );
+    try writeSource(tmp.dir, "queued_fail.sa",
+        \\@test "queued fail"():
+        \\L_ENTRY:
+        \\    panic(991)
+        \\
+    );
+
+    const pass_path = try tmp.dir.realpathAlloc(std.testing.allocator, "queued_pass.sa");
+    defer std.testing.allocator.free(pass_path);
+    const fail_path = try tmp.dir.realpathAlloc(std.testing.allocator, "queued_fail.sa");
+    defer std.testing.allocator.free(fail_path);
+
+    try enqueueSaTestFile(pass_path, .{
+        .expected_passes = &.{"[PASS] queued pass"},
+        .expected_summary = "test result: ok. 1 passed; 0 failed; 0 skipped",
+    });
+    try enqueueSaTestFile(fail_path, .{
+        .expected_passes = &.{"[PASS] queued fail"},
+        .expected_summary = "test result: ok. 1 passed; 0 failed; 0 skipped",
+    });
+
+    try std.testing.expectError(error.TestUnexpectedResult, runQueuedSaTestFiles());
+    try std.testing.expectEqual(@as(usize, 0), queued_sa_tests.items.len);
 }
 
 test "native unit framework exposes standard mock io buffer" {

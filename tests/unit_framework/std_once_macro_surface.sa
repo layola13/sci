@@ -4,6 +4,10 @@
 L_ENTRY:
     return 77
 
+@init_once_value_alt() -> u64:
+L_ENTRY:
+    return 91
+
 @test "sa_std sync once and once-lock macros"():
 L_ENTRY:
     EXPAND ONCE_NEW once
@@ -25,6 +29,11 @@ L_ENTRY:
     EXPAND ONCE_GET_OR_INIT init_value, once, @init_once_value
     EXPAND ONCE_GET_OR_INIT init_value_again, once, @init_once_value
     EXPAND ONCE_INTO_INNER inner_ok, inner_value, once
+
+    EXPAND ONCE_NEW alt_once
+    EXPAND ONCE_GET_OR_INIT alt_init_value, alt_once, @init_once_value_alt
+    EXPAND ONCE_GET_OR_INIT alt_init_again, alt_once, @init_once_value
+    EXPAND ONCE_INTO_INNER alt_inner_ok, alt_inner_value, alt_once
 
     EXPAND ONCE_NEW once_empty
     EXPAND ONCE_INTO_INNER empty_inner_ok, empty_inner_value, once_empty
@@ -48,6 +57,10 @@ L_ENTRY:
     ok_init_again = eq init_value_again, 77
     ok_inner = eq inner_ok, 1
     ok_inner_value = eq inner_value, 77
+    ok_alt_init_value = eq alt_init_value, 91
+    ok_alt_init_again = eq alt_init_again, 91
+    ok_alt_inner = eq alt_inner_ok, 1
+    ok_alt_inner_value = eq alt_inner_value, 91
     ok_empty_inner = eq empty_inner_ok, 0
     ok_empty_inner_value = eq empty_inner_value, 0
 
@@ -72,8 +85,12 @@ L_ENTRY:
     ok19 = and ok18, ok_init_again
     ok20 = and ok19, ok_inner
     ok21 = and ok20, ok_inner_value
-    ok22 = and ok21, ok_empty_inner
-    ok = and ok22, ok_empty_inner_value
+    ok22 = and ok21, ok_alt_init_value
+    ok23 = and ok22, ok_alt_init_again
+    ok24 = and ok23, ok_alt_inner
+    ok25 = and ok24, ok_alt_inner_value
+    ok26 = and ok25, ok_empty_inner
+    ok = and ok26, ok_empty_inner_value
 
     !state0
     !is_uninit0
@@ -98,6 +115,10 @@ L_ENTRY:
     !init_value_again
     !inner_ok
     !inner_value
+    !alt_init_value
+    !alt_init_again
+    !alt_inner_ok
+    !alt_inner_value
     !empty_inner_ok
     !empty_inner_value
     !ok_state0
@@ -119,6 +140,10 @@ L_ENTRY:
     !ok_init_again
     !ok_inner
     !ok_inner_value
+    !ok_alt_init_value
+    !ok_alt_init_again
+    !ok_alt_inner
+    !ok_alt_inner_value
     !ok_empty_inner
     !ok_empty_inner_value
     !ok01
@@ -143,6 +168,10 @@ L_ENTRY:
     !ok20
     !ok21
     !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
 
     br ok -> L_PASS, L_FAIL
 

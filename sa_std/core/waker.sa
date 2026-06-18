@@ -55,10 +55,9 @@
     __raw_waker_clone_vt_%out_raw = load %raw_reg+RawWaker_vtable as ptr
     __raw_waker_clone_fn_%out_raw = load __raw_waker_clone_vt_%out_raw+RawWakerVTable_clone as ptr
     __raw_waker_clone_data_%out_raw = load %raw_reg+RawWaker_data as ptr
-    __raw_waker_clone_slot_%out_raw = alloc 8
+    __raw_waker_clone_slot_%out_raw = alloc RawWaker_SIZE
     call_indirect __raw_waker_clone_fn_%out_raw(__raw_waker_clone_data_%out_raw, __raw_waker_clone_slot_%out_raw)
-    %out_raw = load __raw_waker_clone_slot_%out_raw+0 as ptr
-    !__raw_waker_clone_slot_%out_raw
+    %out_raw = __raw_waker_clone_slot_%out_raw
     !__raw_waker_clone_data_%out_raw
     !__raw_waker_clone_fn_%out_raw
     !__raw_waker_clone_vt_%out_raw
@@ -131,11 +130,9 @@
     __waker_clone_vt_%out_waker = load %waker_reg+Waker_vtable as ptr
     __waker_clone_fn_%out_waker = load __waker_clone_vt_%out_waker+WakerCloneSlot as ptr
     __waker_clone_data_%out_waker = load %waker_reg+Waker_data as ptr
-    __waker_clone_slot_%out_waker = alloc 8
+    __waker_clone_slot_%out_waker = alloc RawWaker_SIZE
     call_indirect __waker_clone_fn_%out_waker(__waker_clone_data_%out_waker, __waker_clone_slot_%out_waker)
-    __waker_clone_raw_%out_waker = load __waker_clone_slot_%out_waker+0 as ptr
-    EXPAND WAKER_FROM_RAW %out_waker, __waker_clone_raw_%out_waker
-    !__waker_clone_raw_%out_waker
+    EXPAND WAKER_FROM_RAW %out_waker, __waker_clone_slot_%out_waker
     !__waker_clone_slot_%out_waker
     !__waker_clone_data_%out_waker
     !__waker_clone_fn_%out_waker
@@ -146,11 +143,9 @@
     __local_waker_clone_vt_%out_waker = load %waker_reg+LocalWaker_vtable as ptr
     __local_waker_clone_fn_%out_waker = load __local_waker_clone_vt_%out_waker+RawWakerVTable_clone as ptr
     __local_waker_clone_data_%out_waker = load %waker_reg+LocalWaker_data as ptr
-    __local_waker_clone_slot_%out_waker = alloc 8
+    __local_waker_clone_slot_%out_waker = alloc RawWaker_SIZE
     call_indirect __local_waker_clone_fn_%out_waker(__local_waker_clone_data_%out_waker, __local_waker_clone_slot_%out_waker)
-    __local_waker_clone_raw_%out_waker = load __local_waker_clone_slot_%out_waker+0 as ptr
-    EXPAND LOCAL_WAKER_FROM_RAW %out_waker, __local_waker_clone_raw_%out_waker
-    !__local_waker_clone_raw_%out_waker
+    EXPAND LOCAL_WAKER_FROM_RAW %out_waker, __local_waker_clone_slot_%out_waker
     !__local_waker_clone_slot_%out_waker
     !__local_waker_clone_data_%out_waker
     !__local_waker_clone_fn_%out_waker

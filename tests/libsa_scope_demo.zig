@@ -79,5 +79,5 @@ test "libsa_scope C-ABI demo emits release text" {
 
     const run_output = try runCommand(std.testing.allocator, &[_][]const u8{ "./libsa_scope_demo" });
     defer std.testing.allocator.free(run_output);
-    try std.testing.expectEqualStrings("!temp\n!root\n", run_output);
+    try std.testing.expectEqualStrings("!root\n", run_output);
 }

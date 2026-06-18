@@ -8,8 +8,14 @@ const ScopeState = enum(u8) {
     released,
 };
 
+const BindingOwnership = enum(u8) {
+    owned,
+    plain,
+};
+
 const Binding = struct {
     name: []const u8,
+    ownership: BindingOwnership = .owned,
     state: ScopeState = .active,
 };
 
@@ -150,15 +156,17 @@ fn trackerFromHandle(handle: ?*anyopaque) ?*ScopeTracker {
     return if (handle) |ptr| @ptrCast(@alignCast(ptr)) else null;
 }
 
-fn bindInTracker(tracker: *ScopeTracker, name: []const u8) !void {
+fn bindInTracker(tracker: *ScopeTracker, name: []const u8, ownership: BindingOwnership) !void {
     const dup = try tracker.duplicateName(name);
     const frame = tracker.currentFrame();
-    try frame.bindings.append(.{ .name = dup, .state = .active });
+    try frame.bindings.append(.{ .name = dup, .ownership = ownership, .state = .active });
 }
 
-fn markInTracker(tracker: *ScopeTracker, name: []const u8, state: ScopeState) bool {
+fn markInTracker(tracker: *ScopeTracker, name: []const u8, state: ScopeState, ownership: ?BindingOwnership) bool {
     if (tracker.findBinding(name)) |loc| {
-        tracker.frames.items[loc.frame_idx].bindings.items[loc.binding_idx].state = state;
+        const binding = &tracker.frames.items[loc.frame_idx].bindings.items[loc.binding_idx];
+        binding.state = state;
+        if (ownership) |kind| binding.ownership = kind;
         return true;
     }
     return false;
@@ -168,10 +176,20 @@ fn emitCurrentScopeExits(tracker: *ScopeTracker) !void {
     const frame = tracker.currentFrame();
     for (frame.bindings.items) |*binding| {
         if (binding.state == .active) {
-            try tracker.appendRelease(binding.name);
+            if (binding.ownership == .owned) {
+                try tracker.appendRelease(binding.name);
+            }
             binding.state = .released;
         }
     }
+}
+
+fn bindWithOwnership(handle: ?*anyopaque, reg_name: [*:0]const u8, ownership: BindingOwnership) void {
+    const tracker = trackerFromHandle(handle) orelse return;
+    tracker.clearReleases();
+    const name = std.mem.span(reg_name);
+    if (markInTracker(tracker, name, .active, ownership)) return;
+    bindInTracker(tracker, name, ownership) catch return;
 }
 
 pub export fn scope_new() ?*anyopaque {
@@ -200,26 +218,28 @@ pub export fn scope_enter(handle: ?*anyopaque) void {
 pub export fn scope_exit(handle: ?*anyopaque) void {
     const tracker = trackerFromHandle(handle) orelse return;
     tracker.clearReleases();
-    if (tracker.frames.items.len <= 1) return;
-    const frame_idx = tracker.frames.items.len - 1;
-    const frame = &tracker.frames.items[frame_idx];
     emitCurrentScopeExits(tracker) catch return;
+    if (tracker.frames.items.len <= 1) return;
+    var frame = tracker.frames.pop().?;
     frame.deinit();
-    _ = tracker.frames.pop();
 }
 
 pub export fn scope_bind(handle: ?*anyopaque, reg_name: [*:0]const u8) void {
-    const tracker = trackerFromHandle(handle) orelse return;
-    tracker.clearReleases();
-    const name = std.mem.span(reg_name);
-    if (markInTracker(tracker, name, .active)) return;
-    bindInTracker(tracker, name) catch return;
+    bindWithOwnership(handle, reg_name, .owned);
+}
+
+pub export fn scope_bind_owned(handle: ?*anyopaque, reg_name: [*:0]const u8) void {
+    bindWithOwnership(handle, reg_name, .owned);
+}
+
+pub export fn scope_bind_plain(handle: ?*anyopaque, reg_name: [*:0]const u8) void {
+    bindWithOwnership(handle, reg_name, .plain);
 }
 
 pub export fn scope_move(handle: ?*anyopaque, reg_name: [*:0]const u8) void {
     const tracker = trackerFromHandle(handle) orelse return;
     tracker.clearReleases();
-    _ = markInTracker(tracker, std.mem.span(reg_name), .moved);
+    _ = markInTracker(tracker, std.mem.span(reg_name), .moved, null);
 }
 
 pub export fn scope_release(handle: ?*anyopaque, reg_name: [*:0]const u8) void {
@@ -228,7 +248,7 @@ pub export fn scope_release(handle: ?*anyopaque, reg_name: [*:0]const u8) void {
     const name = std.mem.span(reg_name);
     if (tracker.findBinding(name)) |loc| {
         const binding = &tracker.frames.items[loc.frame_idx].bindings.items[loc.binding_idx];
-        if (binding.state == .active) {
+        if (binding.state == .active and binding.ownership == .owned) {
             tracker.appendRelease(binding.name) catch return;
         }
         binding.state = .released;
@@ -297,8 +317,13 @@ pub export fn scope_branch_merge(handle: ?*anyopaque) void {
         while (it.next()) |entry| {
             const name = entry.key_ptr.*;
             if (!nameActiveInAllSnapshots(name, branch.snapshots.items)) {
-                tracker.appendRelease(name) catch return;
-                _ = markInTracker(tracker, name, .released);
+                if (tracker.findBinding(name)) |loc| {
+                    const binding = &tracker.frames.items[loc.frame_idx].bindings.items[loc.binding_idx];
+                    if (binding.ownership == .owned) {
+                        tracker.appendRelease(name) catch return;
+                    }
+                    binding.state = .released;
+                }
             }
         }
     }
@@ -362,4 +387,28 @@ test "branch merge emits releases for bindings missing in a path" {
     scope_branch_merge(tracker_ptr);
 
     try std.testing.expectEqualStrings("!b\n", std.mem.span(scope_emit_releases(tracker_ptr)));
+}
+
+test "plain bindings are not auto-released at scope exit" {
+    const tracker_ptr = scope_new() orelse return error.TestUnexpectedResult;
+    defer scope_drop(tracker_ptr);
+
+    scope_bind_plain(tracker_ptr, "copied");
+    scope_exit(tracker_ptr);
+
+    try std.testing.expectEqualStrings("", std.mem.span(scope_emit_releases(tracker_ptr)));
+}
+
+test "branch merge suppresses release text for plain bindings" {
+    const tracker_ptr = scope_new() orelse return error.TestUnexpectedResult;
+    defer scope_drop(tracker_ptr);
+
+    scope_bind_plain(tracker_ptr, "copied");
+    scope_branch_begin(tracker_ptr);
+    scope_branch_add_path(tracker_ptr);
+    scope_move(tracker_ptr, "copied");
+    scope_branch_add_path(tracker_ptr);
+    scope_branch_merge(tracker_ptr);
+
+    try std.testing.expectEqualStrings("", std.mem.span(scope_emit_releases(tracker_ptr)));
 }
