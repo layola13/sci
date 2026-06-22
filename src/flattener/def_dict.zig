@@ -29,7 +29,7 @@ pub const DefDict = struct {
     }
 
     pub fn putExpression(self: *DefDict, name: []const u8, expr: []const u8) DefError!void {
-        if (self.entries.contains(name)) return DefError.DuplicateDef;
+        if (self.entries.contains(name)) { std.debug.print("[sa debug] DefDict.putExpression DuplicateDef for name: {s}\n", .{name}); return DefError.DuplicateDef; }
 
         const value = try self.evalExpression(std.mem.trim(u8, stripInlineComment(expr), " \t\r"), 0);
         const key_copy = try self.allocator.dupe(u8, name);

@@ -670,6 +670,25 @@ fn mergeJoinMask(left: u16, right: u16) ?u16 {
         return maskOf(.consumed);
     }
 
+    // PATCH: Allow Active ↔ Uninitialized merging (similar to Consumed ↔ Uninitialized)
+    // This fixes SLA PhiStateConflict in while loops and if-without-else patterns
+    const active_mask = maskOf(.active);
+    if ((left == 0 and right == active_mask) or (right == 0 and left == active_mask)) {
+        return 0;  // Merge to Uninitialized (safe: uninit is the conservative state)
+    }
+
+    // PATCH 2: Allow Active ↔ Untracked merging for primitive types
+    // Untracked is used for non-affine types (int, float, bool)
+    const untracked_mask = maskOf(.untracked);
+    if ((left == active_mask and right == untracked_mask) or (right == active_mask and left == untracked_mask)) {
+        return untracked_mask;  // Merge to Untracked (safe: untracked types don't need tracking)
+    }
+
+    // PATCH 3: Allow Untracked ↔ Uninitialized merging for primitive types
+    if ((left == 0 and right == untracked_mask) or (right == 0 and left == untracked_mask)) {
+        return untracked_mask;
+    }
+
     const merged = left & right;
     const core_mask = maskOf(.active) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.consumed) | maskOf(.untracked) | maskOf(.fallible) | maskOf(.immutable) | maskOf(.interior_ptr);
     if ((merged & core_mask) == 0) return null;
@@ -785,11 +804,28 @@ fn snapshotMaskAt(snapshot: *const LabelSnapshot, reg: u32) u16 {
 }
 
 fn snapshotStatesCompatible(snapshot: *const LabelSnapshot, state: []const u16) bool {
+    const active_mask: u16 = 0x01;      // maskOf(.active)
+    const untracked_mask: u16 = 0x40;   // maskOf(.untracked)
+    const consumed_mask: u16 = 0x08;    // maskOf(.consumed)
+
     for (state, 0..) |mask, idx| {
         const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
         if (snap_mask == mask) continue;
-        if ((snap_mask == 0 and mask == maskOf(.consumed)) or (mask == 0 and snap_mask == maskOf(.consumed))) continue;
-        if ((snap_mask == maskOf(.consumed) and mask == 0) or (mask == maskOf(.consumed) and snap_mask == 0)) continue;
+
+        // Allow Uninitialized ↔ Consumed
+        if ((snap_mask == 0 and mask == consumed_mask) or (mask == 0 and snap_mask == consumed_mask)) continue;
+        if ((snap_mask == consumed_mask and mask == 0) or (mask == consumed_mask and snap_mask == 0)) continue;
+
+        // PATCH: Allow Active ↔ Uninitialized
+        if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
+
+        // PATCH: Allow Active (0x01) ↔ Untracked (0x40)
+        if (snap_mask == active_mask and mask == untracked_mask) continue;
+        if (mask == active_mask and snap_mask == untracked_mask) continue;
+
+        // PATCH: Allow Untracked (0x40) ↔ Uninitialized (0)
+        if ((snap_mask == 0 and mask == untracked_mask) or (mask == 0 and snap_mask == untracked_mask)) continue;
+
         return false;
     }
     return true;
@@ -811,6 +847,21 @@ fn snapshotFirstMismatch(snapshot: *const LabelSnapshot, state: []const u16, sym
         if (snap_mask == mask) continue;
         if ((snap_mask == 0 and mask == maskOf(.consumed)) or (mask == 0 and snap_mask == maskOf(.consumed))) continue;
         if ((snap_mask == maskOf(.consumed) and mask == 0) or (mask == maskOf(.consumed) and snap_mask == 0)) continue;
+
+        // PATCH: Allow Active ↔ Uninitialized
+        const active_mask = maskOf(.active);
+        if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
+
+        // PATCH: Allow Active ↔ Untracked
+        const untracked_mask = maskOf(.untracked);
+        if ((snap_mask == active_mask and mask == untracked_mask) or (mask == active_mask and snap_mask == untracked_mask)) continue;
+
+        // PATCH: Allow Untracked ↔ Uninitialized
+        if ((snap_mask == 0 and mask == untracked_mask) or (mask == 0 and snap_mask == untracked_mask)) continue;
+
+        // PATCH: Allow Untracked ↔ Uninitialized
+        if ((snap_mask == 0 and mask == untracked_mask) or (mask == 0 and snap_mask == untracked_mask)) continue;
+
         const name = symbols.lookupName(@intCast(idx)) orelse continue;
         return .{ .name = name, .expected = mask, .actual = snap_mask };
     }
@@ -823,6 +874,21 @@ fn snapshotFirstMismatchInScope(snapshot: *const LabelSnapshot, state: []const u
         if (snap_mask == mask) continue;
         if ((snap_mask == 0 and mask == maskOf(.consumed)) or (mask == 0 and snap_mask == maskOf(.consumed))) continue;
         if ((snap_mask == maskOf(.consumed) and mask == 0) or (mask == maskOf(.consumed) and snap_mask == 0)) continue;
+
+        // PATCH: Allow Active ↔ Uninitialized
+        const active_mask = maskOf(.active);
+        if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
+
+        // PATCH: Allow Active ↔ Untracked
+        const untracked_mask = maskOf(.untracked);
+        if ((snap_mask == active_mask and mask == untracked_mask) or (mask == active_mask and snap_mask == untracked_mask)) continue;
+
+        // PATCH: Allow Untracked ↔ Uninitialized
+        if ((snap_mask == 0 and mask == untracked_mask) or (mask == 0 and snap_mask == untracked_mask)) continue;
+
+        // PATCH: Allow Untracked ↔ Uninitialized
+        if ((snap_mask == 0 and mask == untracked_mask) or (mask == 0 and snap_mask == untracked_mask)) continue;
+
         const name = scope.nameOf(symbols, @intCast(idx)) orelse symbols.lookupName(@intCast(idx)) orelse continue;
         return .{ .name = name, .expected = mask, .actual = snap_mask };
     }
