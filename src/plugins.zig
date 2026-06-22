@@ -368,6 +368,17 @@ const LoadedPlugin = struct {
     }
 };
 
+const ManifestHelpEntry = struct {
+    name: []u8,
+    sap_path: []u8,
+
+    fn deinit(self: *ManifestHelpEntry, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.sap_path);
+        self.* = undefined;
+    }
+};
+
 const FsPermissionOp = enum {
     read,
     write,
@@ -1074,6 +1085,7 @@ fn resolvePatternFromRoot(allocator: std.mem.Allocator, root: []const u8, suffix
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
     plugins: std.ArrayList(LoadedPlugin),
+    manifest_help: std.ArrayList(ManifestHelpEntry),
     diagnostics: std.ArrayList(LoadDiagnostic),
     host_authorization: RuntimeHostAuthorization,
 
@@ -1081,6 +1093,7 @@ pub const Runtime = struct {
         return .{
             .allocator = allocator,
             .plugins = std.ArrayList(LoadedPlugin).init(allocator),
+            .manifest_help = std.ArrayList(ManifestHelpEntry).init(allocator),
             .diagnostics = std.ArrayList(LoadDiagnostic).init(allocator),
             .host_authorization = .{},
         };
@@ -1128,6 +1141,8 @@ pub const Runtime = struct {
     pub fn deinit(self: *Runtime) void {
         for (self.plugins.items) |*plugin| plugin.deinit(self.allocator);
         self.plugins.deinit();
+        for (self.manifest_help.items) |*entry| entry.deinit(self.allocator);
+        self.manifest_help.deinit();
         for (self.diagnostics.items) |*diagnostic| diagnostic.deinit(self.allocator);
         self.diagnostics.deinit();
         self.host_authorization.deinit(self.allocator);
@@ -1174,6 +1189,7 @@ pub const Runtime = struct {
         defer if (resolved_path) |absolute| self.allocator.free(absolute);
 
         if (std.mem.endsWith(u8, load_path, ".so")) {
+            try self.noteManifestHelpForLibrary(load_path);
             if (try self.runtimePolicyDenialForLibrary(load_path)) |reason| {
                 defer self.allocator.free(reason);
                 try self.addDiagnostic(load_path, reason);
@@ -1250,6 +1266,12 @@ pub const Runtime = struct {
     ) !?u8 {
         if (argv.len < 2) return null;
 
+        if (try self.dispatchRecordedManifestHelpIfRequested(argv, stdout)) |code| return code;
+
+        for (self.plugins.items) |*loaded| {
+            if (try self.dispatchManifestHelpIfRequested(argv, loaded, stdout)) |code| return code;
+        }
+
         const c_argv = try dupeZArgs(self.allocator, argv);
         defer freeZArgs(self.allocator, c_argv);
 
@@ -1292,6 +1314,124 @@ pub const Runtime = struct {
         return null;
     }
 
+    fn dispatchRecordedManifestHelpIfRequested(
+        self: *Runtime,
+        argv: []const []const u8,
+        stdout: anytype,
+    ) !?u8 {
+        if (argv.len < 3) return null;
+        if (!pluginHelpTokenPresent(argv[2..])) return null;
+        for (self.manifest_help.items) |entry| {
+            if (!std.mem.eql(u8, entry.name, argv[1])) continue;
+            try self.writeManifestHelpPath(entry.sap_path, stdout, entry.name, null);
+            return 0;
+        }
+        return null;
+    }
+
+    fn dispatchManifestHelpIfRequested(
+        self: *Runtime,
+        argv: []const []const u8,
+        loaded: *LoadedPlugin,
+        stdout: anytype,
+    ) !?u8 {
+        if (argv.len < 3) return null;
+        if (!pluginHelpTokenPresent(argv[2..])) return null;
+        if (!try self.pluginCommandMatches(loaded, argv[1])) return null;
+        try self.writePluginManifestHelp(loaded, stdout);
+        return 0;
+    }
+
+    fn pluginCommandMatches(self: *Runtime, loaded: *LoadedPlugin, command: []const u8) !bool {
+        if (std.mem.eql(u8, std.mem.span(loaded.descriptor.name), command)) return true;
+        const sap_path = try self.pluginSapPath(loaded) orelse return false;
+        defer self.allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) return false;
+
+        const source = readFileAbsoluteAlloc(self.allocator, sap_path, 1 << 20) catch return false;
+        defer self.allocator.free(source);
+        var parsed = std.json.parseFromSlice(std.json.Value, self.allocator, source, .{}) catch return false;
+        defer parsed.deinit();
+        const object = switch (parsed.value) {
+            .object => |obj| obj,
+            else => return false,
+        };
+        const manifest_name = jsonString(object.get("name") orelse return false) catch return false;
+        return std.mem.eql(u8, manifest_name, command);
+    }
+
+    fn writePluginManifestHelp(self: *Runtime, loaded: *LoadedPlugin, stdout: anytype) !void {
+        const sap_path = try self.pluginSapPath(loaded) orelse {
+            try writePluginHelpFallback(loaded, stdout, null, null);
+            return;
+        };
+        defer self.allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) {
+            try writePluginHelpFallback(loaded, stdout, null, null);
+            return;
+        }
+
+        const source = readFileAbsoluteAlloc(self.allocator, sap_path, 1 << 20) catch {
+            try writePluginHelpFallback(loaded, stdout, null, null);
+            return;
+        };
+        defer self.allocator.free(source);
+        try self.writeManifestHelpSource(source, stdout, loaded, null);
+    }
+
+    fn writeManifestHelpPath(
+        self: *Runtime,
+        sap_path: []const u8,
+        stdout: anytype,
+        fallback_name: []const u8,
+        loaded: ?*const LoadedPlugin,
+    ) !void {
+        const source = readFileAbsoluteAlloc(self.allocator, sap_path, 1 << 20) catch {
+            if (loaded) |plugin| try writePluginHelpFallback(plugin, stdout, fallback_name, null) else try writeManifestHelpFallback(stdout, fallback_name, null);
+            return;
+        };
+        defer self.allocator.free(source);
+        try self.writeManifestHelpSource(source, stdout, loaded, fallback_name);
+    }
+
+    fn writeManifestHelpSource(
+        self: *Runtime,
+        source: []const u8,
+        stdout: anytype,
+        loaded: ?*const LoadedPlugin,
+        fallback_name: ?[]const u8,
+    ) !void {
+        var parsed = std.json.parseFromSlice(std.json.Value, self.allocator, source, .{}) catch {
+            if (loaded) |plugin| try writePluginHelpFallback(plugin, stdout, fallback_name, null) else try writeManifestHelpFallback(stdout, fallback_name orelse "plugin", null);
+            return;
+        };
+        defer parsed.deinit();
+        const object = switch (parsed.value) {
+            .object => |obj| obj,
+            else => {
+                if (loaded) |plugin| try writePluginHelpFallback(plugin, stdout, fallback_name, null) else try writeManifestHelpFallback(stdout, fallback_name orelse "plugin", null);
+                return;
+            },
+        };
+
+        const manifest_name = if (object.get("name")) |value| jsonString(value) catch null else fallback_name;
+        const manifest_version = if (object.get("version")) |value| jsonString(value) catch null else null;
+
+        if (object.get("help")) |help_value| {
+            if (try writeManifestHelpValue(stdout, help_value)) return;
+        }
+        if (loaded) |plugin| {
+            try writePluginHelpFallback(plugin, stdout, manifest_name, manifest_version);
+        } else {
+            try writeManifestHelpFallback(stdout, manifest_name orelse fallback_name orelse "plugin", manifest_version);
+        }
+    }
+
+    fn pluginSapPath(self: *Runtime, loaded: *const LoadedPlugin) !?[]u8 {
+        const plugin_dir = std.fs.path.dirname(loaded.path) orelse return null;
+        return try std.fs.path.join(self.allocator, &.{ plugin_dir, "sap.json" });
+    }
+
     fn loadInstalledRoot(self: *Runtime, root_path: []const u8) !void {
         var root = std.fs.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound, error.NotDir => return,
@@ -1309,6 +1449,8 @@ pub const Runtime = struct {
     }
 
     fn loadDirectory(self: *Runtime, dir_path: []const u8) !void {
+        try self.noteManifestHelpForDirectory(dir_path);
+
         if (try self.runtimePolicyDenialForDirectory(dir_path)) |reason| {
             defer self.allocator.free(reason);
             try self.addDiagnostic(dir_path, reason);
@@ -1464,6 +1606,58 @@ pub const Runtime = struct {
         try self.diagnostics.append(.{
             .path = try self.allocator.dupe(u8, path),
             .reason = try self.allocator.dupe(u8, reason),
+        });
+    }
+
+    fn noteManifestHelpForLibrary(self: *Runtime, lib_path: []const u8) !void {
+        const dir_path = std.fs.path.dirname(lib_path) orelse return;
+        try self.noteManifestHelpForDirectory(dir_path);
+    }
+
+    fn noteManifestHelpForDirectory(self: *Runtime, dir_path: []const u8) !void {
+        const sap_path = try std.fs.path.join(self.allocator, &.{ dir_path, "sap.json" });
+        errdefer self.allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) {
+            self.allocator.free(sap_path);
+            return;
+        }
+
+        for (self.manifest_help.items) |entry| {
+            if (std.mem.eql(u8, entry.sap_path, sap_path)) {
+                self.allocator.free(sap_path);
+                return;
+            }
+        }
+
+        const source = readFileAbsoluteAlloc(self.allocator, sap_path, 1 << 20) catch {
+            self.allocator.free(sap_path);
+            return;
+        };
+        defer self.allocator.free(source);
+        var parsed = std.json.parseFromSlice(std.json.Value, self.allocator, source, .{}) catch {
+            self.allocator.free(sap_path);
+            return;
+        };
+        defer parsed.deinit();
+        const object = switch (parsed.value) {
+            .object => |obj| obj,
+            else => {
+                self.allocator.free(sap_path);
+                return;
+            },
+        };
+        const name_text = jsonString(object.get("name") orelse {
+            self.allocator.free(sap_path);
+            return;
+        }) catch {
+            self.allocator.free(sap_path);
+            return;
+        };
+        const name = try self.allocator.dupe(u8, name_text);
+        errdefer self.allocator.free(name);
+        try self.manifest_help.append(.{
+            .name = name,
+            .sap_path = sap_path,
         });
     }
 };
@@ -2395,6 +2589,121 @@ fn jsonString(value: std.json.Value) ![]const u8 {
         .string => |s| s,
         else => error.InvalidSapManifest,
     };
+}
+
+fn pluginHelpTokenPresent(args: []const []const u8) bool {
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--help") or
+            std.mem.eql(u8, arg, "-h") or
+            std.mem.eql(u8, arg, "help")) return true;
+    }
+    return false;
+}
+
+fn writeManifestHelpValue(writer: anytype, value: std.json.Value) !bool {
+    switch (value) {
+        .string => |text| {
+            try writer.writeAll(text);
+            if (text.len == 0 or text[text.len - 1] != '\n') try writer.writeByte('\n');
+            return true;
+        },
+        .object => |object| {
+            if (object.get("text")) |text_value| {
+                const text = jsonString(text_value) catch return false;
+                try writer.writeAll(text);
+                if (text.len == 0 or text[text.len - 1] != '\n') try writer.writeByte('\n');
+                return true;
+            }
+
+            var wrote_any = false;
+            if (object.get("usage")) |usage_value| {
+                const usage = jsonString(usage_value) catch return false;
+                try writer.print("usage: {s}\n", .{usage});
+                wrote_any = true;
+            }
+            if (object.get("summary")) |summary_value| {
+                const summary = jsonString(summary_value) catch return false;
+                if (wrote_any) try writer.writeByte('\n');
+                try writer.print("{s}\n", .{summary});
+                wrote_any = true;
+            }
+            if (object.get("commands")) |commands_value| {
+                const commands = switch (commands_value) {
+                    .array => |arr| arr,
+                    else => return false,
+                };
+                if (wrote_any) try writer.writeByte('\n');
+                try writer.writeAll("Commands:\n");
+                for (commands.items) |item| {
+                    const command = switch (item) {
+                        .object => |command_object| command_object,
+                        else => return false,
+                    };
+                    const label = if (command.get("usage")) |usage_value|
+                        jsonString(usage_value) catch return false
+                    else if (command.get("name")) |name_value|
+                        jsonString(name_value) catch return false
+                    else
+                        return false;
+                    if (command.get("description")) |description_value| {
+                        const description = jsonString(description_value) catch return false;
+                        try writer.print("  {s}\n      {s}\n", .{ label, description });
+                    } else {
+                        try writer.print("  {s}\n", .{label});
+                    }
+                }
+                wrote_any = true;
+            }
+            if (object.get("options")) |options_value| {
+                const options = switch (options_value) {
+                    .array => |arr| arr,
+                    else => return false,
+                };
+                if (wrote_any) try writer.writeByte('\n');
+                try writer.writeAll("Options:\n");
+                for (options.items) |item| {
+                    const option = switch (item) {
+                        .object => |option_object| option_object,
+                        else => return false,
+                    };
+                    const flags = jsonString(option.get("flags") orelse return false) catch return false;
+                    if (option.get("description")) |description_value| {
+                        const description = jsonString(description_value) catch return false;
+                        try writer.print("  {s}\n      {s}\n", .{ flags, description });
+                    } else {
+                        try writer.print("  {s}\n", .{flags});
+                    }
+                }
+                wrote_any = true;
+            }
+            return wrote_any;
+        },
+        else => return false,
+    }
+}
+
+fn writePluginHelpFallback(loaded: *const LoadedPlugin, writer: anytype, manifest_name: ?[]const u8, manifest_version: ?[]const u8) !void {
+    const plugin_name = manifest_name orelse std.mem.span(loaded.descriptor.name);
+    try writeManifestHelpFallback(writer, plugin_name, manifest_version);
+
+    const skills = loaded.descriptor.skills_ptr[0..loaded.descriptor.skills_len];
+    if (skills.len == 0) return;
+    try writer.writeAll("\nSkills:\n");
+    for (skills) |section| {
+        try writer.print("  {s}", .{section.name});
+        const summary = section.summary;
+        if (summary.len != 0) try writer.print(" - {s}", .{summary});
+        try writer.writeByte('\n');
+    }
+}
+
+fn writeManifestHelpFallback(writer: anytype, plugin_name: []const u8, manifest_version: ?[]const u8) !void {
+    try writer.print("usage: sa {s} [--help]\n\n", .{plugin_name});
+    if (manifest_version) |version| {
+        try writer.print("{s} {s}\n", .{ plugin_name, version });
+    } else {
+        try writer.print("{s}\n", .{plugin_name});
+    }
 }
 
 fn parseAbiPlugin(maybe_value: ?std.json.Value) !u32 {

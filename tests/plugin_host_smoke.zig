@@ -292,6 +292,23 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     defer std.testing.allocator.free(build_plugin.stderr);
     try expectSuccess(build_plugin);
 
+    try writeSource(tmp.dir, "sap.json",
+        \\{
+        \\  "schema": "sa.plugin/1",
+        \\  "name": "host-smoke",
+        \\  "version": "0.1.0",
+        \\  "artifacts": {
+        \\    "linux-x86_64": { "path": "libhost_smoke.so" }
+        \\  },
+        \\  "interfaces": {},
+        \\  "skills": [],
+        \\  "help": "usage: sa host-smoke <command> [options]\n\nCommands:\n  help-check    Show manifest-defined help\n",
+        \\  "permissions": {"fs": [], "net": [], "env": [], "process": {"spawn": false, "exec": []}},
+        \\  "dependencies": {}
+        \\}
+        \\
+    );
+
     var runtime = try saasm.plugins.Runtime.initFromPathList(std.testing.allocator, ".");
     defer runtime.deinit();
 
@@ -313,6 +330,20 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
+
+    const help_code = try runtime.dispatchCommand(
+        &.{ "sa", "host-smoke", "--help" },
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+        false,
+    );
+    try std.testing.expectEqual(@as(?u8, 0), help_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "usage: sa host-smoke <command> [options]"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "help-check"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
     const code = try runtime.dispatchCommand(
         &.{ "sa", "hello-plugin" },
         stdout_buffer.writer(),
@@ -339,6 +370,20 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     defer cli_stdout.deinit();
     var cli_stderr = std.ArrayList(u8).init(std.testing.allocator);
     defer cli_stderr.deinit();
+
+    const cli_help_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        &.{ "sa", "host-smoke", "--help" },
+        cli_stdout.writer(),
+        cli_stderr.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), cli_help_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, cli_stdout.items, 1, "usage: sa host-smoke <command> [options]"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, cli_stdout.items, 1, "help-check"));
+    try std.testing.expectEqual(@as(usize, 0), cli_stderr.items.len);
+
+    cli_stdout.clearRetainingCapacity();
+    cli_stderr.clearRetainingCapacity();
     const cli_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "hello-plugin" },
