@@ -4624,7 +4624,8 @@ fn hashResolvedSourceTreeUncached(
     resolved_source: ?[]const u8,
 ) !void {
     const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
-    errdefer allocator.free(real_source_path);
+    var owned_by_files = false;
+    errdefer if (!owned_by_files) allocator.free(real_source_path);
     if (visited.contains(real_source_path)) {
         allocator.free(real_source_path);
         return;
@@ -4637,6 +4638,7 @@ fn hashResolvedSourceTreeUncached(
 
     const stat = try std.fs.cwd().statFile(real_source_path);
     try files.append(.{ .path = real_source_path, .mtime = stat.mtime, .size = stat.size });
+    owned_by_files = true;
 
     cacheBytes(hasher, real_source_path);
     const owned_source = if (resolved_source == null) try loadSource(allocator, source_path) else null;
@@ -6873,6 +6875,39 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     third_hasher.final(&third_digest);
     try std.testing.expect(test_source_tree_load_count > 1);
     try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
+}
+
+test "source tree hash missing import returns PackageNotResolved without ownership errors" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("sa_std/core");
+    {
+        var file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "missing.sa"
+            \\@main() -> i32:
+            \\return 0
+            \\
+        );
+    }
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try std.testing.expectError(
+        error.PackageNotResolved,
+        hashResolvedSourceTree(std.testing.allocator, &hasher, &.{}, &.{}, project_root, std_root, false, "main.sa"),
+    );
 }
 
 test "source tree hash cache LRU is opt-in" {

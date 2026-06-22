@@ -899,11 +899,15 @@ fn cloneOwnedSourceLines(
     errdefer deinitOwnedSourceLineItems(allocator, owned[0..copied]);
 
     for (lines, 0..) |line, idx| {
+        const owned_text = try allocator.dupe(u8, line.text);
+        errdefer allocator.free(owned_text);
+        const owned_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null;
+        errdefer if (owned_identity) |identity| allocator.free(identity);
         owned[idx] = .{
             .line_no = line.line_no,
-            .text = try allocator.dupe(u8, line.text),
+            .text = owned_text,
             .classified = line.classified,
-            .package_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null,
+            .package_identity = owned_identity,
             .package_source_sha256 = line.package_source_sha256,
         };
         copied += 1;
@@ -912,14 +916,13 @@ fn cloneOwnedSourceLines(
     return owned;
 }
 
-fn macroDefBodyLines(def: *const MacroDef, lines: []const SourceLine) []const SourceLine {
-    if (def.owned_body_lines.len != 0) return def.owned_body_lines;
-    return lines[def.body_start..def.body_end];
+fn macroDefBodyLines(def: *const MacroDef) ![]const SourceLine {
+    if (def.owned_body_lines.len == 0) return error.InvalidMacroInvocation;
+    return def.owned_body_lines;
 }
 
 fn captureCachedMacroDefs(
     allocator: std.mem.Allocator,
-    lines: []const SourceLine,
     macros: *const std.StringHashMap(MacroDef),
 ) ![]CachedMacroDef {
     const defs = try allocator.alloc(CachedMacroDef, macros.count());
@@ -930,7 +933,7 @@ fn captureCachedMacroDefs(
     var it = macros.iterator();
     while (it.next()) |entry| {
         const def = entry.value_ptr.*;
-        const body_lines = macroDefBodyLines(&def, lines);
+        const body_lines = try macroDefBodyLines(&def);
         var cached = CachedMacroDef{
             .name = try allocator.dupe(u8, entry.key_ptr.*),
             .params = &.{},
@@ -990,7 +993,9 @@ fn restoreCachedMacroDefs(
     macros: *std.StringHashMap(MacroDef),
 ) !void {
     for (defs) |cached| {
-        if (macros.contains(cached.name)) return error.DuplicateDef;
+        if (macros.contains(cached.name)) {
+            continue;
+        }
 
         const owned_body_lines = try allocator.alloc(SourceLine, cached.body_lines.len);
         errdefer allocator.free(owned_body_lines);
@@ -2178,7 +2183,11 @@ fn collectMacroDefinitions(
                 const name = line.classified.parts[0];
                 const parsed_params = try parseMacroParams(allocator, line.classified.parts[1]);
                 errdefer allocator.free(parsed_params.params);
-                if (macros.contains(name)) return error.DuplicateDef;
+                if (macros.contains(name)) {
+                    allocator.free(parsed_params.params);
+                    idx = end;
+                    continue;
+                }
                 const owned_body_lines = try cloneOwnedSourceLines(allocator, lines[idx + 1 .. end]);
                 errdefer deinitOwnedSourceLines(allocator, owned_body_lines);
                 try macros.put(name, .{
@@ -3313,7 +3322,7 @@ fn emitRange(
                     );
                 } else {
                     const def = macros.get(macro_name) orelse return error.InvalidMacroInvocation;
-                    const body_lines = macroDefBodyLines(&def, lines);
+                    const body_lines = try macroDefBodyLines(&def);
                     const args = try parseTokenList(allocator, rendered_classified.parts[1]);
                     defer allocator.free(args);
                     if (def.variadic_param) |variadic_param| {
@@ -4780,7 +4789,7 @@ fn flattenInternal(
     defer allocator.free(lines);
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
-    const cached_macro_defs = try captureCachedMacroDefs(allocator, lines, &macros);
+    const cached_macro_defs = try captureCachedMacroDefs(allocator, &macros);
     errdefer deinitCachedMacroDefs(allocator, cached_macro_defs);
     const empty_replacements = [_]Replacement{};
     var expansion_counter: u64 = 0;
@@ -5718,35 +5727,27 @@ test "frontend cache append fragment restores imported macro defs for later expa
 test "cached macro helper path survives allocation failure injection" {
     const Ctx = struct {
         fn run(allocator: std.mem.Allocator) !void {
-            const macro_name = "MAKE_TMP";
-            const macro_params = [_][]const u8{"%out"};
             const package_identity = "pkg:macro-cache-test";
-            const body_lines = [_]SourceLine{
-                .{
-                    .line_no = 2,
-                    .text = "    _tmp = add 0, 7",
-                    .classified = classifier.classifyLine("    _tmp = add 0, 7"),
-                    .package_identity = package_identity,
-                    .package_source_sha256 = null,
-                },
-                .{
-                    .line_no = 3,
-                    .text = "    %out = add _tmp, 0",
-                    .classified = classifier.classifyLine("    %out = add _tmp, 0"),
-                    .package_identity = package_identity,
-                    .package_source_sha256 = null,
-                },
+            const source =
+                \\[MACRO] MAKE_TMP %out
+                \\    _tmp = add 0, 7
+                \\    %out = add _tmp, 0
+                \\[END_MACRO]
+            ;
+            const identities = [_]?[]const u8{
+                package_identity,
+                package_identity,
+                package_identity,
+                package_identity,
             };
+            const lines = try scanSource(allocator, source, identities[0..], &.{});
+            defer allocator.free(lines);
 
             var source_macros = std.StringHashMap(MacroDef).init(allocator);
-            defer source_macros.deinit();
-            try source_macros.put(macro_name, .{
-                .params = macro_params[0..],
-                .body_start = 0,
-                .body_end = body_lines.len,
-            });
+            defer deinitMacroMap(allocator, &source_macros);
+            try collectMacroDefinitions(allocator, lines, &source_macros, null);
 
-            const cached_defs = try captureCachedMacroDefs(allocator, body_lines[0..], &source_macros);
+            const cached_defs = try captureCachedMacroDefs(allocator, &source_macros);
             defer deinitCachedMacroDefs(allocator, cached_defs);
 
             var target_macros = std.StringHashMap(MacroDef).init(allocator);
@@ -5762,6 +5763,17 @@ test "cached macro helper path survives allocation failure injection" {
     };
 
     try std.testing.checkAllAllocationFailures(std.testing.allocator, Ctx.run, .{});
+}
+
+test "macroDefBodyLines rejects missing owned macro body" {
+    const macro_params = [_][]const u8{"%out"};
+    const def = MacroDef{
+        .params = macro_params[0..],
+        .body_start = 1,
+        .body_end = 3,
+    };
+
+    try std.testing.expectError(error.InvalidMacroInvocation, macroDefBodyLines(&def));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {
