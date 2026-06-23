@@ -292,6 +292,23 @@ pub fn build(b: *std.Build) void {
     const cli_skills_smoke_step = b.step("cli-skills-smoke", "Run the sa skills focused CLI smoke tests");
     cli_skills_smoke_step.dependOn(&run_cli_skills_smoke.step);
 
+    const workspace_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    workspace_smoke_module.addImport("saasm", lib_module);
+    workspace_smoke_module.addOptions("build_options", build_options);
+    const workspace_smoke = b.addTest(.{
+        .root_module = workspace_smoke_module,
+        .filters = &.{"workspace install aggregates member manifests at root and pkg install falls back to builtin workspace flow"},
+    });
+    const run_workspace_smoke = b.addRunArtifact(workspace_smoke);
+    run_workspace_smoke.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_workspace_smoke.step);
+    const workspace_smoke_step = b.step("workspace-smoke", "Run workspace package-management smoke tests");
+    workspace_smoke_step.dependOn(&run_workspace_smoke.step);
+
     const pthread_vtable_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,

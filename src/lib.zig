@@ -34,6 +34,7 @@ pub const pkg = struct {
     pub const mirror = @import("pkg/mirror.zig");
     pub const resolver = @import("pkg/resolver.zig");
     pub const sum = @import("pkg/sum.zig");
+    pub const workspace = @import("pkg/workspace.zig");
 };
 pub const libsa_scope = @import("libsa_scope.zig");
 pub const runtime = struct {

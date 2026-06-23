@@ -4239,6 +4239,125 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     try tmp.dir.access("app/sa.sum", .{ .mode = .read_only });
 }
 
+test "workspace install aggregates member manifests at root and pkg install falls back to builtin workspace flow" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("members/app/src");
+    try tmp.dir.makePath("members/tool/src");
+    try tmp.dir.makePath("deps/example/shared");
+    try tmp.dir.makePath("deps/example/app");
+    try tmp.dir.makePath("deps/example/tool");
+
+    try writeSource(tmp.dir, "members/app/src/main.sa",
+        \\@main() -> i32:
+        \\return 1
+    );
+    try writeSource(tmp.dir, "members/tool/src/main.sa",
+        \\@main() -> i32:
+        \\return 2
+    );
+    try writeSource(tmp.dir, "deps/example/shared/index.sa",
+        \\@shared_value() -> i32:
+        \\return 10
+    );
+    try writeSource(tmp.dir, "deps/example/app/index.sa",
+        \\@app_value() -> i32:
+        \\return 20
+    );
+    try writeSource(tmp.dir, "deps/example/tool/index.sa",
+        \\@tool_value() -> i32:
+        \\return 30
+    );
+
+    const shared_root = try tmp.dir.realpathAlloc(std.testing.allocator, "deps/example/shared");
+    defer std.testing.allocator.free(shared_root);
+    const app_root = try tmp.dir.realpathAlloc(std.testing.allocator, "deps/example/app");
+    defer std.testing.allocator.free(app_root);
+    const tool_root = try tmp.dir.realpathAlloc(std.testing.allocator, "deps/example/tool");
+    defer std.testing.allocator.free(tool_root);
+
+    var shared_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/shared", "HEAD", shared_root, &.{});
+    defer shared_report.deinit(std.testing.allocator);
+    var app_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/app", "HEAD", app_root, &.{});
+    defer app_report.deinit(std.testing.allocator);
+    var tool_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/tool", "HEAD", tool_root, &.{});
+    defer tool_report.deinit(std.testing.allocator);
+
+    const shared_hash = std.fmt.bytesToHex(shared_report.source_sha256, .lower);
+    const app_hash = std.fmt.bytesToHex(app_report.source_sha256, .lower);
+    const tool_hash = std.fmt.bytesToHex(tool_report.source_sha256, .lower);
+
+    const root_manifest_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\workspace {{
+        \\  members ["members/app", "members/tool"]
+        \\  default_member "app"
+        \\}}
+        \\
+        \\require deps/example/shared @HEAD sha256:{s}
+    , .{shared_hash[0..]});
+    defer std.testing.allocator.free(root_manifest_source);
+    try writeSource(tmp.dir, "sa.mod", root_manifest_source);
+
+    const app_manifest_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\package "app"
+        \\
+        \\require deps/example/shared @HEAD sha256:{s}
+        \\require deps/example/app @HEAD sha256:{s}
+    , .{ shared_hash[0..], app_hash[0..] });
+    defer std.testing.allocator.free(app_manifest_source);
+    try writeSource(tmp.dir, "members/app/sa.mod", app_manifest_source);
+
+    const tool_manifest_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\package "tool"
+        \\
+        \\require deps/example/shared @HEAD sha256:{s}
+        \\require deps/example/tool @HEAD sha256:{s}
+    , .{ shared_hash[0..], tool_hash[0..] });
+    defer std.testing.allocator.free(tool_manifest_source);
+    try writeSource(tmp.dir, "members/tool/sa.mod", tool_manifest_source);
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const install_argv = [_][]const u8{ "sa", "install" };
+    const install_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        install_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), install_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/shared"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/app"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/tool"));
+    try tmp.dir.access("sa_vendor/deps/example/shared/index.sa", .{ .mode = .read_only });
+    try tmp.dir.access("sa_vendor/deps/example/app/index.sa", .{ .mode = .read_only });
+    try tmp.dir.access("sa_vendor/deps/example/tool/index.sa", .{ .mode = .read_only });
+    try tmp.dir.access("sa.sum", .{ .mode = .read_only });
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const pkg_install_argv = [_][]const u8{ "sa", "pkg", "install", "-p", "tool" };
+    const pkg_install_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        pkg_install_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 0), pkg_install_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/tool"));
+}
+
 test "package preflight rejects tampered project sum as structured trap" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

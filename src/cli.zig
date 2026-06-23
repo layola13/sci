@@ -19,6 +19,7 @@ const pkg_fetch = @import("pkg/fetch.zig");
 const pkg_mirror = @import("pkg/mirror.zig");
 const pkg_resolver = @import("pkg/resolver.zig");
 const pkg_sum = @import("pkg/sum.zig");
+const pkg_workspace = @import("pkg/workspace.zig");
 const referee_call = @import("referee/call.zig");
 const referee = @import("referee.zig");
 const test_formatter = @import("test_formatter.zig");
@@ -567,6 +568,7 @@ const CompileOptions = struct {
     allow_read_requested: bool = false,
     allow_write_requested: bool = false,
     allow_run_requested: bool = false,
+    package_name: ?[]const u8 = null,
     project_root: ?[]const u8 = null,
     profile: bool = false,
     mem_report: bool = false,
@@ -843,17 +845,25 @@ const ProjectBuildArtifact = struct {
 
 const ProjectContext = struct {
     root_path: []const u8,
-    manifest_path: []const u8,
+    member_root_path: []const u8,
+    workspace_manifest_path: []const u8,
+    member_manifest_path: []const u8,
     manifest: ?manifest.Manifest,
+    workspace_manifest: ?manifest.Manifest,
+    member_manifest: ?manifest.Manifest,
     lock_file: ?manifest.LockFile,
     sum_file: ?manifest.SumFile,
 
     fn deinit(self: *ProjectContext, allocator: std.mem.Allocator) void {
         if (self.manifest) |*m| m.deinit(allocator);
+        if (self.workspace_manifest) |*m| m.deinit(allocator);
+        if (self.member_manifest) |*m| m.deinit(allocator);
         if (self.lock_file) |*lock| lock.deinit(allocator);
         if (self.sum_file) |*sum| sum.deinit(allocator);
         allocator.free(self.root_path);
-        allocator.free(self.manifest_path);
+        allocator.free(self.member_root_path);
+        allocator.free(self.workspace_manifest_path);
+        allocator.free(self.member_manifest_path);
         self.* = undefined;
     }
 };
@@ -923,14 +933,10 @@ fn projectSumPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
     return try pathJoinAlloc(allocator, &.{ root_path, "sa.sum" });
 }
 
-fn projectSourcePath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
-    const src_path = try pathJoinAlloc(allocator, &.{ root_path, "src", "main.sa" });
-    if (projectPathExists(src_path)) return src_path;
-    allocator.free(src_path);
-    const fallback = try pathJoinAlloc(allocator, &.{ root_path, "main.sa" });
-    if (projectPathExists(fallback)) return fallback;
-    allocator.free(fallback);
-    return error.FileNotFound;
+fn projectSourcePath(allocator: std.mem.Allocator, root_path: []const u8, package_name: ?[]const u8) ![]u8 {
+    var resolved = try pkg_workspace.resolveFromRootPath(allocator, root_path, .{ .request = package_name });
+    defer resolved.deinit(allocator);
+    return try pkg_workspace.selectedSourcePath(allocator, &resolved);
 }
 
 fn readManifestFile(allocator: std.mem.Allocator, path: []const u8) !manifest.Manifest {
@@ -961,33 +967,31 @@ fn readSumFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.SumFil
     return try manifest.parseSum(allocator, bytes);
 }
 
-fn loadProjectContext(allocator: std.mem.Allocator, root_path: []const u8) !ProjectContext {
-    const root_copy = try allocator.dupe(u8, root_path);
-    errdefer allocator.free(root_copy);
-    const manifest_path = try projectManifestPath(allocator, root_copy);
-    errdefer allocator.free(manifest_path);
+fn loadProjectContext(allocator: std.mem.Allocator, root_path: []const u8, package_name: ?[]const u8) !ProjectContext {
+    const resolution = try pkg_workspace.resolveFromRootPath(allocator, root_path, .{ .request = package_name });
 
     var ctx = ProjectContext{
-        .root_path = root_copy,
-        .manifest_path = manifest_path,
-        .manifest = null,
+        .root_path = resolution.workspace_root,
+        .member_root_path = resolution.member_root,
+        .workspace_manifest_path = resolution.workspace_manifest_path,
+        .member_manifest_path = resolution.member_manifest_path,
+        .manifest = resolution.effective_manifest,
+        .workspace_manifest = resolution.workspace_manifest,
+        .member_manifest = resolution.member_manifest,
         .lock_file = null,
         .sum_file = null,
     };
+    errdefer ctx.deinit(allocator);
+    if (resolution.selected_package) |name| allocator.free(name);
+    if (resolution.workspace_rel_member_path) |path| allocator.free(path);
 
-    const manifest_file = readManifestFile(allocator, manifest_path) catch |err| switch (err) {
-        error.FileNotFound => null,
-        else => return err,
-    };
-    ctx.manifest = manifest_file;
-
-    const lock_path = try projectLockPath(allocator, root_copy);
+    const lock_path = try projectLockPath(allocator, ctx.root_path);
     defer allocator.free(lock_path);
     if (try readLockFile(allocator, lock_path)) |lock_file| {
         ctx.lock_file = lock_file;
     }
 
-    const sum_path = try projectSumPath(allocator, root_copy);
+    const sum_path = try projectSumPath(allocator, ctx.root_path);
     defer allocator.free(sum_path);
     if (try readSumFile(allocator, sum_path)) |sum_file| {
         ctx.sum_file = sum_file;
@@ -1162,6 +1166,7 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --ci                           Use CI package preflight behavior\n");
     try writer.writeAll("  --allow-unaudited-risks        Allow high-risk package audit findings\n");
     try writer.writeAll("  --yes, --auto-approve          Approve package review prompts when allowed\n");
+    try writer.writeAll("  -p, --package <name>           Select a workspace member package\n");
     try writer.writeAll("  -P, --permission-set <name>    Select a named permission set\n");
     try writer.writeAll("  --allow-env[=list]             Allow environment access for reviewed packages\n");
     try writer.writeAll("  --allow-net[=list]             Allow network access for reviewed packages\n");
@@ -1188,6 +1193,7 @@ fn printPkgHelp(writer: anytype, args: []const []const u8) !void {
         try writer.writeAll("Options:\n");
         try writer.writeAll("  --offline                      Use local package cache only\n");
         try writer.writeAll("  -g                             Install into the global package cache\n");
+        try writer.writeAll("  -p, --package <name>           Install one workspace member package\n");
         try writer.writeAll("  --ref <ref>                    Fetch a specific package ref\n");
         try writer.writeAll("  -h, --help                     Show this help message\n");
         return;
@@ -1285,6 +1291,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --offline                      Use local package cache only\n");
             try writer.writeAll("  -g                             Install into the global package cache\n");
+            try writer.writeAll("  -p, --package <name>           Install one workspace member package\n");
             try writer.writeAll("  --ref <ref>                    Fetch a specific package ref\n");
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -3695,6 +3702,7 @@ fn compileOptionsHaveAllowList(options: CompileOptions) bool {
 fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
     if (try consumeJobsOption(arg, args, index, options)) return true;
     if (try consumeDceOption(arg, args, index, options)) return true;
+    if (try consumePackageOption(arg, args, index, options)) return true;
     if (consumeProfileOption(arg, options)) return true;
     if (consumeMemReportOption(arg, options)) return true;
     if (try consumePermissionSetOption(arg, args, index, options)) return true;
@@ -3717,6 +3725,27 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--yes") or std.mem.eql(u8, arg, "--auto-approve")) {
         options.auto_approve_requested = true;
+        return true;
+    }
+    return false;
+}
+
+fn consumePackageOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
+    if (std.mem.startsWith(u8, arg, "--package=")) {
+        options.package_name = arg["--package=".len..];
+        if (options.package_name.?.len == 0) return error.UnknownPackage;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--package") or std.mem.eql(u8, arg, "-p")) {
+        if (index.* + 1 >= args.len) return error.UnknownPackage;
+        options.package_name = args[index.* + 1];
+        if (options.package_name.?.len == 0) return error.UnknownPackage;
+        index.* += 1;
+        return true;
+    }
+    if (std.mem.startsWith(u8, arg, "-p=")) {
+        options.package_name = arg["-p=".len..];
+        if (options.package_name.?.len == 0) return error.UnknownPackage;
         return true;
     }
     return false;
@@ -3850,41 +3879,17 @@ fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 
 var test_source_tree_load_count: usize = 0;
 
+fn resolveProjectFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8, package_name: ?[]const u8) !pkg_workspace.PackageResolution {
+    const real_source = try std.fs.cwd().realpathAlloc(allocator, source_path);
+    defer allocator.free(real_source);
+    const source_dir = std.fs.path.dirname(real_source) orelse ".";
+    return try pkg_workspace.resolveFromRootPath(allocator, source_dir, .{ .request = package_name });
+}
+
 fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
-    errdefer allocator.free(cwd_abs);
-
-    const source_dir = std.fs.path.dirname(source_path) orelse ".";
-    var current = try allocator.dupe(u8, source_dir);
-    defer allocator.free(current);
-
-    while (true) {
-        const candidate_dir = if (std.fs.path.isAbsolute(current))
-            try allocator.dupe(u8, current)
-        else
-            try std.fs.path.join(allocator, &.{ cwd_abs, current });
-        defer allocator.free(candidate_dir);
-
-        const manifest_path = try std.fs.path.join(allocator, &.{ candidate_dir, "sa.mod" });
-        defer allocator.free(manifest_path);
-
-        if (std.fs.cwd().openFile(manifest_path, .{})) |file| {
-            file.close();
-            allocator.free(cwd_abs);
-            return try std.fs.cwd().realpathAlloc(allocator, candidate_dir);
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => return err,
-        }
-
-        const parent = std.fs.path.dirname(current) orelse break;
-        if (std.mem.eql(u8, parent, current)) break;
-        const next = try allocator.dupe(u8, parent);
-        allocator.free(current);
-        current = next;
-    }
-
-    return cwd_abs;
+    var resolved = try resolveProjectFromSourcePath(allocator, source_path, null);
+    defer resolved.deinit(allocator);
+    return try allocator.dupe(u8, resolved.workspace_root);
 }
 
 fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
@@ -3956,32 +3961,9 @@ fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !
 }
 
 fn projectRootFromCurrentDir(allocator: std.mem.Allocator) ![]u8 {
-    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
-    errdefer allocator.free(cwd_abs);
-
-    var current = try allocator.dupe(u8, cwd_abs);
-    defer allocator.free(current);
-    while (true) {
-        const manifest_path = try std.fs.path.join(allocator, &.{ current, "sa.mod" });
-        defer allocator.free(manifest_path);
-
-        if (std.fs.cwd().openFile(manifest_path, .{})) |file| {
-            file.close();
-            allocator.free(cwd_abs);
-            return try allocator.dupe(u8, current);
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => return err,
-        }
-
-        const parent = std.fs.path.dirname(current) orelse break;
-        if (std.mem.eql(u8, parent, current)) break;
-        const next = try allocator.dupe(u8, parent);
-        allocator.free(current);
-        current = next;
-    }
-
-    return cwd_abs;
+    var resolved = try pkg_workspace.resolveFromCurrentDir(allocator, .{});
+    defer resolved.deinit(allocator);
+    return try allocator.dupe(u8, resolved.workspace_root);
 }
 
 fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), value_text: []const u8) !void {
@@ -4206,21 +4188,25 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     }
 
     const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
-    const project_root_owned = options.project_root == null;
-    const project_root = options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-    defer if (project_root_owned) allocator.free(project_root);
+    var resolution = if (options.project_root) |project_root|
+        try pkg_workspace.resolveFromRootPath(allocator, project_root, .{ .request = options.package_name })
+    else
+        try resolveProjectFromSourcePath(allocator, source_path, options.package_name);
+    defer resolution.deinit(allocator);
+
+    const project_root = resolution.workspace_root;
+    const member_root = resolution.member_root;
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
 
-    var project_manifest = try readProjectManifest(allocator, project_root);
-    defer if (project_manifest) |*m| m.deinit(allocator);
+    const project_manifest = resolution.effective_manifest;
 
     var dependency_slice: []pkg_resolver.Dependency = &.{};
     defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
 
     var plugin_import_roots: []const []const u8 = &.{};
     defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
-    const stable_import_roots = try defaultStableImportRoots(allocator, project_root);
+    const stable_import_roots = try defaultStableImportRoots(allocator, member_root);
     defer freeOwnedStringSlice(allocator, stable_import_roots);
 
     if (project_manifest) |*m| {
@@ -4740,11 +4726,19 @@ fn computeProjectBuildKey(
 
     const project_manifest = project_context.manifest;
     if (project_manifest) |*m| {
-        cacheBytes(&hasher, project_context.manifest_path);
-        if (projectPathExists(project_context.manifest_path)) {
-            const manifest_bytes = try readTextFileAlloc(allocator, project_context.manifest_path);
-            defer allocator.free(manifest_bytes);
-            cacheBytes(&hasher, manifest_bytes);
+        cacheBytes(&hasher, project_context.workspace_manifest_path);
+        if (projectPathExists(project_context.workspace_manifest_path)) {
+            const workspace_manifest_bytes = try readTextFileAlloc(allocator, project_context.workspace_manifest_path);
+            defer allocator.free(workspace_manifest_bytes);
+            cacheBytes(&hasher, workspace_manifest_bytes);
+        }
+        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
+            cacheBytes(&hasher, project_context.member_manifest_path);
+            if (projectPathExists(project_context.member_manifest_path)) {
+                const member_manifest_bytes = try readTextFileAlloc(allocator, project_context.member_manifest_path);
+                defer allocator.free(member_manifest_bytes);
+                cacheBytes(&hasher, member_manifest_bytes);
+            }
         }
         if (project_context.lock_file != null) {
             const lock_path = try projectLockPath(allocator, project_context.root_path);
@@ -4771,7 +4765,10 @@ fn computeProjectBuildKey(
             try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
         }
     } else {
-        try projectFileMaybeHash(&hasher, allocator, project_context.manifest_path);
+        try projectFileMaybeHash(&hasher, allocator, project_context.workspace_manifest_path);
+        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
+            try projectFileMaybeHash(&hasher, allocator, project_context.member_manifest_path);
+        }
         if (hash_source_tree) {
             try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
         }
@@ -5491,7 +5488,29 @@ const InstallArgs = struct {
     options: pkg_fetch.FetchOptions = .{},
     identity: ?[]const u8 = null,
     ref: []const u8 = "HEAD",
+    package_name: ?[]const u8 = null,
 };
+
+fn fetchManifestRequires(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest, fetch_options: pkg_fetch.FetchOptions, stdout: anytype) !void {
+    for (manifest_file.requires) |entry| {
+        var entry_fetch_options = fetch_options;
+        entry_fetch_options.expected_source_sha256 = entry.source_sha256;
+        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, entry_fetch_options);
+        defer result.deinit(allocator);
+        if (!hashesEqual(result.source_sha256, entry.source_sha256)) return error.UpstreamShaMismatch;
+        try stdout.print("{s}\n", .{result.root});
+    }
+}
+
+fn installManifestPlugins(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest, stdout: anytype) !u8 {
+    for (manifest_file.plugin_requires) |entry| {
+        _ = entry.abi;
+        _ = entry.ref;
+        const code = try plugins.installFromPath(allocator, entry.identity, stdout, .{});
+        if (code != 0) return code;
+    }
+    return 0;
+}
 
 fn parseInstallArgs(args: []const []const u8) !InstallArgs {
     var parsed = InstallArgs{};
@@ -5504,6 +5523,20 @@ fn parseInstallArgs(args: []const []const u8) !InstallArgs {
         }
         if (std.mem.eql(u8, arg, "--offline")) {
             parsed.options.offline = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--package") or std.mem.eql(u8, arg, "-p")) {
+            if (i + 1 >= args.len) return error.UnknownPackage;
+            parsed.package_name = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--package=")) {
+            parsed.package_name = arg["--package=".len..];
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-p=")) {
+            parsed.package_name = arg["-p=".len..];
             continue;
         }
         if (std.mem.eql(u8, arg, "--ref")) {
@@ -5521,15 +5554,65 @@ fn parseInstallArgs(args: []const []const u8) !InstallArgs {
     return parsed;
 }
 
-fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.FetchOptions, stdout: anytype) !u8 {
-    const source = try readManifestTextFileAlloc(allocator, "sa.mod");
-    defer allocator.free(source);
+fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.FetchOptions, package_name: ?[]const u8, stdout: anytype) !u8 {
+    var resolution = try pkg_workspace.resolveFromCurrentDir(allocator, .{ .request = package_name });
+    defer resolution.deinit(allocator);
 
-    var project_manifest = try manifest.parseManifestWithFile(allocator, source, "sa.mod");
-    defer project_manifest.deinit(allocator);
+    const project_root = resolution.workspace_root;
+    const project_manifest = resolution.effective_manifest orelse return 0;
 
-    const project_root = try std.fs.cwd().realpathAlloc(allocator, ".");
-    defer allocator.free(project_root);
+    const current_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(current_dir);
+
+    if (package_name == null and
+        resolution.workspace_manifest != null and
+        resolution.workspace_manifest.?.workspace != null and
+        std.mem.eql(u8, current_dir, resolution.workspace_root))
+    {
+        const members = try pkg_workspace.listWorkspaceMembers(allocator, resolution.workspace_root, &resolution.workspace_manifest.?);
+        defer pkg_workspace.freeWorkspaceMembers(allocator, members);
+
+        var member_manifests = std.ArrayList(manifest.Manifest).init(allocator);
+        defer {
+            for (member_manifests.items) |*member_manifest| member_manifest.deinit(allocator);
+            member_manifests.deinit();
+        }
+
+        var member_manifest_ptrs = std.ArrayList(*const manifest.Manifest).init(allocator);
+        defer member_manifest_ptrs.deinit();
+
+        for (members) |member| {
+            const member_manifest_path = try projectManifestPath(allocator, member.member_root);
+            defer allocator.free(member_manifest_path);
+            const member_manifest = try readManifestFile(allocator, member_manifest_path);
+            try member_manifests.append(member_manifest);
+        }
+
+        for (member_manifests.items) |*member_manifest| {
+            try member_manifest_ptrs.append(member_manifest);
+        }
+
+        var aggregate_manifest = try manifest.mergeWorkspaceMemberSet(
+            allocator,
+            &resolution.workspace_manifest.?,
+            member_manifest_ptrs.items,
+        );
+        defer aggregate_manifest.deinit(allocator);
+
+        var mirror_rules = try pkg_mirror.loadProjectRules(allocator, project_root, aggregate_manifest.mirrors);
+        defer mirror_rules.deinit(allocator);
+
+        var fetch_options = options;
+        fetch_options.mirror_rules = mirror_rules.rules;
+
+        try fetchManifestRequires(allocator, &aggregate_manifest, fetch_options, stdout);
+        const plugin_code = try installManifestPlugins(allocator, &aggregate_manifest, stdout);
+        if (plugin_code != 0) return plugin_code;
+
+        var update = try pkg_sum.updateProjectSum(allocator, project_root, aggregate_manifest);
+        defer update.deinit(allocator);
+        return 0;
+    }
 
     var mirror_rules = try pkg_mirror.loadProjectRules(allocator, project_root, project_manifest.mirrors);
     defer mirror_rules.deinit(allocator);
@@ -5537,21 +5620,9 @@ fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.
     var fetch_options = options;
     fetch_options.mirror_rules = mirror_rules.rules;
 
-    for (project_manifest.requires) |entry| {
-        var entry_fetch_options = fetch_options;
-        entry_fetch_options.expected_source_sha256 = entry.source_sha256;
-        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, entry_fetch_options);
-        defer result.deinit(allocator);
-        if (!hashesEqual(result.source_sha256, entry.source_sha256)) return error.UpstreamShaMismatch;
-        try stdout.print("{s}\n", .{result.root});
-    }
-
-    for (project_manifest.plugin_requires) |entry| {
-        _ = entry.abi;
-        _ = entry.ref;
-        const code = try plugins.installFromPath(allocator, entry.identity, stdout, .{});
-        if (code != 0) return code;
-    }
+    try fetchManifestRequires(allocator, &project_manifest, fetch_options, stdout);
+    const plugin_code = try installManifestPlugins(allocator, &project_manifest, stdout);
+    if (plugin_code != 0) return plugin_code;
 
     var update = try pkg_sum.updateProjectSum(allocator, project_root, project_manifest);
     defer update.deinit(allocator);
@@ -5567,7 +5638,17 @@ fn executeInstall(allocator: std.mem.Allocator, args: []const []const u8, stdout
         try stdout.print("{s}\n", .{result.root});
         return 0;
     }
-    return try installManifestDependencies(allocator, parsed.options, stdout);
+    return try installManifestDependencies(allocator, parsed.options, parsed.package_name, stdout);
+}
+
+fn executePkgCommandFallback(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !?u8 {
+    if (args.len < 3) return null;
+    const sub = args[2];
+    if (std.mem.eql(u8, sub, "install")) {
+        return try executeInstall(allocator, args[3..], stdout);
+    }
+    _ = stderr;
+    return null;
 }
 
 fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
@@ -5672,7 +5753,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
@@ -5895,7 +5976,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
@@ -5954,7 +6035,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce)
@@ -6104,7 +6185,7 @@ fn executeGraph(
 
     const project_root = try projectRootDir(allocator);
     defer allocator.free(project_root);
-    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
+    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root, compile_options.package_name);
     defer if (source_arg == null) allocator.free(source_path);
     configureCompileDiagnostics(&compile_options, json_mode);
 
@@ -6118,11 +6199,14 @@ fn executeGraph(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            const resolved_project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-            defer allocator.free(resolved_project_root);
+            var resolution = if (compile_options.project_root) |root|
+                try pkg_workspace.resolveFromRootPath(allocator, root, .{ .request = compile_options.package_name })
+            else
+                try resolveProjectFromSourcePath(allocator, source_path, compile_options.package_name);
+            defer resolution.deinit(allocator);
 
-            var project_manifest = try readProjectManifest(allocator, resolved_project_root);
-            defer if (project_manifest) |*m| m.deinit(allocator);
+            const resolved_project_root = resolution.workspace_root;
+            const project_manifest = resolution.effective_manifest;
 
             var dependencies: []pkg_resolver.Dependency = &.{};
             defer if (dependencies.len != 0) allocator.free(dependencies);
@@ -6199,7 +6283,7 @@ fn executeSize(
 
     const project_root = try projectRootDir(allocator);
     defer allocator.free(project_root);
-    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
+    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root, compile_options.package_name);
     defer if (source_arg == null) allocator.free(source_path);
     configureCompileDiagnostics(&compile_options, json_mode);
 
@@ -6277,7 +6361,7 @@ fn executeTest(
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce)
@@ -6454,6 +6538,7 @@ pub fn executeWithWritersAndOptions(
             return try executeGraph(allocator, args[2..], stdout, stderr, json_mode, exec_options);
         },
         .pkg => {
+            if (try executePkgCommandFallback(allocator, args, stdout, stderr)) |code| return code;
             var plugin_auth = try buildPluginRuntimeAuthorization(allocator, args);
             defer plugin_auth.deinit(allocator);
             var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
@@ -6470,15 +6555,18 @@ pub fn executeWithWritersAndOptions(
         .install => return try executeInstall(allocator, args[2..], stdout),
         .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
         .build => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -6499,10 +6587,15 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .fetch => {
             if (args.len < 3) return error.MissingSourcePath;
@@ -6535,15 +6628,18 @@ pub fn executeWithWritersAndOptions(
             return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr, if (json_mode) .json else .human);
         },
         .build_exe => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -6564,22 +6660,30 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_obj => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var incremental = false;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -6604,22 +6708,30 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildObj(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_wasm => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
             var debug = false;
             var optimization: driver.Optimization = .release_small;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -6646,10 +6758,15 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildWasm(allocator, final_source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
@@ -6664,9 +6781,8 @@ pub fn executeWithWritersAndOptions(
             return 0;
         },
         .test_cmd => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var include_filters = std.ArrayList([]const u8).init(allocator);
             defer include_filters.deinit();
             var skip_filters = std.ArrayList([]const u8).init(allocator);
@@ -6676,9 +6792,13 @@ pub fn executeWithWritersAndOptions(
             var list_tests = false;
             var compile_only = false;
             var trace_panic = false;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "--list")) {
                     list_tests = true;
                     continue;
@@ -6723,8 +6843,13 @@ pub fn executeWithWritersAndOptions(
                 .exact = exact,
                 .ignored = run_ignored,
             };
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeTest(allocator, source_path, compile_options, .{
+            return try executeTest(allocator, final_source_path, compile_options, .{
                 .selection = selection,
                 .list = list_tests,
                 .compile_only = compile_only,
