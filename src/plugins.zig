@@ -3420,7 +3420,7 @@ fn fileExistsInProject(allocator: std.mem.Allocator, root_dir: []const u8, rel: 
 fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout: anytype) !u8 {
     const result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "zig", "build" },
+        .argv = &.{ "zig", "build", "-Doptimize=ReleaseFast" },
         .cwd = root_dir,
     });
     defer allocator.free(result.stdout);

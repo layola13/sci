@@ -6323,6 +6323,57 @@ test "expanded import cache LRU is opt-in" {
     try std.testing.expectEqualStrings("11", second_a.def_dict.get("EXPANDED_CACHE_VALUE").?);
 }
 
+test "layout import exposes sibling extern declarations from sai" {
+    clearImportSourceCacheForTest();
+    defer clearImportSourceCacheForTest();
+    clearExpandedImportCacheForTest();
+    defer clearExpandedImportCacheForTest();
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    {
+        var sai = try tmp.dir.createFile("db.sai", .{ .truncate = true });
+        defer sai.close();
+        try sai.writeAll("@extern sa_db_tx_insert_rows(handle: ptr, &rows: ptr, rows_len: u64, row_count: u64, &out_info: ptr) -> u32\n");
+    }
+    {
+        var sal = try tmp.dir.createFile("db.sal", .{ .truncate = true });
+        defer sal.close();
+        try sal.writeAll("@import \"db.sai\"\n");
+    }
+    {
+        var main = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+        defer main.close();
+        try main.writeAll(
+            \\@import "db.sal"
+            \\
+            \\@main() -> i32:
+            \\L_ENTRY:
+            \\    rows = stack_alloc 8
+            \\    info = stack_alloc 32
+            \\    handle = stack_alloc 8
+            \\    store handle+0, 0 as ptr
+            \\    status = call @sa_db_tx_insert_rows(handle, &rows, 8, 1, &info)
+            \\    return status
+            \\
+        );
+    }
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root } };
+    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var result = try flattenFileWithPackages(std.testing.allocator, source_path, source, resolve_ctx);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expect(isFunctionSigDeclared(result.function_sigs, "sa_db_tx_insert_rows"));
+}
+
 test "import source cache LRU is opt-in and avoids borrowed hits" {
     clearImportSourceCacheForTest();
     defer clearImportSourceCacheForTest();
