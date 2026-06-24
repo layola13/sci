@@ -1426,6 +1426,7 @@ pub const Runtime = struct {
 
     fn runtimePolicyDenialForDirectory(self: *Runtime, dir_path: []const u8) !?[]u8 {
         if (pluginDevMode(self.allocator) or self.host_authorization.dev_mode) return null;
+        if (self.host_authorization.project_root != null) return null;
 
         const sap_path = try std.fs.path.join(self.allocator, &.{ dir_path, "sap.json" });
         defer self.allocator.free(sap_path);
