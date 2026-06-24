@@ -117,6 +117,19 @@ L_ENTRY:
     !value
     return take
 
+@const VEC_FN_PTR_FALSE_VT = vtable { call = @vec_fn_ptr_false }
+@const VEC_FN_PTR_TRUE_VT = vtable { call = @vec_fn_ptr_true }
+
+@vec_fn_ptr_false(value: u64) -> u64:
+L_ENTRY:
+    !value
+    return 0
+
+@vec_fn_ptr_true(value: u64) -> u64:
+L_ENTRY:
+    !value
+    return 1
+
 @slice_partition_lt_30(value: u64) -> u64:
 L_ENTRY:
     keep = ult value, 30
@@ -1604,5 +1617,42 @@ L_VEC_DRAIN_SPLICE_FAIL:
     panic(917)
 
 L_VEC_DRAIN_SPLICE_OK:
+    !ok
+    return
+
+@test "vec stores vtable function pointer values"():
+L_ENTRY:
+    EXPAND VEC_NEW vec
+    false_fn = &VEC_FN_PTR_FALSE_VT
+    true_fn = &VEC_FN_PTR_TRUE_VT
+    EXPAND VEC_PUSH vec, false_fn, 8
+    EXPAND VEC_PUSH vec, true_fn, 8
+    EXPAND VEC_GET first_fn, vec, 0
+    EXPAND VEC_GET second_fn, vec, 1
+    first_call = load first_fn+0 as ptr
+    second_call = load second_fn+0 as ptr
+    first = call_indirect first_call(11)
+    second = call_indirect second_call(22)
+    first_ok = eq first, 0
+    second_ok = eq second, 1
+    ok = and first_ok, second_ok
+    !first_call
+    !second_call
+    !first
+    !second
+    !first_ok
+    !second_ok
+    !first_fn
+    !second_fn
+    !false_fn
+    !true_fn
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_FN_PTR_OK, L_VEC_FN_PTR_FAIL
+
+L_VEC_FN_PTR_FAIL:
+    !ok
+    panic(918)
+
+L_VEC_FN_PTR_OK:
     !ok
     return
