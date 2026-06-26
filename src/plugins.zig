@@ -1272,7 +1272,12 @@ pub const Runtime = struct {
             if (try self.dispatchManifestHelpIfRequested(argv, loaded, stdout)) |code| return code;
         }
 
-        const c_argv = try dupeZArgs(self.allocator, argv);
+        var plugin_argv = std.ArrayList([]const u8).init(self.allocator);
+        defer plugin_argv.deinit();
+        try plugin_argv.appendSlice(argv);
+        if (json_mode) try plugin_argv.append("--json");
+
+        const c_argv = try dupeZArgs(self.allocator, plugin_argv.items);
         defer freeZArgs(self.allocator, c_argv);
 
         var stdout_value = stdout;
