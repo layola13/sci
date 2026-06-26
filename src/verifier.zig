@@ -82,6 +82,8 @@ pub const VerifyOptions = struct {
     package_grants: []const pkg_manifest.RequireEntry = &.{},
     sax_context: ?SaxValidationContext = null,
     stage_reporter: ?VerifyStageReporter = null,
+    predecoded_symbol_names: []const []const u8 = &.{},
+    predecoded_function_sigs: []const sig.FunctionSig = &.{},
 };
 
 pub const VerifyStageReporter = struct {
@@ -233,12 +235,154 @@ fn readTestConsumedScanCount() usize {
     return if (builtin.is_test) test_consumed_scan_count else 0;
 }
 
-fn classifyInstructions(allocator: std.mem.Allocator, instructions: []const inst.Instruction) ![]classifier.ClassifiedLine {
+fn symbolName(symbol_names: []const []const u8, id: u32) []const u8 {
+    const idx: usize = @intCast(id);
+    if (idx >= symbol_names.len) return "";
+    return symbol_names[idx];
+}
+
+fn operandName(symbol_names: []const []const u8, operand: inst.Operand) []const u8 {
+    return switch (operand) {
+        .reg => |id| symbolName(symbol_names, id),
+        .symbol => |id| symbolName(symbol_names, id),
+        .label => |id| symbolName(symbol_names, id),
+        .func => |id| symbolName(symbol_names, id),
+        .text => |text| text,
+        .native_text => |text| text,
+        else => "",
+    };
+}
+
+fn structuredInstForm(kind: inst.InstKind) ?classifier.InstructionForm {
+    return switch (kind) {
+        .alloc => .alloc,
+        .stack_alloc => .stack_alloc,
+        .load => .load,
+        .store => .store,
+        .atomic_load => .atomic_load,
+        .atomic_store => .atomic_store,
+        .cmpxchg => .cmpxchg,
+        .atomic_rmw => .atomic_rmw,
+        .fence => .fence,
+        .borrow => .borrow,
+        .move_ => .move_,
+        .release => .release,
+        .assign => .assign,
+        .op => .op,
+        .ptr_add => .ptr_add,
+        .jmp => .jmp,
+        .br => .br,
+        .br_null => .br_null,
+        .call => .call,
+        .call_indirect => .call_indirect,
+        .try_ => .try_,
+        .panic => .panic,
+        .panic_msg => .panic_msg,
+        .return_ => .return_,
+        .take => .take,
+        .raw_cast => .raw_cast,
+        .assume_safe => .assume_safe,
+        .assume_borrow => .assume_borrow,
+        else => null,
+    };
+}
+
+fn structuredLineKind(kind: inst.InstKind) classifier.LineKind {
+    return switch (kind) {
+        .func_decl => .func_decl,
+        .ffi_wrapper_decl => .ffi_wrapper_decl,
+        .extern_decl => .extern_decl,
+        .export_decl => .export_decl,
+        .test_decl => .test_decl,
+        .label => .label,
+        .native => .native,
+        else => if (structuredInstForm(kind) != null) .instruction else .unknown,
+    };
+}
+
+fn addStructuredPart(line: *classifier.ClassifiedLine, idx: usize, value: []const u8) void {
+    if (idx >= line.parts.len) return;
+    line.parts[idx] = value;
+    const count: u8 = @intCast(idx + 1);
+    if (line.part_count < count) line.part_count = count;
+}
+
+fn classifyStructuredInstruction(item: inst.Instruction, symbol_names: []const []const u8) classifier.ClassifiedLine {
+    var out = classifier.ClassifiedLine{
+        .kind = structuredLineKind(item.kind),
+        .inst_form = structuredInstForm(item.kind),
+        .raw = item.raw_text,
+        .trimmed = item.raw_text,
+    };
+
+    switch (item.kind) {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+        },
+        .label => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[1]));
+        },
+        .alloc, .stack_alloc, .assign, .atomic_load, .raw_cast, .assume_safe => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+        },
+        .load, .take, .ptr_add => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[2]));
+        },
+        .store, .atomic_store => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[2]));
+        },
+        .cmpxchg, .atomic_rmw => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[2]));
+            addStructuredPart(&out, 3, operandName(symbol_names, item.operands[3]));
+        },
+        .op => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            if (item.op_kind) |op| addStructuredPart(&out, 1, @tagName(op));
+            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[1]));
+            addStructuredPart(&out, 3, operandName(symbol_names, item.operands[2]));
+            addStructuredPart(&out, 4, operandName(symbol_names, item.operands[3]));
+        },
+        .borrow, .assume_borrow => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[2]));
+        },
+        .move_, .release, .return_, .panic, .panic_msg, .call_indirect, .try_ => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+        },
+        .jmp => addStructuredPart(&out, 0, operandName(symbol_names, item.operands[1])),
+        .br, .br_null => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[3]));
+        },
+        .call => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+        },
+        .native => addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0])),
+        else => {},
+    }
+    return out;
+}
+
+fn classifyInstructions(allocator: std.mem.Allocator, instructions: []const inst.Instruction, symbol_names: []const []const u8) ![]classifier.ClassifiedLine {
     const classified_lines = try allocator.alloc(classifier.ClassifiedLine, instructions.len);
     errdefer allocator.free(classified_lines);
     for (instructions, 0..) |item, idx| {
         if (builtin.is_test) test_classify_line_count += 1;
-        classified_lines[idx] = classifier.classifyLine(item.raw_text);
+        classified_lines[idx] = if (item.raw_text.len == 0)
+            classifyStructuredInstruction(item, symbol_names)
+        else
+            classifier.classifyLine(item.raw_text);
     }
     return classified_lines;
 }
@@ -1929,6 +2073,82 @@ fn collectMetadata(
     };
 }
 
+fn clonePredecodedFunctionSig(allocator: std.mem.Allocator, source: sig.FunctionSig) !sig.FunctionSig {
+    const name = try allocator.dupe(u8, source.name);
+    errdefer allocator.free(name);
+
+    const params = try allocator.alloc(sig.ParamSpec, source.params.len);
+    errdefer allocator.free(params);
+    var param_initialized: usize = 0;
+    errdefer for (params[0..param_initialized]) |param| allocator.free(param.name);
+    for (source.params, 0..) |param, idx| {
+        params[idx] = .{
+            .name = try allocator.dupe(u8, param.name),
+            .ty = param.ty,
+            .cap = param.cap,
+        };
+        param_initialized += 1;
+    }
+
+    const param_ids = if (source.param_ids.len == 0) &.{} else try allocator.dupe(u32, source.param_ids);
+    errdefer if (param_ids.len != 0) allocator.free(param_ids);
+    const reg_ids = if (source.reg_ids.len == 0) &.{} else try allocator.dupe(u32, source.reg_ids);
+    errdefer if (reg_ids.len != 0) allocator.free(reg_ids);
+
+    return .{
+        .id = source.id,
+        .name = name,
+        .params = params,
+        .kind = source.kind,
+        .return_cap = source.return_cap,
+        .return_ty = source.return_ty,
+        .return_fallible = source.return_fallible,
+        .entry_inst_idx = source.entry_inst_idx,
+        .is_ffi_wrapper = source.is_ffi_wrapper,
+        .param_ids = param_ids,
+        .reg_ids = reg_ids,
+        .ignored = source.ignored,
+        .should_panic = source.should_panic,
+    };
+}
+
+fn collectPredecodedMetadata(
+    allocator: std.mem.Allocator,
+    symbol_names: []const []const u8,
+    function_sigs: []const sig.FunctionSig,
+    const_decls: []const const_decl.ConstDecl,
+) !CollectResult {
+    var symbols = symbol.SymbolTable.init(allocator);
+    errdefer symbols.deinit();
+    for (symbol_names) |name| _ = try symbols.intern(name);
+
+    var sigs = std.ArrayList(sig.FunctionSig).init(allocator);
+    errdefer freeSigs(allocator, &sigs);
+    var sig_index_by_name = std.StringHashMap(usize).init(allocator);
+    errdefer sig_index_by_name.deinit();
+    var function_starts = std.ArrayList(usize).init(allocator);
+    errdefer function_starts.deinit();
+
+    for (function_sigs) |source| {
+        var cloned = try clonePredecodedFunctionSig(allocator, source);
+        errdefer cloned.deinit(allocator);
+        try sigs.append(cloned);
+        const idx = sigs.items.len - 1;
+        if (!sig_index_by_name.contains(cloned.name)) {
+            try sig_index_by_name.put(cloned.name, idx);
+        }
+        try function_starts.append(cloned.entry_inst_idx);
+    }
+
+    return .{
+        .symbols = symbols,
+        .sigs = sigs,
+        .sig_index_by_name = sig_index_by_name,
+        .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
+        .function_starts = function_starts,
+    };
+}
+
 fn metadataTrapKind(err: anyerror) trap.Trap {
     return switch (err) {
         error.UnsupportedType => .unsupported_type,
@@ -3595,11 +3815,15 @@ pub fn verifyWithOptions(
         } };
     }
 
-    const classified_lines = try classifyInstructions(allocator, instructions);
+    const classified_lines = try classifyInstructions(allocator, instructions, options.predecoded_symbol_names);
     defer allocator.free(classified_lines);
     if (options.stage_reporter) |reporter| reporter.report("after_classify", classified_lines.len, instructions.len);
 
-    var metadata = collectMetadata(allocator, instructions, classified_lines, const_decls) catch |err| {
+    const has_predecoded_metadata = options.predecoded_symbol_names.len != 0 or options.predecoded_function_sigs.len != 0;
+    var metadata = (if (has_predecoded_metadata)
+        collectPredecodedMetadata(allocator, options.predecoded_symbol_names, options.predecoded_function_sigs, const_decls)
+    else
+        collectMetadata(allocator, instructions, classified_lines, const_decls)) catch |err| {
         return .{ .trap = trapReportFromText(
             metadataTrapKind(err),
             1,
@@ -5945,6 +6169,45 @@ test "ffi wrapper allows raw params in branch control flow" {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
             try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "predecoded metadata verifies basic instructions without raw text" {
+    const symbol_names = [_][]const u8{ "main", "value" };
+    const reg_ids = [_]u32{1};
+    const fsig = sig.FunctionSig{
+        .id = 0,
+        .name = "main",
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .i32,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .reg_ids = reg_ids[0..],
+    };
+
+    var decl = inst.makeInstruction(.func_decl, 1, 0, null, "");
+    decl.operands[0] = .{ .symbol = 0 };
+    decl.operands[1] = .{ .func = 0 };
+    var assign = inst.makeInstruction(.assign, 2, 1, null, "");
+    assign.operands[0] = .{ .reg = 1 };
+    assign.operands[1] = .{ .imm_i64 = 7 };
+    var ret = inst.makeInstruction(.return_, 3, 2, null, "");
+    ret.operands[0] = .{ .reg = 1 };
+    const instructions = [_]inst.Instruction{ decl, assign, ret };
+
+    const verified = try verifyWithOptions(std.testing.allocator, instructions[0..], &.{}, .{
+        .predecoded_symbol_names = symbol_names[0..],
+        .predecoded_function_sigs = &.{fsig},
+    });
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
     }

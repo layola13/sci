@@ -10,6 +10,7 @@ const emit_options = @import("emit_options.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
+const sab = @import("sab.zig");
 const plugins = @import("plugins.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_audit = @import("pkg/audit.zig");
@@ -1302,7 +1303,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         .cache => try printCacheHelp(writer, args),
         .build => {
             try writer.writeAll("usage: sa build <file> [options]\n\n");
-            try writer.writeAll("Compile a .sa source file to a native executable.\n\n");
+            try writer.writeAll("Compile a .sa source file or experimental .sab binary to a native executable.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the executable", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1323,14 +1324,14 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .build_obj => {
             try writer.writeAll("usage: sa build-obj <file> [options]\n\n");
-            try writer.writeAll("Build a native object file from a .sa source file.\n\n");
+            try writer.writeAll("Build a native object file from a .sa source file or experimental .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the object file", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_wasm => {
             try writer.writeAll("usage: sa build-wasm <file> [options]\n\n");
-            try writer.writeAll("Build a WebAssembly module from a .sa source file.\n\n");
+            try writer.writeAll("Build a WebAssembly module from a .sa source file or experimental .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --target wasm32|wasm64         Select the WebAssembly target\n");
             try writeBuildOptionsHelp(writer, "the wasm module", false);
@@ -1338,7 +1339,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .run => {
             try writer.writeAll("usage: sa run <file> [compile-options] [args...]\n\n");
-            try writer.writeAll("Compile and execute a .sa source file.\n\n");
+            try writer.writeAll("Compile and execute a .sa source file or experimental .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1590,13 +1591,13 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  plugin       <subcommand>      Install and list native SA plugins\n");
     try writer.writeAll("  cache        <subcommand>      Inspect and clean project-local caches\n");
     try writer.writeAll("  install      [identity]        Install project dependencies or one package (compat)\n");
-    try writer.writeAll("  build        <file>            Compile a .sa source to a native executable\n");
+    try writer.writeAll("  build        <file>            Compile a .sa/.sab source to a native executable\n");
     try writer.writeAll("  build-workspace                Build the selected workspace member executable\n");
-    try writer.writeAll("  run          <file>            Compile and immediately execute a .sa file\n");
+    try writer.writeAll("  run          <file>            Compile and immediately execute a .sa/.sab file\n");
     try writer.writeAll("  build-exe    <file>            Build a standalone executable (alias for build)\n");
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
-    try writer.writeAll("  test         <file>            Run @test blocks in a .sa file\n");
+    try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
     try writer.writeAll("  audit        <file>            Use `sa pkg audit` from the package plugin\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
@@ -3887,6 +3888,50 @@ fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
+fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener.FlattenResult {
+    const bytes = try loadSource(allocator, source_path);
+    defer allocator.free(bytes);
+    var module = try sab.decodeModule(allocator, bytes);
+    errdefer module.deinit(allocator);
+
+    var symbols = flattener.SymbolTable.init(allocator);
+    errdefer symbols.deinit();
+    for (module.symbols) |name| _ = try symbols.intern(name);
+
+    for (module.symbols) |name| allocator.free(name);
+    allocator.free(module.symbols);
+    module.symbols = &.{};
+
+    var test_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    errdefer test_sigs.deinit();
+    for (module.function_sigs) |fsig| {
+        if (fsig.kind == .test_func) try test_sigs.append(fsig);
+    }
+
+    const loc_table = try allocator.alloc(?common_upstream.UpstreamLoc, module.instructions.len);
+    @memset(loc_table, null);
+
+    const result = flattener.FlattenResult{
+        .instructions = module.instructions,
+        .const_decls = module.const_decls,
+        .function_sigs = module.function_sigs,
+        .test_sigs = try test_sigs.toOwnedSlice(),
+        .cached_macro_defs = &.{},
+        .def_dict = flattener.DefDict.init(allocator),
+        .symbols = symbols,
+        .loc_table = loc_table,
+        .layout_versions = &.{},
+        .package_identities = std.StringHashMap(void).init(allocator),
+        .owned_text = module.owned_text,
+        .trap = null,
+    };
+    module.instructions = &.{};
+    module.const_decls = &.{};
+    module.function_sigs = &.{};
+    module.owned_text = &.{};
+    return result;
+}
+
 var test_source_tree_load_count: usize = 0;
 
 fn resolveProjectFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8, package_name: ?[]const u8) !pkg_workspace.PackageResolution {
@@ -4188,6 +4233,25 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     }
 
     const total_start = if (options.profile) std.time.Instant.now() catch null else null;
+    if (std.mem.endsWith(u8, source_path, ".sab")) {
+        var flat = try loadSabFlat(allocator, source_path);
+        errdefer flat.deinit(allocator);
+        const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
+            .jobs = options.jobs,
+            .stage_reporter = null,
+            .predecoded_symbol_names = flat.symbols.names.items,
+            .predecoded_function_sigs = flat.function_sigs,
+        });
+        return switch (verified) {
+            .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
+            .trap => |report| {
+                var r = report;
+                if (r.file == null) setFile(&r, source_path);
+                flat.deinit(allocator);
+                return .{ .trap = r };
+            },
+        };
+    }
     const load_start = if (options.profile) std.time.Instant.now() catch null else null;
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
@@ -7183,4 +7247,47 @@ test "duplicate definition trap gets a repair hint" {
     try std.testing.expectEqualStrings("rename-def", report.repair_action.?);
     try std.testing.expectEqualStrings("change one of the conflicting names or namespace the symbol", report.repair_hint.?);
     try std.testing.expectEqualStrings("high", report.repair_confidence.?);
+}
+
+test "compileSource accepts true SAB without text flattener" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const reg_ids = [_]u32{1};
+    const fsig = @import("common/signature.zig").FunctionSig{
+        .id = 0,
+        .name = "main",
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .i32,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .reg_ids = reg_ids[0..],
+    };
+    var decl = @import("common/instruction.zig").makeInstruction(.func_decl, 1, 0, null, "");
+    decl.operands[0] = .{ .symbol = 0 };
+    decl.operands[1] = .{ .func = 0 };
+    var assign = @import("common/instruction.zig").makeInstruction(.assign, 2, 1, null, "");
+    assign.operands[0] = .{ .reg = 1 };
+    assign.operands[1] = .{ .imm_i64 = 7 };
+    var ret = @import("common/instruction.zig").makeInstruction(.return_, 3, 2, null, "");
+    ret.operands[0] = .{ .reg = 1 };
+
+    const bytes = try sab.encodeProgram(std.testing.allocator, &.{ "main", "value" }, &.{fsig}, &.{ decl, assign, ret });
+    defer std.testing.allocator.free(bytes);
+    try tmp.dir.writeFile(.{ .sub_path = "main.sab", .data = bytes });
+
+    var compiled = try compileSource(std.testing.allocator, "main.sab", .{});
+    switch (compiled) {
+        .ok => |*ok| {
+            defer ok.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 3), ok.verified.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
 }
