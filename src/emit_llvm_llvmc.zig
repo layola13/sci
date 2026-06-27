@@ -881,7 +881,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
                 const id = state.symbols.findId(dest) orelse return error.InvalidOperand;
                 break :blk2 state.fsig.slotOf(id) orelse return error.InvalidOperand;
             } else 0;
-var is_malloc_val = false;
+            var is_malloc_val = false;
             if (parsed.dest) |dest_name| {
                 if (state.symbols.findId(dest_name)) |dst_id| {
                     for (body_item.delta.changes) |change| {

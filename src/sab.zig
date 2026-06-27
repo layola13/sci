@@ -2,12 +2,13 @@ const std = @import("std");
 pub const instruction = @import("common/instruction.zig");
 pub const signature = @import("common/signature.zig");
 pub const const_decl = @import("common/const_decl.zig");
+const upstream = @import("common/upstream_loc.zig");
 
 const inst = instruction;
 const sig = signature;
 
 pub const magic = "SAB\x00";
-pub const version_major: u8 = 1;
+pub const version_major: u8 = 3;
 pub const version_minor: u8 = 0;
 
 const SectionId = enum(u64) {
@@ -43,6 +44,7 @@ pub const Module = struct {
         allocator.free(self.const_decls);
         for (self.owned_text) |text| allocator.free(text);
         allocator.free(self.owned_text);
+        freeDecodedInstructionMetadata(allocator, self.instructions);
         allocator.free(self.instructions);
         self.* = undefined;
     }
@@ -170,20 +172,62 @@ fn readOptionalEnum(comptime T: type, cursor: *Cursor) !?T {
 fn writeOperand(writer: anytype, operand: inst.Operand, pool: *std.StringHashMap(u32)) !void {
     switch (operand) {
         .none => try writer.writeByte(0),
-        .reg => |v| { try writer.writeByte(1); try encodeUleb128(writer, v); },
-        .symbol => |v| { try writer.writeByte(2); try encodeUleb128(writer, v); },
-        .label => |v| { try writer.writeByte(3); try encodeUleb128(writer, v); },
-        .func => |v| { try writer.writeByte(4); try encodeUleb128(writer, v); },
-        .imm_i64 => |v| { try writer.writeByte(5); try encodeSleb128(writer, v); },
-        .imm_u64 => |v| { try writer.writeByte(6); try encodeUleb128(writer, v); },
-        .imm_int => |v| { try writer.writeByte(7); try encodeSleb128(writer, v); },
-        .imm_float => |v| { try writer.writeByte(8); try writer.writeInt(u64, @bitCast(v), .little); },
-        .op_code => |v| { try writer.writeByte(9); try writer.writeByte(@intFromEnum(v)); },
-        .cap_prefix => |v| { try writer.writeByte(10); try writer.writeByte(@intFromEnum(v)); },
-        .offset => |v| { try writer.writeByte(11); try encodeUleb128(writer, v); },
-        .ty => |v| { try writer.writeByte(12); try encodeUleb128(writer, v); },
-        .text => |v| { try writer.writeByte(13); try encodeUleb128(writer, pool.get(v) orelse return error.InvalidTag); },
-        .native_text => |v| { try writer.writeByte(14); try encodeUleb128(writer, pool.get(v) orelse return error.InvalidTag); },
+        .reg => |v| {
+            try writer.writeByte(1);
+            try encodeUleb128(writer, v);
+        },
+        .symbol => |v| {
+            try writer.writeByte(2);
+            try encodeUleb128(writer, v);
+        },
+        .label => |v| {
+            try writer.writeByte(3);
+            try encodeUleb128(writer, v);
+        },
+        .func => |v| {
+            try writer.writeByte(4);
+            try encodeUleb128(writer, v);
+        },
+        .imm_i64 => |v| {
+            try writer.writeByte(5);
+            try encodeSleb128(writer, v);
+        },
+        .imm_u64 => |v| {
+            try writer.writeByte(6);
+            try encodeUleb128(writer, v);
+        },
+        .imm_int => |v| {
+            try writer.writeByte(7);
+            try encodeSleb128(writer, v);
+        },
+        .imm_float => |v| {
+            try writer.writeByte(8);
+            try writer.writeInt(u64, @bitCast(v), .little);
+        },
+        .op_code => |v| {
+            try writer.writeByte(9);
+            try writer.writeByte(@intFromEnum(v));
+        },
+        .cap_prefix => |v| {
+            try writer.writeByte(10);
+            try writer.writeByte(@intFromEnum(v));
+        },
+        .offset => |v| {
+            try writer.writeByte(11);
+            try encodeUleb128(writer, v);
+        },
+        .ty => |v| {
+            try writer.writeByte(12);
+            try encodeUleb128(writer, v);
+        },
+        .text => |v| {
+            try writer.writeByte(13);
+            try encodeUleb128(writer, pool.get(v) orelse return error.InvalidTag);
+        },
+        .native_text => |v| {
+            try writer.writeByte(14);
+            try encodeUleb128(writer, pool.get(v) orelse return error.InvalidTag);
+        },
     }
 }
 
@@ -195,6 +239,86 @@ fn readPooledText(allocator: std.mem.Allocator, symbols: []const []const u8, own
     errdefer allocator.free(text);
     try owned_text.append(text);
     return text;
+}
+
+fn poolId(pool: *std.StringHashMap(u32), text: []const u8) !u32 {
+    return pool.get(text) orelse error.InvalidTag;
+}
+
+fn writeOptionalPoolText(writer: anytype, pool: *std.StringHashMap(u32), text: ?[]const u8) !void {
+    if (text) |value| {
+        try writer.writeByte(1);
+        try encodeUleb128(writer, try poolId(pool, value));
+    } else {
+        try writer.writeByte(0);
+    }
+}
+
+fn writeOptionalHash(writer: anytype, hash: ?[32]u8) !void {
+    if (hash) |value| {
+        try writer.writeByte(1);
+        try writer.writeAll(value[0..]);
+    } else {
+        try writer.writeByte(0);
+    }
+}
+
+fn writeOptionalUpstreamLoc(writer: anytype, pool: *std.StringHashMap(u32), loc: ?upstream.UpstreamLoc) !void {
+    if (loc) |value| {
+        try writer.writeByte(1);
+        try encodeUleb128(writer, try poolId(pool, value.file));
+        try encodeUleb128(writer, value.line);
+        try encodeUleb128(writer, value.col);
+    } else {
+        try writer.writeByte(0);
+    }
+}
+
+fn readOptionalPooledText(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), cursor: *Cursor) !?[]const u8 {
+    const present = try cursor.readByte();
+    if (present == 0) return null;
+    if (present != 1) return error.InvalidTag;
+    return try readPooledText(allocator, symbols, owned_text, try decodeUleb128(cursor));
+}
+
+fn readOptionalAllocText(allocator: std.mem.Allocator, symbols: []const []const u8, cursor: *Cursor) !?[]u8 {
+    const present = try cursor.readByte();
+    if (present == 0) return null;
+    if (present != 1) return error.InvalidTag;
+    return try readSymbolName(allocator, symbols, try decodeUleb128(cursor));
+}
+
+fn readOptionalHash(cursor: *Cursor) !?[32]u8 {
+    const present = try cursor.readByte();
+    if (present == 0) return null;
+    if (present != 1) return error.InvalidTag;
+    var out: [32]u8 = undefined;
+    @memcpy(out[0..], try cursor.readSlice(32));
+    return out;
+}
+
+fn readOptionalPooledUpstreamLoc(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), cursor: *Cursor) !?upstream.UpstreamLoc {
+    const present = try cursor.readByte();
+    if (present == 0) return null;
+    if (present != 1) return error.InvalidTag;
+    return .{
+        .file = try readPooledText(allocator, symbols, owned_text, try decodeUleb128(cursor)),
+        .line = @intCast(try decodeUleb128(cursor)),
+        .col = @intCast(try decodeUleb128(cursor)),
+    };
+}
+
+fn readOptionalAllocUpstreamLoc(allocator: std.mem.Allocator, symbols: []const []const u8, cursor: *Cursor) !?upstream.UpstreamLoc {
+    const present = try cursor.readByte();
+    if (present == 0) return null;
+    if (present != 1) return error.InvalidTag;
+    const file = try readSymbolName(allocator, symbols, try decodeUleb128(cursor));
+    errdefer allocator.free(file);
+    return .{
+        .file = file,
+        .line = @intCast(try decodeUleb128(cursor)),
+        .col = @intCast(try decodeUleb128(cursor)),
+    };
 }
 
 fn readOperand(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), cursor: *Cursor) !inst.Operand {
@@ -237,14 +361,20 @@ fn synthesizeRawText(
 ) !void {
     const raw = switch (item.kind) {
         .call, .call_indirect => blk: {
-            const body = if (item.operands[1] == .text) item.operands[1].text else return;
             if (item.operands[0] == .reg) {
+                const body = if (item.operands[1] == .text) item.operands[1].text else return;
                 break :blk try std.fmt.allocPrint(
                     allocator,
                     "{s} = {s} {s}",
                     .{ try operandRegName(symbols, item.operands[0]), if (item.kind == .call) "call" else "call_indirect", body },
                 );
             }
+            const body = if (item.operands[0] == .text)
+                item.operands[0].text
+            else if (item.operands[1] == .text)
+                item.operands[1].text
+            else
+                return;
             break :blk try std.fmt.allocPrint(
                 allocator,
                 "{s} {s}",
@@ -257,6 +387,13 @@ fn synthesizeRawText(
                 .reg => try operandRegName(symbols, item.operands[0]),
                 else => "1",
             };
+            if (arg.len >= 2 and arg[0] == '(' and arg[arg.len - 1] == ')') {
+                break :blk try std.fmt.allocPrint(
+                    allocator,
+                    "{s}{s}",
+                    .{ if (item.kind == .panic) "panic" else "panic_msg", arg },
+                );
+            }
             break :blk try std.fmt.allocPrint(
                 allocator,
                 "{s}({s})",
@@ -278,16 +415,25 @@ fn writeInstructions(writer: anytype, instructions: []const inst.Instruction, po
         try encodeUleb128(writer, item.expanded_line);
         try writeOptionalEnum(writer, item.op_kind);
         for (item.operands) |operand| try writeOperand(writer, operand, pool);
+        if (item.raw_text.len != 0) {
+            try writer.writeByte(1);
+            try encodeUleb128(writer, try poolId(pool, item.raw_text));
+        } else {
+            try writer.writeByte(0);
+        }
         try writer.writeByte(if (item.atomic_value_ty) |_| 1 else 0);
         if (item.atomic_value_ty) |ty| try encodeUleb128(writer, ty);
         try writeOptionalEnum(writer, item.atomic_ordering);
         try writeOptionalEnum(writer, item.atomic_second_ordering);
         try writeOptionalEnum(writer, item.atomic_rmw_op);
+        try writeOptionalPoolText(writer, pool, item.atomic_expected_text);
+        try writeOptionalPoolText(writer, pool, item.atomic_new_text);
+        try encodeUleb128(writer, item.native_reg_names.len);
+        for (item.native_reg_names) |name| try encodeUleb128(writer, try poolId(pool, name));
+        try writeOptionalPoolText(writer, pool, item.package_identity);
+        try writeOptionalHash(writer, item.package_source_sha256);
+        try writeOptionalUpstreamLoc(writer, pool, item.upstream_loc);
     }
-}
-
-fn poolId(pool: *std.StringHashMap(u32), text: []const u8) !u32 {
-    return pool.get(text) orelse error.InvalidTag;
 }
 
 fn addPoolText(pool_items: *std.ArrayList([]const u8), pool: *std.StringHashMap(u32), text: []const u8) !void {
@@ -417,11 +563,12 @@ fn writeConstDecls(writer: anytype, const_decls: []const const_decl.ConstDecl, p
         try encodeUleb128(writer, decl.expanded_line);
         try encodeUleb128(writer, try poolId(pool, decl.name));
         try encodeUleb128(writer, try poolId(pool, decl.literal_text));
+        try writeOptionalUpstreamLoc(writer, pool, decl.upstream_loc);
         try writeConstValue(writer, decl.value, pool);
     }
 }
 
-fn readConstDecls(allocator: std.mem.Allocator, symbols: []const []const u8, payload: []const u8) ![]const_decl.ConstDecl {
+fn readConstDecls(allocator: std.mem.Allocator, symbols: []const []const u8, payload: []const u8, has_metadata: bool) ![]const_decl.ConstDecl {
     var cursor = Cursor{ .bytes = payload };
     const count = try decodeUleb128(&cursor);
     if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
@@ -438,14 +585,19 @@ fn readConstDecls(allocator: std.mem.Allocator, symbols: []const []const u8, pay
         errdefer allocator.free(literal_text);
         const raw_text = try std.fmt.allocPrint(allocator, "@const {s} = {s}", .{ name, literal_text });
         errdefer allocator.free(raw_text);
+        var upstream_loc: ?upstream.UpstreamLoc = null;
+        errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+        if (has_metadata) upstream_loc = try readOptionalAllocUpstreamLoc(allocator, symbols, &cursor);
         decl.* = .{
             .source_line = source_line,
             .expanded_line = expanded_line,
+            .upstream_loc = upstream_loc,
             .raw_text = raw_text,
             .name = name,
             .literal_text = literal_text,
             .value = try readConstValue(allocator, symbols, &cursor),
         };
+        upstream_loc = null;
         initialized += 1;
     }
     return out;
@@ -465,6 +617,9 @@ fn writeFunctionSigs(writer: anytype, function_sigs: []const sig.FunctionSig, po
         try writer.writeByte(if (item.is_ffi_wrapper) 1 else 0);
         try writer.writeByte(if (item.ignored) 1 else 0);
         try writer.writeByte(if (item.should_panic) 1 else 0);
+        try writeOptionalPoolText(writer, pool, item.upstream_file);
+        try writeOptionalUpstreamLoc(writer, pool, item.upstream_loc);
+        try writeOptionalPoolText(writer, pool, item.llvm_name);
 
         try encodeUleb128(writer, item.params.len);
         for (item.params) |param| {
@@ -486,7 +641,7 @@ fn readSymbolName(allocator: std.mem.Allocator, symbols: []const []const u8, id:
     return try allocator.dupe(u8, symbols[idx]);
 }
 
-fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, payload: []const u8) ![]sig.FunctionSig {
+fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, payload: []const u8, has_metadata: bool) ![]sig.FunctionSig {
     var cursor = Cursor{ .bytes = payload };
     const count = try decodeUleb128(&cursor);
     if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
@@ -510,6 +665,17 @@ fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, p
         const is_ffi_wrapper = (try cursor.readByte()) == 1;
         const ignored = (try cursor.readByte()) == 1;
         const should_panic = (try cursor.readByte()) == 1;
+        var upstream_file: ?[]u8 = null;
+        errdefer if (upstream_file) |file| allocator.free(file);
+        var upstream_loc: ?upstream.UpstreamLoc = null;
+        errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+        var llvm_name: ?[]u8 = null;
+        errdefer if (llvm_name) |value| allocator.free(value);
+        if (has_metadata) {
+            upstream_file = try readOptionalAllocText(allocator, symbols, &cursor);
+            upstream_loc = try readOptionalAllocUpstreamLoc(allocator, symbols, &cursor);
+            llvm_name = try readOptionalAllocText(allocator, symbols, &cursor);
+        }
 
         const param_count = try decodeUleb128(&cursor);
         if (param_count > std.math.maxInt(usize)) return error.Leb128Overflow;
@@ -550,31 +716,80 @@ fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, p
             .is_ffi_wrapper = is_ffi_wrapper,
             .param_ids = param_ids,
             .reg_ids = reg_ids,
+            .upstream_file = upstream_file,
+            .upstream_loc = upstream_loc,
+            .llvm_name = llvm_name,
             .ignored = ignored,
             .should_panic = should_panic,
         };
+        upstream_file = null;
+        upstream_loc = null;
+        llvm_name = null;
         initialized += 1;
     }
     return out;
 }
 
-fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), payload: []const u8) ![]inst.Instruction {
+fn freeDecodedInstructionMetadataOne(allocator: std.mem.Allocator, item: *const inst.Instruction) void {
+    if (item.package_identity) |identity| allocator.free(identity);
+    if (item.upstream_loc) |loc| allocator.free(loc.file);
+    if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
+}
+
+fn freeDecodedInstructionMetadata(allocator: std.mem.Allocator, instructions: []inst.Instruction) void {
+    for (instructions) |*item| freeDecodedInstructionMetadataOne(allocator, item);
+}
+
+fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), payload: []const u8, has_raw_text: bool, has_full_metadata: bool) ![]inst.Instruction {
     var cursor = Cursor{ .bytes = payload };
     const count = try decodeUleb128(&cursor);
     if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
     const instructions = try allocator.alloc(inst.Instruction, @intCast(count));
-    errdefer allocator.free(instructions);
+    var initialized: usize = 0;
+    errdefer {
+        freeDecodedInstructionMetadata(allocator, instructions[0..initialized]);
+        allocator.free(instructions);
+    }
     for (instructions, 0..) |*item, idx| {
         const kind = std.meta.intToEnum(inst.InstKind, try cursor.readByte()) catch return error.InvalidTag;
         item.* = inst.makeInstruction(kind, @intCast(try decodeUleb128(&cursor)), @intCast(try decodeUleb128(&cursor)), null, "");
+        var item_initialized = false;
+        errdefer if (!item_initialized) freeDecodedInstructionMetadataOne(allocator, item);
         item.op_kind = try readOptionalEnum(inst.OpKind, &cursor);
         for (&item.operands) |*operand| operand.* = try readOperand(allocator, symbols, owned_text, &cursor);
+        if (has_raw_text) {
+            const raw_present = try cursor.readByte();
+            if (raw_present == 1) {
+                item.raw_text = try readPooledText(allocator, symbols, owned_text, try decodeUleb128(&cursor));
+            } else if (raw_present != 0) {
+                return error.InvalidTag;
+            }
+        }
         item.atomic_value_ty = if (try cursor.readByte() == 1) @intCast(try decodeUleb128(&cursor)) else null;
         item.atomic_ordering = try readOptionalEnum(inst.AtomicOrdering, &cursor);
         item.atomic_second_ordering = try readOptionalEnum(inst.AtomicOrdering, &cursor);
         item.atomic_rmw_op = try readOptionalEnum(inst.AtomicRmwOp, &cursor);
-        try synthesizeRawText(allocator, symbols, owned_text, item);
+        if (has_full_metadata) {
+            item.atomic_expected_text = try readOptionalPooledText(allocator, symbols, owned_text, &cursor);
+            item.atomic_new_text = try readOptionalPooledText(allocator, symbols, owned_text, &cursor);
+
+            const native_count = try decodeUleb128(&cursor);
+            if (native_count > std.math.maxInt(usize)) return error.Leb128Overflow;
+            if (native_count != 0) {
+                const native_names = try allocator.alloc([]const u8, @intCast(native_count));
+                errdefer allocator.free(native_names);
+                for (native_names) |*name| name.* = try readPooledText(allocator, symbols, owned_text, try decodeUleb128(&cursor));
+                item.native_reg_names = native_names;
+            }
+
+            item.package_identity = try readOptionalAllocText(allocator, symbols, &cursor);
+            item.package_source_sha256 = try readOptionalHash(&cursor);
+            item.upstream_loc = try readOptionalAllocUpstreamLoc(allocator, symbols, &cursor);
+        }
+        if (item.raw_text.len == 0) try synthesizeRawText(allocator, symbols, owned_text, item);
         item.expanded_line = @intCast(idx);
+        item_initialized = true;
+        initialized += 1;
     }
     return instructions;
 }
@@ -589,6 +804,12 @@ pub fn encodeProgramWithConsts(allocator: std.mem.Allocator, symbols: []const []
         try addPoolText(&pool_items, &pool, name);
     }
     for (instructions) |item| {
+        if (item.raw_text.len != 0) try addPoolText(&pool_items, &pool, item.raw_text);
+        if (item.atomic_expected_text) |text| try addPoolText(&pool_items, &pool, text);
+        if (item.atomic_new_text) |text| try addPoolText(&pool_items, &pool, text);
+        for (item.native_reg_names) |name| try addPoolText(&pool_items, &pool, name);
+        if (item.package_identity) |identity| try addPoolText(&pool_items, &pool, identity);
+        if (item.upstream_loc) |loc| try addPoolText(&pool_items, &pool, loc.file);
         for (item.operands) |operand| switch (operand) {
             .text, .native_text => |text| try addPoolText(&pool_items, &pool, text),
             else => {},
@@ -596,6 +817,9 @@ pub fn encodeProgramWithConsts(allocator: std.mem.Allocator, symbols: []const []
     }
     for (function_sigs) |item| {
         try addPoolText(&pool_items, &pool, item.name);
+        if (item.upstream_file) |file| try addPoolText(&pool_items, &pool, file);
+        if (item.upstream_loc) |loc| try addPoolText(&pool_items, &pool, loc.file);
+        if (item.llvm_name) |name| try addPoolText(&pool_items, &pool, name);
         for (item.params) |param| {
             try addPoolText(&pool_items, &pool, param.name);
         }
@@ -603,6 +827,7 @@ pub fn encodeProgramWithConsts(allocator: std.mem.Allocator, symbols: []const []
     for (const_decls) |decl| {
         try addPoolText(&pool_items, &pool, decl.name);
         try addPoolText(&pool_items, &pool, decl.literal_text);
+        if (decl.upstream_loc) |loc| try addPoolText(&pool_items, &pool, loc.file);
         try collectConstValueSymbols(&pool_items, &pool, decl.value);
     }
 
@@ -649,7 +874,9 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
     var cursor = Cursor{ .bytes = bytes, .index = magic.len };
     const major = try cursor.readByte();
     _ = try cursor.readByte();
-    if (major != version_major) return error.UnsupportedSabVersion;
+    if (major != 1 and major != 2 and major != version_major) return error.UnsupportedSabVersion;
+    const has_raw_text = major >= 2;
+    const has_full_metadata = major >= 3;
 
     var symbols: []const []const u8 = &.{};
     var function_sigs: []sig.FunctionSig = &.{};
@@ -668,9 +895,9 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
         if (len > std.math.maxInt(usize)) return error.Leb128Overflow;
         const payload = try cursor.readSlice(@intCast(len));
         if (id == @intFromEnum(SectionId.symbol_pool)) symbols = try readStringPool(allocator, payload);
-        if (id == @intFromEnum(SectionId.function_sigs)) function_sigs = try readFunctionSigs(allocator, symbols, payload);
-        if (id == @intFromEnum(SectionId.const_decls)) const_decls = try readConstDecls(allocator, symbols, payload);
-        if (id == @intFromEnum(SectionId.instructions)) instructions = try readInstructions(allocator, symbols, &owned_text, payload);
+        if (id == @intFromEnum(SectionId.function_sigs)) function_sigs = try readFunctionSigs(allocator, symbols, payload, has_full_metadata);
+        if (id == @intFromEnum(SectionId.const_decls)) const_decls = try readConstDecls(allocator, symbols, payload, has_full_metadata);
+        if (id == @intFromEnum(SectionId.instructions)) instructions = try readInstructions(allocator, symbols, &owned_text, payload, has_raw_text, has_full_metadata);
     }
     return .{ .symbols = symbols, .function_sigs = function_sigs, .const_decls = const_decls, .instructions = instructions orelse return error.MissingInstructionSection, .owned_text = try owned_text.toOwnedSlice() };
 }
@@ -766,7 +993,7 @@ test "sleb128 roundtrip" {
     }
 }
 
-test "true sab instruction roundtrip has no raw source payload" {
+test "sab instruction roundtrip preserves raw source text" {
     const symbols = [_][]const u8{ "main", "value" };
     var item = inst.makeInstruction(.assign, 2, 0, null, "value = 7");
     item.operands[0] = .{ .reg = 1 };
@@ -774,7 +1001,7 @@ test "true sab instruction roundtrip has no raw source payload" {
 
     const encoded = try encodeModule(std.testing.allocator, symbols[0..], &.{item});
     defer std.testing.allocator.free(encoded);
-    try std.testing.expect(std.mem.indexOf(u8, encoded, "value = 7") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "value = 7") != null);
 
     var decoded = try decodeModule(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
@@ -782,22 +1009,113 @@ test "true sab instruction roundtrip has no raw source payload" {
     try std.testing.expectEqual(inst.InstKind.assign, decoded.instructions[0].kind);
     try std.testing.expectEqual(@as(u32, 1), decoded.instructions[0].operands[0].reg);
     try std.testing.expectEqual(@as(i64, 7), decoded.instructions[0].operands[1].imm_i64);
-    try std.testing.expectEqualStrings("", decoded.instructions[0].raw_text);
+    try std.testing.expectEqualStrings("value = 7", decoded.instructions[0].raw_text);
 }
 
-test "sab text operands are pooled tokens, not raw instruction lines" {
+test "sab text operands roundtrip alongside raw source text" {
     var item = inst.makeInstruction(.panic, 3, 0, null, "panic(7)");
     item.operands[0] = .{ .text = "7" };
 
     const encoded = try encodeModule(std.testing.allocator, &.{}, &.{item});
     defer std.testing.allocator.free(encoded);
-    try std.testing.expect(std.mem.indexOf(u8, encoded, "panic(7)") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "panic(7)") != null);
     try std.testing.expect(std.mem.indexOf(u8, encoded, "7") != null);
 
     var decoded = try decodeModule(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
     try std.testing.expectEqual(inst.InstKind.panic, decoded.instructions[0].kind);
     try std.testing.expectEqualStrings("7", decoded.instructions[0].operands[0].text);
+    try std.testing.expectEqualStrings("panic(7)", decoded.instructions[0].raw_text);
+}
+
+test "sab borrow roundtrip preserves raw source text" {
+    const symbols = [_][]const u8{ "GLOBAL", "view" };
+    var item = inst.makeInstruction(.borrow, 4, 0, null, "view = &GLOBAL");
+    item.operands[0] = .{ .reg = 1 };
+    item.operands[1] = .{ .reg = 0 };
+    item.operands[2] = .{ .text = "read" };
+    item.operands[3] = .{ .cap_prefix = .borrow };
+
+    const encoded = try encodeModule(std.testing.allocator, symbols[0..], &.{item});
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decodeModule(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(inst.InstKind.borrow, decoded.instructions[0].kind);
+    try std.testing.expectEqualStrings("view = &GLOBAL", decoded.instructions[0].raw_text);
+}
+
+fn decodedOwnsPooledText(module: *const Module, text: []const u8) bool {
+    for (module.owned_text) |owned| {
+        if (owned.ptr == text.ptr) return true;
+    }
+    return false;
+}
+
+test "sab v3 preserves instruction metadata required by SA backends" {
+    const symbols = [_][]const u8{ "ok", "slot", "base", "offset", "old", "new", "pkg", "pkg/main.sa", "native_name" };
+    var hash = [_]u8{0} ** 32;
+    hash[0] = 0xaa;
+
+    var item = inst.makeInstruction(.cmpxchg, 9, 0, .{ .file = "pkg/main.sa", .line = 9, .col = 5 }, "ok, old = cmpxchg base+offset, old => new seq_cst seq_cst as i64");
+    item.operands[0] = .{ .reg = 0 };
+    item.operands[1] = .{ .reg = 1 };
+    item.operands[2] = .{ .reg = 2 };
+    item.operands[3] = .{ .reg = 3 };
+    item.atomic_value_ty = @intFromEnum(sig.PrimType.i64);
+    item.atomic_ordering = .seq_cst;
+    item.atomic_second_ordering = .seq_cst;
+    item.atomic_expected_text = "old";
+    item.atomic_new_text = "new";
+    item.native_reg_names = &.{"native_name"};
+    item.package_identity = "pkg";
+    item.package_source_sha256 = hash;
+
+    const encoded = try encodeModule(std.testing.allocator, symbols[0..], &.{item});
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decodeModule(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    const got = decoded.instructions[0];
+    try std.testing.expectEqual(inst.InstKind.cmpxchg, got.kind);
+    try std.testing.expectEqualStrings("old", got.atomic_expected_text.?);
+    try std.testing.expectEqualStrings("new", got.atomic_new_text.?);
+    try std.testing.expectEqual(@as(usize, 1), got.native_reg_names.len);
+    try std.testing.expectEqualStrings("native_name", got.native_reg_names[0]);
+    try std.testing.expectEqualStrings("pkg", got.package_identity.?);
+    try std.testing.expectEqual(@as(u8, 0xaa), got.package_source_sha256.?[0]);
+    try std.testing.expectEqualStrings("pkg/main.sa", got.upstream_loc.?.file);
+    try std.testing.expectEqual(@as(u32, 9), got.upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 5), got.upstream_loc.?.col);
+    try std.testing.expect(decodedOwnsPooledText(&decoded, got.raw_text));
+    try std.testing.expect(!decodedOwnsPooledText(&decoded, got.package_identity.?));
+    try std.testing.expect(!decodedOwnsPooledText(&decoded, got.upstream_loc.?.file));
+}
+
+test "sab parenthesized panic operand is not double wrapped" {
+    var item = inst.makeInstruction(.panic, 3, 0, null, "");
+    item.operands[0] = .{ .text = "(1701)" };
+
+    const encoded = try encodeModule(std.testing.allocator, &.{}, &.{item});
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decodeModule(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(inst.InstKind.panic, decoded.instructions[0].kind);
+    try std.testing.expectEqualStrings("panic(1701)", decoded.instructions[0].raw_text);
+}
+
+test "sab no-destination call synthesizes raw text from first operand" {
+    var item = inst.makeInstruction(.call, 3, 0, null, "");
+    item.operands[0] = .{ .text = "@sink(value)" };
+
+    const encoded = try encodeModule(std.testing.allocator, &.{}, &.{item});
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decodeModule(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(inst.InstKind.call, decoded.instructions[0].kind);
+    try std.testing.expectEqualStrings("call @sink(value)", decoded.instructions[0].raw_text);
 }
 
 test "sab function signatures roundtrip without function header text" {
@@ -815,8 +1133,11 @@ test "sab function signatures roundtrip without function header text" {
         .return_ty = .i32,
         .entry_inst_idx = 0,
         .is_ffi_wrapper = false,
+        .upstream_file = "src/main.sa",
+        .upstream_loc = .{ .file = "src/main.sa", .line = 11, .col = 2 },
         .param_ids = param_ids[0..],
         .reg_ids = reg_ids[0..],
+        .llvm_name = "saasm_main",
     };
 
     const encoded = try encodeProgram(std.testing.allocator, &.{}, &.{fsig}, &.{});
@@ -829,6 +1150,11 @@ test "sab function signatures roundtrip without function header text" {
     try std.testing.expectEqualStrings("main", decoded.function_sigs[0].name);
     try std.testing.expectEqual(sig.PrimType.i32, decoded.function_sigs[0].return_ty);
     try std.testing.expectEqualStrings("argc", decoded.function_sigs[0].params[0].name);
+    try std.testing.expectEqualStrings("src/main.sa", decoded.function_sigs[0].upstream_file.?);
+    try std.testing.expectEqualStrings("src/main.sa", decoded.function_sigs[0].upstream_loc.?.file);
+    try std.testing.expectEqual(@as(u32, 11), decoded.function_sigs[0].upstream_loc.?.line);
+    try std.testing.expectEqual(@as(u32, 2), decoded.function_sigs[0].upstream_loc.?.col);
+    try std.testing.expectEqualStrings("saasm_main", decoded.function_sigs[0].llvm_name.?);
 }
 
 test "disasmModule produces readable text from binary SAB" {

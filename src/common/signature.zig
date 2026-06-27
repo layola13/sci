@@ -62,6 +62,11 @@ pub const FunctionSig = struct {
         allocator.free(self.params);
         if (self.param_ids.len != 0) allocator.free(self.param_ids);
         if (self.reg_ids.len != 0) allocator.free(self.reg_ids);
+        if (self.upstream_loc) |loc| {
+            if (self.upstream_file == null or loc.file.ptr != self.upstream_file.?.ptr) {
+                allocator.free(loc.file);
+            }
+        }
         if (self.upstream_file) |file| allocator.free(file);
         if (self.llvm_name) |name| allocator.free(name);
         allocator.free(self.name);

@@ -6,6 +6,12 @@ Current progress: 100%
 
 ## Completed SCI Features
 
+- 2026-06-27: Added SAB v3 backend metadata preservation for plugin-generated SAB inputs.
+  - SAB encoding now preserves raw instruction text plus full backend metadata needed by SA LLVM-C lowering: atomic expected/new operand text, native register names, package identity/source hash, upstream locations, and verifier-derived function register ids.
+  - `plugin_bridge.encodeSabFromFlat` verifies flattened SA-compatible input before SAB encoding so decoded SAB carries function signature register metadata instead of relying on text headers.
+  - Decoded instruction-owned metadata now has ownership compatible with both `sab.Module.deinit` and `flattener.FlattenResult.deinit`, fixing double-free diagnostics when plugin-generated SAB is loaded as a flat test input.
+  - Verification used focused commands only: `timeout 120s zig test src/sab.zig --test-filter "sab v3 preserves instruction metadata required by SA backends"`, `timeout 120s zig test src/sab.zig --test-filter "sab borrow roundtrip preserves raw source text"`, `timeout 120s zig test src/sab.zig --test-filter "sab function signatures roundtrip without function header text"`, and `timeout 120s zig test src/plugin_bridge.zig --test-filter "encodeSabFromFlat writes verified register metadata"`.
+
 - 2026-06-18: Audited rosetta package/module README provenance after the 188-260 cleanup batches.
   - Rechecked `demos/rosetta/201_pkg_manifest_basic` through `220_pkg_lib_dynamic`; the copied README template text is no longer present there.
   - Scanned `demos/rosetta/221_*` through `300_*` for the same stale provenance strings and found no remaining matches.
