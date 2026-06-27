@@ -288,6 +288,7 @@ fn fillConstBytes(out: []u8, value: const_decl.ConstValue) !void {
 
 fn collectAnonStringConsts(
     allocator: std.mem.Allocator,
+    symbols: anytype,
     annotated: []const referee.AnnotatedInstruction,
     anon_string_names: *std.StringHashMap([*:0]const u8),
     c_consts: *std.ArrayList(CConst),
@@ -299,7 +300,7 @@ fn collectAnonStringConsts(
             else => continue,
         }
 
-        var parsed = call.parseCall(allocator, item.base.raw_text) catch |err| switch (err) {
+        var parsed = call.parseInstructionCall(allocator, item.base, symbols) catch |err| switch (err) {
             error.InvalidCallSyntax => continue,
             else => return err,
         };
@@ -357,6 +358,14 @@ const BuildState = struct {
     fn calleeSig(self: *BuildState, name: []const u8) ?sig.FunctionSig {
         const idx = self.function_sig_index.get(name) orelse return null;
         return self.function_sigs[idx];
+    }
+
+    pub fn lookupName(self: *BuildState, id: u32) ?[]const u8 {
+        const slot_index: usize = @intCast(id);
+        if (slot_index < self.fsig.reg_ids.len) {
+            return self.symbols.lookupName(self.fsig.globalId(id));
+        }
+        return self.symbols.lookupName(id);
     }
 
     fn operand(self: *BuildState, op: inst.Operand) !COperand {
@@ -555,7 +564,7 @@ fn collectBodyDirectCallees(allocator: std.mem.Allocator, verified: anytype, sig
         const base = body_item.base;
         if (base.kind != .call and base.kind != .call_indirect) continue;
 
-        var parsed = call.parseCall(allocator, base.raw_text) catch |err| switch (err) {
+        var parsed = call.parseInstructionCall(allocator, base, &verified.symbols) catch |err| switch (err) {
             error.InvalidCallSyntax => continue,
             else => return err,
         };
@@ -763,9 +772,9 @@ fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
 }
 
 fn inferIndirectSigIndexFromLoad(state: *BuildState, base: inst.Instruction) ?usize {
-    if (slotNameFromLoadText(base.raw_text)) |slot| {
+    if (base.raw_text.len != 0) if (slotNameFromLoadText(base.raw_text)) |slot| {
         if (inferIndirectSigIndexFromSlot(state, slot)) |idx| return idx;
-    }
+    };
     if (offsetFromOperand(base.operands[2])) |offset| {
         return inferIndirectSigIndexFromOffset(state, offset);
     }
@@ -809,12 +818,36 @@ fn opConversionTy(base: inst.Instruction) !CType {
     return try cType(sig.primTypeFromTag(base.operands[2].ty) orelse return error.InvalidOperand);
 }
 
-fn rawAssignOperand(state: *BuildState, base: inst.Instruction) ?COperand {
-    const eq_idx = std.mem.indexOfScalar(u8, base.raw_text, '=') orelse return null;
-    const rhs = std.mem.trim(u8, base.raw_text[eq_idx + 1 ..], " \t\r");
-    if (rhs.len == 0) return null;
-    if (rhs[0] != '&') return null;
-    return state.textOperand(rhs) catch null;
+fn localizedRegName(state: *BuildState, slot_or_id: u32) ?[]const u8 {
+    const slot_index: usize = @intCast(slot_or_id);
+    if (slot_index < state.fsig.reg_ids.len) {
+        return state.symbols.lookupName(state.fsig.globalId(slot_or_id));
+    }
+    return state.symbols.lookupName(slot_or_id);
+}
+
+fn assignOperand(state: *BuildState, base: inst.Instruction) !COperand {
+    return switch (base.operands[1]) {
+        .reg => |id| blk: {
+            if (localizedRegName(state, id)) |name| {
+                if (state.const_names.contains(name)) break :blk try state.textOperand(name);
+            }
+            break :blk try state.operand(base.operands[1]);
+        },
+        .symbol => |id| blk: {
+            const name = state.symbols.lookupName(id) orelse return error.InvalidOperand;
+            break :blk try state.textOperand(name);
+        },
+        .func => |id| blk: {
+            const name = state.symbols.lookupName(id) orelse return error.InvalidOperand;
+            break :blk try state.textOperand(name);
+        },
+        .label => |id| blk: {
+            const name = state.symbols.lookupName(id) orelse return error.InvalidOperand;
+            break :blk try state.textOperand(name);
+        },
+        else => try state.operand(base.operands[1]),
+    };
 }
 
 fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item: referee.AnnotatedInstruction) !?CInstruction {
@@ -858,7 +891,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
         .jmp => .{ .op = .jmp, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .br => .{ .op = .br, .dst = 0, .operand0 = try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = try labelNameZ(allocator, state.symbols, base.operands[3]), .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .call, .call_indirect, .panic, .panic_msg => blk: {
-            var parsed = call.parseCall(allocator, base.raw_text) catch return error.InvalidOperand;
+            var parsed = call.parseInstructionCall(allocator, base, state) catch return error.InvalidOperand;
             defer parsed.deinit(allocator);
             if (base.kind == .panic) {
                 if (parsed.args.len != 1) return error.InvalidOperand;
@@ -906,7 +939,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
         },
         .try_, .early_return => .{ .op = .try_, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => blk: {
-            const value = rawAssignOperand(state, base) orelse try state.operand(base.operands[1]);
+            const value = try assignOperand(state, base);
             const assign_ty = assignTy(base.kind, value);
             const is_ptr = (assign_ty == .ptr);
             var is_malloc_val = false;
@@ -1138,7 +1171,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             },
         }
     }
-    try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
+    try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
     var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
@@ -1419,7 +1452,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             },
         }
     }
-    try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
+    try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
     var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
@@ -1682,6 +1715,54 @@ test "dce modes prune std and user functions at distinct levels" {
     try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .std, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
     try std.testing.expect(shouldPruneUnreachableFunction(.{ .dce = .full, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
     try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .no, .std_root = "/tmp/app/sa_std" }, std_func, source_path));
+}
+
+test "assignOperand resolves localized const vtable slots without raw text" {
+    var symbols = flattener.SymbolTable.init(std.testing.allocator);
+    defer symbols.deinit();
+    const const_id = try symbols.intern("SLA_THREAD_VT_0");
+
+    var anon_string_names = std.StringHashMap([*:0]const u8).init(std.testing.allocator);
+    defer anon_string_names.deinit();
+    var function_sig_index = std.StringHashMap(usize).init(std.testing.allocator);
+    defer function_sig_index.deinit();
+
+    const reg_ids = [_]u32{const_id};
+    const fsig = sig.FunctionSig{
+        .id = 0,
+        .name = "wrap",
+        .params = &.{},
+        .kind = .ffi_wrapper,
+        .return_cap = null,
+        .return_ty = .void,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = true,
+        .reg_ids = reg_ids[0..],
+    };
+
+    var state = BuildState{
+        .allocator = std.testing.allocator,
+        .symbols = &symbols,
+        .fsig = fsig,
+        .const_names = std.StringHashMap(void).init(std.testing.allocator),
+        .anon_string_names = &anon_string_names,
+        .const_decls = &.{},
+        .function_sigs = &.{},
+        .function_sig_index = &function_sig_index,
+    };
+    state.const_names = std.StringHashMap(void).init(std.testing.allocator);
+    defer state.const_names.deinit();
+    try state.const_names.put("SLA_THREAD_VT_0", {});
+
+    var item = inst.makeInstruction(.borrow, 1, 0, null, "");
+    item.operands[0] = .{ .reg = 1 };
+    item.operands[1] = .{ .reg = 0 };
+
+    const got = try assignOperand(&state, item);
+    defer if (got.name) |name| std.testing.allocator.free(std.mem.span(name));
+    try std.testing.expectEqual(COperandKind.const_ptr, got.kind);
+    try std.testing.expect(got.name != null);
+    try std.testing.expectEqualStrings("SLA_THREAD_VT_0", std.mem.sliceTo(got.name.?, 0));
 }
 
 test "llvmc backend can construct and write bitcode in memory" {

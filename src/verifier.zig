@@ -253,6 +253,27 @@ fn operandName(symbol_names: []const []const u8, operand: inst.Operand) []const 
     };
 }
 
+fn operandDebugName(operand: inst.Operand) []const u8 {
+    return switch (operand) {
+        .reg => |id| switch (id) {
+            0 => "r0",
+            1 => "r1",
+            2 => "r2",
+            3 => "r3",
+            4 => "r4",
+            5 => "r5",
+            6 => "r6",
+            7 => "r7",
+            8 => "r8",
+            9 => "r9",
+            else => "r",
+        },
+        .text => |text| text,
+        .native_text => |text| text,
+        else => "",
+    };
+}
+
 fn structuredInstForm(kind: inst.InstKind) ?classifier.InstructionForm {
     return switch (kind) {
         .alloc => .alloc,
@@ -333,7 +354,7 @@ fn classifyStructuredInstruction(item: inst.Instruction, symbol_names: []const [
         },
         .store, .atomic_store => {
             addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
-            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
             addStructuredPart(&out, 2, operandName(symbol_names, item.operands[2]));
         },
         .cmpxchg, .atomic_rmw => {
@@ -351,8 +372,8 @@ fn classifyStructuredInstruction(item: inst.Instruction, symbol_names: []const [
         },
         .borrow, .assume_borrow => {
             addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
-            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
-            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[2]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[2]));
+            addStructuredPart(&out, 2, operandName(symbol_names, item.operands[1]));
         },
         .move_, .release, .return_, .panic, .panic_msg, .call_indirect, .try_ => {
             addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
@@ -379,7 +400,7 @@ fn classifyInstructions(allocator: std.mem.Allocator, instructions: []const inst
     errdefer allocator.free(classified_lines);
     for (instructions, 0..) |item, idx| {
         if (builtin.is_test) test_classify_line_count += 1;
-        classified_lines[idx] = if (item.raw_text.len == 0)
+        classified_lines[idx] = if (symbol_names.len != 0 and structuredLineKind(item.kind) != .unknown)
             classifyStructuredInstruction(item, symbol_names)
         else
             classifier.classifyLine(item.raw_text);
@@ -429,6 +450,7 @@ const FunctionRegScope = struct {
     }
 
     fn nameOf(self: *const FunctionRegScope, symbols: *const symbol.SymbolTable, slot: u32) ?[]const u8 {
+        if (@as(usize, @intCast(slot)) >= self.reg_ids.len) return null;
         return symbols.lookupName(self.globalId(slot));
     }
 };
@@ -1148,7 +1170,40 @@ fn markCaretConsumedOperand(operand: inst.Operand, symbols: *const symbol.Symbol
     }
 }
 
-fn markInstructionConsumedRegs(item: inst.Instruction, symbols: *const symbol.SymbolTable, scope: *const FunctionRegScope, consumed_in_function: []bool) void {
+fn markConsumedScopedName(symbols: *const symbol.SymbolTable, scope: *const FunctionRegScope, name: []const u8, consumed_in_function: []bool) void {
+    const global_reg = symbols.findId(name) orelse return;
+    const slot = scope.slotOf(global_reg) orelse return;
+    consumed_in_function[@intCast(slot)] = true;
+}
+
+fn markStructuredCallConsumedRegs(
+    allocator: std.mem.Allocator,
+    item: inst.Instruction,
+    symbols: *const symbol.SymbolTable,
+    scope: *const FunctionRegScope,
+    consumed_in_function: []bool,
+) void {
+    switch (item.kind) {
+        .call, .call_indirect, .panic, .panic_msg => {},
+        else => return,
+    }
+
+    var parsed = parseInstructionCallForFunctionScan(allocator, symbols, scope, item) catch return;
+    defer parsed.deinit(allocator);
+    for (parsed.args) |arg| {
+        if (arg.prefix != .move) continue;
+        if (!isIdentLike(arg.text)) continue;
+        markConsumedScopedName(symbols, scope, arg.text, consumed_in_function);
+    }
+}
+
+fn markInstructionConsumedRegs(
+    allocator: std.mem.Allocator,
+    item: inst.Instruction,
+    symbols: *const symbol.SymbolTable,
+    scope: *const FunctionRegScope,
+    consumed_in_function: []bool,
+) void {
     switch (item.kind) {
         .move_, .release => if (item.operands[0] == .reg) markConsumedGlobalReg(scope, item.operands[0].reg, consumed_in_function),
         .assign => if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function),
@@ -1156,12 +1211,14 @@ fn markInstructionConsumedRegs(item: inst.Instruction, symbols: *const symbol.Sy
         .try_, .early_return => if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function),
         else => {},
     }
+    markStructuredCallConsumedRegs(allocator, item, symbols, scope, consumed_in_function);
     for (item.operands) |operand| {
         markCaretConsumedOperand(operand, symbols, scope, consumed_in_function);
     }
 }
 
 fn computeFunctionConsumedRegs(
+    allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
     function_start_idx: usize,
     symbols: *const symbol.SymbolTable,
@@ -1174,7 +1231,7 @@ fn computeFunctionConsumedRegs(
         const item = instructions[idx];
         if (isDecl(item.kind)) break;
         if (builtin.is_test) test_consumed_scan_count += 1;
-        markInstructionConsumedRegs(item, symbols, scope, consumed_in_function);
+        markInstructionConsumedRegs(allocator, item, symbols, scope, consumed_in_function);
     }
 }
 
@@ -1661,7 +1718,103 @@ fn callTextForInstruction(
     item: inst.Instruction,
 ) ![]u8 {
     _ = symbols;
+    if (item.raw_text.len != 0) return try allocator.dupe(u8, item.raw_text);
+    switch (item.kind) {
+        .call, .call_indirect => {
+            if (item.operands[0] == .reg and item.operands[1] == .text) {
+                return try std.fmt.allocPrint(
+                    allocator,
+                    "{s} = {s} {s}",
+                    .{ operandDebugName(item.operands[0]), if (item.kind == .call) "call" else "call_indirect", item.operands[1].text },
+                );
+            }
+            if (item.operands[0] == .text) {
+                return try std.fmt.allocPrint(
+                    allocator,
+                    "{s} {s}",
+                    .{ if (item.kind == .call) "call" else "call_indirect", item.operands[0].text },
+                );
+            }
+            if (item.operands[1] == .text) {
+                return try std.fmt.allocPrint(
+                    allocator,
+                    "{s} {s}",
+                    .{ if (item.kind == .call) "call" else "call_indirect", item.operands[1].text },
+                );
+            }
+        },
+        .panic, .panic_msg => {
+            const callee = if (item.kind == .panic) "panic" else "panic_msg";
+            if (item.kind == .panic_msg and item.operands[0] != .none and item.operands[1] != .none and item.operands[2] != .none) {
+                return try std.fmt.allocPrint(
+                    allocator,
+                    "{s}({s}, {s}, {s})",
+                    .{ callee, operandDebugName(item.operands[0]), operandDebugName(item.operands[1]), operandDebugName(item.operands[2]) },
+                );
+            }
+            if (item.operands[0] == .text) {
+                const arg = item.operands[0].text;
+                if (arg.len >= 2 and arg[0] == '(' and arg[arg.len - 1] == ')') {
+                    return try std.fmt.allocPrint(allocator, "{s}{s}", .{ callee, arg });
+                }
+                return try std.fmt.allocPrint(allocator, "{s}({s})", .{ callee, arg });
+            }
+            if (item.operands[0] == .reg) {
+                return try std.fmt.allocPrint(allocator, "{s}({s})", .{ callee, operandDebugName(item.operands[0]) });
+            }
+        },
+        else => {},
+    }
     return try allocator.dupe(u8, item.raw_text);
+}
+
+fn parseInstructionCallForVerifier(
+    allocator: std.mem.Allocator,
+    symbols: *const symbol.SymbolTable,
+    item: inst.Instruction,
+) !call.ParsedCall {
+    return try call.parseInstructionCall(allocator, item, symbols);
+}
+
+const ScopedSymbolLookup = struct {
+    symbols: *const symbol.SymbolTable,
+    scope: *const FunctionRegScope,
+
+    pub fn lookupName(self: ScopedSymbolLookup, id: u32) ?[]const u8 {
+        return self.scope.nameOf(self.symbols, id) orelse self.symbols.lookupName(id);
+    }
+};
+
+fn parseInstructionCallForLocalizedVerifier(
+    allocator: std.mem.Allocator,
+    symbols: *const symbol.SymbolTable,
+    scope: ?*const FunctionRegScope,
+    item: inst.Instruction,
+) !call.ParsedCall {
+    if (scope) |active_scope| {
+        const lookup = ScopedSymbolLookup{ .symbols = symbols, .scope = active_scope };
+        return try call.parseInstructionCall(allocator, item, lookup);
+    }
+    return try parseInstructionCallForVerifier(allocator, symbols, item);
+}
+
+const ScopedGlobalFirstSymbolLookup = struct {
+    symbols: *const symbol.SymbolTable,
+    scope: *const FunctionRegScope,
+
+    pub fn lookupName(self: ScopedGlobalFirstSymbolLookup, id: u32) ?[]const u8 {
+        return self.symbols.lookupName(id) orelse self.scope.nameOf(self.symbols, id);
+    }
+};
+
+fn parseInstructionCallForFunctionScan(
+    allocator: std.mem.Allocator,
+    symbols: *const symbol.SymbolTable,
+    scope: *const FunctionRegScope,
+    item: inst.Instruction,
+) !call.ParsedCall {
+    const lookup = ScopedGlobalFirstSymbolLookup{ .symbols = symbols, .scope = scope };
+    return try call.parseInstructionCall(allocator, item, lookup);
 }
 
 fn callPrefixMatchesParam(param: sig.ParamSpec, arg_prefix: inst.CapPrefix) bool {
@@ -1783,7 +1936,7 @@ fn buildFunctionRegScope(
 
         switch (item.kind) {
             .call, .call_indirect, .panic, .panic_msg, .return_, .native => {
-                if (call.parseCall(allocator, item.raw_text)) |parsed0| {
+            if (parseInstructionCallForVerifier(allocator, &symbols, item)) |parsed0| {
                     var parsed = parsed0;
                     defer parsed.deinit(allocator);
                     if (parsed.dest) |dest| {
@@ -1935,7 +2088,7 @@ fn collectMetadata(
             }
         }
 
-        if (call.parseCall(allocator, item.raw_text)) |parsed0| {
+        if (parseInstructionCallForVerifier(allocator, &symbols, item)) |parsed0| {
             var parsed = parsed0;
             defer parsed.deinit(allocator);
             if (parsed.dest) |dest| {
@@ -2041,7 +2194,7 @@ fn collectMetadata(
                 if (classified.part_count > 1 and isIdentLike(classified.parts[1])) _ = try symbols.intern(classified.parts[1]);
             },
             .call, .call_indirect, .panic, .panic_msg, .return_, .native => {
-                if (call.parseCall(allocator, item.raw_text)) |parsed0| {
+                if (parseInstructionCallForVerifier(allocator, &symbols, item)) |parsed0| {
                     var parsed = parsed0;
                     defer parsed.deinit(allocator);
                     if (parsed.dest) |dest| {
@@ -2770,7 +2923,7 @@ fn verifyBody(
                     .interior_offset_known = interior_offset_known,
                 };
                 current_scope = next_scope;
-                computeFunctionConsumedRegs(instructions, inst_idx, &metadata.symbols, &current_scope.?, consumed_in_function);
+                computeFunctionConsumedRegs(allocator, instructions, inst_idx, &metadata.symbols, &current_scope.?, consumed_in_function);
                 errdefer {
                     if (current_scope) |*scope| scope.deinit();
                     current_scope = null;
@@ -3219,9 +3372,7 @@ fn verifyBody(
                 terminated = true;
             },
             .call, .call_indirect, .panic, .panic_msg => {
-                const call_text = try callTextForInstruction(allocator, &metadata.symbols, item);
-                defer allocator.free(call_text);
-                var parsed = call.parseCall(allocator, call_text) catch {
+                var parsed = parseInstructionCallForLocalizedVerifier(allocator, &metadata.symbols, if (current_scope) |*scope| scope else null, item) catch {
                     return trapReport(.forbidden_syntax, item, current_function_text, current_is_ffi_wrapper, null, null, null, "invalid call syntax", null);
                 };
                 defer parsed.deinit(allocator);
@@ -6208,6 +6359,100 @@ test "predecoded metadata verifies basic instructions without raw text" {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
             try std.testing.expectEqual(@as(usize, 3), owned.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "predecoded structured call move args mark function consumed regs" {
+    var symbols = symbol.SymbolTable.init(std.testing.allocator);
+    defer symbols.deinit();
+
+    _ = try symbols.intern("sa_vec_extend_from_slice");
+    _ = try symbols.intern("padding");
+    const dst_vec = try symbols.intern("dst_vec");
+
+    const reg_ids = [_]u32{dst_vec};
+    var scope = try FunctionRegScope.initBorrowed(std.testing.allocator, reg_ids[0..]);
+    defer scope.deinit();
+
+    var call_item = inst.makeInstruction(.call, 42, 1, null, "");
+    call_item.operands[0] = .{ .reg = dst_vec };
+    call_item.operands[1] = .{ .text = "@sa_vec_extend_from_slice(^dst_vec)" };
+
+    var consumed = [_]bool{false};
+    markInstructionConsumedRegs(std.testing.allocator, call_item, &symbols, &scope, consumed[0..]);
+
+    try std.testing.expect(consumed[0]);
+}
+
+test "predecoded structured call supports move arg rebound to same destination" {
+    const symbol_names = [_][]const u8{
+        "sa_vec_extend_from_slice",
+        "sa_vec_append",
+        "dst_vec",
+        "src_slice",
+        "elem_size",
+    };
+    const params = [_]sig.ParamSpec{
+        .{ .name = "dst_vec", .ty = .ptr, .cap = .move },
+        .{ .name = "src_slice", .ty = .ptr, .cap = .borrow },
+        .{ .name = "elem_size", .ty = .u64, .cap = .by_value },
+    };
+    const param_ids = [_]u32{ 2, 3, 4 };
+    const reg_ids = [_]u32{ 2, 3, 4 };
+    const callee_sig = sig.FunctionSig{
+        .id = 0,
+        .name = "sa_vec_extend_from_slice",
+        .params = params[0..],
+        .kind = .external,
+        .return_cap = .move,
+        .return_ty = .ptr,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .param_ids = param_ids[0..],
+        .reg_ids = reg_ids[0..],
+    };
+    const caller_sig = sig.FunctionSig{
+        .id = 1,
+        .name = "sa_vec_append",
+        .params = params[0..],
+        .kind = .exported,
+        .return_cap = .move,
+        .return_ty = .ptr,
+        .entry_inst_idx = 1,
+        .is_ffi_wrapper = false,
+        .param_ids = param_ids[0..],
+        .reg_ids = reg_ids[0..],
+    };
+
+    var callee_decl = inst.makeInstruction(.extern_decl, 1, 0, null, "");
+    callee_decl.operands[0] = .{ .symbol = 0 };
+    callee_decl.operands[1] = .{ .func = 0 };
+    var caller_decl = inst.makeInstruction(.export_decl, 2, 1, null, "");
+    caller_decl.operands[0] = .{ .symbol = 1 };
+    caller_decl.operands[1] = .{ .func = 1 };
+    var call_item = inst.makeInstruction(.call, 3, 2, null, "");
+    call_item.operands[0] = .{ .reg = 2 };
+    call_item.operands[1] = .{ .text = "@sa_vec_extend_from_slice(^dst_vec, &src_slice, elem_size)" };
+    var release_slice = inst.makeInstruction(.release, 4, 3, null, "");
+    release_slice.operands[0] = .{ .reg = 3 };
+    var release_elem_size = inst.makeInstruction(.release, 5, 4, null, "");
+    release_elem_size.operands[0] = .{ .reg = 4 };
+    var ret = inst.makeInstruction(.return_, 6, 5, null, "");
+    ret.operands[0] = .{ .reg = 2 };
+
+    const instructions = [_]inst.Instruction{ callee_decl, caller_decl, call_item, release_slice, release_elem_size, ret };
+    const verified = try verifyWithOptions(std.testing.allocator, instructions[0..], &.{}, .{
+        .jobs = 1,
+        .predecoded_symbol_names = symbol_names[0..],
+        .predecoded_function_sigs = &.{ callee_sig, caller_sig },
+    });
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
     }

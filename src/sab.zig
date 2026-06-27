@@ -8,7 +8,7 @@ const inst = instruction;
 const sig = signature;
 
 pub const magic = "SAB\x00";
-pub const version_major: u8 = 3;
+pub const version_major: u8 = 4;
 pub const version_minor: u8 = 0;
 
 const SectionId = enum(u64) {
@@ -415,12 +415,6 @@ fn writeInstructions(writer: anytype, instructions: []const inst.Instruction, po
         try encodeUleb128(writer, item.expanded_line);
         try writeOptionalEnum(writer, item.op_kind);
         for (item.operands) |operand| try writeOperand(writer, operand, pool);
-        if (item.raw_text.len != 0) {
-            try writer.writeByte(1);
-            try encodeUleb128(writer, try poolId(pool, item.raw_text));
-        } else {
-            try writer.writeByte(0);
-        }
         try writer.writeByte(if (item.atomic_value_ty) |_| 1 else 0);
         if (item.atomic_value_ty) |ty| try encodeUleb128(writer, ty);
         try writeOptionalEnum(writer, item.atomic_ordering);
@@ -740,7 +734,7 @@ fn freeDecodedInstructionMetadata(allocator: std.mem.Allocator, instructions: []
     for (instructions) |*item| freeDecodedInstructionMetadataOne(allocator, item);
 }
 
-fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), payload: []const u8, has_raw_text: bool, has_full_metadata: bool) ![]inst.Instruction {
+fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), payload: []const u8, has_raw_text: bool, has_full_metadata: bool, synthesize_debug_text: bool) ![]inst.Instruction {
     var cursor = Cursor{ .bytes = payload };
     const count = try decodeUleb128(&cursor);
     if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
@@ -786,7 +780,7 @@ fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, o
             item.package_source_sha256 = try readOptionalHash(&cursor);
             item.upstream_loc = try readOptionalAllocUpstreamLoc(allocator, symbols, &cursor);
         }
-        if (item.raw_text.len == 0) try synthesizeRawText(allocator, symbols, owned_text, item);
+        if (synthesize_debug_text and item.raw_text.len == 0) try synthesizeRawText(allocator, symbols, owned_text, item);
         item.expanded_line = @intCast(idx);
         item_initialized = true;
         initialized += 1;
@@ -804,7 +798,6 @@ pub fn encodeProgramWithConsts(allocator: std.mem.Allocator, symbols: []const []
         try addPoolText(&pool_items, &pool, name);
     }
     for (instructions) |item| {
-        if (item.raw_text.len != 0) try addPoolText(&pool_items, &pool, item.raw_text);
         if (item.atomic_expected_text) |text| try addPoolText(&pool_items, &pool, text);
         if (item.atomic_new_text) |text| try addPoolText(&pool_items, &pool, text);
         for (item.native_reg_names) |name| try addPoolText(&pool_items, &pool, name);
@@ -874,9 +867,10 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
     var cursor = Cursor{ .bytes = bytes, .index = magic.len };
     const major = try cursor.readByte();
     _ = try cursor.readByte();
-    if (major != 1 and major != 2 and major != version_major) return error.UnsupportedSabVersion;
-    const has_raw_text = major >= 2;
+    if (major != 1 and major != 2 and major != 3 and major != version_major) return error.UnsupportedSabVersion;
+    const has_raw_text = major >= 2 and major < 4;
     const has_full_metadata = major >= 3;
+    const synthesize_debug_text = major < 4;
 
     var symbols: []const []const u8 = &.{};
     var function_sigs: []sig.FunctionSig = &.{};
@@ -897,7 +891,7 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
         if (id == @intFromEnum(SectionId.symbol_pool)) symbols = try readStringPool(allocator, payload);
         if (id == @intFromEnum(SectionId.function_sigs)) function_sigs = try readFunctionSigs(allocator, symbols, payload, has_full_metadata);
         if (id == @intFromEnum(SectionId.const_decls)) const_decls = try readConstDecls(allocator, symbols, payload, has_full_metadata);
-        if (id == @intFromEnum(SectionId.instructions)) instructions = try readInstructions(allocator, symbols, &owned_text, payload, has_raw_text, has_full_metadata);
+        if (id == @intFromEnum(SectionId.instructions)) instructions = try readInstructions(allocator, symbols, &owned_text, payload, has_raw_text, has_full_metadata, synthesize_debug_text);
     }
     return .{ .symbols = symbols, .function_sigs = function_sigs, .const_decls = const_decls, .instructions = instructions orelse return error.MissingInstructionSection, .owned_text = try owned_text.toOwnedSlice() };
 }
@@ -993,7 +987,7 @@ test "sleb128 roundtrip" {
     }
 }
 
-test "sab instruction roundtrip preserves raw source text" {
+test "sab instruction roundtrip keeps semantics without raw source text" {
     const symbols = [_][]const u8{ "main", "value" };
     var item = inst.makeInstruction(.assign, 2, 0, null, "value = 7");
     item.operands[0] = .{ .reg = 1 };
@@ -1001,7 +995,7 @@ test "sab instruction roundtrip preserves raw source text" {
 
     const encoded = try encodeModule(std.testing.allocator, symbols[0..], &.{item});
     defer std.testing.allocator.free(encoded);
-    try std.testing.expect(std.mem.indexOf(u8, encoded, "value = 7") != null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "value = 7") == null);
 
     var decoded = try decodeModule(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
@@ -1009,26 +1003,26 @@ test "sab instruction roundtrip preserves raw source text" {
     try std.testing.expectEqual(inst.InstKind.assign, decoded.instructions[0].kind);
     try std.testing.expectEqual(@as(u32, 1), decoded.instructions[0].operands[0].reg);
     try std.testing.expectEqual(@as(i64, 7), decoded.instructions[0].operands[1].imm_i64);
-    try std.testing.expectEqualStrings("value = 7", decoded.instructions[0].raw_text);
+    try std.testing.expectEqualStrings("", decoded.instructions[0].raw_text);
 }
 
-test "sab text operands roundtrip alongside raw source text" {
+test "sab text operands roundtrip without raw source text" {
     var item = inst.makeInstruction(.panic, 3, 0, null, "panic(7)");
     item.operands[0] = .{ .text = "7" };
 
     const encoded = try encodeModule(std.testing.allocator, &.{}, &.{item});
     defer std.testing.allocator.free(encoded);
-    try std.testing.expect(std.mem.indexOf(u8, encoded, "panic(7)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "panic(7)") == null);
     try std.testing.expect(std.mem.indexOf(u8, encoded, "7") != null);
 
     var decoded = try decodeModule(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
     try std.testing.expectEqual(inst.InstKind.panic, decoded.instructions[0].kind);
     try std.testing.expectEqualStrings("7", decoded.instructions[0].operands[0].text);
-    try std.testing.expectEqualStrings("panic(7)", decoded.instructions[0].raw_text);
+    try std.testing.expectEqualStrings("", decoded.instructions[0].raw_text);
 }
 
-test "sab borrow roundtrip preserves raw source text" {
+test "sab borrow roundtrip preserves structured operands" {
     const symbols = [_][]const u8{ "GLOBAL", "view" };
     var item = inst.makeInstruction(.borrow, 4, 0, null, "view = &GLOBAL");
     item.operands[0] = .{ .reg = 1 };
@@ -1042,7 +1036,10 @@ test "sab borrow roundtrip preserves raw source text" {
     var decoded = try decodeModule(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
     try std.testing.expectEqual(inst.InstKind.borrow, decoded.instructions[0].kind);
-    try std.testing.expectEqualStrings("view = &GLOBAL", decoded.instructions[0].raw_text);
+    try std.testing.expectEqual(@as(u32, 1), decoded.instructions[0].operands[0].reg);
+    try std.testing.expectEqual(@as(u32, 0), decoded.instructions[0].operands[1].reg);
+    try std.testing.expectEqualStrings("read", decoded.instructions[0].operands[2].text);
+    try std.testing.expectEqualStrings("", decoded.instructions[0].raw_text);
 }
 
 fn decodedOwnsPooledText(module: *const Module, text: []const u8) bool {
@@ -1073,7 +1070,7 @@ fn expectOperandEqual(expected: inst.Operand, got: inst.Operand) !void {
     }
 }
 
-test "sab v3 preserves instruction metadata required by SA backends" {
+test "sab v4 preserves structured instruction metadata required by SA backends" {
     const symbols = [_][]const u8{ "ok", "slot", "base", "offset", "old", "new", "pkg", "pkg/main.sa", "native_name" };
     var hash = [_]u8{0} ** 32;
     hash[0] = 0xaa;
@@ -1108,7 +1105,7 @@ test "sab v3 preserves instruction metadata required by SA backends" {
     try std.testing.expectEqualStrings("pkg/main.sa", got.upstream_loc.?.file);
     try std.testing.expectEqual(@as(u32, 9), got.upstream_loc.?.line);
     try std.testing.expectEqual(@as(u32, 5), got.upstream_loc.?.col);
-    try std.testing.expect(decodedOwnsPooledText(&decoded, got.raw_text));
+    try std.testing.expectEqualStrings("", got.raw_text);
     try std.testing.expect(!decodedOwnsPooledText(&decoded, got.package_identity.?));
     try std.testing.expect(!decodedOwnsPooledText(&decoded, got.upstream_loc.?.file));
 }
@@ -1146,7 +1143,7 @@ test "sab roundtrip covers every SA instruction and op kind" {
     for (instructions.items, decoded.instructions) |expected, got| {
         try std.testing.expectEqual(expected.kind, got.kind);
         try std.testing.expectEqual(expected.op_kind, got.op_kind);
-        try std.testing.expectEqualStrings(expected.raw_text, got.raw_text);
+        try std.testing.expectEqualStrings("", got.raw_text);
     }
 }
 
@@ -1203,7 +1200,7 @@ test "sab roundtrip covers every SA operand kind" {
     }
 }
 
-test "sab parenthesized panic operand is not double wrapped" {
+test "sab parenthesized panic operand stays structured" {
     var item = inst.makeInstruction(.panic, 3, 0, null, "");
     item.operands[0] = .{ .text = "(1701)" };
 
@@ -1213,10 +1210,11 @@ test "sab parenthesized panic operand is not double wrapped" {
     var decoded = try decodeModule(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
     try std.testing.expectEqual(inst.InstKind.panic, decoded.instructions[0].kind);
-    try std.testing.expectEqualStrings("panic(1701)", decoded.instructions[0].raw_text);
+    try std.testing.expectEqualStrings("(1701)", decoded.instructions[0].operands[0].text);
+    try std.testing.expectEqualStrings("", decoded.instructions[0].raw_text);
 }
 
-test "sab no-destination call synthesizes raw text from first operand" {
+test "sab no-destination call stays structured" {
     var item = inst.makeInstruction(.call, 3, 0, null, "");
     item.operands[0] = .{ .text = "@sink(value)" };
 
@@ -1226,7 +1224,8 @@ test "sab no-destination call synthesizes raw text from first operand" {
     var decoded = try decodeModule(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
     try std.testing.expectEqual(inst.InstKind.call, decoded.instructions[0].kind);
-    try std.testing.expectEqualStrings("call @sink(value)", decoded.instructions[0].raw_text);
+    try std.testing.expectEqualStrings("@sink(value)", decoded.instructions[0].operands[0].text);
+    try std.testing.expectEqualStrings("", decoded.instructions[0].raw_text);
 }
 
 test "sab function signatures roundtrip without function header text" {

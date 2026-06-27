@@ -31,6 +31,33 @@ pub const ParsedCall = struct {
     }
 };
 
+fn operandTextFromInstruction(operand: common_instruction.Operand, symbols: anytype) ?[]const u8 {
+    return switch (operand) {
+        .reg => |id| symbols.lookupName(id),
+        .symbol => |id| symbols.lookupName(id),
+        .label => |id| symbols.lookupName(id),
+        .func => |id| symbols.lookupName(id),
+        .text => |text| text,
+        .native_text => |text| text,
+        .imm_i64, .imm_u64, .imm_int, .imm_float => null,
+        else => null,
+    };
+}
+
+fn parsedArgFromOperand(allocator: std.mem.Allocator, operand: common_instruction.Operand, symbols: anytype) !ParsedArg {
+    const text = operandTextFromInstruction(operand, symbols) orelse return CallError.InvalidCallSyntax;
+    return try parseArg(allocator, text);
+}
+
+fn parsedSpecialArgFromOperand(allocator: std.mem.Allocator, operand: common_instruction.Operand, symbols: anytype) !ParsedArg {
+    const text = operandTextFromInstruction(operand, symbols) orelse return CallError.InvalidCallSyntax;
+    const trimmed = std.mem.trim(u8, text, " \t");
+    if (trimmed.len >= 2 and trimmed[0] == '(' and trimmed[trimmed.len - 1] == ')') {
+        return try parseArg(allocator, trimmed[1 .. trimmed.len - 1]);
+    }
+    return try parseArg(allocator, trimmed);
+}
+
 fn parseArg(allocator: std.mem.Allocator, text: []const u8) !ParsedArg {
     const trimmed = std.mem.trim(u8, text, " \t");
     if (trimmed.len == 0) return CallError.InvalidCallSyntax;
@@ -256,6 +283,43 @@ pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall
     return CallError.InvalidCallSyntax;
 }
 
+pub fn parseInstructionCall(allocator: std.mem.Allocator, item: common_instruction.Instruction, symbols: anytype) !ParsedCall {
+    if (item.raw_text.len != 0) return parseCall(allocator, item.raw_text);
+    return switch (item.kind) {
+        .call, .call_indirect => blk: {
+            const has_dest = item.operands[0] == .reg;
+            const body_operand = if (has_dest) item.operands[1] else item.operands[0];
+            const body = operandTextFromInstruction(body_operand, symbols) orelse return CallError.InvalidCallSyntax;
+            var parsed = try parseCallBody(allocator, body, item.kind == .call_indirect);
+            errdefer parsed.deinit(allocator);
+            if (has_dest) {
+                parsed.dest = try allocator.dupe(u8, operandTextFromInstruction(item.operands[0], symbols) orelse return CallError.InvalidCallSyntax);
+            }
+            break :blk parsed;
+        },
+        .panic => blk: {
+            var args = try allocator.alloc(ParsedArg, 1);
+            errdefer allocator.free(args);
+            args[0] = try parsedSpecialArgFromOperand(allocator, item.operands[0], symbols);
+            break :blk .{ .dest = null, .callee = try allocator.dupe(u8, "panic"), .args = args, .is_indirect = false };
+        },
+        .panic_msg => blk: {
+            var args = try allocator.alloc(ParsedArg, 3);
+            errdefer allocator.free(args);
+            var initialized: usize = 0;
+            errdefer for (args[0..initialized]) |arg| allocator.free(arg.text);
+            args[0] = try parsedArgFromOperand(allocator, item.operands[0], symbols);
+            initialized += 1;
+            args[1] = try parsedArgFromOperand(allocator, item.operands[1], symbols);
+            initialized += 1;
+            args[2] = try parsedArgFromOperand(allocator, item.operands[2], symbols);
+            initialized += 1;
+            break :blk .{ .dest = null, .callee = try allocator.dupe(u8, "panic_msg"), .args = args, .is_indirect = false };
+        },
+        else => CallError.InvalidCallSyntax,
+    };
+}
+
 fn validatePrefix(expected: common_instruction.CapPrefix, actual: common_instruction.CapPrefix) bool {
     return expected == actual;
 }
@@ -342,6 +406,54 @@ test "parse and validate panic builtins" {
     try std.testing.expectEqual(common_instruction.CapPrefix.by_value, msg_call.args[0].prefix);
     try std.testing.expectEqual(common_instruction.CapPrefix.raw, msg_call.args[1].prefix);
     try std.testing.expectEqual(common_instruction.CapPrefix.by_value, msg_call.args[2].prefix);
+}
+
+const TestSymbols = struct {
+    names: []const []const u8,
+
+    pub fn lookupName(self: *const TestSymbols, id: u32) ?[]const u8 {
+        const idx: usize = @intCast(id);
+        if (idx >= self.names.len) return null;
+        return self.names[idx];
+    }
+};
+
+test "parseInstructionCall decodes structured call instructions without raw text" {
+    const symbols = TestSymbols{ .names = &.{ "dst", "input" } };
+    var item = common_instruction.makeInstruction(.call, 1, 0, null, "");
+    item.operands[0] = .{ .reg = 0 };
+    item.operands[1] = .{ .text = "@consume(^input)" };
+
+    var parsed = try parseInstructionCall(std.testing.allocator, item, &symbols);
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("dst", parsed.dest.?);
+    try std.testing.expectEqualStrings("consume", parsed.callee);
+    try std.testing.expectEqual(@as(usize, 1), parsed.args.len);
+    try std.testing.expectEqual(common_instruction.CapPrefix.move, parsed.args[0].prefix);
+    try std.testing.expectEqualStrings("input", parsed.args[0].text);
+}
+
+test "parseInstructionCall decodes structured panic instructions without raw text" {
+    const symbols = TestSymbols{ .names = &.{ "code", "msg", "len" } };
+    var panic_item = common_instruction.makeInstruction(.panic, 1, 0, null, "");
+    panic_item.operands[0] = .{ .reg = 0 };
+
+    var parsed_panic = try parseInstructionCall(std.testing.allocator, panic_item, &symbols);
+    defer parsed_panic.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("panic", parsed_panic.callee);
+    try std.testing.expectEqualStrings("code", parsed_panic.args[0].text);
+
+    var panic_msg = common_instruction.makeInstruction(.panic_msg, 2, 1, null, "");
+    panic_msg.operands[0] = .{ .reg = 0 };
+    panic_msg.operands[1] = .{ .text = "*msg" };
+    panic_msg.operands[2] = .{ .reg = 2 };
+
+    var parsed_msg = try parseInstructionCall(std.testing.allocator, panic_msg, &symbols);
+    defer parsed_msg.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("panic_msg", parsed_msg.callee);
+    try std.testing.expectEqual(common_instruction.CapPrefix.raw, parsed_msg.args[1].prefix);
+    try std.testing.expectEqualStrings("msg", parsed_msg.args[1].text);
+    try std.testing.expectEqualStrings("len", parsed_msg.args[2].text);
 }
 
 test "parseCall rejects trailing garbage on special calls" {
