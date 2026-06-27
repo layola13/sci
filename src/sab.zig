@@ -1052,6 +1052,27 @@ fn decodedOwnsPooledText(module: *const Module, text: []const u8) bool {
     return false;
 }
 
+fn expectOperandEqual(expected: inst.Operand, got: inst.Operand) !void {
+    try std.testing.expectEqual(std.meta.activeTag(expected), std.meta.activeTag(got));
+    switch (expected) {
+        .none => {},
+        .reg => |value| try std.testing.expectEqual(value, got.reg),
+        .symbol => |value| try std.testing.expectEqual(value, got.symbol),
+        .label => |value| try std.testing.expectEqual(value, got.label),
+        .func => |value| try std.testing.expectEqual(value, got.func),
+        .imm_i64 => |value| try std.testing.expectEqual(value, got.imm_i64),
+        .imm_u64 => |value| try std.testing.expectEqual(value, got.imm_u64),
+        .imm_int => |value| try std.testing.expectEqual(value, got.imm_int),
+        .imm_float => |value| try std.testing.expectEqual(@as(u64, @bitCast(value)), @as(u64, @bitCast(got.imm_float))),
+        .op_code => |value| try std.testing.expectEqual(value, got.op_code),
+        .cap_prefix => |value| try std.testing.expectEqual(value, got.cap_prefix),
+        .offset => |value| try std.testing.expectEqual(value, got.offset),
+        .ty => |value| try std.testing.expectEqual(value, got.ty),
+        .text => |value| try std.testing.expectEqualStrings(value, got.text),
+        .native_text => |value| try std.testing.expectEqualStrings(value, got.native_text),
+    }
+}
+
 test "sab v3 preserves instruction metadata required by SA backends" {
     const symbols = [_][]const u8{ "ok", "slot", "base", "offset", "old", "new", "pkg", "pkg/main.sa", "native_name" };
     var hash = [_]u8{0} ** 32;
@@ -1090,6 +1111,96 @@ test "sab v3 preserves instruction metadata required by SA backends" {
     try std.testing.expect(decodedOwnsPooledText(&decoded, got.raw_text));
     try std.testing.expect(!decodedOwnsPooledText(&decoded, got.package_identity.?));
     try std.testing.expect(!decodedOwnsPooledText(&decoded, got.upstream_loc.?.file));
+}
+
+test "sab roundtrip covers every SA instruction and op kind" {
+    var instructions = std.ArrayList(inst.Instruction).init(std.testing.allocator);
+    defer instructions.deinit();
+
+    inline for (std.meta.fields(inst.InstKind)) |field| {
+        const kind: inst.InstKind = @enumFromInt(field.value);
+        var item = inst.makeInstruction(kind, 10, @intCast(instructions.items.len), null, @tagName(kind));
+        item.operands[0] = .{ .reg = 0 };
+        item.operands[1] = .{ .symbol = 1 };
+        item.operands[2] = .{ .label = 2 };
+        item.operands[3] = if (kind == .native) .{ .native_text = "mov native" } else .{ .text = @tagName(kind) };
+        try instructions.append(item);
+    }
+
+    inline for (std.meta.fields(inst.OpKind)) |field| {
+        const op_kind: inst.OpKind = @enumFromInt(field.value);
+        var item = inst.makeInstruction(.op, 20, @intCast(instructions.items.len), null, @tagName(op_kind));
+        item.op_kind = op_kind;
+        item.operands[0] = .{ .reg = 0 };
+        item.operands[1] = .{ .reg = 1 };
+        item.operands[2] = .{ .reg = 2 };
+        try instructions.append(item);
+    }
+
+    const encoded = try encodeModule(std.testing.allocator, &.{ "r0", "sym", "label" }, instructions.items);
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decodeModule(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(instructions.items.len, decoded.instructions.len);
+    for (instructions.items, decoded.instructions) |expected, got| {
+        try std.testing.expectEqual(expected.kind, got.kind);
+        try std.testing.expectEqual(expected.op_kind, got.op_kind);
+        try std.testing.expectEqualStrings(expected.raw_text, got.raw_text);
+    }
+}
+
+test "sab roundtrip covers every SA operand kind" {
+    var instructions = std.ArrayList(inst.Instruction).init(std.testing.allocator);
+    defer instructions.deinit();
+
+    const samples = [_]inst.Operand{
+        .{ .none = {} },
+        .{ .reg = 0 },
+        .{ .symbol = 1 },
+        .{ .label = 2 },
+        .{ .func = 3 },
+        .{ .imm_i64 = -42 },
+        .{ .imm_u64 = 42 },
+        .{ .imm_int = -7 },
+        .{ .imm_float = 3.5 },
+        .{ .op_code = .add },
+        .{ .cap_prefix = .borrow },
+        .{ .offset = 99 },
+        .{ .ty = 4 },
+        .{ .text = "plain operand text" },
+        .{ .native_text = "mov %rax, %rbx" },
+    };
+
+    for (samples, 0..) |operand, idx| {
+        var item = inst.makeInstruction(.assign, 30, @intCast(idx), null, "operand sample");
+        item.operands[0] = operand;
+        try instructions.append(item);
+    }
+
+    inline for (std.meta.fields(inst.OpCode)) |field| {
+        const value: inst.OpCode = @enumFromInt(field.value);
+        var item = inst.makeInstruction(.op, 40, @intCast(instructions.items.len), null, @tagName(value));
+        item.operands[0] = .{ .op_code = value };
+        try instructions.append(item);
+    }
+
+    inline for (std.meta.fields(inst.CapPrefix)) |field| {
+        const value: inst.CapPrefix = @enumFromInt(field.value);
+        var item = inst.makeInstruction(.borrow, 50, @intCast(instructions.items.len), null, @tagName(value));
+        item.operands[0] = .{ .cap_prefix = value };
+        try instructions.append(item);
+    }
+
+    const encoded = try encodeModule(std.testing.allocator, &.{ "r0", "sym", "label", "fn", "ty" }, instructions.items);
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decodeModule(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(instructions.items.len, decoded.instructions.len);
+    for (instructions.items, decoded.instructions) |expected, got| {
+        try expectOperandEqual(expected.operands[0], got.operands[0]);
+    }
 }
 
 test "sab parenthesized panic operand is not double wrapped" {
