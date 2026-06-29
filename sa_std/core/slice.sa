@@ -120,6 +120,274 @@ L_SLICE_TRY_GET_MISS_%out_ok:
 L_SLICE_TRY_GET_END_%out_ok:
 [END_MACRO]
 
+[MACRO] SLICE_TRY_GET_TYPED_I1 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_I1_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_I1_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_I1_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as i1
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_I1_END_%out_ok
+L_SLICE_TRY_GET_TYPED_I1_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_I1_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_I8 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_I8_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_I8_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_I8_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as i8
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_I8_END_%out_ok
+L_SLICE_TRY_GET_TYPED_I8_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_I8_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_I16 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_I16_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_I16_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_I16_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as i16
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_I16_END_%out_ok
+L_SLICE_TRY_GET_TYPED_I16_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_I16_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_I32 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_I32_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_I32_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_I32_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as i32
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_I32_END_%out_ok
+L_SLICE_TRY_GET_TYPED_I32_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_I32_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_I64 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_I64_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_I64_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_I64_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as i64
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_I64_END_%out_ok
+L_SLICE_TRY_GET_TYPED_I64_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_I64_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_U8 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_U8_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_U8_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_U8_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as u8
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_U8_END_%out_ok
+L_SLICE_TRY_GET_TYPED_U8_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_U8_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_U16 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_U16_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_U16_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_U16_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as u16
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_U16_END_%out_ok
+L_SLICE_TRY_GET_TYPED_U16_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_U16_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_U32 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_U32_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_U32_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_U32_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as u32
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_U32_END_%out_ok
+L_SLICE_TRY_GET_TYPED_U32_MISS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_U32_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_U64 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_U64 %out_ok, %out_value, %slice_reg, %index
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_F32 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_F32_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_F32_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_F32_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as f32
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_F32_END_%out_ok
+L_SLICE_TRY_GET_TYPED_F32_MISS_%out_ok:
+    %out_value = 0.0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_F32_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_F64 %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_F64_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_F64_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_F64_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as f64
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_F64_END_%out_ok
+L_SLICE_TRY_GET_TYPED_F64_MISS_%out_ok:
+    %out_value = 0.0
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_F64_END_%out_ok:
+[END_MACRO]
+
+[MACRO] SLICE_TRY_GET_TYPED_PTR %out_ok, %out_value, %slice_reg, %index, %elem_size
+    __slice_len_%out_ok = load %slice_reg+Slice_len as u64
+    __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
+    br __slice_in_bounds_%out_ok -> L_SLICE_TRY_GET_TYPED_PTR_HIT_%out_ok, L_SLICE_TRY_GET_TYPED_PTR_MISS_%out_ok
+L_SLICE_TRY_GET_TYPED_PTR_HIT_%out_ok:
+    __slice_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __slice_off_%out_ok = mul %index, %elem_size
+    __slice_item_%out_ok = ptr_add __slice_ptr_%out_ok, __slice_off_%out_ok
+    %out_value = load __slice_item_%out_ok+0 as ptr
+    %out_ok = add 0, 1
+    !__slice_item_%out_ok
+    !__slice_off_%out_ok
+    !__slice_ptr_%out_ok
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+    jmp L_SLICE_TRY_GET_TYPED_PTR_END_%out_ok
+L_SLICE_TRY_GET_TYPED_PTR_MISS_%out_ok:
+    %out_value = 0 as ptr
+    %out_ok = add 0, 0
+    !__slice_in_bounds_%out_ok
+    !__slice_len_%out_ok
+L_SLICE_TRY_GET_TYPED_PTR_END_%out_ok:
+[END_MACRO]
+
 [MACRO] SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg, %index
     __slice_len_%out_ok = load %slice_reg+Slice_len as u64
     __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok

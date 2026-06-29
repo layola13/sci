@@ -202,6 +202,37 @@ test "encodeSabFromFlat writes verified register metadata" {
     }
 }
 
+test "encodeSabFromFlat preserves panic_msg argument body" {
+    const source =
+        \\@const MSG = utf8:"boom"
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    panic_msg(17, *MSG, 4)
+    ;
+
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    const bytes = try encodeSabFromFlat(std.testing.allocator, &flat);
+    defer std.testing.allocator.free(bytes);
+
+    var decoded = try sab.decodeModule(std.testing.allocator, bytes);
+    defer decoded.deinit(std.testing.allocator);
+
+    const verified = try verifier.verifyWithOptions(std.testing.allocator, decoded.instructions, decoded.const_decls, .{
+        .jobs = 1,
+        .predecoded_symbol_names = decoded.symbols,
+        .predecoded_function_sigs = decoded.function_sigs,
+    });
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len != 0);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
 pub fn encodeSabFromFlatUnchecked(
     allocator: std.mem.Allocator,
     flat: *const flattener.FlattenResult,

@@ -304,6 +304,18 @@ pub fn parseInstructionCall(allocator: std.mem.Allocator, item: common_instructi
             break :blk .{ .dest = null, .callee = try allocator.dupe(u8, "panic"), .args = args, .is_indirect = false };
         },
         .panic_msg => blk: {
+            if (item.operands[1] == .none and item.operands[2] == .none) {
+                const text = operandTextFromInstruction(item.operands[0], symbols) orelse return CallError.InvalidCallSyntax;
+                const trimmed = std.mem.trim(u8, text, " \t");
+                if (startsWithWord(trimmed, "panic_msg")) {
+                    break :blk try parseSpecialCallBody(allocator, trimmed, "panic_msg");
+                }
+                if (trimmed.len >= 2 and trimmed[0] == '(' and trimmed[trimmed.len - 1] == ')') {
+                    const body = try std.fmt.allocPrint(allocator, "panic_msg{s}", .{trimmed});
+                    defer allocator.free(body);
+                    break :blk try parseSpecialCallBody(allocator, body, "panic_msg");
+                }
+            }
             var args = try allocator.alloc(ParsedArg, 3);
             errdefer allocator.free(args);
             var initialized: usize = 0;
@@ -454,6 +466,21 @@ test "parseInstructionCall decodes structured panic instructions without raw tex
     try std.testing.expectEqual(common_instruction.CapPrefix.raw, parsed_msg.args[1].prefix);
     try std.testing.expectEqualStrings("msg", parsed_msg.args[1].text);
     try std.testing.expectEqualStrings("len", parsed_msg.args[2].text);
+}
+
+test "parseInstructionCall decodes single operand structured panic_msg" {
+    const symbols = TestSymbols{ .names = &.{} };
+    var item = common_instruction.makeInstruction(.panic_msg, 1, 0, null, "");
+    item.operands[0] = .{ .text = "(17, *RESULT_UNWRAP_PANIC, 39)" };
+
+    var parsed = try parseInstructionCall(std.testing.allocator, item, &symbols);
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("panic_msg", parsed.callee);
+    try std.testing.expectEqual(@as(usize, 3), parsed.args.len);
+    try std.testing.expectEqualStrings("17", parsed.args[0].text);
+    try std.testing.expectEqual(common_instruction.CapPrefix.raw, parsed.args[1].prefix);
+    try std.testing.expectEqualStrings("RESULT_UNWRAP_PANIC", parsed.args[1].text);
+    try std.testing.expectEqualStrings("39", parsed.args[2].text);
 }
 
 test "parseCall rejects trailing garbage on special calls" {
