@@ -388,6 +388,66 @@ L_SLICE_TRY_GET_TYPED_PTR_MISS_%out_ok:
 L_SLICE_TRY_GET_TYPED_PTR_END_%out_ok:
 [END_MACRO]
 
+[MACRO] SLICE_GET_TYPED_I1 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_I1 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_I8 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_I8 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_I16 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_I16 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_I32 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_I32 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_I64 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_I64 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_U8 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_U8 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_U16 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_U16 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_U32 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_U32 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_U64 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_U64 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_F32 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_F32 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_F64 %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_F64 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] SLICE_GET_TYPED_PTR %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_PTR __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
+    !__slice_get_ok_%out_value
+[END_MACRO]
+
 [MACRO] SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg, %index
     __slice_len_%out_ok = load %slice_reg+Slice_len as u64
     __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
