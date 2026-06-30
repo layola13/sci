@@ -199,6 +199,34 @@
     !__vec_get_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_SET_TYPED %vec_reg, %index, %value, %elem_size, %elem_ty
+    __vec_set_view_%value = & %vec_reg
+    __vec_set_len_%value = load __vec_set_view_%value+Vec_len as u64
+    __vec_set_in_bounds_%value = ult %index, __vec_set_len_%value
+    br __vec_set_in_bounds_%value -> L_VEC_SET_TYPED_HIT_%value, L_VEC_SET_TYPED_MISS_%value
+
+L_VEC_SET_TYPED_HIT_%value:
+    __vec_set_ptr_%value = load __vec_set_view_%value+Vec_ptr as ptr
+    __vec_set_off_%value = mul %index, %elem_size
+    __vec_set_item_%value = ptr_add __vec_set_ptr_%value, __vec_set_off_%value
+    store __vec_set_item_%value+0, %value as %elem_ty
+    !__vec_set_item_%value
+    !__vec_set_off_%value
+    !__vec_set_ptr_%value
+    !__vec_set_in_bounds_%value
+    !__vec_set_len_%value
+    !__vec_set_view_%value
+    jmp L_VEC_SET_TYPED_END_%value
+
+L_VEC_SET_TYPED_MISS_%value:
+    !__vec_set_in_bounds_%value
+    !__vec_set_len_%value
+    !__vec_set_view_%value
+    panic(87)
+
+L_VEC_SET_TYPED_END_%value:
+[END_MACRO]
+
 [MACRO] VEC_FRONT %out_value, %vec_reg
     EXPAND VEC_GET %out_value, %vec_reg, 0
 [END_MACRO]
