@@ -5,6 +5,11 @@
     store %out_cell+Cell_value, 0 as i32
 [END_MACRO]
 
+[MACRO] CELL_NEW_VALUE %out_cell, %value
+    %out_cell = alloc Cell_SIZE
+    EXPAND CELL_SET %out_cell, %value
+[END_MACRO]
+
 [MACRO] CELL_GET %out_value, %cell_reg
     %out_value = load %cell_reg+Cell_value as i32
 [END_MACRO]
