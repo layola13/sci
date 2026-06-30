@@ -15,6 +15,11 @@
     !__rc_strong_%rc_reg
 [END_MACRO]
 
+[MACRO] RC_CLONE_OUT %out_rc, %rc_reg
+    %out_rc = add %rc_reg, 0
+    EXPAND RC_CLONE %out_rc
+[END_MACRO]
+
 [MACRO] RC_GET %out_value, %rc_reg
     %out_value = load %rc_reg+RcBox_data as u64
 [END_MACRO]

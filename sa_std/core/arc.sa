@@ -18,6 +18,11 @@ L_ARC_CLONE_OK_%arc_reg:
     !__arc_old_strong_%arc_reg
 [END_MACRO]
 
+[MACRO] ARC_CLONE_OUT %out_arc, %arc_reg
+    %out_arc = add %arc_reg, 0
+    EXPAND ARC_CLONE %out_arc
+[END_MACRO]
+
 [MACRO] ARC_GET %out_value, %arc_reg
     %out_value = load %arc_reg+ArcBox_data as u64
 [END_MACRO]
