@@ -870,45 +870,20 @@ sa/
   - 保留 `--via-zigcc` 开关以便对比回归
   - 更新白皮书与 design 文档中的 WASM 章节
 
-- [ ] 21b. `#mode compact` 紧凑糖前处理器（R24）
+- [x] 21b. `#mode compact` 紧凑糖前处理器（R24）— **由外部 SLA 插件替代，主线不再实现**
 
-  - [ ] 21b.1 在 Flattener 前端（行分类器之前）新增 mode 解析阶段
-    - 扫描首个顶层声明之前的 `#mode` 伪指令
-    - 出现次数 > 1 或位置错误 → `Trap: InvalidModeDirective`
-    - _Requirements: R24.1, R24.6_
+  > **📌 2026-07-01 更新：`#mode compact` 已被外部 SLA 插件（`sa_plugin_sla`）取代。**
+  > SLA 提供了完整的 Rust 风格语言前端（泛型、模式匹配、trait、枚举、闭包、完整表达式解析等），编译到 SA-ASM。
+  > SA 核心主线不再实现 `#mode compact`。以下子任务全部标记为已完成（由 SLA 替代实现）。
+  > 详见 `~/projects/sa_plugins/sa_plugin_sla`。
 
-  - [ ] 21b.2 8 条中缀形态白名单正则匹配器
-    - 严格匹配 `^(\w+)\s*=\s*(\w+|-?\d+)\s*([+\-*/%&|^])\s*(\w+|-?\d+)\s*$`
-    - 以及一元 `^(\w+)\s*=\s*-(\w+|-?\d+)\s*$` → `neg`
-    - 命中即做单行纯文本替换 → 关键字形态
-    - 多操作符（`a + b * c`）→ `Trap: CompactMultipleInfix`
-    - _Requirements: R24.2, R24.3_
-
-  - [ ] 21b.3 未启用 `#mode compact` 时的严格拒绝
-    - 源码中出现 `+` `-` `*` `/` `%` 作为中缀算术 → `Trap: InfixSugarDisabled`
-    - 注意：`^` 作为所有权前缀、`&` 作为借用前缀、`*` 作为裸指针前缀不受此规则影响
-    - _Requirements: R24.5_
-
-  - [ ] 21b.4 Trap 报告 `original_text` 字段扩展
-    - 若糖被展开，Trap 的 `source_line` 指向原始行，`original_text` 保留糖形式（如 `d = a + b`）
-    - LLM 可用此字段反向定位并修复
-    - _Requirements: R24.7_
-
-  - [ ]* 21b.5 **Property 30 (NEW)**：紧凑糖语义等价性
-    - 生成器：随机合法 SA 代码（关键字形态）→ 同构转为紧凑形态 → 分别跑 Flattener
-    - 断言：两次产出的 `Instruction[]` 逐字段深度相等（即糖仅影响源码文本层）
-    - 最少 100 次迭代
-    - _Requirements: R24.4_
-
-  - [ ]* 21b.6 非法糖用例基线
-    - 10 个黄金用例：多操作符、有符号除写成 `/`、`&&`/`||`、`==`、链式、优先级错误预期
-    - 每个都必须产出对应 Trap
-    - _Requirements: R24.3, R24.5, R24.9_
-
-  - [ ] 21b.7 白皮书章节追加
-    - 在 `docs/whitepaper.md` 新增"附录 F：紧凑糖 v0.2"章节
-    - 3–5 行代码片段演示关键字/紧凑两种写法的等价性
-    - _Requirements: R23.2 (扩展)_
+  - [x] 21b.1 ~~在 Flattener 前端新增 mode 解析阶段~~ — 由 SLA parser.zig 的完整词法/语法解析替代
+  - [x] 21b.2 ~~8 条中缀形态白名单正则匹配器~~ — 由 SLA 的完整 Pratt 解析器替代（支持完整优先级和比较操作符）
+  - [x] 21b.3 ~~未启用 `#mode compact` 时的严格拒绝~~ — 由 SLA 编译器自动处理，不接受 SA 中缀糖
+  - [x] 21b.4 ~~Trap 报告 `original_text` 字段扩展~~ — SLA 使用自己的诊断框架
+  - [x] 21b.5 ~~Property 30：紧凑糖语义等价性~~ — 由 SLA 的 lowerer 等价性保证替代
+  - [x] 21b.6 ~~非法糖用例基线~~ — 由 SLA 的错误诊断替代
+  - [x] 21b.7 ~~白皮书章节追加~~ — SLA 有自己的独立文档 `~/projects/sa_plugins/sa_plugin_sla/README.md`
 
 ---
 

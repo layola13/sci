@@ -23,10 +23,13 @@
 ### 1.5 核心产物（MVP 验收目标）
 1. 一份完整可执行的**语言规范白皮书**（< 2000 行，LLM 即读即用）
 2. 一个**前端预处理器**（宏展平 Flattener）
-3. 一个**Referee 状态机验证器**（O(1) 位掩码扫描）
-4. 一个 **SA → LLVM bitcode + WASM** 发射管线（详见 R14）
-5. 基于 Zig 工具链的 **WASM64** 产出管线
-6. 一组覆盖所有权边界条件的**测试集**（≥ 99.9% 通过率）
+3. 一个**SAB 二进制解码器**（`sab.zig`，Y 形双输入架构的二进制路径）
+4. 一个**Referee 状态机验证器**（O(1) 位掩码扫描）
+5. 一个 **SA → LLVM bitcode + WASM** 发射管线（详见 R14）
+6. 基于 Zig 工具链的 **WASM64** 产出管线
+7. 一组覆盖所有权边界条件的**测试集**（≥ 99.9% 通过率）
+
+**Y 形双输入架构**：SA 编译器接受两种输入格式——`.sa` 文本（走 Flattener 解析 + 宏展开）和 `.sab` 二进制（走 SAB Decoder 直接解码）。两路在 `Instruction[]` 处汇合，Referee 和 Emitter 不感知输入来源。
 
 ---
 
@@ -332,8 +335,10 @@
 **User Story**
 作为开发者或 LLM，我需要像 `bun` / `deno` 那样一行命令就能跑通 SA 源码，或者打包成跨平台独立可执行文件，或者降级为沙盒 WASM，而不需要配置任何外部工具链。
 
+**前提**：CLI 自动识别输入文件后缀——`.sa` 走 Flattener 文本解析路径，`.sab` 走 SAB Decoder 二进制解码路径（详见 Y 形双输入架构 §1.5）。以下 `<file>` 均可为 `.sa` 或 `.sab`。
+
 **Acceptance Criteria**
-1. WHEN 用户执行 `sa run <file.sa> [args...]` THEN CLI SHALL 走完 Flattener + Referee + 内存解释器/JIT，直接在本进程内执行 SA 代码，拥有宿主操作系统权限（文件读写、终端打印、进程退出码）
+1. WHEN 用户执行 `sa run <file> [args...]`（`<file>` 为 `.sa` 或 `.sab`）THEN CLI SHALL 走完 Flattener/SAB Decoder + Referee + 内存解释器/JIT，直接在本进程内执行 SA 代码，拥有宿主操作系统权限（文件读写、终端打印、进程退出码）
 2. WHEN 用户执行 `sa build-exe <file.sa> [-o out]` THEN CLI SHALL 依次运行 Flattener + Referee + LLVM bitcode 发射器 + `zig cc` 链接器，产出当前平台的独立原生可执行文件
 3. WHEN 用户执行 `sa build-wasm <file.sa> [-o out.wasm]` THEN CLI SHALL 依次运行 Flattener + Referee + WASM 二进制发射器，产出 `.wasm` 文件（wasm32 或 wasm64 由 `--target` 参数控制）
 4. WHEN 用户执行 `sa build-obj <file.sa> -o out.o` THEN CLI SHALL 产出可被任意 C/C++/Rust 工程链接的标准目标文件
@@ -481,35 +486,22 @@
 
 ### Requirement 24: `#mode compact` 中缀糖（v0.2 可选前处理器）
 
+> **📌 重要更新 (2026-07-01): `#mode compact`（R24）已被外部 SLA 插件（`sa_plugin_sla`）取代。**
+> SLA 提供了完整的 Rust 风格语言前端（泛型、模式匹配、trait、枚举、闭包等），编译到 SA-ASM，使得 `#mode compact` 的有限中缀糖不再必要。SA 核心主线不再实现 `#mode compact`。以下设计仅作为历史存档保留，供 SLA 插件实现参考。
+> 详见 `~/projects/sa_plugins/sa_plugin_sla`。
+
 **User Story**
 作为偶尔需要手写 SA 原型或 demo 的工程师/LLM，在所有权符号之外，我希望用日常算术/位运算中缀写法降低心智负担；但这种糖只能以**可选、严格受控**的方式引入，不得动摇 Referee 的 O(1) 线性扫描与零 AST 红线。
 
 **Acceptance Criteria**
-1. WHEN 源码顶部（首个函数 / `@const` / `@extern` / `@export` 之前）出现 `#mode compact` 伪指令 THEN Flattener SHALL 启用"紧凑糖"展开阶段；否则走默认严格模式，源码中出现任何中缀算术都视为语法错误
-2. WHEN 紧凑糖被启用 THEN 以下 **8 条且仅 8 条** 中缀形态 SHALL 被 Flattener 在预处理期做纯文本替换：
-   - `dst = a + b` → `dst = add a, b`
-   - `dst = a - b` → `dst = sub a, b`（二元）
-   - `dst = -a`    → `dst = neg a`（一元，`-` 仅在操作数前且无左操作数时触发）
-   - `dst = a * b` → `dst = mul a, b`
-   - `dst = a / b` → `dst = udiv a, b`（默认无符号；有符号除必须写 `sdiv`）
-   - `dst = a % b` → `dst = urem a, b`（默认无符号；有符号余必须写 `srem`）
-   - `dst = a & b` → `dst = and a, b`
-   - `dst = a | b` → `dst = or a, b`
-   - `dst = a ^ b` → `dst = xor a, b`（中缀 `^` 仅在双目位置触发，不与所有权前缀 `^` 冲突）
-3. WHEN 紧凑糖展开 THEN 其 SHALL 仅做**单次一行内**的文本替换，不支持优先级组合（如 `dst = a + b * c` 必 Trap `CompactMultipleInfix`）；复合表达式强制拆成多行
-4. WHEN 源码混用紧凑中缀与其它关键字形态 THEN Flattener SHALL 全部接受；替换后产出的指令数组 **严格等于** 直接用关键字形态手写时的产出（即：糖只存在于源码文本层，指令层 Referee 永远看不到 `+` `-` `*` `/` `%` `&` `|` `^` 作为中缀）
-5. WHEN `#mode compact` 未启用 THEN 源码中出现 `+` `-` `*` `/` `%` 作为中缀 SHALL 触发 `Trap: InfixSugarDisabled`
-6. WHEN `#mode compact` 出现第二次 / 出现在首个顶层声明之后 THEN Flattener SHALL 返回 `Trap: InvalidModeDirective`
-7. WHEN 紧凑糖产生的替换行与手写关键字行共存 THEN Referee 的 JSON Trap 报告 SHALL 在 `source_line` 字段指向原始行号，并在可选的 `original_text` 字段保留糖形式文本以便 LLM 反向修复
-8. WHEN 未来语言升级引入更多中缀形态（如 `<` `>` `==`） THEN 扩展 SHALL 通过新增 `#mode compact-v2` 以版本化方式引入，禁止扩充 v1 的 8 条形态清单
-9. **Non-Goals（刻意禁止）**：
-   - 不支持操作符优先级（`a * b + c` 无法一行表达，必须拆成 `tmp = a * b; d = tmp + c`）
-   - 不支持中缀比较（`<` `>` `==` `!=` `<=` `>=`），必须用 `slt`/`sgt`/`eq` 等关键字
-   - 不支持短路 `&&` / `||`（SA 无短路语义）
-   - 不支持链式调用 `a.b.c`（已在 R3.3 被禁）
-   - 不支持自动类型推导；类型标注 `as T` 不受糖影响
+1. ~~WHEN 源码顶部（首个函数 / `@const` / `@extern` / `@export` 之前）出现 `#mode compact` 伪指令 THEN Flattener SHALL 启用"紧凑糖"展开阶段；否则走默认严格模式，源码中出现任何中缀算术都视为语法错误~~
+2. ~~WHEN 紧凑糖被启用 THEN 以下 **8 条且仅 8 条** 中缀形态 SHALL 被 Flattener 在预处理期做纯文本替换~~
+3. ~~...~~
+9. ~~...~~
 
-**Rationale**：
+> **以上 9 条验收标准由 SLA 插件（`sa_plugin_sla`）的完整表达式解析器 + lowerer 替代。** SLA 在 `sa_plugin_sla/src/parser.zig` 中实现了完整的 Pratt 解析，支持操作符优先级、比较操作符和复杂表达式，远超 `#mode compact` 的 8 条白名单能力。
+
+**Rationale**：（历史存档）
 - 收益：Rust/C 风格算术在源码文本层节约约 3–5% token，降低手写心智负担
 - 代价：Flattener 增加约 80–120 行正则/状态机，新增 3 个 Trap 类型
 - 风险控制：8 条白名单 + 严格单目/双目判别 + 禁优先级 + 版本化扩展，避免"一步滑向重建 C"
@@ -930,7 +922,7 @@
 | `stack_alloc N` | 栈分配（函数内） | 生命周期绑定函数出口；禁止 `^` 移出 |
 | `ptr_add base, off` | 裸指针算术 | 普通函数内可从借用派生 `InteriorPtr` |
 | `atomic_rmw_<OP>` | 原子读改写 | `add/sub/and/or/xor/xchg/min/max/umin/umax` |
-| `#mode compact` | 启用中缀糖（v0.2 可选） | 仅允许 8 条白名单中缀，预处理期展开 |
+| `#mode compact` | 启用中缀糖（v0.2 可选）→ **由 SLA 插件替代** | 仅允许 8 条白名单中缀，预处理期展开。SA 主线不再实现；详见 `sa_plugin_sla` 的完整 Rust 风格语法前端 |
 | `#def NAME = VAL` | 常量字典 | 预处理期纯文本替换 |
 | `#loc "file":line:col` | 上游位置伪指令 | 下一条指令携带 upstream_loc |
 | `[MACRO]...[END_MACRO]` | 宏定义 | 预处理期展平 |
@@ -1071,6 +1063,23 @@
 
 ---
 
+### Requirement 42: SAB 分布式编译（v0.7b — 模块级并行编译）
+
+**User Story**
+作为大型项目的开发者，我需要编译器支持模块级独立编译和并行验证，使得修改一个底层库时只有直接依赖的模块需要重编译，而不是整个项目。
+
+**Acceptance Criteria**
+1. WHEN `sa build --emit-sab <file.sa>` 被调用 THEN CLI SHALL 执行 Flattener + SAB Encoder，产出 `<stem>.sab` 文件（缓存 Flattener 产物供后续编译直接使用）
+2. WHEN `sa build-workspace --distributed` 被调用 THEN CLI SHALL 解析 `sa.mod` 依赖图，按模块粒度并行执行 Flattener + Referee，最后链接合并
+3. WHEN 某模块未变更（源文件 hash 不变）THEN 分布式编译 SHALL 跳过该模块的 Flattener，直接使用 `.sa_cache/<module>.sab` 缓存
+4. WHEN 多个模块依赖同一底层库 THEN 该底层库 SHALL 只被 flatten 一次（O(M) 而非 O(N×M)），产出的 `.sab` 被所有消费者 decode 复用
+5. WHEN 模块间存在 `@export` / `@extern` 调用 THEN 跨模块 Referee SHALL 校验函数签名（参数类型、capability 前缀、返回类型）一致性
+6. WHEN 跨模块签名不匹配 THEN 编译器 SHALL 返回 `Trap: CrossModuleSignatureMismatch`，附带调用方和被调用方的 `upstream_loc`
+7. WHEN `--jobs N` 被指定 THEN 编译器 SHALL 限制并行 worker 数量为 N；缺省为 `auto`（CPU 核心数）
+8. WHEN `--dry-run` 被指定 THEN 编译器 SHALL 仅输出需要重编译的模块列表，不执行实际编译
+9. WHEN 分布式编译启用 THEN 调试信息（`upstream_loc` → DWARF）SHALL 在链接阶段正确合并，不丢失跨模块的源码映射
+10. **Non-Goal**：不实现网络分布式编译（仅本机多核并行）；不替代单文件 `sa build` 命令（向后兼容）
+
 ### Requirement 40: 物理极限编译速度 (Physical-Limit Compilation Speed) - 紧急 P0
 
 **User Story**
@@ -1122,7 +1131,7 @@
 
 ---
 
-**文档终态：以上 41 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + R36 v0.9 SAX + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed + R41 Rust Core）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
+**文档终态：以上 42 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + R36 v0.9 SAX + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed + R41 Rust Core + R42 SAB Distributed Compilation）为 SA 实现的强约束契约。任何后续 Design 阶段不得弱化或绕过已有特性。**
 
 > 版本号说明：v0.7 已规划为"原生单元测试框架"（见 `tasks.md` Version 0.7），v0.8 网络引擎，v0.9 SAX 前端方言。
 

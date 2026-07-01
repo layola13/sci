@@ -941,7 +941,11 @@ L_OK:
 
 ---
 
-## 28. `#mode compact` 紧凑糖 ✅
+## 28. `#mode compact` 紧凑糖 ✅ — 已由外部 SLA 插件替代
+
+> **📌 重要更新 (2026-07-01): `#mode compact` 已被外部 SLA 插件（`sa_plugin_sla`）取代。**
+> SLA 提供了完整的 Rust 风格语言前端（泛型、模式匹配、trait、枚举、闭包等），拥有完整的表达式解析器。请使用 SLA 而非 `#mode compact`。
+> 详见 `~/projects/sa_plugins/sa_plugin_sla`。
 
 ### SA（关键字形态）
 ```
@@ -1017,7 +1021,7 @@ L_ENTRY:
 | FFI/unsafe | ✅ |
 | Rc/Arc | ✅ |
 | panic | ✅ |
-| Token 密度 | ✅（#mode compact） |
+| Token 密度 | ✅（已由外部 SLA 插件替代） |
 
 **零自定义类型名泄漏到签名。零 `@const` 类型标注。所有借用/Move 参数恒为 `ptr`。语法层不存在 `&mut`。**
 
@@ -1483,7 +1487,7 @@ L_OK:
 
 ---
 
-## 28. `#mode compact` 紧凑中缀糖（v0.2 可选） ✅
+## 28. `#mode compact` 紧凑中缀糖（v0.2 可选） ✅ — 已由外部 SLA 插件替代
 
 ### Rust
 ```rust
@@ -1559,7 +1563,7 @@ L_ENTRY:
 | FFI / unsafe | ✅ | — | ✅ | — | 案例 25-26 |
 | Box / Rc / Arc | ⚠️ | v0.1 缺 `stack_alloc`（小对象如 `Option<i32>` 每次强制堆分配，性能倒退）；缺 `atomic_rmw`（Rc/Arc 的 clone/drop 需要 cmpxchg retry loop，非真正原子） | ✅ | `stack_alloc N` 栈分配（R2.1/P27）+ `atomic_rmw_sub` 单条原子递减（R2.1） | 案例 10, 24 |
 | panic 语义 | ⚠️ | v0.1 只有 `panic(code)` 整数错误码，无法携带消息字符串；调试时只能看到数字，无法定位具体错误原因 | ✅ | `panic_msg(code, *str_ptr, str_len)` 携带 rodata 消息 + 标准 panic code 字典 100-107（R18.5/R18.6） | 案例 27 |
-| **Token 密度（可选）** | — | v0.1 所有算术必须写关键字形态（`d = add a, b`），手写时心智负担较高 | ✅ | `#mode compact` 可选中缀糖（`d = a + b`），8 条白名单，禁优先级（R24） | 案例 28 |
+| **Token 密度（可选）** | — | v0.1 所有算术必须写关键字形态（`d = add a, b`），手写时心智负担较高 | ✅ | `#mode compact` 可选中缀糖 ~~（`d = a + b`），8 条白名单，禁优先级（R24）~~ 已由外部 SLA 插件（`sa_plugin_sla`）的完整 Rust 风格语法替代 | 案例 28 |
 
 ## v0.1 到 v0.2 的缺口修复总览
 
@@ -1573,7 +1577,7 @@ L_ENTRY:
 | Option 小值每次堆分配 | `stack_alloc N` | R2.1, P27 |
 | panic 无消息 | `panic_msg(code, *s, len)` | R18.5 |
 | panic code 五花八门 | 标准字典 100-107 | R18.6 |
-| 算术写法冗余（可选） | `#mode compact` 中缀糖 | R24 |
+| 算术写法冗余（可选） | `#mode compact` 中缀糖 ~~→ 已由 SLA 插件替代~~ | R24 |
 
 ## smrustc 前端工作量更新
 
@@ -1598,7 +1602,7 @@ L_ENTRY:
 - `atomic_rmw` / `cmpxchg` 双返回值让并发原语语义完整
 - `stack_alloc` 让小对象不再强制堆分配
 - `panic_msg` + 标准字典让错误可诊断
-- `#mode compact`（可选）让手写 SA 不必被关键字淹没
+- `#mode compact`（可选）~~让手写 SA 不必被关键字淹没~~（由外部 SLA 插件 `sa_plugin_sla` 的完整 Rust 风格语法替代）
 
 **仍然保留的刻意缺失**：
 - 生命周期类型系统（R20 前端合约承担）

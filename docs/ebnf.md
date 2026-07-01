@@ -62,4 +62,4 @@ assume_borrow  = IDENT "=" "assume_borrow" IDENT [ "," "mut" ] ;
 
 ---
 
-**文档终态**：本设计覆盖需求文档 33 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6）的全部契约，含 **32+ 条形式化 Property**、5 层测试策略、完整的 LLVM bitcode / WASM 映射表、气闸舱隔离、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 包管理 + 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化。
+**文档终态**：本设计覆盖需求文档 33 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31–R32 v0.5 + R33 v0.6）的全部契约，含 **32+ 条形式化 Property**、5 层测试策略、完整的 LLVM bitcode / WASM 映射表、气闸舱隔离、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`（由外部 SLA 插件 `sa_plugin_sla` 替代，主线不再实现）、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 包管理 + 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化。

@@ -17,22 +17,30 @@ SA 不是一门"给人写的语言"，而是：
 3. **一套气闸舱 FFI**：把 unsafe 物理隔离到专属函数。
 4. **一份前端降级合约**：词法作用域跟踪、隐式 Drop、Phi 一致性全部由**上游**（smrustc / LLM / 手写）负责。
 
-三种形态：
+四种形态（Y 形双输入架构）：
 
-| 形态 | 载体 | 物理本质 |
-|---|---|---|
-| 源码形态 | `.sa` 文本 | 一维字节数组 |
-| 指令形态 | `Instruction[]` | 扁平三地址码数组 |
-| 产出形态 | `.exe` / `.o` / `.a` / `.wasm` | 原生目标文件 / WebAssembly |
+| 形态 | 载体 | 物理本质 | 编译路径 |
+|---|---|---|---|
+| 文本输入 | `.sa` 文本 | 一维字节数组 | → Flattener 解析展开 |
+| 二进制输入 | `.sab` 二进制 | 结构化指令包（magic `"SAB\x00"`，v4.0） | → SAB Decoder 直接解码 |
+| 指令形态 | `Instruction[]` | 扁平三地址码数组 | ← 两路输入在此汇合 |
+| 产出形态 | `.exe` / `.o` / `.a` / `.wasm` | 原生目标文件 / WebAssembly | ← Referee + Emitter |
 
 **不存在任何阶段构造 AST**，**不经过 Zig 源码往返**。
 
-### 1.2 编译管线
+**Y 形双输入架构要点**：
+- `.sa` 文本路径：保留人类可写性、宏系统（`[MACRO]` / `EXPAND` / `[REP]`）、`#def` 替换、`#loc` 行号追踪、`@import` 递归解析
+- `.sab` 二进制路径：直接解码为结构化 `Instruction[]`，无需解析、无需宏展开，稳像耗时约为文本路径的 1/10
+- **两路在 `Instruction[]` 处完全汇合**，汇合后的 Referee、LLVM-C Emitter、WASM Emitter 不感知输入来源
+
+### 1.2 编译管线（Y 形双输入架构）
 
 ```mermaid
 flowchart LR
-    A[".sa 源码"] --> B["Flattener"]
-    B -->|"#def/宏/#loc 收集"| C["扁平指令流 Instruction[]"]
+    A1[".sa 文本"] --> B1["Flattener<br/>(解析/宏展开/#def)"]
+    A2[".sab 二进制"] --> B2["SAB Decoder<br/>(sab.zig decodeModule)"]
+    B1 --> C["扁平指令流 Instruction[]"]
+    B2 --> C
     C --> D["Referee"]
     D -->|"O(1) 位掩码<br/>气闸舱校验<br/>原子 ordering"| E["AnnotatedInstruction[]<br/>+ Trap? + Gas + upstream_loc"]
     E --> F1["LLVM-C bitcode Emitter<br/>(+ DWARF)"]
@@ -43,6 +51,8 @@ flowchart LR
     F2 --> G2[".wasm"]
     H1 --> I1[".exe / .o / .a"]
 ```
+
+**汇合点**：`Instruction[]` 数组。两条路径在此完全等价，Referee 和 Emitter 不感知指令来源。
 
 ### 1.3 核心设计原则
 
@@ -296,8 +306,9 @@ SA 不把 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` / `Waker` 当成 ISA 内建
 ### 2.3 数据流契约
 
 | 阶段 | 输入 | 输出 | 副作用 |
-|---|---|---|---|
-| Flattener | `[]const u8` | `[]Instruction` + `DefDict` + `LocTable` | 无 |
+|---|---|---|---|---|
+| Flattener（文本路径） | `[]const u8`（`.sa` 文本） | `[]Instruction` + `DefDict` + `LocTable` | 无 |
+| SAB Decoder（二进制路径） | `[]const u8`（`.sab` 字节） | `Module{symbols, function_sigs, const_decls, instructions}` | 无 |
 | Referee | `[]Instruction` + `LocTable` | `[]AnnotatedInstruction` 或 `TrapReport` | 无（纯函数） |
 | LLVM bitcode Emitter | `[]AnnotatedInstruction` + `LocTable` | `[]const u8`（`.bc`） | 无 |
 | WASM Emitter | `[]AnnotatedInstruction` + `LocTable` | `[]const u8`（WASM 字节） | 无 |
@@ -305,6 +316,18 @@ SA 不把 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` / `Waker` 当成 ISA 内建
 | zig cc | `.bc` + `.o` + `.a` | `.exe` / `.wasm` | 派生子进程 |
 
 除 Interpreter 与 zig cc 外，所有阶段均为**纯函数**。
+
+**两路输入的关键区别**：
+| 维度 | `.sa` 文本路径 | `.sab` 二进制路径 |
+|---|---|---|
+| 输入形式 | UTF-8 文本 | 二进制 SAB v4 格式（magic `"SAB\x00"` + sections） |
+| 解析方式 | Flattener 逐行分类 + 宏展开 + `@import` 递归解析 | `sab.zig::decodeModule()` 直接解码为结构化数据 |
+| 宏系统 | ✅ 完整支持（`[MACRO]` / `EXPAND` / `[REP]`） | ❌ 不支持（展开已在编码前完成） |
+| `#def` 替换 | ✅ 支持 | ❌ 不适用（常量已在字典中） |
+| `@import` | ✅ 递归解析依赖树 | ❌ 不支持（依赖已在编码时解析） |
+| `raw_text` | ✅ 保留原始文本 | ❌ v4 起为 `""`（语义由结构化 operand 保留） |
+| `#loc` 追踪 | ✅ 完整 | ✅ 通过 `upstream_loc` 元数据保留 |
+| 典型场景 | 手写 / LLM 生成 / 前端产出 | 编译缓存、发布产物、插件链式传递 |
 
 ### 2.4 版本治理
 
@@ -364,6 +387,89 @@ pub const FlattenResult = struct {
     trap: ?TrapReport,
 };
 ```
+
+### 3.2b SAB Decoder — 二进制输入解码器
+
+**职责**：Y 形双输入架构的二进制路径入口。将 `.sab` 二进制字节解码为结构化 `Module`，直接产出与 Flattener 等价的 `[]Instruction` 数组。
+
+**为什么需要**：
+- 插件链（SLA 等）产出的指令流已经是结构化的，不需要再做文本解析和宏展开
+- 编译缓存场景无需重新解析文本，直接加载二进制即可进入 Referee
+- 发布产物可走 SAB 格式分发，避免暴露原始 `.sa` 源码
+
+**实现**：`src/sab.zig`，~400 行无依赖 Zig。
+
+**二进制格式（v4.0）**：
+```
+┌─────────────────────────────────────┐
+│ Magic:  "SAB\x00"       (4 bytes)   │
+│ Version:  major=4, minor=0  (2 B)   │
+│ Section count: 4         (ULEB128)  │
+├─────────────────────────────────────┤
+│ Section 1: Symbol Pool             │
+│   N × {len + name_bytes}           │
+├─────────────────────────────────────┤
+│ Section 2: Function Signatures     │
+│   M × {id, name_idx, kind, params, │
+│         ret_cap, ret_ty, reg_ids,  │
+│         upstream_loc...}           │
+├─────────────────────────────────────┤
+│ Section 3: Const Declarations      │
+│   K × {line, name, literal, value} │
+├─────────────────────────────────────┤
+│ Section 4: Instructions            │
+│   P × {kind, operands[4] ...}      │  ← 48 种 InstKind × 15 种 Operand
+└─────────────────────────────────────┘
+```
+
+**关键设计决策（v4.0）**：
+- **结构化 operand**：所有操作数解码为 `inst.Operand` 联合体（reg / symbol / label / imm / offset 等），无需从文本 regex 提取
+- **`raw_text = ""`**：v4 起原始文本字段在解码后为空字符串，语义完全由结构化 operand 保留。这是与 v3 的关键区别——SAB 不再是"文本的压缩包"，而是**与前端的平等契约**
+- **版本化**：magic + major/minor 版本号，向前兼容
+- **v4 新增元数据**：原子字段文本、原生寄存器名、包哈希、`upstream_loc`、验证器推导的函数寄存器 ID
+
+**公开 API**：
+```zig
+pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module;
+pub fn encodeProgram(allocator: std.mem.Allocator, symbols, function_sigs, instructions) ![]u8;
+pub fn disasmModule(allocator: std.mem.Allocator, bytes: []const u8, writer: anytype) !void;
+
+pub const Module = struct {
+    symbols: [][]const u8,
+    function_sigs: []sig.FunctionSig,
+    const_decls: []const_decl.ConstDecl,
+    instructions: []inst.Instruction,
+};
+```
+
+**测试覆盖**：
+| 测试 | 验证内容 |
+|---|---|
+| `sab instruction roundtrip` | 无 raw_text 状态下语义保持 |
+| `sab text operands roundtrip` | 文本操作数编码/解码 |
+| `sab borrow roundtrip` | 结构化操作数完整保留 |
+| `sab v4 preserves structured metadata` | 原子字段、包哈希、upstream_loc |
+| `sab roundtrip covers every InstKind` | 48 种指令类型全覆盖 |
+| `sab roundtrip covers every Operand` | 15 种操作数类型全覆盖 |
+| `disasmModule produces readable text` | 从二进制重建 SA 文本 |
+| `decoded sab verifies through predecoded metadata` | 解码后 SAB 可直接进入 Referee |
+
+**SAB 在 CLI 中的使用**：
+```bash
+# 生成 SAB 二进制（编译缓存/发布产物）
+sa build-exe input.sa -o app --emit-sab    # 同时产出 app.exe + app.o.sab
+
+# 从 SAB 直接编译（跳过文本解析）
+sa build-exe input.sab -o app             # 隐式识别 .sab 后缀
+sa run input.sab                          # 直接解释执行
+
+# SAB 反汇编为可读文本
+sa build-obj input.sab -o /dev/null --disasm   # 解码后走正常编译管线
+```
+
+**与 Flattener 的等价性保证**：SAB Decoder 产出的 `Instruction[]` 与 Flattener 产出的 `Instruction[]` 在 `kind` / `operands` / `upstream_loc` 层面字段级兼容，Referee 和 Emitter 看到的是同一套数据结构。
+
+**测试验证**：`zig build test` 包含 8 项 SAB 往返测试，覆盖全部 48 种指令类型和 15 种操作数类型。
 
 ### 3.3 Referee
 
@@ -594,6 +700,7 @@ flowchart LR
 | `sa audit <URL>` | `audit.zig::xray_scan()` | 仅 stdout |
 | `sa audit --update-lock` | `lock.zig::update_machine_code_hash()` | `sa.lock`（**唯一**允许修改的命令） |
 | `sa build` | 全部子模块 | 内存确权状态进程级（不写盘） |
+| `sa build --emit-sab` | Flattener + SAB Encoder | `.o.sab`（伴随产物，与 `.o` 并列） |
 | `sa build --ci` | `ci.zig::dual_track_verify()` | `$GITHUB_STEP_SUMMARY`（可选） |
 | `sa build --offline` | `resolver.zig` + `audit.zig`（禁网） | 不写盘 |
 | `sa build --all-targets --lock-only` | 全平台 Emitter + `lock.zig` | `sa.lock` 多 target hash |
@@ -902,11 +1009,13 @@ pub const SumEntry = struct {         // sa.sum：全树拍平
 
 **Validates: R2.1 (cmpxchg/rmw), R2.7**
 
-### Property 30 (NEW, v0.2): 紧凑糖语义等价性
+### Property 30 (~~NEW, v0.2~~ → **Deprecated**): 紧凑糖语义等价性
+
+> **重要更新 (2026-07-01):** `#mode compact`（R24）已被外部 SLA 插件（`sa_plugin_sla`）取代。SLA 提供了完整的 Rust 风格语言前端（泛型、模式匹配、trait、闭包等），编译到 SA-ASM，使得 `#mode compact` 的有限中缀糖不再必要。SA 核心主线不再实现 `#mode compact`。详见 `~/projects/sa_plugins/sa_plugin_sla`。
 
 *For any* 同一业务逻辑的两份 SA 源码 `S_k`（纯关键字形态）与 `S_c`（启用 `#mode compact` 后使用中缀糖），若两者在语义上等价（即中缀糖 1:1 展开即为关键字形态），则 Flattener 产出的 `Instruction[]` SHALL 在字段级（`kind` / `operands` / `upstream_loc` 除外）完全深度相等；Referee 在两份输入上的判决结果（Pass 或同一 Trap 类型）SHALL 相同。
 
-**Validates: R24.2, R24.4**
+**Validates: R24.2, R24.4（设计存档，主线不再实现）**
 
 ### Property 31 (NEW, v0.3): VTable 签名静态校验
 
@@ -989,9 +1098,9 @@ pub const SumEntry = struct {         // sa.sum：全树拍平
 | **`StackEscape`** | Referee | `stack_alloc` 产物被 `^` Move 或 `return` |
 | **`ConstMutation`** | Referee | `@const` 寄存器被 `^` / `!` / 独占借用 |
 | **`InvalidParamType`** | Flattener | `&` / `^` 参数的 `ty` 不是 `ptr`；或签名中出现用户自定义类型名 |
-| **`InfixSugarDisabled`** | Flattener | 未启用 `#mode compact` 时出现中缀算术 |
-| **`CompactMultipleInfix`** | Flattener | `#mode compact` 下单行出现多个中缀操作符 |
-| **`InvalidModeDirective`** | Flattener | `#mode` 出现次数 > 1 或位置错误 |
+| **~~`InfixSugarDisabled`~~** | ~~Flattener~~ | ~~未启用 `#mode compact` 时出现中缀算术~~ **→ 由 SLA 插件处理** |
+| **~~`CompactMultipleInfix`~~** | ~~Flattener~~ | ~~`#mode compact` 下单行出现多个中缀操作符~~ **→ 由 SLA 插件处理** |
+| **~~`InvalidModeDirective`~~** | ~~Flattener~~ | ~~`#mode` 出现次数 > 1 或位置错误~~ **→ 由 SLA 插件处理** |
 | **`VTableSignatureMismatch`** | Referee | `call_indirect` 调用点参数 tuple 与 VTable 槽位声明不匹配（v0.3 R25） |
 | **`TagMismatch`** | Referee | 调用点实参的布局标签与签名声明的 `tag NAME` 不匹配（v0.5 R32） |
 | **`MissingTag`** | Referee | `--strict-tags` 模式下 `alloc` 未携带 `tag NAME`（v0.5 R32.8） |
@@ -1451,7 +1560,79 @@ docs/
 
 ---
 
-## §7 SAX 前端 UI 方言（v0.9 — safe asm XML，全栈 SA 闭环）
+## §7 SAB 分布式编译架构（v0.7b — 模块级并行编译）
+
+### 7.1 架构定位
+
+SA 当前采用扁平化单体编译模型：`@import` 在 Flattener 阶段被递归展开，所有模块合并成一个巨大的指令流，然后整体送入 Referee 验证。这种模型在大型项目中面临三个核心瓶颈：
+
+1. **重复 flatten**：N 个模块依赖 M 个库 → O(N × M) 次 flatten
+2. **无法并行验证**：所有代码合并成单一流后才能验证
+3. **增量粒度粗**：修改一个底层库，所有依赖它的模块都要重新编译
+
+SAB 分布式编译架构利用 `.sab` 作为模块交换格式，实现模块级独立编译、并行验证、细粒度增量。
+
+### 7.2 编译管线（五阶段）
+
+```mermaid
+flowchart LR
+    A["sa.mod<br/>依赖图"] --> B["依赖分析<br/>确定重编译范围"]
+    B --> C["并行 Flatten+Encode<br/>每个 .sa → .sab"]
+    C --> D["并行 Referee<br/>每个 .sab → Annotated"]
+    D --> E["跨模块验证<br/>签名+Capability 匹配"]
+    E --> F["链接<br/>合并 → LLVM → 最终二进制"]
+```
+
+### 7.3 SAB 作为模块交换格式
+
+| 维度 | SAB 能力 | 分布式需求 | 适配度 |
+|---|---|---|---|
+| 自包含 | symbols + function_sigs + const_decls + instructions | 模块独立编译 | ✅ |
+| 结构化接口 | function_sigs 携带参数类型、capability 前缀 | 跨模块调用验证 | ✅ |
+| 宏已展开 | cached_macro_defs 不需要 | 无需跨模块传播宏 | ✅ |
+| 二进制紧凑 | ULEB128, 0.3-0.5x 文本大小 | 网络传输高效 | ✅ |
+| predecoded Referee | 跳过文本解析 | 并行验证更快 | ✅ |
+
+### 7.4 缓存策略
+
+```
+project/
+├── sa.mod              # 包清单
+├── .sa_cache/
+│   ├── math.sab        # 模块级 SAB 缓存
+│   ├── math.sab.meta   # hash + mtime
+│   └── ...
+└── src/
+    ├── math.sa
+    └── main.sa
+```
+
+缓存键: `SHA256(source_content + sa_mod_hash + compiler_version)`
+
+### 7.5 CLI 接口
+
+```bash
+sa build --emit-sab src/math.sa           # 生成模块级 SAB 缓存
+sa build-workspace --distributed          # 增量并行编译
+sa build-workspace --distributed --force  # 强制全量
+sa build-workspace --dry-run              # 检查重编译范围
+```
+
+### 7.6 与 JS/TS 生态的类比
+
+| JS/TS | SA/SAB |
+|---|---|
+| `.ts` 源码 | `.sa` 源码 |
+| `.js` 编译产物 | `.sab` 编译产物 |
+| `.d.ts` 类型声明 | `.sai` 接口声明 |
+| `webpack/esbuild` | `sa build-workspace --distributed` |
+| `.tsbuildinfo` | `.sa_cache/*.sab.meta` |
+
+**核心洞察**：SAB 是 SA 的"JavaScript"——预编译、自包含、可分发的模块格式。分布式编译本质是 TS→JS→Webpack 管线的 SA 版本。
+
+---
+
+## §8 SAX 前端 UI 方言（v0.9 — safe asm XML，全栈 SA 闭环）
 
 ### 7.1 架构定位
 
@@ -1689,7 +1870,7 @@ dist/app.wasm + dist/airlock.js + dist/index.html
 
 ---
 
-**文档终态（v0.9+ 修订）**：本设计覆盖需求文档 41 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31 + R31a–R31g + R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + **R36 v0.9 SAX** + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed + R41 Rust Core） 的全部契约，含 **40 条形式化 Property**、5 层测试策略（含 v0.5 包管理 12 条新集成基线 + v0.6 数据库 12 条新 Trap + v0.7 原生单元测试框架 + v0.8 网络引擎 K1/K2 双轨 KPI + **v0.9 SAX 7 条专属 Trap + E2E 浏览器验证**）、完整的 LLVM bitcode / WASM 映射表、气闸舱隔离（SA FFI + DOM Airlock 双气闸）、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact`、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 零信任包管理（去中心化 + 哈希钉版 + 模块级零权限 + AST X 光扫描 + 破窗确权 + 项目级孤岛 + CI 双轨）+ 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化 + 零信任列式数据库（预编译查询 + SHA-256 锁版 + 权限 X 光扫描 + 零拷贝沙箱 + 无锁并发 + Bump Arena + 冷热分层）、v0.7 原生单元测试框架、v0.8 极速网络引擎 sa_netx（io_uring + per-core sharded SPSC + SIMD 解掩码 + DMA 扇出广播 + 对标 Bun 双轨 KPI）、**v0.9 SAX 前端方言（XML 结构层 + WASM AOT + DOM Airlock + 7 条 SAX Trap + 全栈 SA 闭环）**。
+**文档终态（v0.9+ 修订）**：本设计覆盖需求文档 42 条 Requirements（R1–R24 MVP + R25–R27 v0.3 + R28–R30 v0.4 + R31 + R31a–R31g + R32 v0.5 + R33 v0.6 + R34 v0.6 sa-db + R35 v0.8 sa_netx + **R36 v0.9 SAX** + R37 Macro-Driven + R38 Industrial-Scale + R39 Formatted-Printing + R40 Physical-Limit-Speed + R41 Rust Core + **R42 SAB Distributed Compilation**） 的全部契约，含 **40 条形式化 Property**、5 层测试策略（含 v0.5 包管理 12 条新集成基线 + v0.6 数据库 12 条新 Trap + v0.7 原生单元测试框架 + v0.7b SAB 分布式编译（`--emit-sab` + `build-workspace --distributed` + 模块级并行 Referee + `CrossModuleSignatureMismatch` Trap）+ v0.8 网络引擎 K1/K2 双轨 KPI + **v0.9 SAX 7 条专属 Trap + E2E 浏览器验证**）、完整的 LLVM bitcode / WASM 映射表、气闸舱隔离（SA FFI + DOM Airlock 双气闸）、前端降级合约、`libsa_scope` helper、v0.2 `#mode compact` ~~（由外部 SLA 插件 `sa_plugin_sla` 替代，核心主线不再实现。SLA 提供完整 Rust 风格语言前端，编译到 SA-ASM。详见 `~/projects/sa_plugins/sa_plugin_sla`。）~~、v0.3 VTable 签名校验 + `libsa_async` + 诊断级别、v0.4 并行开发基建、v0.5 零信任包管理（去中心化 + 哈希钉版 + 模块级零权限 + AST X 光扫描 + 破窗确权 + 项目级孤岛 + CI 双轨）+ 布局标签校验 + `sa_std` 标准库、v0.6 Referee 形式化验证 + FPGA 硬件化 + 零信任列式数据库（预编译查询 + SHA-256 锁版 + 权限 X 光扫描 + 零拷贝沙箱 + 无锁并发 + Bump Arena + 冷热分层）、v0.7 原生单元测试框架、**v0.7b SAB 分布式编译架构（§7，五阶段管线 + 模块级并行 + 增量缓存 + 跨模块 Referee 验证）**、v0.8 极速网络引擎 sa_netx（io_uring + per-core sharded SPSC + SIMD 解掩码 + DMA 扇出广播 + 对标 Bun 双轨 KPI）、**v0.9 SAX 前端方言（XML 结构层 + WASM AOT + DOM Airlock + 7 条 SAX Trap + 全栈 SA 闭环）**。
 
 ## Standardized Macro Patterns for Polymorphism and Structural Operations (Derive/Trait Simulation)
 Given SA's Zero-AST philosophy, language-level attributes like `#[derive]` are fundamentally incompatible. Instead, SA relies on standardized macro patterns to achieve similar ergonomics for LLMs and frontends:

@@ -389,6 +389,10 @@ void hack_me(void) {
 
 **A**: SA 的 `#mode compact`（v0.2 R24）只允许单行一个中缀操作符。
 
+> **📌 2026-07-01 更新：`#mode compact` 已被外部 SLA 插件（`sa_plugin_sla`）替代。**
+> SLA 提供了完整的 Rust 风格语言前端（泛型、模式匹配、trait、闭包等），拥有完整的表达式解析器（含优先级和比较操作符），远超 `#mode compact` 的 8 条白名单中缀糖能力。SA 核心主线不再实现 `#mode compact`。
+> 详见 `~/projects/sa_plugins/sa_plugin_sla`。
+
 原因：
 - 优先级需要表达式树解析，违反"零 AST"原则
 - `a + b * c` 的歧义（是 `(a+b)*c` 还是 `a+(b*c)`？）是 bug 的温床
@@ -456,19 +460,28 @@ require github.com/xiaoming/sa-ecs @v1.2.0 sha256:8f4e2d...
 - 项目自包含 = 真正的"绿色软件"
 - 仍然提供 `sa fetch -g` 给那些清楚知道自己在做什么的开发者（如本地 50 个微服务共用底层库）
 
-### Q: 为什么禁止全局配置文件（`~/.sa/config.toml`）？
+### Q: `.sab` 和 `.sa` 有什么区别？什么时候用 `.sab`？
 
-**A**: 全局配置 = 隐式宿主机状态污染。SA 强制规则：
+**A**: `.sab` 是 SA 二进制指令包，是 Y 形双输入架构的二进制路径。
 
-> **执行结果 = 源码 AST + 项目本地 `sa.mod` + 项目本地 `sa.lock` + 进程环境变量**
+**区别**：
+| 维度 | `.sa` 文本 | `.sab` 二进制 |
+|---|---|---|
+| 形态 | UTF-8 文本，人类可读写 | 二进制格式（magic `"SAB\x00"`，v4.0） |
+| 解析方式 | Flattener 逐行分类 + 宏展开 + `@import` 解析 | `sab.zig::decodeModule()` 直接解码 |
+| 宏系统 | ✅ 完整支持 | ❌ 不支持（展开已在编码前完成） |
+| `@import` | ✅ 递归解析依赖树 | ❌ 不支持（依赖已在编码时解析） |
+| 优缺点 | 灵活、可读，但解析慢 | 结构化、解码快（≈文本 1/10 耗时），但不可读 |
 
-除此之外，编译器对宿主机一无所求、一无所知。
+**什么时候用 `.sab`**：
+- **编译缓存**：`sa build --emit-sab` 同时产出 `.sab`，下次编译直接加载二进制，跳过宏展开
+- **发布产物**：插件链产出结构化指令流（如 SLA 前端），直接写 SAB 格式，避免暴露原始源码
+- **链式传递**：编译器 A 接收 SAB 输入，解码后直接送给 Referee，不走文本路径
 
-替代方案：
-- 镜像规则用 `SA_MIRROR_<HOST>` 环境变量（CI / Docker 一等公民）
-- 或者写在项目本地 `.sa_env` / `sa.mod` 的 `[mirrors]` 块（自包含）
-
-如果探测到任何 `~/.sa/*` / `/etc/sa/*` → 编译器立刻报 `Trap: ForbiddenGlobalConfig` 拒绝启动。
+**什么时候用 `.sa`**：
+- **手写源码**：人类或 LLM 生成
+- **需要宏展开**：使用 `[MACRO]` / `EXPAND` / `[REP]` 的代码
+- **含 `@import`**：依赖其他模块的文件
 
 ### Q: 为什么不允许分发预编译二进制（`.so` / `.dll` / wheels）？
 
@@ -911,7 +924,7 @@ Go/Zig/Rust 都没有内建的"执行步数预估"能力。SA 的 Referee 在编
 
 | 维度 | 当前状态 | 路线图 |
 |---|---|---|
-| **人类可写性** | 手写较冗长 | `#mode compact`（v0.2）+ `libsa_async`（v0.3）缓解 |
+| **人类可写性** | 手写较冗长 | `#mode compact` ~~（v0.2）~~+ `libsa_async`（v0.3）缓解；已由外部 SLA 插件（`sa_plugin_sla`）提供完整 Rust 风格语法替代 |
 | **标准库** | 仅 `@sys_*` 基础原语 | v0.5+ 逐步添加 `sa_std`（网络/JSON/哈希表/排序） |
 | **生态系统** | 无第三方库 | 通过 C-ABI FFI 桥接任何现有库；LLM 可直接手搓 |
 | **跨函数安全** | 不保证（前端责任） | `libsa_scope` helper + v0.3 `--debug-san` 运行期检测 |
@@ -933,7 +946,7 @@ SA 是一门**全平台、全场景**的独立系统语言。通过 `sa build-ex
 | 嵌入式/WASM 极小体积 | ✅ | 无运行时、无 GC、≤ 48KB |
 | **前端 Web 应用** | ✅ | `sa build-wasm` 产出 `.wasm`，浏览器直接加载执行；可操作 DOM（通过 `@extern` 调 JS 桥接）或纯计算模块 |
 | Web 后端 API 服务 | ✅ **可行** | 通过 `@sys_*` 网络原语（v0.5 路线图）或 FFI 桥接现有 HTTP 库；LLM 可直接用 SA 手搓 HTTP 解析器 |
-| 日常应用开发 | ✅ **可行** | LLM 生成 SA 代码的场景下完全可行；人类手写时建议开启 `#mode compact` 降低心智负担 |
+| 日常应用开发 | ✅ **可行** | LLM 生成 SA 代码的场景下完全可行；人类手写时建议开启 `#mode compact` ~~降低心智负担~~（已由外部 SLA 插件提供完整 Rust 风格语法替代） |
 | 快速原型 | ✅ **可行** | `sa run` 毫秒级启动，LLM 生成 → Referee 验证 → 立即执行的闭环比 Python 更安全 |
 | 需要标准库功能 | ✅ **路线图中** | v0.5+ 将逐步添加 `sa_std` 库（网络/JSON/哈希表/排序/DOM 绑定等），以 `.sa` 宏文件形式提供 |
 | 移动端/IoT | ✅ | WASM 跑在任何支持 WASI 的 runtime 上；原生二进制可交叉编译到 ARM |
@@ -2323,7 +2336,8 @@ require_db_query github.com/x/y @v1.0 sha256:... grants [db_read:tbl_a, db_write
 
 | 文件 | 用途 |
 | --- | --- |
-| `.sa` | SA-ASM 源码，实现函数、宏调用和可验证指令。 |
+| `.sa` | SA-ASM 文本源码，实现函数、宏调用和可验证指令（走 Flattener 路径）。 |
+| `.sab` | SA 二进制指令包，结构化指令数据（走 SAB Decoder 路径，跳过 Flattener）。 |
 | `.sai` | SA Interface，声明 `@extern` 等外部 ABI。 |
 | `.sal` | SA Layout，声明布局常量、结构偏移、slot 装配和薄宏 facade。 |
 | `sa.mod` | SA Package manifest，管理普通源码包依赖、hash、permissions 和插件需求。 |
