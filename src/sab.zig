@@ -929,6 +929,10 @@ pub fn disasmModule(allocator: std.mem.Allocator, bytes: []const u8, writer: any
 }
 
 fn writeDisasmInstruction(writer: anytype, item: inst.Instruction, symbols: []const []const u8) !void {
+    if (item.kind == .call or item.kind == .call_indirect) {
+        if (try writeDisasmCallInstruction(writer, item, symbols)) return;
+    }
+
     try writer.print("{s}", .{@tagName(item.kind)});
     if (item.op_kind) |ok| {
         try writer.print(".{s}", .{@tagName(ok)});
@@ -948,6 +952,38 @@ fn writeDisasmInstruction(writer: anytype, item: inst.Instruction, symbols: []co
         try writeDisasmOperand(writer, operand, symbols);
     }
     try writer.writeByte('\n');
+}
+
+fn splitCallBody(body: []const u8) ?struct { target: []const u8, args: []const u8 } {
+    const trimmed = std.mem.trim(u8, body, " \t");
+    const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse return null;
+    const close = std.mem.lastIndexOfScalar(u8, trimmed, ')') orelse return null;
+    if (close < open) return null;
+    if (std.mem.trim(u8, trimmed[close + 1 ..], " \t").len != 0) return null;
+    const target = std.mem.trim(u8, trimmed[0..open], " \t");
+    if (target.len == 0) return null;
+    return .{ .target = target, .args = std.mem.trim(u8, trimmed[open + 1 .. close], " \t") };
+}
+
+fn writeDisasmCallInstruction(writer: anytype, item: inst.Instruction, symbols: []const []const u8) !bool {
+    const has_dst = item.operands[0] == .reg;
+    const body_operand = if (has_dst) item.operands[1] else item.operands[0];
+    const body = switch (body_operand) {
+        .text => |text| text,
+        else => return false,
+    };
+    const split = splitCallBody(body) orelse return false;
+
+    try writer.print("{s}", .{@tagName(item.kind)});
+    if (has_dst) {
+        try writer.writeByte(' ');
+        try writeDisasmOperand(writer, item.operands[0], symbols);
+        try writer.writeByte(',');
+    } else {
+        try writer.writeByte(' ');
+    }
+    try writer.print("\"{s}\",\"{s}\"\n", .{ split.target, split.args });
+    return true;
 }
 
 fn writeDisasmOperand(writer: anytype, operand: inst.Operand, symbols: []const []const u8) !void {
@@ -1301,6 +1337,37 @@ test "disasmModule produces readable text from binary SAB" {
     try std.testing.expect(std.mem.indexOf(u8, output.items, "return_") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.items, "42") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.items, "@main") != null);
+}
+
+test "disasmModule separates call target from call args" {
+    const reg_ids = [_]u32{1};
+    const fsig_val = sig.FunctionSig{
+        .id = 0,
+        .name = "main",
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .i32,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .reg_ids = reg_ids[0..],
+    };
+    var decl = inst.makeInstruction(.func_decl, 1, 0, null, "");
+    decl.operands[0] = .{ .symbol = 0 };
+    decl.operands[1] = .{ .func = 0 };
+    var call_item = inst.makeInstruction(.call, 2, 1, null, "");
+    call_item.operands[0] = .{ .reg = 1 };
+    call_item.operands[1] = .{ .text = "@sink(&arg, value)" };
+
+    const encoded = try encodeProgram(std.testing.allocator, &.{ "main", "out" }, &.{fsig_val}, &.{ decl, call_item });
+    defer std.testing.allocator.free(encoded);
+
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
+    try disasmModule(std.testing.allocator, encoded, output.writer());
+
+    try std.testing.expect(std.mem.indexOf(u8, output.items, "call r1,\"@sink\",\"&arg, value\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.items, "@sink(") == null);
 }
 
 test "decoded sab verifies through predecoded metadata without text parser" {
