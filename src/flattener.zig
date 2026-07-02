@@ -3523,6 +3523,104 @@ fn remapInstructionSymbolIds(instruction: *Instruction, remap: []const u32) !voi
     }
 }
 
+fn isOpaqueMacroArgName(name: []const u8) bool {
+    return std.mem.startsWith(u8, name, "__sla_macro_arg_");
+}
+
+fn remappedSymbolName(
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
+    remap: []const u32,
+    name: []const u8,
+) !?[]const u8 {
+    if (isOpaqueMacroArgName(name)) return null;
+    const old_id = source_symbols.findId(name) orelse return null;
+    const new_id = try remapSymbolId(remap, old_id);
+    return target_symbols.lookupName(new_id) orelse error.InvalidOperand;
+}
+
+fn appendRemappedSymbolToken(
+    out: *std.ArrayList(u8),
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
+    remap: []const u32,
+    token: []const u8,
+) !void {
+    if (try remappedSymbolName(source_symbols, target_symbols, remap, token)) |name| {
+        try out.appendSlice(name);
+    } else {
+        try out.appendSlice(token);
+    }
+}
+
+fn cloneRemappedSymbolText(
+    allocator: std.mem.Allocator,
+    owned_text: *std.ArrayList([]const u8),
+    text: []const u8,
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
+    remap: []const u32,
+) ![]const u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+
+        if (c == '"') {
+            try out.append(c);
+            i += 1;
+            while (i < text.len) {
+                const ch = text[i];
+                try out.append(ch);
+                i += 1;
+                if (ch == '\\' and i < text.len) {
+                    try out.append(text[i]);
+                    i += 1;
+                    continue;
+                }
+                if (ch == '"') break;
+            }
+            continue;
+        }
+
+        if (c == '/' and i + 1 < text.len and text[i + 1] == '/') {
+            try out.appendSlice(text[i..]);
+            break;
+        }
+
+        if ((c == '@' or c == '#' or c == '%') and i + 1 < text.len and isIdentStart(text[i + 1])) {
+            try out.append(c);
+            const start = i + 1;
+            i = start + 1;
+            while (i < text.len and isIdentChar(text[i])) : (i += 1) {}
+            if (c == '#') {
+                try out.appendSlice(text[start..i]);
+            } else {
+                try appendRemappedSymbolToken(&out, source_symbols, target_symbols, remap, text[start..i]);
+            }
+            continue;
+        }
+
+        if (isIdentStart(c)) {
+            const start = i;
+            i += 1;
+            while (i < text.len and isIdentChar(text[i])) : (i += 1) {}
+            try appendRemappedSymbolToken(&out, source_symbols, target_symbols, remap, text[start..i]);
+            continue;
+        }
+
+        try out.append(c);
+        i += 1;
+    }
+
+    const owned = try out.toOwnedSlice();
+    errdefer allocator.free(owned);
+    try owned_text.append(owned);
+    return owned;
+}
+
 fn cloneRemappedSymbolIdSlice(allocator: std.mem.Allocator, ids: []const u32, remap: []const u32) ![]const u32 {
     if (ids.len == 0) return &.{};
     const out = try allocator.alloc(u32, ids.len);
@@ -3916,6 +4014,8 @@ fn appendFlattenFragment(
             allocator,
             target_owned_text,
             instruction,
+            &fragment.symbols,
+            target_symbols,
             remap,
             source_line_offset,
             expanded_line_offset,
@@ -3942,6 +4042,8 @@ fn cloneRemappedOperand(
     allocator: std.mem.Allocator,
     owned_text: *std.ArrayList([]const u8),
     operand: Operand,
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
     remap: []const u32,
 ) !Operand {
     return switch (operand) {
@@ -3949,8 +4051,8 @@ fn cloneRemappedOperand(
         .symbol => |old_id| .{ .symbol = try remapSymbolId(remap, old_id) },
         .label => |old_id| .{ .label = try remapSymbolId(remap, old_id) },
         .func => |old_id| .{ .func = try remapSymbolId(remap, old_id) },
-        .text => |text| .{ .text = try ownText(allocator, owned_text, text) },
-        .native_text => |text| .{ .native_text = try ownText(allocator, owned_text, text) },
+        .text => |text| .{ .text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap) },
+        .native_text => |text| .{ .native_text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap) },
         else => operand,
     };
 }
@@ -3989,6 +4091,8 @@ fn cloneRemappedInstruction(
     allocator: std.mem.Allocator,
     owned_text: *std.ArrayList([]const u8),
     source: Instruction,
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
     remap: []const u32,
     source_line_offset: u32,
     expanded_line_offset: u32,
@@ -4006,7 +4110,7 @@ fn cloneRemappedInstruction(
         try std.math.add(u32, source.source_line, source_line_offset),
         try std.math.add(u32, source.expanded_line, expanded_line_offset),
         null,
-        try ownText(allocator, owned_text, source.raw_text),
+        try cloneRemappedSymbolText(allocator, owned_text, source.raw_text, source_symbols, target_symbols, remap),
     );
     errdefer {
         if (out.package_identity) |identity| allocator.free(identity);
@@ -4031,15 +4135,15 @@ fn cloneRemappedInstruction(
     out.atomic_second_ordering = source.atomic_second_ordering;
     out.atomic_rmw_op = source.atomic_rmw_op;
     if (source.atomic_expected_text) |text| {
-        out.atomic_expected_text = try ownText(allocator, owned_text, text);
+        out.atomic_expected_text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap);
     }
     if (source.atomic_new_text) |text| {
-        out.atomic_new_text = try ownText(allocator, owned_text, text);
+        out.atomic_new_text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap);
     }
 
     var cloned_native_text: ?[]const u8 = null;
     for (&out.operands, source.operands) |*dst, operand| {
-        dst.* = try cloneRemappedOperand(allocator, owned_text, operand, remap);
+        dst.* = try cloneRemappedOperand(allocator, owned_text, operand, source_symbols, target_symbols, remap);
         switch (dst.*) {
             .native_text => |text| cloned_native_text = text,
             else => {},
@@ -5339,7 +5443,7 @@ test "frontend cache clone remaps instruction symbols and owned metadata" {
         for (owned_text.items) |text| std.testing.allocator.free(text);
         owned_text.deinit();
     }
-    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, remap, 10, 20);
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &source_symbols, &target_symbols, remap, 10, 20);
     defer {
         if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
         if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
@@ -5368,7 +5472,64 @@ test "frontend cache clone remaps instruction symbols and owned metadata" {
     try std.testing.expect(cloned.atomic_new_text.?.ptr != source.atomic_new_text.?.ptr);
 }
 
+test "frontend cache clone remaps embedded call text tokens with operands" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    const dst_id = try source_symbols.intern("dst");
+    const tmp_id = try source_symbols.intern("tmp_0");
+    const callee_id = try source_symbols.intern("callee");
+    const opaque_arg_id = try source_symbols.intern("__sla_macro_arg_0");
+
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    _ = try target_symbols.intern("occupied");
+    const remapped_dst_id = try target_symbols.intern("__frag0_dst");
+    const remapped_tmp_id = try target_symbols.intern("__frag1_tmp_0");
+    const remapped_callee_id = try target_symbols.intern("renamed_callee");
+    const remapped_opaque_arg_id = try target_symbols.intern("__frag2_arg");
+
+    const remap = [_]u32{ remapped_dst_id, remapped_tmp_id, remapped_callee_id, remapped_opaque_arg_id };
+
+    var source = common_instruction.makeInstruction(
+        .call,
+        11,
+        4,
+        null,
+        "dst = call @callee(^tmp_0, &__sla_macro_arg_0, \"tmp_0\")",
+    );
+    source.operands[0] = .{ .reg = dst_id };
+    source.operands[1] = .{ .text = "@callee(^tmp_0, &__sla_macro_arg_0, \"tmp_0\")" };
+    source.atomic_expected_text = "tmp_0";
+    source.atomic_new_text = "__sla_macro_arg_0";
+    _ = tmp_id;
+    _ = callee_id;
+    _ = opaque_arg_id;
+
+    var owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer {
+        for (owned_text.items) |text| std.testing.allocator.free(text);
+        owned_text.deinit();
+    }
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &source_symbols, &target_symbols, remap[0..], 0, 0);
+    defer {
+        if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
+        if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
+        if (cloned.native_reg_names.len != 0) std.testing.allocator.free(cloned.native_reg_names);
+    }
+
+    try std.testing.expectEqual(remapped_dst_id, cloned.operands[0].reg);
+    try std.testing.expectEqualStrings("@renamed_callee(^__frag1_tmp_0, &__sla_macro_arg_0, \"tmp_0\")", cloned.operands[1].text);
+    try std.testing.expectEqualStrings("__frag0_dst = call @renamed_callee(^__frag1_tmp_0, &__sla_macro_arg_0, \"tmp_0\")", cloned.raw_text);
+    try std.testing.expectEqualStrings("__frag1_tmp_0", cloned.atomic_expected_text.?);
+    try std.testing.expectEqualStrings("__sla_macro_arg_0", cloned.atomic_new_text.?);
+}
+
 test "frontend cache clone rebuilds native register name slices" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+
     const native_text = "call side(ptr value, i32 7)";
     var source = common_instruction.makeInstruction(.native, 2, 1, null, "$call side(ptr value, i32 7)$");
     source.operands[0] = .{ .native_text = native_text };
@@ -5380,7 +5541,7 @@ test "frontend cache clone rebuilds native register name slices" {
         for (owned_text.items) |text| std.testing.allocator.free(text);
         owned_text.deinit();
     }
-    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &.{}, 4, 8);
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &source_symbols, &target_symbols, &.{}, 4, 8);
     defer {
         if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
         if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
