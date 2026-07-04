@@ -229,6 +229,58 @@
     %out_len = load __net_ja4_len_%out_status+0 as u64
 [END_MACRO]
 
+// Shared WebSocket and URL helpers. These macros intentionally keep the
+// protocol codecs in the sci runtime so plugins can wrap one implementation.
+[MACRO] NET_WS_ACCEPT_KEY %out_status, %out_len, %key, %key_len, %buf, %cap
+    __net_ws_accept_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_accept_key(&%key, %key_len, &%buf, %cap, &__net_ws_accept_len_%out_status)
+    %out_len = load __net_ws_accept_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_WS_FRAME_PARSE %out_status, %out_fin, %out_opcode, %out_masked, %out_payload_offset, %out_payload_len, %out_frame_len, %mask_buf, %data, %data_len
+    __net_ws_fin_%out_status = stack_alloc 1
+    __net_ws_opcode_%out_status = stack_alloc 1
+    __net_ws_masked_%out_status = stack_alloc 1
+    __net_ws_payload_offset_%out_status = stack_alloc 8
+    __net_ws_payload_len_%out_status = stack_alloc 8
+    __net_ws_frame_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_frame_parse(&%data, %data_len, &__net_ws_fin_%out_status, &__net_ws_opcode_%out_status, &__net_ws_masked_%out_status, &__net_ws_payload_offset_%out_status, &__net_ws_payload_len_%out_status, &__net_ws_frame_len_%out_status, &%mask_buf)
+    %out_fin = load __net_ws_fin_%out_status+0 as u8
+    %out_opcode = load __net_ws_opcode_%out_status+0 as u8
+    %out_masked = load __net_ws_masked_%out_status+0 as u8
+    %out_payload_offset = load __net_ws_payload_offset_%out_status+0 as u64
+    %out_payload_len = load __net_ws_payload_len_%out_status+0 as u64
+    %out_frame_len = load __net_ws_frame_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_WS_UNMASK %out_status, %payload, %payload_len, %mask
+    %out_status = call @sa_std_ws_unmask(&%payload, %payload_len, &%mask)
+[END_MACRO]
+
+[MACRO] NET_WS_FRAME_BUILD %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %mask, %buf, %cap
+    __net_ws_build_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_frame_build(%opcode, %fin, &%payload, %payload_len, &%mask, &%buf, %cap, &__net_ws_build_len_%out_status)
+    %out_len = load __net_ws_build_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_WS_FRAME_BUILD_UNMASKED %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %buf, %cap
+    __net_ws_build_unmasked_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_frame_build_unmasked(%opcode, %fin, &%payload, %payload_len, &%buf, %cap, &__net_ws_build_unmasked_len_%out_status)
+    %out_len = load __net_ws_build_unmasked_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_URL_PARSE %out_status, %out_port, %url, %url_len, %scheme_buf, %scheme_cap, %scheme_len, %host_buf, %host_cap, %host_len, %path_buf, %path_cap, %path_len
+    __net_url_scheme_len_%out_status = stack_alloc 8
+    __net_url_host_len_%out_status = stack_alloc 8
+    __net_url_path_len_%out_status = stack_alloc 8
+    __net_url_port_%out_status = stack_alloc 4
+    %out_status = call @sa_std_url_parse(&%url, %url_len, &%scheme_buf, %scheme_cap, &__net_url_scheme_len_%out_status, &%host_buf, %host_cap, &__net_url_host_len_%out_status, &%path_buf, %path_cap, &__net_url_path_len_%out_status, &__net_url_port_%out_status)
+    %scheme_len = load __net_url_scheme_len_%out_status+0 as u64
+    %host_len = load __net_url_host_len_%out_status+0 as u64
+    %path_len = load __net_url_path_len_%out_status+0 as u64
+    %out_port = load __net_url_port_%out_status+0 as u32
+[END_MACRO]
+
 [MACRO] NET_UDP_BIND %out_status, %out_socket, %host, %host_len, %port
     __net_udp_bind_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_udp_bind(&%host, %host_len, %port, &__net_udp_bind_handle_%out_status)

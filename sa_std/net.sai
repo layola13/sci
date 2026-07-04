@@ -41,6 +41,16 @@
 @extern sa_std_net_ja3_hash(&ja3: ptr, ja3_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_net_ja4_hash12(&data: ptr, data_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 
+// Shared WebSocket frame codec (downpushed from http_client/http_server/node/deno plugins).
+@extern sa_std_ws_accept_key(&key: ptr, key_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_ws_frame_parse(&data: ptr, data_len: u64, &out_fin: ptr, &out_opcode: ptr, &out_masked: ptr, &out_payload_offset: ptr, &out_payload_len: ptr, &out_frame_len: ptr, &out_mask: ptr) -> i32
+@extern sa_std_ws_unmask(&payload: ptr, payload_len: u64, &mask: ptr) -> i32
+@extern sa_std_ws_frame_build(opcode: u32, fin: u32, &payload: ptr, payload_len: u64, &mask: ptr, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_ws_frame_build_unmasked(opcode: u32, fin: u32, &payload: ptr, payload_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+
+// Shared URL parser (scheme://host[:port][/path]). Any out buffer may be omitted.
+@extern sa_std_url_parse(&url: ptr, url_len: u64, &scheme_out: ptr, scheme_cap: u64, &scheme_len: ptr, &host_out: ptr, host_cap: u64, &host_len: ptr, &path_out: ptr, path_cap: u64, &path_len: ptr, &out_port: ptr) -> i32
+
 @extern sa_std_net_udp_bind(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_local_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_peer_addr(socket: u64, &out_handle: ptr) -> i32
