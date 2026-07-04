@@ -1,2 +1,85 @@
 @import "netx.sal"
 @import "netx.sai"
+
+// Netx (io_uring 网络引擎) 的 SA 宏层。
+// 运行时 (src/runtime/sa_net_uring.zig) 拥有 socket/槽位池/解析/io_uring 编排；
+// 这些宏只是对 sa_netx_* C-ABI 的薄封装，全部返回 SA_NETX_* 状态码 (i32)。
+// 传缓冲区的参数遵循 net.sa 约定：调用方传缓冲区符号，宏内部取地址。
+
+// ---- 引擎生命周期 ----
+
+[MACRO] NETX_INIT %out_status, %slot_capacity, %reactor_count
+    %out_status = call @sa_netx_init(%slot_capacity, %reactor_count)
+[END_MACRO]
+
+[MACRO] NETX_LISTEN %out_status, %host, %host_len, %port
+    %out_status = call @sa_netx_listen(&%host, %host_len, %port)
+[END_MACRO]
+
+[MACRO] NETX_SHUTDOWN %out_status
+    %out_status = call @sa_netx_shutdown()
+[END_MACRO]
+
+// ---- 事件消费与出站 ----
+
+// %ticket 必须指向一块至少 Ticket_SIZE 字节的缓冲区 (stack_alloc Ticket_SIZE)。
+// 阻塞直到有票据；返回 SA_NETX_OK 时 %ticket 被填充，SA_NETX_ERR_NOT_FOUND 表示引擎已关停。
+[MACRO] NETX_RECV_TICKET %out_status, %reactor_id, %ticket
+    %out_status = call @sa_netx_recv_ticket(%reactor_id, &%ticket)
+[END_MACRO]
+
+[MACRO] NETX_PUSH_OUTBOUND %out_status, %reactor_id, %slot_id, %msg, %len
+    %out_status = call @sa_netx_push_outbound(%reactor_id, %slot_id, &%msg, %len)
+[END_MACRO]
+
+// %slot_ids 指向 %n 个连续 u32 槽位 id；同一条 %msg 扇出给全部槽位。
+[MACRO] NETX_BROADCAST %out_status, %reactor_id, %slot_ids, %n, %msg, %len
+    %out_status = call @sa_netx_broadcast(%reactor_id, &%slot_ids, %n, &%msg, %len)
+[END_MACRO]
+
+[MACRO] NETX_CLOSE_SLOT %out_status, %slot_id
+    %out_status = call @sa_netx_close_slot(%slot_id)
+[END_MACRO]
+
+// ---- Ticket 字段直读 ----
+// %ticket 是 NETX_RECV_TICKET 填充的缓冲区地址；以下宏按 netx.sal 偏移直读，无拷贝。
+
+[MACRO] NETX_TICKET_SLOT_ID %out_slot_id, %ticket
+    %out_slot_id = load %ticket+Ticket_slot_id as u32
+[END_MACRO]
+
+[MACRO] NETX_TICKET_OP_CODE %out_op, %ticket
+    %out_op = load %ticket+Ticket_op_code as u16
+[END_MACRO]
+
+[MACRO] NETX_TICKET_PROTO %out_proto, %ticket
+    %out_proto = load %ticket+Ticket_proto as u8
+[END_MACRO]
+
+[MACRO] NETX_TICKET_FLAGS %out_flags, %ticket
+    %out_flags = load %ticket+Ticket_flags as u8
+[END_MACRO]
+
+[MACRO] NETX_TICKET_PAYLOAD %out_ptr, %ticket
+    %out_ptr = load %ticket+Ticket_payload as ptr
+[END_MACRO]
+
+[MACRO] NETX_TICKET_PAYLOAD_LEN %out_len, %ticket
+    %out_len = load %ticket+Ticket_payload_len as u32
+[END_MACRO]
+
+// ---- 复合便利宏 ----
+
+// 一次性把 op_code / slot_id / proto 三个最常用字段读出。
+[MACRO] NETX_TICKET_HEADER %out_op, %out_slot_id, %out_proto, %ticket
+    %out_op = load %ticket+Ticket_op_code as u16
+    %out_slot_id = load %ticket+Ticket_slot_id as u32
+    %out_proto = load %ticket+Ticket_proto as u8
+[END_MACRO]
+
+// 判定票据是否为某个 TicketOp (见 netx.sal 的 NETX_OP_*)。
+[MACRO] NETX_TICKET_IS_OP %out_flag, %ticket, %op
+    __netx_ticket_op_%out_flag = load %ticket+Ticket_op_code as u16
+    %out_flag = eq __netx_ticket_op_%out_flag, %op
+    !__netx_ticket_op_%out_flag
+[END_MACRO]

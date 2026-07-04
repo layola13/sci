@@ -41,6 +41,10 @@ pub const libsa_scope = @import("libsa_scope.zig");
 pub const runtime = struct {
     pub const sa_net_uring = @import("runtime/sa_net_uring.zig");
     pub const sa_std = @import("runtime/sa_std.zig");
+    pub const sa_http2 = @import("runtime/sa_http2.zig");
+    pub const sa_tls_server = @import("runtime/sa_tls_server.zig");
+    pub const sa_dtls = @import("runtime/sa_dtls.zig");
+    pub const sa_quic = @import("runtime/sa_quic.zig");
 };
 pub const referee = @import("referee.zig");
 pub const cli = @import("cli.zig");

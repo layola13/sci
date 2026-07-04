@@ -1663,7 +1663,9 @@ sa/
 - [x] 45. 登记 SA 端契约骨架（仅文件骨架，不接入 build）
   - [x] 45.1 创建 `sa_std/netx.sai`：7 条 `@extern` 声明
   - [x] 45.2 创建 `sa_std/netx.sal`：`Ticket_*` 偏移 + `NetxProto_*` 枚举
-  - [x] 45.3 创建 `sa_std/netx.sa`：`@import` 上面两个文件
+  - [x] 45.3 创建 `sa_std/netx.sa`：`@import` 上面两个文件 + `NETX_*` 宏层
+    - 说明（2026-07-03）：`netx.sa` 已从裸 `@import` 扩为完整宏层：7 条 extern 薄封装（`NETX_INIT/LISTEN/SHUTDOWN/RECV_TICKET/PUSH_OUTBOUND/BROADCAST/CLOSE_SLOT`）+ Ticket 字段直读（`NETX_TICKET_SLOT_ID/OP_CODE/PROTO/FLAGS/PAYLOAD/PAYLOAD_LEN`）+ 便利宏（`NETX_TICKET_HEADER` / `NETX_TICKET_IS_OP`）。`netx.sal` 补齐 `SA_NETX_*` 状态码、`NETX_OP_*`、`NETX_FLAG_*` 常量（镜像 runtime）。`netx.sai` 返回类型由 `i32!` 修正为 `i32`（实现返回 plain 状态码，非 error-union）。SA 单测 `tests/unit_framework/std_netx_macro_surface.sa` 覆盖 Ticket 字段偏移/宽度直读，`unit-framework` 全套件通过。
+    - 关键修复：`sa_netx_*` 7 函数原为 `pub fn`（无 C-ABI 导出）且 `sa_net_uring.zig` 从未被 SA 链接的 runtime 根 `sa_std.zig` 引入 → SA 程序调用会链接失败。已改为 `pub export fn` 并在 `sa_std.zig` comptime 强引用块加入 `sa_net_uring.zig`（与 http2/tls/dtls/quic 同手法）。`nm libsa_std.so` 确认 7 个 `sa_netx_*` 均为 `T`（已定义）。
   - _Requirements: R35.10_
 
 ### M1：物理基座（W1–W3）

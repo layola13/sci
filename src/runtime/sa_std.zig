@@ -1,5 +1,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
+// Pull the new sa_std protocol runtimes (http2/tls_server/dtls/quic) export
+// functions into the library object. Zig only emits `pub export fn`s of a
+// transitively-imported module when the root source actually retains the
+// module's declaration, so a comptime reference block forces every export fn
+// here to be kept and emitted into libsa_std alongside the rest of the sa_std
+// surface. This is purely a link-time union; nothing calls these directly.
+comptime {
+    _ = &@import("sa_http2.zig").sa_std_http2_supported;
+    _ = &@import("sa_tls_server.zig").sa_std_tls_server_supported;
+    _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
+    _ = &@import("sa_quic.zig").sa_std_quic_supported;
+    _ = &@import("sa_net_uring.zig").sa_netx_init;
+}
 
 const RegexC = extern struct {
     buffer: ?*anyopaque,
@@ -1350,13 +1363,17 @@ fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Ad
     return address;
 }
 
-fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
-    const host = hostBytes(host_ptr, host_len) catch |err| return err;
-    const port16 = portFromU32(port) catch |err| return err;
+fn resolveFirstAddressFromParts(host: []const u8, port16: u16) !std.net.Address {
     const list = try std.net.getAddressList(std.heap.page_allocator, host, port16);
     defer list.deinit();
     if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
     return list.addrs[0];
+}
+
+fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
+    const host = hostBytes(host_ptr, host_len) catch |err| return err;
+    const port16 = portFromU32(port) catch |err| return err;
+    return resolveFirstAddressFromParts(host, port16);
 }
 
 fn makeIpv4Membership(multicast_addr: std.net.Address, interface_addr: std.net.Address) IpMreqC {
@@ -6891,6 +6908,47 @@ pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
     return finish(SA_STD_OK);
 }
 
+// SO_KEEPALIVE on a connected TCP stream. Codex's socket2 users enable this to
+// keep idle upstream connections alive; exposed here so SA callers match parity.
+pub export fn sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.KEEPALIVE, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+// Tune the Linux TCP keepalive timers (idle before first probe, interval
+// between probes, probe count before dropping). All three are in whole units
+// (seconds for idle/interval, count for cnt) matching the kernel option ABI.
+pub export fn sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs: u32, interval_secs: u32, count: u32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (idle_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (interval_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (count > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPIDLE, @as(i32, @intCast(idle_secs))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPINTVL, @as(i32, @intCast(interval_secs))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPCNT, @as(i32, @intCast(count))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+// SO_REUSEADDR on a TCP listener handle (or UDS listener, which shares the
+// tcp_listener resource kind). Allows rebinding a TIME_WAIT address.
+pub export fn sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+// SO_REUSEPORT on a TCP listener handle for load-balanced multi-acceptor setups.
+pub export fn sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -7005,7 +7063,7 @@ pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u
     handle_ptr.* = 0;
     const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
+    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
     const fd = std.posix.socket(address.any.family, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP) catch |err| return finishErr(err);
     errdefer std.posix.close(fd);
     var bind_addr = address;
@@ -7060,7 +7118,7 @@ pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
 pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
     const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
+    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
 
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -7335,7 +7393,7 @@ pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, h
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
     const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
+    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const fd = handleToFd(socket) catch |err| return finishErr(err);
@@ -8019,7 +8077,7 @@ pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port:
     const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
 
-    const address = std.net.Address.resolveIp(host, port16) catch |err| return finishErr(err);
+    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
     var server = address.listen(.{ .reuse_address = true }) catch |err| return finishErr(err);
     errdefer server.deinit();
     const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
@@ -8091,6 +8149,50 @@ pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port
     const port16 = portFromU32(port) catch |err| return finishErr(err);
 
     const stream = std.net.tcpConnectToHost(std.heap.page_allocator, host, port16) catch |err| return finishErr(err);
+    errdefer stream.close();
+    const handle = registerResource(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+// Unix domain socket support. Streams and listeners reuse the existing
+// tcp_stream / tcp_listener resource kinds so read/write/peek/shutdown/close
+// and accept all flow through the same sa_std_net_tcp_* paths.
+pub export fn sa_std_net_unix_listen(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+
+    var address = std.net.Address.initUnix(path) catch |err| return finishErr(err);
+
+    // Remove any stale socket file so bind() does not fail with AddrInUse.
+    // Best-effort: a missing path is fine; other unlink errors surface at bind.
+    std.posix.unlink(path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => {},
+    };
+
+    const fd = std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    errdefer std.posix.close(fd);
+    std.posix.bind(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    std.posix.listen(fd, 128) catch |err| return finishErr(err);
+
+    const server = std.net.Server{ .listen_address = address, .stream = .{ .handle = fd } };
+    const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_accept(listener: u64, out_handle: ?*u64) i32 {
+    return sa_std_net_tcp_accept(listener, out_handle);
+}
+
+pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+
+    const stream = std.net.connectUnixSocket(path) catch |err| return finishErr(err);
     errdefer stream.close();
     const handle = registerResource(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
     handle_ptr.* = handle;

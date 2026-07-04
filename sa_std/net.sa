@@ -179,6 +179,40 @@
     %out_error = load __net_tcp_error_%out_status+0 as i32
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_SET_KEEPALIVE %out_status, %stream, %enabled
+    %out_status = call @sa_std_net_tcp_stream_set_keepalive(%stream, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_KEEPALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt
+    %out_status = call @sa_std_net_tcp_stream_set_keepalive_params(%stream, %idle_secs, %intvl_secs, %cnt)
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_SET_REUSEADDR %out_status, %listener, %enabled
+    %out_status = call @sa_std_net_tcp_listener_set_reuseaddr(%listener, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_SET_REUSEPORT %out_status, %listener, %enabled
+    %out_status = call @sa_std_net_tcp_listener_set_reuseport(%listener, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTEN %out_status, %out_listener, %path, %path_len
+    __net_unix_listen_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listen(&%path, %path_len, &__net_unix_listen_handle_%out_status)
+    %out_listener = load __net_unix_listen_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_CONNECT %out_status, %out_stream, %path, %path_len
+    __net_unix_connect_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_connect(&%path, %path_len, &__net_unix_connect_handle_%out_status)
+    %out_stream = load __net_unix_connect_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_ACCEPT %out_status, %out_stream, %listener
+    __net_unix_accept_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_accept(%listener, &__net_unix_accept_handle_%out_status)
+    %out_stream = load __net_unix_accept_handle_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UDP_BIND %out_status, %out_socket, %host, %host_len, %port
     __net_udp_bind_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_udp_bind(&%host, %host_len, %port, &__net_udp_bind_handle_%out_status)

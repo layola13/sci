@@ -1818,7 +1818,7 @@ fn resumeSlot(receptor: *Reactor, slot: *ConnectionSlot) !void {
     }
 }
 
-pub fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
+pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
     if (builtin.os.tag != .linux) return SA_NETX_ERR_UNSUPPORTED;
     if (slot_capacity == 0 or reactor_count == 0) return SA_NETX_ERR_INVALID_ARGUMENT;
     if (runtime_state.initialized) return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -1876,7 +1876,7 @@ pub fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
     return SA_NETX_OK;
 }
 
-pub fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+pub export fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     if (!runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
     if (runtime_state.listened) return SA_NETX_ERR_INVALID_ARGUMENT;
     const host = if (host_len == 0) "0.0.0.0" else blk: {
@@ -1923,7 +1923,7 @@ pub fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     return SA_NETX_OK;
 }
 
-pub fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
+pub export fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
     const ticket_ptr = out_ticket orelse return SA_NETX_ERR_INVALID_ARGUMENT;
     const reactor = getReactor(reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     reactor.ticket_mutex.lock();
@@ -1946,7 +1946,7 @@ pub fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
     return SA_NETX_OK;
 }
 
-pub fn sa_netx_push_outbound(reactor_id: u32, slot_id: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
+pub export fn sa_netx_push_outbound(reactor_id: u32, slot_id: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
     const reactor = getReactor(reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     const msg = if (len == 0) &[_]u8{} else blk: {
         const ptr = msg_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -1961,7 +1961,7 @@ pub fn sa_netx_push_outbound(reactor_id: u32, slot_id: u32, msg_ptr: ?[*]const u
     });
 }
 
-pub fn sa_netx_broadcast(reactor_id: u32, slot_ids_ptr: ?[*]const u32, n: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
+pub export fn sa_netx_broadcast(reactor_id: u32, slot_ids_ptr: ?[*]const u32, n: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
     const reactor = getReactor(reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     const slots = if (n == 0) &[_]u32{} else blk: {
         const ptr = slot_ids_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -1982,7 +1982,7 @@ pub fn sa_netx_broadcast(reactor_id: u32, slot_ids_ptr: ?[*]const u32, n: u32, m
     });
 }
 
-pub fn sa_netx_close_slot(slot_id: u32) i32 {
+pub export fn sa_netx_close_slot(slot_id: u32) i32 {
     if (!runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
     const pool = runtime_state.slot_pool orelse return SA_NETX_ERR_INVALID_HANDLE;
     const slot = pool.slotFromId(slot_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
@@ -1993,7 +1993,7 @@ pub fn sa_netx_close_slot(slot_id: u32) i32 {
     });
 }
 
-pub fn sa_netx_shutdown() i32 {
+pub export fn sa_netx_shutdown() i32 {
     if (!runtime_state.initialized) return SA_NETX_OK;
     runtime_state.worker_state.mutex.lock();
     runtime_state.worker_state.stop = true;

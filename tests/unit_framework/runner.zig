@@ -605,6 +605,9 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_net_macro_surface.sa",
         "tests/unit_framework/std_net_addr_macro_surface.sa",
         "tests/unit_framework/std_net_multicast_macro_surface.sa",
+        "tests/unit_framework/std_netx_macro_surface.sa",
+        "tests/unit_framework/std_net_unix_macro_surface.sa",
+        "tests/unit_framework/std_net_dns_macro_surface.sa",
     };
 
     for (macro_surface_suites) |path| {

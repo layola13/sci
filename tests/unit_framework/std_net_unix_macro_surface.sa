@@ -1,0 +1,119 @@
+@import "sa_std/net.sa"
+
+// Unix domain socket 宏表面测试 + socket 选项 setter。
+// UDS 是本地流 socket：单线程 listen -> connect(入队即返回) -> accept -> write -> read 可行。
+@test "sa_std net unix domain socket roundtrip"():
+L_ENTRY:
+    path = utf8:"/tmp/sa_uds_test.sock"
+    path_len = add 0, 21
+
+    EXPAND NET_UNIX_LISTEN listen_status, listener, path, path_len
+    listen_ok = eq listen_status, SA_NET_OK
+    listener_ok = ne listener, 0
+    listen_all = and listen_ok, listener_ok
+    br listen_all -> L_REUSE, L_FAIL_LISTEN
+
+L_FAIL_LISTEN:
+    !listener
+    !listen_status
+    panic(960)
+
+L_REUSE:
+    // 在 listener 上验证 reuseaddr/reuseport setter 返回 OK。
+    EXPAND NET_TCP_LISTENER_SET_REUSEADDR reuse_status, listener, SA_NET_SOCKET_OPTION_ENABLE
+    reuse_ok = eq reuse_status, SA_NET_OK
+    EXPAND NET_TCP_LISTENER_SET_REUSEPORT reuseport_status, listener, SA_NET_SOCKET_OPTION_ENABLE
+    reuseport_ok = eq reuseport_status, SA_NET_OK
+    reuse_both = and reuse_ok, reuseport_ok
+    !reuseport_status
+    !reuse_status
+    br reuse_both -> L_CONNECT, L_FAIL_CONNECT
+
+L_CONNECT:
+    EXPAND NET_UNIX_CONNECT connect_status, client, path, path_len
+    connect_ok = eq connect_status, SA_NET_OK
+    client_ok = ne client, 0
+    connect_all = and connect_ok, client_ok
+    !connect_status
+    br connect_all -> L_ACCEPT, L_FAIL_CONNECT
+
+L_FAIL_CONNECT:
+    !client
+    !connect_all
+    !listener
+    panic(961)
+
+L_ACCEPT:
+    EXPAND NET_UNIX_ACCEPT accept_status, server, listener
+    accept_ok = eq accept_status, SA_NET_OK
+    server_ok = ne server, 0
+    accept_all = and accept_ok, server_ok
+    !accept_status
+    br accept_all -> L_KEEPALIVE, L_FAIL_ACCEPT
+
+L_FAIL_ACCEPT:
+    !server
+    !accept_all
+    !client
+    !listener
+    panic(962)
+
+L_KEEPALIVE:
+    // 在 accept 出来的 stream 上验证 keepalive setter 返回 OK。
+    EXPAND NET_TCP_STREAM_SET_KEEPALIVE ka_status, server, SA_NET_SOCKET_OPTION_ENABLE
+    ka_ok = eq ka_status, SA_NET_OK
+    // keepalive 参数 setter：idle=60s intvl=10s cnt=5。
+    EXPAND NET_TCP_STREAM_SET_KEEPALIVE_PARAMS kap_status, server, 60, 10, 5
+    kap_ok = eq kap_status, SA_NET_OK
+    ka_both = and ka_ok, kap_ok
+    !kap_status
+    !ka_status
+    br ka_both -> L_WRITE, L_FAIL_IO
+
+L_WRITE:
+    // client -> server 写入。
+    send_buf = stack_alloc 8
+    store send_buf+0, 85 as u8
+    store send_buf+1, 68 as u8
+    store send_buf+2, 83 as u8
+    store send_buf+3, 33 as u8
+    EXPAND NET_TCP_STREAM_WRITE write_status, write_len, client, send_buf, 4
+    write_ok = eq write_status, SA_NET_OK
+    wrote_4 = eq write_len, 4
+    write_all = and write_ok, wrote_4
+    !write_status
+    !write_len
+    br write_all -> L_READ, L_FAIL_IO
+
+L_READ:
+    recv_buf = stack_alloc 16
+    EXPAND NET_TCP_STREAM_READ read_status, read_len, server, recv_buf, 16
+    read_ok = eq read_status, SA_NET_OK
+    read_4 = eq read_len, 4
+    b0 = load recv_buf+0 as u8
+    b3 = load recv_buf+3 as u8
+    b0_ok = eq b0, 85
+    b3_ok = eq b3, 33
+    io01 = and read_ok, read_4
+    io02 = and io01, b0_ok
+    io_all = and io02, b3_ok
+    !read_status
+    !read_len
+    !b0
+    !b3
+    br io_all -> L_CLOSE, L_FAIL_IO
+
+L_FAIL_IO:
+    !server
+    !client
+    !listener
+    panic(963)
+
+L_CLOSE:
+    EXPAND NET_TCP_STREAM_CLOSE close_client, client
+    EXPAND NET_TCP_STREAM_CLOSE close_server, server
+    EXPAND NET_TCP_LISTENER_CLOSE close_listener, listener
+    !close_listener
+    !close_server
+    !close_client
+    return 0

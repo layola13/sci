@@ -1,0 +1,26 @@
+// sa_std HTTP/2 surface — real libnghttp2 backend living in the sci runtime.
+//
+// String/JSON/binary outputs are returned as registered u64 buffer handles,
+// following the same convention as sa_std.fs.read_*: read bytes/length with
+// sa_std_http2_buffer_data / sa_std_http2_buffer_len and release with
+// sa_std_http2_buffer_free.
+
+@extern sa_std_http2_supported(&out_supported: ptr) -> i32
+
+@extern sa_std_http2_client_request(&url: ptr, url_len: u64, &method: ptr, method_len: u64, &body: ptr, body_len: u64, &out_handle: ptr) -> i32
+
+@extern sa_std_http2_nghttp2_version_json(&out_handle: ptr) -> i32
+@extern sa_std_http2_status_json(&out_handle: ptr) -> i32
+@extern sa_std_http2_constants_json(&out_handle: ptr) -> i32
+@extern sa_std_http2_sensitive_headers(&out_handle: ptr) -> i32
+@extern sa_std_http2_get_default_settings_json(&out_handle: ptr) -> i32
+
+@extern sa_std_http2_get_packed_settings(&settings_json: ptr, settings_json_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_http2_get_unpacked_settings_json(&buf: ptr, buf_len: u64, &out_handle: ptr) -> i32
+
+@extern sa_std_http2_perform_server_handshake(&input: ptr, input_len: u64, &settings_json: ptr, settings_json_len: u64, &out_bytes: ptr, &out_json: ptr) -> i32
+
+// buffer handle accessors (sci convention)
+@extern sa_std_http2_buffer_data(^buffer: u64) -> &ptr
+@extern sa_std_http2_buffer_len(^buffer: u64) -> u64
+@extern sa_std_http2_buffer_free(^buffer: u64) -> i32

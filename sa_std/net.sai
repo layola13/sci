@@ -25,6 +25,18 @@
 @extern sa_std_net_tcp_listener_ttl(listener: u64, &out_ttl: ptr) -> i32
 @extern sa_std_net_tcp_listener_take_error(listener: u64, &out_error: ptr) -> i32
 
+// Unix domain sockets (stream). Handles reuse the tcp_stream/tcp_listener kinds,
+// so NET_TCP_STREAM_READ/WRITE/CLOSE and NET_TCP_LISTENER_CLOSE work on them.
+@extern sa_std_net_unix_listen(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_accept(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_connect(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+
+// Additional stream/listener socket options.
+@extern sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs: u32, intvl_secs: u32, cnt: u32) -> i32
+@extern sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) -> i32
+
 @extern sa_std_net_udp_bind(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_local_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_peer_addr(socket: u64, &out_handle: ptr) -> i32
