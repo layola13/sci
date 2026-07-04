@@ -8199,9 +8199,109 @@ pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out
     return finish(SA_STD_OK);
 }
 
+// ---- TLS/network fingerprint primitives (JA3 / JA4) ----
+//
+// SA programs building outbound-request fingerprints (mirroring Go's utls /
+// CLIProxyAPI / sub2api) need the hashing primitives that JA3 and JA4 are
+// defined in terms of: JA3 is md5(ja3_string); JA4's `b`/`c` segments are the
+// first 12 hex chars of sha256(sorted-comma-joined list). SA-ASM has no crypto,
+// so these are exposed here. They are pure functions over caller-provided bytes
+// — no sockets, no allocation beyond the caller's output buffer.
+
+fn writeHexLower(dst: []u8, bytes: []const u8) void {
+    const hex = "0123456789abcdef";
+    var i: usize = 0;
+    while (i < bytes.len) : (i += 1) {
+        dst[i * 2] = hex[bytes[i] >> 4];
+        dst[i * 2 + 1] = hex[bytes[i] & 0x0f];
+    }
+}
+
+// md5 of the input, written as 32 lowercase hex chars into out (cap must be >= 32).
+// This is exactly the JA3 hash given a pre-built JA3 string.
+pub export fn sa_std_net_ja3_hash(input_ptr: ?[*]const u8, input_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_slot.* = 0;
+    if (out_cap < 32) return finish(SA_STD_ERR_TRUNCATED);
+    const input = constBytes(input_ptr, input_len) catch |err| return finishErr(err);
+    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var digest: [16]u8 = undefined;
+    std.crypto.hash.Md5.hash(input, &digest, .{});
+    writeHexLower(out[0..32], digest[0..]);
+    len_slot.* = 32;
+    return finish(SA_STD_OK);
+}
+
+// sha256 of the input, written as 64 lowercase hex chars into out (cap must be >= 64).
+pub export fn sa_std_net_sha256_hex(input_ptr: ?[*]const u8, input_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_slot.* = 0;
+    if (out_cap < 64) return finish(SA_STD_ERR_TRUNCATED);
+    const input = constBytes(input_ptr, input_len) catch |err| return finishErr(err);
+    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(input, &digest, .{});
+    writeHexLower(out[0..64], digest[0..]);
+    len_slot.* = 64;
+    return finish(SA_STD_OK);
+}
+
+// JA4 truncated hash: first 12 lowercase hex chars of sha256(input). JA4's `b`
+// (cipher) and `c` (extension+sigalg) segments are defined as sha256 truncated
+// to 12 hex chars. An all-zero / empty input segment conventionally maps to the
+// literal "000000000000", which the caller can special-case; this returns the
+// real truncated digest.
+pub export fn sa_std_net_ja4_hash12(input_ptr: ?[*]const u8, input_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_slot.* = 0;
+    if (out_cap < 12) return finish(SA_STD_ERR_TRUNCATED);
+    const input = constBytes(input_ptr, input_len) catch |err| return finishErr(err);
+    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(input, &digest, .{});
+    // 12 hex chars = 6 bytes of digest.
+    writeHexLower(out[0..12], digest[0..6]);
+    len_slot.* = 12;
+    return finish(SA_STD_OK);
+}
+
 fn expectTimeoutRoundedUpWithin(requested_ns: u64, observed_ns: u64) !void {
     try std.testing.expect(observed_ns >= requested_ns);
     try std.testing.expect(observed_ns - requested_ns <= 10 * std.time.ns_per_ms);
+}
+
+test "ja3 hash matches reference md5 vector" {
+    // Reference JA3 string and its canonical md5 (ja3er / Salesforce reference).
+    const ja3 = "769,47-53-5-10-49161-49162-49171-49172-50-56-19-4,0-10-11,23-24-25,0";
+    var out: [64]u8 = undefined;
+    var out_len: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_ja3_hash(ja3.ptr, ja3.len, &out, out.len, &out_len));
+    try std.testing.expectEqual(@as(u64, 32), out_len);
+    try std.testing.expectEqualStrings("ada70206e40642a3e4461f35503241d5", out[0..32]);
+}
+
+test "sha256 hex and ja4 truncation match" {
+    // sha256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    var out: [64]u8 = undefined;
+    var out_len: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_sha256_hex("", 0, &out, out.len, &out_len));
+    try std.testing.expectEqual(@as(u64, 64), out_len);
+    try std.testing.expectEqualStrings("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", out[0..64]);
+
+    // JA4 12-char truncation is the first 12 hex chars of the same digest.
+    var out12: [12]u8 = undefined;
+    var len12: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_ja4_hash12("", 0, &out12, out12.len, &len12));
+    try std.testing.expectEqual(@as(u64, 12), len12);
+    try std.testing.expectEqualStrings("e3b0c4429 8fc"[0..0] ++ "e3b0c44298fc", out12[0..12]);
+}
+
+test "ja3/ja4 reject too-small output buffers" {
+    var small: [8]u8 = undefined;
+    var n: u64 = 0;
+    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_ja3_hash("x", 1, &small, small.len, &n));
+    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_sha256_hex("x", 1, &small, small.len, &n));
+    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_ja4_hash12("x", 1, &small, small.len, &n));
 }
 
 test "socket helper round trip on raw udp socket" {

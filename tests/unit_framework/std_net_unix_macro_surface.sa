@@ -2,12 +2,13 @@
 
 // Unix domain socket 宏表面测试 + socket 选项 setter。
 // UDS 是本地流 socket：单线程 listen -> connect(入队即返回) -> accept -> write -> read 可行。
+@const UDS_TEST_PATH = utf8:"/tmp/sa_uds_test.sock"
+
 @test "sa_std net unix domain socket roundtrip"():
 L_ENTRY:
-    path = utf8:"/tmp/sa_uds_test.sock"
     path_len = add 0, 21
 
-    EXPAND NET_UNIX_LISTEN listen_status, listener, path, path_len
+    EXPAND NET_UNIX_LISTEN listen_status, listener, UDS_TEST_PATH, path_len
     listen_ok = eq listen_status, SA_NET_OK
     listener_ok = ne listener, 0
     listen_all = and listen_ok, listener_ok
@@ -30,7 +31,7 @@ L_REUSE:
     br reuse_both -> L_CONNECT, L_FAIL_CONNECT
 
 L_CONNECT:
-    EXPAND NET_UNIX_CONNECT connect_status, client, path, path_len
+    EXPAND NET_UNIX_CONNECT connect_status, client, UDS_TEST_PATH, path_len
     connect_ok = eq connect_status, SA_NET_OK
     client_ok = ne client, 0
     connect_all = and connect_ok, client_ok

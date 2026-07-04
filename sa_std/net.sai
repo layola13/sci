@@ -37,6 +37,10 @@
 @extern sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) -> i32
 
+// TLS ClientHello fingerprint digests (JA3 = MD5 hex, JA4 segment = SHA256 first 12 hex chars).
+@extern sa_std_net_ja3_hash(&ja3: ptr, ja3_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_net_ja4_hash12(&data: ptr, data_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+
 @extern sa_std_net_udp_bind(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_local_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_peer_addr(socket: u64, &out_handle: ptr) -> i32

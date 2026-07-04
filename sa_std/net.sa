@@ -213,6 +213,22 @@
     %out_stream = load __net_unix_accept_handle_%out_status+0 as u64
 [END_MACRO]
 
+// TLS ClientHello fingerprints. Given a caller-built JA3 string (decimal
+// TLSVersion,Ciphers,Extensions,EllipticCurves,ECPointFormats), NET_JA3_HASH
+// writes the 32-char lowercase MD5 hex into %buf. NET_JA4_HASH12 writes the
+// 12-char truncated SHA256 hex used by JA4's cipher/extension sub-hashes.
+[MACRO] NET_JA3_HASH %out_status, %out_len, %ja3, %ja3_len, %buf, %cap
+    __net_ja3_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_ja3_hash(&%ja3, %ja3_len, &%buf, %cap, &__net_ja3_len_%out_status)
+    %out_len = load __net_ja3_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_JA4_HASH12 %out_status, %out_len, %data, %data_len, %buf, %cap
+    __net_ja4_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_ja4_hash12(&%data, %data_len, &%buf, %cap, &__net_ja4_len_%out_status)
+    %out_len = load __net_ja4_len_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UDP_BIND %out_status, %out_socket, %host, %host_len, %port
     __net_udp_bind_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_udp_bind(&%host, %host_len, %port, &__net_udp_bind_handle_%out_status)
