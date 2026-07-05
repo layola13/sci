@@ -26,9 +26,10 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::unix::net::UnixStream::pair`.
    - `std::os::unix::net::{UnixListener,UnixStream}` local/peer address queries with dedicated Unix socket address resources.
    - `std::os::unix::process::CommandExt` supportable spawn-config subset: `arg0`, `process_group`, and `setsid` across capture/inherit/stream process modes.
+   - `std::os::linux::process` / pidfd-adjacent process-group signaling subset: `PROCESS_SEND_PROCESS_GROUP_SIGNAL` with effective PGID tracking.
 2. Next candidate scope:
    - Continue broader Linux std gap closure against `/home/vscode/projects/rust/library/std/src`.
-   - Prioritize Linux pidfd/process-group signal pieces, remaining high-permission/destructive `CommandExt` child setup knobs (`uid` / `gid` / `groups` / `chroot` / in-place `exec`), and remaining Linux-only std facades that do not require Rust trait/lifetime machinery.
+   - Prioritize Linux pidfd handle/create_pidfd/wait/try_wait pieces, remaining high-permission/destructive `CommandExt` child setup knobs (`uid` / `gid` / `groups` / `chroot` / in-place `exec`), and remaining Linux-only std facades that do not require Rust trait/lifetime machinery.
 
 ## Acceptance
 
@@ -38,6 +39,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the Linux fs ownership batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix-domain socket completion batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the CommandExt spawn-config batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the process-group signal batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -48,21 +50,24 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
   - `std_process_macro_surface.sa`
 - Updated process macro-surface test passes with CommandExt spawn-config assertions:
   - `std_process_macro_surface.sa`
+- Updated process macro-surface test passes with process-group signal raw wait-status assertions:
+  - `std_process_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with pair and address assertions:
   - `std_net_unix_macro_surface.sa`
 - Installed-state smoke passes for `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, and `std_process_macro_surface.sa` using `/home/vscode/.sa/std`.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the CommandExt spawn-config install sync.
+- Installed-state smoke passes for `std_process_macro_surface.sa` after the process-group signal install sync.
 - `src/runtime/sa_std.h`, `sa_std/*.sai`, `sa_std/*.sa`, and installed `/home/vscode/.sa/std` expose the same ABI after `./tools/install.sh --no-shell`.
 
 ## Current Status
 
-- Source/runtime/facade/test changes are complete for the CommandExt spawn-config batch.
+- Source/runtime/facade/test changes are complete for the process-group signal batch.
 - `zig build sa-std-static --summary all` passes.
-- Focused source-std `sa test` for `std_process_macro_surface.sa` passes (`6 passed`).
+- Focused source-std `sa test` for `std_process_macro_surface.sa` passes twice (`7 passed`).
 - `zig build unit-framework --summary all` passes.
 - Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
-- Installed-state process smoke passes (`6 passed`); pending now: commit.
+- Installed-state process smoke passes (`7 passed`); batch committed.
 
 ## Notes
 

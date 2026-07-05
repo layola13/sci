@@ -5,6 +5,8 @@
 @const SH_BIN = utf8:"/bin/sh"
 @const SH_FLAG = utf8:"-c"
 @const SLEEP_CMD = utf8:"sleep 5"
+@const SLEEP_BIN = utf8:"/bin/sleep"
+@const SLEEP_ARG = utf8:"5"
 @const CUSTOM_ARG0 = utf8:"sa-custom-argv0"
 @const ARG0_CMD = utf8:"printf '%s' \"$0\""
 @const PGID_CMD = utf8:"test $(awk '{print $5}' /proc/$$/stat) = $$"
@@ -16,12 +18,15 @@
 #def SH_BIN_LEN = 7
 #def SH_FLAG_LEN = 2
 #def SLEEP_CMD_LEN = 7
+#def SLEEP_BIN_LEN = 10
+#def SLEEP_ARG_LEN = 1
 #def CUSTOM_ARG0_LEN = 15
 #def ARG0_CMD_LEN = 16
 #def PGID_CMD_LEN = 43
 #def SID_CMD_LEN = 43
 #def SH_ARGV3_SIZE = 48
 #def SIG_CHECK_PROCESS = 0
+#def SIG_KILL_PROCESS = 9
 
 @test "sa_std process argv and run macros"():
 L_ENTRY:
@@ -619,6 +624,103 @@ L_PASS_SPAWN_EXT:
     !wait_status_ok
     !code
     !wait_status
+    !spawn_ok
+    !process_ok
+    !spawn_status_ok
+    !process
+    !spawn_status
+    return 0
+
+@test "sa_std process group signal macros"():
+L_ENTRY:
+    argv = stack_alloc TRUE_ARGV2_SIZE
+    dummy = stack_alloc 1
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    EXPAND PROCESS_ARGV_SET_CONST argv, 0, SLEEP_BIN, SLEEP_BIN_LEN
+    EXPAND PROCESS_ARGV_SET_CONST argv, 1, SLEEP_ARG, SLEEP_ARG_LEN
+
+    EXPAND PROCESS_SPAWN_COMMAND_EXT spawn_status, process, argv, 2, dummy, 0, 0, dummy, 0, 0, 0, 1, 0
+    spawn_status_ok = eq spawn_status, SA_PROCESS_OK
+    process_ok = ne process, 0
+    spawn_ok = and spawn_status_ok, process_ok
+    br spawn_ok -> L_GROUP_KILL, L_FAIL_GROUP_SPAWN
+
+L_FAIL_GROUP_SPAWN:
+    !spawn_ok
+    !process_ok
+    !spawn_status_ok
+    !process
+    !spawn_status
+    panic(1023)
+
+L_GROUP_KILL:
+    EXPAND PROCESS_SEND_PROCESS_GROUP_SIGNAL group_kill_status, process, SIG_KILL_PROCESS
+    group_kill_ok = eq group_kill_status, SA_PROCESS_OK
+    br group_kill_ok -> L_GROUP_WAIT, L_FAIL_GROUP_KILL
+
+L_FAIL_GROUP_KILL:
+    !group_kill_ok
+    !group_kill_status
+    EXPAND PROCESS_KILL cleanup_kill_group, process
+    EXPAND PROCESS_CLOSE cleanup_close_group, process
+    !cleanup_kill_group
+    !cleanup_close_group
+    !spawn_ok
+    !process_ok
+    !spawn_status_ok
+    !process
+    !spawn_status
+    panic(1025)
+
+L_GROUP_WAIT:
+    EXPAND PROCESS_WAIT_EXIT_STATUS wait_status, exit_status, process
+    wait_ok = eq wait_status, SA_PROCESS_OK
+    EXPAND PROCESS_EXIT_STATUS_RAW raw, exit_status
+    EXPAND PROCESS_EXIT_STATUS_SIGNAL signal, exit_status
+    raw_ok = ne raw, 0
+    signal_ok = eq signal, SIG_KILL_PROCESS
+    group_wait01 = and wait_ok, raw_ok
+    group_wait_ok = and group_wait01, signal_ok
+    EXPAND PROCESS_CLOSE close_status, process
+    close_ok = eq close_status, SA_PROCESS_OK
+    group_all = and group_wait_ok, close_ok
+    br group_all -> L_PASS_GROUP_SIGNAL, L_FAIL_GROUP_WAIT
+
+L_FAIL_GROUP_WAIT:
+    !group_all
+    !close_ok
+    !close_status
+    !group_wait_ok
+    !group_wait01
+    !signal_ok
+    !raw_ok
+    !signal
+    !raw
+    !wait_ok
+    !wait_status
+    !group_kill_ok
+    !group_kill_status
+    !spawn_ok
+    !process_ok
+    !spawn_status_ok
+    !process
+    !spawn_status
+    panic(1026)
+
+L_PASS_GROUP_SIGNAL:
+    !group_all
+    !close_ok
+    !close_status
+    !group_wait_ok
+    !group_wait01
+    !signal_ok
+    !raw_ok
+    !signal
+    !raw
+    !wait_ok
+    !wait_status
+    !group_kill_ok
+    !group_kill_status
     !spawn_ok
     !process_ok
     !spawn_status_ok

@@ -520,6 +520,7 @@ int32_t sa_std_process_try_wait(uint64_t handle, int32_t *out_ready, uint32_t *o
 int32_t sa_std_process_try_wait_raw(uint64_t handle, int32_t *out_ready, int32_t *out_raw);
 int32_t sa_std_process_kill(uint64_t handle);
 int32_t sa_std_process_send_signal(uint64_t handle, int32_t signal);
+int32_t sa_std_process_send_process_group_signal(uint64_t handle, int32_t signal);
 uint32_t sa_std_process_exit_status_code(int32_t raw);
 int32_t sa_std_process_exit_status_signal(int32_t raw);
 uint8_t sa_std_process_exit_status_core_dumped(int32_t raw);

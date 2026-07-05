@@ -35,7 +35,9 @@
 - [x] chown 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::net` Unix domain socket 补齐一批：`UnixStream::pair`、`UnixListener::local_addr`、`UnixStream::{local_addr,peer_addr}`，并新增独立 Unix socket address handle（unnamed/pathname/abstract），避免复用 IP `SocketAddr` 语义。
 - [x] `std::os::unix::process::CommandExt` 可落地子集：补 `arg0`、`process_group(0/pgid)`、`setsid(true)` 的 Linux spawn 配置入口，并覆盖 capture/inherit/stream 三种现有 process 模式。
-- [ ] 下一轮继续补更大 Linux 缺口：优先审计 Linux pidfd/进程组信号能力、`CommandExt` 剩余高权限/破坏性子集（uid/gid/groups/chroot/exec）、以及仍缺的 Linux-only `std` facade。
+- [x] `std::os::linux::process` / Rust pidfd 路径关联的进程组信号子集：补 `PROCESS_SEND_PROCESS_GROUP_SIGNAL`，记录 effective PGID，并用新进程组 `/bin/sleep` raw wait-status 验证 SIGKILL。
+- [x] 上述 Linux std parity 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装；批次已提交收口。
+- [ ] 下一轮继续补更大 Linux 缺口：优先审计 Linux pidfd handle/create_pidfd/wait/try_wait，`CommandExt` 剩余高权限/破坏性子集（uid/gid/groups/chroot/exec）、以及仍缺的 Linux-only `std` facade。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
 > - **工业级性能 (P0)**：[`docs/design.md §1.10`](docs/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)

@@ -965,6 +965,7 @@ const SaTermEpollEvent = extern struct {
 
 const ProcessHandle = struct {
     pid: std.posix.pid_t,
+    process_group: ?std.posix.pid_t = null,
     capture_output: bool = false,
     stdout_fd: ?std.posix.fd_t = null,
     stderr_fd: ?std.posix.fd_t = null,
@@ -1880,6 +1881,22 @@ fn waitStatusContinued(raw: i32) u8 {
     return if (rawWaitStatus(raw) == 0xffff) 1 else 0;
 }
 
+fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
+    const target: std.posix.pid_t = -pgid;
+    var attempts: u8 = 0;
+    while (true) : (attempts += 1) {
+        std.posix.kill(target, signum) catch |err| switch (err) {
+            error.ProcessNotFound => {
+                if (attempts >= 50) return err;
+                std.time.sleep(1 * std.time.ns_per_ms);
+                continue;
+            },
+            else => return err,
+        };
+        return;
+    }
+}
+
 fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.code = statusFromWaitStatus(status);
     proc.raw_status = status;
@@ -1976,6 +1993,20 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         unreachable;
     }
 
+    const effective_process_group: ?std.posix.pid_t = if (config.process_group) |pgroup|
+        (if (pgroup == 0) pid else @as(std.posix.pid_t, @intCast(pgroup)))
+    else
+        null;
+    if (effective_process_group) |pgid| {
+        std.posix.setpgid(pid, pgid) catch |err| switch (err) {
+            error.ProcessAlreadyExec => {},
+            else => {
+                killAndWaitChild(pid);
+                return err;
+            },
+        };
+    }
+
     if (use_pipes) {
         std.posix.close(stdout_pipe[1]);
         std.posix.close(stderr_pipe[1]);
@@ -1988,6 +2019,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         .inherit => {
             result.process = try registerResource(.{ .process = .{
                 .pid = pid,
+                .process_group = effective_process_group,
                 .capture_output = false,
             } });
             return result;
@@ -1995,6 +2027,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         .capture => {
             result.process = registerResource(.{ .process = .{
                 .pid = pid,
+                .process_group = effective_process_group,
                 .capture_output = true,
                 .stdout_fd = stdout_pipe[0],
                 .stderr_fd = stderr_pipe[0],
@@ -2020,6 +2053,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
             stderr_pipe[0] = -1;
             result.process = registerResource(.{ .process = .{
                 .pid = pid,
+                .process_group = effective_process_group,
                 .capture_output = false,
             } }) catch |err| {
                 if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
@@ -5990,6 +6024,7 @@ pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv,
 }
 
 fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32) !ProcessSpawnConfig {
+    if (has_process_group != 0 and process_group < 0) return error.InvalidArgument;
     return .{
         .arg0 = if (has_arg0 != 0) try constBytes(arg0_ptr, arg0_len) else null,
         .process_group = if (has_process_group != 0) process_group else null,
@@ -6185,6 +6220,27 @@ pub export fn sa_std_process_send_signal(handle: u64, signum: i32) i32 {
                 .SRCH => return finish(SA_STD_ERR_INVALID_HANDLE),
                 else => return finish(SA_STD_ERR_IO),
             }
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_send_process_group_signal(handle: u64, signum: i32) i32 {
+    if (signum < 0 or signum > 64) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (proc.exited) return finish(SA_STD_ERR_INVALID_HANDLE);
+            const pgid = proc.process_group orelse proc.pid;
+            if (pgid <= 0) return finish(SA_STD_ERR_INVALID_HANDLE);
+            sendSignalToProcessGroup(pgid, @as(u8, @intCast(signum))) catch |err| switch (err) {
+                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
+                else => return finishErr(err),
+            };
+            return finish(SA_STD_OK);
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };

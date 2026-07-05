@@ -4,7 +4,7 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
-## In Flight: 2026-07-05 Linux std parity batch
+## Completed: 2026-07-05 Linux std parity batch
 
 - Tracking docs are now explicit: `tasks.md`, `progress.md`, and `current_plan.md` are the memory/acceptance set for this batch.
 - Implementing Linux-focused `sa_std` gaps directly in SCI source, then syncing install state to `/home/vscode/.sa/std`.
@@ -25,6 +25,10 @@ Current progress: 100%
 - Install sync status:
   - `./tools/install.sh --no-shell`: pass.
   - Installed payload root: `/home/vscode/.sa/std`.
+
+## Next Batch
+
+- Continue the broader Linux std gap closure, starting with pidfd handle/create_pidfd/wait/try_wait, then the remaining high-permission/destructive `CommandExt` subset (`uid` / `gid` / `groups` / `chroot` / in-place `exec`).
 
 ## Completed: 2026-07-05 Linux std parity batch
 
@@ -93,7 +97,28 @@ Current progress: 100%
 
 ## Next Linux Batch
 
-- Continue the broader Linux std audit. Next high-value gaps are Linux pidfd/process-group signal pieces, the remaining high-permission/destructive `CommandExt` subset (`uid` / `gid` / `groups` / `chroot` / in-place `exec`), and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+- Continue the broader Linux std audit. Next high-value gaps are Linux pidfd handle/create_pidfd/wait/try_wait pieces, the remaining high-permission/destructive `CommandExt` subset (`uid` / `gid` / `groups` / `chroot` / in-place `exec`), and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+
+## Completed: 2026-07-05 Linux process-group signal batch
+
+- Added the Rust Linux process-group signal subset on top of existing SA process handles:
+  - runtime export `sa_std_process_send_process_group_signal`
+  - SA extern/macro `PROCESS_SEND_PROCESS_GROUP_SIGNAL`
+  - process handles now remember the effective process group configured by `CommandExt::process_group`; `process_group(0)` resolves to the child pid.
+  - parent process also performs best-effort `setpgid(child, pgid)` after `fork` to avoid immediate group-signal races.
+  - negative `process_group` config returns invalid argument at runtime entry.
+- Extended `tests/unit_framework/std_process_macro_surface.sa`:
+  - starts `/bin/sleep 5` in a new process group.
+  - terminates it with `PROCESS_SEND_PROCESS_GROUP_SIGNAL(..., SIGKILL)`.
+  - verifies raw wait status decodes to signal 9.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass twice (`7 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass (`7 passed`)
+  - installed compiler reports `sa 0.0.3.3`
 
 ## Completed: 2026-07-05 Linux CommandExt spawn-config batch
 
