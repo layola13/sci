@@ -1831,6 +1831,12 @@ const ProcessSpawnMode = enum {
     stream,
 };
 
+const ProcessSpawnConfig = struct {
+    arg0: ?[]const u8 = null,
+    process_group: ?i32 = null,
+    setsid: bool = false,
+};
+
 const SpawnResult = struct {
     process: u64 = 0,
     stdout: ?u64 = null,
@@ -1896,8 +1902,11 @@ fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.stderr_pos = 0;
 }
 
-fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8) !SpawnResult {
+fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8, config: ProcessSpawnConfig) !SpawnResult {
     if (argv.len == 0) return error.InvalidArgument;
+    if (config.arg0) |arg0| {
+        if (std.mem.indexOfScalar(u8, arg0, 0) != null) return error.InvalidArgument;
+    }
 
     const use_pipes = mode != .inherit;
     var stdout_pipe: [2]std.posix.fd_t = .{ -1, -1 };
@@ -1915,9 +1924,11 @@ fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode:
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
+    const exec_path = (try arena.allocator().dupeZ(u8, argv[0])).ptr;
     const child_argv = try arena.allocator().alloc(?[*:0]const u8, argv.len + 1);
     for (argv, 0..) |arg, i| {
-        child_argv[i] = (try arena.allocator().dupeZ(u8, arg)).ptr;
+        const child_arg = if (i == 0 and config.arg0 != null) config.arg0.? else arg;
+        child_argv[i] = (try arena.allocator().dupeZ(u8, child_arg)).ptr;
     }
     child_argv[argv.len] = null;
     const envp = try envpFromCurrentProcess(arena.allocator());
@@ -1926,6 +1937,13 @@ fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode:
     if (pid == 0) {
         if (cwd) |dir| {
             std.posix.chdir(dir) catch std.posix.exit(127);
+        }
+        if (config.process_group) |pgroup| {
+            std.posix.setpgid(0, @as(std.posix.pid_t, @intCast(pgroup))) catch std.posix.exit(127);
+        }
+        if (config.setsid) {
+            const sid = std.os.linux.setsid();
+            if (sid < 0) std.posix.exit(127);
         }
         if (use_pipes) {
             std.posix.close(stdout_pipe[0]);
@@ -1937,10 +1955,9 @@ fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode:
             std.posix.close(stdout_pipe[1]);
             std.posix.close(stderr_pipe[1]);
         }
-        const path = child_argv[0].?;
         const argv_z: [*:null]const ?[*:0]const u8 = @ptrCast(child_argv.ptr);
         const envp_z: [*:null]const ?[*:0]const u8 = @ptrCast(envp.ptr);
-        const exec_err = std.posix.execvpeZ(path, argv_z, envp_z);
+        const exec_err = std.posix.execvpeZ(exec_path, argv_z, envp_z);
         switch (exec_err) {
             error.AccessDenied,
             error.SystemResources,
@@ -2013,6 +2030,10 @@ fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode:
             return result;
         },
     }
+}
+
+fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8) !SpawnResult {
+    return spawnProcessConfiguredCwd(allocator, argv, mode, cwd, .{});
 }
 
 fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode) !SpawnResult {
@@ -5962,6 +5983,56 @@ pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv,
     defer std.heap.page_allocator.free(argv);
     const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
     const result = spawnProcessCwd(std.heap.page_allocator, argv, .stream, cwd) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32) !ProcessSpawnConfig {
+    return .{
+        .arg0 = if (has_arg0 != 0) try constBytes(arg0_ptr, arg0_len) else null,
+        .process_group = if (has_process_group != 0) process_group else null,
+        .setsid = setsid != 0,
+    };
+}
+
+pub export fn sa_std_process_run_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
     process_ptr.* = result.process;
     stdout_ptr.* = result.stdout orelse 0;
     stderr_ptr.* = result.stderr orelse 0;

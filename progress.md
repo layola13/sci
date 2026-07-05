@@ -93,7 +93,31 @@ Current progress: 100%
 
 ## Next Linux Batch
 
-- Continue the broader Linux std audit. Next high-value gaps are supportable `CommandExt` child setup, Linux pidfd/process-group pieces, and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+- Continue the broader Linux std audit. Next high-value gaps are Linux pidfd/process-group signal pieces, the remaining high-permission/destructive `CommandExt` subset (`uid` / `gid` / `groups` / `chroot` / in-place `exec`), and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+
+## Completed: 2026-07-05 Linux CommandExt spawn-config batch
+
+- Added a Linux `std::os::unix::process::CommandExt`-style spawn configuration subset over the existing SA process modes:
+  - `arg0` support for overriding `argv[0]` while preserving the executable path.
+  - `process_group` support via child-side `setpgid(0, pgroup)`; `0` gives Rust's “use child pid as PGID” behavior.
+  - `setsid(true)` support via Linux `setsid` before exec.
+  - capture, inherit, and stream process modes all have runtime/SA macro entry points.
+- Added SA macro surface:
+  - `PROCESS_RUN_COMMAND_EXT`, `PROCESS_SPAWN_COMMAND_EXT`, `PROCESS_SPAWN_STREAM_COMMAND_EXT`.
+  - convenience wrappers `PROCESS_RUN_ARG0`, `PROCESS_RUN_PROCESS_GROUP`, `PROCESS_RUN_SETSID`.
+- Extended `tests/unit_framework/std_process_macro_surface.sa`:
+  - verifies `arg0` by checking shell `$0` output.
+  - verifies `process_group(0)` by checking `/proc/$$/stat` PGID equals child pid.
+  - verifies `setsid(true)` by checking `/proc/$$/stat` SID equals child pid.
+  - verifies inherit and stream command-ext entry points compile, link, run, and close their handles.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - installed compiler reports `sa 0.0.3.3`
 
 ## Completed: 2026-07-05 Linux unix-domain socket completion batch
 

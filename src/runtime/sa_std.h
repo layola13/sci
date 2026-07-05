@@ -507,6 +507,9 @@ int32_t sa_net_socket_addr_v4_parse_ascii(const uint8_t *text, uint64_t text_len
 int32_t sa_std_process_run(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);
 int32_t sa_std_process_spawn(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);
 int32_t sa_std_process_spawn_stream(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_process, uint64_t *out_stdout, uint64_t *out_stderr);
+int32_t sa_std_process_run_command_ext(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint32_t has_cwd, const uint8_t *arg0, uint64_t arg0_len, uint32_t has_arg0, int32_t process_group, uint32_t has_process_group, uint32_t setsid, uint64_t *out_handle);
+int32_t sa_std_process_spawn_command_ext(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint32_t has_cwd, const uint8_t *arg0, uint64_t arg0_len, uint32_t has_arg0, int32_t process_group, uint32_t has_process_group, uint32_t setsid, uint64_t *out_handle);
+int32_t sa_std_process_spawn_stream_command_ext(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint32_t has_cwd, const uint8_t *arg0, uint64_t arg0_len, uint32_t has_arg0, int32_t process_group, uint32_t has_process_group, uint32_t setsid, uint64_t *out_process, uint64_t *out_stdout, uint64_t *out_stderr);
 uint32_t sa_std_process_id(void);
 uint32_t sa_std_process_parent_id(void);
 void sa_std_process_abort(void);
