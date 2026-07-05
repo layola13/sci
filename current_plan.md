@@ -23,9 +23,11 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::linux::fs::MetadataExt`: Rust-named `st_*` field surface for Linux stat parity.
    - `std::os::unix::process::parent_id`.
    - `std::os::unix::process::ChildExt::send_signal`.
+   - `std::os::unix::net::UnixStream::pair`.
+   - `std::os::unix::net::{UnixListener,UnixStream}` local/peer address queries with dedicated Unix socket address resources.
 2. Next candidate scope:
    - Continue broader Linux std gap closure against `/home/vscode/projects/rust/library/std/src`.
-   - Prioritize Unix domain socket completeness, supportable `CommandExt` child setup knobs, Linux pidfd/process-group pieces, and remaining Linux-only std facades that do not require Rust trait/lifetime machinery.
+   - Prioritize supportable `CommandExt` child setup knobs, Linux pidfd/process-group pieces, and remaining Linux-only std facades that do not require Rust trait/lifetime machinery.
 
 ## Acceptance
 
@@ -33,6 +35,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the `DirEntryExt::ino` batch.
 - `zig build unit-framework --summary all` passes after the Linux metadata/process extension batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Linux fs ownership batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Unix-domain socket completion batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -41,16 +44,20 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
   - `std_thread_macro_surface.sa`
 - Updated process macro-surface test passes with raw wait-status assertions:
   - `std_process_macro_surface.sa`
+- Updated Unix-domain socket macro-surface test passes with pair and address assertions:
+  - `std_net_unix_macro_surface.sa`
 - Installed-state smoke passes for `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, and `std_process_macro_surface.sa` using `/home/vscode/.sa/std`.
+- Installed-state smoke passes for `std_net_unix_macro_surface.sa` after install sync.
 - `src/runtime/sa_std.h`, `sa_std/*.sai`, `sa_std/*.sa`, and installed `/home/vscode/.sa/std` expose the same ABI after `./tools/install.sh --no-shell`.
 
 ## Current Status
 
-- Source/runtime/facade/test changes are complete for the Linux fs ownership batch.
+- Source/runtime/facade/test changes are complete for the Unix-domain socket completion batch.
 - `zig build sa-std-static --summary all` passes.
+- Focused source-std `sa test` for `std_net_unix_macro_surface.sa` passes (`2 passed`).
 - `zig build unit-framework --summary all` passes.
-- Focused `sa test` for `std_fs_unix_ext_macro_surface.sa` passes under source `SA_STD_DIR` and installed std.
-- Install sync completed once for this larger batch via `./tools/install.sh --no-shell`; no manual copy path used.
+- Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
+- Installed-state UDS smoke passes (`2 passed`); pending now: commit.
 
 ## Notes
 

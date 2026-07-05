@@ -435,6 +435,14 @@ int32_t sa_std_net_tcp_listener_set_ttl(uint64_t listener_handle, uint32_t ttl);
 int32_t sa_std_net_tcp_listener_ttl(uint64_t listener_handle, uint32_t *out_ttl);
 int32_t sa_std_net_tcp_listener_take_error(uint64_t listener_handle, int32_t *out_error);
 
+int32_t sa_std_net_unix_listen(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
+int32_t sa_std_net_unix_accept(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_unix_connect(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
+int32_t sa_std_net_unix_pair(uint64_t *out_left, uint64_t *out_right);
+int32_t sa_std_net_unix_listener_local_addr(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_unix_stream_local_addr(uint64_t stream_handle, uint64_t *out_handle);
+int32_t sa_std_net_unix_stream_peer_addr(uint64_t stream_handle, uint64_t *out_handle);
+
 int32_t sa_std_net_udp_bind(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_udp_local_addr(uint64_t socket_handle, uint64_t *out_handle);
 int32_t sa_std_net_udp_peer_addr(uint64_t socket_handle, uint64_t *out_handle);
@@ -486,6 +494,13 @@ uint32_t sa_net_addr_family(uint64_t addr_handle);
 uint64_t sa_net_addr_scope_id(uint64_t addr_handle);
 int32_t sa_std_net_addr_format(uint64_t addr_handle, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_net_addr_free(uint64_t addr_handle);
+uint32_t sa_net_unix_addr_kind(uint64_t addr_handle);
+uint8_t sa_net_unix_addr_is_unnamed(uint64_t addr_handle);
+uint8_t *sa_net_unix_addr_path_ptr(uint64_t addr_handle);
+uint64_t sa_net_unix_addr_path_len(uint64_t addr_handle);
+uint8_t *sa_net_unix_addr_abstract_ptr(uint64_t addr_handle);
+uint64_t sa_net_unix_addr_abstract_len(uint64_t addr_handle);
+int32_t sa_net_unix_addr_free(uint64_t addr_handle);
 int32_t sa_net_ipv4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_addr);
 int32_t sa_net_socket_addr_v4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_socket_addr);
 

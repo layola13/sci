@@ -20,7 +20,7 @@ Current progress: 100%
   - `zig build sa-std-static --summary all`: pass.
   - `zig build unit-framework --summary all`: pass.
   - Focused local `sa test` also passes for `std_net_unix_macro_surface.sa`, `std_net_dns_macro_surface.sa`, `std_os_fd_macro_surface.sa`, `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, `std_process_macro_surface.sa`.
-  - Installed-state smoke passes for `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, and `std_process_macro_surface.sa`.
+  - Installed-state smoke passes for `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, `std_process_macro_surface.sa`, and `std_net_unix_macro_surface.sa`.
 
 - Install sync status:
   - `./tools/install.sh --no-shell`: pass.
@@ -93,7 +93,30 @@ Current progress: 100%
 
 ## Next Linux Batch
 
-- Continue the broader Linux std audit. Next high-value gaps are Unix domain socket completeness, supportable `CommandExt` child setup, Linux pidfd/process-group pieces, and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+- Continue the broader Linux std audit. Next high-value gaps are supportable `CommandExt` child setup, Linux pidfd/process-group pieces, and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+
+## Completed: 2026-07-05 Linux unix-domain socket completion batch
+
+- Added `std::os::unix::net`-style Unix stream/listener completeness on top of the existing UDS stream/listener model:
+  - `NET_UNIX_PAIR` / `sa_std_net_unix_pair` for connected `UnixStream::pair` semantics.
+  - `NET_UNIX_LISTENER_LOCAL_ADDR` / `sa_std_net_unix_listener_local_addr`.
+  - `NET_UNIX_STREAM_LOCAL_ADDR` / `sa_std_net_unix_stream_local_addr`.
+  - `NET_UNIX_STREAM_PEER_ADDR` / `sa_std_net_unix_stream_peer_addr`.
+- Added a dedicated Unix socket address resource instead of forcing UDS addresses into IP `NetAddr`:
+  - unnamed, pathname, and Linux abstract address kinds.
+  - path/abstract pointer and length accessors.
+  - explicit `NET_UNIX_ADDR_FREE` lifecycle.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa`:
+  - listener local address verifies pathname kind and bytes for `/tmp/sa_uds_test.sock`.
+  - pair test verifies connected stream roundtrip and unnamed local/peer addresses.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic`: pass (`2 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic`: pass (`2 passed`)
+  - installed compiler reports `sa 0.0.3.3`
 
 ## Completed: 2026-07-05 Linux fs dir-entry batch
 

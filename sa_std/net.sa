@@ -213,6 +213,32 @@
     %out_stream = load __net_unix_accept_handle_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_PAIR %out_status, %out_left, %out_right
+    __net_unix_pair_left_%out_status = stack_alloc 8
+    __net_unix_pair_right_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_pair(&__net_unix_pair_left_%out_status, &__net_unix_pair_right_%out_status)
+    %out_left = load __net_unix_pair_left_%out_status+0 as u64
+    %out_right = load __net_unix_pair_right_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_LOCAL_ADDR %out_status, %out_addr, %listener
+    __net_unix_listener_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listener_local_addr(%listener, &__net_unix_listener_addr_%out_status)
+    %out_addr = load __net_unix_listener_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_LOCAL_ADDR %out_status, %out_addr, %stream
+    __net_unix_local_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_local_addr(%stream, &__net_unix_local_addr_%out_status)
+    %out_addr = load __net_unix_local_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEER_ADDR %out_status, %out_addr, %stream
+    __net_unix_peer_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_peer_addr(%stream, &__net_unix_peer_addr_%out_status)
+    %out_addr = load __net_unix_peer_addr_%out_status+0 as u64
+[END_MACRO]
+
 // TLS ClientHello fingerprints. Given a caller-built JA3 string (decimal
 // TLSVersion,Ciphers,Extensions,EllipticCurves,ECPointFormats), NET_JA3_HASH
 // writes the 32-char lowercase MD5 hex into %buf. NET_JA4_HASH12 writes the
@@ -481,6 +507,36 @@
     __net_addr_free_%out_status = call @sa_net_addr_free(%addr)
     %out_status = load __net_addr_free_%out_status+0 as i32
     !__net_addr_free_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_KIND %out_kind, %addr
+    %out_kind = call @sa_net_unix_addr_kind(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_IS_UNNAMED %out_flag, %addr
+    %out_flag = call @sa_net_unix_addr_is_unnamed(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_PATH_PTR %out_ptr, %addr
+    %out_ptr = call @sa_net_unix_addr_path_ptr(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_PATH_LEN %out_len, %addr
+    %out_len = call @sa_net_unix_addr_path_len(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_ABSTRACT_PTR %out_ptr, %addr
+    %out_ptr = call @sa_net_unix_addr_abstract_ptr(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_ABSTRACT_LEN %out_len, %addr
+    %out_len = call @sa_net_unix_addr_abstract_len(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_FREE %out_status, %addr
+    __net_unix_addr_free_%out_status = call @sa_net_unix_addr_free(%addr)
+    %out_status = load __net_unix_addr_free_%out_status+0 as i32
+    !__net_unix_addr_free_%out_status
 [END_MACRO]
 
 [MACRO] NET_IPV4_NEW %addr, %a, %b, %c, %d

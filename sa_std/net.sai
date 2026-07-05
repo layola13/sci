@@ -30,6 +30,10 @@
 @extern sa_std_net_unix_listen(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_accept(listener: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_connect(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_pair(&out_left: ptr, &out_right: ptr) -> i32
+@extern sa_std_net_unix_listener_local_addr(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_local_addr(stream: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_peer_addr(stream: u64, &out_handle: ptr) -> i32
 
 // Additional stream/listener socket options.
 @extern sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) -> i32
@@ -130,5 +134,12 @@
 @extern sa_net_addr_scope_id(addr: u64) -> u64
 @extern sa_std_net_addr_format(addr: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_net_addr_free(addr: u64) -> i32!
+@extern sa_net_unix_addr_kind(addr: u64) -> u32
+@extern sa_net_unix_addr_is_unnamed(addr: u64) -> u8
+@extern sa_net_unix_addr_path_ptr(addr: u64) -> &ptr
+@extern sa_net_unix_addr_path_len(addr: u64) -> u64
+@extern sa_net_unix_addr_abstract_ptr(addr: u64) -> &ptr
+@extern sa_net_unix_addr_abstract_len(addr: u64) -> u64
+@extern sa_net_unix_addr_free(addr: u64) -> i32!
 @extern sa_net_ipv4_parse_ascii(&text: ptr, text_len: u64, &out_addr: ptr) -> i32
 @extern sa_net_socket_addr_v4_parse_ascii(&text: ptr, text_len: u64, &out_socket_addr: ptr) -> i32

@@ -24,12 +24,63 @@ L_ENTRY:
     listen_ok = eq listen_status, SA_NET_OK
     listener_ok = ne listener, 0
     listen_all = and listen_ok, listener_ok
-    br listen_all -> L_REUSE, L_FAIL_LISTEN
+    br listen_all -> L_ADDR, L_FAIL_LISTEN
 
 L_FAIL_LISTEN:
     !listener
     !listen_status
     panic(960)
+
+L_ADDR:
+    EXPAND NET_UNIX_LISTENER_LOCAL_ADDR addr_status, listener_addr, listener
+    addr_status_ok = eq addr_status, SA_NET_OK
+    addr_handle_ok = ne listener_addr, 0
+    EXPAND NET_UNIX_ADDR_KIND addr_kind, listener_addr
+    addr_kind_ok = eq addr_kind, SA_NET_UNIX_ADDR_PATHNAME
+    EXPAND NET_UNIX_ADDR_PATH_LEN addr_path_len, listener_addr
+    addr_len_ok = eq addr_path_len, 21
+    EXPAND NET_UNIX_ADDR_PATH_PTR addr_path_ptr, listener_addr
+    addr_ptr_ok = ne addr_path_ptr, 0
+    addr_b0 = load addr_path_ptr+0 as u8
+    addr_b20 = load addr_path_ptr+20 as u8
+    addr_b0_ok = eq addr_b0, 47
+    addr_b20_ok = eq addr_b20, 107
+    addr01 = and addr_status_ok, addr_handle_ok
+    addr02 = and addr01, addr_kind_ok
+    addr03 = and addr02, addr_len_ok
+    addr04 = and addr03, addr_ptr_ok
+    addr05 = and addr04, addr_b0_ok
+    addr_all = and addr05, addr_b20_ok
+    EXPAND NET_UNIX_ADDR_FREE addr_free_status, listener_addr
+    addr_free_ok = eq addr_free_status, SA_NET_OK
+    addr_all2 = and addr_all, addr_free_ok
+    !addr_free_status
+    !addr_all
+    !addr05
+    !addr04
+    !addr03
+    !addr02
+    !addr01
+    !addr_b20_ok
+    !addr_b0_ok
+    !addr_b20
+    !addr_b0
+    !addr_ptr_ok
+    !addr_path_ptr
+    !addr_len_ok
+    !addr_path_len
+    !addr_kind_ok
+    !addr_kind
+    !addr_handle_ok
+    !addr_status_ok
+    !addr_status
+    !listener_addr
+    br addr_all2 -> L_REUSE, L_FAIL_ADDR
+
+L_FAIL_ADDR:
+    !addr_all2
+    !listener
+    panic(965)
 
 L_REUSE:
     // 在 listener 上验证 reuseaddr/reuseport setter 返回 OK。
@@ -137,4 +188,147 @@ L_CLOSE:
     !close_listener
     !close_server
     !close_client
+    return 0
+
+@test "sa_std net unix pair and unnamed addresses"():
+L_PAIR_ENTRY:
+    EXPAND NET_UNIX_PAIR pair_status, left, right
+    pair_status_ok = eq pair_status, SA_NET_OK
+    left_ok = ne left, 0
+    right_ok = ne right, 0
+    pair01 = and pair_status_ok, left_ok
+    pair_all = and pair01, right_ok
+    !pair01
+    !right_ok
+    !left_ok
+    !pair_status_ok
+    !pair_status
+    br pair_all -> L_PAIR_ADDRS, L_PAIR_FAIL_PAIR
+
+L_PAIR_FAIL_PAIR:
+    !pair_all
+    !right
+    !left
+    panic(966)
+
+L_PAIR_ADDRS:
+    EXPAND NET_UNIX_STREAM_LOCAL_ADDR left_local_status, left_local_addr, left
+    left_local_status_ok = eq left_local_status, SA_NET_OK
+    EXPAND NET_UNIX_ADDR_IS_UNNAMED left_local_unnamed, left_local_addr
+    left_local_unnamed_ok = eq left_local_unnamed, 1
+    EXPAND NET_UNIX_ADDR_PATH_LEN left_local_path_len, left_local_addr
+    left_local_path_ok = eq left_local_path_len, 0
+    EXPAND NET_UNIX_STREAM_PEER_ADDR left_peer_status, left_peer_addr, left
+    left_peer_status_ok = eq left_peer_status, SA_NET_OK
+    EXPAND NET_UNIX_ADDR_KIND left_peer_kind, left_peer_addr
+    left_peer_kind_ok = eq left_peer_kind, SA_NET_UNIX_ADDR_UNNAMED
+    addr_pair01 = and left_local_status_ok, left_local_unnamed_ok
+    addr_pair02 = and addr_pair01, left_local_path_ok
+    addr_pair03 = and addr_pair02, left_peer_status_ok
+    addr_pair_all = and addr_pair03, left_peer_kind_ok
+    EXPAND NET_UNIX_ADDR_FREE left_local_free, left_local_addr
+    EXPAND NET_UNIX_ADDR_FREE left_peer_free, left_peer_addr
+    left_local_free_ok = eq left_local_free, SA_NET_OK
+    left_peer_free_ok = eq left_peer_free, SA_NET_OK
+    addr_pair04 = and addr_pair_all, left_local_free_ok
+    addr_pair_done = and addr_pair04, left_peer_free_ok
+    !addr_pair04
+    !left_peer_free_ok
+    !left_local_free_ok
+    !left_peer_free
+    !left_local_free
+    !addr_pair_all
+    !addr_pair03
+    !addr_pair02
+    !addr_pair01
+    !left_peer_kind_ok
+    !left_peer_kind
+    !left_peer_status_ok
+    !left_peer_status
+    !left_local_path_ok
+    !left_local_path_len
+    !left_local_unnamed_ok
+    !left_local_unnamed
+    !left_local_status_ok
+    !left_local_status
+    !left_peer_addr
+    !left_local_addr
+    br addr_pair_done -> L_PAIR_WRITE, L_PAIR_FAIL_ADDRS
+
+L_PAIR_FAIL_ADDRS:
+    !addr_pair_done
+    !right
+    !left
+    panic(967)
+
+L_PAIR_WRITE:
+    pair_send = stack_alloc 4
+    store pair_send+0, 80 as u8
+    store pair_send+1, 65 as u8
+    store pair_send+2, 73 as u8
+    store pair_send+3, 82 as u8
+    EXPAND NET_TCP_STREAM_WRITE pair_write_status, pair_write_len, left, pair_send, 4
+    pair_write_status_ok = eq pair_write_status, SA_NET_OK
+    pair_write_len_ok = eq pair_write_len, 4
+    pair_write_ok = and pair_write_status_ok, pair_write_len_ok
+    !pair_write_len_ok
+    !pair_write_status_ok
+    !pair_write_status
+    !pair_write_len
+    br pair_write_ok -> L_PAIR_READ, L_PAIR_FAIL_WRITE
+
+L_PAIR_FAIL_WRITE:
+    !pair_write_ok
+    !addr_pair_done
+    !right
+    !left
+    panic(968)
+
+L_PAIR_READ:
+    pair_recv = stack_alloc 8
+    EXPAND NET_TCP_STREAM_READ pair_read_status, pair_read_len, right, pair_recv, 8
+    pair_read_status_ok = eq pair_read_status, SA_NET_OK
+    pair_read_len_ok = eq pair_read_len, 4
+    pair_b0 = load pair_recv+0 as u8
+    pair_b3 = load pair_recv+3 as u8
+    pair_b0_ok = eq pair_b0, 80
+    pair_b3_ok = eq pair_b3, 82
+    pair_read01 = and pair_read_status_ok, pair_read_len_ok
+    pair_read02 = and pair_read01, pair_b0_ok
+    pair_read_ok = and pair_read02, pair_b3_ok
+    !pair_read02
+    !pair_read01
+    !pair_b3_ok
+    !pair_b0_ok
+    !pair_b3
+    !pair_b0
+    !pair_read_len_ok
+    !pair_read_status_ok
+    !pair_read_status
+    !pair_read_len
+    br pair_read_ok -> L_PAIR_CLOSE, L_PAIR_FAIL_READ
+
+L_PAIR_FAIL_READ:
+    !pair_read_ok
+    !pair_write_ok
+    !addr_pair_done
+    !right
+    !left
+    panic(969)
+
+L_PAIR_CLOSE:
+    EXPAND NET_TCP_STREAM_CLOSE pair_close_left, left
+    EXPAND NET_TCP_STREAM_CLOSE pair_close_right, right
+    pair_close_left_ok = eq pair_close_left, SA_NET_OK
+    pair_close_right_ok = eq pair_close_right, SA_NET_OK
+    pair_close_ok = and pair_close_left_ok, pair_close_right_ok
+    !pair_close_ok
+    !pair_close_right_ok
+    !pair_close_left_ok
+    !pair_close_right
+    !pair_close_left
+    !pair_read_ok
+    !pair_write_ok
+    !addr_pair_done
+    !pair_all
     return 0
