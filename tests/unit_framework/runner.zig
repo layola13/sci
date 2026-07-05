@@ -584,6 +584,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_mpsc_macro_surface.sa",
         "tests/unit_framework/std_process_macro_surface.sa",
         "tests/unit_framework/std_env_macro_surface.sa",
+        "tests/unit_framework/std_thread_macro_surface.sa",
         "tests/unit_framework/std_marker_macro_surface.sa",
         "tests/unit_framework/std_pin_macro_surface.sa",
         "tests/unit_framework/std_any_borrow_macro_surface.sa",
@@ -602,12 +603,16 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_io_utility_macro_surface.sa",
         "tests/unit_framework/std_iter_macro_surface.sa",
         "tests/unit_framework/std_fs_macro_surface.sa",
+        "tests/unit_framework/std_fs_metadata_ext_macro_surface.sa",
+        "tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa",
+        "tests/unit_framework/std_fs_unix_ext_macro_surface.sa",
         "tests/unit_framework/std_net_macro_surface.sa",
         "tests/unit_framework/std_net_addr_macro_surface.sa",
         "tests/unit_framework/std_net_multicast_macro_surface.sa",
         "tests/unit_framework/std_netx_macro_surface.sa",
         "tests/unit_framework/std_net_unix_macro_surface.sa",
         "tests/unit_framework/std_net_dns_macro_surface.sa",
+        "tests/unit_framework/std_os_fd_macro_surface.sa",
     };
 
     for (macro_surface_suites) |path| {

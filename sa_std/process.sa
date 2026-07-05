@@ -13,16 +13,52 @@
 
 [MACRO] PROCESS_EXIT_STATUS_NEW %exit_status, %code
     store %exit_status+ProcessExitStatus_code, %code as u32
+    store %exit_status+ProcessExitStatus_raw, 0 as i32
+[END_MACRO]
+
+[MACRO] PROCESS_EXIT_STATUS_FROM_RAW %exit_status, %raw
+    __process_exit_status_code_%exit_status = call @sa_std_process_exit_status_code(%raw)
+    store %exit_status+ProcessExitStatus_code, __process_exit_status_code_%exit_status as u32
+    store %exit_status+ProcessExitStatus_raw, %raw as i32
+    !__process_exit_status_code_%exit_status
 [END_MACRO]
 
 [MACRO] PROCESS_EXIT_STATUS_CODE %out_code, %exit_status
     %out_code = load %exit_status+ProcessExitStatus_code as u32
 [END_MACRO]
 
+[MACRO] PROCESS_EXIT_STATUS_RAW %out_raw, %exit_status
+    %out_raw = load %exit_status+ProcessExitStatus_raw as i32
+[END_MACRO]
+
 [MACRO] PROCESS_EXIT_STATUS_SUCCESS %out_bool, %exit_status
     EXPAND PROCESS_EXIT_STATUS_CODE __process_exit_status_code_%out_bool, %exit_status
     EXPAND PROCESS_EXIT_SUCCESS %out_bool, __process_exit_status_code_%out_bool
     !__process_exit_status_code_%out_bool
+[END_MACRO]
+
+[MACRO] PROCESS_EXIT_STATUS_SIGNAL %out_signal, %exit_status
+    EXPAND PROCESS_EXIT_STATUS_RAW __process_exit_status_raw_%out_signal, %exit_status
+    %out_signal = call @sa_std_process_exit_status_signal(__process_exit_status_raw_%out_signal)
+    !__process_exit_status_raw_%out_signal
+[END_MACRO]
+
+[MACRO] PROCESS_EXIT_STATUS_COREDUMPED %out_flag, %exit_status
+    EXPAND PROCESS_EXIT_STATUS_RAW __process_exit_status_raw_%out_flag, %exit_status
+    %out_flag = call @sa_std_process_exit_status_core_dumped(__process_exit_status_raw_%out_flag)
+    !__process_exit_status_raw_%out_flag
+[END_MACRO]
+
+[MACRO] PROCESS_EXIT_STATUS_STOPPED_SIGNAL %out_signal, %exit_status
+    EXPAND PROCESS_EXIT_STATUS_RAW __process_exit_status_raw_%out_signal, %exit_status
+    %out_signal = call @sa_std_process_exit_status_stopped_signal(__process_exit_status_raw_%out_signal)
+    !__process_exit_status_raw_%out_signal
+[END_MACRO]
+
+[MACRO] PROCESS_EXIT_STATUS_CONTINUED %out_flag, %exit_status
+    EXPAND PROCESS_EXIT_STATUS_RAW __process_exit_status_raw_%out_flag, %exit_status
+    %out_flag = call @sa_std_process_exit_status_continued(__process_exit_status_raw_%out_flag)
+    !__process_exit_status_raw_%out_flag
 [END_MACRO]
 
 [MACRO] PROCESS_OUTPUT_NEW %output, %exit_status, %stdout_buffer, %stderr_buffer
@@ -185,6 +221,10 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_pid = call @sa_std_process_id()
 [END_MACRO]
 
+[MACRO] PROCESS_PARENT_ID %out_pid
+    %out_pid = call @sa_std_process_parent_id()
+[END_MACRO]
+
 [MACRO] PROCESS_ABORT
     call @sa_std_process_abort()
 [END_MACRO]
@@ -201,6 +241,12 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_code = load __process_wait_code_slot_%out_code+0 as u32
 [END_MACRO]
 
+[MACRO] PROCESS_WAIT_RAW %out_status, %out_raw, %process
+    __process_wait_raw_slot_%out_raw = stack_alloc 4
+    %out_status = call @sa_std_process_wait_raw(%process, &__process_wait_raw_slot_%out_raw)
+    %out_raw = load __process_wait_raw_slot_%out_raw+0 as i32
+[END_MACRO]
+
 [MACRO] PROCESS_TRY_WAIT %out_status, %out_ready, %out_code, %process
     __process_try_wait_ready_slot_%out_ready = stack_alloc 4
     __process_try_wait_code_slot_%out_code = stack_alloc 4
@@ -209,26 +255,38 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_code = load __process_try_wait_code_slot_%out_code+0 as u32
 [END_MACRO]
 
+[MACRO] PROCESS_TRY_WAIT_RAW %out_status, %out_ready, %out_raw, %process
+    __process_try_wait_raw_ready_slot_%out_ready = stack_alloc 4
+    __process_try_wait_raw_slot_%out_raw = stack_alloc 4
+    %out_status = call @sa_std_process_try_wait_raw(%process, &__process_try_wait_raw_ready_slot_%out_ready, &__process_try_wait_raw_slot_%out_raw)
+    %out_ready = load __process_try_wait_raw_ready_slot_%out_ready+0 as i32
+    %out_raw = load __process_try_wait_raw_slot_%out_raw+0 as i32
+[END_MACRO]
+
 [MACRO] PROCESS_WAIT_EXIT_STATUS %out_status, %exit_status, %process
-    __process_wait_exit_code_%out_status = stack_alloc 4
-    %out_status = call @sa_std_process_wait(%process, &__process_wait_exit_code_%out_status)
-    __process_wait_exit_value_%out_status = load __process_wait_exit_code_%out_status+0 as u32
-    EXPAND PROCESS_EXIT_STATUS_NEW %exit_status, __process_wait_exit_value_%out_status
+    __process_wait_exit_raw_%out_status = stack_alloc 4
+    %out_status = call @sa_std_process_wait_raw(%process, &__process_wait_exit_raw_%out_status)
+    __process_wait_exit_value_%out_status = load __process_wait_exit_raw_%out_status+0 as i32
+    EXPAND PROCESS_EXIT_STATUS_FROM_RAW %exit_status, __process_wait_exit_value_%out_status
     !__process_wait_exit_value_%out_status
 [END_MACRO]
 
 [MACRO] PROCESS_TRY_WAIT_EXIT_STATUS %out_status, %out_ready, %exit_status, %process
     __process_try_wait_exit_ready_slot_%out_ready = stack_alloc 4
     __process_try_wait_exit_code_%out_status = stack_alloc 4
-    %out_status = call @sa_std_process_try_wait(%process, &__process_try_wait_exit_ready_slot_%out_ready, &__process_try_wait_exit_code_%out_status)
+    %out_status = call @sa_std_process_try_wait_raw(%process, &__process_try_wait_exit_ready_slot_%out_ready, &__process_try_wait_exit_code_%out_status)
     %out_ready = load __process_try_wait_exit_ready_slot_%out_ready+0 as i32
-    __process_try_wait_exit_value_%out_status = load __process_try_wait_exit_code_%out_status+0 as u32
-    EXPAND PROCESS_EXIT_STATUS_NEW %exit_status, __process_try_wait_exit_value_%out_status
+    __process_try_wait_exit_value_%out_status = load __process_try_wait_exit_code_%out_status+0 as i32
+    EXPAND PROCESS_EXIT_STATUS_FROM_RAW %exit_status, __process_try_wait_exit_value_%out_status
     !__process_try_wait_exit_value_%out_status
 [END_MACRO]
 
 [MACRO] PROCESS_KILL %out_status, %process
     %out_status = call @sa_std_process_kill(%process)
+[END_MACRO]
+
+[MACRO] PROCESS_SEND_SIGNAL %out_status, %process, %signal
+    %out_status = call @sa_std_process_send_signal(%process, %signal)
 [END_MACRO]
 
 [MACRO] PROCESS_READ_STDOUT %out_status, %out_len, %process, %buf, %cap

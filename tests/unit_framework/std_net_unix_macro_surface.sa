@@ -1,12 +1,24 @@
 @import "sa_std/net.sa"
+@import "sa_std/testing/assert.sai"
 
 // Unix domain socket 宏表面测试 + socket 选项 setter。
 // UDS 是本地流 socket：单线程 listen -> connect(入队即返回) -> accept -> write -> read 可行。
 @const UDS_TEST_PATH = utf8:"/tmp/sa_uds_test.sock"
+@const DBG_REUSE_STATUS = utf8:"uds_reuse_status"
+@const DBG_REUSEPORT_STATUS = utf8:"uds_reuseport_status"
+@const DBG_CONNECT_STATUS = utf8:"uds_connect_status"
+@const DBG_CLIENT = utf8:"uds_client"
+
+#def DBG_REUSE_STATUS_LEN = 16
+#def DBG_REUSEPORT_STATUS_LEN = 20
+#def DBG_CONNECT_STATUS_LEN = 18
+#def DBG_CLIENT_LEN = 10
 
 @test "sa_std net unix domain socket roundtrip"():
 L_ENTRY:
     path_len = add 0, 21
+    client = add 0, 0
+    connect_all = add 0, 0
 
     EXPAND NET_UNIX_LISTEN listen_status, listener, UDS_TEST_PATH, path_len
     listen_ok = eq listen_status, SA_NET_OK
@@ -26,15 +38,23 @@ L_REUSE:
     EXPAND NET_TCP_LISTENER_SET_REUSEPORT reuseport_status, listener, SA_NET_SOCKET_OPTION_ENABLE
     reuseport_ok = eq reuseport_status, SA_NET_OK
     reuse_both = and reuse_ok, reuseport_ok
+    call @sa_test_debug_i64(&DBG_REUSE_STATUS, DBG_REUSE_STATUS_LEN, reuse_status)
+    call @sa_test_debug_i64(&DBG_REUSEPORT_STATUS, DBG_REUSEPORT_STATUS_LEN, reuseport_status)
     !reuseport_status
     !reuse_status
-    br reuse_both -> L_CONNECT, L_FAIL_CONNECT
+    br reuse_both -> L_CONNECT, L_FAIL_REUSE
+
+L_FAIL_REUSE:
+    !listener
+    panic(964)
 
 L_CONNECT:
     EXPAND NET_UNIX_CONNECT connect_status, client, UDS_TEST_PATH, path_len
     connect_ok = eq connect_status, SA_NET_OK
     client_ok = ne client, 0
     connect_all = and connect_ok, client_ok
+    call @sa_test_debug_i64(&DBG_CONNECT_STATUS, DBG_CONNECT_STATUS_LEN, connect_status)
+    call @sa_test_debug_i64(&DBG_CLIENT, DBG_CLIENT_LEN, client)
     !connect_status
     br connect_all -> L_ACCEPT, L_FAIL_CONNECT
 

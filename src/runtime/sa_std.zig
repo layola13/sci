@@ -80,6 +80,11 @@ pub const SA_STD_STDIN: u64 = 1;
 pub const SA_STD_STDOUT: u64 = 2;
 pub const SA_STD_STDERR: u64 = 3;
 
+pub const SA_FS_FILE_REGULAR: u32 = 1;
+pub const SA_FS_FILE_DIR: u32 = 2;
+pub const SA_FS_FILE_SYMLINK: u32 = 3;
+pub const SA_FS_FILE_OTHER: u32 = 255;
+
 const IP_MULTICAST_TTL_OPT: u32 = 33;
 const IP_MULTICAST_LOOP_OPT: u32 = 34;
 const IP_ADD_MEMBERSHIP_OPT: u32 = 35;
@@ -200,9 +205,41 @@ const BufferHandle = struct {
 const MetadataHandle = struct {
     allocator: std.mem.Allocator,
     stat: std.fs.File.Stat,
+    raw: std.posix.Stat,
 
     fn deinit(self: *MetadataHandle) void {
         _ = self;
+    }
+};
+
+const DirEntrySnapshot = struct {
+    name: []u8,
+    kind: u32,
+    ino: u64,
+};
+
+const DirEntriesHandle = struct {
+    allocator: std.mem.Allocator,
+    entries: []DirEntrySnapshot,
+
+    fn deinit(self: *DirEntriesHandle) void {
+        for (self.entries) |entry| {
+            if (entry.name.len != 0) self.allocator.free(entry.name);
+        }
+        if (self.entries.len != 0) self.allocator.free(self.entries);
+        self.entries = &.{};
+    }
+};
+
+const DirEntryHandle = struct {
+    allocator: std.mem.Allocator,
+    name: []u8,
+    kind: u32,
+    ino: u64,
+
+    fn deinit(self: *DirEntryHandle) void {
+        if (self.name.len != 0) self.allocator.free(self.name);
+        self.name = &.{};
     }
 };
 
@@ -885,6 +922,7 @@ const ProcessHandle = struct {
     stderr_pos: usize = 0,
     exited: bool = false,
     code: u32 = 0,
+    raw_status: u32 = 0,
 
     fn deinit(self: *ProcessHandle) void {
         if (!self.exited) {
@@ -912,6 +950,8 @@ const Resource = union(enum) {
     udp_socket: std.posix.socket_t,
     buffer: BufferHandle,
     metadata: MetadataHandle,
+    dir_entries: DirEntriesHandle,
+    dir_entry: DirEntryHandle,
     net_addr: NetAddrHandle,
     fmt: FmtHandle,
     env: EnvHandle,
@@ -938,6 +978,8 @@ const Resource = union(enum) {
             .udp_socket => |fd| std.posix.close(fd),
             .buffer => |*buffer| buffer.deinit(),
             .metadata => |*metadata| metadata.deinit(),
+            .dir_entries => |*entries| entries.deinit(),
+            .dir_entry => |*entry| entry.deinit(),
             .net_addr => |*addr| addr.deinit(),
             .fmt => |*fmt| fmt.deinit(),
             .env => |*env| env.deinit(),
@@ -1347,6 +1389,17 @@ fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
     }
 }
 
+fn socketAddressFamily(fd: std.posix.fd_t) !u16 {
+    var addr: std.net.Address = undefined;
+    var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    try std.posix.getsockname(fd, &addr.any, &addr_len);
+    return addr.any.family;
+}
+
+fn socketIsUnix(fd: std.posix.fd_t) !bool {
+    return (try socketAddressFamily(fd)) == std.posix.AF.UNIX;
+}
+
 fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
     const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
@@ -1465,6 +1518,52 @@ fn handleToFd(handle: u64) !std.posix.fd_t {
                 else => error.InvalidHandle,
             };
         },
+    };
+}
+
+fn timeSpecMs(ts: anytype) i64 {
+    const sec = @as(i128, @intCast(ts.sec));
+    const nsec = @as(i128, @intCast(ts.nsec));
+    return nsToMs(sec * std.time.ns_per_s + nsec);
+}
+
+fn metadataU64Field(handle: u64, comptime field: []const u8) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| @as(u64, @intCast(@field(metadata.raw, field))),
+        else => 0,
+    };
+}
+
+fn metadataI64TimeFieldMs(handle: u64, comptime field: []const u8) i64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| timeSpecMs(@field(metadata.raw, field)),
+        else => 0,
+    };
+}
+
+fn metadataI64TimeFieldSec(handle: u64, comptime field: []const u8) i64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, field).sec)),
+        else => 0,
+    };
+}
+
+fn metadataI64TimeFieldNsec(handle: u64, comptime field: []const u8) i64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, field).nsec)),
+        else => 0,
     };
 }
 
@@ -1679,8 +1778,39 @@ fn statusFromWaitStatus(status: u32) u32 {
     return 127;
 }
 
+fn rawWaitStatus(status: i32) u32 {
+    return @bitCast(status);
+}
+
+fn waitStatusCode(raw: i32) u32 {
+    return statusFromWaitStatus(rawWaitStatus(raw));
+}
+
+fn waitStatusSignal(raw: i32) i32 {
+    const status = rawWaitStatus(raw);
+    if (!std.posix.W.IFSIGNALED(status)) return -1;
+    return @as(i32, @intCast(std.posix.W.TERMSIG(status)));
+}
+
+fn waitStatusCoreDumped(raw: i32) u8 {
+    const status = rawWaitStatus(raw);
+    if (!std.posix.W.IFSIGNALED(status)) return 0;
+    return if ((status & 0x80) != 0) 1 else 0;
+}
+
+fn waitStatusStoppedSignal(raw: i32) i32 {
+    const status = rawWaitStatus(raw);
+    if (!std.posix.W.IFSTOPPED(status)) return -1;
+    return @as(i32, @intCast(std.posix.W.STOPSIG(status)));
+}
+
+fn waitStatusContinued(raw: i32) u8 {
+    return if (rawWaitStatus(raw) == 0xffff) 1 else 0;
+}
+
 fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.code = statusFromWaitStatus(status);
+    proc.raw_status = status;
     proc.exited = true;
     if (proc.capture_output) {
         if (proc.stdout_fd) |fd| {
@@ -4565,6 +4695,7 @@ pub export fn sa_deno_memory_usage() u64 {
 
 pub export fn sa_json_parse(json_bytes: ?[*]const u8, len: u64) u64 {
     const input = constBytes(json_bytes, len) catch return 0;
+    std.debug.print("DBG parse input len={d} text={s} hex={s}\n", .{ input.len, input, std.fmt.fmtSliceHexLower(input) });
     const document = jsonDocumentFromSlice(std.heap.page_allocator, input) catch return 0;
     return registerJsonNode(document, document.parsed.value, false) catch return 0;
 }
@@ -5775,6 +5906,10 @@ pub export fn sa_std_process_id() u32 {
     return @intCast(getpid());
 }
 
+pub export fn sa_std_process_parent_id() u32 {
+    return @intCast(getppid());
+}
+
 pub export fn sa_std_process_abort() noreturn {
     std.posix.abort();
 }
@@ -5813,6 +5948,25 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
     };
 }
 
+pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
+    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    raw_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (!proc.exited) {
+                const waited = std.posix.waitpid(proc.pid, 0);
+                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+            }
+            raw_ptr.* = @bitCast(proc.raw_status);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
 pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
     const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -5830,6 +5984,29 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
             }
             ready_ptr.* = 1;
             code_ptr.* = proc.code;
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
+    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ready_ptr.* = 0;
+    raw_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (!proc.exited) {
+                const waited = std.posix.waitpid(proc.pid, std.posix.W.NOHANG);
+                if (waited.pid == 0) return finish(SA_STD_OK);
+                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+            }
+            ready_ptr.* = 1;
+            raw_ptr.* = @bitCast(proc.raw_status);
             return finish(SA_STD_OK);
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
@@ -5854,6 +6031,46 @@ pub export fn sa_std_process_kill(handle: u64) i32 {
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
+}
+
+pub export fn sa_std_process_send_signal(handle: u64, signum: i32) i32 {
+    if (signum < 0 or signum > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (proc.exited) return finish(SA_STD_ERR_INVALID_HANDLE);
+            switch (std.posix.errno(std.os.linux.kill(proc.pid, signum))) {
+                .SUCCESS => return finish(SA_STD_OK),
+                .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+                .PERM => return finish(SA_STD_ERR_ACCESS),
+                .SRCH => return finish(SA_STD_ERR_INVALID_HANDLE),
+                else => return finish(SA_STD_ERR_IO),
+            }
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_exit_status_code(raw: i32) u32 {
+    return waitStatusCode(raw);
+}
+
+pub export fn sa_std_process_exit_status_signal(raw: i32) i32 {
+    return waitStatusSignal(raw);
+}
+
+pub export fn sa_std_process_exit_status_core_dumped(raw: i32) u8 {
+    return waitStatusCoreDumped(raw);
+}
+
+pub export fn sa_std_process_exit_status_stopped_signal(raw: i32) i32 {
+    return waitStatusStoppedSignal(raw);
+}
+
+pub export fn sa_std_process_exit_status_continued(raw: i32) u8 {
+    return waitStatusContinued(raw);
 }
 
 const ProcessOutputStream = enum { stdout, stderr };
@@ -5973,6 +6190,91 @@ pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv,
 
 pub export fn sa_std_process_close(handle: u64) i32 {
     return sa_std_close(handle);
+}
+
+pub export fn sa_std_fd_as_raw(handle: u64, out_fd: ?*i32) i32 {
+    const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    fd_ptr.* = -1;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const fd = handleToFd(handle) catch |err| return finishErr(err);
+    fd_ptr.* = @as(i32, @intCast(fd));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_fd_dup(handle: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const fd = handleToFd(handle) catch |err| return finishErr(err);
+    const dup_fd = std.posix.dup(fd) catch |err| return finishErr(err);
+    const dup_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = dup_fd } }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = dup_handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const handle = registerResourceLocked(.{ .owned_fd = .{ .fd = @as(std.posix.fd_t, @intCast(fd)) } }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_fd_into_raw(handle: u64, out_fd: ?*i32) i32 {
+    const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    fd_ptr.* = -1;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    switch (resource.*) {
+        .file, .tcp_stream, .tcp_listener, .udp_socket, .owned_fd => {},
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    }
+
+    const taken = takeResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    fd_ptr.* = switch (taken) {
+        .file => |file| @as(i32, @intCast(file.handle)),
+        .tcp_stream => |stream| @as(i32, @intCast(stream.handle)),
+        .tcp_listener => |server| @as(i32, @intCast(server.stream.handle)),
+        .udp_socket => |fd_value| @as(i32, @intCast(fd_value)),
+        .owned_fd => |fd_handle| @as(i32, @intCast(fd_handle.fd)),
+        else => unreachable,
+    };
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_fd_close_raw(fd: i32) i32 {
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    std.posix.close(@as(std.posix.fd_t, @intCast(fd)));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_fd_is_terminal(handle: u64, out_flag: ?*u8) i32 {
+    const flag_ptr = out_flag orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    flag_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const fd = handleToFd(handle) catch |err| return finishErr(err);
+    flag_ptr.* = if (std.posix.isatty(fd)) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_thread_current_id() u64 {
+    return @as(u64, @intCast(std.Thread.getCurrentId()));
+}
+
+pub export fn sa_thread_yield_now() i32 {
+    std.Thread.yield() catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_term_raw_enter(handle: u64, out_session: ?*u64) i32 {
@@ -6148,20 +6450,39 @@ pub export fn sa_io_buffer_free(buffer: ?*BufferHandle) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_file_open(path_ptr: ?[*]const u8, path_len: u64, flags: u32) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+const sa_fs_open_accmode_mask: u32 = 0x3;
+
+fn saFsOpenFile(path: []const u8, flags: u32, create_mode: u32, custom_flags: u32) !std.fs.File {
+    if (builtin.os.tag != .linux) return error.Unsupported;
+
     const read = (flags & 1) != 0;
     const write = (flags & 2) != 0;
     const create = (flags & 4) != 0;
     const truncate = (flags & 8) != 0;
     const append = (flags & 16) != 0;
-    const handle = if (create or write or append or truncate) blk: {
-        const file = std.fs.cwd().createFile(path, .{ .read = read or write, .truncate = truncate, .exclusive = false }) catch |err| return finishErr(err);
-        break :blk registerResource(.{ .file = file }) catch |err| return finishErr(err);
-    } else blk: {
-        const file = std.fs.cwd().openFile(path, .{ .mode = if (read and !write) .read_only else .read_write }) catch |err| return finishErr(err);
-        break :blk registerResource(.{ .file = file }) catch |err| return finishErr(err);
-    };
+    const wants_write = write or append;
+
+    var open_flags: std.posix.O = .{};
+    open_flags.ACCMODE = if (read and wants_write)
+        .RDWR
+    else if (wants_write)
+        .WRONLY
+    else
+        .RDONLY;
+    open_flags.CREAT = create;
+    open_flags.TRUNC = truncate;
+    open_flags.APPEND = append;
+
+    const merged_bits = @as(u32, @bitCast(open_flags)) | (custom_flags & ~sa_fs_open_accmode_mask);
+    const merged_flags: std.posix.O = @bitCast(merged_bits);
+    const fd = try std.posix.openat(std.posix.AT.FDCWD, path, merged_flags, @as(std.posix.mode_t, @intCast(create_mode)));
+    return .{ .handle = fd };
+}
+
+pub export fn sa_fs_file_open(path_ptr: ?[*]const u8, path_len: u64, flags: u32) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const file = saFsOpenFile(path, flags, std.fs.File.default_mode, 0) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .file = file }) catch |err| return finishErr(err);
     return @as(i32, @intCast(handle));
 }
 
@@ -6172,18 +6493,97 @@ pub export fn sa_fs_file_create(path_ptr: ?[*]const u8, path_len: u64) i32 {
 pub export fn sa_fs_file_close(handle: u64) i32 {
     return sa_std_close(handle);
 }
+
+pub export fn sa_std_fs_open_options(path_ptr: ?[*]const u8, path_len: u64, flags: u32, create_mode: u32, custom_flags: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const file = saFsOpenFile(path, flags, create_mode, custom_flags) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .file = file }) catch |err| {
+        file.close();
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_fs_file_read(handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
     return sa_std_read(handle, out, cap, out_read);
 }
 pub export fn sa_fs_file_read(handle: u64, out: ?[*]u8, cap: u64) i32 {
     return sa_std_read(handle, out, cap, null);
 }
+
+pub export fn sa_std_fs_file_read_at(handle: u64, out: ?[*]u8, cap: u64, offset: u64, out_read: ?*u64) i32 {
+    if (out_read) |ptr| ptr.* = 0;
+    const out_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .file => |f| {
+            const read_len = f.pread(buffer, offset) catch |err| return finishErr(err);
+            out_ptr.* = @as(u64, @intCast(read_len));
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_fs_file_read_exact_at(handle: u64, out: ?[*]u8, len: u64, offset: u64) i32 {
+    const buffer = mutBytes(out, len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .file => |f| {
+            const read_len = f.preadAll(buffer, offset) catch |err| return finishErr(err);
+            if (read_len != buffer.len) return finish(SA_STD_ERR_TRUNCATED);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
 pub export fn sa_fs_file_read_exact(handle: u64, out: ?[*]u8, len: u64) i32 {
     return sa_io_read_exact(handle, out, len);
 }
 pub export fn sa_std_fs_file_write(handle: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
     return sa_std_write(handle, out, len, out_written);
 }
+
+pub export fn sa_std_fs_file_write_at(handle: u64, out: ?[*]const u8, len: u64, offset: u64, out_written: ?*u64) i32 {
+    if (out_written) |ptr| ptr.* = 0;
+    const out_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const buffer = constBytes(out, len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .file => |f| {
+            const write_len = f.pwrite(buffer, offset) catch |err| return finishErr(err);
+            out_ptr.* = @as(u64, @intCast(write_len));
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_fs_file_write_all_at(handle: u64, out: ?[*]const u8, len: u64, offset: u64) i32 {
+    const buffer = constBytes(out, len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .file => |f| {
+            f.pwriteAll(buffer, offset) catch |err| return finishErr(err);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
 pub export fn sa_fs_file_write(handle: u64, out: ?[*]const u8, len: u64) i32 {
     return sa_io_write_all(handle, out, len);
 }
@@ -6427,6 +6827,136 @@ fn writeMetadataJson(writer: anytype, stat: std.fs.File.Stat) !void {
     try writer.writeAll("}");
 }
 
+fn writeMetadataJsonExt(writer: anytype, stat: std.fs.File.Stat, raw: std.posix.Stat) !void {
+    try writer.writeAll("{");
+    try writeJsonIntField(writer, "createdAtMs", nsToMs(stat.ctime));
+    try writer.writeAll(",");
+    try writeJsonBoolField(writer, "isDirectory", stat.kind == .directory);
+    try writer.writeAll(",");
+    try writeJsonBoolField(writer, "isFile", stat.kind == .file);
+    try writer.writeAll(",");
+    try writeJsonBoolField(writer, "isSymlink", stat.kind == .sym_link);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "modifiedAtMs", nsToMs(stat.mtime));
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "accessedAtMs", timeSpecMs(raw.atime()));
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "changedAtMs", timeSpecMs(raw.ctime()));
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "size", raw.size);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "mode", raw.mode);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "uid", raw.uid);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "gid", raw.gid);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "dev", raw.dev);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "ino", raw.ino);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "nlink", raw.nlink);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "rdev", raw.rdev);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "blksize", raw.blksize);
+    try writer.writeAll(",");
+    try writeJsonIntField(writer, "blocks", raw.blocks);
+    try writer.writeAll("}");
+}
+
+fn dirEntryKindFromLinuxType(kind: u8) u32 {
+    return switch (kind) {
+        std.os.linux.DT.REG => SA_FS_FILE_REGULAR,
+        std.os.linux.DT.DIR => SA_FS_FILE_DIR,
+        std.os.linux.DT.LNK => SA_FS_FILE_SYMLINK,
+        else => SA_FS_FILE_OTHER,
+    };
+}
+
+fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
+    if (builtin.os.tag != .linux) return error.Unsupported;
+
+    const flags: std.posix.O = .{ .ACCMODE = .RDONLY, .DIRECTORY = true, .CLOEXEC = true };
+    const fd = try std.posix.openat(std.posix.AT.FDCWD, path, flags, 0);
+    defer std.posix.close(fd);
+
+    var out = std.ArrayList(DirEntrySnapshot).init(std.heap.page_allocator);
+    errdefer {
+        for (out.items) |entry| if (entry.name.len != 0) std.heap.page_allocator.free(entry.name);
+        out.deinit();
+    }
+
+    var buf: [4096]u8 = undefined;
+    while (out.items.len < max_entries) {
+        const rc = std.os.linux.getdents64(fd, &buf, buf.len);
+        switch (std.os.linux.E.init(rc)) {
+            .SUCCESS => {},
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .NOTDIR => unreachable,
+            .NOENT => return error.FileNotFound,
+            .INVAL => return error.Unexpected,
+            .ACCES => return error.AccessDenied,
+            else => |err| return std.posix.unexpectedErrno(err),
+        }
+        if (rc == 0) break;
+
+        var index: usize = 0;
+        while (index < rc and out.items.len < max_entries) {
+            const linux_entry = @as(*align(1) std.os.linux.dirent64, @ptrCast(&buf[index]));
+            index += linux_entry.reclen;
+
+            const name = std.mem.sliceTo(@as([*:0]u8, @ptrCast(&linux_entry.name)), 0);
+            if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
+
+            const owned_name = try std.heap.page_allocator.dupe(u8, name);
+            errdefer std.heap.page_allocator.free(owned_name);
+            try out.append(.{
+                .name = owned_name,
+                .kind = dirEntryKindFromLinuxType(linux_entry.type),
+                .ino = linux_entry.ino,
+            });
+        }
+    }
+
+    return .{ .allocator = std.heap.page_allocator, .entries = try out.toOwnedSlice() };
+}
+
+fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| if ((@as(u64, metadata.raw.mode) & std.posix.S.IFMT) == mode_bits) 1 else 0,
+        else => 0,
+    };
+}
+
+fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
+    if (path.len == 0) return error.BadPathName;
+
+    var index: usize = if (path[0] == '/') 1 else 0;
+    while (index < path.len and path[index] == '/') : (index += 1) {}
+
+    while (index <= path.len) {
+        var next = index;
+        while (next < path.len and path[next] != '/') : (next += 1) {}
+        if (next > 0) {
+            const prefix = path[0..next];
+            if (prefix.len != 0 and !(prefix.len == 1 and prefix[0] == '/')) {
+                std.posix.mkdirat(std.posix.AT.FDCWD, prefix, mode) catch |err| switch (err) {
+                    error.PathAlreadyExists => {},
+                    else => return err,
+                };
+            }
+        }
+        if (next == path.len) break;
+        index = next + 1;
+        while (index < path.len and path[index] == '/') : (index += 1) {}
+    }
+}
+
 pub export fn sa_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) Fallible(u64) {
     const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
     var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| return fail(u64, mapError(err));
@@ -6484,11 +7014,118 @@ pub export fn sa_fs_dir_buffer_free(handle: u64) i32 {
     return sa_fs_read_buffer_free(handle);
 }
 
+pub export fn sa_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) Fallible(u64) {
+    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
+    const limit = lenAsUsize(max_entries) catch |err| return fail(u64, mapError(err));
+    var entries = readDirEntriesLinux(path, limit) catch |err| return fail(u64, mapError(err));
+    const handle = registerResource(.{ .dir_entries = entries }) catch |err| {
+        entries.deinit();
+        return fail(u64, mapError(err));
+    };
+    return ok(u64, handle);
+}
+
+pub export fn sa_std_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const result = sa_fs_read_dir_entries(path_ptr, path_len, max_entries);
+    if (result.status != SA_STD_OK) return finish(result.status);
+    handle_ptr.* = result.value;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_dir_entries_len(handle: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .dir_entries => |*entries| @as(u64, @intCast(entries.entries.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_std_fs_dir_entries_get(handle: u64, index: u64, out_entry_handle: ?*u64) i32 {
+    const out_handle_ptr = out_entry_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out_handle_ptr.* = 0;
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .dir_entries => |*entries| blk: {
+            const idx = std.math.cast(usize, index) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+            if (idx >= entries.entries.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+            const snapshot = entries.entries[idx];
+            const owned_name = std.heap.page_allocator.dupe(u8, snapshot.name) catch |err| return finishErr(err);
+            const entry_handle = registerResourceLocked(.{ .dir_entry = .{
+                .allocator = std.heap.page_allocator,
+                .name = owned_name,
+                .kind = snapshot.kind,
+                .ino = snapshot.ino,
+            } }) catch |err| {
+                std.heap.page_allocator.free(owned_name);
+                return finishErr(err);
+            };
+            out_handle_ptr.* = entry_handle;
+            break :blk finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_fs_dir_entries_free(handle: u64) i32 {
+    return sa_std_close(handle);
+}
+
+pub export fn sa_fs_dir_entry_name_ptr(handle: u64) ?[*]u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return null;
+    return switch (resource.*) {
+        .dir_entry => |*entry| entry.name.ptr,
+        else => null,
+    };
+}
+
+pub export fn sa_fs_dir_entry_name_len(handle: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .dir_entry => |*entry| @as(u64, @intCast(entry.name.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_fs_dir_entry_kind(handle: u64) u32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .dir_entry => |*entry| entry.kind,
+        else => 0,
+    };
+}
+
+pub export fn sa_fs_dir_entry_ino(handle: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .dir_entry => |*entry| entry.ino,
+        else => 0,
+    };
+}
+
+pub export fn sa_fs_dir_entry_free(handle: u64) i32 {
+    return sa_std_close(handle);
+}
+
 pub export fn sa_fs_metadata(path_ptr: ?[*]const u8, path_len: u64) Fallible(u64) {
     const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
     const posix_stat = std.posix.fstatat(std.fs.cwd().fd, path, std.posix.AT.SYMLINK_NOFOLLOW) catch |err| return fail(u64, mapError(err));
     const stat = std.fs.File.Stat.fromPosix(posix_stat);
-    const handle = registerResource(.{ .metadata = .{ .allocator = std.heap.page_allocator, .stat = stat } }) catch |err| return fail(u64, mapError(err));
+    const handle = registerResource(.{ .metadata = .{ .allocator = std.heap.page_allocator, .stat = stat, .raw = posix_stat } }) catch |err| return fail(u64, mapError(err));
     return ok(u64, handle);
 }
 
@@ -6507,7 +7144,7 @@ pub export fn sa_fs_metadata_json(path_ptr: ?[*]const u8, path_len: u64) Fallibl
     const stat = std.fs.File.Stat.fromPosix(posix_stat);
     var out = std.ArrayList(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
-    writeMetadataJson(out.writer(), stat) catch |err| return fail(u64, mapError(err));
+    writeMetadataJsonExt(out.writer(), stat, posix_stat) catch |err| return fail(u64, mapError(err));
     const bytes = out.toOwnedSlice() catch |err| return fail(u64, mapError(err));
     const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
         std.heap.page_allocator.free(bytes);
@@ -6555,6 +7192,22 @@ pub export fn sa_fs_metadata_is_symlink(handle: u64) u8 {
     };
 }
 
+pub export fn sa_fs_metadata_is_block_device(handle: u64) u8 {
+    return metadataModeMatches(handle, std.posix.S.IFBLK);
+}
+
+pub export fn sa_fs_metadata_is_char_device(handle: u64) u8 {
+    return metadataModeMatches(handle, std.posix.S.IFCHR);
+}
+
+pub export fn sa_fs_metadata_is_fifo(handle: u64) u8 {
+    return metadataModeMatches(handle, std.posix.S.IFIFO);
+}
+
+pub export fn sa_fs_metadata_is_socket(handle: u64) u8 {
+    return metadataModeMatches(handle, std.posix.S.IFSOCK);
+}
+
 pub export fn sa_fs_metadata_modified_ms(handle: u64) i64 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -6573,6 +7226,124 @@ pub export fn sa_fs_metadata_created_ms(handle: u64) i64 {
         .metadata => |*metadata| nsToMs(metadata.stat.ctime),
         else => 0,
     };
+}
+
+pub export fn sa_fs_metadata_accessed_ms(handle: u64) i64 {
+    return metadataI64TimeFieldMs(handle, "atim");
+}
+
+pub export fn sa_fs_metadata_changed_ms(handle: u64) i64 {
+    return metadataI64TimeFieldMs(handle, "ctim");
+}
+
+pub export fn sa_fs_metadata_len(handle: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return 0;
+    return switch (resource.*) {
+        .metadata => |*metadata| metadata.stat.size,
+        else => 0,
+    };
+}
+
+pub export fn sa_fs_metadata_mode(handle: u64) u32 {
+    return @as(u32, @intCast(metadataU64Field(handle, "mode")));
+}
+
+pub export fn sa_fs_metadata_uid(handle: u64) u32 {
+    return @as(u32, @intCast(metadataU64Field(handle, "uid")));
+}
+
+pub export fn sa_fs_metadata_gid(handle: u64) u32 {
+    return @as(u32, @intCast(metadataU64Field(handle, "gid")));
+}
+
+pub export fn sa_fs_metadata_ino(handle: u64) u64 {
+    return metadataU64Field(handle, "ino");
+}
+
+pub export fn sa_fs_metadata_dev(handle: u64) u64 {
+    return metadataU64Field(handle, "dev");
+}
+
+pub export fn sa_fs_metadata_nlink(handle: u64) u64 {
+    return metadataU64Field(handle, "nlink");
+}
+
+pub export fn sa_fs_metadata_rdev(handle: u64) u64 {
+    return metadataU64Field(handle, "rdev");
+}
+
+pub export fn sa_fs_metadata_blksize(handle: u64) u64 {
+    return metadataU64Field(handle, "blksize");
+}
+
+pub export fn sa_fs_metadata_blocks(handle: u64) u64 {
+    return metadataU64Field(handle, "blocks");
+}
+
+pub export fn sa_fs_metadata_st_dev(handle: u64) u64 {
+    return sa_fs_metadata_dev(handle);
+}
+
+pub export fn sa_fs_metadata_st_ino(handle: u64) u64 {
+    return sa_fs_metadata_ino(handle);
+}
+
+pub export fn sa_fs_metadata_st_mode(handle: u64) u32 {
+    return sa_fs_metadata_mode(handle);
+}
+
+pub export fn sa_fs_metadata_st_nlink(handle: u64) u64 {
+    return sa_fs_metadata_nlink(handle);
+}
+
+pub export fn sa_fs_metadata_st_uid(handle: u64) u32 {
+    return sa_fs_metadata_uid(handle);
+}
+
+pub export fn sa_fs_metadata_st_gid(handle: u64) u32 {
+    return sa_fs_metadata_gid(handle);
+}
+
+pub export fn sa_fs_metadata_st_rdev(handle: u64) u64 {
+    return sa_fs_metadata_rdev(handle);
+}
+
+pub export fn sa_fs_metadata_st_size(handle: u64) u64 {
+    return sa_fs_metadata_len(handle);
+}
+
+pub export fn sa_fs_metadata_st_atime(handle: u64) i64 {
+    return metadataI64TimeFieldSec(handle, "atim");
+}
+
+pub export fn sa_fs_metadata_st_atime_nsec(handle: u64) i64 {
+    return metadataI64TimeFieldNsec(handle, "atim");
+}
+
+pub export fn sa_fs_metadata_st_mtime(handle: u64) i64 {
+    return metadataI64TimeFieldSec(handle, "mtim");
+}
+
+pub export fn sa_fs_metadata_st_mtime_nsec(handle: u64) i64 {
+    return metadataI64TimeFieldNsec(handle, "mtim");
+}
+
+pub export fn sa_fs_metadata_st_ctime(handle: u64) i64 {
+    return metadataI64TimeFieldSec(handle, "ctim");
+}
+
+pub export fn sa_fs_metadata_st_ctime_nsec(handle: u64) i64 {
+    return metadataI64TimeFieldNsec(handle, "ctim");
+}
+
+pub export fn sa_fs_metadata_st_blksize(handle: u64) u64 {
+    return sa_fs_metadata_blksize(handle);
+}
+
+pub export fn sa_fs_metadata_st_blocks(handle: u64) u64 {
+    return sa_fs_metadata_blocks(handle);
 }
 
 pub export fn sa_fs_metadata_free(handle: u64) Fallible(i32) {
@@ -6615,9 +7386,21 @@ pub export fn sa_fs_make_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_fs_make_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    mkdirPathWithMode(path, @as(std.posix.mode_t, @intCast(mode))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_fs_create_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     std.fs.cwd().makeDir(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_fs_create_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    std.posix.mkdirat(std.posix.AT.FDCWD, path, @as(std.posix.mode_t, @intCast(mode))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -6683,6 +7466,81 @@ pub export fn sa_fs_symlink(target_path: ?[*]const u8, target_len: u64, link_pat
     const link = pathBytes(link_path, link_len) catch |err| return finishErr(err);
     std.fs.cwd().symLink(target, link, .{}) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
+}
+
+fn chownId(value: u32, enabled: u32) std.os.linux.uid_t {
+    return if (enabled != 0) @as(std.os.linux.uid_t, @intCast(value)) else ~@as(std.os.linux.uid_t, 0);
+}
+
+fn groupId(value: u32, enabled: u32) std.os.linux.gid_t {
+    return if (enabled != 0) @as(std.os.linux.gid_t, @intCast(value)) else ~@as(std.os.linux.gid_t, 0);
+}
+
+fn finishChownErrno(rc: usize) i32 {
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => return finish(SA_STD_OK),
+        .INTR => return finish(SA_STD_ERR_IO),
+        .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
+        .ACCES, .PERM, .ROFS => return finish(SA_STD_ERR_ACCESS),
+        .NOENT, .NOTDIR => return finish(SA_STD_ERR_NOT_FOUND),
+        .FAULT, .INVAL, .NAMETOOLONG, .LOOP => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        else => return finish(SA_STD_ERR_IO),
+    }
+}
+
+fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32, nofollow: bool) i32 {
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
+    const flags: u32 = if (nofollow) std.os.linux.AT.SYMLINK_NOFOLLOW else 0;
+    const rc = std.os.linux.syscall5(
+        .fchownat,
+        @as(usize, @bitCast(@as(isize, std.os.linux.AT.FDCWD))),
+        @intFromPtr(&path_z),
+        chownId(uid, has_uid),
+        groupId(gid, has_gid),
+        flags,
+    );
+    switch (std.posix.errno(rc)) {
+        .INTR => return chownPath(path_ptr, path_len, uid, gid, has_uid, has_gid, nofollow),
+        else => return finishChownErrno(rc),
+    }
+}
+
+pub export fn sa_fs_chown(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) i32 {
+    return chownPath(path_ptr, path_len, uid, gid, has_uid, has_gid, false);
+}
+
+pub export fn sa_fs_lchown(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) i32 {
+    return chownPath(path_ptr, path_len, uid, gid, has_uid, has_gid, true);
+}
+
+pub export fn sa_fs_fchown(handle: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) i32 {
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const fd = handleToFd(handle) catch return finish(SA_STD_ERR_INVALID_HANDLE);
+    const rc = std.os.linux.fchown(fd, chownId(uid, has_uid), groupId(gid, has_gid));
+    switch (std.posix.errno(rc)) {
+        .INTR => return finish(SA_STD_ERR_IO),
+        else => return finishChownErrno(rc),
+    }
+}
+
+pub export fn sa_fs_mkfifo(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
+    const result = std.os.linux.mknodat(std.posix.AT.FDCWD, &path_z, std.posix.S.IFIFO | mode, 0);
+    switch (std.posix.errno(result)) {
+        .SUCCESS => return finish(SA_STD_OK),
+        .INTR => return sa_fs_mkfifo(path_ptr, path_len, mode),
+        .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
+        .EXIST => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        .NOENT => return finish(SA_STD_ERR_NOT_FOUND),
+        .NAMETOOLONG, .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        else => return finish(SA_STD_ERR_IO),
+    }
 }
 
 pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
@@ -6913,6 +7771,7 @@ pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
 pub export fn sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
     setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.KEEPALIVE, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
@@ -6926,6 +7785,7 @@ pub export fn sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs:
     if (idle_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     if (interval_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     if (count > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
     setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPIDLE, @as(i32, @intCast(idle_secs))) catch |err| return finishErr(err);
     setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPINTVL, @as(i32, @intCast(interval_secs))) catch |err| return finishErr(err);
     setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPCNT, @as(i32, @intCast(count))) catch |err| return finishErr(err);
@@ -6937,6 +7797,7 @@ pub export fn sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs:
 pub export fn sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
     setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
@@ -6945,6 +7806,7 @@ pub export fn sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32)
 pub export fn sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
     setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
@@ -8378,4 +9240,31 @@ test "exported tcp and udp socket setters update live handles" {
     try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_write_timeout(server_handle, 250_000_000));
     try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO));
+}
+
+test "unix socket setters treat tcp-only options as successful no-op" {
+    const path = "/tmp/sa_std_unix_setter_test.sock";
+    std.posix.unlink(path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+    defer std.posix.unlink(path) catch {};
+
+    var listener_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_listen(path.ptr, path.len, &listener_handle));
+    defer _ = sa_std_close(listener_handle);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listener_set_reuseaddr(listener_handle, 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listener_set_reuseport(listener_handle, 1));
+
+    var client_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_connect(path.ptr, path.len, &client_handle));
+    defer _ = sa_std_close(client_handle);
+
+    var server_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_accept(listener_handle, &server_handle));
+    defer _ = sa_std_close(server_handle);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive(server_handle, 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive_params(server_handle, 60, 10, 5));
 }

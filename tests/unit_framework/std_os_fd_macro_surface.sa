@@ -1,0 +1,140 @@
+@import "sa_std/fs.sa"
+@import "sa_std/os/fd.sa"
+@import "sa_std/io.sai"
+
+@const FD_TEST_PATH = utf8:"_tmp_fd_macro_surface.txt"
+@const FD_TEST_DATA = utf8:"fdok"
+
+#def FD_TEST_PATH_LEN = 25
+#def FD_TEST_DATA_LEN = 4
+
+@test "sa_std os fd raw dup from_into macros"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_status, FD_TEST_PATH, FD_TEST_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FD_TEST_PATH, FD_TEST_PATH_LEN, FD_TEST_DATA, FD_TEST_DATA_LEN
+    EXPAND FS_OPEN_READ open_status, file_handle, FD_TEST_PATH, FD_TEST_PATH_LEN
+    EXPAND FD_AS_RAW raw_status, raw_fd, file_handle
+    EXPAND FD_DUP dup_status, dup_handle, file_handle
+    EXPAND FD_INTO_RAW into_status, dup_raw_fd, dup_handle
+    EXPAND FD_FROM_RAW from_status, rebound_handle, dup_raw_fd
+    read_buf = stack_alloc 8
+    EXPAND FS_READ read_status, read_len, rebound_handle, read_buf, 8
+    b0 = load read_buf+0 as u8
+    b3 = load read_buf+3 as u8
+    stdout_handle = call @sa_io_stdout()
+    EXPAND FD_IS_TERMINAL tty_status, tty_flag, stdout_handle
+    tty_is_zero = eq tty_flag, 0
+    tty_is_one = eq tty_flag, 1
+    tty_flag_ok = or tty_is_zero, tty_is_one
+    EXPAND FS_CLOSE close_rebound_status, rebound_handle
+    EXPAND FS_CLOSE close_file_status, file_handle
+    EXPAND FS_REMOVE_PATH remove_status, FD_TEST_PATH, FD_TEST_PATH_LEN
+
+    write_ok = eq write_status, SA_FS_OK
+    open_ok = eq open_status, SA_FS_OK
+    raw_ok = eq raw_status, SA_FD_OK
+    raw_fd_ok = ne raw_fd, 0
+    dup_ok = eq dup_status, SA_FD_OK
+    dup_handle_ok = ne dup_handle, 0
+    into_ok = eq into_status, SA_FD_OK
+    dup_raw_ok = ne dup_raw_fd, 0
+    from_ok = eq from_status, SA_FD_OK
+    rebound_ok = ne rebound_handle, 0
+    read_status_ok = eq read_status, SA_FS_OK
+    read_len_ok = eq read_len, 4
+    b0_ok = eq b0, 102
+    b3_ok = eq b3, 107
+    tty_status_ok = eq tty_status, SA_FD_OK
+    close_rebound_ok = eq close_rebound_status, SA_FS_OK
+    close_file_ok = eq close_file_status, SA_FS_OK
+    remove_ok = eq remove_status, SA_FS_OK
+
+    ok01 = and write_ok, open_ok
+    ok02 = and ok01, raw_ok
+    ok03 = and ok02, raw_fd_ok
+    ok04 = and ok03, dup_ok
+    ok05 = and ok04, dup_handle_ok
+    ok06 = and ok05, into_ok
+    ok07 = and ok06, dup_raw_ok
+    ok08 = and ok07, from_ok
+    ok09 = and ok08, rebound_ok
+    ok10 = and ok09, read_status_ok
+    ok11 = and ok10, read_len_ok
+    ok12 = and ok11, b0_ok
+    ok13 = and ok12, b3_ok
+    ok14 = and ok13, tty_status_ok
+    ok15 = and ok14, tty_flag_ok
+    ok16 = and ok15, close_rebound_ok
+    ok17 = and ok16, close_file_ok
+    ok = and ok17, remove_ok
+
+    !cleanup_status
+    !write_status
+    !open_status
+    !file_handle
+    !raw_status
+    !raw_fd
+    !dup_status
+    !dup_handle
+    !into_status
+    !dup_raw_fd
+    !from_status
+    !rebound_handle
+    !read_status
+    !read_len
+    !b0
+    !b3
+    !stdout_handle
+    !tty_status
+    !tty_flag
+    !tty_is_zero
+    !tty_is_one
+    !tty_flag_ok
+    !close_rebound_status
+    !close_file_status
+    !remove_status
+    !write_ok
+    !open_ok
+    !raw_ok
+    !raw_fd_ok
+    !dup_ok
+    !dup_handle_ok
+    !into_ok
+    !dup_raw_ok
+    !from_ok
+    !rebound_ok
+    !read_status_ok
+    !read_len_ok
+    !b0_ok
+    !b3_ok
+    !tty_status_ok
+    !close_rebound_ok
+    !close_file_ok
+    !remove_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(1501)
+
+L_PASS:
+    !ok
+    return 0

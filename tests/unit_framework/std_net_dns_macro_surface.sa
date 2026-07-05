@@ -7,9 +7,8 @@
 
 @test "sa_std net tcp listen resolves hostname"():
 L_ENTRY:
-    host = DNS_TEST_HOST
     // 端口 0 让内核分配；主机名 "localhost" 需经 getaddrinfo 解析为 127.0.0.1 / ::1。
-    EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, host, 9, 0
+    EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, DNS_TEST_HOST, 9, 0
     bind_ok = eq bind_status, SA_NET_OK
     listener_ok = ne listener, 0
     port_ok = ne bound_port, 0
@@ -36,8 +35,7 @@ L_CLOSE:
 
 @test "sa_std net udp bind resolves hostname"():
 L_ENTRY:
-    host = DNS_TEST_HOST
-    EXPAND NET_UDP_BIND bind_status, socket, host, 9, 0
+    EXPAND NET_UDP_BIND bind_status, socket, DNS_TEST_HOST, 9, 0
     bind_ok = eq bind_status, SA_NET_OK
     socket_ok = ne socket, 0
     all = and bind_ok, socket_ok

@@ -16,8 +16,13 @@
 
 @extern sa_std_fs_open_read(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_open_write(&path: ptr, path_len: u64, truncate: u32, &out_handle: ptr) -> i32
+@extern sa_std_fs_open_options(&path: ptr, path_len: u64, flags: u32, create_mode: u32, custom_flags: u32, &out_handle: ptr) -> i32
 @extern sa_std_fs_file_read(file: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_std_fs_file_read_at(file: u64, &buf: ptr, cap: u64, offset: u64, &out_read: ptr) -> i32
+@extern sa_std_fs_file_read_exact_at(file: u64, &buf: ptr, len: u64, offset: u64) -> i32
 @extern sa_std_fs_file_write(file: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
+@extern sa_std_fs_file_write_at(file: u64, &buf: ptr, len: u64, offset: u64, &out_written: ptr) -> i32
+@extern sa_std_fs_file_write_all_at(file: u64, &buf: ptr, len: u64, offset: u64) -> i32
 @extern sa_std_fs_file_seek(file: u64, whence: u32, offset: i64, &out_pos: ptr) -> i32
 @extern sa_std_fs_remove(&path: ptr, path_len: u64) -> i32
 @extern sa_std_fs_exists(&path: ptr, path_len: u64) -> i32
@@ -27,6 +32,8 @@
 @extern sa_std_fs_read_to_string(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_read_dir_entries(&path: ptr, path_len: u64, max_entries: u64, &out_handle: ptr) -> i32
+@extern sa_std_fs_dir_entries_get(entries: u64, index: u64, &out_entry: ptr) -> i32
 @extern sa_std_fs_metadata(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_metadata_json(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_metadata_free(metadata: u64) -> i32
@@ -46,19 +53,61 @@
 @extern sa_fs_dir_buffer_data(buffer: u64) -> &ptr
 @extern sa_fs_dir_buffer_len(buffer: u64) -> u64
 @extern sa_fs_dir_buffer_free(^buffer: u64) -> i32
+@extern sa_fs_read_dir_entries(&path: ptr, path_len: u64, max_entries: u64) -> u64!
+@extern sa_fs_dir_entries_len(entries: u64) -> u64
+@extern sa_fs_dir_entries_free(^entries: u64) -> i32
+@extern sa_fs_dir_entry_name_ptr(entry: u64) -> &ptr
+@extern sa_fs_dir_entry_name_len(entry: u64) -> u64
+@extern sa_fs_dir_entry_kind(entry: u64) -> u32
+@extern sa_fs_dir_entry_ino(entry: u64) -> u64
+@extern sa_fs_dir_entry_free(^entry: u64) -> i32
 
 @extern sa_fs_metadata(&path: ptr, path_len: u64) -> u64!
 @extern sa_fs_metadata_json(&path: ptr, path_len: u64) -> u64!
 @extern sa_fs_metadata_is_file(metadata: u64) -> u8
 @extern sa_fs_metadata_is_directory(metadata: u64) -> u8
 @extern sa_fs_metadata_is_symlink(metadata: u64) -> u8
+@extern sa_fs_metadata_is_block_device(metadata: u64) -> u8
+@extern sa_fs_metadata_is_char_device(metadata: u64) -> u8
+@extern sa_fs_metadata_is_fifo(metadata: u64) -> u8
+@extern sa_fs_metadata_is_socket(metadata: u64) -> u8
 @extern sa_fs_metadata_modified_ms(metadata: u64) -> i64
 @extern sa_fs_metadata_created_ms(metadata: u64) -> i64
+@extern sa_fs_metadata_accessed_ms(metadata: u64) -> i64
+@extern sa_fs_metadata_changed_ms(metadata: u64) -> i64
+@extern sa_fs_metadata_len(metadata: u64) -> u64
+@extern sa_fs_metadata_mode(metadata: u64) -> u32
+@extern sa_fs_metadata_uid(metadata: u64) -> u32
+@extern sa_fs_metadata_gid(metadata: u64) -> u32
+@extern sa_fs_metadata_ino(metadata: u64) -> u64
+@extern sa_fs_metadata_dev(metadata: u64) -> u64
+@extern sa_fs_metadata_nlink(metadata: u64) -> u64
+@extern sa_fs_metadata_rdev(metadata: u64) -> u64
+@extern sa_fs_metadata_blksize(metadata: u64) -> u64
+@extern sa_fs_metadata_blocks(metadata: u64) -> u64
+@extern sa_fs_metadata_st_dev(metadata: u64) -> u64
+@extern sa_fs_metadata_st_ino(metadata: u64) -> u64
+@extern sa_fs_metadata_st_mode(metadata: u64) -> u32
+@extern sa_fs_metadata_st_nlink(metadata: u64) -> u64
+@extern sa_fs_metadata_st_uid(metadata: u64) -> u32
+@extern sa_fs_metadata_st_gid(metadata: u64) -> u32
+@extern sa_fs_metadata_st_rdev(metadata: u64) -> u64
+@extern sa_fs_metadata_st_size(metadata: u64) -> u64
+@extern sa_fs_metadata_st_atime(metadata: u64) -> i64
+@extern sa_fs_metadata_st_atime_nsec(metadata: u64) -> i64
+@extern sa_fs_metadata_st_mtime(metadata: u64) -> i64
+@extern sa_fs_metadata_st_mtime_nsec(metadata: u64) -> i64
+@extern sa_fs_metadata_st_ctime(metadata: u64) -> i64
+@extern sa_fs_metadata_st_ctime_nsec(metadata: u64) -> i64
+@extern sa_fs_metadata_st_blksize(metadata: u64) -> u64
+@extern sa_fs_metadata_st_blocks(metadata: u64) -> u64
 @extern sa_fs_metadata_free(metadata: u64) -> i32!
 @extern sa_fs_remove_file(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_rename(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32
 @extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_make_dir_mode(&path: ptr, path_len: u64, mode: u32) -> i32
 @extern sa_fs_create_dir(&path: ptr, path_len: u64) -> i32
+@extern sa_fs_create_dir_mode(&path: ptr, path_len: u64, mode: u32) -> i32
 @extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_dir_all(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32
@@ -67,4 +116,8 @@
 @extern sa_fs_set_times_ms(&path: ptr, path_len: u64, accessed_ms: i64, modified_ms: i64) -> i32
 @extern sa_fs_hard_link(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32
 @extern sa_fs_symlink(&target_path: ptr, target_len: u64, &link_path: ptr, link_len: u64) -> i32
+@extern sa_fs_chown(&path: ptr, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) -> i32
+@extern sa_fs_lchown(&path: ptr, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) -> i32
+@extern sa_fs_fchown(file: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) -> i32
+@extern sa_fs_mkfifo(&path: ptr, path_len: u64, mode: u32) -> i32
 @extern sa_std_fs_read_link(&path: ptr, path_len: u64, &out_handle: ptr) -> i32

@@ -1,5 +1,40 @@
 # 架构设计参考 (Technical Design Reference)
 
+## 2026-07-05 当前工作集
+
+- [x] Linux `sa_std` 补齐：`os/fd` raw/owned fd facade（`AsRawFd` / `IntoRawFd` / `FromRawFd` / `dup` / `is_terminal`）。
+- [x] Linux `sa_std` 补齐：`fs::MetadataExt` 关键字段（`mode` / `uid` / `gid` / `ino` / `dev` / `nlink` / `rdev` / `blksize` / `blocks` / `atime/ctime` 毫秒口径）。
+- [x] Linux `sa_std` 补齐：`thread` 基础 facade（`current_id` / `yield_now`）。
+- [x] Linux `sa_std` 补齐：`process::ExitStatusExt` 核心能力（`wait_raw` / `try_wait_raw` / `from_raw` / `into_raw` / `signal` / `core_dumped` / `stopped_signal` / `continued`）。
+- [x] 为上述补齐新增 unit-framework 覆盖。
+- [x] 修正 UDS 宏表面回归：`AF_UNIX` 句柄上的 TCP-only keepalive/reuse setter 走成功 no-op，避免打断复用的 `tcp_stream/tcp_listener` 资源模型。
+- [x] 修正 DNS 主机名宏表面回归：清除 `std_net_dns_macro_surface.sa` 中泄漏的临时主机寄存器。
+- [x] 使用 `tools/install.sh --no-shell` 同步安装态 `/home/vscode/.sa/std`。
+- [x] 维持 `progress.md`、`current_plan.md` 与本任务列表一致，验收以 `zig build unit-framework` 和安装态 smoke 为准。
+
+## 下一批锁定（Linux）
+
+- [x] `std::os::unix::fs::FileExt`：`read_at` / `write_at`，以及 `read_exact_at` / `write_all_at` 宏便利层。
+- [x] `std::os::unix::fs::OpenOptionsExt`：`mode` / `custom_flags`。
+- [x] `std::os::unix::fs::PermissionsExt`：`mode` / `set_mode` / `from_mode`。
+- [x] `std::os::unix::fs::FileTypeExt`：`is_block_device` / `is_char_device` / `is_fifo` / `is_socket`。
+- [x] `std::os::unix::fs::DirBuilderExt`：`mode`，覆盖单层建目录和递归建目录。
+
+## 下一候选（Linux）
+
+- [x] `std::os::unix::fs::DirEntryExt`：`ino`（已补真实目录项句柄/迭代模型，不再走 JSON 兼容层）。
+
+## 下一步（Linux）
+
+- [x] 跳出 `std::os::unix::fs` 局部，重新审计更广的 Linux `std` 缺口并锁定下一批高价值模块。
+- [x] `std::os::linux::fs::MetadataExt`：补 Rust 命名的 `st_*` 字段宏表面（`st_dev` / `st_ino` / `st_mode` / `st_nlink` / `st_uid` / `st_gid` / `st_rdev` / `st_size` / `st_atime` / `st_atime_nsec` / `st_mtime` / `st_mtime_nsec` / `st_ctime` / `st_ctime_nsec` / `st_blksize` / `st_blocks`）。
+- [x] `std::os::unix::process::parent_id`：补父进程 ID facade。
+- [x] `std::os::unix::process::ChildExt::send_signal`：补按信号发送到 child 的 Linux facade，非法 signal 返回错误而不是 runtime trap。
+- [x] 新批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::{chown,lchown,fchown}`：补 Linux ownership helpers，支持 Rust `u32::MAX` unchanged sentinel 和显式 `has_uid/has_gid` 宏表面。
+- [x] chown 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [ ] 下一轮继续补更大 Linux 缺口：优先审计 Unix domain socket 完整表面、`CommandExt` 可落地子集、Linux pidfd/进程组能力、以及仍缺的 Linux-only `std` facade。
+
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
 > - **工业级性能 (P0)**：[`docs/design.md §1.10`](docs/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
 > - **宏驱动高级特性**：[`docs/design.md §1.4`](docs/design.md#14-宏驱动高级特性演进-macro-driven-advanced-features)

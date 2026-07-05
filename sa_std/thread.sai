@@ -4,3 +4,5 @@
 @extern pthread_spawn_detached(*entry: ptr, *arg: ptr) -> i32
 @extern pthread_join(handle: i32, *out: ptr) -> i32
 @extern pthread_drop(handle: i32) -> void
+@extern sa_thread_current_id() -> u64
+@extern sa_thread_yield_now() -> i32

@@ -15,3 +15,11 @@
 [MACRO] THREAD_DROP %handle
     call @pthread_drop(%handle)
 [END_MACRO]
+
+[MACRO] THREAD_CURRENT_ID %out_id
+    %out_id = call @sa_thread_current_id()
+[END_MACRO]
+
+[MACRO] THREAD_YIELD_NOW %out_status
+    %out_status = call @sa_thread_yield_now()
+[END_MACRO]

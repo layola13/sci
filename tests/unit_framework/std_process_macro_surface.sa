@@ -13,10 +13,12 @@
 #def SH_FLAG_LEN = 2
 #def SLEEP_CMD_LEN = 7
 #def SH_ARGV3_SIZE = 48
+#def SIG_CHECK_PROCESS = 0
 
 @test "sa_std process argv and run macros"():
 L_ENTRY:
     EXPAND PROCESS_ID pid
+    EXPAND PROCESS_PARENT_ID parent_pid
     argv = stack_alloc TRUE_ARGV2_SIZE
     argv0 = stack_alloc Slice_SIZE
     store argv0+Slice_ptr, &TRUE_BIN as ptr
@@ -42,11 +44,13 @@ L_WAIT:
     EXPAND PROCESS_STATUS_IS_OK close_ok, close_status
 
     ok_pid = ne pid, 0
+    ok_parent_pid = ne parent_pid, 0
     ok_arg_len = eq arg0_len, TRUE_BIN_LEN
     ok_arg_first = eq arg0_first, 47
     ok_arg1_len = eq arg1_len, TRUE_ARG_LEN
     ok_arg1_first = eq arg1_first, 105
-    ok01 = and ok_pid, ok_arg_len
+    ok00 = and ok_pid, ok_parent_pid
+    ok01 = and ok00, ok_arg_len
     ok02 = and ok01, ok_arg_first
     ok03 = and ok02, ok_arg1_len
     ok04 = and ok03, ok_arg1_first
@@ -56,6 +60,7 @@ L_WAIT:
     ok = and ok07, close_ok
 
     !pid
+    !parent_pid
     !arg0_ptr
     !arg0_len
     !arg1_ptr
@@ -72,10 +77,12 @@ L_WAIT:
     !close_status
     !close_ok
     !ok_pid
+    !ok_parent_pid
     !ok_arg_len
     !ok_arg_first
     !ok_arg1_len
     !ok_arg1_first
+    !ok00
     !ok01
     !ok02
     !ok03
@@ -87,6 +94,8 @@ L_WAIT:
     br ok -> L_PASS, L_FAIL_AFTER_WAIT
 
 L_FAIL:
+    !pid
+    !parent_pid
     !arg0_ptr
     !arg0_len
     !arg1_ptr
@@ -119,7 +128,12 @@ L_ENTRY:
 
     EXPAND PROCESS_EXIT_STATUS_NEW exit_status, 0
     EXPAND PROCESS_EXIT_STATUS_CODE exit_code0, exit_status
+    EXPAND PROCESS_EXIT_STATUS_RAW exit_raw0, exit_status
     EXPAND PROCESS_EXIT_STATUS_SUCCESS exit_ok0, exit_status
+    EXPAND PROCESS_EXIT_STATUS_SIGNAL exit_signal0, exit_status
+    EXPAND PROCESS_EXIT_STATUS_COREDUMPED exit_core0, exit_status
+    EXPAND PROCESS_EXIT_STATUS_STOPPED_SIGNAL exit_stopped0, exit_status
+    EXPAND PROCESS_EXIT_STATUS_CONTINUED exit_continued0, exit_status
 
     EXPAND PROCESS_EXEC_CAPTURE_OUTPUT capture_status, output, argv, 2
     EXPAND PROCESS_STATUS_IS_OK capture_ok, capture_status
@@ -139,6 +153,11 @@ L_CAPTURE_OK:
     EXPAND PROCESS_STATUS_IS_OK free_ok, free_status
 
     ok_exit_code0 = eq exit_code0, 0
+    ok_exit_raw0 = eq exit_raw0, 0
+    ok_exit_signal0 = eq exit_signal0, -1
+    ok_exit_core0 = eq exit_core0, 0
+    ok_exit_stopped0 = eq exit_stopped0, -1
+    ok_exit_continued0 = eq exit_continued0, 0
     ok_output_code = eq output_code, 0
     ok_stdout_len = eq stdout_len, 0
     ok_stderr_len = eq stderr_len, 0
@@ -146,17 +165,27 @@ L_CAPTURE_OK:
     ok_stderr_buffer = ne stderr_buffer, 0
 
     ok01 = and ok_exit_code0, exit_ok0
-    ok02 = and ok01, capture_ok
-    ok03 = and ok02, ok_output_code
-    ok04 = and ok03, output_exit_ok
-    ok05 = and ok04, ok_stdout_len
-    ok06 = and ok05, ok_stderr_len
-    ok07 = and ok06, ok_stdout_buffer
-    ok08 = and ok07, ok_stderr_buffer
-    ok = and ok08, free_ok
+    ok02 = and ok01, ok_exit_raw0
+    ok03 = and ok02, ok_exit_signal0
+    ok04 = and ok03, ok_exit_core0
+    ok05 = and ok04, ok_exit_stopped0
+    ok06 = and ok05, ok_exit_continued0
+    ok07 = and ok06, capture_ok
+    ok08 = and ok07, ok_output_code
+    ok09 = and ok08, output_exit_ok
+    ok10 = and ok09, ok_stdout_len
+    ok11 = and ok10, ok_stderr_len
+    ok12 = and ok11, ok_stdout_buffer
+    ok13 = and ok12, ok_stderr_buffer
+    ok = and ok13, free_ok
 
     !exit_code0
+    !exit_raw0
     !exit_ok0
+    !exit_signal0
+    !exit_core0
+    !exit_stopped0
+    !exit_continued0
     !capture_status
     !capture_ok
     !output_status_ptr
@@ -171,6 +200,11 @@ L_CAPTURE_OK:
     !free_status
     !free_ok
     !ok_exit_code0
+    !ok_exit_raw0
+    !ok_exit_signal0
+    !ok_exit_core0
+    !ok_exit_stopped0
+    !ok_exit_continued0
     !ok_output_code
     !ok_stdout_len
     !ok_stderr_len
@@ -184,6 +218,11 @@ L_CAPTURE_OK:
     !ok06
     !ok07
     !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
 
     br ok -> L_PASS2, L_FAIL2
 
@@ -253,7 +292,7 @@ L_TRY_WAIT_PENDING:
     code0_ok = eq code0, 0
     pending_ok0 = and try_ok0, ready0_ok
     pending_ok = and pending_ok0, code0_ok
-    br pending_ok -> L_KILL, L_FAIL_PENDING
+    br pending_ok -> L_SIGNAL_CHECK, L_FAIL_PENDING
 
 L_FAIL_PENDING:
     !pending_ok
@@ -280,6 +319,38 @@ L_FAIL_PENDING:
     !spawn_status
     panic(1006)
 
+L_SIGNAL_CHECK:
+    EXPAND PROCESS_SEND_SIGNAL signal_check_status, process, SIG_CHECK_PROCESS
+    EXPAND PROCESS_STATUS_IS_OK signal_check_ok, signal_check_status
+    br signal_check_ok -> L_KILL, L_FAIL_SIGNAL_CHECK
+
+L_FAIL_SIGNAL_CHECK:
+    !signal_check_ok
+    !signal_check_status
+    EXPAND PROCESS_KILL cleanup_kill_status_signal, process
+    EXPAND PROCESS_CLOSE cleanup_close_status_signal, process
+    !cleanup_kill_status_signal
+    !cleanup_close_status_signal
+    !pending_ok
+    !pending_ok0
+    !code0_ok
+    !ready0_ok
+    !try_ok0
+    !code0
+    !ready0
+    !try_status0
+    !child_id_all_ok
+    !child_pid_ok
+    !child_id_ok
+    !child_pid
+    !child_id_status
+    !spawn_all_ok
+    !process_ok
+    !spawn_ok
+    !process
+    !spawn_status
+    panic(1011)
+
 L_KILL:
     EXPAND PROCESS_KILL kill_status, process
     EXPAND PROCESS_STATUS_IS_OK kill_ok, kill_status
@@ -290,6 +361,8 @@ L_FAIL_KILL:
     !kill_status
     EXPAND PROCESS_CLOSE cleanup_close_status_b, process
     !cleanup_close_status_b
+    !signal_check_ok
+    !signal_check_status
     !pending_ok
     !pending_ok0
     !code0_ok
@@ -314,39 +387,73 @@ L_TRY_WAIT_READY:
     EXPAND PROCESS_TRY_WAIT_EXIT_STATUS try_status1, ready1, exit_status, process
     EXPAND PROCESS_STATUS_IS_OK try_ok1, try_status1
     EXPAND PROCESS_EXIT_STATUS_CODE code1, exit_status
+    EXPAND PROCESS_EXIT_STATUS_RAW raw1, exit_status
     EXPAND PROCESS_EXIT_STATUS_SUCCESS exit_success1, exit_status
+    EXPAND PROCESS_EXIT_STATUS_SIGNAL signal1, exit_status
+    EXPAND PROCESS_EXIT_STATUS_COREDUMPED core1, exit_status
+    EXPAND PROCESS_EXIT_STATUS_STOPPED_SIGNAL stopped1, exit_status
+    EXPAND PROCESS_EXIT_STATUS_CONTINUED continued1, exit_status
     ready1_ok = eq ready1, 1
     code1_nonzero = ne code1, 0
+    raw1_nonzero = ne raw1, 0
     exit_success_false = eq exit_success1, 0
+    signal1_ok = eq signal1, 9
+    core1_ok = eq core1, 0
+    stopped1_ok = eq stopped1, -1
+    continued1_ok = eq continued1, 0
     ready_ok0 = and try_ok1, ready1_ok
     ready_ok1 = and ready_ok0, code1_nonzero
-    ready_ok = and ready_ok1, exit_success_false
+    ready_ok2 = and ready_ok1, raw1_nonzero
+    ready_ok3 = and ready_ok2, exit_success_false
+    ready_ok4 = and ready_ok3, signal1_ok
+    ready_ok5 = and ready_ok4, core1_ok
+    ready_ok6 = and ready_ok5, stopped1_ok
+    ready_ok = and ready_ok6, continued1_ok
     EXPAND PROCESS_CLOSE close_status, process
     EXPAND PROCESS_STATUS_IS_OK close_ok, close_status
     ok0 = and spawn_all_ok, pending_ok
     ok1 = and ok0, child_id_all_ok
-    ok2 = and ok1, kill_ok
+    ok1b = and ok1, signal_check_ok
+    ok2 = and ok1b, kill_ok
     ok3 = and ok2, ready_ok
     ok = and ok3, close_ok
     !try_status1
     !try_ok1
     !ready1
     !code1
+    !raw1
     !exit_success1
+    !signal1
+    !core1
+    !stopped1
+    !continued1
     !ready1_ok
     !code1_nonzero
+    !raw1_nonzero
     !exit_success_false
+    !signal1_ok
+    !core1_ok
+    !stopped1_ok
+    !continued1_ok
     !ready_ok0
     !ready_ok1
+    !ready_ok2
+    !ready_ok3
+    !ready_ok4
+    !ready_ok5
+    !ready_ok6
     !ready_ok
     !close_status
     !close_ok
     !ok0
     !ok1
+    !ok1b
     !ok2
     !ok3
     !kill_ok
     !kill_status
+    !signal_check_ok
+    !signal_check_status
     !pending_ok
     !pending_ok0
     !code0_ok

@@ -1,0 +1,24 @@
+@import "sa_std/thread.sa"
+
+@test "sa_std thread current_id and yield_now macros"():
+L_ENTRY:
+    EXPAND THREAD_CURRENT_ID tid
+    EXPAND THREAD_YIELD_NOW yield_status
+    tid_ok = ne tid, 0
+    yield_ok = eq yield_status, 0
+    ok = and tid_ok, yield_ok
+
+    !tid
+    !yield_status
+    !tid_ok
+    !yield_ok
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(1510)
+
+L_PASS:
+    !ok
+    return 0

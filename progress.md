@@ -4,6 +4,164 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## In Flight: 2026-07-05 Linux std parity batch
+
+- Tracking docs are now explicit: `tasks.md`, `progress.md`, and `current_plan.md` are the memory/acceptance set for this batch.
+- Implementing Linux-focused `sa_std` gaps directly in SCI source, then syncing install state to `/home/vscode/.sa/std`.
+- Targeted surface for this batch:
+  - `sa_std/os/fd`: raw/owned fd facade (`as_raw`, `dup`, `from_raw`, `into_raw`, `close_raw`, `is_terminal`).
+  - `sa_std/fs`: Unix metadata ext fields and richer metadata JSON.
+  - `sa_std/thread`: `current_id` and `yield_now`.
+  - `sa_std/process`: Unix `ExitStatusExt` raw wait-status preservation and parsing.
+  - `sa_std/fs`: Linux `MetadataExt` Rust-named `st_*` field surface.
+  - `sa_std/fs`: Unix `chown` / `lchown` / `fchown` ownership helpers.
+  - `sa_std/process`: Unix `parent_id` and `ChildExt::send_signal` surface.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `zig build unit-framework --summary all`: pass.
+  - Focused local `sa test` also passes for `std_net_unix_macro_surface.sa`, `std_net_dns_macro_surface.sa`, `std_os_fd_macro_surface.sa`, `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, `std_process_macro_surface.sa`.
+  - Installed-state smoke passes for `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, and `std_process_macro_surface.sa`.
+
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed payload root: `/home/vscode/.sa/std`.
+
+## Completed: 2026-07-05 Linux std parity batch
+
+- Added Linux fd facade surface under `sa_std/os/fd` and wired runtime/header exports for raw/owned fd operations.
+- Extended `sa_std/fs` metadata with Linux/Unix fields (`mode`, `uid`, `gid`, `dev`, `ino`, `nlink`, `rdev`, `blksize`, `blocks`, `accessedAtMs`, `changedAtMs`) and matching JSON output.
+- Added `sa_std/thread` surface for `current_id` and `yield_now`.
+- Extended `sa_std/process` with raw wait status retention plus `ExitStatusExt`-style parsing (`raw`, `signal`, `core_dumped`, `stopped_signal`, `continued`).
+- Added macro-surface coverage for fd/thread/fs-metadata-ext.
+- Updated process macro-surface coverage for killed-child raw wait status semantics.
+- Fixed UDS test/runtime compatibility by treating TCP-only keepalive/reuse setters as successful no-ops on `AF_UNIX` sockets.
+- Fixed the DNS hostname macro-surface regression caused by a leaked temporary host register in the SA test itself.
+- Final install sync completed via `tools/install.sh --no-shell`; no manual copy path used for the accepted result.
+
+## Completed: 2026-07-05 Linux fs unix-ext batch
+
+- Added Linux `sa_std/fs` `FileExt`-style offset I/O surface:
+  - runtime exports `sa_std_fs_file_read_at`, `sa_std_fs_file_read_exact_at`, `sa_std_fs_file_write_at`, `sa_std_fs_file_write_all_at`
+  - macro layer `FS_READ_AT`, `FS_READ_EXACT_AT`, `FS_WRITE_AT`, `FS_WRITE_ALL_AT`
+  - verification includes offset I/O preserving the shared file cursor and exact/all wrappers through SA macro tests
+- Added Linux `sa_std/fs` `OpenOptionsExt`-style open surface:
+  - runtime export `sa_std_fs_open_options(path, flags, create_mode, custom_flags, &out_handle)`
+  - macro layer `FS_OPEN_OPTIONS` and `FS_OPEN_FLAGS`
+  - fixed the old `append` gap by routing `sa_fs_file_open` through a real POSIX open path that applies `O_APPEND`
+  - added Linux custom-flag defs for the immediately useful open bits (`NOFOLLOW`, `CLOEXEC`, `DIRECT`, `DSYNC`, `NONBLOCK`, `DIRECTORY`, `SYNC`)
+- Added Linux `sa_std/fs` `PermissionsExt`-style convenience surface:
+  - `SaFsPermissions` layout in `fs.sal`
+  - macros `FS_PERMISSIONS_FROM_MODE`, `FS_PERMISSIONS_MODE`, `FS_PERMISSIONS_SET_MODE`
+- Added `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` covering:
+  - file-offset read/write parity
+  - `OpenOptionsExt::mode` create-mode propagation
+  - `OpenOptionsExt::custom_flags` via `NOFOLLOW` failure on symlink open
+  - `PermissionsExt` mode round-trip plus path-level apply
+  - append-open semantics on Linux
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass
+
+## Completed: 2026-07-05 Linux fs file-type/dir-builder batch
+
+- Added Linux `sa_std/fs` `FileTypeExt`-style classification surface:
+  - runtime exports `sa_fs_metadata_is_block_device`, `sa_fs_metadata_is_char_device`, `sa_fs_metadata_is_fifo`, `sa_fs_metadata_is_socket`
+  - macro layer `FS_METADATA_IS_BLOCK_DEVICE`, `FS_METADATA_IS_CHAR_DEVICE`, `FS_METADATA_IS_FIFO`, `FS_METADATA_IS_SOCKET`
+  - coverage uses stable Linux fixtures instead of synthetic device-node creation:
+    - char device: `/dev/null`
+    - block device: `/dev/loop0`
+    - fifo: temporary `mkfifo`
+    - socket: temporary Unix-domain listener path
+- Added Linux `sa_std/fs` `DirBuilderExt`-style mode surface:
+  - runtime exports `sa_fs_create_dir_mode`, `sa_fs_make_dir_mode`
+  - macro layer `FS_CREATE_DIR_MODE`, `FS_MAKE_DIR_MODE`, `FS_CREATE_DIR_ALL_MODE`
+  - verification checks both single-level create and recursive create preserve the requested mode bits through metadata
+- Added Linux `mkfifo` helper surface to support FIFO parity testing:
+  - runtime export `sa_fs_mkfifo`
+  - macro `FS_MKFIFO`
+- Expanded `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` to 5 passing tests covering:
+  - file-offset I/O
+  - `OpenOptionsExt`
+  - `PermissionsExt`
+  - `FileTypeExt`
+  - `DirBuilderExt`
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass
+
+## Next Linux Batch
+
+- Continue the broader Linux std audit. Next high-value gaps are Unix domain socket completeness, supportable `CommandExt` child setup, Linux pidfd/process-group pieces, and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+
+## Completed: 2026-07-05 Linux fs dir-entry batch
+
+- Added a real Linux directory-entry resource model instead of the old JSON-compatible facade:
+  - runtime resource variants for directory-entry collections and individual directory entries
+  - Linux `getdents64`-backed directory reads
+  - captured entry name, inode, and basic file kind (`regular`, `dir`, `symlink`, `other`)
+- Added runtime/header exports for directory-entry traversal and lifecycle:
+  - `sa_fs_read_dir_entries` / `sa_std_fs_read_dir_entries`
+  - `sa_fs_dir_entries_len`
+  - `sa_std_fs_dir_entries_get`
+  - `sa_fs_dir_entries_free`
+  - `sa_fs_dir_entry_name_ptr`
+  - `sa_fs_dir_entry_name_len`
+  - `sa_fs_dir_entry_kind`
+  - `sa_fs_dir_entry_ino`
+  - `sa_fs_dir_entry_free`
+- Added `sa_std/fs` extern declarations and macro wrappers for the same surface, including `FS_DIR_ENTRY_INO` for `std::os::unix::fs::DirEntryExt::ino` parity.
+- Added `tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa` and registered it in `tests/unit_framework/runner.zig`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass
+- Install sync status:
+  - included in the later Linux metadata/process install sync via `./tools/install.sh --no-shell`.
+
+## Completed: 2026-07-05 Linux metadata/process extension batch
+
+- Added Rust-named Linux `std::os::linux::fs::MetadataExt` macro/runtime surface on top of the existing metadata resource:
+  - `st_dev`, `st_ino`, `st_mode`, `st_nlink`, `st_uid`, `st_gid`, `st_rdev`, `st_size`
+  - `st_atime`, `st_atime_nsec`, `st_mtime`, `st_mtime_nsec`, `st_ctime`, `st_ctime_nsec`
+  - `st_blksize`, `st_blocks`
+- Added Unix process extension surface:
+  - `PROCESS_PARENT_ID` / `sa_std_process_parent_id` for `std::os::unix::process::parent_id`
+  - `PROCESS_SEND_SIGNAL` / `sa_std_process_send_signal` for `ChildExt::send_signal`
+  - dynamic signal delivery uses the Linux syscall errno path so invalid signals return `SA_STD_ERR_INVALID_ARGUMENT` instead of hitting Zig `std.posix.kill`'s `unreachable` invalid-signal branch.
+- Extended unit-framework coverage:
+  - `std_fs_metadata_ext_macro_surface.sa` verifies `st_*` aliases and timestamp seconds/nanoseconds macro surface.
+  - `std_process_macro_surface.sa` verifies `parent_id` and `send_signal(0)` before the existing kill/wait raw-status path.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_metadata_ext_macro_surface.sa --trace-panic`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_fs_metadata_ext_macro_surface.sa --trace-panic`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass
+  - installed compiler reports `sa 0.0.3.3`
+
+## Completed: 2026-07-05 Linux fs ownership batch
+
+- Added Linux `std::os::unix::fs` ownership helper surface:
+  - `FS_CHOWN` / `sa_fs_chown`
+  - `FS_LCHOWN` / `sa_fs_lchown`
+  - `FS_FCHOWN` / `sa_fs_fchown`
+  - `FS_CHOWN_RAW`, `FS_LCHOWN_RAW`, and `FS_FCHOWN_RAW` for Rust's `u32::MAX` unchanged-sentinel口径.
+- Runtime implementation uses Linux `fchownat` for path and symlink no-follow variants, and `fchown` for fd handles.
+- Extended `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` with a non-root-safe test that changes ownership to the file's current uid/gid and verifies metadata afterward.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - installed compiler reports `sa 0.0.3.3`
+
 ## Completed SCI Features
 
 - 2026-07-04: Added JA3/JA4 TLS-fingerprint hashing primitives to `sa_std/net` (Go proxy-fingerprint parity pass).
