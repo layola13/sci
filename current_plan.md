@@ -70,6 +70,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8_lossy_owned` owned-Vec constructor shape with valid zero-copy move and invalid lossy rebuild.
    - `StringBuf` Rust API parity correction: lossy UTF-8 decoding now consumes a contiguous invalid UTF-8 sequence as one replacement unit, matching Rust's `utf8_chunks` behavior for cases like `F0 90 80 W`.
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8_unchecked(Vec<u8>)` owned-Vec zero-copy constructor and `String::as_mut_str` mutable str-view naming surface.
+   - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -164,6 +165,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the StringBuf from_utf8_lossy owned-Vec facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf from_utf8_lossy invalid-sequence correction batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf unchecked owned-Vec and as_mut_str facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Unix XDG env facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

@@ -4,6 +4,27 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix XDG env facade batch
+
+- Added supportable `std::os::unix::xdg`-style environment directory facades.
+- Added macro surfaces:
+  - `ENV_XDG_DATA_HOME_DIR`
+  - `ENV_XDG_CONFIG_HOME_DIR`
+  - `ENV_XDG_STATE_HOME_DIR`
+  - `ENV_XDG_CACHE_HOME_DIR`
+  - `ENV_XDG_DATA_DIRS`
+  - `ENV_XDG_CONFIG_DIRS`
+- Semantics: non-empty XDG environment variables win; empty variables fall back. Home subdirs use `$HOME/.local/share`, `$HOME/.config`, `$HOME/.local/state`, and `$HOME/.cache`; empty `HOME` is treated as `/`. Directory lists fall back to `/usr/local/share/:/usr/share/` and `/etc/xdg`.
+- Updated `std_env_macro_surface.sa` coverage for explicit XDG values plus empty/missing default fallbacks.
+- Validation status:
+  - Source full `std_env_macro_surface.sa`: pass (`10 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for `sa_env_xdg_*`: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused XDG test: pass.
+  - Installed-state full `std_env_macro_surface.sa`: pass (`10 passed`).
+
 ## Completed: 2026-07-06 StringBuf unchecked owned-Vec and as_mut_str facade batch
 
 - Continued String Rust API parity work with supportable `String::from_utf8_unchecked(Vec<u8>)` and `String::as_mut_str` surfaces.

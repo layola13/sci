@@ -4376,6 +4376,28 @@ fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u8) !
     return std.mem.join(allocator, ":", parsed.value);
 }
 
+fn xdgHomeDirAlloc(allocator: std.mem.Allocator) ![]u8 {
+    const home = envValueFromCurrentProcess("HOME") orelse return error.FileNotFound;
+    if (home.len == 0) return allocator.dupe(u8, "/");
+    return allocator.dupe(u8, home);
+}
+
+fn xdgHomeSubdirAlloc(allocator: std.mem.Allocator, env_key: []const u8, fallback_home_subdir: []const u8) ![]u8 {
+    if (envValueFromCurrentProcess(env_key)) |value| {
+        if (value.len != 0) return allocator.dupe(u8, value);
+    }
+    const home = try xdgHomeDirAlloc(allocator);
+    defer allocator.free(home);
+    return std.fs.path.join(allocator, &.{ home, fallback_home_subdir });
+}
+
+fn xdgDirsAlloc(allocator: std.mem.Allocator, env_key: []const u8, default_value: []const u8) ![]u8 {
+    if (envValueFromCurrentProcess(env_key)) |value| {
+        if (value.len != 0) return allocator.dupe(u8, value);
+    }
+    return allocator.dupe(u8, default_value);
+}
+
 pub fn Fallible(comptime T: type) type {
     return extern struct {
         status: i32,
@@ -9621,6 +9643,36 @@ pub export fn sa_env_join_paths_json(paths_json_ptr: ?[*]const u8, paths_json_le
     const paths_json = constBytes(paths_json_ptr, paths_json_len) catch return 0;
     const joined = envJoinPathsJsonAlloc(std.heap.page_allocator, paths_json) catch return 0;
     return openOwnedEnvBuffer(joined) catch return 0;
+}
+
+pub export fn sa_env_xdg_data_home_dir() u64 {
+    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_DATA_HOME", ".local/share") catch return 0;
+    return openOwnedEnvBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_config_home_dir() u64 {
+    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_CONFIG_HOME", ".config") catch return 0;
+    return openOwnedEnvBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_state_home_dir() u64 {
+    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_STATE_HOME", ".local/state") catch return 0;
+    return openOwnedEnvBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_cache_home_dir() u64 {
+    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_CACHE_HOME", ".cache") catch return 0;
+    return openOwnedEnvBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_data_dirs() u64 {
+    const dirs = xdgDirsAlloc(std.heap.page_allocator, "XDG_DATA_DIRS", "/usr/local/share/:/usr/share/") catch return 0;
+    return openOwnedEnvBuffer(dirs) catch return 0;
+}
+
+pub export fn sa_env_xdg_config_dirs() u64 {
+    const dirs = xdgDirsAlloc(std.heap.page_allocator, "XDG_CONFIG_DIRS", "/etc/xdg") catch return 0;
+    return openOwnedEnvBuffer(dirs) catch return 0;
 }
 
 pub export fn sa_env_has(key_ptr: ?[*]const u8, key_len: u64) i32 {

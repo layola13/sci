@@ -9,6 +9,20 @@
 @const PATH_LIST = utf8:"alpha:beta:gamma"
 @const PATH_SEGMENT = utf8:"beta"
 @const PATH_LIST_JSON = utf8:"[\"alpha\",\"beta\",\"gamma\"]"
+@const XDG_DATA_HOME_KEY = utf8:"XDG_DATA_HOME"
+@const XDG_CONFIG_HOME_KEY = utf8:"XDG_CONFIG_HOME"
+@const XDG_STATE_HOME_KEY = utf8:"XDG_STATE_HOME"
+@const XDG_CACHE_HOME_KEY = utf8:"XDG_CACHE_HOME"
+@const XDG_DATA_DIRS_KEY = utf8:"XDG_DATA_DIRS"
+@const XDG_CONFIG_DIRS_KEY = utf8:"XDG_CONFIG_DIRS"
+@const XDG_DATA_HOME_VALUE = utf8:"/tmp/sa-xdg-data"
+@const XDG_CONFIG_HOME_VALUE = utf8:"/tmp/sa-xdg-config"
+@const XDG_STATE_HOME_VALUE = utf8:"/tmp/sa-xdg-state"
+@const XDG_CACHE_HOME_VALUE = utf8:"/tmp/sa-xdg-cache"
+@const XDG_DATA_DIRS_VALUE = utf8:"/opt/share:/srv/share"
+@const XDG_CONFIG_DIRS_VALUE = utf8:"/opt/xdg:/etc/xdg-test"
+@const XDG_DATA_DIRS_DEFAULT = utf8:"/usr/local/share/:/usr/share/"
+@const XDG_CONFIG_DIRS_DEFAULT = utf8:"/etc/xdg"
 
 #def PATH_KEY_LEN = 4
 #def MISSING_KEY_LEN = 31
@@ -17,6 +31,20 @@
 #def PATH_LIST_LEN = 16
 #def PATH_SEGMENT_LEN = 4
 #def PATH_LIST_JSON_LEN = 24
+#def XDG_DATA_HOME_KEY_LEN = 13
+#def XDG_CONFIG_HOME_KEY_LEN = 15
+#def XDG_STATE_HOME_KEY_LEN = 14
+#def XDG_CACHE_HOME_KEY_LEN = 14
+#def XDG_DATA_DIRS_KEY_LEN = 13
+#def XDG_CONFIG_DIRS_KEY_LEN = 15
+#def XDG_DATA_HOME_VALUE_LEN = 16
+#def XDG_CONFIG_HOME_VALUE_LEN = 18
+#def XDG_STATE_HOME_VALUE_LEN = 17
+#def XDG_CACHE_HOME_VALUE_LEN = 17
+#def XDG_DATA_DIRS_VALUE_LEN = 21
+#def XDG_CONFIG_DIRS_VALUE_LEN = 22
+#def XDG_DATA_DIRS_DEFAULT_LEN = 29
+#def XDG_CONFIG_DIRS_DEFAULT_LEN = 8
 
 @test "sa_std env buffer and slice macros"():
 L_ENTRY:
@@ -317,6 +345,217 @@ L_PATH_FAIL:
 
 L_PATH_PASS:
     !path_ok
+    return 0
+
+@test "sa_std env XDG directory macros"():
+L_XDG_ENTRY:
+    data_home_key = stack_alloc Slice_SIZE
+    config_home_key = stack_alloc Slice_SIZE
+    state_home_key = stack_alloc Slice_SIZE
+    cache_home_key = stack_alloc Slice_SIZE
+    data_dirs_key = stack_alloc Slice_SIZE
+    config_dirs_key = stack_alloc Slice_SIZE
+    data_home_value = stack_alloc Slice_SIZE
+    config_home_value = stack_alloc Slice_SIZE
+    state_home_value = stack_alloc Slice_SIZE
+    cache_home_value = stack_alloc Slice_SIZE
+    data_dirs_value = stack_alloc Slice_SIZE
+    config_dirs_value = stack_alloc Slice_SIZE
+    data_dirs_default = stack_alloc Slice_SIZE
+    config_dirs_default = stack_alloc Slice_SIZE
+
+    EXPAND SLICE_NEW data_home_key, &XDG_DATA_HOME_KEY, XDG_DATA_HOME_KEY_LEN
+    EXPAND SLICE_NEW config_home_key, &XDG_CONFIG_HOME_KEY, XDG_CONFIG_HOME_KEY_LEN
+    EXPAND SLICE_NEW state_home_key, &XDG_STATE_HOME_KEY, XDG_STATE_HOME_KEY_LEN
+    EXPAND SLICE_NEW cache_home_key, &XDG_CACHE_HOME_KEY, XDG_CACHE_HOME_KEY_LEN
+    EXPAND SLICE_NEW data_dirs_key, &XDG_DATA_DIRS_KEY, XDG_DATA_DIRS_KEY_LEN
+    EXPAND SLICE_NEW config_dirs_key, &XDG_CONFIG_DIRS_KEY, XDG_CONFIG_DIRS_KEY_LEN
+    EXPAND SLICE_NEW data_home_value, &XDG_DATA_HOME_VALUE, XDG_DATA_HOME_VALUE_LEN
+    EXPAND SLICE_NEW config_home_value, &XDG_CONFIG_HOME_VALUE, XDG_CONFIG_HOME_VALUE_LEN
+    EXPAND SLICE_NEW state_home_value, &XDG_STATE_HOME_VALUE, XDG_STATE_HOME_VALUE_LEN
+    EXPAND SLICE_NEW cache_home_value, &XDG_CACHE_HOME_VALUE, XDG_CACHE_HOME_VALUE_LEN
+    EXPAND SLICE_NEW data_dirs_value, &XDG_DATA_DIRS_VALUE, XDG_DATA_DIRS_VALUE_LEN
+    EXPAND SLICE_NEW config_dirs_value, &XDG_CONFIG_DIRS_VALUE, XDG_CONFIG_DIRS_VALUE_LEN
+    EXPAND SLICE_NEW data_dirs_default, &XDG_DATA_DIRS_DEFAULT, XDG_DATA_DIRS_DEFAULT_LEN
+    EXPAND SLICE_NEW config_dirs_default, &XDG_CONFIG_DIRS_DEFAULT, XDG_CONFIG_DIRS_DEFAULT_LEN
+    EXPAND STR_EMPTY empty_value
+
+    EXPAND ENV_SET_VAR set_data_home_status, data_home_key, data_home_value
+    EXPAND ENV_SET_VAR set_config_home_status, config_home_key, config_home_value
+    EXPAND ENV_SET_VAR set_state_home_status, state_home_key, state_home_value
+    EXPAND ENV_SET_VAR set_cache_home_status, cache_home_key, cache_home_value
+    EXPAND ENV_SET_VAR set_data_dirs_status, data_dirs_key, data_dirs_value
+    EXPAND ENV_SET_VAR set_config_dirs_status, config_dirs_key, config_dirs_value
+
+    data_home_slice = stack_alloc Slice_SIZE
+    config_home_slice = stack_alloc Slice_SIZE
+    state_home_slice = stack_alloc Slice_SIZE
+    cache_home_slice = stack_alloc Slice_SIZE
+    data_dirs_slice = stack_alloc Slice_SIZE
+    config_dirs_slice = stack_alloc Slice_SIZE
+    EXPAND ENV_XDG_DATA_HOME_DIR data_home_buffer
+    EXPAND ENV_XDG_CONFIG_HOME_DIR config_home_buffer
+    EXPAND ENV_XDG_STATE_HOME_DIR state_home_buffer
+    EXPAND ENV_XDG_CACHE_HOME_DIR cache_home_buffer
+    EXPAND ENV_XDG_DATA_DIRS data_dirs_buffer
+    EXPAND ENV_XDG_CONFIG_DIRS config_dirs_buffer
+    EXPAND ENV_BUFFER_AS_SLICE data_home_slice, data_home_buffer
+    EXPAND ENV_BUFFER_AS_SLICE config_home_slice, config_home_buffer
+    EXPAND ENV_BUFFER_AS_SLICE state_home_slice, state_home_buffer
+    EXPAND ENV_BUFFER_AS_SLICE cache_home_slice, cache_home_buffer
+    EXPAND ENV_BUFFER_AS_SLICE data_dirs_slice, data_dirs_buffer
+    EXPAND ENV_BUFFER_AS_SLICE config_dirs_slice, config_dirs_buffer
+    EXPAND STR_EQ data_home_eq, data_home_slice, data_home_value
+    EXPAND STR_EQ config_home_eq, config_home_slice, config_home_value
+    EXPAND STR_EQ state_home_eq, state_home_slice, state_home_value
+    EXPAND STR_EQ cache_home_eq, cache_home_slice, cache_home_value
+    EXPAND STR_EQ data_dirs_eq, data_dirs_slice, data_dirs_value
+    EXPAND STR_EQ config_dirs_eq, config_dirs_slice, config_dirs_value
+
+    EXPAND ENV_SET_VAR set_empty_data_dirs_status, data_dirs_key, empty_value
+    EXPAND ENV_REMOVE_VAR remove_config_dirs_status, config_dirs_key
+    default_data_dirs_slice = stack_alloc Slice_SIZE
+    default_config_dirs_slice = stack_alloc Slice_SIZE
+    EXPAND ENV_XDG_DATA_DIRS default_data_dirs_buffer
+    EXPAND ENV_XDG_CONFIG_DIRS default_config_dirs_buffer
+    EXPAND ENV_BUFFER_AS_SLICE default_data_dirs_slice, default_data_dirs_buffer
+    EXPAND ENV_BUFFER_AS_SLICE default_config_dirs_slice, default_config_dirs_buffer
+    EXPAND STR_EQ default_data_dirs_eq, default_data_dirs_slice, data_dirs_default
+    EXPAND STR_EQ default_config_dirs_eq, default_config_dirs_slice, config_dirs_default
+
+    EXPAND ENV_BUFFER_FREE data_home_free_status, data_home_buffer
+    EXPAND ENV_BUFFER_FREE config_home_free_status, config_home_buffer
+    EXPAND ENV_BUFFER_FREE state_home_free_status, state_home_buffer
+    EXPAND ENV_BUFFER_FREE cache_home_free_status, cache_home_buffer
+    EXPAND ENV_BUFFER_FREE data_dirs_free_status, data_dirs_buffer
+    EXPAND ENV_BUFFER_FREE config_dirs_free_status, config_dirs_buffer
+    EXPAND ENV_BUFFER_FREE default_data_dirs_free_status, default_data_dirs_buffer
+    EXPAND ENV_BUFFER_FREE default_config_dirs_free_status, default_config_dirs_buffer
+    EXPAND ENV_REMOVE_VAR cleanup_data_home_status, data_home_key
+    EXPAND ENV_REMOVE_VAR cleanup_config_home_status, config_home_key
+    EXPAND ENV_REMOVE_VAR cleanup_state_home_status, state_home_key
+    EXPAND ENV_REMOVE_VAR cleanup_cache_home_status, cache_home_key
+    EXPAND ENV_REMOVE_VAR cleanup_data_dirs_status, data_dirs_key
+    EXPAND ENV_REMOVE_VAR cleanup_config_dirs_status, config_dirs_key
+
+    EXPAND ENV_STATUS_IS_OK set_data_home_ok, set_data_home_status
+    EXPAND ENV_STATUS_IS_OK set_config_home_ok, set_config_home_status
+    EXPAND ENV_STATUS_IS_OK set_state_home_ok, set_state_home_status
+    EXPAND ENV_STATUS_IS_OK set_cache_home_ok, set_cache_home_status
+    EXPAND ENV_STATUS_IS_OK set_data_dirs_ok, set_data_dirs_status
+    EXPAND ENV_STATUS_IS_OK set_config_dirs_ok, set_config_dirs_status
+    EXPAND ENV_STATUS_IS_OK set_empty_data_dirs_ok, set_empty_data_dirs_status
+    EXPAND ENV_STATUS_IS_OK remove_config_dirs_ok, remove_config_dirs_status
+    EXPAND ENV_STATUS_IS_OK data_home_free_ok, data_home_free_status
+    EXPAND ENV_STATUS_IS_OK config_home_free_ok, config_home_free_status
+    EXPAND ENV_STATUS_IS_OK state_home_free_ok, state_home_free_status
+    EXPAND ENV_STATUS_IS_OK cache_home_free_ok, cache_home_free_status
+    EXPAND ENV_STATUS_IS_OK data_dirs_free_ok, data_dirs_free_status
+    EXPAND ENV_STATUS_IS_OK config_dirs_free_ok, config_dirs_free_status
+    EXPAND ENV_STATUS_IS_OK default_data_dirs_free_ok, default_data_dirs_free_status
+    EXPAND ENV_STATUS_IS_OK default_config_dirs_free_ok, default_config_dirs_free_status
+
+    ok01 = and set_data_home_ok, set_config_home_ok
+    ok02 = and ok01, set_state_home_ok
+    ok03 = and ok02, set_cache_home_ok
+    ok04 = and ok03, set_data_dirs_ok
+    ok05 = and ok04, set_config_dirs_ok
+    ok06 = and ok05, data_home_eq
+    ok07 = and ok06, config_home_eq
+    ok08 = and ok07, state_home_eq
+    ok09 = and ok08, cache_home_eq
+    ok10 = and ok09, data_dirs_eq
+    ok11 = and ok10, config_dirs_eq
+    ok12 = and ok11, set_empty_data_dirs_ok
+    ok13 = and ok12, remove_config_dirs_ok
+    ok14 = and ok13, default_data_dirs_eq
+    ok15 = and ok14, default_config_dirs_eq
+    ok16 = and ok15, data_home_free_ok
+    ok17 = and ok16, config_home_free_ok
+    ok18 = and ok17, state_home_free_ok
+    ok19 = and ok18, cache_home_free_ok
+    ok20 = and ok19, data_dirs_free_ok
+    ok21 = and ok20, config_dirs_free_ok
+    ok22 = and ok21, default_data_dirs_free_ok
+    ok = and ok22, default_config_dirs_free_ok
+
+    !set_data_home_status
+    !set_config_home_status
+    !set_state_home_status
+    !set_cache_home_status
+    !set_data_dirs_status
+    !set_config_dirs_status
+    !data_home_eq
+    !config_home_eq
+    !state_home_eq
+    !cache_home_eq
+    !data_dirs_eq
+    !config_dirs_eq
+    !set_empty_data_dirs_status
+    !remove_config_dirs_status
+    !default_data_dirs_eq
+    !default_config_dirs_eq
+    !data_home_free_status
+    !config_home_free_status
+    !state_home_free_status
+    !cache_home_free_status
+    !data_dirs_free_status
+    !config_dirs_free_status
+    !default_data_dirs_free_status
+    !default_config_dirs_free_status
+    !cleanup_data_home_status
+    !cleanup_config_home_status
+    !cleanup_state_home_status
+    !cleanup_cache_home_status
+    !cleanup_data_dirs_status
+    !cleanup_config_dirs_status
+    !set_data_home_ok
+    !set_config_home_ok
+    !set_state_home_ok
+    !set_cache_home_ok
+    !set_data_dirs_ok
+    !set_config_dirs_ok
+    !set_empty_data_dirs_ok
+    !remove_config_dirs_ok
+    !data_home_free_ok
+    !config_home_free_ok
+    !state_home_free_ok
+    !cache_home_free_ok
+    !data_dirs_free_ok
+    !config_dirs_free_ok
+    !default_data_dirs_free_ok
+    !default_config_dirs_free_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+
+    br ok -> L_XDG_PASS, L_XDG_FAIL
+
+L_XDG_FAIL:
+    !ok
+    panic(1020)
+
+L_XDG_PASS:
+    !ok
     return 0
 
 @test "sa_std env cwd mutation and home query macros"():
