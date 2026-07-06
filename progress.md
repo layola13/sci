@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 OwnedFd named facade batch
+
+- Added Rust-named `OwnedFd` macro aliases over the existing `sa_std/os/fd` raw/dup ABI:
+  - `FD_OWNED_AS_RAW_FD`
+  - `FD_OWNED_INTO_RAW_FD`
+  - `FD_OWNED_FROM_RAW_FD`
+  - `FD_OWNED_TRY_CLONE`
+  - runtime behavior is unchanged; this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_os_fd_macro_surface.sa` coverage:
+  - File is converted into an owned fd, then exercised through the `OwnedFd` named raw-fd and clone macros.
+  - cloned owned fd is roundtripped through raw fd and closed while the original owned fd remains readable, validating independent close lifetime for the fd-dup path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "owned fd named" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "owned fd named" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
 ## Completed: 2026-07-06 File raw/owned fd facade batch
 
 - Added `std::fs::File` raw-fd and owned-fd trait-style macro surfaces:
