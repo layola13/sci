@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Child stdout/stderr owned fd alias batch
+
+- Added Unix process child pipe owned-fd trait-style macro aliases over the existing raw-fd and `sa_std/os/fd` owned-fd facades:
+  - `PROCESS_CHILD_STDOUT_INTO_OWNED_FD`
+  - `PROCESS_CHILD_STDOUT_FROM_OWNED_FD`
+  - `PROCESS_CHILD_STDERR_INTO_OWNED_FD`
+  - `PROCESS_CHILD_STDERR_FROM_OWNED_FD`
+  - runtime continues to use the existing fd ABI, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_process_macro_surface.sa` stream-spawn coverage:
+  - stdout and stderr handles now transfer ownership through an owned fd and rebind before continuing through the existing raw-fd roundtrip, wait, and close path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+
 ## Completed: 2026-07-06 PidFd owned fd alias batch
 
 - Added Linux `std::os::linux::process::PidFd` owned-fd trait-style macro aliases over the existing pidfd raw-fd and `sa_std/os/fd` owned-fd facades:

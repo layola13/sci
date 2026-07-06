@@ -525,6 +525,20 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     EXPAND FD_FROM_RAW %out_status, %out_stdout, %fd
 [END_MACRO]
 
+[MACRO] PROCESS_CHILD_STDOUT_INTO_OWNED_FD %out_status, %out_fd_handle, %stdout
+    EXPAND PROCESS_CHILD_STDOUT_INTO_RAW_FD %out_status, __process_child_stdout_owned_raw_%out_status, %stdout
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __process_child_stdout_owned_raw_%out_status
+    !__process_child_stdout_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] PROCESS_CHILD_STDOUT_FROM_OWNED_FD %out_status, %out_stdout, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __process_child_stdout_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND PROCESS_CHILD_STDOUT_FROM_RAW_FD %out_status, %out_stdout, __process_child_stdout_from_owned_raw_%out_status
+    !__process_child_stdout_from_owned_raw_%out_status
+[END_MACRO]
+
 [MACRO] PROCESS_CHILD_STDERR_AS_RAW_FD %out_status, %out_fd, %stderr
     EXPAND FD_AS_RAW %out_status, %out_fd, %stderr
 [END_MACRO]
@@ -535,6 +549,20 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
 
 [MACRO] PROCESS_CHILD_STDERR_FROM_RAW_FD %out_status, %out_stderr, %fd
     EXPAND FD_FROM_RAW %out_status, %out_stderr, %fd
+[END_MACRO]
+
+[MACRO] PROCESS_CHILD_STDERR_INTO_OWNED_FD %out_status, %out_fd_handle, %stderr
+    EXPAND PROCESS_CHILD_STDERR_INTO_RAW_FD %out_status, __process_child_stderr_owned_raw_%out_status, %stderr
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __process_child_stderr_owned_raw_%out_status
+    !__process_child_stderr_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] PROCESS_CHILD_STDERR_FROM_OWNED_FD %out_status, %out_stderr, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __process_child_stderr_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND PROCESS_CHILD_STDERR_FROM_RAW_FD %out_status, %out_stderr, __process_child_stderr_from_owned_raw_%out_status
+    !__process_child_stderr_from_owned_raw_%out_status
 [END_MACRO]
 
 [MACRO] PROCESS_READ_STDOUT %out_status, %out_len, %process, %buf, %cap

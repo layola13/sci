@@ -566,7 +566,7 @@ L_STREAM_STDOUT_RAW:
     stream_stdout_raw_status_ok = eq stream_stdout_raw_status, SA_PROCESS_OK
     stream_stdout_raw_fd_ok = ne stream_stdout_raw_fd, -1
     stream_stdout_raw_ok = and stream_stdout_raw_status_ok, stream_stdout_raw_fd_ok
-    br stream_stdout_raw_ok -> L_STREAM_STDOUT_INTO_RAW, L_FAIL_STREAM_STDOUT_RAW
+    br stream_stdout_raw_ok -> L_STREAM_STDOUT_INTO_OWNED, L_FAIL_STREAM_STDOUT_RAW
 
 L_FAIL_STREAM_STDOUT_RAW:
     !stream_stdout_raw_ok
@@ -580,8 +580,47 @@ L_FAIL_STREAM_STDOUT_RAW:
     !stream_process
     panic(1024)
 
+L_STREAM_STDOUT_INTO_OWNED:
+    EXPAND PROCESS_CHILD_STDOUT_INTO_OWNED_FD stream_stdout_into_owned_status, stream_stdout_owned_fd, stream_stdout
+    stream_stdout_into_owned_status_ok = eq stream_stdout_into_owned_status, SA_PROCESS_OK
+    stream_stdout_owned_fd_ok = ne stream_stdout_owned_fd, 0
+    stream_stdout_into_owned_ok = and stream_stdout_into_owned_status_ok, stream_stdout_owned_fd_ok
+    br stream_stdout_into_owned_ok -> L_STREAM_STDOUT_FROM_OWNED, L_FAIL_STREAM_STDOUT_INTO_OWNED
+
+L_FAIL_STREAM_STDOUT_INTO_OWNED:
+    !stream_stdout_into_owned_ok
+    !stream_stdout_owned_fd_ok
+    !stream_stdout_into_owned_status_ok
+    !stream_stdout_owned_fd
+    !stream_stdout_into_owned_status
+    !stream_stdout_raw_ok
+    !stream_ok
+    !stream_stderr
+    !stream_process
+    panic(1059)
+
+L_STREAM_STDOUT_FROM_OWNED:
+    EXPAND PROCESS_CHILD_STDOUT_FROM_OWNED_FD stream_stdout_from_owned_status, stream_stdout_owned_rebound, stream_stdout_owned_fd
+    stream_stdout_from_owned_status_ok = eq stream_stdout_from_owned_status, SA_PROCESS_OK
+    stream_stdout_from_owned_handle_ok = ne stream_stdout_owned_rebound, 0
+    stream_stdout_from_owned_ok = and stream_stdout_from_owned_status_ok, stream_stdout_from_owned_handle_ok
+    br stream_stdout_from_owned_ok -> L_STREAM_STDOUT_INTO_RAW, L_FAIL_STREAM_STDOUT_FROM_OWNED
+
+L_FAIL_STREAM_STDOUT_FROM_OWNED:
+    !stream_stdout_from_owned_ok
+    !stream_stdout_from_owned_handle_ok
+    !stream_stdout_from_owned_status_ok
+    !stream_stdout_owned_rebound
+    !stream_stdout_from_owned_status
+    !stream_stdout_into_owned_ok
+    !stream_stdout_raw_ok
+    !stream_ok
+    !stream_stderr
+    !stream_process
+    panic(1060)
+
 L_STREAM_STDOUT_INTO_RAW:
-    EXPAND PROCESS_CHILD_STDOUT_INTO_RAW_FD stream_stdout_into_status, stream_stdout_raw_taken, stream_stdout
+    EXPAND PROCESS_CHILD_STDOUT_INTO_RAW_FD stream_stdout_into_status, stream_stdout_raw_taken, stream_stdout_owned_rebound
     stream_stdout_into_ok = eq stream_stdout_into_status, SA_PROCESS_OK
     stream_stdout_raw_match = eq stream_stdout_raw_taken, stream_stdout_raw_fd
     stream_stdout_take_ok = and stream_stdout_into_ok, stream_stdout_raw_match
@@ -594,6 +633,7 @@ L_FAIL_STREAM_STDOUT_INTO_RAW:
     !stream_stdout_raw_taken
     !stream_stdout_into_status
     !stream_stdout_raw_ok
+    !stream_stdout_from_owned_ok
     !stream_ok
     !stream_stderr
     !stream_process
@@ -614,6 +654,7 @@ L_FAIL_STREAM_STDOUT_FROM_RAW:
     !stream_stdout_from_status
     !stream_stdout_take_ok
     !stream_stdout_raw_ok
+    !stream_stdout_from_owned_ok
     !stream_ok
     !stream_stderr
     !stream_process
@@ -624,7 +665,7 @@ L_STREAM_STDERR_RAW:
     stream_stderr_raw_status_ok = eq stream_stderr_raw_status, SA_PROCESS_OK
     stream_stderr_raw_fd_ok = ne stream_stderr_raw_fd, -1
     stream_stderr_raw_ok = and stream_stderr_raw_status_ok, stream_stderr_raw_fd_ok
-    br stream_stderr_raw_ok -> L_STREAM_STDERR_INTO_RAW, L_FAIL_STREAM_STDERR_RAW
+    br stream_stderr_raw_ok -> L_STREAM_STDERR_INTO_OWNED, L_FAIL_STREAM_STDERR_RAW
 
 L_FAIL_STREAM_STDERR_RAW:
     !stream_stderr_raw_ok
@@ -639,8 +680,49 @@ L_FAIL_STREAM_STDERR_RAW:
     !stream_process
     panic(1029)
 
+L_STREAM_STDERR_INTO_OWNED:
+    EXPAND PROCESS_CHILD_STDERR_INTO_OWNED_FD stream_stderr_into_owned_status, stream_stderr_owned_fd, stream_stderr
+    stream_stderr_into_owned_status_ok = eq stream_stderr_into_owned_status, SA_PROCESS_OK
+    stream_stderr_owned_fd_ok = ne stream_stderr_owned_fd, 0
+    stream_stderr_into_owned_ok = and stream_stderr_into_owned_status_ok, stream_stderr_owned_fd_ok
+    br stream_stderr_into_owned_ok -> L_STREAM_STDERR_FROM_OWNED, L_FAIL_STREAM_STDERR_INTO_OWNED
+
+L_FAIL_STREAM_STDERR_INTO_OWNED:
+    !stream_stderr_into_owned_ok
+    !stream_stderr_owned_fd_ok
+    !stream_stderr_into_owned_status_ok
+    !stream_stderr_owned_fd
+    !stream_stderr_into_owned_status
+    !stream_stderr_raw_ok
+    !stream_stdout_from_ok
+    !stream_ok
+    !stream_stdout
+    !stream_process
+    panic(1061)
+
+L_STREAM_STDERR_FROM_OWNED:
+    EXPAND PROCESS_CHILD_STDERR_FROM_OWNED_FD stream_stderr_from_owned_status, stream_stderr_owned_rebound, stream_stderr_owned_fd
+    stream_stderr_from_owned_status_ok = eq stream_stderr_from_owned_status, SA_PROCESS_OK
+    stream_stderr_from_owned_handle_ok = ne stream_stderr_owned_rebound, 0
+    stream_stderr_from_owned_ok = and stream_stderr_from_owned_status_ok, stream_stderr_from_owned_handle_ok
+    br stream_stderr_from_owned_ok -> L_STREAM_STDERR_INTO_RAW, L_FAIL_STREAM_STDERR_FROM_OWNED
+
+L_FAIL_STREAM_STDERR_FROM_OWNED:
+    !stream_stderr_from_owned_ok
+    !stream_stderr_from_owned_handle_ok
+    !stream_stderr_from_owned_status_ok
+    !stream_stderr_owned_rebound
+    !stream_stderr_from_owned_status
+    !stream_stderr_into_owned_ok
+    !stream_stderr_raw_ok
+    !stream_stdout_from_ok
+    !stream_ok
+    !stream_stdout
+    !stream_process
+    panic(1062)
+
 L_STREAM_STDERR_INTO_RAW:
-    EXPAND PROCESS_CHILD_STDERR_INTO_RAW_FD stream_stderr_into_status, stream_stderr_raw_taken, stream_stderr
+    EXPAND PROCESS_CHILD_STDERR_INTO_RAW_FD stream_stderr_into_status, stream_stderr_raw_taken, stream_stderr_owned_rebound
     stream_stderr_into_ok = eq stream_stderr_into_status, SA_PROCESS_OK
     stream_stderr_raw_match = eq stream_stderr_raw_taken, stream_stderr_raw_fd
     stream_stderr_take_ok = and stream_stderr_into_ok, stream_stderr_raw_match
@@ -653,6 +735,7 @@ L_FAIL_STREAM_STDERR_INTO_RAW:
     !stream_stderr_raw_taken
     !stream_stderr_into_status
     !stream_stderr_raw_ok
+    !stream_stderr_from_owned_ok
     !stream_stdout_from_ok
     !stream_ok
     !stream_stdout
@@ -674,6 +757,7 @@ L_FAIL_STREAM_STDERR_FROM_RAW:
     !stream_stderr_from_status
     !stream_stderr_take_ok
     !stream_stderr_raw_ok
+    !stream_stderr_from_owned_ok
     !stream_stdout_from_ok
     !stream_ok
     !stream_stdout
@@ -714,9 +798,11 @@ L_FAIL_WAIT_STREAM:
     !stream_stderr_from_ok
     !stream_stderr_take_ok
     !stream_stderr_raw_ok
+    !stream_stderr_from_owned_ok
     !stream_stdout_from_ok
     !stream_stdout_take_ok
     !stream_stdout_raw_ok
+    !stream_stdout_from_owned_ok
     !stream_ok
     !stream02
     !stream01
