@@ -4,6 +4,39 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix socket raw fd trait batch
+
+- Added Unix `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait-style macro surface:
+  - `NET_UNIX_STREAM_AS_RAW_FD`
+  - `NET_UNIX_STREAM_INTO_RAW_FD`
+  - `NET_UNIX_STREAM_FROM_RAW_FD`
+  - `NET_UNIX_LISTENER_AS_RAW_FD`
+  - `NET_UNIX_LISTENER_INTO_RAW_FD`
+  - `NET_UNIX_LISTENER_FROM_RAW_FD`
+- Added runtime/header exports for the ownership-restoring paths:
+  - `sa_std_net_unix_stream_from_raw_fd`
+  - `sa_std_net_unix_listener_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` continue to reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates raw fds as AF_UNIX stream sockets before registering them.
+  - listener `from_raw_fd` additionally requires `SO_ACCEPTCONN` and restores `std.net.Server.listen_address` from `getsockname`.
+  - stream `from_raw_fd` rejects accepting/listener sockets and registers the fd as a stream handle.
+- Updated `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - listener clone coverage transfers the cloned listener through raw fd ownership and rebinds it before close.
+  - stream clone coverage transfers the cloned stream through raw fd ownership, rebinds it, and then writes through the rebound handle.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `nm -g zig-out/lib/libsa_std.a | rg 'sa_std_net_unix_(stream|listener)_from_raw_fd'`: pass, both symbols exported.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter domain --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter domain --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
 ## Completed: 2026-07-06 PidFd raw fd alias batch
 
 - Added Rust raw-fd trait-style pidfd macro aliases over the existing `sa_std/os/fd` owned-fd facade:

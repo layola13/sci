@@ -1512,6 +1512,15 @@ fn socketIsUnix(fd: std.posix.fd_t) !bool {
     return (try socketAddressFamily(fd)) == std.posix.AF.UNIX;
 }
 
+fn socketIsStream(fd: std.posix.fd_t) !bool {
+    const socket_type = try getSocketOptInt(fd, std.posix.SOL.SOCKET, std.os.linux.SO.TYPE);
+    return socket_type == @as(i32, @intCast(std.posix.SOCK.STREAM));
+}
+
+fn socketAcceptConn(fd: std.posix.fd_t) !bool {
+    return try getSocketOptBool(fd, std.posix.SOL.SOCKET, std.os.linux.SO.ACCEPTCONN);
+}
+
 fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: std.posix.sockaddr.un, len: std.posix.socklen_t } {
     var addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
     @memset(&addr.path, 0);
@@ -10073,6 +10082,21 @@ pub export fn sa_std_net_unix_listener_try_clone(listener: u64, out_handle: ?*u6
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_unix_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
+    if (!(socketIsUnix(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsStream(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketAcceptConn(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const got = getUnixSockAddr(posix_fd, false) catch |err| return finishErr(err);
+    const server = std.net.Server{ .listen_address = .{ .un = got.addr }, .stream = .{ .handle = posix_fd } };
+    const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_stream_local_addr(stream: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -10105,6 +10129,19 @@ pub export fn sa_std_net_unix_stream_try_clone(stream: u64, out_handle: ?*u64) i
         std.posix.close(dup_fd);
         return finishErr(err);
     };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
+    if (!(socketIsUnix(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsStream(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketAcceptConn(posix_fd) catch |err| return finishErr(err)) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const handle = registerResource(.{ .tcp_stream = .{ .handle = posix_fd } }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
 }

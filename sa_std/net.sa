@@ -1,5 +1,6 @@
 @import "net.sal"
 @import "net.sai"
+@import "os/fd.sa"
 
 [MACRO] NET_TCP_CONNECT %out_status, %out_stream, %host, %host_len, %port
     __net_tcp_connect_handle_%out_status = stack_alloc 8
@@ -285,6 +286,20 @@
     %out_listener = load __net_unix_listener_clone_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_LISTENER_AS_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_AS_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_INTO_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_FROM_RAW_FD %out_status, %out_listener, %fd
+    __net_unix_listener_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listener_from_raw_fd(%fd, &__net_unix_listener_from_raw_%out_status)
+    %out_listener = load __net_unix_listener_from_raw_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UNIX_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
     EXPAND NET_TCP_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
 [END_MACRO]
@@ -319,6 +334,20 @@
     __net_unix_stream_clone_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_stream_try_clone(%stream, &__net_unix_stream_clone_%out_status)
     %out_stream = load __net_unix_stream_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_AS_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_INTO_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_FROM_RAW_FD %out_status, %out_stream, %fd
+    __net_unix_stream_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_from_raw_fd(%fd, &__net_unix_stream_from_raw_%out_status)
+    %out_stream = load __net_unix_stream_from_raw_%out_status+0 as u64
 [END_MACRO]
 
 [MACRO] NET_UNIX_STREAM_PEER_ADDR %out_status, %out_addr, %stream

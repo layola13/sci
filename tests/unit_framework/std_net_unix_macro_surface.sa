@@ -128,8 +128,65 @@ L_FAIL_LISTENER_CLONE:
     panic(984)
 
 L_LISTENER_CLONE_CLOSE:
+    EXPAND NET_UNIX_LISTENER_AS_RAW_FD listener_raw_status, listener_raw_fd, listener_clone
+    listener_raw_status_ok = eq listener_raw_status, SA_NET_OK
+    listener_raw_fd_ok = ne listener_raw_fd, -1
+    listener_raw_ok = and listener_raw_status_ok, listener_raw_fd_ok
+    br listener_raw_ok -> L_LISTENER_CLONE_INTO_RAW, L_FAIL_LISTENER_RAW
+
+L_FAIL_LISTENER_RAW:
+    !listener_raw_ok
+    !listener_raw_fd_ok
+    !listener_raw_status_ok
+    !listener_raw_fd
+    !listener_raw_status
+    !addr_all2
+    !listener
+    panic(989)
+
+L_LISTENER_CLONE_INTO_RAW:
+    EXPAND NET_UNIX_LISTENER_INTO_RAW_FD listener_into_raw_status, listener_raw_taken, listener_clone
+    listener_into_raw_ok = eq listener_into_raw_status, SA_NET_OK
+    listener_raw_match = eq listener_raw_taken, listener_raw_fd
+    listener_take_ok = and listener_into_raw_ok, listener_raw_match
+    br listener_take_ok -> L_LISTENER_CLONE_FROM_RAW, L_FAIL_LISTENER_INTO_RAW
+
+L_FAIL_LISTENER_INTO_RAW:
+    !listener_take_ok
+    !listener_raw_match
+    !listener_into_raw_ok
+    !listener_raw_taken
+    !listener_into_raw_status
+    !listener_raw_ok
+    !addr_all2
+    !listener
+    panic(990)
+
+L_LISTENER_CLONE_FROM_RAW:
+    EXPAND NET_UNIX_LISTENER_FROM_RAW_FD listener_from_raw_status, listener_clone, listener_raw_taken
+    listener_from_raw_status_ok = eq listener_from_raw_status, SA_NET_OK
+    listener_from_raw_handle_ok = ne listener_clone, 0
+    listener_from_raw_ok = and listener_from_raw_status_ok, listener_from_raw_handle_ok
+    br listener_from_raw_ok -> L_LISTENER_CLONE_CLOSE_DONE, L_FAIL_LISTENER_FROM_RAW
+
+L_FAIL_LISTENER_FROM_RAW:
+    !listener_from_raw_ok
+    !listener_from_raw_handle_ok
+    !listener_from_raw_status_ok
+    !listener_clone
+    !listener_from_raw_status
+    !listener_take_ok
+    !listener_raw_ok
+    !addr_all2
+    !listener
+    panic(991)
+
+L_LISTENER_CLONE_CLOSE_DONE:
     EXPAND NET_TCP_LISTENER_CLOSE listener_clone_close_status, listener_clone
     listener_clone_close_ok = eq listener_clone_close_status, SA_NET_OK
+    !listener_from_raw_ok
+    !listener_take_ok
+    !listener_raw_ok
     !listener_clone_ready
     !listener_clone_handle_ok
     !listener_clone_status_ok
@@ -396,6 +453,67 @@ L_PAIR_FAIL_STREAM_CLONE:
     panic(986)
 
 L_PAIR_CLONE_WRITE:
+    EXPAND NET_UNIX_STREAM_AS_RAW_FD pair_clone_raw_status, pair_clone_raw_fd, pair_left_clone
+    pair_clone_raw_status_ok = eq pair_clone_raw_status, SA_NET_OK
+    pair_clone_raw_fd_ok = ne pair_clone_raw_fd, -1
+    pair_clone_raw_ok = and pair_clone_raw_status_ok, pair_clone_raw_fd_ok
+    br pair_clone_raw_ok -> L_PAIR_CLONE_INTO_RAW, L_PAIR_FAIL_CLONE_RAW
+
+L_PAIR_FAIL_CLONE_RAW:
+    !pair_clone_raw_ok
+    !pair_clone_raw_fd_ok
+    !pair_clone_raw_status_ok
+    !pair_clone_raw_fd
+    !pair_clone_raw_status
+    !pair_clone_ready
+    !pair_left_clone
+    !pair_all
+    !right
+    !left
+    panic(989)
+
+L_PAIR_CLONE_INTO_RAW:
+    EXPAND NET_UNIX_STREAM_INTO_RAW_FD pair_clone_into_raw_status, pair_clone_raw_taken, pair_left_clone
+    pair_clone_into_raw_ok = eq pair_clone_into_raw_status, SA_NET_OK
+    pair_clone_raw_match = eq pair_clone_raw_taken, pair_clone_raw_fd
+    pair_clone_take_ok = and pair_clone_into_raw_ok, pair_clone_raw_match
+    br pair_clone_take_ok -> L_PAIR_CLONE_FROM_RAW, L_PAIR_FAIL_CLONE_INTO_RAW
+
+L_PAIR_FAIL_CLONE_INTO_RAW:
+    !pair_clone_take_ok
+    !pair_clone_raw_match
+    !pair_clone_into_raw_ok
+    !pair_clone_raw_taken
+    !pair_clone_into_raw_status
+    !pair_clone_raw_ok
+    !pair_clone_ready
+    !pair_all
+    !right
+    !left
+    panic(990)
+
+L_PAIR_CLONE_FROM_RAW:
+    EXPAND NET_UNIX_STREAM_FROM_RAW_FD pair_clone_from_raw_status, pair_left_clone, pair_clone_raw_taken
+    pair_clone_from_raw_status_ok = eq pair_clone_from_raw_status, SA_NET_OK
+    pair_clone_from_raw_handle_ok = ne pair_left_clone, 0
+    pair_clone_from_raw_ok = and pair_clone_from_raw_status_ok, pair_clone_from_raw_handle_ok
+    br pair_clone_from_raw_ok -> L_PAIR_CLONE_WRITE_DONE, L_PAIR_FAIL_CLONE_FROM_RAW
+
+L_PAIR_FAIL_CLONE_FROM_RAW:
+    !pair_clone_from_raw_ok
+    !pair_clone_from_raw_handle_ok
+    !pair_clone_from_raw_status_ok
+    !pair_left_clone
+    !pair_clone_from_raw_status
+    !pair_clone_take_ok
+    !pair_clone_raw_ok
+    !pair_clone_ready
+    !pair_all
+    !right
+    !left
+    panic(991)
+
+L_PAIR_CLONE_WRITE_DONE:
     clone_send = stack_alloc 4
     store clone_send+0, 67 as u8
     store clone_send+1, 76 as u8
@@ -460,6 +578,9 @@ L_PAIR_CLONE_CLOSE:
     !clone_close_status
     !clone_read_ok
     !clone_write_ok
+    !pair_clone_from_raw_ok
+    !pair_clone_take_ok
+    !pair_clone_raw_ok
     !pair_clone_ready
     !pair_clone_handle_ok
     !pair_clone_status_ok
