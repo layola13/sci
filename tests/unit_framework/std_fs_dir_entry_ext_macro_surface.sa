@@ -46,8 +46,8 @@ L_LOOP:
 
 L_BODY:
     EXPAND FS_DIR_ENTRIES_GET get_status, entry, entries, idx
-    EXPAND FS_DIR_ENTRY_NAME_PTR entry_name_ptr, entry
-    EXPAND FS_DIR_ENTRY_NAME_LEN entry_name_len, entry
+    EXPAND FS_DIR_ENTRY_FILE_NAME_REF_PTR entry_name_ptr, entry
+    EXPAND FS_DIR_ENTRY_FILE_NAME_REF_LEN entry_name_len, entry
     EXPAND FS_DIR_ENTRY_KIND entry_kind, entry
     EXPAND FS_DIR_ENTRY_INO entry_ino, entry
     EXPAND STR_FROM_PARTS entry_name_view, entry_name_ptr, entry_name_len

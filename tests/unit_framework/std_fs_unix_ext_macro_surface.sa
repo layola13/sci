@@ -313,7 +313,7 @@ L_ENTRY:
     EXPAND FS_METADATA_IS_BLOCK_DEVICE block_is_block, block_metadata
     EXPAND FS_METADATA_IS_CHAR_DEVICE block_is_char, block_metadata
     EXPAND FS_METADATA_FREE block_free_status, block_metadata
-    EXPAND FS_MKFIFO fifo_create_status, FS_UNIX_FIFO_PATH, FS_UNIX_FIFO_PATH_LEN, 420
+    EXPAND FS_UNIX_MKFIFO fifo_create_status, FS_UNIX_FIFO_PATH, FS_UNIX_FIFO_PATH_LEN, 420
     EXPAND FS_METADATA fifo_status, fifo_metadata, FS_UNIX_FIFO_PATH, FS_UNIX_FIFO_PATH_LEN
     EXPAND FS_METADATA_IS_FIFO fifo_is_fifo, fifo_metadata
     EXPAND FS_METADATA_IS_SOCKET fifo_is_socket, fifo_metadata

@@ -145,6 +145,26 @@
     %out_status = call @sa_std_net_tcp_stream_set_nodelay(%stream, %enabled)
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_SET_QUICKACK %out_status, %stream, %enabled
+    %out_status = call @sa_std_net_tcp_stream_set_quickack(%stream, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_QUICKACK %out_status, %out_enabled, %stream
+    __net_tcp_quickack_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_quickack(%stream, &__net_tcp_quickack_%out_status)
+    %out_enabled = load __net_tcp_quickack_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_DEFERACCEPT %out_status, %stream, %seconds
+    %out_status = call @sa_std_net_tcp_stream_set_deferaccept(%stream, %seconds)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_DEFERACCEPT %out_status, %out_seconds, %stream
+    __net_tcp_deferaccept_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_deferaccept(%stream, &__net_tcp_deferaccept_%out_status)
+    %out_seconds = load __net_tcp_deferaccept_%out_status+0 as u32
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_SET_TTL %out_status, %stream, %ttl
     %out_status = call @sa_std_net_tcp_stream_set_ttl(%stream, %ttl)
 [END_MACRO]
@@ -207,6 +227,24 @@
     %out_stream = load __net_unix_connect_handle_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_ADDR_FROM_ABSTRACT_NAME %out_status, %out_addr, %name, %name_len
+    __net_unix_abstract_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_addr_from_abstract_name(&%name, %name_len, &__net_unix_abstract_addr_%out_status)
+    %out_addr = load __net_unix_abstract_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTEN_ADDR %out_status, %out_listener, %addr
+    __net_unix_listen_addr_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listen_addr(%addr, &__net_unix_listen_addr_handle_%out_status)
+    %out_listener = load __net_unix_listen_addr_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_CONNECT_ADDR %out_status, %out_stream, %addr
+    __net_unix_connect_addr_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_connect_addr(%addr, &__net_unix_connect_addr_handle_%out_status)
+    %out_stream = load __net_unix_connect_addr_handle_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UNIX_ACCEPT %out_status, %out_stream, %listener
     __net_unix_accept_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_accept(%listener, &__net_unix_accept_handle_%out_status)
@@ -227,16 +265,88 @@
     %out_addr = load __net_unix_listener_addr_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_LISTENER_TRY_CLONE %out_status, %out_listener, %listener
+    __net_unix_listener_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listener_try_clone(%listener, &__net_unix_listener_clone_%out_status)
+    %out_listener = load __net_unix_listener_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
+    EXPAND NET_TCP_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_TAKE_ERROR %out_status, %out_error, %listener
+    EXPAND NET_TCP_LISTENER_TAKE_ERROR %out_status, %out_error, %listener
+[END_MACRO]
+
 [MACRO] NET_UNIX_STREAM_LOCAL_ADDR %out_status, %out_addr, %stream
     __net_unix_local_addr_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_stream_local_addr(%stream, &__net_unix_local_addr_%out_status)
     %out_addr = load __net_unix_local_addr_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_STREAM_TRY_CLONE %out_status, %out_stream, %stream
+    __net_unix_stream_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_try_clone(%stream, &__net_unix_stream_clone_%out_status)
+    %out_stream = load __net_unix_stream_clone_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UNIX_STREAM_PEER_ADDR %out_status, %out_addr, %stream
     __net_unix_peer_addr_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_stream_peer_addr(%stream, &__net_unix_peer_addr_%out_status)
     %out_addr = load __net_unix_peer_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_PASSCRED %out_status, %stream, %enabled
+    %out_status = call @sa_std_net_unix_stream_set_passcred(%stream, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PASSCRED %out_status, %out_enabled, %stream
+    __net_unix_passcred_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_unix_stream_passcred(%stream, &__net_unix_passcred_%out_status)
+    %out_enabled = load __net_unix_passcred_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEER_CRED %out_status, %out_pid, %out_uid, %out_gid, %stream
+    __net_unix_peer_pid_%out_status = stack_alloc 4
+    __net_unix_peer_uid_%out_status = stack_alloc 4
+    __net_unix_peer_gid_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_unix_stream_peer_cred(%stream, &__net_unix_peer_pid_%out_status, &__net_unix_peer_uid_%out_status, &__net_unix_peer_gid_%out_status)
+    %out_pid = load __net_unix_peer_pid_%out_status+0 as i32
+    %out_uid = load __net_unix_peer_uid_%out_status+0 as u32
+    %out_gid = load __net_unix_peer_gid_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_READ_TIMEOUT %out_status, %stream, %timeout_ns
+    EXPAND NET_TCP_STREAM_SET_READ_TIMEOUT %out_status, %stream, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_WRITE_TIMEOUT %out_status, %stream, %timeout_ns
+    EXPAND NET_TCP_STREAM_SET_WRITE_TIMEOUT %out_status, %stream, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_READ_TIMEOUT %out_status, %out_timeout_ns, %stream
+    EXPAND NET_TCP_STREAM_READ_TIMEOUT %out_status, %out_timeout_ns, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_WRITE_TIMEOUT %out_status, %out_timeout_ns, %stream
+    EXPAND NET_TCP_STREAM_WRITE_TIMEOUT %out_status, %out_timeout_ns, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_NONBLOCKING %out_status, %stream, %enabled
+    EXPAND NET_TCP_STREAM_SET_NONBLOCKING %out_status, %stream, %enabled
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_TAKE_ERROR %out_status, %out_error, %stream
+    EXPAND NET_TCP_STREAM_TAKE_ERROR %out_status, %out_error, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_TCP_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SHUTDOWN %out_status, %stream, %how
+    EXPAND NET_TCP_STREAM_SHUTDOWN %out_status, %stream, %how
 [END_MACRO]
 
 // TLS ClientHello fingerprints. Given a caller-built JA3 string (decimal

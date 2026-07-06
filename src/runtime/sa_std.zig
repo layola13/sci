@@ -315,6 +315,35 @@ fn registerUnixAddrOutLocked(addr: std.posix.sockaddr.un, len: std.posix.socklen
     return finish(SA_STD_OK);
 }
 
+fn unixSockAddrFromHandle(handle: u64) !struct { addr: std.posix.sockaddr.un, len: std.posix.socklen_t } {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
+    return switch (resource.*) {
+        .unix_addr => |unix_addr| blk: {
+            var addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+            @memset(&addr.path, 0);
+            switch (unix_addr.kind) {
+                SA_NET_UNIX_ADDR_UNNAMED => break :blk .{ .addr = addr, .len = @as(std.posix.socklen_t, @intCast(unix_sockaddr_path_offset)) },
+                SA_NET_UNIX_ADDR_PATHNAME => {
+                    if (unix_addr.bytes.len == 0 or unix_addr.bytes.len >= addr.path.len) return error.InvalidArgument;
+                    if (std.mem.indexOfScalar(u8, unix_addr.bytes, 0) != null) return error.InvalidArgument;
+                    @memcpy(addr.path[0..unix_addr.bytes.len], unix_addr.bytes);
+                    break :blk .{ .addr = addr, .len = @as(std.posix.socklen_t, @intCast(unix_sockaddr_path_offset + unix_addr.bytes.len + 1)) };
+                },
+                SA_NET_UNIX_ADDR_ABSTRACT => {
+                    if (unix_addr.bytes.len + 1 > addr.path.len) return error.InvalidArgument;
+                    addr.path[0] = 0;
+                    if (unix_addr.bytes.len != 0) @memcpy(addr.path[1 .. 1 + unix_addr.bytes.len], unix_addr.bytes);
+                    break :blk .{ .addr = addr, .len = @as(std.posix.socklen_t, @intCast(unix_sockaddr_path_offset + 1 + unix_addr.bytes.len)) };
+                },
+                else => return error.InvalidArgument,
+            }
+        },
+        else => error.InvalidHandle,
+    };
+}
+
 fn registerNetAddrOutLocked(address: std.net.Address, out_handle: *u64) i32 {
     var net_addr = NetAddrHandle.init(std.heap.page_allocator, address) catch |err| return finishErr(err);
     const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
@@ -966,6 +995,7 @@ const SaTermEpollEvent = extern struct {
 const ProcessHandle = struct {
     pid: std.posix.pid_t,
     process_group: ?std.posix.pid_t = null,
+    pidfd: ?std.posix.fd_t = null,
     capture_output: bool = false,
     stdout_fd: ?std.posix.fd_t = null,
     stderr_fd: ?std.posix.fd_t = null,
@@ -979,9 +1009,10 @@ const ProcessHandle = struct {
 
     fn deinit(self: *ProcessHandle) void {
         if (!self.exited) {
-            _ = std.posix.waitpid(self.pid, 0);
+            _ = waitProcessIgnoringMissing(self.pid);
             self.exited = true;
         }
+        if (self.pidfd) |fd| std.posix.close(fd);
         if (self.stdout_fd) |fd| std.posix.close(fd);
         if (self.stderr_fd) |fd| std.posix.close(fd);
         if (self.stdout_buf.len != 0) std.heap.page_allocator.free(self.stdout_buf);
@@ -1319,6 +1350,13 @@ fn constBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return p[0..n];
 }
 
+fn constU32s(ptr: ?[*]const u32, len: u64) ![]const u32 {
+    const n = try lenAsUsize(len);
+    if (n == 0) return &.{};
+    const p = ptr orelse return error.InvalidArgument;
+    return p[0..n];
+}
+
 fn mutBytes(ptr: ?[*]u8, len: u64) ![]u8 {
     const n = try lenAsUsize(len);
     if (n == 0) return empty_mut_bytes[0..];
@@ -1400,6 +1438,25 @@ fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
         .SUCCESS => {
             if (len != @sizeOf(i32)) return error.UnexpectedSize;
             return value != 0;
+        },
+        else => return error.InvalidArgument,
+    }
+}
+
+const LinuxUCred = extern struct {
+    pid: i32,
+    uid: u32,
+    gid: u32,
+};
+
+fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
+    var value: LinuxUCred = .{ .pid = 0, .uid = 0, .gid = 0 };
+    var len: std.posix.socklen_t = @sizeOf(LinuxUCred);
+    const rc = std.os.linux.getsockopt(fd, std.posix.SOL.SOCKET, std.os.linux.SO.PEERCRED, @as([*]u8, @ptrCast(&value)), &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            if (len != @sizeOf(LinuxUCred)) return error.UnexpectedSize;
+            return value;
         },
         else => return error.InvalidArgument,
     }
@@ -1836,6 +1893,11 @@ const ProcessSpawnConfig = struct {
     arg0: ?[]const u8 = null,
     process_group: ?i32 = null,
     setsid: bool = false,
+    create_pidfd: bool = false,
+    uid: ?u32 = null,
+    gid: ?u32 = null,
+    groups: ?[]const u32 = null,
+    chroot_path: ?[]const u8 = null,
 };
 
 const SpawnResult = struct {
@@ -1881,6 +1943,67 @@ fn waitStatusContinued(raw: i32) u8 {
     return if (rawWaitStatus(raw) == 0xffff) 1 else 0;
 }
 
+fn waitProcessIgnoringMissing(pid: std.posix.pid_t) ?u32 {
+    var status: u32 = 0;
+    while (true) {
+        const result = std.os.linux.wait4(pid, &status, 0, null);
+        switch (std.posix.errno(result)) {
+            .SUCCESS => return status,
+            .INTR => continue,
+            .CHILD => return null,
+            else => return null,
+        }
+    }
+}
+
+fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
+    const status = @as(u32, @intCast(siginfo.fields.common.second.sigchld.status));
+    return switch (siginfo.code) {
+        1 => (status & 0xff) << 8, // CLD_EXITED
+        2 => status, // CLD_KILLED
+        3 => status | 0x80, // CLD_DUMPED
+        6 => 0xffff, // CLD_CONTINUED
+        4, 5 => ((status & 0xff) << 8) | 0x7f, // CLD_TRAPPED / CLD_STOPPED
+        else => 0,
+    };
+}
+
+fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
+    const fd = std.os.linux.pidfd_open(pid, 0);
+    return switch (std.posix.errno(fd)) {
+        .SUCCESS => @as(std.posix.fd_t, @intCast(fd)),
+        else => null,
+    };
+}
+
+fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, InvalidArgument, PermissionDenied, Unexpected }!?u32 {
+    var siginfo: std.posix.siginfo_t = undefined;
+    while (true) {
+        const result = std.os.linux.waitid(.PIDFD, fd, &siginfo, options);
+        switch (std.posix.errno(result)) {
+            .SUCCESS => break,
+            .INTR => continue,
+            .CHILD => return error.ProcessNotFound,
+            .INVAL => return error.InvalidArgument,
+            .PERM => return error.PermissionDenied,
+            else => return error.Unexpected,
+        }
+    }
+    if (siginfo.fields.common.first.piduid.pid == 0) return null;
+    return waitStatusFromSiginfo(siginfo);
+}
+
+fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
+    const result = std.os.linux.pidfd_send_signal(fd, signum, null, flags);
+    switch (std.posix.errno(result)) {
+        .SUCCESS => return,
+        .INVAL => return error.InvalidArgument,
+        .PERM => return error.PermissionDenied,
+        .SRCH => return error.ProcessNotFound,
+        else => return error.Unexpected,
+    }
+}
+
 fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
     const target: std.posix.pid_t = -pgid;
     var attempts: u8 = 0;
@@ -1894,6 +2017,41 @@ fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
             else => return err,
         };
         return;
+    }
+}
+
+fn errnoToSetupError(errno: std.posix.E) anyerror {
+    return switch (errno) {
+        .SUCCESS => unreachable,
+        .INVAL => error.InvalidArgument,
+        .PERM, .ACCES => error.PermissionDenied,
+        .NOENT => error.FileNotFound,
+        .NOMEM => error.OutOfMemory,
+        .NOTDIR => error.NotDir,
+        else => error.Unexpected,
+    };
+}
+
+fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig, chroot_path_z: ?[*:0]const u8) !void {
+    if (config.groups) |groups| {
+        const groups_ptr: [*]const std.os.linux.gid_t = @ptrCast(groups.ptr);
+        const rc = std.os.linux.setgroups(groups.len, groups_ptr);
+        const errno = std.posix.errno(rc);
+        if (errno != .SUCCESS) return errnoToSetupError(errno);
+    }
+    if (config.gid) |gid| try std.posix.setgid(@as(std.posix.gid_t, @intCast(gid)));
+    if (config.uid) |uid| try std.posix.setuid(@as(std.posix.uid_t, @intCast(uid)));
+    if (chroot_path_z) |path| {
+        const rc = std.os.linux.chroot(path);
+        const errno = std.posix.errno(rc);
+        if (errno != .SUCCESS) return errnoToSetupError(errno);
+    }
+    if (cwd) |dir| try std.posix.chdir(dir);
+    if (config.process_group) |pgroup| try std.posix.setpgid(0, @as(std.posix.pid_t, @intCast(pgroup)));
+    if (config.setsid) {
+        const sid = std.os.linux.setsid();
+        const errno = std.posix.errno(sid);
+        if (errno != .SUCCESS) return errnoToSetupError(errno);
     }
 }
 
@@ -1949,10 +2107,12 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
     }
     child_argv[argv.len] = null;
     const envp = try envpFromCurrentProcess(arena.allocator());
+    const chroot_path_z: ?[*:0]const u8 = if (config.chroot_path) |path| (try arena.allocator().dupeZ(u8, path)).ptr else null;
 
     const pid = try std.posix.fork();
     if (pid == 0) {
-        if (cwd) |dir| {
+        if (cwd != null and chroot_path_z == null) {
+            const dir = cwd.?;
             std.posix.chdir(dir) catch std.posix.exit(127);
         }
         if (config.process_group) |pgroup| {
@@ -1961,6 +2121,22 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         if (config.setsid) {
             const sid = std.os.linux.setsid();
             if (sid < 0) std.posix.exit(127);
+        }
+        if (config.groups) |groups| {
+            const groups_ptr: [*]const std.os.linux.gid_t = @ptrCast(groups.ptr);
+            const rc = std.os.linux.setgroups(groups.len, groups_ptr);
+            if (std.posix.errno(rc) != .SUCCESS) std.posix.exit(127);
+        }
+        if (config.gid) |gid| {
+            std.posix.setgid(@as(std.posix.gid_t, @intCast(gid))) catch std.posix.exit(127);
+        }
+        if (config.uid) |uid| {
+            std.posix.setuid(@as(std.posix.uid_t, @intCast(uid))) catch std.posix.exit(127);
+        }
+        if (chroot_path_z) |path| {
+            const rc = std.os.linux.chroot(path);
+            if (std.posix.errno(rc) != .SUCCESS) std.posix.exit(127);
+            if (cwd) |dir| std.posix.chdir(dir) catch std.posix.exit(127);
         }
         if (use_pipes) {
             std.posix.close(stdout_pipe[0]);
@@ -2007,6 +2183,9 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         };
     }
 
+    var pidfd_fd: ?std.posix.fd_t = if (config.create_pidfd) openPidfd(pid) else null;
+    defer if (pidfd_fd) |fd| std.posix.close(fd);
+
     if (use_pipes) {
         std.posix.close(stdout_pipe[1]);
         std.posix.close(stderr_pipe[1]);
@@ -2020,14 +2199,17 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
             result.process = try registerResource(.{ .process = .{
                 .pid = pid,
                 .process_group = effective_process_group,
+                .pidfd = pidfd_fd,
                 .capture_output = false,
             } });
+            pidfd_fd = null;
             return result;
         },
         .capture => {
             result.process = registerResource(.{ .process = .{
                 .pid = pid,
                 .process_group = effective_process_group,
+                .pidfd = pidfd_fd,
                 .capture_output = true,
                 .stdout_fd = stdout_pipe[0],
                 .stderr_fd = stderr_pipe[0],
@@ -2035,6 +2217,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
                 killAndWaitChild(pid);
                 return err;
             };
+            pidfd_fd = null;
             stdout_pipe[0] = -1;
             stderr_pipe[0] = -1;
             return result;
@@ -2054,6 +2237,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
             result.process = registerResource(.{ .process = .{
                 .pid = pid,
                 .process_group = effective_process_group,
+                .pidfd = pidfd_fd,
                 .capture_output = false,
             } }) catch |err| {
                 if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
@@ -2061,6 +2245,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
                 killAndWaitChild(pid);
                 return err;
             };
+            pidfd_fd = null;
             return result;
         },
     }
@@ -6023,12 +6208,17 @@ pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv,
     return finish(SA_STD_OK);
 }
 
-fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32) !ProcessSpawnConfig {
+fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) !ProcessSpawnConfig {
     if (has_process_group != 0 and process_group < 0) return error.InvalidArgument;
     return .{
         .arg0 = if (has_arg0 != 0) try constBytes(arg0_ptr, arg0_len) else null,
         .process_group = if (has_process_group != 0) process_group else null,
         .setsid = setsid != 0,
+        .create_pidfd = create_pidfd != 0,
+        .uid = if (has_uid != 0) uid else null,
+        .gid = if (has_gid != 0) gid else null,
+        .groups = if (has_groups != 0) try constU32s(groups_ptr, groups_len) else null,
+        .chroot_path = if (has_chroot != 0) try pathBytes(chroot_ptr, chroot_len) else null,
     };
 }
 
@@ -6038,7 +6228,7 @@ pub export fn sa_std_process_run_command_ext(argv_ptr: ?[*]const SaProcessArgv, 
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
     const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid) catch |err| return finishErr(err);
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
     const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
     handle_ptr.* = result.process;
     return finish(SA_STD_OK);
@@ -6050,7 +6240,7 @@ pub export fn sa_std_process_spawn_command_ext(argv_ptr: ?[*]const SaProcessArgv
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
     const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid) catch |err| return finishErr(err);
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
     const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
     handle_ptr.* = result.process;
     return finish(SA_STD_OK);
@@ -6066,12 +6256,209 @@ pub export fn sa_std_process_spawn_stream_command_ext(argv_ptr: ?[*]const SaProc
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
     const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid) catch |err| return finishErr(err);
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
     const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
     process_ptr.* = result.process;
     stdout_ptr.* = result.stdout orelse 0;
     stderr_ptr.* = result.stderr orelse 0;
     return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_run_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, create_pidfd, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, create_pidfd, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, create_pidfd, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_run_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_run_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, groups_ptr, groups_len, has_groups, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, groups_ptr, groups_len, has_groups, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, groups_ptr, groups_len, has_groups, null, 0, 0) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_run_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
+    handle_ptr.* = result.process;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) i32 {
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    if (argv.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, groups_ptr, groups_len, has_groups, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
+    if (config.arg0) |arg0| {
+        if (std.mem.indexOfScalar(u8, arg0, 0) != null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    }
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const exec_path = (arena.allocator().dupeZ(u8, argv[0]) catch |err| return finishErr(err)).ptr;
+    const child_argv = arena.allocator().alloc(?[*:0]const u8, argv.len + 1) catch |err| return finishErr(err);
+    for (argv, 0..) |arg, i| {
+        const child_arg = if (i == 0 and config.arg0 != null) config.arg0.? else arg;
+        child_argv[i] = (arena.allocator().dupeZ(u8, child_arg) catch |err| return finishErr(err)).ptr;
+    }
+    child_argv[argv.len] = null;
+    const envp = envpFromCurrentProcess(arena.allocator()) catch |err| return finishErr(err);
+    const chroot_path_z: ?[*:0]const u8 = if (config.chroot_path) |path| (arena.allocator().dupeZ(u8, path) catch |err| return finishErr(err)).ptr else null;
+
+    applyProcessCommandExtSetup(cwd, config, chroot_path_z) catch |err| return finishErr(err);
+    const argv_z: [*:null]const ?[*:0]const u8 = @ptrCast(child_argv.ptr);
+    const envp_z: [*:null]const ?[*:0]const u8 = @ptrCast(envp.ptr);
+    const exec_err = std.posix.execvpeZ(exec_path, argv_z, envp_z);
+    return finishErr(exec_err);
 }
 
 pub export fn sa_std_process_id() u32 {
@@ -6080,6 +6467,14 @@ pub export fn sa_std_process_id() u32 {
 
 pub export fn sa_std_process_parent_id() u32 {
     return @intCast(getppid());
+}
+
+pub export fn sa_std_process_user_id() u32 {
+    return @intCast(std.os.linux.getuid());
+}
+
+pub export fn sa_std_process_group_id() u32 {
+    return @intCast(std.os.linux.getgid());
 }
 
 pub export fn sa_std_process_abort() noreturn {
@@ -6110,8 +6505,13 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
     return switch (resource.*) {
         .process => |*proc| {
             if (!proc.exited) {
-                const waited = std.posix.waitpid(proc.pid, 0);
-                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                if (proc.pidfd) |fd| {
+                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| return finishErr(err);
+                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                } else {
+                    const waited = std.posix.waitpid(proc.pid, 0);
+                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                }
             }
             code_ptr.* = proc.code;
             return finish(SA_STD_OK);
@@ -6129,8 +6529,13 @@ pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
     return switch (resource.*) {
         .process => |*proc| {
             if (!proc.exited) {
-                const waited = std.posix.waitpid(proc.pid, 0);
-                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                if (proc.pidfd) |fd| {
+                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| return finishErr(err);
+                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                } else {
+                    const waited = std.posix.waitpid(proc.pid, 0);
+                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                }
             }
             raw_ptr.* = @bitCast(proc.raw_status);
             return finish(SA_STD_OK);
@@ -6150,9 +6555,15 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
     return switch (resource.*) {
         .process => |*proc| {
             if (!proc.exited) {
-                const waited = std.posix.waitpid(proc.pid, std.posix.W.NOHANG);
-                if (waited.pid == 0) return finish(SA_STD_OK);
-                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                if (proc.pidfd) |fd| {
+                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| return finishErr(err);
+                    if (raw_status == null) return finish(SA_STD_OK);
+                    finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
+                } else {
+                    const waited = std.posix.waitpid(proc.pid, std.posix.W.NOHANG);
+                    if (waited.pid == 0) return finish(SA_STD_OK);
+                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                }
             }
             ready_ptr.* = 1;
             code_ptr.* = proc.code;
@@ -6173,9 +6584,15 @@ pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw
     return switch (resource.*) {
         .process => |*proc| {
             if (!proc.exited) {
-                const waited = std.posix.waitpid(proc.pid, std.posix.W.NOHANG);
-                if (waited.pid == 0) return finish(SA_STD_OK);
-                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                if (proc.pidfd) |fd| {
+                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| return finishErr(err);
+                    if (raw_status == null) return finish(SA_STD_OK);
+                    finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
+                } else {
+                    const waited = std.posix.waitpid(proc.pid, std.posix.W.NOHANG);
+                    if (waited.pid == 0) return finish(SA_STD_OK);
+                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                }
             }
             ready_ptr.* = 1;
             raw_ptr.* = @bitCast(proc.raw_status);
@@ -6192,12 +6609,21 @@ pub export fn sa_std_process_kill(handle: u64) i32 {
     return switch (resource.*) {
         .process => |*proc| {
             if (!proc.exited) {
-                std.posix.kill(proc.pid, std.posix.SIG.KILL) catch |err| switch (err) {
-                    error.ProcessNotFound => {},
-                    else => return finishErr(err),
-                };
-                const waited = std.posix.waitpid(proc.pid, 0);
-                finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                if (proc.pidfd) |fd| {
+                    sendSignalToPidfd(fd, std.posix.SIG.KILL, 0) catch |err| switch (err) {
+                        error.ProcessNotFound => {},
+                        else => return finishErr(err),
+                    };
+                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| return finishErr(err);
+                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                } else {
+                    std.posix.kill(proc.pid, std.posix.SIG.KILL) catch |err| switch (err) {
+                        error.ProcessNotFound => {},
+                        else => return finishErr(err),
+                    };
+                    const waited = std.posix.waitpid(proc.pid, 0);
+                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
+                }
             }
             return finish(SA_STD_OK);
         },
@@ -6213,6 +6639,15 @@ pub export fn sa_std_process_send_signal(handle: u64, signum: i32) i32 {
     return switch (resource.*) {
         .process => |*proc| {
             if (proc.exited) return finish(SA_STD_ERR_INVALID_HANDLE);
+            if (proc.pidfd) |fd| {
+                sendSignalToPidfd(fd, @as(u8, @intCast(signum)), 0) catch |err| switch (err) {
+                    error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+                    error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
+                    error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                    else => return finishErr(err),
+                };
+                return finish(SA_STD_OK);
+            }
             switch (std.posix.errno(std.os.linux.kill(proc.pid, signum))) {
                 .SUCCESS => return finish(SA_STD_OK),
                 .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
@@ -6240,6 +6675,173 @@ pub export fn sa_std_process_send_process_group_signal(handle: u64, signum: i32)
                 error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
                 else => return finishErr(err),
             };
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_kill_process_group(handle: u64) i32 {
+    return sa_std_process_send_process_group_signal(handle, std.posix.SIG.KILL);
+}
+
+pub export fn sa_std_process_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
+    const pidfd_ptr = out_pidfd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    pidfd_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            const pidfd = proc.pidfd orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+            const dup_fd = std.posix.dup(pidfd) catch |err| return finishErr(err);
+            const dup_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = dup_fd } }) catch |err| {
+                std.posix.close(dup_fd);
+                return finishErr(err);
+            };
+            pidfd_ptr.* = dup_handle;
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_process_into_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
+    const pidfd_ptr = out_pidfd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    pidfd_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            const pidfd = proc.pidfd orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+            proc.pidfd = null;
+            const pidfd_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = pidfd } }) catch |err| {
+                proc.pidfd = pidfd;
+                return finishErr(err);
+            };
+            pidfd_ptr.* = pidfd_handle;
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_pidfd_kill(handle: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .owned_fd => |fd| {
+            sendSignalToPidfd(fd.fd, std.posix.SIG.KILL, 0) catch |err| switch (err) {
+                error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+                error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
+                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                else => return finishErr(err),
+            };
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_pidfd_send_signal(handle: u64, signum: i32) i32 {
+    if (signum < 0 or signum > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .owned_fd => |fd| {
+            sendSignalToPidfd(fd.fd, @as(u8, @intCast(signum)), 0) catch |err| switch (err) {
+                error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+                error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
+                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                else => return finishErr(err),
+            };
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_pidfd_wait_raw(handle: u64, out_raw: ?*i32) i32 {
+    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    raw_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .owned_fd => |fd| {
+            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED) catch |err| switch (err) {
+                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                else => return finishErr(err),
+            };
+            raw_ptr.* = @bitCast(raw_status orelse return finish(SA_STD_OK));
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_pidfd_wait(handle: u64, out_code: ?*u32) i32 {
+    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    code_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .owned_fd => |fd| {
+            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED) catch |err| switch (err) {
+                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                else => return finishErr(err),
+            };
+            code_ptr.* = statusFromWaitStatus(raw_status orelse return finish(SA_STD_OK));
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
+    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ready_ptr.* = 0;
+    raw_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .owned_fd => |fd| {
+            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
+                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                else => return finishErr(err),
+            };
+            if (raw_status == null) return finish(SA_STD_OK);
+            ready_ptr.* = 1;
+            raw_ptr.* = @bitCast(raw_status.?);
+            return finish(SA_STD_OK);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
+    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ready_ptr.* = 0;
+    code_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .owned_fd => |fd| {
+            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
+                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+                else => return finishErr(err),
+            };
+            if (raw_status == null) return finish(SA_STD_OK);
+            ready_ptr.* = 1;
+            code_ptr.* = statusFromWaitStatus(raw_status.?);
             return finish(SA_STD_OK);
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
@@ -7290,6 +7892,14 @@ pub export fn sa_fs_dir_entry_name_len(handle: u64) u64 {
     };
 }
 
+pub export fn sa_fs_dir_entry_file_name_ptr(handle: u64) ?[*]u8 {
+    return sa_fs_dir_entry_name_ptr(handle);
+}
+
+pub export fn sa_fs_dir_entry_file_name_len(handle: u64) u64 {
+    return sa_fs_dir_entry_name_len(handle);
+}
+
 pub export fn sa_fs_dir_entry_kind(handle: u64) u32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
@@ -7956,6 +8566,45 @@ pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_quickack(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
+    setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.QUICKACK, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_quickack(stream: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
+    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.QUICKACK) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_deferaccept(stream: u64, seconds: u32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (seconds > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.DEFER_ACCEPT, @as(i32, @intCast(seconds))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_deferaccept(stream: u64, out_seconds: ?*u32) i32 {
+    const out = out_seconds orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
+    const seconds = getSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.DEFER_ACCEPT) catch |err| return finishErr(err);
+    if (seconds < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @as(u32, @intCast(seconds));
     return finish(SA_STD_OK);
 }
 
@@ -9238,6 +9887,37 @@ pub export fn sa_std_net_unix_listen(path_ptr: ?[*]const u8, path_len: u64, out_
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_unix_addr_from_abstract_name(name_ptr: ?[*]const u8, name_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const name = constBytes(name_ptr, name_len) catch |err| return finishErr(err);
+    const tmp: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+    if (name.len + 1 > tmp.path.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const bytes = std.heap.page_allocator.dupe(u8, name) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .unix_addr = .{ .allocator = std.heap.page_allocator, .kind = SA_NET_UNIX_ADDR_ABSTRACT, .bytes = bytes } }) catch |err| {
+        std.heap.page_allocator.free(bytes);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_listen_addr(addr_handle: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
+
+    const fd = std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    errdefer std.posix.close(fd);
+    std.posix.bind(fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    std.posix.listen(fd, 128) catch |err| return finishErr(err);
+
+    const server = std.net.Server{ .listen_address = .{ .un = sockaddr.addr }, .stream = .{ .handle = fd } };
+    const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_accept(listener: u64, out_handle: ?*u64) i32 {
     return sa_std_net_tcp_accept(listener, out_handle);
 }
@@ -9297,6 +9977,31 @@ pub export fn sa_std_net_unix_listener_local_addr(listener: u64, out_handle: ?*u
     };
 }
 
+pub export fn sa_std_net_unix_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var listen_address: std.net.Address = undefined;
+    const fd = switch (resource.*) {
+        .tcp_listener => |server| blk: {
+            listen_address = server.listen_address;
+            break :blk server.stream.handle;
+        },
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const dup_fd = std.posix.dup(fd) catch |err| return finishErr(err);
+    const cloned = std.net.Server{ .listen_address = listen_address, .stream = .{ .handle = dup_fd } };
+    const handle = registerResourceLocked(.{ .tcp_listener = cloned }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_stream_local_addr(stream: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -9311,6 +10016,26 @@ pub export fn sa_std_net_unix_stream_local_addr(stream: u64, out_handle: ?*u64) 
         },
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
+}
+
+pub export fn sa_std_net_unix_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .tcp_stream => |s| s.handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const dup_fd = std.posix.dup(fd) catch |err| return finishErr(err);
+    const handle = registerResourceLocked(.{ .tcp_stream = .{ .handle = dup_fd } }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
@@ -9329,6 +10054,41 @@ pub export fn sa_std_net_unix_stream_peer_addr(stream: u64, out_handle: ?*u64) i
     };
 }
 
+pub export fn sa_std_net_unix_stream_set_passcred(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_stream_passcred(stream: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_stream_peer_cred(stream: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
+    const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const uid_ptr = out_uid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const gid_ptr = out_gid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    pid_ptr.* = 0;
+    uid_ptr.* = 0;
+    gid_ptr.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const cred = getUnixPeerCred(handle.fd) catch |err| return finishErr(err);
+    pid_ptr.* = cred.pid;
+    uid_ptr.* = cred.uid;
+    gid_ptr.* = cred.gid;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -9336,6 +10096,21 @@ pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out
 
     const stream = std.net.connectUnixSocket(path) catch |err| return finishErr(err);
     errdefer stream.close();
+    const handle = registerResource(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_connect_addr(addr_handle: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
+
+    const fd = std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    errdefer std.posix.close(fd);
+    std.posix.connect(fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+
+    const stream = std.net.Stream{ .handle = fd };
     const handle = registerResource(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);

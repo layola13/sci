@@ -58,6 +58,8 @@
 @extern sa_fs_dir_entries_free(^entries: u64) -> i32
 @extern sa_fs_dir_entry_name_ptr(entry: u64) -> &ptr
 @extern sa_fs_dir_entry_name_len(entry: u64) -> u64
+@extern sa_fs_dir_entry_file_name_ptr(entry: u64) -> &ptr
+@extern sa_fs_dir_entry_file_name_len(entry: u64) -> u64
 @extern sa_fs_dir_entry_kind(entry: u64) -> u32
 @extern sa_fs_dir_entry_ino(entry: u64) -> u64
 @extern sa_fs_dir_entry_free(^entry: u64) -> i32

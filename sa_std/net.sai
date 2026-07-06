@@ -11,6 +11,10 @@
 @extern sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) -> i32
 @extern sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_set_quickack(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_quickack(stream: u64, &out_enabled: ptr) -> i32
+@extern sa_std_net_tcp_stream_set_deferaccept(stream: u64, seconds: u32) -> i32
+@extern sa_std_net_tcp_stream_deferaccept(stream: u64, &out_seconds: ptr) -> i32
 @extern sa_std_net_tcp_stream_set_ttl(stream: u64, ttl: u32) -> i32
 @extern sa_std_net_tcp_stream_read_timeout(stream: u64, &out_timeout_ns: ptr) -> i32
 @extern sa_std_net_tcp_stream_write_timeout(stream: u64, &out_timeout_ns: ptr) -> i32
@@ -31,9 +35,17 @@
 @extern sa_std_net_unix_accept(listener: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_connect(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_pair(&out_left: ptr, &out_right: ptr) -> i32
+@extern sa_std_net_unix_addr_from_abstract_name(&name: ptr, name_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_listen_addr(addr: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_connect_addr(addr: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_listener_local_addr(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_listener_try_clone(listener: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_stream_local_addr(stream: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_try_clone(stream: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_stream_peer_addr(stream: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_set_passcred(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_unix_stream_passcred(stream: u64, &out_enabled: ptr) -> i32
+@extern sa_std_net_unix_stream_peer_cred(stream: u64, &out_pid: ptr, &out_uid: ptr, &out_gid: ptr) -> i32
 
 // Additional stream/listener socket options.
 @extern sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) -> i32

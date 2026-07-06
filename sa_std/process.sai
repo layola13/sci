@@ -10,10 +10,27 @@
 @extern sa_std_process_run_command_ext(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &out_handle: ptr) -> i32
 @extern sa_std_process_spawn_command_ext(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &out_handle: ptr) -> i32
 @extern sa_std_process_spawn_stream_command_ext(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &out_process: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32
+@extern sa_std_process_run_command_ext_pidfd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_command_ext_pidfd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_stream_command_ext_pidfd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, &out_process: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32
+@extern sa_std_process_run_command_ext_uid_gid(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_command_ext_uid_gid(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_stream_command_ext_uid_gid(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, &out_process: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32
+@extern sa_std_process_run_command_ext_groups(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &groups: ptr, groups_len: u64, has_groups: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_command_ext_groups(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &groups: ptr, groups_len: u64, has_groups: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_stream_command_ext_groups(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &groups: ptr, groups_len: u64, has_groups: u32, &out_process: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32
+@extern sa_std_process_run_command_ext_chroot(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &chroot: ptr, chroot_len: u64, has_chroot: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_command_ext_chroot(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &chroot: ptr, chroot_len: u64, has_chroot: u32, &out_handle: ptr) -> i32
+@extern sa_std_process_spawn_stream_command_ext_chroot(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, &chroot: ptr, chroot_len: u64, has_chroot: u32, &out_process: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32
+@extern sa_std_process_exec_command_ext(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, has_cwd: u32, &arg0: ptr, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, &groups: ptr, groups_len: u64, has_groups: u32, &chroot: ptr, chroot_len: u64, has_chroot: u32) -> i32
 @extern sa_std_process_id() -> u32
 @extern sa_std_process_parent_id() -> u32
+@extern sa_std_process_user_id() -> u32
+@extern sa_std_process_group_id() -> u32
 @extern sa_std_process_abort() -> void
 @extern sa_std_process_child_id(handle: u64, &out_pid: ptr) -> i32
+@extern sa_std_process_pidfd(handle: u64, &out_pidfd: ptr) -> i32
+@extern sa_std_process_into_pidfd(handle: u64, &out_pidfd: ptr) -> i32
 @extern sa_std_process_wait(handle: u64, &out_code: ptr) -> i32
 @extern sa_std_process_wait_raw(handle: u64, &out_raw: ptr) -> i32
 @extern sa_std_process_try_wait(handle: u64, &out_ready: ptr, &out_code: ptr) -> i32
@@ -21,6 +38,13 @@
 @extern sa_std_process_kill(handle: u64) -> i32
 @extern sa_std_process_send_signal(handle: u64, signal: i32) -> i32
 @extern sa_std_process_send_process_group_signal(handle: u64, signal: i32) -> i32
+@extern sa_std_process_kill_process_group(handle: u64) -> i32
+@extern sa_std_pidfd_kill(handle: u64) -> i32
+@extern sa_std_pidfd_send_signal(handle: u64, signal: i32) -> i32
+@extern sa_std_pidfd_wait(handle: u64, &out_code: ptr) -> i32
+@extern sa_std_pidfd_wait_raw(handle: u64, &out_raw: ptr) -> i32
+@extern sa_std_pidfd_try_wait(handle: u64, &out_ready: ptr, &out_code: ptr) -> i32
+@extern sa_std_pidfd_try_wait_raw(handle: u64, &out_ready: ptr, &out_raw: ptr) -> i32
 @extern sa_std_process_exit_status_code(raw: i32) -> u32
 @extern sa_std_process_exit_status_signal(raw: i32) -> i32
 @extern sa_std_process_exit_status_core_dumped(raw: i32) -> u8

@@ -37,7 +37,39 @@
 - [x] `std::os::unix::process::CommandExt` 可落地子集：补 `arg0`、`process_group(0/pgid)`、`setsid(true)` 的 Linux spawn 配置入口，并覆盖 capture/inherit/stream 三种现有 process 模式。
 - [x] `std::os::linux::process` / Rust pidfd 路径关联的进程组信号子集：补 `PROCESS_SEND_PROCESS_GROUP_SIGNAL`，记录 effective PGID，并用新进程组 `/bin/sleep` raw wait-status 验证 SIGKILL。
 - [x] 上述 Linux std parity 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装；批次已提交收口。
-- [ ] 下一轮继续补更大 Linux 缺口：优先审计 Linux pidfd handle/create_pidfd/wait/try_wait，`CommandExt` 剩余高权限/破坏性子集（uid/gid/groups/chroot/exec）、以及仍缺的 Linux-only `std` facade。
+- [x] `std::os::linux::process` pidfd 子集：补 create_pidfd 路径、process `pidfd` / `into_pidfd` handle 提取，以及 pidfd `kill` / `send_signal` / `wait` / `wait_raw` / `try_wait` / `try_wait_raw` 宏表面；处理 pidfd wait 消费 child 后 process close 不再触发 runtime trap。
+- [x] pidfd 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::{uid,gid}`：补 Linux child-side `setuid` / `setgid` spawn 配置入口，并新增 `PROCESS_USER_ID` / `PROCESS_GROUP_ID` facade 用于非 root 验收当前身份设置。
+- [x] uid/gid 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::groups`：补 Linux child-side `setgroups` spawn 配置入口，并覆盖 capture/inherit/stream 三种现有 process 模式；非 root 环境按 child setup 退出码验收权限拒绝路径。
+- [x] groups 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::chroot`：补 Linux child-side `chroot` spawn 配置入口，并覆盖 capture/inherit/stream 三种现有 process 模式；非 root 环境按 child setup 退出码验收权限拒绝路径。
+- [x] chroot 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::exec`：补 Linux in-place `exec` 入口，支持 cwd/arg0/process_group/setsid/uid/gid/groups/chroot 配置；成功路径替换当前测试子进程，失败路径返回 SA 错误码。
+- [x] exec 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::net::SocketAddrExt` 抽象 Unix socket 地址子集：补 `from_abstract_name` / `as_abstract_name` 风格地址句柄，以及按 Unix addr handle listen/connect 的 Linux UDS 路径。
+- [x] abstract Unix socket 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::net::linux_ext::TcpStreamExt`：补 `TCP_QUICKACK` 与 `TCP_DEFER_ACCEPT` 的 set/get Linux socket option facade。
+- [x] TCP Linux extension 批次已完成源码、focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::net::linux_ext::UnixSocketExt` UnixStream 子集：补 Linux `SO_PASSCRED` 的 set/get socket option facade。
+- [x] UnixSocketExt passcred 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::ChildExt::kill_process_group`：补 Linux process-group `SIGKILL` convenience facade，复用已记录的 effective PGID/process-group signal 路径。
+- [x] kill_process_group 批次已完成源码、focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::DirEntryExt2::file_name_ref`：补目录项 file-name reference 命名 facade，复用现有 dir-entry 名称指针/长度资源。
+- [x] DirEntryExt2 file_name_ref 批次已完成源码、focused dir-entry 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::mkfifo`：补 Rust 命名的 `FS_UNIX_MKFIFO` 宏表面，复用已有 Linux `sa_fs_mkfifo` runtime。
+- [x] mkfifo 命名表面批次已完成源码、focused/full Unix fs 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixStream::peer_cred` Linux 子集：补 `SO_PEERCRED` peer pid/uid/gid 标量 facade，不引入 Rust `UCred` 对象模型。
+- [x] UnixStream peer_cred 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixStream::peek`：补 `NET_UNIX_STREAM_PEEK` 命名宏表面，复用现有 stream peek runtime，并验证 peek 不消费数据。
+- [x] UnixStream peek 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixStream::shutdown`：补 `NET_UNIX_STREAM_SHUTDOWN` 命名宏表面，复用现有 stream shutdown runtime，并验证写半边 shutdown 后 peer 读到 EOF。
+- [x] UnixStream shutdown 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::{UnixStream,UnixListener}` option 命名表面：补 stream timeout/nonblocking/take_error 与 listener nonblocking/take_error Unix 宏别名，复用现有 fd-based TCP runtime。
+- [x] Unix socket option 命名表面批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::{UnixStream,UnixListener}::try_clone`：补 Linux/Unix fd-dup clone facade，保持 stream/listener 资源类型和独立 close 生命周期。
+- [x] Unix socket try_clone 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
 > - **工业级性能 (P0)**：[`docs/design.md §1.10`](docs/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)

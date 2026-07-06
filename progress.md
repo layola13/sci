@@ -4,6 +4,345 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix socket try_clone batch
+
+- Added Unix `std::os::unix::net::{UnixStream,UnixListener}::try_clone`-style facades over Linux/Unix fd duplication:
+  - runtime/header exports `sa_std_net_unix_stream_try_clone` and `sa_std_net_unix_listener_try_clone`
+  - SA extern/macro wrappers `NET_UNIX_STREAM_TRY_CLONE` and `NET_UNIX_LISTENER_TRY_CLONE`.
+- Runtime behavior:
+  - validates the source handle is backed by an AF_UNIX stream/listener socket.
+  - duplicates the underlying fd with `dup` and registers the clone as the same SA resource kind (`tcp_stream` or `tcp_listener`), preserving existing close/read/write/accept paths.
+  - cloned handles have independent close lifetimes while sharing kernel socket state, matching Rust `try_clone` semantics for this SA-facing subset.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - UnixStream pair test writes through a cloned stream handle, reads the bytes from the peer, closes the clone, then continues using the original stream.
+  - UnixListener roundtrip test clones a listener and closes the clone while the original listener remains usable for the existing connect/accept flow.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_listener_try_clone` and `sa_std_net_unix_stream_try_clone` are exported.
+
+## Completed: 2026-07-06 Unix socket option named surface batch
+
+- Added Unix `std::os::unix::net::{UnixStream,UnixListener}`-style named macro surfaces over existing fd-based stream/listener runtime:
+  - `NET_UNIX_STREAM_SET_READ_TIMEOUT`, `NET_UNIX_STREAM_SET_WRITE_TIMEOUT`, `NET_UNIX_STREAM_READ_TIMEOUT`, and `NET_UNIX_STREAM_WRITE_TIMEOUT`
+  - `NET_UNIX_STREAM_SET_NONBLOCKING` and `NET_UNIX_STREAM_TAKE_ERROR`
+  - `NET_UNIX_LISTENER_SET_NONBLOCKING` and `NET_UNIX_LISTENER_TAKE_ERROR`
+  - runtime continues to use the existing TCP stream/listener option helpers for Unix stream/listener handles, so this batch does not add new ABI symbols.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - UnixStream pair test sets/reads read and write timeouts, toggles blocking mode, and checks `take_error` returns no pending socket error.
+  - UnixListener roundtrip test toggles blocking mode and checks listener `take_error` returns no pending socket error.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 UnixStream shutdown named surface batch
+
+- Added Unix `std::os::unix::net::UnixStream::shutdown`-style named macro surface over existing stream shutdown runtime:
+  - SA macro wrapper `NET_UNIX_STREAM_SHUTDOWN`
+  - runtime continues to use the existing `sa_net_tcp_stream_shutdown` path for Unix stream handles, so this batch does not add a new ABI symbol.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - shuts down the writing half of one UnixStream with `SA_NET_SHUTDOWN_WRITE`.
+  - verifies the peer stream reads successfully with length `0`, matching EOF behavior.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 UnixStream peek named surface batch
+
+- Added Unix `std::os::unix::net::UnixStream::peek`-style named macro surface over existing stream peek runtime:
+  - SA macro wrapper `NET_UNIX_STREAM_PEEK`
+  - runtime continues to use the existing `sa_std_net_tcp_stream_peek` path for Unix stream handles, so this batch does not add a new ABI symbol.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - writes `PAIR` across a UnixStream pair.
+  - peeks from the receiving stream and validates `PAIR` is visible.
+  - then reads from the same stream and validates `PAIR` is still present, proving peek does not consume data.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 Linux UnixStream peer_cred batch
+
+- Added Linux `std::os::unix::net::UnixStream::peer_cred`-style surface over existing Unix stream handles:
+  - runtime/header export `sa_std_net_unix_stream_peer_cred`
+  - SA extern/macro wrapper `NET_UNIX_STREAM_PEER_CRED`.
+- Runtime behavior:
+  - accepts only handles backed by AF_UNIX stream sockets.
+  - uses Linux `getsockopt(SOL_SOCKET, SO_PEERCRED)` and returns peer `pid`, `uid`, and `gid` as scalar outputs.
+  - intentionally avoids adding a separate Rust `UCred` object model for this SA-facing subset.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - verifies peer credentials on a UnixStream pair match the current process `pid`, `uid`, and `gid`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_stream_peer_cred` is exported.
+
+## Completed: 2026-07-06 Unix fs mkfifo named surface batch
+
+- Added Rust-named `std::os::unix::fs::mkfifo` macro surface over the existing Linux FIFO runtime helper:
+  - SA macro wrapper `FS_UNIX_MKFIFO`
+  - runtime continues to use the existing `sa_fs_mkfifo` export, so this batch does not add a new ABI symbol.
+- Updated `tests/unit_framework/std_fs_unix_ext_macro_surface.sa`:
+  - the Unix file-type extension test now creates its FIFO through `FS_UNIX_MKFIFO` before checking `FS_METADATA_IS_FIFO`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter "file type" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter "file type" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+
+## Completed: 2026-07-06 Linux DirEntryExt2 file_name_ref batch
+
+- Added Unix `std::os::unix::fs::DirEntryExt2::file_name_ref`-style named facade over the existing SA directory-entry name view:
+  - runtime/header exports `sa_fs_dir_entry_file_name_ptr` and `sa_fs_dir_entry_file_name_len`
+  - SA extern/macro wrappers `FS_DIR_ENTRY_FILE_NAME_REF_PTR` and `FS_DIR_ENTRY_FILE_NAME_REF_LEN`.
+- Runtime behavior:
+  - reuses the existing directory-entry resource name pointer/length storage, so no new resource lifetime model is introduced.
+  - keeps ownership tied to the directory-entry handle; callers must still free entries through `FS_DIR_ENTRY_FREE`.
+- Updated `tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa`:
+  - directory entry name matching now uses the new file-name-ref macros while retaining inode and kind assertions.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`1 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`1 passed`).
+  - `nm` confirms `sa_fs_dir_entry_file_name_ptr` and `sa_fs_dir_entry_file_name_len` are exported.
+
+## Completed: 2026-07-06 Linux ChildExt kill_process_group batch
+
+- Added Linux `std::os::unix::process::ChildExt::kill_process_group`-style convenience surface over the existing process-group signal path:
+  - runtime/header export `sa_std_process_kill_process_group`
+  - SA extern/macro wrapper `PROCESS_KILL_PROCESS_GROUP`.
+- Runtime behavior:
+  - delegates to the existing effective-PGID-aware `sa_std_process_send_process_group_signal` helper with `SIGKILL`.
+  - preserves the process-group validation and error mapping already used by the explicit signal facade.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a kill-process-group macro-surface test:
+  - spawns `/bin/sleep` into a new process group.
+  - kills the group through `PROCESS_KILL_PROCESS_GROUP`.
+  - verifies raw wait-status signal decoding reports `SIGKILL`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "kill process group" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "kill process group" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `nm` confirms `sa_std_process_kill_process_group` is exported.
+
+## Completed: 2026-07-06 Linux UnixSocketExt passcred batch
+
+- Added Linux `std::os::net::linux_ext::UnixSocketExt`-style `SO_PASSCRED` option surface for existing Unix stream handles:
+  - runtime/header exports `sa_std_net_unix_stream_set_passcred` and `sa_std_net_unix_stream_passcred`
+  - SA macro wrappers `NET_UNIX_STREAM_SET_PASSCRED` and `NET_UNIX_STREAM_PASSCRED`.
+- Runtime behavior:
+  - accepts only handles backed by AF_UNIX stream sockets; non-Unix stream handles return invalid-handle status for this Unix-specific extension.
+  - maps set/get directly to Linux `SO_PASSCRED` with boolean `setsockopt` / `getsockopt` semantics.
+  - this batch intentionally covers the existing `UnixStream` resource model; Rust's `UnixDatagram` side remains a larger follow-up because SA does not yet have a Unix datagram handle model.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - verifies `passcred` enable reads back `1`, then disable reads back `0`, before the existing unnamed-address and pair I/O checks.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms the two passcred Unix stream extension exports.
+
+## Completed: 2026-07-06 Linux TcpStreamExt quickack/deferaccept batch
+
+- Added Linux `std::os::net::linux_ext::TcpStreamExt` socket option surface over existing TCP stream handles:
+  - runtime/header exports `sa_std_net_tcp_stream_set_quickack` and `sa_std_net_tcp_stream_quickack`
+  - runtime/header exports `sa_std_net_tcp_stream_set_deferaccept` and `sa_std_net_tcp_stream_deferaccept`
+  - SA macro wrappers `NET_TCP_STREAM_SET_QUICKACK`, `NET_TCP_STREAM_QUICKACK`, `NET_TCP_STREAM_SET_DEFERACCEPT`, and `NET_TCP_STREAM_DEFERACCEPT`.
+- Runtime behavior:
+  - `quickack` maps to Linux `TCP_QUICKACK` as a boolean socket option.
+  - `deferaccept` maps to Linux `TCP_DEFER_ACCEPT` using whole seconds, matching the kernel option ABI.
+  - Unix-domain stream handles that reuse the TCP stream resource kind return a successful neutral result for these TCP-only options, preserving existing UDS compatibility behavior.
+- Extended `tests/unit_framework/std_net_macro_surface.sa` option coverage:
+  - loopback TCP setup now verifies set/get for `quickack(false)` and `deferaccept(1)` alongside nodelay, ttl, timeout, and take_error.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "option getter" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "option getter" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `nm` confirms the four quickack/deferaccept TCP stream extension exports.
+
+## Completed: 2026-07-06 Linux Unix socket abstract address batch
+
+- Added Linux `std::os::linux::net::SocketAddrExt`-style abstract Unix socket address construction on top of the existing Unix address handle model:
+  - runtime/header export `sa_std_net_unix_addr_from_abstract_name`
+  - SA macro wrapper `NET_UNIX_ADDR_FROM_ABSTRACT_NAME`
+  - arbitrary abstract-name bytes are retained in a dedicated `SA_NET_UNIX_ADDR_ABSTRACT` Unix address handle and exposed through the existing kind/ptr/len accessors.
+- Added Unix-domain bind/connect by address handle:
+  - runtime/header exports `sa_std_net_unix_listen_addr` and `sa_std_net_unix_connect_addr`
+  - SA macro wrappers `NET_UNIX_LISTEN_ADDR` and `NET_UNIX_CONNECT_ADDR`
+  - pathname, unnamed, and abstract Unix address handles convert through one sockaddr builder path with Linux abstract-name length validation.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` with an abstract address roundtrip test:
+  - verifies abstract address kind, byte length, and byte accessors
+  - listens on an abstract UDS name, checks listener local address returns the same abstract name, connects by address handle, accepts, writes `ABS!`, reads it back, and closes/frees all handles.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_addr_from_abstract_name`, `sa_std_net_unix_listen_addr`, and `sa_std_net_unix_connect_addr` are exported.
+
+## Completed: 2026-07-06 Linux CommandExt in-place exec batch
+
+- Added Linux `std::os::unix::process::CommandExt::exec`-style in-place process replacement over the existing CommandExt config model:
+  - runtime/header export `sa_std_process_exec_command_ext`
+  - SA macro wrapper `PROCESS_EXEC_COMMAND_EXT`
+  - supports cwd, arg0, process_group, setsid, uid, gid, groups, and chroot configuration before `execvpeZ`.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with exec macro-surface tests:
+  - success path replaces the test child process with `/bin/true` and is accepted as exit code 0
+  - failure path uses a missing executable and verifies the call returns an error instead of replacing the process.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter exec --trace-panic --no-incremental`: pass (`2 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter exec --trace-panic --no-incremental`: pass (`2 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`13 passed`).
+  - `nm` confirms the exported symbol for the in-place exec CommandExt helper.
+
+## Completed: 2026-07-06 Linux CommandExt chroot batch
+
+- Added Linux `std::os::unix::process::CommandExt::chroot`-style child root-directory configuration over the existing process spawn model:
+  - runtime/header exports `sa_std_process_run_command_ext_chroot`, `sa_std_process_spawn_command_ext_chroot`, and `sa_std_process_spawn_stream_command_ext_chroot`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_CHROOT`, `PROCESS_SPAWN_COMMAND_EXT_CHROOT`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_CHROOT`
+  - child setup applies `chroot` after identity/group setup and before chdir/exec; existing no-chroot cwd behavior is preserved.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a chroot macro-surface test:
+  - uses `/` as the chroot path so capability-enabled environments can still exec `/bin/true`
+  - exercises run, spawn, and stream CommandExt chroot entry points
+  - accepts child exit code `0` for capability-enabled environments and `127` for non-root Linux environments where `chroot` is denied during child setup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter chroot --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter chroot --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `nm` confirms exported symbols for the chroot CommandExt helpers.
+
+## Completed: 2026-07-06 Linux CommandExt groups batch
+
+- Added Linux `std::os::unix::process::CommandExt::groups`-style supplementary group configuration over the existing process spawn model:
+  - runtime/header exports `sa_std_process_run_command_ext_groups`, `sa_std_process_spawn_command_ext_groups`, and `sa_std_process_spawn_stream_command_ext_groups`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_GROUPS`, `PROCESS_SPAWN_COMMAND_EXT_GROUPS`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_GROUPS`
+  - child setup applies `setgroups` before `setgid` / `setuid` and before exec, across capture/inherit/stream modes.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a groups macro-surface test:
+  - passes the current gid as a one-element supplementary group list
+  - exercises run, spawn, and stream CommandExt groups entry points
+  - accepts child exit code `0` for capability-enabled environments and `127` for non-root Linux environments where `setgroups` is denied during child setup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter groups --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter groups --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `nm` confirms exported symbols for the groups CommandExt helpers.
+
+## Completed: 2026-07-06 Linux CommandExt uid/gid batch
+
+- Added Linux `std::os::unix::process::CommandExt::{uid,gid}`-style child identity configuration over the existing process spawn model:
+  - runtime/header exports `sa_std_process_run_command_ext_uid_gid`, `sa_std_process_spawn_command_ext_uid_gid`, and `sa_std_process_spawn_stream_command_ext_uid_gid`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_UID_GID`, `PROCESS_SPAWN_COMMAND_EXT_UID_GID`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_UID_GID`
+  - child setup applies `setgid` before `setuid` immediately before exec, across capture/inherit/stream modes.
+- Added current identity helpers for non-root verification:
+  - runtime/header exports `sa_std_process_user_id` and `sa_std_process_group_id`
+  - SA macro wrappers `PROCESS_USER_ID` and `PROCESS_GROUP_ID`.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a non-root-safe uid/gid test:
+  - formats the current uid/gid through `sa_fmt_u64_into`
+  - runs `/bin/sh -c 'test $(id -u) = "$1" && test $(id -g) = "$2"'` through `PROCESS_RUN_COMMAND_EXT_UID_GID`
+  - verifies the child exits successfully after setting uid/gid to the current process identity.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "uid gid" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`9 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "uid gid" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`9 passed`).
+  - `nm` confirms exported symbols for the uid/gid CommandExt and current identity helpers.
+
+## Next Batch
+
+- Continue the broader Linux std gap closure by re-auditing remaining Linux-only std facades that can be represented without Rust's trait/lifetime machinery.
+
+## Completed: 2026-07-06 Linux pidfd process batch
+
+- Added a Linux pidfd-capable process spawn path over the existing `CommandExt` facade:
+  - runtime/header exports `sa_std_process_run_command_ext_pidfd`, `sa_std_process_spawn_command_ext_pidfd`, and `sa_std_process_spawn_stream_command_ext_pidfd`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_PIDFD`, `PROCESS_SPAWN_COMMAND_EXT_PIDFD`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_PIDFD`
+  - process handles optionally retain a pidfd created after fork, and existing `wait` / `wait_raw` / `try_wait` / `try_wait_raw` / `kill` / `send_signal` paths use pidfd syscalls when available.
+- Added pidfd handle extraction and standalone pidfd operations:
+  - `PROCESS_PIDFD` duplicates the retained pidfd into an owned fd handle.
+  - `PROCESS_INTO_PIDFD` transfers the retained pidfd into an owned fd handle.
+  - `PIDFD_KILL`, `PIDFD_SEND_SIGNAL`, `PIDFD_WAIT`, `PIDFD_WAIT_RAW`, `PIDFD_TRY_WAIT`, and `PIDFD_TRY_WAIT_RAW` expose the Linux pidfd wait/signal subset.
+- Fixed process lifecycle behavior when a borrowed/transferred pidfd wait has already reaped the child: closing the original process handle now treats `ECHILD` as an already-consumed child state instead of tripping Zig std's `waitpid` unreachable branch.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a pidfd macro-surface test that covers pending `try_wait`, pidfd kill + raw wait-status signal decoding, `PROCESS_PIDFD`, and `PROCESS_INTO_PIDFD`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`8 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`8 passed`).
+
 ## Completed: 2026-07-05 Linux std parity batch
 
 - Tracking docs are now explicit: `tasks.md`, `progress.md`, and `current_plan.md` are the memory/acceptance set for this batch.
@@ -25,10 +364,6 @@ Current progress: 100%
 - Install sync status:
   - `./tools/install.sh --no-shell`: pass.
   - Installed payload root: `/home/vscode/.sa/std`.
-
-## Next Batch
-
-- Continue the broader Linux std gap closure, starting with pidfd handle/create_pidfd/wait/try_wait, then the remaining high-permission/destructive `CommandExt` subset (`uid` / `gid` / `groups` / `chroot` / in-place `exec`).
 
 ## Completed: 2026-07-05 Linux std parity batch
 
@@ -97,7 +432,7 @@ Current progress: 100%
 
 ## Next Linux Batch
 
-- Continue the broader Linux std audit. Next high-value gaps are Linux pidfd handle/create_pidfd/wait/try_wait pieces, the remaining high-permission/destructive `CommandExt` subset (`uid` / `gid` / `groups` / `chroot` / in-place `exec`), and any remaining Linux-only facade that can be represented without Rust's trait/lifetime machinery.
+- Continue the broader Linux std audit. Next high-value gaps are remaining Linux-only facades that can be represented without Rust's trait/lifetime machinery.
 
 ## Completed: 2026-07-05 Linux process-group signal batch
 

@@ -184,6 +184,14 @@
     %out_len = call @sa_fs_dir_entry_name_len(%entry)
 [END_MACRO]
 
+[MACRO] FS_DIR_ENTRY_FILE_NAME_REF_PTR %out_ptr, %entry
+    %out_ptr = call @sa_fs_dir_entry_file_name_ptr(%entry)
+[END_MACRO]
+
+[MACRO] FS_DIR_ENTRY_FILE_NAME_REF_LEN %out_len, %entry
+    %out_len = call @sa_fs_dir_entry_file_name_len(%entry)
+[END_MACRO]
+
 [MACRO] FS_DIR_ENTRY_KIND %out_kind, %entry
     %out_kind = call @sa_fs_dir_entry_kind(%entry)
 [END_MACRO]
@@ -502,6 +510,10 @@
 
 [MACRO] FS_MKFIFO %out_status, %path, %path_len, %mode
     %out_status = call @sa_fs_mkfifo(&%path, %path_len, %mode)
+[END_MACRO]
+
+[MACRO] FS_UNIX_MKFIFO %out_status, %path, %path_len, %mode
+    EXPAND FS_MKFIFO %out_status, %path, %path_len, %mode
 [END_MACRO]
 
 [MACRO] FS_READ_LINK %out_status, %out_buffer, %path, %path_len

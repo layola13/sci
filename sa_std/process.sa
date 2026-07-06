@@ -223,10 +223,58 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_process = load __process_run_ext_slot_%out_process+0 as u64
 [END_MACRO]
 
+[MACRO] PROCESS_RUN_COMMAND_EXT_PIDFD %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %create_pidfd
+    __process_run_ext_pidfd_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_run_command_ext_pidfd(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %create_pidfd, &__process_run_ext_pidfd_slot_%out_process)
+    %out_process = load __process_run_ext_pidfd_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_RUN_COMMAND_EXT_UID_GID %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid
+    __process_run_ext_uid_gid_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_run_command_ext_uid_gid(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid, &__process_run_ext_uid_gid_slot_%out_process)
+    %out_process = load __process_run_ext_uid_gid_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_RUN_COMMAND_EXT_GROUPS %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %groups, %groups_len, %has_groups
+    __process_run_ext_groups_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_run_command_ext_groups(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &%groups, %groups_len, %has_groups, &__process_run_ext_groups_slot_%out_process)
+    %out_process = load __process_run_ext_groups_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_RUN_COMMAND_EXT_CHROOT %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %chroot, %chroot_len, %has_chroot
+    __process_run_ext_chroot_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_run_command_ext_chroot(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &%chroot, %chroot_len, %has_chroot, &__process_run_ext_chroot_slot_%out_process)
+    %out_process = load __process_run_ext_chroot_slot_%out_process+0 as u64
+[END_MACRO]
+
 [MACRO] PROCESS_SPAWN_COMMAND_EXT %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
     __process_spawn_ext_slot_%out_process = stack_alloc 8
     %out_status = call @sa_std_process_spawn_command_ext(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &__process_spawn_ext_slot_%out_process)
     %out_process = load __process_spawn_ext_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_COMMAND_EXT_PIDFD %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %create_pidfd
+    __process_spawn_ext_pidfd_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_command_ext_pidfd(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %create_pidfd, &__process_spawn_ext_pidfd_slot_%out_process)
+    %out_process = load __process_spawn_ext_pidfd_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_COMMAND_EXT_UID_GID %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid
+    __process_spawn_ext_uid_gid_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_command_ext_uid_gid(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid, &__process_spawn_ext_uid_gid_slot_%out_process)
+    %out_process = load __process_spawn_ext_uid_gid_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_COMMAND_EXT_GROUPS %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %groups, %groups_len, %has_groups
+    __process_spawn_ext_groups_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_command_ext_groups(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &%groups, %groups_len, %has_groups, &__process_spawn_ext_groups_slot_%out_process)
+    %out_process = load __process_spawn_ext_groups_slot_%out_process+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_COMMAND_EXT_CHROOT %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %chroot, %chroot_len, %has_chroot
+    __process_spawn_ext_chroot_slot_%out_process = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_command_ext_chroot(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &%chroot, %chroot_len, %has_chroot, &__process_spawn_ext_chroot_slot_%out_process)
+    %out_process = load __process_spawn_ext_chroot_slot_%out_process+0 as u64
 [END_MACRO]
 
 [MACRO] PROCESS_SPAWN_STREAM_COMMAND_EXT %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
@@ -237,6 +285,50 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_process = load __process_stream_ext_proc_slot_%out_process+0 as u64
     %out_stdout = load __process_stream_ext_stdout_slot_%out_stdout+0 as u64
     %out_stderr = load __process_stream_ext_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_STREAM_COMMAND_EXT_PIDFD %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %create_pidfd
+    __process_stream_ext_pidfd_proc_slot_%out_process = stack_alloc 8
+    __process_stream_ext_pidfd_stdout_slot_%out_stdout = stack_alloc 8
+    __process_stream_ext_pidfd_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_stream_command_ext_pidfd(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %create_pidfd, &__process_stream_ext_pidfd_proc_slot_%out_process, &__process_stream_ext_pidfd_stdout_slot_%out_stdout, &__process_stream_ext_pidfd_stderr_slot_%out_stderr)
+    %out_process = load __process_stream_ext_pidfd_proc_slot_%out_process+0 as u64
+    %out_stdout = load __process_stream_ext_pidfd_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __process_stream_ext_pidfd_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_STREAM_COMMAND_EXT_UID_GID %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid
+    __process_stream_ext_uid_gid_proc_slot_%out_process = stack_alloc 8
+    __process_stream_ext_uid_gid_stdout_slot_%out_stdout = stack_alloc 8
+    __process_stream_ext_uid_gid_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_stream_command_ext_uid_gid(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid, &__process_stream_ext_uid_gid_proc_slot_%out_process, &__process_stream_ext_uid_gid_stdout_slot_%out_stdout, &__process_stream_ext_uid_gid_stderr_slot_%out_stderr)
+    %out_process = load __process_stream_ext_uid_gid_proc_slot_%out_process+0 as u64
+    %out_stdout = load __process_stream_ext_uid_gid_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __process_stream_ext_uid_gid_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_STREAM_COMMAND_EXT_GROUPS %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %groups, %groups_len, %has_groups
+    __process_stream_ext_groups_proc_slot_%out_process = stack_alloc 8
+    __process_stream_ext_groups_stdout_slot_%out_stdout = stack_alloc 8
+    __process_stream_ext_groups_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_stream_command_ext_groups(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &%groups, %groups_len, %has_groups, &__process_stream_ext_groups_proc_slot_%out_process, &__process_stream_ext_groups_stdout_slot_%out_stdout, &__process_stream_ext_groups_stderr_slot_%out_stderr)
+    %out_process = load __process_stream_ext_groups_proc_slot_%out_process+0 as u64
+    %out_stdout = load __process_stream_ext_groups_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __process_stream_ext_groups_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_STREAM_COMMAND_EXT_CHROOT %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %chroot, %chroot_len, %has_chroot
+    __process_stream_ext_chroot_proc_slot_%out_process = stack_alloc 8
+    __process_stream_ext_chroot_stdout_slot_%out_stdout = stack_alloc 8
+    __process_stream_ext_chroot_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_stream_command_ext_chroot(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &%chroot, %chroot_len, %has_chroot, &__process_stream_ext_chroot_proc_slot_%out_process, &__process_stream_ext_chroot_stdout_slot_%out_stdout, &__process_stream_ext_chroot_stderr_slot_%out_stderr)
+    %out_process = load __process_stream_ext_chroot_proc_slot_%out_process+0 as u64
+    %out_stdout = load __process_stream_ext_chroot_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __process_stream_ext_chroot_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_EXEC_COMMAND_EXT %out_status, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid, %groups, %groups_len, %has_groups, %chroot, %chroot_len, %has_chroot
+    %out_status = call @sa_std_process_exec_command_ext(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid, &%groups, %groups_len, %has_groups, &%chroot, %chroot_len, %has_chroot)
 [END_MACRO]
 
 [MACRO] PROCESS_RUN_ARG0 %out_status, %out_process, %argv, %argv_len, %arg0, %arg0_len
@@ -262,6 +354,14 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_pid = call @sa_std_process_parent_id()
 [END_MACRO]
 
+[MACRO] PROCESS_USER_ID %out_uid
+    %out_uid = call @sa_std_process_user_id()
+[END_MACRO]
+
+[MACRO] PROCESS_GROUP_ID %out_gid
+    %out_gid = call @sa_std_process_group_id()
+[END_MACRO]
+
 [MACRO] PROCESS_ABORT
     call @sa_std_process_abort()
 [END_MACRO]
@@ -270,6 +370,18 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     __process_child_id_slot_%out_pid = stack_alloc 4
     %out_status = call @sa_std_process_child_id(%process, &__process_child_id_slot_%out_pid)
     %out_pid = load __process_child_id_slot_%out_pid+0 as u32
+[END_MACRO]
+
+[MACRO] PROCESS_PIDFD %out_status, %out_pidfd, %process
+    __process_pidfd_slot_%out_pidfd = stack_alloc 8
+    %out_status = call @sa_std_process_pidfd(%process, &__process_pidfd_slot_%out_pidfd)
+    %out_pidfd = load __process_pidfd_slot_%out_pidfd+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_INTO_PIDFD %out_status, %out_pidfd, %process
+    __process_into_pidfd_slot_%out_pidfd = stack_alloc 8
+    %out_status = call @sa_std_process_into_pidfd(%process, &__process_into_pidfd_slot_%out_pidfd)
+    %out_pidfd = load __process_into_pidfd_slot_%out_pidfd+0 as u64
 [END_MACRO]
 
 [MACRO] PROCESS_WAIT %out_status, %out_code, %process
@@ -328,6 +440,46 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
 
 [MACRO] PROCESS_SEND_PROCESS_GROUP_SIGNAL %out_status, %process, %signal
     %out_status = call @sa_std_process_send_process_group_signal(%process, %signal)
+[END_MACRO]
+
+[MACRO] PROCESS_KILL_PROCESS_GROUP %out_status, %process
+    %out_status = call @sa_std_process_kill_process_group(%process)
+[END_MACRO]
+
+[MACRO] PIDFD_KILL %out_status, %pidfd
+    %out_status = call @sa_std_pidfd_kill(%pidfd)
+[END_MACRO]
+
+[MACRO] PIDFD_SEND_SIGNAL %out_status, %pidfd, %signal
+    %out_status = call @sa_std_pidfd_send_signal(%pidfd, %signal)
+[END_MACRO]
+
+[MACRO] PIDFD_WAIT %out_status, %out_code, %pidfd
+    __pidfd_wait_code_slot_%out_code = stack_alloc 4
+    %out_status = call @sa_std_pidfd_wait(%pidfd, &__pidfd_wait_code_slot_%out_code)
+    %out_code = load __pidfd_wait_code_slot_%out_code+0 as u32
+[END_MACRO]
+
+[MACRO] PIDFD_WAIT_RAW %out_status, %out_raw, %pidfd
+    __pidfd_wait_raw_slot_%out_raw = stack_alloc 4
+    %out_status = call @sa_std_pidfd_wait_raw(%pidfd, &__pidfd_wait_raw_slot_%out_raw)
+    %out_raw = load __pidfd_wait_raw_slot_%out_raw+0 as i32
+[END_MACRO]
+
+[MACRO] PIDFD_TRY_WAIT %out_status, %out_ready, %out_code, %pidfd
+    __pidfd_try_wait_ready_slot_%out_ready = stack_alloc 4
+    __pidfd_try_wait_code_slot_%out_code = stack_alloc 4
+    %out_status = call @sa_std_pidfd_try_wait(%pidfd, &__pidfd_try_wait_ready_slot_%out_ready, &__pidfd_try_wait_code_slot_%out_code)
+    %out_ready = load __pidfd_try_wait_ready_slot_%out_ready+0 as i32
+    %out_code = load __pidfd_try_wait_code_slot_%out_code+0 as u32
+[END_MACRO]
+
+[MACRO] PIDFD_TRY_WAIT_RAW %out_status, %out_ready, %out_raw, %pidfd
+    __pidfd_try_wait_raw_ready_slot_%out_ready = stack_alloc 4
+    __pidfd_try_wait_raw_slot_%out_raw = stack_alloc 4
+    %out_status = call @sa_std_pidfd_try_wait_raw(%pidfd, &__pidfd_try_wait_raw_ready_slot_%out_ready, &__pidfd_try_wait_raw_slot_%out_raw)
+    %out_ready = load __pidfd_try_wait_raw_ready_slot_%out_ready+0 as i32
+    %out_raw = load __pidfd_try_wait_raw_slot_%out_raw+0 as i32
 [END_MACRO]
 
 [MACRO] PROCESS_READ_STDOUT %out_status, %out_len, %process, %buf, %cap

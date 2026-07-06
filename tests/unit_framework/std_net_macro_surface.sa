@@ -1877,6 +1877,10 @@ L_FAIL_ACCEPT:
 
 L_STREAM_OPTIONS:
     EXPAND NET_TCP_STREAM_SET_NODELAY set_nodelay_status, client, SA_NET_SOCKET_OPTION_ENABLE
+    EXPAND NET_TCP_STREAM_SET_QUICKACK set_quickack_status, client, SA_NET_SOCKET_OPTION_DISABLE
+    EXPAND NET_TCP_STREAM_QUICKACK quickack_status, quickack_enabled, client
+    EXPAND NET_TCP_STREAM_SET_DEFERACCEPT set_deferaccept_status, client, 1
+    EXPAND NET_TCP_STREAM_DEFERACCEPT deferaccept_status, deferaccept_secs, client
     EXPAND NET_TCP_STREAM_SET_TTL set_ttl_status, client, 64
     EXPAND NET_TCP_STREAM_SET_READ_TIMEOUT set_read_timeout_status, server, NET_TEST_TIMEOUT_NS
     EXPAND NET_TCP_STREAM_SET_WRITE_TIMEOUT set_write_timeout_status, client, NET_TEST_TIMEOUT_NS
@@ -1891,6 +1895,12 @@ L_STREAM_OPTIONS:
     set_write_timeout_ok = eq set_write_timeout_status, 0
     nodelay_status_ok = eq nodelay_status, 0
     nodelay_value_ok = eq nodelay_enabled, 1
+    set_quickack_ok = eq set_quickack_status, 0
+    quickack_status_ok = eq quickack_status, 0
+    quickack_value_ok = eq quickack_enabled, 0
+    set_deferaccept_ok = eq set_deferaccept_status, 0
+    deferaccept_status_ok = eq deferaccept_status, 0
+    deferaccept_value_ok = eq deferaccept_secs, 1
     ttl_status_ok = eq ttl_status, 0
     stream_ttl_ok = eq stream_ttl, 64
     read_timeout_status_ok = eq read_timeout_status, 0
@@ -1904,14 +1914,20 @@ L_STREAM_OPTIONS:
     stream_ok03 = and stream_ok02, set_write_timeout_ok
     stream_ok04 = and stream_ok03, nodelay_status_ok
     stream_ok05 = and stream_ok04, nodelay_value_ok
-    stream_ok06 = and stream_ok05, ttl_status_ok
-    stream_ok07 = and stream_ok06, stream_ttl_ok
-    stream_ok08 = and stream_ok07, read_timeout_status_ok
-    stream_ok09 = and stream_ok08, read_timeout_ok
-    stream_ok10 = and stream_ok09, write_timeout_status_ok
-    stream_ok11 = and stream_ok10, write_timeout_ok
-    stream_ok12 = and stream_ok11, stream_error_status_ok
-    stream_options_ok = and stream_ok12, stream_error_ok
+    stream_ok06 = and stream_ok05, set_quickack_ok
+    stream_ok07 = and stream_ok06, quickack_status_ok
+    stream_ok08 = and stream_ok07, quickack_value_ok
+    stream_ok09 = and stream_ok08, set_deferaccept_ok
+    stream_ok10 = and stream_ok09, deferaccept_status_ok
+    stream_ok11 = and stream_ok10, deferaccept_value_ok
+    stream_ok12 = and stream_ok11, ttl_status_ok
+    stream_ok13 = and stream_ok12, stream_ttl_ok
+    stream_ok14 = and stream_ok13, read_timeout_status_ok
+    stream_ok15 = and stream_ok14, read_timeout_ok
+    stream_ok16 = and stream_ok15, write_timeout_status_ok
+    stream_ok17 = and stream_ok16, write_timeout_ok
+    stream_ok18 = and stream_ok17, stream_error_status_ok
+    stream_options_ok = and stream_ok18, stream_error_ok
     EXPAND NET_TCP_STREAM_CLOSE close_server_status, server
     EXPAND NET_TCP_STREAM_CLOSE close_client_status, client
     EXPAND NET_TCP_LISTENER_CLOSE close_listener_status, listener
@@ -1934,6 +1950,12 @@ L_FAIL_STREAM_OPTIONS:
     !close_client_status
     !close_server_status
     !stream_options_ok
+    !stream_ok18
+    !stream_ok17
+    !stream_ok16
+    !stream_ok15
+    !stream_ok14
+    !stream_ok13
     !stream_ok12
     !stream_ok11
     !stream_ok10
@@ -1954,6 +1976,12 @@ L_FAIL_STREAM_OPTIONS:
     !read_timeout_status_ok
     !stream_ttl_ok
     !ttl_status_ok
+    !deferaccept_value_ok
+    !deferaccept_status_ok
+    !set_deferaccept_ok
+    !quickack_value_ok
+    !quickack_status_ok
+    !set_quickack_ok
     !nodelay_value_ok
     !nodelay_status_ok
     !set_write_timeout_ok
@@ -1968,6 +1996,12 @@ L_FAIL_STREAM_OPTIONS:
     !read_timeout_status
     !stream_ttl
     !ttl_status
+    !deferaccept_secs
+    !deferaccept_status
+    !set_deferaccept_status
+    !quickack_enabled
+    !quickack_status
+    !set_quickack_status
     !nodelay_enabled
     !nodelay_status
     !set_write_timeout_status
