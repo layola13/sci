@@ -4,6 +4,23 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf from_utf8_lossy invalid-sequence parity correction
+
+- Tightened `STRING_BUF_FROM_UTF8_LOSSY` / owned-Vec lossy semantics to replace one invalid UTF-8 sequence with one U+FFFD, rather than replacing each invalid continuation byte independently.
+- Added runtime helper logic to return the consumed invalid-sequence width for lossy decoding.
+- Updated `std_string_macro_surface.sa` coverage with the Rust-doc-shaped sequence `F0 90 80 W`, which now decodes to `�W` for that invalid sequence plus following ASCII.
+- Validation status:
+  - Source focused `from_utf8 lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - Runtime export check for `sa_str_utf8_lossy_next`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf8 lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf from_utf8_lossy owned-Vec facade batch
 
 - Continued String Rust API parity work with the supportable `String::from_utf8_lossy_owned` subset.
@@ -33,7 +50,7 @@ Current progress: 100%
   - `STRING_BUF_FROM_UTF8_LOSSY`
 - Added runtime helper/export:
   - `sa_str_utf8_lossy_next`
-- Semantics: scans a byte slice, appends valid UTF-8 codepoints unchanged, and appends U+FFFD for invalid bytes before continuing. The macro returns an owned `StringBuf`.
+- Semantics: scans a byte slice, appends valid UTF-8 codepoints unchanged, and appends U+FFFD for invalid UTF-8 sequences before continuing. The macro returns an owned `StringBuf`.
 - Scope note: this is the SA owned-StringBuf shape; it does not claim Rust's `Cow<'_, str>` borrowed/owned object model.
 - Updated `std_string_macro_surface.sa` coverage:
   - valid `aé🙂z` remains unchanged.

@@ -9722,6 +9722,17 @@ fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: u
     return .{ .scalar = ((@as(u32, b0) & 0x07) << 18) | ((@as(u32, b1) & 0x3f) << 12) | ((@as(u32, b2) & 0x3f) << 6) | (@as(u32, b3) & 0x3f), .width = 4 };
 }
 
+fn utf8LossyInvalidWidth(bytes: []const u8, index: usize) usize {
+    const b0 = bytes[index];
+    const expected_width: usize = if (b0 >= 0xc2 and b0 <= 0xdf) 2 else if (b0 >= 0xe0 and b0 <= 0xef) 3 else if (b0 >= 0xf0 and b0 <= 0xf4) 4 else return 1;
+    var width: usize = 1;
+    while (width < expected_width and index + width < bytes.len) : (width += 1) {
+        const byte = bytes[index + width];
+        if (byte < 0x80 or byte > 0xbf) break;
+    }
+    return width;
+}
+
 fn utf8CharRangeAt(bytes: []const u8, char_index: u64) !struct { start: usize, len: usize, scalar: u32 } {
     var byte_index: usize = 0;
     var current: u64 = 0;
@@ -9789,7 +9800,7 @@ pub export fn sa_str_utf8_lossy_next(ptr: ?[*]const u8, len: u64, byte_index: u6
     if (idx >= bytes.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const decoded = utf8ScalarAt(bytes, idx) catch {
         codepoint_ptr.* = 65533;
-        len_ptr.* = 1;
+        len_ptr.* = @as(u64, @intCast(utf8LossyInvalidWidth(bytes, idx)));
         return finish(SA_STD_OK);
     };
     codepoint_ptr.* = decoded.scalar;

@@ -85,6 +85,7 @@
 @const UTF8_E_SMILE = utf8:"é🙂"
 @const UTF8_A_Z = utf8:"az"
 @const UTF8_LOSSY_EXPECTED = utf8:"a�(�"
+@const UTF8_LOSSY_SEQUENCE_EXPECTED = utf8:"a�W"
 @const UTF16_LOSSY_EXPECTED = utf8:"a�z�"
 @const UTF16_ENDIAN_LOSSY_EXPECTED = utf8:"a�z��"
 @const BUF_DRAIN_SOURCE = utf8:"rust-std"
@@ -3273,6 +3274,7 @@ L_STRING_BUF_UTF16_ENDIAN_LOSSY_OK:
 L_ENTRY:
     EXPAND STR_FROM_PARTS valid_expected, &UTF8_BOUNDARY_TEXT, 8
     EXPAND STR_FROM_PARTS lossy_expected, &UTF8_LOSSY_EXPECTED, 8
+    EXPAND STR_FROM_PARTS sequence_expected, &UTF8_LOSSY_SEQUENCE_EXPECTED, 5
 
     bad_ptr = stack_alloc 4
     store bad_ptr+0, 97 as u8
@@ -3290,6 +3292,21 @@ L_ENTRY:
     EXPAND STRING_BUF_FROM_UTF8_LOSSY lossy_buf, bad_bytes
     EXPAND STRING_BUF_AS_STR lossy_view, lossy_buf
     EXPAND STR_EQ lossy_eq, lossy_view, lossy_expected
+
+    sequence_ptr = stack_alloc 5
+    store sequence_ptr+0, 97 as u8
+    sequence_ptr_1 = ptr_add sequence_ptr, 1
+    store sequence_ptr_1+0, 240 as u8
+    sequence_ptr_2 = ptr_add sequence_ptr, 2
+    store sequence_ptr_2+0, 144 as u8
+    sequence_ptr_3 = ptr_add sequence_ptr, 3
+    store sequence_ptr_3+0, 128 as u8
+    sequence_ptr_4 = ptr_add sequence_ptr, 4
+    store sequence_ptr_4+0, 87 as u8
+    EXPAND STR_FROM_PARTS sequence_bytes, sequence_ptr, 5
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY sequence_buf, sequence_bytes
+    EXPAND STRING_BUF_AS_STR sequence_view, sequence_buf
+    EXPAND STR_EQ sequence_eq, sequence_view, sequence_expected
 
     EXPAND VEC_WITH_CAPACITY owned_valid_vec, 8, 1
     EXPAND VEC_PUSH owned_valid_vec, 97, 1
@@ -3317,19 +3334,28 @@ L_ENTRY:
     EXPAND STR_EQ owned_lossy_eq, owned_lossy_view, lossy_expected
 
     ok01 = and valid_eq, lossy_eq
-    ok02 = and ok01, owned_valid_eq
-    ok03 = and ok02, owned_valid_reused
-    ok = and ok03, owned_lossy_eq
+    ok02 = and ok01, sequence_eq
+    ok03 = and ok02, owned_valid_eq
+    ok04 = and ok03, owned_valid_reused
+    ok = and ok04, owned_lossy_eq
     !valid_expected
     !lossy_expected
+    !sequence_expected
     !bad_ptr_1
     !bad_ptr_2
     !bad_ptr_3
     !bad_bytes
+    !sequence_ptr_1
+    !sequence_ptr_2
+    !sequence_ptr_3
+    !sequence_ptr_4
+    !sequence_bytes
     !valid_view
     !valid_eq
     !lossy_view
     !lossy_eq
+    !sequence_view
+    !sequence_eq
     !owned_valid_ptr_before
     !owned_valid_ptr_after
     !owned_valid_view
@@ -3340,8 +3366,10 @@ L_ENTRY:
     !ok01
     !ok02
     !ok03
+    !ok04
     EXPAND STRING_BUF_FREE owned_lossy_buf
     EXPAND STRING_BUF_FREE owned_valid_buf
+    EXPAND STRING_BUF_FREE sequence_buf
     EXPAND STRING_BUF_FREE lossy_buf
     EXPAND STRING_BUF_FREE valid_buf
     br ok -> L_STRING_BUF_FROM_UTF8_LOSSY_OK, L_STRING_BUF_FROM_UTF8_LOSSY_FAIL

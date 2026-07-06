@@ -66,8 +66,9 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `StringBuf` Rust API parity continuation: completed supportable strict `String::from_utf16le` / `String::from_utf16be` endian byte-slice constructor shape.
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf16le_lossy` / `String::from_utf16be_lossy` endian byte-slice constructor shape with U+FFFD replacement for invalid surrogate units and odd trailing bytes.
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8(Vec<u8>)` owned-Vec constructor shape with success zero-copy move and failure error-Vec preservation.
-   - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8_lossy` owned-StringBuf constructor shape with U+FFFD replacement for invalid UTF-8 bytes.
+   - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8_lossy` owned-StringBuf constructor shape with U+FFFD replacement for invalid UTF-8 sequences.
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8_lossy_owned` owned-Vec constructor shape with valid zero-copy move and invalid lossy rebuild.
+   - `StringBuf` Rust API parity correction: lossy UTF-8 decoding now consumes a contiguous invalid UTF-8 sequence as one replacement unit, matching Rust's `utf8_chunks` behavior for cases like `F0 90 80 W`.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -160,6 +161,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the StringBuf from_utf8 Vec facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf from_utf8_lossy facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf from_utf8_lossy owned-Vec facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the StringBuf from_utf8_lossy invalid-sequence correction batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
