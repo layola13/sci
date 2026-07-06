@@ -472,16 +472,32 @@
     %out_status = call @sa_fs_symlink(&%target_path, %target_len, &%link_path, %link_len)
 [END_MACRO]
 
+[MACRO] FS_UNIX_SYMLINK %out_status, %target_path, %target_len, %link_path, %link_len
+    EXPAND FS_SYMLINK %out_status, %target_path, %target_len, %link_path, %link_len
+[END_MACRO]
+
 [MACRO] FS_CHOWN %out_status, %path, %path_len, %uid, %gid, %has_uid, %has_gid
     %out_status = call @sa_fs_chown(&%path, %path_len, %uid, %gid, %has_uid, %has_gid)
+[END_MACRO]
+
+[MACRO] FS_UNIX_CHOWN %out_status, %path, %path_len, %uid, %gid, %has_uid, %has_gid
+    EXPAND FS_CHOWN %out_status, %path, %path_len, %uid, %gid, %has_uid, %has_gid
 [END_MACRO]
 
 [MACRO] FS_LCHOWN %out_status, %path, %path_len, %uid, %gid, %has_uid, %has_gid
     %out_status = call @sa_fs_lchown(&%path, %path_len, %uid, %gid, %has_uid, %has_gid)
 [END_MACRO]
 
+[MACRO] FS_UNIX_LCHOWN %out_status, %path, %path_len, %uid, %gid, %has_uid, %has_gid
+    EXPAND FS_LCHOWN %out_status, %path, %path_len, %uid, %gid, %has_uid, %has_gid
+[END_MACRO]
+
 [MACRO] FS_FCHOWN %out_status, %file, %uid, %gid, %has_uid, %has_gid
     %out_status = call @sa_fs_fchown(%file, %uid, %gid, %has_uid, %has_gid)
+[END_MACRO]
+
+[MACRO] FS_UNIX_FCHOWN %out_status, %file, %uid, %gid, %has_uid, %has_gid
+    EXPAND FS_FCHOWN %out_status, %file, %uid, %gid, %has_uid, %has_gid
 [END_MACRO]
 
 [MACRO] FS_CHOWN_RAW %out_status, %path, %path_len, %uid, %gid
@@ -506,6 +522,10 @@
     %out_status = call @sa_fs_fchown(%file, %uid, %gid, __fs_fchown_has_uid_%out_status, __fs_fchown_has_gid_%out_status)
     !__fs_fchown_has_gid_%out_status
     !__fs_fchown_has_uid_%out_status
+[END_MACRO]
+
+[MACRO] FS_UNIX_FCHOWN_RAW %out_status, %file, %uid, %gid
+    EXPAND FS_FCHOWN_RAW %out_status, %file, %uid, %gid
 [END_MACRO]
 
 [MACRO] FS_MKFIFO %out_status, %path, %path_len, %mode

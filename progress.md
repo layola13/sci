@@ -4,6 +4,27 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix fs symlink/chown alias batch
+
+- Added Rust-named Unix filesystem macro aliases over existing runtime helpers:
+  - `FS_UNIX_SYMLINK`
+  - `FS_UNIX_CHOWN`
+  - `FS_UNIX_LCHOWN`
+  - `FS_UNIX_FCHOWN`
+  - `FS_UNIX_FCHOWN_RAW`
+  - runtime continues to use the existing `sa_fs_symlink`, `sa_fs_chown`, `sa_fs_lchown`, and `sa_fs_fchown` exports, so this batch does not add new ABI symbols.
+- Updated `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` coverage:
+  - chown test now creates the symlink and applies ownership helpers through the `FS_UNIX_*` names.
+  - nofollow/symlink coverage now uses `FS_UNIX_SYMLINK`.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter chown --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter chown --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+
 ## Completed: 2026-07-06 Unix SocketAddr as_abstract_name alias batch
 
 - Added Linux `std::os::linux::net::SocketAddrExt::as_abstract_name`-style named macro aliases over the existing Unix abstract-name address accessors:

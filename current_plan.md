@@ -22,6 +22,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::unix::fs::DirEntryExt2::file_name_ref`: named file-name reference facade over existing directory-entry name pointer/length storage.
    - `std::os::unix::fs::mkfifo`: named FIFO creation macro surface over existing Linux `sa_fs_mkfifo` runtime.
    - `std::os::unix::fs::{chown,lchown,fchown}`: Linux ownership helpers with explicit uid/gid presence flags and Rust raw sentinel macros.
+   - `std::os::unix::fs::{symlink,chown,lchown,fchown}`: Rust-named Unix alias macros over existing symlink/ownership helpers.
    - `std::os::linux::fs::MetadataExt`: Rust-named `st_*` field surface for Linux stat parity.
    - `std::os::unix::process::parent_id`.
    - `std::os::unix::process::ChildExt::send_signal`.
@@ -80,6 +81,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the UnixListener incoming named surface batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix SocketAddr pathname batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix SocketAddr as_abstract_name alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Unix fs symlink/chown alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -89,6 +91,8 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Updated directory-entry macro-surface test passes with DirEntryExt2 file_name_ref assertions:
   - `std_fs_dir_entry_ext_macro_surface.sa`
 - Updated Unix fs macro-surface test passes with `FS_UNIX_MKFIFO` assertions:
+  - `std_fs_unix_ext_macro_surface.sa`
+- Updated Unix fs macro-surface test passes with `FS_UNIX_SYMLINK` and `FS_UNIX_*CHOWN*` assertions:
   - `std_fs_unix_ext_macro_surface.sa`
 - Updated process macro-surface test passes with raw wait-status assertions:
   - `std_process_macro_surface.sa`
@@ -158,18 +162,19 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the UnixListener incoming named surface install sync.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the Unix SocketAddr pathname install sync.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the Unix SocketAddr as_abstract_name alias install sync.
+- Installed-state smoke passes for `std_fs_unix_ext_macro_surface.sa` after the Unix fs symlink/chown alias install sync.
 - `src/runtime/sa_std.h`, `sa_std/*.sai`, `sa_std/*.sa`, and installed `/home/vscode/.sa/std` expose the same ABI after `./tools/install.sh --no-shell`.
 
 ## Current Status
 
-- Source/facade/test changes are complete for the Unix SocketAddr as_abstract_name alias batch.
-- This batch adds no runtime/header ABI symbols; it aliases existing abstract-name pointer/length helpers.
-- Focused source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa --filter abstract` passes (`1 passed`).
-- Full source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa` passes (`4 passed`).
+- Source/facade/test changes are complete for the Unix fs symlink/chown alias batch.
+- This batch adds no runtime/header ABI symbols; it aliases existing Unix fs symlink/ownership helpers.
+- Focused source-std Unix fs `sa test` for `std_fs_unix_ext_macro_surface.sa --filter chown` passes (`1 passed`).
+- Full source-std Unix fs `sa test` for `std_fs_unix_ext_macro_surface.sa` passes (`6 passed`).
 - `zig build unit-framework --summary all` passes.
 - Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
-- Installed-state focused Unix socket smoke for `std_net_unix_macro_surface.sa --filter abstract` passes (`1 passed`).
-- Installed-state full Unix socket smoke for `std_net_unix_macro_surface.sa` passes (`4 passed`).
+- Installed-state focused Unix fs smoke for `std_fs_unix_ext_macro_surface.sa --filter chown` passes (`1 passed`).
+- Installed-state full Unix fs smoke for `std_fs_unix_ext_macro_surface.sa` passes (`6 passed`).
 
 ## Notes
 
