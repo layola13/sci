@@ -145,6 +145,24 @@
     EXPAND STRING_BUF_PUSH_STR %out_string, %bytes_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_FROM_UTF8 %out_ok, %out_string, %bytes_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    EXPAND STR_IS_UTF8 __string_buf_from_utf8_valid_%out_ok, %bytes_slice
+    br __string_buf_from_utf8_valid_%out_ok -> L_STRING_BUF_FROM_UTF8_OK_%out_ok, L_STRING_BUF_FROM_UTF8_MISS_%out_ok
+
+L_STRING_BUF_FROM_UTF8_OK_%out_ok:
+    EXPAND STRING_BUF_PUSH_STR %out_string, %bytes_slice
+    %out_ok = add 0, 1
+    !__string_buf_from_utf8_valid_%out_ok
+    jmp L_STRING_BUF_FROM_UTF8_DONE_%out_ok
+
+L_STRING_BUF_FROM_UTF8_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_from_utf8_valid_%out_ok
+
+L_STRING_BUF_FROM_UTF8_DONE_%out_ok:
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF8_ASCII %out_ok, %out_string, %bytes_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_ascii_ptr_%out_ok = load %bytes_slice+Slice_ptr as ptr

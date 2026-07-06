@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf from_utf8 facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf8` subset.
+- Added full UTF-8 validating constructor macro surface:
+  - `STRING_BUF_TRY_FROM_UTF8`
+- Semantics: constructs an empty `StringBuf`, validates the supplied byte slice with the existing UTF-8 validator, copies the bytes into the StringBuf on success, and returns `ok=0` with an empty StringBuf on invalid UTF-8.
+- Scope note: this is the SA byte-slice constructor shape; it does not claim Rust's `FromUtf8Error` object model or zero-copy Vec ownership transfer.
+- Updated `std_string_macro_surface.sa` coverage:
+  - valid multi-byte UTF-8 `aé🙂z` succeeds and round-trips through `STR_EQ`.
+  - invalid bytes containing `0xff` fail and leave the output empty.
+  - existing ASCII-only constructor coverage remains intact.
+- Validation status:
+  - Source focused `utf8 and replace` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `utf8 and replace` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 Vec spare capacity facade batch
 
 - Continued Vec Rust API parity work with the supportable `Vec::spare_capacity_mut` / `Vec::split_at_spare_mut` subset.

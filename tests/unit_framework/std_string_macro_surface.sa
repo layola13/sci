@@ -757,6 +757,7 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS replace_multi_expected, &BUF_REPLACE_MULTI_EXPECTED, 6
     EXPAND STR_FROM_PARTS remove_multi_expected, &BUF_REMOVE_MULTI_EXPECTED, 4
     EXPAND STR_FROM_PARTS replace_long_needle, &BUF_REPLACE_LONG_NEEDLE, 12
+    EXPAND STR_FROM_PARTS utf8_full_expected, &UTF8_BOUNDARY_TEXT, 8
     EXPAND STR_EMPTY empty_needle
 
     bad_ptr = stack_alloc 3
@@ -775,6 +776,11 @@ L_ENTRY:
     EXPAND STR_EQ ascii_eq, ascii_view, left
     EXPAND STRING_BUF_TRY_FROM_UTF8_ASCII ascii_bad_ok, ascii_bad_buf, bad_bytes
     EXPAND STRING_BUF_LEN ascii_bad_len, ascii_bad_buf
+    EXPAND STRING_BUF_TRY_FROM_UTF8 utf8_full_ok, utf8_full_buf, utf8_full_expected
+    EXPAND STRING_BUF_AS_STR utf8_full_view, utf8_full_buf
+    EXPAND STR_EQ utf8_full_eq, utf8_full_view, utf8_full_expected
+    EXPAND STRING_BUF_TRY_FROM_UTF8 utf8_bad_ok, utf8_bad_buf, bad_bytes
+    EXPAND STRING_BUF_LEN utf8_bad_len, utf8_bad_buf
     EXPAND STRING_BUF_REPLACE replaced_buf, replace_source, replace_needle, replace_with
     EXPAND STRING_BUF_AS_STR replaced_view, replaced_buf
     EXPAND STR_EQ replaced_eq, replaced_view, replace_expected
@@ -821,6 +827,10 @@ L_ENTRY:
     ascii_value_ok = eq ascii_eq, 1
     ascii_bad_flag_ok = eq ascii_bad_ok, 0
     ascii_bad_empty_ok = eq ascii_bad_len, 0
+    utf8_full_flag_ok = eq utf8_full_ok, 1
+    utf8_full_value_ok = eq utf8_full_eq, 1
+    utf8_bad_flag_ok = eq utf8_bad_ok, 0
+    utf8_bad_empty_ok = eq utf8_bad_len, 0
     replace_value_ok = eq replaced_eq, 1
     replace_first_flag_ok = eq replace_first_ok, 1
     replace_first_value_ok = eq replace_first_eq, 1
@@ -840,21 +850,25 @@ L_ENTRY:
     ok02 = and ok01, ascii_value_ok
     ok03 = and ok02, ascii_bad_flag_ok
     ok04 = and ok03, ascii_bad_empty_ok
-    ok05 = and ok04, replace_value_ok
-    ok06 = and ok05, replace_first_flag_ok
-    ok07 = and ok06, replace_first_value_ok
-    ok08 = and ok07, replace_last_flag_ok
-    ok09 = and ok08, replace_last_value_ok
-    ok10 = and ok09, replace_miss_flag_ok
-    ok11 = and ok10, replace_miss_value_ok
-    ok12 = and ok11, remove_matches_value_ok
-    ok13 = and ok12, remove_multi_value_ok
-    ok14 = and ok13, remove_miss_value_ok
-    ok15 = and ok14, replace_empty_value_ok
-    ok16 = and ok15, replace_multi_value_ok
-    ok17 = and ok16, replace_long_value_ok
-    ok18 = and ok17, bytes_len_ok
-    ok = and ok18, first_byte_ok
+    ok05 = and ok04, utf8_full_flag_ok
+    ok06 = and ok05, utf8_full_value_ok
+    ok07 = and ok06, utf8_bad_flag_ok
+    ok08 = and ok07, utf8_bad_empty_ok
+    ok09 = and ok08, replace_value_ok
+    ok10 = and ok09, replace_first_flag_ok
+    ok11 = and ok10, replace_first_value_ok
+    ok12 = and ok11, replace_last_flag_ok
+    ok13 = and ok12, replace_last_value_ok
+    ok14 = and ok13, replace_miss_flag_ok
+    ok15 = and ok14, replace_miss_value_ok
+    ok16 = and ok15, remove_matches_value_ok
+    ok17 = and ok16, remove_multi_value_ok
+    ok18 = and ok17, remove_miss_value_ok
+    ok19 = and ok18, replace_empty_value_ok
+    ok20 = and ok19, replace_multi_value_ok
+    ok21 = and ok20, replace_long_value_ok
+    ok22 = and ok21, bytes_len_ok
+    ok = and ok22, first_byte_ok
     !left
     !replace_source
     !replace_needle
@@ -870,6 +884,7 @@ L_ENTRY:
     !replace_multi_expected
     !remove_multi_expected
     !replace_long_needle
+    !utf8_full_expected
     !empty_needle
     !bad_ptr_1
     !bad_ptr_2
@@ -881,6 +896,11 @@ L_ENTRY:
     !ascii_eq
     !ascii_bad_ok
     !ascii_bad_len
+    !utf8_full_ok
+    !utf8_full_view
+    !utf8_full_eq
+    !utf8_bad_ok
+    !utf8_bad_len
     !replaced_view
     !replaced_eq
     !replace_first_ok
@@ -912,6 +932,10 @@ L_ENTRY:
     !ascii_value_ok
     !ascii_bad_flag_ok
     !ascii_bad_empty_ok
+    !utf8_full_flag_ok
+    !utf8_full_value_ok
+    !utf8_bad_flag_ok
+    !utf8_bad_empty_ok
     !replace_value_ok
     !replace_first_flag_ok
     !replace_first_value_ok
@@ -945,9 +969,15 @@ L_ENTRY:
     !ok16
     !ok17
     !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
     EXPAND STRING_BUF_FREE bytes_vec
     EXPAND STRING_BUF_FREE ascii_buf
     EXPAND STRING_BUF_FREE ascii_bad_buf
+    EXPAND STRING_BUF_FREE utf8_full_buf
+    EXPAND STRING_BUF_FREE utf8_bad_buf
     EXPAND STRING_BUF_FREE replaced_buf
     EXPAND STRING_BUF_FREE replace_first_buf
     EXPAND STRING_BUF_FREE replace_last_buf
