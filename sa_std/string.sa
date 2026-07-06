@@ -663,6 +663,60 @@ L_STRING_BUF_REPLACE_END_%out_ok:
     EXPAND STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_REPLACE_FIRST %out_ok, %string_reg, %needle_slice, %replace_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_replace_first_view_%out_ok, %string_reg
+    EXPAND STR_TRY_FIND __string_buf_replace_first_found_%out_ok, __string_buf_replace_first_index_%out_ok, __string_buf_replace_first_view_%out_ok, %needle_slice
+    __string_buf_replace_first_len_%out_ok = load %needle_slice+Slice_len as u64
+    !__string_buf_replace_first_view_%out_ok
+    br __string_buf_replace_first_found_%out_ok -> L_STRING_BUF_REPLACE_FIRST_HIT_%out_ok, L_STRING_BUF_REPLACE_FIRST_MISS_%out_ok
+
+L_STRING_BUF_REPLACE_FIRST_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, __string_buf_replace_first_index_%out_ok, __string_buf_replace_first_len_%out_ok, %replace_slice
+    !__string_buf_replace_first_len_%out_ok
+    !__string_buf_replace_first_index_%out_ok
+    !__string_buf_replace_first_found_%out_ok
+    jmp L_STRING_BUF_REPLACE_FIRST_END_%out_ok
+
+L_STRING_BUF_REPLACE_FIRST_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_replace_first_len_%out_ok
+    !__string_buf_replace_first_index_%out_ok
+    !__string_buf_replace_first_found_%out_ok
+
+L_STRING_BUF_REPLACE_FIRST_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_FIRST %out_ok, %string_reg, %needle_slice, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST %out_ok, %string_reg, %needle_slice, %replace_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_REPLACE_LAST %out_ok, %string_reg, %needle_slice, %replace_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_replace_last_view_%out_ok, %string_reg
+    EXPAND STR_TRY_RFIND __string_buf_replace_last_found_%out_ok, __string_buf_replace_last_index_%out_ok, __string_buf_replace_last_view_%out_ok, %needle_slice
+    __string_buf_replace_last_len_%out_ok = load %needle_slice+Slice_len as u64
+    !__string_buf_replace_last_view_%out_ok
+    br __string_buf_replace_last_found_%out_ok -> L_STRING_BUF_REPLACE_LAST_HIT_%out_ok, L_STRING_BUF_REPLACE_LAST_MISS_%out_ok
+
+L_STRING_BUF_REPLACE_LAST_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, __string_buf_replace_last_index_%out_ok, __string_buf_replace_last_len_%out_ok, %replace_slice
+    !__string_buf_replace_last_len_%out_ok
+    !__string_buf_replace_last_index_%out_ok
+    !__string_buf_replace_last_found_%out_ok
+    jmp L_STRING_BUF_REPLACE_LAST_END_%out_ok
+
+L_STRING_BUF_REPLACE_LAST_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_replace_last_len_%out_ok
+    !__string_buf_replace_last_index_%out_ok
+    !__string_buf_replace_last_found_%out_ok
+
+L_STRING_BUF_REPLACE_LAST_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_LAST %out_ok, %string_reg, %needle_slice, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_LAST %out_ok, %string_reg, %needle_slice, %replace_slice
+[END_MACRO]
+
 [MACRO] STR_EMPTY %out_slice
     __str_empty_ptr_%out_slice = 0 as ptr
     EXPAND STR_FROM_PARTS %out_slice, __str_empty_ptr_%out_slice, 0

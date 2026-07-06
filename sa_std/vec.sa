@@ -320,6 +320,23 @@ L_VEC_SET_TYPED_END_%value:
     EXPAND VEC_PUSH %vec_reg, %value, 8
 [END_MACRO]
 
+[MACRO] VEC_PUSH_MUT %out_ptr, %vec_reg, %value, %elem_size
+    EXPAND VEC_PUSH %vec_reg, %value, %elem_size
+    __vec_push_mut_ptr_%out_ptr = load %vec_reg+Vec_ptr as ptr
+    __vec_push_mut_len_%out_ptr = load %vec_reg+Vec_len as u64
+    __vec_push_mut_index_%out_ptr = sub __vec_push_mut_len_%out_ptr, 1
+    __vec_push_mut_off_%out_ptr = mul __vec_push_mut_index_%out_ptr, %elem_size
+    %out_ptr = ptr_add __vec_push_mut_ptr_%out_ptr, __vec_push_mut_off_%out_ptr
+    !__vec_push_mut_off_%out_ptr
+    !__vec_push_mut_index_%out_ptr
+    !__vec_push_mut_len_%out_ptr
+    !__vec_push_mut_ptr_%out_ptr
+[END_MACRO]
+
+[MACRO] VEC_PUSH_MUT_U64 %out_ptr, %vec_reg, %value
+    EXPAND VEC_PUSH_MUT %out_ptr, %vec_reg, %value, 8
+[END_MACRO]
+
 [MACRO] VEC_FREE %vec_reg
     call @sa_vec_free(^%vec_reg)
 [END_MACRO]
@@ -990,6 +1007,40 @@ L_VEC_INSERT_END_%out_ok:
 
 [MACRO] VEC_INSERT_U64 %out_ok, %vec_reg, %index, %value
     EXPAND VEC_TRY_INSERT_U64 %out_ok, %vec_reg, %index, %value
+[END_MACRO]
+
+[MACRO] VEC_TRY_INSERT_MUT %out_ok, %out_ptr, %vec_reg, %index, %value, %elem_size
+    EXPAND VEC_TRY_INSERT __vec_insert_mut_ok_%out_ok, %vec_reg, %index, %value, %elem_size
+    br __vec_insert_mut_ok_%out_ok -> L_VEC_INSERT_MUT_HIT_%out_ok, L_VEC_INSERT_MUT_MISS_%out_ok
+
+L_VEC_INSERT_MUT_HIT_%out_ok:
+    __vec_insert_mut_ptr_%out_ok = load %vec_reg+Vec_ptr as ptr
+    __vec_insert_mut_off_%out_ok = mul %index, %elem_size
+    %out_ptr = ptr_add __vec_insert_mut_ptr_%out_ok, __vec_insert_mut_off_%out_ok
+    %out_ok = add 0, 1
+    !__vec_insert_mut_off_%out_ok
+    !__vec_insert_mut_ptr_%out_ok
+    !__vec_insert_mut_ok_%out_ok
+    jmp L_VEC_INSERT_MUT_END_%out_ok
+
+L_VEC_INSERT_MUT_MISS_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__vec_insert_mut_ok_%out_ok
+
+L_VEC_INSERT_MUT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_TRY_INSERT_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index, %value
+    EXPAND VEC_TRY_INSERT_MUT %out_ok, %out_ptr, %vec_reg, %index, %value, 8
+[END_MACRO]
+
+[MACRO] VEC_INSERT_MUT %out_ok, %out_ptr, %vec_reg, %index, %value, %elem_size
+    EXPAND VEC_TRY_INSERT_MUT %out_ok, %out_ptr, %vec_reg, %index, %value, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_INSERT_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index, %value
+    EXPAND VEC_TRY_INSERT_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index, %value
 [END_MACRO]
 
 [MACRO] VEC_DEDUP_U64 %out_len, %vec_reg

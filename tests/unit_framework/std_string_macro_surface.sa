@@ -44,6 +44,8 @@
 @const BUF_REPLACE_NEEDLE = utf8:"-"
 @const BUF_REPLACE_WITH = utf8:"::"
 @const BUF_REPLACE_ALL_EXPECTED = utf8:"a::b::a::b"
+@const BUF_REPLACE_FIRST_EXPECTED = utf8:"a::b-a-b"
+@const BUF_REPLACE_LAST_EXPECTED = utf8:"a-b-a::b"
 @const BUF_REPLACE_EMPTY_EXPECTED = utf8:"a-b-a-b"
 @const BUF_REPLACE_MULTI_SOURCE = utf8:"banana ana"
 @const BUF_REPLACE_MULTI_NEEDLE = utf8:"ana"
@@ -635,6 +637,8 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS replace_needle, &BUF_REPLACE_NEEDLE, 1
     EXPAND STR_FROM_PARTS replace_with, &BUF_REPLACE_WITH, 2
     EXPAND STR_FROM_PARTS replace_expected, &BUF_REPLACE_ALL_EXPECTED, 10
+    EXPAND STR_FROM_PARTS replace_first_expected, &BUF_REPLACE_FIRST_EXPECTED, 8
+    EXPAND STR_FROM_PARTS replace_last_expected, &BUF_REPLACE_LAST_EXPECTED, 8
     EXPAND STR_FROM_PARTS replace_empty_expected, &BUF_REPLACE_EMPTY_EXPECTED, 7
     EXPAND STR_FROM_PARTS replace_multi_source, &BUF_REPLACE_MULTI_SOURCE, 10
     EXPAND STR_FROM_PARTS replace_multi_needle, &BUF_REPLACE_MULTI_NEEDLE, 3
@@ -662,6 +666,18 @@ L_ENTRY:
     EXPAND STRING_BUF_REPLACE replaced_buf, replace_source, replace_needle, replace_with
     EXPAND STRING_BUF_AS_STR replaced_view, replaced_buf
     EXPAND STR_EQ replaced_eq, replaced_view, replace_expected
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED replace_first_buf, replace_source
+    EXPAND STRING_BUF_REPLACE_FIRST replace_first_ok, replace_first_buf, replace_needle, replace_with
+    EXPAND STRING_BUF_AS_STR replace_first_view, replace_first_buf
+    EXPAND STR_EQ replace_first_eq, replace_first_view, replace_first_expected
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED replace_last_buf, replace_source
+    EXPAND STRING_BUF_REPLACE_LAST replace_last_ok, replace_last_buf, replace_needle, replace_with
+    EXPAND STRING_BUF_AS_STR replace_last_view, replace_last_buf
+    EXPAND STR_EQ replace_last_eq, replace_last_view, replace_last_expected
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED replace_miss_buf, left
+    EXPAND STRING_BUF_REPLACE_FIRST replace_miss_ok, replace_miss_buf, replace_long_needle, replace_with
+    EXPAND STRING_BUF_AS_STR replace_miss_view, replace_miss_buf
+    EXPAND STR_EQ replace_miss_eq, replace_miss_view, left
     EXPAND STRING_BUF_REPLACE replace_empty_buf, replace_source, empty_needle, replace_with
     EXPAND STRING_BUF_AS_STR replace_empty_view, replace_empty_buf
     EXPAND STR_EQ replace_empty_eq, replace_empty_view, replace_empty_expected
@@ -682,6 +698,12 @@ L_ENTRY:
     ascii_bad_flag_ok = eq ascii_bad_ok, 0
     ascii_bad_empty_ok = eq ascii_bad_len, 0
     replace_value_ok = eq replaced_eq, 1
+    replace_first_flag_ok = eq replace_first_ok, 1
+    replace_first_value_ok = eq replace_first_eq, 1
+    replace_last_flag_ok = eq replace_last_ok, 1
+    replace_last_value_ok = eq replace_last_eq, 1
+    replace_miss_flag_ok = eq replace_miss_ok, 0
+    replace_miss_value_ok = eq replace_miss_eq, 1
     replace_empty_value_ok = eq replace_empty_eq, 1
     replace_multi_value_ok = eq replace_multi_eq, 1
     replace_long_value_ok = eq replace_long_eq, 1
@@ -692,16 +714,24 @@ L_ENTRY:
     ok03 = and ok02, ascii_bad_flag_ok
     ok04 = and ok03, ascii_bad_empty_ok
     ok05 = and ok04, replace_value_ok
-    ok06 = and ok05, replace_empty_value_ok
-    ok07 = and ok06, replace_multi_value_ok
-    ok08 = and ok07, replace_long_value_ok
-    ok09 = and ok08, bytes_len_ok
-    ok = and ok09, first_byte_ok
+    ok06 = and ok05, replace_first_flag_ok
+    ok07 = and ok06, replace_first_value_ok
+    ok08 = and ok07, replace_last_flag_ok
+    ok09 = and ok08, replace_last_value_ok
+    ok10 = and ok09, replace_miss_flag_ok
+    ok11 = and ok10, replace_miss_value_ok
+    ok12 = and ok11, replace_empty_value_ok
+    ok13 = and ok12, replace_multi_value_ok
+    ok14 = and ok13, replace_long_value_ok
+    ok15 = and ok14, bytes_len_ok
+    ok = and ok15, first_byte_ok
     !left
     !replace_source
     !replace_needle
     !replace_with
     !replace_expected
+    !replace_first_expected
+    !replace_last_expected
     !replace_empty_expected
     !replace_multi_source
     !replace_multi_needle
@@ -721,6 +751,15 @@ L_ENTRY:
     !ascii_bad_len
     !replaced_view
     !replaced_eq
+    !replace_first_ok
+    !replace_first_view
+    !replace_first_eq
+    !replace_last_ok
+    !replace_last_view
+    !replace_last_eq
+    !replace_miss_ok
+    !replace_miss_view
+    !replace_miss_eq
     !replace_empty_view
     !replace_empty_eq
     !replace_multi_view
@@ -736,6 +775,12 @@ L_ENTRY:
     !ascii_bad_flag_ok
     !ascii_bad_empty_ok
     !replace_value_ok
+    !replace_first_flag_ok
+    !replace_first_value_ok
+    !replace_last_flag_ok
+    !replace_last_value_ok
+    !replace_miss_flag_ok
+    !replace_miss_value_ok
     !replace_empty_value_ok
     !replace_multi_value_ok
     !replace_long_value_ok
@@ -750,10 +795,19 @@ L_ENTRY:
     !ok07
     !ok08
     !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
     EXPAND STRING_BUF_FREE bytes_vec
     EXPAND STRING_BUF_FREE ascii_buf
     EXPAND STRING_BUF_FREE ascii_bad_buf
     EXPAND STRING_BUF_FREE replaced_buf
+    EXPAND STRING_BUF_FREE replace_first_buf
+    EXPAND STRING_BUF_FREE replace_last_buf
+    EXPAND STRING_BUF_FREE replace_miss_buf
     EXPAND STRING_BUF_FREE replace_empty_buf
     EXPAND STRING_BUF_FREE replace_multi_buf
     EXPAND STRING_BUF_FREE replace_long_buf

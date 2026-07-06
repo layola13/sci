@@ -4,6 +4,34 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec mut-return and replace facade batch
+
+- Continued the String/Vec Rust API parity audit after the raw-parts batch.
+- Added Vec mut-return macro surfaces matching the supportable shape of Rust `Vec::push_mut` / `Vec::insert_mut`:
+  - `VEC_PUSH_MUT`
+  - `VEC_PUSH_MUT_U64`
+  - `VEC_TRY_INSERT_MUT`
+  - `VEC_TRY_INSERT_MUT_U64`
+  - `VEC_INSERT_MUT`
+  - `VEC_INSERT_MUT_U64`
+- Added StringBuf first/last replacement macro surfaces over existing find/rfind and replace-range helpers:
+  - `STRING_BUF_TRY_REPLACE_FIRST`
+  - `STRING_BUF_REPLACE_FIRST`
+  - `STRING_BUF_TRY_REPLACE_LAST`
+  - `STRING_BUF_REPLACE_LAST`
+- Implementation note: mut-return Vec macros read from the owned Vec fields directly, not through borrow views, so returned element pointers remain usable by the caller.
+- Validation status:
+  - Source focused String replace test: pass.
+  - Source focused Vec mut-return test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused String replace and Vec mut-return tests: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`11 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec raw-parts facade batch
 
 - Audited `sa_std/string.sa` and `sa_std/vec.sa` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs.

@@ -1697,3 +1697,80 @@ L_VEC_RAW_PARTS_FAIL:
 L_VEC_RAW_PARTS_OK:
     !ok
     return
+
+@test "sa_std vec mut return macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_MUT_U64 push_slot, vec, 20
+    store push_slot+0, 25 as u64
+    !push_slot
+    EXPAND VEC_INSERT_MUT_U64 insert_ok, insert_slot, vec, 1, 15
+    insert_ptr_ok = ne insert_slot, 0
+    store insert_slot+0, 17 as u64
+    !insert_slot
+    EXPAND VEC_TRY_INSERT_MUT_U64 miss_ok, miss_slot, vec, 99, 99
+    miss_ptr_ok = eq miss_slot, 0
+    !miss_slot
+    EXPAND VEC_LEN len, vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    insert_flag_ok = eq insert_ok, 1
+    miss_flag_ok = eq miss_ok, 0
+    len_ok = eq len, 3
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 10
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 17
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 25
+    ok01 = and insert_flag_ok, insert_ptr_ok
+    ok02 = and ok01, miss_flag_ok
+    ok03 = and ok02, miss_ptr_ok
+    ok04 = and ok03, len_ok
+    ok05 = and ok04, first_flag_ok
+    ok06 = and ok05, first_value_ok
+    ok07 = and ok06, second_flag_ok
+    ok08 = and ok07, second_value_ok
+    ok09 = and ok08, third_flag_ok
+    ok = and ok09, third_value_ok
+    !insert_ok
+    !miss_ok
+    !len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !insert_ptr_ok
+    !miss_ptr_ok
+    !insert_flag_ok
+    !miss_flag_ok
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_MUT_RETURN_OK, L_VEC_MUT_RETURN_FAIL
+
+L_VEC_MUT_RETURN_FAIL:
+    !ok
+    panic(920)
+
+L_VEC_MUT_RETURN_OK:
+    !ok
+    return
