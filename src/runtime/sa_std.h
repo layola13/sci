@@ -447,6 +447,7 @@ int32_t sa_std_net_unix_accept_addr(uint64_t listener_handle, uint64_t *out_stre
 int32_t sa_std_net_unix_connect(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_net_unix_pair(uint64_t *out_left, uint64_t *out_right);
 int32_t sa_std_net_unix_addr_from_abstract_name(const uint8_t *name, uint64_t name_len, uint64_t *out_handle);
+int32_t sa_std_net_unix_addr_from_pathname(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_net_unix_listen_addr(uint64_t addr_handle, uint64_t *out_handle);
 int32_t sa_std_net_unix_connect_addr(uint64_t addr_handle, uint64_t *out_handle);
 int32_t sa_std_net_unix_listener_local_addr(uint64_t listener_handle, uint64_t *out_handle);

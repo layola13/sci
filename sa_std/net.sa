@@ -233,6 +233,12 @@
     %out_addr = load __net_unix_abstract_addr_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_ADDR_FROM_PATHNAME %out_status, %out_addr, %path, %path_len
+    __net_unix_path_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_addr_from_pathname(&%path, %path_len, &__net_unix_path_addr_%out_status)
+    %out_addr = load __net_unix_path_addr_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UNIX_LISTEN_ADDR %out_status, %out_listener, %addr
     __net_unix_listen_addr_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_listen_addr(%addr, &__net_unix_listen_addr_handle_%out_status)
@@ -657,6 +663,14 @@
 
 [MACRO] NET_UNIX_ADDR_PATH_LEN %out_len, %addr
     %out_len = call @sa_net_unix_addr_path_len(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_AS_PATHNAME_PTR %out_ptr, %addr
+    EXPAND NET_UNIX_ADDR_PATH_PTR %out_ptr, %addr
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_AS_PATHNAME_LEN %out_len, %addr
+    EXPAND NET_UNIX_ADDR_PATH_LEN %out_len, %addr
 [END_MACRO]
 
 [MACRO] NET_UNIX_ADDR_ABSTRACT_PTR %out_ptr, %addr

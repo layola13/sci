@@ -37,6 +37,7 @@
 @extern sa_std_net_unix_connect(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_pair(&out_left: ptr, &out_right: ptr) -> i32
 @extern sa_std_net_unix_addr_from_abstract_name(&name: ptr, name_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_addr_from_pathname(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_listen_addr(addr: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_connect_addr(addr: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_listener_local_addr(listener: u64, &out_handle: ptr) -> i32

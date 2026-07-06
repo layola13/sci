@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix SocketAddr pathname batch
+
+- Added Unix `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`-style surface over the existing Unix address handle model:
+  - runtime/header export `sa_std_net_unix_addr_from_pathname`
+  - SA extern/macro wrapper `NET_UNIX_ADDR_FROM_PATHNAME`
+  - Rust-named pathname access aliases `NET_UNIX_ADDR_AS_PATHNAME_PTR` and `NET_UNIX_ADDR_AS_PATHNAME_LEN` over the existing path pointer/length accessors.
+- Runtime behavior:
+  - validates pathname socket addresses with Zig's Unix socket address constructor before storing the pathname bytes.
+  - registers a `SA_NET_UNIX_ADDR_PATHNAME` Unix address handle using the existing resource lifetime and `NET_UNIX_ADDR_FREE` cleanup path.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - added a pathname SocketAddr constructor test that validates kind, pathname length, pointer, first/last bytes, and cleanup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pathname --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pathname --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `nm` confirms `sa_std_net_unix_addr_from_pathname` is exported.
+
 ## Completed: 2026-07-06 UnixListener incoming named surface batch
 
 - Added Unix `std::os::unix::net::UnixListener::incoming`-style named macro surface over the existing listener-backed incoming iterator layout:

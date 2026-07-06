@@ -783,6 +783,68 @@ L_PAIR_CLOSE:
     !pair_all
     return 0
 
+@test "sa_std net unix pathname socket address constructor"():
+L_PATHNAME_ADDR_ENTRY:
+    path_len = add 0, 21
+    EXPAND NET_UNIX_ADDR_FROM_PATHNAME path_addr_status, path_addr, UDS_TEST_PATH, path_len
+    path_addr_status_ok = eq path_addr_status, SA_NET_OK
+    path_addr_handle_ok = ne path_addr, 0
+    path_addr_make_ok = and path_addr_status_ok, path_addr_handle_ok
+    br path_addr_make_ok -> L_PATHNAME_ADDR_CHECK, L_PATHNAME_ADDR_FAIL_MAKE
+
+L_PATHNAME_ADDR_FAIL_MAKE:
+    !path_addr_make_ok
+    !path_addr_handle_ok
+    !path_addr_status_ok
+    !path_addr
+    !path_addr_status
+    panic(990)
+
+L_PATHNAME_ADDR_CHECK:
+    EXPAND NET_UNIX_ADDR_KIND path_addr_kind, path_addr
+    path_addr_kind_ok = eq path_addr_kind, SA_NET_UNIX_ADDR_PATHNAME
+    EXPAND NET_UNIX_ADDR_AS_PATHNAME_LEN path_addr_len, path_addr
+    path_addr_len_ok = eq path_addr_len, 21
+    EXPAND NET_UNIX_ADDR_AS_PATHNAME_PTR path_addr_ptr, path_addr
+    path_addr_ptr_ok = ne path_addr_ptr, 0
+    path_addr_b0 = load path_addr_ptr+0 as u8
+    path_addr_b20 = load path_addr_ptr+20 as u8
+    path_addr_b0_ok = eq path_addr_b0, 47
+    path_addr_b20_ok = eq path_addr_b20, 107
+    path_addr01 = and path_addr_kind_ok, path_addr_len_ok
+    path_addr02 = and path_addr01, path_addr_ptr_ok
+    path_addr03 = and path_addr02, path_addr_b0_ok
+    path_addr_ok = and path_addr03, path_addr_b20_ok
+    EXPAND NET_UNIX_ADDR_FREE path_addr_free_status, path_addr
+    path_addr_free_ok = eq path_addr_free_status, SA_NET_OK
+    path_addr_done = and path_addr_ok, path_addr_free_ok
+    br path_addr_done -> L_PATHNAME_ADDR_PASS, L_PATHNAME_ADDR_FAIL_CHECK
+
+L_PATHNAME_ADDR_FAIL_CHECK:
+    !path_addr_done
+    !path_addr_free_ok
+    !path_addr_free_status
+    !path_addr_ok
+    !path_addr03
+    !path_addr02
+    !path_addr01
+    !path_addr_b20_ok
+    !path_addr_b0_ok
+    !path_addr_b20
+    !path_addr_b0
+    !path_addr_ptr_ok
+    !path_addr_ptr
+    !path_addr_len_ok
+    !path_addr_len
+    !path_addr_kind_ok
+    !path_addr_kind
+    !path_addr_make_ok
+    panic(991)
+
+L_PATHNAME_ADDR_PASS:
+    !path_addr_done
+    return 0
+
 @test "sa_std net unix abstract address roundtrip"():
 L_ABSTRACT_ENTRY:
     EXPAND NET_UNIX_ADDR_FROM_ABSTRACT_NAME make_status, abstract_addr, UDS_ABSTRACT_NAME, UDS_ABSTRACT_NAME_LEN
