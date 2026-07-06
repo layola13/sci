@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Vec peek_mut facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::peek_mut` U64 subset.
+- Added Vec mutable-peek macro surfaces:
+  - `VEC_TRY_PEEK_MUT`
+  - `VEC_TRY_PEEK_MUT_U64`
+- Semantics: returns `ok=1` and a mutable pointer to the last element when the Vec is non-empty; returns `ok=0` and a null pointer for an empty Vec.
+- Scope note: this is the SA mutable-pointer shape for U64/general element size. It does not claim Rust's full `PeekMut` guard/drop object model.
+- Implementation note: the macro reads `Vec_ptr` and `Vec_len` directly from the owned Vec wrapper so the returned pointer is not derived from a temporary slice view.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - empty Vec returns failure/null pointer.
+  - non-empty Vec returns a non-null pointer to the last element.
+  - writing through the returned pointer updates `VEC_TRY_LAST_U64` while preserving length.
+- Validation status:
+  - Source focused `peek_mut` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`15 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `peek_mut` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`15 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+
 ## Completed: 2026-07-06 Vec retain_mut facade batch
 
 - Continued Vec Rust API parity work with the supportable `Vec::retain_mut` U64 subset.

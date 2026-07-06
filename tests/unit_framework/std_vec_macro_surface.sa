@@ -1150,6 +1150,64 @@ L_VEC_RETAIN_OK:
     !ok
     return
 
+@test "sa_std vec peek_mut macros"():
+L_ENTRY:
+    EXPAND VEC_NEW empty_vec
+    EXPAND VEC_TRY_PEEK_MUT_U64 empty_ok, empty_ptr, empty_vec
+
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_TRY_PEEK_MUT_U64 peek_ok, peek_ptr, vec
+    store peek_ptr+0, 99 as u64
+    EXPAND VEC_TRY_LAST_U64 last_ok, last, vec
+    EXPAND VEC_LEN len_after, vec
+
+    empty_flag_ok = eq empty_ok, 0
+    empty_ptr_ok = eq empty_ptr, 0
+    peek_flag_ok = eq peek_ok, 1
+    peek_ptr_ok = ne peek_ptr, 0
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last, 99
+    len_ok = eq len_after, 3
+    ok01 = and empty_flag_ok, empty_ptr_ok
+    ok02 = and ok01, peek_flag_ok
+    ok03 = and ok02, peek_ptr_ok
+    ok04 = and ok03, last_flag_ok
+    ok05 = and ok04, last_value_ok
+    ok = and ok05, len_ok
+    !empty_ok
+    !empty_ptr
+    !peek_ok
+    !peek_ptr
+    !last_ok
+    !last
+    !len_after
+    !empty_flag_ok
+    !empty_ptr_ok
+    !peek_flag_ok
+    !peek_ptr_ok
+    !last_flag_ok
+    !last_value_ok
+    !len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_PEEK_MUT_OK, L_VEC_PEEK_MUT_FAIL
+
+L_VEC_PEEK_MUT_FAIL:
+    !ok
+    panic(914)
+
+L_VEC_PEEK_MUT_OK:
+    !ok
+    return
+
 @test "sa_std vec retain_mut macros"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 4

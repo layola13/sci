@@ -290,6 +290,37 @@ L_VEC_SET_TYPED_END_%value:
     EXPAND VEC_TRY_BACK_U64 %out_ok, %out_value, %vec_reg
 [END_MACRO]
 
+[MACRO] VEC_TRY_PEEK_MUT %out_ok, %out_ptr, %vec_reg, %elem_size
+    __vec_peek_mut_len_%out_ok = load %vec_reg+Vec_len as u64
+    __vec_peek_mut_empty_%out_ok = eq __vec_peek_mut_len_%out_ok, 0
+    br __vec_peek_mut_empty_%out_ok -> L_VEC_PEEK_MUT_EMPTY_%out_ok, L_VEC_PEEK_MUT_HIT_%out_ok
+
+L_VEC_PEEK_MUT_HIT_%out_ok:
+    __vec_peek_mut_buf_%out_ok = load %vec_reg+Vec_ptr as ptr
+    __vec_peek_mut_index_%out_ok = sub __vec_peek_mut_len_%out_ok, 1
+    __vec_peek_mut_off_%out_ok = mul __vec_peek_mut_index_%out_ok, %elem_size
+    %out_ptr = ptr_add __vec_peek_mut_buf_%out_ok, __vec_peek_mut_off_%out_ok
+    %out_ok = add 0, 1
+    !__vec_peek_mut_off_%out_ok
+    !__vec_peek_mut_index_%out_ok
+    !__vec_peek_mut_buf_%out_ok
+    !__vec_peek_mut_empty_%out_ok
+    !__vec_peek_mut_len_%out_ok
+    jmp L_VEC_PEEK_MUT_END_%out_ok
+
+L_VEC_PEEK_MUT_EMPTY_%out_ok:
+    %out_ptr = 0 as ptr
+    %out_ok = add 0, 0
+    !__vec_peek_mut_empty_%out_ok
+    !__vec_peek_mut_len_%out_ok
+
+L_VEC_PEEK_MUT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_TRY_PEEK_MUT_U64 %out_ok, %out_ptr, %vec_reg
+    EXPAND VEC_TRY_PEEK_MUT %out_ok, %out_ptr, %vec_reg, 8
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
     EXPAND VEC_AS_SLICE __vec_split_first_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, __vec_split_first_slice_%out_ok
