@@ -90,6 +90,19 @@ L_ENTRY:
     !value
     return is_even
 
+@vec_retain_mut_add_ten_keep_original_odd(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next_value = add value, 10
+    store value_ptr+0, next_value as u64
+    rem = urem value, 2
+    keep = eq rem, 1
+    !next_value
+    !rem
+    !value
+    !value_ptr
+    return keep
+
 @vec_resize_with_42() -> u64:
 L_ENTRY:
     return 42
@@ -1134,6 +1147,67 @@ L_VEC_RETAIN_FAIL:
     panic(912)
 
 L_VEC_RETAIN_OK:
+    !ok
+    return
+
+@test "sa_std vec retain_mut macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 4
+    EXPAND VEC_RETAIN_MUT_U64 retain_mut_len, vec, @vec_retain_mut_add_ten_keep_original_odd
+    EXPAND VEC_LEN len_after_retain_mut, vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+
+    retain_len_ok = eq retain_mut_len, 2
+    len_after_ok = eq len_after_retain_mut, 2
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 11
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 13
+    third_flag_ok = eq third_ok, 0
+    third_value_ok = eq third, 0
+    ok01 = and retain_len_ok, len_after_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_flag_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_flag_ok
+    ok = and ok06, third_value_ok
+    !retain_mut_len
+    !len_after_retain_mut
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !retain_len_ok
+    !len_after_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_RETAIN_MUT_OK, L_VEC_RETAIN_MUT_FAIL
+
+L_VEC_RETAIN_MUT_FAIL:
+    !ok
+    panic(913)
+
+L_VEC_RETAIN_MUT_OK:
     !ok
     return
 

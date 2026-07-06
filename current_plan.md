@@ -54,6 +54,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `StringBuf` Rust API parity correction: `STRING_BUF_TRY_SPLIT_OFF` / `STRING_BUF_SPLIT_OFF` now enforce Rust `String::split_off` UTF-8 char-boundary semantics before delegating to the Vec split path.
    - `StringBuf` Rust API parity continuation: completed supportable `String::retain` style codepoint-predicate retain macros that rebuild the buffer from retained UTF-8 scalar slices.
    - `StringBuf` Rust API parity correction: `STRING_BUF_TRY_PUSH_CHAR` / `STRING_BUF_TRY_INSERT_CHAR` now encode full Unicode scalar values, and `STRING_BUF_TRY_INSERT_STR` now enforces UTF-8 char-boundary insertion points.
+   - `Vec` Rust API parity continuation: completed supportable `Vec::retain_mut` U64/function-pointer shape, where predicates receive mutable element pointers and retained values are compacted after possible mutation.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -132,6 +133,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the StringBuf split_off char-boundary parity batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf retain facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf Unicode push/insert char batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Vec retain_mut facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -237,6 +239,8 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
   - `std_string_macro_surface.sa`
 - Updated String macro-surface tests pass with Unicode char push/insert and insert boundary assertions:
   - `std_string_macro_surface.sa`
+- Updated Vec macro-surface tests pass with retain_mut mutation and compaction assertions:
+  - `std_vec_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with Linux `SO_PASSCRED` assertions:
   - `std_net_unix_macro_surface.sa`
 - Updated process macro-surface test passes with ChildExt kill_process_group assertions:

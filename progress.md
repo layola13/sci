@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Vec retain_mut facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::retain_mut` U64 subset.
+- Added Vec mutable-retain macro surface:
+  - `VEC_RETAIN_MUT_U64`
+- Semantics: the predicate receives a pointer to each U64 element, may mutate that element in place, and returns a keep flag. If kept, the macro reloads the possibly mutated value from the read pointer before compacting it into the write position.
+- Scope note: this is the SA function-pointer/U64 shape; it does not claim Rust's full generic closure and allocator-parametric surface.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - predicate adds `10` to every visited element.
+  - predicate keeps elements whose original value was odd.
+  - vector `[1,2,3,4]` becomes `[11,13]`, validating both mutation and retain compaction.
+- Validation status:
+  - Source focused `retain_mut` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`14 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `retain_mut` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`14 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+
 ## Completed: 2026-07-06 StringBuf Unicode push/insert char batch
 
 - Continued String Rust API parity work by correcting `String::push(char)`, `String::insert(idx, char)`, and `String::insert_str(idx, str)` behavior.

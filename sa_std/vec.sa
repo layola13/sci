@@ -1418,6 +1418,68 @@ L_VEC_RETAIN_DONE_%out_len:
     !__vec_retain_view_%out_len
 [END_MACRO]
 
+[MACRO] VEC_RETAIN_MUT_U64 %out_len, %vec_reg, %pred_fn
+    __vec_retain_mut_view_%out_len = & %vec_reg
+    __vec_retain_mut_ptr_%out_len = load __vec_retain_mut_view_%out_len+Vec_ptr as ptr
+    __vec_retain_mut_len_%out_len = load __vec_retain_mut_view_%out_len+Vec_len as u64
+    __vec_retain_mut_read_slot_%out_len = stack_alloc 8
+    __vec_retain_mut_write_slot_%out_len = stack_alloc 8
+    store __vec_retain_mut_read_slot_%out_len+0, 0 as u64
+    store __vec_retain_mut_write_slot_%out_len+0, 0 as u64
+    jmp L_VEC_RETAIN_MUT_HEAD_%out_len
+
+L_VEC_RETAIN_MUT_HEAD_%out_len:
+    __vec_retain_mut_read_%out_len = load __vec_retain_mut_read_slot_%out_len+0 as u64
+    __vec_retain_mut_done_%out_len = eq __vec_retain_mut_read_%out_len, __vec_retain_mut_len_%out_len
+    br __vec_retain_mut_done_%out_len -> L_VEC_RETAIN_MUT_DONE_%out_len, L_VEC_RETAIN_MUT_BODY_%out_len
+
+L_VEC_RETAIN_MUT_BODY_%out_len:
+    __vec_retain_mut_read_off_%out_len = mul __vec_retain_mut_read_%out_len, 8
+    __vec_retain_mut_read_ptr_%out_len = ptr_add __vec_retain_mut_ptr_%out_len, __vec_retain_mut_read_off_%out_len
+    __vec_retain_mut_pred_%out_len = call %pred_fn(__vec_retain_mut_read_ptr_%out_len)
+    __vec_retain_mut_keep_%out_len = ne __vec_retain_mut_pred_%out_len, 0
+    br __vec_retain_mut_keep_%out_len -> L_VEC_RETAIN_MUT_KEEP_%out_len, L_VEC_RETAIN_MUT_SKIP_%out_len
+
+L_VEC_RETAIN_MUT_KEEP_%out_len:
+    __vec_retain_mut_value_%out_len = load __vec_retain_mut_read_ptr_%out_len+0 as u64
+    __vec_retain_mut_write_%out_len = load __vec_retain_mut_write_slot_%out_len+0 as u64
+    __vec_retain_mut_write_off_%out_len = mul __vec_retain_mut_write_%out_len, 8
+    __vec_retain_mut_write_ptr_%out_len = ptr_add __vec_retain_mut_ptr_%out_len, __vec_retain_mut_write_off_%out_len
+    store __vec_retain_mut_write_ptr_%out_len+0, __vec_retain_mut_value_%out_len as u64
+    __vec_retain_mut_next_write_%out_len = add __vec_retain_mut_write_%out_len, 1
+    store __vec_retain_mut_write_slot_%out_len+0, __vec_retain_mut_next_write_%out_len as u64
+    !__vec_retain_mut_next_write_%out_len
+    !__vec_retain_mut_write_ptr_%out_len
+    !__vec_retain_mut_write_off_%out_len
+    !__vec_retain_mut_write_%out_len
+    !__vec_retain_mut_value_%out_len
+    jmp L_VEC_RETAIN_MUT_NEXT_%out_len
+
+L_VEC_RETAIN_MUT_SKIP_%out_len:
+    jmp L_VEC_RETAIN_MUT_NEXT_%out_len
+
+L_VEC_RETAIN_MUT_NEXT_%out_len:
+    __vec_retain_mut_next_read_%out_len = add __vec_retain_mut_read_%out_len, 1
+    store __vec_retain_mut_read_slot_%out_len+0, __vec_retain_mut_next_read_%out_len as u64
+    !__vec_retain_mut_next_read_%out_len
+    !__vec_retain_mut_keep_%out_len
+    !__vec_retain_mut_pred_%out_len
+    !__vec_retain_mut_read_ptr_%out_len
+    !__vec_retain_mut_read_off_%out_len
+    !__vec_retain_mut_done_%out_len
+    !__vec_retain_mut_read_%out_len
+    jmp L_VEC_RETAIN_MUT_HEAD_%out_len
+
+L_VEC_RETAIN_MUT_DONE_%out_len:
+    %out_len = load __vec_retain_mut_write_slot_%out_len+0 as u64
+    store __vec_retain_mut_view_%out_len+Vec_len, %out_len as u64
+    !__vec_retain_mut_done_%out_len
+    !__vec_retain_mut_read_%out_len
+    !__vec_retain_mut_len_%out_len
+    !__vec_retain_mut_ptr_%out_len
+    !__vec_retain_mut_view_%out_len
+[END_MACRO]
+
 [MACRO] VEC_EXTRACT_IF_U64 %out_len, %out_vec, %vec_reg, %pred_fn
     __vec_extract_view_%out_len = & %vec_reg
     __vec_extract_ptr_%out_len = load __vec_extract_view_%out_len+Vec_ptr as ptr
