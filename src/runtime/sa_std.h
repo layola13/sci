@@ -507,6 +507,7 @@ int32_t sa_net_udp_join_multicast_v6(uint64_t socket_handle, const uint8_t *mult
 int32_t sa_net_udp_leave_multicast_v6(uint64_t socket_handle, const uint8_t *multi_host, uint64_t multi_host_len, uint32_t interface_index);
 int32_t sa_net_udp_close(uint64_t socket_handle);
 
+int32_t sa_std_net_udp_from_raw_fd(int32_t fd, uint64_t *out_handle);
 uint8_t *sa_net_addr_host(uint64_t addr_handle);
 uint64_t sa_net_addr_host_len(uint64_t addr_handle);
 uint32_t sa_net_addr_port(uint64_t addr_handle);

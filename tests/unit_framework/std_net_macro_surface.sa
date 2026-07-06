@@ -1764,6 +1764,218 @@ L_UDP_OK:
     !ok
     return
 
+@test "sa_std net udp raw fd macro surface"():
+L_ENTRY:
+    EXPAND NET_UDP_BIND bind_status, socket, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    EXPAND NET_UDP_AS_RAW_FD as_status, raw_fd, socket
+    EXPAND NET_UDP_INTO_RAW_FD into_status, taken_fd, socket
+    EXPAND NET_UDP_FROM_RAW_FD from_status, socket, taken_fd
+    EXPAND NET_UDP_SET_NONBLOCKING nonblock_status, socket, SA_NET_SOCKET_OPTION_ENABLE
+    EXPAND NET_UDP_LOCAL_ADDR addr_status, addr, socket
+    EXPAND NET_ADDR_PORT local_port, addr
+    EXPAND NET_ADDR_FREE addr_free_status, addr
+    EXPAND NET_UDP_SEND_TO send_status, send_len, socket, NET_TEST_UDP_MESSAGE, NET_TEST_MESSAGE_LEN, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, local_port
+    recv_buf = alloc NET_TEST_MESSAGE_LEN
+    EXPAND NET_UDP_RECV_FROM recv_status, recv_len, recv_addr, socket, recv_buf, NET_TEST_MESSAGE_LEN
+    recv0 = load recv_buf+0 as u8
+    recv1 = load recv_buf+1 as u8
+    recv2 = load recv_buf+2 as u8
+    recv3 = load recv_buf+3 as u8
+    EXPAND NET_ADDR_FREE recv_addr_free_status, recv_addr
+    EXPAND NET_UDP_CLOSE close_status, socket
+
+    bind_status_ok = eq bind_status, SA_NET_OK
+    socket_ok = ne socket, 0
+    as_status_ok = eq as_status, SA_NET_OK
+    raw_fd_ok = ne raw_fd, -1
+    into_status_ok = eq into_status, SA_NET_OK
+    raw_match = eq taken_fd, raw_fd
+    from_status_ok = eq from_status, SA_NET_OK
+    nonblock_ok = eq nonblock_status, SA_NET_OK
+    addr_status_ok = eq addr_status, SA_NET_OK
+    addr_ok = ne addr, 0
+    port_ok = ne local_port, 0
+    addr_free_ok = eq addr_free_status, SA_NET_OK
+    send_status_ok = eq send_status, SA_NET_OK
+    send_len_ok = eq send_len, NET_TEST_MESSAGE_LEN
+    recv_status_ok = eq recv_status, SA_NET_OK
+    recv_len_ok = eq recv_len, NET_TEST_MESSAGE_LEN
+    recv0_ok = eq recv0, 112
+    recv1_ok = eq recv1, 111
+    recv2_ok = eq recv2, 110
+    recv3_ok = eq recv3, 103
+    recv_addr_ok = ne recv_addr, 0
+    recv_addr_free_ok = eq recv_addr_free_status, SA_NET_OK
+    close_ok = eq close_status, SA_NET_OK
+
+    ok01 = and bind_status_ok, socket_ok
+    ok02 = and ok01, as_status_ok
+    ok03 = and ok02, raw_fd_ok
+    ok04 = and ok03, into_status_ok
+    ok05 = and ok04, raw_match
+    ok06 = and ok05, from_status_ok
+    ok07 = and ok06, nonblock_ok
+    ok08 = and ok07, addr_status_ok
+    ok09 = and ok08, addr_ok
+    ok10 = and ok09, port_ok
+    ok11 = and ok10, addr_free_ok
+    ok12 = and ok11, send_status_ok
+    ok13 = and ok12, send_len_ok
+    ok14 = and ok13, recv_status_ok
+    ok15 = and ok14, recv_len_ok
+    ok16 = and ok15, recv0_ok
+    ok17 = and ok16, recv1_ok
+    ok18 = and ok17, recv2_ok
+    ok19 = and ok18, recv3_ok
+    ok20 = and ok19, recv_addr_ok
+    ok21 = and ok20, recv_addr_free_ok
+    ok = and ok21, close_ok
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    !ok21
+    !ok20
+    !ok19
+    !ok18
+    !ok17
+    !ok16
+    !ok15
+    !ok14
+    !ok13
+    !ok12
+    !ok11
+    !ok10
+    !ok09
+    !ok08
+    !ok07
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !close_ok
+    !recv_addr_free_ok
+    !recv_addr_ok
+    !recv3_ok
+    !recv2_ok
+    !recv1_ok
+    !recv0_ok
+    !recv_len_ok
+    !recv_status_ok
+    !send_len_ok
+    !send_status_ok
+    !addr_free_ok
+    !port_ok
+    !addr_ok
+    !addr_status_ok
+    !nonblock_ok
+    !from_status_ok
+    !raw_match
+    !into_status_ok
+    !raw_fd_ok
+    !as_status_ok
+    !socket_ok
+    !bind_status_ok
+    !close_status
+    !recv_addr_free_status
+    !recv3
+    !recv2
+    !recv1
+    !recv0
+    !recv_addr
+    !recv_len
+    !recv_status
+    !recv_buf
+    !send_len
+    !send_status
+    !addr_free_status
+    !local_port
+    !addr
+    !addr_status
+    !nonblock_status
+    !taken_fd
+    !raw_fd
+    !from_status
+    !into_status
+    !as_status
+    !socket
+    !bind_status
+    panic(964)
+
+L_OK:
+    !ok
+    !ok21
+    !ok20
+    !ok19
+    !ok18
+    !ok17
+    !ok16
+    !ok15
+    !ok14
+    !ok13
+    !ok12
+    !ok11
+    !ok10
+    !ok09
+    !ok08
+    !ok07
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !close_ok
+    !recv_addr_free_ok
+    !recv_addr_ok
+    !recv3_ok
+    !recv2_ok
+    !recv1_ok
+    !recv0_ok
+    !recv_len_ok
+    !recv_status_ok
+    !send_len_ok
+    !send_status_ok
+    !addr_free_ok
+    !port_ok
+    !addr_ok
+    !addr_status_ok
+    !nonblock_ok
+    !from_status_ok
+    !raw_match
+    !into_status_ok
+    !raw_fd_ok
+    !as_status_ok
+    !socket_ok
+    !bind_status_ok
+    !close_status
+    !recv_addr_free_status
+    !recv3
+    !recv2
+    !recv1
+    !recv0
+    !recv_addr
+    !recv_len
+    !recv_status
+    !recv_buf
+    !send_len
+    !send_status
+    !addr_free_status
+    !local_port
+    !addr
+    !addr_status
+    !nonblock_status
+    !taken_fd
+    !raw_fd
+    !from_status
+    !into_status
+    !as_status
+    !socket
+    !bind_status
+    return
+
 @test "sa_std net local peer address macros"():
 L_ENTRY:
     EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0

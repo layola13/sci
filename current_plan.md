@@ -37,6 +37,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::unix::net::{UnixStream,UnixListener}` owned-fd trait aliases: stream/listener `into_owned_fd` and `from_owned_fd` style macro surfaces over existing raw-fd and `sa_std/os/fd` owned-fd helpers.
    - `std::os::fd` / `std::os::unix::io` TCP stream/listener raw-fd trait surface: `TcpStream` / `TcpListener` `as_raw_fd`, `into_raw_fd`, and `from_raw_fd`, with `from_raw_fd` restoring the correct TCP stream/listener resource kind.
    - `std::os::fd::OwnedFd` TCP stream/listener conversion aliases: `TcpStream` / `TcpListener` `into_owned_fd` and `from_owned_fd` style macro surfaces over TCP raw-fd and `sa_std/os/fd` owned-fd helpers.
+   - `std::os::fd` / `std::os::unix::io` UDP socket raw-fd trait surface: `UdpSocket` `as_raw_fd`, `into_raw_fd`, and `from_raw_fd`, with `from_raw_fd` restoring the existing UDP socket resource kind.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -98,6 +99,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the Unix fs symlink/chown alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the TCP stream/listener raw-fd trait batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the TCP stream/listener owned-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the UDP socket raw-fd trait batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -166,6 +168,8 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
   - `std_net_macro_surface.sa`
 - Updated net macro-surface test passes with TCP stream/listener owned-fd ownership roundtrip assertions:
   - `std_net_macro_surface.sa`
+- Updated net macro-surface test passes with UDP socket raw-fd ownership roundtrip assertions:
+  - `std_net_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with Linux `SO_PASSCRED` assertions:
   - `std_net_unix_macro_surface.sa`
 - Updated process macro-surface test passes with ChildExt kill_process_group assertions:
@@ -203,18 +207,19 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Installed-state smoke passes for `std_fs_unix_ext_macro_surface.sa` after the Unix fs symlink/chown alias install sync.
 - Installed-state smoke passes for `std_net_macro_surface.sa` after the TCP stream/listener raw-fd trait install sync.
 - Installed-state smoke passes for `std_net_macro_surface.sa` after the TCP stream/listener owned-fd alias install sync.
+- Installed-state smoke passes for `std_net_macro_surface.sa` after the UDP socket raw-fd trait install sync.
 - `src/runtime/sa_std.h`, `sa_std/*.sai`, `sa_std/*.sa`, and installed `/home/vscode/.sa/std` expose the same ABI after `./tools/install.sh --no-shell`.
 
 ## Current Status
 
-- Source/facade/test changes are complete for the TCP stream/listener owned-fd alias batch.
-- This batch adds no runtime/header ABI symbols; it composes TCP raw-fd helpers with `sa_std/os/fd` owned-fd helpers.
-- Focused source-std net `sa test` for `std_net_macro_surface.sa --filter "tcp raw fd"` passes (`1 passed`).
-- Full source-std net `sa test` for `std_net_macro_surface.sa` passes (`11 passed`).
+- Source/facade/test changes are complete for the UDP socket raw-fd trait batch.
+- Runtime/header ABI now exports `sa_std_net_udp_from_raw_fd`; `as_raw_fd` and `into_raw_fd` reuse the existing `sa_std/os/fd` ABI.
+- Focused source-std net `sa test` for `std_net_macro_surface.sa --filter "udp raw fd"` passes (`1 passed`).
+- Full source-std net `sa test` for `std_net_macro_surface.sa` passes (`12 passed`).
 - `zig build unit-framework --summary all` passes.
 - Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
-- Installed-state focused net smoke for `std_net_macro_surface.sa --filter "tcp raw fd"` passes (`1 passed`).
-- Installed-state full net smoke for `std_net_macro_surface.sa` passes (`11 passed`).
+- Installed-state focused net smoke for `std_net_macro_surface.sa --filter "udp raw fd"` passes (`1 passed`).
+- Installed-state full net smoke for `std_net_macro_surface.sa` passes (`12 passed`).
 
 ## Notes
 

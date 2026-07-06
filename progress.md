@@ -4,6 +4,32 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 UDP socket raw fd trait batch
+
+- Added UDP `UdpSocket` raw-fd trait-style macro surface:
+  - `NET_UDP_AS_RAW_FD`
+  - `NET_UDP_INTO_RAW_FD`
+  - `NET_UDP_FROM_RAW_FD`
+- Added runtime/header export for the ownership-restoring path:
+  - `sa_std_net_udp_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates restored fds as AF_INET/AF_INET6 datagram sockets.
+  - registers valid raw fds back as the existing `udp_socket` resource kind.
+- Extended `tests/unit_framework/std_net_macro_surface.sa` coverage:
+  - UDP socket handle roundtrips through `as_raw_fd` / `into_raw_fd` / `from_raw_fd`.
+  - rebound socket sends a datagram to its own bound port and receives it back before close.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_std_net_udp_from_raw_fd'`: pass, symbol exported in both libs.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+
 ## Completed: 2026-07-06 TCP stream/listener owned fd alias batch
 
 - Added TCP `TcpStream` / `TcpListener` owned-fd conversion macro aliases over the TCP raw-fd facades and `sa_std/os/fd` owned-fd ABI:

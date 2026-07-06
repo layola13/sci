@@ -1522,6 +1522,11 @@ fn socketIsStream(fd: std.posix.fd_t) !bool {
     return socket_type == @as(i32, @intCast(std.posix.SOCK.STREAM));
 }
 
+fn socketIsDatagram(fd: std.posix.fd_t) !bool {
+    const socket_type = try getSocketOptInt(fd, std.posix.SOL.SOCKET, std.os.linux.SO.TYPE);
+    return socket_type == @as(i32, @intCast(std.posix.SOCK.DGRAM));
+}
+
 fn socketAcceptConn(fd: std.posix.fd_t) !bool {
     return try getSocketOptBool(fd, std.posix.SOL.SOCKET, std.os.linux.SO.ACCEPTCONN);
 }
@@ -8795,6 +8800,19 @@ pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
 }
+
+pub export fn sa_std_net_udp_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
+    if (!(socketIsInet(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsDatagram(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const handle = registerResource(.{ .udp_socket = posix_fd }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;

@@ -74,6 +74,7 @@
 @extern sa_std_url_parse(&url: ptr, url_len: u64, &scheme_out: ptr, scheme_cap: u64, &scheme_len: ptr, &host_out: ptr, host_cap: u64, &host_len: ptr, &path_out: ptr, path_cap: u64, &path_len: ptr, &out_port: ptr) -> i32
 
 @extern sa_std_net_udp_bind(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
+@extern sa_std_net_udp_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_local_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_peer_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_connect(socket: u64, &host: ptr, host_len: u64, port: u32) -> i32

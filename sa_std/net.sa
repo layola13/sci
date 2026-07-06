@@ -566,6 +566,20 @@
     %out_socket = load __net_udp_bind_handle_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UDP_AS_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_AS_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UDP_INTO_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UDP_FROM_RAW_FD %out_status, %out_socket, %fd
+    __net_udp_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_from_raw_fd(%fd, &__net_udp_from_raw_%out_status)
+    %out_socket = load __net_udp_from_raw_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UDP_LOCAL_ADDR %out_status, %out_addr, %socket
     __net_udp_addr_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_udp_local_addr(%socket, &__net_udp_addr_%out_status)
