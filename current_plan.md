@@ -4,7 +4,7 @@ Date: 2026-07-06
 
 ## Objective
 
-Continue `sa_std` parity in SCI. String/Vec supportable parity batches are documented as complete for now; current priority is returning to larger Linux-only `std` facade gaps. Complete source batches first, run focused/full tests, then sync install state with `./tools/install.sh --no-shell` before committing each batch.
+Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first when requested, then returning to larger Linux-only `std` facade gaps. Complete source batches first, run focused/full tests, then sync install state with `./tools/install.sh --no-shell` before committing each batch.
 
 ## Active Scope
 
@@ -73,6 +73,7 @@ Continue `sa_std` parity in SCI. String/Vec supportable parity batches are docum
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable clone/conversion surfaces: `STRING_BUF_FROM_STR`, `STRING_BUF_CLONE`, `STRING_BUF_CLONE_FROM`, `VEC_FROM_SLICE`, `VEC_CLONE`, and `VEC_CLONE_FROM`, plus U64 Vec convenience wrappers.
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable default/conversion/operator naming surfaces: `STRING_BUF_DEFAULT`, StringBuf AsRef/AsMut aliases, `STRING_BUF_FROM_CHAR`, `STRING_BUF_ADD_STR`, `STRING_BUF_ADD_ASSIGN_STR`, `VEC_DEFAULT`, `VEC_FROM_STR_BYTES`, `VEC_U8_FROM_STR`, and `VEC_FROM_STRING_BUF`.
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable reference conversion aliases: `STRING_BUF_FROM_MUT_STR`, `STRING_BUF_FROM_STRING_REF`, `STRING_BUF_TRY_FROM_VEC_U8`, and `STRING_BUF_TRY_FROM_BYTES_VEC`, with installed-state coverage for `VEC_FROM_STRING_BUF` ownership transfer.
+   - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are not complete Rust API coverage; completed supportable Vec reference/array conversion aliases `VEC_FROM_MUT_SLICE`, `VEC_FROM_ARRAY`, and `VEC_FROM_MUT_ARRAY` plus U64 wrappers.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -96,6 +97,7 @@ Continue `sa_std` parity in SCI. String/Vec supportable parity batches are docum
    - `std::os::net::linux_ext::UnixSocketExt` UnixStream subset: Linux `SO_PASSCRED` set/get socket option surface.
    - `std::os::unix::process::ChildExt::kill_process_group`: Linux process-group `SIGKILL` convenience facade over the existing effective-PGID signal path.
 2. Next candidate scope:
+   - Continue String/Vec audit only for supportable gaps that can be expressed as SA macro/runtime surfaces and verified without misrepresenting Rust object models.
    - Continue UnixDatagram parity with pathname/abstract `bind_addr`, `connect_addr`, `send_to_addr`, and address-returning `recv_from` / `peek_from` surfaces.
    - Re-audit remaining Linux-only `std` facade gaps against `/home/vscode/projects/rust/library/std/src/os/`.
    - Prioritize surfaces that can be expressed clearly as SA macros/runtime and verified with focused macro-surface tests.

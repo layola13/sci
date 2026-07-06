@@ -4,6 +4,27 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Vec reference/array conversion alias facade batch
+
+- Re-audited `StringBuf` / `Vec` macro surfaces against Rust `alloc::string::String` and `alloc::vec::Vec` APIs.
+- Finding: current SA facades do not and cannot honestly claim complete Rust API coverage. Existing support covers the practical owned-buffer, UTF conversion, mutation, capacity, raw-parts, clone, and slice-view subsets; remaining gaps include allocator-parametric APIs, Box/Cow object conversions, const-generic array ownership, lazy iterator object models, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable Vec conversion alias macro surfaces:
+  - `VEC_FROM_MUT_SLICE` / `VEC_FROM_MUT_SLICE_U64`
+  - `VEC_FROM_ARRAY` / `VEC_FROM_ARRAY_U64`
+  - `VEC_FROM_MUT_ARRAY` / `VEC_FROM_MUT_ARRAY_U64`
+- Semantics: these are Rust naming aliases over existing slice-copy construction. They copy the source elements into independent Vec storage, matching `From<&mut [T]>`, `From<&[T; N]>`, and `From<&mut [T; N]>` style behavior for SA slice-shaped inputs.
+- Validation status:
+  - Source focused Vec clone/from-slice test: pass (`1 passed`).
+  - Source focused String owned-buffer test after rejecting the unsafe `as_mut_vec` alias approach: pass (`1 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused Vec clone/from-slice test: pass (`1 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+
 ## Completed: 2026-07-06 UnixDatagram basic facade batch
 
 - Added supportable `std::os::unix::net::UnixDatagram` basic facade subset backed by AF_UNIX/SOCK_DGRAM handles.

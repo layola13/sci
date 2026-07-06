@@ -642,8 +642,32 @@ L_VEC_FROM_FN_DONE_%out_vec:
     !__vec_from_slice_len_%out_vec
 [END_MACRO]
 
+[MACRO] VEC_FROM_MUT_SLICE %out_vec, %slice_reg, %elem_size
+    EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_FROM_ARRAY %out_vec, %slice_reg, %elem_size
+    EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_FROM_MUT_ARRAY %out_vec, %slice_reg, %elem_size
+    EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
+[END_MACRO]
+
 [MACRO] VEC_FROM_SLICE_U64 %out_vec, %slice_reg
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_FROM_MUT_SLICE_U64 %out_vec, %slice_reg
+    EXPAND VEC_FROM_MUT_SLICE %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_FROM_ARRAY_U64 %out_vec, %slice_reg
+    EXPAND VEC_FROM_ARRAY %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_FROM_MUT_ARRAY_U64 %out_vec, %slice_reg
+    EXPAND VEC_FROM_MUT_ARRAY %out_vec, %slice_reg, 8
 [END_MACRO]
 
 [MACRO] VEC_FROM_STR_BYTES %out_vec, %str_slice

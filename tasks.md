@@ -167,6 +167,8 @@
 - [x] String/Vec default + add/from-char/from-str-bytes 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String::from(&mut str)`、`String::from(&String)`、`TryFrom<Vec<u8>> for String` 命名别名，并为已有 `Vec::from(String)` 表面补完整覆盖。
 - [x] String/Vec reference conversion alias 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `Vec::from(&mut [T])` / `Vec::from(&[T; N])` / `Vec::from(&mut [T; N])` 可支撑命名别名。
+- [x] Vec reference/array conversion alias 批次已完成 focused/full String/Vec 源码测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装；`String::as_mut_vec` 不能用简单宏精确表达 Rust metadata-level mutable alias，保持为未覆盖缺口。
 - [x] `std::os::unix::xdg` 可支撑环境目录表面：补 `data_home_dir` / `config_home_dir` / `state_home_dir` / `cache_home_dir` / `data_dirs` / `config_dirs` 风格宏表面，按 Rust/XDG 规则处理空 env 与默认值。
 - [x] Unix XDG env facade 批次已完成 focused/full env 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::fs::chroot`：补当前进程 Linux `chroot(2)` facade，新增 `FS_CHROOT` / `FS_UNIX_CHROOT` 宏表面，并用 `/` 安全验收 root 成功或非 root 权限拒绝路径。
