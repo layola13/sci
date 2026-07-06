@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec Rust API self-reference and index alias audit batch
+
+- Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs with String/Vec as the active priority.
+- Finding remains: current SA facades are broad but not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas still include allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec `AsMut<Vec<T>>` whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable naming aliases:
+  - `VEC_AS_REF_VEC_PTR`
+  - `STRING_BUF_DEREF_STR`
+  - `STRING_BUF_DEREF_MUT_STR`
+  - `STRING_BUF_TRY_INDEX_RANGE`
+  - `STRING_BUF_TRY_INDEX_RANGE_MUT`
+- Semantics: the Vec self-reference alias returns a shared borrow pointer to the existing Vec metadata and does not copy or transfer ownership. String deref aliases return the existing str slice view shape, and index aliases reuse UTF-8 boundary checked range slicing.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+
 ## Completed: 2026-07-06 Unix thread JoinHandleExt pthread facade batch
 
 - Added supportable `std::os::unix::thread::JoinHandleExt` raw pthread facade backed by real runtime `pthread_t` values, not SA registry handle ids.

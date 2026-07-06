@@ -75,6 +75,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable reference conversion aliases: `STRING_BUF_FROM_MUT_STR`, `STRING_BUF_FROM_STRING_REF`, `STRING_BUF_TRY_FROM_VEC_U8`, and `STRING_BUF_TRY_FROM_BYTES_VEC`, with installed-state coverage for `VEC_FROM_STRING_BUF` ownership transfer.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are not complete Rust API coverage; completed supportable Vec reference/array conversion aliases `VEC_FROM_MUT_SLICE`, `VEC_FROM_ARRAY`, and `VEC_FROM_MUT_ARRAY` plus U64 wrappers.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec `AsRef<[T]>` / `AsMut<[T]>` / Deref-to-slice aliases and String `fmt::Write` `write_str` / `write_char` aliases.
+   - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec `AsRef<Vec<T>>` borrowed metadata pointer alias plus String Deref/DerefMut-to-str and checked Index/IndexMut range aliases.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -342,13 +343,13 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/runtime/facade/test changes are complete for the Unix thread JoinHandleExt pthread facade batch.
-- `zig build sa-std-static --summary all`, focused source-std `std_thread_macro_surface.sa`, export symbol check, full `unit-framework`, install sync, and installed-state `std_thread_macro_surface.sa` pass.
-- `THREAD_JOIN_STATUS` now passes the output buffer pointer according to the existing `pthread_join` ABI.
+- Source/facade/test changes are complete for the StringBuf/Vec self-reference and index alias batch.
+- Focused source-std `std_vec_macro_surface.sa` and `std_string_macro_surface.sa`, full `unit-framework`, install sync, and installed-state String/Vec focused tests pass.
+- The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec `AsMut<Vec<T>>` whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
 
 ## Next Priority
 
-- Re-audit remaining Linux-only `std` facade gaps, prioritizing supportable surfaces with clear SA macro/runtime semantics and focused tests.
+- Commit the StringBuf/Vec self-reference and index alias batch, then return to the remaining Linux-only `std` facade gaps.
 
 ## Notes
 

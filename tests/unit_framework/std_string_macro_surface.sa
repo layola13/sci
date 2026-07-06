@@ -3619,11 +3619,19 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_ADD_STR added_string, left_string, right_slice
     EXPAND STRING_BUF_AS_REF_STR added_view, added_string
     EXPAND STR_EQ added_eq, added_view, joined_slice
+    EXPAND STRING_BUF_DEREF_STR deref_view, added_string
+    EXPAND STR_EQ deref_eq, deref_view, joined_slice
+    EXPAND STRING_BUF_TRY_INDEX_RANGE index_ok, index_view, added_string, 4, 4
+    EXPAND STR_EQ index_eq, index_view, right_slice
+    EXPAND STRING_BUF_TRY_INDEX_RANGE_MUT index_mut_ok, index_mut_view, added_string, 4, 4
+    EXPAND STR_EQ index_mut_eq, index_mut_view, right_slice
 
     EXPAND STRING_BUF_FROM_STR assign_string, word_slice
     EXPAND STRING_BUF_ADD_ASSIGN_STR assign_string, right_slice
     EXPAND STRING_BUF_AS_REF_BYTES assign_bytes, assign_string
     EXPAND STR_EQ assign_eq, assign_bytes, joined_slice
+    EXPAND STRING_BUF_DEREF_MUT_STR deref_mut_view, assign_string
+    EXPAND STR_EQ deref_mut_eq, deref_mut_view, joined_slice
 
     EXPAND STRING_BUF_FROM_CHAR e_string, 233
     EXPAND STRING_BUF_AS_STR e_view, e_string
@@ -3637,15 +3645,27 @@ L_STRING_BUF_ADD_ENTRY:
 
     default_ok = eq default_empty, 1
     ok01 = and default_ok, added_eq
-    ok02 = and ok01, assign_eq
-    ok03 = and ok02, e_eq
-    ok04 = and ok03, write_str_ok
-    ok05 = and ok04, write_char_ok
-    ok = and ok05, write_eq
+    ok02 = and ok01, deref_eq
+    ok03 = and ok02, index_ok
+    ok04 = and ok03, index_eq
+    ok05 = and ok04, index_mut_ok
+    ok06 = and ok05, index_mut_eq
+    ok07 = and ok06, assign_eq
+    ok08 = and ok07, deref_mut_eq
+    ok09 = and ok08, e_eq
+    ok10 = and ok09, write_str_ok
+    ok11 = and ok10, write_char_ok
+    ok = and ok11, write_eq
 
     !default_empty
     !added_eq
+    !deref_eq
+    !index_ok
+    !index_eq
+    !index_mut_ok
+    !index_mut_eq
     !assign_eq
+    !deref_mut_eq
     !e_eq
     !write_str_ok
     !write_char_ok
@@ -3656,13 +3676,23 @@ L_STRING_BUF_ADD_ENTRY:
     !ok03
     !ok04
     !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
     !word_slice
     !right_slice
     !joined_slice
     !write_expected_slice
     !e_slice
     !added_view
+    !deref_view
+    !index_view
+    !index_mut_view
     !assign_bytes
+    !deref_mut_view
     !e_view
     !write_view
     EXPAND STRING_BUF_FREE write_string
