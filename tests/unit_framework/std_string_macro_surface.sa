@@ -84,6 +84,7 @@
 @const UTF8_AFTER_REMOVE_Z = utf8:"aé🙂"
 @const UTF8_E_SMILE = utf8:"é🙂"
 @const UTF8_A_Z = utf8:"az"
+@const UTF8_LOSSY_EXPECTED = utf8:"a�(�"
 @const UTF16_LOSSY_EXPECTED = utf8:"a�z�"
 @const UTF16_ENDIAN_LOSSY_EXPECTED = utf8:"a�z��"
 @const BUF_DRAIN_SOURCE = utf8:"rust-std"
@@ -3265,6 +3266,51 @@ L_STRING_BUF_UTF16_ENDIAN_LOSSY_FAIL:
     panic(928)
 
 L_STRING_BUF_UTF16_ENDIAN_LOSSY_OK:
+    !ok
+    return
+
+@test "sa_std string buffer from_utf8 lossy macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS valid_expected, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS lossy_expected, &UTF8_LOSSY_EXPECTED, 8
+
+    bad_ptr = stack_alloc 4
+    store bad_ptr+0, 97 as u8
+    bad_ptr_1 = ptr_add bad_ptr, 1
+    store bad_ptr_1+0, 255 as u8
+    bad_ptr_2 = ptr_add bad_ptr, 2
+    store bad_ptr_2+0, 40 as u8
+    bad_ptr_3 = ptr_add bad_ptr, 3
+    store bad_ptr_3+0, 226 as u8
+    EXPAND STR_FROM_PARTS bad_bytes, bad_ptr, 4
+
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY valid_buf, valid_expected
+    EXPAND STRING_BUF_AS_STR valid_view, valid_buf
+    EXPAND STR_EQ valid_eq, valid_view, valid_expected
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY lossy_buf, bad_bytes
+    EXPAND STRING_BUF_AS_STR lossy_view, lossy_buf
+    EXPAND STR_EQ lossy_eq, lossy_view, lossy_expected
+
+    ok = and valid_eq, lossy_eq
+    !valid_expected
+    !lossy_expected
+    !bad_ptr_1
+    !bad_ptr_2
+    !bad_ptr_3
+    !bad_bytes
+    !valid_view
+    !valid_eq
+    !lossy_view
+    !lossy_eq
+    EXPAND STRING_BUF_FREE lossy_buf
+    EXPAND STRING_BUF_FREE valid_buf
+    br ok -> L_STRING_BUF_FROM_UTF8_LOSSY_OK, L_STRING_BUF_FROM_UTF8_LOSSY_FAIL
+
+L_STRING_BUF_FROM_UTF8_LOSSY_FAIL:
+    !ok
+    panic(930)
+
+L_STRING_BUF_FROM_UTF8_LOSSY_OK:
     !ok
     return
 

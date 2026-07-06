@@ -615,6 +615,7 @@ uint64_t sa_str_utf8_char_count(const uint8_t *ptr, uint64_t len);
 int32_t sa_str_utf8_validate(const uint8_t *ptr, uint64_t len);
 int32_t sa_str_utf8_char_at(const uint8_t *ptr, uint64_t len, uint64_t char_index, uint64_t *out_codepoint);
 int32_t sa_str_utf8_char_at_byte(const uint8_t *ptr, uint64_t len, uint64_t byte_index, uint64_t *out_codepoint, uint64_t *out_len);
+int32_t sa_str_utf8_lossy_next(const uint8_t *ptr, uint64_t len, uint64_t byte_index, uint64_t *out_codepoint, uint64_t *out_len);
 int32_t sa_str_utf8_char_range_at(const uint8_t *ptr, uint64_t len, uint64_t char_index, uint64_t *out_start, uint64_t *out_len);
 uint64_t sa_env_get(const uint8_t *key, uint64_t key_len);
 int32_t sa_env_has(const uint8_t *key, uint64_t key_len);

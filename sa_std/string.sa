@@ -224,6 +224,55 @@ L_STRING_BUF_FROM_UTF8_VEC_ERR_%out_ok:
 L_STRING_BUF_FROM_UTF8_VEC_DONE_%out_ok:
 [END_MACRO]
 
+[MACRO] STRING_BUF_FROM_UTF8_LOSSY %out_string, %bytes_slice
+    __string_buf_utf8_lossy_ptr_%out_string = load %bytes_slice+Slice_ptr as ptr
+    __string_buf_utf8_lossy_len_%out_string = load %bytes_slice+Slice_len as u64
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, __string_buf_utf8_lossy_len_%out_string
+    __string_buf_utf8_lossy_idx_slot_%out_string = stack_alloc 8
+    store __string_buf_utf8_lossy_idx_slot_%out_string+0, 0 as u64
+    jmp L_STRING_BUF_UTF8_LOSSY_HEAD_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_HEAD_%out_string:
+    __string_buf_utf8_lossy_idx_%out_string = load __string_buf_utf8_lossy_idx_slot_%out_string+0 as u64
+    __string_buf_utf8_lossy_done_%out_string = uge __string_buf_utf8_lossy_idx_%out_string, __string_buf_utf8_lossy_len_%out_string
+    br __string_buf_utf8_lossy_done_%out_string -> L_STRING_BUF_UTF8_LOSSY_DONE_%out_string, L_STRING_BUF_UTF8_LOSSY_BODY_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_BODY_%out_string:
+    __string_buf_utf8_lossy_code_slot_%out_string = stack_alloc 8
+    __string_buf_utf8_lossy_width_slot_%out_string = stack_alloc 8
+    __string_buf_utf8_lossy_status_%out_string = call @sa_str_utf8_lossy_next(__string_buf_utf8_lossy_ptr_%out_string, __string_buf_utf8_lossy_len_%out_string, __string_buf_utf8_lossy_idx_%out_string, &__string_buf_utf8_lossy_code_slot_%out_string, &__string_buf_utf8_lossy_width_slot_%out_string)
+    __string_buf_utf8_lossy_status_ok_%out_string = eq __string_buf_utf8_lossy_status_%out_string, 0
+    br __string_buf_utf8_lossy_status_ok_%out_string -> L_STRING_BUF_UTF8_LOSSY_PUSH_%out_string, L_STRING_BUF_UTF8_LOSSY_INVALID_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_PUSH_%out_string:
+    __string_buf_utf8_lossy_code_%out_string = load __string_buf_utf8_lossy_code_slot_%out_string+0 as u64
+    __string_buf_utf8_lossy_width_%out_string = load __string_buf_utf8_lossy_width_slot_%out_string+0 as u64
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf8_lossy_push_ok_%out_string, %out_string, __string_buf_utf8_lossy_code_%out_string
+    br __string_buf_utf8_lossy_push_ok_%out_string -> L_STRING_BUF_UTF8_LOSSY_ADVANCE_%out_string, L_STRING_BUF_UTF8_LOSSY_INVALID_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_ADVANCE_%out_string:
+    __string_buf_utf8_lossy_next_%out_string = add __string_buf_utf8_lossy_idx_%out_string, __string_buf_utf8_lossy_width_%out_string
+    store __string_buf_utf8_lossy_idx_slot_%out_string+0, __string_buf_utf8_lossy_next_%out_string as u64
+    !__string_buf_utf8_lossy_next_%out_string
+    !__string_buf_utf8_lossy_push_ok_%out_string
+    !__string_buf_utf8_lossy_width_%out_string
+    !__string_buf_utf8_lossy_code_%out_string
+    !__string_buf_utf8_lossy_status_ok_%out_string
+    !__string_buf_utf8_lossy_status_%out_string
+    !__string_buf_utf8_lossy_done_%out_string
+    !__string_buf_utf8_lossy_idx_%out_string
+    jmp L_STRING_BUF_UTF8_LOSSY_HEAD_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_INVALID_%out_string:
+    panic(1211)
+
+L_STRING_BUF_UTF8_LOSSY_DONE_%out_string:
+    !__string_buf_utf8_lossy_done_%out_string
+    !__string_buf_utf8_lossy_idx_%out_string
+    !__string_buf_utf8_lossy_len_%out_string
+    !__string_buf_utf8_lossy_ptr_%out_string
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF16_U16 %out_ok, %out_string, %u16_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_utf16_len_%out_ok = load %u16_slice+Slice_len as u64
