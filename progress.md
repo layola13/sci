@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf drain(range) facade batch
+
+- Continued String Rust API parity work with the supportable `String::drain(range)` subset.
+- Added StringBuf range-drain macro surfaces:
+  - `STRING_BUF_TRY_DRAIN`
+  - `STRING_BUF_DRAIN`
+- Semantics: successful drain copies the selected UTF-8 range into a returned `StringBuf`, then removes that range from the original buffer. Invalid bounds or non-char-boundary ranges return `ok=0`, return an empty `StringBuf`, and leave the original buffer unchanged.
+- Scope note: this is the SA macro-friendly eager range-drain shape; it does not claim Rust's lazy `Drain` iterator object model.
+- Implementation note: the macro reuses `STR_TRY_GET_RANGE` for bounds and UTF-8 boundary checks, then `STRING_BUF_TRY_REPLACE_RANGE` with an empty replacement.
+- Updated `std_string_macro_surface.sa` coverage:
+  - UTF-8 drain of `é🙂` from `aé🙂z`, returning `é🙂` and leaving `az`.
+  - alias drain of `-` from `rust-std`, returning `-` and leaving `ruststd`.
+  - non-char-boundary drain failure returns empty output and leaves the source unchanged.
+- Validation status:
+  - Source focused `drain` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`18 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `drain` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`18 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
 ## Completed: 2026-07-06 StringBuf pop() facade batch
 
 - Continued String Rust API parity work with the supportable `String::pop()` char-aware subset.

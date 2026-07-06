@@ -79,6 +79,11 @@
 @const UTF8_AFTER_REMOVE_E = utf8:"a🙂z"
 @const UTF8_AFTER_REMOVE_SMILE = utf8:"aéz"
 @const UTF8_AFTER_REMOVE_Z = utf8:"aé🙂"
+@const UTF8_E_SMILE = utf8:"é🙂"
+@const UTF8_A_Z = utf8:"az"
+@const BUF_DRAIN_SOURCE = utf8:"rust-std"
+@const BUF_DRAIN_REMOVED = utf8:"-"
+@const BUF_DRAIN_REMAINING = utf8:"ruststd"
 
 @vec_pop_if_is_99(value: u64) -> u64:
 L_ENTRY:
@@ -1344,6 +1349,106 @@ L_STRING_BUF_REMOVE_CHAR_FAIL:
     panic(918)
 
 L_STRING_BUF_REMOVE_CHAR_OK:
+    !ok
+    return
+
+@test "sa_std string buffer drain macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_source, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_removed_expected, &UTF8_E_SMILE, 6
+    EXPAND STR_FROM_PARTS utf8_remaining_expected, &UTF8_A_Z, 2
+    EXPAND STR_FROM_PARTS ascii_source, &BUF_DRAIN_SOURCE, 8
+    EXPAND STR_FROM_PARTS ascii_removed_expected, &BUF_DRAIN_REMOVED, 1
+    EXPAND STR_FROM_PARTS ascii_remaining_expected, &BUF_DRAIN_REMAINING, 7
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED utf8_buf, utf8_source
+    EXPAND STRING_BUF_TRY_DRAIN drain_ok, drained, utf8_buf, 1, 6
+    EXPAND STRING_BUF_AS_STR drained_view, drained
+    EXPAND STRING_BUF_AS_STR utf8_after, utf8_buf
+    EXPAND STR_EQ drained_eq, drained_view, utf8_removed_expected
+    EXPAND STR_EQ utf8_after_eq, utf8_after, utf8_remaining_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED alias_buf, ascii_source
+    EXPAND STRING_BUF_DRAIN alias_ok, alias_drained, alias_buf, 4, 1
+    EXPAND STRING_BUF_AS_STR alias_drained_view, alias_drained
+    EXPAND STRING_BUF_AS_STR alias_after, alias_buf
+    EXPAND STR_EQ alias_drained_eq, alias_drained_view, ascii_removed_expected
+    EXPAND STR_EQ alias_after_eq, alias_after, ascii_remaining_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED miss_buf, utf8_source
+    EXPAND STRING_BUF_TRY_DRAIN miss_ok, miss_drained, miss_buf, 2, 1
+    EXPAND STRING_BUF_AS_STR miss_drained_view, miss_drained
+    EXPAND STRING_BUF_AS_STR miss_after, miss_buf
+    EXPAND STR_IS_EMPTY miss_drained_empty, miss_drained_view
+    EXPAND STR_EQ miss_after_eq, miss_after, utf8_source
+
+    drain_flag_ok = eq drain_ok, 1
+    drain_value_ok = eq drained_eq, 1
+    drain_remaining_ok = eq utf8_after_eq, 1
+    alias_flag_ok = eq alias_ok, 1
+    alias_value_ok = eq alias_drained_eq, 1
+    alias_remaining_ok = eq alias_after_eq, 1
+    miss_flag_ok = eq miss_ok, 0
+    miss_value_ok = eq miss_drained_empty, 1
+    miss_remaining_ok = eq miss_after_eq, 1
+    ok01 = and drain_flag_ok, drain_value_ok
+    ok02 = and ok01, drain_remaining_ok
+    ok03 = and ok02, alias_flag_ok
+    ok04 = and ok03, alias_value_ok
+    ok05 = and ok04, alias_remaining_ok
+    ok06 = and ok05, miss_flag_ok
+    ok07 = and ok06, miss_value_ok
+    ok = and ok07, miss_remaining_ok
+    !utf8_source
+    !utf8_removed_expected
+    !utf8_remaining_expected
+    !ascii_source
+    !ascii_removed_expected
+    !ascii_remaining_expected
+    !drain_ok
+    !drained_view
+    !utf8_after
+    !drained_eq
+    !utf8_after_eq
+    !alias_ok
+    !alias_drained_view
+    !alias_after
+    !alias_drained_eq
+    !alias_after_eq
+    !miss_ok
+    !miss_drained_view
+    !miss_after
+    !miss_drained_empty
+    !miss_after_eq
+    !drain_flag_ok
+    !drain_value_ok
+    !drain_remaining_ok
+    !alias_flag_ok
+    !alias_value_ok
+    !alias_remaining_ok
+    !miss_flag_ok
+    !miss_value_ok
+    !miss_remaining_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    EXPAND STRING_BUF_FREE utf8_buf
+    EXPAND STRING_BUF_FREE drained
+    EXPAND STRING_BUF_FREE alias_buf
+    EXPAND STRING_BUF_FREE alias_drained
+    EXPAND STRING_BUF_FREE miss_buf
+    EXPAND STRING_BUF_FREE miss_drained
+    br ok -> L_STRING_BUF_DRAIN_OK, L_STRING_BUF_DRAIN_FAIL
+
+L_STRING_BUF_DRAIN_FAIL:
+    !ok
+    panic(920)
+
+L_STRING_BUF_DRAIN_OK:
     !ok
     return
 

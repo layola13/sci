@@ -574,6 +574,36 @@ L_STRING_BUF_REMOVE_CHAR_END_%out_ok:
     EXPAND STRING_BUF_TRY_REMOVE_CHAR_AT %out_ok, %out_codepoint, %string_reg, %index
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_DRAIN %out_ok, %out_string, %string_reg, %start, %length
+    EXPAND STRING_BUF_AS_STR __string_buf_drain_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_RANGE __string_buf_drain_range_ok_%out_ok, __string_buf_drain_range_%out_ok, __string_buf_drain_view_%out_ok, %start, %length
+    br __string_buf_drain_range_ok_%out_ok -> L_STRING_BUF_DRAIN_HIT_%out_ok, L_STRING_BUF_DRAIN_MISS_%out_ok
+
+L_STRING_BUF_DRAIN_HIT_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, %length
+    EXPAND STRING_BUF_PUSH_STR %out_string, __string_buf_drain_range_%out_ok
+    EXPAND STR_EMPTY __string_buf_drain_empty_%out_ok
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, __string_buf_drain_empty_%out_ok
+    !__string_buf_drain_empty_%out_ok
+    !__string_buf_drain_range_%out_ok
+    !__string_buf_drain_range_ok_%out_ok
+    !__string_buf_drain_view_%out_ok
+    jmp L_STRING_BUF_DRAIN_END_%out_ok
+
+L_STRING_BUF_DRAIN_MISS_%out_ok:
+    EXPAND STRING_BUF_NEW %out_string
+    %out_ok = add 0, 0
+    !__string_buf_drain_range_%out_ok
+    !__string_buf_drain_range_ok_%out_ok
+    !__string_buf_drain_view_%out_ok
+
+L_STRING_BUF_DRAIN_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_DRAIN %out_ok, %out_string, %string_reg, %start, %length
+    EXPAND STRING_BUF_TRY_DRAIN %out_ok, %out_string, %string_reg, %start, %length
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
     EXPAND VEC_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index, 1
 [END_MACRO]
