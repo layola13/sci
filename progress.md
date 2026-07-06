@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 PidFd raw fd alias batch
+
+- Added Rust raw-fd trait-style pidfd macro aliases over the existing `sa_std/os/fd` owned-fd facade:
+  - `PIDFD_AS_RAW_FD`
+  - `PIDFD_INTO_RAW_FD`
+  - `PIDFD_FROM_RAW_FD`
+  - `PIDFD_CLOSE_RAW_FD`
+  - runtime continues to use the existing fd ABI, so this batch does not add new exported symbols.
+- Updated `tests/unit_framework/std_process_macro_surface.sa` pidfd coverage:
+  - borrowed pidfd handles now validate `as_raw_fd`-style access and close the duplicate pidfd handle explicitly.
+  - `into_pidfd` coverage now validates `as_raw_fd`, transfers the pidfd through `into_raw_fd`, rebinds it through `from_raw_fd`, then uses the rebound handle for kill/wait and explicit close.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+
 ## Completed: 2026-07-06 Unix fs symlink/chown alias batch
 
 - Added Rust-named Unix filesystem macro aliases over existing runtime helpers:

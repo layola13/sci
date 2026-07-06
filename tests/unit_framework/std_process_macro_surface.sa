@@ -1334,6 +1334,21 @@ L_PIDFD_BORROW:
     br pidfd_ok -> L_HAVE_PIDFD, L_PIDFD_FALLBACK
 
 L_HAVE_PIDFD:
+    EXPAND PIDFD_AS_RAW_FD pidfd_as_raw_status, pidfd_raw_fd, pidfd
+    pidfd_as_raw_ok = eq pidfd_as_raw_status, SA_PROCESS_OK
+    pidfd_raw_fd_ok = ne pidfd_raw_fd, -1
+    pidfd_raw_all = and pidfd_as_raw_ok, pidfd_raw_fd_ok
+    br pidfd_raw_all -> L_PIDFD_TRY, L_FAIL_PIDFD_RAW
+
+L_FAIL_PIDFD_RAW:
+    !pidfd_raw_all
+    !pidfd_raw_fd_ok
+    !pidfd_as_raw_ok
+    !pidfd_raw_fd
+    !pidfd_as_raw_status
+    panic(1040)
+
+L_PIDFD_TRY:
     EXPAND PIDFD_TRY_WAIT pidfd_try_status, pidfd_ready, pidfd_code, pidfd
     pidfd_try_status_ok = eq pidfd_try_status, SA_PROCESS_OK
     pidfd_try_ready = eq pidfd_ready, 0
@@ -1368,9 +1383,12 @@ L_PIDFD_WAIT:
     EXPAND PROCESS_EXIT_STATUS_FROM_RAW exit_status, pidfd_raw
     EXPAND PROCESS_EXIT_STATUS_SIGNAL pidfd_signal, exit_status
     pidfd_signal_ok = eq pidfd_signal, SIG_KILL_PROCESS
+    EXPAND PROCESS_CLOSE pidfd_handle_close_status, pidfd
+    pidfd_handle_close_ok = eq pidfd_handle_close_status, SA_PROCESS_OK
     EXPAND PROCESS_CLOSE pidfd_close_status, process
     pidfd_close_ok = eq pidfd_close_status, SA_PROCESS_OK
     pidfd_all = and pidfd_wait_ok, pidfd_signal_ok
+    pidfd_all = and pidfd_all, pidfd_handle_close_ok
     pidfd_all = and pidfd_all, pidfd_close_ok
     br pidfd_all -> L_PIDFD_INTOD, L_FAIL_PIDFD_WAIT
 
@@ -1378,6 +1396,8 @@ L_FAIL_PIDFD_WAIT:
     !pidfd_all
     !pidfd_close_ok
     !pidfd_close_status
+    !pidfd_handle_close_ok
+    !pidfd_handle_close_status
     !pidfd_signal_ok
     !pidfd_signal
     !pidfd_wait_ok
@@ -1392,6 +1412,11 @@ L_FAIL_PIDFD_WAIT:
     !pidfd_try_status
     !pidfd_code
     !pidfd_ready
+    !pidfd_raw_all
+    !pidfd_raw_fd_ok
+    !pidfd_as_raw_ok
+    !pidfd_raw_fd
+    !pidfd_as_raw_status
     panic(1033)
 
 L_PIDFD_INTOD:
@@ -1414,12 +1439,72 @@ L_FAIL_PIDFD_SPAWN2:
 L_PIDFD_INTO:
     EXPAND PROCESS_INTO_PIDFD into_status, pidfd2, process2
     into_ok = eq into_status, SA_PROCESS_OK
-    br into_ok -> L_PIDFD_INTO_KILL, L_FAIL_PIDFD_INTO
+    br into_ok -> L_PIDFD_INTO_RAW, L_FAIL_PIDFD_INTO
 
 L_FAIL_PIDFD_INTO:
     !into_ok
     !into_status
     panic(1035)
+
+L_PIDFD_INTO_RAW:
+    EXPAND PIDFD_AS_RAW_FD pidfd2_as_raw_status, pidfd2_raw_fd, pidfd2
+    pidfd2_as_raw_ok = eq pidfd2_as_raw_status, SA_PROCESS_OK
+    pidfd2_raw_fd_ok = ne pidfd2_raw_fd, -1
+    pidfd2_raw_all = and pidfd2_as_raw_ok, pidfd2_raw_fd_ok
+    br pidfd2_raw_all -> L_PIDFD_INTO_RAW_TAKE, L_FAIL_PIDFD_INTO_RAW
+
+L_FAIL_PIDFD_INTO_RAW:
+    !pidfd2_raw_all
+    !pidfd2_raw_fd_ok
+    !pidfd2_as_raw_ok
+    !pidfd2_raw_fd
+    !pidfd2_as_raw_status
+    panic(1041)
+
+L_PIDFD_INTO_RAW_TAKE:
+    EXPAND PIDFD_INTO_RAW_FD pidfd2_into_raw_status, pidfd2_raw_taken, pidfd2
+    pidfd2_into_raw_ok = eq pidfd2_into_raw_status, SA_PROCESS_OK
+    pidfd2_raw_match = eq pidfd2_raw_taken, pidfd2_raw_fd
+    pidfd2_take_all = and pidfd2_into_raw_ok, pidfd2_raw_match
+    br pidfd2_take_all -> L_PIDFD_INTO_RAW_REBIND, L_FAIL_PIDFD_INTO_RAW_TAKE
+
+L_FAIL_PIDFD_INTO_RAW_TAKE:
+    !pidfd2_take_all
+    !pidfd2_raw_match
+    !pidfd2_into_raw_ok
+    !pidfd2_raw_taken
+    !pidfd2_into_raw_status
+    !pidfd2_raw_all
+    !pidfd2_raw_fd_ok
+    !pidfd2_as_raw_ok
+    !pidfd2_raw_fd
+    !pidfd2_as_raw_status
+    panic(1042)
+
+L_PIDFD_INTO_RAW_REBIND:
+    EXPAND PIDFD_FROM_RAW_FD pidfd2_from_raw_status, pidfd2, pidfd2_raw_taken
+    pidfd2_from_raw_ok = eq pidfd2_from_raw_status, SA_PROCESS_OK
+    pidfd2_rebound_ok = ne pidfd2, 0
+    pidfd2_from_all = and pidfd2_from_raw_ok, pidfd2_rebound_ok
+    br pidfd2_from_all -> L_PIDFD_INTO_KILL, L_FAIL_PIDFD_INTO_RAW_REBIND
+
+L_FAIL_PIDFD_INTO_RAW_REBIND:
+    !pidfd2_from_all
+    !pidfd2_rebound_ok
+    !pidfd2_from_raw_ok
+    !pidfd2
+    !pidfd2_from_raw_status
+    !pidfd2_take_all
+    !pidfd2_raw_match
+    !pidfd2_into_raw_ok
+    !pidfd2_raw_taken
+    !pidfd2_into_raw_status
+    !pidfd2_raw_all
+    !pidfd2_raw_fd_ok
+    !pidfd2_as_raw_ok
+    !pidfd2_raw_fd
+    !pidfd2_as_raw_status
+    panic(1043)
 
 L_PIDFD_INTO_KILL:
     EXPAND PIDFD_KILL pidfd2_kill_status, pidfd2
@@ -1450,9 +1535,12 @@ L_PIDFD_INTO_WAIT_DONE:
     EXPAND PIDFD_WAIT pidfd2_wait_status, pidfd2_code, pidfd2
     pidfd2_wait_ok = eq pidfd2_wait_status, SA_PROCESS_OK
     pidfd2_code_ok = ne pidfd2_code, 0
+    EXPAND PROCESS_CLOSE pidfd2_handle_close_status, pidfd2
+    pidfd2_handle_close_ok = eq pidfd2_handle_close_status, SA_PROCESS_OK
     EXPAND PROCESS_CLOSE pidfd2_close_status, process2
     pidfd2_close_ok = eq pidfd2_close_status, SA_PROCESS_OK
     pidfd2_all = and pidfd2_wait_ok, pidfd2_code_ok
+    pidfd2_all = and pidfd2_all, pidfd2_handle_close_ok
     pidfd2_all = and pidfd2_all, pidfd2_close_ok
     br pidfd2_all -> L_PASS_PIDFD, L_FAIL_PIDFD_INTO_WAIT_FINAL
 
@@ -1460,6 +1548,8 @@ L_FAIL_PIDFD_INTO_WAIT_FINAL:
     !pidfd2_all
     !pidfd2_close_ok
     !pidfd2_close_status
+    !pidfd2_handle_close_ok
+    !pidfd2_handle_close_status
     !pidfd2_code_ok
     !pidfd2_code
     !pidfd2_wait_ok
@@ -1469,6 +1559,20 @@ L_FAIL_PIDFD_INTO_WAIT_FINAL:
     !pidfd2_try_status
     !pidfd2_ready
     !pidfd2_raw_try
+    !pidfd2_from_all
+    !pidfd2_rebound_ok
+    !pidfd2_from_raw_ok
+    !pidfd2_from_raw_status
+    !pidfd2_take_all
+    !pidfd2_raw_match
+    !pidfd2_into_raw_ok
+    !pidfd2_raw_taken
+    !pidfd2_into_raw_status
+    !pidfd2_raw_all
+    !pidfd2_raw_fd_ok
+    !pidfd2_as_raw_ok
+    !pidfd2_raw_fd
+    !pidfd2_as_raw_status
     panic(1038)
 
 L_PIDFD_FALLBACK:

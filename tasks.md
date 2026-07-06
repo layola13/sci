@@ -79,6 +79,8 @@
 - [x] Unix abstract-name alias 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::fs::{symlink,chown,lchown,fchown}` Rust 命名表面：补 `FS_UNIX_SYMLINK`、`FS_UNIX_CHOWN`、`FS_UNIX_LCHOWN`、`FS_UNIX_FCHOWN`、`FS_UNIX_FCHOWN_RAW` 宏别名，复用现有 Unix fs runtime。
 - [x] Unix fs symlink/chown alias 批次已完成 focused/full Unix fs 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::process::PidFd` raw-fd trait 命名表面：补 `PIDFD_AS_RAW_FD`、`PIDFD_INTO_RAW_FD`、`PIDFD_FROM_RAW_FD`、`PIDFD_CLOSE_RAW_FD` 宏别名，复用现有 `sa_std/os/fd` owned-fd runtime。
+- [x] PidFd raw-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
