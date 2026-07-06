@@ -598,6 +598,9 @@ int32_t sa_std_process_close(uint64_t handle);
 
 uint64_t sa_thread_current_id(void);
 int32_t sa_thread_yield_now(void);
+int32_t sa_thread_as_pthread_t(int32_t handle, uint64_t *out_raw);
+int32_t sa_thread_into_pthread_t(int32_t handle, uint64_t *out_raw);
+int32_t sa_thread_raw_pthread_join(uint64_t raw, uint8_t *out);
 
 int32_t sa_term_raw_enter(uint64_t handle, uint64_t *out_session);
 int32_t sa_term_raw_leave(uint64_t session);

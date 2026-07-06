@@ -9,7 +9,7 @@
 [END_MACRO]
 
 [MACRO] THREAD_JOIN_STATUS %out_status, %handle, %out_ptr
-    %out_status = call @pthread_join(%handle, %out_ptr)
+    %out_status = call @pthread_join(%handle, *%out_ptr)
 [END_MACRO]
 
 [MACRO] THREAD_DROP %handle
@@ -22,4 +22,20 @@
 
 [MACRO] THREAD_YIELD_NOW %out_status
     %out_status = call @sa_thread_yield_now()
+[END_MACRO]
+
+[MACRO] THREAD_AS_PTHREAD_T %out_status, %out_raw, %handle
+    __thread_as_pthread_slot_%out_raw = stack_alloc 8
+    %out_status = call @sa_thread_as_pthread_t(%handle, &__thread_as_pthread_slot_%out_raw)
+    %out_raw = load __thread_as_pthread_slot_%out_raw+0 as u64
+[END_MACRO]
+
+[MACRO] THREAD_INTO_PTHREAD_T %out_status, %out_raw, %handle
+    __thread_into_pthread_slot_%out_raw = stack_alloc 8
+    %out_status = call @sa_thread_into_pthread_t(%handle, &__thread_into_pthread_slot_%out_raw)
+    %out_raw = load __thread_into_pthread_slot_%out_raw+0 as u64
+[END_MACRO]
+
+[MACRO] THREAD_RAW_PTHREAD_JOIN_STATUS %out_status, %raw, %out_ptr
+    %out_status = call @sa_thread_raw_pthread_join(%raw, *%out_ptr)
 [END_MACRO]

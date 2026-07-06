@@ -1090,6 +1090,7 @@ var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
 var pthread_registry_mutex: std.Thread.Mutex = .{};
 var pthread_slots = std.ArrayList(?*PthreadHandle).init(std.heap.page_allocator);
 var pthread_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var raw_pthread_owners = std.ArrayList(RawPthreadOwner).init(std.heap.page_allocator);
 var monotonic_origin: ?std.time.Instant = null;
 threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
@@ -1123,6 +1124,32 @@ const PthreadHandle = struct {
     task: *PthreadTask,
     joined: bool = false,
 };
+
+const RawPthreadOwner = struct {
+    raw: u64,
+    task: *PthreadTask,
+};
+
+const RawPthreadTransfer = struct {
+    raw: u64,
+    handle: *PthreadHandle,
+};
+
+fn pthreadToRaw(thread: std.c.pthread_t) u64 {
+    return switch (@typeInfo(std.c.pthread_t)) {
+        .int => @as(u64, @intCast(thread)),
+        .pointer => @as(u64, @intFromPtr(thread)),
+        else => @compileError("unsupported pthread_t representation"),
+    };
+}
+
+fn rawToPthread(raw: u64) std.c.pthread_t {
+    return switch (@typeInfo(std.c.pthread_t)) {
+        .int => @as(std.c.pthread_t, @intCast(raw)),
+        .pointer => @as(std.c.pthread_t, @ptrFromInt(raw)),
+        else => @compileError("unsupported pthread_t representation"),
+    };
+}
 
 fn pthreadTaskMain(task: *PthreadTask) void {
     task.result = task.entry(task.arg);
@@ -1200,10 +1227,45 @@ fn freePthreadHandle(handle: i32) !*PthreadHandle {
     return slot;
 }
 
+fn transferPthreadHandleToRaw(handle: i32) !RawPthreadTransfer {
+    if (handle <= 0) return error.InvalidHandle;
+    const idx: usize = @intCast(handle - 1);
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    if (idx >= pthread_slots.items.len) return error.InvalidHandle;
+    const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
+    try pthread_free_slots.ensureUnusedCapacity(1);
+    try raw_pthread_owners.ensureUnusedCapacity(1);
+    const owner = RawPthreadOwner{ .raw = pthreadToRaw(slot.thread), .task = slot.task };
+    pthread_free_slots.appendAssumeCapacity(idx);
+    pthread_slots.items[idx] = null;
+    raw_pthread_owners.appendAssumeCapacity(owner);
+    return .{ .raw = owner.raw, .handle = slot };
+}
+
+fn findRawPthreadTask(raw: u64) ?*PthreadTask {
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    for (raw_pthread_owners.items) |owner| {
+        if (owner.raw == raw) return owner.task;
+    }
+    return null;
+}
+
+fn removeRawPthreadOwner(raw: u64) ?*PthreadTask {
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    for (raw_pthread_owners.items, 0..) |owner, i| {
+        if (owner.raw == raw) return raw_pthread_owners.swapRemove(i).task;
+    }
+    return null;
+}
+
 test "pthread handle registry reuses freed slots without a linear scan" {
     pthread_registry_mutex.lock();
     pthread_slots.clearRetainingCapacity();
     pthread_free_slots.clearRetainingCapacity();
+    raw_pthread_owners.clearRetainingCapacity();
     pthread_registry_mutex.unlock();
 
     var first: PthreadHandle = undefined;
@@ -1221,6 +1283,7 @@ test "pthread handle registry reuses freed slots without a linear scan" {
     pthread_registry_mutex.lock();
     pthread_slots.clearRetainingCapacity();
     pthread_free_slots.clearRetainingCapacity();
+    raw_pthread_owners.clearRetainingCapacity();
     pthread_registry_mutex.unlock();
 }
 
@@ -5965,6 +6028,34 @@ pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
     return SA_STD_OK;
 }
 
+pub fn sa_thread_as_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
+    const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const handle_ptr = takePthreadHandle(handle) catch |err| return finish(mapError(err));
+    out.* = pthreadToRaw(handle_ptr.thread);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub fn sa_thread_into_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
+    const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const transfer = transferPthreadHandleToRaw(handle) catch |err| return finish(mapError(err));
+    out.* = transfer.raw;
+    std.heap.page_allocator.destroy(transfer.handle);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) callconv(.c) i32 {
+    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const task = findRawPthreadTask(raw) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    joinPthreadHandle(rawToPthread(raw)) catch |err| return finishErr(err);
+    const removed_task = removeRawPthreadOwner(raw) orelse task;
+    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&removed_task.result));
+    std.heap.page_allocator.destroy(removed_task);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
 pub fn pthread_drop(handle: i32) callconv(.c) void {
     if (handle <= 0) {
         last_error = SA_STD_ERR_INVALID_HANDLE;
@@ -6110,6 +6201,9 @@ comptime {
         @export(&pthread_spawn_detached, .{ .name = "pthread_spawn_detached" });
         @export(&pthread_join, .{ .name = "pthread_join" });
         @export(&pthread_drop, .{ .name = "pthread_drop" });
+        @export(&sa_thread_as_pthread_t, .{ .name = "sa_thread_as_pthread_t" });
+        @export(&sa_thread_into_pthread_t, .{ .name = "sa_thread_into_pthread_t" });
+        @export(&sa_thread_raw_pthread_join, .{ .name = "sa_thread_raw_pthread_join" });
         @export(&dlopen, .{ .name = "dlopen" });
         @export(&dlsym, .{ .name = "dlsym" });
         @export(&dlclose, .{ .name = "dlclose" });

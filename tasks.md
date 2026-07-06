@@ -181,6 +181,8 @@
 - [x] String/Vec naming alias 批次已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::ffi::{OsStrExt,OsStringExt}`：补 Unix 字节语义 `OsStr` / `OsString` facade，覆盖 `from_bytes` / `as_bytes` 与 `from_vec` / `into_vec` 命名表面。
 - [x] Unix ffi OsStr/OsString 批次已完成源码 focused 测试、完整 `unit-framework` runner 覆盖、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::thread::JoinHandleExt`：补真实 raw `pthread_t` facade，覆盖 `as_pthread_t` / `into_pthread_t`，并提供 raw pthread join 清理路径用于 ownership-transfer 验收。
+- [x] Unix thread JoinHandleExt pthread 批次已完成 `sa-std-static`、源码 focused thread 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装；同时修正 `THREAD_JOIN_STATUS` 输出指针 ABI。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

@@ -84,6 +84,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `std::os::unix::net::UnixDatagram` basic subset: unbound/pair, try_clone, raw/owned fd roundtrip, local/peer addr, passcred, timeout/nonblocking/take_error, send/recv/peek, shutdown, and close surfaces over AF_UNIX/SOCK_DGRAM handles.
    - `std::os::unix::net::UnixDatagram` pathname/abstract address paths: `bind`, `bind_addr`, `connect`, `connect_addr`, `send_to`, `send_to_addr`, `recv_from`, and `peek_from` over pathname and Unix addr handle resources.
    - `std::os::unix::ffi::{OsStrExt,OsStringExt}` Unix byte facade: `OsStr::from_bytes` / `as_bytes` slice views and `OsString::from_vec` / `into_vec` owned `Vec<u8>` move aliases.
+   - `std::os::unix::thread::JoinHandleExt`: real raw `pthread_t` facade for `as_pthread_t` / `into_pthread_t`, with raw pthread join cleanup support for ownership-transfer validation.
    - `std::os::unix::process::CommandExt` supportable spawn-config subset: `arg0`, `process_group`, and `setsid` across capture/inherit/stream process modes.
    - `std::os::linux::process` / pidfd-adjacent process-group signaling subset: `PROCESS_SEND_PROCESS_GROUP_SIGNAL` with effective PGID tracking.
    - `std::os::linux::process` pidfd subset: create-pidfd spawn path, process `pidfd` / `into_pidfd` extraction, and pidfd kill/send_signal/wait/try_wait raw and code helpers.
@@ -184,6 +185,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the UnixDatagram pathname/abstract address facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec naming alias audit batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix ffi OsStr/OsString facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Unix thread JoinHandleExt pthread facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -340,9 +342,9 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/facade/test changes are complete for the Unix ffi OsStr/OsString facade batch.
-- Focused source-std `std_os_unix_ffi_macro_surface.sa` passes (`2 passed`).
-- Full `unit-framework`, install sync, and installed-state `std_os_unix_ffi_macro_surface.sa` pass.
+- Source/runtime/facade/test changes are complete for the Unix thread JoinHandleExt pthread facade batch.
+- `zig build sa-std-static --summary all`, focused source-std `std_thread_macro_surface.sa`, export symbol check, full `unit-framework`, install sync, and installed-state `std_thread_macro_surface.sa` pass.
+- `THREAD_JOIN_STATUS` now passes the output buffer pointer according to the existing `pthread_join` ABI.
 
 ## Next Priority
 

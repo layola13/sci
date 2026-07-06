@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix thread JoinHandleExt pthread facade batch
+
+- Added supportable `std::os::unix::thread::JoinHandleExt` raw pthread facade backed by real runtime `pthread_t` values, not SA registry handle ids.
+- Added macro surfaces:
+  - `THREAD_AS_PTHREAD_T`
+  - `THREAD_INTO_PTHREAD_T`
+  - `THREAD_RAW_PTHREAD_JOIN_STATUS` for SA tests/callers that take ownership through `into_pthread_t` and need to join the transferred raw pthread.
+- Added runtime/export surfaces:
+  - `sa_thread_as_pthread_t`
+  - `sa_thread_into_pthread_t`
+  - `sa_thread_raw_pthread_join`
+- Semantics: `as_pthread_t` reads the underlying raw pthread without consuming the SA join handle. `into_pthread_t` removes the SA join handle from the registry, transfers raw pthread ownership to the caller, and keeps task cleanup associated with the raw pthread join helper. `THREAD_JOIN_STATUS` was also corrected to pass its output buffer as a pointer according to the existing `pthread_join` ABI.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused `std_thread_macro_surface.sa`: pass (`2 passed`).
+  - Runtime export check for new `sa_thread_*pthread*` symbols: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_thread_macro_surface.sa`: pass (`2 passed`).
+  - Installed-state runtime export check: pass.
+
 ## Completed: 2026-07-06 Unix ffi OsStr/OsString facade batch
 
 - Added supportable `std::os::unix::ffi::{OsStrExt, OsStringExt}` macro facades.
