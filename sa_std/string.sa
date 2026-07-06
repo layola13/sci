@@ -202,6 +202,28 @@ L_STRING_BUF_FROM_UTF8_MISS_%out_ok:
 L_STRING_BUF_FROM_UTF8_DONE_%out_ok:
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_FROM_UTF8_VEC %out_ok, %out_string, %out_err_vec, %bytes_vec
+    EXPAND VEC_AS_SLICE __string_buf_from_utf8_vec_slice_%out_ok, %bytes_vec
+    EXPAND STR_IS_UTF8 __string_buf_from_utf8_vec_valid_%out_ok, __string_buf_from_utf8_vec_slice_%out_ok
+    !__string_buf_from_utf8_vec_slice_%out_ok
+    br __string_buf_from_utf8_vec_valid_%out_ok -> L_STRING_BUF_FROM_UTF8_VEC_OK_%out_ok, L_STRING_BUF_FROM_UTF8_VEC_ERR_%out_ok
+
+L_STRING_BUF_FROM_UTF8_VEC_OK_%out_ok:
+    %out_string = %bytes_vec
+    EXPAND VEC_WITH_CAPACITY %out_err_vec, 0, 1
+    %out_ok = add 0, 1
+    !__string_buf_from_utf8_vec_valid_%out_ok
+    jmp L_STRING_BUF_FROM_UTF8_VEC_DONE_%out_ok
+
+L_STRING_BUF_FROM_UTF8_VEC_ERR_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    %out_err_vec = %bytes_vec
+    %out_ok = add 0, 0
+    !__string_buf_from_utf8_vec_valid_%out_ok
+
+L_STRING_BUF_FROM_UTF8_VEC_DONE_%out_ok:
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF16_U16 %out_ok, %out_string, %u16_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_utf16_len_%out_ok = load %u16_slice+Slice_len as u64

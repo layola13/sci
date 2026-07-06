@@ -3267,3 +3267,104 @@ L_STRING_BUF_UTF16_ENDIAN_LOSSY_FAIL:
 L_STRING_BUF_UTF16_ENDIAN_LOSSY_OK:
     !ok
     return
+
+@test "sa_std string buffer from_utf8 Vec macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS expected, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND VEC_WITH_CAPACITY bytes_vec, 8, 1
+    EXPAND VEC_PUSH bytes_vec, 97, 1
+    EXPAND VEC_PUSH bytes_vec, 195, 1
+    EXPAND VEC_PUSH bytes_vec, 169, 1
+    EXPAND VEC_PUSH bytes_vec, 240, 1
+    EXPAND VEC_PUSH bytes_vec, 159, 1
+    EXPAND VEC_PUSH bytes_vec, 153, 1
+    EXPAND VEC_PUSH bytes_vec, 130, 1
+    EXPAND VEC_PUSH bytes_vec, 122, 1
+    EXPAND STRING_BUF_TRY_FROM_UTF8_VEC valid_ok, valid_buf, valid_err_vec, bytes_vec
+    EXPAND STRING_BUF_AS_STR valid_view, valid_buf
+    EXPAND STR_EQ valid_eq, valid_view, expected
+    EXPAND VEC_LEN valid_err_len, valid_err_vec
+
+    EXPAND VEC_WITH_CAPACITY bad_vec, 3, 1
+    EXPAND VEC_PUSH bad_vec, 114, 1
+    EXPAND VEC_PUSH bad_vec, 255, 1
+    EXPAND VEC_PUSH bad_vec, 115, 1
+    EXPAND STRING_BUF_TRY_FROM_UTF8_VEC bad_ok, bad_buf, bad_err_vec, bad_vec
+    EXPAND STRING_BUF_LEN bad_buf_len, bad_buf
+    EXPAND VEC_LEN bad_err_len, bad_err_vec
+    EXPAND VEC_TRY_GET_TYPED_U8 bad_first_ok, bad_first, bad_err_vec, 0, 1
+    EXPAND VEC_TRY_GET_TYPED_U8 bad_second_ok, bad_second, bad_err_vec, 1, 1
+    EXPAND VEC_TRY_GET_TYPED_U8 bad_third_ok, bad_third, bad_err_vec, 2, 1
+
+    valid_flag_ok = eq valid_ok, 1
+    valid_value_ok = eq valid_eq, 1
+    valid_err_empty_ok = eq valid_err_len, 0
+    bad_flag_ok = eq bad_ok, 0
+    bad_buf_empty_ok = eq bad_buf_len, 0
+    bad_err_len_ok = eq bad_err_len, 3
+    bad_first_flag_ok = eq bad_first_ok, 1
+    bad_first_value_ok = eq bad_first, 114
+    bad_second_flag_ok = eq bad_second_ok, 1
+    bad_second_value_ok = eq bad_second, 255
+    bad_third_flag_ok = eq bad_third_ok, 1
+    bad_third_value_ok = eq bad_third, 115
+    ok01 = and valid_flag_ok, valid_value_ok
+    ok02 = and ok01, valid_err_empty_ok
+    ok03 = and ok02, bad_flag_ok
+    ok04 = and ok03, bad_buf_empty_ok
+    ok05 = and ok04, bad_err_len_ok
+    ok06 = and ok05, bad_first_flag_ok
+    ok07 = and ok06, bad_first_value_ok
+    ok08 = and ok07, bad_second_flag_ok
+    ok09 = and ok08, bad_second_value_ok
+    ok10 = and ok09, bad_third_flag_ok
+    ok = and ok10, bad_third_value_ok
+    !expected
+    !valid_ok
+    !valid_view
+    !valid_eq
+    !valid_err_len
+    !bad_ok
+    !bad_buf_len
+    !bad_err_len
+    !bad_first_ok
+    !bad_first
+    !bad_second_ok
+    !bad_second
+    !bad_third_ok
+    !bad_third
+    !valid_flag_ok
+    !valid_value_ok
+    !valid_err_empty_ok
+    !bad_flag_ok
+    !bad_buf_empty_ok
+    !bad_err_len_ok
+    !bad_first_flag_ok
+    !bad_first_value_ok
+    !bad_second_flag_ok
+    !bad_second_value_ok
+    !bad_third_flag_ok
+    !bad_third_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    EXPAND VEC_FREE bad_err_vec
+    EXPAND STRING_BUF_FREE bad_buf
+    EXPAND VEC_FREE valid_err_vec
+    EXPAND STRING_BUF_FREE valid_buf
+    br ok -> L_STRING_BUF_FROM_UTF8_VEC_OK, L_STRING_BUF_FROM_UTF8_VEC_FAIL
+
+L_STRING_BUF_FROM_UTF8_VEC_FAIL:
+    !ok
+    panic(929)
+
+L_STRING_BUF_FROM_UTF8_VEC_OK:
+    !ok
+    return

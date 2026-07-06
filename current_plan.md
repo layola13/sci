@@ -65,6 +65,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf16_lossy` U16-slice constructor shape with U+FFFD replacement for invalid surrogate units.
    - `StringBuf` Rust API parity continuation: completed supportable strict `String::from_utf16le` / `String::from_utf16be` endian byte-slice constructor shape.
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf16le_lossy` / `String::from_utf16be_lossy` endian byte-slice constructor shape with U+FFFD replacement for invalid surrogate units and odd trailing bytes.
+   - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8(Vec<u8>)` owned-Vec constructor shape with success zero-copy move and failure error-Vec preservation.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -154,6 +155,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the StringBuf from_utf16_lossy facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf UTF-16 endian byte-slice facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf UTF-16 endian lossy byte-slice facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the StringBuf from_utf8 Vec facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

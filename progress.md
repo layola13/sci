@@ -4,6 +4,27 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf from_utf8 Vec facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf8(Vec<u8>)` subset.
+- Added owned-Vec UTF-8 constructor macro surface:
+  - `STRING_BUF_TRY_FROM_UTF8_VEC`
+- Semantics: validates an owned byte Vec as UTF-8. On success, moves the Vec buffer directly into the output `StringBuf` and returns an empty error Vec. On failure, returns `ok=0`, an empty `StringBuf`, and the original byte Vec as the error Vec for caller cleanup/inspection.
+- Scope note: this is the SA owned-Vec result shape; it does not claim Rust's `FromUtf8Error` object type, but it preserves the original bytes on failure.
+- Updated `std_string_macro_surface.sa` coverage:
+  - a Vec containing the bytes for `aé🙂z` succeeds and round-trips through `STR_EQ`.
+  - invalid bytes containing `0xff` fail, leave the output string empty, and return the original three bytes in the error Vec.
+- Validation status:
+  - Source focused `from_utf8 Vec` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`27 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf8 Vec` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`27 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf UTF-16 endian lossy byte-slice facade batch
 
 - Continued String Rust API parity work with the supportable `String::from_utf16le_lossy` / `String::from_utf16be_lossy` subsets.
