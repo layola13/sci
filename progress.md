@@ -4,6 +4,32 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 UnixDatagram pathname/abstract address facade batch
+
+- Continued `std::os::unix::net::UnixDatagram` parity with pathname and Unix `SocketAddr` handle address paths.
+- Added macro surfaces:
+  - `NET_UNIX_DATAGRAM_BIND`
+  - `NET_UNIX_DATAGRAM_BIND_ADDR`
+  - `NET_UNIX_DATAGRAM_CONNECT`
+  - `NET_UNIX_DATAGRAM_CONNECT_ADDR`
+  - `NET_UNIX_DATAGRAM_SEND_TO`
+  - `NET_UNIX_DATAGRAM_SEND_TO_ADDR`
+  - `NET_UNIX_DATAGRAM_RECV_FROM`
+  - `NET_UNIX_DATAGRAM_PEEK_FROM`
+- Added runtime/export surfaces: `sa_std_net_unix_datagram_bind`, `bind_addr`, `connect`, `connect_addr`, `send_to`, `send_to_addr`, `recv_from`, and `peek_from`.
+- Semantics: pathname bind/connect/send-to use Rust-style Unix pathname addresses; address-handle variants reuse the existing pathname/abstract/unnamed Unix addr resource model. `peek_from` returns the sender address without consuming the datagram, and `recv_from` returns a Unix addr handle for the packet source.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused UnixDatagram address tests: pass (`3 passed`).
+  - Source full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for new `sa_std_net_unix_datagram_*` address symbols: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused UnixDatagram address tests: pass (`3 passed`).
+  - Installed-state full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+  - Installed-state runtime export check: pass.
+
 ## Completed: 2026-07-06 Vec reference/array conversion alias facade batch
 
 - Re-audited `StringBuf` / `Vec` macro surfaces against Rust `alloc::string::String` and `alloc::vec::Vec` APIs.
@@ -43,7 +69,7 @@ Current progress: 100%
   - `NET_UNIX_DATAGRAM_SHUTDOWN` / `NET_UNIX_DATAGRAM_CLOSE`
 - Added runtime/export surfaces: `sa_std_net_unix_datagram_unbound`, `pair`, `try_clone`, `from_raw_fd`, `local_addr`, `peer_addr`, `set_passcred`, `passcred`, and `shutdown`.
 - Semantics: UnixDatagram uses the existing owned fd-backed `udp_socket` resource kind while validating AF_UNIX/SOCK_DGRAM where handles are restored or queried as Unix datagrams. `pair` returns connected unnamed datagram sockets, `peek` is non-consuming, passcred maps to Linux `SO_PASSCRED`, and raw/owned fd conversions preserve Rust-style ownership transfer.
-- Scope note: pathname/abstract `bind_addr`, `connect_addr`, `send_to_addr`, and `recv_from` address-returning UnixDatagram paths remain a natural follow-up batch.
+- Scope note: pathname/abstract `bind_addr`, `connect_addr`, `send_to_addr`, and address-returning `recv_from`/`peek_from` paths were completed in the follow-up address batch above.
 - Validation status:
   - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
   - Source focused UnixDatagram test: pass (`1 passed`).

@@ -498,12 +498,32 @@
     %out_socket = load __net_unix_datagram_unbound_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_DATAGRAM_BIND %out_status, %out_socket, %path, %path_len
+    __net_unix_datagram_bind_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_bind(&%path, %path_len, &__net_unix_datagram_bind_%out_status)
+    %out_socket = load __net_unix_datagram_bind_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_BIND_ADDR %out_status, %out_socket, %addr
+    __net_unix_datagram_bind_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_bind_addr(%addr, &__net_unix_datagram_bind_addr_%out_status)
+    %out_socket = load __net_unix_datagram_bind_addr_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UNIX_DATAGRAM_PAIR %out_status, %out_left, %out_right
     __net_unix_datagram_pair_left_%out_status = stack_alloc 8
     __net_unix_datagram_pair_right_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_datagram_pair(&__net_unix_datagram_pair_left_%out_status, &__net_unix_datagram_pair_right_%out_status)
     %out_left = load __net_unix_datagram_pair_left_%out_status+0 as u64
     %out_right = load __net_unix_datagram_pair_right_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_CONNECT %out_status, %socket, %path, %path_len
+    %out_status = call @sa_std_net_unix_datagram_connect(%socket, &%path, %path_len)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_CONNECT_ADDR %out_status, %socket, %addr
+    %out_status = call @sa_std_net_unix_datagram_connect_addr(%socket, %addr)
 [END_MACRO]
 
 [MACRO] NET_UNIX_DATAGRAM_TRY_CLONE %out_status, %out_socket, %socket
@@ -590,12 +610,40 @@
     EXPAND NET_UDP_SEND %out_status, %out_len, %socket, %buf, %len
 [END_MACRO]
 
+[MACRO] NET_UNIX_DATAGRAM_SEND_TO %out_status, %out_len, %socket, %buf, %len, %path, %path_len
+    __net_unix_datagram_send_to_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_send_to(%socket, &%buf, %len, &%path, %path_len, &__net_unix_datagram_send_to_len_%out_status)
+    %out_len = load __net_unix_datagram_send_to_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SEND_TO_ADDR %out_status, %out_len, %socket, %buf, %len, %addr
+    __net_unix_datagram_send_to_addr_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_send_to_addr(%socket, &%buf, %len, %addr, &__net_unix_datagram_send_to_addr_len_%out_status)
+    %out_len = load __net_unix_datagram_send_to_addr_len_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UNIX_DATAGRAM_RECV %out_status, %out_len, %socket, %buf, %cap
     EXPAND NET_UDP_RECV %out_status, %out_len, %socket, %buf, %cap
 [END_MACRO]
 
+[MACRO] NET_UNIX_DATAGRAM_RECV_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    __net_unix_datagram_recv_from_len_%out_status = stack_alloc 8
+    __net_unix_datagram_recv_from_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_recv_from(%socket, &%buf, %cap, &__net_unix_datagram_recv_from_len_%out_status, &__net_unix_datagram_recv_from_addr_%out_status)
+    %out_len = load __net_unix_datagram_recv_from_len_%out_status+0 as u64
+    %out_addr = load __net_unix_datagram_recv_from_addr_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UNIX_DATAGRAM_PEEK %out_status, %out_len, %socket, %buf, %cap
     EXPAND NET_UDP_PEEK %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PEEK_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    __net_unix_datagram_peek_from_len_%out_status = stack_alloc 8
+    __net_unix_datagram_peek_from_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_peek_from(%socket, &%buf, %cap, &__net_unix_datagram_peek_from_len_%out_status, &__net_unix_datagram_peek_from_addr_%out_status)
+    %out_len = load __net_unix_datagram_peek_from_len_%out_status+0 as u64
+    %out_addr = load __net_unix_datagram_peek_from_addr_%out_status+0 as u64
 [END_MACRO]
 
 [MACRO] NET_UNIX_DATAGRAM_SHUTDOWN %out_status, %socket, %how

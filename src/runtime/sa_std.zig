@@ -10404,6 +10404,37 @@ pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_unix_datagram_bind(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    var address = std.net.Address.initUnix(path) catch |err| return finishErr(err);
+
+    std.posix.unlink(path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => {},
+    };
+
+    const fd = std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    errdefer std.posix.close(fd);
+    std.posix.bind(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_bind_addr(addr_handle: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
+    const fd = std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    errdefer std.posix.close(fd);
+    std.posix.bind(fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i32 {
     const left_ptr = out_left orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const right_ptr = out_right orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -10440,6 +10471,25 @@ pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i
     owns_right_fd = false;
     left_ptr.* = left_handle;
     right_ptr.* = right_handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_connect(socket: u64, path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    var address = std.net.Address.initUnix(path) catch |err| return finishErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    std.posix.connect(handle.fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_connect_addr(socket: u64, addr_handle: u64) i32 {
+    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    std.posix.connect(handle.fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -10538,6 +10588,67 @@ pub export fn sa_std_net_unix_datagram_shutdown(socket: u64, how: u32) i32 {
     };
     std.posix.shutdown(handle.fd, shutdown) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_send_to(socket: u64, buf: ?[*]const u8, len: u64, path_ptr: ?[*]const u8, path_len: u64, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    var address = std.net.Address.initUnix(path) catch |err| return finishErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const written = std.posix.sendto(handle.fd, bytes, 0, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    written_ptr.* = @as(u64, @intCast(written));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_send_to_addr(socket: u64, buf: ?[*]const u8, len: u64, addr_handle: u64, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const written = std.posix.sendto(handle.fd, bytes, 0, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    written_ptr.* = @as(u64, @intCast(written));
+    return finish(SA_STD_OK);
+}
+
+fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read: ?*u64, out_addr: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    addr_ptr.* = 0;
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    var addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+    @memset(&addr.path, 0);
+    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.un);
+    const read = std.posix.recvfrom(handle.fd, buffer, flags, @as(*std.posix.sockaddr, @ptrCast(&addr)), &addr_len) catch |err| return finishErr(err);
+    read_ptr.* = @as(u64, @intCast(read));
+
+    var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, addr, addr_len) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const addr_handle = registerResourceLocked(.{ .unix_addr = unix_addr }) catch |err| {
+        unix_addr.deinit();
+        return finishErr(err);
+    };
+    addr_ptr.* = addr_handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    return unixDatagramRecvFrom(socket, out, cap, 0, out_read, out_addr);
+}
+
+pub export fn sa_std_net_unix_datagram_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    return unixDatagramRecvFrom(socket, out, cap, std.posix.MSG.PEEK, out_read, out_addr);
 }
 
 pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {

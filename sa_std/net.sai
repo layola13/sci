@@ -53,7 +53,11 @@
 @extern sa_std_net_unix_stream_passcred(stream: u64, &out_enabled: ptr) -> i32
 @extern sa_std_net_unix_stream_peer_cred(stream: u64, &out_pid: ptr, &out_uid: ptr, &out_gid: ptr) -> i32
 @extern sa_std_net_unix_datagram_unbound(&out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_bind(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_bind_addr(addr: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_datagram_pair(&out_left: ptr, &out_right: ptr) -> i32
+@extern sa_std_net_unix_datagram_connect(socket: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_std_net_unix_datagram_connect_addr(socket: u64, addr: u64) -> i32
 @extern sa_std_net_unix_datagram_try_clone(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_datagram_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_datagram_local_addr(socket: u64, &out_handle: ptr) -> i32
@@ -61,6 +65,10 @@
 @extern sa_std_net_unix_datagram_set_passcred(socket: u64, enabled: i32) -> i32
 @extern sa_std_net_unix_datagram_passcred(socket: u64, &out_enabled: ptr) -> i32
 @extern sa_std_net_unix_datagram_shutdown(socket: u64, how: u32) -> i32
+@extern sa_std_net_unix_datagram_send_to(socket: u64, &buf: ptr, len: u64, &path: ptr, path_len: u64, &out_written: ptr) -> i32
+@extern sa_std_net_unix_datagram_send_to_addr(socket: u64, &buf: ptr, len: u64, addr: u64, &out_written: ptr) -> i32
+@extern sa_std_net_unix_datagram_recv_from(socket: u64, &buf: ptr, cap: u64, &out_read: ptr, &out_addr: ptr) -> i32
+@extern sa_std_net_unix_datagram_peek_from(socket: u64, &buf: ptr, cap: u64, &out_read: ptr, &out_addr: ptr) -> i32
 
 // Additional stream/listener socket options.
 @extern sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) -> i32

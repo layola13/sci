@@ -81,6 +81,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
    - `std::os::linux::net::SocketAddrExt::as_abstract_name`: Rust-named abstract-name access aliases over existing Unix abstract addr accessors.
    - `std::os::unix::net::UnixDatagram` basic subset: unbound/pair, try_clone, raw/owned fd roundtrip, local/peer addr, passcred, timeout/nonblocking/take_error, send/recv/peek, shutdown, and close surfaces over AF_UNIX/SOCK_DGRAM handles.
+   - `std::os::unix::net::UnixDatagram` pathname/abstract address paths: `bind`, `bind_addr`, `connect`, `connect_addr`, `send_to`, `send_to_addr`, `recv_from`, and `peek_from` over pathname and Unix addr handle resources.
    - `std::os::unix::process::CommandExt` supportable spawn-config subset: `arg0`, `process_group`, and `setsid` across capture/inherit/stream process modes.
    - `std::os::linux::process` / pidfd-adjacent process-group signaling subset: `PROCESS_SEND_PROCESS_GROUP_SIGNAL` with effective PGID tracking.
    - `std::os::linux::process` pidfd subset: create-pidfd spawn path, process `pidfd` / `into_pidfd` extraction, and pidfd kill/send_signal/wait/try_wait raw and code helpers.
@@ -98,7 +99,6 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `std::os::unix::process::ChildExt::kill_process_group`: Linux process-group `SIGKILL` convenience facade over the existing effective-PGID signal path.
 2. Next candidate scope:
    - Continue String/Vec audit only for supportable gaps that can be expressed as SA macro/runtime surfaces and verified without misrepresenting Rust object models.
-   - Continue UnixDatagram parity with pathname/abstract `bind_addr`, `connect_addr`, `send_to_addr`, and address-returning `recv_from` / `peek_from` surfaces.
    - Re-audit remaining Linux-only `std` facade gaps against `/home/vscode/projects/rust/library/std/src/os/`.
    - Prioritize surfaces that can be expressed clearly as SA macros/runtime and verified with focused macro-surface tests.
 
@@ -179,6 +179,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec reference conversion alias facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix fs chroot facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the UnixDatagram basic facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the UnixDatagram pathname/abstract address facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -335,19 +336,15 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/runtime/facade/test changes are complete for the RawFd/BorrowedFd named facade batch.
-- This batch adds `sa_std_fd_dup_raw` so a borrowed raw fd can be cloned into an owned fd handle.
-- `zig build sa-std-static --summary all` passes and `sa_std_fd_dup_raw` is exported from both static libs.
-- Focused source-std fd `sa test` for `std_os_fd_macro_surface.sa --filter "raw borrowed fd"` passes (`1 passed`).
-- Full source-std fd `sa test` for `std_os_fd_macro_surface.sa` passes (`4 passed`).
-- `zig build unit-framework --summary all` passes.
-- Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
-- Installed-state focused fd smoke for `std_os_fd_macro_surface.sa --filter "raw borrowed fd"` passes (`1 passed`).
-- Installed-state full fd smoke for `std_os_fd_macro_surface.sa` passes (`4 passed`).
+- Source/runtime/facade/test changes are complete for the UnixDatagram pathname/abstract address facade batch.
+- `zig build sa-std-static --summary all` passes.
+- Focused source-std UnixDatagram tests for `std_net_unix_macro_surface.sa --filter "unix datagram"` pass (`3 passed`).
+- Full source-std Unix socket test for `std_net_unix_macro_surface.sa` passes (`7 passed`).
+- Full `unit-framework`, install sync, installed-state focused/full Unix socket tests, export symbol check, and `git diff --check` pass.
 
 ## Next Priority
 
-- Audit `sa_std/string` and `sa_std/vec` against Rust `String` / `Vec` APIs first, then implement the highest-value small verified gap.
+- Finish UnixDatagram address batch validation and commit it, then re-audit remaining Linux-only `std` facade gaps.
 
 ## Notes
 

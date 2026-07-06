@@ -175,6 +175,8 @@
 - [x] Unix fs chroot facade 批次已完成源码 focused/full Unix fs 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::net::UnixDatagram` 基础子集：补 unbound/pair、try_clone、raw/owned fd roundtrip、local/peer addr、passcred、timeout/nonblocking/take_error、send/recv/peek、shutdown/close 宏表面。
 - [x] UnixDatagram 基础子集批次已完成源码 focused/full Unix socket 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixDatagram` pathname/abstract 地址路径：补 `bind` / `bind_addr` / `connect` / `connect_addr` / `send_to` / `send_to_addr` / `recv_from` / `peek_from` 宏与 runtime 表面。
+- [x] UnixDatagram 地址路径批次已完成源码 focused/full Unix socket 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
