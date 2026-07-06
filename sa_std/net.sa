@@ -681,6 +681,14 @@
     %out_len = call @sa_net_unix_addr_abstract_len(%addr)
 [END_MACRO]
 
+[MACRO] NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR %out_ptr, %addr
+    EXPAND NET_UNIX_ADDR_ABSTRACT_PTR %out_ptr, %addr
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_AS_ABSTRACT_NAME_LEN %out_len, %addr
+    EXPAND NET_UNIX_ADDR_ABSTRACT_LEN %out_len, %addr
+[END_MACRO]
+
 [MACRO] NET_UNIX_ADDR_FREE %out_status, %addr
     __net_unix_addr_free_%out_status = call @sa_net_unix_addr_free(%addr)
     %out_status = load __net_unix_addr_free_%out_status+0 as i32

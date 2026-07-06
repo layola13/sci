@@ -864,9 +864,9 @@ L_ABSTRACT_FAIL_MAKE:
 L_ABSTRACT_KIND:
     EXPAND NET_UNIX_ADDR_KIND abstract_kind, abstract_addr
     abstract_kind_ok = eq abstract_kind, SA_NET_UNIX_ADDR_ABSTRACT
-    EXPAND NET_UNIX_ADDR_ABSTRACT_LEN abstract_len, abstract_addr
+    EXPAND NET_UNIX_ADDR_AS_ABSTRACT_NAME_LEN abstract_len, abstract_addr
     abstract_len_ok = eq abstract_len, UDS_ABSTRACT_NAME_LEN
-    EXPAND NET_UNIX_ADDR_ABSTRACT_PTR abstract_ptr, abstract_addr
+    EXPAND NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR abstract_ptr, abstract_addr
     abstract_ptr_ok = ne abstract_ptr, 0
     abstract_b0 = load abstract_ptr+0 as u8
     abstract_b14 = load abstract_ptr+14 as u8
@@ -918,9 +918,9 @@ L_ABSTRACT_LOCAL:
     local_addr_ok = ne local_addr, 0
     EXPAND NET_UNIX_ADDR_KIND local_kind, local_addr
     local_kind_ok = eq local_kind, SA_NET_UNIX_ADDR_ABSTRACT
-    EXPAND NET_UNIX_ADDR_ABSTRACT_LEN local_len, local_addr
+    EXPAND NET_UNIX_ADDR_AS_ABSTRACT_NAME_LEN local_len, local_addr
     local_len_ok = eq local_len, UDS_ABSTRACT_NAME_LEN
-    EXPAND NET_UNIX_ADDR_ABSTRACT_PTR local_ptr, local_addr
+    EXPAND NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR local_ptr, local_addr
     local_ptr_ok = ne local_ptr, 0
     local_b0 = load local_ptr+0 as u8
     local_b14 = load local_ptr+14 as u8

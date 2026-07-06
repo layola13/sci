@@ -75,6 +75,8 @@
 - [x] Unix incoming 命名表面批次已完成 focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`：补 pathname Unix addr 构造和 Rust 命名 pathname 访问宏表面，复用现有 Unix addr handle 生命周期。
 - [x] Unix SocketAddr pathname 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::net::SocketAddrExt::as_abstract_name`：补 `NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR/LEN` Rust 命名访问宏别名，复用现有 abstract ptr/len accessor。
+- [x] Unix abstract-name alias 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

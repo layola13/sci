@@ -4,6 +4,23 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix SocketAddr as_abstract_name alias batch
+
+- Added Linux `std::os::linux::net::SocketAddrExt::as_abstract_name`-style named macro aliases over the existing Unix abstract-name address accessors:
+  - `NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR`
+  - `NET_UNIX_ADDR_AS_ABSTRACT_NAME_LEN`
+  - runtime continues to use the existing abstract pointer/length accessors, so this batch does not add new ABI symbols.
+- Updated `tests/unit_framework/std_net_unix_macro_surface.sa` abstract address coverage:
+  - abstract address construction now validates the original address and listener local address through the Rust-named `as_abstract_name` macros.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
 ## Completed: 2026-07-06 Unix SocketAddr pathname batch
 
 - Added Unix `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`-style surface over the existing Unix address handle model:
