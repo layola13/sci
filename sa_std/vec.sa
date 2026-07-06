@@ -9,6 +9,10 @@
     %out_vec = call @sa_vec_new()
 [END_MACRO]
 
+[MACRO] VEC_DEFAULT %out_vec
+    EXPAND VEC_NEW %out_vec
+[END_MACRO]
+
 [MACRO] VEC_LEN %out_len, %vec_reg
     %out_len = call @sa_vec_len(&%vec_reg)
 [END_MACRO]
@@ -640,6 +644,18 @@ L_VEC_FROM_FN_DONE_%out_vec:
 
 [MACRO] VEC_FROM_SLICE_U64 %out_vec, %slice_reg
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_FROM_STR_BYTES %out_vec, %str_slice
+    EXPAND VEC_FROM_SLICE %out_vec, %str_slice, 1
+[END_MACRO]
+
+[MACRO] VEC_U8_FROM_STR %out_vec, %str_slice
+    EXPAND VEC_FROM_STR_BYTES %out_vec, %str_slice
+[END_MACRO]
+
+[MACRO] VEC_FROM_STRING_BUF %out_vec, %string_reg
+    %out_vec = %string_reg
 [END_MACRO]
 
 [MACRO] VEC_CLONE %out_vec, %vec_reg, %elem_size

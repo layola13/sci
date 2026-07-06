@@ -2400,3 +2400,55 @@ L_VEC_CLONE_FAIL:
 L_VEC_CLONE_OK:
     !ok
     return
+
+@test "sa_std vec default and string byte conversion macros"():
+L_VEC_STR_BYTES_ENTRY:
+    word_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &WORD, 4
+    EXPAND VEC_DEFAULT default_vec
+    EXPAND VEC_IS_EMPTY default_empty, default_vec
+    EXPAND VEC_FROM_STR_BYTES bytes_vec, word_slice
+    EXPAND VEC_LEN bytes_len, bytes_vec
+    EXPAND VEC_TRY_GET_TYPED_U8 first_ok, first, bytes_vec, 0, 1
+    EXPAND VEC_TRY_GET_TYPED_U8 last_ok, last, bytes_vec, 3, 1
+
+    default_ok = eq default_empty, 1
+    len_ok = eq bytes_len, 4
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 114
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last, 116
+    ok01 = and default_ok, len_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, last_flag_ok
+    ok = and ok04, last_value_ok
+
+    !default_empty
+    !bytes_len
+    !first_ok
+    !first
+    !last_ok
+    !last
+    !default_ok
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !last_flag_ok
+    !last_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !word_slice
+    EXPAND VEC_FREE bytes_vec
+    EXPAND VEC_FREE default_vec
+    br ok -> L_VEC_STR_BYTES_OK, L_VEC_STR_BYTES_FAIL
+
+L_VEC_STR_BYTES_FAIL:
+    !ok
+    panic(926)
+
+L_VEC_STR_BYTES_OK:
+    !ok
+    return

@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec default and conversion alias facade batch
+
+- Continued String/Vec Rust API parity with supportable trait/conversion naming surfaces.
+- Added Vec macro surfaces:
+  - `VEC_DEFAULT`
+  - `VEC_FROM_STR_BYTES` / `VEC_U8_FROM_STR`
+  - `VEC_FROM_STRING_BUF`
+- Added StringBuf macro surfaces:
+  - `STRING_BUF_DEFAULT`
+  - `STRING_BUF_AS_REF_STR` / `STRING_BUF_AS_MUT_REF_STR` / `STRING_BUF_AS_REF_BYTES`
+  - `STRING_BUF_FROM_CHAR`
+  - `STRING_BUF_ADD_STR` / `STRING_BUF_ADD_ASSIGN_STR`
+- Semantics: default constructors produce empty buffers. `Vec<u8>` from str copies UTF-8 bytes. `StringBuf` add consumes/moves the left StringBuf and appends the right str slice; add-assign mutates in place; from-char encodes a Unicode scalar into UTF-8.
+- Validation status:
+  - Source focused default/conversion tests: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`30 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused default/conversion tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`30 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec clone and from-slice/from-str facade batch
 
 - Continued highest-priority String/Vec Rust API parity work with supportable clone/conversion surfaces.

@@ -3598,3 +3598,63 @@ L_STRING_BUF_CLONE_FAIL:
 L_STRING_BUF_CLONE_OK:
     !ok
     return
+
+@test "sa_std string buffer default add and from-char macros"():
+L_STRING_BUF_ADD_ENTRY:
+    word_slice = alloc Slice_SIZE
+    right_slice = alloc Slice_SIZE
+    joined_slice = alloc Slice_SIZE
+    e_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &JOIN_LEFT, 4
+    EXPAND SLICE_NEW right_slice, &JOIN_RIGHT, 4
+    EXPAND SLICE_NEW joined_slice, &JOINED, 8
+    EXPAND SLICE_NEW e_slice, &UTF8_E_ACUTE, 2
+
+    EXPAND STRING_BUF_DEFAULT default_string
+    EXPAND STRING_BUF_IS_EMPTY default_empty, default_string
+    EXPAND STRING_BUF_FROM_STR left_string, word_slice
+    EXPAND STRING_BUF_ADD_STR added_string, left_string, right_slice
+    EXPAND STRING_BUF_AS_REF_STR added_view, added_string
+    EXPAND STR_EQ added_eq, added_view, joined_slice
+
+    EXPAND STRING_BUF_FROM_STR assign_string, word_slice
+    EXPAND STRING_BUF_ADD_ASSIGN_STR assign_string, right_slice
+    EXPAND STRING_BUF_AS_REF_BYTES assign_bytes, assign_string
+    EXPAND STR_EQ assign_eq, assign_bytes, joined_slice
+
+    EXPAND STRING_BUF_FROM_CHAR e_string, 233
+    EXPAND STRING_BUF_AS_STR e_view, e_string
+    EXPAND STR_EQ e_eq, e_view, e_slice
+
+    default_ok = eq default_empty, 1
+    ok01 = and default_ok, added_eq
+    ok02 = and ok01, assign_eq
+    ok = and ok02, e_eq
+
+    !default_empty
+    !added_eq
+    !assign_eq
+    !e_eq
+    !default_ok
+    !ok01
+    !ok02
+    !word_slice
+    !right_slice
+    !joined_slice
+    !e_slice
+    !added_view
+    !assign_bytes
+    !e_view
+    EXPAND STRING_BUF_FREE e_string
+    EXPAND STRING_BUF_FREE assign_string
+    EXPAND STRING_BUF_FREE added_string
+    EXPAND STRING_BUF_FREE default_string
+    br ok -> L_STRING_BUF_ADD_OK, L_STRING_BUF_ADD_FAIL
+
+L_STRING_BUF_ADD_FAIL:
+    !ok
+    panic(931)
+
+L_STRING_BUF_ADD_OK:
+    !ok
+    return

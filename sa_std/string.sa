@@ -84,6 +84,10 @@
     EXPAND VEC_WITH_CAPACITY %out_string, 0, 1
 [END_MACRO]
 
+[MACRO] STRING_BUF_DEFAULT %out_string
+    EXPAND STRING_BUF_NEW %out_string
+[END_MACRO]
+
 [MACRO] STRING_BUF_WITH_CAPACITY %out_string, %capacity
     EXPAND VEC_WITH_CAPACITY %out_string, %capacity, 1
 [END_MACRO]
@@ -132,8 +136,20 @@
     EXPAND VEC_AS_MUT_SLICE %out_slice, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_AS_REF_STR %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_STR %out_slice, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_MUT_REF_STR %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_MUT_STR %out_slice, %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_AS_BYTES %out_slice, %string_reg
     EXPAND VEC_AS_SLICE %out_slice, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_REF_BYTES %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_BYTES %out_slice, %string_reg
 [END_MACRO]
 
 [MACRO] STRING_BUF_LEAK %out_slice, %string_reg
@@ -149,6 +165,20 @@
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, __string_buf_from_str_len_%out_string
     EXPAND STRING_BUF_PUSH_STR %out_string, %source_slice
     !__string_buf_from_str_len_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_CHAR %out_string, %char_value
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 4
+    EXPAND STRING_BUF_PUSH_CHAR %out_string, %char_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_ADD_STR %out_string, %left_string, %right_slice
+    %out_string = %left_string
+    EXPAND STRING_BUF_PUSH_STR %out_string, %right_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_ADD_ASSIGN_STR %string_reg, %right_slice
+    EXPAND STRING_BUF_PUSH_STR %string_reg, %right_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_CLONE %out_string, %string_reg
