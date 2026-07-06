@@ -147,6 +147,8 @@
 - [x] String from_utf16 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf16_lossy` 可支撑 U16 slice 形态，用 U+FFFD 替换非法 surrogate 并继续解码。
 - [x] String from_utf16_lossy 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf16le` / `String::from_utf16be` 可支撑严格 endian byte-slice 形态，复用严格 UTF-16 surrogate 解码。
+- [x] String UTF-16 endian byte-slice 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

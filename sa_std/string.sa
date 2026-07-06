@@ -511,6 +511,104 @@ L_STRING_BUF_UTF16_LOSSY_DONE_%out_string:
     !__string_buf_utf16_lossy_len_%out_string
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_FROM_UTF16_BYTES %out_ok, %out_string, %bytes_slice, %is_be
+    __string_buf_utf16_bytes_is_be_%out_ok = add 0, %is_be
+    __string_buf_utf16_bytes_len_%out_ok = load %bytes_slice+Slice_len as u64
+    __string_buf_utf16_bytes_odd_%out_ok = urem __string_buf_utf16_bytes_len_%out_ok, 2
+    __string_buf_utf16_bytes_even_%out_ok = eq __string_buf_utf16_bytes_odd_%out_ok, 0
+    br __string_buf_utf16_bytes_even_%out_ok -> L_STRING_BUF_UTF16_BYTES_INIT_%out_ok, L_STRING_BUF_UTF16_BYTES_ODD_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_INIT_%out_ok:
+    __string_buf_utf16_bytes_units_%out_ok = udiv __string_buf_utf16_bytes_len_%out_ok, 2
+    EXPAND VEC_WITH_CAPACITY __string_buf_utf16_bytes_vec_%out_ok, __string_buf_utf16_bytes_units_%out_ok, 2
+    __string_buf_utf16_bytes_dst_%out_ok = load __string_buf_utf16_bytes_vec_%out_ok+Vec_ptr as ptr
+    __string_buf_utf16_bytes_src_%out_ok = load %bytes_slice+Slice_ptr as ptr
+    __string_buf_utf16_bytes_idx_slot_%out_ok = stack_alloc 8
+    store __string_buf_utf16_bytes_idx_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_BUF_UTF16_BYTES_HEAD_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_HEAD_%out_ok:
+    __string_buf_utf16_bytes_idx_%out_ok = load __string_buf_utf16_bytes_idx_slot_%out_ok+0 as u64
+    __string_buf_utf16_bytes_done_%out_ok = eq __string_buf_utf16_bytes_idx_%out_ok, __string_buf_utf16_bytes_units_%out_ok
+    br __string_buf_utf16_bytes_done_%out_ok -> L_STRING_BUF_UTF16_BYTES_DECODE_%out_ok, L_STRING_BUF_UTF16_BYTES_BODY_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_BODY_%out_ok:
+    __string_buf_utf16_bytes_off_%out_ok = mul __string_buf_utf16_bytes_idx_%out_ok, 2
+    __string_buf_utf16_bytes_p0_%out_ok = ptr_add __string_buf_utf16_bytes_src_%out_ok, __string_buf_utf16_bytes_off_%out_ok
+    __string_buf_utf16_bytes_b0_%out_ok = load __string_buf_utf16_bytes_p0_%out_ok+0 as u8
+    __string_buf_utf16_bytes_off1_%out_ok = add __string_buf_utf16_bytes_off_%out_ok, 1
+    __string_buf_utf16_bytes_p1_%out_ok = ptr_add __string_buf_utf16_bytes_src_%out_ok, __string_buf_utf16_bytes_off1_%out_ok
+    __string_buf_utf16_bytes_b1_%out_ok = load __string_buf_utf16_bytes_p1_%out_ok+0 as u8
+    __string_buf_utf16_bytes_out_ptr_%out_ok = ptr_add __string_buf_utf16_bytes_dst_%out_ok, __string_buf_utf16_bytes_off_%out_ok
+    br __string_buf_utf16_bytes_is_be_%out_ok -> L_STRING_BUF_UTF16_BYTES_STORE_BE_%out_ok, L_STRING_BUF_UTF16_BYTES_STORE_LE_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_STORE_LE_%out_ok:
+    __string_buf_utf16_bytes_le_hi_%out_ok = shl __string_buf_utf16_bytes_b1_%out_ok, 8
+    __string_buf_utf16_bytes_le_unit_%out_ok = add __string_buf_utf16_bytes_b0_%out_ok, __string_buf_utf16_bytes_le_hi_%out_ok
+    store __string_buf_utf16_bytes_out_ptr_%out_ok+0, __string_buf_utf16_bytes_le_unit_%out_ok as u16
+    !__string_buf_utf16_bytes_le_unit_%out_ok
+    !__string_buf_utf16_bytes_le_hi_%out_ok
+    jmp L_STRING_BUF_UTF16_BYTES_NEXT_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_STORE_BE_%out_ok:
+    __string_buf_utf16_bytes_be_hi_%out_ok = shl __string_buf_utf16_bytes_b0_%out_ok, 8
+    __string_buf_utf16_bytes_be_unit_%out_ok = add __string_buf_utf16_bytes_be_hi_%out_ok, __string_buf_utf16_bytes_b1_%out_ok
+    store __string_buf_utf16_bytes_out_ptr_%out_ok+0, __string_buf_utf16_bytes_be_unit_%out_ok as u16
+    !__string_buf_utf16_bytes_be_unit_%out_ok
+    !__string_buf_utf16_bytes_be_hi_%out_ok
+    jmp L_STRING_BUF_UTF16_BYTES_NEXT_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_NEXT_%out_ok:
+    __string_buf_utf16_bytes_next_%out_ok = add __string_buf_utf16_bytes_idx_%out_ok, 1
+    store __string_buf_utf16_bytes_idx_slot_%out_ok+0, __string_buf_utf16_bytes_next_%out_ok as u64
+    !__string_buf_utf16_bytes_next_%out_ok
+    !__string_buf_utf16_bytes_out_ptr_%out_ok
+    !__string_buf_utf16_bytes_b1_%out_ok
+    !__string_buf_utf16_bytes_p1_%out_ok
+    !__string_buf_utf16_bytes_off1_%out_ok
+    !__string_buf_utf16_bytes_b0_%out_ok
+    !__string_buf_utf16_bytes_p0_%out_ok
+    !__string_buf_utf16_bytes_off_%out_ok
+    !__string_buf_utf16_bytes_done_%out_ok
+    !__string_buf_utf16_bytes_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_BYTES_HEAD_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_DECODE_%out_ok:
+    EXPAND VEC_SET_LEN __string_buf_utf16_bytes_vec_%out_ok, __string_buf_utf16_bytes_units_%out_ok
+    EXPAND VEC_AS_SLICE __string_buf_utf16_bytes_units_slice_%out_ok, __string_buf_utf16_bytes_vec_%out_ok
+    EXPAND STRING_BUF_TRY_FROM_UTF16_U16 %out_ok, %out_string, __string_buf_utf16_bytes_units_slice_%out_ok
+    !__string_buf_utf16_bytes_units_slice_%out_ok
+    EXPAND VEC_FREE __string_buf_utf16_bytes_vec_%out_ok
+    !__string_buf_utf16_bytes_done_%out_ok
+    !__string_buf_utf16_bytes_idx_%out_ok
+    !__string_buf_utf16_bytes_src_%out_ok
+    !__string_buf_utf16_bytes_dst_%out_ok
+    !__string_buf_utf16_bytes_units_%out_ok
+    !__string_buf_utf16_bytes_is_be_%out_ok
+    !__string_buf_utf16_bytes_even_%out_ok
+    !__string_buf_utf16_bytes_odd_%out_ok
+    !__string_buf_utf16_bytes_len_%out_ok
+    jmp L_STRING_BUF_UTF16_BYTES_DONE_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_ODD_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    %out_ok = add 0, 0
+    !__string_buf_utf16_bytes_even_%out_ok
+    !__string_buf_utf16_bytes_odd_%out_ok
+    !__string_buf_utf16_bytes_is_be_%out_ok
+    !__string_buf_utf16_bytes_len_%out_ok
+
+L_STRING_BUF_UTF16_BYTES_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FROM_UTF16LE %out_ok, %out_string, %bytes_slice
+    EXPAND STRING_BUF_TRY_FROM_UTF16_BYTES %out_ok, %out_string, %bytes_slice, 0
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FROM_UTF16BE %out_ok, %out_string, %bytes_slice
+    EXPAND STRING_BUF_TRY_FROM_UTF16_BYTES %out_ok, %out_string, %bytes_slice, 1
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF8_ASCII %out_ok, %out_string, %bytes_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_ascii_ptr_%out_ok = load %bytes_slice+Slice_ptr as ptr

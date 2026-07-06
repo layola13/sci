@@ -3125,3 +3125,89 @@ L_STRING_BUF_FROM_UTF16_LOSSY_FAIL:
 L_STRING_BUF_FROM_UTF16_LOSSY_OK:
     !ok
     return
+
+@test "sa_std string buffer utf16 endian byte macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS expected, &UTF8_BOUNDARY_TEXT, 8
+    le_ptr = stack_alloc 10
+    store le_ptr+0, 97 as u8
+    store le_ptr+1, 0 as u8
+    store le_ptr+2, 233 as u8
+    store le_ptr+3, 0 as u8
+    store le_ptr+4, 61 as u8
+    store le_ptr+5, 216 as u8
+    store le_ptr+6, 66 as u8
+    store le_ptr+7, 222 as u8
+    store le_ptr+8, 122 as u8
+    store le_ptr+9, 0 as u8
+    EXPAND STR_FROM_PARTS le_bytes, le_ptr, 10
+    be_ptr = stack_alloc 10
+    store be_ptr+0, 0 as u8
+    store be_ptr+1, 97 as u8
+    store be_ptr+2, 0 as u8
+    store be_ptr+3, 233 as u8
+    store be_ptr+4, 216 as u8
+    store be_ptr+5, 61 as u8
+    store be_ptr+6, 222 as u8
+    store be_ptr+7, 66 as u8
+    store be_ptr+8, 0 as u8
+    store be_ptr+9, 122 as u8
+    EXPAND STR_FROM_PARTS be_bytes, be_ptr, 10
+    odd_ptr = stack_alloc 3
+    store odd_ptr+0, 97 as u8
+    store odd_ptr+1, 0 as u8
+    store odd_ptr+2, 122 as u8
+    EXPAND STR_FROM_PARTS odd_bytes, odd_ptr, 3
+    EXPAND STRING_BUF_TRY_FROM_UTF16LE le_ok, le_buf, le_bytes
+    EXPAND STRING_BUF_AS_STR le_view, le_buf
+    EXPAND STR_EQ le_eq, le_view, expected
+    EXPAND STRING_BUF_TRY_FROM_UTF16BE be_ok, be_buf, be_bytes
+    EXPAND STRING_BUF_AS_STR be_view, be_buf
+    EXPAND STR_EQ be_eq, be_view, expected
+    EXPAND STRING_BUF_TRY_FROM_UTF16LE odd_ok, odd_buf, odd_bytes
+    EXPAND STRING_BUF_LEN odd_len, odd_buf
+    le_flag_ok = eq le_ok, 1
+    le_value_ok = eq le_eq, 1
+    be_flag_ok = eq be_ok, 1
+    be_value_ok = eq be_eq, 1
+    odd_flag_ok = eq odd_ok, 0
+    odd_empty_ok = eq odd_len, 0
+    ok01 = and le_flag_ok, le_value_ok
+    ok02 = and ok01, be_flag_ok
+    ok03 = and ok02, be_value_ok
+    ok04 = and ok03, odd_flag_ok
+    ok = and ok04, odd_empty_ok
+    !expected
+    !le_bytes
+    !be_bytes
+    !odd_bytes
+    !le_ok
+    !le_view
+    !le_eq
+    !be_ok
+    !be_view
+    !be_eq
+    !odd_ok
+    !odd_len
+    !le_flag_ok
+    !le_value_ok
+    !be_flag_ok
+    !be_value_ok
+    !odd_flag_ok
+    !odd_empty_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    EXPAND STRING_BUF_FREE odd_buf
+    EXPAND STRING_BUF_FREE be_buf
+    EXPAND STRING_BUF_FREE le_buf
+    br ok -> L_STRING_BUF_UTF16_ENDIAN_OK, L_STRING_BUF_UTF16_ENDIAN_FAIL
+
+L_STRING_BUF_UTF16_ENDIAN_FAIL:
+    !ok
+    panic(927)
+
+L_STRING_BUF_UTF16_ENDIAN_OK:
+    !ok
+    return
