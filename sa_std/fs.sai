@@ -122,5 +122,6 @@
 @extern sa_fs_chown(&path: ptr, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) -> i32
 @extern sa_fs_lchown(&path: ptr, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) -> i32
 @extern sa_fs_fchown(file: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) -> i32
+@extern sa_fs_chroot(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_mkfifo(&path: ptr, path_len: u64, mode: u32) -> i32
 @extern sa_std_fs_read_link(&path: ptr, path_len: u64, &out_handle: ptr) -> i32

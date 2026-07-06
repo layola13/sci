@@ -169,6 +169,8 @@
 - [x] String/Vec reference conversion alias 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::xdg` 可支撑环境目录表面：补 `data_home_dir` / `config_home_dir` / `state_home_dir` / `cache_home_dir` / `data_dirs` / `config_dirs` 风格宏表面，按 Rust/XDG 规则处理空 env 与默认值。
 - [x] Unix XDG env facade 批次已完成 focused/full env 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::chroot`：补当前进程 Linux `chroot(2)` facade，新增 `FS_CHROOT` / `FS_UNIX_CHROOT` 宏表面，并用 `/` 安全验收 root 成功或非 root 权限拒绝路径。
+- [x] Unix fs chroot facade 批次已完成源码 focused/full Unix fs 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

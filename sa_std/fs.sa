@@ -557,6 +557,14 @@
     EXPAND FS_FCHOWN_RAW %out_status, %file, %uid, %gid
 [END_MACRO]
 
+[MACRO] FS_CHROOT %out_status, %path, %path_len
+    %out_status = call @sa_fs_chroot(&%path, %path_len)
+[END_MACRO]
+
+[MACRO] FS_UNIX_CHROOT %out_status, %path, %path_len
+    EXPAND FS_CHROOT %out_status, %path, %path_len
+[END_MACRO]
+
 [MACRO] FS_MKFIFO %out_status, %path, %path_len, %mode
     %out_status = call @sa_fs_mkfifo(&%path, %path_len, %mode)
 [END_MACRO]

@@ -405,6 +405,7 @@ int32_t sa_fs_symlink(const uint8_t *target_path, uint64_t target_len, const uin
 int32_t sa_fs_chown(const uint8_t *path, uint64_t path_len, uint32_t uid, uint32_t gid, uint32_t has_uid, uint32_t has_gid);
 int32_t sa_fs_lchown(const uint8_t *path, uint64_t path_len, uint32_t uid, uint32_t gid, uint32_t has_uid, uint32_t has_gid);
 int32_t sa_fs_fchown(uint64_t handle, uint32_t uid, uint32_t gid, uint32_t has_uid, uint32_t has_gid);
+int32_t sa_fs_chroot(const uint8_t *path, uint64_t path_len);
 int32_t sa_fs_mkfifo(const uint8_t *path, uint64_t path_len, uint32_t mode);
 int32_t sa_std_fs_read_link(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 

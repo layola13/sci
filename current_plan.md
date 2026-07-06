@@ -4,7 +4,7 @@ Date: 2026-07-06
 
 ## Objective
 
-Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API parity; complete source batches first, run focused/full tests, then sync install state with `./tools/install.sh --no-shell` before committing each batch.
+Continue `sa_std` parity in SCI. String/Vec supportable parity batches are documented as complete for now; current priority is returning to larger Linux-only `std` facade gaps. Complete source batches first, run focused/full tests, then sync install state with `./tools/install.sh --no-shell` before committing each batch.
 
 ## Active Scope
 
@@ -74,6 +74,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable default/conversion/operator naming surfaces: `STRING_BUF_DEFAULT`, StringBuf AsRef/AsMut aliases, `STRING_BUF_FROM_CHAR`, `STRING_BUF_ADD_STR`, `STRING_BUF_ADD_ASSIGN_STR`, `VEC_DEFAULT`, `VEC_FROM_STR_BYTES`, `VEC_U8_FROM_STR`, and `VEC_FROM_STRING_BUF`.
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable reference conversion aliases: `STRING_BUF_FROM_MUT_STR`, `STRING_BUF_FROM_STRING_REF`, `STRING_BUF_TRY_FROM_VEC_U8`, and `STRING_BUF_TRY_FROM_BYTES_VEC`, with installed-state coverage for `VEC_FROM_STRING_BUF` ownership transfer.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
+   - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -94,8 +95,8 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `std::os::net::linux_ext::UnixSocketExt` UnixStream subset: Linux `SO_PASSCRED` set/get socket option surface.
    - `std::os::unix::process::ChildExt::kill_process_group`: Linux process-group `SIGKILL` convenience facade over the existing effective-PGID signal path.
 2. Next candidate scope:
-   - Continue String/Vec parity audit against `/home/vscode/projects/rust/library/alloc/src/string.rs` and `/home/vscode/projects/rust/library/alloc/src/vec/mod.rs`.
-   - Prioritize supportable String/Vec surfaces that can be expressed as SA macros/runtime with focused macro-surface tests before returning to broader Linux-only std gaps.
+   - Re-audit remaining Linux-only `std` facade gaps against `/home/vscode/projects/rust/library/std/src/os/`.
+   - Prioritize surfaces that can be expressed clearly as SA macros/runtime and verified with focused macro-surface tests.
 
 ## Acceptance
 
@@ -172,6 +173,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec clone and from-slice/from-str facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec default and conversion alias facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec reference conversion alias facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Unix fs chroot facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

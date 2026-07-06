@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix fs chroot facade batch
+
+- Added supportable `std::os::unix::fs::chroot` current-process facade for Linux.
+- Added macro surfaces:
+  - `FS_CHROOT`
+  - `FS_UNIX_CHROOT`
+- Added runtime/export surface:
+  - `sa_fs_chroot`
+- Semantics: validates SA path input, calls Linux `chroot(2)` on the current process, and maps Linux errno values into existing SA runtime status codes. Test coverage uses `/` only, accepting success under root or permission denial under non-root, so it exercises the syscall path without moving the test process into an unsafe temporary root.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused chroot test: pass (`1 passed`).
+  - Source full `std_fs_unix_ext_macro_surface.sa`: pass (`7 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for `sa_fs_chroot`: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused chroot test: pass (`1 passed`).
+  - Installed-state full `std_fs_unix_ext_macro_surface.sa`: pass (`7 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec reference conversion alias facade batch
 
 - Continued String/Vec Rust API parity with remaining supportable reference/conversion aliases.

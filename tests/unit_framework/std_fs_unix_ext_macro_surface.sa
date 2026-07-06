@@ -15,6 +15,7 @@
 @const FS_UNIX_MODE_LEAF = utf8:"_tmp_fs_unix_mode_tree/leaf"
 @const FS_UNIX_CHOWN_PATH = utf8:"_tmp_fs_unix_chown.txt"
 @const FS_UNIX_CHOWN_LINK = utf8:"_tmp_fs_unix_chown_link"
+@const FS_UNIX_ROOT_PATH = utf8:"/"
 @const FS_UNIX_HELLO = utf8:"hello"
 @const FS_UNIX_ZZ = utf8:"zz"
 @const FS_UNIX_HEZZO = utf8:"hezzo"
@@ -36,6 +37,8 @@
 #def FS_UNIX_MODE_LEAF_LEN = 27
 #def FS_UNIX_CHOWN_PATH_LEN = 22
 #def FS_UNIX_CHOWN_LINK_LEN = 23
+#def FS_UNIX_ROOT_PATH_LEN = 1
+#def FS_UNIX_ERR_ACCESS = 4
 #def FS_UNIX_HELLO_LEN = 5
 #def FS_UNIX_ZZ_LEN = 2
 #def FS_UNIX_HEZZO_LEN = 5
@@ -296,6 +299,28 @@ L_ENTRY:
 L_FAIL:
     !ok
     panic(1745)
+
+L_PASS:
+    !ok
+    return 0
+
+@test "sa_std fs unix chroot macro"():
+L_ENTRY:
+    EXPAND FS_UNIX_CHROOT chroot_status, FS_UNIX_ROOT_PATH, FS_UNIX_ROOT_PATH_LEN
+
+    chroot_ok = eq chroot_status, SA_FS_OK
+    chroot_access = eq chroot_status, FS_UNIX_ERR_ACCESS
+    ok = or chroot_ok, chroot_access
+
+    !chroot_status
+    !chroot_ok
+    !chroot_access
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(1755)
 
 L_PASS:
     !ok

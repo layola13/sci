@@ -8404,6 +8404,21 @@ pub export fn sa_fs_fchown(handle: u64, uid: u32, gid: u32, has_uid: u32, has_gi
     }
 }
 
+pub export fn sa_fs_chroot(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
+    const rc = std.os.linux.chroot(&path_z);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => return finish(SA_STD_OK),
+        .ACCES, .PERM, .ROFS => return finish(SA_STD_ERR_ACCESS),
+        .NOENT, .NOTDIR => return finish(SA_STD_ERR_NOT_FOUND),
+        .FAULT, .INVAL, .NAMETOOLONG, .LOOP => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
+        else => return finish(SA_STD_ERR_IO),
+    }
+}
+
 pub export fn sa_fs_mkfifo(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
