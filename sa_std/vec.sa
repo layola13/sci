@@ -328,6 +328,23 @@ L_VEC_SET_TYPED_END_%value:
     %out_cap = call @sa_vec_capacity(&%vec_reg)
 [END_MACRO]
 
+[MACRO] VEC_INTO_RAW_PARTS %out_ptr, %out_len, %out_cap, %vec_reg
+    %out_ptr = take %vec_reg+Vec_ptr
+    %out_cap = load %vec_reg+Vec_cap as u64
+    %out_len = load %vec_reg+Vec_len as u64
+    store %vec_reg+Vec_cap, 0 as u64
+    store %vec_reg+Vec_len, 0 as u64
+    !%vec_reg
+[END_MACRO]
+
+[MACRO] VEC_FROM_RAW_PARTS %out_vec, %ptr, %len, %cap
+    %out_vec = alloc Vec_SIZE
+    store %out_vec+Vec_ptr, %ptr as ptr
+    store %out_vec+Vec_cap, %cap as u64
+    store %out_vec+Vec_len, %len as u64
+    ^%ptr
+[END_MACRO]
+
 [MACRO] VEC_RESERVE %vec_reg, %additional, %elem_size
     %vec_reg = call @sa_vec_reserve(^%vec_reg, %additional, %elem_size)
 [END_MACRO]

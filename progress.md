@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec raw-parts facade batch
+
+- Audited `sa_std/string.sa` and `sa_std/vec.sa` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs.
+- Finding: current SA facades are broad but not full Rust API coverage; remaining gaps include larger iterator/drain/splice/leak/boxed/UTF conversion/trait surfaces that need separate supportable batches.
+- Added raw-parts macro surfaces for the supportable ownership-transfer subset:
+  - `VEC_INTO_RAW_PARTS`
+  - `VEC_FROM_RAW_PARTS`
+  - `STRING_BUF_INTO_RAW_PARTS`
+  - `STRING_BUF_FROM_RAW_PARTS`
+- Fixed the `Vec` raw-parts implementation to take `Vec_ptr` directly from the owned Vec instead of through a borrow view, so the returned raw pointer remains usable and can be re-owned by `from_raw_parts`.
+- Updated macro-surface tests:
+  - `tests/unit_framework/std_vec_macro_surface.sa`: raw pointer/len/cap extraction and Vec reconstruction preserves elements.
+  - `tests/unit_framework/std_string_macro_surface.sa`: StringBuf raw-parts reconstruction preserves `rust-std` content.
+- Validation status:
+  - Source focused raw-parts String/Vec tests: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`10 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused raw-parts String/Vec tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`10 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+
 ## Completed: 2026-07-06 RawFd/BorrowedFd named facade batch
 
 - Added Rust-named raw/borrowed fd macro surfaces over the existing fd facade:

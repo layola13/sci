@@ -1656,3 +1656,44 @@ L_VEC_FN_PTR_FAIL:
 L_VEC_FN_PTR_OK:
     !ok
     return
+
+@test "sa_std vec raw parts macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 11
+    EXPAND VEC_PUSH_U64 vec, 22
+    EXPAND VEC_INTO_RAW_PARTS raw_ptr, raw_len, raw_cap, vec
+    raw_ptr_ok = ne raw_ptr, 0
+    raw_len_ok = eq raw_len, 2
+    raw_cap_ok = uge raw_cap, 2
+    EXPAND VEC_FROM_RAW_PARTS rebound, raw_ptr, raw_len, raw_cap
+    EXPAND VEC_GET_U64 first, rebound, 0
+    EXPAND VEC_GET_U64 second, rebound, 1
+    first_ok = eq first, 11
+    second_ok = eq second, 22
+    ok01 = and raw_ptr_ok, raw_len_ok
+    ok02 = and ok01, raw_cap_ok
+    ok03 = and ok02, first_ok
+    ok = and ok03, second_ok
+    !raw_len
+    !raw_cap
+    !first
+    !second
+    !raw_ptr_ok
+    !raw_len_ok
+    !raw_cap_ok
+    !first_ok
+    !second_ok
+    !ok01
+    !ok02
+    !ok03
+    EXPAND VEC_FREE rebound
+    br ok -> L_VEC_RAW_PARTS_OK, L_VEC_RAW_PARTS_FAIL
+
+L_VEC_RAW_PARTS_FAIL:
+    !ok
+    panic(919)
+
+L_VEC_RAW_PARTS_OK:
+    !ok
+    return

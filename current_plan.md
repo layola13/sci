@@ -4,7 +4,7 @@ Date: 2026-07-06
 
 ## Objective
 
-Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches first, run focused/full tests, then sync install state once with `./tools/install.sh --no-shell`.
+Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API parity; complete source batches first, run focused/full tests, then sync install state with `./tools/install.sh --no-shell` before committing each batch.
 
 ## Active Scope
 
@@ -43,6 +43,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::fd` / `std::os::unix::io` `std::fs::File` raw/owned fd trait surface: File `as_raw_fd`, `into_raw_fd`, `from_raw_fd`, `into_owned_fd`, and `from_owned_fd`, with `from_raw_fd` restoring the existing File resource kind.
    - `std::os::fd::OwnedFd` Rust-named raw-fd and clone aliases over the existing fd facade: `as_raw_fd`, `into_raw_fd`, `from_raw_fd`, and `try_clone` style macros.
    - `std::os::fd::{RawFd,BorrowedFd}` Rust-named facades: RawFd reflexive raw-fd traits and BorrowedFd borrow/as/try_clone_to_owned over raw fd duplication.
+   - `StringBuf` / `Vec` Rust API parity audit: current facades are not full Rust API coverage; completed the supportable raw-parts subset with `VEC_INTO_RAW_PARTS`, `VEC_FROM_RAW_PARTS`, `STRING_BUF_INTO_RAW_PARTS`, and `STRING_BUF_FROM_RAW_PARTS`.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -63,8 +64,8 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::net::linux_ext::UnixSocketExt` UnixStream subset: Linux `SO_PASSCRED` set/get socket option surface.
    - `std::os::unix::process::ChildExt::kill_process_group`: Linux process-group `SIGKILL` convenience facade over the existing effective-PGID signal path.
 2. Next candidate scope:
-   - Continue broader Linux std gap closure against `/home/vscode/projects/rust/library/std/src`.
-   - Re-audit remaining Linux-only std facades that do not require Rust trait/lifetime machinery, now that the tracked CommandExt subset is closed.
+   - Continue String/Vec parity audit against `/home/vscode/projects/rust/library/alloc/src/string.rs` and `/home/vscode/projects/rust/library/alloc/src/vec/mod.rs`.
+   - Prioritize supportable String/Vec surfaces that can be expressed as SA macros/runtime with focused macro-surface tests before returning to broader Linux-only std gaps.
 
 ## Acceptance
 
@@ -110,6 +111,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the File raw/owned fd facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the OwnedFd named facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the RawFd/BorrowedFd named facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the StringBuf/Vec raw-parts facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -190,6 +192,9 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
   - `std_os_fd_macro_surface.sa`
 - Updated os fd macro-surface test passes with RawFd reflexive and BorrowedFd clone-to-owned assertions:
   - `std_os_fd_macro_surface.sa`
+- Updated String/Vec macro-surface tests pass with raw-parts ownership roundtrip assertions:
+  - `std_vec_macro_surface.sa`
+  - `std_string_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with Linux `SO_PASSCRED` assertions:
   - `std_net_unix_macro_surface.sa`
 - Updated process macro-surface test passes with ChildExt kill_process_group assertions:

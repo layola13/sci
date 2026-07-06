@@ -2021,3 +2021,45 @@ L_UTF8_VIEW_OK:
     !ok
     return
 
+@test "sa_std string buffer raw parts macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS right, &JOIN_RIGHT, 4
+    EXPAND STR_FROM_PARTS expected, &JOINED, 8
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 8
+    EXPAND STRING_BUF_PUSH_STR buf, left
+    EXPAND STRING_BUF_PUSH_STR buf, right
+    EXPAND STRING_BUF_INTO_RAW_PARTS raw_ptr, raw_len, raw_cap, buf
+    raw_ptr_ok = ne raw_ptr, 0
+    raw_len_ok = eq raw_len, 8
+    raw_cap_ok = uge raw_cap, 8
+    EXPAND STRING_BUF_FROM_RAW_PARTS rebound, raw_ptr, raw_len, raw_cap
+    EXPAND STRING_BUF_AS_STR view, rebound
+    EXPAND STR_EQ content_eq, view, expected
+    content_ok = eq content_eq, 1
+    ok01 = and raw_ptr_ok, raw_len_ok
+    ok02 = and ok01, raw_cap_ok
+    ok = and ok02, content_ok
+    !left
+    !right
+    !expected
+    !raw_len
+    !raw_cap
+    !view
+    !content_eq
+    !raw_ptr_ok
+    !raw_len_ok
+    !raw_cap_ok
+    !content_ok
+    !ok01
+    !ok02
+    EXPAND STRING_BUF_FREE rebound
+    br ok -> L_STRING_BUF_RAW_PARTS_OK, L_STRING_BUF_RAW_PARTS_FAIL
+
+L_STRING_BUF_RAW_PARTS_FAIL:
+    !ok
+    panic(910)
+
+L_STRING_BUF_RAW_PARTS_OK:
+    !ok
+    return

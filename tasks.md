@@ -107,6 +107,8 @@
 - [x] OwnedFd 命名 facade 批次已完成 focused/full fd 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::fd::{RawFd,BorrowedFd}` Rust 命名表面：补 RawFd reflexive `as_raw_fd/into_raw_fd/from_raw_fd` 宏、BorrowedFd `borrow_raw/as_raw_fd/try_clone_to_owned` 宏，并新增 raw fd dup-to-owned runtime。
 - [x] RawFd/BorrowedFd 命名 facade 批次已完成导出符号检查、focused/full fd 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 审计：确认当前 SA facade 尚未覆盖 Rust 全量 API；本批次优先补可验收的 raw-parts 表面。
+- [x] `Vec::{into_raw_parts,from_raw_parts}` 与 `StringBuf::{into_raw_parts,from_raw_parts}` facade 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

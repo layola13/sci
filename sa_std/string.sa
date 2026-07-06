@@ -103,6 +103,14 @@
     EXPAND VEC_CAPACITY %out_cap, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_INTO_RAW_PARTS %out_ptr, %out_len, %out_cap, %string_reg
+    EXPAND VEC_INTO_RAW_PARTS %out_ptr, %out_len, %out_cap, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_RAW_PARTS %out_string, %ptr, %len, %cap
+    EXPAND VEC_FROM_RAW_PARTS %out_string, %ptr, %len, %cap
+[END_MACRO]
+
 [MACRO] STRING_BUF_IS_EMPTY %out_bool, %string_reg
     EXPAND VEC_IS_EMPTY %out_bool, %string_reg
 [END_MACRO]
