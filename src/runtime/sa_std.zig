@@ -10393,6 +10393,153 @@ pub export fn sa_std_net_unix_stream_peer_cred(stream: u64, out_pid: ?*i32, out_
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const fd = std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    errdefer std.posix.close(fd);
+    const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i32 {
+    const left_ptr = out_left orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const right_ptr = out_right orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    left_ptr.* = 0;
+    right_ptr.* = 0;
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+
+    var fds: [2]i32 = undefined;
+    const socket_type = @as(i32, @intCast(std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC));
+    const rc = std.os.linux.socketpair(std.posix.AF.UNIX, socket_type, 0, &fds);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {},
+        .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        .MFILE, .NFILE, .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
+        .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
+        else => return finish(SA_STD_ERR_IO),
+    }
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    var owns_left_fd = true;
+    var owns_right_fd = true;
+    errdefer {
+        if (owns_left_fd) std.posix.close(fds[0]);
+        if (owns_right_fd) std.posix.close(fds[1]);
+    }
+
+    const left_handle = registerResourceLocked(.{ .udp_socket = fds[0] }) catch |err| return finishErr(err);
+    owns_left_fd = false;
+    errdefer {
+        if (takeResourceLocked(left_handle)) |*resource| resource.close() catch {};
+    }
+    const right_handle = registerResourceLocked(.{ .udp_socket = fds[1] }) catch |err| return finishErr(err);
+    owns_right_fd = false;
+    left_ptr.* = left_handle;
+    right_ptr.* = right_handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_try_clone(socket: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsDatagram(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const dup_fd = std.posix.dup(fd) catch |err| return finishErr(err);
+    const handle = registerResourceLocked(.{ .udp_socket = dup_fd }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
+    if (!(socketIsUnix(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsDatagram(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const handle = registerResource(.{ .udp_socket = posix_fd }) catch |err| return finishErr(err);
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_local_addr(socket: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .udp_socket => |fd| {
+            if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+            const got = getUnixSockAddr(fd, false) catch |err| return finishErr(err);
+            return registerUnixAddrOutLocked(got.addr, got.len, handle_ptr);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_net_unix_datagram_peer_addr(socket: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .udp_socket => |fd| {
+            if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+            const got = getUnixSockAddr(fd, true) catch |err| return finishErr(err);
+            return registerUnixAddrOutLocked(got.addr, got.len, handle_ptr);
+        },
+        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+}
+
+pub export fn sa_std_net_unix_datagram_set_passcred(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_passcred(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_shutdown(socket: u64, how: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const shutdown: std.posix.ShutdownHow = switch (how) {
+        0 => .recv,
+        1 => .send,
+        2 => .both,
+        else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+    };
+    std.posix.shutdown(handle.fd, shutdown) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;

@@ -465,6 +465,15 @@ int32_t sa_std_net_unix_stream_peer_addr(uint64_t stream_handle, uint64_t *out_h
 int32_t sa_std_net_unix_stream_set_passcred(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_unix_stream_passcred(uint64_t stream_handle, int32_t *out_enabled);
 int32_t sa_std_net_unix_stream_peer_cred(uint64_t stream_handle, int32_t *out_pid, uint32_t *out_uid, uint32_t *out_gid);
+int32_t sa_std_net_unix_datagram_unbound(uint64_t *out_handle);
+int32_t sa_std_net_unix_datagram_pair(uint64_t *out_left, uint64_t *out_right);
+int32_t sa_std_net_unix_datagram_try_clone(uint64_t socket_handle, uint64_t *out_handle);
+int32_t sa_std_net_unix_datagram_from_raw_fd(int32_t fd, uint64_t *out_handle);
+int32_t sa_std_net_unix_datagram_local_addr(uint64_t socket_handle, uint64_t *out_handle);
+int32_t sa_std_net_unix_datagram_peer_addr(uint64_t socket_handle, uint64_t *out_handle);
+int32_t sa_std_net_unix_datagram_set_passcred(uint64_t socket_handle, int32_t enabled);
+int32_t sa_std_net_unix_datagram_passcred(uint64_t socket_handle, int32_t *out_enabled);
+int32_t sa_std_net_unix_datagram_shutdown(uint64_t socket_handle, uint32_t how);
 
 int32_t sa_std_net_udp_bind(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_udp_local_addr(uint64_t socket_handle, uint64_t *out_handle);

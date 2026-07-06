@@ -492,6 +492,120 @@
     EXPAND NET_TCP_STREAM_SHUTDOWN %out_status, %stream, %how
 [END_MACRO]
 
+[MACRO] NET_UNIX_DATAGRAM_UNBOUND %out_status, %out_socket
+    __net_unix_datagram_unbound_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_unbound(&__net_unix_datagram_unbound_%out_status)
+    %out_socket = load __net_unix_datagram_unbound_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PAIR %out_status, %out_left, %out_right
+    __net_unix_datagram_pair_left_%out_status = stack_alloc 8
+    __net_unix_datagram_pair_right_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_pair(&__net_unix_datagram_pair_left_%out_status, &__net_unix_datagram_pair_right_%out_status)
+    %out_left = load __net_unix_datagram_pair_left_%out_status+0 as u64
+    %out_right = load __net_unix_datagram_pair_right_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_TRY_CLONE %out_status, %out_socket, %socket
+    __net_unix_datagram_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_try_clone(%socket, &__net_unix_datagram_clone_%out_status)
+    %out_socket = load __net_unix_datagram_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_AS_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_AS_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_INTO_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_FROM_RAW_FD %out_status, %out_socket, %fd
+    __net_unix_datagram_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_from_raw_fd(%fd, &__net_unix_datagram_from_raw_%out_status)
+    %out_socket = load __net_unix_datagram_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_INTO_OWNED_FD %out_status, %out_fd_handle, %socket
+    EXPAND NET_UNIX_DATAGRAM_INTO_RAW_FD %out_status, __net_unix_datagram_owned_raw_%out_status, %socket
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_unix_datagram_owned_raw_%out_status
+    !__net_unix_datagram_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_FROM_OWNED_FD %out_status, %out_socket, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_unix_datagram_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_UNIX_DATAGRAM_FROM_RAW_FD %out_status, %out_socket, __net_unix_datagram_from_owned_raw_%out_status
+    !__net_unix_datagram_from_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_LOCAL_ADDR %out_status, %out_addr, %socket
+    __net_unix_datagram_local_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_local_addr(%socket, &__net_unix_datagram_local_addr_%out_status)
+    %out_addr = load __net_unix_datagram_local_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PEER_ADDR %out_status, %out_addr, %socket
+    __net_unix_datagram_peer_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_peer_addr(%socket, &__net_unix_datagram_peer_addr_%out_status)
+    %out_addr = load __net_unix_datagram_peer_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_PASSCRED %out_status, %socket, %enabled
+    %out_status = call @sa_std_net_unix_datagram_set_passcred(%socket, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PASSCRED %out_status, %out_enabled, %socket
+    __net_unix_datagram_passcred_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_unix_datagram_passcred(%socket, &__net_unix_datagram_passcred_%out_status)
+    %out_enabled = load __net_unix_datagram_passcred_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_READ_TIMEOUT %out_status, %socket, %timeout_ns
+    EXPAND NET_UDP_SET_READ_TIMEOUT %out_status, %socket, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_WRITE_TIMEOUT %out_status, %socket, %timeout_ns
+    EXPAND NET_UDP_SET_WRITE_TIMEOUT %out_status, %socket, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_READ_TIMEOUT %out_status, %out_timeout_ns, %socket
+    EXPAND NET_UDP_READ_TIMEOUT %out_status, %out_timeout_ns, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_WRITE_TIMEOUT %out_status, %out_timeout_ns, %socket
+    EXPAND NET_UDP_WRITE_TIMEOUT %out_status, %out_timeout_ns, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_NONBLOCKING %out_status, %socket, %enabled
+    EXPAND NET_UDP_SET_NONBLOCKING %out_status, %socket, %enabled
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_TAKE_ERROR %out_status, %out_error, %socket
+    EXPAND NET_UDP_TAKE_ERROR %out_status, %out_error, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SEND %out_status, %out_len, %socket, %buf, %len
+    EXPAND NET_UDP_SEND %out_status, %out_len, %socket, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_RECV %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_RECV %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PEEK %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_PEEK %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SHUTDOWN %out_status, %socket, %how
+    %out_status = call @sa_std_net_unix_datagram_shutdown(%socket, %how)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_CLOSE %out_status, %socket
+    EXPAND NET_UDP_CLOSE %out_status, %socket
+[END_MACRO]
+
 // TLS ClientHello fingerprints. Given a caller-built JA3 string (decimal
 // TLSVersion,Ciphers,Extensions,EllipticCurves,ECPointFormats), NET_JA3_HASH
 // writes the 32-char lowercase MD5 hex into %buf. NET_JA4_HASH12 writes the

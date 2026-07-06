@@ -10,12 +10,16 @@
 @const DBG_CONNECT_STATUS = utf8:"uds_connect_status"
 @const DBG_CLIENT = utf8:"uds_client"
 @const UDS_ABSTRACT_NAME = utf8:"sa-uds-abstract"
+@const UDS_DGRAM_MSG = utf8:"dg!"
+@const UDS_DGRAM_NEXT = utf8:"ok"
 
 #def DBG_REUSE_STATUS_LEN = 16
 #def DBG_REUSEPORT_STATUS_LEN = 20
 #def DBG_CONNECT_STATUS_LEN = 18
 #def DBG_CLIENT_LEN = 10
 #def UDS_ABSTRACT_NAME_LEN = 15
+#def UDS_DGRAM_MSG_LEN = 3
+#def UDS_DGRAM_NEXT_LEN = 2
 #def UDS_TEST_TIMEOUT_NS = 100000000
 
 @test "sa_std net unix domain socket roundtrip"():
@@ -1314,4 +1318,344 @@ L_ABSTRACT_FAIL_CLOSE:
 
 L_ABSTRACT_PASS:
     !incoming_listener_ok
+    return 0
+
+@test "sa_std net unix datagram pair macros"():
+L_ENTRY:
+    EXPAND NET_UNIX_DATAGRAM_UNBOUND unbound_status, unbound
+    EXPAND NET_UNIX_DATAGRAM_CLOSE unbound_close_status, unbound
+    EXPAND NET_UNIX_DATAGRAM_PAIR pair_status, left, right
+    EXPAND NET_UNIX_DATAGRAM_SET_READ_TIMEOUT read_timeout_status, right, UDS_TEST_TIMEOUT_NS
+    EXPAND NET_UNIX_DATAGRAM_READ_TIMEOUT read_timeout_get_status, read_timeout_ns, right
+    EXPAND NET_UNIX_DATAGRAM_SET_WRITE_TIMEOUT write_timeout_status, left, UDS_TEST_TIMEOUT_NS
+    EXPAND NET_UNIX_DATAGRAM_WRITE_TIMEOUT write_timeout_get_status, write_timeout_ns, left
+    EXPAND NET_UNIX_DATAGRAM_SET_NONBLOCKING nonblock_status, right, SA_NET_SOCKET_OPTION_DISABLE
+    EXPAND NET_UNIX_DATAGRAM_TAKE_ERROR take_error_status, sock_error, left
+
+    EXPAND NET_UNIX_DATAGRAM_LOCAL_ADDR local_addr_status, local_addr, left
+    EXPAND NET_UNIX_ADDR_KIND local_kind, local_addr
+    EXPAND NET_UNIX_DATAGRAM_PEER_ADDR peer_addr_status, peer_addr, left
+    EXPAND NET_UNIX_ADDR_KIND peer_kind, peer_addr
+    EXPAND NET_UNIX_ADDR_FREE local_free_status, local_addr
+    EXPAND NET_UNIX_ADDR_FREE peer_free_status, peer_addr
+
+    EXPAND NET_UNIX_DATAGRAM_SET_PASSCRED passcred_set_status, left, SA_NET_SOCKET_OPTION_ENABLE
+    EXPAND NET_UNIX_DATAGRAM_PASSCRED passcred_get_status, passcred_enabled, left
+
+    EXPAND NET_UNIX_DATAGRAM_TRY_CLONE clone_status, clone, left
+    EXPAND NET_UNIX_DATAGRAM_AS_RAW_FD as_raw_status, clone_fd, clone
+    EXPAND NET_UNIX_DATAGRAM_INTO_RAW_FD into_raw_status, raw_taken, clone
+    EXPAND NET_UNIX_DATAGRAM_FROM_RAW_FD from_raw_status, clone_from_raw, raw_taken
+    EXPAND NET_UNIX_DATAGRAM_INTO_OWNED_FD into_owned_status, owned_fd, clone_from_raw
+    EXPAND NET_UNIX_DATAGRAM_FROM_OWNED_FD from_owned_status, clone_from_owned, owned_fd
+    EXPAND NET_UNIX_DATAGRAM_CLOSE clone_close_status, clone_from_owned
+
+    peek_buf = stack_alloc 8
+    recv_buf = stack_alloc 8
+    recv_left_buf = stack_alloc 8
+    EXPAND NET_UNIX_DATAGRAM_SEND send_status, send_len, left, UDS_DGRAM_MSG, UDS_DGRAM_MSG_LEN
+    EXPAND NET_UNIX_DATAGRAM_PEEK peek_status, peek_len, right, peek_buf, 8
+    peek_b0 = load peek_buf+0 as u8
+    peek_b2 = load peek_buf+2 as u8
+    EXPAND NET_UNIX_DATAGRAM_RECV recv_status, recv_len, right, recv_buf, 8
+    recv_b0 = load recv_buf+0 as u8
+    recv_b2 = load recv_buf+2 as u8
+    EXPAND NET_UNIX_DATAGRAM_SEND send_back_status, send_back_len, right, UDS_DGRAM_NEXT, UDS_DGRAM_NEXT_LEN
+    EXPAND NET_UNIX_DATAGRAM_RECV recv_left_status, recv_left_len, left, recv_left_buf, 8
+    recv_left_b0 = load recv_left_buf+0 as u8
+    recv_left_b1 = load recv_left_buf+1 as u8
+    EXPAND NET_UNIX_DATAGRAM_SHUTDOWN shutdown_status, left, SA_NET_SHUTDOWN_BOTH
+    EXPAND NET_UNIX_DATAGRAM_CLOSE close_left_status, left
+    EXPAND NET_UNIX_DATAGRAM_CLOSE close_right_status, right
+
+    unbound_ok = eq unbound_status, SA_NET_OK
+    unbound_handle_ok = ne unbound, 0
+    unbound_close_ok = eq unbound_close_status, SA_NET_OK
+    pair_ok = eq pair_status, SA_NET_OK
+    left_ok = ne left, 0
+    right_ok = ne right, 0
+    read_timeout_ok = eq read_timeout_status, SA_NET_OK
+    read_timeout_get_ok = eq read_timeout_get_status, SA_NET_OK
+    read_timeout_value_ok = eq read_timeout_ns, UDS_TEST_TIMEOUT_NS
+    write_timeout_ok = eq write_timeout_status, SA_NET_OK
+    write_timeout_get_ok = eq write_timeout_get_status, SA_NET_OK
+    write_timeout_value_ok = eq write_timeout_ns, UDS_TEST_TIMEOUT_NS
+    nonblock_ok = eq nonblock_status, SA_NET_OK
+    take_error_ok = eq take_error_status, SA_NET_OK
+    sock_error_ok = eq sock_error, 0
+    local_addr_ok = eq local_addr_status, SA_NET_OK
+    local_kind_ok = eq local_kind, SA_NET_UNIX_ADDR_UNNAMED
+    peer_addr_ok = eq peer_addr_status, SA_NET_OK
+    peer_kind_ok = eq peer_kind, SA_NET_UNIX_ADDR_UNNAMED
+    local_free_ok = eq local_free_status, SA_NET_OK
+    peer_free_ok = eq peer_free_status, SA_NET_OK
+    passcred_set_ok = eq passcred_set_status, SA_NET_OK
+    passcred_get_ok = eq passcred_get_status, SA_NET_OK
+    passcred_value_ok = eq passcred_enabled, SA_NET_SOCKET_OPTION_ENABLE
+    clone_ok = eq clone_status, SA_NET_OK
+    clone_handle_ok = ne clone, 0
+    as_raw_ok = eq as_raw_status, SA_NET_OK
+    clone_fd_ok = ne clone_fd, -1
+    into_raw_ok = eq into_raw_status, SA_NET_OK
+    raw_match_ok = eq raw_taken, clone_fd
+    from_raw_ok = eq from_raw_status, SA_NET_OK
+    clone_from_raw_ok = ne clone_from_raw, 0
+    into_owned_ok = eq into_owned_status, SA_NET_OK
+    owned_fd_ok = ne owned_fd, 0
+    from_owned_ok = eq from_owned_status, SA_NET_OK
+    clone_from_owned_ok = ne clone_from_owned, 0
+    clone_close_ok = eq clone_close_status, SA_NET_OK
+    send_ok = eq send_status, SA_NET_OK
+    send_len_ok = eq send_len, UDS_DGRAM_MSG_LEN
+    peek_ok = eq peek_status, SA_NET_OK
+    peek_len_ok = eq peek_len, UDS_DGRAM_MSG_LEN
+    peek_b0_ok = eq peek_b0, 100
+    peek_b2_ok = eq peek_b2, 33
+    recv_ok = eq recv_status, SA_NET_OK
+    recv_len_ok = eq recv_len, UDS_DGRAM_MSG_LEN
+    recv_b0_ok = eq recv_b0, 100
+    recv_b2_ok = eq recv_b2, 33
+    send_back_ok = eq send_back_status, SA_NET_OK
+    send_back_len_ok = eq send_back_len, UDS_DGRAM_NEXT_LEN
+    recv_left_ok = eq recv_left_status, SA_NET_OK
+    recv_left_len_ok = eq recv_left_len, UDS_DGRAM_NEXT_LEN
+    recv_left_b0_ok = eq recv_left_b0, 111
+    recv_left_b1_ok = eq recv_left_b1, 107
+    shutdown_ok = eq shutdown_status, SA_NET_OK
+    close_left_ok = eq close_left_status, SA_NET_OK
+    close_right_ok = eq close_right_status, SA_NET_OK
+
+    ok01 = and unbound_ok, unbound_handle_ok
+    ok02 = and ok01, unbound_close_ok
+    ok03 = and ok02, pair_ok
+    ok04 = and ok03, left_ok
+    ok05 = and ok04, right_ok
+    ok06 = and ok05, read_timeout_ok
+    ok07 = and ok06, read_timeout_get_ok
+    ok08 = and ok07, read_timeout_value_ok
+    ok09 = and ok08, write_timeout_ok
+    ok10 = and ok09, write_timeout_get_ok
+    ok11 = and ok10, write_timeout_value_ok
+    ok12 = and ok11, nonblock_ok
+    ok13 = and ok12, take_error_ok
+    ok14 = and ok13, sock_error_ok
+    ok15 = and ok14, local_addr_ok
+    ok16 = and ok15, local_kind_ok
+    ok17 = and ok16, peer_addr_ok
+    ok18 = and ok17, peer_kind_ok
+    ok19 = and ok18, local_free_ok
+    ok20 = and ok19, peer_free_ok
+    ok21 = and ok20, passcred_set_ok
+    ok22 = and ok21, passcred_get_ok
+    ok23 = and ok22, passcred_value_ok
+    ok24 = and ok23, clone_ok
+    ok25 = and ok24, clone_handle_ok
+    ok26 = and ok25, as_raw_ok
+    ok27 = and ok26, clone_fd_ok
+    ok28 = and ok27, into_raw_ok
+    ok29 = and ok28, raw_match_ok
+    ok30 = and ok29, from_raw_ok
+    ok31 = and ok30, clone_from_raw_ok
+    ok32 = and ok31, into_owned_ok
+    ok33 = and ok32, owned_fd_ok
+    ok34 = and ok33, from_owned_ok
+    ok35 = and ok34, clone_from_owned_ok
+    ok36 = and ok35, clone_close_ok
+    ok37 = and ok36, send_ok
+    ok38 = and ok37, send_len_ok
+    ok39 = and ok38, peek_ok
+    ok40 = and ok39, peek_len_ok
+    ok41 = and ok40, peek_b0_ok
+    ok42 = and ok41, peek_b2_ok
+    ok43 = and ok42, recv_ok
+    ok44 = and ok43, recv_len_ok
+    ok45 = and ok44, recv_b0_ok
+    ok46 = and ok45, recv_b2_ok
+    ok47 = and ok46, send_back_ok
+    ok48 = and ok47, send_back_len_ok
+    ok49 = and ok48, recv_left_ok
+    ok50 = and ok49, recv_left_len_ok
+    ok51 = and ok50, recv_left_b0_ok
+    ok52 = and ok51, recv_left_b1_ok
+    ok53 = and ok52, shutdown_ok
+    ok54 = and ok53, close_left_ok
+    ok = and ok54, close_right_ok
+
+    !unbound_status
+    !unbound
+    !unbound_close_status
+    !pair_status
+    !left
+    !right
+    !read_timeout_status
+    !read_timeout_get_status
+    !read_timeout_ns
+    !write_timeout_status
+    !write_timeout_get_status
+    !write_timeout_ns
+    !nonblock_status
+    !take_error_status
+    !sock_error
+    !local_addr_status
+    !local_addr
+    !local_kind
+    !peer_addr_status
+    !peer_addr
+    !peer_kind
+    !local_free_status
+    !peer_free_status
+    !passcred_set_status
+    !passcred_get_status
+    !passcred_enabled
+    !clone_status
+    !clone
+    !as_raw_status
+    !clone_fd
+    !into_raw_status
+    !raw_taken
+    !from_raw_status
+    !clone_from_raw
+    !into_owned_status
+    !owned_fd
+    !from_owned_status
+    !clone_from_owned
+    !clone_close_status
+    !send_status
+    !send_len
+    !peek_status
+    !peek_len
+    !peek_b0
+    !peek_b2
+    !recv_status
+    !recv_len
+    !recv_b0
+    !recv_b2
+    !send_back_status
+    !send_back_len
+    !recv_left_status
+    !recv_left_len
+    !recv_left_b0
+    !recv_left_b1
+    !shutdown_status
+    !close_left_status
+    !close_right_status
+    !unbound_ok
+    !unbound_handle_ok
+    !unbound_close_ok
+    !pair_ok
+    !left_ok
+    !right_ok
+    !read_timeout_ok
+    !read_timeout_get_ok
+    !read_timeout_value_ok
+    !write_timeout_ok
+    !write_timeout_get_ok
+    !write_timeout_value_ok
+    !nonblock_ok
+    !take_error_ok
+    !sock_error_ok
+    !local_addr_ok
+    !local_kind_ok
+    !peer_addr_ok
+    !peer_kind_ok
+    !local_free_ok
+    !peer_free_ok
+    !passcred_set_ok
+    !passcred_get_ok
+    !passcred_value_ok
+    !clone_ok
+    !clone_handle_ok
+    !as_raw_ok
+    !clone_fd_ok
+    !into_raw_ok
+    !raw_match_ok
+    !from_raw_ok
+    !clone_from_raw_ok
+    !into_owned_ok
+    !owned_fd_ok
+    !from_owned_ok
+    !clone_from_owned_ok
+    !clone_close_ok
+    !send_ok
+    !send_len_ok
+    !peek_ok
+    !peek_len_ok
+    !peek_b0_ok
+    !peek_b2_ok
+    !recv_ok
+    !recv_len_ok
+    !recv_b0_ok
+    !recv_b2_ok
+    !send_back_ok
+    !send_back_len_ok
+    !recv_left_ok
+    !recv_left_len_ok
+    !recv_left_b0_ok
+    !recv_left_b1_ok
+    !shutdown_ok
+    !close_left_ok
+    !close_right_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    !ok37
+    !ok38
+    !ok39
+    !ok40
+    !ok41
+    !ok42
+    !ok43
+    !ok44
+    !ok45
+    !ok46
+    !ok47
+    !ok48
+    !ok49
+    !ok50
+    !ok51
+    !ok52
+    !ok53
+    !ok54
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(995)
+
+L_PASS:
+    !ok
     return 0

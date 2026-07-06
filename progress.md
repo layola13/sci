@@ -4,6 +4,36 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 UnixDatagram basic facade batch
+
+- Added supportable `std::os::unix::net::UnixDatagram` basic facade subset backed by AF_UNIX/SOCK_DGRAM handles.
+- Added macro surfaces:
+  - `NET_UNIX_DATAGRAM_UNBOUND`
+  - `NET_UNIX_DATAGRAM_PAIR`
+  - `NET_UNIX_DATAGRAM_TRY_CLONE`
+  - `NET_UNIX_DATAGRAM_AS_RAW_FD` / `NET_UNIX_DATAGRAM_INTO_RAW_FD` / `NET_UNIX_DATAGRAM_FROM_RAW_FD`
+  - `NET_UNIX_DATAGRAM_INTO_OWNED_FD` / `NET_UNIX_DATAGRAM_FROM_OWNED_FD`
+  - `NET_UNIX_DATAGRAM_LOCAL_ADDR` / `NET_UNIX_DATAGRAM_PEER_ADDR`
+  - `NET_UNIX_DATAGRAM_SET_PASSCRED` / `NET_UNIX_DATAGRAM_PASSCRED`
+  - `NET_UNIX_DATAGRAM_SET_READ_TIMEOUT` / `NET_UNIX_DATAGRAM_READ_TIMEOUT`
+  - `NET_UNIX_DATAGRAM_SET_WRITE_TIMEOUT` / `NET_UNIX_DATAGRAM_WRITE_TIMEOUT`
+  - `NET_UNIX_DATAGRAM_SET_NONBLOCKING` / `NET_UNIX_DATAGRAM_TAKE_ERROR`
+  - `NET_UNIX_DATAGRAM_SEND` / `NET_UNIX_DATAGRAM_RECV` / `NET_UNIX_DATAGRAM_PEEK`
+  - `NET_UNIX_DATAGRAM_SHUTDOWN` / `NET_UNIX_DATAGRAM_CLOSE`
+- Added runtime/export surfaces: `sa_std_net_unix_datagram_unbound`, `pair`, `try_clone`, `from_raw_fd`, `local_addr`, `peer_addr`, `set_passcred`, `passcred`, and `shutdown`.
+- Semantics: UnixDatagram uses the existing owned fd-backed `udp_socket` resource kind while validating AF_UNIX/SOCK_DGRAM where handles are restored or queried as Unix datagrams. `pair` returns connected unnamed datagram sockets, `peek` is non-consuming, passcred maps to Linux `SO_PASSCRED`, and raw/owned fd conversions preserve Rust-style ownership transfer.
+- Scope note: pathname/abstract `bind_addr`, `connect_addr`, `send_to_addr`, and `recv_from` address-returning UnixDatagram paths remain a natural follow-up batch.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused UnixDatagram test: pass (`1 passed`).
+  - Source full `std_net_unix_macro_surface.sa`: pass (`5 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for `sa_std_net_unix_datagram_*`: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused UnixDatagram test: pass (`1 passed`).
+  - Installed-state full `std_net_unix_macro_surface.sa`: pass (`5 passed`).
+
 ## Completed: 2026-07-06 Unix fs chroot facade batch
 
 - Added supportable `std::os::unix::fs::chroot` current-process facade for Linux.
