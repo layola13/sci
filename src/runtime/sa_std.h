@@ -464,6 +464,7 @@ int32_t sa_std_net_unix_stream_from_raw_fd(int32_t fd, uint64_t *out_handle);
 int32_t sa_std_net_unix_stream_peer_addr(uint64_t stream_handle, uint64_t *out_handle);
 int32_t sa_std_net_unix_stream_set_passcred(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_unix_stream_passcred(uint64_t stream_handle, int32_t *out_enabled);
+int32_t sa_std_net_unix_stream_set_mark(uint64_t stream_handle, uint32_t mark);
 int32_t sa_std_net_unix_stream_peer_cred(uint64_t stream_handle, int32_t *out_pid, uint32_t *out_uid, uint32_t *out_gid);
 int32_t sa_std_net_unix_datagram_unbound(uint64_t *out_handle);
 int32_t sa_std_net_unix_datagram_bind(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
@@ -477,6 +478,7 @@ int32_t sa_std_net_unix_datagram_local_addr(uint64_t socket_handle, uint64_t *ou
 int32_t sa_std_net_unix_datagram_peer_addr(uint64_t socket_handle, uint64_t *out_handle);
 int32_t sa_std_net_unix_datagram_set_passcred(uint64_t socket_handle, int32_t enabled);
 int32_t sa_std_net_unix_datagram_passcred(uint64_t socket_handle, int32_t *out_enabled);
+int32_t sa_std_net_unix_datagram_set_mark(uint64_t socket_handle, uint32_t mark);
 int32_t sa_std_net_unix_datagram_shutdown(uint64_t socket_handle, uint32_t how);
 int32_t sa_std_net_unix_datagram_send_to(uint64_t socket_handle, const uint8_t *buf, uint64_t len, const uint8_t *path, uint64_t path_len, uint64_t *out_written);
 int32_t sa_std_net_unix_datagram_send_to_addr(uint64_t socket_handle, const uint8_t *buf, uint64_t len, uint64_t addr_handle, uint64_t *out_written);

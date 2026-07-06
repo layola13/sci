@@ -100,6 +100,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `std::os::linux::net::SocketAddrExt` abstract Unix socket address subset: `from_abstract_name` / `as_abstract_name`-style address handles plus listen/connect by Unix addr handle.
    - `std::os::net::linux_ext::TcpStreamExt`: Linux `TCP_QUICKACK` and `TCP_DEFER_ACCEPT` set/get socket option surface.
    - `std::os::net::linux_ext::UnixSocketExt` UnixStream subset: Linux `SO_PASSCRED` set/get socket option surface.
+   - `std::os::net::linux_ext::UnixSocketExt` Unix stream/datagram subset: Linux `SO_MARK` set socket option surface for AF_UNIX stream and datagram handles.
    - `std::os::unix::process::ChildExt::kill_process_group`: Linux process-group `SIGKILL` convenience facade over the existing effective-PGID signal path.
 2. Next candidate scope:
    - Continue String/Vec audit only for supportable gaps that can be expressed as SA macro/runtime surfaces and verified without misrepresenting Rust object models.
@@ -187,6 +188,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec naming alias audit batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix ffi OsStr/OsString facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix thread JoinHandleExt pthread facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Unix socket set_mark facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

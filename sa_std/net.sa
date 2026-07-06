@@ -450,6 +450,10 @@
     %out_enabled = load __net_unix_passcred_%out_status+0 as i32
 [END_MACRO]
 
+[MACRO] NET_UNIX_STREAM_SET_MARK %out_status, %stream, %mark
+    %out_status = call @sa_std_net_unix_stream_set_mark(%stream, %mark)
+[END_MACRO]
+
 [MACRO] NET_UNIX_STREAM_PEER_CRED %out_status, %out_pid, %out_uid, %out_gid, %stream
     __net_unix_peer_pid_%out_status = stack_alloc 4
     __net_unix_peer_uid_%out_status = stack_alloc 4
@@ -580,6 +584,10 @@
     __net_unix_datagram_passcred_%out_status = stack_alloc 4
     %out_status = call @sa_std_net_unix_datagram_passcred(%socket, &__net_unix_datagram_passcred_%out_status)
     %out_enabled = load __net_unix_datagram_passcred_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_MARK %out_status, %socket, %mark
+    %out_status = call @sa_std_net_unix_datagram_set_mark(%socket, %mark)
 [END_MACRO]
 
 [MACRO] NET_UNIX_DATAGRAM_SET_READ_TIMEOUT %out_status, %socket, %timeout_ns

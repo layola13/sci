@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix socket set_mark facade batch
+
+- Added supportable Linux `std::os::net::linux_ext::UnixSocketExt::set_mark` style facades for Unix stream and datagram sockets.
+- Added macro surfaces:
+  - `NET_UNIX_STREAM_SET_MARK`
+  - `NET_UNIX_DATAGRAM_SET_MARK`
+- Added runtime/export surfaces:
+  - `sa_std_net_unix_stream_set_mark`
+  - `sa_std_net_unix_datagram_set_mark`
+- Semantics: Linux-only `SO_MARK` setter over AF_UNIX stream/datagram handles. The runtime validates the SA socket handle kind and AF_UNIX family before calling `setsockopt(SOL_SOCKET, SO_MARK, u32)`. Tests accept success, access denied, or unsupported because unprivileged environments may reject `SO_MARK`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for new `sa_std_net_unix_*_set_mark` symbols: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec Rust API self-reference and index alias audit batch
 
 - Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs with String/Vec as the active priority.

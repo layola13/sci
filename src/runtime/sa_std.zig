@@ -1479,6 +1479,11 @@ fn setSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32, value: i32) !vo
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
 }
 
+fn setSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32, value: u32) !void {
+    var mutable = value;
+    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
+}
+
 fn setSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32, ns: u64) !void {
     const tv = try timevalFromNs(ns);
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&tv));
@@ -10470,6 +10475,15 @@ pub export fn sa_std_net_unix_stream_passcred(stream: u64, out_enabled: ?*i32) i
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_unix_stream_set_mark(stream: u64, mark: u32) i32 {
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptU32(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.MARK, mark) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_stream_peer_cred(stream: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
     const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const uid_ptr = out_uid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -10667,6 +10681,15 @@ pub export fn sa_std_net_unix_datagram_passcred(socket: u64, out_enabled: ?*i32)
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
     out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_unix_datagram_set_mark(socket: u64, mark: u32) i32 {
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptU32(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.MARK, mark) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
