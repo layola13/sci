@@ -55,6 +55,20 @@
     %out_error = load __net_tcp_listener_error_%out_status+0 as i32
 [END_MACRO]
 
+[MACRO] NET_TCP_LISTENER_AS_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_AS_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_INTO_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_FROM_RAW_FD %out_status, %out_listener, %fd
+    __net_tcp_listener_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_listener_from_raw_fd(%fd, &__net_tcp_listener_from_raw_%out_status)
+    %out_listener = load __net_tcp_listener_from_raw_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_TCP_LISTENER_CLOSE %out_status, %listener
     __net_tcp_listener_close_%out_status = call @sa_net_tcp_listener_close(%listener)
     %out_status = load __net_tcp_listener_close_%out_status+0 as i32
@@ -198,6 +212,20 @@
     __net_tcp_error_%out_status = stack_alloc 4
     %out_status = call @sa_std_net_tcp_stream_take_error(%stream, &__net_tcp_error_%out_status)
     %out_error = load __net_tcp_error_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_AS_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_INTO_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_FROM_RAW_FD %out_status, %out_stream, %fd
+    __net_tcp_stream_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_from_raw_fd(%fd, &__net_tcp_stream_from_raw_%out_status)
+    %out_stream = load __net_tcp_stream_from_raw_%out_status+0 as u64
 [END_MACRO]
 
 [MACRO] NET_TCP_STREAM_SET_KEEPALIVE %out_status, %stream, %enabled

@@ -948,6 +948,316 @@ L_OK:
     !ok
     return
 
+@test "sa_std net tcp raw fd macro surface"():
+L_ENTRY:
+    EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    EXPAND NET_TCP_LISTENER_AS_RAW_FD listener_as_status, listener_raw_fd, listener
+    EXPAND NET_TCP_LISTENER_INTO_RAW_FD listener_into_status, listener_taken_fd, listener
+    EXPAND NET_TCP_LISTENER_FROM_RAW_FD listener_from_status, listener, listener_taken_fd
+    EXPAND NET_TCP_LISTENER_SET_NONBLOCKING listener_nonblock_status, listener, SA_NET_SOCKET_OPTION_ENABLE
+    EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
+    EXPAND NET_TCP_STREAM_AS_RAW_FD client_as_status, client_raw_fd, client
+    EXPAND NET_TCP_STREAM_INTO_RAW_FD client_into_status, client_taken_fd, client
+    EXPAND NET_TCP_STREAM_FROM_RAW_FD client_from_status, client, client_taken_fd
+    EXPAND NET_TCP_LISTENER_ACCEPT accept_status, server, listener
+    EXPAND NET_TCP_LISTENER_CLOSE listener_close_status, listener
+    EXPAND NET_TCP_STREAM_AS_RAW_FD server_as_status, server_raw_fd, server
+    EXPAND NET_TCP_STREAM_INTO_RAW_FD server_into_status, server_taken_fd, server
+    EXPAND NET_TCP_STREAM_FROM_RAW_FD server_from_status, server, server_taken_fd
+
+    send_buf = stack_alloc 4
+    recv_buf = stack_alloc 4
+    store send_buf+0, 84 as u8
+    store send_buf+1, 67 as u8
+    store send_buf+2, 80 as u8
+    store send_buf+3, 33 as u8
+    EXPAND NET_TCP_STREAM_WRITE write_status, write_len, client, send_buf, 4
+    EXPAND NET_TCP_STREAM_READ read_status, read_len, server, recv_buf, 4
+    read_b0 = load recv_buf+0 as u8
+    read_b1 = load recv_buf+1 as u8
+    read_b2 = load recv_buf+2 as u8
+    read_b3 = load recv_buf+3 as u8
+    EXPAND NET_TCP_STREAM_CLOSE client_close_status, client
+    EXPAND NET_TCP_STREAM_CLOSE server_close_status, server
+
+    bind_status_ok = eq bind_status, SA_NET_OK
+    listener_ok = ne listener, 0
+    bound_port_ok = ne bound_port, 0
+    listener_as_ok = eq listener_as_status, SA_NET_OK
+    listener_raw_fd_ok = ne listener_raw_fd, -1
+    listener_into_ok = eq listener_into_status, SA_NET_OK
+    listener_raw_match = eq listener_taken_fd, listener_raw_fd
+    listener_from_ok = eq listener_from_status, SA_NET_OK
+    listener_nonblock_ok = eq listener_nonblock_status, SA_NET_OK
+    connect_ok = eq connect_status, SA_NET_OK
+    client_ok = ne client, 0
+    client_as_ok = eq client_as_status, SA_NET_OK
+    client_raw_fd_ok = ne client_raw_fd, -1
+    client_into_ok = eq client_into_status, SA_NET_OK
+    client_raw_match = eq client_taken_fd, client_raw_fd
+    client_from_ok = eq client_from_status, SA_NET_OK
+    accept_ok = eq accept_status, SA_NET_OK
+    server_ok = ne server, 0
+    listener_close_ok = eq listener_close_status, SA_NET_OK
+    server_as_ok = eq server_as_status, SA_NET_OK
+    server_raw_fd_ok = ne server_raw_fd, -1
+    server_into_ok = eq server_into_status, SA_NET_OK
+    server_raw_match = eq server_taken_fd, server_raw_fd
+    server_from_ok = eq server_from_status, SA_NET_OK
+    write_status_ok = eq write_status, SA_NET_OK
+    write_len_ok = eq write_len, 4
+    read_status_ok = eq read_status, SA_NET_OK
+    read_len_ok = eq read_len, 4
+    read_b0_ok = eq read_b0, 84
+    read_b1_ok = eq read_b1, 67
+    read_b2_ok = eq read_b2, 80
+    read_b3_ok = eq read_b3, 33
+    client_close_ok = eq client_close_status, SA_NET_OK
+    server_close_ok = eq server_close_status, SA_NET_OK
+
+    ok01 = and bind_status_ok, listener_ok
+    ok02 = and ok01, bound_port_ok
+    ok03 = and ok02, listener_as_ok
+    ok04 = and ok03, listener_raw_fd_ok
+    ok05 = and ok04, listener_into_ok
+    ok06 = and ok05, listener_raw_match
+    ok07 = and ok06, listener_from_ok
+    ok08 = and ok07, listener_nonblock_ok
+    ok09 = and ok08, connect_ok
+    ok10 = and ok09, client_ok
+    ok11 = and ok10, client_as_ok
+    ok12 = and ok11, client_raw_fd_ok
+    ok13 = and ok12, client_into_ok
+    ok14 = and ok13, client_raw_match
+    ok15 = and ok14, client_from_ok
+    ok16 = and ok15, accept_ok
+    ok17 = and ok16, server_ok
+    ok18 = and ok17, listener_close_ok
+    ok19 = and ok18, server_as_ok
+    ok20 = and ok19, server_raw_fd_ok
+    ok21 = and ok20, server_into_ok
+    ok22 = and ok21, server_raw_match
+    ok23 = and ok22, server_from_ok
+    ok24 = and ok23, write_status_ok
+    ok25 = and ok24, write_len_ok
+    ok26 = and ok25, read_status_ok
+    ok27 = and ok26, read_len_ok
+    ok28 = and ok27, read_b0_ok
+    ok29 = and ok28, read_b1_ok
+    ok30 = and ok29, read_b2_ok
+    ok31 = and ok30, read_b3_ok
+    ok32 = and ok31, client_close_ok
+    ok = and ok32, server_close_ok
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    !ok32
+    !ok31
+    !ok30
+    !ok29
+    !ok28
+    !ok27
+    !ok26
+    !ok25
+    !ok24
+    !ok23
+    !ok22
+    !ok21
+    !ok20
+    !ok19
+    !ok18
+    !ok17
+    !ok16
+    !ok15
+    !ok14
+    !ok13
+    !ok12
+    !ok11
+    !ok10
+    !ok09
+    !ok08
+    !ok07
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !server_close_ok
+    !client_close_ok
+    !read_b3_ok
+    !read_b2_ok
+    !read_b1_ok
+    !read_b0_ok
+    !read_len_ok
+    !read_status_ok
+    !write_len_ok
+    !write_status_ok
+    !server_from_ok
+    !server_raw_match
+    !server_into_ok
+    !server_raw_fd_ok
+    !server_as_ok
+    !listener_close_ok
+    !server_ok
+    !accept_ok
+    !client_from_ok
+    !client_raw_match
+    !client_into_ok
+    !client_raw_fd_ok
+    !client_as_ok
+    !client_ok
+    !connect_ok
+    !listener_nonblock_ok
+    !listener_from_ok
+    !listener_raw_match
+    !listener_into_ok
+    !listener_raw_fd_ok
+    !listener_as_ok
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !server_close_status
+    !client_close_status
+    !read_b3
+    !read_b2
+    !read_b1
+    !read_b0
+    !read_len
+    !read_status
+    !write_len
+    !write_status
+    !server_taken_fd
+    !server_raw_fd
+    !server_from_status
+    !server_into_status
+    !server_as_status
+    !listener_close_status
+    !server
+    !accept_status
+    !client_taken_fd
+    !client_raw_fd
+    !client_from_status
+    !client_into_status
+    !client_as_status
+    !client
+    !connect_status
+    !listener_nonblock_status
+    !listener_taken_fd
+    !listener_raw_fd
+    !listener_from_status
+    !listener_into_status
+    !listener_as_status
+    !bound_port
+    !listener
+    !bind_status
+    panic(963)
+
+L_OK:
+    !ok
+    !ok32
+    !ok31
+    !ok30
+    !ok29
+    !ok28
+    !ok27
+    !ok26
+    !ok25
+    !ok24
+    !ok23
+    !ok22
+    !ok21
+    !ok20
+    !ok19
+    !ok18
+    !ok17
+    !ok16
+    !ok15
+    !ok14
+    !ok13
+    !ok12
+    !ok11
+    !ok10
+    !ok09
+    !ok08
+    !ok07
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !server_close_ok
+    !client_close_ok
+    !read_b3_ok
+    !read_b2_ok
+    !read_b1_ok
+    !read_b0_ok
+    !read_len_ok
+    !read_status_ok
+    !write_len_ok
+    !write_status_ok
+    !server_from_ok
+    !server_raw_match
+    !server_into_ok
+    !server_raw_fd_ok
+    !server_as_ok
+    !listener_close_ok
+    !server_ok
+    !accept_ok
+    !client_from_ok
+    !client_raw_match
+    !client_into_ok
+    !client_raw_fd_ok
+    !client_as_ok
+    !client_ok
+    !connect_ok
+    !listener_nonblock_ok
+    !listener_from_ok
+    !listener_raw_match
+    !listener_into_ok
+    !listener_raw_fd_ok
+    !listener_as_ok
+    !bound_port_ok
+    !listener_ok
+    !bind_status_ok
+    !server_close_status
+    !client_close_status
+    !read_b3
+    !read_b2
+    !read_b1
+    !read_b0
+    !read_len
+    !read_status
+    !write_len
+    !write_status
+    !server_taken_fd
+    !server_raw_fd
+    !server_from_status
+    !server_into_status
+    !server_as_status
+    !listener_close_status
+    !server
+    !accept_status
+    !client_taken_fd
+    !client_raw_fd
+    !client_from_status
+    !client_into_status
+    !client_as_status
+    !client
+    !connect_status
+    !listener_nonblock_status
+    !listener_taken_fd
+    !listener_raw_fd
+    !listener_from_status
+    !listener_into_status
+    !listener_as_status
+    !bound_port
+    !listener
+    !bind_status
+    return
+
 @test "sa_std net tcp incoming macro surface"():
 L_INCOMING_ENTRY:
     EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0

@@ -4,6 +4,37 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 TCP stream/listener raw fd trait batch
+
+- Added TCP `TcpStream` / `TcpListener` raw-fd trait-style macro surface:
+  - `NET_TCP_STREAM_AS_RAW_FD`
+  - `NET_TCP_STREAM_INTO_RAW_FD`
+  - `NET_TCP_STREAM_FROM_RAW_FD`
+  - `NET_TCP_LISTENER_AS_RAW_FD`
+  - `NET_TCP_LISTENER_INTO_RAW_FD`
+  - `NET_TCP_LISTENER_FROM_RAW_FD`
+- Added runtime/header exports for the ownership-restoring paths:
+  - `sa_std_net_tcp_stream_from_raw_fd`
+  - `sa_std_net_tcp_listener_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates restored fds as AF_INET/AF_INET6 stream sockets.
+  - listener `from_raw_fd` requires `SO_ACCEPTCONN` and restores `std.net.Server.listen_address` from `getsockname`.
+  - stream `from_raw_fd` rejects accepting/listener sockets and registers the fd as a TCP stream handle.
+- Extended `tests/unit_framework/std_net_macro_surface.sa` coverage:
+  - listener, connected client stream, and accepted server stream all roundtrip through `as_raw_fd` / `into_raw_fd` / `from_raw_fd`.
+  - rebound client/server handles exchange bytes before both handles close.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `nm -g zig-out/lib/libsa_std.a | rg 'sa_std_net_tcp_(stream|listener)_from_raw_fd'`: pass, both symbols exported.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+
 ## Completed: 2026-07-06 Child stdout/stderr owned fd alias batch
 
 - Added Unix process child pipe owned-fd trait-style macro aliases over the existing raw-fd and `sa_std/os/fd` owned-fd facades:

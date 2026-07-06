@@ -440,6 +440,8 @@ int32_t sa_std_net_tcp_listener_set_nonblocking(uint64_t listener_handle, int32_
 int32_t sa_std_net_tcp_listener_set_ttl(uint64_t listener_handle, uint32_t ttl);
 int32_t sa_std_net_tcp_listener_ttl(uint64_t listener_handle, uint32_t *out_ttl);
 int32_t sa_std_net_tcp_listener_take_error(uint64_t listener_handle, int32_t *out_error);
+int32_t sa_std_net_tcp_listener_from_raw_fd(int32_t fd, uint64_t *out_handle);
+int32_t sa_std_net_tcp_stream_from_raw_fd(int32_t fd, uint64_t *out_handle);
 
 int32_t sa_std_net_unix_listen(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_net_unix_accept(uint64_t listener_handle, uint64_t *out_handle);
