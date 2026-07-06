@@ -300,6 +300,20 @@
     %out_listener = load __net_unix_listener_from_raw_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UNIX_LISTENER_INTO_OWNED_FD %out_status, %out_fd_handle, %listener
+    EXPAND NET_UNIX_LISTENER_INTO_RAW_FD %out_status, __net_unix_listener_owned_raw_%out_status, %listener
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_unix_listener_owned_raw_%out_status
+    !__net_unix_listener_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_FROM_OWNED_FD %out_status, %out_listener, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_unix_listener_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_UNIX_LISTENER_FROM_RAW_FD %out_status, %out_listener, __net_unix_listener_from_owned_raw_%out_status
+    !__net_unix_listener_from_owned_raw_%out_status
+[END_MACRO]
+
 [MACRO] NET_UNIX_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
     EXPAND NET_TCP_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
 [END_MACRO]
@@ -348,6 +362,20 @@
     __net_unix_stream_from_raw_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_stream_from_raw_fd(%fd, &__net_unix_stream_from_raw_%out_status)
     %out_stream = load __net_unix_stream_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_INTO_OWNED_FD %out_status, %out_fd_handle, %stream
+    EXPAND NET_UNIX_STREAM_INTO_RAW_FD %out_status, __net_unix_stream_owned_raw_%out_status, %stream
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_unix_stream_owned_raw_%out_status
+    !__net_unix_stream_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_FROM_OWNED_FD %out_status, %out_stream, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_unix_stream_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_UNIX_STREAM_FROM_RAW_FD %out_status, %out_stream, __net_unix_stream_from_owned_raw_%out_status
+    !__net_unix_stream_from_owned_raw_%out_status
 [END_MACRO]
 
 [MACRO] NET_UNIX_STREAM_PEER_ADDR %out_status, %out_addr, %stream

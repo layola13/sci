@@ -83,6 +83,8 @@
 - [x] PidFd raw-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait 表面：补 stream/listener `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 命名宏；`from_raw_fd` 注册回对应 Unix stream/listener 资源类型。
 - [x] Unix socket raw-fd trait 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::{UnixStream,UnixListener}` owned-fd trait 表面：补 stream/listener `into_owned_fd`、`from_owned_fd` 风格宏别名，复用 raw-fd trait 与 `sa_std/os/fd` owned-fd facade。
+- [x] Unix socket owned-fd alias 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::process::{ChildStdout,ChildStderr}` raw-fd trait 命名表面：补 stdout/stderr `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 宏别名，复用现有 owned-fd facade。
 - [x] Child stdout/stderr raw-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。

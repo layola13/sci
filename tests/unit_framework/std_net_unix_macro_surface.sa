@@ -115,7 +115,7 @@ L_LISTENER_CLONE:
     listener_clone_status_ok = eq listener_clone_status, SA_NET_OK
     listener_clone_handle_ok = ne listener_clone, 0
     listener_clone_ready = and listener_clone_status_ok, listener_clone_handle_ok
-    br listener_clone_ready -> L_LISTENER_CLONE_CLOSE, L_FAIL_LISTENER_CLONE
+    br listener_clone_ready -> L_LISTENER_CLONE_OWNED, L_FAIL_LISTENER_CLONE
 
 L_FAIL_LISTENER_CLONE:
     !listener_clone_ready
@@ -126,6 +126,43 @@ L_FAIL_LISTENER_CLONE:
     !addr_all2
     !listener
     panic(984)
+
+L_LISTENER_CLONE_OWNED:
+    EXPAND NET_UNIX_LISTENER_INTO_OWNED_FD listener_into_owned_status, listener_owned_fd, listener_clone
+    listener_into_owned_status_ok = eq listener_into_owned_status, SA_NET_OK
+    listener_owned_fd_ok = ne listener_owned_fd, 0
+    listener_into_owned_ok = and listener_into_owned_status_ok, listener_owned_fd_ok
+    br listener_into_owned_ok -> L_LISTENER_CLONE_FROM_OWNED, L_FAIL_LISTENER_INTO_OWNED
+
+L_FAIL_LISTENER_INTO_OWNED:
+    !listener_into_owned_ok
+    !listener_owned_fd_ok
+    !listener_into_owned_status_ok
+    !listener_owned_fd
+    !listener_into_owned_status
+    !listener_clone_ready
+    !addr_all2
+    !listener
+    panic(992)
+
+L_LISTENER_CLONE_FROM_OWNED:
+    EXPAND NET_UNIX_LISTENER_FROM_OWNED_FD listener_from_owned_status, listener_clone, listener_owned_fd
+    listener_from_owned_status_ok = eq listener_from_owned_status, SA_NET_OK
+    listener_from_owned_handle_ok = ne listener_clone, 0
+    listener_from_owned_ok = and listener_from_owned_status_ok, listener_from_owned_handle_ok
+    br listener_from_owned_ok -> L_LISTENER_CLONE_CLOSE, L_FAIL_LISTENER_FROM_OWNED
+
+L_FAIL_LISTENER_FROM_OWNED:
+    !listener_from_owned_ok
+    !listener_from_owned_handle_ok
+    !listener_from_owned_status_ok
+    !listener_clone
+    !listener_from_owned_status
+    !listener_into_owned_ok
+    !listener_clone_ready
+    !addr_all2
+    !listener
+    panic(993)
 
 L_LISTENER_CLONE_CLOSE:
     EXPAND NET_UNIX_LISTENER_AS_RAW_FD listener_raw_status, listener_raw_fd, listener_clone
@@ -140,6 +177,7 @@ L_FAIL_LISTENER_RAW:
     !listener_raw_status_ok
     !listener_raw_fd
     !listener_raw_status
+    !listener_from_owned_ok
     !addr_all2
     !listener
     panic(989)
@@ -177,6 +215,7 @@ L_FAIL_LISTENER_FROM_RAW:
     !listener_from_raw_status
     !listener_take_ok
     !listener_raw_ok
+    !listener_from_owned_ok
     !addr_all2
     !listener
     panic(991)
@@ -187,6 +226,7 @@ L_LISTENER_CLONE_CLOSE_DONE:
     !listener_from_raw_ok
     !listener_take_ok
     !listener_raw_ok
+    !listener_from_owned_ok
     !listener_clone_ready
     !listener_clone_handle_ok
     !listener_clone_status_ok
@@ -439,7 +479,7 @@ L_PAIR_STREAM_CLONE:
     pair_clone_status_ok = eq pair_clone_status, SA_NET_OK
     pair_clone_handle_ok = ne pair_left_clone, 0
     pair_clone_ready = and pair_clone_status_ok, pair_clone_handle_ok
-    br pair_clone_ready -> L_PAIR_CLONE_WRITE, L_PAIR_FAIL_STREAM_CLONE
+    br pair_clone_ready -> L_PAIR_CLONE_OWNED, L_PAIR_FAIL_STREAM_CLONE
 
 L_PAIR_FAIL_STREAM_CLONE:
     !pair_clone_ready
@@ -451,6 +491,45 @@ L_PAIR_FAIL_STREAM_CLONE:
     !right
     !left
     panic(986)
+
+L_PAIR_CLONE_OWNED:
+    EXPAND NET_UNIX_STREAM_INTO_OWNED_FD pair_clone_into_owned_status, pair_clone_owned_fd, pair_left_clone
+    pair_clone_into_owned_status_ok = eq pair_clone_into_owned_status, SA_NET_OK
+    pair_clone_owned_fd_ok = ne pair_clone_owned_fd, 0
+    pair_clone_into_owned_ok = and pair_clone_into_owned_status_ok, pair_clone_owned_fd_ok
+    br pair_clone_into_owned_ok -> L_PAIR_CLONE_FROM_OWNED, L_PAIR_FAIL_CLONE_INTO_OWNED
+
+L_PAIR_FAIL_CLONE_INTO_OWNED:
+    !pair_clone_into_owned_ok
+    !pair_clone_owned_fd_ok
+    !pair_clone_into_owned_status_ok
+    !pair_clone_owned_fd
+    !pair_clone_into_owned_status
+    !pair_clone_ready
+    !pair_all
+    !right
+    !left
+    panic(992)
+
+L_PAIR_CLONE_FROM_OWNED:
+    EXPAND NET_UNIX_STREAM_FROM_OWNED_FD pair_clone_from_owned_status, pair_left_clone, pair_clone_owned_fd
+    pair_clone_from_owned_status_ok = eq pair_clone_from_owned_status, SA_NET_OK
+    pair_clone_from_owned_handle_ok = ne pair_left_clone, 0
+    pair_clone_from_owned_ok = and pair_clone_from_owned_status_ok, pair_clone_from_owned_handle_ok
+    br pair_clone_from_owned_ok -> L_PAIR_CLONE_WRITE, L_PAIR_FAIL_CLONE_FROM_OWNED
+
+L_PAIR_FAIL_CLONE_FROM_OWNED:
+    !pair_clone_from_owned_ok
+    !pair_clone_from_owned_handle_ok
+    !pair_clone_from_owned_status_ok
+    !pair_left_clone
+    !pair_clone_from_owned_status
+    !pair_clone_into_owned_ok
+    !pair_clone_ready
+    !pair_all
+    !right
+    !left
+    panic(993)
 
 L_PAIR_CLONE_WRITE:
     EXPAND NET_UNIX_STREAM_AS_RAW_FD pair_clone_raw_status, pair_clone_raw_fd, pair_left_clone
@@ -465,6 +544,7 @@ L_PAIR_FAIL_CLONE_RAW:
     !pair_clone_raw_status_ok
     !pair_clone_raw_fd
     !pair_clone_raw_status
+    !pair_clone_from_owned_ok
     !pair_clone_ready
     !pair_left_clone
     !pair_all
@@ -486,6 +566,7 @@ L_PAIR_FAIL_CLONE_INTO_RAW:
     !pair_clone_raw_taken
     !pair_clone_into_raw_status
     !pair_clone_raw_ok
+    !pair_clone_from_owned_ok
     !pair_clone_ready
     !pair_all
     !right
@@ -507,6 +588,7 @@ L_PAIR_FAIL_CLONE_FROM_RAW:
     !pair_clone_from_raw_status
     !pair_clone_take_ok
     !pair_clone_raw_ok
+    !pair_clone_from_owned_ok
     !pair_clone_ready
     !pair_all
     !right
@@ -581,6 +663,7 @@ L_PAIR_CLONE_CLOSE:
     !pair_clone_from_raw_ok
     !pair_clone_take_ok
     !pair_clone_raw_ok
+    !pair_clone_from_owned_ok
     !pair_clone_ready
     !pair_clone_handle_ok
     !pair_clone_status_ok

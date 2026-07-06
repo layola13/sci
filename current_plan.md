@@ -34,6 +34,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::unix::net::{UnixStream,UnixListener}` option named surfaces: stream timeout/nonblocking/take_error and listener nonblocking/take_error aliases over existing fd-based runtime.
    - `std::os::unix::net::{UnixStream,UnixListener}::try_clone`: fd-dup clone facades preserving stream/listener resource kinds and independent close lifetimes.
    - `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait surface: stream/listener `as_raw_fd`, `into_raw_fd`, and `from_raw_fd` with `from_raw_fd` restoring the correct Unix stream/listener resource kind.
+   - `std::os::unix::net::{UnixStream,UnixListener}` owned-fd trait aliases: stream/listener `into_owned_fd` and `from_owned_fd` style macro surfaces over existing raw-fd and `sa_std/os/fd` owned-fd helpers.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -83,6 +84,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the Unix socket option named surface batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix socket try_clone batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix socket raw-fd trait batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Unix socket owned-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the UnixListener accept_addr batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the UnixListener incoming named surface batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix SocketAddr pathname batch (`6/6 steps succeeded; 5/5 tests passed`).
@@ -134,6 +136,8 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
   - `std_net_unix_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with UnixStream and UnixListener raw-fd ownership roundtrip assertions:
   - `std_net_unix_macro_surface.sa`
+- Updated Unix-domain socket macro-surface test passes with UnixStream and UnixListener owned-fd ownership roundtrip assertions:
+  - `std_net_unix_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with `NET_UNIX_ACCEPT_ADDR` peer address assertions:
   - `std_net_unix_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with UnixListener incoming wrapper/next assertions:
@@ -173,6 +177,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the Unix socket option named surface install sync.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the Unix socket try_clone install sync.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the Unix socket raw-fd trait install sync.
+- Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the Unix socket owned-fd alias install sync.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the UnixListener accept_addr install sync.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the UnixListener incoming named surface install sync.
 - Installed-state smoke passes for `std_net_unix_macro_surface.sa` after the Unix SocketAddr pathname install sync.
@@ -182,14 +187,16 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 
 ## Current Status
 
-- Source/facade/test changes are complete for the Unix fs symlink/chown alias batch.
-- This batch adds no runtime/header ABI symbols; it aliases existing Unix fs symlink/ownership helpers.
-- Focused source-std Unix fs `sa test` for `std_fs_unix_ext_macro_surface.sa --filter chown` passes (`1 passed`).
-- Full source-std Unix fs `sa test` for `std_fs_unix_ext_macro_surface.sa` passes (`6 passed`).
+- Source/facade/test changes are complete for the Unix socket owned-fd alias batch.
+- This batch adds no runtime/header ABI symbols; it composes existing Unix socket raw-fd helpers with `sa_std/os/fd` owned-fd helpers.
+- Focused source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa --filter domain` passes (`1 passed`).
+- Focused source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa --filter pair` passes (`1 passed`).
+- Full source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa` passes (`4 passed`).
 - `zig build unit-framework --summary all` passes.
 - Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
-- Installed-state focused Unix fs smoke for `std_fs_unix_ext_macro_surface.sa --filter chown` passes (`1 passed`).
-- Installed-state full Unix fs smoke for `std_fs_unix_ext_macro_surface.sa` passes (`6 passed`).
+- Installed-state focused Unix socket smoke for `std_net_unix_macro_surface.sa --filter domain` passes (`1 passed`).
+- Installed-state focused Unix socket smoke for `std_net_unix_macro_surface.sa --filter pair` passes (`1 passed`).
+- Installed-state full Unix socket smoke for `std_net_unix_macro_surface.sa` passes (`4 passed`).
 
 ## Notes
 
