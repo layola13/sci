@@ -42,6 +42,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::linux::process` / pidfd-adjacent process-group signaling subset: `PROCESS_SEND_PROCESS_GROUP_SIGNAL` with effective PGID tracking.
    - `std::os::linux::process` pidfd subset: create-pidfd spawn path, process `pidfd` / `into_pidfd` extraction, and pidfd kill/send_signal/wait/try_wait raw and code helpers.
    - `std::os::linux::process::PidFd` raw-fd trait aliases: `PIDFD_AS_RAW_FD`, `PIDFD_INTO_RAW_FD`, `PIDFD_FROM_RAW_FD`, and `PIDFD_CLOSE_RAW_FD` over the existing owned-fd facade.
+   - `std::os::unix::process::{ChildStdout,ChildStderr}` raw-fd trait aliases over the existing owned-fd facade.
    - `std::os::unix::process::CommandExt::{uid,gid}`: child-side `setgid` / `setuid` spawn config plus current `PROCESS_USER_ID` / `PROCESS_GROUP_ID` facade.
    - `std::os::unix::process::CommandExt::groups`: child-side `setgroups` spawn config across capture/inherit/stream modes.
    - `std::os::unix::process::CommandExt::chroot`: child-side `chroot` spawn config across capture/inherit/stream modes.
@@ -65,6 +66,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the process-group signal batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the pidfd process batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the PidFd raw-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Child stdout/stderr raw-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the CommandExt uid/gid batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the CommandExt groups batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the CommandExt chroot batch (`6/6 steps succeeded; 5/5 tests passed`).
@@ -107,6 +109,8 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Updated process macro-surface test passes with pidfd handle/wait/kill assertions:
   - `std_process_macro_surface.sa`
 - Updated process macro-surface test passes with PidFd raw-fd alias assertions:
+  - `std_process_macro_surface.sa`
+- Updated process macro-surface test passes with ChildStdout/ChildStderr raw-fd alias assertions:
   - `std_process_macro_surface.sa`
 - Updated process macro-surface test passes with CommandExt uid/gid assertions:
   - `std_process_macro_surface.sa`
@@ -152,6 +156,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the process-group signal install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the pidfd process install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the PidFd raw-fd alias install sync.
+- Installed-state smoke passes for `std_process_macro_surface.sa` after the Child stdout/stderr raw-fd alias install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the CommandExt uid/gid install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the CommandExt groups install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the CommandExt chroot install sync.

@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Child stdout/stderr raw fd alias batch
+
+- Added Unix process child pipe raw-fd trait-style macro aliases over the existing `sa_std/os/fd` owned-fd facade:
+  - `PROCESS_CHILD_STDOUT_AS_RAW_FD`
+  - `PROCESS_CHILD_STDOUT_INTO_RAW_FD`
+  - `PROCESS_CHILD_STDOUT_FROM_RAW_FD`
+  - `PROCESS_CHILD_STDERR_AS_RAW_FD`
+  - `PROCESS_CHILD_STDERR_INTO_RAW_FD`
+  - `PROCESS_CHILD_STDERR_FROM_RAW_FD`
+  - runtime continues to use the existing fd ABI, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_process_macro_surface.sa` stream-spawn coverage:
+  - `PROCESS_SPAWN_STREAM_COMMAND_EXT` stdout/stderr handles now validate `as_raw_fd`.
+  - both handles transfer ownership through `into_raw_fd`, rebind through `from_raw_fd`, then continue through the existing wait/close path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+
 ## Completed: 2026-07-06 Unix socket raw fd trait batch
 
 - Added Unix `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait-style macro surface:

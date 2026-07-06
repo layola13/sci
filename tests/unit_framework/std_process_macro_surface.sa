@@ -545,7 +545,7 @@ L_STREAM_START:
     stream01 = and stream_status_ok, stream_process_ok
     stream02 = and stream01, stream_stdout_ok
     stream_ok = and stream02, stream_stderr_ok
-    br stream_ok -> L_WAIT_STREAM, L_FAIL_STREAM_EXT
+    br stream_ok -> L_STREAM_STDOUT_RAW, L_FAIL_STREAM_EXT
 
 L_FAIL_STREAM_EXT:
     !stream_ok
@@ -560,6 +560,125 @@ L_FAIL_STREAM_EXT:
     !stream_process
     !stream_status
     panic(1021)
+
+L_STREAM_STDOUT_RAW:
+    EXPAND PROCESS_CHILD_STDOUT_AS_RAW_FD stream_stdout_raw_status, stream_stdout_raw_fd, stream_stdout
+    stream_stdout_raw_status_ok = eq stream_stdout_raw_status, SA_PROCESS_OK
+    stream_stdout_raw_fd_ok = ne stream_stdout_raw_fd, -1
+    stream_stdout_raw_ok = and stream_stdout_raw_status_ok, stream_stdout_raw_fd_ok
+    br stream_stdout_raw_ok -> L_STREAM_STDOUT_INTO_RAW, L_FAIL_STREAM_STDOUT_RAW
+
+L_FAIL_STREAM_STDOUT_RAW:
+    !stream_stdout_raw_ok
+    !stream_stdout_raw_fd_ok
+    !stream_stdout_raw_status_ok
+    !stream_stdout_raw_fd
+    !stream_stdout_raw_status
+    !stream_ok
+    !stream_stdout
+    !stream_stderr
+    !stream_process
+    panic(1024)
+
+L_STREAM_STDOUT_INTO_RAW:
+    EXPAND PROCESS_CHILD_STDOUT_INTO_RAW_FD stream_stdout_into_status, stream_stdout_raw_taken, stream_stdout
+    stream_stdout_into_ok = eq stream_stdout_into_status, SA_PROCESS_OK
+    stream_stdout_raw_match = eq stream_stdout_raw_taken, stream_stdout_raw_fd
+    stream_stdout_take_ok = and stream_stdout_into_ok, stream_stdout_raw_match
+    br stream_stdout_take_ok -> L_STREAM_STDOUT_FROM_RAW, L_FAIL_STREAM_STDOUT_INTO_RAW
+
+L_FAIL_STREAM_STDOUT_INTO_RAW:
+    !stream_stdout_take_ok
+    !stream_stdout_raw_match
+    !stream_stdout_into_ok
+    !stream_stdout_raw_taken
+    !stream_stdout_into_status
+    !stream_stdout_raw_ok
+    !stream_ok
+    !stream_stderr
+    !stream_process
+    panic(1027)
+
+L_STREAM_STDOUT_FROM_RAW:
+    EXPAND PROCESS_CHILD_STDOUT_FROM_RAW_FD stream_stdout_from_status, stream_stdout, stream_stdout_raw_taken
+    stream_stdout_from_status_ok = eq stream_stdout_from_status, SA_PROCESS_OK
+    stream_stdout_from_handle_ok = ne stream_stdout, 0
+    stream_stdout_from_ok = and stream_stdout_from_status_ok, stream_stdout_from_handle_ok
+    br stream_stdout_from_ok -> L_STREAM_STDERR_RAW, L_FAIL_STREAM_STDOUT_FROM_RAW
+
+L_FAIL_STREAM_STDOUT_FROM_RAW:
+    !stream_stdout_from_ok
+    !stream_stdout_from_handle_ok
+    !stream_stdout_from_status_ok
+    !stream_stdout
+    !stream_stdout_from_status
+    !stream_stdout_take_ok
+    !stream_stdout_raw_ok
+    !stream_ok
+    !stream_stderr
+    !stream_process
+    panic(1028)
+
+L_STREAM_STDERR_RAW:
+    EXPAND PROCESS_CHILD_STDERR_AS_RAW_FD stream_stderr_raw_status, stream_stderr_raw_fd, stream_stderr
+    stream_stderr_raw_status_ok = eq stream_stderr_raw_status, SA_PROCESS_OK
+    stream_stderr_raw_fd_ok = ne stream_stderr_raw_fd, -1
+    stream_stderr_raw_ok = and stream_stderr_raw_status_ok, stream_stderr_raw_fd_ok
+    br stream_stderr_raw_ok -> L_STREAM_STDERR_INTO_RAW, L_FAIL_STREAM_STDERR_RAW
+
+L_FAIL_STREAM_STDERR_RAW:
+    !stream_stderr_raw_ok
+    !stream_stderr_raw_fd_ok
+    !stream_stderr_raw_status_ok
+    !stream_stderr_raw_fd
+    !stream_stderr_raw_status
+    !stream_stdout_from_ok
+    !stream_ok
+    !stream_stdout
+    !stream_stderr
+    !stream_process
+    panic(1029)
+
+L_STREAM_STDERR_INTO_RAW:
+    EXPAND PROCESS_CHILD_STDERR_INTO_RAW_FD stream_stderr_into_status, stream_stderr_raw_taken, stream_stderr
+    stream_stderr_into_ok = eq stream_stderr_into_status, SA_PROCESS_OK
+    stream_stderr_raw_match = eq stream_stderr_raw_taken, stream_stderr_raw_fd
+    stream_stderr_take_ok = and stream_stderr_into_ok, stream_stderr_raw_match
+    br stream_stderr_take_ok -> L_STREAM_STDERR_FROM_RAW, L_FAIL_STREAM_STDERR_INTO_RAW
+
+L_FAIL_STREAM_STDERR_INTO_RAW:
+    !stream_stderr_take_ok
+    !stream_stderr_raw_match
+    !stream_stderr_into_ok
+    !stream_stderr_raw_taken
+    !stream_stderr_into_status
+    !stream_stderr_raw_ok
+    !stream_stdout_from_ok
+    !stream_ok
+    !stream_stdout
+    !stream_process
+    panic(1057)
+
+L_STREAM_STDERR_FROM_RAW:
+    EXPAND PROCESS_CHILD_STDERR_FROM_RAW_FD stream_stderr_from_status, stream_stderr, stream_stderr_raw_taken
+    stream_stderr_from_status_ok = eq stream_stderr_from_status, SA_PROCESS_OK
+    stream_stderr_from_handle_ok = ne stream_stderr, 0
+    stream_stderr_from_ok = and stream_stderr_from_status_ok, stream_stderr_from_handle_ok
+    br stream_stderr_from_ok -> L_WAIT_STREAM, L_FAIL_STREAM_STDERR_FROM_RAW
+
+L_FAIL_STREAM_STDERR_FROM_RAW:
+    !stream_stderr_from_ok
+    !stream_stderr_from_handle_ok
+    !stream_stderr_from_status_ok
+    !stream_stderr
+    !stream_stderr_from_status
+    !stream_stderr_take_ok
+    !stream_stderr_raw_ok
+    !stream_stdout_from_ok
+    !stream_ok
+    !stream_stdout
+    !stream_process
+    panic(1058)
 
 L_WAIT_STREAM:
     EXPAND PROCESS_WAIT stream_wait_status, stream_code, stream_process
@@ -592,6 +711,12 @@ L_FAIL_WAIT_STREAM:
     !stream_wait_status_ok
     !stream_code
     !stream_wait_status
+    !stream_stderr_from_ok
+    !stream_stderr_take_ok
+    !stream_stderr_raw_ok
+    !stream_stdout_from_ok
+    !stream_stdout_take_ok
+    !stream_stdout_raw_ok
     !stream_ok
     !stream02
     !stream01
