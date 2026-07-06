@@ -3,6 +3,7 @@
 @import "io.sai"
 @import "core/mem.sa"
 @import "string.sai"
+@import "os/fd.sa"
 
 @const IO_NEWLINE = utf8:"\n"
 
@@ -22,6 +23,36 @@
 [MACRO] WRITELN %handle, %msg, %len
     call @sa_io_write_all(%handle, &%msg, %len)
     call @sa_io_write_all(%handle, &IO_NEWLINE, 1)
+[END_MACRO]
+
+[MACRO] IO_STDIN %out_handle
+    %out_handle = call @sa_io_stdin()
+[END_MACRO]
+
+[MACRO] IO_STDOUT %out_handle
+    %out_handle = call @sa_io_stdout()
+[END_MACRO]
+
+[MACRO] IO_STDERR %out_handle
+    %out_handle = call @sa_io_stderr()
+[END_MACRO]
+
+[MACRO] IO_STDIN_AS_RAW_FD %out_status, %out_fd
+    __io_stdin_handle_%out_status = call @sa_io_stdin()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stdin_handle_%out_status
+    !__io_stdin_handle_%out_status
+[END_MACRO]
+
+[MACRO] IO_STDOUT_AS_RAW_FD %out_status, %out_fd
+    __io_stdout_handle_%out_status = call @sa_io_stdout()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stdout_handle_%out_status
+    !__io_stdout_handle_%out_status
+[END_MACRO]
+
+[MACRO] IO_STDERR_AS_RAW_FD %out_status, %out_fd
+    __io_stderr_handle_%out_status = call @sa_io_stderr()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stderr_handle_%out_status
+    !__io_stderr_handle_%out_status
 [END_MACRO]
 
 [MACRO] EPRINT %msg, %len

@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 stdio raw fd alias batch
+
+- Added borrowed stdio handle and raw-fd macro surfaces over the fixed runtime stdio handles and existing `sa_std/os/fd` raw-fd facade:
+  - `IO_STDIN`
+  - `IO_STDOUT`
+  - `IO_STDERR`
+  - `IO_STDIN_AS_RAW_FD`
+  - `IO_STDOUT_AS_RAW_FD`
+  - `IO_STDERR_AS_RAW_FD`
+- Scope note:
+  - this batch intentionally exposes borrowed `as_raw_fd`-style access only for stdio; it does not add `into_raw_fd` or ownership-transfer semantics for the process stdio handles.
+  - runtime continues to use the fixed stdio handles (`1/2/3`) and `handleToFd` mapping to OS fds (`0/1/2`), so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_io_utility_macro_surface.sa` coverage:
+  - stdio handle macros return the fixed SA stdio handles.
+  - stdio raw-fd macros return `SA_IO_OK` and fds `0`, `1`, and `2`.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --filter "stdio raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --filter "stdio raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
 ## Completed: 2026-07-06 UDP socket owned fd alias batch
 
 - Added UDP `UdpSocket` owned-fd conversion macro aliases over the UDP raw-fd facades and `sa_std/os/fd` owned-fd ABI:
