@@ -4,6 +4,32 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf Unicode push/insert char batch
+
+- Continued String Rust API parity work by correcting `String::push(char)`, `String::insert(idx, char)`, and `String::insert_str(idx, str)` behavior.
+- Behavior changes:
+  - `STRING_BUF_TRY_PUSH_CHAR` / `STRING_BUF_PUSH_CHAR` now encode any valid Unicode scalar to UTF-8 before appending.
+  - `STRING_BUF_TRY_INSERT_CHAR` / `STRING_BUF_INSERT_CHAR` now encode any valid Unicode scalar to UTF-8 before insertion.
+  - `STRING_BUF_TRY_INSERT_STR` / `STRING_BUF_INSERT_STR` now require the byte index to be a UTF-8 char boundary, matching Rust `String::insert_str`.
+  - invalid scalar values, including surrogate codepoints, are rejected without mutating the string.
+- Implementation note: the macros reuse `CHAR_TRY_ENCODE_UTF8` from `sa_std/char.sa` and route encoded char insertion through `STRING_BUF_TRY_INSERT_STR` so char-boundary behavior is shared.
+- Updated `std_string_macro_surface.sa` coverage:
+  - ASCII push/insert still works.
+  - pushing `é` succeeds.
+  - inserting `🙂` succeeds.
+  - invalid surrogate `55296` is rejected.
+  - insertion at a continuation byte inside `🙂` fails and leaves the string unchanged.
+- Validation status:
+  - Source focused `unicode char` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `unicode char` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
 ## Completed: 2026-07-06 StringBuf retain facade batch
 
 - Continued String Rust API parity work with the supportable `String::retain` subset.

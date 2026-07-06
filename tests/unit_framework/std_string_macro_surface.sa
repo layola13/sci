@@ -59,6 +59,8 @@
 @const BUF_CHAR_EXPECTED = utf8:"r!"
 @const BUF_INSERT_CHAR_EXPECTED = utf8:"r!?"
 @const BUF_INSERT_CHAR_ALIAS_EXPECTED = utf8:"r-!?"
+@const BUF_PUSH_UNICODE_EXPECTED = utf8:"r-!?é"
+@const BUF_INSERT_UNICODE_EXPECTED = utf8:"r🙂-!?é"
 @const LINES_TEXT = utf8:"alpha\nbeta\r\ngamma\n"
 @const LINES_ALPHA = utf8:"alpha"
 @const LINES_BETA = utf8:"beta"
@@ -1132,11 +1134,13 @@ L_STRING_MUT_OK:
     !ok
     return
 
-@test "sa_std string owned buffer ascii char macros"():
+@test "sa_std string owned buffer unicode char macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS expected_push, &BUF_CHAR_EXPECTED, 2
     EXPAND STR_FROM_PARTS expected_insert, &BUF_INSERT_CHAR_EXPECTED, 3
     EXPAND STR_FROM_PARTS expected_alias, &BUF_INSERT_CHAR_ALIAS_EXPECTED, 4
+    EXPAND STR_FROM_PARTS expected_push_unicode, &BUF_PUSH_UNICODE_EXPECTED, 6
+    EXPAND STR_FROM_PARTS expected_insert_unicode, &BUF_INSERT_UNICODE_EXPECTED, 10
 
     EXPAND STRING_BUF_NEW string_buf
     EXPAND STRING_BUF_TRY_PUSH_CHAR push_char_ok, string_buf, 114
@@ -1149,8 +1153,16 @@ L_ENTRY:
     EXPAND STRING_BUF_INSERT_CHAR insert_char_alias_ok, string_buf, 1, 45
     EXPAND STRING_BUF_AS_STR after_alias, string_buf
     EXPAND STR_EQ after_alias_eq, after_alias, expected_alias
-    EXPAND STRING_BUF_TRY_PUSH_CHAR push_non_ascii_ok, string_buf, 233
-    EXPAND STRING_BUF_TRY_INSERT_CHAR insert_non_ascii_ok, string_buf, 1, 233
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_unicode_ok, string_buf, 233
+    EXPAND STRING_BUF_AS_STR after_push_unicode, string_buf
+    EXPAND STR_EQ after_push_unicode_eq, after_push_unicode, expected_push_unicode
+    EXPAND STRING_BUF_TRY_INSERT_CHAR insert_unicode_ok, string_buf, 1, 128578
+    EXPAND STRING_BUF_AS_STR after_insert_unicode, string_buf
+    EXPAND STR_EQ after_insert_unicode_eq, after_insert_unicode, expected_insert_unicode
+    EXPAND STRING_BUF_TRY_PUSH_CHAR push_invalid_ok, string_buf, 55296
+    EXPAND STRING_BUF_TRY_INSERT_CHAR insert_boundary_miss_ok, string_buf, 2, 233
+    EXPAND STRING_BUF_AS_STR after_miss, string_buf
+    EXPAND STR_EQ after_miss_eq, after_miss, expected_insert_unicode
     EXPAND STRING_BUF_LEN final_len, string_buf
 
     push_flag_ok = eq push_char_ok, 1
@@ -1160,21 +1172,33 @@ L_ENTRY:
     insert_value_ok = eq after_insert_eq, 1
     alias_flag_ok = eq insert_char_alias_ok, 1
     alias_value_ok = eq after_alias_eq, 1
-    push_non_ascii_flag_ok = eq push_non_ascii_ok, 0
-    insert_non_ascii_flag_ok = eq insert_non_ascii_ok, 0
-    final_len_ok = eq final_len, 4
+    push_unicode_flag_ok = eq push_unicode_ok, 1
+    push_unicode_value_ok = eq after_push_unicode_eq, 1
+    insert_unicode_flag_ok = eq insert_unicode_ok, 1
+    insert_unicode_value_ok = eq after_insert_unicode_eq, 1
+    push_invalid_flag_ok = eq push_invalid_ok, 0
+    insert_boundary_miss_flag_ok = eq insert_boundary_miss_ok, 0
+    after_miss_value_ok = eq after_miss_eq, 1
+    final_len_ok = eq final_len, 10
     ok00 = and push_flag_ok, push_flag2_ok
     ok01 = and ok00, push_value_ok
     ok02 = and ok01, insert_flag_ok
     ok03 = and ok02, insert_value_ok
     ok04 = and ok03, alias_flag_ok
     ok05 = and ok04, alias_value_ok
-    ok06 = and ok05, push_non_ascii_flag_ok
-    ok07 = and ok06, insert_non_ascii_flag_ok
-    ok = and ok07, final_len_ok
+    ok06 = and ok05, push_unicode_flag_ok
+    ok07 = and ok06, push_unicode_value_ok
+    ok08 = and ok07, insert_unicode_flag_ok
+    ok09 = and ok08, insert_unicode_value_ok
+    ok10 = and ok09, push_invalid_flag_ok
+    ok11 = and ok10, insert_boundary_miss_flag_ok
+    ok12 = and ok11, after_miss_value_ok
+    ok = and ok12, final_len_ok
     !expected_push
     !expected_insert
     !expected_alias
+    !expected_push_unicode
+    !expected_insert_unicode
     !push_char_ok
     !push_char_ok2
     !after_push
@@ -1185,8 +1209,16 @@ L_ENTRY:
     !insert_char_alias_ok
     !after_alias
     !after_alias_eq
-    !push_non_ascii_ok
-    !insert_non_ascii_ok
+    !push_unicode_ok
+    !after_push_unicode
+    !after_push_unicode_eq
+    !insert_unicode_ok
+    !after_insert_unicode
+    !after_insert_unicode_eq
+    !push_invalid_ok
+    !insert_boundary_miss_ok
+    !after_miss
+    !after_miss_eq
     !final_len
     !push_flag_ok
     !push_flag2_ok
@@ -1195,8 +1227,13 @@ L_ENTRY:
     !insert_value_ok
     !alias_flag_ok
     !alias_value_ok
-    !push_non_ascii_flag_ok
-    !insert_non_ascii_flag_ok
+    !push_unicode_flag_ok
+    !push_unicode_value_ok
+    !insert_unicode_flag_ok
+    !insert_unicode_value_ok
+    !push_invalid_flag_ok
+    !insert_boundary_miss_flag_ok
+    !after_miss_value_ok
     !final_len_ok
     !ok00
     !ok01
@@ -1206,6 +1243,11 @@ L_ENTRY:
     !ok05
     !ok06
     !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
     EXPAND STRING_BUF_FREE string_buf
     br ok -> L_STRING_BUF_CHAR_OK, L_STRING_BUF_CHAR_FAIL
 
