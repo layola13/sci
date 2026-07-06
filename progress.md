@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf from_utf16 facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf16` subset.
+- Added strict UTF-16 constructor macro surface:
+  - `STRING_BUF_TRY_FROM_UTF16_U16`
+- Semantics: decodes a U16 slice into a UTF-8 `StringBuf`, accepts BMP scalars and valid high/low surrogate pairs, and returns `ok=0` with an empty output for isolated high or low surrogate units.
+- Scope note: this is the SA U16-slice constructor shape; it does not claim Rust's `FromUtf16Error` object model or lossy conversion variants.
+- Updated `std_string_macro_surface.sa` coverage:
+  - U16 units for `aé🙂z` decode to the existing UTF-8 string.
+  - isolated trailing high surrogate fails with an empty output.
+  - isolated low surrogate fails with an empty output.
+- Validation status:
+  - Source focused `from_utf16` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`23 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf16` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`23 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf into_chars facade batch
 
 - Continued String Rust API parity work with the supportable `String::into_chars` subset.

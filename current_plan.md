@@ -61,6 +61,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `Vec` Rust API parity continuation: completed supportable `Vec::spare_capacity_mut` / `Vec::split_at_spare_mut` shape, and corrected `VEC_SET_LEN` to directly set length for Rust `set_len` parity.
    - `StringBuf` Rust API parity continuation: completed supportable `String::from_utf8` byte-slice constructor shape with full UTF-8 validation.
    - `StringBuf` Rust API parity continuation: completed supportable `String::into_chars` eager codepoint Vec shape, consuming the source StringBuf.
+   - `StringBuf` Rust API parity continuation: completed supportable strict `String::from_utf16` U16-slice constructor shape with surrogate-pair decoding.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -146,6 +147,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the Vec spare capacity facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf from_utf8 facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf into_chars facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the StringBuf from_utf16 facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

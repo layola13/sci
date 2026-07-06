@@ -202,6 +202,196 @@ L_STRING_BUF_FROM_UTF8_MISS_%out_ok:
 L_STRING_BUF_FROM_UTF8_DONE_%out_ok:
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_FROM_UTF16_U16 %out_ok, %out_string, %u16_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    __string_buf_utf16_len_%out_ok = load %u16_slice+Slice_len as u64
+    __string_buf_utf16_idx_slot_%out_ok = stack_alloc 8
+    store __string_buf_utf16_idx_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_BUF_UTF16_HEAD_%out_ok
+
+L_STRING_BUF_UTF16_HEAD_%out_ok:
+    __string_buf_utf16_idx_%out_ok = load __string_buf_utf16_idx_slot_%out_ok+0 as u64
+    __string_buf_utf16_done_%out_ok = eq __string_buf_utf16_idx_%out_ok, __string_buf_utf16_len_%out_ok
+    br __string_buf_utf16_done_%out_ok -> L_STRING_BUF_UTF16_OK_%out_ok, L_STRING_BUF_UTF16_BODY_%out_ok
+
+L_STRING_BUF_UTF16_BODY_%out_ok:
+    EXPAND SLICE_GET_TYPED_U16 __string_buf_utf16_unit_%out_ok, %u16_slice, __string_buf_utf16_idx_%out_ok, 2
+    __string_buf_utf16_high_ge_%out_ok = uge __string_buf_utf16_unit_%out_ok, 55296
+    __string_buf_utf16_high_le_%out_ok = ule __string_buf_utf16_unit_%out_ok, 56319
+    __string_buf_utf16_is_high_%out_ok = and __string_buf_utf16_high_ge_%out_ok, __string_buf_utf16_high_le_%out_ok
+    __string_buf_utf16_low_ge_%out_ok = uge __string_buf_utf16_unit_%out_ok, 56320
+    __string_buf_utf16_low_le_%out_ok = ule __string_buf_utf16_unit_%out_ok, 57343
+    __string_buf_utf16_is_low_%out_ok = and __string_buf_utf16_low_ge_%out_ok, __string_buf_utf16_low_le_%out_ok
+    br __string_buf_utf16_is_high_%out_ok -> L_STRING_BUF_UTF16_HIGH_%out_ok, L_STRING_BUF_UTF16_CHECK_LOW_%out_ok
+
+L_STRING_BUF_UTF16_CHECK_LOW_%out_ok:
+    br __string_buf_utf16_is_low_%out_ok -> L_STRING_BUF_UTF16_FAIL_UNIT_%out_ok, L_STRING_BUF_UTF16_PUSH_BMP_%out_ok
+
+L_STRING_BUF_UTF16_PUSH_BMP_%out_ok:
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf16_push_ok_%out_ok, %out_string, __string_buf_utf16_unit_%out_ok
+    br __string_buf_utf16_push_ok_%out_ok -> L_STRING_BUF_UTF16_NEXT_ONE_%out_ok, L_STRING_BUF_UTF16_FAIL_PUSH_%out_ok
+
+L_STRING_BUF_UTF16_NEXT_ONE_%out_ok:
+    __string_buf_utf16_next_%out_ok = add __string_buf_utf16_idx_%out_ok, 1
+    store __string_buf_utf16_idx_slot_%out_ok+0, __string_buf_utf16_next_%out_ok as u64
+    !__string_buf_utf16_next_%out_ok
+    !__string_buf_utf16_push_ok_%out_ok
+    !__string_buf_utf16_is_low_%out_ok
+    !__string_buf_utf16_low_le_%out_ok
+    !__string_buf_utf16_low_ge_%out_ok
+    !__string_buf_utf16_is_high_%out_ok
+    !__string_buf_utf16_high_le_%out_ok
+    !__string_buf_utf16_high_ge_%out_ok
+    !__string_buf_utf16_unit_%out_ok
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_HEAD_%out_ok
+
+L_STRING_BUF_UTF16_HIGH_%out_ok:
+    __string_buf_utf16_low_idx_%out_ok = add __string_buf_utf16_idx_%out_ok, 1
+    __string_buf_utf16_has_low_%out_ok = ult __string_buf_utf16_low_idx_%out_ok, __string_buf_utf16_len_%out_ok
+    br __string_buf_utf16_has_low_%out_ok -> L_STRING_BUF_UTF16_READ_LOW_%out_ok, L_STRING_BUF_UTF16_FAIL_HIGH_END_%out_ok
+
+L_STRING_BUF_UTF16_READ_LOW_%out_ok:
+    EXPAND SLICE_GET_TYPED_U16 __string_buf_utf16_low_unit_%out_ok, %u16_slice, __string_buf_utf16_low_idx_%out_ok, 2
+    __string_buf_utf16_pair_low_ge_%out_ok = uge __string_buf_utf16_low_unit_%out_ok, 56320
+    __string_buf_utf16_pair_low_le_%out_ok = ule __string_buf_utf16_low_unit_%out_ok, 57343
+    __string_buf_utf16_pair_low_ok_%out_ok = and __string_buf_utf16_pair_low_ge_%out_ok, __string_buf_utf16_pair_low_le_%out_ok
+    br __string_buf_utf16_pair_low_ok_%out_ok -> L_STRING_BUF_UTF16_PUSH_PAIR_%out_ok, L_STRING_BUF_UTF16_FAIL_PAIR_%out_ok
+
+L_STRING_BUF_UTF16_PUSH_PAIR_%out_ok:
+    __string_buf_utf16_high_ten_%out_ok = sub __string_buf_utf16_unit_%out_ok, 55296
+    __string_buf_utf16_high_bits_%out_ok = shl __string_buf_utf16_high_ten_%out_ok, 10
+    __string_buf_utf16_low_ten_%out_ok = sub __string_buf_utf16_low_unit_%out_ok, 56320
+    __string_buf_utf16_pair_bits_%out_ok = add __string_buf_utf16_high_bits_%out_ok, __string_buf_utf16_low_ten_%out_ok
+    __string_buf_utf16_codepoint_%out_ok = add __string_buf_utf16_pair_bits_%out_ok, 65536
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf16_pair_push_ok_%out_ok, %out_string, __string_buf_utf16_codepoint_%out_ok
+    br __string_buf_utf16_pair_push_ok_%out_ok -> L_STRING_BUF_UTF16_NEXT_TWO_%out_ok, L_STRING_BUF_UTF16_FAIL_PAIR_PUSH_%out_ok
+
+L_STRING_BUF_UTF16_NEXT_TWO_%out_ok:
+    __string_buf_utf16_after_pair_%out_ok = add __string_buf_utf16_idx_%out_ok, 2
+    store __string_buf_utf16_idx_slot_%out_ok+0, __string_buf_utf16_after_pair_%out_ok as u64
+    !__string_buf_utf16_after_pair_%out_ok
+    !__string_buf_utf16_pair_push_ok_%out_ok
+    !__string_buf_utf16_codepoint_%out_ok
+    !__string_buf_utf16_pair_bits_%out_ok
+    !__string_buf_utf16_low_ten_%out_ok
+    !__string_buf_utf16_high_bits_%out_ok
+    !__string_buf_utf16_high_ten_%out_ok
+    !__string_buf_utf16_pair_low_ok_%out_ok
+    !__string_buf_utf16_pair_low_le_%out_ok
+    !__string_buf_utf16_pair_low_ge_%out_ok
+    !__string_buf_utf16_low_unit_%out_ok
+    !__string_buf_utf16_has_low_%out_ok
+    !__string_buf_utf16_low_idx_%out_ok
+    !__string_buf_utf16_is_low_%out_ok
+    !__string_buf_utf16_low_le_%out_ok
+    !__string_buf_utf16_low_ge_%out_ok
+    !__string_buf_utf16_is_high_%out_ok
+    !__string_buf_utf16_high_le_%out_ok
+    !__string_buf_utf16_high_ge_%out_ok
+    !__string_buf_utf16_unit_%out_ok
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_HEAD_%out_ok
+
+L_STRING_BUF_UTF16_OK_%out_ok:
+    %out_ok = add 0, 1
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    !__string_buf_utf16_len_%out_ok
+    jmp L_STRING_BUF_UTF16_DONE_%out_ok
+
+L_STRING_BUF_UTF16_FAIL_UNIT_%out_ok:
+    !__string_buf_utf16_is_low_%out_ok
+    !__string_buf_utf16_low_le_%out_ok
+    !__string_buf_utf16_low_ge_%out_ok
+    !__string_buf_utf16_is_high_%out_ok
+    !__string_buf_utf16_high_le_%out_ok
+    !__string_buf_utf16_high_ge_%out_ok
+    !__string_buf_utf16_unit_%out_ok
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_FAIL_%out_ok
+
+L_STRING_BUF_UTF16_FAIL_PUSH_%out_ok:
+    !__string_buf_utf16_push_ok_%out_ok
+    !__string_buf_utf16_is_low_%out_ok
+    !__string_buf_utf16_low_le_%out_ok
+    !__string_buf_utf16_low_ge_%out_ok
+    !__string_buf_utf16_is_high_%out_ok
+    !__string_buf_utf16_high_le_%out_ok
+    !__string_buf_utf16_high_ge_%out_ok
+    !__string_buf_utf16_unit_%out_ok
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_FAIL_%out_ok
+
+L_STRING_BUF_UTF16_FAIL_HIGH_END_%out_ok:
+    !__string_buf_utf16_has_low_%out_ok
+    !__string_buf_utf16_low_idx_%out_ok
+    !__string_buf_utf16_is_low_%out_ok
+    !__string_buf_utf16_low_le_%out_ok
+    !__string_buf_utf16_low_ge_%out_ok
+    !__string_buf_utf16_is_high_%out_ok
+    !__string_buf_utf16_high_le_%out_ok
+    !__string_buf_utf16_high_ge_%out_ok
+    !__string_buf_utf16_unit_%out_ok
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_FAIL_%out_ok
+
+L_STRING_BUF_UTF16_FAIL_PAIR_%out_ok:
+    !__string_buf_utf16_pair_low_ok_%out_ok
+    !__string_buf_utf16_pair_low_le_%out_ok
+    !__string_buf_utf16_pair_low_ge_%out_ok
+    !__string_buf_utf16_low_unit_%out_ok
+    !__string_buf_utf16_has_low_%out_ok
+    !__string_buf_utf16_low_idx_%out_ok
+    !__string_buf_utf16_is_low_%out_ok
+    !__string_buf_utf16_low_le_%out_ok
+    !__string_buf_utf16_low_ge_%out_ok
+    !__string_buf_utf16_is_high_%out_ok
+    !__string_buf_utf16_high_le_%out_ok
+    !__string_buf_utf16_high_ge_%out_ok
+    !__string_buf_utf16_unit_%out_ok
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_FAIL_%out_ok
+
+L_STRING_BUF_UTF16_FAIL_PAIR_PUSH_%out_ok:
+    !__string_buf_utf16_pair_push_ok_%out_ok
+    !__string_buf_utf16_codepoint_%out_ok
+    !__string_buf_utf16_pair_bits_%out_ok
+    !__string_buf_utf16_low_ten_%out_ok
+    !__string_buf_utf16_high_bits_%out_ok
+    !__string_buf_utf16_high_ten_%out_ok
+    !__string_buf_utf16_pair_low_ok_%out_ok
+    !__string_buf_utf16_pair_low_le_%out_ok
+    !__string_buf_utf16_pair_low_ge_%out_ok
+    !__string_buf_utf16_low_unit_%out_ok
+    !__string_buf_utf16_has_low_%out_ok
+    !__string_buf_utf16_low_idx_%out_ok
+    !__string_buf_utf16_is_low_%out_ok
+    !__string_buf_utf16_low_le_%out_ok
+    !__string_buf_utf16_low_ge_%out_ok
+    !__string_buf_utf16_is_high_%out_ok
+    !__string_buf_utf16_high_le_%out_ok
+    !__string_buf_utf16_high_ge_%out_ok
+    !__string_buf_utf16_unit_%out_ok
+    !__string_buf_utf16_done_%out_ok
+    !__string_buf_utf16_idx_%out_ok
+    jmp L_STRING_BUF_UTF16_FAIL_%out_ok
+
+L_STRING_BUF_UTF16_FAIL_%out_ok:
+    EXPAND STRING_BUF_FREE %out_string
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    %out_ok = add 0, 0
+    !__string_buf_utf16_len_%out_ok
+
+L_STRING_BUF_UTF16_DONE_%out_ok:
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF8_ASCII %out_ok, %out_string, %bytes_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_ascii_ptr_%out_ok = load %bytes_slice+Slice_ptr as ptr

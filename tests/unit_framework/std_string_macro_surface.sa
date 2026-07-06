@@ -3006,3 +3006,72 @@ L_STRING_BUF_INTO_CHARS_FAIL:
 L_STRING_BUF_INTO_CHARS_OK:
     !ok
     return
+
+@test "sa_std string buffer from_utf16 macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS expected, &UTF8_BOUNDARY_TEXT, 8
+    valid_ptr = stack_alloc 10
+    store valid_ptr+0, 97 as u16
+    store valid_ptr+2, 233 as u16
+    store valid_ptr+4, 55357 as u16
+    store valid_ptr+6, 56898 as u16
+    store valid_ptr+8, 122 as u16
+    EXPAND STR_FROM_PARTS valid_units, valid_ptr, 5
+    high_bad_ptr = stack_alloc 4
+    store high_bad_ptr+0, 97 as u16
+    store high_bad_ptr+2, 55357 as u16
+    EXPAND STR_FROM_PARTS high_bad_units, high_bad_ptr, 2
+    low_bad_ptr = stack_alloc 2
+    store low_bad_ptr+0, 56898 as u16
+    EXPAND STR_FROM_PARTS low_bad_units, low_bad_ptr, 1
+    EXPAND STRING_BUF_TRY_FROM_UTF16_U16 valid_ok, valid_buf, valid_units
+    EXPAND STRING_BUF_AS_STR valid_view, valid_buf
+    EXPAND STR_EQ valid_eq, valid_view, expected
+    EXPAND STRING_BUF_TRY_FROM_UTF16_U16 high_bad_ok, high_bad_buf, high_bad_units
+    EXPAND STRING_BUF_LEN high_bad_len, high_bad_buf
+    EXPAND STRING_BUF_TRY_FROM_UTF16_U16 low_bad_ok, low_bad_buf, low_bad_units
+    EXPAND STRING_BUF_LEN low_bad_len, low_bad_buf
+    valid_flag_ok = eq valid_ok, 1
+    valid_value_ok = eq valid_eq, 1
+    high_bad_flag_ok = eq high_bad_ok, 0
+    high_bad_empty_ok = eq high_bad_len, 0
+    low_bad_flag_ok = eq low_bad_ok, 0
+    low_bad_empty_ok = eq low_bad_len, 0
+    ok01 = and valid_flag_ok, valid_value_ok
+    ok02 = and ok01, high_bad_flag_ok
+    ok03 = and ok02, high_bad_empty_ok
+    ok04 = and ok03, low_bad_flag_ok
+    ok = and ok04, low_bad_empty_ok
+    !expected
+    !valid_units
+    !high_bad_units
+    !low_bad_units
+    !valid_ok
+    !valid_view
+    !valid_eq
+    !high_bad_ok
+    !high_bad_len
+    !low_bad_ok
+    !low_bad_len
+    !valid_flag_ok
+    !valid_value_ok
+    !high_bad_flag_ok
+    !high_bad_empty_ok
+    !low_bad_flag_ok
+    !low_bad_empty_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    EXPAND STRING_BUF_FREE low_bad_buf
+    EXPAND STRING_BUF_FREE high_bad_buf
+    EXPAND STRING_BUF_FREE valid_buf
+    br ok -> L_STRING_BUF_FROM_UTF16_OK, L_STRING_BUF_FROM_UTF16_FAIL
+
+L_STRING_BUF_FROM_UTF16_FAIL:
+    !ok
+    panic(925)
+
+L_STRING_BUF_FROM_UTF16_OK:
+    !ok
+    return
