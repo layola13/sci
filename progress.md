@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec clone and from-slice/from-str facade batch
+
+- Continued highest-priority String/Vec Rust API parity work with supportable clone/conversion surfaces.
+- Added Vec macro surfaces:
+  - `VEC_FROM_SLICE` / `VEC_FROM_SLICE_U64`
+  - `VEC_CLONE` / `VEC_CLONE_U64`
+  - `VEC_CLONE_FROM` / `VEC_CLONE_FROM_U64`
+- Added StringBuf macro surfaces:
+  - `STRING_BUF_FROM_STR`
+  - `STRING_BUF_CLONE`
+  - `STRING_BUF_CLONE_FROM`
+- Semantics: Vec copies slice bytes for the supplied element size, with U64 convenience wrappers. StringBuf copies UTF-8 bytes from an existing str view. Clone and clone_from allocate/copy into independent backing storage rather than aliasing the source.
+- Scope note: this covers Rust `Clone` / `clone_from` and `From<&[T]>` / `From<&str>` style shapes that SA can express today; it does not claim allocator-parametric, Cow, Box, const-generic array, or lazy iterator object-model APIs.
+- Validation status:
+  - Source focused clone tests: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`19 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`29 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused clone tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`19 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`29 passed`).
+
 ## Completed: 2026-07-06 Unix XDG env facade batch
 
 - Added supportable `std::os::unix::xdg`-style environment directory facades.

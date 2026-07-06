@@ -631,6 +631,38 @@ L_VEC_FROM_FN_DONE_%out_vec:
     EXPAND VEC_FROM_FN %out_vec, %length, %gen_fn, 8
 [END_MACRO]
 
+[MACRO] VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
+    __vec_from_slice_len_%out_vec = load %slice_reg+Slice_len as u64
+    EXPAND VEC_WITH_CAPACITY %out_vec, __vec_from_slice_len_%out_vec, %elem_size
+    EXPAND VEC_EXTEND_FROM_SLICE %out_vec, %slice_reg, %elem_size
+    !__vec_from_slice_len_%out_vec
+[END_MACRO]
+
+[MACRO] VEC_FROM_SLICE_U64 %out_vec, %slice_reg
+    EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_CLONE %out_vec, %vec_reg, %elem_size
+    EXPAND VEC_AS_SLICE __vec_clone_slice_%out_vec, %vec_reg
+    EXPAND VEC_FROM_SLICE %out_vec, __vec_clone_slice_%out_vec, %elem_size
+    !__vec_clone_slice_%out_vec
+[END_MACRO]
+
+[MACRO] VEC_CLONE_U64 %out_vec, %vec_reg
+    EXPAND VEC_CLONE %out_vec, %vec_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_CLONE_FROM %dst_vec_reg, %src_vec_reg, %elem_size
+    EXPAND VEC_AS_SLICE __vec_clone_from_slice_%dst_vec_reg, %src_vec_reg
+    EXPAND VEC_CLEAR %dst_vec_reg
+    EXPAND VEC_EXTEND_FROM_SLICE %dst_vec_reg, __vec_clone_from_slice_%dst_vec_reg, %elem_size
+    !__vec_clone_from_slice_%dst_vec_reg
+[END_MACRO]
+
+[MACRO] VEC_CLONE_FROM_U64 %dst_vec_reg, %src_vec_reg
+    EXPAND VEC_CLONE_FROM %dst_vec_reg, %src_vec_reg, 8
+[END_MACRO]
+
 [MACRO] VEC_FROM_ELEM %out_vec, %value, %length, %elem_size
     EXPAND VEC_WITH_CAPACITY %out_vec, %length, %elem_size
     __vec_from_elem_idx_slot_%out_vec = stack_alloc 8

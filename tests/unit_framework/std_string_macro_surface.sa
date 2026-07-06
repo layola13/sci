@@ -3524,3 +3524,77 @@ L_STRING_BUF_FROM_UTF8_VEC_FAIL:
 L_STRING_BUF_FROM_UTF8_VEC_OK:
     !ok
     return
+
+@test "sa_std string buffer clone and from-str macros"():
+L_STRING_BUF_CLONE_ENTRY:
+    source_slice = alloc Slice_SIZE
+    suffix_slice = alloc Slice_SIZE
+    expected_title = alloc Slice_SIZE
+    EXPAND SLICE_NEW source_slice, &WORD, 4
+    EXPAND SLICE_NEW suffix_slice, &SUFFIX, 2
+    EXPAND SLICE_NEW expected_title, &TITLE_WORD, 4
+    EXPAND STRING_BUF_FROM_STR source, source_slice
+    EXPAND STRING_BUF_CLONE cloned, source
+    EXPAND STRING_BUF_WITH_CAPACITY clone_from_dst, 2
+    EXPAND STRING_BUF_PUSH_STR clone_from_dst, suffix_slice
+    EXPAND STRING_BUF_CLONE_FROM clone_from_dst, source
+
+    EXPAND STRING_BUF_AS_PTR source_ptr, source
+    EXPAND STRING_BUF_AS_PTR cloned_ptr, cloned
+    EXPAND STRING_BUF_AS_PTR clone_from_ptr, clone_from_dst
+    source_clone_distinct = ne source_ptr, cloned_ptr
+    source_clone_from_distinct = ne source_ptr, clone_from_ptr
+
+    EXPAND STRING_BUF_AS_MUT_STR source_mut, source
+    EXPAND SLICE_GET_PTR source_mut_ptr, source_mut
+    store source_mut_ptr+0, 82 as u8
+
+    EXPAND STRING_BUF_AS_STR source_view, source
+    EXPAND STRING_BUF_AS_STR cloned_view, cloned
+    EXPAND STRING_BUF_AS_STR clone_from_view, clone_from_dst
+    EXPAND STR_EQ source_eq, source_view, expected_title
+    EXPAND STR_EQ cloned_eq, cloned_view, source_slice
+    EXPAND STR_EQ clone_from_eq, clone_from_view, source_slice
+    EXPAND STRING_BUF_LEN clone_from_len, clone_from_dst
+
+    distinct_ok = and source_clone_distinct, source_clone_from_distinct
+    clone_from_len_ok = eq clone_from_len, 4
+    ok01 = and distinct_ok, source_eq
+    ok02 = and ok01, cloned_eq
+    ok03 = and ok02, clone_from_eq
+    ok = and ok03, clone_from_len_ok
+
+    !source_ptr
+    !cloned_ptr
+    !clone_from_ptr
+    !source_clone_distinct
+    !source_clone_from_distinct
+    !source_mut_ptr
+    !source_eq
+    !cloned_eq
+    !clone_from_eq
+    !clone_from_len
+    !distinct_ok
+    !clone_from_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !source_slice
+    !suffix_slice
+    !expected_title
+    !source_mut
+    !source_view
+    !cloned_view
+    !clone_from_view
+    EXPAND STRING_BUF_FREE clone_from_dst
+    EXPAND STRING_BUF_FREE cloned
+    EXPAND STRING_BUF_FREE source
+    br ok -> L_STRING_BUF_CLONE_OK, L_STRING_BUF_CLONE_FAIL
+
+L_STRING_BUF_CLONE_FAIL:
+    !ok
+    panic(930)
+
+L_STRING_BUF_CLONE_OK:
+    !ok
+    return

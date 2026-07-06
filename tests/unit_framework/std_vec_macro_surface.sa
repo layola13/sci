@@ -2275,3 +2275,128 @@ L_VEC_SPARE_FAIL:
 L_VEC_SPARE_OK:
     !ok
     return
+
+@test "sa_std vec clone and from-slice macros"():
+L_VEC_CLONE_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 source, 3
+    EXPAND VEC_PUSH_U64 source, 11
+    EXPAND VEC_PUSH_U64 source, 22
+    EXPAND VEC_PUSH_U64 source, 33
+    EXPAND VEC_CLONE_U64 cloned, source
+    EXPAND VEC_WITH_CAPACITY_U64 clone_from_dst, 1
+    EXPAND VEC_PUSH_U64 clone_from_dst, 99
+    EXPAND VEC_CLONE_FROM_U64 clone_from_dst, source
+
+    slice_data = alloc 16
+    store slice_data+0, 44 as u64
+    store slice_data+8, 55 as u64
+    from_slice_view = alloc Slice_SIZE
+    EXPAND SLICE_NEW from_slice_view, slice_data, 2
+    EXPAND VEC_FROM_SLICE_U64 from_slice_vec, from_slice_view
+
+    EXPAND VEC_GET_MUT_PTR_U64 source_first_ptr, source, 0
+    store source_first_ptr+0, 77 as u64
+    EXPAND VEC_TRY_GET_U64 source_first_ok, source_first, source, 0
+    EXPAND VEC_TRY_GET_U64 cloned_first_ok, cloned_first, cloned, 0
+    EXPAND VEC_TRY_GET_U64 cloned_second_ok, cloned_second, cloned, 1
+    EXPAND VEC_TRY_GET_U64 clone_from_first_ok, clone_from_first, clone_from_dst, 0
+    EXPAND VEC_TRY_GET_U64 clone_from_third_ok, clone_from_third, clone_from_dst, 2
+    EXPAND VEC_LEN clone_from_len, clone_from_dst
+    EXPAND VEC_LEN from_slice_len, from_slice_vec
+    EXPAND VEC_TRY_GET_U64 from_slice_first_ok, from_slice_first, from_slice_vec, 0
+    EXPAND VEC_TRY_GET_U64 from_slice_second_ok, from_slice_second, from_slice_vec, 1
+
+    source_first_flag_ok = eq source_first_ok, 1
+    source_first_value_ok = eq source_first, 77
+    cloned_first_flag_ok = eq cloned_first_ok, 1
+    cloned_first_value_ok = eq cloned_first, 11
+    cloned_second_flag_ok = eq cloned_second_ok, 1
+    cloned_second_value_ok = eq cloned_second, 22
+    clone_from_first_flag_ok = eq clone_from_first_ok, 1
+    clone_from_first_value_ok = eq clone_from_first, 11
+    clone_from_third_flag_ok = eq clone_from_third_ok, 1
+    clone_from_third_value_ok = eq clone_from_third, 33
+    clone_from_len_ok = eq clone_from_len, 3
+    from_slice_len_ok = eq from_slice_len, 2
+    from_slice_first_flag_ok = eq from_slice_first_ok, 1
+    from_slice_first_value_ok = eq from_slice_first, 44
+    from_slice_second_flag_ok = eq from_slice_second_ok, 1
+    from_slice_second_value_ok = eq from_slice_second, 55
+    ok01 = and source_first_flag_ok, source_first_value_ok
+    ok02 = and ok01, cloned_first_flag_ok
+    ok03 = and ok02, cloned_first_value_ok
+    ok04 = and ok03, cloned_second_flag_ok
+    ok05 = and ok04, cloned_second_value_ok
+    ok06 = and ok05, clone_from_first_flag_ok
+    ok07 = and ok06, clone_from_first_value_ok
+    ok08 = and ok07, clone_from_third_flag_ok
+    ok09 = and ok08, clone_from_third_value_ok
+    ok10 = and ok09, clone_from_len_ok
+    ok11 = and ok10, from_slice_len_ok
+    ok12 = and ok11, from_slice_first_flag_ok
+    ok13 = and ok12, from_slice_first_value_ok
+    ok14 = and ok13, from_slice_second_flag_ok
+    ok = and ok14, from_slice_second_value_ok
+
+    !source_first_ptr
+    !source_first_ok
+    !source_first
+    !cloned_first_ok
+    !cloned_first
+    !cloned_second_ok
+    !cloned_second
+    !clone_from_first_ok
+    !clone_from_first
+    !clone_from_third_ok
+    !clone_from_third
+    !clone_from_len
+    !from_slice_len
+    !from_slice_first_ok
+    !from_slice_first
+    !from_slice_second_ok
+    !from_slice_second
+    !source_first_flag_ok
+    !source_first_value_ok
+    !cloned_first_flag_ok
+    !cloned_first_value_ok
+    !cloned_second_flag_ok
+    !cloned_second_value_ok
+    !clone_from_first_flag_ok
+    !clone_from_first_value_ok
+    !clone_from_third_flag_ok
+    !clone_from_third_value_ok
+    !clone_from_len_ok
+    !from_slice_len_ok
+    !from_slice_first_flag_ok
+    !from_slice_first_value_ok
+    !from_slice_second_flag_ok
+    !from_slice_second_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !from_slice_view
+    !slice_data
+    EXPAND VEC_FREE from_slice_vec
+    EXPAND VEC_FREE clone_from_dst
+    EXPAND VEC_FREE cloned
+    EXPAND VEC_FREE source
+    br ok -> L_VEC_CLONE_OK, L_VEC_CLONE_FAIL
+
+L_VEC_CLONE_FAIL:
+    !ok
+    panic(925)
+
+L_VEC_CLONE_OK:
+    !ok
+    return

@@ -161,6 +161,8 @@
 - [x] String from_utf8_lossy 语义修正批次已完成 runtime 导出检查、focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8_unchecked(Vec<u8>)` owned-Vec 零拷贝入口和 `String::as_mut_str` 可变 str 视图命名表面。
 - [x] String unchecked owned-Vec + as_mut_str 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String::from(&str)` / `Clone` / `clone_from` 可支撑形态，以及 `Vec::from(&[T])` / `Clone` / `clone_from` 可支撑形态（含 U64 便捷宏）。
+- [x] String/Vec clone + from-slice/from-str 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::xdg` 可支撑环境目录表面：补 `data_home_dir` / `config_home_dir` / `state_home_dir` / `cache_home_dir` / `data_dirs` / `config_dirs` 风格宏表面，按 Rust/XDG 规则处理空 env 与默认值。
 - [x] Unix XDG env facade 批次已完成 focused/full env 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
