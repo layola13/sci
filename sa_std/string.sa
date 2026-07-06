@@ -1126,6 +1126,15 @@ L_STRING_BUF_PUSH_CHAR_END_%out_ok:
     !__string_buf_push_char_ok_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_WRITE_STR %out_ok, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_PUSH_STR %string_reg, %suffix_slice
+    %out_ok = add 0, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_WRITE_CHAR %out_ok, %string_reg, %char_value
+    EXPAND STRING_BUF_TRY_PUSH_CHAR %out_ok, %string_reg, %char_value
+[END_MACRO]
+
 [MACRO] STRING_BUF_PUSH_STR %string_reg, %suffix_slice
     __string_buf_suffix_len_%string_reg = load %suffix_slice+Slice_len as u64
     EXPAND STRING_BUF_RESERVE %string_reg, __string_buf_suffix_len_%string_reg

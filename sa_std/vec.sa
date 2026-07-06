@@ -42,6 +42,22 @@
     EXPAND VEC_AS_SLICE %out_slice, %vec_reg
 [END_MACRO]
 
+[MACRO] VEC_AS_REF_SLICE %out_slice, %vec_reg
+    EXPAND VEC_AS_SLICE %out_slice, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_AS_MUT_REF_SLICE %out_slice, %vec_reg
+    EXPAND VEC_AS_MUT_SLICE %out_slice, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_DEREF_SLICE %out_slice, %vec_reg
+    EXPAND VEC_AS_SLICE %out_slice, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_DEREF_MUT_SLICE %out_slice, %vec_reg
+    EXPAND VEC_AS_MUT_SLICE %out_slice, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_LEAK %out_slice, %vec_reg
     %out_slice = alloc Slice_SIZE
     __vec_leak_ptr_%out_slice = take %vec_reg+Vec_ptr

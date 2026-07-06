@@ -22,6 +22,7 @@
 @const JOIN_LEFT = utf8:"rust"
 @const JOIN_RIGHT = utf8:"-std"
 @const JOINED = utf8:"rust-std"
+@const WRITE_EXPECTED = utf8:"rust!"
 @const LEAK_MUTATED = utf8:"Rust-std"
 @const MUT_BASE = utf8:"rust"
 @const MUT_SUFFIX = utf8:"-std"
@@ -3604,10 +3605,12 @@ L_STRING_BUF_ADD_ENTRY:
     word_slice = alloc Slice_SIZE
     right_slice = alloc Slice_SIZE
     joined_slice = alloc Slice_SIZE
+    write_expected_slice = alloc Slice_SIZE
     e_slice = alloc Slice_SIZE
     EXPAND SLICE_NEW word_slice, &JOIN_LEFT, 4
     EXPAND SLICE_NEW right_slice, &JOIN_RIGHT, 4
     EXPAND SLICE_NEW joined_slice, &JOINED, 8
+    EXPAND SLICE_NEW write_expected_slice, &WRITE_EXPECTED, 5
     EXPAND SLICE_NEW e_slice, &UTF8_E_ACUTE, 2
 
     EXPAND STRING_BUF_DEFAULT default_string
@@ -3626,25 +3629,43 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_AS_STR e_view, e_string
     EXPAND STR_EQ e_eq, e_view, e_slice
 
+    EXPAND STRING_BUF_DEFAULT write_string
+    EXPAND STRING_BUF_WRITE_STR write_str_ok, write_string, word_slice
+    EXPAND STRING_BUF_WRITE_CHAR write_char_ok, write_string, 33
+    EXPAND STRING_BUF_AS_STR write_view, write_string
+    EXPAND STR_EQ write_eq, write_view, write_expected_slice
+
     default_ok = eq default_empty, 1
     ok01 = and default_ok, added_eq
     ok02 = and ok01, assign_eq
-    ok = and ok02, e_eq
+    ok03 = and ok02, e_eq
+    ok04 = and ok03, write_str_ok
+    ok05 = and ok04, write_char_ok
+    ok = and ok05, write_eq
 
     !default_empty
     !added_eq
     !assign_eq
     !e_eq
+    !write_str_ok
+    !write_char_ok
+    !write_eq
     !default_ok
     !ok01
     !ok02
+    !ok03
+    !ok04
+    !ok05
     !word_slice
     !right_slice
     !joined_slice
+    !write_expected_slice
     !e_slice
     !added_view
     !assign_bytes
     !e_view
+    !write_view
+    EXPAND STRING_BUF_FREE write_string
     EXPAND STRING_BUF_FREE e_string
     EXPAND STRING_BUF_FREE assign_string
     EXPAND STRING_BUF_FREE added_string

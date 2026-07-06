@@ -4,6 +4,27 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec Rust API naming alias audit batch
+
+- Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` APIs after the latest conversion-alias work.
+- Finding remains: the current SA facades are not complete Rust API coverage. Unsupported or intentionally unclaimed areas still include allocator-parametric constructors/accessors, Box/Cow conversions, lazy iterator object models, const-generic array ownership/array extraction, `Vec::into_chunks`/`into_flattened` object shapes, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable naming aliases:
+  - `VEC_AS_REF_SLICE`
+  - `VEC_AS_MUT_REF_SLICE`
+  - `VEC_DEREF_SLICE`
+  - `VEC_DEREF_MUT_SLICE`
+  - `STRING_BUF_WRITE_STR`
+  - `STRING_BUF_WRITE_CHAR`
+- Semantics: Vec aliases return the same slice view shape as existing `VEC_AS_SLICE` / `VEC_AS_MUT_SLICE`, matching Rust `AsRef<[T]>`, `AsMut<[T]>`, `Deref<Target=[T]>`, and `DerefMut` naming without pretending SA has a separate borrowed `Vec<T>` metadata reference object. String write aliases model `fmt::Write for String`: `write_str` appends and returns ok, while `write_char` reuses the existing Unicode scalar validation path.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+
 ## Completed: 2026-07-06 UnixDatagram pathname/abstract address facade batch
 
 - Continued `std::os::unix::net::UnixDatagram` parity with pathname and Unix `SocketAddr` handle address paths.

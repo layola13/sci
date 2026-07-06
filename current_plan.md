@@ -74,6 +74,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable default/conversion/operator naming surfaces: `STRING_BUF_DEFAULT`, StringBuf AsRef/AsMut aliases, `STRING_BUF_FROM_CHAR`, `STRING_BUF_ADD_STR`, `STRING_BUF_ADD_ASSIGN_STR`, `VEC_DEFAULT`, `VEC_FROM_STR_BYTES`, `VEC_U8_FROM_STR`, and `VEC_FROM_STRING_BUF`.
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable reference conversion aliases: `STRING_BUF_FROM_MUT_STR`, `STRING_BUF_FROM_STRING_REF`, `STRING_BUF_TRY_FROM_VEC_U8`, and `STRING_BUF_TRY_FROM_BYTES_VEC`, with installed-state coverage for `VEC_FROM_STRING_BUF` ownership transfer.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are not complete Rust API coverage; completed supportable Vec reference/array conversion aliases `VEC_FROM_MUT_SLICE`, `VEC_FROM_ARRAY`, and `VEC_FROM_MUT_ARRAY` plus U64 wrappers.
+   - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec `AsRef<[T]>` / `AsMut<[T]>` / Deref-to-slice aliases and String `fmt::Write` `write_str` / `write_char` aliases.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -180,6 +181,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the Unix fs chroot facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the UnixDatagram basic facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the UnixDatagram pathname/abstract address facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the StringBuf/Vec naming alias audit batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -336,15 +338,14 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/runtime/facade/test changes are complete for the UnixDatagram pathname/abstract address facade batch.
-- `zig build sa-std-static --summary all` passes.
-- Focused source-std UnixDatagram tests for `std_net_unix_macro_surface.sa --filter "unix datagram"` pass (`3 passed`).
-- Full source-std Unix socket test for `std_net_unix_macro_surface.sa` passes (`7 passed`).
-- Full `unit-framework`, install sync, installed-state focused/full Unix socket tests, export symbol check, and `git diff --check` pass.
+- Source/facade/test changes are complete for the StringBuf/Vec naming alias audit batch.
+- Current audit conclusion: StringBuf/Vec SA facades are still not full Rust API coverage; allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction, and `String::as_mut_vec` remain unclaimed.
+- Full source-std String/Vec macro-surface tests pass (`std_string_macro_surface.sa`: 31 passed; `std_vec_macro_surface.sa`: 21 passed).
+- Full `unit-framework`, install sync, and installed-state String/Vec macro-surface tests pass.
 
 ## Next Priority
 
-- Finish UnixDatagram address batch validation and commit it, then re-audit remaining Linux-only `std` facade gaps.
+- Re-audit remaining Linux-only `std` facade gaps, prioritizing supportable surfaces with clear SA macro/runtime semantics and focused tests.
 
 ## Notes
 

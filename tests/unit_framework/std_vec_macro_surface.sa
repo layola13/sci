@@ -753,6 +753,14 @@ L_ENTRY:
     EXPAND VEC_CAPACITY cap_after_resize, vec
     EXPAND VEC_AS_MUT_SLICE mut_slice, vec
     EXPAND SLICE_GET_LEN mut_slice_len, mut_slice
+    EXPAND VEC_AS_REF_SLICE as_ref_slice, vec
+    EXPAND SLICE_GET_LEN as_ref_slice_len, as_ref_slice
+    EXPAND VEC_AS_MUT_REF_SLICE as_mut_ref_slice, vec
+    EXPAND SLICE_GET_LEN as_mut_ref_slice_len, as_mut_ref_slice
+    EXPAND VEC_DEREF_SLICE deref_slice, vec
+    EXPAND SLICE_GET_LEN deref_slice_len, deref_slice
+    EXPAND VEC_DEREF_MUT_SLICE deref_mut_slice, vec
+    EXPAND SLICE_GET_LEN deref_mut_slice_len, deref_mut_slice
     EXPAND VEC_SET_LEN vec, 3
     EXPAND VEC_LEN len_after_set_len, vec
     EXPAND VEC_SHRINK_TO_U64 vec, 2
@@ -771,6 +779,10 @@ L_ENTRY:
 
     resize_cap_ok = eq cap_after_resize, 5
     mut_slice_len_ok = eq mut_slice_len, 5
+    as_ref_slice_len_ok = eq as_ref_slice_len, 5
+    as_mut_ref_slice_len_ok = eq as_mut_ref_slice_len, 5
+    deref_slice_len_ok = eq deref_slice_len, 5
+    deref_mut_slice_len_ok = eq deref_mut_slice_len, 5
     set_len_ok = eq len_after_set_len, 3
     shrink_to_ok = eq cap_after_shrink_to, 3
     try_shrink_to_flag_ok = eq try_shrink_to_ok, 1
@@ -785,22 +797,34 @@ L_ENTRY:
     tail_flag_ok = eq tail_ok, 1
     tail_value_ok = eq tail_value, 30
     ok01 = and resize_cap_ok, mut_slice_len_ok
-    ok02 = and ok01, set_len_ok
-    ok03 = and ok02, shrink_to_ok
-    ok04 = and ok03, try_shrink_to_flag_ok
-    ok05 = and ok04, try_shrink_to_cap_ok
-    ok06 = and ok05, shrink_to_fit_ok
-    ok07 = and ok06, try_shrink_to_fit_flag_ok
-    ok08 = and ok07, try_shrink_to_fit_cap_ok
-    ok09 = and ok08, try_shrink_to_generic_flag_ok
-    ok10 = and ok09, try_shrink_to_generic_cap_ok
-    ok11 = and ok10, try_shrink_to_fit_generic_flag_ok
-    ok12 = and ok11, try_shrink_to_fit_generic_cap_ok
-    ok13 = and ok12, tail_flag_ok
-    ok = and ok13, tail_value_ok
+    ok02 = and ok01, as_ref_slice_len_ok
+    ok03 = and ok02, as_mut_ref_slice_len_ok
+    ok04 = and ok03, deref_slice_len_ok
+    ok05 = and ok04, deref_mut_slice_len_ok
+    ok06 = and ok05, set_len_ok
+    ok07 = and ok06, shrink_to_ok
+    ok08 = and ok07, try_shrink_to_flag_ok
+    ok09 = and ok08, try_shrink_to_cap_ok
+    ok10 = and ok09, shrink_to_fit_ok
+    ok11 = and ok10, try_shrink_to_fit_flag_ok
+    ok12 = and ok11, try_shrink_to_fit_cap_ok
+    ok13 = and ok12, try_shrink_to_generic_flag_ok
+    ok14 = and ok13, try_shrink_to_generic_cap_ok
+    ok15 = and ok14, try_shrink_to_fit_generic_flag_ok
+    ok16 = and ok15, try_shrink_to_fit_generic_cap_ok
+    ok17 = and ok16, tail_flag_ok
+    ok = and ok17, tail_value_ok
     !cap_after_resize
     !mut_slice
     !mut_slice_len
+    !as_ref_slice
+    !as_ref_slice_len
+    !as_mut_ref_slice
+    !as_mut_ref_slice_len
+    !deref_slice
+    !deref_slice_len
+    !deref_mut_slice
+    !deref_mut_slice_len
     !len_after_set_len
     !cap_after_shrink_to
     !try_shrink_to_ok
@@ -816,6 +840,10 @@ L_ENTRY:
     !tail_value
     !resize_cap_ok
     !mut_slice_len_ok
+    !as_ref_slice_len_ok
+    !as_mut_ref_slice_len_ok
+    !deref_slice_len_ok
+    !deref_mut_slice_len_ok
     !set_len_ok
     !shrink_to_ok
     !try_shrink_to_flag_ok
@@ -842,6 +870,10 @@ L_ENTRY:
     !ok11
     !ok12
     !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
     EXPAND VEC_FREE vec
     br ok -> L_VEC_CAP_OK, L_VEC_CAP_FAIL
 
