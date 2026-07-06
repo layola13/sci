@@ -140,6 +140,45 @@
     %out_vec = %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_INTO_CHARS_U64 %out_vec, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_into_chars_slice_%out_vec, %string_reg
+    EXPAND STR_CHAR_COUNT __string_into_chars_count_%out_vec, __string_into_chars_slice_%out_vec
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __string_into_chars_count_%out_vec
+    __string_into_chars_idx_slot_%out_vec = stack_alloc 8
+    store __string_into_chars_idx_slot_%out_vec+0, 0 as u64
+    jmp L_STRING_INTO_CHARS_HEAD_%out_vec
+
+L_STRING_INTO_CHARS_HEAD_%out_vec:
+    __string_into_chars_idx_%out_vec = load __string_into_chars_idx_slot_%out_vec+0 as u64
+    __string_into_chars_done_%out_vec = eq __string_into_chars_idx_%out_vec, __string_into_chars_count_%out_vec
+    br __string_into_chars_done_%out_vec -> L_STRING_INTO_CHARS_DONE_%out_vec, L_STRING_INTO_CHARS_BODY_%out_vec
+
+L_STRING_INTO_CHARS_BODY_%out_vec:
+    EXPAND STR_TRY_CHAR_AT __string_into_chars_char_ok_%out_vec, __string_into_chars_codepoint_%out_vec, __string_into_chars_slice_%out_vec, __string_into_chars_idx_%out_vec
+    br __string_into_chars_char_ok_%out_vec -> L_STRING_INTO_CHARS_PUSH_%out_vec, L_STRING_INTO_CHARS_INVALID_%out_vec
+
+L_STRING_INTO_CHARS_PUSH_%out_vec:
+    EXPAND VEC_PUSH_U64 %out_vec, __string_into_chars_codepoint_%out_vec
+    __string_into_chars_next_%out_vec = add __string_into_chars_idx_%out_vec, 1
+    store __string_into_chars_idx_slot_%out_vec+0, __string_into_chars_next_%out_vec as u64
+    !__string_into_chars_next_%out_vec
+    !__string_into_chars_codepoint_%out_vec
+    !__string_into_chars_char_ok_%out_vec
+    !__string_into_chars_done_%out_vec
+    !__string_into_chars_idx_%out_vec
+    jmp L_STRING_INTO_CHARS_HEAD_%out_vec
+
+L_STRING_INTO_CHARS_INVALID_%out_vec:
+    panic(1210)
+
+L_STRING_INTO_CHARS_DONE_%out_vec:
+    !__string_into_chars_done_%out_vec
+    !__string_into_chars_idx_%out_vec
+    !__string_into_chars_count_%out_vec
+    !__string_into_chars_slice_%out_vec
+    EXPAND STRING_BUF_FREE %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_FROM_UTF8_UNCHECKED %out_string, %bytes_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     EXPAND STRING_BUF_PUSH_STR %out_string, %bytes_slice

@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf into_chars facade batch
+
+- Continued String Rust API parity work with the supportable `String::into_chars` subset.
+- Added eager codepoint-vector macro surface:
+  - `STRING_BUF_INTO_CHARS_U64`
+- Semantics: consumes the `StringBuf`, decodes the UTF-8 string by Unicode scalar, pushes each codepoint into a returned U64 Vec, and frees the original StringBuf wrapper/allocation after the output Vec has been built.
+- Scope note: this is an eager SA U64 codepoint Vec shape; it does not claim Rust's lazy `IntoChars` iterator object model.
+- Updated `std_string_macro_surface.sa` coverage:
+  - `aé🙂z` becomes `[97, 233, 128578, 122]`.
+  - empty `StringBuf` becomes an empty Vec.
+  - out-of-range get from the produced Vec returns `ok=0` and value `0`.
+- Validation status:
+  - Source focused `into_chars` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`22 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `into_chars` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`22 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf from_utf8 facade batch
 
 - Continued String Rust API parity work with the supportable `String::from_utf8` subset.
