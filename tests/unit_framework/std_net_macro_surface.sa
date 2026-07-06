@@ -1767,6 +1767,8 @@ L_UDP_OK:
 @test "sa_std net udp raw fd macro surface"():
 L_ENTRY:
     EXPAND NET_UDP_BIND bind_status, socket, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    EXPAND NET_UDP_INTO_OWNED_FD into_owned_status, owned_fd, socket
+    EXPAND NET_UDP_FROM_OWNED_FD from_owned_status, socket, owned_fd
     EXPAND NET_UDP_AS_RAW_FD as_status, raw_fd, socket
     EXPAND NET_UDP_INTO_RAW_FD into_status, taken_fd, socket
     EXPAND NET_UDP_FROM_RAW_FD from_status, socket, taken_fd
@@ -1786,6 +1788,11 @@ L_ENTRY:
 
     bind_status_ok = eq bind_status, SA_NET_OK
     socket_ok = ne socket, 0
+    into_owned_ok = eq into_owned_status, SA_NET_OK
+    owned_fd_ok = ne owned_fd, 0
+    from_owned_ok = eq from_owned_status, SA_NET_OK
+    owned_ok01 = and into_owned_ok, owned_fd_ok
+    owned_ok = and owned_ok01, from_owned_ok
     as_status_ok = eq as_status, SA_NET_OK
     raw_fd_ok = ne raw_fd, -1
     into_status_ok = eq into_status, SA_NET_OK
@@ -1809,31 +1816,33 @@ L_ENTRY:
     close_ok = eq close_status, SA_NET_OK
 
     ok01 = and bind_status_ok, socket_ok
-    ok02 = and ok01, as_status_ok
-    ok03 = and ok02, raw_fd_ok
-    ok04 = and ok03, into_status_ok
-    ok05 = and ok04, raw_match
-    ok06 = and ok05, from_status_ok
-    ok07 = and ok06, nonblock_ok
-    ok08 = and ok07, addr_status_ok
-    ok09 = and ok08, addr_ok
-    ok10 = and ok09, port_ok
-    ok11 = and ok10, addr_free_ok
-    ok12 = and ok11, send_status_ok
-    ok13 = and ok12, send_len_ok
-    ok14 = and ok13, recv_status_ok
-    ok15 = and ok14, recv_len_ok
-    ok16 = and ok15, recv0_ok
-    ok17 = and ok16, recv1_ok
-    ok18 = and ok17, recv2_ok
-    ok19 = and ok18, recv3_ok
-    ok20 = and ok19, recv_addr_ok
-    ok21 = and ok20, recv_addr_free_ok
-    ok = and ok21, close_ok
+    ok02 = and ok01, owned_ok
+    ok03 = and ok02, as_status_ok
+    ok04 = and ok03, raw_fd_ok
+    ok05 = and ok04, into_status_ok
+    ok06 = and ok05, raw_match
+    ok07 = and ok06, from_status_ok
+    ok08 = and ok07, nonblock_ok
+    ok09 = and ok08, addr_status_ok
+    ok10 = and ok09, addr_ok
+    ok11 = and ok10, port_ok
+    ok12 = and ok11, addr_free_ok
+    ok13 = and ok12, send_status_ok
+    ok14 = and ok13, send_len_ok
+    ok15 = and ok14, recv_status_ok
+    ok16 = and ok15, recv_len_ok
+    ok17 = and ok16, recv0_ok
+    ok18 = and ok17, recv1_ok
+    ok19 = and ok18, recv2_ok
+    ok20 = and ok19, recv3_ok
+    ok21 = and ok20, recv_addr_ok
+    ok22 = and ok21, recv_addr_free_ok
+    ok = and ok22, close_ok
     br ok -> L_OK, L_FAIL
 
 L_FAIL:
     !ok
+    !ok22
     !ok21
     !ok20
     !ok19
@@ -1876,6 +1885,11 @@ L_FAIL:
     !into_status_ok
     !raw_fd_ok
     !as_status_ok
+    !owned_ok
+    !owned_ok01
+    !from_owned_ok
+    !owned_fd_ok
+    !into_owned_ok
     !socket_ok
     !bind_status_ok
     !close_status
@@ -1897,6 +1911,9 @@ L_FAIL:
     !nonblock_status
     !taken_fd
     !raw_fd
+    !owned_fd
+    !from_owned_status
+    !into_owned_status
     !from_status
     !into_status
     !as_status
@@ -1906,6 +1923,7 @@ L_FAIL:
 
 L_OK:
     !ok
+    !ok22
     !ok21
     !ok20
     !ok19
@@ -1948,6 +1966,11 @@ L_OK:
     !into_status_ok
     !raw_fd_ok
     !as_status_ok
+    !owned_ok
+    !owned_ok01
+    !from_owned_ok
+    !owned_fd_ok
+    !into_owned_ok
     !socket_ok
     !bind_status_ok
     !close_status
@@ -1969,6 +1992,9 @@ L_OK:
     !nonblock_status
     !taken_fd
     !raw_fd
+    !owned_fd
+    !from_owned_status
+    !into_owned_status
     !from_status
     !into_status
     !as_status

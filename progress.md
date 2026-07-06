@@ -4,6 +4,23 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 UDP socket owned fd alias batch
+
+- Added UDP `UdpSocket` owned-fd conversion macro aliases over the UDP raw-fd facades and `sa_std/os/fd` owned-fd ABI:
+  - `NET_UDP_INTO_OWNED_FD`
+  - `NET_UDP_FROM_OWNED_FD`
+  - runtime continues to use the UDP raw-fd restore export from the previous batch, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_net_macro_surface.sa` UDP fd coverage:
+  - UDP socket now transfers ownership through an owned fd and rebinds before continuing through the existing raw-fd roundtrip, self-send, receive, and close path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+
 ## Completed: 2026-07-06 UDP socket raw fd trait batch
 
 - Added UDP `UdpSocket` raw-fd trait-style macro surface:
