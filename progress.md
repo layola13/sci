@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Unix ffi OsStr/OsString facade batch
+
+- Added supportable `std::os::unix::ffi::{OsStrExt, OsStringExt}` macro facades.
+- Added macro surfaces:
+  - `OS_STR_FROM_BYTES`
+  - `OS_STR_FROM_BYTES_SLICE`
+  - `OS_STR_AS_BYTES`
+  - `OS_STR_AS_BYTES_SLICE`
+  - `OS_STRING_FROM_VEC`
+  - `OS_STRING_FROM_VEC_U8`
+  - `OS_STRING_INTO_VEC`
+  - `OS_STRING_INTO_VEC_U8`
+- Semantics: borrowed `OsStr` is represented as a byte `Slice` view, with `from_bytes` / `as_bytes` creating fresh Slice wrappers over the same pointer/length so the source view is not moved. Owned `OsString` is represented as the underlying `Vec<u8>` ownership shape, so `from_vec` / `into_vec` are move aliases.
+- Validation status:
+  - Source focused `std_os_unix_ffi_macro_surface.sa`: pass (`2 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`), with `std_os_unix_ffi_macro_surface.sa` included in the runner list.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_os_unix_ffi_macro_surface.sa`: pass (`2 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec Rust API naming alias audit batch
 
 - Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` APIs after the latest conversion-alias work.

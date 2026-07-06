@@ -179,6 +179,8 @@
 - [x] UnixDatagram 地址路径批次已完成源码 focused/full Unix socket 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `Vec` AsRef/AsMut/Deref-to-slice 命名别名与 `String` fmt::Write `write_str` / `write_char` 风格宏表面。
 - [x] String/Vec naming alias 批次已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::ffi::{OsStrExt,OsStringExt}`：补 Unix 字节语义 `OsStr` / `OsString` facade，覆盖 `from_bytes` / `as_bytes` 与 `from_vec` / `into_vec` 命名表面。
+- [x] Unix ffi OsStr/OsString 批次已完成源码 focused 测试、完整 `unit-framework` runner 覆盖、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

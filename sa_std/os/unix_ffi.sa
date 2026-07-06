@@ -1,0 +1,44 @@
+@import "../core/slice.sal"
+@import "../core/slice.sa"
+
+[MACRO] OS_STR_FROM_BYTES %out_os_str, %bytes_slice
+    __os_str_from_bytes_ptr_%out_os_str = load %bytes_slice+Slice_ptr as ptr
+    __os_str_from_bytes_len_%out_os_str = load %bytes_slice+Slice_len as u64
+    %out_os_str = alloc Slice_SIZE
+    EXPAND SLICE_NEW %out_os_str, __os_str_from_bytes_ptr_%out_os_str, __os_str_from_bytes_len_%out_os_str
+    !__os_str_from_bytes_ptr_%out_os_str
+    !__os_str_from_bytes_len_%out_os_str
+[END_MACRO]
+
+[MACRO] OS_STR_FROM_BYTES_SLICE %out_os_str, %bytes_slice
+    EXPAND OS_STR_FROM_BYTES %out_os_str, %bytes_slice
+[END_MACRO]
+
+[MACRO] OS_STR_AS_BYTES %out_slice, %os_str
+    __os_str_as_bytes_ptr_%out_slice = load %os_str+Slice_ptr as ptr
+    __os_str_as_bytes_len_%out_slice = load %os_str+Slice_len as u64
+    %out_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW %out_slice, __os_str_as_bytes_ptr_%out_slice, __os_str_as_bytes_len_%out_slice
+    !__os_str_as_bytes_ptr_%out_slice
+    !__os_str_as_bytes_len_%out_slice
+[END_MACRO]
+
+[MACRO] OS_STR_AS_BYTES_SLICE %out_slice, %os_str
+    EXPAND OS_STR_AS_BYTES %out_slice, %os_str
+[END_MACRO]
+
+[MACRO] OS_STRING_FROM_VEC %out_os_string, %vec_reg
+    %out_os_string = %vec_reg
+[END_MACRO]
+
+[MACRO] OS_STRING_FROM_VEC_U8 %out_os_string, %vec_reg
+    EXPAND OS_STRING_FROM_VEC %out_os_string, %vec_reg
+[END_MACRO]
+
+[MACRO] OS_STRING_INTO_VEC %out_vec, %os_string
+    %out_vec = %os_string
+[END_MACRO]
+
+[MACRO] OS_STRING_INTO_VEC_U8 %out_vec, %os_string
+    EXPAND OS_STRING_INTO_VEC %out_vec, %os_string
+[END_MACRO]
