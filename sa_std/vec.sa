@@ -38,6 +38,18 @@
     EXPAND VEC_AS_SLICE %out_slice, %vec_reg
 [END_MACRO]
 
+[MACRO] VEC_LEAK %out_slice, %vec_reg
+    %out_slice = alloc Slice_SIZE
+    __vec_leak_ptr_%out_slice = take %vec_reg+Vec_ptr
+    __vec_leak_len_%out_slice = load %vec_reg+Vec_len as u64
+    store %vec_reg+Vec_cap, 0 as u64
+    store %vec_reg+Vec_len, 0 as u64
+    EXPAND SLICE_NEW %out_slice, __vec_leak_ptr_%out_slice, __vec_leak_len_%out_slice
+    ^__vec_leak_ptr_%out_slice
+    !__vec_leak_len_%out_slice
+    !%vec_reg
+[END_MACRO]
+
 [MACRO] VEC_GET_UNCHECKED %out_ptr, %vec_reg, %index
     __vec_view_%out_ptr = & %vec_reg
     __vec_ptr_%out_ptr = load __vec_view_%out_ptr+Vec_ptr as ptr

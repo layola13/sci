@@ -22,6 +22,7 @@
 @const JOIN_LEFT = utf8:"rust"
 @const JOIN_RIGHT = utf8:"-std"
 @const JOINED = utf8:"rust-std"
+@const LEAK_MUTATED = utf8:"Rust-std"
 @const MUT_BASE = utf8:"rust"
 @const MUT_SUFFIX = utf8:"-std"
 @const MUT_PUSHED = utf8:"rust-std"
@@ -2842,5 +2843,52 @@ L_STRING_BUF_RAW_PARTS_FAIL:
     panic(910)
 
 L_STRING_BUF_RAW_PARTS_OK:
+    !ok
+    return
+
+@test "sa_std string buffer leak macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS right, &JOIN_RIGHT, 4
+    EXPAND STR_FROM_PARTS expected, &LEAK_MUTATED, 8
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 8
+    EXPAND STRING_BUF_PUSH_STR buf, left
+    EXPAND STRING_BUF_PUSH_STR buf, right
+    EXPAND STRING_BUF_LEAK leaked, buf
+    EXPAND STR_LEN leaked_len, leaked
+    EXPAND STR_PTR leaked_ptr, leaked
+    first_before = load leaked_ptr+0 as u8
+    store leaked_ptr+0, 82 as u8
+    first_after = load leaked_ptr+0 as u8
+    EXPAND STR_EQ content_eq, leaked, expected
+    len_ok = eq leaked_len, 8
+    first_before_ok = eq first_before, 114
+    first_after_ok = eq first_after, 82
+    content_ok = eq content_eq, 1
+    ok01 = and len_ok, first_before_ok
+    ok02 = and ok01, first_after_ok
+    ok = and ok02, content_ok
+    !left
+    !right
+    !expected
+    !leaked_len
+    !leaked_ptr
+    !first_before
+    !first_after
+    !content_eq
+    !len_ok
+    !first_before_ok
+    !first_after_ok
+    !content_ok
+    !ok01
+    !ok02
+    !leaked
+    br ok -> L_STRING_BUF_LEAK_OK, L_STRING_BUF_LEAK_FAIL
+
+L_STRING_BUF_LEAK_FAIL:
+    !ok
+    panic(923)
+
+L_STRING_BUF_LEAK_OK:
     !ok
     return

@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec leak facade batch
+
+- Continued String/Vec Rust API parity work with the supportable `String::leak` / `Vec::leak` subset.
+- Added leak macro surfaces:
+  - `VEC_LEAK`
+  - `STRING_BUF_LEAK`
+- Semantics: consumes the owning Vec/StringBuf wrapper, moves the underlying allocation into a returned `Slice` view, clears the wrapper length/capacity, and intentionally does not free the allocation.
+- Scope note: this is the SA mutable-slice/string-view shape; it does not claim Rust's full lifetime typing or boxed slice/string object model.
+- Updated macro-surface coverage:
+  - Vec leak returns a length-2 mutable slice with the original U64 values and permits mutation through the leaked slice pointer.
+  - StringBuf leak returns a mutable string slice with the original bytes and permits mutation through the leaked pointer.
+- Validation status:
+  - Source focused Vec `leak` test: pass.
+  - Source focused StringBuf `leak` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`17 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused Vec `leak` test: pass.
+  - Installed-state focused StringBuf `leak` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`17 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`21 passed`).
+
 ## Completed: 2026-07-06 Vec from_elem facade batch
 
 - Continued Vec Rust API parity work with the supportable `Vec::from_elem` subset.

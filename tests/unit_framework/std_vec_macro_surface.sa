@@ -2119,3 +2119,59 @@ L_VEC_FROM_ELEM_FAIL:
 L_VEC_FROM_ELEM_OK:
     !ok
     return
+
+@test "sa_std vec leak macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 7
+    EXPAND VEC_PUSH_U64 vec, 9
+    EXPAND VEC_LEAK leaked, vec
+    EXPAND SLICE_GET_LEN leaked_len, leaked
+    EXPAND SLICE_TRY_GET_U64 first_ok, first, leaked, 0
+    EXPAND SLICE_TRY_GET_U64 second_ok, second, leaked, 1
+    EXPAND SLICE_GET_MUT_PTR_U64 second_ptr, leaked, 1
+    store second_ptr+0, 99 as u64
+    EXPAND SLICE_TRY_GET_U64 mutated_ok, mutated, leaked, 1
+    len_ok = eq leaked_len, 2
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 7
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 9
+    mutated_flag_ok = eq mutated_ok, 1
+    mutated_value_ok = eq mutated, 99
+    ok01 = and len_ok, first_flag_ok
+    ok02 = and ok01, first_value_ok
+    ok03 = and ok02, second_flag_ok
+    ok04 = and ok03, second_value_ok
+    ok05 = and ok04, mutated_flag_ok
+    ok = and ok05, mutated_value_ok
+    !leaked_len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !second_ptr
+    !mutated_ok
+    !mutated
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !mutated_flag_ok
+    !mutated_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !leaked
+    br ok -> L_VEC_LEAK_OK, L_VEC_LEAK_FAIL
+
+L_VEC_LEAK_FAIL:
+    !ok
+    panic(923)
+
+L_VEC_LEAK_OK:
+    !ok
+    return

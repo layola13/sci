@@ -132,6 +132,10 @@
     EXPAND VEC_AS_SLICE %out_slice, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_LEAK %out_slice, %string_reg
+    EXPAND VEC_LEAK %out_slice, %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_INTO_BYTES %out_vec, %string_reg
     %out_vec = %string_reg
 [END_MACRO]
