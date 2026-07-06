@@ -115,6 +115,8 @@
 - [x] String remove_matches + Vec from_fn 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `Vec` Rust API parity 继续补齐：补 `Vec::{as_non_null,into_parts,from_parts}` 风格 NonNull parts 宏表面，复用现有 `NonNull` wrapper facade。
 - [x] Vec NonNull parts 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::extend_from_within` 风格宏表面，包含 bounds 与 UTF-8 char boundary 检查，并避免 self-copy reallocation 悬空。
+- [x] String extend_from_within 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

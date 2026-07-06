@@ -430,6 +430,38 @@ L_STRING_BUF_PUSH_CHAR_END_%out_ok:
     !__string_buf_suffix_len_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_EXTEND_FROM_WITHIN %out_ok, %string_reg, %start, %length
+    EXPAND STRING_BUF_AS_STR __string_buf_efw_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_RANGE __string_buf_efw_range_ok_%out_ok, __string_buf_efw_range_%out_ok, __string_buf_efw_view_%out_ok, %start, %length
+    br __string_buf_efw_range_ok_%out_ok -> L_STRING_BUF_EFW_HIT_%out_ok, L_STRING_BUF_EFW_MISS_%out_ok
+
+L_STRING_BUF_EFW_HIT_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY __string_buf_efw_copy_%out_ok, %length
+    EXPAND STRING_BUF_PUSH_STR __string_buf_efw_copy_%out_ok, __string_buf_efw_range_%out_ok
+    EXPAND STRING_BUF_AS_STR __string_buf_efw_copy_view_%out_ok, __string_buf_efw_copy_%out_ok
+    EXPAND STRING_BUF_PUSH_STR %string_reg, __string_buf_efw_copy_view_%out_ok
+    %out_ok = add 0, 1
+    !__string_buf_efw_copy_view_%out_ok
+    EXPAND STRING_BUF_FREE __string_buf_efw_copy_%out_ok
+    !__string_buf_efw_range_%out_ok
+    !__string_buf_efw_range_ok_%out_ok
+    !__string_buf_efw_view_%out_ok
+    jmp L_STRING_BUF_EFW_END_%out_ok
+
+L_STRING_BUF_EFW_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_efw_range_%out_ok
+    !__string_buf_efw_range_ok_%out_ok
+    !__string_buf_efw_view_%out_ok
+
+L_STRING_BUF_EFW_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_FROM_WITHIN %string_reg, %start, %length
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN __string_buf_efw_ok_%string_reg, %string_reg, %start, %length
+    !__string_buf_efw_ok_%string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_POP_BYTE %out_ok, %out_byte, %string_reg
     __string_buf_pop_view_%out_ok = & %string_reg
     __string_buf_pop_len_%out_ok = load __string_buf_pop_view_%out_ok+Vec_len as u64

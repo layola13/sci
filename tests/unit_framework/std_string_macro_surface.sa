@@ -33,6 +33,8 @@
 @const MUT_AFTER_INSERT_BYTE = utf8:"rust-lang"
 @const BUF_SUFFIX = utf8:"std"
 @const BUF_EXPECTED = utf8:"rust-std"
+@const BUF_EXTEND_WITHIN_EXPECTED = utf8:"rust-stdus"
+@const BUF_EXTEND_WITHIN_ALIAS_EXPECTED = utf8:"rust-stdusr"
 @const BUF_INSERT_BYTE_EXPECTED = utf8:"rust-std!"
 @const BUF_INSERT_STR_EXPECTED = utf8:"rust-lang-std!"
 @const BUF_REPLACE_EXPECTED = utf8:"rust-core-std!"
@@ -476,6 +478,83 @@ L_STRING_BUF_FAIL:
     panic(906)
 
 L_STRING_BUF_OK:
+    !ok
+    return
+
+@test "sa_std string buffer extend_from_within macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS suffix, &BUF_SUFFIX, 3
+    EXPAND STR_FROM_PARTS expected, &BUF_EXTEND_WITHIN_EXPECTED, 10
+    EXPAND STR_FROM_PARTS alias_expected, &BUF_EXTEND_WITHIN_ALIAS_EXPECTED, 11
+    EXPAND STR_FROM_PARTS utf8_expected, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STRING_BUF_WITH_CAPACITY string_buf, 8
+    EXPAND STRING_BUF_PUSH_STR string_buf, left
+    EXPAND STRING_BUF_PUSH_BYTE string_buf, 45
+    EXPAND STRING_BUF_PUSH_STR string_buf, suffix
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN extend_ok, string_buf, 1, 2
+    EXPAND STRING_BUF_AS_STR after_extend, string_buf
+    EXPAND STR_EQ after_extend_eq, after_extend, expected
+    EXPAND STRING_BUF_EXTEND_FROM_WITHIN string_buf, 0, 1
+    EXPAND STRING_BUF_AS_STR after_alias, string_buf
+    EXPAND STR_EQ after_alias_eq, after_alias, alias_expected
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN miss_ok, string_buf, 99, 1
+    EXPAND STRING_BUF_AS_STR after_miss, string_buf
+    EXPAND STR_EQ after_miss_eq, after_miss, alias_expected
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED utf8_buf, utf8_expected
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN boundary_miss_ok, utf8_buf, 2, 1
+    EXPAND STRING_BUF_AS_STR after_boundary_miss, utf8_buf
+    EXPAND STR_EQ after_boundary_miss_eq, after_boundary_miss, utf8_expected
+    extend_flag_ok = eq extend_ok, 1
+    after_extend_ok = eq after_extend_eq, 1
+    after_alias_ok = eq after_alias_eq, 1
+    miss_flag_ok = eq miss_ok, 0
+    after_miss_ok = eq after_miss_eq, 1
+    boundary_miss_flag_ok = eq boundary_miss_ok, 0
+    boundary_miss_value_ok = eq after_boundary_miss_eq, 1
+    ok01 = and extend_flag_ok, after_extend_ok
+    ok02 = and ok01, after_alias_ok
+    ok03 = and ok02, miss_flag_ok
+    ok04 = and ok03, after_miss_ok
+    ok05 = and ok04, boundary_miss_flag_ok
+    ok = and ok05, boundary_miss_value_ok
+    !left
+    !suffix
+    !expected
+    !alias_expected
+    !utf8_expected
+    !extend_ok
+    !after_extend
+    !after_extend_eq
+    !after_alias
+    !after_alias_eq
+    !miss_ok
+    !after_miss
+    !after_miss_eq
+    !boundary_miss_ok
+    !after_boundary_miss
+    !after_boundary_miss_eq
+    !extend_flag_ok
+    !after_extend_ok
+    !after_alias_ok
+    !miss_flag_ok
+    !after_miss_ok
+    !boundary_miss_flag_ok
+    !boundary_miss_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND STRING_BUF_FREE utf8_buf
+    EXPAND STRING_BUF_FREE string_buf
+    br ok -> L_STRING_BUF_EFW_OK, L_STRING_BUF_EFW_FAIL
+
+L_STRING_BUF_EFW_FAIL:
+    !ok
+    panic(911)
+
+L_STRING_BUF_EFW_OK:
     !ok
     return
 

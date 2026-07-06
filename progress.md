@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf extend_from_within facade batch
+
+- Continued String Rust API parity work with the supportable `String::extend_from_within` subset.
+- Added StringBuf range-copy macro surfaces:
+  - `STRING_BUF_TRY_EXTEND_FROM_WITHIN`
+  - `STRING_BUF_EXTEND_FROM_WITHIN`
+- Implementation note: the macro first copies the selected range into a temporary `StringBuf`, then appends that temporary view back into the original buffer. This avoids dangling source slices if appending triggers reserve/reallocation on the original string.
+- Range semantics reuse `STR_TRY_GET_RANGE`, so both bounds and UTF-8 char-boundary checks are enforced.
+- Updated `std_string_macro_surface.sa` coverage:
+  - normal range append.
+  - alias wrapper append.
+  - out-of-bounds miss leaves the string unchanged.
+  - non-char-boundary UTF-8 range miss leaves the string unchanged.
+- Validation status:
+  - Source focused `extend_from_within` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`15 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `extend_from_within` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`15 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
 ## Completed: 2026-07-06 Vec NonNull parts facade batch
 
 - Continued Vec Rust API parity work with the supportable NonNull parts subset.
