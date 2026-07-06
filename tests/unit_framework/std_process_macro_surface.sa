@@ -1576,7 +1576,7 @@ L_PIDFD_INTO_RAW:
     pidfd2_as_raw_ok = eq pidfd2_as_raw_status, SA_PROCESS_OK
     pidfd2_raw_fd_ok = ne pidfd2_raw_fd, -1
     pidfd2_raw_all = and pidfd2_as_raw_ok, pidfd2_raw_fd_ok
-    br pidfd2_raw_all -> L_PIDFD_INTO_RAW_TAKE, L_FAIL_PIDFD_INTO_RAW
+    br pidfd2_raw_all -> L_PIDFD_INTO_OWNED, L_FAIL_PIDFD_INTO_RAW
 
 L_FAIL_PIDFD_INTO_RAW:
     !pidfd2_raw_all
@@ -1586,8 +1586,49 @@ L_FAIL_PIDFD_INTO_RAW:
     !pidfd2_as_raw_status
     panic(1041)
 
+L_PIDFD_INTO_OWNED:
+    EXPAND PIDFD_INTO_OWNED_FD pidfd2_into_owned_status, pidfd2_owned_fd, pidfd2
+    pidfd2_into_owned_status_ok = eq pidfd2_into_owned_status, SA_PROCESS_OK
+    pidfd2_owned_fd_ok = ne pidfd2_owned_fd, 0
+    pidfd2_into_owned_all = and pidfd2_into_owned_status_ok, pidfd2_owned_fd_ok
+    br pidfd2_into_owned_all -> L_PIDFD_FROM_OWNED, L_FAIL_PIDFD_INTO_OWNED
+
+L_FAIL_PIDFD_INTO_OWNED:
+    !pidfd2_into_owned_all
+    !pidfd2_owned_fd_ok
+    !pidfd2_into_owned_status_ok
+    !pidfd2_owned_fd
+    !pidfd2_into_owned_status
+    !pidfd2_raw_all
+    !pidfd2_raw_fd_ok
+    !pidfd2_as_raw_ok
+    !pidfd2_raw_fd
+    !pidfd2_as_raw_status
+    panic(1044)
+
+L_PIDFD_FROM_OWNED:
+    EXPAND PIDFD_FROM_OWNED_FD pidfd2_from_owned_status, pidfd2_owned_rebound, pidfd2_owned_fd
+    pidfd2_from_owned_status_ok = eq pidfd2_from_owned_status, SA_PROCESS_OK
+    pidfd2_from_owned_handle_ok = ne pidfd2_owned_rebound, 0
+    pidfd2_from_owned_all = and pidfd2_from_owned_status_ok, pidfd2_from_owned_handle_ok
+    br pidfd2_from_owned_all -> L_PIDFD_INTO_RAW_TAKE, L_FAIL_PIDFD_FROM_OWNED
+
+L_FAIL_PIDFD_FROM_OWNED:
+    !pidfd2_from_owned_all
+    !pidfd2_from_owned_handle_ok
+    !pidfd2_from_owned_status_ok
+    !pidfd2_owned_rebound
+    !pidfd2_from_owned_status
+    !pidfd2_into_owned_all
+    !pidfd2_raw_all
+    !pidfd2_raw_fd_ok
+    !pidfd2_as_raw_ok
+    !pidfd2_raw_fd
+    !pidfd2_as_raw_status
+    panic(1045)
+
 L_PIDFD_INTO_RAW_TAKE:
-    EXPAND PIDFD_INTO_RAW_FD pidfd2_into_raw_status, pidfd2_raw_taken, pidfd2
+    EXPAND PIDFD_INTO_RAW_FD pidfd2_into_raw_status, pidfd2_raw_taken, pidfd2_owned_rebound
     pidfd2_into_raw_ok = eq pidfd2_into_raw_status, SA_PROCESS_OK
     pidfd2_raw_match = eq pidfd2_raw_taken, pidfd2_raw_fd
     pidfd2_take_all = and pidfd2_into_raw_ok, pidfd2_raw_match
@@ -1604,6 +1645,11 @@ L_FAIL_PIDFD_INTO_RAW_TAKE:
     !pidfd2_as_raw_ok
     !pidfd2_raw_fd
     !pidfd2_as_raw_status
+    !pidfd2_from_owned_all
+    !pidfd2_from_owned_handle_ok
+    !pidfd2_from_owned_status_ok
+    !pidfd2_from_owned_status
+    !pidfd2_into_owned_all
     panic(1042)
 
 L_PIDFD_INTO_RAW_REBIND:
@@ -1629,6 +1675,11 @@ L_FAIL_PIDFD_INTO_RAW_REBIND:
     !pidfd2_as_raw_ok
     !pidfd2_raw_fd
     !pidfd2_as_raw_status
+    !pidfd2_from_owned_all
+    !pidfd2_from_owned_handle_ok
+    !pidfd2_from_owned_status_ok
+    !pidfd2_from_owned_status
+    !pidfd2_into_owned_all
     panic(1043)
 
 L_PIDFD_INTO_KILL:
@@ -1698,6 +1749,11 @@ L_FAIL_PIDFD_INTO_WAIT_FINAL:
     !pidfd2_as_raw_ok
     !pidfd2_raw_fd
     !pidfd2_as_raw_status
+    !pidfd2_from_owned_all
+    !pidfd2_from_owned_handle_ok
+    !pidfd2_from_owned_status_ok
+    !pidfd2_from_owned_status
+    !pidfd2_into_owned_all
     panic(1038)
 
 L_PIDFD_FALLBACK:

@@ -43,6 +43,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::linux::process` / pidfd-adjacent process-group signaling subset: `PROCESS_SEND_PROCESS_GROUP_SIGNAL` with effective PGID tracking.
    - `std::os::linux::process` pidfd subset: create-pidfd spawn path, process `pidfd` / `into_pidfd` extraction, and pidfd kill/send_signal/wait/try_wait raw and code helpers.
    - `std::os::linux::process::PidFd` raw-fd trait aliases: `PIDFD_AS_RAW_FD`, `PIDFD_INTO_RAW_FD`, `PIDFD_FROM_RAW_FD`, and `PIDFD_CLOSE_RAW_FD` over the existing owned-fd facade.
+   - `std::os::linux::process::PidFd` owned-fd trait aliases: `PIDFD_INTO_OWNED_FD` and `PIDFD_FROM_OWNED_FD` over the existing pidfd raw-fd and `sa_std/os/fd` owned-fd helpers.
    - `std::os::unix::process::{ChildStdout,ChildStderr}` raw-fd trait aliases over the existing owned-fd facade.
    - `std::os::unix::process::CommandExt::{uid,gid}`: child-side `setgid` / `setuid` spawn config plus current `PROCESS_USER_ID` / `PROCESS_GROUP_ID` facade.
    - `std::os::unix::process::CommandExt::groups`: child-side `setgroups` spawn config across capture/inherit/stream modes.
@@ -67,6 +68,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the process-group signal batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the pidfd process batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the PidFd raw-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the PidFd owned-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Child stdout/stderr raw-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the CommandExt uid/gid batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the CommandExt groups batch (`6/6 steps succeeded; 5/5 tests passed`).
@@ -111,6 +113,8 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Updated process macro-surface test passes with pidfd handle/wait/kill assertions:
   - `std_process_macro_surface.sa`
 - Updated process macro-surface test passes with PidFd raw-fd alias assertions:
+  - `std_process_macro_surface.sa`
+- Updated process macro-surface test passes with PidFd owned-fd alias assertions:
   - `std_process_macro_surface.sa`
 - Updated process macro-surface test passes with ChildStdout/ChildStderr raw-fd alias assertions:
   - `std_process_macro_surface.sa`
@@ -160,6 +164,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the process-group signal install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the pidfd process install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the PidFd raw-fd alias install sync.
+- Installed-state smoke passes for `std_process_macro_surface.sa` after the PidFd owned-fd alias install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the Child stdout/stderr raw-fd alias install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the CommandExt uid/gid install sync.
 - Installed-state smoke passes for `std_process_macro_surface.sa` after the CommandExt groups install sync.
@@ -187,16 +192,14 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 
 ## Current Status
 
-- Source/facade/test changes are complete for the Unix socket owned-fd alias batch.
-- This batch adds no runtime/header ABI symbols; it composes existing Unix socket raw-fd helpers with `sa_std/os/fd` owned-fd helpers.
-- Focused source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa --filter domain` passes (`1 passed`).
-- Focused source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa --filter pair` passes (`1 passed`).
-- Full source-std Unix socket `sa test` for `std_net_unix_macro_surface.sa` passes (`4 passed`).
+- Source/facade/test changes are complete for the PidFd owned-fd alias batch.
+- This batch adds no runtime/header ABI symbols; it composes existing PidFd raw-fd helpers with `sa_std/os/fd` owned-fd helpers.
+- Focused source-std process `sa test` for `std_process_macro_surface.sa --filter pidfd` passes (`1 passed`).
+- Full source-std process `sa test` for `std_process_macro_surface.sa` passes (`14 passed`).
 - `zig build unit-framework --summary all` passes.
 - Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
-- Installed-state focused Unix socket smoke for `std_net_unix_macro_surface.sa --filter domain` passes (`1 passed`).
-- Installed-state focused Unix socket smoke for `std_net_unix_macro_surface.sa --filter pair` passes (`1 passed`).
-- Installed-state full Unix socket smoke for `std_net_unix_macro_surface.sa` passes (`4 passed`).
+- Installed-state focused process smoke for `std_process_macro_surface.sa --filter pidfd` passes (`1 passed`).
+- Installed-state full process smoke for `std_process_macro_surface.sa` passes (`14 passed`).
 
 ## Notes
 

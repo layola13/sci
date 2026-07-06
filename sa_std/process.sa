@@ -499,6 +499,20 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     EXPAND FD_CLOSE_RAW %out_status, %fd
 [END_MACRO]
 
+[MACRO] PIDFD_INTO_OWNED_FD %out_status, %out_fd_handle, %pidfd
+    EXPAND PIDFD_INTO_RAW_FD %out_status, __pidfd_owned_raw_%out_status, %pidfd
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __pidfd_owned_raw_%out_status
+    !__pidfd_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] PIDFD_FROM_OWNED_FD %out_status, %out_pidfd, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __pidfd_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND PIDFD_FROM_RAW_FD %out_status, %out_pidfd, __pidfd_from_owned_raw_%out_status
+    !__pidfd_from_owned_raw_%out_status
+[END_MACRO]
+
 [MACRO] PROCESS_CHILD_STDOUT_AS_RAW_FD %out_status, %out_fd, %stdout
     EXPAND FD_AS_RAW %out_status, %out_fd, %stdout
 [END_MACRO]

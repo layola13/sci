@@ -81,6 +81,8 @@
 - [x] Unix fs symlink/chown alias 批次已完成 focused/full Unix fs 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::linux::process::PidFd` raw-fd trait 命名表面：补 `PIDFD_AS_RAW_FD`、`PIDFD_INTO_RAW_FD`、`PIDFD_FROM_RAW_FD`、`PIDFD_CLOSE_RAW_FD` 宏别名，复用现有 `sa_std/os/fd` owned-fd runtime。
 - [x] PidFd raw-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::process::PidFd` owned-fd trait 命名表面：补 `PIDFD_INTO_OWNED_FD`、`PIDFD_FROM_OWNED_FD` 宏别名，复用 PidFd raw-fd 与 `sa_std/os/fd` owned-fd facade。
+- [x] PidFd owned-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait 表面：补 stream/listener `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 命名宏；`from_raw_fd` 注册回对应 Unix stream/listener 资源类型。
 - [x] Unix socket raw-fd trait 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::net::{UnixStream,UnixListener}` owned-fd trait 表面：补 stream/listener `into_owned_fd`、`from_owned_fd` 风格宏别名，复用 raw-fd trait 与 `sa_std/os/fd` owned-fd facade。
