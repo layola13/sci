@@ -1452,6 +1452,74 @@ L_STRING_BUF_DRAIN_OK:
     !ok
     return
 
+@test "sa_std string buffer split_off char boundary macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS source, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS left_expected, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS tail_expected, &UTF8_SMILE_Z, 5
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED split_buf, source
+    EXPAND STRING_BUF_TRY_SPLIT_OFF split_ok, split_tail, split_buf, 3
+    EXPAND STRING_BUF_AS_STR split_left, split_buf
+    EXPAND STRING_BUF_AS_STR split_tail_view, split_tail
+    EXPAND STR_EQ split_left_eq, split_left, left_expected
+    EXPAND STR_EQ split_tail_eq, split_tail_view, tail_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED miss_buf, source
+    EXPAND STRING_BUF_TRY_SPLIT_OFF miss_ok, miss_tail, miss_buf, 2
+    EXPAND STRING_BUF_AS_STR miss_after, miss_buf
+    EXPAND STRING_BUF_AS_STR miss_tail_view, miss_tail
+    EXPAND STR_EQ miss_after_eq, miss_after, source
+    EXPAND STR_IS_EMPTY miss_tail_empty, miss_tail_view
+
+    split_flag_ok = eq split_ok, 1
+    split_left_ok = eq split_left_eq, 1
+    split_tail_ok = eq split_tail_eq, 1
+    miss_flag_ok = eq miss_ok, 0
+    miss_after_ok = eq miss_after_eq, 1
+    miss_tail_ok = eq miss_tail_empty, 1
+    ok01 = and split_flag_ok, split_left_ok
+    ok02 = and ok01, split_tail_ok
+    ok03 = and ok02, miss_flag_ok
+    ok04 = and ok03, miss_after_ok
+    ok = and ok04, miss_tail_ok
+    !source
+    !left_expected
+    !tail_expected
+    !split_ok
+    !split_left
+    !split_tail_view
+    !split_left_eq
+    !split_tail_eq
+    !miss_ok
+    !miss_after
+    !miss_tail_view
+    !miss_after_eq
+    !miss_tail_empty
+    !split_flag_ok
+    !split_left_ok
+    !split_tail_ok
+    !miss_flag_ok
+    !miss_after_ok
+    !miss_tail_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    EXPAND STRING_BUF_FREE split_buf
+    EXPAND STRING_BUF_FREE split_tail
+    EXPAND STRING_BUF_FREE miss_buf
+    EXPAND STRING_BUF_FREE miss_tail
+    br ok -> L_STRING_BUF_SPLIT_OFF_BOUNDARY_OK, L_STRING_BUF_SPLIT_OFF_BOUNDARY_FAIL
+
+L_STRING_BUF_SPLIT_OFF_BOUNDARY_FAIL:
+    !ok
+    panic(921)
+
+L_STRING_BUF_SPLIT_OFF_BOUNDARY_OK:
+    !ok
+    return
+
 @test "sa_std string buffer pop char macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS source, &UTF8_BOUNDARY_TEXT, 8

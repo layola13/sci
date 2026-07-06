@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf split_off boundary parity batch
+
+- Continued String Rust API parity work by correcting existing `STRING_BUF_TRY_SPLIT_OFF` / `STRING_BUF_SPLIT_OFF` semantics to match Rust `String::split_off` char-boundary requirements.
+- Behavior change: split indexes must now be UTF-8 char boundaries. Invalid/non-boundary indexes return `ok=0`, return an empty tail `StringBuf`, and leave the original buffer unchanged.
+- Implementation note: the macro now checks `STR_IS_CHAR_BOUNDARY` on the current `StringBuf` view before delegating to the existing Vec split path.
+- Updated `std_string_macro_surface.sa` coverage:
+  - successful UTF-8 split at byte index `3` in `aé🙂z`, leaving `aé` and returning `🙂z`.
+  - failed split at continuation byte index `2`, preserving the original string and returning an empty tail.
+- Validation status:
+  - Source focused `split_off char` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`19 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `split_off char` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`19 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
 ## Completed: 2026-07-06 StringBuf drain(range) facade batch
 
 - Continued String Rust API parity work with the supportable `String::drain(range)` subset.

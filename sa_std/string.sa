@@ -605,7 +605,22 @@ L_STRING_BUF_DRAIN_END_%out_ok:
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
+    EXPAND STRING_BUF_AS_STR __string_buf_split_off_view_%out_ok, %string_reg
+    EXPAND STR_IS_CHAR_BOUNDARY __string_buf_split_off_boundary_%out_ok, __string_buf_split_off_view_%out_ok, %index
+    !__string_buf_split_off_view_%out_ok
+    br __string_buf_split_off_boundary_%out_ok -> L_STRING_BUF_SPLIT_OFF_HIT_%out_ok, L_STRING_BUF_SPLIT_OFF_MISS_%out_ok
+
+L_STRING_BUF_SPLIT_OFF_HIT_%out_ok:
     EXPAND VEC_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index, 1
+    !__string_buf_split_off_boundary_%out_ok
+    jmp L_STRING_BUF_SPLIT_OFF_END_%out_ok
+
+L_STRING_BUF_SPLIT_OFF_MISS_%out_ok:
+    EXPAND STRING_BUF_NEW %out_tail
+    %out_ok = add 0, 0
+    !__string_buf_split_off_boundary_%out_ok
+
+L_STRING_BUF_SPLIT_OFF_END_%out_ok:
 [END_MACRO]
 
 [MACRO] STRING_BUF_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
