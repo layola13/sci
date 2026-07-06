@@ -4,6 +4,36 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf remove(idx) facade batch
+
+- Continued String Rust API parity work with the supportable `String::remove(idx)` byte-index subset.
+- Added UTF-8 byte-index decode helper surfaces:
+  - runtime export `sa_str_utf8_char_at_byte`
+  - SA extern `sa_str_utf8_char_at_byte`
+  - macros `STR_TRY_CHAR_AT_BYTE` and `STRING_TRY_CHAR_AT_BYTE`
+- Added StringBuf remove-char macro surfaces:
+  - `STRING_BUF_TRY_REMOVE_CHAR_AT`
+  - `STRING_BUF_REMOVE_CHAR_AT`
+- Semantics: successful removal returns the Unicode codepoint and removes the full UTF-8 scalar at the supplied byte index; out-of-bounds indexes and continuation-byte indexes return `ok=0`, clear the codepoint output, and leave the string unchanged.
+- Updated `std_string_macro_surface.sa` coverage:
+  - byte-index decode for `é` and `🙂`, including UTF-8 byte width.
+  - removal of ASCII, 2-byte, 4-byte, and trailing ASCII chars from `aé🙂z`.
+  - failure on continuation-byte and end indexes leaves the buffer unchanged.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_str_utf8_char_at_byte'`: pass, symbol exported in both libs.
+  - Source focused remove-char test: pass.
+  - Source focused UTF-8 byte/char helper test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`16 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused remove-char test: pass.
+  - Installed-state focused UTF-8 byte/char helper test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`16 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
 ## Completed: 2026-07-06 StringBuf extend_from_within facade batch
 
 - Continued String Rust API parity work with the supportable `String::extend_from_within` subset.

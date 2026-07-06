@@ -75,6 +75,10 @@
 @const UTF8_SMILE = utf8:"🙂"
 @const UTF8_SMILE_Z = utf8:"🙂z"
 @const UTF8_Z = utf8:"z"
+@const UTF8_AFTER_REMOVE_A = utf8:"é🙂z"
+@const UTF8_AFTER_REMOVE_E = utf8:"a🙂z"
+@const UTF8_AFTER_REMOVE_SMILE = utf8:"aéz"
+@const UTF8_AFTER_REMOVE_Z = utf8:"aé🙂"
 
 @vec_pop_if_is_99(value: u64) -> u64:
 L_ENTRY:
@@ -1191,6 +1195,158 @@ L_STRING_BUF_CHAR_OK:
     !ok
     return
 
+@test "sa_std string buffer remove char at byte macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS source, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS after_a_expected, &UTF8_AFTER_REMOVE_A, 7
+    EXPAND STR_FROM_PARTS after_e_expected, &UTF8_AFTER_REMOVE_E, 6
+    EXPAND STR_FROM_PARTS after_smile_expected, &UTF8_AFTER_REMOVE_SMILE, 4
+    EXPAND STR_FROM_PARTS after_z_expected, &UTF8_AFTER_REMOVE_Z, 7
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED ascii_buf, source
+    EXPAND STRING_BUF_TRY_REMOVE_CHAR_AT ascii_ok, ascii_cp, ascii_buf, 0
+    EXPAND STRING_BUF_AS_STR ascii_after, ascii_buf
+    EXPAND STR_EQ ascii_eq, ascii_after, after_a_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED e_buf, source
+    EXPAND STRING_BUF_TRY_REMOVE_CHAR_AT e_ok, e_cp, e_buf, 1
+    EXPAND STRING_BUF_AS_STR e_after, e_buf
+    EXPAND STR_EQ e_eq, e_after, after_e_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED smile_buf, source
+    EXPAND STRING_BUF_TRY_REMOVE_CHAR_AT smile_ok, smile_cp, smile_buf, 3
+    EXPAND STRING_BUF_AS_STR smile_after, smile_buf
+    EXPAND STR_EQ smile_eq, smile_after, after_smile_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED alias_buf, source
+    EXPAND STRING_BUF_REMOVE_CHAR_AT alias_ok, alias_cp, alias_buf, 7
+    EXPAND STRING_BUF_AS_STR alias_after, alias_buf
+    EXPAND STR_EQ alias_eq, alias_after, after_z_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED continuation_buf, source
+    EXPAND STRING_BUF_TRY_REMOVE_CHAR_AT continuation_ok, continuation_cp, continuation_buf, 2
+    EXPAND STRING_BUF_AS_STR continuation_after, continuation_buf
+    EXPAND STR_EQ continuation_eq, continuation_after, source
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED end_buf, source
+    EXPAND STRING_BUF_TRY_REMOVE_CHAR_AT end_ok, end_cp, end_buf, 8
+    EXPAND STRING_BUF_AS_STR end_after, end_buf
+    EXPAND STR_EQ end_eq, end_after, source
+
+    ascii_flag_ok = eq ascii_ok, 1
+    ascii_cp_ok = eq ascii_cp, 97
+    ascii_value_ok = eq ascii_eq, 1
+    e_flag_ok = eq e_ok, 1
+    e_cp_ok = eq e_cp, 233
+    e_value_ok = eq e_eq, 1
+    smile_flag_ok = eq smile_ok, 1
+    smile_cp_ok = eq smile_cp, 128578
+    smile_value_ok = eq smile_eq, 1
+    alias_flag_ok = eq alias_ok, 1
+    alias_cp_ok = eq alias_cp, 122
+    alias_value_ok = eq alias_eq, 1
+    continuation_flag_ok = eq continuation_ok, 0
+    continuation_cp_ok = eq continuation_cp, 0
+    continuation_value_ok = eq continuation_eq, 1
+    end_flag_ok = eq end_ok, 0
+    end_cp_ok = eq end_cp, 0
+    end_value_ok = eq end_eq, 1
+    ok01 = and ascii_flag_ok, ascii_cp_ok
+    ok02 = and ok01, ascii_value_ok
+    ok03 = and ok02, e_flag_ok
+    ok04 = and ok03, e_cp_ok
+    ok05 = and ok04, e_value_ok
+    ok06 = and ok05, smile_flag_ok
+    ok07 = and ok06, smile_cp_ok
+    ok08 = and ok07, smile_value_ok
+    ok09 = and ok08, alias_flag_ok
+    ok10 = and ok09, alias_cp_ok
+    ok11 = and ok10, alias_value_ok
+    ok12 = and ok11, continuation_flag_ok
+    ok13 = and ok12, continuation_cp_ok
+    ok14 = and ok13, continuation_value_ok
+    ok15 = and ok14, end_flag_ok
+    ok16 = and ok15, end_cp_ok
+    ok = and ok16, end_value_ok
+    !source
+    !after_a_expected
+    !after_e_expected
+    !after_smile_expected
+    !after_z_expected
+    !ascii_ok
+    !ascii_cp
+    !ascii_after
+    !ascii_eq
+    !e_ok
+    !e_cp
+    !e_after
+    !e_eq
+    !smile_ok
+    !smile_cp
+    !smile_after
+    !smile_eq
+    !alias_ok
+    !alias_cp
+    !alias_after
+    !alias_eq
+    !continuation_ok
+    !continuation_cp
+    !continuation_after
+    !continuation_eq
+    !end_ok
+    !end_cp
+    !end_after
+    !end_eq
+    !ascii_flag_ok
+    !ascii_cp_ok
+    !ascii_value_ok
+    !e_flag_ok
+    !e_cp_ok
+    !e_value_ok
+    !smile_flag_ok
+    !smile_cp_ok
+    !smile_value_ok
+    !alias_flag_ok
+    !alias_cp_ok
+    !alias_value_ok
+    !continuation_flag_ok
+    !continuation_cp_ok
+    !continuation_value_ok
+    !end_flag_ok
+    !end_cp_ok
+    !end_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    EXPAND STRING_BUF_FREE ascii_buf
+    EXPAND STRING_BUF_FREE e_buf
+    EXPAND STRING_BUF_FREE smile_buf
+    EXPAND STRING_BUF_FREE alias_buf
+    EXPAND STRING_BUF_FREE continuation_buf
+    EXPAND STRING_BUF_FREE end_buf
+    br ok -> L_STRING_BUF_REMOVE_CHAR_OK, L_STRING_BUF_REMOVE_CHAR_FAIL
+
+L_STRING_BUF_REMOVE_CHAR_FAIL:
+    !ok
+    panic(918)
+
+L_STRING_BUF_REMOVE_CHAR_OK:
+    !ok
+    return
+
 @test "sa_std string find macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
@@ -2048,6 +2204,9 @@ L_ENTRY:
     EXPAND STRING_TRY_BYTE_AT byte0_ok, byte0, utf8_boundary, 0
     EXPAND STR_TRY_BYTE_AT byte3_ok, byte3, utf8_boundary, 3
     EXPAND STRING_TRY_BYTE_AT byte_bad_ok, byte_bad, utf8_boundary, 99
+    EXPAND STR_TRY_CHAR_AT_BYTE byte_char_e_ok, byte_char_e, byte_char_e_len, utf8_boundary, 1
+    EXPAND STRING_TRY_CHAR_AT_BYTE byte_char_smile_ok, byte_char_smile, byte_char_smile_len, utf8_boundary, 3
+    EXPAND STR_TRY_CHAR_AT_BYTE byte_char_bad_ok, byte_char_bad, byte_char_bad_len, utf8_boundary, 2
     EXPAND STR_CHAR_COUNT char_count, utf8_boundary
     EXPAND STR_TRY_CHAR_AT char0_ok, char0, utf8_boundary, 0
     EXPAND STRING_TRY_CHAR_AT char1_ok, char1, utf8_boundary, 1
@@ -2066,6 +2225,15 @@ L_ENTRY:
     byte3_value_ok = eq byte3, 240
     byte_bad_flag_ok = eq byte_bad_ok, 0
     byte_bad_value_ok = eq byte_bad, 0
+    byte_char_e_flag_ok = eq byte_char_e_ok, 1
+    byte_char_e_value_ok = eq byte_char_e, 233
+    byte_char_e_len_ok = eq byte_char_e_len, 2
+    byte_char_smile_flag_ok = eq byte_char_smile_ok, 1
+    byte_char_smile_value_ok = eq byte_char_smile, 128578
+    byte_char_smile_len_ok = eq byte_char_smile_len, 4
+    byte_char_bad_flag_ok = eq byte_char_bad_ok, 0
+    byte_char_bad_value_ok = eq byte_char_bad, 0
+    byte_char_bad_len_ok = eq byte_char_bad_len, 0
     char_count_ok = eq char_count, 4
     char0_flag_ok = eq char0_ok, 1
     char0_value_ok = eq char0, 97
@@ -2105,7 +2273,16 @@ L_ENTRY:
     ok20 = and ok19, range_smile_value_ok
     ok21 = and ok20, range_bad_empty_ok
     ok22 = and ok21, utf8_valid_ok
-    ok = and ok22, utf8_invalid_ok
+    ok23 = and ok22, utf8_invalid_ok
+    ok24 = and ok23, byte_char_e_flag_ok
+    ok25 = and ok24, byte_char_e_value_ok
+    ok26 = and ok25, byte_char_e_len_ok
+    ok27 = and ok26, byte_char_smile_flag_ok
+    ok28 = and ok27, byte_char_smile_value_ok
+    ok29 = and ok28, byte_char_smile_len_ok
+    ok30 = and ok29, byte_char_bad_flag_ok
+    ok31 = and ok30, byte_char_bad_value_ok
+    ok = and ok31, byte_char_bad_len_ok
     !utf8_boundary
     !utf8_e
     !utf8_smile
@@ -2119,6 +2296,15 @@ L_ENTRY:
     !byte3
     !byte_bad_ok
     !byte_bad
+    !byte_char_e_ok
+    !byte_char_e
+    !byte_char_e_len
+    !byte_char_smile_ok
+    !byte_char_smile
+    !byte_char_smile_len
+    !byte_char_bad_ok
+    !byte_char_bad
+    !byte_char_bad_len
     !char_count
     !char0_ok
     !char0
@@ -2144,6 +2330,15 @@ L_ENTRY:
     !byte3_value_ok
     !byte_bad_flag_ok
     !byte_bad_value_ok
+    !byte_char_e_flag_ok
+    !byte_char_e_value_ok
+    !byte_char_e_len_ok
+    !byte_char_smile_flag_ok
+    !byte_char_smile_value_ok
+    !byte_char_smile_len_ok
+    !byte_char_bad_flag_ok
+    !byte_char_bad_value_ok
+    !byte_char_bad_len_ok
     !char_count_ok
     !char0_flag_ok
     !char0_value_ok
@@ -2183,6 +2378,15 @@ L_ENTRY:
     !ok20
     !ok21
     !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
     br ok -> L_UTF8_VIEW_OK, L_UTF8_VIEW_FAIL
 
 L_UTF8_VIEW_FAIL:

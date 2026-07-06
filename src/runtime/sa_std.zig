@@ -9765,6 +9765,19 @@ pub export fn sa_str_utf8_char_at(ptr: ?[*]const u8, len: u64, char_index: u64, 
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_str_utf8_char_at_byte(ptr: ?[*]const u8, len: u64, byte_index: u64, out_codepoint: ?*u64, out_len: ?*u64) i32 {
+    const codepoint_ptr = out_codepoint orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    codepoint_ptr.* = 0;
+    len_ptr.* = 0;
+    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
+    if (byte_index > std.math.maxInt(usize)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const decoded = utf8ScalarAt(bytes, @as(usize, @intCast(byte_index))) catch |err| return finishErr(err);
+    codepoint_ptr.* = decoded.scalar;
+    len_ptr.* = @as(u64, @intCast(decoded.width));
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_str_utf8_char_range_at(ptr: ?[*]const u8, len: u64, char_index: u64, out_start: ?*u64, out_len: ?*u64) i32 {
     const start_ptr = out_start orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
