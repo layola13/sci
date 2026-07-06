@@ -604,6 +604,87 @@ L_STRING_BUF_DRAIN_END_%out_ok:
     EXPAND STRING_BUF_TRY_DRAIN %out_ok, %out_string, %string_reg, %start, %length
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_RETAIN %out_ok, %out_len, %string_reg, %pred_fn
+    EXPAND STRING_BUF_AS_STR __string_buf_retain_view_%out_ok, %string_reg
+    EXPAND STR_LEN __string_buf_retain_old_len_%out_ok, __string_buf_retain_view_%out_ok
+    __string_buf_retain_old_ptr_%out_ok = load __string_buf_retain_view_%out_ok+Slice_ptr as ptr
+    EXPAND STRING_BUF_WITH_CAPACITY __string_buf_retain_new_%out_ok, __string_buf_retain_old_len_%out_ok
+    __string_buf_retain_index_slot_%out_ok = stack_alloc 8
+    store __string_buf_retain_index_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_BUF_RETAIN_HEAD_%out_ok
+
+L_STRING_BUF_RETAIN_HEAD_%out_ok:
+    __string_buf_retain_index_%out_ok = load __string_buf_retain_index_slot_%out_ok+0 as u64
+    __string_buf_retain_done_%out_ok = eq __string_buf_retain_index_%out_ok, __string_buf_retain_old_len_%out_ok
+    br __string_buf_retain_done_%out_ok -> L_STRING_BUF_RETAIN_DONE_%out_ok, L_STRING_BUF_RETAIN_BODY_%out_ok
+
+L_STRING_BUF_RETAIN_BODY_%out_ok:
+    EXPAND STR_TRY_CHAR_AT_BYTE __string_buf_retain_decode_ok_%out_ok, __string_buf_retain_codepoint_%out_ok, __string_buf_retain_width_%out_ok, __string_buf_retain_view_%out_ok, __string_buf_retain_index_%out_ok
+    br __string_buf_retain_decode_ok_%out_ok -> L_STRING_BUF_RETAIN_PRED_%out_ok, L_STRING_BUF_RETAIN_FAIL_%out_ok
+
+L_STRING_BUF_RETAIN_PRED_%out_ok:
+    __string_buf_retain_pred_%out_ok = call %pred_fn(__string_buf_retain_codepoint_%out_ok)
+    __string_buf_retain_keep_%out_ok = ne __string_buf_retain_pred_%out_ok, 0
+    br __string_buf_retain_keep_%out_ok -> L_STRING_BUF_RETAIN_KEEP_%out_ok, L_STRING_BUF_RETAIN_SKIP_%out_ok
+
+L_STRING_BUF_RETAIN_KEEP_%out_ok:
+    __string_buf_retain_part_ptr_%out_ok = ptr_add __string_buf_retain_old_ptr_%out_ok, __string_buf_retain_index_%out_ok
+    __string_buf_retain_part_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_retain_part_%out_ok, __string_buf_retain_part_ptr_%out_ok, __string_buf_retain_width_%out_ok
+    EXPAND STRING_BUF_PUSH_STR __string_buf_retain_new_%out_ok, __string_buf_retain_part_%out_ok
+    !__string_buf_retain_part_%out_ok
+    !__string_buf_retain_part_ptr_%out_ok
+    jmp L_STRING_BUF_RETAIN_NEXT_%out_ok
+
+L_STRING_BUF_RETAIN_SKIP_%out_ok:
+    jmp L_STRING_BUF_RETAIN_NEXT_%out_ok
+
+L_STRING_BUF_RETAIN_NEXT_%out_ok:
+    __string_buf_retain_next_index_%out_ok = add __string_buf_retain_index_%out_ok, __string_buf_retain_width_%out_ok
+    store __string_buf_retain_index_slot_%out_ok+0, __string_buf_retain_next_index_%out_ok as u64
+    !__string_buf_retain_next_index_%out_ok
+    !__string_buf_retain_keep_%out_ok
+    !__string_buf_retain_pred_%out_ok
+    !__string_buf_retain_width_%out_ok
+    !__string_buf_retain_codepoint_%out_ok
+    !__string_buf_retain_decode_ok_%out_ok
+    !__string_buf_retain_done_%out_ok
+    !__string_buf_retain_index_%out_ok
+    jmp L_STRING_BUF_RETAIN_HEAD_%out_ok
+
+L_STRING_BUF_RETAIN_FAIL_%out_ok:
+    EXPAND STRING_BUF_FREE __string_buf_retain_new_%out_ok
+    %out_len = add __string_buf_retain_old_len_%out_ok, 0
+    %out_ok = add 0, 0
+    !__string_buf_retain_width_%out_ok
+    !__string_buf_retain_codepoint_%out_ok
+    !__string_buf_retain_decode_ok_%out_ok
+    !__string_buf_retain_done_%out_ok
+    !__string_buf_retain_index_%out_ok
+    !__string_buf_retain_old_ptr_%out_ok
+    !__string_buf_retain_old_len_%out_ok
+    !__string_buf_retain_view_%out_ok
+    jmp L_STRING_BUF_RETAIN_END_%out_ok
+
+L_STRING_BUF_RETAIN_DONE_%out_ok:
+    EXPAND STRING_BUF_LEN %out_len, __string_buf_retain_new_%out_ok
+    EXPAND STRING_BUF_FREE %string_reg
+    %string_reg = __string_buf_retain_new_%out_ok
+    %out_ok = add 0, 1
+    !__string_buf_retain_done_%out_ok
+    !__string_buf_retain_index_%out_ok
+    !__string_buf_retain_old_ptr_%out_ok
+    !__string_buf_retain_old_len_%out_ok
+    !__string_buf_retain_view_%out_ok
+
+L_STRING_BUF_RETAIN_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_RETAIN %out_len, %string_reg, %pred_fn
+    EXPAND STRING_BUF_TRY_RETAIN __string_buf_retain_ok_%out_len, %out_len, %string_reg, %pred_fn
+    !__string_buf_retain_ok_%out_len
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_SPLIT_OFF %out_ok, %out_tail, %string_reg, %index
     EXPAND STRING_BUF_AS_STR __string_buf_split_off_view_%out_ok, %string_reg
     EXPAND STR_IS_CHAR_BOUNDARY __string_buf_split_off_boundary_%out_ok, __string_buf_split_off_view_%out_ok, %index

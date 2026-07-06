@@ -132,6 +132,23 @@ L_ENTRY:
     !value
     return take
 
+@string_retain_not_smile_z(codepoint: u64) -> u64:
+L_ENTRY:
+    is_smile = eq codepoint, 128578
+    is_z = eq codepoint, 122
+    drop = or is_smile, is_z
+    keep = eq drop, 0
+    !is_smile
+    !is_z
+    !drop
+    !codepoint
+    return keep
+
+@string_retain_none(codepoint: u64) -> u64:
+L_ENTRY:
+    !codepoint
+    return 0
+
 @slice_partition_lt_30(value: u64) -> u64:
 L_ENTRY:
     keep = ult value, 30
@@ -1449,6 +1466,61 @@ L_STRING_BUF_DRAIN_FAIL:
     panic(920)
 
 L_STRING_BUF_DRAIN_OK:
+    !ok
+    return
+
+@test "sa_std string buffer retain macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS source, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS retain_expected, &UTF8_A_E, 3
+    EXPAND STR_EMPTY empty_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED retain_buf, source
+    EXPAND STRING_BUF_TRY_RETAIN retain_ok, retain_len, retain_buf, @string_retain_not_smile_z
+    EXPAND STRING_BUF_AS_STR retain_after, retain_buf
+    EXPAND STR_EQ retain_eq, retain_after, retain_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED none_buf, source
+    EXPAND STRING_BUF_RETAIN none_len, none_buf, @string_retain_none
+    EXPAND STRING_BUF_AS_STR none_after, none_buf
+    EXPAND STR_EQ none_eq, none_after, empty_expected
+
+    retain_flag_ok = eq retain_ok, 1
+    retain_len_ok = eq retain_len, 3
+    retain_value_ok = eq retain_eq, 1
+    none_len_ok = eq none_len, 0
+    none_value_ok = eq none_eq, 1
+    ok01 = and retain_flag_ok, retain_len_ok
+    ok02 = and ok01, retain_value_ok
+    ok03 = and ok02, none_len_ok
+    ok = and ok03, none_value_ok
+    !source
+    !retain_expected
+    !empty_expected
+    !retain_ok
+    !retain_len
+    !retain_after
+    !retain_eq
+    !none_len
+    !none_after
+    !none_eq
+    !retain_flag_ok
+    !retain_len_ok
+    !retain_value_ok
+    !none_len_ok
+    !none_value_ok
+    !ok01
+    !ok02
+    !ok03
+    EXPAND STRING_BUF_FREE retain_buf
+    EXPAND STRING_BUF_FREE none_buf
+    br ok -> L_STRING_BUF_RETAIN_OK, L_STRING_BUF_RETAIN_FAIL
+
+L_STRING_BUF_RETAIN_FAIL:
+    !ok
+    panic(922)
+
+L_STRING_BUF_RETAIN_OK:
     !ok
     return
 

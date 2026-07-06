@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf retain facade batch
+
+- Continued String Rust API parity work with the supportable `String::retain` subset.
+- Added StringBuf predicate-retain macro surfaces:
+  - `STRING_BUF_TRY_RETAIN`
+  - `STRING_BUF_RETAIN`
+- Semantics: the macro decodes the source by UTF-8 scalar, calls a user predicate with the Unicode codepoint, copies retained scalar slices into a new `StringBuf`, then replaces the original buffer. `TRY_RETAIN` returns `ok=0` and leaves the original unchanged if internal UTF-8 decoding fails.
+- Scope note: this is the SA function-pointer predicate form; it does not claim Rust closure capture or full trait/iterator machinery.
+- Updated `std_string_macro_surface.sa` coverage:
+  - retain `aé` from `aé🙂z` by dropping `🙂` and `z`.
+  - retain-none alias path empties the string and returns length `0`.
+- Validation status:
+  - Source focused `retain` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `retain` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
 ## Completed: 2026-07-06 StringBuf split_off boundary parity batch
 
 - Continued String Rust API parity work by correcting existing `STRING_BUF_TRY_SPLIT_OFF` / `STRING_BUF_SPLIT_OFF` semantics to match Rust `String::split_off` char-boundary requirements.

@@ -125,6 +125,8 @@
 - [x] String drain-range 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` Rust API parity 修正：`STRING_BUF_TRY_SPLIT_OFF` / `STRING_BUF_SPLIT_OFF` 对齐 Rust `String::split_off`，要求 split index 是 UTF-8 char boundary。
 - [x] String split_off boundary 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::retain` 可支撑形态，按 Unicode codepoint predicate 保留字符并重建 StringBuf。
+- [x] String retain 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
