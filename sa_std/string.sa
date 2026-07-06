@@ -310,6 +310,16 @@ L_STRING_BUF_REPLACE_ALL_DONE_%out_string:
 L_STRING_BUF_REPLACE_ALL_END_%out_string:
 [END_MACRO]
 
+[MACRO] STRING_BUF_REMOVE_MATCHES %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_remove_matches_view_%string_reg, %string_reg
+    EXPAND STR_EMPTY __string_buf_remove_matches_empty_%string_reg
+    EXPAND STRING_BUF_REPLACE __string_buf_remove_matches_new_%string_reg, __string_buf_remove_matches_view_%string_reg, %needle_slice, __string_buf_remove_matches_empty_%string_reg
+    EXPAND VEC_FREE %string_reg
+    %string_reg = __string_buf_remove_matches_new_%string_reg
+    !__string_buf_remove_matches_empty_%string_reg
+    !__string_buf_remove_matches_view_%string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_RESERVE %string_reg, %additional
     EXPAND VEC_RESERVE %string_reg, %additional, 1
 [END_MACRO]

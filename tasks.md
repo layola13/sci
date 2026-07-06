@@ -111,6 +111,8 @@
 - [x] `Vec::{into_raw_parts,from_raw_parts}` 与 `StringBuf::{into_raw_parts,from_raw_parts}` facade 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String` replace-first/replace-last 风格宏表面，以及 `Vec::push_mut` / `Vec::insert_mut` 风格 mut-return 宏表面。
 - [x] String/Vec mut-return + replace-first/last 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `Vec::from_fn` 风格生成宏与 `String::remove_matches` 风格 slice-pattern 删除宏表面。
+- [x] String remove_matches + Vec from_fn 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

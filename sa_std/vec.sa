@@ -500,6 +500,37 @@ L_VEC_POP_IF_END_%out_ok:
     EXPAND VEC_TRY_WITH_CAPACITY %out_ok, %out_vec, %cap, 8
 [END_MACRO]
 
+[MACRO] VEC_FROM_FN %out_vec, %length, %gen_fn, %elem_size
+    EXPAND VEC_WITH_CAPACITY %out_vec, %length, %elem_size
+    __vec_from_fn_idx_slot_%out_vec = stack_alloc 8
+    store __vec_from_fn_idx_slot_%out_vec+0, 0 as u64
+    jmp L_VEC_FROM_FN_HEAD_%out_vec
+
+L_VEC_FROM_FN_HEAD_%out_vec:
+    __vec_from_fn_idx_%out_vec = load __vec_from_fn_idx_slot_%out_vec+0 as u64
+    __vec_from_fn_done_%out_vec = eq __vec_from_fn_idx_%out_vec, %length
+    br __vec_from_fn_done_%out_vec -> L_VEC_FROM_FN_DONE_%out_vec, L_VEC_FROM_FN_BODY_%out_vec
+
+L_VEC_FROM_FN_BODY_%out_vec:
+    __vec_from_fn_value_%out_vec = call %gen_fn(__vec_from_fn_idx_%out_vec)
+    EXPAND VEC_PUSH %out_vec, __vec_from_fn_value_%out_vec, %elem_size
+    __vec_from_fn_next_%out_vec = add __vec_from_fn_idx_%out_vec, 1
+    store __vec_from_fn_idx_slot_%out_vec+0, __vec_from_fn_next_%out_vec as u64
+    !__vec_from_fn_next_%out_vec
+    !__vec_from_fn_value_%out_vec
+    !__vec_from_fn_done_%out_vec
+    !__vec_from_fn_idx_%out_vec
+    jmp L_VEC_FROM_FN_HEAD_%out_vec
+
+L_VEC_FROM_FN_DONE_%out_vec:
+    !__vec_from_fn_done_%out_vec
+    !__vec_from_fn_idx_%out_vec
+[END_MACRO]
+
+[MACRO] VEC_FROM_FN_U64 %out_vec, %length, %gen_fn
+    EXPAND VEC_FROM_FN %out_vec, %length, %gen_fn, 8
+[END_MACRO]
+
 [MACRO] VEC_CONTAINS_U64 %out_bool, %vec_reg, %needle
     EXPAND VEC_AS_SLICE __vec_contains_slice_%out_bool, %vec_reg
     EXPAND SLICE_CONTAINS_U64 %out_bool, __vec_contains_slice_%out_bool, %needle

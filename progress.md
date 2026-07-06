@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf remove_matches and Vec from_fn facade batch
+
+- Continued String/Vec Rust API parity work with another supportable macro-only batch.
+- Added Vec indexed generation macro surfaces corresponding to the supportable shape of Rust `Vec::from_fn`:
+  - `VEC_FROM_FN`
+  - `VEC_FROM_FN_U64`
+- Added StringBuf slice-pattern removal surface corresponding to the supportable shape of Rust `String::remove_matches`:
+  - `STRING_BUF_REMOVE_MATCHES`
+- Scope note: `STRING_BUF_REMOVE_MATCHES` covers slice patterns via the existing `STRING_BUF_REPLACE` engine; it does not claim full Rust `Pattern` trait coverage.
+- Updated macro-surface tests:
+  - `std_vec_macro_surface.sa`: verifies generated values use ascending indexes and that zero-length generation returns an empty Vec.
+  - `std_string_macro_surface.sa`: verifies match removal, overlapping-match behavior (`banana ana` / `ana`), and miss/no-op behavior.
+- Validation status:
+  - Source focused String remove-matches path: pass.
+  - Source focused Vec from_fn path: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`12 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused String remove-matches and Vec from_fn tests: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`12 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec mut-return and replace facade batch
 
 - Continued the String/Vec Rust API parity audit after the raw-parts batch.

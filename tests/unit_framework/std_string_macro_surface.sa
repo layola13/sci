@@ -46,11 +46,13 @@
 @const BUF_REPLACE_ALL_EXPECTED = utf8:"a::b::a::b"
 @const BUF_REPLACE_FIRST_EXPECTED = utf8:"a::b-a-b"
 @const BUF_REPLACE_LAST_EXPECTED = utf8:"a-b-a::b"
+@const BUF_REMOVE_MATCHES_EXPECTED = utf8:"abab"
 @const BUF_REPLACE_EMPTY_EXPECTED = utf8:"a-b-a-b"
 @const BUF_REPLACE_MULTI_SOURCE = utf8:"banana ana"
 @const BUF_REPLACE_MULTI_NEEDLE = utf8:"ana"
 @const BUF_REPLACE_MULTI_WITH = utf8:"*"
 @const BUF_REPLACE_MULTI_EXPECTED = utf8:"b*na *"
+@const BUF_REMOVE_MULTI_EXPECTED = utf8:"bna "
 @const BUF_REPLACE_LONG_NEEDLE = utf8:"banana split"
 @const BUF_CHAR_EXPECTED = utf8:"r!"
 @const BUF_INSERT_CHAR_EXPECTED = utf8:"r!?"
@@ -639,11 +641,13 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS replace_expected, &BUF_REPLACE_ALL_EXPECTED, 10
     EXPAND STR_FROM_PARTS replace_first_expected, &BUF_REPLACE_FIRST_EXPECTED, 8
     EXPAND STR_FROM_PARTS replace_last_expected, &BUF_REPLACE_LAST_EXPECTED, 8
+    EXPAND STR_FROM_PARTS remove_matches_expected, &BUF_REMOVE_MATCHES_EXPECTED, 4
     EXPAND STR_FROM_PARTS replace_empty_expected, &BUF_REPLACE_EMPTY_EXPECTED, 7
     EXPAND STR_FROM_PARTS replace_multi_source, &BUF_REPLACE_MULTI_SOURCE, 10
     EXPAND STR_FROM_PARTS replace_multi_needle, &BUF_REPLACE_MULTI_NEEDLE, 3
     EXPAND STR_FROM_PARTS replace_multi_with, &BUF_REPLACE_MULTI_WITH, 1
     EXPAND STR_FROM_PARTS replace_multi_expected, &BUF_REPLACE_MULTI_EXPECTED, 6
+    EXPAND STR_FROM_PARTS remove_multi_expected, &BUF_REMOVE_MULTI_EXPECTED, 4
     EXPAND STR_FROM_PARTS replace_long_needle, &BUF_REPLACE_LONG_NEEDLE, 12
     EXPAND STR_EMPTY empty_needle
 
@@ -678,6 +682,18 @@ L_ENTRY:
     EXPAND STRING_BUF_REPLACE_FIRST replace_miss_ok, replace_miss_buf, replace_long_needle, replace_with
     EXPAND STRING_BUF_AS_STR replace_miss_view, replace_miss_buf
     EXPAND STR_EQ replace_miss_eq, replace_miss_view, left
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED remove_matches_buf, replace_source
+    EXPAND STRING_BUF_REMOVE_MATCHES remove_matches_buf, replace_needle
+    EXPAND STRING_BUF_AS_STR remove_matches_view, remove_matches_buf
+    EXPAND STR_EQ remove_matches_eq, remove_matches_view, remove_matches_expected
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED remove_multi_buf, replace_multi_source
+    EXPAND STRING_BUF_REMOVE_MATCHES remove_multi_buf, replace_multi_needle
+    EXPAND STRING_BUF_AS_STR remove_multi_view, remove_multi_buf
+    EXPAND STR_EQ remove_multi_eq, remove_multi_view, remove_multi_expected
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED remove_miss_buf, left
+    EXPAND STRING_BUF_REMOVE_MATCHES remove_miss_buf, replace_long_needle
+    EXPAND STRING_BUF_AS_STR remove_miss_view, remove_miss_buf
+    EXPAND STR_EQ remove_miss_eq, remove_miss_view, left
     EXPAND STRING_BUF_REPLACE replace_empty_buf, replace_source, empty_needle, replace_with
     EXPAND STRING_BUF_AS_STR replace_empty_view, replace_empty_buf
     EXPAND STR_EQ replace_empty_eq, replace_empty_view, replace_empty_expected
@@ -704,6 +720,9 @@ L_ENTRY:
     replace_last_value_ok = eq replace_last_eq, 1
     replace_miss_flag_ok = eq replace_miss_ok, 0
     replace_miss_value_ok = eq replace_miss_eq, 1
+    remove_matches_value_ok = eq remove_matches_eq, 1
+    remove_multi_value_ok = eq remove_multi_eq, 1
+    remove_miss_value_ok = eq remove_miss_eq, 1
     replace_empty_value_ok = eq replace_empty_eq, 1
     replace_multi_value_ok = eq replace_multi_eq, 1
     replace_long_value_ok = eq replace_long_eq, 1
@@ -720,11 +739,14 @@ L_ENTRY:
     ok09 = and ok08, replace_last_value_ok
     ok10 = and ok09, replace_miss_flag_ok
     ok11 = and ok10, replace_miss_value_ok
-    ok12 = and ok11, replace_empty_value_ok
-    ok13 = and ok12, replace_multi_value_ok
-    ok14 = and ok13, replace_long_value_ok
-    ok15 = and ok14, bytes_len_ok
-    ok = and ok15, first_byte_ok
+    ok12 = and ok11, remove_matches_value_ok
+    ok13 = and ok12, remove_multi_value_ok
+    ok14 = and ok13, remove_miss_value_ok
+    ok15 = and ok14, replace_empty_value_ok
+    ok16 = and ok15, replace_multi_value_ok
+    ok17 = and ok16, replace_long_value_ok
+    ok18 = and ok17, bytes_len_ok
+    ok = and ok18, first_byte_ok
     !left
     !replace_source
     !replace_needle
@@ -732,11 +754,13 @@ L_ENTRY:
     !replace_expected
     !replace_first_expected
     !replace_last_expected
+    !remove_matches_expected
     !replace_empty_expected
     !replace_multi_source
     !replace_multi_needle
     !replace_multi_with
     !replace_multi_expected
+    !remove_multi_expected
     !replace_long_needle
     !empty_needle
     !bad_ptr_1
@@ -760,6 +784,12 @@ L_ENTRY:
     !replace_miss_ok
     !replace_miss_view
     !replace_miss_eq
+    !remove_matches_view
+    !remove_matches_eq
+    !remove_multi_view
+    !remove_multi_eq
+    !remove_miss_view
+    !remove_miss_eq
     !replace_empty_view
     !replace_empty_eq
     !replace_multi_view
@@ -781,6 +811,9 @@ L_ENTRY:
     !replace_last_value_ok
     !replace_miss_flag_ok
     !replace_miss_value_ok
+    !remove_matches_value_ok
+    !remove_multi_value_ok
+    !remove_miss_value_ok
     !replace_empty_value_ok
     !replace_multi_value_ok
     !replace_long_value_ok
@@ -801,6 +834,9 @@ L_ENTRY:
     !ok13
     !ok14
     !ok15
+    !ok16
+    !ok17
+    !ok18
     EXPAND STRING_BUF_FREE bytes_vec
     EXPAND STRING_BUF_FREE ascii_buf
     EXPAND STRING_BUF_FREE ascii_bad_buf
@@ -808,6 +844,9 @@ L_ENTRY:
     EXPAND STRING_BUF_FREE replace_first_buf
     EXPAND STRING_BUF_FREE replace_last_buf
     EXPAND STRING_BUF_FREE replace_miss_buf
+    EXPAND STRING_BUF_FREE remove_matches_buf
+    EXPAND STRING_BUF_FREE remove_multi_buf
+    EXPAND STRING_BUF_FREE remove_miss_buf
     EXPAND STRING_BUF_FREE replace_empty_buf
     EXPAND STRING_BUF_FREE replace_multi_buf
     EXPAND STRING_BUF_FREE replace_long_buf
