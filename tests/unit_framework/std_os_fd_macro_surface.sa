@@ -4,9 +4,157 @@
 
 @const FD_TEST_PATH = utf8:"_tmp_fd_macro_surface.txt"
 @const FD_TEST_DATA = utf8:"fdok"
+@const FD_FILE_TEST_PATH = utf8:"_tmp_fs_file_fd_surface.txt"
+@const FD_FILE_TEST_DATA = utf8:"filefd"
 
 #def FD_TEST_PATH_LEN = 25
 #def FD_TEST_DATA_LEN = 4
+#def FD_FILE_TEST_PATH_LEN = 27
+#def FD_FILE_TEST_DATA_LEN = 6
+
+@test "sa_std fs file raw owned fd macros"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_status, FD_FILE_TEST_PATH, FD_FILE_TEST_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FD_FILE_TEST_PATH, FD_FILE_TEST_PATH_LEN, FD_FILE_TEST_DATA, FD_FILE_TEST_DATA_LEN
+    EXPAND FS_OPEN_READ open_status, file_handle, FD_FILE_TEST_PATH, FD_FILE_TEST_PATH_LEN
+    EXPAND FS_FILE_AS_RAW_FD as_status, as_fd, file_handle
+    EXPAND FS_FILE_INTO_OWNED_FD into_owned_status, owned_fd, file_handle
+    EXPAND FS_FILE_FROM_OWNED_FD from_owned_status, file_handle, owned_fd
+
+    owned_buf = stack_alloc 4
+    EXPAND FS_READ_AT owned_read_status, owned_read_len, file_handle, owned_buf, 2, 4
+    owned_b0 = load owned_buf+0 as u8
+    owned_b1 = load owned_buf+1 as u8
+
+    EXPAND FS_FILE_INTO_RAW_FD into_raw_status, raw_taken, file_handle
+    EXPAND FS_FILE_FROM_RAW_FD from_raw_status, file_handle, raw_taken
+    raw_buf = stack_alloc 4
+    EXPAND FS_READ_AT raw_read_status, raw_read_len, file_handle, raw_buf, 4, 0
+    raw_b0 = load raw_buf+0 as u8
+    raw_b3 = load raw_buf+3 as u8
+
+    EXPAND FS_CLOSE close_status, file_handle
+    EXPAND FS_REMOVE_PATH remove_status, FD_FILE_TEST_PATH, FD_FILE_TEST_PATH_LEN
+
+    write_ok = eq write_status, SA_FS_OK
+    open_ok = eq open_status, SA_FS_OK
+    as_ok = eq as_status, SA_FD_OK
+    as_fd_ok = ne as_fd, 0
+    into_owned_ok = eq into_owned_status, SA_FD_OK
+    owned_fd_ok = ne owned_fd, 0
+    from_owned_ok = eq from_owned_status, SA_FD_OK
+    file_rebound_ok = ne file_handle, 0
+    owned_read_ok = eq owned_read_status, SA_FS_OK
+    owned_read_len_ok = eq owned_read_len, 2
+    owned_b0_ok = eq owned_b0, 102
+    owned_b1_ok = eq owned_b1, 100
+    into_raw_ok = eq into_raw_status, SA_FD_OK
+    raw_taken_ok = ne raw_taken, 0
+    from_raw_ok = eq from_raw_status, SA_FD_OK
+    raw_file_ok = ne file_handle, 0
+    raw_read_ok = eq raw_read_status, SA_FS_OK
+    raw_read_len_ok = eq raw_read_len, 4
+    raw_b0_ok = eq raw_b0, 102
+    raw_b3_ok = eq raw_b3, 101
+    close_ok = eq close_status, SA_FS_OK
+    remove_ok = eq remove_status, SA_FS_OK
+
+    ok01 = and write_ok, open_ok
+    ok02 = and ok01, as_ok
+    ok03 = and ok02, as_fd_ok
+    ok04 = and ok03, into_owned_ok
+    ok05 = and ok04, owned_fd_ok
+    ok06 = and ok05, from_owned_ok
+    ok07 = and ok06, file_rebound_ok
+    ok08 = and ok07, owned_read_ok
+    ok09 = and ok08, owned_read_len_ok
+    ok10 = and ok09, owned_b0_ok
+    ok11 = and ok10, owned_b1_ok
+    ok12 = and ok11, into_raw_ok
+    ok13 = and ok12, raw_taken_ok
+    ok14 = and ok13, from_raw_ok
+    ok15 = and ok14, raw_file_ok
+    ok16 = and ok15, raw_read_ok
+    ok17 = and ok16, raw_read_len_ok
+    ok18 = and ok17, raw_b0_ok
+    ok19 = and ok18, raw_b3_ok
+    ok20 = and ok19, close_ok
+    ok = and ok20, remove_ok
+
+    !cleanup_status
+    !write_status
+    !open_status
+    !file_handle
+    !as_status
+    !as_fd
+    !into_owned_status
+    !owned_fd
+    !from_owned_status
+    !owned_read_status
+    !owned_read_len
+    !owned_b0
+    !owned_b1
+    !into_raw_status
+    !raw_taken
+    !from_raw_status
+    !raw_read_status
+    !raw_read_len
+    !raw_b0
+    !raw_b3
+    !close_status
+    !remove_status
+    !write_ok
+    !open_ok
+    !as_ok
+    !as_fd_ok
+    !into_owned_ok
+    !owned_fd_ok
+    !from_owned_ok
+    !file_rebound_ok
+    !owned_read_ok
+    !owned_read_len_ok
+    !owned_b0_ok
+    !owned_b1_ok
+    !into_raw_ok
+    !raw_taken_ok
+    !from_raw_ok
+    !raw_file_ok
+    !raw_read_ok
+    !raw_read_len_ok
+    !raw_b0_ok
+    !raw_b3_ok
+    !close_ok
+    !remove_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(1502)
+
+L_PASS:
+    !ok
+    return 0
 
 @test "sa_std os fd raw dup from_into macros"():
 L_ENTRY:

@@ -4,6 +4,34 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 File raw/owned fd facade batch
+
+- Added `std::fs::File` raw-fd and owned-fd trait-style macro surfaces:
+  - `FS_FILE_AS_RAW_FD`
+  - `FS_FILE_INTO_RAW_FD`
+  - `FS_FILE_FROM_RAW_FD`
+  - `FS_FILE_INTO_OWNED_FD`
+  - `FS_FILE_FROM_OWNED_FD`
+- Added runtime/header/SA contract export for the File-restoring path:
+  - `sa_std_fs_file_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates non-negative raw fds.
+  - registers valid raw fds back as the existing `.file` resource kind, so File-only APIs such as `FS_READ_AT` keep working after `from_raw_fd` / `from_owned_fd`.
+- Updated `tests/unit_framework/std_os_fd_macro_surface.sa` coverage:
+  - File handle roundtrips through `as_raw_fd`, `into_owned_fd` / `from_owned_fd`, and `into_raw_fd` / `from_raw_fd`.
+  - rebound File handles are verified with `FS_READ_AT` before close and cleanup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_std_fs_file_from_raw_fd'`: pass, symbol exported in both libs.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "fs file raw owned fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`2 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "fs file raw owned fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`2 passed`).
+
 ## Completed: 2026-07-06 stdio raw fd alias batch
 
 - Added borrowed stdio handle and raw-fd macro surfaces over the fixed runtime stdio handles and existing `sa_std/os/fd` raw-fd facade:

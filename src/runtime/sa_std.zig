@@ -7321,6 +7321,22 @@ pub export fn sa_std_fs_open_options(path_ptr: ?[*]const u8, path_len: u64, flag
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_fs_file_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    const file = std.fs.File{ .handle = @as(std.posix.fd_t, @intCast(fd)) };
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const handle = registerResourceLocked(.{ .file = file }) catch |err| {
+        file.close();
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_fs_file_read(handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
     return sa_std_read(handle, out, cap, out_read);
 }

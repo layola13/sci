@@ -287,6 +287,7 @@ int32_t sa_std_close(uint64_t handle);
 int32_t sa_fs_file_sync_data(uint64_t handle);
 int32_t sa_fs_file_sync(uint64_t handle);
 int32_t sa_fs_file_truncate(uint64_t handle, uint64_t new_size);
+int32_t sa_std_fs_file_from_raw_fd(int32_t fd, uint64_t *out_handle);
 int32_t sa_std_fs_file_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_std_fs_file_read_at(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t offset, uint64_t *out_read);
 int32_t sa_std_fs_file_read_exact_at(uint64_t handle, uint8_t *out, uint64_t len, uint64_t offset);
