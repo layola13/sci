@@ -128,6 +128,10 @@
     EXPAND VEC_AS_SLICE %out_slice, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_AS_MUT_STR %out_slice, %string_reg
+    EXPAND VEC_AS_MUT_SLICE %out_slice, %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_AS_BYTES %out_slice, %string_reg
     EXPAND VEC_AS_SLICE %out_slice, %string_reg
 [END_MACRO]
@@ -182,6 +186,14 @@ L_STRING_INTO_CHARS_DONE_%out_vec:
 [MACRO] STRING_BUF_FROM_UTF8_UNCHECKED %out_string, %bytes_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     EXPAND STRING_BUF_PUSH_STR %out_string, %bytes_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_UTF8_UNCHECKED_VEC %out_string, %bytes_vec
+    %out_string = %bytes_vec
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_UTF8_UNCHECKED_OWNED %out_string, %bytes_vec
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED_VEC %out_string, %bytes_vec
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_FROM_UTF8 %out_ok, %out_string, %bytes_slice

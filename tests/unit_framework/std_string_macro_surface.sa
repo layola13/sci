@@ -762,6 +762,7 @@ L_ENTRY:
     EXPAND STR_FROM_PARTS remove_multi_expected, &BUF_REMOVE_MULTI_EXPECTED, 4
     EXPAND STR_FROM_PARTS replace_long_needle, &BUF_REPLACE_LONG_NEEDLE, 12
     EXPAND STR_FROM_PARTS utf8_full_expected, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS title_word, &TITLE_WORD, 4
     EXPAND STR_EMPTY empty_needle
 
     bad_ptr = stack_alloc 3
@@ -826,6 +827,24 @@ L_ENTRY:
     EXPAND VEC_AS_PTR bytes_ptr, bytes_vec
     first_byte = load bytes_ptr+0 as u8
 
+    EXPAND VEC_WITH_CAPACITY unchecked_vec, 4, 1
+    EXPAND VEC_PUSH unchecked_vec, 114, 1
+    EXPAND VEC_PUSH unchecked_vec, 117, 1
+    EXPAND VEC_PUSH unchecked_vec, 115, 1
+    EXPAND VEC_PUSH unchecked_vec, 116, 1
+    EXPAND VEC_AS_PTR unchecked_vec_ptr_before, unchecked_vec
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED_VEC unchecked_owned_buf, unchecked_vec
+    EXPAND STRING_BUF_AS_PTR unchecked_vec_ptr_after, unchecked_owned_buf
+    EXPAND STRING_BUF_AS_STR unchecked_owned_view, unchecked_owned_buf
+    EXPAND STR_EQ unchecked_owned_eq, unchecked_owned_view, left
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED mut_str_buf, left
+    EXPAND STRING_BUF_AS_MUT_STR mut_str_view, mut_str_buf
+    EXPAND STR_AS_PTR mut_str_ptr, mut_str_view
+    store mut_str_ptr+0, 82 as u8
+    EXPAND STRING_BUF_AS_STR mut_str_after_view, mut_str_buf
+    EXPAND STR_EQ mut_str_eq, mut_str_after_view, title_word
+
     unchecked_ok = eq unchecked_eq, 1
     ascii_flag_ok = eq ascii_ok, 1
     ascii_value_ok = eq ascii_eq, 1
@@ -850,6 +869,9 @@ L_ENTRY:
     replace_long_value_ok = eq replace_long_eq, 1
     bytes_len_ok = eq bytes_len, 4
     first_byte_ok = eq first_byte, 114
+    unchecked_owned_value_ok = eq unchecked_owned_eq, 1
+    unchecked_owned_reused_ok = eq unchecked_vec_ptr_before, unchecked_vec_ptr_after
+    mut_str_value_ok = eq mut_str_eq, 1
     ok01 = and unchecked_ok, ascii_flag_ok
     ok02 = and ok01, ascii_value_ok
     ok03 = and ok02, ascii_bad_flag_ok
@@ -872,7 +894,10 @@ L_ENTRY:
     ok20 = and ok19, replace_multi_value_ok
     ok21 = and ok20, replace_long_value_ok
     ok22 = and ok21, bytes_len_ok
-    ok = and ok22, first_byte_ok
+    ok23 = and ok22, first_byte_ok
+    ok24 = and ok23, unchecked_owned_value_ok
+    ok25 = and ok24, unchecked_owned_reused_ok
+    ok = and ok25, mut_str_value_ok
     !left
     !replace_source
     !replace_needle
@@ -889,6 +914,7 @@ L_ENTRY:
     !remove_multi_expected
     !replace_long_needle
     !utf8_full_expected
+    !title_word
     !empty_needle
     !bad_ptr_1
     !bad_ptr_2
@@ -931,6 +957,14 @@ L_ENTRY:
     !bytes_len
     !bytes_ptr
     !first_byte
+    !unchecked_vec_ptr_before
+    !unchecked_vec_ptr_after
+    !unchecked_owned_view
+    !unchecked_owned_eq
+    !mut_str_view
+    !mut_str_ptr
+    !mut_str_after_view
+    !mut_str_eq
     !unchecked_ok
     !ascii_flag_ok
     !ascii_value_ok
@@ -955,6 +989,9 @@ L_ENTRY:
     !replace_long_value_ok
     !bytes_len_ok
     !first_byte_ok
+    !unchecked_owned_value_ok
+    !unchecked_owned_reused_ok
+    !mut_str_value_ok
     !ok01
     !ok02
     !ok03
@@ -977,6 +1014,11 @@ L_ENTRY:
     !ok20
     !ok21
     !ok22
+    !ok23
+    !ok24
+    !ok25
+    EXPAND STRING_BUF_FREE mut_str_buf
+    EXPAND STRING_BUF_FREE unchecked_owned_buf
     EXPAND STRING_BUF_FREE bytes_vec
     EXPAND STRING_BUF_FREE ascii_buf
     EXPAND STRING_BUF_FREE ascii_bad_buf

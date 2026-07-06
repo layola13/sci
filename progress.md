@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf unchecked owned-Vec and as_mut_str facade batch
+
+- Continued String Rust API parity work with supportable `String::from_utf8_unchecked(Vec<u8>)` and `String::as_mut_str` surfaces.
+- Added macro surfaces:
+  - `STRING_BUF_FROM_UTF8_UNCHECKED_VEC`
+  - `STRING_BUF_FROM_UTF8_UNCHECKED_OWNED`
+  - `STRING_BUF_AS_MUT_STR`
+- Semantics: unchecked owned-Vec construction moves the byte Vec into `StringBuf` without validation, matching Rust's unsafe caller-obligation shape. `STRING_BUF_AS_MUT_STR` returns a mutable slice view over the StringBuf bytes.
+- Updated `std_string_macro_surface.sa` coverage:
+  - owned Vec containing `rust` moves into `StringBuf` while preserving the backing pointer.
+  - `STRING_BUF_AS_MUT_STR` permits mutating the first ASCII byte and the StringBuf view observes `Rust`.
+- Validation status:
+  - Source focused `owned buffer utf8` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `owned buffer utf8` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf from_utf8_lossy invalid-sequence parity correction
 
 - Tightened `STRING_BUF_FROM_UTF8_LOSSY` / owned-Vec lossy semantics to replace one invalid UTF-8 sequence with one U+FFFD, rather than replacing each invalid continuation byte independently.
