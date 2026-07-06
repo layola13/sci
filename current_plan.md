@@ -58,6 +58,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `Vec` Rust API parity continuation: completed supportable `Vec::peek_mut` U64/general element-size mutable-pointer shape, returning a pointer to the last element or null on empty Vec.
    - `Vec` Rust API parity continuation: completed supportable `Vec::from_elem` repeated-value constructor shape, constructing a Vec by pushing the same supplied value for the requested length.
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable `String::leak` / `Vec::leak` shape, consuming the owning wrapper and returning a mutable slice/string view without freeing the allocation.
+   - `Vec` Rust API parity continuation: completed supportable `Vec::spare_capacity_mut` / `Vec::split_at_spare_mut` shape, and corrected `VEC_SET_LEN` to directly set length for Rust `set_len` parity.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -140,6 +141,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the Vec peek_mut facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Vec from_elem facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec leak facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Vec spare capacity facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

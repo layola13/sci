@@ -2175,3 +2175,103 @@ L_VEC_LEAK_FAIL:
 L_VEC_LEAK_OK:
     !ok
     return
+
+@test "sa_std vec spare capacity macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 11
+    EXPAND VEC_PUSH_U64 vec, 22
+    EXPAND VEC_CAPACITY cap, vec
+    expected_spare_len = sub cap, 2
+    EXPAND VEC_SPARE_CAPACITY_MUT_U64 spare, vec
+    EXPAND SLICE_GET_LEN spare_len, spare
+    EXPAND SLICE_GET_MUT_PTR_U64 spare0, spare, 0
+    EXPAND SLICE_GET_MUT_PTR_U64 spare1, spare, 1
+    store spare0+0, 33 as u64
+    store spare1+0, 44 as u64
+    EXPAND VEC_SET_LEN vec, 4
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    EXPAND VEC_SPLIT_AT_SPARE_MUT_U64 init, spare_after, vec
+    EXPAND SLICE_GET_LEN init_len, init
+    EXPAND SLICE_GET_LEN spare_after_len, spare_after
+    expected_spare_after_len = sub cap, 4
+    EXPAND SLICE_GET_MUT_PTR_U64 init0, init, 0
+    store init0+0, 10 as u64
+    EXPAND VEC_TRY_GET_U64 mutated_ok, mutated, vec, 0
+    cap_ok = uge cap, 4
+    spare_len_ok = eq spare_len, expected_spare_len
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 11
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 33
+    fourth_flag_ok = eq fourth_ok, 1
+    fourth_value_ok = eq fourth, 44
+    init_len_ok = eq init_len, 4
+    spare_after_len_ok = eq spare_after_len, expected_spare_after_len
+    mutated_flag_ok = eq mutated_ok, 1
+    mutated_value_ok = eq mutated, 10
+    ok01 = and cap_ok, spare_len_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, third_flag_ok
+    ok05 = and ok04, third_value_ok
+    ok06 = and ok05, fourth_flag_ok
+    ok07 = and ok06, fourth_value_ok
+    ok08 = and ok07, init_len_ok
+    ok09 = and ok08, spare_after_len_ok
+    ok10 = and ok09, mutated_flag_ok
+    ok = and ok10, mutated_value_ok
+    !cap
+    !expected_spare_len
+    !spare_len
+    !spare0
+    !spare1
+    !first_ok
+    !first
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !init_len
+    !spare_after_len
+    !expected_spare_after_len
+    !init0
+    !mutated_ok
+    !mutated
+    !cap_ok
+    !spare_len_ok
+    !first_flag_ok
+    !first_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !init_len_ok
+    !spare_after_len_ok
+    !mutated_flag_ok
+    !mutated_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !spare
+    !init
+    !spare_after
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_SPARE_OK, L_VEC_SPARE_FAIL
+
+L_VEC_SPARE_FAIL:
+    !ok
+    panic(924)
+
+L_VEC_SPARE_OK:
+    !ok
+    return

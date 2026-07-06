@@ -4,6 +4,33 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Vec spare capacity facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::spare_capacity_mut` / `Vec::split_at_spare_mut` subset.
+- Added Vec spare-capacity macro surfaces:
+  - `VEC_SPARE_CAPACITY_MUT`
+  - `VEC_SPARE_CAPACITY_MUT_U64`
+  - `VEC_SPLIT_AT_SPARE_MUT`
+  - `VEC_SPLIT_AT_SPARE_MUT_U64`
+- Corrected `VEC_SET_LEN` to match Rust's unsafe `Vec::set_len` shape by directly setting the Vec length instead of truncating only.
+- Semantics: `VEC_SPARE_CAPACITY_MUT` returns a mutable Slice view over `cap - len` spare element slots; `VEC_SPLIT_AT_SPARE_MUT` returns the initialized mutable slice plus the spare mutable slice.
+- Scope note: the spare slice is the SA slice view over uninitialized element slots; it does not model Rust's `MaybeUninit<T>` type directly.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - creates a capacity-4 Vec with length 2.
+  - writes two U64 values through the spare slice.
+  - calls `VEC_SET_LEN` to expose the initialized spare elements.
+  - verifies `split_at_spare_mut` initialized/spare lengths and mutation through the initialized slice.
+- Validation status:
+  - Source focused `spare capacity` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `spare capacity` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`21 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec leak facade batch
 
 - Continued String/Vec Rust API parity work with the supportable `String::leak` / `Vec::leak` subset.

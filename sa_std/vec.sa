@@ -390,6 +390,36 @@ L_VEC_PEEK_MUT_END_%out_ok:
     %out_cap = call @sa_vec_capacity(&%vec_reg)
 [END_MACRO]
 
+[MACRO] VEC_SPARE_CAPACITY_MUT %out_slice, %vec_reg, %elem_size
+    __vec_spare_ptr_%out_slice = load %vec_reg+Vec_ptr as ptr
+    __vec_spare_len_%out_slice = load %vec_reg+Vec_len as u64
+    __vec_spare_cap_%out_slice = load %vec_reg+Vec_cap as u64
+    __vec_spare_off_%out_slice = mul __vec_spare_len_%out_slice, %elem_size
+    __vec_spare_data_%out_slice = ptr_add __vec_spare_ptr_%out_slice, __vec_spare_off_%out_slice
+    __vec_spare_count_%out_slice = sub __vec_spare_cap_%out_slice, __vec_spare_len_%out_slice
+    %out_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW %out_slice, __vec_spare_data_%out_slice, __vec_spare_count_%out_slice
+    !__vec_spare_count_%out_slice
+    !__vec_spare_data_%out_slice
+    !__vec_spare_off_%out_slice
+    !__vec_spare_cap_%out_slice
+    !__vec_spare_len_%out_slice
+    !__vec_spare_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] VEC_SPARE_CAPACITY_MUT_U64 %out_slice, %vec_reg
+    EXPAND VEC_SPARE_CAPACITY_MUT %out_slice, %vec_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_SPLIT_AT_SPARE_MUT %out_init_slice, %out_spare_slice, %vec_reg, %elem_size
+    EXPAND VEC_AS_MUT_SLICE %out_init_slice, %vec_reg
+    EXPAND VEC_SPARE_CAPACITY_MUT %out_spare_slice, %vec_reg, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_SPLIT_AT_SPARE_MUT_U64 %out_init_slice, %out_spare_slice, %vec_reg
+    EXPAND VEC_SPLIT_AT_SPARE_MUT %out_init_slice, %out_spare_slice, %vec_reg, 8
+[END_MACRO]
+
 [MACRO] VEC_AS_NON_NULL %out_nonnull, %vec_reg
     %out_nonnull = alloc NonNull_SIZE
     __vec_nonnull_ptr_%out_nonnull = load %vec_reg+Vec_ptr as ptr
@@ -479,7 +509,7 @@ L_VEC_PEEK_MUT_END_%out_ok:
 [END_MACRO]
 
 [MACRO] VEC_SET_LEN %vec_reg, %new_len
-    call @sa_vec_truncate(&%vec_reg, %new_len)
+    store %vec_reg+Vec_len, %new_len as u64
 [END_MACRO]
 
 [MACRO] VEC_TRY_POP %out_ok, %out_value, %vec_reg

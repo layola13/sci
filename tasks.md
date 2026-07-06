@@ -137,6 +137,8 @@
 - [x] Vec from_elem 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String::leak` / `Vec::leak` 可支撑形态，消费 owning wrapper 并返回可变 slice/str 视图。
 - [x] String/Vec leak 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 继续补齐：补 `Vec::spare_capacity_mut` / `Vec::split_at_spare_mut` 可支撑形态，并修正 `VEC_SET_LEN` 为 Rust `set_len` 风格直接设置长度。
+- [x] Vec spare capacity 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
