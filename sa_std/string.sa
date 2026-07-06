@@ -392,6 +392,125 @@ L_STRING_BUF_UTF16_FAIL_%out_ok:
 L_STRING_BUF_UTF16_DONE_%out_ok:
 [END_MACRO]
 
+[MACRO] STRING_BUF_FROM_UTF16_LOSSY_U16 %out_string, %u16_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    __string_buf_utf16_lossy_len_%out_string = load %u16_slice+Slice_len as u64
+    __string_buf_utf16_lossy_idx_slot_%out_string = stack_alloc 8
+    store __string_buf_utf16_lossy_idx_slot_%out_string+0, 0 as u64
+    jmp L_STRING_BUF_UTF16_LOSSY_HEAD_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_HEAD_%out_string:
+    __string_buf_utf16_lossy_idx_%out_string = load __string_buf_utf16_lossy_idx_slot_%out_string+0 as u64
+    __string_buf_utf16_lossy_done_%out_string = eq __string_buf_utf16_lossy_idx_%out_string, __string_buf_utf16_lossy_len_%out_string
+    br __string_buf_utf16_lossy_done_%out_string -> L_STRING_BUF_UTF16_LOSSY_DONE_%out_string, L_STRING_BUF_UTF16_LOSSY_BODY_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_BODY_%out_string:
+    EXPAND SLICE_GET_TYPED_U16 __string_buf_utf16_lossy_unit_%out_string, %u16_slice, __string_buf_utf16_lossy_idx_%out_string, 2
+    __string_buf_utf16_lossy_high_ge_%out_string = uge __string_buf_utf16_lossy_unit_%out_string, 55296
+    __string_buf_utf16_lossy_high_le_%out_string = ule __string_buf_utf16_lossy_unit_%out_string, 56319
+    __string_buf_utf16_lossy_is_high_%out_string = and __string_buf_utf16_lossy_high_ge_%out_string, __string_buf_utf16_lossy_high_le_%out_string
+    __string_buf_utf16_lossy_low_ge_%out_string = uge __string_buf_utf16_lossy_unit_%out_string, 56320
+    __string_buf_utf16_lossy_low_le_%out_string = ule __string_buf_utf16_lossy_unit_%out_string, 57343
+    __string_buf_utf16_lossy_is_low_%out_string = and __string_buf_utf16_lossy_low_ge_%out_string, __string_buf_utf16_lossy_low_le_%out_string
+    br __string_buf_utf16_lossy_is_high_%out_string -> L_STRING_BUF_UTF16_LOSSY_HIGH_%out_string, L_STRING_BUF_UTF16_LOSSY_CHECK_LOW_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_CHECK_LOW_%out_string:
+    br __string_buf_utf16_lossy_is_low_%out_string -> L_STRING_BUF_UTF16_LOSSY_REPLACE_ONE_%out_string, L_STRING_BUF_UTF16_LOSSY_PUSH_BMP_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_PUSH_BMP_%out_string:
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf16_lossy_bmp_push_ok_%out_string, %out_string, __string_buf_utf16_lossy_unit_%out_string
+    !__string_buf_utf16_lossy_bmp_push_ok_%out_string
+    jmp L_STRING_BUF_UTF16_LOSSY_NEXT_ONE_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_HIGH_%out_string:
+    __string_buf_utf16_lossy_low_idx_%out_string = add __string_buf_utf16_lossy_idx_%out_string, 1
+    __string_buf_utf16_lossy_has_low_%out_string = ult __string_buf_utf16_lossy_low_idx_%out_string, __string_buf_utf16_lossy_len_%out_string
+    br __string_buf_utf16_lossy_has_low_%out_string -> L_STRING_BUF_UTF16_LOSSY_READ_LOW_%out_string, L_STRING_BUF_UTF16_LOSSY_REPLACE_HIGH_END_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_READ_LOW_%out_string:
+    EXPAND SLICE_GET_TYPED_U16 __string_buf_utf16_lossy_low_unit_%out_string, %u16_slice, __string_buf_utf16_lossy_low_idx_%out_string, 2
+    __string_buf_utf16_lossy_pair_low_ge_%out_string = uge __string_buf_utf16_lossy_low_unit_%out_string, 56320
+    __string_buf_utf16_lossy_pair_low_le_%out_string = ule __string_buf_utf16_lossy_low_unit_%out_string, 57343
+    __string_buf_utf16_lossy_pair_low_ok_%out_string = and __string_buf_utf16_lossy_pair_low_ge_%out_string, __string_buf_utf16_lossy_pair_low_le_%out_string
+    br __string_buf_utf16_lossy_pair_low_ok_%out_string -> L_STRING_BUF_UTF16_LOSSY_PUSH_PAIR_%out_string, L_STRING_BUF_UTF16_LOSSY_REPLACE_HIGH_WITH_NEXT_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_PUSH_PAIR_%out_string:
+    __string_buf_utf16_lossy_high_ten_%out_string = sub __string_buf_utf16_lossy_unit_%out_string, 55296
+    __string_buf_utf16_lossy_high_bits_%out_string = shl __string_buf_utf16_lossy_high_ten_%out_string, 10
+    __string_buf_utf16_lossy_low_ten_%out_string = sub __string_buf_utf16_lossy_low_unit_%out_string, 56320
+    __string_buf_utf16_lossy_pair_bits_%out_string = add __string_buf_utf16_lossy_high_bits_%out_string, __string_buf_utf16_lossy_low_ten_%out_string
+    __string_buf_utf16_lossy_codepoint_%out_string = add __string_buf_utf16_lossy_pair_bits_%out_string, 65536
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf16_lossy_pair_push_ok_%out_string, %out_string, __string_buf_utf16_lossy_codepoint_%out_string
+    __string_buf_utf16_lossy_after_pair_%out_string = add __string_buf_utf16_lossy_idx_%out_string, 2
+    store __string_buf_utf16_lossy_idx_slot_%out_string+0, __string_buf_utf16_lossy_after_pair_%out_string as u64
+    !__string_buf_utf16_lossy_after_pair_%out_string
+    !__string_buf_utf16_lossy_pair_push_ok_%out_string
+    !__string_buf_utf16_lossy_codepoint_%out_string
+    !__string_buf_utf16_lossy_pair_bits_%out_string
+    !__string_buf_utf16_lossy_low_ten_%out_string
+    !__string_buf_utf16_lossy_high_bits_%out_string
+    !__string_buf_utf16_lossy_high_ten_%out_string
+    !__string_buf_utf16_lossy_pair_low_ok_%out_string
+    !__string_buf_utf16_lossy_pair_low_le_%out_string
+    !__string_buf_utf16_lossy_pair_low_ge_%out_string
+    !__string_buf_utf16_lossy_low_unit_%out_string
+    !__string_buf_utf16_lossy_has_low_%out_string
+    !__string_buf_utf16_lossy_low_idx_%out_string
+    !__string_buf_utf16_lossy_is_low_%out_string
+    !__string_buf_utf16_lossy_low_le_%out_string
+    !__string_buf_utf16_lossy_low_ge_%out_string
+    !__string_buf_utf16_lossy_is_high_%out_string
+    !__string_buf_utf16_lossy_high_le_%out_string
+    !__string_buf_utf16_lossy_high_ge_%out_string
+    !__string_buf_utf16_lossy_unit_%out_string
+    !__string_buf_utf16_lossy_done_%out_string
+    !__string_buf_utf16_lossy_idx_%out_string
+    jmp L_STRING_BUF_UTF16_LOSSY_HEAD_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_REPLACE_HIGH_WITH_NEXT_%out_string:
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf16_lossy_replace_next_push_ok_%out_string, %out_string, 65533
+    !__string_buf_utf16_lossy_replace_next_push_ok_%out_string
+    !__string_buf_utf16_lossy_pair_low_ok_%out_string
+    !__string_buf_utf16_lossy_pair_low_le_%out_string
+    !__string_buf_utf16_lossy_pair_low_ge_%out_string
+    !__string_buf_utf16_lossy_low_unit_%out_string
+    !__string_buf_utf16_lossy_has_low_%out_string
+    !__string_buf_utf16_lossy_low_idx_%out_string
+    jmp L_STRING_BUF_UTF16_LOSSY_NEXT_ONE_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_REPLACE_HIGH_END_%out_string:
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf16_lossy_replace_end_push_ok_%out_string, %out_string, 65533
+    !__string_buf_utf16_lossy_replace_end_push_ok_%out_string
+    !__string_buf_utf16_lossy_has_low_%out_string
+    !__string_buf_utf16_lossy_low_idx_%out_string
+    jmp L_STRING_BUF_UTF16_LOSSY_NEXT_ONE_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_REPLACE_ONE_%out_string:
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_utf16_lossy_replace_one_push_ok_%out_string, %out_string, 65533
+    !__string_buf_utf16_lossy_replace_one_push_ok_%out_string
+    jmp L_STRING_BUF_UTF16_LOSSY_NEXT_ONE_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_NEXT_ONE_%out_string:
+    __string_buf_utf16_lossy_next_%out_string = add __string_buf_utf16_lossy_idx_%out_string, 1
+    store __string_buf_utf16_lossy_idx_slot_%out_string+0, __string_buf_utf16_lossy_next_%out_string as u64
+    !__string_buf_utf16_lossy_next_%out_string
+    !__string_buf_utf16_lossy_is_low_%out_string
+    !__string_buf_utf16_lossy_low_le_%out_string
+    !__string_buf_utf16_lossy_low_ge_%out_string
+    !__string_buf_utf16_lossy_is_high_%out_string
+    !__string_buf_utf16_lossy_high_le_%out_string
+    !__string_buf_utf16_lossy_high_ge_%out_string
+    !__string_buf_utf16_lossy_unit_%out_string
+    !__string_buf_utf16_lossy_done_%out_string
+    !__string_buf_utf16_lossy_idx_%out_string
+    jmp L_STRING_BUF_UTF16_LOSSY_HEAD_%out_string
+
+L_STRING_BUF_UTF16_LOSSY_DONE_%out_string:
+    !__string_buf_utf16_lossy_done_%out_string
+    !__string_buf_utf16_lossy_idx_%out_string
+    !__string_buf_utf16_lossy_len_%out_string
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF8_ASCII %out_ok, %out_string, %bytes_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_ascii_ptr_%out_ok = load %bytes_slice+Slice_ptr as ptr

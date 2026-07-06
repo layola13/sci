@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf from_utf16_lossy facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf16_lossy` subset.
+- Added lossy UTF-16 constructor macro surface:
+  - `STRING_BUF_FROM_UTF16_LOSSY_U16`
+- Semantics: decodes a U16 slice into a UTF-8 `StringBuf`, accepts BMP scalars and valid high/low surrogate pairs, replaces isolated high or low surrogate units with U+FFFD, and continues decoding subsequent units.
+- Scope note: this is the SA U16-slice lossy constructor shape; it does not claim Rust's endian-specific byte-slice variants or allocation/error object model.
+- Updated `std_string_macro_surface.sa` coverage:
+  - valid U16 units for `aé🙂z` still decode exactly.
+  - an isolated high surrogate followed by `z` is replaced and scanning continues.
+  - an isolated low surrogate is replaced.
+- Validation status:
+  - Source focused `from_utf16 lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`24 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf16 lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`24 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf from_utf16 facade batch
 
 - Continued String Rust API parity work with the supportable `String::from_utf16` subset.
