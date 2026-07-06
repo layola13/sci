@@ -589,6 +589,35 @@ L_VEC_FROM_FN_DONE_%out_vec:
     EXPAND VEC_FROM_FN %out_vec, %length, %gen_fn, 8
 [END_MACRO]
 
+[MACRO] VEC_FROM_ELEM %out_vec, %value, %length, %elem_size
+    EXPAND VEC_WITH_CAPACITY %out_vec, %length, %elem_size
+    __vec_from_elem_idx_slot_%out_vec = stack_alloc 8
+    store __vec_from_elem_idx_slot_%out_vec+0, 0 as u64
+    jmp L_VEC_FROM_ELEM_HEAD_%out_vec
+
+L_VEC_FROM_ELEM_HEAD_%out_vec:
+    __vec_from_elem_idx_%out_vec = load __vec_from_elem_idx_slot_%out_vec+0 as u64
+    __vec_from_elem_done_%out_vec = eq __vec_from_elem_idx_%out_vec, %length
+    br __vec_from_elem_done_%out_vec -> L_VEC_FROM_ELEM_DONE_%out_vec, L_VEC_FROM_ELEM_BODY_%out_vec
+
+L_VEC_FROM_ELEM_BODY_%out_vec:
+    EXPAND VEC_PUSH %out_vec, %value, %elem_size
+    __vec_from_elem_next_%out_vec = add __vec_from_elem_idx_%out_vec, 1
+    store __vec_from_elem_idx_slot_%out_vec+0, __vec_from_elem_next_%out_vec as u64
+    !__vec_from_elem_next_%out_vec
+    !__vec_from_elem_done_%out_vec
+    !__vec_from_elem_idx_%out_vec
+    jmp L_VEC_FROM_ELEM_HEAD_%out_vec
+
+L_VEC_FROM_ELEM_DONE_%out_vec:
+    !__vec_from_elem_done_%out_vec
+    !__vec_from_elem_idx_%out_vec
+[END_MACRO]
+
+[MACRO] VEC_FROM_ELEM_U64 %out_vec, %value, %length
+    EXPAND VEC_FROM_ELEM %out_vec, %value, %length, 8
+[END_MACRO]
+
 [MACRO] VEC_CONTAINS_U64 %out_bool, %vec_reg, %needle
     EXPAND VEC_AS_SLICE __vec_contains_slice_%out_bool, %vec_reg
     EXPAND SLICE_CONTAINS_U64 %out_bool, __vec_contains_slice_%out_bool, %needle

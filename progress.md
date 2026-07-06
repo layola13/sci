@@ -4,6 +4,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Vec from_elem facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::from_elem` subset.
+- Added Vec repeated-value constructor macro surfaces:
+  - `VEC_FROM_ELEM`
+  - `VEC_FROM_ELEM_U64`
+- Semantics: constructs a Vec with the requested capacity and pushes the supplied element value `length` times. A zero length returns an empty Vec.
+- Scope note: this is the SA macro shape for repeated scalar/value construction; it does not claim Rust's full generic `Clone` trait dispatch or allocator-parametric surface.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - `VEC_FROM_ELEM_U64 vec, 42, 3` returns length `3` with all three values set to `42`.
+  - zero-length construction returns an empty Vec.
+  - out-of-range get from the constructed Vec returns `ok=0` and value `0`.
+- Validation status:
+  - Source focused `from_elem` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`16 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_elem` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`16 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+
 ## Completed: 2026-07-06 Vec peek_mut facade batch
 
 - Continued Vec Rust API parity work with the supportable `Vec::peek_mut` U64 subset.

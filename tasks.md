@@ -133,6 +133,8 @@
 - [x] Vec retain_mut 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `Vec` Rust API parity 继续补齐：补 `Vec::peek_mut` 可支撑 U64 形态，返回最后一个元素的 mutable pointer，空 Vec 返回 `ok=0`。
 - [x] Vec peek_mut 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 继续补齐：补 `Vec::from_elem` 可支撑形态，按长度重复填充值构造 Vec。
+- [x] Vec from_elem 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

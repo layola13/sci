@@ -2050,3 +2050,72 @@ L_VEC_FROM_FN_FAIL:
 L_VEC_FROM_FN_OK:
     !ok
     return
+
+@test "sa_std vec from_elem macros"():
+L_ENTRY:
+    EXPAND VEC_FROM_ELEM_U64 vec, 42, 3
+    EXPAND VEC_FROM_ELEM_U64 empty_vec, 99, 0
+    EXPAND VEC_LEN len, vec
+    EXPAND VEC_LEN empty_len, empty_vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    len_ok = eq len, 3
+    empty_len_ok = eq empty_len, 0
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 42
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 42
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 42
+    fourth_flag_ok = eq fourth_ok, 0
+    fourth_value_ok = eq fourth, 0
+    ok01 = and len_ok, empty_len_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_flag_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_flag_ok
+    ok07 = and ok06, third_value_ok
+    ok08 = and ok07, fourth_flag_ok
+    ok = and ok08, fourth_value_ok
+    !len
+    !empty_len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !len_ok
+    !empty_len_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_FROM_ELEM_OK, L_VEC_FROM_ELEM_FAIL
+
+L_VEC_FROM_ELEM_FAIL:
+    !ok
+    panic(922)
+
+L_VEC_FROM_ELEM_OK:
+    !ok
+    return
