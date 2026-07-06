@@ -273,6 +273,30 @@ L_STRING_BUF_UTF8_LOSSY_DONE_%out_string:
     !__string_buf_utf8_lossy_ptr_%out_string
 [END_MACRO]
 
+[MACRO] STRING_BUF_FROM_UTF8_LOSSY_VEC %out_string, %bytes_vec
+    EXPAND VEC_AS_SLICE __string_buf_utf8_lossy_vec_slice_%out_string, %bytes_vec
+    EXPAND STR_IS_UTF8 __string_buf_utf8_lossy_vec_valid_%out_string, __string_buf_utf8_lossy_vec_slice_%out_string
+    br __string_buf_utf8_lossy_vec_valid_%out_string -> L_STRING_BUF_UTF8_LOSSY_VEC_VALID_%out_string, L_STRING_BUF_UTF8_LOSSY_VEC_REPLACE_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_VEC_VALID_%out_string:
+    %out_string = %bytes_vec
+    !__string_buf_utf8_lossy_vec_valid_%out_string
+    !__string_buf_utf8_lossy_vec_slice_%out_string
+    jmp L_STRING_BUF_UTF8_LOSSY_VEC_DONE_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_VEC_REPLACE_%out_string:
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY %out_string, __string_buf_utf8_lossy_vec_slice_%out_string
+    EXPAND VEC_FREE %bytes_vec
+    !__string_buf_utf8_lossy_vec_valid_%out_string
+    !__string_buf_utf8_lossy_vec_slice_%out_string
+
+L_STRING_BUF_UTF8_LOSSY_VEC_DONE_%out_string:
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_UTF8_LOSSY_OWNED %out_string, %bytes_vec
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY_VEC %out_string, %bytes_vec
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF16_U16 %out_ok, %out_string, %u16_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_utf16_len_%out_ok = load %u16_slice+Slice_len as u64

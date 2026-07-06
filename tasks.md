@@ -155,6 +155,8 @@
 - [x] String from_utf8 Vec 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8_lossy` 可支撑 owned-StringBuf 形态，非法 UTF-8 byte 替换为 U+FFFD 后继续解码。
 - [x] String from_utf8_lossy 批次已完成 runtime 导出检查、focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8_lossy_owned` 可支撑 owned-Vec 形态，合法 UTF-8 零拷贝移动，非法输入 lossy 重建并释放原 Vec。
+- [x] String from_utf8_lossy owned-Vec 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

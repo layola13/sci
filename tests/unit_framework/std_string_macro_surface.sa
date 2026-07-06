@@ -3291,7 +3291,35 @@ L_ENTRY:
     EXPAND STRING_BUF_AS_STR lossy_view, lossy_buf
     EXPAND STR_EQ lossy_eq, lossy_view, lossy_expected
 
-    ok = and valid_eq, lossy_eq
+    EXPAND VEC_WITH_CAPACITY owned_valid_vec, 8, 1
+    EXPAND VEC_PUSH owned_valid_vec, 97, 1
+    EXPAND VEC_PUSH owned_valid_vec, 195, 1
+    EXPAND VEC_PUSH owned_valid_vec, 169, 1
+    EXPAND VEC_PUSH owned_valid_vec, 240, 1
+    EXPAND VEC_PUSH owned_valid_vec, 159, 1
+    EXPAND VEC_PUSH owned_valid_vec, 153, 1
+    EXPAND VEC_PUSH owned_valid_vec, 130, 1
+    EXPAND VEC_PUSH owned_valid_vec, 122, 1
+    EXPAND VEC_AS_PTR owned_valid_ptr_before, owned_valid_vec
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY_OWNED owned_valid_buf, owned_valid_vec
+    EXPAND STRING_BUF_AS_PTR owned_valid_ptr_after, owned_valid_buf
+    EXPAND STRING_BUF_AS_STR owned_valid_view, owned_valid_buf
+    EXPAND STR_EQ owned_valid_eq, owned_valid_view, valid_expected
+    owned_valid_reused = eq owned_valid_ptr_before, owned_valid_ptr_after
+
+    EXPAND VEC_WITH_CAPACITY owned_bad_vec, 4, 1
+    EXPAND VEC_PUSH owned_bad_vec, 97, 1
+    EXPAND VEC_PUSH owned_bad_vec, 255, 1
+    EXPAND VEC_PUSH owned_bad_vec, 40, 1
+    EXPAND VEC_PUSH owned_bad_vec, 226, 1
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY_VEC owned_lossy_buf, owned_bad_vec
+    EXPAND STRING_BUF_AS_STR owned_lossy_view, owned_lossy_buf
+    EXPAND STR_EQ owned_lossy_eq, owned_lossy_view, lossy_expected
+
+    ok01 = and valid_eq, lossy_eq
+    ok02 = and ok01, owned_valid_eq
+    ok03 = and ok02, owned_valid_reused
+    ok = and ok03, owned_lossy_eq
     !valid_expected
     !lossy_expected
     !bad_ptr_1
@@ -3302,6 +3330,18 @@ L_ENTRY:
     !valid_eq
     !lossy_view
     !lossy_eq
+    !owned_valid_ptr_before
+    !owned_valid_ptr_after
+    !owned_valid_view
+    !owned_valid_eq
+    !owned_valid_reused
+    !owned_lossy_view
+    !owned_lossy_eq
+    !ok01
+    !ok02
+    !ok03
+    EXPAND STRING_BUF_FREE owned_lossy_buf
+    EXPAND STRING_BUF_FREE owned_valid_buf
     EXPAND STRING_BUF_FREE lossy_buf
     EXPAND STRING_BUF_FREE valid_buf
     br ok -> L_STRING_BUF_FROM_UTF8_LOSSY_OK, L_STRING_BUF_FROM_UTF8_LOSSY_FAIL

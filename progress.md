@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf from_utf8_lossy owned-Vec facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf8_lossy_owned` subset.
+- Added owned-Vec lossy UTF-8 constructor macro surfaces:
+  - `STRING_BUF_FROM_UTF8_LOSSY_VEC`
+  - `STRING_BUF_FROM_UTF8_LOSSY_OWNED`
+- Semantics: consumes an owned byte Vec. Valid UTF-8 uses a zero-copy move into `StringBuf`; invalid UTF-8 builds a lossy `StringBuf` with U+FFFD replacement and frees the original Vec.
+- Scope note: this is the SA owned-Vec constructor shape; it does not claim Rust's unstable feature gate or `Cow<'_, str>` API surface.
+- Updated `std_string_macro_surface.sa` coverage:
+  - valid owned Vec for `aé🙂z` round-trips and preserves the original buffer pointer.
+  - invalid owned Vec with bytes `a`, `0xff`, `(`, and a truncated UTF-8 starter decodes to `a�(�`.
+- Validation status:
+  - Source focused `from_utf8 lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf8 lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf from_utf8_lossy facade batch
 
 - Continued String Rust API parity work with the supportable `String::from_utf8_lossy` subset.
