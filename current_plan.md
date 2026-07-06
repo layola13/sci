@@ -46,6 +46,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
    - `StringBuf` / `Vec` Rust API parity audit: current facades are not full Rust API coverage; completed the supportable raw-parts subset with `VEC_INTO_RAW_PARTS`, `VEC_FROM_RAW_PARTS`, `STRING_BUF_INTO_RAW_PARTS`, and `STRING_BUF_FROM_RAW_PARTS`.
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable `Vec::push_mut` / `Vec::insert_mut` style mut-return macros and `String` replace-first/replace-last style macros.
    - `StringBuf` / `Vec` Rust API parity continuation: completed supportable `Vec::from_fn` style indexed generation macros and `String::remove_matches` style slice-pattern removal macro.
+   - `Vec` Rust API parity continuation: completed supportable `Vec::as_non_null`, `Vec::into_parts`, and `Vec::from_parts` style NonNull parts macros over the existing `NonNull` facade.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -116,6 +117,7 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec raw-parts facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec mut-return and replace facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf remove_matches and Vec from_fn facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Vec NonNull parts facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -205,6 +207,8 @@ Continue `sa_std` parity in SCI. Current user priority is String/Vec Rust API pa
 - Updated String/Vec macro-surface tests pass with Vec from_fn and String remove_matches assertions:
   - `std_vec_macro_surface.sa`
   - `std_string_macro_surface.sa`
+- Updated Vec macro-surface tests pass with NonNull parts assertions:
+  - `std_vec_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with Linux `SO_PASSCRED` assertions:
   - `std_net_unix_macro_surface.sa`
 - Updated process macro-surface test passes with ChildExt kill_process_group assertions:

@@ -4,6 +4,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 Vec NonNull parts facade batch
+
+- Continued Vec Rust API parity work with the supportable NonNull parts subset.
+- Added Vec NonNull/parts macro surfaces over the existing `NonNull` wrapper facade:
+  - `VEC_AS_NON_NULL`
+  - `VEC_INTO_PARTS`
+  - `VEC_FROM_PARTS`
+- Implementation note: `VEC_INTO_PARTS` transfers the Vec buffer pointer into a `NonNull` wrapper and zeros the consumed Vec wrapper; `VEC_FROM_PARTS` reloads the pointer and reconstitutes Vec ownership.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - `VEC_AS_NON_NULL` returns a non-null view without consuming the Vec.
+  - `VEC_INTO_PARTS` / `VEC_FROM_PARTS` roundtrip pointer/len/cap and preserve elements.
+- Validation status:
+  - Source focused `raw parts` test: pass.
+  - Source focused `NonNull parts` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `raw parts` and `NonNull parts` Vec tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+
 ## Completed: 2026-07-06 StringBuf remove_matches and Vec from_fn facade batch
 
 - Continued String/Vec Rust API parity work with another supportable macro-only batch.

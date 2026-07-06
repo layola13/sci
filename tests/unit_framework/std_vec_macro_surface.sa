@@ -1668,6 +1668,10 @@ L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 4
     EXPAND VEC_PUSH_U64 vec, 11
     EXPAND VEC_PUSH_U64 vec, 22
+    EXPAND VEC_AS_NON_NULL borrowed_nonnull, vec
+    EXPAND NONNULL_AS_PTR borrowed_ptr, borrowed_nonnull
+    borrowed_first = load borrowed_ptr+0 as u64
+    EXPAND VEC_LEN borrowed_vec_len, vec
     EXPAND VEC_INTO_RAW_PARTS raw_ptr, raw_len, raw_cap, vec
     raw_ptr_ok = ne raw_ptr, 0
     raw_len_ok = eq raw_len, 2
@@ -1675,16 +1679,28 @@ L_ENTRY:
     EXPAND VEC_FROM_RAW_PARTS rebound, raw_ptr, raw_len, raw_cap
     EXPAND VEC_GET_U64 first, rebound, 0
     EXPAND VEC_GET_U64 second, rebound, 1
+    borrowed_ptr_ok = ne borrowed_ptr, 0
+    borrowed_first_ok = eq borrowed_first, 11
+    borrowed_len_ok = eq borrowed_vec_len, 2
     first_ok = eq first, 11
     second_ok = eq second, 22
     ok01 = and raw_ptr_ok, raw_len_ok
     ok02 = and ok01, raw_cap_ok
-    ok03 = and ok02, first_ok
-    ok = and ok03, second_ok
+    ok03 = and ok02, borrowed_ptr_ok
+    ok04 = and ok03, borrowed_first_ok
+    ok05 = and ok04, borrowed_len_ok
+    ok06 = and ok05, first_ok
+    ok = and ok06, second_ok
+    !borrowed_ptr
+    !borrowed_first
+    !borrowed_vec_len
     !raw_len
     !raw_cap
     !first
     !second
+    !borrowed_ptr_ok
+    !borrowed_first_ok
+    !borrowed_len_ok
     !raw_ptr_ok
     !raw_len_ok
     !raw_cap_ok
@@ -1693,6 +1709,10 @@ L_ENTRY:
     !ok01
     !ok02
     !ok03
+    !ok04
+    !ok05
+    !ok06
+    !borrowed_nonnull
     EXPAND VEC_FREE rebound
     br ok -> L_VEC_RAW_PARTS_OK, L_VEC_RAW_PARTS_FAIL
 
@@ -1701,6 +1721,55 @@ L_VEC_RAW_PARTS_FAIL:
     panic(919)
 
 L_VEC_RAW_PARTS_OK:
+    !ok
+    return
+
+@test "sa_std vec NonNull parts macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 33
+    EXPAND VEC_PUSH_U64 vec, 44
+    EXPAND VEC_INTO_PARTS parts, parts_len, parts_cap, vec
+    EXPAND NONNULL_AS_PTR parts_ptr, parts
+    parts_ptr_ok = ne parts_ptr, 0
+    parts_len_ok = eq parts_len, 2
+    parts_cap_ok = uge parts_cap, 2
+    EXPAND VEC_FROM_PARTS rebound, parts, parts_len, parts_cap
+    EXPAND VEC_TRY_GET_U64 first_ok, first, rebound, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, rebound, 1
+    first_value_ok = eq first, 33
+    second_value_ok = eq second, 44
+    ok01 = and parts_ptr_ok, parts_len_ok
+    ok02 = and ok01, parts_cap_ok
+    ok03 = and ok02, first_ok
+    ok04 = and ok03, first_value_ok
+    ok05 = and ok04, second_ok
+    ok = and ok05, second_value_ok
+    !parts_ptr
+    !parts_len
+    !parts_cap
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !parts_ptr_ok
+    !parts_len_ok
+    !parts_cap_ok
+    !first_value_ok
+    !second_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND VEC_FREE rebound
+    br ok -> L_VEC_NONNULL_PARTS_OK, L_VEC_NONNULL_PARTS_FAIL
+
+L_VEC_NONNULL_PARTS_FAIL:
+    !ok
+    panic(922)
+
+L_VEC_NONNULL_PARTS_OK:
     !ok
     return
 

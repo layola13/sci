@@ -2,6 +2,8 @@
 @import "alloc/vec.sa"
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "ptr.sal"
+@import "ptr.sa"
 
 [MACRO] VEC_NEW %out_vec
     %out_vec = call @sa_vec_new()
@@ -345,6 +347,13 @@ L_VEC_SET_TYPED_END_%value:
     %out_cap = call @sa_vec_capacity(&%vec_reg)
 [END_MACRO]
 
+[MACRO] VEC_AS_NON_NULL %out_nonnull, %vec_reg
+    %out_nonnull = alloc NonNull_SIZE
+    __vec_nonnull_ptr_%out_nonnull = load %vec_reg+Vec_ptr as ptr
+    EXPAND NONNULL_NEW_UNCHECKED %out_nonnull, __vec_nonnull_ptr_%out_nonnull
+    !__vec_nonnull_ptr_%out_nonnull
+[END_MACRO]
+
 [MACRO] VEC_INTO_RAW_PARTS %out_ptr, %out_len, %out_cap, %vec_reg
     %out_ptr = take %vec_reg+Vec_ptr
     %out_cap = load %vec_reg+Vec_cap as u64
@@ -360,6 +369,24 @@ L_VEC_SET_TYPED_END_%value:
     store %out_vec+Vec_cap, %cap as u64
     store %out_vec+Vec_len, %len as u64
     ^%ptr
+[END_MACRO]
+
+[MACRO] VEC_INTO_PARTS %out_nonnull, %out_len, %out_cap, %vec_reg
+    %out_nonnull = alloc NonNull_SIZE
+    __vec_parts_ptr_%out_nonnull = take %vec_reg+Vec_ptr
+    store %out_nonnull+NonNull_ptr, __vec_parts_ptr_%out_nonnull as ptr
+    %out_cap = load %vec_reg+Vec_cap as u64
+    %out_len = load %vec_reg+Vec_len as u64
+    store %vec_reg+Vec_cap, 0 as u64
+    store %vec_reg+Vec_len, 0 as u64
+    ^__vec_parts_ptr_%out_nonnull
+    !%vec_reg
+[END_MACRO]
+
+[MACRO] VEC_FROM_PARTS %out_vec, %nonnull_ptr, %len, %cap
+    __vec_from_parts_ptr_%out_vec = load %nonnull_ptr+NonNull_ptr as ptr
+    EXPAND VEC_FROM_RAW_PARTS %out_vec, __vec_from_parts_ptr_%out_vec, %len, %cap
+    !%nonnull_ptr
 [END_MACRO]
 
 [MACRO] VEC_RESERVE %vec_reg, %additional, %elem_size
