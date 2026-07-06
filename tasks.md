@@ -69,6 +69,8 @@
 - [x] Unix socket option 命名表面批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::unix::net::{UnixStream,UnixListener}::try_clone`：补 Linux/Unix fd-dup clone facade，保持 stream/listener 资源类型和独立 close 生命周期。
 - [x] Unix socket try_clone 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixListener::accept` 地址返回表面：补 `NET_UNIX_ACCEPT_ADDR`，accept 时同时返回 stream 与 peer Unix addr handle。
+- [x] Unix accept_addr 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

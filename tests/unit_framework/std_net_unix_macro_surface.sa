@@ -180,21 +180,39 @@ L_FAIL_CONNECT:
     panic(961)
 
 L_ACCEPT:
-    EXPAND NET_UNIX_ACCEPT accept_status, server, listener
+    EXPAND NET_UNIX_ACCEPT_ADDR accept_status, server, accept_addr, listener
     accept_ok = eq accept_status, SA_NET_OK
     server_ok = ne server, 0
-    accept_all = and accept_ok, server_ok
+    accept_addr_ok = ne accept_addr, 0
+    EXPAND NET_UNIX_ADDR_KIND accept_addr_kind, accept_addr
+    accept_addr_kind_ok = eq accept_addr_kind, SA_NET_UNIX_ADDR_UNNAMED
+    accept01 = and accept_ok, server_ok
+    accept02 = and accept01, accept_addr_ok
+    accept_all = and accept02, accept_addr_kind_ok
+    EXPAND NET_UNIX_ADDR_FREE accept_addr_free_status, accept_addr
+    accept_addr_free_ok = eq accept_addr_free_status, SA_NET_OK
+    accept_done = and accept_all, accept_addr_free_ok
+    !accept_addr_free_ok
+    !accept_addr_free_status
+    !accept_all
+    !accept02
+    !accept01
+    !accept_addr_kind_ok
+    !accept_addr_kind
+    !accept_addr_ok
+    !accept_addr
     !accept_status
-    br accept_all -> L_KEEPALIVE, L_FAIL_ACCEPT
+    br accept_done -> L_KEEPALIVE, L_FAIL_ACCEPT
 
 L_FAIL_ACCEPT:
+    !accept_done
     !server
-    !accept_all
     !client
     !listener
     panic(962)
 
 L_KEEPALIVE:
+    !accept_done
     // 在 accept 出来的 stream 上验证 keepalive setter 返回 OK。
     EXPAND NET_TCP_STREAM_SET_KEEPALIVE ka_status, server, SA_NET_SOCKET_OPTION_ENABLE
     ka_ok = eq ka_status, SA_NET_OK

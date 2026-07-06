@@ -9922,6 +9922,63 @@ pub export fn sa_std_net_unix_accept(listener: u64, out_handle: ?*u64) i32 {
     return sa_std_net_tcp_accept(listener, out_handle);
 }
 
+pub export fn sa_std_net_unix_accept_addr(listener: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
+    const stream_ptr = out_stream orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    stream_ptr.* = 0;
+    addr_ptr.* = 0;
+
+    registry_mutex.lock();
+    const resource = getResourceLocked(listener) orelse {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    const fd = switch (resource.*) {
+        .tcp_listener => |server| server.stream.handle,
+        else => {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        },
+    };
+    if (!(socketIsUnix(fd) catch |err| {
+        registry_mutex.unlock();
+        return finishErr(err);
+    })) {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    }
+    registry_mutex.unlock();
+
+    var accepted_addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+    @memset(&accepted_addr.path, 0);
+    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.un);
+    const accepted_fd = std.posix.accept(fd, @as(*std.posix.sockaddr, @ptrCast(&accepted_addr)), &addr_len, std.posix.SOCK.CLOEXEC) catch |err| return finishErr(err);
+
+    var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, accepted_addr, addr_len) catch |err| {
+        std.posix.close(accepted_fd);
+        return finishErr(err);
+    };
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const stream_handle = registerResourceLocked(.{ .tcp_stream = .{ .handle = accepted_fd } }) catch |err| {
+        unix_addr.deinit();
+        std.posix.close(accepted_fd);
+        return finishErr(err);
+    };
+    const addr_handle = registerResourceLocked(.{ .unix_addr = unix_addr }) catch |err| {
+        if (takeResourceLocked(stream_handle)) |taken| {
+            var mutable = taken;
+            mutable.close() catch {};
+        }
+        unix_addr.deinit();
+        return finishErr(err);
+    };
+    stream_ptr.* = stream_handle;
+    addr_ptr.* = addr_handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
     const left_ptr = out_left orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const right_ptr = out_right orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);

@@ -443,6 +443,7 @@ int32_t sa_std_net_tcp_listener_take_error(uint64_t listener_handle, int32_t *ou
 
 int32_t sa_std_net_unix_listen(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_net_unix_accept(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_unix_accept_addr(uint64_t listener_handle, uint64_t *out_stream, uint64_t *out_addr);
 int32_t sa_std_net_unix_connect(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_net_unix_pair(uint64_t *out_left, uint64_t *out_right);
 int32_t sa_std_net_unix_addr_from_abstract_name(const uint8_t *name, uint64_t name_len, uint64_t *out_handle);

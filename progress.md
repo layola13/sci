@@ -4,6 +4,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 UnixListener accept_addr batch
+
+- Added Unix `std::os::unix::net::UnixListener::accept`-style address-returning surface:
+  - runtime/header export `sa_std_net_unix_accept_addr`
+  - SA extern/macro wrapper `NET_UNIX_ACCEPT_ADDR` returning both accepted stream and peer Unix socket address handle.
+- Runtime behavior:
+  - validates the listener handle is backed by an AF_UNIX listener socket.
+  - calls `accept` with a `sockaddr_un` output buffer, registers the accepted fd as an existing stream resource, and registers the peer address through the existing Unix address handle model.
+  - keeps the existing `NET_UNIX_ACCEPT` stream-only path intact.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - pathname Unix-domain roundtrip now accepts through `NET_UNIX_ACCEPT_ADDR`.
+  - verifies the returned peer address handle is nonzero, has kind `SA_NET_UNIX_ADDR_UNNAMED`, and frees cleanly before the existing stream I/O continues.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter "domain" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter "domain" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_accept_addr` is exported.
+
 ## Completed: 2026-07-06 Unix socket try_clone batch
 
 - Added Unix `std::os::unix::net::{UnixStream,UnixListener}::try_clone`-style facades over Linux/Unix fd duplication:
