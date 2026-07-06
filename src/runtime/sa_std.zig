@@ -7031,6 +7031,23 @@ pub export fn sa_std_fd_dup(handle: u64, out_handle: ?*u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_fd_dup_raw(fd: i32, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    const source_fd = @as(std.posix.fd_t, @intCast(fd));
+    const dup_fd = std.posix.dup(source_fd) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const dup_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = dup_fd } }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = dup_handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;

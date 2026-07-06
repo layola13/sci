@@ -8,6 +8,8 @@
 @const FD_FILE_TEST_DATA = utf8:"filefd"
 @const FD_OWNED_TEST_PATH = utf8:"_tmp_owned_fd_surface.txt"
 @const FD_OWNED_TEST_DATA = utf8:"ownedfd"
+@const FD_BORROWED_TEST_PATH = utf8:"_tmp_borrowed_fd_surface.txt"
+@const FD_BORROWED_TEST_DATA = utf8:"borrowfd"
 
 #def FD_TEST_PATH_LEN = 25
 #def FD_TEST_DATA_LEN = 4
@@ -15,6 +17,156 @@
 #def FD_FILE_TEST_DATA_LEN = 6
 #def FD_OWNED_TEST_PATH_LEN = 25
 #def FD_OWNED_TEST_DATA_LEN = 7
+#def FD_BORROWED_TEST_PATH_LEN = 28
+#def FD_BORROWED_TEST_DATA_LEN = 8
+
+@test "sa_std os raw borrowed fd macros"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_status, FD_BORROWED_TEST_PATH, FD_BORROWED_TEST_PATH_LEN
+    EXPAND FS_WRITE_FILE write_status, FD_BORROWED_TEST_PATH, FD_BORROWED_TEST_PATH_LEN, FD_BORROWED_TEST_DATA, FD_BORROWED_TEST_DATA_LEN
+    EXPAND FS_OPEN_READ open_status, file_handle, FD_BORROWED_TEST_PATH, FD_BORROWED_TEST_PATH_LEN
+    EXPAND FS_FILE_AS_RAW_FD file_raw_status, file_raw_fd, file_handle
+    EXPAND FD_RAW_AS_RAW_FD raw_as_status, raw_as_fd, file_raw_fd
+    EXPAND FD_RAW_INTO_RAW_FD raw_into_status, raw_into_fd, raw_as_fd
+    EXPAND FD_RAW_FROM_RAW_FD raw_from_status, raw_from_fd, raw_into_fd
+    EXPAND FD_BORROWED_BORROW_RAW borrow_status, borrowed_fd, raw_from_fd
+    EXPAND FD_BORROWED_AS_RAW_FD borrowed_as_status, borrowed_as_fd, borrowed_fd
+    EXPAND FD_BORROWED_TRY_CLONE_TO_OWNED clone_status, cloned_owned_fd, borrowed_as_fd
+    EXPAND FS_CLOSE close_file_status, file_handle
+
+    read_buf = stack_alloc 8
+    EXPAND FS_READ read_status, read_len, cloned_owned_fd, read_buf, 8
+    b0 = load read_buf+0 as u8
+    b7 = load read_buf+7 as u8
+    EXPAND FS_CLOSE clone_close_status, cloned_owned_fd
+    EXPAND FS_REMOVE_PATH remove_status, FD_BORROWED_TEST_PATH, FD_BORROWED_TEST_PATH_LEN
+
+    write_ok = eq write_status, SA_FS_OK
+    open_ok = eq open_status, SA_FS_OK
+    file_raw_ok = eq file_raw_status, SA_FD_OK
+    file_raw_fd_ok = ne file_raw_fd, 0
+    raw_as_ok = eq raw_as_status, SA_FD_OK
+    raw_as_fd_ok = eq raw_as_fd, file_raw_fd
+    raw_into_ok = eq raw_into_status, SA_FD_OK
+    raw_into_fd_ok = eq raw_into_fd, file_raw_fd
+    raw_from_ok = eq raw_from_status, SA_FD_OK
+    raw_from_fd_ok = eq raw_from_fd, file_raw_fd
+    borrow_ok = eq borrow_status, SA_FD_OK
+    borrowed_fd_ok = eq borrowed_fd, file_raw_fd
+    borrowed_as_ok = eq borrowed_as_status, SA_FD_OK
+    borrowed_as_fd_ok = eq borrowed_as_fd, file_raw_fd
+    clone_ok = eq clone_status, SA_FD_OK
+    cloned_owned_ok = ne cloned_owned_fd, 0
+    close_file_ok = eq close_file_status, SA_FS_OK
+    read_ok = eq read_status, SA_FS_OK
+    read_len_ok = eq read_len, 8
+    b0_ok = eq b0, 98
+    b7_ok = eq b7, 100
+    clone_close_ok = eq clone_close_status, SA_FS_OK
+    remove_ok = eq remove_status, SA_FS_OK
+
+    ok01 = and write_ok, open_ok
+    ok02 = and ok01, file_raw_ok
+    ok03 = and ok02, file_raw_fd_ok
+    ok04 = and ok03, raw_as_ok
+    ok05 = and ok04, raw_as_fd_ok
+    ok06 = and ok05, raw_into_ok
+    ok07 = and ok06, raw_into_fd_ok
+    ok08 = and ok07, raw_from_ok
+    ok09 = and ok08, raw_from_fd_ok
+    ok10 = and ok09, borrow_ok
+    ok11 = and ok10, borrowed_fd_ok
+    ok12 = and ok11, borrowed_as_ok
+    ok13 = and ok12, borrowed_as_fd_ok
+    ok14 = and ok13, clone_ok
+    ok15 = and ok14, cloned_owned_ok
+    ok16 = and ok15, close_file_ok
+    ok17 = and ok16, read_ok
+    ok18 = and ok17, read_len_ok
+    ok19 = and ok18, b0_ok
+    ok20 = and ok19, b7_ok
+    ok21 = and ok20, clone_close_ok
+    ok = and ok21, remove_ok
+
+    !cleanup_status
+    !write_status
+    !open_status
+    !file_handle
+    !file_raw_status
+    !file_raw_fd
+    !raw_as_status
+    !raw_as_fd
+    !raw_into_status
+    !raw_into_fd
+    !raw_from_status
+    !raw_from_fd
+    !borrow_status
+    !borrowed_fd
+    !borrowed_as_status
+    !borrowed_as_fd
+    !clone_status
+    !cloned_owned_fd
+    !close_file_status
+    !read_status
+    !read_len
+    !b0
+    !b7
+    !clone_close_status
+    !remove_status
+    !write_ok
+    !open_ok
+    !file_raw_ok
+    !file_raw_fd_ok
+    !raw_as_ok
+    !raw_as_fd_ok
+    !raw_into_ok
+    !raw_into_fd_ok
+    !raw_from_ok
+    !raw_from_fd_ok
+    !borrow_ok
+    !borrowed_fd_ok
+    !borrowed_as_ok
+    !borrowed_as_fd_ok
+    !clone_ok
+    !cloned_owned_ok
+    !close_file_ok
+    !read_ok
+    !read_len_ok
+    !b0_ok
+    !b7_ok
+    !clone_close_ok
+    !remove_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(1504)
+
+L_PASS:
+    !ok
+    return 0
 
 @test "sa_std os owned fd named macros"():
 L_ENTRY:

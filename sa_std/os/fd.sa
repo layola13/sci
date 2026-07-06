@@ -13,6 +13,41 @@
     %out_handle = load __fd_dup_slot_%out_handle+0 as u64
 [END_MACRO]
 
+[MACRO] FD_DUP_RAW %out_status, %out_handle, %fd
+    __fd_dup_raw_slot_%out_handle = stack_alloc 8
+    %out_status = call @sa_std_fd_dup_raw(%fd, &__fd_dup_raw_slot_%out_handle)
+    %out_handle = load __fd_dup_raw_slot_%out_handle+0 as u64
+[END_MACRO]
+
+[MACRO] FD_RAW_AS_RAW_FD %out_status, %out_fd, %fd
+    %out_status = add 0, SA_FD_OK
+    %out_fd = add 0, %fd
+[END_MACRO]
+
+[MACRO] FD_RAW_INTO_RAW_FD %out_status, %out_fd, %fd
+    %out_status = add 0, SA_FD_OK
+    %out_fd = add 0, %fd
+[END_MACRO]
+
+[MACRO] FD_RAW_FROM_RAW_FD %out_status, %out_fd, %fd
+    %out_status = add 0, SA_FD_OK
+    %out_fd = add 0, %fd
+[END_MACRO]
+
+[MACRO] FD_BORROWED_BORROW_RAW %out_status, %out_fd, %fd
+    %out_status = add 0, SA_FD_OK
+    %out_fd = add 0, %fd
+[END_MACRO]
+
+[MACRO] FD_BORROWED_AS_RAW_FD %out_status, %out_fd, %fd
+    %out_status = add 0, SA_FD_OK
+    %out_fd = add 0, %fd
+[END_MACRO]
+
+[MACRO] FD_BORROWED_TRY_CLONE_TO_OWNED %out_status, %out_handle, %fd
+    EXPAND FD_DUP_RAW %out_status, %out_handle, %fd
+[END_MACRO]
+
 [MACRO] FD_OWNED_TRY_CLONE %out_status, %out_handle, %fd_handle
     EXPAND FD_DUP %out_status, %out_handle, %fd_handle
 [END_MACRO]

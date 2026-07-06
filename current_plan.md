@@ -42,6 +42,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
    - `std::os::fd` / `std::os::unix::io` stdio borrowed raw-fd trait surface: `Stdin` / `Stdout` / `Stderr` borrowed `as_raw_fd` style macros over fixed SA stdio handles.
    - `std::os::fd` / `std::os::unix::io` `std::fs::File` raw/owned fd trait surface: File `as_raw_fd`, `into_raw_fd`, `from_raw_fd`, `into_owned_fd`, and `from_owned_fd`, with `from_raw_fd` restoring the existing File resource kind.
    - `std::os::fd::OwnedFd` Rust-named raw-fd and clone aliases over the existing fd facade: `as_raw_fd`, `into_raw_fd`, `from_raw_fd`, and `try_clone` style macros.
+   - `std::os::fd::{RawFd,BorrowedFd}` Rust-named facades: RawFd reflexive raw-fd traits and BorrowedFd borrow/as/try_clone_to_owned over raw fd duplication.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
    - `std::os::unix::net::UnixListener::incoming`: named incoming iterator macro surface over the existing listener-backed incoming layout.
    - `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`: pathname Unix addr constructor and Rust-named pathname access aliases.
@@ -108,6 +109,7 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - `zig build unit-framework --summary all` passes after the stdio raw-fd alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the File raw/owned fd facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the OwnedFd named facade batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the RawFd/BorrowedFd named facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -186,6 +188,8 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
   - `std_os_fd_macro_surface.sa`
 - Updated os fd macro-surface test passes with OwnedFd named raw-fd and clone assertions:
   - `std_os_fd_macro_surface.sa`
+- Updated os fd macro-surface test passes with RawFd reflexive and BorrowedFd clone-to-owned assertions:
+  - `std_os_fd_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with Linux `SO_PASSCRED` assertions:
   - `std_net_unix_macro_surface.sa`
 - Updated process macro-surface test passes with ChildExt kill_process_group assertions:
@@ -228,18 +232,24 @@ Continue the Linux-first `sa_std` parity climb in SCI. Complete source batches f
 - Installed-state smoke passes for `std_io_utility_macro_surface.sa` after the stdio raw-fd alias install sync.
 - Installed-state smoke passes for `std_os_fd_macro_surface.sa` after the File raw/owned fd facade install sync.
 - Installed-state smoke passes for `std_os_fd_macro_surface.sa` after the OwnedFd named facade install sync.
+- Installed-state smoke passes for `std_os_fd_macro_surface.sa` after the RawFd/BorrowedFd named facade install sync.
 - `src/runtime/sa_std.h`, `sa_std/*.sai`, `sa_std/*.sa`, and installed `/home/vscode/.sa/std` expose the same ABI after `./tools/install.sh --no-shell`.
 
 ## Current Status
 
-- Source/facade/test changes are complete for the OwnedFd named facade batch.
-- This batch adds no runtime/header ABI symbols; it aliases existing `sa_std/os/fd` raw/dup runtime under Rust `OwnedFd` names.
-- Focused source-std fd `sa test` for `std_os_fd_macro_surface.sa --filter "owned fd named"` passes (`1 passed`).
-- Full source-std fd `sa test` for `std_os_fd_macro_surface.sa` passes (`3 passed`).
+- Source/runtime/facade/test changes are complete for the RawFd/BorrowedFd named facade batch.
+- This batch adds `sa_std_fd_dup_raw` so a borrowed raw fd can be cloned into an owned fd handle.
+- `zig build sa-std-static --summary all` passes and `sa_std_fd_dup_raw` is exported from both static libs.
+- Focused source-std fd `sa test` for `std_os_fd_macro_surface.sa --filter "raw borrowed fd"` passes (`1 passed`).
+- Full source-std fd `sa test` for `std_os_fd_macro_surface.sa` passes (`4 passed`).
 - `zig build unit-framework --summary all` passes.
 - Install sync completed once via `./tools/install.sh --no-shell`; no manual copy path used.
-- Installed-state focused fd smoke for `std_os_fd_macro_surface.sa --filter "owned fd named"` passes (`1 passed`).
-- Installed-state full fd smoke for `std_os_fd_macro_surface.sa` passes (`3 passed`).
+- Installed-state focused fd smoke for `std_os_fd_macro_surface.sa --filter "raw borrowed fd"` passes (`1 passed`).
+- Installed-state full fd smoke for `std_os_fd_macro_surface.sa` passes (`4 passed`).
+
+## Next Priority
+
+- Audit `sa_std/string` and `sa_std/vec` against Rust `String` / `Vec` APIs first, then implement the highest-value small verified gap.
 
 ## Notes
 

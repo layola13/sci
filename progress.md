@@ -4,6 +4,31 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 RawFd/BorrowedFd named facade batch
+
+- Added Rust-named raw/borrowed fd macro surfaces over the existing fd facade:
+  - `FD_RAW_AS_RAW_FD`
+  - `FD_RAW_INTO_RAW_FD`
+  - `FD_RAW_FROM_RAW_FD`
+  - `FD_BORROWED_BORROW_RAW`
+  - `FD_BORROWED_AS_RAW_FD`
+  - `FD_BORROWED_TRY_CLONE_TO_OWNED`
+- Added runtime/header/SA contract export for cloning a borrowed raw fd into an owned fd handle:
+  - `sa_std_fd_dup_raw`
+- Updated `tests/unit_framework/std_os_fd_macro_surface.sa` coverage:
+  - raw fd reflexive macros preserve the fd value.
+  - borrowed raw fd clone creates an owned fd that remains readable after closing the original File handle.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_std_fd_dup_raw'`: pass, symbol exported in both libs.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "raw borrowed fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "raw borrowed fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
 ## Completed: 2026-07-06 OwnedFd named facade batch
 
 - Added Rust-named `OwnedFd` macro aliases over the existing `sa_std/os/fd` raw/dup ABI:

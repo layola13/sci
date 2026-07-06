@@ -154,6 +154,7 @@ uint64_t sa_io_stderr(void);
 
 int32_t sa_std_fd_as_raw(uint64_t handle, int32_t *out_fd);
 int32_t sa_std_fd_dup(uint64_t handle, uint64_t *out_handle);
+int32_t sa_std_fd_dup_raw(int32_t fd, uint64_t *out_handle);
 int32_t sa_std_fd_from_raw(int32_t fd, uint64_t *out_handle);
 int32_t sa_std_fd_into_raw(uint64_t handle, int32_t *out_fd);
 int32_t sa_std_fd_close_raw(int32_t fd);
