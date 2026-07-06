@@ -93,6 +93,8 @@
 - [x] Child stdout/stderr owned-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `std::os::fd` / `std::os::unix::io` TCP stream/listener raw-fd trait 表面：补 `TcpStream` / `TcpListener` 的 `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 命名宏；`from_raw_fd` 验证 INET/INET6 stream socket 并按 `SO_ACCEPTCONN` 恢复 stream/listener 资源类型。
 - [x] TCP stream/listener raw-fd trait 批次已完成导出符号检查、focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd::OwnedFd` TCP stream/listener 转换表面：补 `NET_TCP_STREAM_INTO_OWNED_FD`、`NET_TCP_STREAM_FROM_OWNED_FD`、`NET_TCP_LISTENER_INTO_OWNED_FD`、`NET_TCP_LISTENER_FROM_OWNED_FD` 宏别名，复用 TCP raw-fd restore 与 `sa_std/os/fd` owned-fd facade。
+- [x] TCP stream/listener owned-fd alias 批次已完成 focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

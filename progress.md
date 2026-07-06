@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 TCP stream/listener owned fd alias batch
+
+- Added TCP `TcpStream` / `TcpListener` owned-fd conversion macro aliases over the TCP raw-fd facades and `sa_std/os/fd` owned-fd ABI:
+  - `NET_TCP_STREAM_INTO_OWNED_FD`
+  - `NET_TCP_STREAM_FROM_OWNED_FD`
+  - `NET_TCP_LISTENER_INTO_OWNED_FD`
+  - `NET_TCP_LISTENER_FROM_OWNED_FD`
+  - runtime continues to use the TCP raw-fd restore exports from the previous batch, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_net_macro_surface.sa` TCP fd coverage:
+  - listener, connected client stream, and accepted server stream now transfer ownership through an owned fd and rebind before continuing through the existing raw-fd roundtrip and byte exchange path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+
 ## Completed: 2026-07-06 TCP stream/listener raw fd trait batch
 
 - Added TCP `TcpStream` / `TcpListener` raw-fd trait-style macro surface:

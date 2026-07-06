@@ -69,6 +69,20 @@
     %out_listener = load __net_tcp_listener_from_raw_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_TCP_LISTENER_INTO_OWNED_FD %out_status, %out_fd_handle, %listener
+    EXPAND NET_TCP_LISTENER_INTO_RAW_FD %out_status, __net_tcp_listener_owned_raw_%out_status, %listener
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_tcp_listener_owned_raw_%out_status
+    !__net_tcp_listener_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_FROM_OWNED_FD %out_status, %out_listener, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_tcp_listener_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_TCP_LISTENER_FROM_RAW_FD %out_status, %out_listener, __net_tcp_listener_from_owned_raw_%out_status
+    !__net_tcp_listener_from_owned_raw_%out_status
+[END_MACRO]
+
 [MACRO] NET_TCP_LISTENER_CLOSE %out_status, %listener
     __net_tcp_listener_close_%out_status = call @sa_net_tcp_listener_close(%listener)
     %out_status = load __net_tcp_listener_close_%out_status+0 as i32
@@ -226,6 +240,20 @@
     __net_tcp_stream_from_raw_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_tcp_stream_from_raw_fd(%fd, &__net_tcp_stream_from_raw_%out_status)
     %out_stream = load __net_tcp_stream_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_INTO_OWNED_FD %out_status, %out_fd_handle, %stream
+    EXPAND NET_TCP_STREAM_INTO_RAW_FD %out_status, __net_tcp_stream_owned_raw_%out_status, %stream
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_tcp_stream_owned_raw_%out_status
+    !__net_tcp_stream_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_FROM_OWNED_FD %out_status, %out_stream, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_tcp_stream_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_TCP_STREAM_FROM_RAW_FD %out_status, %out_stream, __net_tcp_stream_from_owned_raw_%out_status
+    !__net_tcp_stream_from_owned_raw_%out_status
 [END_MACRO]
 
 [MACRO] NET_TCP_STREAM_SET_KEEPALIVE %out_status, %stream, %enabled

@@ -951,16 +951,22 @@ L_OK:
 @test "sa_std net tcp raw fd macro surface"():
 L_ENTRY:
     EXPAND NET_TCP_LISTENER_BIND_PORT bind_status, listener, bound_port, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, 0
+    EXPAND NET_TCP_LISTENER_INTO_OWNED_FD listener_into_owned_status, listener_owned_fd, listener
+    EXPAND NET_TCP_LISTENER_FROM_OWNED_FD listener_from_owned_status, listener, listener_owned_fd
     EXPAND NET_TCP_LISTENER_AS_RAW_FD listener_as_status, listener_raw_fd, listener
     EXPAND NET_TCP_LISTENER_INTO_RAW_FD listener_into_status, listener_taken_fd, listener
     EXPAND NET_TCP_LISTENER_FROM_RAW_FD listener_from_status, listener, listener_taken_fd
     EXPAND NET_TCP_LISTENER_SET_NONBLOCKING listener_nonblock_status, listener, SA_NET_SOCKET_OPTION_ENABLE
     EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
+    EXPAND NET_TCP_STREAM_INTO_OWNED_FD client_into_owned_status, client_owned_fd, client
+    EXPAND NET_TCP_STREAM_FROM_OWNED_FD client_from_owned_status, client, client_owned_fd
     EXPAND NET_TCP_STREAM_AS_RAW_FD client_as_status, client_raw_fd, client
     EXPAND NET_TCP_STREAM_INTO_RAW_FD client_into_status, client_taken_fd, client
     EXPAND NET_TCP_STREAM_FROM_RAW_FD client_from_status, client, client_taken_fd
     EXPAND NET_TCP_LISTENER_ACCEPT accept_status, server, listener
     EXPAND NET_TCP_LISTENER_CLOSE listener_close_status, listener
+    EXPAND NET_TCP_STREAM_INTO_OWNED_FD server_into_owned_status, server_owned_fd, server
+    EXPAND NET_TCP_STREAM_FROM_OWNED_FD server_from_owned_status, server, server_owned_fd
     EXPAND NET_TCP_STREAM_AS_RAW_FD server_as_status, server_raw_fd, server
     EXPAND NET_TCP_STREAM_INTO_RAW_FD server_into_status, server_taken_fd, server
     EXPAND NET_TCP_STREAM_FROM_RAW_FD server_from_status, server, server_taken_fd
@@ -983,6 +989,11 @@ L_ENTRY:
     bind_status_ok = eq bind_status, SA_NET_OK
     listener_ok = ne listener, 0
     bound_port_ok = ne bound_port, 0
+    listener_into_owned_ok = eq listener_into_owned_status, SA_NET_OK
+    listener_owned_fd_ok = ne listener_owned_fd, 0
+    listener_from_owned_ok = eq listener_from_owned_status, SA_NET_OK
+    listener_owned01 = and listener_into_owned_ok, listener_owned_fd_ok
+    listener_owned_ok = and listener_owned01, listener_from_owned_ok
     listener_as_ok = eq listener_as_status, SA_NET_OK
     listener_raw_fd_ok = ne listener_raw_fd, -1
     listener_into_ok = eq listener_into_status, SA_NET_OK
@@ -991,6 +1002,11 @@ L_ENTRY:
     listener_nonblock_ok = eq listener_nonblock_status, SA_NET_OK
     connect_ok = eq connect_status, SA_NET_OK
     client_ok = ne client, 0
+    client_into_owned_ok = eq client_into_owned_status, SA_NET_OK
+    client_owned_fd_ok = ne client_owned_fd, 0
+    client_from_owned_ok = eq client_from_owned_status, SA_NET_OK
+    client_owned01 = and client_into_owned_ok, client_owned_fd_ok
+    client_owned_ok = and client_owned01, client_from_owned_ok
     client_as_ok = eq client_as_status, SA_NET_OK
     client_raw_fd_ok = ne client_raw_fd, -1
     client_into_ok = eq client_into_status, SA_NET_OK
@@ -999,6 +1015,11 @@ L_ENTRY:
     accept_ok = eq accept_status, SA_NET_OK
     server_ok = ne server, 0
     listener_close_ok = eq listener_close_status, SA_NET_OK
+    server_into_owned_ok = eq server_into_owned_status, SA_NET_OK
+    server_owned_fd_ok = ne server_owned_fd, 0
+    server_from_owned_ok = eq server_from_owned_status, SA_NET_OK
+    server_owned01 = and server_into_owned_ok, server_owned_fd_ok
+    server_owned_ok = and server_owned01, server_from_owned_ok
     server_as_ok = eq server_as_status, SA_NET_OK
     server_raw_fd_ok = ne server_raw_fd, -1
     server_into_ok = eq server_into_status, SA_NET_OK
@@ -1017,41 +1038,47 @@ L_ENTRY:
 
     ok01 = and bind_status_ok, listener_ok
     ok02 = and ok01, bound_port_ok
-    ok03 = and ok02, listener_as_ok
-    ok04 = and ok03, listener_raw_fd_ok
-    ok05 = and ok04, listener_into_ok
-    ok06 = and ok05, listener_raw_match
-    ok07 = and ok06, listener_from_ok
-    ok08 = and ok07, listener_nonblock_ok
-    ok09 = and ok08, connect_ok
-    ok10 = and ok09, client_ok
-    ok11 = and ok10, client_as_ok
-    ok12 = and ok11, client_raw_fd_ok
-    ok13 = and ok12, client_into_ok
-    ok14 = and ok13, client_raw_match
-    ok15 = and ok14, client_from_ok
-    ok16 = and ok15, accept_ok
-    ok17 = and ok16, server_ok
-    ok18 = and ok17, listener_close_ok
-    ok19 = and ok18, server_as_ok
-    ok20 = and ok19, server_raw_fd_ok
-    ok21 = and ok20, server_into_ok
-    ok22 = and ok21, server_raw_match
-    ok23 = and ok22, server_from_ok
-    ok24 = and ok23, write_status_ok
-    ok25 = and ok24, write_len_ok
-    ok26 = and ok25, read_status_ok
-    ok27 = and ok26, read_len_ok
-    ok28 = and ok27, read_b0_ok
-    ok29 = and ok28, read_b1_ok
-    ok30 = and ok29, read_b2_ok
-    ok31 = and ok30, read_b3_ok
-    ok32 = and ok31, client_close_ok
-    ok = and ok32, server_close_ok
+    ok03 = and ok02, listener_owned_ok
+    ok04 = and ok03, listener_as_ok
+    ok05 = and ok04, listener_raw_fd_ok
+    ok06 = and ok05, listener_into_ok
+    ok07 = and ok06, listener_raw_match
+    ok08 = and ok07, listener_from_ok
+    ok09 = and ok08, listener_nonblock_ok
+    ok10 = and ok09, connect_ok
+    ok11 = and ok10, client_ok
+    ok12 = and ok11, client_owned_ok
+    ok13 = and ok12, client_as_ok
+    ok14 = and ok13, client_raw_fd_ok
+    ok15 = and ok14, client_into_ok
+    ok16 = and ok15, client_raw_match
+    ok17 = and ok16, client_from_ok
+    ok18 = and ok17, accept_ok
+    ok19 = and ok18, server_ok
+    ok20 = and ok19, listener_close_ok
+    ok21 = and ok20, server_owned_ok
+    ok22 = and ok21, server_as_ok
+    ok23 = and ok22, server_raw_fd_ok
+    ok24 = and ok23, server_into_ok
+    ok25 = and ok24, server_raw_match
+    ok26 = and ok25, server_from_ok
+    ok27 = and ok26, write_status_ok
+    ok28 = and ok27, write_len_ok
+    ok29 = and ok28, read_status_ok
+    ok30 = and ok29, read_len_ok
+    ok31 = and ok30, read_b0_ok
+    ok32 = and ok31, read_b1_ok
+    ok33 = and ok32, read_b2_ok
+    ok34 = and ok33, read_b3_ok
+    ok35 = and ok34, client_close_ok
+    ok = and ok35, server_close_ok
     br ok -> L_OK, L_FAIL
 
 L_FAIL:
     !ok
+    !ok35
+    !ok34
+    !ok33
     !ok32
     !ok31
     !ok30
@@ -1099,6 +1126,11 @@ L_FAIL:
     !server_into_ok
     !server_raw_fd_ok
     !server_as_ok
+    !server_owned_ok
+    !server_owned01
+    !server_from_owned_ok
+    !server_owned_fd_ok
+    !server_into_owned_ok
     !listener_close_ok
     !server_ok
     !accept_ok
@@ -1107,6 +1139,11 @@ L_FAIL:
     !client_into_ok
     !client_raw_fd_ok
     !client_as_ok
+    !client_owned_ok
+    !client_owned01
+    !client_from_owned_ok
+    !client_owned_fd_ok
+    !client_into_owned_ok
     !client_ok
     !connect_ok
     !listener_nonblock_ok
@@ -1115,6 +1152,11 @@ L_FAIL:
     !listener_into_ok
     !listener_raw_fd_ok
     !listener_as_ok
+    !listener_owned_ok
+    !listener_owned01
+    !listener_from_owned_ok
+    !listener_owned_fd_ok
+    !listener_into_owned_ok
     !bound_port_ok
     !listener_ok
     !bind_status_ok
@@ -1130,6 +1172,9 @@ L_FAIL:
     !write_status
     !server_taken_fd
     !server_raw_fd
+    !server_owned_fd
+    !server_from_owned_status
+    !server_into_owned_status
     !server_from_status
     !server_into_status
     !server_as_status
@@ -1138,6 +1183,9 @@ L_FAIL:
     !accept_status
     !client_taken_fd
     !client_raw_fd
+    !client_owned_fd
+    !client_from_owned_status
+    !client_into_owned_status
     !client_from_status
     !client_into_status
     !client_as_status
@@ -1146,6 +1194,9 @@ L_FAIL:
     !listener_nonblock_status
     !listener_taken_fd
     !listener_raw_fd
+    !listener_owned_fd
+    !listener_from_owned_status
+    !listener_into_owned_status
     !listener_from_status
     !listener_into_status
     !listener_as_status
@@ -1156,6 +1207,9 @@ L_FAIL:
 
 L_OK:
     !ok
+    !ok35
+    !ok34
+    !ok33
     !ok32
     !ok31
     !ok30
@@ -1203,6 +1257,11 @@ L_OK:
     !server_into_ok
     !server_raw_fd_ok
     !server_as_ok
+    !server_owned_ok
+    !server_owned01
+    !server_from_owned_ok
+    !server_owned_fd_ok
+    !server_into_owned_ok
     !listener_close_ok
     !server_ok
     !accept_ok
@@ -1211,6 +1270,11 @@ L_OK:
     !client_into_ok
     !client_raw_fd_ok
     !client_as_ok
+    !client_owned_ok
+    !client_owned01
+    !client_from_owned_ok
+    !client_owned_fd_ok
+    !client_into_owned_ok
     !client_ok
     !connect_ok
     !listener_nonblock_ok
@@ -1219,6 +1283,11 @@ L_OK:
     !listener_into_ok
     !listener_raw_fd_ok
     !listener_as_ok
+    !listener_owned_ok
+    !listener_owned01
+    !listener_from_owned_ok
+    !listener_owned_fd_ok
+    !listener_into_owned_ok
     !bound_port_ok
     !listener_ok
     !bind_status_ok
@@ -1234,6 +1303,9 @@ L_OK:
     !write_status
     !server_taken_fd
     !server_raw_fd
+    !server_owned_fd
+    !server_from_owned_status
+    !server_into_owned_status
     !server_from_status
     !server_into_status
     !server_as_status
@@ -1242,6 +1314,9 @@ L_OK:
     !accept_status
     !client_taken_fd
     !client_raw_fd
+    !client_owned_fd
+    !client_from_owned_status
+    !client_into_owned_status
     !client_from_status
     !client_into_status
     !client_as_status
@@ -1250,6 +1325,9 @@ L_OK:
     !listener_nonblock_status
     !listener_taken_fd
     !listener_raw_fd
+    !listener_owned_fd
+    !listener_from_owned_status
+    !listener_into_owned_status
     !listener_from_status
     !listener_into_status
     !listener_as_status
