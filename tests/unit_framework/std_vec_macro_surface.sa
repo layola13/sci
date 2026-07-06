@@ -2452,3 +2452,48 @@ L_VEC_STR_BYTES_FAIL:
 L_VEC_STR_BYTES_OK:
     !ok
     return
+
+@test "sa_std vec from string buffer macro"():
+L_VEC_FROM_STRING_ENTRY:
+    word_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &WORD, 4
+    EXPAND STRING_BUF_FROM_STR string_buf, word_slice
+    EXPAND VEC_FROM_STRING_BUF bytes_vec, string_buf
+    EXPAND VEC_LEN bytes_len, bytes_vec
+    EXPAND VEC_TRY_GET_TYPED_U8 first_ok, first, bytes_vec, 0, 1
+    EXPAND VEC_TRY_GET_TYPED_U8 fourth_ok, fourth, bytes_vec, 3, 1
+
+    len_ok = eq bytes_len, 4
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 114
+    fourth_flag_ok = eq fourth_ok, 1
+    fourth_value_ok = eq fourth, 116
+    ok01 = and len_ok, first_flag_ok
+    ok02 = and ok01, first_value_ok
+    ok03 = and ok02, fourth_flag_ok
+    ok = and ok03, fourth_value_ok
+
+    !bytes_len
+    !first_ok
+    !first
+    !fourth_ok
+    !fourth
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !word_slice
+    EXPAND VEC_FREE bytes_vec
+    br ok -> L_VEC_FROM_STRING_OK, L_VEC_FROM_STRING_FAIL
+
+L_VEC_FROM_STRING_FAIL:
+    !ok
+    panic(927)
+
+L_VEC_FROM_STRING_OK:
+    !ok
+    return

@@ -4,6 +4,28 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec reference conversion alias facade batch
+
+- Continued String/Vec Rust API parity with remaining supportable reference/conversion aliases.
+- Added StringBuf macro surfaces:
+  - `STRING_BUF_FROM_MUT_STR`
+  - `STRING_BUF_FROM_STRING_REF`
+  - `STRING_BUF_TRY_FROM_VEC_U8`
+  - `STRING_BUF_TRY_FROM_BYTES_VEC`
+- Expanded Vec coverage for the existing `VEC_FROM_STRING_BUF` surface, matching Rust `From<String> for Vec<u8>` style ownership transfer.
+- Semantics: `from_mut_str` copies the provided mutable str view just like `from_str`; `from_string_ref` clones the source StringBuf into independent backing storage; TryFrom byte-Vec aliases reuse strict UTF-8 validation and return the original byte Vec on failure.
+- Scope note: `String::as_mut_vec`, Cow/Box conversions, allocator-parametric APIs, const-generic arrays, and lazy iterator object models remain outside the supportable SA surface for now.
+- Validation status:
+  - Source focused reference conversion tests: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused reference conversion tests: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec default and conversion alias facade batch
 
 - Continued String/Vec Rust API parity with supportable trait/conversion naming surfaces.

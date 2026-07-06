@@ -167,6 +167,10 @@
     !__string_buf_from_str_len_%out_string
 [END_MACRO]
 
+[MACRO] STRING_BUF_FROM_MUT_STR %out_string, %source_slice
+    EXPAND STRING_BUF_FROM_STR %out_string, %source_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_FROM_CHAR %out_string, %char_value
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 4
     EXPAND STRING_BUF_PUSH_CHAR %out_string, %char_value
@@ -185,6 +189,10 @@
     EXPAND STRING_BUF_AS_STR __string_buf_clone_slice_%out_string, %string_reg
     EXPAND STRING_BUF_FROM_STR %out_string, __string_buf_clone_slice_%out_string
     !__string_buf_clone_slice_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_STRING_REF %out_string, %source_string
+    EXPAND STRING_BUF_CLONE %out_string, %source_string
 [END_MACRO]
 
 [MACRO] STRING_BUF_CLONE_FROM %dst_string_reg, %src_string_reg
@@ -284,6 +292,14 @@ L_STRING_BUF_FROM_UTF8_VEC_ERR_%out_ok:
     !__string_buf_from_utf8_vec_valid_%out_ok
 
 L_STRING_BUF_FROM_UTF8_VEC_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FROM_VEC_U8 %out_ok, %out_string, %out_err_vec, %bytes_vec
+    EXPAND STRING_BUF_TRY_FROM_UTF8_VEC %out_ok, %out_string, %out_err_vec, %bytes_vec
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FROM_BYTES_VEC %out_ok, %out_string, %out_err_vec, %bytes_vec
+    EXPAND STRING_BUF_TRY_FROM_UTF8_VEC %out_ok, %out_string, %out_err_vec, %bytes_vec
 [END_MACRO]
 
 [MACRO] STRING_BUF_FROM_UTF8_LOSSY %out_string, %bytes_slice

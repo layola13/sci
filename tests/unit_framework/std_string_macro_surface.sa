@@ -3658,3 +3658,109 @@ L_STRING_BUF_ADD_FAIL:
 L_STRING_BUF_ADD_OK:
     !ok
     return
+
+@test "sa_std string buffer reference conversion aliases"():
+L_STRING_BUF_REF_CONV_ENTRY:
+    word_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &WORD, 4
+
+    EXPAND STRING_BUF_FROM_MUT_STR from_mut, word_slice
+    EXPAND STRING_BUF_AS_STR from_mut_view, from_mut
+    EXPAND STR_EQ from_mut_eq, from_mut_view, word_slice
+
+    EXPAND STRING_BUF_FROM_STR source, word_slice
+    EXPAND STRING_BUF_FROM_STRING_REF from_ref, source
+    EXPAND STRING_BUF_AS_MUT_STR source_mut, source
+    EXPAND SLICE_GET_PTR source_mut_ptr, source_mut
+    store source_mut_ptr+0, 82 as u8
+    EXPAND STRING_BUF_AS_STR from_ref_view, from_ref
+    EXPAND STR_EQ from_ref_eq, from_ref_view, word_slice
+
+    EXPAND VEC_WITH_CAPACITY valid_vec, 4, 1
+    EXPAND VEC_PUSH valid_vec, 114, 1
+    EXPAND VEC_PUSH valid_vec, 117, 1
+    EXPAND VEC_PUSH valid_vec, 115, 1
+    EXPAND VEC_PUSH valid_vec, 116, 1
+    EXPAND STRING_BUF_TRY_FROM_VEC_U8 valid_ok, valid_buf, valid_err_vec, valid_vec
+    EXPAND STRING_BUF_AS_STR valid_view, valid_buf
+    EXPAND STR_EQ valid_eq, valid_view, word_slice
+    EXPAND VEC_LEN valid_err_len, valid_err_vec
+
+    EXPAND VEC_WITH_CAPACITY bad_vec, 2, 1
+    EXPAND VEC_PUSH bad_vec, 255, 1
+    EXPAND VEC_PUSH bad_vec, 40, 1
+    EXPAND STRING_BUF_TRY_FROM_BYTES_VEC bad_ok, bad_buf, bad_err_vec, bad_vec
+    EXPAND STRING_BUF_LEN bad_buf_len, bad_buf
+    EXPAND VEC_LEN bad_err_len, bad_err_vec
+    EXPAND VEC_TRY_GET_TYPED_U8 bad_first_ok, bad_first, bad_err_vec, 0, 1
+
+    from_mut_ok = eq from_mut_eq, 1
+    from_ref_ok = eq from_ref_eq, 1
+    valid_flag_ok = eq valid_ok, 1
+    valid_value_ok = eq valid_eq, 1
+    valid_err_empty_ok = eq valid_err_len, 0
+    bad_flag_ok = eq bad_ok, 0
+    bad_buf_empty_ok = eq bad_buf_len, 0
+    bad_err_len_ok = eq bad_err_len, 2
+    bad_first_flag_ok = eq bad_first_ok, 1
+    bad_first_value_ok = eq bad_first, 255
+    ok01 = and from_mut_ok, from_ref_ok
+    ok02 = and ok01, valid_flag_ok
+    ok03 = and ok02, valid_value_ok
+    ok04 = and ok03, valid_err_empty_ok
+    ok05 = and ok04, bad_flag_ok
+    ok06 = and ok05, bad_buf_empty_ok
+    ok07 = and ok06, bad_err_len_ok
+    ok08 = and ok07, bad_first_flag_ok
+    ok = and ok08, bad_first_value_ok
+
+    !from_mut_eq
+    !source_mut_ptr
+    !from_ref_eq
+    !valid_ok
+    !valid_eq
+    !valid_err_len
+    !bad_ok
+    !bad_buf_len
+    !bad_err_len
+    !bad_first_ok
+    !bad_first
+    !from_mut_ok
+    !from_ref_ok
+    !valid_flag_ok
+    !valid_value_ok
+    !valid_err_empty_ok
+    !bad_flag_ok
+    !bad_buf_empty_ok
+    !bad_err_len_ok
+    !bad_first_flag_ok
+    !bad_first_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !word_slice
+    !from_mut_view
+    !source_mut
+    !from_ref_view
+    !valid_view
+    EXPAND VEC_FREE bad_err_vec
+    EXPAND STRING_BUF_FREE bad_buf
+    EXPAND VEC_FREE valid_err_vec
+    EXPAND STRING_BUF_FREE valid_buf
+    EXPAND STRING_BUF_FREE from_ref
+    EXPAND STRING_BUF_FREE source
+    EXPAND STRING_BUF_FREE from_mut
+    br ok -> L_STRING_BUF_REF_CONV_OK, L_STRING_BUF_REF_CONV_FAIL
+
+L_STRING_BUF_REF_CONV_FAIL:
+    !ok
+    panic(932)
+
+L_STRING_BUF_REF_CONV_OK:
+    !ok
+    return
