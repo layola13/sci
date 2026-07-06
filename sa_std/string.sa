@@ -497,6 +497,56 @@ L_STRING_BUF_POP_END_%out_ok:
     EXPAND STRING_BUF_TRY_POP_BYTE %out_ok, %out_byte, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_POP_CHAR %out_ok, %out_codepoint, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_pop_char_view_%out_ok, %string_reg
+    EXPAND STR_LEN __string_buf_pop_char_len_%out_ok, __string_buf_pop_char_view_%out_ok
+    __string_buf_pop_char_empty_%out_ok = eq __string_buf_pop_char_len_%out_ok, 0
+    br __string_buf_pop_char_empty_%out_ok -> L_STRING_BUF_POP_CHAR_MISS_%out_ok, L_STRING_BUF_POP_CHAR_FIND_%out_ok
+
+L_STRING_BUF_POP_CHAR_FIND_%out_ok:
+    __string_buf_pop_char_probe_%out_ok = sub __string_buf_pop_char_len_%out_ok, 1
+    EXPAND STR_FLOOR_CHAR_BOUNDARY __string_buf_pop_char_start_%out_ok, __string_buf_pop_char_view_%out_ok, __string_buf_pop_char_probe_%out_ok
+    EXPAND STR_TRY_CHAR_AT_BYTE __string_buf_pop_char_decode_ok_%out_ok, %out_codepoint, __string_buf_pop_char_width_%out_ok, __string_buf_pop_char_view_%out_ok, __string_buf_pop_char_start_%out_ok
+    br __string_buf_pop_char_decode_ok_%out_ok -> L_STRING_BUF_POP_CHAR_HIT_%out_ok, L_STRING_BUF_POP_CHAR_DECODE_MISS_%out_ok
+
+L_STRING_BUF_POP_CHAR_HIT_%out_ok:
+    EXPAND STRING_BUF_TRUNCATE %string_reg, __string_buf_pop_char_start_%out_ok
+    %out_ok = add 0, 1
+    !__string_buf_pop_char_width_%out_ok
+    !__string_buf_pop_char_decode_ok_%out_ok
+    !__string_buf_pop_char_start_%out_ok
+    !__string_buf_pop_char_probe_%out_ok
+    !__string_buf_pop_char_empty_%out_ok
+    !__string_buf_pop_char_len_%out_ok
+    !__string_buf_pop_char_view_%out_ok
+    jmp L_STRING_BUF_POP_CHAR_END_%out_ok
+
+L_STRING_BUF_POP_CHAR_DECODE_MISS_%out_ok:
+    %out_codepoint = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pop_char_width_%out_ok
+    !__string_buf_pop_char_decode_ok_%out_ok
+    !__string_buf_pop_char_start_%out_ok
+    !__string_buf_pop_char_probe_%out_ok
+    !__string_buf_pop_char_empty_%out_ok
+    !__string_buf_pop_char_len_%out_ok
+    !__string_buf_pop_char_view_%out_ok
+    jmp L_STRING_BUF_POP_CHAR_END_%out_ok
+
+L_STRING_BUF_POP_CHAR_MISS_%out_ok:
+    %out_codepoint = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pop_char_empty_%out_ok
+    !__string_buf_pop_char_len_%out_ok
+    !__string_buf_pop_char_view_%out_ok
+
+L_STRING_BUF_POP_CHAR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_POP_CHAR %out_ok, %out_codepoint, %string_reg
+    EXPAND STRING_BUF_TRY_POP_CHAR %out_ok, %out_codepoint, %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_REMOVE_CHAR_AT %out_ok, %out_codepoint, %string_reg, %index
     EXPAND STRING_BUF_AS_STR __string_buf_remove_char_view_%out_ok, %string_reg
     EXPAND STR_TRY_CHAR_AT_BYTE __string_buf_remove_char_decode_ok_%out_ok, %out_codepoint, __string_buf_remove_char_width_%out_ok, __string_buf_remove_char_view_%out_ok, %index

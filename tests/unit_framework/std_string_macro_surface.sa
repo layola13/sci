@@ -1347,6 +1347,124 @@ L_STRING_BUF_REMOVE_CHAR_OK:
     !ok
     return
 
+@test "sa_std string buffer pop char macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS source, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS after_z_expected, &UTF8_AFTER_REMOVE_Z, 7
+    EXPAND STR_FROM_PARTS after_smile_expected, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS after_e_expected, &PATH_LEFT, 1
+    EXPAND STR_EMPTY empty_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED string_buf, source
+    EXPAND STRING_BUF_TRY_POP_CHAR pop_z_ok, pop_z_cp, string_buf
+    EXPAND STRING_BUF_AS_STR after_z, string_buf
+    EXPAND STR_EQ after_z_eq, after_z, after_z_expected
+    EXPAND STRING_BUF_POP_CHAR pop_smile_ok, pop_smile_cp, string_buf
+    EXPAND STRING_BUF_AS_STR after_smile, string_buf
+    EXPAND STR_EQ after_smile_eq, after_smile, after_smile_expected
+    EXPAND STRING_BUF_TRY_POP_CHAR pop_e_ok, pop_e_cp, string_buf
+    EXPAND STRING_BUF_AS_STR after_e, string_buf
+    EXPAND STR_EQ after_e_eq, after_e, after_e_expected
+    EXPAND STRING_BUF_TRY_POP_CHAR pop_a_ok, pop_a_cp, string_buf
+    EXPAND STRING_BUF_AS_STR after_a, string_buf
+    EXPAND STR_EQ after_a_eq, after_a, empty_expected
+    EXPAND STRING_BUF_TRY_POP_CHAR pop_empty_ok, pop_empty_cp, string_buf
+    EXPAND STRING_BUF_AS_STR after_empty, string_buf
+    EXPAND STR_EQ after_empty_eq, after_empty, empty_expected
+
+    pop_z_flag_ok = eq pop_z_ok, 1
+    pop_z_cp_ok = eq pop_z_cp, 122
+    pop_z_value_ok = eq after_z_eq, 1
+    pop_smile_flag_ok = eq pop_smile_ok, 1
+    pop_smile_cp_ok = eq pop_smile_cp, 128578
+    pop_smile_value_ok = eq after_smile_eq, 1
+    pop_e_flag_ok = eq pop_e_ok, 1
+    pop_e_cp_ok = eq pop_e_cp, 233
+    pop_e_value_ok = eq after_e_eq, 1
+    pop_a_flag_ok = eq pop_a_ok, 1
+    pop_a_cp_ok = eq pop_a_cp, 97
+    pop_a_value_ok = eq after_a_eq, 1
+    pop_empty_flag_ok = eq pop_empty_ok, 0
+    pop_empty_cp_ok = eq pop_empty_cp, 0
+    pop_empty_value_ok = eq after_empty_eq, 1
+    ok01 = and pop_z_flag_ok, pop_z_cp_ok
+    ok02 = and ok01, pop_z_value_ok
+    ok03 = and ok02, pop_smile_flag_ok
+    ok04 = and ok03, pop_smile_cp_ok
+    ok05 = and ok04, pop_smile_value_ok
+    ok06 = and ok05, pop_e_flag_ok
+    ok07 = and ok06, pop_e_cp_ok
+    ok08 = and ok07, pop_e_value_ok
+    ok09 = and ok08, pop_a_flag_ok
+    ok10 = and ok09, pop_a_cp_ok
+    ok11 = and ok10, pop_a_value_ok
+    ok12 = and ok11, pop_empty_flag_ok
+    ok13 = and ok12, pop_empty_cp_ok
+    ok = and ok13, pop_empty_value_ok
+    !source
+    !after_z_expected
+    !after_smile_expected
+    !after_e_expected
+    !empty_expected
+    !pop_z_ok
+    !pop_z_cp
+    !after_z
+    !after_z_eq
+    !pop_smile_ok
+    !pop_smile_cp
+    !after_smile
+    !after_smile_eq
+    !pop_e_ok
+    !pop_e_cp
+    !after_e
+    !after_e_eq
+    !pop_a_ok
+    !pop_a_cp
+    !after_a
+    !after_a_eq
+    !pop_empty_ok
+    !pop_empty_cp
+    !after_empty
+    !after_empty_eq
+    !pop_z_flag_ok
+    !pop_z_cp_ok
+    !pop_z_value_ok
+    !pop_smile_flag_ok
+    !pop_smile_cp_ok
+    !pop_smile_value_ok
+    !pop_e_flag_ok
+    !pop_e_cp_ok
+    !pop_e_value_ok
+    !pop_a_flag_ok
+    !pop_a_cp_ok
+    !pop_a_value_ok
+    !pop_empty_flag_ok
+    !pop_empty_cp_ok
+    !pop_empty_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    EXPAND STRING_BUF_FREE string_buf
+    br ok -> L_STRING_BUF_POP_CHAR_OK, L_STRING_BUF_POP_CHAR_FAIL
+
+L_STRING_BUF_POP_CHAR_FAIL:
+    !ok
+    panic(919)
+
+L_STRING_BUF_POP_CHAR_OK:
+    !ok
+    return
+
 @test "sa_std string find macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4

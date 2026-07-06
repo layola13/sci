@@ -4,6 +4,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf pop() facade batch
+
+- Continued String Rust API parity work with the supportable `String::pop()` char-aware subset.
+- Added StringBuf tail-pop macro surfaces:
+  - `STRING_BUF_TRY_POP_CHAR`
+  - `STRING_BUF_POP_CHAR`
+- Semantics: successful pop returns the Unicode codepoint for the final UTF-8 scalar and truncates the buffer to that scalar's start byte; empty strings return `ok=0` and clear the codepoint output. This is distinct from the existing byte-level `STRING_BUF_TRY_POP_BYTE` / `STRING_BUF_POP_BYTE` helpers.
+- Implementation note: the macro is runtime-free and reuses the previous batch's `STR_TRY_CHAR_AT_BYTE` helper plus `STR_FLOOR_CHAR_BOUNDARY`, then truncates in place.
+- Updated `std_string_macro_surface.sa` coverage:
+  - sequentially pops `z`, `🙂`, `é`, and `a` from `aé🙂z`.
+  - verifies returned codepoints and intermediate string values.
+  - verifies popping an empty buffer fails and leaves it empty.
+- Validation status:
+  - Source focused `pop char` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`17 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `pop char` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`17 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
 ## Completed: 2026-07-06 StringBuf remove(idx) facade batch
 
 - Continued String Rust API parity work with the supportable `String::remove(idx)` byte-index subset.
