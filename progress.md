@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 UnixListener incoming named surface batch
+
+- Added Unix `std::os::unix::net::UnixListener::incoming`-style named macro surface over the existing listener-backed incoming iterator layout:
+  - `NET_UNIX_INCOMING_NEW`
+  - `NET_UNIX_INCOMING_LISTENER`
+  - `NET_UNIX_INCOMING_NEXT`
+  - `NET_UNIX_LISTENER_INCOMING`
+  - runtime continues to use the existing TCP incoming/listener accept path for Unix listener handles, so this batch does not add new ABI symbols.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - abstract Unix-domain socket roundtrip now wraps the listener through the Unix incoming macro surface.
+  - verifies the incoming wrapper retains the listener handle and accepts the queued connection through `NET_UNIX_INCOMING_NEXT` before the existing stream I/O assertions.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
 ## Completed: 2026-07-06 UnixListener accept_addr batch
 
 - Added Unix `std::os::unix::net::UnixListener::accept`-style address-returning surface:

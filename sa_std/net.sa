@@ -287,6 +287,22 @@
     EXPAND NET_TCP_LISTENER_TAKE_ERROR %out_status, %out_error, %listener
 [END_MACRO]
 
+[MACRO] NET_UNIX_INCOMING_NEW %incoming_ptr, %listener
+    EXPAND NET_TCP_INCOMING_NEW %incoming_ptr, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_INCOMING_LISTENER %out_listener, %incoming_ptr
+    EXPAND NET_TCP_INCOMING_LISTENER %out_listener, %incoming_ptr
+[END_MACRO]
+
+[MACRO] NET_UNIX_INCOMING_NEXT %out_status, %out_ok, %out_stream, %incoming_ptr
+    EXPAND NET_TCP_INCOMING_NEXT %out_status, %out_ok, %out_stream, %incoming_ptr
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_INCOMING %incoming_ptr, %listener
+    EXPAND NET_UNIX_INCOMING_NEW %incoming_ptr, %listener
+[END_MACRO]
+
 [MACRO] NET_UNIX_STREAM_LOCAL_ADDR %out_status, %out_addr, %stream
     __net_unix_local_addr_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_stream_local_addr(%stream, &__net_unix_local_addr_%out_status)

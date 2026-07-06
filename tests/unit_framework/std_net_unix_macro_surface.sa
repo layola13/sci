@@ -873,7 +873,7 @@ L_ABSTRACT_LOCAL:
     EXPAND NET_UNIX_ADDR_FREE local_free_status, local_addr
     local_free_ok = eq local_free_status, SA_NET_OK
     local_all = and local_ok, local_free_ok
-    br local_all -> L_ABSTRACT_CONNECT, L_ABSTRACT_FAIL_LOCAL
+    br local_all -> L_ABSTRACT_INCOMING, L_ABSTRACT_FAIL_LOCAL
 
 L_ABSTRACT_FAIL_LOCAL:
     !local_all
@@ -903,6 +903,20 @@ L_ABSTRACT_FAIL_LOCAL:
     !abstract_addr
     panic(973)
 
+L_ABSTRACT_INCOMING:
+    incoming = stack_alloc NetTcpIncoming_SIZE
+    EXPAND NET_UNIX_LISTENER_INCOMING incoming, listener
+    EXPAND NET_UNIX_INCOMING_LISTENER incoming_listener, incoming
+    incoming_listener_ok = eq incoming_listener, listener
+    !incoming_listener
+    br incoming_listener_ok -> L_ABSTRACT_CONNECT, L_ABSTRACT_FAIL_INCOMING
+
+L_ABSTRACT_FAIL_INCOMING:
+    !incoming_listener_ok
+    !listener
+    !abstract_addr
+    panic(979)
+
 L_ABSTRACT_CONNECT:
     EXPAND NET_UNIX_CONNECT_ADDR connect_status, client, abstract_addr
     connect_status_ok = eq connect_status, SA_NET_OK
@@ -916,24 +930,31 @@ L_ABSTRACT_FAIL_CONNECT:
     !connect_status_ok
     !client
     !connect_status
+    !incoming_listener_ok
     !listener
     !abstract_addr
     panic(974)
 
 L_ABSTRACT_ACCEPT:
-    EXPAND NET_UNIX_ACCEPT accept_status, server, listener
+    EXPAND NET_UNIX_INCOMING_NEXT accept_status, accept_flag, server, incoming
     accept_status_ok = eq accept_status, SA_NET_OK
+    accept_flag_ok = eq accept_flag, 1
     server_ok = ne server, 0
-    accept_ok = and accept_status_ok, server_ok
+    accept01 = and accept_status_ok, accept_flag_ok
+    accept_ok = and accept01, server_ok
     br accept_ok -> L_ABSTRACT_WRITE, L_ABSTRACT_FAIL_ACCEPT
 
 L_ABSTRACT_FAIL_ACCEPT:
     !accept_ok
+    !accept01
     !server_ok
+    !accept_flag_ok
     !accept_status_ok
     !server
+    !accept_flag
     !accept_status
     !client
+    !incoming_listener_ok
     !listener
     !abstract_addr
     panic(975)
@@ -956,6 +977,7 @@ L_ABSTRACT_FAIL_WRITE:
     !write_status_ok
     !write_len
     !write_status
+    !incoming_listener_ok
     !server
     !client
     !listener
@@ -988,6 +1010,7 @@ L_ABSTRACT_FAIL_READ:
     !read_status_ok
     !read_len
     !read_status
+    !incoming_listener_ok
     !server
     !client
     !listener
@@ -1020,7 +1043,9 @@ L_ABSTRACT_FAIL_CLOSE:
     !close_listener_status
     !close_server_status
     !close_client_status
+    !incoming_listener_ok
     panic(978)
 
 L_ABSTRACT_PASS:
+    !incoming_listener_ok
     return 0
