@@ -85,6 +85,7 @@
 @const UTF8_E_SMILE = utf8:"é🙂"
 @const UTF8_A_Z = utf8:"az"
 @const UTF16_LOSSY_EXPECTED = utf8:"a�z�"
+@const UTF16_ENDIAN_LOSSY_EXPECTED = utf8:"a�z��"
 @const BUF_DRAIN_SOURCE = utf8:"rust-std"
 @const BUF_DRAIN_REMOVED = utf8:"-"
 @const BUF_DRAIN_REMAINING = utf8:"ruststd"
@@ -3209,5 +3210,60 @@ L_STRING_BUF_UTF16_ENDIAN_FAIL:
     panic(927)
 
 L_STRING_BUF_UTF16_ENDIAN_OK:
+    !ok
+    return
+
+@test "sa_std string buffer utf16 endian lossy macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS expected, &UTF16_ENDIAN_LOSSY_EXPECTED, 11
+    le_ptr = stack_alloc 9
+    store le_ptr+0, 97 as u8
+    store le_ptr+1, 0 as u8
+    store le_ptr+2, 61 as u8
+    store le_ptr+3, 216 as u8
+    store le_ptr+4, 122 as u8
+    store le_ptr+5, 0 as u8
+    store le_ptr+6, 66 as u8
+    store le_ptr+7, 222 as u8
+    store le_ptr+8, 52 as u8
+    EXPAND STR_FROM_PARTS le_bytes, le_ptr, 9
+    be_ptr = stack_alloc 9
+    store be_ptr+0, 0 as u8
+    store be_ptr+1, 97 as u8
+    store be_ptr+2, 216 as u8
+    store be_ptr+3, 61 as u8
+    store be_ptr+4, 0 as u8
+    store be_ptr+5, 122 as u8
+    store be_ptr+6, 222 as u8
+    store be_ptr+7, 66 as u8
+    store be_ptr+8, 52 as u8
+    EXPAND STR_FROM_PARTS be_bytes, be_ptr, 9
+    EXPAND STRING_BUF_FROM_UTF16LE_LOSSY le_buf, le_bytes
+    EXPAND STRING_BUF_AS_STR le_view, le_buf
+    EXPAND STR_EQ le_eq, le_view, expected
+    EXPAND STRING_BUF_FROM_UTF16BE_LOSSY be_buf, be_bytes
+    EXPAND STRING_BUF_AS_STR be_view, be_buf
+    EXPAND STR_EQ be_eq, be_view, expected
+    le_ok = eq le_eq, 1
+    be_ok = eq be_eq, 1
+    ok = and le_ok, be_ok
+    !expected
+    !le_bytes
+    !be_bytes
+    !le_view
+    !le_eq
+    !be_view
+    !be_eq
+    !le_ok
+    !be_ok
+    EXPAND STRING_BUF_FREE be_buf
+    EXPAND STRING_BUF_FREE le_buf
+    br ok -> L_STRING_BUF_UTF16_ENDIAN_LOSSY_OK, L_STRING_BUF_UTF16_ENDIAN_LOSSY_FAIL
+
+L_STRING_BUF_UTF16_ENDIAN_LOSSY_FAIL:
+    !ok
+    panic(928)
+
+L_STRING_BUF_UTF16_ENDIAN_LOSSY_OK:
     !ok
     return

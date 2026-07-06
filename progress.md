@@ -4,6 +4,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf UTF-16 endian lossy byte-slice facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf16le_lossy` / `String::from_utf16be_lossy` subsets.
+- Added endian lossy byte-slice constructor macro surfaces:
+  - `STRING_BUF_FROM_UTF16_LOSSY_BYTES`
+  - `STRING_BUF_FROM_UTF16LE_LOSSY`
+  - `STRING_BUF_FROM_UTF16BE_LOSSY`
+- Semantics: materializes full 2-byte units into a temporary U16 Vec in the requested endian order, decodes through `STRING_BUF_FROM_UTF16_LOSSY_U16`, and appends U+FFFD for a trailing odd byte.
+- Scope note: this is the SA endian byte-slice lossy constructor shape; it does not claim Rust allocator/object model details.
+- Updated `std_string_macro_surface.sa` coverage:
+  - LE bytes with isolated high surrogate, `z`, isolated low surrogate, and odd trailing byte decode to `a�z��`.
+  - BE bytes with the same code unit sequence decode to `a�z��`.
+- Validation status:
+  - Source focused `utf16 endian lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `utf16 endian lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
 ## Completed: 2026-07-06 StringBuf UTF-16 endian byte-slice facade batch
 
 - Continued String Rust API parity work with the supportable `String::from_utf16le` / `String::from_utf16be` strict subsets.
