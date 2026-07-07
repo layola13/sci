@@ -3489,6 +3489,180 @@ L_STRING_BUF_UTF8_VIEW_ALIAS_OK:
     !ok
     return
 
+@test "sa_std string buffer split line aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_text, &SPLIT_TEXT, 6
+    EXPAND STR_FROM_PARTS expected_a, &SPLIT_A, 1
+    EXPAND STR_FROM_PARTS expected_b, &SPLIT_B, 1
+    EXPAND STR_FROM_PARTS lines_text, &LINES_TEXT, 18
+    EXPAND STR_FROM_PARTS expected_beta, &LINES_BETA, 4
+    EXPAND STR_FROM_PARTS no_trail, &LINES_NO_TRAIL, 7
+    EXPAND STR_FROM_PARTS expected_two, &LINES_TWO, 3
+    EXPAND STR_EMPTY empty
+    EXPAND STRING_BUF_FROM_STR split_owned, split_text
+    EXPAND STRING_BUF_FROM_STR lines_owned, lines_text
+    EXPAND STRING_BUF_FROM_STR no_trail_owned, no_trail
+    EXPAND STRING_BUF_FROM_STR empty_owned, empty
+    EXPAND STRING_BUF_COUNT_BYTE count_colon, split_owned, 58
+    EXPAND STRING_BUF_SPLIT_BYTE_COUNT split_count, split_owned, 58
+    EXPAND STRING_BUF_SPLIT_BYTE_AT part1_ok, part1, split_owned, 58, 1
+    EXPAND STRING_BUF_TRY_SPLIT_BYTE_AT part3_ok, part3, split_owned, 58, 3
+    EXPAND STRING_BUF_SPLIT_BYTE_AT part5_ok, part5, split_owned, 58, 5
+    EXPAND STRING_BUF_SPLIT_BYTE_COUNT empty_split_count, empty_owned, 58
+    EXPAND STRING_BUF_TRY_SPLIT_BYTE_AT empty_part_ok, empty_part, empty_owned, 58, 0
+    EXPAND STRING_BUF_LINE_COUNT line_count, lines_owned
+    EXPAND STRING_BUF_LINE_AT line1_ok, line1, lines_owned, 1
+    EXPAND STRING_BUF_TRY_LINE_AT line3_ok, line3, lines_owned, 3
+    EXPAND STRING_BUF_LINE_COUNT no_trail_count, no_trail_owned
+    EXPAND STRING_BUF_LINE_AT no_trail_1_ok, no_trail_1, no_trail_owned, 1
+    EXPAND STRING_BUF_LINE_COUNT empty_line_count, empty_owned
+    EXPAND STRING_BUF_TRY_LINE_AT empty_line_ok, empty_line, empty_owned, 0
+    EXPAND STR_EQ part1_eq, part1, expected_a
+    EXPAND STR_EQ part3_eq, part3, expected_b
+    EXPAND STR_IS_EMPTY part5_empty, part5
+    EXPAND STR_IS_EMPTY empty_part_empty, empty_part
+    EXPAND STR_EQ line1_eq, line1, expected_beta
+    EXPAND STR_IS_EMPTY line3_empty, line3
+    EXPAND STR_EQ no_trail_1_eq, no_trail_1, expected_two
+    EXPAND STR_IS_EMPTY empty_line_empty, empty_line
+
+    count_colon_ok = eq count_colon, 4
+    split_count_ok = eq split_count, 5
+    part1_flag_ok = eq part1_ok, 1
+    part1_value_ok = eq part1_eq, 1
+    part3_flag_ok = eq part3_ok, 1
+    part3_value_ok = eq part3_eq, 1
+    part5_flag_ok = eq part5_ok, 0
+    part5_value_ok = eq part5_empty, 1
+    empty_split_count_ok = eq empty_split_count, 1
+    empty_part_flag_ok = eq empty_part_ok, 1
+    empty_part_value_ok = eq empty_part_empty, 1
+    line_count_ok = eq line_count, 3
+    line1_flag_ok = eq line1_ok, 1
+    line1_value_ok = eq line1_eq, 1
+    line3_flag_ok = eq line3_ok, 0
+    line3_value_ok = eq line3_empty, 1
+    no_trail_count_ok = eq no_trail_count, 2
+    no_trail_1_flag_ok = eq no_trail_1_ok, 1
+    no_trail_1_value_ok = eq no_trail_1_eq, 1
+    empty_line_count_ok = eq empty_line_count, 0
+    empty_line_flag_ok = eq empty_line_ok, 0
+    empty_line_value_ok = eq empty_line_empty, 1
+    ok01 = and count_colon_ok, split_count_ok
+    ok02 = and ok01, part1_flag_ok
+    ok03 = and ok02, part1_value_ok
+    ok04 = and ok03, part3_flag_ok
+    ok05 = and ok04, part3_value_ok
+    ok06 = and ok05, part5_flag_ok
+    ok07 = and ok06, part5_value_ok
+    ok08 = and ok07, empty_split_count_ok
+    ok09 = and ok08, empty_part_flag_ok
+    ok10 = and ok09, empty_part_value_ok
+    ok11 = and ok10, line_count_ok
+    ok12 = and ok11, line1_flag_ok
+    ok13 = and ok12, line1_value_ok
+    ok14 = and ok13, line3_flag_ok
+    ok15 = and ok14, line3_value_ok
+    ok16 = and ok15, no_trail_count_ok
+    ok17 = and ok16, no_trail_1_flag_ok
+    ok18 = and ok17, no_trail_1_value_ok
+    ok19 = and ok18, empty_line_count_ok
+    ok20 = and ok19, empty_line_flag_ok
+    ok = and ok20, empty_line_value_ok
+    EXPAND STRING_BUF_FREE split_owned
+    EXPAND STRING_BUF_FREE lines_owned
+    EXPAND STRING_BUF_FREE no_trail_owned
+    EXPAND STRING_BUF_FREE empty_owned
+    !split_text
+    !expected_a
+    !expected_b
+    !lines_text
+    !expected_beta
+    !no_trail
+    !expected_two
+    !empty
+    !count_colon
+    !split_count
+    !part1_ok
+    !part1
+    !part3_ok
+    !part3
+    !part5_ok
+    !part5
+    !empty_split_count
+    !empty_part_ok
+    !empty_part
+    !line_count
+    !line1_ok
+    !line1
+    !line3_ok
+    !line3
+    !no_trail_count
+    !no_trail_1_ok
+    !no_trail_1
+    !empty_line_count
+    !empty_line_ok
+    !empty_line
+    !part1_eq
+    !part3_eq
+    !part5_empty
+    !empty_part_empty
+    !line1_eq
+    !line3_empty
+    !no_trail_1_eq
+    !empty_line_empty
+    !count_colon_ok
+    !split_count_ok
+    !part1_flag_ok
+    !part1_value_ok
+    !part3_flag_ok
+    !part3_value_ok
+    !part5_flag_ok
+    !part5_value_ok
+    !empty_split_count_ok
+    !empty_part_flag_ok
+    !empty_part_value_ok
+    !line_count_ok
+    !line1_flag_ok
+    !line1_value_ok
+    !line3_flag_ok
+    !line3_value_ok
+    !no_trail_count_ok
+    !no_trail_1_flag_ok
+    !no_trail_1_value_ok
+    !empty_line_count_ok
+    !empty_line_flag_ok
+    !empty_line_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    br ok -> L_STRING_BUF_SPLIT_LINE_ALIAS_OK, L_STRING_BUF_SPLIT_LINE_ALIAS_FAIL
+
+L_STRING_BUF_SPLIT_LINE_ALIAS_FAIL:
+    !ok
+    panic(923)
+
+L_STRING_BUF_SPLIT_LINE_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8

@@ -424,6 +424,48 @@
     !__string_buf_try_byte_at_view_%out_ok
 [END_MACRO]
 
+[MACRO] STRING_BUF_COUNT_BYTE %out_count, %string_reg, %byte_value
+    EXPAND STRING_BUF_AS_STR __string_buf_count_byte_view_%out_count, %string_reg
+    EXPAND STR_COUNT_BYTE %out_count, __string_buf_count_byte_view_%out_count, %byte_value
+    !__string_buf_count_byte_view_%out_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_BYTE_COUNT %out_count, %string_reg, %byte_value
+    EXPAND STRING_BUF_AS_STR __string_buf_split_byte_count_view_%out_count, %string_reg
+    EXPAND STR_SPLIT_BYTE_COUNT %out_count, __string_buf_split_byte_count_view_%out_count, %byte_value
+    !__string_buf_split_byte_count_view_%out_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_BYTE_AT %out_ok, %out_part, %string_reg, %byte_value, %part_index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_split_byte_at_view_%out_ok, %string_reg
+    EXPAND STR_TRY_SPLIT_BYTE_AT %out_ok, %out_part, __string_buf_try_split_byte_at_view_%out_ok, %byte_value, %part_index
+    !__string_buf_try_split_byte_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_BYTE_AT %out_ok, %out_part, %string_reg, %byte_value, %part_index
+    EXPAND STRING_BUF_AS_STR __string_buf_split_byte_at_view_%out_ok, %string_reg
+    EXPAND STR_SPLIT_BYTE_AT %out_ok, %out_part, __string_buf_split_byte_at_view_%out_ok, %byte_value, %part_index
+    !__string_buf_split_byte_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_LINE_COUNT %out_count, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_line_count_view_%out_count, %string_reg
+    EXPAND STR_LINE_COUNT %out_count, __string_buf_line_count_view_%out_count
+    !__string_buf_line_count_view_%out_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_LINE_AT %out_ok, %out_line, %string_reg, %line_index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_line_at_view_%out_ok, %string_reg
+    EXPAND STR_TRY_LINE_AT %out_ok, %out_line, __string_buf_try_line_at_view_%out_ok, %line_index
+    !__string_buf_try_line_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_LINE_AT %out_ok, %out_line, %string_reg, %line_index
+    EXPAND STRING_BUF_AS_STR __string_buf_line_at_view_%out_ok, %string_reg
+    EXPAND STR_LINE_AT %out_ok, %out_line, __string_buf_line_at_view_%out_ok, %line_index
+    !__string_buf_line_at_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_AS_MUT_BYTES %out_slice, %string_reg
     EXPAND VEC_AS_MUT_SLICE %out_slice, %string_reg
 [END_MACRO]
