@@ -3168,6 +3168,27 @@ L_ENTRY:
     EXPAND STRING_BUF_AS_STR extend_view, extend_buf
     EXPAND STR_EQ extend_eq, extend_view, extended_expected
 
+    char_ref_a = stack_alloc 8
+    char_ref_e = stack_alloc 8
+    char_ref_smile = stack_alloc 8
+    store char_ref_a+0, 97 as u64
+    store char_ref_e+0, 233 as u64
+    store char_ref_smile+0, 128578 as u64
+    char_refs_ptr = stack_alloc 24
+    store char_refs_ptr+0, char_ref_a as ptr
+    store char_refs_ptr+8, char_ref_e as ptr
+    store char_refs_ptr+16, char_ref_smile as ptr
+    char_refs_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW char_refs_slice, char_refs_ptr, 3
+    EXPAND STRING_BUF_TRY_FROM_CHAR_REFS_U64 ref_from_ok, ref_from_buf, char_refs_slice
+    EXPAND STRING_BUF_AS_STR ref_from_view, ref_from_buf
+    EXPAND STR_EQ ref_from_eq, ref_from_view, built_expected
+    EXPAND STRING_BUF_NEW ref_extend_buf
+    EXPAND STRING_BUF_EXTEND_CHAR_REFS_U64 ref_extend_buf, char_refs_slice
+    EXPAND STRING_BUF_EXTEND_CHAR ref_extend_buf, 33
+    EXPAND STRING_BUF_AS_STR ref_extend_view, ref_extend_buf
+    EXPAND STR_EQ ref_extend_eq, ref_extend_view, extended_expected
+
     invalid_ptr = stack_alloc 8
     store invalid_ptr+0, 55296 as u64
     invalid_slice = alloc Slice_SIZE
@@ -3178,45 +3199,100 @@ L_ENTRY:
     EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 invalid_extend_ok, invalid_extend_buf, invalid_slice
     EXPAND STRING_BUF_LEN invalid_extend_len, invalid_extend_buf
 
+    invalid_ref_value = stack_alloc 8
+    invalid_refs_ptr = stack_alloc 8
+    store invalid_ref_value+0, 55296 as u64
+    store invalid_refs_ptr+0, invalid_ref_value as ptr
+    invalid_refs_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW invalid_refs_slice, invalid_refs_ptr, 1
+    EXPAND STRING_BUF_TRY_FROM_CHAR_REFS_U64 invalid_ref_from_ok, invalid_ref_from_buf, invalid_refs_slice
+    EXPAND STRING_BUF_LEN invalid_ref_from_len, invalid_ref_from_buf
+    EXPAND STRING_BUF_NEW invalid_ref_extend_buf
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_U64 invalid_ref_extend_ok, invalid_ref_extend_buf, invalid_refs_slice
+    EXPAND STRING_BUF_LEN invalid_ref_extend_len, invalid_ref_extend_buf
+
     from_flag_ok = eq from_ok, 1
     from_value_ok = eq from_eq, 1
     extend_value_ok = eq extend_eq, 1
+    ref_from_flag_ok = eq ref_from_ok, 1
+    ref_from_value_ok = eq ref_from_eq, 1
+    ref_extend_value_ok = eq ref_extend_eq, 1
     invalid_from_flag_ok = eq invalid_from_ok, 0
     invalid_from_empty_ok = eq invalid_from_len, 0
     invalid_extend_flag_ok = eq invalid_extend_ok, 0
     invalid_extend_empty_ok = eq invalid_extend_len, 0
+    invalid_ref_from_flag_ok = eq invalid_ref_from_ok, 0
+    invalid_ref_from_empty_ok = eq invalid_ref_from_len, 0
+    invalid_ref_extend_flag_ok = eq invalid_ref_extend_ok, 0
+    invalid_ref_extend_empty_ok = eq invalid_ref_extend_len, 0
     ok01 = and from_flag_ok, from_value_ok
     ok02 = and ok01, extend_value_ok
-    ok03 = and ok02, invalid_from_flag_ok
-    ok04 = and ok03, invalid_from_empty_ok
-    ok05 = and ok04, invalid_extend_flag_ok
-    ok = and ok05, invalid_extend_empty_ok
+    ok03 = and ok02, ref_from_flag_ok
+    ok04 = and ok03, ref_from_value_ok
+    ok05 = and ok04, ref_extend_value_ok
+    ok06 = and ok05, invalid_from_flag_ok
+    ok07 = and ok06, invalid_from_empty_ok
+    ok08 = and ok07, invalid_extend_flag_ok
+    ok09 = and ok08, invalid_extend_empty_ok
+    ok10 = and ok09, invalid_ref_from_flag_ok
+    ok11 = and ok10, invalid_ref_from_empty_ok
+    ok12 = and ok11, invalid_ref_extend_flag_ok
+    ok = and ok12, invalid_ref_extend_empty_ok
     !from_ok
     !from_view
     !from_eq
     !extend_view
     !extend_eq
+    !ref_from_ok
+    !ref_from_view
+    !ref_from_eq
+    !ref_extend_view
+    !ref_extend_eq
     !invalid_from_ok
     !invalid_from_len
     !invalid_extend_ok
     !invalid_extend_len
+    !invalid_ref_from_ok
+    !invalid_ref_from_len
+    !invalid_ref_extend_ok
+    !invalid_ref_extend_len
     !from_flag_ok
     !from_value_ok
     !extend_value_ok
+    !ref_from_flag_ok
+    !ref_from_value_ok
+    !ref_extend_value_ok
     !invalid_from_flag_ok
     !invalid_from_empty_ok
     !invalid_extend_flag_ok
     !invalid_extend_empty_ok
+    !invalid_ref_from_flag_ok
+    !invalid_ref_from_empty_ok
+    !invalid_ref_extend_flag_ok
+    !invalid_ref_extend_empty_ok
     !ok01
     !ok02
     !ok03
     !ok04
     !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    EXPAND STRING_BUF_FREE invalid_ref_extend_buf
+    EXPAND STRING_BUF_FREE invalid_ref_from_buf
     EXPAND STRING_BUF_FREE invalid_extend_buf
     EXPAND STRING_BUF_FREE invalid_from_buf
+    EXPAND STRING_BUF_FREE ref_extend_buf
+    EXPAND STRING_BUF_FREE ref_from_buf
     EXPAND STRING_BUF_FREE extend_buf
     EXPAND STRING_BUF_FREE from_buf
+    !invalid_refs_slice
     !invalid_slice
+    !char_refs_slice
     !chars_slice
     !extended_expected
     !built_expected
