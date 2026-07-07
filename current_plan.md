@@ -77,6 +77,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec `AsRef<[T]>` / `AsMut<[T]>` / Deref-to-slice aliases and String `fmt::Write` `write_str` / `write_char` aliases.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec `AsRef<Vec<T>>` borrowed metadata pointer alias plus String Deref/DerefMut-to-str and checked Index/IndexMut range aliases.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable String `Extend<str/char/String>` style aliases and Vec `Extend<T>` / `Extend<&T>` style aliases over existing append/push/slice-copy paths.
+   - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable `PartialEq<String, str, &str>` / `ne` style aliases over existing `STR_EQ` comparison.
    - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed eager U64 codepoint-slice `FromIterator<char>` / `Extend<char>` style aliases with whole-slice Unicode scalar validation before mutation.
    - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed eager pointer-slice `FromIterator<&char>` / `Extend<&char>` style aliases with whole-slice Unicode scalar validation before mutation.
    - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed eager byte-slice and pointer-slice `FromIterator<core::ascii::Char>` / `Extend<core::ascii::Char>` style aliases with whole-slice ASCII validation before mutation.
@@ -201,6 +202,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the StringBuf str iterator alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf char reference iterator alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf ASCII char iterator alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the StringBuf equality alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

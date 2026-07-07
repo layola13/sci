@@ -173,6 +173,40 @@
     EXPAND STRING_BUF_AS_BYTES %out_slice, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_EQ_STR %out_bool, %string_reg, %slice_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_eq_str_view_%out_bool, %string_reg
+    EXPAND STR_EQ %out_bool, __string_buf_eq_str_view_%out_bool, %slice_reg
+    !__string_buf_eq_str_view_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_NE_STR %out_bool, %string_reg, %slice_reg
+    EXPAND STRING_BUF_EQ_STR __string_buf_ne_str_eq_%out_bool, %string_reg, %slice_reg
+    %out_bool = eq __string_buf_ne_str_eq_%out_bool, 0
+    !__string_buf_ne_str_eq_%out_bool
+[END_MACRO]
+
+[MACRO] STR_EQ_STRING_BUF %out_bool, %slice_reg, %string_reg
+    EXPAND STRING_BUF_EQ_STR %out_bool, %string_reg, %slice_reg
+[END_MACRO]
+
+[MACRO] STR_NE_STRING_BUF %out_bool, %slice_reg, %string_reg
+    EXPAND STRING_BUF_NE_STR %out_bool, %string_reg, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_EQ_STRING %out_bool, %left_string, %right_string
+    EXPAND STRING_BUF_AS_STR __string_buf_eq_left_%out_bool, %left_string
+    EXPAND STRING_BUF_AS_STR __string_buf_eq_right_%out_bool, %right_string
+    EXPAND STR_EQ %out_bool, __string_buf_eq_left_%out_bool, __string_buf_eq_right_%out_bool
+    !__string_buf_eq_left_%out_bool
+    !__string_buf_eq_right_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_NE_STRING %out_bool, %left_string, %right_string
+    EXPAND STRING_BUF_EQ_STRING __string_buf_ne_string_eq_%out_bool, %left_string, %right_string
+    %out_bool = eq __string_buf_ne_string_eq_%out_bool, 0
+    !__string_buf_ne_string_eq_%out_bool
+[END_MACRO]
+
 [MACRO] STRING_BUF_LEAK %out_slice, %string_reg
     EXPAND VEC_LEAK %out_slice, %string_reg
 [END_MACRO]

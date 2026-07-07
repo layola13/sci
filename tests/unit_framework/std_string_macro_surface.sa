@@ -4035,6 +4035,10 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STR_EQ added_eq, added_view, joined_slice
     EXPAND STRING_BUF_DEREF_STR deref_view, added_string
     EXPAND STR_EQ deref_eq, deref_view, joined_slice
+    EXPAND STRING_BUF_EQ_STR eq_str, added_string, joined_slice
+    EXPAND STRING_BUF_NE_STR ne_str, added_string, word_slice
+    EXPAND STR_EQ_STRING_BUF str_eq_string, joined_slice, added_string
+    EXPAND STR_NE_STRING_BUF str_ne_string, word_slice, added_string
     EXPAND STRING_BUF_TRY_INDEX_RANGE index_ok, index_view, added_string, 4, 4
     EXPAND STR_EQ index_eq, index_view, right_slice
     EXPAND STRING_BUF_TRY_INDEX_RANGE_MUT index_mut_ok, index_mut_view, added_string, 4, 4
@@ -4044,6 +4048,8 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_ADD_ASSIGN_STR assign_string, right_slice
     EXPAND STRING_BUF_AS_REF_BYTES assign_bytes, assign_string
     EXPAND STR_EQ assign_eq, assign_bytes, joined_slice
+    EXPAND STRING_BUF_EQ_STRING eq_string, added_string, assign_string
+    EXPAND STRING_BUF_NE_STRING ne_string, added_string, default_string
     EXPAND STRING_BUF_DEREF_MUT_STR deref_mut_view, assign_string
     EXPAND STR_EQ deref_mut_eq, deref_mut_view, joined_slice
 
@@ -4060,25 +4066,37 @@ L_STRING_BUF_ADD_ENTRY:
     default_ok = eq default_empty, 1
     ok01 = and default_ok, added_eq
     ok02 = and ok01, deref_eq
-    ok03 = and ok02, index_ok
-    ok04 = and ok03, index_eq
-    ok05 = and ok04, index_mut_ok
-    ok06 = and ok05, index_mut_eq
-    ok07 = and ok06, assign_eq
-    ok08 = and ok07, deref_mut_eq
-    ok09 = and ok08, e_eq
-    ok10 = and ok09, write_str_ok
-    ok11 = and ok10, write_char_ok
-    ok = and ok11, write_eq
+    ok03 = and ok02, eq_str
+    ok04 = and ok03, ne_str
+    ok05 = and ok04, str_eq_string
+    ok06 = and ok05, str_ne_string
+    ok07 = and ok06, index_ok
+    ok08 = and ok07, index_eq
+    ok09 = and ok08, index_mut_ok
+    ok10 = and ok09, index_mut_eq
+    ok11 = and ok10, assign_eq
+    ok12 = and ok11, eq_string
+    ok13 = and ok12, ne_string
+    ok14 = and ok13, deref_mut_eq
+    ok15 = and ok14, e_eq
+    ok16 = and ok15, write_str_ok
+    ok17 = and ok16, write_char_ok
+    ok = and ok17, write_eq
 
     !default_empty
     !added_eq
     !deref_eq
+    !eq_str
+    !ne_str
+    !str_eq_string
+    !str_ne_string
     !index_ok
     !index_eq
     !index_mut_ok
     !index_mut_eq
     !assign_eq
+    !eq_string
+    !ne_string
     !deref_mut_eq
     !e_eq
     !write_str_ok
@@ -4096,6 +4114,12 @@ L_STRING_BUF_ADD_ENTRY:
     !ok09
     !ok10
     !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
     !word_slice
     !right_slice
     !joined_slice

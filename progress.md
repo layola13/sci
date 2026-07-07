@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf equality alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable `PartialEq` / `ne` style naming aliases over existing UTF-8 string view comparison:
+  - `STRING_BUF_EQ_STR`
+  - `STRING_BUF_NE_STR`
+  - `STR_EQ_STRING_BUF`
+  - `STR_NE_STRING_BUF`
+  - `STRING_BUF_EQ_STRING`
+  - `STRING_BUF_NE_STRING`
+- Semantics: these aliases compare `StringBuf` values through `STRING_BUF_AS_STR` and the existing bytewise `STR_EQ`, matching Rust's `String`/`str` equality delegation without adding a new trait object model.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
 ## Completed: 2026-07-07 StringBuf ASCII char iterator alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
