@@ -737,14 +737,50 @@ fn offsetFromOperand(op: inst.Operand) ?u64 {
     };
 }
 
-fn slotNameFromLoadText(raw: []const u8) ?[]const u8 {
+fn slotTokenFromLoadText(raw: []const u8) ?[]const u8 {
     const plus = std.mem.indexOfScalar(u8, raw, '+') orelse return null;
     const tail = std.mem.trim(u8, raw[plus + 1 ..], " \t\r");
     const as_idx = std.mem.indexOf(u8, tail, " as ") orelse tail.len;
-    var token = std.mem.trim(u8, tail[0..as_idx], " \t\r");
-    if (token.len == 0) return null;
-    if (std.mem.lastIndexOfScalar(u8, token, '_')) |idx| token = token[idx + 1 ..];
+    const token = std.mem.trim(u8, tail[0..as_idx], " \t\r");
     return if (token.len == 0) null else token;
+}
+
+fn slotNameFromToken(token: []const u8) []const u8 {
+    if (std.mem.lastIndexOfScalar(u8, token, '_')) |idx| {
+        return token[idx + 1 ..];
+    }
+    return token;
+}
+
+fn normalizeIdentInto(buf: []u8, text: []const u8) []const u8 {
+    var len: usize = 0;
+    for (text) |ch| {
+        if (std.ascii.isAlphanumeric(ch)) {
+            if (len >= buf.len) break;
+            buf[len] = std.ascii.toLower(ch);
+            len += 1;
+        }
+    }
+    return buf[0..len];
+}
+
+fn stripKnownTypeSuffix(text: []const u8) []const u8 {
+    if (std.mem.endsWith(u8, text, "vtable")) return text[0 .. text.len - "vtable".len];
+    if (std.mem.endsWith(u8, text, "vt")) return text[0 .. text.len - "vt".len];
+    if (std.mem.endsWith(u8, text, "fn")) return text[0 .. text.len - "fn".len];
+    return text;
+}
+
+fn slotPrefixKeyFromToken(buf: []u8, token: []const u8) []const u8 {
+    const prefix = if (std.mem.lastIndexOfScalar(u8, token, '_')) |idx| token[0..idx] else return &.{};
+    const normalized = normalizeIdentInto(buf, prefix);
+    return stripKnownTypeSuffix(normalized);
+}
+
+fn normalizedContainsKey(buf: []u8, text: []const u8, key: []const u8) bool {
+    if (key.len == 0) return false;
+    const normalized = normalizeIdentInto(buf, text);
+    return std.mem.indexOf(u8, normalized, key) != null;
 }
 
 fn chooseIndirectSigIndex(state: *BuildState, current: ?usize, candidate: usize) ?usize {
@@ -773,6 +809,28 @@ fn inferIndirectSigIndexFromSlot(state: *BuildState, slot_name: []const u8) ?usi
     return resolved;
 }
 
+fn inferIndirectSigIndexFromSlotWithPrefix(state: *BuildState, slot_name: []const u8, prefix_key: []const u8) ?usize {
+    if (prefix_key.len == 0) return null;
+    var resolved: ?usize = null;
+    for (state.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                var decl_buf: [256]u8 = undefined;
+                const decl_match = normalizedContainsKey(&decl_buf, decl.name, prefix_key);
+                for (literal.slots) |slot| {
+                    if (!std.mem.eql(u8, slot.name, slot_name)) continue;
+                    var func_buf: [256]u8 = undefined;
+                    if (!decl_match and !normalizedContainsKey(&func_buf, slot.func_name, prefix_key)) continue;
+                    const idx = state.function_sig_index.get(slot.func_name) orelse continue;
+                    resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
+                }
+            },
+            else => {},
+        }
+    }
+    return resolved;
+}
+
 fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
     if (offset % 8 != 0) return null;
     const slot_index: usize = @intCast(offset / 8);
@@ -791,7 +849,11 @@ fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
 }
 
 fn inferIndirectSigIndexFromLoad(state: *BuildState, base: inst.Instruction) ?usize {
-    if (base.raw_text.len != 0) if (slotNameFromLoadText(base.raw_text)) |slot| {
+    if (base.raw_text.len != 0) if (slotTokenFromLoadText(base.raw_text)) |token| {
+        const slot = slotNameFromToken(token);
+        var prefix_buf: [256]u8 = undefined;
+        const prefix_key = slotPrefixKeyFromToken(&prefix_buf, token);
+        if (inferIndirectSigIndexFromSlotWithPrefix(state, slot, prefix_key)) |idx| return idx;
         if (inferIndirectSigIndexFromSlot(state, slot)) |idx| return idx;
     };
     if (offsetFromOperand(base.operands[2])) |offset| {
