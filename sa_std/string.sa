@@ -388,10 +388,22 @@
     !__string_buf_split_once_view_%out_ok
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_try_split_once_view_%out_ok, %string_reg
+    EXPAND STR_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, __string_buf_try_split_once_view_%out_ok, %needle_slice
+    !__string_buf_try_split_once_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_RSPLIT_ONCE %out_ok, %out_left, %out_right, %string_reg, %needle_slice
     EXPAND STRING_BUF_AS_STR __string_buf_rsplit_once_view_%out_ok, %string_reg
     EXPAND STR_RSPLIT_ONCE %out_ok, %out_left, %out_right, __string_buf_rsplit_once_view_%out_ok, %needle_slice
     !__string_buf_rsplit_once_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_try_rsplit_once_view_%out_ok, %string_reg
+    EXPAND STR_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, __string_buf_try_rsplit_once_view_%out_ok, %needle_slice
+    !__string_buf_try_rsplit_once_view_%out_ok
 [END_MACRO]
 
 [MACRO] STRING_BUF_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
@@ -401,6 +413,10 @@
 [END_MACRO]
 
 [MACRO] STRING_BUF_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %string_reg, %mid
+    EXPAND STRING_BUF_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %string_reg, %mid
     EXPAND STRING_BUF_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
 [END_MACRO]
 

@@ -3972,6 +3972,140 @@ L_STRING_BUF_ASCII_CASE_ALIAS_OK:
     !ok
     return
 
+@test "sa_std string buffer try split aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
+    EXPAND STR_FROM_PARTS colon, &COLON, 1
+    EXPAND STR_FROM_PARTS expected_left, &PATH_LEFT, 1
+    EXPAND STR_FROM_PARTS expected_right, &PATH_RIGHT, 3
+    EXPAND STR_FROM_PARTS expected_rleft, &PATH_RLEFT, 3
+    EXPAND STR_FROM_PARTS expected_rright, &PATH_RRIGHT, 1
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_a_e, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS utf8_smile_z, &UTF8_SMILE_Z, 5
+    EXPAND STRING_BUF_FROM_STR owned_pathish, pathish
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+    EXPAND STRING_BUF_TRY_SPLIT_ONCE split_once_ok, split_once_left, split_once_right, owned_pathish, colon
+    EXPAND STRING_BUF_TRY_RSPLIT_ONCE rsplit_once_ok, rsplit_once_left, rsplit_once_right, owned_pathish, colon
+    EXPAND STRING_BUF_TRY_SPLIT_ONCE split_once_miss_ok, split_once_miss_left, split_once_miss_right, owned_pathish, miss
+    EXPAND STRING_BUF_TRY_SPLIT_AT_CHECKED split_at_ok, split_at_left, split_at_right, owned_utf8, 3
+    EXPAND STRING_BUF_TRY_SPLIT_AT_CHECKED split_at_bad_ok, split_at_bad_left, split_at_bad_right, owned_utf8, 4
+    EXPAND STR_EQ split_once_left_eq, split_once_left, expected_left
+    EXPAND STR_EQ split_once_right_eq, split_once_right, expected_right
+    EXPAND STR_EQ rsplit_once_left_eq, rsplit_once_left, expected_rleft
+    EXPAND STR_EQ rsplit_once_right_eq, rsplit_once_right, expected_rright
+    EXPAND STR_IS_EMPTY split_once_miss_left_empty, split_once_miss_left
+    EXPAND STR_IS_EMPTY split_once_miss_right_empty, split_once_miss_right
+    EXPAND STR_EQ split_at_left_eq, split_at_left, utf8_a_e
+    EXPAND STR_EQ split_at_right_eq, split_at_right, utf8_smile_z
+    EXPAND STR_IS_EMPTY split_at_bad_left_empty, split_at_bad_left
+    EXPAND STR_IS_EMPTY split_at_bad_right_empty, split_at_bad_right
+
+    split_once_flag_ok = eq split_once_ok, 1
+    split_once_left_ok = eq split_once_left_eq, 1
+    split_once_right_ok = eq split_once_right_eq, 1
+    rsplit_once_flag_ok = eq rsplit_once_ok, 1
+    rsplit_once_left_ok = eq rsplit_once_left_eq, 1
+    rsplit_once_right_ok = eq rsplit_once_right_eq, 1
+    split_once_miss_flag_ok = eq split_once_miss_ok, 0
+    split_once_miss_left_ok = eq split_once_miss_left_empty, 1
+    split_once_miss_right_ok = eq split_once_miss_right_empty, 1
+    split_at_flag_ok = eq split_at_ok, 1
+    split_at_left_ok = eq split_at_left_eq, 1
+    split_at_right_ok = eq split_at_right_eq, 1
+    split_at_bad_flag_ok = eq split_at_bad_ok, 0
+    split_at_bad_left_ok = eq split_at_bad_left_empty, 1
+    split_at_bad_right_ok = eq split_at_bad_right_empty, 1
+    ok01 = and split_once_flag_ok, split_once_left_ok
+    ok02 = and ok01, split_once_right_ok
+    ok03 = and ok02, rsplit_once_flag_ok
+    ok04 = and ok03, rsplit_once_left_ok
+    ok05 = and ok04, rsplit_once_right_ok
+    ok06 = and ok05, split_once_miss_flag_ok
+    ok07 = and ok06, split_once_miss_left_ok
+    ok08 = and ok07, split_once_miss_right_ok
+    ok09 = and ok08, split_at_flag_ok
+    ok10 = and ok09, split_at_left_ok
+    ok11 = and ok10, split_at_right_ok
+    ok12 = and ok11, split_at_bad_flag_ok
+    ok13 = and ok12, split_at_bad_left_ok
+    ok = and ok13, split_at_bad_right_ok
+    EXPAND STRING_BUF_FREE owned_pathish
+    EXPAND STRING_BUF_FREE owned_utf8
+    !pathish
+    !colon
+    !expected_left
+    !expected_right
+    !expected_rleft
+    !expected_rright
+    !miss
+    !utf8_boundary
+    !utf8_a_e
+    !utf8_smile_z
+    !split_once_ok
+    !split_once_left
+    !split_once_right
+    !rsplit_once_ok
+    !rsplit_once_left
+    !rsplit_once_right
+    !split_once_miss_ok
+    !split_once_miss_left
+    !split_once_miss_right
+    !split_at_ok
+    !split_at_left
+    !split_at_right
+    !split_at_bad_ok
+    !split_at_bad_left
+    !split_at_bad_right
+    !split_once_left_eq
+    !split_once_right_eq
+    !rsplit_once_left_eq
+    !rsplit_once_right_eq
+    !split_once_miss_left_empty
+    !split_once_miss_right_empty
+    !split_at_left_eq
+    !split_at_right_eq
+    !split_at_bad_left_empty
+    !split_at_bad_right_empty
+    !split_once_flag_ok
+    !split_once_left_ok
+    !split_once_right_ok
+    !rsplit_once_flag_ok
+    !rsplit_once_left_ok
+    !rsplit_once_right_ok
+    !split_once_miss_flag_ok
+    !split_once_miss_left_ok
+    !split_once_miss_right_ok
+    !split_at_flag_ok
+    !split_at_left_ok
+    !split_at_right_ok
+    !split_at_bad_flag_ok
+    !split_at_bad_left_ok
+    !split_at_bad_right_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    br ok -> L_STRING_BUF_TRY_SPLIT_ALIAS_OK, L_STRING_BUF_TRY_SPLIT_ALIAS_FAIL
+
+L_STRING_BUF_TRY_SPLIT_ALIAS_FAIL:
+    !ok
+    panic(927)
+
+L_STRING_BUF_TRY_SPLIT_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
