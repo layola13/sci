@@ -1118,10 +1118,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_first_chunk_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_AS_SLICE __vec_first_chunk_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, __vec_first_chunk_slice_%out_ok, %chunk_len
     !__vec_first_chunk_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
@@ -1130,10 +1138,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_first_chunk_mut_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
     EXPAND VEC_AS_MUT_SLICE __vec_split_first_chunk_mut_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, __vec_split_first_chunk_mut_slice_%out_ok, %chunk_len
     !__vec_split_first_chunk_mut_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
@@ -1142,10 +1158,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_last_chunk_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_AS_MUT_SLICE __vec_split_last_chunk_mut_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, __vec_split_last_chunk_mut_slice_%out_ok, %chunk_len
     !__vec_split_last_chunk_mut_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
@@ -1154,10 +1178,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_last_chunk_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_AS_MUT_SLICE __vec_last_chunk_mut_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, __vec_last_chunk_mut_slice_%out_ok, %chunk_len
     !__vec_last_chunk_mut_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_CHUNK_COUNT_U64 %out_count, %vec_reg, %chunk_size

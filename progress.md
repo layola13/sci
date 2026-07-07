@@ -4,6 +4,34 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 Vec chunk naming alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice chunk naming aliases over the existing U64 try forms:
+  - `VEC_SPLIT_FIRST_CHUNK_U64`
+  - `VEC_FIRST_CHUNK_U64`
+  - `VEC_FIRST_CHUNK_MUT_U64`
+  - `VEC_SPLIT_FIRST_CHUNK_MUT_U64`
+  - `VEC_SPLIT_LAST_CHUNK_U64`
+  - `VEC_SPLIT_LAST_CHUNK_MUT_U64`
+  - `VEC_LAST_CHUNK_U64`
+  - `VEC_LAST_CHUNK_MUT_U64`
+- Semantics: these aliases preserve the existing local `(ok, slice...)` result shape used by the `TRY_` chunk forms. Mut aliases return mutable slice metadata into the Vec allocation. The tests cover hit, miss, zero-length chunk, and mutable write-back paths; this does not claim Rust const-generic array-reference layout, generic `T`, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "first last chunk"`: pass (`1 passed; 16 skipped`).
+  - Source focused `std_slice_vec_macro_surface.sa --filter "split chunk"`: pass (`1 passed; 16 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`17 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`17 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
 ## Completed: 2026-07-07 Vec unchecked alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
