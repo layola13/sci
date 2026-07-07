@@ -3431,6 +3431,195 @@ L_VEC_SLICE_MUTATION_ALIASES_OK:
     !ok
     return
 
+@test "sa_std vec copy aliases"():
+L_ENTRY:
+    src_data = alloc 24
+    clone_data = alloc 24
+    short_data = alloc 16
+    store src_data+0, 7 as u64
+    store src_data+8, 8 as u64
+    store src_data+16, 9 as u64
+    store clone_data+0, 4 as u64
+    store clone_data+8, 5 as u64
+    store clone_data+16, 6 as u64
+    store short_data+0, 1 as u64
+    store short_data+8, 2 as u64
+    src = alloc Slice_SIZE
+    clone_src = alloc Slice_SIZE
+    short = alloc Slice_SIZE
+    EXPAND SLICE_NEW src, src_data, 3
+    EXPAND SLICE_NEW clone_src, clone_data, 3
+    EXPAND SLICE_NEW short, short_data, 2
+
+    EXPAND VEC_NEW vec
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 3
+    EXPAND VEC_COPY_FROM_SLICE_U64 copy_ok, vec, src
+    EXPAND VEC_COPY_FROM_SLICE_U64 copy_miss_ok, vec, short
+    EXPAND VEC_TRY_GET_U64 copy0_ok, copy0, vec, 0
+    EXPAND VEC_TRY_GET_U64 copy2_ok, copy2, vec, 2
+
+    EXPAND VEC_CLONE_FROM_SLICE_U64 clone_ok, vec, clone_src
+    EXPAND VEC_TRY_GET_U64 clone0_ok, clone0, vec, 0
+    EXPAND VEC_TRY_GET_U64 clone2_ok, clone2, vec, 2
+
+    EXPAND VEC_COPY_WITHIN_U64 copy_within_back_ok, vec, 0, 2, 1
+    EXPAND VEC_TRY_GET_U64 back0_ok, back0, vec, 0
+    EXPAND VEC_TRY_GET_U64 back1_ok, back1, vec, 1
+    EXPAND VEC_TRY_GET_U64 back2_ok, back2, vec, 2
+    EXPAND VEC_COPY_WITHIN_U64 copy_within_forward_ok, vec, 1, 2, 0
+    EXPAND VEC_COPY_WITHIN_U64 copy_within_miss_ok, vec, 2, 2, 0
+    EXPAND VEC_TRY_GET_U64 forward0_ok, forward0, vec, 0
+    EXPAND VEC_TRY_GET_U64 forward1_ok, forward1, vec, 1
+    EXPAND VEC_TRY_GET_U64 forward2_ok, forward2, vec, 2
+
+    copy_flag_ok = eq copy_ok, 1
+    copy_miss_flag_ok = eq copy_miss_ok, 0
+    copy0_flag_ok = eq copy0_ok, 1
+    copy0_value_ok = eq copy0, 7
+    copy2_flag_ok = eq copy2_ok, 1
+    copy2_value_ok = eq copy2, 9
+    clone_flag_ok = eq clone_ok, 1
+    clone0_flag_ok = eq clone0_ok, 1
+    clone0_value_ok = eq clone0, 4
+    clone2_flag_ok = eq clone2_ok, 1
+    clone2_value_ok = eq clone2, 6
+    copy_within_back_flag_ok = eq copy_within_back_ok, 1
+    back0_flag_ok = eq back0_ok, 1
+    back0_value_ok = eq back0, 4
+    back1_flag_ok = eq back1_ok, 1
+    back1_value_ok = eq back1, 4
+    back2_flag_ok = eq back2_ok, 1
+    back2_value_ok = eq back2, 5
+    copy_within_forward_flag_ok = eq copy_within_forward_ok, 1
+    copy_within_miss_flag_ok = eq copy_within_miss_ok, 0
+    forward0_flag_ok = eq forward0_ok, 1
+    forward0_value_ok = eq forward0, 4
+    forward1_flag_ok = eq forward1_ok, 1
+    forward1_value_ok = eq forward1, 5
+    forward2_flag_ok = eq forward2_ok, 1
+    forward2_value_ok = eq forward2, 5
+
+    ok01 = and copy_flag_ok, copy_miss_flag_ok
+    ok02 = and ok01, copy0_flag_ok
+    ok03 = and ok02, copy0_value_ok
+    ok04 = and ok03, copy2_flag_ok
+    ok05 = and ok04, copy2_value_ok
+    ok06 = and ok05, clone_flag_ok
+    ok07 = and ok06, clone0_flag_ok
+    ok08 = and ok07, clone0_value_ok
+    ok09 = and ok08, clone2_flag_ok
+    ok10 = and ok09, clone2_value_ok
+    ok11 = and ok10, copy_within_back_flag_ok
+    ok12 = and ok11, back0_flag_ok
+    ok13 = and ok12, back0_value_ok
+    ok14 = and ok13, back1_flag_ok
+    ok15 = and ok14, back1_value_ok
+    ok16 = and ok15, back2_flag_ok
+    ok17 = and ok16, back2_value_ok
+    ok18 = and ok17, copy_within_forward_flag_ok
+    ok19 = and ok18, copy_within_miss_flag_ok
+    ok20 = and ok19, forward0_flag_ok
+    ok21 = and ok20, forward0_value_ok
+    ok22 = and ok21, forward1_flag_ok
+    ok23 = and ok22, forward1_value_ok
+    ok24 = and ok23, forward2_flag_ok
+    ok = and ok24, forward2_value_ok
+
+    !src_data
+    !clone_data
+    !short_data
+    !src
+    !clone_src
+    !short
+    !copy_ok
+    !copy_miss_ok
+    !copy0_ok
+    !copy0
+    !copy2_ok
+    !copy2
+    !clone_ok
+    !clone0_ok
+    !clone0
+    !clone2_ok
+    !clone2
+    !copy_within_back_ok
+    !back0_ok
+    !back0
+    !back1_ok
+    !back1
+    !back2_ok
+    !back2
+    !copy_within_forward_ok
+    !copy_within_miss_ok
+    !forward0_ok
+    !forward0
+    !forward1_ok
+    !forward1
+    !forward2_ok
+    !forward2
+    !copy_flag_ok
+    !copy_miss_flag_ok
+    !copy0_flag_ok
+    !copy0_value_ok
+    !copy2_flag_ok
+    !copy2_value_ok
+    !clone_flag_ok
+    !clone0_flag_ok
+    !clone0_value_ok
+    !clone2_flag_ok
+    !clone2_value_ok
+    !copy_within_back_flag_ok
+    !back0_flag_ok
+    !back0_value_ok
+    !back1_flag_ok
+    !back1_value_ok
+    !back2_flag_ok
+    !back2_value_ok
+    !copy_within_forward_flag_ok
+    !copy_within_miss_flag_ok
+    !forward0_flag_ok
+    !forward0_value_ok
+    !forward1_flag_ok
+    !forward1_value_ok
+    !forward2_flag_ok
+    !forward2_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_COPY_ALIASES_OK, L_VEC_COPY_ALIASES_FAIL
+
+L_VEC_COPY_ALIASES_FAIL:
+    !ok
+    panic(950)
+
+L_VEC_COPY_ALIASES_OK:
+    !ok
+    return
+
 @test "sa_std slice and vec rotate swap sorted macros"():
 L_ENTRY:
     data = alloc 40

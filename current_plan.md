@@ -98,6 +98,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `str` / string slice Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed `str::as_bytes_mut`-style unsafe mutable byte-slice aliases `STR_AS_MUT_BYTES` and `STRING_AS_MUT_BYTES` over the existing Slice metadata view, without claiming UTF-8 mutation invariant enforcement, ownership provenance, or Rust borrow-checker semantics.
    - `StringBuf` / `Vec` / slice Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed `as_ptr_range` / `as_mut_ptr_range`-style start/end pointer output aliases for Slice, str/string, StringBuf, and Vec/U64 paths, without claiming Rust `Range<*const T>` / `Range<*mut T>` object layout or unsafe pointer-range reconstruction APIs.
    - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable chunk/window access naming aliases `VEC_CHUNK_AT_U64`, `VEC_RCHUNK_AT_U64`, `VEC_RCHUNK_MUT_AT_U64`, `VEC_CHUNK_EXACT_AT_U64`, `VEC_CHUNK_EXACT_MUT_AT_U64`, `VEC_RCHUNK_EXACT_AT_U64`, `VEC_RCHUNK_EXACT_MUT_AT_U64`, and `VEC_WINDOW_AT_U64` over existing checked slice-view forms.
+   - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec deref-to-slice copy aliases `VEC_COPY_FROM_SLICE_U64`, `VEC_CLONE_FROM_SLICE_U64`, and `VEC_COPY_WITHIN_U64` over existing mutable slice U64 copy machinery.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -233,6 +234,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the str mutable bytes alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the String/Vec pointer range alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Vec chunk/window access alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Vec copy alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -389,13 +391,13 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/facade/test changes are complete for the Vec chunk/window access alias batch.
+- Source/facade/test changes are complete for the Vec copy alias batch.
 - Source-std `std_slice_vec_macro_surface.sa`, `std_vec_macro_surface.sa`, and `std_string_macro_surface.sa`, full `unit-framework`, install sync, and installed-state Slice/Vec/String full tests pass.
 - The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, and full generic trait-object coverage.
 
 ## Next Priority
 
-- Commit the Vec chunk/window access alias batch, then continue the highest-priority String/Vec Rust API parity audit.
+- Commit the Vec copy alias batch, then continue the highest-priority String/Vec Rust API parity audit.
 
 ## Notes
 
