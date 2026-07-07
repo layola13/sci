@@ -250,6 +250,11 @@ L_ENTRY:
     EXPAND STRING_BUF_BYTES owned_word_bytes, owned_word
     EXPAND STR_LEN owned_word_bytes_len, owned_word_bytes
     EXPAND STR_EQ owned_word_bytes_eq, owned_word_bytes, word
+    EXPAND STRING_BUF_STARTS_WITH owned_starts_ok, owned_word, prefix
+    EXPAND STRING_BUF_ENDS_WITH owned_ends_ok, owned_word, suffix
+    EXPAND STRING_BUF_CONTAINS owned_contains_ok, owned_word, infix
+    EXPAND STRING_BUF_FIND owned_find_ok, owned_find_idx, owned_word, infix
+    EXPAND STRING_BUF_RFIND owned_rfind_ok, owned_rfind_idx, owned_word, infix
 
     len_ok = eq len, 4
     ptr_ok = ne as_ptr, 0
@@ -280,6 +285,13 @@ L_ENTRY:
     strip_suffix_miss_empty_ok = eq strip_suffix_miss_empty, 1
     owned_word_bytes_len_ok = eq owned_word_bytes_len, 4
     owned_word_bytes_eq_ok = eq owned_word_bytes_eq, 1
+    owned_starts_match_ok = eq owned_starts_ok, 1
+    owned_ends_match_ok = eq owned_ends_ok, 1
+    owned_contains_match_ok = eq owned_contains_ok, 1
+    owned_find_flag_ok = eq owned_find_ok, 1
+    owned_find_idx_ok = eq owned_find_idx, 1
+    owned_rfind_flag_ok = eq owned_rfind_ok, 1
+    owned_rfind_idx_ok = eq owned_rfind_idx, 1
     ok01 = and len_ok, ptr_ok
     ok02 = and ok01, bytes_len_ok
     ok03 = and ok02, str_len_ok
@@ -309,7 +321,14 @@ L_ENTRY:
     ok27 = and ok26, strip_prefix_miss_empty_ok
     ok28 = and ok27, strip_suffix_miss_empty_ok
     ok29 = and ok28, owned_word_bytes_len_ok
-    ok = and ok29, owned_word_bytes_eq_ok
+    ok30 = and ok29, owned_word_bytes_eq_ok
+    ok31 = and ok30, owned_starts_match_ok
+    ok32 = and ok31, owned_ends_match_ok
+    ok33 = and ok32, owned_contains_match_ok
+    ok34 = and ok33, owned_find_flag_ok
+    ok35 = and ok34, owned_find_idx_ok
+    ok36 = and ok35, owned_rfind_flag_ok
+    ok = and ok36, owned_rfind_idx_ok
     EXPAND STRING_BUF_FREE owned_word
     !len
     !as_ptr
@@ -349,6 +368,13 @@ L_ENTRY:
     !owned_word_bytes
     !owned_word_bytes_len
     !owned_word_bytes_eq
+    !owned_starts_ok
+    !owned_ends_ok
+    !owned_contains_ok
+    !owned_find_ok
+    !owned_find_idx
+    !owned_rfind_ok
+    !owned_rfind_idx
     !len_ok
     !ptr_ok
     !bytes_len_ok
@@ -378,6 +404,13 @@ L_ENTRY:
     !strip_suffix_miss_empty_ok
     !owned_word_bytes_len_ok
     !owned_word_bytes_eq_ok
+    !owned_starts_match_ok
+    !owned_ends_match_ok
+    !owned_contains_match_ok
+    !owned_find_flag_ok
+    !owned_find_idx_ok
+    !owned_rfind_flag_ok
+    !owned_rfind_idx_ok
     !ok01
     !ok02
     !ok03
@@ -407,6 +440,13 @@ L_ENTRY:
     !ok27
     !ok28
     !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
     !word
     !prefix
     !suffix

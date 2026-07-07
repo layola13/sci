@@ -232,6 +232,7 @@
 - [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 unsafe `String::as_mut_vec` 风格本地 metadata pointer 别名 `STRING_BUF_AS_MUT_VEC_PTR`，复用 StringBuf/Vec 三字段布局，不声明 Rust borrow checker alias 规则、UTF-8 mutation invariant enforcement、allocator-parametric 行为或 trait-object 全覆盖；已完成新增相关源码 focused 测试。
 - [x] String as_mut_vec pointer alias 批次已完成安装态同步/回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
 - [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str byte-view 别名 `STRING_BUF_BYTES`，复用现有 `STRING_BUF_AS_BYTES` 本地 Slice 视图，不声明 Rust lazy `str::Bytes` iterator 对象、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str 谓词/搜索别名 `STRING_BUF_CONTAINS` / `STRING_BUF_STARTS_WITH` / `STRING_BUF_ENDS_WITH` / `STRING_BUF_FIND` / `STRING_BUF_RFIND`，复用现有 str slice helper，不声明 Rust generic `Pattern`、`Option<usize>` 对象布局、searcher/iterator 对象语义、borrow checker alias 规则或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
 - [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

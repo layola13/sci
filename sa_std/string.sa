@@ -202,6 +202,36 @@
     EXPAND STRING_BUF_AS_MUT_STR %out_slice, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_CONTAINS %out_bool, %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_contains_view_%out_bool, %string_reg
+    EXPAND STR_CONTAINS %out_bool, __string_buf_contains_view_%out_bool, %needle_slice
+    !__string_buf_contains_view_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_STARTS_WITH %out_bool, %string_reg, %prefix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_starts_view_%out_bool, %string_reg
+    EXPAND STR_STARTS_WITH %out_bool, __string_buf_starts_view_%out_bool, %prefix_slice
+    !__string_buf_starts_view_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_ENDS_WITH %out_bool, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_ends_view_%out_bool, %string_reg
+    EXPAND STR_ENDS_WITH %out_bool, __string_buf_ends_view_%out_bool, %suffix_slice
+    !__string_buf_ends_view_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_FIND %out_ok, %out_index, %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_find_view_%out_ok, %string_reg
+    EXPAND STR_FIND %out_ok, %out_index, __string_buf_find_view_%out_ok, %needle_slice
+    !__string_buf_find_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_RFIND %out_ok, %out_index, %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_rfind_view_%out_ok, %string_reg
+    EXPAND STR_RFIND %out_ok, %out_index, __string_buf_rfind_view_%out_ok, %needle_slice
+    !__string_buf_rfind_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_INDEX_RANGE %out_ok, %out_slice, %string_reg, %start, %length
     EXPAND STRING_BUF_AS_STR __string_buf_index_view_%out_ok, %string_reg
     EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, __string_buf_index_view_%out_ok, %start, %length
