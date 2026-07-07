@@ -671,6 +671,14 @@ L_VEC_FROM_FN_DONE_%out_vec:
     !__vec_from_slice_len_%out_vec
 [END_MACRO]
 
+[MACRO] SLICE_TO_VEC %out_vec, %slice_reg, %elem_size
+    EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
+[END_MACRO]
+
+[MACRO] SLICE_TO_OWNED_VEC %out_vec, %slice_reg, %elem_size
+    EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
+[END_MACRO]
+
 [MACRO] VEC_FROM_ITER %out_vec, %slice_reg, %elem_size
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
 [END_MACRO]
@@ -720,6 +728,14 @@ L_VEC_REPEAT_DONE_%out_vec:
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, 8
 [END_MACRO]
 
+[MACRO] SLICE_TO_VEC_U64 %out_vec, %slice_reg
+    EXPAND SLICE_TO_VEC %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] SLICE_TO_OWNED_VEC_U64 %out_vec, %slice_reg
+    EXPAND SLICE_TO_OWNED_VEC %out_vec, %slice_reg, 8
+[END_MACRO]
+
 [MACRO] VEC_FROM_ITER_U64 %out_vec, %slice_reg
     EXPAND VEC_FROM_ITER %out_vec, %slice_reg, 8
 [END_MACRO]
@@ -758,8 +774,16 @@ L_VEC_REPEAT_DONE_%out_vec:
     !__vec_clone_slice_%out_vec
 [END_MACRO]
 
+[MACRO] VEC_TO_OWNED %out_vec, %vec_reg, %elem_size
+    EXPAND VEC_CLONE %out_vec, %vec_reg, %elem_size
+[END_MACRO]
+
 [MACRO] VEC_CLONE_U64 %out_vec, %vec_reg
     EXPAND VEC_CLONE %out_vec, %vec_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_TO_OWNED_U64 %out_vec, %vec_reg
+    EXPAND VEC_TO_OWNED %out_vec, %vec_reg, 8
 [END_MACRO]
 
 [MACRO] VEC_CLONE_FROM %dst_vec_reg, %src_vec_reg, %elem_size

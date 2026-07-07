@@ -336,6 +336,14 @@
     !__string_buf_from_str_len_%out_string
 [END_MACRO]
 
+[MACRO] STR_TO_OWNED %out_string, %source_slice
+    EXPAND STRING_BUF_FROM_STR %out_string, %source_slice
+[END_MACRO]
+
+[MACRO] STR_TO_STRING %out_string, %source_slice
+    EXPAND STRING_BUF_FROM_STR %out_string, %source_slice
+[END_MACRO]
+
 [MACRO] STR_REPEAT %out_string, %source_slice, %count
     __str_repeat_len_%out_string = load %source_slice+Slice_len as u64
     __str_repeat_cap_%out_string = mul __str_repeat_len_%out_string, %count
@@ -393,6 +401,14 @@ L_STR_REPEAT_DONE_%out_string:
     EXPAND STRING_BUF_AS_STR __string_buf_clone_slice_%out_string, %string_reg
     EXPAND STRING_BUF_FROM_STR %out_string, __string_buf_clone_slice_%out_string
     !__string_buf_clone_slice_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_TO_OWNED %out_string, %string_reg
+    EXPAND STRING_BUF_CLONE %out_string, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TO_STRING %out_string, %string_reg
+    EXPAND STRING_BUF_CLONE %out_string, %string_reg
 [END_MACRO]
 
 [MACRO] STRING_BUF_FROM_STRING_REF %out_string, %source_string

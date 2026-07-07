@@ -4499,3 +4499,92 @@ L_STRING_REPEAT_FAIL:
 L_STRING_REPEAT_OK:
     !ok
     return
+
+@test "sa_std string to_owned and to_string aliases"():
+L_STRING_TO_OWNED_ENTRY:
+    word_slice = alloc Slice_SIZE
+    title_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &WORD, 4
+    EXPAND SLICE_NEW title_slice, &TITLE_WORD, 4
+
+    EXPAND STRING_BUF_FROM_STR source, word_slice
+    EXPAND STR_TO_OWNED str_owned, word_slice
+    EXPAND STR_TO_STRING str_string, word_slice
+    EXPAND STRING_BUF_TO_OWNED string_owned, source
+    EXPAND STRING_BUF_TO_STRING string_string, source
+
+    EXPAND STRING_BUF_AS_MUT_STR source_mut, source
+    EXPAND SLICE_GET_PTR source_mut_ptr, source_mut
+    store source_mut_ptr+0, 82 as u8
+
+    EXPAND STRING_BUF_AS_STR source_view, source
+    EXPAND STRING_BUF_AS_STR str_owned_view, str_owned
+    EXPAND STRING_BUF_AS_STR str_string_view, str_string
+    EXPAND STRING_BUF_AS_STR string_owned_view, string_owned
+    EXPAND STRING_BUF_AS_STR string_string_view, string_string
+    EXPAND STR_EQ source_eq, source_view, title_slice
+    EXPAND STR_EQ str_owned_eq, str_owned_view, word_slice
+    EXPAND STR_EQ str_string_eq, str_string_view, word_slice
+    EXPAND STR_EQ string_owned_eq, string_owned_view, word_slice
+    EXPAND STR_EQ string_string_eq, string_string_view, word_slice
+    EXPAND STRING_BUF_AS_PTR source_ptr, source
+    EXPAND STRING_BUF_AS_PTR string_owned_ptr, string_owned
+    EXPAND STRING_BUF_AS_PTR string_string_ptr, string_string
+    owned_distinct = ne source_ptr, string_owned_ptr
+    string_distinct = ne source_ptr, string_string_ptr
+
+    source_ok = eq source_eq, 1
+    str_owned_ok = eq str_owned_eq, 1
+    str_string_ok = eq str_string_eq, 1
+    string_owned_ok = eq string_owned_eq, 1
+    string_string_ok = eq string_string_eq, 1
+    ok01 = and source_ok, str_owned_ok
+    ok02 = and ok01, str_string_ok
+    ok03 = and ok02, string_owned_ok
+    ok04 = and ok03, string_string_ok
+    ok05 = and ok04, owned_distinct
+    ok = and ok05, string_distinct
+
+    !source_mut_ptr
+    !source_eq
+    !str_owned_eq
+    !str_string_eq
+    !string_owned_eq
+    !string_string_eq
+    !source_ptr
+    !string_owned_ptr
+    !string_string_ptr
+    !owned_distinct
+    !string_distinct
+    !source_ok
+    !str_owned_ok
+    !str_string_ok
+    !string_owned_ok
+    !string_string_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !word_slice
+    !title_slice
+    !source_mut
+    !source_view
+    !str_owned_view
+    !str_string_view
+    !string_owned_view
+    !string_string_view
+    EXPAND STRING_BUF_FREE string_string
+    EXPAND STRING_BUF_FREE string_owned
+    EXPAND STRING_BUF_FREE str_string
+    EXPAND STRING_BUF_FREE str_owned
+    EXPAND STRING_BUF_FREE source
+    br ok -> L_STRING_TO_OWNED_OK, L_STRING_TO_OWNED_FAIL
+
+L_STRING_TO_OWNED_FAIL:
+    !ok
+    panic(934)
+
+L_STRING_TO_OWNED_OK:
+    !ok
+    return

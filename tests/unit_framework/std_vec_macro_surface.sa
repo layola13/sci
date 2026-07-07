@@ -2956,3 +2956,86 @@ L_VEC_REPEAT_FAIL:
 L_VEC_REPEAT_OK:
     !ok
     return
+
+@test "sa_std vec to_vec and to_owned aliases"():
+L_VEC_TO_OWNED_ENTRY:
+    slice_data = alloc 16
+    store slice_data+0, 11 as u64
+    store slice_data+8, 22 as u64
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, slice_data, 2
+    EXPAND SLICE_TO_VEC_U64 slice_vec, slice
+    EXPAND SLICE_TO_OWNED_VEC_U64 slice_owned_vec, slice
+    store slice_data+0, 99 as u64
+    EXPAND VEC_TRY_GET_U64 slice_vec_first_ok, slice_vec_first, slice_vec, 0
+    EXPAND VEC_TRY_GET_U64 slice_owned_first_ok, slice_owned_first, slice_owned_vec, 0
+
+    EXPAND VEC_WITH_CAPACITY_U64 source_vec, 2
+    EXPAND VEC_PUSH_U64 source_vec, 33
+    EXPAND VEC_PUSH_U64 source_vec, 44
+    EXPAND VEC_TO_OWNED_U64 vec_owned, source_vec
+    EXPAND VEC_GET_MUT_PTR_U64 source_first_ptr, source_vec, 0
+    store source_first_ptr+0, 55 as u64
+    EXPAND VEC_TRY_GET_U64 source_first_ok, source_first, source_vec, 0
+    EXPAND VEC_TRY_GET_U64 vec_owned_first_ok, vec_owned_first, vec_owned, 0
+    EXPAND VEC_LEN vec_owned_len, vec_owned
+
+    slice_vec_flag_ok = eq slice_vec_first_ok, 1
+    slice_vec_value_ok = eq slice_vec_first, 11
+    slice_owned_flag_ok = eq slice_owned_first_ok, 1
+    slice_owned_value_ok = eq slice_owned_first, 11
+    source_flag_ok = eq source_first_ok, 1
+    source_value_ok = eq source_first, 55
+    owned_flag_ok = eq vec_owned_first_ok, 1
+    owned_value_ok = eq vec_owned_first, 33
+    owned_len_ok = eq vec_owned_len, 2
+    ok01 = and slice_vec_flag_ok, slice_vec_value_ok
+    ok02 = and ok01, slice_owned_flag_ok
+    ok03 = and ok02, slice_owned_value_ok
+    ok04 = and ok03, source_flag_ok
+    ok05 = and ok04, source_value_ok
+    ok06 = and ok05, owned_flag_ok
+    ok07 = and ok06, owned_value_ok
+    ok = and ok07, owned_len_ok
+
+    !slice_vec_first_ok
+    !slice_vec_first
+    !slice_owned_first_ok
+    !slice_owned_first
+    !source_first_ptr
+    !source_first_ok
+    !source_first
+    !vec_owned_first_ok
+    !vec_owned_first
+    !vec_owned_len
+    !slice_vec_flag_ok
+    !slice_vec_value_ok
+    !slice_owned_flag_ok
+    !slice_owned_value_ok
+    !source_flag_ok
+    !source_value_ok
+    !owned_flag_ok
+    !owned_value_ok
+    !owned_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !slice_data
+    !slice
+    EXPAND VEC_FREE vec_owned
+    EXPAND VEC_FREE source_vec
+    EXPAND VEC_FREE slice_owned_vec
+    EXPAND VEC_FREE slice_vec
+    br ok -> L_VEC_TO_OWNED_OK, L_VEC_TO_OWNED_FAIL
+
+L_VEC_TO_OWNED_FAIL:
+    !ok
+    panic(929)
+
+L_VEC_TO_OWNED_OK:
+    !ok
+    return
