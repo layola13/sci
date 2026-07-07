@@ -4606,7 +4606,7 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 vec_select, 4
     EXPAND VEC_PUSH_U64 vec_select, 2
     EXPAND VEC_PUSH_U64 vec_select, 8
-    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_U64 vec_select_ok, vec_select_left, vec_select_pivot_ptr, vec_select_right, vec_select, 1
+    EXPAND VEC_SELECT_NTH_UNSTABLE_U64 vec_select_ok, vec_select_left, vec_select_pivot_ptr, vec_select_right, vec_select, 1
     vec_select_pivot = load vec_select_pivot_ptr+0 as u64
     vec_select_left_len = load vec_select_left+Slice_len as u64
     vec_select_right_len = load vec_select_right+Slice_len as u64
@@ -4615,7 +4615,7 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 vec_select_by, 1
     EXPAND VEC_PUSH_U64 vec_select_by, 7
     EXPAND VEC_PUSH_U64 vec_select_by, 5
-    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_U64 vec_select_by_ok, vec_select_by_left, vec_select_by_pivot_ptr, vec_select_by_right, vec_select_by, 1, @slice_sorted_ge
+    EXPAND VEC_SELECT_NTH_UNSTABLE_BY_U64 vec_select_by_ok, vec_select_by_left, vec_select_by_pivot_ptr, vec_select_by_right, vec_select_by, 1, @slice_sorted_ge
     vec_select_by_pivot = load vec_select_by_pivot_ptr+0 as u64
     vec_select_by_left_len = load vec_select_by_left+Slice_len as u64
     vec_select_by_right_len = load vec_select_by_right+Slice_len as u64
@@ -4624,7 +4624,7 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 vec_select_key, 32
     EXPAND VEC_PUSH_U64 vec_select_key, 11
     EXPAND VEC_PUSH_U64 vec_select_key, 24
-    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 vec_select_key_ok, vec_select_key_left, vec_select_key_pivot_ptr, vec_select_key_right, vec_select_key, 2, @slice_sorted_key_tens
+    EXPAND VEC_SELECT_NTH_UNSTABLE_BY_KEY_U64 vec_select_key_ok, vec_select_key_left, vec_select_key_pivot_ptr, vec_select_key_right, vec_select_key, 2, @slice_sorted_key_tens
     vec_select_key_pivot = load vec_select_key_pivot_ptr+0 as u64
     vec_select_key_left_len = load vec_select_key_left+Slice_len as u64
     vec_select_key_right_len = load vec_select_key_right+Slice_len as u64
