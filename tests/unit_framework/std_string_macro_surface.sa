@@ -3989,6 +3989,8 @@ L_ENTRY:
     EXPAND STRING_BUF_TRY_SPLIT_ONCE split_once_ok, split_once_left, split_once_right, owned_pathish, colon
     EXPAND STRING_BUF_TRY_RSPLIT_ONCE rsplit_once_ok, rsplit_once_left, rsplit_once_right, owned_pathish, colon
     EXPAND STRING_BUF_TRY_SPLIT_ONCE split_once_miss_ok, split_once_miss_left, split_once_miss_right, owned_pathish, miss
+    EXPAND STRING_BUF_TRY_SPLIT_AT try_split_at_ok, try_split_at_left, try_split_at_right, owned_utf8, 3
+    EXPAND STRING_BUF_TRY_SPLIT_AT try_split_at_bad_ok, try_split_at_bad_left, try_split_at_bad_right, owned_utf8, 4
     EXPAND STRING_BUF_TRY_SPLIT_AT_CHECKED split_at_ok, split_at_left, split_at_right, owned_utf8, 3
     EXPAND STRING_BUF_TRY_SPLIT_AT_CHECKED split_at_bad_ok, split_at_bad_left, split_at_bad_right, owned_utf8, 4
     EXPAND STR_EQ split_once_left_eq, split_once_left, expected_left
@@ -3997,6 +3999,10 @@ L_ENTRY:
     EXPAND STR_EQ rsplit_once_right_eq, rsplit_once_right, expected_rright
     EXPAND STR_IS_EMPTY split_once_miss_left_empty, split_once_miss_left
     EXPAND STR_IS_EMPTY split_once_miss_right_empty, split_once_miss_right
+    EXPAND STR_EQ try_split_at_left_eq, try_split_at_left, utf8_a_e
+    EXPAND STR_EQ try_split_at_right_eq, try_split_at_right, utf8_smile_z
+    EXPAND STR_IS_EMPTY try_split_at_bad_left_empty, try_split_at_bad_left
+    EXPAND STR_IS_EMPTY try_split_at_bad_right_empty, try_split_at_bad_right
     EXPAND STR_EQ split_at_left_eq, split_at_left, utf8_a_e
     EXPAND STR_EQ split_at_right_eq, split_at_right, utf8_smile_z
     EXPAND STR_IS_EMPTY split_at_bad_left_empty, split_at_bad_left
@@ -4011,6 +4017,12 @@ L_ENTRY:
     split_once_miss_flag_ok = eq split_once_miss_ok, 0
     split_once_miss_left_ok = eq split_once_miss_left_empty, 1
     split_once_miss_right_ok = eq split_once_miss_right_empty, 1
+    try_split_at_flag_ok = eq try_split_at_ok, 1
+    try_split_at_left_ok = eq try_split_at_left_eq, 1
+    try_split_at_right_ok = eq try_split_at_right_eq, 1
+    try_split_at_bad_flag_ok = eq try_split_at_bad_ok, 0
+    try_split_at_bad_left_ok = eq try_split_at_bad_left_empty, 1
+    try_split_at_bad_right_ok = eq try_split_at_bad_right_empty, 1
     split_at_flag_ok = eq split_at_ok, 1
     split_at_left_ok = eq split_at_left_eq, 1
     split_at_right_ok = eq split_at_right_eq, 1
@@ -4025,12 +4037,18 @@ L_ENTRY:
     ok06 = and ok05, split_once_miss_flag_ok
     ok07 = and ok06, split_once_miss_left_ok
     ok08 = and ok07, split_once_miss_right_ok
-    ok09 = and ok08, split_at_flag_ok
-    ok10 = and ok09, split_at_left_ok
-    ok11 = and ok10, split_at_right_ok
-    ok12 = and ok11, split_at_bad_flag_ok
-    ok13 = and ok12, split_at_bad_left_ok
-    ok = and ok13, split_at_bad_right_ok
+    ok09 = and ok08, try_split_at_flag_ok
+    ok10 = and ok09, try_split_at_left_ok
+    ok11 = and ok10, try_split_at_right_ok
+    ok12 = and ok11, try_split_at_bad_flag_ok
+    ok13 = and ok12, try_split_at_bad_left_ok
+    ok14 = and ok13, try_split_at_bad_right_ok
+    ok15 = and ok14, split_at_flag_ok
+    ok16 = and ok15, split_at_left_ok
+    ok17 = and ok16, split_at_right_ok
+    ok18 = and ok17, split_at_bad_flag_ok
+    ok19 = and ok18, split_at_bad_left_ok
+    ok = and ok19, split_at_bad_right_ok
     EXPAND STRING_BUF_FREE owned_pathish
     EXPAND STRING_BUF_FREE owned_utf8
     !pathish
@@ -4052,6 +4070,12 @@ L_ENTRY:
     !split_once_miss_ok
     !split_once_miss_left
     !split_once_miss_right
+    !try_split_at_ok
+    !try_split_at_left
+    !try_split_at_right
+    !try_split_at_bad_ok
+    !try_split_at_bad_left
+    !try_split_at_bad_right
     !split_at_ok
     !split_at_left
     !split_at_right
@@ -4064,6 +4088,10 @@ L_ENTRY:
     !rsplit_once_right_eq
     !split_once_miss_left_empty
     !split_once_miss_right_empty
+    !try_split_at_left_eq
+    !try_split_at_right_eq
+    !try_split_at_bad_left_empty
+    !try_split_at_bad_right_empty
     !split_at_left_eq
     !split_at_right_eq
     !split_at_bad_left_empty
@@ -4077,6 +4105,12 @@ L_ENTRY:
     !split_once_miss_flag_ok
     !split_once_miss_left_ok
     !split_once_miss_right_ok
+    !try_split_at_flag_ok
+    !try_split_at_left_ok
+    !try_split_at_right_ok
+    !try_split_at_bad_flag_ok
+    !try_split_at_bad_left_ok
+    !try_split_at_bad_right_ok
     !split_at_flag_ok
     !split_at_left_ok
     !split_at_right_ok
@@ -4096,6 +4130,12 @@ L_ENTRY:
     !ok11
     !ok12
     !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
     br ok -> L_STRING_BUF_TRY_SPLIT_ALIAS_OK, L_STRING_BUF_TRY_SPLIT_ALIAS_FAIL
 
 L_STRING_BUF_TRY_SPLIT_ALIAS_FAIL:

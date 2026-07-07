@@ -416,6 +416,10 @@
     EXPAND STRING_BUF_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
+    EXPAND STRING_BUF_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %string_reg, %mid
     EXPAND STRING_BUF_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
 [END_MACRO]
