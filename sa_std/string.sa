@@ -336,6 +336,41 @@
     !__string_buf_from_str_len_%out_string
 [END_MACRO]
 
+[MACRO] STR_REPEAT %out_string, %source_slice, %count
+    __str_repeat_len_%out_string = load %source_slice+Slice_len as u64
+    __str_repeat_cap_%out_string = mul __str_repeat_len_%out_string, %count
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, __str_repeat_cap_%out_string
+    __str_repeat_idx_slot_%out_string = stack_alloc 8
+    store __str_repeat_idx_slot_%out_string+0, 0 as u64
+    jmp L_STR_REPEAT_HEAD_%out_string
+
+L_STR_REPEAT_HEAD_%out_string:
+    __str_repeat_idx_%out_string = load __str_repeat_idx_slot_%out_string+0 as u64
+    __str_repeat_done_%out_string = eq __str_repeat_idx_%out_string, %count
+    br __str_repeat_done_%out_string -> L_STR_REPEAT_DONE_%out_string, L_STR_REPEAT_BODY_%out_string
+
+L_STR_REPEAT_BODY_%out_string:
+    EXPAND STRING_BUF_PUSH_STR %out_string, %source_slice
+    __str_repeat_next_%out_string = add __str_repeat_idx_%out_string, 1
+    store __str_repeat_idx_slot_%out_string+0, __str_repeat_next_%out_string as u64
+    !__str_repeat_next_%out_string
+    !__str_repeat_done_%out_string
+    !__str_repeat_idx_%out_string
+    jmp L_STR_REPEAT_HEAD_%out_string
+
+L_STR_REPEAT_DONE_%out_string:
+    !__str_repeat_done_%out_string
+    !__str_repeat_idx_%out_string
+    !__str_repeat_cap_%out_string
+    !__str_repeat_len_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPEAT %out_string, %string_reg, %count
+    EXPAND STRING_BUF_AS_STR __string_buf_repeat_slice_%out_string, %string_reg
+    EXPAND STR_REPEAT %out_string, __string_buf_repeat_slice_%out_string, %count
+    !__string_buf_repeat_slice_%out_string
+[END_MACRO]
+
 [MACRO] STRING_BUF_FROM_MUT_STR %out_string, %source_slice
     EXPAND STRING_BUF_FROM_STR %out_string, %source_slice
 [END_MACRO]

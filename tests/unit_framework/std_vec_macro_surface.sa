@@ -2887,3 +2887,72 @@ L_VEC_FROM_STRING_FAIL:
 L_VEC_FROM_STRING_OK:
     !ok
     return
+
+@test "sa_std vec repeat aliases"():
+L_VEC_REPEAT_ENTRY:
+    repeat_data = alloc 16
+    store repeat_data+0, 11 as u64
+    store repeat_data+8, 22 as u64
+    repeat_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW repeat_slice, repeat_data, 2
+
+    EXPAND VEC_REPEAT_U64 repeated_vec, repeat_slice, 3
+    EXPAND VEC_LEN repeat_len, repeated_vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, repeated_vec, 0
+    EXPAND VEC_TRY_GET_U64 middle_ok, middle, repeated_vec, 3
+    EXPAND VEC_TRY_GET_U64 last_ok, last, repeated_vec, 5
+
+    EXPAND VEC_REPEAT_U64 zero_vec, repeat_slice, 0
+    EXPAND VEC_LEN zero_len, zero_vec
+
+    len_ok = eq repeat_len, 6
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 11
+    middle_flag_ok = eq middle_ok, 1
+    middle_value_ok = eq middle, 22
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last, 22
+    zero_ok = eq zero_len, 0
+    ok01 = and len_ok, first_flag_ok
+    ok02 = and ok01, first_value_ok
+    ok03 = and ok02, middle_flag_ok
+    ok04 = and ok03, middle_value_ok
+    ok05 = and ok04, last_flag_ok
+    ok06 = and ok05, last_value_ok
+    ok = and ok06, zero_ok
+
+    !repeat_len
+    !first_ok
+    !first
+    !middle_ok
+    !middle
+    !last_ok
+    !last
+    !zero_len
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !middle_flag_ok
+    !middle_value_ok
+    !last_flag_ok
+    !last_value_ok
+    !zero_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !repeat_data
+    !repeat_slice
+    EXPAND VEC_FREE zero_vec
+    EXPAND VEC_FREE repeated_vec
+    br ok -> L_VEC_REPEAT_OK, L_VEC_REPEAT_FAIL
+
+L_VEC_REPEAT_FAIL:
+    !ok
+    panic(928)
+
+L_VEC_REPEAT_OK:
+    !ok
+    return

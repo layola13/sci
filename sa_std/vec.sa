@@ -675,6 +675,35 @@ L_VEC_FROM_FN_DONE_%out_vec:
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
 [END_MACRO]
 
+[MACRO] VEC_REPEAT %out_vec, %slice_reg, %count, %elem_size
+    __vec_repeat_len_%out_vec = load %slice_reg+Slice_len as u64
+    __vec_repeat_cap_%out_vec = mul __vec_repeat_len_%out_vec, %count
+    EXPAND VEC_WITH_CAPACITY %out_vec, __vec_repeat_cap_%out_vec, %elem_size
+    __vec_repeat_idx_slot_%out_vec = stack_alloc 8
+    store __vec_repeat_idx_slot_%out_vec+0, 0 as u64
+    jmp L_VEC_REPEAT_HEAD_%out_vec
+
+L_VEC_REPEAT_HEAD_%out_vec:
+    __vec_repeat_idx_%out_vec = load __vec_repeat_idx_slot_%out_vec+0 as u64
+    __vec_repeat_done_%out_vec = eq __vec_repeat_idx_%out_vec, %count
+    br __vec_repeat_done_%out_vec -> L_VEC_REPEAT_DONE_%out_vec, L_VEC_REPEAT_BODY_%out_vec
+
+L_VEC_REPEAT_BODY_%out_vec:
+    EXPAND VEC_EXTEND_FROM_SLICE %out_vec, %slice_reg, %elem_size
+    __vec_repeat_next_%out_vec = add __vec_repeat_idx_%out_vec, 1
+    store __vec_repeat_idx_slot_%out_vec+0, __vec_repeat_next_%out_vec as u64
+    !__vec_repeat_next_%out_vec
+    !__vec_repeat_done_%out_vec
+    !__vec_repeat_idx_%out_vec
+    jmp L_VEC_REPEAT_HEAD_%out_vec
+
+L_VEC_REPEAT_DONE_%out_vec:
+    !__vec_repeat_done_%out_vec
+    !__vec_repeat_idx_%out_vec
+    !__vec_repeat_cap_%out_vec
+    !__vec_repeat_len_%out_vec
+[END_MACRO]
+
 [MACRO] VEC_FROM_MUT_SLICE %out_vec, %slice_reg, %elem_size
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
 [END_MACRO]
@@ -693,6 +722,10 @@ L_VEC_FROM_FN_DONE_%out_vec:
 
 [MACRO] VEC_FROM_ITER_U64 %out_vec, %slice_reg
     EXPAND VEC_FROM_ITER %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_REPEAT_U64 %out_vec, %slice_reg, %count
+    EXPAND VEC_REPEAT %out_vec, %slice_reg, %count, 8
 [END_MACRO]
 
 [MACRO] VEC_FROM_MUT_SLICE_U64 %out_vec, %slice_reg

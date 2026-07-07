@@ -22,6 +22,8 @@
 @const JOIN_LEFT = utf8:"rust"
 @const JOIN_RIGHT = utf8:"-std"
 @const JOINED = utf8:"rust-std"
+@const REPEAT_TWICE = utf8:"rustrust"
+@const REPEAT_THRICE = utf8:"rustrustrust"
 @const WRITE_EXPECTED = utf8:"rust!"
 @const LEAK_MUTATED = utf8:"Rust-std"
 @const MUT_BASE = utf8:"rust"
@@ -4442,5 +4444,58 @@ L_STRING_BUF_REF_CONV_FAIL:
     panic(932)
 
 L_STRING_BUF_REF_CONV_OK:
+    !ok
+    return
+
+@test "sa_std string repeat aliases"():
+L_STRING_REPEAT_ENTRY:
+    word_slice = alloc Slice_SIZE
+    repeat_twice_slice = alloc Slice_SIZE
+    repeat_thrice_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &JOIN_LEFT, 4
+    EXPAND SLICE_NEW repeat_twice_slice, &REPEAT_TWICE, 8
+    EXPAND SLICE_NEW repeat_thrice_slice, &REPEAT_THRICE, 12
+
+    EXPAND STR_REPEAT str_repeat_buf, word_slice, 3
+    EXPAND STRING_BUF_AS_STR str_repeat_view, str_repeat_buf
+    EXPAND STR_EQ str_repeat_eq, str_repeat_view, repeat_thrice_slice
+
+    EXPAND STR_REPEAT zero_repeat_buf, word_slice, 0
+    EXPAND STRING_BUF_LEN zero_repeat_len, zero_repeat_buf
+
+    EXPAND STRING_BUF_FROM_STR source_buf, word_slice
+    EXPAND STRING_BUF_REPEAT string_repeat_buf, source_buf, 2
+    EXPAND STRING_BUF_AS_STR string_repeat_view, string_repeat_buf
+    EXPAND STR_EQ string_repeat_eq, string_repeat_view, repeat_twice_slice
+
+    str_repeat_ok = eq str_repeat_eq, 1
+    zero_repeat_ok = eq zero_repeat_len, 0
+    string_repeat_ok = eq string_repeat_eq, 1
+    ok01 = and str_repeat_ok, zero_repeat_ok
+    ok = and ok01, string_repeat_ok
+
+    !str_repeat_view
+    !str_repeat_eq
+    !zero_repeat_len
+    !string_repeat_view
+    !string_repeat_eq
+    !str_repeat_ok
+    !zero_repeat_ok
+    !string_repeat_ok
+    !ok01
+    !word_slice
+    !repeat_twice_slice
+    !repeat_thrice_slice
+    EXPAND STRING_BUF_FREE string_repeat_buf
+    EXPAND STRING_BUF_FREE source_buf
+    EXPAND STRING_BUF_FREE zero_repeat_buf
+    EXPAND STRING_BUF_FREE str_repeat_buf
+    br ok -> L_STRING_REPEAT_OK, L_STRING_REPEAT_FAIL
+
+L_STRING_REPEAT_FAIL:
+    !ok
+    panic(933)
+
+L_STRING_REPEAT_OK:
     !ok
     return
