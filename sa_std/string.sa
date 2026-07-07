@@ -442,6 +442,22 @@ L_STR_REPEAT_DONE_%out_string:
     !__u64_to_string_ptr_%out_string
 [END_MACRO]
 
+[MACRO] U32_TO_STRING %out_string, %value
+    EXPAND U64_TO_STRING %out_string, %value
+[END_MACRO]
+
+[MACRO] U16_TO_STRING %out_string, %value
+    EXPAND U64_TO_STRING %out_string, %value
+[END_MACRO]
+
+[MACRO] U8_TO_STRING %out_string, %value
+    EXPAND U64_TO_STRING %out_string, %value
+[END_MACRO]
+
+[MACRO] USIZE_TO_STRING %out_string, %value
+    EXPAND U64_TO_STRING %out_string, %value
+[END_MACRO]
+
 [MACRO] I64_TO_STRING %out_string, %value
     EXPAND STRFMT_I64 __i64_to_string_fmt_%out_string, %value, 10
     EXPAND STRFMT_DATA __i64_to_string_ptr_%out_string, __i64_to_string_fmt_%out_string
@@ -453,6 +469,22 @@ L_STR_REPEAT_DONE_%out_string:
     !__i64_to_string_slice_%out_string
     !__i64_to_string_len_%out_string
     !__i64_to_string_ptr_%out_string
+[END_MACRO]
+
+[MACRO] I32_TO_STRING %out_string, %value
+    EXPAND I64_TO_STRING %out_string, %value
+[END_MACRO]
+
+[MACRO] I16_TO_STRING %out_string, %value
+    EXPAND I64_TO_STRING %out_string, %value
+[END_MACRO]
+
+[MACRO] I8_TO_STRING %out_string, %value
+    EXPAND I64_TO_STRING %out_string, %value
+[END_MACRO]
+
+[MACRO] ISIZE_TO_STRING %out_string, %value
+    EXPAND I64_TO_STRING %out_string, %value
 [END_MACRO]
 
 [MACRO] STRING_BUF_FROM_STRING_REF %out_string, %source_string

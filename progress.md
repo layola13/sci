@@ -4,6 +4,30 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 Integer primitive to_string alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128` formatting, float default-format parity, and full generic `Display` / `ToString` coverage.
+- Added concrete integer primitive `to_string` aliases over the existing u64/i64 formatter-backed paths:
+  - `U8_TO_STRING`
+  - `U16_TO_STRING`
+  - `U32_TO_STRING`
+  - `USIZE_TO_STRING`
+  - `I8_TO_STRING`
+  - `I16_TO_STRING`
+  - `I32_TO_STRING`
+  - `ISIZE_TO_STRING`
+- Semantics: these aliases delegate to the existing decimal `U64_TO_STRING` / `I64_TO_STRING` StringBuf-producing paths. This models concrete SA integer values and does not claim Rust `u128`/`i128`, float formatting, or arbitrary `Display` trait coverage.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
 ## Completed: 2026-07-07 Vec AsMut Vec pointer alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

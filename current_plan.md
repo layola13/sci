@@ -92,6 +92,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable eager owned-copy conversion aliases for `ToOwned` / `ToString` / `to_vec` style use cases, reusing existing StringBuf/Vec clone and from-slice paths without claiming Cow/Box/trait-object coverage.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed concrete primitive `to_string` aliases for char/bool/u64/i64 over existing StringBuf construction and SA formatter paths, without claiming generic `Display` / `ToString` trait-object coverage.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed Vec `AsMut<Vec<T>>`-style metadata pointer alias `VEC_AS_MUT_VEC_PTR`, matching the existing local `AsRef<Vec<T>>` pointer shape without claiming full Rust whole-object mutable borrow semantics.
+   - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed concrete smaller-integer and pointer-sized `to_string` aliases for u8/u16/u32/usize and i8/i16/i32/isize via existing u64/i64 formatter-backed StringBuf paths, without claiming `u128`/`i128`, float formatting, or generic `Display` coverage.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -221,6 +222,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec owned conversion alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the String primitive to_string alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Vec AsMut Vec pointer alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Integer primitive to_string alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

@@ -28,6 +28,14 @@
 @const TO_STRING_FALSE = utf8:"false"
 @const TO_STRING_U64 = utf8:"12345"
 @const TO_STRING_I64 = utf8:"-42"
+@const TO_STRING_U8 = utf8:"255"
+@const TO_STRING_U16 = utf8:"65535"
+@const TO_STRING_U32 = utf8:"4294967295"
+@const TO_STRING_USIZE = utf8:"4096"
+@const TO_STRING_I8 = utf8:"-8"
+@const TO_STRING_I16 = utf8:"-160"
+@const TO_STRING_I32 = utf8:"-32000"
+@const TO_STRING_ISIZE = utf8:"-4096"
 @const WRITE_EXPECTED = utf8:"rust!"
 @const LEAK_MUTATED = utf8:"Rust-std"
 @const MUT_BASE = utf8:"rust"
@@ -4599,65 +4607,177 @@ L_STRING_PRIMITIVE_TO_STRING_ENTRY:
     false_slice = alloc Slice_SIZE
     u64_slice = alloc Slice_SIZE
     i64_slice = alloc Slice_SIZE
+    u8_slice = alloc Slice_SIZE
+    u16_slice = alloc Slice_SIZE
+    u32_slice = alloc Slice_SIZE
+    usize_slice = alloc Slice_SIZE
+    i8_slice = alloc Slice_SIZE
+    i16_slice = alloc Slice_SIZE
+    i32_slice = alloc Slice_SIZE
+    isize_slice = alloc Slice_SIZE
     char_slice = alloc Slice_SIZE
     EXPAND SLICE_NEW true_slice, &TO_STRING_TRUE, 4
     EXPAND SLICE_NEW false_slice, &TO_STRING_FALSE, 5
     EXPAND SLICE_NEW u64_slice, &TO_STRING_U64, 5
     EXPAND SLICE_NEW i64_slice, &TO_STRING_I64, 3
+    EXPAND SLICE_NEW u8_slice, &TO_STRING_U8, 3
+    EXPAND SLICE_NEW u16_slice, &TO_STRING_U16, 5
+    EXPAND SLICE_NEW u32_slice, &TO_STRING_U32, 10
+    EXPAND SLICE_NEW usize_slice, &TO_STRING_USIZE, 4
+    EXPAND SLICE_NEW i8_slice, &TO_STRING_I8, 2
+    EXPAND SLICE_NEW i16_slice, &TO_STRING_I16, 4
+    EXPAND SLICE_NEW i32_slice, &TO_STRING_I32, 6
+    EXPAND SLICE_NEW isize_slice, &TO_STRING_ISIZE, 5
     EXPAND SLICE_NEW char_slice, &UTF8_E_ACUTE, 2
 
     neg_42 = sub 0, 42
+    neg_8 = sub 0, 8
+    neg_160 = sub 0, 160
+    neg_32000 = sub 0, 32000
+    neg_4096 = sub 0, 4096
     EXPAND CHAR_TO_STRING char_buf, 233
     EXPAND BOOL_TO_STRING true_buf, 1
     EXPAND BOOL_TO_STRING false_buf, 0
     EXPAND U64_TO_STRING u64_buf, 12345
     EXPAND I64_TO_STRING i64_buf, neg_42
+    EXPAND U8_TO_STRING u8_buf, 255
+    EXPAND U16_TO_STRING u16_buf, 65535
+    EXPAND U32_TO_STRING u32_buf, 4294967295
+    EXPAND USIZE_TO_STRING usize_buf, 4096
+    EXPAND I8_TO_STRING i8_buf, neg_8
+    EXPAND I16_TO_STRING i16_buf, neg_160
+    EXPAND I32_TO_STRING i32_buf, neg_32000
+    EXPAND ISIZE_TO_STRING isize_buf, neg_4096
 
     EXPAND STRING_BUF_AS_STR char_view, char_buf
     EXPAND STRING_BUF_AS_STR true_view, true_buf
     EXPAND STRING_BUF_AS_STR false_view, false_buf
     EXPAND STRING_BUF_AS_STR u64_view, u64_buf
     EXPAND STRING_BUF_AS_STR i64_view, i64_buf
+    EXPAND STRING_BUF_AS_STR u8_view, u8_buf
+    EXPAND STRING_BUF_AS_STR u16_view, u16_buf
+    EXPAND STRING_BUF_AS_STR u32_view, u32_buf
+    EXPAND STRING_BUF_AS_STR usize_view, usize_buf
+    EXPAND STRING_BUF_AS_STR i8_view, i8_buf
+    EXPAND STRING_BUF_AS_STR i16_view, i16_buf
+    EXPAND STRING_BUF_AS_STR i32_view, i32_buf
+    EXPAND STRING_BUF_AS_STR isize_view, isize_buf
     EXPAND STR_EQ char_eq, char_view, char_slice
     EXPAND STR_EQ true_eq, true_view, true_slice
     EXPAND STR_EQ false_eq, false_view, false_slice
     EXPAND STR_EQ u64_eq, u64_view, u64_slice
     EXPAND STR_EQ i64_eq, i64_view, i64_slice
+    EXPAND STR_EQ u8_eq, u8_view, u8_slice
+    EXPAND STR_EQ u16_eq, u16_view, u16_slice
+    EXPAND STR_EQ u32_eq, u32_view, u32_slice
+    EXPAND STR_EQ usize_eq, usize_view, usize_slice
+    EXPAND STR_EQ i8_eq, i8_view, i8_slice
+    EXPAND STR_EQ i16_eq, i16_view, i16_slice
+    EXPAND STR_EQ i32_eq, i32_view, i32_slice
+    EXPAND STR_EQ isize_eq, isize_view, isize_slice
 
     char_ok = eq char_eq, 1
     true_ok = eq true_eq, 1
     false_ok = eq false_eq, 1
     u64_ok = eq u64_eq, 1
     i64_ok = eq i64_eq, 1
+    u8_ok = eq u8_eq, 1
+    u16_ok = eq u16_eq, 1
+    u32_ok = eq u32_eq, 1
+    usize_ok = eq usize_eq, 1
+    i8_ok = eq i8_eq, 1
+    i16_ok = eq i16_eq, 1
+    i32_ok = eq i32_eq, 1
+    isize_ok = eq isize_eq, 1
     ok01 = and char_ok, true_ok
     ok02 = and ok01, false_ok
     ok03 = and ok02, u64_ok
-    ok = and ok03, i64_ok
+    ok04 = and ok03, i64_ok
+    ok05 = and ok04, u8_ok
+    ok06 = and ok05, u16_ok
+    ok07 = and ok06, u32_ok
+    ok08 = and ok07, usize_ok
+    ok09 = and ok08, i8_ok
+    ok10 = and ok09, i16_ok
+    ok11 = and ok10, i32_ok
+    ok = and ok11, isize_ok
 
     !neg_42
+    !neg_8
+    !neg_160
+    !neg_32000
+    !neg_4096
     !char_eq
     !true_eq
     !false_eq
     !u64_eq
     !i64_eq
+    !u8_eq
+    !u16_eq
+    !u32_eq
+    !usize_eq
+    !i8_eq
+    !i16_eq
+    !i32_eq
+    !isize_eq
     !char_ok
     !true_ok
     !false_ok
     !u64_ok
     !i64_ok
+    !u8_ok
+    !u16_ok
+    !u32_ok
+    !usize_ok
+    !i8_ok
+    !i16_ok
+    !i32_ok
+    !isize_ok
     !ok01
     !ok02
     !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
     !char_view
     !true_view
     !false_view
     !u64_view
     !i64_view
+    !u8_view
+    !u16_view
+    !u32_view
+    !usize_view
+    !i8_view
+    !i16_view
+    !i32_view
+    !isize_view
     !true_slice
     !false_slice
     !u64_slice
     !i64_slice
+    !u8_slice
+    !u16_slice
+    !u32_slice
+    !usize_slice
+    !i8_slice
+    !i16_slice
+    !i32_slice
+    !isize_slice
     !char_slice
+    EXPAND STRING_BUF_FREE isize_buf
+    EXPAND STRING_BUF_FREE i32_buf
+    EXPAND STRING_BUF_FREE i16_buf
+    EXPAND STRING_BUF_FREE i8_buf
+    EXPAND STRING_BUF_FREE usize_buf
+    EXPAND STRING_BUF_FREE u32_buf
+    EXPAND STRING_BUF_FREE u16_buf
+    EXPAND STRING_BUF_FREE u8_buf
     EXPAND STRING_BUF_FREE i64_buf
     EXPAND STRING_BUF_FREE u64_buf
     EXPAND STRING_BUF_FREE false_buf
