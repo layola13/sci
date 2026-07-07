@@ -387,13 +387,13 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/facade/test changes are complete for the Vec chunk naming alias batch.
+- Source/facade/test changes are complete for the Vec split/range naming alias batch.
 - Source-std `std_slice_vec_macro_surface.sa`, `std_vec_macro_surface.sa`, and `std_string_macro_surface.sa`, full `unit-framework`, install sync, and installed-state Slice/Vec/String full tests pass.
 - The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, and full generic trait-object coverage.
 
 ## Next Priority
 
-- Commit the Vec chunk naming alias batch, then continue the highest-priority String/Vec Rust API parity audit.
+- Commit the Vec split/range naming alias batch, then continue the highest-priority String/Vec Rust API parity audit.
 
 ## Notes
 
