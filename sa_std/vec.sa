@@ -1266,6 +1266,10 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_chunk_at_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_RCHUNK_COUNT_U64 %out_count, %vec_reg, %chunk_size
     EXPAND VEC_AS_SLICE __vec_rchunk_slice_%out_count, %vec_reg
     EXPAND SLICE_RCHUNK_COUNT_U64 %out_count, __vec_rchunk_slice_%out_count, %chunk_size
@@ -1278,10 +1282,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rchunk_at_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_RCHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_AS_MUT_SLICE __vec_rchunk_mut_at_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, __vec_rchunk_mut_at_slice_%out_ok, %chunk_size, %chunk_index
     !__vec_rchunk_mut_at_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_CHUNKS_EXACT_COUNT_U64 %out_count, %vec_reg, %chunk_size
@@ -1302,10 +1314,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_chunk_exact_at_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_AS_MUT_SLICE __vec_chunk_exact_mut_at_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, __vec_chunk_exact_mut_at_slice_%out_ok, %chunk_size, %chunk_index
     !__vec_chunk_exact_mut_at_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_RCHUNKS_EXACT_COUNT_U64 %out_count, %vec_reg, %chunk_size
@@ -1326,10 +1346,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rchunk_exact_at_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_AS_MUT_SLICE __vec_rchunk_exact_mut_at_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, __vec_rchunk_exact_mut_at_slice_%out_ok, %chunk_size, %chunk_index
     !__vec_rchunk_exact_mut_at_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_WINDOW_COUNT_U64 %out_count, %vec_reg, %window_size
@@ -1342,6 +1370,10 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     EXPAND VEC_AS_SLICE __vec_window_at_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_WINDOW_AT_U64 %out_ok, %out_slice, __vec_window_at_slice_%out_ok, %window_size, %window_index
     !__vec_window_at_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
+    EXPAND VEC_TRY_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
 [END_MACRO]
 
 [MACRO] VEC_SWAP_U64 %vec_reg, %left, %right

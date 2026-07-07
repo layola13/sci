@@ -1567,9 +1567,9 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 vec, 40
     EXPAND VEC_PUSH_U64 vec, 50
     EXPAND VEC_CHUNK_COUNT_U64 vec_chunk_count, vec, 2
-    EXPAND VEC_TRY_CHUNK_AT_U64 vec_chunk1_ok, vec_chunk1, vec, 2, 1
+    EXPAND VEC_CHUNK_AT_U64 vec_chunk1_ok, vec_chunk1, vec, 2, 1
     EXPAND VEC_WINDOW_COUNT_U64 vec_window_count, vec, 4
-    EXPAND VEC_TRY_WINDOW_AT_U64 vec_window1_ok, vec_window1, vec, 4, 1
+    EXPAND VEC_WINDOW_AT_U64 vec_window1_ok, vec_window1, vec, 4, 1
     EXPAND SLICE_GET_LEN vec_chunk1_len, vec_chunk1
     EXPAND SLICE_FIRST_U64 vec_chunk1_first, vec_chunk1
     EXPAND SLICE_LAST_U64 vec_chunk1_last, vec_chunk1
@@ -1809,12 +1809,12 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 vec, 40
     EXPAND VEC_PUSH_U64 vec, 50
     EXPAND VEC_RCHUNK_COUNT_U64 vec_rchunk_count, vec, 2
-    EXPAND VEC_TRY_RCHUNK_AT_U64 vec_rchunk0_ok, vec_rchunk0, vec, 2, 0
-    EXPAND VEC_TRY_RCHUNK_AT_U64 vec_rchunk2_ok, vec_rchunk2, vec, 2, 2
-    EXPAND VEC_TRY_RCHUNK_MUT_AT_U64 vec_rchunk_mut_ok, vec_rchunk_mut, vec, 2, 0
+    EXPAND VEC_RCHUNK_AT_U64 vec_rchunk0_ok, vec_rchunk0, vec, 2, 0
+    EXPAND VEC_RCHUNK_AT_U64 vec_rchunk2_ok, vec_rchunk2, vec, 2, 2
+    EXPAND VEC_RCHUNK_MUT_AT_U64 vec_rchunk_mut_ok, vec_rchunk_mut, vec, 2, 0
     EXPAND SLICE_GET_MUT_PTR_U64 vec_rchunk_mut_ptr, vec_rchunk_mut, 1
     store vec_rchunk_mut_ptr+0, 55 as u64
-    EXPAND VEC_TRY_RCHUNK_AT_U64 vec_rchunk3_ok, vec_rchunk3, vec, 2, 3
+    EXPAND VEC_RCHUNK_AT_U64 vec_rchunk3_ok, vec_rchunk3, vec, 2, 3
     EXPAND VEC_RCHUNK_COUNT_U64 vec_zero_count, vec, 0
     EXPAND SLICE_GET_LEN vec_rchunk0_len, vec_rchunk0
     EXPAND SLICE_FIRST_U64 vec_rchunk0_first, vec_rchunk0
@@ -4793,14 +4793,14 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 vec, 50
     EXPAND VEC_CHUNKS_EXACT_COUNT_U64 vec_chunk_count, vec, 2
     EXPAND VEC_CHUNKS_EXACT_REMAINDER_U64 vec_chunk_rem, vec, 2
-    EXPAND VEC_TRY_CHUNK_EXACT_AT_U64 vec_chunk1_ok, vec_chunk1, vec, 2, 1
-    EXPAND VEC_TRY_CHUNK_EXACT_MUT_AT_U64 vec_chunk_mut_ok, vec_chunk_mut, vec, 2, 0
+    EXPAND VEC_CHUNK_EXACT_AT_U64 vec_chunk1_ok, vec_chunk1, vec, 2, 1
+    EXPAND VEC_CHUNK_EXACT_MUT_AT_U64 vec_chunk_mut_ok, vec_chunk_mut, vec, 2, 0
     EXPAND SLICE_GET_MUT_PTR_U64 vec_chunk_mut_ptr, vec_chunk_mut, 0
     store vec_chunk_mut_ptr+0, 11 as u64
     EXPAND VEC_RCHUNKS_EXACT_COUNT_U64 vec_rchunk_count, vec, 2
     EXPAND VEC_RCHUNKS_EXACT_REMAINDER_U64 vec_rchunk_rem, vec, 2
-    EXPAND VEC_TRY_RCHUNK_EXACT_AT_U64 vec_rchunk0_ok, vec_rchunk0, vec, 2, 0
-    EXPAND VEC_TRY_RCHUNK_EXACT_MUT_AT_U64 vec_rchunk_mut_ok, vec_rchunk_mut, vec, 2, 0
+    EXPAND VEC_RCHUNK_EXACT_AT_U64 vec_rchunk0_ok, vec_rchunk0, vec, 2, 0
+    EXPAND VEC_RCHUNK_EXACT_MUT_AT_U64 vec_rchunk_mut_ok, vec_rchunk_mut, vec, 2, 0
     EXPAND SLICE_GET_MUT_PTR_U64 vec_rchunk_mut_ptr, vec_rchunk_mut, 1
     store vec_rchunk_mut_ptr+0, 55 as u64
     EXPAND SLICE_GET_LEN vec_chunk_rem_len, vec_chunk_rem
