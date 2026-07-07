@@ -4,6 +4,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-06 StringBuf/Vec Extend trait alias audit batch
+
+- Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs with String/Vec as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable trait-style aliases that do not require a new iterator object model:
+  - `STRING_BUF_EXTEND_STR`
+  - `STRING_BUF_TRY_EXTEND_CHAR`
+  - `STRING_BUF_EXTEND_CHAR`
+  - `STRING_BUF_EXTEND_STRING`
+  - `VEC_EXTEND_ONE`
+  - `VEC_EXTEND_ONE_U64`
+  - `VEC_EXTEND_REF_SLICE`
+  - `VEC_EXTEND_REF_SLICE_U64`
+- Semantics: String aliases map to the existing append/Unicode-scalar push paths; `STRING_BUF_EXTEND_STRING` appends a source `StringBuf` view then frees the moved source. Vec aliases map to the existing push and copy-from-slice paths, matching the supportable `Extend<T>` / `Extend<&T>` shapes without claiming full Rust iterator semantics.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`32 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`32 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
 ## Completed: 2026-07-06 Unix socket set_mark facade batch
 
 - Added supportable Linux `std::os::net::linux_ext::UnixSocketExt::set_mark` style facades for Unix stream and datagram sockets.

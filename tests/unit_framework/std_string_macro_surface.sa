@@ -515,6 +515,67 @@ L_STRING_BUF_OK:
     !ok
     return
 
+@test "sa_std string extend trait aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4
+    EXPAND STR_FROM_PARTS suffix, &MUT_SUFFIX, 4
+    EXPAND STR_FROM_PARTS expected, &BUF_EXPECTED, 8
+    EXPAND STR_FROM_PARTS char_expected, &BUF_CHAR_EXPECTED, 2
+
+    EXPAND STRING_BUF_FROM_STR extend_str_buf, left
+    EXPAND STRING_BUF_EXTEND_STR extend_str_buf, suffix
+    EXPAND STRING_BUF_AS_STR extend_str_view, extend_str_buf
+    EXPAND STR_EQ extend_str_eq, extend_str_view, expected
+
+    EXPAND STRING_BUF_NEW extend_char_buf
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR extend_char_try_ok, extend_char_buf, 114
+    EXPAND STRING_BUF_EXTEND_CHAR extend_char_buf, 33
+    EXPAND STRING_BUF_AS_STR extend_char_view, extend_char_buf
+    EXPAND STR_EQ extend_char_eq, extend_char_view, char_expected
+
+    EXPAND STRING_BUF_FROM_STR extend_string_dst, left
+    EXPAND STRING_BUF_FROM_STR extend_string_src, suffix
+    EXPAND STRING_BUF_EXTEND_STRING extend_string_dst, extend_string_src
+    EXPAND STRING_BUF_AS_STR extend_string_view, extend_string_dst
+    EXPAND STR_EQ extend_string_eq, extend_string_view, expected
+
+    extend_str_ok = eq extend_str_eq, 1
+    extend_char_flag_ok = eq extend_char_try_ok, 1
+    extend_char_ok = eq extend_char_eq, 1
+    extend_string_ok = eq extend_string_eq, 1
+    ok01 = and extend_str_ok, extend_char_flag_ok
+    ok02 = and ok01, extend_char_ok
+    ok = and ok02, extend_string_ok
+    !extend_str_view
+    !extend_str_eq
+    !extend_char_try_ok
+    !extend_char_view
+    !extend_char_eq
+    !extend_string_view
+    !extend_string_eq
+    !extend_str_ok
+    !extend_char_flag_ok
+    !extend_char_ok
+    !extend_string_ok
+    !ok01
+    !ok02
+    EXPAND STRING_BUF_FREE extend_str_buf
+    EXPAND STRING_BUF_FREE extend_char_buf
+    EXPAND STRING_BUF_FREE extend_string_dst
+    !char_expected
+    !expected
+    !suffix
+    !left
+    br ok -> L_STRING_EXTEND_OK, L_STRING_EXTEND_FAIL
+
+L_STRING_EXTEND_FAIL:
+    !ok
+    panic(933)
+
+L_STRING_EXTEND_OK:
+    !ok
+    return
+
 @test "sa_std string buffer extend_from_within macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4

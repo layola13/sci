@@ -744,6 +744,59 @@ L_OK:
     !ok
     return
 
+@test "sa_std vec extend trait aliases"():
+L_ENTRY:
+    src_data = alloc 16
+    store src_data+0, 20 as u64
+    store src_data+8, 30 as u64
+    src_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW src_slice, src_data, 2
+    EXPAND VEC_NEW vec
+    EXPAND VEC_EXTEND_ONE_U64 vec, 10
+    EXPAND VEC_EXTEND_REF_SLICE_U64 vec, src_slice
+    EXPAND VEC_LEN len, vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    len_ok = eq len, 3
+    first_value_ok = eq first, 10
+    second_value_ok = eq second, 20
+    third_value_ok = eq third, 30
+    ok01 = and len_ok, first_ok
+    ok02 = and ok01, first_value_ok
+    ok03 = and ok02, second_ok
+    ok04 = and ok03, second_value_ok
+    ok05 = and ok04, third_ok
+    ok = and ok05, third_value_ok
+    !len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !len_ok
+    !first_value_ok
+    !second_value_ok
+    !third_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND VEC_FREE vec
+    !src_slice
+    !src_data
+    br ok -> L_VEC_EXTEND_OK, L_VEC_EXTEND_FAIL
+
+L_VEC_EXTEND_FAIL:
+    !ok
+    panic(943)
+
+L_VEC_EXTEND_OK:
+    !ok
+    return
+
 @test "sa_std vec capacity/view macros"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 2

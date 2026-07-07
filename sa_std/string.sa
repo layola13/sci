@@ -1155,6 +1155,25 @@ L_STRING_BUF_PUSH_CHAR_END_%out_ok:
     EXPAND STRING_BUF_TRY_PUSH_CHAR %out_ok, %string_reg, %char_value
 [END_MACRO]
 
+[MACRO] STRING_BUF_EXTEND_STR %string_reg, %suffix_slice
+    EXPAND STRING_BUF_PUSH_STR %string_reg, %suffix_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_EXTEND_CHAR %out_ok, %string_reg, %char_value
+    EXPAND STRING_BUF_TRY_PUSH_CHAR %out_ok, %string_reg, %char_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_CHAR %string_reg, %char_value
+    EXPAND STRING_BUF_PUSH_CHAR %string_reg, %char_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_STRING %dst_string_reg, %src_string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_extend_string_slice_%dst_string_reg, %src_string_reg
+    EXPAND STRING_BUF_PUSH_STR %dst_string_reg, __string_buf_extend_string_slice_%dst_string_reg
+    !__string_buf_extend_string_slice_%dst_string_reg
+    EXPAND STRING_BUF_FREE %src_string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_PUSH_STR %string_reg, %suffix_slice
     __string_buf_suffix_len_%string_reg = load %suffix_slice+Slice_len as u64
     EXPAND STRING_BUF_RESERVE %string_reg, __string_buf_suffix_len_%string_reg
