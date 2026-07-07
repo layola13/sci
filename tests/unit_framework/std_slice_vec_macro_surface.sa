@@ -164,8 +164,8 @@ L_ENTRY:
     EXPAND STRING_TRIM_SUFFIX trim_suffix_s, word_s, suffix_s
     EXPAND STR_TRIM_PREFIX trim_prefix_miss_s, word_s, miss_s
     EXPAND STRING_TRIM_SUFFIX trim_suffix_miss_s, word_s, miss_s
-    EXPAND STR_TRY_SPLIT_AT str_split_ok, str_split_left, str_split_right, word_s, 2
-    EXPAND STRING_TRY_SPLIT_AT str_split_miss_ok, str_split_miss_left, str_split_miss_right, word_s, 9
+    EXPAND STR_SPLIT_AT str_split_ok, str_split_left, str_split_right, word_s, 2
+    EXPAND STRING_SPLIT_AT str_split_miss_ok, str_split_miss_left, str_split_miss_right, word_s, 9
     EXPAND STR_EQ trim_prefix_eq, trim_prefix_s, suffix_s
     EXPAND STR_EQ trim_suffix_eq, trim_suffix_s, prefix_s
     EXPAND STR_EQ trim_prefix_miss_eq, trim_prefix_miss_s, word_s

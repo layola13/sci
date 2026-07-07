@@ -3753,6 +3753,14 @@ L_STR_STRIP_PREFIX_END_%out_ok:
     EXPAND STR_TRY_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice
 [END_MACRO]
 
+[MACRO] STR_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice
+    EXPAND STR_TRY_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice
+[END_MACRO]
+
+[MACRO] STRING_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice
+    EXPAND STR_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice
+[END_MACRO]
+
 [MACRO] STR_ENDS_WITH %out_bool, %slice_reg, %suffix_slice
     __str_len_%out_bool = load %slice_reg+Slice_len as u64
     __str_suffix_len_%out_bool = load %suffix_slice+Slice_len as u64
@@ -3816,6 +3824,14 @@ L_STR_STRIP_SUFFIX_END_%out_ok:
 
 [MACRO] STRING_TRY_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
     EXPAND STR_TRY_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
+[END_MACRO]
+
+[MACRO] STR_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
+    EXPAND STR_TRY_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
+[END_MACRO]
+
+[MACRO] STRING_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
+    EXPAND STR_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
 [END_MACRO]
 
 [MACRO] STR_TRIM_PREFIX %out_slice, %slice_reg, %prefix_slice
@@ -3923,6 +3939,14 @@ L_STR_SPLIT_AT_END_%out_ok:
     EXPAND STR_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid
 [END_MACRO]
 
+[MACRO] STR_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND STR_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND STR_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
 [MACRO] STR_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
     %out_left = alloc Slice_SIZE
     %out_right = alloc Slice_SIZE
@@ -3965,6 +3989,14 @@ L_STR_SPLIT_ONCE_END_%out_ok:
     EXPAND STR_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
 [END_MACRO]
 
+[MACRO] STR_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+    EXPAND STR_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+[END_MACRO]
+
 [MACRO] STR_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
     %out_left = alloc Slice_SIZE
     %out_right = alloc Slice_SIZE
@@ -4005,6 +4037,14 @@ L_STR_RSPLIT_ONCE_END_%out_ok:
 
 [MACRO] STRING_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
     EXPAND STR_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+    EXPAND STR_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+    EXPAND STR_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
 [END_MACRO]
 
 [MACRO] STR_IS_ASCII %out_bool, %slice_reg
@@ -4489,6 +4529,14 @@ L_STR_SPLIT_CHECKED_DONE_%out_ok:
 
 [MACRO] STRING_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
     EXPAND STR_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+[MACRO] STR_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND STR_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND STR_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
 [END_MACRO]
 
 [MACRO] STR_EQ_IGNORE_ASCII_CASE %out_bool, %left_slice, %right_slice

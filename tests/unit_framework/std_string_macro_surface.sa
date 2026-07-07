@@ -238,10 +238,10 @@ L_ENTRY:
     EXPAND STR_CONTAINS contains_miss, word, miss
     EXPAND STR_TRY_FIND find_miss_ok, find_miss_idx, word, miss
     EXPAND STRING_TRY_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
-    EXPAND STR_TRY_STRIP_PREFIX strip_prefix_ok, strip_prefix_tail, word, prefix
-    EXPAND STRING_TRY_STRIP_SUFFIX strip_suffix_ok, strip_suffix_head, word, suffix
-    EXPAND STR_TRY_STRIP_PREFIX strip_prefix_miss_ok, strip_prefix_miss, word, miss
-    EXPAND STRING_TRY_STRIP_SUFFIX strip_suffix_miss_ok, strip_suffix_miss, word, miss
+    EXPAND STR_STRIP_PREFIX strip_prefix_ok, strip_prefix_tail, word, prefix
+    EXPAND STR_STRIP_SUFFIX strip_suffix_ok, strip_suffix_head, word, suffix
+    EXPAND STRING_STRIP_PREFIX strip_prefix_miss_ok, strip_prefix_miss, word, miss
+    EXPAND STRING_STRIP_SUFFIX strip_suffix_miss_ok, strip_suffix_miss, word, miss
     EXPAND STR_EQ strip_prefix_tail_eq, strip_prefix_tail, suffix
     EXPAND STR_EQ strip_suffix_head_eq, strip_suffix_head, prefix
     EXPAND STR_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
@@ -2469,8 +2469,8 @@ L_ENTRY:
     EXPAND STRING_TRY_GET_RANGE_FROM range_from_smile_z_ok, range_from_smile_z, utf8_boundary, 3
     EXPAND STR_TRY_GET_RANGE_BETWEEN between_smile_ok, between_smile, utf8_boundary, 3, 7
     EXPAND STRING_TRY_GET_RANGE_BETWEEN between_bad_order_ok, between_bad_order, utf8_boundary, 7, 3
-    EXPAND STR_TRY_SPLIT_AT_CHECKED split_checked_ok, split_checked_left, split_checked_right, utf8_boundary, 3
-    EXPAND STRING_TRY_SPLIT_AT_CHECKED split_checked_bad_ok, split_checked_bad_left, split_checked_bad_right, utf8_boundary, 4
+    EXPAND STR_SPLIT_AT_CHECKED split_checked_ok, split_checked_left, split_checked_right, utf8_boundary, 3
+    EXPAND STRING_SPLIT_AT_CHECKED split_checked_bad_ok, split_checked_bad_left, split_checked_bad_right, utf8_boundary, 4
     EXPAND STR_EQ range_e_eq, range_e, utf8_e
     EXPAND STR_EQ range_smile_eq, range_smile, utf8_smile
     EXPAND STR_IS_EMPTY range_bad_start_empty, range_bad_start
@@ -2489,9 +2489,9 @@ L_ENTRY:
     EXPAND STR_TRIM_ASCII trim_both, spaced
     EXPAND STR_TRIM_ASCII_START trim_start, leading
     EXPAND STR_TRIM_ASCII_END trim_end, trailing
-    EXPAND STR_TRY_SPLIT_ONCE split_once_ok, split_once_left, split_once_right, pathish, colon
-    EXPAND STRING_TRY_RSPLIT_ONCE rsplit_once_ok, rsplit_once_left, rsplit_once_right, pathish, colon
-    EXPAND STR_TRY_SPLIT_ONCE split_once_miss_ok, split_once_miss_left, split_once_miss_right, pathish, miss
+    EXPAND STRING_SPLIT_ONCE split_once_ok, split_once_left, split_once_right, pathish, colon
+    EXPAND STR_RSPLIT_ONCE rsplit_once_ok, rsplit_once_left, rsplit_once_right, pathish, colon
+    EXPAND STR_SPLIT_ONCE split_once_miss_ok, split_once_miss_left, split_once_miss_right, pathish, miss
     EXPAND STR_EQ trim_both_eq, trim_both, title_word
     EXPAND STR_EQ trim_start_eq, trim_start, title_word
     EXPAND STR_EQ trim_end_eq, trim_end, title_word

@@ -4,6 +4,32 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String/str split/strip alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str naming aliases over existing checked split/strip forms:
+  - `STR_STRIP_PREFIX`, `STRING_STRIP_PREFIX`
+  - `STR_STRIP_SUFFIX`, `STRING_STRIP_SUFFIX`
+  - `STR_SPLIT_AT`, `STRING_SPLIT_AT`
+  - `STR_SPLIT_AT_CHECKED`, `STRING_SPLIT_AT_CHECKED`
+  - `STR_SPLIT_ONCE`, `STRING_SPLIT_ONCE`
+  - `STR_RSPLIT_ONCE`, `STRING_RSPLIT_ONCE`
+- Semantics: these aliases preserve the existing local `(ok, slice...)` result shapes used by the `TRY_` forms. They expose Rust method names where SA returns explicit success flags and empty slice metadata on misses. This does not claim Rust `Option`/tuple object layout, generic `Pattern` coverage beyond existing slice-pattern forms, panic behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "utf8 byte and char view"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_slice_vec_macro_surface.sa --filter "rust parity checked view"`: pass (`1 passed; 19 skipped`).
+  - `git diff --check`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "utf8 byte and char view"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_slice_vec_macro_surface.sa --filter "rust parity checked view"`: pass (`1 passed; 19 skipped`).
+
 ## Completed: 2026-07-07 Vec binary_search alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
