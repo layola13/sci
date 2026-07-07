@@ -4,6 +4,24 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String FromStr parse alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added concrete String `FromStr` / parse-style aliases:
+  - `STRING_BUF_PARSE_FROM_STR`
+  - `STR_PARSE_STRING_BUF`
+- Semantics: these aliases copy a `&str` slice into an owned `StringBuf` and return `ok=1`, matching Rust's infallible `FromStr for String` shape for concrete strings. This does not claim generic `FromStr`, parser trait objects, or error type modeling.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
 ## Completed: 2026-07-07 Integer primitive to_string alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

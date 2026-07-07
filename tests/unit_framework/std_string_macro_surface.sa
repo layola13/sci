@@ -4792,3 +4792,70 @@ L_STRING_PRIMITIVE_TO_STRING_FAIL:
 L_STRING_PRIMITIVE_TO_STRING_OK:
     !ok
     return
+
+@test "sa_std string from_str parse aliases"():
+L_STRING_PARSE_FROM_STR_ENTRY:
+    word_slice = alloc Slice_SIZE
+    title_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &WORD, 4
+    EXPAND SLICE_NEW title_slice, &TITLE_WORD, 4
+
+    EXPAND STRING_BUF_FROM_STR source, word_slice
+    EXPAND STRING_BUF_AS_STR source_parse_view, source
+    EXPAND STRING_BUF_PARSE_FROM_STR parse_ok, parsed_from_source, source_parse_view
+    EXPAND STR_PARSE_STRING_BUF str_parse_ok, parsed_from_str, word_slice
+
+    EXPAND STRING_BUF_AS_MUT_STR source_mut, source
+    EXPAND SLICE_GET_PTR source_mut_ptr, source_mut
+    store source_mut_ptr+0, 82 as u8
+
+    EXPAND STRING_BUF_AS_STR source_view, source
+    EXPAND STRING_BUF_AS_STR parsed_source_view, parsed_from_source
+    EXPAND STRING_BUF_AS_STR parsed_str_view, parsed_from_str
+    EXPAND STR_EQ source_eq, source_view, title_slice
+    EXPAND STR_EQ parsed_source_eq, parsed_source_view, word_slice
+    EXPAND STR_EQ parsed_str_eq, parsed_str_view, word_slice
+
+    parse_flag_ok = eq parse_ok, 1
+    str_parse_flag_ok = eq str_parse_ok, 1
+    source_ok = eq source_eq, 1
+    parsed_source_ok = eq parsed_source_eq, 1
+    parsed_str_ok = eq parsed_str_eq, 1
+    ok01 = and parse_flag_ok, str_parse_flag_ok
+    ok02 = and ok01, source_ok
+    ok03 = and ok02, parsed_source_ok
+    ok = and ok03, parsed_str_ok
+
+    !source_mut_ptr
+    !source_eq
+    !parsed_source_eq
+    !parsed_str_eq
+    !parse_flag_ok
+    !str_parse_flag_ok
+    !source_ok
+    !parsed_source_ok
+    !parsed_str_ok
+    !ok01
+    !ok02
+    !ok03
+    !word_slice
+    !title_slice
+    !source_parse_view
+    !source_mut
+    !source_view
+    !parsed_source_view
+    !parsed_str_view
+    !parse_ok
+    !str_parse_ok
+    EXPAND STRING_BUF_FREE parsed_from_str
+    EXPAND STRING_BUF_FREE parsed_from_source
+    EXPAND STRING_BUF_FREE source
+    br ok -> L_STRING_PARSE_FROM_STR_OK, L_STRING_PARSE_FROM_STR_FAIL
+
+L_STRING_PARSE_FROM_STR_FAIL:
+    !ok
+    panic(936)
+
+L_STRING_PARSE_FROM_STR_OK:
+    !ok
+    return

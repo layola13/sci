@@ -337,6 +337,15 @@
     !__string_buf_from_str_len_%out_string
 [END_MACRO]
 
+[MACRO] STRING_BUF_PARSE_FROM_STR %out_ok, %out_string, %source_slice
+    EXPAND STRING_BUF_FROM_STR %out_string, %source_slice
+    %out_ok = add 1, 0
+[END_MACRO]
+
+[MACRO] STR_PARSE_STRING_BUF %out_ok, %out_string, %source_slice
+    EXPAND STRING_BUF_PARSE_FROM_STR %out_ok, %out_string, %source_slice
+[END_MACRO]
+
 [MACRO] STR_TO_OWNED %out_string, %source_slice
     EXPAND STRING_BUF_FROM_STR %out_string, %source_slice
 [END_MACRO]
