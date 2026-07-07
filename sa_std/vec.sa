@@ -111,6 +111,10 @@
     !__vec_view_%out_ptr
 [END_MACRO]
 
+[MACRO] VEC_GET_UNCHECKED_U64 %out_value, %vec_reg, %index
+    EXPAND VEC_GET_UNCHECKED %out_value, %vec_reg, %index
+[END_MACRO]
+
 [MACRO] VEC_GET %out_ptr, %vec_reg, %index
     EXPAND VEC_TRY_GET __vec_get_ok_%out_ptr, %out_ptr, %vec_reg, %index
     !__vec_get_ok_%out_ptr
@@ -124,6 +128,10 @@
     EXPAND VEC_AS_SLICE __vec_get_mut_slice_%out_ptr, %vec_reg
     EXPAND SLICE_GET_MUT_PTR_U64 %out_ptr, __vec_get_mut_slice_%out_ptr, %index
     !__vec_get_mut_slice_%out_ptr
+[END_MACRO]
+
+[MACRO] VEC_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+    EXPAND VEC_GET_MUT_PTR_U64 %out_ptr, %vec_reg, %index
 [END_MACRO]
 
 [MACRO] VEC_TRY_GET %out_ok, %out_value, %vec_reg, %index

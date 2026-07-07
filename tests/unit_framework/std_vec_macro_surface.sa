@@ -1211,6 +1211,49 @@ L_VEC_SPLIT_ALIAS_OK:
     !ok
     return
 
+@test "sa_std vec unchecked aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 70
+    EXPAND VEC_PUSH_U64 vec, 80
+    EXPAND VEC_GET_UNCHECKED_U64 unchecked_value, vec, 1
+    EXPAND VEC_GET_UNCHECKED_MUT_PTR_U64 unchecked_ptr, vec, 0
+    store unchecked_ptr+0, 71 as u64
+    EXPAND VEC_TRY_GET_U64 first_ok, first_value, vec, 0
+    EXPAND VEC_LEN len_after, vec
+    unchecked_value_ok = eq unchecked_value, 80
+    unchecked_ptr_ok = ne unchecked_ptr, 0
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first_value, 71
+    len_ok = eq len_after, 2
+    ok01 = and unchecked_value_ok, unchecked_ptr_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok = and ok03, len_ok
+    !unchecked_value
+    !unchecked_ptr
+    !first_ok
+    !first_value
+    !len_after
+    EXPAND VEC_FREE vec
+    !unchecked_value_ok
+    !unchecked_ptr_ok
+    !first_flag_ok
+    !first_value_ok
+    !len_ok
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_VEC_UNCHECKED_ALIAS_OK, L_VEC_UNCHECKED_ALIAS_FAIL
+
+L_VEC_UNCHECKED_ALIAS_FAIL:
+    !ok
+    panic(938)
+
+L_VEC_UNCHECKED_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std vec extend trait aliases"():
 L_ENTRY:
     src_data = alloc 16
