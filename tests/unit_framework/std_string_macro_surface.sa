@@ -2957,6 +2957,78 @@ L_ASCII_OK:
     !ok
     return
 
+@test "sa_std string ascii case conversion macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS mixed_utf8, &MIXED_UTF8_WORD, 7
+    EXPAND STR_FROM_PARTS upper_utf8, &UPPER_UTF8_WORD, 7
+    EXPAND STR_FROM_PARTS lower_utf8, &LOWER_UTF8_WORD, 7
+    EXPAND STRING_BUF_FROM_STR make_upper_buf, mixed_utf8
+    EXPAND STRING_BUF_FROM_STR make_lower_buf, mixed_utf8
+    EXPAND STRING_BUF_AS_MUT_STR make_upper_view, make_upper_buf
+    EXPAND STRING_BUF_AS_MUT_STR make_lower_view, make_lower_buf
+    EXPAND STR_MAKE_ASCII_UPPERCASE make_upper_ok, make_upper_view
+    EXPAND STRING_MAKE_ASCII_LOWERCASE make_lower_ok, make_lower_view
+    EXPAND STR_TO_ASCII_UPPERCASE copied_upper, mixed_utf8
+    EXPAND STRING_TO_ASCII_LOWERCASE copied_lower, mixed_utf8
+    EXPAND STRING_BUF_AS_STR upper_after, make_upper_buf
+    EXPAND STRING_BUF_AS_STR lower_after, make_lower_buf
+    EXPAND STRING_BUF_AS_STR copied_upper_view, copied_upper
+    EXPAND STRING_BUF_AS_STR copied_lower_view, copied_lower
+    EXPAND STR_EQ upper_after_eq, upper_after, upper_utf8
+    EXPAND STR_EQ lower_after_eq, lower_after, lower_utf8
+    EXPAND STR_EQ copied_upper_eq, copied_upper_view, upper_utf8
+    EXPAND STR_EQ copied_lower_eq, copied_lower_view, lower_utf8
+
+    make_upper_flag_ok = eq make_upper_ok, 1
+    make_lower_flag_ok = eq make_lower_ok, 1
+    upper_value_ok = eq upper_after_eq, 1
+    lower_value_ok = eq lower_after_eq, 1
+    copied_upper_value_ok = eq copied_upper_eq, 1
+    copied_lower_value_ok = eq copied_lower_eq, 1
+    ok01 = and make_upper_flag_ok, make_lower_flag_ok
+    ok02 = and ok01, upper_value_ok
+    ok03 = and ok02, lower_value_ok
+    ok04 = and ok03, copied_upper_value_ok
+    ok = and ok04, copied_lower_value_ok
+    EXPAND STRING_BUF_FREE make_upper_buf
+    EXPAND STRING_BUF_FREE make_lower_buf
+    EXPAND STRING_BUF_FREE copied_upper
+    EXPAND STRING_BUF_FREE copied_lower
+    !mixed_utf8
+    !upper_utf8
+    !lower_utf8
+    !make_upper_view
+    !make_lower_view
+    !make_upper_ok
+    !make_lower_ok
+    !upper_after
+    !lower_after
+    !copied_upper_view
+    !copied_lower_view
+    !upper_after_eq
+    !lower_after_eq
+    !copied_upper_eq
+    !copied_lower_eq
+    !make_upper_flag_ok
+    !make_lower_flag_ok
+    !upper_value_ok
+    !lower_value_ok
+    !copied_upper_value_ok
+    !copied_lower_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    br ok -> L_STRING_ASCII_CASE_CONVERSION_OK, L_STRING_ASCII_CASE_CONVERSION_FAIL
+
+L_STRING_ASCII_CASE_CONVERSION_FAIL:
+    !ok
+    panic(927)
+
+L_STRING_ASCII_CASE_CONVERSION_OK:
+    !ok
+    return
+
 @test "sa_std string buffer split_at aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8

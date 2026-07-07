@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 str/String ASCII case conversion batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / slice-string ASCII case mutation/copy helpers:
+  - `STR_MAKE_ASCII_UPPERCASE` / `STRING_MAKE_ASCII_UPPERCASE`
+  - `STR_MAKE_ASCII_LOWERCASE` / `STRING_MAKE_ASCII_LOWERCASE`
+  - `STR_TO_ASCII_UPPERCASE` / `STRING_TO_ASCII_UPPERCASE`
+  - `STR_TO_ASCII_LOWERCASE` / `STRING_TO_ASCII_LOWERCASE`
+- Semantics: mutable helpers operate on a caller-provided mutable `Slice` view, and `to_ascii_*` helpers materialize an owned `StringBuf` copy. ASCII letters are converted and non-ASCII UTF-8 bytes are preserved. This does not claim Unicode case folding, locale behavior, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "ascii case conversion"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "ascii case conversion"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
 ## Completed: 2026-07-07 StringBuf ASCII case mutation batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

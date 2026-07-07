@@ -5067,6 +5067,42 @@ L_STR_SPLIT_CHECKED_DONE_%out_ok:
     EXPAND STR_EQ_IGNORE_ASCII_CASE %out_bool, %left_slice, %right_slice
 [END_MACRO]
 
+[MACRO] STR_MAKE_ASCII_UPPERCASE %out_ok, %slice_reg
+    EXPAND ASCII_SLICE_MAKE_UPPERCASE %out_ok, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_MAKE_ASCII_UPPERCASE %out_ok, %slice_reg
+    EXPAND STR_MAKE_ASCII_UPPERCASE %out_ok, %slice_reg
+[END_MACRO]
+
+[MACRO] STR_MAKE_ASCII_LOWERCASE %out_ok, %slice_reg
+    EXPAND ASCII_SLICE_MAKE_LOWERCASE %out_ok, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_MAKE_ASCII_LOWERCASE %out_ok, %slice_reg
+    EXPAND STR_MAKE_ASCII_LOWERCASE %out_ok, %slice_reg
+[END_MACRO]
+
+[MACRO] STR_TO_ASCII_UPPERCASE %out_string, %slice_reg
+    EXPAND STRING_BUF_FROM_STR %out_string, %slice_reg
+    EXPAND STRING_BUF_MAKE_ASCII_UPPERCASE __str_to_ascii_upper_ok_%out_string, %out_string
+    !__str_to_ascii_upper_ok_%out_string
+[END_MACRO]
+
+[MACRO] STRING_TO_ASCII_UPPERCASE %out_string, %slice_reg
+    EXPAND STR_TO_ASCII_UPPERCASE %out_string, %slice_reg
+[END_MACRO]
+
+[MACRO] STR_TO_ASCII_LOWERCASE %out_string, %slice_reg
+    EXPAND STRING_BUF_FROM_STR %out_string, %slice_reg
+    EXPAND STRING_BUF_MAKE_ASCII_LOWERCASE __str_to_ascii_lower_ok_%out_string, %out_string
+    !__str_to_ascii_lower_ok_%out_string
+[END_MACRO]
+
+[MACRO] STRING_TO_ASCII_LOWERCASE %out_string, %slice_reg
+    EXPAND STR_TO_ASCII_LOWERCASE %out_string, %slice_reg
+[END_MACRO]
+
 [MACRO] STR_TRIM_ASCII_START %out_slice, %slice_reg
     %out_slice = alloc Slice_SIZE
     __str_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
