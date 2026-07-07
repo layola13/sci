@@ -372,15 +372,15 @@ L_ENTRY:
     EXPAND VEC_LEN len_after_resize, vec
     EXPAND VEC_TRY_GET_U64 resize_fill1_ok, resize_fill1, vec, 3
     EXPAND VEC_TRY_GET_U64 resize_fill2_ok, resize_fill2, vec, 4
-    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_ok, split_off_vec, vec, 2
+    EXPAND VEC_SPLIT_OFF_U64 split_off_ok, split_off_vec, vec, 2
     EXPAND VEC_LEN len_after_split_off, vec
     EXPAND VEC_LEN split_off_len, split_off_vec
     EXPAND VEC_TRY_GET_U64 split_off_first_ok, split_off_first, split_off_vec, 0
     EXPAND VEC_TRY_GET_U64 split_off_last_ok, split_off_last, split_off_vec, 2
-    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_empty_ok, split_off_empty_vec, vec, 2
+    EXPAND VEC_SPLIT_OFF_U64 split_off_empty_ok, split_off_empty_vec, vec, 2
     EXPAND VEC_LEN len_after_empty_split_off, vec
     EXPAND VEC_LEN split_off_empty_len, split_off_empty_vec
-    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_miss_ok, split_off_miss, vec, 9
+    EXPAND VEC_SPLIT_OFF_U64 split_off_miss_ok, split_off_miss, vec, 9
     EXPAND VEC_TRY_FRONT_U64 front_after_ok, front_after, vec
     EXPAND VEC_TRY_BACK_U64 back_after_ok, back_after, vec
 

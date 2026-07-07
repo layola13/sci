@@ -106,6 +106,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable byte find/rfind naming aliases `STR_FIND_BYTE`, `STRING_FIND_BYTE`, `STR_RFIND_BYTE`, and `STRING_RFIND_BYTE` over existing checked `(ok, index)` byte-search forms.
    - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec deref-to-slice strip prefix/suffix aliases `VEC_STRIP_PREFIX_U64` and `VEC_STRIP_SUFFIX_U64` over existing checked U64 slice-view forms.
    - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable checked range-view aliases `STR_GET_RANGE`, `STRING_GET_RANGE`, `STR_GET_PREFIX`, `STRING_GET_PREFIX`, `STR_GET_SUFFIX`, `STRING_GET_SUFFIX`, `STR_GET_RANGE_TO`, `STRING_GET_RANGE_TO`, `STR_GET_RANGE_FROM`, `STRING_GET_RANGE_FROM`, `STR_GET_RANGE_BETWEEN`, and `STRING_GET_RANGE_BETWEEN` over existing UTF-8 boundary checked `(ok, slice)` forms.
+   - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable split-off aliases `VEC_SPLIT_OFF` and `VEC_SPLIT_OFF_U64` over existing checked `(ok, Vec)` split-off forms.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -249,6 +250,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - Full test suites are skipped for the String/str byte find alias batch by user instruction; only newly added focused source and installed-state tests were run.
 - Full test suites are skipped for the Vec strip alias batch by user instruction; only newly added focused source and installed-state tests were run.
 - Full test suites are skipped for the String/str get-range alias batch by user instruction; only newly added focused source and installed-state tests were run.
+- Full test suites are skipped for the Vec split_off alias batch by user instruction; only newly added focused source and installed-state tests were run.
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -405,13 +407,13 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/facade/test changes are complete for the String/str get-range alias batch.
-- Focused source tests for the newly added String/str get-range aliases pass, install sync passes, and focused installed-state tests for the same aliases pass. Full test suites are intentionally not run for this batch per user instruction.
+- Source/facade/test changes are complete for the Vec split_off alias batch.
+- Focused source tests for the newly added Vec split_off aliases pass, install sync passes, and focused installed-state tests for the same aliases pass. Full test suites are intentionally not run for this batch per user instruction.
 - The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, and full generic trait-object coverage.
 
 ## Next Priority
 
-- Commit the String/str get-range alias batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch.
+- Commit the Vec split_off alias batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch.
 
 ## Notes
 
