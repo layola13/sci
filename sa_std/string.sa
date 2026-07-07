@@ -62,12 +62,30 @@
     EXPAND STR_AS_BYTES %out_slice, %slice_reg
 [END_MACRO]
 
+[MACRO] STR_AS_ASCII %out_ok, %out_slice, %slice_reg
+    %out_slice = alloc Slice_SIZE
+    EXPAND ASCII_SLICE_AS_ASCII %out_ok, %out_slice, %slice_reg
+[END_MACRO]
+
+[MACRO] STR_AS_ASCII_UNCHECKED %out_slice, %slice_reg
+    %out_slice = alloc Slice_SIZE
+    EXPAND ASCII_SLICE_AS_ASCII_UNCHECKED %out_slice, %slice_reg
+[END_MACRO]
+
 [MACRO] STRING_AS_BYTES %out_slice, %slice_reg
     EXPAND STR_AS_BYTES %out_slice, %slice_reg
 [END_MACRO]
 
 [MACRO] STRING_AS_MUT_BYTES %out_slice, %slice_reg
     EXPAND STR_AS_MUT_BYTES %out_slice, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_AS_ASCII %out_ok, %out_slice, %slice_reg
+    EXPAND STR_AS_ASCII %out_ok, %out_slice, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_AS_ASCII_UNCHECKED %out_slice, %slice_reg
+    EXPAND STR_AS_ASCII_UNCHECKED %out_slice, %slice_reg
 [END_MACRO]
 
 [MACRO] STR_BYTES %out_slice, %slice_reg
@@ -184,6 +202,18 @@
 
 [MACRO] STRING_BUF_AS_MUT_STR %out_slice, %string_reg
     EXPAND VEC_AS_MUT_SLICE %out_slice, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_ASCII %out_ok, %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_as_ascii_view_%out_ok, %string_reg
+    EXPAND STR_AS_ASCII %out_ok, %out_slice, __string_buf_as_ascii_view_%out_ok
+    !__string_buf_as_ascii_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_ASCII_UNCHECKED %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_as_ascii_unchecked_view_%out_slice, %string_reg
+    EXPAND STR_AS_ASCII_UNCHECKED %out_slice, __string_buf_as_ascii_unchecked_view_%out_slice
+    !__string_buf_as_ascii_unchecked_view_%out_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_AS_REF_STR %out_slice, %string_reg

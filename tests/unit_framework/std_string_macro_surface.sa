@@ -3029,6 +3029,159 @@ L_STRING_ASCII_CASE_CONVERSION_OK:
     !ok
     return
 
+@test "sa_std string as_ascii aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_AS_ASCII str_ascii_ok, str_ascii, word
+    EXPAND STRING_AS_ASCII string_ascii_ok, string_ascii, word
+    EXPAND STR_AS_ASCII str_utf8_ok, str_utf8_ascii, utf8_boundary
+    EXPAND STRING_AS_ASCII_UNCHECKED string_unchecked, utf8_boundary
+    EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+    EXPAND STRING_BUF_AS_ASCII buf_ascii_ok, buf_ascii, owned_word
+    EXPAND STRING_BUF_AS_ASCII buf_utf8_ok, buf_utf8_ascii, owned_utf8
+    EXPAND STRING_BUF_AS_ASCII_UNCHECKED buf_unchecked, owned_utf8
+    word_ptr = load word+Slice_ptr as ptr
+    utf8_ptr = load utf8_boundary+Slice_ptr as ptr
+    EXPAND STRING_BUF_AS_PTR owned_word_ptr, owned_word
+    EXPAND STRING_BUF_AS_PTR owned_utf8_ptr, owned_utf8
+    null_ptr = 0 as ptr
+
+    str_ascii_ptr = load str_ascii+Slice_ptr as ptr
+    str_ascii_len = load str_ascii+Slice_len as u64
+    string_ascii_ptr = load string_ascii+Slice_ptr as ptr
+    string_ascii_len = load string_ascii+Slice_len as u64
+    str_utf8_ptr = load str_utf8_ascii+Slice_ptr as ptr
+    str_utf8_len = load str_utf8_ascii+Slice_len as u64
+    unchecked_ptr = load string_unchecked+Slice_ptr as ptr
+    unchecked_len = load string_unchecked+Slice_len as u64
+    buf_ascii_ptr = load buf_ascii+Slice_ptr as ptr
+    buf_ascii_len = load buf_ascii+Slice_len as u64
+    buf_utf8_ptr = load buf_utf8_ascii+Slice_ptr as ptr
+    buf_utf8_len = load buf_utf8_ascii+Slice_len as u64
+    buf_unchecked_ptr = load buf_unchecked+Slice_ptr as ptr
+    buf_unchecked_len = load buf_unchecked+Slice_len as u64
+
+    str_ascii_flag_ok = eq str_ascii_ok, 1
+    string_ascii_flag_ok = eq string_ascii_ok, 1
+    str_utf8_flag_ok = eq str_utf8_ok, 0
+    buf_ascii_flag_ok = eq buf_ascii_ok, 1
+    buf_utf8_flag_ok = eq buf_utf8_ok, 0
+    str_ascii_ptr_ok = eq str_ascii_ptr, word_ptr
+    str_ascii_len_ok = eq str_ascii_len, 4
+    string_ascii_ptr_ok = eq string_ascii_ptr, word_ptr
+    string_ascii_len_ok = eq string_ascii_len, 4
+    str_utf8_ptr_ok = eq str_utf8_ptr, null_ptr
+    str_utf8_len_ok = eq str_utf8_len, 0
+    unchecked_ptr_ok = eq unchecked_ptr, utf8_ptr
+    unchecked_len_ok = eq unchecked_len, 8
+    buf_ascii_ptr_ok = eq buf_ascii_ptr, owned_word_ptr
+    buf_ascii_len_ok = eq buf_ascii_len, 4
+    buf_utf8_ptr_ok = eq buf_utf8_ptr, null_ptr
+    buf_utf8_len_ok = eq buf_utf8_len, 0
+    buf_unchecked_ptr_ok = eq buf_unchecked_ptr, owned_utf8_ptr
+    buf_unchecked_len_ok = eq buf_unchecked_len, 8
+
+    ok01 = and str_ascii_flag_ok, string_ascii_flag_ok
+    ok02 = and ok01, str_utf8_flag_ok
+    ok03 = and ok02, buf_ascii_flag_ok
+    ok04 = and ok03, buf_utf8_flag_ok
+    ok05 = and ok04, str_ascii_ptr_ok
+    ok06 = and ok05, str_ascii_len_ok
+    ok07 = and ok06, string_ascii_ptr_ok
+    ok08 = and ok07, string_ascii_len_ok
+    ok09 = and ok08, str_utf8_ptr_ok
+    ok10 = and ok09, str_utf8_len_ok
+    ok11 = and ok10, unchecked_ptr_ok
+    ok12 = and ok11, unchecked_len_ok
+    ok13 = and ok12, buf_ascii_ptr_ok
+    ok14 = and ok13, buf_ascii_len_ok
+    ok15 = and ok14, buf_utf8_ptr_ok
+    ok16 = and ok15, buf_utf8_len_ok
+    ok17 = and ok16, buf_unchecked_ptr_ok
+    ok = and ok17, buf_unchecked_len_ok
+    EXPAND STRING_BUF_FREE owned_word
+    EXPAND STRING_BUF_FREE owned_utf8
+    !word
+    !utf8_boundary
+    !str_ascii_ok
+    !str_ascii
+    !string_ascii_ok
+    !string_ascii
+    !str_utf8_ok
+    !str_utf8_ascii
+    !string_unchecked
+    !buf_ascii_ok
+    !buf_ascii
+    !buf_utf8_ok
+    !buf_utf8_ascii
+    !buf_unchecked
+    !word_ptr
+    !utf8_ptr
+    !owned_word_ptr
+    !owned_utf8_ptr
+    !null_ptr
+    !str_ascii_ptr
+    !str_ascii_len
+    !string_ascii_ptr
+    !string_ascii_len
+    !str_utf8_ptr
+    !str_utf8_len
+    !unchecked_ptr
+    !unchecked_len
+    !buf_ascii_ptr
+    !buf_ascii_len
+    !buf_utf8_ptr
+    !buf_utf8_len
+    !buf_unchecked_ptr
+    !buf_unchecked_len
+    !str_ascii_flag_ok
+    !string_ascii_flag_ok
+    !str_utf8_flag_ok
+    !buf_ascii_flag_ok
+    !buf_utf8_flag_ok
+    !str_ascii_ptr_ok
+    !str_ascii_len_ok
+    !string_ascii_ptr_ok
+    !string_ascii_len_ok
+    !str_utf8_ptr_ok
+    !str_utf8_len_ok
+    !unchecked_ptr_ok
+    !unchecked_len_ok
+    !buf_ascii_ptr_ok
+    !buf_ascii_len_ok
+    !buf_utf8_ptr_ok
+    !buf_utf8_len_ok
+    !buf_unchecked_ptr_ok
+    !buf_unchecked_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    br ok -> L_STRING_AS_ASCII_ALIAS_OK, L_STRING_AS_ASCII_ALIAS_FAIL
+
+L_STRING_AS_ASCII_ALIAS_FAIL:
+    !ok
+    panic(929)
+
+L_STRING_AS_ASCII_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string split_at_mut aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8

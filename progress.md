@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 str/String as_ascii alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / `String` / `StringBuf` ASCII view naming aliases for Rust's current nightly-only `ascii_char` methods:
+  - `STR_AS_ASCII` / `STRING_AS_ASCII`
+  - `STR_AS_ASCII_UNCHECKED` / `STRING_AS_ASCII_UNCHECKED`
+  - `STRING_BUF_AS_ASCII`
+  - `STRING_BUF_AS_ASCII_UNCHECKED`
+- Semantics: checked forms reuse the existing ASCII slice validation helper and return local `(ok, Slice)` views, failing with `ok=0` and an empty view for non-ASCII bytes. Unchecked forms preserve the original pointer/length and rely on the caller's ASCII precondition. This does not claim Rust `Option<&[AsciiChar]>` object layout, distinct typed ASCII slice references, unsafe type-state enforcement, allocator-parametric behavior, stable API status, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "as_ascii aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "as_ascii aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
 ## Completed: 2026-07-07 str/String split_at_mut alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
