@@ -940,10 +940,10 @@ L_ENTRY:
     EXPAND STR_EQ ascii_eq, ascii_view, left
     EXPAND STRING_BUF_TRY_FROM_UTF8_ASCII ascii_bad_ok, ascii_bad_buf, bad_bytes
     EXPAND STRING_BUF_LEN ascii_bad_len, ascii_bad_buf
-    EXPAND STRING_BUF_TRY_FROM_UTF8 utf8_full_ok, utf8_full_buf, utf8_full_expected
+    EXPAND STRING_BUF_FROM_UTF8 utf8_full_ok, utf8_full_buf, utf8_full_expected
     EXPAND STRING_BUF_AS_STR utf8_full_view, utf8_full_buf
     EXPAND STR_EQ utf8_full_eq, utf8_full_view, utf8_full_expected
-    EXPAND STRING_BUF_TRY_FROM_UTF8 utf8_bad_ok, utf8_bad_buf, bad_bytes
+    EXPAND STRING_BUF_FROM_UTF8 utf8_bad_ok, utf8_bad_buf, bad_bytes
     EXPAND STRING_BUF_LEN utf8_bad_len, utf8_bad_buf
     EXPAND STRING_BUF_REPLACE replaced_buf, replace_source, replace_needle, replace_with
     EXPAND STRING_BUF_AS_STR replaced_view, replaced_buf
@@ -3916,7 +3916,7 @@ L_ENTRY:
     EXPAND VEC_PUSH bytes_vec, 153, 1
     EXPAND VEC_PUSH bytes_vec, 130, 1
     EXPAND VEC_PUSH bytes_vec, 122, 1
-    EXPAND STRING_BUF_TRY_FROM_UTF8_VEC valid_ok, valid_buf, valid_err_vec, bytes_vec
+    EXPAND STRING_BUF_FROM_UTF8_VEC valid_ok, valid_buf, valid_err_vec, bytes_vec
     EXPAND STRING_BUF_AS_STR valid_view, valid_buf
     EXPAND STR_EQ valid_eq, valid_view, expected
     EXPAND VEC_LEN valid_err_len, valid_err_vec
@@ -3925,7 +3925,7 @@ L_ENTRY:
     EXPAND VEC_PUSH bad_vec, 114, 1
     EXPAND VEC_PUSH bad_vec, 255, 1
     EXPAND VEC_PUSH bad_vec, 115, 1
-    EXPAND STRING_BUF_TRY_FROM_UTF8_VEC bad_ok, bad_buf, bad_err_vec, bad_vec
+    EXPAND STRING_BUF_FROM_UTF8_VEC bad_ok, bad_buf, bad_err_vec, bad_vec
     EXPAND STRING_BUF_LEN bad_buf_len, bad_buf
     EXPAND VEC_LEN bad_err_len, bad_err_vec
     EXPAND VEC_TRY_GET_TYPED_U8 bad_first_ok, bad_first, bad_err_vec, 0, 1
@@ -4483,7 +4483,7 @@ L_STRING_BUF_REF_CONV_ENTRY:
     EXPAND VEC_PUSH valid_vec, 117, 1
     EXPAND VEC_PUSH valid_vec, 115, 1
     EXPAND VEC_PUSH valid_vec, 116, 1
-    EXPAND STRING_BUF_TRY_FROM_VEC_U8 valid_ok, valid_buf, valid_err_vec, valid_vec
+    EXPAND STRING_BUF_FROM_VEC_U8 valid_ok, valid_buf, valid_err_vec, valid_vec
     EXPAND STRING_BUF_AS_STR valid_view, valid_buf
     EXPAND STR_EQ valid_eq, valid_view, word_slice
     EXPAND VEC_LEN valid_err_len, valid_err_vec
@@ -4491,7 +4491,7 @@ L_STRING_BUF_REF_CONV_ENTRY:
     EXPAND VEC_WITH_CAPACITY bad_vec, 2, 1
     EXPAND VEC_PUSH bad_vec, 255, 1
     EXPAND VEC_PUSH bad_vec, 40, 1
-    EXPAND STRING_BUF_TRY_FROM_BYTES_VEC bad_ok, bad_buf, bad_err_vec, bad_vec
+    EXPAND STRING_BUF_FROM_BYTES_VEC bad_ok, bad_buf, bad_err_vec, bad_vec
     EXPAND STRING_BUF_LEN bad_buf_len, bad_buf
     EXPAND VEC_LEN bad_err_len, bad_err_vec
     EXPAND VEC_TRY_GET_TYPED_U8 bad_first_ok, bad_first, bad_err_vec, 0, 1

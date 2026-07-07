@@ -4,6 +4,27 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String UTF-8 constructor alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable checked UTF-8 constructor naming aliases over existing strict UTF-8 forms:
+  - `STRING_BUF_FROM_UTF8`
+  - `STRING_BUF_FROM_UTF8_VEC`
+  - `STRING_BUF_FROM_VEC_U8`
+  - `STRING_BUF_FROM_BYTES_VEC`
+- Semantics: these aliases preserve the existing local `(ok, StringBuf)` and `(ok, StringBuf, err_vec)` result shapes used by the `TRY_` forms. Valid owned-Vec input moves the Vec allocation into the `StringBuf`; invalid owned-Vec input returns the original Vec through the error slot. This does not claim Rust `Result` / `FromUtf8Error` object layout, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "owned buffer utf8 and replace"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "from_utf8 Vec"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "reference conversion"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "owned buffer utf8 and replace"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf8 Vec"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "reference conversion"`: pass (`1 passed; 37 skipped`).
+
 ## Completed: 2026-07-07 Vec split_off alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
