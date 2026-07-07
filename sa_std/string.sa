@@ -7,6 +7,7 @@
 @import "string.sai"
 @import "fmt.sai"
 @import "hash.sa"
+@import "string_format.sa"
 
 [MACRO] STR_LEN %out_len, %slice_reg
     EXPAND SLICE_GET_LEN %out_len, %slice_reg
@@ -409,6 +410,49 @@ L_STR_REPEAT_DONE_%out_string:
 
 [MACRO] STRING_BUF_TO_STRING %out_string, %string_reg
     EXPAND STRING_BUF_CLONE %out_string, %string_reg
+[END_MACRO]
+
+[MACRO] CHAR_TO_STRING %out_string, %char_value
+    EXPAND STRING_BUF_FROM_CHAR %out_string, %char_value
+[END_MACRO]
+
+[MACRO] BOOL_TO_STRING %out_string, %value
+    EXPAND STRFMT_BOOL __bool_to_string_fmt_%out_string, %value
+    EXPAND STRFMT_DATA __bool_to_string_ptr_%out_string, __bool_to_string_fmt_%out_string
+    EXPAND STRFMT_LEN __bool_to_string_len_%out_string, __bool_to_string_fmt_%out_string
+    EXPAND STR_FROM_PARTS __bool_to_string_slice_%out_string, __bool_to_string_ptr_%out_string, __bool_to_string_len_%out_string
+    EXPAND STRING_BUF_FROM_STR %out_string, __bool_to_string_slice_%out_string
+    EXPAND STRFMT_FREE __bool_to_string_free_ok_%out_string, __bool_to_string_fmt_%out_string
+    !__bool_to_string_free_ok_%out_string
+    !__bool_to_string_slice_%out_string
+    !__bool_to_string_len_%out_string
+    !__bool_to_string_ptr_%out_string
+[END_MACRO]
+
+[MACRO] U64_TO_STRING %out_string, %value
+    EXPAND STRFMT_U64 __u64_to_string_fmt_%out_string, %value, 10
+    EXPAND STRFMT_DATA __u64_to_string_ptr_%out_string, __u64_to_string_fmt_%out_string
+    EXPAND STRFMT_LEN __u64_to_string_len_%out_string, __u64_to_string_fmt_%out_string
+    EXPAND STR_FROM_PARTS __u64_to_string_slice_%out_string, __u64_to_string_ptr_%out_string, __u64_to_string_len_%out_string
+    EXPAND STRING_BUF_FROM_STR %out_string, __u64_to_string_slice_%out_string
+    EXPAND STRFMT_FREE __u64_to_string_free_ok_%out_string, __u64_to_string_fmt_%out_string
+    !__u64_to_string_free_ok_%out_string
+    !__u64_to_string_slice_%out_string
+    !__u64_to_string_len_%out_string
+    !__u64_to_string_ptr_%out_string
+[END_MACRO]
+
+[MACRO] I64_TO_STRING %out_string, %value
+    EXPAND STRFMT_I64 __i64_to_string_fmt_%out_string, %value, 10
+    EXPAND STRFMT_DATA __i64_to_string_ptr_%out_string, __i64_to_string_fmt_%out_string
+    EXPAND STRFMT_LEN __i64_to_string_len_%out_string, __i64_to_string_fmt_%out_string
+    EXPAND STR_FROM_PARTS __i64_to_string_slice_%out_string, __i64_to_string_ptr_%out_string, __i64_to_string_len_%out_string
+    EXPAND STRING_BUF_FROM_STR %out_string, __i64_to_string_slice_%out_string
+    EXPAND STRFMT_FREE __i64_to_string_free_ok_%out_string, __i64_to_string_fmt_%out_string
+    !__i64_to_string_free_ok_%out_string
+    !__i64_to_string_slice_%out_string
+    !__i64_to_string_len_%out_string
+    !__i64_to_string_ptr_%out_string
 [END_MACRO]
 
 [MACRO] STRING_BUF_FROM_STRING_REF %out_string, %source_string

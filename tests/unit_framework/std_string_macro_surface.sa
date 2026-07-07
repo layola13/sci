@@ -24,6 +24,10 @@
 @const JOINED = utf8:"rust-std"
 @const REPEAT_TWICE = utf8:"rustrust"
 @const REPEAT_THRICE = utf8:"rustrustrust"
+@const TO_STRING_TRUE = utf8:"true"
+@const TO_STRING_FALSE = utf8:"false"
+@const TO_STRING_U64 = utf8:"12345"
+@const TO_STRING_I64 = utf8:"-42"
 @const WRITE_EXPECTED = utf8:"rust!"
 @const LEAK_MUTATED = utf8:"Rust-std"
 @const MUT_BASE = utf8:"rust"
@@ -4586,5 +4590,85 @@ L_STRING_TO_OWNED_FAIL:
     panic(934)
 
 L_STRING_TO_OWNED_OK:
+    !ok
+    return
+
+@test "sa_std primitive to_string aliases"():
+L_STRING_PRIMITIVE_TO_STRING_ENTRY:
+    true_slice = alloc Slice_SIZE
+    false_slice = alloc Slice_SIZE
+    u64_slice = alloc Slice_SIZE
+    i64_slice = alloc Slice_SIZE
+    char_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW true_slice, &TO_STRING_TRUE, 4
+    EXPAND SLICE_NEW false_slice, &TO_STRING_FALSE, 5
+    EXPAND SLICE_NEW u64_slice, &TO_STRING_U64, 5
+    EXPAND SLICE_NEW i64_slice, &TO_STRING_I64, 3
+    EXPAND SLICE_NEW char_slice, &UTF8_E_ACUTE, 2
+
+    neg_42 = sub 0, 42
+    EXPAND CHAR_TO_STRING char_buf, 233
+    EXPAND BOOL_TO_STRING true_buf, 1
+    EXPAND BOOL_TO_STRING false_buf, 0
+    EXPAND U64_TO_STRING u64_buf, 12345
+    EXPAND I64_TO_STRING i64_buf, neg_42
+
+    EXPAND STRING_BUF_AS_STR char_view, char_buf
+    EXPAND STRING_BUF_AS_STR true_view, true_buf
+    EXPAND STRING_BUF_AS_STR false_view, false_buf
+    EXPAND STRING_BUF_AS_STR u64_view, u64_buf
+    EXPAND STRING_BUF_AS_STR i64_view, i64_buf
+    EXPAND STR_EQ char_eq, char_view, char_slice
+    EXPAND STR_EQ true_eq, true_view, true_slice
+    EXPAND STR_EQ false_eq, false_view, false_slice
+    EXPAND STR_EQ u64_eq, u64_view, u64_slice
+    EXPAND STR_EQ i64_eq, i64_view, i64_slice
+
+    char_ok = eq char_eq, 1
+    true_ok = eq true_eq, 1
+    false_ok = eq false_eq, 1
+    u64_ok = eq u64_eq, 1
+    i64_ok = eq i64_eq, 1
+    ok01 = and char_ok, true_ok
+    ok02 = and ok01, false_ok
+    ok03 = and ok02, u64_ok
+    ok = and ok03, i64_ok
+
+    !neg_42
+    !char_eq
+    !true_eq
+    !false_eq
+    !u64_eq
+    !i64_eq
+    !char_ok
+    !true_ok
+    !false_ok
+    !u64_ok
+    !i64_ok
+    !ok01
+    !ok02
+    !ok03
+    !char_view
+    !true_view
+    !false_view
+    !u64_view
+    !i64_view
+    !true_slice
+    !false_slice
+    !u64_slice
+    !i64_slice
+    !char_slice
+    EXPAND STRING_BUF_FREE i64_buf
+    EXPAND STRING_BUF_FREE u64_buf
+    EXPAND STRING_BUF_FREE false_buf
+    EXPAND STRING_BUF_FREE true_buf
+    EXPAND STRING_BUF_FREE char_buf
+    br ok -> L_STRING_PRIMITIVE_TO_STRING_OK, L_STRING_PRIMITIVE_TO_STRING_FAIL
+
+L_STRING_PRIMITIVE_TO_STRING_FAIL:
+    !ok
+    panic(935)
+
+L_STRING_PRIMITIVE_TO_STRING_OK:
     !ok
     return

@@ -199,7 +199,8 @@
 - [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager Slice-of-StringBuf metadata `FromIterator<String>` / `Extend<String>` 风格别名，逐个追加 owned String 的 str view 并原地 drop moved buffer，不引入虚构 lazy iterator object model；同时修复 LLVM-C 间接调用 vtable slot 签名 provenance；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `str::repeat` 与 slice/Vec repeat 风格 eager 别名，按 `count` 次复制源 str/slice 到新的 owned `StringBuf` / Vec，`count=0` 返回空 buffer，不声明 allocator-parametric 或泛型 `T: Clone` 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `ToOwned` / `ToString` / `to_vec` 风格 eager owned-copy 别名，复用现有 StringBuf/Vec clone 与 from-slice 路径，并验证源对象后续 mutation 不影响 owned 结果，不声明 Cow/Box/allocator-parametric/trait-object 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
-- [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 char/bool/u64/i64 具体 primitive `to_string` 别名，复用现有 StringBuf 构造与 SA formatter 路径，不声明泛型 `Display` / `ToString` trait-object 全覆盖或浮点默认格式 parity；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
 > - **工业级性能 (P0)**：[`docs/design.md §1.10`](docs/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)

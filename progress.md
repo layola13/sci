@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String primitive to_string alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, and full generic `Display` / `ToString` coverage for arbitrary types.
+- Added supportable concrete primitive `to_string` aliases over existing StringBuf and formatter paths:
+  - `CHAR_TO_STRING`
+  - `BOOL_TO_STRING`
+  - `U64_TO_STRING`
+  - `I64_TO_STRING`
+- Semantics: `CHAR_TO_STRING` uses the existing Unicode scalar StringBuf constructor path, while bool/u64/i64 aliases format through the existing SA formatter and copy the formatted bytes into an owned `StringBuf`. This does not claim generic Rust `Display` / `ToString` trait-object coverage or float/default-format parity.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
 ## Completed: 2026-07-07 StringBuf/Vec owned conversion alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
