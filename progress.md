@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf find alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str find aliases:
+  - `STRING_BUF_TRY_FIND`
+  - `STRING_BUF_TRY_RFIND`
+  - `STRING_BUF_TRY_FIND_BYTE`
+  - `STRING_BUF_FIND_BYTE`
+  - `STRING_BUF_TRY_RFIND_BYTE`
+  - `STRING_BUF_RFIND_BYTE`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to existing `str` helpers and preserve local `(ok, index)` result shapes. They do not claim Rust lazy searcher objects, generic `Pattern`, `Option<usize>` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer find aliases"`: pass (`1 passed; 45 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer find aliases"`: pass (`1 passed; 45 skipped`).
+
 ## Completed: 2026-07-07 StringBuf trim alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

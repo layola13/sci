@@ -3807,6 +3807,142 @@ L_STRING_BUF_TRIM_ALIAS_OK:
     !ok
     return
 
+@test "sa_std string buffer find aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS infix, &INFIX, 2
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
+    EXPAND STR_EMPTY empty
+    EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_FROM_STR owned_pathish, pathish
+    EXPAND STRING_BUF_FROM_STR owned_empty, empty
+    EXPAND STRING_BUF_TRY_FIND try_find_ok, try_find_idx, owned_word, infix
+    EXPAND STRING_BUF_TRY_RFIND try_rfind_ok, try_rfind_idx, owned_word, infix
+    EXPAND STRING_BUF_TRY_FIND try_find_miss_ok, try_find_miss_idx, owned_word, miss
+    EXPAND STRING_BUF_TRY_RFIND try_rfind_miss_ok, try_rfind_miss_idx, owned_word, miss
+    EXPAND STRING_BUF_FIND_BYTE find_byte_ok, find_byte_idx, owned_pathish, 58
+    EXPAND STRING_BUF_TRY_RFIND_BYTE try_rfind_byte_ok, try_rfind_byte_idx, owned_pathish, 58
+    EXPAND STRING_BUF_TRY_FIND_BYTE try_find_byte_miss_ok, try_find_byte_miss_idx, owned_pathish, 47
+    EXPAND STRING_BUF_RFIND_BYTE rfind_byte_miss_ok, rfind_byte_miss_idx, owned_pathish, 47
+    EXPAND STRING_BUF_FIND_BYTE empty_find_ok, empty_find_idx, owned_empty, 58
+    EXPAND STRING_BUF_TRY_RFIND_BYTE empty_rfind_ok, empty_rfind_idx, owned_empty, 58
+
+    try_find_flag_ok = eq try_find_ok, 1
+    try_find_value_ok = eq try_find_idx, 1
+    try_rfind_flag_ok = eq try_rfind_ok, 1
+    try_rfind_value_ok = eq try_rfind_idx, 1
+    try_find_miss_flag_ok = eq try_find_miss_ok, 0
+    try_find_miss_value_ok = eq try_find_miss_idx, 0
+    try_rfind_miss_flag_ok = eq try_rfind_miss_ok, 0
+    try_rfind_miss_value_ok = eq try_rfind_miss_idx, 0
+    find_byte_flag_ok = eq find_byte_ok, 1
+    find_byte_value_ok = eq find_byte_idx, 1
+    try_rfind_byte_flag_ok = eq try_rfind_byte_ok, 1
+    try_rfind_byte_value_ok = eq try_rfind_byte_idx, 3
+    try_find_byte_miss_flag_ok = eq try_find_byte_miss_ok, 0
+    try_find_byte_miss_value_ok = eq try_find_byte_miss_idx, 0
+    rfind_byte_miss_flag_ok = eq rfind_byte_miss_ok, 0
+    rfind_byte_miss_value_ok = eq rfind_byte_miss_idx, 0
+    empty_find_flag_ok = eq empty_find_ok, 0
+    empty_find_value_ok = eq empty_find_idx, 0
+    empty_rfind_flag_ok = eq empty_rfind_ok, 0
+    empty_rfind_value_ok = eq empty_rfind_idx, 0
+    ok01 = and try_find_flag_ok, try_find_value_ok
+    ok02 = and ok01, try_rfind_flag_ok
+    ok03 = and ok02, try_rfind_value_ok
+    ok04 = and ok03, try_find_miss_flag_ok
+    ok05 = and ok04, try_find_miss_value_ok
+    ok06 = and ok05, try_rfind_miss_flag_ok
+    ok07 = and ok06, try_rfind_miss_value_ok
+    ok08 = and ok07, find_byte_flag_ok
+    ok09 = and ok08, find_byte_value_ok
+    ok10 = and ok09, try_rfind_byte_flag_ok
+    ok11 = and ok10, try_rfind_byte_value_ok
+    ok12 = and ok11, try_find_byte_miss_flag_ok
+    ok13 = and ok12, try_find_byte_miss_value_ok
+    ok14 = and ok13, rfind_byte_miss_flag_ok
+    ok15 = and ok14, rfind_byte_miss_value_ok
+    ok16 = and ok15, empty_find_flag_ok
+    ok17 = and ok16, empty_find_value_ok
+    ok18 = and ok17, empty_rfind_flag_ok
+    ok = and ok18, empty_rfind_value_ok
+    EXPAND STRING_BUF_FREE owned_word
+    EXPAND STRING_BUF_FREE owned_pathish
+    EXPAND STRING_BUF_FREE owned_empty
+    !word
+    !infix
+    !miss
+    !pathish
+    !empty
+    !try_find_ok
+    !try_find_idx
+    !try_rfind_ok
+    !try_rfind_idx
+    !try_find_miss_ok
+    !try_find_miss_idx
+    !try_rfind_miss_ok
+    !try_rfind_miss_idx
+    !find_byte_ok
+    !find_byte_idx
+    !try_rfind_byte_ok
+    !try_rfind_byte_idx
+    !try_find_byte_miss_ok
+    !try_find_byte_miss_idx
+    !rfind_byte_miss_ok
+    !rfind_byte_miss_idx
+    !empty_find_ok
+    !empty_find_idx
+    !empty_rfind_ok
+    !empty_rfind_idx
+    !try_find_flag_ok
+    !try_find_value_ok
+    !try_rfind_flag_ok
+    !try_rfind_value_ok
+    !try_find_miss_flag_ok
+    !try_find_miss_value_ok
+    !try_rfind_miss_flag_ok
+    !try_rfind_miss_value_ok
+    !find_byte_flag_ok
+    !find_byte_value_ok
+    !try_rfind_byte_flag_ok
+    !try_rfind_byte_value_ok
+    !try_find_byte_miss_flag_ok
+    !try_find_byte_miss_value_ok
+    !rfind_byte_miss_flag_ok
+    !rfind_byte_miss_value_ok
+    !empty_find_flag_ok
+    !empty_find_value_ok
+    !empty_rfind_flag_ok
+    !empty_rfind_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    br ok -> L_STRING_BUF_FIND_ALIAS_OK, L_STRING_BUF_FIND_ALIAS_FAIL
+
+L_STRING_BUF_FIND_ALIAS_FAIL:
+    !ok
+    panic(925)
+
+L_STRING_BUF_FIND_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8

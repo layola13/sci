@@ -280,10 +280,46 @@
     !__string_buf_find_view_%out_ok
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_FIND %out_ok, %out_index, %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_try_find_view_%out_ok, %string_reg
+    EXPAND STR_TRY_FIND %out_ok, %out_index, __string_buf_try_find_view_%out_ok, %needle_slice
+    !__string_buf_try_find_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_RFIND %out_ok, %out_index, %string_reg, %needle_slice
     EXPAND STRING_BUF_AS_STR __string_buf_rfind_view_%out_ok, %string_reg
     EXPAND STR_RFIND %out_ok, %out_index, __string_buf_rfind_view_%out_ok, %needle_slice
     !__string_buf_rfind_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RFIND %out_ok, %out_index, %string_reg, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_try_rfind_view_%out_ok, %string_reg
+    EXPAND STR_TRY_RFIND %out_ok, %out_index, __string_buf_try_rfind_view_%out_ok, %needle_slice
+    !__string_buf_try_rfind_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FIND_BYTE %out_ok, %out_index, %string_reg, %byte_value
+    EXPAND STRING_BUF_AS_STR __string_buf_try_find_byte_view_%out_ok, %string_reg
+    EXPAND STR_TRY_FIND_BYTE %out_ok, %out_index, __string_buf_try_find_byte_view_%out_ok, %byte_value
+    !__string_buf_try_find_byte_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_FIND_BYTE %out_ok, %out_index, %string_reg, %byte_value
+    EXPAND STRING_BUF_AS_STR __string_buf_find_byte_view_%out_ok, %string_reg
+    EXPAND STR_FIND_BYTE %out_ok, %out_index, __string_buf_find_byte_view_%out_ok, %byte_value
+    !__string_buf_find_byte_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RFIND_BYTE %out_ok, %out_index, %string_reg, %byte_value
+    EXPAND STRING_BUF_AS_STR __string_buf_try_rfind_byte_view_%out_ok, %string_reg
+    EXPAND STR_TRY_RFIND_BYTE %out_ok, %out_index, __string_buf_try_rfind_byte_view_%out_ok, %byte_value
+    !__string_buf_try_rfind_byte_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_RFIND_BYTE %out_ok, %out_index, %string_reg, %byte_value
+    EXPAND STRING_BUF_AS_STR __string_buf_rfind_byte_view_%out_ok, %string_reg
+    EXPAND STR_RFIND_BYTE %out_ok, %out_index, __string_buf_rfind_byte_view_%out_ok, %byte_value
+    !__string_buf_rfind_byte_view_%out_ok
 [END_MACRO]
 
 [MACRO] STRING_BUF_STRIP_PREFIX %out_ok, %out_slice, %string_reg, %prefix_slice
