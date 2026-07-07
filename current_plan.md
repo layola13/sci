@@ -95,6 +95,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed concrete smaller-integer and pointer-sized `to_string` aliases for u8/u16/u32/usize and i8/i16/i32/isize via existing u64/i64 formatter-backed StringBuf paths, without claiming `u128`/`i128`, float formatting, or generic `Display` coverage.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed concrete String `FromStr` / parse-style aliases over existing `StringBuf` from-str copy construction, returning `ok=1` without claiming generic `FromStr` or error type modeling.
    - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed `String::as_bytes_mut`-style unsafe mutable byte-slice aliases `STRING_BUF_AS_MUT_BYTES` and `STRING_BUF_AS_MUT_REF_BYTES` over the existing Vec mutable-slice metadata facade, without claiming UTF-8 mutation invariant enforcement, `String::as_mut_vec`, or Rust borrow-checker semantics.
+   - `str` / string slice Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed `str::as_bytes_mut`-style unsafe mutable byte-slice aliases `STR_AS_MUT_BYTES` and `STRING_AS_MUT_BYTES` over the existing Slice metadata view, without claiming UTF-8 mutation invariant enforcement, ownership provenance, or Rust borrow-checker semantics.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -227,6 +228,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the Integer primitive to_string alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the String FromStr parse alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the String mutable bytes alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the str mutable bytes alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

@@ -4146,6 +4146,13 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_AS_MUT_REF_BYTES assign_mut_ref_bytes, assign_string
     assign_mut_ref_ptr = load assign_mut_ref_bytes+Slice_ptr as ptr
     assign_mut_ref_first = load assign_mut_ref_ptr+0 as u8
+    EXPAND STRING_BUF_AS_MUT_STR assign_mut_str_view, assign_string
+    EXPAND STR_AS_MUT_BYTES str_mut_bytes, assign_mut_str_view
+    str_mut_ptr = load str_mut_bytes+Slice_ptr as ptr
+    str_mut_first = load str_mut_ptr+0 as u8
+    EXPAND STRING_AS_MUT_BYTES string_mut_bytes, assign_mut_str_view
+    string_mut_ptr = load string_mut_bytes+Slice_ptr as ptr
+    string_mut_first = load string_mut_ptr+0 as u8
     EXPAND STRING_BUF_NE_STRING ne_string, added_string, default_string
     EXPAND STRING_BUF_DEREF_MUT_STR deref_mut_view, assign_string
     EXPAND STR_EQ deref_mut_eq, deref_mut_view, mutated_joined_slice
@@ -4219,14 +4226,18 @@ L_STRING_BUF_ADD_ENTRY:
     ok10 = and ok09, index_mut_eq
     ok11 = and ok10, assign_eq
     assign_mut_ref_ok = eq assign_mut_ref_first, 82
+    str_mut_bytes_ok = eq str_mut_first, 82
+    string_mut_bytes_ok = eq string_mut_first, 82
     ok12 = and ok11, eq_string
     ok13 = and ok12, assign_mut_ref_ok
-    ok14 = and ok13, ne_string
-    ok15 = and ok14, deref_mut_eq
-    ok16 = and ok15, e_eq
-    ok17 = and ok16, write_str_ok
-    ok18 = and ok17, write_char_ok
-    ok = and ok18, write_eq
+    ok14 = and ok13, str_mut_bytes_ok
+    ok15 = and ok14, string_mut_bytes_ok
+    ok16 = and ok15, ne_string
+    ok17 = and ok16, deref_mut_eq
+    ok18 = and ok17, e_eq
+    ok19 = and ok18, write_str_ok
+    ok20 = and ok19, write_char_ok
+    ok = and ok20, write_eq
 
     !default_empty
     !added_eq
@@ -4265,6 +4276,8 @@ L_STRING_BUF_ADD_ENTRY:
     !index_mut_eq
     !assign_eq
     !assign_mut_ref_ok
+    !str_mut_bytes_ok
+    !string_mut_bytes_ok
     !eq_string
     !ne_string
     !deref_mut_eq
@@ -4337,6 +4350,8 @@ L_STRING_BUF_ADD_ENTRY:
     !ok16
     !ok17
     !ok18
+    !ok19
+    !ok20
     !word_slice
     !right_slice
     !joined_slice
@@ -4353,6 +4368,13 @@ L_STRING_BUF_ADD_ENTRY:
     !assign_mut_ref_bytes
     !assign_mut_ref_ptr
     !assign_mut_ref_first
+    !assign_mut_str_view
+    !str_mut_bytes
+    !str_mut_ptr
+    !str_mut_first
+    !string_mut_bytes
+    !string_mut_ptr
+    !string_mut_first
     !deref_mut_view
     !e_view
     !write_view
