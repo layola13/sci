@@ -541,13 +541,32 @@ L_ENTRY:
     EXPAND STRING_BUF_AS_STR extend_string_view, extend_string_dst
     EXPAND STR_EQ extend_string_eq, extend_string_view, expected
 
+    str_iter_data = stack_alloc 32
+    store str_iter_data+0, &JOIN_LEFT as ptr
+    store str_iter_data+8, 4 as u64
+    store str_iter_data+16, &MUT_SUFFIX as ptr
+    store str_iter_data+24, 4 as u64
+    str_iter = alloc Slice_SIZE
+    EXPAND SLICE_NEW str_iter, str_iter_data, 2
+    EXPAND STRING_BUF_FROM_STR_ITER from_str_iter_buf, str_iter
+    EXPAND STRING_BUF_AS_STR from_str_iter_view, from_str_iter_buf
+    EXPAND STR_EQ from_str_iter_eq, from_str_iter_view, expected
+    EXPAND STRING_BUF_NEW extend_str_iter_buf
+    EXPAND STRING_BUF_EXTEND_STR_ITER extend_str_iter_buf, str_iter
+    EXPAND STRING_BUF_AS_STR extend_str_iter_view, extend_str_iter_buf
+    EXPAND STR_EQ extend_str_iter_eq, extend_str_iter_view, expected
+
     extend_str_ok = eq extend_str_eq, 1
     extend_char_flag_ok = eq extend_char_try_ok, 1
     extend_char_ok = eq extend_char_eq, 1
     extend_string_ok = eq extend_string_eq, 1
+    from_str_iter_ok = eq from_str_iter_eq, 1
+    extend_str_iter_ok = eq extend_str_iter_eq, 1
     ok01 = and extend_str_ok, extend_char_flag_ok
     ok02 = and ok01, extend_char_ok
-    ok = and ok02, extend_string_ok
+    ok03 = and ok02, extend_string_ok
+    ok04 = and ok03, from_str_iter_ok
+    ok = and ok04, extend_str_iter_ok
     !extend_str_view
     !extend_str_eq
     !extend_char_try_ok
@@ -555,15 +574,26 @@ L_ENTRY:
     !extend_char_eq
     !extend_string_view
     !extend_string_eq
+    !from_str_iter_view
+    !from_str_iter_eq
+    !extend_str_iter_view
+    !extend_str_iter_eq
     !extend_str_ok
     !extend_char_flag_ok
     !extend_char_ok
     !extend_string_ok
+    !from_str_iter_ok
+    !extend_str_iter_ok
     !ok01
     !ok02
+    !ok03
+    !ok04
+    EXPAND STRING_BUF_FREE extend_str_iter_buf
+    EXPAND STRING_BUF_FREE from_str_iter_buf
     EXPAND STRING_BUF_FREE extend_str_buf
     EXPAND STRING_BUF_FREE extend_char_buf
     EXPAND STRING_BUF_FREE extend_string_dst
+    !str_iter
     !char_expected
     !expected
     !suffix

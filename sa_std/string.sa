@@ -1274,6 +1274,50 @@ L_STRING_BUF_PUSH_CHAR_END_%out_ok:
     EXPAND STRING_BUF_FREE %src_string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_EXTEND_STR_ITER %string_reg, %str_iter_slice
+    __string_buf_str_iter_len_%string_reg = load %str_iter_slice+Slice_len as u64
+    __string_buf_str_iter_ptr_%string_reg = load %str_iter_slice+Slice_ptr as ptr
+    __string_buf_str_iter_idx_slot_%string_reg = stack_alloc 8
+    __string_buf_str_iter_item_%string_reg = stack_alloc Slice_SIZE
+    store __string_buf_str_iter_idx_slot_%string_reg+0, 0 as u64
+    jmp L_STRING_BUF_STR_ITER_HEAD_%string_reg
+
+L_STRING_BUF_STR_ITER_HEAD_%string_reg:
+    __string_buf_str_iter_idx_%string_reg = load __string_buf_str_iter_idx_slot_%string_reg+0 as u64
+    __string_buf_str_iter_done_%string_reg = eq __string_buf_str_iter_idx_%string_reg, __string_buf_str_iter_len_%string_reg
+    br __string_buf_str_iter_done_%string_reg -> L_STRING_BUF_STR_ITER_DONE_%string_reg, L_STRING_BUF_STR_ITER_BODY_%string_reg
+
+L_STRING_BUF_STR_ITER_BODY_%string_reg:
+    __string_buf_str_iter_off_%string_reg = mul __string_buf_str_iter_idx_%string_reg, Slice_SIZE
+    __string_buf_str_iter_elem_%string_reg = ptr_add __string_buf_str_iter_ptr_%string_reg, __string_buf_str_iter_off_%string_reg
+    __string_buf_str_iter_elem_ptr_%string_reg = load __string_buf_str_iter_elem_%string_reg+Slice_ptr as ptr
+    __string_buf_str_iter_elem_len_%string_reg = load __string_buf_str_iter_elem_%string_reg+Slice_len as u64
+    store __string_buf_str_iter_item_%string_reg+Slice_ptr, __string_buf_str_iter_elem_ptr_%string_reg as ptr
+    store __string_buf_str_iter_item_%string_reg+Slice_len, __string_buf_str_iter_elem_len_%string_reg as u64
+    EXPAND STRING_BUF_PUSH_STR %string_reg, __string_buf_str_iter_item_%string_reg
+    __string_buf_str_iter_next_%string_reg = add __string_buf_str_iter_idx_%string_reg, 1
+    store __string_buf_str_iter_idx_slot_%string_reg+0, __string_buf_str_iter_next_%string_reg as u64
+    !__string_buf_str_iter_next_%string_reg
+    !__string_buf_str_iter_elem_len_%string_reg
+    !__string_buf_str_iter_elem_ptr_%string_reg
+    !__string_buf_str_iter_elem_%string_reg
+    !__string_buf_str_iter_off_%string_reg
+    !__string_buf_str_iter_done_%string_reg
+    !__string_buf_str_iter_idx_%string_reg
+    jmp L_STRING_BUF_STR_ITER_HEAD_%string_reg
+
+L_STRING_BUF_STR_ITER_DONE_%string_reg:
+    !__string_buf_str_iter_done_%string_reg
+    !__string_buf_str_iter_idx_%string_reg
+    !__string_buf_str_iter_len_%string_reg
+    !__string_buf_str_iter_ptr_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_STR_ITER %out_string, %str_iter_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    EXPAND STRING_BUF_EXTEND_STR_ITER %out_string, %str_iter_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_PUSH_STR %string_reg, %suffix_slice
     __string_buf_suffix_len_%string_reg = load %suffix_slice+Slice_len as u64
     EXPAND STRING_BUF_RESERVE %string_reg, __string_buf_suffix_len_%string_reg

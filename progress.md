@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf str iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager `&str` sequence aliases for Rust `FromIterator<&str>` / `Extend<&str>` style use cases:
+  - `STRING_BUF_EXTEND_STR_ITER`
+  - `STRING_BUF_FROM_STR_ITER`
+- Semantics: these aliases accept an eager `Slice` whose elements are `Slice` structs, modeling a Slice-of-Slice sequence of `&str` views, and append each view through the existing `STRING_BUF_PUSH_STR` path without claiming a real Rust lazy iterator object model.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`33 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`33 passed`).
+
 ## Completed: 2026-07-07 Vec eager iterator alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
