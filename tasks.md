@@ -203,6 +203,7 @@
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec `AsMut<Vec<T>>` 风格 metadata pointer 别名 `VEC_AS_MUT_VEC_PTR`，与现有 `AsRef<Vec<T>>` 本地指针表面保持一致，不声明 Rust borrow checker 或 whole-object mutable borrow 全语义；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 u8/u16/u32/usize 与 i8/i16/i32/isize 具体 primitive `to_string` 别名，复用现有 u64/i64 formatter-backed StringBuf 路径，不声明 u128/i128、浮点格式或泛型 `Display` 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补具体 String `FromStr` / parse 风格别名 `STRING_BUF_PARSE_FROM_STR` 与 `STR_PARSE_STRING_BUF`，从 `&str` 复制为 owned `StringBuf` 并返回 `ok=1`，不声明泛型 `FromStr` 或错误类型模型；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String::as_bytes_mut` 风格 unsafe mutable byte-slice 别名 `STRING_BUF_AS_MUT_BYTES` 与 `STRING_BUF_AS_MUT_REF_BYTES`，复用现有 Vec mutable-slice metadata facade，不声明 UTF-8 mutation invariant enforcement、`String::as_mut_vec` 或 Rust borrow checker 全语义；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

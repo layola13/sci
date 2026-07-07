@@ -4084,11 +4084,13 @@ L_STRING_BUF_ADD_ENTRY:
     word_slice = alloc Slice_SIZE
     right_slice = alloc Slice_SIZE
     joined_slice = alloc Slice_SIZE
+    mutated_joined_slice = alloc Slice_SIZE
     write_expected_slice = alloc Slice_SIZE
     e_slice = alloc Slice_SIZE
     EXPAND SLICE_NEW word_slice, &JOIN_LEFT, 4
     EXPAND SLICE_NEW right_slice, &JOIN_RIGHT, 4
     EXPAND SLICE_NEW joined_slice, &JOINED, 8
+    EXPAND SLICE_NEW mutated_joined_slice, &LEAK_MUTATED, 8
     EXPAND SLICE_NEW write_expected_slice, &WRITE_EXPECTED, 5
     EXPAND SLICE_NEW e_slice, &UTF8_E_ACUTE, 2
 
@@ -4138,9 +4140,15 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_AS_REF_BYTES assign_bytes, assign_string
     EXPAND STR_EQ assign_eq, assign_bytes, joined_slice
     EXPAND STRING_BUF_EQ_STRING eq_string, added_string, assign_string
+    EXPAND STRING_BUF_AS_MUT_BYTES assign_mut_bytes, assign_string
+    assign_mut_ptr = load assign_mut_bytes+Slice_ptr as ptr
+    store assign_mut_ptr+0, 82 as u8
+    EXPAND STRING_BUF_AS_MUT_REF_BYTES assign_mut_ref_bytes, assign_string
+    assign_mut_ref_ptr = load assign_mut_ref_bytes+Slice_ptr as ptr
+    assign_mut_ref_first = load assign_mut_ref_ptr+0 as u8
     EXPAND STRING_BUF_NE_STRING ne_string, added_string, default_string
     EXPAND STRING_BUF_DEREF_MUT_STR deref_mut_view, assign_string
-    EXPAND STR_EQ deref_mut_eq, deref_mut_view, joined_slice
+    EXPAND STR_EQ deref_mut_eq, deref_mut_view, mutated_joined_slice
 
     EXPAND STRING_BUF_FROM_CHAR e_string, 233
     EXPAND STRING_BUF_AS_STR e_view, e_string
@@ -4210,13 +4218,15 @@ L_STRING_BUF_ADD_ENTRY:
     ok09 = and ok08, index_mut_ok
     ok10 = and ok09, index_mut_eq
     ok11 = and ok10, assign_eq
+    assign_mut_ref_ok = eq assign_mut_ref_first, 82
     ok12 = and ok11, eq_string
-    ok13 = and ok12, ne_string
-    ok14 = and ok13, deref_mut_eq
-    ok15 = and ok14, e_eq
-    ok16 = and ok15, write_str_ok
-    ok17 = and ok16, write_char_ok
-    ok = and ok17, write_eq
+    ok13 = and ok12, assign_mut_ref_ok
+    ok14 = and ok13, ne_string
+    ok15 = and ok14, deref_mut_eq
+    ok16 = and ok15, e_eq
+    ok17 = and ok16, write_str_ok
+    ok18 = and ok17, write_char_ok
+    ok = and ok18, write_eq
 
     !default_empty
     !added_eq
@@ -4254,6 +4264,7 @@ L_STRING_BUF_ADD_ENTRY:
     !index_mut_ok
     !index_mut_eq
     !assign_eq
+    !assign_mut_ref_ok
     !eq_string
     !ne_string
     !deref_mut_eq
@@ -4325,9 +4336,11 @@ L_STRING_BUF_ADD_ENTRY:
     !ok15
     !ok16
     !ok17
+    !ok18
     !word_slice
     !right_slice
     !joined_slice
+    !mutated_joined_slice
     !write_expected_slice
     !e_slice
     !added_view
@@ -4335,6 +4348,11 @@ L_STRING_BUF_ADD_ENTRY:
     !index_view
     !index_mut_view
     !assign_bytes
+    !assign_mut_bytes
+    !assign_mut_ptr
+    !assign_mut_ref_bytes
+    !assign_mut_ref_ptr
+    !assign_mut_ref_first
     !deref_mut_view
     !e_view
     !write_view
