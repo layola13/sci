@@ -1815,40 +1815,105 @@ L_VEC_RETAIN_OK:
 L_ENTRY:
     EXPAND VEC_NEW empty_vec
     EXPAND VEC_TRY_PEEK_MUT_U64 empty_ok, empty_ptr, empty_vec
+    EXPAND VEC_TRY_FIRST_MUT_U64 empty_first_ok, empty_first_ptr, empty_vec
+    EXPAND VEC_TRY_LAST_MUT_U64 empty_last_ok, empty_last_ptr, empty_vec
 
     EXPAND VEC_WITH_CAPACITY_U64 vec, 3
     EXPAND VEC_PUSH_U64 vec, 10
     EXPAND VEC_PUSH_U64 vec, 20
     EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_FIRST_MUT_U64 first_mut_ok, first_mut_ptr, vec
+    store first_mut_ptr+0, 11 as u64
+    EXPAND VEC_TRY_FIRST_U64 first_after_ok, first_after, vec
+    EXPAND VEC_LAST_MUT_U64 last_mut_ok, last_mut_ptr, vec
+    store last_mut_ptr+0, 77 as u64
+    EXPAND VEC_TRY_LAST_U64 last_after_mut_ok, last_after_mut, vec
     EXPAND VEC_TRY_PEEK_MUT_U64 peek_ok, peek_ptr, vec
     store peek_ptr+0, 99 as u64
+    EXPAND VEC_TRY_FIRST_U64 first_final_ok, first_final, vec
     EXPAND VEC_TRY_LAST_U64 last_ok, last, vec
     EXPAND VEC_LEN len_after, vec
 
     empty_flag_ok = eq empty_ok, 0
     empty_ptr_ok = eq empty_ptr, 0
+    empty_first_flag_ok = eq empty_first_ok, 0
+    empty_first_ptr_ok = eq empty_first_ptr, 0
+    empty_last_flag_ok = eq empty_last_ok, 0
+    empty_last_ptr_ok = eq empty_last_ptr, 0
+    first_mut_flag_ok = eq first_mut_ok, 1
+    first_mut_ptr_ok = ne first_mut_ptr, 0
+    first_after_flag_ok = eq first_after_ok, 1
+    first_after_value_ok = eq first_after, 11
+    last_mut_flag_ok = eq last_mut_ok, 1
+    last_mut_ptr_ok = ne last_mut_ptr, 0
+    last_after_mut_flag_ok = eq last_after_mut_ok, 1
+    last_after_mut_value_ok = eq last_after_mut, 77
     peek_flag_ok = eq peek_ok, 1
     peek_ptr_ok = ne peek_ptr, 0
+    first_final_flag_ok = eq first_final_ok, 1
+    first_final_value_ok = eq first_final, 11
     last_flag_ok = eq last_ok, 1
     last_value_ok = eq last, 99
     len_ok = eq len_after, 3
     ok01 = and empty_flag_ok, empty_ptr_ok
-    ok02 = and ok01, peek_flag_ok
-    ok03 = and ok02, peek_ptr_ok
-    ok04 = and ok03, last_flag_ok
-    ok05 = and ok04, last_value_ok
-    ok = and ok05, len_ok
+    ok02 = and ok01, empty_first_flag_ok
+    ok03 = and ok02, empty_first_ptr_ok
+    ok04 = and ok03, empty_last_flag_ok
+    ok05 = and ok04, empty_last_ptr_ok
+    ok06 = and ok05, first_mut_flag_ok
+    ok07 = and ok06, first_mut_ptr_ok
+    ok08 = and ok07, first_after_flag_ok
+    ok09 = and ok08, first_after_value_ok
+    ok10 = and ok09, last_mut_flag_ok
+    ok11 = and ok10, last_mut_ptr_ok
+    ok12 = and ok11, last_after_mut_flag_ok
+    ok13 = and ok12, last_after_mut_value_ok
+    ok14 = and ok13, peek_flag_ok
+    ok15 = and ok14, peek_ptr_ok
+    ok16 = and ok15, first_final_flag_ok
+    ok17 = and ok16, first_final_value_ok
+    ok18 = and ok17, last_flag_ok
+    ok19 = and ok18, last_value_ok
+    ok = and ok19, len_ok
     !empty_ok
     !empty_ptr
+    !empty_first_ok
+    !empty_first_ptr
+    !empty_last_ok
+    !empty_last_ptr
+    !first_mut_ok
+    !first_mut_ptr
+    !first_after_ok
+    !first_after
+    !last_mut_ok
+    !last_mut_ptr
+    !last_after_mut_ok
+    !last_after_mut
     !peek_ok
     !peek_ptr
+    !first_final_ok
+    !first_final
     !last_ok
     !last
     !len_after
     !empty_flag_ok
     !empty_ptr_ok
+    !empty_first_flag_ok
+    !empty_first_ptr_ok
+    !empty_last_flag_ok
+    !empty_last_ptr_ok
+    !first_mut_flag_ok
+    !first_mut_ptr_ok
+    !first_after_flag_ok
+    !first_after_value_ok
+    !last_mut_flag_ok
+    !last_mut_ptr_ok
+    !last_after_mut_flag_ok
+    !last_after_mut_value_ok
     !peek_flag_ok
     !peek_ptr_ok
+    !first_final_flag_ok
+    !first_final_value_ok
     !last_flag_ok
     !last_value_ok
     !len_ok
@@ -1857,6 +1922,20 @@ L_ENTRY:
     !ok03
     !ok04
     !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
     EXPAND VEC_FREE empty_vec
     EXPAND VEC_FREE vec
     br ok -> L_VEC_PEEK_MUT_OK, L_VEC_PEEK_MUT_FAIL
