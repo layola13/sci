@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf try split-at documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Current source already contains the supportable `String` deref-to-str split-at `TRY` alias, and this batch synced the parity documentation for it:
+  - `STRING_BUF_TRY_SPLIT_AT`
+- Semantics: this delegates through `STRING_BUF_SPLIT_AT`, which uses the existing UTF-8 char-boundary checked split helper, and preserves the local `(ok, left, right)` result shape. It does not claim Rust panic behavior, `Option` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer try split aliases"`: pass (`1 passed; 47 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction; no runtime or test source changed in this documentation-sync batch.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer try split aliases"`: pass (`1 passed; 47 skipped`).
+
 ## Completed: 2026-07-07 Vec parity documentation sync batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
