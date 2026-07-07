@@ -1567,8 +1567,8 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 search_vec, 20
     EXPAND VEC_PUSH_U64 search_vec, 40
 
-    EXPAND VEC_TRY_BINARY_SEARCH_U64 vec_bs_hit_ok, vec_bs_hit_idx, search_vec, 20
-    EXPAND VEC_TRY_BINARY_SEARCH_U64 vec_bs_miss_ok, vec_bs_miss_idx, search_vec, 30
+    EXPAND VEC_BINARY_SEARCH_U64 vec_bs_hit_ok, vec_bs_hit_idx, search_vec, 20
+    EXPAND VEC_BINARY_SEARCH_U64 vec_bs_miss_ok, vec_bs_miss_idx, search_vec, 30
     EXPAND VEC_PARTITION_POINT_U64 vec_partition_idx, search_vec, @slice_partition_lt_30
     EXPAND VEC_LOWER_BOUND_U64 vec_lower_20_idx, search_vec, 20
     EXPAND VEC_LOWER_BOUND_U64 vec_lower_30_idx, search_vec, 30

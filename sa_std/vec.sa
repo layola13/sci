@@ -1430,6 +1430,10 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_binary_search_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
+    EXPAND VEC_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
+[END_MACRO]
+
 [MACRO] VEC_PARTITION_POINT_U64 %out_index, %vec_reg, %pred_fn
     EXPAND VEC_AS_SLICE __vec_partition_point_slice_%out_index, %vec_reg
     EXPAND SLICE_PARTITION_POINT_U64 %out_index, __vec_partition_point_slice_%out_index, %pred_fn
