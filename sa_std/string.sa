@@ -226,6 +226,30 @@
     !__string_buf_eq_ignore_ascii_case_view_%out_bool
 [END_MACRO]
 
+[MACRO] STRING_BUF_MAKE_ASCII_UPPERCASE %out_ok, %string_reg
+    EXPAND STRING_BUF_AS_MUT_STR __string_buf_ascii_upper_view_%out_ok, %string_reg
+    EXPAND ASCII_SLICE_MAKE_UPPERCASE %out_ok, __string_buf_ascii_upper_view_%out_ok
+    !__string_buf_ascii_upper_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_MAKE_ASCII_LOWERCASE %out_ok, %string_reg
+    EXPAND STRING_BUF_AS_MUT_STR __string_buf_ascii_lower_view_%out_ok, %string_reg
+    EXPAND ASCII_SLICE_MAKE_LOWERCASE %out_ok, __string_buf_ascii_lower_view_%out_ok
+    !__string_buf_ascii_lower_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TO_ASCII_UPPERCASE %out_string, %string_reg
+    EXPAND STRING_BUF_CLONE %out_string, %string_reg
+    EXPAND STRING_BUF_MAKE_ASCII_UPPERCASE __string_buf_to_ascii_upper_ok_%out_string, %out_string
+    !__string_buf_to_ascii_upper_ok_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_TO_ASCII_LOWERCASE %out_string, %string_reg
+    EXPAND STRING_BUF_CLONE %out_string, %string_reg
+    EXPAND STRING_BUF_MAKE_ASCII_LOWERCASE __string_buf_to_ascii_lower_ok_%out_string, %out_string
+    !__string_buf_to_ascii_lower_ok_%out_string
+[END_MACRO]
+
 [MACRO] STRING_BUF_IS_ASCII %out_bool, %string_reg
     EXPAND STRING_BUF_AS_STR __string_buf_is_ascii_view_%out_bool, %string_reg
     EXPAND STR_IS_ASCII %out_bool, __string_buf_is_ascii_view_%out_bool

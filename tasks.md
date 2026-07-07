@@ -250,6 +250,7 @@
 - [x] `StringBuf` / `str` Rust API parity 文档复审：确认当前源码已存在 `String` deref-to-str split-at `TRY` 命名别名 `STRING_BUF_TRY_SPLIT_AT`，通过现有 `STRING_BUF_SPLIT_AT` 走 UTF-8 char-boundary checked helper 并返回本地 `(ok,left,right)`，不声明 Rust panic 行为、`Option` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；本批同步 `docs/std_missing.md` 记录并复跑 focused 源码/安装态测试；无运行时代码变更，按用户要求不跑全量测试。
 - [x] `StringBuf` Rust API parity 文档复审：同步 `docs/std_missing.md` 中滞后的 char mutation 范围说明，确认 `STRING_BUF_TRY_PUSH_CHAR` / `STRING_BUF_PUSH_CHAR` 与 `STRING_BUF_TRY_INSERT_CHAR` / `STRING_BUF_INSERT_CHAR` 已按有效 Unicode scalar 编码为 UTF-8，非法 scalar 不应被记录成已支持；本批无运行时代码变更，按用户要求不跑全量测试。
 - [x] `StringBuf` Rust API parity 文档复审：同步 `docs/std_missing.md` 中滞后的 StringBuf implemented surface，补记当前源码已存在的 default/reference/deref、pointer-range/raw-parts/leak、conversion/cloning、UTF strict/lossy constructors、eager char/string extension/extraction、retain/drain/remove/replace-first-last/index-range 等类别；本批无运行时代码变更，按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 复审：补 `String::make_ascii_uppercase` / `make_ascii_lowercase` 与 `to_ascii_uppercase` / `to_ascii_lowercase` 风格 owned-buffer 宏表面，复用 ASCII slice case mutation helper；只声明 ASCII-only case conversion，不声明 Unicode case folding；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
 - [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

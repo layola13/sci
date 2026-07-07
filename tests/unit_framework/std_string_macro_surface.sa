@@ -16,6 +16,9 @@
 @const PATH_RLEFT = utf8:"a:b"
 @const PATH_RRIGHT = utf8:"c"
 @const MIXED_WORD = utf8:"RuSt"
+@const MIXED_UTF8_WORD = utf8:"RuSté!"
+@const UPPER_UTF8_WORD = utf8:"RUSTé!"
+@const LOWER_UTF8_WORD = utf8:"rusté!"
 @const SPACED_WORD = utf8:"  Rust  "
 @const WORD_TRAILING = utf8:"Rust  "
 @const WORD_LEADING = utf8:"  Rust"
@@ -3947,21 +3950,89 @@ L_STRING_BUF_FIND_ALIAS_OK:
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
     EXPAND STR_FROM_PARTS mixed, &MIXED_WORD, 4
+    EXPAND STR_FROM_PARTS mixed_utf8, &MIXED_UTF8_WORD, 7
+    EXPAND STR_FROM_PARTS upper_utf8, &UPPER_UTF8_WORD, 7
+    EXPAND STR_FROM_PARTS lower_utf8, &LOWER_UTF8_WORD, 7
     EXPAND STR_FROM_PARTS miss, &MISS, 2
     EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_FROM_STR owned_upper, mixed_utf8
+    EXPAND STRING_BUF_FROM_STR owned_lower, mixed_utf8
+    EXPAND STRING_BUF_FROM_STR owned_copy_source, mixed_utf8
     EXPAND STRING_BUF_EQ_IGNORE_ASCII_CASE eq_mixed, owned_word, mixed
     EXPAND STRING_BUF_EQ_IGNORE_ASCII_CASE eq_miss, owned_word, miss
+    EXPAND STRING_BUF_MAKE_ASCII_UPPERCASE make_upper_ok, owned_upper
+    EXPAND STRING_BUF_MAKE_ASCII_LOWERCASE make_lower_ok, owned_lower
+    EXPAND STRING_BUF_TO_ASCII_UPPERCASE copied_upper, owned_copy_source
+    EXPAND STRING_BUF_TO_ASCII_LOWERCASE copied_lower, owned_copy_source
+    EXPAND STRING_BUF_AS_STR upper_view, owned_upper
+    EXPAND STRING_BUF_AS_STR lower_view, owned_lower
+    EXPAND STRING_BUF_AS_STR copied_upper_view, copied_upper
+    EXPAND STRING_BUF_AS_STR copied_lower_view, copied_lower
+    EXPAND STRING_BUF_AS_STR source_after_copy, owned_copy_source
+    EXPAND STR_EQ upper_eq, upper_view, upper_utf8
+    EXPAND STR_EQ lower_eq, lower_view, lower_utf8
+    EXPAND STR_EQ copied_upper_eq, copied_upper_view, upper_utf8
+    EXPAND STR_EQ copied_lower_eq, copied_lower_view, lower_utf8
+    EXPAND STR_EQ source_unchanged_eq, source_after_copy, mixed_utf8
     eq_mixed_ok = eq eq_mixed, 1
     eq_miss_ok = eq eq_miss, 0
-    ok = and eq_mixed_ok, eq_miss_ok
+    make_upper_flag_ok = eq make_upper_ok, 1
+    make_lower_flag_ok = eq make_lower_ok, 1
+    upper_value_ok = eq upper_eq, 1
+    lower_value_ok = eq lower_eq, 1
+    copied_upper_value_ok = eq copied_upper_eq, 1
+    copied_lower_value_ok = eq copied_lower_eq, 1
+    source_unchanged_ok = eq source_unchanged_eq, 1
+    ok01 = and eq_mixed_ok, eq_miss_ok
+    ok02 = and ok01, make_upper_flag_ok
+    ok03 = and ok02, make_lower_flag_ok
+    ok04 = and ok03, upper_value_ok
+    ok05 = and ok04, lower_value_ok
+    ok06 = and ok05, copied_upper_value_ok
+    ok07 = and ok06, copied_lower_value_ok
+    ok = and ok07, source_unchanged_ok
     EXPAND STRING_BUF_FREE owned_word
+    EXPAND STRING_BUF_FREE owned_upper
+    EXPAND STRING_BUF_FREE owned_lower
+    EXPAND STRING_BUF_FREE owned_copy_source
+    EXPAND STRING_BUF_FREE copied_upper
+    EXPAND STRING_BUF_FREE copied_lower
     !word
     !mixed
+    !mixed_utf8
+    !upper_utf8
+    !lower_utf8
     !miss
     !eq_mixed
     !eq_miss
+    !make_upper_ok
+    !make_lower_ok
+    !upper_view
+    !lower_view
+    !copied_upper_view
+    !copied_lower_view
+    !source_after_copy
+    !upper_eq
+    !lower_eq
+    !copied_upper_eq
+    !copied_lower_eq
+    !source_unchanged_eq
     !eq_mixed_ok
     !eq_miss_ok
+    !make_upper_flag_ok
+    !make_lower_flag_ok
+    !upper_value_ok
+    !lower_value_ok
+    !copied_upper_value_ok
+    !copied_lower_value_ok
+    !source_unchanged_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
     br ok -> L_STRING_BUF_ASCII_CASE_ALIAS_OK, L_STRING_BUF_ASCII_CASE_ALIAS_FAIL
 
 L_STRING_BUF_ASCII_CASE_ALIAS_FAIL:
