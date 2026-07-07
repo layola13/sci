@@ -3080,8 +3080,11 @@ L_VEC_CLONE_ENTRY:
     EXPAND VEC_FROM_ARRAY_U64 from_array_vec, from_slice_view
     EXPAND VEC_FROM_MUT_ARRAY_U64 from_mut_array_vec, from_slice_view
 
-    EXPAND VEC_GET_MUT_PTR_U64 source_first_ptr, source, 0
+    EXPAND VEC_GET_MUT_U64 source_first_mut_ok, source_first_ptr, source, 0
     store source_first_ptr+0, 77 as u64
+    EXPAND VEC_TRY_GET_MUT_PTR_U64 source_miss_mut_ok, source_miss_ptr, source, 9
+    source_miss_ptr_ok = eq source_miss_ptr, 0
+    !source_miss_ptr
     EXPAND VEC_TRY_GET_U64 source_first_ok, source_first, source, 0
     EXPAND VEC_TRY_GET_U64 cloned_first_ok, cloned_first, cloned, 0
     EXPAND VEC_TRY_GET_U64 cloned_second_ok, cloned_second, cloned, 1
@@ -3098,6 +3101,8 @@ L_VEC_CLONE_ENTRY:
     EXPAND VEC_LEN from_mut_array_len, from_mut_array_vec
     EXPAND VEC_TRY_GET_U64 from_mut_array_second_ok, from_mut_array_second, from_mut_array_vec, 1
 
+    source_first_mut_flag_ok = eq source_first_mut_ok, 1
+    source_miss_mut_flag_ok = eq source_miss_mut_ok, 0
     source_first_flag_ok = eq source_first_ok, 1
     source_first_value_ok = eq source_first, 77
     cloned_first_flag_ok = eq cloned_first_ok, 1
@@ -3123,32 +3128,38 @@ L_VEC_CLONE_ENTRY:
     from_mut_array_len_ok = eq from_mut_array_len, 2
     from_mut_array_second_flag_ok = eq from_mut_array_second_ok, 1
     from_mut_array_second_value_ok = eq from_mut_array_second, 55
-    ok01 = and source_first_flag_ok, source_first_value_ok
-    ok02 = and ok01, cloned_first_flag_ok
-    ok03 = and ok02, cloned_first_value_ok
-    ok04 = and ok03, cloned_second_flag_ok
-    ok05 = and ok04, cloned_second_value_ok
-    ok06 = and ok05, clone_from_first_flag_ok
-    ok07 = and ok06, clone_from_first_value_ok
-    ok08 = and ok07, clone_from_third_flag_ok
-    ok09 = and ok08, clone_from_third_value_ok
-    ok10 = and ok09, clone_from_len_ok
-    ok11 = and ok10, from_slice_len_ok
-    ok12 = and ok11, from_slice_first_flag_ok
-    ok13 = and ok12, from_slice_first_value_ok
-    ok14 = and ok13, from_slice_second_flag_ok
-    ok15 = and ok14, from_slice_second_value_ok
-    ok16 = and ok15, from_mut_slice_len_ok
-    ok17 = and ok16, from_mut_slice_second_flag_ok
-    ok18 = and ok17, from_mut_slice_second_value_ok
-    ok19 = and ok18, from_array_len_ok
-    ok20 = and ok19, from_array_second_flag_ok
-    ok21 = and ok20, from_array_second_value_ok
-    ok22 = and ok21, from_mut_array_len_ok
-    ok23 = and ok22, from_mut_array_second_flag_ok
-    ok = and ok23, from_mut_array_second_value_ok
+    ok01 = and source_first_mut_flag_ok, source_miss_mut_flag_ok
+    ok02 = and ok01, source_miss_ptr_ok
+    ok03 = and ok02, source_first_flag_ok
+    ok04 = and ok03, source_first_value_ok
+    ok05 = and ok04, cloned_first_flag_ok
+    ok06 = and ok05, cloned_first_value_ok
+    ok07 = and ok06, cloned_second_flag_ok
+    ok08 = and ok07, cloned_second_value_ok
+    ok09 = and ok08, clone_from_first_flag_ok
+    ok10 = and ok09, clone_from_first_value_ok
+    ok11 = and ok10, clone_from_third_flag_ok
+    ok12 = and ok11, clone_from_third_value_ok
+    ok13 = and ok12, clone_from_len_ok
+    ok14 = and ok13, from_slice_len_ok
+    ok15 = and ok14, from_slice_first_flag_ok
+    ok16 = and ok15, from_slice_first_value_ok
+    ok17 = and ok16, from_slice_second_flag_ok
+    ok18 = and ok17, from_slice_second_value_ok
+    ok19 = and ok18, from_mut_slice_len_ok
+    ok20 = and ok19, from_mut_slice_second_flag_ok
+    ok21 = and ok20, from_mut_slice_second_value_ok
+    ok22 = and ok21, from_array_len_ok
+    ok23 = and ok22, from_array_second_flag_ok
+    ok24 = and ok23, from_array_second_value_ok
+    ok25 = and ok24, from_mut_array_len_ok
+    ok26 = and ok25, from_mut_array_second_flag_ok
+    ok = and ok26, from_mut_array_second_value_ok
 
+    !source_first_mut_ok
     !source_first_ptr
+    !source_miss_mut_ok
+    !source_miss_ptr_ok
     !source_first_ok
     !source_first
     !cloned_first_ok
@@ -3174,6 +3185,8 @@ L_VEC_CLONE_ENTRY:
     !from_mut_array_len
     !from_mut_array_second_ok
     !from_mut_array_second
+    !source_first_mut_flag_ok
+    !source_miss_mut_flag_ok
     !source_first_flag_ok
     !source_first_value_ok
     !cloned_first_flag_ok
@@ -3222,6 +3235,9 @@ L_VEC_CLONE_ENTRY:
     !ok21
     !ok22
     !ok23
+    !ok24
+    !ok25
+    !ok26
     !from_slice_view
     !slice_data
     EXPAND VEC_FREE from_mut_array_vec

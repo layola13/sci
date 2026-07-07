@@ -130,6 +130,16 @@
     !__vec_get_mut_slice_%out_ptr
 [END_MACRO]
 
+[MACRO] VEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND VEC_AS_MUT_SLICE __vec_try_get_mut_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, __vec_try_get_mut_slice_%out_ok, %index
+    !__vec_try_get_mut_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_GET_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND VEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
+[END_MACRO]
+
 [MACRO] VEC_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %vec_reg, %index
     EXPAND VEC_GET_MUT_PTR_U64 %out_ptr, %vec_reg, %index
 [END_MACRO]
