@@ -3140,6 +3140,134 @@ L_STRING_BUF_RANGE_OK:
     !ok
     return
 
+@test "sa_std string buffer try range aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_a_e, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS utf8_e, &UTF8_E_ACUTE, 2
+    EXPAND STR_FROM_PARTS utf8_smile, &UTF8_SMILE, 4
+    EXPAND STR_FROM_PARTS utf8_smile_z, &UTF8_SMILE_Z, 5
+    EXPAND STR_FROM_PARTS utf8_z, &UTF8_Z, 1
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+    EXPAND STRING_BUF_TRY_GET_RANGE range_ok, range_slice, owned_utf8, 1, 2
+    EXPAND STRING_BUF_TRY_GET_PREFIX prefix_ok, prefix_slice, owned_utf8, 3
+    EXPAND STRING_BUF_TRY_GET_SUFFIX suffix_ok, suffix_slice, owned_utf8, 7
+    EXPAND STRING_BUF_TRY_GET_RANGE_TO range_to_ok, range_to_slice, owned_utf8, 3
+    EXPAND STRING_BUF_TRY_GET_RANGE_FROM range_from_ok, range_from_slice, owned_utf8, 3
+    EXPAND STRING_BUF_TRY_GET_RANGE_BETWEEN between_ok, between_slice, owned_utf8, 3, 7
+    EXPAND STRING_BUF_TRY_GET_RANGE bad_boundary_ok, bad_boundary_slice, owned_utf8, 2, 1
+    EXPAND STRING_BUF_TRY_GET_RANGE_BETWEEN bad_order_ok, bad_order_slice, owned_utf8, 7, 3
+    EXPAND STR_EQ range_eq, range_slice, utf8_e
+    EXPAND STR_EQ prefix_eq, prefix_slice, utf8_a_e
+    EXPAND STR_EQ suffix_eq, suffix_slice, utf8_z
+    EXPAND STR_EQ range_to_eq, range_to_slice, utf8_a_e
+    EXPAND STR_EQ range_from_eq, range_from_slice, utf8_smile_z
+    EXPAND STR_EQ between_eq, between_slice, utf8_smile
+    EXPAND STR_IS_EMPTY bad_boundary_empty, bad_boundary_slice
+    EXPAND STR_IS_EMPTY bad_order_empty, bad_order_slice
+
+    range_flag_ok = eq range_ok, 1
+    prefix_flag_ok = eq prefix_ok, 1
+    suffix_flag_ok = eq suffix_ok, 1
+    range_to_flag_ok = eq range_to_ok, 1
+    range_from_flag_ok = eq range_from_ok, 1
+    between_flag_ok = eq between_ok, 1
+    bad_boundary_flag_ok = eq bad_boundary_ok, 0
+    bad_order_flag_ok = eq bad_order_ok, 0
+    range_value_ok = eq range_eq, 1
+    prefix_value_ok = eq prefix_eq, 1
+    suffix_value_ok = eq suffix_eq, 1
+    range_to_value_ok = eq range_to_eq, 1
+    range_from_value_ok = eq range_from_eq, 1
+    between_value_ok = eq between_eq, 1
+    bad_boundary_value_ok = eq bad_boundary_empty, 1
+    bad_order_value_ok = eq bad_order_empty, 1
+    ok01 = and range_flag_ok, range_value_ok
+    ok02 = and ok01, prefix_flag_ok
+    ok03 = and ok02, prefix_value_ok
+    ok04 = and ok03, suffix_flag_ok
+    ok05 = and ok04, suffix_value_ok
+    ok06 = and ok05, range_to_flag_ok
+    ok07 = and ok06, range_to_value_ok
+    ok08 = and ok07, range_from_flag_ok
+    ok09 = and ok08, range_from_value_ok
+    ok10 = and ok09, between_flag_ok
+    ok11 = and ok10, between_value_ok
+    ok12 = and ok11, bad_boundary_flag_ok
+    ok13 = and ok12, bad_boundary_value_ok
+    ok14 = and ok13, bad_order_flag_ok
+    ok = and ok14, bad_order_value_ok
+    EXPAND STRING_BUF_FREE owned_utf8
+    !utf8_boundary
+    !utf8_a_e
+    !utf8_e
+    !utf8_smile
+    !utf8_smile_z
+    !utf8_z
+    !range_ok
+    !range_slice
+    !prefix_ok
+    !prefix_slice
+    !suffix_ok
+    !suffix_slice
+    !range_to_ok
+    !range_to_slice
+    !range_from_ok
+    !range_from_slice
+    !between_ok
+    !between_slice
+    !bad_boundary_ok
+    !bad_boundary_slice
+    !bad_order_ok
+    !bad_order_slice
+    !range_eq
+    !prefix_eq
+    !suffix_eq
+    !range_to_eq
+    !range_from_eq
+    !between_eq
+    !bad_boundary_empty
+    !bad_order_empty
+    !range_flag_ok
+    !prefix_flag_ok
+    !suffix_flag_ok
+    !range_to_flag_ok
+    !range_from_flag_ok
+    !between_flag_ok
+    !bad_boundary_flag_ok
+    !bad_order_flag_ok
+    !range_value_ok
+    !prefix_value_ok
+    !suffix_value_ok
+    !range_to_value_ok
+    !range_from_value_ok
+    !between_value_ok
+    !bad_boundary_value_ok
+    !bad_order_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    br ok -> L_STRING_BUF_TRY_RANGE_OK, L_STRING_BUF_TRY_RANGE_FAIL
+
+L_STRING_BUF_TRY_RANGE_FAIL:
+    !ok
+    panic(920)
+
+L_STRING_BUF_TRY_RANGE_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
