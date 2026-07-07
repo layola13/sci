@@ -1100,6 +1100,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     EXPAND VEC_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
 [END_MACRO]
 
+[MACRO] VEC_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_AS_SLICE __vec_split_unchecked_slice_%out_left, %vec_reg
+    EXPAND SLICE_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, __vec_split_unchecked_slice_%out_left, %mid
+    !__vec_split_unchecked_slice_%out_left
+[END_MACRO]
+
+[MACRO] VEC_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_AS_MUT_SLICE __vec_split_mut_unchecked_slice_%out_left, %vec_reg
+    EXPAND SLICE_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, __vec_split_mut_unchecked_slice_%out_left, %mid
+    !__vec_split_mut_unchecked_slice_%out_left
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
     EXPAND VEC_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
 [END_MACRO]
@@ -1128,12 +1140,22 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     EXPAND VEC_TRY_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
+[MACRO] VEC_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_AS_SLICE __vec_range_unchecked_slice_%out_slice, %vec_reg
+    EXPAND SLICE_RANGE_UNCHECKED_U64 %out_slice, __vec_range_unchecked_slice_%out_slice, %start, %length
+    !__vec_range_unchecked_slice_%out_slice
+[END_MACRO]
+
 [MACRO] VEC_TRY_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
     EXPAND VEC_TRY_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
     EXPAND VEC_TRY_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
+[MACRO] VEC_GET_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
@@ -1144,6 +1166,12 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
 
 [MACRO] VEC_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
     EXPAND VEC_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
+[MACRO] VEC_GET_RANGE_MUT_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_AS_MUT_SLICE __vec_range_mut_unchecked_slice_%out_slice, %vec_reg
+    EXPAND SLICE_GET_RANGE_MUT_UNCHECKED_U64 %out_slice, __vec_range_mut_unchecked_slice_%out_slice, %start, %length
+    !__vec_range_mut_unchecked_slice_%out_slice
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len

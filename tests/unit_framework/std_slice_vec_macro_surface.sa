@@ -3027,6 +3027,153 @@ L_SLICE_VEC_CHECKED_RANGE_OK:
     !ok
     return
 
+@test "sa_std vec unchecked split range aliases"():
+L_ENTRY:
+    EXPAND VEC_NEW vec
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_PUSH_U64 vec, 40
+    EXPAND VEC_PUSH_U64 vec, 50
+
+    EXPAND VEC_SPLIT_AT_UNCHECKED_U64 left, right, vec, 2
+    EXPAND VEC_SPLIT_AT_MUT_UNCHECKED_U64 mut_left, mut_right, vec, 3
+    EXPAND SLICE_GET_MUT_PTR_U64 mut_left_ptr, mut_left, 1
+    store mut_left_ptr+0, 22 as u64
+    EXPAND SLICE_GET_MUT_PTR_U64 mut_right_ptr, mut_right, 0
+    store mut_right_ptr+0, 44 as u64
+    EXPAND VEC_RANGE_UNCHECKED_U64 range_slice, vec, 1, 3
+    EXPAND VEC_GET_RANGE_UNCHECKED_U64 get_range_slice, vec, 0, 2
+    EXPAND VEC_GET_RANGE_MUT_UNCHECKED_U64 mut_range_slice, vec, 4, 1
+    EXPAND SLICE_GET_MUT_PTR_U64 mut_range_ptr, mut_range_slice, 0
+    store mut_range_ptr+0, 55 as u64
+
+    EXPAND SLICE_GET_LEN left_len, left
+    EXPAND SLICE_GET_LEN right_len, right
+    EXPAND SLICE_FIRST_U64 right_first, right
+    EXPAND SLICE_GET_LEN mut_left_len, mut_left
+    EXPAND SLICE_GET_LEN mut_right_len, mut_right
+    EXPAND SLICE_GET_LEN range_len, range_slice
+    EXPAND SLICE_FIRST_U64 range_first, range_slice
+    EXPAND SLICE_LAST_U64 range_last, range_slice
+    EXPAND SLICE_GET_LEN get_range_len, get_range_slice
+    EXPAND SLICE_FIRST_U64 get_range_first, get_range_slice
+    EXPAND SLICE_LAST_U64 get_range_last, get_range_slice
+    EXPAND SLICE_GET_LEN mut_range_len, mut_range_slice
+    EXPAND VEC_TRY_GET_U64 after_left_mut_ok, after_left_mut, vec, 1
+    EXPAND VEC_TRY_GET_U64 after_right_mut_ok, after_right_mut, vec, 3
+    EXPAND VEC_TRY_GET_U64 after_range_mut_ok, after_range_mut, vec, 4
+
+    left_len_ok = eq left_len, 2
+    right_len_ok = eq right_len, 3
+    right_first_ok = eq right_first, 30
+    mut_left_len_ok = eq mut_left_len, 3
+    mut_right_len_ok = eq mut_right_len, 2
+    range_len_ok = eq range_len, 3
+    range_first_ok = eq range_first, 22
+    range_last_ok = eq range_last, 44
+    get_range_len_ok = eq get_range_len, 2
+    get_range_first_ok = eq get_range_first, 10
+    get_range_last_ok = eq get_range_last, 22
+    mut_range_len_ok = eq mut_range_len, 1
+    after_left_mut_flag_ok = eq after_left_mut_ok, 1
+    after_left_mut_value_ok = eq after_left_mut, 22
+    after_right_mut_flag_ok = eq after_right_mut_ok, 1
+    after_right_mut_value_ok = eq after_right_mut, 44
+    after_range_mut_flag_ok = eq after_range_mut_ok, 1
+    after_range_mut_value_ok = eq after_range_mut, 55
+
+    ok01 = and left_len_ok, right_len_ok
+    ok02 = and ok01, right_first_ok
+    ok03 = and ok02, mut_left_len_ok
+    ok04 = and ok03, mut_right_len_ok
+    ok05 = and ok04, range_len_ok
+    ok06 = and ok05, range_first_ok
+    ok07 = and ok06, range_last_ok
+    ok08 = and ok07, get_range_len_ok
+    ok09 = and ok08, get_range_first_ok
+    ok10 = and ok09, get_range_last_ok
+    ok11 = and ok10, mut_range_len_ok
+    ok12 = and ok11, after_left_mut_flag_ok
+    ok13 = and ok12, after_left_mut_value_ok
+    ok14 = and ok13, after_right_mut_flag_ok
+    ok15 = and ok14, after_right_mut_value_ok
+    ok16 = and ok15, after_range_mut_flag_ok
+    ok = and ok16, after_range_mut_value_ok
+
+    !left
+    !right
+    !mut_left
+    !mut_right
+    !mut_left_ptr
+    !mut_right_ptr
+    !range_slice
+    !get_range_slice
+    !mut_range_slice
+    !mut_range_ptr
+    !left_len
+    !right_len
+    !right_first
+    !mut_left_len
+    !mut_right_len
+    !range_len
+    !range_first
+    !range_last
+    !get_range_len
+    !get_range_first
+    !get_range_last
+    !mut_range_len
+    !after_left_mut_ok
+    !after_left_mut
+    !after_right_mut_ok
+    !after_right_mut
+    !after_range_mut_ok
+    !after_range_mut
+    !left_len_ok
+    !right_len_ok
+    !right_first_ok
+    !mut_left_len_ok
+    !mut_right_len_ok
+    !range_len_ok
+    !range_first_ok
+    !range_last_ok
+    !get_range_len_ok
+    !get_range_first_ok
+    !get_range_last_ok
+    !mut_range_len_ok
+    !after_left_mut_flag_ok
+    !after_left_mut_value_ok
+    !after_right_mut_flag_ok
+    !after_right_mut_value_ok
+    !after_range_mut_flag_ok
+    !after_range_mut_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_UNCHECKED_SPLIT_RANGE_OK, L_VEC_UNCHECKED_SPLIT_RANGE_FAIL
+
+L_VEC_UNCHECKED_SPLIT_RANGE_FAIL:
+    !ok
+    panic(948)
+
+L_VEC_UNCHECKED_SPLIT_RANGE_OK:
+    !ok
+    return
+
 @test "sa_std slice and vec rotate swap sorted macros"():
 L_ENTRY:
     data = alloc 40
