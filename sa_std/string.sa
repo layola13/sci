@@ -232,6 +232,18 @@
     !__string_buf_rfind_view_%out_ok
 [END_MACRO]
 
+[MACRO] STRING_BUF_STRIP_PREFIX %out_ok, %out_slice, %string_reg, %prefix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_strip_prefix_view_%out_ok, %string_reg
+    EXPAND STR_STRIP_PREFIX %out_ok, %out_slice, __string_buf_strip_prefix_view_%out_ok, %prefix_slice
+    !__string_buf_strip_prefix_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_STRIP_SUFFIX %out_ok, %out_slice, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_strip_suffix_view_%out_ok, %string_reg
+    EXPAND STR_STRIP_SUFFIX %out_ok, %out_slice, __string_buf_strip_suffix_view_%out_ok, %suffix_slice
+    !__string_buf_strip_suffix_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_INDEX_RANGE %out_ok, %out_slice, %string_reg, %start, %length
     EXPAND STRING_BUF_AS_STR __string_buf_index_view_%out_ok, %string_reg
     EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, __string_buf_index_view_%out_ok, %start, %length
