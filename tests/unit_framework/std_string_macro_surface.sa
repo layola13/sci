@@ -2458,17 +2458,17 @@ L_ENTRY:
     EXPAND STR_CEIL_CHAR_BOUNDARY ceil2, utf8_boundary, 2
     EXPAND STRING_CEIL_CHAR_BOUNDARY ceil4, utf8_boundary, 4
     EXPAND STR_CEIL_CHAR_BOUNDARY ceil9, utf8_boundary, 9
-    EXPAND STR_TRY_GET_RANGE range_e_ok, range_e, utf8_boundary, 1, 2
-    EXPAND STRING_TRY_GET_RANGE range_smile_ok, range_smile, utf8_boundary, 3, 4
-    EXPAND STR_TRY_GET_RANGE range_bad_start_ok, range_bad_start, utf8_boundary, 2, 1
-    EXPAND STRING_TRY_GET_RANGE range_bad_end_ok, range_bad_end, utf8_boundary, 1, 1
-    EXPAND STR_TRY_GET_PREFIX prefix_ae_ok, prefix_ae, utf8_boundary, 3
-    EXPAND STRING_TRY_GET_SUFFIX suffix_smile_z_ok, suffix_smile_z, utf8_boundary, 3
-    EXPAND STR_TRY_GET_SUFFIX suffix_z_ok, suffix_z, utf8_boundary, 7
-    EXPAND STR_TRY_GET_RANGE_TO range_to_ae_ok, range_to_ae, utf8_boundary, 3
-    EXPAND STRING_TRY_GET_RANGE_FROM range_from_smile_z_ok, range_from_smile_z, utf8_boundary, 3
-    EXPAND STR_TRY_GET_RANGE_BETWEEN between_smile_ok, between_smile, utf8_boundary, 3, 7
-    EXPAND STRING_TRY_GET_RANGE_BETWEEN between_bad_order_ok, between_bad_order, utf8_boundary, 7, 3
+    EXPAND STR_GET_RANGE range_e_ok, range_e, utf8_boundary, 1, 2
+    EXPAND STRING_GET_RANGE range_smile_ok, range_smile, utf8_boundary, 3, 4
+    EXPAND STR_GET_RANGE range_bad_start_ok, range_bad_start, utf8_boundary, 2, 1
+    EXPAND STRING_GET_RANGE range_bad_end_ok, range_bad_end, utf8_boundary, 1, 1
+    EXPAND STR_GET_PREFIX prefix_ae_ok, prefix_ae, utf8_boundary, 3
+    EXPAND STRING_GET_SUFFIX suffix_smile_z_ok, suffix_smile_z, utf8_boundary, 3
+    EXPAND STR_GET_SUFFIX suffix_z_ok, suffix_z, utf8_boundary, 7
+    EXPAND STR_GET_RANGE_TO range_to_ae_ok, range_to_ae, utf8_boundary, 3
+    EXPAND STRING_GET_RANGE_FROM range_from_smile_z_ok, range_from_smile_z, utf8_boundary, 3
+    EXPAND STR_GET_RANGE_BETWEEN between_smile_ok, between_smile, utf8_boundary, 3, 7
+    EXPAND STRING_GET_RANGE_BETWEEN between_bad_order_ok, between_bad_order, utf8_boundary, 7, 3
     EXPAND STR_SPLIT_AT_CHECKED split_checked_ok, split_checked_left, split_checked_right, utf8_boundary, 3
     EXPAND STRING_SPLIT_AT_CHECKED split_checked_bad_ok, split_checked_bad_left, split_checked_bad_right, utf8_boundary, 4
     EXPAND STR_EQ range_e_eq, range_e, utf8_e

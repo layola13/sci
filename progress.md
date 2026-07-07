@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String/str get-range alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str checked range-view naming aliases over existing UTF-8 boundary checked forms:
+  - `STR_GET_RANGE`, `STRING_GET_RANGE`
+  - `STR_GET_PREFIX`, `STRING_GET_PREFIX`
+  - `STR_GET_SUFFIX`, `STRING_GET_SUFFIX`
+  - `STR_GET_RANGE_TO`, `STRING_GET_RANGE_TO`
+  - `STR_GET_RANGE_FROM`, `STRING_GET_RANGE_FROM`
+  - `STR_GET_RANGE_BETWEEN`, `STRING_GET_RANGE_BETWEEN`
+- Semantics: these aliases preserve the existing local `(ok, slice)` result shape used by the `TRY_` get-range forms. Bounds and UTF-8 char-boundary checks stay delegated to the existing helpers. This does not claim Rust `Option<&str>` object layout, range trait object coverage, Rust panic behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+
 ## Completed: 2026-07-07 Vec strip alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

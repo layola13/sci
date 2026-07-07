@@ -4458,12 +4458,28 @@ L_STR_GET_RANGE_DONE_%out_ok:
     EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
 [END_MACRO]
 
+[MACRO] STR_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+    EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
+[MACRO] STRING_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+    EXPAND STR_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
 [MACRO] STR_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
     EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, 0, %end
 [END_MACRO]
 
 [MACRO] STRING_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
     EXPAND STR_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STR_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STRING_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
 [END_MACRO]
 
 [MACRO] STR_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
@@ -4495,6 +4511,14 @@ L_STR_GET_SUFFIX_DONE_%out_ok:
     EXPAND STR_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
 [END_MACRO]
 
+[MACRO] STR_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STRING_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
 [MACRO] STR_TRY_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
     EXPAND STR_TRY_GET_PREFIX %out_ok, %out_slice, %slice_reg, %end
 [END_MACRO]
@@ -4503,12 +4527,28 @@ L_STR_GET_SUFFIX_DONE_%out_ok:
     EXPAND STR_TRY_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
 [END_MACRO]
 
+[MACRO] STR_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STRING_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
 [MACRO] STR_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
     EXPAND STR_TRY_GET_SUFFIX %out_ok, %out_slice, %slice_reg, %start
 [END_MACRO]
 
 [MACRO] STRING_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
     EXPAND STR_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STR_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STRING_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
 [END_MACRO]
 
 [MACRO] STR_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
@@ -4535,6 +4575,14 @@ L_STR_GET_BETWEEN_DONE_%out_ok:
 
 [MACRO] STRING_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
     EXPAND STR_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STR_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
 [END_MACRO]
 
 [MACRO] STR_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
