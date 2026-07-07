@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 Vec parity documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Synced the stale Vec implemented-surface report in `docs/std_missing.md` with current `sa_std/vec.sa` source facts:
+  - Added current default/reference/deref conveniences.
+  - Added pointer-range, leak, raw-parts, NonNull parts, and spare-capacity surfaces.
+  - Added conversion/cloning, mut-return, `retain_mut`, and explicit U64 alias categories that were already present in source and historical test coverage.
+- Clarified the remaining Vec gap as generic `retain` / `retain_mut` beyond concrete U64 predicate forms, lazy `drain`/`splice` iterator semantics, and generic element support.
+- Validation status:
+  - Runtime tests intentionally not run because this batch has no runtime or macro implementation changes.
+  - `git diff --check`: pass.
+
 ## Completed: 2026-07-07 Vec first/last U64 alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
