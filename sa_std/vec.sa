@@ -1068,6 +1068,14 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_strip_suffix_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
+    EXPAND VEC_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
+[END_MACRO]
+
+[MACRO] VEC_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
+    EXPAND VEC_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
+[END_MACRO]
+
 [MACRO] VEC_TRIM_PREFIX_U64 %out_slice, %vec_reg, %prefix_slice
     EXPAND VEC_AS_SLICE __vec_trim_prefix_slice_%out_slice, %vec_reg
     EXPAND SLICE_TRIM_PREFIX_U64 %out_slice, __vec_trim_prefix_slice_%out_slice, %prefix_slice

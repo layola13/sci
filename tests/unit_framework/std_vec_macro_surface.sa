@@ -348,9 +348,9 @@ L_ENTRY:
     EXPAND VEC_ENDS_WITH_U64 ends_ok, vec, suffix
     EXPAND VEC_STARTS_WITH_U64 starts_miss, vec, miss_prefix
     EXPAND VEC_ENDS_WITH_U64 ends_long_miss, vec, long_suffix
-    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, vec, prefix
-    EXPAND VEC_TRY_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, vec, suffix
-    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, vec, miss_prefix
+    EXPAND VEC_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, vec, prefix
+    EXPAND VEC_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, vec, suffix
+    EXPAND VEC_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, vec, miss_prefix
     EXPAND SLICE_GET_LEN strip_prefix_tail_len, strip_prefix_tail
     EXPAND SLICE_FIRST_U64 strip_prefix_tail_first, strip_prefix_tail
     EXPAND SLICE_GET_LEN strip_suffix_head_len, strip_suffix_head
