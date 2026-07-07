@@ -679,6 +679,89 @@ L_SLICE_CONTAINS_MISS_%out_bool:
 L_SLICE_CONTAINS_END_%out_bool:
 [END_MACRO]
 
+[MACRO] SLICE_EQ_U64 %out_bool, %left_slice, %right_slice
+    __slice_eq_left_ptr_%out_bool = load %left_slice+Slice_ptr as ptr
+    __slice_eq_right_ptr_%out_bool = load %right_slice+Slice_ptr as ptr
+    __slice_eq_left_len_%out_bool = load %left_slice+Slice_len as u64
+    __slice_eq_right_len_%out_bool = load %right_slice+Slice_len as u64
+    __slice_eq_same_len_%out_bool = eq __slice_eq_left_len_%out_bool, __slice_eq_right_len_%out_bool
+    __slice_eq_idx_slot_%out_bool = stack_alloc 8
+    store __slice_eq_idx_slot_%out_bool+0, 0 as u64
+    br __slice_eq_same_len_%out_bool -> L_SLICE_EQ_HEAD_%out_bool, L_SLICE_EQ_FALSE_%out_bool
+
+L_SLICE_EQ_HEAD_%out_bool:
+    __slice_eq_idx_%out_bool = load __slice_eq_idx_slot_%out_bool+0 as u64
+    __slice_eq_done_%out_bool = eq __slice_eq_idx_%out_bool, __slice_eq_left_len_%out_bool
+    br __slice_eq_done_%out_bool -> L_SLICE_EQ_TRUE_%out_bool, L_SLICE_EQ_BODY_%out_bool
+
+L_SLICE_EQ_BODY_%out_bool:
+    __slice_eq_off_%out_bool = mul __slice_eq_idx_%out_bool, 8
+    __slice_eq_left_item_%out_bool = ptr_add __slice_eq_left_ptr_%out_bool, __slice_eq_off_%out_bool
+    __slice_eq_right_item_%out_bool = ptr_add __slice_eq_right_ptr_%out_bool, __slice_eq_off_%out_bool
+    __slice_eq_left_value_%out_bool = load __slice_eq_left_item_%out_bool+0 as u64
+    __slice_eq_right_value_%out_bool = load __slice_eq_right_item_%out_bool+0 as u64
+    __slice_eq_values_match_%out_bool = eq __slice_eq_left_value_%out_bool, __slice_eq_right_value_%out_bool
+    br __slice_eq_values_match_%out_bool -> L_SLICE_EQ_NEXT_%out_bool, L_SLICE_EQ_FALSE_LOOP_%out_bool
+
+L_SLICE_EQ_NEXT_%out_bool:
+    __slice_eq_next_%out_bool = add __slice_eq_idx_%out_bool, 1
+    store __slice_eq_idx_slot_%out_bool+0, __slice_eq_next_%out_bool as u64
+    !__slice_eq_next_%out_bool
+    !__slice_eq_values_match_%out_bool
+    !__slice_eq_right_value_%out_bool
+    !__slice_eq_left_value_%out_bool
+    !__slice_eq_right_item_%out_bool
+    !__slice_eq_left_item_%out_bool
+    !__slice_eq_off_%out_bool
+    !__slice_eq_done_%out_bool
+    !__slice_eq_idx_%out_bool
+    jmp L_SLICE_EQ_HEAD_%out_bool
+
+L_SLICE_EQ_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__slice_eq_done_%out_bool
+    !__slice_eq_idx_%out_bool
+    !__slice_eq_same_len_%out_bool
+    !__slice_eq_right_len_%out_bool
+    !__slice_eq_left_len_%out_bool
+    !__slice_eq_right_ptr_%out_bool
+    !__slice_eq_left_ptr_%out_bool
+    jmp L_SLICE_EQ_END_%out_bool
+
+L_SLICE_EQ_FALSE_LOOP_%out_bool:
+    %out_bool = add 0, 0
+    !__slice_eq_values_match_%out_bool
+    !__slice_eq_right_value_%out_bool
+    !__slice_eq_left_value_%out_bool
+    !__slice_eq_right_item_%out_bool
+    !__slice_eq_left_item_%out_bool
+    !__slice_eq_off_%out_bool
+    !__slice_eq_done_%out_bool
+    !__slice_eq_idx_%out_bool
+    !__slice_eq_same_len_%out_bool
+    !__slice_eq_right_len_%out_bool
+    !__slice_eq_left_len_%out_bool
+    !__slice_eq_right_ptr_%out_bool
+    !__slice_eq_left_ptr_%out_bool
+    jmp L_SLICE_EQ_END_%out_bool
+
+L_SLICE_EQ_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__slice_eq_same_len_%out_bool
+    !__slice_eq_right_len_%out_bool
+    !__slice_eq_left_len_%out_bool
+    !__slice_eq_right_ptr_%out_bool
+    !__slice_eq_left_ptr_%out_bool
+
+L_SLICE_EQ_END_%out_bool:
+[END_MACRO]
+
+[MACRO] SLICE_NE_U64 %out_bool, %left_slice, %right_slice
+    EXPAND SLICE_EQ_U64 __slice_ne_eq_%out_bool, %left_slice, %right_slice
+    %out_bool = eq __slice_ne_eq_%out_bool, 0
+    !__slice_ne_eq_%out_bool
+[END_MACRO]
+
 [MACRO] SLICE_STARTS_WITH_U64 %out_bool, %slice_reg, %prefix_slice
     __slice_ptr_%out_bool = load %slice_reg+Slice_ptr as ptr
     __slice_prefix_ptr_%out_bool = load %prefix_slice+Slice_ptr as ptr

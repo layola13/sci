@@ -224,20 +224,40 @@ L_ENTRY:
     suffix_data = alloc 8
     miss_prefix_data = alloc 8
     long_suffix_data = alloc 24
+    eq_data = alloc 24
+    eq_mismatch_data = alloc 24
+    eq_short_data = alloc 16
     store prefix_data+0, 44 as u64
     store suffix_data+0, 44 as u64
     store miss_prefix_data+0, 66 as u64
     store long_suffix_data+0, 44 as u64
     store long_suffix_data+8, 55 as u64
     store long_suffix_data+16, 66 as u64
+    store eq_data+0, 44 as u64
+    store eq_data+8, 55 as u64
+    store eq_data+16, 66 as u64
+    store eq_mismatch_data+0, 44 as u64
+    store eq_mismatch_data+8, 55 as u64
+    store eq_mismatch_data+16, 77 as u64
+    store eq_short_data+0, 44 as u64
+    store eq_short_data+8, 55 as u64
     prefix = alloc Slice_SIZE
     suffix = alloc Slice_SIZE
     miss_prefix = alloc Slice_SIZE
     long_suffix = alloc Slice_SIZE
+    eq_slice = alloc Slice_SIZE
+    eq_mismatch_slice = alloc Slice_SIZE
+    eq_short_slice = alloc Slice_SIZE
     EXPAND SLICE_NEW prefix, prefix_data, 1
     EXPAND SLICE_NEW suffix, suffix_data, 1
     EXPAND SLICE_NEW miss_prefix, miss_prefix_data, 1
     EXPAND SLICE_NEW long_suffix, long_suffix_data, 3
+    EXPAND SLICE_NEW eq_slice, eq_data, 3
+    EXPAND SLICE_NEW eq_mismatch_slice, eq_mismatch_data, 3
+    EXPAND SLICE_NEW eq_short_slice, eq_short_data, 2
+    EXPAND VEC_FROM_SLICE_U64 eq_vec, eq_slice
+    EXPAND VEC_FROM_SLICE_U64 eq_vec_same, eq_slice
+    EXPAND VEC_FROM_SLICE_U64 eq_vec_mismatch, eq_mismatch_slice
     EXPAND VEC_RESERVE_EXACT_U64 vec, 2
     EXPAND VEC_CAPACITY cap_exact, vec
     EXPAND VEC_RESERVE_U64 vec, 0
@@ -251,6 +271,15 @@ L_ENTRY:
     EXPAND VEC_TRY_BACK_U64 back_try_ok, back_try, vec
     EXPAND VEC_CONTAINS_U64 contains_55, vec, 55
     EXPAND VEC_CONTAINS_U64 contains_123, vec, 123
+    EXPAND SLICE_EQ_U64 slice_eq_match, eq_slice, eq_slice
+    EXPAND SLICE_NE_U64 slice_ne_mismatch, eq_slice, eq_mismatch_slice
+    EXPAND SLICE_NE_U64 slice_ne_len, eq_slice, eq_short_slice
+    EXPAND VEC_EQ_SLICE_U64 vec_eq_slice, eq_vec, eq_slice
+    EXPAND VEC_NE_SLICE_U64 vec_ne_slice, eq_vec, eq_mismatch_slice
+    EXPAND SLICE_EQ_VEC_U64 slice_eq_vec, eq_slice, eq_vec
+    EXPAND SLICE_NE_VEC_U64 slice_ne_vec, eq_mismatch_slice, eq_vec
+    EXPAND VEC_EQ_U64 vec_eq_vec, eq_vec, eq_vec_same
+    EXPAND VEC_NE_U64 vec_ne_vec, eq_vec, eq_vec_mismatch
     EXPAND VEC_STARTS_WITH_U64 starts_ok, vec, prefix
     EXPAND VEC_ENDS_WITH_U64 ends_ok, vec, suffix
     EXPAND VEC_STARTS_WITH_U64 starts_miss, vec, miss_prefix
@@ -332,6 +361,23 @@ L_ENTRY:
     back_try_value_ok = eq back_try, 44
     contains_55_ok = eq contains_55, 1
     contains_123_ok = eq contains_123, 0
+    slice_eq_match_ok = eq slice_eq_match, 1
+    slice_ne_mismatch_ok = eq slice_ne_mismatch, 1
+    slice_ne_len_ok = eq slice_ne_len, 1
+    vec_eq_slice_ok = eq vec_eq_slice, 1
+    vec_ne_slice_ok = eq vec_ne_slice, 1
+    slice_eq_vec_ok = eq slice_eq_vec, 1
+    slice_ne_vec_ok = eq slice_ne_vec, 1
+    vec_eq_vec_ok = eq vec_eq_vec, 1
+    vec_ne_vec_ok = eq vec_ne_vec, 1
+    eq_alias01 = and slice_eq_match_ok, slice_ne_mismatch_ok
+    eq_alias02 = and eq_alias01, slice_ne_len_ok
+    eq_alias03 = and eq_alias02, vec_eq_slice_ok
+    eq_alias04 = and eq_alias03, vec_ne_slice_ok
+    eq_alias05 = and eq_alias04, slice_eq_vec_ok
+    eq_alias06 = and eq_alias05, slice_ne_vec_ok
+    eq_alias07 = and eq_alias06, vec_eq_vec_ok
+    eq_alias_ok = and eq_alias07, vec_ne_vec_ok
     starts_match_ok = eq starts_ok, 1
     ends_match_ok = eq ends_ok, 1
     starts_miss_ok = eq starts_miss, 0
@@ -415,7 +461,8 @@ L_ENTRY:
     ok30 = and ok29, contains_123_ok
     pattern01 = and starts_match_ok, ends_match_ok
     pattern02 = and pattern01, starts_miss_ok
-    pattern_ok = and pattern02, ends_long_miss_ok
+    pattern03 = and pattern02, ends_long_miss_ok
+    pattern_ok = and pattern03, eq_alias_ok
     strip01 = and strip_prefix_flag_ok, strip_suffix_flag_ok
     strip02 = and strip01, strip_prefix_miss_flag_ok
     strip03 = and strip02, strip_prefix_tail_len_ok
@@ -498,6 +545,15 @@ L_ENTRY:
     !back_try
     !contains_55
     !contains_123
+    !slice_eq_match
+    !slice_ne_mismatch
+    !slice_ne_len
+    !vec_eq_slice
+    !vec_ne_slice
+    !slice_eq_vec
+    !slice_ne_vec
+    !vec_eq_vec
+    !vec_ne_vec
     !starts_ok
     !ends_ok
     !starts_miss
@@ -594,6 +650,23 @@ L_ENTRY:
     !back_try_value_ok
     !contains_55_ok
     !contains_123_ok
+    !slice_eq_match_ok
+    !slice_ne_mismatch_ok
+    !slice_ne_len_ok
+    !vec_eq_slice_ok
+    !vec_ne_slice_ok
+    !slice_eq_vec_ok
+    !slice_ne_vec_ok
+    !vec_eq_vec_ok
+    !vec_ne_vec_ok
+    !eq_alias01
+    !eq_alias02
+    !eq_alias03
+    !eq_alias04
+    !eq_alias05
+    !eq_alias06
+    !eq_alias07
+    !eq_alias_ok
     !starts_match_ok
     !ends_match_ok
     !starts_miss_ok
@@ -717,6 +790,7 @@ L_ENTRY:
     !ok70
     !pattern01
     !pattern02
+    !pattern03
     !pattern_ok
     !strip01
     !strip02
@@ -729,10 +803,19 @@ L_ENTRY:
     !suffix
     !miss_prefix
     !long_suffix
+    !eq_slice
+    !eq_mismatch_slice
+    !eq_short_slice
     !prefix_data
     !suffix_data
     !miss_prefix_data
     !long_suffix_data
+    !eq_data
+    !eq_mismatch_data
+    !eq_short_data
+    EXPAND VEC_FREE eq_vec_mismatch
+    EXPAND VEC_FREE eq_vec_same
+    EXPAND VEC_FREE eq_vec
     EXPAND VEC_FREE vec
     br ok -> L_OK, L_FAIL
 

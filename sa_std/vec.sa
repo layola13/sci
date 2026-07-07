@@ -774,6 +774,40 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_contains_slice_%out_bool
 [END_MACRO]
 
+[MACRO] VEC_EQ_SLICE_U64 %out_bool, %vec_reg, %slice_reg
+    EXPAND VEC_AS_SLICE __vec_eq_slice_%out_bool, %vec_reg
+    EXPAND SLICE_EQ_U64 %out_bool, __vec_eq_slice_%out_bool, %slice_reg
+    !__vec_eq_slice_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_NE_SLICE_U64 %out_bool, %vec_reg, %slice_reg
+    EXPAND VEC_EQ_SLICE_U64 __vec_ne_slice_eq_%out_bool, %vec_reg, %slice_reg
+    %out_bool = eq __vec_ne_slice_eq_%out_bool, 0
+    !__vec_ne_slice_eq_%out_bool
+[END_MACRO]
+
+[MACRO] SLICE_EQ_VEC_U64 %out_bool, %slice_reg, %vec_reg
+    EXPAND VEC_EQ_SLICE_U64 %out_bool, %vec_reg, %slice_reg
+[END_MACRO]
+
+[MACRO] SLICE_NE_VEC_U64 %out_bool, %slice_reg, %vec_reg
+    EXPAND VEC_NE_SLICE_U64 %out_bool, %vec_reg, %slice_reg
+[END_MACRO]
+
+[MACRO] VEC_EQ_U64 %out_bool, %left_vec, %right_vec
+    EXPAND VEC_AS_SLICE __vec_eq_left_%out_bool, %left_vec
+    EXPAND VEC_AS_SLICE __vec_eq_right_%out_bool, %right_vec
+    EXPAND SLICE_EQ_U64 %out_bool, __vec_eq_left_%out_bool, __vec_eq_right_%out_bool
+    !__vec_eq_left_%out_bool
+    !__vec_eq_right_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_NE_U64 %out_bool, %left_vec, %right_vec
+    EXPAND VEC_EQ_U64 __vec_ne_eq_%out_bool, %left_vec, %right_vec
+    %out_bool = eq __vec_ne_eq_%out_bool, 0
+    !__vec_ne_eq_%out_bool
+[END_MACRO]
+
 [MACRO] VEC_STARTS_WITH_U64 %out_bool, %vec_reg, %prefix_slice
     EXPAND VEC_AS_SLICE __vec_starts_slice_%out_bool, %vec_reg
     EXPAND SLICE_STARTS_WITH_U64 %out_bool, __vec_starts_slice_%out_bool, %prefix_slice
