@@ -388,10 +388,18 @@ L_VEC_PEEK_MUT_END_%out_ok:
     !__vec_split_first_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
     EXPAND VEC_AS_MUT_SLICE __vec_split_first_mut_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, __vec_split_first_mut_slice_%out_ok
     !__vec_split_first_mut_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
@@ -400,10 +408,18 @@ L_VEC_PEEK_MUT_END_%out_ok:
     !__vec_split_last_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
     EXPAND VEC_AS_MUT_SLICE __vec_split_last_mut_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, __vec_split_last_mut_slice_%out_ok
     !__vec_split_last_mut_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_PUSH %vec_reg, %value, %elem_size

@@ -1062,6 +1062,155 @@ L_OK:
     !ok
     return
 
+@test "sa_std vec split first last aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_SPLIT_FIRST_U64 first_ok, first_value, first_rest, vec
+    EXPAND SLICE_GET_LEN first_rest_len, first_rest
+    EXPAND SLICE_FIRST_U64 first_rest_first, first_rest
+    EXPAND VEC_SPLIT_LAST_U64 last_ok, last_value, last_rest, vec
+    EXPAND SLICE_GET_LEN last_rest_len, last_rest
+    EXPAND SLICE_LAST_U64 last_rest_last, last_rest
+    EXPAND VEC_SPLIT_FIRST_MUT_U64 first_mut_ok, first_mut_ptr, first_mut_rest, vec
+    store first_mut_ptr+0, 11 as u64
+    EXPAND VEC_TRY_GET_U64 first_after_ok, first_after, vec, 0
+    EXPAND SLICE_GET_LEN first_mut_rest_len, first_mut_rest
+    EXPAND VEC_SPLIT_LAST_MUT_U64 last_mut_ok, last_mut_ptr, last_mut_rest, vec
+    store last_mut_ptr+0, 33 as u64
+    EXPAND VEC_TRY_GET_U64 last_after_ok, last_after, vec, 2
+    EXPAND SLICE_GET_LEN last_mut_rest_len, last_mut_rest
+    EXPAND VEC_WITH_CAPACITY_U64 empty_vec, 0
+    EXPAND VEC_SPLIT_FIRST_U64 empty_first_ok, empty_first_value, empty_first_rest, empty_vec
+    EXPAND SLICE_GET_LEN empty_first_rest_len, empty_first_rest
+    EXPAND VEC_SPLIT_LAST_MUT_U64 empty_last_mut_ok, empty_last_mut_ptr, empty_last_mut_rest, empty_vec
+    EXPAND SLICE_GET_LEN empty_last_mut_rest_len, empty_last_mut_rest
+
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first_value, 10
+    first_rest_len_ok = eq first_rest_len, 2
+    first_rest_first_ok = eq first_rest_first, 20
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last_value, 30
+    last_rest_len_ok = eq last_rest_len, 2
+    last_rest_last_ok = eq last_rest_last, 20
+    first_mut_flag_ok = eq first_mut_ok, 1
+    first_after_flag_ok = eq first_after_ok, 1
+    first_after_value_ok = eq first_after, 11
+    first_mut_rest_len_ok = eq first_mut_rest_len, 2
+    last_mut_flag_ok = eq last_mut_ok, 1
+    last_after_flag_ok = eq last_after_ok, 1
+    last_after_value_ok = eq last_after, 33
+    last_mut_rest_len_ok = eq last_mut_rest_len, 2
+    empty_first_flag_ok = eq empty_first_ok, 0
+    empty_first_value_ok = eq empty_first_value, 0
+    empty_first_rest_len_ok = eq empty_first_rest_len, 0
+    empty_last_mut_flag_ok = eq empty_last_mut_ok, 0
+    empty_last_mut_rest_len_ok = eq empty_last_mut_rest_len, 0
+    ok01 = and first_flag_ok, first_value_ok
+    ok02 = and ok01, first_rest_len_ok
+    ok03 = and ok02, first_rest_first_ok
+    ok04 = and ok03, last_flag_ok
+    ok05 = and ok04, last_value_ok
+    ok06 = and ok05, last_rest_len_ok
+    ok07 = and ok06, last_rest_last_ok
+    ok08 = and ok07, first_mut_flag_ok
+    ok09 = and ok08, first_after_flag_ok
+    ok10 = and ok09, first_after_value_ok
+    ok11 = and ok10, first_mut_rest_len_ok
+    ok12 = and ok11, last_mut_flag_ok
+    ok13 = and ok12, last_after_flag_ok
+    ok14 = and ok13, last_after_value_ok
+    ok15 = and ok14, last_mut_rest_len_ok
+    ok16 = and ok15, empty_first_flag_ok
+    ok17 = and ok16, empty_first_value_ok
+    ok18 = and ok17, empty_first_rest_len_ok
+    ok19 = and ok18, empty_last_mut_flag_ok
+    ok = and ok19, empty_last_mut_rest_len_ok
+    !first_ok
+    !first_value
+    !first_rest
+    !first_rest_len
+    !first_rest_first
+    !last_ok
+    !last_value
+    !last_rest
+    !last_rest_len
+    !last_rest_last
+    !first_mut_ok
+    !first_mut_ptr
+    !first_mut_rest
+    !first_after_ok
+    !first_after
+    !first_mut_rest_len
+    !last_mut_ok
+    !last_mut_ptr
+    !last_mut_rest
+    !last_after_ok
+    !last_after
+    !last_mut_rest_len
+    EXPAND VEC_FREE empty_vec
+    !empty_first_ok
+    !empty_first_value
+    !empty_first_rest
+    !empty_first_rest_len
+    !empty_last_mut_ok
+    !empty_last_mut_ptr
+    !empty_last_mut_rest
+    !empty_last_mut_rest_len
+    EXPAND VEC_FREE vec
+    !first_flag_ok
+    !first_value_ok
+    !first_rest_len_ok
+    !first_rest_first_ok
+    !last_flag_ok
+    !last_value_ok
+    !last_rest_len_ok
+    !last_rest_last_ok
+    !first_mut_flag_ok
+    !first_after_flag_ok
+    !first_after_value_ok
+    !first_mut_rest_len_ok
+    !last_mut_flag_ok
+    !last_after_flag_ok
+    !last_after_value_ok
+    !last_mut_rest_len_ok
+    !empty_first_flag_ok
+    !empty_first_value_ok
+    !empty_first_rest_len_ok
+    !empty_last_mut_flag_ok
+    !empty_last_mut_rest_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    br ok -> L_VEC_SPLIT_ALIAS_OK, L_VEC_SPLIT_ALIAS_FAIL
+
+L_VEC_SPLIT_ALIAS_FAIL:
+    !ok
+    panic(937)
+
+L_VEC_SPLIT_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std vec extend trait aliases"():
 L_ENTRY:
     src_data = alloc 16

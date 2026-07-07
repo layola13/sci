@@ -387,13 +387,13 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/facade/test changes are complete for the Vec `pop_if_mut` alias batch.
+- Source/facade/test changes are complete for the Vec split-first/last alias batch.
 - Source-std `std_vec_macro_surface.sa` and `std_string_macro_surface.sa`, full `unit-framework`, install sync, and installed-state String/Vec full tests pass.
 - The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec `AsMut<Vec<T>>` whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
 
 ## Next Priority
 
-- Commit the Vec `pop_if_mut` alias batch, then continue the highest-priority String/Vec Rust API parity audit.
+- Commit the Vec split-first/last alias batch, then continue the highest-priority String/Vec Rust API parity audit.
 
 ## Notes
 
