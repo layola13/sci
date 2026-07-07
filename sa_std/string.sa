@@ -244,6 +244,36 @@
     !__string_buf_ceil_char_boundary_view_%out_index
 [END_MACRO]
 
+[MACRO] STRING_BUF_IS_UTF8 %out_bool, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_is_utf8_view_%out_bool, %string_reg
+    EXPAND STR_IS_UTF8 %out_bool, __string_buf_is_utf8_view_%out_bool
+    !__string_buf_is_utf8_view_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_CHAR_COUNT %out_count, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_char_count_view_%out_count, %string_reg
+    EXPAND STR_CHAR_COUNT %out_count, __string_buf_char_count_view_%out_count
+    !__string_buf_char_count_view_%out_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_CHAR_AT %out_ok, %out_codepoint, %string_reg, %char_index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_char_at_view_%out_ok, %string_reg
+    EXPAND STR_TRY_CHAR_AT %out_ok, %out_codepoint, __string_buf_try_char_at_view_%out_ok, %char_index
+    !__string_buf_try_char_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %string_reg, %byte_index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_char_at_byte_view_%out_ok, %string_reg
+    EXPAND STR_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, __string_buf_try_char_at_byte_view_%out_ok, %byte_index
+    !__string_buf_try_char_at_byte_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_CHAR_RANGE_AT %out_ok, %out_slice, %string_reg, %char_index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_char_range_at_view_%out_ok, %string_reg
+    EXPAND STR_TRY_CHAR_RANGE_AT %out_ok, %out_slice, __string_buf_try_char_range_at_view_%out_ok, %char_index
+    !__string_buf_try_char_range_at_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_FIND %out_ok, %out_index, %string_reg, %needle_slice
     EXPAND STRING_BUF_AS_STR __string_buf_find_view_%out_ok, %string_reg
     EXPAND STR_FIND %out_ok, %out_index, __string_buf_find_view_%out_ok, %needle_slice
@@ -380,6 +410,18 @@
 
 [MACRO] STRING_BUF_BYTES %out_slice, %string_reg
     EXPAND STRING_BUF_AS_BYTES %out_slice, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_BYTE_LEN %out_len, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_byte_len_view_%out_len, %string_reg
+    EXPAND STR_BYTE_LEN %out_len, __string_buf_byte_len_view_%out_len
+    !__string_buf_byte_len_view_%out_len
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_BYTE_AT %out_ok, %out_byte, %string_reg, %index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_byte_at_view_%out_ok, %string_reg
+    EXPAND STR_TRY_BYTE_AT %out_ok, %out_byte, __string_buf_try_byte_at_view_%out_ok, %index
+    !__string_buf_try_byte_at_view_%out_ok
 [END_MACRO]
 
 [MACRO] STRING_BUF_AS_MUT_BYTES %out_slice, %string_reg

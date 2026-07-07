@@ -3340,6 +3340,155 @@ L_STRING_BUF_CHAR_BOUNDARY_OK:
     !ok
     return
 
+@test "sa_std string buffer utf8 view aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_smile, &UTF8_SMILE, 4
+    invalid_utf8_data = stack_alloc 2
+    store invalid_utf8_data+0, 195 as u8
+    store invalid_utf8_data+1, 40 as u8
+    EXPAND STR_FROM_PARTS invalid_utf8, invalid_utf8_data, 2
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED invalid_owned, invalid_utf8
+    EXPAND STRING_BUF_BYTE_LEN byte_len, owned_utf8
+    EXPAND STRING_BUF_TRY_BYTE_AT byte0_ok, byte0, owned_utf8, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT byte_bad_ok, byte_bad, owned_utf8, 99
+    EXPAND STRING_BUF_IS_UTF8 utf8_valid, owned_utf8
+    EXPAND STRING_BUF_IS_UTF8 utf8_invalid, invalid_owned
+    EXPAND STRING_BUF_CHAR_COUNT char_count, owned_utf8
+    EXPAND STRING_BUF_TRY_CHAR_AT char1_ok, char1, owned_utf8, 1
+    EXPAND STRING_BUF_TRY_CHAR_AT char_bad_ok, char_bad, owned_utf8, 4
+    EXPAND STRING_BUF_TRY_CHAR_AT_BYTE byte_char_smile_ok, byte_char_smile, byte_char_smile_len, owned_utf8, 3
+    EXPAND STRING_BUF_TRY_CHAR_AT_BYTE byte_char_bad_ok, byte_char_bad, byte_char_bad_len, owned_utf8, 2
+    EXPAND STRING_BUF_TRY_CHAR_RANGE_AT range_smile_ok, range_smile, owned_utf8, 2
+    EXPAND STRING_BUF_TRY_CHAR_RANGE_AT range_bad_ok, range_bad, owned_utf8, 4
+    EXPAND STR_EQ range_smile_eq, range_smile, utf8_smile
+    EXPAND STR_IS_EMPTY range_bad_empty, range_bad
+
+    byte_len_ok = eq byte_len, 8
+    byte0_flag_ok = eq byte0_ok, 1
+    byte0_value_ok = eq byte0, 97
+    byte_bad_flag_ok = eq byte_bad_ok, 0
+    byte_bad_value_ok = eq byte_bad, 0
+    utf8_valid_ok = eq utf8_valid, 1
+    utf8_invalid_ok = eq utf8_invalid, 0
+    char_count_ok = eq char_count, 4
+    char1_flag_ok = eq char1_ok, 1
+    char1_value_ok = eq char1, 233
+    char_bad_flag_ok = eq char_bad_ok, 0
+    char_bad_value_ok = eq char_bad, 0
+    byte_char_smile_flag_ok = eq byte_char_smile_ok, 1
+    byte_char_smile_value_ok = eq byte_char_smile, 128578
+    byte_char_smile_len_ok = eq byte_char_smile_len, 4
+    byte_char_bad_flag_ok = eq byte_char_bad_ok, 0
+    byte_char_bad_value_ok = eq byte_char_bad, 0
+    byte_char_bad_len_ok = eq byte_char_bad_len, 0
+    range_smile_flag_ok = eq range_smile_ok, 1
+    range_smile_value_ok = eq range_smile_eq, 1
+    range_bad_flag_ok = eq range_bad_ok, 0
+    range_bad_empty_ok = eq range_bad_empty, 1
+    ok01 = and byte_len_ok, byte0_flag_ok
+    ok02 = and ok01, byte0_value_ok
+    ok03 = and ok02, byte_bad_flag_ok
+    ok04 = and ok03, byte_bad_value_ok
+    ok05 = and ok04, utf8_valid_ok
+    ok06 = and ok05, utf8_invalid_ok
+    ok07 = and ok06, char_count_ok
+    ok08 = and ok07, char1_flag_ok
+    ok09 = and ok08, char1_value_ok
+    ok10 = and ok09, char_bad_flag_ok
+    ok11 = and ok10, char_bad_value_ok
+    ok12 = and ok11, byte_char_smile_flag_ok
+    ok13 = and ok12, byte_char_smile_value_ok
+    ok14 = and ok13, byte_char_smile_len_ok
+    ok15 = and ok14, byte_char_bad_flag_ok
+    ok16 = and ok15, byte_char_bad_value_ok
+    ok17 = and ok16, byte_char_bad_len_ok
+    ok18 = and ok17, range_smile_flag_ok
+    ok19 = and ok18, range_smile_value_ok
+    ok20 = and ok19, range_bad_flag_ok
+    ok = and ok20, range_bad_empty_ok
+    EXPAND STRING_BUF_FREE owned_utf8
+    EXPAND STRING_BUF_FREE invalid_owned
+    !utf8_boundary
+    !utf8_smile
+    !invalid_utf8
+    !byte_len
+    !byte0_ok
+    !byte0
+    !byte_bad_ok
+    !byte_bad
+    !utf8_valid
+    !utf8_invalid
+    !char_count
+    !char1_ok
+    !char1
+    !char_bad_ok
+    !char_bad
+    !byte_char_smile_ok
+    !byte_char_smile
+    !byte_char_smile_len
+    !byte_char_bad_ok
+    !byte_char_bad
+    !byte_char_bad_len
+    !range_smile_ok
+    !range_smile
+    !range_bad_ok
+    !range_bad
+    !range_smile_eq
+    !range_bad_empty
+    !byte_len_ok
+    !byte0_flag_ok
+    !byte0_value_ok
+    !byte_bad_flag_ok
+    !byte_bad_value_ok
+    !utf8_valid_ok
+    !utf8_invalid_ok
+    !char_count_ok
+    !char1_flag_ok
+    !char1_value_ok
+    !char_bad_flag_ok
+    !char_bad_value_ok
+    !byte_char_smile_flag_ok
+    !byte_char_smile_value_ok
+    !byte_char_smile_len_ok
+    !byte_char_bad_flag_ok
+    !byte_char_bad_value_ok
+    !byte_char_bad_len_ok
+    !range_smile_flag_ok
+    !range_smile_value_ok
+    !range_bad_flag_ok
+    !range_bad_empty_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    br ok -> L_STRING_BUF_UTF8_VIEW_ALIAS_OK, L_STRING_BUF_UTF8_VIEW_ALIAS_FAIL
+
+L_STRING_BUF_UTF8_VIEW_ALIAS_FAIL:
+    !ok
+    panic(922)
+
+L_STRING_BUF_UTF8_VIEW_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
