@@ -186,6 +186,7 @@
 - [x] `std::os::net::linux_ext::UnixSocketExt::set_mark`：补 UnixStream / UnixDatagram 的 Linux `SO_MARK` setter facade，运行时验证 AF_UNIX stream/datagram 句柄并映射权限拒绝/不支持状态。
 - [x] Unix socket set_mark 批次已完成 `sa-std-static`、源码 full Unix socket 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 String Extend 风格别名与 Vec Extend 风格别名，复用现有 push/append/slice-copy 路径，不引入虚构 iterator object model；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager U64 codepoint slice 的 `FromIterator<char>` / `Extend<char>` 风格别名，整段 Unicode scalar 预验证后再写入，非法 surrogate 路径不修改目标；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

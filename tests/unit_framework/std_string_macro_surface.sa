@@ -77,6 +77,8 @@
 @const UTF8_A_E = utf8:"aé"
 @const UTF8_E_ACUTE = utf8:"é"
 @const UTF8_SMILE = utf8:"🙂"
+@const UTF8_CHARS_BUILT = utf8:"aé🙂"
+@const UTF8_CHARS_EXTENDED = utf8:"aé🙂!"
 @const UTF8_SMILE_Z = utf8:"🙂z"
 @const UTF8_Z = utf8:"z"
 @const UTF8_AFTER_REMOVE_A = utf8:"é🙂z"
@@ -3112,6 +3114,89 @@ L_STRING_BUF_INTO_CHARS_FAIL:
     panic(924)
 
 L_STRING_BUF_INTO_CHARS_OK:
+    !ok
+    return
+
+@test "sa_std string buffer from and extend chars macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS built_expected, &UTF8_CHARS_BUILT, 7
+    EXPAND STR_FROM_PARTS extended_expected, &UTF8_CHARS_EXTENDED, 8
+    chars_ptr = stack_alloc 24
+    store chars_ptr+0, 97 as u64
+    store chars_ptr+8, 233 as u64
+    store chars_ptr+16, 128578 as u64
+    chars_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW chars_slice, chars_ptr, 3
+
+    EXPAND STRING_BUF_TRY_FROM_CHARS_U64 from_ok, from_buf, chars_slice
+    EXPAND STRING_BUF_AS_STR from_view, from_buf
+    EXPAND STR_EQ from_eq, from_view, built_expected
+
+    EXPAND STRING_BUF_NEW extend_buf
+    EXPAND STRING_BUF_EXTEND_CHARS_U64 extend_buf, chars_slice
+    EXPAND STRING_BUF_EXTEND_CHAR extend_buf, 33
+    EXPAND STRING_BUF_AS_STR extend_view, extend_buf
+    EXPAND STR_EQ extend_eq, extend_view, extended_expected
+
+    invalid_ptr = stack_alloc 8
+    store invalid_ptr+0, 55296 as u64
+    invalid_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW invalid_slice, invalid_ptr, 1
+    EXPAND STRING_BUF_TRY_FROM_CHARS_U64 invalid_from_ok, invalid_from_buf, invalid_slice
+    EXPAND STRING_BUF_LEN invalid_from_len, invalid_from_buf
+    EXPAND STRING_BUF_NEW invalid_extend_buf
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 invalid_extend_ok, invalid_extend_buf, invalid_slice
+    EXPAND STRING_BUF_LEN invalid_extend_len, invalid_extend_buf
+
+    from_flag_ok = eq from_ok, 1
+    from_value_ok = eq from_eq, 1
+    extend_value_ok = eq extend_eq, 1
+    invalid_from_flag_ok = eq invalid_from_ok, 0
+    invalid_from_empty_ok = eq invalid_from_len, 0
+    invalid_extend_flag_ok = eq invalid_extend_ok, 0
+    invalid_extend_empty_ok = eq invalid_extend_len, 0
+    ok01 = and from_flag_ok, from_value_ok
+    ok02 = and ok01, extend_value_ok
+    ok03 = and ok02, invalid_from_flag_ok
+    ok04 = and ok03, invalid_from_empty_ok
+    ok05 = and ok04, invalid_extend_flag_ok
+    ok = and ok05, invalid_extend_empty_ok
+    !from_ok
+    !from_view
+    !from_eq
+    !extend_view
+    !extend_eq
+    !invalid_from_ok
+    !invalid_from_len
+    !invalid_extend_ok
+    !invalid_extend_len
+    !from_flag_ok
+    !from_value_ok
+    !extend_value_ok
+    !invalid_from_flag_ok
+    !invalid_from_empty_ok
+    !invalid_extend_flag_ok
+    !invalid_extend_empty_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND STRING_BUF_FREE invalid_extend_buf
+    EXPAND STRING_BUF_FREE invalid_from_buf
+    EXPAND STRING_BUF_FREE extend_buf
+    EXPAND STRING_BUF_FREE from_buf
+    !invalid_slice
+    !chars_slice
+    !extended_expected
+    !built_expected
+    br ok -> L_STRING_BUF_FROM_CHARS_OK, L_STRING_BUF_FROM_CHARS_FAIL
+
+L_STRING_BUF_FROM_CHARS_FAIL:
+    !ok
+    panic(934)
+
+L_STRING_BUF_FROM_CHARS_OK:
     !ok
     return
 

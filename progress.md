@@ -4,6 +4,23 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf char iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager char-sequence aliases for Rust `FromIterator<char>` / `Extend<char>` style use cases:
+  - `STRING_BUF_TRY_EXTEND_CHARS_U64`
+  - `STRING_BUF_EXTEND_CHARS_U64`
+  - `STRING_BUF_TRY_FROM_CHARS_U64`
+  - `STRING_BUF_FROM_CHARS_U64`
+- Semantics: accepts a `Slice` of U64 Unicode scalar values, validates the whole slice before mutating, reserves up to four UTF-8 bytes per scalar, then appends encoded UTF-8. Invalid scalar values such as surrogate codepoints return `ok=0` and leave the target StringBuf unchanged/empty.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`33 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`33 passed`).
+
 ## Completed: 2026-07-06 StringBuf/Vec Extend trait alias audit batch
 
 - Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs with String/Vec as the active priority.

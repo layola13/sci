@@ -261,6 +261,106 @@ L_STRING_INTO_CHARS_DONE_%out_vec:
     EXPAND STRING_BUF_FREE %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_EXTEND_CHARS_U64 %out_ok, %string_reg, %chars_slice
+    __string_extend_chars_idx_slot_%out_ok = stack_alloc 8
+    store __string_extend_chars_idx_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_EXTEND_CHARS_VALIDATE_HEAD_%out_ok
+
+L_STRING_EXTEND_CHARS_VALIDATE_HEAD_%out_ok:
+    __string_extend_chars_idx_%out_ok = load __string_extend_chars_idx_slot_%out_ok+0 as u64
+    __string_extend_chars_len_%out_ok = load %chars_slice+Slice_len as u64
+    __string_extend_chars_validate_done_%out_ok = eq __string_extend_chars_idx_%out_ok, __string_extend_chars_len_%out_ok
+    !__string_extend_chars_len_%out_ok
+    br __string_extend_chars_validate_done_%out_ok -> L_STRING_EXTEND_CHARS_APPEND_INIT_%out_ok, L_STRING_EXTEND_CHARS_VALIDATE_BODY_%out_ok
+
+L_STRING_EXTEND_CHARS_VALIDATE_BODY_%out_ok:
+    __string_extend_chars_ptr_%out_ok = load %chars_slice+Slice_ptr as ptr
+    __string_extend_chars_off_%out_ok = mul __string_extend_chars_idx_%out_ok, 8
+    __string_extend_chars_item_%out_ok = ptr_add __string_extend_chars_ptr_%out_ok, __string_extend_chars_off_%out_ok
+    __string_extend_chars_code_%out_ok = load __string_extend_chars_item_%out_ok+0 as u64
+    !__string_extend_chars_item_%out_ok
+    !__string_extend_chars_off_%out_ok
+    !__string_extend_chars_ptr_%out_ok
+    EXPAND CHAR_IS_VALID_SCALAR __string_extend_chars_valid_%out_ok, __string_extend_chars_code_%out_ok
+    br __string_extend_chars_valid_%out_ok -> L_STRING_EXTEND_CHARS_VALIDATE_NEXT_%out_ok, L_STRING_EXTEND_CHARS_INVALID_%out_ok
+
+L_STRING_EXTEND_CHARS_VALIDATE_NEXT_%out_ok:
+    __string_extend_chars_next_%out_ok = add __string_extend_chars_idx_%out_ok, 1
+    store __string_extend_chars_idx_slot_%out_ok+0, __string_extend_chars_next_%out_ok as u64
+    !__string_extend_chars_next_%out_ok
+    !__string_extend_chars_valid_%out_ok
+    !__string_extend_chars_code_%out_ok
+    !__string_extend_chars_validate_done_%out_ok
+    !__string_extend_chars_idx_%out_ok
+    jmp L_STRING_EXTEND_CHARS_VALIDATE_HEAD_%out_ok
+
+L_STRING_EXTEND_CHARS_APPEND_INIT_%out_ok:
+    __string_extend_chars_reserve_len_%out_ok = load %chars_slice+Slice_len as u64
+    __string_extend_chars_max_bytes_%out_ok = mul __string_extend_chars_reserve_len_%out_ok, 4
+    EXPAND STRING_BUF_RESERVE %string_reg, __string_extend_chars_max_bytes_%out_ok
+    store __string_extend_chars_idx_slot_%out_ok+0, 0 as u64
+    !__string_extend_chars_max_bytes_%out_ok
+    !__string_extend_chars_reserve_len_%out_ok
+    !__string_extend_chars_validate_done_%out_ok
+    !__string_extend_chars_idx_%out_ok
+    jmp L_STRING_EXTEND_CHARS_APPEND_HEAD_%out_ok
+
+L_STRING_EXTEND_CHARS_APPEND_HEAD_%out_ok:
+    __string_extend_chars_append_idx_%out_ok = load __string_extend_chars_idx_slot_%out_ok+0 as u64
+    __string_extend_chars_append_len_%out_ok = load %chars_slice+Slice_len as u64
+    __string_extend_chars_append_done_%out_ok = eq __string_extend_chars_append_idx_%out_ok, __string_extend_chars_append_len_%out_ok
+    !__string_extend_chars_append_len_%out_ok
+    br __string_extend_chars_append_done_%out_ok -> L_STRING_EXTEND_CHARS_DONE_%out_ok, L_STRING_EXTEND_CHARS_APPEND_BODY_%out_ok
+
+L_STRING_EXTEND_CHARS_APPEND_BODY_%out_ok:
+    __string_extend_chars_append_ptr_%out_ok = load %chars_slice+Slice_ptr as ptr
+    __string_extend_chars_append_off_%out_ok = mul __string_extend_chars_append_idx_%out_ok, 8
+    __string_extend_chars_append_item_%out_ok = ptr_add __string_extend_chars_append_ptr_%out_ok, __string_extend_chars_append_off_%out_ok
+    __string_extend_chars_append_code_%out_ok = load __string_extend_chars_append_item_%out_ok+0 as u64
+    __string_extend_chars_append_next_%out_ok = add __string_extend_chars_append_idx_%out_ok, 1
+    store __string_extend_chars_idx_slot_%out_ok+0, __string_extend_chars_append_next_%out_ok as u64
+    !__string_extend_chars_append_next_%out_ok
+    !__string_extend_chars_append_item_%out_ok
+    !__string_extend_chars_append_off_%out_ok
+    !__string_extend_chars_append_ptr_%out_ok
+    !__string_extend_chars_append_done_%out_ok
+    !__string_extend_chars_append_idx_%out_ok
+    EXPAND STRING_BUF_TRY_PUSH_CHAR __string_extend_chars_push_ok_%out_ok, %string_reg, __string_extend_chars_append_code_%out_ok
+    !__string_extend_chars_push_ok_%out_ok
+    !__string_extend_chars_append_code_%out_ok
+    jmp L_STRING_EXTEND_CHARS_APPEND_HEAD_%out_ok
+
+L_STRING_EXTEND_CHARS_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__string_extend_chars_append_done_%out_ok
+    !__string_extend_chars_append_idx_%out_ok
+    jmp L_STRING_EXTEND_CHARS_END_%out_ok
+
+L_STRING_EXTEND_CHARS_INVALID_%out_ok:
+    %out_ok = add 0, 0
+    !__string_extend_chars_valid_%out_ok
+    !__string_extend_chars_code_%out_ok
+    !__string_extend_chars_validate_done_%out_ok
+    !__string_extend_chars_idx_%out_ok
+
+L_STRING_EXTEND_CHARS_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_CHARS_U64 %string_reg, %chars_slice
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 __string_extend_chars_ok_%string_reg, %string_reg, %chars_slice
+    !__string_extend_chars_ok_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FROM_CHARS_U64 %out_ok, %out_string, %chars_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 %out_ok, %out_string, %chars_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_CHARS_U64 %out_string, %chars_slice
+    EXPAND STRING_BUF_TRY_FROM_CHARS_U64 __string_from_chars_ok_%out_string, %out_string, %chars_slice
+    !__string_from_chars_ok_%out_string
+[END_MACRO]
+
 [MACRO] STRING_BUF_FROM_UTF8_UNCHECKED %out_string, %bytes_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     EXPAND STRING_BUF_PUSH_STR %out_string, %bytes_slice

@@ -1,6 +1,6 @@
 # Current Plan
 
-Date: 2026-07-06
+Date: 2026-07-07
 
 ## Objective
 
@@ -77,6 +77,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec `AsRef<[T]>` / `AsMut<[T]>` / Deref-to-slice aliases and String `fmt::Write` `write_str` / `write_char` aliases.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec `AsRef<Vec<T>>` borrowed metadata pointer alias plus String Deref/DerefMut-to-str and checked Index/IndexMut range aliases.
    - `StringBuf` / `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable String `Extend<str/char/String>` style aliases and Vec `Extend<T>` / `Extend<&T>` style aliases over existing append/push/slice-copy paths.
+   - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed eager U64 codepoint-slice `FromIterator<char>` / `Extend<char>` style aliases with whole-slice Unicode scalar validation before mutation.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -191,6 +192,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the Unix thread JoinHandleExt pthread facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Unix socket set_mark facade batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf/Vec Extend trait alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the StringBuf char iterator alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
