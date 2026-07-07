@@ -266,6 +266,42 @@
     EXPAND STRING_BUF_SPLIT_AT %out_ok, %out_left, %out_right, %string_reg, %mid
 [END_MACRO]
 
+[MACRO] STRING_BUF_GET_RANGE %out_ok, %out_slice, %string_reg, %start, %length
+    EXPAND STRING_BUF_AS_STR __string_buf_get_range_view_%out_ok, %string_reg
+    EXPAND STR_GET_RANGE %out_ok, %out_slice, __string_buf_get_range_view_%out_ok, %start, %length
+    !__string_buf_get_range_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_PREFIX %out_ok, %out_slice, %string_reg, %end
+    EXPAND STRING_BUF_AS_STR __string_buf_get_prefix_view_%out_ok, %string_reg
+    EXPAND STR_GET_PREFIX %out_ok, %out_slice, __string_buf_get_prefix_view_%out_ok, %end
+    !__string_buf_get_prefix_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_SUFFIX %out_ok, %out_slice, %string_reg, %start
+    EXPAND STRING_BUF_AS_STR __string_buf_get_suffix_view_%out_ok, %string_reg
+    EXPAND STR_GET_SUFFIX %out_ok, %out_slice, __string_buf_get_suffix_view_%out_ok, %start
+    !__string_buf_get_suffix_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_RANGE_TO %out_ok, %out_slice, %string_reg, %end
+    EXPAND STRING_BUF_AS_STR __string_buf_get_range_to_view_%out_ok, %string_reg
+    EXPAND STR_GET_RANGE_TO %out_ok, %out_slice, __string_buf_get_range_to_view_%out_ok, %end
+    !__string_buf_get_range_to_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_RANGE_FROM %out_ok, %out_slice, %string_reg, %start
+    EXPAND STRING_BUF_AS_STR __string_buf_get_range_from_view_%out_ok, %string_reg
+    EXPAND STR_GET_RANGE_FROM %out_ok, %out_slice, __string_buf_get_range_from_view_%out_ok, %start
+    !__string_buf_get_range_from_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_RANGE_BETWEEN %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_AS_STR __string_buf_get_range_between_view_%out_ok, %string_reg
+    EXPAND STR_GET_RANGE_BETWEEN %out_ok, %out_slice, __string_buf_get_range_between_view_%out_ok, %start, %end
+    !__string_buf_get_range_between_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_INDEX_RANGE %out_ok, %out_slice, %string_reg, %start, %length
     EXPAND STRING_BUF_AS_STR __string_buf_index_view_%out_ok, %string_reg
     EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, __string_buf_index_view_%out_ok, %start, %length
