@@ -3375,6 +3375,14 @@ L_STR_SPLIT_BYTE_END_%out_ok:
     EXPAND STR_TRY_SPLIT_BYTE_AT %out_ok, %out_part, %slice_reg, %byte_value, %part_index
 [END_MACRO]
 
+[MACRO] STR_SPLIT_BYTE_AT %out_ok, %out_part, %slice_reg, %byte_value, %part_index
+    EXPAND STR_TRY_SPLIT_BYTE_AT %out_ok, %out_part, %slice_reg, %byte_value, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_BYTE_AT %out_ok, %out_part, %slice_reg, %byte_value, %part_index
+    EXPAND STR_SPLIT_BYTE_AT %out_ok, %out_part, %slice_reg, %byte_value, %part_index
+[END_MACRO]
+
 [MACRO] STR_LINE_COUNT %out_count, %slice_reg
     __str_line_count_ptr_%out_count = load %slice_reg+Slice_ptr as ptr
     __str_line_count_len_%out_count = load %slice_reg+Slice_len as u64
@@ -3610,6 +3618,14 @@ L_STR_LINE_AT_END_%out_ok:
 
 [MACRO] STRING_TRY_LINE_AT %out_ok, %out_line, %slice_reg, %line_index
     EXPAND STR_TRY_LINE_AT %out_ok, %out_line, %slice_reg, %line_index
+[END_MACRO]
+
+[MACRO] STR_LINE_AT %out_ok, %out_line, %slice_reg, %line_index
+    EXPAND STR_TRY_LINE_AT %out_ok, %out_line, %slice_reg, %line_index
+[END_MACRO]
+
+[MACRO] STRING_LINE_AT %out_ok, %out_line, %slice_reg, %line_index
+    EXPAND STR_LINE_AT %out_ok, %out_line, %slice_reg, %line_index
 [END_MACRO]
 
 [MACRO] STR_TRY_RFIND %out_ok, %out_index, %slice_reg, %needle_slice
