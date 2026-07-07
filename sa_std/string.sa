@@ -220,6 +220,30 @@
     !__string_buf_ends_view_%out_bool
 [END_MACRO]
 
+[MACRO] STRING_BUF_IS_ASCII %out_bool, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_is_ascii_view_%out_bool, %string_reg
+    EXPAND STR_IS_ASCII %out_bool, __string_buf_is_ascii_view_%out_bool
+    !__string_buf_is_ascii_view_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_IS_CHAR_BOUNDARY %out_bool, %string_reg, %index
+    EXPAND STRING_BUF_AS_STR __string_buf_is_char_boundary_view_%out_bool, %string_reg
+    EXPAND STR_IS_CHAR_BOUNDARY %out_bool, __string_buf_is_char_boundary_view_%out_bool, %index
+    !__string_buf_is_char_boundary_view_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_FLOOR_CHAR_BOUNDARY %out_index, %string_reg, %index
+    EXPAND STRING_BUF_AS_STR __string_buf_floor_char_boundary_view_%out_index, %string_reg
+    EXPAND STR_FLOOR_CHAR_BOUNDARY %out_index, __string_buf_floor_char_boundary_view_%out_index, %index
+    !__string_buf_floor_char_boundary_view_%out_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_CEIL_CHAR_BOUNDARY %out_index, %string_reg, %index
+    EXPAND STRING_BUF_AS_STR __string_buf_ceil_char_boundary_view_%out_index, %string_reg
+    EXPAND STR_CEIL_CHAR_BOUNDARY %out_index, __string_buf_ceil_char_boundary_view_%out_index, %index
+    !__string_buf_ceil_char_boundary_view_%out_index
+[END_MACRO]
+
 [MACRO] STRING_BUF_FIND %out_ok, %out_index, %string_reg, %needle_slice
     EXPAND STRING_BUF_AS_STR __string_buf_find_view_%out_ok, %string_reg
     EXPAND STR_FIND %out_ok, %out_index, __string_buf_find_view_%out_ok, %needle_slice

@@ -3268,6 +3268,78 @@ L_STRING_BUF_TRY_RANGE_OK:
     !ok
     return
 
+@test "sa_std string buffer char boundary aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+    EXPAND STRING_BUF_IS_ASCII ascii_word, owned_word
+    EXPAND STRING_BUF_IS_ASCII ascii_utf8, owned_utf8
+    EXPAND STRING_BUF_IS_CHAR_BOUNDARY boundary0, owned_utf8, 0
+    EXPAND STRING_BUF_IS_CHAR_BOUNDARY boundary2, owned_utf8, 2
+    EXPAND STRING_BUF_IS_CHAR_BOUNDARY boundary8, owned_utf8, 8
+    EXPAND STRING_BUF_FLOOR_CHAR_BOUNDARY floor2, owned_utf8, 2
+    EXPAND STRING_BUF_FLOOR_CHAR_BOUNDARY floor6, owned_utf8, 6
+    EXPAND STRING_BUF_CEIL_CHAR_BOUNDARY ceil2, owned_utf8, 2
+    EXPAND STRING_BUF_CEIL_CHAR_BOUNDARY ceil9, owned_utf8, 9
+
+    ascii_word_ok = eq ascii_word, 1
+    ascii_utf8_ok = eq ascii_utf8, 0
+    boundary0_ok = eq boundary0, 1
+    boundary2_ok = eq boundary2, 0
+    boundary8_ok = eq boundary8, 1
+    floor2_ok = eq floor2, 1
+    floor6_ok = eq floor6, 3
+    ceil2_ok = eq ceil2, 3
+    ceil9_ok = eq ceil9, 8
+    ok01 = and ascii_word_ok, ascii_utf8_ok
+    ok02 = and ok01, boundary0_ok
+    ok03 = and ok02, boundary2_ok
+    ok04 = and ok03, boundary8_ok
+    ok05 = and ok04, floor2_ok
+    ok06 = and ok05, floor6_ok
+    ok07 = and ok06, ceil2_ok
+    ok = and ok07, ceil9_ok
+    EXPAND STRING_BUF_FREE owned_word
+    EXPAND STRING_BUF_FREE owned_utf8
+    !word
+    !utf8_boundary
+    !ascii_word
+    !ascii_utf8
+    !boundary0
+    !boundary2
+    !boundary8
+    !floor2
+    !floor6
+    !ceil2
+    !ceil9
+    !ascii_word_ok
+    !ascii_utf8_ok
+    !boundary0_ok
+    !boundary2_ok
+    !boundary8_ok
+    !floor2_ok
+    !floor6_ok
+    !ceil2_ok
+    !ceil9_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    br ok -> L_STRING_BUF_CHAR_BOUNDARY_OK, L_STRING_BUF_CHAR_BOUNDARY_FAIL
+
+L_STRING_BUF_CHAR_BOUNDARY_FAIL:
+    !ok
+    panic(921)
+
+L_STRING_BUF_CHAR_BOUNDARY_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
