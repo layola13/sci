@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 Vec first/last U64 alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice first/last explicit U64 aliases:
+  - `VEC_FIRST_U64`
+  - `VEC_LAST_U64`
+- Semantics: these delegate to the existing front/back helpers and preserve local scalar `u64` result shapes. They do not claim Rust `Option<&T>` object layout, generic `T` coverage, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "vec first last u64 aliases"`: pass (`1 passed; 26 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_vec_macro_surface.sa --filter "vec first last u64 aliases"`: pass (`1 passed; 26 skipped`).
+
 ## Completed: 2026-07-07 StringBuf try split alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

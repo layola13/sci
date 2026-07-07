@@ -1062,6 +1062,48 @@ L_OK:
     !ok
     return
 
+@test "sa_std vec first last u64 aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 41
+    EXPAND VEC_PUSH_U64 vec, 99
+    EXPAND VEC_FIRST_U64 first_value, vec
+    EXPAND VEC_LAST_U64 last_value, vec
+
+    EXPAND VEC_WITH_CAPACITY_U64 empty_vec, 0
+    EXPAND VEC_FIRST_U64 empty_first, empty_vec
+    EXPAND VEC_LAST_U64 empty_last, empty_vec
+
+    first_ok = eq first_value, 41
+    last_ok = eq last_value, 99
+    empty_first_ok = eq empty_first, 0
+    empty_last_ok = eq empty_last, 0
+    ok01 = and first_ok, last_ok
+    ok02 = and ok01, empty_first_ok
+    ok = and ok02, empty_last_ok
+
+    !first_value
+    !last_value
+    !empty_first
+    !empty_last
+    !first_ok
+    !last_ok
+    !empty_first_ok
+    !empty_last_ok
+    !ok01
+    !ok02
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_FIRST_LAST_U64_OK, L_VEC_FIRST_LAST_U64_FAIL
+
+L_VEC_FIRST_LAST_U64_FAIL:
+    !ok
+    panic(902)
+
+L_VEC_FIRST_LAST_U64_OK:
+    !ok
+    return
+
 @test "sa_std vec split first last aliases"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 3

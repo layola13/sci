@@ -353,6 +353,14 @@ L_VEC_SET_TYPED_END_%value:
     EXPAND VEC_BACK %out_value, %vec_reg
 [END_MACRO]
 
+[MACRO] VEC_FIRST_U64 %out_value, %vec_reg
+    EXPAND VEC_FIRST %out_value, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_LAST_U64 %out_value, %vec_reg
+    EXPAND VEC_LAST %out_value, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_TRY_FIRST %out_ok, %out_value, %vec_reg
     EXPAND VEC_TRY_FRONT %out_ok, %out_value, %vec_reg
 [END_MACRO]
