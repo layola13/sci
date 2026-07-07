@@ -218,6 +218,10 @@
     EXPAND VEC_AS_SLICE %out_slice, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_BYTES %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_BYTES %out_slice, %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_AS_MUT_BYTES %out_slice, %string_reg
     EXPAND VEC_AS_MUT_SLICE %out_slice, %string_reg
 [END_MACRO]

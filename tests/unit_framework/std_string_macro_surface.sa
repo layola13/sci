@@ -246,6 +246,10 @@ L_ENTRY:
     EXPAND STR_EQ strip_suffix_head_eq, strip_suffix_head, prefix
     EXPAND STR_IS_EMPTY strip_prefix_miss_empty, strip_prefix_miss
     EXPAND STR_IS_EMPTY strip_suffix_miss_empty, strip_suffix_miss
+    EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_BYTES owned_word_bytes, owned_word
+    EXPAND STR_LEN owned_word_bytes_len, owned_word_bytes
+    EXPAND STR_EQ owned_word_bytes_eq, owned_word_bytes, word
 
     len_ok = eq len, 4
     ptr_ok = ne as_ptr, 0
@@ -274,6 +278,8 @@ L_ENTRY:
     strip_suffix_head_ok = eq strip_suffix_head_eq, 1
     strip_prefix_miss_empty_ok = eq strip_prefix_miss_empty, 1
     strip_suffix_miss_empty_ok = eq strip_suffix_miss_empty, 1
+    owned_word_bytes_len_ok = eq owned_word_bytes_len, 4
+    owned_word_bytes_eq_ok = eq owned_word_bytes_eq, 1
     ok01 = and len_ok, ptr_ok
     ok02 = and ok01, bytes_len_ok
     ok03 = and ok02, str_len_ok
@@ -301,7 +307,10 @@ L_ENTRY:
     ok25 = and ok24, strip_prefix_tail_ok
     ok26 = and ok25, strip_suffix_head_ok
     ok27 = and ok26, strip_prefix_miss_empty_ok
-    ok = and ok27, strip_suffix_miss_empty_ok
+    ok28 = and ok27, strip_suffix_miss_empty_ok
+    ok29 = and ok28, owned_word_bytes_len_ok
+    ok = and ok29, owned_word_bytes_eq_ok
+    EXPAND STRING_BUF_FREE owned_word
     !len
     !as_ptr
     !bytes
@@ -337,6 +346,9 @@ L_ENTRY:
     !strip_suffix_head_eq
     !strip_prefix_miss_empty
     !strip_suffix_miss_empty
+    !owned_word_bytes
+    !owned_word_bytes_len
+    !owned_word_bytes_eq
     !len_ok
     !ptr_ok
     !bytes_len_ok
@@ -364,6 +376,8 @@ L_ENTRY:
     !strip_suffix_head_ok
     !strip_prefix_miss_empty_ok
     !strip_suffix_miss_empty_ok
+    !owned_word_bytes_len_ok
+    !owned_word_bytes_eq_ok
     !ok01
     !ok02
     !ok03
@@ -391,6 +405,8 @@ L_ENTRY:
     !ok25
     !ok26
     !ok27
+    !ok28
+    !ok29
     !word
     !prefix
     !suffix
