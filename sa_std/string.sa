@@ -25,12 +25,28 @@
     EXPAND STR_PTR %out_ptr, %slice_reg
 [END_MACRO]
 
+[MACRO] STR_AS_PTR_RANGE %out_start, %out_end, %slice_reg
+    EXPAND SLICE_AS_PTR_RANGE %out_start, %out_end, %slice_reg, 1
+[END_MACRO]
+
+[MACRO] STR_AS_MUT_PTR_RANGE %out_start, %out_end, %slice_reg
+    EXPAND SLICE_AS_MUT_PTR_RANGE %out_start, %out_end, %slice_reg, 1
+[END_MACRO]
+
 [MACRO] STRING_PTR %out_ptr, %slice_reg
     EXPAND STR_PTR %out_ptr, %slice_reg
 [END_MACRO]
 
 [MACRO] STRING_AS_PTR %out_ptr, %slice_reg
     EXPAND STRING_PTR %out_ptr, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_AS_PTR_RANGE %out_start, %out_end, %slice_reg
+    EXPAND STR_AS_PTR_RANGE %out_start, %out_end, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_AS_MUT_PTR_RANGE %out_start, %out_end, %slice_reg
+    EXPAND STR_AS_MUT_PTR_RANGE %out_start, %out_end, %slice_reg
 [END_MACRO]
 
 [MACRO] STR_AS_BYTES %out_slice, %slice_reg
@@ -144,6 +160,18 @@
 
 [MACRO] STRING_BUF_AS_MUT_PTR %out_ptr, %string_reg
     EXPAND VEC_AS_MUT_PTR %out_ptr, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_PTR_RANGE %out_start, %out_end, %string_reg
+    EXPAND STRING_BUF_AS_BYTES __string_buf_ptr_range_view_%out_start, %string_reg
+    EXPAND SLICE_AS_PTR_RANGE %out_start, %out_end, __string_buf_ptr_range_view_%out_start, 1
+    !__string_buf_ptr_range_view_%out_start
+[END_MACRO]
+
+[MACRO] STRING_BUF_AS_MUT_PTR_RANGE %out_start, %out_end, %string_reg
+    EXPAND STRING_BUF_AS_MUT_BYTES __string_buf_mut_ptr_range_view_%out_start, %string_reg
+    EXPAND SLICE_AS_MUT_PTR_RANGE %out_start, %out_end, __string_buf_mut_ptr_range_view_%out_start, 1
+    !__string_buf_mut_ptr_range_view_%out_start
 [END_MACRO]
 
 [MACRO] STRING_BUF_AS_STR %out_slice, %string_reg

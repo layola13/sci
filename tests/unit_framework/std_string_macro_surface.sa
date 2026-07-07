@@ -4142,11 +4142,18 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_EQ_STRING eq_string, added_string, assign_string
     EXPAND STRING_BUF_AS_MUT_BYTES assign_mut_bytes, assign_string
     assign_mut_ptr = load assign_mut_bytes+Slice_ptr as ptr
+    assign_ptr_range_expected_end = ptr_add assign_mut_ptr, 8
     store assign_mut_ptr+0, 82 as u8
+    EXPAND STRING_BUF_AS_PTR_RANGE buf_range_start, buf_range_end, assign_string
+    EXPAND STRING_BUF_AS_MUT_PTR_RANGE buf_mut_range_start, buf_mut_range_end, assign_string
     EXPAND STRING_BUF_AS_MUT_REF_BYTES assign_mut_ref_bytes, assign_string
     assign_mut_ref_ptr = load assign_mut_ref_bytes+Slice_ptr as ptr
     assign_mut_ref_first = load assign_mut_ref_ptr+0 as u8
     EXPAND STRING_BUF_AS_MUT_STR assign_mut_str_view, assign_string
+    EXPAND STR_AS_PTR_RANGE str_range_start, str_range_end, assign_mut_str_view
+    EXPAND STR_AS_MUT_PTR_RANGE str_mut_range_start, str_mut_range_end, assign_mut_str_view
+    EXPAND STRING_AS_PTR_RANGE string_range_start, string_range_end, assign_mut_str_view
+    EXPAND STRING_AS_MUT_PTR_RANGE string_mut_range_start, string_mut_range_end, assign_mut_str_view
     EXPAND STR_AS_MUT_BYTES str_mut_bytes, assign_mut_str_view
     str_mut_ptr = load str_mut_bytes+Slice_ptr as ptr
     str_mut_first = load str_mut_ptr+0 as u8
@@ -4228,16 +4235,40 @@ L_STRING_BUF_ADD_ENTRY:
     assign_mut_ref_ok = eq assign_mut_ref_first, 82
     str_mut_bytes_ok = eq str_mut_first, 82
     string_mut_bytes_ok = eq string_mut_first, 82
+    buf_range_start_ok = eq buf_range_start, assign_mut_ptr
+    buf_range_end_ok = eq buf_range_end, assign_ptr_range_expected_end
+    buf_mut_range_start_ok = eq buf_mut_range_start, assign_mut_ptr
+    buf_mut_range_end_ok = eq buf_mut_range_end, assign_ptr_range_expected_end
+    str_range_start_ok = eq str_range_start, assign_mut_ptr
+    str_range_end_ok = eq str_range_end, assign_ptr_range_expected_end
+    str_mut_range_start_ok = eq str_mut_range_start, assign_mut_ptr
+    str_mut_range_end_ok = eq str_mut_range_end, assign_ptr_range_expected_end
+    string_range_start_ok = eq string_range_start, assign_mut_ptr
+    string_range_end_ok = eq string_range_end, assign_ptr_range_expected_end
+    string_mut_range_start_ok = eq string_mut_range_start, assign_mut_ptr
+    string_mut_range_end_ok = eq string_mut_range_end, assign_ptr_range_expected_end
+    range_ok01 = and buf_range_start_ok, buf_range_end_ok
+    range_ok02 = and range_ok01, buf_mut_range_start_ok
+    range_ok03 = and range_ok02, buf_mut_range_end_ok
+    range_ok04 = and range_ok03, str_range_start_ok
+    range_ok05 = and range_ok04, str_range_end_ok
+    range_ok06 = and range_ok05, str_mut_range_start_ok
+    range_ok07 = and range_ok06, str_mut_range_end_ok
+    range_ok08 = and range_ok07, string_range_start_ok
+    range_ok09 = and range_ok08, string_range_end_ok
+    range_ok10 = and range_ok09, string_mut_range_start_ok
+    range_ok = and range_ok10, string_mut_range_end_ok
     ok12 = and ok11, eq_string
     ok13 = and ok12, assign_mut_ref_ok
     ok14 = and ok13, str_mut_bytes_ok
     ok15 = and ok14, string_mut_bytes_ok
-    ok16 = and ok15, ne_string
-    ok17 = and ok16, deref_mut_eq
-    ok18 = and ok17, e_eq
-    ok19 = and ok18, write_str_ok
-    ok20 = and ok19, write_char_ok
-    ok = and ok20, write_eq
+    ok16 = and ok15, range_ok
+    ok17 = and ok16, ne_string
+    ok18 = and ok17, deref_mut_eq
+    ok19 = and ok18, e_eq
+    ok20 = and ok19, write_str_ok
+    ok21 = and ok20, write_char_ok
+    ok = and ok21, write_eq
 
     !default_empty
     !added_eq
@@ -4278,6 +4309,29 @@ L_STRING_BUF_ADD_ENTRY:
     !assign_mut_ref_ok
     !str_mut_bytes_ok
     !string_mut_bytes_ok
+    !buf_range_start_ok
+    !buf_range_end_ok
+    !buf_mut_range_start_ok
+    !buf_mut_range_end_ok
+    !str_range_start_ok
+    !str_range_end_ok
+    !str_mut_range_start_ok
+    !str_mut_range_end_ok
+    !string_range_start_ok
+    !string_range_end_ok
+    !string_mut_range_start_ok
+    !string_mut_range_end_ok
+    !range_ok01
+    !range_ok02
+    !range_ok03
+    !range_ok04
+    !range_ok05
+    !range_ok06
+    !range_ok07
+    !range_ok08
+    !range_ok09
+    !range_ok10
+    !range_ok
     !eq_string
     !ne_string
     !deref_mut_eq
@@ -4352,6 +4406,7 @@ L_STRING_BUF_ADD_ENTRY:
     !ok18
     !ok19
     !ok20
+    !ok21
     !word_slice
     !right_slice
     !joined_slice
@@ -4365,10 +4420,23 @@ L_STRING_BUF_ADD_ENTRY:
     !assign_bytes
     !assign_mut_bytes
     !assign_mut_ptr
+    !assign_ptr_range_expected_end
+    !buf_range_start
+    !buf_range_end
+    !buf_mut_range_start
+    !buf_mut_range_end
     !assign_mut_ref_bytes
     !assign_mut_ref_ptr
     !assign_mut_ref_first
     !assign_mut_str_view
+    !str_range_start
+    !str_range_end
+    !str_mut_range_start
+    !str_mut_range_end
+    !string_range_start
+    !string_range_end
+    !string_mut_range_start
+    !string_mut_range_end
     !str_mut_bytes
     !str_mut_ptr
     !str_mut_first

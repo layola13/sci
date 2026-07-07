@@ -28,6 +28,26 @@
     EXPAND VEC_AS_PTR %out_ptr, %vec_reg
 [END_MACRO]
 
+[MACRO] VEC_AS_PTR_RANGE %out_start, %out_end, %vec_reg, %elem_size
+    EXPAND VEC_AS_SLICE __vec_ptr_range_slice_%out_start, %vec_reg
+    EXPAND SLICE_AS_PTR_RANGE %out_start, %out_end, __vec_ptr_range_slice_%out_start, %elem_size
+    !__vec_ptr_range_slice_%out_start
+[END_MACRO]
+
+[MACRO] VEC_AS_MUT_PTR_RANGE %out_start, %out_end, %vec_reg, %elem_size
+    EXPAND VEC_AS_MUT_SLICE __vec_mut_ptr_range_slice_%out_start, %vec_reg
+    EXPAND SLICE_AS_MUT_PTR_RANGE %out_start, %out_end, __vec_mut_ptr_range_slice_%out_start, %elem_size
+    !__vec_mut_ptr_range_slice_%out_start
+[END_MACRO]
+
+[MACRO] VEC_AS_PTR_RANGE_U64 %out_start, %out_end, %vec_reg
+    EXPAND VEC_AS_PTR_RANGE %out_start, %out_end, %vec_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_AS_MUT_PTR_RANGE_U64 %out_start, %out_end, %vec_reg
+    EXPAND VEC_AS_MUT_PTR_RANGE %out_start, %out_end, %vec_reg, 8
+[END_MACRO]
+
 [MACRO] VEC_AS_SLICE %out_slice, %vec_reg
     __vec_view_%out_slice = & %vec_reg
     __vec_ptr_%out_slice = load __vec_view_%out_slice+Vec_ptr as ptr

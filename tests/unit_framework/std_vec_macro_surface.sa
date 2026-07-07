@@ -1060,6 +1060,12 @@ L_ENTRY:
     EXPAND SLICE_GET_LEN deref_slice_len, deref_slice
     EXPAND VEC_DEREF_MUT_SLICE deref_mut_slice, vec
     EXPAND SLICE_GET_LEN deref_mut_slice_len, deref_mut_slice
+    EXPAND VEC_AS_PTR vec_data_ptr, vec
+    EXPAND VEC_AS_PTR_RANGE_U64 vec_range_start, vec_range_end, vec
+    EXPAND VEC_AS_MUT_PTR_RANGE_U64 vec_mut_range_start, vec_mut_range_end, vec
+    EXPAND SLICE_AS_PTR_RANGE_U64 slice_range_start, slice_range_end, mut_slice
+    EXPAND SLICE_AS_MUT_PTR_RANGE_U64 slice_mut_range_start, slice_mut_range_end, mut_slice
+    vec_range_expected_end = ptr_add vec_range_start, 40
     EXPAND VEC_SET_LEN vec, 3
     EXPAND VEC_LEN len_after_set_len, vec
     EXPAND VEC_SHRINK_TO_U64 vec, 2
@@ -1084,6 +1090,21 @@ L_ENTRY:
     as_mut_vec_len_ok = eq as_mut_vec_len, 5
     deref_slice_len_ok = eq deref_slice_len, 5
     deref_mut_slice_len_ok = eq deref_mut_slice_len, 5
+    vec_range_start_ok = eq vec_range_start, vec_data_ptr
+    vec_range_end_ok = eq vec_range_end, vec_range_expected_end
+    vec_mut_range_start_ok = eq vec_mut_range_start, vec_range_start
+    vec_mut_range_end_ok = eq vec_mut_range_end, vec_range_expected_end
+    slice_range_start_ok = eq slice_range_start, vec_range_start
+    slice_range_end_ok = eq slice_range_end, vec_range_expected_end
+    slice_mut_range_start_ok = eq slice_mut_range_start, vec_range_start
+    slice_mut_range_end_ok = eq slice_mut_range_end, vec_range_expected_end
+    ptr_range_ok01 = and vec_range_start_ok, vec_range_end_ok
+    ptr_range_ok02 = and ptr_range_ok01, vec_mut_range_start_ok
+    ptr_range_ok03 = and ptr_range_ok02, vec_mut_range_end_ok
+    ptr_range_ok04 = and ptr_range_ok03, slice_range_start_ok
+    ptr_range_ok05 = and ptr_range_ok04, slice_range_end_ok
+    ptr_range_ok06 = and ptr_range_ok05, slice_mut_range_start_ok
+    ptr_range_ok = and ptr_range_ok06, slice_mut_range_end_ok
     set_len_ok = eq len_after_set_len, 3
     shrink_to_ok = eq cap_after_shrink_to, 3
     try_shrink_to_flag_ok = eq try_shrink_to_ok, 1
@@ -1104,7 +1125,8 @@ L_ENTRY:
     ok05 = and ok04, as_mut_vec_len_ok
     ok06 = and ok05, deref_slice_len_ok
     ok06a = and ok06, deref_mut_slice_len_ok
-    ok07 = and ok06a, set_len_ok
+    ok06b = and ok06a, ptr_range_ok
+    ok07 = and ok06b, set_len_ok
     ok08 = and ok07, shrink_to_ok
     ok09 = and ok08, try_shrink_to_flag_ok
     ok10 = and ok09, try_shrink_to_cap_ok
@@ -1130,6 +1152,16 @@ L_ENTRY:
     !deref_slice_len
     !deref_mut_slice
     !deref_mut_slice_len
+    !vec_data_ptr
+    !vec_range_start
+    !vec_range_end
+    !vec_mut_range_start
+    !vec_mut_range_end
+    !slice_range_start
+    !slice_range_end
+    !slice_mut_range_start
+    !slice_mut_range_end
+    !vec_range_expected_end
     !len_after_set_len
     !cap_after_shrink_to
     !try_shrink_to_ok
@@ -1150,6 +1182,21 @@ L_ENTRY:
     !as_mut_vec_len_ok
     !deref_slice_len_ok
     !deref_mut_slice_len_ok
+    !vec_range_start_ok
+    !vec_range_end_ok
+    !vec_mut_range_start_ok
+    !vec_mut_range_end_ok
+    !slice_range_start_ok
+    !slice_range_end_ok
+    !slice_mut_range_start_ok
+    !slice_mut_range_end_ok
+    !ptr_range_ok01
+    !ptr_range_ok02
+    !ptr_range_ok03
+    !ptr_range_ok04
+    !ptr_range_ok05
+    !ptr_range_ok06
+    !ptr_range_ok
     !set_len_ok
     !shrink_to_ok
     !try_shrink_to_flag_ok
@@ -1171,6 +1218,7 @@ L_ENTRY:
     !ok05
     !ok06
     !ok06a
+    !ok06b
     !ok07
     !ok08
     !ok09
