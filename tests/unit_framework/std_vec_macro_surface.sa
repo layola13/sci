@@ -82,6 +82,38 @@ L_ENTRY:
     !value
     return is_match
 
+@vec_pop_if_mut_inc_keep(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next = add value, 1
+    store value_ptr+0, next as u64
+    !next
+    !value
+    !value_ptr
+    return 0
+
+@vec_pop_if_mut_inc_take_if_101(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next = add value, 1
+    store value_ptr+0, next as u64
+    take = eq next, 101
+    !next
+    !value
+    !value_ptr
+    return take
+
+@vec_pop_if_mut_inc_take_if_89(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next = add value, 1
+    store value_ptr+0, next as u64
+    take = eq next, 89
+    !next
+    !value
+    !value_ptr
+    return take
+
 @vec_retain_even(value: u64) -> u64:
 L_ENTRY:
     rem = urem value, 2
@@ -220,6 +252,18 @@ L_ENTRY:
     EXPAND VEC_LEN len_after_pop_if_alias, vec
     EXPAND VEC_WITH_CAPACITY_U64 pop_if_empty_vec, 0
     EXPAND VEC_TRY_POP_IF_U64 pop_if_empty_ok, pop_if_empty, pop_if_empty_vec, @vec_pop_if_is_99
+    EXPAND VEC_WITH_CAPACITY_U64 pop_if_mut_vec, 2
+    EXPAND VEC_PUSH_U64 pop_if_mut_vec, 88
+    EXPAND VEC_PUSH_U64 pop_if_mut_vec, 99
+    EXPAND VEC_TRY_POP_IF_MUT_U64 pop_if_mut_keep_ok, pop_if_mut_keep, pop_if_mut_vec, @vec_pop_if_mut_inc_keep
+    EXPAND VEC_LEN len_after_pop_if_mut_keep, pop_if_mut_vec
+    EXPAND VEC_TRY_GET_U64 pop_if_mut_keep_tail_ok, pop_if_mut_keep_tail, pop_if_mut_vec, 1
+    EXPAND VEC_TRY_POP_IF_MUT_U64 pop_if_mut_hit_ok, pop_if_mut_hit, pop_if_mut_vec, @vec_pop_if_mut_inc_take_if_101
+    EXPAND VEC_LEN len_after_pop_if_mut_hit, pop_if_mut_vec
+    EXPAND VEC_POP_IF_MUT_U64 pop_if_mut_alias_ok, pop_if_mut_alias, pop_if_mut_vec, @vec_pop_if_mut_inc_take_if_89
+    EXPAND VEC_LEN len_after_pop_if_mut_alias, pop_if_mut_vec
+    EXPAND VEC_WITH_CAPACITY_U64 pop_if_mut_empty_vec, 0
+    EXPAND VEC_TRY_POP_IF_MUT_U64 pop_if_mut_empty_ok, pop_if_mut_empty, pop_if_mut_empty_vec, @vec_pop_if_mut_inc_take_if_89
     prefix_data = alloc 8
     suffix_data = alloc 8
     miss_prefix_data = alloc 8
@@ -371,6 +415,19 @@ L_ENTRY:
     len_after_pop_if_alias_ok = eq len_after_pop_if_alias, 7
     pop_if_empty_flag_ok = eq pop_if_empty_ok, 0
     pop_if_empty_value_ok = eq pop_if_empty, 0
+    pop_if_mut_keep_flag_ok = eq pop_if_mut_keep_ok, 0
+    pop_if_mut_keep_value_ok = eq pop_if_mut_keep, 0
+    len_after_pop_if_mut_keep_ok = eq len_after_pop_if_mut_keep, 2
+    pop_if_mut_keep_tail_flag_ok = eq pop_if_mut_keep_tail_ok, 1
+    pop_if_mut_keep_tail_value_ok = eq pop_if_mut_keep_tail, 100
+    pop_if_mut_hit_flag_ok = eq pop_if_mut_hit_ok, 1
+    pop_if_mut_hit_value_ok = eq pop_if_mut_hit, 101
+    len_after_pop_if_mut_hit_ok = eq len_after_pop_if_mut_hit, 1
+    pop_if_mut_alias_flag_ok = eq pop_if_mut_alias_ok, 1
+    pop_if_mut_alias_value_ok = eq pop_if_mut_alias, 89
+    len_after_pop_if_mut_alias_ok = eq len_after_pop_if_mut_alias, 0
+    pop_if_mut_empty_flag_ok = eq pop_if_mut_empty_ok, 0
+    pop_if_mut_empty_value_ok = eq pop_if_mut_empty, 0
     cap_exact_ok = eq cap_exact, 9
     cap_ok = eq cap, 9
     front_ok = eq front, 44
@@ -503,8 +560,24 @@ L_ENTRY:
     ok16 = and ok15, pop_if_hit_flag_ok
     ok17 = and ok16, pop_if_hit_value_ok
     ok18 = and ok17, len_after_pop_if_hit_ok
+    pop_if_alias01 = and pop_if_alias_flag_ok, pop_if_alias_value_ok
+    pop_if_alias_all = and pop_if_alias01, len_after_pop_if_alias_ok
+    pop_if_mut01 = and pop_if_mut_keep_flag_ok, pop_if_mut_keep_value_ok
+    pop_if_mut02 = and pop_if_mut01, len_after_pop_if_mut_keep_ok
+    pop_if_mut03 = and pop_if_mut02, pop_if_mut_keep_tail_flag_ok
+    pop_if_mut04 = and pop_if_mut03, pop_if_mut_keep_tail_value_ok
+    pop_if_mut05 = and pop_if_mut04, pop_if_mut_hit_flag_ok
+    pop_if_mut06 = and pop_if_mut05, pop_if_mut_hit_value_ok
+    pop_if_mut07 = and pop_if_mut06, len_after_pop_if_mut_hit_ok
+    pop_if_mut08 = and pop_if_mut07, pop_if_mut_alias_flag_ok
+    pop_if_mut09 = and pop_if_mut08, pop_if_mut_alias_value_ok
+    pop_if_mut10 = and pop_if_mut09, len_after_pop_if_mut_alias_ok
+    pop_if_mut11 = and pop_if_mut10, pop_if_mut_empty_flag_ok
+    pop_if_mut_all = and pop_if_mut11, pop_if_mut_empty_value_ok
+    pop_if_extra01 = and pop_if_empty_value_ok, pop_if_alias_all
+    pop_if_extra_ok = and pop_if_extra01, pop_if_mut_all
     ok19 = and ok18, pop_if_empty_flag_ok
-    ok20 = and ok19, pop_if_empty_value_ok
+    ok20 = and ok19, pop_if_extra_ok
     ok21 = and ok20, cap_exact_ok
     ok22 = and ok21, cap_ok
     ok23 = and ok22, front_ok
@@ -588,9 +661,27 @@ L_ENTRY:
     !pop_if_hit_ok
     !pop_if_hit
     !len_after_pop_if_hit
-    !pop_if_empty_vec
+    !pop_if_alias_ok
+    !pop_if_alias
+    !len_after_pop_if_alias
+    EXPAND VEC_FREE pop_if_empty_vec
     !pop_if_empty_ok
     !pop_if_empty
+    !pop_if_mut_keep_ok
+    !pop_if_mut_keep
+    !len_after_pop_if_mut_keep
+    !pop_if_mut_keep_tail_ok
+    !pop_if_mut_keep_tail
+    !pop_if_mut_hit_ok
+    !pop_if_mut_hit
+    !len_after_pop_if_mut_hit
+    !pop_if_mut_alias_ok
+    !pop_if_mut_alias
+    !len_after_pop_if_mut_alias
+    EXPAND VEC_FREE pop_if_mut_vec
+    EXPAND VEC_FREE pop_if_mut_empty_vec
+    !pop_if_mut_empty_ok
+    !pop_if_mut_empty
     !cap_exact
     !cap
     !front
@@ -713,8 +804,40 @@ L_ENTRY:
     !pop_if_hit_flag_ok
     !pop_if_hit_value_ok
     !len_after_pop_if_hit_ok
+    !pop_if_alias_flag_ok
+    !pop_if_alias_value_ok
+    !len_after_pop_if_alias_ok
     !pop_if_empty_flag_ok
     !pop_if_empty_value_ok
+    !pop_if_mut_keep_flag_ok
+    !pop_if_mut_keep_value_ok
+    !len_after_pop_if_mut_keep_ok
+    !pop_if_mut_keep_tail_flag_ok
+    !pop_if_mut_keep_tail_value_ok
+    !pop_if_mut_hit_flag_ok
+    !pop_if_mut_hit_value_ok
+    !len_after_pop_if_mut_hit_ok
+    !pop_if_mut_alias_flag_ok
+    !pop_if_mut_alias_value_ok
+    !len_after_pop_if_mut_alias_ok
+    !pop_if_mut_empty_flag_ok
+    !pop_if_mut_empty_value_ok
+    !pop_if_alias01
+    !pop_if_alias_all
+    !pop_if_mut01
+    !pop_if_mut02
+    !pop_if_mut03
+    !pop_if_mut04
+    !pop_if_mut05
+    !pop_if_mut06
+    !pop_if_mut07
+    !pop_if_mut08
+    !pop_if_mut09
+    !pop_if_mut10
+    !pop_if_mut11
+    !pop_if_mut_all
+    !pop_if_extra01
+    !pop_if_extra_ok
     !cap_exact_ok
     !cap_ok
     !front_ok
