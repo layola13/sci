@@ -2954,6 +2954,64 @@ L_ASCII_OK:
     !ok
     return
 
+@test "sa_std string buffer split_at aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_a_e, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS utf8_smile_z, &UTF8_SMILE_Z, 5
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+    EXPAND STRING_BUF_SPLIT_AT split_ok, split_left, split_right, owned_utf8, 3
+    EXPAND STRING_BUF_SPLIT_AT_CHECKED split_bad_ok, split_bad_left, split_bad_right, owned_utf8, 4
+    EXPAND STR_EQ split_left_eq, split_left, utf8_a_e
+    EXPAND STR_EQ split_right_eq, split_right, utf8_smile_z
+    EXPAND STR_IS_EMPTY split_bad_left_empty, split_bad_left
+    EXPAND STR_IS_EMPTY split_bad_right_empty, split_bad_right
+
+    split_flag_ok = eq split_ok, 1
+    split_left_ok = eq split_left_eq, 1
+    split_right_ok = eq split_right_eq, 1
+    split_bad_flag_ok = eq split_bad_ok, 0
+    split_bad_left_ok = eq split_bad_left_empty, 1
+    split_bad_right_ok = eq split_bad_right_empty, 1
+    ok01 = and split_flag_ok, split_left_ok
+    ok02 = and ok01, split_right_ok
+    ok03 = and ok02, split_bad_flag_ok
+    ok04 = and ok03, split_bad_left_ok
+    ok = and ok04, split_bad_right_ok
+    EXPAND STRING_BUF_FREE owned_utf8
+    !utf8_boundary
+    !utf8_a_e
+    !utf8_smile_z
+    !split_ok
+    !split_left
+    !split_right
+    !split_bad_ok
+    !split_bad_left
+    !split_bad_right
+    !split_left_eq
+    !split_right_eq
+    !split_bad_left_empty
+    !split_bad_right_empty
+    !split_flag_ok
+    !split_left_ok
+    !split_right_ok
+    !split_bad_flag_ok
+    !split_bad_left_ok
+    !split_bad_right_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    br ok -> L_STRING_BUF_SPLIT_AT_OK, L_STRING_BUF_SPLIT_AT_FAIL
+
+L_STRING_BUF_SPLIT_AT_FAIL:
+    !ok
+    panic(918)
+
+L_STRING_BUF_SPLIT_AT_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
