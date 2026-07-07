@@ -754,36 +754,81 @@ L_ENTRY:
     EXPAND VEC_NEW vec
     EXPAND VEC_EXTEND_ONE_U64 vec, 10
     EXPAND VEC_EXTEND_REF_SLICE_U64 vec, src_slice
+    EXPAND VEC_EXTEND_ITER_U64 vec, src_slice
+    EXPAND VEC_FROM_ITER_U64 from_iter_vec, src_slice
     EXPAND VEC_LEN len, vec
+    EXPAND VEC_LEN from_iter_len, from_iter_vec
     EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
     EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
     EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
-    len_ok = eq len, 3
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    EXPAND VEC_TRY_GET_U64 fifth_ok, fifth, vec, 4
+    EXPAND VEC_TRY_GET_U64 from_iter_first_ok, from_iter_first, from_iter_vec, 0
+    EXPAND VEC_TRY_GET_U64 from_iter_second_ok, from_iter_second, from_iter_vec, 1
+    len_ok = eq len, 5
+    from_iter_len_ok = eq from_iter_len, 2
     first_value_ok = eq first, 10
     second_value_ok = eq second, 20
     third_value_ok = eq third, 30
+    fourth_value_ok = eq fourth, 20
+    fifth_value_ok = eq fifth, 30
+    from_iter_first_value_ok = eq from_iter_first, 20
+    from_iter_second_value_ok = eq from_iter_second, 30
     ok01 = and len_ok, first_ok
-    ok02 = and ok01, first_value_ok
-    ok03 = and ok02, second_ok
-    ok04 = and ok03, second_value_ok
-    ok05 = and ok04, third_ok
-    ok = and ok05, third_value_ok
+    ok02 = and ok01, from_iter_len_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_ok
+    ok07 = and ok06, third_value_ok
+    ok08 = and ok07, fourth_ok
+    ok09 = and ok08, fourth_value_ok
+    ok10 = and ok09, fifth_ok
+    ok11 = and ok10, fifth_value_ok
+    ok12 = and ok11, from_iter_first_ok
+    ok13 = and ok12, from_iter_first_value_ok
+    ok14 = and ok13, from_iter_second_ok
+    ok = and ok14, from_iter_second_value_ok
     !len
+    !from_iter_len
     !first_ok
     !first
     !second_ok
     !second
     !third_ok
     !third
+    !fourth_ok
+    !fourth
+    !fifth_ok
+    !fifth
+    !from_iter_first_ok
+    !from_iter_first
+    !from_iter_second_ok
+    !from_iter_second
     !len_ok
+    !from_iter_len_ok
     !first_value_ok
     !second_value_ok
     !third_value_ok
+    !fourth_value_ok
+    !fifth_value_ok
+    !from_iter_first_value_ok
+    !from_iter_second_value_ok
     !ok01
     !ok02
     !ok03
     !ok04
     !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    EXPAND VEC_FREE from_iter_vec
     EXPAND VEC_FREE vec
     !src_slice
     !src_data

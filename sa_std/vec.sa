@@ -670,6 +670,10 @@ L_VEC_FROM_FN_DONE_%out_vec:
     !__vec_from_slice_len_%out_vec
 [END_MACRO]
 
+[MACRO] VEC_FROM_ITER %out_vec, %slice_reg, %elem_size
+    EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
+[END_MACRO]
+
 [MACRO] VEC_FROM_MUT_SLICE %out_vec, %slice_reg, %elem_size
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, %elem_size
 [END_MACRO]
@@ -684,6 +688,10 @@ L_VEC_FROM_FN_DONE_%out_vec:
 
 [MACRO] VEC_FROM_SLICE_U64 %out_vec, %slice_reg
     EXPAND VEC_FROM_SLICE %out_vec, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_FROM_ITER_U64 %out_vec, %slice_reg
+    EXPAND VEC_FROM_ITER %out_vec, %slice_reg, 8
 [END_MACRO]
 
 [MACRO] VEC_FROM_MUT_SLICE_U64 %out_vec, %slice_reg
@@ -1104,6 +1112,14 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
 
 [MACRO] VEC_EXTEND_FROM_SLICE_U64 %vec_reg, %slice_reg
     EXPAND VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, 8
+[END_MACRO]
+
+[MACRO] VEC_EXTEND_ITER %vec_reg, %slice_reg, %elem_size
+    EXPAND VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_EXTEND_ITER_U64 %vec_reg, %slice_reg
+    EXPAND VEC_EXTEND_ITER %vec_reg, %slice_reg, 8
 [END_MACRO]
 
 [MACRO] VEC_EXTEND_REF_SLICE %vec_reg, %slice_reg, %elem_size
