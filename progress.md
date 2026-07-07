@@ -4,6 +4,24 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String UTF-16 constructor alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable checked UTF-16 constructor naming aliases over existing strict UTF-16 forms:
+  - `STRING_BUF_FROM_UTF16_U16`
+  - `STRING_BUF_FROM_UTF16LE`
+  - `STRING_BUF_FROM_UTF16BE`
+- Semantics: these aliases preserve the existing local `(ok, StringBuf)` result shape used by the `TRY_` forms. U16 input validates surrogate-pair structure; endian byte-slice input validates even byte length and then delegates to strict UTF-16 decoding. This does not claim Rust `Result` object layout, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "from_utf16 macros"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "utf16 endian byte"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf16 macros"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "utf16 endian byte"`: pass (`1 passed; 37 skipped`).
+
 ## Completed: 2026-07-07 String UTF-8 constructor alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

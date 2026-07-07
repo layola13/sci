@@ -3550,12 +3550,12 @@ L_ENTRY:
     low_bad_ptr = stack_alloc 2
     store low_bad_ptr+0, 56898 as u16
     EXPAND STR_FROM_PARTS low_bad_units, low_bad_ptr, 1
-    EXPAND STRING_BUF_TRY_FROM_UTF16_U16 valid_ok, valid_buf, valid_units
+    EXPAND STRING_BUF_FROM_UTF16_U16 valid_ok, valid_buf, valid_units
     EXPAND STRING_BUF_AS_STR valid_view, valid_buf
     EXPAND STR_EQ valid_eq, valid_view, expected
-    EXPAND STRING_BUF_TRY_FROM_UTF16_U16 high_bad_ok, high_bad_buf, high_bad_units
+    EXPAND STRING_BUF_FROM_UTF16_U16 high_bad_ok, high_bad_buf, high_bad_units
     EXPAND STRING_BUF_LEN high_bad_len, high_bad_buf
-    EXPAND STRING_BUF_TRY_FROM_UTF16_U16 low_bad_ok, low_bad_buf, low_bad_units
+    EXPAND STRING_BUF_FROM_UTF16_U16 low_bad_ok, low_bad_buf, low_bad_units
     EXPAND STRING_BUF_LEN low_bad_len, low_bad_buf
     valid_flag_ok = eq valid_ok, 1
     valid_value_ok = eq valid_eq, 1
@@ -3683,13 +3683,13 @@ L_ENTRY:
     store odd_ptr+1, 0 as u8
     store odd_ptr+2, 122 as u8
     EXPAND STR_FROM_PARTS odd_bytes, odd_ptr, 3
-    EXPAND STRING_BUF_TRY_FROM_UTF16LE le_ok, le_buf, le_bytes
+    EXPAND STRING_BUF_FROM_UTF16LE le_ok, le_buf, le_bytes
     EXPAND STRING_BUF_AS_STR le_view, le_buf
     EXPAND STR_EQ le_eq, le_view, expected
-    EXPAND STRING_BUF_TRY_FROM_UTF16BE be_ok, be_buf, be_bytes
+    EXPAND STRING_BUF_FROM_UTF16BE be_ok, be_buf, be_bytes
     EXPAND STRING_BUF_AS_STR be_view, be_buf
     EXPAND STR_EQ be_eq, be_view, expected
-    EXPAND STRING_BUF_TRY_FROM_UTF16LE odd_ok, odd_buf, odd_bytes
+    EXPAND STRING_BUF_FROM_UTF16LE odd_ok, odd_buf, odd_bytes
     EXPAND STRING_BUF_LEN odd_len, odd_buf
     le_flag_ok = eq le_ok, 1
     le_value_ok = eq le_eq, 1
