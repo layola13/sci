@@ -4039,6 +4039,26 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_NE_STR ne_str, added_string, word_slice
     EXPAND STR_EQ_STRING_BUF str_eq_string, joined_slice, added_string
     EXPAND STR_NE_STRING_BUF str_ne_string, word_slice, added_string
+    EXPAND STR_CMP str_cmp_equal, joined_slice, joined_slice
+    EXPAND STR_CMP str_cmp_less_item, right_slice, word_slice
+    EXPAND STR_CMP str_cmp_greater_len, joined_slice, word_slice
+    EXPAND STR_LT str_lt_item, right_slice, word_slice
+    EXPAND STR_LE str_le_equal, joined_slice, joined_slice
+    EXPAND STR_GT str_gt_len, joined_slice, word_slice
+    EXPAND STR_GE str_ge_equal, joined_slice, joined_slice
+    EXPAND STRING_BUF_CMP_STR cmp_str_equal, added_string, joined_slice
+    EXPAND STR_CMP_STRING_BUF str_cmp_string_less, word_slice, added_string
+    EXPAND STRING_BUF_CMP_STRING cmp_string_equal, added_string, added_string
+    EXPAND STRING_BUF_GT_STR string_gt_str, added_string, word_slice
+    EXPAND STRING_BUF_GE_STR string_ge_str, added_string, joined_slice
+    EXPAND STR_LT_STRING_BUF str_lt_string, word_slice, added_string
+    EXPAND STR_LE_STRING_BUF str_le_string, joined_slice, added_string
+    EXPAND STR_GT_STRING_BUF str_gt_string, joined_slice, default_string
+    EXPAND STR_GE_STRING_BUF str_ge_string, joined_slice, added_string
+    EXPAND STRING_BUF_LE_STRING string_le_string, added_string, added_string
+    EXPAND STRING_BUF_LT_STRING string_lt_string, default_string, added_string
+    EXPAND STRING_BUF_GT_STRING string_gt_string, added_string, default_string
+    EXPAND STRING_BUF_GE_STRING string_ge_string, added_string, added_string
     EXPAND STRING_BUF_TRY_INDEX_RANGE index_ok, index_view, added_string, 4, 4
     EXPAND STR_EQ index_eq, index_view, right_slice
     EXPAND STRING_BUF_TRY_INDEX_RANGE_MUT index_mut_ok, index_mut_view, added_string, 4, 4
@@ -4070,7 +4090,47 @@ L_STRING_BUF_ADD_ENTRY:
     ok04 = and ok03, ne_str
     ok05 = and ok04, str_eq_string
     ok06 = and ok05, str_ne_string
-    ok07 = and ok06, index_ok
+    str_cmp_equal_ok = eq str_cmp_equal, 0
+    str_cmp_less_item_ok = eq str_cmp_less_item, -1
+    str_cmp_greater_len_ok = eq str_cmp_greater_len, 1
+    str_lt_item_ok = eq str_lt_item, 1
+    str_le_equal_ok = eq str_le_equal, 1
+    str_gt_len_ok = eq str_gt_len, 1
+    str_ge_equal_ok = eq str_ge_equal, 1
+    cmp_str_equal_ok = eq cmp_str_equal, 0
+    str_cmp_string_less_ok = eq str_cmp_string_less, -1
+    cmp_string_equal_ok = eq cmp_string_equal, 0
+    string_gt_str_ok = eq string_gt_str, 1
+    string_ge_str_ok = eq string_ge_str, 1
+    str_lt_string_ok = eq str_lt_string, 1
+    str_le_string_ok = eq str_le_string, 1
+    str_gt_string_ok = eq str_gt_string, 1
+    str_ge_string_ok = eq str_ge_string, 1
+    string_le_string_ok = eq string_le_string, 1
+    string_lt_string_ok = eq string_lt_string, 1
+    string_gt_string_ok = eq string_gt_string, 1
+    string_ge_string_ok = eq string_ge_string, 1
+    cmp_alias01 = and str_cmp_equal_ok, str_cmp_less_item_ok
+    cmp_alias02 = and cmp_alias01, str_cmp_greater_len_ok
+    cmp_alias03 = and cmp_alias02, str_lt_item_ok
+    cmp_alias04 = and cmp_alias03, str_le_equal_ok
+    cmp_alias05 = and cmp_alias04, str_gt_len_ok
+    cmp_alias06 = and cmp_alias05, str_ge_equal_ok
+    cmp_alias07 = and cmp_alias06, cmp_str_equal_ok
+    cmp_alias08 = and cmp_alias07, str_cmp_string_less_ok
+    cmp_alias09 = and cmp_alias08, cmp_string_equal_ok
+    cmp_alias10 = and cmp_alias09, string_gt_str_ok
+    cmp_alias11 = and cmp_alias10, string_ge_str_ok
+    cmp_alias12 = and cmp_alias11, str_lt_string_ok
+    cmp_alias13 = and cmp_alias12, str_le_string_ok
+    cmp_alias14 = and cmp_alias13, str_gt_string_ok
+    cmp_alias15 = and cmp_alias14, str_ge_string_ok
+    cmp_alias16 = and cmp_alias15, string_le_string_ok
+    cmp_alias17 = and cmp_alias16, string_lt_string_ok
+    cmp_alias18 = and cmp_alias17, string_gt_string_ok
+    cmp_alias_ok = and cmp_alias18, string_ge_string_ok
+    ok_cmp = and ok06, cmp_alias_ok
+    ok07 = and ok_cmp, index_ok
     ok08 = and ok07, index_eq
     ok09 = and ok08, index_mut_ok
     ok10 = and ok09, index_mut_eq
@@ -4090,6 +4150,26 @@ L_STRING_BUF_ADD_ENTRY:
     !ne_str
     !str_eq_string
     !str_ne_string
+    !str_cmp_equal
+    !str_cmp_less_item
+    !str_cmp_greater_len
+    !str_lt_item
+    !str_le_equal
+    !str_gt_len
+    !str_ge_equal
+    !cmp_str_equal
+    !str_cmp_string_less
+    !cmp_string_equal
+    !string_gt_str
+    !string_ge_str
+    !str_lt_string
+    !str_le_string
+    !str_gt_string
+    !str_ge_string
+    !string_le_string
+    !string_lt_string
+    !string_gt_string
+    !string_ge_string
     !index_ok
     !index_eq
     !index_mut_ok
@@ -4109,6 +4189,46 @@ L_STRING_BUF_ADD_ENTRY:
     !ok04
     !ok05
     !ok06
+    !str_cmp_equal_ok
+    !str_cmp_less_item_ok
+    !str_cmp_greater_len_ok
+    !str_lt_item_ok
+    !str_le_equal_ok
+    !str_gt_len_ok
+    !str_ge_equal_ok
+    !cmp_str_equal_ok
+    !str_cmp_string_less_ok
+    !cmp_string_equal_ok
+    !string_gt_str_ok
+    !string_ge_str_ok
+    !str_lt_string_ok
+    !str_le_string_ok
+    !str_gt_string_ok
+    !str_ge_string_ok
+    !string_le_string_ok
+    !string_lt_string_ok
+    !string_gt_string_ok
+    !string_ge_string_ok
+    !cmp_alias01
+    !cmp_alias02
+    !cmp_alias03
+    !cmp_alias04
+    !cmp_alias05
+    !cmp_alias06
+    !cmp_alias07
+    !cmp_alias08
+    !cmp_alias09
+    !cmp_alias10
+    !cmp_alias11
+    !cmp_alias12
+    !cmp_alias13
+    !cmp_alias14
+    !cmp_alias15
+    !cmp_alias16
+    !cmp_alias17
+    !cmp_alias18
+    !cmp_alias_ok
+    !ok_cmp
     !ok07
     !ok08
     !ok09

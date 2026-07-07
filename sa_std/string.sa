@@ -207,6 +207,98 @@
     !__string_buf_ne_string_eq_%out_bool
 [END_MACRO]
 
+[MACRO] STRING_BUF_CMP_STR %out_ordering, %string_reg, %slice_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_cmp_str_view_%out_ordering, %string_reg
+    EXPAND STR_CMP %out_ordering, __string_buf_cmp_str_view_%out_ordering, %slice_reg
+    !__string_buf_cmp_str_view_%out_ordering
+[END_MACRO]
+
+[MACRO] STR_CMP_STRING_BUF %out_ordering, %slice_reg, %string_reg
+    EXPAND STRING_BUF_AS_STR __str_cmp_string_buf_view_%out_ordering, %string_reg
+    EXPAND STR_CMP %out_ordering, %slice_reg, __str_cmp_string_buf_view_%out_ordering
+    !__str_cmp_string_buf_view_%out_ordering
+[END_MACRO]
+
+[MACRO] STRING_BUF_CMP_STRING %out_ordering, %left_string, %right_string
+    EXPAND STRING_BUF_AS_STR __string_buf_cmp_left_%out_ordering, %left_string
+    EXPAND STRING_BUF_AS_STR __string_buf_cmp_right_%out_ordering, %right_string
+    EXPAND STR_CMP %out_ordering, __string_buf_cmp_left_%out_ordering, __string_buf_cmp_right_%out_ordering
+    !__string_buf_cmp_left_%out_ordering
+    !__string_buf_cmp_right_%out_ordering
+[END_MACRO]
+
+[MACRO] STRING_BUF_LT_STR %out_bool, %string_reg, %slice_reg
+    EXPAND STRING_BUF_CMP_STR __string_buf_lt_str_order_%out_bool, %string_reg, %slice_reg
+    %out_bool = slt __string_buf_lt_str_order_%out_bool, 0
+    !__string_buf_lt_str_order_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_LE_STR %out_bool, %string_reg, %slice_reg
+    EXPAND STRING_BUF_CMP_STR __string_buf_le_str_order_%out_bool, %string_reg, %slice_reg
+    %out_bool = sle __string_buf_le_str_order_%out_bool, 0
+    !__string_buf_le_str_order_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_GT_STR %out_bool, %string_reg, %slice_reg
+    EXPAND STRING_BUF_CMP_STR __string_buf_gt_str_order_%out_bool, %string_reg, %slice_reg
+    %out_bool = sgt __string_buf_gt_str_order_%out_bool, 0
+    !__string_buf_gt_str_order_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_GE_STR %out_bool, %string_reg, %slice_reg
+    EXPAND STRING_BUF_CMP_STR __string_buf_ge_str_order_%out_bool, %string_reg, %slice_reg
+    %out_bool = sge __string_buf_ge_str_order_%out_bool, 0
+    !__string_buf_ge_str_order_%out_bool
+[END_MACRO]
+
+[MACRO] STR_LT_STRING_BUF %out_bool, %slice_reg, %string_reg
+    EXPAND STR_CMP_STRING_BUF __str_lt_string_buf_order_%out_bool, %slice_reg, %string_reg
+    %out_bool = slt __str_lt_string_buf_order_%out_bool, 0
+    !__str_lt_string_buf_order_%out_bool
+[END_MACRO]
+
+[MACRO] STR_LE_STRING_BUF %out_bool, %slice_reg, %string_reg
+    EXPAND STR_CMP_STRING_BUF __str_le_string_buf_order_%out_bool, %slice_reg, %string_reg
+    %out_bool = sle __str_le_string_buf_order_%out_bool, 0
+    !__str_le_string_buf_order_%out_bool
+[END_MACRO]
+
+[MACRO] STR_GT_STRING_BUF %out_bool, %slice_reg, %string_reg
+    EXPAND STR_CMP_STRING_BUF __str_gt_string_buf_order_%out_bool, %slice_reg, %string_reg
+    %out_bool = sgt __str_gt_string_buf_order_%out_bool, 0
+    !__str_gt_string_buf_order_%out_bool
+[END_MACRO]
+
+[MACRO] STR_GE_STRING_BUF %out_bool, %slice_reg, %string_reg
+    EXPAND STR_CMP_STRING_BUF __str_ge_string_buf_order_%out_bool, %slice_reg, %string_reg
+    %out_bool = sge __str_ge_string_buf_order_%out_bool, 0
+    !__str_ge_string_buf_order_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_LT_STRING %out_bool, %left_string, %right_string
+    EXPAND STRING_BUF_CMP_STRING __string_buf_lt_string_order_%out_bool, %left_string, %right_string
+    %out_bool = slt __string_buf_lt_string_order_%out_bool, 0
+    !__string_buf_lt_string_order_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_LE_STRING %out_bool, %left_string, %right_string
+    EXPAND STRING_BUF_CMP_STRING __string_buf_le_string_order_%out_bool, %left_string, %right_string
+    %out_bool = sle __string_buf_le_string_order_%out_bool, 0
+    !__string_buf_le_string_order_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_GT_STRING %out_bool, %left_string, %right_string
+    EXPAND STRING_BUF_CMP_STRING __string_buf_gt_string_order_%out_bool, %left_string, %right_string
+    %out_bool = sgt __string_buf_gt_string_order_%out_bool, 0
+    !__string_buf_gt_string_order_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_BUF_GE_STRING %out_bool, %left_string, %right_string
+    EXPAND STRING_BUF_CMP_STRING __string_buf_ge_string_order_%out_bool, %left_string, %right_string
+    %out_bool = sge __string_buf_ge_string_order_%out_bool, 0
+    !__string_buf_ge_string_order_%out_bool
+[END_MACRO]
+
 [MACRO] STRING_BUF_LEAK %out_slice, %string_reg
     EXPAND VEC_LEAK %out_slice, %string_reg
 [END_MACRO]
@@ -2285,6 +2377,146 @@ L_STR_EQ_NE_%out_bool:
     !right_len_%out_bool
     !same_len_%out_bool
 L_STR_EQ_END_%out_bool:
+[END_MACRO]
+
+[MACRO] STR_CMP %out_ordering, %left_slice, %right_slice
+    __str_cmp_left_ptr_%out_ordering = load %left_slice+Slice_ptr as ptr
+    __str_cmp_right_ptr_%out_ordering = load %right_slice+Slice_ptr as ptr
+    __str_cmp_left_len_%out_ordering = load %left_slice+Slice_len as u64
+    __str_cmp_right_len_%out_ordering = load %right_slice+Slice_len as u64
+    __str_cmp_idx_slot_%out_ordering = stack_alloc 8
+    store __str_cmp_idx_slot_%out_ordering+0, 0 as u64
+    jmp L_STR_CMP_HEAD_%out_ordering
+
+L_STR_CMP_HEAD_%out_ordering:
+    __str_cmp_idx_%out_ordering = load __str_cmp_idx_slot_%out_ordering+0 as u64
+    __str_cmp_left_done_%out_ordering = eq __str_cmp_idx_%out_ordering, __str_cmp_left_len_%out_ordering
+    __str_cmp_right_done_%out_ordering = eq __str_cmp_idx_%out_ordering, __str_cmp_right_len_%out_ordering
+    br __str_cmp_left_done_%out_ordering -> L_STR_CMP_LEFT_DONE_%out_ordering, L_STR_CMP_LEFT_SOME_%out_ordering
+
+L_STR_CMP_LEFT_SOME_%out_ordering:
+    br __str_cmp_right_done_%out_ordering -> L_STR_CMP_GREATER_%out_ordering, L_STR_CMP_BODY_%out_ordering
+
+L_STR_CMP_BODY_%out_ordering:
+    __str_cmp_left_item_%out_ordering = ptr_add __str_cmp_left_ptr_%out_ordering, __str_cmp_idx_%out_ordering
+    __str_cmp_right_item_%out_ordering = ptr_add __str_cmp_right_ptr_%out_ordering, __str_cmp_idx_%out_ordering
+    __str_cmp_left_byte_%out_ordering = load __str_cmp_left_item_%out_ordering+0 as u8
+    __str_cmp_right_byte_%out_ordering = load __str_cmp_right_item_%out_ordering+0 as u8
+    __str_cmp_less_%out_ordering = ult __str_cmp_left_byte_%out_ordering, __str_cmp_right_byte_%out_ordering
+    br __str_cmp_less_%out_ordering -> L_STR_CMP_LESS_LOOP_%out_ordering, L_STR_CMP_CHECK_GREATER_%out_ordering
+
+L_STR_CMP_CHECK_GREATER_%out_ordering:
+    __str_cmp_greater_%out_ordering = ugt __str_cmp_left_byte_%out_ordering, __str_cmp_right_byte_%out_ordering
+    br __str_cmp_greater_%out_ordering -> L_STR_CMP_GREATER_LOOP_%out_ordering, L_STR_CMP_NEXT_%out_ordering
+
+L_STR_CMP_NEXT_%out_ordering:
+    __str_cmp_next_%out_ordering = add __str_cmp_idx_%out_ordering, 1
+    store __str_cmp_idx_slot_%out_ordering+0, __str_cmp_next_%out_ordering as u64
+    !__str_cmp_next_%out_ordering
+    !__str_cmp_greater_%out_ordering
+    !__str_cmp_less_%out_ordering
+    !__str_cmp_right_byte_%out_ordering
+    !__str_cmp_left_byte_%out_ordering
+    !__str_cmp_right_item_%out_ordering
+    !__str_cmp_left_item_%out_ordering
+    !__str_cmp_right_done_%out_ordering
+    !__str_cmp_left_done_%out_ordering
+    !__str_cmp_idx_%out_ordering
+    jmp L_STR_CMP_HEAD_%out_ordering
+
+L_STR_CMP_LEFT_DONE_%out_ordering:
+    br __str_cmp_right_done_%out_ordering -> L_STR_CMP_EQUAL_%out_ordering, L_STR_CMP_LESS_%out_ordering
+
+L_STR_CMP_LESS_LOOP_%out_ordering:
+    %out_ordering = sub 0, 1
+    !__str_cmp_less_%out_ordering
+    !__str_cmp_right_byte_%out_ordering
+    !__str_cmp_left_byte_%out_ordering
+    !__str_cmp_right_item_%out_ordering
+    !__str_cmp_left_item_%out_ordering
+    !__str_cmp_right_done_%out_ordering
+    !__str_cmp_left_done_%out_ordering
+    !__str_cmp_idx_%out_ordering
+    !__str_cmp_right_len_%out_ordering
+    !__str_cmp_left_len_%out_ordering
+    !__str_cmp_right_ptr_%out_ordering
+    !__str_cmp_left_ptr_%out_ordering
+    jmp L_STR_CMP_END_%out_ordering
+
+L_STR_CMP_GREATER_LOOP_%out_ordering:
+    %out_ordering = add 0, 1
+    !__str_cmp_greater_%out_ordering
+    !__str_cmp_less_%out_ordering
+    !__str_cmp_right_byte_%out_ordering
+    !__str_cmp_left_byte_%out_ordering
+    !__str_cmp_right_item_%out_ordering
+    !__str_cmp_left_item_%out_ordering
+    !__str_cmp_right_done_%out_ordering
+    !__str_cmp_left_done_%out_ordering
+    !__str_cmp_idx_%out_ordering
+    !__str_cmp_right_len_%out_ordering
+    !__str_cmp_left_len_%out_ordering
+    !__str_cmp_right_ptr_%out_ordering
+    !__str_cmp_left_ptr_%out_ordering
+    jmp L_STR_CMP_END_%out_ordering
+
+L_STR_CMP_LESS_%out_ordering:
+    %out_ordering = sub 0, 1
+    !__str_cmp_right_done_%out_ordering
+    !__str_cmp_left_done_%out_ordering
+    !__str_cmp_idx_%out_ordering
+    !__str_cmp_right_len_%out_ordering
+    !__str_cmp_left_len_%out_ordering
+    !__str_cmp_right_ptr_%out_ordering
+    !__str_cmp_left_ptr_%out_ordering
+    jmp L_STR_CMP_END_%out_ordering
+
+L_STR_CMP_GREATER_%out_ordering:
+    %out_ordering = add 0, 1
+    !__str_cmp_right_done_%out_ordering
+    !__str_cmp_left_done_%out_ordering
+    !__str_cmp_idx_%out_ordering
+    !__str_cmp_right_len_%out_ordering
+    !__str_cmp_left_len_%out_ordering
+    !__str_cmp_right_ptr_%out_ordering
+    !__str_cmp_left_ptr_%out_ordering
+    jmp L_STR_CMP_END_%out_ordering
+
+L_STR_CMP_EQUAL_%out_ordering:
+    %out_ordering = add 0, 0
+    !__str_cmp_right_done_%out_ordering
+    !__str_cmp_left_done_%out_ordering
+    !__str_cmp_idx_%out_ordering
+    !__str_cmp_right_len_%out_ordering
+    !__str_cmp_left_len_%out_ordering
+    !__str_cmp_right_ptr_%out_ordering
+    !__str_cmp_left_ptr_%out_ordering
+
+L_STR_CMP_END_%out_ordering:
+[END_MACRO]
+
+[MACRO] STR_LT %out_bool, %left_slice, %right_slice
+    EXPAND STR_CMP __str_lt_order_%out_bool, %left_slice, %right_slice
+    %out_bool = slt __str_lt_order_%out_bool, 0
+    !__str_lt_order_%out_bool
+[END_MACRO]
+
+[MACRO] STR_LE %out_bool, %left_slice, %right_slice
+    EXPAND STR_CMP __str_le_order_%out_bool, %left_slice, %right_slice
+    %out_bool = sle __str_le_order_%out_bool, 0
+    !__str_le_order_%out_bool
+[END_MACRO]
+
+[MACRO] STR_GT %out_bool, %left_slice, %right_slice
+    EXPAND STR_CMP __str_gt_order_%out_bool, %left_slice, %right_slice
+    %out_bool = sgt __str_gt_order_%out_bool, 0
+    !__str_gt_order_%out_bool
+[END_MACRO]
+
+[MACRO] STR_GE %out_bool, %left_slice, %right_slice
+    EXPAND STR_CMP __str_ge_order_%out_bool, %left_slice, %right_slice
+    %out_bool = sge __str_ge_order_%out_bool, 0
+    !__str_ge_order_%out_bool
 [END_MACRO]
 
 [MACRO] STR_CONTAINS %out_bool, %slice_reg, %needle_slice

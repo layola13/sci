@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf lexicographic comparison alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable lexicographic comparison aliases for Rust `String` / `str` `PartialOrd` / `Ord` style use cases:
+  - `STR_CMP`, `STR_LT`, `STR_LE`, `STR_GT`, `STR_GE`
+  - `STRING_BUF_CMP_STR`, `STR_CMP_STRING_BUF`, `STRING_BUF_CMP_STRING`
+  - `STRING_BUF_LT_STR`, `STRING_BUF_LE_STR`, `STRING_BUF_GT_STR`, `STRING_BUF_GE_STR`
+  - `STR_LT_STRING_BUF`, `STR_LE_STRING_BUF`, `STR_GT_STRING_BUF`, `STR_GE_STRING_BUF`
+  - `STRING_BUF_LT_STRING`, `STRING_BUF_LE_STRING`, `STRING_BUF_GT_STRING`, `STRING_BUF_GE_STRING`
+- Semantics: these aliases compare UTF-8 strings by byte lexicographic order, returning `-1` / `0` / `1` for less/equal/greater and bool wrappers for ordering predicates, matching Rust string ordering without adding a new trait object model.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
 ## Completed: 2026-07-07 Vec U64 lexicographic comparison alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
