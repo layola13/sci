@@ -1053,6 +1053,9 @@ L_ENTRY:
     EXPAND VEC_AS_REF_VEC_PTR as_ref_vec_ptr, vec
     as_ref_vec_len = load as_ref_vec_ptr+Vec_len as u64
     !as_ref_vec_ptr
+    EXPAND VEC_AS_MUT_VEC_PTR as_mut_vec_ptr, vec
+    as_mut_vec_len = load as_mut_vec_ptr+Vec_len as u64
+    !as_mut_vec_ptr
     EXPAND VEC_DEREF_SLICE deref_slice, vec
     EXPAND SLICE_GET_LEN deref_slice_len, deref_slice
     EXPAND VEC_DEREF_MUT_SLICE deref_mut_slice, vec
@@ -1078,6 +1081,7 @@ L_ENTRY:
     as_ref_slice_len_ok = eq as_ref_slice_len, 5
     as_mut_ref_slice_len_ok = eq as_mut_ref_slice_len, 5
     as_ref_vec_len_ok = eq as_ref_vec_len, 5
+    as_mut_vec_len_ok = eq as_mut_vec_len, 5
     deref_slice_len_ok = eq deref_slice_len, 5
     deref_mut_slice_len_ok = eq deref_mut_slice_len, 5
     set_len_ok = eq len_after_set_len, 3
@@ -1097,9 +1101,10 @@ L_ENTRY:
     ok02 = and ok01, as_ref_slice_len_ok
     ok03 = and ok02, as_mut_ref_slice_len_ok
     ok04 = and ok03, as_ref_vec_len_ok
-    ok05 = and ok04, deref_slice_len_ok
-    ok06 = and ok05, deref_mut_slice_len_ok
-    ok07 = and ok06, set_len_ok
+    ok05 = and ok04, as_mut_vec_len_ok
+    ok06 = and ok05, deref_slice_len_ok
+    ok06a = and ok06, deref_mut_slice_len_ok
+    ok07 = and ok06a, set_len_ok
     ok08 = and ok07, shrink_to_ok
     ok09 = and ok08, try_shrink_to_flag_ok
     ok10 = and ok09, try_shrink_to_cap_ok
@@ -1120,6 +1125,7 @@ L_ENTRY:
     !as_mut_ref_slice
     !as_mut_ref_slice_len
     !as_ref_vec_len
+    !as_mut_vec_len
     !deref_slice
     !deref_slice_len
     !deref_mut_slice
@@ -1141,6 +1147,7 @@ L_ENTRY:
     !mut_slice_len_ok
     !as_ref_slice_len_ok
     !as_mut_ref_slice_len_ok
+    !as_mut_vec_len_ok
     !deref_slice_len_ok
     !deref_mut_slice_len_ok
     !set_len_ok
@@ -1163,6 +1170,7 @@ L_ENTRY:
     !ok04
     !ok05
     !ok06
+    !ok06a
     !ok07
     !ok08
     !ok09

@@ -200,6 +200,7 @@
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `str::repeat` 与 slice/Vec repeat 风格 eager 别名，按 `count` 次复制源 str/slice 到新的 owned `StringBuf` / Vec，`count=0` 返回空 buffer，不声明 allocator-parametric 或泛型 `T: Clone` 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `ToOwned` / `ToString` / `to_vec` 风格 eager owned-copy 别名，复用现有 StringBuf/Vec clone 与 from-slice 路径，并验证源对象后续 mutation 不影响 owned 结果，不声明 Cow/Box/allocator-parametric/trait-object 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 char/bool/u64/i64 具体 primitive `to_string` 别名，复用现有 StringBuf 构造与 SA formatter 路径，不声明泛型 `Display` / `ToString` trait-object 全覆盖或浮点默认格式 parity；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec `AsMut<Vec<T>>` 风格 metadata pointer 别名 `VEC_AS_MUT_VEC_PTR`，与现有 `AsRef<Vec<T>>` 本地指针表面保持一致，不声明 Rust borrow checker 或 whole-object mutable borrow 全语义；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
