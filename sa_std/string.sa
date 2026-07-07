@@ -3082,6 +3082,14 @@ L_STR_FIND_BYTE_END_%out_ok:
     EXPAND STR_TRY_FIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
 [END_MACRO]
 
+[MACRO] STR_FIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+    EXPAND STR_TRY_FIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+[END_MACRO]
+
+[MACRO] STRING_FIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+    EXPAND STR_FIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+[END_MACRO]
+
 [MACRO] STR_TRY_RFIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
     __str_rfind_byte_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
     __str_rfind_byte_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -3154,6 +3162,14 @@ L_STR_RFIND_BYTE_END_%out_ok:
 
 [MACRO] STRING_TRY_RFIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
     EXPAND STR_TRY_RFIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+[END_MACRO]
+
+[MACRO] STR_RFIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+    EXPAND STR_TRY_RFIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+[END_MACRO]
+
+[MACRO] STRING_RFIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
+    EXPAND STR_RFIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
 [END_MACRO]
 
 [MACRO] STR_COUNT_BYTE %out_count, %slice_reg, %byte_value

@@ -4,6 +4,22 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String/str byte find alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str byte find naming aliases over existing checked byte find forms:
+  - `STR_FIND_BYTE`, `STRING_FIND_BYTE`
+  - `STR_RFIND_BYTE`, `STRING_RFIND_BYTE`
+- Semantics: these aliases preserve the existing local `(ok, index)` result shape used by the `TRY_` byte forms. This models concrete byte search only; it does not claim generic `Pattern`, Unicode scalar search, Rust `Option<usize>` object layout, or iterator/searcher object semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string byte scan"`: pass (`1 passed; 37 skipped`).
+  - `git diff --check`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string byte scan"`: pass (`1 passed; 37 skipped`).
+
 ## Completed: 2026-07-07 String/str find alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

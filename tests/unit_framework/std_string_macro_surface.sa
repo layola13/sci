@@ -2055,14 +2055,14 @@ L_ENTRY:
     EXPAND STRING_BYTES string_bytes, pathish
     EXPAND STR_LEN str_bytes_len, str_bytes
     EXPAND STRING_LEN string_bytes_len, string_bytes
-    EXPAND STR_TRY_FIND_BYTE find_ok, find_idx, pathish, 58
-    EXPAND STRING_TRY_RFIND_BYTE rfind_ok, rfind_idx, pathish, 58
-    EXPAND STR_TRY_FIND_BYTE miss_find_ok, miss_find_idx, pathish, 47
-    EXPAND STRING_TRY_RFIND_BYTE miss_rfind_ok, miss_rfind_idx, pathish, 47
+    EXPAND STR_FIND_BYTE find_ok, find_idx, pathish, 58
+    EXPAND STRING_RFIND_BYTE rfind_ok, rfind_idx, pathish, 58
+    EXPAND STRING_FIND_BYTE miss_find_ok, miss_find_idx, pathish, 47
+    EXPAND STR_RFIND_BYTE miss_rfind_ok, miss_rfind_idx, pathish, 47
     EXPAND STR_COUNT_BYTE count_colon, pathish, 58
     EXPAND STRING_COUNT_BYTE count_miss, pathish, 47
-    EXPAND STR_TRY_FIND_BYTE empty_find_ok, empty_find_idx, empty, 58
-    EXPAND STRING_TRY_RFIND_BYTE empty_rfind_ok, empty_rfind_idx, empty, 58
+    EXPAND STRING_FIND_BYTE empty_find_ok, empty_find_idx, empty, 58
+    EXPAND STR_RFIND_BYTE empty_rfind_ok, empty_rfind_idx, empty, 58
     EXPAND STR_COUNT_BYTE empty_count, empty, 58
 
     str_bytes_len_ok = eq str_bytes_len, 5
