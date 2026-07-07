@@ -4,6 +4,18 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf char mutation documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Synced the stale `docs/std_missing.md` String scope note for owned `StringBuf` char mutation helpers:
+  - `STRING_BUF_TRY_PUSH_CHAR` / `STRING_BUF_PUSH_CHAR`
+  - `STRING_BUF_TRY_INSERT_CHAR` / `STRING_BUF_INSERT_CHAR`
+- Semantics: current source encodes any valid Unicode scalar value as UTF-8 before appending or inserting, and rejects invalid scalar values such as surrogate codepoints. Insert still goes through the existing checked insert path, so byte indexes must be in bounds and at a valid UTF-8 character boundary. This does not claim Rust `Pattern` machinery, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Runtime tests intentionally not run because this batch has no runtime or test source changes.
+  - `git diff --check`: pass.
+
 ## Completed: 2026-07-07 StringBuf try split-at documentation sync batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
