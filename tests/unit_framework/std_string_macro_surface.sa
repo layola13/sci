@@ -493,6 +493,54 @@ L_OK:
     !ok
     return
 
+@test "sa_std string as_mut_ptr aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_AS_PTR str_ptr, word
+    EXPAND STR_AS_MUT_PTR str_mut_ptr, word
+    EXPAND STRING_AS_PTR string_ptr, word
+    EXPAND STRING_AS_MUT_PTR string_mut_ptr, word
+    EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_AS_MUT_STR owned_mut_view, owned_word
+    EXPAND STRING_BUF_AS_MUT_PTR owned_mut_ptr, owned_word
+    EXPAND STR_AS_MUT_PTR owned_view_mut_ptr, owned_mut_view
+
+    str_mut_matches = eq str_mut_ptr, str_ptr
+    string_mut_matches = eq string_mut_ptr, string_ptr
+    string_matches_str = eq string_ptr, str_ptr
+    owned_view_matches_buf = eq owned_view_mut_ptr, owned_mut_ptr
+    owned_ptr_non_null = ne owned_mut_ptr, 0
+    ok01 = and str_mut_matches, string_mut_matches
+    ok02 = and ok01, string_matches_str
+    ok03 = and ok02, owned_view_matches_buf
+    ok = and ok03, owned_ptr_non_null
+    EXPAND STRING_BUF_FREE owned_word
+    !word
+    !str_ptr
+    !str_mut_ptr
+    !string_ptr
+    !string_mut_ptr
+    !owned_mut_view
+    !owned_mut_ptr
+    !owned_view_mut_ptr
+    !str_mut_matches
+    !string_mut_matches
+    !string_matches_str
+    !owned_view_matches_buf
+    !owned_ptr_non_null
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_STRING_AS_MUT_PTR_ALIAS_OK, L_STRING_AS_MUT_PTR_ALIAS_FAIL
+
+L_STRING_AS_MUT_PTR_ALIAS_FAIL:
+    !ok
+    panic(930)
+
+L_STRING_AS_MUT_PTR_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string concat macro"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS left, &JOIN_LEFT, 4

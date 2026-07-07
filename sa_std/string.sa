@@ -25,6 +25,10 @@
     EXPAND STR_PTR %out_ptr, %slice_reg
 [END_MACRO]
 
+[MACRO] STR_AS_MUT_PTR %out_ptr, %slice_reg
+    EXPAND STR_AS_PTR %out_ptr, %slice_reg
+[END_MACRO]
+
 [MACRO] STR_AS_PTR_RANGE %out_start, %out_end, %slice_reg
     EXPAND SLICE_AS_PTR_RANGE %out_start, %out_end, %slice_reg, 1
 [END_MACRO]
@@ -39,6 +43,10 @@
 
 [MACRO] STRING_AS_PTR %out_ptr, %slice_reg
     EXPAND STRING_PTR %out_ptr, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_AS_MUT_PTR %out_ptr, %slice_reg
+    EXPAND STR_AS_MUT_PTR %out_ptr, %slice_reg
 [END_MACRO]
 
 [MACRO] STRING_AS_PTR_RANGE %out_start, %out_end, %slice_reg

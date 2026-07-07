@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 str/String as_mut_ptr alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / `String` mutable pointer naming aliases:
+  - `STR_AS_MUT_PTR`
+  - `STRING_AS_MUT_PTR`
+- Semantics: these aliases reuse the existing byte pointer view and return the same raw pointer shape as `STR_AS_PTR`. Owned `StringBuf` already exposes `STRING_BUF_AS_MUT_PTR` over its backing vector buffer. This does not claim Rust scoped `&mut str` borrow rules, alias guarantees, UTF-8 mutation invariant enforcement, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "as_mut_ptr aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "as_mut_ptr aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
 ## Completed: 2026-07-07 str/String as_ascii alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
