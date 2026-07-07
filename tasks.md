@@ -255,6 +255,7 @@
 - [x] `str` / `String` / `StringBuf` Rust API parity 复审：补 `split_at_mut` / `split_at_mut_checked` 风格命名别名，复用 UTF-8 char-boundary checked split helper 返回本地 `(ok,left,right)` Slice 视图；不声明 Rust panic 行为、`Option` 对象布局或 scoped `&mut str` borrow 语义；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
 - [x] `str` / `String` / `StringBuf` Rust API parity 复审：补当前 Rust nightly-only `ascii_char` 的 `as_ascii` / `as_ascii_unchecked` 风格命名别名，复用现有 ASCII slice checked/unchecked view helpers；checked 形态返回本地 `(ok,slice)`，unchecked 形态保持原指针/长度，不声明 Rust `Option<&[AsciiChar]>` 对象布局、typed ASCII slice reference、unsafe type-state 或稳定 API 覆盖；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
 - [x] `str` / `String` Rust API parity 复审：补 `str::as_mut_ptr` 风格命名别名 `STR_AS_MUT_PTR` / `STRING_AS_MUT_PTR`，复用现有 byte pointer view；只返回 raw pointer，不声明 Rust scoped `&mut str` borrow、alias 保证或 UTF-8 mutation invariant enforcement；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `Vec` Rust API parity 复审：补当前 Rust nightly-only `vec_peek_mut` 的 `VEC_PEEK_MUT` / `VEC_PEEK_MUT_U64` 命名别名，复用现有 `VEC_TRY_PEEK_MUT*` raw-pointer helper；返回本地 `(ok,ptr)`，空 vec 返回 null pointer，不声明 Rust `Option<&mut T>`、peek guard、泛型 `T` 或 borrow checker alias 语义；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
 - [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

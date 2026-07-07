@@ -428,6 +428,14 @@ L_VEC_PEEK_MUT_END_%out_ok:
     EXPAND VEC_TRY_PEEK_MUT %out_ok, %out_ptr, %vec_reg, 8
 [END_MACRO]
 
+[MACRO] VEC_PEEK_MUT %out_ok, %out_ptr, %vec_reg, %elem_size
+    EXPAND VEC_TRY_PEEK_MUT %out_ok, %out_ptr, %vec_reg, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_PEEK_MUT_U64 %out_ok, %out_ptr, %vec_reg
+    EXPAND VEC_TRY_PEEK_MUT_U64 %out_ok, %out_ptr, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
     EXPAND VEC_AS_SLICE __vec_split_first_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, __vec_split_first_slice_%out_ok

@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 Vec peek_mut alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Vec `peek_mut` naming aliases for Rust's current nightly-only `vec_peek_mut` method:
+  - `VEC_PEEK_MUT`
+  - `VEC_PEEK_MUT_U64`
+- Semantics: these aliases reuse the existing `VEC_TRY_PEEK_MUT*` raw-pointer helper and preserve the local `(ok, ptr)` result shape. Empty vectors return `ok=0` and a null pointer. This does not claim Rust `Option<&mut T>` object layout, peek guard behavior, generic `T` coverage, allocator-parametric behavior, or borrow-checker alias rules.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "peek_mut aliases"`: pass.
+  - Installed-state focused `std_vec_macro_surface.sa --filter "peek_mut aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
 ## Completed: 2026-07-07 str/String as_mut_ptr alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

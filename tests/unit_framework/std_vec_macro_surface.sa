@@ -2033,6 +2033,108 @@ L_VEC_PEEK_MUT_OK:
     !ok
     return
 
+@test "sa_std vec peek_mut aliases"():
+L_ENTRY:
+    EXPAND VEC_NEW empty_vec
+    EXPAND VEC_PEEK_MUT_U64 empty_u64_ok, empty_u64_ptr, empty_vec
+    EXPAND VEC_PEEK_MUT empty_generic_ok, empty_generic_ptr, empty_vec, 8
+
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PEEK_MUT_U64 peek_u64_ok, peek_u64_ptr, vec
+    store peek_u64_ptr+0, 21 as u64
+    EXPAND VEC_TRY_LAST_U64 last_after_u64_ok, last_after_u64, vec
+    EXPAND VEC_PEEK_MUT peek_generic_ok, peek_generic_ptr, vec, 8
+    store peek_generic_ptr+0, 22 as u64
+    EXPAND VEC_TRY_LAST_U64 last_after_generic_ok, last_after_generic, vec
+    EXPAND VEC_TRY_FIRST_U64 first_ok, first, vec
+    EXPAND VEC_LEN len_after, vec
+
+    empty_u64_flag_ok = eq empty_u64_ok, 0
+    empty_u64_ptr_ok = eq empty_u64_ptr, 0
+    empty_generic_flag_ok = eq empty_generic_ok, 0
+    empty_generic_ptr_ok = eq empty_generic_ptr, 0
+    peek_u64_flag_ok = eq peek_u64_ok, 1
+    peek_u64_ptr_ok = ne peek_u64_ptr, 0
+    last_after_u64_flag_ok = eq last_after_u64_ok, 1
+    last_after_u64_value_ok = eq last_after_u64, 21
+    peek_generic_flag_ok = eq peek_generic_ok, 1
+    peek_generic_ptr_ok = ne peek_generic_ptr, 0
+    last_after_generic_flag_ok = eq last_after_generic_ok, 1
+    last_after_generic_value_ok = eq last_after_generic, 22
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 10
+    len_ok = eq len_after, 2
+    ok01 = and empty_u64_flag_ok, empty_u64_ptr_ok
+    ok02 = and ok01, empty_generic_flag_ok
+    ok03 = and ok02, empty_generic_ptr_ok
+    ok04 = and ok03, peek_u64_flag_ok
+    ok05 = and ok04, peek_u64_ptr_ok
+    ok06 = and ok05, last_after_u64_flag_ok
+    ok07 = and ok06, last_after_u64_value_ok
+    ok08 = and ok07, peek_generic_flag_ok
+    ok09 = and ok08, peek_generic_ptr_ok
+    ok10 = and ok09, last_after_generic_flag_ok
+    ok11 = and ok10, last_after_generic_value_ok
+    ok12 = and ok11, first_flag_ok
+    ok13 = and ok12, first_value_ok
+    ok = and ok13, len_ok
+    !empty_u64_ok
+    !empty_u64_ptr
+    !empty_generic_ok
+    !empty_generic_ptr
+    !peek_u64_ok
+    !peek_u64_ptr
+    !last_after_u64_ok
+    !last_after_u64
+    !peek_generic_ok
+    !peek_generic_ptr
+    !last_after_generic_ok
+    !last_after_generic
+    !first_ok
+    !first
+    !len_after
+    !empty_u64_flag_ok
+    !empty_u64_ptr_ok
+    !empty_generic_flag_ok
+    !empty_generic_ptr_ok
+    !peek_u64_flag_ok
+    !peek_u64_ptr_ok
+    !last_after_u64_flag_ok
+    !last_after_u64_value_ok
+    !peek_generic_flag_ok
+    !peek_generic_ptr_ok
+    !last_after_generic_flag_ok
+    !last_after_generic_value_ok
+    !first_flag_ok
+    !first_value_ok
+    !len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_PEEK_MUT_ALIAS_OK, L_VEC_PEEK_MUT_ALIAS_FAIL
+
+L_VEC_PEEK_MUT_ALIAS_FAIL:
+    !ok
+    panic(915)
+
+L_VEC_PEEK_MUT_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std vec retain_mut macros"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 4
