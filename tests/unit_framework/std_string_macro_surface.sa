@@ -2574,6 +2574,9 @@ L_ENTRY:
     EXPAND STRING_SPLIT_ONCE split_once_ok, split_once_left, split_once_right, pathish, colon
     EXPAND STR_RSPLIT_ONCE rsplit_once_ok, rsplit_once_left, rsplit_once_right, pathish, colon
     EXPAND STR_SPLIT_ONCE split_once_miss_ok, split_once_miss_left, split_once_miss_right, pathish, miss
+    EXPAND STRING_BUF_FROM_STR owned_pathish, pathish
+    EXPAND STRING_BUF_SPLIT_ONCE owned_split_once_ok, owned_split_once_left, owned_split_once_right, owned_pathish, colon
+    EXPAND STRING_BUF_RSPLIT_ONCE owned_rsplit_once_ok, owned_rsplit_once_left, owned_rsplit_once_right, owned_pathish, colon
     EXPAND STR_EQ trim_both_eq, trim_both, title_word
     EXPAND STR_EQ trim_start_eq, trim_start, title_word
     EXPAND STR_EQ trim_end_eq, trim_end, title_word
@@ -2583,6 +2586,10 @@ L_ENTRY:
     EXPAND STR_EQ rsplit_once_right_eq, rsplit_once_right, expected_rright
     EXPAND STR_IS_EMPTY split_once_miss_left_empty, split_once_miss_left
     EXPAND STR_IS_EMPTY split_once_miss_right_empty, split_once_miss_right
+    EXPAND STR_EQ owned_split_once_left_eq, owned_split_once_left, expected_left
+    EXPAND STR_EQ owned_split_once_right_eq, owned_split_once_right, expected_right
+    EXPAND STR_EQ owned_rsplit_once_left_eq, owned_rsplit_once_left, expected_rleft
+    EXPAND STR_EQ owned_rsplit_once_right_eq, owned_rsplit_once_right, expected_rright
 
     ascii_ok = eq is_ascii, 1
     ascii_case_ok = eq ascii_case_eq, 1
@@ -2640,6 +2647,12 @@ L_ENTRY:
     split_once_miss_flag_ok = eq split_once_miss_ok, 0
     split_once_miss_left_ok = eq split_once_miss_left_empty, 1
     split_once_miss_right_ok = eq split_once_miss_right_empty, 1
+    owned_split_once_flag_ok = eq owned_split_once_ok, 1
+    owned_split_once_left_ok = eq owned_split_once_left_eq, 1
+    owned_split_once_right_ok = eq owned_split_once_right_eq, 1
+    owned_rsplit_once_flag_ok = eq owned_rsplit_once_ok, 1
+    owned_rsplit_once_left_ok = eq owned_rsplit_once_left_eq, 1
+    owned_rsplit_once_right_ok = eq owned_rsplit_once_right_eq, 1
     ok01 = and ascii_ok, ascii_case_ok
     ok02 = and ok01, boundary0_ok
     ok03 = and ok02, boundary1_ok
@@ -2693,7 +2706,14 @@ L_ENTRY:
     ok18 = and ok17, rsplit_once_right_ok
     ok19 = and ok18, split_once_miss_flag_ok
     ok20 = and ok19, split_once_miss_left_ok
-    ok = and ok20, split_once_miss_right_ok
+    ok21 = and ok20, split_once_miss_right_ok
+    ok22 = and ok21, owned_split_once_flag_ok
+    ok23 = and ok22, owned_split_once_left_ok
+    ok24 = and ok23, owned_split_once_right_ok
+    ok25 = and ok24, owned_rsplit_once_flag_ok
+    ok26 = and ok25, owned_rsplit_once_left_ok
+    ok = and ok26, owned_rsplit_once_right_ok
+    EXPAND STRING_BUF_FREE owned_pathish
     !word
     !title_word
     !mixed
@@ -2784,6 +2804,12 @@ L_ENTRY:
     !split_once_miss_ok
     !split_once_miss_left
     !split_once_miss_right
+    !owned_split_once_ok
+    !owned_split_once_left
+    !owned_split_once_right
+    !owned_rsplit_once_ok
+    !owned_rsplit_once_left
+    !owned_rsplit_once_right
     !trim_both_eq
     !trim_start_eq
     !trim_end_eq
@@ -2793,6 +2819,10 @@ L_ENTRY:
     !rsplit_once_right_eq
     !split_once_miss_left_empty
     !split_once_miss_right_empty
+    !owned_split_once_left_eq
+    !owned_split_once_right_eq
+    !owned_rsplit_once_left_eq
+    !owned_rsplit_once_right_eq
     !ascii_ok
     !ascii_case_ok
     !boundary0_ok
@@ -2849,6 +2879,12 @@ L_ENTRY:
     !split_once_miss_flag_ok
     !split_once_miss_left_ok
     !split_once_miss_right_ok
+    !owned_split_once_flag_ok
+    !owned_split_once_left_ok
+    !owned_split_once_right_ok
+    !owned_rsplit_once_flag_ok
+    !owned_rsplit_once_left_ok
+    !owned_rsplit_once_right_ok
     !ok01
     !ok02
     !ok03
@@ -2902,6 +2938,12 @@ L_ENTRY:
     !ok18
     !ok19
     !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
     br ok -> L_ASCII_OK, L_ASCII_FAIL
 
 L_ASCII_FAIL:
