@@ -292,10 +292,52 @@
     !__string_buf_strip_prefix_view_%out_ok
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_STRIP_PREFIX %out_ok, %out_slice, %string_reg, %prefix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_try_strip_prefix_view_%out_ok, %string_reg
+    EXPAND STR_TRY_STRIP_PREFIX %out_ok, %out_slice, __string_buf_try_strip_prefix_view_%out_ok, %prefix_slice
+    !__string_buf_try_strip_prefix_view_%out_ok
+[END_MACRO]
+
 [MACRO] STRING_BUF_STRIP_SUFFIX %out_ok, %out_slice, %string_reg, %suffix_slice
     EXPAND STRING_BUF_AS_STR __string_buf_strip_suffix_view_%out_ok, %string_reg
     EXPAND STR_STRIP_SUFFIX %out_ok, %out_slice, __string_buf_strip_suffix_view_%out_ok, %suffix_slice
     !__string_buf_strip_suffix_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_STRIP_SUFFIX %out_ok, %out_slice, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_try_strip_suffix_view_%out_ok, %string_reg
+    EXPAND STR_TRY_STRIP_SUFFIX %out_ok, %out_slice, __string_buf_try_strip_suffix_view_%out_ok, %suffix_slice
+    !__string_buf_try_strip_suffix_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_PREFIX %out_slice, %string_reg, %prefix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_prefix_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_PREFIX %out_slice, __string_buf_trim_prefix_view_%out_slice, %prefix_slice
+    !__string_buf_trim_prefix_view_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_SUFFIX %out_slice, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_suffix_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_SUFFIX %out_slice, __string_buf_trim_suffix_view_%out_slice, %suffix_slice
+    !__string_buf_trim_suffix_view_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_ASCII_START %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_ascii_start_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_ASCII_START %out_slice, __string_buf_trim_ascii_start_view_%out_slice
+    !__string_buf_trim_ascii_start_view_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_ASCII_END %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_ascii_end_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_ASCII_END %out_slice, __string_buf_trim_ascii_end_view_%out_slice
+    !__string_buf_trim_ascii_end_view_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_ASCII %out_slice, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_ascii_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_ASCII %out_slice, __string_buf_trim_ascii_view_%out_slice
+    !__string_buf_trim_ascii_view_%out_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_SPLIT_ONCE %out_ok, %out_left, %out_right, %string_reg, %needle_slice

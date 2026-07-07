@@ -3663,6 +3663,150 @@ L_STRING_BUF_SPLIT_LINE_ALIAS_OK:
     !ok
     return
 
+@test "sa_std string buffer trim aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS title_word, &TITLE_WORD, 4
+    EXPAND STR_FROM_PARTS prefix, &PREFIX, 2
+    EXPAND STR_FROM_PARTS suffix, &SUFFIX, 2
+    EXPAND STR_FROM_PARTS infix, &INFIX, 2
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_FROM_PARTS spaced, &SPACED_WORD, 8
+    EXPAND STR_FROM_PARTS trailing, &WORD_TRAILING, 6
+    EXPAND STR_FROM_PARTS leading, &WORD_LEADING, 6
+    EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_FROM_STR owned_spaced, spaced
+    EXPAND STRING_BUF_FROM_STR owned_trailing, trailing
+    EXPAND STRING_BUF_FROM_STR owned_leading, leading
+    EXPAND STRING_BUF_TRY_STRIP_PREFIX try_prefix_ok, try_prefix_slice, owned_word, prefix
+    EXPAND STRING_BUF_TRY_STRIP_SUFFIX try_suffix_ok, try_suffix_slice, owned_word, suffix
+    EXPAND STRING_BUF_TRY_STRIP_PREFIX try_prefix_miss_ok, try_prefix_miss_slice, owned_word, miss
+    EXPAND STRING_BUF_TRY_STRIP_SUFFIX try_suffix_miss_ok, try_suffix_miss_slice, owned_word, miss
+    EXPAND STRING_BUF_TRIM_PREFIX trim_prefix_hit, owned_word, prefix
+    EXPAND STRING_BUF_TRIM_SUFFIX trim_suffix_hit, owned_word, suffix
+    EXPAND STRING_BUF_TRIM_PREFIX trim_prefix_miss, owned_word, miss
+    EXPAND STRING_BUF_TRIM_SUFFIX trim_suffix_miss, owned_word, miss
+    EXPAND STRING_BUF_TRIM_ASCII trim_both, owned_spaced
+    EXPAND STRING_BUF_TRIM_ASCII_START trim_start, owned_leading
+    EXPAND STRING_BUF_TRIM_ASCII_END trim_end, owned_trailing
+    EXPAND STR_EQ try_prefix_eq, try_prefix_slice, suffix
+    EXPAND STR_EQ try_suffix_eq, try_suffix_slice, prefix
+    EXPAND STR_IS_EMPTY try_prefix_miss_empty, try_prefix_miss_slice
+    EXPAND STR_IS_EMPTY try_suffix_miss_empty, try_suffix_miss_slice
+    EXPAND STR_EQ trim_prefix_hit_eq, trim_prefix_hit, suffix
+    EXPAND STR_EQ trim_suffix_hit_eq, trim_suffix_hit, prefix
+    EXPAND STR_EQ trim_prefix_miss_eq, trim_prefix_miss, word
+    EXPAND STR_EQ trim_suffix_miss_eq, trim_suffix_miss, word
+    EXPAND STR_EQ trim_both_eq, trim_both, title_word
+    EXPAND STR_EQ trim_start_eq, trim_start, title_word
+    EXPAND STR_EQ trim_end_eq, trim_end, title_word
+
+    try_prefix_flag_ok = eq try_prefix_ok, 1
+    try_prefix_value_ok = eq try_prefix_eq, 1
+    try_suffix_flag_ok = eq try_suffix_ok, 1
+    try_suffix_value_ok = eq try_suffix_eq, 1
+    try_prefix_miss_flag_ok = eq try_prefix_miss_ok, 0
+    try_prefix_miss_value_ok = eq try_prefix_miss_empty, 1
+    try_suffix_miss_flag_ok = eq try_suffix_miss_ok, 0
+    try_suffix_miss_value_ok = eq try_suffix_miss_empty, 1
+    trim_prefix_hit_ok = eq trim_prefix_hit_eq, 1
+    trim_suffix_hit_ok = eq trim_suffix_hit_eq, 1
+    trim_prefix_miss_ok = eq trim_prefix_miss_eq, 1
+    trim_suffix_miss_ok = eq trim_suffix_miss_eq, 1
+    trim_both_ok = eq trim_both_eq, 1
+    trim_start_ok = eq trim_start_eq, 1
+    trim_end_ok = eq trim_end_eq, 1
+    ok01 = and try_prefix_flag_ok, try_prefix_value_ok
+    ok02 = and ok01, try_suffix_flag_ok
+    ok03 = and ok02, try_suffix_value_ok
+    ok04 = and ok03, try_prefix_miss_flag_ok
+    ok05 = and ok04, try_prefix_miss_value_ok
+    ok06 = and ok05, try_suffix_miss_flag_ok
+    ok07 = and ok06, try_suffix_miss_value_ok
+    ok08 = and ok07, trim_prefix_hit_ok
+    ok09 = and ok08, trim_suffix_hit_ok
+    ok10 = and ok09, trim_prefix_miss_ok
+    ok11 = and ok10, trim_suffix_miss_ok
+    ok12 = and ok11, trim_both_ok
+    ok13 = and ok12, trim_start_ok
+    ok = and ok13, trim_end_ok
+    EXPAND STRING_BUF_FREE owned_word
+    EXPAND STRING_BUF_FREE owned_spaced
+    EXPAND STRING_BUF_FREE owned_trailing
+    EXPAND STRING_BUF_FREE owned_leading
+    !word
+    !title_word
+    !prefix
+    !suffix
+    !infix
+    !miss
+    !spaced
+    !trailing
+    !leading
+    !try_prefix_ok
+    !try_prefix_slice
+    !try_suffix_ok
+    !try_suffix_slice
+    !try_prefix_miss_ok
+    !try_prefix_miss_slice
+    !try_suffix_miss_ok
+    !try_suffix_miss_slice
+    !trim_prefix_hit
+    !trim_suffix_hit
+    !trim_prefix_miss
+    !trim_suffix_miss
+    !trim_both
+    !trim_start
+    !trim_end
+    !try_prefix_eq
+    !try_suffix_eq
+    !try_prefix_miss_empty
+    !try_suffix_miss_empty
+    !trim_prefix_hit_eq
+    !trim_suffix_hit_eq
+    !trim_prefix_miss_eq
+    !trim_suffix_miss_eq
+    !trim_both_eq
+    !trim_start_eq
+    !trim_end_eq
+    !try_prefix_flag_ok
+    !try_prefix_value_ok
+    !try_suffix_flag_ok
+    !try_suffix_value_ok
+    !try_prefix_miss_flag_ok
+    !try_prefix_miss_value_ok
+    !try_suffix_miss_flag_ok
+    !try_suffix_miss_value_ok
+    !trim_prefix_hit_ok
+    !trim_suffix_hit_ok
+    !trim_prefix_miss_ok
+    !trim_suffix_miss_ok
+    !trim_both_ok
+    !trim_start_ok
+    !trim_end_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    br ok -> L_STRING_BUF_TRIM_ALIAS_OK, L_STRING_BUF_TRIM_ALIAS_FAIL
+
+L_STRING_BUF_TRIM_ALIAS_FAIL:
+    !ok
+    panic(924)
+
+L_STRING_BUF_TRIM_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
