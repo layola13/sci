@@ -1332,6 +1332,10 @@ L_STRING_BUF_UTF16_DONE_%out_ok:
     EXPAND STRING_BUF_TRY_FROM_UTF16_U16 %out_ok, %out_string, %u16_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_FROM_UTF16 %out_ok, %out_string, %u16_slice
+    EXPAND STRING_BUF_FROM_UTF16_U16 %out_ok, %out_string, %u16_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_FROM_UTF16_LOSSY_U16 %out_string, %u16_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_utf16_lossy_len_%out_string = load %u16_slice+Slice_len as u64
@@ -1449,6 +1453,10 @@ L_STRING_BUF_UTF16_LOSSY_DONE_%out_string:
     !__string_buf_utf16_lossy_done_%out_string
     !__string_buf_utf16_lossy_idx_%out_string
     !__string_buf_utf16_lossy_len_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_UTF16_LOSSY %out_string, %u16_slice
+    EXPAND STRING_BUF_FROM_UTF16_LOSSY_U16 %out_string, %u16_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_FROM_UTF16_BYTES %out_ok, %out_string, %bytes_slice, %is_be

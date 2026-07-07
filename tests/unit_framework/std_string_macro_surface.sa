@@ -3550,12 +3550,12 @@ L_ENTRY:
     low_bad_ptr = stack_alloc 2
     store low_bad_ptr+0, 56898 as u16
     EXPAND STR_FROM_PARTS low_bad_units, low_bad_ptr, 1
-    EXPAND STRING_BUF_FROM_UTF16_U16 valid_ok, valid_buf, valid_units
+    EXPAND STRING_BUF_FROM_UTF16 valid_ok, valid_buf, valid_units
     EXPAND STRING_BUF_AS_STR valid_view, valid_buf
     EXPAND STR_EQ valid_eq, valid_view, expected
-    EXPAND STRING_BUF_FROM_UTF16_U16 high_bad_ok, high_bad_buf, high_bad_units
+    EXPAND STRING_BUF_FROM_UTF16 high_bad_ok, high_bad_buf, high_bad_units
     EXPAND STRING_BUF_LEN high_bad_len, high_bad_buf
-    EXPAND STRING_BUF_FROM_UTF16_U16 low_bad_ok, low_bad_buf, low_bad_units
+    EXPAND STRING_BUF_FROM_UTF16 low_bad_ok, low_bad_buf, low_bad_units
     EXPAND STRING_BUF_LEN low_bad_len, low_bad_buf
     valid_flag_ok = eq valid_ok, 1
     valid_value_ok = eq valid_eq, 1
@@ -3620,10 +3620,10 @@ L_ENTRY:
     store valid_ptr+8, 122 as u16
     EXPAND STR_FROM_PARTS valid_units, valid_ptr, 5
     EXPAND STR_FROM_PARTS valid_expected, &UTF8_BOUNDARY_TEXT, 8
-    EXPAND STRING_BUF_FROM_UTF16_LOSSY_U16 lossy_buf, lossy_units
+    EXPAND STRING_BUF_FROM_UTF16_LOSSY lossy_buf, lossy_units
     EXPAND STRING_BUF_AS_STR lossy_view, lossy_buf
     EXPAND STR_EQ lossy_eq, lossy_view, expected
-    EXPAND STRING_BUF_FROM_UTF16_LOSSY_U16 valid_buf, valid_units
+    EXPAND STRING_BUF_FROM_UTF16_LOSSY valid_buf, valid_units
     EXPAND STRING_BUF_AS_STR valid_view, valid_buf
     EXPAND STR_EQ valid_eq, valid_view, valid_expected
     lossy_ok = eq lossy_eq, 1
