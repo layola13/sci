@@ -4,6 +4,32 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 Vec slice mutation alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice mutation aliases over existing U64 slice machinery:
+  - `VEC_SWAP_U64`
+  - `VEC_TRY_SWAP_U64`
+  - `VEC_REVERSE_U64`
+  - `VEC_ROTATE_LEFT_U64`
+  - `VEC_ROTATE_RIGHT_U64`
+  - `VEC_SWAP_WITH_SLICE_U64`
+  - `VEC_FILL_U64`
+- Semantics: these aliases expose concrete U64 Vec mutation through the existing mutable slice metadata path. Tests cover swap, try-swap miss, reverse, rotate-left/right, swap-with-slice hit/miss, and fill, then verify Vec and slice contents. This does not claim generic `T`, Rust panic behavior, allocator-parametric behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "slice mutation aliases"`: pass (`1 passed; 18 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`19 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`19 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
 ## Completed: 2026-07-07 Vec unchecked split/range alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

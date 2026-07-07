@@ -1344,10 +1344,32 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_window_at_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_SWAP_U64 %vec_reg, %left, %right
+    EXPAND VEC_AS_MUT_SLICE __vec_swap_slice_%vec_reg, %vec_reg
+    EXPAND SLICE_SWAP_U64 __vec_swap_slice_%vec_reg, %left, %right
+    !__vec_swap_slice_%vec_reg
+[END_MACRO]
+
+[MACRO] VEC_TRY_SWAP_U64 %out_ok, %vec_reg, %left, %right
+    EXPAND VEC_AS_MUT_SLICE __vec_try_swap_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_SWAP_U64 %out_ok, __vec_try_swap_slice_%out_ok, %left, %right
+    !__vec_try_swap_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_REVERSE_U64 %vec_reg
+    EXPAND VEC_AS_MUT_SLICE __vec_reverse_slice_%vec_reg, %vec_reg
+    EXPAND SLICE_REVERSE_U64 __vec_reverse_slice_%vec_reg
+    !__vec_reverse_slice_%vec_reg
+[END_MACRO]
+
 [MACRO] VEC_TRY_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
     EXPAND VEC_AS_MUT_SLICE __vec_rotate_left_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_ROTATE_LEFT_U64 %out_ok, __vec_rotate_left_slice_%out_ok, %count
     !__vec_rotate_left_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
+    EXPAND VEC_TRY_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
 [END_MACRO]
 
 [MACRO] VEC_TRY_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
@@ -1356,10 +1378,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rotate_right_slice_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
+    EXPAND VEC_TRY_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
+[END_MACRO]
+
 [MACRO] VEC_TRY_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
     EXPAND VEC_AS_MUT_SLICE __vec_swap_with_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SWAP_WITH_SLICE_U64 %out_ok, __vec_swap_with_slice_%out_ok, %other_slice
     !__vec_swap_with_slice_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
+    EXPAND VEC_TRY_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
 [END_MACRO]
 
 [MACRO] VEC_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
@@ -1468,6 +1498,12 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     EXPAND VEC_AS_MUT_SLICE __vec_fill_with_slice_%vec_reg, %vec_reg
     EXPAND SLICE_FILL_WITH_U64 __vec_fill_with_slice_%vec_reg, %gen_fn
     !__vec_fill_with_slice_%vec_reg
+[END_MACRO]
+
+[MACRO] VEC_FILL_U64 %vec_reg, %value
+    EXPAND VEC_AS_MUT_SLICE __vec_fill_slice_%vec_reg, %vec_reg
+    EXPAND SLICE_FILL_U64 __vec_fill_slice_%vec_reg, %value
+    !__vec_fill_slice_%vec_reg
 [END_MACRO]
 
 [MACRO] VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, %elem_size

@@ -3174,6 +3174,263 @@ L_VEC_UNCHECKED_SPLIT_RANGE_OK:
     !ok
     return
 
+@test "sa_std vec slice mutation aliases"():
+L_ENTRY:
+    EXPAND VEC_NEW vec
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 5
+
+    EXPAND VEC_SWAP_U64 vec, 0, 4
+    EXPAND VEC_TRY_GET_U64 swap_first_ok, swap_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 swap_last_ok, swap_last, vec, 4
+    EXPAND VEC_TRY_SWAP_U64 try_swap_ok, vec, 1, 3
+    EXPAND VEC_TRY_SWAP_U64 try_swap_miss_ok, vec, 0, 9
+    EXPAND VEC_TRY_GET_U64 try_swap_left_ok, try_swap_left, vec, 1
+    EXPAND VEC_TRY_GET_U64 try_swap_right_ok, try_swap_right, vec, 3
+
+    EXPAND VEC_REVERSE_U64 vec
+    EXPAND VEC_TRY_GET_U64 reverse_first_ok, reverse_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 reverse_last_ok, reverse_last, vec, 4
+    EXPAND VEC_ROTATE_LEFT_U64 rotate_left_ok, vec, 2
+    EXPAND VEC_TRY_GET_U64 rotate_left_first_ok, rotate_left_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 rotate_left_last_ok, rotate_left_last, vec, 4
+    EXPAND VEC_ROTATE_RIGHT_U64 rotate_right_ok, vec, 1
+    EXPAND VEC_TRY_GET_U64 rotate_right_first_ok, rotate_right_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 rotate_right_last_ok, rotate_right_last, vec, 4
+
+    other_data = alloc 40
+    short_data = alloc 24
+    store other_data+0, 90 as u64
+    store other_data+8, 80 as u64
+    store other_data+16, 70 as u64
+    store other_data+24, 60 as u64
+    store other_data+32, 50 as u64
+    store short_data+0, 7 as u64
+    store short_data+8, 8 as u64
+    store short_data+16, 9 as u64
+    other = alloc Slice_SIZE
+    short = alloc Slice_SIZE
+    EXPAND SLICE_NEW other, other_data, 5
+    EXPAND SLICE_NEW short, short_data, 3
+    EXPAND VEC_SWAP_WITH_SLICE_U64 swap_with_ok, vec, other
+    EXPAND VEC_SWAP_WITH_SLICE_U64 swap_with_miss_ok, vec, short
+    EXPAND VEC_TRY_GET_U64 swap_with_first_ok, swap_with_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 swap_with_last_ok, swap_with_last, vec, 4
+    EXPAND SLICE_FIRST_U64 other_after_first, other
+    EXPAND SLICE_LAST_U64 other_after_last, other
+
+    EXPAND VEC_FILL_U64 vec, 9
+    EXPAND VEC_TRY_GET_U64 fill_first_ok, fill_first, vec, 0
+    EXPAND VEC_TRY_GET_U64 fill_middle_ok, fill_middle, vec, 2
+    EXPAND VEC_TRY_GET_U64 fill_last_ok, fill_last, vec, 4
+
+    swap_first_flag_ok = eq swap_first_ok, 1
+    swap_first_value_ok = eq swap_first, 5
+    swap_last_flag_ok = eq swap_last_ok, 1
+    swap_last_value_ok = eq swap_last, 1
+    try_swap_flag_ok = eq try_swap_ok, 1
+    try_swap_miss_flag_ok = eq try_swap_miss_ok, 0
+    try_swap_left_flag_ok = eq try_swap_left_ok, 1
+    try_swap_left_value_ok = eq try_swap_left, 4
+    try_swap_right_flag_ok = eq try_swap_right_ok, 1
+    try_swap_right_value_ok = eq try_swap_right, 2
+    reverse_first_flag_ok = eq reverse_first_ok, 1
+    reverse_first_value_ok = eq reverse_first, 1
+    reverse_last_flag_ok = eq reverse_last_ok, 1
+    reverse_last_value_ok = eq reverse_last, 5
+    rotate_left_flag_ok = eq rotate_left_ok, 1
+    rotate_left_first_flag_ok = eq rotate_left_first_ok, 1
+    rotate_left_first_value_ok = eq rotate_left_first, 3
+    rotate_left_last_flag_ok = eq rotate_left_last_ok, 1
+    rotate_left_last_value_ok = eq rotate_left_last, 2
+    rotate_right_flag_ok = eq rotate_right_ok, 1
+    rotate_right_first_flag_ok = eq rotate_right_first_ok, 1
+    rotate_right_first_value_ok = eq rotate_right_first, 2
+    rotate_right_last_flag_ok = eq rotate_right_last_ok, 1
+    rotate_right_last_value_ok = eq rotate_right_last, 1
+    swap_with_flag_ok = eq swap_with_ok, 1
+    swap_with_miss_flag_ok = eq swap_with_miss_ok, 0
+    swap_with_first_flag_ok = eq swap_with_first_ok, 1
+    swap_with_first_value_ok = eq swap_with_first, 90
+    swap_with_last_flag_ok = eq swap_with_last_ok, 1
+    swap_with_last_value_ok = eq swap_with_last, 50
+    other_after_first_ok = eq other_after_first, 2
+    other_after_last_ok = eq other_after_last, 1
+    fill_first_flag_ok = eq fill_first_ok, 1
+    fill_first_value_ok = eq fill_first, 9
+    fill_middle_flag_ok = eq fill_middle_ok, 1
+    fill_middle_value_ok = eq fill_middle, 9
+    fill_last_flag_ok = eq fill_last_ok, 1
+    fill_last_value_ok = eq fill_last, 9
+
+    ok01 = and swap_first_flag_ok, swap_first_value_ok
+    ok02 = and ok01, swap_last_flag_ok
+    ok03 = and ok02, swap_last_value_ok
+    ok04 = and ok03, try_swap_flag_ok
+    ok05 = and ok04, try_swap_miss_flag_ok
+    ok06 = and ok05, try_swap_left_flag_ok
+    ok07 = and ok06, try_swap_left_value_ok
+    ok08 = and ok07, try_swap_right_flag_ok
+    ok09 = and ok08, try_swap_right_value_ok
+    ok10 = and ok09, reverse_first_flag_ok
+    ok11 = and ok10, reverse_first_value_ok
+    ok12 = and ok11, reverse_last_flag_ok
+    ok13 = and ok12, reverse_last_value_ok
+    ok14 = and ok13, rotate_left_flag_ok
+    ok15 = and ok14, rotate_left_first_flag_ok
+    ok16 = and ok15, rotate_left_first_value_ok
+    ok17 = and ok16, rotate_left_last_flag_ok
+    ok18 = and ok17, rotate_left_last_value_ok
+    ok19 = and ok18, rotate_right_flag_ok
+    ok20 = and ok19, rotate_right_first_flag_ok
+    ok21 = and ok20, rotate_right_first_value_ok
+    ok22 = and ok21, rotate_right_last_flag_ok
+    ok23 = and ok22, rotate_right_last_value_ok
+    ok24 = and ok23, swap_with_flag_ok
+    ok25 = and ok24, swap_with_miss_flag_ok
+    ok26 = and ok25, swap_with_first_flag_ok
+    ok27 = and ok26, swap_with_first_value_ok
+    ok28 = and ok27, swap_with_last_flag_ok
+    ok29 = and ok28, swap_with_last_value_ok
+    ok30 = and ok29, other_after_first_ok
+    ok31 = and ok30, other_after_last_ok
+    ok32 = and ok31, fill_first_flag_ok
+    ok33 = and ok32, fill_first_value_ok
+    ok34 = and ok33, fill_middle_flag_ok
+    ok35 = and ok34, fill_middle_value_ok
+    ok36 = and ok35, fill_last_flag_ok
+    ok = and ok36, fill_last_value_ok
+
+    !swap_first_ok
+    !swap_first
+    !swap_last_ok
+    !swap_last
+    !try_swap_ok
+    !try_swap_miss_ok
+    !try_swap_left_ok
+    !try_swap_left
+    !try_swap_right_ok
+    !try_swap_right
+    !reverse_first_ok
+    !reverse_first
+    !reverse_last_ok
+    !reverse_last
+    !rotate_left_ok
+    !rotate_left_first_ok
+    !rotate_left_first
+    !rotate_left_last_ok
+    !rotate_left_last
+    !rotate_right_ok
+    !rotate_right_first_ok
+    !rotate_right_first
+    !rotate_right_last_ok
+    !rotate_right_last
+    !other_data
+    !short_data
+    !other
+    !short
+    !swap_with_ok
+    !swap_with_miss_ok
+    !swap_with_first_ok
+    !swap_with_first
+    !swap_with_last_ok
+    !swap_with_last
+    !other_after_first
+    !other_after_last
+    !fill_first_ok
+    !fill_first
+    !fill_middle_ok
+    !fill_middle
+    !fill_last_ok
+    !fill_last
+    !swap_first_flag_ok
+    !swap_first_value_ok
+    !swap_last_flag_ok
+    !swap_last_value_ok
+    !try_swap_flag_ok
+    !try_swap_miss_flag_ok
+    !try_swap_left_flag_ok
+    !try_swap_left_value_ok
+    !try_swap_right_flag_ok
+    !try_swap_right_value_ok
+    !reverse_first_flag_ok
+    !reverse_first_value_ok
+    !reverse_last_flag_ok
+    !reverse_last_value_ok
+    !rotate_left_flag_ok
+    !rotate_left_first_flag_ok
+    !rotate_left_first_value_ok
+    !rotate_left_last_flag_ok
+    !rotate_left_last_value_ok
+    !rotate_right_flag_ok
+    !rotate_right_first_flag_ok
+    !rotate_right_first_value_ok
+    !rotate_right_last_flag_ok
+    !rotate_right_last_value_ok
+    !swap_with_flag_ok
+    !swap_with_miss_flag_ok
+    !swap_with_first_flag_ok
+    !swap_with_first_value_ok
+    !swap_with_last_flag_ok
+    !swap_with_last_value_ok
+    !other_after_first_ok
+    !other_after_last_ok
+    !fill_first_flag_ok
+    !fill_first_value_ok
+    !fill_middle_flag_ok
+    !fill_middle_value_ok
+    !fill_last_flag_ok
+    !fill_last_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    !ok32
+    !ok33
+    !ok34
+    !ok35
+    !ok36
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_SLICE_MUTATION_ALIASES_OK, L_VEC_SLICE_MUTATION_ALIASES_FAIL
+
+L_VEC_SLICE_MUTATION_ALIASES_FAIL:
+    !ok
+    panic(949)
+
+L_VEC_SLICE_MUTATION_ALIASES_OK:
+    !ok
+    return
+
 @test "sa_std slice and vec rotate swap sorted macros"():
 L_ENTRY:
     data = alloc 40
