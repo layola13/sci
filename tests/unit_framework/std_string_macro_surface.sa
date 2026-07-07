@@ -4039,6 +4039,10 @@ L_STRING_BUF_ADD_ENTRY:
     EXPAND STRING_BUF_NE_STR ne_str, added_string, word_slice
     EXPAND STR_EQ_STRING_BUF str_eq_string, joined_slice, added_string
     EXPAND STR_NE_STRING_BUF str_ne_string, word_slice, added_string
+    EXPAND STR_HASH str_hash, joined_slice
+    EXPAND STRING_HASH string_hash, joined_slice
+    EXPAND STRING_BUF_HASH string_buf_hash, added_string
+    EXPAND STR_HASH word_hash, word_slice
     EXPAND STR_CMP str_cmp_equal, joined_slice, joined_slice
     EXPAND STR_CMP str_cmp_less_item, right_slice, word_slice
     EXPAND STR_CMP str_cmp_greater_len, joined_slice, word_slice
@@ -4090,6 +4094,11 @@ L_STRING_BUF_ADD_ENTRY:
     ok04 = and ok03, ne_str
     ok05 = and ok04, str_eq_string
     ok06 = and ok05, str_ne_string
+    str_hash_eq = eq str_hash, string_hash
+    string_buf_hash_eq = eq string_buf_hash, str_hash
+    word_hash_diff = ne word_hash, str_hash
+    hash_alias01 = and str_hash_eq, string_buf_hash_eq
+    hash_alias_ok = and hash_alias01, word_hash_diff
     str_cmp_equal_ok = eq str_cmp_equal, 0
     str_cmp_less_item_ok = eq str_cmp_less_item, -1
     str_cmp_greater_len_ok = eq str_cmp_greater_len, 1
@@ -4129,7 +4138,8 @@ L_STRING_BUF_ADD_ENTRY:
     cmp_alias17 = and cmp_alias16, string_lt_string_ok
     cmp_alias18 = and cmp_alias17, string_gt_string_ok
     cmp_alias_ok = and cmp_alias18, string_ge_string_ok
-    ok_cmp = and ok06, cmp_alias_ok
+    ok_hash = and ok06, hash_alias_ok
+    ok_cmp = and ok_hash, cmp_alias_ok
     ok07 = and ok_cmp, index_ok
     ok08 = and ok07, index_eq
     ok09 = and ok08, index_mut_ok
@@ -4150,6 +4160,10 @@ L_STRING_BUF_ADD_ENTRY:
     !ne_str
     !str_eq_string
     !str_ne_string
+    !str_hash
+    !string_hash
+    !string_buf_hash
+    !word_hash
     !str_cmp_equal
     !str_cmp_less_item
     !str_cmp_greater_len
@@ -4189,6 +4203,12 @@ L_STRING_BUF_ADD_ENTRY:
     !ok04
     !ok05
     !ok06
+    !str_hash_eq
+    !string_buf_hash_eq
+    !word_hash_diff
+    !hash_alias01
+    !hash_alias_ok
+    !ok_hash
     !str_cmp_equal_ok
     !str_cmp_less_item_ok
     !str_cmp_greater_len_ok

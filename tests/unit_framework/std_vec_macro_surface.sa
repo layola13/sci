@@ -281,6 +281,9 @@ L_ENTRY:
     EXPAND SLICE_NE_VEC_U64 slice_ne_vec, eq_mismatch_slice, eq_vec
     EXPAND VEC_EQ_U64 vec_eq_vec, eq_vec, eq_vec_same
     EXPAND VEC_NE_U64 vec_ne_vec, eq_vec, eq_vec_mismatch
+    EXPAND SLICE_HASH_U64 slice_hash, eq_slice
+    EXPAND VEC_HASH_U64 vec_hash, eq_vec
+    EXPAND VEC_HASH_U64 vec_mismatch_hash, eq_vec_mismatch
     EXPAND SLICE_CMP_U64 slice_cmp_equal, eq_slice, eq_slice
     EXPAND SLICE_CMP_U64 slice_cmp_less_item, eq_slice, eq_mismatch_slice
     EXPAND SLICE_CMP_U64 slice_cmp_greater_item, eq_mismatch_slice, eq_slice
@@ -395,6 +398,9 @@ L_ENTRY:
     eq_alias06 = and eq_alias05, slice_ne_vec_ok
     eq_alias07 = and eq_alias06, vec_eq_vec_ok
     eq_alias_ok = and eq_alias07, vec_ne_vec_ok
+    vec_hash_eq = eq slice_hash, vec_hash
+    vec_hash_diff = ne vec_hash, vec_mismatch_hash
+    hash_alias_ok = and vec_hash_eq, vec_hash_diff
     slice_cmp_equal_ok = eq slice_cmp_equal, 0
     slice_cmp_less_item_ok = eq slice_cmp_less_item, -1
     slice_cmp_greater_item_ok = eq slice_cmp_greater_item, 1
@@ -426,7 +432,8 @@ L_ENTRY:
     cmp_alias13 = and cmp_alias12, vec_le_equal_ok
     cmp_alias14 = and cmp_alias13, vec_gt_item_ok
     cmp_alias15 = and cmp_alias14, vec_ge_equal_ok
-    cmp_alias_ok = and cmp_alias15, eq_alias_ok
+    cmp_alias16 = and cmp_alias15, eq_alias_ok
+    cmp_alias_ok = and cmp_alias16, hash_alias_ok
     starts_match_ok = eq starts_ok, 1
     ends_match_ok = eq ends_ok, 1
     starts_miss_ok = eq starts_miss, 0
@@ -603,6 +610,9 @@ L_ENTRY:
     !slice_ne_vec
     !vec_eq_vec
     !vec_ne_vec
+    !slice_hash
+    !vec_hash
+    !vec_mismatch_hash
     !slice_cmp_equal
     !slice_cmp_less_item
     !slice_cmp_greater_item
@@ -732,6 +742,9 @@ L_ENTRY:
     !eq_alias06
     !eq_alias07
     !eq_alias_ok
+    !vec_hash_eq
+    !vec_hash_diff
+    !hash_alias_ok
     !slice_cmp_equal_ok
     !slice_cmp_less_item_ok
     !slice_cmp_greater_item_ok
@@ -763,6 +776,7 @@ L_ENTRY:
     !cmp_alias13
     !cmp_alias14
     !cmp_alias15
+    !cmp_alias16
     !cmp_alias_ok
     !starts_match_ok
     !ends_match_ok

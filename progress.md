@@ -4,6 +4,35 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf/Vec hash delegation alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable local `Hash`-style delegation aliases:
+  - `DEFAULT_HASHER_WRITE_BYTES`
+  - `DEFAULT_HASHER_WRITE_STR`
+  - `DEFAULT_HASHER_WRITE_SLICE_U8`
+  - `DEFAULT_HASHER_WRITE_SLICE_U64`
+  - `HASH_STR`
+  - `HASH_SLICE_U8`
+  - `SLICE_HASH_U64`
+  - `STR_HASH`
+  - `STRING_HASH`
+  - `STRING_BUF_HASH`
+  - `VEC_HASH_U64`
+- Semantics: `StringBuf` hashes through its `str` view, and `Vec<u64>` hashes through its U64 slice view, matching Rust's trait delegation direction. The hashing algorithm is the existing SA `DefaultHasher` macro surface, not a claim of byte-for-byte Rust standard-library hasher parity or generic `T: Hash` coverage.
+- Validation status:
+  - Source focused `std_hash_macro_surface.sa`: pass (`1 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_hash_macro_surface.sa`: pass (`1 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
 ## Completed: 2026-07-07 StringBuf lexicographic comparison alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

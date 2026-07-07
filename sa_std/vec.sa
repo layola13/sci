@@ -4,6 +4,7 @@
 @import "core/slice.sa"
 @import "ptr.sal"
 @import "ptr.sa"
+@import "hash.sa"
 
 [MACRO] VEC_NEW %out_vec
     %out_vec = call @sa_vec_new()
@@ -806,6 +807,12 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     EXPAND VEC_EQ_U64 __vec_ne_eq_%out_bool, %left_vec, %right_vec
     %out_bool = eq __vec_ne_eq_%out_bool, 0
     !__vec_ne_eq_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_HASH_U64 %out_hash, %vec_reg
+    EXPAND VEC_AS_SLICE __vec_hash_slice_%out_hash, %vec_reg
+    EXPAND SLICE_HASH_U64 %out_hash, __vec_hash_slice_%out_hash
+    !__vec_hash_slice_%out_hash
 [END_MACRO]
 
 [MACRO] VEC_CMP_SLICE_U64 %out_ordering, %vec_reg, %slice_reg

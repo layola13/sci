@@ -6,6 +6,7 @@
 @import "vec.sal"
 @import "string.sai"
 @import "fmt.sai"
+@import "hash.sa"
 
 [MACRO] STR_LEN %out_len, %slice_reg
     EXPAND SLICE_GET_LEN %out_len, %slice_reg
@@ -205,6 +206,20 @@
     EXPAND STRING_BUF_EQ_STRING __string_buf_ne_string_eq_%out_bool, %left_string, %right_string
     %out_bool = eq __string_buf_ne_string_eq_%out_bool, 0
     !__string_buf_ne_string_eq_%out_bool
+[END_MACRO]
+
+[MACRO] STR_HASH %out_hash, %slice_reg
+    EXPAND HASH_STR %out_hash, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_HASH %out_hash, %slice_reg
+    EXPAND STR_HASH %out_hash, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_HASH %out_hash, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_hash_view_%out_hash, %string_reg
+    EXPAND STR_HASH %out_hash, __string_buf_hash_view_%out_hash
+    !__string_buf_hash_view_%out_hash
 [END_MACRO]
 
 [MACRO] STRING_BUF_CMP_STR %out_ordering, %string_reg, %slice_reg

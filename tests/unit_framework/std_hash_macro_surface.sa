@@ -1,4 +1,5 @@
 @import "sa_std/hash.sa"
+@import "sa_std/core/slice.sa"
 
 @test "sa_std hash default hasher macros"():
 L_ENTRY:
@@ -31,6 +32,28 @@ L_ENTRY:
     EXPAND HASH_PTR_VALUE ptr_hash, ptr_slot
     EXPAND HASH_U64 direct_hash, 7
 
+    bytes_data = alloc 4
+    store bytes_data+0, 114 as u8
+    store bytes_data+1, 117 as u8
+    store bytes_data+2, 115 as u8
+    store bytes_data+3, 116 as u8
+    bytes_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW bytes_slice, bytes_data, 4
+    EXPAND HASH_STR str_hash, bytes_slice
+    EXPAND HASH_STR str_hash_again, bytes_slice
+    EXPAND HASH_SLICE_U8 byte_slice_hash, bytes_slice
+
+    nums_data = alloc 16
+    store nums_data+0, 7 as u64
+    store nums_data+8, 99 as u64
+    nums_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW nums_slice, nums_data, 2
+    EXPAND SLICE_HASH_U64 nums_hash, nums_slice
+    nums_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW nums_hasher
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 nums_hasher, nums_slice
+    EXPAND DEFAULT_HASHER_FINISH nums_hash_manual, nums_hasher
+
     EXPAND BUILD_HASHER_DEFAULT_NEW builder
     built_hasher = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD built_hasher, builder
@@ -43,11 +66,17 @@ L_ENTRY:
     ptr_hash_changed = ne ptr_hash, HASHER_DEFAULT_SEED
     direct_hash_changed = ne direct_hash, HASHER_DEFAULT_SEED
     built_hash_eq = eq built_hash, direct_hash
+    str_hash_stable = eq str_hash, str_hash_again
+    str_hash_domain_sep = ne str_hash, byte_slice_hash
+    nums_hash_eq = eq nums_hash, nums_hash_manual
     ok01 = and same_hash, diff_hash
     ok02 = and ok01, reset_ok
     ok03 = and ok02, ptr_hash_changed
     ok04 = and ok03, direct_hash_changed
-    ok = and ok04, built_hash_eq
+    ok05 = and ok04, built_hash_eq
+    ok06 = and ok05, str_hash_stable
+    ok07 = and ok06, str_hash_domain_sep
+    ok = and ok07, nums_hash_eq
 
     !hash_a
     !hash_b
@@ -55,6 +84,11 @@ L_ENTRY:
     !reset_hash
     !ptr_hash
     !direct_hash
+    !str_hash
+    !str_hash_again
+    !byte_slice_hash
+    !nums_hash
+    !nums_hash_manual
     !builder
     !built_hash
     !same_hash
@@ -63,10 +97,20 @@ L_ENTRY:
     !ptr_hash_changed
     !direct_hash_changed
     !built_hash_eq
+    !str_hash_stable
+    !str_hash_domain_sep
+    !nums_hash_eq
     !ok01
     !ok02
     !ok03
     !ok04
+    !ok05
+    !ok06
+    !ok07
+    !bytes_slice
+    !bytes_data
+    !nums_slice
+    !nums_data
 
     br ok -> L_PASS, L_FAIL
 
