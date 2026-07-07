@@ -83,6 +83,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed eager byte-slice and pointer-slice `FromIterator<core::ascii::Char>` / `Extend<core::ascii::Char>` style aliases with whole-slice ASCII validation before mutation.
    - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed eager slice-shaped `FromIterator<T>` / `Extend<T>` aliases over existing slice-copy construction and extension paths.
    - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable U64 slice-delegated equality / inequality aliases for Vec-vs-slice, slice-vs-Vec, and Vec-vs-Vec comparisons.
+   - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable U64 slice-delegated lexicographic comparison aliases for Vec-vs-slice, slice-vs-Vec, and Vec-vs-Vec comparison plus bool ordering predicates.
    - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed eager Slice-of-Slice `FromIterator<&str>` / `Extend<&str>` style aliases over existing string append paths.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
@@ -205,6 +206,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the StringBuf ASCII char iterator alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the StringBuf equality alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Vec U64 equality alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the Vec U64 lexicographic comparison alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`

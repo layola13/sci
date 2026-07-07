@@ -258,6 +258,7 @@ L_ENTRY:
     EXPAND VEC_FROM_SLICE_U64 eq_vec, eq_slice
     EXPAND VEC_FROM_SLICE_U64 eq_vec_same, eq_slice
     EXPAND VEC_FROM_SLICE_U64 eq_vec_mismatch, eq_mismatch_slice
+    EXPAND VEC_FROM_SLICE_U64 eq_vec_short, eq_short_slice
     EXPAND VEC_RESERVE_EXACT_U64 vec, 2
     EXPAND VEC_CAPACITY cap_exact, vec
     EXPAND VEC_RESERVE_U64 vec, 0
@@ -280,6 +281,22 @@ L_ENTRY:
     EXPAND SLICE_NE_VEC_U64 slice_ne_vec, eq_mismatch_slice, eq_vec
     EXPAND VEC_EQ_U64 vec_eq_vec, eq_vec, eq_vec_same
     EXPAND VEC_NE_U64 vec_ne_vec, eq_vec, eq_vec_mismatch
+    EXPAND SLICE_CMP_U64 slice_cmp_equal, eq_slice, eq_slice
+    EXPAND SLICE_CMP_U64 slice_cmp_less_item, eq_slice, eq_mismatch_slice
+    EXPAND SLICE_CMP_U64 slice_cmp_greater_item, eq_mismatch_slice, eq_slice
+    EXPAND SLICE_CMP_U64 slice_cmp_shorter, eq_short_slice, eq_slice
+    EXPAND SLICE_LT_U64 slice_lt_item, eq_slice, eq_mismatch_slice
+    EXPAND SLICE_LE_U64 slice_le_equal, eq_slice, eq_slice
+    EXPAND SLICE_GT_U64 slice_gt_item, eq_mismatch_slice, eq_slice
+    EXPAND SLICE_GE_U64 slice_ge_equal, eq_slice, eq_slice
+    EXPAND VEC_CMP_SLICE_U64 vec_cmp_slice_less, eq_vec, eq_mismatch_slice
+    EXPAND SLICE_CMP_VEC_U64 slice_cmp_vec_greater, eq_mismatch_slice, eq_vec
+    EXPAND VEC_CMP_U64 vec_cmp_equal, eq_vec, eq_vec_same
+    EXPAND VEC_CMP_U64 vec_cmp_shorter, eq_vec_short, eq_vec
+    EXPAND VEC_LT_U64 vec_lt_shorter, eq_vec_short, eq_vec
+    EXPAND VEC_LE_U64 vec_le_equal, eq_vec, eq_vec_same
+    EXPAND VEC_GT_U64 vec_gt_item, eq_vec_mismatch, eq_vec
+    EXPAND VEC_GE_U64 vec_ge_equal, eq_vec, eq_vec_same
     EXPAND VEC_STARTS_WITH_U64 starts_ok, vec, prefix
     EXPAND VEC_ENDS_WITH_U64 ends_ok, vec, suffix
     EXPAND VEC_STARTS_WITH_U64 starts_miss, vec, miss_prefix
@@ -378,6 +395,38 @@ L_ENTRY:
     eq_alias06 = and eq_alias05, slice_ne_vec_ok
     eq_alias07 = and eq_alias06, vec_eq_vec_ok
     eq_alias_ok = and eq_alias07, vec_ne_vec_ok
+    slice_cmp_equal_ok = eq slice_cmp_equal, 0
+    slice_cmp_less_item_ok = eq slice_cmp_less_item, -1
+    slice_cmp_greater_item_ok = eq slice_cmp_greater_item, 1
+    slice_cmp_shorter_ok = eq slice_cmp_shorter, -1
+    slice_lt_item_ok = eq slice_lt_item, 1
+    slice_le_equal_ok = eq slice_le_equal, 1
+    slice_gt_item_ok = eq slice_gt_item, 1
+    slice_ge_equal_ok = eq slice_ge_equal, 1
+    vec_cmp_slice_less_ok = eq vec_cmp_slice_less, -1
+    slice_cmp_vec_greater_ok = eq slice_cmp_vec_greater, 1
+    vec_cmp_equal_ok = eq vec_cmp_equal, 0
+    vec_cmp_shorter_ok = eq vec_cmp_shorter, -1
+    vec_lt_shorter_ok = eq vec_lt_shorter, 1
+    vec_le_equal_ok = eq vec_le_equal, 1
+    vec_gt_item_ok = eq vec_gt_item, 1
+    vec_ge_equal_ok = eq vec_ge_equal, 1
+    cmp_alias01 = and slice_cmp_equal_ok, slice_cmp_less_item_ok
+    cmp_alias02 = and cmp_alias01, slice_cmp_greater_item_ok
+    cmp_alias03 = and cmp_alias02, slice_cmp_shorter_ok
+    cmp_alias04 = and cmp_alias03, slice_lt_item_ok
+    cmp_alias05 = and cmp_alias04, slice_le_equal_ok
+    cmp_alias06 = and cmp_alias05, slice_gt_item_ok
+    cmp_alias07 = and cmp_alias06, slice_ge_equal_ok
+    cmp_alias08 = and cmp_alias07, vec_cmp_slice_less_ok
+    cmp_alias09 = and cmp_alias08, slice_cmp_vec_greater_ok
+    cmp_alias10 = and cmp_alias09, vec_cmp_equal_ok
+    cmp_alias11 = and cmp_alias10, vec_cmp_shorter_ok
+    cmp_alias12 = and cmp_alias11, vec_lt_shorter_ok
+    cmp_alias13 = and cmp_alias12, vec_le_equal_ok
+    cmp_alias14 = and cmp_alias13, vec_gt_item_ok
+    cmp_alias15 = and cmp_alias14, vec_ge_equal_ok
+    cmp_alias_ok = and cmp_alias15, eq_alias_ok
     starts_match_ok = eq starts_ok, 1
     ends_match_ok = eq ends_ok, 1
     starts_miss_ok = eq starts_miss, 0
@@ -462,7 +511,7 @@ L_ENTRY:
     pattern01 = and starts_match_ok, ends_match_ok
     pattern02 = and pattern01, starts_miss_ok
     pattern03 = and pattern02, ends_long_miss_ok
-    pattern_ok = and pattern03, eq_alias_ok
+    pattern_ok = and pattern03, cmp_alias_ok
     strip01 = and strip_prefix_flag_ok, strip_suffix_flag_ok
     strip02 = and strip01, strip_prefix_miss_flag_ok
     strip03 = and strip02, strip_prefix_tail_len_ok
@@ -554,6 +603,22 @@ L_ENTRY:
     !slice_ne_vec
     !vec_eq_vec
     !vec_ne_vec
+    !slice_cmp_equal
+    !slice_cmp_less_item
+    !slice_cmp_greater_item
+    !slice_cmp_shorter
+    !slice_lt_item
+    !slice_le_equal
+    !slice_gt_item
+    !slice_ge_equal
+    !vec_cmp_slice_less
+    !slice_cmp_vec_greater
+    !vec_cmp_equal
+    !vec_cmp_shorter
+    !vec_lt_shorter
+    !vec_le_equal
+    !vec_gt_item
+    !vec_ge_equal
     !starts_ok
     !ends_ok
     !starts_miss
@@ -667,6 +732,38 @@ L_ENTRY:
     !eq_alias06
     !eq_alias07
     !eq_alias_ok
+    !slice_cmp_equal_ok
+    !slice_cmp_less_item_ok
+    !slice_cmp_greater_item_ok
+    !slice_cmp_shorter_ok
+    !slice_lt_item_ok
+    !slice_le_equal_ok
+    !slice_gt_item_ok
+    !slice_ge_equal_ok
+    !vec_cmp_slice_less_ok
+    !slice_cmp_vec_greater_ok
+    !vec_cmp_equal_ok
+    !vec_cmp_shorter_ok
+    !vec_lt_shorter_ok
+    !vec_le_equal_ok
+    !vec_gt_item_ok
+    !vec_ge_equal_ok
+    !cmp_alias01
+    !cmp_alias02
+    !cmp_alias03
+    !cmp_alias04
+    !cmp_alias05
+    !cmp_alias06
+    !cmp_alias07
+    !cmp_alias08
+    !cmp_alias09
+    !cmp_alias10
+    !cmp_alias11
+    !cmp_alias12
+    !cmp_alias13
+    !cmp_alias14
+    !cmp_alias15
+    !cmp_alias_ok
     !starts_match_ok
     !ends_match_ok
     !starts_miss_ok
@@ -814,6 +911,7 @@ L_ENTRY:
     !eq_mismatch_data
     !eq_short_data
     EXPAND VEC_FREE eq_vec_mismatch
+    EXPAND VEC_FREE eq_vec_short
     EXPAND VEC_FREE eq_vec_same
     EXPAND VEC_FREE eq_vec
     EXPAND VEC_FREE vec

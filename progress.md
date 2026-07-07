@@ -4,6 +4,32 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 Vec U64 lexicographic comparison alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable U64 lexicographic comparison aliases for Rust slice-delegated `Vec<T>` `PartialOrd` / `Ord` style use cases:
+  - `SLICE_CMP_U64`
+  - `SLICE_LT_U64`
+  - `SLICE_LE_U64`
+  - `SLICE_GT_U64`
+  - `SLICE_GE_U64`
+  - `VEC_CMP_SLICE_U64`
+  - `SLICE_CMP_VEC_U64`
+  - `VEC_CMP_U64`
+  - `VEC_LT_U64`
+  - `VEC_LE_U64`
+  - `VEC_GT_U64`
+  - `VEC_GE_U64`
+- Semantics: these aliases compare U64 slices lexicographically, returning `-1` / `0` / `1` for less/equal/greater and bool wrappers for ordering predicates, matching the supportable `Vec<u64>`/slice comparison subset without claiming generic `T: Ord` trait-object coverage.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
 ## Completed: 2026-07-07 Vec U64 equality alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

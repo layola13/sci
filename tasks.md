@@ -192,6 +192,7 @@
 - [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager byte-slice / pointer-slice `FromIterator<core::ascii::Char>` / `Extend<core::ascii::Char>` 风格别名，整段 ASCII byte 预验证后再写入，非法 byte 路径不修改目标；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager slice-shaped `FromIterator<T>` / `Extend<T>` 风格别名，复用现有 slice-copy 构造和追加路径，不引入虚构 lazy iterator object model；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 U64 slice-delegated equality / inequality 风格别名，覆盖 Vec-vs-slice、slice-vs-Vec、Vec-vs-Vec 比较，不引入虚构泛型 `T: PartialEq` trait object model；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 U64 slice-delegated lexicographic comparison / ordering predicate 风格别名，覆盖 Vec-vs-slice、slice-vs-Vec、Vec-vs-Vec 比较，不引入虚构泛型 `T: Ord` trait object model；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager Slice-of-Slice `FromIterator<&str>` / `Extend<&str>` 风格别名，复用现有 `STRING_BUF_PUSH_STR` 路径，不引入虚构 lazy iterator object model；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
 - [ ] 下一轮继续补更大 Linux 缺口：重新审计仍缺的 Linux-only `std` facade，优先选择能以 SA 宏/runtime 明确表达且可验收的表面。
 

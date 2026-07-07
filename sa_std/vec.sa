@@ -808,6 +808,50 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_ne_eq_%out_bool
 [END_MACRO]
 
+[MACRO] VEC_CMP_SLICE_U64 %out_ordering, %vec_reg, %slice_reg
+    EXPAND VEC_AS_SLICE __vec_cmp_slice_%out_ordering, %vec_reg
+    EXPAND SLICE_CMP_U64 %out_ordering, __vec_cmp_slice_%out_ordering, %slice_reg
+    !__vec_cmp_slice_%out_ordering
+[END_MACRO]
+
+[MACRO] SLICE_CMP_VEC_U64 %out_ordering, %slice_reg, %vec_reg
+    EXPAND VEC_AS_SLICE __slice_cmp_vec_%out_ordering, %vec_reg
+    EXPAND SLICE_CMP_U64 %out_ordering, %slice_reg, __slice_cmp_vec_%out_ordering
+    !__slice_cmp_vec_%out_ordering
+[END_MACRO]
+
+[MACRO] VEC_CMP_U64 %out_ordering, %left_vec, %right_vec
+    EXPAND VEC_AS_SLICE __vec_cmp_left_%out_ordering, %left_vec
+    EXPAND VEC_AS_SLICE __vec_cmp_right_%out_ordering, %right_vec
+    EXPAND SLICE_CMP_U64 %out_ordering, __vec_cmp_left_%out_ordering, __vec_cmp_right_%out_ordering
+    !__vec_cmp_left_%out_ordering
+    !__vec_cmp_right_%out_ordering
+[END_MACRO]
+
+[MACRO] VEC_LT_U64 %out_bool, %left_vec, %right_vec
+    EXPAND VEC_CMP_U64 __vec_lt_order_%out_bool, %left_vec, %right_vec
+    %out_bool = slt __vec_lt_order_%out_bool, 0
+    !__vec_lt_order_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_LE_U64 %out_bool, %left_vec, %right_vec
+    EXPAND VEC_CMP_U64 __vec_le_order_%out_bool, %left_vec, %right_vec
+    %out_bool = sle __vec_le_order_%out_bool, 0
+    !__vec_le_order_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_GT_U64 %out_bool, %left_vec, %right_vec
+    EXPAND VEC_CMP_U64 __vec_gt_order_%out_bool, %left_vec, %right_vec
+    %out_bool = sgt __vec_gt_order_%out_bool, 0
+    !__vec_gt_order_%out_bool
+[END_MACRO]
+
+[MACRO] VEC_GE_U64 %out_bool, %left_vec, %right_vec
+    EXPAND VEC_CMP_U64 __vec_ge_order_%out_bool, %left_vec, %right_vec
+    %out_bool = sge __vec_ge_order_%out_bool, 0
+    !__vec_ge_order_%out_bool
+[END_MACRO]
+
 [MACRO] VEC_STARTS_WITH_U64 %out_bool, %vec_reg, %prefix_slice
     EXPAND VEC_AS_SLICE __vec_starts_slice_%out_bool, %vec_reg
     EXPAND SLICE_STARTS_WITH_U64 %out_bool, __vec_starts_slice_%out_bool, %prefix_slice
