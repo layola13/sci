@@ -252,6 +252,7 @@
 - [x] `StringBuf` Rust API parity 文档复审：同步 `docs/std_missing.md` 中滞后的 StringBuf implemented surface，补记当前源码已存在的 default/reference/deref、pointer-range/raw-parts/leak、conversion/cloning、UTF strict/lossy constructors、eager char/string extension/extraction、retain/drain/remove/replace-first-last/index-range 等类别；本批无运行时代码变更，按用户要求不跑全量测试。
 - [x] `StringBuf` Rust API parity 复审：补 `String::make_ascii_uppercase` / `make_ascii_lowercase` 与 `to_ascii_uppercase` / `to_ascii_lowercase` 风格 owned-buffer 宏表面，复用 ASCII slice case mutation helper；只声明 ASCII-only case conversion，不声明 Unicode case folding；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
 - [x] `str` / `String` Rust API parity 复审：补 `str::make_ascii_uppercase` / `make_ascii_lowercase` 与 `to_ascii_uppercase` / `to_ascii_lowercase` 风格宏表面，复用 ASCII slice mutation 与 StringBuf owned-copy helper；只声明 ASCII-only case conversion，不声明 Unicode case folding；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `str` / `String` / `StringBuf` Rust API parity 复审：补 `split_at_mut` / `split_at_mut_checked` 风格命名别名，复用 UTF-8 char-boundary checked split helper 返回本地 `(ok,left,right)` Slice 视图；不声明 Rust panic 行为、`Option` 对象布局或 scoped `&mut str` borrow 语义；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
 - [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

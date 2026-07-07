@@ -4,6 +4,23 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 str/String split_at_mut alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / `String` / `StringBuf` split-at mutable naming aliases:
+  - `STR_SPLIT_AT_MUT` / `STRING_SPLIT_AT_MUT`
+  - `STR_SPLIT_AT_MUT_CHECKED` / `STRING_SPLIT_AT_MUT_CHECKED`
+  - `STR_TRY_SPLIT_AT_MUT_CHECKED` / `STRING_TRY_SPLIT_AT_MUT_CHECKED`
+  - `STRING_BUF_SPLIT_AT_MUT`
+  - `STRING_BUF_SPLIT_AT_MUT_CHECKED`
+  - `STRING_BUF_TRY_SPLIT_AT_MUT_CHECKED`
+- Semantics: these delegate to the existing UTF-8 char-boundary checked split helper and preserve the local `(ok, left, right)` result shape over `Slice` views. They do not claim Rust panic behavior, `Option` object layout, scoped `&mut str` borrow rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "split_at_mut aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "split_at_mut aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
 ## Completed: 2026-07-07 str/String ASCII case conversion batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

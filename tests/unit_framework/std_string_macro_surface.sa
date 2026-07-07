@@ -3029,6 +3029,106 @@ L_STRING_ASCII_CASE_CONVERSION_OK:
     !ok
     return
 
+@test "sa_std string split_at_mut aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS utf8_a_e, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS utf8_smile_z, &UTF8_SMILE_Z, 5
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+    EXPAND STRING_BUF_AS_MUT_STR mut_utf8, owned_utf8
+    EXPAND STR_SPLIT_AT_MUT str_mut_ok, str_mut_left, str_mut_right, mut_utf8, 3
+    EXPAND STRING_SPLIT_AT_MUT_CHECKED string_mut_bad_ok, string_mut_bad_left, string_mut_bad_right, mut_utf8, 4
+    EXPAND STRING_BUF_SPLIT_AT_MUT buf_mut_ok, buf_mut_left, buf_mut_right, owned_utf8, 3
+    EXPAND STRING_BUF_TRY_SPLIT_AT_MUT_CHECKED buf_mut_bad_ok, buf_mut_bad_left, buf_mut_bad_right, owned_utf8, 4
+    EXPAND STR_EQ str_mut_left_eq, str_mut_left, utf8_a_e
+    EXPAND STR_EQ str_mut_right_eq, str_mut_right, utf8_smile_z
+    EXPAND STR_IS_EMPTY string_mut_bad_left_empty, string_mut_bad_left
+    EXPAND STR_IS_EMPTY string_mut_bad_right_empty, string_mut_bad_right
+    EXPAND STR_EQ buf_mut_left_eq, buf_mut_left, utf8_a_e
+    EXPAND STR_EQ buf_mut_right_eq, buf_mut_right, utf8_smile_z
+    EXPAND STR_IS_EMPTY buf_mut_bad_left_empty, buf_mut_bad_left
+    EXPAND STR_IS_EMPTY buf_mut_bad_right_empty, buf_mut_bad_right
+
+    str_mut_flag_ok = eq str_mut_ok, 1
+    str_mut_left_ok = eq str_mut_left_eq, 1
+    str_mut_right_ok = eq str_mut_right_eq, 1
+    string_mut_bad_flag_ok = eq string_mut_bad_ok, 0
+    string_mut_bad_left_ok = eq string_mut_bad_left_empty, 1
+    string_mut_bad_right_ok = eq string_mut_bad_right_empty, 1
+    buf_mut_flag_ok = eq buf_mut_ok, 1
+    buf_mut_left_ok = eq buf_mut_left_eq, 1
+    buf_mut_right_ok = eq buf_mut_right_eq, 1
+    buf_mut_bad_flag_ok = eq buf_mut_bad_ok, 0
+    buf_mut_bad_left_ok = eq buf_mut_bad_left_empty, 1
+    buf_mut_bad_right_ok = eq buf_mut_bad_right_empty, 1
+    ok01 = and str_mut_flag_ok, str_mut_left_ok
+    ok02 = and ok01, str_mut_right_ok
+    ok03 = and ok02, string_mut_bad_flag_ok
+    ok04 = and ok03, string_mut_bad_left_ok
+    ok05 = and ok04, string_mut_bad_right_ok
+    ok06 = and ok05, buf_mut_flag_ok
+    ok07 = and ok06, buf_mut_left_ok
+    ok08 = and ok07, buf_mut_right_ok
+    ok09 = and ok08, buf_mut_bad_flag_ok
+    ok10 = and ok09, buf_mut_bad_left_ok
+    ok = and ok10, buf_mut_bad_right_ok
+    EXPAND STRING_BUF_FREE owned_utf8
+    !utf8_boundary
+    !utf8_a_e
+    !utf8_smile_z
+    !mut_utf8
+    !str_mut_ok
+    !str_mut_left
+    !str_mut_right
+    !string_mut_bad_ok
+    !string_mut_bad_left
+    !string_mut_bad_right
+    !buf_mut_ok
+    !buf_mut_left
+    !buf_mut_right
+    !buf_mut_bad_ok
+    !buf_mut_bad_left
+    !buf_mut_bad_right
+    !str_mut_left_eq
+    !str_mut_right_eq
+    !string_mut_bad_left_empty
+    !string_mut_bad_right_empty
+    !buf_mut_left_eq
+    !buf_mut_right_eq
+    !buf_mut_bad_left_empty
+    !buf_mut_bad_right_empty
+    !str_mut_flag_ok
+    !str_mut_left_ok
+    !str_mut_right_ok
+    !string_mut_bad_flag_ok
+    !string_mut_bad_left_ok
+    !string_mut_bad_right_ok
+    !buf_mut_flag_ok
+    !buf_mut_left_ok
+    !buf_mut_right_ok
+    !buf_mut_bad_flag_ok
+    !buf_mut_bad_left_ok
+    !buf_mut_bad_right_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    br ok -> L_STRING_SPLIT_AT_MUT_ALIAS_OK, L_STRING_SPLIT_AT_MUT_ALIAS_FAIL
+
+L_STRING_SPLIT_AT_MUT_ALIAS_FAIL:
+    !ok
+    panic(928)
+
+L_STRING_SPLIT_AT_MUT_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string buffer split_at aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
