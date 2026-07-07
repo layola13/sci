@@ -4,6 +4,27 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf ASCII char iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager `core::ascii::Char` and `&core::ascii::Char` aliases for Rust `FromIterator` / `Extend` style use cases:
+  - `STRING_BUF_TRY_EXTEND_ASCII_CHARS`
+  - `STRING_BUF_EXTEND_ASCII_CHARS`
+  - `STRING_BUF_TRY_FROM_ASCII_CHARS`
+  - `STRING_BUF_FROM_ASCII_CHARS`
+  - `STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS`
+  - `STRING_BUF_EXTEND_ASCII_CHAR_REFS`
+  - `STRING_BUF_TRY_FROM_ASCII_CHAR_REFS`
+  - `STRING_BUF_FROM_ASCII_CHAR_REFS`
+- Semantics: accepts eager byte-sized ASCII Char slices or pointer slices, validates every byte is ASCII before mutating, reserves one byte per item, then appends bytes directly. Invalid bytes return `ok=0` and leave the target StringBuf unchanged/empty.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
 ## Completed: 2026-07-07 StringBuf char reference iterator alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

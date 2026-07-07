@@ -1,6 +1,7 @@
 @import "core/slice.sal"
 @import "core/slice.sa"
 @import "char.sa"
+@import "ascii.sa"
 @import "vec.sa"
 @import "vec.sal"
 @import "string.sai"
@@ -463,6 +464,200 @@ L_STRING_EXTEND_CHAR_REFS_END_%out_ok:
 [MACRO] STRING_BUF_FROM_CHAR_REFS_U64 %out_string, %char_refs_slice
     EXPAND STRING_BUF_TRY_FROM_CHAR_REFS_U64 __string_from_char_refs_ok_%out_string, %out_string, %char_refs_slice
     !__string_from_char_refs_ok_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_EXTEND_ASCII_CHARS %out_ok, %string_reg, %ascii_chars_slice
+    __string_extend_ascii_idx_slot_%out_ok = stack_alloc 8
+    store __string_extend_ascii_idx_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_EXTEND_ASCII_VALIDATE_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_VALIDATE_HEAD_%out_ok:
+    __string_extend_ascii_idx_%out_ok = load __string_extend_ascii_idx_slot_%out_ok+0 as u64
+    __string_extend_ascii_len_%out_ok = load %ascii_chars_slice+Slice_len as u64
+    __string_extend_ascii_validate_done_%out_ok = eq __string_extend_ascii_idx_%out_ok, __string_extend_ascii_len_%out_ok
+    !__string_extend_ascii_len_%out_ok
+    br __string_extend_ascii_validate_done_%out_ok -> L_STRING_EXTEND_ASCII_APPEND_INIT_%out_ok, L_STRING_EXTEND_ASCII_VALIDATE_BODY_%out_ok
+
+L_STRING_EXTEND_ASCII_VALIDATE_BODY_%out_ok:
+    __string_extend_ascii_ptr_%out_ok = load %ascii_chars_slice+Slice_ptr as ptr
+    __string_extend_ascii_item_%out_ok = ptr_add __string_extend_ascii_ptr_%out_ok, __string_extend_ascii_idx_%out_ok
+    __string_extend_ascii_byte_%out_ok = load __string_extend_ascii_item_%out_ok+0 as u8
+    !__string_extend_ascii_item_%out_ok
+    !__string_extend_ascii_ptr_%out_ok
+    EXPAND ASCII_IS_ASCII __string_extend_ascii_valid_%out_ok, __string_extend_ascii_byte_%out_ok
+    br __string_extend_ascii_valid_%out_ok -> L_STRING_EXTEND_ASCII_VALIDATE_NEXT_%out_ok, L_STRING_EXTEND_ASCII_INVALID_%out_ok
+
+L_STRING_EXTEND_ASCII_VALIDATE_NEXT_%out_ok:
+    __string_extend_ascii_next_%out_ok = add __string_extend_ascii_idx_%out_ok, 1
+    store __string_extend_ascii_idx_slot_%out_ok+0, __string_extend_ascii_next_%out_ok as u64
+    !__string_extend_ascii_next_%out_ok
+    !__string_extend_ascii_valid_%out_ok
+    !__string_extend_ascii_byte_%out_ok
+    !__string_extend_ascii_validate_done_%out_ok
+    !__string_extend_ascii_idx_%out_ok
+    jmp L_STRING_EXTEND_ASCII_VALIDATE_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_APPEND_INIT_%out_ok:
+    __string_extend_ascii_reserve_len_%out_ok = load %ascii_chars_slice+Slice_len as u64
+    EXPAND STRING_BUF_RESERVE %string_reg, __string_extend_ascii_reserve_len_%out_ok
+    store __string_extend_ascii_idx_slot_%out_ok+0, 0 as u64
+    !__string_extend_ascii_reserve_len_%out_ok
+    !__string_extend_ascii_validate_done_%out_ok
+    !__string_extend_ascii_idx_%out_ok
+    jmp L_STRING_EXTEND_ASCII_APPEND_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_APPEND_HEAD_%out_ok:
+    __string_extend_ascii_append_idx_%out_ok = load __string_extend_ascii_idx_slot_%out_ok+0 as u64
+    __string_extend_ascii_append_len_%out_ok = load %ascii_chars_slice+Slice_len as u64
+    __string_extend_ascii_append_done_%out_ok = eq __string_extend_ascii_append_idx_%out_ok, __string_extend_ascii_append_len_%out_ok
+    !__string_extend_ascii_append_len_%out_ok
+    br __string_extend_ascii_append_done_%out_ok -> L_STRING_EXTEND_ASCII_DONE_%out_ok, L_STRING_EXTEND_ASCII_APPEND_BODY_%out_ok
+
+L_STRING_EXTEND_ASCII_APPEND_BODY_%out_ok:
+    __string_extend_ascii_append_ptr_%out_ok = load %ascii_chars_slice+Slice_ptr as ptr
+    __string_extend_ascii_append_item_%out_ok = ptr_add __string_extend_ascii_append_ptr_%out_ok, __string_extend_ascii_append_idx_%out_ok
+    __string_extend_ascii_append_byte_%out_ok = load __string_extend_ascii_append_item_%out_ok+0 as u8
+    __string_extend_ascii_append_next_%out_ok = add __string_extend_ascii_append_idx_%out_ok, 1
+    store __string_extend_ascii_idx_slot_%out_ok+0, __string_extend_ascii_append_next_%out_ok as u64
+    !__string_extend_ascii_append_next_%out_ok
+    !__string_extend_ascii_append_item_%out_ok
+    !__string_extend_ascii_append_ptr_%out_ok
+    !__string_extend_ascii_append_done_%out_ok
+    !__string_extend_ascii_append_idx_%out_ok
+    EXPAND STRING_BUF_PUSH_BYTE %string_reg, __string_extend_ascii_append_byte_%out_ok
+    !__string_extend_ascii_append_byte_%out_ok
+    jmp L_STRING_EXTEND_ASCII_APPEND_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__string_extend_ascii_append_done_%out_ok
+    !__string_extend_ascii_append_idx_%out_ok
+    jmp L_STRING_EXTEND_ASCII_END_%out_ok
+
+L_STRING_EXTEND_ASCII_INVALID_%out_ok:
+    %out_ok = add 0, 0
+    !__string_extend_ascii_valid_%out_ok
+    !__string_extend_ascii_byte_%out_ok
+    !__string_extend_ascii_validate_done_%out_ok
+    !__string_extend_ascii_idx_%out_ok
+
+L_STRING_EXTEND_ASCII_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_ASCII_CHARS %string_reg, %ascii_chars_slice
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHARS __string_extend_ascii_ok_%string_reg, %string_reg, %ascii_chars_slice
+    !__string_extend_ascii_ok_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FROM_ASCII_CHARS %out_ok, %out_string, %ascii_chars_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHARS %out_ok, %out_string, %ascii_chars_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_ASCII_CHARS %out_string, %ascii_chars_slice
+    EXPAND STRING_BUF_TRY_FROM_ASCII_CHARS __string_from_ascii_ok_%out_string, %out_string, %ascii_chars_slice
+    !__string_from_ascii_ok_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS %out_ok, %string_reg, %ascii_refs_slice
+    __string_extend_ascii_refs_idx_slot_%out_ok = stack_alloc 8
+    store __string_extend_ascii_refs_idx_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_EXTEND_ASCII_REFS_VALIDATE_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_VALIDATE_HEAD_%out_ok:
+    __string_extend_ascii_refs_idx_%out_ok = load __string_extend_ascii_refs_idx_slot_%out_ok+0 as u64
+    __string_extend_ascii_refs_len_%out_ok = load %ascii_refs_slice+Slice_len as u64
+    __string_extend_ascii_refs_validate_done_%out_ok = eq __string_extend_ascii_refs_idx_%out_ok, __string_extend_ascii_refs_len_%out_ok
+    !__string_extend_ascii_refs_len_%out_ok
+    br __string_extend_ascii_refs_validate_done_%out_ok -> L_STRING_EXTEND_ASCII_REFS_APPEND_INIT_%out_ok, L_STRING_EXTEND_ASCII_REFS_VALIDATE_BODY_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_VALIDATE_BODY_%out_ok:
+    __string_extend_ascii_refs_ptr_%out_ok = load %ascii_refs_slice+Slice_ptr as ptr
+    __string_extend_ascii_refs_off_%out_ok = mul __string_extend_ascii_refs_idx_%out_ok, 8
+    __string_extend_ascii_refs_item_%out_ok = ptr_add __string_extend_ascii_refs_ptr_%out_ok, __string_extend_ascii_refs_off_%out_ok
+    __string_extend_ascii_refs_byte_ptr_%out_ok = load __string_extend_ascii_refs_item_%out_ok+0 as ptr
+    __string_extend_ascii_refs_byte_%out_ok = load __string_extend_ascii_refs_byte_ptr_%out_ok+0 as u8
+    !__string_extend_ascii_refs_byte_ptr_%out_ok
+    !__string_extend_ascii_refs_item_%out_ok
+    !__string_extend_ascii_refs_off_%out_ok
+    !__string_extend_ascii_refs_ptr_%out_ok
+    EXPAND ASCII_IS_ASCII __string_extend_ascii_refs_valid_%out_ok, __string_extend_ascii_refs_byte_%out_ok
+    br __string_extend_ascii_refs_valid_%out_ok -> L_STRING_EXTEND_ASCII_REFS_VALIDATE_NEXT_%out_ok, L_STRING_EXTEND_ASCII_REFS_INVALID_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_VALIDATE_NEXT_%out_ok:
+    __string_extend_ascii_refs_next_%out_ok = add __string_extend_ascii_refs_idx_%out_ok, 1
+    store __string_extend_ascii_refs_idx_slot_%out_ok+0, __string_extend_ascii_refs_next_%out_ok as u64
+    !__string_extend_ascii_refs_next_%out_ok
+    !__string_extend_ascii_refs_valid_%out_ok
+    !__string_extend_ascii_refs_byte_%out_ok
+    !__string_extend_ascii_refs_validate_done_%out_ok
+    !__string_extend_ascii_refs_idx_%out_ok
+    jmp L_STRING_EXTEND_ASCII_REFS_VALIDATE_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_APPEND_INIT_%out_ok:
+    __string_extend_ascii_refs_reserve_len_%out_ok = load %ascii_refs_slice+Slice_len as u64
+    EXPAND STRING_BUF_RESERVE %string_reg, __string_extend_ascii_refs_reserve_len_%out_ok
+    store __string_extend_ascii_refs_idx_slot_%out_ok+0, 0 as u64
+    !__string_extend_ascii_refs_reserve_len_%out_ok
+    !__string_extend_ascii_refs_validate_done_%out_ok
+    !__string_extend_ascii_refs_idx_%out_ok
+    jmp L_STRING_EXTEND_ASCII_REFS_APPEND_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_APPEND_HEAD_%out_ok:
+    __string_extend_ascii_refs_append_idx_%out_ok = load __string_extend_ascii_refs_idx_slot_%out_ok+0 as u64
+    __string_extend_ascii_refs_append_len_%out_ok = load %ascii_refs_slice+Slice_len as u64
+    __string_extend_ascii_refs_append_done_%out_ok = eq __string_extend_ascii_refs_append_idx_%out_ok, __string_extend_ascii_refs_append_len_%out_ok
+    !__string_extend_ascii_refs_append_len_%out_ok
+    br __string_extend_ascii_refs_append_done_%out_ok -> L_STRING_EXTEND_ASCII_REFS_DONE_%out_ok, L_STRING_EXTEND_ASCII_REFS_APPEND_BODY_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_APPEND_BODY_%out_ok:
+    __string_extend_ascii_refs_append_ptr_%out_ok = load %ascii_refs_slice+Slice_ptr as ptr
+    __string_extend_ascii_refs_append_off_%out_ok = mul __string_extend_ascii_refs_append_idx_%out_ok, 8
+    __string_extend_ascii_refs_append_item_%out_ok = ptr_add __string_extend_ascii_refs_append_ptr_%out_ok, __string_extend_ascii_refs_append_off_%out_ok
+    __string_extend_ascii_refs_append_byte_ptr_%out_ok = load __string_extend_ascii_refs_append_item_%out_ok+0 as ptr
+    __string_extend_ascii_refs_append_byte_%out_ok = load __string_extend_ascii_refs_append_byte_ptr_%out_ok+0 as u8
+    __string_extend_ascii_refs_append_next_%out_ok = add __string_extend_ascii_refs_append_idx_%out_ok, 1
+    store __string_extend_ascii_refs_idx_slot_%out_ok+0, __string_extend_ascii_refs_append_next_%out_ok as u64
+    !__string_extend_ascii_refs_append_next_%out_ok
+    !__string_extend_ascii_refs_append_byte_ptr_%out_ok
+    !__string_extend_ascii_refs_append_item_%out_ok
+    !__string_extend_ascii_refs_append_off_%out_ok
+    !__string_extend_ascii_refs_append_ptr_%out_ok
+    !__string_extend_ascii_refs_append_done_%out_ok
+    !__string_extend_ascii_refs_append_idx_%out_ok
+    EXPAND STRING_BUF_PUSH_BYTE %string_reg, __string_extend_ascii_refs_append_byte_%out_ok
+    !__string_extend_ascii_refs_append_byte_%out_ok
+    jmp L_STRING_EXTEND_ASCII_REFS_APPEND_HEAD_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__string_extend_ascii_refs_append_done_%out_ok
+    !__string_extend_ascii_refs_append_idx_%out_ok
+    jmp L_STRING_EXTEND_ASCII_REFS_END_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_INVALID_%out_ok:
+    %out_ok = add 0, 0
+    !__string_extend_ascii_refs_valid_%out_ok
+    !__string_extend_ascii_refs_byte_%out_ok
+    !__string_extend_ascii_refs_validate_done_%out_ok
+    !__string_extend_ascii_refs_idx_%out_ok
+
+L_STRING_EXTEND_ASCII_REFS_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_ASCII_CHAR_REFS %string_reg, %ascii_refs_slice
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS __string_extend_ascii_refs_ok_%string_reg, %string_reg, %ascii_refs_slice
+    !__string_extend_ascii_refs_ok_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_FROM_ASCII_CHAR_REFS %out_ok, %out_string, %ascii_refs_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS %out_ok, %out_string, %ascii_refs_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_ASCII_CHAR_REFS %out_string, %ascii_refs_slice
+    EXPAND STRING_BUF_TRY_FROM_ASCII_CHAR_REFS __string_from_ascii_refs_ok_%out_string, %out_string, %ascii_refs_slice
+    !__string_from_ascii_refs_ok_%out_string
 [END_MACRO]
 
 [MACRO] STRING_BUF_FROM_UTF8_UNCHECKED %out_string, %bytes_slice
