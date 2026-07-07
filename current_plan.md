@@ -102,6 +102,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
    - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec deref-to-slice select-nth aliases `VEC_SELECT_NTH_UNSTABLE_U64`, `VEC_SELECT_NTH_UNSTABLE_BY_U64`, and `VEC_SELECT_NTH_UNSTABLE_BY_KEY_U64` over existing mutable slice U64 partitioning machinery.
    - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable Vec deref-to-slice binary search alias `VEC_BINARY_SEARCH_U64` over the existing U64 `(ok, index)` search result shape.
    - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable split/strip naming aliases `STR_STRIP_PREFIX`, `STRING_STRIP_PREFIX`, `STR_STRIP_SUFFIX`, `STRING_STRIP_SUFFIX`, `STR_SPLIT_AT`, `STRING_SPLIT_AT`, `STR_SPLIT_AT_CHECKED`, `STRING_SPLIT_AT_CHECKED`, `STR_SPLIT_ONCE`, `STRING_SPLIT_ONCE`, `STR_RSPLIT_ONCE`, and `STRING_RSPLIT_ONCE` over existing checked `(ok, slice...)` forms.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable find/rfind naming aliases `STR_FIND`, `STRING_FIND`, `STR_RFIND`, and `STRING_RFIND` over existing checked `(ok, index)` forms.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -241,6 +242,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 - `zig build unit-framework --summary all` passes after the Vec select_nth alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - `zig build unit-framework --summary all` passes after the Vec binary_search alias batch (`6/6 steps succeeded; 5/5 tests passed`).
 - Full test suites are skipped for the String/str split/strip alias batch by user instruction; only newly added focused source and installed-state tests were run.
+- Full test suites are skipped for the String/str find alias batch by user instruction; only newly added focused source and installed-state tests were run.
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -397,13 +399,13 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/facade/test changes are complete for the String/str split/strip alias batch.
-- Focused source tests for the newly added split/strip aliases pass, install sync passes, and focused installed-state tests for the same aliases pass. Full test suites are intentionally not run for this batch per user instruction.
+- Source/facade/test changes are complete for the String/str find alias batch.
+- Focused source tests for the newly added find/rfind aliases pass, install sync passes, and focused installed-state tests for the same aliases pass. Full test suites are intentionally not run for this batch per user instruction.
 - The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, and full generic trait-object coverage.
 
 ## Next Priority
 
-- Commit the String/str split/strip alias batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch.
+- Commit the String/str find alias batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch.
 
 ## Notes
 

@@ -230,14 +230,14 @@ L_ENTRY:
     EXPAND STR_STARTS_WITH starts_ok, word, prefix
     EXPAND STRING_ENDS_WITH ends_ok, word, suffix
     EXPAND STR_CONTAINS contains_ok, word, infix
-    EXPAND STR_TRY_FIND find_ok, find_idx, word, infix
-    EXPAND STRING_TRY_RFIND rfind_ok, rfind_idx, word, infix
+    EXPAND STR_FIND find_ok, find_idx, word, infix
+    EXPAND STRING_RFIND rfind_ok, rfind_idx, word, infix
     EXPAND STRING_CONTAINS contains_empty_ok, word, str_empty
     EXPAND STR_STARTS_WITH starts_miss, word, miss
     EXPAND STRING_ENDS_WITH ends_miss, word, miss
     EXPAND STR_CONTAINS contains_miss, word, miss
-    EXPAND STR_TRY_FIND find_miss_ok, find_miss_idx, word, miss
-    EXPAND STRING_TRY_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
+    EXPAND STRING_FIND find_miss_ok, find_miss_idx, word, miss
+    EXPAND STR_RFIND rfind_miss_ok, rfind_miss_idx, word, miss
     EXPAND STR_STRIP_PREFIX strip_prefix_ok, strip_prefix_tail, word, prefix
     EXPAND STR_STRIP_SUFFIX strip_suffix_ok, strip_suffix_head, word, suffix
     EXPAND STRING_STRIP_PREFIX strip_prefix_miss_ok, strip_prefix_miss, word, miss

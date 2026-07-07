@@ -3018,6 +3018,14 @@ L_STR_FIND_END_%out_ok:
     EXPAND STR_TRY_FIND %out_ok, %out_index, %slice_reg, %needle_slice
 [END_MACRO]
 
+[MACRO] STR_FIND %out_ok, %out_index, %slice_reg, %needle_slice
+    EXPAND STR_TRY_FIND %out_ok, %out_index, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_FIND %out_ok, %out_index, %slice_reg, %needle_slice
+    EXPAND STR_FIND %out_ok, %out_index, %slice_reg, %needle_slice
+[END_MACRO]
+
 [MACRO] STR_TRY_FIND_BYTE %out_ok, %out_index, %slice_reg, %byte_value
     __str_find_byte_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
     __str_find_byte_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -3686,6 +3694,14 @@ L_STR_RFIND_END_%out_ok:
 
 [MACRO] STRING_TRY_RFIND %out_ok, %out_index, %slice_reg, %needle_slice
     EXPAND STR_TRY_RFIND %out_ok, %out_index, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_RFIND %out_ok, %out_index, %slice_reg, %needle_slice
+    EXPAND STR_TRY_RFIND %out_ok, %out_index, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_RFIND %out_ok, %out_index, %slice_reg, %needle_slice
+    EXPAND STR_RFIND %out_ok, %out_index, %slice_reg, %needle_slice
 [END_MACRO]
 
 [MACRO] STR_STARTS_WITH %out_bool, %slice_reg, %prefix_slice
