@@ -102,6 +102,13 @@
     EXPAND VEC_FREE %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_DROP_IN_PLACE %string_reg
+    __string_buf_drop_ptr_%string_reg = take %string_reg+Vec_ptr
+    store %string_reg+Vec_cap, 0 as u64
+    store %string_reg+Vec_len, 0 as u64
+    !__string_buf_drop_ptr_%string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_LEN %out_len, %string_reg
     EXPAND VEC_LEN %out_len, %string_reg
 [END_MACRO]
@@ -1712,6 +1719,51 @@ L_STRING_BUF_PUSH_CHAR_END_%out_ok:
     EXPAND STRING_BUF_PUSH_STR %dst_string_reg, __string_buf_extend_string_slice_%dst_string_reg
     !__string_buf_extend_string_slice_%dst_string_reg
     EXPAND STRING_BUF_FREE %src_string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_STRING_ITER %string_reg, %string_iter_slice
+    __string_buf_string_iter_len_%string_reg = load %string_iter_slice+Slice_len as u64
+    __string_buf_string_iter_ptr_%string_reg = load %string_iter_slice+Slice_ptr as ptr
+    __string_buf_string_iter_idx_slot_%string_reg = stack_alloc 8
+    __string_buf_string_iter_item_%string_reg = stack_alloc Slice_SIZE
+    store __string_buf_string_iter_idx_slot_%string_reg+0, 0 as u64
+    jmp L_STRING_BUF_STRING_ITER_HEAD_%string_reg
+
+L_STRING_BUF_STRING_ITER_HEAD_%string_reg:
+    __string_buf_string_iter_idx_%string_reg = load __string_buf_string_iter_idx_slot_%string_reg+0 as u64
+    __string_buf_string_iter_done_%string_reg = eq __string_buf_string_iter_idx_%string_reg, __string_buf_string_iter_len_%string_reg
+    br __string_buf_string_iter_done_%string_reg -> L_STRING_BUF_STRING_ITER_DONE_%string_reg, L_STRING_BUF_STRING_ITER_BODY_%string_reg
+
+L_STRING_BUF_STRING_ITER_BODY_%string_reg:
+    __string_buf_string_iter_off_%string_reg = mul __string_buf_string_iter_idx_%string_reg, Vec_SIZE
+    __string_buf_string_iter_elem_%string_reg = ptr_add __string_buf_string_iter_ptr_%string_reg, __string_buf_string_iter_off_%string_reg
+    __string_buf_string_iter_elem_ptr_%string_reg = load __string_buf_string_iter_elem_%string_reg+Vec_ptr as ptr
+    __string_buf_string_iter_elem_len_%string_reg = load __string_buf_string_iter_elem_%string_reg+Vec_len as u64
+    store __string_buf_string_iter_item_%string_reg+Slice_ptr, __string_buf_string_iter_elem_ptr_%string_reg as ptr
+    store __string_buf_string_iter_item_%string_reg+Slice_len, __string_buf_string_iter_elem_len_%string_reg as u64
+    EXPAND STRING_BUF_PUSH_STR %string_reg, __string_buf_string_iter_item_%string_reg
+    EXPAND STRING_BUF_DROP_IN_PLACE __string_buf_string_iter_elem_%string_reg
+    __string_buf_string_iter_next_%string_reg = add __string_buf_string_iter_idx_%string_reg, 1
+    store __string_buf_string_iter_idx_slot_%string_reg+0, __string_buf_string_iter_next_%string_reg as u64
+    !__string_buf_string_iter_next_%string_reg
+    !__string_buf_string_iter_elem_len_%string_reg
+    !__string_buf_string_iter_elem_ptr_%string_reg
+    !__string_buf_string_iter_elem_%string_reg
+    !__string_buf_string_iter_off_%string_reg
+    !__string_buf_string_iter_done_%string_reg
+    !__string_buf_string_iter_idx_%string_reg
+    jmp L_STRING_BUF_STRING_ITER_HEAD_%string_reg
+
+L_STRING_BUF_STRING_ITER_DONE_%string_reg:
+    !__string_buf_string_iter_done_%string_reg
+    !__string_buf_string_iter_idx_%string_reg
+    !__string_buf_string_iter_len_%string_reg
+    !__string_buf_string_iter_ptr_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_FROM_STRING_ITER %out_string, %string_iter_slice
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    EXPAND STRING_BUF_EXTEND_STRING_ITER %out_string, %string_iter_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_EXTEND_STR_ITER %string_reg, %str_iter_slice

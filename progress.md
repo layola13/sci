@@ -4,6 +4,24 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf owned String iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager owned-String iterator aliases for Rust `FromIterator<String>` / `Extend<String>` style use cases:
+  - `STRING_BUF_DROP_IN_PLACE`
+  - `STRING_BUF_EXTEND_STRING_ITER`
+  - `STRING_BUF_FROM_STRING_ITER`
+- Semantics: these aliases accept an eager `Slice` whose elements are by-value `StringBuf` / Vec metadata entries. Each owned source StringBuf is appended through its `str` view, then its moved-from buffer allocation is dropped in place. This models a Slice-of-StringBuf metadata batch, not a real Rust lazy iterator object model.
+- Compiler support: fixed LLVM-C lowering for indirect call signature provenance when a vtable slot load has a typed field prefix such as `SupportCfiFn_call`; the full unit-framework CFI test now passes instead of losing the indirect callee signature.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
 ## Completed: 2026-07-07 StringBuf/Vec hash delegation alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

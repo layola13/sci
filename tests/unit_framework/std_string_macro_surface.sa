@@ -556,17 +556,56 @@ L_ENTRY:
     EXPAND STRING_BUF_AS_STR extend_str_iter_view, extend_str_iter_buf
     EXPAND STR_EQ extend_str_iter_eq, extend_str_iter_view, expected
 
+    from_string_iter_data = stack_alloc 48
+    EXPAND STRING_BUF_FROM_STR from_string_left, left
+    EXPAND STRING_BUF_FROM_STR from_string_suffix, suffix
+    EXPAND STRING_BUF_INTO_RAW_PARTS from_string_left_ptr, from_string_left_len, from_string_left_cap, from_string_left
+    EXPAND STRING_BUF_INTO_RAW_PARTS from_string_suffix_ptr, from_string_suffix_len, from_string_suffix_cap, from_string_suffix
+    store from_string_iter_data+0, from_string_left_ptr as ptr
+    store from_string_iter_data+8, from_string_left_cap as u64
+    store from_string_iter_data+16, from_string_left_len as u64
+    store from_string_iter_data+24, from_string_suffix_ptr as ptr
+    store from_string_iter_data+32, from_string_suffix_cap as u64
+    store from_string_iter_data+40, from_string_suffix_len as u64
+    from_string_iter = alloc Slice_SIZE
+    EXPAND SLICE_NEW from_string_iter, from_string_iter_data, 2
+    EXPAND STRING_BUF_FROM_STRING_ITER from_string_iter_buf, from_string_iter
+    EXPAND STRING_BUF_AS_STR from_string_iter_view, from_string_iter_buf
+    EXPAND STR_EQ from_string_iter_eq, from_string_iter_view, expected
+
+    extend_string_iter_data = stack_alloc 48
+    EXPAND STRING_BUF_FROM_STR extend_string_left, left
+    EXPAND STRING_BUF_FROM_STR extend_string_suffix, suffix
+    EXPAND STRING_BUF_INTO_RAW_PARTS extend_string_left_ptr, extend_string_left_len, extend_string_left_cap, extend_string_left
+    EXPAND STRING_BUF_INTO_RAW_PARTS extend_string_suffix_ptr, extend_string_suffix_len, extend_string_suffix_cap, extend_string_suffix
+    store extend_string_iter_data+0, extend_string_left_ptr as ptr
+    store extend_string_iter_data+8, extend_string_left_cap as u64
+    store extend_string_iter_data+16, extend_string_left_len as u64
+    store extend_string_iter_data+24, extend_string_suffix_ptr as ptr
+    store extend_string_iter_data+32, extend_string_suffix_cap as u64
+    store extend_string_iter_data+40, extend_string_suffix_len as u64
+    extend_string_iter = alloc Slice_SIZE
+    EXPAND SLICE_NEW extend_string_iter, extend_string_iter_data, 2
+    EXPAND STRING_BUF_NEW extend_string_iter_buf
+    EXPAND STRING_BUF_EXTEND_STRING_ITER extend_string_iter_buf, extend_string_iter
+    EXPAND STRING_BUF_AS_STR extend_string_iter_view, extend_string_iter_buf
+    EXPAND STR_EQ extend_string_iter_eq, extend_string_iter_view, expected
+
     extend_str_ok = eq extend_str_eq, 1
     extend_char_flag_ok = eq extend_char_try_ok, 1
     extend_char_ok = eq extend_char_eq, 1
     extend_string_ok = eq extend_string_eq, 1
     from_str_iter_ok = eq from_str_iter_eq, 1
     extend_str_iter_ok = eq extend_str_iter_eq, 1
+    from_string_iter_ok = eq from_string_iter_eq, 1
+    extend_string_iter_ok = eq extend_string_iter_eq, 1
     ok01 = and extend_str_ok, extend_char_flag_ok
     ok02 = and ok01, extend_char_ok
     ok03 = and ok02, extend_string_ok
     ok04 = and ok03, from_str_iter_ok
-    ok = and ok04, extend_str_iter_ok
+    ok05 = and ok04, extend_str_iter_ok
+    ok06 = and ok05, from_string_iter_ok
+    ok = and ok06, extend_string_iter_ok
     !extend_str_view
     !extend_str_eq
     !extend_char_try_ok
@@ -578,21 +617,33 @@ L_ENTRY:
     !from_str_iter_eq
     !extend_str_iter_view
     !extend_str_iter_eq
+    !from_string_iter_view
+    !from_string_iter_eq
+    !extend_string_iter_view
+    !extend_string_iter_eq
     !extend_str_ok
     !extend_char_flag_ok
     !extend_char_ok
     !extend_string_ok
     !from_str_iter_ok
     !extend_str_iter_ok
+    !from_string_iter_ok
+    !extend_string_iter_ok
     !ok01
     !ok02
     !ok03
     !ok04
+    !ok05
+    !ok06
     EXPAND STRING_BUF_FREE extend_str_iter_buf
+    EXPAND STRING_BUF_FREE extend_string_iter_buf
+    EXPAND STRING_BUF_FREE from_string_iter_buf
     EXPAND STRING_BUF_FREE from_str_iter_buf
     EXPAND STRING_BUF_FREE extend_str_buf
     EXPAND STRING_BUF_FREE extend_char_buf
     EXPAND STRING_BUF_FREE extend_string_dst
+    !extend_string_iter
+    !from_string_iter
     !str_iter
     !char_expected
     !expected
