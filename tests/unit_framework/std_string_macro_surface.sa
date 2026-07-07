@@ -3943,6 +3943,35 @@ L_STRING_BUF_FIND_ALIAS_OK:
     !ok
     return
 
+@test "sa_std string buffer ascii case alias"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS word, &WORD, 4
+    EXPAND STR_FROM_PARTS mixed, &MIXED_WORD, 4
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STRING_BUF_FROM_STR owned_word, word
+    EXPAND STRING_BUF_EQ_IGNORE_ASCII_CASE eq_mixed, owned_word, mixed
+    EXPAND STRING_BUF_EQ_IGNORE_ASCII_CASE eq_miss, owned_word, miss
+    eq_mixed_ok = eq eq_mixed, 1
+    eq_miss_ok = eq eq_miss, 0
+    ok = and eq_mixed_ok, eq_miss_ok
+    EXPAND STRING_BUF_FREE owned_word
+    !word
+    !mixed
+    !miss
+    !eq_mixed
+    !eq_miss
+    !eq_mixed_ok
+    !eq_miss_ok
+    br ok -> L_STRING_BUF_ASCII_CASE_ALIAS_OK, L_STRING_BUF_ASCII_CASE_ALIAS_FAIL
+
+L_STRING_BUF_ASCII_CASE_ALIAS_FAIL:
+    !ok
+    panic(926)
+
+L_STRING_BUF_ASCII_CASE_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string utf8 byte and char view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8

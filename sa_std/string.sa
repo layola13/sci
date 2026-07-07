@@ -220,6 +220,12 @@
     !__string_buf_ends_view_%out_bool
 [END_MACRO]
 
+[MACRO] STRING_BUF_EQ_IGNORE_ASCII_CASE %out_bool, %string_reg, %slice_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_eq_ignore_ascii_case_view_%out_bool, %string_reg
+    EXPAND STR_EQ_IGNORE_ASCII_CASE %out_bool, __string_buf_eq_ignore_ascii_case_view_%out_bool, %slice_reg
+    !__string_buf_eq_ignore_ascii_case_view_%out_bool
+[END_MACRO]
+
 [MACRO] STRING_BUF_IS_ASCII %out_bool, %string_reg
     EXPAND STRING_BUF_AS_STR __string_buf_is_ascii_view_%out_bool, %string_reg
     EXPAND STR_IS_ASCII %out_bool, __string_buf_is_ascii_view_%out_bool
