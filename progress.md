@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 StringBuf parity documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Synced the stale StringBuf implemented-surface report in `docs/std_missing.md` with current `sa_std/string.sa` source facts:
+  - Added current default/reference/deref conveniences.
+  - Added pointer-range, raw-parts, leak, and mutable-view surfaces.
+  - Added conversion/cloning, eager char/string extension and extraction, strict/lossy UTF constructor, retain/drain/remove, replace-first/last, and index-range categories already present in source and historical test coverage.
+- Clarified by placement that these are concrete SA helper surfaces and still do not imply Rust trait objects, lazy iterator models, allocator-parametric behavior, full generic `Pattern`, or borrow-checker alias semantics.
+- Validation status:
+  - Runtime tests intentionally not run because this batch has no runtime or test source changes.
+  - `git diff --check`: pass.
+
 ## Completed: 2026-07-07 StringBuf char mutation documentation sync batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
