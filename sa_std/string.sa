@@ -162,6 +162,10 @@
     EXPAND VEC_AS_MUT_PTR %out_ptr, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_AS_MUT_VEC_PTR %out_ptr, %string_reg
+    %out_ptr = & %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_AS_PTR_RANGE %out_start, %out_end, %string_reg
     EXPAND STRING_BUF_AS_BYTES __string_buf_ptr_range_view_%out_start, %string_reg
     EXPAND SLICE_AS_PTR_RANGE %out_start, %out_end, __string_buf_ptr_range_view_%out_start, 1

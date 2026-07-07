@@ -229,6 +229,8 @@
 - [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补更贴近 Rust 方法名的 UTF-16 别名 `STRING_BUF_FROM_UTF16` / `STRING_BUF_FROM_UTF16_LOSSY`，复用现有 U16 slice strict/lossy 解码形态，不声明 Rust `Result` 对象布局、allocator-parametric 行为或 trait object 全覆盖；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
 - [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 checked get_mut U64 指针别名 `VEC_TRY_GET_MUT_PTR_U64` / `VEC_GET_MUT_U64`，复用现有 mutable slice checked pointer helper，命中返回本地 `(ok,ptr)` 且 miss 返回 null pointer，不声明 Rust `Option<&mut T>` 对象布局、泛型 `T` 全覆盖或 borrow checker alias 语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
 - [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 indexed split/line view 命名别名 `STR_SPLIT_BYTE_AT` / `STRING_SPLIT_BYTE_AT` / `STR_LINE_AT` / `STRING_LINE_AT`，复用现有 `(ok,slice)` checked view 形态，不声明 Rust lazy iterator 对象语义、泛型 `Pattern`、`Option<&str>` 对象布局或 borrow checker 全语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 unsafe `String::as_mut_vec` 风格本地 metadata pointer 别名 `STRING_BUF_AS_MUT_VEC_PTR`，复用 StringBuf/Vec 三字段布局，不声明 Rust borrow checker alias 规则、UTF-8 mutation invariant enforcement、allocator-parametric 行为或 trait-object 全覆盖；已完成新增相关源码 focused 测试。
+- [x] String as_mut_vec pointer alias 批次已完成安装态同步/回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
 - [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
 
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。

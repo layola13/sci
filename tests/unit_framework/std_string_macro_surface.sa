@@ -4144,6 +4144,9 @@ L_STRING_BUF_ADD_ENTRY:
     assign_mut_ptr = load assign_mut_bytes+Slice_ptr as ptr
     assign_ptr_range_expected_end = ptr_add assign_mut_ptr, 8
     store assign_mut_ptr+0, 82 as u8
+    EXPAND STRING_BUF_AS_MUT_VEC_PTR assign_mut_vec_ptr, assign_string
+    assign_mut_vec_data = load assign_mut_vec_ptr+Vec_ptr as ptr
+    assign_mut_vec_len = load assign_mut_vec_ptr+Vec_len as u64
     EXPAND STRING_BUF_AS_PTR_RANGE buf_range_start, buf_range_end, assign_string
     EXPAND STRING_BUF_AS_MUT_PTR_RANGE buf_mut_range_start, buf_mut_range_end, assign_string
     EXPAND STRING_BUF_AS_MUT_REF_BYTES assign_mut_ref_bytes, assign_string
@@ -4247,6 +4250,8 @@ L_STRING_BUF_ADD_ENTRY:
     string_range_end_ok = eq string_range_end, assign_ptr_range_expected_end
     string_mut_range_start_ok = eq string_mut_range_start, assign_mut_ptr
     string_mut_range_end_ok = eq string_mut_range_end, assign_ptr_range_expected_end
+    mut_vec_data_ok = eq assign_mut_vec_data, assign_mut_ptr
+    mut_vec_len_ok = eq assign_mut_vec_len, 8
     range_ok01 = and buf_range_start_ok, buf_range_end_ok
     range_ok02 = and range_ok01, buf_mut_range_start_ok
     range_ok03 = and range_ok02, buf_mut_range_end_ok
@@ -4263,12 +4268,14 @@ L_STRING_BUF_ADD_ENTRY:
     ok14 = and ok13, str_mut_bytes_ok
     ok15 = and ok14, string_mut_bytes_ok
     ok16 = and ok15, range_ok
-    ok17 = and ok16, ne_string
-    ok18 = and ok17, deref_mut_eq
-    ok19 = and ok18, e_eq
-    ok20 = and ok19, write_str_ok
-    ok21 = and ok20, write_char_ok
-    ok = and ok21, write_eq
+    mut_vec_ok = and mut_vec_data_ok, mut_vec_len_ok
+    ok17 = and ok16, mut_vec_ok
+    ok18 = and ok17, ne_string
+    ok19 = and ok18, deref_mut_eq
+    ok20 = and ok19, e_eq
+    ok21 = and ok20, write_str_ok
+    ok22 = and ok21, write_char_ok
+    ok = and ok22, write_eq
 
     !default_empty
     !added_eq
@@ -4306,6 +4313,9 @@ L_STRING_BUF_ADD_ENTRY:
     !index_mut_ok
     !index_mut_eq
     !assign_eq
+    !assign_mut_vec_ptr
+    !assign_mut_vec_data
+    !assign_mut_vec_len
     !assign_mut_ref_ok
     !str_mut_bytes_ok
     !string_mut_bytes_ok
@@ -4321,6 +4331,9 @@ L_STRING_BUF_ADD_ENTRY:
     !string_range_end_ok
     !string_mut_range_start_ok
     !string_mut_range_end_ok
+    !mut_vec_data_ok
+    !mut_vec_len_ok
+    !mut_vec_ok
     !range_ok01
     !range_ok02
     !range_ok03
@@ -4407,6 +4420,7 @@ L_STRING_BUF_ADD_ENTRY:
     !ok19
     !ok20
     !ok21
+    !ok22
     !word_slice
     !right_slice
     !joined_slice

@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-07 String as_mut_vec pointer alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable unsafe `String::as_mut_vec`-style local metadata pointer alias:
+  - `STRING_BUF_AS_MUT_VEC_PTR`
+- Semantics: this returns a pointer to the existing StringBuf/Vec-shaped metadata so local SA code can inspect the backing pointer/len/cap through the same layout used by Vec. It does not enforce Rust's unsafe post-mutation UTF-8 invariant, Rust borrow-checker alias rules, allocator-parametric behavior, or generic trait-object semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "default add and from-char"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "default add and from-char"`: pass (`1 passed; 37 skipped`).
+
 ## Completed: 2026-07-07 String split/line indexed alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
