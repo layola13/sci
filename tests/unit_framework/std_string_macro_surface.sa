@@ -3230,6 +3230,215 @@ L_STRING_AS_ASCII_ALIAS_OK:
     !ok
     return
 
+@test "sa_std string from_utf8 view aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS valid_bytes, &UTF8_BOUNDARY_TEXT, 8
+    invalid_data = stack_alloc 2
+    store invalid_data+0, 128 as u8
+    store invalid_data+1, 223 as u8
+    EXPAND STR_FROM_PARTS invalid_bytes, invalid_data, 2
+    EXPAND STR_TRY_FROM_UTF8 str_try_ok, str_try_view, valid_bytes
+    EXPAND STR_FROM_UTF8 str_ok, str_view, valid_bytes
+    EXPAND STR_TRY_FROM_UTF8_MUT str_try_mut_ok, str_try_mut_view, valid_bytes
+    EXPAND STR_FROM_UTF8_MUT str_mut_ok, str_mut_view, valid_bytes
+    EXPAND STR_FROM_UTF8_UNCHECKED str_unchecked_bad, invalid_bytes
+    EXPAND STR_FROM_UTF8_UNCHECKED_MUT str_unchecked_mut_bad, invalid_bytes
+    EXPAND STRING_TRY_FROM_UTF8 string_try_ok, string_try_view, valid_bytes
+    EXPAND STRING_FROM_UTF8 string_bad_ok, string_bad_view, invalid_bytes
+    EXPAND STRING_TRY_FROM_UTF8_MUT string_try_mut_bad_ok, string_try_mut_bad_view, invalid_bytes
+    EXPAND STRING_FROM_UTF8_MUT string_mut_ok, string_mut_view, valid_bytes
+    EXPAND STRING_FROM_UTF8_UNCHECKED string_unchecked, valid_bytes
+    EXPAND STRING_FROM_UTF8_UNCHECKED_MUT string_unchecked_mut_bad, invalid_bytes
+    valid_ptr = load valid_bytes+Slice_ptr as ptr
+    invalid_ptr = load invalid_bytes+Slice_ptr as ptr
+    null_ptr = 0 as ptr
+    str_view_ptr = load str_view+Slice_ptr as ptr
+    str_view_len = load str_view+Slice_len as u64
+    string_bad_ptr = load string_bad_view+Slice_ptr as ptr
+    string_bad_len = load string_bad_view+Slice_len as u64
+    string_try_mut_bad_ptr = load string_try_mut_bad_view+Slice_ptr as ptr
+    string_try_mut_bad_len = load string_try_mut_bad_view+Slice_len as u64
+    str_unchecked_bad_ptr = load str_unchecked_bad+Slice_ptr as ptr
+    str_unchecked_bad_len = load str_unchecked_bad+Slice_len as u64
+    str_unchecked_mut_bad_ptr = load str_unchecked_mut_bad+Slice_ptr as ptr
+    str_unchecked_mut_bad_len = load str_unchecked_mut_bad+Slice_len as u64
+    string_unchecked_ptr = load string_unchecked+Slice_ptr as ptr
+    string_unchecked_len = load string_unchecked+Slice_len as u64
+    string_unchecked_mut_bad_ptr = load string_unchecked_mut_bad+Slice_ptr as ptr
+    string_unchecked_mut_bad_len = load string_unchecked_mut_bad+Slice_len as u64
+    EXPAND STR_EQ str_try_eq, str_try_view, valid_bytes
+    EXPAND STR_EQ str_eq, str_view, valid_bytes
+    EXPAND STR_EQ str_try_mut_eq, str_try_mut_view, valid_bytes
+    EXPAND STR_EQ str_mut_eq, str_mut_view, valid_bytes
+    EXPAND STR_EQ string_try_eq, string_try_view, valid_bytes
+    EXPAND STR_EQ string_mut_eq, string_mut_view, valid_bytes
+
+    str_try_flag_ok = eq str_try_ok, 1
+    str_flag_ok = eq str_ok, 1
+    str_try_mut_flag_ok = eq str_try_mut_ok, 1
+    str_mut_flag_ok = eq str_mut_ok, 1
+    string_try_flag_ok = eq string_try_ok, 1
+    string_mut_flag_ok = eq string_mut_ok, 1
+    string_bad_flag_ok = eq string_bad_ok, 0
+    string_try_mut_bad_flag_ok = eq string_try_mut_bad_ok, 0
+    str_try_value_ok = eq str_try_eq, 1
+    str_value_ok = eq str_eq, 1
+    str_try_mut_value_ok = eq str_try_mut_eq, 1
+    str_mut_value_ok = eq str_mut_eq, 1
+    string_try_value_ok = eq string_try_eq, 1
+    string_mut_value_ok = eq string_mut_eq, 1
+    str_view_ptr_ok = eq str_view_ptr, valid_ptr
+    str_view_len_ok = eq str_view_len, 8
+    string_bad_ptr_ok = eq string_bad_ptr, null_ptr
+    string_bad_len_ok = eq string_bad_len, 0
+    string_try_mut_bad_ptr_ok = eq string_try_mut_bad_ptr, null_ptr
+    string_try_mut_bad_len_ok = eq string_try_mut_bad_len, 0
+    str_unchecked_bad_ptr_ok = eq str_unchecked_bad_ptr, invalid_ptr
+    str_unchecked_bad_len_ok = eq str_unchecked_bad_len, 2
+    str_unchecked_mut_bad_ptr_ok = eq str_unchecked_mut_bad_ptr, invalid_ptr
+    str_unchecked_mut_bad_len_ok = eq str_unchecked_mut_bad_len, 2
+    string_unchecked_ptr_ok = eq string_unchecked_ptr, valid_ptr
+    string_unchecked_len_ok = eq string_unchecked_len, 8
+    string_unchecked_mut_bad_ptr_ok = eq string_unchecked_mut_bad_ptr, invalid_ptr
+    string_unchecked_mut_bad_len_ok = eq string_unchecked_mut_bad_len, 2
+
+    ok01 = and str_try_flag_ok, str_flag_ok
+    ok02 = and ok01, str_try_mut_flag_ok
+    ok03 = and ok02, str_mut_flag_ok
+    ok04 = and ok03, string_try_flag_ok
+    ok05 = and ok04, string_mut_flag_ok
+    ok06 = and ok05, string_bad_flag_ok
+    ok07 = and ok06, string_try_mut_bad_flag_ok
+    ok08 = and ok07, str_try_value_ok
+    ok09 = and ok08, str_value_ok
+    ok10 = and ok09, str_try_mut_value_ok
+    ok11 = and ok10, str_mut_value_ok
+    ok12 = and ok11, string_try_value_ok
+    ok13 = and ok12, string_mut_value_ok
+    ok14 = and ok13, str_view_ptr_ok
+    ok15 = and ok14, str_view_len_ok
+    ok16 = and ok15, string_bad_ptr_ok
+    ok17 = and ok16, string_bad_len_ok
+    ok18 = and ok17, string_try_mut_bad_ptr_ok
+    ok19 = and ok18, string_try_mut_bad_len_ok
+    ok20 = and ok19, str_unchecked_bad_ptr_ok
+    ok21 = and ok20, str_unchecked_bad_len_ok
+    ok22 = and ok21, str_unchecked_mut_bad_ptr_ok
+    ok23 = and ok22, str_unchecked_mut_bad_len_ok
+    ok24 = and ok23, string_unchecked_ptr_ok
+    ok25 = and ok24, string_unchecked_len_ok
+    ok26 = and ok25, string_unchecked_mut_bad_ptr_ok
+    ok = and ok26, string_unchecked_mut_bad_len_ok
+
+    !valid_bytes
+    !invalid_bytes
+    !str_try_ok
+    !str_try_view
+    !str_ok
+    !str_view
+    !str_try_mut_ok
+    !str_try_mut_view
+    !str_mut_ok
+    !str_mut_view
+    !str_unchecked_bad
+    !str_unchecked_mut_bad
+    !string_try_ok
+    !string_try_view
+    !string_bad_ok
+    !string_bad_view
+    !string_try_mut_bad_ok
+    !string_try_mut_bad_view
+    !string_mut_ok
+    !string_mut_view
+    !string_unchecked
+    !string_unchecked_mut_bad
+    !valid_ptr
+    !invalid_ptr
+    !null_ptr
+    !str_view_ptr
+    !str_view_len
+    !string_bad_ptr
+    !string_bad_len
+    !string_try_mut_bad_ptr
+    !string_try_mut_bad_len
+    !str_unchecked_bad_ptr
+    !str_unchecked_bad_len
+    !str_unchecked_mut_bad_ptr
+    !str_unchecked_mut_bad_len
+    !string_unchecked_ptr
+    !string_unchecked_len
+    !string_unchecked_mut_bad_ptr
+    !string_unchecked_mut_bad_len
+    !str_try_eq
+    !str_eq
+    !str_try_mut_eq
+    !str_mut_eq
+    !string_try_eq
+    !string_mut_eq
+    !str_try_flag_ok
+    !str_flag_ok
+    !str_try_mut_flag_ok
+    !str_mut_flag_ok
+    !string_try_flag_ok
+    !string_mut_flag_ok
+    !string_bad_flag_ok
+    !string_try_mut_bad_flag_ok
+    !str_try_value_ok
+    !str_value_ok
+    !str_try_mut_value_ok
+    !str_mut_value_ok
+    !string_try_value_ok
+    !string_mut_value_ok
+    !str_view_ptr_ok
+    !str_view_len_ok
+    !string_bad_ptr_ok
+    !string_bad_len_ok
+    !string_try_mut_bad_ptr_ok
+    !string_try_mut_bad_len_ok
+    !str_unchecked_bad_ptr_ok
+    !str_unchecked_bad_len_ok
+    !str_unchecked_mut_bad_ptr_ok
+    !str_unchecked_mut_bad_len_ok
+    !string_unchecked_ptr_ok
+    !string_unchecked_len_ok
+    !string_unchecked_mut_bad_ptr_ok
+    !string_unchecked_mut_bad_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    br ok -> L_STRING_FROM_UTF8_VIEW_ALIAS_OK, L_STRING_FROM_UTF8_VIEW_ALIAS_FAIL
+
+L_STRING_FROM_UTF8_VIEW_ALIAS_FAIL:
+    !ok
+    panic(930)
+
+L_STRING_FROM_UTF8_VIEW_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std string split_at_mut aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8

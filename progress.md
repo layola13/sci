@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-08 str/String from_utf8 view alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable borrowed UTF-8 view aliases for Rust `str::from_utf8`, `str::from_utf8_mut`, and unchecked naming:
+  - `STR_TRY_FROM_UTF8` / `STR_FROM_UTF8`
+  - `STR_TRY_FROM_UTF8_MUT` / `STR_FROM_UTF8_MUT`
+  - `STR_FROM_UTF8_UNCHECKED` / `STR_FROM_UTF8_UNCHECKED_MUT`
+  - matching `STRING_*` aliases
+- Semantics: checked forms return the local `(ok, Slice)` shape. Invalid UTF-8 returns `ok=0` and an empty `Slice`; unchecked forms preserve the input pointer and length. This does not claim Rust `Result<&str, Utf8Error>` / `Result<&mut str, Utf8Error>` object layout, unsafe type-state enforcement, borrow-checker alias/lifetime semantics, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "from_utf8 view aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf8 view aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
 ## Completed: 2026-07-07 Vec peek_mut alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
