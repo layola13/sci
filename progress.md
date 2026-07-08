@@ -4,6 +4,40 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-08 str/String reverse slice-needle split/matches batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`STRING_BUF` reverse slice-needle (`&str` needle) split and matches view aliases:
+  - `STR_RSPLIT_NEEDLE_COUNT` / `STRING_RSPLIT_NEEDLE_COUNT` / `STRING_BUF_RSPLIT_NEEDLE_COUNT`
+  - `STR_RMATCHES_NEEDLE_COUNT` / `STRING_RMATCHES_NEEDLE_COUNT` / `STRING_BUF_RMATCHES_NEEDLE_COUNT`
+  - `STR_TRY_RSPLIT_NEEDLE_AT` / `STRING_TRY_RSPLIT_NEEDLE_AT` / `STRING_BUF_TRY_RSPLIT_NEEDLE_AT` / `STR_RSPLIT_NEEDLE_AT` / `STRING_RSPLIT_NEEDLE_AT` / `STRING_BUF_RSPLIT_NEEDLE_AT`
+  - `STR_TRY_RMATCHES_NEEDLE_AT` / `STRING_TRY_RMATCHES_NEEDLE_AT` / `STRING_BUF_TRY_RMATCHES_NEEDLE_AT` / `STR_RMATCHES_NEEDLE_AT` / `STRING_RMATCHES_NEEDLE_AT` / `STRING_BUF_RMATCHES_NEEDLE_AT`
+- Semantics: reverse count aliases reuse the existing forward non-overlapping count. Reverse indexed helpers compute the corresponding forward index (`count - 1 - reverse_index`) and delegate to the existing forward caller-indexed `Slice` view helpers, so empty fields, trailing/consecutive needles, empty-needle split behavior, and empty-needle matches behavior stay aligned with the forward batch. These aliases return explicit `(ok, Slice)` shapes rather than Rust lazy `RSplit` / `RMatches` iterator adapters or Rust `Option<&str>` values. This batch does not claim Rust `Pattern` trait machinery, `&[u8]`-needle or closure pattern variants, `rsplit_terminator`, `splitn`/`rsplitn` limited-count variants, or borrow-scoped reference lifetimes.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Install sync via `tools/install.sh --no-shell`: pass.
+  - Installed-state focused `./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-08 str/String slice-needle split/matches batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`STRING_BUF` slice-needle (`&str` needle) split and matches view helpers over the existing `STR_COUNT` non-overlapping scan:
+  - `STR_SPLIT_NEEDLE_COUNT` / `STRING_SPLIT_NEEDLE_COUNT` / `STRING_BUF_SPLIT_NEEDLE_COUNT` (matches-plus-one `split` count)
+  - `STR_SPLIT_NEEDLE_TERM_COUNT` / `STRING_SPLIT_NEEDLE_TERM_COUNT` / `STRING_BUF_SPLIT_NEEDLE_TERM_COUNT` (`split_terminator` count, subtracting the trailing run of needle-terminated empty fields)
+  - `STR_MATCHES_NEEDLE_COUNT` / `STRING_MATCHES_NEEDLE_COUNT` / `STRING_BUF_MATCHES_NEEDLE_COUNT` (count of non-overlapping needle matches)
+  - `STR_TRY_SPLIT_NEEDLE_AT` / `STRING_TRY_SPLIT_NEEDLE_AT` / `STRING_BUF_TRY_SPLIT_NEEDLE_AT` / `STR_SPLIT_NEEDLE_AT` / `STRING_SPLIT_NEEDLE_AT` / `STRING_BUF_SPLIT_NEEDLE_AT` (caller-indexed `Slice` views over split fields, `ok=1`/`ok=0`)
+  - `STR_TRY_MATCHES_NEEDLE_AT` / `STRING_TRY_MATCHES_NEEDLE_AT` / `STRING_BUF_TRY_MATCHES_NEEDLE_AT` / `STR_MATCHES_NEEDLE_AT` / `STRING_MATCHES_NEEDLE_AT` / `STRING_BUF_MATCHES_NEEDLE_AT` (caller-indexed `Slice` views over each matched needle occurrence)
+- Semantics: the count helpers reuse the `STR_COUNT` non-overlapping slice scan. `STR_SPLIT_NEEDLE_COUNT` returns the field count (`matches + 1`) rather than modeling Rust's lazy `Split` iterator. `STR_SPLIT_NEEDLE_TERM_COUNT` computes the base `split` field count and then subtracts the trailing run of needle-terminated empty fields, so `"a:b::"` with `:` yields 2 terms; an empty string or an empty needle yields 0 terms. `STR_TRY_SPLIT_NEEDLE_AT` walks the haystack, splitting on non-overlapping needle matches, and returns the caller-indexed field as a borrowed `Slice` view with `ok=1` when present and `ok=0` with an empty `Slice` otherwise; empty needles yield the whole haystack at index 0 and absent thereafter. `STR_MATCHES_NEEDLE_COUNT` is the count of non-overlapping needle matches equivalent to Rust `str::matches().count()`, and `STR_TRY_MATCHES_NEEDLE_AT` returns the caller-indexed match occurrence as a `Slice` view; empty needles yield zero matches. The aliases return explicit `(ok, Slice)` shapes rather than Rust lazy `Split`/`RSplit`/`SplitTerminator`/`Matches` iterator adapters or Rust `Option<&str>` values. This batch does not claim Rust `Pattern` trait machinery, `&[u8]`-needle or closure pattern variants, the reverse (`rsplit`/`rsplitn`/`rmatches`/`rsplit_terminator`) view subsets, the `splitn`/`rsplitn` limited-count variants, or borrow-scoped reference lifetimes.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`56 passed; 0 failed; 0 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Install sync via `tools/install.sh --no-shell` completed; `/home/vscode/.sa/std/string.sa` exposes the new macros.
+
+## Completed: 2026-07-08 str/String replace/replacen char-pattern batch
 ## Completed: 2026-07-08 str/String replace/replacen char-pattern batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

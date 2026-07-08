@@ -1,6 +1,6 @@
 # Current Plan
 
-Date: 2026-07-07
+Date: 2026-07-08
 
 ## Objective
 
@@ -10,6 +10,8 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 1. Completed in the current batch:
    - `str` / `String` / `STRING_BUF` char-pattern search aliases: `*_CONTAINS_CHAR`, `*_TRY_FIND_CHAR`/`*_FIND_CHAR`, `*_TRY_RFIND_CHAR`/`*_RFIND_CHAR`, and `*_COUNT_CHAR` families that lower a Unicode scalar `char` (`u64` codepoint) to its UTF-8 byte subsequence and reuse the existing slice-needle scan helpers, plus a new non-overlapping slice-needle `STR_COUNT`/`STRING_COUNT` count helper that the `*_COUNT_CHAR` macros delegate to.
    - `str`/`String`/`STRING_BUF` replace and limited-replace (replacen) helpers: `STRING_BUF_REPLACE_N`, `STR_REPLACE`/`STRING_REPLACE`, `STR_REPLACEN`/`STRING_REPLACEN`, the matching `*_CHAR` variants (`STRING_BUF_REPLACE_CHAR`/`STRING_BUF_REPLACE_N_CHAR`/`STR_REPLACE_CHAR`/`STRING_REPLACE_CHAR`/`STR_REPLACEN_CHAR`/`STRING_REPLACEN_CHAR`), and `STRING_BUF_REMOVE_MATCHES_CHAR`, all lowering a `char` needle via `STR_ENCODE_CHAR_SLICE` and reusing the existing slice-needle replace scan.
+   - `str`/`String`/`STRING_BUF` slice-needle split and matches view helpers: `STR_SPLIT_NEEDLE_COUNT`/`STRING_SPLIT_NEEDLE_COUNT`/`STRING_BUF_SPLIT_NEEDLE_COUNT`, `STR_SPLIT_NEEDLE_TERM_COUNT`/`STRING_SPLIT_NEEDLE_TERM_COUNT`/`STRING_BUF_SPLIT_NEEDLE_TERM_COUNT`, `STR_MATCHES_NEEDLE_COUNT`/`STRING_MATCHES_NEEDLE_COUNT`/`STRING_BUF_MATCHES_NEEDLE_COUNT`, `STR_TRY_SPLIT_NEEDLE_AT`/`STRING_TRY_SPLIT_NEEDLE_AT`/`STRING_BUF_TRY_SPLIT_NEEDLE_AT`/`STR_SPLIT_NEEDLE_AT`/`STRING_SPLIT_NEEDLE_AT`/`STRING_BUF_SPLIT_NEEDLE_AT`, and `STR_TRY_MATCHES_NEEDLE_AT`/`STRING_TRY_MATCHES_NEEDLE_AT`/`STRING_BUF_TRY_MATCHES_NEEDLE_AT`/`STR_MATCHES_NEEDLE_AT`/`STRING_MATCHES_NEEDLE_AT`/`STRING_BUF_MATCHES_NEEDLE_AT`, all reusing the `STR_COUNT` non-overlapping scan and returning caller-indexed `Slice` views with `(ok, Slice)` shapes rather than Rust lazy iterator adapters.
+   - `str`/`String`/`STRING_BUF` reverse slice-needle split and matches view helpers: `STR_RSPLIT_NEEDLE_COUNT`/`STRING_RSPLIT_NEEDLE_COUNT`/`STRING_BUF_RSPLIT_NEEDLE_COUNT`, `STR_RMATCHES_NEEDLE_COUNT`/`STRING_RMATCHES_NEEDLE_COUNT`/`STRING_BUF_RMATCHES_NEEDLE_COUNT`, `STR_TRY_RSPLIT_NEEDLE_AT`/`STRING_TRY_RSPLIT_NEEDLE_AT`/`STRING_BUF_TRY_RSPLIT_NEEDLE_AT`/`STR_RSPLIT_NEEDLE_AT`/`STRING_RSPLIT_NEEDLE_AT`/`STRING_BUF_RSPLIT_NEEDLE_AT`, and `STR_TRY_RMATCHES_NEEDLE_AT`/`STRING_TRY_RMATCHES_NEEDLE_AT`/`STRING_BUF_TRY_RMATCHES_NEEDLE_AT`/`STR_RMATCHES_NEEDLE_AT`/`STRING_RMATCHES_NEEDLE_AT`/`STRING_BUF_RMATCHES_NEEDLE_AT`, computing the corresponding forward caller index (`count - 1 - reverse_index`) and delegating to the existing forward `*_TRY_SPLIT_NEEDLE_AT` / `*_TRY_MATCHES_NEEDLE_AT` helpers with `(ok, Slice)` shapes rather than Rust lazy `RSplit` / `RMatches` iterator adapters.
 
 1. Completed in the current batch:
    - `sa_std/os/fd` raw/owned fd facade.
@@ -420,13 +422,14 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Current Status
 
-- Source/facade/test changes are complete for the String split/line indexed alias batch.
-- Focused source tests for the newly added String split/line indexed aliases pass, install sync passes, and focused installed-state tests for the same aliases pass. Full test suites are intentionally not run for this batch per user instruction.
-- The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, and full generic trait-object coverage.
+- Source/facade/test changes are complete for the str/String reverse slice-needle split/matches batch (`STR_RSPLIT_NEEDLE_COUNT`, `STR_RMATCHES_NEEDLE_COUNT`, and the matching `*_TRY_RSPLIT_NEEDLE_AT` / `*_TRY_RMATCHES_NEEDLE_AT` caller-indexed `Slice` view aliases across `STR` / `STRING` / `STRING_BUF`), building on the earlier forward slice-needle split/matches batch (`STR_SPLIT_NEEDLE_COUNT`, `STR_SPLIT_NEEDLE_TERM_COUNT`, `STR_MATCHES_NEEDLE_COUNT`, and the `*_TRY_SPLIT_NEEDLE_AT` / `*_TRY_MATCHES_NEEDLE_AT` aliases).
+- Focused source tests for the split needle aliases pass (`std_string_macro_surface.sa --filter "split needle aliases"`), the full source `std_string_macro_surface.sa` passes (`56 passed`), install sync passes, and focused installed-state tests for the same aliases pass. Full test suites are intentionally not run for this batch per user instruction.
+- The reverse slice-needle split/matches batch computes the corresponding forward caller index (`count - 1 - reverse_index`) and delegates to the existing forward `*_TRY_SPLIT_NEEDLE_AT` / `*_TRY_MATCHES_NEEDLE_AT` helpers, so reverse field/match enumeration, empty-field, and empty-needle behavior stay aligned with the forward batch; the aliases return explicit `(ok, Slice)` shapes rather than Rust lazy `RSplit` / `RMatches` iterator adapters.
+- The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, the `rsplit_terminator` and `splitn`/`rsplitn` limited-count slice-needle variants, and full generic trait-object coverage.
 
 ## Next Priority
 
-- Commit the str/String replace/replacen char-pattern batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch.
+- Commit the str/String reverse slice-needle split/matches batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch; the `rsplit_terminator` view subset and the `splitn`/`rsplitn` limited-count slice-needle variants are the natural next sub-batch.
 
 ## Notes
 

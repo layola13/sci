@@ -4106,6 +4106,570 @@ L_STR_COUNT_END_%out_count:
     EXPAND STR_COUNT_CHAR %out_count, %string_reg, %code
 [END_MACRO]
 
+[MACRO] STR_SPLIT_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_COUNT %out_count, %slice_reg, %needle_slice
+    %out_count = add %out_count, 1
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_SPLIT_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_RSPLIT_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_RSPLIT_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_SPLIT_NEEDLE_TERM_COUNT %out_count, %slice_reg, %needle_slice
+    __str_term_ptr_%out_count = load %slice_reg+Slice_ptr as ptr
+    __str_term_len_%out_count = load %slice_reg+Slice_len as u64
+    __str_term_needle_ptr_%out_count = load %needle_slice+Slice_ptr as ptr
+    __str_term_needle_len_%out_count = load %needle_slice+Slice_len as u64
+    __str_term_empty_needle_%out_count = eq __str_term_needle_len_%out_count, 0
+    br __str_term_empty_needle_%out_count -> L_STR_SPLIT_NEEDLE_TERM_EMPTY_NEEDLE_%out_count, L_STR_SPLIT_NEEDLE_TERM_NONEMPTY_NEEDLE_%out_count
+L_STR_SPLIT_NEEDLE_TERM_EMPTY_NEEDLE_%out_count:
+    %out_count = add 0, 0
+    jmp L_STR_SPLIT_NEEDLE_TERM_END_%out_count
+L_STR_SPLIT_NEEDLE_TERM_NONEMPTY_NEEDLE_%out_count:
+    __str_term_len_zero_%out_count = eq __str_term_len_%out_count, 0
+    br __str_term_len_zero_%out_count -> L_STR_SPLIT_NEEDLE_TERM_ZERO_LEN_%out_count, L_STR_SPLIT_NEEDLE_TERM_COUNT_BASE_%out_count
+L_STR_SPLIT_NEEDLE_TERM_ZERO_LEN_%out_count:
+    %out_count = add 0, 0
+    jmp L_STR_SPLIT_NEEDLE_TERM_END_%out_count
+L_STR_SPLIT_NEEDLE_TERM_COUNT_BASE_%out_count:
+    EXPAND STR_COUNT %out_count, %slice_reg, %needle_slice
+    %out_count = add %out_count, 1
+    __str_term_scan_end_slot_%out_count = stack_alloc 8
+    __str_term_run_slot_%out_count = stack_alloc 8
+    store __str_term_scan_end_slot_%out_count+0, __str_term_len_%out_count as u64
+    store __str_term_run_slot_%out_count+0, 0 as u64
+    jmp L_STR_SPLIT_NEEDLE_TERM_TRAIL_HEAD_%out_count
+L_STR_SPLIT_NEEDLE_TERM_TRAIL_HEAD_%out_count:
+    __str_term_scan_end_%out_count = load __str_term_scan_end_slot_%out_count+0 as u64
+    __str_term_can_trail_%out_count = uge __str_term_scan_end_%out_count, __str_term_needle_len_%out_count
+    br __str_term_can_trail_%out_count -> L_STR_SPLIT_NEEDLE_TERM_TRAIL_MATCH_INIT_%out_count, L_STR_SPLIT_NEEDLE_TERM_TRAIL_DONE_%out_count
+L_STR_SPLIT_NEEDLE_TERM_TRAIL_MATCH_INIT_%out_count:
+    __str_term_trail_off_%out_count = sub __str_term_scan_end_%out_count, __str_term_needle_len_%out_count
+    __str_term_trail_ptr_%out_count = ptr_add __str_term_ptr_%out_count, __str_term_trail_off_%out_count
+    __str_term_trail_view_%out_count = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW __str_term_trail_view_%out_count, __str_term_trail_ptr_%out_count, __str_term_needle_len_%out_count
+    __str_term_trail_eq_%out_count = add 0, 0
+    EXPAND STR_EQ __str_term_trail_eq_%out_count, __str_term_trail_view_%out_count, %needle_slice
+    br __str_term_trail_eq_%out_count -> L_STR_SPLIT_NEEDLE_TERM_TRAIL_INC_%out_count, L_STR_SPLIT_NEEDLE_TERM_TRAIL_DONE_%out_count
+L_STR_SPLIT_NEEDLE_TERM_TRAIL_INC_%out_count:
+    __str_term_run_%out_count = load __str_term_run_slot_%out_count+0 as u64
+    __str_term_run_next_%out_count = add __str_term_run_%out_count, 1
+    store __str_term_run_slot_%out_count+0, __str_term_run_next_%out_count as u64
+    __str_term_scan_end_next_%out_count = sub __str_term_scan_end_%out_count, __str_term_needle_len_%out_count
+    store __str_term_scan_end_slot_%out_count+0, __str_term_scan_end_next_%out_count as u64
+    !__str_term_run_next_%out_count
+    !__str_term_run_%out_count
+    !__str_term_trail_off_%out_count
+    !__str_term_trail_ptr_%out_count
+    !__str_term_trail_eq_%out_count
+    !__str_term_scan_end_%out_count
+    !__str_term_can_trail_%out_count
+    jmp L_STR_SPLIT_NEEDLE_TERM_TRAIL_HEAD_%out_count
+L_STR_SPLIT_NEEDLE_TERM_TRAIL_DONE_%out_count:
+    __str_term_run_final_%out_count = load __str_term_run_slot_%out_count+0 as u64
+    %out_count = sub %out_count, __str_term_run_final_%out_count
+    !__str_term_run_final_%out_count
+    !__str_term_scan_end_%out_count
+L_STR_SPLIT_NEEDLE_TERM_END_%out_count:
+    !__str_term_needle_len_%out_count
+    !__str_term_needle_ptr_%out_count
+    !__str_term_len_%out_count
+    !__str_term_ptr_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_NEEDLE_TERM_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_NEEDLE_TERM_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_NEEDLE_TERM_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_SPLIT_NEEDLE_TERM_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_MATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_MATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_MATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCHES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_MATCHES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_RMATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_MATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_RMATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_RMATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCHES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_RMATCHES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    %out_part = alloc Slice_SIZE
+    __str_split_needle_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_split_needle_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_split_needle_needle_ptr_%out_ok = load %needle_slice+Slice_ptr as ptr
+    __str_split_needle_needle_len_%out_ok = load %needle_slice+Slice_len as u64
+    __str_split_needle_scan_slot_%out_ok = stack_alloc 8
+    __str_split_needle_start_slot_%out_ok = stack_alloc 8
+    __str_split_needle_current_slot_%out_ok = stack_alloc 8
+    __str_split_needle_inner_slot_%out_ok = stack_alloc 8
+    store __str_split_needle_scan_slot_%out_ok+0, 0 as u64
+    store __str_split_needle_start_slot_%out_ok+0, 0 as u64
+    store __str_split_needle_current_slot_%out_ok+0, 0 as u64
+    __str_split_needle_empty_%out_ok = eq __str_split_needle_needle_len_%out_ok, 0
+    br __str_split_needle_empty_%out_ok -> L_STR_SPLIT_NEEDLE_EMPTY_%out_ok, L_STR_SPLIT_NEEDLE_HEAD_%out_ok
+
+L_STR_SPLIT_NEEDLE_EMPTY_%out_ok:
+    __str_split_needle_target_empty_%out_ok = eq 0, %part_index
+    br __str_split_needle_target_empty_%out_ok -> L_STR_SPLIT_NEEDLE_EMPTY_HIT_%out_ok, L_STR_SPLIT_NEEDLE_EMPTY_MISS_%out_ok
+
+L_STR_SPLIT_NEEDLE_EMPTY_HIT_%out_ok:
+    EXPAND SLICE_NEW %out_part, __str_split_needle_ptr_%out_ok, __str_split_needle_len_%out_ok
+    %out_ok = add 0, 1
+    jmp L_STR_SPLIT_NEEDLE_END_%out_ok
+
+L_STR_SPLIT_NEEDLE_EMPTY_MISS_%out_ok:
+    __str_split_needle_empty_zero_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_split_needle_empty_zero_%out_ok, 0
+    %out_ok = add 0, 0
+    jmp L_STR_SPLIT_NEEDLE_END_%out_ok
+
+L_STR_SPLIT_NEEDLE_HEAD_%out_ok:
+    __str_split_needle_scan_%out_ok = load __str_split_needle_scan_slot_%out_ok+0 as u64
+    __str_split_needle_done_%out_ok = eq __str_split_needle_scan_%out_ok, __str_split_needle_len_%out_ok
+    br __str_split_needle_done_%out_ok -> L_STR_SPLIT_NEEDLE_FINAL_%out_ok, L_STR_SPLIT_NEEDLE_RANGE_%out_ok
+
+L_STR_SPLIT_NEEDLE_RANGE_%out_ok:
+    __str_split_needle_remaining_%out_ok = sub __str_split_needle_len_%out_ok, __str_split_needle_scan_%out_ok
+    __str_split_needle_can_match_%out_ok = uge __str_split_needle_remaining_%out_ok, __str_split_needle_needle_len_%out_ok
+    br __str_split_needle_can_match_%out_ok -> L_STR_SPLIT_NEEDLE_INNER_INIT_%out_ok, L_STR_SPLIT_NEEDLE_NEXT_%out_ok
+
+L_STR_SPLIT_NEEDLE_INNER_INIT_%out_ok:
+    store __str_split_needle_inner_slot_%out_ok+0, 0 as u64
+    jmp L_STR_SPLIT_NEEDLE_INNER_HEAD_%out_ok
+
+L_STR_SPLIT_NEEDLE_INNER_HEAD_%out_ok:
+    __str_split_needle_inner_%out_ok = load __str_split_needle_inner_slot_%out_ok+0 as u64
+    __str_split_needle_inner_done_%out_ok = eq __str_split_needle_inner_%out_ok, __str_split_needle_needle_len_%out_ok
+    br __str_split_needle_inner_done_%out_ok -> L_STR_SPLIT_NEEDLE_HIT_%out_ok, L_STR_SPLIT_NEEDLE_INNER_BODY_%out_ok
+
+L_STR_SPLIT_NEEDLE_INNER_BODY_%out_ok:
+    __str_split_needle_hay_off_%out_ok = add __str_split_needle_scan_%out_ok, __str_split_needle_inner_%out_ok
+    __str_split_needle_hay_ip_%out_ok = ptr_add __str_split_needle_ptr_%out_ok, __str_split_needle_hay_off_%out_ok
+    __str_split_needle_needle_ip_%out_ok = ptr_add __str_split_needle_needle_ptr_%out_ok, __str_split_needle_inner_%out_ok
+    __str_split_needle_hay_byte_%out_ok = load __str_split_needle_hay_ip_%out_ok+0 as u8
+    __str_split_needle_needle_byte_%out_ok = load __str_split_needle_needle_ip_%out_ok+0 as u8
+    __str_split_needle_match_%out_ok = eq __str_split_needle_hay_byte_%out_ok, __str_split_needle_needle_byte_%out_ok
+    br __str_split_needle_match_%out_ok -> L_STR_SPLIT_NEEDLE_INNER_NEXT_%out_ok, L_STR_SPLIT_NEEDLE_KEEP_%out_ok
+
+L_STR_SPLIT_NEEDLE_INNER_NEXT_%out_ok:
+    __str_split_needle_inner_next_%out_ok = add __str_split_needle_inner_%out_ok, 1
+    store __str_split_needle_inner_slot_%out_ok+0, __str_split_needle_inner_next_%out_ok as u64
+    !__str_split_needle_inner_next_%out_ok
+    !__str_split_needle_match_%out_ok
+    !__str_split_needle_needle_byte_%out_ok
+    !__str_split_needle_hay_byte_%out_ok
+    !__str_split_needle_needle_ip_%out_ok
+    !__str_split_needle_hay_ip_%out_ok
+    !__str_split_needle_hay_off_%out_ok
+    !__str_split_needle_inner_done_%out_ok
+    !__str_split_needle_inner_%out_ok
+    jmp L_STR_SPLIT_NEEDLE_INNER_HEAD_%out_ok
+
+L_STR_SPLIT_NEEDLE_HIT_%out_ok:
+    __str_split_needle_current_%out_ok = load __str_split_needle_current_slot_%out_ok+0 as u64
+    __str_split_needle_target_%out_ok = eq __str_split_needle_current_%out_ok, %part_index
+    br __str_split_needle_target_%out_ok -> L_STR_SPLIT_NEEDLE_HIT_PART_%out_ok, L_STR_SPLIT_NEEDLE_ADVANCE_%out_ok
+
+L_STR_SPLIT_NEEDLE_HIT_PART_%out_ok:
+    __str_split_needle_start_%out_ok = load __str_split_needle_start_slot_%out_ok+0 as u64
+    __str_split_needle_part_len_%out_ok = sub __str_split_needle_scan_%out_ok, __str_split_needle_start_%out_ok
+    __str_split_needle_part_ptr_%out_ok = ptr_add __str_split_needle_ptr_%out_ok, __str_split_needle_start_%out_ok
+    EXPAND SLICE_NEW %out_part, __str_split_needle_part_ptr_%out_ok, __str_split_needle_part_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_split_needle_part_ptr_%out_ok
+    !__str_split_needle_part_len_%out_ok
+    !__str_split_needle_start_%out_ok
+    !__str_split_needle_target_%out_ok
+    !__str_split_needle_current_%out_ok
+    !__str_split_needle_inner_done_%out_ok
+    !__str_split_needle_inner_%out_ok
+    !__str_split_needle_can_match_%out_ok
+    !__str_split_needle_remaining_%out_ok
+    !__str_split_needle_done_%out_ok
+    !__str_split_needle_scan_%out_ok
+    jmp L_STR_SPLIT_NEEDLE_END_%out_ok
+
+L_STR_SPLIT_NEEDLE_ADVANCE_%out_ok:
+    __str_split_needle_next_part_%out_ok = add __str_split_needle_current_%out_ok, 1
+    __str_split_needle_after_%out_ok = add __str_split_needle_scan_%out_ok, __str_split_needle_needle_len_%out_ok
+    store __str_split_needle_current_slot_%out_ok+0, __str_split_needle_next_part_%out_ok as u64
+    store __str_split_needle_start_slot_%out_ok+0, __str_split_needle_after_%out_ok as u64
+    store __str_split_needle_scan_slot_%out_ok+0, __str_split_needle_after_%out_ok as u64
+    !__str_split_needle_after_%out_ok
+    !__str_split_needle_next_part_%out_ok
+    !__str_split_needle_target_%out_ok
+    !__str_split_needle_current_%out_ok
+    !__str_split_needle_inner_done_%out_ok
+    !__str_split_needle_inner_%out_ok
+    !__str_split_needle_can_match_%out_ok
+    !__str_split_needle_remaining_%out_ok
+    !__str_split_needle_done_%out_ok
+    !__str_split_needle_scan_%out_ok
+    jmp L_STR_SPLIT_NEEDLE_HEAD_%out_ok
+
+L_STR_SPLIT_NEEDLE_KEEP_%out_ok:
+    !__str_split_needle_match_%out_ok
+    !__str_split_needle_needle_byte_%out_ok
+    !__str_split_needle_hay_byte_%out_ok
+    !__str_split_needle_needle_ip_%out_ok
+    !__str_split_needle_hay_ip_%out_ok
+    !__str_split_needle_hay_off_%out_ok
+    !__str_split_needle_inner_done_%out_ok
+    !__str_split_needle_inner_%out_ok
+    jmp L_STR_SPLIT_NEEDLE_NEXT_%out_ok
+
+L_STR_SPLIT_NEEDLE_NEXT_%out_ok:
+    __str_split_needle_next_%out_ok = add __str_split_needle_scan_%out_ok, 1
+    store __str_split_needle_scan_slot_%out_ok+0, __str_split_needle_next_%out_ok as u64
+    !__str_split_needle_next_%out_ok
+    !__str_split_needle_can_match_%out_ok
+    !__str_split_needle_remaining_%out_ok
+    !__str_split_needle_done_%out_ok
+    !__str_split_needle_scan_%out_ok
+    jmp L_STR_SPLIT_NEEDLE_HEAD_%out_ok
+
+L_STR_SPLIT_NEEDLE_FINAL_%out_ok:
+    __str_split_needle_current_final_%out_ok = load __str_split_needle_current_slot_%out_ok+0 as u64
+    __str_split_needle_final_target_%out_ok = eq __str_split_needle_current_final_%out_ok, %part_index
+    br __str_split_needle_final_target_%out_ok -> L_STR_SPLIT_NEEDLE_HIT_FINAL_%out_ok, L_STR_SPLIT_NEEDLE_MISS_%out_ok
+
+L_STR_SPLIT_NEEDLE_HIT_FINAL_%out_ok:
+    __str_split_needle_start_final_%out_ok = load __str_split_needle_start_slot_%out_ok+0 as u64
+    __str_split_needle_final_len_%out_ok = sub __str_split_needle_len_%out_ok, __str_split_needle_start_final_%out_ok
+    __str_split_needle_final_ptr_%out_ok = ptr_add __str_split_needle_ptr_%out_ok, __str_split_needle_start_final_%out_ok
+    EXPAND SLICE_NEW %out_part, __str_split_needle_final_ptr_%out_ok, __str_split_needle_final_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_split_needle_final_ptr_%out_ok
+    !__str_split_needle_final_len_%out_ok
+    !__str_split_needle_start_final_%out_ok
+    !__str_split_needle_final_target_%out_ok
+    !__str_split_needle_current_final_%out_ok
+    !__str_split_needle_done_%out_ok
+    !__str_split_needle_scan_%out_ok
+    jmp L_STR_SPLIT_NEEDLE_END_%out_ok
+
+L_STR_SPLIT_NEEDLE_MISS_%out_ok:
+    __str_split_needle_empty_ptr2_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_split_needle_empty_ptr2_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_needle_empty_ptr2_%out_ok
+    !__str_split_needle_final_target_%out_ok
+    !__str_split_needle_current_final_%out_ok
+    !__str_split_needle_done_%out_ok
+    !__str_split_needle_scan_%out_ok
+
+L_STR_SPLIT_NEEDLE_END_%out_ok:
+    !__str_split_needle_empty_%out_ok
+    !__str_split_needle_needle_len_%out_ok
+    !__str_split_needle_needle_ptr_%out_ok
+    !__str_split_needle_len_%out_ok
+    !__str_split_needle_ptr_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_SPLIT_NEEDLE_COUNT __str_rsplit_needle_count_%out_ok, %slice_reg, %needle_slice
+    __str_rsplit_needle_has_%out_ok = ugt __str_rsplit_needle_count_%out_ok, %part_index
+    br __str_rsplit_needle_has_%out_ok -> L_STR_RSPLIT_NEEDLE_HIT_%out_ok, L_STR_RSPLIT_NEEDLE_MISS_%out_ok
+
+L_STR_RSPLIT_NEEDLE_HIT_%out_ok:
+    __str_rsplit_needle_last_%out_ok = sub __str_rsplit_needle_count_%out_ok, 1
+    __str_rsplit_needle_forward_%out_ok = sub __str_rsplit_needle_last_%out_ok, %part_index
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT __str_rsplit_needle_found_%out_ok, %out_part, %slice_reg, %needle_slice, __str_rsplit_needle_forward_%out_ok
+    %out_ok = add __str_rsplit_needle_found_%out_ok, 0
+    !__str_rsplit_needle_found_%out_ok
+    !__str_rsplit_needle_forward_%out_ok
+    !__str_rsplit_needle_last_%out_ok
+    jmp L_STR_RSPLIT_NEEDLE_END_%out_ok
+
+L_STR_RSPLIT_NEEDLE_MISS_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rsplit_needle_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rsplit_needle_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rsplit_needle_empty_%out_ok
+
+L_STR_RSPLIT_NEEDLE_END_%out_ok:
+    !__str_rsplit_needle_has_%out_ok
+    !__str_rsplit_needle_count_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    %out_part = alloc Slice_SIZE
+    __str_matches_needle_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_matches_needle_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_matches_needle_needle_ptr_%out_ok = load %needle_slice+Slice_ptr as ptr
+    __str_matches_needle_needle_len_%out_ok = load %needle_slice+Slice_len as u64
+    __str_matches_needle_scan_slot_%out_ok = stack_alloc 8
+    __str_matches_needle_inner_slot_%out_ok = stack_alloc 8
+    __str_matches_needle_current_slot_%out_ok = stack_alloc 8
+    store __str_matches_needle_scan_slot_%out_ok+0, 0 as u64
+    store __str_matches_needle_inner_slot_%out_ok+0, 0 as u64
+    store __str_matches_needle_current_slot_%out_ok+0, 0 as u64
+    __str_matches_needle_empty_%out_ok = eq __str_matches_needle_needle_len_%out_ok, 0
+    br __str_matches_needle_empty_%out_ok -> L_STR_MATCHES_NEEDLE_EMPTY_%out_ok, L_STR_MATCHES_NEEDLE_HEAD_%out_ok
+
+L_STR_MATCHES_NEEDLE_EMPTY_%out_ok:
+    __str_matches_needle_empty_zero_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_matches_needle_empty_zero_%out_ok, 0
+    %out_ok = add 0, 0
+    jmp L_STR_MATCHES_NEEDLE_END_%out_ok
+
+L_STR_MATCHES_NEEDLE_HEAD_%out_ok:
+    __str_matches_needle_scan_%out_ok = load __str_matches_needle_scan_slot_%out_ok+0 as u64
+    __str_matches_needle_done_%out_ok = eq __str_matches_needle_scan_%out_ok, __str_matches_needle_len_%out_ok
+    br __str_matches_needle_done_%out_ok -> L_STR_MATCHES_NEEDLE_FINAL_%out_ok, L_STR_MATCHES_NEEDLE_RANGE_%out_ok
+
+L_STR_MATCHES_NEEDLE_RANGE_%out_ok:
+    __str_matches_needle_remaining_%out_ok = sub __str_matches_needle_len_%out_ok, __str_matches_needle_scan_%out_ok
+    __str_matches_needle_can_match_%out_ok = uge __str_matches_needle_remaining_%out_ok, __str_matches_needle_needle_len_%out_ok
+    br __str_matches_needle_can_match_%out_ok -> L_STR_MATCHES_NEEDLE_INNER_INIT_%out_ok, L_STR_MATCHES_NEEDLE_NEXT_%out_ok
+
+L_STR_MATCHES_NEEDLE_INNER_INIT_%out_ok:
+    store __str_matches_needle_inner_slot_%out_ok+0, 0 as u64
+    jmp L_STR_MATCHES_NEEDLE_INNER_HEAD_%out_ok
+
+L_STR_MATCHES_NEEDLE_INNER_HEAD_%out_ok:
+    __str_matches_needle_inner_%out_ok = load __str_matches_needle_inner_slot_%out_ok+0 as u64
+    __str_matches_needle_inner_done_%out_ok = eq __str_matches_needle_inner_%out_ok, __str_matches_needle_needle_len_%out_ok
+    br __str_matches_needle_inner_done_%out_ok -> L_STR_MATCHES_NEEDLE_HIT_%out_ok, L_STR_MATCHES_NEEDLE_INNER_BODY_%out_ok
+
+L_STR_MATCHES_NEEDLE_INNER_BODY_%out_ok:
+    __str_matches_needle_hay_off_%out_ok = add __str_matches_needle_scan_%out_ok, __str_matches_needle_inner_%out_ok
+    __str_matches_needle_hay_ip_%out_ok = ptr_add __str_matches_needle_ptr_%out_ok, __str_matches_needle_hay_off_%out_ok
+    __str_matches_needle_needle_ip_%out_ok = ptr_add __str_matches_needle_needle_ptr_%out_ok, __str_matches_needle_inner_%out_ok
+    __str_matches_needle_hay_byte_%out_ok = load __str_matches_needle_hay_ip_%out_ok+0 as u8
+    __str_matches_needle_needle_byte_%out_ok = load __str_matches_needle_needle_ip_%out_ok+0 as u8
+    __str_matches_needle_match_%out_ok = eq __str_matches_needle_hay_byte_%out_ok, __str_matches_needle_needle_byte_%out_ok
+    br __str_matches_needle_match_%out_ok -> L_STR_MATCHES_NEEDLE_INNER_NEXT_%out_ok, L_STR_MATCHES_NEEDLE_KEEP_%out_ok
+
+L_STR_MATCHES_NEEDLE_INNER_NEXT_%out_ok:
+    __str_matches_needle_inner_next_%out_ok = add __str_matches_needle_inner_%out_ok, 1
+    store __str_matches_needle_inner_slot_%out_ok+0, __str_matches_needle_inner_next_%out_ok as u64
+    !__str_matches_needle_inner_next_%out_ok
+    !__str_matches_needle_match_%out_ok
+    !__str_matches_needle_needle_byte_%out_ok
+    !__str_matches_needle_hay_byte_%out_ok
+    !__str_matches_needle_needle_ip_%out_ok
+    !__str_matches_needle_hay_ip_%out_ok
+    !__str_matches_needle_hay_off_%out_ok
+    !__str_matches_needle_inner_done_%out_ok
+    !__str_matches_needle_inner_%out_ok
+    jmp L_STR_MATCHES_NEEDLE_INNER_HEAD_%out_ok
+
+L_STR_MATCHES_NEEDLE_HIT_%out_ok:
+    __str_matches_needle_current_%out_ok = load __str_matches_needle_current_slot_%out_ok+0 as u64
+    __str_matches_needle_target_%out_ok = eq __str_matches_needle_current_%out_ok, %match_index
+    br __str_matches_needle_target_%out_ok -> L_STR_MATCHES_NEEDLE_HIT_MATCH_%out_ok, L_STR_MATCHES_NEEDLE_ADVANCE_%out_ok
+
+L_STR_MATCHES_NEEDLE_HIT_MATCH_%out_ok:
+    __str_matches_needle_match_ptr_%out_ok = ptr_add __str_matches_needle_ptr_%out_ok, __str_matches_needle_scan_%out_ok
+    EXPAND SLICE_NEW %out_part, __str_matches_needle_match_ptr_%out_ok, __str_matches_needle_needle_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_matches_needle_match_ptr_%out_ok
+    !__str_matches_needle_target_%out_ok
+    !__str_matches_needle_current_%out_ok
+    !__str_matches_needle_inner_done_%out_ok
+    !__str_matches_needle_inner_%out_ok
+    !__str_matches_needle_can_match_%out_ok
+    !__str_matches_needle_remaining_%out_ok
+    !__str_matches_needle_done_%out_ok
+    !__str_matches_needle_scan_%out_ok
+    jmp L_STR_MATCHES_NEEDLE_END_%out_ok
+
+L_STR_MATCHES_NEEDLE_ADVANCE_%out_ok:
+    __str_matches_needle_next_current_%out_ok = add __str_matches_needle_current_%out_ok, 1
+    __str_matches_needle_after_%out_ok = add __str_matches_needle_scan_%out_ok, __str_matches_needle_needle_len_%out_ok
+    store __str_matches_needle_current_slot_%out_ok+0, __str_matches_needle_next_current_%out_ok as u64
+    store __str_matches_needle_scan_slot_%out_ok+0, __str_matches_needle_after_%out_ok as u64
+    !__str_matches_needle_after_%out_ok
+    !__str_matches_needle_next_current_%out_ok
+    !__str_matches_needle_target_%out_ok
+    !__str_matches_needle_current_%out_ok
+    !__str_matches_needle_inner_done_%out_ok
+    !__str_matches_needle_inner_%out_ok
+    !__str_matches_needle_can_match_%out_ok
+    !__str_matches_needle_remaining_%out_ok
+    !__str_matches_needle_done_%out_ok
+    !__str_matches_needle_scan_%out_ok
+    jmp L_STR_MATCHES_NEEDLE_HEAD_%out_ok
+
+L_STR_MATCHES_NEEDLE_KEEP_%out_ok:
+    !__str_matches_needle_match_%out_ok
+    !__str_matches_needle_needle_byte_%out_ok
+    !__str_matches_needle_hay_byte_%out_ok
+    !__str_matches_needle_needle_ip_%out_ok
+    !__str_matches_needle_hay_ip_%out_ok
+    !__str_matches_needle_hay_off_%out_ok
+    !__str_matches_needle_inner_done_%out_ok
+    !__str_matches_needle_inner_%out_ok
+    jmp L_STR_MATCHES_NEEDLE_NEXT_%out_ok
+
+L_STR_MATCHES_NEEDLE_NEXT_%out_ok:
+    __str_matches_needle_next_%out_ok = add __str_matches_needle_scan_%out_ok, 1
+    store __str_matches_needle_scan_slot_%out_ok+0, __str_matches_needle_next_%out_ok as u64
+    !__str_matches_needle_next_%out_ok
+    !__str_matches_needle_can_match_%out_ok
+    !__str_matches_needle_remaining_%out_ok
+    !__str_matches_needle_done_%out_ok
+    !__str_matches_needle_scan_%out_ok
+    jmp L_STR_MATCHES_NEEDLE_HEAD_%out_ok
+
+L_STR_MATCHES_NEEDLE_FINAL_%out_ok:
+    __str_matches_needle_empty_final_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_matches_needle_empty_final_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_matches_needle_empty_final_ptr_%out_ok
+    !__str_matches_needle_done_%out_ok
+    !__str_matches_needle_scan_%out_ok
+
+L_STR_MATCHES_NEEDLE_END_%out_ok:
+    !__str_matches_needle_empty_%out_ok
+    !__str_matches_needle_needle_len_%out_ok
+    !__str_matches_needle_needle_ptr_%out_ok
+    !__str_matches_needle_len_%out_ok
+    !__str_matches_needle_ptr_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STR_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_MATCHES_NEEDLE_COUNT __str_rmatches_needle_count_%out_ok, %slice_reg, %needle_slice
+    __str_rmatches_needle_has_%out_ok = ugt __str_rmatches_needle_count_%out_ok, %match_index
+    br __str_rmatches_needle_has_%out_ok -> L_STR_RMATCHES_NEEDLE_HIT_%out_ok, L_STR_RMATCHES_NEEDLE_MISS_%out_ok
+
+L_STR_RMATCHES_NEEDLE_HIT_%out_ok:
+    __str_rmatches_needle_last_%out_ok = sub __str_rmatches_needle_count_%out_ok, 1
+    __str_rmatches_needle_forward_%out_ok = sub __str_rmatches_needle_last_%out_ok, %match_index
+    EXPAND STR_TRY_MATCHES_NEEDLE_AT __str_rmatches_needle_found_%out_ok, %out_part, %slice_reg, %needle_slice, __str_rmatches_needle_forward_%out_ok
+    %out_ok = add __str_rmatches_needle_found_%out_ok, 0
+    !__str_rmatches_needle_found_%out_ok
+    !__str_rmatches_needle_forward_%out_ok
+    !__str_rmatches_needle_last_%out_ok
+    jmp L_STR_RMATCHES_NEEDLE_END_%out_ok
+
+L_STR_RMATCHES_NEEDLE_MISS_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rmatches_needle_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rmatches_needle_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rmatches_needle_empty_%out_ok
+
+L_STR_RMATCHES_NEEDLE_END_%out_ok:
+    !__str_rmatches_needle_has_%out_ok
+    !__str_rmatches_needle_count_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STR_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
 [MACRO] STR_SPLIT_BYTE_COUNT %out_count, %slice_reg, %byte_value
     EXPAND STR_COUNT_BYTE %out_count, %slice_reg, %byte_value
     %out_count = add %out_count, 1
