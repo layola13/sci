@@ -39,6 +39,9 @@
 @const TO_STRING_I16 = utf8:"-160"
 @const TO_STRING_I32 = utf8:"-32000"
 @const TO_STRING_ISIZE = utf8:"-4096"
+@const CHAR_HAY = utf8:"rust:r"
+@const CHAR_HAY_COLON_COUNT = utf8:"a:b:c"
+@const CHAR_HAY_MULTI = utf8:"aéaé"
 @const WRITE_EXPECTED = utf8:"rust!"
 @const LEAK_MUTATED = utf8:"Rust-std"
 @const MUT_BASE = utf8:"rust"
@@ -6948,5 +6951,209 @@ L_STRING_PARSE_FROM_STR_FAIL:
     panic(936)
 
 L_STRING_PARSE_FROM_STR_OK:
+    !ok
+    return
+
+@test "sa_std string char pattern aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay, &CHAR_HAY, 6
+    EXPAND STR_FROM_PARTS hay_multi, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS hay_colon, &CHAR_HAY_COLON_COUNT, 5
+    EXPAND STR_FROM_PARTS char_buf_src, &CHAR_HAY, 6
+    EXPAND STRING_BUF_FROM_STR char_buf, char_buf_src
+    EXPAND STR_CONTAINS_CHAR contains_r_ok, hay, 114
+    EXPAND STR_CONTAINS_CHAR contains_miss_ok, hay, 111
+    EXPAND STRING_CONTAINS_CHAR string_contains_ok, hay, 114
+    EXPAND STRING_BUF_CONTAINS_CHAR buf_contains_r_ok, char_buf, 114
+    EXPAND STR_FIND_CHAR find_r_ok, find_r_idx, hay, 114
+    EXPAND STRING_FIND_CHAR string_find_ok, string_find_idx, hay, 114
+    EXPAND STR_TRY_FIND_CHAR try_find_ok, try_find_idx, hay, 114
+    EXPAND STRING_BUF_FIND_CHAR buf_find_r_ok, buf_find_r_idx, char_buf, 114
+    EXPAND STR_RFIND_CHAR rfind_r_ok, rfind_r_idx, hay, 114
+    EXPAND STRING_RFIND_CHAR string_rfind_ok, string_rfind_idx, hay, 114
+    EXPAND STR_TRY_RFIND_CHAR try_rfind_ok, try_rfind_idx, hay, 114
+    EXPAND STRING_BUF_RFIND_CHAR buf_rfind_r_ok, buf_rfind_r_idx, char_buf, 114
+    EXPAND STR_COUNT_CHAR count_r, hay, 114
+    EXPAND STRING_COUNT_CHAR string_count_r, hay, 114
+    EXPAND STRING_BUF_COUNT_CHAR buf_count_r, char_buf, 114
+    EXPAND STR_COUNT_CHAR count_colon, hay_colon, 58
+    EXPAND STR_COUNT_CHAR count_eacute, hay_multi, 233
+    EXPAND STR_CONTAINS_CHAR contains_eacute_ok, hay_multi, 233
+    EXPAND STR_FIND_CHAR find_eacute_ok, find_eacute_idx, hay_multi, 233
+    EXPAND STR_RFIND_CHAR rfind_eacute_ok, rfind_eacute_idx, hay_multi, 233
+    EXPAND STR_CONTAINS_CHAR contains_eacute_miss, hay, 233
+    EXPAND STR_FIND_CHAR find_eacute_miss_ok, find_eacute_miss_idx, hay, 233
+    contains_r_flag = eq contains_r_ok, 1
+    contains_miss_flag = eq contains_miss_ok, 0
+    string_contains_flag = eq string_contains_ok, 1
+    buf_contains_r_flag = eq buf_contains_r_ok, 1
+    find_r_flag = eq find_r_ok, 1
+    find_r_idx_ok = eq find_r_idx, 0
+    string_find_flag = eq string_find_ok, 1
+    string_find_idx_ok = eq string_find_idx, 0
+    try_find_flag = eq try_find_ok, 1
+    try_find_idx_ok = eq try_find_idx, 0
+    buf_find_r_flag = eq buf_find_r_ok, 1
+    buf_find_r_idx_ok = eq buf_find_r_idx, 0
+    rfind_r_flag = eq rfind_r_ok, 1
+    rfind_r_idx_ok = eq rfind_r_idx, 5
+    string_rfind_flag = eq string_rfind_ok, 1
+    string_rfind_idx_ok = eq string_rfind_idx, 5
+    try_rfind_flag = eq try_rfind_ok, 1
+    try_rfind_idx_ok = eq try_rfind_idx, 5
+    buf_rfind_r_flag = eq buf_rfind_r_ok, 1
+    buf_rfind_r_idx_ok = eq buf_rfind_r_idx, 5
+    count_r_ok = eq count_r, 2
+    string_count_r_ok = eq string_count_r, 2
+    buf_count_r_ok = eq buf_count_r, 2
+    count_colon_ok = eq count_colon, 2
+    count_eacute_ok = eq count_eacute, 2
+    contains_eacute_flag = eq contains_eacute_ok, 1
+    find_eacute_flag = eq find_eacute_ok, 1
+    find_eacute_idx_ok = eq find_eacute_idx, 1
+    rfind_eacute_flag = eq rfind_eacute_ok, 1
+    rfind_eacute_idx_ok = eq rfind_eacute_idx, 4
+    contains_eacute_miss_flag = eq contains_eacute_miss, 0
+    find_eacute_miss_flag = eq find_eacute_miss_ok, 0
+    ok01 = and contains_r_flag, contains_miss_flag
+    ok02 = and ok01, string_contains_flag
+    ok03 = and ok02, buf_contains_r_flag
+    ok04 = and ok03, find_r_flag
+    ok05 = and ok04, find_r_idx_ok
+    ok06 = and ok05, string_find_flag
+    ok07 = and ok06, string_find_idx_ok
+    ok08 = and ok07, try_find_flag
+    ok09 = and ok08, try_find_idx_ok
+    ok10 = and ok09, buf_find_r_flag
+    ok11 = and ok10, buf_find_r_idx_ok
+    ok12 = and ok11, rfind_r_flag
+    ok13 = and ok12, rfind_r_idx_ok
+    ok14 = and ok13, string_rfind_flag
+    ok15 = and ok14, string_rfind_idx_ok
+    ok16 = and ok15, try_rfind_flag
+    ok17 = and ok16, try_rfind_idx_ok
+    ok18 = and ok17, buf_rfind_r_flag
+    ok19 = and ok18, buf_rfind_r_idx_ok
+    ok20 = and ok19, count_r_ok
+    ok21 = and ok20, string_count_r_ok
+    ok22 = and ok21, buf_count_r_ok
+    ok23 = and ok22, count_colon_ok
+    ok24 = and ok23, count_eacute_ok
+    ok25 = and ok24, contains_eacute_flag
+    ok26 = and ok25, find_eacute_flag
+    ok27 = and ok26, find_eacute_idx_ok
+    ok28 = and ok27, rfind_eacute_flag
+    ok29 = and ok28, rfind_eacute_idx_ok
+    ok30 = and ok29, contains_eacute_miss_flag
+    ok31 = and ok30, find_eacute_miss_flag
+    ok = and ok31, try_rfind_flag
+    !contains_r_ok
+    !contains_miss_ok
+    !string_contains_ok
+    !buf_contains_r_ok
+    !find_r_ok
+    !find_r_idx
+    !string_find_ok
+    !string_find_idx
+    !try_find_ok
+    !try_find_idx
+    !buf_find_r_ok
+    !buf_find_r_idx
+    !rfind_r_ok
+    !rfind_r_idx
+    !string_rfind_ok
+    !string_rfind_idx
+    !try_rfind_ok
+    !try_rfind_idx
+    !buf_rfind_r_ok
+    !buf_rfind_r_idx
+    !count_r
+    !string_count_r
+    !buf_count_r
+    !count_colon
+    !count_eacute
+    !contains_eacute_ok
+    !find_eacute_ok
+    !find_eacute_idx
+    !rfind_eacute_ok
+    !rfind_eacute_idx
+    !contains_eacute_miss
+    !find_eacute_miss_ok
+    !find_eacute_miss_idx
+    !contains_r_flag
+    !contains_miss_flag
+    !string_contains_flag
+    !buf_contains_r_flag
+    !find_r_flag
+    !find_r_idx_ok
+    !string_find_flag
+    !string_find_idx_ok
+    !try_find_flag
+    !try_find_idx_ok
+    !buf_find_r_flag
+    !buf_find_r_idx_ok
+    !rfind_r_flag
+    !rfind_r_idx_ok
+    !string_rfind_flag
+    !string_rfind_idx_ok
+    !try_rfind_flag
+    !try_rfind_idx_ok
+    !buf_rfind_r_flag
+    !buf_rfind_r_idx_ok
+    !count_r_ok
+    !string_count_r_ok
+    !buf_count_r_ok
+    !count_colon_ok
+    !count_eacute_ok
+    !contains_eacute_flag
+    !find_eacute_flag
+    !find_eacute_idx_ok
+    !rfind_eacute_flag
+    !rfind_eacute_idx_ok
+    !contains_eacute_miss_flag
+    !find_eacute_miss_flag
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !ok27
+    !ok28
+    !ok29
+    !ok30
+    !ok31
+    EXPAND STRING_BUF_FREE char_buf
+    !char_buf_src
+    !hay
+    !hay_multi
+    !hay_colon
+    br ok -> L_CHAR_PATTERN_OK, L_CHAR_PATTERN_FAIL
+
+L_CHAR_PATTERN_FAIL:
+    !ok
+    panic(921)
+
+L_CHAR_PATTERN_OK:
     !ok
     return

@@ -4,6 +4,23 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-08 str/String char-pattern find/count batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String` char-pattern search aliases that lower a single Unicode scalar (`char`, provided as a `u64` codepoint) to its UTF-8 byte subsequence and reuse the existing slice-needle scan helpers:
+  - `STR_CONTAINS_CHAR` / `STRING_CONTAINS_CHAR` / `STRING_BUF_CONTAINS_CHAR`
+  - `STR_TRY_FIND_CHAR` / `STR_FIND_CHAR` / `STRING_TRY_FIND_CHAR` / `STRING_FIND_CHAR` / `STRING_BUF_FIND_CHAR`
+  - `STR_TRY_RFIND_CHAR` / `STR_RFIND_CHAR` / `STRING_TRY_RFIND_CHAR` / `STRING_RFIND_CHAR` / `STRING_BUF_RFIND_CHAR`
+  - `STR_COUNT_CHAR` / `STRING_COUNT_CHAR` / `STRING_BUF_COUNT_CHAR`
+- Added a new non-overlapping slice-needle count helper that the `*_CHAR` count macros delegate to, plus the matching borrowed surface:
+  - `STR_COUNT` / `STRING_COUNT`
+- Semantics: the shared `STR_ENCODE_CHAR_SLICE` helper encodes a `char` into a 4-byte stack buffer via `CHAR_TRY_ENCODE_UTF8` and wraps it as a borrowed `Slice`; invalid scalar values produce an empty `Slice` and the delegated scan reports `ok=0`. The search returns explicit `(ok, byte_index)` shapes for `find`/`rfind` and `(count)` for `count` rather than Rust `Option<usize>` values. Because the haystack is valid UTF-8, any `&str`/`char` subsequence match lands on a char boundary, so byte-index results match Rust's `find`/`rfind` byte offsets. The empty-needle case for `STR_COUNT` returns `0` rather than modeling Rust's `'a matches("".count())` returning `len+1`. This batch does not claim Rust `Option`/`Result` object layout, generic `Pattern` trait machinery, `&[u8]`/closure pattern variants, borrow-checker alias/lifetime semantics, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "char pattern aliases"`: pass (`1 passed; 53 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`54 passed; 0 failed; 0 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "char pattern aliases"`: pass (`1 passed; 53 skipped`).
+
 ## Completed: 2026-07-08 str/String from_utf8 view alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
