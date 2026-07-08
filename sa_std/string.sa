@@ -2343,6 +2343,181 @@ L_STRING_BUF_REPLACE_ALL_END_%out_string:
     !__string_buf_remove_matches_view_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_REPLACE_N %out_string, %source_slice, %needle_slice, %replacement_slice, %limit
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
+    __string_buf_replace_n_ptr_%out_string = load %source_slice+Slice_ptr as ptr
+    __string_buf_replace_n_len_%out_string = load %source_slice+Slice_len as u64
+    __string_buf_replace_n_needle_ptr_%out_string = load %needle_slice+Slice_ptr as ptr
+    __string_buf_replace_n_needle_len_%out_string = load %needle_slice+Slice_len as u64
+    __string_buf_replace_n_idx_slot_%out_string = stack_alloc 8
+    __string_buf_replace_n_inner_slot_%out_string = stack_alloc 8
+    __string_buf_replace_n_count_slot_%out_string = stack_alloc 8
+    store __string_buf_replace_n_idx_slot_%out_string+0, 0 as u64
+    store __string_buf_replace_n_inner_slot_%out_string+0, 0 as u64
+    store __string_buf_replace_n_count_slot_%out_string+0, 0 as u64
+    __string_buf_replace_n_empty_%out_string = eq __string_buf_replace_n_needle_len_%out_string, 0
+    __string_buf_replace_n_zero_limit_%out_string = eq %limit, 0
+    __string_buf_replace_n_skip_%out_string = or __string_buf_replace_n_empty_%out_string, __string_buf_replace_n_zero_limit_%out_string
+    br __string_buf_replace_n_skip_%out_string -> L_STRING_BUF_REPLACE_N_COPY_%out_string, L_STRING_BUF_REPLACE_N_HEAD_%out_string
+L_STRING_BUF_REPLACE_N_COPY_%out_string:
+    EXPAND STRING_BUF_PUSH_STR %out_string, %source_slice
+    jmp L_STRING_BUF_REPLACE_N_END_%out_string
+L_STRING_BUF_REPLACE_N_HEAD_%out_string:
+    __string_buf_replace_n_idx_%out_string = load __string_buf_replace_n_idx_slot_%out_string+0 as u64
+    __string_buf_replace_n_done_%out_string = eq __string_buf_replace_n_idx_%out_string, __string_buf_replace_n_len_%out_string
+    br __string_buf_replace_n_done_%out_string -> L_STRING_BUF_REPLACE_N_DONE_%out_string, L_STRING_BUF_REPLACE_N_RANGE_%out_string
+L_STRING_BUF_REPLACE_N_RANGE_%out_string:
+    __string_buf_replace_n_remaining_%out_string = sub __string_buf_replace_n_len_%out_string, __string_buf_replace_n_idx_%out_string
+    __string_buf_replace_n_can_match_%out_string = uge __string_buf_replace_n_remaining_%out_string, __string_buf_replace_n_needle_len_%out_string
+    br __string_buf_replace_n_can_match_%out_string -> L_STRING_BUF_REPLACE_N_LIMIT_CHECK_%out_string, L_STRING_BUF_REPLACE_N_KEEP_RANGE_%out_string
+L_STRING_BUF_REPLACE_N_LIMIT_CHECK_%out_string:
+    __string_buf_replace_n_count_%out_string = load __string_buf_replace_n_count_slot_%out_string+0 as u64
+    __string_buf_replace_n_under_limit_%out_string = ult __string_buf_replace_n_count_%out_string, %limit
+    br __string_buf_replace_n_under_limit_%out_string -> L_STRING_BUF_REPLACE_N_MATCH_INIT_%out_string, L_STRING_BUF_REPLACE_N_KEEP_LIMIT_%out_string
+L_STRING_BUF_REPLACE_N_MATCH_INIT_%out_string:
+    store __string_buf_replace_n_inner_slot_%out_string+0, 0 as u64
+    !__string_buf_replace_n_under_limit_%out_string
+    !__string_buf_replace_n_count_%out_string
+    !__string_buf_replace_n_can_match_%out_string
+    !__string_buf_replace_n_remaining_%out_string
+    jmp L_STRING_BUF_REPLACE_N_MATCH_HEAD_%out_string
+L_STRING_BUF_REPLACE_N_MATCH_HEAD_%out_string:
+    __string_buf_replace_n_inner_%out_string = load __string_buf_replace_n_inner_slot_%out_string+0 as u64
+    __string_buf_replace_n_inner_done_%out_string = eq __string_buf_replace_n_inner_%out_string, __string_buf_replace_n_needle_len_%out_string
+    br __string_buf_replace_n_inner_done_%out_string -> L_STRING_BUF_REPLACE_N_HIT_%out_string, L_STRING_BUF_REPLACE_N_MATCH_BODY_%out_string
+L_STRING_BUF_REPLACE_N_MATCH_BODY_%out_string:
+    __string_buf_replace_n_hay_off_%out_string = add __string_buf_replace_n_idx_%out_string, __string_buf_replace_n_inner_%out_string
+    __string_buf_replace_n_hay_ip_%out_string = ptr_add __string_buf_replace_n_ptr_%out_string, __string_buf_replace_n_hay_off_%out_string
+    __string_buf_replace_n_needle_ip_%out_string = ptr_add __string_buf_replace_n_needle_ptr_%out_string, __string_buf_replace_n_inner_%out_string
+    __string_buf_replace_n_hay_byte_%out_string = load __string_buf_replace_n_hay_ip_%out_string+0 as u8
+    __string_buf_replace_n_needle_byte_%out_string = load __string_buf_replace_n_needle_ip_%out_string+0 as u8
+    __string_buf_replace_n_match_%out_string = eq __string_buf_replace_n_hay_byte_%out_string, __string_buf_replace_n_needle_byte_%out_string
+    br __string_buf_replace_n_match_%out_string -> L_STRING_BUF_REPLACE_N_MATCH_NEXT_%out_string, L_STRING_BUF_REPLACE_N_KEEP_MATCH_%out_string
+L_STRING_BUF_REPLACE_N_MATCH_NEXT_%out_string:
+    __string_buf_replace_n_inner_next_%out_string = add __string_buf_replace_n_inner_%out_string, 1
+    store __string_buf_replace_n_inner_slot_%out_string+0, __string_buf_replace_n_inner_next_%out_string as u64
+    !__string_buf_replace_n_inner_next_%out_string
+    !__string_buf_replace_n_match_%out_string
+    !__string_buf_replace_n_needle_byte_%out_string
+    !__string_buf_replace_n_hay_byte_%out_string
+    !__string_buf_replace_n_needle_ip_%out_string
+    !__string_buf_replace_n_hay_ip_%out_string
+    !__string_buf_replace_n_hay_off_%out_string
+    jmp L_STRING_BUF_REPLACE_N_MATCH_HEAD_%out_string
+L_STRING_BUF_REPLACE_N_KEEP_MATCH_%out_string:
+    !__string_buf_replace_n_match_%out_string
+    !__string_buf_replace_n_needle_byte_%out_string
+    !__string_buf_replace_n_hay_byte_%out_string
+    !__string_buf_replace_n_needle_ip_%out_string
+    !__string_buf_replace_n_hay_ip_%out_string
+    !__string_buf_replace_n_hay_off_%out_string
+    !__string_buf_replace_n_inner_done_%out_string
+    !__string_buf_replace_n_inner_%out_string
+    jmp L_STRING_BUF_REPLACE_N_KEEP_%out_string
+L_STRING_BUF_REPLACE_N_KEEP_LIMIT_%out_string:
+    !__string_buf_replace_n_under_limit_%out_string
+    !__string_buf_replace_n_count_%out_string
+    !__string_buf_replace_n_can_match_%out_string
+    !__string_buf_replace_n_remaining_%out_string
+    jmp L_STRING_BUF_REPLACE_N_KEEP_%out_string
+L_STRING_BUF_REPLACE_N_KEEP_RANGE_%out_string:
+    !__string_buf_replace_n_can_match_%out_string
+    !__string_buf_replace_n_remaining_%out_string
+    jmp L_STRING_BUF_REPLACE_N_KEEP_%out_string
+L_STRING_BUF_REPLACE_N_KEEP_%out_string:
+    __string_buf_replace_n_ip_%out_string = ptr_add __string_buf_replace_n_ptr_%out_string, __string_buf_replace_n_idx_%out_string
+    __string_buf_replace_n_byte_%out_string = load __string_buf_replace_n_ip_%out_string+0 as u8
+    EXPAND STRING_BUF_PUSH_BYTE %out_string, __string_buf_replace_n_byte_%out_string
+    __string_buf_replace_n_keep_next_%out_string = add __string_buf_replace_n_idx_%out_string, 1
+    store __string_buf_replace_n_idx_slot_%out_string+0, __string_buf_replace_n_keep_next_%out_string as u64
+    !__string_buf_replace_n_keep_next_%out_string
+    !__string_buf_replace_n_byte_%out_string
+    !__string_buf_replace_n_ip_%out_string
+    !__string_buf_replace_n_done_%out_string
+    !__string_buf_replace_n_idx_%out_string
+    jmp L_STRING_BUF_REPLACE_N_HEAD_%out_string
+L_STRING_BUF_REPLACE_N_HIT_%out_string:
+    EXPAND STRING_BUF_PUSH_STR %out_string, %replacement_slice
+    __string_buf_replace_n_next_idx_%out_string = add __string_buf_replace_n_idx_%out_string, __string_buf_replace_n_needle_len_%out_string
+    store __string_buf_replace_n_idx_slot_%out_string+0, __string_buf_replace_n_next_idx_%out_string as u64
+    __string_buf_replace_n_count_inc_%out_string = load __string_buf_replace_n_count_slot_%out_string+0 as u64
+    __string_buf_replace_n_next_count_%out_string = add __string_buf_replace_n_count_inc_%out_string, 1
+    store __string_buf_replace_n_count_slot_%out_string+0, __string_buf_replace_n_next_count_%out_string as u64
+    !__string_buf_replace_n_next_count_%out_string
+    !__string_buf_replace_n_count_inc_%out_string
+    !__string_buf_replace_n_next_idx_%out_string
+    !__string_buf_replace_n_inner_done_%out_string
+    !__string_buf_replace_n_inner_%out_string
+    !__string_buf_replace_n_done_%out_string
+    !__string_buf_replace_n_idx_%out_string
+    jmp L_STRING_BUF_REPLACE_N_HEAD_%out_string
+L_STRING_BUF_REPLACE_N_DONE_%out_string:
+    !__string_buf_replace_n_done_%out_string
+    !__string_buf_replace_n_idx_%out_string
+    !__string_buf_replace_n_skip_%out_string
+    !__string_buf_replace_n_zero_limit_%out_string
+    !__string_buf_replace_n_empty_%out_string
+    !__string_buf_replace_n_needle_len_%out_string
+    !__string_buf_replace_n_needle_ptr_%out_string
+    !__string_buf_replace_n_len_%out_string
+    !__string_buf_replace_n_ptr_%out_string
+L_STRING_BUF_REPLACE_N_END_%out_string:
+[END_MACRO]
+
+[MACRO] STR_REPLACE %out_string, %source_slice, %needle_slice, %replacement_slice
+    EXPAND STRING_BUF_REPLACE %out_string, %source_slice, %needle_slice, %replacement_slice
+[END_MACRO]
+
+[MACRO] STRING_REPLACE %out_string, %source_slice, %needle_slice, %replacement_slice
+    EXPAND STR_REPLACE %out_string, %source_slice, %needle_slice, %replacement_slice
+[END_MACRO]
+
+[MACRO] STR_REPLACEN %out_string, %source_slice, %needle_slice, %replacement_slice, %limit
+    EXPAND STRING_BUF_REPLACE_N %out_string, %source_slice, %needle_slice, %replacement_slice, %limit
+[END_MACRO]
+
+[MACRO] STRING_REPLACEN %out_string, %source_slice, %needle_slice, %replacement_slice, %limit
+    EXPAND STR_REPLACEN %out_string, %source_slice, %needle_slice, %replacement_slice, %limit
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_CHAR %out_string, %source_slice, %code, %replacement_slice
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_replace_char_needle_%out_string, __string_buf_replace_char_valid_%out_string, %code
+    EXPAND STRING_BUF_REPLACE %out_string, %source_slice, __string_buf_replace_char_needle_%out_string, %replacement_slice
+    !__string_buf_replace_char_valid_%out_string
+    !__string_buf_replace_char_needle_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_N_CHAR %out_string, %source_slice, %code, %replacement_slice, %limit
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_replace_n_char_needle_%out_string, __string_buf_replace_n_char_valid_%out_string, %code
+    EXPAND STRING_BUF_REPLACE_N %out_string, %source_slice, __string_buf_replace_n_char_needle_%out_string, %replacement_slice, %limit
+    !__string_buf_replace_n_char_valid_%out_string
+    !__string_buf_replace_n_char_needle_%out_string
+[END_MACRO]
+
+[MACRO] STR_REPLACE_CHAR %out_string, %source_slice, %code, %replacement_slice
+    EXPAND STRING_BUF_REPLACE_CHAR %out_string, %source_slice, %code, %replacement_slice
+[END_MACRO]
+
+[MACRO] STRING_REPLACE_CHAR %out_string, %source_slice, %code, %replacement_slice
+    EXPAND STR_REPLACE_CHAR %out_string, %source_slice, %code, %replacement_slice
+[END_MACRO]
+
+[MACRO] STR_REPLACEN_CHAR %out_string, %source_slice, %code, %replacement_slice, %limit
+    EXPAND STRING_BUF_REPLACE_N_CHAR %out_string, %source_slice, %code, %replacement_slice, %limit
+[END_MACRO]
+
+[MACRO] STRING_REPLACEN_CHAR %out_string, %source_slice, %code, %replacement_slice, %limit
+    EXPAND STR_REPLACEN_CHAR %out_string, %source_slice, %code, %replacement_slice, %limit
+[END_MACRO]
+
+[MACRO] STRING_BUF_REMOVE_MATCHES_CHAR %string_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_remove_matches_char_needle_%string_reg, __string_buf_remove_matches_char_valid_%string_reg, %code
+    EXPAND STRING_BUF_REMOVE_MATCHES %string_reg, __string_buf_remove_matches_char_needle_%string_reg
+    !__string_buf_remove_matches_char_valid_%string_reg
+    !__string_buf_remove_matches_char_needle_%string_reg
+[END_MACRO]
+
+
 [MACRO] STRING_BUF_RESERVE %string_reg, %additional
     EXPAND VEC_RESERVE %string_reg, %additional, 1
 [END_MACRO]

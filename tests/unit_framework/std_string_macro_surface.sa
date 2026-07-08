@@ -42,6 +42,11 @@
 @const CHAR_HAY = utf8:"rust:r"
 @const CHAR_HAY_COLON_COUNT = utf8:"a:b:c"
 @const CHAR_HAY_MULTI = utf8:"aéaé"
+@const REPLACE_HAY = utf8:"rust-core-std"
+@const REPLACE_NEEDLE = utf8:"-"
+@const REPLACE_WITH = utf8:"_"
+@const REPLACE_EXPECTED = utf8:"rust_core_std"
+@const REPLACEN_EXPECTED = utf8:"rust_core-std"
 @const WRITE_EXPECTED = utf8:"rust!"
 @const LEAK_MUTATED = utf8:"Rust-std"
 @const MUT_BASE = utf8:"rust"
@@ -7157,3 +7162,93 @@ L_CHAR_PATTERN_FAIL:
 L_CHAR_PATTERN_OK:
     !ok
     return
+
+@test "sa_std string replace aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay, &REPLACE_HAY, 13
+    EXPAND STR_FROM_PARTS needle, &REPLACE_NEEDLE, 1
+    EXPAND STR_FROM_PARTS with, &REPLACE_WITH, 1
+    EXPAND STR_FROM_PARTS exp, &REPLACE_EXPECTED, 13
+    EXPAND STR_FROM_PARTS expn1, &REPLACEN_EXPECTED, 13
+    EXPAND STR_REPLACE out_str, hay, needle, with
+    EXPAND STRING_REPLACE out_s2, hay, needle, with
+    EXPAND STR_REPLACEN out_n1, hay, needle, with, 1
+    EXPAND STRING_BUF_REPLACE_N out_buf_n1, hay, needle, with, 1
+    EXPAND STRING_BUF_REPLACE out_buf, hay, needle, with
+    EXPAND STRING_BUF_REPLACE_CHAR out_char, hay, 45, with
+    EXPAND STRING_BUF_REPLACE_N_CHAR out_char_n1, hay, 45, with, 1
+    EXPAND STRING_BUF_AS_STR out_str_view, out_str
+    EXPAND STRING_BUF_AS_STR out_s2_view, out_s2
+    EXPAND STRING_BUF_AS_STR out_n1_view, out_n1
+    EXPAND STRING_BUF_AS_STR out_buf_n1_view, out_buf_n1
+    EXPAND STRING_BUF_AS_STR out_buf_view, out_buf
+    EXPAND STRING_BUF_AS_STR out_char_view, out_char
+    EXPAND STRING_BUF_AS_STR out_char_n1_view, out_char_n1
+    EXPAND STR_EQ eq_str, out_str_view, exp
+    EXPAND STR_EQ eq_s2, out_s2_view, exp
+    EXPAND STR_EQ eq_n1, out_n1_view, expn1
+    EXPAND STR_EQ eq_buf_n1, out_buf_n1_view, expn1
+    EXPAND STR_EQ eq_buf, out_buf_view, exp
+    EXPAND STR_EQ eq_char, out_char_view, exp
+    EXPAND STR_EQ eq_char_n1, out_char_n1_view, expn1
+    eq_str_flag = eq eq_str, 1
+    eq_s2_flag = eq eq_s2, 1
+    eq_n1_flag = eq eq_n1, 1
+    eq_buf_n1_flag = eq eq_buf_n1, 1
+    eq_buf_flag = eq eq_buf, 1
+    eq_char_flag = eq eq_char, 1
+    eq_char_n1_flag = eq eq_char_n1, 1
+    ok01 = and eq_str_flag, eq_s2_flag
+    ok02 = and ok01, eq_n1_flag
+    ok03 = and ok02, eq_buf_n1_flag
+    ok04 = and ok03, eq_buf_flag
+    ok05 = and ok04, eq_char_flag
+    ok = and ok05, eq_char_n1_flag
+    !out_str_view
+    !out_s2_view
+    !out_n1_view
+    !out_buf_n1_view
+    !out_buf_view
+    !out_char_view
+    !out_char_n1_view
+    !eq_str
+    !eq_s2
+    !eq_n1
+    !eq_buf_n1
+    !eq_buf
+    !eq_char
+    !eq_char_n1
+    !eq_str_flag
+    !eq_s2_flag
+    !eq_n1_flag
+    !eq_buf_n1_flag
+    !eq_buf_flag
+    !eq_char_flag
+    !eq_char_n1_flag
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND STRING_BUF_FREE out_str
+    EXPAND STRING_BUF_FREE out_s2
+    EXPAND STRING_BUF_FREE out_n1
+    EXPAND STRING_BUF_FREE out_buf_n1
+    EXPAND STRING_BUF_FREE out_buf
+    EXPAND STRING_BUF_FREE out_char
+    EXPAND STRING_BUF_FREE out_char_n1
+    !hay
+    !needle
+    !with
+    !exp
+    !expn1
+    br ok -> L_STR_REPLACE_OK, L_STR_REPLACE_FAIL
+
+L_STR_REPLACE_FAIL:
+    !ok
+    panic(963)
+
+L_STR_REPLACE_OK:
+    !ok
+    return
+

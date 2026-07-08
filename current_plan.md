@@ -9,6 +9,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 ## Active Scope
 1. Completed in the current batch:
    - `str` / `String` / `STRING_BUF` char-pattern search aliases: `*_CONTAINS_CHAR`, `*_TRY_FIND_CHAR`/`*_FIND_CHAR`, `*_TRY_RFIND_CHAR`/`*_RFIND_CHAR`, and `*_COUNT_CHAR` families that lower a Unicode scalar `char` (`u64` codepoint) to its UTF-8 byte subsequence and reuse the existing slice-needle scan helpers, plus a new non-overlapping slice-needle `STR_COUNT`/`STRING_COUNT` count helper that the `*_COUNT_CHAR` macros delegate to.
+   - `str`/`String`/`STRING_BUF` replace and limited-replace (replacen) helpers: `STRING_BUF_REPLACE_N`, `STR_REPLACE`/`STRING_REPLACE`, `STR_REPLACEN`/`STRING_REPLACEN`, the matching `*_CHAR` variants (`STRING_BUF_REPLACE_CHAR`/`STRING_BUF_REPLACE_N_CHAR`/`STR_REPLACE_CHAR`/`STRING_REPLACE_CHAR`/`STR_REPLACEN_CHAR`/`STRING_REPLACEN_CHAR`), and `STRING_BUF_REMOVE_MATCHES_CHAR`, all lowering a `char` needle via `STR_ENCODE_CHAR_SLICE` and reusing the existing slice-needle replace scan.
 
 1. Completed in the current batch:
    - `sa_std/os/fd` raw/owned fd facade.
@@ -425,7 +426,7 @@ Continue `sa_std` parity in SCI. Current priority is auditing String/Vec first w
 
 ## Next Priority
 
-- Commit the str/String char-pattern find/count batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch.
+- Commit the str/String replace/replacen char-pattern batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch.
 
 ## Notes
 

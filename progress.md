@@ -4,6 +4,24 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 100%
 
+## Completed: 2026-07-08 str/String replace/replacen char-pattern batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust replace helpers over the existing `STRING_BUF_REPLACE` scan plus a new limited-replace scan:
+  - `STRING_BUF_REPLACE_N` (limited non-overlapping slice-needle replace)
+  - `STR_REPLACE` / `STRING_REPLACE` (borrowed `str`/`String` -> owned `StringBuf` alias of the full replace)
+  - `STR_REPLACEN` / `STRING_REPLACEN` (limited replace)
+  - `STRING_BUF_REPLACE_CHAR` / `STRING_BUF_REPLACE_N_CHAR` (char-pattern full/limited replace)
+  - `STR_REPLACE_CHAR` / `STRING_REPLACE_CHAR` / `STR_REPLACEN_CHAR` / `STRING_REPLACEN_CHAR`
+  - `STRING_BUF_REMOVE_MATCHES_CHAR` (char-pattern removal alias over `STRING_BUF_REMOVE_MATCHES`)
+- Semantics: the shared `STR_ENCODE_CHAR_SLICE` helper encodes a `char` (`u64` codepoint) into its UTF-8 byte subsequence so the existing slice-needle replace scan is reused. `STRING_BUF_REPLACE_N` replaces at most `limit` non-overlapping matches; a zero `limit` skips matching and copies the source verbatim, mirroring `replacen`. The empty-needle path copies the source in place rather than modeling Rust's panic or the matches-of-empty interpolation. The borrowed `STR_REPLACE`/`STR_REPLACEN` aliases return an owned `StringBuf` rather than a Rust `String`, because SA does not introduce a distinct owned-`String` resource kind. This batch does not claim Rust `Result` object layout, generic `Pattern` trait machinery, `&[u8]`/closure pattern variants, panic behavior, borrow-checker alias/lifetime semantics, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "replace aliases"`: pass (`1 passed; 54 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`55 passed; 0 failed; 0 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "replace aliases"`: pass (`1 passed; 54 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "char pattern aliases"`: pass (`1 passed; 54 skipped`).
+
 ## Completed: 2026-07-08 str/String char-pattern find/count batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
