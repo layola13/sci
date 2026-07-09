@@ -30,6 +30,7 @@
 - [x] Verify log-quality changes without a full run: syntax/list checks pass; `pkg-core-test` pass generates structured logs; invalid step preserves exit `1` and prints log tail; `sa-std-runtime` emits a heartbeat at 5s and passes. Overall optimization/logging progress estimate `45%`.
 - [x] Improve `unit-framework` internal logs: add per-SA-file START/END/error lines with mode, jobs, elapsed time, stdout/stderr byte counts, and queued worker `index=current/total`.
 - [x] Verify `unit-framework` logging with a single build step, not the full suite: `unit-framework` passed, logs contain file-level START/END and no misleading `[unit-framework] FAIL`; overall optimization/logging progress estimate `55%`.
+- [x] Normalize remaining `unit-framework` top-level SA logs: `feature_suite.sa`, `assert_diag.sa`, and `mock_io_test.sa` now use START/END/error lines too; single-step verification passed and progress estimate is `60%`.
 - [ ] Continue with the next slowest logged owners: `wasm-matrix`, `unit-framework`, and remaining `plugin-host-smoke` runtime, using focused instrumentation before broad changes.
 
 ## Active compiler-performance slice: large SAB focused tests (2026-07-09)

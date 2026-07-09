@@ -464,13 +464,15 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     defer std.testing.allocator.free(suite_path);
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] feature_suite.sa all modes elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
+    const start_ns = startSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", jobs_arg, 0, 0);
+    errdefer |err| errorSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", 0, 0, err);
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
+    var total_stdout_bytes: usize = 0;
+    var total_stderr_bytes: usize = 0;
 
     const default_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", jobs_arg };
     const default_code = try saasm.cli.executeWithWriters(
@@ -494,6 +496,8 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     }
     try expectContains(stdout_buffer.items, default_expectations.expected_summary);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    total_stdout_bytes += stdout_buffer.items.len;
+    total_stderr_bytes += stderr_buffer.items.len;
 
     var ignored_tmp = std.testing.tmpDir(.{ .iterate = true });
     defer ignored_tmp.cleanup();
@@ -525,6 +529,8 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectNotContains(stdout_buffer.items, "[PASS] small normal case");
     try expectContains(stdout_buffer.items, "test result: ok. 1 passed; 0 failed; 1 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    total_stdout_bytes += stdout_buffer.items.len;
+    total_stderr_bytes += stderr_buffer.items.len;
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
@@ -541,6 +547,9 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectContains(stdout_buffer.items, "[PASS] small ignored case");
     try expectContains(stdout_buffer.items, "test result: ok. 2 passed; 0 failed; 0 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    total_stdout_bytes += stdout_buffer.items.len;
+    total_stderr_bytes += stderr_buffer.items.len;
+    endSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", jobs_arg, 0, 0, start_ns, total_stdout_bytes, total_stderr_bytes);
 }
 
 test "native unit assertions surface file line expected and got details" {
@@ -579,8 +588,8 @@ test "native unit assertions surface file line expected and got details" {
     defer stderr_buffer.deinit();
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] assert_diag.sa elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
+    const start_ns = startSaFileLog("assert_diag.sa", "negative-diagnostic", jobs_arg, 0, 0);
+    errdefer |err| errorSaFileLog("assert_diag.sa", "negative-diagnostic", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "assert_diag.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
@@ -596,6 +605,7 @@ test "native unit assertions surface file line expected and got details" {
     try expectContains(stderr_buffer.items, "tests/assert_diag.sa:");
     try expectContains(stderr_buffer.items, "expected 7");
     try expectContains(stderr_buffer.items, "got 3");
+    endSaFileLog("assert_diag.sa", "negative-diagnostic", jobs_arg, 0, 0, start_ns, stdout_buffer.items.len, stderr_buffer.items.len);
 }
 
 test "native unit framework covers sa_std macro surface suites" {
@@ -824,8 +834,8 @@ test "native unit framework exposes standard mock io buffer" {
     defer stderr_buffer.deinit();
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] mock_io_test.sa elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
+    const start_ns = startSaFileLog("mock_io_test.sa", "in-process", jobs_arg, 0, 0);
+    errdefer |err| errorSaFileLog("mock_io_test.sa", "in-process", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "mock_io_test.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
@@ -842,4 +852,5 @@ test "native unit framework exposes standard mock io buffer" {
     try expectContains(stdout_buffer.items, "[PASS] mock io buffer read write rewind");
     try expectContains(stdout_buffer.items, "test result: ok. 1 passed; 0 failed; 0 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    endSaFileLog("mock_io_test.sa", "in-process", jobs_arg, 0, 0, start_ns, stdout_buffer.items.len, stderr_buffer.items.len);
 }

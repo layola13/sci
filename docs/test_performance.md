@@ -227,6 +227,22 @@ rg -n "\\[unit-framework\\] FAIL" logs/test_steps/unit-framework-log2-20260709T0
 
 Result: `unit-framework` passed (`5/5 tests passed`). The log contains file-level START/END lines and `stdout_bytes` / `stderr_bytes`; the final grep returned no `[unit-framework] FAIL` matches. A full suite was not run for this logging slice.
 
+Follow-up consistency pass:
+
+- `feature_suite.sa` now logs `START/END file=tests/unit_framework/feature_suite.sa mode=all-modes`.
+- `assert_diag.sa` now logs `START/END file=assert_diag.sa mode=negative-diagnostic`.
+- `mock_io_test.sa` now logs `START/END file=mock_io_test.sa mode=in-process`.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log3-20260709T083000Z unit-framework
+rg -n "feature_suite\\.sa all modes elapsed|assert_diag\\.sa elapsed|mock_io_test\\.sa elapsed|\\[unit-framework\\] FAIL" logs/test_steps/unit-framework-log3-20260709T083000Z/01-unit-framework.log
+rg -n "START file=tests/unit_framework/feature_suite\\.sa|END   file=tests/unit_framework/feature_suite\\.sa|START file=assert_diag\\.sa|END   file=assert_diag\\.sa|START file=mock_io_test\\.sa|END   file=mock_io_test\\.sa" logs/test_steps/unit-framework-log3-20260709T083000Z/01-unit-framework.log
+```
+
+Result: `unit-framework` passed (`5/5 tests passed`). The first grep returned no matches for the old elapsed-only formats or misleading `[unit-framework] FAIL`; the second grep found the new START/END lines.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`

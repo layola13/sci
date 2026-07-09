@@ -2,7 +2,7 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 55% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 60% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
@@ -42,6 +42,12 @@ Current progress: 55% for the active full-test runtime/logging optimization foll
   - Grep verified per-file `START`/`END` lines with `stdout_bytes` / `stderr_bytes`.
   - Grep verified no `[unit-framework] FAIL` line remained in the passing step log.
 - Overall progress estimate after this feature: `55%` of the full-test runtime/logging optimization follow-up.
+- Follow-up consistency pass: `feature_suite.sa`, `assert_diag.sa`, and `mock_io_test.sa` now use the same START/END/error log shape instead of legacy elapsed-only lines.
+- Focused verification:
+  - `tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log3-20260709T083000Z unit-framework`: pass, `5/5 tests passed`, `elapsed=101.646s` including Zig test rebuild.
+  - Grep verified the three top-level SA execution paths now have START/END lines.
+  - Grep verified the old `feature_suite.sa all modes elapsed`, `assert_diag.sa elapsed`, and `mock_io_test.sa elapsed` formats are absent from the log.
+- Overall progress estimate after this feature: `60%` of the full-test runtime/logging optimization follow-up.
 
 ## Active: 2026-07-09 logged full-test step runner
 

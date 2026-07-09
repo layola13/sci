@@ -32,6 +32,9 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
    - Per-file error exits now use `END status=error` rather than `[unit-framework] FAIL`, so the intentional queued-worker negative test does not make a passing `unit-framework` step look failed in broad log searches.
    - Focused verification completed with the single `unit-framework` build step only: `tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log2-20260709T082000Z unit-framework` passed, and grep confirmed file-level START/END lines plus no `[unit-framework] FAIL` marker.
    - Overall progress estimate after this feature: `55%` of the full-test runtime/logging optimization follow-up.
+   - Follow-up consistency pass: `feature_suite.sa`, `assert_diag.sa`, and `mock_io_test.sa` now use the same START/END/error shape as the macro surface files.
+   - Verification with `logs/test_steps/unit-framework-log3-20260709T083000Z` passed, and grep confirmed the old elapsed-only lines are gone.
+   - Overall progress estimate after this consistency pass: `60%` of the full-test runtime/logging optimization follow-up.
    - Next candidates: evaluate `wasm-matrix` repeated compile phases, then `unit-framework` and the remaining `plugin-host-smoke` runtime. Do not run a full suite until the next large milestone.
 
 1. Active test logging/timeout diagnostics:
