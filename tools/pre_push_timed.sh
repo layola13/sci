@@ -44,7 +44,9 @@ if [ "${1:-}" = "--list" ]; then
 fi
 
 should_run_checks=1
-if [ "$list_only" -eq 0 ]; then
+if [ "${SA_PRE_PUSH_FORCE_CHECKS:-0}" = "1" ]; then
+    should_run_checks=1
+elif [ "$list_only" -eq 0 ]; then
     should_run_checks=0
     if [ -t 0 ]; then
         current_branch="$(git branch --show-current 2>/dev/null || true)"

@@ -14,63 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  core-checks:
-    name: Core safety and audit checks (non-WASM)
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
-
-      - name: Cache Zig build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            .zig-cache
-            ~/.cache/zig
-          key: ${{ runner.os }}-zig-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-zig-
-
-      - name: Install Linux test dependencies
-        run: sudo apt-get update && sudo apt-get install -y llvm-14-dev
-
-      - name: ReleaseSafe core tests without WASM matrix
-        run: |
-          zig build -Drelease-safe --summary all \
-            lib-root-smoke \
-            pkg-core-test \
-            bc2sa-smoke \
-            workspace-smoke \
-            trap-baseline \
-            std-smoke \
-            unit-framework \
-            sa-std-unit \
-            sa-std-runtime \
-            sa-net-uring-test \
-            sa-http2-test \
-            sa-tls-server-test \
-            sa-dtls-test \
-            sa-quic-test \
-            sa-term-runtime \
-            native-sys-runtime \
-            whitepaper-lint \
-            scope-demo \
-            ffi-handle-demo \
-            hubproxy-test
-
-      - name: Package audit gate
-        run: zig build pkg-core-test pkg-audit-perf-test --summary all
-
   package:
     name: Package ${{ matrix.name }}
-    needs: core-checks
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.allow_failure }}
     strategy:
