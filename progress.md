@@ -2,7 +2,7 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 35% for the active full-test runtime optimization follow-up; 100% for the test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 45% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
@@ -22,6 +22,18 @@ Current progress: 35% for the active full-test runtime optimization follow-up; 1
   - `tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/sa-std-runtime-opt-20260709T073000Z sa-std-runtime`: pass, `14/14 tests passed`, `elapsed=33.532s`.
   - Previous logged full-pass baseline for the same step was `145.815s`, so the observed step-level improvement is `112.283s` (`77.0%`).
 - Overall progress estimate after this feature: `35%` of the full-test runtime optimization follow-up. Current observed cumulative savings versus the logged full-pass baseline are about `151.109s` across `plugin-host-smoke` and `sa-std-runtime`.
+- Feature completed: full-test step logs now have better long-run visibility and failure triage.
+- `tools/test_steps_timed.sh` now supports `--heartbeat SEC` / `SA_TEST_STEP_HEARTBEAT`, defaulting to 30s, and prints `RUNNING` lines with step index, elapsed time, log byte count, timestamp, and log path while a step is still active.
+- The runner now supports `--fail-tail-lines N` / `SA_TEST_STEP_FAIL_TAIL_LINES`, defaulting to 80 lines, and prints the tail of a failed or timed-out step log directly into `summary.log` and the console.
+- Each run now writes `results.tsv` for machine-readable per-step status and `environment.txt` with repo, git head/branch, dirty-line count, jobs, timeout, heartbeat, fail-tail, and log-dir metadata.
+- START/PASS/FAIL/TIMEOUT lines now include `index=current/total`, which makes full-suite progress visible without counting manually.
+- Focused verification, without running the full suite:
+  - `bash -n tools/test_steps_timed.sh`: pass.
+  - `tools/test_steps_timed.sh --list`: pass.
+  - `tools/test_steps_timed.sh --heartbeat 1 --timeout 180 --log-dir logs/test_steps/log-quality-pkg-20260709T080000Z pkg-core-test`: pass, generated `results.tsv` and `environment.txt`.
+  - intentional invalid step with `--fail-tail-lines 20`: exit status preserved as `1`, and summary printed the failing log tail.
+  - `tools/test_steps_timed.sh --heartbeat 5 --timeout 180 --log-dir logs/test_steps/log-quality-heartbeat-20260709T080000Z sa-std-runtime`: pass, emitted a `RUNNING` heartbeat at 5s.
+- Overall progress estimate after this feature: `45%` of the full-test runtime/logging optimization follow-up.
 
 ## Active: 2026-07-09 logged full-test step runner
 

@@ -48,6 +48,8 @@ Options:
   --list              Print the selected step list and exit.
   --continue          Continue after failed or timed-out steps.
   --timeout SEC       Per-step timeout. Default: SA_TEST_STEP_TIMEOUT or 420.
+  --heartbeat SEC     Print RUNNING status while a step is active. Default: SA_TEST_STEP_HEARTBEAT or 30. Use 0 to disable.
+  --fail-tail-lines N Print the last N log lines on failure/timeout. Default: SA_TEST_STEP_FAIL_TAIL_LINES or 80. Use 0 to disable.
   --jobs N            Zig build worker count. Default: SA_ZIG_JOBS, ZIG_BUILD_JOBS, or nproc.
   --log-dir DIR       Directory for per-step logs. Default: SA_TEST_STEP_LOG_DIR or logs/test_steps/<utc>.
   --summary MODE      Zig --summary mode. Default: SA_ZIG_SUMMARY or all.
@@ -60,6 +62,8 @@ USAGE
 }
 
 timeout_s="${SA_TEST_STEP_TIMEOUT:-420}"
+heartbeat_s="${SA_TEST_STEP_HEARTBEAT:-30}"
+fail_tail_lines="${SA_TEST_STEP_FAIL_TAIL_LINES:-80}"
 jobs="$(detect_jobs)"
 log_dir="${SA_TEST_STEP_LOG_DIR:-}"
 summary="${SA_ZIG_SUMMARY:-all}"
@@ -87,6 +91,30 @@ while [ "$#" -gt 0 ]; do
             ;;
         --timeout=*)
             timeout_s="${1#--timeout=}"
+            shift
+            ;;
+        --heartbeat)
+            if [ "$#" -lt 2 ]; then
+                printf '[test-steps] missing value for --heartbeat\n' >&2
+                exit 2
+            fi
+            heartbeat_s="$2"
+            shift 2
+            ;;
+        --heartbeat=*)
+            heartbeat_s="${1#--heartbeat=}"
+            shift
+            ;;
+        --fail-tail-lines)
+            if [ "$#" -lt 2 ]; then
+                printf '[test-steps] missing value for --fail-tail-lines\n' >&2
+                exit 2
+            fi
+            fail_tail_lines="$2"
+            shift 2
+            ;;
+        --fail-tail-lines=*)
+            fail_tail_lines="${1#--fail-tail-lines=}"
             shift
             ;;
         --jobs)
@@ -153,6 +181,16 @@ if ! [[ "$timeout_s" =~ ^[0-9]+$ ]] || [ "$timeout_s" -le 0 ]; then
     exit 2
 fi
 
+if ! [[ "$heartbeat_s" =~ ^[0-9]+$ ]]; then
+    printf '[test-steps] --heartbeat must be a non-negative integer, got %s\n' "$heartbeat_s" >&2
+    exit 2
+fi
+
+if ! [[ "$fail_tail_lines" =~ ^[0-9]+$ ]]; then
+    printf '[test-steps] --fail-tail-lines must be a non-negative integer, got %s\n' "$fail_tail_lines" >&2
+    exit 2
+fi
+
 if ! [[ "$jobs" =~ ^[0-9]+$ ]] || [ "$jobs" -le 0 ]; then
     printf '[test-steps] --jobs must be a positive integer, got %s\n' "$jobs" >&2
     exit 2
@@ -206,10 +244,45 @@ if [ -z "$log_dir" ]; then
 fi
 mkdir -p "$log_dir"
 summary_log="$log_dir/summary.log"
+results_tsv="$log_dir/results.tsv"
+environment_log="$log_dir/environment.txt"
 : > "$summary_log"
+printf 'index\tstep\tstatus\texit_status\telapsed_ms\telapsed\tstarted_at\tended_at\tlog\n' > "$results_tsv"
+
+{
+    printf 'repo=%s\n' "$repo_root"
+    printf 'git_head=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+    printf 'git_branch=%s\n' "$(git branch --show-current 2>/dev/null || printf unknown)"
+    printf 'git_status_short_lines=%s\n' "$(git status --short 2>/dev/null | wc -l | tr -d ' ')"
+    printf 'started_at=%s\n' "$(utc_now)"
+    printf 'jobs=%s\n' "$jobs"
+    printf 'summary=%s\n' "$summary"
+    printf 'timeout_s=%s\n' "$timeout_s"
+    printf 'heartbeat_s=%s\n' "$heartbeat_s"
+    printf 'fail_tail_lines=%s\n' "$fail_tail_lines"
+    printf 'continue_after_failure=%s\n' "$continue_after_failure"
+    printf 'steps=%d\n' "${#steps[@]}"
+    printf 'log_dir=%s\n' "$log_dir"
+} > "$environment_log"
 
 emit() {
     printf '%s\n' "$*" | tee -a "$summary_log"
+}
+
+log_size_bytes() {
+    wc -c < "$1" 2>/dev/null | tr -d ' ' || printf '0'
+}
+
+append_failed_tail() {
+    local step="$1"
+    local log_file="$2"
+
+    if [ "$fail_tail_lines" -eq 0 ]; then
+        return
+    fi
+
+    emit "$(printf '[test-steps] log tail step=%s lines=%s log=%s' "$step" "$fail_tail_lines" "$log_file")"
+    tail -n "$fail_tail_lines" "$log_file" 2>/dev/null | sed 's/^/[test-steps] | /' | tee -a "$summary_log" >&2
 }
 
 sanitize_step_name() {
@@ -277,24 +350,49 @@ print_summary() {
 run_step() {
     local step="$1"
     local index="$2"
-    local start end elapsed status label safe_step log_file
+    local total="$3"
+    local start end elapsed status label safe_step log_file started_at ended_at run_pid heartbeat_pid
     local cmd=(zig build "$step" "-j$jobs" --summary "$summary")
     safe_step="$(sanitize_step_name "$step")"
     log_file="$(printf '%s/%02d-%s.log' "$log_dir" "$index" "$safe_step")"
     : > "$log_file"
 
     start="$(now_ms)"
+    started_at="$(utc_now)"
     {
-        printf '[test-steps] START step=%s timeout=%ss at=%s log=%s command=' "$step" "$timeout_s" "$(utc_now)" "$log_file"
+        printf '[test-steps] START index=%d/%d step=%s timeout=%ss heartbeat=%ss at=%s log=%s command=' "$index" "$total" "$step" "$timeout_s" "$heartbeat_s" "$started_at" "$log_file"
         printf '%q ' "${cmd[@]}"
         printf '\n'
     } | tee -a "$summary_log" "$log_file"
 
     set +e
-    timeout -k 10s "${timeout_s}s" "${cmd[@]}" 2>&1 | tee -a "$log_file"
-    status="${PIPESTATUS[0]}"
+    timeout -k 10s "${timeout_s}s" "${cmd[@]}" 2>&1 | tee -a "$log_file" &
+    run_pid="$!"
+    if [ "$heartbeat_s" -gt 0 ]; then
+        (
+            while true; do
+                sleep "$heartbeat_s"
+                if ! kill -0 "$run_pid" 2>/dev/null; then
+                    exit 0
+                fi
+                end="$(now_ms)"
+                elapsed="$((end - start))"
+                emit "$(printf '[test-steps] RUNNING index=%d/%d step=%s elapsed=%s log_bytes=%s at=%s log=%s' "$index" "$total" "$step" "$(format_ms "$elapsed")" "$(log_size_bytes "$log_file")" "$(utc_now)" "$log_file")"
+            done
+        ) &
+        heartbeat_pid="$!"
+    else
+        heartbeat_pid=""
+    fi
+    wait "$run_pid"
+    status="$?"
+    if [ -n "$heartbeat_pid" ]; then
+        kill "$heartbeat_pid" 2>/dev/null || true
+        wait "$heartbeat_pid" 2>/dev/null || true
+    fi
     set -e
 
+    ended_at="$(utc_now)"
     if [ "$status" -eq 0 ]; then
         end="$(now_ms)"
         elapsed="$((end - start))"
@@ -303,8 +401,9 @@ run_step() {
         step_statuses+=("PASS")
         step_elapsed_ms+=("$elapsed")
         step_log_paths+=("$log_file")
+        printf '%d\t%s\tPASS\t0\t%d\t%s\t%s\t%s\t%s\n' "$index" "$step" "$elapsed" "$(format_ms "$elapsed")" "$started_at" "$ended_at" "$log_file" >> "$results_tsv"
         {
-            printf '[test-steps] PASS  step=%s elapsed=%s at=%s log=%s\n' "$step" "$(format_ms "$elapsed")" "$(utc_now)" "$log_file"
+            printf '[test-steps] PASS  index=%d/%d step=%s elapsed=%s at=%s log=%s\n' "$index" "$total" "$step" "$(format_ms "$elapsed")" "$ended_at" "$log_file"
         } | tee -a "$summary_log" "$log_file"
         return 0
     fi
@@ -323,9 +422,11 @@ run_step() {
     step_statuses+=("$label")
     step_elapsed_ms+=("$elapsed")
     step_log_paths+=("$log_file")
+    printf '%d\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n' "$index" "$step" "$label" "$status" "$elapsed" "$(format_ms "$elapsed")" "$started_at" "$ended_at" "$log_file" >> "$results_tsv"
     {
-        printf '[test-steps] %-7s step=%s elapsed=%s status=%s at=%s log=%s\n' "$label" "$step" "$(format_ms "$elapsed")" "$status" "$(utc_now)" "$log_file"
+        printf '[test-steps] %-7s index=%d/%d step=%s elapsed=%s status=%s at=%s log=%s\n' "$label" "$index" "$total" "$step" "$(format_ms "$elapsed")" "$status" "$ended_at" "$log_file"
     } | tee -a "$summary_log" "$log_file" >&2
+    append_failed_tail "$step" "$log_file"
     if [ "$continue_after_failure" -eq 0 ]; then
         print_summary
         exit "$status"
@@ -333,10 +434,10 @@ run_step() {
     return 0
 }
 
-emit "$(printf '[test-steps] repo=%s jobs=%s summary=%s timeout=%ss continue=%s steps=%d log_dir=%s' "$repo_root" "$jobs" "$summary" "$timeout_s" "$continue_after_failure" "${#steps[@]}" "$log_dir")"
+emit "$(printf '[test-steps] repo=%s jobs=%s summary=%s timeout=%ss heartbeat=%ss fail_tail_lines=%s continue=%s steps=%d log_dir=%s results=%s environment=%s' "$repo_root" "$jobs" "$summary" "$timeout_s" "$heartbeat_s" "$fail_tail_lines" "$continue_after_failure" "${#steps[@]}" "$log_dir" "$results_tsv" "$environment_log")"
 
 for i in "${!steps[@]}"; do
-    run_step "${steps[$i]}" "$((i + 1))"
+    run_step "${steps[$i]}" "$((i + 1))" "${#steps[@]}"
 done
 
 print_summary

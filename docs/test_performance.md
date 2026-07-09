@@ -177,6 +177,28 @@ Observed improvement:
 
 The logged build summary shows the new shape: one `zig build-lib sa_std` archive refresh at about `12s`, one `zig test` build at about `6s`, and the test run at about `7s`, instead of rebuilding the runtime archive per C demo.
 
+## 2026-07-09 Full-Test Log Quality Follow-up
+
+The logged step runner now emits better progress and failure diagnostics for long full-test runs:
+
+- `--heartbeat SEC` / `SA_TEST_STEP_HEARTBEAT`, default `30`, prints `RUNNING` lines while a step is active.
+- Heartbeat lines include `index=current/total`, elapsed time, current step log size in bytes, timestamp, and log path.
+- `--fail-tail-lines N` / `SA_TEST_STEP_FAIL_TAIL_LINES`, default `80`, prints the tail of failed or timed-out step logs into both the console and `summary.log`.
+- Every run writes `results.tsv` with one row per completed step and `environment.txt` with repo/git/settings metadata.
+- START/PASS/FAIL/TIMEOUT lines now include `index=current/total`.
+
+Focused verification only:
+
+```sh
+bash -n tools/test_steps_timed.sh
+tools/test_steps_timed.sh --list
+tools/test_steps_timed.sh --heartbeat 1 --timeout 180 --log-dir logs/test_steps/log-quality-pkg-20260709T080000Z pkg-core-test
+tools/test_steps_timed.sh --heartbeat 1 --fail-tail-lines 20 --timeout 30 --log-dir logs/test_steps/log-quality-fail-20260709T080000Z definitely-not-a-step
+tools/test_steps_timed.sh --heartbeat 5 --timeout 180 --log-dir logs/test_steps/log-quality-heartbeat-20260709T080000Z sa-std-runtime
+```
+
+Results: syntax/list checks passed; `pkg-core-test` passed and generated structured logs; the intentional invalid step preserved exit status `1` and printed its failing log tail; `sa-std-runtime` passed and emitted a `RUNNING` heartbeat at 5s. A full suite was intentionally not run for this log-quality slice.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`
