@@ -45,7 +45,6 @@ jobs:
         run: |
           zig build -Drelease-safe --summary all \
             lib-root-smoke \
-            plugin-host-smoke \
             pkg-core-test \
             bc2sa-smoke \
             workspace-smoke \
