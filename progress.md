@@ -2,7 +2,7 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 45% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 55% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
@@ -34,6 +34,14 @@ Current progress: 45% for the active full-test runtime/logging optimization foll
   - intentional invalid step with `--fail-tail-lines 20`: exit status preserved as `1`, and summary printed the failing log tail.
   - `tools/test_steps_timed.sh --heartbeat 5 --timeout 180 --log-dir logs/test_steps/log-quality-heartbeat-20260709T080000Z sa-std-runtime`: pass, emitted a `RUNNING` heartbeat at 5s.
 - Overall progress estimate after this feature: `45%` of the full-test runtime/logging optimization follow-up.
+- Feature completed: `unit-framework` now emits file-level START/END/error logs for SA unit files instead of only printing elapsed time after a file finishes.
+- `tests/unit_framework/runner.zig` now logs each macro surface file with mode, jobs, elapsed time, stdout byte count, and stderr byte count. Queued process-mode files include `index=current/total` so parallel worker progress is visible.
+- Unexpected per-file errors now log `END status=error` rather than a bare `[unit-framework] FAIL`, avoiding false failure markers from the intentional queued-worker negative test while still making the errored file obvious.
+- Focused verification, without running the full suite:
+  - `tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log2-20260709T082000Z unit-framework`: pass, `5/5 tests passed`, `elapsed=96.501s` including Zig test rebuild.
+  - Grep verified per-file `START`/`END` lines with `stdout_bytes` / `stderr_bytes`.
+  - Grep verified no `[unit-framework] FAIL` line remained in the passing step log.
+- Overall progress estimate after this feature: `55%` of the full-test runtime/logging optimization follow-up.
 
 ## Active: 2026-07-09 logged full-test step runner
 

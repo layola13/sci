@@ -26,6 +26,12 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
    - Each run now persists `results.tsv` and `environment.txt` next to `summary.log`, so post-run analysis does not require scraping mixed console output.
    - Focused verification completed without full-suite execution: syntax/list checks pass; `pkg-core-test` pass generated structured logs; an intentional invalid step preserved exit status `1` and printed a log tail; `sa-std-runtime` emitted a heartbeat at 5s and passed.
    - Overall progress estimate after this logging feature: `45%` of the full-test runtime/logging optimization follow-up.
+   - Fourth completed feature: `unit-framework` file-level logging.
+   - `tests/unit_framework/runner.zig` now prints `START` and `END` for each SA unit file it launches, including mode (`in-process` or `process`), jobs, elapsed time, stdout bytes, and stderr bytes.
+   - Queued process-mode files include `index=current/total`, so parallel worker progress is visible inside the step log.
+   - Per-file error exits now use `END status=error` rather than `[unit-framework] FAIL`, so the intentional queued-worker negative test does not make a passing `unit-framework` step look failed in broad log searches.
+   - Focused verification completed with the single `unit-framework` build step only: `tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log2-20260709T082000Z unit-framework` passed, and grep confirmed file-level START/END lines plus no `[unit-framework] FAIL` marker.
+   - Overall progress estimate after this feature: `55%` of the full-test runtime/logging optimization follow-up.
    - Next candidates: evaluate `wasm-matrix` repeated compile phases, then `unit-framework` and the remaining `plugin-host-smoke` runtime. Do not run a full suite until the next large milestone.
 
 1. Active test logging/timeout diagnostics:

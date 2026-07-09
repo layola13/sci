@@ -28,6 +28,8 @@
 - [x] Verify the `sa-std-runtime` optimization with the logged step runner: `14/14 tests passed`, `145.815s -> 33.532s`, delta `112.283s` (`77.0%`); overall optimization follow-up progress estimate `35%`.
 - [x] Improve full-test log quality: add per-step heartbeat, failure/timeout log tails, `results.tsv`, `environment.txt`, and `index=current/total` progress fields.
 - [x] Verify log-quality changes without a full run: syntax/list checks pass; `pkg-core-test` pass generates structured logs; invalid step preserves exit `1` and prints log tail; `sa-std-runtime` emits a heartbeat at 5s and passes. Overall optimization/logging progress estimate `45%`.
+- [x] Improve `unit-framework` internal logs: add per-SA-file START/END/error lines with mode, jobs, elapsed time, stdout/stderr byte counts, and queued worker `index=current/total`.
+- [x] Verify `unit-framework` logging with a single build step, not the full suite: `unit-framework` passed, logs contain file-level START/END and no misleading `[unit-framework] FAIL`; overall optimization/logging progress estimate `55%`.
 - [ ] Continue with the next slowest logged owners: `wasm-matrix`, `unit-framework`, and remaining `plugin-host-smoke` runtime, using focused instrumentation before broad changes.
 
 ## Active compiler-performance slice: large SAB focused tests (2026-07-09)

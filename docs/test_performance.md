@@ -199,6 +199,34 @@ tools/test_steps_timed.sh --heartbeat 5 --timeout 180 --log-dir logs/test_steps/
 
 Results: syntax/list checks passed; `pkg-core-test` passed and generated structured logs; the intentional invalid step preserved exit status `1` and printed its failing log tail; `sa-std-runtime` passed and emitted a `RUNNING` heartbeat at 5s. A full suite was intentionally not run for this log-quality slice.
 
+## 2026-07-09 `unit-framework` File-Level Logs
+
+The `unit-framework` step now prints one line before and after each SA unit file it runs:
+
+```text
+[unit-framework] START file=tests/unit_framework/std_string_macro_surface.sa mode=in-process jobs=auto
+[unit-framework] END   file=tests/unit_framework/std_string_macro_surface.sa mode=in-process elapsed=2095ms jobs=auto stdout_bytes=2686 stderr_bytes=0
+```
+
+Queued process-mode files include progress inside the queue:
+
+```text
+[unit-framework] START index=1/2 file=.../queued_pass.sa mode=process jobs=1
+[unit-framework] END   index=1/2 file=.../queued_pass.sa mode=process elapsed=137ms jobs=1 stdout_bytes=71 stderr_bytes=0
+```
+
+Unexpected per-file errors use `END status=error` rather than a bare `[unit-framework] FAIL`. This keeps the intentional queued-worker failure propagation test from making a passing `unit-framework` step look failed in simple log searches.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log2-20260709T082000Z unit-framework
+rg -n "\\[unit-framework\\] (START|END|FAIL)|status=error|stdout_bytes|stderr_bytes" logs/test_steps/unit-framework-log2-20260709T082000Z/01-unit-framework.log
+rg -n "\\[unit-framework\\] FAIL" logs/test_steps/unit-framework-log2-20260709T082000Z/01-unit-framework.log
+```
+
+Result: `unit-framework` passed (`5/5 tests passed`). The log contains file-level START/END lines and `stdout_bytes` / `stderr_bytes`; the final grep returned no `[unit-framework] FAIL` matches. A full suite was not run for this logging slice.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`
