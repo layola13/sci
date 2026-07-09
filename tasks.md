@@ -17,6 +17,15 @@
 - [x] Record the full logged pass result: `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`, logs in `logs/test_steps/full-20260709T060333Z`.
 - [ ] Optional future precision: add timing inside plugin installer helper paths, temporary Zig plugin builds, and `sa-std-runtime` internals if those remain top blockers.
 
+## Active full-test runtime optimization follow-up (2026-07-09)
+
+- [x] Commit the logging/diagnostics milestone before starting the next optimization: `690d57f Add logged test step diagnostics`.
+- [x] Optimize plugin installer failure paths by moving pure preflight checks before temporary plugin dynamic-library builds.
+- [x] Keep plugin install unit tests isolated: `plugin-host-smoke` uses `std.testing.tmpDir()` and test-local `SA_PLUGINS_HOME=state`; no real user plugin installation is required for ordinary unit testing.
+- [x] Verify the plugin optimization with the logged step runner: `plugin-host-smoke` passed in `170.743s`.
+- [x] Record observed improvement: previous logged baseline `209.569s`, optimized run `170.743s`, delta `38.826s` (`18.5%`) for that step; overall optimization follow-up progress estimate `15%`.
+- [ ] Continue with the next slowest logged owners: `sa-std-runtime` and `wasm-matrix`, using focused instrumentation before broad changes.
+
 ## Active compiler-performance slice: large SAB focused tests (2026-07-09)
 
 - [x] Commit pre-existing String macro-surface work before starting SCI performance changes: `ee50937 Add extended string macro surfaces`.

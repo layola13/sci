@@ -157,3 +157,21 @@ Result: pass. Installed focused downstream SAB gates also passed:
 - Large `world_table_erased` compile-only focused gate: `elapsed=0.75 maxrss=167856`
 - Large `world_table_erased` list focused gate: `elapsed=0.04 maxrss=56960`
 - Small `parallel_table_erased` compile-only focused gate: `elapsed=0.13 maxrss=70912`
+
+## Follow-up Runtime Optimization
+
+The first post-logging optimization targets `plugin-host-smoke`, which was the slowest step in the full logged pass at `209.569s`.
+
+`src/plugins.zig` now runs install preflight checks that do not need a built artifact before `buildPluginProject()`:
+
+- interface file verification.
+- asset file verification.
+- installed extern-symbol conflict checks.
+
+The artifact-dependent checks remain after build/copy. Focused logged verification passed:
+
+```bash
+tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/plugin-opt-20260709T070747Z plugin-host-smoke
+```
+
+Result: `12/12 tests passed`, `elapsed=170.743s`, saving `38.826s` (`18.5%`) versus the previous logged `plugin-host-smoke` baseline. The duplicate extern failure tests are the main visible beneficiaries because they now fail before unnecessary temporary plugin builds.

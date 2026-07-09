@@ -1839,6 +1839,10 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     }
     const permissions_confirmed = !manifest.requires_sandbox or locked_permissions_confirmed or manual_permissions_confirmed;
 
+    if (try verifyInterfaceFiles(allocator, manifest) != 0) return 1;
+    if (try verifyAssetFiles(allocator, manifest) != 0) return 1;
+    if (try verifyInstalledExternSymbolConflicts(allocator, manifest, stdout) != 0) return 1;
+
     if (try buildPluginProject(allocator, manifest.root_dir, stdout) != 0) return 1;
 
     const artifact_abs = try std.fs.path.join(allocator, &.{ manifest.root_dir, manifest.artifact_rel });
@@ -1875,10 +1879,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     defer allocator.free(version_sap);
     try copyFileAbsolute(manifest.sap_path, version_sap);
 
-    if (try verifyInterfaceFiles(allocator, manifest) != 0) return 1;
-    if (try verifyAssetFiles(allocator, manifest) != 0) return 1;
     if (try verifySymbolSmoke(allocator, manifest, artifact_abs, stdout) != 0) return 1;
-    if (try verifyInstalledExternSymbolConflicts(allocator, manifest, stdout) != 0) return 1;
     if (try verifyArtifactStaticPolicy(allocator, manifest, artifact_abs, stdout, options) != 0) return 1;
 
     if (manifest.interface_files.len > 0) {

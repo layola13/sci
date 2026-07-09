@@ -2,7 +2,19 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 100% for the active test logging/timeout diagnostics follow-up; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 15% for the active full-test runtime optimization follow-up; 100% for the test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+
+## Active: 2026-07-09 full-test runtime optimization follow-up
+
+- Feature completed: plugin installer failure preflight now runs pure checks before building temporary plugin dynamic libraries.
+- `src/plugins.zig` now checks declared interface files, declared asset files, and installed extern-symbol conflicts before `buildPluginProject()`.
+- Post-build validation still keeps artifact-dependent checks after the copy/build path: dynamic symbol smoke and artifact static policy.
+- This preserves the intended `plugin-host-smoke` behavior: tests still exercise plugin install flows, but all installs are isolated under `std.testing.tmpDir()` with test-local `SA_PLUGINS_HOME=state`; they do not install into the real user plugin home.
+- Focused verification:
+  - `tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/plugin-opt-20260709T070747Z plugin-host-smoke`: pass, `12/12 tests passed`, `elapsed=170.743s`.
+  - Previous logged full-pass baseline for the same step was `209.569s`, so the observed step-level improvement is `38.826s` (`18.5%`) despite this run also rebuilding the Zig test binary after `src/plugins.zig` changed.
+  - Most visible internal wins: duplicate extern symbols across installed plugins about `33.936s -> 13.809s`; duplicate extern symbols inside installed plugin about `18.447s -> 0.007s`.
+- Overall progress estimate after this feature: `15%` of the full-test runtime optimization follow-up. Remaining dominant steps are still `plugin-host-smoke`, `sa-std-runtime`, `wasm-matrix`, `unit-framework`, and `std-smoke`.
 
 ## Active: 2026-07-09 logged full-test step runner
 

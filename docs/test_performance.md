@@ -112,6 +112,41 @@ tools/test_steps_timed.sh --timeout 420 wasm-matrix
 
 Result: pass, `149.039s` total. Zig test binary build took about `41s`; the matrix run took about `1m`. The visible per-demo output shows most time is in repeated `build-exe` SA compilation, while `native-run`, `build-wasm`, and `wasm-run` are comparatively small for most demos.
 
+## 2026-07-09 Plugin Install Preflight Optimization
+
+The first optimization after the logged-runner milestone targets `plugin-host-smoke`, the slowest owner from the full logged pass.
+
+Change: `src/plugins.zig` now runs pure plugin-install preflight checks before `buildPluginProject()`:
+
+- declared interface file verification.
+- declared asset file verification.
+- installed extern-symbol conflict checks.
+
+Artifact-dependent checks remain after build/copy:
+
+- dynamic symbol smoke.
+- artifact static policy.
+
+This does not remove plugin install coverage. The `plugin-host-smoke` unit tests intentionally exercise install flows, but they set `SA_PLUGINS_HOME` to a `std.testing.tmpDir()`-backed `state` directory, so ordinary unit tests do not install plugins into the real user plugin home.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/plugin-opt-20260709T070747Z plugin-host-smoke
+```
+
+Result: pass, `12/12 tests passed`, `elapsed=170.743s`.
+
+Observed improvement against the prior logged full-pass baseline:
+
+| Step / test body | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `plugin-host-smoke` step | 209.569s | 170.743s | -38.826s / -18.5% |
+| duplicate extern symbols across installed plugins | ~33.936s | ~13.809s | ~-20.127s |
+| duplicate extern symbols inside installed plugin | ~18.447s | ~0.007s | ~-18.440s |
+
+The optimized run rebuilt the Zig test binary because `src/plugins.zig` changed, so the steady-state runtime saving is likely better represented by the individual test-body deltas than by the total step delta alone.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`
