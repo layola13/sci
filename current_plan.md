@@ -40,7 +40,14 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
    - Focused verification passed with the single `wasm-matrix` step only: `tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-matrix-summary2-20260709T084000Z wasm-matrix`, `1/1 tests passed`, `elapsed=146.982s`.
    - Observed matrix body summary: `demos=110 total_demo_ms=103970 build_exe_ms=93156 native_run_ms=502 build_wasm_ms=1711 wasm_run_ms=8188`. The slowest phases are all `build-exe`, so the next runtime work should target repeated SA native build cost rather than wasm execution.
    - Overall progress estimate after this feature: `65%` of the full-test runtime/logging optimization follow-up.
-   - Next candidates: reduce `wasm-matrix` repeated `build-exe` cost, then revisit remaining `plugin-host-smoke`, `unit-framework`, and `std-smoke` runtime. Do not run a full suite until the next large milestone.
+   - Sixth completed feature: default `wasm-matrix` now follows a WASM-fast validation shape and shares the repo cache root.
+   - CLI compile options now accept `--project-root <dir>` / `--project-root=<dir>`, allowing direct compile callers to force package resolution and `.sa_cache` placement to a stable project root.
+   - `wasm-matrix` now passes the repo root as `--project-root` and runs native `build-exe` only for a representative sanity subset by default. Full native equivalence remains opt-in with `SA_WASM_MATRIX_NATIVE_ALL=1`.
+   - Focused verification only: cold shared-cache `wasm-matrix` passed in `212.385s`; hot shared-cache `wasm-matrix` passed in `59.623s`.
+   - Measured improvement against the previous logged `wasm-matrix` run: `146.982s -> 59.623s`, saving `87.359s` (`59.4%`) on the hot-cache default path. The hot run summary was `demos=110 native_checked=6 total_demo_ms=57359 build_exe_ms=6255 build_wasm_ms=43033 wasm_run_ms=7754`.
+   - Release metadata for this batch is prepared: `build.zig.zon` version `0.0.4`, plus `CHANGELOG.md` covering the `0.0.3 -> 0.0.4` changes.
+   - Overall progress estimate after this feature: `75%` of the full-test runtime/logging optimization follow-up.
+   - Next candidates after release merge: remaining `plugin-host-smoke`, `unit-framework`, and `std-smoke` runtime. Do not run a full suite until the next large milestone.
 
 1. Active test logging/timeout diagnostics:
    - `tools/test_steps_timed.sh` is the new diagnostic entry point for the `zig build test` dependency set.

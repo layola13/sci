@@ -274,6 +274,32 @@ Slowest demos:
 
 The top-10 slowest individual phases were all `build-exe`. Current evidence points at repeated SA native build cost as the next optimization target; wasm execution itself was only `8188ms` across all 110 demos.
 
+## 2026-07-09 `wasm-matrix` WASM-Fast Default
+
+The matrix now matches the WASM-fast product claim more directly:
+
+- all 110 demos still build and run through `build-wasm` plus Node/WASI.
+- native `build-exe` is reduced to 6 representative sanity checks by default.
+- full native equivalence remains available with `SA_WASM_MATRIX_NATIVE_ALL=1`.
+- `build-exe` and `build-wasm` now pass `--project-root <repo-root>`, so matrix builds share the repo `.sa_cache` instead of scattering cache roots across demo directories.
+
+Focused verification only:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-fast-default-20260709T091500Z wasm-matrix
+tools/test_steps_timed.sh --heartbeat 10 --timeout 300 --log-dir logs/test_steps/wasm-fast-hot-20260709T092000Z wasm-matrix
+```
+
+Results:
+
+| Run | Step elapsed | native_checked | build-exe | build-wasm | wasm-run |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Previous default | 146.982s | 110 | 93.156s | 1.711s | 8.188s |
+| Cold shared cache | 212.385s | 6 | 18.404s | 138.154s | 8.577s |
+| Hot shared cache | 59.623s | 6 | 6.255s | 43.033s | 7.754s |
+
+The hot-cache default path saves `87.359s` versus the previous logged default (`59.4%`). The cold shared-cache run is intentionally slower because it fills the new shared repo-level `build-wasm` cache for all 110 demos.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`

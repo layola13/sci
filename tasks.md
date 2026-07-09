@@ -32,7 +32,10 @@
 - [x] Verify `unit-framework` logging with a single build step, not the full suite: `unit-framework` passed, logs contain file-level START/END and no misleading `[unit-framework] FAIL`; overall optimization/logging progress estimate `55%`.
 - [x] Normalize remaining `unit-framework` top-level SA logs: `feature_suite.sa`, `assert_diag.sa`, and `mock_io_test.sa` now use START/END/error lines too; single-step verification passed and progress estimate is `60%`.
 - [x] Add `wasm-matrix` slowest-demo and slowest-phase summary output; focused single-step verification passed in `146.982s` and showed repeated `build-exe` dominates (`93156ms` of `103970ms` demo time). Overall optimization/logging progress estimate: `65%`.
-- [ ] Continue with the next slowest logged owners: reduce repeated `wasm-matrix build-exe` cost, then revisit remaining `plugin-host-smoke`, `unit-framework`, and `std-smoke` runtime, using focused instrumentation before broad changes.
+- [x] Convert default `wasm-matrix` to WASM-fast validation: all 110 demos still run through wasm, native `build-exe` is reduced to 6 sanity demos unless `SA_WASM_MATRIX_NATIVE_ALL=1`, and all matrix builds pass `--project-root` so they share the repo `.sa_cache`.
+- [x] Verify the WASM-fast path with focused single-step runs only: cold shared-cache pass `212.385s`; hot shared-cache pass `59.623s`, down from the previous logged `146.982s` (`-87.359s`, `-59.4%`). Overall optimization/logging progress estimate: `75%`.
+- [x] Prepare release metadata for this batch: `build.zig.zon` version `0.0.4` and `CHANGELOG.md` covering `0.0.3 -> 0.0.4`.
+- [ ] Continue with remaining slow owners after the release merge: `plugin-host-smoke`, `unit-framework`, and `std-smoke`, using focused instrumentation before broad changes.
 
 ## Active compiler-performance slice: large SAB focused tests (2026-07-09)
 

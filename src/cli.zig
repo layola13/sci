@@ -1166,6 +1166,7 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --jobs auto|N                  Set parallel compile jobs\n");
     try writer.writeAll("  --dce no|std|full              Select dead-code elimination level\n");
     try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
+    try writer.writeAll("  --project-root <dir>           Use a specific project root for package resolution and .sa_cache\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --mem-report                   Print compile RSS stage samples; JSON mode includes metrics\n");
     try writer.writeAll("  --offline                      Use local package cache only\n");
@@ -3727,6 +3728,18 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--no-incremental")) {
         options.incremental_cache = false;
+        return true;
+    }
+    if (std.mem.startsWith(u8, arg, "--project-root=")) {
+        options.project_root = arg["--project-root=".len..];
+        if (options.project_root.?.len == 0) return error.InvalidPath;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--project-root")) {
+        if (index.* + 1 >= args.len) return error.InvalidPath;
+        options.project_root = args[index.* + 1];
+        if (options.project_root.?.len == 0) return error.InvalidPath;
+        index.* += 1;
         return true;
     }
     if (std.mem.eql(u8, arg, "--ci")) {

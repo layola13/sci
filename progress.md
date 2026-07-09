@@ -2,7 +2,7 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 65% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 75% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
@@ -55,6 +55,15 @@ Current progress: 65% for the active full-test runtime/logging optimization foll
   - Summary output: `demos=110 total_demo_ms=103970 build_exe_ms=93156 native_run_ms=502 build_wasm_ms=1711 wasm_run_ms=8188`.
   - The top slow phases were all `build-exe`, with the slowest examples at `2154ms` for `demos/rosetta/35_iterator_fold/main.sa` and `2106ms` for `demos/rosetta/81_kv_store/main.sa`.
 - Overall progress estimate after this feature: `65%` of the full-test runtime/logging optimization follow-up. The next real runtime target is repeated `build-exe` cost inside `wasm-matrix`, not wasm execution.
+- Feature completed: default `wasm-matrix` now follows the WASM-fast path and shares the project cache root.
+- CLI compile options now accept `--project-root <dir>` / `--project-root=<dir>` so direct `build-exe`, `build-wasm`, `build-obj`, `run`, and `test` style commands can use an explicit package/cache root instead of deriving one from each source path.
+- `tests/wasm_matrix_smoke.zig` now passes the repo root as `--project-root` and runs native `build-exe` only for a representative sanity subset by default. Full native equivalence remains available with `SA_WASM_MATRIX_NATIVE_ALL=1`.
+- Focused verification:
+  - Cold shared-cache run: `tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-fast-default-20260709T091500Z wasm-matrix`: pass, `elapsed=212.385s`, `native_checked=6`, `build_exe_ms=18404`, `build_wasm_ms=138154`.
+  - Hot shared-cache run: `tools/test_steps_timed.sh --heartbeat 10 --timeout 300 --log-dir logs/test_steps/wasm-fast-hot-20260709T092000Z wasm-matrix`: pass, `elapsed=59.623s`, `native_checked=6`, `build_exe_ms=6255`, `build_wasm_ms=43033`, `wasm_run_ms=7754`.
+  - Compared with the previous logged `wasm-matrix` pass `146.982s`, the hot-cache default path saves `87.359s` (`59.4%`).
+- Version metadata prepared for release: `build.zig.zon` now reports `0.0.4`, and `CHANGELOG.md` records the `0.0.3 -> 0.0.4` changes.
+- Overall progress estimate after this feature: `75%` of the full-test runtime/logging optimization follow-up.
 
 ## Active: 2026-07-09 logged full-test step runner
 

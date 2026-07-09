@@ -66,6 +66,7 @@ fn endTimedPhase(path: []const u8, phase: []const u8, start_ns: i128) i128 {
 
 const DemoTiming = struct {
     path: []const u8,
+    native_checked: bool = false,
     demo_ms: i128 = 0,
     build_exe_ms: i128 = 0,
     native_run_ms: i128 = 0,
@@ -128,7 +129,9 @@ const WasmMatrixStats = struct {
         var total_native_run_ms: i128 = 0;
         var total_build_wasm_ms: i128 = 0;
         var total_wasm_run_ms: i128 = 0;
+        var native_checked: usize = 0;
         for (self.timings.items) |timing| {
+            if (timing.native_checked) native_checked += 1;
             total_demo_ms += timing.demo_ms;
             total_build_exe_ms += timing.build_exe_ms;
             total_native_run_ms += timing.native_run_ms;
@@ -137,8 +140,8 @@ const WasmMatrixStats = struct {
         }
 
         std.debug.print(
-            "[wasm-matrix] SUMMARY demos={} total_demo_ms={} build_exe_ms={} native_run_ms={} build_wasm_ms={} wasm_run_ms={}\n",
-            .{ self.timings.items.len, total_demo_ms, total_build_exe_ms, total_native_run_ms, total_build_wasm_ms, total_wasm_run_ms },
+            "[wasm-matrix] SUMMARY demos={} native_checked={} total_demo_ms={} build_exe_ms={} native_run_ms={} build_wasm_ms={} wasm_run_ms={}\n",
+            .{ self.timings.items.len, native_checked, total_demo_ms, total_build_exe_ms, total_native_run_ms, total_build_wasm_ms, total_wasm_run_ms },
         );
         self.printSlowestDemos();
         self.printSlowestPhases();
@@ -163,8 +166,8 @@ const WasmMatrixStats = struct {
             selected[printed] = index;
             const timing = self.timings.items[index];
             std.debug.print(
-                "[wasm-matrix] SUMMARY demo_rank={} elapsed={}ms build_exe={}ms native_run={}ms build_wasm={}ms wasm_run={}ms path={s}\n",
-                .{ printed + 1, timing.demo_ms, timing.build_exe_ms, timing.native_run_ms, timing.build_wasm_ms, timing.wasm_run_ms, timing.path },
+                "[wasm-matrix] SUMMARY demo_rank={} elapsed={}ms native_checked={} build_exe={}ms native_run={}ms build_wasm={}ms wasm_run={}ms path={s}\n",
+                .{ printed + 1, timing.demo_ms, timing.native_checked, timing.build_exe_ms, timing.native_run_ms, timing.build_wasm_ms, timing.wasm_run_ms, timing.path },
             );
         }
     }
@@ -203,6 +206,32 @@ const WasmMatrixStats = struct {
     }
 };
 
+fn boolEnv(name: []const u8) bool {
+    const value = std.process.getEnvVarOwned(std.testing.allocator, name) catch return false;
+    defer std.testing.allocator.free(value);
+    return value.len != 0 and
+        !std.mem.eql(u8, value, "0") and
+        !std.mem.eql(u8, value, "false") and
+        !std.mem.eql(u8, value, "False");
+}
+
+fn shouldRunNativeReference(path: []const u8) bool {
+    if (boolEnv("SA_WASM_MATRIX_NATIVE_ALL")) return true;
+
+    const native_sanity_paths = [_][]const u8{
+        "demos/rosetta/01_hello_world/main.sa",
+        "demos/rosetta/10_generics_monomorph/main.sa",
+        "demos/rosetta/41_module_imports/main.sa",
+        "demos/rosetta/19_result_question/main.sa",
+        "demos/rosetta/32_trait_object_vector/main.sa",
+        "demos/support/hashmap_probe.sa",
+    };
+    for (native_sanity_paths) |sanity_path| {
+        if (std.mem.eql(u8, path, sanity_path)) return true;
+    }
+    return false;
+}
+
 fn artifactStem(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     const base = std.fs.path.basename(path);
     const stem = std.fs.path.stem(base);
@@ -211,7 +240,7 @@ fn artifactStem(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     return try allocator.dupe(u8, std.fs.path.basename(parent));
 }
 
-fn assertBuildExeAndWasmStdout(stats: *WasmMatrixStats, path: []const u8, expected_stdout: []const u8) !void {
+fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_stdout: []const u8) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     const node_probe = std.process.Child.run(.{
         .allocator = std.testing.allocator,
@@ -226,6 +255,8 @@ fn assertBuildExeAndWasmStdout(stats: *WasmMatrixStats, path: []const u8, expect
 
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
 
@@ -249,50 +280,56 @@ fn assertBuildExeAndWasmStdout(stats: *WasmMatrixStats, path: []const u8, expect
     const wasm_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.wasm", .{stem});
     defer std.testing.allocator.free(wasm_path);
 
-    const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", exe_path };
-    {
-        const phase_start = startTimedPhase(path, "build-exe");
-        var phase_ended = false;
-        errdefer {
-            if (!phase_ended) _ = endTimedPhase(path, "build-exe", phase_start);
+    if (shouldRunNativeReference(path)) {
+        timing.native_checked = true;
+        const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", exe_path, "--project-root", repo_root };
+        {
+            const phase_start = startTimedPhase(path, "build-exe");
+            var phase_ended = false;
+            errdefer {
+                if (!phase_ended) _ = endTimedPhase(path, "build-exe", phase_start);
+            }
+            const build_exe_code = saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]) catch |err| {
+                std.debug.print("build-exe errored: {s}: {s}\n", .{ path, @errorName(err) });
+                return err;
+            };
+            if (build_exe_code != 0) std.debug.print("build-exe failed: {s}\n", .{path});
+            try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+            timing.build_exe_ms = endTimedPhase(path, "build-exe", phase_start);
+            phase_ended = true;
         }
-        const build_exe_code = saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]) catch |err| {
-            std.debug.print("build-exe errored: {s}: {s}\n", .{ path, @errorName(err) });
-            return err;
-        };
-        if (build_exe_code != 0) std.debug.print("build-exe failed: {s}\n", .{path});
-        try std.testing.expectEqual(@as(u8, 0), build_exe_code);
-        timing.build_exe_ms = endTimedPhase(path, "build-exe", phase_start);
-        phase_ended = true;
+
+        const exe_run_path = try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{exe_path});
+        defer std.testing.allocator.free(exe_run_path);
+        {
+            const phase_start = startTimedPhase(path, "native-run");
+            var phase_ended = false;
+            errdefer {
+                if (!phase_ended) _ = endTimedPhase(path, "native-run", phase_start);
+            }
+            const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{exe_run_path});
+            defer std.testing.allocator.free(exe_result.stdout);
+            defer std.testing.allocator.free(exe_result.stderr);
+            switch (exe_result.term) {
+                .Exited => |code| {
+                    if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
+                        std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
+                    }
+                    try std.testing.expectEqual(@as(u8, 0), code);
+                },
+                else => return error.TestUnexpectedResult,
+            }
+            try std.testing.expectEqualStrings(expected_stdout, exe_result.stdout);
+            try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
+            timing.native_run_ms = endTimedPhase(path, "native-run", phase_start);
+            phase_ended = true;
+        }
+    } else {
+        std.debug.print("[wasm-matrix] SKIP  demo={s} phase=build-exe reason=wasm-fast-default\n", .{path});
+        std.debug.print("[wasm-matrix] SKIP  demo={s} phase=native-run reason=wasm-fast-default\n", .{path});
     }
 
-    const exe_run_path = try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{exe_path});
-    defer std.testing.allocator.free(exe_run_path);
-    {
-        const phase_start = startTimedPhase(path, "native-run");
-        var phase_ended = false;
-        errdefer {
-            if (!phase_ended) _ = endTimedPhase(path, "native-run", phase_start);
-        }
-        const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{exe_run_path});
-        defer std.testing.allocator.free(exe_result.stdout);
-        defer std.testing.allocator.free(exe_result.stderr);
-        switch (exe_result.term) {
-            .Exited => |code| {
-                if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
-                    std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
-                }
-                try std.testing.expectEqual(@as(u8, 0), code);
-            },
-            else => return error.TestUnexpectedResult,
-        }
-        try std.testing.expectEqualStrings(expected_stdout, exe_result.stdout);
-        try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
-        timing.native_run_ms = endTimedPhase(path, "native-run", phase_start);
-        phase_ended = true;
-    }
-
-    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", wasm_path, "--target", "wasm32" };
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", wasm_path, "--target", "wasm32", "--project-root", repo_root };
     {
         const phase_start = startTimedPhase(path, "build-wasm");
         var phase_ended = false;
@@ -353,119 +390,119 @@ fn assertBuildExeAndWasmStdout(stats: *WasmMatrixStats, path: []const u8, expect
     try stats.append(timing);
 }
 
-test "llvmc wasm rosetta and support demos match native output" {
+test "llvmc wasm rosetta and support demos match expected output with native sanity subset" {
     var stats = WasmMatrixStats.init(std.testing.allocator);
     defer stats.deinit();
     defer stats.printSummary();
 
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/01_hello_world/main.sa", "hello, saasm\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/02_mutability/main.sa", "20\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/03_if_else/main.sa", "20\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/05_struct/main.sa", "(10,20)\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/06_enum_and_match/main.sa", "30\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/08_closures/main.sa", "15\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/09_async_await/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/10_generics_monomorph/main.sa", "42\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/11_tuples/main.sa", "(3, 4)\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/12_destructuring/main.sa", "7\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/13_array_sum/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/14_slice_window/main.sa", "5\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/15_string_bytes/main.sa", "4\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/16_methods/main.sa", "25\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/17_associated_fn/main.sa", "42\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/18_option_map/main.sa", "8\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/21_while_loop/main.sa", "15\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/20_boxed_value/main.sa", "9\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/22_break_continue/main.sa", "9\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/23_nested_loops/main.sa", "18\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/24_factorial/main.sa", "120\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/25_fibonacci/main.sa", "21\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/26_reference_return/main.sa", "9\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/27_move_semantics/main.sa", "11\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/28_borrow_chains/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/29_const_data/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/30_manual_guard_branch/main.sa", "5\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/31_trait_static_dispatch/main.sa", "16\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/33_iterator_map/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/34_iterator_filter/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/35_iterator_fold/main.sa", "7\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/36_tuple_struct/main.sa", "14\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/37_newtype/main.sa", "42\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/38_generic_struct_i32/main.sa", "31\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/39_generic_enum_i32/main.sa", "7\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/40_impl_block_state/main.sa", "15\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/41_module_imports/main.sa", "42\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/42_export_visibility/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/44_slice_iteration/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/45_config_merge/main.sa", "4 3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/46_option_default/main.sa", "9\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/47_tuple_swap/main.sa", "8,3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/48_generic_pair/main.sa", "11,31\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/49_pipeline_map/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/51_refcount/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/52_queue_rotate/main.sa", "2,3,1\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/43_tagged_union/main.sa", "36\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/53_cache_hits/main.sa", "3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/54_mem_fill/main.sa", "7,7,7,7\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/55_builder_pattern/main.sa", "POST /api\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/56_state_machine/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/57_event_loop/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/58_borrow_update/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/59_method_counter/main.sa", "4\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/60_enum_branch/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/61_thread_pool/main.sa", "5\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/62_channel_pingpong/main.sa", "8\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/63_router_table/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/64_file_manifest/main.sa", "3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/65_job_scheduler/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/66_actor_mailbox/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/67_resource_pool/main.sa", "20\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/68_parser_tokens/main.sa", "4\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/69_serializer/main.sa", "{\"id\":7}\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/70_integration_service/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/71_pipeline_stage/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/72_graph_walk/main.sa", "3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/73_scene_nodes/main.sa", "15\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/74_component_store/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/75_async_bridge/main.sa", "5\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/76_lockfree_counter/main.sa", "3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/77_http_route/main.sa", "/health\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/78_cli_args/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/79_metrics/main.sa", "4\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/80_workflow/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/81_kv_store/main.sa", "5\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/82_sql_scan/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/83_blob_chunk/main.sa", "4\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/84_sync_gate/main.sa", "1\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/85_scheduler_tree/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/86_cache_eviction/main.sa", "20\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/87_protocol_frame/main.sa", "3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/88_text_index/main.sa", "3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/89_job_queue/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/90_app_shell/main.sa", "app --mode demo\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/91_db_session/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/92_query_plan/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/93_log_aggregator/main.sa", "10\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/94_graphql_router/main.sa", "query user\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/95_repl_shell/main.sa", "sa> \n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/96_task_orchestrator/main.sa", "4\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/97_sync_service/main.sa", "1\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/98_build_pipeline/main.sa", "6\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/99_release_bundle/main.sa", "3\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/100_full_app/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/176_result_flattening/main.sa", "2\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/178_panic_hook_override/main.sa", "1\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/180_try_trait_v2/main.sa", "7\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/253_contract_callback_registration/main.sa", "253\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/19_result_question/main.sa", "21\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/50_error_chain/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/07_trait_vtable/main.sa", "77\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/110_trait_super_vtable/main.sa", "15\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/rosetta/32_trait_object_vector/main.sa", "12\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/support/sort_probe.sa", "sort ok\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/support/hashset_probe.sa", "set ok\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/support/once_probe.sa", "once ok\n");
-    try assertBuildExeAndWasmStdout(&stats, "demos/support/mpsc_probe.sa", "mpsc ok\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/01_hello_world/main.sa", "hello, saasm\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/02_mutability/main.sa", "20\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/03_if_else/main.sa", "20\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/05_struct/main.sa", "(10,20)\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/06_enum_and_match/main.sa", "30\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/08_closures/main.sa", "15\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/09_async_await/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/10_generics_monomorph/main.sa", "42\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/11_tuples/main.sa", "(3, 4)\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/12_destructuring/main.sa", "7\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/13_array_sum/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/14_slice_window/main.sa", "5\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/15_string_bytes/main.sa", "4\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/16_methods/main.sa", "25\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/17_associated_fn/main.sa", "42\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/18_option_map/main.sa", "8\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/21_while_loop/main.sa", "15\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/20_boxed_value/main.sa", "9\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/22_break_continue/main.sa", "9\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/23_nested_loops/main.sa", "18\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/24_factorial/main.sa", "120\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/25_fibonacci/main.sa", "21\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/26_reference_return/main.sa", "9\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/27_move_semantics/main.sa", "11\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/28_borrow_chains/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/29_const_data/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/30_manual_guard_branch/main.sa", "5\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/31_trait_static_dispatch/main.sa", "16\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/33_iterator_map/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/34_iterator_filter/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/35_iterator_fold/main.sa", "7\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/36_tuple_struct/main.sa", "14\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/37_newtype/main.sa", "42\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/38_generic_struct_i32/main.sa", "31\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/39_generic_enum_i32/main.sa", "7\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/40_impl_block_state/main.sa", "15\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/41_module_imports/main.sa", "42\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/42_export_visibility/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/44_slice_iteration/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/45_config_merge/main.sa", "4 3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/46_option_default/main.sa", "9\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/47_tuple_swap/main.sa", "8,3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/48_generic_pair/main.sa", "11,31\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/49_pipeline_map/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/51_refcount/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/52_queue_rotate/main.sa", "2,3,1\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/43_tagged_union/main.sa", "36\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/53_cache_hits/main.sa", "3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/54_mem_fill/main.sa", "7,7,7,7\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/55_builder_pattern/main.sa", "POST /api\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/56_state_machine/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/57_event_loop/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/58_borrow_update/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/59_method_counter/main.sa", "4\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/60_enum_branch/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/61_thread_pool/main.sa", "5\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/62_channel_pingpong/main.sa", "8\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/63_router_table/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/64_file_manifest/main.sa", "3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/65_job_scheduler/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/66_actor_mailbox/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/67_resource_pool/main.sa", "20\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/68_parser_tokens/main.sa", "4\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/69_serializer/main.sa", "{\"id\":7}\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/70_integration_service/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/71_pipeline_stage/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/72_graph_walk/main.sa", "3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/73_scene_nodes/main.sa", "15\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/74_component_store/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/75_async_bridge/main.sa", "5\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/76_lockfree_counter/main.sa", "3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/77_http_route/main.sa", "/health\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/78_cli_args/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/79_metrics/main.sa", "4\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/80_workflow/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/81_kv_store/main.sa", "5\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/82_sql_scan/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/83_blob_chunk/main.sa", "4\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/84_sync_gate/main.sa", "1\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/85_scheduler_tree/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/86_cache_eviction/main.sa", "20\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/87_protocol_frame/main.sa", "3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/88_text_index/main.sa", "3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/89_job_queue/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/90_app_shell/main.sa", "app --mode demo\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/91_db_session/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/92_query_plan/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/93_log_aggregator/main.sa", "10\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/94_graphql_router/main.sa", "query user\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/95_repl_shell/main.sa", "sa> \n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/96_task_orchestrator/main.sa", "4\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/97_sync_service/main.sa", "1\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/98_build_pipeline/main.sa", "6\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/99_release_bundle/main.sa", "3\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/100_full_app/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/176_result_flattening/main.sa", "2\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/178_panic_hook_override/main.sa", "1\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/180_try_trait_v2/main.sa", "7\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/253_contract_callback_registration/main.sa", "253\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/19_result_question/main.sa", "21\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/50_error_chain/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/07_trait_vtable/main.sa", "77\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/110_trait_super_vtable/main.sa", "15\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/32_trait_object_vector/main.sa", "12\n");
+    try assertWasmMatrixStdout(&stats, "demos/support/sort_probe.sa", "sort ok\n");
+    try assertWasmMatrixStdout(&stats, "demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
+    try assertWasmMatrixStdout(&stats, "demos/support/hashset_probe.sa", "set ok\n");
+    try assertWasmMatrixStdout(&stats, "demos/support/once_probe.sa", "once ok\n");
+    try assertWasmMatrixStdout(&stats, "demos/support/mpsc_probe.sa", "mpsc ok\n");
 }
