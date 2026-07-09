@@ -38,38 +38,39 @@ jobs:
             llvm_lib: "/usr/lib/llvm-14/lib"
             llvm_name: "LLVM-14"
             allow_failure: true
-          - name: macos-x86_64
-            runner: macos-15-intel
-            target: "macos;x86_64;x86_64-macos;tar.gz"
-            artifact: "sa-macos-x86_64.tar.gz"
-            llvm_include: "/usr/local/opt/llvm@14/include"
-            llvm_lib: "/usr/local/opt/llvm@14/lib"
-            llvm_name: "LLVM"
-            allow_failure: true
-          - name: macos-aarch64
-            runner: macos-15
-            target: "macos;aarch64;aarch64-macos;tar.gz"
-            artifact: "sa-macos-aarch64.tar.gz"
-            llvm_include: "/opt/homebrew/opt/llvm@14/include"
-            llvm_lib: "/opt/homebrew/opt/llvm@14/lib"
-            llvm_name: "LLVM"
-            allow_failure: true
-          - name: windows-x86_64
-            runner: windows-2025
-            target: "windows;x86_64;x86_64-windows-gnu;zip"
-            artifact: "sa-windows-x86_64.zip"
-            llvm_include: "C:/Program Files/LLVM/include"
-            llvm_lib: "C:/Program Files/LLVM/lib"
-            llvm_name: "LLVM"
-            allow_failure: true
-          - name: windows-aarch64
-            runner: windows-11-arm
-            target: "windows;aarch64;aarch64-windows-gnu;zip"
-            artifact: "sa-windows-aarch64.zip"
-            llvm_include: "C:/Program Files/LLVM/include"
-            llvm_lib: "C:/Program Files/LLVM/lib"
-            llvm_name: "LLVM"
-            allow_failure: true
+          # Non-Linux release archives are disabled until those targets are supported.
+          # - name: macos-x86_64
+          #   runner: macos-15-intel
+          #   target: "macos;x86_64;x86_64-macos;tar.gz"
+          #   artifact: "sa-macos-x86_64.tar.gz"
+          #   llvm_include: "/usr/local/opt/llvm@14/include"
+          #   llvm_lib: "/usr/local/opt/llvm@14/lib"
+          #   llvm_name: "LLVM"
+          #   allow_failure: true
+          # - name: macos-aarch64
+          #   runner: macos-15
+          #   target: "macos;aarch64;aarch64-macos;tar.gz"
+          #   artifact: "sa-macos-aarch64.tar.gz"
+          #   llvm_include: "/opt/homebrew/opt/llvm@14/include"
+          #   llvm_lib: "/opt/homebrew/opt/llvm@14/lib"
+          #   llvm_name: "LLVM"
+          #   allow_failure: true
+          # - name: windows-x86_64
+          #   runner: windows-2025
+          #   target: "windows;x86_64;x86_64-windows-gnu;zip"
+          #   artifact: "sa-windows-x86_64.zip"
+          #   llvm_include: "C:/Program Files/LLVM/include"
+          #   llvm_lib: "C:/Program Files/LLVM/lib"
+          #   llvm_name: "LLVM"
+          #   allow_failure: true
+          # - name: windows-aarch64
+          #   runner: windows-11-arm
+          #   target: "windows;aarch64;aarch64-windows-gnu;zip"
+          #   artifact: "sa-windows-aarch64.zip"
+          #   llvm_include: "C:/Program Files/LLVM/include"
+          #   llvm_lib: "C:/Program Files/LLVM/lib"
+          #   llvm_name: "LLVM"
+          #   allow_failure: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,14 +97,15 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zip llvm-14-dev
 
-      - name: Install macOS packaging dependencies
-        if: runner.os == 'macOS'
-        run: brew install llvm@14
-
-      - name: Install Windows packaging dependencies
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: choco install llvm zip -y
+      # Non-Linux dependency setup is disabled with the non-Linux matrix entries above.
+      # - name: Install macOS packaging dependencies
+      #   if: runner.os == 'macOS'
+      #   run: brew install llvm@14
+      #
+      # - name: Install Windows packaging dependencies
+      #   if: runner.os == 'Windows'
+      #   shell: pwsh
+      #   run: choco install llvm zip -y
 
       - name: Build release archive
         env:
@@ -145,5 +147,4 @@ jobs:
         with:
           files: |
             dist/sa-*.tar.gz
-            dist/sa-*.zip
             dist/sha256sums.txt

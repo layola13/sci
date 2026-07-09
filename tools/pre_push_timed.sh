@@ -195,7 +195,6 @@ case "$profile" in
             wasm-matrix
             unit-framework
             cli-skills-smoke
-            referee-loc-lint
         )
         ;;
     fast)
@@ -206,7 +205,6 @@ case "$profile" in
             sa-std-runtime
             unit-framework
             cli-skills-smoke
-            referee-loc-lint
         )
         ;;
     legacy)
@@ -226,7 +224,6 @@ case "$profile" in
             plugin-host-smoke
             wasm-matrix
             unit-framework
-            referee-loc-lint
         )
         ;;
     *)
