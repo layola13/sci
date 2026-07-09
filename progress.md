@@ -68,7 +68,8 @@ Current progress: 80% for the active full-test runtime/logging optimization foll
 - Focused verification only, no full suite: `bash -n .githooks/pre-push`; simulated branch-only push skipped; simulated tag push with `SA_PRE_PUSH_SKIP_CHECKS=1` took the tag path and skipped only at the self-test guard.
 - Overall progress estimate after this feature: `78%` of the full-test runtime/logging optimization follow-up.
 - GitHub Action cost reduction: `.github/workflows/release.yml` no longer uses the aggregate `zig build test -Drelease-safe` gate, because that implicitly runs the slow `wasm-matrix` step. The release core check now lists non-WASM build steps explicitly, adds Zig artifact caching, and uses workflow concurrency to cancel older runs for the same ref.
-- Verification scope: static workflow inspection only; confirmed the release workflow no longer invokes `zig build test` or the `wasm-matrix` build step. WASM matrix remains available for focused local runs through `zig build wasm-matrix`.
+- Follow-up fix: GitHub Actions rejected the first cache key template at the cache step, so the workflow cache keys now use `github.sha` plus broad restore keys instead of `hashFiles(...)`. This avoids template-time failures before the non-WASM gate starts.
+- Verification scope: static workflow inspection only; confirmed the release workflow no longer invokes `zig build test` or the `wasm-matrix` build step, and `git diff --check` passed after this cache-key fix. WASM matrix remains available for focused local runs through `zig build wasm-matrix`.
 - Overall progress estimate after this feature: `80%` of the full-test runtime/logging optimization follow-up.
 
 ## Active: 2026-07-09 logged full-test step runner
