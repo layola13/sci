@@ -2,7 +2,7 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 75% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
@@ -64,6 +64,12 @@ Current progress: 75% for the active full-test runtime/logging optimization foll
   - Compared with the previous logged `wasm-matrix` pass `146.982s`, the hot-cache default path saves `87.359s` (`59.4%`).
 - Version metadata prepared for release: `build.zig.zon` now reports `0.0.4`, and `CHANGELOG.md` records the `0.0.3 -> 0.0.4` changes.
 - Overall progress estimate after this feature: `75%` of the full-test runtime/logging optimization follow-up.
+- Release workflow polish: `.githooks/pre-push` now runs heavy timed release checks only when the current push contains a tag ref. Branch-only pushes skip locally, while `git push origin main 0.0.4` still checks once because branch and tag are pushed in the same Git invocation.
+- Focused verification only, no full suite: `bash -n .githooks/pre-push`; simulated branch-only push skipped; simulated tag push with `SA_PRE_PUSH_SKIP_CHECKS=1` took the tag path and skipped only at the self-test guard.
+- Overall progress estimate after this feature: `78%` of the full-test runtime/logging optimization follow-up.
+- GitHub Action cost reduction: `.github/workflows/release.yml` no longer uses the aggregate `zig build test -Drelease-safe` gate, because that implicitly runs the slow `wasm-matrix` step. The release core check now lists non-WASM build steps explicitly, adds Zig artifact caching, and uses workflow concurrency to cancel older runs for the same ref.
+- Verification scope: static workflow inspection only; confirmed the release workflow no longer invokes `zig build test` or the `wasm-matrix` build step. WASM matrix remains available for focused local runs through `zig build wasm-matrix`.
+- Overall progress estimate after this feature: `80%` of the full-test runtime/logging optimization follow-up.
 
 ## Active: 2026-07-09 logged full-test step runner
 
