@@ -78,6 +78,7 @@
 @const SPLIT_NEEDLE = utf8:":"
 @const SPLIT_PART0 = utf8:"a"
 @const SPLIT_PART1 = utf8:"b"
+@const SPLIT_REST = utf8:"b::"
 @const SPLIT_PART2 = utf8:""
 @const SPLIT_PART3 = utf8:""
 @const TERM_HAY = utf8:"a:b:"
@@ -7682,4 +7683,249 @@ L_STR_SPLIT_NEEDLE_FAIL:
 L_STR_SPLIT_NEEDLE_OK:
     !ok
     return
-
+@test "sa_std string splitn aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_hay_spn, &SPLIT_HAY, 5
+    EXPAND STR_FROM_PARTS colon_spn, &SPLIT_NEEDLE, 1
+    EXPAND STR_FROM_PARTS term_hay_spn, &TERM_HAY, 4
+    EXPAND STR_FROM_PARTS p0_spn, &SPLIT_PART0, 1
+    EXPAND STR_FROM_PARTS p1_spn, &SPLIT_PART1, 1
+    EXPAND STR_FROM_PARTS rest_spn, &SPLIT_REST, 3
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_NEEDLE_AT ok_term0_spn, term0_spn, term_hay_spn, colon_spn, 0
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_NEEDLE_AT ok_term1_spn, term1_spn, term_hay_spn, colon_spn, 1
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_NEEDLE_AT ok_term2_spn, term2_spn, term_hay_spn, colon_spn, 2
+    EXPAND STRING_TRY_RSPLIT_TERMINATOR_NEEDLE_AT ok_term1s_spn, term1s_spn, term_hay_spn, colon_spn, 1
+    EXPAND STR_RSPLIT_TERMINATOR_NEEDLE_AT ok_term0u_spn, term0u_spn, term_hay_spn, colon_spn, 0
+    EXPAND STR_TRY_SPLIT_N_NEEDLE_AT ok_splitn0_spn, splitn0_spn, split_hay_spn, colon_spn, 2, 0
+    EXPAND STR_TRY_SPLIT_N_NEEDLE_AT ok_splitn1_spn, splitn1_spn, split_hay_spn, colon_spn, 2, 1
+    EXPAND STR_TRY_SPLIT_N_NEEDLE_AT ok_splitn2_spn, splitn2_spn, split_hay_spn, colon_spn, 2, 2
+    EXPAND STRING_TRY_SPLIT_N_NEEDLE_AT ok_splitn1s_spn, splitn1s_spn, split_hay_spn, colon_spn, 2, 1
+    EXPAND STR_SPLIT_N_NEEDLE_AT ok_splitn0u_spn, splitn0u_spn, split_hay_spn, colon_spn, 2, 0
+    EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT ok_rsplitn0_spn, rsplitn0_spn, split_hay_spn, colon_spn, 2, 0
+    EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT ok_rsplitn1_spn, rsplitn1_spn, split_hay_spn, colon_spn, 2, 1
+    EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT ok_rsplitn2_spn, rsplitn2_spn, split_hay_spn, colon_spn, 2, 2
+    EXPAND STRING_TRY_RSPLIT_N_NEEDLE_AT ok_rsplitn1s_spn, rsplitn1s_spn, split_hay_spn, colon_spn, 2, 1
+    EXPAND STR_RSPLIT_N_NEEDLE_AT ok_rsplitn0u_spn, rsplitn0u_spn, split_hay_spn, colon_spn, 2, 0
+    EXPAND STR_EQ eq_term0_spn, term0_spn, p1_spn
+    EXPAND STR_EQ eq_term1_spn, term1_spn, p0_spn
+    EXPAND STR_EQ eq_term1s_spn, term1s_spn, p0_spn
+    EXPAND STR_EQ eq_term0u_spn, term0u_spn, p1_spn
+    EXPAND STR_EQ eq_splitn0_spn, splitn0_spn, p0_spn
+    EXPAND STR_EQ eq_splitn1_spn, splitn1_spn, rest_spn
+    EXPAND STR_EQ eq_splitn1s_spn, splitn1s_spn, rest_spn
+    EXPAND STR_EQ eq_splitn0u_spn, splitn0u_spn, p0_spn
+    EXPAND STR_EQ eq_rsplitn0_spn, rsplitn0_spn, rest_spn
+    EXPAND STR_EQ eq_rsplitn1_spn, rsplitn1_spn, p0_spn
+    EXPAND STR_EQ eq_rsplitn1s_spn, rsplitn1s_spn, p0_spn
+    EXPAND STR_EQ eq_rsplitn0u_spn, rsplitn0u_spn, rest_spn
+    ok_term0_spn_ok = eq ok_term0_spn, 1
+    ok_term1_spn_ok = eq ok_term1_spn, 1
+    ok_term2_spn_ok = eq ok_term2_spn, 0
+    ok_term1s_spn_ok = eq ok_term1s_spn, 1
+    ok_term0u_spn_ok = eq ok_term0u_spn, 1
+    ok_splitn0_spn_ok = eq ok_splitn0_spn, 1
+    ok_splitn1_spn_ok = eq ok_splitn1_spn, 1
+    ok_splitn2_spn_ok = eq ok_splitn2_spn, 0
+    ok_splitn1s_spn_ok = eq ok_splitn1s_spn, 1
+    ok_splitn0u_spn_ok = eq ok_splitn0u_spn, 1
+    ok_rsplitn0_spn_ok = eq ok_rsplitn0_spn, 1
+    ok_rsplitn1_spn_ok = eq ok_rsplitn1_spn, 1
+    ok_rsplitn2_spn_ok = eq ok_rsplitn2_spn, 0
+    ok_rsplitn1s_spn_ok = eq ok_rsplitn1s_spn, 1
+    ok_rsplitn0u_spn_ok = eq ok_rsplitn0u_spn, 1
+    eq_term0_spn_ok = eq eq_term0_spn, 1
+    eq_term1_spn_ok = eq eq_term1_spn, 1
+    eq_term1s_spn_ok = eq eq_term1s_spn, 1
+    eq_term0u_spn_ok = eq eq_term0u_spn, 1
+    eq_splitn0_spn_ok = eq eq_splitn0_spn, 1
+    eq_splitn1_spn_ok = eq eq_splitn1_spn, 1
+    eq_splitn1s_spn_ok = eq eq_splitn1s_spn, 1
+    eq_splitn0u_spn_ok = eq eq_splitn0u_spn, 1
+    eq_rsplitn0_spn_ok = eq eq_rsplitn0_spn, 1
+    eq_rsplitn1_spn_ok = eq eq_rsplitn1_spn, 1
+    eq_rsplitn1s_spn_ok = eq eq_rsplitn1s_spn, 1
+    eq_rsplitn0u_spn_ok = eq eq_rsplitn0u_spn, 1
+    all_ok = and ok_term0_spn_ok, ok_term1_spn_ok
+    all_ok = and all_ok, ok_term2_spn_ok
+    all_ok = and all_ok, ok_term1s_spn_ok
+    all_ok = and all_ok, ok_term0u_spn_ok
+    all_ok = and all_ok, ok_splitn0_spn_ok
+    all_ok = and all_ok, ok_splitn1_spn_ok
+    all_ok = and all_ok, ok_splitn2_spn_ok
+    all_ok = and all_ok, ok_splitn1s_spn_ok
+    all_ok = and all_ok, ok_splitn0u_spn_ok
+    all_ok = and all_ok, ok_rsplitn0_spn_ok
+    all_ok = and all_ok, ok_rsplitn1_spn_ok
+    all_ok = and all_ok, ok_rsplitn2_spn_ok
+    all_ok = and all_ok, ok_rsplitn1s_spn_ok
+    all_ok = and all_ok, ok_rsplitn0u_spn_ok
+    all_ok = and all_ok, eq_term0_spn_ok
+    all_ok = and all_ok, eq_term1_spn_ok
+    all_ok = and all_ok, eq_term1s_spn_ok
+    all_ok = and all_ok, eq_term0u_spn_ok
+    all_ok = and all_ok, eq_splitn0_spn_ok
+    all_ok = and all_ok, eq_splitn1_spn_ok
+    all_ok = and all_ok, eq_splitn1s_spn_ok
+    all_ok = and all_ok, eq_splitn0u_spn_ok
+    all_ok = and all_ok, eq_rsplitn0_spn_ok
+    all_ok = and all_ok, eq_rsplitn1_spn_ok
+    all_ok = and all_ok, eq_rsplitn1s_spn_ok
+    all_ok = and all_ok, eq_rsplitn0u_spn_ok
+    br ok_term0_spn_ok -> L_C1, L_F1
+L_F1:
+    !all_ok
+    panic(1001)
+L_C1:
+    br ok_term1_spn_ok -> L_C2, L_F2
+L_F2:
+    !all_ok
+    panic(1002)
+L_C2:
+    br ok_term2_spn_ok -> L_C3, L_F3
+L_F3:
+    !all_ok
+    panic(1003)
+L_C3:
+    br ok_term1s_spn_ok -> L_C4, L_F4
+L_F4:
+    !all_ok
+    panic(1004)
+L_C4:
+    br ok_term0u_spn_ok -> L_C5, L_F5
+L_F5:
+    !all_ok
+    panic(1005)
+L_C5:
+    br ok_splitn0_spn_ok -> L_C6, L_F6
+L_F6:
+    !all_ok
+    panic(1006)
+L_C6:
+    br ok_splitn1_spn_ok -> L_C7, L_F7
+L_F7:
+    !all_ok
+    panic(1007)
+L_C7:
+    br ok_splitn2_spn_ok -> L_C8, L_F8
+L_F8:
+    !all_ok
+    panic(1008)
+L_C8:
+    br ok_splitn1s_spn_ok -> L_C9, L_F9
+L_F9:
+    !all_ok
+    panic(1009)
+L_C9:
+    br ok_splitn0u_spn_ok -> L_C10, L_F10
+L_F10:
+    !all_ok
+    panic(1010)
+L_C10:
+    br ok_rsplitn0_spn_ok -> L_C11, L_F11
+L_F11:
+    !all_ok
+    panic(1011)
+L_C11:
+    br ok_rsplitn1_spn_ok -> L_C12, L_F12
+L_F12:
+    !all_ok
+    panic(1012)
+L_C12:
+    br ok_rsplitn2_spn_ok -> L_C13, L_F13
+L_F13:
+    !all_ok
+    panic(1013)
+L_C13:
+    br ok_rsplitn1s_spn_ok -> L_C14, L_F14
+L_F14:
+    !all_ok
+    panic(1014)
+L_C14:
+    br ok_rsplitn0u_spn_ok -> L_C15, L_F15
+L_F15:
+    !all_ok
+    panic(1015)
+L_C15:
+    br eq_term0_spn_ok -> L_C16, L_F16
+L_F16:
+    !all_ok
+    panic(1016)
+L_C16:
+    br eq_term1_spn_ok -> L_C17, L_F17
+L_F17:
+    !all_ok
+    panic(1017)
+L_C17:
+    br eq_term1s_spn_ok -> L_C18, L_F18
+L_F18:
+    !all_ok
+    panic(1018)
+L_C18:
+    br eq_term0u_spn_ok -> L_C19, L_F19
+L_F19:
+    !all_ok
+    panic(1019)
+L_C19:
+    br eq_splitn0_spn_ok -> L_C20, L_F20
+L_F20:
+    !all_ok
+    panic(1020)
+L_C20:
+    br eq_splitn1_spn_ok -> L_C21, L_F21
+L_F21:
+    !all_ok
+    panic(1021)
+L_C21:
+    br eq_splitn1s_spn_ok -> L_C22, L_F22
+L_F22:
+    !all_ok
+    panic(1022)
+L_C22:
+    br eq_splitn0u_spn_ok -> L_C23, L_F23
+L_F23:
+    !all_ok
+    panic(1023)
+L_C23:
+    br eq_rsplitn0_spn_ok -> L_C24, L_F24
+L_F24:
+    !all_ok
+    panic(1024)
+L_C24:
+    br eq_rsplitn1_spn_ok -> L_C25, L_F25
+L_F25:
+    !all_ok
+    panic(1025)
+L_C25:
+    br eq_rsplitn1s_spn_ok -> L_C26, L_F26
+L_F26:
+    !all_ok
+    panic(1026)
+L_C26:
+    br eq_rsplitn0u_spn_ok -> L_STR_SPLITN_OK, L_STR_SPLITN_FAIL
+L_STR_SPLITN_FAIL:
+    !all_ok
+    panic(1027)
+L_STR_SPLITN_OK:
+    !all_ok
+    !split_hay_spn
+    !colon_spn
+    !term_hay_spn
+    !p0_spn
+    !p1_spn
+    !rest_spn
+    !term0_spn
+    !term1_spn
+    !term2_spn
+    !term1s_spn
+    !term0u_spn
+    !splitn0_spn
+    !splitn1_spn
+    !splitn2_spn
+    !splitn1s_spn
+    !splitn0u_spn
+    !rsplitn0_spn
+    !rsplitn1_spn
+    !rsplitn2_spn
+    !rsplitn1s_spn
+    !rsplitn0u_spn
+    return
