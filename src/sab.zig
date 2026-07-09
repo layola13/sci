@@ -153,6 +153,20 @@ fn readStringPool(allocator: std.mem.Allocator, payload: []const u8) ![]const []
     return symbols;
 }
 
+fn readStringPoolBorrowed(allocator: std.mem.Allocator, payload: []const u8) ![]const []const u8 {
+    var cursor = Cursor{ .bytes = payload };
+    const count = try decodeUleb128(&cursor);
+    if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
+    const symbols = try allocator.alloc([]const u8, @intCast(count));
+    errdefer allocator.free(symbols);
+    for (symbols) |*slot| {
+        const len = try decodeUleb128(&cursor);
+        if (len > std.math.maxInt(usize)) return error.Leb128Overflow;
+        slot.* = try cursor.readSlice(@intCast(len));
+    }
+    return symbols;
+}
+
 fn writeOptionalEnum(writer: anytype, value: anytype) !void {
     if (value) |v| {
         try writer.writeByte(1);
@@ -288,6 +302,13 @@ fn readOptionalAllocText(allocator: std.mem.Allocator, symbols: []const []const 
     return try readSymbolName(allocator, symbols, try decodeUleb128(cursor));
 }
 
+fn skipOptionalPoolText(cursor: *Cursor) !void {
+    const present = try cursor.readByte();
+    if (present == 0) return;
+    if (present != 1) return error.InvalidTag;
+    _ = try decodeUleb128(cursor);
+}
+
 fn readOptionalHash(cursor: *Cursor) !?[32]u8 {
     const present = try cursor.readByte();
     if (present == 0) return null;
@@ -319,6 +340,15 @@ fn readOptionalAllocUpstreamLoc(allocator: std.mem.Allocator, symbols: []const [
         .line = @intCast(try decodeUleb128(cursor)),
         .col = @intCast(try decodeUleb128(cursor)),
     };
+}
+
+fn skipOptionalUpstreamLoc(cursor: *Cursor) !void {
+    const present = try cursor.readByte();
+    if (present == 0) return;
+    if (present != 1) return error.InvalidTag;
+    _ = try decodeUleb128(cursor);
+    _ = try decodeUleb128(cursor);
+    _ = try decodeUleb128(cursor);
 }
 
 fn readOperand(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), cursor: *Cursor) !inst.Operand {
@@ -724,6 +754,102 @@ fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, p
     return out;
 }
 
+fn readTestFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, payload: []const u8, has_metadata: bool) ![]sig.FunctionSig {
+    var cursor = Cursor{ .bytes = payload };
+    const count = try decodeUleb128(&cursor);
+    if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
+
+    var out = std.ArrayList(sig.FunctionSig).init(allocator);
+    errdefer {
+        for (out.items) |*item| item.deinit(allocator);
+        out.deinit();
+    }
+
+    var i: u64 = 0;
+    while (i < count) : (i += 1) {
+        const id: u32 = @intCast(try decodeUleb128(&cursor));
+        const name_id = try decodeUleb128(&cursor);
+        const kind = std.meta.intToEnum(sig.FunctionKind, try cursor.readByte()) catch return error.InvalidTag;
+        const return_cap_present = try cursor.readByte();
+        const return_cap: ?inst.CapPrefix = if (return_cap_present == 1)
+            std.meta.intToEnum(inst.CapPrefix, try cursor.readByte()) catch return error.InvalidTag
+        else if (return_cap_present == 0) null else return error.InvalidTag;
+        const return_ty = std.meta.intToEnum(sig.PrimType, try cursor.readByte()) catch return error.InvalidTag;
+        const return_fallible = (try cursor.readByte()) == 1;
+        const entry_inst_idx: u32 = @intCast(try decodeUleb128(&cursor));
+        const is_ffi_wrapper = (try cursor.readByte()) == 1;
+        const ignored = (try cursor.readByte()) == 1;
+        const should_panic = (try cursor.readByte()) == 1;
+
+        var upstream_file: ?[]u8 = null;
+        errdefer if (upstream_file) |file| allocator.free(file);
+        var upstream_loc: ?upstream.UpstreamLoc = null;
+        errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+        var llvm_name: ?[]u8 = null;
+        errdefer if (llvm_name) |value| allocator.free(value);
+
+        const is_test = kind == .test_func;
+        if (has_metadata) {
+            if (is_test) {
+                upstream_file = try readOptionalAllocText(allocator, symbols, &cursor);
+                upstream_loc = try readOptionalAllocUpstreamLoc(allocator, symbols, &cursor);
+                llvm_name = try readOptionalAllocText(allocator, symbols, &cursor);
+            } else {
+                try skipOptionalPoolText(&cursor);
+                try skipOptionalUpstreamLoc(&cursor);
+                try skipOptionalPoolText(&cursor);
+            }
+        }
+
+        const param_count = try decodeUleb128(&cursor);
+        var param_i: u64 = 0;
+        while (param_i < param_count) : (param_i += 1) {
+            _ = try decodeUleb128(&cursor);
+            _ = try cursor.readByte();
+            _ = try cursor.readByte();
+        }
+
+        const param_id_count = try decodeUleb128(&cursor);
+        var param_id_i: u64 = 0;
+        while (param_id_i < param_id_count) : (param_id_i += 1) _ = try decodeUleb128(&cursor);
+
+        const reg_id_count = try decodeUleb128(&cursor);
+        var reg_id_i: u64 = 0;
+        while (reg_id_i < reg_id_count) : (reg_id_i += 1) _ = try decodeUleb128(&cursor);
+
+        if (!is_test) continue;
+
+        const name = try readSymbolName(allocator, symbols, name_id);
+        errdefer allocator.free(name);
+        const params = try allocator.alloc(sig.ParamSpec, 0);
+        errdefer allocator.free(params);
+
+        try out.append(.{
+            .id = id,
+            .name = name,
+            .params = params,
+            .kind = kind,
+            .return_cap = return_cap,
+            .return_ty = return_ty,
+            .return_fallible = return_fallible,
+            .entry_inst_idx = entry_inst_idx,
+            .is_ffi_wrapper = is_ffi_wrapper,
+            .param_ids = &.{},
+            .reg_ids = &.{},
+            .upstream_file = upstream_file,
+            .upstream_loc = upstream_loc,
+            .llvm_name = llvm_name,
+            .ignored = ignored,
+            .should_panic = should_panic,
+        });
+        upstream_file = null;
+        upstream_loc = null;
+        llvm_name = null;
+    }
+
+    return try out.toOwnedSlice();
+}
+
 fn freeDecodedInstructionMetadataOne(allocator: std.mem.Allocator, item: *const inst.Instruction) void {
     if (item.package_identity) |identity| allocator.free(identity);
     if (item.upstream_loc) |loc| allocator.free(loc.file);
@@ -894,6 +1020,69 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
         if (id == @intFromEnum(SectionId.instructions)) instructions = try readInstructions(allocator, symbols, &owned_text, payload, has_raw_text, has_full_metadata, synthesize_debug_text);
     }
     return .{ .symbols = symbols, .function_sigs = function_sigs, .const_decls = const_decls, .instructions = instructions orelse return error.MissingInstructionSection, .owned_text = try owned_text.toOwnedSlice() };
+}
+
+pub fn decodeFunctionSigsOnly(allocator: std.mem.Allocator, bytes: []const u8) ![]sig.FunctionSig {
+    if (bytes.len < magic.len + 2) return error.TruncatedSab;
+    if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidSabMagic;
+    var cursor = Cursor{ .bytes = bytes, .index = magic.len };
+    const major = try cursor.readByte();
+    _ = try cursor.readByte();
+    if (major != 1 and major != 2 and major != 3 and major != version_major) return error.UnsupportedSabVersion;
+    const has_full_metadata = major >= 3;
+
+    var symbols: []const []const u8 = &.{};
+    defer {
+        for (symbols) |name| allocator.free(name);
+        allocator.free(symbols);
+    }
+
+    var function_sig_payload: ?[]const u8 = null;
+    const section_count = try decodeUleb128(&cursor);
+    var i: u64 = 0;
+    while (i < section_count) : (i += 1) {
+        const id = try decodeUleb128(&cursor);
+        const len = try decodeUleb128(&cursor);
+        if (len > std.math.maxInt(usize)) return error.Leb128Overflow;
+        const payload = try cursor.readSlice(@intCast(len));
+        if (id == @intFromEnum(SectionId.symbol_pool)) symbols = try readStringPool(allocator, payload);
+        if (id == @intFromEnum(SectionId.function_sigs)) function_sig_payload = payload;
+    }
+
+    if (function_sig_payload) |payload| {
+        return try readFunctionSigs(allocator, symbols, payload, has_full_metadata);
+    }
+    return try allocator.alloc(sig.FunctionSig, 0);
+}
+
+pub fn decodeTestFunctionSigsOnly(allocator: std.mem.Allocator, bytes: []const u8) ![]sig.FunctionSig {
+    if (bytes.len < magic.len + 2) return error.TruncatedSab;
+    if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidSabMagic;
+    var cursor = Cursor{ .bytes = bytes, .index = magic.len };
+    const major = try cursor.readByte();
+    _ = try cursor.readByte();
+    if (major != 1 and major != 2 and major != 3 and major != version_major) return error.UnsupportedSabVersion;
+    const has_full_metadata = major >= 3;
+
+    var symbols: []const []const u8 = &.{};
+    defer allocator.free(symbols);
+
+    var function_sig_payload: ?[]const u8 = null;
+    const section_count = try decodeUleb128(&cursor);
+    var i: u64 = 0;
+    while (i < section_count) : (i += 1) {
+        const id = try decodeUleb128(&cursor);
+        const len = try decodeUleb128(&cursor);
+        if (len > std.math.maxInt(usize)) return error.Leb128Overflow;
+        const payload = try cursor.readSlice(@intCast(len));
+        if (id == @intFromEnum(SectionId.symbol_pool)) symbols = try readStringPoolBorrowed(allocator, payload);
+        if (id == @intFromEnum(SectionId.function_sigs)) function_sig_payload = payload;
+    }
+
+    if (function_sig_payload) |payload| {
+        return try readTestFunctionSigs(allocator, symbols, payload, has_full_metadata);
+    }
+    return try allocator.alloc(sig.FunctionSig, 0);
 }
 
 pub fn disasmModule(allocator: std.mem.Allocator, bytes: []const u8, writer: anytype) !void {

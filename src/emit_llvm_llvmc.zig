@@ -656,6 +656,51 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
     }
 }
 
+fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), selected_test_names: []const []const u8, reachable: *std.StringHashMap(void)) !void {
+    for (verified.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                for (literal.slots) |slot| {
+                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name);
+                }
+            },
+            else => {},
+        }
+    }
+
+    for (selected_test_names) |name| {
+        _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, name);
+    }
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        var sig_index: usize = 0;
+        var idx: usize = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    const fsig = verified.function_sigs[sig_index];
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        else => true,
+                    }) : (end += 1) {}
+
+                    if (reachable.contains(fsig.name)) {
+                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable)) or changed;
+                    }
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
+    }
+}
+
 fn isPathSepByte(byte: u8) bool {
     return byte == '/' or byte == '\\';
 }
@@ -1268,8 +1313,12 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
-    if (prune_unreachable) {
+    const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
+    var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
+    if (focused_test_prune) {
+        try collectSelectedTestReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
+        prune_unreachable = referenced_functions.count() != 0;
+    } else if (prune_unreachable) {
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
@@ -1384,8 +1433,8 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                         // Not needed at all, completely skip!
                         should_include = false;
                     }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name) and shouldPruneUnreachableFunction(options, fsig, source_path)) {
-                    should_include = false;
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                    if (focused_test_prune or shouldPruneUnreachableFunction(options, fsig, source_path)) should_include = false;
                 }
 
                 if (should_include) {
@@ -1549,8 +1598,12 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
-    if (prune_unreachable) {
+    const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
+    var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
+    if (focused_test_prune) {
+        try collectSelectedTestReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
+        prune_unreachable = referenced_functions.count() != 0;
+    } else if (prune_unreachable) {
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
@@ -1657,8 +1710,8 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     } else {
                         should_include = false;
                     }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name) and shouldPruneUnreachableFunction(options, fsig, source_path)) {
-                    should_include = false;
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                    if (focused_test_prune or shouldPruneUnreachableFunction(options, fsig, source_path)) should_include = false;
                 }
 
                 if (should_include) {

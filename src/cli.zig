@@ -3932,6 +3932,19 @@ fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener
     return result;
 }
 
+fn collectSabTestListFast(allocator: std.mem.Allocator, source_path: []const u8) !test_meta.TestList {
+    const bytes = try loadSource(allocator, source_path);
+    defer allocator.free(bytes);
+
+    const function_sigs = try sab.decodeTestFunctionSigsOnly(allocator, bytes);
+    defer {
+        for (function_sigs) |*function_sig| function_sig.deinit(allocator);
+        allocator.free(function_sigs);
+    }
+
+    return try test_meta.collect(allocator, function_sigs);
+}
+
 var test_source_tree_load_count: usize = 0;
 
 fn resolveProjectFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8, package_name: ?[]const u8) !pkg_workspace.PackageResolution {
@@ -6412,6 +6425,13 @@ fn executeTest(
     stderr: anytype,
     diagnostics_mode: DiagnosticsMode,
 ) !u8 {
+    if (test_options.list and std.mem.endsWith(u8, source_path, ".sab")) {
+        var test_list = try collectSabTestListFast(allocator, source_path);
+        defer test_list.deinit(allocator);
+        try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
+        return 0;
+    }
+
     const std_archive_path = try saStdArchivePath(allocator);
     defer allocator.free(std_archive_path);
 
@@ -6504,6 +6524,26 @@ fn executeTest(
                 return 0;
             }
 
+            const has_explicit_test_selection = test_options.selection.include_filters.len != 0 or
+                test_options.selection.skip_filters.len != 0 or
+                test_options.selection.exact or
+                test_options.selection.ignored != .normal;
+            var selected_test_names: []const []const u8 = &.{};
+            defer if (selected_test_names.len != 0) allocator.free(selected_test_names);
+            if (has_explicit_test_selection) {
+                const selected_count = test_options.selection.countSelected(test_list.tests);
+                if (selected_count != 0) {
+                    const mutable_selected_names = try allocator.alloc([]const u8, selected_count);
+                    var selected_index: usize = 0;
+                    for (test_list.tests) |test_case| {
+                        if (!test_options.selection.shouldRun(test_case)) continue;
+                        mutable_selected_names[selected_index] = test_case.selectorName();
+                        selected_index += 1;
+                    }
+                    selected_test_names = mutable_selected_names;
+                }
+            }
+
             var link_inputs = std.ArrayList([]const u8).init(allocator);
             defer link_inputs.deinit();
             var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
@@ -6515,7 +6555,7 @@ fn executeTest(
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_full_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path);
 
             driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
@@ -6523,7 +6563,7 @@ fn executeTest(
             };
 
             if (cache_key) |key| {
-                if (link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list);
+                if (!has_explicit_test_selection and link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list);
             }
 
             if (test_options.compile_only) {

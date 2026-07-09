@@ -1,5 +1,16 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Active compiler-performance slice: large SAB focused tests (2026-07-09)
+
+- [x] Commit pre-existing String macro-surface work before starting SCI performance changes: `ee50937 Add extended string macro surfaces`.
+- [x] Record the issue in `docs/issue14_test_filter_large_sab_performance.md`.
+- [x] Measure real downstream SAB baselines: small `parallel_table_erased` focused compile-only about 1.28s, small list about 0.33s; large `world_table_erased` focused list about 8.87s and compile-only about 30.61s.
+- [x] Identify root cause in `src/cli.zig`: `executeTest()` calls `compileSource()` before collecting tests or applying filters/list; `.sab` compileSource performs full `loadSabFlat()` + verifier over the whole module.
+- [ ] Implement `.sab` `sa test --list` fast path that decodes test metadata/function signatures without full verifier.
+- [ ] Implement focused selected-test reachability pruning before verify/LLVM emit/link for `sa test --filter` compile/run paths.
+- [ ] Fix test cache semantics for filtered compile artifacts by including effective selection in the key or storing per-selection artifacts.
+- [ ] Verify with serial timeout-guarded real gates from `docs/issue14_test_filter_large_sab_performance.md`; do not run full tests until a meaningful milestone is complete.
+
 ## 2026-07-05 当前工作集
 
 - [x] Linux `sa_std` 补齐：`os/fd` raw/owned fd facade（`AsRawFd` / `IntoRawFd` / `FromRawFd` / `dup` / `is_terminal`）。

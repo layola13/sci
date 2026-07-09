@@ -2,7 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 100%
+Current progress: 15% for active large-SAB `sa test --filter` performance slice; previous String/Vec macro-surface batch remains completed and committed.
+
+## Active: 2026-07-09 large SAB focused test performance
+
+- Baseline was committed before starting this slice: `ee50937 Add extended string macro surfaces`.
+- New issue record: `docs/issue14_test_filter_large_sab_performance.md`.
+- Real downstream measurements from `/home/vscode/projects/sla_ecs/.sla-cache/sab` show the split:
+  - Small `parallel_table_erased-ab6b0062c772adb.sab` focused compile-only is close to target: about `elapsed=1.28 maxrss=70252`; focused list is about `elapsed=0.33 maxrss=57136`.
+  - Large `world_table_erased-5d5e95eb4646a2ce.sab` focused list is still about `elapsed=8.87 maxrss=385224`; focused compile-only is about `elapsed=30.61 maxrss=465592`, with a repeat around `elapsed=33.51 maxrss=464808`.
+- Current root cause found in `src/cli.zig`: `executeTest()` compiles/verifies the full source before collecting `test_meta` or applying filters/list mode. For `.sab`, `compileSource()` calls `loadSabFlat()` and `referee.verifyWithOptions()` over the whole decoded module, so `--list --filter` still pays full large-module verification.
+- Current implementation target: first add `.sab` `sa test --list` metadata fast path that skips full verifier; then add focused test reachability pruning before verify/LLVM emit/link for compile/run paths. No full tests have been run for this active slice yet.
 
 ## Completed: 2026-07-08 str/String reverse slice-needle split/matches batch
 
