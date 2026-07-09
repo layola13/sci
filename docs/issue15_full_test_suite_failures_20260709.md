@@ -1,6 +1,6 @@
 # Issue 15: Full `zig build test` failures during SAB performance milestone
 
-Status: focused blockers fixed; full-suite timeout narrowed to `sa-std-unit` and fixed; remaining test steps are being rerun individually.
+Status: focused blockers fixed; full-suite timeout narrowed to `sa-std-unit` and fixed; individual test dependency steps passed; logged step runner added for future full validation.
 
 Date: 2026-07-09.
 
@@ -12,7 +12,7 @@ After the large-SAB focused compile-only/list milestone, the required full test 
 timeout 600s zig build test --summary all
 ```
 
-The command hit the 600s timeout after reporting failures in existing broader suites. The two known blockers have focused fixes as of 2026-07-09; a full-suite rerun is still required because the original command timed out and may have hidden later failures.
+The command hit the 600s timeout after reporting failures in existing broader suites. The two known blockers have focused fixes as of 2026-07-09. A later step-by-step rerun covered the `zig build test` dependency set with explicit ownership logs and found the remaining timeout in `sa-std-unit`.
 
 ## Observed Failures
 
@@ -52,7 +52,7 @@ timeout 240s zig test --test-filter "runtime blocks privileged installed plugins
 timeout 420s zig build plugin-host-smoke --summary all
 ```
 
-- The test timeout means there may be additional failures after these two blockers; next required gate is a full `timeout 600s zig build test --summary all` rerun before any install.
+- The original aggregate timeout could have hidden additional failures, so the validation strategy changed to per-step reruns with explicit timeout ownership before install.
 
 ## Follow-up Full Rerun
 
@@ -105,6 +105,44 @@ Instead of rerunning another blind 20-minute full suite, each `zig build test` d
 - `hubproxy-test`: 2/2
 
 This covers the unit-test dependency set with per-object logs and avoids masking timeout ownership inside a monolithic full-suite run.
+
+## Follow-up Diagnostic Tooling
+
+The manual step-by-step strategy has been captured as `tools/test_steps_timed.sh` so future full validation does not have to rely on a blind aggregate command.
+
+Key behavior:
+
+- default step list covers the `zig build test` dependency set through named build steps.
+- per-step START/PASS/FAIL/TIMEOUT logs include UTC timestamp, exact command, elapsed time, and status.
+- full output is persisted to a log directory, defaulting to ignored `logs/test_steps/<utc timestamp>`, with one numbered log per step plus `summary.log`.
+- per-step timeout defaults to `SA_TEST_STEP_TIMEOUT` or `420s`, and can be overridden with `--timeout`.
+- log directory can be overridden with `--log-dir` or `SA_TEST_STEP_LOG_DIR`.
+- `--continue` keeps collecting failures/timeouts instead of stopping at the first failed step.
+- `std-smoke` plus `whitepaper-lint` covers the std and whitepaper smoke artifacts without the duplicate std-smoke rerun hidden behind the aggregate `smoke` step.
+
+Focused verification:
+
+```bash
+bash -n tools/test_steps_timed.sh
+tools/test_steps_timed.sh --list
+tools/test_steps_timed.sh --timeout 180 lib-root-smoke pkg-core-test
+tools/test_steps_timed.sh --timeout 180 --log-dir /tmp/sci-test-steps-logs pkg-core-test
+```
+
+Result: pass. The two-step focused run reported `lib-root-smoke` at `50.989s`, `pkg-core-test` at `1.419s`, and printed a slowest-step summary. The explicit log-dir check generated `summary.log` and `01-pkg-core-test.log`; a separate invalid-step check preserved exit status `1` and captured the Zig error output in its step log.
+
+Additional heavy-step timing was added after the step runner:
+
+- `tests/plugin_host_smoke.zig` now prints per-Zig-test START/END timing. Focused validation with `tools/test_steps_timed.sh --timeout 420 plugin-host-smoke` passed in `230.858s`.
+- `tests/wasm_matrix_smoke.zig` now prints per-demo and per-phase START/END timing for `build-exe`, `native-run`, `build-wasm`, and `wasm-run`. Focused validation with `tools/test_steps_timed.sh --timeout 420 wasm-matrix` passed in `149.039s`.
+
+Milestone full logged pass:
+
+```bash
+tools/test_steps_timed.sh --continue --timeout 420 --log-dir logs/test_steps/full-20260709T060333Z
+```
+
+Result: pass, `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`. This validates the full test dependency set with per-step timeout ownership and persisted logs, without relying on a blind aggregate `zig build test` command.
 
 ## Install Gate
 

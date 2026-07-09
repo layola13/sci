@@ -20,6 +20,98 @@ This note records the first timed pre-push pass after replacing the fixed `zig b
   - `legacy` preserves the older stage list for timing comparisons.
 - `pre-push-aggregate` is available as an explicit stage, but it is not part of the default timed run because it repeats all previous CI dependencies.
 
+## 2026-07-09 Logged Full-Test Dependency Runner
+
+`tools/test_steps_timed.sh` is now the preferred diagnostic command when the goal is to validate the `zig build test` dependency set without losing timeout ownership inside Zig's aggregate build output.
+
+Example commands:
+
+```sh
+tools/test_steps_timed.sh --list
+tools/test_steps_timed.sh --timeout 420
+tools/test_steps_timed.sh --continue --timeout 420
+tools/test_steps_timed.sh --timeout 420 --log-dir /tmp/sci-test-steps
+tools/test_steps_timed.sh --timeout 180 lib-root-smoke pkg-core-test
+```
+
+The runner prints:
+
+- per-step `START` lines with UTC timestamp, timeout, and exact `zig build <step>` command.
+- per-step `PASS`, `FAIL`, or `TIMEOUT` lines with elapsed time and status.
+- a slowest-step ranking.
+- a final `SUMMARY passed=... failed=... timeout=... total=... elapsed=...` line.
+- a persisted log directory, defaulting to `logs/test_steps/<utc timestamp>`, containing one numbered log per step plus `summary.log`. Use `--log-dir` or `SA_TEST_STEP_LOG_DIR` to override this path.
+
+The default step list mirrors the `build.zig` `test` dependency set through named build steps. It uses `std-smoke` for the std smoke artifacts and `whitepaper-lint` for the whitepaper smoke artifact, instead of using the aggregate `smoke` step, because `smoke` also repeats the std smoke artifacts.
+
+Focused verification after adding the runner:
+
+```sh
+bash -n tools/test_steps_timed.sh
+tools/test_steps_timed.sh --list
+tools/test_steps_timed.sh --timeout 180 lib-root-smoke pkg-core-test
+tools/test_steps_timed.sh --timeout 180 --log-dir /tmp/sci-test-steps-logs pkg-core-test
+```
+
+Result: the focused two-step run passed. `lib-root-smoke` took `50.989s`, `pkg-core-test` took `1.419s`, and the runner printed the slowest-step summary. The explicit log-dir check generated `summary.log` and `01-pkg-core-test.log`; an invalid-step failure-path check preserved exit status `1` while writing the Zig error output to the step log. A full logged run was intentionally not executed during this follow-up; use this runner at the next milestone boundary instead of invoking `zig build test` directly.
+
+Milestone full logged pass:
+
+```sh
+tools/test_steps_timed.sh --continue --timeout 420 --log-dir logs/test_steps/full-20260709T060333Z
+```
+
+Result: `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`. Full logs were written under `logs/test_steps/full-20260709T060333Z`.
+
+Slowest steps from that pass:
+
+| Step | Elapsed |
+| --- | ---: |
+| `plugin-host-smoke` | 209.569s |
+| `sa-std-runtime` | 145.815s |
+| `wasm-matrix` | 121.868s |
+| `unit-framework` | 57.407s |
+| `std-smoke` | 57.155s |
+| `bc2sa-smoke` | 47.792s |
+| `workspace-smoke` | 43.340s |
+| `trap-baseline` | 41.566s |
+| `sa-std-unit` | 27.227s |
+| `sa-term-runtime` | 24.427s |
+
+## 2026-07-09 Heavy Step Internal Timing
+
+Two historically expensive steps now emit internal timing, so the step runner can identify both the owning build step and the slow or stuck object inside that step.
+
+`plugin-host-smoke` now prints one START/END pair per Zig test body:
+
+```text
+[plugin-host-smoke] START test="plugin installer rejects duplicate extern symbols across installed plugins"
+[plugin-host-smoke] END   test="plugin installer rejects duplicate extern symbols across installed plugins" elapsed=30534ms
+```
+
+Focused validation:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 plugin-host-smoke
+```
+
+Result: pass, `230.858s` total. Zig test binary build took about `47s`; the test run took about `3m`. The slowest visible plugin tests were duplicate extern checks and optional dependency skills checks at about `30s` each.
+
+`wasm-matrix` now prints demo and phase timing for `build-exe`, `native-run`, `build-wasm`, and `wasm-run`:
+
+```text
+[wasm-matrix] START demo=demos/rosetta/01_hello_world/main.sa phase=build-exe
+[wasm-matrix] END   demo=demos/rosetta/01_hello_world/main.sa phase=build-exe elapsed=822ms
+```
+
+Focused validation:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 wasm-matrix
+```
+
+Result: pass, `149.039s` total. Zig test binary build took about `41s`; the matrix run took about `1m`. The visible per-demo output shows most time is in repeated `build-exe` SA compilation, while `native-run`, `build-wasm`, and `wasm-run` are comparatively small for most demos.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`

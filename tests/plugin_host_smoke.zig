@@ -4,6 +4,19 @@ const saasm = @import("saasm");
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
+fn elapsedMs(start_ns: i128) i128 {
+    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+}
+
+fn startTimedTest(name: []const u8) i128 {
+    std.debug.print("[plugin-host-smoke] START test=\"{s}\"\n", .{name});
+    return std.time.nanoTimestamp();
+}
+
+fn endTimedTest(name: []const u8, start_ns: i128) void {
+    std.debug.print("[plugin-host-smoke] END   test=\"{s}\" elapsed={}ms\n", .{ name, elapsedMs(start_ns) });
+}
+
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
@@ -198,6 +211,8 @@ fn saveEnvVarZ(allocator: std.mem.Allocator, name: []const u8) !?[:0]u8 {
 }
 
 test "plugin runtime loads descriptors, skills, commands, and skips bad libraries" {
+    const test_start = startTimedTest("plugin runtime loads descriptors, skills, commands, and skips bad libraries");
+    defer endTimedTest("plugin runtime loads descriptors, skills, commands, and skips bad libraries", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -421,6 +436,8 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
 }
 
 test "plugin runtime verifies declared artifact sha256 before loading" {
+    const test_start = startTimedTest("plugin runtime verifies declared artifact sha256 before loading");
+    defer endTimedTest("plugin runtime verifies declared artifact sha256 before loading", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -530,6 +547,8 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
 }
 
 test "native build and test link installed plugin exporting referenced extern" {
+    const test_start = startTimedTest("native build and test link installed plugin exporting referenced extern");
+    defer endTimedTest("native build and test link installed plugin exporting referenced extern", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -690,6 +709,8 @@ test "native build and test link installed plugin exporting referenced extern" {
 }
 
 test "plugin installer rejects raw libraries and installs source project in dev mode" {
+    const test_start = startTimedTest("plugin installer rejects raw libraries and installs source project in dev mode");
+    defer endTimedTest("plugin installer rejects raw libraries and installs source project in dev mode", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -840,6 +861,8 @@ test "plugin installer rejects raw libraries and installs source project in dev 
 }
 
 test "plugin installer rejects undeclared network imports in artifact scan" {
+    const test_start = startTimedTest("plugin installer rejects undeclared network imports in artifact scan");
+    defer endTimedTest("plugin installer rejects undeclared network imports in artifact scan", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -882,6 +905,8 @@ test "plugin installer rejects undeclared network imports in artifact scan" {
 }
 
 test "plugin installer rejects duplicate extern symbols across installed plugins" {
+    const test_start = startTimedTest("plugin installer rejects duplicate extern symbols across installed plugins");
+    defer endTimedTest("plugin installer rejects duplicate extern symbols across installed plugins", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -942,6 +967,8 @@ test "plugin installer rejects duplicate extern symbols across installed plugins
 }
 
 test "plugin installer reports duplicate extern symbols inside installed plugin" {
+    const test_start = startTimedTest("plugin installer reports duplicate extern symbols inside installed plugin");
+    defer endTimedTest("plugin installer reports duplicate extern symbols inside installed plugin", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -996,6 +1023,8 @@ test "plugin installer reports duplicate extern symbols inside installed plugin"
 }
 
 test "sa skills hides plugin capabilities until optional dependency is installed" {
+    const test_start = startTimedTest("sa skills hides plugin capabilities until optional dependency is installed");
+    defer endTimedTest("sa skills hides plugin capabilities until optional dependency is installed", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1174,6 +1203,8 @@ test "sa skills hides plugin capabilities until optional dependency is installed
 }
 
 test "plugin installer installs remote archive source with sha256 pin" {
+    const test_start = startTimedTest("plugin installer installs remote archive source with sha256 pin");
+    defer endTimedTest("plugin installer installs remote archive source with sha256 pin", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1285,6 +1316,8 @@ test "plugin installer installs remote archive source with sha256 pin" {
 }
 
 test "runtime blocks privileged installed plugins outside dev mode" {
+    const test_start = startTimedTest("runtime blocks privileged installed plugins outside dev mode");
+    defer endTimedTest("runtime blocks privileged installed plugins outside dev mode", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1348,6 +1381,8 @@ test "runtime blocks privileged installed plugins outside dev mode" {
 }
 
 test "runtime broker env_get enforces declared env permissions" {
+    const test_start = startTimedTest("runtime broker env_get enforces declared env permissions");
+    defer endTimedTest("runtime broker env_get enforces declared env permissions", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1612,6 +1647,8 @@ test "runtime broker env_get enforces declared env permissions" {
 }
 
 test "cli allow flags constrain broker env and fs access" {
+    const test_start = startTimedTest("cli allow flags constrain broker env and fs access");
+    defer endTimedTest("cli allow flags constrain broker env and fs access", test_start);
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });

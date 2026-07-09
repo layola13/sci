@@ -2,7 +2,34 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 100% for active large-SAB `sa test --filter` compile-only/list performance slice; focused blockers and isolated timeout are fixed, test dependency steps pass, install completed, and installed performance gates pass.
+Current progress: 100% for the active test logging/timeout diagnostics follow-up; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+
+## Active: 2026-07-09 logged full-test step runner
+
+- Added `tools/test_steps_timed.sh` as the diagnostic entry point for the `zig build test` dependency set.
+- The runner prints per-step START/PASS/FAIL/TIMEOUT logs with UTC timestamps, command lines, elapsed time, per-step timeout, slowest-step ranking, and a final summary.
+- The runner now also persists full logs:
+  - default log directory: `logs/test_steps/<utc timestamp>`; this path is ignored by git.
+  - override: `--log-dir <dir>` or `SA_TEST_STEP_LOG_DIR=<dir>`.
+  - each step gets its own numbered log file plus `summary.log`, and console summary lines include `log=...` / `log_dir=...` paths.
+- Default coverage mirrors the `build.zig` `test` dependency set through named steps:
+  - `lib-root-smoke`, `plugin-host-smoke`, `pkg-core-test`, `wasm-matrix`, `bc2sa-smoke`, `workspace-smoke`, `trap-baseline`, `unit-framework`, runtime/std/network steps, `std-smoke`, `whitepaper-lint`, demos, and `hubproxy-test`.
+  - `whitepaper-lint` is used instead of `smoke` for the whitepaper smoke artifact so the runner does not repeat the std-smoke artifacts hidden behind the `smoke` aggregate step.
+- Validation completed without running the full suite:
+  - `bash -n tools/test_steps_timed.sh`: pass.
+  - `tools/test_steps_timed.sh --list`: pass.
+  - `tools/test_steps_timed.sh --timeout 180 lib-root-smoke pkg-core-test`: pass; `lib-root-smoke` took `50.989s`, `pkg-core-test` took `1.419s`, and the runner printed the slowest-step summary.
+  - `tools/test_steps_timed.sh --timeout 180 --log-dir /tmp/sci-test-steps-logs pkg-core-test`: pass; generated `summary.log` and `01-pkg-core-test.log`.
+  - failure-path check with an invalid step preserved exit status `1` and generated both `summary.log` and a step log containing the Zig error output.
+- Added deeper logs inside the known heavy Zig test binaries:
+  - `tests/plugin_host_smoke.zig` now prints `[plugin-host-smoke] START/END test="..." elapsed=...ms` for each of its 12 Zig tests. Focused validation with `tools/test_steps_timed.sh --timeout 420 plugin-host-smoke` passed in `230.858s`; the runtime body exposed the slowest tests around duplicate extern checks and skills optional dependency checks at about `30s` each.
+  - `tests/wasm_matrix_smoke.zig` now prints `[wasm-matrix] START/END demo=... phase=... elapsed=...ms` for each demo and for `build-exe`, `native-run`, `build-wasm`, and `wasm-run`. Focused validation with `tools/test_steps_timed.sh --timeout 420 wasm-matrix` passed in `149.039s`; output now separates the initial Zig test build cost from per-demo SA build/run cost.
+- Milestone logged full dependency pass completed without invoking blind aggregate `zig build test`:
+  - Command: `tools/test_steps_timed.sh --continue --timeout 420 --log-dir logs/test_steps/full-20260709T060333Z`
+  - Result: `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`.
+  - Slowest steps: `plugin-host-smoke` `209.569s`, `sa-std-runtime` `145.815s`, `wasm-matrix` `121.868s`, `unit-framework` `57.407s`, `std-smoke` `57.155s`.
+  - Full logs are persisted under ignored `logs/test_steps/full-20260709T060333Z`, with `summary.log` plus one numbered step log per dependency.
+- Remaining follow-up is optional optimization work, not required to complete the logging milestone: if more precision is needed later, add phase timing inside plugin installer helper paths and `sa-std-runtime` internals.
 
 ## Active: 2026-07-09 large SAB focused test performance
 

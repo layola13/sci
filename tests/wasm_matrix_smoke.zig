@@ -49,6 +49,19 @@ fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []
     });
 }
 
+fn elapsedMs(start_ns: i128) i128 {
+    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+}
+
+fn startTimedPhase(path: []const u8, phase: []const u8) i128 {
+    std.debug.print("[wasm-matrix] START demo={s} phase={s}\n", .{ path, phase });
+    return std.time.nanoTimestamp();
+}
+
+fn endTimedPhase(path: []const u8, phase: []const u8, start_ns: i128) void {
+    std.debug.print("[wasm-matrix] END   demo={s} phase={s} elapsed={}ms\n", .{ path, phase, elapsedMs(start_ns) });
+}
+
 fn artifactStem(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     const base = std.fs.path.basename(path);
     const stem = std.fs.path.stem(base);
@@ -75,6 +88,9 @@ fn assertBuildExeAndWasmStdout(path: []const u8, expected_stdout: []const u8) !v
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
 
+    const demo_start = startTimedPhase(path, "demo");
+    defer endTimedPhase(path, "demo", demo_start);
+
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -89,37 +105,49 @@ fn assertBuildExeAndWasmStdout(path: []const u8, expected_stdout: []const u8) !v
     defer std.testing.allocator.free(wasm_path);
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", exe_path };
-    const build_exe_code = saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]) catch |err| {
-        std.debug.print("build-exe errored: {s}: {s}\n", .{ path, @errorName(err) });
-        return err;
-    };
-    if (build_exe_code != 0) std.debug.print("build-exe failed: {s}\n", .{path});
-    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+    {
+        const phase_start = startTimedPhase(path, "build-exe");
+        defer endTimedPhase(path, "build-exe", phase_start);
+        const build_exe_code = saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]) catch |err| {
+            std.debug.print("build-exe errored: {s}: {s}\n", .{ path, @errorName(err) });
+            return err;
+        };
+        if (build_exe_code != 0) std.debug.print("build-exe failed: {s}\n", .{path});
+        try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+    }
 
     const exe_run_path = try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{exe_path});
     defer std.testing.allocator.free(exe_run_path);
-    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{exe_run_path});
-    defer std.testing.allocator.free(exe_result.stdout);
-    defer std.testing.allocator.free(exe_result.stderr);
-    switch (exe_result.term) {
-        .Exited => |code| {
-            if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
-                std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
-            }
-            try std.testing.expectEqual(@as(u8, 0), code);
-        },
-        else => return error.TestUnexpectedResult,
+    {
+        const phase_start = startTimedPhase(path, "native-run");
+        defer endTimedPhase(path, "native-run", phase_start);
+        const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{exe_run_path});
+        defer std.testing.allocator.free(exe_result.stdout);
+        defer std.testing.allocator.free(exe_result.stderr);
+        switch (exe_result.term) {
+            .Exited => |code| {
+                if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
+                    std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
+                }
+                try std.testing.expectEqual(@as(u8, 0), code);
+            },
+            else => return error.TestUnexpectedResult,
+        }
+        try std.testing.expectEqualStrings(expected_stdout, exe_result.stdout);
+        try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
     }
-    try std.testing.expectEqualStrings(expected_stdout, exe_result.stdout);
-    try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
 
     const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", wasm_path, "--target", "wasm32" };
-    const build_wasm_code = saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]) catch |err| {
-        std.debug.print("build-wasm errored: {s}: {s}\n", .{ path, @errorName(err) });
-        return err;
-    };
-    if (build_wasm_code != 0) std.debug.print("build-wasm failed: {s}\n", .{path});
-    try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+    {
+        const phase_start = startTimedPhase(path, "build-wasm");
+        defer endTimedPhase(path, "build-wasm", phase_start);
+        const build_wasm_code = saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]) catch |err| {
+            std.debug.print("build-wasm errored: {s}: {s}\n", .{ path, @errorName(err) });
+            return err;
+        };
+        if (build_wasm_code != 0) std.debug.print("build-wasm failed: {s}\n", .{path});
+        try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+    }
 
     const bc_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{wasm_path});
     defer std.testing.allocator.free(bc_path);
@@ -137,20 +165,24 @@ fn assertBuildExeAndWasmStdout(path: []const u8, expected_stdout: []const u8) !v
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
 
-    const wasm_result = try runWasmWithNode(std.testing.allocator, wasm_path, &.{ "sa", wasm_path });
-    defer std.testing.allocator.free(wasm_result.stdout);
-    defer std.testing.allocator.free(wasm_result.stderr);
-    switch (wasm_result.term) {
-        .Exited => |code| {
-            if (code != 0 or !std.mem.eql(u8, wasm_result.stdout, expected_stdout) or wasm_result.stderr.len != 0) {
-                std.debug.print("wasm demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, wasm_result.stdout, wasm_result.stderr });
-            }
-            try std.testing.expectEqual(@as(u8, 0), code);
-        },
-        else => return error.TestUnexpectedResult,
+    {
+        const phase_start = startTimedPhase(path, "wasm-run");
+        defer endTimedPhase(path, "wasm-run", phase_start);
+        const wasm_result = try runWasmWithNode(std.testing.allocator, wasm_path, &.{ "sa", wasm_path });
+        defer std.testing.allocator.free(wasm_result.stdout);
+        defer std.testing.allocator.free(wasm_result.stderr);
+        switch (wasm_result.term) {
+            .Exited => |code| {
+                if (code != 0 or !std.mem.eql(u8, wasm_result.stdout, expected_stdout) or wasm_result.stderr.len != 0) {
+                    std.debug.print("wasm demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, wasm_result.stdout, wasm_result.stderr });
+                }
+                try std.testing.expectEqual(@as(u8, 0), code);
+            },
+            else => return error.TestUnexpectedResult,
+        }
+        try std.testing.expectEqualStrings(expected_stdout, wasm_result.stdout);
+        try std.testing.expectEqual(@as(usize, 0), wasm_result.stderr.len);
     }
-    try std.testing.expectEqualStrings(expected_stdout, wasm_result.stdout);
-    try std.testing.expectEqual(@as(usize, 0), wasm_result.stderr.len);
 }
 
 test "llvmc wasm rosetta and support demos match native output" {

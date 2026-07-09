@@ -1,5 +1,22 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Active test logging diagnostics (2026-07-09)
+
+- [x] Add a dedicated logged full-test dependency runner: `tools/test_steps_timed.sh`.
+- [x] Cover the `zig build test` dependency set as explicit named build steps so a timeout identifies the owning step instead of hiding inside the aggregate command.
+- [x] Add per-step timeout control (`--timeout` / `SA_TEST_STEP_TIMEOUT`), `--continue`, `--list`, `--jobs`, and `--summary` options.
+- [x] Print START/PASS/FAIL/TIMEOUT logs with UTC timestamps, exact command, elapsed time, slowest-step ranking, and final summary.
+- [x] Persist every step output to a numbered per-step log file plus `summary.log`, with default logs under ignored `logs/test_steps/<utc timestamp>` and override support through `--log-dir` / `SA_TEST_STEP_LOG_DIR`.
+- [x] Avoid duplicate std-smoke work by covering the whitepaper smoke artifact with `whitepaper-lint` rather than the aggregate `smoke` step.
+- [x] Verify script syntax, default step listing, and a focused two-step run (`lib-root-smoke`, `pkg-core-test`) without blind full-suite execution.
+- [x] Verify persisted-log success and failure paths with focused `pkg-core-test` and an invalid-step failure check.
+- [x] Add internal START/END timing to `plugin-host-smoke` so a hang or slowdown identifies the exact Zig test body.
+- [x] Add internal demo/phase START/END timing to `wasm-matrix` so a hang or slowdown identifies the exact demo and build/run phase.
+- [x] Verify the two newly instrumented heavy steps individually through `tools/test_steps_timed.sh --timeout 420 plugin-host-smoke` and `tools/test_steps_timed.sh --timeout 420 wasm-matrix`.
+- [x] At the logging milestone boundary, run the full logged diagnostic pass once instead of `zig build test` directly.
+- [x] Record the full logged pass result: `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`, logs in `logs/test_steps/full-20260709T060333Z`.
+- [ ] Optional future precision: add timing inside plugin installer helper paths, temporary Zig plugin builds, and `sa-std-runtime` internals if those remain top blockers.
+
 ## Active compiler-performance slice: large SAB focused tests (2026-07-09)
 
 - [x] Commit pre-existing String macro-surface work before starting SCI performance changes: `ee50937 Add extended string macro surfaces`.
